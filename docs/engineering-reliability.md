@@ -338,3 +338,5 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 **CI 节奏调整（所有者决定，2026-10-12 21:53；本会话校验后提交）**：推送 CI 移除 mutation 作业（`quality.yml` 保留 quality/security/commit-policy 三作业），变异门槛移入 `.github/workflows/mutation-nightly.yml`——每日 19:00 UTC（= 03:00 Asia/Shanghai）运行，`workflow_dispatch` 可手动触发，timeout 180 分钟，上传 `mutants/mutmut-cicd-stats.json`、`reports/mutation*.txt` 与 `reports/mutation.log`，保留 7 天；`concurrency.cancel-in-progress=false` 不打断长跑。代价：变异回归最多滞后一天发现，夜间失败目前仅 Actions 页面可见（无通知）；门槛判定沿用上节的可疑项复测，使每日这一次判定更可信。
 
 校验（实际执行）：两个 workflow 均通过结构检查（YAML 可解析、Action SHA 40 位固定、作业含 `runs-on`/`timeout-minutes`、顶层 `permissions` 齐备、产物步骤 `if: always()`）；`make mutation` 目标未改动。
+
+**新节奏首次执行**：推送 CI 运行 [38264685683](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38264685683)（提交 59fc87e）quality/security/commit-policy 三作业 `success`；变异作业手动触发运行 [38264830328](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38264830328) `success`，日志为 `Mutation gate passed: 200/246 killed, 46 survivors (46 reviewed)`（首次测量即与清单一致，未触发复测）。自动执行按 cron 于 2026-10-13 03:00（Asia/Shanghai）首次生效。
