@@ -60,29 +60,29 @@ class TestBudget:
 
 class TestStopsAndDelivery:
     def test_stop_record_missing_is_none(self, store: RecordStore) -> None:
-        assert store.stop_record("task-x") is None
+        assert store.outcomes.stop_record("task-x") is None
 
     def test_confirm_without_request_raises(self, store: RecordStore) -> None:
         with pytest.raises(KeyError):
-            store.confirm_stop("task-x", "note")
+            store.outcomes.confirm_stop("task-x", "note")
 
     def test_request_then_confirm_roundtrip(self, store: RecordStore) -> None:
         make_task(store)
-        store.request_stop("task-x", "计划停止")
-        record = store.stop_record("task-x")
+        store.outcomes.request_stop("task-x", "计划停止")
+        record = store.outcomes.stop_record("task-x")
         assert record is not None
         _requested_at, confirmed_at, note = record
         assert confirmed_at is None
         assert note == "计划停止"
-        store.confirm_stop("task-x", "已核对")
-        record = store.stop_record("task-x")
+        store.outcomes.confirm_stop("task-x", "已核对")
+        record = store.outcomes.stop_record("task-x")
         assert record is not None
         _requested_at, confirmed_at, note = record
         assert confirmed_at is not None
         assert note == "已核对"
 
     def test_delivery_missing_is_none(self, store: RecordStore) -> None:
-        assert store.delivery("task-x") is None
+        assert store.outcomes.delivery("task-x") is None
 
 
 class TestLedgerAndApprovals:

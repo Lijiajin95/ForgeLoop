@@ -109,3 +109,119 @@ class TestSelfIterationLoop:
 
         # main 保护：源仓库未被改写（A02：PI 无法修改真实 main）。
         assert (source / "feature.txt").read_text(encoding="utf-8") == "old\n"
+
+
+class TestMergeToMain:
+    """B04 端到端：验收交付后受控归并 main（含漂移与未验收负例）。"""
+
+    def _deliver_task(self, tmp_path: Path, capsys, monkeypatch) -> tuple[str, Path]:
+        import sys
+
+        monkeypatch.setenv("FAKE_PI_MODE", "edit")
+        source = TestSelfIterationLoop()._source_repo(tmp_path)
+        task_id = submit_task(
+            tmp_path,
+            capsys,
+            **{
+                "project-path": str(source),
+                "test-command": json.dumps([sys.executable, "run_tests.py"]),
+            },
+        )
+        run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)
+        code, out = run_cli(
+            ["approve", task_id, "--stage", "acceptance", "--records-root", str(tmp_path)],
+            capsys,
+        )
+        assert code == 0, out
+        document = status_document(tmp_path, task_id, capsys)
+        assert document["status"] == "delivered"
+        return task_id, source
+
+    def test_merge_updates_main_and_records_provenance(
+        self, tmp_path: Path, capsys, monkeypatch
+    ) -> None:
+        task_id, source = self._deliver_task(tmp_path, capsys, monkeypatch)
+        code, out = run_cli(
+            ["merge", task_id, "--no-push", "--records-root", str(tmp_path)], capsys
+        )
+        assert code == 0, out
+        # main 已更新：源仓库直接包含候选改动。
+        assert (source / "feature.txt").read_text(encoding="utf-8") == "new\n"
+        # 状态与归并记录固化来源（merge_commit 与源 main HEAD 一致）。
+        document = status_document(tmp_path, task_id, capsys)
+        assert document["status"] == "merged"
+        assert document["merge"] is not None
+        assert document["merge"]["merge_commit"] == document["merge"]["merge_commit"].strip()
+
+    def test_merge_before_delivery_is_refused(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        import sys
+
+        monkeypatch.setenv("FAKE_PI_MODE", "edit")
+        source = TestSelfIterationLoop()._source_repo(tmp_path)
+        task_id = submit_task(
+            tmp_path,
+            capsys,
+            **{
+                "project-path": str(source),
+                "test-command": json.dumps([sys.executable, "run_tests.py"]),
+            },
+        )
+        code, out = run_cli(
+            ["merge", task_id, "--no-push", "--records-root", str(tmp_path)], capsys
+        )
+        assert code == 1
+        assert "无法归并" in out  # 未验收（无交付记录）拒绝更新 main
+        assert (source / "feature.txt").read_text(encoding="utf-8") == "old\n"
+
+    def test_merge_refuses_drifted_main(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        import subprocess
+
+        task_id, source = self._deliver_task(tmp_path, capsys, monkeypatch)
+        # 交付后 main 前进（漂移）。
+        (source / "other.txt").write_text("drift\n", encoding="utf-8")
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+            "HOME": str(tmp_path),
+            "GIT_AUTHOR_DATE": "2026-10-11T21:00:00+08:00",
+            "GIT_COMMITTER_DATE": "2026-10-11T21:00:00+08:00",
+        }
+        for args in (
+            ["git", "add", "-A"],
+            ["git", "commit", "-m", "chore: main drifted"],
+        ):
+            subprocess.run(args, cwd=source, check=True, capture_output=True, env=env)
+        code, out = run_cli(
+            ["merge", task_id, "--no-push", "--records-root", str(tmp_path)], capsys
+        )
+        assert code == 1
+        assert "漂移" in out
+        assert (source / "feature.txt").read_text(encoding="utf-8") == "old\n"
+
+    def test_merge_pushes_to_remote_when_configured(
+        self, tmp_path: Path, capsys, monkeypatch
+    ) -> None:
+        import subprocess
+
+        task_id, source = self._deliver_task(tmp_path, capsys, monkeypatch)
+        bare = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+        env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin", "HOME": str(tmp_path)}
+        subprocess.run(
+            ["git", "remote", "add", "origin", str(bare)],
+            cwd=source,
+            check=True,
+            capture_output=True,
+            env=env,
+        )
+        code, out = run_cli(["merge", task_id, "--records-root", str(tmp_path)], capsys)
+        assert code == 0, out
+        document = status_document(tmp_path, task_id, capsys)
+        assert document["status"] == "merged"
+        assert document["merge"]["pushed"] is True
+        remote_head = subprocess.run(
+            ["git", "--git-dir", str(bare), "rev-parse", "main"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert remote_head == document["merge"]["merge_commit"]

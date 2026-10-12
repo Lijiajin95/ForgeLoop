@@ -105,9 +105,10 @@ def build_contract() -> dict:
             store.record_failure("task-full", "candidate-1", FailureStage.FORMAL_TEST, "failed")
             store.append_grant("task-full")
             store.charge_budget("task-full", 12.5)
-            store.request_stop("task-full", "核对后停止")
-            store.confirm_stop("task-full", "已核对")
-            store.record_delivery("task-full", "candidate.diff", "delivery-report.json")
+            store.outcomes.request_stop("task-full", "核对后停止")
+            store.outcomes.confirm_stop("task-full", "已核对")
+            store.outcomes.record_delivery("task-full", "candidate.diff", "delivery-report.json")
+            store.outcomes.record_merge("task-full", "a" * 40, True, "pushed")
             full = _status_document(store, "task-full")
 
             missing = _status_document(store, "task-does-not-exist")

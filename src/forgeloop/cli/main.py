@@ -23,7 +23,14 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from forgeloop.adapter.git_workspace import (
+    has_remote,
+    merge_candidate_to_main,
+    push_main,
+    read_main_head,
+)
 from forgeloop.domain.approval import Approval, ApprovalStage
+from forgeloop.domain.merge import check_merge_readiness
 from forgeloop.graph.builder import build_graph
 from forgeloop.graph.nodes import NodeContext
 from forgeloop.graph.state import TaskState
@@ -260,7 +267,7 @@ def _budget_section(store: RecordStore, task_id: str) -> dict:
 
 
 def _stop_section(store: RecordStore, task_id: str) -> dict | None:
-    stop = store.stop_record(task_id)
+    stop = store.outcomes.stop_record(task_id)
     if stop is None:
         return None
     requested_at, confirmed_at, note = stop
@@ -272,7 +279,7 @@ def _stop_section(store: RecordStore, task_id: str) -> dict | None:
 
 
 def _delivery_section(store: RecordStore, task_id: str) -> dict | None:
-    delivery = store.delivery(task_id)
+    delivery = store.outcomes.delivery(task_id)
     if delivery is None:
         return None
     diff_path, report_path, delivered_at = delivery
@@ -280,6 +287,66 @@ def _delivery_section(store: RecordStore, task_id: str) -> dict | None:
         "diff_path": diff_path,
         "report_path": report_path,
         "delivered_at": delivered_at.isoformat(),
+    }
+
+
+def cmd_merge(args: argparse.Namespace) -> int:
+    """验收后受控归并 main（B04）：绑定基线与 diff，漂移拒绝，未验收不更新。"""
+
+    records_root = _records_root(args)
+    store = _open_store(records_root, args.task_id)
+    try:
+        task = store.get_task(args.task_id)
+        assert task is not None
+        delivery = store.outcomes.delivery(args.task_id)
+        plan = store.latest_plan(args.task_id)
+        if delivery is None or plan is None:
+            print("FAIL: 任务尚无交付记录，无法归并", file=sys.stderr)
+            return 1
+        diff_text = Path(delivery[0]).read_text(encoding="utf-8")
+        report = json.loads(Path(delivery[1]).read_text(encoding="utf-8"))
+        baseline = str(report.get("baseline_commit", ""))
+        project_path = task.config.get("project_path", "")
+        if not project_path:
+            print("FAIL: 任务未绑定 project_path，无法归并", file=sys.stderr)
+            return 1
+        project = Path(project_path)
+        main_head = read_main_head(project)
+        acceptance = store.effective_approval(args.task_id, ApprovalStage.ACCEPTANCE)
+        decision = check_merge_readiness(
+            task.status, acceptance is not None, baseline, main_head, diff_text
+        )
+        if not decision.allowed:
+            print(f"FAIL: {decision.reason}", file=sys.stderr)
+            return 1
+        message = args.message or f"feat: {plan.goal}"
+        if len(message.splitlines()[0]) > 100:
+            message = message.splitlines()[0][:97] + "..."
+        merge_commit = merge_candidate_to_main(project, baseline, diff_text, message)
+        pushed, push_detail = False, ""
+        if not args.no_push and has_remote(project):
+            pushed, push_detail = push_main(project)
+        store.outcomes.record_merge(args.task_id, merge_commit, pushed, push_detail)
+        store.set_task_status(args.task_id, "merged")
+        print(f"已归并 main: {merge_commit}")
+        print(f"推送: {'成功' if pushed else '未推送'}")
+        if push_detail and not pushed:
+            print(f"推送详情: {push_detail}")
+        return 0
+    finally:
+        store.close()
+
+
+def _merge_section(store: RecordStore, task_id: str) -> dict | None:
+    merge = store.outcomes.merge_record(task_id)
+    if merge is None:
+        return None
+    merge_commit, pushed, push_detail, merged_at = merge
+    return {
+        "merge_commit": merge_commit,
+        "pushed": pushed,
+        "push_detail": push_detail,
+        "merged_at": merged_at.isoformat(),
     }
 
 
@@ -303,6 +370,7 @@ def _status_document(store: RecordStore, task_id: str) -> dict:
         "budget": _budget_section(store, task_id),
         "stop": _stop_section(store, task_id),
         "delivery": _delivery_section(store, task_id),
+        "merge": _merge_section(store, task_id),
     }
 
 
@@ -348,7 +416,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
     records_root = _records_root(args)
     store = _open_store(records_root, args.task_id)
     try:
-        store.request_stop(args.task_id, args.note or "")
+        store.outcomes.request_stop(args.task_id, args.note or "")
         print(f"停止请求已记录: {args.task_id}")
         print("当前工具完成并保存结果后将不再启动新动作；结果不明确时保留现场待核对。")
     finally:
@@ -356,13 +424,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="forgeloop",
-        description="ForgeLoop：CLI 自动研发闭环（提交、批准、查询、停止）",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
+def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:
     submit = subparsers.add_parser("submit", help="提交文本小任务并生成方案")
     submit.add_argument("--project", required=True, help="任务绑定的项目名")
     submit.add_argument("--input", required=True, help="任务正文；@path 读取 UTF-8 文本文件")
@@ -382,6 +444,16 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT, help="记录根目录")
     submit.set_defaults(func=cmd_submit)
 
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="forgeloop",
+        description="ForgeLoop：CLI 自动研发闭环（提交、批准、查询、停止）",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    _add_submit_parser(subparsers)
+
     approve = subparsers.add_parser("approve", help="记录本地批准并恢复执行")
     approve.add_argument("task_id")
     approve.add_argument("--stage", choices=["plan", "acceptance"], default="plan")
@@ -399,6 +471,13 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true", help="输出 JSON 契约")
     status.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
     status.set_defaults(func=cmd_status)
+
+    merge = subparsers.add_parser("merge", help="验收后受控归并 main 并同步远程（B04）")
+    merge.add_argument("task_id")
+    merge.add_argument("--message", default="", help="合并提交消息（缺省 feat: 任务目标）")
+    merge.add_argument("--no-push", action="store_true", help="只归并本地 main，不推送远程")
+    merge.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
+    merge.set_defaults(func=cmd_merge)
 
     stop = subparsers.add_parser("stop", help="请求停止（当前工具完成后生效）")
     stop.add_argument("task_id")

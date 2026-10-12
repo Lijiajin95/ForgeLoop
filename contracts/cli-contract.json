@@ -182,6 +182,40 @@
           }
         }
       },
+      "merge": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "merge_commit": {
+            "type": [
+              "string"
+            ]
+          },
+          "merged_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "push_detail": {
+            "type": [
+              "string"
+            ]
+          },
+          "pushed": {
+            "type": [
+              "boolean"
+            ]
+          }
+        },
+        "optional_keys": [
+          "merge_commit",
+          "merged_at",
+          "push_detail",
+          "pushed"
+        ]
+      },
       "plan": {
         "type": [
           "null",

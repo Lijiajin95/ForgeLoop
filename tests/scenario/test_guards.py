@@ -137,8 +137,8 @@ class TestPiOutcomeHalts:
         seed_test_control(tmp_path, task_id, fail_first=0)
         store = RecordStore(tmp_path / "records.sqlite")
         try:
-            store.request_stop(task_id, "已核对停止")
-            store.confirm_stop(task_id, "已核对")
+            store.outcomes.request_stop(task_id, "已核对停止")
+            store.outcomes.confirm_stop(task_id, "已核对")
         finally:
             store.close()
         code, out = run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)

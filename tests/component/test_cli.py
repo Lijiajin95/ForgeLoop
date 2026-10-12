@@ -57,7 +57,9 @@ class TestStatusJsonContract:
             "budget",
             "stop",
             "delivery",
+            "merge",
         }
+        assert document["merge"] is None
         assert document["status"] == "awaiting_plan_approval"
         assert document["project"] == "forgeloop"
         assert document["plan"]["test_command"] == PASSING_TEST_COMMAND
@@ -243,7 +245,7 @@ class TestStatusJsonContract:
         # 停止请求的任务在文本输出中展示停止记录。
         store = RecordStore(tmp_path / "records.sqlite")
         try:
-            store.request_stop(task_id, "验收后归档前暂停")
+            store.outcomes.request_stop(task_id, "验收后归档前暂停")
         finally:
             store.close()
         code, out = run_cli(["status", task_id, "--records-root", str(tmp_path)], capsys)

@@ -13,8 +13,12 @@ from forgeloop.adapter.git_workspace import (
     CandidateChange,
     WorkspaceError,
     collect_candidate_change,
+    has_remote,
     is_git_workspace,
+    merge_candidate_to_main,
     prepare_workspace,
+    push_main,
+    read_main_head,
 )
 
 
@@ -137,3 +141,77 @@ class TestCollectCandidateChange:
         assert not is_git_workspace(tmp_path)
         source = make_source_repo(tmp_path)
         assert is_git_workspace(source)
+
+
+class TestMergeToMain:
+    def _repo_with_baseline(self, tmp_path: Path) -> tuple[Path, str]:
+        source = make_source_repo(tmp_path)
+        head = read_main_head(source)
+        return source, head
+
+    def test_applies_diff_and_commits_on_main(self, tmp_path: Path) -> None:
+        source, baseline = self._repo_with_baseline(tmp_path)
+        workspace = tmp_path / "task" / "workspace"
+        prepare_workspace(source, "", workspace)
+        (workspace / "feature.txt").write_text("new\n", encoding="utf-8")
+        change = collect_candidate_change(workspace)
+        merge_commit = merge_candidate_to_main(
+            source, baseline, change.diff, "feat: applied candidate"
+        )
+        assert merge_commit != baseline
+        assert (source / "feature.txt").read_text(encoding="utf-8") == "new\n"
+        assert read_main_head(source) == merge_commit
+
+    def test_non_main_branch_is_rejected(self, tmp_path: Path) -> None:
+        source, baseline = self._repo_with_baseline(tmp_path)
+        git(source, "checkout", "-b", "feature-branch")
+        with pytest.raises(WorkspaceError, match="不是 main"):
+            merge_candidate_to_main(source, baseline, "+diff\n", "feat: x")
+
+    def test_dirty_tree_is_rejected(self, tmp_path: Path) -> None:
+        source, baseline = self._repo_with_baseline(tmp_path)
+        (source / "feature.txt").write_text("dirty\n", encoding="utf-8")
+        with pytest.raises(WorkspaceError, match="不干净"):
+            merge_candidate_to_main(source, baseline, "+diff\n", "feat: x")
+
+    def test_drifted_main_is_rejected(self, tmp_path: Path) -> None:
+        source, baseline = self._repo_with_baseline(tmp_path)
+        (source / "feature.txt").write_text("moved\n", encoding="utf-8")
+        git(source, "add", "-A")
+        git(source, "commit", "-m", "chore: main moved on")
+        with pytest.raises(WorkspaceError, match="漂移"):
+            merge_candidate_to_main(source, baseline, "+diff\n", "feat: x")
+
+    def test_invalid_diff_is_rejected_without_touching_main(self, tmp_path: Path) -> None:
+        source, baseline = self._repo_with_baseline(tmp_path)
+        with pytest.raises(WorkspaceError, match="git apply"):
+            merge_candidate_to_main(source, baseline, "not a diff\n", "feat: x")
+        assert read_main_head(source) == baseline  # main 未被改动
+
+    def test_push_to_local_bare_remote(self, tmp_path: Path) -> None:
+        source, baseline = self._repo_with_baseline(tmp_path)
+        bare = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+        git(source, "remote", "add", "origin", str(bare))
+        assert has_remote(source)
+        valid_diff = (
+            "diff --git a/feature.txt b/feature.txt\n"
+            "--- a/feature.txt\n+++ b/feature.txt\n"
+            "@@ -1 +1 @@\n-old\n+new\n"
+        )
+        merge_commit = merge_candidate_to_main(source, baseline, valid_diff, "feat: x")
+        pushed, detail = push_main(source)
+        assert pushed, detail
+        remote_head = subprocess.run(
+            ["git", "--git-dir", str(bare), "rev-parse", "main"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert remote_head == merge_commit
+
+    def test_push_without_remote_reports_failure(self, tmp_path: Path) -> None:
+        source, _baseline = self._repo_with_baseline(tmp_path)
+        assert not has_remote(source)
+        pushed, _detail = push_main(source)
+        assert not pushed

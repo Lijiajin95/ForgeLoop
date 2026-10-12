@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS stops (
     confirmed_at TEXT,
     note TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS merges (
+    task_id TEXT PRIMARY KEY,
+    merge_commit TEXT NOT NULL,
+    pushed INTEGER NOT NULL DEFAULT 0,
+    push_detail TEXT NOT NULL DEFAULT '',
+    merged_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS deliveries (
     task_id TEXT PRIMARY KEY,
     diff_path TEXT NOT NULL,
@@ -317,7 +324,20 @@ class RecordStore:
             (budget.limit_seconds, budget.consumed_seconds, task_id),
         )
 
-    # ---- 停止与交付 ----
+    # ---- 终态产物（停止/交付/归并）委托 OutcomeStore ----
+
+    @property
+    def outcomes(self) -> "OutcomeStore":
+        """停止、交付与 main 归并等终态记录（同一连接的独立内聚类）。"""
+
+        return OutcomeStore(self._db)
+
+
+class OutcomeStore:
+    """任务终态产物记录：停止、交付与 main 归并（B04）。"""
+
+    def __init__(self, db: sqlite3.Connection) -> None:
+        self._db = db
 
     def request_stop(self, task_id: str, note: str) -> None:
         self._db.execute(
@@ -358,3 +378,19 @@ class RecordStore:
         if row is None:
             return None
         return row[0], row[1], _parse(row[2])
+
+    def record_merge(self, task_id: str, merge_commit: str, pushed: bool, push_detail: str) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO merges (task_id, merge_commit, pushed, push_detail, merged_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (task_id, merge_commit, 1 if pushed else 0, push_detail, _iso(_now())),
+        )
+
+    def merge_record(self, task_id: str) -> tuple[str, bool, str, datetime] | None:
+        row = self._db.execute(
+            "SELECT merge_commit, pushed, push_detail, merged_at FROM merges WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return row[0], bool(row[1]), row[2], _parse(row[3])

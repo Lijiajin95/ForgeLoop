@@ -172,7 +172,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 ## 12. 与首版范围的关系
 
 - 可靠性门槛服务 [A01–A05](first-validation-plan.md#4-首版核心检查) 的证据要求：真实测试输出（V0-05）由系统/集成层程序执行产生；记录回查（V0-08）由系统测试验证；`pi_live` 支撑 A01 真实调用证据。
-- 30 小时人工投入上限不变：门槛接入按第 10 节顺序随代码走，不为“先把平台建完”投入预算；上限到达而门槛未全部激活时，如实报告缺口。
+- 门槛接入按第 10 节顺序随代码走，不为“先把平台建完”扩张（30 小时上限与人工时间测量已按所有者 2026-10-12 决定撤销）。
 - 不因骨架存在而提前建设：插件注册中心（B21）、共享包（B15）、页面（B01）、多执行器；不为尚无业务对象的层写空测试占位。
 - EvidHist 已验证的运行结论（mutants 缓存陷阱、Stryker/工具兼容性等）中与 Python 后端相关的部分直接继承；其前端结论保留在原项目，ForgeLoop 出现前端时再引用。
 
@@ -279,3 +279,21 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 **diff-cover 接入**（远程仓库出现触发）：用户建立 GitHub 远程（origin → Lijiajin95/ForgeLoop）后，覆盖门槛按设计从"不适用"切换为增量覆盖实测——`diff-cover reports/coverage.xml --compare-branch origin/main --fail-under 90` 并入 `check_coverage_thresholds.py`；实跑通过（changed-lines passed）。环境未安装 diff-cover 时显式 `integration_error`，不允许静默通过。
 
 结构门槛抓到场景文件 507 行超限 → 按关注点拆分为 `test_flow.py`（核心闭环）/ `test_guards.py`（守卫负例）/ `test_self_iteration.py`（自迭代）+ 共享 `support.py`（conftest 注入路径），零例外豁免。
+
+## 18. 需求变更与 B04 落地：2026-10-12 晚（第二批后续开发）
+
+**所有者决定（记录为需求变更）**：撤销 30 小时人工投入上限与人工时间/ROI 测量（roadmap、验收计划、首版需求、README 同步修订）——交叉实践已证 Agent 开发效率优势，价值判断以交付质量与使用体验为准。B04（main 受控自动归并）由所有者决定提前启用（原触发条件"人工接回成为瓶颈"随测量撤销一并豁免），理由：Agent 效率优势下人工合并即自迭代链路的主要瓶颈。
+
+**B04 实现**（[pending-requirements](pending-requirements.md) 验收要求逐条对应）：
+
+| 要求 | 实现 |
+| --- | --- |
+| 绑定已验收基线与 diff | `domain/merge.py` 纯规则：任务须 delivered 且验收批准存在、基线提交号已固化、diff 非空 |
+| main 漂移后核对、重新验证 | 领域判定 + git 现场（分支=main、工作树干净、HEAD=基线）双重校验；漂移显式拒绝并要求重新执行任务，不拼接差异沿用旧批准 |
+| 未经验收不更新 | 状态/批准记录判定 + CLI 早退；负例场景覆盖（merge 于批准前 → 退出 1，main 未动） |
+| 与 GitHub 同步 | 归并后 `git push origin main`（远程存在时）；推送结果与详情入记录（失败如实上报不改状态）；本地 bare 远程场景验证推送真实生效 |
+| 不强制 PR | 受控命令 `forgeloop merge <task> [--message] [--no-push]` 在 main 上直接生成合并提交 |
+
+**结构门槛执法（第三次）**：新增代码使 `build_parser`（51 行）与 `RecordStore`（22 接口）超限——按纪律重构而非豁免：submit 子命令解析拆独立构建器；存储按内聚拆出 `OutcomeStore`（停止/交付/归并等终态产物，同连接独立类，RecordStore 经 `outcomes` 属性委托）。
+
+**最终状态**：230 项测试 + 5 项 pi_live 全绿；`make check` 十项门槛 exit 0；行/分支覆盖 96.06%/91.85%（diff-cover 增量对 origin/main 通过）；变异 199/246（47 审阅）；CLI 契约快照含 merge 节。自迭代闭环补上最后一段：**submit → 批准 → PI 副本实现 → 审查 → 测试 → 验收 → merge（main+推送）**，全程受控。

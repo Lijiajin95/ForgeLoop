@@ -79,3 +79,77 @@ def collect_candidate_change(workspace: Path) -> CandidateChange:
     _git(workspace, "add", "-A")
     diff = _git(workspace, "diff", baseline)
     return CandidateChange(baseline_commit=baseline, diff=diff)
+
+
+def read_main_head(project: Path) -> str:
+    """读取目标仓库 main 当前 HEAD（供领域漂移判定）。"""
+
+    return _git(project, "rev-parse", "HEAD").strip()
+
+
+def has_remote(project: Path, remote: str = "origin") -> bool:
+    """目标仓库是否配置了指定远程（决定是否同步推送）。"""
+
+    result = subprocess.run(
+        ["git", "-C", str(project), "remote"],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    return remote in result.stdout.split()
+
+
+def merge_candidate_to_main(project: Path, baseline: str, diff_text: str, message: str) -> str:
+    """把已验收的候选 diff 受控归并到 project 的 main；返回合并提交号。
+
+    前置（由领域规则判定）：任务已验收、diff 非空。此处再核对仓库现场：
+    当前分支必须是 main 且工作树干净、HEAD 等于交付基线——任何不符都
+    抛 WorkspaceError，不拼接差异、不沿用旧批准。
+    """
+
+    branch = _git(project, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if branch != "main":
+        raise WorkspaceError(f"目标仓库当前分支是 {branch}，不是 main")
+    dirty = _git(project, "status", "--porcelain").strip()
+    if dirty:
+        raise WorkspaceError(f"目标仓库工作树不干净：{dirty[:200]}")
+    head = _git(project, "rev-parse", "HEAD").strip()
+    if head != baseline:
+        raise WorkspaceError(
+            f"main 已漂移：交付基线 {baseline[:12]}，当前 {head[:12]}；须重新执行任务"
+        )
+    apply_result = subprocess.run(
+        ["git", "-C", str(project), "apply", "--whitespace=nowarn", "-"],
+        input=diff_text,
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    if apply_result.returncode != 0:
+        raise WorkspaceError(f"git apply 失败：{apply_result.stderr.strip()[:200]}")
+    _git(project, "add", "-A")
+    _git(
+        project,
+        "-c",
+        "user.useConfigOnly=true",
+        "commit",
+        "-m",
+        message,
+    )
+    return _git(project, "rev-parse", "HEAD").strip()
+
+
+def push_main(project: Path, remote: str = "origin") -> tuple[bool, str]:
+    """推送 main 到远程（B04 含 GitHub 同步）；失败如实报告不改状态。"""
+
+    result = subprocess.run(
+        ["git", "-C", str(project), "push", remote, "main"],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    detail = (result.stdout or result.stderr).strip()[-400:]
+    return result.returncode == 0, detail

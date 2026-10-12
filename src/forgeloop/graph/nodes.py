@@ -91,7 +91,7 @@ def _pi_command(config: Mapping[str, str]) -> tuple[str, ...]:
 def _action_gate(ctx: NodeContext) -> str | None:
     """动作启动门：任何停止记录（已请求或已确认）都不再启动新动作。"""
 
-    stop = ctx.store.stop_record(ctx.task_id)
+    stop = ctx.store.outcomes.stop_record(ctx.task_id)
     if stop is not None:
         if stop[1] is None:
             ctx.store.set_task_status(ctx.task_id, "stop_requested")
@@ -443,7 +443,7 @@ def make_deliver_node(ctx: NodeContext) -> NodeFn:
             ),
             encoding="utf-8",
         )
-        ctx.store.record_delivery(
+        ctx.store.outcomes.record_delivery(
             ctx.task_id,
             str(ctx.task_dir / "candidate.diff"),
             str(report_path),
