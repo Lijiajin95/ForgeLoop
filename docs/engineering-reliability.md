@@ -31,7 +31,7 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 | `config/commit-policy.toml` + `config/workday-calendars/2026.json` | 提交时间策略与年度日历 | 已落地并实测（16:45 周一被正确阻断） |
 | `.semgrep.yml` | 四条本地 SAST 规则 | 已执行：4 规则 20 文件 0 命中 |
 | `.pre-commit-config.yaml` | pre-commit/commit-msg/pre-push hooks | hooks 尚未安装（`make hooks` 待执行） |
-| `.github/workflows/quality.yml` | CI 四作业（quality/security/mutation/commit-policy） | 无远程仓库，无执行记录；Action SHA 沿用 EvidHist 已核验值 |
+| `.github/workflows/quality.yml` | CI 四作业（quality/security/mutation/commit-policy） | 已在 GitHub 真实执行；截至 `e631ee4` 三个作业通过、mutation 失败（清单过期，见第 19 节）；Action SHA 沿用 EvidHist 已核验值 |
 | `src/forgeloop/`（domain/records/adapter/graph/cli） | 首版系统架构分层实现 | 已实现并测试（见第 13 节执行记录） |
 | `.gitignore` / `.python-version` | 忽略生成物；Python 基线 3.13 | 3.13.15 已实际使用并锁定 |
 
@@ -148,7 +148,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | 2. 任务、方案、批准与本地记录 | `tests/component` + `scripts/export_cli_contract.py`（CLI JSON 契约）；结构度量脚本与 import-lint、deptry、pylint | `make check` 首次全绿；结构度量先报告现有命中 |
 | 3. 串联实现、审查、正式测试 | `tests/integration`（SQLite、PI Adapter 替身）；mutmut `only_mutate` 固定核心领域文件清单（失败计数/授权/批准版本绑定/时间限额） | `make coverage`、`make mutation` 首次执行并落报告 |
 | 4. 失败轮次、限额与停止 | 计数/授权/限额的属性测试与负例矩阵落地；`pi_live` 真实调用验证 Adapter 契约 | A03/A04 负例可重跑 |
-| 5. 查询、验收与备份 | `tests/system`（CLI 端到端）；CI 四作业随远程仓库启用 | 远程 CI 有执行记录后，门槛才成为合入约束 |
+| 5. 查询、验收与备份 | `tests/system`（CLI 端到端）；CI 四作业随远程仓库启用 | 远程 CI 已有执行记录（第 19 节）；分支保护与必需状态检查未设置，门槛尚未成为合入约束 |
 
 全部 `scripts/` 检查脚本的验收标准一致：每个硬门槛都有可发现、可重跑的负例（见第 11 节），无负例不算接入完成。工具版本在步骤 1 核查后固定（uv 0.12.24；Python 3.13 提案值若与 LangGraph/PI 容器冲突则调整后全档同步）。
 
@@ -163,7 +163,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | Import Linter | 领域导入 adapter 的假包契约被拒绝 |
 | pytest-timeout | 卡死测试被 signal 模式终止 |
 | deptry | dev 组依赖无理由导入被 DEP004 拒绝 |
-| 变异门槛 | 空/幸存/超时/中断变异与缺失报告 |
+| 变异门槛 | 空/幸存/超时/中断变异与缺失报告；复测后仍不一致的过期条目或未审阅幸存者；复测调用失败 |
 | 覆盖门槛 | 低独立分支覆盖与缺失覆盖报告 |
 | CLI 契约 | 受控漂移：改快照 → 退出 1；缺快照 → 退出 1 |
 | 提交策略 | 禁止窗口内 `--check-now` 返回 1；非法消息被 commit-msg 拒绝；伪造时间戳被 `--audit` 拒绝 |
@@ -297,3 +297,37 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 **结构门槛执法（第三次）**：新增代码使 `build_parser`（51 行）与 `RecordStore`（22 接口）超限——按纪律重构而非豁免：submit 子命令解析拆独立构建器；存储按内聚拆出 `OutcomeStore`（停止/交付/归并等终态产物，同连接独立类，RecordStore 经 `outcomes` 属性委托）。
 
 **最终状态**：230 项测试 + 5 项 pi_live 全绿；`make check` 十项门槛 exit 0；行/分支覆盖 96.06%/91.85%（diff-cover 增量对 origin/main 通过）；变异 199/246（47 审阅）；CLI 契约快照含 merge 节。自迭代闭环补上最后一段：**submit → 批准 → PI 副本实现 → 审查 → 测试 → 验收 → merge（main+推送）**，全程受控。
+
+## 19. CI 首次执行记录与变异门槛噪声修复：2026-10-12 晚
+
+远程仓库建立后，`quality.yml` 四作业在 GitHub 上真实执行 4 次（推送触发，`gh run list` 可查）。逐作业结果：
+
+| 运行（提交） | quality | security | commit-policy | mutation |
+| --- | --- | --- | --- | --- |
+| a5c8ee1 | **失败**（Linux 分支覆盖 87.3% < 90；diff-cover 未接入） | 通过 | 通过 | **失败**（198/246，48 幸存，1 条未审阅：`limits…mutmut_9`） |
+| 778ece0 | 通过 | 通过 | 通过 | **失败**（200/246，46 幸存，1 条清单过期：`limits…mutmut_12`） |
+| bbfe754（仅文档） | 通过 | 通过 | 通过 | **失败**（同上） |
+| e631ee4 | 通过 | 通过 | 通过 | **失败**（201/246，45 幸存，2 条过期：`approval…mutmut_5`、`limits…mutmut_12`） |
+
+**根因（实测，非推测）**：
+
+1. **清单过期是确定性的**：`778ece0` 新增 `test_negative_consumed_at_construction_is_rejected`（`match="negative"`）后，`ExecutionBudget.__post_init__` 的大小写消息变异 `mutmut_12` 被真实杀死；清单仍是旧测试集导出的 47 条，未按门槛要求重新导出。
+2. **存活集合存在运行级噪声（±1）**：同一提交 `e631ee4` 上 CI 报 45 幸存（`approval…mutmut_5` 被判杀死），而本机与 Linux 容器（ubuntu:24.04，`--cpus=4`，与 CI 同 Python/依赖锁定）多次全新运行报 46 幸存；本机另一次全新运行改为 `approval…mutmut_4` 被判杀死（45 幸存），单独复测该变异体后恢复为存活。mutmut 只运行与被变异函数相关的测试子集，单个无关测试的偶发失败或选中差异即可翻转一个变异体的判定。
+
+**修复**：
+
+| 项 | 改动 |
+| --- | --- |
+| 清单重新导出 | `config/quality-policy.toml` 删除已确定性杀死的 `ExecutionBudget.__post_init__ mutmut_12` 条目（47 → 46），与实测 200/246 杀死、46 幸存一致 |
+| 可疑项复测确认 | `scripts/check_mutation_stats.py`：首次测量与清单不一致时，只复测可疑变异体（`mutmut run <names>` + `export-cicd-stats` + 重读 `results`），判定取第二次测量；确认不一致仍失败；复测调用失败显式报错而非静默通过；结构性失败（报告缺失/为空、未完成状态、计数不闭合）不复测；`--no-recheck` 可退回单次判定 |
+| 负例 | `tests/unit/test_mutation_stats.py` 新增 6 项：过期条目噪声被吸收、未审阅幸存者噪声被吸收、二者确认后仍失败、复测调用失败、结构失败不复测 |
+
+**验证（实际执行）**：
+
+| 项 | 结果 |
+| --- | --- |
+| 全新变异运行 | 本机 3 次 + Linux 容器 5 次：7 次 46 幸存、1 次 45 幸存（噪声，单独复测后恢复） |
+| 修复后端到端 | `make mutation` exit 0：`200/246 killed, 46 survivors (46 reviewed)`；其中一次全新运行的首测出现 1 个噪声项，复测后按第二次测量通过（复测路径在真实噪声上生效） |
+| 复测路径冒烟 | 临时放回 `mutmut_12` 条目 → 打印被复测变异体与首测差异 → 确认过期 → exit 1；移除后 exit 0 |
+| 门槛与脚本检查 | `tests/unit/test_mutation_stats.py` 17 项通过；pyright 0 错误；pylint 10.00/10；结构度量 0 失败 |
+| 尚缺 | 分支保护与必需状态检查未设置（`gh api repos/…/branches/main/protection` → 404 `Branch not protected`），CI 结果仍不是合入门槛；本文件的“远程 CI 无执行记录”表述（第 13/14/17 节）由本节取代 |

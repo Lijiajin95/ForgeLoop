@@ -5,6 +5,7 @@
 
 import importlib.util
 import json
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -143,3 +144,118 @@ class TestRejectedReports:
         result = gate.run_stats_check(stats, config, tmp_path)
         assert not result["summary"]["passed"]
         assert any("mutant and reason" in f for f in result["summary"]["failures"])
+
+
+def fake_remeasure(
+    second_stats: dict, second_survivors: list[str], calls: list[tuple[str, ...]]
+) -> Callable[[tuple[str, ...]], tuple[dict, list[str]]]:
+    """复测器替身：记录被复测的变异体并返回第二次测量结果。"""
+
+    def remeasure(names: tuple[str, ...]) -> tuple[dict, list[str]]:
+        calls.append(names)
+        return second_stats, second_survivors
+
+    return remeasure
+
+
+class TestSuspiciousRecheck:
+    """测量噪声确认：可疑项复测一次，判定取第二次测量（mutmut 只跑相关测试子集）。"""
+
+    def test_transient_stale_entry_passes_after_recheck(self, tmp_path: Path, monkeypatch) -> None:
+        stats = write_stats(tmp_path, base_counters(total=11, killed=10, survived=1))
+        config = policy(
+            reviewed_survivors=[
+                {"mutant": "m1", "reason": "ok"},
+                {"mutant": "m2", "reason": "ok"},
+            ]
+        )
+        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1"])
+        calls: list[tuple[str, ...]] = []
+        result = gate.run_stats_check(
+            stats,
+            config,
+            tmp_path,
+            fake_remeasure(base_counters(total=11, killed=9, survived=2), ["m1", "m2"], calls),
+        )
+        assert result["summary"]["passed"], result["summary"]["failures"]
+        assert calls == [("m2",)]
+        assert result["recheck"] is not None
+        assert result["recheck"]["mutants"] == ("m2",)
+        assert any("no longer survive" in f for f in result["recheck"]["first_failures"])
+
+    def test_transient_unreviewed_survivor_passes_after_recheck(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        stats = write_stats(tmp_path, base_counters(total=11, killed=9, survived=2))
+        config = policy(reviewed_survivors=[{"mutant": "m1", "reason": "ok"}])
+        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1", "m2"])
+        calls: list[tuple[str, ...]] = []
+        result = gate.run_stats_check(
+            stats,
+            config,
+            tmp_path,
+            fake_remeasure(base_counters(total=11, killed=10, survived=1), ["m1"], calls),
+        )
+        assert result["summary"]["passed"], result["summary"]["failures"]
+        assert calls == [("m2",)]
+
+    def test_confirmed_stale_entry_fails(self, tmp_path: Path, monkeypatch) -> None:
+        stats = write_stats(tmp_path, base_counters(total=11, killed=10, survived=1))
+        config = policy(
+            reviewed_survivors=[
+                {"mutant": "m1", "reason": "ok"},
+                {"mutant": "m2", "reason": "ok"},
+            ]
+        )
+        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1"])
+        calls: list[tuple[str, ...]] = []
+        result = gate.run_stats_check(
+            stats,
+            config,
+            tmp_path,
+            fake_remeasure(base_counters(total=11, killed=10, survived=1), ["m1"], calls),
+        )
+        assert not result["summary"]["passed"]
+        assert any("no longer survive" in f for f in result["summary"]["failures"])
+        assert calls == [("m2",)]
+
+    def test_confirmed_unreviewed_survivor_fails(self, tmp_path: Path, monkeypatch) -> None:
+        stats = write_stats(tmp_path, base_counters(total=11, killed=9, survived=2))
+        config = policy(reviewed_survivors=[{"mutant": "m1", "reason": "ok"}])
+        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1", "m2"])
+        calls: list[tuple[str, ...]] = []
+        result = gate.run_stats_check(
+            stats,
+            config,
+            tmp_path,
+            fake_remeasure(base_counters(total=11, killed=9, survived=2), ["m1", "m2"], calls),
+        )
+        assert not result["summary"]["passed"]
+        assert any("unreviewed" in f for f in result["summary"]["failures"])
+
+    def test_failed_recheck_is_reported(self, tmp_path: Path, monkeypatch) -> None:
+        stats = write_stats(tmp_path, base_counters(total=11, killed=10, survived=1))
+        config = policy(reviewed_survivors=[{"mutant": "m1", "reason": "ok"}])
+        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1", "m2"])
+
+        def broken(names: tuple[str, ...]) -> tuple[dict, list[str]]:
+            raise ValueError("mutmut run failed")
+
+        result = gate.run_stats_check(stats, config, tmp_path, broken)
+        assert not result["summary"]["passed"]
+        assert any("could not be re-measured" in f for f in result["summary"]["failures"])
+        assert any("unreviewed" in f for f in result["summary"]["failures"])
+
+    def test_structural_failure_is_not_rechecked(self, tmp_path: Path, monkeypatch) -> None:
+        stats = write_stats(tmp_path, base_counters(total=11, killed=10, timeout=1))
+        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1"])
+        calls: list[tuple[str, ...]] = []
+        result = gate.run_stats_check(
+            stats,
+            policy(reviewed_survivors=[{"mutant": "m1", "reason": "ok"}]),
+            tmp_path,
+            fake_remeasure(base_counters(), ["m1"], calls),
+        )
+        assert not result["summary"]["passed"]
+        assert any("incomplete states" in f for f in result["summary"]["failures"])
+        assert calls == []

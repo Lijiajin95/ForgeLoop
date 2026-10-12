@@ -62,10 +62,6 @@ mutant = "forgeloop.domain.limits.xǁExecutionBudgetǁ__post_init____mutmut_11"
 reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
 
 [[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.limits.xǁExecutionBudgetǁ__post_init____mutmut_12"
-reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
-
-[[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.limits.xǁExecutionBudgetǁcharge__mutmut_4"
 reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
 
