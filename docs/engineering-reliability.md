@@ -331,3 +331,5 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | 复测路径冒烟 | 临时放回 `mutmut_12` 条目 → 打印被复测变异体与首测差异 → 确认过期 → exit 1；移除后 exit 0 |
 | 门槛与脚本检查 | `tests/unit/test_mutation_stats.py` 17 项通过；pyright 0 错误；pylint 10.00/10；结构度量 0 失败 |
 | 尚缺 | 分支保护与必需状态检查未设置（`gh api repos/…/branches/main/protection` → 404 `Branch not protected`），CI 结果仍不是合入门槛；本文件的“远程 CI 无执行记录”表述（第 13/14/17 节）由本节取代 |
+
+**修复后 CI**：运行 [38258313311](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38258313311)（提交 71d74eb，2026-10-12 21:48 推送）四作业全部 `success`——mutation 门槛首次在 CI 上通过；分支保护与必需状态检查仍未设置。
