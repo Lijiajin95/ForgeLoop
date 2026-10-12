@@ -28,7 +28,20 @@ pytestmark = [
     ),
 ]
 
-REAL_PI_COMMAND = ["pi", "--mode", "rpc", "--no-session"]
+# 真实模型组合（2026-10-12 实测可用；opencode-go 订阅失效）。
+# 环境变量可覆盖：FORGELOOP_PI_PROVIDER / FORGELOOP_PI_MODEL。
+PI_PROVIDER = os.environ.get("FORGELOOP_PI_PROVIDER", "cc-switch-open-code-go")
+PI_MODEL = os.environ.get("FORGELOOP_PI_MODEL", "deepseek-v4.1-flash")
+REAL_PI_COMMAND = [
+    "pi",
+    "--mode",
+    "rpc",
+    "--no-session",
+    "--provider",
+    PI_PROVIDER,
+    "--model",
+    PI_MODEL,
+]
 
 
 @pytest.fixture()

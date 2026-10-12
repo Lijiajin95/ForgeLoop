@@ -248,3 +248,16 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 - 模型层结果验证被订阅阻断——需要有效订阅或其他 provider 配置后重跑 `make pi-live`（协议测试不受影响）。
 - abort 在长运行中的语义（aborted=True）今日无法稳定触发（模型快速失败）；测试暂为显式结果二选一契约，工作模型可用后收紧。
 - 容器化与独立工作副本未接入（架构 §5）：当前 `pi --mode rpc` 直接宿主运行；隔离 HOME 已验证配置可迁移。
+
+## 16. 模型层验证补录：2026-10-12 晚（步骤 1 完成）
+
+用户配置新模型服务后复测。**验收计划步骤 1 的"真实调用有结果"标准达成。**
+
+| 项 | 实测结果 |
+| --- | --- |
+| 可用组合 | `--provider cc-switch-open-code-go --model deepseek-v4.1-flash`（`opencode-go` 订阅仍 403；其余 provider 无此模型）。live 测试命令已固定该组合，`FORGELOOP_PI_PROVIDER/FORGELOOP_PI_MODEL` 可覆盖 |
+| 真实调用结果 | 提示词"Reply with exactly one word: ok" → 最终文本 **`'ok'`**；stopReason=stop；事件流健康（agent_start/turn/message×3/message_update 流式/agent_end/agent_settled 各 1，无重试） |
+| 用量记录 | input 4477 + output 2 + cacheRead 640 = 5119 tokens，cost 0（事件流的 usage 字段，可取得的费用数据如实保存） |
+| live 套件 | 5/5 通过（13.3s，模型层走文本分支；403 期间的显式错误契约测试同步保留为回归负例） |
+
+诚实备注：`~/.pi/agent/settings.json` 的 defaultModel 仍为 kimi-k2.6（用户口头配置未落盘）；ForgeLoop 不依赖该默认——任务配置快照中的 `pi_command` 显式携带 provider/model（架构 V0-01 语义）。
