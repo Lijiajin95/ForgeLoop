@@ -1,0 +1,32 @@
+rules:
+  - id: forgeloop-no-shell-execution
+    message: Use an argument list with shell=False; PI output, task input and file names must never become shell code.
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: subprocess.$METHOD(..., shell=True, ...)
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+  - id: forgeloop-no-dynamic-python-execution
+    message: Treat task input, PI events and model outputs as data, not executable Python.
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+  - id: forgeloop-no-unsafe-deserialization
+    message: Untrusted records and PI artifacts require a safe, explicitly validated serialization format.
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+      - pattern: yaml.unsafe_load(...)
+  - id: forgeloop-keep-tls-verification
+    message: Keep TLS certificate verification enabled for model and registry requests.
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: requests.$METHOD(..., verify=False, ...)
+      - pattern: httpx.$METHOD(..., verify=False, ...)
+      - pattern: httpx2.$METHOD(..., verify=False, ...)

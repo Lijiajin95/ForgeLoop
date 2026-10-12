@@ -1,0 +1,144 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forgeloop"
+version = "0.0.1"
+description = "CLI-driven automated development loop: bounded small requirements to accepted code diffs"
+readme = "README.md"
+# Python 3.13 是骨架提案基线：须在最小技术方案核查中与 LangGraph、PI RPC 容器
+# 实际兼容性一起验证后固定（EvidHist 基线为 3.14.8，经其工具链验证）。
+requires-python = ">=3.13,<3.14"
+
+# 版本区间均为提案值：最小技术方案核查时以实际解析结果固定并生成 uv.lock。
+dependencies = [
+  "langgraph>=1,<2",
+  "langgraph-checkpoint-sqlite>=3,<4",
+  # 直接导入 RunnableConfig（CLI 运行配置类型），按 deptry 纪律显式声明。
+  "langchain-core>=1,<2",
+]
+
+[project.scripts]
+forgeloop = "forgeloop.cli:main"
+
+[dependency-groups]
+dev = [
+  "uv==0.12.24",
+  "hypothesis>=6.125,<7",
+  "pre-commit>=4.4,<5",
+  "pyright>=1.1.400,<2",
+  "pytest>=8.4,<10",
+  "pytest-cov>=6,<8",
+  "pytest-timeout>=2.4,<3",
+  "pylint>=4.1,<5",
+  "import-linter>=2.15,<3",
+  "deptry>=0.25,<1",
+  "ruff>=0.14,<1",
+  "certifi>=2026.7.22,<2027",
+]
+mutation = ["mutmut>=3.8,<4"]
+security = ["pip-audit>=2.9,<3", "semgrep>=1.100,<2"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/forgeloop"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["mutants", ".cache"]
+
+[tool.ruff.lint]
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "SIM",
+  "RUF",
+  "C901",
+  "PLR0912",
+  "PLR0913",
+]
+allowed-confusables = ["，", "：", "；", "。", "（", "）"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 12
+
+[tool.pyright]
+include = ["src", "tests", "scripts"]
+exclude = ["mutants", ".cache", ".venv"]
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+# 严格模式覆盖无框架依赖的模块；graph/cli 是 LangGraph 的类型边界
+# （框架 API 返回大量 Any），用 basic 模式避免与框架缠斗。
+strict = ["src/forgeloop/domain", "src/forgeloop/records", "src/forgeloop/adapter"]
+reportUnnecessaryTypeIgnoreComment = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers --import-mode=importlib -ra"
+timeout = 30
+timeout_method = "signal"
+markers = [
+  "integration: requires the local persistence boundary (SQLite checkpointer files or the restricted container)",
+  "system: requires a running CLI process with real local records",
+  "scenario: deterministic multi-step workflow behavior",
+  "component: CLI output contract tests driven through command entry points",
+  "pi_live: real PI RPC invocation in the restricted container (explicit opt-in)",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["forgeloop"]
+omit = ["src/forgeloop/__init__.py", "src/forgeloop/domain/__init__.py"]
+
+[tool.mutmut]
+source_paths = ["src/forgeloop/"]
+# 核心领域范围：失败轮次计数、追加授权、批准绑定、时间限额与提交策略。
+# 避免对框架启动、第三方代码和全部 I/O 进行变异（架构文档 §4 同款边界）。
+only_mutate = [
+  "src/forgeloop/domain/counting.py",
+  "src/forgeloop/domain/approval.py",
+  "src/forgeloop/domain/limits.py",
+  "src/forgeloop/domain/commit_policy.py",
+]
+pytest_add_cli_args_test_selection = ["tests/unit/", "tests/property/"]
+pytest_add_cli_args = ["--import-mode=importlib", "-o", "addopts="]
+also_copy = ["tests", "config", "scripts"]
+
+[tool.pylint.main]
+disable = ["all"]
+enable = ["too-many-public-methods", "too-many-lines"]
+ignore-paths = ["mutants", "^\\.cache/", "^\\.venv/"]
+
+[tool.pylint.design]
+max-public-methods = 20
+
+[tool.pylint.format]
+max-module-lines = 500
+
+[tool.importlinter]
+root_package = "forgeloop"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Domain must not depend on orchestration, adapters or the CLI"
+type = "forbidden"
+source_modules = ["forgeloop.domain"]
+forbidden_modules = ["forgeloop.cli", "forgeloop.graph", "forgeloop.adapter", "langgraph"]
+allow_indirect_imports = false
+
+[tool.deptry]
+extend_exclude = ["mutants", "\\.cache", "\\.toolchain", "\\.venv"]
+known_first_party = ["forgeloop", "structure_metrics"]

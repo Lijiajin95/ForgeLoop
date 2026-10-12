@@ -1,0 +1,4 @@
+timezone = "Asia/Shanghai"
+blocked_start = "09:00"
+blocked_end = "18:00"
+calendar_directory = "config/workday-calendars"

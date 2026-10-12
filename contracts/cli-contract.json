@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "command": "forgeloop status --json",
+  "exit_codes": {
+    "ok": 0,
+    "task_not_found": 1
+  },
+  "document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "approvals": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "decided_at": {
+                "type": [
+                  "string"
+                ]
+              },
+              "plan_version": {
+                "type": [
+                  "integer"
+                ]
+              }
+            },
+            "optional_keys": [
+              "decided_at",
+              "plan_version"
+            ]
+          },
+          "plan": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "decided_at": {
+                "type": [
+                  "string"
+                ]
+              },
+              "plan_version": {
+                "type": [
+                  "integer"
+                ]
+              }
+            },
+            "optional_keys": [
+              "decided_at",
+              "plan_version"
+            ]
+          }
+        }
+      },
+      "budget": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "consumed_seconds": {
+            "type": [
+              "number"
+            ]
+          },
+          "exhausted": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "limit_seconds": {
+            "type": [
+              "number"
+            ]
+          }
+        }
+      },
+      "created_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "delivery": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "delivered_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "diff_path": {
+            "type": [
+              "string"
+            ]
+          },
+          "report_path": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "optional_keys": [
+          "delivered_at",
+          "diff_path",
+          "report_path"
+        ]
+      },
+      "failures": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "awaiting_grant_decision": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "cumulative": {
+            "type": [
+              "integer"
+            ]
+          },
+          "grants": {
+            "type": [
+              "integer"
+            ]
+          },
+          "remaining_in_current_grant": {
+            "type": [
+              "integer"
+            ]
+          },
+          "rounds": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array",
+                "object"
+              ],
+              "properties": {
+                "occurred_at": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "round_id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "stage": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "summary": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "optional_keys": [
+                "occurred_at",
+                "round_id",
+                "stage",
+                "summary"
+              ]
+            }
+          }
+        }
+      },
+      "plan": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": [
+              "string"
+            ]
+          },
+          "goal": {
+            "type": [
+              "string"
+            ]
+          },
+          "scope": {
+            "type": [
+              "string"
+            ]
+          },
+          "test_command": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "version": {
+            "type": [
+              "integer"
+            ]
+          }
+        },
+        "optional_keys": [
+          "acceptance",
+          "goal",
+          "scope",
+          "test_command",
+          "version"
+        ]
+      },
+      "project": {
+        "type": [
+          "string"
+        ]
+      },
+      "status": {
+        "type": [
+          "string"
+        ]
+      },
+      "stop": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "confirmed_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "string"
+            ]
+          },
+          "requested_at": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "optional_keys": [
+          "confirmed_at",
+          "note",
+          "requested_at"
+        ]
+      },
+      "task_id": {
+        "type": [
+          "string"
+        ]
+      }
+    }
+  },
+  "not_found_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "error": {
+        "type": [
+          "string"
+        ]
+      },
+      "task_id": {
+        "type": [
+          "string"
+        ]
+      }
+    }
+  }
+}
