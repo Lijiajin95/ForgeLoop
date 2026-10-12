@@ -132,11 +132,12 @@ class TestChangedLineGate:
         result = gate.run_thresholds(report, policy(), tmp_path)
         assert result["changed_lines"]["status"] == "not_applicable"
 
-    def test_existing_baseline_fails_until_diff_cover_integrated(self, tmp_path: Path) -> None:
+    def test_baseline_without_diff_cover_reports_integration_error(self, tmp_path: Path) -> None:
+        # 基线存在但环境未安装 diff-cover：显式集成错误，不允许静默通过。
         repo = tmp_path / "repo"
         make_git_baseline(repo)
         report = write_report(tmp_path, totals())
         result = gate.run_thresholds(report, policy(), repo)
         assert not result["summary"]["passed"]
         assert any("diff-cover" in f for f in result["summary"]["failures"])
-        assert result["changed_lines"]["status"] == "pending_integration"
+        assert result["changed_lines"]["status"] == "integration_error"

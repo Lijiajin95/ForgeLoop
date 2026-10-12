@@ -261,3 +261,21 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | live 套件 | 5/5 通过（13.3s，模型层走文本分支；403 期间的显式错误契约测试同步保留为回归负例） |
 
 诚实备注：`~/.pi/agent/settings.json` 的 defaultModel 仍为 kimi-k2.6（用户口头配置未落盘）；ForgeLoop 不依赖该默认——任务配置快照中的 `pi_command` 显式携带 provider/model（架构 V0-01 语义）。
+
+## 17. git 工作副本与自迭代工程落地：2026-10-12 晚
+
+自迭代的最后两块工程缺口关闭（`git 提供修改`）：
+
+| 项 | 实现 |
+| --- | --- |
+| `adapter/git_workspace.py` | 独立工作副本：`git clone --no-hardlinks`（自有 .git 与引用，不与源仓库共享任何可写对象——架构 §5 main 保护）；基线 detached HEAD 检出（幂等：修复轮复用同一副本）；候选 diff = `git add -A` 后 `git diff <基线提交>`（覆盖修改/新增/删除/已提交，不依赖 PI 文本自述） |
+| dev 节点 | `project_path` 配置时建立副本（计工时）；settled 后 git 工作区取真实 diff，无仓库时 payload 回退（pi_live 直用模式）；dev 报告记录 `diff_source` 与 `baseline_commit` |
+| 交付报告 | git 工作区固化实际基线提交号（A02：最终交付明确基线与改动） |
+| CLI | submit 校验 `project_path` 必须是 git 仓库（负例：非仓库 → SystemExit） |
+| 假 PI | `edit` 模式真实修改工作副本（写入 feature.txt=new）；`plain-text` 模式走文本回退路径 |
+| 场景测试 | **自迭代模拟**：源仓库（feature.txt=old + run_tests.py 断言 new）→ clone → 假 PI 改副本 → git diff（`-old/+new`）→ 副本内真实测试（exit 0）→ 交付（40 位基线提交号）→ **源 main 全程未被改写** |
+| 负例补齐 | clone 失败包裹、非 git 源拒绝、model-error 场景（interrupted 不耗轮次）、确认停止（stopped）、纯文本审查回退、负工时构造拒绝、适配器模型错误/文本提取合成事件 15 项 |
+
+**diff-cover 接入**（远程仓库出现触发）：用户建立 GitHub 远程（origin → Lijiajin95/ForgeLoop）后，覆盖门槛按设计从"不适用"切换为增量覆盖实测——`diff-cover reports/coverage.xml --compare-branch origin/main --fail-under 90` 并入 `check_coverage_thresholds.py`；实跑通过（changed-lines passed）。环境未安装 diff-cover 时显式 `integration_error`，不允许静默通过。
+
+结构门槛抓到场景文件 507 行超限 → 按关注点拆分为 `test_flow.py`（核心闭环）/ `test_guards.py`（守卫负例）/ `test_self_iteration.py`（自迭代）+ 共享 `support.py`（conftest 注入路径），零例外豁免。

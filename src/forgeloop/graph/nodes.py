@@ -26,6 +26,11 @@ from pathlib import Path
 
 from langgraph.types import interrupt
 
+from forgeloop.adapter.git_workspace import (
+    collect_candidate_change,
+    is_git_workspace,
+    prepare_workspace,
+)
 from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess
 from forgeloop.adapter.test_runner import run_test_command
 from forgeloop.domain.approval import ApprovalStage, ConsumeStatus, Plan
@@ -200,15 +205,21 @@ def _invoke_pi(ctx: NodeContext, role: str, prompt: str) -> PIInvocationResult:
         process.close()
 
 
-def _append_dev_report(ctx: NodeContext, attempt: int, text: str) -> None:
-    """PI 的最终文本按尝试追加保留（原始记录不丢失）。"""
+def _append_dev_report(
+    ctx: NodeContext, attempt: int, text: str, diff_source: str, baseline: str
+) -> None:
+    """PI 的最终文本与候选来源按尝试追加保留（原始记录不丢失）。"""
 
     reports_path = ctx.task_dir / "dev-reports.jsonl"
     reports_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "attempt": attempt,
+        "text": text,
+        "diff_source": diff_source,
+        "baseline_commit": baseline,
+    }
     with reports_path.open("a", encoding="utf-8") as reports_file:
-        reports_file.write(
-            json.dumps({"attempt": attempt, "text": text}, ensure_ascii=False) + "\n"
-        )
+        reports_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def make_dev_node(ctx: NodeContext) -> NodeFn:
@@ -222,6 +233,13 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
             return {"halted_reason": "plan_missing"}
         ctx.store.set_task_status(ctx.task_id, "implementing")
         ctx.workspace.mkdir(parents=True, exist_ok=True)
+        project_path = ctx.config.get("project_path", "")
+        prepared = time.monotonic()
+        try:
+            if project_path:
+                prepare_workspace(Path(project_path), ctx.config.get("baseline", ""), ctx.workspace)
+        finally:
+            ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)
         prompt = json.dumps(
             {
                 "goal": plan.goal,
@@ -237,12 +255,19 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
             ctx.store.set_task_status(ctx.task_id, "interrupted")
             return {"halted_reason": f"pi_dev_unsettled:{halt}"}
         result = dict(outcome.result or {})
-        _append_dev_report(ctx, state.get("dev_attempts", 0) + 1, outcome.text or "")
-        diff = result.get("diff")
+        attempt = state.get("dev_attempts", 0) + 1
         candidate = ctx.task_dir / "candidate.diff"
         candidate.parent.mkdir(parents=True, exist_ok=True)
-        candidate.write_text(diff if isinstance(diff, str) else "", encoding="utf-8")
-        return {"dev_attempts": state.get("dev_attempts", 0) + 1}
+        if is_git_workspace(ctx.workspace):
+            # 候选 diff 来自工作副本对基线的真实差异，不依赖 PI 文本自述。
+            change = collect_candidate_change(ctx.workspace)
+            candidate.write_text(change.diff, encoding="utf-8")
+            _append_dev_report(ctx, attempt, outcome.text or "", "git", change.baseline_commit)
+        else:
+            diff = result.get("diff")
+            candidate.write_text(diff if isinstance(diff, str) else "", encoding="utf-8")
+            _append_dev_report(ctx, attempt, outcome.text or "", "payload", "")
+        return {"dev_attempts": attempt}
 
     return dev_node
 
@@ -403,6 +428,11 @@ def make_deliver_node(ctx: NodeContext) -> NodeFn:
                         "test_command": list(plan.test_command) if plan else [],
                     },
                     "dev_attempts": state.get("dev_attempts", 0),
+                    "baseline_commit": (
+                        collect_candidate_change(ctx.workspace).baseline_commit
+                        if is_git_workspace(ctx.workspace)
+                        else ""
+                    ),
                     "cumulative_failures": ledger.cumulative_failures,
                     "grants": ledger.grant_count,
                     "diff_path": str(ctx.task_dir / "candidate.diff"),

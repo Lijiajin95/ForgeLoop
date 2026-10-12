@@ -21,6 +21,10 @@ class TestExecutionBudget:
         assert not budget.can_start_action()
         assert budget.remaining_seconds == 0.0
 
+    def test_negative_consumed_at_construction_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="negative"):
+            ExecutionBudget(limit_seconds=100.0, consumed_seconds=-1.0)
+
     def test_negative_charge_is_rejected(self) -> None:
         budget = ExecutionBudget(limit_seconds=100.0)
         with pytest.raises(ValueError, match="negative"):

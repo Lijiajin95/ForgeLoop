@@ -22,6 +22,9 @@
 - FAKE_PI_MODE=reject：prompt 命令被拒绝（response success=false 负例）。
 - FAKE_PI_MODE=model-error：正常 settled 但最终消息 stopReason=error
   （provider 失败复现：settled 不等于成功，实测 403 订阅失效场景）。
+- FAKE_PI_MODE=plain-text：最终文本是自然语言而非 JSON（文本回退路径）。
+- FAKE_PI_MODE=edit：dev 角色真实修改工作副本（写入 feature.txt=new，
+  工作区路径取自 prompt 的 workspace 字段）——git diff 路径的场景替身。
 """
 
 import json
@@ -43,6 +46,21 @@ REVIEW_BLOCKING_RESULT = {
     "summary": "review found blocking issues",
     "blocking_issues": ["示例阻断问题：实现与验收标准不符"],
 }
+
+
+# 协议负例模式：直接输出异常流并让进程退出（返回 None 表示无文本）。
+PROTOCOL_NEGATIVE_MODES = ("garbage", "scalar", "unsettled")
+
+
+def _emit_protocol_negative(mode: str) -> None:
+    if mode == "garbage":
+        sys.stdout.write("not-a-json-line\n")
+        sys.stdout.flush()
+    elif mode == "scalar":
+        sys.stdout.write("42\n")
+        sys.stdout.flush()
+    else:
+        emit({"type": "agent_end", "messages": [], "willRetry": False})
 
 
 def emit(event: dict) -> None:
@@ -90,6 +108,19 @@ def _blocking_first_result() -> dict:
     return {"summary": "re-review passed", "blocking_issues": []}
 
 
+def _prompt_workspace(message: str) -> Path | None:
+    """从 prompt JSON 中取工作区路径（dev 节点携带 workspace 字段）。"""
+
+    try:
+        payload = json.loads(message)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    workspace = payload.get("workspace")
+    return Path(workspace) if isinstance(workspace, str) and workspace else None
+
+
 def _role_result(mode: str, role: str) -> dict:
     if role != "review":
         return DEV_RESULT
@@ -109,20 +140,16 @@ def _serve_prompt(request: dict, mode: str) -> str | None:
         return None
     respond(request, success=True, data={"disposition": "started"})
     emit({"type": "agent_start"})
-    if mode == "garbage":
-        sys.stdout.write("not-a-json-line\n")
-        sys.stdout.flush()
-        return None
-    if mode == "scalar":
-        sys.stdout.write("42\n")
-        sys.stdout.flush()
-        return None
-    if mode == "unsettled":
-        emit({"type": "agent_end", "messages": [], "willRetry": False})
+    if mode in PROTOCOL_NEGATIVE_MODES:
+        _emit_protocol_negative(mode)
         return None
     if mode == "ok-blank":
         sys.stdout.write("\n")
         sys.stdout.flush()
+    if mode == "edit" and prompt_role(message) != "review":
+        workspace = _prompt_workspace(message)
+        if workspace is not None:
+            (workspace / "feature.txt").write_text("new\n", encoding="utf-8")
     # 结果只计算一次：事件流与最终文本共享同一份（避免有状态模式被翻转两次）。
     result = _role_result(mode, prompt_role(message))
     if mode == "model-error":
@@ -144,6 +171,8 @@ def _serve_prompt(request: dict, mode: str) -> str | None:
         return json.dumps(result, ensure_ascii=False)
     emit({"type": "agent_end", "messages": [], "willRetry": False})
     emit({"type": "agent_settled", "aborted": False})
+    if mode == "plain-text":
+        return "审查通过：未发现阻断问题（自然语言文本）"
     return json.dumps(result, ensure_ascii=False)
 
 

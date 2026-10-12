@@ -275,6 +275,28 @@ class TestStatusJsonContract:
         assert "任务: task-noplan2" in out
         assert "方案版本" not in out
 
+    def test_submit_rejects_non_git_project_path(self, tmp_path: Path, capsys) -> None:
+        plain = tmp_path / "not-a-repo"
+        plain.mkdir()
+        with pytest.raises(SystemExit, match="不是 git 仓库"):
+            cli_main(
+                [
+                    "submit",
+                    "--project",
+                    "forgeloop",
+                    "--input",
+                    "x",
+                    "--test-command",
+                    json.dumps(PASSING_TEST_COMMAND),
+                    "--pi-command",
+                    json.dumps(FAKE_PI_COMMAND),
+                    "--project-path",
+                    str(plain),
+                    "--records-root",
+                    str(tmp_path),
+                ]
+            )
+
     def test_submit_rejects_non_array_test_command(self, tmp_path: Path, capsys) -> None:
         with pytest.raises(SystemExit):
             cli_main(

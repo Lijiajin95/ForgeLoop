@@ -36,6 +36,7 @@ dev = [
   "deptry>=0.25,<1",
   "ruff>=0.14,<1",
   "certifi>=2026.7.22,<2027",
+  "diff-cover>=9,<10",
 ]
 mutation = ["mutmut>=3.8,<4"]
 security = ["pip-audit>=2.9,<3", "semgrep>=1.100,<2"]

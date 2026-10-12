@@ -113,6 +113,10 @@ def _describe_interrupt(graph: CompiledStateGraph[TaskState], task_id: str) -> s
 def cmd_submit(args: argparse.Namespace) -> int:
     records_root = _records_root(args)
     original_input = _read_input(args.input)
+    if args.project_path:
+        source = Path(args.project_path)
+        if not source.is_dir() or not (source / ".git").exists():
+            raise SystemExit(f"project_path 不是 git 仓库: {source}")
     test_command = _decode_command(args.test_command, "--test-command")
     pi_command = _decode_command(args.pi_command, "--pi-command")
     task_id = _new_task_id()

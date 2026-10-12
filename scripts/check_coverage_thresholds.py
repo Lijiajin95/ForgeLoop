@@ -5,10 +5,11 @@ coverage is enabled; the policy in ``config/quality-policy.toml`` requires line 
 branch coverage to each reach their own minimum, computed from the raw counters in
 ``coverage json`` output. A missing or malformed report is a failed check. Without a
 Git baseline the changed-line gate is explicitly "not applicable"; once a baseline
-exists this script fails until diff-cover is integrated, so the gate cannot silently
-pass by omission.
+exists diff-cover measures changed-line coverage against ``origin/main`` and its
+failure fails this check, so the gate cannot silently pass by omission.
 
-复刻自 EvidHist 的同名门槛脚本（其验证记录见原项目）。
+复刻自 EvidHist 的同名门槛脚本（其验证记录见原项目）；基线出现后按设计
+接入 diff-cover（2026-10-12 远程仓库建立触发）。
 """
 
 import argparse
@@ -63,7 +64,7 @@ def git_base_revision(root: Path, base: str = "origin/main") -> str | None:
     return revision if re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", revision) else None
 
 
-def changed_line_gate(root: Path, minimum: float) -> dict:
+def changed_line_gate(root: Path, minimum: float, coverage_xml: Path) -> dict:
     base = git_base_revision(root)
     if base is None:
         return {
@@ -71,11 +72,40 @@ def changed_line_gate(root: Path, minimum: float) -> dict:
             "minimum": minimum,
             "reason": "no Git baseline; changed-line coverage cannot be measured yet",
         }
+    diff_cover = root / ".venv" / "bin" / "diff-cover"
+    if not diff_cover.exists():
+        return {
+            "status": "integration_error",
+            "minimum": minimum,
+            "base": base,
+            "reason": "diff-cover is not installed in .venv (dev dependency group)",
+        }
+    result = subprocess.run(
+        [
+            str(diff_cover),
+            str(coverage_xml),
+            "--compare-branch",
+            "origin/main",
+            "--fail-under",
+            str(int(minimum)),
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return {
+            "status": "passed",
+            "minimum": minimum,
+            "base": base,
+            "reason": "diff-cover reported changed-line coverage at or above the minimum",
+        }
     return {
-        "status": "pending_integration",
+        "status": "failed",
         "minimum": minimum,
         "base": base,
-        "reason": "diff-cover must be integrated now that a Git baseline exists",
+        "reason": (result.stdout or result.stderr).strip()[-500:],
     }
 
 
@@ -103,8 +133,9 @@ def run_thresholds(report_path: Path, coverage_policy: dict, root: Path) -> dict
     except ValueError as error:
         failures.append(str(error))
         line_percent, branch = None, {"percent": None, "status": "missing", "minimum": None}
-    changed = changed_line_gate(root, coverage_policy["changed_line_min"])
-    if changed["status"] == "pending_integration":
+    coverage_xml = report_path.with_suffix(".xml")
+    changed = changed_line_gate(root, coverage_policy["changed_line_min"], coverage_xml)
+    if changed["status"] in ("failed", "integration_error"):
         failures.append("changed-line coverage: " + changed["reason"])
     return {
         "report": str(report_path),
