@@ -31,7 +31,8 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 | `config/commit-policy.toml` + `config/workday-calendars/2026.json` | 提交时间策略与年度日历 | 已落地并实测（16:45 周一被正确阻断） |
 | `.semgrep.yml` | 四条本地 SAST 规则 | 已执行：4 规则 20 文件 0 命中 |
 | `.pre-commit-config.yaml` | pre-commit/commit-msg/pre-push hooks | hooks 尚未安装（`make hooks` 待执行） |
-| `.github/workflows/quality.yml` | CI 四作业（quality/security/mutation/commit-policy） | 已在 GitHub 真实执行；截至 `e631ee4` 三个作业通过、mutation 失败（清单过期，见第 19 节）；Action SHA 沿用 EvidHist 已核验值 |
+| `.github/workflows/quality.yml` | 推送/PR CI 三作业（quality/security/commit-policy） | 已在 GitHub 真实执行并通过（第 19 节）；Action SHA 沿用 EvidHist 已核验值 |
+| `.github/workflows/mutation-nightly.yml` | 每日变异作业（19:00 UTC = 03:00 Asia/Shanghai，可手动触发） | 2026-10-12 所有者决定把变异门槛移出推送关键路径；失败仅 Actions 页面可见，回归最多滞后一天发现（第 19 节） |
 | `src/forgeloop/`（domain/records/adapter/graph/cli） | 首版系统架构分层实现 | 已实现并测试（见第 13 节执行记录） |
 | `.gitignore` / `.python-version` | 忽略生成物；Python 基线 3.13 | 3.13.15 已实际使用并锁定 |
 
@@ -148,7 +149,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | 2. 任务、方案、批准与本地记录 | `tests/component` + `scripts/export_cli_contract.py`（CLI JSON 契约）；结构度量脚本与 import-lint、deptry、pylint | `make check` 首次全绿；结构度量先报告现有命中 |
 | 3. 串联实现、审查、正式测试 | `tests/integration`（SQLite、PI Adapter 替身）；mutmut `only_mutate` 固定核心领域文件清单（失败计数/授权/批准版本绑定/时间限额） | `make coverage`、`make mutation` 首次执行并落报告 |
 | 4. 失败轮次、限额与停止 | 计数/授权/限额的属性测试与负例矩阵落地；`pi_live` 真实调用验证 Adapter 契约 | A03/A04 负例可重跑 |
-| 5. 查询、验收与备份 | `tests/system`（CLI 端到端）；CI 四作业随远程仓库启用 | 远程 CI 已有执行记录（第 19 节）；分支保护与必需状态检查未设置，门槛尚未成为合入约束 |
+| 5. 查询、验收与备份 | `tests/system`（CLI 端到端）；推送 CI 三作业随远程仓库启用，变异门槛进每日作业 | 远程 CI 已有执行记录（第 19 节）；分支保护与必需状态检查未设置，门槛尚未成为合入约束 |
 
 全部 `scripts/` 检查脚本的验收标准一致：每个硬门槛都有可发现、可重跑的负例（见第 11 节），无负例不算接入完成。工具版本在步骤 1 核查后固定（uv 0.12.24；Python 3.13 提案值若与 LangGraph/PI 容器冲突则调整后全档同步）。
 
@@ -333,3 +334,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | 尚缺 | 分支保护与必需状态检查未设置（`gh api repos/…/branches/main/protection` → 404 `Branch not protected`），CI 结果仍不是合入门槛；本文件的“远程 CI 无执行记录”表述（第 13/14/17 节）由本节取代 |
 
 **修复后 CI**：运行 [38258313311](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38258313311)（提交 71d74eb，2026-10-12 21:48 推送）四作业全部 `success`——mutation 门槛首次在 CI 上通过；分支保护与必需状态检查仍未设置。
+
+**CI 节奏调整（所有者决定，2026-10-12 21:53；本会话校验后提交）**：推送 CI 移除 mutation 作业（`quality.yml` 保留 quality/security/commit-policy 三作业），变异门槛移入 `.github/workflows/mutation-nightly.yml`——每日 19:00 UTC（= 03:00 Asia/Shanghai）运行，`workflow_dispatch` 可手动触发，timeout 180 分钟，上传 `mutants/mutmut-cicd-stats.json`、`reports/mutation*.txt` 与 `reports/mutation.log`，保留 7 天；`concurrency.cancel-in-progress=false` 不打断长跑。代价：变异回归最多滞后一天发现，夜间失败目前仅 Actions 页面可见（无通知）；门槛判定沿用上节的可疑项复测，使每日这一次判定更可信。
+
+校验（实际执行）：两个 workflow 均通过结构检查（YAML 可解析、Action SHA 40 位固定、作业含 `runs-on`/`timeout-minutes`、顶层 `permissions` 齐备、产物步骤 `if: always()`）；`make mutation` 目标未改动。
