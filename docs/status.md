@@ -49,7 +49,8 @@
 
 | 作业 | 触发 | 最近运行 | 结果 |
 | --- | --- | --- | --- |
-| quality / security / commit-policy | push、PR、手动 | [38331898625](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38331898625)（提交 f28635c，2026-10-13 09:23） | 三作业 success（`commit-policy`、`quality`、`security`） |
+| quality / security / commit-policy | push、PR、手动 | [38337591368](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38337591368)（提交 08b3f08，2026-10-13 10:35） | 三作业 success（本批次：审查门 + 发布部署链路 + 文档） |
+| quality / security / commit-policy（上一批次） | push | [38331898625](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38331898625)（提交 f28635c） | 三作业 success |
 | mutation | 每日 19:00 UTC（= 03:00 Asia/Shanghai）、手动 | [38330443954](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38330443954)（提交 4394282） | success；本机同批实测 `512/596 killed, 84 survivors (84 reviewed)` |
 | Release | 标签 `v*` 推送 | 尚未运行（仓库无标签） | 未执行 |
 | Deploy | Release 发布或手动 | 尚未运行 | 未执行 |
@@ -60,8 +61,9 @@
 
 ### 远程与提交
 
-- `origin` → `Lijiajin95/ForgeLoop`；`main` 与 `origin/main` 均为 `f28635c`，工作树干净，无标签、无 stash。
+- `origin` → `Lijiajin95/ForgeLoop`；`main` 与 `origin/main` 均为 `08b3f08`，无标签、无 stash；同一工作区另有会话在开发架构契约门槛（未提交）。
 - 2026-10-13 上午推送三个提交：`f35ff0c` 所有者授权的临时提交窗口修订、`0f4aa3b` S1–S3 代码与测试、`f28635c` 文档（部署/runner/分支保护/状态）。
+- 2026-10-13 10:3x 推送本批次三个提交：`2049adb` 审查门 fail-closed、`a00ebff` 发布→部署链路接通、`08b3f08` 计划文档与状态记录同步。
 - 更早的主要提交（完整列表见 `git log`）：`71d74eb` 变异门槛修复、`fe7b249` CI 结果记录、`59fc87e` CI 节奏调整、`4faa283` 新节奏执行记录、`7301fb1` 状态记录拆分。
 
 ### 所有者决定（2026-10-12）
@@ -117,6 +119,6 @@
 | S1 真实发布 | 未执行：仓库无标签，也没有真实任务归并记录；首个发布需 A01 完成后由所有者指定版本号执行 `forgeloop release` |
 | S2 真实部署链路 | 引导部署已在真实前缀执行；**「Release → 自托管 runner → 本机部署」未执行**（需先有真实发布），真实两版本回滚未演练（本机仅一个版本） |
 | S3 CI 合入门槛 | 代码侧完成（候选分支流程 + 检查判定）；**ruleset 未设置**（需所有者网页操作）；GitHub 真实检查下的端到端归并**未验证**（本地用假检查状态覆盖通过/失败/超时/重试） |
-| 工作树清洁 | 干净（HEAD = `f28635c` = `origin/main`）；`email.txt` 与 `.forgeloop/` 已加入 `.gitignore`（所有者要求个人草稿不入库；记录目录属本机现场），未跟踪文件不再弄脏工作树、不再阻断 `forgeloop merge` |
+| 工作树清洁 | 本批次提交后干净（HEAD = `08b3f08` = `origin/main`）；同一工作区另有会话正在开发架构契约门槛（未提交，本文件不跟踪其状态）；`email.txt` 与 `.forgeloop/` 已加入 `.gitignore`（所有者要求个人草稿不入库；记录目录属本机现场），未跟踪文件不再弄脏工作树、不再阻断 `forgeloop merge` |
 | 提交窗口临时修订 | **未恢复**：`config/commit-policy.toml` 现为临时的 `00:00–00:01`，必须在 2026-10-13 18:00 之后的合法窗口恢复为 `09:00–18:00`；恢复前的提交不受时段保护，恢复前不得把本项标记为完成 |
 | 已安装 CLI 版本 | `~/.local/bin/forgeloop` 仍是 `v0.0.1` 引导构建（早于 S1–S3 代码）；升级需经受控路径并使用**新版本号**（同版本不同产物已被守卫拒绝），属 S1 真实发布之后的事 |
