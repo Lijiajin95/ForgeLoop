@@ -400,3 +400,82 @@ class TestPiTimeout:
             assert pi_timeout_seconds(ctx) <= 120.0
         finally:
             store.close()
+
+
+class TestPartialCandidateCapture:
+    """dev 未 settle 时：落盘部分候选供人工恢复，但绝不进入自动流程。
+
+    真实故障复现：模型已改了副本文件，随后 provider 连接错误（edit-then-error）。
+    """
+
+    def _dev_context(self, tmp_path: Path, task_id: str, monkeypatch, mode: str):
+        import subprocess
+        import sys
+
+        project = tmp_path / "project"
+        project.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=project, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=project, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=project, check=True)
+        (project / "feature.txt").write_text("old", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=project, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=project, check=True)
+        baseline = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=project, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        monkeypatch.setenv("FAKE_PI_MODE", mode)
+        from forgeloop.records.store import RecordStore
+
+        store = RecordStore(tmp_path / f"{task_id}.sqlite")
+        store.create_task(
+            task_id,
+            "p",
+            "i",
+            {
+                "pi_command": json.dumps([sys.executable, str(FIXTURES / "fake_pi.py")]),
+                "test_command": json.dumps(["true"]),
+                "project_path": str(project),
+                "baseline": baseline,
+            },
+            limit_seconds=600.0,
+        )
+        ctx = NodeContext.for_task(store, tmp_path, task_id)
+        make_plan_node(ctx)({"task_id": task_id})
+        return store, ctx, task_id
+
+    def test_partial_candidate_is_saved_without_entering_auto_flow(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        store, ctx, task_id = self._dev_context(
+            tmp_path, "task-partial", monkeypatch, "edit-then-error"
+        )
+        try:
+            update = make_dev_node(ctx)({"task_id": task_id})
+
+            assert str(update["halted_reason"]).startswith("pi_dev_unsettled:")
+            task = store.get_task(task_id)
+            assert task is not None and task.status == "interrupted"
+            partial = ctx.task_dir / "partial-candidate.diff"
+            assert partial.is_file() and "feature.txt" in partial.read_text(encoding="utf-8")
+            note = json.loads((ctx.task_dir / "partial-candidate.json").read_text(encoding="utf-8"))
+            assert note["changed_files"] == ["feature.txt"]
+            assert note["halted_reason"].startswith("pi_dev_unsettled:")
+            # 安全性质：部分候选绝不写成 candidate.diff（否则会放行不完整交付）
+            assert not (ctx.task_dir / "candidate.diff").exists()
+        finally:
+            store.close()
+
+    def test_no_partial_file_when_workspace_unchanged(self, tmp_path: Path, monkeypatch) -> None:
+        store, ctx, task_id = self._dev_context(
+            tmp_path, "task-nochange", monkeypatch, "model-error"
+        )
+        try:
+            update = make_dev_node(ctx)({"task_id": task_id})
+
+            assert str(update["halted_reason"]).startswith("pi_dev_unsettled:")
+            task = store.get_task(task_id)
+            assert task is not None and task.status == "interrupted"
+            assert not (ctx.task_dir / "partial-candidate.diff").exists()
+            assert not (ctx.task_dir / "candidate.diff").exists()
+        finally:
+            store.close()

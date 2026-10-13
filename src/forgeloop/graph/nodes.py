@@ -35,7 +35,7 @@ from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess, PISpawnOptio
 from forgeloop.adapter.test_runner import run_test_command
 from forgeloop.domain.approval import ApprovalStage, ConsumeStatus, Plan
 from forgeloop.domain.counting import FailureStage, GrantExhaustedError
-from forgeloop.graph.evidence import previous_failure_context
+from forgeloop.graph.evidence import capture_partial_candidate, previous_failure_context
 from forgeloop.graph.prompts import dev_prompt, review_prompt
 from forgeloop.graph.state import TaskState
 from forgeloop.records.store import RecordStore
@@ -289,6 +289,8 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
         outcome = _invoke_pi(ctx, "dev", prompt)
         halt = _pi_outcome_halt(outcome)
         if halt:
+            # 未取得明确结果时把副本已有改动落盘为部分候选（只写 partial-*，供人工恢复）。
+            capture_partial_candidate(ctx.task_dir, ctx.workspace, f"pi_dev_unsettled:{halt}")
             ctx.store.set_task_status(ctx.task_id, "interrupted")
             return {"halted_reason": f"pi_dev_unsettled:{halt}"}
         result = dict(outcome.result or {})

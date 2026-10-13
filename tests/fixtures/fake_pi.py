@@ -173,13 +173,13 @@ def _serve_prompt(request: dict, mode: str) -> str | None:
     if mode == "ok-blank":
         sys.stdout.write("\n")
         sys.stdout.flush()
-    if mode == "edit" and prompt_role(message) != "review":
+    if mode in ("edit", "edit-then-error") and prompt_role(message) != "review":
         workspace = _prompt_workspace(message)
         if workspace is not None:
             (workspace / "feature.txt").write_text("new\n", encoding="utf-8")
     # 结果只计算一次：事件流与最终文本共享同一份（避免有状态模式被翻转两次）。
     result = _role_result(mode, prompt_role(message))
-    if mode == "model-error":
+    if mode in ("model-error", "edit-then-error"):
         messages = [
             {"role": "user", "content": message},
             {
