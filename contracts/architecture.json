@@ -29,6 +29,7 @@
     "forgeloop.graph.builder": "graph",
     "forgeloop.graph.evidence": "graph",
     "forgeloop.graph.nodes": "graph",
+    "forgeloop.graph.prompts": "graph",
     "forgeloop.graph.state": "graph",
     "forgeloop.records": "records",
     "forgeloop.records.store": "records"

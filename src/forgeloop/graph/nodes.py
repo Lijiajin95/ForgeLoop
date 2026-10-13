@@ -36,23 +36,12 @@ from forgeloop.adapter.test_runner import run_test_command
 from forgeloop.domain.approval import ApprovalStage, ConsumeStatus, Plan
 from forgeloop.domain.counting import FailureStage, GrantExhaustedError
 from forgeloop.graph.evidence import previous_failure_context
+from forgeloop.graph.prompts import dev_prompt, review_prompt
 from forgeloop.graph.state import TaskState
 from forgeloop.records.store import RecordStore
 
 PI_TIMEOUT_CAP_SECONDS = 300.0
 TEST_TIMEOUT_CAP_SECONDS = 300.0
-# 开发提示的自验证要求：模型必须自己先跑正式测试，且不得改测试或验收标准迎合通过。
-DEV_SELF_VERIFICATION = (
-    "在结束本轮前，先在 workspace 内运行正式测试命令并确认通过；"
-    "不要修改测试、验收标准或跳过用例来让测试通过。"
-)
-# 审查输出契约：真实模型必须给出结构化阻断列表，否则节点中断（fail-closed）。
-REVIEW_OUTPUT_CONTRACT = (
-    "只输出一个 JSON 对象，不要输出解释或 Markdown 代码块："
-    '{"summary": "<一句话审查结论>", "blocking_issues": ["<阻断问题>", "..."]}。'
-    "没有阻断问题时 blocking_issues 必须是空数组 []。"
-)
-
 # 节点返回的部分状态更新；工厂函数的统一签名。
 NodeUpdate = dict[str, object]
 # 框架边界签名放宽：langgraph add_node 的重载同时接受 (state) 与 (state, config)。
@@ -272,20 +261,13 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
         finally:
             ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)
         attempt = state.get("dev_attempts", 0) + 1
-        payload: dict[str, object] = {
-            "goal": plan.goal,
-            "scope": plan.scope,
-            "acceptance": plan.acceptance,
-            "workspace": str(ctx.workspace),
-            "attempt": attempt,
-            "formal_test_command": list(plan.test_command),
-            "self_verification": DEV_SELF_VERIFICATION,
-        }
-        failure = previous_failure_context(ctx.task_dir)
-        if failure:
+        prompt = dev_prompt(
+            plan,
+            workspace=str(ctx.workspace),
+            attempt=attempt,
             # 失败回边带真实证据：上次正式测试输出与审查阻断问题（截断后）。
-            payload["previous_failure"] = failure
-        prompt = json.dumps(payload, ensure_ascii=False)
+            previous_failure=previous_failure_context(ctx.task_dir),
+        )
         outcome = _invoke_pi(ctx, "dev", prompt)
         halt = _pi_outcome_halt(outcome)
         if halt:
@@ -337,16 +319,7 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
         candidate = ctx.task_dir / "candidate.diff"
         diff_text = candidate.read_text(encoding="utf-8") if candidate.exists() else ""
         ctx.store.set_task_status(ctx.task_id, "reviewing")
-        prompt = json.dumps(
-            {
-                "role": "review",
-                "goal": plan.goal if plan else "",
-                "acceptance": plan.acceptance if plan else "",
-                "candidate_diff": diff_text,
-                "output_contract": REVIEW_OUTPUT_CONTRACT,
-            },
-            ensure_ascii=False,
-        )
+        prompt = review_prompt(plan, candidate_diff=diff_text)
         outcome = _invoke_pi(ctx, "review", prompt)
         halt = _pi_outcome_halt(outcome)
         if halt:
