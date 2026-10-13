@@ -226,6 +226,26 @@ class TestStatusJsonContract:
         assert "任务: task-noplan2" in out
         assert "方案版本" not in out
 
+    def test_submit_rejects_negative_pi_timeout(self, tmp_path: Path, capsys) -> None:
+        with pytest.raises(SystemExit, match="不能为负"):
+            cli_main(
+                [
+                    "submit",
+                    "--project",
+                    "P",
+                    "--input",
+                    "x",
+                    "--test-command",
+                    '["true"]',
+                    "--pi-command",
+                    '["unused"]',
+                    "--pi-timeout-seconds",
+                    "-1",
+                    "--records-root",
+                    str(tmp_path),
+                ]
+            )
+
     def test_submit_rejects_non_git_project_path(self, tmp_path: Path, capsys) -> None:
         plain = tmp_path / "not-a-repo"
         plain.mkdir()
