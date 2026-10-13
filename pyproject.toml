@@ -109,7 +109,7 @@ omit = ["src/forgeloop/__init__.py", "src/forgeloop/domain/__init__.py"]
 source_paths = ["src/forgeloop/"]
 # 核心领域范围：失败轮次计数、追加授权、批准绑定、时间限额、提交策略、
 # 受控归并（含 S3 必需检查判定）、受控发布与受控部署规则。
-# 避免对框架启动、第三方代码和全部 I/O 进行变异（架构文档 §4 同款边界）。
+# 避免对框架启动、第三方代码和全部 I/O 进行变异（架构文档 §7 同款边界）。
 only_mutate = [
   "src/forgeloop/domain/counting.py",
   "src/forgeloop/domain/approval.py",

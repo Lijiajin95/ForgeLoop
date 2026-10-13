@@ -18,11 +18,12 @@ ForgeLoop 首版是一个 CLI 自动研发工具：把边界明确的小需求�
 2. [五步工作法需求审查](docs/requirements-review.md)：每项为什么保留、简化或后置。
 3. [首版产品需求](docs/product-requirements.md)：当前实现范围与交付条件。
 4. [待实现需求列表](docs/pending-requirements.md)：后置需求、触发条件和验收要求。
-5. [最小架构](docs/architecture.md)：CLI、一个业务图、PI Adapter 与本地记录。
+5. [架构说明](docs/architecture.md)：已实现的五层结构（domain/records/adapter/graph/cli）、依赖方向、业务图、持久化与外部边界；机读快照在 `contracts/architecture.json`，架构变化必须同步更新这两份文件。
 6. [快速启动验收计划](docs/first-validation-plan.md)：验证真实交付（人工投入上限已按所有者决定撤销）。
 7. [RoadMap](docs/roadmap.md)：先使用，再按真实痛点逐项扩展。
 8. [领域术语](CONTEXT.md)与[分层决策](docs/adr/0001-orchestration-and-executors.md)。
 9. [工程可靠性方案](docs/engineering-reliability.md)与[研发纪律](docs/development-discipline.md)：分层测试、统一门槛、提交纪律与激活顺序，含逐批次执行记录、失败与负例矩阵。
+10. [DogFood 执行任务计划](docs/dogfood-execution-plan.md)：按需求规划、研发交付、版本交付三条业务线拆成 21 个执行任务，明确依赖、拟修改文件、验证和门槛；当前为未实施方案。
 
 ## 后置范围
 

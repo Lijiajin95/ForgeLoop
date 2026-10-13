@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "doc": "docs/architecture.md",
+  "source_root": "src/forgeloop",
+  "modules": {
+    "forgeloop": "(root)",
+    "forgeloop.__main__": "__main__",
+    "forgeloop.adapter": "adapter",
+    "forgeloop.adapter.deployment": "adapter",
+    "forgeloop.adapter.git_workspace": "adapter",
+    "forgeloop.adapter.github_checks": "adapter",
+    "forgeloop.adapter.pi_rpc": "adapter",
+    "forgeloop.adapter.test_runner": "adapter",
+    "forgeloop.cli": "cli",
+    "forgeloop.cli.common": "cli",
+    "forgeloop.cli.deploy": "cli",
+    "forgeloop.cli.main": "cli",
+    "forgeloop.cli.merge": "cli",
+    "forgeloop.cli.release": "cli",
+    "forgeloop.domain": "domain",
+    "forgeloop.domain.approval": "domain",
+    "forgeloop.domain.commit_policy": "domain",
+    "forgeloop.domain.counting": "domain",
+    "forgeloop.domain.deploy": "domain",
+    "forgeloop.domain.limits": "domain",
+    "forgeloop.domain.merge": "domain",
+    "forgeloop.domain.release": "domain",
+    "forgeloop.graph": "graph",
+    "forgeloop.graph.builder": "graph",
+    "forgeloop.graph.evidence": "graph",
+    "forgeloop.graph.nodes": "graph",
+    "forgeloop.graph.state": "graph",
+    "forgeloop.records": "records",
+    "forgeloop.records.store": "records"
+  },
+  "layer_edges": [
+    [
+      "__main__",
+      "cli"
+    ],
+    [
+      "cli",
+      "adapter"
+    ],
+    [
+      "cli",
+      "domain"
+    ],
+    [
+      "cli",
+      "graph"
+    ],
+    [
+      "cli",
+      "records"
+    ],
+    [
+      "graph",
+      "adapter"
+    ],
+    [
+      "graph",
+      "domain"
+    ],
+    [
+      "graph",
+      "records"
+    ],
+    [
+      "records",
+      "domain"
+    ]
+  ]
+}

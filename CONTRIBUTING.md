@@ -30,6 +30,23 @@ type(scope): 简洁描述
 
 一个 commit 表达一个可解释、可验证的变化。行为变更与回归测试同行；无关重构、格式修改和新功能尽量分开。合入优先保持符合规范的线性历史；GitHub squash 或 merge 创建的新 commit 也须遵守提交时间约束。
 
+## 架构描述同步
+
+架构的人工权威描述是[架构说明](docs/architecture.md)，机读事实是 `contracts/architecture.json`。两者与源码必须同时成立，缺一不可。
+
+以下情况属于**架构变化**，必须在同一次改动中更新上述两份文件：
+
+- 模块的新增、删除、改名或换层；
+- 跨层依赖方向的新增、删除或改变；
+- `scripts/export_architecture_contract.py` 中 `LAYER_RULES` 允许依赖表的改变；
+- 业务图节点增删或拓扑、路由改变；
+- 持久化介质、记录表结构或现场产物文件名的改变；
+- 外部依赖系统的新增或替换、接缝形态的改变。
+
+流程：改代码 → 更新[架构说明](docs/architecture.md)（至少层与模块清单）→ 运行 `make architecture-contract` 重新导出快照 → 运行 `make check`。方向性选择（换编排框架、换执行器、改变分层）另写[分层决策](docs/adr/)记录，ADR 只回答「为什么」，架构说明回答「现在是什么」。
+
+该义务由 `make architecture-contract-check`（含在 `make check` 内）机器强制：模块增删换层、跨层边漂移、越层依赖、import 环，以及架构说明的模块清单与源码不互为镜像，任一发生即失败。同层内部重构且不改变任何边时不算架构变化，但快照仍须保持一致。
+
 ## 开发与检查
 
 先阅读[研发纪律](docs/development-discipline.md)与[工程可靠性方案](docs/engineering-reliability.md)，执行 `make setup`、`make hooks` 和 `make check`（当前骨架不可执行，随首批代码激活）。提交前运行相关测试；涉及 CLI 输出、PI Adapter、容器边界或安全时，执行对应层级检查并记录结果。

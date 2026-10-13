@@ -6,7 +6,7 @@ FAST_TESTS := tests/unit tests/property tests/component tests/scenario
 # 当前仓库尚无业务代码与 scripts/ 检查脚本，全部目标在首批代码落地前不可执行；
 # 激活顺序见 docs/engineering-reliability.md 第 10 节。
 
-.PHONY: setup format lint typecheck test test-system check cli-contract cli-contract-check structure-metrics import-lint deptry pylint pi-live coverage coverage-thresholds mutation audit sast security hooks precommit commit-policy-config
+.PHONY: setup format lint typecheck test test-system check cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pylint pi-live coverage coverage-thresholds mutation audit sast security hooks precommit commit-policy-config
 
 setup:
 	$(UV) sync --frozen --default-index https://pypi.org/simple --group mutation --group security
@@ -39,6 +39,12 @@ cli-contract:
 
 cli-contract-check:
 	.venv/bin/python scripts/export_cli_contract.py --check
+
+architecture-contract:
+	.venv/bin/python scripts/export_architecture_contract.py
+
+architecture-contract-check:
+	.venv/bin/python scripts/export_architecture_contract.py --check
 
 structure-metrics:
 	.venv/bin/python scripts/check_structure_metrics.py

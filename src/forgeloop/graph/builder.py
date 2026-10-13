@@ -1,6 +1,6 @@
 """业务图构建器：LangGraph 状态图与持久 checkpointer 装配。
 
-图拓扑（架构 §2 最小业务图）：
+图拓扑（架构 §4 研发闭环业务图）：
 START → plan → gate_plan_approval →(批准) dev → review →(阻断) dev
                                       ↘(拒绝/绑定失败) END        ↘(通过) test
 test →(通过) gate_acceptance →(接受) deliver → END

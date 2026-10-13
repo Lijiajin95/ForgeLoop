@@ -93,7 +93,8 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 | 属性样例数 | 本地 100，PR 高风险 300，发布前 1000 | 执行预算而非统计置信度；保留 seed、最小反例与实际次数 |
 | 单测时限 | 30 秒（signal 模式） | 含 fixture；超时为失败/未完成 |
 | CI 错误/非法配置/空关键测试 | 0 | 禁止 test-only 式占位；没有测试或报告缺失直接失败 |
-| 新增依赖循环/越层依赖 | 0 | Import Linter 契约；不能靠遗漏入口达标 |
+| 新增依赖循环/越层依赖 | 0 | Import Linter 契约＋架构契约门禁（`scripts/export_architecture_contract.py`）；不能靠遗漏入口达标 |
+| 未同步的架构漂移 | 0 | 架构契约快照（模块增删换层、跨层边、import 环）与架构说明模块清单的镜像差异；见[架构说明](architecture.md)第 9 节 |
 | 未处置密钥命中 | 0 | 单列误报与真实泄漏（Gitleaks 按 EvidHist 先例顺延至发布 CI 前） |
 | 未批准的破坏性契约变更 | 0 | CLI JSON 契约快照差异；版本化变更须解释迁移 |
 
@@ -116,6 +117,7 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 - **Semgrep 四条本地规则**（`.semgrep.yml`，`--error --strict`，解析失败即失败）：禁止 `shell=True`/`os.system`（ForgeLoop 真实执行测试命令与容器命令，此规则是第一道护栏）；禁止 `eval`/`exec`（任务输入、PI 事件与模型输出是数据不是代码）；禁止 `pickle`/`yaml.unsafe_load`（记录与会话是外部产物）；禁止关闭 TLS 校验。无命中不等于无漏洞；规则按真实风险扩充并带正反例。
 - **依赖纪律**：运行、开发、变异、安全依赖分组，`uv.lock` 冻结完整解析；deptry 核查声明与分组（dev 依赖无理由导入被 DEP004 拒绝）；certifi 显式声明于 dev 组供安全工具使用；更新依赖必须重新执行相关检查并更新锁文件。
 - **Import Linter**：`forgeloop.domain` 禁止依赖 `cli/graph/adapter` 与 `langgraph`（领域规则保持纯净，编排适配留在图与 Adapter 层）；新契约随代码分层落地时增加，不能靠遗漏入口达标。
+- **架构契约门禁**：`scripts/export_architecture_contract.py` 从源码 AST 推导模块清单、分层与跨层依赖边，与 `contracts/architecture.json` 快照和[架构说明](architecture.md)比对；模块增删换层、跨层边漂移、越层依赖（`LAYER_RULES`）、import 环，以及架构说明模块清单与源码不互为镜像，任一发生即失败。这条门禁是「架构变化必须同步架构描述文档」的执行点，规则与判定标准见架构说明第 9 节；命令为 `make architecture-contract`（导出）与 `make architecture-contract-check`（含在 `make check` 内）。
 - **环境隔离**：测试不触碰真实 main 仓库副本；`mutants/` 是可再生缓存目录，更换测试集后必须删除强制重生成（复刻 EvidHist 踩坑结论；mutmut `also_copy` 需要 `tests/config/scripts`）。
 
 ## 8. 提交纪律
