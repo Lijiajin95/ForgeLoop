@@ -340,3 +340,52 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 校验（实际执行）：两个 workflow 均通过结构检查（YAML 可解析、Action SHA 40 位固定、作业含 `runs-on`/`timeout-minutes`、顶层 `permissions` 齐备、产物步骤 `if: always()`）；`make mutation` 目标未改动。
 
 **新节奏首次执行**：推送 CI 运行 [38264685683](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38264685683)（提交 59fc87e）quality/security/commit-policy 三作业 `success`；变异作业手动触发运行 [38264830328](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38264830328) `success`，日志为 `Mutation gate passed: 200/246 killed, 46 survivors (46 reviewed)`（首次测量即与清单一致，未触发复测）。自动执行按 cron 于 2026-10-13 03:00（Asia/Shanghai）首次生效。
+
+## 20. 受控发布、本机部署与候选分支归并（S1–S3）：2026-10-13 上午
+
+所有者 2026-10-12 深夜决定 CD 交付目标为本机 Debian 设备后，本批次把"发布 → 部署 → 合入门槛"三段实现并落地，最后把全部改动提交并推送 GitHub。
+
+**本批次实现（含真实执行证据）**：
+
+| 段 | 内容 | 真实执行证据 |
+| --- | --- | --- |
+| S1 受控发布 | `forgeloop release <task> --tag vX.Y.Z`：校验 pyproject 版本与标签一致、任务已归并、同标签幂等、换标签拒绝；`releases` 表固化标签／归并提交／基线／候选 diff 校验值；`.github/workflows/release.yml` 由标签触发，`uv build` 一次构建并生成 `SHA256SUMS`，用 `GITHUB_TOKEN` 发布（不引入 PAT） | 场景测试覆盖发布、同标签重复、换标签、未归并拒绝；**尚无真实标签**（首个发布等真实任务归并后由所有者指定版本号） |
+| S2 本机部署 | `forgeloop deploy`：只下载 Release 上同一份产物（校验值不匹配即拒绝，禁止重新构建）→ 独立版本目录 `releases/<version>` → 临时符号链接 + `os.replace` 原子切换 → 冒烟检查 → `deployments.jsonl` 回执；`rollback` 只切到已安装且留有校验记录的版本 | **真实引导部署 v0.0.1**：校验值 `ab03c198…c4e`，冒烟 exit 0，`releases/0.0.1` + `current` + `deployments.jsonl`（1 条）+ `~/.local/bin/forgeloop` 垫片；已安装 CLI 独立 venv 跑 `status --json` 得 `task_not_found` |
+| S3 合入门槛（方案 B） | `forgeloop merge` 有远程时默认：候选分支 `forgeloop/<task>` → 推送 → **匿名**轮询 `check-runs`（公开仓库无需凭据）→ 快进 main（`--ff-only`）→ 推送 → 删候选分支；失败/超时/读取异常保持 main 不动、保留分支、写 `merge-evidence.json`；`--require-checks none` 供无 CI 仓库、`--direct-push` 明确标注为不安全路径 | 11 项场景测试（真实 git + 裸仓库远程 + 注入检查状态）：通过→快进并删本地/远程分支；失败/超时→main 未动且已切回 main；先 pending 后通过→轮询 2 次；读取报错→重试；另 6 项单元测试覆盖检查解析与候选分支 git 现场 |
+
+**部署守卫（真实前缀上的负例）**：用当前工作树重新构建的产物（`986a885b4821`）尝试按同一版本 `v0.0.1` 部署，被拒：
+
+```text
+FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部署 986a885b4821；拒绝覆盖
+```
+
+退出码 1，`current` 指针与 `deployments.jsonl` 均未变化——"只部署同一份已验收产物"这条不变量在真实安装现场成立。
+
+**本批次踩到并修掉的问题（均为实测，非推测）**：
+
+| 问题 | 处理 |
+| --- | --- |
+| 本机无 `uv`、且 `~/.cache/uv` 只读 | 装 uv 0.12.24 到 `.toolchain/bin`；`UV_CACHE_DIR`/`UV_PYTHON_INSTALL_DIR` 改为前缀内（`.cache/uv`、`.toolchain/python`），部署运行时同样用前缀内缓存 |
+| HTTPS 推送无凭据、`ssh` 因 `/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf` 权限报错 | `origin` 改 SSH（`git@github.com:…`），`core.sshCommand=ssh -F /dev/null`，写入 GitHub 官方三把主机公钥到 `~/.ssh/known_hosts`；`push --dry-run` 验证 `Everything up-to-date` |
+| 版本号口径不一致（目录用 `0.0.1`、日志用 `v0.0.1`）导致幂等/冲突判定静默失效 | 统一为 `tag=vX.Y.Z`、`version=X.Y.Z`，并在场景测试中断言两条路径都拒绝 |
+| 变异缓存复用导致新增模块的变异体不生成 | 重新测量前 `rm -rf mutants`；本批次 deploy 段 19 个幸存者收敛为 4 类行为变异并用测试杀死，其余登记 |
+| 分支覆盖一度 88.5% < 90% | 补受控路径的假 Release 场景与适配器错误路径测试 → 91.89%，S3 落地后 92.16% |
+| `domain/merge.py` 从未纳入变异范围 | 纳入 `only_mutate`；首轮暴露 21 个幸存者，其中 **6 个是真实契约缺口**（`allowed=False→None`、`reason→None`）用严格断言杀死，14 条消息文本/短 SHA 变异逐条登记审阅 |
+| 结构门槛：`build_parser`、`test_document_schema_for_awaiting_task`、`_merge_via_branch` 超长 | 拆出 `add_deploy_parser`/`add_merge_parser`、测试辅助函数与 `_start_candidate`/`_finish_landing`；最终结构 0 失败、22 警告 |
+| 测试替身的远程配置踩坑 | 先用 `url.<bare>.insteadOf` 重写 GitHub URL，导致读取端也被重写、`remote_slug` 解析失败；改为"fetch 地址是 GitHub、push 地址指本地裸仓库"；另补仓库内 `user.name/user.email`（受控提交用 `user.useConfigOnly=true`，缺身份时宁可失败） |
+
+**提交与推送（2026-10-13 上午，所有者授权）**：
+
+| 提交 | 内容 |
+| --- | --- |
+| `f35ff0c` | `chore(policy): 所有者授权的临时提交窗口修订（须于 18:00 后恢复）` |
+| `0f4aa3b` | `feat(cd): 受控发布、本机部署与候选分支归并（S1-S3）` |
+| `f28635c` | `docs: 状态记录、部署与分支保护说明` |
+
+推送前 pre-push hook（Ruff lint / Ruff format / Pyright / 确定性测试）全部 Passed；推送 CI 运行 [38331898625](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38331898625)（f28635c，2026-10-13 09:23）三作业 `success`。
+
+**提交窗口事件（如实记录）**：推送时处于法定工作日 09:09，项目纪律禁止提交且策略脚本无"例外"机制。所有者明确授权本批次提交并选择"临时策略修订"路径，而非绕过 hooks（未使用 `--no-verify`，未改时钟，未伪造时间戳）：`blocked_start`/`blocked_end` 由 `09:00–18:00` 临时缩为 `00:00–00:01`（策略要求 `start < end`，窗口无法置零），原值、授权与恢复义务写在配置文件与状态记录中。恢复脚本（`.cache/restore-commit-policy.sh`）先在合法窗口内自检、不通过则回滚文件且不产生提交——**已在窗口内实测该安全失败行为**。**恢复义务未完成前，本批次不得视为收尾**。
+
+**门槛数字（对应 f28635c）**：`make check` 十项全绿（快速套件 337 项、结构 0 失败 / 22 警告、pylint 10.00）；`make coverage` 355 项通过（5 项 pi_live 显式跳过）、行 96.66% / 分支 92.16%；`make test-system` 2 项通过；`make sast` 4 条规则 35 个目标 0 findings；`make mutation` `512/596 killed, 84 survivors (84 reviewed)`。
+
+**未验证边界（不得当作已完成）**：GitHub 真实检查下的端到端候选分支归并（ruleset 未设置）；「Release → 自托管 runner → 本机部署」链路；真实两版本回滚（本机仅一个版本）；容器隔离下运行 PI；A01 真实任务闭环。
