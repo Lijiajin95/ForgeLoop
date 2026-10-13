@@ -315,3 +315,47 @@ class TestDevPromptContract:
         instruction = prompt["self_verification"]
         assert "run_tests.py" in instruction or "测试命令" in instruction
         assert "不要" in instruction or "不得" in instruction  # 不得改测试/验收标准
+
+
+class TestInterruptedGate:
+    """中断收口：已记录 halted_reason 时，审查/测试节点不得再启动新动作。
+
+    真实运行发现：dev 因 provider 连接错误中断后，图仍进入审查节点，造成一次无效模型
+    调用，并把终态覆盖成 reviewing（应为 interrupted）。
+    """
+
+    def _interrupted_context(self, store, tmp_path: Path, task_id: str, monkeypatch):
+        import sys
+
+        log_path = tmp_path / "prompts.jsonl"
+        monkeypatch.setenv("FAKE_PI_MODE", "ok")
+        monkeypatch.setenv("FAKE_PI_PROMPT_LOG", str(log_path))
+        ctx = context(
+            store,
+            tmp_path,
+            task_id,
+            {"pi_command": json.dumps([sys.executable, str(FIXTURES / "fake_pi.py")])},
+        )
+        make_plan_node(ctx)({"task_id": task_id})
+        store.set_task_status(task_id, "interrupted")
+        return ctx, log_path
+
+    def test_review_node_does_not_start_after_halt(
+        self, store, tmp_path: Path, monkeypatch
+    ) -> None:
+        task_id = "task-halt-review"
+        ctx, log_path = self._interrupted_context(store, tmp_path, task_id, monkeypatch)
+        update = make_review_node(ctx)({"task_id": task_id, "halted_reason": "pi_dev_unsettled:x"})
+        assert update == {"halted_reason": "pi_dev_unsettled:x"}
+        assert not log_path.exists()  # 没有启动新的 PI 会话
+        assert store.get_task(task_id).status == "interrupted"  # 终态未被覆盖成 reviewing
+
+    def test_test_node_does_not_start_after_halt(self, store, tmp_path: Path, monkeypatch) -> None:
+        task_id = "task-halt-test"
+        ctx, log_path = self._interrupted_context(store, tmp_path, task_id, monkeypatch)
+        from forgeloop.graph.nodes import make_test_node
+
+        update = make_test_node(ctx)({"task_id": task_id, "halted_reason": "pi_review_unsettled:y"})
+        assert update == {"halted_reason": "pi_review_unsettled:y"}
+        assert not log_path.exists()
+        assert store.get_task(task_id).status == "interrupted"

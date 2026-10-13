@@ -100,6 +100,17 @@ def _pi_command(config: Mapping[str, str]) -> tuple[str, ...]:
     return tuple(command)
 
 
+def _interrupted(state: TaskState) -> str | None:
+    """中断收口：已记录 halted_reason 时，任何节点都不再启动新动作。
+
+    没有这道闸时，dev 因 provider 错误中断后图仍会进入审查节点：既浪费一次模型调用，
+    又把终态覆盖成 reviewing（应为 interrupted）。
+    """
+
+    reason = state.get("halted_reason")
+    return str(reason) if reason else None
+
+
 def _action_gate(ctx: NodeContext) -> str | None:
     """动作启动门：任何停止记录（已请求或已确认）都不再启动新动作。"""
 
@@ -244,7 +255,7 @@ def _append_dev_report(
 
 def make_dev_node(ctx: NodeContext) -> NodeFn:
     def dev_node(state: TaskState) -> NodeUpdate:
-        halt = _action_gate(ctx)
+        halt = _interrupted(state) or _action_gate(ctx)
         if halt:
             return {"halted_reason": halt}
         plan = ctx.store.latest_plan(ctx.task_id)
@@ -319,7 +330,7 @@ def _write_review_reports(ctx: NodeContext, attempt: int, blocking: list, result
 
 def make_review_node(ctx: NodeContext) -> NodeFn:
     def review_node(state: TaskState) -> NodeUpdate:
-        halt = _action_gate(ctx)
+        halt = _interrupted(state) or _action_gate(ctx)
         if halt:
             return {"halted_reason": halt}
         plan = ctx.store.latest_plan(ctx.task_id)
@@ -364,7 +375,7 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
 
 def make_test_node(ctx: NodeContext) -> NodeFn:
     def test_node(state: TaskState) -> NodeUpdate:
-        halt = _action_gate(ctx)
+        halt = _interrupted(state) or _action_gate(ctx)
         if halt:
             return {"halted_reason": halt}
         plan = ctx.store.latest_plan(ctx.task_id)
