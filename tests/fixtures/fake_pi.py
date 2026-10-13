@@ -22,7 +22,10 @@
 - FAKE_PI_MODE=reject：prompt 命令被拒绝（response success=false 负例）。
 - FAKE_PI_MODE=model-error：正常 settled 但最终消息 stopReason=error
   （provider 失败复现：settled 不等于成功，实测 403 订阅失效场景）。
-- FAKE_PI_MODE=plain-text：最终文本是自然语言而非 JSON（文本回退路径）。
+- FAKE_PI_MODE=plain-text：最终文本是自然语言而非 JSON（无结构化载荷）。
+- FAKE_PI_MODE=review-bad-issues：review 返回 blocking_issues 但不是列表。
+- FAKE_PI_MODE=review-no-issues：review 返回的 JSON 没有 blocking_issues 字段。
+- FAKE_PI_MODE=review-empty-text：review 正常 settled 但既无结构化载荷也无文本。
 - FAKE_PI_MODE=edit：dev 角色真实修改工作副本（写入 feature.txt=new，
   工作区路径取自 prompt 的 workspace 字段）——git diff 路径的场景替身。
 """
@@ -46,6 +49,14 @@ REVIEW_BLOCKING_RESULT = {
     "summary": "review found blocking issues",
     "blocking_issues": ["示例阻断问题：实现与验收标准不符"],
 }
+
+# 非结构化结果负例：不能据此得出"无阻断"（必须中断而非放行）。
+REVIEW_BAD_ISSUES_RESULT = {
+    "summary": "review 结果里 blocking_issues 不是列表",
+    "blocking_issues": "none",
+}
+
+REVIEW_NO_ISSUES_RESULT = {"summary": "review 结果没有 blocking_issues 字段"}
 
 
 # 协议负例模式：直接输出异常流并让进程退出（返回 None 表示无文本）。
@@ -128,6 +139,10 @@ def _role_result(mode: str, role: str) -> dict:
         return REVIEW_BLOCKING_RESULT
     if mode == "blocking-first":
         return _blocking_first_result()
+    if mode == "review-bad-issues":
+        return REVIEW_BAD_ISSUES_RESULT
+    if mode == "review-no-issues":
+        return REVIEW_NO_ISSUES_RESULT
     return REVIEW_OK_RESULT
 
 
@@ -171,6 +186,8 @@ def _serve_prompt(request: dict, mode: str) -> str | None:
         return json.dumps(result, ensure_ascii=False)
     emit({"type": "agent_end", "messages": [], "willRetry": False})
     emit({"type": "agent_settled", "aborted": False})
+    if mode == "review-empty-text":
+        return ""
     if mode == "plain-text":
         return "审查通过：未发现阻断问题（自然语言文本）"
     return json.dumps(result, ensure_ascii=False)

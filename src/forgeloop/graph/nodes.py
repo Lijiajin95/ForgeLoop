@@ -273,25 +273,23 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
 
 
 def _write_review_reports(ctx: NodeContext, attempt: int, blocking: list, result: dict) -> None:
-    """审查结论按尝试追加保留（原始记录不丢失），并保存最新摘要。"""
+    """审查结论按尝试追加保留（原始记录不丢失），并保存最新摘要。
 
-    entry = {
-        "attempt": attempt,
+    ``blocking_issues_valid`` 记录该轮是否给出了结构化阻断列表；为假表示结果
+    不可用（审查节点据此中断，而不是判为"无阻断"）。
+    """
+
+    payload = {
         "blocking_issues": blocking,
+        "blocking_issues_valid": bool(result.get("blocking_issues_valid", True)),
         "summary": result.get("summary", ""),
     }
     reviews_path = ctx.task_dir / "reviews.jsonl"
     reviews_path.parent.mkdir(parents=True, exist_ok=True)
     with reviews_path.open("a", encoding="utf-8") as reviews_file:
-        reviews_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        reviews_file.write(json.dumps({"attempt": attempt, **payload}, ensure_ascii=False) + "\n")
     report_path = ctx.task_dir / "review-report.json"
-    report_path.write_text(
-        json.dumps(
-            {"blocking_issues": blocking, "summary": result.get("summary", "")},
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
+    report_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
 def make_review_node(ctx: NodeContext) -> NodeFn:
@@ -321,8 +319,18 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
         if not result.get("summary") and outcome.text:
             result["summary"] = outcome.text
         raw_issues = result.get("blocking_issues")
-        blocking = list(raw_issues) if isinstance(raw_issues, list) else []
-        _write_review_reports(ctx, state.get("dev_attempts", 0) + 1, blocking, result)
+        valid = isinstance(raw_issues, list)
+        blocking = list(raw_issues) if valid else []
+        _write_review_reports(
+            ctx,
+            state.get("dev_attempts", 0) + 1,
+            blocking,
+            {**result, "blocking_issues_valid": valid},
+        )
+        if not valid:
+            # 结果缺失或非结构化时不能得出"无阻断"：中断交人工决定，禁止错误放行。
+            ctx.store.set_task_status(ctx.task_id, "interrupted")
+            return {"halted_reason": "review_result_invalid"}
         return {"last_review_blocking": bool(blocking)}
 
     return review_node

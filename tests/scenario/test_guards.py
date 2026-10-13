@@ -146,16 +146,15 @@ class TestPiOutcomeHalts:
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "stopped"  # 确认停止后不再启动新动作
 
-    def test_plain_text_review_falls_back_to_text(
-        self, tmp_path: Path, capsys, monkeypatch
-    ) -> None:
+    def test_plain_text_review_is_not_released(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "plain-text")
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=0)
         run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)
         document = status_document(tmp_path, task_id, capsys)
-        # 文本回退：无结构化载荷时仍完成审查与测试闭环。
-        assert document["status"] == "awaiting_acceptance"
+        # 无结构化载荷时不得判为"无阻断"：中断交人工决定，不进入测试与验收。
+        assert document["status"] == "interrupted"
+        assert document.get("delivery") is None
         reviews = [
             json.loads(line)
             for line in (tmp_path / task_id / "reviews.jsonl")
@@ -163,4 +162,5 @@ class TestPiOutcomeHalts:
             .splitlines()
         ]
         assert reviews[0]["blocking_issues"] == []
-        assert "自然语言" in reviews[0]["summary"]
+        assert reviews[0]["blocking_issues_valid"] is False
+        assert "自然语言" in reviews[0]["summary"]  # 原始文本保留供人工核对
