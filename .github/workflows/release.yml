@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: write  # 显式派发 Deploy 工作流（workflow_dispatch 是 GITHUB_TOKEN 的例外）
 
 concurrency:
   group: release-${{ github.ref }}
@@ -53,3 +54,11 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             --verify-tag
+      - name: Trigger deploy workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # GITHUB_TOKEN 创建的 release 事件不会触发下游工作流（仅 workflow_dispatch /
+          # repository_dispatch 例外），因此这里显式派发 Deploy；失败即本作业失败。
+          gh workflow run deploy.yml --ref "${GITHUB_REF_NAME}" -f tag="${GITHUB_REF_NAME}"

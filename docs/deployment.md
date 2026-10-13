@@ -71,8 +71,13 @@ forgeloop rollback --to 0.0.1 --prefix ~/.local/share/forgeloop --note "原因"
 
 ## 自动化（GitHub Actions）
 
-- 工作流：[.github/workflows/deploy.yml](../.github/workflows/deploy.yml)，触发条件为 Release
-  发布或手动 `workflow_dispatch`。
+- 工作流：[.github/workflows/deploy.yml](../.github/workflows/deploy.yml)。触发路径两条：
+  - **自动（标签交付）**：`release.yml` 创建 Release 后**显式 `workflow_dispatch` 派发**本工作流
+    （`gh workflow run deploy.yml --ref <tag> -f tag=<tag>`）。这一步必需：按 GitHub 规则，用
+    `GITHUB_TOKEN` 创建 Release 所产生的 `release.published` 事件**不会**触发下游工作流（只有
+    `workflow_dispatch` 与 `repository_dispatch` 例外），只靠 `release.published` 会断链。
+  - **人工**：在 GitHub 上手动创建 Release（`release.published` 生效），或手动 `workflow_dispatch`
+    并填标签。
 - 运行位置：**自托管 runner**，标签 `forgeloop-deploy`（安装步骤见
   [自托管 runner 说明](self-hosted-runner.md)）；作业调用本机**已安装**的 forgeloop 部署，
   形成自升级链路。
@@ -82,7 +87,9 @@ forgeloop rollback --to 0.0.1 --prefix ~/.local/share/forgeloop --note "原因"
 ## 未验证与已知边界
 
 - 「Release → 自托管 runner → 本机部署」的真实端到端链路**尚未执行**：需要一次真实交付
-  走完 S1 发布（标签 + Release）后才能验证；当前只有引导路径的真实验证。
+  走完 S1 发布（标签 + Release）后才能验证；当前只有引导路径的真实验证。链路本身已修复
+  （2026-10-13：原配置只靠 `release.published`，而 `GITHUB_TOKEN` 创建的 Release 事件不触发
+  下游工作流，`release.yml` 现改为显式派发 Deploy）。
 - **真实两版本回滚未在真实前缀演练**：本机目前只安装了一个版本；回滚链路由场景测试
   （真实文件系统 + 真实安装 + 真实切换）覆盖，等第二个版本交付后补真实演练。
 - runner 标签是否包含 `forgeloop-deploy` 无法在本地核对（标签在 GitHub 侧），需在 Runners

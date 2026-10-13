@@ -1,8 +1,13 @@
 name: Deploy
 
-# S2 本机部署：Release 发布后由自托管 runner（标签 forgeloop-deploy）在本机执行。
+# S2 本机部署：由自托管 runner（标签 forgeloop-deploy）在本机执行。
 # 只下载该 Release 上发布的同一份产物，交给**本机已安装**的 forgeloop 部署；
 # 不使用长期凭据（公开仓库匿名下载 + runner 自身身份），也不重新构建产物。
+#
+# 触发路径：
+# - 自动：Release 工作流发布后**显式 workflow_dispatch 派发**本工作流
+#   （GITHUB_TOKEN 创建的 release 事件不触发下游工作流，不能只靠 release.published）；
+# - 人工：在 GitHub 上手动创建 Release（release.published），或手动 workflow_dispatch。
 on:
   release:
     types: [published]
