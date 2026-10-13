@@ -372,6 +372,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 | 分支覆盖一度 88.5% < 90% | 补受控路径的假 Release 场景与适配器错误路径测试 → 91.89%，S3 落地后 92.16% |
 | `domain/merge.py` 从未纳入变异范围 | 纳入 `only_mutate`；首轮暴露 21 个幸存者，其中 **6 个是真实契约缺口**（`allowed=False→None`、`reason→None`）用严格断言杀死，14 条消息文本/短 SHA 变异逐条登记审阅 |
 | 结构门槛：`build_parser`、`test_document_schema_for_awaiting_task`、`_merge_via_branch` 超长 | 拆出 `add_deploy_parser`/`add_merge_parser`、测试辅助函数与 `_start_candidate`/`_finish_landing`；最终结构 0 失败、22 警告 |
+| 检查轮询的网络中断未被归一（**推送后轮询 CI 时真实暴露**） | 第 3 次轮询遇到 `http.client.RemoteDisconnected`：`fetch_json` 原样抛出，而 `_wait_for_checks` 只捕获 `ChecksError`，会让 `merge` 带 traceback 崩溃。修为把 `OSError`／`HTTPException`／非法 JSON 统一归一为 `ChecksError`（重试或如实报告，而不是崩溃或误判失败），并补 2 项单元测试 |
 | 测试替身的远程配置踩坑 | 先用 `url.<bare>.insteadOf` 重写 GitHub URL，导致读取端也被重写、`remote_slug` 解析失败；改为"fetch 地址是 GitHub、push 地址指本地裸仓库"；另补仓库内 `user.name/user.email`（受控提交用 `user.useConfigOnly=true`，缺身份时宁可失败） |
 
 **提交与推送（2026-10-13 上午，所有者授权）**：

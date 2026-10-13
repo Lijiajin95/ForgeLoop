@@ -6,6 +6,7 @@
 报告——不猜测"通过"，也不把网络错误当成检查失败。
 """
 
+import http.client
 import json
 import urllib.request
 from typing import cast
@@ -20,11 +21,18 @@ class ChecksError(RuntimeError):
 
 
 def fetch_json(url: str) -> object:
-    """读取一个 GitHub JSON 端点（公开仓库无需凭据）。"""
+    """读取一个 GitHub JSON 端点（公开仓库无需凭据）。
+
+    网络中断、协议错误、HTTP 错误与非法 JSON 一律归一为 ``ChecksError``：
+    调用方据此重试或如实报告，既不把网络问题当成"检查失败"，也不带 traceback 崩溃。
+    """
 
     request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        raise ChecksError(f"读取检查状态失败（{url}）：{error}") from error
 
 
 def _outcome(run: dict[str, object]) -> str:

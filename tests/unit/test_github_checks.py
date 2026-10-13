@@ -4,6 +4,7 @@
 （不做乐观推断）；响应形态异常抛 ChecksError，绝不返回"通过"。
 """
 
+import http.client
 import http.server
 import json
 import threading
@@ -118,3 +119,32 @@ class TestFetchJson:
         with serve(_SuccessHandler) as base:
             monkeypatch.setattr(github_checks, "CHECK_RUNS_API", f"{base}/api")
             assert check_runs("owner/repo", SHA) == {"quality": "success"}
+
+
+class TestFetchJsonErrors:
+    """真实使用中发现的缺陷：网络中断不能被当成检查失败或直接崩溃。"""
+
+    def test_connection_drop_becomes_checks_error(self, monkeypatch) -> None:
+        def boom(request: object, timeout: float) -> object:
+            raise http.client.RemoteDisconnected("Remote end closed connection without response")
+
+        monkeypatch.setattr(github_checks.urllib.request, "urlopen", boom)
+        with pytest.raises(ChecksError, match="读取"):
+            fetch_json("https://api.github.com/repos/owner/repo/commits/x/check-runs")
+
+    def test_invalid_json_becomes_checks_error(self, monkeypatch) -> None:
+        class Response:
+            def read(self) -> bytes:
+                return b"not json"
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *args: object) -> bool:
+                return False
+
+        monkeypatch.setattr(
+            github_checks.urllib.request, "urlopen", lambda request, timeout: Response()
+        )
+        with pytest.raises(ChecksError, match="读取"):
+            fetch_json("https://api.github.com/repos/owner/repo/commits/x/check-runs")
