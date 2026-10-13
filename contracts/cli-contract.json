@@ -266,6 +266,64 @@
           "string"
         ]
       },
+      "release": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "baseline_commit": {
+            "type": [
+              "string"
+            ]
+          },
+          "diff_sha256": {
+            "type": [
+              "string"
+            ]
+          },
+          "merge_commit": {
+            "type": [
+              "string"
+            ]
+          },
+          "push_detail": {
+            "type": [
+              "string"
+            ]
+          },
+          "pushed": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "receipt_path": {
+            "type": [
+              "string"
+            ]
+          },
+          "released_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "tag": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "optional_keys": [
+          "baseline_commit",
+          "diff_sha256",
+          "merge_commit",
+          "push_detail",
+          "pushed",
+          "receipt_path",
+          "released_at",
+          "tag"
+        ]
+      },
       "status": {
         "type": [
           "string"

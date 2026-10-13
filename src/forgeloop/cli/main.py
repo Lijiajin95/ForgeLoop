@@ -8,6 +8,10 @@
   ``--json`` 输出稳定契约（成功、失败、不存在任务行为固定）。
 - stop：请求停止；运行中的图在当前工具完成并保存结果后不再启动新动作。
 
+归并（B04）与发布（S1）命令拆到 ``cli/merge.py`` 与 ``cli/release.py``：
+``pylint max-module-lines=500`` 是启用中的门槛，本入口只保留研发闭环命令与
+解析器装配，共享助手在 ``cli/common.py``。
+
 所有输出由 RecordStore 的实际记录生成，不由模型猜测。
 """
 
@@ -23,14 +27,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from forgeloop.adapter.git_workspace import (
-    has_remote,
-    merge_candidate_to_main,
-    push_main,
-    read_main_head,
-)
+from forgeloop.cli.common import open_store, records_root
+from forgeloop.cli.deploy import add_deploy_parser
+from forgeloop.cli.merge import add_merge_parser, merge_section
+from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.domain.approval import Approval, ApprovalStage
-from forgeloop.domain.merge import check_merge_readiness
 from forgeloop.graph.builder import build_graph
 from forgeloop.graph.nodes import NodeContext
 from forgeloop.graph.state import TaskState
@@ -38,11 +39,6 @@ from forgeloop.records.store import RecordStore
 
 DEFAULT_RECORDS_ROOT = ".forgeloop"
 DEFAULT_LIMIT_SECONDS = 7200.0
-
-
-def _records_root(args: argparse.Namespace) -> Path:
-    root = getattr(args, "records_root", None) or DEFAULT_RECORDS_ROOT
-    return Path(root)
 
 
 def _read_input(raw: str) -> str:
@@ -118,7 +114,7 @@ def _describe_interrupt(graph: CompiledStateGraph[TaskState], task_id: str) -> s
 
 
 def cmd_submit(args: argparse.Namespace) -> int:
-    records_root = _records_root(args)
+    root = records_root(args)
     original_input = _read_input(args.input)
     if args.project_path:
         source = Path(args.project_path)
@@ -137,11 +133,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "scope": args.scope or "",
         "acceptance": args.acceptance or "",
     }
-    store = RecordStore(records_root / "records.sqlite")
+    store = RecordStore(root / "records.sqlite")
     try:
         store.create_task(task_id, args.project, original_input, config, args.limit_seconds)
-        ctx = NodeContext.for_task(store, records_root, task_id)
-        graph = build_graph(ctx, records_root / "checkpoints.sqlite")
+        ctx = NodeContext.for_task(store, root, task_id)
+        graph = build_graph(ctx, root / "checkpoints.sqlite")
         try:
             graph.invoke({"task_id": task_id}, _run_config(task_id))
             task = store.get_task(task_id)
@@ -171,21 +167,13 @@ def _resume_graph(records_root: Path, task_id: str, resume: dict) -> RecordStore
     return store
 
 
-def _open_store(records_root: Path, task_id: str) -> RecordStore:
-    store = RecordStore(records_root / "records.sqlite")
-    if store.get_task(task_id) is None:
-        store.close()
-        raise SystemExit(f"任务不存在: {task_id}")
-    return store
-
-
 def cmd_approve(args: argparse.Namespace) -> int:
     stage = ApprovalStage(args.stage)
     resume_decision = "approved" if stage is ApprovalStage.PLAN else "accepted"
     if args.decision == "rejected":
         resume_decision = "rejected"
-    records_root = _records_root(args)
-    store = _open_store(records_root, args.task_id)
+    root = records_root(args)
+    store = open_store(root, args.task_id)
     try:
         plan = store.latest_plan(args.task_id)
         if plan is None:
@@ -197,13 +185,13 @@ def cmd_approve(args: argparse.Namespace) -> int:
             print(f"{stage.value} 拒绝决定已记录（不写入批准）。")
     finally:
         store.close()
-    _resume_graph(records_root, args.task_id, {"decision": resume_decision})
+    _resume_graph(root, args.task_id, {"decision": resume_decision})
     return 0
 
 
 def cmd_grant(args: argparse.Namespace) -> int:
-    records_root = _records_root(args)
-    store = _open_store(records_root, args.task_id)
+    root = records_root(args)
+    store = open_store(root, args.task_id)
     try:
         ledger = store.ledger(args.task_id)
         print(
@@ -212,7 +200,7 @@ def cmd_grant(args: argparse.Namespace) -> int:
         )
     finally:
         store.close()
-    _resume_graph(records_root, args.task_id, {"decision": "grant"})
+    _resume_graph(root, args.task_id, {"decision": "grant"})
     return 0
 
 
@@ -290,66 +278,6 @@ def _delivery_section(store: RecordStore, task_id: str) -> dict | None:
     }
 
 
-def cmd_merge(args: argparse.Namespace) -> int:
-    """验收后受控归并 main（B04）：绑定基线与 diff，漂移拒绝，未验收不更新。"""
-
-    records_root = _records_root(args)
-    store = _open_store(records_root, args.task_id)
-    try:
-        task = store.get_task(args.task_id)
-        assert task is not None
-        delivery = store.outcomes.delivery(args.task_id)
-        plan = store.latest_plan(args.task_id)
-        if delivery is None or plan is None:
-            print("FAIL: 任务尚无交付记录，无法归并", file=sys.stderr)
-            return 1
-        diff_text = Path(delivery[0]).read_text(encoding="utf-8")
-        report = json.loads(Path(delivery[1]).read_text(encoding="utf-8"))
-        baseline = str(report.get("baseline_commit", ""))
-        project_path = task.config.get("project_path", "")
-        if not project_path:
-            print("FAIL: 任务未绑定 project_path，无法归并", file=sys.stderr)
-            return 1
-        project = Path(project_path)
-        main_head = read_main_head(project)
-        acceptance = store.effective_approval(args.task_id, ApprovalStage.ACCEPTANCE)
-        decision = check_merge_readiness(
-            task.status, acceptance is not None, baseline, main_head, diff_text
-        )
-        if not decision.allowed:
-            print(f"FAIL: {decision.reason}", file=sys.stderr)
-            return 1
-        message = args.message or f"feat: {plan.goal}"
-        if len(message.splitlines()[0]) > 100:
-            message = message.splitlines()[0][:97] + "..."
-        merge_commit = merge_candidate_to_main(project, baseline, diff_text, message)
-        pushed, push_detail = False, ""
-        if not args.no_push and has_remote(project):
-            pushed, push_detail = push_main(project)
-        store.outcomes.record_merge(args.task_id, merge_commit, pushed, push_detail)
-        store.set_task_status(args.task_id, "merged")
-        print(f"已归并 main: {merge_commit}")
-        print(f"推送: {'成功' if pushed else '未推送'}")
-        if push_detail and not pushed:
-            print(f"推送详情: {push_detail}")
-        return 0
-    finally:
-        store.close()
-
-
-def _merge_section(store: RecordStore, task_id: str) -> dict | None:
-    merge = store.outcomes.merge_record(task_id)
-    if merge is None:
-        return None
-    merge_commit, pushed, push_detail, merged_at = merge
-    return {
-        "merge_commit": merge_commit,
-        "pushed": pushed,
-        "push_detail": push_detail,
-        "merged_at": merged_at.isoformat(),
-    }
-
-
 def _status_document(store: RecordStore, task_id: str) -> dict:
     task = store.get_task(task_id)
     if task is None:
@@ -370,13 +298,14 @@ def _status_document(store: RecordStore, task_id: str) -> dict:
         "budget": _budget_section(store, task_id),
         "stop": _stop_section(store, task_id),
         "delivery": _delivery_section(store, task_id),
-        "merge": _merge_section(store, task_id),
+        "merge": merge_section(store, task_id),
+        "release": release_section(store, task_id),
     }
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    records_root = _records_root(args)
-    store = RecordStore(records_root / "records.sqlite")
+    root = records_root(args)
+    store = RecordStore(root / "records.sqlite")
     try:
         document = _status_document(store, args.task_id)
     finally:
@@ -409,12 +338,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     if document["delivery"]:
         delivery = document["delivery"]
         print(f"交付: diff={delivery['diff_path']} 报告={delivery['report_path']}")
+    if document["release"]:
+        release = document["release"]
+        pushed = "成功" if release["pushed"] else "未推送"
+        print(f"发布: {release['tag']}（提交 {release['merge_commit'][:12]}，标签推送 {pushed}）")
     return 0
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    records_root = _records_root(args)
-    store = _open_store(records_root, args.task_id)
+    root = records_root(args)
+    store = open_store(root, args.task_id)
     try:
         store.outcomes.request_stop(args.task_id, args.note or "")
         print(f"停止请求已记录: {args.task_id}")
@@ -472,18 +405,25 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
     status.set_defaults(func=cmd_status)
 
-    merge = subparsers.add_parser("merge", help="验收后受控归并 main 并同步远程（B04）")
-    merge.add_argument("task_id")
-    merge.add_argument("--message", default="", help="合并提交消息（缺省 feat: 任务目标）")
-    merge.add_argument("--no-push", action="store_true", help="只归并本地 main，不推送远程")
-    merge.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
-    merge.set_defaults(func=cmd_merge)
+    add_merge_parser(subparsers, DEFAULT_RECORDS_ROOT)
+
+    release = subparsers.add_parser("release", help="验收归并后受控发布：创建并推送版本标签（S1）")
+    release.add_argument("task_id")
+    release.add_argument(
+        "--tag", required=True, help="版本标签：vMAJOR.MINOR.PATCH，须与项目版本一致"
+    )
+    release.add_argument("--message", default="", help="标签注释（缺省 chore(release): <tag>）")
+    release.add_argument("--no-push", action="store_true", help="只创建本地标签，不推送远程")
+    release.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
+    release.set_defaults(func=cmd_release)
 
     stop = subparsers.add_parser("stop", help="请求停止（当前工具完成后生效）")
     stop.add_argument("task_id")
     stop.add_argument("--note", default="", help="停止原因备注")
     stop.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
     stop.set_defaults(func=cmd_stop)
+
+    add_deploy_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     return parser
 

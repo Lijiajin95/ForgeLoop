@@ -1,6 +1,16 @@
-"""main 受控归并领域规则的单元测试（B04 验收要求）。"""
+"""main 受控归并领域规则的单元测试（B04 验收要求）。
 
-from forgeloop.domain.merge import MergeDecision, check_merge_readiness
+覆盖两部分：归并前置判定（验收、基线、漂移）与 S3 候选分支流程所需的
+"必需检查判定"（通过/未完成/失败/缺失）和候选分支命名规则。
+"""
+
+from forgeloop.domain.merge import (
+    ChecksDecision,
+    MergeDecision,
+    candidate_branch_name,
+    check_merge_readiness,
+    check_required_checks,
+)
 
 BASE = "a" * 40
 OTHER = "b" * 40
@@ -15,36 +25,97 @@ def check(**overrides) -> MergeDecision:
         "diff_text": "diff --git a/x b/x\n+new\n",
     }
     kwargs.update(overrides)
-    return check_merge_readiness(**kwargs)
+    decision = check_merge_readiness(**kwargs)
+    assert isinstance(decision.allowed, bool)
+    assert isinstance(decision.reason, str) and decision.reason
+    return decision
+
+
+def refused(**overrides) -> MergeDecision:
+    decision = check(**overrides)
+    assert decision.allowed is False
+    return decision
+
+
+def checks(required, runs) -> ChecksDecision:
+    decision = check_required_checks(required, runs)
+    assert isinstance(decision.passed, bool)
+    assert isinstance(decision.pending, bool)
+    assert isinstance(decision.reason, str) and decision.reason
+    return decision
 
 
 class TestMergeReadiness:
     def test_delivered_matching_baseline_allows_merge(self) -> None:
-        decision = check()
-        assert decision.allowed
+        assert check().allowed is True
 
     def test_not_delivered_is_rejected(self) -> None:
-        decision = check(task_status="awaiting_acceptance")
-        assert not decision.allowed
-        assert "未经验收" in decision.reason
+        assert "未经验收" in refused(task_status="awaiting_acceptance").reason
 
     def test_missing_acceptance_record_is_rejected(self) -> None:
-        decision = check(acceptance_recorded=False)
-        assert not decision.allowed
-        assert "验收批准" in decision.reason
+        assert "验收批准" in refused(acceptance_recorded=False).reason
 
     def test_missing_baseline_is_rejected(self) -> None:
-        decision = check(baseline_commit="")
-        assert not decision.allowed
-        assert "基线" in decision.reason
+        assert "基线" in refused(baseline_commit="").reason
 
     def test_empty_diff_is_rejected(self) -> None:
-        decision = check(diff_text="   \n")
-        assert not decision.allowed
-        assert "diff 为空" in decision.reason
+        assert "diff 为空" in refused(diff_text="   \n").reason
 
     def test_main_drift_is_rejected(self) -> None:
-        decision = check(main_head=OTHER)
-        assert not decision.allowed
+        decision = refused(main_head=OTHER)
         assert "漂移" in decision.reason
         assert BASE[:12] in decision.reason and OTHER[:12] in decision.reason
+
+
+REQUIRED = ("quality", "security", "commit-policy")
+
+
+class TestCandidateBranchName:
+    def test_branch_name_is_derived_from_task(self) -> None:
+        assert candidate_branch_name("task-20261013-abcdef") == "forgeloop/task-20261013-abcdef"
+
+
+class TestRequiredChecks:
+    """S3 候选分支流程的检查判定：全部必需检查成功才允许快进 main。"""
+
+    def test_all_successful_passes(self) -> None:
+        runs: dict[str, str] = dict.fromkeys(REQUIRED, "success")
+        decision = checks(REQUIRED, runs)
+        assert decision.passed is True
+        assert decision.pending is False
+        assert decision.reason
+
+    def test_neutral_and_skipped_count_as_passing(self) -> None:
+        runs = {"quality": "success", "security": "neutral", "commit-policy": "skipped"}
+        assert checks(REQUIRED, runs).passed is True
+
+    def test_in_progress_is_pending(self) -> None:
+        runs = {"quality": "success", "security": "pending", "commit-policy": "success"}
+        decision = checks(REQUIRED, runs)
+        assert decision.passed is False
+        assert decision.pending is True
+        assert "security" in decision.reason
+
+    def test_missing_check_is_pending(self) -> None:
+        decision = checks(REQUIRED, {"quality": "success"})
+        assert decision.passed is False
+        assert decision.pending is True
+        assert "security" in decision.reason and "commit-policy" in decision.reason
+
+    def test_failed_check_is_not_pending(self) -> None:
+        runs = {"quality": "success", "security": "failure", "commit-policy": "success"}
+        decision = checks(REQUIRED, runs)
+        assert decision.passed is False
+        assert decision.pending is False
+        assert "security" in decision.reason
+
+    def test_cancelled_check_counts_as_failure(self) -> None:
+        runs = {"quality": "cancelled", "security": "success", "commit-policy": "success"}
+        decision = checks(REQUIRED, runs)
+        assert decision.passed is False
+        assert decision.pending is False
+
+    def test_no_required_checks_passes_immediately(self) -> None:
+        decision = checks((), {})
+        assert decision.passed is True
+        assert decision.pending is False

@@ -13,11 +13,14 @@ from forgeloop.adapter.git_workspace import (
     CandidateChange,
     WorkspaceError,
     collect_candidate_change,
+    create_annotated_tag,
     has_remote,
     is_git_workspace,
+    list_tags,
     merge_candidate_to_main,
     prepare_workspace,
     push_main,
+    push_tag,
     read_main_head,
 )
 
@@ -215,3 +218,44 @@ class TestMergeToMain:
         assert not has_remote(source)
         pushed, _detail = push_main(source)
         assert not pushed
+
+
+class TestReleaseTags:
+    """S1：发布标签的创建、列举与推送。"""
+
+    def _source_with_remote(self, tmp_path: Path) -> tuple[Path, Path]:
+        source = make_source_repo(tmp_path)
+        bare = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+        git(source, "remote", "add", "origin", str(bare))
+        return source, bare
+
+    def test_create_annotated_tag_and_push(self, tmp_path: Path) -> None:
+        source, bare = self._source_with_remote(tmp_path)
+        commit = read_main_head(source)
+        assert list_tags(source) == ()
+        create_annotated_tag(source, "v0.1.0", commit, "chore(release): v0.1.0")
+        assert list_tags(source) == ("v0.1.0",)
+        # annotated tag：真实 tag 对象，便于回查发布者与注释。
+        tag_type = subprocess.run(
+            ["git", "-C", str(source), "cat-file", "-t", "v0.1.0"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert tag_type == "tag"
+        pushed, detail = push_tag(source, "v0.1.0")
+        assert pushed, detail
+        remote_tags = subprocess.run(
+            ["git", "--git-dir", str(bare), "tag", "-l"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        assert remote_tags == ["v0.1.0"]
+
+    def test_push_missing_tag_reports_failure(self, tmp_path: Path) -> None:
+        source, _bare = self._source_with_remote(tmp_path)
+        pushed, detail = push_tag(source, "v9.9.9")
+        assert not pushed
+        assert detail

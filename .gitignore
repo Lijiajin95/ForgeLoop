@@ -18,3 +18,11 @@ build/
 !.env.example
 reports/
 .DS_Store
+
+# ForgeLoop 记录目录：默认 --records-root 是仓库根的 .forgeloop，
+# 它属于本机现场（任务、检查点、工作副本），不进入版本库。
+# 注意：未跟踪文件会让 git 工作树变脏，而 forgeloop merge 要求工作树干净。
+.forgeloop/
+
+# 所有者个人草稿文件：明确不入库（放在仓库根但不参与版本控制）。
+email.txt

@@ -21,27 +21,36 @@ def run_cli(argv: list[str], capsys) -> tuple[int, str]:
     return code, captured.out + captured.err
 
 
+def submit_argv(input_value: str, records: Path) -> list[str]:
+    """最小 submit 参数（多个契约用例共用，避免重复同一段列表）。"""
+
+    return [
+        "submit",
+        "--project",
+        "forgeloop",
+        "--input",
+        input_value,
+        "--test-command",
+        json.dumps(PASSING_TEST_COMMAND),
+        "--pi-command",
+        json.dumps(FAKE_PI_COMMAND),
+        "--records-root",
+        str(records),
+    ]
+
+
+def submit_task(tmp_path: Path, capsys) -> str:
+    """提交最小任务并返回任务 ID。"""
+
+    code, out = run_cli(submit_argv("sample task", tmp_path), capsys)
+    assert code == 0, out
+    return out.split("任务已创建: ")[1].splitlines()[0].strip()
+
+
 class TestStatusJsonContract:
     def test_document_schema_for_awaiting_task(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
-        code, out = run_cli(
-            [
-                "submit",
-                "--project",
-                "forgeloop",
-                "--input",
-                "sample task",
-                "--test-command",
-                json.dumps(PASSING_TEST_COMMAND),
-                "--pi-command",
-                json.dumps(FAKE_PI_COMMAND),
-                "--records-root",
-                str(tmp_path),
-            ],
-            capsys,
-        )
-        assert code == 0, out
-        task_id = out.split("任务已创建: ")[1].splitlines()[0].strip()
+        task_id = submit_task(tmp_path, capsys)
 
         code, out = run_cli(["status", task_id, "--json", "--records-root", str(tmp_path)], capsys)
         assert code == 0
@@ -58,8 +67,10 @@ class TestStatusJsonContract:
             "stop",
             "delivery",
             "merge",
+            "release",
         }
         assert document["merge"] is None
+        assert document["release"] is None
         assert document["status"] == "awaiting_plan_approval"
         assert document["project"] == "forgeloop"
         assert document["plan"]["test_command"] == PASSING_TEST_COMMAND
@@ -76,23 +87,7 @@ class TestStatusJsonContract:
 
     def test_document_for_delivered_task(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
-        code, out = run_cli(
-            [
-                "submit",
-                "--project",
-                "forgeloop",
-                "--input",
-                "sample task",
-                "--test-command",
-                json.dumps(PASSING_TEST_COMMAND),
-                "--pi-command",
-                json.dumps(FAKE_PI_COMMAND),
-                "--records-root",
-                str(tmp_path),
-            ],
-            capsys,
-        )
-        task_id = out.split("任务已创建: ")[1].splitlines()[0].strip()
+        task_id = submit_task(tmp_path, capsys)
         (tmp_path / task_id / "workspace").mkdir(parents=True, exist_ok=True)
         run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)
         run_cli(
@@ -111,23 +106,7 @@ class TestStatusJsonContract:
 
     def test_text_status_for_existing_task(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
-        code, out = run_cli(
-            [
-                "submit",
-                "--project",
-                "forgeloop",
-                "--input",
-                "sample task",
-                "--test-command",
-                json.dumps(PASSING_TEST_COMMAND),
-                "--pi-command",
-                json.dumps(FAKE_PI_COMMAND),
-                "--records-root",
-                str(tmp_path),
-            ],
-            capsys,
-        )
-        task_id = out.split("任务已创建: ")[1].splitlines()[0].strip()
+        task_id = submit_task(tmp_path, capsys)
 
         code, out = run_cli(["status", task_id, "--records-root", str(tmp_path)], capsys)
         assert code == 0
@@ -140,47 +119,17 @@ class TestStatusJsonContract:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         input_file = tmp_path / "requirement.txt"
         input_file.write_text("来自文件的需求正文", encoding="utf-8")
-        code, out = run_cli(
-            [
-                "submit",
-                "--project",
-                "forgeloop",
-                "--input",
-                f"@{input_file}",
-                "--test-command",
-                json.dumps(PASSING_TEST_COMMAND),
-                "--pi-command",
-                json.dumps(FAKE_PI_COMMAND),
-                "--records-root",
-                str(tmp_path / "rec"),
-            ],
-            capsys,
-        )
+        records = tmp_path / "rec"
+        code, out = run_cli(submit_argv(f"@{input_file}", records), capsys)
         assert code == 0, out
         task_id = out.split("任务已创建: ")[1].splitlines()[0].strip()
-        code, out = run_cli(
-            ["status", task_id, "--json", "--records-root", str(tmp_path / "rec")], capsys
-        )
+        code, out = run_cli(["status", task_id, "--json", "--records-root", str(records)], capsys)
         assert json.loads(out)["plan"]["goal"] == "来自文件的需求正文"
 
     def test_submit_missing_input_file_fails(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         with pytest.raises(SystemExit, match="输入文件不存在"):
-            cli_main(
-                [
-                    "submit",
-                    "--project",
-                    "forgeloop",
-                    "--input",
-                    "@/nonexistent/file.txt",
-                    "--test-command",
-                    json.dumps(PASSING_TEST_COMMAND),
-                    "--pi-command",
-                    json.dumps(FAKE_PI_COMMAND),
-                    "--records-root",
-                    str(tmp_path),
-                ]
-            )
+            cli_main(submit_argv("@/nonexistent/file.txt", tmp_path))
 
     def test_missing_task_outputs_error_contract_and_exit_code(
         self, tmp_path: Path, capsys

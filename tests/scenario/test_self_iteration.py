@@ -5,6 +5,7 @@
 正式测试在副本内运行；交付固化基线提交号；源仓库全程不被改写。
 """
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -25,6 +26,9 @@ class TestSelfIterationLoop:
         source = tmp_path / "forgeloop-mirror"
         source.mkdir()
         (source / "feature.txt").write_text("old\n", encoding="utf-8")
+        (source / "pyproject.toml").write_text(
+            '[project]\nname = "mirror"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
         (source / "run_tests.py").write_text(
             "import sys\n"
             "ok = open('feature.txt').read().strip() == 'new'\n"
@@ -213,7 +217,10 @@ class TestMergeToMain:
             capture_output=True,
             env=env,
         )
-        code, out = run_cli(["merge", task_id, "--records-root", str(tmp_path)], capsys)
+        # 该裸仓库没有 CI，故显式走直接流程（候选分支流程见 test_merge_flow.py）。
+        code, out = run_cli(
+            ["merge", task_id, "--direct-push", "--records-root", str(tmp_path)], capsys
+        )
         assert code == 0, out
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "merged"
@@ -225,3 +232,72 @@ class TestMergeToMain:
             text=True,
         ).stdout.strip()
         assert remote_head == document["merge"]["merge_commit"]
+
+
+def merged_task(tmp_path: Path, capsys, monkeypatch) -> tuple[str, Path]:
+    """交付并归并一个任务，返回 (task_id, 源仓库)。"""
+
+    task_id, source = TestMergeToMain()._deliver_task(tmp_path, capsys, monkeypatch)
+    code, out = run_cli(["merge", task_id, "--no-push", "--records-root", str(tmp_path)], capsys)
+    assert code == 0, out
+    return task_id, source
+
+
+def release_task(tmp_path: Path, capsys, task_id: str, tag: str = "v0.1.0"):
+    """按 --no-push 执行受控发布（本地标签 + 回执）。"""
+
+    return run_cli(
+        ["release", task_id, "--tag", tag, "--no-push", "--records-root", str(tmp_path)], capsys
+    )
+
+
+def repo_tags(source: Path) -> list[str]:
+    import subprocess
+
+    return subprocess.run(
+        ["git", "-C", str(source), "tag", "-l"], check=True, capture_output=True, text=True
+    ).stdout.split()
+
+
+class TestReleaseAfterMerge:
+    """S1 端到端：归并后发布版本标签、固化回执，以及幂等与前置负例。"""
+
+    def test_release_creates_tag_and_receipt(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        task_id, source = merged_task(tmp_path, capsys, monkeypatch)
+        code, out = release_task(tmp_path, capsys, task_id)
+        assert code == 0, out
+        assert repo_tags(source) == ["v0.1.0"]
+        document = status_document(tmp_path, task_id, capsys)
+        release = document["release"]
+        assert release["tag"] == "v0.1.0"
+        assert release["pushed"] is False
+        assert release["merge_commit"] == document["merge"]["merge_commit"]
+        # 回执校验值与候选 diff 内容一一对应；部署端以同一值核对同一产物。
+        candidate = Path(document["delivery"]["diff_path"]).read_text(encoding="utf-8")
+        receipt = json.loads(Path(release["receipt_path"]).read_text(encoding="utf-8"))
+        assert receipt["diff_sha256"] == hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        report = json.loads(Path(document["delivery"]["report_path"]).read_text(encoding="utf-8"))
+        assert receipt["baseline_commit"] == report["baseline_commit"]
+
+    def test_release_before_merge_is_refused(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        task_id, source = TestMergeToMain()._deliver_task(tmp_path, capsys, monkeypatch)
+        code, out = release_task(tmp_path, capsys, task_id)
+        assert code == 1
+        assert "归并" in out
+        assert repo_tags(source) == []
+
+    def test_same_tag_repeat_is_idempotent(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        task_id, source = merged_task(tmp_path, capsys, monkeypatch)
+        assert release_task(tmp_path, capsys, task_id)[0] == 0
+        code, out = release_task(tmp_path, capsys, task_id)
+        assert code == 0
+        assert "幂等" in out
+        assert repo_tags(source) == ["v0.1.0"]
+
+    def test_other_tag_repeat_is_refused(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        task_id, source = merged_task(tmp_path, capsys, monkeypatch)
+        assert release_task(tmp_path, capsys, task_id)[0] == 0
+        code, out = release_task(tmp_path, capsys, task_id, tag="v0.2.0")
+        assert code == 1
+        assert "v0.1.0" in out
+        assert repo_tags(source) == ["v0.1.0"]

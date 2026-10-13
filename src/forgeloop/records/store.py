@@ -7,6 +7,7 @@
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ from forgeloop.domain.approval import (
 )
 from forgeloop.domain.counting import FailureRound, FailureStage, GrantLedger
 from forgeloop.domain.limits import ExecutionBudget
+from forgeloop.domain.release import ReleaseRecord
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -92,6 +94,17 @@ CREATE TABLE IF NOT EXISTS deliveries (
     report_path TEXT NOT NULL,
     delivered_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS releases (
+    task_id TEXT PRIMARY KEY,
+    tag TEXT NOT NULL,
+    merge_commit TEXT NOT NULL,
+    baseline_commit TEXT NOT NULL,
+    diff_sha256 TEXT NOT NULL,
+    receipt_path TEXT NOT NULL,
+    pushed INTEGER NOT NULL DEFAULT 0,
+    push_detail TEXT NOT NULL DEFAULT '',
+    released_at TEXT NOT NULL
+);
 """
 
 
@@ -115,6 +128,22 @@ def _iso(moment: datetime) -> str:
 
 def _parse(text: str) -> datetime:
     return datetime.fromisoformat(text)
+
+
+def _release_from_row(row: Sequence[object]) -> ReleaseRecord:
+    """发布记录行 → 领域对象（两处查询共用，避免重复映射）。"""
+
+    return ReleaseRecord(
+        task_id=str(row[0]),
+        tag=str(row[1]),
+        merge_commit=str(row[2]),
+        baseline_commit=str(row[3]),
+        diff_sha256=str(row[4]),
+        receipt_path=str(row[5]),
+        pushed=bool(row[6]),
+        push_detail=str(row[7]),
+        released_at=_parse(str(row[8])),
+    )
 
 
 class RecordStore:
@@ -394,3 +423,46 @@ class OutcomeStore:
         if row is None:
             return None
         return row[0], bool(row[1]), row[2], _parse(row[3])
+
+    def record_release(self, record: ReleaseRecord) -> None:
+        """固化一次发布（S1）：标签、归并提交、基线与候选 diff 校验值。"""
+
+        self._db.execute(
+            "INSERT OR REPLACE INTO releases"
+            " (task_id, tag, merge_commit, baseline_commit, diff_sha256, receipt_path,"
+            " pushed, push_detail, released_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.task_id,
+                record.tag,
+                record.merge_commit,
+                record.baseline_commit,
+                record.diff_sha256,
+                record.receipt_path,
+                1 if record.pushed else 0,
+                record.push_detail,
+                _iso(record.released_at),
+            ),
+        )
+
+    def release_record(self, task_id: str) -> ReleaseRecord | None:
+        row = self._db.execute(
+            "SELECT task_id, tag, merge_commit, baseline_commit, diff_sha256, receipt_path,"
+            " pushed, push_detail, released_at FROM releases WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _release_from_row(row)
+
+    def release_by_tag(self, tag: str) -> ReleaseRecord | None:
+        """按标签取发布回执（部署端据此核对标签指向的归并提交）。"""
+
+        row = self._db.execute(
+            "SELECT task_id, tag, merge_commit, baseline_commit, diff_sha256, receipt_path,"
+            " pushed, push_detail, released_at FROM releases WHERE tag = ?"
+            " ORDER BY released_at DESC LIMIT 1",
+            (tag,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _release_from_row(row)

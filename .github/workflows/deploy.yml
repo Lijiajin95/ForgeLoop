@@ -1,0 +1,48 @@
+name: Deploy
+
+# S2 本机部署：Release 发布后由自托管 runner（标签 forgeloop-deploy）在本机执行。
+# 只下载该 Release 上发布的同一份产物，交给**本机已安装**的 forgeloop 部署；
+# 不使用长期凭据（公开仓库匿名下载 + runner 自身身份），也不重新构建产物。
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要部署的标签（vX.Y.Z）
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, forgeloop-deploy]
+    timeout-minutes: 20
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+      - name: Deploy with the installed CLI
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          prefix="$HOME/.local/share/forgeloop"
+          cli="${prefix}/current/bin/forgeloop"
+          if [ ! -x "${cli}" ]; then
+            echo "本机尚未安装 forgeloop；请先手动 bootstrap 部署（见 docs/deployment.md）" >&2
+            exit 1
+          fi
+          "${cli}" deploy --tag "${TAG}" --prefix "${prefix}" --records-root "$HOME/forgeloop-records"
+      - name: Verify activation
+        run: |
+          set -euo pipefail
+          prefix="$HOME/.local/share/forgeloop"
+          "${prefix}/current/bin/forgeloop" --help > /dev/null
+          echo "激活指针: $(readlink "${prefix}/current")"
+          tail -n 1 "${prefix}/deployments.jsonl"

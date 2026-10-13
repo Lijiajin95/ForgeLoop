@@ -18,6 +18,7 @@ from typing import Any
 from forgeloop.cli.main import _status_document
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.counting import FailureStage
+from forgeloop.domain.release import ReleaseRecord
 from forgeloop.records.store import RecordStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +110,19 @@ def build_contract() -> dict:
             store.outcomes.confirm_stop("task-full", "已核对")
             store.outcomes.record_delivery("task-full", "candidate.diff", "delivery-report.json")
             store.outcomes.record_merge("task-full", "a" * 40, True, "pushed")
+            store.outcomes.record_release(
+                ReleaseRecord(
+                    task_id="task-full",
+                    tag="v0.1.0",
+                    merge_commit="a" * 40,
+                    baseline_commit="b" * 40,
+                    diff_sha256="c" * 64,
+                    receipt_path="release-receipt.json",
+                    pushed=True,
+                    push_detail="pushed",
+                    released_at=now,
+                )
+            )
             full = _status_document(store, "task-full")
 
             missing = _status_document(store, "task-does-not-exist")

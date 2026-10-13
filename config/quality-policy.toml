@@ -229,6 +229,167 @@ reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容�
 mutant = "forgeloop.domain.commit_policy.x_validate_commit_message__mutmut_31"
 reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
 
+# 2026-10-12：S1 受控发布把 src/forgeloop/domain/release.py 纳入变异范围后的
+# 新幸存者审阅。行为类变异（allowed False→None、缺"未知"渲染、短 SHA 12→13 等）
+# 已由测试杀死；下表只保留消息文本与等价变异。
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_sha256_of_text__mutmut_4"
+reason = "等价变异：UTF-8 与 utf-8 是同一 codec 别名，内容寻址校验值完全不变。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_15"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_22"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_47"
+reason = "错误消息文本变异（未知值加 XX 包裹）：消息内容非行为契约；测试断言原因里可读出“未知”语义。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_48"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_49"
+reason = "错误消息文本变异（大小写）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_56"
+reason = "提示消息中短 SHA 位数变异（12→13 位）：展示格式非行为契约；漂移判定与实际提交可读性由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_57"
+reason = "提示消息中短 SHA 位数变异（12→13 位）：展示格式非行为契约；漂移判定与实际提交可读性由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_58"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_66"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_67"
+reason = "错误消息文本变异（大小写）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_73"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_readiness__mutmut_74"
+reason = "错误消息文本变异（大小写）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_repeat_release__mutmut_7"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；幂等判定本身由测试覆盖。"
+
+# 2026-10-13：S2 受控部署把 src/forgeloop/domain/deploy.py 纳入变异范围后的
+# 新幸存者审阅。行为类变异（回滚判定 False→True/None、缺“格式错误”分支、
+# 校验清单解析中断、消息丢实际校验值）已由测试杀死；下表只保留等价与文本变异。
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_parse_checksum_file__mutmut_3"
+reason = "等价变异：跳过条件 or→and 后，注释行与空行仍被校验行格式拒绝，解析结果相同。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_parse_checksum_file__mutmut_6"
+reason = "等价变异：注释前缀改成 XX#XX 后，注释行仍不匹配校验行格式，解析结果相同。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x__release_source_refusal__mutmut_13"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；标签提交不一致判定由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x__release_source_refusal__mutmut_14"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；标签提交不一致判定由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x__release_source_refusal__mutmut_22"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x__release_source_refusal__mutmut_29"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；校验值不匹配判定由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x__release_source_refusal__mutmut_30"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；校验值不匹配判定由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_31"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_54"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；测试已断言两侧实际校验值可读出。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_55"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；测试已断言两侧实际校验值可读出。"
+
+
+# 2026-10-13：S3 候选分支流程把 src/forgeloop/domain/merge.py 纳入变异范围后的
+# 新幸存者审阅。行为类变异（allowed False→None、reason→None）已由测试杀死；
+# 下表只保留消息文本与短 SHA 位数变异。
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_10"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_24"
+reason = "错误消息里分隔符变异（', '→'XX, XX'）：仅影响提示可读性；失败判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_40"
+reason = "错误消息里分隔符变异（', '→'XX, XX'）：仅影响提示可读性；未完成判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_49"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；通过判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_15"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；验收缺失判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_16"
+reason = "错误消息文本变异（大小写）：消息内容非行为契约；验收缺失判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_23"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；基线缺失判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_24"
+reason = "错误消息文本变异（大小写）：消息内容非行为契约；基线缺失判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_31"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；空 diff 判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_39"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；漂移判定与两侧实际提交由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_40"
+reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；漂移判定与两侧实际提交由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_41"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；漂移判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_47"
+reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；通过判定本身由测试覆盖。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_48"
+reason = "错误消息文本变异（大小写）：消息内容非行为契约；通过判定本身由测试覆盖。"
 [property_tests]
 local_examples = 100
 ci_examples = 300
