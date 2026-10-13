@@ -96,8 +96,12 @@ def main() -> int:
         if args.check_now:
             decision = check_commit_time(datetime.now(UTC), policy)
             if not decision.allowed:
+                windows = ", ".join(
+                    f"{window.start:%H:%M}-{window.end:%H:%M}" for window in policy.blocked_windows
+                )
                 print(
-                    f"Commit blocked ({decision.reason}): Asia/Shanghai workdays 09:00-18:00.",
+                    f"Commit blocked ({decision.reason}): "
+                    f"{policy.timezone.key} workdays {windows}.",
                     file=sys.stderr,
                 )
                 return 1
