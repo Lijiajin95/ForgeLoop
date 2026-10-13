@@ -4,6 +4,7 @@
 pre-commit 与 commit-msg hooks 都经过同一实现。
 """
 
+import itertools
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -32,15 +33,35 @@ class WorkdayCalendar:
 
 
 @dataclass(frozen=True)
+class BlockedWindow:
+    """一段禁止提交的当日时间窗（起点含、终点不含）。"""
+
+    start: time
+    end: time
+
+    def __post_init__(self) -> None:
+        if not self.start < self.end:
+            raise ValueError("Commit restriction requires a same-day nonempty time window")
+
+    def contains(self, moment: time) -> bool:
+        return self.start <= moment < self.end
+
+
+@dataclass(frozen=True)
 class CommitPolicy:
     timezone: ZoneInfo
-    blocked_start: time
-    blocked_end: time
+    blocked_windows: tuple[BlockedWindow, ...]
     calendars: Mapping[int, WorkdayCalendar]
 
     def __post_init__(self) -> None:
-        if not self.blocked_start < self.blocked_end:
-            raise ValueError("Commit restriction requires a same-day nonempty time window")
+        if not self.blocked_windows:
+            raise ValueError("Commit restriction requires at least one blocked window")
+        ordered = tuple(sorted(self.blocked_windows, key=lambda window: (window.start, window.end)))
+        if ordered != self.blocked_windows:
+            raise ValueError("Blocked windows must be ordered by start time")
+        for earlier, later in itertools.pairwise(ordered):
+            if later.start < earlier.end:
+                raise ValueError("Blocked windows must not overlap")
 
 
 @dataclass(frozen=True)
@@ -54,7 +75,7 @@ def check_commit_time(instant: datetime, policy: CommitPolicy) -> CommitDecision
     if instant.tzinfo is None or instant.utcoffset() is None:
         raise ValueError("Commit timestamps must include a timezone")
     local = instant.astimezone(policy.timezone)
-    if not policy.blocked_start <= local.time() < policy.blocked_end:
+    if not any(window.contains(local.time()) for window in policy.blocked_windows):
         hint = None if local.year in policy.calendars else "maintain_annual_calendar"
         return CommitDecision(True, "outside_work_hours", hint)
     calendar = policy.calendars.get(local.year)

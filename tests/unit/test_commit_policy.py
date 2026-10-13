@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from forgeloop.domain.commit_policy import (
+    BlockedWindow,
     CommitDecision,
     CommitPolicy,
     WorkdayCalendar,
@@ -24,8 +25,12 @@ def calendar() -> WorkdayCalendar:
     )
 
 
+def windows() -> tuple[BlockedWindow, ...]:
+    return (BlockedWindow(time(9, 0), time(12, 0)), BlockedWindow(time(13, 30), time(18, 0)))
+
+
 def policy(calendars: dict[int, WorkdayCalendar]) -> CommitPolicy:
-    return CommitPolicy(SHANGHAI, time(9, 0), time(18, 0), calendars)
+    return CommitPolicy(SHANGHAI, windows(), calendars)
 
 
 def at(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
@@ -65,7 +70,7 @@ class TestCheckCommitTime:
         assert decision == CommitDecision(False, "workday_work_hours")
 
     def test_holiday_hours_are_allowed(self) -> None:
-        decision = check_commit_time(at(2026, 10, 1, 12, 0), policy({2026: calendar()}))
+        decision = check_commit_time(at(2026, 10, 1, 14, 0), policy({2026: calendar()}))
         assert decision == CommitDecision(True, "non_workday")
 
     def test_extra_workday_hours_are_blocked(self) -> None:
@@ -84,7 +89,7 @@ class TestCheckCommitTime:
         assert check_commit_time(at(2026, 10, 12, 18, 0), rules).allowed  # 不含 18:00
 
     def test_missing_calendar_blocks_inside_window(self) -> None:
-        decision = check_commit_time(at(2026, 10, 12, 12, 0), policy({}))
+        decision = check_commit_time(at(2026, 10, 12, 14, 0), policy({}))
         assert decision == CommitDecision(False, "calendar_missing")
 
     def test_missing_calendar_outside_window_allows_with_hint(self) -> None:
@@ -99,7 +104,7 @@ class TestCheckCommitTime:
         # 决策必须按策略时区计算，而不是宿主系统时区。
         from zoneinfo import ZoneInfo
 
-        new_york = CommitPolicy(ZoneInfo("America/New_York"), time(9, 0), time(18, 0), {})
+        new_york = CommitPolicy(ZoneInfo("America/New_York"), windows(), {})
         # 2026-10-12 21:30 上海 = 09:30 纽约：纽约窗口内被阻断。
         instant = datetime(2026, 10, 12, 21, 30, tzinfo=SHANGHAI)
         decision = check_commit_time(instant, new_york)
@@ -108,7 +113,37 @@ class TestCheckCommitTime:
 
     def test_empty_window_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="nonempty"):
-            CommitPolicy(SHANGHAI, time(9, 0), time(9, 0), {})
+            BlockedWindow(time(9, 0), time(9, 0))
+
+    def test_policy_requires_at_least_one_window(self) -> None:
+        with pytest.raises(ValueError, match="at least one"):
+            CommitPolicy(SHANGHAI, (), {})
+
+    def test_unordered_windows_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="ordered"):
+            CommitPolicy(
+                SHANGHAI,
+                (BlockedWindow(time(13, 30), time(18, 0)), BlockedWindow(time(9, 0), time(12, 0))),
+                {},
+            )
+
+    def test_overlapping_windows_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="overlap"):
+            CommitPolicy(
+                SHANGHAI,
+                (BlockedWindow(time(9, 0), time(12, 0)), BlockedWindow(time(11, 0), time(18, 0))),
+                {},
+            )
+
+    def test_midday_gap_allows_commits(self) -> None:
+        # 2026-10-12 周一：11:59 阻断 12:00-13:29 允许 13:30 起再次阻断 18:00 允许。
+        busy = {2026: calendar()}
+        assert not check_commit_time(at(2026, 10, 12, 11, 59), policy(busy)).allowed
+        assert check_commit_time(at(2026, 10, 12, 12, 0), policy(busy)).allowed
+        assert check_commit_time(at(2026, 10, 12, 13, 29), policy(busy)).allowed
+        assert not check_commit_time(at(2026, 10, 12, 13, 30), policy(busy)).allowed
+        assert not check_commit_time(at(2026, 10, 12, 17, 59), policy(busy)).allowed
+        assert check_commit_time(at(2026, 10, 12, 18, 0), policy(busy)).allowed
 
 
 class TestValidateCommitMessage:

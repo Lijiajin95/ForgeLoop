@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from forgeloop.domain.commit_policy import (
+    BlockedWindow,
     CommitPolicy,
     WorkdayCalendar,
     check_commit_time,
@@ -37,12 +38,11 @@ def load_policy() -> CommitPolicy:
             frozenset(date.fromisoformat(value) for value in data["holidays"]),
             frozenset(date.fromisoformat(value) for value in data["extra_workdays"]),
         )
-    return CommitPolicy(
-        ZoneInfo(config["timezone"]),
-        time.fromisoformat(config["blocked_start"]),
-        time.fromisoformat(config["blocked_end"]),
-        calendars,
+    windows = tuple(
+        BlockedWindow(time.fromisoformat(entry["start"]), time.fromisoformat(entry["end"]))
+        for entry in config["blocked_windows"]
     )
+    return CommitPolicy(ZoneInfo(config["timezone"]), windows, calendars)
 
 
 def resolve_revision(revision: str) -> str:
