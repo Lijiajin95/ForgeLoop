@@ -120,6 +120,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
         source = Path(args.project_path)
         if not source.is_dir() or not (source / ".git").exists():
             raise SystemExit(f"project_path 不是 git 仓库: {source}")
+    if args.pi_timeout_seconds is not None and args.pi_timeout_seconds < 0:
+        raise SystemExit("--pi-timeout-seconds 不能为负")
     test_command = _decode_command(args.test_command, "--test-command")
     pi_command = _decode_command(args.pi_command, "--pi-command")
     task_id = _new_task_id()
@@ -132,6 +134,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "goal": args.goal or "",
         "scope": args.scope or "",
         "acceptance": args.acceptance or "",
+        "pi_timeout_seconds": str(args.pi_timeout_seconds or ""),
     }
     store = RecordStore(root / "records.sqlite")
     try:
@@ -373,6 +376,12 @@ def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:
     submit.add_argument("--model", default="", help="模型配置标识")
     submit.add_argument(
         "--limit-seconds", type=float, default=DEFAULT_LIMIT_SECONDS, help="执行时间限额（秒）"
+    )
+    submit.add_argument(
+        "--pi-timeout-seconds",
+        type=float,
+        default=None,
+        help="单次 PI 调用等待上限（秒）；缺省 300，非法或缺失回落到缺省",
     )
     submit.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT, help="记录根目录")
     submit.set_defaults(func=cmd_submit)

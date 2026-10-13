@@ -12,6 +12,7 @@ from forgeloop.graph.nodes import (
     make_gate_plan_approval,
     make_plan_node,
     make_review_node,
+    pi_timeout_seconds,
 )
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -359,3 +360,43 @@ class TestInterruptedGate:
         assert update == {"halted_reason": "pi_review_unsettled:y"}
         assert not log_path.exists()
         assert store.get_task(task_id).status == "interrupted"
+
+
+class TestPiTimeout:
+    """单次 PI 调用上限：任务配置可覆盖默认值，非法值回落，且不超过剩余预算。"""
+
+    def _ctx(self, tmp_path: Path, name: str, config: dict, limit: float):
+        from forgeloop.records.store import RecordStore
+
+        store = RecordStore(tmp_path / f"{name}.sqlite")
+        store.create_task(name, "p", "i", {"goal": "g", **config}, limit_seconds=limit)
+        return store, NodeContext.for_task(store, tmp_path, name)
+
+    def test_default_cap_when_unconfigured(self, tmp_path: Path) -> None:
+        store, ctx = self._ctx(tmp_path, "task-default", {}, 3600.0)
+        try:
+            assert pi_timeout_seconds(ctx) == 300.0
+        finally:
+            store.close()
+
+    def test_config_overrides_default(self, tmp_path: Path) -> None:
+        store, ctx = self._ctx(tmp_path, "task-configured", {"pi_timeout_seconds": "900"}, 3600.0)
+        try:
+            assert pi_timeout_seconds(ctx) == 900.0
+        finally:
+            store.close()
+
+    @pytest.mark.parametrize("value", ["abc", "-5", "0"])
+    def test_invalid_or_negative_falls_back(self, tmp_path: Path, value: str) -> None:
+        store, ctx = self._ctx(tmp_path, "task-invalid", {"pi_timeout_seconds": value}, 3600.0)
+        try:
+            assert pi_timeout_seconds(ctx) == 300.0
+        finally:
+            store.close()
+
+    def test_never_exceeds_remaining_budget(self, tmp_path: Path) -> None:
+        store, ctx = self._ctx(tmp_path, "task-small", {"pi_timeout_seconds": "900"}, 120.0)
+        try:
+            assert pi_timeout_seconds(ctx) <= 120.0
+        finally:
+            store.close()

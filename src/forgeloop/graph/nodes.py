@@ -202,6 +202,24 @@ def _pi_outcome_halt(outcome: PIInvocationResult) -> str | None:
     return None
 
 
+def pi_timeout_seconds(ctx: NodeContext) -> float:
+    """单次 PI 调用的等待上限：任务配置可覆盖默认 300s，且不超过剩余预算。
+
+    重任务（多文件实现、需自行探索的审查）会超过默认 300s；此时由提交方用
+    ``--pi-timeout-seconds`` 显式抬高上限，而不是改默认值让所有任务都变慢。
+    配置缺失或非法一律回落到默认值。
+    """
+
+    configured = ctx.config.get("pi_timeout_seconds", "")
+    try:
+        cap = float(configured) if configured else PI_TIMEOUT_CAP_SECONDS
+    except (TypeError, ValueError):
+        cap = PI_TIMEOUT_CAP_SECONDS
+    if cap <= 0:
+        cap = PI_TIMEOUT_CAP_SECONDS
+    return min(ctx.store.budget(ctx.task_id).remaining_seconds, cap)
+
+
 def _invoke_pi(ctx: NodeContext, role: str, prompt: str) -> PIInvocationResult:
     """运行一个 PI 会话并计工时：未明确结果如实返回，不自动重跑。
 
@@ -210,7 +228,7 @@ def _invoke_pi(ctx: NodeContext, role: str, prompt: str) -> PIInvocationResult:
     里的路径让模型自觉。
     """
 
-    timeout = min(ctx.store.budget(ctx.task_id).remaining_seconds, PI_TIMEOUT_CAP_SECONDS)
+    timeout = pi_timeout_seconds(ctx)
     cwd = ctx.workspace if role == "dev" else ctx.task_dir
     cwd.mkdir(parents=True, exist_ok=True)
     options = PISpawnOptions(cwd=cwd)
