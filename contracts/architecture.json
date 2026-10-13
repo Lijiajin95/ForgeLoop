@@ -29,6 +29,7 @@
     "forgeloop.domain.merge": "domain",
     "forgeloop.domain.release": "domain",
     "forgeloop.domain.requirement": "domain",
+    "forgeloop.domain.status": "domain",
     "forgeloop.graph": "graph",
     "forgeloop.graph.builder": "graph",
     "forgeloop.graph.evidence": "graph",

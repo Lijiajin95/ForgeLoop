@@ -89,6 +89,7 @@ class TestStatusJsonContract:
             "task_id",
             "project",
             "status",
+            "next_action",
             "created_at",
             "plan",
             "approvals",
@@ -102,6 +103,10 @@ class TestStatusJsonContract:
         assert document["merge"] is None
         assert document["release"] is None
         assert document["status"] == "awaiting_plan_approval"
+        assert document["next_action"].keys() == {"action", "actor", "reason"}
+        assert document["next_action"]["actor"] == "user"
+        assert document["next_action"]["action"]
+        assert "批准" in document["next_action"]["reason"]
         assert document["project"] == "forgeloop"
         assert document["plan"]["test_command"] == PASSING_TEST_COMMAND
         assert document["approvals"] == {"plan": None, "acceptance": None}
@@ -128,6 +133,8 @@ class TestStatusJsonContract:
         assert code == 0
         document = json.loads(out)
         assert document["status"] == "delivered"
+        assert document["next_action"]["actor"] == "user"
+        assert "接回" in document["next_action"]["action"]
         assert document["approvals"]["plan"] is not None
         assert document["approvals"]["acceptance"] is not None
         assert document["delivery"] is not None
@@ -144,6 +151,27 @@ class TestStatusJsonContract:
         assert "状态: awaiting_plan_approval" in out
         assert "失败轮次: 累计 0" in out
         assert "工时:" in out
+
+    def test_unknown_status_falls_to_manual_review(self, tmp_path: Path, capsys) -> None:
+        """未知状态不猜测：输出人工核对动作，主体为 user，原因带原始状态值。"""
+
+        from forgeloop.records.store import RecordStore
+
+        store = RecordStore(tmp_path / "records.sqlite")
+        try:
+            store.create_task("task-mystery", "p", "input", {}, limit_seconds=60.0)
+            store.set_task_status("task-mystery", "mystery_state")
+        finally:
+            store.close()
+        code, out = run_cli(
+            ["status", "task-mystery", "--json", "--records-root", str(tmp_path)], capsys
+        )
+        assert code == 0
+        document = json.loads(out)
+        assert document["status"] == "mystery_state"
+        assert document["next_action"]["actor"] == "user"
+        assert "人工核对" in document["next_action"]["action"]
+        assert "mystery_state" in document["next_action"]["reason"]
 
     def test_submit_reads_input_from_file(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")

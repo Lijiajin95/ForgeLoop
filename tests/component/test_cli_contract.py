@@ -78,3 +78,15 @@ class TestSnapshotCheck:
         )
         assert contract["exit_codes"] == {"ok": 0, "task_not_found": 1}
         assert contract["not_found_document"]["properties"]["error"]["type"] == ["string"]
+
+    def test_next_action_shape_is_recorded(self) -> None:
+        """G01 契约：下一步动作、动作主体与原因三字段均为字符串。"""
+
+        contract = json.loads(
+            (ROOT / "contracts" / "cli-contract.json").read_text(encoding="utf-8")
+        )
+        next_action = contract["document"]["properties"]["next_action"]
+        assert next_action["type"] == ["object"]
+        assert set(next_action["properties"]) == {"action", "actor", "reason"}
+        for field in ("action", "actor", "reason"):
+            assert next_action["properties"][field]["type"] == ["string"]

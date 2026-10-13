@@ -33,6 +33,7 @@ from forgeloop.cli.deploy import add_deploy_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.domain.approval import Approval, ApprovalStage
+from forgeloop.domain.status import next_action
 from forgeloop.graph.builder import build_graph
 from forgeloop.graph.nodes import NodeContext
 from forgeloop.graph.state import TaskState
@@ -289,6 +290,17 @@ def _delivery_section(store: RecordStore, task_id: str) -> dict | None:
     }
 
 
+def _next_action_section(status: str) -> dict:
+    """下一步动作、动作主体与阻塞/等待原因（G01：状态查询说明需要谁做什么）。"""
+
+    action = next_action(status)
+    return {
+        "action": action.action,
+        "actor": action.actor.value,
+        "reason": action.reason,
+    }
+
+
 def _status_document(store: RecordStore, task_id: str) -> dict:
     task = store.get_task(task_id)
     if task is None:
@@ -297,6 +309,7 @@ def _status_document(store: RecordStore, task_id: str) -> dict:
         "task_id": task_id,
         "project": task.project,
         "status": task.status,
+        "next_action": _next_action_section(task.status),
         "created_at": task.created_at.isoformat(),
         "plan": _plan_section(store, task_id),
         "approvals": {

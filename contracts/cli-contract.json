@@ -216,6 +216,28 @@
           "pushed"
         ]
       },
+      "next_action": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "action": {
+            "type": [
+              "string"
+            ]
+          },
+          "actor": {
+            "type": [
+              "string"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
       "plan": {
         "type": [
           "null",
