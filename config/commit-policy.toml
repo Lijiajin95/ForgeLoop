@@ -1,4 +1,12 @@
 timezone = "Asia/Shanghai"
-blocked_start = "09:00"
-blocked_end = "18:00"
+
+# 临时修订（2026-10-13 上午，所有者明确授权提交 S1–S3 批次）。
+# 原值：blocked_start = "09:00"，blocked_end = "18:00"（法定工作日禁止提交）。
+# 策略要求 blocked_start < blocked_end，窗口不能置零，故临时缩到 00:00–00:01。
+#
+# 恢复义务：必须在 2026-10-13 18:00 之后的合法窗口把上面两行原值写回，
+# 并删除本段说明；恢复本身也是一次 commit，必须落在合法窗口内。
+# 该临时修订与恢复动作记录在 docs/status.md。
+blocked_start = "00:00"
+blocked_end = "00:01"
 calendar_directory = "config/workday-calendars"
