@@ -6,8 +6,10 @@ import re
 import subprocess
 import sys
 import tomllib
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, time
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from forgeloop.domain.commit_policy import (
@@ -19,6 +21,18 @@ from forgeloop.domain.commit_policy import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_authorized_batches(config: Mapping[str, Any]) -> frozenset[date]:
+    """读取按批次登记的授权日期；每条授权必须可溯源且日期唯一。"""
+    dates = []
+    for entry in config.get("authorized_batches", ()):
+        if not str(entry.get("authorization_source", "")).strip():
+            raise ValueError("Authorized batches must record a non-empty authorization_source")
+        dates.append(date.fromisoformat(entry["date"]))
+    if len(set(dates)) != len(dates):
+        raise ValueError("Authorized batch dates must be unique")
+    return frozenset(dates)
 
 
 def load_policy() -> CommitPolicy:
@@ -42,7 +56,16 @@ def load_policy() -> CommitPolicy:
         BlockedWindow(time.fromisoformat(entry["start"]), time.fromisoformat(entry["end"]))
         for entry in config["blocked_windows"]
     )
-    return CommitPolicy(ZoneInfo(config["timezone"]), windows, calendars)
+    authorized = config["authorized_window"]
+    return CommitPolicy(
+        ZoneInfo(config["timezone"]),
+        windows,
+        calendars,
+        BlockedWindow(
+            time.fromisoformat(authorized["start"]), time.fromisoformat(authorized["end"])
+        ),
+        load_authorized_batches(config),
+    )
 
 
 def resolve_revision(revision: str) -> str:
@@ -99,9 +122,11 @@ def main() -> int:
                 windows = ", ".join(
                     f"{window.start:%H:%M}-{window.end:%H:%M}" for window in policy.blocked_windows
                 )
+                authorized = policy.authorized_window
                 print(
                     f"Commit blocked ({decision.reason}): "
-                    f"{policy.timezone.key} workdays {windows}.",
+                    f"{policy.timezone.key} workdays {windows}; owner-authorized commits are "
+                    f"limited to {authorized.start:%H:%M}-{authorized.end:%H:%M} on recorded dates.",
                     file=sys.stderr,
                 )
                 return 1
@@ -117,7 +142,10 @@ def main() -> int:
             base, head = args.audit
             return 0 if audit(base, head, policy) else 1
         else:
-            print(f"Commit policy valid; maintained years: {sorted(policy.calendars)}")
+            print(
+                f"Commit policy valid; maintained years: {sorted(policy.calendars)}; "
+                f"authorized batches: {sorted(policy.authorized_dates)}"
+            )
     except (ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError) as error:
         print(f"Commit policy check failed: {error}", file=sys.stderr)
         return 1

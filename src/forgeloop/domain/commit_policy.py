@@ -1,7 +1,10 @@
-"""公共提交规则：显式时区、已维护的年历与消息头语法。
+"""公共提交规则：显式时区、已维护的年历、授权窄口与消息头语法。
 
 复刻自 EvidHist 的同名领域模块；由 scripts/check_commit_policy.py 消费，
 pre-commit 与 commit-msg hooks 都经过同一实现。
+
+所有者决定（2026-10-13）：禁止窗口内只有按批次登记授权的日期才可能放行，
+且只放行早间窄口；授权窗口终点不得晚于 10:00，超过该上限的授权一律无效。
 """
 
 import itertools
@@ -10,6 +13,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
+
+# 授权的硬上限：任何配置都不得把授权窗口延伸到 10:00 之后。
+AUTHORIZATION_DEADLINE = time(10, 0)
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,8 @@ class CommitPolicy:
     timezone: ZoneInfo
     blocked_windows: tuple[BlockedWindow, ...]
     calendars: Mapping[int, WorkdayCalendar]
+    authorized_window: BlockedWindow
+    authorized_dates: frozenset[date] = frozenset()
 
     def __post_init__(self) -> None:
         if not self.blocked_windows:
@@ -62,6 +70,14 @@ class CommitPolicy:
         for earlier, later in itertools.pairwise(ordered):
             if later.start < earlier.end:
                 raise ValueError("Blocked windows must not overlap")
+        if self.authorized_window.end > AUTHORIZATION_DEADLINE:
+            raise ValueError("Authorized commit window must end by 10:00")
+        if not any(
+            window.start <= self.authorized_window.start
+            and self.authorized_window.end <= window.end
+            for window in self.blocked_windows
+        ):
+            raise ValueError("Authorized commit window must lie inside a blocked window")
 
 
 @dataclass(frozen=True)
@@ -81,9 +97,13 @@ def check_commit_time(instant: datetime, policy: CommitPolicy) -> CommitDecision
     calendar = policy.calendars.get(local.year)
     if calendar is None:
         return CommitDecision(False, "calendar_missing")
-    if calendar.is_workday(local.date()):
-        return CommitDecision(False, "workday_work_hours")
-    return CommitDecision(True, "non_workday")
+    if not calendar.is_workday(local.date()):
+        return CommitDecision(True, "non_workday")
+    if local.date() in policy.authorized_dates:
+        if policy.authorized_window.contains(local.time()):
+            return CommitDecision(True, "authorized_grace_window")
+        return CommitDecision(False, "authorized_window_elapsed")
+    return CommitDecision(False, "workday_work_hours")
 
 
 HEADER = re.compile(

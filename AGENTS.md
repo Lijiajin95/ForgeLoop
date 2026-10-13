@@ -12,6 +12,7 @@ ForgeLoop 是个人研发工具项目：CLI 自动研发闭环，把边界明确
 - **架构变化必须同步架构描述**：架构的权威描述是 `docs/architecture.md`，机读事实是 `contracts/architecture.json`。模块增删改名换层、跨层依赖方向改变、业务图拓扑改变、持久化介质或现场产物文件名改变、外部依赖与接缝改变，都必须在同一次改动中更新这两份文件，并运行 `make architecture-contract` 重新导出；`make check` 的架构契约门禁会拒绝未同步的漂移。方向性选择另写 `docs/adr/`。
 - 仅在用户要求提交时创建 commit；先检查 `config/commit-policy.toml` 和年度日历。
 - Asia/Shanghai 法定调休工作日 **09:00（含）至 12:00（不含）与 13:30（含）至 18:00（不含）禁止 commit**（午间 12:00–13:30 可提交；窗口见 `config/commit-policy.toml` 的多段配置）。缺失年份在该窗口内拒绝提交。
+- **授权窄口（2026-10-13 所有者决定）**：禁止窗口内只有所有者按批次授权、且落在 **09:00（含）至 09:55（不含）** 内的提交才允许；09:55 起、午间之外与下午 13:30–18:00 即使当天已授权也一律拒绝——**10:00 是硬上限，超过该上限的授权无效**。授权日期逐条登记在 `config/commit-policy.toml` 的 `[[authorized_batches]]` 并写明授权来源；未登记的日期即使落在窄口内也拒绝。
 - 禁止使用 `--no-verify`、禁用 hooks、修改时钟或伪造作者/提交者时间绕过规则；提交消息遵循项目 Conventional Commits 约定。
-- **禁止窗口内只有所有者明确授权的提交才允许**；留存的临时放宽配置不构成授权。授权按批次记录，恢复义务同批写明（先例见 `docs/engineering-reliability.md` 第 20、22 节）。
+- 留存的临时放宽配置不构成授权；授权与恢复义务按批次记录（先例见 `docs/engineering-reliability.md` 第 20、22、23 节）。
 - 完成声明区分实际执行、配置完成与后续方案，不能把 fixture、空测试或工具正常退出当作真实产品质量结果；当前工程骨架未执行任何检查，见 `docs/engineering-reliability.md`。
