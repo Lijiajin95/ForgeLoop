@@ -27,6 +27,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from forgeloop.cli.candidate import add_candidate_parser
 from forgeloop.cli.common import open_store, records_root
 from forgeloop.cli.deploy import add_deploy_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
@@ -433,6 +434,8 @@ def build_parser() -> argparse.ArgumentParser:
     stop.set_defaults(func=cmd_stop)
 
     add_deploy_parser(subparsers, DEFAULT_RECORDS_ROOT)
+
+    add_candidate_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     return parser
 

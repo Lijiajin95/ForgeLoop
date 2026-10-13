@@ -76,7 +76,8 @@ flowchart TD
 | 入口 | `src/forgeloop/__main__.py` | `python -m forgeloop` 入口，转调 `cli.main` |
 | domain | `src/forgeloop/domain/__init__.py` | 层声明与分层契约指向 |
 | domain | `src/forgeloop/domain/counting.py` | 失败轮次账本 `GrantLedger`：按 `round_id` 幂等计数、每次授权 3 轮、追加授权累加不清零 |
-| domain | `src/forgeloop/domain/requirement.py` | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败 |
+| domain | `src/forgeloop/domain/requirement.py`
+| domain | `src/forgeloop/domain/artifact.py` | 候选产物身份与校验规则：wheel 文件名 + SHA256、同一候选重复构建的一致性判定、未授权提交拒绝 | | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败 |
 | domain | `src/forgeloop/domain/limits.py` | 执行时间账目 `ExecutionBudget`：只记实际执行耗时、超限停止启动新动作、显式延长 |
 | domain | `src/forgeloop/domain/approval.py` | 方案 `Plan` 与批准 `Approval`：批准绑定任务身份与方案版本，一次批准只能触发一次执行 |
 | domain | `src/forgeloop/domain/commit_policy.py` | 提交时间策略与年度工作日历判定、Conventional Commits 首行校验 |
@@ -91,7 +92,8 @@ flowchart TD
 | adapter | `src/forgeloop/adapter/test_runner.py` | `run_test_command`：以 argv＋`shell=False` 运行批准的测试命令，证据追加 JSONL |
 | adapter | `src/forgeloop/adapter/git_workspace.py` | 独立代码副本、基线 detached 检出、候选 diff 提取、受控归并与标签 |
 | adapter | `src/forgeloop/adapter/github_checks.py` | 匿名读取提交的 check-runs，归一为「名称 → 结论」或 `pending` |
-| adapter | `src/forgeloop/adapter/deployment.py` | 下载 Release 资产、独立版本 venv 安装、原子切换 `current`、冒烟检查、部署日志 |
+| adapter | `src/forgeloop/adapter/deployment.py`
+| adapter | `src/forgeloop/adapter/artifact.py` | 候选产物构建与验证：真实 `uv build`（工作区内缓存）、独立 venv 安装、`forgeloop --help` 冒烟 | | 下载 Release 资产、独立版本 venv 安装、原子切换 `current`、冒烟检查、部署日志 |
 | graph | `src/forgeloop/graph/__init__.py` | 层声明 |
 | graph | `src/forgeloop/graph/state.py` | `TaskState`：只放路由与续跑所需的最小字段 |
 | graph | `src/forgeloop/graph/nodes.py` | 八个节点工厂与 `NodeContext`：方案、批准门、实现、审查、测试、追加授权门、验收门、交付 |
@@ -101,7 +103,8 @@ flowchart TD
 | cli | `src/forgeloop/cli/__init__.py` | 导出 `main` |
 | cli | `src/forgeloop/cli/common.py` | 记录根解析、`open_store`、`fail` 统一失败输出 |
 | cli | `src/forgeloop/cli/main.py` | `submit`／`approve`／`grant`／`status`／`stop` 与参数总装 |
-| cli | `src/forgeloop/cli/merge.py` | `merge`：候选分支流程与归并证据 |
+| cli | `src/forgeloop/cli/merge.py`
+| cli | `src/forgeloop/cli/candidate.py` | `candidate build` / `candidate verify`：构建候选产物、记录身份与校验值、独立环境验证 | | `merge`：候选分支流程与归并证据 |
 | cli | `src/forgeloop/cli/release.py` | `release`：annotated tag 与发布回执 |
 | cli | `src/forgeloop/cli/deploy.py` | `deploy`／`rollback`：从 Release 装产物、原子切换、回滚 |
 
