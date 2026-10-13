@@ -127,6 +127,17 @@ class TestCheckCommitTime:
                 {},
             )
 
+    def test_touching_windows_are_allowed(self) -> None:
+        # 相邻窗口（前一段终点 == 后一段起点）合法，例如 09:00-12:00 与 12:00-13:30。
+        touching = (
+            BlockedWindow(time(9, 0), time(12, 0)),
+            BlockedWindow(time(12, 0), time(13, 30)),
+        )
+        rules = CommitPolicy(SHANGHAI, touching, {2026: calendar()})
+        assert not check_commit_time(at(2026, 10, 12, 11, 59), rules).allowed
+        assert not check_commit_time(at(2026, 10, 12, 12, 0), rules).allowed  # 落在第二段
+        assert check_commit_time(at(2026, 10, 12, 13, 30), rules).allowed
+
     def test_overlapping_windows_are_rejected(self) -> None:
         with pytest.raises(ValueError, match="overlap"):
             CommitPolicy(

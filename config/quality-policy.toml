@@ -162,10 +162,6 @@ mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_
 reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
 
 [[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_5"
-reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
-
-[[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.commit_policy.x_check_commit_time__mutmut_1"
 reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
 
@@ -395,3 +391,30 @@ local_examples = 100
 ci_examples = 300
 extended_examples = 1000
 
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.xǁBlockedWindowǁ__post_init____mutmut_4"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.xǁBlockedWindowǁ__post_init____mutmut_5"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_15"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_16"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_21"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_22"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_3"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
