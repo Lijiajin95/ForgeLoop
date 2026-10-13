@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from forgeloop.adapter.pi_rpc import PIProcess
+from forgeloop.adapter.pi_rpc import PIProcess, PISpawnOptions
 
 pytestmark = pytest.mark.integration
 
@@ -23,7 +23,7 @@ def make_process(tmp_path: Path, mode: str) -> PIProcess:
         "task-it",
         "dev",
         tmp_path / "sessions",
-        extra_env={"FAKE_PI_MODE": mode},
+        options=PISpawnOptions(extra_env={"FAKE_PI_MODE": mode}),
     )
 
 

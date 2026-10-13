@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from forgeloop.adapter.pi_rpc import PIProcess
+from forgeloop.adapter.pi_rpc import PIProcess, PISpawnOptions
 
 pytestmark = [
     pytest.mark.pi_live,
@@ -125,7 +125,7 @@ class TestRealPromptThroughAdapter:
             "task-live",
             "dev",
             tmp_path / "sessions",
-            extra_env=isolated_pi_home,
+            options=PISpawnOptions(extra_env=isolated_pi_home),
         )
         process.start()
         try:
@@ -173,7 +173,7 @@ class TestRealPromptThroughAdapter:
             "task-live2",
             "review",
             tmp_path / "sessions",
-            extra_env=isolated_pi_home,
+            options=PISpawnOptions(extra_env=isolated_pi_home),
         )
         process.start()
         process.send_prompt("Reply with exactly one word: done")
@@ -203,7 +203,7 @@ class TestAdapterProtocolFidelity:
             "task-live3",
             "dev",
             tmp_path / "sessions",
-            extra_env=isolated_pi_home,
+            options=PISpawnOptions(extra_env=isolated_pi_home),
         )
         process.start()
         try:

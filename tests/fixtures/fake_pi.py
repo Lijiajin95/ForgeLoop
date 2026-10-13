@@ -146,10 +146,22 @@ def _role_result(mode: str, role: str) -> dict:
     return REVIEW_OK_RESULT
 
 
+def log_prompt(message: str) -> None:
+    """调试用：把收到的 prompt 追加写入 FAKE_PI_PROMPT_LOG（未设置时不写）。"""
+
+    log_path = os.environ.get("FAKE_PI_PROMPT_LOG")
+    if not log_path:
+        return
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        record = {"role": prompt_role(message), "message": message, "cwd": os.getcwd()}
+        log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def _serve_prompt(request: dict, mode: str) -> str | None:
     """处理 prompt：输出事件流；返回该轮最终文本（None 表示无文本可取）。"""
 
     message = request.get("message", "")
+    log_prompt(message)
     if mode == "reject":
         respond(request, success=False, data={"error": "prompt rejected by fake"})
         return None

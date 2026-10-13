@@ -81,13 +81,40 @@ def _iso(moment: datetime) -> str:
 
 
 def _json_object_or_none(text: str | None) -> Mapping[str, Any] | None:
+    """最终文本解析为 JSON 对象；容忍代码块或散文包裹，但绝不凭空构造结构。
+
+    真实模型常把要求的 JSON 包在 ```json 代码块或一句说明里。这里先按整体解析，
+    失败后从第一个 ``{`` 起解析第一个完整对象；解析不出对象仍返回 None，由调用方
+    判定结果不可用（例如审查节点据此中断，而不是猜测"无阻断"）。
+    """
+
     if not text:
         return None
-    try:
-        data: object = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    return cast("dict[str, object]", data) if isinstance(data, dict) else None
+    candidates = [text]
+    start = text.find("{")
+    if start > 0:
+        candidates.append(text[start:])
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        try:
+            data: object
+            data, _ = decoder.raw_decode(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return cast("dict[str, object]", data)
+    return None
+
+
+@dataclass(frozen=True)
+class PISpawnOptions:
+    """PI 子进程启动选项：附加环境变量与显式工作目录。
+
+    工作目录必须显式给出：只把工作副本路径写进提示词不足以约束真实模型改哪里。
+    """
+
+    extra_env: Mapping[str, str] = field(default_factory=dict[str, str])
+    cwd: Path | None = None
 
 
 class PIProcess:
@@ -99,7 +126,7 @@ class PIProcess:
         task_id: str,
         role: str,
         session_dir: Path,
-        extra_env: Mapping[str, str] | None = None,
+        options: PISpawnOptions | None = None,
     ) -> None:
         if not command:
             raise ValueError("PI command must not be empty")
@@ -107,7 +134,7 @@ class PIProcess:
         self._task_id = task_id
         self._role = role
         self._session_dir = session_dir
-        self._extra_env = dict(extra_env or {})
+        self._options = options or PISpawnOptions()
         self._proc: subprocess.Popen[bytes] | None = None
         self._events: list[PIEvent] = []
         self._events_path = session_dir / f"{task_id}-{role}.events.jsonl"
@@ -133,9 +160,10 @@ class PIProcess:
         # stderr 重定向句柄随会话存活，close() 统一关闭。
         self._stderr_file = open(self._stderr_path, "ab")  # noqa: SIM115
         env = os.environ.copy()
-        env.update(self._extra_env)
+        env.update(self._options.extra_env)
         self._proc = subprocess.Popen(
             list(self._command),
+            cwd=None if self._options.cwd is None else str(self._options.cwd),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self._stderr_file,

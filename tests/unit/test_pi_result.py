@@ -210,3 +210,30 @@ class TestParseEvent:
         process = make_process(tmp_path)
         assert process._parse_event("42") is None
         assert process._parse_event("not-json") is None
+
+
+class TestResultExtraction:
+    """真实模型常把 JSON 包在散文或代码块里；解析要稳健但不得凭空构造结构。"""
+
+    def test_plain_object_is_parsed(self, tmp_path: Path) -> None:
+        process = make_process(tmp_path)
+        text = '{"summary": "s", "blocking_issues": []}'
+        assert process._settled_result(text).result == {"summary": "s", "blocking_issues": []}
+
+    def test_fenced_json_block_is_parsed(self, tmp_path: Path) -> None:
+        process = make_process(tmp_path)
+        text = '```json\n{"summary": "s", "blocking_issues": ["x"]}\n```'
+        assert process._settled_result(text).result == {
+            "summary": "s",
+            "blocking_issues": ["x"],
+        }
+
+    def test_prose_wrapped_object_is_parsed(self, tmp_path: Path) -> None:
+        process = make_process(tmp_path)
+        text = '审查结论如下：{"summary": "s", "blocking_issues": []} 请核对。'
+        assert process._settled_result(text).result == {"summary": "s", "blocking_issues": []}
+
+    def test_non_object_payload_stays_unparsed(self, tmp_path: Path) -> None:
+        process = make_process(tmp_path)
+        assert process._settled_result("[1, 2]").result is None
+        assert process._settled_result("没有结构化内容").result is None

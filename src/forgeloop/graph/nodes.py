@@ -31,15 +31,27 @@ from forgeloop.adapter.git_workspace import (
     is_git_workspace,
     prepare_workspace,
 )
-from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess
+from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess, PISpawnOptions
 from forgeloop.adapter.test_runner import run_test_command
 from forgeloop.domain.approval import ApprovalStage, ConsumeStatus, Plan
 from forgeloop.domain.counting import FailureStage, GrantExhaustedError
+from forgeloop.graph.evidence import previous_failure_context
 from forgeloop.graph.state import TaskState
 from forgeloop.records.store import RecordStore
 
 PI_TIMEOUT_CAP_SECONDS = 300.0
 TEST_TIMEOUT_CAP_SECONDS = 300.0
+# 开发提示的自验证要求：模型必须自己先跑正式测试，且不得改测试或验收标准迎合通过。
+DEV_SELF_VERIFICATION = (
+    "在结束本轮前，先在 workspace 内运行正式测试命令并确认通过；"
+    "不要修改测试、验收标准或跳过用例来让测试通过。"
+)
+# 审查输出契约：真实模型必须给出结构化阻断列表，否则节点中断（fail-closed）。
+REVIEW_OUTPUT_CONTRACT = (
+    "只输出一个 JSON 对象，不要输出解释或 Markdown 代码块："
+    '{"summary": "<一句话审查结论>", "blocking_issues": ["<阻断问题>", "..."]}。'
+    "没有阻断问题时 blocking_issues 必须是空数组 []。"
+)
 
 # 节点返回的部分状态更新；工厂函数的统一签名。
 NodeUpdate = dict[str, object]
@@ -191,10 +203,18 @@ def _pi_outcome_halt(outcome: PIInvocationResult) -> str | None:
 
 
 def _invoke_pi(ctx: NodeContext, role: str, prompt: str) -> PIInvocationResult:
-    """运行一个 PI 会话并计工时：未明确结果如实返回，不自动重跑。"""
+    """运行一个 PI 会话并计工时：未明确结果如实返回，不自动重跑。
+
+    子进程显式在任务范围内运行：实现会话在独立工作副本内（可写），审查会话在任务
+    记录目录内（其结论来自提示词中的候选 diff，避免误改候选工作区）；不依赖提示词
+    里的路径让模型自觉。
+    """
 
     timeout = min(ctx.store.budget(ctx.task_id).remaining_seconds, PI_TIMEOUT_CAP_SECONDS)
-    process = PIProcess(_pi_command(ctx.config), ctx.task_id, role, ctx.sessions_dir)
+    cwd = ctx.workspace if role == "dev" else ctx.task_dir
+    cwd.mkdir(parents=True, exist_ok=True)
+    options = PISpawnOptions(cwd=cwd)
+    process = PIProcess(_pi_command(ctx.config), ctx.task_id, role, ctx.sessions_dir, options)
     process.start()
     started = time.monotonic()
     try:
@@ -240,22 +260,27 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
                 prepare_workspace(Path(project_path), ctx.config.get("baseline", ""), ctx.workspace)
         finally:
             ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)
-        prompt = json.dumps(
-            {
-                "goal": plan.goal,
-                "scope": plan.scope,
-                "acceptance": plan.acceptance,
-                "workspace": str(ctx.workspace),
-            },
-            ensure_ascii=False,
-        )
+        attempt = state.get("dev_attempts", 0) + 1
+        payload: dict[str, object] = {
+            "goal": plan.goal,
+            "scope": plan.scope,
+            "acceptance": plan.acceptance,
+            "workspace": str(ctx.workspace),
+            "attempt": attempt,
+            "formal_test_command": list(plan.test_command),
+            "self_verification": DEV_SELF_VERIFICATION,
+        }
+        failure = previous_failure_context(ctx.task_dir)
+        if failure:
+            # 失败回边带真实证据：上次正式测试输出与审查阻断问题（截断后）。
+            payload["previous_failure"] = failure
+        prompt = json.dumps(payload, ensure_ascii=False)
         outcome = _invoke_pi(ctx, "dev", prompt)
         halt = _pi_outcome_halt(outcome)
         if halt:
             ctx.store.set_task_status(ctx.task_id, "interrupted")
             return {"halted_reason": f"pi_dev_unsettled:{halt}"}
         result = dict(outcome.result or {})
-        attempt = state.get("dev_attempts", 0) + 1
         candidate = ctx.task_dir / "candidate.diff"
         candidate.parent.mkdir(parents=True, exist_ok=True)
         if is_git_workspace(ctx.workspace):
@@ -307,6 +332,7 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
                 "goal": plan.goal if plan else "",
                 "acceptance": plan.acceptance if plan else "",
                 "candidate_diff": diff_text,
+                "output_contract": REVIEW_OUTPUT_CONTRACT,
             },
             ensure_ascii=False,
         )
