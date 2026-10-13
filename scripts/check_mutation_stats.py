@@ -5,20 +5,22 @@ mutmut scope is the core domain (counting/approval/limits/commit policy), so
 unreviewed survivors and every incomplete state (no tests, skipped, suspicious,
 timeout, segfault, user interrupt) must be zero, the report must be non-empty,
 and the counters must account for the total. Every surviving mutant must carry a
-``[[mutation.reviewed_survivors]]`` entry (mutant + reason); entries that no
-longer survive make the check fail so the list is re-derived after source
-changes instead of silently rotting. ``general_killed_min`` is validated for the
-future general-module scope and is not applied to this critical-scope report.
+``[[mutation.reviewed_survivors]]`` entry (mutant + reason). Reviewed entries that
+no longer survive mean the sources changed and the ledger may be stale: they are
+reported as **review hints** (re-derive the list) and do not fail the gate by
+themselves; ``general_killed_min`` is validated for the future general-module scope
+and is not applied to this critical-scope report.
 
 Ledger disagreement is re-measured once before it fails: mutmut runs only the
 tests associated with each mutated function, so a single unrelated flaky test
 failure flips one mutant between survived and killed. Observed on the shared CI
 runner and locally on unchanged sources (46 survivors once, 45 the next run, and
-200 vs 201 killed). Unreviewed survivors and stale reviewed entries are therefore
-re-checked by re-running exactly those mutants; the verdict comes from the second
-measurement and a confirmed disagreement still fails. Structural problems
-(unreadable report, empty report, incomplete states, counter mismatch) are never
-re-measured because they do not depend on test flakiness.
+200 vs 201 killed). Unreviewed survivors are therefore re-checked by re-running
+exactly those mutants; the verdict comes from the second measurement and a
+confirmed disagreement still fails. Stale reviewed entries are hints, not
+failures, so they are not re-measured. Structural problems (unreadable report,
+empty report, incomplete states, counter mismatch) are never re-measured because
+they do not depend on test flakiness.
 
 复刻自 EvidHist 的同名门槛脚本并扩展幸存者审阅核对与可疑项复测。
 """
@@ -161,9 +163,10 @@ def counter_failures(stats: dict, mutation_policy: dict) -> list[str]:
 
 def review_survivors(
     survivors: list[str], reviewed: dict[str, str], stats: dict, mutation_policy: dict
-) -> tuple[list[str], list[str]]:
-    """Compare measurement with the reviewed ledger; also return suspicious names."""
+) -> tuple[list[str], list[str], list[str]]:
+    """Compare measurement with the reviewed ledger; return failures, stale hints, suspicious."""
     failures: list[str] = []
+    hints: list[str] = []
     suspicious: list[str] = []
     if len(survivors) != stats["survived"]:
         failures.append(
@@ -179,12 +182,11 @@ def review_survivors(
         suspicious.extend(unreviewed)
     stale = sorted(name for name in reviewed if stats["survived"] and name not in set(survivors))
     if stale:
-        failures.append(
+        hints.append(
             f"{len(stale)} reviewed entries no longer survive "
-            f"(source changed; re-derive the list); first: {stale[0]}"
+            f"(source changed; re-derive the ledger): {', '.join(stale)}"
         )
-        suspicious.extend(stale)
-    return failures, suspicious
+    return failures, hints, suspicious
 
 
 def collect_measurement(inputs: GateInputs, measured: tuple[dict, list[str]] | None = None) -> dict:
@@ -208,9 +210,10 @@ def collect_measurement(inputs: GateInputs, measured: tuple[dict, list[str]] | N
         stats, survivors = measured
         structural.extend(counter_failures(stats, inputs.mutation_policy))
     ledger: list[str] = []
+    hints: list[str] = []
     suspicious: list[str] = []
     if not structural:
-        ledger, suspicious = review_survivors(
+        ledger, hints, suspicious = review_survivors(
             survivors, inputs.reviewed, stats, inputs.mutation_policy
         )
     return {
@@ -218,6 +221,7 @@ def collect_measurement(inputs: GateInputs, measured: tuple[dict, list[str]] | N
         "survivors": survivors,
         "structural": structural,
         "ledger": ledger,
+        "hints": hints,
         "failures": structural + ledger,
         "suspicious": suspicious,
     }
@@ -265,6 +269,7 @@ def run_stats_check(
         "recheck": recheck,
         "summary": {
             "failures": [*policy_failures, *recheck_failures, *measurement["failures"]],
+            "hints": measurement["hints"],
             "passed": not (policy_failures or recheck_failures or measurement["failures"]),
         },
     }
@@ -294,6 +299,8 @@ def main() -> int:
             print(f"First measurement only: {failure}")
     for failure in result["summary"]["failures"]:
         print(f"FAIL: {failure}")
+    for hint in result["summary"]["hints"]:
+        print(f"HINT: {hint}")
     status = "passed" if result["summary"]["passed"] else "failed"
     print(
         f"Mutation gate {status}: {result['killed']}/{result['total']} killed, "

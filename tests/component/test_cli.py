@@ -1,5 +1,6 @@
 """CLI 组件测试：status --json 输出契约（成功、失败、不存在任务）。"""
 
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -10,6 +11,9 @@ from forgeloop.cli.main import main as cli_main
 
 pytestmark = pytest.mark.component
 
+# `forgeloop.cli.main` 既指子模块又被同名函数遮蔽；故障替身必须打在模块对象上。
+cli_module = importlib.import_module("forgeloop.cli.main")
+
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 FAKE_PI_COMMAND = [sys.executable, str(FIXTURES / "fake_pi.py")]
 PASSING_TEST_COMMAND = [sys.executable, "-c", "print('suite passed')"]
@@ -19,6 +23,32 @@ def run_cli(argv: list[str], capsys) -> tuple[int, str]:
     code = cli_main(argv)
     captured = capsys.readouterr()
     return code, captured.out + captured.err
+
+
+def run_cli_streams(argv: list[str], capsys) -> tuple[int, str, str]:
+    """分离 stdout 与 stderr：保持 stdout 契约与 stderr 错误报告是两项独立要求。"""
+
+    code = cli_main(argv)
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+class _StateReadFailure:
+    """故障替身：转发图执行与连接关闭，只在读取检查点状态时失败。"""
+
+    def __init__(self, graph, error: Exception) -> None:
+        self._graph = graph
+        self._error = error
+
+    def invoke(self, *args, **kwargs):
+        return self._graph.invoke(*args, **kwargs)
+
+    def get_state(self, *args, **kwargs):
+        raise self._error
+
+    @property
+    def checkpointer(self):
+        return self._graph.checkpointer
 
 
 def submit_argv(input_value: str, records: Path) -> list[str]:
@@ -267,6 +297,45 @@ class TestStatusJsonContract:
                     str(tmp_path),
                 ]
             )
+
+    def test_approve_reports_pending_decision_on_stdout(
+        self, tmp_path: Path, capsys, monkeypatch
+    ) -> None:
+        """正常路径回归：批准后 stdout 报出状态与待决定节点，stderr 为空。"""
+
+        monkeypatch.setenv("FAKE_PI_MODE", "ok")
+        task_id = submit_task(tmp_path, capsys)
+
+        code, out, err = run_cli_streams(
+            ["approve", task_id, "--records-root", str(tmp_path)], capsys
+        )
+        assert code == 0
+        assert "状态:" in out
+        assert "等待" in out
+        assert err == ""
+
+    def test_state_read_failure_is_reported_on_stderr(
+        self, tmp_path: Path, capsys, monkeypatch
+    ) -> None:
+        """读取检查点失败必须可见：stdout 保持契约，stderr 给出可公开的错误信息。"""
+
+        monkeypatch.setenv("FAKE_PI_MODE", "ok")
+        task_id = submit_task(tmp_path, capsys)
+        real_build_graph = cli_module.build_graph
+
+        def build_with_failing_state(context, checkpoints_path):
+            graph = real_build_graph(context, checkpoints_path)
+            return _StateReadFailure(graph, RuntimeError("checkpoint database is locked"))
+
+        monkeypatch.setattr(cli_module, "build_graph", build_with_failing_state)
+
+        code, out, err = run_cli_streams(
+            ["approve", task_id, "--records-root", str(tmp_path)], capsys
+        )
+        assert code == 0  # 批准已记录，读取失败不改变已完成的决定
+        assert "状态:" in out  # stdout 输出契约保持
+        assert "RuntimeError" in err
+        assert "checkpoint database is locked" in err
 
     def test_submit_rejects_non_array_test_command(self, tmp_path: Path, capsys) -> None:
         with pytest.raises(SystemExit):

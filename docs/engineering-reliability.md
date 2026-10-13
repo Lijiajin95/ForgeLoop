@@ -57,17 +57,19 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 
 ## 4. 结构门槛、统计口径与例外
 
-结构度量由 `scripts/structure_metrics.py`（AST/tokenize 精确计数）与 `scripts/check_structure_metrics.py`（策略应用与报告）实现，门槛读自 `config/quality-policy.toml` 的 `[structure]`。
+结构度量由 `scripts/structure_metrics.py`（AST/tokenize 精确计数）与 `scripts/check_structure_metrics.py`（策略应用与报告）实现，数值读自 `config/quality-policy.toml` 的 `[structure]` 与 `[structure.review_hints]`。
 
-| 指标 | 官方默认或参考 | ForgeLoop 取值 | 执行方式 |
-| --- | --- | --- | --- |
-| 函数有效代码行 | ESLint 默认 50 | 40 行提示，超过 50 行失败 | Python 精确 AST/tokenize 门槛 |
-| 本类公开接口 | Pylint 默认 20 | 超过 10 提示，超过 20 失败 | Pylint R0904 辅助 + 专用口径 |
-| 手写源码文件总行数 | ESLint 300 / Pylint 1000 | 超过 300 提示，上限 500；审阅例外上限 1000 | Pylint C0302 |
-| 圈复杂度 | Ruff/Pylint 默认 10 | 超过 10 失败 | Ruff `C901` |
-| 参数数量 | Ruff/Pylint 默认 5 | 超过 5 失败 | `PLR0913` |
-| 分支数量 | Ruff/Pylint 默认 12 | 超过 12 失败 | Ruff `PLR0912` |
-| 返回/语句/局部变量 | 6 / 50 / 15 | 超过提示（不阻断） | 审阅报告，见 `[structure.review_hints]` |
+**2026-10-13 起结构数字是审阅提示，不是交付阻断**（见第 25 节）：超限产生 `HINT` 行与机器报告条目，不失败；只有配置损坏、源码读取失败或解析失败让脚本失败。规则是「不为数字超限拆函数、拆文件或增加抽象」——数字用于人工判断是否值得处理，不代替判断。
+
+| 指标 | 参考默认 | 提示阈值 | 复核阈值 | 执行方式 |
+| --- | --- | --- | --- | --- |
+| 函数有效代码行 | ESLint 默认 50 | 超过 40 | 超过 50 | 专用 AST/tokenize 报告 |
+| 本类公开接口 | Pylint 默认 20 | 超过 10 | 超过 20 | 专用口径（Pylint R0904 已停用，避免同一数字重复阻断） |
+| 手写源码文件总行数 | ESLint 300 / Pylint 1000 | 超过 300 | 超过 500；审阅例外上限 1000 同为提示 | 专用报告（Pylint C0302 已停用） |
+| 圈复杂度 | Ruff/Pylint 默认 10 | 超过 10 | — | 结构报告（Ruff `C901` 已停用） |
+| 参数数量 | Ruff/Pylint 默认 5 | 超过 5 | — | 结构报告（Ruff `PLR0913` 已停用） |
+| 分支数量 | Ruff/Pylint 默认 12 | 超过 12 | — | 结构报告（Ruff `PLR0912` 已停用） |
+| 返回／语句／局部变量 | 6 / 50 / 15 | 超过各自上限 | — | 结构报告，见 `[structure.review_hints]` |
 
 统计口径必须固定（复刻 EvidHist 交接清单 8.2）：
 
@@ -75,19 +77,24 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 - 字符串内的 `#`、多行字符串仍是代码，不能正则删除后当注释排除。嵌套函数分别检查，其内容保留在外层函数范围中。
 - 公开接口定义为本类声明的公开方法和公开 property，按“接收者 + 名称”去重；不计继承、构造器、下划线私有/特殊方法。数据字段的序列化契约另审阅。
 - 文件门槛计算物理总行数（含注释与空行），只对手写源码应用；Markdown、锁文件、记录与可验证生成物使用各自规则。
-- 例外记录 `path/rule/reason/owner/review/recheck` 六项俱全；例外文件仍受 1000 行绝对上限约束。不允许折叠语句、删除说明或全目录忽略规避门槛。
+- 例外记录 `path/rule/reason/owner/review/recheck` 六项俱全（缺项是配置错误，仍然失败）；例外文件超过 1000 行只产生提示。不允许折叠语句、删除说明或全目录忽略规避审阅。
+- 圈复杂度 = 1 + 函数自身作用域的判定点：`if`/`elif`、`for`/`async for`、`while`、`except`、`with`、`assert`、`match` 的 case、条件表达式、布尔运算的额外操作数、推导式 `if`；嵌套函数/类/λ 单独统计。
+- 分支数 = 同一控制流点集合，加上带分支的 `else`/`finally` 子句（`elif` 不重复计）。
+- 参数数 = 声明的位置、仅位置与仅关键字参数；`*args`／`**kwargs` 不计（与 Ruff `PLR0913` 同口径，已用 Ruff 实测校准）。
+- 复杂度与分支数是本项目固定口径（与 Ruff 的数值不完全相同：`assert`/`with`/`finally` 计入本项目统计），报告与文档同步；`lambda` 单位只统计行数。
 
-这些数字中 40/20/500 与提示值是项目选择（EvidHist 已按其代码校准），**不是普适最优值**；ForgeLoop 落地后按真实命中校准，先报告现有命中再对新代码落实。
+这些数字中 40/20/500 与提示值是项目选择（EvidHist 已按其代码校准），**不是普适最优值**；命中先在报告中如实列出，由人工判断后再决定是否调整结构。
 
 ## 5. 统一质量策略与数值基线
 
-`config/quality-policy.toml` 是唯一门槛来源；Ruff、Pylint 等工具的等值配置与其保持一致，专用脚本（覆盖/变异/结构）直接读取本文件。
+`config/quality-policy.toml` 是唯一门槛来源；专用脚本（覆盖/变异/结构）直接读取本文件。结构数字自 2026-10-13 起在该文件中只作提示阈值（第 25 节），Ruff 不再配置对应的阻断规则。
 
 | 指标 | 取值 | 必须一起报告的条件 |
 | --- | --- | --- |
 | 行覆盖、分支覆盖 | 各 ≥90% | 两个独立原始计数；coverage.py 综合百分比不能冒充两项各 90% |
 | 新增/修改行覆盖 | ≥90% | diff-cover；无 Git 基线时标“不适用”，出现基线后强制接入 |
 | 核心领域变异 | 有效非等价变异全部捕获，未审幸存 0 | 维持核心范围严格门槛；等价项逐条审阅 |
+| 已审阅幸存者清单 | 过期条目提示复核，不失败 | 源码变化后重导清单；未审幸存者、未完成状态、空报告与计数不闭合仍失败 |
 | 扩展的一般模块变异 | killed ≥90%（试行值） | 总数必须 >0；超时不自动算有效捕获 |
 | 变异异常/未完成 | 0 | no tests/skipped/suspicious/timeout/segfault/中断分别检查 |
 | 属性样例数 | 本地 100，PR 高风险 300，发布前 1000 | 执行预算而非统计置信度；保留 seed、最小反例与实际次数 |
@@ -158,20 +165,20 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 
 ## 11. 负例验证矩阵
 
-复刻 EvidHist 的核心实践：**每个硬门槛必须有可发现它的负例回归测试**，防止门槛静默失效。落地时逐项提供，当前全部未执行：
+复刻 EvidHist 的核心实践：**每个硬门槛必须有可发现它的负例回归测试**，防止门槛静默失效。结构数字自 2026-10-13 起不是硬门槛（第 25 节），其负例改为「超限产生提示、配置与解析错误仍被拒绝」：
 
 | 门槛 | 负例（应被拒绝/失败） |
 | --- | --- |
-| 结构度量 | 51 行函数、21 个公开接口、501 物理行文件 |
-| Ruff | 复杂度 11、参数 6 |
+| 结构度量 | 超限（51 行函数、21 个公开接口、501 物理行、超复杂度/参数/分支）产生提示且不失败；损坏配置、不可读源码与语法错误仍被拒绝 |
+| Ruff | 保留选择集内的静态缺陷（F/I/B/SIM/RUF/E 类）被拒绝；复杂度、参数与分支数已移出阻断清单（改由结构报告提示） |
 | Import Linter | 领域导入 adapter 的假包契约被拒绝 |
 | pytest-timeout | 卡死测试被 signal 模式终止 |
 | deptry | dev 组依赖无理由导入被 DEP004 拒绝 |
-| 变异门槛 | 空/幸存/超时/中断变异与缺失报告；复测后仍不一致的过期条目或未审阅幸存者；复测调用失败 |
+| 变异门槛 | 空/幸存/超时/中断变异与缺失报告；复测后仍不一致的未审阅幸存者；复测调用失败；过期已审条目只提示复核、不失败 |
 | 覆盖门槛 | 低独立分支覆盖与缺失覆盖报告 |
 | CLI 契约 | 受控漂移：改快照 → 退出 1；缺快照 → 退出 1 |
 | 提交策略 | 禁止窗口内 `--check-now` 返回 1；非法消息被 commit-msg 拒绝；伪造时间戳被 `--audit` 拒绝 |
-| 业务关键路径 | 旧方案版本重复批准不触发执行；三失败轮次用尽后无追加不继续；停止后不盲目重放旧动作；审查结果缺失或非结构化时中断而非放行 |
+| 业务关键路径 | 旧方案版本重复批准不触发执行；三失败轮次用尽后无追加不继续；停止后不盲目重放旧动作；审查结果缺失或非结构化时中断而非放行；检查点状态读取失败必须报到 stderr |
 
 ## 12. 与首版范围的关系
 
@@ -503,4 +510,75 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 | 变异 | **终局：652 变异 / 557 杀死 / 95 幸存（95 条全部审阅）、0 未完成状态，门槛通过**。首次重跑为 556 杀死 / 96 幸存，其中 6 个未审阅：5 个消息文本变异登记为等价（`config/quality-policy.toml`），1 个 `end <=` → `<` 被新增"边界相等合法"用例杀死（复测确认）；数据见 `mutants/mutmut-cicd-stats.json` |
 
 **未完成（如实记录）**：`docs/status.md` 的状态同步尚未落地——该文件（连同 `roadmap.md`、`pending-requirements.md` 与质量方案 Q00）当时正被同一工作区的另一会话在途编辑，本批次不去抢同一文件，待其收尾后统一更新；本节变异数字已在终局重跑后回填。
+
+## 24. 质量批次 Q01 落地后回退：2026-10-13 晚（所有者决定）
+
+**决定**：暂停[质量保障方案](quality-assurance-plan.md)的 Q 线实施，先跑通真实业务（A01 真实闭环），检查项按需再加。方案与数值仍以该文为准，但其中的目标值都不是当前有效门槛；Q 线状态与重启条件登记在 [RoadMap 第 5 节](roadmap.md)与[待实现需求列表第 5 节](pending-requirements.md)。
+
+**本轮实际发生（如实记录，全部已回退）**：在本机实际落地了 Q01 的检查项，`make check` 十项 exit 0（434 项通过、结构 0 失败／31 警告），随后按决定整体回退，工作区不保留新增门禁：
+
+| 项 | 落地内容 | 回退结果 |
+| --- | --- | --- |
+| Ruff 规则 | `pyproject.toml` 增 `extend-select = [BLE001, S110, S112, DTZ, PGH003, PGH004, PT012]`；全仓扫描只有 2 处命中（`cli/main.py` 宽泛捕获、测试的无时区时间） | 已移除；未启用新增规则 |
+| 规则正反例 | `tests/fixtures/lint/`＋`tests/unit/test_lint_rules.py`：fixture 用 `# noqa: 规则号` 标注期望命中，测试以 `--ignore-noqa` 重扫要求「标注即命中、无标注不误报」 | 已删除 |
+| 属性档位 | `scripts/property_profiles.py`（预算读取＋档位选择，未知档位失败）＋`tests/unit/test_quality_profiles.py`；`tests/conftest.py` 改为共用该判定；`quality.yml` 显式 `HYPOTHESIS_PROFILE=forgeloop-ci` 与 `--hypothesis-show-statistics` | 已回退；CI 档位维持原状 |
+| CLI 行为 | `cli/main.py` 的 `_describe_interrupt` 读取失败不再静默返回空串，改为保留异常类型与原因输出到 stderr；`tests/component/test_cli.py` 走真实任务＋故障替身断言 | 已回退（连带负例一并撤回）；**2026-10-13 晚按第 25 节单项重启并重新落地** |
+| 文档登记 | 本文件第 24 节、`status.md`／`roadmap.md`／`pending-requirements.md` 的 Q 线状态 | 保留（记录回退事实与按需重启条件） |
+
+**实测（本机 macOS，2026-10-13 20:0x）**：
+
+| 项 | 结果 |
+| --- | --- |
+| 回退后 `make check` | 十项 exit 0；414 项通过、5 项 deselected（install 未选）；结构 0 失败／31 警告（日志 `.cache/qa-rollback-check.log`） |
+| 回退后 `make coverage` | **exit 1：分支 89.97%（89.968%）< 90% 门槛**，行 94.49% 与增量检查通过；与回退前实测值完全一致（89.96815286624204），即缺口不是本轮引入，来自在途的 `domain/requirement.py` 与 `graph/nodes.py`，按既有记载记"发现但不碰"（日志 `.cache/qa-rollback-coverage.log`） |
+| 本轮 commit | 未创建（所有回退在工作区完成，未触碰第 23 节已暂存的批次文件） |
+
+**再启条件**：出现由真实任务暴露的具体漏检（静态缺陷漏检、档位错用、状态读取失败不可见等）时，按方案第 12 节重新确认该项文件范围与负例后单项重启，不整批恢复，也不把方案目标值预先设为门槛。
+
+## 25. 可靠性门槛精简：结构数字转提示、变异清单提示化、CI 去重与状态读取可见：2026-10-13 晚
+
+**依据与范围**：首个真实小任务（A01/G01）尚未跑通，而结构数字、同一 CI 作业内的重复测试执行与过期清单整理会挡住交付路径，却不增加正确性证据。按所有者要求做最小调整：**不新增产品能力、不进行无关重构、不提高覆盖门槛（仍 90%）、不启用质量方案里的 95%／逐文件 100%／新增 Ruff 规则，不创建 commit、推送、发布或部署**。
+
+保留项：全部业务、边界、异常、集成、场景与回归测试；新增关键行为先失败测试再实现；批准绑定、失败累计、追加授权、时间与停止、中断记录、main 保护；真实正式测试、独立审查、人工验收与原始证据；CLI 契约、架构同步、类型、依赖与安全检查；覆盖率 90% 门槛与提交时间纪律。
+
+**改动（全部实际执行）**：
+
+| 项 | 改动 | 保留的保护 |
+| --- | --- | --- |
+| 结构数字 | 函数行数、文件长度、公开接口数、圈复杂度、参数数、分支数由交付阻断改为审阅提示：`check_structure_metrics.py` 只输出 `HINT` 与机器报告；`pyproject.toml` 移除 Ruff `C901`／`PLR0912`／`PLR0913`；Pylint 的 `too-many-public-methods`／`too-many-lines` 并入结构报告，pylint 不再是 `make check` 门禁（dev 依赖保留，避免 `uv.lock` 漂移） | 统计与报告完整保留，并新增复杂度/分支/参数计数（口径见第 4 节）；配置损坏、源码不可读或不可解析仍失败并退出 1；结构负例测试改造而不删除 |
+| 变异清单 | 过期已审条目（旧条目被新测试杀死）只输出 `HINT` 提示重导清单，不再判整个变异检查失败，也不再触发复测 | 未审幸存者、真实行为缺口、未完成状态（no tests/skipped/suspicious/timeout/segfault/中断）、空报告、计数不闭合与复测调用失败仍严格失败；可疑项复测保留（只针对未审幸存者） |
+| CI 去重 | 拆出 `make check-static`（全部静态门禁）；CI 由 `make check coverage test-system` 改为 `make check-static coverage test-system` | 本地 `make check` 仍是静态门禁＋高频测试；系统测试与全部静态门禁保留；未删除用例、未减少测试目录、未加 skip/xfail、未改成假安装；覆盖门槛仍 90% |
+| 状态读取 | `_describe_interrupt` 读取检查点失败时把异常类型与原因报到 stderr，不再静默返回空串；stdout 输出契约不变 | 正常查询与不存在任务行为有回归用例；CLI 契约快照未变（stdout 未改） |
+| G01 前置 | 收窄首次真实任务的前置条件（[DogFood 计划](dogfood-execution-plan.md) G01）：现有单任务链（明确批准、受监督的独立现场）即可先验证实现、独立审查、正式测试、验收与交付；B03 动作生命周期、A05 并发、C01/B04 完整产物交接按各自业务方案验收 | 权限隔离未完成仍如实标记：「本次未修改源 main」不等于「PI 无权修改 main」 |
+
+**关键判定先红后绿**：
+
+| 项 | 首次失败（红） | 实现后（绿） |
+| --- | --- | --- |
+| 结构数字转提示 | `tests/unit/test_structure_metrics.py` **13 项失败**：超限仍判失败、报告无 hints、无复杂度/参数/分支计数、配置与解析错误未归一 | 同文件 **20 项通过** |
+| 变异清单提示化 | `tests/unit/test_mutation_stats.py` **3 项失败**：过期条目仍判失败、报告无 hints、过期条目仍触发复测 | 同文件 **17 项通过** |
+| 状态读取失败可见 | `tests/component/test_cli.py::TestStatusJsonContract::test_state_read_failure_is_reported_on_stderr` **1 项失败**（stderr 为空） | 同文件 **18 项通过** |
+
+**实测（本机 macOS，2026-10-13 21:0x–21:3x，Asia/Shanghai；日志在 `.cache/reliability-review/`）**：
+
+| 项 | 结果 |
+| --- | --- |
+| 结构报告 | `make structure-metrics` exit 0：**0 失败 / 70 条审阅提示**（其中复杂度 18、参数 5、分支 5，其余为函数行数、文件行数、公开接口与返回语句） |
+| `make check`（最终运行；树指纹 HEAD `0ae92ca`，含本次全部改动） | **exit 0**：446 项通过、5 项 deselected；结构 0 失败／70 提示（`check-final4.log`；同一树的先前一次 `check-final3.log` 结果相同，`run3-fingerprint.txt`） |
+| `make coverage`（最终运行，同一树指纹） | **exit 0**：464 项通过、5 项跳过、5 项 deselected；**行 94.81% / 分支 90.06%，增量通过**，门槛仍 90%（`coverage-final3.log`） |
+| `make check`（较早运行，树含 C01 提交 `65038bd`） | exit 0：442 项通过、5 项 deselected（`check-after.log`） |
+| 测试选择清单核对 | 旧 CI 并集（高频 446 ＋ 带覆盖 469 ＋ 系统 2）与新 CI 并集（带覆盖 469 ＋ 系统 2）逐条比对 **0 差异**；无覆盖高频选择是带覆盖选择的子集——原有测试场景全部仍被执行，只是不再重复执行（`.cache/reliability-review/selection/`） |
+| 门禁单独复核 | Ruff lint/format、cli-contract-check、architecture-contract-check、commit-policy-config、structure-metrics、import-lint、deptry 均 exit 0；Pyright 对本次改动文件 0 错误（`gates-isolated.log`） |
+| CI 命令本地验证 | 直接运行 CI 的新命令组合 `make check-static coverage test-system` **exit 0**：静态门禁全过、结构 0 失败／70 提示、Import Linter 契约 kept、deptry 无问题、464 项通过（5 跳过）、覆盖门槛通过、系统层 2 项通过（`ci-command-local.log`）。失败传播实测：静态门禁失败时 make 立即非零退出并中止，不再执行后续测试（`check-final2.log`：typecheck 报错后零次 pytest 调用） |
+| 未运行 | 未重跑全量变异（只跑脚本层 17 项测试，改动仅影响清单判定）；未跑真实模型、真实安装与真实 CI（无推送授权）；CI 命令组合按同一 Makefile 目标在本地验证，**真实 CI 未执行** |
+
+**同一工作区的并发干扰（如实记录，非本次改动引入）**：
+
+| 时间 | 现象 | 归因与后续 |
+| --- | --- | --- |
+| 21:13／21:23 | 另一会话创建并推送 `65038bd`（C01 候选产物）与 `0ae92ca`（dev 部分候选落盘）；pre-commit 的 stash 使工作区两次短暂回到 HEAD（文件"已变化"、`git status` 短暂为空） | 并发会话；本任务未回退或覆盖其改动，两次 stash 之后所有改动均回到工作区（已逐文件核对） |
+| 21:1x | `make coverage` exit 1：行 93.29%、分支 85.23%、增量失败 | 同工作区在途的 `graph/evidence.py`（26 行 / 8 分支未覆盖）与 C01 新增模块 `adapter/artifact.py`、`cli/candidate.py`、`domain/artifact.py`；本任务改动只提高 `cli/main.py` 覆盖（缺行 11 → 9，增量 100%）。该会话补齐测试并提交后，最终运行通过（见上表） |
+| 21:2x | `make check` exit 2：`typecheck` 在 `tests/unit/test_nodes.py:456/475` 报 2 个 Pyright 错误 | 另一会话在途测试文件（随后在 `0ae92ca` 修正）；当时逐个单独运行门禁全部 exit 0，Pyright 对本次改动文件 0 错误 |
+
+**未验证边界**：真实 CI 未运行（`quality.yml` 的新命令组合只在本地按同一 Makefile 目标验证）；失败运行与复跑结果都保留在上表，未以绿色复跑替换原始失败；Q 线的 95% 覆盖、逐文件 100%、新增 Ruff 规则、actionlint／zizmor／Gitleaks 仍不是有效门槛，重启条件不变。
 

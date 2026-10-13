@@ -1,8 +1,13 @@
-"""Enforce structure thresholds from config/quality-policy.toml over the policy scope.
+"""Report structure metrics from config/quality-policy.toml over the policy scope.
 
 The counting calibers live in :mod:`structure_metrics` (same directory); this script
-applies the warn/fail thresholds, records reviewed file exceptions, emits a machine
-report separating failures from warnings, and reports review hints without failing.
+applies the policy thresholds and emits a machine report. Structure numbers
+(function lines, file length, public interfaces, complexity, branches, parameters)
+are **review hints**: they surface in the report and on stdout, they do not block
+delivery. Only a corrupted policy, an unreadable source file or a source that cannot
+be parsed fails the check, so those errors can never be hidden behind the hint
+caliber. Pylint's former public-interface and module-length checks are folded into
+this report so the same number is not blocked twice.
 ForgeLoop 首版为纯 Python 工程范围（[scope] extensions 仅 .py）；出现 TS/JS
 范围时按 EvidHist 同值 ESLint 门槛接入，报告中显式记录该事实。
 """
@@ -10,6 +15,7 @@ ForgeLoop 首版为纯 Python 工程范围（[scope] extensions 仅 .py）；出
 import argparse
 import json
 import sys
+import tokenize
 import tomllib
 from pathlib import Path
 
@@ -39,6 +45,15 @@ INTEGER_KEYS = (
     "file_physical_lines_max",
     "reviewed_file_exception_ceiling",
 )
+HINT_KEYS = (
+    "return_statements_max",
+    "statements_max",
+    "local_variables_max",
+    "complexity_max",
+    "parameters_max",
+    "branches_max",
+)
+SOURCE_ERRORS = (OSError, SyntaxError, ValueError, tokenize.TokenError)
 
 
 def load_policy(path: Path) -> dict:
@@ -86,6 +101,12 @@ def validate_config(config: dict) -> list[str]:
     for flag, expected in CALIBER_FLAGS.items():
         if structure.get(flag) is not expected:
             errors.append(f"structure.{flag} must be {expected}; the counter fixes this caliber")
+    hints = structure.get("review_hints")
+    if not isinstance(hints, dict):
+        return [*errors, "[structure.review_hints] section is missing"]
+    for key in HINT_KEYS:
+        if type(hints.get(key)) is not int:
+            errors.append(f"structure.review_hints.{key} must be an integer")
     for entry in structure.get("reviewed_exceptions", []):
         missing = [key for key in EXCEPTION_KEYS if not entry.get(key)]
         if missing:
@@ -101,17 +122,28 @@ def python_file_metrics(root: Path, python_files: list[Path], config: dict) -> d
     classes: list[dict] = []
     files: list[dict] = []
     hints: list[dict] = []
+    source_errors: list[str] = []
     for path in python_files:
-        source = path.read_text(encoding="utf-8")
         relative = path.relative_to(root).as_posix()
-        file_functions, file_classes = python_metrics(source, relative)
+        try:
+            source = path.read_text(encoding="utf-8")
+            file_functions, file_classes = python_metrics(source, relative)
+        except SOURCE_ERRORS as error:  # 读取/解析失败必须显式失败，不进入提示口径
+            source_errors.append(f"{relative}: 源码读取或解析失败: {type(error).__name__}: {error}")
+            continue
         for metric in file_functions:
             functions.append(_function_report(metric, structure))
             hints.extend(_function_hints(metric, hint_rules))
         for metric in file_classes:
             classes.append(_class_report(metric, structure))
         files.append(_file_report(source, relative, exceptions, structure))
-    return {"functions": functions, "classes": classes, "files": files, "hints": hints}
+    return {
+        "functions": functions,
+        "classes": classes,
+        "files": files,
+        "hints": hints,
+        "source_errors": source_errors,
+    }
 
 
 def _function_report(metric: FunctionMetric, structure: dict) -> dict:
@@ -122,7 +154,10 @@ def _function_report(metric: FunctionMetric, structure: dict) -> dict:
         "start_line": metric.start_line,
         "end_line": metric.end_line,
         "effective_lines": metric.effective_lines,
-        "level": _level(
+        "complexity": metric.complexity,
+        "branches": metric.branches,
+        "parameters": metric.parameters,
+        "level": _review_level(
             metric.effective_lines,
             structure["function_effective_lines_warn"],
             structure["function_effective_lines_max"],
@@ -137,7 +172,7 @@ def _class_report(metric: ClassMetric, structure: dict) -> dict:
         "line": metric.line,
         "public_interfaces": metric.public_interfaces,
         "interfaces": [list(pair) for pair in metric.interfaces],
-        "level": _level(
+        "level": _review_level(
             metric.public_interfaces,
             structure["public_interfaces_warn"],
             structure["public_interfaces_max"],
@@ -153,7 +188,7 @@ def _file_report(source: str, relative: str, exceptions: list[dict], structure: 
     level = (
         "excepted"
         if excepted
-        else _level(
+        else _review_level(
             total, structure["file_physical_lines_warn"], structure["file_physical_lines_max"]
         )
     )
@@ -165,6 +200,9 @@ def _function_hints(metric: FunctionMetric, rules: dict) -> list[dict]:
         ("return_statements", metric.return_statements, "return_statements_max"),
         ("statements", metric.statements, "statements_max"),
         ("local_variables", metric.local_variables, "local_variables_max"),
+        ("complexity", metric.complexity, "complexity_max"),
+        ("parameters", metric.parameters, "parameters_max"),
+        ("branches", metric.branches, "branches_max"),
     )
     return [
         {
@@ -179,22 +217,25 @@ def _function_hints(metric: FunctionMetric, rules: dict) -> list[dict]:
     ]
 
 
-def _level(value: int, warn: int, fail: int) -> str:
-    if value > fail:
-        return "fail"
-    if value > warn:
-        return "warn"
+def _review_level(value: int, hint: int, review: int) -> str:
+    """结构数字的可见程度：超过提示值为 hint，超过复核值为 review；两者都不阻断交付。"""
+    if value > review:
+        return "review"
+    if value > hint:
+        return "hint"
     return "ok"
 
 
 def run_check(root: Path, config_path: Path) -> dict:
-    config = load_policy(config_path)
+    try:
+        config = load_policy(config_path)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        return _rejected(
+            [f"配置读取失败: {config_path}: {type(error).__name__}: {error}"], config_path
+        )
     errors = validate_config(config)
     if errors:
-        return {
-            "config_errors": errors,
-            "summary": {"failures": errors, "warnings": [], "passed": False},
-        }
+        return _rejected(errors, config_path)
     python_files, missing_roots = collect_python_files(root, config["scope"])
     report = {
         "config": str(config_path.relative_to(root)),
@@ -206,41 +247,50 @@ def run_check(root: Path, config_path: Path) -> dict:
             "with the first frontend surface.",
         },
     }
-    failures, warnings = _collect_findings(report, config)
+    failures, hints = _collect_findings(report, config)
     report["summary"] = {
         "failures": failures,
-        "warnings": warnings,
+        "hints": hints,
         "python_files": len(python_files),
         "passed": not failures,
     }
     return report
 
 
+def _rejected(errors: list[str], config_path: Path) -> dict:
+    return {
+        "config": str(config_path),
+        "config_errors": errors,
+        "scope_roots_missing": [],
+        "python": {"functions": [], "classes": [], "files": [], "hints": [], "source_errors": []},
+        "summary": {"failures": errors, "hints": [], "python_files": 0, "passed": False},
+    }
+
+
 def _collect_findings(report: dict, config: dict) -> tuple[list[str], list[str]]:
+    """Return (failures, hints): only config/read/parse errors fail the check."""
     structure = config["structure"]
     ceiling = structure["reviewed_file_exception_ceiling"]
-    failures: list[str] = []
-    warnings: list[str] = []
+    failures: list[str] = list(report["python"]["source_errors"])
+    hints: list[str] = []
     for metric in report["python"]["functions"]:
         _record(
             metric["level"],
             f"{metric['file']}:{metric['start_line']}",
             f"function {metric['name']} has {metric['effective_lines']} effective lines",
-            failures,
-            warnings,
+            hints,
         )
     for metric in report["python"]["classes"]:
         _record(
             metric["level"],
             f"{metric['file']}:{metric['line']}",
             f"class {metric['name']} exposes {metric['public_interfaces']} public interfaces",
-            failures,
-            warnings,
+            hints,
         )
     for metric in report["python"]["files"]:
         if metric["excepted"]:
             if metric["physical_lines"] > ceiling:
-                failures.append(
+                hints.append(
                     f"{metric['file']}: excepted file exceeds the reviewed ceiling "
                     f"({metric['physical_lines']} > {ceiling})"
                 )
@@ -249,19 +299,23 @@ def _collect_findings(report: dict, config: dict) -> tuple[list[str], list[str]]
             metric["level"],
             metric["file"],
             f"file has {metric['physical_lines']} physical lines",
-            failures,
-            warnings,
+            hints,
+        )
+    for hint in report["python"]["hints"]:
+        hints.append(
+            f"{hint['file']} {hint['function']}: {hint['metric']} "
+            f"{hint['value']} > {hint['limit']} (review)"
         )
     for relative_root in report["scope_roots_missing"]:
-        warnings.append(f"scope root not found: {relative_root}")
-    return failures, warnings
+        hints.append(f"scope root not found: {relative_root}")
+    return failures, hints
 
 
-def _record(level: str, where: str, message: str, failures: list[str], warnings: list[str]) -> None:
-    if level == "fail":
-        failures.append(f"{where}: {message}")
-    elif level == "warn":
-        warnings.append(f"{where}: {message}")
+def _record(level: str, where: str, message: str, hints: list[str]) -> None:
+    if level == "review":
+        hints.append(f"{where}: {message} (review)")
+    elif level == "hint":
+        hints.append(f"{where}: {message} (hint)")
 
 
 def main() -> int:
@@ -277,20 +331,15 @@ def main() -> int:
         args.report.write_text(
             json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-    for error in report.get("config_errors", []):
-        print(f"FAIL: config: {error}", file=sys.stderr)
+    label = "FAIL: config" if report.get("config_errors") else "FAIL"
     for finding in report["summary"]["failures"]:
-        print(f"FAIL: {finding}")
-    for warning in report["summary"]["warnings"]:
-        print(f"WARN: {warning}")
-    for hint in report.get("python", {}).get("hints", []):
-        print(
-            f"HINT: {hint['file']} {hint['function']}: {hint['metric']} "
-            f"{hint['value']} > {hint['limit']} (review)"
-        )
+        print(f"{label}: {finding}", file=sys.stderr)
+    for hint in report["summary"]["hints"]:
+        print(f"HINT: {hint}")
     print(
         f"Structure metrics: {len(report['summary']['failures'])} failures, "
-        f"{len(report['summary']['warnings'])} warnings."
+        f"{len(report['summary']['hints'])} review hints "
+        "(numbers are review prompts; only config/read/parse errors fail)."
     )
     return 0 if report["summary"]["passed"] else 1
 

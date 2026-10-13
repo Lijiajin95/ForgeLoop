@@ -50,6 +50,8 @@ line-length = 100
 extend-exclude = ["mutants", ".cache"]
 
 [tool.ruff.lint]
+# 结构数字（复杂度、参数数、分支数）自 2026-10-13 起由结构报告给出审阅提示，
+# 不再作为 Ruff 硬阻断：见 config/quality-policy.toml 与可靠性方案第 25 节。
 select = [
   "E4",
   "E7",
@@ -60,18 +62,8 @@ select = [
   "B",
   "SIM",
   "RUF",
-  "C901",
-  "PLR0912",
-  "PLR0913",
 ]
 allowed-confusables = ["，", "：", "；", "。", "（", "）"]
-
-[tool.ruff.lint.mccabe]
-max-complexity = 10
-
-[tool.ruff.lint.pylint]
-max-args = 5
-max-branches = 12
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
@@ -131,15 +123,11 @@ pytest_add_cli_args = [
 also_copy = ["tests", "config", "scripts"]
 
 [tool.pylint.main]
+# Pylint 原先只启用 too-many-public-methods 与 too-many-lines 两项；
+# 这两项与结构报告重复，2026-10-13 起统一由 check_structure_metrics.py 作为
+# 审阅提示报告（可靠性方案第 25 节）。Pylint 依赖保留在 dev 组以免 uv.lock 漂移，
+# 不再作为 make check 的门禁。
 disable = ["all"]
-enable = ["too-many-public-methods", "too-many-lines"]
-ignore-paths = ["mutants", "^\\.cache/", "^\\.venv/"]
-
-[tool.pylint.design]
-max-public-methods = 20
-
-[tool.pylint.format]
-max-module-lines = 500
 
 [tool.importlinter]
 root_package = "forgeloop"

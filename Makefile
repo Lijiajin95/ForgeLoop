@@ -2,11 +2,13 @@ UV_BIN := $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
 UV := env UV_CACHE_DIR=$(CURDIR)/.cache/uv UV_PYTHON_INSTALL_DIR=$(CURDIR)/.toolchain/python $(UV_BIN)
 FAST_TESTS := tests/unit tests/property tests/component tests/scenario
 
-# 目标态入口：复刻自 EvidHist 的工程可靠性检查入口。
-# 当前仓库尚无业务代码与 scripts/ 检查脚本，全部目标在首批代码落地前不可执行；
-# 激活顺序见 docs/engineering-reliability.md 第 10 节。
+# 本地入口：make check 跑静态门禁与高频测试（每次编辑/推送可用）。
+# CI 入口：make check-static coverage test-system —— 高频与集成用例在一次带覆盖采集的
+# 执行里跑完（不再先跑一遍无覆盖的高频套件），另加系统测试与全部静态门禁。
+# 低频层（真实安装、变异、安全）按各自节奏运行，见 docs/engineering-reliability.md。
+STATIC_GATES := lint typecheck cli-contract-check architecture-contract-check commit-policy-config structure-metrics import-lint deptry
 
-.PHONY: setup format lint typecheck test test-system check cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pylint pi-live coverage coverage-thresholds mutation audit sast security hooks precommit commit-policy-config
+.PHONY: setup format lint typecheck test test-install test-system check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live coverage coverage-thresholds mutation audit sast security hooks precommit commit-policy-config
 
 setup:
 	$(UV) sync --frozen --default-index https://pypi.org/simple --group mutation --group security
@@ -32,7 +34,9 @@ test-system:
 test-install:
 	.venv/bin/pytest -m install --timeout=180
 
-check: lint typecheck test cli-contract-check architecture-contract-check commit-policy-config structure-metrics import-lint deptry pylint
+check: check-static test
+
+check-static: $(STATIC_GATES)
 
 cli-contract:
 	.venv/bin/python scripts/export_cli_contract.py
@@ -54,9 +58,6 @@ import-lint:
 
 deptry:
 	.venv/bin/deptry .
-
-pylint:
-	env PYLINTHOME=$(CURDIR)/.cache/pylint .venv/bin/pylint src scripts
 
 coverage:
 	mkdir -p reports

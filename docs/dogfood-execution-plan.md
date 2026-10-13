@@ -102,7 +102,7 @@ DSH 的协调 Agent 负责拆解这份计划、安排依赖、准备输入、跟
 - 执行内容：固定候选工作目录、不可变初始基线和测试环境；实现并验证一种受限执行方式，源库/main 和批准记录不向 PI 暴露写权限；保存原生会话与可取得轨迹；候选 diff 始终针对批准基线；范围外改动阻断交付。
 - 拟修改范围：src/forgeloop/adapter/pi_rpc.py；src/forgeloop/adapter/git_workspace.py；src/forgeloop/adapter/execution_environment.py（新增）；runtime/Dockerfile（新增，若选定容器）；src/forgeloop/graph/nodes.py；tests/unit/test_git_workspace.py；tests/integration/test_execution_environment.py（新增）。
 - 验证：.venv/bin/pytest tests/unit/test_git_workspace.py tests/integration/test_execution_environment.py -q；make check；真实受限环境中运行 PI 的文件修改与主干写入拒绝检查。
-- 交付与退出条件：PI 真实修改批准副本，源 main 无变化；副本内提交/HEAD 变化不会丢失改动；副本测试确实加载候选代码。
+- 交付与退出条件：PI 真实修改批准副本，源 main 无变化；副本内提交/HEAD 变化不会丢失改动；副本测试确实加载候选代码。**权限边界如实标记**：容器隔离接入前，「源 main 无变化」只证明本次运行未改写源库，不证明 PI 无权写入——该结论要等受限执行环境（V-A02）验收。
 
 ### B02：实现、审查、正式测试和反馈修复闭环
 
@@ -188,11 +188,12 @@ DSH 的协调 Agent 负责拆解这份计划、安排依赖、准备输入、跟
 ### G01：首次真实单任务 DogFood 验收
 
 - 执行者：协调 Agent及所有者
-- 依赖：B01-B04；当前 CLI 可先在 I01 前验证
+- 依赖：**当前已实现的单任务执行链**（submit → 明确批准 → PI 在独立副本实现 → 独立审查 → 正式测试 → 人工验收 → 交付）。G01 不等新增动作生命周期（B03）、并发（A05）、完整产物交接（C01/B04 的产物绑定）等能力；这些能力各自按原业务方案验收，不绑成首次实验的前置条件。
 - 执行内容：选择真实小需求：status --json 增加明确下一步动作、动作主体和阻塞原因。由 DSH 先准备清楚的任务参数，通过 ForgeLoop 完成实际实现、独立审查、正式测试和用户验收。人工准备的分析/任务标记为人工。
+- 前置条件核对（2026-10-13）：现有 CLI 能在明确批准、受监督的独立现场（独立代码副本与独立记录根）完成单个任务，因此上述六个环节可以先行验证；G01 结论只覆盖这条单任务链。
 - 拟修改范围：实际开发子任务范围：src/forgeloop/domain/status.py（新增）、src/forgeloop/cli/main.py、tests/unit/test_status.py（新增）、tests/component/test_cli.py、tests/component/test_cli_contract.py、scripts/export_cli_contract.py、contracts/cli-contract.json，及必要架构同步。先批准这份清单，再由 ForgeLoop 实施；验收不偷偷追加功能。
 - 验证：真实 PI 工具与会话、候选 diff、实际正式测试、审批记录；旧契约兼容或明确变更；真实状态场景覆盖。
-- 交付与退出条件：证明现有任务执行链能改进 ForgeLoop；仅记为单任务 DogFood，不宣称需求分析、拆解与部署已经自动完成。
+- 交付与退出条件：证明现有任务执行链能改进 ForgeLoop；仅记为单任务 DogFood，不宣称需求分析、拆解与部署已经自动完成。**权限隔离未完成时如实标记**：容器隔离（架构 §5）尚未接入，PI 仍直接宿主运行；因此本任务只能声明「本次运行未修改源 main（副本内改动、旧契约快照核对通过）」，**不能**声明「PI 无权修改 main」——权限边界的验收属于受限执行环境（V-A02／B01）单独进行。
 
 ### G02：完整需求到部署的真实 DogFood 验收
 
@@ -225,7 +226,7 @@ DSH 的协调 Agent 负责拆解这份计划、安排依赖、准备输入、跟
 
 1. T00/T01 完成基线与交接确认。
 2. A01、B01、C01 并行启动；各线后续按各自依赖推进，未等到真实上游时可以开发和验证接口，但状态必须标记为未集成。
-3. B01-B04 形成可用单任务执行链后，尽早执行 G01。不要等需求规划或完整部署全部完成才首次验证真实代码交付。
+3. 现有单任务执行链（当前 CLI 的 submit/approve/审查/测试/验收/交付）可用后立即执行 G01，**不等 B03/B04 的新增动作生命周期、并发与产物绑定能力**；这些能力按各自业务方案单独验收，再回填到后续 G 项。
 4. A04/B04/C02 完成后执行 I01/I02，再以 C03 和 G02 验收完整业务链。
 5. A05/C04/G03 证明来源、异常、并行与恢复能力后，才执行 G04。
 

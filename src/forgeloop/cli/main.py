@@ -9,8 +9,8 @@
 - stop：请求停止；运行中的图在当前工具完成并保存结果后不再启动新动作。
 
 归并（B04）与发布（S1）命令拆到 ``cli/merge.py`` 与 ``cli/release.py``：
-``pylint max-module-lines=500`` 是启用中的门槛，本入口只保留研发闭环命令与
-解析器装配，共享助手在 ``cli/common.py``。
+本入口只保留研发闭环命令与解析器装配，共享助手在 ``cli/common.py``
+（模块长度自 2026-10-13 起只是结构报告里的审阅提示，不再是拆分理由）。
 
 所有输出由 RecordStore 的实际记录生成，不由模型猜测。
 """
@@ -96,9 +96,16 @@ def _run_config(task_id: str) -> RunnableConfig:
 
 
 def _describe_interrupt(graph: CompiledStateGraph[TaskState], task_id: str) -> str:
+    """待决定说明；读取检查点失败时报到 stderr，不静默假装没有待决定节点。"""
+
     try:
         snapshot = graph.get_state(_run_config(task_id))
-    except Exception:
+    except Exception as error:  # 检查点读取是框架/IO 边界，异常种类不可穷举；必须可见
+        print(
+            f"状态读取失败: {type(error).__name__}: {error}"
+            "（本次决定已记录；待决定节点未知，请重跑 status 核对）",
+            file=sys.stderr,
+        )
         return ""
     if not snapshot.next:
         return ""

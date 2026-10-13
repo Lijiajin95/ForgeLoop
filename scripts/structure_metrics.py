@@ -13,9 +13,17 @@ underscore-private and special methods, and inherited interfaces do not count.
 ``staticmethod`` is the only receiver without a bound argument; plain methods,
 classmethods and properties share the instance-receiver bucket.
 
-Review hints (return statements, statements, local variables) count the function's
-own scope only, excluding nested function/class bodies; comprehension targets are
-not locals.
+Review hints (return statements, statements, local variables, complexity, branches,
+parameters) count the function's own scope only, excluding nested function/class
+bodies; comprehension targets are not locals. Complexity is 1 + decision points of
+that scope: ``if``/``elif``, ``for``/``async for``, ``while``, ``except``, ``with``,
+``assert``, ``match`` cases, conditional expressions, each extra operand of a boolean
+operation and comprehension ``if`` clauses. Branches are the same control-flow points
+without the base 1, plus the ``else``/``finally`` clauses that add a path. Parameters
+are the declared positional, positional-only and keyword-only parameters; ``*args`` and
+``**kwargs`` are not counted (same caliber as Ruff PLR0913). These calibers are the
+project's own fixed definitions: they are review prompts, not Ruff-identical copies.
+``lambda`` units report their line count only (complexity 1, no branches/parameters).
 """
 
 import ast
@@ -36,6 +44,9 @@ class FunctionMetric:
     return_statements: int
     statements: int
     local_variables: int
+    complexity: int
+    branches: int
+    parameters: int
 
 
 @dataclass(frozen=True)
@@ -195,6 +206,53 @@ def count_local_variables(function: ast.FunctionDef | ast.AsyncFunctionDef) -> i
     return len(_bound_names(_own_scope_nodes(function)) - parameters)
 
 
+# 语句级控制流点：圈复杂度与分支数共用的判定集合。
+CONTROL_FLOW_NODES = (
+    ast.If,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.ExceptHandler,
+    ast.With,
+    ast.AsyncWith,
+    ast.Assert,
+    ast.match_case,
+)
+
+
+def count_parameters(function: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """声明的参数个数；``*args``/``**kwargs`` 不计（与 Ruff PLR0913 同口径）。"""
+    arguments = function.args
+    return len(arguments.posonlyargs) + len(arguments.args) + len(arguments.kwonlyargs)
+
+
+def count_complexity(function: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """1 + 函数自身作用域的判定点（控制流、布尔运算、条件表达式、推导式 if）。"""
+    nodes = _own_scope_nodes(function)
+    decisions = sum(1 for node in nodes if isinstance(node, CONTROL_FLOW_NODES))
+    decisions += sum(1 for node in nodes if isinstance(node, ast.IfExp))
+    decisions += sum(len(node.values) - 1 for node in nodes if isinstance(node, ast.BoolOp))
+    decisions += sum(len(node.ifs) for node in nodes if isinstance(node, ast.comprehension))
+    return 1 + decisions
+
+
+def count_branches(function: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """控制流分支点，加上带分支的 ``else``/``finally`` 子句（elif 不重复计）。"""
+    nodes = _own_scope_nodes(function)
+    branches = sum(1 for node in nodes if isinstance(node, CONTROL_FLOW_NODES))
+    return branches + sum(_else_clauses(node) for node in nodes)
+
+
+def _else_clauses(node: ast.AST) -> int:
+    if isinstance(node, ast.If):
+        return 1 if node.orelse and not isinstance(node.orelse[0], ast.If) else 0
+    if isinstance(node, ast.For | ast.AsyncFor | ast.While):
+        return 1 if node.orelse else 0
+    if isinstance(node, ast.Try | ast.TryStar):
+        return int(bool(node.orelse)) + int(bool(node.finalbody))
+    return 0
+
+
 def _function_metric(
     node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
     lines: SourceLines,
@@ -206,7 +264,9 @@ def _function_metric(
         1 for line in range(node.lineno, end + 1) if lines.is_code(line) and line not in docstrings
     )
     if isinstance(node, ast.Lambda):
-        return FunctionMetric(relative, "<lambda>", "lambda", node.lineno, end, effective, 0, 0, 0)
+        return FunctionMetric(
+            relative, "<lambda>", "lambda", node.lineno, end, effective, 0, 0, 0, 1, 0, 0
+        )
     kind = "async_function" if isinstance(node, ast.AsyncFunctionDef) else "function"
     return FunctionMetric(
         relative,
@@ -218,6 +278,9 @@ def _function_metric(
         count_return_statements(node),
         count_statements(node),
         count_local_variables(node),
+        count_complexity(node),
+        count_branches(node),
+        count_parameters(node),
     )
 
 

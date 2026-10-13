@@ -1,6 +1,8 @@
 """变异门槛脚本的负例回归测试：每个拒绝路径都要可发现。
 
 对应可靠性方案第 11 节负例矩阵：空/幸存/超时/中断变异与缺失报告。
+2026-10-13 起过期已审条目降为提示（可靠性方案第 25 节）：它提示复核清单，
+但不判整个变异检查失败；未审幸存者、未完成状态、空报告与计数不闭合仍严格处理。
 """
 
 import importlib.util
@@ -118,7 +120,9 @@ class TestRejectedReports:
         assert not result["summary"]["passed"]
         assert any("lists 2 survivors" in f for f in result["summary"]["failures"])
 
-    def test_stale_reviewed_entry_fails(self, tmp_path: Path, monkeypatch) -> None:
+    def test_stale_reviewed_entry_is_a_hint(self, tmp_path: Path, monkeypatch) -> None:
+        """旧条目被新测试杀死只提示复核，不判整个变异检查失败。"""
+
         stats = write_stats(tmp_path, base_counters(total=11, killed=10, survived=1))
         config = policy(
             reviewed_survivors=[
@@ -128,8 +132,23 @@ class TestRejectedReports:
         )
         monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1"])
         result = gate.run_stats_check(stats, config, tmp_path)
+        assert result["summary"]["passed"], result["summary"]["failures"]
+        assert result["summary"]["failures"] == []
+        assert any("no longer survive" in hint for hint in result["summary"]["hints"])
+        assert result["reviewed_survivors"] == 2
+
+    def test_stale_entry_does_not_relax_unreviewed_survivors(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """过期条目降为提示后，同一报告里的未审幸存者仍必须失败。"""
+
+        stats = write_stats(tmp_path, base_counters(total=12, killed=10, survived=2))
+        config = policy(reviewed_survivors=[{"mutant": "m-stale", "reason": "旧条目"}])
+        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1", "m2"])
+        result = gate.run_stats_check(stats, config, tmp_path)
         assert not result["summary"]["passed"]
-        assert any("no longer survive" in f for f in result["summary"]["failures"])
+        assert any("unreviewed" in f for f in result["summary"]["failures"])
+        assert any("no longer survive" in hint for hint in result["summary"]["hints"])
 
     def test_missing_policy_keys_fail(self, tmp_path: Path, no_survivors) -> None:
         stats = write_stats(tmp_path, base_counters())
@@ -161,7 +180,9 @@ def fake_remeasure(
 class TestSuspiciousRecheck:
     """测量噪声确认：可疑项复测一次，判定取第二次测量（mutmut 只跑相关测试子集）。"""
 
-    def test_transient_stale_entry_passes_after_recheck(self, tmp_path: Path, monkeypatch) -> None:
+    def test_stale_entry_is_not_rechecked(self, tmp_path: Path, monkeypatch) -> None:
+        """过期条目只是提示，不再触发复测（复测用于吸收未审幸存者的测量噪声）。"""
+
         stats = write_stats(tmp_path, base_counters(total=11, killed=10, survived=1))
         config = policy(
             reviewed_survivors=[
@@ -178,10 +199,9 @@ class TestSuspiciousRecheck:
             fake_remeasure(base_counters(total=11, killed=9, survived=2), ["m1", "m2"], calls),
         )
         assert result["summary"]["passed"], result["summary"]["failures"]
-        assert calls == [("m2",)]
-        assert result["recheck"] is not None
-        assert result["recheck"]["mutants"] == ("m2",)
-        assert any("no longer survive" in f for f in result["recheck"]["first_failures"])
+        assert calls == []
+        assert result["recheck"] is None
+        assert any("no longer survive" in hint for hint in result["summary"]["hints"])
 
     def test_transient_unreviewed_survivor_passes_after_recheck(
         self, tmp_path: Path, monkeypatch
@@ -197,26 +217,6 @@ class TestSuspiciousRecheck:
             fake_remeasure(base_counters(total=11, killed=10, survived=1), ["m1"], calls),
         )
         assert result["summary"]["passed"], result["summary"]["failures"]
-        assert calls == [("m2",)]
-
-    def test_confirmed_stale_entry_fails(self, tmp_path: Path, monkeypatch) -> None:
-        stats = write_stats(tmp_path, base_counters(total=11, killed=10, survived=1))
-        config = policy(
-            reviewed_survivors=[
-                {"mutant": "m1", "reason": "ok"},
-                {"mutant": "m2", "reason": "ok"},
-            ]
-        )
-        monkeypatch.setattr(gate, "current_survivors", lambda root: ["m1"])
-        calls: list[tuple[str, ...]] = []
-        result = gate.run_stats_check(
-            stats,
-            config,
-            tmp_path,
-            fake_remeasure(base_counters(total=11, killed=10, survived=1), ["m1"], calls),
-        )
-        assert not result["summary"]["passed"]
-        assert any("no longer survive" in f for f in result["summary"]["failures"])
         assert calls == [("m2",)]
 
     def test_confirmed_unreviewed_survivor_fails(self, tmp_path: Path, monkeypatch) -> None:

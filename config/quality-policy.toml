@@ -10,6 +10,10 @@ extensions = [".py"]
 generated_roots = []
 
 [structure]
+# 结构数字全部是**审阅提示**（2026-10-13 精简，见可靠性方案第 25 节）：
+# warn/max 只决定报告中的可见程度（hint / review），不阻断交付；
+# 只有配置损坏、源码读取或解析失败才让 check_structure_metrics.py 失败。
+# 不为数字超限拆函数、拆文件或增加抽象层。
 function_effective_lines_warn = 40
 function_effective_lines_max = 50
 exclude_blank_lines = true
@@ -25,12 +29,17 @@ file_physical_lines_max = 500
 reviewed_file_exception_ceiling = 1000
 reviewed_exceptions = []
 
-# Review-only hints (not blocking): values follow the Ruff/Pylint defaults named in the
-# reliability doc. They surface in the machine report so maintainers can act without CI failing.
+# 审阅提示上限（不阻断）：超过即出现在结构报告与 stdout 的 HINT 行，
+# 供人工判断是否需要处理。复杂度/分支数在此统一报告（Ruff 的 C901、
+# PLR0912、PLR0913 已停用，Pylint 的接口数与文件长度检查也已并入本报告），
+# 避免同一个数字被两处门禁重复阻断。口径见 scripts/structure_metrics.py。
 [structure.review_hints]
 return_statements_max = 6
 statements_max = 50
 local_variables_max = 15
+complexity_max = 10
+parameters_max = 5
+branches_max = 12
 
 [coverage]
 line_min = 90
