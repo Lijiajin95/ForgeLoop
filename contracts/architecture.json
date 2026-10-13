@@ -25,6 +25,7 @@
     "forgeloop.domain.limits": "domain",
     "forgeloop.domain.merge": "domain",
     "forgeloop.domain.release": "domain",
+    "forgeloop.domain.requirement": "domain",
     "forgeloop.graph": "graph",
     "forgeloop.graph.builder": "graph",
     "forgeloop.graph.evidence": "graph",
@@ -32,6 +33,7 @@
     "forgeloop.graph.prompts": "graph",
     "forgeloop.graph.state": "graph",
     "forgeloop.records": "records",
+    "forgeloop.records.requirements": "records",
     "forgeloop.records.store": "records"
   },
   "layer_edges": [
