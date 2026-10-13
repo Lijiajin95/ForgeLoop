@@ -59,7 +59,16 @@ jobs:
           fetch-depth: 0
       - name: Audit new commit headers and timestamps
         env:
-          BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
           HEAD_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           PYTHONPATH: src
-        run: python3 scripts/check_commit_policy.py --audit "$BASE_REVISION" "$HEAD_REVISION"
+        run: |
+          set -euo pipefail
+          BASE="$EVENT_BASE"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # 新分支推送时 before 全零：改为只审计该分支相对 main 的新增提交，
+            # 不把已在主干的历史提交（含已记录的违规批次）重新判一遍。
+            git fetch --quiet origin main
+            BASE="$(git merge-base "$HEAD_REVISION" origin/main || true)"
+          fi
+          python3 scripts/check_commit_policy.py --audit "$BASE" "$HEAD_REVISION"
