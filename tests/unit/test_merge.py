@@ -4,6 +4,7 @@
 "必需检查判定"（通过/未完成/失败/缺失）和候选分支命名规则。
 """
 
+from forgeloop.cli.merge import CHECK_POLL_MAX_SECONDS, check_poll_delay
 from forgeloop.domain.merge import (
     ChecksDecision,
     MergeDecision,
@@ -119,3 +120,24 @@ class TestRequiredChecks:
         decision = checks((), {})
         assert decision.passed is True
         assert decision.pending is False
+
+
+class TestCheckPollDelay:
+    """轮询等待：线性退避，保证匿名检查读取不耗尽 60 次/小时的配额。"""
+
+    def test_delay_grows_linearly(self) -> None:
+        assert [check_poll_delay(n, 30.0) for n in (1, 2, 3, 4)] == [30.0, 60.0, 90.0, 120.0]
+
+    def test_delay_is_capped(self) -> None:
+        assert check_poll_delay(50, 30.0) == CHECK_POLL_MAX_SECONDS
+
+    def test_zero_base_disables_waiting(self) -> None:
+        assert check_poll_delay(3, 0.0) == 0.0
+
+    def test_full_timeout_wait_stays_within_anonymous_quota(self) -> None:
+        waited = 0.0
+        polls = 0
+        while waited < 1800.0:
+            polls += 1
+            waited += check_poll_delay(polls, 30.0)
+        assert polls <= 15, f"1800s 内轮询 {polls} 次，接近匿名配额 60 次/小时"

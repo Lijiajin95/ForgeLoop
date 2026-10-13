@@ -44,6 +44,7 @@ from forgeloop.domain.merge import (
 from forgeloop.records.store import RecordStore
 
 CHECK_POLL_SECONDS = 30.0
+CHECK_POLL_MAX_SECONDS = 300.0
 DEFAULT_REQUIRE_CHECKS = "quality,security,commit-policy"
 DEFAULT_CHECKS_TIMEOUT = 1800.0
 
@@ -93,6 +94,19 @@ def _write_evidence(task_dir: Path, evidence: dict) -> None:
     )
 
 
+def check_poll_delay(attempt: int, base: float) -> float:
+    """第 attempt 次轮询前的等待秒数：线性退避到上限。
+
+    匿名读取 GitHub 检查状态只有 60 次/小时的配额；固定 30s 轮询一次最长 1800s 的归并
+    会发约 60 次请求，正好耗尽配额（实测首轮归并就在 403 rate limit exceeded 后超时放弃）。
+    退避后同一次归并约 10-15 次请求。测试把 base 设为 0 表示不等待。
+    """
+
+    if base <= 0:
+        return 0.0
+    return min(base * max(attempt, 1), CHECK_POLL_MAX_SECONDS)
+
+
 def _wait_for_checks(
     slug: str, sha: str, required: tuple[str, ...], timeout_seconds: float
 ) -> tuple[ChecksDecision, dict]:
@@ -118,7 +132,7 @@ def _wait_for_checks(
                 "polls": polls,
                 "last_runs": last_runs,
             }
-        time.sleep(CHECK_POLL_SECONDS)
+        time.sleep(check_poll_delay(polls, CHECK_POLL_SECONDS))
 
 
 def _checks_outcome(
