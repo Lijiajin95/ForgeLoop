@@ -50,6 +50,7 @@ def deploy(prefix: Path, wheel: Path, tag: str, capsys, **extra):
 
 
 class TestBootstrapDeployAndRollback:
+    @pytest.mark.install
     def test_deploy_activate_and_rollback(self, tmp_path: Path, capsys) -> None:
         prefix = tmp_path / "prefix"
         dist = tmp_path / "dist"
@@ -85,6 +86,7 @@ class TestBootstrapDeployAndRollback:
 class TestControlledDeploy:
     """控制路径：只部署 Release 上发布的同一份产物并绑定标签提交。"""
 
+    @pytest.mark.install
     def test_deploy_from_fake_release_binds_provenance(
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:

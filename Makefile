@@ -23,12 +23,16 @@ typecheck:
 	.venv/bin/pyright
 
 test:
-	.venv/bin/pytest $(FAST_TESTS)
+	.venv/bin/pytest $(FAST_TESTS) -m "not install"
 
 test-system:
-	.venv/bin/pytest tests/system
+	.venv/bin/pytest tests/system -m "not install"
 
-check: lint typecheck test cli-contract-check commit-policy-config structure-metrics import-lint deptry pylint
+# 低频层：真实执行 uv venv 与 wheel 安装（部署），预算 180s，不进入高频路径。
+test-install:
+	.venv/bin/pytest -m install --timeout=180
+
+check: lint typecheck test cli-contract-check architecture-contract-check commit-policy-config structure-metrics import-lint deptry pylint
 
 cli-contract:
 	.venv/bin/python scripts/export_cli_contract.py
@@ -50,7 +54,7 @@ pylint:
 
 coverage:
 	mkdir -p reports
-	.venv/bin/pytest $(FAST_TESTS) tests/integration --cov --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-report=json:reports/coverage.json
+	.venv/bin/pytest $(FAST_TESTS) tests/integration -m "not install" --cov --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-report=json:reports/coverage.json
 	.venv/bin/python scripts/check_coverage_thresholds.py
 
 coverage-thresholds:

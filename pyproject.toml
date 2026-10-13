@@ -96,6 +96,7 @@ markers = [
   "scenario: deterministic multi-step workflow behavior",
   "component: CLI output contract tests driven through command entry points",
   "pi_live: real PI RPC invocation in the restricted container (explicit opt-in)",
+  "install: 真实执行 uv venv 与 wheel 安装的慢速用例（make test-install，预算 180s）",
 ]
 filterwarnings = ["error"]
 

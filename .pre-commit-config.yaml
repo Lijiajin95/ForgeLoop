@@ -33,7 +33,8 @@ repos:
       - id: fast-tests
         name: Deterministic tests before push
         language: unsupported
-        entry: .venv/bin/pytest tests/unit tests/property tests/component tests/scenario -q
+        # 高频层：不含真实安装用例（部署属低频，见 Makefile 的 test-install 与夜间作业）。
+        entry: .venv/bin/pytest tests/unit tests/property tests/component tests/scenario -m "not install" -q
         pass_filenames: false
         stages: [pre-push, manual]
         types_or: [python, pyi]

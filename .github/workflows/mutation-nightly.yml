@@ -15,6 +15,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  install-tests:
+    # 低频层：真实执行 uv venv 与 wheel 安装的部署用例，不进入每次推送的高频路径。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.24"
+          python-version: "3.13"
+      - run: uv sync --frozen
+      - name: Run real-install deployment tests
+        shell: bash
+        run: |
+          set -o pipefail
+          make test-install 2>&1 | tee reports/install-tests.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: install-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/install-tests.log
+          retention-days: 7
+
   mutation:
     runs-on: ubuntu-24.04
     timeout-minutes: 180

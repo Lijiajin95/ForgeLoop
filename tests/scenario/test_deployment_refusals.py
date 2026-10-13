@@ -7,6 +7,7 @@
 
 from pathlib import Path
 
+import pytest
 from support import (
     ReleaseScene,
     build_wheel,
@@ -72,6 +73,7 @@ class TestBootstrapRefusals:
         assert code == 1
         assert "本地产物不存在" in out
 
+    @pytest.mark.install
     def test_same_version_other_artifact_is_refused(self, tmp_path: Path, capsys) -> None:
         prefix = tmp_path / "prefix"
         dist = tmp_path / "dist"
@@ -83,6 +85,7 @@ class TestBootstrapRefusals:
         assert "已激活" in out
         assert current_version(prefix) == "0.0.1"
 
+    @pytest.mark.install
     def test_install_failure_is_reported(self, tmp_path: Path, capsys) -> None:
         bogus = tmp_path / "forgeloop-0.0.1-py3-none-any.whl"
         bogus.write_text("not a wheel\n", encoding="utf-8")
@@ -93,6 +96,7 @@ class TestBootstrapRefusals:
         assert current_version(prefix) is None
         assert not (prefix / "releases" / "0.0.1").exists()  # 半成品已清理
 
+    @pytest.mark.install
     def test_smoke_failure_is_reported_without_auto_revert(self, tmp_path: Path, capsys) -> None:
         prefix = tmp_path / "prefix"
         wheel = build_wheel(tmp_path / "dist", "0.0.1", failing=True)
