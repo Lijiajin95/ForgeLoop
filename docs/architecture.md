@@ -1,6 +1,6 @@
 # ForgeLoop 最小架构
 
-日期：2026-10-12，Asia/Shanghai。状态：快速启动架构草案，尚未实现。当前只描述 ForgeLoop；公共方向沿用 [ADR](adr/0001-orchestration-and-executors.md)，具体范围以[首版需求](product-requirements.md)为准。
+日期：2026-10-12，Asia/Shanghai。状态：首版架构**已实现**（唯一未接入项是 §5 的受限容器隔离，PI 仍宿主运行）。当前只描述 ForgeLoop；公共方向沿用 [ADR](adr/0001-orchestration-and-executors.md)，具体范围以[首版需求](product-requirements.md)为准，实现与验证状态见[状态记录](status.md)。
 
 ## 1. 只建设当前闭环
 

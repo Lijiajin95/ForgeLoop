@@ -168,7 +168,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | 覆盖门槛 | 低独立分支覆盖与缺失覆盖报告 |
 | CLI 契约 | 受控漂移：改快照 → 退出 1；缺快照 → 退出 1 |
 | 提交策略 | 禁止窗口内 `--check-now` 返回 1；非法消息被 commit-msg 拒绝；伪造时间戳被 `--audit` 拒绝 |
-| 业务关键路径 | 旧方案版本重复批准不触发执行；三失败轮次用尽后无追加不继续；停止后不盲目重放旧动作 |
+| 业务关键路径 | 旧方案版本重复批准不触发执行；三失败轮次用尽后无追加不继续；停止后不盲目重放旧动作；审查结果缺失或非结构化时中断而非放行 |
 
 ## 12. 与首版范围的关系
 
@@ -390,3 +390,25 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 **门槛数字（对应 f28635c）**：`make check` 十项全绿（快速套件 337 项、结构 0 失败 / 22 警告、pylint 10.00）；`make coverage` 355 项通过（5 项 pi_live 显式跳过）、行 96.66% / 分支 92.16%；`make test-system` 2 项通过；`make sast` 4 条规则 35 个目标 0 findings；`make mutation` `512/596 killed, 84 survivors (84 reviewed)`。
 
 **未验证边界（不得当作已完成）**：GitHub 真实检查下的端到端候选分支归并（ruleset 未设置）；「Release → 自托管 runner → 本机部署」链路；真实两版本回滚（本机仅一个版本）；容器隔离下运行 PI；A01 真实任务闭环。
+
+## 21. 审查门 fail-closed、发布→部署链路与计划文档同步：2026-10-13 上午（第二批）
+
+外部复核指出"工程实现走在真实验收前面"，并给出两个影响验收的具体缺陷。本节记录修复与验证；两个缺陷均由所有者定调后实施（审查门：中断交人工决定；部署链路：显式 `workflow_dispatch`）。
+
+**缺陷 1：独立审查错误放行（fail-open）**。`make_review_node` 把缺失或非列表的 `blocking_issues` 当作空列表，于是"取不到审查结果"与"纯文本审查"都被判为无阻断并继续测试与验收；该行为还被两处测试固化（`test_non_list_blocking_issues_are_tolerated`、`plain-text` 场景断言走到 `awaiting_acceptance`）。
+
+| 项 | 实现 |
+| --- | --- |
+| 判定 | 仅当 `blocking_issues` 是列表时结果有效；缺失、类型错误或无文本一律 `interrupted` + `halted_reason=review_result_invalid` |
+| 记录 | `reviews.jsonl` 与 `review-report.json` 新增 `blocking_issues_valid`（真=结构化结论可用，假=结果不可用），原始 summary 文本保留供人工核对 |
+| 负例 | 假 PI 新增 `review-bad-issues`（类型错误）、`review-no-issues`（缺字段）、`review-empty-text`（无文本）；单元 5 项（含空列表通过、非空列表阻断的正例）＋场景 1 项（纯文本审查不再放行、无交付） |
+
+**缺陷 2：发布→部署链路断点**。`release.yml` 用 `GITHUB_TOKEN` 创建 Release，而 `deploy.yml` 只监听 `release.published`；按 GitHub 规则该事件不触发下游工作流（仅 `workflow_dispatch`／`repository_dispatch` 例外），链路实际不会自动串联。修复：`release.yml` 增加 `actions: write`，并在创建 Release 后显式 `gh workflow run deploy.yml --ref <tag> -f tag=<tag>`（该步失败即作业失败，不静默）；`deploy.yml` 保留 `release.published` 作为人工创建 Release 的入口，注释与[部署文档](deployment.md)写明两条触发路径。
+
+**计划文档同步**：`product-requirements.md`、`architecture.md`、`roadmap.md` 的"尚未实现"状态改为与现状一致（主体已实现、真实验收未完成），RoadMap 阶段表增加"现状（2026-10-13）"列。
+
+**门槛数字（本次提交）**：`make check` 十项全绿（快速套件 343 项、结构 0 失败、pylint 10.00）；覆盖率与系统层数字见[状态记录](status.md)。
+
+**发现但不碰（记录，未修改）**：`tests/scenario/test_deployment_refusals.py::TestBootstrapRefusals::test_install_failure_is_reported` 在整套运行时出现过一次 pytest-timeout（>30s：`uv venv` 在负载下变慢；单跑 6.94s 通过），复跑整套通过——既有 flake，与本次改动无关；建议后续为该测试单独放宽超时或复用缓存环境。
+
+**未验证边界**：发布→部署的真实端到端仍需一次真实标签交付（会创建 Release 并派发本机部署），本次只做配置级校验；审查门修复不改变"首个真实任务未执行"的事实。

@@ -1,6 +1,6 @@
 # ForgeLoop 首版产品需求：快速启动
 
-日期：2026-10-12，Asia/Shanghai。状态：按用户最新快速启动要求收缩的范围草案；尚未实现。实施前确认最小技术方案，当前授权为需求审查与文档调整。
+日期：2026-10-12，Asia/Shanghai。状态：范围已冻结；**主体已实现**（domain/records/adapter/graph/cli、受控归并与 CD 的 S1–S3），**真实验收尚未完成**（A01 真实小任务、A05 备份未执行）。实现与验证状态见[状态记录](status.md)，不写在本文件。
 
 首版目标：**用 CLI 完成一个真实小任务，从批准方案到可验收代码交付。** 需求审查见[审查表](requirements-review.md)，后置功能见[待实现列表](pending-requirements.md)，完整旧目标见[历史快照](history/full-product-scope-2026-10-12.md)。
 

@@ -1,12 +1,14 @@
 # ForgeLoop 状态记录
 
-本文件是 ForgeLoop **当前状态**的唯一记录入口。README 只描述稳定的产品范围与文档索引，不写当前状态；逐批次的实测过程、失败与门禁细节保留在[工程可靠性方案](engineering-reliability.md)第 13–19 节。
+本文件是 ForgeLoop **当前状态**的唯一记录入口。README 只描述稳定的产品范围与文档索引，不写当前状态；逐批次的实测过程、失败与门禁细节保留在[工程可靠性方案](engineering-reliability.md)第 13–21 节。
 
 更新规则：实现批次、门槛数字、CI 与远程状态变化后更新本文件；只写实际执行的证据，未执行或未验证的事项如实标记（沿用历史记录时注明来源）。
 
-## 1. 当前状态（截至 2026-10-13 09:40，Asia/Shanghai）
+## 1. 当前状态（截至 2026-10-13 10:33，Asia/Shanghai）
 
-首版 CLI 闭环已实现并通过工程门槛，**尚未在真实任务上跑通**（见第 6 节缺口）。CD 的受控发布（S1）与受控部署（S2）已实现，本机已完成首次引导部署（独立版本目录 + 原子切换 + 部署回执）；S3 的合入门槛方案 B（候选分支流程）已实现，S1–S3 全部改动已提交并推送 GitHub（`f28635c`），推送 CI 三作业 success。
+首版 CLI 闭环已实现并通过工程门槛，**尚未在真实任务上跑通**（见第 6 节缺口）。CD 的受控发布（S1）与受控部署（S2）已实现，本机已完成首次引导部署（独立版本目录 + 原子切换 + 部署回执）；S3 的合入门槛方案 B（候选分支流程）已实现。
+
+2026-10-13 上午外部复核后修复两个影响验收的缺陷：**独立审查不再 fail-open**（结果缺失或非结构化时中断 `review_result_invalid`，交人工决定）、**发布→部署链路接通**（`release.yml` 显式 `workflow_dispatch` 派发 Deploy，因 `GITHUB_TOKEN` 创建的 Release 事件不触发下游工作流）；计划文档（首版需求／架构／RoadMap）同步为“主体已实现、真实验收未完成”。批次细节见[工程可靠性方案第 21 节](engineering-reliability.md)。
 
 ### 实现范围
 
@@ -15,10 +17,10 @@
 | domain | 失败轮次计数与累计、追加授权额度、批准绑定任务身份与方案版本、执行时间限额、提交时间策略、受控归并规则、受控发布规则、受控部署与回滚规则 |
 | records | SQLite 权威记录（任务、批准、计划、失败轮次、交付、归并、发布、停止） |
 | adapter | PI RPC（JSONL 帧、命令/响应 id 关联、abort、模型错误如实上报）、正式测试命令运行器、独立 git 工作副本与发布标签、本机部署（下载 Release 资产、独立版本环境、原子切换、冒烟检查、部署日志） |
-| graph | LangGraph 两次批准（方案／验收）、失败回边、追加授权 |
+| graph | LangGraph 两次批准（方案／验收）、失败回边、追加授权；独立审查 fail-closed（结果非结构化即中断，不判为“无阻断”） |
 | cli | `submit` / `approve` / `grant` / `status --json` / `stop` / `merge` / `release` / `deploy` / `rollback` |
 | 自迭代链路 | submit → 批准 → PI 副本实现 → 独立审查 → 副本内真实测试 → 人工验收 → `merge`（绑定验收基线、漂移拒绝、推送 GitHub） |
-| CD 受控发布（S1） | `release` 创建 annotated tag 并按需推送 → Release 工作流从标签构建一次产物并附 `SHA256SUMS` → 发布回执固化标签／归并提交／基线／候选 diff 校验值；同标签重复发布幂等、换标签拒绝 |
+| CD 受控发布（S1） | `release` 创建 annotated tag 并按需推送 → Release 工作流从标签构建一次产物并附 `SHA256SUMS` → 发布回执固化标签／归并提交／基线／候选 diff 校验值；同标签重复发布幂等、换标签拒绝；Release 创建后**显式派发 Deploy**（2026-10-13 接通） |
 | CD 受控部署（S2） | `deploy` 只部署 Release 上同一份产物（校验值不匹配即拒绝，禁止重新构建）→ 独立版本目录 `releases/<version>` → 原子切换 `current` → 冒烟检查 → 部署日志；`rollback` 只切到已安装且留有校验记录的版本 |
 
 ### CD 进展（P1）
@@ -26,16 +28,16 @@
 | 段 | 状态 |
 | --- | --- |
 | S1 受控发布 | 代码与门槛已落地（`forgeloop release`、`releases` 表、发布回执、Release 工作流、CLI 契约含 release 节）；场景测试覆盖发布／同标签幂等／换标签拒绝／未归并拒绝；**尚无真实标签**——首个发布要等真实任务归并后、由所有者指定版本号执行 |
-| S2 本机部署 | 代码与门槛已落地（`deploy` / `rollback`、部署日志、deploy 工作流）；**本机已完成一次真实引导部署**（`v0.0.1`，来源 bootstrap，校验值 `ab03c198…c4e`，冒烟 exit 0，独立 venv Python 3.13.5）；「Release → 自托管 runner → 部署」链路与真实两版本回滚**尚未执行**（见[部署说明](deployment.md)） |
+| S2 本机部署 | 代码与门槛已落地（`deploy` / `rollback`、部署日志、deploy 工作流）；**本机已完成一次真实引导部署**（`v0.0.1`，来源 bootstrap，校验值 `ab03c198…c4e`，冒烟 exit 0，独立 venv Python 3.13.5）；触发链路断点已修复（显式 `workflow_dispatch`，2026-10-13），但「Release → 自托管 runner → 部署」真实端到端与真实两版本回滚**仍未执行**（见[部署说明](deployment.md)） |
 | S3 CI 合入门槛 | **方案 B 已实现并已推送**（`0f4aa3b`）：`forgeloop merge` 有远程时默认走"候选分支 → 匿名等必需检查 → 快进 main → 删候选分支"，失败/超时保持 main 不动并保留分支，证据写入 `merge-evidence.json`（本地真实 git + 假检查状态已实测）；**ruleset 仍未设置**，需所有者按[分支保护方案](branch-protection.md)在网页执行（Evaluate → Active） |
 
-### 验证数字（对应提交 `f28635c`，已推送；Debian 本机 2026-10-13 实测）
+### 验证数字（本次批次代码状态，2026-10-13 实测；逐行标注来源）
 
 | 项 | 实测值 | 证据 |
 | --- | --- | --- |
-| `make check` | 十项门槛 exit 0（lint、format、typecheck、test、cli-contract-check、commit-policy-config、structure-metrics、import-lint、deptry、pylint）；结构 0 失败 / 22 警告 | 本地实跑（S1+S2 落地后） |
-| 测试 | 快速套件 337 项通过；含集成 355 项通过、5 项 pi_live 显式跳过；系统层 2 项通过 | 本地实跑 |
-| 覆盖率 | 行 96.66%、分支 92.16%；diff-cover 增量对 `origin/main` 通过 | `reports/coverage.xml` 与门槛脚本 |
+| `make check` | 十项门槛 exit 0（lint、format、typecheck、test、cli-contract-check、commit-policy-config、structure-metrics、import-lint、deptry、pylint）；结构 0 失败 / 23 警告 | 本机 macOS 实跑（本次批次改动后） |
+| 测试 | 快速套件 343 项通过；含集成 361 项通过、5 项 pi_live 显式跳过；系统层 2 项通过 | 本机 macOS 实跑（本次批次改动后） |
+| 覆盖率 | 行 96.67%、分支 92.19%；diff-cover 增量对 `origin/main` 通过 | 本机 macOS：`reports/coverage.xml` 与门槛脚本 |
 | 变异 | 512/596 杀死、84 幸存（84 条全部审阅登记）、0 未完成状态；判定含可疑项复测；S1 `domain/release.py`、S2 `domain/deploy.py`、S3 `domain/merge.py` 均已纳入范围 | 本机实跑（清缓存重跑，`mutants/mutmut-cicd-stats.json`） |
 | CLI 契约 | `contracts/cli-contract.json` 快照一致（含 merge 与 release 节），受控漂移负例可拒绝 | `make cli-contract-check` |
 | 部署现场 | `~/.local/share/forgeloop`：`releases/0.0.1` + `current` 指针 + `deployments.jsonl`；`~/.local/bin/forgeloop` 指向 current；已安装 CLI 独立 venv（Python 3.13.5） | 本机真实引导部署（2026-10-13 08:10） |
@@ -54,7 +56,7 @@
 
 自托管 runner 已在本机安装并在线，**GitHub 侧标签已确认**：`debian-forgeloop`（`self-hosted`、`Linux`、`X64`、`forgeloop-deploy`）状态 **Idle**（2026-10-13 所有者核对 Runners 页面）。安装见[自托管 runner 说明](self-hosted-runner.md)。
 
-修复前四作业全绿记录见 [38258313311](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38258313311)。下一次自动变异运行：2026-10-13 03:00（Asia/Shanghai）。
+修复前四作业全绿记录见 [38258313311](https://github.com/Lijiajin95/ForgeLoop/actions/runs/38258313311)。下一次自动变异运行：2026-10-14 03:00（Asia/Shanghai）。
 
 ### 远程与提交
 
@@ -76,6 +78,8 @@
 - S3 采用**方案 B**（候选分支 → 匿名等待必需检查 → 快进 main → 删除候选分支，不需要 PAT）：代码侧已实现并实测。
 - **明确授权在禁止提交窗口内提交 S1–S3 批次**，并选择"临时策略修订"路径：`config/commit-policy.toml` 的 `blocked_start`/`blocked_end` 临时由 `09:00–18:00` 缩为 `00:00–00:01`（策略要求 `start < end`，无法置零），文件内已留痕原值与恢复义务。
 - **待恢复（必须完成）**：2026-10-13 18:00 之后的合法窗口把 `blocked_start = "09:00"`、`blocked_end = "18:00"` 写回并删除临时期说明；恢复本身也是一次 commit，必须落在合法窗口内。恢复前不得把本项标记为完成。
+- 独立审查结果缺失或非结构化时**中断并标记原因，交人工决定**（不放行、不当作阻断消耗失败轮次）。
+- 发布→部署采用**显式 `workflow_dispatch` 派发**（不引入 PAT／App 长期凭据）；`release.published` 仅保留给人工创建 Release 的场景。
 
 ## 2. A01 真实闭环
 
@@ -83,7 +87,7 @@
 
 ## 3. 已实现的工程门槛
 
-结构度量、覆盖、变异、CLI 契约、提交策略、依赖审计（pip-audit）、Semgrep 四条规则、Import Linter、deptry、pylint 均已落地并有可重跑负例；门槛来源为 `config/quality-policy.toml`。变异门槛对首次测量与清单不一致的项复测一次后再判定，用于吸收 mutmut 子集测试的运行级噪声（±1 变异体）。细节与负例矩阵见方案第 11 节、第 19 节。
+结构度量、覆盖、变异、CLI 契约、提交策略、依赖审计（pip-audit）、Semgrep 四条规则、Import Linter、deptry、pylint 均已落地并有可重跑负例；门槛来源为 `config/quality-policy.toml`。业务关键路径同样有负例：独立审查在结果缺失/类型错误/无文本时中断（`review_result_invalid`，假 PI 三种畸形输出 + 场景负例）。变异门槛对首次测量与清单不一致的项复测一次后再判定，用于吸收 mutmut 子集测试的运行级噪声（±1 变异体）。细节与负例矩阵见方案第 11 节、第 19 节。
 
 ## 4. 运行方式（现状）
 
@@ -105,6 +109,9 @@
 | 分支保护／必需状态检查 | 未设置；方案与操作步骤见[分支保护方案](branch-protection.md)（含"先 Evaluate 后 Active"）；代码侧候选分支流程已实现并实测 |
 | 变异回归发现延迟 | 最多滞后一天；夜间失败只有 Actions 页面可见（无通知） |
 | 变异判定噪声 | 已通过复测确认收敛，但源头（mutmut 子集测试偶发失败）未根除 |
+| 审查结果契约 | 已修复为 fail-closed（非结构化/缺失结果中断，不判为“无阻断”）并有负例；**真实模型返回畸形结果时的行为未实测**（仅假 PI 覆盖） |
+| 发布→部署链路 | 断点已修复（`actions: write` + 显式派发，2026-10-13）；**真实端到端未执行**（需一次真实标签交付，会创建 Release 并派发本机部署） |
+| 部署引导测试 flake | **发现但不碰**：`tests/scenario/test_deployment_refusals.py::TestBootstrapRefusals::test_install_failure_is_reported` 在整套负载下偶发 pytest-timeout（>30s，`uv venv` 变慢；单跑 6.94s 通过），复跑整套通过；建议后续单独放宽该测试超时或复用缓存环境 |
 | `make hooks` | **已安装并实际执行**（2026-10-13 09:1x 装 pre-commit / pre-push / commit-msg；本次三个提交与推送均经 hook 校验通过） |
 | 容器隔离 | PI 仍直接宿主运行（架构 §5 的受限容器未接入） |
 | S1 真实发布 | 未执行：仓库无标签，也没有真实任务归并记录；首个发布需 A01 完成后由所有者指定版本号执行 `forgeloop release` |
