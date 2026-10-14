@@ -80,13 +80,14 @@ flowchart TD
 | domain | `src/forgeloop/domain/requirement.py`
 | domain | `src/forgeloop/domain/artifact.py` | 候选产物身份与校验规则：wheel 文件名 + SHA256、同一候选重复构建的一致性判定、未授权提交拒绝 | | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败 |
 | domain | `src/forgeloop/domain/limits.py` | 执行时间账目 `ExecutionBudget`：只记实际执行耗时、超限停止启动新动作、显式延长 |
-| domain | `src/forgeloop/domain/approval.py` | 方案 `Plan` 与批准 `Approval`：批准绑定任务身份与方案版本，一次批准只能触发一次执行 |
+| domain | `src/forgeloop/domain/approval.py` | 方案 `Plan` 与批准 `Approval`：批准绑定任务身份与方案版本，一次批准只能触发一次执行；验收批准还绑定实际交付材料（候选 diff、测试证据、审查结论、产物校验值），替换材料后原批准失效 |
+| domain | `src/forgeloop/domain/delivery.py` | 交付绑定 `DeliveryBinding` 与需求整体验收判定：候选 diff／测试证据／审查结论／产物校验值各自内容寻址；材料变化使批准失效；单个任务通过不等于需求整体验收 |
 | domain | `src/forgeloop/domain/commit_policy.py` | 提交时间策略与年度工作日历判定、Conventional Commits 首行校验 |
 | domain | `src/forgeloop/domain/merge.py` | 归并就绪判定与必需检查判定（候选分支 → 检查 → 快进 main） |
 | domain | `src/forgeloop/domain/release.py` | 发布就绪判定、版本标签解析、发布记录 `ReleaseRecord`、同标签幂等／换标签拒绝 |
 | domain | `src/forgeloop/domain/deploy.py` | 部署与回滚就绪判定、`SHA256SUMS` 解析、产物唯一选择（拒绝重新构建） |
 | records | `src/forgeloop/records/__init__.py` | 层声明 |
-| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 12 张表的权威业务记录，读时重建领域对象 |
+| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 13 张表的权威业务记录，读时重建领域对象 |
 | records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份与单任务并发占用；未完成动作拒绝重放 |
 | records | `src/forgeloop/records/requirements.py` | 需求记录的读写：提交原文、追加版本、按身份与项目回查（进程重启后仍可读） |
 | adapter | `src/forgeloop/adapter/__init__.py` | 层声明 |
@@ -144,9 +145,9 @@ flowchart LR
 | `dev` | 在代码副本内由 PI 实现并自验证，产出候选 diff | `dev_attempts` |
 | `review` | 独立 PI 会话审查候选 diff | `last_review_blocking` |
 | `test` | 程序执行批准的测试命令；失败计一轮失败轮次 | `last_test_passed`、`needs_grant`、`failure_cumulative` |
-| `gate_acceptance` | 第二次批准门（整体验收）；拒绝按同一候选轮次计数 | `acceptance_passed`、`needs_grant` |
+| `gate_acceptance` | 第二次批准门（整体验收）；消费时核对候选／测试／审查／产物材料，材料替换则原批准失效；拒绝按同一候选轮次计数 | `acceptance_passed`、`needs_grant` |
 | `gate_grant` | 额度用尽后等待明确追加授权 | `needs_grant` |
-| `deliver` | 写交付报告与交付记录 | 无 |
+| `deliver` | 二次核对验收材料未漂移后写交付报告与交付记录（含绑定指纹） | 无 |
 
 条件路由共五个（`route_after_plan_gate`、`route_after_review`、`route_after_test`、`route_after_grant`、`route_after_acceptance`），**全部先检查 `halted_reason`，一旦置位即走 `END`**。这是「停止／中断后不再推进」的统一落点。
 
@@ -169,10 +170,10 @@ flowchart LR
 
 | 存储 | 文件 | 内容 | 管理者 |
 | --- | --- | --- | --- |
-| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（12 张表） | `records.store.RecordStore` |
+| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（13 张表） | `records.store.RecordStore` |
 | 图检查点 | `checkpoints.sqlite` | `TaskState` 的推进状态，`thread_id = task_id` | LangGraph `SqliteSaver` |
 
-记录表：`tasks`、`plans`、`approvals`、`approval_consumption`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`merges`、`deliveries`、`releases`。
+记录表：`tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`merges`、`deliveries`、`releases`。
 
 **动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。
 

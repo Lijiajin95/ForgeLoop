@@ -1,14 +1,18 @@
 """方案与执行前批准：批准绑定任务身份与方案版本。
 
-规则来源（首版需求 V0-02 与第 3 节）：
+规则来源（首版需求 V0-02 与第 3 节；DogFood 交接约定 §7）：
 - 第一次批准同时确认目标、边界、验收标准、技术方案与正式测试命令；
   第二次确认实际小场景及交付证据。
 - 正式批准绑定任务身份和方案版本；重复或旧版本决定不能重复执行。
+- 验收批准还绑定实际交付材料（候选 diff、测试证据、审查结论与产物校验值）；
+  替换 diff、测试或产物后，原批准不能沿用（B04）。
 """
 
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+
+from forgeloop.domain.delivery import DeliveryBinding, verify_binding
 
 
 class ApprovalStage(StrEnum):
@@ -42,6 +46,8 @@ class Approval:
     plan_version: int
     stage: ApprovalStage
     decided_at: datetime
+    # 验收批准绑定实际材料；方案批准与历史记录保持为空。
+    binding: DeliveryBinding | None = None
 
 
 class ConsumeStatus(StrEnum):
@@ -49,6 +55,7 @@ class ConsumeStatus(StrEnum):
     MISSING = "missing"
     STALE = "stale"
     ALREADY_USED = "already_used"
+    MATERIAL_CHANGED = "material_changed"
 
 
 @dataclass(frozen=True)
@@ -87,8 +94,18 @@ class ApprovalBook:
     def effective(self, task_id: str, stage: ApprovalStage) -> Approval | None:
         return self._recorded.get((task_id, stage))
 
-    def consume(self, task_id: str, plan_version: int, stage: ApprovalStage) -> ConsumeResult:
-        """执行前消费批准：一次批准只允许触发一次执行。"""
+    def consume(
+        self,
+        task_id: str,
+        plan_version: int,
+        stage: ApprovalStage,
+        current_binding: DeliveryBinding | None = None,
+    ) -> ConsumeResult:
+        """执行前消费批准：一次批准只允许触发一次执行。
+
+        批准绑定了交付材料时，``current_binding`` 必须是消费时的实际材料；
+        材料变化（替换 diff、测试或产物）返回 ``MATERIAL_CHANGED``，原批准失效。
+        """
 
         approval = self._recorded.get((task_id, stage))
         if approval is None:
@@ -101,6 +118,16 @@ class ApprovalBook:
                 approval,
                 f"方案版本 {plan_version} 不是生效版本 {approval.plan_version}；旧版本决定不能重复执行",
             )
+        if approval.binding is not None:
+            if current_binding is None:
+                return ConsumeResult(
+                    ConsumeStatus.MATERIAL_CHANGED,
+                    approval,
+                    "批准已绑定交付材料，但缺少当前材料身份；不能沿用原批准",
+                )
+            decision = verify_binding(approval.binding, current_binding)
+            if not decision.valid:
+                return ConsumeResult(ConsumeStatus.MATERIAL_CHANGED, approval, decision.reason)
         key = (task_id, plan_version, stage)
         if key in self._consumed:
             return ConsumeResult(

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from forgeloop.domain.approval import (
     Approval,
@@ -21,6 +22,7 @@ from forgeloop.domain.approval import (
     Plan,
 )
 from forgeloop.domain.counting import FailureRound, FailureStage, GrantLedger
+from forgeloop.domain.delivery import DIGEST_PATTERN, DeliveryBinding, TaskDelivery, build_binding
 from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.release import ReleaseRecord
 from forgeloop.records.actions import ActionStore
@@ -57,6 +59,17 @@ CREATE TABLE IF NOT EXISTS approval_consumption (
     stage TEXT NOT NULL,
     consumed_at TEXT NOT NULL,
     PRIMARY KEY (task_id, plan_version, stage)
+);
+CREATE TABLE IF NOT EXISTS acceptance_bindings (
+    task_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    test_evidence_sha256 TEXT NOT NULL,
+    review_sha256 TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL DEFAULT '',
+    baseline_commit TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, plan_version)
 );
 CREATE TABLE IF NOT EXISTS failure_rounds (
     round_id TEXT NOT NULL,
@@ -159,11 +172,81 @@ def _release_from_row(row: Sequence[object]) -> ReleaseRecord:
     )
 
 
+def _binding_from_row(row: Sequence[object]) -> DeliveryBinding:
+    """验收绑定行 → 领域对象；材料字段顺序与 SCHEMA 一致。"""
+
+    return DeliveryBinding(
+        task_id=str(row[0]),
+        plan_version=int(str(row[1])),
+        candidate_sha256=str(row[2]),
+        test_evidence_sha256=str(row[3]),
+        review_sha256=str(row[4]),
+        artifact_sha256=str(row[5]),
+        baseline_commit=str(row[6]),
+    )
+
+
+def _approval_from_row(
+    row: Sequence[object], bindings: dict[tuple[str, int], DeliveryBinding]
+) -> Approval:
+    """批准行 → 领域对象；交付绑定只附加到验收批准，方案批准保持为空。"""
+
+    stage = ApprovalStage(row[2])
+    task_id = str(row[0])
+    plan_version = int(str(row[1]))
+    binding = bindings.get((task_id, plan_version)) if stage is ApprovalStage.ACCEPTANCE else None
+    return Approval(task_id, plan_version, stage, _parse(str(row[3])), binding)
+
+
+def _read_text(path: Path) -> str:
+    """读取交付材料；缺失按空内容处理，仍给出稳定的内容寻址校验值。"""
+
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def _read_artifact_sha256(path: Path) -> str:
+    """从候选产物回执读取 sha256；缺失或格式不对时按未绑定产物处理。"""
+
+    if not path.is_file():
+        return ""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(document, dict):
+        return ""
+    payload = cast("dict[str, object]", document)
+    digest = payload.get("sha256")
+    if isinstance(digest, str) and DIGEST_PATTERN.match(digest):
+        return digest
+    return ""
+
+
+def _read_baseline_commit(path: Path) -> str:
+    """从最近的开发记录读取实际交付基线提交号；缺失、损坏或类型不对按未绑定处理。
+
+    基线以开发副本 git HEAD 为唯一来源（与交付报告同源），不从任务配置猜测。
+    """
+
+    if not path.is_file():
+        return ""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+    except (OSError, ValueError, IndexError):
+        return ""
+    if not isinstance(document, dict):
+        return ""
+    payload = cast("dict[str, object]", document)
+    baseline = payload.get("baseline_commit")
+    return baseline if isinstance(baseline, str) else ""
+
+
 class RecordStore:
     """SQLite 权威记录存储；CLI 查询由本存储生成。"""
 
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._root = db_path.parent
         self._db = sqlite3.connect(db_path, isolation_level=None)
         # 两个连接争用同一记录库时等待写锁而不是立刻报 database is locked。
         self._db.execute("PRAGMA busy_timeout = 5000")
@@ -270,9 +353,8 @@ class RecordStore:
             " ORDER BY plan_version",
             (task_id,),
         ).fetchall()
-        approvals = tuple(
-            Approval(row[0], row[1], ApprovalStage(row[2]), _parse(row[3])) for row in rows
-        )
+        bindings = self._acceptance_bindings(task_id)
+        approvals = tuple(_approval_from_row(row, bindings) for row in rows)
         book = ApprovalBook(approvals)
         for row in self._db.execute(
             "SELECT task_id, plan_version, stage FROM approval_consumption WHERE task_id = ?",
@@ -281,28 +363,110 @@ class RecordStore:
             book.mark_consumed(row[0], row[1], ApprovalStage(row[2]))
         return book
 
-    def record_approval(self, approval: Approval) -> None:
+    def _acceptance_bindings(self, task_id: str) -> dict[tuple[str, int], DeliveryBinding]:
+        rows = self._db.execute(
+            "SELECT task_id, plan_version, candidate_sha256, test_evidence_sha256,"
+            " review_sha256, artifact_sha256, baseline_commit FROM acceptance_bindings"
+            " WHERE task_id = ?",
+            (task_id,),
+        ).fetchall()
+        return {(str(row[0]), int(row[1])): _binding_from_row(row) for row in rows}
+
+    def capture_delivery_binding(self, task_id: str, plan_version: int) -> DeliveryBinding:
+        """读取当前交付材料并构造不可变绑定；材料缺失时按空内容固化。"""
+
+        task_dir = self._root / task_id
+        return build_binding(
+            task_id,
+            plan_version,
+            candidate_text=_read_text(task_dir / "candidate.diff"),
+            test_evidence_text=_read_text(task_dir / "test-run.jsonl"),
+            review_text=_read_text(task_dir / "review-report.json"),
+            artifact_sha256=_read_artifact_sha256(task_dir / "candidate-artifact.json"),
+            baseline_commit=_read_baseline_commit(task_dir / "dev-reports.jsonl"),
+        )
+
+    def acceptance_binding(self, task_id: str) -> DeliveryBinding | None:
+        """该任务生效的验收材料绑定（最高方案版本）；未验收时返回 ``None``。"""
+
+        row = self._db.execute(
+            "SELECT task_id, plan_version, candidate_sha256, test_evidence_sha256,"
+            " review_sha256, artifact_sha256, baseline_commit FROM acceptance_bindings"
+            " WHERE task_id = ? ORDER BY plan_version DESC LIMIT 1",
+            (task_id,),
+        ).fetchone()
+        return _binding_from_row(row) if row is not None else None
+
+    def task_delivery(self, task_id: str) -> TaskDelivery | None:
+        """汇总单个任务的业务验证：绑定材料 + 验收批准是否已消费。
+
+        未记录验收批准时返回 ``None``；已记录但尚未消费时 ``accepted`` 为假，
+        需求整体验收据此拒绝，而不是把“已有候选”当成已经验收。
+        """
+
+        binding = self.acceptance_binding(task_id)
+        if binding is None:
+            return None
+        consumed = self._db.execute(
+            "SELECT 1 FROM approval_consumption WHERE task_id = ? AND plan_version = ?"
+            " AND stage = ?",
+            (task_id, binding.plan_version, ApprovalStage.ACCEPTANCE.value),
+        ).fetchone()
+        return TaskDelivery(binding, accepted=consumed is not None)
+
+    def _persist_acceptance_binding(self, binding: DeliveryBinding) -> None:
         self._db.execute(
-            "INSERT OR REPLACE INTO approvals (task_id, plan_version, stage, decided_at)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO acceptance_bindings"
+            " (task_id, plan_version, candidate_sha256, test_evidence_sha256, review_sha256,"
+            " artifact_sha256, baseline_commit, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                approval.task_id,
-                approval.plan_version,
-                approval.stage.value,
-                _iso(approval.decided_at),
+                binding.task_id,
+                binding.plan_version,
+                binding.candidate_sha256,
+                binding.test_evidence_sha256,
+                binding.review_sha256,
+                binding.artifact_sha256,
+                binding.baseline_commit,
+                _iso(_now()),
             ),
         )
+
+    def record_approval(self, approval: Approval) -> None:
+        # 验收批准自动绑定当前材料：CLI 记录决定时材料即已确定，替换后决定失效。
+        binding = approval.binding
+        if binding is None and approval.stage is ApprovalStage.ACCEPTANCE:
+            binding = self.capture_delivery_binding(approval.task_id, approval.plan_version)
+        with self._write_transaction():
+            self._db.execute(
+                "INSERT OR REPLACE INTO approvals (task_id, plan_version, stage, decided_at)"
+                " VALUES (?, ?, ?, ?)",
+                (
+                    approval.task_id,
+                    approval.plan_version,
+                    approval.stage.value,
+                    _iso(approval.decided_at),
+                ),
+            )
+            if binding is not None:
+                self._persist_acceptance_binding(binding)
 
     def effective_approval(self, task_id: str, stage: ApprovalStage) -> Approval | None:
         return self._load_approval_book(task_id).effective(task_id, stage)
 
     def consume_approval(
-        self, task_id: str, plan_version: int, stage: ApprovalStage
+        self,
+        task_id: str,
+        plan_version: int,
+        stage: ApprovalStage,
+        current_binding: DeliveryBinding | None = None,
     ) -> ConsumeResult:
+        # 验收批准在消费时核对当前材料；材料文件读取在写事务之外完成。
+        if current_binding is None and stage is ApprovalStage.ACCEPTANCE:
+            current_binding = self.capture_delivery_binding(task_id, plan_version)
         # 读-改-写放进一个写事务：两个并发调用只有一个能看到"未消费"并落库。
         with self._write_transaction():
             book = self._load_approval_book(task_id)
-            result = book.consume(task_id, plan_version, stage)
+            result = book.consume(task_id, plan_version, stage, current_binding)
             if result.status.value == "ok":
                 self._db.execute(
                     "INSERT OR REPLACE INTO approval_consumption"

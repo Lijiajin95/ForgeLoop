@@ -105,6 +105,7 @@ source_paths = ["src/forgeloop/"]
 only_mutate = [
   "src/forgeloop/domain/counting.py",
   "src/forgeloop/domain/approval.py",
+  "src/forgeloop/domain/delivery.py",
   "src/forgeloop/domain/limits.py",
   "src/forgeloop/domain/commit_policy.py",
   "src/forgeloop/domain/merge.py",

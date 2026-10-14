@@ -36,6 +36,7 @@ from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess, PISpawnOptio
 from forgeloop.adapter.test_runner import run_test_command
 from forgeloop.domain.approval import ApprovalStage, ConsumeStatus, Plan
 from forgeloop.domain.counting import FailureStage, GrantExhaustedError
+from forgeloop.domain.delivery import verify_binding
 from forgeloop.graph.evidence import capture_partial_candidate, previous_failure_context
 from forgeloop.graph.prompts import dev_prompt, review_prompt
 from forgeloop.graph.state import TaskState
@@ -507,7 +508,11 @@ def make_gate_acceptance(ctx: NodeContext) -> NodeFn:
             if plan is None:
                 ctx.store.set_task_status(ctx.task_id, "interrupted")
                 return {"halted_reason": "plan_missing"}
-            result = ctx.store.consume_approval(ctx.task_id, plan.version, ApprovalStage.ACCEPTANCE)
+            # 消费时重新读取实际材料：批准后替换 diff/测试/产物则原批准失效。
+            current = ctx.store.capture_delivery_binding(ctx.task_id, plan.version)
+            result = ctx.store.consume_approval(
+                ctx.task_id, plan.version, ApprovalStage.ACCEPTANCE, current
+            )
             if result.status is not ConsumeStatus.OK:
                 ctx.store.set_task_status(ctx.task_id, "blocked")
                 return {"halted_reason": f"acceptance_approval_{result.status.value}"}
@@ -522,6 +527,15 @@ def make_deliver_node(ctx: NodeContext) -> NodeFn:
     def deliver_node(state: TaskState) -> NodeUpdate:
         plan = ctx.store.latest_plan(ctx.task_id)
         ledger = ctx.store.ledger(ctx.task_id)
+        # 二次核对：验收后到落交付前材料若被替换，不写出交付记录。
+        plan_version = plan.version if plan else 0
+        accepted = ctx.store.acceptance_binding(ctx.task_id)
+        current = ctx.store.capture_delivery_binding(ctx.task_id, plan_version)
+        if accepted is not None:
+            decision = verify_binding(accepted, current)
+            if not decision.valid:
+                ctx.store.set_task_status(ctx.task_id, "blocked")
+                return {"halted_reason": "delivery_material_changed"}
         report_path = ctx.task_dir / "delivery-report.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(
@@ -529,7 +543,7 @@ def make_deliver_node(ctx: NodeContext) -> NodeFn:
                 {
                     "task_id": ctx.task_id,
                     "plan": {
-                        "version": plan.version if plan else 0,
+                        "version": plan_version,
                         "goal": plan.goal if plan else "",
                         "test_command": list(plan.test_command) if plan else [],
                     },
@@ -544,6 +558,14 @@ def make_deliver_node(ctx: NodeContext) -> NodeFn:
                     "diff_path": str(ctx.task_dir / "candidate.diff"),
                     "test_evidence": str(ctx.task_dir / "test-run.jsonl"),
                     "review_report": str(ctx.task_dir / "review-report.json"),
+                    "binding": {
+                        "fingerprint": current.fingerprint,
+                        "candidate_sha256": current.candidate_sha256,
+                        "test_evidence_sha256": current.test_evidence_sha256,
+                        "review_sha256": current.review_sha256,
+                        "artifact_sha256": current.artifact_sha256,
+                        "baseline_commit": current.baseline_commit,
+                    },
                 },
                 ensure_ascii=False,
             ),
