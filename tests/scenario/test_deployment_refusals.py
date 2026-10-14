@@ -5,6 +5,7 @@
 失败，以及回滚的目标校验与失败路径。
 """
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,7 @@ class TestBootstrapRefusals:
         assert "本地产物不存在" in out
 
     @pytest.mark.install
+    @pytest.mark.timeout(180)
     def test_same_version_other_artifact_is_refused(self, tmp_path: Path, capsys) -> None:
         prefix = tmp_path / "prefix"
         dist = tmp_path / "dist"
@@ -86,6 +88,7 @@ class TestBootstrapRefusals:
         assert current_version(prefix) == "0.0.1"
 
     @pytest.mark.install
+    @pytest.mark.timeout(180)
     def test_install_failure_is_reported(self, tmp_path: Path, capsys) -> None:
         bogus = tmp_path / "forgeloop-0.0.1-py3-none-any.whl"
         bogus.write_text("not a wheel\n", encoding="utf-8")
@@ -97,6 +100,7 @@ class TestBootstrapRefusals:
         assert not (prefix / "releases" / "0.0.1").exists()  # 半成品已清理
 
     @pytest.mark.install
+    @pytest.mark.timeout(180)
     def test_smoke_failure_is_reported_without_auto_revert(self, tmp_path: Path, capsys) -> None:
         prefix = tmp_path / "prefix"
         wheel = build_wheel(tmp_path / "dist", "0.0.1", failing=True)
@@ -106,6 +110,31 @@ class TestBootstrapRefusals:
         assert "未自动回退" in out
         entry = journal_entries(prefix)[-1]
         assert entry["smoke_exit_code"] == 3
+
+    def test_smoke_failure_reports_recovery_without_broken_version(
+        self, tmp_path: Path, capsys, monkeypatch
+    ) -> None:
+        """坏版本激活后，恢复入口必须独立于坏版本（直接指向上一稳定版本）。"""
+
+        prefix = tmp_path / "prefix"
+        make_version_dir(prefix, "0.0.1")
+        journal_version(prefix, "0.0.1")
+        activate(prefix, "0.0.1")
+        broken = build_wheel(tmp_path / "dist", "0.0.2", failing=True)
+
+        def fake_install(artifact: Path, target: Path, python_version: str = "3.13") -> None:
+            make_version_dir(prefix, "0.0.2", exit_code=3)
+
+        monkeypatch.setattr("forgeloop.cli.deploy.install_wheel", fake_install)
+        code, out = deploy(capsys, tag="v0.0.2", artifact=broken, bootstrap=True, prefix=prefix)
+        assert code == 1
+        assert "冒烟检查失败" in out
+        recovery = prefix / "releases" / "0.0.1" / "bin" / "forgeloop"
+        assert str(recovery) in out
+        assert "无需调用新版本" in out
+        # 恢复入口不经过坏版本的 current，直接执行旧版本 shim 仍可用。
+        result = subprocess.run([str(recovery), "--help"], capture_output=True, text=True)
+        assert result.returncode == 0
 
 
 class TestControlledRefusals:

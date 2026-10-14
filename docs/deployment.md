@@ -12,7 +12,11 @@
 - **不被覆盖**：每个版本装在 `releases/<version>`，已存在的版本目录一律拒绝覆盖。
 - **原子激活**：先建临时符号链接再 `os.replace` 覆盖 `current`，切换瞬间不存在半激活状态。
 - **可核对回滚**：回滚只允许切到已安装且留有产物校验记录的版本；`deployments.jsonl` 是权威记录。
-- **失败如实报告**：冒烟检查失败时**不自动回退**，保留现场并打印确切的回滚命令。
+- **失败如实报告**：冒烟检查失败时**不自动回退**，保留现场并打印确切的恢复入口。
+- **独立恢复入口**：恢复命令直接调用上一稳定版本的 `releases/<previous>/bin/forgeloop`，
+  **不经过 `current`**；因此 `PATH` 上的 `forgeloop` 已指向坏版本、甚至坏版本无法启动时，
+  仍能恢复旧版本。每次部署、回滚都追加 `deployments.jsonl`，失败也有回执；回滚只追加、
+  不删除记录，回滚后既有记录仍可读取。
 
 ## 目录布局
 
@@ -68,6 +72,23 @@ forgeloop rollback --to 0.0.1 --prefix ~/.local/share/forgeloop --note "原因"
 ```
 
 回滚同样做原子切换与冒烟检查，并追加日志；不删除任何版本目录。
+
+## 新版本冒烟失败时的恢复
+
+受控部署先安装、激活，再冒烟检查（`current/bin/forgeloop --help`）。冒烟失败时**不回退**，
+保留现场并把新版本连同 `smoke_exit_code` 写入 `deployments.jsonl`。此时 `PATH` 上的
+`forgeloop`（以及 `current/bin/forgeloop`）已指向坏版本，直接执行会再次调用坏版本；命令会
+打印独立恢复入口，直接调用上一稳定版本的 shim：
+
+```text
+FAIL: 冒烟检查失败（exit=3）：...
+未自动回退；上一版本: 0.0.1
+恢复稳定版本（无需调用新版本）: ~/.local/share/forgeloop/releases/0.0.1/bin/forgeloop rollback --prefix ~/.local/share/forgeloop
+```
+
+按提示执行该入口即可原子切回 `0.0.1`；因为它不经过 `current`，坏版本即使完全无法启动也能恢复。
+若这是首次部署、没有上一版本，命令会明确提示无可回退版本，按「首次安装」重新引导即可。
+回滚只向 `deployments.jsonl` 追加一条记录、保留全部历史，因此恢复后既有记录仍可读取。
 
 ## 自动化（GitHub Actions）
 

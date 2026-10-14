@@ -182,11 +182,17 @@ def install_wheel(artifact: Path, target: Path, python_version: str = "3.13") ->
         raise
 
 
+def version_binary(prefix: Path, version: str) -> Path:
+    """某个已安装版本的稳定入口 shim；不经过 ``current``，供坏版本恢复时直接调用。"""
+
+    return prefix / "releases" / version / "bin" / "forgeloop"
+
+
 def activate(prefix: Path, version: str) -> None:
     """原子切换激活指针：临时符号链接 + ``os.replace``，切换瞬间不存在半激活状态。"""
 
     target = prefix / "releases" / version
-    if not (target / "bin" / "forgeloop").exists():
+    if not version_binary(prefix, version).exists():
         raise DeploymentError(f"版本未安装或不完整：{target}")
     prefix.mkdir(parents=True, exist_ok=True)
     temporary = prefix / f"current.tmp-{os.getpid()}"
