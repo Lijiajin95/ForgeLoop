@@ -930,6 +930,48 @@
                 }
               }
             },
+            "budget_summary": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "consumed_seconds": {
+                  "type": [
+                    "null"
+                  ]
+                },
+                "dimensions": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "string"
+                    ]
+                  }
+                },
+                "exhausted": {
+                  "type": [
+                    "null"
+                  ]
+                },
+                "limit_seconds": {
+                  "type": [
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
+            },
             "dependency": {
               "type": [
                 "object"
@@ -1162,6 +1204,7 @@
           },
           "optional_keys": [
             "artifact",
+            "budget_summary",
             "dependency",
             "evidence",
             "executed_seconds",

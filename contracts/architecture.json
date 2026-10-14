@@ -24,6 +24,7 @@
     "forgeloop.domain": "domain",
     "forgeloop.domain.approval": "domain",
     "forgeloop.domain.artifact": "domain",
+    "forgeloop.domain.budget_summary": "domain",
     "forgeloop.domain.commit_policy": "domain",
     "forgeloop.domain.counting": "domain",
     "forgeloop.domain.delivery": "domain",

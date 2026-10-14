@@ -717,6 +717,22 @@ class RecordStore:
             raise KeyError(f"No budget for task {task_id}")
         return ExecutionBudget(limit_seconds=row[0], consumed_seconds=row[1])
 
+    def find_budget(self, task_id: str) -> ExecutionBudget | None:
+        """只读读取任务的工时账目；没有该行时返回 ``None``，不写入、不抛异常。
+
+        查询输出需要区分「尚未分配工时（无 budget 行）」与「有 budget 行」，
+        :meth:`budget` 的 ``KeyError`` 无法表达前者；本方法只读不写，供查询与
+        排障派生摘要使用。
+        """
+
+        row = self._db.execute(
+            "SELECT limit_seconds, consumed_seconds FROM budget WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return ExecutionBudget(limit_seconds=row[0], consumed_seconds=row[1])
+
     def charge_budget(self, task_id: str, seconds: float) -> None:
         if seconds < 0:
             raise ValueError("Charged duration cannot be negative")

@@ -17,6 +17,11 @@ import sys
 from pathlib import Path
 
 from forgeloop.cli.common import records_root
+from forgeloop.domain.budget_summary import (
+    BudgetSummary,
+    BudgetSummaryState,
+    summarize_budget,
+)
 from forgeloop.domain.dependency_facts import DependencyFacts
 from forgeloop.domain.requirement import BLOCKED, RequirementNotFoundError
 from forgeloop.domain.task_plan import TaskPlan
@@ -402,3 +407,59 @@ def aggregate_missing(entries: list[dict]) -> list[str]:
         for item in entry["evidence"]["missing"]:
             items.append(f"{task_id}:evidence:{item}")
     return sorted(set(items))
+
+
+# ---- 查询：工时摘要（domain 纯规则接入；只读派生，不写预算状态） ----
+#
+# 摘要由 ``domain.budget_summary.summarize_budget`` 按任务状态与权威 ``budget``
+# 行派生；本层只负责把 ``ExecutionBudget | None`` 只读取出并映射为稳定 JSON。
+# 新字段一律追加、字段名小写下划线；既有字段名称、含义与取值不变。
+
+
+def _format_seconds(value: float) -> str:
+    """秒数展示：整数值不补小数点，非整数保留一位小数。"""
+
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.1f}"
+
+
+def budget_summary_section(summary: BudgetSummary) -> dict:
+    """把只读工时摘要映射为稳定 JSON 片段（新增字段，键名小写下划线）。
+
+    未知读数以 ``null`` 如实输出，绝不臆造为 0 秒；``state`` 使用领域层状态词。
+    """
+
+    return {
+        "state": summary.state.value,
+        "consumed_seconds": summary.consumed_seconds,
+        "limit_seconds": summary.limit_seconds,
+        "exhausted": summary.exhausted,
+        "dimensions": list(summary.dimensions),
+        "note": summary.note,
+    }
+
+
+def budget_summary_line(section: dict) -> str:
+    """把工时摘要片段映射为一行简短说明；未开始/冲突/未耗尽/耗尽均显式标注。"""
+
+    state = section["state"]
+    if state == BudgetSummaryState.NOT_STARTED.value:
+        return "未开始"
+    if state == BudgetSummaryState.UNKNOWN.value:
+        return f"unknown（{section['note']}）"
+    seconds = (
+        f"已用 {_format_seconds(section['consumed_seconds'])}"
+        f"/{_format_seconds(section['limit_seconds'])} 秒"
+    )
+    return f"{seconds}，已耗尽" if section["exhausted"] else f"{seconds}，未耗尽"
+
+
+def task_budget_summary(store: RecordStore, task_id: str, status: str) -> dict:
+    """只读派生一个任务的工时摘要：任务状态 + 权威 budget 行；不写入任何记录。
+
+    ``store`` 必须是打开的 :class:`RecordStore`；是否存在 budget 行由
+    :meth:`RecordStore.find_budget` 只读读出，不猜测。
+    """
+
+    return budget_summary_section(summarize_budget(status, store.find_budget(task_id)))

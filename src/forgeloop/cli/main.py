@@ -35,9 +35,11 @@ from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
     add_requirement_dispatch,
     aggregate_missing,
+    budget_summary_line,
     dependency_section,
     requirement_dependency_sections,
     requirement_task_evidence_section,
+    task_budget_summary,
 )
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
@@ -755,15 +757,25 @@ def _requirement_tasks_section(root: Path, store: RequirementStore, req_id: str)
             run = runs.get(task.task_id)
             single_task_id = requirement_task_id(req_id, plan.plan_version, task.task_id)
             artifact = artifacts.get(task.task_id)
+            task_state = run.state if run else "pending"
+            single_task = _requirement_single_task(record_store, single_task_id)
+            # 工时摘要的状态源：存在映射单任务时以单任务权威状态为准（需求侧推进会
+            # 记录只在任务返回后写入，任务执行中会缺 run，用 run 状态会误报冲突）；
+            # 仅在无单任务记录时回退到需求侧任务状态，保留 not_started/unknown 分支。
+            budget_status = single_task["status"] if single_task else task_state
             entries.append(
                 {
                     "task_id": task.task_id,
-                    "state": run.state if run else "pending",
+                    "state": task_state,
                     "reason": run.reason if run else "",
                     "executed_seconds": run.executed_seconds if run else 0.0,
                     "artifact": _requirement_artifact_section(artifact),
                     "single_task_id": single_task_id,
-                    "single_task": _requirement_single_task(record_store, single_task_id),
+                    "single_task": single_task,
+                    # G03 追加：domain 工时摘要（只读派生），既有任务字段不变。
+                    "budget_summary": task_budget_summary(
+                        record_store, single_task_id, budget_status
+                    ),
                     "dependency": dependencies[task.task_id],
                     "evidence": requirement_task_evidence_section(
                         root,
@@ -849,6 +861,7 @@ def cmd_requirement_status(args: argparse.Namespace) -> int:
         print(f"任务包版本: {document['plan']['plan_version']}")
         for entry in document["tasks"]:
             print(f"- {entry['task_id']}: {entry['state']}")
+            print(f"  工时: {budget_summary_line(entry['budget_summary'])}")
     print(f"下一步: {document['next_step']['action']}（{document['next_step']['actor']}）")
     return 0
 
