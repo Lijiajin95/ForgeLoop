@@ -90,6 +90,7 @@ class TestStatusJsonContract:
             "project",
             "status",
             "next_action",
+            "blocked_reason_text",
             "created_at",
             "plan",
             "approvals",

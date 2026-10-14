@@ -24,6 +24,7 @@ from forgeloop.domain.budget_summary import (
 )
 from forgeloop.domain.dependency_facts import DependencyFacts
 from forgeloop.domain.requirement import BLOCKED, RequirementNotFoundError
+from forgeloop.domain.status_reason import StatusReason, derive_status_reason
 from forgeloop.domain.task_plan import TaskPlan
 from forgeloop.graph.builder import RequirementTaskRunner, requirement_task_id
 from forgeloop.graph.dispatch import RequirementDispatcher
@@ -463,3 +464,33 @@ def task_budget_summary(store: RecordStore, task_id: str, status: str) -> dict:
     """
 
     return budget_summary_section(summarize_budget(status, store.find_budget(task_id)))
+
+
+# ---- 查询：阻断原因文本（domain 纯规则接入；只读派生，不写记录） ----
+#
+# ``blocked_reason_text`` 由 ``domain.status_reason.derive_status_reason`` 从
+# ``RecordStore.status_reason_facts`` 只读读出的权威事实推导；本层只负责把结果
+# 映射为稳定 JSON 片段。新字段一律追加、字段名小写下划线；既有字段名称、含义
+# 与取值不变。
+
+
+def status_reason_section(reason: StatusReason) -> dict:
+    """把阻断原因推导结果映射为稳定 JSON 片段（新字段追加）。"""
+
+    return {"blocked_reason_text": reason.blocked_reason_text}
+
+
+def task_status_reason(
+    store: RecordStore,
+    task_id: str,
+    *,
+    unmet_prerequisites: tuple[str, ...] = (),
+) -> dict:
+    """只读派生一个任务的阻断原因片段：权威事实 + 待满足前置，不写入任何记录。
+
+    ``store`` 必须是打开的 :class:`RecordStore`；缺少权威记录时由领域层输出
+    ``unknown`` 并列出所缺身份，不猜测为已满足或未满足。
+    """
+
+    facts = store.status_reason_facts(task_id, unmet_prerequisites=unmet_prerequisites)
+    return status_reason_section(derive_status_reason(facts))

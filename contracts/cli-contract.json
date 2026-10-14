@@ -61,6 +61,11 @@
           }
         }
       },
+      "blocked_reason_text": {
+        "type": [
+          "string"
+        ]
+      },
       "budget": {
         "type": [
           "object"
@@ -739,6 +744,11 @@
           "string"
         ]
       },
+      "blocked_reason_text": {
+        "type": [
+          "string"
+        ]
+      },
       "budget": {
         "type": [
           "null",
@@ -929,6 +939,11 @@
                   ]
                 }
               }
+            },
+            "blocked_reason_text": {
+              "type": [
+                "string"
+              ]
             },
             "budget_summary": {
               "type": [
@@ -1204,6 +1219,7 @@
           },
           "optional_keys": [
             "artifact",
+            "blocked_reason_text",
             "budget_summary",
             "dependency",
             "evidence",

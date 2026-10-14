@@ -220,7 +220,10 @@ class TestRequirementBudgetSummaryJson:
 
         out = requirement_status_text(tmp_path, req_id, capsys)
         assert "已用 749/7200 秒，未耗尽" in out
-        assert "unknown" not in out
+        # 只约束工时摘要那一行：另一并行需求为同一输出追加了“阻断原因”行，
+        # 该行在缺少权威依据时会合法地输出 unknown，与本用例的意图无关。
+        budget_line = next(line for line in out.splitlines() if "已用 749/7200 秒" in line)
+        assert "unknown" not in budget_line
 
     def test_exhausted_task_reports_exhausted(self, tmp_path: Path, capsys: Any) -> None:
         req_id = approved_requirement(tmp_path)

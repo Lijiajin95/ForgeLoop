@@ -26,6 +26,7 @@ from forgeloop.domain.delivery import DIGEST_PATTERN, DeliveryBinding, TaskDeliv
 from forgeloop.domain.dependency_facts import TerminalState
 from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.release import ReleaseRecord
+from forgeloop.domain.status_reason import TaskFacts
 from forgeloop.records.actions import ActionState, ActionStore
 
 SCHEMA = """
@@ -499,6 +500,75 @@ class RecordStore:
         """只读汇总单个任务的终态、未完成动作与失败轮次事实。"""
 
         return read_task_dependency_record(self._db, task_id)
+
+    def status_reason_facts(
+        self, task_id: str, *, unmet_prerequisites: Sequence[str] = ()
+    ) -> TaskFacts:
+        """只读汇总推导 ``blocked_reason_text`` 所需的权威事实。
+
+        与 :meth:`task_dependency_record` 一样只读取数、不写记录也不隐式创建
+        ``grants`` 行；缺少 ``tasks`` 行时按缺少记录返回，交给
+        ``domain.status_reason`` 输出 unknown，而不是猜测为已满足或未满足。
+        """
+
+        dependency = read_task_dependency_record(self._db, task_id)
+        budget = self._read_budget_facts(task_id)
+        return TaskFacts(
+            task_id=task_id,
+            status=dependency.status,
+            plan_version=self._latest_plan_version(task_id),
+            plan_approval_version=self._latest_approval_version(task_id, ApprovalStage.PLAN),
+            acceptance_approval_version=self._latest_approval_version(
+                task_id, ApprovalStage.ACCEPTANCE
+            ),
+            outstanding_action=dependency.outstanding_action,
+            failure_rounds=dependency.failure_rounds,
+            grant_count=self._grant_count_readonly(task_id),
+            budget_limit_seconds=budget[0] if budget is not None else None,
+            budget_consumed_seconds=budget[1] if budget is not None else None,
+            terminal=dependency.terminal,
+            unmet_prerequisites=tuple(unmet_prerequisites),
+            missing=dependency.missing,
+            evidence=dependency.evidence,
+        )
+
+    def _latest_plan_version(self, task_id: str) -> int | None:
+        """最高方案版本；没有方案记录时返回 ``None``，不臆造为 1。"""
+
+        row = self._db.execute(
+            "SELECT MAX(version) FROM plans WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        return int(row[0]) if row is not None and row[0] is not None else None
+
+    def _latest_approval_version(self, task_id: str, stage: ApprovalStage) -> int | None:
+        """某阶段最近一次批准绑定的方案版本；未记录时返回 ``None``。"""
+
+        row = self._db.execute(
+            "SELECT plan_version FROM approvals WHERE task_id = ? AND stage = ?"
+            " ORDER BY decided_at DESC, plan_version DESC LIMIT 1",
+            (task_id, stage.value),
+        ).fetchone()
+        return int(row[0]) if row is not None else None
+
+    def _grant_count_readonly(self, task_id: str) -> int:
+        """只读授权次数；无 grants 行时按一次初始授权计，且不写入记录。"""
+
+        row = self._db.execute(
+            "SELECT COUNT(*) FROM grants WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        count = int(row[0]) if row is not None else 0
+        return count if count > 0 else 1
+
+    def _read_budget_facts(self, task_id: str) -> tuple[float, float] | None:
+        """只读工时读数 ``(limit_seconds, consumed_seconds)``；无行返回 ``None``。"""
+
+        row = self._db.execute(
+            "SELECT limit_seconds, consumed_seconds FROM budget WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return float(row[0]), float(row[1])
 
     # ---- 方案 ----
 

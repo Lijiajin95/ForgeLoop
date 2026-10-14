@@ -40,6 +40,7 @@ from forgeloop.cli.requirements import (
     requirement_dependency_sections,
     requirement_task_evidence_section,
     task_budget_summary,
+    task_status_reason,
 )
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
@@ -346,6 +347,8 @@ def _status_document(store: RecordStore, task_id: str) -> dict:
         "project": task.project,
         "status": task.status,
         "next_action": _next_action_section(task.status),
+        # G03 追加：domain 阻断原因文本（只读派生），既有字段名称与语义不变。
+        "blocked_reason_text": task_status_reason(store, task_id)["blocked_reason_text"],
         "created_at": task.created_at.isoformat(),
         "plan": _plan_section(store, task_id),
         "approvals": {
@@ -415,6 +418,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
     print(f"任务: {document['task_id']}（项目: {document['project']}）")
     print(f"状态: {document['status']}")
+    print(f"阻断原因: {document['blocked_reason_text']}")
     if document["plan"]:
         plan = document["plan"]
         print(f"方案版本: {plan['version']}；目标: {plan['goal']}")
@@ -777,6 +781,13 @@ def _requirement_tasks_section(root: Path, store: RequirementStore, req_id: str)
                         record_store, single_task_id, budget_status
                     ),
                     "dependency": dependencies[task.task_id],
+                    "blocked_reason_text": task_status_reason(
+                        record_store,
+                        single_task_id,
+                        unmet_prerequisites=tuple(
+                            dependencies[task.task_id]["unmet_prerequisites"]
+                        ),
+                    )["blocked_reason_text"],
                     "evidence": requirement_task_evidence_section(
                         root,
                         record_store,
@@ -819,6 +830,7 @@ def _requirement_document(root: Path, store: RequirementStore, req_id: str) -> d
         "project": requirement.project,
         "requirement_status": status,
         "blocked_reason": store.blocked_reason(req_id),
+        "blocked_reason_text": progress.blocked_reason or next_step.reason,
         "versions": [{"version": v.version, "text": v.text} for v in requirement.versions],
         "analysis": _requirement_analysis_section(store, req_id),
         "plan": _requirement_plan_section(store, req_id),
@@ -862,6 +874,7 @@ def cmd_requirement_status(args: argparse.Namespace) -> int:
         for entry in document["tasks"]:
             print(f"- {entry['task_id']}: {entry['state']}")
             print(f"  工时: {budget_summary_line(entry['budget_summary'])}")
+            print(f"  阻断原因: {entry['blocked_reason_text']}")
     print(f"下一步: {document['next_step']['action']}（{document['next_step']['actor']}）")
     return 0
 

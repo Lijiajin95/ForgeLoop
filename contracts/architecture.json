@@ -35,6 +35,7 @@
     "forgeloop.domain.release": "domain",
     "forgeloop.domain.requirement": "domain",
     "forgeloop.domain.status": "domain",
+    "forgeloop.domain.status_reason": "domain",
     "forgeloop.domain.task_plan": "domain",
     "forgeloop.graph": "graph",
     "forgeloop.graph.builder": "graph",
