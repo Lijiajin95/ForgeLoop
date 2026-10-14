@@ -86,7 +86,8 @@ flowchart TD
 | domain | `src/forgeloop/domain/release.py` | 发布就绪判定、版本标签解析、发布记录 `ReleaseRecord`、同标签幂等／换标签拒绝 |
 | domain | `src/forgeloop/domain/deploy.py` | 部署与回滚就绪判定、`SHA256SUMS` 解析、产物唯一选择（拒绝重新构建） |
 | records | `src/forgeloop/records/__init__.py` | 层声明 |
-| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 11 张表的权威业务记录，读时重建领域对象 |
+| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 12 张表的权威业务记录，读时重建领域对象 |
+| records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份与单任务并发占用；未完成动作拒绝重放 |
 | records | `src/forgeloop/records/requirements.py` | 需求记录的读写：提交原文、追加版本、按身份与项目回查（进程重启后仍可读） |
 | adapter | `src/forgeloop/adapter/__init__.py` | 层声明 |
 | adapter | `src/forgeloop/adapter/pi_rpc.py` | `PIProcess`：JSONL RPC 子进程、命令／响应 id 关联、`agent_settled` 判定、abort、会话与 stderr 落盘 |
@@ -167,12 +168,14 @@ flowchart LR
 
 | 存储 | 文件 | 内容 | 管理者 |
 | --- | --- | --- | --- |
-| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（11 张表） | `records.store.RecordStore` |
+| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（12 张表） | `records.store.RecordStore` |
 | 图检查点 | `checkpoints.sqlite` | `TaskState` 的推进状态，`thread_id = task_id` | LangGraph `SqliteSaver` |
 
-记录表：`tasks`、`plans`、`approvals`、`approval_consumption`、`failure_rounds`、`grants`、`budget`、`stops`、`merges`、`deliveries`、`releases`。
+记录表：`tasks`、`plans`、`approvals`、`approval_consumption`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`merges`、`deliveries`、`releases`。
 
-**写入语义（现状）**：连接以 `isolation_level=None` 自动提交，写入都是单条 `execute`；代码中没有显式事务或 `BEGIN`／`COMMIT`／回滚，也没有 WAL 与 `busy_timeout`，当前按单进程单连接假设工作。读-改-写序列（`create_task` 的两条语句、`charge_budget`、`consume_approval`）不是原子操作。
+**动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。
+
+**写入语义（现状）**：连接以 `isolation_level=None` 自动提交，但关键读-改-写序列显式使用 `BEGIN IMMEDIATE`／`COMMIT`／`ROLLBACK` 事务：`create_task`（任务＋预算）、`consume_approval`（批准消费）与 `extend_budget`；`charge_budget` 用单条原子 `UPDATE ... consumed_seconds = consumed_seconds + ?` 累加，并发计入不丢更新。连接设置 `busy_timeout=5000` 以等待写锁；仍未启用 WAL。
 
 原始材料**不进**记录表，只以文件留在现场；记录里保存路径与校验值：
 

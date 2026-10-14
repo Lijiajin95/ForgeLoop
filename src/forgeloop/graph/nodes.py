@@ -14,8 +14,9 @@
 
 中断恢复注意（架构 §6 持久化与记录）：LangGraph 中断恢复可能重新进入节点；
 gate 节点在 interrupt 之后才消费批准，动作节点本身不含 interrupt。
-进程在动作节点中途崩溃后的重放安全性（不重发旧执行）属于 B12，
-当前如实把未明确结果标记为 interrupted，不自动重跑。
+动作节点在启动前登记动作身份（``records.actions``）：同一任务已有未完成动作
+（上次进程在动作中途被杀）时标记 ``interrupted`` 并拒绝重放，保留现场待人工核对。
+进程在动作中途崩溃后的自动恢复与副作用核对仍属 B12，不自动重跑。
 """
 
 import json
@@ -38,6 +39,7 @@ from forgeloop.domain.counting import FailureStage, GrantExhaustedError
 from forgeloop.graph.evidence import capture_partial_candidate, previous_failure_context
 from forgeloop.graph.prompts import dev_prompt, review_prompt
 from forgeloop.graph.state import TaskState
+from forgeloop.records.actions import ActionInFlightError, ActionRecord
 from forgeloop.records.store import RecordStore
 
 PI_TIMEOUT_CAP_SECONDS = 300.0
@@ -101,8 +103,15 @@ def _interrupted(state: TaskState) -> str | None:
 
 
 def _action_gate(ctx: NodeContext) -> str | None:
-    """动作启动门：任何停止记录（已请求或已确认）都不再启动新动作。"""
+    """动作启动门：未核对动作或任何停止记录都不再启动新动作。
 
+    未完成动作优先于停止记录：即使已确认停止，只要还有未核对的动作，
+    终态就是 ``interrupted``（结果不明确）而不是干净的 ``stopped``。
+    """
+
+    unchecked = _unchecked_action_halt(ctx)
+    if unchecked is not None:
+        return unchecked
     stop = ctx.store.outcomes.stop_record(ctx.task_id)
     if stop is not None:
         if stop[1] is None:
@@ -114,6 +123,34 @@ def _action_gate(ctx: NodeContext) -> str | None:
         ctx.store.set_task_status(ctx.task_id, "time_exhausted")
         return "time_exhausted"
     return None
+
+
+def _unchecked_action_halt(ctx: NodeContext) -> str | None:
+    """未完成动作的停止原因；没有则 ``None``。用于门节点与动作节点。"""
+
+    outstanding = ctx.store.actions.outstanding(ctx.task_id)
+    if outstanding is None:
+        return None
+    ctx.store.set_task_status(ctx.task_id, "interrupted")
+    return f"action_unchecked:{outstanding.node}"
+
+
+def _action_preflight(ctx: NodeContext, node: str) -> tuple[ActionRecord | None, str]:
+    """启动动作前的守卫：原子登记启动身份，并拒绝并发重放。
+
+    返回 ``(动作, 停止原因)``。``begin`` 在同一事务内检查未完成动作并登记，
+    「门检查」与「登记」之间被其他进程抢占时只有一个能成功，另一个抛
+    ``ActionInFlightError``：此时动作为 ``None``、原因为事实描述，调用方据此
+    标记中断、保留现场待人工核对。正常时动作已登记为 ``started``，由调用方在
+    ``finally`` 中登记完成。
+    """
+
+    try:
+        return ctx.store.actions.begin(ctx.task_id, node), ""
+    except ActionInFlightError as error:
+        # 门检查与登记之间被并发占用：按未完成动作处理，不启动。
+        ctx.store.set_task_status(ctx.task_id, "interrupted")
+        return None, f"action_unchecked:{error.node}"
 
 
 def _record_candidate_failure(ctx: NodeContext, state: TaskState) -> NodeUpdate:
@@ -158,6 +195,10 @@ def make_plan_node(ctx: NodeContext) -> NodeFn:
 
 def make_gate_plan_approval(ctx: NodeContext) -> NodeFn:
     def gate_plan_approval(state: TaskState) -> NodeUpdate:
+        # 未核对动作优先于新批准：不消费新批准，也不重放旧动作。
+        halt = _unchecked_action_halt(ctx)
+        if halt is not None:
+            return {"halted_reason": halt}
         plan = ctx.store.latest_plan(ctx.task_id)
         if plan is None:
             ctx.store.set_task_status(ctx.task_id, "interrupted")
@@ -269,43 +310,51 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
         if plan is None:
             ctx.store.set_task_status(ctx.task_id, "interrupted")
             return {"halted_reason": "plan_missing"}
-        ctx.store.set_task_status(ctx.task_id, "implementing")
-        ctx.workspace.mkdir(parents=True, exist_ok=True)
-        project_path = ctx.config.get("project_path", "")
-        prepared = time.monotonic()
+        action, halt = _action_preflight(ctx, "dev")
+        if action is None:
+            return {"halted_reason": halt}
         try:
-            if project_path:
-                prepare_workspace(Path(project_path), ctx.config.get("baseline", ""), ctx.workspace)
+            ctx.store.set_task_status(ctx.task_id, "implementing")
+            ctx.workspace.mkdir(parents=True, exist_ok=True)
+            project_path = ctx.config.get("project_path", "")
+            prepared = time.monotonic()
+            try:
+                if project_path:
+                    prepare_workspace(
+                        Path(project_path), ctx.config.get("baseline", ""), ctx.workspace
+                    )
+            finally:
+                ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)
+            attempt = state.get("dev_attempts", 0) + 1
+            prompt = dev_prompt(
+                plan,
+                workspace=str(ctx.workspace),
+                attempt=attempt,
+                # 失败回边带真实证据：上次正式测试输出与审查阻断问题（截断后）。
+                previous_failure=previous_failure_context(ctx.task_dir),
+            )
+            outcome = _invoke_pi(ctx, "dev", prompt)
+            halt = _pi_outcome_halt(outcome)
+            if halt:
+                # 未取得明确结果时把副本已有改动落盘为部分候选（只写 partial-*，供人工恢复）。
+                capture_partial_candidate(ctx.task_dir, ctx.workspace, f"pi_dev_unsettled:{halt}")
+                ctx.store.set_task_status(ctx.task_id, "interrupted")
+                return {"halted_reason": f"pi_dev_unsettled:{halt}"}
+            result = dict(outcome.result or {})
+            candidate = ctx.task_dir / "candidate.diff"
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            if is_git_workspace(ctx.workspace):
+                # 候选 diff 来自工作副本对基线的真实差异，不依赖 PI 文本自述。
+                change = collect_candidate_change(ctx.workspace)
+                candidate.write_text(change.diff, encoding="utf-8")
+                _append_dev_report(ctx, attempt, outcome.text or "", "git", change.baseline_commit)
+            else:
+                diff = result.get("diff")
+                candidate.write_text(diff if isinstance(diff, str) else "", encoding="utf-8")
+                _append_dev_report(ctx, attempt, outcome.text or "", "payload", "")
+            return {"dev_attempts": attempt}
         finally:
-            ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)
-        attempt = state.get("dev_attempts", 0) + 1
-        prompt = dev_prompt(
-            plan,
-            workspace=str(ctx.workspace),
-            attempt=attempt,
-            # 失败回边带真实证据：上次正式测试输出与审查阻断问题（截断后）。
-            previous_failure=previous_failure_context(ctx.task_dir),
-        )
-        outcome = _invoke_pi(ctx, "dev", prompt)
-        halt = _pi_outcome_halt(outcome)
-        if halt:
-            # 未取得明确结果时把副本已有改动落盘为部分候选（只写 partial-*，供人工恢复）。
-            capture_partial_candidate(ctx.task_dir, ctx.workspace, f"pi_dev_unsettled:{halt}")
-            ctx.store.set_task_status(ctx.task_id, "interrupted")
-            return {"halted_reason": f"pi_dev_unsettled:{halt}"}
-        result = dict(outcome.result or {})
-        candidate = ctx.task_dir / "candidate.diff"
-        candidate.parent.mkdir(parents=True, exist_ok=True)
-        if is_git_workspace(ctx.workspace):
-            # 候选 diff 来自工作副本对基线的真实差异，不依赖 PI 文本自述。
-            change = collect_candidate_change(ctx.workspace)
-            candidate.write_text(change.diff, encoding="utf-8")
-            _append_dev_report(ctx, attempt, outcome.text or "", "git", change.baseline_commit)
-        else:
-            diff = result.get("diff")
-            candidate.write_text(diff if isinstance(diff, str) else "", encoding="utf-8")
-            _append_dev_report(ctx, attempt, outcome.text or "", "payload", "")
-        return {"dev_attempts": attempt}
+            ctx.store.actions.finish(action.action_id, "dev 动作结束")
 
     return dev_node
 
@@ -338,30 +387,36 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
         plan = ctx.store.latest_plan(ctx.task_id)
         candidate = ctx.task_dir / "candidate.diff"
         diff_text = candidate.read_text(encoding="utf-8") if candidate.exists() else ""
-        ctx.store.set_task_status(ctx.task_id, "reviewing")
-        prompt = review_prompt(plan, candidate_diff=diff_text)
-        outcome = _invoke_pi(ctx, "review", prompt)
-        halt = _pi_outcome_halt(outcome)
-        if halt:
-            ctx.store.set_task_status(ctx.task_id, "interrupted")
-            return {"halted_reason": f"pi_review_unsettled:{halt}"}
-        result = dict(outcome.result or {})
-        if not result.get("summary") and outcome.text:
-            result["summary"] = outcome.text
-        raw_issues = result.get("blocking_issues")
-        valid = isinstance(raw_issues, list)
-        blocking = list(raw_issues) if valid else []
-        _write_review_reports(
-            ctx,
-            state.get("dev_attempts", 0) + 1,
-            blocking,
-            {**result, "blocking_issues_valid": valid},
-        )
-        if not valid:
-            # 结果缺失或非结构化时不能得出"无阻断"：中断交人工决定，禁止错误放行。
-            ctx.store.set_task_status(ctx.task_id, "interrupted")
-            return {"halted_reason": "review_result_invalid"}
-        return {"last_review_blocking": bool(blocking)}
+        action, halt = _action_preflight(ctx, "review")
+        if action is None:
+            return {"halted_reason": halt}
+        try:
+            ctx.store.set_task_status(ctx.task_id, "reviewing")
+            prompt = review_prompt(plan, candidate_diff=diff_text)
+            outcome = _invoke_pi(ctx, "review", prompt)
+            halt = _pi_outcome_halt(outcome)
+            if halt:
+                ctx.store.set_task_status(ctx.task_id, "interrupted")
+                return {"halted_reason": f"pi_review_unsettled:{halt}"}
+            result = dict(outcome.result or {})
+            if not result.get("summary") and outcome.text:
+                result["summary"] = outcome.text
+            raw_issues = result.get("blocking_issues")
+            valid = isinstance(raw_issues, list)
+            blocking = list(raw_issues) if valid else []
+            _write_review_reports(
+                ctx,
+                state.get("dev_attempts", 0) + 1,
+                blocking,
+                {**result, "blocking_issues_valid": valid},
+            )
+            if not valid:
+                # 结果缺失或非结构化时不能得出"无阻断"：中断交人工决定，禁止错误放行。
+                ctx.store.set_task_status(ctx.task_id, "interrupted")
+                return {"halted_reason": "review_result_invalid"}
+            return {"last_review_blocking": bool(blocking)}
+        finally:
+            ctx.store.actions.finish(action.action_id, "review 动作结束")
 
     return review_node
 
@@ -375,23 +430,29 @@ def make_test_node(ctx: NodeContext) -> NodeFn:
         if plan is None:
             ctx.store.set_task_status(ctx.task_id, "interrupted")
             return {"halted_reason": "plan_missing"}
-        ctx.store.set_task_status(ctx.task_id, "testing")
-        timeout = min(ctx.store.budget(ctx.task_id).remaining_seconds, TEST_TIMEOUT_CAP_SECONDS)
-        started = time.monotonic()
-        outcome = run_test_command(
-            plan.test_command,
-            ctx.workspace,
-            timeout,
-            ctx.task_dir / "test-run.jsonl",
-        )
-        ctx.store.charge_budget(ctx.task_id, time.monotonic() - started)
-        if outcome.timed_out:
-            ctx.store.set_task_status(ctx.task_id, "interrupted")
-            return {"halted_reason": "test_timeout"}
-        if outcome.exit_code == 0:
-            ctx.store.set_task_status(ctx.task_id, "tested")
-            return {"last_test_passed": True}
-        return _record_candidate_failure(ctx, state)
+        action, halt = _action_preflight(ctx, "test")
+        if action is None:
+            return {"halted_reason": halt}
+        try:
+            ctx.store.set_task_status(ctx.task_id, "testing")
+            timeout = min(ctx.store.budget(ctx.task_id).remaining_seconds, TEST_TIMEOUT_CAP_SECONDS)
+            started = time.monotonic()
+            outcome = run_test_command(
+                plan.test_command,
+                ctx.workspace,
+                timeout,
+                ctx.task_dir / "test-run.jsonl",
+            )
+            ctx.store.charge_budget(ctx.task_id, time.monotonic() - started)
+            if outcome.timed_out:
+                ctx.store.set_task_status(ctx.task_id, "interrupted")
+                return {"halted_reason": "test_timeout"}
+            if outcome.exit_code == 0:
+                ctx.store.set_task_status(ctx.task_id, "tested")
+                return {"last_test_passed": True}
+            return _record_candidate_failure(ctx, state)
+        finally:
+            ctx.store.actions.finish(action.action_id, "test 动作结束")
 
     return test_node
 
@@ -411,6 +472,9 @@ def make_gate_grant(ctx: NodeContext) -> NodeFn:
         )
         decision = resume.get("decision") if isinstance(resume, dict) else None
         if decision != "grant":
+            # 拒绝追加授权也是"停止自动推进"：留下停止事实，最终状态才有依据。
+            ctx.store.outcomes.request_stop(ctx.task_id, "未追加授权，停止自动推进")
+            ctx.store.outcomes.confirm_stop(ctx.task_id, "未追加授权，停止自动推进")
             ctx.store.set_task_status(ctx.task_id, "stopped")
             return {"halted_reason": "grant_denied"}
         ctx.store.append_grant(ctx.task_id)
@@ -422,6 +486,10 @@ def make_gate_grant(ctx: NodeContext) -> NodeFn:
 
 def make_gate_acceptance(ctx: NodeContext) -> NodeFn:
     def gate_acceptance(state: TaskState) -> NodeUpdate:
+        # 未核对动作优先于整体验收：不消费验收批准，也不重放旧动作。
+        halt = _unchecked_action_halt(ctx)
+        if halt is not None:
+            return {"halted_reason": halt}
         plan = ctx.store.latest_plan(ctx.task_id)
         ctx.store.set_task_status(ctx.task_id, "awaiting_acceptance")
         resume = interrupt(

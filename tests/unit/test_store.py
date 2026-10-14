@@ -7,6 +7,7 @@ import pytest
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.counting import FailureStage, GrantExhaustedError
 from forgeloop.domain.limits import ExecutionBudget
+from forgeloop.records.actions import ActionInFlightError
 from forgeloop.records.store import RecordStore
 
 
@@ -122,3 +123,69 @@ class TestLedgerAndApprovals:
         store.record_approval(Approval("task-x", 2, ApprovalStage.PLAN, datetime.now(UTC)))
         result = store.consume_approval("task-x", 1, ApprovalStage.PLAN)
         assert result.status.value == "stale"
+
+
+class TestActionLifecycle:
+    """动作启动/完成身份：未完成动作构成事实，完成后不阻塞下一轮。"""
+
+    def test_begin_finish_and_outstanding_roundtrip(self, store: RecordStore) -> None:
+        make_task(store)
+        action = store.actions.begin("task-x", "dev", "dev")
+        assert action.state.value == "started"
+        assert action.finished_at is None
+        outstanding = store.actions.outstanding("task-x")
+        assert outstanding is not None
+        assert outstanding.action_id == action.action_id
+        finished = store.actions.finish(action.action_id, "结束")
+        assert finished.state.value == "completed"
+        assert finished.finished_at is not None
+        assert finished.detail == "结束"
+        assert store.actions.outstanding("task-x") is None
+
+    def test_second_begin_while_in_flight_is_refused(self, store: RecordStore) -> None:
+        make_task(store)
+        store.actions.begin("task-x", "dev")
+        with pytest.raises(ActionInFlightError):
+            store.actions.begin("task-x", "review")
+        outstanding = store.actions.outstanding("task-x")
+        assert outstanding is not None and outstanding.node == "dev"
+
+    def test_finish_unknown_action_is_rejected(self, store: RecordStore) -> None:
+        make_task(store)
+        with pytest.raises(KeyError):
+            store.actions.finish("missing-action")
+
+    def test_completed_action_does_not_block_next_attempt(self, store: RecordStore) -> None:
+        make_task(store)
+        first = store.actions.begin("task-x", "dev")
+        store.actions.finish(first.action_id)
+        second = store.actions.begin("task-x", "dev")
+        store.actions.finish(second.action_id)
+        history = store.actions.history("task-x")
+        assert [record.state.value for record in history] == ["completed", "completed"]
+
+
+class TestAtomicBudgetAndCreation:
+    """工时累加不丢更新；创建中途失败不留半条任务。"""
+
+    def test_charge_budget_accumulates_each_second(self, store: RecordStore) -> None:
+        make_task(store)
+        store.charge_budget("task-x", 1.0)
+        store.charge_budget("task-x", 1.0)
+        assert store.budget("task-x").consumed_seconds == 2.0
+
+    def test_charge_budget_unknown_task_is_rejected(self, store: RecordStore) -> None:
+        with pytest.raises(KeyError):
+            store.charge_budget("missing", 1.0)
+
+    def test_charge_budget_negative_is_rejected(self, store: RecordStore) -> None:
+        make_task(store)
+        with pytest.raises(ValueError):
+            store.charge_budget("task-x", -1.0)
+
+    def test_create_task_rejects_non_positive_limit_without_rows(self, store: RecordStore) -> None:
+        with pytest.raises(ValueError):
+            store.create_task("task-bad", "p", "i", {}, limit_seconds=0.0)
+        assert store.get_task("task-bad") is None
+        with pytest.raises(KeyError):
+            store.budget("task-bad")

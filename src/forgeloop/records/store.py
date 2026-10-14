@@ -1,13 +1,14 @@
 """本地任务与决定记录：进程退出后仍可回查的权威业务记录。
 
 职责（架构 §6 持久化与记录）：任务与配置快照、方案、批准与消费、
-失败轮次与授权、工时账目、停止记录与交付引用。
+失败轮次与授权、工时账目、动作启动/完成身份、停止记录与交付引用。
 图检查点由 LangGraph checkpointer 单独保存，本存储只放领域记录。
 """
 
 import json
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from forgeloop.domain.approval import (
 from forgeloop.domain.counting import FailureRound, FailureStage, GrantLedger
 from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.release import ReleaseRecord
+from forgeloop.records.actions import ActionStore
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -81,6 +83,17 @@ CREATE TABLE IF NOT EXISTS stops (
     confirmed_at TEXT,
     note TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS actions (
+    action_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    node TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    detail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS actions_by_task ON actions (task_id, started_at);
 CREATE TABLE IF NOT EXISTS merges (
     task_id TEXT PRIMARY KEY,
     merge_commit TEXT NOT NULL,
@@ -152,10 +165,25 @@ class RecordStore:
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(db_path, isolation_level=None)
+        # 两个连接争用同一记录库时等待写锁而不是立刻报 database is locked。
+        self._db.execute("PRAGMA busy_timeout = 5000")
         self._db.executescript(SCHEMA)
 
     def close(self) -> None:
         self._db.close()
+
+    @contextmanager
+    def _write_transaction(self) -> Generator[None]:
+        """显式写事务：读-改-写要么整体提交，要么整体回滚，不留半条记录。"""
+
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            self._db.execute("ROLLBACK")
+            raise
+        else:
+            self._db.execute("COMMIT")
 
     # ---- 任务 ----
 
@@ -167,23 +195,26 @@ class RecordStore:
         config: dict[str, str],
         limit_seconds: float,
     ) -> TaskRecord:
+        if limit_seconds <= 0:
+            raise ValueError("Execution limit must be positive")
         record = TaskRecord(task_id, project, original_input, config, "created", _now())
-        self._db.execute(
-            "INSERT INTO tasks (id, project, original_input, config_json, status, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                project,
-                original_input,
-                json.dumps(config, ensure_ascii=False, sort_keys=True),
-                record.status,
-                _iso(record.created_at),
-            ),
-        )
-        self._db.execute(
-            "INSERT INTO budget (task_id, limit_seconds, consumed_seconds) VALUES (?, ?, 0.0)",
-            (task_id, limit_seconds),
-        )
+        with self._write_transaction():
+            self._db.execute(
+                "INSERT INTO tasks (id, project, original_input, config_json, status, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    task_id,
+                    project,
+                    original_input,
+                    json.dumps(config, ensure_ascii=False, sort_keys=True),
+                    record.status,
+                    _iso(record.created_at),
+                ),
+            )
+            self._db.execute(
+                "INSERT INTO budget (task_id, limit_seconds, consumed_seconds) VALUES (?, ?, 0.0)",
+                (task_id, limit_seconds),
+            )
         return record
 
     def get_task(self, task_id: str) -> TaskRecord | None:
@@ -268,15 +299,17 @@ class RecordStore:
     def consume_approval(
         self, task_id: str, plan_version: int, stage: ApprovalStage
     ) -> ConsumeResult:
-        book = self._load_approval_book(task_id)
-        result = book.consume(task_id, plan_version, stage)
-        if result.status.value == "ok":
-            self._db.execute(
-                "INSERT OR REPLACE INTO approval_consumption"
-                " (task_id, plan_version, stage, consumed_at) VALUES (?, ?, ?, ?)",
-                (task_id, plan_version, stage.value, _iso(_now())),
-            )
-        return result
+        # 读-改-写放进一个写事务：两个并发调用只有一个能看到"未消费"并落库。
+        with self._write_transaction():
+            book = self._load_approval_book(task_id)
+            result = book.consume(task_id, plan_version, stage)
+            if result.status.value == "ok":
+                self._db.execute(
+                    "INSERT OR REPLACE INTO approval_consumption"
+                    " (task_id, plan_version, stage, consumed_at) VALUES (?, ?, ?, ?)",
+                    (task_id, plan_version, stage.value, _iso(_now())),
+                )
+            return result
 
     # ---- 失败轮次与授权 ----
 
@@ -338,14 +371,21 @@ class RecordStore:
         return ExecutionBudget(limit_seconds=row[0], consumed_seconds=row[1])
 
     def charge_budget(self, task_id: str, seconds: float) -> None:
-        budget = self.budget(task_id)
-        budget.charge(seconds)
-        self._save_budget(task_id, budget)
+        if seconds < 0:
+            raise ValueError("Charged duration cannot be negative")
+        # 单条累加语句在 SQLite 内原子执行：并发计入不丢更新，累计如实保存。
+        changed = self._db.execute(
+            "UPDATE budget SET consumed_seconds = consumed_seconds + ? WHERE task_id = ?",
+            (seconds, task_id),
+        ).rowcount
+        if changed == 0:
+            raise KeyError(f"No budget for task {task_id}")
 
     def extend_budget(self, task_id: str, new_limit_seconds: float) -> None:
-        budget = self.budget(task_id)
-        budget.extend(new_limit_seconds)
-        self._save_budget(task_id, budget)
+        with self._write_transaction():
+            budget = self.budget(task_id)
+            budget.extend(new_limit_seconds)
+            self._save_budget(task_id, budget)
 
     def _save_budget(self, task_id: str, budget: ExecutionBudget) -> None:
         self._db.execute(
@@ -360,6 +400,12 @@ class RecordStore:
         """停止、交付与 main 归并等终态记录（同一连接的独立内聚类）。"""
 
         return OutcomeStore(self._db)
+
+    @property
+    def actions(self) -> ActionStore:
+        """动作启动/完成身份与单任务并发占用（同一连接的独立内聚类）。"""
+
+        return ActionStore(self._db)
 
 
 class OutcomeStore:
