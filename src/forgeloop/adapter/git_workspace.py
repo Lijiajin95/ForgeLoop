@@ -5,8 +5,12 @@
 git 仓库现场操作，放 CLI 会破坏"CLI 只调用 adapter"的分层。
 - 副本用 ``git clone --no-hardlinks`` 建立完整独立副本（自有 .git 与引用，
   不与源仓库共享任何可写对象/引用——避免通过共享 Git 引用改写真实 main）。
+  克隆后立刻删除指向源仓库的 ``origin``；否则副本内进程可以用
+  ``git push origin main`` 直接改写源 main（host 模式下没有别的闸）。
 - 基线以 detached HEAD checkout（默认分支或显式基线），实际基线提交号
-  由 ``git rev-parse HEAD`` 记录，交付时与 diff 一同固化。
+  由 ``git rev-parse HEAD`` 记录，并写入副本内 ``refs/forgeloop/baseline``。
+  候选 diff 始终对**那个**批准基线计算，而不是对当前 HEAD——PI 在副本内
+  自行 commit 后 HEAD 会前移，若以 HEAD 为基线就会把已提交改动漏掉。
 - 候选 diff = ``git add -A`` 后 ``git diff <基线提交>``：覆盖已修改、新增、
   删除与已提交的改动（工作树对基线的完整差异），不依赖 PI 的文本自述。
 """
@@ -14,6 +18,10 @@ git 仓库现场操作，放 CLI 会破坏"CLI 只调用 adapter"的分层。
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+# 批准基线在副本内的落点：写进 .git 引用而不是工作树文件，
+# 因此不会出现在候选 diff 里，也不会被 ``git add -A`` 采集。
+BASELINE_REF = "refs/forgeloop/baseline"
 
 
 class WorkspaceError(RuntimeError):
@@ -47,16 +55,65 @@ def is_git_workspace(workspace: Path) -> bool:
     return (workspace / ".git").exists()
 
 
-def prepare_workspace(source: Path, baseline: str, workspace: Path) -> str:
-    """建立（或复用）独立工作副本并检出基线；返回实际基线提交号。
+def recorded_baseline(workspace: Path) -> str | None:
+    """读取副本内记录的批准基线；没有记录时返回 ``None``。"""
 
-    幂等：workspace 已是 git 仓库时不再 clone（修复轮继续同一副本）。
+    result = subprocess.run(
+        ["git", "-C", str(workspace), "rev-parse", "--verify", "--quiet", BASELINE_REF],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _record_baseline(workspace: Path, commit: str) -> None:
+    _git(workspace, "update-ref", BASELINE_REF, commit)
+
+
+def _drop_source_remote(workspace: Path) -> None:
+    """删除指向源仓库的 ``origin``，切断从副本 ``git push`` 回写源 main 的路径。"""
+
+    result = subprocess.run(
+        ["git", "-C", str(workspace), "remote"],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    if "origin" in result.stdout.split():
+        _git(workspace, "remote", "remove", "origin")
+
+
+def prepare_workspace(source: Path, baseline: str, workspace: Path) -> str:
+    """建立（或复用）独立工作副本并检出基线；返回实际批准基线提交号。
+
+    幂等：workspace 已是 git 仓库时不再 clone（修复轮继续同一副本），并返回
+    首次建立时记录的批准基线——即使 PI 已在副本内 commit，候选 diff 仍对
+    原始基线计算，不会丢失已提交改动。旧副本缺少基线记录时用显式 *baseline*
+    回填（无显式基线只能以当前 HEAD 回填），修复轮不再把新 HEAD 当成基线。
     """
 
     if not source.is_dir() or not (source / ".git").exists():
         raise WorkspaceError(f"project_path 不是 git 仓库: {source}")
     if is_git_workspace(workspace):
-        return _git(workspace, "rev-parse", "HEAD").strip()
+        _drop_source_remote(workspace)  # 旧副本也切断回写源 main 的路径
+        recorded = recorded_baseline(workspace)
+        if recorded:
+            return recorded
+        # 旧副本（B01 之前建立，没有 refs/forgeloop/baseline）：用显式批准基线
+        # 回填，避免 PI 提交后 HEAD 前移被当成基线而丢掉已提交改动；没有显式
+        # 基线时只能以当前 HEAD 回填，并如实暴露该限制。
+        resolved = (
+            _git(workspace, "rev-parse", f"{baseline}^{{commit}}").strip()
+            if baseline
+            else _git(workspace, "rev-parse", "HEAD").strip()
+        )
+        _record_baseline(workspace, resolved)
+        return resolved
     workspace.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         ["git", "clone", "--no-hardlinks", str(source), str(workspace)],
@@ -67,20 +124,30 @@ def prepare_workspace(source: Path, baseline: str, workspace: Path) -> str:
     )
     if result.returncode != 0:
         raise WorkspaceError(f"clone failed from {source}: {result.stderr.strip()[:200]}")
+    _drop_source_remote(workspace)
     if baseline:
         _git(workspace, "checkout", "--detach", baseline)
-    return _git(workspace, "rev-parse", "HEAD").strip()
+    resolved = _git(workspace, "rev-parse", "HEAD").strip()
+    _record_baseline(workspace, resolved)
+    return resolved
 
 
-def collect_candidate_change(workspace: Path) -> CandidateChange:
-    """提取候选改动：暂存全部变更后取工作树对基线的完整 diff。"""
+def collect_candidate_change(workspace: Path, baseline: str | None = None) -> CandidateChange:
+    """提取候选改动：暂存全部变更后取工作树对批准基线的完整 diff。
+
+    基线优先取显式参数，其次取副本内记录的批准基线，最后回落到当前 HEAD
+    （兼容未记录基线的旧副本）。对正式流程而言基线在 ``prepare_workspace``
+    时固化，因此 PI 在副本内 commit 也不会让 diff 变空。
+    """
 
     if not is_git_workspace(workspace):
         raise WorkspaceError(f"workspace 不是 git 仓库: {workspace}")
-    baseline = _git(workspace, "rev-parse", "HEAD").strip()
+    resolved = (
+        baseline or recorded_baseline(workspace) or _git(workspace, "rev-parse", "HEAD").strip()
+    )
     _git(workspace, "add", "-A")
-    diff = _git(workspace, "diff", baseline)
-    return CandidateChange(baseline_commit=baseline, diff=diff)
+    diff = _git(workspace, "diff", resolved)
+    return CandidateChange(baseline_commit=resolved, diff=diff)
 
 
 def read_main_head(project: Path) -> str:

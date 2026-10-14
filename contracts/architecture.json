@@ -8,6 +8,7 @@
     "forgeloop.adapter": "adapter",
     "forgeloop.adapter.artifact": "adapter",
     "forgeloop.adapter.deployment": "adapter",
+    "forgeloop.adapter.execution_environment": "adapter",
     "forgeloop.adapter.git_workspace": "adapter",
     "forgeloop.adapter.github_checks": "adapter",
     "forgeloop.adapter.pi_rpc": "adapter",

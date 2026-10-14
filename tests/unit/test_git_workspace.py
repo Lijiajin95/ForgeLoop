@@ -63,6 +63,39 @@ class TestPrepareWorkspace:
         # 独立副本：有自己的 .git，不共享源仓库引用。
         assert (workspace / ".git").is_dir()
 
+    def test_clone_does_not_keep_source_as_origin(self, tmp_path: Path) -> None:
+        """删除 origin：副本内 ``git push`` 不能回写源 main。"""
+
+        source = make_source_repo(tmp_path)
+        workspace = tmp_path / "task" / "workspace"
+        prepare_workspace(source, "", workspace)
+        remotes = subprocess.run(
+            ["git", "-C", str(workspace), "remote"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert remotes.strip() == ""
+        # 源仓库路径不再出现在副本配置里。
+        config = (workspace / ".git" / "config").read_text(encoding="utf-8")
+        assert str(source) not in config
+
+    def test_reused_workspace_drops_a_pre_existing_source_remote(self, tmp_path: Path) -> None:
+        """旧副本（带 origin）在修复轮复用时也会被切断回写源 main 的路径。"""
+
+        source = make_source_repo(tmp_path)
+        workspace = tmp_path / "task" / "workspace"
+        prepare_workspace(source, "", workspace)
+        git(workspace, "remote", "add", "origin", str(source))
+        prepare_workspace(source, "", workspace)
+        remotes = subprocess.run(
+            ["git", "-C", str(workspace), "remote"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert remotes.strip() == ""
+
     def test_explicit_baseline_is_checked_out_detached(self, tmp_path: Path) -> None:
         source = make_source_repo(tmp_path)
         (source / "second.txt").write_text("v2\n", encoding="utf-8")
@@ -87,6 +120,66 @@ class TestPrepareWorkspace:
         second = prepare_workspace(source, "", workspace)
         assert first == second  # 修复轮复用同一副本，不重新 clone
         assert (workspace / "feature.txt").read_text(encoding="utf-8") == "wip\n"
+
+    def test_prepare_reports_recorded_baseline_after_pi_commit(self, tmp_path: Path) -> None:
+        """PI 在副本内 commit 后，prepare 仍返回原始批准基线（不是新 HEAD）。"""
+
+        source = make_source_repo(tmp_path)
+        workspace = tmp_path / "task" / "workspace"
+        baseline = prepare_workspace(source, "", workspace)
+        (workspace / "feature.txt").write_text("committed\n", encoding="utf-8")
+        git(workspace, "-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A")
+        git(
+            workspace,
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "commit",
+            "-m",
+            "feat: pi committed inside the copy",
+        )
+        head = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert head != baseline
+        assert prepare_workspace(source, "", workspace) == baseline
+
+    def test_legacy_workspace_baseline_is_backfilled_from_explicit_baseline(
+        self, tmp_path: Path
+    ) -> None:
+        """旧副本没有基线引用：复用轮用显式批准基线回填，不把新 HEAD 当基线。"""
+
+        source = make_source_repo(tmp_path)
+        workspace = tmp_path / "task" / "workspace"
+        baseline = prepare_workspace(source, "", workspace)
+        # 模拟 B01 之前建立的旧副本：基线引用不存在。
+        git(workspace, "update-ref", "-d", "refs/forgeloop/baseline")
+        (workspace / "feature.txt").write_text("committed\n", encoding="utf-8")
+        git(workspace, "-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A")
+        git(
+            workspace,
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "commit",
+            "-m",
+            "feat: pi committed inside a legacy copy",
+        )
+        head = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert head != baseline
+        assert prepare_workspace(source, baseline, workspace) == baseline
+        # 回填后的基线已写入副本，后续采集对原批准基线计算。
+        assert collect_candidate_change(workspace).baseline_commit == baseline
 
     def test_missing_source_is_rejected(self, tmp_path: Path) -> None:
         with pytest.raises(WorkspaceError, match="不是 git 仓库"):
@@ -133,6 +226,40 @@ class TestCollectCandidateChange:
         prepare_workspace(source, "", workspace)
         change = collect_candidate_change(workspace)
         assert change.diff == ""
+
+    def test_committed_change_is_still_collected_against_baseline(self, tmp_path: Path) -> None:
+        """副本内 commit/HEAD 前移不会丢失改动：diff 仍对批准基线计算。"""
+
+        source = make_source_repo(tmp_path)
+        workspace = tmp_path / "task" / "workspace"
+        baseline = prepare_workspace(source, "", workspace)
+        (workspace / "feature.txt").write_text("committed\n", encoding="utf-8")
+        git(workspace, "-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A")
+        git(
+            workspace,
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "commit",
+            "-m",
+            "feat: pi committed inside the copy",
+        )
+        change = collect_candidate_change(workspace)
+        assert change.baseline_commit == baseline
+        assert "+committed" in change.diff
+        assert "feature.txt" in change.diff
+
+    def test_explicit_baseline_overrides_recorded_one(self, tmp_path: Path) -> None:
+        """调用方显式给出的基线优先，便于把 diff 固定到交付基线。"""
+
+        source = make_source_repo(tmp_path)
+        workspace = tmp_path / "task" / "workspace"
+        baseline = prepare_workspace(source, "", workspace)
+        (workspace / "feature.txt").write_text("new\n", encoding="utf-8")
+        change = collect_candidate_change(workspace, baseline)
+        assert change.baseline_commit == baseline
+        assert "+new" in change.diff
 
     def test_non_git_workspace_is_rejected(self, tmp_path: Path) -> None:
         plain = tmp_path / "plain"

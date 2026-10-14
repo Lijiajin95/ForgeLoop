@@ -21,12 +21,17 @@ gate 节点在 interrupt 之后才消费批准，动作节点本身不含 interr
 
 import json
 import time
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from langgraph.types import interrupt
 
+from forgeloop.adapter.execution_environment import (
+    ExecutionEnvironment,
+    build_execution_environment,
+    command_test_resources,
+)
 from forgeloop.adapter.git_workspace import (
     collect_candidate_change,
     is_git_workspace,
@@ -262,19 +267,39 @@ def pi_timeout_seconds(ctx: NodeContext) -> float:
     return min(ctx.store.budget(ctx.task_id).remaining_seconds, cap)
 
 
-def _invoke_pi(ctx: NodeContext, role: str, prompt: str) -> PIInvocationResult:
+def _execution_environment(
+    ctx: NodeContext, test_command: Sequence[str] = ()
+) -> ExecutionEnvironment:
+    """按任务配置构建执行环境，并把正式测试命令点名的资源纳入挂载。
+
+    测试资源必须在 PI 进程启动前就确定：dev 会话要能在同一容器里跑自验证测试。
+    """
+
+    resources = command_test_resources(test_command, ctx.workspace)
+    return build_execution_environment(ctx.config, ctx.workspace, test_resources=resources)
+
+
+def _invoke_pi(
+    ctx: NodeContext, role: str, prompt: str, environment: ExecutionEnvironment
+) -> PIInvocationResult:
     """运行一个 PI 会话并计工时：未明确结果如实返回，不自动重跑。
 
-    子进程显式在任务范围内运行：实现会话在独立工作副本内（可写），审查会话在任务
-    记录目录内（其结论来自提示词中的候选 diff，避免误改候选工作区）；不依赖提示词
-    里的路径让模型自觉。
+    子进程显式在任务范围内运行：实现会话在独立工作副本内（容器里可写），审查会话
+    在任务记录目录内（其结论来自提示词中的候选 diff，避免误改候选工作区）；不依赖
+    提示词里的路径让模型自觉。执行环境决定是否加一层容器边界：host 直接运行，
+    container 只挂载工作副本（review 只读）、配置目录与测试资源，并记录环境标签。
     """
 
     timeout = pi_timeout_seconds(ctx)
     cwd = ctx.workspace if role == "dev" else ctx.task_dir
     cwd.mkdir(parents=True, exist_ok=True)
-    options = PISpawnOptions(cwd=cwd)
-    process = PIProcess(_pi_command(ctx.config), ctx.task_id, role, ctx.sessions_dir, options)
+    command = environment.command(_pi_command(ctx.config), workspace_read_only=(role != "dev"))
+    options = PISpawnOptions(
+        cwd=environment.process_cwd(cwd),
+        extra_env=environment.spawn_env(),
+        execution_environment=environment.kind,
+    )
+    process = PIProcess(command, ctx.task_id, role, ctx.sessions_dir, options)
     process.start()
     started = time.monotonic()
     try:
@@ -318,23 +343,28 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
             ctx.store.set_task_status(ctx.task_id, "implementing")
             ctx.workspace.mkdir(parents=True, exist_ok=True)
             project_path = ctx.config.get("project_path", "")
+            prepared_baseline = ""
             prepared = time.monotonic()
             try:
                 if project_path:
-                    prepare_workspace(
+                    prepared_baseline = prepare_workspace(
                         Path(project_path), ctx.config.get("baseline", ""), ctx.workspace
                     )
             finally:
                 ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)
             attempt = state.get("dev_attempts", 0) + 1
+            environment = _execution_environment(ctx, plan.test_command)
+            # 容器里工作副本与测试命令都是容器路径：提示词必须按挂载点翻译，
+            # 否则 PI 改不到挂载副本、也跑不了自验证测试。
+            prompt_plan = replace(plan, test_command=environment.translate_argv(plan.test_command))
             prompt = dev_prompt(
-                plan,
-                workspace=str(ctx.workspace),
+                prompt_plan,
+                workspace=environment.exposed_workspace(),
                 attempt=attempt,
                 # 失败回边带真实证据：上次正式测试输出与审查阻断问题（截断后）。
                 previous_failure=previous_failure_context(ctx.task_dir),
             )
-            outcome = _invoke_pi(ctx, "dev", prompt)
+            outcome = _invoke_pi(ctx, "dev", prompt, environment)
             halt = _pi_outcome_halt(outcome)
             if halt:
                 # 未取得明确结果时把副本已有改动落盘为部分候选（只写 partial-*，供人工恢复）。
@@ -345,8 +375,9 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
             candidate = ctx.task_dir / "candidate.diff"
             candidate.parent.mkdir(parents=True, exist_ok=True)
             if is_git_workspace(ctx.workspace):
-                # 候选 diff 来自工作副本对基线的真实差异，不依赖 PI 文本自述。
-                change = collect_candidate_change(ctx.workspace)
+                # 候选 diff 来自工作副本对批准基线的真实差异，不依赖 PI 文本自述；
+                # 显式带上 prepare 时固化的基线，PI 自行 commit 也不会漏改动。
+                change = collect_candidate_change(ctx.workspace, prepared_baseline or None)
                 candidate.write_text(change.diff, encoding="utf-8")
                 _append_dev_report(ctx, attempt, outcome.text or "", "git", change.baseline_commit)
             else:
@@ -394,7 +425,7 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
         try:
             ctx.store.set_task_status(ctx.task_id, "reviewing")
             prompt = review_prompt(plan, candidate_diff=diff_text)
-            outcome = _invoke_pi(ctx, "review", prompt)
+            outcome = _invoke_pi(ctx, "review", prompt, _execution_environment(ctx))
             halt = _pi_outcome_halt(outcome)
             if halt:
                 ctx.store.set_task_status(ctx.task_id, "interrupted")
@@ -437,9 +468,12 @@ def make_test_node(ctx: NodeContext) -> NodeFn:
         try:
             ctx.store.set_task_status(ctx.task_id, "testing")
             timeout = min(ctx.store.budget(ctx.task_id).remaining_seconds, TEST_TIMEOUT_CAP_SECONDS)
+            # 正式测试也在同一执行环境里跑：容器接入时测试命令与 PI 共享工作副本挂载，
+            # 保证“测的就是候选代码”，而不是宿主上的另一份路径。
+            environment = _execution_environment(ctx, plan.test_command)
             started = time.monotonic()
             outcome = run_test_command(
-                plan.test_command,
+                environment.command(plan.test_command),
                 ctx.workspace,
                 timeout,
                 ctx.task_dir / "test-run.jsonl",

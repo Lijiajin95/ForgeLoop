@@ -108,13 +108,16 @@ def _json_object_or_none(text: str | None) -> Mapping[str, Any] | None:
 
 @dataclass(frozen=True)
 class PISpawnOptions:
-    """PI 子进程启动选项：附加环境变量与显式工作目录。
+    """PI 子进程启动选项：附加环境变量、显式工作目录与执行环境标签。
 
     工作目录必须显式给出：只把工作副本路径写进提示词不足以约束真实模型改哪里。
+    ``execution_environment`` 只作事实记录（host/container），随会话请求落盘，
+    供回查“本次 PI 到底是不是在受限执行环境里跑的”，不改变进程行为。
     """
 
     extra_env: Mapping[str, str] = field(default_factory=dict[str, str])
     cwd: Path | None = None
+    execution_environment: str = "host"
 
 
 class PIProcess:
@@ -196,7 +199,11 @@ class PIProcess:
         with open(self._requests_path, "a", encoding="utf-8") as requests_file:
             requests_file.write(
                 json.dumps(
-                    {"sent_at": _iso(datetime.now(UTC)), "request": record},
+                    {
+                        "sent_at": _iso(datetime.now(UTC)),
+                        "execution_environment": self._options.execution_environment,
+                        "request": record,
+                    },
                     ensure_ascii=False,
                 )
                 + "\n"
