@@ -33,14 +33,36 @@ from forgeloop.cli.deploy import add_deploy_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.domain.approval import Approval, ApprovalStage
-from forgeloop.domain.status import next_action
-from forgeloop.graph.builder import build_graph
+from forgeloop.domain.delivery import (
+    DeliveryBinding,
+    RequirementDelivery,
+    assess_requirement_acceptance,
+)
+from forgeloop.domain.requirement import (
+    BLOCKED,
+    RequirementError,
+    RequirementNotFoundError,
+)
+from forgeloop.domain.status import ActionActor, NextAction, next_action
+from forgeloop.domain.task_plan import TaskPlan, TaskPlanApproval
+from forgeloop.graph.builder import RequirementTaskRunner, build_graph, requirement_task_id
 from forgeloop.graph.nodes import NodeContext
+from forgeloop.graph.planning import PlanningContext, analyze_requirement, plan_requirement
+from forgeloop.graph.requirements import (
+    RequirementExecutor,
+    TaskExecution,
+    TaskResult,
+)
 from forgeloop.graph.state import TaskState
+from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
 DEFAULT_RECORDS_ROOT = ".forgeloop"
 DEFAULT_LIMIT_SECONDS = 7200.0
+# 需求整体验收通过后的状态（契约精简集合 §4）；由 ``requirement accept`` 写入。
+REQUIREMENT_ACCEPTED = "accepted"
+# 契约 §4 的需求终态：整体验收通过或明确拒绝后不再回退到执行中。
+REQUIREMENT_TERMINAL_STATUSES = frozenset({REQUIREMENT_ACCEPTED, "rejected"})
 
 
 def _read_input(raw: str) -> str:
@@ -381,6 +403,449 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- 需求研发线（I01 真实入口）：受理、澄清、批准、任务推进、状态回查 ----
+
+
+def _open_requirement(root: Path, req_id: str) -> RequirementStore:
+    """打开需求记录并确认身份存在；未知身份确定失败，不返回空结果。"""
+
+    store = RequirementStore(root / "records.sqlite")
+    try:
+        store.get(req_id)
+    except RequirementNotFoundError as error:
+        store.close()
+        raise SystemExit(f"需求不存在: {req_id}") from error
+    return store
+
+
+def _planning_context(
+    args: argparse.Namespace, root: Path, store: RequirementStore
+) -> PlanningContext:
+    return PlanningContext(
+        store,
+        args.req_id,
+        root / "requirements" / args.req_id / "analysis",
+        _decode_command(args.pi_command, "--pi-command"),
+        timeout_seconds=args.pi_timeout_seconds,
+    )
+
+
+def cmd_requirement_submit(args: argparse.Namespace) -> int:
+    root = records_root(args)
+    text = _read_input(args.input)
+    store = RequirementStore(root / "records.sqlite")
+    try:
+        requirement = store.submit(args.project, text)
+    finally:
+        store.close()
+    print(f"需求已创建: {requirement.req_id}")
+    print("下一步: 只读分析（clarify 缺的关键信息）。")
+    return 0
+
+
+def cmd_requirement_revise(args: argparse.Namespace) -> int:
+    root = records_root(args)
+    store = _open_requirement(root, args.req_id)
+    try:
+        updated = store.append(args.req_id, _read_input(args.input))
+    finally:
+        store.close()
+    print(f"需求已修订: {updated.req_id}（版本 {updated.version_count}）")
+    return 0
+
+
+def cmd_requirement_analyze(args: argparse.Namespace) -> int:
+    root = records_root(args)
+    store = _open_requirement(root, args.req_id)
+    try:
+        outcome = analyze_requirement(_planning_context(args, root, store))
+    finally:
+        store.close()
+    if outcome.analysis is None:
+        print(f"分析未完成: {outcome.halted_reason}")
+        return 1
+    print(f"需求状态: {outcome.requirement_status}")
+    print(f"目标: {outcome.analysis.goal}")
+    if outcome.needs_clarification:
+        for question in outcome.analysis.clarifications:
+            print(f"待澄清: {question}")
+        print("澄清命令: forgeloop requirement revise <req_id> --input ...")
+    else:
+        print("分析已就绪，可生成任务包。")
+    return 0
+
+
+def cmd_requirement_plan(args: argparse.Namespace) -> int:
+    root = records_root(args)
+    store = _open_requirement(root, args.req_id)
+    try:
+        outcome = plan_requirement(_planning_context(args, root, store))
+    finally:
+        store.close()
+    if outcome.plan is None:
+        print(f"任务规划未完成: {outcome.halted_reason}")
+        return 1
+    plan = outcome.plan
+    print(f"任务包 v{plan.plan_version}（{len(plan.tasks)} 个任务）已生成，等待批准。")
+    for task in plan.tasks:
+        print(f"- {task.task_id}: {task.goal}")
+    print(f"批准命令: forgeloop requirement approve {args.req_id}")
+    return 0
+
+
+def cmd_requirement_approve(args: argparse.Namespace) -> int:
+    root = records_root(args)
+    store = _open_requirement(root, args.req_id)
+    try:
+        plan = store.latest_task_plan(args.req_id)
+        if plan is None:
+            raise SystemExit("需求尚无任务包，无法批准")
+        approval = store.record_plan_approval(
+            args.req_id, plan.plan_version, args.by, source=args.source
+        )
+        print(f"任务包 v{plan.plan_version} 已批准（授权来源 {approval.authorization_source}）。")
+    finally:
+        store.close()
+    return 0
+
+
+def cmd_requirement_advance(args: argparse.Namespace) -> int:
+    root = records_root(args)
+    store = _open_requirement(root, args.req_id)
+    try:
+        requirement = store.get(args.req_id)
+        plan = store.latest_task_plan(args.req_id)
+        runner = RequirementTaskRunner(
+            records_root=root,
+            req_id=args.req_id,
+            plan_version=plan.plan_version if plan else 0,
+            project=requirement.project,
+            pi_command=_decode_command(args.pi_command, "--pi-command"),
+            project_path=args.project_path,
+            baseline=args.baseline,
+            pi_timeout_seconds=args.pi_timeout_seconds or None,
+        )
+        executor = RequirementExecutor(store, args.req_id, runner)
+        status = store.requirement_status(args.req_id)
+        if status in REQUIREMENT_TERMINAL_STATUSES:
+            # 终态不回退：整体验收已完成（或已拒绝）后重复推进只做只读回查，
+            # 不把 accepted/rejected 覆盖成 executing；后续归并/发布在候选/任务层（契约 §4）。
+            progress = executor.progress()
+            next_step = _terminal_next_step(status)
+            requirement_status = status
+        else:
+            progress = executor.advance()
+            next_step = progress.next_step
+            requirement_status = progress.requirement_status
+    finally:
+        store.close()
+    print(f"需求状态: {requirement_status}")
+    print(f"当前任务: {progress.current_task or '无'}")
+    print(f"已完成: {'、'.join(progress.completed_tasks) or '无'}")
+    print(f"下一步: {next_step.action}（{next_step.actor.value}）")
+    if progress.blocked_reason:
+        print(f"原因: {progress.blocked_reason}")
+    return 0 if requirement_status != BLOCKED else 1
+
+
+def _terminal_next_step(status: str) -> NextAction:
+    """需求终态的下一步：整体验收通过后归并发布；其余终态交人工处理。"""
+
+    if status == REQUIREMENT_ACCEPTED:
+        return NextAction("归并并发布已验收任务", ActionActor.AGENT, "需求整体验收已完成")
+    return NextAction("人工处理需求终态", ActionActor.USER, f"需求已处于终态: {status}")
+
+
+def _read_only_runner(execution: TaskExecution) -> TaskResult:  # pragma: no cover - 只读汇总
+    raise AssertionError("status 查询不得执行任何任务")
+
+
+def _requirement_delivery(
+    store: RequirementStore, record_store: RecordStore, req_id: str
+) -> tuple[RequirementDelivery, str]:
+    """把需求内全部任务映射为交付汇总；缺任一任务材料即明确报告，不部分验收。"""
+
+    plan: TaskPlan | None = store.latest_task_plan(req_id)
+    if plan is None:
+        return RequirementDelivery(req_id), "需求尚无任务包，无法整体验收"
+    deliveries = []
+    for task in plan.tasks:
+        single_task_id = requirement_task_id(req_id, plan.plan_version, task.task_id)
+        delivery = record_store.task_delivery(single_task_id)
+        if delivery is None:
+            return RequirementDelivery(req_id), f"任务 {task.task_id} 尚无已消费的验收材料"
+        deliveries.append(delivery)
+    return RequirementDelivery(req_id, tuple(deliveries)), ""
+
+
+def cmd_requirement_accept(args: argparse.Namespace) -> int:
+    """需求整体验收：全部任务已验收且材料与批准一致时置 ``accepted``。"""
+
+    root = records_root(args)
+    store = _open_requirement(root, args.req_id)
+    record_store = RecordStore(root / "records.sqlite")
+    try:
+        delivery, incomplete = _requirement_delivery(store, record_store, args.req_id)
+        if incomplete:
+            print(f"需求整体验收被拒绝: {incomplete}")
+            return 1
+        # 批准绑定：整体验收必须由当前有效批准驱动。需求一经修订，已批准任务包
+        # 立即失效（契约 §5.3），即使各任务材料齐全也不得据此完成整体验收。
+        authorization = store.plan_authorization(args.req_id)
+        if not authorization.can_execute:
+            print(f"需求整体验收被拒绝: {authorization.reason}")
+            return 1
+        current: dict[str, DeliveryBinding] = {
+            item.binding.task_id: record_store.capture_delivery_binding(
+                item.binding.task_id, item.binding.plan_version
+            )
+            for item in delivery.deliveries
+        }
+        decision = assess_requirement_acceptance(delivery, current_bindings=current)
+        if not decision.allowed:
+            print(f"需求整体验收被拒绝: {decision.reason}")
+            return 1
+        store.set_requirement_status(args.req_id, REQUIREMENT_ACCEPTED, "")
+        print(f"需求整体验收通过: {args.req_id}")
+        print(f"依据: {decision.reason}")
+        print("下一步: 归并并发布已验收任务。")
+        return 0
+    finally:
+        record_store.close()
+        store.close()
+
+
+def _requirement_approval_section(approval: TaskPlanApproval | None) -> dict | None:
+    if approval is None:
+        return None
+    return {
+        "plan_version": approval.plan_version,
+        "approved_by": approval.approved_by,
+        "source": approval.source,
+    }
+
+
+def _requirement_analysis_section(store: RequirementStore, req_id: str) -> dict | None:
+    analysis = store.latest_analysis(req_id)
+    if analysis is None:
+        return None
+    return {
+        "analysis_version": analysis.analysis_version,
+        "requirement_version": analysis.requirement_version,
+        "goal": analysis.goal,
+        "scenarios": list(analysis.scenarios),
+        "acceptance_criteria": list(analysis.acceptance_criteria),
+        "clarifications": list(analysis.clarifications),
+        "needs_clarification": analysis.needs_clarification,
+    }
+
+
+def _requirement_plan_section(store: RequirementStore, req_id: str) -> dict | None:
+    plan = store.latest_task_plan(req_id)
+    if plan is None:
+        return None
+    return {
+        "plan_version": plan.plan_version,
+        "tasks": [
+            {
+                "task_id": task.task_id,
+                "goal": task.goal,
+                "files": list(task.files),
+                "acceptance": task.acceptance,
+                "test_command": list(task.test_command),
+                "depends_on": list(task.depends_on),
+                "authorization_source": task.authorization_source,
+            }
+            for task in plan.tasks
+        ],
+    }
+
+
+def _requirement_artifact_section(artifact: TaskArtifact | None) -> dict | None:
+    if artifact is None:
+        return None
+    return {
+        "candidate_sha256": artifact.candidate_sha256,
+        "test_evidence_sha256": artifact.test_evidence_sha256,
+        "review_sha256": artifact.review_sha256,
+        "acceptance": artifact.acceptance,
+        "authorization_source": artifact.authorization_source,
+    }
+
+
+def _requirement_single_task(store: RecordStore, task_id: str) -> dict | None:
+    """映射出的单任务记录摘要（归并/发布状态从同一权威记录回查）。"""
+
+    task = store.get_task(task_id)
+    if task is None:
+        return None
+    return {
+        "status": task.status,
+        "delivery": _delivery_section(store, task_id),
+        "merge": merge_section(store, task_id),
+        "release": release_section(store, task_id),
+    }
+
+
+def _requirement_tasks_section(root: Path, store: RequirementStore, req_id: str) -> list[dict]:
+    plan = store.latest_task_plan(req_id)
+    if plan is None:
+        return []
+    runs = {run.task_id: run for run in store.task_runs(req_id, plan.plan_version)}
+    artifacts = {item.task_id: item for item in store.task_artifacts(req_id, plan.plan_version)}
+    record_store = RecordStore(root / "records.sqlite")
+    try:
+        entries: list[dict] = []
+        for task in plan.tasks:
+            run = runs.get(task.task_id)
+            single_task_id = requirement_task_id(req_id, plan.plan_version, task.task_id)
+            entries.append(
+                {
+                    "task_id": task.task_id,
+                    "state": run.state if run else "pending",
+                    "reason": run.reason if run else "",
+                    "executed_seconds": run.executed_seconds if run else 0.0,
+                    "artifact": _requirement_artifact_section(artifacts.get(task.task_id)),
+                    "single_task_id": single_task_id,
+                    "single_task": _requirement_single_task(record_store, single_task_id),
+                }
+            )
+    finally:
+        record_store.close()
+    return entries
+
+
+def _requirement_document(root: Path, store: RequirementStore, req_id: str) -> dict:
+    try:
+        requirement = store.get(req_id)
+        status = store.requirement_status(req_id)
+    except RequirementNotFoundError:
+        return {"req_id": req_id, "error": "requirement_not_found"}
+    authorization = store.plan_authorization(req_id)
+    budget: dict | None = None
+    try:
+        ledger = store.requirement_budget(req_id)
+    except RequirementError:
+        pass
+    else:
+        budget = {
+            "limit_seconds": ledger.limit_seconds,
+            "consumed_seconds": ledger.consumed_seconds,
+        }
+    progress = RequirementExecutor(store, req_id, _read_only_runner).progress()
+    next_step = progress.next_step
+    if status == REQUIREMENT_ACCEPTED:
+        next_step = NextAction("归并并发布已验收任务", ActionActor.AGENT, "需求整体验收已完成")
+    return {
+        "req_id": req_id,
+        "project": requirement.project,
+        "requirement_status": status,
+        "blocked_reason": store.blocked_reason(req_id),
+        "versions": [{"version": v.version, "text": v.text} for v in requirement.versions],
+        "analysis": _requirement_analysis_section(store, req_id),
+        "plan": _requirement_plan_section(store, req_id),
+        "approval": _requirement_approval_section(store.plan_approval(req_id)),
+        "authorization": {
+            "can_execute": authorization.can_execute,
+            "reason": authorization.reason,
+        },
+        "budget": budget,
+        "tasks": _requirement_tasks_section(root, store, req_id),
+        "next_step": {
+            "action": next_step.action,
+            "actor": next_step.actor.value,
+            "reason": next_step.reason,
+        },
+    }
+
+
+def cmd_requirement_status(args: argparse.Namespace) -> int:
+    root = records_root(args)
+    store = RequirementStore(root / "records.sqlite")
+    try:
+        document = _requirement_document(root, store, args.req_id)
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps(document, ensure_ascii=False, indent=2))
+        return 0 if "error" not in document else 1
+    if "error" in document:
+        print(f"需求不存在: {args.req_id}", file=sys.stderr)
+        return 1
+    print(f"需求: {document['req_id']}（项目: {document['project']}）")
+    print(f"状态: {document['requirement_status']}")
+    if document["blocked_reason"]:
+        print(f"阻塞原因: {document['blocked_reason']}")
+    if document["analysis"]:
+        print(f"目标: {document['analysis']['goal']}")
+    if document["plan"]:
+        print(f"任务包版本: {document['plan']['plan_version']}")
+        for entry in document["tasks"]:
+            print(f"- {entry['task_id']}: {entry['state']}")
+    print(f"下一步: {document['next_step']['action']}（{document['next_step']['actor']}）")
+    return 0
+
+
+def _add_requirement_parsers(
+    subparsers: argparse._SubParsersAction, default_records_root: str
+) -> None:
+    requirement = subparsers.add_parser("requirement", help="需求研发线：受理、澄清、批准、推进")
+    actions = requirement.add_subparsers(dest="requirement_command", required=True)
+
+    submit = actions.add_parser("submit", help="受理需求原文并分配需求身份")
+    submit.add_argument("--project", required=True, help="需求绑定的项目名")
+    submit.add_argument("--input", required=True, help="需求正文；@path 读取 UTF-8 文本文件")
+    submit.add_argument("--records-root", default=default_records_root)
+    submit.set_defaults(func=cmd_requirement_submit)
+
+    revise = actions.add_parser("revise", help="追加澄清回答或修订（保留历史版本）")
+    revise.add_argument("req_id")
+    revise.add_argument("--input", required=True, help="澄清回答或修订正文；@path 读取文件")
+    revise.add_argument("--records-root", default=default_records_root)
+    revise.set_defaults(func=cmd_requirement_revise)
+
+    analyze = actions.add_parser("analyze", help="只读分析（PI）并记录结构化结论")
+    analyze.add_argument("req_id")
+    analyze.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    analyze.add_argument("--pi-timeout-seconds", type=float, default=300.0)
+    analyze.add_argument("--records-root", default=default_records_root)
+    analyze.set_defaults(func=cmd_requirement_analyze)
+
+    plan = actions.add_parser("plan", help="从就绪分析生成任务包（PI）")
+    plan.add_argument("req_id")
+    plan.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    plan.add_argument("--pi-timeout-seconds", type=float, default=300.0)
+    plan.add_argument("--records-root", default=default_records_root)
+    plan.set_defaults(func=cmd_requirement_plan)
+
+    approve = actions.add_parser("approve", help="批准任务包（绑定需求身份与版本）")
+    approve.add_argument("req_id")
+    approve.add_argument("--by", default="owner", help="批准人身份")
+    approve.add_argument("--source", default="", help="批准来源批次")
+    approve.add_argument("--records-root", default=default_records_root)
+    approve.set_defaults(func=cmd_requirement_approve)
+
+    advance = actions.add_parser("advance", help="按依赖推进任务（接单任务业务图，含验收）")
+    advance.add_argument("req_id")
+    advance.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    advance.add_argument("--project-path", default="", help="被开发项目路径")
+    advance.add_argument("--baseline", default="", help="代码基线")
+    advance.add_argument("--pi-timeout-seconds", type=float, default=0.0)
+    advance.add_argument("--records-root", default=default_records_root)
+    advance.set_defaults(func=cmd_requirement_advance)
+
+    accept = actions.add_parser("accept", help="需求整体验收（全部任务验收且材料一致）")
+    accept.add_argument("req_id")
+    accept.add_argument("--records-root", default=default_records_root)
+    accept.set_defaults(func=cmd_requirement_accept)
+
+    status = actions.add_parser("status", help="回查需求状态与任务推进记录")
+    status.add_argument("req_id")
+    status.add_argument("--json", action="store_true", help="输出完整 JSON")
+    status.add_argument("--records-root", default=default_records_root)
+    status.set_defaults(func=cmd_requirement_status)
+
+
 def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:
     submit = subparsers.add_parser("submit", help="提交文本小任务并生成方案")
     submit.add_argument("--project", required=True, help="任务绑定的项目名")
@@ -456,6 +921,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_deploy_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     add_candidate_parser(subparsers, DEFAULT_RECORDS_ROOT)
+
+    _add_requirement_parsers(subparsers, DEFAULT_RECORDS_ROOT)
 
     return parser
 
