@@ -7,7 +7,9 @@
 
 安装到 ``<prefix>/releases/<version>``（不覆盖既有版本）；切换用临时符号链接 +
 ``os.replace``；随后冒烟检查 ``current/bin/forgeloop --help``。任何一步失败都
-如实报告：冒烟失败时**不自动回退**，保留现场并给出确切的 rollback 命令。
+如实报告：冒烟失败时**不自动回退**，保留现场，并打印**不经过坏版本**的恢复入口
+（直接调用上一稳定版本的 ``releases/<previous>/bin/forgeloop``），使 `PATH` 上的
+``forgeloop`` 已指向坏版本、甚至坏版本无法启动时仍能恢复。
 """
 
 import argparse
@@ -30,6 +32,7 @@ from forgeloop.adapter.deployment import (
     remote_slug,
     sha256_of_file,
     smoke_check,
+    version_binary,
 )
 from forgeloop.adapter.git_workspace import tag_commit
 from forgeloop.cli.common import fail, records_root
@@ -66,6 +69,23 @@ class _DeployPlan:
 
 def _prefix(args: argparse.Namespace) -> Path:
     return Path(args.prefix).expanduser() if args.prefix else default_prefix()
+
+
+def _print_recovery_entry(prefix: Path, previous: str) -> None:
+    """打印不经过坏版本的恢复入口：直接指向上一稳定版本的 shim。
+
+    冒烟失败时新版本已激活，``PATH`` 上的 ``forgeloop`` 会解析到坏版本；恢复命令
+    必须调用 ``releases/<previous>/bin/forgeloop``，否则无法在坏版本无法启动时回滚。
+    """
+
+    entry = version_binary(prefix, previous) if previous else None
+    if entry is not None and entry.is_file():
+        print(
+            f"恢复稳定版本（无需调用新版本）: {entry} rollback --prefix {prefix}",
+            file=sys.stderr,
+        )
+        return
+    print("无上一稳定版本可回退；请按 docs/deployment.md 重新引导部署", file=sys.stderr)
 
 
 def _bootstrap_plan(args: argparse.Namespace, prefix: Path) -> _DeployPlan:
@@ -245,7 +265,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     if smoke_code != 0:
         print(f"FAIL: 冒烟检查失败（exit={smoke_code}）：{smoke_detail}", file=sys.stderr)
         print(f"未自动回退；上一版本: {previous or '无'}", file=sys.stderr)
-        print(f"回滚命令: forgeloop rollback --prefix {prefix}", file=sys.stderr)
+        _print_recovery_entry(prefix, previous)
         return 1
     print(f"已部署 {plan.tag}（来源 {plan.source}）到 {target}")
     print(f"产物校验值: {plan.artifact_sha256}")
