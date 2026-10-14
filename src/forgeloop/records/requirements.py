@@ -13,10 +13,12 @@
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.requirement import (
     DRAFT,
     Requirement,
@@ -85,6 +87,33 @@ CREATE TABLE IF NOT EXISTS requirement_plan_approvals (
     approved_at TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version)
 );
+CREATE TABLE IF NOT EXISTS requirement_task_runs (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    task_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    executed_seconds REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, task_id)
+);
+CREATE TABLE IF NOT EXISTS requirement_task_artifacts (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    task_id TEXT NOT NULL,
+    candidate_sha256 TEXT NOT NULL DEFAULT '',
+    test_evidence_sha256 TEXT NOT NULL DEFAULT '',
+    review_sha256 TEXT NOT NULL DEFAULT '',
+    acceptance TEXT NOT NULL DEFAULT '',
+    authorization_source TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, task_id)
+);
+CREATE TABLE IF NOT EXISTS requirement_budget (
+    req_id TEXT PRIMARY KEY,
+    limit_seconds REAL NOT NULL,
+    consumed_seconds REAL NOT NULL
+);
 """
 
 _ANALYSIS_COLUMNS = (
@@ -134,6 +163,63 @@ def _row_to_analysis(row: tuple[Any, ...]) -> RequirementAnalysis:
         acceptance_criteria=_parse_string_list(str(row[4])),
         clarifications=_parse_string_list(str(row[5])),
         created_at=_parse(str(row[6])),
+    )
+
+
+@dataclass(frozen=True)
+class TaskArtifact:
+    """A04 前置任务的已确认产物身份：候选 diff、正式测试、审查与验收结论。
+
+    记录层只保存身份字符串，内容本体留在任务现场，由下游按身份读取。
+    """
+
+    task_id: str
+    candidate_sha256: str
+    test_evidence_sha256: str
+    review_sha256: str
+    acceptance: str
+    authorization_source: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise RequirementError("前置产物必须绑定任务身份")
+        if not self.acceptance.strip():
+            raise RequirementError("前置产物必须给出验收结论")
+
+
+@dataclass(frozen=True)
+class RequirementTaskRun:
+    """A04 任务推进记录：最近结果、原因与累计实际执行工时。"""
+
+    req_id: str
+    plan_version: int
+    task_id: str
+    state: str
+    reason: str
+    executed_seconds: float
+    updated_at: datetime
+
+
+def _row_to_task_run(row: tuple[Any, ...]) -> RequirementTaskRun:
+    return RequirementTaskRun(
+        req_id=str(row[0]),
+        plan_version=int(row[1]),
+        task_id=str(row[2]),
+        state=str(row[3]),
+        reason=str(row[4]),
+        executed_seconds=float(row[5]),
+        updated_at=_parse(str(row[6])),
+    )
+
+
+def _row_to_task_artifact(row: tuple[Any, ...]) -> TaskArtifact:
+    return TaskArtifact(
+        task_id=str(row[0]),
+        candidate_sha256=str(row[1]),
+        test_evidence_sha256=str(row[2]),
+        review_sha256=str(row[3]),
+        acceptance=str(row[4]),
+        authorization_source=str(row[5]),
     )
 
 
@@ -520,6 +606,158 @@ class RequirementStore:
             reason = self.plan_authorization(req_id).reason
             raise TaskPlanError(f"任务未获有效授权: {reason}")
         return plan.task(task_id).authorization_source
+
+    # ---- A04 需求内任务推进与依赖产物 ----
+
+    def record_task_run(
+        self,
+        req_id: str,
+        plan_version: int,
+        task_id: str,
+        state: str,
+        *,
+        reason: str = "",
+        executed_seconds: float = 0.0,
+    ) -> RequirementTaskRun:
+        """记录一次任务推进结果；实际执行工时按任务累加，不清零。
+
+        同一任务的重复推进只更新最近状态与原因，累计工时继续累加；这是
+        “用户等待不计入执行工时”的落库依据：只有真正执行返回时才写入耗时。
+        """
+
+        self._require(req_id)
+        if executed_seconds < 0:
+            raise RequirementError("执行工时不能为负")
+        now = _now()
+        self._db.execute(
+            "INSERT INTO requirement_task_runs"
+            " (req_id, plan_version, task_id, state, reason, executed_seconds, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(req_id, plan_version, task_id) DO UPDATE SET"
+            " state = excluded.state, reason = excluded.reason,"
+            " executed_seconds = requirement_task_runs.executed_seconds"
+            " + excluded.executed_seconds,"
+            " updated_at = excluded.updated_at",
+            (req_id, plan_version, task_id, state, reason, executed_seconds, _iso(now)),
+        )
+        run = self.task_run(req_id, plan_version, task_id)
+        assert run is not None
+        return run
+
+    def task_run(self, req_id: str, plan_version: int, task_id: str) -> RequirementTaskRun | None:
+        """按需求、任务包版本与任务身份回查最近一次推进记录。"""
+
+        self._require(req_id)
+        row = self._db.execute(
+            "SELECT req_id, plan_version, task_id, state, reason, executed_seconds, updated_at"
+            " FROM requirement_task_runs"
+            " WHERE req_id = ? AND plan_version = ? AND task_id = ?",
+            (req_id, plan_version, task_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_task_run(tuple(row))
+
+    def task_runs(self, req_id: str, plan_version: int) -> tuple[RequirementTaskRun, ...]:
+        """返回某任务包版本下全部任务的推进记录（按任务身份稳定排序）。"""
+
+        self._require(req_id)
+        rows = self._db.execute(
+            "SELECT req_id, plan_version, task_id, state, reason, executed_seconds, updated_at"
+            " FROM requirement_task_runs WHERE req_id = ? AND plan_version = ? ORDER BY task_id",
+            (req_id, plan_version),
+        ).fetchall()
+        return tuple(_row_to_task_run(tuple(row)) for row in rows)
+
+    def record_task_artifact(
+        self, req_id: str, plan_version: int, task_id: str, artifact: TaskArtifact
+    ) -> TaskArtifact:
+        """落库一个任务的已确认产物身份；身份不一致时明确失败。"""
+
+        self._require(req_id)
+        if artifact.task_id != task_id:
+            raise RequirementError("产物任务身份与写入位置不一致")
+        self._db.execute(
+            "INSERT OR REPLACE INTO requirement_task_artifacts"
+            " (req_id, plan_version, task_id, candidate_sha256, test_evidence_sha256,"
+            " review_sha256, acceptance, authorization_source, recorded_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                req_id,
+                plan_version,
+                task_id,
+                artifact.candidate_sha256,
+                artifact.test_evidence_sha256,
+                artifact.review_sha256,
+                artifact.acceptance,
+                artifact.authorization_source,
+                _iso(_now()),
+            ),
+        )
+        return artifact
+
+    def task_artifact(self, req_id: str, plan_version: int, task_id: str) -> TaskArtifact | None:
+        """按任务身份回查已确认产物；未交付过时为 ``None``。"""
+
+        self._require(req_id)
+        row = self._db.execute(
+            "SELECT task_id, candidate_sha256, test_evidence_sha256, review_sha256,"
+            " acceptance, authorization_source FROM requirement_task_artifacts"
+            " WHERE req_id = ? AND plan_version = ? AND task_id = ?",
+            (req_id, plan_version, task_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_task_artifact(tuple(row))
+
+    def task_artifacts(self, req_id: str, plan_version: int) -> tuple[TaskArtifact, ...]:
+        """返回某任务包版本下全部已确认产物（按任务身份稳定排序）。"""
+
+        self._require(req_id)
+        rows = self._db.execute(
+            "SELECT task_id, candidate_sha256, test_evidence_sha256, review_sha256,"
+            " acceptance, authorization_source FROM requirement_task_artifacts"
+            " WHERE req_id = ? AND plan_version = ? ORDER BY task_id",
+            (req_id, plan_version),
+        ).fetchall()
+        return tuple(_row_to_task_artifact(tuple(row)) for row in rows)
+
+    def ensure_requirement_budget(self, req_id: str, limit_seconds: float) -> None:
+        """首次为需求建立执行工时账目；已存在时保持不变（消耗不清零）。"""
+
+        if limit_seconds <= 0:
+            raise RequirementError("需求执行限额必须为正数")
+        self._require(req_id)
+        self._db.execute(
+            "INSERT OR IGNORE INTO requirement_budget"
+            " (req_id, limit_seconds, consumed_seconds) VALUES (?, ?, 0.0)",
+            (req_id, limit_seconds),
+        )
+
+    def requirement_budget(self, req_id: str) -> ExecutionBudget:
+        """需求执行工时账目；尚未建立时明确失败。"""
+
+        self._require(req_id)
+        row = self._db.execute(
+            "SELECT limit_seconds, consumed_seconds FROM requirement_budget WHERE req_id = ?",
+            (req_id,),
+        ).fetchone()
+        if row is None:
+            raise RequirementError(f"需求还没有执行工时账目: {req_id}")
+        return ExecutionBudget(limit_seconds=float(row[0]), consumed_seconds=float(row[1]))
+
+    def charge_requirement_budget(self, req_id: str, seconds: float) -> None:
+        """累计实际执行工时；单条原子累加，并发计入不丢更新。"""
+
+        if seconds < 0:
+            raise RequirementError("执行工时不能为负")
+        changed = self._db.execute(
+            "UPDATE requirement_budget SET consumed_seconds = consumed_seconds + ?"
+            " WHERE req_id = ?",
+            (seconds, req_id),
+        ).rowcount
+        if changed == 0:
+            raise RequirementError(f"需求还没有执行工时账目: {req_id}")
 
     def _set_status(self, req_id: str, status: str, reason: str = "") -> None:
         cursor = self._db.execute(
