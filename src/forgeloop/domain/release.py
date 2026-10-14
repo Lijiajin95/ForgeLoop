@@ -19,6 +19,7 @@ from datetime import datetime
 
 VERSION_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+WHEEL_PATTERN = re.compile(r"^forgeloop-(?P<version>\d+\.\d+\.\d+)-py3-none-any\.whl$")
 
 
 @dataclass(frozen=True)
@@ -113,3 +114,63 @@ def check_repeat_release(existing_tag: str | None, requested_tag: str) -> Releas
     return ReleaseDecision(
         False, f"任务已发布为 {existing_tag}；不允许改用 {requested_tag} 重复发布"
     )
+
+
+def check_release_artifact(
+    version: str,
+    wheel_name: str,
+    artifact_sha256: str,
+    accepted_sha256: str,
+) -> ReleaseDecision:
+    """发布产物身份判定（K12）：发布必须复用 C01 已验收的同一份 wheel。
+
+    ``version`` 是裸版本（``X.Y.Z``）；产物文件名必须为该版本的规范 wheel。
+    ``accepted_sha256`` 给出验收时绑定的产物校验值，非空时必须与待发布产物一致。
+    """
+
+    expected_wheel = f"forgeloop-{version}-py3-none-any.whl"
+    if not DIGEST_PATTERN.match(artifact_sha256):
+        return ReleaseDecision(False, "缺少已构建候选产物校验值；发布必须复用 C01 的同一产物")
+    if wheel_name != expected_wheel:
+        return ReleaseDecision(
+            False,
+            f"候选产物文件名与版本不一致：{wheel_name or '未知'}（应为 {expected_wheel}）；"
+            "拒绝发布身份不明的产物",
+        )
+    if accepted_sha256 and not DIGEST_PATTERN.match(accepted_sha256):
+        return ReleaseDecision(False, "验收产物校验值缺失或格式错误（须为 64 位十六进制小写）")
+    if accepted_sha256 and accepted_sha256 != artifact_sha256:
+        return ReleaseDecision(
+            False,
+            f"发布产物与验收产物不一致：验收 {accepted_sha256[:12]}，"
+            f"待发布 {artifact_sha256[:12]}；拒绝发布不同产物",
+        )
+    return ReleaseDecision(True, f"发布复用验收产物 {artifact_sha256[:12]}")
+
+
+def check_release_retry(
+    existing_tag: str | None,
+    requested_tag: str,
+    existing_artifact_sha256: str,
+    current_artifact_sha256: str,
+) -> ReleaseDecision:
+    """重试判定（K12）：同标签幂等，且重试产物必须仍是已发布的那一份。
+
+    重试不制造新发布身份：不新建标签、不换提交；若当前候选产物与已发布产物
+    校验值不同，说明重试拿到的是另一份产物，拒绝按幂等放行。
+    """
+
+    decision = check_repeat_release(existing_tag, requested_tag)
+    if not decision.allowed or existing_tag is None:
+        return decision
+    if (
+        DIGEST_PATTERN.match(existing_artifact_sha256)
+        and DIGEST_PATTERN.match(current_artifact_sha256)
+        and existing_artifact_sha256 != current_artifact_sha256
+    ):
+        return ReleaseDecision(
+            False,
+            f"重试产物与已发布产物不一致：已发布 {existing_artifact_sha256[:12]}，"
+            f"当前 {current_artifact_sha256[:12]}；不制造新发布身份",
+        )
+    return decision
