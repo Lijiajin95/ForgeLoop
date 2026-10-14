@@ -7,7 +7,8 @@
 本工具只做两件事，且都不创建提交：
 1. 从任务工作副本的 git 取完整改动（含未跟踪新文件，用 ``git add -N`` 后 ``git diff``，
    取完恢复索引原状）写入 ``candidate.diff``（与 dev 节点同一来源、同一位置）；
-2. 以 ``as_node="dev"`` 更新图状态（清除 halted_reason、把采纳记为一次开发尝试），
+2. 以 ``--as-node`` 指定续跑位置更新图状态（清除 halted_reason、把采纳记为一次开发尝试；
+   ``dev`` 续跑审查，``plan`` 让 dev 带审查反馈重做），
    随后继续执行图：真实审查 → 正式测试 → 停在验收门。
 
 采纳事实与原因写入任务目录 ``recovery-note.json``，供交付记录追溯。
@@ -21,6 +22,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from forgeloop.adapter.git_workspace import collect_candidate_change
 from forgeloop.cli.main import _build_runtime, _close_runtime, _run_config
 
 
@@ -32,13 +34,13 @@ def _git(workspace: Path, *args: str) -> str:
 
 
 def capture_candidate_diff(workspace: Path) -> str:
-    """取副本工作树的完整改动（含未跟踪新文件）；不创建提交，取完恢复索引原状。"""
+    """取副本工作树的完整改动（含已暂存、未跟踪新文件与删除）；不创建提交。
 
-    _git(workspace, "add", "-N", ".")
-    try:
-        return _git(workspace, "diff")
-    finally:
-        _git(workspace, "reset", "-q")
+    与产品自身采集候选的实现保持一致（adapter.git_workspace.collect_candidate_change）：
+    只取未暂存改动会漏掉 dev 已 `git add -A` 的成果（实机踩过：A03 恢复时报“没有改动”）。
+    """
+
+    return collect_candidate_change(workspace).diff
 
 
 def _changed_files(diff_text: str) -> list[str]:
@@ -53,6 +55,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("task_id")
     parser.add_argument("--records-root", type=Path, required=True)
+    parser.add_argument(
+        "--as-node",
+        choices=("plan", "dev"),
+        default="dev",
+        help="从哪个节点之后续跑：dev=重跑审查（默认）；plan=让 dev 带审查反馈重做",
+    )
     parser.add_argument(
         "--reason", default="dev 会话因 provider 连接错误未 settle，采纳副本已有改动"
     )
@@ -87,7 +95,7 @@ def main() -> int:
         graph.update_state(
             _run_config(args.task_id),
             {"halted_reason": None, "dev_attempts": adopted_attempt},
-            as_node="dev",
+            as_node=args.as_node,
         )
         graph.invoke(None, _run_config(args.task_id))
         task = store.get_task(args.task_id)

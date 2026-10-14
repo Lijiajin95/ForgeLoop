@@ -48,15 +48,32 @@ class TestCaptureCandidateDiff:
         assert "+print('hi')" in diff
         assert "+new" in diff
 
-    def test_leaves_no_staged_entries_behind(self, repo: Path) -> None:
+    def test_includes_staged_changes(self, repo: Path) -> None:
+        """dev 常以 git add -A 暂存成果：只取未暂存改动会漏掉整个候选（实机踩过）。"""
+
+        (repo / "feature.txt").write_text("new\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+
         module = load_module()
+        diff = module.capture_candidate_diff(repo)
+
+        assert "feature.txt" in diff
+        assert "+new" in diff
+
+    def test_capture_keeps_content_and_creates_no_commit(self, repo: Path) -> None:
+        """采集沿用产品自身的 add -A + diff：内容必须原样留在副本里，且不产生提交。"""
+
+        module = load_module()
+        before = git(repo, "rev-parse", "HEAD").strip()
         (repo / "added.py").write_text("print('hi')\n", encoding="utf-8")
+        (repo / "feature.txt").write_text("changed\n", encoding="utf-8")
 
         module.capture_candidate_diff(repo)
 
         status = git(repo, "status", "--porcelain")
-        assert "?? added.py" in status  # 仍是未跟踪，没有被暂存
-        assert not any(line.startswith("A ") for line in status.splitlines())
+        assert git(repo, "rev-parse", "HEAD").strip() == before  # 没有提交
+        assert (repo / "added.py").read_text(encoding="utf-8") == "print('hi')\n"  # 内容仍在
+        assert "added.py" in status and "feature.txt" in status
 
     def test_dirty_worktree_is_not_committed(self, repo: Path) -> None:
         module = load_module()
