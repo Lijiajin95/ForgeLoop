@@ -39,6 +39,10 @@ from forgeloop.domain.release import (
     check_release_retry,
     sha256_of_text,
 )
+from forgeloop.graph.dispatch import (
+    ProjectDeliveryBusyError,
+    project_delivery,
+)
 from forgeloop.records.store import RecordStore
 
 
@@ -426,30 +430,43 @@ def cmd_release(args: argparse.Namespace) -> int:
     root = records_root(args)
     store = open_store(root, args.task_id)
     try:
-        existing = store.outcomes.release_record(args.task_id)
-        existing_receipt = _read_receipt(Path(existing.receipt_path)) if existing else {}
-        repeat = check_release_retry(
-            existing.tag if existing is not None else None,
-            args.tag,
-            str(existing_receipt.get("artifact_sha256", "")),
-            _current_artifact_sha256(root / args.task_id),
-        )
-        if not repeat.allowed:
-            return fail(repeat.reason)
-        if existing is not None:
-            mismatch = _idempotent_mismatch(store, existing, existing_receipt)
-            if mismatch:
-                return fail(mismatch)
-            print(f"已发布 {existing.tag}（幂等：不重复创建或推送标签）。")
-            print(f"发布回执: {existing.receipt_path}")
-            return 0
+        task = store.get_task(args.task_id)
+        assert task is not None
         try:
-            plan = _prepare_release(store, args, root)
-            record = _publish_release(plan, args)
-        except ReleaseRefused as refusal:
-            return fail(str(refusal))
-        store.outcomes.record_release(record)
-        _print_release(record, plan)
-        return 0
+            # 发布也要更新同项目主干（标签指向 main），与归并及另一发布互斥。
+            with project_delivery(root, task.project, timeout=args.delivery_timeout):
+                return _release_locked(args, store, root)
+        except ProjectDeliveryBusyError as error:
+            return fail(str(error))
     finally:
         store.close()
+
+
+def _release_locked(args: argparse.Namespace, store: RecordStore, root: Path) -> int:
+    """持有同项目交付互斥后的发布主体（调用方保证已取得项目槽位）。"""
+
+    existing = store.outcomes.release_record(args.task_id)
+    existing_receipt = _read_receipt(Path(existing.receipt_path)) if existing else {}
+    repeat = check_release_retry(
+        existing.tag if existing is not None else None,
+        args.tag,
+        str(existing_receipt.get("artifact_sha256", "")),
+        _current_artifact_sha256(root / args.task_id),
+    )
+    if not repeat.allowed:
+        return fail(repeat.reason)
+    if existing is not None:
+        mismatch = _idempotent_mismatch(store, existing, existing_receipt)
+        if mismatch:
+            return fail(mismatch)
+        print(f"已发布 {existing.tag}（幂等：不重复创建或推送标签）。")
+        print(f"发布回执: {existing.receipt_path}")
+        return 0
+    try:
+        plan = _prepare_release(store, args, root)
+        record = _publish_release(plan, args)
+    except ReleaseRefused as refusal:
+        return fail(str(refusal))
+    store.outcomes.record_release(record)
+    _print_release(record, plan)
+    return 0

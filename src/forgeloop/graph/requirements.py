@@ -30,6 +30,7 @@ from enum import StrEnum
 from forgeloop.domain.requirement import BLOCKED, RequirementError
 from forgeloop.domain.status import ActionActor, NextAction
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+from forgeloop.records.actions import ActionStore, ExecutionSlotBusyError
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 
 # 需求生命周期（契约 §4 精简集合）：A04 不新增状态词。
@@ -43,6 +44,26 @@ Clock = Callable[[], float]
 
 class RequirementExecutionError(RuntimeError):
     """需求执行编排的前提被破坏（例如已批准的记录不一致）。"""
+
+
+class RequirementAlreadyRunningError(RuntimeError):
+    """同一需求的执行槽位仍被占用：拒绝重复启动（A05）。
+
+    占用未必代表真有推进在运行：进程被强杀会留下未完成的槽位，语义与 B03 的未完成
+    动作一致。错误信息应给出占用者与开始时间，并指向查看/清理入口，避免把中断残留
+    误报成「已有推进在执行」而堵死恢复路径。
+    """
+
+    def __init__(self, req_id: str, *, owner: str = "", started_at: str = "") -> None:
+        detail = f"（占用者 {owner or '未知'}，开始于 {started_at or '未知'}）"
+        super().__init__(
+            f"需求 {req_id} 的执行槽位仍被占用{detail}；"
+            "可能是上一进程被中断的残留，不代表一定有推进在运行。"
+            "请用 `forgeloop requirement slot list` 核对现场，确认无推进在运行后"
+            f"用 `forgeloop requirement slot clear --slot requirement:{req_id}` 清理再重试；"
+            "若为中断残留，清理后推进会把未完成动作标记为 interrupted，供人工核对。"
+        )
+        self.req_id = req_id
 
 
 class TaskRunState(StrEnum):
@@ -108,14 +129,40 @@ class RequirementExecutor:
         *,
         budget_seconds: float | None = None,
         clock: Clock = time.monotonic,
+        slots: ActionStore | None = None,
     ) -> None:
         self._store = store
         self._req_id = req_id
         self._run_task = run_task
         self._budget_seconds = budget_seconds
         self._clock = clock
+        self._slots = slots
 
     def advance(self) -> RequirementProgress:
+        """原子占用本需求执行槽位后推进；已被其他推进占用时明确拒绝。
+
+        未注入 ``slots`` 时保持原有单进程行为（兼容既有调用与 A04 测试）；注入后
+        以记录层槽位拒绝「同一需求并发推进」，并发只有一个调用能真正执行。
+        """
+
+        if self._slots is None:
+            return self._advance()
+        slot_key = f"requirement:{self._req_id}"
+        try:
+            slot = self._slots.claim_slot(slot_key, owner=self._req_id)
+        except ExecutionSlotBusyError as error:
+            existing = self._slots.slot_owner(slot_key)
+            raise RequirementAlreadyRunningError(
+                self._req_id,
+                owner=existing.role if existing is not None else "",
+                started_at=existing.started_at.isoformat() if existing is not None else "",
+            ) from error
+        try:
+            return self._advance()
+        finally:
+            self._slots.release_slot(slot.action_id)
+
+    def _advance(self) -> RequirementProgress:
         """推进需求内所有可执行任务，直到交付完成、等待人工或阻塞。"""
 
         store = self._store

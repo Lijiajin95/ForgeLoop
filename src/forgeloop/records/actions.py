@@ -40,6 +40,11 @@ class ActionRecord:
     detail: str
 
 
+# 执行槽位在 ``actions`` 表中使用的保留身份前缀：与单任务动作身份区分，
+# 使粗粒度的调度占用不污染 B03 的单任务动作历史。
+SLOT_PREFIX = "slot:"
+
+
 class ActionInFlightError(RuntimeError):
     """同一任务已有未完成动作：拒绝并发启动，需人工核对现场。"""
 
@@ -47,6 +52,18 @@ class ActionInFlightError(RuntimeError):
         super().__init__(f"任务 {task_id} 尚有未完成动作（{node}）；拒绝重复启动")
         self.task_id = task_id
         self.node = node
+
+
+class ExecutionSlotBusyError(RuntimeError):
+    """命名执行槽位已有未完成占用：拒绝并发进入同一槽位。
+
+    与 :class:`ActionInFlightError` 分工明确：后者约束单个任务同一时刻只有一个
+    动作；本错误约束调度层更粗粒度的资源（同一需求推进、同项目交付）。
+    """
+
+    def __init__(self, slot: str) -> None:
+        super().__init__(f"执行槽位已被占用: {slot}")
+        self.slot = slot
 
 
 def _now() -> datetime:
@@ -151,3 +168,55 @@ class ActionStore:
             (task_id,),
         ).fetchall()
         return tuple(_from_row(row) for row in rows)
+
+    # ---- 粗粒度执行槽位（A05）：同一资源同时只允许一个未完成占用 ----
+
+    def claim_slot(self, slot: str, owner: str = "") -> ActionRecord:
+        """原子占用一个命名执行槽位；已有未完成占用时抛 :class:`ExecutionSlotBusyError`。
+
+        槽位与单任务动作共用同一张 ``actions`` 表，但用 :data:`SLOT_PREFIX` 区分
+        身份，因此调度层占用不会出现在任何真实任务的 ``history`` 里。占用与
+        ``begin`` 一样在 ``BEGIN IMMEDIATE`` 内检查后插入，并发只有一个能成功。
+        """
+
+        try:
+            return self.begin(f"{SLOT_PREFIX}{slot}", "execution_slot", role=owner)
+        except ActionInFlightError as error:
+            raise ExecutionSlotBusyError(slot) from error
+
+    def release_slot(self, action_id: str, detail: str = "") -> ActionRecord:
+        """释放命名执行槽位；未知或已完成的槽位明确失败（不静默吞掉）。"""
+
+        return self.finish(action_id, detail=detail)
+
+    def slot_owner(self, slot: str) -> ActionRecord | None:
+        """返回当前占用该槽位的最早记录；空闲时为 ``None``。"""
+
+        return self.outstanding(f"{SLOT_PREFIX}{slot}")
+
+    def outstanding_slots(self) -> tuple[ActionRecord, ...]:
+        """返回全部未完成的命名执行槽位，按开始时间排序；空闲时为空元组。
+
+        用于中断后人工核对现场：残留槽位会拒绝后续推进，必须先看清占用者与开始时
+        间，确认没有推进在运行后再清理。
+        """
+
+        rows = self._db.execute(
+            "SELECT action_id, task_id, node, role, state, started_at, finished_at, detail"
+            " FROM actions WHERE task_id LIKE ? AND state = ? ORDER BY started_at",
+            (f"{SLOT_PREFIX}%", ActionState.STARTED.value),
+        ).fetchall()
+        return tuple(_from_row(row) for row in rows)
+
+    def clear_slot(self, slot: str, detail: str = "") -> ActionRecord:
+        """人工核对现场后清理一个残留槽位；当前未被占用时明确失败。
+
+        只结束 ``started`` 记录，不改写历史；与 B03 未完成动作的恢复口径一致：先由
+        操作者确认没有推进在运行，再清理占用，让后续推进进入业务图并由 B03 标记未
+        完成动作 ``interrupted``。
+        """
+
+        record = self.slot_owner(slot)
+        if record is None:
+            raise KeyError(f"执行槽位当前未被占用: {slot}")
+        return self.finish(record.action_id, detail=detail or "cleared")

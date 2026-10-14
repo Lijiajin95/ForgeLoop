@@ -56,6 +56,11 @@ from forgeloop.domain.merge import (
     check_merge_readiness,
     check_required_checks,
 )
+from forgeloop.graph.dispatch import (
+    DEFAULT_DELIVERY_TIMEOUT_SECONDS,
+    ProjectDeliveryBusyError,
+    project_delivery,
+)
 from forgeloop.records.store import RecordStore
 
 CHECK_POLL_SECONDS = 30.0
@@ -509,52 +514,66 @@ def cmd_merge(args: argparse.Namespace) -> int:
     try:
         task = store.get_task(args.task_id)
         assert task is not None
-        delivery = store.outcomes.delivery(args.task_id)
-        plan = store.latest_plan(args.task_id)
-        if delivery is None or plan is None:
-            return fail("任务尚无交付记录，无法归并")
-        diff_text = Path(delivery[0]).read_text(encoding="utf-8")
-        report = json.loads(Path(delivery[1]).read_text(encoding="utf-8"))
-        baseline = str(report.get("baseline_commit", ""))
-        project_path = task.config.get("project_path", "")
-        if not project_path:
-            return fail("任务未绑定 project_path，无法归并")
-        project = Path(project_path)
-        acceptance = store.effective_approval(args.task_id, ApprovalStage.ACCEPTANCE)
-        binding = acceptance.binding if acceptance is not None else None
-        decision = check_merge_readiness(
-            task.status, acceptance is not None, baseline, read_main_head(project), diff_text
-        )
-        if not decision.allowed:
-            return fail(decision.reason)
-        current = store.capture_delivery_binding(args.task_id, plan.version)
-        if acceptance is not None:
-            if binding is None:
-                return fail("验收批准缺少交付材料绑定；无法核对同一候选，拒绝归并")
-            content = check_acceptance_content(binding, current)
-            if not content.allowed:
-                return fail(content.reason)
-        message = args.message or f"feat: {plan.goal}"
-        if len(message.splitlines()[0]) > 100:
-            message = message.splitlines()[0][:97] + "..."
-        payload = build_provenance_payload(
-            current, str(task.config.get("requirement_id", "")), baseline
-        )
-        message, provenance_error = attach_provenance(message, load_provenance_policy(), payload)
-        if provenance_error:
-            return fail(provenance_error)
-        context = _MergeContext(
-            project=project,
-            baseline=baseline,
-            diff_text=diff_text,
-            message=message,
-            task_dir=root / args.task_id,
-        )
-        if has_remote(project) and not args.no_push and not args.direct_push:
-            return _merge_via_branch(args, store, context)
-        return _merge_direct(args, store, context)
+        try:
+            # 同项目交付整体串行：检查—归并—推送在同一互斥内，避免两个同项目需求
+            # 同时读到旧 main 再各自快进/推送。
+            with project_delivery(root, task.project, timeout=args.delivery_timeout):
+                return _merge_locked(args, store, root)
+        except ProjectDeliveryBusyError as error:
+            return fail(str(error))
     finally:
         store.close()
+
+
+def _merge_locked(args: argparse.Namespace, store: RecordStore, root: Path) -> int:
+    """持有同项目交付互斥后的归并主体（调用方保证已取得项目槽位）。"""
+
+    task = store.get_task(args.task_id)
+    assert task is not None
+    delivery = store.outcomes.delivery(args.task_id)
+    plan = store.latest_plan(args.task_id)
+    if delivery is None or plan is None:
+        return fail("任务尚无交付记录，无法归并")
+    diff_text = Path(delivery[0]).read_text(encoding="utf-8")
+    report = json.loads(Path(delivery[1]).read_text(encoding="utf-8"))
+    baseline = str(report.get("baseline_commit", ""))
+    project_path = task.config.get("project_path", "")
+    if not project_path:
+        return fail("任务未绑定 project_path，无法归并")
+    project = Path(project_path)
+    acceptance = store.effective_approval(args.task_id, ApprovalStage.ACCEPTANCE)
+    binding = acceptance.binding if acceptance is not None else None
+    decision = check_merge_readiness(
+        task.status, acceptance is not None, baseline, read_main_head(project), diff_text
+    )
+    if not decision.allowed:
+        return fail(decision.reason)
+    current = store.capture_delivery_binding(args.task_id, plan.version)
+    if acceptance is not None:
+        if binding is None:
+            return fail("验收批准缺少交付材料绑定；无法核对同一候选，拒绝归并")
+        content = check_acceptance_content(binding, current)
+        if not content.allowed:
+            return fail(content.reason)
+    message = args.message or f"feat: {plan.goal}"
+    if len(message.splitlines()[0]) > 100:
+        message = message.splitlines()[0][:97] + "..."
+    payload = build_provenance_payload(
+        current, str(task.config.get("requirement_id", "")), baseline
+    )
+    message, provenance_error = attach_provenance(message, load_provenance_policy(), payload)
+    if provenance_error:
+        return fail(provenance_error)
+    context = _MergeContext(
+        project=project,
+        baseline=baseline,
+        diff_text=diff_text,
+        message=message,
+        task_dir=root / args.task_id,
+    )
+    if has_remote(project) and not args.no_push and not args.direct_push:
+        return _merge_via_branch(args, store, context)
+    return _merge_direct(args, store, context)
 
 
 def add_merge_parser(subparsers: argparse._SubParsersAction, default_records_root: str) -> None:
@@ -579,6 +598,12 @@ def add_merge_parser(subparsers: argparse._SubParsersAction, default_records_roo
         type=float,
         default=DEFAULT_CHECKS_TIMEOUT,
         help="等待检查的超时秒数（超时后 main 不动、候选分支保留）",
+    )
+    merge.add_argument(
+        "--delivery-timeout",
+        type=float,
+        default=DEFAULT_DELIVERY_TIMEOUT_SECONDS,
+        help="等待同项目交付互斥的上限秒数（超时拒绝，不并发更新主干）",
     )
     merge.add_argument("--records-root", default=default_records_root)
     merge.set_defaults(func=cmd_merge)

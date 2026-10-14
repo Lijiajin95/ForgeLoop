@@ -32,6 +32,7 @@ from forgeloop.cli.common import open_store, records_root
 from forgeloop.cli.deploy import add_deploy_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
+from forgeloop.cli.requirements import add_requirement_dispatch
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
     DeliveryBinding,
@@ -46,9 +47,11 @@ from forgeloop.domain.requirement import (
 from forgeloop.domain.status import ActionActor, NextAction, next_action
 from forgeloop.domain.task_plan import TaskPlan, TaskPlanApproval
 from forgeloop.graph.builder import RequirementTaskRunner, build_graph, requirement_task_id
+from forgeloop.graph.dispatch import DEFAULT_DELIVERY_TIMEOUT_SECONDS
 from forgeloop.graph.nodes import NodeContext
 from forgeloop.graph.planning import PlanningContext, analyze_requirement, plan_requirement
 from forgeloop.graph.requirements import (
+    RequirementAlreadyRunningError,
     RequirementExecutor,
     TaskExecution,
     TaskResult,
@@ -512,6 +515,7 @@ def cmd_requirement_approve(args: argparse.Namespace) -> int:
 def cmd_requirement_advance(args: argparse.Namespace) -> int:
     root = records_root(args)
     store = _open_requirement(root, args.req_id)
+    record_store = RecordStore(root / "records.sqlite")
     try:
         requirement = store.get(args.req_id)
         plan = store.latest_task_plan(args.req_id)
@@ -525,7 +529,7 @@ def cmd_requirement_advance(args: argparse.Namespace) -> int:
             baseline=args.baseline,
             pi_timeout_seconds=args.pi_timeout_seconds or None,
         )
-        executor = RequirementExecutor(store, args.req_id, runner)
+        executor = RequirementExecutor(store, args.req_id, runner, slots=record_store.actions)
         status = store.requirement_status(args.req_id)
         if status in REQUIREMENT_TERMINAL_STATUSES:
             # 终态不回退：整体验收已完成（或已拒绝）后重复推进只做只读回查，
@@ -537,7 +541,11 @@ def cmd_requirement_advance(args: argparse.Namespace) -> int:
             progress = executor.advance()
             next_step = progress.next_step
             requirement_status = progress.requirement_status
+    except RequirementAlreadyRunningError as error:
+        print(str(error), file=sys.stderr)
+        return 1
     finally:
+        record_store.close()
         store.close()
     print(f"需求状态: {requirement_status}")
     print(f"当前任务: {progress.current_task or '无'}")
@@ -845,6 +853,8 @@ def _add_requirement_parsers(
     status.add_argument("--records-root", default=default_records_root)
     status.set_defaults(func=cmd_requirement_status)
 
+    add_requirement_dispatch(actions, default_records_root)
+
 
 def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:
     submit = subparsers.add_parser("submit", help="提交文本小任务并生成方案")
@@ -909,6 +919,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     release.add_argument("--message", default="", help="标签注释（缺省 chore(release): <tag>）")
     release.add_argument("--no-push", action="store_true", help="只创建本地标签，不推送远程")
+    release.add_argument(
+        "--delivery-timeout",
+        type=float,
+        default=DEFAULT_DELIVERY_TIMEOUT_SECONDS,
+        help="等待同项目交付互斥的上限秒数（超时拒绝，不并发更新主干）",
+    )
     release.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
     release.set_defaults(func=cmd_release)
 
