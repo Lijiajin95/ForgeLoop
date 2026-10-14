@@ -27,6 +27,7 @@
     "forgeloop.domain.commit_policy": "domain",
     "forgeloop.domain.counting": "domain",
     "forgeloop.domain.delivery": "domain",
+    "forgeloop.domain.dependency_facts": "domain",
     "forgeloop.domain.deploy": "domain",
     "forgeloop.domain.limits": "domain",
     "forgeloop.domain.merge": "domain",

@@ -23,9 +23,10 @@ from forgeloop.domain.approval import (
 )
 from forgeloop.domain.counting import FailureRound, FailureStage, GrantLedger
 from forgeloop.domain.delivery import DIGEST_PATTERN, DeliveryBinding, TaskDelivery, build_binding
+from forgeloop.domain.dependency_facts import TerminalState
 from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.release import ReleaseRecord
-from forgeloop.records.actions import ActionStore
+from forgeloop.records.actions import ActionState, ActionStore
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -144,6 +145,33 @@ class TaskRecord:
     created_at: datetime
 
 
+# 终态优先级：越靠后的记录越强；任一都视为前置已满足。
+_TERMINAL_PRIORITY: dict[TerminalState, int] = {
+    TerminalState.ACCEPTED: 1,
+    TerminalState.DELIVERED: 2,
+    TerminalState.MERGED: 3,
+    TerminalState.RELEASED: 4,
+}
+
+
+@dataclass(frozen=True)
+class TaskDependencyRecord:
+    """单个任务的只读权威事实：存在性、终态、未完成动作与失败轮次。
+
+    ``evidence`` 列出判定所依据的记录身份，``missing`` 列出缺少的记录身份；
+    状态词只作为事实返回，不参与终态判定（状态滞后不是依据）。
+    """
+
+    task_id: str
+    exists: bool
+    status: str
+    terminal: TerminalState | None
+    outstanding_action: str | None
+    failure_rounds: int
+    evidence: tuple[str, ...]
+    missing: tuple[str, ...]
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -241,6 +269,148 @@ def _read_baseline_commit(path: Path) -> str:
     return baseline if isinstance(baseline, str) else ""
 
 
+def _table_present(db: sqlite3.Connection, name: str) -> bool:
+    """只读判断记录表是否存在；缺失表等价于记录缺失，不创建表。"""
+
+    return (
+        db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _read_terminal_state(
+    db: sqlite3.Connection, task_id: str, evidence: list[str]
+) -> TerminalState | None:
+    """从终态记录读取任务达成的最强终态；只看已消费验收、交付、归并与发布。"""
+
+    candidates: list[tuple[TerminalState, str]] = []
+    if _table_present(db, "approval_consumption"):
+        row = db.execute(
+            "SELECT plan_version FROM approval_consumption"
+            " WHERE task_id = ? AND stage = ? ORDER BY consumed_at DESC LIMIT 1",
+            (task_id, ApprovalStage.ACCEPTANCE.value),
+        ).fetchone()
+        if row is not None:
+            candidates.append(
+                (
+                    TerminalState.ACCEPTED,
+                    f"approval_consumption:{task_id}:v{int(row[0])}:acceptance",
+                )
+            )
+    if (
+        _table_present(db, "deliveries")
+        and db.execute("SELECT 1 FROM deliveries WHERE task_id = ?", (task_id,)).fetchone()
+    ):
+        candidates.append((TerminalState.DELIVERED, f"deliveries:{task_id}"))
+    if (
+        _table_present(db, "merges")
+        and db.execute("SELECT 1 FROM merges WHERE task_id = ?", (task_id,)).fetchone()
+    ):
+        candidates.append((TerminalState.MERGED, f"merges:{task_id}"))
+    if (
+        _table_present(db, "releases")
+        and db.execute("SELECT 1 FROM releases WHERE task_id = ?", (task_id,)).fetchone()
+    ):
+        candidates.append((TerminalState.RELEASED, f"releases:{task_id}"))
+    if not candidates:
+        return None
+    terminal, record_id = max(candidates, key=lambda item: _TERMINAL_PRIORITY[item[0]])
+    evidence.append(record_id)
+    return terminal
+
+
+def _read_outstanding_action(
+    db: sqlite3.Connection, task_id: str, evidence: list[str]
+) -> str | None:
+    """返回该任务最早的 ``started`` 未完成动作身份；没有则返回 ``None``。"""
+
+    if not _table_present(db, "actions"):
+        return None
+    row = db.execute(
+        "SELECT action_id FROM actions WHERE task_id = ? AND state = ? ORDER BY started_at LIMIT 1",
+        (task_id, ActionState.STARTED.value),
+    ).fetchone()
+    if row is None:
+        return None
+    action_id = str(row[0])
+    evidence.append(f"actions:{action_id}")
+    return action_id
+
+
+def _read_failure_rounds(db: sqlite3.Connection, task_id: str, evidence: list[str]) -> int:
+    """累计失败轮次数；如实读取，不据此判定阻塞。"""
+
+    if not _table_present(db, "failure_rounds"):
+        return 0
+    row = db.execute("SELECT COUNT(*) FROM failure_rounds WHERE task_id = ?", (task_id,)).fetchone()
+    count = int(row[0]) if row is not None else 0
+    if count:
+        evidence.append(f"failure_rounds:{task_id}")
+    return count
+
+
+def _read_plan_and_approval_evidence(
+    db: sqlite3.Connection, task_id: str, evidence: list[str]
+) -> None:
+    """补充方案与批准记录身份（判定依据上下文，不单独决定终态）。"""
+
+    if _table_present(db, "plans"):
+        row = db.execute(
+            "SELECT version FROM plans WHERE task_id = ? ORDER BY version DESC LIMIT 1",
+            (task_id,),
+        ).fetchone()
+        if row is not None:
+            evidence.append(f"plans:{task_id}:v{int(row[0])}")
+    if _table_present(db, "approvals"):
+        row = db.execute(
+            "SELECT plan_version, stage FROM approvals WHERE task_id = ?"
+            " ORDER BY decided_at DESC LIMIT 1",
+            (task_id,),
+        ).fetchone()
+        if row is not None:
+            evidence.append(f"approvals:{task_id}:v{int(row[0])}:{row[1]}")
+
+
+def read_task_dependency_record(db: sqlite3.Connection, task_id: str) -> TaskDependencyRecord:
+    """只读汇总一个任务的依赖事实来源；缺失任务按缺少记录如实返回。
+
+    这是 records 层对权威记录（``tasks``/``plans``/``approvals``/
+    ``approval_consumption``/``actions``/``failure_rounds`` 及交付终态）的
+    只读取数，不写入、不创建表；判定规则在 ``domain.dependency_facts``。
+    """
+
+    evidence: list[str] = []
+    missing: list[str] = []
+    row = (
+        db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if _table_present(db, "tasks")
+        else None
+    )
+    exists = row is not None
+    status = str(row[0]) if row is not None else ""
+    if exists:
+        evidence.append(f"tasks:{task_id}")
+    else:
+        missing.append(f"tasks:{task_id}")
+
+    terminal = _read_terminal_state(db, task_id, evidence)
+    outstanding = _read_outstanding_action(db, task_id, evidence)
+    failure_rounds = _read_failure_rounds(db, task_id, evidence)
+    _read_plan_and_approval_evidence(db, task_id, evidence)
+    return TaskDependencyRecord(
+        task_id=task_id,
+        exists=exists,
+        status=status,
+        terminal=terminal,
+        outstanding_action=outstanding,
+        failure_rounds=failure_rounds,
+        evidence=tuple(evidence),
+        missing=tuple(missing),
+    )
+
+
 class RecordStore:
     """SQLite 权威记录存储；CLI 查询由本存储生成。"""
 
@@ -316,6 +486,13 @@ class RecordStore:
         ).rowcount
         if changed == 0:
             raise KeyError(f"Unknown task {task_id}")
+
+    # ---- 只读依赖事实取数 ----
+
+    def task_dependency_record(self, task_id: str) -> TaskDependencyRecord:
+        """只读汇总单个任务的终态、未完成动作与失败轮次事实。"""
+
+        return read_task_dependency_record(self._db, task_id)
 
     # ---- 方案 ----
 

@@ -13,11 +13,17 @@
 
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from forgeloop.domain.dependency_facts import (
+    DependencyFacts,
+    PrerequisiteFact,
+    assess_dependency,
+)
 from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.requirement import (
     DRAFT,
@@ -44,6 +50,7 @@ from forgeloop.domain.task_plan import (
     task_plan_from_payload,
     task_plan_to_payload,
 )
+from forgeloop.records.store import TaskDependencyRecord, read_task_dependency_record
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS requirements (
@@ -721,6 +728,62 @@ class RequirementStore:
             (req_id, plan_version),
         ).fetchall()
         return tuple(_row_to_task_artifact(tuple(row)) for row in rows)
+
+    def dependency_facts(
+        self,
+        req_id: str,
+        plan_version: int | None = None,
+        *,
+        single_task_id: Callable[[str], str] | None = None,
+    ) -> tuple[DependencyFacts, ...]:
+        """只读汇总任务包内每个任务的依赖事实与真实等待判定。
+
+        任务包给出 ``depends_on`` 依赖边；每个前置任务的终态、未完成动作与失败
+        轮次从单任务权威记录只读取数，判定交给 ``domain.dependency_facts``。
+        ``single_task_id`` 把需求内任务身份映射到单任务记录身份（真实入口应传入
+        ``graph.builder.requirement_task_id``）；缺省按同一身份。
+
+        未开始的任务没有单任务记录，这不构成「缺少依据」——其 ``ready`` 与否只
+        取决于前置；只有声明的前置任务记录缺失时才输出 ``unknown`` 并列出缺少的
+        记录身份。
+        """
+
+        self._require(req_id)
+        if plan_version is None:
+            plan = self.latest_task_plan(req_id)
+        else:
+            plan = self.task_plan(req_id, plan_version)
+        if plan is None:
+            return ()
+        mapper: Callable[[str], str] = single_task_id or (lambda task_id: task_id)
+        records: dict[str, TaskDependencyRecord] = {
+            task.task_id: read_task_dependency_record(self._db, mapper(task.task_id))
+            for task in plan.tasks
+        }
+        facts: list[DependencyFacts] = []
+        for task in plan.tasks:
+            prerequisites = tuple(
+                PrerequisiteFact(
+                    task_id=dependency,
+                    terminal=records[dependency].terminal,
+                    recorded_status=records[dependency].status,
+                    evidence=records[dependency].evidence,
+                    missing=records[dependency].missing,
+                )
+                for dependency in task.depends_on
+            )
+            own = records[task.task_id]
+            facts.append(
+                assess_dependency(
+                    task.task_id,
+                    prerequisites,
+                    outstanding_action=own.outstanding_action,
+                    subject_evidence=own.evidence,
+                    recorded_status=own.status,
+                    failure_rounds=own.failure_rounds,
+                )
+            )
+        return tuple(facts)
 
     def ensure_requirement_budget(self, req_id: str, limit_seconds: float) -> None:
         """首次为需求建立执行工时账目；已存在时保持不变（消耗不清零）。"""
