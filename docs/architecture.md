@@ -112,7 +112,7 @@ flowchart TD
 | cli | `src/forgeloop/cli/main.py` | `submit`／`approve`／`grant`／`status`／`stop` 与参数总装 |
 | cli | `src/forgeloop/cli/merge.py`
 | cli | `src/forgeloop/cli/candidate.py` | `candidate build` / `candidate verify`：构建候选产物、记录身份与校验值、独立环境验证 | | `merge`：候选分支流程与归并证据 |
-| cli | `src/forgeloop/cli/release.py` | `release`：annotated tag 与发布回执 |
+| cli | `src/forgeloop/cli/release.py` | `release`：annotated tag、上传已验收产物为 Release 资产与发布回执 |
 | cli | `src/forgeloop/cli/deploy.py` | `deploy`／`rollback`：从 Release 装产物、原子切换、回滚 |
 
 CLI 对外命令共九个：`submit`、`approve`、`grant`、`status`、`stop`、`merge`、`release`、`deploy`、`rollback`。`status --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
@@ -220,12 +220,12 @@ flowchart LR
 flowchart LR
   Accept[人工验收通过] --> Merge[merge<br/>候选分支→等必需检查→快进 main→推送]
   Merge --> Release[release<br/>annotated tag 与发布回执]
-  Release --> Workflow[Release 工作流<br/>由标签构建一次产物与 SHA256SUMS]
+  Release --> Workflow[Release 工作流<br/>下载已验收产物与 SHA256SUMS（不重新构建）]
   Workflow --> Deploy[deploy<br/>校验值比对→独立版本目录→原子切换→冒烟]
   Deploy --> Rollback[rollback<br/>只切到已安装且留有校验记录的版本]
 ```
 
-关键不变量：**部署必须使用验收过的那一份产物**——`deploy` 校验 `SHA256SUMS`，校验值不匹配即拒绝，禁止重新构建；同版本不同产物被拒绝；`release` 对同标签幂等、换标签拒绝。
+关键不变量：**部署必须使用验收过的那一份产物**——`release` 把 C01 已验收产物原件上传为该标签的 Release 资产，`Release` 工作流只下载并核对它（禁止在标签工作流重新构建），`deploy` 校验 `SHA256SUMS`，校验值不匹配即拒绝；同版本不同产物被拒绝；`release` 对同标签幂等、换标签拒绝。
 
 ## 9. 架构变更与本文同步
 

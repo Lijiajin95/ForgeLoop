@@ -5,10 +5,12 @@
 """
 
 from forgeloop.cli.merge import CHECK_POLL_MAX_SECONDS, check_poll_delay
+from forgeloop.domain.delivery import build_binding
 from forgeloop.domain.merge import (
     ChecksDecision,
     MergeDecision,
     candidate_branch_name,
+    check_acceptance_content,
     check_merge_readiness,
     check_required_checks,
 )
@@ -116,10 +118,60 @@ class TestRequiredChecks:
         assert decision.passed is False
         assert decision.pending is False
 
+    def test_unknown_conclusion_is_rejected(self) -> None:
+        # 结论不在已知集合内（如 GitHub 的 startup_failure）既不算通过也不算等待。
+        runs = {"quality": "success", "security": "startup_failure", "commit-policy": "success"}
+        decision = checks(REQUIRED, runs)
+        assert decision.passed is False
+        assert decision.pending is False
+        assert "security" in decision.reason
+
+    def test_unrecognized_conclusion_is_rejected(self) -> None:
+        runs = {"quality": "success", "security": "mystery", "commit-policy": "success"}
+        decision = checks(REQUIRED, runs)
+        assert decision.passed is False
+        assert decision.pending is False
+        assert "未知" in decision.reason and "security" in decision.reason
+
     def test_no_required_checks_passes_immediately(self) -> None:
         decision = checks((), {})
         assert decision.passed is True
         assert decision.pending is False
+
+
+class TestAcceptanceContent:
+    """K11：归并必须绑定与验收同一候选；材料被换掉即拒绝。"""
+
+    @staticmethod
+    def approved(**overrides):
+        kwargs = {
+            "candidate_text": "diff --git a/x b/x\n+new\n",
+            "test_evidence_text": '{"exit_code": 0}\n',
+            "review_text": '{"blocking_issues": []}\n',
+            "baseline_commit": BASE,
+        }
+        kwargs.update(overrides)
+        return build_binding("task-1", 1, **kwargs)
+
+    def test_matching_content_passes(self) -> None:
+        approved = self.approved()
+        current = self.approved()
+        decision = check_acceptance_content(approved, current)
+        assert decision.allowed is True
+
+    def test_replaced_candidate_is_rejected(self) -> None:
+        approved = self.approved()
+        current = self.approved(candidate_text="diff --git a/x b/x\n+tampered\n")
+        decision = check_acceptance_content(approved, current)
+        assert decision.allowed is False
+        assert "漂移" in decision.reason
+
+    def test_changed_baseline_is_rejected(self) -> None:
+        approved = self.approved()
+        current = self.approved(baseline_commit=OTHER)
+        decision = check_acceptance_content(approved, current)
+        assert decision.allowed is False
+        assert "基线" in decision.reason
 
 
 class TestCheckPollDelay:

@@ -14,11 +14,22 @@ S3 候选分支流程（所有者 2026-10-13 选定方案 B）追加的规则：
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+from forgeloop.domain.delivery import DeliveryBinding, verify_binding
 
 SUCCESS_CONCLUSIONS = ("success", "neutral", "skipped")
-FAILURE_CONCLUSIONS = ("failure", "cancelled", "timed_out", "action_required", "stale")
+FAILURE_CONCLUSIONS = (
+    "failure",
+    "cancelled",
+    "timed_out",
+    "action_required",
+    "stale",
+    "startup_failure",
+)
 PENDING_CONCLUSION = "pending"
+# 已知结论之外一律判为未知：未知检查状态不放行（K11），也不当成失败去重试。
+KNOWN_CONCLUSIONS = (*SUCCESS_CONCLUSIONS, *FAILURE_CONCLUSIONS, PENDING_CONCLUSION)
 CANDIDATE_BRANCH_PREFIX = "forgeloop/"
 
 
@@ -48,6 +59,15 @@ def check_required_checks(required: Sequence[str], runs: Mapping[str, str]) -> C
 
     if not required:
         return ChecksDecision(True, False, "未要求必需检查")
+    unknown = sorted(
+        name for name in required if name in runs and runs[name] not in KNOWN_CONCLUSIONS
+    )
+    if unknown:
+        return ChecksDecision(
+            False,
+            False,
+            f"必需检查状态未知：{', '.join(unknown)}；未知状态不放行",
+        )
     failed = sorted(name for name in required if runs.get(name) in FAILURE_CONCLUSIONS)
     if failed:
         return ChecksDecision(False, False, f"必需检查未通过：{', '.join(failed)}")
@@ -57,6 +77,22 @@ def check_required_checks(required: Sequence[str], runs: Mapping[str, str]) -> C
     if waiting:
         return ChecksDecision(False, True, f"必需检查尚未完成：{', '.join(waiting)}")
     return ChecksDecision(True, False, "全部必需检查已通过")
+
+
+def check_acceptance_content(approved: DeliveryBinding, current: DeliveryBinding) -> MergeDecision:
+    """核对当前交付材料是否仍是验收批准时的那一份（K11 同一候选）。
+
+    候选 diff 被替换、正式测试证据变化、审查结论变化或交付基线改变都判为内容漂移，
+    拒绝沿用原验收。产物校验值在验收时可能尚未生成，归并阶段不据它判漂移。
+    """
+
+    decision = verify_binding(
+        replace(approved, artifact_sha256=""),
+        replace(current, artifact_sha256=""),
+    )
+    if not decision.valid:
+        return MergeDecision(False, f"验收内容已漂移：{decision.reason}")
+    return MergeDecision(True, "交付材料与验收批准一致")
 
 
 def check_merge_readiness(

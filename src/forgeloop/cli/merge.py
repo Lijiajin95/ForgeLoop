@@ -38,6 +38,7 @@ from forgeloop.domain.approval import ApprovalStage
 from forgeloop.domain.merge import (
     ChecksDecision,
     candidate_branch_name,
+    check_acceptance_content,
     check_merge_readiness,
     check_required_checks,
 )
@@ -303,11 +304,19 @@ def cmd_merge(args: argparse.Namespace) -> int:
             return fail("任务未绑定 project_path，无法归并")
         project = Path(project_path)
         acceptance = store.effective_approval(args.task_id, ApprovalStage.ACCEPTANCE)
+        binding = acceptance.binding if acceptance is not None else None
         decision = check_merge_readiness(
             task.status, acceptance is not None, baseline, read_main_head(project), diff_text
         )
         if not decision.allowed:
             return fail(decision.reason)
+        if acceptance is not None:
+            if binding is None:
+                return fail("验收批准缺少交付材料绑定；无法核对同一候选，拒绝归并")
+            current = store.capture_delivery_binding(args.task_id, plan.version)
+            content = check_acceptance_content(binding, current)
+            if not content.allowed:
+                return fail(content.reason)
         message = args.message or f"feat: {plan.goal}"
         if len(message.splitlines()[0]) > 100:
             message = message.splitlines()[0][:97] + "..."

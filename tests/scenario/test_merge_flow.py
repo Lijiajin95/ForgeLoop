@@ -246,6 +246,21 @@ class TestCandidateFlowRefusals:
         assert code == 0, out
         assert evidence(task_id, tmp_path)["checks"]["polls"] == 2
 
+    def test_unknown_check_conclusion_is_refused(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        task_id, source = delivered_task(tmp_path, capsys, monkeypatch)
+        bare = attach_remote(source, tmp_path)
+        baseline = run_git(source, "rev-parse", "HEAD")
+        fake_checks(monkeypatch, [{"quality": "success", "security": "mystery"}])
+
+        code, out = run_cli(["merge", task_id, "--records-root", str(tmp_path)], capsys)
+        assert code == 1
+        assert "未知" in out and "security" in out
+        assert run_git(source, "rev-parse", "HEAD") == baseline  # main 未更新
+        assert remote_head(bare) == baseline
+        record = evidence(task_id, tmp_path)
+        assert record["result"] == "checks_not_passed"
+        assert record["checks"]["passed"] is False
+
     def test_direct_push_refuses_dirty_worktree(self, tmp_path: Path, capsys, monkeypatch) -> None:
         task_id, source = delivered_task(tmp_path, capsys, monkeypatch)
         attach_remote(source, tmp_path)
