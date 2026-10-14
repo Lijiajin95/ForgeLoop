@@ -8,9 +8,11 @@ ForgeLoop 首版是一个 CLI 自动研发工具：把边界明确的小需求�
 
 文本需求 → 批准范围与方案 → PI 实现／自验证 → 独立审查 → 真实测试 → 人工验收 → 交付 diff 与记录。
 
-采用 LangGraph＋Python PI RPC Adapter，PI 在受限容器中使用独立工作副本。单任务执行，main 保持受控；验收后由用户人工接回代码与部署。CLI 提供提交、批准、查询、请求停止与简单备份，不先做页面和邮件。
+在此单任务闭环之上，CLI 已把三条业务线接到真实入口：需求线 `requirement submit|revise|analyze|plan|approve|advance|accept|status` 把一条需求分析、拆成任务包并按依赖推进；任务线 `submit|approve|grant|status|stop` 执行每个任务；交付线 `candidate <task_id>`、`merge|release|deploy|rollback` 在验收后受控归并、发布并部署到本机。
 
-保留原始输入、配置快照、PI 会话与可取得事件、实际测试日志和交付报告。每次授权最多三个正式测试失败轮次，追加授权与累计失败保留。首版无模型费用硬上限，保留工时限制；现场默认保留，人工清理。
+采用 LangGraph＋Python PI RPC Adapter。需求内任务按依赖串行执行、单执行现场，main 保持受控；验收后由受控命令接回并部署，仍需人工批准与验收。CLI 保留提交、批准、查询、请求停止与简单备份，不先做页面和邮件。
+
+保留原始输入、配置快照、PI 会话与可取得事件、实际测试日志和交付报告。每次授权最多三个正式测试失败轮次，追加授权与累计失败保留。首版无模型费用硬上限，保留工时限制；现场默认保留，人工清理。真实端到端验收（G01/G02）尚未执行。
 
 ## 文档入口
 
@@ -23,7 +25,7 @@ ForgeLoop 首版是一个 CLI 自动研发工具：把边界明确的小需求�
 7. [RoadMap](docs/roadmap.md)：先使用，再按真实痛点逐项扩展。
 8. [领域术语](CONTEXT.md)与[分层决策](docs/adr/0001-orchestration-and-executors.md)。
 9. [工程可靠性方案](docs/engineering-reliability.md)与[研发纪律](docs/development-discipline.md)：分层测试、统一门槛、提交纪律与激活顺序，含逐批次执行记录、失败与负例矩阵。
-10. [DogFood 执行任务计划](docs/dogfood-execution-plan.md)：按需求规划、研发交付、版本交付三条业务线拆成 21 个执行任务，明确依赖、拟修改文件、验证和门槛；当前为未实施方案。
+10. [DogFood 执行任务计划](docs/dogfood-execution-plan.md)：按需求规划、研发交付、版本交付三条业务线拆成执行任务，明确依赖、拟修改文件、验证和门槛；I01 已接通三条业务线入口，I02 同步范围与契约，真实端到端（G01/G02）未执行。
 
 ## 后置范围
 

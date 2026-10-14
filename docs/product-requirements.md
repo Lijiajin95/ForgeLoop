@@ -1,6 +1,6 @@
 # ForgeLoop 首版产品需求：快速启动
 
-日期：2026-10-12，Asia/Shanghai。状态：范围已冻结；**主体已实现**（domain/records/adapter/graph/cli、受控归并与 CD 的 S1–S3），**真实验收尚未完成**（A01 真实小任务、A05 备份未执行）。实现与验证状态见[状态记录](status.md)，不写在本文件。
+日期：2026-10-12，Asia/Shanghai。状态：范围已冻结；**主体已实现**（domain/records/adapter/graph/cli、受控归并与 CD 的 S1–S3、需求研发线入口 I01），**真实验收尚未完成**（A01/G01 真实小任务、G02 完整需求到部署、A05 备份未执行）。实现与验证状态见[状态记录](status.md)，不写在本文件。
 
 首版目标：**用 CLI 完成一个真实小任务，从批准方案到可验收代码交付。** 需求审查见[审查表](requirements-review.md)，后置功能见[待实现列表](pending-requirements.md)，完整旧目标见[历史快照](history/full-product-scope-2026-10-12.md)。
 
@@ -76,3 +76,17 @@
 至少一个真实小需求经过批准、PI 实现、自验证、独立审查、实际正式测试和用户验收，生成可接回 main 的 diff 与完整基本记录。具体计划见[验收计划](first-validation-plan.md)。
 
 邮件、管理页面、附件、自动上线、自升级、复杂暂停恢复、优先级调度、完整版本体系、共享包和更多执行器均不作为首版门槛。下一步按[待实现列表](pending-requirements.md)中的实际痛点逐项选择。
+
+## 9. 三条业务线入口（I01 已实现）
+
+除第 2 节的 V0 单任务闭环外，CLI 已把三条业务线接到真实可调用入口（I01，见 [DogFood 执行计划](dogfood-execution-plan.md)）：
+
+| 业务线 | CLI 入口 | 范围 |
+| --- | --- | --- |
+| 需求研发（A 线） | `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`status` | 受理原文与追加版本、只读分析与澄清、任务包生成与批准绑定、按依赖推进、需求整体验收 |
+| 单任务研发（B 线） | `submit`／`approve`／`grant`／`status`／`stop` | 第 2 节 V0-01–V0-10 单任务闭环 |
+| 版本交付（C 线） | `candidate <task_id>`、`merge`、`release`、`deploy`、`rollback` | 候选产物、受控归并、发布与本机部署回滚 |
+
+需求线任务通过 `RequirementTaskRunner` 映射为稳定身份的单任务记录，复用 B 线的实现／独立审查／正式测试／人工验收与 C 线的归并／发布；需求文本一经追加，旧任务包与旧批准失效；全部任务交付后仍需所有者整体验收，单个任务通过不等于需求整体验收。
+
+已知边界：容器隔离未接入（见[架构说明第 5 节](architecture.md)与[状态记录第 6 节](status.md)）；真实模型下完整「需求 → 任务 → 交付 → 部署」链条尚待 G02 验收，**模拟场景与系统测试不能作为完整产品通过的证据**。

@@ -402,5 +402,395 @@
         ]
       }
     }
+  },
+  "requirement_command": "forgeloop requirement status --json",
+  "requirement_exit_codes": {
+    "ok": 0,
+    "requirement_not_found": 1
+  },
+  "requirement_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "analysis": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "acceptance_criteria": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "analysis_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "clarifications": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "goal": {
+            "type": [
+              "string"
+            ]
+          },
+          "needs_clarification": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "requirement_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "scenarios": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        },
+        "optional_keys": [
+          "acceptance_criteria",
+          "analysis_version",
+          "clarifications",
+          "goal",
+          "needs_clarification",
+          "requirement_version",
+          "scenarios"
+        ]
+      },
+      "approval": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "approved_by": {
+            "type": [
+              "string"
+            ]
+          },
+          "plan_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "source": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "optional_keys": [
+          "approved_by",
+          "plan_version",
+          "source"
+        ]
+      },
+      "authorization": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "can_execute": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
+      "blocked_reason": {
+        "type": [
+          "string"
+        ]
+      },
+      "budget": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "consumed_seconds": {
+            "type": [
+              "number"
+            ]
+          },
+          "limit_seconds": {
+            "type": [
+              "number"
+            ]
+          }
+        },
+        "optional_keys": [
+          "consumed_seconds",
+          "limit_seconds"
+        ]
+      },
+      "next_step": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "action": {
+            "type": [
+              "string"
+            ]
+          },
+          "actor": {
+            "type": [
+              "string"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
+      "plan": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "plan_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "tasks": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "acceptance": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "authorization_source": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "depends_on": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "empty-array"
+                    ]
+                  }
+                },
+                "files": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "string"
+                    ]
+                  }
+                },
+                "goal": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "task_id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "test_command": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "string"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "optional_keys": [
+          "plan_version",
+          "tasks"
+        ]
+      },
+      "project": {
+        "type": [
+          "string"
+        ]
+      },
+      "req_id": {
+        "type": [
+          "string"
+        ]
+      },
+      "requirement_status": {
+        "type": [
+          "string"
+        ]
+      },
+      "tasks": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "empty-array",
+            "object"
+          ],
+          "properties": {
+            "artifact": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "acceptance": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "authorization_source": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "candidate_sha256": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "review_sha256": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "test_evidence_sha256": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
+            },
+            "executed_seconds": {
+              "type": [
+                "number"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string"
+              ]
+            },
+            "single_task": {
+              "type": [
+                "null"
+              ]
+            },
+            "single_task_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "state": {
+              "type": [
+                "string"
+              ]
+            },
+            "task_id": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "optional_keys": [
+            "artifact",
+            "executed_seconds",
+            "reason",
+            "single_task",
+            "single_task_id",
+            "state",
+            "task_id"
+          ]
+        }
+      },
+      "versions": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "text": {
+              "type": [
+                "string"
+              ]
+            },
+            "version": {
+              "type": [
+                "integer"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "requirement_not_found_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "error": {
+        "type": [
+          "string"
+        ]
+      },
+      "req_id": {
+        "type": [
+          "string"
+        ]
+      }
+    }
   }
 }

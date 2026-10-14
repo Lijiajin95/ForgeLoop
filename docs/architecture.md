@@ -15,11 +15,11 @@
 
 ## 1. 系统上下文
 
-ForgeLoop 是单用户、单任务的本地 CLI 工具。操作者是任务所有者，负责两次批准（方案／验收）与追加授权决定。
+ForgeLoop 是单用户、单执行现场的本地 CLI 工具：一次推进一个任务，需求内的任务按依赖串行执行。操作者是任务所有者，负责方案／任务包与验收批准、追加授权，以及需求整体验收决定。
 
 ```mermaid
 flowchart LR
-  Owner[所有者] -->|submit approve grant stop status| CLI[forgeloop CLI]
+  Owner[所有者] -->|submit approve grant stop status requirement| CLI[forgeloop CLI]
   CLI -->|merge release| Git[(Git 仓库与远程)]
   CLI -->|deploy rollback| Prefix[本机部署前缀]
   CLI -->|JSONL RPC| PI[pi --mode rpc 子进程]
@@ -77,9 +77,9 @@ flowchart TD
 | domain | `src/forgeloop/domain/__init__.py` | 层声明与分层契约指向 |
 | domain | `src/forgeloop/domain/counting.py` | 失败轮次账本 `GrantLedger`：按 `round_id` 幂等计数、每次授权 3 轮、追加授权累加不清零 |
 | domain | `src/forgeloop/domain/status.py` | 任务状态 → 下一步动作的纯映射：动作、主体（user／agent）与阻塞／等待原因；未知状态落到人工核对 |
-| domain | `src/forgeloop/domain/requirement.py`
+| domain | `src/forgeloop/domain/requirement.py` | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败；只读分析的结构化校验（A02）也落在本模块 |
 | domain | `src/forgeloop/domain/task_plan.py` | 任务包规则：从分析产出至少两个有依赖的任务；未批准不执行；旧版本或过期批准不能驱动最新任务包 |
-| domain | `src/forgeloop/domain/artifact.py` | 候选产物身份与校验规则：wheel 文件名 + SHA256、同一候选重复构建的一致性判定、未授权提交拒绝 | | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败 |
+| domain | `src/forgeloop/domain/artifact.py` | 候选产物身份与校验规则：wheel 文件名 + SHA256、同一候选重复构建的一致性判定、未授权提交拒绝 |
 | domain | `src/forgeloop/domain/limits.py` | 执行时间账目 `ExecutionBudget`：只记实际执行耗时、超限停止启动新动作、显式延长 |
 | domain | `src/forgeloop/domain/approval.py` | 方案 `Plan` 与批准 `Approval`：批准绑定任务身份与方案版本，一次批准只能触发一次执行；验收批准还绑定实际交付材料（候选 diff、测试证据、审查结论、产物校验值），替换材料后原批准失效 |
 | domain | `src/forgeloop/domain/delivery.py` | 交付绑定 `DeliveryBinding` 与需求整体验收判定：候选 diff／测试证据／审查结论／产物校验值各自内容寻址；材料变化使批准失效；单个任务通过不等于需求整体验收 |
@@ -90,15 +90,15 @@ flowchart TD
 | records | `src/forgeloop/records/__init__.py` | 层声明 |
 | records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 13 张表的权威业务记录，读时重建领域对象 |
 | records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份与单任务并发占用；未完成动作拒绝重放 |
-| records | `src/forgeloop/records/requirements.py` | 需求记录的读写：提交原文、追加版本、按身份与项目回查（进程重启后仍可读） |
+| records | `src/forgeloop/records/requirements.py` | 需求记录：需求、版本、分析、任务包、批准、任务推进、产物与需求工时共 8 张表；与任务记录同一 `records.sqlite`，提交原文、追加版本、按身份与项目回查（进程重启后仍可读） |
 | adapter | `src/forgeloop/adapter/__init__.py` | 层声明 |
 | adapter | `src/forgeloop/adapter/pi_rpc.py` | `PIProcess`：JSONL RPC 子进程、命令／响应 id 关联、`agent_settled` 判定、abort、会话与 stderr 落盘 |
 | adapter | `src/forgeloop/adapter/test_runner.py` | `run_test_command`：以 argv＋`shell=False` 运行批准的测试命令，证据追加 JSONL |
 | adapter | `src/forgeloop/adapter/git_workspace.py` | 独立代码副本、基线 detached 检出、候选 diff 提取、受控归并与标签 |
 | adapter | `src/forgeloop/adapter/github_checks.py` | 读取提交的 check-runs（有 `GITHUB_TOKEN`／`GH_TOKEN` 则按认证配额，否则匿名），归一为「名称 → 结论」或 `pending`；403/429 归一为带剩余量与重置时刻的配额耗尽错误 |
-| adapter | `src/forgeloop/adapter/deployment.py`
+| adapter | `src/forgeloop/adapter/deployment.py` | 下载 Release 资产、独立版本 venv 安装、原子切换 `current`、冒烟检查、部署日志 |
 | adapter | `src/forgeloop/adapter/execution_environment.py` | 受限执行环境：dev/test 在容器内可写工作副本、review 只读；源仓库从不挂载，容器内没有源库/main 写入口（`runtime/Dockerfile`） |
-| adapter | `src/forgeloop/adapter/artifact.py` | 候选产物构建与验证：真实 `uv build`（工作区内缓存）、独立 venv 安装、`forgeloop --help` 冒烟 | | 下载 Release 资产、独立版本 venv 安装、原子切换 `current`、冒烟检查、部署日志 |
+| adapter | `src/forgeloop/adapter/artifact.py` | 候选产物构建与验证：真实 `uv build`（工作区内缓存）、独立 venv 安装、`forgeloop --help` 冒烟 |
 | graph | `src/forgeloop/graph/__init__.py` | 层声明 |
 | graph | `src/forgeloop/graph/state.py` | `TaskState`：只放路由与续跑所需的最小字段 |
 | graph | `src/forgeloop/graph/planning.py` | 需求只读分析：PI 产出目标/场景/验收标准/待澄清项，结构化校验；缺信息等待澄清、畸形如实阻塞，只追加版本不改源码 |
@@ -106,16 +106,16 @@ flowchart TD
 | graph | `src/forgeloop/graph/nodes.py` | 八个节点工厂与 `NodeContext`：方案、批准门、实现、审查、测试、追加授权门、验收门、交付 |
 | graph | `src/forgeloop/graph/evidence.py` | 失败回边证据读取：上一轮正式测试输出尾部与审查阻断问题（截断，供实现会话修复） |
 | graph | `src/forgeloop/graph/prompts.py` | 提示词构造（纯函数）：开发提示（目标/范围/验收/工作区/尝试序号/批准测试命令/自验证要求/失败回边）与审查提示（含输出契约常量） |
-| graph | `src/forgeloop/graph/builder.py` | 图装配：节点注册、条件路由、SQLite 持久 checkpointer |
+| graph | `src/forgeloop/graph/builder.py` | 图装配：节点注册、条件路由、SQLite 持久 checkpointer；`RequirementTaskRunner` 把已批准需求任务映射到单任务图 |
 | cli | `src/forgeloop/cli/__init__.py` | 导出 `main` |
 | cli | `src/forgeloop/cli/common.py` | 记录根解析、`open_store`、`fail` 统一失败输出 |
-| cli | `src/forgeloop/cli/main.py` | `submit`／`approve`／`grant`／`status`／`stop` 与参数总装 |
-| cli | `src/forgeloop/cli/merge.py`
-| cli | `src/forgeloop/cli/candidate.py` | `candidate build` / `candidate verify`：构建候选产物、记录身份与校验值、独立环境验证 | | `merge`：候选分支流程与归并证据 |
+| cli | `src/forgeloop/cli/main.py` | 单任务命令 `submit`／`approve`／`grant`／`status`／`stop`，需求线命令 `requirement submit|revise|analyze|plan|approve|advance|accept|status`，以及参数总装 |
+| cli | `src/forgeloop/cli/merge.py` | `merge`：候选分支流程与归并证据 |
+| cli | `src/forgeloop/cli/candidate.py` | `candidate <task_id>`：从已归并的授权提交真实构建候选产物、记录身份与 SHA256、重复构建校验可复现并在独立环境冒烟（构建与验证在一次调用内完成） |
 | cli | `src/forgeloop/cli/release.py` | `release`：annotated tag、上传已验收产物为 Release 资产与发布回执 |
 | cli | `src/forgeloop/cli/deploy.py` | `deploy`／`rollback`：从 Release 装产物、原子切换、回滚 |
 
-CLI 对外命令共九个：`submit`、`approve`、`grant`、`status`、`stop`、`merge`、`release`、`deploy`、`rollback`。`status --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+CLI 对外命令分三条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`。`status --json` 与 `requirement status --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
 
 ## 4. 研发闭环业务图
 
@@ -158,6 +158,12 @@ flowchart LR
 
 `TaskState` 只有 9 个字段、无 reducer，且节点一律使用 `NodeContext.task_id`，不读 `state["task_id"]`。原始日志、PI 事件与会话文件**不进检查点**。
 
+### 4.1 需求线编排
+
+`cli` 的需求命令不另建一套图：`graph.planning` 负责只读分析与任务包生成，`records.requirements.RequirementStore` 保存需求身份、分析、任务包、批准、任务推进与需求工时；`graph.requirements.RequirementExecutor` 按依赖拓扑串行推进已批准任务包，前置任务未交付时不启动下游，等待人工决定不计执行工时。
+
+I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射为带稳定身份的单个任务记录（`task-<req_id>-v<plan_version>-<task_id>`），复用本节的单任务业务图执行实现、独立审查、正式测试与验收；随后既有 `merge`／`release`／`deploy` 命令从该任务记录回查交付、归并与发布状态。需求文本一经追加，旧任务包与旧批准立即失效，未批准任务包不执行。
+
 ## 5. 执行现场、隔离与 main
 
 - **执行现场**：每个任务一个目录 `<records_root>/<task_id>/`，内含 `workspace/`（代码副本）与 `sessions/`（PI 会话与 stderr）。现场默认保留，由用户清理。
@@ -173,10 +179,10 @@ flowchart LR
 
 | 存储 | 文件 | 内容 | 管理者 |
 | --- | --- | --- | --- |
-| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（13 张表） | `records.store.RecordStore` |
+| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 13 张表＋需求 8 张表） | `records.store.RecordStore`、`records.requirements.RequirementStore` |
 | 图检查点 | `checkpoints.sqlite` | `TaskState` 的推进状态，`thread_id = task_id` | LangGraph `SqliteSaver` |
 
-记录表：`tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`merges`、`deliveries`、`releases`。
+记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`merges`、`deliveries`、`releases`（13 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）。两侧共用同一 `records.sqlite`，各自管理连接与表。
 
 **动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。
 
@@ -214,7 +220,7 @@ flowchart LR
 
 ## 8. 交付链路：归并 → 发布 → 部署
 
-研发闭环之外，`cli` 另有三个受控阶段，规则在 `domain` 的 `merge`／`release`／`deploy`：
+研发闭环之外，`cli` 另有三个受控阶段，规则在 `domain` 的 `merge`／`release`／`deploy`；需求线交付的任务通过 `RequirementTaskRunner` 映射出的单任务记录接入同一链路：
 
 ```mermaid
 flowchart LR

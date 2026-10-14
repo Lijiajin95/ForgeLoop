@@ -15,10 +15,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from forgeloop.cli.main import _status_document
+from forgeloop.cli.main import _requirement_document, _status_document
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.counting import FailureStage
 from forgeloop.domain.release import ReleaseRecord
+from forgeloop.domain.requirement import RequirementAnalysis
+from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +132,8 @@ def build_contract() -> dict:
         finally:
             store.close()
 
+        requirement_document, requirement_not_found = build_requirement_contract(Path(tmp))
+
     document = merge(shape(minimal), shape(full))
     return {
         "schema_version": 1,
@@ -136,7 +141,71 @@ def build_contract() -> dict:
         "exit_codes": {"ok": 0, "task_not_found": 1},
         "document": document,
         "not_found_document": shape(missing),
+        "requirement_command": "forgeloop requirement status --json",
+        "requirement_exit_codes": {"ok": 0, "requirement_not_found": 1},
+        "requirement_document": requirement_document,
+        "requirement_not_found_document": requirement_not_found,
     }
+
+
+def build_requirement_contract(root: Path) -> tuple[dict, dict]:
+    """合成需求样本（最小/全字段）与不存在样本，提取需求状态 JSON 结构。
+
+    与 ``status --json`` 一样只从真实记录重建文档；身份与时间戳都会被
+    :func:`shape` 折叠为类型，因此随机需求身份不使快照漂移。
+    """
+
+    from datetime import UTC, datetime
+
+    store = RequirementStore(root / "records.sqlite")
+    try:
+        now = datetime.now(UTC)
+        minimal = store.submit("proj", "原始需求文本")
+        minimal_document = _requirement_document(root, store, minimal.req_id)
+
+        full = store.submit("proj", "原始需求文本")
+        store.record_analysis(
+            full.req_id,
+            RequirementAnalysis(
+                analysis_version=1,
+                requirement_version=1,
+                goal="目标",
+                scenarios=("场景",),
+                acceptance_criteria=("标准",),
+                clarifications=(),
+                created_at=now,
+            ),
+        )
+        plan = TaskPlan(
+            task_plan_id=f"plan-{full.req_id}-1",
+            requirement_id=full.req_id,
+            project="proj",
+            plan_version=1,
+            requirement_version=1,
+            tasks=(
+                PlannedTask("alpha", "目标", ("src/a.py",), "验收", ("cmd",)),
+                PlannedTask("beta", "目标", ("src/b.py",), "验收", ("cmd",), depends_on=("alpha",)),
+            ),
+            created_at=now,
+        )
+        store.record_task_plan(full.req_id, plan)
+        store.record_plan_approval(full.req_id, 1, "owner")
+        store.ensure_requirement_budget(full.req_id, 7200.0)
+        store.charge_requirement_budget(full.req_id, 12.5)
+        store.record_task_run(full.req_id, 1, "alpha", "delivered", executed_seconds=1.0)
+        store.record_task_artifact(
+            full.req_id,
+            1,
+            "alpha",
+            TaskArtifact("alpha", "a" * 64, "b" * 64, "c" * 64, "accepted", "approval"),
+        )
+        store.record_task_run(full.req_id, 1, "beta", "awaiting_user", reason="等待验收")
+        full_document = _requirement_document(root, store, full.req_id)
+
+        missing = _requirement_document(root, store, "req-does-not-exist")
+    finally:
+        store.close()
+    return merge(shape(minimal_document), shape(full_document)), shape(missing)
 
 
 def serialize(contract: dict) -> str:

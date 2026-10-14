@@ -582,3 +582,46 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 **未验证边界**：真实 CI 未运行（`quality.yml` 的新命令组合只在本地按同一 Makefile 目标验证）；失败运行与复跑结果都保留在上表，未以绿色复跑替换原始失败；Q 线的 95% 覆盖、逐文件 100%、新增 Ruff 规则、actionlint／zizmor／Gitleaks 仍不是有效门槛，重启条件不变。
 
+## 26. 三条业务线入口的契约同步与质量门槛核查：2026-10-14
+
+**依据与范围**：I01 把需求线接入真实 CLI 与既有单任务图后，I02 按新增业务流程同步产品需求、路线图、架构描述、CLI 契约、术语与操作说明，并核查质量门槛。本批次不新增产品能力、不改运行逻辑、不修改测试、不创建 commit、推送、发布或部署。
+
+**同步内容（全部实际执行）**：
+
+| 项 | 改动 | 验证 |
+| --- | --- | --- |
+| 架构描述 | `docs/architecture.md`：修复模块清单中错行的 `domain/requirement`、`adapter/deployment`、`adapter/artifact`、`cli/merge` 行；新增需求线编排 §4.1、三条业务线命令清单、`RequirementTaskRunner`、需求表 8 张（与任务 13 张共用 `records.sqlite`） | `make architecture-contract-check` exit 0（模块路径镜像不变） |
+| CLI 契约 | `scripts/export_cli_contract.py` 与 `contracts/cli-contract.json` 增 `requirement status --json` 的文档结构、退出码与不存在样本（身份与时间戳被 `shape` 折叠为类型，随机需求身份不使快照漂移） | `make cli-contract-check` exit 0 |
+| 范围/路线图 | `docs/product-requirements.md` 增第 9 节三条业务线入口；`docs/roadmap.md` 增 I01 阶段行 | 人工核对 |
+| 术语 | `CONTEXT.md` 增任务包（Task Plan）词条 | 人工核对 |
+| 操作说明 | `README.md` 增三条业务线入口与真实端到端未执行说明 | 人工核对 |
+| 变异范围 | `pyproject.toml` 的 `only_mutate` 增 `domain/status.py`（实测该文件变异体全部被杀死）；`requirement`／`task_plan`／`artifact` 暂不纳入（见下） | 见下 |
+| 门槛登记 | `config/quality-policy.toml` 加注新纯规则纳入状态与现有门槛红点 | 见下 |
+
+**本批次实测（本机 macOS ARM64，CPython 3.13.15，HEAD `0a391ff` + 本批次工作树；日志在 `.cache/i02/`）**：
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 正式测试（本任务验收命令） | `pytest -q tests/unit tests/property` | **519 项通过** |
+| 完整门禁 | `make check` | **exit 0**：725 通过、3 跳过、5 未选；结构 0 失败 / 155 条审阅提示 |
+| 覆盖 | `make coverage` | **exit 0**：782 通过、9 跳过；行 96.04%、分支 90.88%、增量 not_applicable（无 `origin/main` 基线） |
+| 系统层 | `make test-system` | **exit 0**：8 项通过 |
+| 架构契约 | `make architecture-contract-check` | exit 0 |
+| CLI 契约 | `make cli-contract-check` | exit 0 |
+
+**变异范围核查（实际执行，发现既有红点）**：用 `.venv/bin/mutmut` 3.8.0「run + export-cicd-stats + check_mutation_stats.py」，测试选择仍为 `tests/unit/`＋`tests/property/`：
+
+| 范围 | 变异 | 杀死 | 幸存 | no tests | 其他未完成 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 新纯规则 4 文件（requirement／task_plan／artifact／status） | 819 | 434 | 171 | 214 | 0 | `status.py` 无幸存与 no tests，可纳入；其余三个因 no tests 触发 `unresolved_incomplete_states_max=0` |
+| 当前核心范围（原 8 文件＋status） | 970 | 787 | 120（清单登记 116） | 63 | 0 | **exit 1**：既有红点，非本批次引入 |
+
+**红点构成（源码分析）**：
+
+- **63 个 no tests 全部在 `domain/release.py`**：`check_release_artifact`（43）与 `check_release_retry`（20）只被 `cli/release.py` 与场景/系统层调用，没有 unit/property 用例，故 mutmut 判为 no tests；`release.py` 本就在原 `only_mutate` 内，因此这是 I01 之前就存在的漂移。
+- **8 个未审阅幸存者在 `domain/merge.py`**：`check_acceptance_content` 与 `check_required_checks` 的 5 条为消息文本／分隔符变异（等价）；3 条为真实行为差异：`MergeDecision(True, None)`（原因字段丢失）与两处 `replace(..., artifact_sha256="")` 改为不带关键字（产物校验值不再被清空，在未覆盖输入下会误判漂移）。另发现 4 条已登记条目过期。
+
+**处置（如实记录）**：`domain/status.py` 已纳入 `only_mutate`；`requirement`／`task_plan`／`artifact` 的纳入与合并门禁红点的修复都需要新增/补强 unit/property 测试与重导审阅清单，属测试文件范围，本任务不修改测试，按「发现但不碰」登记。因此 **`make mutation` 现为红**；下一次夜间变异作业会失败，需要单独安排测试补齐与清单重导。
+
+**未执行/未验证**：真实模型端到端（G01/G02）、容器隔离、真实发布部署、真实安装层、安全扫描、真实 CI 均未在本批次执行；本批次不创建 commit；CLI 契约仅新增结构快照，未改变既有 `status --json` 结构。
+

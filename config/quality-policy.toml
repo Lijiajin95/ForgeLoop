@@ -52,6 +52,16 @@ critical_unreviewed_survivors_max = 0
 unresolved_incomplete_states_max = 0
 require_nonempty_report = true
 
+# 变异范围为 pyproject.toml 的 [tool.mutmut].only_mutate 九项核心领域规则；
+# 2026-10-14 已把 domain/status.py 纳入（实测变异体全部被杀死、无 no tests）。
+# requirement／task_plan／artifact 暂不纳入：同日用 unit+property 选择实测这 3 个
+# 模块合计 385 个非杀死（幸存 171＋no tests 214，序列化与候选身份等仅由场景／
+# 系统层覆盖），会触发上面的 0 未完成状态门槛；补齐覆盖并重新审阅幸存者后
+# 再加入，见可靠性方案第 26 节。现有范围内 `domain/release.py` 的
+# check_release_artifact／check_release_retry 无 unit/property 覆盖（63 个
+# no tests），`domain/merge.py` 另有 8 个未审阅幸存者，故 **make mutation 当前
+# 为红**；修复需补测试与重导清单，同见第 26 节。
+
 
 # 变异幸存者逐项审阅记录（2026-10-12 审阅；源码变更后须重新核对，清单失效时门槛脚本会显式失败）。
 [[mutation.reviewed_survivors]]
