@@ -116,6 +116,205 @@
           "report_path"
         ]
       },
+      "dependency": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "evidence": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "failure_rounds": {
+            "type": [
+              "integer"
+            ]
+          },
+          "is_running": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "is_unknown": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "is_waiting": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "missing": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "outstanding_action": {
+            "type": [
+              "null"
+            ]
+          },
+          "recorded_status": {
+            "type": [
+              "string"
+            ]
+          },
+          "task_id": {
+            "type": [
+              "string"
+            ]
+          },
+          "unmet_prerequisites": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "verdict": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
+      "evidence": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "accepted": {
+                "type": [
+                  "boolean"
+                ]
+              },
+              "bound": {
+                "type": [
+                  "boolean"
+                ]
+              },
+              "fingerprint": {
+                "type": [
+                  "string"
+                ]
+              },
+              "plan_version": {
+                "type": [
+                  "integer"
+                ]
+              }
+            }
+          },
+          "artifact": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "sha256": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "baseline_commit": {
+            "type": [
+              "string"
+            ]
+          },
+          "candidate": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "sha256": {
+                "type": [
+                  "string"
+                ]
+              },
+              "summary": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "missing": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "review": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "blocking": {
+                "type": [
+                  "null"
+                ]
+              },
+              "sha256": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "task_id": {
+            "type": [
+              "string"
+            ]
+          },
+          "test": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "exit_code": {
+                "type": [
+                  "null"
+                ]
+              },
+              "result": {
+                "type": [
+                  "string"
+                ]
+              },
+              "sha256": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          }
+        }
+      },
       "failures": {
         "type": [
           "object"
@@ -215,6 +414,16 @@
           "push_detail",
           "pushed"
         ]
+      },
+      "missing": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "string"
+          ]
+        }
       },
       "next_action": {
         "type": [
@@ -552,6 +761,17 @@
           "limit_seconds"
         ]
       },
+      "missing": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "empty-array",
+            "string"
+          ]
+        }
+      },
       "next_step": {
         "type": [
           "object"
@@ -710,6 +930,205 @@
                 }
               }
             },
+            "dependency": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "evidence": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "empty-array"
+                    ]
+                  }
+                },
+                "failure_rounds": {
+                  "type": [
+                    "integer"
+                  ]
+                },
+                "is_running": {
+                  "type": [
+                    "boolean"
+                  ]
+                },
+                "is_unknown": {
+                  "type": [
+                    "boolean"
+                  ]
+                },
+                "is_waiting": {
+                  "type": [
+                    "boolean"
+                  ]
+                },
+                "missing": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "empty-array"
+                    ]
+                  }
+                },
+                "outstanding_action": {
+                  "type": [
+                    "null"
+                  ]
+                },
+                "recorded_status": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "task_id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "unmet_prerequisites": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "empty-array"
+                    ]
+                  }
+                },
+                "verdict": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
+            },
+            "evidence": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "acceptance": {
+                  "type": [
+                    "object"
+                  ],
+                  "properties": {
+                    "accepted": {
+                      "type": [
+                        "boolean"
+                      ]
+                    },
+                    "bound": {
+                      "type": [
+                        "boolean"
+                      ]
+                    },
+                    "fingerprint": {
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "plan_version": {
+                      "type": [
+                        "integer"
+                      ]
+                    }
+                  }
+                },
+                "artifact": {
+                  "type": [
+                    "object"
+                  ],
+                  "properties": {
+                    "sha256": {
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  }
+                },
+                "baseline_commit": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "candidate": {
+                  "type": [
+                    "object"
+                  ],
+                  "properties": {
+                    "sha256": {
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "summary": {
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  }
+                },
+                "missing": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "string"
+                    ]
+                  }
+                },
+                "review": {
+                  "type": [
+                    "object"
+                  ],
+                  "properties": {
+                    "blocking": {
+                      "type": [
+                        "null"
+                      ]
+                    },
+                    "sha256": {
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  }
+                },
+                "task_id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "test": {
+                  "type": [
+                    "object"
+                  ],
+                  "properties": {
+                    "exit_code": {
+                      "type": [
+                        "null"
+                      ]
+                    },
+                    "result": {
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "sha256": {
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
             "executed_seconds": {
               "type": [
                 "number"
@@ -743,6 +1162,8 @@
           },
           "optional_keys": [
             "artifact",
+            "dependency",
+            "evidence",
             "executed_seconds",
             "reason",
             "single_task",

@@ -17,12 +17,14 @@ import sys
 from pathlib import Path
 
 from forgeloop.cli.common import records_root
+from forgeloop.domain.dependency_facts import DependencyFacts
 from forgeloop.domain.requirement import BLOCKED, RequirementNotFoundError
-from forgeloop.graph.builder import RequirementTaskRunner
+from forgeloop.domain.task_plan import TaskPlan
+from forgeloop.graph.builder import RequirementTaskRunner, requirement_task_id
 from forgeloop.graph.dispatch import RequirementDispatcher
 from forgeloop.graph.requirements import RequirementAlreadyRunningError
 from forgeloop.records.actions import SLOT_PREFIX
-from forgeloop.records.requirements import RequirementStore
+from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
 
@@ -177,3 +179,226 @@ def add_requirement_dispatch(
     )
     slot_clear.add_argument("--records-root", default=default_records_root)
     slot_clear.set_defaults(func=cmd_requirement_slot_clear)
+
+
+# ---- 查询：依赖事实、阻塞判断与交付证据身份（G02 cli-contract） ----
+#
+# 新字段一律追加、字段名小写下划线、时间为 ISO8601；既有字段语义与状态词不变。
+# 依赖事实由 ``RequirementStore.dependency_facts``/``RecordStore`` 只读取数、
+# ``domain.dependency_facts`` 纯规则判定；证据身份由权威绑定记录加现场材料只读汇总。
+# 任何一项缺失都显式列入 ``missing``，不省略字段、不猜测时间。
+
+REVIEW_REPORT_NAME = "review-report.json"
+TEST_EVIDENCE_NAME = "test-run.jsonl"
+CANDIDATE_NAME = "candidate.diff"
+
+
+def dependency_section(facts: DependencyFacts) -> dict:
+    """把依赖事实纯规则结果映射为稳定 JSON 片段（新字段追加）。"""
+
+    return {
+        "task_id": facts.task_id,
+        "verdict": facts.verdict.value,
+        "is_waiting": facts.is_waiting,
+        "is_running": facts.is_running,
+        "is_unknown": facts.is_unknown,
+        "unmet_prerequisites": list(facts.unmet_prerequisites),
+        "outstanding_action": facts.outstanding_action,
+        "recorded_status": facts.recorded_status,
+        "failure_rounds": facts.failure_rounds,
+        "evidence": list(facts.evidence),
+        "missing": list(facts.missing_evidence),
+    }
+
+
+def requirement_dependency_sections(
+    store: RequirementStore, req_id: str, plan: TaskPlan
+) -> dict[str, dict]:
+    """按任务包版本只读汇总每个任务的依赖事实与真实等待判定。"""
+
+    facts = store.dependency_facts(
+        req_id,
+        plan.plan_version,
+        single_task_id=lambda task_id: requirement_task_id(req_id, plan.plan_version, task_id),
+    )
+    return {item.task_id: dependency_section(item) for item in facts}
+
+
+def _read_candidate_summary(task_dir: Path) -> str:
+    """候选 diff 的内容摘要（文件数与增删行数）；缺失或空候选返回空串。"""
+
+    path = task_dir / CANDIDATE_NAME
+    if not path.is_file():
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    if not text.strip():
+        return ""
+    files = insertions = deletions = 0
+    for line in text.splitlines():
+        if line.startswith("diff --git "):
+            files += 1
+        elif line.startswith("+++") or line.startswith("---"):
+            continue
+        elif line.startswith("+"):
+            insertions += 1
+        elif line.startswith("-"):
+            deletions += 1
+    return f"{files} files changed, +{insertions} -{deletions}"
+
+
+def _read_review_blocking(task_dir: Path) -> bool | None:
+    """审查结论是否阻断；报告缺失、不可解析或结果不可用时返回 ``None``（不猜）。
+
+    ``blocking_issues_valid`` 为假表示该轮审查未给出结构化阻断列表（审查节点据此
+    中断），此时报告可能写入 ``blocking_issues: []``，不能据此判为"无阻断"；缺少该
+    标志同样不可判定。两种情况都返回 ``None``，由调用方列入 ``review.blocking`` 缺失。
+    """
+
+    path = task_dir / REVIEW_REPORT_NAME
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    if document.get("blocking_issues_valid") is not True:
+        return None
+    issues = document.get("blocking_issues")
+    if not isinstance(issues, list):
+        return None
+    return bool(issues)
+
+
+def _read_test_result(task_dir: Path) -> tuple[str, int | None]:
+    """正式测试证据最后一轮的结果与退出码；缺失/未知不推测为通过。"""
+
+    path = task_dir / TEST_EVIDENCE_NAME
+    if not path.is_file():
+        return "missing", None
+    try:
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        entry = json.loads(lines[-1]) if lines else None
+    except (OSError, ValueError):
+        return "unknown", None
+    if not isinstance(entry, dict):
+        return "unknown", None
+    exit_code = entry.get("exit_code")
+    if not isinstance(exit_code, int) or isinstance(exit_code, bool):
+        return "unknown", None
+    return ("passed" if exit_code == 0 else "failed"), exit_code
+
+
+def evidence_section(
+    task_id: str,
+    *,
+    candidate_summary: str,
+    candidate_sha256: str,
+    review_sha256: str,
+    review_blocking: bool | None,
+    test_evidence_sha256: str,
+    test_result: str,
+    test_exit_code: int | None,
+    artifact_sha256: str,
+    baseline_commit: str,
+    acceptance_bound: bool,
+    acceptance_accepted: bool,
+    acceptance_plan_version: int | None,
+    acceptance_fingerprint: str,
+) -> dict:
+    """交付证据身份汇总；缺哪一项都显式列入 ``missing``，字段永不省略。"""
+
+    missing: list[str] = []
+    if not candidate_summary:
+        missing.append("candidate.summary")
+    if not candidate_sha256:
+        missing.append("candidate.sha256")
+    if not review_sha256:
+        missing.append("review.sha256")
+    if review_blocking is None:
+        missing.append("review.blocking")
+    if not test_evidence_sha256:
+        missing.append("test.sha256")
+    if test_result in {"missing", "unknown"}:
+        missing.append("test.result")
+    if not artifact_sha256:
+        missing.append("artifact.sha256")
+    if not baseline_commit:
+        missing.append("baseline_commit")
+    if not acceptance_bound:
+        missing.append("acceptance.binding")
+    return {
+        "task_id": task_id,
+        "candidate": {"summary": candidate_summary, "sha256": candidate_sha256},
+        "review": {"sha256": review_sha256, "blocking": review_blocking},
+        "test": {
+            "sha256": test_evidence_sha256,
+            "result": test_result,
+            "exit_code": test_exit_code,
+        },
+        "artifact": {"sha256": artifact_sha256},
+        "baseline_commit": baseline_commit,
+        "acceptance": {
+            "bound": acceptance_bound,
+            "accepted": acceptance_accepted,
+            "plan_version": acceptance_plan_version,
+            "fingerprint": acceptance_fingerprint,
+        },
+        "missing": missing,
+    }
+
+
+def requirement_task_evidence_section(
+    root: Path,
+    store: RecordStore,
+    task_id: str,
+    single_task_id: str,
+    artifact: TaskArtifact | None,
+    plan_version: int,
+) -> dict:
+    """需求内任务的交付证据身份：优先当前验收绑定，否则回落到任务产物记录。"""
+
+    task_dir = root / single_task_id
+    binding = store.acceptance_binding(single_task_id)
+    delivery = store.task_delivery(single_task_id)
+    test_result, test_exit_code = _read_test_result(task_dir)
+    candidate_sha256 = binding.candidate_sha256 if binding else ""
+    review_sha256 = binding.review_sha256 if binding else ""
+    test_evidence_sha256 = binding.test_evidence_sha256 if binding else ""
+    if artifact is not None:
+        candidate_sha256 = candidate_sha256 or artifact.candidate_sha256
+        review_sha256 = review_sha256 or artifact.review_sha256
+        test_evidence_sha256 = test_evidence_sha256 or artifact.test_evidence_sha256
+    return evidence_section(
+        task_id,
+        candidate_summary=_read_candidate_summary(task_dir),
+        candidate_sha256=candidate_sha256,
+        review_sha256=review_sha256,
+        review_blocking=_read_review_blocking(task_dir),
+        test_evidence_sha256=test_evidence_sha256,
+        test_result=test_result,
+        test_exit_code=test_exit_code,
+        artifact_sha256=binding.artifact_sha256 if binding else "",
+        baseline_commit=binding.baseline_commit if binding else "",
+        acceptance_bound=binding is not None,
+        acceptance_accepted=delivery.accepted if delivery else False,
+        acceptance_plan_version=binding.plan_version if binding else plan_version,
+        acceptance_fingerprint=binding.fingerprint if binding else "",
+    )
+
+
+def aggregate_missing(entries: list[dict]) -> list[str]:
+    """把各任务的依赖/证据缺失项汇总为稳定排序的扁平列表（不重复）。"""
+
+    items: list[str] = []
+    for entry in entries:
+        task_id = str(entry["task_id"])
+        for item in entry["dependency"]["missing"]:
+            items.append(f"{task_id}:dependency:{item}")
+        for item in entry["evidence"]["missing"]:
+            items.append(f"{task_id}:evidence:{item}")
+    return sorted(set(items))

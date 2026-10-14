@@ -422,6 +422,12 @@ class RecordStore:
         self._db.execute("PRAGMA busy_timeout = 5000")
         self._db.executescript(SCHEMA)
 
+    @property
+    def root(self) -> Path:
+        """记录根目录；交付现场材料（候选/审查/测试）位于其下 ``<task_id>/``。"""
+
+        return self._root
+
     def close(self) -> None:
         self._db.close()
 

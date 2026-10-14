@@ -99,6 +99,9 @@ class TestStatusJsonContract:
             "delivery",
             "merge",
             "release",
+            "dependency",
+            "evidence",
+            "missing",
         }
         assert document["merge"] is None
         assert document["release"] is None

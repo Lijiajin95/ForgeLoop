@@ -32,13 +32,20 @@ from forgeloop.cli.common import open_store, records_root
 from forgeloop.cli.deploy import add_deploy_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
-from forgeloop.cli.requirements import add_requirement_dispatch
+from forgeloop.cli.requirements import (
+    add_requirement_dispatch,
+    aggregate_missing,
+    dependency_section,
+    requirement_dependency_sections,
+    requirement_task_evidence_section,
+)
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
     DeliveryBinding,
     RequirementDelivery,
     assess_requirement_acceptance,
 )
+from forgeloop.domain.dependency_facts import assess_dependency
 from forgeloop.domain.requirement import (
     BLOCKED,
     RequirementError,
@@ -330,6 +337,8 @@ def _status_document(store: RecordStore, task_id: str) -> dict:
     task = store.get_task(task_id)
     if task is None:
         return {"task_id": task_id, "error": "task_not_found"}
+    dependency = _task_dependency_section(store, task_id)
+    evidence = _task_evidence_section(store, task_id)
     return {
         "task_id": task_id,
         "project": task.project,
@@ -349,7 +358,44 @@ def _status_document(store: RecordStore, task_id: str) -> dict:
         "delivery": _delivery_section(store, task_id),
         "merge": merge_section(store, task_id),
         "release": release_section(store, task_id),
+        # G02 cli-contract：单任务查询同样追加依赖事实、交付证据身份与 missing。
+        # 新字段追加、字段名小写下划线、时间 ISO8601；既有字段语义不变。
+        "dependency": dependency,
+        "evidence": evidence,
+        "missing": aggregate_missing(
+            [{"task_id": task_id, "dependency": dependency, "evidence": evidence}]
+        ),
     }
+
+
+def _task_dependency_section(store: RecordStore, task_id: str) -> dict:
+    """单任务依赖事实与阻塞判断：只读权威记录，纯规则判定。
+
+    单任务没有声明式前置（前置在需求任务包层），因此判定只反映未完成动作与
+    依据完整性；记录存在时不会出现 ``unknown``。
+    """
+
+    record = store.task_dependency_record(task_id)
+    facts = assess_dependency(
+        task_id,
+        (),
+        outstanding_action=record.outstanding_action,
+        subject_evidence=record.evidence,
+        missing_evidence=record.missing,
+        recorded_status=record.status,
+        failure_rounds=record.failure_rounds,
+    )
+    return dependency_section(facts)
+
+
+def _task_evidence_section(store: RecordStore, task_id: str) -> dict:
+    """单任务交付证据身份：现场材料只读汇总，缺失逐项列入 ``missing``。"""
+
+    plan = store.latest_plan(task_id)
+    plan_version = plan.version if plan is not None else 0
+    return requirement_task_evidence_section(
+        store.root, store, task_id, task_id, None, plan_version
+    )
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -701,21 +747,32 @@ def _requirement_tasks_section(root: Path, store: RequirementStore, req_id: str)
         return []
     runs = {run.task_id: run for run in store.task_runs(req_id, plan.plan_version)}
     artifacts = {item.task_id: item for item in store.task_artifacts(req_id, plan.plan_version)}
+    dependencies = requirement_dependency_sections(store, req_id, plan)
     record_store = RecordStore(root / "records.sqlite")
     try:
         entries: list[dict] = []
         for task in plan.tasks:
             run = runs.get(task.task_id)
             single_task_id = requirement_task_id(req_id, plan.plan_version, task.task_id)
+            artifact = artifacts.get(task.task_id)
             entries.append(
                 {
                     "task_id": task.task_id,
                     "state": run.state if run else "pending",
                     "reason": run.reason if run else "",
                     "executed_seconds": run.executed_seconds if run else 0.0,
-                    "artifact": _requirement_artifact_section(artifacts.get(task.task_id)),
+                    "artifact": _requirement_artifact_section(artifact),
                     "single_task_id": single_task_id,
                     "single_task": _requirement_single_task(record_store, single_task_id),
+                    "dependency": dependencies[task.task_id],
+                    "evidence": requirement_task_evidence_section(
+                        root,
+                        record_store,
+                        task.task_id,
+                        single_task_id,
+                        artifact,
+                        plan.plan_version,
+                    ),
                 }
             )
     finally:
@@ -744,6 +801,7 @@ def _requirement_document(root: Path, store: RequirementStore, req_id: str) -> d
     next_step = progress.next_step
     if status == REQUIREMENT_ACCEPTED:
         next_step = NextAction("归并并发布已验收任务", ActionActor.AGENT, "需求整体验收已完成")
+    tasks = _requirement_tasks_section(root, store, req_id)
     return {
         "req_id": req_id,
         "project": requirement.project,
@@ -758,12 +816,13 @@ def _requirement_document(root: Path, store: RequirementStore, req_id: str) -> d
             "reason": authorization.reason,
         },
         "budget": budget,
-        "tasks": _requirement_tasks_section(root, store, req_id),
+        "tasks": tasks,
         "next_step": {
             "action": next_step.action,
             "actor": next_step.actor.value,
             "reason": next_step.reason,
         },
+        "missing": aggregate_missing(tasks),
     }
 
 
