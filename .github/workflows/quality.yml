@@ -72,3 +72,33 @@ jobs:
             BASE="$(git merge-base "$HEAD_REVISION" origin/main || true)"
           fi
           python3 scripts/check_commit_policy.py --audit "$BASE" "$HEAD_REVISION"
+
+  dogfood-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # C04 技术门禁：校验受控执行端在合并提交里签发的来源回执。
+    # 当前 config/dogfood-policy.toml 的 enabled=false（服务端准入与限定写入身份
+    # 尚未验证），作业只报告“待启用”并放行；启用后缺密钥 fail-closed。
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.24"
+          python-version: "3.13"
+      - run: uv sync --frozen
+      - name: Audit DogFood commit provenance
+        env:
+          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          HEAD_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          FORGELOOP_DOGFOOD_SIGNING_KEY: ${{ secrets.FORGELOOP_DOGFOOD_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          BASE="$EVENT_BASE"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # 新分支推送时 before 全零：只审计该分支相对 main 的新增提交。
+            git fetch --quiet origin main
+            BASE="$(git merge-base "$HEAD_REVISION" origin/main || true)"
+          fi
+          .venv/bin/python scripts/check_dogfood_provenance.py --audit "$BASE" "$HEAD_REVISION"

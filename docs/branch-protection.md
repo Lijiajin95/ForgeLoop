@@ -102,3 +102,36 @@ bypass 名单建议在网页里设置（`bypass_actors` 需要仓库角色对应
 | 规则已创建（Evaluate） | 未执行（需要所有者在网页操作或提供 PAT） |
 | 切 Active 后首次真实归并（GitHub 真实检查） | 未执行 |
 | 失败检查时服务端拒绝直接推送且 main 未变 | 未执行 |
+| DogFood 来源门禁技术负例（真实 git：无回执／补挂任务 ID／内容漂移／伪造签名） | **已实测**：`tests/scenario/test_dogfood_gate.py`（8 项）与 `tests/unit/test_dogfood_provenance.py`（22 项） |
+| 来源门禁在 CI 启用（`config/dogfood-policy.toml` 的 `enabled=true`） | 未启用：服务端准入与限定写入身份尚未验证，现只标为待启用 |
+| 服务端拒绝非受控直接推送且限定写入身份 | 未执行 |
+
+## 6. DogFood 提交来源门禁（C04，**待启用**）
+
+C04 在“分支保护 + 必需检查”之外再加一道**技术门禁**，校验合入 main 的提交是否
+来自受控执行端，而不是普通直接提交或补挂任务 ID。
+
+机制：
+
+- 受控执行端 `forgeloop merge` 在生成合并提交时，用环境变量里的密钥对来源回执
+  做 HMAC-SHA256 签名，回执作为提交消息 trailer `ForgeLoop-Provenance:
+  <base64url(载荷)>.<签名>` 随提交传递。载荷绑定任务 ID、需求 ID、方案版本、
+  交付基线、候选 diff 校验值、正式测试证据校验值、审查结论校验值与验收材料指纹。
+- 可信校验端 `scripts/check_dogfood_provenance.py`（CI 作业 `dogfood-provenance`）
+  重新计算提交实际内容并核对签名，拒绝：无回执、回执重复、签名无效、任务 ID 不
+  属于受控命名、基线不是提交祖先、候选内容漂移。
+- 签名密钥只从环境变量 `FORGELOOP_DOGFOOD_SIGNING_KEY` 读取，不写入仓库，也不
+  传入 PI 执行环境；PI 只能改写候选 diff，改完会使回执内容校验失败，无法伪造。
+
+**当前状态：待启用**。`config/dogfood-policy.toml` 里 `enabled = false`：技术规则
+与全部负例已实现并实测，但下列服务端事项尚未完成，因此 CI 作业只报告“待启用”
+并放行，**不得声称来源门禁已在真实主干生效**：
+
+1. 仓库 ruleset 尚未在 Active 模式下验证（见第 3 节）；
+2. 限定可写入 main 的身份尚未配置与验证；
+3. 历史提交没有回执，需在专用验证分支按批启用，避免误伤已有历史；
+4. GitHub Secret `FORGELOOP_DOGFOOD_SIGNING_KEY` 尚未登记。
+
+启用顺序建议：先在专用验证分支上传入一次性策略文件跑负例（无回执、伪造签名、
+内容漂移均须拒绝），再登记 Secret 并把 `enabled` 置真；同时把 `dogfood-provenance`
+加入第 3 节的必需检查列表，最后按第 3 节切 Active 并记录真实验证结果。
