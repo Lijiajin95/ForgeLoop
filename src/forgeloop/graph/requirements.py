@@ -30,7 +30,7 @@ from enum import StrEnum
 from forgeloop.domain.requirement import BLOCKED, RequirementError
 from forgeloop.domain.status import ActionActor, NextAction
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
-from forgeloop.records.actions import ActionStore, ExecutionSlotBusyError
+from forgeloop.records.actions import ActionRecord, ActionStore, ExecutionSlotBusyError
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 
 # 需求生命周期（契约 §4 精简集合）：A04 不新增状态词。
@@ -54,10 +54,13 @@ class RequirementAlreadyRunningError(RuntimeError):
     误报成「已有推进在执行」而堵死恢复路径。
     """
 
-    def __init__(self, req_id: str, *, owner: str = "", started_at: str = "") -> None:
+    def __init__(
+        self, req_id: str, *, owner: str = "", started_at: str = "", reason: str = ""
+    ) -> None:
         detail = f"（占用者 {owner or '未知'}，开始于 {started_at or '未知'}）"
+        residue = f"残留判定：{reason}。" if reason else ""
         super().__init__(
-            f"需求 {req_id} 的执行槽位仍被占用{detail}；"
+            f"需求 {req_id} 的执行槽位仍被占用{detail}；{residue}"
             "可能是上一进程被中断的残留，不代表一定有推进在运行。"
             "请用 `forgeloop requirement slot list` 核对现场，确认无推进在运行后"
             f"用 `forgeloop requirement slot clear --slot requirement:{req_id}` 清理再重试；"
@@ -142,25 +145,44 @@ class RequirementExecutor:
         """原子占用本需求执行槽位后推进；已被其他推进占用时明确拒绝。
 
         未注入 ``slots`` 时保持原有单进程行为（兼容既有调用与 A04 测试）；注入后
-        以记录层槽位拒绝「同一需求并发推进」，并发只有一个调用能真正执行。
+        以记录层槽位拒绝「同一需求并发推进」，并发只有一个调用能真正执行。获取
+        槽位时先判定残留：占用者已证明死亡则自动清理并继续，存活或不确定则明确
+        报告原因并保持等待（不启动业务图）。
         """
 
         if self._slots is None:
             return self._advance()
         slot_key = f"requirement:{self._req_id}"
-        try:
-            slot = self._slots.claim_slot(slot_key, owner=self._req_id)
-        except ExecutionSlotBusyError as error:
-            existing = self._slots.slot_owner(slot_key)
-            raise RequirementAlreadyRunningError(
-                self._req_id,
-                owner=existing.role if existing is not None else "",
-                started_at=existing.started_at.isoformat() if existing is not None else "",
-            ) from error
+        slot = self._claim_slot(slot_key)
         try:
             return self._advance()
         finally:
             self._slots.release_slot(slot.action_id)
+
+    def _claim_slot(self, slot_key: str) -> ActionRecord:
+        """占用需求槽位：占用者已证明死亡时自动清理后重试，否则报告原因。
+
+        判定只依据权威动作记录里的进程身份，不依据等待时长；已死占用者由记录层
+        安全清理并留档，存活或不确定一律不清理，抛出带具体原因的
+        :class:`RequirementAlreadyRunningError`，交由人工核对后再决定。
+        """
+
+        slots = self._slots
+        assert slots is not None
+        while True:
+            try:
+                return slots.claim_slot(slot_key, owner=self._req_id)
+            except ExecutionSlotBusyError as error:
+                outcome = slots.cleanup_slot_residue(slot_key)
+                if outcome.cleaned:
+                    continue
+                existing = slots.slot_owner(slot_key)
+                raise RequirementAlreadyRunningError(
+                    self._req_id,
+                    owner=existing.role if existing is not None else "",
+                    started_at=existing.started_at.isoformat() if existing is not None else "",
+                    reason=outcome.assessment.reason,
+                ) from error
 
     def _advance(self) -> RequirementProgress:
         """推进需求内所有可执行任务，直到交付完成、等待人工或阻塞。"""

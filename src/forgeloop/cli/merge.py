@@ -60,6 +60,7 @@ from forgeloop.graph.dispatch import (
     DEFAULT_DELIVERY_TIMEOUT_SECONDS,
     ProjectDeliveryBusyError,
     project_delivery,
+    project_delivery_slot,
 )
 from forgeloop.records.store import RecordStore
 
@@ -572,13 +573,25 @@ def cmd_merge(args: argparse.Namespace) -> int:
     try:
         task = store.get_task(args.task_id)
         assert task is not None
+        slot_key = project_delivery_slot(task.project)
+        # 获取交付互斥前先按权威进程身份处理残留：只有已死占用者自动清理并继续，
+        # 存活或不确定一律不清理，把具体原因留给下面的等待与失败报告。
+        residue = store.actions.cleanup_slot_residue(slot_key)
+        if residue.cleaned:
+            print(
+                f"已自动清理已死残留交付槽位 {slot_key}：{residue.assessment.reason}",
+                file=sys.stderr,
+            )
         try:
             # 同项目交付整体串行：检查—归并—推送在同一互斥内，避免两个同项目需求
             # 同时读到旧 main 再各自快进/推送。
             with project_delivery(root, task.project, timeout=args.delivery_timeout):
                 return _merge_locked(args, store, root)
         except ProjectDeliveryBusyError as error:
-            return fail(str(error))
+            hint = ""
+            if not residue.cleaned and residue.assessment.occupant is not None:
+                hint = f"；残留判定：{residue.assessment.reason}"
+            return fail(f"{error}{hint}")
     finally:
         store.close()
 

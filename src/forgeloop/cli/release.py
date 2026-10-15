@@ -15,6 +15,7 @@
 import argparse
 import json
 import subprocess
+import sys
 import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -42,6 +43,7 @@ from forgeloop.domain.release import (
 from forgeloop.graph.dispatch import (
     ProjectDeliveryBusyError,
     project_delivery,
+    project_delivery_slot,
 )
 from forgeloop.records.store import RecordStore
 
@@ -432,12 +434,24 @@ def cmd_release(args: argparse.Namespace) -> int:
     try:
         task = store.get_task(args.task_id)
         assert task is not None
+        slot_key = project_delivery_slot(task.project)
+        # 与归并共用同一交付互斥：获取前先按权威进程身份处理残留，只有已死占用者
+        # 自动清理并继续，存活或不确定一律不清理并保留原因供超时报告。
+        residue = store.actions.cleanup_slot_residue(slot_key)
+        if residue.cleaned:
+            print(
+                f"已自动清理已死残留交付槽位 {slot_key}：{residue.assessment.reason}",
+                file=sys.stderr,
+            )
         try:
             # 发布也要更新同项目主干（标签指向 main），与归并及另一发布互斥。
             with project_delivery(root, task.project, timeout=args.delivery_timeout):
                 return _release_locked(args, store, root)
         except ProjectDeliveryBusyError as error:
-            return fail(str(error))
+            hint = ""
+            if not residue.cleaned and residue.assessment.occupant is not None:
+                hint = f"；残留判定：{residue.assessment.reason}"
+            return fail(f"{error}{hint}")
     finally:
         store.close()
 
