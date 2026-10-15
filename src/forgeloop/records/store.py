@@ -106,9 +106,21 @@ CREATE TABLE IF NOT EXISTS actions (
     state TEXT NOT NULL,
     started_at TEXT NOT NULL,
     finished_at TEXT,
-    detail TEXT NOT NULL DEFAULT ''
+    detail TEXT NOT NULL DEFAULT '',
+    pid INTEGER,
+    heartbeat_at TEXT
 );
 CREATE INDEX IF NOT EXISTS actions_by_task ON actions (task_id, started_at);
+CREATE TABLE IF NOT EXISTS slot_cleanups (
+    cleanup_id TEXT PRIMARY KEY,
+    slot TEXT NOT NULL,
+    occupant_action_id TEXT NOT NULL,
+    occupant_owner TEXT NOT NULL,
+    occupant_pid INTEGER,
+    reason TEXT NOT NULL,
+    cleaned_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS slot_cleanups_by_slot ON slot_cleanups (slot, cleaned_at);
 CREATE TABLE IF NOT EXISTS merges (
     task_id TEXT PRIMARY KEY,
     merge_commit TEXT NOT NULL,
@@ -422,6 +434,20 @@ class RecordStore:
         # 两个连接争用同一记录库时等待写锁而不是立刻报 database is locked。
         self._db.execute("PRAGMA busy_timeout = 5000")
         self._db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """为旧库补上槽位残留判定所需的动作列；对新建库是空操作。
+
+        ``CREATE TABLE IF NOT EXISTS`` 不会给已存在的 ``actions`` 表加列，因此旧库
+        升级时必须显式 ``ALTER TABLE``，否则读动作记录会因缺列失败。
+        """
+
+        columns = {str(row[1]) for row in self._db.execute("PRAGMA table_info(actions)")}
+        if "pid" not in columns:
+            self._db.execute("ALTER TABLE actions ADD COLUMN pid INTEGER")
+        if "heartbeat_at" not in columns:
+            self._db.execute("ALTER TABLE actions ADD COLUMN heartbeat_at TEXT")
 
     @property
     def root(self) -> Path:
