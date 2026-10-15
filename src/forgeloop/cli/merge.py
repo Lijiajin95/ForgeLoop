@@ -45,7 +45,7 @@ from forgeloop.adapter.git_workspace import (
     read_main_head,
     switch_to_main,
 )
-from forgeloop.adapter.github_checks import ChecksError, check_runs
+from forgeloop.adapter.github_checks import ChecksError, check_runs, github_token
 from forgeloop.cli.common import fail, open_store, records_root
 from forgeloop.domain.approval import ApprovalStage
 from forgeloop.domain.delivery import DeliveryBinding
@@ -330,10 +330,61 @@ def check_poll_delay(attempt: int, base: float) -> float:
     return min(base * max(attempt, 1), CHECK_POLL_MAX_SECONDS)
 
 
+def _format_reset(value: str) -> str:
+    """把 ``X-RateLimit-Reset`` 的 epoch 秒转为可读 UTC 时间；非数字原样返回。"""
+
+    try:
+        epoch = int(value)
+    except ValueError:
+        return value
+    return datetime.fromtimestamp(epoch, UTC).isoformat()
+
+
+def rate_limit_reason(error: ChecksError) -> str | None:
+    """识别 403 速率限制并给出可诊断原因；非限流错误返回 ``None``。
+
+    GitHub 在配额耗尽时返回 403：主配额带 ``X-RateLimit-Remaining: 0``，次级限流
+    常带 ``Retry-After``。只有这些明确信号（或错误文本显式点明 rate limit）才判为
+    限流；权限不足等普通 403 与其它网络错误保持既有语义，不在此快速失败。
+    """
+
+    cause = error.__cause__
+    headers = getattr(cause, "headers", None)
+    status = getattr(cause, "code", None)
+    limited_by_header = (
+        status == 403
+        and headers is not None
+        and (headers.get("X-RateLimit-Remaining") == "0" or bool(headers.get("Retry-After")))
+    )
+    limited_by_text = "rate limit" in f"{error} {cause}".lower()
+    if not limited_by_header and not limited_by_text:
+        return None
+    parts = [
+        "GitHub 检查状态读取触发速率限制",
+        "本次为匿名读取" if github_token() is None else "本次为认证读取",
+    ]
+    if headers is not None:
+        limit = headers.get("X-RateLimit-Limit")
+        reset = headers.get("X-RateLimit-Reset")
+        retry_after = headers.get("Retry-After")
+        if limit:
+            parts.append(f"限额 {limit}")
+        if reset:
+            parts.append(f"复位时间 {reset}（{_format_reset(reset)}）")
+        if retry_after:
+            parts.append(f"Retry-After {retry_after}s")
+    parts.append("立即失败，不再等待检查")
+    return "；".join(parts)
+
+
 def _wait_for_checks(
     slug: str, sha: str, required: tuple[str, ...], timeout_seconds: float
 ) -> tuple[ChecksDecision, dict]:
-    """轮询检查：通过/失败立即返回，未完成继续等，网络错误重试，超时如实报告。"""
+    """轮询检查：通过/失败立即返回，未完成继续等，网络错误重试，超时如实报告。
+
+    403 速率限制是例外：它是配额已耗尽的确定性信号，继续轮询只会持续空转并
+    放大限流，因此在第一次出现时立即失败，并附上是否匿名、限额与复位时间。
+    """
 
     deadline = time.monotonic() + timeout_seconds
     polls = 0
@@ -344,6 +395,13 @@ def _wait_for_checks(
         try:
             last_runs = check_runs(slug, sha)
         except ChecksError as error:
+            reason = rate_limit_reason(error)
+            if reason is not None:
+                return ChecksDecision(False, False, reason), {
+                    "polls": polls,
+                    "last_runs": last_runs,
+                    "rate_limited": True,
+                }
             last = ChecksDecision(False, True, f"检查状态读取失败：{error}")
         else:
             last = check_required_checks(required, last_runs)
