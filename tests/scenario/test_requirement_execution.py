@@ -169,6 +169,34 @@ class TestDependencyExecution:
         assert downstream.task.task_id == "second"
         assert downstream.dependencies == (first_artifact,)
 
+    def test_transitive_ancestors_are_covered_not_reapplied(self, tmp_path: Path) -> None:
+        """菱形依赖：祖先被直接依赖传递包含时标记为 covered，只保留极大依赖。"""
+
+        tasks = (
+            planned("root"),
+            planned("left", depends_on=("root",)),
+            planned("right", depends_on=("root",)),
+            planned("tip", depends_on=("root", "left", "right")),
+        )
+        store, req_id = approved_scene(tmp_path, tasks)
+        clock = FakeClock()
+        runner = ScriptedRunner(
+            clock,
+            {
+                task_id: (1.0, TaskResult(TaskRunState.DELIVERED, artifact(task_id, task_id[0])))
+                for task_id in ("root", "left", "right", "tip")
+            },
+        )
+        try:
+            RequirementExecutor(store, req_id, runner, clock=clock).advance()
+        finally:
+            store.close()
+
+        tip = next(call for call in runner.calls if call.task.task_id == "tip")
+        # 全部直接依赖照常传给执行器校验与记录，但祖先明确标记为被覆盖。
+        assert [item.task_id for item in tip.dependencies] == ["root", "left", "right"]
+        assert tip.covered_dependencies == ("root",)
+
     def test_all_delivered_still_waits_for_overall_acceptance(self, tmp_path: Path) -> None:
         store, req_id = approved_scene(tmp_path, two_task_plan())
         clock = FakeClock()

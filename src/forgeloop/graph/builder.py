@@ -12,7 +12,7 @@ gate_acceptance →(拒绝) 按测试失败同规则路由
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -35,7 +35,12 @@ from forgeloop.graph.nodes import (
     make_review_node,
     make_test_node,
 )
-from forgeloop.graph.requirements import TaskExecution, TaskResult, TaskRunState
+from forgeloop.graph.requirements import (
+    PrerequisiteCandidate,
+    TaskExecution,
+    TaskResult,
+    TaskRunState,
+)
 from forgeloop.graph.state import TaskState
 from forgeloop.records.requirements import TaskArtifact
 from forgeloop.records.store import RecordStore
@@ -185,8 +190,16 @@ class RequirementTaskRunner:
                 store.create_task(
                     task_id, self.project, task.goal, self._config(task), task.limits.limit_seconds
                 )
-            graph = build_graph(
+            # 前置候选随每次启动重建：按已完成前置任务的候选 diff 现场路径与记录校验值
+            # 交给 dev 节点，在克隆副本后、进入实现前应用。
+            context = replace(
                 NodeContext.for_task(store, self.records_root, task_id),
+                prerequisites=self._prerequisite_candidates(
+                    execution.dependencies, execution.covered_dependencies
+                ),
+            )
+            graph = build_graph(
+                context,
                 self.records_root / "checkpoints.sqlite",
             )
             record = store.get_task(task_id)
@@ -205,6 +218,30 @@ class RequirementTaskRunner:
             if graph is not None:
                 _close_runtime(graph)
             store.close()
+
+    def _prerequisite_candidates(
+        self,
+        dependencies: tuple[TaskArtifact, ...],
+        covered_dependencies: tuple[str, ...] = (),
+    ) -> tuple[PrerequisiteCandidate, ...]:
+        """把需求层前置产物身份落到单任务记录现场：候选 diff 路径 + 记录校验值。
+
+        ``covered_dependencies`` 中的任务被其他依赖传递包含：照常带上身份供校验与
+        记录，但标记为不单独应用，交由极大依赖带入其改动。
+        """
+
+        covered = set(covered_dependencies)
+        return tuple(
+            PrerequisiteCandidate(
+                task_id=artifact.task_id,
+                candidate_sha256=artifact.candidate_sha256,
+                diff_path=self.records_root
+                / requirement_task_id(self.req_id, self.plan_version, artifact.task_id)
+                / "candidate.diff",
+                covered=artifact.task_id in covered,
+            )
+            for artifact in dependencies
+        )
 
     def _config(self, task: PlannedTask) -> dict[str, str]:
         config = {

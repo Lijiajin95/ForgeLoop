@@ -22,11 +22,26 @@
 已交付任务不再执行。
 """
 
+import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
+from forgeloop.adapter.git_workspace import (
+    WorkspaceError,
+    applied_prerequisites,
+    apply_diff_to_workspace,
+    apply_diff_to_workspace_three_way,
+    clear_applied_prerequisites,
+    diff_is_applied,
+    mark_prerequisite_applied,
+    recorded_baseline,
+    reset_workspace,
+    workspace_head,
+)
+from forgeloop.domain.delivery import sha256_of_text
 from forgeloop.domain.requirement import BLOCKED, RequirementError
 from forgeloop.domain.status import ActionActor, NextAction
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
@@ -80,10 +95,16 @@ class TaskRunState(StrEnum):
 
 @dataclass(frozen=True)
 class TaskExecution:
-    """交给执行器的一次任务执行请求，携带已落库的前置产物身份。"""
+    """交给执行器的一次任务执行请求，携带已落库的前置产物身份。
+
+    ``covered_dependencies`` 是直接依赖中「被其他直接依赖传递包含」的祖先任务：
+    后建任务的候选 diff 相对基线采集，已带上祖先的全部改动，因此只需应用极大
+    依赖；被覆盖的依赖照常校验与记录，但不单独应用（其改动随极大依赖一并带入）。
+    """
 
     task: PlannedTask
     dependencies: tuple[TaskArtifact, ...] = ()
+    covered_dependencies: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -93,6 +114,245 @@ class TaskResult:
     state: TaskRunState
     artifact: TaskArtifact | None = None
     reason: str = ""
+
+
+# 前置候选应用记录文件名：落在下游任务现场，记录逐条应用结果与校验值。
+PREREQUISITE_RECORD_NAME = "prerequisite-applications.json"
+
+
+class PrerequisiteApplyStatus(StrEnum):
+    """一处前置候选的应用结果；成功、已完成与各类失败分别如实记录。"""
+
+    APPLIED = "applied"
+    ALREADY_APPLIED = "already_applied"
+    SKIPPED = "skipped"
+    MISSING = "missing"
+    CHECKSUM_MISMATCH = "checksum_mismatch"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class PrerequisiteCandidate:
+    """一处待应用的前置候选：任务身份、记录校验值与候选 diff 现场路径。
+
+    ``covered`` 为真表示该前置被另一直接依赖传递包含（属于菱形/冗余依赖的祖先）：
+    它仍参与校验与记录，但不单独应用，避免对同一新文件重复 apply 失败或冲突。
+    """
+
+    task_id: str
+    candidate_sha256: str
+    diff_path: Path
+    covered: bool = False
+
+
+@dataclass(frozen=True)
+class PrerequisiteApplication:
+    """一条前置候选的应用记录：标识、校验值与结果。"""
+
+    task_id: str
+    candidate_sha256: str
+    status: PrerequisiteApplyStatus
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class PrerequisiteApplyReport:
+    """一次下游启动前的前置应用汇总；``blocked_reason`` 非空表示拒绝启动。"""
+
+    applications: tuple[PrerequisiteApplication, ...] = ()
+    blocked_reason: str = ""
+
+    @property
+    def blocked(self) -> bool:
+        return bool(self.blocked_reason)
+
+    @property
+    def applied_count(self) -> int:
+        return sum(
+            1
+            for item in self.applications
+            if item.status
+            in (PrerequisiteApplyStatus.APPLIED, PrerequisiteApplyStatus.ALREADY_APPLIED)
+        )
+
+
+def _write_report(record_path: Path, report: PrerequisiteApplyReport) -> None:
+    """把逐条应用结果写入下游任务现场；记录失败不掩盖业务结论。"""
+
+    payload = {
+        "applications": [
+            {
+                "task_id": item.task_id,
+                "candidate_sha256": item.candidate_sha256,
+                "status": item.status.value,
+                "detail": item.detail,
+            }
+            for item in report.applications
+        ],
+        "blocked_reason": report.blocked_reason,
+    }
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    record_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def apply_prerequisite_candidates(
+    workspace: Path,
+    candidates: Sequence[PrerequisiteCandidate],
+    record_path: Path,
+) -> PrerequisiteApplyReport:
+    """把已完成前置任务的候选改动作为代码输入应用到下游任务副本。
+
+    先逐条读取候选 diff 并核对记录校验值，任一缺失或校验不符即整体阻塞、
+    不写入任何代码；全部通过后才按依赖顺序应用。已记录成功且现场仍生效的
+    候选按幂等跳过，不重复应用。应用失败时回退到应用前的干净副本并如实记录。
+    """
+
+    candidates = tuple(candidates)
+    if not candidates:
+        return PrerequisiteApplyReport()
+    # 幂等判据以「本工作副本是否已应用」为准（副本本地标记 + 现场反向校验），
+    # 不依赖旧的启动记录：下游在首轮修改了前置文件后，反向校验会失败，但标记
+    # 仍成立，据此跳过重复 apply，避免 git apply 失败后回退并丢弃下游改动。
+    workspace_applied = applied_prerequisites(workspace)
+    outcomes: dict[str, PrerequisiteApplication] = {}
+    verified: list[tuple[PrerequisiteCandidate, str]] = []
+    problems: list[str] = []
+    for candidate in candidates:
+        if not candidate.diff_path.is_file():
+            outcomes[candidate.task_id] = PrerequisiteApplication(
+                candidate.task_id,
+                candidate.candidate_sha256,
+                PrerequisiteApplyStatus.MISSING,
+                f"前置候选产物缺失: {candidate.diff_path}",
+            )
+            problems.append(f"前置候选产物缺失: {candidate.task_id}")
+            continue
+        diff_text = candidate.diff_path.read_text(encoding="utf-8")
+        if not diff_text.strip():
+            outcomes[candidate.task_id] = PrerequisiteApplication(
+                candidate.task_id,
+                candidate.candidate_sha256,
+                PrerequisiteApplyStatus.MISSING,
+                "前置候选产物为空",
+            )
+            problems.append(f"前置候选产物为空: {candidate.task_id}")
+            continue
+        actual = sha256_of_text(diff_text)
+        if actual != candidate.candidate_sha256:
+            outcomes[candidate.task_id] = PrerequisiteApplication(
+                candidate.task_id,
+                candidate.candidate_sha256,
+                PrerequisiteApplyStatus.CHECKSUM_MISMATCH,
+                f"校验值不符: 记录 {candidate.candidate_sha256[:12]}，实际 {actual[:12]}",
+            )
+            problems.append(f"前置候选校验值不符: {candidate.task_id}")
+            continue
+        if candidate.covered:
+            outcomes[candidate.task_id] = PrerequisiteApplication(
+                candidate.task_id,
+                candidate.candidate_sha256,
+                PrerequisiteApplyStatus.SKIPPED,
+                "已被其他直接依赖传递包含，其改动随该前置一并带入，不单独应用",
+            )
+            continue
+        key = (candidate.task_id, candidate.candidate_sha256)
+        if key in workspace_applied or diff_is_applied(workspace, diff_text):
+            mark_prerequisite_applied(workspace, candidate.task_id, candidate.candidate_sha256)
+            outcomes[candidate.task_id] = PrerequisiteApplication(
+                candidate.task_id,
+                candidate.candidate_sha256,
+                PrerequisiteApplyStatus.ALREADY_APPLIED,
+                "本工作副本已包含该前置候选，跳过重复应用",
+            )
+            continue
+        verified.append((candidate, diff_text))
+    if problems:
+        for candidate, _ in verified:
+            outcomes[candidate.task_id] = PrerequisiteApplication(
+                candidate.task_id,
+                candidate.candidate_sha256,
+                PrerequisiteApplyStatus.SKIPPED,
+                "同一批前置校验未通过，未应用任何代码",
+            )
+        report = PrerequisiteApplyReport(
+            tuple(outcomes[c.task_id] for c in candidates), "; ".join(problems)
+        )
+        _write_report(record_path, report)
+        return report
+
+    snapshot = recorded_baseline(workspace) or workspace_head(workspace)
+    applied_this_run: list[str] = []
+    for index, (candidate, diff_text) in enumerate(verified):
+        detail = ""
+        # 前序候选（尤其是后建的前置，其 diff 已含祖先改动）可能已把本候选带出：
+        # 应用前再按现场反向校验一次，避免对已生效改动重复 apply。
+        if diff_is_applied(workspace, diff_text):
+            mark_prerequisite_applied(workspace, candidate.task_id, candidate.candidate_sha256)
+            outcomes[candidate.task_id] = PrerequisiteApplication(
+                candidate.task_id,
+                candidate.candidate_sha256,
+                PrerequisiteApplyStatus.ALREADY_APPLIED,
+                "前序前置候选已带出同一改动，现场反向校验通过，跳过重复应用",
+            )
+            continue
+        try:
+            apply_diff_to_workspace(workspace, diff_text)
+        except WorkspaceError:
+            # 普通应用失败不一定是真失败：菱形/冗余依赖下，后一个前置候选的 diff
+            # 已包含前一个的改动（在已应用前者的副本里采集），直接 apply 会因 hunk
+            # 已存在而失败。此时用三方合并只补上尚未应用的部分；真实冲突仍按失败
+            # 处理并回退，既不静默放行也不误阻塞。
+            try:
+                apply_diff_to_workspace_three_way(workspace, diff_text)
+            except WorkspaceError as error:
+                for applied_id in applied_this_run:
+                    outcomes[applied_id] = PrerequisiteApplication(
+                        applied_id,
+                        outcomes[applied_id].candidate_sha256,
+                        PrerequisiteApplyStatus.FAILED,
+                        "应用后因后续候选失败已回退到干净副本",
+                    )
+                outcomes[candidate.task_id] = PrerequisiteApplication(
+                    candidate.task_id,
+                    candidate.candidate_sha256,
+                    PrerequisiteApplyStatus.FAILED,
+                    str(error)[:200],
+                )
+                # 失败点之后的候选尚未处理，也必须逐条落盘结果，不能缺条导致 KeyError
+                # 或让报告漏报：标记为「前序失败未应用」。
+                for remaining, _ in verified[index + 1 :]:
+                    outcomes.setdefault(
+                        remaining.task_id,
+                        PrerequisiteApplication(
+                            remaining.task_id,
+                            remaining.candidate_sha256,
+                            PrerequisiteApplyStatus.SKIPPED,
+                            "前序候选应用失败，未应用",
+                        ),
+                    )
+                try:
+                    reset_workspace(workspace, snapshot)
+                    clear_applied_prerequisites(workspace)
+                except WorkspaceError as reset_error:
+                    problems.append(f"回退失败: {reset_error}")
+                problems.append(f"前置候选应用失败: {candidate.task_id}")
+                report = PrerequisiteApplyReport(
+                    tuple(outcomes[c.task_id] for c in candidates), "; ".join(problems)
+                )
+                _write_report(record_path, report)
+                return report
+            detail = "普通应用失败，经三方合并补齐其余改动（部分改动已由其他前置带出）"
+        outcomes[candidate.task_id] = PrerequisiteApplication(
+            candidate.task_id,
+            candidate.candidate_sha256,
+            PrerequisiteApplyStatus.APPLIED,
+            detail,
+        )
+        applied_this_run.append(candidate.task_id)
+        mark_prerequisite_applied(workspace, candidate.task_id, candidate.candidate_sha256)
+    report = PrerequisiteApplyReport(tuple(outcomes[c.task_id] for c in candidates))
+    _write_report(record_path, report)
+    return report
 
 
 @dataclass(frozen=True)
@@ -320,6 +580,7 @@ class RequirementExecutor:
             execution = TaskExecution(
                 task=task,
                 dependencies=self._dependencies(plan, task),
+                covered_dependencies=self._covered_dependencies(plan, task),
             )
             started = self._clock()
             result = self._run_task(execution)
@@ -359,6 +620,35 @@ class RequirementExecutor:
                 raise RequirementExecutionError(f"依赖产物缺失: {dependency}")
             artifacts.append(artifact)
         return tuple(artifacts)
+
+    def _covered_dependencies(self, plan: TaskPlan, task: PlannedTask) -> tuple[str, ...]:
+        """在直接依赖里找出被其他直接依赖传递包含的祖先任务。
+
+        后建任务的候选 diff 相对批准基线采集，本就包含其全部祖先的改动。下游若把
+        祖先与后代都当独立改动逐条 apply，会在同一新文件上重复或冲突（菱形/冗余
+        依赖）。这里按任务包依赖拓扑剔除祖先，只保留极大依赖；被剔除项照常由调用
+        方校验与记录。
+        """
+
+        direct = set(task.depends_on)
+        covered: set[str] = set()
+        for dependency in task.depends_on:
+            covered |= self._ancestors(plan, dependency) & direct
+        return tuple(dependency for dependency in task.depends_on if dependency in covered)
+
+    @staticmethod
+    def _ancestors(plan: TaskPlan, task_id: str) -> set[str]:
+        """某任务的全部祖先任务身份（任务包构造时已保证无环）。"""
+
+        ancestors: set[str] = set()
+        stack = list(plan.task(task_id).depends_on)
+        while stack:
+            current = stack.pop()
+            if current in ancestors:
+                continue
+            ancestors.add(current)
+            stack.extend(plan.task(current).depends_on)
+        return ancestors
 
     def _ensure_budget(self, plan: TaskPlan) -> None:
         limit = self._budget_seconds

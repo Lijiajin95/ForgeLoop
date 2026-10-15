@@ -44,6 +44,11 @@ from forgeloop.domain.counting import FailureStage, GrantExhaustedError
 from forgeloop.domain.delivery import verify_binding
 from forgeloop.graph.evidence import capture_partial_candidate, previous_failure_context
 from forgeloop.graph.prompts import dev_prompt, review_prompt
+from forgeloop.graph.requirements import (
+    PREREQUISITE_RECORD_NAME,
+    PrerequisiteCandidate,
+    apply_prerequisite_candidates,
+)
 from forgeloop.graph.state import TaskState
 from forgeloop.records.actions import ActionInFlightError, ActionRecord
 from forgeloop.records.store import RecordStore
@@ -66,6 +71,8 @@ class NodeContext:
     workspace: Path
     sessions_dir: Path
     config: Mapping[str, str]
+    # 已完成前置任务的候选改动：在克隆副本后、进入实现前应用（I01 接缝）。
+    prerequisites: tuple[PrerequisiteCandidate, ...] = ()
 
     @classmethod
     def for_task(cls, store: RecordStore, records_root: Path, task_id: str) -> "NodeContext":
@@ -352,6 +359,17 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
                     )
             finally:
                 ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)
+            # 克隆副本后、进入实现前：把已完成前置任务的候选改动作为代码输入应用。
+            # 任一前置缺失或校验不符即在启动阶段阻塞，不放行实现会话。
+            if ctx.prerequisites and is_git_workspace(ctx.workspace):
+                report = apply_prerequisite_candidates(
+                    ctx.workspace,
+                    ctx.prerequisites,
+                    record_path=ctx.task_dir / PREREQUISITE_RECORD_NAME,
+                )
+                if report.blocked:
+                    ctx.store.set_task_status(ctx.task_id, "blocked")
+                    return {"halted_reason": f"prerequisite_blocked: {report.blocked_reason}"}
             attempt = state.get("dev_attempts", 0) + 1
             environment = _execution_environment(ctx, plan.test_command)
             # 容器里工作副本与测试命令都是容器路径：提示词必须按挂载点翻译，
