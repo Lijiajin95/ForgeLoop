@@ -139,8 +139,8 @@ def build_graph(ctx: NodeContext, checkpoint_db: Path) -> CompiledStateGraph[Tas
 def requirement_task_id(req_id: str, plan_version: int, task_id: str) -> str:
     """需求内任务映射到单任务记录的稳定身份（同一任务重开仍指向同一条）。
 
-    身份必须保留受控前缀（``config/dogfood-policy.toml`` 的 ``task_id_prefix``），
-    否则来源门禁会把需求线任务判为补挂任务 ID 而拒绝归并。
+    身份必须保留前缀 ``task-``：该前缀是既有单任务记录格式的一部分，需求线任务与
+    单任务流程创建的任务靠它保持同样的记录形态，便于按前缀检索与区分。
     """
 
     return f"task-{req_id}-v{plan_version}-{task_id}"

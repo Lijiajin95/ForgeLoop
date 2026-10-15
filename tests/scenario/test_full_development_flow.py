@@ -20,11 +20,6 @@ from pathlib import Path
 import pytest
 from support import make_project, run_cli, run_git
 
-from forgeloop.cli.merge import (
-    DEFAULT_PROVENANCE_POLICY,
-    build_provenance_payload,
-    validate_provenance_payload,
-)
 from forgeloop.records.store import RecordStore
 
 # 组合式假 PI：按 prompt 的 role 返回分析/规划/实现/审查结构化结果。
@@ -675,7 +670,7 @@ class TestRequirementOverallAcceptance:
         )
         advance(tmp_path, req_id, pi_command, capsys, pi_timeout_seconds=120.0)
 
-        # 需求身份写入映射任务配置，且回执字段能通过受控来源校验。
+        # 需求身份写入映射任务配置，且验收材料绑定可回查（来源门禁已按所有者决定取消）。
         record_store = RecordStore(tmp_path / "records.sqlite")
         try:
             mapped = record_store.get_task(alpha["single_task_id"])
@@ -683,10 +678,6 @@ class TestRequirementOverallAcceptance:
             assert mapped.config["requirement_id"] == req_id
             binding = record_store.acceptance_binding(alpha["single_task_id"])
             assert binding is not None
-            payload = build_provenance_payload(
-                binding, str(mapped.config["requirement_id"]), "d" * 40
-            )
-            assert validate_provenance_payload(DEFAULT_PROVENANCE_POLICY, payload) == (True, "")
         finally:
             record_store.close()
 

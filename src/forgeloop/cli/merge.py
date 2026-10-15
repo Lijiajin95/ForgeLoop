@@ -10,24 +10,12 @@
 
 检查状态对公开仓库匿名可读，全程不需要凭据；证据写入 ``merge-evidence.json``。
 
-C04 提交来源：受控执行端在合并提交消息里追加签名回执
-trailer（``ForgeLoop-Provenance``），绑定任务、方案版本、基线、候选内容与验收材料。
-签名密钥只从环境变量读取（见 ``config/dogfood-policy.toml``），不进入 PI 可写的
-候选副本；``scripts/check_dogfood_provenance.py`` 作为可信校验端验证来源。
 """
 
 import argparse
-import base64
-import binascii
-import hashlib
-import hmac
 import json
-import os
-import re
 import sys
 import time
-import tomllib
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,7 +36,6 @@ from forgeloop.adapter.git_workspace import (
 from forgeloop.adapter.github_checks import ChecksError, check_runs, github_token
 from forgeloop.cli.common import fail, open_store, records_root
 from forgeloop.domain.approval import ApprovalStage
-from forgeloop.domain.delivery import DeliveryBinding
 from forgeloop.domain.merge import (
     ChecksDecision,
     candidate_branch_name,
@@ -68,22 +55,6 @@ CHECK_POLL_SECONDS = 30.0
 CHECK_POLL_MAX_SECONDS = 300.0
 DEFAULT_REQUIRE_CHECKS = "quality,security,commit-policy"
 DEFAULT_CHECKS_TIMEOUT = 1800.0
-
-POLICY_PATH = Path(__file__).resolve().parents[3] / "config" / "dogfood-policy.toml"
-PROVENANCE_SCHEMA = 1
-PROVENANCE_FIELDS = (
-    "schema",
-    "task_id",
-    "requirement_id",
-    "plan_version",
-    "baseline_commit",
-    "candidate_sha256",
-    "test_evidence_sha256",
-    "review_sha256",
-    "approval_fingerprint",
-)
-COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
-DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -118,193 +89,6 @@ def _required_checks(raw: str) -> tuple[str, ...]:
     if raw.strip().lower() in ("", "none"):
         return ()
     return tuple(name.strip() for name in raw.split(",") if name.strip())
-
-
-@dataclass(frozen=True)
-class ProvenancePolicy:
-    """DogFood 提交来源策略（C04）：从 config/dogfood-policy.toml 读取。
-
-    ``enabled`` 为假时校验端只报告“待启用”，不阻断；服务端准入与限定写入身份
-    单独验证，未完成前不得声称来源门禁已生效。
-    """
-
-    enabled: bool
-    signing_key_env: str
-    trailer_name: str
-    task_id_prefix: str
-    required_fields: tuple[str, ...]
-
-
-DEFAULT_PROVENANCE_POLICY = ProvenancePolicy(
-    enabled=False,
-    signing_key_env="FORGELOOP_DOGFOOD_SIGNING_KEY",
-    trailer_name="ForgeLoop-Provenance",
-    task_id_prefix="task-",
-    required_fields=PROVENANCE_FIELDS,
-)
-
-
-def load_provenance_policy(path: Path | None = None) -> ProvenancePolicy:
-    """读取来源策略；文件缺失时返回禁用默认值（不猜测启用）。"""
-
-    target = path or POLICY_PATH
-    if not target.is_file():
-        return DEFAULT_PROVENANCE_POLICY
-    document = tomllib.loads(target.read_text(encoding="utf-8"))
-    enabled = document.get("enabled", False)
-    if not isinstance(enabled, bool):
-        raise ValueError("dogfood-policy: enabled 必须是布尔值")
-    trailer_name = document.get("trailer_name", DEFAULT_PROVENANCE_POLICY.trailer_name)
-    task_id_prefix = document.get("task_id_prefix", DEFAULT_PROVENANCE_POLICY.task_id_prefix)
-    signing_key_env = document.get("signing_key_env", DEFAULT_PROVENANCE_POLICY.signing_key_env)
-    for value, label in (
-        (trailer_name, "trailer_name"),
-        (task_id_prefix, "task_id_prefix"),
-        (signing_key_env, "signing_key_env"),
-    ):
-        if not isinstance(value, str) or not value:
-            raise ValueError(f"dogfood-policy: {label} 必须是非空字符串")
-    raw_fields = document.get("required_fields", list(PROVENANCE_FIELDS))
-    if not isinstance(raw_fields, list):
-        raise ValueError("dogfood-policy: required_fields 必须是字符串列表")
-    fields: list[str] = []
-    for field in raw_fields:
-        if not isinstance(field, str) or not field:
-            raise ValueError("dogfood-policy: required_fields 必须是非空字符串列表")
-        fields.append(field)
-    return ProvenancePolicy(
-        enabled=enabled,
-        signing_key_env=signing_key_env,
-        trailer_name=trailer_name,
-        task_id_prefix=task_id_prefix,
-        required_fields=tuple(fields),
-    )
-
-
-def resolve_signing_key(policy: ProvenancePolicy) -> bytes | None:
-    """从环境变量解析签发密钥；未配置时返回 None（不读取仓库内文件）。"""
-
-    value = os.environ.get(policy.signing_key_env, "")
-    return value.encode("utf-8") if value else None
-
-
-def canonical_payload(payload: Mapping[str, object]) -> bytes:
-    """回执载荷的规范序列化：键排序、紧凑分隔、ASCII，保证签名可复算。"""
-
-    return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
-
-
-def sign_payload(payload: Mapping[str, object], key: bytes) -> str:
-    """生成 trailer 值：base64url(载荷) + '.' + HMAC-SHA256 十六进制。"""
-
-    raw = canonical_payload(payload)
-    digest = hmac.new(key, raw, hashlib.sha256).hexdigest()
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-    return f"{encoded}.{digest}"
-
-
-def receipt_values(message: str, trailer_name: str) -> list[str]:
-    """取出提交消息里的全部回执 trailer 值（用于拒绝缺失与重复）。"""
-
-    prefix = f"{trailer_name}:"
-    collected: list[str] = []
-    for line in message.splitlines():
-        if line.startswith(prefix):
-            collected.append(line[len(prefix) :].strip())
-    return collected
-
-
-def decode_receipt(value: str, key: bytes) -> tuple[dict[str, object] | None, str]:
-    """校验回执签名并解析载荷；失败返回原因，不做任何乐观放行。"""
-
-    encoded, separator, digest = value.rpartition(".")
-    if not separator or not encoded or not digest:
-        return None, "来源回执格式错误"
-    try:
-        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-    except (ValueError, binascii.Error):
-        return None, "来源回执编码错误"
-    expected = hmac.new(key, raw, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, digest):
-        return None, "来源回执签名无效（非受控执行端或已被篡改）"
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        return None, "来源回执内容不是合法 JSON"
-    if not isinstance(payload, dict):
-        return None, "来源回执内容形态异常"
-    return {str(name): item for name, item in payload.items()}, ""
-
-
-def validate_provenance_payload(
-    policy: ProvenancePolicy, payload: Mapping[str, object]
-) -> tuple[bool, str]:
-    """校验回执字段完整性与受控身份；与 git 内容核对分开，便于单元测试。"""
-
-    missing = [name for name in policy.required_fields if name not in payload]
-    if missing:
-        return False, "来源回执缺少字段：" + "、".join(missing)
-    task_id = payload.get("task_id")
-    if not isinstance(task_id, str) or not task_id.startswith(policy.task_id_prefix):
-        return False, "来源回执任务 ID 不属于受控命名（疑似补挂任务 ID）"
-    plan_version = payload.get("plan_version")
-    if not isinstance(plan_version, int) or isinstance(plan_version, bool) or plan_version < 1:
-        return False, "来源回执方案版本无效"
-    baseline = payload.get("baseline_commit")
-    if not isinstance(baseline, str) or not COMMIT_PATTERN.match(baseline):
-        return False, "来源回执基线提交号格式错误"
-    digest_fields = (
-        "candidate_sha256",
-        "test_evidence_sha256",
-        "review_sha256",
-        "approval_fingerprint",
-    )
-    for field in digest_fields:
-        value = payload.get(field)
-        if not isinstance(value, str) or not DIGEST_PATTERN.match(value):
-            return False, f"来源回执 {field} 校验值缺失或格式错误"
-    return True, ""
-
-
-def build_provenance_payload(
-    binding: DeliveryBinding, requirement_id: str, baseline_commit: str
-) -> dict[str, object]:
-    """由验收材料绑定构造回执载荷；基线取实际归并基线。"""
-
-    return {
-        "schema": PROVENANCE_SCHEMA,
-        "task_id": binding.task_id,
-        "requirement_id": requirement_id,
-        "plan_version": binding.plan_version,
-        "baseline_commit": baseline_commit,
-        "candidate_sha256": binding.candidate_sha256,
-        "test_evidence_sha256": binding.test_evidence_sha256,
-        "review_sha256": binding.review_sha256,
-        "approval_fingerprint": binding.fingerprint,
-    }
-
-
-def attach_provenance(
-    message: str, policy: ProvenancePolicy, payload: Mapping[str, object]
-) -> tuple[str, str]:
-    """把来源回执追加到合并提交消息；返回（消息, 失败原因）。
-
-    密钥只存在于受控执行端与可信校验端的环境变量里，不在仓库或候选可写路径，
-    因此实现 PI 无法自行签发或伪造回执。策略启用但缺密钥时 fail-closed，
-    拒绝生成未签名提交。
-    """
-
-    key = resolve_signing_key(policy)
-    if key is None:
-        if policy.enabled:
-            return message, (
-                f"来源门禁已启用但缺少签名密钥环境变量 {policy.signing_key_env}；拒绝生成未签名提交"
-            )
-        return message, ""
-    trailer = f"{policy.trailer_name}: {sign_payload(payload, key)}"
-    return f"{message}\n\n{trailer}\n", ""
 
 
 def _write_evidence(task_dir: Path, evidence: dict) -> None:
@@ -629,12 +413,6 @@ def _merge_locked(args: argparse.Namespace, store: RecordStore, root: Path) -> i
     message = args.message or f"feat: {plan.goal}"
     if len(message.splitlines()[0]) > 100:
         message = message.splitlines()[0][:97] + "..."
-    payload = build_provenance_payload(
-        current, str(task.config.get("requirement_id", "")), baseline
-    )
-    message, provenance_error = attach_provenance(message, load_provenance_policy(), payload)
-    if provenance_error:
-        return fail(provenance_error)
     context = _MergeContext(
         project=project,
         baseline=baseline,
