@@ -25,6 +25,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess, PISpawnOptions
+from forgeloop.domain.repo_facts import (
+    DEFAULT_REPO_FACTS,
+    RepoFacts,
+    RepoFactsError,
+    repository_facts_payload,
+    require_repo_facts,
+)
 from forgeloop.domain.requirement import (
     AWAITING_CLARIFICATION,
     BLOCKED,
@@ -71,14 +78,18 @@ PLANNING_OUTPUT_CONTRACT = (
     ' "test_command": ["<argv>", "..."], "depends_on": ["<同包任务 task_id>"],'
     ' "limits": {"limit_seconds": 7200, "max_failure_rounds": 3}}]}。'
     "至少给出两个任务，且至少一个任务的 depends_on 指向同包内另一个任务；"
-    "files 只列相对项目根的路径，test_command 必须是可执行的非空 argv 数组；"
+    "files 只列相对项目根的路径，且必须落在 repository_facts 声明的合法位置："
+    "源码分层、源码根与测试根的精确顶层文件、测试分层、文档、辅助目录（含 .github 树）、"
+    "已知契约快照或已知顶层文件；必须是文件名而不是目录，不得臆造目录、顶层文件或契约文件名；"
+    "test_command 必须是可执行的非空 argv 数组，首个程序只允许 uv run 或 python3"
+    "（不要使用 python），也可以使用 repository_facts 列出的门禁命令（make check 等）；"
     "不要输出 authorization_source——任务级授权来源由所有者的真实批准绑定。"
 )
 PLANNING_READ_ONLY_INSTRUCTION = (
     "本阶段只生成任务包供人批准：不要修改、创建或删除任何文件，不要运行会改动代码的命令。"
     "你没有文件系统访问权，也无法调用任何工具（包括 bash、read、grep）；不要尝试执行任何命令，"
-    "不要输出工具调用或 DSML 标记。请仅依据需求文本、全部修订与已就绪分析推断相对文件路径，"
-    "直接输出一个 JSON 对象。"
+    "不要输出工具调用或 DSML 标记。请仅依据需求文本、全部修订、已就绪分析与 repository_facts"
+    "推断合法的相对文件路径与测试命令，直接输出一个 JSON 对象。"
 )
 
 
@@ -97,6 +108,7 @@ class PlanningContext:
     pi_command: tuple[str, ...]
     timeout_seconds: float = ANALYSIS_TIMEOUT_CAP_SECONDS
     extra_env: Mapping[str, str] = field(default_factory=dict)
+    repo_facts: RepoFacts = DEFAULT_REPO_FACTS
 
     def __post_init__(self) -> None:
         if not self.pi_command:
@@ -202,7 +214,9 @@ def plan_requirement(ctx: PlanningContext) -> PlanningOutcome:
 
     plan_version = ctx.store.next_plan_version(ctx.req_id)
     task_plan_id = f"plan-{requirement.req_id}-{plan_version}"
-    outcome = _invoke_planning(ctx, _planning_prompt(requirement, analysis, plan_version))
+    outcome = _invoke_planning(
+        ctx, _planning_prompt(requirement, analysis, plan_version, ctx.repo_facts)
+    )
     reason = _outcome_halt(outcome, "planning")
     if reason:
         ctx.store.set_requirement_status(ctx.req_id, BLOCKED, reason)
@@ -218,6 +232,12 @@ def plan_requirement(ctx: PlanningContext) -> PlanningOutcome:
             created_at=datetime.now(UTC),
         )
         require_actionable_plan(plan)
+        # 仓库布局事实校验：臆造路径或不可用命令在规划阶段拒绝，不静默接受。
+        require_repo_facts(plan, ctx.repo_facts)
+    except RepoFactsError as error:
+        reason = f"plan_repo_facts: {error}"
+        ctx.store.set_requirement_status(ctx.req_id, BLOCKED, reason)
+        return PlanningOutcome(BLOCKED, None, reason)
     except TaskPlanError as error:
         reason = f"plan_malformed: {error}"
         ctx.store.set_requirement_status(ctx.req_id, BLOCKED, reason)
@@ -256,9 +276,12 @@ def _analysis_prompt(requirement: Requirement, previous: RequirementAnalysis | N
 
 
 def _planning_prompt(
-    requirement: Requirement, analysis: RequirementAnalysis, plan_version: int
+    requirement: Requirement,
+    analysis: RequirementAnalysis,
+    plan_version: int,
+    repo_facts: RepoFacts = DEFAULT_REPO_FACTS,
 ) -> str:
-    """规划提示：原文、全部修订、就绪分析与任务包输出契约（纯函数）。"""
+    """规划提示：原文、全部修订、就绪分析、仓库事实与任务包输出契约（纯函数）。"""
 
     payload: dict[str, object] = {
         "role": "planning",
@@ -277,6 +300,7 @@ def _planning_prompt(
             "scenarios": list(analysis.scenarios),
             "acceptance_criteria": list(analysis.acceptance_criteria),
         },
+        "repository_facts": repository_facts_payload(repo_facts),
         "output_contract": PLANNING_OUTPUT_CONTRACT,
     }
     return json.dumps(payload, ensure_ascii=False)

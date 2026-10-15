@@ -128,17 +128,17 @@ PLAN = {
         {
             "task_id": "alpha",
             "goal": "实现需求受理入口",
-            "files": ["src/a.py"],
+            "files": ["src/forgeloop/domain/alpha.py"],
             "acceptance": "CLI 可提交需求",
-            "test_command": [sys.executable, "-c", "print('alpha passed')"],
+            "test_command": ["python3", "-c", "print('alpha passed')"],
             "depends_on": [],
         },
         {
             "task_id": "beta",
             "goal": "实现任务推进入口",
-            "files": ["src/b.py"],
+            "files": ["src/forgeloop/domain/beta.py"],
             "acceptance": "CLI 可按依赖推进任务",
-            "test_command": [sys.executable, "-c", "print('beta passed')"],
+            "test_command": ["python3", "-c", "print('beta passed')"],
             "depends_on": ["alpha"],
         },
     ]

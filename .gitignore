@@ -29,3 +29,7 @@ email.txt
 
 # 本地阅读资料（第三方文章/书籍节选，不进仓库；所有者 2026-10-13 决定）
 docs/library/
+
+# 运行时记录库：只应存在于 .cache/ 下的记录根，禁止提交到仓库根
+/records.sqlite
+/*.sqlite

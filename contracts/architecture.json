@@ -33,6 +33,7 @@
     "forgeloop.domain.limits": "domain",
     "forgeloop.domain.merge": "domain",
     "forgeloop.domain.release": "domain",
+    "forgeloop.domain.repo_facts": "domain",
     "forgeloop.domain.requirement": "domain",
     "forgeloop.domain.status": "domain",
     "forgeloop.domain.status_reason": "domain",

@@ -62,7 +62,7 @@ flowchart TD
 
 三条硬规则，由门槛强制：
 
-1. **`domain` 是纯规则层。** 不依赖任何内部模块、`langgraph` 或第三方编排库；已知的唯一内部依赖是 `domain.deploy` → `domain.release`（同层）。
+1. **`domain` 是纯规则层。** 不依赖任何内部模块、`langgraph` 或第三方编排库；已知的内部依赖是 `domain.deploy` → `domain.release` 与 `domain.repo_facts` → `domain.task_plan`（均为同层）。
 2. **`adapter` 是叶子层。** 不 import 任何 `forgeloop.*`，只用标准库；适配器不知道领域规则与记录结构。
 3. **模块依赖图无环。** 跨层与同层边一起检查。
 
@@ -81,6 +81,7 @@ flowchart TD
 | domain | `src/forgeloop/domain/status_reason.py` | 中文阻断原因 `blocked_reason_text` 的纯推导：只读权威事实（任务／方案／批准／动作／失败轮次／授权／工时／终态），主句按固定优先级（等待人工决定 → 依赖未满足 → 失败轮次用尽 → 运行中 → 已终态）选取，句末「；另外还有…」最多补两条其他成立条件；依据缺失输出 `unknown` 并列出缺少的记录 |
 | domain | `src/forgeloop/domain/requirement.py` | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败；只读分析的结构化校验（A02）也落在本模块 |
 | domain | `src/forgeloop/domain/task_plan.py` | 任务包规则：从分析产出至少两个有依赖的任务；未批准不执行；旧版本或过期批准不能驱动最新任务包 |
+| domain | `src/forgeloop/domain/repo_facts.py` | 固定仓库布局事实与任务包合规校验：声明源码根／合法分层、测试分层、契约快照、可用解释器与门禁命令；纯规则校验文件清单与测试命令，逐条给出具体路径／命令与原因 |
 | domain | `src/forgeloop/domain/artifact.py` | 候选产物身份与校验规则：wheel 文件名 + SHA256、同一候选重复构建的一致性判定、未授权提交拒绝 |
 | domain | `src/forgeloop/domain/limits.py` | 执行时间账目 `ExecutionBudget`：只记实际执行耗时、超限停止启动新动作、显式延长 |
 | domain | `src/forgeloop/domain/budget_summary.py` | 工时摘要 `BudgetSummary` 的只读纯规则：无 budget 行且状态未开始记为 `not_started` 且不产生 0 秒歧义；有 budget 行输出 `consumed_seconds`／`limit_seconds`／`exhausted`；存在性与状态冲突以存在 budget 行为准输出 `unknown` 并说明冲突；`dimensions` 当前仅 `seconds` |
@@ -165,7 +166,7 @@ flowchart LR
 
 ### 4.1 需求线编排
 
-`cli` 的需求命令不另建一套图：`graph.planning` 负责只读分析与任务包生成，`records.requirements.RequirementStore` 保存需求身份、分析、任务包、批准、任务推进与需求工时；`graph.requirements.RequirementExecutor` 按依赖拓扑串行推进已批准任务包，前置任务未交付时不启动下游，等待人工决定不计执行工时。查询依赖事实时由 `records.requirements.RequirementStore.dependency_facts` 只读取数、`domain.dependency_facts.assess_dependency` 纯规则判定：前置未达终态且无 `started` 动作才为真实等待，依据缺失输出 `unknown` 并列出缺少的记录。
+`cli` 的需求命令不另建一套图：`graph.planning` 负责只读分析与任务包生成，生成时把固定仓库布局事实（源码分层、测试分层、契约快照与可用解释器／门禁命令）注入提示词，并用 `domain.repo_facts` 纯规则校验任务包的文件清单与测试命令；臆造路径或不可用命令的任务包在规划阶段被拒绝并要求重规划，不静默接受。`records.requirements.RequirementStore` 保存需求身份、分析、任务包、批准、任务推进与需求工时；`graph.requirements.RequirementExecutor` 按依赖拓扑串行推进已批准任务包，前置任务未交付时不启动下游，等待人工决定不计执行工时。查询依赖事实时由 `records.requirements.RequirementStore.dependency_facts` 只读取数、`domain.dependency_facts.assess_dependency` 纯规则判定：前置未达终态且无 `started` 动作才为真实等待，依据缺失输出 `unknown` 并列出缺少的记录。
 
 I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射为带稳定身份的单个任务记录（`task-<req_id>-v<plan_version>-<task_id>`），复用本节的单任务业务图执行实现、独立审查、正式测试与验收；随后既有 `merge`／`release`／`deploy` 命令从该任务记录回查交付、归并与发布状态。需求文本一经追加，旧任务包与旧批准立即失效，未批准任务包不执行。
 
