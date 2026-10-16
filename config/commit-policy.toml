@@ -1,6 +1,11 @@
 timezone = "Asia/Shanghai"
 calendar_directory = "config/workday-calendars"
 
+# 可选机器标签（缺省不写）：只用于审计输出分辨提交来自哪台机器，不改变任何判定。
+# 各机器应写在**不进入版本控制**的本地覆盖里（.cache/forgeloop/commit-policy.local.toml
+# 或 ~/.config/forgeloop/commit-policy.local.toml）；仓库默认保持缺省，实现零迁移。
+# machine_label = "mac-laptop"
+
 # 所有者决定（2026-10-13）：禁止窗口调整为两段，午间 12:00–13:30 可用于提交。
 # 窗口为当日区间，起点含、终点不含；多段必须按起点有序且互不重叠。
 [[blocked_windows]]

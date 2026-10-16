@@ -16,6 +16,7 @@
     "forgeloop.adapter.test_runner": "adapter",
     "forgeloop.cli": "cli",
     "forgeloop.cli.candidate": "cli",
+    "forgeloop.cli.commit_policy": "cli",
     "forgeloop.cli.common": "cli",
     "forgeloop.cli.deploy": "cli",
     "forgeloop.cli.main": "cli",

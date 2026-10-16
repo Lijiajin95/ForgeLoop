@@ -1,155 +1,16 @@
-"""Enforce commit headers and workday hours; audit Git timestamps without creating commits."""
+"""Enforce commit headers and workday hours; audit Git timestamps without creating commits.
 
-import argparse
-import json
-import re
-import subprocess
+本脚本是 ``forgeloop.cli.commit_policy`` 的转发入口：pre-commit/commit-msg 钩子与
+CI 都调用它。真正的加载与审计实现（生效策略来源、机器标签、命中时间窗及其来源，
+以及客户端边界文案）在分层的 ``forgeloop.cli.commit_policy`` 中，本文件不重复
+实现规则。
+"""
+
 import sys
-import tomllib
-from collections.abc import Mapping
-from datetime import UTC, date, datetime, time
-from pathlib import Path
-from typing import Any
-from zoneinfo import ZoneInfo
 
-from forgeloop.domain.commit_policy import (
-    BlockedWindow,
-    CommitPolicy,
-    WorkdayCalendar,
-    check_commit_time,
-    validate_commit_message,
-)
+from forgeloop.cli.commit_policy import load_policy, main
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def load_authorized_batches(config: Mapping[str, Any]) -> frozenset[date]:
-    """读取按批次登记的授权日期；每条授权必须可溯源且日期唯一。"""
-    dates = []
-    for entry in config.get("authorized_batches", ()):
-        if not str(entry.get("authorization_source", "")).strip():
-            raise ValueError("Authorized batches must record a non-empty authorization_source")
-        dates.append(date.fromisoformat(entry["date"]))
-    if len(set(dates)) != len(dates):
-        raise ValueError("Authorized batch dates must be unique")
-    return frozenset(dates)
-
-
-def load_policy() -> CommitPolicy:
-    config = tomllib.loads((ROOT / "config/commit-policy.toml").read_text())
-    calendars: dict[int, WorkdayCalendar] = {}
-    for path in (ROOT / config["calendar_directory"]).glob("*.json"):
-        data = json.loads(path.read_text())
-        year = data["year"]
-        if (
-            type(year) is not int
-            or year in calendars
-            or not data["source_url"].startswith("https://")
-        ):
-            raise ValueError("Invalid or duplicate calendar year/source")
-        calendars[year] = WorkdayCalendar(
-            year,
-            frozenset(date.fromisoformat(value) for value in data["holidays"]),
-            frozenset(date.fromisoformat(value) for value in data["extra_workdays"]),
-        )
-    windows = tuple(
-        BlockedWindow(time.fromisoformat(entry["start"]), time.fromisoformat(entry["end"]))
-        for entry in config["blocked_windows"]
-    )
-    authorized = config["authorized_window"]
-    return CommitPolicy(
-        ZoneInfo(config["timezone"]),
-        windows,
-        calendars,
-        BlockedWindow(
-            time.fromisoformat(authorized["start"]), time.fromisoformat(authorized["end"])
-        ),
-        load_authorized_batches(config),
-    )
-
-
-def resolve_revision(revision: str) -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--end-of-options", f"{revision}^{{commit}}"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", result) is None:
-        raise ValueError("Git returned an invalid commit ID")
-    return result
-
-
-def audit(base: str, head: str, policy: CommitPolicy) -> bool:
-    head_id = resolve_revision(head)
-    target = head_id if not base or set(base) == {"0"} else f"{resolve_revision(base)}..{head_id}"
-    log = subprocess.run(
-        ["git", "log", "--format=%H%x00%aI%x00%cI%x00%s", target],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    valid = True
-    for line in log.splitlines():
-        sha, author_time, committer_time, subject = line.split("\0")
-        try:
-            validate_commit_message(subject)
-            for value in [author_time, committer_time]:
-                decision = check_commit_time(datetime.fromisoformat(value), policy)
-                if not decision.allowed:
-                    raise ValueError(f"timestamp rejected: {decision.reason}")
-        except ValueError as error:
-            print(f"Rejected commit {sha[:12]}: {error}", file=sys.stderr)
-            valid = False
-    return valid
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--check-now", action="store_true")
-    mode.add_argument("--message", type=Path)
-    mode.add_argument("--audit", nargs=2, metavar=("BASE", "HEAD"))
-    mode.add_argument("--validate-config", action="store_true")
-    args = parser.parse_args()
-    try:
-        policy = load_policy()
-        if args.check_now:
-            decision = check_commit_time(datetime.now(UTC), policy)
-            if not decision.allowed:
-                windows = ", ".join(
-                    f"{window.start:%H:%M}-{window.end:%H:%M}" for window in policy.blocked_windows
-                )
-                authorized = policy.authorized_window
-                print(
-                    f"Commit blocked ({decision.reason}): "
-                    f"{policy.timezone.key} workdays {windows}; owner-authorized commits are "
-                    f"limited to {authorized.start:%H:%M}-{authorized.end:%H:%M} on recorded dates.",
-                    file=sys.stderr,
-                )
-                return 1
-            if decision.hint:
-                year = datetime.now(UTC).astimezone(policy.timezone).year
-                print(
-                    f"Commit allowed, but maintain the workday calendar for {year}.",
-                    file=sys.stderr,
-                )
-        elif args.message is not None:
-            validate_commit_message(args.message.read_text(encoding="utf-8"))
-        elif args.audit is not None:
-            base, head = args.audit
-            return 0 if audit(base, head, policy) else 1
-        else:
-            print(
-                f"Commit policy valid; maintained years: {sorted(policy.calendars)}; "
-                f"authorized batches: {sorted(policy.authorized_dates)}"
-            )
-    except (ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError) as error:
-        print(f"Commit policy check failed: {error}", file=sys.stderr)
-        return 1
-    return 0
+__all__ = ["load_policy", "main"]
 
 
 if __name__ == "__main__":

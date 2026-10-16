@@ -116,9 +116,10 @@ flowchart TD
 | graph | `src/forgeloop/graph/evidence.py` | 失败回边证据读取：上一轮正式测试输出尾部与审查阻断问题（截断，供实现会话修复） |
 | graph | `src/forgeloop/graph/prompts.py` | 提示词构造（纯函数）：开发提示（目标/范围/验收/工作区/尝试序号/批准测试命令/自验证要求/失败回边）与审查提示（含输出契约常量） |
 | graph | `src/forgeloop/graph/builder.py` | 图装配：节点注册、条件路由、SQLite 持久 checkpointer；`RequirementTaskRunner` 把已批准需求任务映射到单任务图 |
-| cli | `src/forgeloop/cli/__init__.py` | 导出 `main` |
+| cli | `src/forgeloop/cli/__init__.py` | 惰性导出 `main`（首次读取属性才加载实现，轻量提交策略入口不拉入编排依赖栈） |
 | cli | `src/forgeloop/cli/common.py` | 记录根解析、`open_store`、`fail` 统一失败输出 |
 | cli | `src/forgeloop/cli/main.py` | 单任务命令 `submit`／`approve`／`grant`／`status`／`stop`，需求线命令 `requirement submit|revise|analyze|plan|approve|advance|accept|status`，以及参数总装 |
+| cli | `src/forgeloop/cli/commit_policy.py` | 提交策略命令：加载仓库默认与本地覆盖后的生效策略，放行/拒绝审计输出生效来源、机器标签与命中时间窗及其来源；文案明确为客户端限制而非服务端强制 |
 | cli | `src/forgeloop/cli/merge.py` | `merge`：候选分支流程与归并证据 |
 | cli | `src/forgeloop/cli/candidate.py`
 | cli | `src/forgeloop/cli/requirements.py` | `requirement` 命令组：受理/澄清/分析/规划/批准/推进/整体验收/状态回查，接线到真实业务记录 | | `candidate <task_id>`：从已归并的授权提交真实构建候选产物、记录身份与 SHA256、重复构建校验可复现并在独立环境冒烟（构建与验证在一次调用内完成） |
