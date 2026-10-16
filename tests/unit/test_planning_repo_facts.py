@@ -245,11 +245,22 @@ class TestTestCommandFacts:
     def test_available_commands_are_legal(self, command: tuple[str, ...]) -> None:
         assert command_problem(command) is None
 
+    def test_spaced_first_element_matches_canonical_argv(self) -> None:
+        """含空格首元素（"uv run"）是逐词 argv 的等价写法，三种可用命令都通过。"""
+
+        spaced = ("uv run", "pytest", "tests/unit/test_x.py", "-q")
+        canonical = ("uv", "run", "pytest", "tests/unit/test_x.py", "-q")
+        python_module = ("python3", "-m", "pytest", "tests/unit/test_x.py", "-q")
+        assert command_problem(spaced) is None
+        assert command_problem(canonical) is None
+        assert command_problem(python_module) is None
+
     @pytest.mark.parametrize(
         ("command", "needle"),
         [
             ((), "测试命令为空"),
             (("python", "-m", "pytest"), "'python' 不可用"),
+            (("node", "tests/unit/test_x.py", "-q"), "'node' 不可用"),
             (("pytest", "-q"), "'pytest' 不可用"),
             (("uv", "run"), "缺少要执行的内容"),
             (("make", "deploy"), "'make' 不可用"),
@@ -264,6 +275,22 @@ class TestTestCommandFacts:
         assert problem is not None
         for label in (*DEFAULT_REPO_FACTS.interpreter_labels, *DEFAULT_REPO_FACTS.gate_labels):
             assert label in problem
+
+    def test_unavailable_interpreter_rejection_is_actionable(self) -> None:
+        """真正不可用的解释器被拒：信息给出逐词拆分提示与可用前缀，且不自相矛盾。"""
+
+        problem = command_problem(("node", "tests/unit/test_x.py", "-q"))
+        assert problem is not None
+        # 可操作提示：要求把 "uv run" 拆成两个 argv 元素。
+        assert "逐词拆分" in problem
+        assert '["uv","run"]' in problem
+        for label in (*DEFAULT_REPO_FACTS.interpreter_labels, *DEFAULT_REPO_FACTS.gate_labels):
+            assert label in problem
+        _head, separator, allowed = problem.partition("可用前缀：")
+        assert separator and allowed
+        # 被拒解释器只出现在“不可用”说明里，不得同时被列为允许前缀。
+        assert "node" not in allowed
+        assert "不可用；仅允许" not in problem
 
 
 class TestPlanValidation:
