@@ -131,7 +131,9 @@ flowchart TD
 | cli | `src/forgeloop/cli/mail.py` | `mail` 命令组：`mail poll --once` 交接 cron 单次轮询、按领域规则给出三类分类建议并等待人工确认（绝不自动发信）；`mail confirm` 为人工确认后的唯一发信入口，不接纳最终决定需显式 `--final-not-accept`；三类反馈用稳定主题标记与固定中文纯文本正文，配对 `MailAdapter`／`MailThreadStore`／`RequirementStore` |
 | mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
 
-CLI 对外命令分三条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`。`status --json`、`requirement status --json` 与 `mail poll --once --json`／`mail confirm --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`。`status --json`、`requirement status --json` 与 `mail poll --once --json`／`mail confirm --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+
+**邮件工作流的模块分布与依赖方向**：邮件能力横跨四层——`cli.mail`（`mail poll --once`／`mail confirm`）依赖 `adapter.mail`、`domain.mail` 与 `records.mail_threads`；`records.mail_threads` 依赖 `domain.mail`；`adapter.mail`（`ImapMailReceiver`／`SmtpMailSender`／`MailAdapter`）与 `domain.mail`（分类建议与模板纯规则）只依赖标准库，分别是各自层的叶子。这些边都落在第 2 节已允许的 `cli` → `adapter`／`domain`／`records` 与 `records` → `domain` 方向内，`contracts/architecture.json` 的 `layer_edges` 未新增条目；`mail` 层（`src/forgeloop/mail/`）仍是只有层声明、尚无实现模块的保留层。
 
 ## 4. 研发闭环业务图
 
