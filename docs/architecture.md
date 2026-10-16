@@ -183,6 +183,7 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 - **执行现场**：每个任务一个目录 `<records_root>/<task_id>/`，内含 `workspace/`（代码副本）与 `sessions/`（PI 会话与 stderr）。现场默认保留，由用户清理。
 - **代码副本**：`prepare_workspace` 用 `git clone --no-hardlinks` 建立自有 `.git` 的副本，再以 detached HEAD 检出基线提交，不与源仓库共享任何可写对象。候选 diff 由 `git add -A` 后 `git diff <基线提交>` 得到，覆盖修改／新增／删除，**不依赖 PI 的文本自述**。
+- **前置产物应用（接缝）**：需求内下游任务在克隆副本后、进入实现前，由 `graph.nodes` 的 dev 节点把已完成前置任务的候选 diff 交给 `graph.requirements.apply_prerequisite_candidates`：逐条读取并按权威记录校验值核对，任一缺失或校验不符即整体阻塞、不写任何代码、不启动 PI；全部通过才按依赖顺序应用（菱形/冗余依赖下被传递包含的祖先标记为不单独应用），应用失败回退到应用前的干净副本。逐条结果同时写入下游任务现场 `prerequisite-applications.json` 与记录表 `prerequisite_applications`，重复启动据二者幂等跳过。
 - **main 保护**：副本与容器不得直接改写真实 `main`。候选结果先经人工验收，再由 `merge` 以受控路径接回；`create_candidate_branch` 与 `merge_candidate_to_main` 都要求现场干净、HEAD 等于基线且位于 main。
 - **PI 工具权限取决于进程权限与开放资源**，不能把 `cwd` 当作隔离。
 
@@ -212,6 +213,7 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 | 产物 | 路径（相对任务目录） | 消费者 |
 | --- | --- | --- |
 | 候选 diff | `candidate.diff` | 审查、验收、归并 |
+| 前置应用记录 | `prerequisite-applications.json` | 下游启动幂等与回退判定、人工核对 |
 | 实现自述 | `dev-reports.jsonl` | 交付报告 |
 | 审查结论 | `reviews.jsonl`、`review-report.json` | 验收 |
 | 测试证据 | `test-run.jsonl` | 验收、交付 |
