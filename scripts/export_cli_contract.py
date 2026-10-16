@@ -15,6 +15,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from forgeloop.adapter.mail import InboundResult, PollReport
+from forgeloop.cli.mail import _mail_confirm_document, _mail_poll_document
 from forgeloop.cli.main import _requirement_document, _status_document
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.counting import FailureStage
@@ -141,6 +143,7 @@ def build_contract() -> dict:
         requirement_document, requirement_not_found = build_requirement_contract(Path(tmp))
 
     document = merge(shape(minimal), shape(full))
+    mail_poll_document, mail_confirm_document = build_mail_contract()
     return {
         "schema_version": 1,
         "command": "forgeloop status --json",
@@ -151,7 +154,82 @@ def build_contract() -> dict:
         "requirement_exit_codes": {"ok": 0, "requirement_not_found": 1},
         "requirement_document": requirement_document,
         "requirement_not_found_document": requirement_not_found,
+        # 邮件工作流命令：cron 单次轮询展示分类建议，人工确认后才发信。
+        "mail_command": "forgeloop mail poll --once --json",
+        "mail_exit_codes": {"ok": 0, "refused": 1},
+        "mail_poll_document": mail_poll_document,
+        "mail_confirm_command": "forgeloop mail confirm <req_id> --action <...> --json",
+        "mail_confirm_document": mail_confirm_document,
     }
+
+
+def build_mail_contract() -> tuple[dict, dict]:
+    """合成一条轮询结果与两种确认结果，提取 ``mail`` 命令的 JSON 结构。
+
+    轮询文档只包含只读事实与待确认动作；确认文档以「已发送」与「重复确认不重复
+    发信」两个样本合并，使可空 ``message_id`` 折叠为 ``null``/``string``。
+    """
+
+    report = PollReport(
+        fetched=2,
+        registered=1,
+        results=(
+            InboundResult(
+                message_id="<inbound@example.com>",
+                req_id="req-1",
+                registered=True,
+                reason="已登记",
+                attachments_recorded=0,
+            ),
+        ),
+        errors=("无法解析邮件：邮件缺少 Message-ID，无法登记与去重",),
+    )
+    entry = {
+        "req_id": "req-1",
+        "message_id": "<inbound@example.com>",
+        "registered": True,
+        "suggestion": {"kind": "disambiguate", "reason": "信息不完整，先进入消歧"},
+        "terminal": False,
+        "initial_feedback_sent": False,
+        "awaiting_human_confirmation": True,
+        "confirm_command": "forgeloop mail confirm req-1 --action <disambiguate|not_accept|accept>",
+    }
+    terminal_entry = {
+        **entry,
+        "suggestion": None,
+        "terminal": True,
+        "initial_feedback_sent": True,
+        "awaiting_human_confirmation": False,
+    }
+    # ``shape`` 只看数组首项：用「有建议」与「已终态无建议」两个样本合并，
+    # 使 ``suggestion`` 的可空结构与 ``errors`` 的非空字符串都进入快照。
+    poll_document = merge(
+        shape(_mail_poll_document(report, [entry])),
+        shape(_mail_poll_document(report, [terminal_entry])),
+    )
+    confirm_document = merge(
+        shape(
+            _mail_confirm_document(
+                "req-1",
+                "disambiguate",
+                sent=True,
+                already_sent=False,
+                message_id="<outbound@example.com>",
+                reason="已发送并绑定需求线索",
+            )
+        ),
+        shape(
+            _mail_confirm_document(
+                "req-1",
+                "accept_success",
+                sent=False,
+                already_sent=True,
+                message_id=None,
+                reason="该入向邮件已有一封反馈，重复确认不重复发信",
+            )
+        ),
+    )
+    return poll_document, confirm_document
 
 
 def build_requirement_contract(root: Path) -> tuple[dict, dict]:

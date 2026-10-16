@@ -1,0 +1,565 @@
+"""邮件工作流 CLI：cron 单次轮询、分类建议与人工确认后的三类反馈发信。
+
+组合根职责（只做接线，不内建领域规则）：
+
+- ``mail poll --once``：交给 cron 的单次入口。真实 IMAP 拉取未读邮件、按领域
+  规则关联或新建需求、登记入向去重；随后**只展示**分类建议与待确认动作，绝不
+  自动发信。重复执行由入向 Message-ID 与出向绑定保证幂等。
+- ``mail confirm <req_id> --action …``：人工确认后的唯一发信入口。消歧与接纳
+  成功由人工确认发送；**不接纳是最终决定**，除命令本身外还需显式
+  ``--final-not-accept``，否则拒绝执行。
+- 三类反馈（消歧 / 不接纳 / 接纳成功）使用稳定主题标记
+  ``[ForgeLoop][<req_id>][<类型>]`` 与固定中文纯文本正文，可经
+  :func:`identify_feedback` 从主题或正文稳定识别。
+
+分类建议由 :func:`forgeloop.domain.mail.suggest_classification` 计算：缺信息
+（无分析或分析仍有待澄清）→ 消歧；信息齐全但被显式列入 ``--out-of-scope``
+→ 不接纳候选；信息齐全且在受理范围 → 接纳成功。所有事实来自权威记录与调用方
+显式传入的范围策略，不由模型猜测。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
+
+from forgeloop.adapter.mail import (
+    ImapMailReceiver,
+    ImapSettings,
+    InboundMail,
+    MailAdapter,
+    MailAdapterError,
+    PollReport,
+    SmtpMailSender,
+    SmtpSettings,
+)
+from forgeloop.cli.common import fail, records_root
+from forgeloop.domain.mail import (
+    MAX_DISAMBIGUATION_ROUNDS,
+    Attachment,
+    Classification,
+    ClassificationSuggestion,
+    DisambiguationQuestion,
+    MailError,
+    MailReply,
+    MailThread,
+    parse_reply_reference,
+    render_notification,
+    suggest_classification,
+)
+from forgeloop.domain.requirement import RequirementNotFoundError
+from forgeloop.records.mail_threads import MailThreadStore
+from forgeloop.records.requirements import RequirementStore
+
+# 三类反馈的稳定主题标记：主题里带标记，正文用领域固定模板，二者都能识别。
+_KIND_MARKERS: dict[Classification, str] = {
+    Classification.DISAMBIGUATE: "消歧",
+    Classification.NOT_ACCEPT_CANDIDATE: "不接纳",
+    Classification.ACCEPT_SUCCESS: "接纳成功",
+}
+# 终态反馈：接纳成功或不接纳一旦发出，同一需求不再产生新的消歧提问。
+_TERMINAL_KINDS: frozenset[Classification] = frozenset(
+    {Classification.NOT_ACCEPT_CANDIDATE, Classification.ACCEPT_SUCCESS}
+)
+_ACTION_KINDS: dict[str, Classification] = {
+    "disambiguate": Classification.DISAMBIGUATE,
+    "not_accept": Classification.NOT_ACCEPT_CANDIDATE,
+    "accept": Classification.ACCEPT_SUCCESS,
+}
+# 识别顺序很重要：先判「不接纳」，再判「接纳成功」，最后判「消歧」。
+_IDENTIFY_ORDER: tuple[tuple[Classification, str], ...] = (
+    (Classification.NOT_ACCEPT_CANDIDATE, "不接纳"),
+    (Classification.ACCEPT_SUCCESS, "接纳成功"),
+    (Classification.DISAMBIGUATE, "消歧"),
+)
+
+
+def feedback_subject(req_id: str, kind: Classification) -> str:
+    """三类反馈的稳定主题：``[ForgeLoop][<req_id>][<类型>]``。"""
+
+    return f"[ForgeLoop][{req_id}][{_KIND_MARKERS[kind]}]"
+
+
+def identify_feedback(subject: str, body: str) -> Classification | None:
+    """从主题或正文稳定识别反馈类型；都不识别返回 ``None``。"""
+
+    haystack = f"{subject}\n{body}"
+    for kind, marker in _IDENTIFY_ORDER:
+        if marker in haystack:
+            return kind
+    return None
+
+
+def _to_reply(mail: InboundMail) -> MailReply:
+    """把适配器入向邮件转成领域回复对象，供关联解析；附件只留元数据。"""
+
+    return MailReply(
+        received_at=mail.received_at,
+        in_reply_to=mail.in_reply_to,
+        references=mail.references,
+        subject=mail.subject,
+        body=mail.body,
+        attachments=tuple(
+            Attachment(attachment.filename, attachment.content_type, attachment.size_bytes)
+            for attachment in mail.attachments
+        ),
+    )
+
+
+def _requirement_text(mail: InboundMail) -> str:
+    """无既有线索时，把邮件主题与正文作为新需求原文；不丢弃原文。"""
+
+    subject = mail.subject.strip()
+    body = mail.body.strip()
+    if subject and body:
+        return f"{subject}\n\n{body}"
+    return subject or body
+
+
+def _open_thread_connection(root: Path) -> sqlite3.Connection:
+    """邮件线索记录与需求记录共用同一 ``records.sqlite``，各持独立连接。"""
+
+    root.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(root / "records.sqlite", isolation_level=None)
+
+
+def _secret(explicit: str, env_name: str) -> str:
+    return explicit or os.environ.get(env_name, "")
+
+
+def _make_receiver(args: argparse.Namespace) -> ImapMailReceiver:
+    return ImapMailReceiver(
+        ImapSettings(
+            host=args.imap_host,
+            port=args.imap_port,
+            username=args.imap_user,
+            secret=_secret(args.imap_secret, "FORGELOOP_IMAP_SECRET"),
+            use_ssl=not args.no_imap_ssl,
+            folder=args.imap_folder,
+        )
+    )
+
+
+def _make_sender(args: argparse.Namespace) -> SmtpMailSender:
+    return SmtpMailSender(
+        SmtpSettings(
+            host=args.smtp_host,
+            port=args.smtp_port,
+            username=args.smtp_user,
+            secret=_secret(args.smtp_secret, "FORGELOOP_SMTP_SECRET"),
+            sender=args.smtp_sender,
+            recipient=args.smtp_recipient,
+            use_ssl=not args.no_smtp_ssl,
+            starttls=args.smtp_starttls,
+        )
+    )
+
+
+def _resolve_requirement(
+    mail: InboundMail,
+    thread_store: MailThreadStore,
+    requirement_store: RequirementStore,
+    project: str,
+) -> str | None:
+    """按固定优先级把邮件关联需求；无任何线索时新建需求（幂等）。
+
+    先查入向去重账：重复轮询的同一封邮件直接返回既有需求，绝不重复新建。无头信息
+    时回退到主题/正文编号；仍无编号才把主题+正文作为新需求原文提交。
+    """
+
+    existing = thread_store.inbound_message(mail.message_id)
+    if existing is not None:
+        return existing.req_id
+    reference = parse_reply_reference(_to_reply(mail))
+    if reference is not None:
+        return reference
+    return requirement_store.submit(project, _requirement_text(mail)).req_id
+
+
+def _build_adapter(
+    args: argparse.Namespace,
+    thread_store: MailThreadStore,
+    requirement_store: RequirementStore,
+) -> MailAdapter:
+    """把真实邮箱边界接到记录/关联接缝上；由 CLI 作为组合根装配。"""
+
+    receiver = _make_receiver(args)
+    sender = _make_sender(args)
+
+    def record_inbound(mail: InboundMail, req_id: str) -> bool:
+        return thread_store.record_inbound(
+            mail.message_id,
+            req_id,
+            mail.received_at,
+            sender=mail.sender,
+            subject=mail.subject,
+            folder=mail.folder,
+        ).created
+
+    def record_outbound(message_id: str, req_id: str, kind: str, sent_at: datetime) -> bool:
+        return thread_store.record_outbound(message_id, req_id, kind, sent_at).created
+
+    return MailAdapter(
+        receiver,
+        sender,
+        resolve_requirement=lambda mail: _resolve_requirement(
+            mail, thread_store, requirement_store, args.project
+        ),
+        record_inbound=record_inbound,
+        record_outbound=record_outbound,
+        now=lambda: datetime.now(UTC),
+    )
+
+
+def _suggestion_for(
+    requirement_store: RequirementStore,
+    req_id: str,
+    out_of_scope: frozenset[str],
+) -> ClassificationSuggestion:
+    """按记录事实给出分类建议：缺信息优先消歧，再看不接纳候选与接纳成功。"""
+
+    try:
+        analysis = requirement_store.latest_analysis(req_id)
+    except RequirementNotFoundError:
+        analysis = None
+    needs_clarification = analysis is None or analysis.needs_clarification
+    return suggest_classification(
+        needs_clarification=needs_clarification,
+        within_scope=req_id not in out_of_scope,
+    )
+
+
+def _entry(
+    *,
+    req_id: str,
+    message_id: str,
+    registered: bool,
+    suggestion: ClassificationSuggestion | None,
+    terminal: bool,
+    feedback_sent: bool,
+    pending_action: bool,
+) -> dict:
+    return {
+        "req_id": req_id,
+        "message_id": message_id,
+        "registered": registered,
+        "suggestion": (
+            None
+            if suggestion is None
+            else {"kind": suggestion.kind.value, "reason": suggestion.reason}
+        ),
+        "terminal": terminal,
+        "initial_feedback_sent": feedback_sent,
+        "awaiting_human_confirmation": pending_action,
+        "confirm_command": (
+            f"forgeloop mail confirm {req_id} --action <disambiguate|not_accept|accept>"
+        ),
+    }
+
+
+def _pending_action(
+    kinds: tuple[Classification, ...],
+    suggestion: ClassificationSuggestion | None,
+    inbound_count: int,
+    disambiguation_rounds: int,
+) -> bool:
+    """是否还有待人工确认的发信动作。
+
+    终态建议一旦发出即不再确认；消歧按「每一封入向邮件只对应一封出向反馈」判定，
+    已反馈的入向不再重复确认，新入向到达后允许继续下一轮，达到 3 轮上限后退回人工。
+    """
+
+    if suggestion is None:
+        return False
+    if suggestion.kind in _TERMINAL_KINDS:
+        return suggestion.kind not in kinds
+    if suggestion.kind is Classification.DISAMBIGUATE and (
+        disambiguation_rounds >= MAX_DISAMBIGUATION_ROUNDS
+    ):
+        return False
+    return len(kinds) < inbound_count
+
+
+def _pending_entries(
+    report: PollReport,
+    thread_store: MailThreadStore,
+    requirement_store: RequirementStore,
+    out_of_scope: frozenset[str],
+) -> list[dict]:
+    entries: list[dict] = []
+    for result in report.results:
+        if result.req_id is None:
+            continue
+        req_id = result.req_id
+        kinds = tuple(thread_store.kind_sequence(req_id))
+        terminal = any(kind in _TERMINAL_KINDS for kind in kinds)
+        suggestion = None if terminal else _suggestion_for(requirement_store, req_id, out_of_scope)
+        entries.append(
+            _entry(
+                req_id=req_id,
+                message_id=result.message_id,
+                registered=result.registered,
+                suggestion=suggestion,
+                terminal=terminal,
+                feedback_sent=bool(kinds),
+                pending_action=_pending_action(
+                    kinds,
+                    suggestion,
+                    len(thread_store.inbound(req_id)),
+                    thread_store.disambiguation_rounds(req_id),
+                ),
+            )
+        )
+    return entries
+
+
+def _mail_poll_document(report: PollReport, entries: list[dict]) -> dict:
+    """``mail poll --once --json`` 的稳定文档：只读事实与待确认动作。"""
+
+    return {
+        "command": "forgeloop mail poll --once",
+        "fetched": report.fetched,
+        "registered": report.registered,
+        "skipped": len(report.skipped),
+        "errors": list(report.errors),
+        "requirements": entries,
+    }
+
+
+def _mail_confirm_document(
+    req_id: str,
+    kind: str,
+    *,
+    sent: bool,
+    already_sent: bool,
+    message_id: str | None,
+    reason: str,
+) -> dict:
+    """``mail confirm`` 的稳定文档：是否真正发信、Message-ID 与原因。"""
+
+    return {
+        "command": "forgeloop mail confirm",
+        "req_id": req_id,
+        "kind": kind,
+        "sent": sent,
+        "already_sent": already_sent,
+        "message_id": message_id,
+        "reason": reason,
+    }
+
+
+def _parse_questions(raw_questions: list[str]) -> tuple[DisambiguationQuestion, ...]:
+    """解析 ``--question ID=文本``；缺省用编号本身作问题文本。"""
+
+    questions: list[DisambiguationQuestion] = []
+    for raw in raw_questions:
+        question_id, _, text = raw.partition("=")
+        questions.append(DisambiguationQuestion(question_id.strip(), (text or question_id).strip()))
+    return tuple(questions)
+
+
+def _build_feedback(
+    req_id: str,
+    kind: Classification,
+    questions: tuple[DisambiguationQuestion, ...],
+    reason: str,
+) -> tuple[str, str]:
+    """构造稳定主题与固定中文纯文本正文；不接纳附加人工给出的原因。"""
+
+    subject = feedback_subject(req_id, kind)
+    thread = MailThread(req_id)
+    if kind is Classification.DISAMBIGUATE:
+        body = render_notification(thread, questions)
+    elif kind is Classification.ACCEPT_SUCCESS:
+        body = render_notification(thread.accept())
+    else:
+        body = render_notification(thread.reject())
+    if reason and kind is not Classification.DISAMBIGUATE:
+        body = f"{body}说明：{reason}\n"
+    return subject, body
+
+
+def _emit(document: dict, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(document, ensure_ascii=False, indent=2))
+        return
+    if "requirements" in document:
+        print(f"已拉取 {document['fetched']} 封，登记 {document['registered']} 封。")
+        for error in document["errors"]:
+            print(f"未能解析: {error}")
+        for entry in document["requirements"]:
+            suggestion = entry["suggestion"]
+            kind = suggestion["kind"] if suggestion else "无（已终态或已反馈）"
+            print(f"- {entry['req_id']}（{entry['message_id']}）分类建议: {kind}")
+            if entry["awaiting_human_confirmation"]:
+                print(f"  待人工确认: {entry['confirm_command']}")
+        return
+    state = (
+        "已发送"
+        if document["sent"]
+        else ("已发送过，未重复发送" if document["already_sent"] else "未发送")
+    )
+    print(f"{document['req_id']} 反馈（{document['kind']}）: {state}")
+    if document["message_id"]:
+        print(f"Message-ID: {document['message_id']}")
+    print(f"原因: {document['reason']}")
+
+
+def cmd_mail_poll(args: argparse.Namespace) -> int:
+    """cron 单次邮件轮询：登记需求、展示分类建议，绝不自动发信。"""
+
+    if not args.once:
+        return fail("mail poll 只支持 --once 单次执行（交给 cron）；未给出 --once 时拒绝运行")
+    root = records_root(args)
+    requirement_store = RequirementStore(root / "records.sqlite")
+    connection = _open_thread_connection(root)
+    thread_store = MailThreadStore(connection)
+    adapter = _build_adapter(args, thread_store, requirement_store)
+    try:
+        try:
+            report = adapter.poll_once()
+            entries = _pending_entries(
+                report, thread_store, requirement_store, frozenset(args.out_of_scope)
+            )
+        except MailAdapterError as error:
+            return fail(str(error))
+    finally:
+        adapter.close()
+        connection.close()
+        requirement_store.close()
+    _emit(_mail_poll_document(report, entries), args.json)
+    return 0
+
+
+def cmd_mail_confirm(args: argparse.Namespace) -> int:
+    """人工确认后的唯一发信入口；不接纳最终决定需显式确认。"""
+
+    kind = _ACTION_KINDS[args.action]
+    if kind is Classification.NOT_ACCEPT_CANDIDATE and not args.final_not_accept:
+        return fail("不接纳是最终决定，必须显式 --final-not-accept 由人工确认")
+    try:
+        questions = _parse_questions(args.questions)
+    except MailError as error:
+        return fail(str(error))
+    if kind is Classification.DISAMBIGUATE and not questions:
+        return fail("消歧反馈至少要给出一个 --question ID=问题")
+
+    root = records_root(args)
+    requirement_store = RequirementStore(root / "records.sqlite")
+    connection = _open_thread_connection(root)
+    thread_store = MailThreadStore(connection)
+    adapter = _build_adapter(args, thread_store, requirement_store)
+    try:
+        try:
+            existing = tuple(thread_store.kind_sequence(args.req_id))
+            inbound_count = len(thread_store.inbound(args.req_id))
+            if any(item in _TERMINAL_KINDS for item in existing):
+                return fail("需求已进入终态，不再发送新的反馈")
+            # 「每一封入向邮件只对应一封出向反馈」：重复确认同一入向不再发信；
+            # 新一轮入向到达后计数再次放开（保留最多 3 轮消歧）。
+            already_sent = kind not in _TERMINAL_KINDS and len(existing) >= inbound_count
+            rounds_exhausted = (
+                kind is Classification.DISAMBIGUATE
+                and thread_store.disambiguation_rounds(args.req_id) >= MAX_DISAMBIGUATION_ROUNDS
+            )
+            if already_sent:
+                document = _mail_confirm_document(
+                    args.req_id,
+                    kind.value,
+                    sent=False,
+                    already_sent=True,
+                    message_id=None,
+                    reason="该入向邮件已有一封反馈，重复确认不重复发信",
+                )
+            elif rounds_exhausted:
+                return fail(f"消歧轮次已达上限 {MAX_DISAMBIGUATION_ROUNDS} 轮，退回人工处理")
+            else:
+                subject, body = _build_feedback(args.req_id, kind, questions, args.reason)
+                receipt = adapter.send_feedback(
+                    req_id=args.req_id, kind=kind.value, subject=subject, body=body
+                )
+                document = _mail_confirm_document(
+                    args.req_id,
+                    kind.value,
+                    sent=True,
+                    already_sent=False,
+                    message_id=receipt.message_id,
+                    reason="已发送并绑定需求线索",
+                )
+        except MailAdapterError as error:
+            return fail(str(error))
+    finally:
+        adapter.close()
+        connection.close()
+        requirement_store.close()
+    _emit(document, args.json)
+    return 0
+
+
+def _add_connection_args(parser: argparse.ArgumentParser) -> None:
+    """IMAP/SMTP 连接参数；口令优先显式传入，其次环境变量，不回显。"""
+
+    parser.add_argument("--imap-host", required=True)
+    parser.add_argument("--imap-port", type=int, default=993)
+    parser.add_argument("--imap-user", required=True)
+    parser.add_argument("--imap-secret", default="")
+    parser.add_argument("--imap-folder", default="INBOX")
+    parser.add_argument("--no-imap-ssl", action="store_true", help="本地测试用：关闭 IMAP SSL")
+    parser.add_argument("--smtp-host", required=True)
+    parser.add_argument("--smtp-port", type=int, default=465)
+    parser.add_argument("--smtp-user", required=True)
+    parser.add_argument("--smtp-secret", default="")
+    parser.add_argument("--smtp-sender", required=True)
+    parser.add_argument("--smtp-recipient", required=True)
+    parser.add_argument("--no-smtp-ssl", action="store_true", help="本地测试用：关闭 SMTP SSL")
+    parser.add_argument("--smtp-starttls", action="store_true")
+
+
+def add_mail_parser(subparsers: argparse._SubParsersAction, default_records_root: str) -> None:
+    """注册 ``mail`` 命令组（poll/confirm）；解析器装配留在命令模块内。"""
+
+    mail = subparsers.add_parser("mail", help="邮件工作流：cron 轮询、分类建议与人工确认发信")
+    actions = mail.add_subparsers(dest="mail_command", required=True)
+
+    poll = actions.add_parser("poll", help="单次轮询邮件需求并展示分类建议（不发信）")
+    poll.add_argument("--once", action="store_true", help="cron 单次执行入口（必填）")
+    poll.add_argument("--project", required=True, help="新邮件需求绑定的项目名")
+    poll.add_argument(
+        "--out-of-scope",
+        action="append",
+        default=[],
+        metavar="REQ_ID",
+        help="显式标记不在受理范围的需求（可重复）；未被标记且信息齐全即建议接纳",
+    )
+    poll.add_argument("--json", action="store_true", help="输出稳定 JSON 文档")
+    poll.add_argument("--records-root", default=default_records_root)
+    _add_connection_args(poll)
+    poll.set_defaults(func=cmd_mail_poll)
+
+    confirm = actions.add_parser("confirm", help="人工确认后发送一类反馈邮件")
+    confirm.add_argument("req_id")
+    confirm.add_argument(
+        "--action", required=True, choices=["disambiguate", "not_accept", "accept"]
+    )
+    confirm.add_argument(
+        "--question",
+        action="append",
+        default=[],
+        dest="questions",
+        metavar="ID=问题",
+        help="消歧待澄清问题（可重复）",
+    )
+    confirm.add_argument("--reason", default="", help="不接纳原因等说明")
+    confirm.add_argument(
+        "--final-not-accept",
+        action="store_true",
+        help="显式确认不接纳这一最终决定；缺少时拒绝发送",
+    )
+    confirm.add_argument("--json", action="store_true", help="输出稳定 JSON 文档")
+    confirm.add_argument("--records-root", default=default_records_root)
+    _add_connection_args(confirm)
+    confirm.set_defaults(func=cmd_mail_confirm)

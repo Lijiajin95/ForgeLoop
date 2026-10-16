@@ -1318,5 +1318,160 @@
         ]
       }
     }
+  },
+  "mail_command": "forgeloop mail poll --once --json",
+  "mail_exit_codes": {
+    "ok": 0,
+    "refused": 1
+  },
+  "mail_poll_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "command": {
+        "type": [
+          "string"
+        ]
+      },
+      "errors": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "string"
+          ]
+        }
+      },
+      "fetched": {
+        "type": [
+          "integer"
+        ]
+      },
+      "registered": {
+        "type": [
+          "integer"
+        ]
+      },
+      "requirements": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "awaiting_human_confirmation": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "confirm_command": {
+              "type": [
+                "string"
+              ]
+            },
+            "initial_feedback_sent": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "message_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "registered": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "req_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "suggestion": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "optional_keys": [
+                "kind",
+                "reason"
+              ]
+            },
+            "terminal": {
+              "type": [
+                "boolean"
+              ]
+            }
+          }
+        }
+      },
+      "skipped": {
+        "type": [
+          "integer"
+        ]
+      }
+    }
+  },
+  "mail_confirm_command": "forgeloop mail confirm <req_id> --action <...> --json",
+  "mail_confirm_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "already_sent": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "command": {
+        "type": [
+          "string"
+        ]
+      },
+      "kind": {
+        "type": [
+          "string"
+        ]
+      },
+      "message_id": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "reason": {
+        "type": [
+          "string"
+        ]
+      },
+      "req_id": {
+        "type": [
+          "string"
+        ]
+      },
+      "sent": {
+        "type": [
+          "boolean"
+        ]
+      }
+    }
   }
 }

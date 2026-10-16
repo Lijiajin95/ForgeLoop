@@ -109,6 +109,7 @@ flowchart TD
 | adapter | `src/forgeloop/adapter/deployment.py` | 下载 Release 资产、独立版本 venv 安装、原子切换 `current`、冒烟检查、部署日志 |
 | adapter | `src/forgeloop/adapter/execution_environment.py` | 受限执行环境：dev/test 在容器内可写工作副本、review 只读；源仓库从不挂载，容器内没有源库/main 写入口（`runtime/Dockerfile`） |
 | adapter | `src/forgeloop/adapter/artifact.py` | 候选产物构建与验证：真实 `uv build`（工作区内缓存）、独立 venv 安装、`forgeloop --help` 冒烟 |
+| adapter | `src/forgeloop/adapter/mail.py` | `ImapMailReceiver`／`SmtpMailSender`：邮箱授权码登录 IMAP/SMTP，`poll_once` 单次拉取未读邮件并解析为 `InboundMail`（缺 Message-ID 判为无法解析），出向先写自身 Message-ID 再发送、成功才交记录接缝落库；关联与去重由注入接缝完成，发送失败抛 `MailSendError` 不静默丢弃，附件只留元数据不解析 |
 | graph | `src/forgeloop/graph/__init__.py` | 层声明 |
 | graph | `src/forgeloop/graph/state.py` | `TaskState`：只放路由与续跑所需的最小字段 |
 | graph | `src/forgeloop/graph/planning.py`
@@ -127,9 +128,10 @@ flowchart TD
 | cli | `src/forgeloop/cli/requirements.py` | `requirement` 命令组：受理/澄清/分析/规划/批准/推进/整体验收/人工续跑/状态回查，接线到真实业务记录 | | `candidate <task_id>`：从已归并的授权提交真实构建候选产物、记录身份与 SHA256、重复构建校验可复现并在独立环境冒烟（构建与验证在一次调用内完成） |
 | cli | `src/forgeloop/cli/release.py` | `release`：annotated tag、上传已验收产物为 Release 资产与发布回执 |
 | cli | `src/forgeloop/cli/deploy.py` | `deploy`／`rollback`：从 Release 装产物、原子切换、回滚 |
+| cli | `src/forgeloop/cli/mail.py` | `mail` 命令组：`mail poll --once` 交接 cron 单次轮询、按领域规则给出三类分类建议并等待人工确认（绝不自动发信）；`mail confirm` 为人工确认后的唯一发信入口，不接纳最终决定需显式 `--final-not-accept`；三类反馈用稳定主题标记与固定中文纯文本正文，配对 `MailAdapter`／`MailThreadStore`／`RequirementStore` |
 | mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
 
-CLI 对外命令分三条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`。`status --json` 与 `requirement status --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+CLI 对外命令分三条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`。`status --json`、`requirement status --json` 与 `mail poll --once --json`／`mail confirm --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
 
 ## 4. 研发闭环业务图
 
@@ -225,7 +227,7 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 ## 7. 外部边界与接缝
 
-需要在真实环境验证的外部依赖（不能用替身替代结论）：PI RPC 子进程与真实模型、git CLI 与真实仓库、GitHub REST、uv／venv／pip 安装子进程、宿主符号链接与 `os.replace` 原子切换、被测项目测试命令进程、系统时钟。
+需要在真实环境验证的外部依赖（不能用替身替代结论）：PI RPC 子进程与真实模型、git CLI 与真实仓库、GitHub REST、uv／venv／pip 安装子进程、宿主符号链接与 `os.replace` 原子切换、被测项目测试命令进程、真实 IMAP/SMTP 邮箱服务、系统时钟。
 
 可替换接缝的当前形态：
 
@@ -237,6 +239,7 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 | 外部服务地址 | `deployment.GITHUB_API`、`github_checks.CHECK_RUNS_API` 模块常量 | monkeypatch |
 | 检查读取凭据 | 环境变量 `GITHUB_TOKEN` → `GH_TOKEN`（`github_checks.github_token()` 每次读取时解析；不落盘、不进证据） | 设置／取消环境变量；未提供即匿名读取（60 次/小时，按出口 IP 共享） |
 | 人工决定来源 | `interrupt` 载荷＋CLI `resume` | 换决定来源只需改 CLI 侧 |
+| 邮件收发边界 | `ImapMailReceiver`／`SmtpMailSender` 的构造注入：记录与需求关联以函数参数传入（`resolve_requirement`／`record_inbound`／`record_outbound`） | 构造注入；测试用本地真实 socket 讲 IMAP／SMTP 协议，凭据是邮箱授权码/应用专用密码，不落盘、不进证据 |
 
 **诚实的限制**：`adapter` 层**没有** Protocol／ABC 端口；`graph.nodes` 在模块级直接构造 `PIProcess`、直接调用 `run_test_command` 与 `prepare_workspace`；`build_graph` 也不接受可注入的 checkpointer。因此「在进程内替换执行器」目前要改 `graph/nodes.py` 的调用点，而不是换一个实现类。保留的 Seam 是配置与函数参数，不是接口抽象——这是首版刻意选择的简单性，不声称已经是插件体系。
 

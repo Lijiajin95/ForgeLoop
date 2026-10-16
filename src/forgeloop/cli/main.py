@@ -30,6 +30,7 @@ from langgraph.types import Command
 from forgeloop.cli.candidate import add_candidate_parser
 from forgeloop.cli.common import open_store, records_root
 from forgeloop.cli.deploy import add_deploy_parser
+from forgeloop.cli.mail import add_mail_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
@@ -1033,6 +1034,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_deploy_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     add_candidate_parser(subparsers, DEFAULT_RECORDS_ROOT)
+
+    add_mail_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     _add_requirement_parsers(subparsers, DEFAULT_RECORDS_ROOT)
 
