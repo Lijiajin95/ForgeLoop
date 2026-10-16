@@ -39,7 +39,7 @@ dev = [
   "diff-cover>=9,<10",
 ]
 mutation = ["mutmut>=3.8,<4"]
-security = ["pip-audit>=2.9,<3", "semgrep>=1.100,<2"]
+security = ["pip-audit>=2.9,<3"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/forgeloop"]
@@ -62,6 +62,16 @@ select = [
   "B",
   "SIM",
   "RUF",
+  # 安全子集（2026-10-16）：不整体启用 S（bandit），只精确选取与本项目真实
+  # 风险面相关的 7 条，替代已移除的 Semgrep 本地规则。整体启用会一次性引入
+  # 大量与本工具无关的告警，故逐条登记；新增/删除须同步安全门禁与测试。
+  "S102",
+  "S301",
+  "S307",
+  "S501",
+  "S506",
+  "S602",
+  "S605",
 ]
 allowed-confusables = ["，", "：", "；", "。", "（", "）"]
 

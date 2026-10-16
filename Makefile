@@ -8,7 +8,7 @@ FAST_TESTS := tests/unit tests/property tests/component tests/scenario
 # 低频层（真实安装、变异、安全）按各自节奏运行，见 docs/engineering-reliability.md。
 STATIC_GATES := lint typecheck cli-contract-check architecture-contract-check commit-policy-config structure-metrics import-lint deptry
 
-.PHONY: setup format lint typecheck test test-install test-system check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live coverage coverage-thresholds mutation audit sast security hooks precommit commit-policy-config
+.PHONY: setup format lint typecheck test test-install test-system check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live coverage coverage-thresholds mutation audit security hooks precommit commit-policy-config
 
 setup:
 	$(UV) sync --frozen --default-index https://pypi.org/simple --group mutation --group security
@@ -20,6 +20,9 @@ format:
 lint:
 	.venv/bin/ruff check src tests scripts
 	.venv/bin/ruff format --check src tests scripts
+	# 本地 AST 检查：Ruff 的 S506 不覆盖全部不安全 YAML 加载形态（如无 Loader 的
+	# yaml.load），本检查补上缺口，与已移除的 Semgrep 规则同源。
+	.venv/bin/python scripts/check_untrusted_deserialization.py
 
 typecheck:
 	.venv/bin/pyright
@@ -75,16 +78,9 @@ mutation:
 audit:
 	mkdir -p reports
 	$(UV) export --frozen --all-groups --no-emit-project --format requirements-txt --output-file reports/requirements-audit.txt > /dev/null
-# CVE-2026-59951 例外（2026-10-16 所有者授权处理 CI 依赖漏洞；理由与复查条件见 docs/engineering-reliability.md）：
-#   漏洞位于 mcp 1.29.0 的「stateful 模式 Streamable HTTP 服务端」；本仓库不引用 mcp、不运行 MCP/HTTP 服务，
-#   mcp 仅为 semgrep 的开发期传递依赖，而 semgrep 精确钉死 mcp>=1.29.0,<1.29.0+（最新 1.181.0 仍如此），无法升级。
-#   复查条件：semgrep 放宽该钉死、或本仓库开始使用 mcp —— 任一发生时必须移除本例外。
-	.venv/bin/pip-audit --strict --no-deps --disable-pip --cache-dir .cache/pip-audit --ignore-vuln CVE-2026-59951 -r reports/requirements-audit.txt -f json -o reports/dependency-audit.json
+	.venv/bin/pip-audit --strict --no-deps --disable-pip --cache-dir .cache/pip-audit -r reports/requirements-audit.txt -f json -o reports/dependency-audit.json
 
-sast:
-	.venv/bin/python scripts/run_semgrep.py
-
-security: audit sast
+security: audit
 
 hooks:
 	PRE_COMMIT_HOME=$(CURDIR)/.cache/pre-commit .venv/bin/pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
