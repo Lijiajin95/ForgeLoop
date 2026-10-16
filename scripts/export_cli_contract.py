@@ -21,6 +21,12 @@ from forgeloop.domain.counting import FailureStage
 from forgeloop.domain.release import ReleaseRecord
 from forgeloop.domain.requirement import RequirementAnalysis
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+from forgeloop.records.checkpoints import (
+    CheckpointHealth,
+    CheckpointInspection,
+    CheckpointState,
+    authorize_retry,
+)
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
@@ -200,6 +206,30 @@ def build_requirement_contract(root: Path) -> tuple[dict, dict]:
             TaskArtifact("alpha", "a" * 64, "b" * 64, "c" * 64, "accepted", "approval"),
         )
         store.record_task_run(full.req_id, 1, "beta", "awaiting_user", reason="等待验收")
+        # 6ba1fd：全字段样本写入一条人工续跑决定，让快照捕获 retry 片段的字段结构；
+        # 身份会被 shape 折叠为类型，因此随机需求身份不使快照漂移。
+        thread_id = f"task-{full.req_id}-v1-alpha"
+        authorize_retry(
+            root,
+            inspection=CheckpointInspection(
+                CheckpointHealth.OK,
+                CheckpointState(
+                    task_id=thread_id,
+                    checkpoint_id="contract-cp",
+                    halted_reason="pi_dev_unsettled",
+                    halted_node="dev",
+                    recorded_task_id=thread_id,
+                    plan_version=1,
+                ),
+            ),
+            requirement_id=full.req_id,
+            task_id=thread_id,
+            plan_version=1,
+            task_status="interrupted",
+            by="owner",
+            reason="人工核对后确认可续跑",
+            at=now,
+        )
         full_document = _requirement_document(root, store, full.req_id)
 
         missing = _requirement_document(root, store, "req-does-not-exist")

@@ -898,6 +898,52 @@
           "string"
         ]
       },
+      "retry": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "checkpoint_id": {
+            "type": [
+              "string"
+            ]
+          },
+          "decided_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "decided_by": {
+            "type": [
+              "string"
+            ]
+          },
+          "plan_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string"
+            ]
+          },
+          "task_id": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "optional_keys": [
+          "checkpoint_id",
+          "decided_at",
+          "decided_by",
+          "plan_version",
+          "reason",
+          "task_id"
+        ]
+      },
       "tasks": {
         "type": [
           "array"

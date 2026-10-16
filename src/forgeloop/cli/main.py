@@ -34,10 +34,12 @@ from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
     add_requirement_dispatch,
+    add_requirement_retry,
     aggregate_missing,
     budget_summary_line,
     dependency_section,
     requirement_dependency_sections,
+    requirement_retry_section,
     requirement_task_evidence_section,
     task_budget_summary,
     task_status_reason,
@@ -846,6 +848,8 @@ def _requirement_document(root: Path, store: RequirementStore, req_id: str) -> d
             "actor": next_step.actor.value,
             "reason": next_step.reason,
         },
+        # 6ba1fd 追加：最近一次人工续跑决定（只读回查），无决定为 null。
+        "retry": requirement_retry_section(root, req_id),
         "missing": aggregate_missing(tasks),
     }
 
@@ -876,6 +880,12 @@ def cmd_requirement_status(args: argparse.Namespace) -> int:
             print(f"  工时: {budget_summary_line(entry['budget_summary'])}")
             print(f"  阻断原因: {entry['blocked_reason_text']}")
     print(f"下一步: {document['next_step']['action']}（{document['next_step']['actor']}）")
+    if document["retry"]:
+        retry = document["retry"]
+        print(
+            f"最近人工续跑: 任务 {retry['task_id']}，by={retry['decided_by']}，"
+            f"时间 {retry['decided_at']}，理由 {retry['reason']}"
+        )
     return 0
 
 
@@ -939,6 +949,7 @@ def _add_requirement_parsers(
     status.set_defaults(func=cmd_requirement_status)
 
     add_requirement_dispatch(actions, default_records_root)
+    add_requirement_retry(actions, default_records_root)
 
 
 def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:

@@ -1,4 +1,4 @@
-"""需求并行推进的 CLI 入口（A05）：一次推进多条已批准需求。
+"""需求线的 CLI 命令实现：并行推进（A05）与人工续跑（6ba1fd）。
 
 职责边界：
 
@@ -6,6 +6,9 @@
   ``graph.builder.RequirementTaskRunner`` 的单任务业务图，不新增业务规则。
 - 同需求重复启动由记录层执行槽位拒绝，命令如实报告并以非零退出码结束。
 - 状态输出来自 ``RequirementProgress``（权威记录汇总），不由模型猜测。
+- ``requirement retry`` 在 records 层 fail-closed 校验与决定记录（``authorize_retry``）
+  之后，立即用 ``graph.requirements.RequirementExecutor`` 从检查点就地续跑；命令本身
+  不新增续跑规则。
 
 同项目归并/发布的互斥由 ``RequirementDispatcher.project_delivery`` 提供，并已接入
 ``cli.merge``/``cli.release`` 的真实入口；本模块把并行推进与槽位核对接进 CLI。
@@ -14,6 +17,7 @@
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from forgeloop.cli.common import records_root
@@ -25,11 +29,23 @@ from forgeloop.domain.budget_summary import (
 from forgeloop.domain.dependency_facts import DependencyFacts
 from forgeloop.domain.requirement import BLOCKED, RequirementNotFoundError
 from forgeloop.domain.status_reason import StatusReason, derive_status_reason
-from forgeloop.domain.task_plan import TaskPlan
+from forgeloop.domain.task_plan import TaskPlan, TaskPlanNotFoundError
 from forgeloop.graph.builder import RequirementTaskRunner, requirement_task_id
 from forgeloop.graph.dispatch import RequirementDispatcher
-from forgeloop.graph.requirements import RequirementAlreadyRunningError
+from forgeloop.graph.requirements import (
+    RequirementAlreadyRunningError,
+    RequirementExecutor,
+)
 from forgeloop.records.actions import SLOT_PREFIX
+from forgeloop.records.checkpoints import (
+    INTERRUPTED,
+    CheckpointHealth,
+    CheckpointInspection,
+    RetryAuthorization,
+    authorize_retry,
+    inspect_checkpoint,
+    latest_retry_decision,
+)
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
@@ -119,6 +135,264 @@ def cmd_requirement_slot_clear(args: argparse.Namespace) -> int:
         f"（占用者 {cleared.role or '未知'}，开始于 {cleared.started_at.isoformat()}）"
     )
     return 0
+
+
+# ---- 人工续跑（6ba1fd）：fail-closed 校验、记录决定并就地续跑 ----
+#
+# 执行次序固定：校验通过 → 记录人工决定 → 清除 halted_reason → 从检查点就地续跑。
+# 取值错误、状态不符或检查点不可信都在写入任何记录、改动任何现场之前拒绝
+# （fail-closed）。判定与「校验失败零副作用」由 records 层 ``authorize_retry`` 承担；
+# 本层负责把拒绝原因转成可操作提示，并在放行后立即驱动 ``RequirementExecutor``。
+#
+# 省略 ``--task`` 时只接受「需求恰有一个中断任务」：0 个或多个都拒绝并列出候选，
+# 绝不猜测任务身份。
+
+
+@dataclass(frozen=True)
+class RetryCandidate:
+    """可人工续跑的中断任务候选：逻辑任务身份、单任务身份与现场事实。"""
+
+    task_id: str
+    thread_id: str
+    task_status: str
+    halted_reason: str
+
+    @property
+    def is_halted(self) -> bool:
+        return bool(self.halted_reason.strip())
+
+    @property
+    def is_interrupted(self) -> bool:
+        return self.is_halted or self.task_status == INTERRUPTED
+
+
+def _retry_candidates(
+    root: Path,
+    req_id: str,
+    plan: TaskPlan,
+    record_store: RecordStore,
+) -> tuple[RetryCandidate, ...]:
+    """只读汇总任务包内每个任务的现场：是否中断、单任务状态与检查点原因。
+
+    「中断」判定同时看权威记录状态与检查点原因：任一表明中断即列入候选，因此
+    检查点不可信（缺失/损坏）但记录仍为 ``interrupted`` 的任务也会被列出，交由后续
+    校验 fail-closed 拒绝并提示人工处置，而不是静默漏报。
+    """
+
+    candidates: list[RetryCandidate] = []
+    for task in plan.tasks:
+        thread_id = requirement_task_id(req_id, plan.plan_version, task.task_id)
+        state = inspect_checkpoint(root, thread_id).state
+        record = record_store.get_task(thread_id)
+        candidates.append(
+            RetryCandidate(
+                task_id=task.task_id,
+                thread_id=thread_id,
+                task_status=record.status if record is not None else "unknown",
+                halted_reason=state.halted_reason if state is not None else "",
+            )
+        )
+    return tuple(candidates)
+
+
+def _format_retry_candidate(candidate: RetryCandidate) -> str:
+    detail = f"状态 {candidate.task_status}"
+    if candidate.is_halted:
+        detail += f"，中断原因 {candidate.halted_reason}"
+    return f"- {candidate.task_id}（单任务 {candidate.thread_id}，{detail}）"
+
+
+def _print_retry_candidates(candidates: tuple[RetryCandidate, ...]) -> None:
+    for candidate in candidates:
+        print(_format_retry_candidate(candidate), file=sys.stderr)
+
+
+def _select_retry_candidate(
+    candidates: tuple[RetryCandidate, ...],
+) -> RetryCandidate | None:
+    """按「恰有一个中断任务」选择；0 个或多个时列出候选并返回 ``None``。"""
+
+    interrupted = tuple(candidate for candidate in candidates if candidate.is_interrupted)
+    if len(interrupted) == 1:
+        return interrupted[0]
+    if not interrupted:
+        print("人工续跑被拒绝：需求当前没有处于中断状态的任务。", file=sys.stderr)
+        if candidates:
+            print("任务包内任务:", file=sys.stderr)
+            _print_retry_candidates(candidates)
+    else:
+        print(
+            "人工续跑被拒绝：省略 --task 时要求需求恰有一个中断任务，"
+            f"实际发现 {len(interrupted)} 个。",
+            file=sys.stderr,
+        )
+        print("中断任务候选:", file=sys.stderr)
+        _print_retry_candidates(interrupted)
+    print("请用 `--task <task_id>` 指定要续跑的任务后重试。", file=sys.stderr)
+    return None
+
+
+def _print_retry_rejection(
+    root: Path,
+    req_id: str,
+    outcome: RetryAuthorization,
+    inspection: CheckpointInspection,
+) -> None:
+    """把 fail-closed 拒绝原因与人工处置路径写 stderr；不写记录、不改现场。"""
+
+    print("人工续跑被拒绝（fail-closed）：", file=sys.stderr)
+    for reason in outcome.check.reasons:
+        print(f"- {reason}", file=sys.stderr)
+    checkpoint_untrusted = inspection.health is not CheckpointHealth.OK or any(
+        reason.startswith("检查点") for reason in outcome.check.reasons
+    )
+    if checkpoint_untrusted:
+        print(
+            "检查点不可信：请用 "
+            f"`forgeloop requirement slot list --records-root {root}` 核对现场；"
+            "确认没有推进在运行后，必要时用 "
+            f"`forgeloop requirement slot clear --slot requirement:{req_id}` "
+            "清理残留槽位，再人工核对检查点后重试。",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "请按上述原因人工处置后重试；未通过校验不会记录决定，也不会清除 halted_reason。",
+            file=sys.stderr,
+        )
+
+
+def cmd_requirement_retry(args: argparse.Namespace) -> int:
+    """人工续跑一条需求内被中断的任务：校验、记录决定并立即就地续跑。"""
+
+    root = records_root(args)
+    # --pi-command 缺失由解析器拒绝；内容非法在此确定失败，尚未写任何记录。
+    pi_command = _decode_pi_command(args.pi_command)
+    store = RequirementStore(root / "records.sqlite")
+    record_store = RecordStore(root / "records.sqlite")
+    try:
+        try:
+            requirement = store.get(args.req_id)
+        except RequirementNotFoundError:
+            print(f"需求不存在: {args.req_id}", file=sys.stderr)
+            return 1
+
+        authorization = store.plan_authorization(args.req_id)
+        plan = store.authorized_task_plan(args.req_id)
+        if plan is None:
+            print(
+                f"人工续跑被拒绝（fail-closed）：{authorization.reason}",
+                file=sys.stderr,
+            )
+            return 1
+
+        candidates = _retry_candidates(root, args.req_id, plan, record_store)
+        if args.task:
+            try:
+                task = plan.task(args.task)
+            except TaskPlanNotFoundError:
+                print(f"人工续跑被拒绝：任务包内没有任务 {args.task}", file=sys.stderr)
+                print("任务包内任务:", file=sys.stderr)
+                _print_retry_candidates(candidates)
+                return 1
+            selected = next(
+                candidate for candidate in candidates if candidate.task_id == task.task_id
+            )
+        else:
+            selected = _select_retry_candidate(candidates)
+            if selected is None:
+                return 1
+
+        inspection = inspect_checkpoint(root, selected.thread_id)
+        outcome = authorize_retry(
+            root,
+            inspection=inspection,
+            requirement_id=args.req_id,
+            task_id=selected.thread_id,
+            plan_version=plan.plan_version,
+            task_status=selected.task_status,
+            by=args.by,
+            reason=args.reason,
+        )
+        if not outcome.allowed or outcome.decision is None:
+            _print_retry_rejection(root, args.req_id, outcome, inspection)
+            return 1
+        decision = outcome.decision
+        print(f"实际处理任务: {selected.task_id}")
+        print(f"单任务身份: {selected.thread_id}")
+        print(
+            f"人工续跑决定已记录: by={decision.decided_by}，"
+            f"时间 {decision.decided_at.isoformat()}，理由 {decision.reason}"
+        )
+
+        runner = RequirementTaskRunner(
+            records_root=root,
+            req_id=args.req_id,
+            plan_version=plan.plan_version,
+            project=requirement.project,
+            pi_command=pi_command,
+            project_path=args.project_path,
+            baseline=args.baseline,
+            pi_timeout_seconds=args.pi_timeout_seconds or None,
+        )
+        executor = RequirementExecutor(store, args.req_id, runner, slots=record_store.actions)
+        try:
+            progress = executor.advance()
+        except RequirementAlreadyRunningError as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        print(f"需求状态: {progress.requirement_status}")
+        print(f"当前任务: {progress.current_task or '无'}")
+        print(f"已完成: {'、'.join(progress.completed_tasks) or '无'}")
+        print(f"下一步: {progress.next_step.action}（{progress.next_step.actor.value}）")
+        if progress.blocked_reason:
+            print(f"原因: {progress.blocked_reason}")
+        return 0 if progress.requirement_status != BLOCKED else 1
+    finally:
+        record_store.close()
+        store.close()
+
+
+def requirement_retry_section(root: Path, req_id: str) -> dict | None:
+    """最近一次人工续跑决定（只读回查）；没有决定时返回 ``None``。"""
+
+    latest = latest_retry_decision(root, req_id)
+    if latest is None:
+        return None
+    return {
+        "task_id": latest.task_id,
+        "decided_by": latest.decided_by,
+        "reason": latest.reason,
+        "decided_at": latest.decided_at.isoformat(),
+        "plan_version": latest.plan_version,
+        "checkpoint_id": latest.checkpoint_id,
+    }
+
+
+def add_requirement_retry(
+    subparsers: argparse._SubParsersAction,
+    default_records_root: str,
+) -> None:
+    """把 ``requirement retry`` 子命令登记到需求子解析器上。"""
+
+    retry = subparsers.add_parser(
+        "retry",
+        help="人工核对现场后续跑一条中断任务（必填 --by/--reason/--pi-command，立即续跑）",
+    )
+    retry.add_argument("req_id", help="需求身份")
+    retry.add_argument(
+        "--task",
+        default="",
+        help="任务包内任务身份；省略时要求需求恰有一个中断任务",
+    )
+    retry.add_argument("--by", required=True, help="调用方标识（如 owner）")
+    retry.add_argument("--reason", required=True, help="人工续跑理由（不能为空白）")
+    retry.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    retry.add_argument("--project-path", default="", help="被开发项目路径")
+    retry.add_argument("--baseline", default="", help="代码基线")
+    retry.add_argument("--pi-timeout-seconds", type=float, default=0.0)
+    retry.add_argument("--records-root", default=default_records_root)
+    retry.set_defaults(func=cmd_requirement_retry)
 
 
 def cmd_requirement_dispatch(args: argparse.Namespace) -> int:
