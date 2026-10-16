@@ -15,6 +15,14 @@
 - **状态汇总**：``RequirementProgress`` 给出当前任务、已完成任务、阻塞原因与
   ``NextAction``（动作、主体 user/agent、原因）；全部任务交付后需求仍等待整体
   验收（``executing``，不新增状态词）。
+- **检查点读取与就地续跑**：推进非终态任务前先只读读取记录根下
+  ``checkpoints.sqlite`` 的检查点（``records.checkpoints``）；停在可续跑业务节点
+  （``dev``/``review``/``test`` 及其自动回边）且无 ``halted_reason``、也没有未核对
+  的 ``started`` 动作时以 ``TaskExecution.resume`` 交给执行器就地续跑；停在人工
+  决策节点（计划批准、追加授权、整体验收）、终态节点、存在 ``halted_reason`` 或
+  仍有未完成动作时保持等待人工决定，不自动续跑。重复推进不重放已完成节点、不
+  重复计入工时（LangGraph 检查点 + 动作身份 ``actions.action_id`` 去重；记录缺失
+  时输出 ``unknown``）。
 
 **执行器由调用方注入**：真实单任务业务图（PI 实现、审查、正式测试、验收）如何
 接线不在本模块范围，属于 I01；``graph.requirements`` 只决定“谁可以开始、带什么
@@ -47,6 +55,15 @@ from forgeloop.domain.requirement import BLOCKED, RequirementError
 from forgeloop.domain.status import ActionActor, NextAction
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 from forgeloop.records.actions import ActionRecord, ActionStore, ExecutionSlotBusyError
+from forgeloop.records.checkpoints import (
+    AdvanceFingerprint,
+    CheckpointReader,
+    CheckpointState,
+    ResumeDecision,
+    advance_fingerprint,
+    classify_checkpoint,
+    read_checkpoint,
+)
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import OutcomeStore, RecordStore
 
@@ -102,11 +119,14 @@ class TaskExecution:
     ``covered_dependencies`` 是直接依赖中「被其他直接依赖传递包含」的祖先任务：
     后建任务的候选 diff 相对基线采集，已带上祖先的全部改动，因此只需应用极大
     依赖；被覆盖的依赖照常校验与记录，但不单独应用（其改动随极大依赖一并带入）。
+    ``resume`` 为真表示推进器读取检查点后判定该任务停在可续跑业务节点，执行器应
+    就地恢复图执行而不是当作全新任务；为假时行为与既有调用一致。
     """
 
     task: PlannedTask
     dependencies: tuple[TaskArtifact, ...] = ()
     covered_dependencies: tuple[str, ...] = ()
+    resume: bool = False
 
 
 @dataclass(frozen=True)
@@ -476,6 +496,68 @@ def _delivered(run: object) -> bool:
     return getattr(run, "state", None) == TaskRunState.DELIVERED.value
 
 
+def _keeps_waiting(checkpoint: CheckpointState | None, decision: ResumeDecision) -> bool:
+    """是否必须拦下执行器、保持等待人工决定。
+
+    存在 halted 原因时一律不自动续跑；停在人工计划批准门时也必须拦下：真实执行器
+    会把需求包批准派生为单任务批准并自动放行（`graph.builder.RequirementTaskRunner`），
+    而检查点本就停在批准门说明上一推进在此中断，必须保持等待人工决定。任务仍有
+    ``started`` 未完成动作时同样拦下：动作结果不明确，盲重放会越过 B03 红线，保留
+    现场待人工核对。其余决策门交给执行器如实返回等待。
+    """
+
+    if decision is ResumeDecision.HALTED:
+        return True
+    if decision is ResumeDecision.WAIT_USER and checkpoint is not None:
+        if checkpoint.parked_node == "gate_plan_approval":
+            return True
+        if checkpoint.outstanding_node:
+            return True
+    return False
+
+
+def _waiting_reason(checkpoint: CheckpointState | None, decision: ResumeDecision) -> str:
+    """等待人工决定的原因文本，保留原始 halted 原因供人工核对。"""
+
+    if decision is ResumeDecision.HALTED and checkpoint is not None:
+        return f"等待人工决定: halted {checkpoint.halted_reason}"
+    if checkpoint is not None and checkpoint.outstanding_node:
+        return f"等待人工核对未完成动作: {checkpoint.outstanding_node}"
+    return "等待人工决定: gate_plan_approval"
+
+
+def _unknown_progress_reason(reason: str) -> str:
+    """动作记录缺失时在原因里显式输出 ``unknown``，不估算也不补零。"""
+
+    marker = "进展记录缺失: unknown"
+    return f"{reason}（{marker}）" if reason else marker
+
+
+def _default_reader(run_task: object) -> CheckpointReader | None:
+    """从执行器派生只读检查点读取接缝；缺少记录根或任务身份时返回 ``None``。
+
+    用执行器的 ``records_root``/``req_id``/``plan_version`` 属性按稳定身份拼接
+    线程身份，并只读读取记录根下的检查点数据库。派生失败时保守返回 ``None``，
+    行为与既有调用一致，不猜测可续跑；显式注入 ``checkpoints`` 的调用方不走此
+    路径。
+    """
+
+    records_root = getattr(run_task, "records_root", None)
+    req_id = getattr(run_task, "req_id", None)
+    plan_version = getattr(run_task, "plan_version", None)
+    if records_root is None or req_id is None or plan_version is None:
+        return None
+    root = Path(records_root)
+
+    def reader(task_id: str) -> CheckpointState | None:
+        # 与 ``graph.builder.requirement_task_id`` 的稳定身份一致；不导入 builder，
+        # 避免 graph 层内 import 环。
+        thread_id = f"task-{req_id}-v{plan_version}-{task_id}"
+        return read_checkpoint(root, thread_id)
+
+    return reader
+
+
 class RequirementExecutor:
     """按依赖推进一条需求的任务，并把前置产物传给下游执行器。
 
@@ -492,6 +574,7 @@ class RequirementExecutor:
         budget_seconds: float | None = None,
         clock: Clock = time.monotonic,
         slots: ActionStore | None = None,
+        checkpoints: CheckpointReader | None = None,
     ) -> None:
         self._store = store
         self._req_id = req_id
@@ -499,6 +582,10 @@ class RequirementExecutor:
         self._budget_seconds = budget_seconds
         self._clock = clock
         self._slots = slots
+        # 未显式注入时，优先用执行器自带的检查点读取能力；真实执行器
+        # （``RequirementTaskRunner``）暴露记录根与任务身份，据此派生只读读取接缝，
+        # 让 CLI 不新增参数即可在推进前读取检查点。
+        self._checkpoints = checkpoints if checkpoints is not None else _default_reader(run_task)
 
     def advance(self) -> RequirementProgress:
         """原子占用本需求执行槽位后推进；已被其他推进占用时明确拒绝。
@@ -676,16 +763,41 @@ class RequirementExecutor:
             if not budget.can_start_action():
                 store.set_requirement_status(req_id, BLOCKED, "需求执行工时限额已耗尽")
                 return
+            checkpoint = self._checkpoint(task_id)
+            decision = classify_checkpoint(checkpoint)
+            if _keeps_waiting(checkpoint, decision):
+                reason = _waiting_reason(checkpoint, decision)
+                runs[task_id] = store.record_task_run(
+                    req_id,
+                    plan.plan_version,
+                    task_id,
+                    TaskRunState.AWAITING_USER.value,
+                    reason=reason,
+                )
+                store.set_requirement_status(req_id, EXECUTING, reason)
+                return
             execution = TaskExecution(
                 task=task,
                 dependencies=self._dependencies(plan, task),
                 covered_dependencies=self._covered_dependencies(plan, task),
+                resume=decision is ResumeDecision.RESUME,
             )
+            # 续跑前后各取一次幂等指纹：检查点身份 + 已完成动作身份（action_id）。
+            before = advance_fingerprint(checkpoint) if checkpoint is not None else None
             started = self._clock()
             result = self._run_task(execution)
             elapsed = max(0.0, self._clock() - started)
+            progress_unknown = False
+            if decision is ResumeDecision.WAIT_USER:
+                # 停在人工决策门/终态只是回查，不产生新工作，不计入执行工时；
+                # 重复推进同一任务因此不会重复计入工时。
+                elapsed = 0.0
+            elif before is not None:
+                elapsed, progress_unknown = self._deduplicated_elapsed(task_id, before, elapsed)
             state = result.state
             reason = result.reason
+            if progress_unknown:
+                reason = _unknown_progress_reason(reason)
             if state is TaskRunState.DELIVERED and result.artifact is None:
                 # 交付却没有可传递产物：下游会读到缺失身份，按阻塞处理而不是放行。
                 state = TaskRunState.BLOCKED
@@ -709,6 +821,30 @@ class RequirementExecutor:
                 else:
                     store.set_requirement_status(req_id, BLOCKED, reason or state.value)
                 return
+
+    def _checkpoint(self, task_id: str) -> CheckpointState | None:
+        """只读读取任务检查点摘要；未接线时按无检查点处理（兼容既有调用）。"""
+
+        if self._checkpoints is None:
+            return None
+        return self._checkpoints(task_id)
+
+    def _deduplicated_elapsed(
+        self, task_id: str, before: AdvanceFingerprint, elapsed: float
+    ) -> tuple[float, bool]:
+        """按 ``actions.action_id`` 去重本轮执行工时，并如实报告记录缺失。
+
+        续跑前后各取一次幂等指纹：检查点与已完成动作集合都没有变化，说明本轮没有
+        产生新的已完成动作，不重复计入工时。动作记录缺失时返回 ``unknown``，既不
+        估算也不补零，由调用方写入原因供人工核对。
+        """
+
+        same = before.same_as(advance_fingerprint(self._checkpoint(task_id)))
+        if isinstance(same, str):
+            return 0.0, True
+        if same:
+            return 0.0, False
+        return elapsed, False
 
     def _dependencies(self, plan: TaskPlan, task: PlannedTask) -> tuple[TaskArtifact, ...]:
         store = self._store

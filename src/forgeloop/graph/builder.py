@@ -209,6 +209,12 @@ class RequirementTaskRunner:
             if not snapshot.next:
                 graph.invoke({"task_id": task_id}, _run_config(task_id))
                 snapshot = graph.get_state(_run_config(task_id))
+            elif execution.resume:
+                # 停在可续跑业务节点（dev/review/test 及其自动回边）：检查点里已有
+                # 待执行节点，就地继续执行，而不是当全新任务或要求人工决定。检查点
+                # 由推进器只读判定，未核对动作已在推进器侧拦下，不会盲目重放。
+                graph.invoke(None, _run_config(task_id))
+                snapshot = graph.get_state(_run_config(task_id))
             if "gate_plan_approval" in _interrupted_kinds(snapshot):
                 self._approve_plan(store, task_id)
                 graph.invoke(Command(resume={"decision": "approved"}), _run_config(task_id))
