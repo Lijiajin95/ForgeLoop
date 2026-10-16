@@ -93,7 +93,7 @@ curl -sS -X POST \
 | 要求 PR（曾短暂启用后按所有者决定移除） | 已实测其行为：无 bypass 时直推被拒；有 bypass 时放行 |
 | 正常推送不受影响 | **已实测**：普通快进推送放行 |
 | DogFood 来源门禁技术负例（真实 git：无回执／补挂任务 ID／内容漂移／伪造签名） | **已实测**：`tests/scenario/test_dogfood_gate.py`（8 项）与 `tests/unit/test_dogfood_provenance.py`（22 项） |
-| 来源门禁在 CI 启用（`config/dogfood-policy.toml` 的 `enabled=true`） | **已取消**（所有者 2026-10-15 撤销要求）：配置仍为 `false`，现有 CI 作业的“待启用”提示为待清理遗留 |
+| 来源门禁在 CI 启用（`config/dogfood-policy.toml` 的 `enabled=true`） | **已取消并清理完毕**（所有者 2026-10-15 撤销要求；2026-10-15 `b3827a7` 删除来源签名代码、校验脚本、配置、CI 作业与相关测试） |
 | 服务端拒绝非 ForgeLoop 写入 | **要求已撤销**：外部工具可按授权、提交时段和质量约定共同开发，不因工具来源自动进入救援流程 |
 
 ## 6. DogFood 提交来源门禁（C04，已取消）

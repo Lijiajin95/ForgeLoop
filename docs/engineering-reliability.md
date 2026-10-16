@@ -30,7 +30,7 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 | `config/quality-policy.toml` | 唯一门槛来源：结构/覆盖/变异/属性测试 | 消费脚本部分落地；属性 profile 已由 `tests/conftest.py` 注册 |
 | `config/commit-policy.toml` + `config/workday-calendars/2026.json` | 提交时间策略与年度日历 | 已落地并实测（16:45 周一被正确阻断） |
 | `.semgrep.yml` | 四条本地 SAST 规则 | 已执行：4 规则 20 文件 0 命中 |
-| `.pre-commit-config.yaml` | pre-commit/commit-msg/pre-push hooks | hooks 尚未安装（`make hooks` 待执行） |
+| `.pre-commit-config.yaml` | pre-commit/commit-msg/pre-push hooks | **已安装**（pre-commit 4.6.2；`.git/hooks/pre-commit` 与 `pre-push` 存在，并实测拦截窗口内提交） |
 | `.github/workflows/quality.yml` | 推送/PR CI 三作业（quality/security/commit-policy） | 已在 GitHub 真实执行并通过（第 19 节）；Action SHA 沿用 EvidHist 已核验值 |
 | `.github/workflows/mutation-nightly.yml` | 每日变异作业（19:00 UTC = 03:00 Asia/Shanghai，可手动触发） | 2026-10-12 所有者决定把变异门槛移出推送关键路径；失败仅 Actions 页面可见，回归最多滞后一天发现（第 19 节） |
 | `src/forgeloop/`（domain/records/adapter/graph/cli） | 首版系统架构分层实现 | 已实现并测试（见第 13 节执行记录） |
@@ -205,8 +205,8 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 | 系统架构实现 | 五层齐备：domain（计数/授权/批准绑定/限额/提交策略）、records（SQLite 权威记录）、adapter（PI RPC JSONL + 测试命令运行器）、graph（LangGraph 两次 interrupt 批准 + 失败回边 + 追加授权）、cli（submit/approve/grant/status --json/stop） |
 
 **未执行/缺口**（如实记录，不视为通过）：
-- `scripts/check_coverage_thresholds.py`、`check_mutation_stats.py`、`structure_metrics.py` + `check_structure_metrics.py`、`export_cli_contract.py` 未实现（对应 Makefile 目标暂不可用）。
-- `make hooks` 未安装；pre-push 快速测试 hook 未验证。
+- `scripts/check_coverage_thresholds.py`、`check_mutation_stats.py`、`structure_metrics.py` + `check_structure_metrics.py`、`export_cli_contract.py` **均已实现**，对应 Makefile 目标可用；覆盖门槛与 CLI 契约快照已于 2026-10-16 在主干实测通过。
+- `make hooks` **已安装**（2026-10-13 11:0x；pre-commit 4.6.2），pre-push 快速测试 hook 随每次推送执行。
 - 变异门槛未过（71 幸存者待审阅）。
 - 真实 PI RPC 调用（`pi_live`）未执行——适配器实现的是文档化契约，真实协议行为是验收计划步骤 1 的核查项；容器与独立工作副本未接入（假 PI 子进程验证适配器行为）。
 - 远程仓库与 CI 无执行记录；备份未执行（A05）。
@@ -230,7 +230,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 **变异最终状态**（最终测试集复跑）：246 变异，199 杀死，47 幸存且全部审阅登记（门槛 `critical_unreviewed_survivors_max=0` 满足）；超时/未测/异常状态 0。门槛的过期检测实际生效过一次：最终测试集多杀 1 个变异后，旧清单出现 1 条过期条目被显式拒绝，移除后通过——这正是清单与源码绑定的设计行为。
 
 **仍未完成**（如实记录）：
-- `make hooks` 未安装（pre-push 快速测试 hook 未验证）；远程 CI 无执行记录。
+- `make hooks` **已安装**（pre-commit 4.6.2）；远程 CI **已在 GitHub 执行**（2026-10-16：`quality` 与 `commit-policy` 通过，`security` 因 `mcp 1.29.0` 的 CVE-2026-59951 失败）。
 - 审阅清单与变异编号绑定领域源码：修改 domain 文件后须重跑变异并重导清单（门槛脚本会显式失败提示）。
 - 真实 PI 调用（`pi_live`）与容器隔离仍未接入（验收计划步骤 1 的核查项）。
 
@@ -399,7 +399,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 **门槛数字（对应 f28635c）**：`make check` 十项全绿（快速套件 337 项、结构 0 失败 / 22 警告、pylint 10.00）；`make coverage` 355 项通过（5 项 pi_live 显式跳过）、行 96.66% / 分支 92.16%；`make test-system` 2 项通过；`make sast` 4 条规则 35 个目标 0 findings；`make mutation` `512/596 killed, 84 survivors (84 reviewed)`。
 
-**未验证边界（不得当作已完成）**：GitHub 真实检查下的端到端候选分支归并（ruleset 未设置）；「Release → 自托管 runner → 本机部署」链路；真实两版本回滚（本机仅一个版本）；容器隔离下运行 PI；A01 真实任务闭环。
+**未验证边界（不得当作已完成）**：GitHub 真实检查下的端到端候选分支归并（虽然规则集 `main-protection` 已 active，真实检查下的归并仍未演练）；「Release → 自托管 runner → 本机部署」链路；真实两版本回滚（本机仅一个版本）；容器隔离下运行 PI。**A01 真实任务闭环已于 2026-10-16 完成**（见 [当前状态](status.md) 第 6 节与任务记录库）。
 
 ## 21. 审查门 fail-closed、发布→部署链路与计划文档同步：2026-10-13 上午（第二批）
 
