@@ -54,6 +54,7 @@
     "forgeloop.records": "records",
     "forgeloop.records.actions": "records",
     "forgeloop.records.checkpoints": "records",
+    "forgeloop.records.mail_threads": "records",
     "forgeloop.records.requirements": "records",
     "forgeloop.records.store": "records"
   },
