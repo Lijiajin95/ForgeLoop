@@ -9,24 +9,31 @@
 - 测试命令必须使用可用解释器（``uv run``/``python3``）或已知门禁命令。
 
 校验逐条给出具体路径/命令与原因，由规划调用方据此拒绝任务包并要求重规划，
-不静默接受。事实是手工维护的固定常量，不读文件系统：规划在独立目录内运行，
-不能访问被测项目现场；仓库布局变化由架构契约门禁（``docs/architecture.md``
-与 ``contracts/architecture.json``）与本文常量一并核对。
+不静默接受。合法源码分层不再硬编码，而是从机读架构事实
+``contracts/architecture.json`` 的 ``modules`` 与 ``layer_edges`` 动态解析，
+因此架构契约变更后无需改代码即可生效；仓库布局变化仍由架构契约门禁
+（``docs/architecture.md`` 与 ``contracts/architecture.json``）强制同步。
 
-本模块不依赖任何第三方库与内部其它层，只维护固定事实与纯判定。
+本模块是纯规则层，只依赖标准库与 ``forgeloop.domain`` 内的同层模块；不依赖
+``cli`` / ``graph`` / ``adapter`` / ``langgraph``。契约定位从模块文件与当前工作
+目录沿父目录向上查找，兼顾源码树、wheel 安装后从项目根运行与 mutmut 的
+``mutants/`` 副本；找不到（或损坏）契约时导入仍成功，默认事实退化为“架构未知”
+并让路径校验 fail-closed，而不是让 ``--help`` 或测试收集崩溃。纯函数
+:func:`parse_architecture_contract` 也可直接接受调用方传入的机读事实。
 """
 
+import json
 import re
-from dataclasses import dataclass
-from typing import TypedDict
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import TypedDict, cast
 
 from forgeloop.domain.task_plan import TaskPlan
 
-# 源码根与源码分层：与 contracts/architecture.json 的 source_root/模块层一致。
-# mail 为 2026-10-16 登记的新分层（邮箱接口与纯逻辑，只依赖标准库）；当前尚无
-# 实现模块，登记后规划即可合法引用 src/forgeloop/mail/ 下的路径。
-SOURCE_ROOT = "src/forgeloop"
-SOURCE_LAYERS = ("domain", "records", "adapter", "graph", "cli", "mail")
+# 机读架构事实：合法源码分层从这里动态读取，不再硬编码层名清单。
+# 不把绝对路径固定为 ``parents[3]``：wheel 安装与 mutmut 副本的目录深度不同。
+ARCHITECTURE_CONTRACT = "contracts/architecture.json"
 # 源码根顶层文件（不在分层目录内）：精确清单，避免把臆造顶层文件当成合法。
 SOURCE_ROOT_FILES = ("__init__.py", "__main__.py")
 
@@ -77,9 +84,162 @@ GATE_COMMANDS = (
 )
 
 
+class RepoFactsError(ValueError):
+    """任务包违反仓库布局事实，或架构契约不可用；据此拒绝并要求重规划。"""
+
+
+@dataclass(frozen=True)
+class ArchitectureFacts:
+    """从机读架构契约解析出的源码根与合法目录分层。"""
+
+    source_root: str
+    source_layers: tuple[str, ...]
+
+
+def _is_directory_layer(name: str) -> bool:
+    """目录分层必须是普通标识符；``(root)`` 与 ``__main__`` 是结构哨兵。"""
+
+    return name.isidentifier() and not (name.startswith("__") and name.endswith("__"))
+
+
+def _contract_edges(raw: object) -> tuple[tuple[str, str], ...]:
+    """解析 ``layer_edges``；形状不合法或缺失时返回空元组。"""
+
+    if not isinstance(raw, list):
+        return ()
+    edges: list[tuple[str, str]] = []
+    for item in cast("list[object]", raw):
+        if not isinstance(item, list):
+            continue
+        pair = cast("list[object]", item)
+        if len(pair) == 2 and isinstance(pair[0], str) and isinstance(pair[1], str):
+            edges.append((pair[0], pair[1]))
+    return tuple(edges)
+
+
+def _order_layers(layers: Sequence[str], edges: Sequence[tuple[str, str]]) -> tuple[str, ...]:
+    """按依赖先行排序：先生成基础层，同批就绪时取层名逆序以保证确定性。"""
+
+    unique = sorted(set(layers), reverse=True)
+    dependencies: dict[str, set[str]] = {layer: set() for layer in unique}
+    for source, target in edges:
+        if source in dependencies and target in dependencies and source != target:
+            dependencies[source].add(target)
+    ordered: list[str] = []
+    remaining = set(unique)
+    while remaining:
+        satisfied = set(ordered)
+        ready = [layer for layer in remaining if dependencies[layer] <= satisfied]
+        chosen = max(ready) if ready else max(remaining)
+        ordered.append(chosen)
+        remaining.discard(chosen)
+    return tuple(ordered)
+
+
+def parse_architecture_contract(payload: object) -> ArchitectureFacts:
+    """从机读架构事实解析源码根与合法源码分层（不读文件系统）。
+
+    ``modules`` 的层值去掉结构哨兵后即为合法目录分层；``layer_edges`` 用于把
+    基础层排在依赖层之前，并让清单不随契约键序变化保持确定性。契约缺少必要
+    字段或未登记任何目录分层时抛出 :class:`RepoFactsError`。
+    """
+
+    if not isinstance(payload, Mapping):
+        raise RepoFactsError("架构契约不是 JSON 对象")
+    contract = cast("Mapping[str, object]", payload)
+    source_root = contract.get("source_root")
+    if not isinstance(source_root, str) or not source_root:
+        raise RepoFactsError("架构契约缺少 source_root")
+    modules = contract.get("modules")
+    if not isinstance(modules, Mapping):
+        raise RepoFactsError("架构契约缺少 modules 映射")
+    registered = [
+        value for value in cast("Mapping[str, object]", modules).values() if isinstance(value, str)
+    ]
+    directory_layers = [name for name in registered if _is_directory_layer(name)]
+    if not directory_layers:
+        raise RepoFactsError("架构契约未登记任何合法源码目录分层")
+    ordered = _order_layers(directory_layers, _contract_edges(contract.get("layer_edges")))
+    return ArchitectureFacts(source_root=source_root, source_layers=ordered)
+
+
+def architecture_contract_candidates(anchor: Path | None = None) -> tuple[Path, ...]:
+    """按优先级列出机读架构契约的候选路径（可能都不存在）。
+
+    覆盖三类运行现场：源码树/可编辑安装（相对 ``repo_facts`` 模块向上）、wheel
+    安装后从被测项目根运行（相对当前工作目录向上），以及显式 ``anchor``（测试
+    注入）。从每个锚点沿父目录向上查找，使 mutmut 的 ``mutants/`` 工作副本也能
+    命中所属仓库根下的 ``contracts/``。
+    """
+
+    anchors = (anchor,) if anchor is not None else (Path(__file__).resolve().parent, Path.cwd())
+    candidates: list[Path] = []
+    for base in anchors:
+        start = base if base.is_dir() else base.parent
+        for parent in (start, *start.parents):
+            candidate = parent / ARCHITECTURE_CONTRACT
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return tuple(candidates)
+
+
+def resolve_architecture_contract(anchor: Path | None = None) -> Path | None:
+    """定位第一个真实存在的机读架构契约；找不到时返回 ``None``（不抛错）。"""
+
+    return next(
+        (path for path in architecture_contract_candidates(anchor) if path.is_file()),
+        None,
+    )
+
+
+def load_architecture_contract(path: Path | None = None) -> ArchitectureFacts:
+    """读取并解析机读架构事实；文件缺失或非法时抛出 :class:`RepoFactsError`。
+
+    ``path`` 为 ``None`` 时按 :func:`resolve_architecture_contract` 自动定位；
+    找不到契约同样抛错，供显式加载调用。导入期的默认事实改走
+    :func:`_default_architecture_facts` 安全降级，不把缺失契约变成导入失败。
+    """
+
+    if path is None:
+        path = resolve_architecture_contract()
+    if path is None:
+        raise RepoFactsError("未找到架构契约 contracts/architecture.json")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise RepoFactsError(f"无法读取架构契约 {path}：{error}") from error
+    except ValueError as error:
+        raise RepoFactsError(f"架构契约不是合法 JSON {path}：{error}") from error
+    return parse_architecture_contract(payload)
+
+
+def _default_architecture_facts() -> ArchitectureFacts | None:
+    """解析默认机读架构事实；契约缺失或损坏时安全降级为 ``None``。
+
+    导入期不因缺少 ``contracts/architecture.json`` 而失败：wheel 安装到任意目录、
+    mutmut 在 ``mutants/`` 副本内跑测试都可能没有契约文件。此时
+    :data:`DEFAULT_REPO_FACTS` 退化为“架构未知”，由 :func:`file_location_problem`
+    fail-closed 拒绝路径，而不是让 ``--help`` 或测试收集崩溃。
+    """
+
+    path = resolve_architecture_contract()
+    if path is None:
+        return None
+    try:
+        return load_architecture_contract(path)
+    except RepoFactsError:
+        return None
+
+
+_DEFAULT_ARCHITECTURE = _default_architecture_facts()
+# 架构契约不可用时保持为空，让校验 fail-closed；不在此硬编码层名清单。
+SOURCE_ROOT = _DEFAULT_ARCHITECTURE.source_root if _DEFAULT_ARCHITECTURE else ""
+SOURCE_LAYERS = _DEFAULT_ARCHITECTURE.source_layers if _DEFAULT_ARCHITECTURE else ()
+
+
 @dataclass(frozen=True)
 class RepoFacts:
-    """规划阶段使用的固定仓库布局事实；默认值为 ForgeLoop 当前布局。"""
+    """规划阶段使用的仓库布局事实；源码根与合法分层默认取自机读架构契约。"""
 
     source_root: str = SOURCE_ROOT
     source_layers: tuple[str, ...] = SOURCE_LAYERS
@@ -95,8 +255,10 @@ class RepoFacts:
     gate_commands: tuple[tuple[str, ...], ...] = GATE_COMMANDS
 
     def __post_init__(self) -> None:
-        if not self.source_root or not self.source_layers:
-            raise ValueError("仓库事实必须声明源码根与合法源码分层")
+        # 架构契约不可用时（部署目录或变异副本没有 contracts/）允许源码根与分层
+        # 同时缺省，由 file_location_problem fail-closed；两者必须同时给出或同时缺省。
+        if bool(self.source_root) != bool(self.source_layers):
+            raise ValueError("仓库事实的源码根与合法源码分层必须同时给出或同时缺省")
         if not self.test_root or not self.test_layers:
             raise ValueError("仓库事实必须声明测试根与合法测试分层")
         if not self.interpreters:
@@ -114,8 +276,17 @@ class RepoFacts:
 DEFAULT_REPO_FACTS = RepoFacts()
 
 
-class RepoFactsError(ValueError):
-    """任务包违反仓库布局事实；规划阶段据此拒绝并要求重规划。"""
+def repo_facts_from_architecture(
+    payload: object, base: RepoFacts = DEFAULT_REPO_FACTS
+) -> RepoFacts:
+    """在给定仓库事实基础上套用一份机读架构契约的源码根与合法分层。"""
+
+    architecture = parse_architecture_contract(payload)
+    return replace(
+        base,
+        source_root=architecture.source_root,
+        source_layers=architecture.source_layers,
+    )
 
 
 @dataclass(frozen=True)
@@ -186,8 +357,13 @@ def file_location_problem(relative: str, facts: RepoFacts = DEFAULT_REPO_FACTS) 
     契约只允许已知快照，文档、辅助目录与 ``.github`` 树允许子树，顶层文件必须
     精确匹配已知清单。任何分支都要求末段是文件名：目录、层名、文件前缀
     （如 ``src/forgeloop/domain`` 或 ``src/forgeloop/domain/status.py/extra``）一律拒绝。
+
+    架构契约不可用（默认事实的源码根与分层都为空）时 fail-closed：所有路径都
+    拒绝并说明缺少契约，绝不因为读不到契约而放行臆造路径。
     """
 
+    if not facts.source_root or not facts.source_layers:
+        return "架构契约不可用，无法判定项目路径（缺少 contracts/architecture.json）"
     if not relative or relative.startswith(("/", "\\")):
         return "不是项目内相对路径"
     parts = _path_parts(relative)

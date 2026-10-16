@@ -318,7 +318,15 @@ class TestFactsPayload:
     def test_payload_describes_the_fixed_layout(self) -> None:
         payload = repository_facts_payload()
         assert payload["source_root"] == "src/forgeloop"
-        assert payload["source_layers"] == ["domain", "records", "adapter", "graph", "cli", "mail"]
+        # 分层顺序由机读架构契约给出（不再固定），此处校验成员集合：基础五层 + 2026-10-16 登记的 mail。
+        assert set(payload["source_layers"]) == {
+            "domain",
+            "records",
+            "adapter",
+            "graph",
+            "cli",
+            "mail",
+        }
         assert payload["test_layers"] == [
             "unit",
             "property",
