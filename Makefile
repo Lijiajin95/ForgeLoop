@@ -20,8 +20,9 @@ format:
 lint:
 	.venv/bin/ruff check src tests scripts
 	.venv/bin/ruff format --check src tests scripts
-	# 本地 AST 检查：Ruff 的 S506 不覆盖全部不安全 YAML 加载形态（如无 Loader 的
-	# yaml.load），本检查补上缺口，与已移除的 Semgrep 规则同源。
+	# 本地 AST 检查：Ruff S506（本仓库已选入）覆盖 Loader=yaml.Loader/UnsafeLoader、
+	# 无 Loader 的 yaml.load 及第二个位置参数传 Loader，唯一未覆盖的是 yaml.unsafe_load；
+	# 本检查补上该缺口，对 S506 已覆盖形态只作防御性重复，与已移除的 Semgrep 规则同源。
 	.venv/bin/python scripts/check_untrusted_deserialization.py
 
 typecheck:

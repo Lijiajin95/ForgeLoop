@@ -26,10 +26,10 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 | 文件 | 作用 | 当前状态 |
 | --- | --- | --- |
 | `pyproject.toml` | 依赖分组（dev/mutation/security）与全部工具配置 | `uv.lock` 已生成并锁定（147 包，CPython 3.13.15，langgraph 1.2.14）；两项依赖修正见第 13 节 |
-| `Makefile` | 统一检查入口（check/coverage/mutation/security/hooks） | `check_commit_policy.py`、`run_semgrep.py` 已落地；结构度量/覆盖/变异门槛与 CLI 契约脚本待实现 |
+| `Makefile` | 统一检查入口（check/coverage/mutation/security/hooks） | `check_commit_policy.py`、`check_untrusted_deserialization.py` 已落地（原 `run_semgrep.py` 已随 semgrep 移除，见第 27 节）；结构度量/覆盖/变异门槛与 CLI 契约脚本待实现 |
 | `config/quality-policy.toml` | 唯一门槛来源：结构/覆盖/变异/属性测试 | 消费脚本部分落地；属性 profile 已由 `tests/conftest.py` 注册 |
 | `config/commit-policy.toml` + `config/workday-calendars/2026.json` | 提交时间策略与年度日历 | 已落地并实测（16:45 周一被正确阻断） |
-| `.semgrep.yml` | 四条本地 SAST 规则 | 已执行：4 规则 20 文件 0 命中 |
+| `.semgrep.yml`（已移除） | 四条本地 SAST 规则 | 已执行：4 规则 20 文件 0 命中；2026-10-16 起由 Ruff S 子集 + `scripts/check_untrusted_deserialization.py` 替代（见第 27 节） |
 | `.pre-commit-config.yaml` | pre-commit/commit-msg/pre-push hooks | **已安装**（pre-commit 4.6.2；`.git/hooks/pre-commit` 与 `pre-push` 存在，并实测拦截窗口内提交） |
 | `.github/workflows/quality.yml` | 推送/PR CI 三作业（quality/security/commit-policy） | 已在 GitHub 真实执行并通过（第 19 节）；Action SHA 沿用 EvidHist 已核验值 |
 | `.github/workflows/mutation-nightly.yml` | 每日变异作业（19:00 UTC = 03:00 Asia/Shanghai，可手动触发） | 2026-10-12 所有者决定把变异门槛移出推送关键路径；失败仅 Actions 页面可见，回归最多滞后一天发现（第 19 节） |
@@ -120,8 +120,8 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 
 ## 7. 安全与依赖护栏
 
-- **pip-audit**：审计完整锁定的运行与工程依赖（`uv export` 全组导出），`--strict --no-deps --disable-pip` 基于精确锁定输入；漏洞与“无法完成审计”都是检查失败，不静默放过。
-- **Semgrep 四条本地规则**（`.semgrep.yml`，`--error --strict`，解析失败即失败）：禁止 `shell=True`/`os.system`（ForgeLoop 真实执行测试命令与容器命令，此规则是第一道护栏）；禁止 `eval`/`exec`（任务输入、PI 事件与模型输出是数据不是代码）；禁止 `pickle`/`yaml.unsafe_load`（记录与会话是外部产物）；禁止关闭 TLS 校验。无命中不等于无漏洞；规则按真实风险扩充并带正反例。
+- **pip-audit**：审计完整锁定的运行与工程依赖（`uv export` 全组导出），`--strict --no-deps --disable-pip` 基于精确锁定输入；漏洞与“无法完成审计”都是检查失败，不静默放过。**依赖审计例外已移除（2026-10-16）**：原 `mcp 1.29.0` 的 CVE-2026-59951 例外随 `semgrep` 与 `mcp` 离开依赖树而删除，`make audit` 不再传 `--ignore-vuln`（历史处置见第 14 节；依赖数量变化见第 27 节）。
+- **离线 SAST：Ruff S 子集 + 本地 AST 检查**（2026-10-16 起替代已移除的 Semgrep `.semgrep.yml`，见第 27 节）：`pyproject.toml` 精确选取 7 条 bandit（S）代码——`S102`（exec）、`S301`（pickle）、`S307`（eval）、`S501`（关闭 TLS 校验）、`S506`（不安全 YAML）、`S602`（shell=True）、`S605`（os.system 类）——由 `make lint` 阻断；`scripts/check_untrusted_deserialization.py` 用 Python AST 唯一补上 `S506` 未覆盖的 `yaml.unsafe_load`——实测本仓库锁定的 ruff 0.17.0 且 `S506` 已选入时，`S506` 已覆盖 `Loader=yaml.Loader`、`Loader=yaml.UnsafeLoader`、无 `Loader` 的 `yaml.load` 及第二个位置参数传 Loader，本地检查对这些形态只作防御性重复——命中即失败，说明文案与原 Semgrep 规则同源。禁止 `shell=True`/`os.system` 仍是对真实执行测试命令与容器命令的第一道护栏；禁止 `eval`/`exec` 仍覆盖任务输入、PI 事件与模型输出。无命中不等于无漏洞；规则按真实风险扩充并带正反例。
 - **依赖纪律**：运行、开发、变异、安全依赖分组，`uv.lock` 冻结完整解析；deptry 核查声明与分组（dev 依赖无理由导入被 DEP004 拒绝）；certifi 显式声明于 dev 组供安全工具使用；更新依赖必须重新执行相关检查并更新锁文件。
 - **Import Linter**：`forgeloop.domain` 禁止依赖 `cli/graph/adapter` 与 `langgraph`（领域规则保持纯净，编排适配留在图与 Adapter 层）；新契约随代码分层落地时增加，不能靠遗漏入口达标。
 - **架构契约门禁**：`scripts/export_architecture_contract.py` 从源码 AST 推导模块清单、分层与跨层依赖边，与 `contracts/architecture.json` 快照和[架构说明](architecture.md)比对；模块增删换层、跨层边漂移、越层依赖（`LAYER_RULES`）、import 环，以及架构说明模块清单与源码不互为镜像，任一发生即失败。这条门禁是「架构变化必须同步架构描述文档」的执行点，规则与判定标准见架构说明第 9 节；命令为 `make architecture-contract`（导出）与 `make architecture-contract-check`（含在 `make check` 内）。
@@ -231,7 +231,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 
 **仍未完成**（如实记录）：
 - `make hooks` **已安装**（pre-commit 4.6.2）；远程 CI **已在 GitHub 执行**（2026-10-16：`quality` 与 `commit-policy` 通过）。
-- **依赖审计例外（2026-10-16，所有者授权处理 CI 漏洞）**：`mcp 1.29.0` 的 CVE-2026-59951 位于「stateful 模式 Streamable HTTP 服务端」；本仓库 0 处引用 `mcp`、0 处实现 MCP/HTTP 服务，`mcp` 只是 `semgrep` 的开发期传递依赖，而 `semgrep` 精确钉死 `mcp>=1.29.0,<1.29.0+`（最新 1.181.0 仍如此），无法通过升级修复。处置：在 `make audit` 中以 `--ignore-vuln CVE-2026-59951` 登记例外并写明复查条件（`semgrep` 放宽钉死或本仓库开始使用 `mcp` 时必须移除）；`make security` 复跑通过（`No known vulnerabilities found, 1 ignored`）。
+- **依赖审计例外（2026-10-16，所有者授权处理 CI 漏洞）**：`mcp 1.29.0` 的 CVE-2026-59951 位于「stateful 模式 Streamable HTTP 服务端」；本仓库 0 处引用 `mcp`、0 处实现 MCP/HTTP 服务，`mcp` 只是 `semgrep` 的开发期传递依赖，而 `semgrep` 精确钉死 `mcp>=1.29.0,<1.29.0+`（最新 1.181.0 仍如此），无法通过升级修复。处置：在 `make audit` 中以 `--ignore-vuln CVE-2026-59951` 登记例外并写明复查条件（`semgrep` 放宽钉死或本仓库开始使用 `mcp` 时必须移除）；`make security` 复跑通过（`No known vulnerabilities found, 1 ignored`）。 **本条保留为历史记录：该例外已于 2026-10-16 随 `semgrep` 与 `mcp` 离开依赖树而移除（见第 27 节）。**
 - 审阅清单与变异编号绑定领域源码：修改 domain 文件后须重跑变异并重导清单（门槛脚本会显式失败提示）。
 - 真实 PI 调用（`pi_live`）与容器隔离仍未接入（验收计划步骤 1 的核查项）。
 
@@ -626,3 +626,20 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 **未执行/未验证**：真实模型端到端（G01/G02）、容器隔离、真实发布部署、真实安装层、安全扫描、真实 CI 均未在本批次执行；本批次不创建 commit；CLI 契约仅新增结构快照，未改变既有 `status --json` 结构。
 
+## 27. SAST 引擎替换：semgrep → Ruff S 子集 + 本地 AST 检查（2026-10-16/17）
+
+**决定（所有者 2026-10-16）**：把本地 SAST 引擎由 semgrep 换为 **Ruff S 子集 + 本地 Python AST 检查**。根因：semgrep 最新版 1.181.0 仍在 PyPI 上精确钉死 `mcp==1.29.0`（`mcp>=1.29.0,<1.29.0+`），而 `mcp 1.29.0` 带 CVE-2026-59951，无法通过升级消除；继续保留 semgrep 就只能长期挂 `--ignore-vuln` 例外。替换后 **`semgrep` 与 `mcp` 已离开依赖树，依赖审计例外已移除**（`make audit` 不再传 `--ignore-vuln CVE-2026-59951`）。
+
+**事实与改动（实际执行）**：
+
+| 项 | 改动 | 证据 |
+| --- | --- | --- |
+| 引擎替换 | 删除 `.semgrep.yml` 与 `scripts/run_semgrep.py`；`Makefile` 去掉 `sast` 目标，`security` 只保留 `audit`；`lint` 内执行 `scripts/check_untrusted_deserialization.py` | 工作树实际状态（`git show 2604db1`） |
+| Ruff S 子集 | `pyproject.toml` 的 `[tool.ruff.lint].select` 新增 `S102`/`S301`/`S307`/`S501`/`S506`/`S602`/`S605` 共 7 条，不整体启用 `S` 家族；`tests/unit/test_ruff_security_select.py` 把清单固化为可回归契约（多选、漏选或整体启用 S 家族都失败） | 本机 `make check` |
+| 本地 AST 补口 | `scripts/check_untrusted_deserialization.py` 扫描 `src` 与 `scripts`，命中 `yaml.unsafe_load`、`Loader=yaml.Loader`/`UnsafeLoader`、无 `Loader` 的 `yaml.load` 即失败。其中 `S506`（本仓库已选入）实测已覆盖 `Loader=yaml.Loader`、`Loader=yaml.UnsafeLoader`、无 `Loader` 的 `yaml.load` 及第二个位置参数传 Loader，**唯一未覆盖的是 `yaml.unsafe_load`**；本地检查对其余形态只作防御性重复。`tests/unit/test_untrusted_deserialization.py` 用 10 个源码字符串 fixture 覆盖四类命中与 `safe_load` 正例 | 本机 ruff 0.17.0 实测（`--select S506`）与 `git show ffc62a4` |
+| 依赖审计例外移除 | `Makefile` 的 `pip-audit` 命令行去掉 `--ignore-vuln CVE-2026-59951`；`pyproject.toml` 的 `security` 组只剩 `pip-audit` | 工作树实际状态 |
+| 依赖数量变化（如实记录） | `uv.lock` 包数由移除前的 **151** 降至 **106**（净减 **45** 个包条目）；被移除的 `semgrep 1.180.0` 自身在锁文件中声明 **27 个直接依赖**（含 `mcp`、`glom`、`jsonschema`、`opentelemetry-*`、`peewee`、`ruamel-yaml`、`wcmatch` 等），其余为传递依赖 | `git show 2604db1^:uv.lock` 与当前 `uv.lock` 逐条核对 |
+
+**历史记录保留（不删史）**：semgrep 的历次执行结果仍在原处——第 2 节骨架清单、第 13 节首批执行记录（4 规则 20 文件 0 命中、`scripts/run_semgrep.py` 含设置目录与 CA 修正）、第 14 节依赖审计例外处置，均保留原文；本节只追加替换事实，不改写旧记录。
+
+**验证（本机 macOS ARM64，CPython 3.13.15，2026-10-17）**：`make check` exit 0（1300 通过、3 跳过）；`make audit` 在无 `--ignore-vuln` 下对完整锁定依赖报 `No known vulnerabilities found`、exit 0。

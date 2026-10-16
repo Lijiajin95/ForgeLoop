@@ -1,10 +1,14 @@
 """Reject unsafe YAML deserialization in ``src`` and ``scripts`` with a local AST scan.
 
-Ruff's ``S506`` bandit rule is not part of the configured lint selection, and the
-``.semgrep.yml`` rule ``forgeloop-no-unsafe-deserialization`` only matches
-``yaml.unsafe_load``. This check closes that gap without a Semgrep dependency by
-parsing the Python sources and flagging every YAML call that can execute arbitrary
-constructors:
+Ruff's ``S506`` bandit rule is part of the configured lint selection and already
+flags ``Loader=yaml.Loader``/``UnsafeLoader``, ``yaml.load`` without a ``Loader``,
+and a ``Loader`` passed as the second positional argument. The one form ``S506``
+does not cover is the ``yaml.unsafe_load`` alias; the removed ``.semgrep.yml`` rule
+``forgeloop-no-unsafe-deserialization`` matched that alias (its pickle patterns are
+now covered by ``S301``). This check closes the ``yaml.unsafe_load`` gap without a
+Semgrep dependency by parsing the Python sources and flagging every YAML call that
+can execute arbitrary constructors; the ``S506``-covered forms below are re-flagged
+only as defense in depth:
 
 * ``yaml.unsafe_load(...)``;
 * ``yaml.load(..., Loader=yaml.UnsafeLoader)``;

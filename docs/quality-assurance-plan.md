@@ -37,7 +37,7 @@
 | graph / CLI | 分支分别 88.54% / 82.09% | 全局均值掩盖局部缺口，优先检查关键失败分支 |
 | 核心变异 | 531/621 杀死，90 幸存，未完成 0 | 原始杀死率 85.51%；幸存者在配置中登记审阅 |
 | 结构 | 0 失败、27 警告 | 本轮读取到的 `reports/structure-metrics.json` 快照 |
-| 安全 | Semgrep 命中 0、错误 0；144 项依赖审计，漏洞 0 | 限于所选规则、依赖集合和测量时点 |
+| 安全 | 当前：Ruff S 子集（7 条 bandit 代码）+ `scripts/check_untrusted_deserialization.py` 本地 AST 检查，命中 0；依赖审计漏洞 0。历史记录：Semgrep 命中 0、错误 0；144 项依赖审计，漏洞 0（Semgrep 已于 2026-10-16 移除） | 限于所选规则、依赖集合和测量时点 |
 | 真实模型 | 历史 pi_live 5/5；另有最小真实模型演练到 awaiting_acceptance | 临时项目演练不等于正式 V-A01 交付；以当前状态记录为准 |
 | 真实边界缺口 | 容器隔离、正式发布部署、两版本回滚、独立硬盘备份 | 尚待对应真实验收；不以 fixture 替代 |
 
@@ -229,7 +229,7 @@ extend-select = ["BLE001", "S110", "S112", "DTZ", "PGH003", "PGH004", "PT012"]
 | Gitleaks | 当前改动、发布前完整 Git 历史 | 未处置真实密钥 0、扫描错误 0；误报指纹与范围记录；报告脱敏 |
 | pip-audit | 冻结的运行与工程依赖 | 已知漏洞或审计未完成均失败；禁止把无法访问数据库解释为“漏洞 0” |
 
-当前四条 Semgrep 规则（禁 shell=True／os.system／os.popen；禁 eval/exec；禁不安全反序列化；保持 TLS 校验）继续。TLS 规则当前只匹配 requests/httpx 类写法，实际项目使用 urllib：Q04 补 `ssl._create_unverified_context` 和关闭证书验证的精确匹配及正反例，不假称现有规则已覆盖所有 TLS 用法。
+SAST 引擎已于 2026-10-16 由 semgrep 换为 **Ruff S 子集 + 本地 AST 检查**：**`mcp` 与 `semgrep` 已离开依赖树，依赖审计例外已移除**（`make audit` 不再传 `--ignore-vuln`；见[可靠性方案第 27 节](engineering-reliability.md)）。Ruff 精确选取与真实风险面相关的 7 条 bandit（S）代码（`S102`/`S301`/`S307`/`S501`/`S506`/`S602`/`S605`，不整体启用 `S`），`scripts/check_untrusted_deserialization.py` 唯一补上 `S506` 未覆盖的 `yaml.unsafe_load`（实测 `S506` 已覆盖 `Loader=yaml.Loader`、`Loader=yaml.UnsafeLoader`、无 `Loader` 的 `yaml.load` 及第二个位置参数传 Loader；本地检查对这些形态只作防御性重复）。原 Semgrep 四条规则（禁 shell=True／os.system／os.popen；禁 eval/exec；禁不安全反序列化；保持 TLS 校验）作为历史记录保留。TLS 规则当前只匹配 requests/httpx 类写法（Ruff `S501`），实际项目使用 urllib：Q04 补 `ssl._create_unverified_context` 和关闭证书验证的精确匹配及正反例，不假称现有规则已覆盖所有 TLS 用法。
 
 后续小范围规则：阻塞 subprocess.run／网络调用需要 timeout 或可证明的截止时间管理；domain 不直接读取真实时钟、环境和文件；凭据源不流入公开日志。先验证现有封装／Popen 生命周期，避免仅凭缺少某个关键字误报；Popen 清理正确性仍靠真实进程测试。凭据污点规则不能替代运行时日志检查，原始记录按项目要求保留，本地敏感证据不直接上传，另产脱敏副本。
 
@@ -268,7 +268,7 @@ CI 影响选择用明确文件清单与可信 base/head；在作业内决定真�
 | 结构／架构 | 51 行函数、21 接口、501 行文件、循环／越层／文档漂移 | 边界合法；经审阅例外仍满足绝对上限；同步变更 |
 | actionlint／ShellCheck | 无效表达式、错误输出引用、未引用变量等批准规则负例 | 合法 env 引用、声明的自托管标签；缺工具不得假通过 |
 | zizmor／密钥 | 不可信模板进入 run、真实格式测试密钥、扫描错误 | 合法最小权限用途、env 传值、精确误报清单；假密钥不是真实凭据 |
-| Semgrep | 每条禁用 API／TLS／超时规则的真实语法负例 | 每条安全写法、合法封装与管理生命周期的正例 |
+| Ruff S 子集／本地 AST | 各条 S 代码的真实语法负例；本地 AST 检查的 `yaml.unsafe_load` 负例（`S506` 未覆盖，唯一补口），以及对 `Loader=yaml.Loader`/`UnsafeLoader`、无 `Loader` 的 `yaml.load` 的防御性重复负例 | 每条安全写法（`safe_load` 等）、合法封装与管理生命周期的正例 |
 
 新增静态规则用有注释标识的测试 fixture 验证，fixture 放 `tests/fixtures/security/` 并由专用规则测试读取；生产 SAST 仍扫描 src/scripts。测试用不安全语法不能实际执行。密钥样例使用公开虚构值，扫描报告脱敏。
 
@@ -313,7 +313,7 @@ CI 影响选择用明确文件清单与可信 base/head；在作业内决定真�
 
 ### Q04：安全规则与低频加强
 
-- 拟修改／新增：`.semgrep.yml`、`scripts/run_semgrep.py`；`tests/fixtures/security/rules.py`、`tests/unit/test_security_rules.py`（新增）；`config/quality-toolchain.toml`；`.gitleaks.toml`（新增，精确误报）；`scripts/check_quality_security.py`、`tests/unit/test_quality_security.py`（新增，zizmor／Gitleaks 调用与失败传播）；`Makefile`、`.github/workflows/quality.yml`、`.github/workflows/mutation-nightly.yml`；`docs/engineering-reliability.md`、`docs/status.md`。
+- 拟修改／新增：`pyproject.toml`（Ruff S 子集）、`scripts/check_untrusted_deserialization.py`；`tests/fixtures/security/rules.py`、`tests/unit/test_security_rules.py`（新增）、`tests/unit/test_ruff_security_select.py`、`tests/unit/test_untrusted_deserialization.py`；`config/quality-toolchain.toml`；`.gitleaks.toml`（新增，精确误报）；`scripts/check_quality_security.py`、`tests/unit/test_quality_security.py`（新增，zizmor／Gitleaks 调用与失败传播）；`Makefile`、`.github/workflows/quality.yml`、`.github/workflows/mutation-nightly.yml`；`docs/engineering-reliability.md`、`docs/status.md`。
 - 退出：安全负例和合法正例实际验证；脱敏报告；CI 安全检查运行；夜间／手动属性 1000 生效；核心变异维持完整审阅与无未完成。
 - 超时／凭据污点规则先做候选扫描；需要修改外部调用的文件必须逐项加入该批修复方案，不自行触及全部 adapter。
 
