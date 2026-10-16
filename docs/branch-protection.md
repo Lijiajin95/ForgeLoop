@@ -5,19 +5,13 @@
 
 状态：**已执行**（规则集 `main-protection` 已 Active 并通过真实验证）。
 
+**2026-10-15 所有者需求澄清**：ForgeLoop 应能修改自身项目并交付可验收代码；所有者、DSH 与其他工具仍可按项目约定开发和提交。服务端排他写入及“只有 ForgeLoop 才能提交”的要求已撤销，C04 取消。已有基本保护继续保留，GitHub 配置不承担工具来源排他判定。
+
 ## 1. 先弄清楚一个容易搞错的点
 
-GitHub 的“必需状态检查”在文档里的语义是 **合并**路径：
+GitHub 的必需状态检查可以约束无绕过权限的分支更新。提交通过检查后，可通过合并或直接推送进入受保护分支；是否必须 PR 由 PR 规则另行决定。不能把“允许通过检查的提交直推”解释为“状态检查不阻断直推”。参见 [About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) 与 [Available rules for rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)。
 
-- 经典分支保护：*“After enabling required status checks, all required status checks must pass before
-  collaborators can **merge** changes into the protected branch.”*，并补充 *“After all required status
-  checks pass, any commits must either be pushed to another branch and then merged or pushed directly to
-  the protected branch.”*（[About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)）
-- ruleset 规则表把这条写作 "Require status checks to pass **before merging**"。
-  （[Available rules for rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)）
-
-即：**必需状态检查不阻断直接推送**，真正约束直推的是 `Restrict updates`、`Require workflows to pass
-before merging` 或 `Require a pull request before merging`。
+本仓库当前未配置必需状态检查，且所有者拥有 `always` 绕过权限。`forgeloop merge` 等待 CI 是客户端交付流程，不能据此声称服务端强制执行了该检查，也不能区分使用同一所有者凭据的开发工具。
 
 另一条本计划实测得到的结论：**`Evaluate`（试运行）模式是 Enterprise 专属**。本仓库（个人账号、公开仓库）
 调用 API 创建 ruleset 并指定 `enforcement: evaluate` 时，服务端返回
@@ -54,7 +48,7 @@ to enable it.` —— 因此本仓库**直接以 Active 部署最小集**，并�
 | --- | --- |
 | `pull_request` | 单人项目不需要强制 PR；且会直接掐断 `forgeloop merge` 的直推流程 |
 | `update`（限定写入身份） | 本机所有 Agent 都使用所有者凭据，服务端限制无实际意义 |
-| `required_status_checks` | CI 每次推送都会跑（软性规则已足够）；必需检查不阻断直推，收益有限 |
+| `required_status_checks` | 按所有者决定沿用 CI 软性规则与客户端检查等待，未配置服务端必需检查；该选择不表示必需检查不能阻断直推 |
 | `workflows` | 会强制走 PR 路径，与上一条同理 |
 
 API 方式（fine-grained PAT，权限 `Administration: read and write`）；等价创建：
@@ -99,21 +93,11 @@ curl -sS -X POST \
 | 要求 PR（曾短暂启用后按所有者决定移除） | 已实测其行为：无 bypass 时直推被拒；有 bypass 时放行 |
 | 正常推送不受影响 | **已实测**：普通快进推送放行 |
 | DogFood 来源门禁技术负例（真实 git：无回执／补挂任务 ID／内容漂移／伪造签名） | **已实测**：`tests/scenario/test_dogfood_gate.py`（8 项）与 `tests/unit/test_dogfood_provenance.py`（22 项） |
-| 来源门禁在 CI 启用（`config/dogfood-policy.toml` 的 `enabled=true`） | **待启用**：见第 6 节；当前 CI 作业只报告“待启用”并放行 |
-| 服务端拒绝非受控直接推送 | **不适用**（所有者决定不做身份限制）：外部直接提交由来源门禁**检出**并进入救援流程，而非事前阻断 |
+| 来源门禁在 CI 启用（`config/dogfood-policy.toml` 的 `enabled=true`） | **已取消**（所有者 2026-10-15 撤销要求）：配置仍为 `false`，现有 CI 作业的“待启用”提示为待清理遗留 |
+| 服务端拒绝非 ForgeLoop 写入 | **要求已撤销**：外部工具可按授权、提交时段和质量约定共同开发，不因工具来源自动进入救援流程 |
 
-## 6. DogFood 提交来源门禁（C04，待启用）
+## 6. DogFood 提交来源门禁（C04，已取消）
 
-机制：受控执行端 `forgeloop merge` 用环境变量 `FORGELOOP_DOGFOOD_SIGNING_KEY` 对来源回执做
-HMAC-SHA256 签名，回执作为提交消息 trailer `ForgeLoop-Provenance` 随提交传递；可信校验端
-`scripts/check_dogfood_provenance.py`（CI 作业 `dogfood-provenance`）重新计算提交实际内容并核对签名，
-拒绝：无回执、回执重复、签名无效、任务 ID 不属于受控命名、基线不是提交祖先、候选内容漂移。
-密钥只从环境变量读取，不写入仓库、不传入 PI 执行环境。
+原方案用 HMAC-SHA256 来源回执和 CI 校验限制提交来源。所有者于 2026-10-15 撤销该要求，原启用步骤失效；不再要求配置 `FORGELOOP_DOGFOOD_SIGNING_KEY`、仓库来源 Secret、专用写入身份或把 `dogfood-provenance` 加入必需检查，也不为此新建来源策略或排他开发 Prompt。
 
-**启用前置（缺一不可）**，详见 `docs/dogfood-policy.md`：
-
-1. 专用验证分支跑通负例（无回执 / 伪造签名 / 内容漂移均被拒绝）；
-2. 登记仓库 Secret `FORGELOOP_DOGFOOD_SIGNING_KEY`；
-3. `config/dogfood-policy.toml` 的 `enabled = true`；
-4. 归并时把 `dogfood-provenance` 纳入必需检查（`--require-checks quality,security,commit-policy,dogfood-provenance`）；
-5. 历史提交没有回执，需在专用验证分支按批启用，避免误伤已有历史。
+当前代码仍保留来源签名、校验脚本、`config/dogfood-policy.toml`（`enabled = false`）、CI 作业及测试；它们的清理尚未实施。历史验证记录继续保留，后续清理单独确认文件范围。任务、批准、候选、测试及验收材料的绑定继续保留，以验证自我迭代交付质量。
