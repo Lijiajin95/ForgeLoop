@@ -7,6 +7,7 @@
     "forgeloop.__main__": "__main__",
     "forgeloop.adapter": "adapter",
     "forgeloop.adapter.artifact": "adapter",
+    "forgeloop.adapter.commit_policy": "adapter",
     "forgeloop.adapter.deployment": "adapter",
     "forgeloop.adapter.execution_environment": "adapter",
     "forgeloop.adapter.git_workspace": "adapter",
