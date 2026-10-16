@@ -111,8 +111,17 @@ class CheckpointState:
     checkpoint_id: str = ""
     next_nodes: tuple[str, ...] = ()
     halted_reason: str = ""
+    # 产生 halted_reason 的业务节点（``dev``/``review``/``test`` 或 ``action_unchecked``
+    # 点名的节点）；无法归因（停止原因、plan_missing 等）时为空串。人工授权清除
+    # halted_reason 后本字段仍保留，作为「从哪个节点就地续跑」的唯一依据；空串一律
+    # 不可续跑（fail-closed）。
+    halted_node: str = ""
     outstanding_node: str = ""
     completed_actions: frozenset[str] | str = UNKNOWN
+    # 该摘要的 halted_reason 是否由人工续跑决定清除（原中断现场 + 已记录决定）。
+    # 清除后 halted_reason 为空、``next`` 仍为空，仅凭这两者无法区分「授权中断现场」
+    # 与「本来就没有待执行节点」；本字段供推进器对无法归因的中断 fail-closed 等待。
+    resumed_from_halt: bool = False
     # 检查点内部随图状态落库的任务身份与任务包版本；用于人工续跑前的可信核对。
     # 旧检查点未携带时为 ``""`` / ``None``，据此一律判为不可信（fail-closed）。
     recorded_task_id: str = ""
@@ -215,6 +224,29 @@ def _pending_nodes(channel_values: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
+def halted_node_of(reason: str) -> str:
+    """从 ``halted_reason`` 归因产生中断的业务节点；无法归因时返回空串。
+
+    业务节点返回 ``halted_reason`` 后路由函数一律走 END，检查点不再有待执行节点
+    （``next`` 为空），因此「从哪个节点就地续跑」只能由原因文本归因。只识别能明确
+    对应到可续跑业务节点的原因；停止原因、``plan_missing`` 等无法确定重入点的原因
+    返回空串，交调用方 fail-closed 等待人工核对，绝不猜测节点。
+    """
+
+    reason = reason.strip()
+    if not reason:
+        return ""
+    if reason.startswith("action_unchecked:"):
+        return reason.split(":", 1)[1].strip()
+    if reason.startswith("pi_dev_unsettled") or reason.startswith("prerequisite_blocked"):
+        return "dev"
+    if reason.startswith("pi_review_unsettled") or reason == "review_result_invalid":
+        return "review"
+    if reason == "test_timeout":
+        return "test"
+    return ""
+
+
 def _connect_read_only(path: Path) -> sqlite3.Connection | None:
     """以只读方式打开 SQLite 库；不可读时返回 ``None``。
 
@@ -308,11 +340,13 @@ def inspect_checkpoint(records_root: str | Path, task_id: str) -> CheckpointInsp
                 raise ValueError("检查点不是映射")
             checkpoint = cast("Checkpoint", loaded)
             values = checkpoint.get("channel_values") or {}
+            halted_reason = str(values.get("halted_reason") or "")
             state = CheckpointState(
                 task_id=task_id,
                 checkpoint_id=str(checkpoint_id or ""),
                 next_nodes=_pending_nodes(values),
-                halted_reason=str(values.get("halted_reason") or ""),
+                halted_reason=halted_reason,
+                halted_node=halted_node_of(halted_reason),
                 recorded_task_id=str(values.get("task_id") or ""),
                 plan_version=_plan_version(values),
             )
@@ -566,12 +600,13 @@ def clear_halted_reason(state: CheckpointState | None) -> CheckpointState | None
     """返回清除 ``halted_reason`` 的检查点摘要；没有检查点时保持 ``None``。
 
     只返回新摘要，不改写 LangGraph 检查点库；持久化事实由人工续跑决定记录承载，
-    :func:`read_authorized_checkpoint` 据此叠加出「已清除」的有效现场。
+    :func:`read_authorized_checkpoint` 据此叠加出「已清除」的有效现场。新摘要保留
+    ``halted_node`` 并置 ``resumed_from_halt``，供推进器确定就地重入的业务节点。
     """
 
     if state is None:
         return None
-    return replace(state, halted_reason="")
+    return replace(state, halted_reason="", resumed_from_halt=True)
 
 
 def read_authorized_checkpoint(

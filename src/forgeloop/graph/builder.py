@@ -197,6 +197,7 @@ class RequirementTaskRunner:
                 prerequisites=self._prerequisite_candidates(
                     execution.dependencies, execution.covered_dependencies
                 ),
+                requirement_plan_version=self.plan_version,
             )
             graph = build_graph(
                 context,
@@ -206,15 +207,23 @@ class RequirementTaskRunner:
             if record is not None and record.status == "delivered":
                 return TaskResult(TaskRunState.DELIVERED, self._artifact(store, task_id, task))
             snapshot = graph.get_state(_run_config(task_id))
-            if not snapshot.next:
+            if execution.resume and execution.resume_node and not snapshot.next:
+                # 业务节点返回 halted_reason 后路由到 END，检查点 ``next`` 为空。人工
+                # 决定已绑定该现场：清空持久化的 halted_reason 并只重入该业务节点及其
+                # 后续（``Command(goto=...)`` 不经过更早的 plan/gate），而不是从 START
+                # 重放。动作身份去重仍由推进器与动作记录把关。
+                graph.invoke(
+                    Command(goto=execution.resume_node, update={"halted_reason": ""}),
+                    _run_config(task_id),
+                )
+            elif not snapshot.next:
                 graph.invoke({"task_id": task_id}, _run_config(task_id))
-                snapshot = graph.get_state(_run_config(task_id))
             elif execution.resume:
                 # 停在可续跑业务节点（dev/review/test 及其自动回边）：检查点里已有
                 # 待执行节点，就地继续执行，而不是当全新任务或要求人工决定。检查点
                 # 由推进器只读判定，未核对动作已在推进器侧拦下，不会盲目重放。
                 graph.invoke(None, _run_config(task_id))
-                snapshot = graph.get_state(_run_config(task_id))
+            snapshot = graph.get_state(_run_config(task_id))
             if "gate_plan_approval" in _interrupted_kinds(snapshot):
                 self._approve_plan(store, task_id)
                 graph.invoke(Command(resume={"decision": "approved"}), _run_config(task_id))

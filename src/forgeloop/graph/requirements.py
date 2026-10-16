@@ -20,8 +20,15 @@
   （``dev``/``review``/``test`` 及其自动回边）且无 ``halted_reason``、也没有未核对
   的 ``started`` 动作时以 ``TaskExecution.resume`` 交给执行器就地续跑；停在人工
   决策节点（计划批准、追加授权、整体验收）、终态节点、存在 ``halted_reason`` 或
-  仍有未完成动作时保持等待人工决定，不自动续跑。重复推进不重放已完成节点、不
-  重复计入工时（LangGraph 检查点 + 动作身份 ``actions.action_id`` 去重；记录缺失
+  仍有未完成动作时保持等待人工决定，不自动续跑。人工授权后就地续跑：读取检查点时
+  叠加 records 层已校验并落库的人工续跑决定，仅当决定绑定当前检查点身份时才把
+  ``halted_reason`` 视为已清除并允许续跑；缺少决定、决定过期（检查点被替换）或
+  校验失败一律保留中断原因，fail-closed 等待人工核对。业务节点返回 ``halted_reason``
+  的真实中断现场路由到 END、检查点 ``next`` 为空，此时由原因归因出要重入的业务
+  节点并以 ``TaskExecution.resume_node`` 交给执行器；归因不出的中断原因（停止、
+  ``plan_missing`` 等）仍保持等待人工。已授权但仍有未核对 ``started`` 动作时同样
+  不自动重放（B03 红线）。重复推进不重放已完成节点、
+  不重复计入工时（LangGraph 检查点 + 动作身份 ``actions.action_id`` 去重；记录缺失
   时输出 ``unknown``）。
 
 **执行器由调用方注入**：真实单任务业务图（PI 实现、审查、正式测试、验收）如何
@@ -56,13 +63,14 @@ from forgeloop.domain.status import ActionActor, NextAction
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 from forgeloop.records.actions import ActionRecord, ActionStore, ExecutionSlotBusyError
 from forgeloop.records.checkpoints import (
+    RESUMABLE_NODES,
     AdvanceFingerprint,
     CheckpointReader,
     CheckpointState,
     ResumeDecision,
     advance_fingerprint,
     classify_checkpoint,
-    read_checkpoint,
+    read_authorized_checkpoint,
 )
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import OutcomeStore, RecordStore
@@ -121,12 +129,18 @@ class TaskExecution:
     依赖；被覆盖的依赖照常校验与记录，但不单独应用（其改动随极大依赖一并带入）。
     ``resume`` 为真表示推进器读取检查点后判定该任务停在可续跑业务节点，执行器应
     就地恢复图执行而不是当作全新任务；为假时行为与既有调用一致。
+
+    ``resume_node`` 非空时表示现场是业务节点返回 ``halted_reason`` 后路由到 END 的
+    中断现场（``next`` 为空），人工决定已绑定该现场并清除中断：执行器应清空持久化
+    的 ``halted_reason`` 并只重入该节点及其后续，不重放更早的已完成节点。停在
+    ``next`` 里的检查点（进程在节点前被中断）不需要该字段，执行器按检查点续跑。
     """
 
     task: PlannedTask
     dependencies: tuple[TaskArtifact, ...] = ()
     covered_dependencies: tuple[str, ...] = ()
     resume: bool = False
+    resume_node: str = ""
 
 
 @dataclass(frozen=True)
@@ -496,6 +510,39 @@ def _delivered(run: object) -> bool:
     return getattr(run, "state", None) == TaskRunState.DELIVERED.value
 
 
+def _authorized_resume_node(checkpoint: CheckpointState | None) -> str:
+    """人工授权清除中断后应就地重入的业务节点；无法归因或非业务节点时为空串。
+
+    ``read_authorized_checkpoint`` 在决定绑定当前现场后把 ``halted_reason`` 清空，
+    但保留 ``halted_node``。这类检查点的 ``next`` 为空（节点曾路由到 END），普通
+    ``classify_checkpoint`` 会判为等待人工；本函数据此给出可重入的业务节点，续跑
+    只重入该节点及其后续，不重放更早的已完成节点。停止原因、``plan_missing`` 等
+    无法确定重入点的原因返回空串，交调用方 fail-closed 继续等待人工核对。
+    """
+
+    if checkpoint is None or not checkpoint.resumed_from_halt:
+        return ""
+    if checkpoint.halted_reason.strip():
+        return ""
+    node = checkpoint.halted_node.strip()
+    return node if node in RESUMABLE_NODES else ""
+
+
+def _authorized_halt_is_unattributable(checkpoint: CheckpointState | None) -> bool:
+    """是否「已授权清除中断、但无法归因到可续跑业务节点」的现场。
+
+    这类检查点 ``halted_reason`` 已被决定清除而 ``next`` 仍为空，执行器无法从检查点
+    本身找到续跑点；把任务当全新任务交给执行器会从 START 重放。调用方据此保持等待
+    人工核对，而不是放行。
+    """
+
+    return bool(
+        checkpoint is not None
+        and checkpoint.resumed_from_halt
+        and not _authorized_resume_node(checkpoint)
+    )
+
+
 def _keeps_waiting(checkpoint: CheckpointState | None, decision: ResumeDecision) -> bool:
     """是否必须拦下执行器、保持等待人工决定。
 
@@ -537,9 +584,11 @@ def _default_reader(run_task: object) -> CheckpointReader | None:
     """从执行器派生只读检查点读取接缝；缺少记录根或任务身份时返回 ``None``。
 
     用执行器的 ``records_root``/``req_id``/``plan_version`` 属性按稳定身份拼接
-    线程身份，并只读读取记录根下的检查点数据库。派生失败时保守返回 ``None``，
-    行为与既有调用一致，不猜测可续跑；显式注入 ``checkpoints`` 的调用方不走此
-    路径。
+    线程身份，并只读读取记录根下的检查点数据库。读取时叠加人工续跑决定：只有当
+    records 层校验通过并已记录、且决定绑定当前检查点身份（``plan_version`` +
+    ``checkpoint_id``）时才把 ``halted_reason`` 视为已清除，交回可续跑判定；否则
+    原样保留中断原因，推进器据此保持等待人工核对，不盲目重放。派生失败或显式注入
+    ``checkpoints`` 时行为与既有调用一致，不猜测可续跑。
     """
 
     records_root = getattr(run_task, "records_root", None)
@@ -551,9 +600,10 @@ def _default_reader(run_task: object) -> CheckpointReader | None:
 
     def reader(task_id: str) -> CheckpointState | None:
         # 与 ``graph.builder.requirement_task_id`` 的稳定身份一致；不导入 builder，
-        # 避免 graph 层内 import 环。
+        # 避免 graph 层内 import 环。检查点落库的 ``task_id`` 与线程身份相同，因此
+        # 决定按同一身份绑定；过期决定不匹配被替换的检查点，fail-closed 保留中断原因。
         thread_id = f"task-{req_id}-v{plan_version}-{task_id}"
-        return read_checkpoint(root, thread_id)
+        return read_authorized_checkpoint(root, thread_id, requirement_id=req_id, task_id=thread_id)
 
     return reader
 
@@ -765,8 +815,29 @@ class RequirementExecutor:
                 return
             checkpoint = self._checkpoint(task_id)
             decision = classify_checkpoint(checkpoint)
-            if _keeps_waiting(checkpoint, decision):
-                reason = _waiting_reason(checkpoint, decision)
+            # 业务节点返回 halted_reason 后检查点 ``next`` 为空（路由到 END），
+            # classify_checkpoint 据此判为等待人工。若人工决定已绑定该现场并清除了
+            # halted_reason，则它是可续跑的中断现场：改判为就地续跑，并把要重入的
+            # 业务节点交给执行器。无法归因时保持等待，fail-closed 不盲目重放。
+            resume_node = ""
+            wait_reason = ""
+            if decision is ResumeDecision.WAIT_USER and checkpoint is not None:
+                if checkpoint.outstanding_node:
+                    # 未完成动作结果不明确：即使人工授权清除了中断也不自动重放
+                    # （B03 红线），保留现场等待人工核对。
+                    wait_reason = f"等待人工核对未完成动作: {checkpoint.outstanding_node}"
+                else:
+                    resume_node = _authorized_resume_node(checkpoint)
+                    if resume_node:
+                        decision = ResumeDecision.RESUME
+                    elif _authorized_halt_is_unattributable(checkpoint):
+                        # 中断原因已由人工授权清除，却无法归因为可续跑业务节点：绝不能
+                        # 把空 ``next`` 当作全新任务交给执行器（那会从 START 重放）。
+                        wait_reason = (
+                            "等待人工决定: 已授权中断但无法归因重入节点，请人工核对检查点现场"
+                        )
+            if wait_reason or _keeps_waiting(checkpoint, decision):
+                reason = wait_reason or _waiting_reason(checkpoint, decision)
                 runs[task_id] = store.record_task_run(
                     req_id,
                     plan.plan_version,
@@ -781,6 +852,7 @@ class RequirementExecutor:
                 dependencies=self._dependencies(plan, task),
                 covered_dependencies=self._covered_dependencies(plan, task),
                 resume=decision is ResumeDecision.RESUME,
+                resume_node=resume_node,
             )
             # 续跑前后各取一次幂等指纹：检查点身份 + 已完成动作身份（action_id）。
             before = advance_fingerprint(checkpoint) if checkpoint is not None else None

@@ -73,6 +73,10 @@ class NodeContext:
     config: Mapping[str, str]
     # 已完成前置任务的候选改动：在克隆副本后、进入实现前应用（I01 接缝）。
     prerequisites: tuple[PrerequisiteCandidate, ...] = ()
+    # 需求任务包版本；由需求执行器注入。检查点落库的 ``plan_version`` 据此对齐到
+    # 需求版本，而不是单任务图的本地方案版本：人工续跑校验以需求已批准任务包
+    # 版本为绑定口径（见 records.checkpoints.validate_retry）。独立单任务运行为空。
+    requirement_plan_version: int | None = None
 
     @classmethod
     def for_task(cls, store: RecordStore, records_root: Path, task_id: str) -> "NodeContext":
@@ -201,7 +205,9 @@ def make_plan_node(ctx: NodeContext) -> NodeFn:
             Plan(ctx.task_id, version, goal, scope, acceptance, tuple(test_command))
         )
         ctx.store.set_task_status(ctx.task_id, "awaiting_plan_approval")
-        return {"plan_version": version}
+        # 需求线任务的检查点版本取需求任务包版本，供人工续跑校验绑定；独立单任务
+        # 图没有需求版本，沿用本地方案版本。
+        return {"plan_version": ctx.requirement_plan_version or version}
 
     return plan_node
 
