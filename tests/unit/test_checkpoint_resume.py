@@ -21,6 +21,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata, empty_checkpoint
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from forgeloop.domain.status import ActionActor
 from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
 from forgeloop.graph.requirements import (
     EXECUTING,
@@ -178,6 +179,36 @@ class TestReadCheckpoint:
 
         assert state is not None
         assert state.completed_actions == frozenset({first, second})
+
+    def test_action_sequence_started_then_completed_changes_fingerprint(
+        self, tmp_path: Path
+    ) -> None:
+        """未完成动作改成已完成，是检查点身份之外的真实进展。"""
+
+        _write_checkpoint(tmp_path, "task-x", ("test",))
+        store = RecordStore(tmp_path / "records.sqlite")
+        try:
+            action = store.actions.begin("task-x", "test")
+            started = read_checkpoint(tmp_path, "task-x")
+        finally:
+            store.close()
+
+        assert started is not None
+        assert started.outstanding_node == "test"
+        assert started.completed_actions == frozenset()
+        before = advance_fingerprint(started)
+
+        store = RecordStore(tmp_path / "records.sqlite")
+        try:
+            store.actions.finish(action.action_id)
+        finally:
+            store.close()
+        completed = read_checkpoint(tmp_path, "task-x")
+
+        assert completed is not None
+        assert completed.outstanding_node == ""
+        assert action.action_id in completed.completed_actions
+        assert before.same_as(advance_fingerprint(completed)) is False
 
     def test_reads_halted_reason_from_checkpoint(self, tmp_path: Path) -> None:
         _write_checkpoint(tmp_path, "task-x", (), halted_reason="pi_unsettled")
@@ -550,3 +581,89 @@ def test_advance_fingerprint_unknown_roundtrip() -> None:
         )
         is UNKNOWN
     )
+
+
+class TestParkedTestResume:
+    """真实故障现场：停在 ``test`` 节点、状态词仍为 ``testing`` 且无 halted 原因。
+
+    判定不看可能滞后的状态词，只看检查点 ``next`` 与动作记录；停在可续跑业务节点
+    即就地续跑，到达终态或验收门，而不是被当成「等待人工决定」。
+    """
+
+    def test_status_testing_at_test_node_resumes_to_delivery(self, tmp_path: Path) -> None:
+        store, req_id = _approved(tmp_path)
+        # 记录里的状态词滞后：进程在 test 节点被中断，真相在检查点 next=('test',)。
+        store.record_task_run(req_id, 1, "first", "testing", reason="进程在测试节点被中断")
+        clock = FakeClock()
+        runner = RecordingRunner(clock, TaskResult(TaskRunState.DELIVERED, _artifact("first")))
+        reader = SequenceReader(
+            [
+                _checkpoint(("test",), "cp-1"),
+                _checkpoint(("deliver",), "cp-2"),
+            ]
+        )
+
+        progress = RequirementExecutor(
+            store, req_id, runner, clock=clock, checkpoints=reader
+        ).advance()
+        store.close()
+
+        assert len(runner.calls) == 1
+        assert runner.calls[0].resume is True
+        assert progress.completed_tasks == ("first",)
+        assert progress.all_tasks_delivered is True
+        assert progress.consumed_seconds == 4.0
+
+    def test_status_testing_at_test_node_stops_at_acceptance_gate(self, tmp_path: Path) -> None:
+        store, req_id = _approved(tmp_path)
+        store.record_task_run(req_id, 1, "first", "testing", reason="进程在测试节点被中断")
+        clock = FakeClock()
+        runner = RecordingRunner(
+            clock, TaskResult(TaskRunState.AWAITING_USER, reason="等待决定: gate_acceptance")
+        )
+        reader = SequenceReader(
+            [
+                _checkpoint(("test",), "cp-1"),
+                _checkpoint(("gate_acceptance",), "cp-2"),
+            ]
+        )
+
+        progress = RequirementExecutor(
+            store, req_id, runner, clock=clock, checkpoints=reader
+        ).advance()
+        store.close()
+
+        assert len(runner.calls) == 1
+        assert runner.calls[0].resume is True
+        assert progress.blocked_reason == "等待决定: gate_acceptance"
+        assert progress.current_task == "first"
+
+
+class TestNoProgressReport:
+    """检查点身份与已完成动作身份都不变时：不重复计工时，报告阻塞与建议动作。"""
+
+    def test_two_no_change_advances_report_blocking_and_suggested_action(
+        self, tmp_path: Path
+    ) -> None:
+        store, req_id = _approved(tmp_path)
+        clock = FakeClock()
+        runner = RecordingRunner(
+            clock, TaskResult(TaskRunState.AWAITING_USER, reason="等待决定: gate_acceptance")
+        )
+        # checkpoint_id 与已完成动作集合在推进前后完全一致：判定为无进展。
+        reader = SequenceReader([_checkpoint(("test",), "cp-1", completed=frozenset({"a1"}))])
+        executor = RequirementExecutor(store, req_id, runner, clock=clock, checkpoints=reader)
+
+        first = executor.advance()
+        second = executor.advance()
+        store.close()
+
+        # 每轮都真的把任务交给执行器续跑，但没有新检查点 / 新动作，工时不计。
+        assert len(runner.calls) == 2
+        assert all(call.resume for call in runner.calls)
+        assert first.consumed_seconds == 0.0
+        assert second.consumed_seconds == 0.0
+        # 无进展时不静默等待：报告给出阻塞原因与建议动作。
+        assert "等待决定: gate_acceptance" in second.blocked_reason
+        assert second.next_step.actor is ActionActor.USER
+        assert second.next_step.action
