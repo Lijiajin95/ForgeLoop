@@ -33,6 +33,7 @@
     "forgeloop.domain.dependency_facts": "domain",
     "forgeloop.domain.deploy": "domain",
     "forgeloop.domain.limits": "domain",
+    "forgeloop.domain.mail": "domain",
     "forgeloop.domain.merge": "domain",
     "forgeloop.domain.release": "domain",
     "forgeloop.domain.repo_facts": "domain",
