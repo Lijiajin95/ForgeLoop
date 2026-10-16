@@ -236,22 +236,41 @@ def file_location_problem(relative: str, facts: RepoFacts = DEFAULT_REPO_FACTS) 
     return "不在仓库合法路径清单内（源码分层、测试分层、文档、契约快照或已知顶层文件）"
 
 
-def command_problem(argv: tuple[str, ...], facts: RepoFacts = DEFAULT_REPO_FACTS) -> str | None:
-    """判断测试命令是否可用；合法返回 ``None``，否则给出原因。
+def _normalized_argv(argv: tuple[str, ...]) -> tuple[str, ...]:
+    """把含空格的首元素拆成逐词 argv，使等价写法可被前缀匹配。
 
-    只接受已知解释器前缀（``uv run``/``python3``）或已知门禁命令前缀；
-    ``python`` 等未登记解释器与缺内容的空命令一律拒绝。
+    规划模型可能把 ``uv run`` 写进单个元素（``["uv run", ...]``）；这不是规范的
+    argv，但语义等价于 ``["uv", "run", ...]``。校验前按空白拆分首元素，其余元素
+    原样保留，从而两种写法都走同一条前缀匹配路径。
+    """
+
+    head, *tail = argv
+    if any(char.isspace() for char in head):
+        return (*head.split(), *tail)
+    return argv
+
+
+def command_problem(argv: tuple[str, ...], facts: RepoFacts = DEFAULT_REPO_FACTS) -> str | None:
+    """判断测试命令是否可用；合法返回 ``None``，否则给出可操作的拒绝原因。
+
+    校验前先规范化：首元素含空格（如 ``"uv run"``）时按空白拆分为多词，再与已知
+    解释器前缀（``uv run``/``python3``）或已知门禁命令前缀匹配，使 ``["uv run", …]``
+    与 ``["uv", "run", …]`` 等价通过。``python`` 等未登记解释器与缺内容的空命令
+    一律拒绝；拒绝信息明确要求逐词拆分（``uv run`` 写成两个元素 ``["uv","run"]``）
+    并列出可用前缀，不再出现“不可用”与“允许”并存的矛盾表述。
     """
 
     if not argv:
         return "测试命令为空"
+    normalized = _normalized_argv(argv)
     for prefix in (*facts.interpreters, *facts.gate_commands):
-        if tuple(argv[: len(prefix)]) == prefix:
-            if len(argv) == len(prefix) and prefix in facts.interpreters:
-                return f"命令 {' '.join(argv)} 缺少要执行的内容"
+        if tuple(normalized[: len(prefix)]) == prefix:
+            if len(normalized) == len(prefix) and prefix in facts.interpreters:
+                return f"命令 {' '.join(normalized)} 缺少要执行的内容"
             return None
     allowed = _labels((*facts.interpreter_labels, *facts.gate_labels))
-    return f"解释器 {argv[0]!r} 不可用；仅允许 {allowed}"
+    hint = '命令必须逐词拆分：uv run 写成两个元素 ["uv","run"]'
+    return f"解释器 {argv[0]!r} 不可用。{hint}；可用前缀：{allowed}"
 
 
 def validate_task_plan(
