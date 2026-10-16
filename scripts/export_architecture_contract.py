@@ -1,7 +1,7 @@
 """导出并校验架构契约快照：分层、模块清单与跨层依赖。
 
 ForgeLoop 的架构事实来源是源码本身：包的物理分层（domain/records/adapter/
-graph/cli）与跨层 import 边。人工叙述见 ``docs/architecture.md``；本脚本把同一
+graph/cli/mail）与跨层 import 边。人工叙述见 ``docs/architecture.md``；本脚本把同一
 份事实落成机读快照 ``contracts/architecture.json``，让架构变化必须显式经过一次
 快照更新，否则 ``make check`` 失败——以此强制同步架构描述文档。
 
@@ -42,6 +42,8 @@ LAYER_RULES: dict[str, tuple[str, ...]] = {
     "adapter": (),
     "records": ("domain",),
     "domain": (),
+    # mail 是只依赖标准库的叶子层：当前仅登记分层声明，尚无实现模块与跨层边。
+    "mail": (),
 }
 
 MODULE_PATH_PATTERN = re.compile(r"src/forgeloop/[\w/]+\.py")

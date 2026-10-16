@@ -23,8 +23,10 @@ from typing import TypedDict
 from forgeloop.domain.task_plan import TaskPlan
 
 # 源码根与源码分层：与 contracts/architecture.json 的 source_root/模块层一致。
+# mail 为 2026-10-16 登记的新分层（邮箱接口与纯逻辑，只依赖标准库）；当前尚无
+# 实现模块，登记后规划即可合法引用 src/forgeloop/mail/ 下的路径。
 SOURCE_ROOT = "src/forgeloop"
-SOURCE_LAYERS = ("domain", "records", "adapter", "graph", "cli")
+SOURCE_LAYERS = ("domain", "records", "adapter", "graph", "cli", "mail")
 # 源码根顶层文件（不在分层目录内）：精确清单，避免把臆造顶层文件当成合法。
 SOURCE_ROOT_FILES = ("__init__.py", "__main__.py")
 

@@ -33,7 +33,7 @@ flowchart LR
 
 ## 2. 分层与依赖方向
 
-包按职责分五层，外加进程入口。层是**物理目录**，不是抽象概念：模块名形如 `forgeloop.<层>.*`。
+包按职责分六层，外加进程入口。层是**物理目录**，不是抽象概念：模块名形如 `forgeloop.<层>.*`。
 
 ```mermaid
 flowchart TD
@@ -46,6 +46,7 @@ flowchart TD
   Graph --> Records
   Graph --> Domain
   Records --> Domain
+  Mail["mail<br/>邮箱接口与纯逻辑（仅标准库）"]
 ```
 
 允许的依赖方向（`scripts/export_architecture_contract.py` 的 `LAYER_RULES`；机读事实见 `contracts/architecture.json` 的 `layer_edges`）：
@@ -59,14 +60,15 @@ flowchart TD
 | `adapter` | 无 | 无 |
 | `records` | `domain` | → `domain` |
 | `domain` | 无 | 无 |
+| `mail` | 无（只依赖标准库） | 无（当前尚无实现模块） |
 
 三条硬规则，由门槛强制：
 
 1. **`domain` 是纯规则层。** 不依赖任何内部模块、`langgraph` 或第三方编排库；已知的内部依赖是 `domain.deploy` → `domain.release` 与 `domain.repo_facts` → `domain.task_plan`（均为同层）。
-2. **`adapter` 是叶子层。** 不 import 任何 `forgeloop.*`，只用标准库；适配器不知道领域规则与记录结构。
+2. **`adapter` 与 `mail` 是叶子层。** 二者都不 import 任何 `forgeloop.*`，只用标准库；适配器不知道领域规则与记录结构，邮箱层只提供接口与纯逻辑。
 3. **模块依赖图无环。** 跨层与同层边一起检查。
 
-`pyproject.toml` 的 `[tool.importlinter]` 另有一条 `forbidden` 契约，禁止 `forgeloop.domain` 依赖 `cli`／`graph`／`adapter`／`langgraph`。本文的 `LAYER_RULES` 是覆盖全部层的更完整版本。
+`pyproject.toml` 的 `[tool.importlinter]` 另有两条同型的 `forbidden` 契约：禁止 `forgeloop.domain` 依赖 `cli`／`graph`／`adapter`／`langgraph`，禁止 `forgeloop.mail` 依赖 `cli`／`graph`／`records`／`adapter`／`langgraph`。本文的 `LAYER_RULES` 是覆盖全部层的更完整版本。
 
 ## 3. 模块清单
 
@@ -122,6 +124,7 @@ flowchart TD
 | cli | `src/forgeloop/cli/requirements.py` | `requirement` 命令组：受理/澄清/分析/规划/批准/推进/整体验收/状态回查，接线到真实业务记录 | | `candidate <task_id>`：从已归并的授权提交真实构建候选产物、记录身份与 SHA256、重复构建校验可复现并在独立环境冒烟（构建与验证在一次调用内完成） |
 | cli | `src/forgeloop/cli/release.py` | `release`：annotated tag、上传已验收产物为 Release 资产与发布回执 |
 | cli | `src/forgeloop/cli/deploy.py` | `deploy`／`rollback`：从 Release 装产物、原子切换、回滚 |
+| mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
 
 CLI 对外命令分三条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`。`status --json` 与 `requirement status --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
 

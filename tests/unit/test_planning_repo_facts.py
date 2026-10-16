@@ -318,7 +318,7 @@ class TestFactsPayload:
     def test_payload_describes_the_fixed_layout(self) -> None:
         payload = repository_facts_payload()
         assert payload["source_root"] == "src/forgeloop"
-        assert payload["source_layers"] == ["domain", "records", "adapter", "graph", "cli"]
+        assert payload["source_layers"] == ["domain", "records", "adapter", "graph", "cli", "mail"]
         assert payload["test_layers"] == [
             "unit",
             "property",

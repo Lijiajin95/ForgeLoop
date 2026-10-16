@@ -48,6 +48,7 @@
     "forgeloop.graph.prompts": "graph",
     "forgeloop.graph.requirements": "graph",
     "forgeloop.graph.state": "graph",
+    "forgeloop.mail": "mail",
     "forgeloop.records": "records",
     "forgeloop.records.actions": "records",
     "forgeloop.records.checkpoints": "records",

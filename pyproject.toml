@@ -148,6 +148,19 @@ source_modules = ["forgeloop.domain"]
 forbidden_modules = ["forgeloop.cli", "forgeloop.graph", "forgeloop.adapter", "langgraph"]
 allow_indirect_imports = false
 
+[[tool.importlinter.contracts]]
+name = "Mail must not depend on the CLI, graph, records, adapters or LangGraph"
+type = "forbidden"
+source_modules = ["forgeloop.mail"]
+forbidden_modules = [
+  "forgeloop.cli",
+  "forgeloop.graph",
+  "forgeloop.records",
+  "forgeloop.adapter",
+  "langgraph",
+]
+allow_indirect_imports = false
+
 [tool.deptry]
 extend_exclude = ["mutants", "\\.cache", "\\.toolchain", "\\.venv"]
 known_first_party = ["forgeloop", "structure_metrics"]
