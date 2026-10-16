@@ -145,6 +145,15 @@ CREATE TABLE IF NOT EXISTS releases (
     push_detail TEXT NOT NULL DEFAULT '',
     released_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS prerequisite_applications (
+    task_id TEXT NOT NULL,
+    prerequisite_task_id TEXT NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, prerequisite_task_id)
+);
 """
 
 
@@ -971,3 +980,38 @@ class OutcomeStore:
         if row is None:
             return None
         return _release_from_row(row)
+
+    # ---- 前置候选应用记录（A04 幂等与回退的权威依据） ----
+
+    def record_prerequisite_applications(
+        self, task_id: str, applications: Sequence[tuple[str, str, str, str]]
+    ) -> None:
+        """逐条固化下游任务的前置候选应用结果：前置身份、校验值、状态与原因。
+
+        同一前置身份覆盖为最新结果。回退后必须把先前的 ``applied`` 覆盖为
+        ``failed``：否则下次启动会据陈旧记录跳过实际已回退的改动。
+        """
+
+        recorded_at = _iso(_now())
+        for prerequisite_task_id, candidate_sha256, status, detail in applications:
+            self._db.execute(
+                "INSERT OR REPLACE INTO prerequisite_applications"
+                " (task_id, prerequisite_task_id, candidate_sha256, status, detail, recorded_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (task_id, prerequisite_task_id, candidate_sha256, status, detail, recorded_at),
+            )
+
+    def prerequisite_applications(self, task_id: str) -> dict[str, tuple[str, str, str]]:
+        """读取下游任务各前置候选的最新应用记录：``task_id -> (sha, 状态, 原因)``。
+
+        只读、不创建表；无记录时返回空字典，调用方据此按「未应用」处理而不是猜测。
+        """
+
+        if not _table_present(self._db, "prerequisite_applications"):
+            return {}
+        rows = self._db.execute(
+            "SELECT prerequisite_task_id, candidate_sha256, status, detail"
+            " FROM prerequisite_applications WHERE task_id = ?",
+            (task_id,),
+        ).fetchall()
+        return {str(row[0]): (str(row[1]), str(row[2]), str(row[3])) for row in rows}

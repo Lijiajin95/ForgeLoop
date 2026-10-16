@@ -92,7 +92,7 @@ flowchart TD
 | domain | `src/forgeloop/domain/release.py` | 发布就绪判定、版本标签解析、发布记录 `ReleaseRecord`、同标签幂等／换标签拒绝 |
 | domain | `src/forgeloop/domain/deploy.py` | 部署与回滚就绪判定、`SHA256SUMS` 解析、产物唯一选择（拒绝重新构建） |
 | records | `src/forgeloop/records/__init__.py` | 层声明 |
-| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 14 张表的权威业务记录，读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；旧库缺少动作进程列时显式补列 |
+| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张表的权威业务记录，读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列 |
 | records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份、进程身份与心跳，以及单任务并发占用；未完成动作拒绝重放；按权威记录判定槽位残留（空闲／已死／存活／不确定），只清理已死残留并写入 `slot_cleanups`，不确定时不清理并给出原因 |
 | records | `src/forgeloop/records/requirements.py` | 需求记录：需求、版本、分析、任务包、批准、任务推进、产物与需求工时共 8 张表；与任务记录同一 `records.sqlite`，提交原文、追加版本、按身份与项目回查（进程重启后仍可读）；`dependency_facts` 按任务包依赖只读汇总每个任务的依赖事实 |
 | adapter | `src/forgeloop/adapter/__init__.py` | 层声明 |
@@ -185,10 +185,10 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 | 存储 | 文件 | 内容 | 管理者 |
 | --- | --- | --- | --- |
-| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 14 张表＋需求 8 张表） | `records.store.RecordStore`、`records.requirements.RequirementStore` |
+| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 15 张表＋需求 8 张表） | `records.store.RecordStore`、`records.requirements.RequirementStore` |
 | 图检查点 | `checkpoints.sqlite` | `TaskState` 的推进状态，`thread_id = task_id` | LangGraph `SqliteSaver` |
 
-记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`merges`、`deliveries`、`releases`（14 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）。两侧共用同一 `records.sqlite`，各自管理连接与表。
+记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`merges`、`deliveries`、`releases`、`prerequisite_applications`（15 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）。两侧共用同一 `records.sqlite`，各自管理连接与表。
 
 **动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。动作行另存发起进程身份（`pid`）与最近心跳（`heartbeat_at`）。
 
