@@ -230,7 +230,8 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 **变异最终状态**（最终测试集复跑）：246 变异，199 杀死，47 幸存且全部审阅登记（门槛 `critical_unreviewed_survivors_max=0` 满足）；超时/未测/异常状态 0。门槛的过期检测实际生效过一次：最终测试集多杀 1 个变异后，旧清单出现 1 条过期条目被显式拒绝，移除后通过——这正是清单与源码绑定的设计行为。
 
 **仍未完成**（如实记录）：
-- `make hooks` **已安装**（pre-commit 4.6.2）；远程 CI **已在 GitHub 执行**（2026-10-16：`quality` 与 `commit-policy` 通过，`security` 因 `mcp 1.29.0` 的 CVE-2026-59951 失败）。
+- `make hooks` **已安装**（pre-commit 4.6.2）；远程 CI **已在 GitHub 执行**（2026-10-16：`quality` 与 `commit-policy` 通过）。
+- **依赖审计例外（2026-10-16，所有者授权处理 CI 漏洞）**：`mcp 1.29.0` 的 CVE-2026-59951 位于「stateful 模式 Streamable HTTP 服务端」；本仓库 0 处引用 `mcp`、0 处实现 MCP/HTTP 服务，`mcp` 只是 `semgrep` 的开发期传递依赖，而 `semgrep` 精确钉死 `mcp>=1.29.0,<1.29.0+`（最新 1.181.0 仍如此），无法通过升级修复。处置：在 `make audit` 中以 `--ignore-vuln CVE-2026-59951` 登记例外并写明复查条件（`semgrep` 放宽钉死或本仓库开始使用 `mcp` 时必须移除）；`make security` 复跑通过（`No known vulnerabilities found, 1 ignored`）。
 - 审阅清单与变异编号绑定领域源码：修改 domain 文件后须重跑变异并重导清单（门槛脚本会显式失败提示）。
 - 真实 PI 调用（`pi_live`）与容器隔离仍未接入（验收计划步骤 1 的核查项）。
 

@@ -75,7 +75,11 @@ mutation:
 audit:
 	mkdir -p reports
 	$(UV) export --frozen --all-groups --no-emit-project --format requirements-txt --output-file reports/requirements-audit.txt > /dev/null
-	.venv/bin/pip-audit --strict --no-deps --disable-pip --cache-dir .cache/pip-audit -r reports/requirements-audit.txt -f json -o reports/dependency-audit.json
+# CVE-2026-59951 例外（2026-10-16 所有者授权处理 CI 依赖漏洞；理由与复查条件见 docs/engineering-reliability.md）：
+#   漏洞位于 mcp 1.29.0 的「stateful 模式 Streamable HTTP 服务端」；本仓库不引用 mcp、不运行 MCP/HTTP 服务，
+#   mcp 仅为 semgrep 的开发期传递依赖，而 semgrep 精确钉死 mcp>=1.29.0,<1.29.0+（最新 1.181.0 仍如此），无法升级。
+#   复查条件：semgrep 放宽该钉死、或本仓库开始使用 mcp —— 任一发生时必须移除本例外。
+	.venv/bin/pip-audit --strict --no-deps --disable-pip --cache-dir .cache/pip-audit --ignore-vuln CVE-2026-59951 -r reports/requirements-audit.txt -f json -o reports/dependency-audit.json
 
 sast:
 	.venv/bin/python scripts/run_semgrep.py
