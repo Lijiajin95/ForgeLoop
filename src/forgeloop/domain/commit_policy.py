@@ -1,10 +1,13 @@
 """公共提交规则：显式时区、已维护的年历、授权窄口与消息头语法。
 
-复刻自 EvidHist 的同名领域模块；由 scripts/check_commit_policy.py 消费，
-pre-commit 与 commit-msg hooks 都经过同一实现。
+生效配置只有一份来源：本机配置文件（IO 见 ``forgeloop.adapter.commit_policy``）；
+仓库只发布模板 ``config/commit-policy.template.toml``。**没有配置文件即不执行
+提交时间禁止**，判定显式记为 ``policy_absent``，不假装规则仍在生效；配置存在
+但损坏或年历缺失时仍拒绝（失败关闭）。
 
-所有者决定（2026-10-13）：禁止窗口内只有按批次登记授权的日期才可能放行，
-且只放行早间窄口；授权窗口终点不得晚于 10:00，超过该上限的授权一律无效。
+授权窄口本身是配置改不掉的领域硬上限：终点不得晚于 10:00，且必须完全落在某段
+禁止窗口内。复刻自 EvidHist 的同名领域模块；由 scripts/check_commit_policy.py
+消费，pre-commit 与 commit-msg hooks 都经过同一实现。
 """
 
 import itertools
@@ -12,33 +15,15 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from enum import StrEnum
-from typing import Any, cast
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # 授权的硬上限：任何配置都不得把授权窗口延伸到 10:00 之后。
 AUTHORIZATION_DEADLINE = time(10, 0)
 
-
-class CommitPolicySource(StrEnum):
-    """生效策略来源：随仓库分发的默认，或仅作用于本机的本地覆盖。"""
-
-    REPOSITORY_DEFAULT = "repository_default"
-    LOCAL_OVERRIDE = "local_override"
-
-
-# 本地覆盖只允许声明这些顶层键：时间窗、是否适用授权窄口、是否禁止工作时间提交、
-# 机器标签。``authorized_window``、``authorized_batches`` 与 ``calendar_directory``
-# 不在此列：本地覆盖不能改动所有者授权窗口或授权登记，也不能改变年历来源，
-# 因此 09:00-09:55 含头不含尾的授权窄口不会被本机文件加宽或迁移。
-LOCAL_OVERRIDE_KEYS = frozenset(
-    {
-        "blocked_windows",
-        "apply_authorized_window",
-        "enforce_work_hours",
-        "machine_label",
-    }
-)
+# 没有生效配置时的判定：放行，但必须能被审计区分为"未强制"而非"检查通过"。
+POLICY_ABSENT_REASON = "policy_absent"
+INSTALL_POLICY_HINT = "install_local_commit_policy"
 
 
 @dataclass(frozen=True)
@@ -83,7 +68,6 @@ class CommitPolicy:
     calendars: Mapping[int, WorkdayCalendar]
     authorized_window: BlockedWindow
     authorized_dates: frozenset[date] = frozenset()
-    source: CommitPolicySource = CommitPolicySource.REPOSITORY_DEFAULT
     machine_label: str | None = None
     enforce_work_hours: bool = True
     apply_authorized_window: bool = True
@@ -114,8 +98,13 @@ class CommitDecision:
     allowed: bool
     reason: str
     hint: str | None = None
-    source: CommitPolicySource = CommitPolicySource.REPOSITORY_DEFAULT
     machine_label: str | None = None
+
+
+def policy_absent_decision() -> CommitDecision:
+    """没有生效配置时的判定：允许提交，但明确标注提交时间规则未强制。"""
+
+    return CommitDecision(True, POLICY_ABSENT_REASON, INSTALL_POLICY_HINT)
 
 
 def check_commit_time(instant: datetime, policy: CommitPolicy) -> CommitDecision:
@@ -123,7 +112,7 @@ def check_commit_time(instant: datetime, policy: CommitPolicy) -> CommitDecision
         raise ValueError("Commit timestamps must include a timezone")
 
     def decide(allowed: bool, reason: str, hint: str | None = None) -> CommitDecision:
-        return CommitDecision(allowed, reason, hint, policy.source, policy.machine_label)
+        return CommitDecision(allowed, reason, hint, policy.machine_label)
 
     if not policy.enforce_work_hours:
         return decide(True, "work_hours_not_enforced")
@@ -155,59 +144,11 @@ def load_authorized_batches(config: Mapping[str, Any]) -> frozenset[date]:
     return frozenset(dates)
 
 
-def merge_policy_config(
-    repository_default: Mapping[str, Any],
-    local_override: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """仓库默认与本地覆盖的键级合并：只覆盖显式声明的键，其余继承默认。
-
-    本地覆盖只允许声明 ``LOCAL_OVERRIDE_KEYS``，因此不能改动 ``authorized_window``
-    授权窄口、``authorized_batches`` 授权登记或 ``calendar_directory`` 年历来源。
-    映射值递归按键合并，列表等非映射值整体替换；结果只由输入文档决定，与读取
-    顺序无关。
-    """
-    if local_override is None:
-        return dict(repository_default)
-    unknown = sorted(set(local_override) - LOCAL_OVERRIDE_KEYS)
-    if unknown:
-        raise ValueError(f"Local override may not declare: {', '.join(unknown)}")
-    merged = dict(repository_default)
-    for key, value in local_override.items():
-        current = merged.get(key)
-        if isinstance(current, Mapping) and isinstance(value, Mapping):
-            merged[key] = _merge_mapping(
-                cast("Mapping[str, Any]", current), cast("Mapping[str, Any]", value)
-            )
-        else:
-            merged[key] = value
-    return merged
-
-
-def _merge_mapping(default: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
-    merged = dict(default)
-    for key, value in override.items():
-        current = merged.get(key)
-        if isinstance(current, Mapping) and isinstance(value, Mapping):
-            merged[key] = _merge_mapping(
-                cast("Mapping[str, Any]", current), cast("Mapping[str, Any]", value)
-            )
-        else:
-            merged[key] = value
-    return merged
-
-
 def effective_commit_policy(
-    repository_default: Mapping[str, Any],
-    local_override: Mapping[str, Any] | None,
+    config: Mapping[str, Any],
     calendars: Mapping[int, Mapping[str, Any]],
 ) -> CommitPolicy:
-    """把仓库默认与（可选）本地覆盖合并为唯一、确定、可复现的生效策略。"""
-    config = merge_policy_config(repository_default, local_override)
-    source = (
-        CommitPolicySource.LOCAL_OVERRIDE
-        if local_override is not None
-        else CommitPolicySource.REPOSITORY_DEFAULT
-    )
+    """把唯一一份本机配置构造为确定、可复现的生效策略。"""
     machine_label = config.get("machine_label")
     if machine_label is not None and (
         not isinstance(machine_label, str) or not machine_label.strip()
@@ -226,7 +167,6 @@ def effective_commit_policy(
             time.fromisoformat(authorized["start"]), time.fromisoformat(authorized["end"])
         ),
         authorized_dates=load_authorized_batches(config),
-        source=source,
         machine_label=machine_label.strip() if isinstance(machine_label, str) else None,
         # 未显式声明开关时，空时间窗列表即“全时间段允许”。
         enforce_work_hours=bool(config.get("enforce_work_hours", bool(blocked_entries))),

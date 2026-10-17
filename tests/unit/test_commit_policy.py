@@ -1,25 +1,30 @@
 """提交策略领域规则：年历、时间窗、授权窄口与消息头语法的单元测试。"""
 
-import importlib.util
 import tomllib
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from forgeloop.adapter.commit_policy import load_calendars
 from forgeloop.domain.commit_policy import (
     BlockedWindow,
     CommitDecision,
     CommitPolicy,
     WorkdayCalendar,
     check_commit_time,
+    effective_commit_policy,
+    policy_absent_decision,
     validate_commit_message,
 )
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_PATH = ROOT / "config" / "commit-policy.template.toml"
+ENFORCED_CONFIG_PATH = ROOT / "config" / "commit-policy.toml"
+SHIPPED_CALENDARS = ROOT / "config" / "workday-calendars"
 
 
 def calendar() -> WorkdayCalendar:
@@ -47,15 +52,13 @@ def authorized_policy(*, dates: frozenset[date] = frozenset({date(2026, 10, 13)}
     return CommitPolicy(SHANGHAI, windows(), {2026: calendar()}, grace_window(), dates)
 
 
-def shipped_policy() -> CommitPolicy:
-    """用真实加载器读取随仓库发布的 config/commit-policy.toml。"""
-    spec = importlib.util.spec_from_file_location(
-        "check_commit_policy", ROOT / "scripts" / "check_commit_policy.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return cast("CommitPolicy", cast("Any", module).load_policy())
+def template_config() -> dict[str, Any]:
+    return tomllib.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
+
+
+def template_policy() -> CommitPolicy:
+    """仓库只发布模板：模板本身必须是一份可直接复制使用的合法策略。"""
+    return effective_commit_policy(template_config(), load_calendars(SHIPPED_CALENDARS))
 
 
 def at(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
@@ -246,25 +249,60 @@ class TestAuthorizedGraceWindow:
         assert decision == CommitDecision(False, "workday_work_hours")
 
 
-class TestShippedPolicyConfig:
-    """发布的配置必须携带窄口授权与按批次登记的授权日期。"""
+class TestShippedTemplateConfig:
+    """仓库只发布模板：模板可用，但仓库不携带任何实际生效的配置规则。"""
 
-    def test_shipped_config_grants_only_the_morning_grace(self) -> None:
-        rules = shipped_policy()
+    def test_repository_ships_only_a_template(self) -> None:
+        assert TEMPLATE_PATH.is_file()
+        assert not ENFORCED_CONFIG_PATH.exists()
+
+    def test_template_parses_into_a_valid_policy(self) -> None:
+        rules = template_policy()
+        assert rules.blocked_windows == windows()
         assert rules.authorized_window == BlockedWindow(time(9, 0), time(9, 55))
 
-    def test_shipped_config_registers_today_batch_and_rejects_violating_times(self) -> None:
-        rules = shipped_policy()
-        assert date(2026, 10, 13) in rules.authorized_dates
-        assert check_commit_time(at(2026, 10, 13, 9, 30), rules).allowed
-        assert not check_commit_time(at(2026, 10, 13, 10, 35), rules).allowed
-        assert not check_commit_time(at(2026, 10, 13, 15, 0), rules).allowed
+    def test_template_grants_no_authorization_on_its_own(self) -> None:
+        assert template_policy().authorized_dates == frozenset()
 
-    def test_every_authorized_batch_records_its_source(self) -> None:
-        config = tomllib.loads((ROOT / "config" / "commit-policy.toml").read_text())
-        batches = config["authorized_batches"]
-        assert batches
-        assert all(entry["authorization_source"].strip() for entry in batches)
+    def test_template_documents_the_batch_format_with_an_inactive_example(self) -> None:
+        text = TEMPLATE_PATH.read_text(encoding="utf-8")
+        assert "# [[authorized_batches]]" in text
+        assert "authorization_source" in text
+
+    def test_copied_template_blocks_the_window_until_a_batch_is_registered(self) -> None:
+        config = template_config()
+        assert not check_commit_time(at(2026, 10, 13, 9, 30), template_policy()).allowed
+
+        config["authorized_batches"] = [
+            {"date": "2026-10-13", "authorization_source": "示例：登记后才放行"}
+        ]
+        rules = effective_commit_policy(config, load_calendars(SHIPPED_CALENDARS))
+        assert check_commit_time(at(2026, 10, 13, 9, 30), rules).reason == "authorized_grace_window"
+        assert not check_commit_time(at(2026, 10, 13, 10, 35), rules).allowed
+
+
+class TestPolicyAbsent:
+    """没有生效配置：不执行时间禁止，但判定必须显式标注未强制。"""
+
+    def test_absent_policy_allows_and_is_labelled(self) -> None:
+        decision = policy_absent_decision()
+        assert decision.allowed is True
+        assert decision.reason == "policy_absent"
+        assert decision.hint
+        assert decision.machine_label is None
+
+    def test_absent_policy_is_distinct_from_an_explicit_switch_off(self) -> None:
+        switched_off = CommitPolicy(
+            SHANGHAI,
+            (),
+            {},
+            BlockedWindow(time(9, 0), time(9, 55)),
+            frozenset(),
+            enforce_work_hours=False,
+        )
+        switched_off_decision = check_commit_time(at(2026, 10, 13, 9, 30), switched_off)
+        assert switched_off_decision.reason == "work_hours_not_enforced"
+        assert switched_off_decision.reason != policy_absent_decision().reason
 
 
 class TestValidateCommitMessage:

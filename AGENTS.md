@@ -41,7 +41,8 @@ ForgeLoop 的长期目标是部署在独立服务器、持续运行的研发与�
 
 ## 提交与交付纪律
 
-- 仅在用户明确要求提交时创建 commit。提交前通过项目 Python 环境运行 `scripts/check_commit_policy.py` 的 `--validate-config` 与 `--check-now` 检查，核对 `config/commit-policy.toml`、`config/workday-calendars/` 和本次批次授权；命令通过不代替所有者的提交授权。
-- Asia/Shanghai 工作日禁止窗口、午间可提交时段、早间授权窄口、授权硬上限和缺失年历处理以策略配置、领域判定及 [CONTRIBUTING.md](CONTRIBUTING.md) 为准；批次授权登记在 `[[authorized_batches]]` 并写明来源。维持本地 `pre-commit`／`commit-msg` 与 CI 审计的强制校验，不因后台执行或已有历史授权放行当前不合法的提交。
-- 禁止使用 `--no-verify`、禁用 hooks、修改时钟或伪造作者／提交者时间绕过规则；提交消息遵循项目 Conventional Commits 约定。留存的临时放宽配置不构成授权；授权与恢复义务按批次记录，历史依据见 [工程可靠性方案](docs/engineering-reliability.md)。
+- 仅在用户明确要求提交时创建 commit。提交前通过项目 Python 环境运行 `scripts/check_commit_policy.py` 的 `--validate-config` 与 `--check-now` 检查，核对**本机生效配置**（`.cache/forgeloop/commit-policy.toml` 或 `~/.config/forgeloop/commit-policy.toml`，二选一）、`config/workday-calendars/` 和本次批次授权；命令通过不代替所有者的提交授权。
+- 提交时间限制是**可选的本机策略**：仓库只发布模板 `config/commit-policy.template.toml`，实际生效的配置不入库。禁止窗口、午间可提交时段、早间授权窄口、授权硬上限和缺失年历处理以生效配置、领域判定及 [CONTRIBUTING.md](CONTRIBUTING.md) 为准；批次授权登记在生效配置的 `[[authorized_batches]]` 并写明来源。维持本地 `pre-commit`／`commit-msg` 与 CI 审计的强制校验，不因后台执行或已有历史授权放行当前不合法的提交。
+- **没有生效配置的机器不执行提交时间禁止**：命令放行并在输出里标注 `policy_absent` 与 NOT enforced。这属于所有者选择的可选强制，须如实标记为「未落实」，不能声称规则已生效或检查已通过；配置损坏、年历缺失或旧路径 `commit-policy.local.toml` 未迁移时仍按拒绝处理。
+- 禁止使用 `--no-verify`、禁用 hooks、修改时钟或伪造作者／提交者时间绕过已启用的本机策略；提交消息遵循项目 Conventional Commits 约定（消息头校验与配置无关，始终生效）。留存的临时放宽配置不构成授权；授权与恢复义务按批次记录，历史依据见 [工程可靠性方案](docs/engineering-reliability.md)。
 - 交付说明记录计划范围、实际改动、验证结果、未完成事项与“发现但不碰”；涉及归并、发布、部署或回滚时关联相应提交、产物身份、运行版本与回执，保留可回查依据。

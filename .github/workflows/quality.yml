@@ -91,4 +91,7 @@ jobs:
             git fetch --quiet origin main
             BASE="$(git merge-base "$HEAD_REVISION" origin/main || true)"
           fi
+          # 生效配置不入库（仓库只有模板），CI 上也没有本机配置：时间维度放行并打印
+          # policy_absent / NOT enforced，消息头校验照常执行。需要服务端强制时间规则
+          # 时须在此步之前注入配置（未实现，见 docs/engineering-reliability.md）。
           python3 scripts/check_commit_policy.py --audit "$BASE" "$HEAD_REVISION"

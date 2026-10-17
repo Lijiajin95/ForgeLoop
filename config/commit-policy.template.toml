@@ -1,0 +1,38 @@
+# 提交策略配置模板（本身不是生效规则）。
+#
+# 用法：把本文件复制到下面任一位置；仓库内那份优先，且两者不合并：
+#   1. .cache/forgeloop/commit-policy.toml      （仓库内缓存，已被 .gitignore 忽略）
+#   2. ~/.config/forgeloop/commit-policy.toml   （用户级，位于仓库之外）
+# 两个位置都没有配置时，pre-commit / commit-msg 与 CI 审计不执行提交时间禁止：
+# 放行并在输出里标注 NOT enforced；配置存在但损坏、或年历目录缺失时仍然拒绝。
+# 复制本文件不构成任何授权：授权必须逐条登记并写明来源。
+#
+# 判定与硬上限由 src/forgeloop/domain/commit_policy.py 实现：授权窗口必须完全落在
+# 某段禁止窗口内，且终点不得晚于 10:00（配置改不掉的上限）。
+
+timezone = "Asia/Shanghai"
+calendar_directory = "config/workday-calendars"
+
+# 可选机器标签（缺省不写）：只用于审计输出分辨提交来自哪台机器，不改变任何判定。
+# machine_label = "mac-laptop"
+
+# 禁止窗口：当日区间，起点含、终点不含；多段必须按起点有序且互不重叠。
+# 下面的示例值沿用所有者当前作息：09:00–12:00 与 13:30–18:00 禁止，午间可提交。
+[[blocked_windows]]
+start = "09:00"
+end = "12:00"
+
+[[blocked_windows]]
+start = "13:30"
+end = "18:00"
+
+# 授权窄口：起点含、终点不含；必须完全落在某段禁止窗口内，终点不得晚于 10:00。
+[authorized_window]
+start = "09:00"
+end = "09:55"
+
+# 按批次登记的授权日期：一次授权登记一条，必须写清授权来源，日期唯一；未登记的
+# 日期即使落在窄口内也拒绝。示例需手工取消注释并填入真实来源后才生效：
+# [[authorized_batches]]
+# date = "2026-10-13"
+# authorization_source = "所有者授权……（写明授权来源与范围）"

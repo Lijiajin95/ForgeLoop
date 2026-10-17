@@ -28,7 +28,7 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 | `pyproject.toml` | 依赖分组（dev/mutation/security）与全部工具配置 | `uv.lock` 已生成并锁定（147 包，CPython 3.13.15，langgraph 1.2.14）；两项依赖修正见第 13 节 |
 | `Makefile` | 统一检查入口（check/coverage/mutation/security/hooks） | `check_commit_policy.py`、`check_untrusted_deserialization.py` 已落地（原 `run_semgrep.py` 已随 semgrep 移除，见第 27 节）；结构度量/覆盖/变异门槛与 CLI 契约脚本待实现 |
 | `config/quality-policy.toml` | 唯一门槛来源：结构/覆盖/变异/属性测试 | 消费脚本部分落地；属性 profile 已由 `tests/conftest.py` 注册 |
-| `config/commit-policy.toml` + `config/workday-calendars/2026.json` | 提交时间策略与年度日历 | 已落地并实测（16:45 周一被正确阻断） |
+| `config/commit-policy.template.toml` + `config/workday-calendars/2026.json` | 提交策略**模板**（不生效）与年度日历；生效配置只在本机（`.cache/forgeloop/commit-policy.toml` 或 `~/.config/forgeloop/commit-policy.toml`） | 2026-10-17 起仓库不携带生效规则（第 29 节）；窗口内 `--check-now` 退出 1 的拦截效果需本机已装配置 |
 | `.semgrep.yml`（已移除） | 四条本地 SAST 规则 | 已执行：4 规则 20 文件 0 命中；2026-10-16 起由 Ruff S 子集 + `scripts/check_untrusted_deserialization.py` 替代（见第 27 节） |
 | `.pre-commit-config.yaml` | pre-commit/commit-msg/pre-push hooks | **已安装**（pre-commit 4.6.2；`.git/hooks/pre-commit` 与 `pre-push` 存在，并实测拦截窗口内提交） |
 | `.github/workflows/quality.yml` | 推送/PR CI 三作业（quality/security/commit-policy） | 已在 GitHub 真实执行并通过（第 19 节）；Action SHA 沿用 EvidHist 已核验值 |
@@ -131,15 +131,17 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 
 ## 8. 提交纪律
 
-与 EvidHist 相同（同一所有者、同一时区）：
+**2026-10-17 起：提交时间限制是可选的本机策略**（所有者决定，实施记录见第 29 节）。仓库只发布模板 `config/commit-policy.template.toml`，**实际生效配置不入库**，只从本机两处二选一读取：`.cache/forgeloop/commit-policy.toml`（仓库内缓存，优先）与 `~/.config/forgeloop/commit-policy.toml`（用户级）；两处都没有时**不执行提交时间禁止**（判定 `policy_absent`，输出标注 NOT enforced），配置损坏、年历目录缺失或旧路径 `commit-policy.local.toml` 未迁移时仍拒绝。
 
-- **北京时间（Asia/Shanghai）法定调休工作日 09:00（含）至 12:00（不含）与 13:30（含）至 18:00（不含）禁止创建 commit**；午间 12:00–13:30 可提交；周末调休上班日同样禁止；法定假日按已维护日历。缺失年度日历时窗口内拒绝提交，不默认把未知年份周末当休息日。
-- **授权窄口（2026-10-13 所有者决定，见第 23 节）**：禁止窗口内只有按批次登记授权的日期才可能放行，且仅限 09:00（含）至 09:55（不含）；09:55 起与下午窗口即使已授权也拒绝，10:00 为领域硬上限。
-- pre-commit 与 commit-msg 都读取真实时钟；commit-msg 同时校验消息；CI 核对新增 commit 的作者/提交者时间戳与消息（`--audit`）。禁止 `--no-verify`、禁用 hooks 或伪造时间戳绕过。
+启用后的口径（判定由 `domain.commit_policy` 实现，数值以生效配置为准；模板示例值沿用旧口径）：
+
+- 禁止窗口 09:00（含）至 12:00（不含）与 13:30（含）至 18:00（不含）；午间 12:00–13:30 可提交；周末调休上班日同样禁止；法定假日按已维护日历。缺失年度日历时窗口内拒绝提交，不默认把未知年份周末当休息日。
+- **授权窄口（2026-10-13 所有者决定，见第 23 节）**：禁止窗口内只有按批次登记授权的日期才可能放行，且仅限 09:00（含）至 09:55（不含）；09:55 起与下午窗口即使已授权也拒绝，**10:00 为领域硬上限**（配置改不掉，超出即配置无效）。授权登记在生效配置的 `[[authorized_batches]]`。
+- pre-commit 与 commit-msg 都读取真实时钟；commit-msg 同时校验消息头（与配置无关，始终生效）；CI 核对新增 commit 的作者/提交者时间戳与消息（`--audit`）。禁止 `--no-verify`、禁用 hooks 或伪造时间戳绕过已启用的策略。
 - 消息遵循 Conventional Commits，scope 建议 `cli`/`graph`/`adapter`/`domain`/`records`/`quality`/`docs`；一个 commit 表达一个可解释、可验证的变化，行为变更与回归测试同行。
 - 本仓库于 2026-10-12（周一）15:28 初始化，处于禁止窗口，故**首个 commit 顺延至当日 18:00 后**，由用户在合法时段执行（详见[贡献规范](../CONTRIBUTING.md)）。
 
-Git 本地 hooks 可被绕过，CI 时间戳也可伪造；远程仓库建立后须设置分支保护与状态检查，才能把检查结果落实为合入门槛。
+未安装配置的机器（包括未注入配置的 CI）上时间规则**未落实**，不得记为「规则已生效」；Git 本地 hooks 可被绕过，CI 时间戳也可伪造；远程仓库建立后须设置分支保护与状态检查，才能把检查结果落实为合入门槛。
 
 ## 9. 契约管理：CLI JSON 输出快照
 
@@ -682,3 +684,49 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 - 版本选择：除上一条的 vitest 之外，其余工具取当前**未被标记弃用**的版本（eslint 10、typescript 6.0、typescript-eslint 8、playwright 1.64、knip 6、dependency-cruiser 18、prettier 3.9）。首次安装 npm 曾提示 `eslint@9.39.5` 已弃用（EvidHist 的钉法是 9.x），因此改为 eslint 10；TypeScript 停在 6.0 是因为 `typescript-eslint` 的 peer 范围是 `<6.1.0`。
 - 变异范围**不覆盖 DOM 渲染**（`render.ts`）：与 Python 侧只变异核心领域规则同一口径，DOM 管线的等价变异与展示细节噪声高、收益低；后续确有渲染逻辑缺陷漏检时再纳入并重新审阅幸存者。
 - 未接入 **Vitest 浏览器模式、axe 可访问性扫描、Stryker 的 HTML 报告归档以外的前端可观测性**：本次只按所有者选中的范围接入，不因工具存在而扩大。
+
+## 29. 提交策略改为可选本机配置：仓库只发布模板（2026-10-17 所有者决定）
+
+**决定（方向记录见 [ADR 0002](adr/0002-commit-policy-as-local-opt-in.md)）**：仓库只发布模板 `config/commit-policy.template.toml`，**实际生效的配置不入库**，只从本机按固定优先级二选一读取（`.cache/forgeloop/commit-policy.toml` 优先，其次 `~/.config/forgeloop/commit-policy.toml`，两份不合并）。**没有生效配置时不执行提交时间禁止**：判定记为 `policy_absent`，输出显式标注 NOT enforced；配置损坏、年历目录缺失或旧路径 `commit-policy.local.toml` 未迁移时仍**拒绝**（失败关闭）。消息头 Conventional Commits 校验与配置无关，始终生效；授权硬上限（终点 ≤ 10:00）与「授权窗口必须落在某段禁止窗口内」留在领域层，任何本机配置都改不掉。
+
+**为什么改**：第 22 节记录的根因不是"窗口配错了"，而是**规则随仓库分发、且本地检查与 CI 审计读同一份仓库内配置**——一台机器的作息被强加给每个克隆，而用放宽这份配置来表达授权时，两个检查层都失去发现能力。第 23 节的授权窄口修好了授权的边界，没有改变"仓库内配置既是规则又是例外载体"这一点。
+
+**实现**：
+
+| 层 | 内容 |
+| --- | --- |
+| 领域 | `src/forgeloop/domain/commit_policy.py`：删除 `CommitPolicySource`、`LOCAL_OVERRIDE_KEYS`、`merge_policy_config`／`_merge_mapping`；`effective_commit_policy(config, calendars)` 改为单文档构造；新增 `policy_absent_decision()`（reason `policy_absent`，hint 指向安装本机配置）；`CommitPolicy`／`CommitDecision` 去掉 `source` 字段；10:00 硬上限与授权窗口位置校验保留 |
+| IO | `src/forgeloop/adapter/commit_policy.py`：候选路径改为 `.cache/forgeloop/commit-policy.toml` → `~/.config/forgeloop/commit-policy.toml`；无配置返回空 `PolicyDocuments`（`has_policy=False`）；旧路径存在即报错要求迁移；年历目录相对路径按仓库根解析、绝对路径原样使用；`load_calendars` 继续拒绝重复年份与非 https 来源 |
+| 命令 | `src/forgeloop/cli/commit_policy.py`：`PolicyContext.policy` 可为 `None`；无配置时 `--check-now`／`--audit` 放行并打印 `policy_absent` 与 NOT enforced（新增常量 `NOT_ENFORCED_NOTE`、`INSTALL_PATHS`）；审计文本改为「生效配置路径 + 来源」，不再有「仓库默认/本地覆盖」标注；`--validate-config` 无配置退出 0 并打印安装路径；`--message` 始终校验 |
+| 配置 | `config/commit-policy.toml` → `config/commit-policy.template.toml`（模板：示例值 + 注释掉的 `[[authorized_batches]]` 示例，本身不授予任何授权）；本机安装 `.cache/forgeloop/commit-policy.toml`，规则值与 2026-10-13 授权登记**原样迁移** |
+| 钩子/CI | `.pre-commit-config.yaml`：`commit-work-hours` 名称与注释更新（entry 命令不变）；`.github/workflows/quality.yml`：commit-policy 作业注明无配置克隆上时间维度放行、消息维度照常，服务端强制需另行注入配置 |
+| 测试 | 重写 `tests/component/test_commit_policy_audit.py`（31 项）；新增 `tests/unit/test_commit_policy_config.py`、`tests/property/test_commit_policy_config.py`（8 项属性）、`tests/integration/test_commit_policy_config_sources.py`（12 项）；`tests/unit/test_commit_policy.py` 增 `TestShippedTemplateConfig`、`TestPolicyAbsent`；删除只测已删机制的 `tests/unit/test_commit_policy_local_override.py`、`tests/integration/test_commit_policy_local_override.py`、`tests/property/test_commit_policy_merge.py`（删除前把仍存在的行为——显式关闭开关全放行、`apply_authorized_window=false` 仍拒绝、重复日历年拒绝、发布年历的假日/调休判定——迁入组件测试） |
+| 文档 | 本节与第 8 节、`docs/architecture.md`、`CONTRIBUTING.md`、`AGENTS.md`、`docs/status.md`、[ADR 0002](adr/0002-commit-policy-as-local-opt-in.md) |
+
+**实测（本机 macOS，2026-10-17 21:1x–21:5x，Asia/Shanghai）**：
+
+| 项 | 结果 |
+| --- | --- |
+| 探针仓库：禁止窗口含当前时刻 + 当日标为调休工作日 | `--check-now` **exit 1**，stderr `Commit blocked: hit window 00:00-23:59 … decision workday_work_hours` |
+| 同一天从年历移除调休 | exit 0，`decision non_workday` |
+| 年历目录不存在 | exit 1，`decision calendar_missing` |
+| 探针仓库无配置 | `--check-now` exit 0：`decision policy_absent; commit time restriction NOT enforced (no local config)`；`--validate-config` exit 0 并打印两个安装路径 |
+| 配置损坏（`timezone = `） | exit 1，`Commit policy check failed: Invalid value (at line 1, column 12)` |
+| 仅存旧路径 `commit-policy.local.toml` | exit 1，`Legacy commit policy override found at …; migrate it to …` |
+| 真实历史审计（本机生效配置）：`--audit 2049adb~1 d1f1582` | 2026-10-13 10:34–10:37 的 4 个提交按作者与提交者时间各判一次，**8 条 `Rejected … hit window 09:00-12:00 … decision authorized_window_elapsed`**，exit 1 |
+| 真实历史审计（窗口外）：`--audit ffc62a4~1 ffc62a4`（00:03） | `Allowed … decision outside_work_hours`，exit 0 |
+| 真实钩子层（`pre-commit run`，用临时配置副本，原因见缺口） | 当前时刻 `commit-work-hours` **Passed**；探针阻断配置 **Failed（exit 1）** 并打印 block 行；`conventional-commit-message` 坏消息 exit 1、好消息 Passed |
+| 测试 | 提交策略五个文件 120 项通过；`tests/unit tests/property tests/component` 1224 项通过；`make check`（含前端静态门禁与 1457 项高频用例）**exit 0** |
+| 覆盖门禁 | `make coverage` **exit 0**：1591 通过 / 8 跳过，行 95.53%、分支 90.41%、增量通过（门槛 90%） |
+| 系统层 | `make test-system` **exit 0**：20 项通过 |
+
+**未落实与缺口（如实记录）**：
+
+- **未安装配置的机器（含 CI）上提交时间规则未落实**；在 CI 步骤中注入配置以取得服务端强制**未实现**。CI 的消息头校验照常生效。
+- 本机生效配置位于被忽略的 `.cache/` 下，**没有版本历史**：文件丢失即失去强制（现在至少会打印 `policy_absent`／NOT enforced，而不是无声通过）；机器级配置的正确性靠 `--validate-config` 与审计输出核对。
+- `pre-commit run` 无法直接用仓库 `.pre-commit-config.yaml` 验证（该文件处于另一会话的未 staged 修改状态，pre-commit 拒绝运行：`Your pre-commit configuration is unstaged`），因此钩子层用**临时配置副本**验证；hook 的 entry 命令与原配置逐字相同。
+- `--validate-config` 的授权批次仍以 Python repr 输出（`[datetime.date(2026, 10, 13)]`）而非 ISO 日期：既有行为，本次未改，属「发现但不碰」。
+- **变异未能在本次验证**：`mutmut run "forgeloop.domain.commit_policy.*"` 在基线收集阶段即失败——`mutants/` 副本里既有测试 `tests/unit/test_planning_repo_facts.py::TestFactsMatchRealRepository::test_every_tracked_path_is_legal` 执行 `git ls-files` 返回空（该副本目录不被 git 跟踪），是本仓库既有的变异工具链缺口（与第 22 节同类），与本次改动无关，**未修（发现但不碰）**；建议按第 22 节同款做法在 `[tool.mutmut].pytest_add_cli_args` 忽略该仓库结构用例。因此提交策略模块的变异门槛本次**未验证**，等夜间作业或修复后再补。
+- **门禁状态的时间点差异（如实记录）**：本次改动在 2026-10-17 21:38 实测 `make check` exit 0（1457 通过 / 3 跳过）；21:47 起另一会话 `git add` 了 `frontend/**` 等 65 个文件（12408 插入），使上述仓库结构用例因 frontend 路径不在 `domain/repo_facts.py` 的合法路径清单内而失败——失败路径全部位于 `frontend/`，`repo_facts.py` 本次未触碰，属他人会话在途工作，本会话**未修、未回退、未清理**（该用例在 21:38 的门禁中是通过的）。21:52 复跑确认：`make check` exit 2，**唯一失败即该用例**，其余 1456 通过 / 3 跳过。
+- 本次**未创建任何 commit**（所有者未要求）；上述全部改动与钩子/CI 文案同属未提交状态（其中 `frontend`／契约等文件的暂存状态由另一会话产生）。
+- 验证用的探针仓库副本 `.cache/policy-probe` 为一次性产物，已删除；该路径下此前另一会话的旧探针副本被本次重建覆盖（`.cache/` 为可丢弃缓存区，仓库内无唯一数据丢失）。
