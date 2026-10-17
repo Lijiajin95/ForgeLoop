@@ -38,7 +38,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Main["__main__<br/>进程入口"] --> CLI["cli<br/>命令解析与驱动"]
+  Main["__main__<br/>进程入口"] --> CLI["cli<br/>命令解析、驱动与只读读模型"]
   CLI --> Graph["graph<br/>LangGraph 业务编排"]
   CLI --> Adapter["adapter<br/>外部边界"]
   CLI --> Records["records<br/>权威记录"]
@@ -65,9 +65,9 @@ flowchart TD
 
 三条硬规则，由门槛强制：
 
-1. **`domain` 是纯规则层。** 不依赖任何内部模块、`langgraph` 或第三方编排库；已知的内部依赖是 `domain.deploy` → `domain.release` 与 `domain.repo_facts` → `domain.task_plan`（均为同层）。
-2. **`adapter` 与 `mail` 是叶子层。** 二者都不 import 任何 `forgeloop.*`，只用标准库；适配器不知道领域规则与记录结构，邮箱层只提供接口与纯逻辑。
-3. **模块依赖图无环。** 跨层与同层边一起检查。
+1. **`domain` 是纯规则层。** 零跨层依赖、零第三方依赖（全部 import 均为标准库），也不依赖 `langgraph`；同层内部有 9 条边、构成深度为 1 的 DAG：`approval`→`delivery`、`artifact`→`release`、`budget_summary`→`limits`、`deploy`→`release`、`merge`→`delivery`、`progress`→`requirement`、`repo_facts`→`task_plan`、`status_reason`→`counting` 与 `status_reason`→`dependency_facts`。唯一在导入期读文件系统的是 `repo_facts`（解析机读架构契约，缺失时对路径校验 fail-closed），不违反分层方向。
+2. **`adapter` 与 `mail` 是叶子层（无跨层依赖）。** 二者都只用标准库，适配器不知道领域规则与记录结构，邮箱层只提供接口与纯逻辑。`adapter` 内部唯一的同层依赖是 `artifact` → `deployment`（复用 wheel 安装与校验值工具），不属于跨层违规。
+3. **模块依赖图无环。** 跨层与同层边一起检查。`graph.requirements` 刻意不 import `graph.builder`（改用注入）以避开层内环。
 
 `pyproject.toml` 的 `[tool.importlinter]` 另有两条同型的 `forbidden` 契约：禁止 `forgeloop.domain` 依赖 `cli`／`graph`／`adapter`／`langgraph`，禁止 `forgeloop.mail` 依赖 `cli`／`graph`／`records`／`adapter`／`langgraph`。本文的 `LAYER_RULES` 是覆盖全部层的更完整版本。
 
@@ -83,7 +83,7 @@ flowchart TD
 | domain | `src/forgeloop/domain/dependency_facts.py` | 依赖事实与真实阻塞判定的纯规则：前置未达 accepted／delivered 等终态即未满足；有未满足前置且无 `started` 未完成动作才判 `waiting`；状态词滞后不判阻塞；依据缺失输出 `unknown` 并列出缺少的记录 |
 | domain | `src/forgeloop/domain/status_reason.py` | 中文阻断原因 `blocked_reason_text` 的纯推导：只读权威事实（任务／方案／批准／动作／失败轮次／授权／工时／终态），主句按固定优先级（等待人工决定 → 依赖未满足 → 失败轮次用尽 → 运行中 → 已终态）选取，句末「；另外还有…」最多补两条其他成立条件；依据缺失输出 `unknown` 并列出缺少的记录 |
 | domain | `src/forgeloop/domain/progress.py` | 状态页纯规则：刷新间隔来源优先级（CLI 参数 → 配置文件 → 内建默认 60 秒）、`0` 关闭自动刷新与非法值明确拒绝；「问题」分类只取需要人工介入的状态（阻断／中断／等待追加授权／工时耗尽／待确认停止）与未完成执行槽位，正常流程门（等待批准、等待验收、等待澄清）不算问题，未知状态不猜测 |
-| domain | `src/forgeloop/domain/requirement.py` | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败；只读分析的结构化校验（A02）也落在本模块 |
+| domain | `src/forgeloop/domain/requirement.py` | 需求身份与版本规则：`req-<YYYYmmddHHMMSS>-<6 位随机>` 全局唯一、原文占版本 1 永久保留、追加版本只增不覆盖、未知身份明确失败；只读分析的结构化校验（A02）也落在本模块 |
 | domain | `src/forgeloop/domain/task_plan.py` | 任务包规则：从分析产出至少两个有依赖的任务；未批准不执行；旧版本或过期批准不能驱动最新任务包 |
 | domain | `src/forgeloop/domain/repo_facts.py` | 仓库布局事实与任务包合规校验：源码根与合法源码分层从机读架构契约 `contracts/architecture.json` 的 `modules`／`layer_edges` 动态解析，契约缺失或损坏时导入不崩溃并对路径 fail-closed；测试分层、契约快照、可用解释器与门禁命令仍为固定事实；纯规则校验文件清单与测试命令，逐条给出具体路径／命令与原因 |
 | domain | `src/forgeloop/domain/artifact.py` | 候选产物身份与校验规则：wheel 文件名 + SHA256、同一候选重复构建的一致性判定、未授权提交拒绝 |
@@ -91,50 +91,56 @@ flowchart TD
 | domain | `src/forgeloop/domain/budget_summary.py` | 工时摘要 `BudgetSummary` 的只读纯规则：无 budget 行且状态未开始记为 `not_started` 且不产生 0 秒歧义；有 budget 行输出 `consumed_seconds`／`limit_seconds`／`exhausted`；存在性与状态冲突以存在 budget 行为准输出 `unknown` 并说明冲突；`dimensions` 当前仅 `seconds` |
 | domain | `src/forgeloop/domain/approval.py` | 方案 `Plan` 与批准 `Approval`：批准绑定任务身份与方案版本，一次批准只能触发一次执行；验收批准还绑定实际交付材料（候选 diff、测试证据、审查结论、产物校验值），替换材料后原批准失效 |
 | domain | `src/forgeloop/domain/delivery.py` | 交付绑定 `DeliveryBinding` 与需求整体验收判定：候选 diff／测试证据／审查结论／产物校验值各自内容寻址；材料变化使批准失效；单个任务通过不等于需求整体验收 |
-| domain | `src/forgeloop/domain/commit_policy.py` | 提交时间策略与年度工作日历判定、Conventional Commits 首行校验；仓库默认与本地覆盖的键级合并、生效策略来源与机器标签 |
+| domain | `src/forgeloop/domain/commit_policy.py` | 提交时间策略与年度工作日历判定、Conventional Commits 首行校验；把唯一一份本机配置构造为生效策略、授权硬上限（终点 ≤ 10:00）与机器标签；没有配置时的判定显式记为 `policy_absent`，不假装规则生效 |
 | domain | `src/forgeloop/domain/merge.py` | 归并就绪判定与必需检查判定（候选分支 → 检查 → 快进 main） |
 | domain | `src/forgeloop/domain/release.py` | 发布就绪判定、版本标签解析、发布记录 `ReleaseRecord`、同标签幂等／换标签拒绝 |
 | domain | `src/forgeloop/domain/deploy.py` | 部署与回滚就绪判定、`SHA256SUMS` 解析、产物唯一选择（拒绝重新构建） |
 | domain | `src/forgeloop/domain/mail.py` | 邮件需求领域规则：三类分类建议（消歧／不接纳候选／接纳成功）、消歧轮次上限 3 轮后退回人工、终态不再提问、7 天无回复单次提醒与开关、回复关联按 `In-Reply-To`／`References`／主题／正文回退解析（`req-…` 与 `#req-…` 都接受）、中文纯文本固定模板渲染；附件只记录元数据 |
-| records | `src/forgeloop/records/__init__.py` | 层声明 |
+| records | `src/forgeloop/records/__init__.py` | 层声明，并只再导出 `checkpoints` 的人工续跑 API；不导出各 Store。注意：它顶层导入 `checkpoints`（后者依赖 `langgraph`），因此导入任一 `forgeloop.records.*` 都会**传递依赖 `langgraph`** |
 | records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张表的权威业务记录，读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`all_tasks` 跨项目只读列出全部任务（状态页清单）；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列 |
 | records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份、进程身份与心跳，以及单任务并发占用；未完成动作拒绝重放；按权威记录判定槽位残留（空闲／已死／存活／不确定），只清理已死残留并写入 `slot_cleanups`，不确定时不清理并给出原因 |
 | records | `src/forgeloop/records/checkpoints.py` | 只读读取记录根下 `checkpoints.sqlite` 的 LangGraph 检查点：给出待执行节点、`halted_reason` 与检查点身份，判定可续跑业务节点（`dev`/`review`/`test` 及自动回边）与等待人工决定（计划批准、追加授权、整体验收、终态、空 `next`）；以 `actions.action_id` 去重判断重复推进，记录缺失输出 `unknown` |
 | records | `src/forgeloop/records/requirements.py` | 需求记录：需求、版本、分析、任务包、批准、任务推进、产物与需求工时共 8 张表；与任务记录同一 `records.sqlite`，提交原文、追加版本、按身份与项目回查（进程重启后仍可读）；`all_requirements` 跨项目只读列出全部需求（状态页清单）；`dependency_facts` 按任务包依赖只读汇总每个任务的依赖事实 |
 | records | `src/forgeloop/records/mail_threads.py` | 邮件线索记录 `MailThreadStore`：每封出向反馈把自己的 Message-ID 与 `req_id`／`kind`／`sent_at` 绑定进 `mail_threads`，同一需求多轮消歧只追加不覆盖；与 `mail_deliveries`（出向幂等）和 `mail_inbound`（入向去重）同库协同，按时间合并还原完整收发往来 |
 | adapter | `src/forgeloop/adapter/__init__.py` | 层声明 |
-| adapter | `src/forgeloop/adapter/commit_policy.py` | 本机提交策略覆盖的 IO 边界：读取仓库默认配置与年历，按固定优先级二选一发现并读取本地覆盖 TOML（仓库内 `.cache` 或用户级 `~/.config`），只返回原始文档，不做合并 |
+| adapter | `src/forgeloop/adapter/commit_policy.py` | 本机提交策略配置的 IO 边界：按固定优先级二选一发现并读取生效配置 TOML（仓库内 `.cache/forgeloop/commit-policy.toml`，其次用户级 `~/.config/forgeloop/commit-policy.toml`）与年历；两处都没有时返回空文档（不强制），旧路径 `commit-policy.local.toml` 存在即报错要求迁移；只返回原始文档，不做策略判定 |
 | adapter | `src/forgeloop/adapter/pi_rpc.py` | `PIProcess`：JSONL RPC 子进程、命令／响应 id 关联、`agent_settled` 判定、abort、会话与 stderr 落盘 |
 | adapter | `src/forgeloop/adapter/test_runner.py` | `run_test_command`：以 argv＋`shell=False` 运行批准的测试命令，证据追加 JSONL |
 | adapter | `src/forgeloop/adapter/git_workspace.py` | 独立代码副本、基线 detached 检出、候选 diff 提取、受控归并与标签 |
 | adapter | `src/forgeloop/adapter/github_checks.py` | 读取提交的 check-runs（有 `GITHUB_TOKEN`／`GH_TOKEN` 则按认证配额，否则匿名），归一为「名称 → 结论」或 `pending`；403/429 归一为带剩余量与重置时刻的配额耗尽错误 |
 | adapter | `src/forgeloop/adapter/deployment.py` | 下载 Release 资产、独立版本 venv 安装、原子切换 `current`、冒烟检查、部署日志 |
-| adapter | `src/forgeloop/adapter/execution_environment.py` | 受限执行环境：dev/test 在容器内可写工作副本、review 只读；源仓库从不挂载，容器内没有源库/main 写入口（`runtime/Dockerfile`） |
+| adapter | `src/forgeloop/adapter/execution_environment.py` | 受限执行环境（两种模式，dev／review／test 共用）：`container` 用容器运行时（默认 `docker`）执行，只挂载工作副本（dev／test 可写、review 只读）、专用 PI 配置目录与测试资源，源仓库从不挂载、容器内没有源库／main 写入口（镜像见 `runtime/Dockerfile`）；`host` 直跑，只支撑「本次运行未改写源库」。模式由任务配置或 `FORGELOOP_EXECUTION_ENV` 等环境变量选择，**默认 `host`**，无 CLI 参数 |
 | adapter | `src/forgeloop/adapter/artifact.py` | 候选产物构建与验证：真实 `uv build`（工作区内缓存）、独立 venv 安装、`forgeloop --help` 冒烟 |
 | adapter | `src/forgeloop/adapter/mail.py` | `ImapMailReceiver`／`SmtpMailSender`：邮箱授权码登录 IMAP/SMTP，`poll_once` 单次拉取未读邮件并解析为 `InboundMail`（缺 Message-ID 判为无法解析），出向先写自身 Message-ID 再发送、成功才交记录接缝落库；关联与去重由注入接缝完成，发送失败抛 `MailSendError` 不静默丢弃，附件只留元数据不解析 |
 | graph | `src/forgeloop/graph/__init__.py` | 层声明 |
 | graph | `src/forgeloop/graph/state.py` | `TaskState`：只放路由与续跑所需的最小字段 |
-| graph | `src/forgeloop/graph/planning.py`
-| graph | `src/forgeloop/graph/dispatch.py` | 多需求并行推进：每需求独立记录与现场、重复启动被拒；同项目交付（归并/发布）程序互斥串行，不依赖人工安排 | | 需求只读分析：PI 产出目标/场景/验收标准/待澄清项，结构化校验；缺信息等待澄清、畸形如实阻塞，只追加版本不改源码 |
+| graph | `src/forgeloop/graph/planning.py` | 需求只读分析：PI 产出目标／场景／验收标准／待澄清项并做结构化校验；缺信息等待澄清、畸形如实阻塞，只追加版本不改源码 |
+| graph | `src/forgeloop/graph/dispatch.py` | 多需求并行推进：每需求独立记录与现场、重复启动被拒；同项目交付（归并／发布）程序互斥串行，不依赖人工安排 |
 | graph | `src/forgeloop/graph/requirements.py` | 需求执行编排（A04）：按依赖串行推进已批准任务包；把已确认前置产物交给下游；等待不计执行工时；汇总当前任务、阻塞原因与下一步动作 |
 | graph | `src/forgeloop/graph/nodes.py` | 八个节点工厂与 `NodeContext`：方案、批准门、实现、审查、测试、追加授权门、验收门、交付 |
 | graph | `src/forgeloop/graph/evidence.py` | 失败回边证据读取：上一轮正式测试输出尾部与审查阻断问题（截断，供实现会话修复） |
 | graph | `src/forgeloop/graph/prompts.py` | 提示词构造（纯函数）：开发提示（目标/范围/验收/工作区/尝试序号/批准测试命令/自验证要求/失败回边）与审查提示（含输出契约常量） |
 | graph | `src/forgeloop/graph/builder.py` | 图装配：节点注册、条件路由、SQLite 持久 checkpointer；`RequirementTaskRunner` 把已批准需求任务映射到单任务图 |
 | cli | `src/forgeloop/cli/__init__.py` | 惰性导出 `main`（首次读取属性才加载实现，轻量提交策略入口不拉入编排依赖栈） |
-| cli | `src/forgeloop/cli/common.py` | 记录根解析、`open_store`、`fail` 统一失败输出 |
-| cli | `src/forgeloop/cli/main.py` | 单任务命令 `submit`／`approve`／`grant`／`status`／`stop`，需求线命令 `requirement submit|revise|analyze|plan|approve|advance|accept|retry|status`，以及参数总装 |
-| cli | `src/forgeloop/cli/commit_policy.py` | 提交策略命令：加载仓库默认与本地覆盖后的生效策略，放行/拒绝审计输出生效来源、机器标签与命中时间窗及其来源；文案明确为客户端限制而非服务端强制 |
+| cli | `src/forgeloop/cli/common.py` | 三个共享助手：`records_root(args)` 解析记录根、`open_store(root, task_id)` 打开记录库并在任务不存在时以 `SystemExit` 确定失败、`fail(msg)` 输出 `FAIL:` 到 stderr 并返回 1。注意：`fail` 只被 candidate／deploy／mail／release／web 使用，`main`／`requirements` 走自己的 `SystemExit` 或 `print + return 1`，失败输出并非全命令统一 |
+| cli | `src/forgeloop/cli/main.py` | 单任务命令 `submit`／`approve`／`grant`／`status`／`stop`，需求线主体命令，参数总装（`build_parser()`），以及只读查询文档构建器 `_status_document`／`_requirement_document`（被 `cli.web` 以 `ProgressDocuments` 注入复用、被契约快照脚本复用） |
+| cli | `src/forgeloop/cli/commit_policy.py` | 提交策略命令：加载本机生效配置（可能缺失），放行/拒绝审计输出生效配置路径与来源、机器标签与命中时间窗；无配置时放行并标注 `policy_absent`／NOT enforced；文案明确为客户端限制而非服务端强制 |
 | cli | `src/forgeloop/cli/merge.py` | `merge`：候选分支流程与归并证据 |
-| cli | `src/forgeloop/cli/candidate.py`
-| cli | `src/forgeloop/cli/requirements.py` | `requirement` 命令组：受理/澄清/分析/规划/批准/推进/整体验收/人工续跑/状态回查，接线到真实业务记录 | | `candidate <task_id>`：从已归并的授权提交真实构建候选产物、记录身份与 SHA256、重复构建校验可复现并在独立环境冒烟（构建与验证在一次调用内完成） |
+| cli | `src/forgeloop/cli/candidate.py` | `candidate <task_id>`：从已归并的授权提交真实构建候选产物、记录身份与 SHA256、重复构建校验可复现并在独立环境冒烟（构建与验证在一次调用内完成） |
+| cli | `src/forgeloop/cli/requirements.py` | `requirement` 命令组：受理／澄清／分析／规划／批准／推进／整体验收／人工续跑／状态回查，接线到真实业务记录 |
 | cli | `src/forgeloop/cli/release.py` | `release`：annotated tag、上传已验收产物为 Release 资产与发布回执 |
 | cli | `src/forgeloop/cli/deploy.py` | `deploy`／`rollback`：从 Release 装产物、原子切换、回滚 |
 | cli | `src/forgeloop/cli/mail.py` | `mail` 命令组：`mail poll --once` 交接 cron 单次轮询、按领域规则给出三类分类建议并等待人工确认（绝不自动发信）；`mail confirm` 为人工确认后的唯一发信入口，不接纳最终决定需显式 `--final-not-accept`；三类反馈用稳定主题标记与固定中文纯文本正文，配对 `MailAdapter`／`MailThreadStore`／`RequirementStore` |
 | cli | `src/forgeloop/cli/web.py` | `web` 命令：只读状态页（B01）。真实回环 HTTP 服务只接受 `GET`／`HEAD`，其余方法一律 405 且不写记录；`GET /api/progress` 复用 `cli.main` 的 `status`／`requirement status` 文档构建器组装需求、任务与问题三段，`GET /` 返回随包分发的页面结构 `web_page.html`，`GET /<name>.js` 按严格文件名白名单（不含路径分隔符）返回同一包内 `static/` 下的页面模块；监听地址默认回环，刷新间隔来自 `domain.progress` 的纯规则，配置项见 `config/web.toml` |
 | mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
 
-CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json` 与 `GET /api/progress` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`／`dispatch`／`slot list|clear`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json` 与 `GET /api/progress` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+
+**第二套 CLI 入口**：`cli.commit_policy` 不经 `build_parser()`，自带 argparse 与 `main()`，模式为 `--check-now`／`--message <path>`／`--audit BASE HEAD`／`--validate-config`，由 `scripts/check_commit_policy.py` 转发给 pre-commit／commit-msg 钩子与 CI。只统计 `build_parser()` 的子命令会漏掉这条真实对外接口。
+
+**提交策略的配置来源与强制层级**：`config/commit-policy.template.toml` 只是模板，**实际生效的配置不入库**——`adapter.commit_policy` 从本机两处二选一读取（仓库内 `.cache/forgeloop/commit-policy.toml` 优先，其次 `~/.config/forgeloop/commit-policy.toml`，两份不合并），`domain.commit_policy` 把该单一文档构造为生效策略。**两处都不存在时不执行提交时间禁止**：判定为 `policy_absent`，输出标注 NOT enforced；配置损坏、年历目录缺失或旧路径 `commit-policy.local.toml` 未迁移时仍拒绝（失败关闭）。强制点在客户端：`pre-commit`／`commit-msg` 读真实时钟，`--audit` 供 CI 核对历史提交的作者/提交者时间；消息头校验与配置无关，始终生效。年历仍是随仓库分发的公开数据（`config/workday-calendars/`），相对路径按仓库根解析。
+
+**CLI 层的实际职责边界（如实记录）**：`cli` 不只是「命令解析与驱动」。它同时持有**只读读模型与输出契约映射**（`_status_document`、`_requirement_document`、`merge_section`、`release_section`、各 `*_section`／`*_summary`），这些既是 `contracts/cli-contract.json` 守护的对外结构，也被 `web` 与契约导出脚本复用；此外 `cli.merge`（必需检查清单、轮询退避、配额耗尽判定）、`cli.release`（已验收产物校验链、标签身份与幂等语义）、`cli.mail`（待确认动作与轮次判定）、`cli.requirements`（交付证据语义）与 `cli.main`（需求终态词表与「终态不回退」）各自包含命令级规则，而非全部委托给 `domain`。这是当前实现的事实，不是声称的理想分层；把规则下沉到 `domain` 属于架构变化，需按第 9 节同步本文。
 
 **邮件工作流的模块分布与依赖方向**：邮件能力横跨四层——`cli.mail`（`mail poll --once`／`mail confirm`）依赖 `adapter.mail`、`domain.mail` 与 `records.mail_threads`；`records.mail_threads` 依赖 `domain.mail`；`adapter.mail`（`ImapMailReceiver`／`SmtpMailSender`／`MailAdapter`）与 `domain.mail`（分类建议与模板纯规则）只依赖标准库，分别是各自层的叶子。这些边都落在第 2 节已允许的 `cli` → `adapter`／`domain`／`records` 与 `records` → `domain` 方向内，`contracts/architecture.json` 的 `layer_edges` 未新增条目；`mail` 层（`src/forgeloop/mail/`）仍是只有层声明、尚无实现模块的保留层。
 
@@ -149,19 +155,19 @@ CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`gra
 ```mermaid
 flowchart LR
   START([START]) --> plan --> gate_plan_approval
-  gate_plan_approval -->|批准| dev
-  gate_plan_approval -->|拒绝或批准绑定失败| END1([END])
+  gate_plan_approval -->|"批准"| dev
+  gate_plan_approval -->|"拒绝或批准绑定失败"| END1([END])
   dev --> review
-  review -->|有阻断问题| dev
-  review -->|通过| test
-  test -->|通过| gate_acceptance
-  test -->|失败·额度未尽| dev
-  test -->|额度用尽| gate_grant
-  gate_acceptance -->|接受| deliver --> END2([END])
-  gate_acceptance -->|拒绝·额度未尽| dev
-  gate_acceptance -->|拒绝·额度用尽| gate_grant
-  gate_grant -->|明确追加| dev
-  gate_grant -->|停止| END3([END])
+  review -->|"有阻断问题"| dev
+  review -->|"通过"| test
+  test -->|"通过"| gate_acceptance
+  test -->|"失败·额度未尽"| dev
+  test -->|"额度用尽"| gate_grant
+  gate_acceptance -->|"接受"| deliver --> END2([END])
+  gate_acceptance -->|"拒绝·额度未尽"| dev
+  gate_acceptance -->|"拒绝·额度用尽"| gate_grant
+  gate_grant -->|"明确追加"| dev
+  gate_grant -->|"停止"| END3([END])
 ```
 
 节点职责与状态字段：
@@ -181,6 +187,49 @@ flowchart LR
 
 三类人工决定点通过 `langgraph.types.interrupt` 挂起，载荷是普通 dict，用 `kind` 区分：`plan_approval`、`grant_decision`、`acceptance`。CLI 用 `Command(resume={"decision": ...})` 恢复；决定词表是硬编码字面量（`approved`／`grant`／`accepted`），**其他任何值（含缺省）一律按拒绝处理**。
 
+一次 invoke 的完整往返如下：图在 gate 节点挂起后本次调用即返回，CLI 进程可以退出，状态留在检查点与记录库；下一次 CLI 调用带着 `resume` 重新进入，gate 节点**在 interrupt 之后**才消费批准，动作节点本身不含 interrupt。
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 所有者
+  participant CLI as forgeloop CLI
+  participant G as LangGraph 图
+  participant N as 节点
+  participant X as PI 子进程／测试命令
+  participant R as records.sqlite
+
+  U->>CLI: submit
+  CLI->>G: invoke(thread_id = task_id)
+  G->>N: plan
+  N->>R: 保存方案，状态 awaiting_plan_approval
+  N-->>G: interrupt(kind=plan_approval)
+  G-->>CLI: 本次 invoke 返回，图挂起
+  CLI-->>U: 打印等待项后进程退出
+  Note over U,R: 进程不必常驻：状态在检查点与记录库，可跨进程恢复
+  U->>CLI: approve ID --stage plan
+  CLI->>G: Command(resume=decision approved)
+  G->>N: gate_plan_approval
+  N->>R: consume_approval（interrupt 之后才消费，一次批准只执行一次）
+  G->>N: dev 到 review 到 test（动作节点本身不含 interrupt）
+  N->>X: 在执行环境内运行，受工时限额与停止请求约束
+  X-->>N: settled 与真实结果
+  N->>R: 候选 diff、测试证据、失败轮次
+  alt 测试通过
+    N-->>G: interrupt(kind=acceptance)
+    G-->>CLI: 图挂起
+    U->>CLI: approve ID --stage acceptance
+    CLI->>G: Command(resume=decision accepted)
+    G->>N: deliver 到 END
+  else 三失败轮次用尽
+    N-->>G: interrupt(kind=grant_decision)
+    G-->>CLI: 图挂起
+    U->>CLI: grant ID
+    CLI->>G: Command(resume=decision grant)
+    G->>N: 额度加三，累计不清零，回到 dev
+  end
+```
+
 `TaskState` 只有 9 个字段、无 reducer，且节点一律使用 `NodeContext.task_id`，不读 `state["task_id"]`。原始日志、PI 事件与会话文件**不进检查点**。
 
 ### 4.1 需求线编排
@@ -191,6 +240,18 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 推进非终态任务前，`graph.requirements.RequirementExecutor` 经 `records.checkpoints` 只读读取记录根下 `checkpoints.sqlite` 的检查点与 `records.sqlite` 的动作事实：停在可续跑业务节点（`dev`／`review`／`test` 及其自动回边）、无 `halted_reason` 且没有未核对 `started` 动作时，不判定为等待人工决定，而是把 `TaskExecution.resume` 置真交给注入的执行器就地恢复，已完成节点不重放；停在人工决策门（计划批准、追加授权、整体验收）、终态、存在 `halted_reason` 或仍有未核对动作时保持等待人工决定，不自动续跑。重复推进按检查点身份与 `actions.action_id` 去重、记录缺失输出 `unknown`，不重复计入执行工时。
 
+```mermaid
+flowchart LR
+  A["推进非终态需求任务"] --> B["只读读取检查点<br/>与动作事实"]
+  B --> C{"停在哪个节点"}
+  C -->|"人工决策门、终态<br/>或 next 为空"| W["保持等待人工决定"]
+  C -->|"dev / review / test<br/>及自动回边"| D{"存在 halted_reason<br/>或有未核对动作"}
+  D -->|"是"| W
+  D -->|"否"| F["置 resume 就地恢复<br/>已完成节点不重放"]
+  F --> G["按检查点身份与 action_id 去重"]
+  W --> H["不自动续跑，等人工核对"]
+```
+
 ## 5. 执行现场、隔离与 main
 
 - **执行现场**：每个任务一个目录 `<records_root>/<task_id>/`，内含 `workspace/`（代码副本）与 `sessions/`（PI 会话与 stderr）。现场默认保留，由用户清理。
@@ -199,7 +260,37 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 - **main 保护**：副本与容器不得直接改写真实 `main`。候选结果先经人工验收，再由 `merge` 以受控路径接回；`create_candidate_branch` 与 `merge_candidate_to_main` 都要求现场干净、HEAD 等于基线且位于 main。
 - **PI 工具权限取决于进程权限与开放资源**，不能把 `cwd` 当作隔离。
 
-**已知偏差（如实记录）**：受限容器隔离**尚未接入**，PI 目前直接宿主运行（与 `docs/status.md` 第 6 节同口径）。因此本节的「隔离」目前由独立克隆副本＋真实基线的 diff 提取实现，不由容器实现。
+本节的「隔离」由两层实现，强度不同，不能互相代替：
+
+| 层 | 状态 | 能支撑的结论 |
+| --- | --- | --- |
+| 独立克隆副本（上文「代码副本」「main 保护」） | **始终生效** | 「候选改动只在副本内产生、不由源库直接改写」 |
+| 显式执行环境 `adapter.execution_environment` | 机制**已实现并接线**，但**默认 `host`** | `container`：源库／main 在容器内无写入口；`host`：仅「本次运行未改写源库」 |
+
+`container` 模式的边界：容器运行时默认 `docker`；只挂载工作副本（dev／test 可写、review 只读）、专用 PI 配置目录与测试资源；源仓库从不进入挂载清单；网络默认 `bridge`——它是**文件系统边界，不是无网络沙箱**（容器内 PI 要自行连模型）。`host` 模式下宿主进程仍有宿主权限。
+
+```mermaid
+flowchart LR
+  subgraph HOST["宿主"]
+    SRC[("源仓库<br/>真实 main")]
+    WS["工作副本<br/>记录根 / task_id / workspace"]
+    CH["专用 PI 配置目录<br/>container_home"]
+    TR["测试资源目录"]
+  end
+  subgraph CONT["容器（execution_environment = container）"]
+    CWS["/forgeloop/workspace<br/>dev 与 test 可写，review 只读"]
+    CHOME["/forgeloop/home<br/>容器内 HOME"]
+    CRES["/forgeloop/resources/N"]
+    PIR["pi --mode rpc<br/>网络 bridge，自行连模型"]
+  end
+  WS -->|"挂载"| CWS
+  CH -->|"挂载 rw，缺省即拒绝启动"| CHOME
+  TR -->|"挂载 rw"| CRES
+  SRC -.->|"从不挂载"| CONT
+  CWS --> PIR
+```
+
+**未完成项（如实记录）**：容器模式的**真实端到端验收**尚未完成，`docs/status.md` 第 6 节仍记为未接入。因此当前默认运行时的隔离强度**只有第一层**；「PI 无权改写源库」这一结论必须由容器隔离单独验收后才能声明。
 
 ## 6. 持久化与记录
 
@@ -207,32 +298,60 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 | 存储 | 文件 | 内容 | 管理者 |
 | --- | --- | --- | --- |
-| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 15 张表＋需求 8 张表＋邮件线索 3 张表） | `records.store.RecordStore`、`records.requirements.RequirementStore`、`records.mail_threads.MailThreadStore` |
+| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 15 张表＋需求 8 张表＋邮件线索 3 张表＋人工续跑决定 1 张，共 27 张） | `records.store.RecordStore`、`records.requirements.RequirementStore`、`records.mail_threads.MailThreadStore`、`records.checkpoints`（仅续跑决定写入） |
 | 图检查点 | `checkpoints.sqlite` | `TaskState` 的推进状态，`thread_id = task_id` | LangGraph `SqliteSaver` |
 
 图检查点由 LangGraph `SqliteSaver` 管理；`records.checkpoints` 只读解析其待执行节点、`halted_reason` 与检查点身份，并只读汇总 `records.sqlite` 的未完成/已完成动作身份，供需求推进器判定可续跑与重复推进的幂等口径（动作身份 `actions.action_id`，记录缺失输出 `unknown`）。
 
-记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`merges`、`deliveries`、`releases`、`prerequisite_applications`（15 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）；邮件线索侧 `mail_threads`（出向 Message-ID 与需求绑定）、`mail_deliveries`（出向幂等账）、`mail_inbound`（入向去重账）（3 张）。各记录集共用同一 `records.sqlite`，各自管理连接与表。
+记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`merges`、`deliveries`、`releases`、`prerequisite_applications`（15 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）；邮件线索侧 `mail_threads`（出向 Message-ID 与需求绑定）、`mail_deliveries`（出向幂等账）、`mail_inbound`（入向去重账）（3 张）；人工续跑侧 `requirement_retry_decisions`（决定、绑定方案版本与检查点身份）（1 张）。各记录集共用同一 `records.sqlite`，各自管理连接与表——**不是一条全局连接**：`RecordStore`／`RequirementStore` 各自建连，`MailThreadStore` 用调用方传入的裸连接，`checkpoints` 每次读临时开只读连接。
 
 状态页不新增任何持久化介质：它只读同一 `records.sqlite`（记录库不存在时按需建立空库，是查询本身的代价），不写业务事实。
 
 **动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。动作行另存发起进程身份（`pid`）与最近心跳（`heartbeat_at`）。
 
+```mermaid
+flowchart LR
+  A(["动作启动前登记<br/>BEGIN IMMEDIATE 内查重"]) --> B["completed<br/>正常结束"]
+  A --> C["残留 started<br/>进程中途被杀"]
+  C --> D["interrupted<br/>再次推进时拒绝重放<br/>保留现场待人工核对"]
+  B --> E(["结束"])
+  D --> E
+```
+
 **槽位残留判定与安全清理（A05 恢复路径）**：执行槽位（同一需求推进、同项目交付）占用同样落在 `actions`，判定只看权威记录里的进程身份是否存活（`os.kill(pid, 0)` 探测接缝），不依据等待时长或心跳年龄：进程存活判 `live`，进程已不存在判 `dead`，缺少进程身份或存活状态无法确认判 `uncertain`。`cleanup_slot_residue` 只清理 `dead` 残留，并在 `BEGIN IMMEDIATE` 内结束占用、写入 `slot_cleanups`（槽位名、原占用者身份与属主、判定依据、清理时间）；`live`／`uncertain` 一律不清理并返回具体原因。重复或并发触发时只有一个能完成清理，其余按幂等返回未清理，绝不误清存活占用者。
 
-**写入语义（现状）**：连接以 `isolation_level=None` 自动提交，但关键读-改-写序列显式使用 `BEGIN IMMEDIATE`／`COMMIT`／`ROLLBACK` 事务：`create_task`（任务＋预算）、`consume_approval`（批准消费）与 `extend_budget`；`charge_budget` 用单条原子 `UPDATE ... consumed_seconds = consumed_seconds + ?` 累加，并发计入不丢更新。连接设置 `busy_timeout=5000` 以等待写锁；仍未启用 WAL。
+```mermaid
+flowchart LR
+  A["槽位被占用"] --> B{"记录里有进程身份"}
+  B -->|"没有"| U["uncertain"]
+  B -->|"有"| C["探测进程存活"]
+  C -->|"存活"| L["live"]
+  C -->|"不存在"| D["dead"]
+  D --> E["结束占用<br/>写 slot_cleanups"]
+  L --> F["不清理<br/>返回原因"]
+  U --> F
+  E --> G["并发只有一个能完成"]
+  F --> G
+```
+
+**写入语义（现状）**：连接以 `isolation_level=None` 自动提交，但关键读-改-写序列显式使用 `BEGIN IMMEDIATE`／`COMMIT`／`ROLLBACK`：`create_task`（任务＋预算）、`record_approval`、`consume_approval`（批准消费）、`extend_budget`、`actions.begin`（查重后插入动作）、`cleanup_slot_residue`（重读＋判定＋清理）、`MailThreadStore.record_outbound`／`record_inbound`。`charge_budget` 与需求级工时用单条原子 `UPDATE ... consumed_seconds = consumed_seconds + ?` 累加，并发计入不丢更新。`RequirementStore` 没有显式事务，靠 `ON CONFLICT ... DO UPDATE` 与单条原子语句。`busy_timeout=5000` 目前**只有 `RecordStore` 设置**，`RequirementStore`、`mail` 的裸连接与续跑决定写连接均未设置。`records.sqlite` **仍未启用 WAL**（WAL 只出现在 LangGraph 对 `checkpoints.sqlite` 的建表流程里）。
 
 原始材料**不进**记录表，只以文件留在现场；记录里保存路径与校验值：
 
 | 产物 | 路径（相对任务目录） | 消费者 |
 | --- | --- | --- |
 | 候选 diff | `candidate.diff` | 审查、验收、归并 |
+| 部分候选（失败回边） | `partial-candidate.diff`、`partial-candidate.json` | 失败回边证据；dev 未取得明确结果时落盘，**绝不写 `candidate.diff`** |
 | 前置应用记录 | `prerequisite-applications.json` | 下游启动幂等与回退判定、人工核对 |
 | 实现自述 | `dev-reports.jsonl` | 交付报告 |
 | 审查结论 | `reviews.jsonl`、`review-report.json` | 验收 |
 | 测试证据 | `test-run.jsonl` | 验收、交付 |
+| 候选产物回执与原件 | `candidate-artifact.json`、`artifacts/<wheel>` | 发布、部署 |
+| 归并证据 | `merge-evidence.json` | 归并回查 |
+| 发布回执 | `release-receipt.json` | 部署、发布回查 |
 | 交付报告 | `delivery-report.json` | 用户 |
 | PI 会话与错误 | `sessions/<task>-<role>.events.jsonl`、`.requests.jsonl`、`.stderr.log` | 回查 |
+| 副本内前置标记 | `workspace/.git/forgeloop-applied-prerequisites.json` | 幂等跳过重复应用（在 `.git` 下，不进工作树、不进 diff） |
 
 这些文件名是**跨层契约**：验收中断载荷对外暴露的就是这些路径，`merge`／`release` 依赖它们。改动文件名属于架构变化。
 
@@ -262,11 +381,11 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 ```mermaid
 flowchart LR
-  Accept[人工验收通过] --> Merge[merge<br/>候选分支→等必需检查→快进 main→推送]
-  Merge --> Release[release<br/>annotated tag 与发布回执]
-  Release --> Workflow[Release 工作流<br/>下载已验收产物与 SHA256SUMS（不重新构建）]
-  Workflow --> Deploy[deploy<br/>校验值比对→独立版本目录→原子切换→冒烟]
-  Deploy --> Rollback[rollback<br/>只切到已安装且留有校验记录的版本]
+  Accept["人工验收通过"] --> Merge["merge<br/>候选分支→等必需检查→快进 main→推送"]
+  Merge --> Release["release<br/>annotated tag 与发布回执"]
+  Release --> Workflow["Release 工作流<br/>下载已验收产物与 SHA256SUMS（不重新构建）"]
+  Workflow --> Deploy["deploy<br/>校验值比对→独立版本目录→原子切换→冒烟"]
+  Deploy --> Rollback["rollback<br/>只切到已安装且留有校验记录的版本"]
 ```
 
 关键不变量：**部署必须使用验收过的那一份产物**——`release` 把 C01 已验收产物原件上传为该标签的 Release 资产，`Release` 工作流只下载并核对它（禁止在标签工作流重新构建），`deploy` 校验 `SHA256SUMS`，校验值不匹配即拒绝；同版本不同产物被拒绝；`release` 对同标签幂等、换标签拒绝。
@@ -303,3 +422,5 @@ flowchart LR
 5. **本文第 3 节的模块文件路径与源码模块集合不互为镜像**——漏写新模块或残留已删除模块都失败。
 
 第 5 条是「架构变化必须同步架构描述文档」这条规则的执行点：只要改了模块结构而没改本文，`make check` 就会失败并指出缺失或多余的路径。
+
+**门禁覆盖不到的部分（如实记录）**：以上五条都不检查本文的图。第 1、2、4、4.1、5、6、8 节的九张 Mermaid 图是**人写的、只受本节同步义务约束**——改了 `graph/builder.py` 的节点或路由、改了挂载清单、改了状态词，门禁不会报错，只有人工审阅能发现。要消除这个缺口，需要像模块清单那样把对应事实（节点与路由、挂载清单、动作状态）抽成契约项再由脚本生成图；这是新增门禁，尚未做。

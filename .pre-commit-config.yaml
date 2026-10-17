@@ -3,8 +3,10 @@ repos:
   - repo: local
     hooks:
       - id: commit-work-hours
-        name: Statutory workday commit restriction
+        name: Commit time restriction from the local policy config
         language: unsupported
+        # 生效配置不入库（模板 config/commit-policy.template.toml）：本机没装配置时
+        # 本钩子放行并打印 policy_absent / NOT enforced；配置损坏或未迁移时拒绝。
         entry: .venv/bin/python scripts/check_commit_policy.py --check-now
         always_run: true
         pass_filenames: false
