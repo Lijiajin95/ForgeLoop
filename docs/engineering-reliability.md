@@ -11,7 +11,7 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 | 适配点 | EvidHist | ForgeLoop |
 | --- | --- | --- |
 | 形态 | FastAPI 服务 + React 前端 + PostgreSQL | 纯 Python CLI + LangGraph + 本地 SQLite |
-| 前端工具链 | Vitest/Playwright/Stryker/ESLint/depcruise/Knip | **不移植**（首版无前端，B01 前不接入） |
+| 前端工具链 | Vitest/Playwright/Stryker/ESLint/depcruise/Knip | **已接入（2026-10-17）**：状态页行为代码改为 TypeScript（`frontend/src`），按本文第 28 节接入 ESLint／Prettier／tsc／dependency-cruiser／knip／Vitest（含 90% 覆盖）／Playwright（真实 Chromium）／Stryker（凌晨作业）。触发条件即本节写明的「出现前端界面与真实浏览器需求」 |
 | 契约管理 | OpenAPI 快照与漂移检查 | CLI JSON 输出契约快照（见第 9 节） |
 | 外部边界 | PostgreSQL 容器、真实 HTTP、浏览器 | PI RPC（stdin/stdout JSONL）、受限容器、CLI 进程 |
 | 数据库服务 | db-up/db-down + 测试 DSN 门 | 无服务；SQLite 文件为持久边界，集成测试本地可离线 |
@@ -63,13 +63,15 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 
 | 指标 | 参考默认 | 提示阈值 | 复核阈值 | 执行方式 |
 | --- | --- | --- | --- | --- |
-| 函数有效代码行 | ESLint 默认 50 | 超过 40 | 超过 50 | 专用 AST/tokenize 报告 |
+| 函数有效代码行 | ESLint 默认 50 | 超过 40 | 超过 50 | 专用 AST/tokenize 报告（Python）；ESLint `max-lines-per-function` 50（前端，`warn`） |
 | 本类公开接口 | Pylint 默认 20 | 超过 10 | 超过 20 | 专用口径（Pylint R0904 已停用，避免同一数字重复阻断） |
 | 手写源码文件总行数 | ESLint 300 / Pylint 1000 | 超过 300 | 超过 500；审阅例外上限 1000 同为提示 | 专用报告（Pylint C0302 已停用） |
 | 圈复杂度 | Ruff/Pylint 默认 10 | 超过 10 | — | 结构报告（Ruff `C901` 已停用） |
 | 参数数量 | Ruff/Pylint 默认 5 | 超过 5 | — | 结构报告（Ruff `PLR0913` 已停用） |
 | 分支数量 | Ruff/Pylint 默认 12 | 超过 12 | — | 结构报告（Ruff `PLR0912` 已停用） |
 | 返回／语句／局部变量 | 6 / 50 / 15 | 超过各自上限 | — | 结构报告，见 `[structure.review_hints]` |
+
+同一批数字在两侧各有一份执行者：Python 由本报告给出（提示不阻断），前端由 ESLint 给出（同为 `warn`，不阻断），数值与口径同源于 `config/quality-policy.toml` 的 `[structure]` 与 `[frontend]`，由 `scripts/check_frontend_policy.py` 核对前端那份没有漂移。两处**不重复统计同一个文件**，避免同一个数字被两处门禁重复阻断。
 
 统计口径必须固定（复刻 EvidHist 交接清单 8.2）：
 
@@ -184,7 +186,7 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 
 - 可靠性门槛服务 [A01–A05](first-validation-plan.md#4-首版核心检查) 的证据要求：真实测试输出（V0-05）由系统/集成层程序执行产生；记录回查（V0-08）由系统测试验证；`pi_live` 支撑 A01 真实调用证据。
 - 门槛接入按第 10 节顺序随代码走，不为“先把平台建完”扩张（30 小时上限与人工时间测量已按所有者 2026-10-12 决定撤销）。
-- 不因骨架存在而提前建设：插件注册中心（B21）、共享包（B15）、页面（B01）、多执行器；不为尚无业务对象的层写空测试占位。
+- 不因骨架存在而提前建设：插件注册中心（B21）、共享包（B15）、多执行器；不为尚无业务对象的层写空测试占位。页面（B01）由所有者按真实痛点选中后才实施，且首版只做只读查询（见 `docs/status.md` 的 2026-10-17 记录）。
 - EvidHist 已验证的运行结论（mutants 缓存陷阱、Stryker/工具兼容性等）中与 Python 后端相关的部分直接继承；其前端结论保留在原项目，ForgeLoop 出现前端时再引用。
 
 ## 13. 首批执行记录：2026-10-12（首版系统架构实现）
@@ -643,3 +645,40 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 **历史记录保留（不删史）**：semgrep 的历次执行结果仍在原处——第 2 节骨架清单、第 13 节首批执行记录（4 规则 20 文件 0 命中、`scripts/run_semgrep.py` 含设置目录与 CA 修正）、第 14 节依赖审计例外处置，均保留原文；本节只追加替换事实，不改写旧记录。
 
 **验证（本机 macOS ARM64，CPython 3.13.15，2026-10-17）**：`make check` exit 0（1300 通过、3 跳过）；`make audit` 在无 `--ignore-vuln` 下对完整锁定依赖报 `No known vulnerabilities found`、exit 0。
+
+## 28. 前端工具链接入：TypeScript 适配的 lint 与编码风格规则（2026-10-17）
+
+**触发条件成立**：第 1 节原写明前端工具链「不移植（首版无前端，B01 前不接入）」，并预留了触发条件——出现前端界面与真实浏览器需求时按同方法接入。2026-10-17 所有者选中 B01 只读状态页，并要求按 Python 的 lint／编码风格规则补一套 TypeScript 适配规则，因此本节记录实际接入的范围、数值来源、门禁强度与代价。
+
+**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`（`payload.ts` → `format.ts` → `render.ts`／`progress.ts` → `page.ts` → `app.ts`），经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；渲染不取数），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
+
+**Python 规则 → TypeScript 规则的对应**（数值同源于 `config/quality-policy.toml`）：
+
+| Python 侧 | 前端侧 | 强度 |
+| --- | --- | --- |
+| Ruff `E7`/`F`/`B`/`SIM`/`UP` + Pyright | `@eslint/js` recommended + `typescript-eslint` `recommendedTypeChecked`（含类型信息） | 硬门禁 |
+| Pyright strict 合并选项 | `tsconfig.json`：`strict`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`noImplicitReturns`、`noUnusedLocals`、`noUnusedParameters`、`noFallthroughCasesInSwitch`、`verbatimModuleSyntax` | 硬门禁 |
+| Ruff S 子集（禁 `eval`／不安全反序列化） | ESLint `no-restricted-syntax`：禁 `eval`、`new Function`、字符串 `setTimeout`、`innerHTML`／`outerHTML`／`insertAdjacentHTML`（记录文本只许 `textContent`） | 硬门禁 |
+| Ruff format + `line-length = 100` | Prettier `printWidth: 100`（含页面 HTML） | 硬门禁 |
+| import-linter（分层与环） | dependency-cruiser（`no-circular` + 三条边界规则） | 硬门禁 |
+| deptry（未声明/未使用依赖） | knip（未使用依赖、导出与文件） | 硬门禁 |
+| 覆盖率 `line/branch ≥ 90` | Vitest（v8）lines／branches／functions／statements 各 90 | 硬门禁 |
+| mutmut（核心领域规则） | Stryker（`format.ts`、`progress.ts`；break 90，high 95／low 90 只作报告着色） | 凌晨作业 |
+| pip-audit | npm audit（`--audit-level=high`，显式指向公共 registry） | 安全作业 |
+| 结构数字（函数 50、文件 500、复杂度 10、嵌套 4、参数 5、语句 50） | ESLint `max-lines-per-function`／`max-lines`／`complexity`／`max-depth`／`max-params`／`max-statements` | **审阅提示**（`warn`，与 Python 同强度） |
+| 真实外部边界用真实执行 | Playwright 起真实 `forgeloop web` 进程 + 真实 Chromium（记录 → 服务端 → 编译产物 → DOM） | CI 推送路径 |
+
+**门禁节奏**：`make check`（= `check-static` + 高频测试）包含格式、ESLint、tsc、产物漂移、策略同源、模块边界、knip 与 jsdom 用例（68 项）；CI 的 `quality` 作业另跑覆盖率与真实浏览器用例（4 项）、`security` 作业跑 npm audit；夜间作业（03:00 Asia/Shanghai）跑 Stryker 并用 `scripts/check_frontend_mutation.py` 判定击杀率与幸存者审阅。本地可用 `make frontend-check` 单独跑高频部分。
+
+**变异实测（2026-10-17 本机，213 个变异体、24 秒）**：击杀率 **95.77%**（检出 204：killed 201 + timeout 3；未检出 9：survived 9 + no coverage 0），`format.ts` 97.73%、`progress.ts` 92.59%，高于门槛 90%。第一轮实测只有 **68.08%**，据此补了三类测试缺口：缺值标记与全部七类问题标签原先只断言了部分字面量、时间戳格式只断言了「不是原串」、错误响应体只覆盖了对象形态；另把 `progress` 的用例从组件层移到单元层（变异只选单元层用例）。九个幸存者逐项审阅后**全部判为等价变异**并登记在 `[[frontend.reviewed_survivors]]`（理由逐条写明），未审阅幸存者会让门槛脚本失败。
+
+**工具版本的一处实测决策**：`@stryker-mutator/vitest-runner@10` 与 **vitest 5 不兼容**——首轮用 vitest 5 跑出 **3.29%** 的击杀率，报告中每个「幸存者」的 `testsCompleted` 都是 0（即根本没跑测试），属于**假幸存**，会让变异门禁形同虚设。降到 vitest `^4.1.11`（与 EvidHist 同代、未被标记弃用）后同一份代码得到 95.77% 的真实结果。此处选择**保留可用的变异门禁**而不是追求最新主版本，理由与风险如实登记：若将来升级 vitest 主版本，必须先复跑变异并确认 `testsCompleted` 非零。
+
+**口径与代价（如实记录）**：
+
+- 结构数字的**分级口径不同**：Python 报告有 hint（40）与 review（50）两级，ESLint 只能表达一个 `warn` 级别，因此前端取「复核阈值」50，`warn` 不阻断。这是必要的口径校准，不声称两侧数字逐字等价。
+- `npm audit --audit-level=high` 当前对本仓库报 **2 个 moderate**（`@stryker-mutator/core → typed-rest-client → qs`），**全部位于开发期变异工具链，不进入随包页面与 wheel**；high 及以上为空。该结果如实保留在安全作业输出里，不通过降级门槛隐藏。
+- 前端工具链引入 **Node 26 与 npm registry 依赖**（`package-lock.json` 锁定、`npm ci` 安装），浏览器为 Playwright 下载的 Chromium（落在 `.cache/ms-playwright`）。这改变了「纯 Python、无 Node」的旧状态，`make setup` 现在同时准备两侧工具链。
+- 版本选择：除上一条的 vitest 之外，其余工具取当前**未被标记弃用**的版本（eslint 10、typescript 6.0、typescript-eslint 8、playwright 1.64、knip 6、dependency-cruiser 18、prettier 3.9）。首次安装 npm 曾提示 `eslint@9.39.5` 已弃用（EvidHist 的钉法是 9.x），因此改为 eslint 10；TypeScript 停在 6.0 是因为 `typescript-eslint` 的 peer 范围是 `<6.1.0`。
+- 变异范围**不覆盖 DOM 渲染**（`render.ts`）：与 Python 侧只变异核心领域规则同一口径，DOM 管线的等价变异与展示细节噪声高、收益低；后续确有渲染逻辑缺陷漏检时再纳入并重新审阅幸存者。
+- 未接入 **Vitest 浏览器模式、axe 可访问性扫描、Stryker 的 HTML 报告归档以外的前端可观测性**：本次只按所有者选中的范围接入，不因工具存在而扩大。

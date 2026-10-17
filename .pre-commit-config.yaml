@@ -30,6 +30,15 @@ repos:
         entry: .venv/bin/pyright
         pass_filenames: false
         types_or: [python, pyi]
+      - id: frontend-check
+        name: Frontend lint, types, boundaries before push
+        language: unsupported
+        # 前端门禁：格式、ESLint、tsc、产物漂移、模块边界与死代码、jsdom 用例
+        # （真实浏览器用例与变异分别属 CI/夜间层，见 docs/engineering-reliability.md）。
+        entry: make frontend-check
+        pass_filenames: false
+        stages: [pre-push, manual]
+        files: ^frontend/|^src/forgeloop/cli/(web_page\.html|static/)
       - id: fast-tests
         name: Deterministic tests before push
         language: unsupported

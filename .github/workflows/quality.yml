@@ -22,9 +22,22 @@ jobs:
           version: "0.12.24"
           python-version: "3.13"
       - run: uv sync --frozen
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # 前端工具链与真实浏览器（Chromium 落在工作区缓存里，与本地同一路径）。
+      # 浏览器依赖用 --with-deps 装系统库；本地用 `make frontend-browsers` 即可。
+      - name: Prepare frontend toolchain and browser
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
+        run: |
+          make frontend-setup
+          npm --prefix frontend exec -- playwright install --with-deps chromium
       # 一次带覆盖采集的执行跑完高频与集成用例（不再重复跑一遍无覆盖的高频套件），
-      # 另加系统测试与全部静态门禁；静态失败即中止作业，退出码照常传播。
-      - run: make check-static coverage test-system
+      # 另加系统测试、真实浏览器用例与全部静态门禁；静态失败即中止作业，退出码照常传播。
+      - run: make check-static coverage test-system frontend-e2e
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -42,6 +55,13 @@ jobs:
           version: "0.12.24"
           python-version: "3.13"
       - run: uv sync --frozen --group security
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # 前端依赖审计（npm audit）与 pip-audit 同属依赖漏洞门禁，需要前端依赖树。
+      - run: make frontend-setup
       - run: make security
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

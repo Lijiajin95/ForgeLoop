@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ForgeLoop 研发进展</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f7f5;
+        --panel: #ffffff;
+        --line: #dcdcd6;
+        --text: #1f2320;
+        --muted: #6b7280;
+        --accent: #2f6f4f;
+        --issue: #a33a2a;
+        --issue-bg: #fdf1ee;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #17191a;
+          --panel: #202325;
+          --line: #34383b;
+          --text: #e8eaea;
+          --muted: #9aa3a8;
+          --accent: #6fbf95;
+          --issue: #f0a08f;
+          --issue-bg: #2c1f1c;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.6 -apple-system,
+          "PingFang SC",
+          "Microsoft YaHei",
+          "Noto Sans CJK SC",
+          sans-serif;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: baseline;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .meta b {
+        color: var(--text);
+        font-weight: 600;
+      }
+      #refresh-button {
+        margin-left: auto;
+        padding: 6px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        font-size: 13px;
+      }
+      #refresh-button:disabled {
+        cursor: progress;
+        color: var(--muted);
+      }
+      #banner {
+        display: none;
+        margin: 16px 0 0;
+        padding: 10px 14px;
+        border-radius: 6px;
+        background: var(--issue-bg);
+        color: var(--issue);
+        white-space: pre-wrap;
+      }
+      .counts {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 16px 0;
+      }
+      .count {
+        min-width: 128px;
+        padding: 10px 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+      .count strong {
+        display: block;
+        font-size: 22px;
+      }
+      .count span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      section {
+        margin-top: 24px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+      }
+      caption {
+        text-align: left;
+        color: var(--muted);
+        font-size: 13px;
+        padding-bottom: 6px;
+      }
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 6px 10px;
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+      }
+      th {
+        background: var(--bg);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      td.wrap {
+        max-width: 420px;
+        overflow-wrap: anywhere;
+      }
+      tr.issue td {
+        background: var(--issue-bg);
+      }
+      tr.issue td:first-child {
+        color: var(--issue);
+        font-weight: 600;
+      }
+      .empty {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      code {
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ForgeLoop 研发进展</h1>
+      <button id="refresh-button" type="button">立即刷新</button>
+    </header>
+    <p class="meta">
+      <span id="refresh-note">自动刷新: 每 60 秒</span> ·
+      <span id="countdown">等待首次加载</span> · 生成时间
+      <b id="generated-at">—</b> · 记录根 <b id="records-root">—</b>
+    </p>
+    <div id="banner" role="alert"></div>
+
+    <div class="counts">
+      <div class="count">
+        <strong id="count-requirements">—</strong><span>需求</span>
+      </div>
+      <div class="count">
+        <strong id="count-tasks">—</strong><span>任务</span>
+      </div>
+      <div class="count">
+        <strong id="count-issues">—</strong><span>待处理问题</span>
+      </div>
+    </div>
+
+    <section>
+      <h2>需求</h2>
+      <table>
+        <caption>
+          需求原文与任务包来自权威记录；「任务进展」为已交付任务数 /
+          任务包任务数。
+        </caption>
+        <thead>
+          <tr>
+            <th>需求</th>
+            <th>项目</th>
+            <th>状态</th>
+            <th>任务包</th>
+            <th>任务进展</th>
+            <th>下一步</th>
+            <th>阻断原因</th>
+          </tr>
+        </thead>
+        <tbody id="requirements-body"></tbody>
+      </table>
+      <p class="empty" id="requirements-empty">没有需求记录。</p>
+    </section>
+
+    <section>
+      <h2>任务</h2>
+      <table>
+        <caption>
+          含需求任务映射出的单任务记录（身份形如
+          task-&lt;需求&gt;-v&lt;任务包版本&gt;-&lt;任务&gt;）。
+        </caption>
+        <thead>
+          <tr>
+            <th>任务</th>
+            <th>项目</th>
+            <th>状态</th>
+            <th>下一步</th>
+            <th>失败轮次</th>
+            <th>工时</th>
+            <th>阻断原因</th>
+          </tr>
+        </thead>
+        <tbody id="tasks-body"></tbody>
+      </table>
+      <p class="empty" id="tasks-empty">没有任务记录。</p>
+    </section>
+
+    <section>
+      <h2>问题</h2>
+      <table>
+        <caption>
+          需要人工介入的当前事实：阻断、中断、等待追加授权、工时耗尽、待确认停止与未完成执行槽位。等待批准/验收属于正常流程门，不在此列。
+        </caption>
+        <thead>
+          <tr>
+            <th>种类</th>
+            <th>对象</th>
+            <th>摘要</th>
+            <th>依据</th>
+          </tr>
+        </thead>
+        <tbody id="issues-body"></tbody>
+      </table>
+      <p class="empty" id="issues-empty">没有待处理问题。</p>
+    </section>
+
+    <!-- 行为代码是 TypeScript 源（frontend/src）编译出的模块，见 docs/engineering-reliability.md 第 1 节；本文件只保留结构与样式。 -->
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

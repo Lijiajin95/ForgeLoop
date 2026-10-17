@@ -8,8 +8,10 @@ delivery. Only a corrupted policy, an unreadable source file or a source that ca
 be parsed fails the check, so those errors can never be hidden behind the hint
 caliber. Pylint's former public-interface and module-length checks are folded into
 this report so the same number is not blocked twice.
-ForgeLoop 首版为纯 Python 工程范围（[scope] extensions 仅 .py）；出现 TS/JS
-范围时按 EvidHist 同值 ESLint 门槛接入，报告中显式记录该事实。
+本报告只统计 Python（.py）结构与口径；TS/TSX 的结构数值自 2026-10-17 起由 ESLint
+在 `make frontend-check` 中执行，数值与 calibers 同源于 `config/quality-policy.toml`
+的 [frontend] 段（机器核对见 `scripts/check_frontend_policy.py`），报告中的 frontend
+一节显式记录该事实，避免同一个数字被两处门禁重复阻断。
 """
 
 import argparse
@@ -242,9 +244,12 @@ def run_check(root: Path, config_path: Path) -> dict:
         "scope_roots_missing": missing_roots,
         "python": python_file_metrics(root, python_files, config),
         "frontend": {
-            "status": "not_in_scope",
-            "note": "Python-only scope per config [scope]; TS/JS thresholds will be added "
-            "with the first frontend surface.",
+            "status": "enforced_elsewhere",
+            "note": (
+                "Python-only report: TS/TSX 结构数值由 ESLint 执行（frontend/eslint.config.js，"
+                "数值取自 config/quality-policy.toml 的 [frontend] 段经 "
+                "frontend/quality-thresholds.json），本报告不重复统计。"
+            ),
         },
     }
     failures, hints = _collect_findings(report, config)

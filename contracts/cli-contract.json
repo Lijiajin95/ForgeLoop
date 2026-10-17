@@ -1473,5 +1473,108 @@
         ]
       }
     }
+  },
+  "web_progress_route": "GET /api/progress",
+  "web_progress_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "counts": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "issues": {
+            "type": [
+              "integer"
+            ]
+          },
+          "requirements": {
+            "type": [
+              "integer"
+            ]
+          },
+          "tasks": {
+            "type": [
+              "integer"
+            ]
+          }
+        }
+      },
+      "generated_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "issues": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "detail": {
+              "type": [
+                "string"
+              ]
+            },
+            "kind": {
+              "type": [
+                "string"
+              ]
+            },
+            "ref_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "summary": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "records_root": {
+        "type": [
+          "string"
+        ]
+      },
+      "refresh_seconds": {
+        "type": [
+          "integer"
+        ]
+      },
+      "refresh_source": {
+        "type": [
+          "string"
+        ]
+      },
+      "requirements": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "$ref": "#/requirement_document"
+        }
+      },
+      "schema_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "tasks": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "$ref": "#/document"
+        }
+      }
+    }
   }
 }

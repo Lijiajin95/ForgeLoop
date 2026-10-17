@@ -5,9 +5,12 @@ schema_version = 1
 # Ruff、Pylint 等工具不识别本文件。所有门槛在代码落地前均未执行。
 
 [scope]
-handwritten_roots = ["src", "scripts", "tests"]
-extensions = [".py"]
-generated_roots = []
+# 手写源码范围同时登记 Python 与前端；本文件的结构报告只统计 .py（口径见
+# scripts/check_structure_metrics.py），TS/TSX 的结构数值由 [frontend] 段与
+# ESLint 执行，两者不重复阻断同一个数字。
+handwritten_roots = ["src", "scripts", "tests", "frontend/src", "frontend/tests"]
+extensions = [".py", ".ts", ".tsx"]
+generated_roots = ["src/forgeloop/cli/static"]
 
 [structure]
 # 结构数字全部是**审阅提示**（2026-10-13 精简，见可靠性方案第 25 节）：
@@ -40,6 +43,65 @@ local_variables_max = 15
 complexity_max = 10
 parameters_max = 5
 branches_max = 12
+
+[frontend]
+# 前端（TypeScript）门槛：数值与 Python 同表，来源见 docs/engineering-reliability.md
+# 第 1 节与 EvidHist coding-agent-handoff 第 11.1 节。ESLint / Vitest / Stryker 读
+# frontend/quality-thresholds.json；本段是唯一来源，scripts/check_frontend_policy.py
+# 机器核对两者一致（含口径标志）。
+#
+# 结构数值与 Python 结构报告同为**审阅提示**（ESLint `warn`）：make frontend-check
+# 不把 warning 当失败；正确性、类型、格式、依赖边界与死代码仍为硬门禁。
+function_lines_max = 50
+file_lines_max = 500
+complexity_max = 10
+depth_max = 4
+params_max = 5
+statements_max = 50
+exclude_blank_lines = true
+exclude_comment_only_lines = true
+
+# 覆盖与变异门槛（前端）：Vitest 覆盖率与 Stryker 的 break 阈值。
+coverage_line_min = 90
+coverage_branch_min = 90
+coverage_function_min = 90
+coverage_statement_min = 90
+mutation_killed_min = 90
+
+# 前端变异幸存者逐项审阅（2026-10-17 实跑 213 个变异体后审阅）。
+# 键为 `文件:行:列:变异算子:替换内容`；同一位置的多个等价变异由一条登记覆盖。
+# 未登记的幸存者会让 scripts/check_frontend_mutation.py 失败；条目过期只作提示。
+[[frontend.reviewed_survivors]]
+mutant = 'src/format.ts:46:19:ConditionalExpression:false'
+reason = "等价变异：Number(数字) 与数字本身恒等，`typeof value === \"number\"` 的三元分支只影响同一结果的路径。"
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/format.ts:46:36:StringLiteral:""'
+reason = "等价变异：`typeof value === \"\"` 恒为假，退化为 Number(value)，与上一行同一结果。"
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/format.ts:68:41:ObjectLiteral:{}'
+reason = "本机 ICU 下 zh-CN 的默认 hour12 与显式 false 相同（实测输出一致）；测试已钉死 24 小时制形状，跨 ICU 行为差异由真实浏览器用例间接覆盖。"
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/progress.ts:36:10:ConditionalExpression:true'
+reason = "等价变异：isRecord 判定的放宽只改变进入分支的路径，非对象响应体在 try/catch 后仍落到同一 `HTTP <status>` 兜底文案。"
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/progress.ts:36:10:LogicalOperator:typeof value === "object" || value !== null'
+reason = "等价变异：`||` 版本对 null 响应体会抛 TypeError，但同样被 errorDetail 的 try/catch 收敛为 `HTTP <status>`，可观察结果不变。"
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/progress.ts:36:39:ConditionalExpression:true'
+reason = "等价变异：`value !== null` 恒真时，null 响应体走 `payload.detail` 抛错并被 try/catch 吞掉，兜底文案相同。"
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/progress.ts:161:27:ConditionalExpression:false'
+reason = "等价变异：refresh_seconds 为 0 时 tick() 在 autoRefreshOff 分支提前返回，nextRefreshAt 的取值不会被读取。"
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/progress.ts:161:27:EqualityOperator:seconds < 0'
+reason = "等价变异：同上，seconds 为 0 时该赋值的两种取值都不可观察。"
 
 [coverage]
 line_min = 90

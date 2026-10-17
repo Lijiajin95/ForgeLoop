@@ -45,6 +45,7 @@ from forgeloop.cli.requirements import (
     task_budget_summary,
     task_status_reason,
 )
+from forgeloop.cli.web import ProgressDocuments, add_web_parser
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
     DeliveryBinding,
@@ -1038,6 +1039,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_mail_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     _add_requirement_parsers(subparsers, DEFAULT_RECORDS_ROOT)
+
+    # 状态页（B01）：把本模块的只读查询文档构建器注入 ``cli.web``，页面与
+    # ``--json`` 查询共用同一份读模型；方向是 main → web（web 不反向导入 main，
+    # 否则架构契约的 import 环检查会失败）。
+    add_web_parser(
+        subparsers,
+        DEFAULT_RECORDS_ROOT,
+        ProgressDocuments(_requirement_document, _status_document),
+    )
 
     return parser
 

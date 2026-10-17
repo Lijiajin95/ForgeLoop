@@ -1,0 +1,24 @@
+{
+  "_comment": "前端门槛数值：与 config/quality-policy.toml 的 [frontend] 同值；ESLint / Vitest / Stryker 读这一份，scripts/check_frontend_policy.py 机器核对两者一致。数值来源见 docs/engineering-reliability.md 第 1 节与 EvidHist coding-agent-handoff 第 11.1 节（与 Python 同表）。",
+  "structure": {
+    "functionLinesMax": 50,
+    "functionLinesSkipBlankLines": true,
+    "functionLinesSkipComments": true,
+    "fileLinesMax": 500,
+    "complexityMax": 10,
+    "depthMax": 4,
+    "paramsMax": 5,
+    "statementsMax": 50
+  },
+  "coverage": {
+    "lines": 90,
+    "branches": 90,
+    "functions": 90,
+    "statements": 90
+  },
+  "mutation": {
+    "killedMin": 90,
+    "high": 95,
+    "low": 90
+  }
+}

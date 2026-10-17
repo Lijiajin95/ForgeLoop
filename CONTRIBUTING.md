@@ -43,7 +43,8 @@ type(scope): 简洁描述
 - `scripts/export_architecture_contract.py` 中 `LAYER_RULES` 允许依赖表的改变；
 - 业务图节点增删或拓扑、路由改变；
 - 持久化介质、记录表结构或现场产物文件名的改变；
-- 外部依赖系统的新增或替换、接缝形态的改变。
+- 外部依赖系统的新增或替换、接缝形态的改变；
+- 前端结构变化（`frontend/src` 模块增删或依赖方向改变）与随包页面模块（`src/forgeloop/cli/static/`）的同步。
 
 流程：改代码 → 更新[架构说明](docs/architecture.md)（至少层与模块清单）→ 运行 `make architecture-contract` 重新导出快照 → 运行 `make check`。方向性选择（换编排框架、换执行器、改变分层）另写[分层决策](docs/adr/)记录，ADR 只回答「为什么」，架构说明回答「现在是什么」。
 
@@ -51,7 +52,7 @@ type(scope): 简洁描述
 
 ## 开发与检查
 
-先阅读[研发纪律](docs/development-discipline.md)与[工程可靠性方案](docs/engineering-reliability.md)，执行 `make setup`、`make hooks` 和 `make check`（当前骨架不可执行，随首批代码激活）。提交前运行相关测试；涉及 CLI 输出、PI Adapter、容器边界或安全时，执行对应层级检查并记录结果。
+先阅读[研发纪律](docs/development-discipline.md)与[工程可靠性方案](docs/engineering-reliability.md)，执行 `make setup`（Python 与前端两侧工具链，前端需要 Node 26）、`make hooks` 和 `make check`。提交前运行相关测试；涉及 CLI 输出、PI Adapter、容器边界或安全时，执行对应层级检查并记录结果。前端改动另跑 `make frontend-check`（含 jsdom 用例、边界与产物漂移），真实浏览器与变异在 CI 与夜间作业（`make frontend-e2e`、`make frontend-mutation`）；改了 `frontend/src` 必须 `make frontend-build` 写回随包产物，否则 `make check` 会拒绝漂移。
 
 PR 说明要描述用户问题、修改后的行为、验证证据和实质限制。CLI 输出变更同时更新契约快照；新增外部依赖需说明用途、许可、锁定版本和运行成本。缺失、跳过、超时及不稳定测试保留在结果中。
 

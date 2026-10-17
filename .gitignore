@@ -33,3 +33,12 @@ docs/library/
 # 运行时记录库：只应存在于 .cache/ 下的记录根，禁止提交到仓库根
 /records.sqlite
 /*.sqlite
+
+# 前端：依赖、构建缓存与测试产物都不入库；随包页面模块（src/forgeloop/cli/static）
+# 相反必须入库，由 scripts/check_frontend_build.py 保证与 TypeScript 源一致。
+node_modules/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+frontend/.stryker-tmp/
+frontend/stryker.log

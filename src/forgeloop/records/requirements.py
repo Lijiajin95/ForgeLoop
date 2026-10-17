@@ -313,6 +313,17 @@ class RequirementStore:
         ).fetchall()
         return tuple(self.get(str(row[0])) for row in rows)
 
+    def all_requirements(self) -> tuple[Requirement, ...]:
+        """列出全部项目的需求（只读），供状态页跨项目汇总。
+
+        顺序为创建时间与身份，保证同一份记录每次读取顺序一致；空库返回空元组。
+        """
+
+        rows = self._db.execute(
+            "SELECT req_id FROM requirements ORDER BY created_at, req_id"
+        ).fetchall()
+        return tuple(self.get(str(row[0])) for row in rows)
+
     def _insert_version(self, req_id: str, version: RequirementVersion) -> None:
         self._db.execute(
             "INSERT INTO requirement_versions (req_id, version, text, created_at)"

@@ -20,6 +20,7 @@ ForgeLoop 是单用户、单执行现场的本地 CLI 工具：一次推进一�
 ```mermaid
 flowchart LR
   Owner[所有者] -->|submit approve grant stop status requirement| CLI[forgeloop CLI]
+  Browser[浏览器] -->|GET 只读状态页 web| CLI
   CLI -->|merge release| Git[(Git 仓库与远程)]
   CLI -->|deploy rollback| Prefix[本机部署前缀]
   CLI -->|JSONL RPC| PI[pi --mode rpc 子进程]
@@ -29,7 +30,7 @@ flowchart LR
   Project --> WS
 ```
 
-外部系统共六类，都是真实外部边界，不是可忽略的实现细节：PI RPC 子进程、git CLI 与真实仓库、GitHub REST（公开数据可匿名读；检查读取用 `GITHUB_TOKEN`／`GH_TOKEN` 提高配额，未提供即匿名）、本机部署前缀（符号链接＋独立 venv）、被测项目的测试命令进程、系统时钟。
+外部系统共八类，都是真实外部边界，不是可忽略的实现细节：PI RPC 子进程、git CLI 与真实仓库、GitHub REST（公开数据可匿名读；检查读取用 `GITHUB_TOKEN`／`GH_TOKEN` 提高配额，未提供即匿名）、本机部署前缀（符号链接＋独立 venv）、被测项目的测试命令进程、真实 IMAP/SMTP 邮箱服务、本机回环 HTTP 套接字与浏览器请求（`web` 只读状态页）、系统时钟。
 
 ## 2. 分层与依赖方向
 
@@ -81,6 +82,7 @@ flowchart TD
 | domain | `src/forgeloop/domain/status.py` | 任务状态 → 下一步动作的纯映射：动作、主体（user／agent）与阻塞／等待原因；未知状态落到人工核对 |
 | domain | `src/forgeloop/domain/dependency_facts.py` | 依赖事实与真实阻塞判定的纯规则：前置未达 accepted／delivered 等终态即未满足；有未满足前置且无 `started` 未完成动作才判 `waiting`；状态词滞后不判阻塞；依据缺失输出 `unknown` 并列出缺少的记录 |
 | domain | `src/forgeloop/domain/status_reason.py` | 中文阻断原因 `blocked_reason_text` 的纯推导：只读权威事实（任务／方案／批准／动作／失败轮次／授权／工时／终态），主句按固定优先级（等待人工决定 → 依赖未满足 → 失败轮次用尽 → 运行中 → 已终态）选取，句末「；另外还有…」最多补两条其他成立条件；依据缺失输出 `unknown` 并列出缺少的记录 |
+| domain | `src/forgeloop/domain/progress.py` | 状态页纯规则：刷新间隔来源优先级（CLI 参数 → 配置文件 → 内建默认 60 秒）、`0` 关闭自动刷新与非法值明确拒绝；「问题」分类只取需要人工介入的状态（阻断／中断／等待追加授权／工时耗尽／待确认停止）与未完成执行槽位，正常流程门（等待批准、等待验收、等待澄清）不算问题，未知状态不猜测 |
 | domain | `src/forgeloop/domain/requirement.py` | 需求身份与版本规则：`req-<project>-<seq>` 项目内唯一、原文本与追加版本不可覆盖、未知身份明确失败；只读分析的结构化校验（A02）也落在本模块 |
 | domain | `src/forgeloop/domain/task_plan.py` | 任务包规则：从分析产出至少两个有依赖的任务；未批准不执行；旧版本或过期批准不能驱动最新任务包 |
 | domain | `src/forgeloop/domain/repo_facts.py` | 仓库布局事实与任务包合规校验：源码根与合法源码分层从机读架构契约 `contracts/architecture.json` 的 `modules`／`layer_edges` 动态解析，契约缺失或损坏时导入不崩溃并对路径 fail-closed；测试分层、契约快照、可用解释器与门禁命令仍为固定事实；纯规则校验文件清单与测试命令，逐条给出具体路径／命令与原因 |
@@ -95,10 +97,10 @@ flowchart TD
 | domain | `src/forgeloop/domain/deploy.py` | 部署与回滚就绪判定、`SHA256SUMS` 解析、产物唯一选择（拒绝重新构建） |
 | domain | `src/forgeloop/domain/mail.py` | 邮件需求领域规则：三类分类建议（消歧／不接纳候选／接纳成功）、消歧轮次上限 3 轮后退回人工、终态不再提问、7 天无回复单次提醒与开关、回复关联按 `In-Reply-To`／`References`／主题／正文回退解析（`req-…` 与 `#req-…` 都接受）、中文纯文本固定模板渲染；附件只记录元数据 |
 | records | `src/forgeloop/records/__init__.py` | 层声明 |
-| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张表的权威业务记录，读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列 |
+| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张表的权威业务记录，读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`all_tasks` 跨项目只读列出全部任务（状态页清单）；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列 |
 | records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份、进程身份与心跳，以及单任务并发占用；未完成动作拒绝重放；按权威记录判定槽位残留（空闲／已死／存活／不确定），只清理已死残留并写入 `slot_cleanups`，不确定时不清理并给出原因 |
 | records | `src/forgeloop/records/checkpoints.py` | 只读读取记录根下 `checkpoints.sqlite` 的 LangGraph 检查点：给出待执行节点、`halted_reason` 与检查点身份，判定可续跑业务节点（`dev`/`review`/`test` 及自动回边）与等待人工决定（计划批准、追加授权、整体验收、终态、空 `next`）；以 `actions.action_id` 去重判断重复推进，记录缺失输出 `unknown` |
-| records | `src/forgeloop/records/requirements.py` | 需求记录：需求、版本、分析、任务包、批准、任务推进、产物与需求工时共 8 张表；与任务记录同一 `records.sqlite`，提交原文、追加版本、按身份与项目回查（进程重启后仍可读）；`dependency_facts` 按任务包依赖只读汇总每个任务的依赖事实 |
+| records | `src/forgeloop/records/requirements.py` | 需求记录：需求、版本、分析、任务包、批准、任务推进、产物与需求工时共 8 张表；与任务记录同一 `records.sqlite`，提交原文、追加版本、按身份与项目回查（进程重启后仍可读）；`all_requirements` 跨项目只读列出全部需求（状态页清单）；`dependency_facts` 按任务包依赖只读汇总每个任务的依赖事实 |
 | records | `src/forgeloop/records/mail_threads.py` | 邮件线索记录 `MailThreadStore`：每封出向反馈把自己的 Message-ID 与 `req_id`／`kind`／`sent_at` 绑定进 `mail_threads`，同一需求多轮消歧只追加不覆盖；与 `mail_deliveries`（出向幂等）和 `mail_inbound`（入向去重）同库协同，按时间合并还原完整收发往来 |
 | adapter | `src/forgeloop/adapter/__init__.py` | 层声明 |
 | adapter | `src/forgeloop/adapter/commit_policy.py` | 本机提交策略覆盖的 IO 边界：读取仓库默认配置与年历，按固定优先级二选一发现并读取本地覆盖 TOML（仓库内 `.cache` 或用户级 `~/.config`），只返回原始文档，不做合并 |
@@ -129,11 +131,16 @@ flowchart TD
 | cli | `src/forgeloop/cli/release.py` | `release`：annotated tag、上传已验收产物为 Release 资产与发布回执 |
 | cli | `src/forgeloop/cli/deploy.py` | `deploy`／`rollback`：从 Release 装产物、原子切换、回滚 |
 | cli | `src/forgeloop/cli/mail.py` | `mail` 命令组：`mail poll --once` 交接 cron 单次轮询、按领域规则给出三类分类建议并等待人工确认（绝不自动发信）；`mail confirm` 为人工确认后的唯一发信入口，不接纳最终决定需显式 `--final-not-accept`；三类反馈用稳定主题标记与固定中文纯文本正文，配对 `MailAdapter`／`MailThreadStore`／`RequirementStore` |
+| cli | `src/forgeloop/cli/web.py` | `web` 命令：只读状态页（B01）。真实回环 HTTP 服务只接受 `GET`／`HEAD`，其余方法一律 405 且不写记录；`GET /api/progress` 复用 `cli.main` 的 `status`／`requirement status` 文档构建器组装需求、任务与问题三段，`GET /` 返回随包分发的页面结构 `web_page.html`，`GET /<name>.js` 按严格文件名白名单（不含路径分隔符）返回同一包内 `static/` 下的页面模块；监听地址默认回环，刷新间隔来自 `domain.progress` 的纯规则，配置项见 `config/web.toml` |
 | mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
 
-CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`。`status --json`、`requirement status --json` 与 `mail poll --once --json`／`mail confirm --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json` 与 `GET /api/progress` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
 
 **邮件工作流的模块分布与依赖方向**：邮件能力横跨四层——`cli.mail`（`mail poll --once`／`mail confirm`）依赖 `adapter.mail`、`domain.mail` 与 `records.mail_threads`；`records.mail_threads` 依赖 `domain.mail`；`adapter.mail`（`ImapMailReceiver`／`SmtpMailSender`／`MailAdapter`）与 `domain.mail`（分类建议与模板纯规则）只依赖标准库，分别是各自层的叶子。这些边都落在第 2 节已允许的 `cli` → `adapter`／`domain`／`records` 与 `records` → `domain` 方向内，`contracts/architecture.json` 的 `layer_edges` 未新增条目；`mail` 层（`src/forgeloop/mail/`）仍是只有层声明、尚无实现模块的保留层。
+
+**状态页的模块分布与依赖方向**：状态页只有两个新模块，都落在既有层内——`domain.progress`（刷新间隔与问题分类纯规则）与 `cli.web`（只读 HTTP 服务、配置读取与页面分发）。`cli.web` 依赖 `domain.progress`、`records` 与同层的 `cli.common`；需求与任务两份查询文档的构建器由 `cli.main` 以 `ProgressDocuments` 注入（方向是 `cli.main` → `cli.web`），因此页面展示的结构与 `--json` 查询逐字段一致，且两模块之间没有 import 环。这些边都落在第 2 节已允许的 `cli` → `domain`／`records` 方向内，`contracts/architecture.json` 的 `layer_edges` 未新增条目。
+
+**页面行为代码的前端结构**：页面行为不在 Python 里，而在 `frontend/src` 的 TypeScript 源中，按「纯规则 → 渲染 → 轮询 → 装配」分层（`format.ts` → `render.ts` / `progress.ts` → `page.ts` → `app.ts`），边界由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不得依赖渲染与轮询；渲染不得取数），对应 Python 侧的 `domain` 纯度与 import-linter 分层。源经 `tsc`（`frontend/tsconfig.build.json`）编译为 `src/forgeloop/cli/static/*.js`——**这些是提交入库的随包产物**，不是构建期生成物：`scripts/check_frontend_build.py` 把源重新编译到临时目录逐字节比对，漂移即失败（与 `contracts/*.json` 快照同一义务）。`frontend/` 不属于 `src/forgeloop`，因此不进入第 2 节的 Python 分层规则与模块清单；它自带结构数值（ESLint）、覆盖率（Vitest）与变异（Stryker）门禁，数值同源于 `config/quality-policy.toml` 的 `[frontend]` 段。
 
 ## 4. 研发闭环业务图
 
@@ -207,6 +214,8 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`merges`、`deliveries`、`releases`、`prerequisite_applications`（15 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）；邮件线索侧 `mail_threads`（出向 Message-ID 与需求绑定）、`mail_deliveries`（出向幂等账）、`mail_inbound`（入向去重账）（3 张）。各记录集共用同一 `records.sqlite`，各自管理连接与表。
 
+状态页不新增任何持久化介质：它只读同一 `records.sqlite`（记录库不存在时按需建立空库，是查询本身的代价），不写业务事实。
+
 **动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。动作行另存发起进程身份（`pid`）与最近心跳（`heartbeat_at`）。
 
 **槽位残留判定与安全清理（A05 恢复路径）**：执行槽位（同一需求推进、同项目交付）占用同样落在 `actions`，判定只看权威记录里的进程身份是否存活（`os.kill(pid, 0)` 探测接缝），不依据等待时长或心跳年龄：进程存活判 `live`，进程已不存在判 `dead`，缺少进程身份或存活状态无法确认判 `uncertain`。`cleanup_slot_residue` 只清理 `dead` 残留，并在 `BEGIN IMMEDIATE` 内结束占用、写入 `slot_cleanups`（槽位名、原占用者身份与属主、判定依据、清理时间）；`live`／`uncertain` 一律不清理并返回具体原因。重复或并发触发时只有一个能完成清理，其余按幂等返回未清理，绝不误清存活占用者。
@@ -229,7 +238,7 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 
 ## 7. 外部边界与接缝
 
-需要在真实环境验证的外部依赖（不能用替身替代结论）：PI RPC 子进程与真实模型、git CLI 与真实仓库、GitHub REST、uv／venv／pip 安装子进程、宿主符号链接与 `os.replace` 原子切换、被测项目测试命令进程、真实 IMAP/SMTP 邮箱服务、系统时钟。
+需要在真实环境验证的外部依赖（不能用替身替代结论）：PI RPC 子进程与真实模型、git CLI 与真实仓库、GitHub REST、uv／venv／pip 安装子进程、宿主符号链接与 `os.replace` 原子切换、被测项目测试命令进程、真实 IMAP/SMTP 邮箱服务、系统时钟、本机回环 HTTP 套接字与真实浏览器（`web` 状态页，真实 Chromium 由 Playwright 驱动）。前端另有**开发期依赖**（不进入运行期）：Node 26 与 npm registry（`frontend/package.json` 的 devDependencies，`package-lock.json` 锁定）、`tsc`／ESLint／Vitest／Stryker／dependency-cruiser／knip，以及 Playwright 下载的 Chromium（落在 `.cache/ms-playwright`）。
 
 可替换接缝的当前形态：
 
@@ -242,6 +251,8 @@ I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射�
 | 检查读取凭据 | 环境变量 `GITHUB_TOKEN` → `GH_TOKEN`（`github_checks.github_token()` 每次读取时解析；不落盘、不进证据） | 设置／取消环境变量；未提供即匿名读取（60 次/小时，按出口 IP 共享） |
 | 人工决定来源 | `interrupt` 载荷＋CLI `resume` | 换决定来源只需改 CLI 侧 |
 | 邮件收发边界 | `ImapMailReceiver`／`SmtpMailSender` 的构造注入：记录与需求关联以函数参数传入（`resolve_requirement`／`record_inbound`／`record_outbound`） | 构造注入；测试用本地真实 socket 讲 IMAP／SMTP 协议，凭据是邮箱授权码/应用专用密码，不落盘、不进证据 |
+| 状态页监听与读模型 | `cli.web.WebSettings`（记录根、host／port、生效刷新间隔、`ProgressDocuments` 注入的文档构建器）与配置项 `config/web.toml` 的 `refresh_seconds` | 构造注入；测试在真实回环端口监听并发真实 HTTP 请求（集成），另以真实子进程核对 `--port 0` 与刷新覆盖（系统） |
+| 页面行为代码 | `frontend/src/*.ts`（依赖方向与数值由 ESLint／dependency-cruiser 配置固定）与编译产物 `src/forgeloop/cli/static/*.js` | 改源后 `make frontend-build` 写回产物；jsdom 组件测试（Vitest）与真实浏览器用例（Playwright 起真实 `forgeloop web` 进程）分别在快速层与 CI 层核对 |
 
 **诚实的限制**：`adapter` 层**没有** Protocol／ABC 端口；`graph.nodes` 在模块级直接构造 `PIProcess`、直接调用 `run_test_command` 与 `prepare_workspace`；`build_graph` 也不接受可注入的 checkpointer。因此「在进程内替换执行器」目前要改 `graph/nodes.py` 的调用点，而不是换一个实现类。保留的 Seam 是配置与函数参数，不是接口抽象——这是首版刻意选择的简单性，不声称已经是插件体系。
 
@@ -272,6 +283,8 @@ flowchart LR
 - 外部依赖系统的新增或替换、接缝形态的改变。
 
 同层内部重构且不改变任何边时不算架构变化，但契约快照仍必须保持一致。
+
+前端同理：`frontend/src` 的模块增删或依赖方向改变属于结构变化，必须同步 `docs/architecture.md` 本节与 `docs/engineering-reliability.md` 的前端门槛说明；随包页面模块（`src/forgeloop/cli/static/`）是提交入库的产物，改源不改产物由 `scripts/check_frontend_build.py` 拒绝（`make check` 的一环）。
 
 ### 变更时必须做的
 

@@ -206,6 +206,19 @@ def _parse(text: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
+def _task_from_row(row: Sequence[object]) -> TaskRecord:
+    """任务行 → 领域对象（单条查询与全量清单共用，避免两处映射漂移）。"""
+
+    return TaskRecord(
+        id=str(row[0]),
+        project=str(row[1]),
+        original_input=str(row[2]),
+        config=json.loads(str(row[3])),
+        status=str(row[4]),
+        created_at=_parse(str(row[5])),
+    )
+
+
 def _release_from_row(row: Sequence[object]) -> ReleaseRecord:
     """发布记录行 → 领域对象（两处查询共用，避免重复映射）。"""
 
@@ -520,7 +533,19 @@ class RecordStore:
         ).fetchone()
         if row is None:
             return None
-        return TaskRecord(row[0], row[1], row[2], json.loads(row[3]), row[4], _parse(row[5]))
+        return _task_from_row(row)
+
+    def all_tasks(self) -> tuple[TaskRecord, ...]:
+        """列出全部项目的任务（只读），供状态页跨项目汇总。
+
+        顺序为创建时间与身份，保证同一份记录每次读取顺序一致；空库返回空元组。
+        """
+
+        rows = self._db.execute(
+            "SELECT id, project, original_input, config_json, status, created_at"
+            " FROM tasks ORDER BY created_at, id"
+        ).fetchall()
+        return tuple(_task_from_row(row) for row in rows)
 
     def set_task_status(self, task_id: str, status: str) -> None:
         changed = self._db.execute(

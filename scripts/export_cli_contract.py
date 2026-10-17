@@ -18,8 +18,10 @@ from typing import Any
 from forgeloop.adapter.mail import InboundResult, PollReport
 from forgeloop.cli.mail import _mail_confirm_document, _mail_poll_document
 from forgeloop.cli.main import _requirement_document, _status_document
+from forgeloop.cli.web import ProgressDocuments, build_progress_document
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.counting import FailureStage
+from forgeloop.domain.progress import RefreshSetting, RefreshSource
 from forgeloop.domain.release import ReleaseRecord
 from forgeloop.domain.requirement import RequirementAnalysis
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
@@ -142,7 +144,9 @@ def build_contract() -> dict:
 
         requirement_document, requirement_not_found = build_requirement_contract(Path(tmp))
 
-    document = merge(shape(minimal), shape(full))
+        document = merge(shape(minimal), shape(full))
+        web_document = build_progress_contract(Path(tmp))
+
     mail_poll_document, mail_confirm_document = build_mail_contract()
     return {
         "schema_version": 1,
@@ -160,6 +164,9 @@ def build_contract() -> dict:
         "mail_poll_document": mail_poll_document,
         "mail_confirm_command": "forgeloop mail confirm <req_id> --action <...> --json",
         "mail_confirm_document": mail_confirm_document,
+        # 状态页（B01）只读接口：页面脚本消费的对外结构，刷新配置随文档返回。
+        "web_progress_route": "GET /api/progress",
+        "web_progress_document": web_document,
     }
 
 
@@ -314,6 +321,39 @@ def build_requirement_contract(root: Path) -> tuple[dict, dict]:
     finally:
         store.close()
     return merge(shape(minimal_document), shape(full_document)), shape(missing)
+
+
+def build_progress_contract(root: Path) -> dict:
+    """状态页 ``GET /api/progress`` 的对外结构。
+
+    ``requirements``/``tasks`` 的数组元素就是 ``requirement_document`` 与
+    ``document`` 两份文档本身（页面直接展示它们），因此元素位置写 ``$ref`` 指向
+    本文件里已合并的最小/全字段结构，而不是再抄一份：同一份结构出现两次会让一次
+    字段改动在两个地方各审一遍 diff。本接口新增的结构是外层信封（生成时间、生效
+    刷新配置、计数）与问题项，用真实记录（一个阻断任务与一个未完成执行槽位）合成。
+    """
+
+    store = RecordStore(root / "records.sqlite")
+    try:
+        store.create_task(
+            "task-blocked",
+            "proj",
+            "原始文本",
+            {"pi_command": "[]", "test_command": "[]"},
+            7200.0,
+        )
+        store.set_task_status("task-blocked", "blocked")
+        store.actions.claim_slot("req-proj-1", "advance")
+    finally:
+        store.close()
+    documents = ProgressDocuments(_requirement_document, _status_document)
+    document = shape(
+        build_progress_document(root, RefreshSetting(60, RefreshSource.DEFAULT), documents)
+    )
+    properties = document["properties"]
+    properties["requirements"]["item"] = {"$ref": "#/requirement_document"}
+    properties["tasks"]["item"] = {"$ref": "#/document"}
+    return document
 
 
 def serialize(contract: dict) -> str:

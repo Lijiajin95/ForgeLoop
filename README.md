@@ -10,7 +10,9 @@ ForgeLoop 首版是一个 CLI 自动研发工具：把边界明确的小需求�
 
 在此单任务闭环之上，CLI 已把三条业务线接到真实入口：需求线 `requirement submit|revise|analyze|plan|approve|advance|accept|status` 把一条需求分析、拆成任务包并按依赖推进；任务线 `submit|approve|grant|status|stop` 执行每个任务；交付线 `candidate <task_id>`、`merge|release|deploy|rollback` 在验收后受控归并、发布并部署到本机。
 
-采用 LangGraph＋Python PI RPC Adapter。需求内任务按依赖串行执行、单执行现场，main 保持受控；验收后由受控命令接回并部署，仍需人工批准与验收。CLI 保留提交、批准、查询、请求停止与简单备份，不先做页面和邮件。
+状态页的行为代码是 TypeScript（`frontend/src`，编译为随包模块），带与 Python 同强度的一套门禁：ESLint／Prettier／tsc／dependency-cruiser／knip／Vitest（覆盖 90%）／Playwright（真实 Chromium）／Stryker（凌晨作业），命令见 `make frontend-check`、`make frontend-e2e`、`make frontend-mutation`。
+
+采用 LangGraph＋Python PI RPC Adapter。需求内任务按依赖串行执行、单执行现场，main 保持受控；验收后由受控命令接回并部署，仍需人工批准与验收。CLI 保留提交、批准、查询、请求停止与简单备份。只读状态页 `forgeloop web` 在浏览器里查看需求／任务／问题处理进展（默认每 1 分钟自动刷新，配置项 `config/web.toml` 的 `refresh_seconds`，`--refresh-seconds` 可覆盖），它只读权威记录，批准与推进仍走 CLI；邮件入口仍未做。
 
 保留原始输入、配置快照、PI 会话与可取得事件、实际测试日志和交付报告。每次授权最多三个正式测试失败轮次，追加授权与累计失败保留。首版无模型费用硬上限，保留工时限制；现场默认保留，人工清理。真实端到端验收（G01/G02）尚未执行。
 
@@ -29,6 +31,6 @@ ForgeLoop 首版是一个 CLI 自动研发工具：把边界明确的小需求�
 
 ## 后置范围
 
-邮件、管理页面（含原先只读状态页优先任务）、附件平台、自动部署、版本运维、自升级、复杂暂停恢复、多任务调度、自研 Runtime 和其他执行器均进入待实现列表。
+邮件、页面上的操作入口（状态页首版只读，批准与推进仍在 CLI）、附件平台、自动部署、版本运维、自升级、复杂暂停恢复、多任务调度、自研 Runtime 和其他执行器均进入待实现列表。
 
 [完整产品历史快照](docs/history/full-product-scope-2026-10-12.md)用于保留长期目标，不能扩大当前首版范围。跑通并验收一个真实小任务后即可开始使用；人工时间测量与 30 小时上限已按所有者决定撤销（2026-10-12）。
