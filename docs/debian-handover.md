@@ -194,6 +194,28 @@ AssertionError: 真实仓库路径被固定事实误拒：{
 
 > 解除前的状态（保留备查）：本地提交只能停留在本机（文档提交已签名未推送），主干门禁的 `test` 与 `coverage` 两道都红 ✗。
 
+### 7.6 远端 CI 现状（2026-10-18 00:4x，推送后实测）
+
+同步后远端 `c795121` 的 **`Engineering quality` 作业仍为红** ✗（`commit-policy` ✓、`security` ✓ 两个作业通过 ✓）：
+
+```
+FAILED tests/unit/test_frontend_gates.py::TestFrontendMutationGate::test_shipped_report_and_…
+ +  where 1 = <function run at …>([])
+===== 1 failed, 1596 passed, 9 skipped ======
+make: *** [Makefile:77: coverage] Error 1
+```
+
+**原因**：同样是 `frontend/` 这批工作 —— 前端**变异报告**（随包产物）缺失或未同步 ✗，
+即 `AGENTS.md` 要求的「修改 `frontend/src` 后用 `make frontend-build` 同步随包产物，按影响补真实浏览器与变异验证」
+这一步未完成 ✓。**本地 `make check` 全绿** ✓（`coverage` 目标的这道前端门禁只在 CI 的 `quality` 作业里选择执行 ✓）。
+
+**注意**：§7.1 描述的 `test_every_tracked_path_is_legal` 与分支覆盖率问题**已在本机修复并推送** ✓
+（`c795121`：登记 `frontend` 辅助目录 + 放行真实点文件 ✓，验签 `verified=true` ✓）；
+远端 `quality` 作业当前的红是**另一个**前端变异报告问题 ✗。
+
+**解除方式** ✗：由引入 `frontend/` 的会话补前端变异报告随包产物（或授权协调侧按 `make frontend-build` 与变异门禁流程补），
+补完后 `quality` 作业应转绿 ✓。
+
 ### 7.4 收尾状态（2026-10-18 00:2x，按所有者指令停止后续）
 
 | 项 | 结果 |
