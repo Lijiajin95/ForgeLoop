@@ -37,6 +37,11 @@ ARCHITECTURE_CONTRACT = "contracts/architecture.json"
 # 源码根顶层文件（不在分层目录内）：精确清单，避免把臆造顶层文件当成合法。
 SOURCE_ROOT_FILES = ("__init__.py", "__main__.py")
 
+# 已知无扩展名的点文件：点号开头的段默认按目录处理（挡住 .github 这类点目录），
+# 但真实的点文件需要放行。带扩展名的点文件（如 frontend/.prettierrc.json）由
+# 「点号数量 ≥ 2」判定；无扩展名的点文件在此精确登记。
+DOTFILES_WITHOUT_EXTENSION = (".prettierignore",)
+
 # 测试根与测试分层：tests/ 下的一级目录。
 TEST_ROOT = "tests"
 TEST_LAYERS = (
@@ -58,7 +63,9 @@ ARCHITECTURE_DOC = "docs/architecture.md"
 
 # 除源码/测试/契约外允许出现的已知目录（允许其子树）与顶层文件。
 # .github 是 git 跟踪的真实 CI 配置树，属于可修改的仓库事实。
-AUXILIARY_ROOTS = ("config", "docs", "runtime", "scripts", ".github")
+# frontend 是 B01 只读状态页引入的 TypeScript 前端树（含其工具链配置与锁文件），
+# 同样是真实跟踪的仓库事实；登记它使 test_every_tracked_path_is_legal 不再误拒。
+AUXILIARY_ROOTS = ("config", "docs", "frontend", "runtime", "scripts", ".github")
 TOP_LEVEL_FILES = (
     ".gitignore",
     ".pre-commit-config.yaml",
@@ -321,12 +328,15 @@ def _looks_like_file(segment: str) -> bool:
     含扩展名点（且不是以点开头的目录/点文件）或位于已知无扩展名文件清单的段
     视为文件名；层名、``domain`` 之类目录名与 ``.github`` 之类点目录不算。
     顶层点文件（如 ``.gitignore``）由精确清单处理，不依赖本函数。
+    点号开头的段默认按点目录处理；带扩展名的点文件（``.prettierrc.json``，
+    点号数量 ≥ 2）与登记在 ``DOTFILES_WITHOUT_EXTENSION`` 的无扩展名点文件
+    （``.prettierignore``）仍是文件名，从而不误拒真实的工具链配置文件。
     """
 
-    if segment in EXTENSIONLESS_FILES:
+    if segment in EXTENSIONLESS_FILES or segment in DOTFILES_WITHOUT_EXTENSION:
         return True
     if segment.startswith("."):
-        return False
+        return segment.count(".") >= 2
     return "." in segment
 
 

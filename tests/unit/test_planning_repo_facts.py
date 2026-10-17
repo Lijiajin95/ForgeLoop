@@ -159,6 +159,14 @@ class TestFileLocationFacts:
             "config/quality-policy.toml",
             "scripts/export_cli_contract.py",
             "runtime/Dockerfile",
+            # 回归（2026-10-18）：frontend 是 B01 引入的真实跟踪树，其工具链点文件
+            # （带扩展名的 .prettierrc.json/.dependency-cruiser.cjs 与无扩展名的
+            # .prettierignore）都是真实文件，不得被"末段不是文件名"规则误拒。
+            "frontend/package.json",
+            "frontend/playwright.config.ts",
+            "frontend/.prettierrc.json",
+            "frontend/.dependency-cruiser.cjs",
+            "frontend/.prettierignore",
             "pyproject.toml",
             "Makefile",
         ],
@@ -185,6 +193,10 @@ class TestFileLocationFacts:
             ("docs/adr", "不是文件名"),
             (".github", "必须是文件"),
             (".github/workflows", "不是文件名"),
+            # 回归（2026-10-18）：点目录仍必须被拒——只为真实点文件放行，
+            # 不能因为放行 .prettierrc.json 就把 .cache 之类点目录当成文件。
+            ("frontend/.cache", "不是文件名"),
+            ("frontend", "必须是文件"),
             # 回归：以文件为前缀的路径（把文件当目录）必须拒绝。
             ("src/forgeloop/domain/status.py/extra", "当作目录"),
             ("src/forgeloop/domain/status.py/extra.py", "当作目录"),
