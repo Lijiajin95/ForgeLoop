@@ -89,6 +89,10 @@
     ],
     [
       "cli",
+      "mail"
+    ],
+    [
+      "cli",
       "records"
     ],
     [

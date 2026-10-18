@@ -258,6 +258,14 @@
 - **交付面**：`mail-ports` 已验收（关联 `acceptance d6a7bed`）并归并（`merge e8cc3fb`）；`mail-smtp-send` 按决定**降级为非卡点**（回执 best-effort），优先保证收信闭环——它此前因 PI 模型请求超时（外部原因）停在 `pi_dev_unsettled`，不再作为阻塞项。
 - **验证**：`make check` **exit 0（1711 项 + 前端 117）**；架构说明补记拉取口径。
 
+2026-10-18（邮件收口：把已验收的 mail-ports 配置层接上 CLI，未提交前已过门槛）：所有者决定"接配置"后，`mail poll`／`mail confirm` 不再需要一长串连接参数，生产环境只需一份配置文件。
+
+- **接线内容**：两个命令新增 `--config`；`--imap-*`／`--smtp-*` 由必填改为可选，**显式参数优先**，不足时依次由「配置解析链（`--config` > `FORGELOOP_MAIL_CONFIG` > 仓库 `config/mail.toml` > `~/.config/forgeloop/mail.toml`）+ provider 预设（QQ：`smtp.qq.com:465`／`imap.qq.com:993`）+ 口令候选链（含所有者现用的 `~/.config/forgeloop/mail-secret`，格式"第 1 行邮箱、第 2 行授权码"）」补齐；口令不可用时逐候选报告状态后 fail-closed。
+- **只在显式参数不足以建连时才读配置**：显式调用（既有测试、本地假服务器）完全沿用旧行为，不会被机器上别的邮件配置牵连——这条是补测时发现的回归（真实主机上存在 `~/.config/mail.toml`，会把显式调用的测试打挂），已修。
+- **架构变更（有意为之，已同步）**：`cli` 现在依赖 `mail` 层读取配置/预设/口令，因此 `LAYER_RULES` 允许集合新增 `cli -> mail`（`mail` 自身仍不依赖任何其它层），`docs/architecture.md` 的层表与 §2 表述同步更新，架构契约重新导出（**66 模块、10 条层边**）——**架构门禁先拦下了这次越层，按规矩同步后才通过**。
+- **真机验证（只用 `--config`）**：`mail poll --once --project ForgeLoop --config .cache/mail-config/mail.toml`（`folder` 指向 `FORGE_INBOX` 的 modified UTF-7 完整路径）真实登录 QQ 并登记成功，`errors=0`，给出待确认建议；口令经 `FORGELOOP_MAIL_SECRET` 指向生产口令文件。
+- **验证**：`make check` exit 0（高频 **1715 项**＝新增 4 项配置解析测试，前端 117 项）；架构契约与 CLI 契约门禁通过。
+
 ### 实现范围
 
 | 层 | 内容 |

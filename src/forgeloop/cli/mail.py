@@ -131,28 +131,115 @@ def _secret(explicit: str, env_name: str) -> str:
     return explicit or os.environ.get(env_name, "")
 
 
+class _ResolvedMail:
+    """一次命令所需的连接参数：显式参数优先，其余由配置层补齐。"""
+
+    imap_host: str
+    imap_port: int
+    imap_user: str
+    imap_secret: str
+    imap_folder: str
+    smtp_host: str
+    smtp_port: int
+    smtp_user: str
+    smtp_secret: str
+    smtp_sender: str
+    smtp_recipient: str
+
+
+def _resolve_connection(args: argparse.Namespace) -> _ResolvedMail:
+    """把 ``--config``（或配置链）解析成连接参数；显式参数优先，缺失即 fail-closed。"""
+
+    explicit = str(getattr(args, "config", "") or "")
+    explicit_config = Path(explicit).expanduser() if explicit else None
+    # 只在**显式参数不足以建连**时才读配置文件：显式调用（含既有测试与本地假服务器）
+    # 完全沿用旧行为，不会因为机器上存在别的邮件配置而被牵连。
+    needs_config = not (
+        args.imap_host
+        and args.imap_user
+        and args.smtp_host
+        and (args.smtp_sender or args.imap_user)
+        and args.smtp_recipient
+    )
+    config = None
+    secret = ""
+    if needs_config:
+        from forgeloop.mail.config import load_mail_config
+        from forgeloop.mail.presets import preset_for
+        from forgeloop.mail.secret import SecretStatus, resolve_secret
+
+        config = load_mail_config(
+            explicit_path=explicit_config, repo_root=Path.cwd(), home=Path.home()
+        )
+        preset = preset_for(config.provider)
+        account = args.imap_user or config.sender
+        resolution = resolve_secret(repo_root=Path.cwd(), home=Path.home(), default_account=account)
+        if not resolution.secret:
+            problems = "；".join(
+                f"{report.candidate.label}: {report.status}"
+                for report in resolution.reports
+                if report.status is not SecretStatus.AVAILABLE
+            )
+            raise MailAdapterError(f"口令不可用（{problems or '无候选'}）")
+        secret = resolution.secret.reveal()
+    resolved = _ResolvedMail()
+    if config is None:
+        resolved.imap_host, resolved.imap_port = args.imap_host, args.imap_port or 993
+        resolved.imap_user, resolved.imap_folder = args.imap_user, args.imap_folder or "INBOX"
+        resolved.smtp_host, resolved.smtp_port = args.smtp_host, args.smtp_port or 465
+        resolved.smtp_user = args.smtp_user or args.imap_user
+        resolved.smtp_sender = args.smtp_sender or args.imap_user
+        resolved.smtp_recipient = args.smtp_recipient
+    else:
+        endpoint = preset.default_smtp_endpoint
+        resolved.imap_host = args.imap_host or preset.imap_host
+        resolved.imap_port = args.imap_port or preset.imap_port
+        resolved.imap_user = args.imap_user or config.sender
+        resolved.imap_folder = args.imap_folder or config.folder
+        resolved.smtp_host = args.smtp_host or endpoint.host
+        resolved.smtp_port = args.smtp_port or endpoint.port
+        resolved.smtp_user = args.smtp_user or config.sender
+        resolved.smtp_sender = args.smtp_sender or config.sender
+        resolved.smtp_recipient = args.smtp_recipient or config.recipient
+    resolved.imap_secret = _secret(args.imap_secret, "FORGELOOP_IMAP_SECRET") or secret
+    resolved.smtp_secret = _secret(args.smtp_secret, "FORGELOOP_SMTP_SECRET") or secret
+    for name in (
+        "imap_host",
+        "imap_user",
+        "imap_secret",
+        "smtp_host",
+        "smtp_sender",
+        "smtp_recipient",
+    ):
+        if not getattr(resolved, name):
+            raise MailAdapterError(f"缺少连接参数 {name}：请提供 --config 或显式参数")
+    return resolved
+
+
 def _make_receiver(args: argparse.Namespace) -> ImapMailReceiver:
+    resolved = _resolve_connection(args)
     return ImapMailReceiver(
         ImapSettings(
-            host=args.imap_host,
-            port=args.imap_port,
-            username=args.imap_user,
-            secret=_secret(args.imap_secret, "FORGELOOP_IMAP_SECRET"),
+            host=resolved.imap_host,
+            port=resolved.imap_port,
+            username=resolved.imap_user,
+            secret=resolved.imap_secret,
             use_ssl=not args.no_imap_ssl,
-            folder=args.imap_folder,
+            folder=resolved.imap_folder,
         )
     )
 
 
 def _make_sender(args: argparse.Namespace) -> SmtpMailSender:
+    resolved = _resolve_connection(args)
     return SmtpMailSender(
         SmtpSettings(
-            host=args.smtp_host,
-            port=args.smtp_port,
-            username=args.smtp_user,
-            secret=_secret(args.smtp_secret, "FORGELOOP_SMTP_SECRET"),
-            sender=args.smtp_sender,
-            recipient=args.smtp_recipient,
+            host=resolved.smtp_host,
+            port=resolved.smtp_port,
+            username=resolved.smtp_user,
+            secret=resolved.smtp_secret,
+            sender=resolved.smtp_sender,
+            recipient=resolved.smtp_recipient,
             use_ssl=not args.no_smtp_ssl,
             starttls=args.smtp_starttls,
         )
@@ -501,20 +588,28 @@ def cmd_mail_confirm(args: argparse.Namespace) -> int:
 
 
 def _add_connection_args(parser: argparse.ArgumentParser) -> None:
-    """IMAP/SMTP 连接参数；口令优先显式传入，其次环境变量，不回显。"""
+    """连接参数：**显式参数优先**，为空时由 ``--config`` 指定的配置链、服务商预设与口令链解析。
 
-    parser.add_argument("--imap-host", required=True)
-    parser.add_argument("--imap-port", type=int, default=993)
-    parser.add_argument("--imap-user", required=True)
+    2026-10-18 所有者决定（"接配置"）：已验收的 ``mail`` 配置层（provider 预设、配置
+    解析链、口令候选链）接上 CLI，生产环境只需 ``--config``（或配置链自动命中）即可
+    运行；显式参数仍完全可用，本地测试与旧调用不受影响。
+    """
+
+    parser.add_argument(
+        "--config", default="", help="邮件配置文件（provider/sender/recipient/folder）"
+    )
+    parser.add_argument("--imap-host", default="")
+    parser.add_argument("--imap-port", type=int, default=0)
+    parser.add_argument("--imap-user", default="")
     parser.add_argument("--imap-secret", default="")
-    parser.add_argument("--imap-folder", default="INBOX")
+    parser.add_argument("--imap-folder", default="")
     parser.add_argument("--no-imap-ssl", action="store_true", help="本地测试用：关闭 IMAP SSL")
-    parser.add_argument("--smtp-host", required=True)
-    parser.add_argument("--smtp-port", type=int, default=465)
-    parser.add_argument("--smtp-user", required=True)
+    parser.add_argument("--smtp-host", default="")
+    parser.add_argument("--smtp-port", type=int, default=0)
+    parser.add_argument("--smtp-user", default="")
     parser.add_argument("--smtp-secret", default="")
-    parser.add_argument("--smtp-sender", required=True)
-    parser.add_argument("--smtp-recipient", required=True)
+    parser.add_argument("--smtp-sender", default="")
+    parser.add_argument("--smtp-recipient", default="")
     parser.add_argument("--no-smtp-ssl", action="store_true", help="本地测试用：关闭 SMTP SSL")
     parser.add_argument("--smtp-starttls", action="store_true")
 

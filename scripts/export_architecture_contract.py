@@ -37,7 +37,9 @@ DEFAULT_SNAPSHOT = ROOT / "contracts/architecture.json"
 LAYER_RULES: dict[str, tuple[str, ...]] = {
     ROOT_LAYER: (),
     "__main__": ("cli",),
-    "cli": ("graph", "adapter", "records", "domain"),
+    # 2026-10-18 所有者决定「接配置」：邮箱命令直接消费 mail 层的配置、预设与口令，
+    # 因此 cli 允许依赖 mail（mail 自身仍不依赖任何其它层）。
+    "cli": ("mail", "graph", "adapter", "records", "domain"),
     "graph": ("adapter", "records", "domain"),
     "adapter": (),
     "records": ("domain",),
