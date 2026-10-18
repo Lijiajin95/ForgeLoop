@@ -18,6 +18,7 @@ from pathlib import Path
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.errors import InvalidUpdateError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
@@ -150,7 +151,34 @@ def _run_config(task_id: str) -> RunnableConfig:
     return {"configurable": {"thread_id": task_id}}
 
 
+def _invoke_resume(graph: CompiledStateGraph[TaskState], node: str, task_id: str) -> None:
+    """人工授权后从 END 处的检查点重入业务节点，并清空持久化的 halted_reason。
+
+    正常情况下把清空动作放进 ``Command(update=...)``。但有些检查点的待写入里已经带了
+    ``halted_reason``，同一个 step 再写一次会被 LangGraph 直接拒绝（Debian 2026-10-18
+    真实续跑实测：``InvalidUpdateError: At key 'halted_reason': Can receive only one
+    value per step``）。该异常发生在任何节点执行之前（``_first`` 阶段），因此退回"只重入、
+    不再重复写该键"是安全的：有效现场由人工续跑决定叠加，重入后的节点会写出新状态。
+    """
+
+    config = _run_config(task_id)
+    try:
+        graph.invoke(Command(goto=node, update={"halted_reason": ""}), config, durability="sync")
+    except InvalidUpdateError:
+        graph.invoke(Command(goto=node), config, durability="sync")
+
+
 def _close_runtime(graph: CompiledStateGraph[TaskState]) -> None:
+    """释放图运行时的 SQLite 连接。
+
+    前提：所有 ``graph.invoke`` 都带 ``durability="sync"``（LangGraph 默认 ``async`` 会把
+    检查点写入派发到后台线程）。默认异步时主线程的 ``conn.close()`` 会与后台写并发使用
+    同一个 sqlite3 连接，实测在 Debian 上直接段错误（exit 139，后台停在
+    ``langgraph.checkpoint.sqlite.put_writes``、主线程停在 ``close``）。改成同步写之后，
+    关闭时已无在途写，这里保持原来的显式关闭语义（不依赖 GC，避免 sqlite3 连接在
+    ``__del__`` 里抛 unraisable 异常）。
+    """
+
     conn = getattr(graph.checkpointer, "conn", None)
     if conn is not None:
         conn.close()
@@ -209,24 +237,25 @@ class RequirementTaskRunner:
             snapshot = graph.get_state(_run_config(task_id))
             if execution.resume and execution.resume_node and not snapshot.next:
                 # 业务节点返回 halted_reason 后路由到 END，检查点 ``next`` 为空。人工
-                # 决定已绑定该现场：清空持久化的 halted_reason 并只重入该业务节点及其
-                # 后续（``Command(goto=...)`` 不经过更早的 plan/gate），而不是从 START
-                # 重放。动作身份去重仍由推进器与动作记录把关。
-                graph.invoke(
-                    Command(goto=execution.resume_node, update={"halted_reason": ""}),
-                    _run_config(task_id),
-                )
+                # 决定已绑定该现场，只重入该业务节点及其后续（``Command(goto=...)`` 不
+                # 经过更早的 plan/gate），而不是从 START 重放。动作身份去重仍由推进器与
+                # 动作记录把关。
+                _invoke_resume(graph, execution.resume_node, task_id)
             elif not snapshot.next:
-                graph.invoke({"task_id": task_id}, _run_config(task_id))
+                graph.invoke({"task_id": task_id}, _run_config(task_id), durability="sync")
             elif execution.resume:
                 # 停在可续跑业务节点（dev/review/test 及其自动回边）：检查点里已有
                 # 待执行节点，就地继续执行，而不是当全新任务或要求人工决定。检查点
                 # 由推进器只读判定，未核对动作已在推进器侧拦下，不会盲目重放。
-                graph.invoke(None, _run_config(task_id))
+                graph.invoke(None, _run_config(task_id), durability="sync")
             snapshot = graph.get_state(_run_config(task_id))
             if "gate_plan_approval" in _interrupted_kinds(snapshot):
                 self._approve_plan(store, task_id)
-                graph.invoke(Command(resume={"decision": "approved"}), _run_config(task_id))
+                graph.invoke(
+                    Command(resume={"decision": "approved"}),
+                    _run_config(task_id),
+                    durability="sync",
+                )
                 snapshot = graph.get_state(_run_config(task_id))
             return self._pending(task_id, snapshot)
         finally:

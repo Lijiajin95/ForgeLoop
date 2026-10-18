@@ -191,7 +191,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         ctx = NodeContext.for_task(store, root, task_id)
         graph = build_graph(ctx, root / "checkpoints.sqlite")
         try:
-            graph.invoke({"task_id": task_id}, _run_config(task_id))
+            graph.invoke({"task_id": task_id}, _run_config(task_id), durability="sync")
             task = store.get_task(task_id)
         finally:
             _close_runtime(graph)
@@ -207,7 +207,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
 def _resume_graph(records_root: Path, task_id: str, resume: dict) -> RecordStore:
     store, _ctx, graph = _build_runtime(records_root, task_id)
     try:
-        graph.invoke(Command(resume=resume), _run_config(task_id))
+        graph.invoke(Command(resume=resume), _run_config(task_id), durability="sync")
         pending = _describe_interrupt(graph, task_id)
         task = store.get_task(task_id)
         print(f"状态: {task.status if task else 'unknown'}")
