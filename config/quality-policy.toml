@@ -416,17 +416,8 @@ reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行
 mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_10"
 reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
 
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_24"
-reason = "错误消息里分隔符变异（', '→'XX, XX'）：仅影响提示可读性；失败判定本身由测试覆盖。"
 
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_40"
-reason = "错误消息里分隔符变异（', '→'XX, XX'）：仅影响提示可读性；未完成判定本身由测试覆盖。"
 
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_49"
-reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；通过判定本身由测试覆盖。"
 
 [[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_15"
@@ -607,4 +598,122 @@ reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容�
 
 [[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.commit_policy.xǁCommitPolicyǁ__post_init____mutmut_36"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x__workday_calendar__mutmut_7"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x__workday_calendar__mutmut_8"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x__workday_calendar__mutmut_9"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_effective_commit_policy__mutmut_11"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_effective_commit_policy__mutmut_12"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_load_authorized_batches__mutmut_18"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_load_authorized_batches__mutmut_19"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_load_authorized_batches__mutmut_27"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_load_authorized_batches__mutmut_28"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_load_authorized_batches__mutmut_29"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_acceptance_content__mutmut_27"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_25"
+reason = "原因文本的连接符变异（逗号加空格改为 XX 包裹）：仅影响人读文案；测试断言关键语义，不锁定分隔符。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_39"
+reason = "原因文本的连接符变异（逗号加空格改为 XX 包裹）：仅影响人读文案；测试断言关键语义，不锁定分隔符。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_55"
+reason = "原因文本的连接符变异（逗号加空格改为 XX 包裹）：仅影响人读文案；测试断言关键语义，不锁定分隔符。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_64"
+reason = "原因文本的连接符变异（逗号加空格改为 XX 包裹）：仅影响人读文案；测试断言关键语义，不锁定分隔符。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_10"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_17"
+reason = "原因文本里缺失值占位符的变异（or 改 and）：仅影响展示的产物名，判定结果与拒绝理由不变。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_18"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_19"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_28"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_36"
+reason = "原因文本里的短 SHA 截断位数变异（12 位改 13 位）：两者都含完整短 SHA 前缀，测试只断言短 SHA 出现在原因中，不锁定截断位数。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_37"
+reason = "原因文本里的短 SHA 截断位数变异（12 位改 13 位）：两者都含完整短 SHA 前缀，测试只断言短 SHA 出现在原因中，不锁定截断位数。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_43"
+reason = "原因文本里的短 SHA 截断位数变异（12 位改 13 位）：两者都含完整短 SHA 前缀，测试只断言短 SHA 出现在原因中，不锁定截断位数。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_artifact__mutmut_9"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_retry__mutmut_19"
+reason = "原因文本里的短 SHA 截断位数变异（12 位改 13 位）：两者都含完整短 SHA 前缀，测试只断言短 SHA 出现在原因中，不锁定截断位数。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.release.x_check_release_retry__mutmut_20"
+reason = "原因文本里的短 SHA 截断位数变异（12 位改 13 位）：两者都含完整短 SHA 前缀，测试只断言短 SHA 出现在原因中，不锁定截断位数。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x__workday_calendar__mutmut_6"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_effective_commit_policy__mutmut_10"
+reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"
+
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.commit_policy.x_load_authorized_batches__mutmut_26"
 reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"

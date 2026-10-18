@@ -158,6 +158,7 @@ class TestAcceptanceContent:
         current = self.approved()
         decision = check_acceptance_content(approved, current)
         assert decision.allowed is True
+        assert isinstance(decision.reason, str) and decision.reason
 
     def test_replaced_candidate_is_rejected(self) -> None:
         approved = self.approved()
@@ -172,6 +173,21 @@ class TestAcceptanceContent:
         decision = check_acceptance_content(approved, current)
         assert decision.allowed is False
         assert "基线" in decision.reason
+
+    def test_artifact_digest_difference_is_not_drift(self) -> None:
+        """产物校验值在验收时可能尚未生成：归并阶段不据它判漂移。"""
+
+        approved = self.approved(artifact_sha256="a" * 64)
+        current = self.approved(artifact_sha256="b" * 64)
+        decision = check_acceptance_content(approved, current)
+        assert decision.allowed is True
+
+    def test_changed_test_evidence_is_rejected(self) -> None:
+        approved = self.approved()
+        current = self.approved(test_evidence_text='{"exit_code": 1}\n')
+        decision = check_acceptance_content(approved, current)
+        assert decision.allowed is False
+        assert "漂移" in decision.reason
 
 
 class TestCheckPollDelay:

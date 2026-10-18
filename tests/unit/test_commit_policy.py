@@ -16,6 +16,7 @@ from forgeloop.domain.commit_policy import (
     WorkdayCalendar,
     check_commit_time,
     effective_commit_policy,
+    load_authorized_batches,
     policy_absent_decision,
     validate_commit_message,
 )
@@ -340,3 +341,43 @@ class TestValidateCommitMessage:
     def test_invalid_headers(self, message: str) -> None:
         with pytest.raises(ValueError):
             validate_commit_message(message)
+
+
+class TestAuthorizedBatchProvenance:
+    """每条授权批次必须逐条可溯源：缺字段或空白来源都不能被默认值放行。"""
+
+    def test_entry_without_authorization_source_is_rejected(self) -> None:
+        config = template_config()
+        config["authorized_batches"] = [{"date": "2026-10-13"}]
+        with pytest.raises(ValueError, match="authorization_source"):
+            load_authorized_batches(config)
+
+    def test_entry_with_blank_authorization_source_is_rejected(self) -> None:
+        config = template_config()
+        config["authorized_batches"] = [{"date": "2026-10-13", "authorization_source": "   "}]
+        with pytest.raises(ValueError, match="authorization_source"):
+            load_authorized_batches(config)
+
+    def test_traceable_entry_is_accepted(self) -> None:
+        config = template_config()
+        config["authorized_batches"] = [
+            {"date": "2026-10-13", "authorization_source": "所有者 2026-10-13 批次授权"}
+        ]
+        assert load_authorized_batches(config) == frozenset({date(2026, 10, 13)})
+
+
+class TestEffectivePolicyFacts:
+    """生效策略的事实来自配置本身：时区与机器标识都要如实带出，不静默替换。"""
+
+    def test_timezone_comes_from_the_config(self) -> None:
+        config = template_config()
+        config["timezone"] = "UTC"
+        rules = effective_commit_policy(config, load_calendars(SHIPPED_CALENDARS))
+        assert rules.timezone == ZoneInfo("UTC")
+
+    def test_machine_label_is_carried_into_decisions(self) -> None:
+        config = template_config()
+        config["machine_label"] = "debian-link"
+        rules = effective_commit_policy(config, load_calendars(SHIPPED_CALENDARS))
+        decision = check_commit_time(at(2026, 10, 13, 9, 30), rules)
+        assert decision.machine_label == "debian-link"
