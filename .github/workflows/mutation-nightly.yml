@@ -55,6 +55,12 @@ jobs:
           mkdir -p reports
           git rev-parse HEAD > reports/frontend-mutation-revision.txt
           date -u +"%Y-%m-%dT%H:%M:%SZ" > reports/frontend-mutation-started-at.txt
+      # make frontend-mutation 末步用 .venv/bin/python 跑幸存者审阅门禁：缺 Python 环境会以 127 失败。
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.24"
+          python-version: "3.13"
+      - run: uv sync --frozen
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "26"
