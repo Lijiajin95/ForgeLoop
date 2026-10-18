@@ -328,7 +328,18 @@ class TestFrontendMutationGate:
         assert "无法解析" in capsys.readouterr().out
 
     def test_shipped_report_and_policy_pass(self, capsys) -> None:
-        """仓库里留存的真实报告与登记条目必须自洽（含 9 个幸存者全部已审阅）。"""
+        """本地真实报告与登记条目必须自洽（含 9 个幸存者全部已审阅）。
+
+        ``reports/`` 不入库（.gitignore），报告只由 ``make frontend-mutation`` 产出，
+        干净克隆与 CI 上必然不存在：此时跳过而不是断言一个并不随仓库发布的文件。
+        「报告缺失必须失败」由 ``test_missing_report_file_fails_the_run`` 与夜间
+        frontend-mutation 作业里的 ``scripts/check_frontend_mutation.py`` 保证。
+        """
+
+        if not mutation_gate.REPORT.is_file():
+            pytest.skip(
+                "reports/frontend-mutation.json 不存在（reports/ 不入库，先运行 make frontend-mutation）"
+            )
 
         assert mutation_gate.run([]) == 0
         assert "OK" in capsys.readouterr().out
