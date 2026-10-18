@@ -153,6 +153,39 @@ EvidHist 用 OpenAPI 快照守住 HTTP 契约；ForgeLoop 的对外契约是 CLI
 
 脚本随首批 CLI 代码落地（见第 10 节），落地时以受控漂移负例验收。
 
+### 9.1 人工续跑入口（`requirement retry`）的语义与边界：2026-10-17
+
+`forgeloop requirement retry <req_id> [--task <task_id>] --by <标识> --reason <文本> --pi-command <JSON 数组> [--project-path …] [--baseline …] [--pi-timeout-seconds …] [--records-root …]` 是**人工确认后的中断续跑入口**，不是自动重试，也不是「命令跑起来就盲目重放」。本节是这条入口的稳定语义，随 `contracts/cli-contract.json` 与 `docs/architecture.md` 同步维护。
+
+**人工确认 ≠ 盲目重放。** 命令只对**中断现场**生效：任务状态为 `interrupted`，或检查点落有非空 `halted_reason`。它先核对现场再续跑；未通过校验时 fail-closed——不写决定、不清除 `halted_reason`、不推进现场。续跑从 LangGraph 检查点就地恢复：已完成节点不重放，已交付任务不重复执行，执行工时按既有动作身份去重、不重复计入。
+
+**必填与取值（缺一即拒绝）**：`--by`、`--reason`、`--pi-command` 三个参数必填；`--by` 去首尾空白后长度 1–64 且只含可打印字符；`--reason` 去除空白后不得为空；`--pi-command` 必须是 JSON 非空字符串数组。
+
+**固定执行次序**：校验通过 → 记录人工决定 → 清除 `halted_reason`（仅对匹配现场生效）→ 从检查点就地续跑。任何一步校验失败即中止，且尚未写入任何记录、尚未改动检查点现场。
+
+**决定绑定现场（避免一次授权永久放行）**：决定绑定需求身份、目标任务身份、已批准任务包版本与检查点身份。只有决定与当前 `plan_version`、`checkpoint_id` 都一致时才把 `halted_reason` 视为已清除；检查点被替换或任务包版本变化后，旧决定不再生效。
+
+**拒绝条件与可操作提示**（全部 fail-closed，均不写决定、不清除 `halted_reason`）：
+
+| 拒绝条件 | 可操作提示 |
+| --- | --- |
+| 缺 `--by`／`--reason`／`--pi-command` | 解析器直接拒绝；补齐必填参数后重试 |
+| `--by` 为空／超 64／含不可打印字符 | 给出合法形式（如 `--by owner`） |
+| `--reason` 为空白 | 填写可追溯的人工理由 |
+| `--pi-command` 非 JSON 数组／为空／含非字符串 | 提示必须是 JSON 非空字符串数组 |
+| 任务状态非 `interrupted` 且无 `halted_reason` | 提示当前状态与要求的 `interrupted` |
+| `--task` 指定的任务不在任务包内 | 列出任务包内候选（逻辑身份与单任务身份） |
+| 省略 `--task` 但中断任务不是恰好一个 | 列出中断候选，要求用 `--task` 指定（0 个或多个都拒绝，绝不猜测） |
+| 需求不存在／无有效已批准任务包 | 输出需求身份或计划授权未通过的原因 |
+| 检查点缺失 | 「禁止盲目续跑，请人工核对后处理」 |
+| 检查点读取失败／状态损坏 | 同上，人工核对现场 |
+| 检查点 `task_id` 与目标任务不一致 | 指出「记录值 != 目标值」，人工核对现场 |
+| 检查点 `plan_version` 与已批准任务包版本不一致 | 重新批准任务包后处理 |
+| 任务为 `interrupted` 但检查点无 `halted_reason` | 无法确认中断现场，禁止盲目续跑 |
+| 以上任一检查点不可信 | 用 `forgeloop requirement slot list --records-root <root>` 核对现场；确认没有推进在运行后，必要时用 `forgeloop requirement slot clear --slot requirement:<req_id>` 清理残留槽位，再人工核对检查点后重试 |
+
+**可见性与门禁**：`forgeloop requirement status`（文本与 `--json`）展示最近一次人工续跑决定（任务、`by`、时间、理由、方案版本与检查点身份），无决定时 JSON 字段为 `null`；结构由 `contracts/cli-contract.json` 快照守住，`make cli-contract-check` 实测一致。
+
 ## 10. 激活顺序（骨架 → 可执行）
 
 门槛随[验收计划](first-validation-plan.md)的最短实现顺序逐项激活，不一次接入全部工具：
