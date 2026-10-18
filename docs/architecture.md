@@ -97,9 +97,9 @@ flowchart TD
 | domain | `src/forgeloop/domain/deploy.py` | 部署与回滚就绪判定、`SHA256SUMS` 解析、产物唯一选择（拒绝重新构建） |
 | domain | `src/forgeloop/domain/mail.py` | 邮件需求领域规则：三类分类建议（消歧／不接纳候选／接纳成功）、消歧轮次上限 3 轮后退回人工、终态不再提问、7 天无回复单次提醒与开关、回复关联按 `In-Reply-To`／`References`／主题／正文回退解析（`req-…` 与 `#req-…` 都接受）、中文纯文本固定模板渲染；附件只记录元数据 |
 | records | `src/forgeloop/records/__init__.py` | 层声明，并只再导出 `checkpoints` 的人工续跑 API；不导出各 Store。注意：它顶层导入 `checkpoints`（后者依赖 `langgraph`），因此导入任一 `forgeloop.records.*` 都会**传递依赖 `langgraph`** |
-| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张表的权威业务记录，读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`all_tasks` 跨项目只读列出全部任务（状态页清单）；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列 |
+| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张任务侧表的权威业务记录（另有 `records.checkpoints` 管理的 `action_releases` 释放审计表，共 16 张），读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`all_tasks` 跨项目只读列出全部任务（状态页清单）；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列 |
 | records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份、进程身份与心跳，以及单任务并发占用；未完成动作拒绝重放；按权威记录判定槽位残留（空闲／已死／存活／不确定），只清理已死残留并写入 `slot_cleanups`，不确定时不清理并给出原因 |
-| records | `src/forgeloop/records/checkpoints.py` | 只读读取记录根下 `checkpoints.sqlite` 的 LangGraph 检查点：给出待执行节点、`halted_reason` 与检查点身份，判定可续跑业务节点（`dev`/`review`/`test` 及自动回边）与等待人工决定（计划批准、追加授权、整体验收、终态、空 `next`）；以 `actions.action_id` 去重判断重复推进，记录缺失输出 `unknown` |
+| records | `src/forgeloop/records/checkpoints.py` | 读取记录根下 `checkpoints.sqlite` 的 LangGraph 检查点：给出待执行节点、`halted_reason` 与检查点身份，判定可续跑业务节点（`dev`/`review`/`test` 及自动回边）与等待人工决定（计划批准、追加授权、整体验收、终态、空 `next`）；以 `actions.action_id` 去重判断重复推进，记录缺失输出 `unknown`。人工释放未完成动作的规则也在此：只有动作身份能在权威记录中定位、属于目标任务、仍是 `started` 且调用方标识与理由非空时，才在同一事务内把动作置为 `released` 并写入 `action_releases` 审计（谁/何时/理由/动作身份/所属任务与节点）；缺理由、身份不明或任务不匹配一律 fail-closed 拒绝 |
 | records | `src/forgeloop/records/requirements.py` | 需求记录：需求、版本、分析、任务包、批准、任务推进、产物与需求工时共 8 张表；与任务记录同一 `records.sqlite`，提交原文、追加版本、按身份与项目回查（进程重启后仍可读）；`all_requirements` 跨项目只读列出全部需求（状态页清单）；`dependency_facts` 按任务包依赖只读汇总每个任务的依赖事实 |
 | records | `src/forgeloop/records/mail_threads.py` | 邮件线索记录 `MailThreadStore`：每封出向反馈把自己的 Message-ID 与 `req_id`／`kind`／`sent_at` 绑定进 `mail_threads`，同一需求多轮消歧只追加不覆盖；与 `mail_deliveries`（出向幂等）和 `mail_inbound`（入向去重）同库协同，按时间合并还原完整收发往来 |
 | adapter | `src/forgeloop/adapter/__init__.py` | 层声明 |
@@ -123,7 +123,7 @@ flowchart TD
 | graph | `src/forgeloop/graph/builder.py` | 图装配：节点注册、条件路由、SQLite 持久 checkpointer；`RequirementTaskRunner` 把已批准需求任务映射到单任务图 |
 | cli | `src/forgeloop/cli/__init__.py` | 惰性导出 `main`（首次读取属性才加载实现，轻量提交策略入口不拉入编排依赖栈） |
 | cli | `src/forgeloop/cli/common.py` | 三个共享助手：`records_root(args)` 解析记录根、`open_store(root, task_id)` 打开记录库并在任务不存在时以 `SystemExit` 确定失败、`fail(msg)` 输出 `FAIL:` 到 stderr 并返回 1。注意：`fail` 只被 candidate／deploy／mail／release／web 使用，`main`／`requirements` 走自己的 `SystemExit` 或 `print + return 1`，失败输出并非全命令统一 |
-| cli | `src/forgeloop/cli/main.py` | 单任务命令 `submit`／`approve`／`grant`／`status`／`stop`，需求线主体命令，参数总装（`build_parser()`），以及只读查询文档构建器 `_status_document`／`_requirement_document`（被 `cli.web` 以 `ProgressDocuments` 注入复用、被契约快照脚本复用） |
+| cli | `src/forgeloop/cli/main.py` | 单任务命令 `submit`／`approve`／`grant`／`status`／`stop`，需求线主体命令（含中断核对入口 `requirement actions list|clear` 与 `requirement slot list|clear`），参数总装（`build_parser()`），以及只读查询文档构建器 `_status_document`／`_requirement_document`（被 `cli.web` 以 `ProgressDocuments` 注入复用、被契约快照脚本复用） |
 | cli | `src/forgeloop/cli/commit_policy.py` | 提交策略命令：加载本机生效配置（可能缺失），放行/拒绝审计输出生效配置路径与来源、机器标签与命中时间窗；无配置时放行并标注 `policy_absent`／NOT enforced；文案明确为客户端限制而非服务端强制 |
 | cli | `src/forgeloop/cli/merge.py` | `merge`：候选分支流程与归并证据 |
 | cli | `src/forgeloop/cli/candidate.py` | `candidate <task_id>`：从已归并的授权提交真实构建候选产物、记录身份与 SHA256、重复构建校验可复现并在独立环境冒烟（构建与验证在一次调用内完成） |
@@ -134,7 +134,7 @@ flowchart TD
 | cli | `src/forgeloop/cli/web.py` | `web` 命令：只读状态页（B01）。真实回环 HTTP 服务只接受 `GET`／`HEAD`，其余方法一律 405 且不写记录；`GET /api/progress` 复用 `cli.main` 的 `status`／`requirement status` 文档构建器组装需求、任务与问题三段，`GET /` 返回随包分发的页面结构 `web_page.html`，`GET /<name>.js` 按严格文件名白名单（不含路径分隔符）返回同一包内 `static/` 下的页面模块；监听地址默认回环，刷新间隔来自 `domain.progress` 的纯规则，配置项见 `config/web.toml` |
 | mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
 
-CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`／`dispatch`／`slot list|clear`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json` 与 `GET /api/progress` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`／`dispatch`／`slot list|clear`／`actions list|clear`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json` 与 `GET /api/progress` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
 
 **第二套 CLI 入口**：`cli.commit_policy` 不经 `build_parser()`，自带 argparse 与 `main()`，模式为 `--check-now`／`--message <path>`／`--audit BASE HEAD`／`--validate-config`，由 `scripts/check_commit_policy.py` 转发给 pre-commit／commit-msg 钩子与 CI。只统计 `build_parser()` 的子命令会漏掉这条真实对外接口。
 
@@ -238,7 +238,7 @@ sequenceDiagram
 
 I01 通过 `graph.builder.RequirementTaskRunner` 把每个已批准任务映射为带稳定身份的单个任务记录（`task-<req_id>-v<plan_version>-<task_id>`），复用本节的单任务业务图执行实现、独立审查、正式测试与验收；随后既有 `merge`／`release`／`deploy` 命令从该任务记录回查交付、归并与发布状态。需求文本一经追加，旧任务包与旧批准立即失效，未批准任务包不执行。
 
-推进非终态任务前，`graph.requirements.RequirementExecutor` 经 `records.checkpoints` 只读读取记录根下 `checkpoints.sqlite` 的检查点与 `records.sqlite` 的动作事实：停在可续跑业务节点（`dev`／`review`／`test` 及其自动回边）、无 `halted_reason` 且没有未核对 `started` 动作时，不判定为等待人工决定，而是把 `TaskExecution.resume` 置真交给注入的执行器就地恢复，已完成节点不重放；停在人工决策门（计划批准、追加授权、整体验收）、终态、存在 `halted_reason` 或仍有未核对动作时保持等待人工决定，不自动续跑。重复推进按检查点身份与 `actions.action_id` 去重、记录缺失输出 `unknown`，不重复计入执行工时。
+推进非终态任务前，`graph.requirements.RequirementExecutor` 经 `records.checkpoints` 读取记录根下 `checkpoints.sqlite` 的检查点与 `records.sqlite` 的动作事实：停在可续跑业务节点（`dev`／`review`／`test` 及其自动回边）、无 `halted_reason` 且没有未释放 `started` 动作时，不判定为等待人工决定，而是把 `TaskExecution.resume` 置真交给注入的执行器就地恢复，已完成节点不重放；停在人工决策门（计划批准、追加授权、整体验收）、终态、存在 `halted_reason` 或仍有未核对动作时保持等待人工决定，不自动续跑。人工核对并释放未完成动作后，该动作不再计入未完成动作，由它产生的 `action_unchecked` 中断也随之解除，可就地续跑或从被释放动作节点重入。重复推进按检查点身份与 `actions.action_id` 去重、记录缺失输出 `unknown`，不重复计入执行工时。
 
 ```mermaid
 flowchart LR
@@ -298,16 +298,16 @@ flowchart LR
 
 | 存储 | 文件 | 内容 | 管理者 |
 | --- | --- | --- | --- |
-| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 15 张表＋需求 8 张表＋邮件线索 3 张表＋人工续跑决定 1 张，共 27 张） | `records.store.RecordStore`、`records.requirements.RequirementStore`、`records.mail_threads.MailThreadStore`、`records.checkpoints`（仅续跑决定写入） |
+| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 16 张表＋需求 8 张表＋邮件线索 3 张表＋人工续跑决定 1 张，共 28 张） | `records.store.RecordStore`、`records.requirements.RequirementStore`、`records.mail_threads.MailThreadStore`、`records.checkpoints`（续跑决定与人工释放审计 `action_releases` 写入） |
 | 图检查点 | `checkpoints.sqlite` | `TaskState` 的推进状态，`thread_id = task_id` | LangGraph `SqliteSaver` |
 
-图检查点由 LangGraph `SqliteSaver` 管理；`records.checkpoints` 只读解析其待执行节点、`halted_reason` 与检查点身份，并只读汇总 `records.sqlite` 的未完成/已完成动作身份，供需求推进器判定可续跑与重复推进的幂等口径（动作身份 `actions.action_id`，记录缺失输出 `unknown`）。
+图检查点由 LangGraph `SqliteSaver` 管理；`records.checkpoints` 解析其待执行节点、`halted_reason` 与检查点身份，并汇总 `records.sqlite` 的未完成/已完成动作身份，供需求推进器判定可续跑与重复推进的幂等口径（动作身份 `actions.action_id`，记录缺失输出 `unknown`）。除人工释放外，该模块只读；释放会在同一事务内把权威 `started` 动作置为 `released` 并追加 `action_releases` 审计行。
 
-记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`merges`、`deliveries`、`releases`、`prerequisite_applications`（15 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）；邮件线索侧 `mail_threads`（出向 Message-ID 与需求绑定）、`mail_deliveries`（出向幂等账）、`mail_inbound`（入向去重账）（3 张）；人工续跑侧 `requirement_retry_decisions`（决定、绑定方案版本与检查点身份）（1 张）。各记录集共用同一 `records.sqlite`，各自管理连接与表——**不是一条全局连接**：`RecordStore`／`RequirementStore` 各自建连，`MailThreadStore` 用调用方传入的裸连接，`checkpoints` 每次读临时开只读连接。
+记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`action_releases`、`merges`、`deliveries`、`releases`、`prerequisite_applications`（16 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）；邮件线索侧 `mail_threads`（出向 Message-ID 与需求绑定）、`mail_deliveries`（出向幂等账）、`mail_inbound`（入向去重账）（3 张）；人工续跑侧 `requirement_retry_decisions`（决定、绑定方案版本与检查点身份）（1 张）。各记录集共用同一 `records.sqlite`，各自管理连接与表——**不是一条全局连接**：`RecordStore`／`RequirementStore` 各自建连，`MailThreadStore` 用调用方传入的裸连接，`checkpoints` 每次读临时开只读连接。
 
 状态页不新增任何持久化介质：它只读同一 `records.sqlite`（记录库不存在时按需建立空库，是查询本身的代价），不写业务事实。
 
-**动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。动作行另存发起进程身份（`pid`）与最近心跳（`heartbeat_at`）。
+**动作生命周期（B03）**：会产生副作用的节点动作（`dev`／`review`／`test`）启动前在 `actions` 登记 `started`，正常结束登记 `completed`。进程在动作中途被杀只会留下 `started`；同一任务再次推进时，未完成动作拒绝重放并标记 `interrupted`，保留现场待人工核对。`begin` 在 `BEGIN IMMEDIATE` 事务内检查后插入，同一任务同时最多一个未完成动作，并发启动只有一个能成功。动作行另存发起进程身份（`pid`）与最近心跳（`heartbeat_at`）。**人工核对释放**：经 `requirement retry` 或 `requirement actions clear` 带 `--by`/`--reason` 核对后，动作权威状态由 `started` 置为 `released`（结果不明确，不算 `completed`），并在 `action_releases` 记录谁/何时/理由/动作身份/所属任务与节点；此后 B03 未完成动作判定与 `begin` 都不再计入它，由它产生的 `action_unchecked` 中断也随之解除，推进可按检查点续跑或从被释放动作节点就地重入。缺理由、动作身份不明或与任务不匹配时 fail-closed 拒绝且零副作用。
 
 ```mermaid
 flowchart LR

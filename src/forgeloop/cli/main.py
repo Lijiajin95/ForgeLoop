@@ -34,6 +34,7 @@ from forgeloop.cli.mail import add_mail_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
+    add_requirement_actions,
     add_requirement_dispatch,
     add_requirement_retry,
     aggregate_missing,
@@ -952,6 +953,7 @@ def _add_requirement_parsers(
 
     add_requirement_dispatch(actions, default_records_root)
     add_requirement_retry(actions, default_records_root)
+    add_requirement_actions(actions, default_records_root)
 
 
 def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:

@@ -10,19 +10,29 @@
   依赖）。
 - **可续跑判定**：``next`` 非空且节点都落在业务动作节点集合（``dev``/``review``/
   ``test``，含它们之间的自动回边）且没有 ``halted_reason`` 时判定为可续跑；但若
-  该任务仍有 ``started`` 未完成动作（B03 未核对），一律不自动续跑——未完成动作的
-  结果不明确，重放会越过「禁止盲目重放」的红线，保持等待人工核对。停在人工决策
-  节点（计划批准、追加授权、整体验收）、终态节点（``deliver``/END）或存在
+  该任务仍有未释放的 ``started`` 未完成动作（B03 未核对），一律不自动续跑——未
+  完成动作的结果不明确，重放会越过「禁止盲目重放」的红线，保持等待人工核对。停在
+  人工决策节点（计划批准、追加授权、整体验收）、终态节点（``deliver``/END）或存在
   ``halted_reason`` 时同样等待人工决定。
+- **人工释放未完成动作**：只有动作身份能在权威记录中定位、其所属任务与目标任务
+  一致、动作仍是 ``started``，且调用方标识与理由都非空时，才把该动作权威状态置为
+  ``released`` 并写入 ``action_releases`` 审计表（谁/何时/理由/动作身份/所属任务与
+  节点）。释放同时结束该 ``started`` 事实：B03 的未完成动作判定（``actions`` 表
+  按 ``started`` 过滤）不再计入它，由它产生的 ``action_unchecked`` 中断也随之不再
+  阻塞推进，后续 ``begin`` 不会因它被拒。缺理由、身份不明、任务不匹配或动作已
+  完成时 fail-closed 拒绝且不留下审计行。
 - **幂等口径**：同一任务的已完成动作身份（``actions.action_id``）用于判断重复推进
   是否真的产生了新进展；结合检查点身份形成 :class:`AdvanceFingerprint`。记录库或
   动作表缺失时如实输出 :data:`UNKNOWN`，不猜测为「已完成」或「未完成」。
 
-本模块只读记录，判定为纯规则，供 ``graph.requirements`` 的推进流程调用。
+本模块以只读方式读取检查点与动作事实，判定为纯规则；只有人工释放会在同一事务内
+结束 ``records.sqlite`` 的 ``started`` 动作并追加审计行，供 ``graph.requirements``
+的推进流程调用。
 """
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -33,6 +43,8 @@ from typing import Any, cast
 
 from langgraph.checkpoint.base import Checkpoint
 from langgraph.checkpoint.sqlite import SqliteSaver
+
+from forgeloop.records.actions import ActionRecord, ActionState
 
 # 记录根下的检查点数据库文件名（架构 §6：图检查点由 LangGraph SqliteSaver 管理）。
 CHECKPOINT_DB_NAME = "checkpoints.sqlite"
@@ -72,6 +84,28 @@ MAX_DECIDED_BY_LENGTH = 64
 # 人工续跑决定的记录表：与权威业务记录同库（records.sqlite），不改检查点库。
 RETRY_DECISION_TABLE = "requirement_retry_decisions"
 
+# 人工核对并释放未完成动作的审计表：与权威业务记录同库。释放只追加审计行，
+# 不改写 ``actions`` 的启动/完成事实；未完成动作判定据此排除已释放动作。
+ACTION_RELEASE_TABLE = "action_releases"
+
+_ACTION_RELEASE_SCHEMA = f"""
+CREATE TABLE IF NOT EXISTS {ACTION_RELEASE_TABLE} (
+    release_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id TEXT NOT NULL UNIQUE,
+    task_id TEXT NOT NULL,
+    node TEXT NOT NULL,
+    released_by TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    released_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS action_releases_by_task
+    ON {ACTION_RELEASE_TABLE} (task_id, released_at);
+"""
+
+_ACTION_RELEASE_COLUMNS = "action_id, task_id, node, released_by, reason, released_at"
+_ACTION_COLUMNS = (
+    "action_id, task_id, node, role, state, started_at, finished_at, detail, pid, heartbeat_at"
+)
 _RETRY_DECISION_SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS {RETRY_DECISION_TABLE} (
     decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,8 +135,9 @@ class CheckpointState:
     ``next_nodes`` 是图当前待执行的节点名；为空表示图已到终态（END）或尚无待执行
     节点。``halted_reason`` 是节点如实落库的中断原因，非空时一律不自动续跑。
 
-    ``outstanding_node`` 是该任务当前 ``started`` 未完成动作所在节点（无则为空）：
-    未完成动作结果不明确，禁止盲目重放，即使停在业务节点也保持等待人工核对。
+    ``outstanding_node`` 是该任务当前未释放 ``started`` 未完成动作所在节点（无则为空）：
+    未完成动作结果不明确，禁止盲目重放，即使停在业务节点也保持等待人工核对；已由
+    人工核对并写入释放审计的动作不再计入。
     ``completed_actions`` 是已完成动作身份集合（按 ``action_id`` 去重）；记录缺失时
     为 :data:`UNKNOWN`。两者与 ``checkpoint_id`` 一起构成重复推进的幂等指纹。
     """
@@ -162,6 +197,48 @@ class CheckpointInspection:
 
     health: CheckpointHealth
     state: CheckpointState | None = None
+
+
+@dataclass(frozen=True)
+class ActionRelease:
+    """一条人工释放未完成动作的审计记录：谁在何时因何理由释放了哪个动作。
+
+    ``action_id`` 与 ``task_id`` 同时入档，回查时能确认动作身份及其所属任务；
+    ``node`` 保留动作原节点，供中断原因归因与人工核对。
+    """
+
+    action_id: str
+    task_id: str
+    node: str
+    released_by: str
+    reason: str
+    released_at: datetime
+
+
+@dataclass(frozen=True)
+class ActionReleaseCheck:
+    """人工释放前置校验结果：是否放行与逐条可操作拒绝原因。"""
+
+    allowed: bool
+    reasons: tuple[str, ...] = ()
+
+    @property
+    def reason(self) -> str:
+        """把逐条拒绝原因拼成可直接展示给人工的文本；放行时为空串。"""
+
+        return "；".join(self.reasons)
+
+
+@dataclass(frozen=True)
+class ActionReleaseAuthorization:
+    """一次人工释放结果：校验结果与已写入（或幂等回查）的审计记录。
+
+    校验失败时 ``release`` 为 ``None``，表示没有发生任何写入。
+    """
+
+    allowed: bool
+    check: ActionReleaseCheck
+    release: ActionRelease | None = None
 
 
 @dataclass(frozen=True)
@@ -302,6 +379,29 @@ def _plan_version(values: Mapping[str, Any]) -> int | None:
         return None
 
 
+def _released_action_halted_node(records_root: str | Path, task_id: str, halted_reason: str) -> str:
+    """``action_unchecked`` 中断由已释放动作产生时返回其业务节点，否则空串。
+
+    只有原因点名可续跑业务节点、该节点存在同任务的释放审计记录，且任务已没有
+    未释放的 ``started`` 动作时才认定「人工核对释放」成立；任一条件缺失都返回空串，
+    保留原中断原因并继续等待人工核对，不把未知动作当作已释放。
+    """
+
+    reason = halted_reason.strip()
+    if not reason.startswith("action_unchecked:"):
+        return ""
+    node = reason.split(":", 1)[1].strip()
+    if node not in RESUMABLE_NODES:
+        return ""
+    rows = _read_only(
+        Path(records_root),
+        f"SELECT 1 FROM {ACTION_RELEASE_TABLE} r JOIN actions a ON a.action_id = r.action_id"
+        " WHERE r.task_id = ? AND a.task_id = ? AND r.node = ? LIMIT 1",
+        (task_id, task_id, node),
+    )
+    return node if rows else ""
+
+
 def inspect_checkpoint(records_root: str | Path, task_id: str) -> CheckpointInspection:
     """只读检查某线程身份下最近检查点的健康与摘要。
 
@@ -361,11 +461,26 @@ def inspect_checkpoint(records_root: str | Path, task_id: str) -> CheckpointInsp
             return CheckpointInspection(CheckpointHealth.CORRUPT)
     finally:
         connection.close()
+    outstanding_node = outstanding_action_node(records_dir, task_id)
+    released_halted_node = ""
+    if state.halted_reason.strip() and not outstanding_node:
+        released_halted_node = _released_action_halted_node(
+            records_dir, task_id, state.halted_reason
+        )
+    if released_halted_node:
+        # 已由人工核对释放的未完成动作不再阻塞：把 action_unchecked 中断视为已由
+        # 该释放决定清除，并保留节点供推进器就地重入；不改写检查点库本身。
+        state = replace(
+            state,
+            halted_reason="",
+            halted_node=released_halted_node,
+            resumed_from_halt=True,
+        )
     return CheckpointInspection(
         CheckpointHealth.OK,
         replace(
             state,
-            outstanding_node=outstanding_action_node(records_dir, task_id),
+            outstanding_node=outstanding_node,
             completed_actions=completed_action_ids(records_dir, task_id),
         ),
     )
@@ -431,22 +546,103 @@ def completed_action_ids(
     return frozenset(str(row[0]) for row in rows)
 
 
-def outstanding_action_node(records_root: str | Path, task_id: str) -> str:
-    """该任务当前 ``started`` 未完成动作所在节点；没有或记录缺失时返回空串。
+def _action_from_row(row: tuple[Any, ...]) -> ActionRecord | None:
+    """动作行 → 记录对象；内容损坏时返回 ``None``，不猜测动作事实。"""
 
-    记录缺失与「确实没有未完成动作」都返回空串是保守选择：读取失败时不额外制造
-    等待理由，但可续跑仍受检查点 ``next``/``halted_reason`` 的独立判定约束。
-    """
+    try:
+        return ActionRecord(
+            action_id=str(row[0]),
+            task_id=str(row[1]),
+            node=str(row[2]),
+            role=str(row[3]),
+            state=ActionState(str(row[4])),
+            started_at=datetime.fromisoformat(str(row[5])),
+            finished_at=datetime.fromisoformat(str(row[6])) if row[6] else None,
+            detail=str(row[7]),
+            pid=int(str(row[8])) if row[8] is not None else None,
+            heartbeat_at=datetime.fromisoformat(str(row[9])) if row[9] else None,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_action(records_root: str | Path, action_id: str) -> ActionRecord | None:
+    """按动作身份只读读取动作事实；身份不明、记录缺失或内容损坏时返回 ``None``。"""
 
     rows = _read_only(
         Path(records_root),
-        "SELECT node FROM actions WHERE task_id = ? AND state = 'started'"
-        " ORDER BY started_at LIMIT 1",
+        f"SELECT {_ACTION_COLUMNS} FROM actions WHERE action_id = ?",
+        (action_id,),
+    )
+    return _action_from_row(tuple(rows[0])) if rows else None
+
+
+def _outstanding_action(records_root: str | Path, task_id: str) -> ActionRecord | None:
+    """该任务最早的未释放 ``started`` 动作；没有或记录缺失时返回 ``None``。"""
+
+    rows = _read_only(
+        Path(records_root),
+        f"SELECT {_ACTION_COLUMNS} FROM actions a WHERE a.task_id = ? AND a.state = 'started'"
+        f" AND NOT EXISTS (SELECT 1 FROM {ACTION_RELEASE_TABLE} r"
+        " WHERE r.action_id = a.action_id AND r.task_id = a.task_id)"
+        " ORDER BY a.started_at LIMIT 1",
         (task_id,),
     )
-    if not rows:
-        return ""
-    return str(rows[0][0])
+    if rows is None:
+        # 旧库还没有释放审计表：退回未排除释放的查询，行为与既有读取一致。
+        rows = _read_only(
+            Path(records_root),
+            f"SELECT {_ACTION_COLUMNS} FROM actions"
+            " WHERE task_id = ? AND state = 'started' ORDER BY started_at LIMIT 1",
+            (task_id,),
+        )
+    return _action_from_row(tuple(rows[0])) if rows else None
+
+
+def outstanding_action_node(records_root: str | Path, task_id: str) -> str:
+    """该任务当前未释放 ``started`` 动作所在节点；没有或记录缺失时返回空串。
+
+    记录缺失与「确实没有未完成动作」都返回空串是保守选择：读取失败时不额外制造
+    等待理由，但可续跑仍受检查点 ``next``/``halted_reason`` 的独立判定约束。已由
+    人工核对并写入审计记录的释放动作不再计入未完成动作，避免释放后继续阻塞推进。
+    """
+
+    action = _outstanding_action(records_root, task_id)
+    return action.node if action is not None else ""
+
+
+# 执行槽位在 ``actions`` 表里的保留身份前缀（与 ``records.actions.SLOT_PREFIX`` 一致）：
+# 列出任务未完成动作时排除调度槽位，避免把资源占用混进任务动作。
+_SLOT_TASK_PREFIX = "slot:%"
+
+
+def outstanding_actions(
+    records_root: str | Path,
+    task_id: str | None = None,
+) -> tuple[ActionRecord, ...]:
+    """列出仍未完成（``started`` 且未释放）的任务动作，供人工核对与释放。
+
+    可选按 ``task_id`` 过滤；默认排除 ``slot:`` 前缀的调度槽位，只列任务动作。
+    记录库或动作表缺失时返回空元组，读取经只读连接，不建表、不改现场。
+    """
+
+    statement = (
+        f"SELECT {_ACTION_COLUMNS} FROM actions WHERE state = 'started' AND task_id NOT LIKE ?"
+    )
+    parameters: list[object] = [_SLOT_TASK_PREFIX]
+    if task_id is not None:
+        statement += " AND task_id = ?"
+        parameters.append(task_id)
+    statement += " ORDER BY started_at, action_id"
+    rows = _read_only(Path(records_root), statement, tuple(parameters))
+    if rows is None:
+        return ()
+    actions: list[ActionRecord] = []
+    for row in rows:
+        action = _action_from_row(tuple(row))
+        if action is not None:
+            actions.append(action)
+    return tuple(actions)
 
 
 @dataclass(frozen=True)
@@ -495,6 +691,288 @@ def _open_decision_store(records_root: str | Path) -> sqlite3.Connection:
                 f"ALTER TABLE {RETRY_DECISION_TABLE} ADD COLUMN {name} {declaration}"
             )
     return connection
+
+
+# ---- 人工释放未完成动作：审计、回查与前置校验 ----
+
+
+class _ActionReleaseConflict(RuntimeError):
+    """校验通过后现场已变化（动作完成/易主）：拒绝写入并给出原因。"""
+
+
+def _open_release_store(records_root: str | Path) -> sqlite3.Connection:
+    """打开（必要时创建）动作释放审计表；只写 records.sqlite。"""
+
+    root = Path(records_root)
+    root.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(root / RECORDS_DB_NAME, isolation_level=None)
+    try:
+        connection.executescript(_ACTION_RELEASE_SCHEMA)
+    except BaseException:
+        connection.close()
+        raise
+    return connection
+
+
+def _release_from_row(row: tuple[Any, ...]) -> ActionRelease:
+    return ActionRelease(
+        action_id=str(row[0]),
+        task_id=str(row[1]),
+        node=str(row[2]),
+        released_by=str(row[3]),
+        reason=str(row[4]),
+        released_at=datetime.fromisoformat(str(row[5])),
+    )
+
+
+def action_releases(
+    records_root: str | Path,
+    task_id: str | None = None,
+    action_id: str | None = None,
+) -> tuple[ActionRelease, ...]:
+    """回查人工释放未完成动作的审计记录，按释放时间与写入顺序升序。
+
+    可按任务身份（可选再按动作身份）过滤。记录库或审计表缺失时返回空元组
+    （确实没有释放记录），读取经只读连接，绝不建表或改造现场。
+    """
+
+    statement = f"SELECT {_ACTION_RELEASE_COLUMNS} FROM {ACTION_RELEASE_TABLE} WHERE 1 = 1"
+    parameters: list[object] = []
+    if task_id is not None:
+        statement += " AND task_id = ?"
+        parameters.append(task_id)
+    if action_id is not None:
+        statement += " AND action_id = ?"
+        parameters.append(action_id)
+    statement += " ORDER BY released_at, release_id"
+    rows = _read_only(Path(records_root), statement, tuple(parameters))
+    if rows is None:
+        return ()
+    return tuple(_release_from_row(tuple(row)) for row in rows)
+
+
+def latest_action_release(
+    records_root: str | Path,
+    task_id: str,
+    action_id: str,
+) -> ActionRelease | None:
+    """某任务下某动作最近一次释放审计记录；没有时返回 ``None``。"""
+
+    releases = action_releases(records_root, task_id, action_id)
+    return releases[-1] if releases else None
+
+
+def validate_action_release(
+    action: ActionRecord | None,
+    *,
+    action_id: str,
+    task_id: str,
+    by: str,
+    reason: str,
+    already_released: bool = False,
+) -> ActionReleaseCheck:
+    """人工释放未完成动作的前置校验：动作身份、所属任务与人工理由缺一不可。
+
+    动作必须能在权威记录中按身份找到，且其 ``task_id`` 与目标任务一致；已完成或
+    已释放的动作不能再当作未完成动作释放。理由与调用方标识为空时一律拒绝。每条
+    拒绝都给出可操作原因，调用方据此 fail-closed 且不写审计记录。
+    """
+
+    reasons: list[str] = []
+    target_task = task_id.strip()
+    target_action = action_id.strip()
+    if not target_task:
+        reasons.append("目标任务身份不能为空")
+    if not target_action:
+        reasons.append("动作身份不能为空，无法确定要释放哪个未完成动作")
+
+    released_by = by.strip()
+    if not released_by:
+        reasons.append("调用方标识 --by 不能为空（例如 --by owner）")
+    elif len(released_by) > MAX_DECIDED_BY_LENGTH:
+        reasons.append(f"调用方标识 --by 去首尾空白后长度须为 1-{MAX_DECIDED_BY_LENGTH} 个字符")
+    elif not released_by.isprintable():
+        reasons.append("调用方标识 --by 只能包含可打印字符")
+
+    if not reason.strip():
+        reasons.append("释放理由 --reason 不能为空")
+
+    if action is None:
+        reasons.append("动作身份不明：记录中找不到该动作，禁止释放，请核对动作身份后重试")
+    else:
+        if action.action_id != target_action:
+            reasons.append(
+                f"动作身份不匹配：记录为 {action.action_id}，目标为 {target_action}，禁止释放"
+            )
+        if action.task_id != target_task:
+            reasons.append(f"动作不属于目标任务：{action.task_id} != {target_task}，禁止释放")
+        if action.state is not ActionState.STARTED and not already_released:
+            reasons.append(
+                f"动作不是未完成状态：当前 {action.state.value}，只有 started 动作可释放"
+            )
+
+    return ActionReleaseCheck(allowed=not reasons, reasons=tuple(reasons))
+
+
+def _record_action_release(records_root: str | Path, release: ActionRelease) -> ActionRelease:
+    """结束未完成动作并写入释放审计；同一动作已有记录时幂等返回既有审计。
+
+    在 ``BEGIN IMMEDIATE`` 内先复核动作身份/所属任务/节点，再把权威 ``actions`` 行
+    从 ``started`` 置为 ``released``（结果不明确，不算 ``completed``），然后写入
+    ``action_releases``。状态变更与审计同一事务提交：任一步失败都回滚，不留下
+    「已释放但无审计」或「有审计但仍未完成」的半截状态。
+    """
+
+    connection = _open_release_store(records_root)
+    try:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT task_id, node, state FROM actions WHERE action_id = ?",
+                (release.action_id,),
+            ).fetchone()
+            if row is None:
+                raise _ActionReleaseConflict(
+                    "动作身份不明：记录中找不到该动作，禁止释放，请核对动作身份后重试"
+                )
+            if str(row[0]) != release.task_id:
+                raise _ActionReleaseConflict(
+                    f"动作不属于目标任务：{row[0]} != {release.task_id}，禁止释放"
+                )
+            if str(row[1]) != release.node:
+                raise _ActionReleaseConflict(
+                    f"动作节点已变化：{row[1]} != {release.node}，禁止释放"
+                )
+            existing = connection.execute(
+                f"SELECT {_ACTION_RELEASE_COLUMNS} FROM {ACTION_RELEASE_TABLE} WHERE action_id = ?",
+                (release.action_id,),
+            ).fetchone()
+            if existing is not None:
+                recorded = _release_from_row(tuple(existing))
+                if recorded.task_id != release.task_id:
+                    raise _ActionReleaseConflict(
+                        f"动作不属于目标任务：{recorded.task_id} != {release.task_id}，禁止释放"
+                    )
+                connection.execute("COMMIT")
+                return recorded
+            if str(row[2]) != ActionState.STARTED.value:
+                raise _ActionReleaseConflict(
+                    f"动作不是未完成状态：当前 {row[2]}，只有 started 动作可释放"
+                )
+            released_at = release.released_at.astimezone(UTC).isoformat()
+            changed = connection.execute(
+                "UPDATE actions SET state = ?, finished_at = ?, detail = ?"
+                " WHERE action_id = ? AND state = ?",
+                (
+                    ActionState.RELEASED.value,
+                    released_at,
+                    f"人工核对释放 by {release.released_by}: {release.reason}",
+                    release.action_id,
+                    ActionState.STARTED.value,
+                ),
+            ).rowcount
+            if changed == 0:
+                raise _ActionReleaseConflict(
+                    "动作不是未完成状态：现场已变化，只有 started 动作可释放"
+                )
+            connection.execute(
+                f"INSERT INTO {ACTION_RELEASE_TABLE}"
+                " (action_id, task_id, node, released_by, reason, released_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    release.action_id,
+                    release.task_id,
+                    release.node,
+                    release.released_by,
+                    release.reason,
+                    released_at,
+                ),
+            )
+            connection.execute("COMMIT")
+            return release
+        except BaseException:
+            with contextlib.suppress(sqlite3.Error):
+                connection.execute("ROLLBACK")
+            raise
+    finally:
+        connection.close()
+
+
+def release_action(
+    records_root: str | Path,
+    *,
+    task_id: str,
+    action_id: str,
+    by: str,
+    reason: str,
+    at: datetime | None = None,
+) -> ActionReleaseAuthorization:
+    """人工核对后释放一个未完成动作，并持久化谁/何时/理由/动作身份审计。
+
+    只有动作身份能在记录中定位、其所属任务与目标任务一致、动作仍是 ``started``，
+    且调用方与理由都非空时才在 ``BEGIN IMMEDIATE`` 事务内把动作置为 ``released``
+    并写入审计；任一条件不满足都 fail-closed 返回拒绝，不改动动作状态也不留下
+    审计行。同一动作重复释放时幂等回查既有审计记录。
+    """
+
+    target_action = action_id.strip()
+    action = _read_action(records_root, target_action)
+    existing = latest_action_release(records_root, task_id.strip(), target_action)
+    check = validate_action_release(
+        action,
+        action_id=target_action,
+        task_id=task_id,
+        by=by,
+        reason=reason,
+        already_released=existing is not None,
+    )
+    if not check.allowed:
+        return ActionReleaseAuthorization(False, check)
+    assert action is not None  # 校验放行时动作必然存在
+    if existing is not None:
+        return ActionReleaseAuthorization(True, check, existing)
+    release = ActionRelease(
+        action_id=action.action_id,
+        task_id=action.task_id,
+        node=action.node,
+        released_by=by.strip(),
+        reason=reason,
+        released_at=at or datetime.now(UTC),
+    )
+    try:
+        recorded = _record_action_release(records_root, release)
+    except _ActionReleaseConflict as error:
+        return ActionReleaseAuthorization(False, ActionReleaseCheck(False, (str(error),)))
+    return ActionReleaseAuthorization(True, check, recorded)
+
+
+def release_outstanding_action(
+    records_root: str | Path,
+    *,
+    task_id: str,
+    by: str,
+    reason: str,
+    action_id: str = "",
+    at: datetime | None = None,
+) -> ActionReleaseAuthorization:
+    """人工核对后释放目标任务当前的未完成动作；未给动作身份时按记录定位。
+
+    动作身份仍从权威 ``actions`` 记录读取（或由调用方显式给出），找不到时按
+    「动作身份不明」fail-closed 拒绝；不接受只凭节点名或状态猜测要释放哪个动作。
+    """
+
+    target_action = action_id.strip()
+    if not target_action:
+        outstanding = _outstanding_action(records_root, task_id.strip())
+        target_action = outstanding.action_id if outstanding is not None else ""
+    return release_action(
+        records_root,
+        task_id=task_id,
+        action_id=target_action,
+        by=by,
+        reason=reason,
+        at=at,
+    )
 
 
 def _record_retry_decision(records_root: str | Path, decision: RetryDecision) -> RetryDecision:

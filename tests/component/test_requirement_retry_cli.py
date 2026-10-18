@@ -15,14 +15,22 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
+from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
-from forgeloop.graph.builder import RequirementTaskRunner, requirement_task_id
+from forgeloop.graph.builder import RequirementTaskRunner, build_graph, requirement_task_id
+from forgeloop.graph.nodes import NodeContext
 from forgeloop.graph.requirements import TaskExecution, TaskRunState
-from forgeloop.records.checkpoints import latest_retry_decision
+from forgeloop.records.checkpoints import (
+    action_releases,
+    latest_retry_decision,
+    outstanding_action_node,
+)
 from forgeloop.records.requirements import RequirementStore
 from forgeloop.records.store import RecordStore
 
@@ -99,6 +107,45 @@ def _halted(root: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
     result = runner(TaskExecution(task=_planned()))
     assert result.state is TaskRunState.FAILED, result
     return req_id, requirement_task_id(req_id, PLAN_VERSION, TASK)
+
+
+def _halted_action_unchecked(root: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str, str]:
+    """用真实业务图建立 ``action_unchecked:dev`` 的真实未完成动作现场。
+
+    走完方案批准门后、恢复前登记一个 ``started`` 动作；恢复后 ``dev`` 的 B03 闸门
+    因它落下 ``halted_reason=action_unchecked:dev``，图路由到 END、``next`` 为空，
+    与推进进程在 dev 中途被杀留下的现场一致。返回需求身份、线程身份与动作身份。
+    """
+
+    monkeypatch.setenv("FAKE_PI_MODE", "ok")
+    req_id = _approved(root)
+    runner = _runner(root, req_id)
+    thread_id = requirement_task_id(req_id, PLAN_VERSION, TASK)
+    task = _planned()
+    store = RecordStore(root / "records.sqlite")
+    graph = None
+    action_id = ""
+    try:
+        store.create_task(
+            thread_id, PROJECT, task.goal, runner._config(task), task.limits.limit_seconds
+        )
+        context = NodeContext.for_task(store, root, thread_id)
+        graph = build_graph(context, root / "checkpoints.sqlite")
+        config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
+        graph.invoke({"task_id": thread_id}, config)
+        runner._approve_plan(store, thread_id)
+        action_id = store.actions.begin(thread_id, "dev").action_id
+        graph.invoke(Command(resume={"decision": "approved"}), config)
+        snapshot = graph.get_state(config)
+        assert snapshot.values.get("halted_reason") == "action_unchecked:dev"
+        assert not set(snapshot.next)
+    finally:
+        if graph is not None:
+            conn = getattr(graph.checkpointer, "conn", None)
+            if conn is not None:
+                conn.close()
+        store.close()
+    return req_id, thread_id, action_id
 
 
 def _retry_argv(
@@ -182,6 +229,29 @@ class TestRetryDrivesResume:
         assert "理由" in captured.err
         assert _completed_nodes(tmp_path, thread_id) == before
         assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+
+    def test_retry_releases_outstanding_action_and_resumes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        req_id, thread_id, action_id = _halted_action_unchecked(tmp_path, monkeypatch)
+        assert outstanding_action_node(tmp_path, thread_id) == "dev"
+        monkeypatch.setenv("FAKE_PI_MODE", "ok")
+
+        code = cli_main(_retry_argv(tmp_path, req_id))
+        captured = capsys.readouterr()
+
+        assert code == 0, captured.out + captured.err
+        assert f"实际处理任务: {TASK}" in captured.out
+        assert "已释放未完成动作" in captured.out
+        # 审计可回查：谁/何时/理由/动作身份都在档。
+        releases = action_releases(tmp_path, thread_id)
+        assert [item.action_id for item in releases] == [action_id]
+        assert releases[0].released_by == "owner"
+        assert releases[0].reason == REASON
+        assert outstanding_action_node(tmp_path, thread_id) == ""
+        # 真实图从被释放动作所在节点就地重入，dev/review/test 只执行一次。
+        assert _completed_nodes(tmp_path, thread_id) == ["dev", "review", "test"]
+        assert (tmp_path / thread_id / "candidate.diff").is_file()
 
 
 class TestStatusReportsDecision:

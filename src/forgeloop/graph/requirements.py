@@ -27,7 +27,9 @@
   的真实中断现场路由到 END、检查点 ``next`` 为空，此时由原因归因出要重入的业务
   节点并以 ``TaskExecution.resume_node`` 交给执行器；归因不出的中断原因（停止、
   ``plan_missing`` 等）仍保持等待人工。已授权但仍有未核对 ``started`` 动作时同样
-  不自动重放（B03 红线）。重复推进不重放已完成节点、
+  不自动重放（B03 红线）；若该动作已由人工核对并写入释放审计（谁/何时/理由/动作
+  身份），未完成动作判定即不再把它计入，``action_unchecked`` 中断也随之解耦，推进
+  可按检查点续跑或从被释放动作所在业务节点就地重入。重复推进不重放已完成节点、
   不重复计入工时（LangGraph 检查点 + 动作身份 ``actions.action_id`` 去重；记录缺失
   时输出 ``unknown``）。
 
@@ -564,12 +566,16 @@ def _keeps_waiting(checkpoint: CheckpointState | None, decision: ResumeDecision)
 
 
 def _waiting_reason(checkpoint: CheckpointState | None, decision: ResumeDecision) -> str:
-    """等待人工决定的原因文本，保留原始 halted 原因供人工核对。"""
+    """等待人工决定的原因文本，保留原始 halted 原因供人工核对。
 
-    if decision is ResumeDecision.HALTED and checkpoint is not None:
-        return f"等待人工决定: halted {checkpoint.halted_reason}"
+    未完成动作优先说明：人工要先核对并释放该动作，推进才可能继续；action_unchecked
+    的 halted 文本只是同一事实的笼统表述，不应盖住可操作的动作节点。
+    """
+
     if checkpoint is not None and checkpoint.outstanding_node:
         return f"等待人工核对未完成动作: {checkpoint.outstanding_node}"
+    if decision is ResumeDecision.HALTED and checkpoint is not None:
+        return f"等待人工决定: halted {checkpoint.halted_reason}"
     return "等待人工决定: gate_plan_approval"
 
 

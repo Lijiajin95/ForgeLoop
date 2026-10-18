@@ -21,10 +21,17 @@ from enum import StrEnum
 
 
 class ActionState(StrEnum):
-    """动作生命周期状态：只在启动后、核对前处于 ``STARTED``。"""
+    """动作生命周期状态：只在启动后、核对前处于 ``STARTED``。
+
+    ``RELEASED`` 表示该 ``started`` 动作已由人工核对并释放：结果仍然不明确，因此
+    不算 ``completed``，也不再是未完成动作；B03 的未完成动作判定据此不再把它计入，
+    后续 ``begin`` 也不会因它被拒。释放的审计（谁/何时/理由/动作身份）另见
+    ``records.checkpoints.release_action``。
+    """
 
     STARTED = "started"
     COMPLETED = "completed"
+    RELEASED = "released"
 
 
 @dataclass(frozen=True)

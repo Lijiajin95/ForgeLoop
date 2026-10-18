@@ -7,8 +7,9 @@
 - 同需求重复启动由记录层执行槽位拒绝，命令如实报告并以非零退出码结束。
 - 状态输出来自 ``RequirementProgress``（权威记录汇总），不由模型猜测。
 - ``requirement retry`` 在 records 层 fail-closed 校验与决定记录（``authorize_retry``）
-  之后，立即用 ``graph.requirements.RequirementExecutor`` 从检查点就地续跑；命令本身
-  不新增续跑规则。
+  之后，先把该任务仍未完成的动作按同一理由人工释放（``release_outstanding_action``，
+  置为 ``released`` 并写回审计），再用 ``graph.requirements.RequirementExecutor`` 从
+  检查点就地续跑；命令本身不新增续跑或释放规则。
 
 同项目归并/发布的互斥由 ``RequirementDispatcher.project_delivery`` 提供，并已接入
 ``cli.merge``/``cli.release`` 的真实入口；本模块把并行推进与槽位核对接进 CLI。
@@ -45,6 +46,10 @@ from forgeloop.records.checkpoints import (
     authorize_retry,
     inspect_checkpoint,
     latest_retry_decision,
+    outstanding_action_node,
+    outstanding_actions,
+    release_action,
+    release_outstanding_action,
 )
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
@@ -134,6 +139,56 @@ def cmd_requirement_slot_clear(args: argparse.Namespace) -> int:
         f"已清理执行槽位: {args.slot}"
         f"（占用者 {cleared.role or '未知'}，开始于 {cleared.started_at.isoformat()}）"
     )
+    return 0
+
+
+def cmd_requirement_actions_list(args: argparse.Namespace) -> int:
+    """列出未完成动作（任务身份、节点、开始时间、动作 ID），供中断后人工核对。"""
+
+    root = records_root(args)
+    actions = outstanding_actions(root, task_id=args.task or None)
+    if not actions:
+        print("没有未完成动作。")
+        return 0
+    for action in actions:
+        print(f"动作: {action.action_id}")
+        print(f"  任务: {action.task_id}")
+        print(f"  节点: {action.node}")
+        print(f"  开始: {action.started_at.isoformat()}")
+        print(
+            "  释放: forgeloop requirement actions clear"
+            f" --task {action.task_id} --action {action.action_id}"
+            " --by <by> --reason <reason>"
+        )
+    return 0
+
+
+def cmd_requirement_actions_clear(args: argparse.Namespace) -> int:
+    """人工核对后释放一个未完成动作并写回审计；缺理由或身份不明时 fail-closed。"""
+
+    root = records_root(args)
+    if args.action:
+        result = release_action(
+            root,
+            task_id=args.task,
+            action_id=args.action,
+            by=args.by,
+            reason=args.reason,
+        )
+    else:
+        result = release_outstanding_action(root, task_id=args.task, by=args.by, reason=args.reason)
+    if not result.allowed or result.release is None:
+        print("人工核对释放被拒绝（fail-closed）：", file=sys.stderr)
+        for reason in result.check.reasons:
+            print(f"- {reason}", file=sys.stderr)
+        return 1
+    release = result.release
+    print(
+        f"已释放未完成动作: {release.action_id}（任务 {release.task_id}，"
+        f"节点 {release.node}，by={release.released_by}，"
+        f"时间 {release.released_at.isoformat()}）"
+    )
+    print(f"理由: {release.reason}")
     return 0
 
 
@@ -325,6 +380,27 @@ def cmd_requirement_retry(args: argparse.Namespace) -> int:
             f"时间 {decision.decided_at.isoformat()}，理由 {decision.reason}"
         )
 
+        # 记录决定后释放该任务仍未完成的动作：未完成动作是独立的阻塞事实，只清除
+        # halted_reason 不足以解除 B03 红线。释放与决定使用同一人工理由，动作身份
+        # 不明或与任务不匹配时 fail-closed 拒绝，不再启动真实执行器。
+        if outstanding_action_node(root, selected.thread_id):
+            released = release_outstanding_action(
+                root,
+                task_id=selected.thread_id,
+                by=args.by,
+                reason=args.reason,
+            )
+            if not released.allowed or released.release is None:
+                print("人工核对释放未完成动作被拒绝（fail-closed）：", file=sys.stderr)
+                for reason in released.check.reasons:
+                    print(f"- {reason}", file=sys.stderr)
+                return 1
+            print(
+                f"已释放未完成动作: {released.release.action_id}"
+                f"（节点 {released.release.node}，by={released.release.released_by}，"
+                f"时间 {released.release.released_at.isoformat()}）"
+            )
+
         runner = RequirementTaskRunner(
             records_root=root,
             req_id=args.req_id,
@@ -459,6 +535,42 @@ def add_requirement_dispatch(
     )
     slot_clear.add_argument("--records-root", default=default_records_root)
     slot_clear.set_defaults(func=cmd_requirement_slot_clear)
+
+
+def add_requirement_actions(
+    subparsers: argparse._SubParsersAction,
+    default_records_root: str,
+) -> None:
+    """把 ``requirement actions list|clear`` 登记到需求子解析器上。
+
+    与 ``requirement slot list|clear`` 同型：list 只读列出未完成动作（任务身份、
+    节点、开始时间、动作 ID），clear 要求人工给出 ``--by``/``--reason`` 后才释放
+    并写回审计；缺理由或动作身份不明由 records 层 fail-closed 拒绝。
+    """
+
+    actions = subparsers.add_parser(
+        "actions", help="查看或人工释放未完成动作（中断后核对，释放写回审计）"
+    )
+    action_commands = actions.add_subparsers(dest="requirement_actions_command", required=True)
+
+    action_list = action_commands.add_parser("list", help="列出仍未完成的任务动作")
+    action_list.add_argument("--task", default="", help="只看某个单任务身份的动作")
+    action_list.add_argument("--records-root", default=default_records_root)
+    action_list.set_defaults(func=cmd_requirement_actions_list)
+
+    action_clear = action_commands.add_parser(
+        "clear", help="人工核对后释放一个未完成动作（必填 --task/--by/--reason）"
+    )
+    action_clear.add_argument("--task", required=True, help="动作所属的单任务身份")
+    action_clear.add_argument(
+        "--action",
+        default="",
+        help="动作 ID；省略时释放该任务当前的未完成动作",
+    )
+    action_clear.add_argument("--by", required=True, help="调用方标识（如 owner）")
+    action_clear.add_argument("--reason", required=True, help="人工核对释放理由（不能为空白）")
+    action_clear.add_argument("--records-root", default=default_records_root)
+    action_clear.set_defaults(func=cmd_requirement_actions_clear)
 
 
 # ---- 查询：依赖事实、阻塞判断与交付证据身份（G02 cli-contract） ----
