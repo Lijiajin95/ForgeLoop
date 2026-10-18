@@ -30,6 +30,82 @@ from forgeloop.records.requirements import RequirementStore
 WHEN = datetime(2026, 10, 15, 10, 0, tzinfo=UTC)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# 依赖真实工作树的断言只有在 *本身就是* git 工作树根的目录里才有可信事实：
+# mutmut 的 ``mutants/`` 副本位于工作树内部、但不是工作树根，``git ls-files``
+# 只会返回空列表；缺 ``.git`` 或 git 命令不可用时同样取不到跟踪路径。这些现场
+# 统一以 pytest.skip 明确跳过，而不是让断言失败。
+GIT_WORKTREE_SKIP_REASON = "需要在 git 工作树内运行"
+# git 现场命令异常挂起时也要能判定为不可用，不把测试拖死。
+GIT_PROBE_TIMEOUT_SECONDS = 30
+
+
+def _run_git(root: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
+    """在 *root* 执行 git 子命令；git 不可用、超时或无法启动时返回 ``None``。
+
+    ``git`` 本身返回非零退出码（例如不是工作树）仍返回结果对象，交由调用方按
+    ``returncode`` 判定，避免把“git 说不是工作树”与“git 命令不可用”混为一谈。
+    """
+
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            shell=False,
+            timeout=GIT_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def require_git_worktree(root: Path = REPO_ROOT) -> Path:
+    """*root* 必须是可用 git 工作树的根，否则以明确原因跳过该用例。
+
+    返回解析后的工作树根，供调用方继续使用。位于工作树内部但不是其根时同样
+    跳过（如 mutmut 的 ``mutants/`` 副本）。
+    """
+
+    probe = _run_git(root, "rev-parse", "--show-toplevel")
+    if probe is None or probe.returncode != 0:
+        pytest.skip(GIT_WORKTREE_SKIP_REASON)
+    worktree_root = probe.stdout.strip()
+    if not worktree_root:
+        pytest.skip(GIT_WORKTREE_SKIP_REASON)
+    resolved_root = Path(worktree_root)
+    if resolved_root.resolve() != Path(root).resolve():
+        # 位于某个工作树内部但不是其根（如 mutmut 的 mutants/ 副本）。
+        pytest.skip(GIT_WORKTREE_SKIP_REASON)
+    return resolved_root
+
+
+def tracked_repo_paths_or_skip(root: Path = REPO_ROOT) -> tuple[str, ...]:
+    """真实工作树内的跟踪路径；不在工作树内时按明确原因跳过。"""
+
+    require_git_worktree(root)
+    listing = _run_git(root, "ls-files")
+    if listing is None or listing.returncode != 0:
+        pytest.skip(GIT_WORKTREE_SKIP_REASON)
+    paths = tuple(line for line in listing.stdout.splitlines() if line.strip())
+    assert paths, "git ls-files 未返回任何跟踪文件"
+    return paths
+
+
+def assert_tracked_paths_are_legal(root: Path = REPO_ROOT) -> tuple[str, ...]:
+    """原 ``test_every_tracked_path_is_legal`` 断言体，返回已核对的跟踪路径。
+
+    真实工作树内逐个校验每个跟踪路径都落在合法分层；不在工作树内时整体跳过。
+    返回路径元组便于用例断言断言体确实执行且枚举非空。
+    """
+
+    paths = tracked_repo_paths_or_skip(root)
+    rejected = {
+        path: reason for path in paths if (reason := file_location_problem(path)) is not None
+    }
+    assert rejected == {}, f"真实仓库路径被固定事实误拒：{rejected}"
+    return paths
+
+
 READY_ANALYSIS = {
     "goal": "把规划接到仓库布局事实",
     "scenarios": ["规划拒绝臆造路径", "规划拒绝不可用命令"],
@@ -215,19 +291,7 @@ class TestFactsMatchRealRepository:
     """固定事实必须覆盖真实仓库布局，避免对可修改文件误拒。"""
 
     def test_every_tracked_path_is_legal(self) -> None:
-        result = subprocess.run(
-            ["git", "ls-files"],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        tracked = [line for line in result.stdout.splitlines() if line.strip()]
-        assert tracked, "git ls-files 未返回任何跟踪文件"
-        rejected = {
-            path: reason for path in tracked if (reason := file_location_problem(path)) is not None
-        }
-        assert rejected == {}, f"真实仓库路径被固定事实误拒：{rejected}"
+        assert_tracked_paths_are_legal()
 
     def test_review_regressions_from_previous_attempt(self) -> None:
         # 真实存在的测试根顶层共享文件与 CI 配置树必须合法。
@@ -240,6 +304,32 @@ class TestFactsMatchRealRepository:
         assert "不是文件名" in (file_location_problem("src/forgeloop/domain") or "")
         prefix = file_location_problem("src/forgeloop/domain/status.py/extra")
         assert prefix is not None and "当作目录" in prefix
+
+
+class TestRealWorktreeGuard:
+    """真实工作树守卫：无 .git / git 不可用时必须明确跳过。"""
+
+    def test_skips_outside_git_worktree(self, tmp_path: Path) -> None:
+        # 临时目录不在任何 git 工作树内：断言/校验入口必须触发跳过而非失败。
+        with pytest.raises(pytest.skip.Exception) as error:
+            assert_tracked_paths_are_legal(tmp_path)
+        assert GIT_WORKTREE_SKIP_REASON in str(error.value)
+
+    def test_skips_when_git_unavailable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # 清空 PATH 模拟 git 命令不可用；即使路径本身是工作树根也必须跳过。
+        empty_bin = tmp_path / "empty-bin"
+        empty_bin.mkdir()
+        monkeypatch.setenv("PATH", str(empty_bin))
+        with pytest.raises(pytest.skip.Exception) as error:
+            assert_tracked_paths_are_legal(REPO_ROOT)
+        assert GIT_WORKTREE_SKIP_REASON in str(error.value)
+
+    def test_real_worktree_assertion_still_executes(self) -> None:
+        # 真实工作树内不发生跳过：原断言体实际执行并枚举出非空跟踪路径。
+        paths = assert_tracked_paths_are_legal(REPO_ROOT)
+        assert paths and "src/forgeloop/domain/repo_facts.py" in paths
 
 
 class TestTestCommandFacts:
