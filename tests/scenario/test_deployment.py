@@ -59,6 +59,9 @@ class TestBootstrapDeployAndRollback:
 
         code, out = deploy(prefix, first, "v0.0.1", capsys, bootstrap_note="首次安装")
         assert code == 0, out
+        # 回归：bootstrap 成功后必须走到部署结果通知那一步（此前 health_detail 未初始化，
+        # 命令在最后一步抛 UnboundLocalError——真实试验发现）。
+        assert "邮件通知" in out
         assert current_version(prefix) == "0.0.1"
         assert (prefix / "current" / "bin" / "forgeloop").exists()
 
@@ -84,6 +87,66 @@ class TestBootstrapDeployAndRollback:
         assert len(set(installed_digests(prefix).values())) == 2
 
 
+class TestAutomaticRollbackOnUnhealthyRelease:
+    """健康检查不通过时自动回滚到上一版本（所有者 2026-10-18 决定）。"""
+
+    @pytest.mark.install
+    @pytest.mark.timeout(180)
+    def test_unhealthy_release_is_rolled_back_to_previous_version(
+        self, tmp_path: Path, capsys, monkeypatch
+    ) -> None:
+        prefix = tmp_path / "prefix"
+        # 先用引导部署装上"上一稳定版本"，作为回滚目标。
+        old_wheel = build_wheel(tmp_path / "dist-old", "0.0.0")
+        code, out = deploy(prefix, old_wheel, "v0.0.0", capsys)
+        assert code == 0, out
+        assert current_version(prefix) == "0.0.0"
+
+        env = prepare_release_env(tmp_path, monkeypatch)
+        approve = run_cli(
+            [
+                "deploy-approve",
+                "--tag",
+                "v0.0.1",
+                "--artifact-sha256",
+                str(env["digest"]),
+                "--by",
+                "owner",
+                "--reason",
+                "场景测试：确认安装该版本",
+                "--records-root",
+                str(env["records"]),
+            ],
+            capsys,
+        )
+        assert approve[0] == 0, approve[1]
+        # 让健康检查必然失败：模拟"新版本装上了但跑不起来"。
+        monkeypatch.setattr(
+            "forgeloop.cli.deploy.health_check", lambda prefix, **kw: (2, "模拟不健康")
+        )
+        try:
+            code, out = run_cli(
+                [
+                    "deploy",
+                    "--tag",
+                    "v0.0.1",
+                    "--prefix",
+                    str(prefix),
+                    "--records-root",
+                    str(env["records"]),
+                ],
+                capsys,
+            )
+        finally:
+            env["server"].stop()
+
+        assert code == 1
+        assert "自动回滚" in out
+        assert current_version(prefix) == "0.0.0"  # 服务仍在可用版本上
+        actions = [entry["action"] for entry in journal_entries(prefix)]
+        assert "auto-rollback" in actions
+
+
 class TestControlledDeploy:
     """控制路径：只部署 Release 上发布的同一份产物并绑定标签提交。"""
 
@@ -93,6 +156,29 @@ class TestControlledDeploy:
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
         env = prepare_release_env(tmp_path, monkeypatch)
+        # 发布前需确认（所有者 2026-10-18 决定）：先记录人工部署批准。
+        approve_code, approve_out = run_cli(
+            [
+                "deploy-approve",
+                "--tag",
+                "v0.0.1",
+                "--artifact-sha256",
+                str(env["digest"]),
+                "--by",
+                "owner",
+                "--reason",
+                "场景测试：确认安装该版本",
+                "--records-root",
+                str(env["records"]),
+            ],
+            capsys,
+        )
+        assert approve_code == 0, approve_out
+        # 该用例验的是"产物来源绑定"，健康检查另有用例覆盖（测试环境里的 wheel 是
+        # 最小构建、不带真实服务输出），因此这里让健康检查返回通过。
+        monkeypatch.setattr(
+            "forgeloop.cli.deploy.health_check", lambda prefix, **kw: (0, "测试：模拟健康")
+        )
         try:
             code, out = run_cli(
                 [

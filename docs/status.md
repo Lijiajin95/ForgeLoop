@@ -266,6 +266,33 @@
 - **真机验证（只用 `--config`）**：`mail poll --once --project ForgeLoop --config .cache/mail-config/mail.toml`（`folder` 指向 `FORGE_INBOX` 的 modified UTF-7 完整路径）真实登录 QQ 并登记成功，`errors=0`，给出待确认建议；口令经 `FORGELOOP_MAIL_SECRET` 指向生产口令文件。
 - **验证**：`make check` exit 0（高频 **1715 项**＝新增 4 项配置解析测试，前端 117 项）；架构契约与 CLI 契约门禁通过。
 
+2026-10-18（真实场景验收方案成文；`auto_analyze` 未落实项如实登记）：所有者问及 `auto_analyze` 作用与真实场景验收方案，核查后如实记录。
+
+- **`auto_analyze` 现状：有名字、没作用**。需求文本定义为"提交后按所有者配置的 auto_analyze 决定是否自动分析"，但全仓库只在 `mail/config.py` 被解析与校验（须为布尔），**没有任何消费点**；`cli/mail.py` 从不读它，模板里也没有注释。故 `true` 与 `false` 当前**行为完全相同**（都在登记后停待人工确认）。按纪律登记为**未落实项**：要么接线（`true` → 登记后自动进入只读分析，失败不影响已登记事实），要么从模板移除；建议前者，属新行为需所有者点头。
+- **新增 [`docs/resident-service-acceptance.md`](resident-service-acceptance.md)**：只覆盖必须在真实环境执行的验收（离线门槛不重复），分 A systemd 真机、B 重启恢复与不盲目重放、C 真实模型长跑、D 邮件真机、E 未落实项、F 判据汇总；每条写明前提、命令、通过判据、证据留存与不通过时的处置，并标注执行者（所有者/Agent）。方案明确：任一判据不满足即不通过，不放宽判据、不补造记录。
+- 邮件部分据本轮实测标注状态：D1–D4、D6 **已验**（真实发信被所有者确认收到、`fetched=12 registered=12 errors=0`、未读 0 仍能拉取、`sent=true`），D5（仅用生产配置 `~/.config/forgeloop/mail.toml` 不带参数运行）**待复跑确认**。
+
+2026-10-18（本机自动部署方案成文，待所有者评审）：所有者要求支持 CD 与自动部署且目标为**本机**；按项目规矩先交方案评审，本轮不动代码。
+
+- **新增 [`docs/adr/0004-local-cd-auto-deploy.md`](adr/0004-local-cd-auto-deploy.md)（提议）**：核查后确认**受控部署器已具备**——`release` 产出 wheel 与回执（产物 sha256）、`deploy` 装进版本目录并**原子激活**（幂等 noop、记录上一版本）、`rollback` 可回退。缺的是**触发与闭环**：常驻 worker 增加受控部署环节（只读筛选"已授权发布且本机版本落后"→ 调既有 `deploy` → 健康检查 → 回执 → **失败自动回滚**），开关 `auto_deploy` 默认关闭（与 `auto_advance` 同口径，开启需人工决定并落库）。
+- **硬性前提（fail-closed）**：产物已发布且过就绪判定；`sha256` 与回执一致（不接受重新构建）；prefix 必须等于常驻服务当前运行版本的 prefix（杜绝"部署了但跑的还是旧的"）；部署与任务执行互斥；健康检查失败自动回滚、回滚失败停在明确状态；`auto_deploy` 关闭时只报告不安装。
+- **受限环境的应对**：目标在本机时**不需要跨机传输与生产凭据**；受限的只是写工作区外路径（systemd unit、部署前缀），属一次性 bootstrap，由所有者执行或显式放行——本 ADR 给出 4 步接入清单。
+- **待拍板三点**：`auto_deploy` 打开后是否每次发布仍需确认（建议默认关闭 + 打开后全自动、页面保留"立即部署"）；健康检查判据（建议 `<prefix>/current/bin/forgeloop serve --once --json` 退出码与 JSON 可解析）；部署结果是否邮件通知（建议先记录与页面，邮件可选后续）。
+
+2026-10-18（本机 CD 语义定稿：部署前需确认、保留健康检查、结果邮件通知）：所有者对 ADR 0004 的三点给出决定，方案定稿，实现留下一轮。
+
+- **决定 1 推翻了全自动口径**：**安装任何新版本前必须有一次人工确认**，因此原设想的 `auto_deploy = true` 全自动安装**作废**，改为**每版本一次性部署批准**（记录谁/何时/理由/目标版本/产物 sha256）；未获批准的版本 worker **只报告不安装**。自动化只覆盖"检测 + 执行 + 验证 + 回执 + 回滚"，**决定永远由人做**。
+- **决定 2**：保留健康检查（`<prefix>/current/bin/forgeloop serve --once --json` 退出码 0 且 JSON 可解析，可再加 `GET /api/service`）；不通过即自动回滚并记录两次版本，回滚失败停在明确状态。
+- **决定 3**：部署结果（成功/回滚/失败）必须邮件通知，复用 best-effort 回执通道；发送失败只记 `mail_deliveries`，不影响部署结论。
+- 实现方案已写入 ADR（记录层批准表、`domain/deploy.py` 判据补"未批准拒绝"、`deploy approve` 与回执、worker 只读检测与领取执行、页面"待确认部署"段、邮件通知、契约与文档同步），并给出通过/拒绝两侧测试矩阵与真机 C 组验收（成功部署+邮件、健康检查失败自动回滚、未确认不得安装）。
+
+2026-10-18（本机 CD 真实试验跑通；两个真缺陷被真实试验抓出并修复）：所有者要求"完成真实试验"，本轮用**真 wheel、真前缀、真 CLI、真邮箱**跑完整链路，并据试验结果修缺陷。
+
+- **真实试验做了什么（可复核）**：`uv build` 构建真 wheel（`forgeloop-0.0.1-py3-none-any.whl`，产物校验值 `ef3c009a…`）→ `deploy --bootstrap` 装入 `.cache/cd-experiment/prefix/releases/0.0.1` 并**原子激活** `current` → 运行**部署后的** `current/bin/forgeloop serve --once --json` 得到**合法 JSON**（schema_version/worker 段齐全）→ 部署结果**真实邮件通知已发送到 592260959@qq.com**。试验产物与日志留在 `.cache/cd-experiment/`（含 `deployments.jsonl`）。
+- **缺陷 1（bootstrap 收尾崩溃）**：bootstrap 路径下 `health_detail` 未初始化，部署**已完成**但命令在最后一步抛 `UnboundLocalError`。已修（初始化 + 仅受控路径做严格健康检查），并补**回归断言**（bootstrap 成功后必须走到"邮件通知"那一步）。这条只有真实跑一次才会暴露——单元与场景测试都没覆盖到 bootstrap 收尾。
+- **缺陷 2（邮件配置链误吞他人配置）**：主机上存在无关的 `~/.config/mail.toml`（含 enabled/from/inbound/outbound/to 等陌生键），旧候选顺序把它排在 **ForgeLoop 专用路径之前**，导致配置加载直接报"未知键"失败。已修两处：**专用路径 `~/.config/forgeloop/mail.toml` 优先**，通用路径只作兜底；且**非显式候选解析失败只跳过并记录**，逐个尝试，全部不可用才 fail-closed（`--config`／`FORGELOOP_MAIL_CONFIG` 仍失败即拒绝）。相关单元测试同步更新并新增顺序断言。
+- **验证**：`make check` **exit 0（1733 项 + 前端 117）**。
+
 ### 实现范围
 
 | 层 | 内容 |

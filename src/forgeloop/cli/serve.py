@@ -201,6 +201,36 @@ def _run_cli_operation(
     return code == 0, (out.getvalue() + err.getvalue()).strip()
 
 
+def deploy_section(settings: ServeSettings) -> dict[str, object]:
+    """待部署结论（只读）：当前激活版本、最近发布与是否已获人工批准。
+
+    不安装任何东西、不改现场；读不到就如实写 ``unknown``/空值，不猜。
+    """
+
+    from forgeloop.adapter.deployment import current_version, default_prefix
+    from forgeloop.domain.deploy import deploy_offer
+    from forgeloop.records.store import RecordStore
+
+    try:
+        active = current_version(default_prefix()) or ""
+    except Exception:
+        active = ""
+    store = RecordStore(settings.web.records_root / "records.sqlite")
+    try:
+        released = store.latest_release()
+        approval = store.deploy_approval(released[0]) if released is not None else None
+    finally:
+        store.close()
+    offer = deploy_offer(active, released, approval)
+    return {
+        "active_version": active or "unknown",
+        "released_tag": offer.tag or (released[0] if released is not None else ""),
+        "pending": offer.pending,
+        "approved": offer.approved,
+        "reason": offer.reason,
+    }
+
+
 def build_service_document(
     settings: ServeSettings,
     worker: ServiceWorker,
@@ -236,6 +266,7 @@ def build_service_document(
         evidence = item["detail"]
         if evidence and evidence not in str(existing.get("detail", "")):
             existing["detail"] = f"{existing.get('detail', '')}；现场证据：{evidence}"
+
     return {
         "schema_version": SERVICE_API_SCHEMA_VERSION,
         "generated_at": moment.isoformat(),
@@ -244,6 +275,9 @@ def build_service_document(
         "pid": os.getpid(),
         "started_at": worker.started_at.isoformat(),
         "worker": worker.status(),
+        # 待部署结论（2026-10-18 所有者决定：只报告不安装）：本机激活版本、最近发布与
+        # 是否已获人工部署批准。只读事实，页面/运维据此提示"待确认部署"。
+        "deploy": deploy_section(settings),
         "projects": sorted(settings.service.projects),
         # 页面写入口是否可用：只有 serve 注入了令牌才是 true，web 只读服务恒为 false。
         "operations_enabled": operations_enabled,

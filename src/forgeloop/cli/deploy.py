@@ -25,6 +25,7 @@ from forgeloop.adapter.deployment import (
     current_version,
     default_prefix,
     download_asset,
+    health_check,
     install_wheel,
     installed_digests,
     previous_version,
@@ -231,11 +232,120 @@ def add_deploy_parser(subparsers: argparse._SubParsersAction, default_records_ro
     deploy.add_argument("--records-root", default=default_records_root)
     deploy.set_defaults(func=cmd_deploy)
 
+    approve = subparsers.add_parser(
+        "deploy-approve", help="人工批准某版本（标签+产物校验值）的部署（发布前需确认）"
+    )
+    approve.add_argument("--tag", required=True, help="版本标签：vMAJOR.MINOR.PATCH")
+    approve.add_argument("--artifact-sha256", required=True, help="产物校验值（64 位十六进制小写）")
+    approve.add_argument("--by", required=True, help="调用方标识（如 owner）")
+    approve.add_argument("--reason", required=True, help="批准理由（安装到本机的决定）")
+    approve.add_argument("--records-root", default=default_records_root)
+    approve.set_defaults(func=cmd_deploy_approve)
+
     rollback = subparsers.add_parser("rollback", help="回滚到已安装且校验记录完整的版本（S2）")
     rollback.add_argument("--to", default="", help="目标版本 X.Y.Z（缺省用最近记录的上一版本）")
     rollback.add_argument("--note", default="", help="回滚原因备注")
     rollback.add_argument("--prefix", default="", help="部署前缀（缺省 ~/.local/share/forgeloop）")
     rollback.set_defaults(func=cmd_rollback)
+
+
+def cmd_deploy_approve(args: argparse.Namespace) -> int:
+    """记录一次人工部署批准；缺少调用方标识或理由一律拒绝（零副作用）。"""
+
+    store = _store(args)
+    try:
+        try:
+            tag, digest = store.record_deploy_approval(
+                args.tag,
+                args.artifact_sha256,
+                by=args.by,
+                source="cli:deploy-approve",
+                reason=args.reason,
+            )
+        except ValueError as error:
+            return fail(str(error))
+    finally:
+        store.close()
+    print(f"部署批准已记录：{tag}（产物 {digest[:12]}，批准人 {args.by}）")
+    print("下一步：forgeloop deploy --tag " + tag + "（安装后自动健康检查；失败回滚）")
+    return 0
+
+
+_DEPLOY_NOTICE_TITLES = {
+    "deploy": "部署成功",
+    "auto-rollback": "健康检查失败，已自动回滚",
+    "failed": "部署失败",
+}
+
+
+def deploy_notice(
+    action: str, tag: str, artifact_sha256: str, detail: str, previous: str
+) -> tuple[str, str]:
+    """部署结果邮件通知的（主题, 正文）；纯函数，便于测试与复用。"""
+
+    title = _DEPLOY_NOTICE_TITLES.get(action, action)
+    subject = f"[ForgeLoop] {title}：{tag}"
+    body = "\n".join(
+        (
+            f"版本：{tag}",
+            f"产物校验值：{artifact_sha256}",
+            f"结果：{title}",
+            f"健康检查：{detail}",
+            f"当前/回滚目标版本：{previous or '无'}",
+            "",
+            "本邮件由部署流程自动发出（best-effort）。",
+        )
+    )
+    return subject, body
+
+
+def notify_deploy_result(
+    action: str, tag: str, artifact_sha256: str, detail: str, previous: str
+) -> str:
+    """best-effort 发出部署结果通知；发送失败只返回状态，绝不影响部署结论。
+
+    2026-10-18 所有者决定（"需要邮件通知"）：成功/自动回滚/失败都要通知。收件人与
+    provider 取邮件配置链（`--config`之外由 `~/.config/forgeloop/mail.toml` 命中）。
+    """
+
+    subject, body = deploy_notice(action, tag, artifact_sha256, detail, previous)
+    try:
+        from email.message import EmailMessage
+
+        from forgeloop.adapter.mail import SmtpMailSender, SmtpSettings
+        from forgeloop.mail.config import load_mail_config
+        from forgeloop.mail.ports import MailEncryption
+        from forgeloop.mail.presets import preset_for
+        from forgeloop.mail.secret import resolve_secret
+
+        config = load_mail_config(repo_root=Path.cwd(), home=Path.home())
+        preset = preset_for(config.provider)
+        resolution = resolve_secret(
+            repo_root=Path.cwd(), home=Path.home(), default_account=config.sender
+        )
+        if not resolution.secret:
+            return "邮件通知未发送：口令不可用"
+        endpoint = preset.default_smtp_endpoint
+        sender = SmtpMailSender(
+            SmtpSettings(
+                host=endpoint.host,
+                port=endpoint.port,
+                username=config.sender,
+                secret=resolution.secret.reveal(),
+                sender=config.sender,
+                recipient=config.recipient,
+                use_ssl=endpoint.encryption is MailEncryption.SSL,
+            )
+        )
+        message = EmailMessage()
+        message["From"] = config.sender
+        message["To"] = config.recipient
+        message["Subject"] = subject
+        message.set_content(body)
+        sender.send(message)
+    except Exception as error:
+        return f"邮件通知未发送：{type(error).__name__}: {error}"
+    return f"邮件通知已发送：{config.recipient}"
 
 
 def cmd_deploy(args: argparse.Namespace) -> int:
@@ -246,7 +356,14 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         plan = _bootstrap_plan(args, prefix) if args.artifact else _controlled_plan(args, prefix)
     except DeployRefused as refusal:
         return fail(str(refusal))
-    decision = check_deploy_readiness(plan.request)
+    store = _store(args)
+    try:
+        approval = (
+            None if plan.request.source == "bootstrap" else store.deploy_approval(plan.request.tag)
+        )
+    finally:
+        store.close()
+    decision = check_deploy_readiness(plan.request, deploy_approval=approval)
     if not decision.allowed:
         return fail(decision.reason)
     previous = current_version(prefix) or ""
@@ -267,10 +384,52 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         print(f"未自动回退；上一版本: {previous or '无'}", file=sys.stderr)
         _print_recovery_entry(prefix, previous)
         return 1
+    # 2026-10-18 所有者决定（保留健康检查）：受控路径激活后再做一次真实健康检查，
+    # 不通过即**自动回滚到上一版本**，不留半激活前缀；bootstrap（工具首次安装，机器上
+    # 通常还没有服务配置）只要求冒烟通过，也不写 health 日志。
+    health_code, health_detail = 0, "bootstrap：跳过服务健康检查"
+    if plan.request.source == "release":
+        health_code, health_detail = health_check(prefix)
+        append_journal(prefix, _journal_entry(plan, args, previous, health_code, "health"))
+        if health_code != 0:
+            print(f"FAIL: 健康检查失败（exit={health_code}）：{health_detail}", file=sys.stderr)
+            if not previous:
+                print("没有可回滚的上一版本；请人工处理", file=sys.stderr)
+                print(
+                    notify_deploy_result(
+                        "failed", plan.tag, plan.artifact_sha256, health_detail, previous
+                    ),
+                    file=sys.stderr,
+                )
+                _print_recovery_entry(prefix, previous)
+                return 1
+            try:
+                activate(prefix, previous)
+            except DeploymentError as error:
+                print(
+                    f"自动回滚失败：{error}；已停在 {plan.version}，请人工处理",
+                    file=sys.stderr,
+                )
+                _print_recovery_entry(prefix, previous)
+                return 1
+            append_journal(
+                prefix, _journal_entry(plan, args, previous, health_code, "auto-rollback")
+            )
+            print(f"已自动回滚到 {previous}；服务保持可用", file=sys.stderr)
+            print(
+                notify_deploy_result(
+                    "auto-rollback", plan.tag, plan.artifact_sha256, health_detail, previous
+                ),
+                file=sys.stderr,
+            )
+            _print_recovery_entry(prefix, previous)
+            return 1
+        print(f"健康检查通过：{health_detail}")
     print(f"已部署 {plan.tag}（来源 {plan.source}）到 {target}")
     print(f"产物校验值: {plan.artifact_sha256}")
     print(f"当前版本: {plan.version}；上一版本: {previous or '无'}")
     print(f"部署日志: {prefix / 'deployments.jsonl'}")
+    print(notify_deploy_result("deploy", plan.tag, plan.artifact_sha256, health_detail, previous))
     return 0
 
 

@@ -88,6 +88,14 @@ CREATE TABLE IF NOT EXISTS task_commits (
     UNIQUE (task_id, commit_sha, relation)
 );
 CREATE INDEX IF NOT EXISTS task_commits_by_task ON task_commits(task_id);
+CREATE TABLE IF NOT EXISTS deploy_approvals (
+    tag TEXT PRIMARY KEY,
+    artifact_sha256 TEXT NOT NULL,
+    approved_by TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    approved_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS failure_rounds (
     round_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
@@ -496,7 +504,7 @@ class RecordStore:
 
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._root = db_path.parent
+        self._root: Path = db_path.parent
         self._db = sqlite3.connect(db_path, isolation_level=None)
         # 两个连接争用同一记录库时等待写锁而不是立刻报 database is locked。
         self._db.execute("PRAGMA busy_timeout = 5000")
@@ -803,6 +811,78 @@ class RecordStore:
                 _iso(_now()),
             ),
         )
+
+    def record_deploy_approval(
+        self,
+        tag: str,
+        artifact_sha256: str,
+        *,
+        by: str = "",
+        source: str = "",
+        reason: str = "",
+        at: datetime | None = None,
+    ) -> tuple[str, str]:
+        """记录一次人工部署批准（发布前需确认，所有者 2026-10-18 决定）。
+
+        绑定**版本标签与产物校验值**：批准只对这两者同时一致的那次部署生效。校验
+        fail-closed——调用方标识与理由不能为空、产物校验值须为 64 位十六进制，否则
+        ``ValueError`` 且不写记录（"谁批的、为什么"缺失时不得留下批准）。
+        """
+
+        if not by.strip():
+            raise ValueError("部署批准必须给出调用方标识 --by")
+        if not reason.strip():
+            raise ValueError("部署批准必须给出理由 --reason")
+        if not DIGEST_PATTERN.match(artifact_sha256):
+            raise ValueError("产物校验值须为 64 位十六进制小写")
+        stamp = at or datetime.now(UTC)
+        with self._write_transaction():
+            self._db.execute(
+                "INSERT OR REPLACE INTO deploy_approvals"
+                " (tag, artifact_sha256, approved_by, source, reason, approved_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (tag, artifact_sha256, by.strip(), source, reason, _iso(stamp)),
+            )
+        return (tag, artifact_sha256)
+
+    def latest_release(self) -> tuple[str, str] | None:
+        """最近一次发布 ``(tag, artifact_sha256)``；无记录或回执读不到时返回 ``None``。
+
+        发布事实由 ``OutcomeStore`` 读写（同一张 ``releases`` 表），这里只做**只读**
+        汇总：产物校验值以**发布回执**为准（与部署端核对的是同一份事实），回执里的相对
+        路径按记录根下的任务目录解析；读不到就返回 ``None``，不猜校验值。
+        """
+
+        row = self._db.execute(
+            "SELECT tag, receipt_path FROM releases ORDER BY released_at DESC, rowid DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        tag, receipt_path = str(row[0]), Path(str(row[1]))
+        candidates: list[Path] = [receipt_path]
+        if not receipt_path.is_absolute():
+            candidates = sorted(self._root.glob(f"*/{receipt_path.name}")) + candidates
+        for path in candidates:
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            digest = str(payload.get("artifact_sha256", ""))
+            if DIGEST_PATTERN.match(digest):
+                return (tag, digest)
+        return None
+
+    def deploy_approval(self, tag: str) -> tuple[str, str] | None:
+        """回查某标签的部署批准；没有批准时返回 ``None``（调用方据此 fail-closed）。"""
+
+        row = self._db.execute(
+            "SELECT tag, artifact_sha256 FROM deploy_approvals WHERE tag = ?", (tag,)
+        ).fetchone()
+        if row is None:
+            return None
+        return (str(row[0]), str(row[1]))
 
     def record_task_commit(
         self,

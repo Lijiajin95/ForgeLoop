@@ -1646,6 +1646,38 @@
       "counts": {
         "$ref": "#/web_progress_document/properties/counts"
       },
+      "deploy": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "active_version": {
+            "type": [
+              "string"
+            ]
+          },
+          "approved": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "pending": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string"
+            ]
+          },
+          "released_tag": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
       "generated_at": {
         "type": [
           "string"

@@ -102,11 +102,18 @@ def _release_source_refusal(request: DeployRequest) -> DeployDecision | None:
     return None
 
 
-def check_deploy_readiness(request: DeployRequest) -> DeployDecision:
+def check_deploy_readiness(
+    request: DeployRequest, *, deploy_approval: tuple[str, str] | None = None
+) -> DeployDecision:
     """部署前置判定：控制路径要求发布回执、标签提交与产物校验值三者一致。
 
     bootstrap 路径只跳过"发布回执/标签提交/发布校验值"三项（工具自身首次安装
     时它们尚不存在），产物校验值格式与幂等冲突检查两条路径共用。
+
+    2026-10-18 所有者决定（"发布前需确认"）：**控制路径**还必须有一次人工部署批准，
+    以 ``(tag, artifact_sha256)`` 传入；两者必须与本次请求完全一致，否则拒绝——
+    未批准、批准给别的版本、批准给别的产物一律不放行。bootstrap 路径（工具自身首次
+    安装，尚无记录库与批准概念）不要求批准，但仍受其余规则约束。
     """
 
     if parse_version(request.tag) is None:
@@ -122,6 +129,18 @@ def check_deploy_readiness(request: DeployRequest) -> DeployDecision:
     if not DIGEST_PATTERN.match(request.artifact_sha256):
         return DeployDecision(False, "产物校验值缺失或格式错误（须为 64 位十六进制小写）")
     if request.source == "release":
+        if deploy_approval is None:
+            return DeployDecision(
+                False,
+                "缺少人工部署批准：安装新版本前必须由人确认（deploy approve --by/--reason）",
+            )
+        approved_tag, approved_sha = deploy_approval
+        if approved_tag != request.tag or approved_sha != request.artifact_sha256:
+            return DeployDecision(
+                False,
+                f"部署批准与本次请求不符：批准 {approved_tag}/{approved_sha[:12]}，"
+                f"请求 {request.tag}/{request.artifact_sha256[:12]}；须重新确认",
+            )
         refusal = _release_source_refusal(request)
         if refusal is not None:
             return refusal
@@ -153,3 +172,60 @@ def check_rollback_readiness(request: RollbackRequest) -> DeployDecision:
     if not DIGEST_PATTERN.match(str(recorded)):
         return DeployDecision(False, f"{request.target_version} 的产物校验记录格式错误")
     return DeployDecision(True, f"可回滚到 {request.target_version}：校验记录存在")
+
+
+@dataclass(frozen=True)
+class DeployOffer:
+    """本机"是否有待部署的新版本"的只读结论（不安装、不改现场）。"""
+
+    pending: bool
+    reason: str
+    tag: str = ""
+    version: str = ""
+    approved: bool = False
+
+
+def deploy_offer(
+    active_version: str,
+    released: tuple[str, str] | None,
+    approval: tuple[str, str] | None,
+) -> DeployOffer:
+    """比较"已发布的最新版本"与"本机当前激活版本"，给出待部署结论（所有者 2026-10-18 决定）。
+
+    ``released`` 是 ``(tag, artifact_sha256)``；``approval`` 是人工部署批准（同形状），无批准
+    为 ``None``。规则：
+
+    - 没有发布记录 → 无待部署；
+    - 发布版本不高于当前激活版本 → 无待部署（同版本视为已到位）；
+    - 有更新的发布但**没有批准** → 待部署但 ``approved=False``（worker 只报告，交人工确认）；
+    - 有更新的发布且批准与发布一致 → ``approved=True``（可执行部署，是否执行仍由人与开关决定）。
+
+    版本比较用 :func:`parse_version`；标签不合法或版本缺失一律按"无可部署"处理并说明原因，
+    不做猜测。
+    """
+
+    if released is None:
+        return DeployOffer(False, "没有已发布版本")
+    tag, digest = released
+    parsed = parse_version(tag)
+    if parsed is None:
+        return DeployOffer(False, f"发布标签不合法：{tag}")
+    active = parse_version(f"v{active_version}") if active_version else None
+    if active is not None and parsed <= active:
+        return DeployOffer(False, f"当前已是 {active_version}，无更新版本")
+    approved = approval is not None and approval[0] == tag and approval[1] == digest
+    if not approved:
+        return DeployOffer(
+            True,
+            f"发现待确认部署：{tag}（尚无人工批准，worker 只报告不安装）",
+            tag,
+            f"{parsed[0]}.{parsed[1]}.{parsed[2]}",
+            False,
+        )
+    return DeployOffer(
+        True,
+        f"待部署：{tag}（已获人工批准）",
+        tag,
+        f"{parsed[0]}.{parsed[1]}.{parsed[2]}",
+        True,
+    )

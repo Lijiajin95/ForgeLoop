@@ -52,6 +52,32 @@ def journal_version(prefix: Path, version: str, digest: str = "a" * 64, previous
 
 
 def controlled(capsys, env: dict, **flags):
+    """受控部署：先按"发布前需确认"记录人工批准，再执行部署。
+
+    批准绑定 `(tag, artifact_sha256)`；本助手用发布回执里的产物校验值批准，因此
+    后续被拒的原因必然是**被测的那条规则**（篡改产物、标签提交不符等），
+    而不是缺少批准。
+    """
+
+    tag = flags.get("tag", "v0.0.1")
+    digest = str(env["digest"])  # 真实产物校验值：与部署计划算出的一致
+    code, out = run_cli(
+        [
+            "deploy-approve",
+            "--tag",
+            tag,
+            "--artifact-sha256",
+            digest,
+            "--by",
+            "owner",
+            "--reason",
+            "场景测试：确认安装该版本",
+            "--records-root",
+            str(env["records"]),
+        ],
+        capsys,
+    )
+    assert code == 0, out
     return deploy(
         capsys,
         prefix=env["prefix"],

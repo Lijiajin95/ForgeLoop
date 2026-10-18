@@ -78,3 +78,75 @@ class TestPrerequisiteThreadId:
 
         assert _prerequisite_thread_id("task-plain", "mail-ports") == ""
         assert _prerequisite_thread_id("task-x-v-notdigits-y", "mail-ports") == ""
+
+
+class TestDeployApproval:
+    """发布前需确认（所有者 2026-10-18 决定）：批准绑定版本与产物身份。"""
+
+    def test_records_and_reads_back(self, store) -> None:
+        assert store.deploy_approval("v1.2.3") is None
+        store.record_deploy_approval("v1.2.3", "a" * 64, by="owner", reason="确认安装到本机")
+        assert store.deploy_approval("v1.2.3") == ("v1.2.3", "a" * 64)
+
+    def test_later_approval_for_same_tag_replaces_and_binds_new_artifact(self, store) -> None:
+        store.record_deploy_approval("v1.2.3", "a" * 64, by="owner", reason="第一次确认")
+        store.record_deploy_approval("v1.2.3", "b" * 64, by="owner", reason="换产物后重新确认")
+        assert store.deploy_approval("v1.2.3") == ("v1.2.3", "b" * 64)
+
+    def test_missing_by_or_reason_or_bad_digest_is_refused(self, store) -> None:
+        for kwargs in (
+            {"by": "", "reason": "理由"},
+            {"by": "owner", "reason": "   "},
+            {"by": "owner", "reason": "理由", "artifact_sha256": "xyz"},
+        ):
+            digest = kwargs.pop("artifact_sha256", "a" * 64)
+            with pytest.raises(ValueError):
+                store.record_deploy_approval("v1.2.3", digest, **kwargs)
+        assert store.deploy_approval("v1.2.3") is None  # 拒绝时零副作用
+
+
+class TestLatestRelease:
+    """最近一次发布（待部署结论的输入之一）：校验值以发布回执为准。"""
+
+    def test_no_release_returns_none(self, store) -> None:
+        assert store.latest_release() is None
+
+    def test_reads_tag_and_digest_from_receipt(self, store, tmp_path) -> None:
+        import json
+
+        task_dir = tmp_path / TASK_ID
+        task_dir.mkdir(exist_ok=True)
+        receipt = task_dir / "release-receipt.json"
+        receipt.write_text(json.dumps({"artifact_sha256": "c" * 64}), encoding="utf-8")
+        store._db.execute(
+            "INSERT INTO releases (task_id, tag, merge_commit, baseline_commit, diff_sha256,"
+            " receipt_path, pushed, push_detail, released_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, 0, '', ?)",
+            (
+                TASK_ID,
+                "v1.2.3",
+                "a" * 40,
+                "b" * 40,
+                "d" * 64,
+                receipt.name,
+                "2026-10-18T00:00:00+00:00",
+            ),
+        )
+        assert store.latest_release() == ("v1.2.3", "c" * 64)
+
+    def test_broken_receipt_is_reported_as_unknown(self, store, tmp_path) -> None:
+        store._db.execute(
+            "INSERT INTO releases (task_id, tag, merge_commit, baseline_commit, diff_sha256,"
+            " receipt_path, pushed, push_detail, released_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, 0, '', ?)",
+            (
+                TASK_ID,
+                "v1.2.3",
+                "a" * 40,
+                "b" * 40,
+                "d" * 64,
+                "missing.json",
+                "2026-10-18T00:00:00+00:00",
+            ),
+        )
+        assert store.latest_release() is None

@@ -11,6 +11,7 @@ from dataclasses import replace
 
 from forgeloop.domain.deploy import (
     DeployDecision,
+    DeployOffer,
     DeployRequest,
     RollbackRequest,
     check_deploy_readiness,
@@ -51,7 +52,11 @@ def deploy_request(**overrides) -> DeployRequest:
 
 
 def deploy(**overrides) -> DeployDecision:
-    return _contract(check_deploy_readiness(deploy_request(**overrides)))
+    """控制路径的默认调用带一条与本请求完全一致的人工部署批准（2026-10-18 决定）。"""
+
+    request = deploy_request(**overrides)
+    approval = (request.tag, request.artifact_sha256)
+    return _contract(check_deploy_readiness(request, deploy_approval=approval))
 
 
 def refused_deploy(**overrides) -> DeployDecision:
@@ -171,6 +176,37 @@ class TestBootstrapDeploy:
         assert "来源" in refused_deploy(source="whatever").reason
 
 
+class TestDeployApproval:
+    """发布前需确认（所有者 2026-10-18 决定）：控制路径没有批准一律不放行。"""
+
+    def test_without_approval_is_refused(self) -> None:
+        request = deploy_request()
+        decision = _contract(check_deploy_readiness(request))
+        assert decision.allowed is False
+        assert "人工部署批准" in decision.reason
+
+    def test_approval_for_other_tag_is_refused(self) -> None:
+        request = deploy_request()
+        decision = _contract(
+            check_deploy_readiness(request, deploy_approval=("v9.9.9", request.artifact_sha256))
+        )
+        assert decision.allowed is False
+        assert "不符" in decision.reason
+
+    def test_approval_for_other_artifact_is_refused(self) -> None:
+        request = deploy_request()
+        decision = _contract(
+            check_deploy_readiness(request, deploy_approval=(request.tag, OTHER_DIGEST))
+        )
+        assert decision.allowed is False
+        assert "不符" in decision.reason
+
+    def test_bootstrap_source_needs_no_approval(self) -> None:
+        request = deploy_request(source="bootstrap", release_recorded=False)
+        decision = _contract(check_deploy_readiness(request))
+        assert decision.allowed is True
+
+
 class TestRollbackReadiness:
     def test_rollback_to_installed_version_is_allowed(self) -> None:
         decision = rollback()
@@ -197,3 +233,71 @@ class TestRollbackReadiness:
 
     def test_rollback_illegal_version_is_rejected(self) -> None:
         assert "版本号" in refused_rollback(target_version="0.1").reason
+
+
+class TestDeployNotice:
+    """部署结果邮件通知的内容（所有者 2026-10-18 决定：成功/回滚/失败都要通知）。"""
+
+    def test_success_notice_carries_version_digest_and_health(self) -> None:
+        from forgeloop.cli.deploy import deploy_notice
+
+        subject, body = deploy_notice(
+            "deploy", "v1.2.3", "a" * 64, "serve --once --json 通过", "1.2.2"
+        )
+        assert subject == "[ForgeLoop] 部署成功：v1.2.3"
+        assert "v1.2.3" in body and "a" * 64 in body
+        assert "serve --once --json 通过" in body and "1.2.2" in body
+
+    def test_rollback_and_failure_titles_are_distinct(self) -> None:
+        from forgeloop.cli.deploy import deploy_notice
+
+        rollback = deploy_notice("auto-rollback", "v1.2.3", "a" * 64, "exit=2", "1.2.2")[0]
+        failed = deploy_notice("failed", "v1.2.3", "a" * 64, "exit=2", "")[0]
+        assert "自动回滚" in rollback
+        assert "失败" in failed and "回滚" not in failed
+
+    def test_notification_failure_never_raises(self, tmp_path, monkeypatch) -> None:
+        """best-effort：没有可用配置/口令时只返回状态串，不抛异常。"""
+
+        from forgeloop.cli.deploy import notify_deploy_result
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("FORGELOOP_MAIL_CONFIG", raising=False)
+        monkeypatch.delenv("FORGELOOP_MAIL_SECRET", raising=False)
+        status = notify_deploy_result("deploy", "v1.2.3", "a" * 64, "ok", "")
+        assert isinstance(status, str) and status
+
+
+class TestDeployOffer:
+    """待部署结论（只读）：worker 只报告不安装（所有者 2026-10-18 决定）。"""
+
+    def offer(
+        self, active: str, released: tuple[str, str] | None, approval: tuple[str, str] | None = None
+    ) -> DeployOffer:
+        from forgeloop.domain.deploy import deploy_offer
+
+        return deploy_offer(active, released, approval)
+
+    def test_no_release_records_means_nothing_pending(self) -> None:
+        result = self.offer("1.2.3", None)
+        assert result.pending is False and "没有已发布版本" in result.reason
+
+    def test_same_or_older_release_is_not_pending(self) -> None:
+        assert self.offer("1.2.3", ("v1.2.3", DIGEST)).pending is False
+        assert self.offer("1.2.3", ("v1.2.2", DIGEST)).pending is False
+
+    def test_newer_release_without_approval_is_pending_but_not_approved(self) -> None:
+        result = self.offer("1.2.2", ("v1.2.3", DIGEST))
+        assert result.pending is True and result.approved is False
+        assert result.tag == "v1.2.3" and result.version == "1.2.3"
+        assert "只报告不安装" in result.reason
+
+    def test_approval_must_match_tag_and_artifact(self) -> None:
+        assert self.offer("1.2.2", ("v1.2.3", DIGEST), ("v1.2.3", DIGEST)).approved is True
+        assert self.offer("1.2.2", ("v1.2.3", DIGEST), ("v1.2.3", "b" * 64)).approved is False
+        assert self.offer("1.2.2", ("v1.2.3", DIGEST), ("v9.9.9", DIGEST)).approved is False
+
+    def test_invalid_tag_is_reported_instead_of_guessed(self) -> None:
+        result = self.offer("1.2.2", ("not-a-tag", DIGEST))
+        assert result.pending is False and "标签不合法" in result.reason

@@ -75,13 +75,15 @@ class TestPriorityResolution:
         config = load(tmp_path)
         assert config.source_path == repository
 
-    def test_user_config_wins_over_user_forgeloop(self, tmp_path: Path) -> None:
-        user = write_config(tmp_path / "home/.config/mail.toml", minimal_config(provider="qq"))
-        write_config(
+    def test_user_forgeloop_wins_over_user_config(self, tmp_path: Path) -> None:
+        """2026-10-18 实测修正：专用路径优先，主机通用的 ~/.config/mail.toml 只作兜底。"""
+
+        write_config(tmp_path / "home/.config/mail.toml", minimal_config(provider="qq"))
+        specific = write_config(
             tmp_path / "home/.config/forgeloop/mail.toml", minimal_config(provider="gmail")
         )
         config = load(tmp_path)
-        assert config.source_path == user
+        assert config.source_path == specific and config.provider == "gmail"
 
     def test_user_forgeloop_used_when_alone(self, tmp_path: Path) -> None:
         path = write_config(
@@ -96,16 +98,26 @@ class TestPriorityResolution:
             home=Path("/home/owner"),
             environ={CONFIG_ENV_VAR: "/env.toml"},
         )
-        assert [candidate.origin for candidate in candidates] == [
-            "environment",
-            "repository",
-            "user_config",
-            "user_forgeloop",
-        ]
+        assert (
+            [candidate.origin for candidate in candidates]
+            == [
+                "environment",
+                "repository",
+                "user_forgeloop",
+                "user_config",
+            ]
+            == [
+                "environment",
+                "repository",
+                # 2026-10-18 实测修正：专用路径优先（通用路径可能属于别的工具）。
+                "user_forgeloop",
+                "user_config",
+            ]
+        )
         assert candidates[0].path == Path("/env.toml")
         assert candidates[1].path == REPO / "config/mail.toml"
-        assert candidates[2].path == Path("/home/owner/.config/mail.toml")
-        assert candidates[3].path == Path("/home/owner/.config/forgeloop/mail.toml")
+        assert candidates[2].path == Path("/home/owner/.config/forgeloop/mail.toml")
+        assert candidates[3].path == Path("/home/owner/.config/mail.toml")
 
 
 class TestFailClosed:

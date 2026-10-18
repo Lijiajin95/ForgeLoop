@@ -73,8 +73,10 @@ def config_candidates(
     if configured:
         candidates.append(ConfigCandidate("environment", Path(configured).expanduser()))
     candidates.append(ConfigCandidate("repository", repo_root / REPOSITORY_CONFIG_RELATIVE))
-    candidates.append(ConfigCandidate("user_config", home / USER_CONFIG_RELATIVE))
+    # 2026-10-18 实测修正：主机的通用 `~/.config/mail.toml` 可能属于别的工具（含 enabled/
+    # from/… 等陌生键），因此 **ForgeLoop 专用路径优先**，通用路径只作为最后的兜底。
     candidates.append(ConfigCandidate("user_forgeloop", home / USER_FORGELOOP_CONFIG_RELATIVE))
+    candidates.append(ConfigCandidate("user_config", home / USER_CONFIG_RELATIVE))
     return tuple(candidates)
 
 
@@ -149,9 +151,43 @@ def load_mail_config(
         if not path.is_file():
             raise MailConfigurationError(f"--config 指定的邮件配置不存在：{path}")
     else:
-        path = select_config(config_candidates(repo_root=root, home=home_dir, environ=env)).path
+        return _load_first_usable(repo_root=root, home=home_dir, environ=env)
     try:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
         raise MailConfigurationError(f"邮件配置无法读取或解析：{path}（{error}）") from error
     return parse_mail_config(document, source_path=path)
+
+
+def _load_first_usable(*, repo_root: Path, home: Path, environ: Mapping[str, str]) -> MailConfig:
+    """按候选顺序取**第一个可用**的配置：陌生键/缺键等解析失败只跳过并继续。
+
+    `--config` 与 `FORGELOOP_MAIL_CONFIG` 是显式指定，失败即拒绝（不静默换别的文件）；
+    其余候选（仓库、`~/.config/forgeloop/mail.toml`、`~/.config/mail.toml`）可能属于
+    别的工具或尚未填写，逐个尝试，全部不可用时汇总各自原因后 fail-closed。
+    """
+
+    problems: list[str] = []
+    candidates = config_candidates(repo_root=repo_root, home=home, environ=environ)
+    if candidates and candidates[0].origin == "environment":
+        explicit = candidates[0].path
+        if explicit.is_file():
+            return load_mail_config(explicit_path=explicit, repo_root=repo_root, home=home)
+        problems.append(f"环境变量指定的配置不可用：{explicit}")
+        candidates = candidates[1:]
+    existing = [candidate for candidate in candidates if candidate.path.is_file()]
+    for candidate in existing:
+        try:
+            document = tomllib.loads(candidate.path.read_text(encoding="utf-8"))
+            return parse_mail_config(document, source_path=candidate.path)
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            problems.append(f"邮件配置无法读取或解析：{candidate.path}（{error}）")
+        except MailConfigurationError as error:
+            problems.append(f"{candidate.path}：{error}")
+    if not existing:
+        problems.append("未找到任何候选文件")
+    searched = "\n".join(f"  - {problem}" for problem in problems)
+    copy_command = f"cp {TEMPLATE_PATH} {REPOSITORY_CONFIG_RELATIVE}"
+    raise MailConfigurationError(
+        f"没有可用的邮件配置（逐个候选的结论）：\n{searched}\n请复制模板并填写：{copy_command}"
+    )

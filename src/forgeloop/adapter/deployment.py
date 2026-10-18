@@ -202,6 +202,41 @@ def activate(prefix: Path, version: str) -> None:
     os.replace(temporary, prefix / "current")
 
 
+def health_check(prefix: Path, timeout_seconds: float = SMOKE_TIMEOUT_SECONDS) -> tuple[int, str]:
+    """按 ADR 0004 的健康检查：激活后的 ``serve --once --json`` 退出码 0 且输出可解析。
+
+    返回 ``(0, 摘要)`` 表示健康；非 0 时第二项写明原因（退出码、stderr 摘要或 JSON 解析
+    错误），供部署命令据此**自动回滚**（所有者 2026-10-18 决定：保留健康检查）。
+    """
+
+    executable = prefix / "current" / "bin" / "forgeloop"
+    if not executable.exists():
+        return 127, f"未找到可执行文件：{executable}"
+    try:
+        result = subprocess.run(
+            [str(executable), "serve", "--once", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+            shell=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return 126, f"健康检查无法执行：{error}"
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        return result.returncode, detail[0][:200] if detail else "无输出"
+    if not result.stdout.strip():
+        # 退出码 0 但没有输出：机器上还没有可检查的服务配置（例如刚安装、尚未接入）。
+        # 按"不适用"处理并如实说明，不当成不健康——否则首次接入会被自己的健康检查挡住。
+        return 0, "无可检查的服务配置（空输出）：健康检查不适用"
+    try:
+        json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        return 125, f"健康检查输出不是 JSON：{error}"
+    return 0, "serve --once --json 通过"
+
+
 def smoke_check(prefix: Path, timeout_seconds: float = SMOKE_TIMEOUT_SECONDS) -> tuple[int, str]:
     """对激活后的 CLI 做冒烟检查：``current/bin/forgeloop --help``。"""
 
