@@ -223,3 +223,21 @@ curl -s http://127.0.0.1:8712/api/service | python3 -m json.tool | grep -A3 outs
 - 部署目录不含生产凭据；本机部署不需要任何 token。
 - **常驻服务的 systemd 验收未执行**：R1 交付的是 unit 模板与代码侧行为（真实子进程 + 真实 HTTP
   已验证），开机自启、`Restart=on-failure` 与 journal 日志需要在真实宿主上手工验收。
+
+## 本机接入（一次性，CD 前置）
+
+CD（持续部署）在本机的落地只差一次性接入：把已部署的版本交给用户级 systemd 托管。
+
+```bash
+scripts/install_local_service.sh                 # 默认前缀 ~/.local/share/forgeloop
+scripts/install_local_service.sh --no-enable     # 只装不启用
+```
+
+脚本做三件事：① 构建 wheel 并用受控部署路径装进 `<prefix>`（原子激活，失败自动回滚）；
+② 写 `~/.config/systemd/user/forgeloop.service`（`ExecStart=<prefix>/current/bin/forgeloop serve`，
+`Restart=on-failure`）；③ `systemctl --user daemon-reload && enable --now`，并打印验收命令。
+
+**之后每次发布**：人工 `deploy-approve`（绑定版本与产物校验值）→ `deploy`（健康检查 + 失败自动回滚）
+→ 结果邮件通知；`/api/service` 的 `deploy` 段给出"待部署/已批准"只读结论。
+
+真机验收判据见 [常驻服务与邮件入口的真实场景验收方案](resident-service-acceptance.md)（A/B/C 组）。
