@@ -65,7 +65,7 @@ flowchart TD
 | `adapter` | 无 | 无 |
 | `records` | `domain` | → `domain` |
 | `domain` | 无 | 无 |
-| `mail` | 无（只依赖标准库） | 无（当前尚无实现模块） |
+| `mail` | 无（只依赖标准库） | 无（模块间仅同层依赖） |
 
 三条硬规则，由门槛强制：
 
@@ -140,6 +140,12 @@ flowchart TD
 | cli | `src/forgeloop/cli/web.py` | `web` 命令：只读状态页（B01）。真实回环 HTTP 服务只接受 `GET`／`HEAD`，其余方法一律 405 且不写记录；`GET /api/progress` 复用 `cli.main` 的 `status`／`requirement status` 文档构建器组装需求、任务与问题三段，`GET /` 返回随包分发的页面结构 `web_page.html`，`GET /<name>.js` 按严格文件名白名单（不含路径分隔符）返回同一包内 `static/` 下的页面模块；监听地址默认回环，刷新间隔来自 `domain.progress` 的纯规则，配置项见 `config/web.toml` |
 | cli | `src/forgeloop/cli/serve.py` | `serve` 命令：常驻服务（R1）。HTTP 服务在后台线程运行、主线程等待 `SIGTERM`／`SIGINT` 后优雅停止并退出码 0；`/`、`/api/progress` 与静态模块复用 `cli.web` 的读模型与请求处理器，新增 `GET /api/service`（worker 状态、生效配置、与进展文档同源的「需人工核对」清单）；配置数值规则在 `domain.service`，本模块只读 TOML 并检查项目档案的隔离 HOME（`.pi/agent/models.json` 必须存在且非空）；非回环地址拒绝启动；把项目档案、并发上限与进程 HOME 注入 `graph.worker`（`auto_advance` 默认关闭）；**R3 起提供页面写入口**：`POST /api/requirements` 与 `POST /api/requirements/{req_id}/approve|advance|accept|stop`，写请求须过页面令牌、同源校验与体量上限，批准/验收/停止调用 `cli.main` 注入的**同一函数对象** |
 | mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
+| mail | `src/forgeloop/mail/__init__.py` | 层声明与对外导出：邮箱抽象接口、消息／错误模型、provider 预设、配置加载、口令解析与事件渲染 |
+| mail | `src/forgeloop/mail/ports.py` | 邮箱端口与模型：`MailSender`／`MailReceiver` 抽象接口、`OutgoingMessage`／`IncomingMessage`／`MailAccount`／`Receipt`、`Secret` 与认证／网络／收件人／配置错误族 |
+| mail | `src/forgeloop/mail/presets.py` | QQ／Gmail provider 预设：SMTP／IMAP 端点与加密差异（QQ SSL 465；Gmail SSL 465 与 STARTTLS 587），未知 provider fail-closed |
+| mail | `src/forgeloop/mail/config.py` | 邮件配置加载：`--config` > `FORGELOOP_MAIL_CONFIG` > 仓库 `config/mail.toml` > `~/.config/mail.toml` > `~/.config/forgeloop/mail.toml` 五级优先级；全缺失 fail-closed 并提示复制 `config/mail.example.toml`；键与类型校验 |
+| mail | `src/forgeloop/mail/secret.py` | 口令候选解析与逐候选状态报告：环境变量指定文件 > 仓库 `.cache/forgeloop/mail-secret` > `~/.config/forgeloop/mail-secret` > macOS Application Support > SMTP 环境变量备选；权限非 600 拒绝，失败给出可复制创建命令且不回显口令 |
+| mail | `src/forgeloop/mail/render.py` | 中性事件渲染纯函数：五类关键事件（待验收／任务失败／需求验收通过／归并完成／发布完成）渲染为可读主题与正文，并携带事件身份供下游幂等 |
 
 CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`／`dispatch`／`slot list|clear`／`actions list|clear`；版本交付 `merge`（`--by` 记入任务-提交关联）、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）；常驻服务 `serve`（`GET /api/service`，`--once --json` 自检）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json`、`GET /api/progress` 与 `GET /api/service`／`serve --once --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
 
@@ -149,7 +155,7 @@ CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`gra
 
 **CLI 层的实际职责边界（如实记录）**：`cli` 不只是「命令解析与驱动」。它同时持有**只读读模型与输出契约映射**（`_status_document`、`_requirement_document`、`merge_section`、`release_section`、各 `*_section`／`*_summary`），这些既是 `contracts/cli-contract.json` 守护的对外结构，也被 `web` 与契约导出脚本复用；此外 `cli.merge`（必需检查清单、轮询退避、配额耗尽判定）、`cli.release`（已验收产物校验链、标签身份与幂等语义）、`cli.mail`（待确认动作与轮次判定）、`cli.requirements`（交付证据语义）与 `cli.main`（需求终态词表与「终态不回退」）各自包含命令级规则，而非全部委托给 `domain`。这是当前实现的事实，不是声称的理想分层；把规则下沉到 `domain` 属于架构变化，需按第 9 节同步本文。
 
-**邮件工作流的模块分布与依赖方向**：邮件能力横跨四层——`cli.mail`（`mail poll --once`／`mail confirm`）依赖 `adapter.mail`、`domain.mail` 与 `records.mail_threads`；`records.mail_threads` 依赖 `domain.mail`；`adapter.mail`（`ImapMailReceiver`／`SmtpMailSender`／`MailAdapter`）与 `domain.mail`（分类建议与模板纯规则）只依赖标准库，分别是各自层的叶子。这些边都落在第 2 节已允许的 `cli` → `adapter`／`domain`／`records` 与 `records` → `domain` 方向内，`contracts/architecture.json` 的 `layer_edges` 未新增条目；`mail` 层（`src/forgeloop/mail/`）仍是只有层声明、尚无实现模块的保留层。
+**邮件工作流的模块分布与依赖方向**：邮件能力横跨四层——`cli.mail`（`mail poll --once`／`mail confirm`）依赖 `adapter.mail`、`domain.mail` 与 `records.mail_threads`；`records.mail_threads` 依赖 `domain.mail`；`adapter.mail`（`ImapMailReceiver`／`SmtpMailSender`／`MailAdapter`）与 `domain.mail`（分类建议与模板纯规则）只依赖标准库，分别是各自层的叶子。这些边都落在第 2 节已允许的 `cli` → `adapter`／`domain`／`records` 与 `records` → `domain` 方向内，`contracts/architecture.json` 的 `layer_edges` 未新增条目。
 
 **状态页的模块分布与依赖方向**：状态页只有两个新模块，都落在既有层内——`domain.progress`（刷新间隔与问题分类纯规则）与 `cli.web`（只读 HTTP 服务、配置读取与页面分发）。`cli.web` 依赖 `domain.progress`、`records` 与同层的 `cli.common`；需求与任务两份查询文档的构建器由 `cli.main` 以 `ProgressDocuments` 注入（方向是 `cli.main` → `cli.web`），因此页面展示的结构与 `--json` 查询逐字段一致，且两模块之间没有 import 环。这些边都落在第 2 节已允许的 `cli` → `domain`／`records` 方向内，`contracts/architecture.json` 的 `layer_edges` 未新增条目。
 
