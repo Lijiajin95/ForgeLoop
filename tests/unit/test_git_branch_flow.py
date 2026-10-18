@@ -79,7 +79,7 @@ class TestCandidateBranch:
     def test_invalid_diff_cleans_up_and_returns_to_main(self, tmp_path: Path) -> None:
         repo = make_repo(tmp_path)
         baseline = read_main_head(repo)
-        with pytest.raises(WorkspaceError, match="git apply"):
+        with pytest.raises(WorkspaceError, match="人工解决冲突"):
             create_candidate_branch(repo, "forgeloop/task-3", baseline, "not a diff\n", "feat: z")
         assert list_branches(repo) == ("main",)  # 半成品分支已删除
         assert git(repo, "rev-parse", "--abbrev-ref", "HEAD") == "main"

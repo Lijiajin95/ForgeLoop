@@ -19,6 +19,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import subprocess
 import sys
 import uuid
 from collections.abc import Mapping
@@ -29,6 +30,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from forgeloop.adapter.git_workspace import (
+    WorkspaceError,
+    read_main_head,
+    recorded_baseline,
+)
 from forgeloop.cli.candidate import add_candidate_parser
 from forgeloop.cli.common import open_store, records_root
 from forgeloop.cli.deploy import add_deploy_parser
@@ -247,12 +253,90 @@ def cmd_approve(args: argparse.Namespace) -> int:
             )
             who = str(getattr(args, "by", "")) or "未署名"
             print(f"{stage.value} 批准已记录（方案版本 {plan.version}，批准人 {who}）。")
+            if stage is ApprovalStage.ACCEPTANCE:
+                _record_acceptance_commits(
+                    store,
+                    root,
+                    args.task_id,
+                    by=str(getattr(args, "by", "")),
+                    source=str(getattr(args, "source", "")),
+                )
         else:
             print(f"{stage.value} 拒绝决定已记录（不写入批准）。")
     finally:
         store.close()
     _resume_graph(root, args.task_id, {"decision": resume_decision})
     return 0
+
+
+def _record_acceptance_commits(
+    store: RecordStore, records_root: Path, task_id: str, *, by: str, source: str
+) -> None:
+    """验收通过时把任务与 commit 的关联落库（所有者 2026-10-18 的关联模型）。
+
+    记录两类事实：① 任务工作副本里**任务产出**的提交（批准基线..工作副本 HEAD，按
+    ``implementation`` 关系逐条追加）；② **验收时点**项目仓库的 HEAD（``acceptance``
+    关系）。任务与 commit 是一对多的累积关系：验收不通过继续改，后续提交继续追加到
+    同一任务身份，关联不断裂。任一环节取不到（非 git 现场、路径缺失、git 失败）只
+    如实跳过并打印原因，不编造提交号，也不因它阻断已成立的验收记录。
+    """
+
+    task = store.get_task(task_id)
+    if task is None:
+        print(f"未记录任务-提交关联：任务不存在（{task_id}）。")
+        return
+    project_path = str((task.config or {}).get("project_path", ""))
+    if not project_path:
+        print("未记录任务-提交关联：任务未绑定 project_path。")
+        return
+    project = Path(project_path)
+    if not project.is_dir():
+        print(f"未记录任务-提交关联：项目路径不存在（{project}）。")
+        return
+    recorded: list[str] = []
+    workspace = records_root / task_id / "workspace"
+    if not workspace.is_dir():
+        workspace = None
+    if workspace is not None:
+        baseline = recorded_baseline(workspace) or ""
+        try:
+            produced = tuple(
+                line.strip()
+                for line in _git_lines(workspace, "log", "--format=%H", f"{baseline}..HEAD")
+                if line.strip()
+            )
+        except WorkspaceError as error:
+            print(f"未记录任务产出提交：{error}")
+            produced = ()
+        for commit in produced:
+            store.record_task_commit(
+                task_id, commit, "implementation", source="cli:approve:workspace", by=by
+            )
+            recorded.append(f"implementation {commit[:12]}")
+    try:
+        head = read_main_head(project)
+    except WorkspaceError as error:
+        print(f"未记录验收时点提交：{error}")
+        head = ""
+    if head:
+        store.record_task_commit(task_id, head, "acceptance", source=source or "cli:approve", by=by)
+        recorded.append(f"acceptance {head[:12]}")
+    print(f"任务-提交关联已记录：{'、'.join(recorded) if recorded else '无（代码尚未提交）'}")
+
+
+def _git_lines(project: Path, *arguments: str) -> list[str]:
+    """只读 git 查询；失败抛 :class:`GitWorkspaceError`，不静默返回空结果。"""
+
+    result = subprocess.run(
+        ["git", "-C", str(project), *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    if result.returncode != 0:
+        raise WorkspaceError(result.stderr.strip()[:200] or "git 查询失败")
+    return result.stdout.splitlines()
 
 
 def cmd_grant(args: argparse.Namespace) -> int:

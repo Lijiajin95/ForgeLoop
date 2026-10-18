@@ -25,6 +25,7 @@ from forgeloop.adapter.git_workspace import (
     WorkspaceError,
     create_candidate_branch,
     delete_branch,
+    diff_applies_cleanly,
     fast_forward_main,
     has_remote,
     merge_candidate_to_main,
@@ -32,12 +33,14 @@ from forgeloop.adapter.git_workspace import (
     push_main,
     read_main_head,
     switch_to_main,
+    worktree_dirty,
 )
 from forgeloop.adapter.github_checks import ChecksError, check_runs, github_token
 from forgeloop.cli.common import fail, open_store, records_root
 from forgeloop.domain.approval import ApprovalStage
 from forgeloop.domain.merge import (
     ChecksDecision,
+    MergeDecision,
     candidate_branch_name,
     check_acceptance_content,
     check_merge_readiness,
@@ -341,6 +344,14 @@ def _merge_direct(args: argparse.Namespace, store: RecordStore, context: _MergeC
     if not args.no_push and has_remote(context.project):
         pushed, push_detail = push_main(context.project)
     store.outcomes.record_merge(args.task_id, merge_commit, pushed, push_detail)
+    # 关联模型（2026-10-18）：归并产生的提交以 merge 关系追加到任务，不改写既有记录。
+    store.record_task_commit(
+        args.task_id,
+        merge_commit,
+        "merge",
+        source=f"cli:merge:{args.task_id}",
+        by=args.by,
+    )
     store.set_task_status(args.task_id, "merged")
     print(f"已归并 main: {merge_commit}")
     print(f"推送: {'成功' if pushed else '未推送'}")
@@ -398,18 +409,25 @@ def _merge_locked(args: argparse.Namespace, store: RecordStore, root: Path) -> i
     project = Path(project_path)
     acceptance = store.effective_approval(args.task_id, ApprovalStage.ACCEPTANCE)
     binding = acceptance.binding if acceptance is not None else None
-    decision = check_merge_readiness(
-        task.status, acceptance is not None, baseline, read_main_head(project), diff_text
-    )
-    if not decision.allowed:
-        return fail(decision.reason)
+    dirty = worktree_dirty(project)
+    if dirty:
+        return fail(f"目标仓库工作树不干净：{dirty[:200]}")
     current = store.capture_delivery_binding(args.task_id, plan.version)
+    materials = MergeDecision(True, "验收材料未变")
     if acceptance is not None:
         if binding is None:
             return fail("验收批准缺少交付材料绑定；无法核对同一候选，拒绝归并")
-        content = check_acceptance_content(binding, current)
-        if not content.allowed:
-            return fail(content.reason)
+        materials = check_acceptance_content(binding, current)
+    decision = check_merge_readiness(
+        task.status,
+        acceptance is not None,
+        diff_text,
+        materials_unchanged=materials.allowed,
+        applies_cleanly=diff_applies_cleanly(project, diff_text),
+    )
+    if not decision.allowed:
+        detail = "" if materials.allowed else f"（{materials.reason}）"
+        return fail(f"{decision.reason}{detail}")
     message = args.message or f"feat: {plan.goal}"
     if len(message.splitlines()[0]) > 100:
         message = message.splitlines()[0][:97] + "..."
@@ -454,5 +472,8 @@ def add_merge_parser(subparsers: argparse._SubParsersAction, default_records_roo
         default=DEFAULT_DELIVERY_TIMEOUT_SECONDS,
         help="等待同项目交付互斥的上限秒数（超时拒绝，不并发更新主干）",
     )
+    # 关联模型（2026-10-18）：归并结果要挂到任务上，因此记录调用方标识；
+    # 缺省留空如实体现"未提供"，不编造身份。
+    merge.add_argument("--by", default="", help="调用方标识（记入任务-提交关联，如 owner）")
     merge.add_argument("--records-root", default=default_records_root)
     merge.set_defaults(func=cmd_merge)

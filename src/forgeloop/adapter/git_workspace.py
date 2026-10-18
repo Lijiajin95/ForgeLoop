@@ -315,20 +315,39 @@ def clear_applied_prerequisites(workspace: Path) -> None:
         return
 
 
-def _require_clean_main(project: Path, baseline: str) -> None:
-    """归并/候选分支前的现场约束：必须在 main、工作树干净且 HEAD 等于交付基线。"""
+def _require_clean_main(project: Path) -> None:
+    """归并/候选分支前的现场约束：必须在 main 且工作树干净。
+
+    2026-10-18 起不再要求 ``HEAD == 交付基线``（任务与 commit 是累积关联，主干前进
+    属正常情形）；改动能否落地由 :func:`diff_applies_cleanly` 逐次判定。
+    """
 
     branch = _git(project, "rev-parse", "--abbrev-ref", "HEAD").strip()
     if branch != "main":
         raise WorkspaceError(f"目标仓库当前分支是 {branch}，不是 main")
-    dirty = _git(project, "status", "--porcelain").strip()
+    dirty = worktree_dirty(project)
     if dirty:
         raise WorkspaceError(f"目标仓库工作树不干净：{dirty[:200]}")
-    head = _git(project, "rev-parse", "HEAD").strip()
-    if head != baseline:
-        raise WorkspaceError(
-            f"main 已漂移：交付基线 {baseline[:12]}，当前 {head[:12]}；须重新执行任务"
-        )
+
+
+def worktree_dirty(project: Path) -> str:
+    """工作树里未提交的改动（``git status --porcelain``，空串表示干净）；只读查询。"""
+
+    return _git(project, "status", "--porcelain").strip()
+
+
+def diff_applies_cleanly(project: Path, diff_text: str) -> bool:
+    """候选 diff 能否直接应用到当前仓库现场（``git apply --check``，只检查不落盘）。"""
+
+    result = subprocess.run(
+        ["git", "-C", str(project), "apply", "--check", "--whitespace=nowarn", "-"],
+        input=diff_text,
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    return result.returncode == 0
 
 
 def list_branches(project: Path) -> tuple[str, ...]:
@@ -341,11 +360,15 @@ def create_candidate_branch(
 ) -> str:
     """从交付基线创建候选分支并提交候选改动；main 不被触碰，失败不留半成品。
 
-    与直接归并共用同一组现场约束（在 main、工作树干净、HEAD 等于基线）；
+    与直接归并共用同一组现场约束（在 main、工作树干净、候选可干净应用）；
     任何一步失败都切回 main 并删除半成品分支，再抛出错误。
     """
 
-    _require_clean_main(project, baseline)
+    _require_clean_main(project)
+    if not diff_applies_cleanly(project, diff_text):
+        raise WorkspaceError(
+            "候选改动不能干净应用到当前 main：请人工解决冲突并保留处理过程后再归并"
+        )
     if branch in list_branches(project):
         raise WorkspaceError(f"候选分支已存在：{branch}；请先清理")
     _git(project, "switch", "--create", branch)
@@ -385,12 +408,16 @@ def fast_forward_main(project: Path, branch: str) -> str:
 def merge_candidate_to_main(project: Path, baseline: str, diff_text: str, message: str) -> str:
     """把已验收的候选 diff 受控归并到 project 的 main；返回合并提交号。
 
-    前置（由领域规则判定）：任务已验收、diff 非空。此处再核对仓库现场：
-    当前分支必须是 main 且工作树干净、HEAD 等于交付基线——任何不符都
-    抛 WorkspaceError，不拼接差异、不沿用旧批准。
+    前置（由领域规则判定）：任务已验收、材料未漂移、diff 非空。此处再核对仓库现场：
+    当前分支必须是 main、工作树干净、候选可干净应用——任何不符都抛 WorkspaceError，
+    不拼接差异、不沿用旧批准（冲突由人工解决并留痕）。
     """
 
-    _require_clean_main(project, baseline)
+    _require_clean_main(project)
+    if not diff_applies_cleanly(project, diff_text):
+        raise WorkspaceError(
+            "候选改动不能干净应用到当前 main：请人工解决冲突并保留处理过程后再归并"
+        )
     _apply_diff(project, diff_text)
     _git(project, "add", "-A")
     _git(

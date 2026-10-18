@@ -96,13 +96,13 @@ flowchart TD
 | domain | `src/forgeloop/domain/approval.py` | 方案 `Plan` 与批准 `Approval`：批准绑定任务身份与方案版本，一次批准只能触发一次执行；验收批准还绑定实际交付材料（候选 diff、测试证据、审查结论、产物校验值），替换材料后原批准失效 |
 | domain | `src/forgeloop/domain/delivery.py` | 交付绑定 `DeliveryBinding` 与需求整体验收判定：候选 diff／测试证据／审查结论／产物校验值各自内容寻址；材料变化使批准失效；单个任务通过不等于需求整体验收 |
 | domain | `src/forgeloop/domain/commit_policy.py` | 提交时间策略与年度工作日历判定、Conventional Commits 首行校验；把唯一一份本机配置构造为生效策略、授权硬上限（终点 ≤ 10:00）与机器标签；没有配置时的判定显式记为 `policy_absent`，不假装规则生效 |
-| domain | `src/forgeloop/domain/merge.py` | 归并就绪判定与必需检查判定（候选分支 → 检查 → 快进 main） |
+| domain | `src/forgeloop/domain/merge.py` | 归并就绪判定与必需检查判定（候选分支 → 检查 → 快进 main）；2026-10-18 所有者决定后判据为「验收材料未变 + 候选可干净应用」，**不再要求** `main HEAD == 交付基线`（任务与 commit 是累积关联） |
 | domain | `src/forgeloop/domain/release.py` | 发布就绪判定、版本标签解析、发布记录 `ReleaseRecord`、同标签幂等／换标签拒绝 |
 | domain | `src/forgeloop/domain/deploy.py` | 部署与回滚就绪判定、`SHA256SUMS` 解析、产物唯一选择（拒绝重新构建） |
 | domain | `src/forgeloop/domain/service.py` | 常驻服务配置纯规则：只允许回环监听地址、端口／轮询间隔／并发上限的整数与范围判定、自动推进开关必须为布尔、项目档案（项目路径、PI 命令、测试命令、隔离 HOME）字段校验；未知键与非法值一律显式失败，不静默回落 |
 | domain | `src/forgeloop/domain/mail.py` | 邮件需求领域规则：三类分类建议（消歧／不接纳候选／接纳成功）、消歧轮次上限 3 轮后退回人工、终态不再提问、7 天无回复单次提醒与开关、回复关联按 `In-Reply-To`／`References`／主题／正文回退解析（`req-…` 与 `#req-…` 都接受）、中文纯文本固定模板渲染；附件只记录元数据 |
 | records | `src/forgeloop/records/__init__.py` | 层声明，并只再导出 `checkpoints` 的人工续跑 API；不导出各 Store。注意：它顶层导入 `checkpoints`（后者依赖 `langgraph`），因此导入任一 `forgeloop.records.*` 都会**传递依赖 `langgraph`** |
-| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张任务侧表的权威业务记录（另有 `records.checkpoints` 管理的 `action_releases` 释放审计表，共 16 张），读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`all_tasks` 跨项目只读列出全部任务（状态页清单）；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列 |
+| records | `src/forgeloop/records/store.py` | `RecordStore`／`OutcomeStore`：SQLite 15 张任务侧表的权威业务记录（另有 `records.checkpoints` 管理的 `action_releases` 释放审计表，共 16 张），读时重建领域对象；`read_task_dependency_record` 只读汇总单任务终态、`started` 动作与失败轮次事实；`all_tasks` 跨项目只读列出全部任务（状态页清单）；`prerequisite_applications` 固化下游任务各前置候选的应用状态与原因（幂等判定与回退依据）；旧库缺少动作进程列时显式补列；`task_commits` 记录任务与 commit 的**一对多累积关联**（`implementation`／`acceptance`／`merge` 三类，只追加不覆盖，重复调用幂等） |
 | records | `src/forgeloop/records/actions.py` | `ActionStore`：动作启动/完成身份、进程身份与心跳，以及单任务并发占用；未完成动作拒绝重放；按权威记录判定槽位残留（空闲／已死／存活／不确定），只清理已死残留并写入 `slot_cleanups`，不确定时不清理并给出原因 |
 | records | `src/forgeloop/records/checkpoints.py` | 读取记录根下 `checkpoints.sqlite` 的 LangGraph 检查点：给出待执行节点、`halted_reason` 与检查点身份，判定可续跑业务节点（`dev`/`review`/`test` 及自动回边）与等待人工决定（计划批准、追加授权、整体验收、终态、空 `next`）；以 `actions.action_id` 去重判断重复推进，记录缺失输出 `unknown`。人工续跑规则也在此（缺陷 #24 修复后）：检查点自身无法归因的陈旧中断（如迁移前的 `plan_approval_stale`）必须由人工用 `--node dev|review|test` 显式点名重入节点才放行，可归因的中断不得改指其他节点，未点名一律 fail-closed；点名的节点随决定一起落库（`resume_node` 列，旧库读取时按缺列处理），清除 `halted_reason` 时据此补齐重入点。人工释放未完成动作的规则也在此：只有动作身份能在权威记录中定位、属于目标任务、仍是 `started` 且调用方标识与理由非空时，才在同一事务内把动作置为 `released` 并写入 `action_releases` 审计（谁/何时/理由/动作身份/所属任务与节点）；缺理由、身份不明或任务不匹配一律 fail-closed 拒绝；另在 `records.sqlite` 维护人工续跑决定表 `requirement_retry_decisions`，并做 fail-closed 前置校验（任务状态、检查点缺失／读取失败／损坏、`task_id`／`plan_version` 不符、`interrupted` 无 `halted_reason` 一律拒绝），仅当决定与当前检查点身份／方案版本匹配时才把 `halted_reason` 视为已清除 |
 | records | `src/forgeloop/records/requirements.py` | 需求记录：需求、版本、分析、任务包、批准、任务推进、产物与需求工时共 8 张表；与任务记录同一 `records.sqlite`，提交原文、追加版本、按身份与项目回查（进程重启后仍可读）；`all_requirements` 跨项目只读列出全部需求（状态页清单）；`dependency_facts` 按任务包依赖只读汇总每个任务的依赖事实 |
@@ -141,7 +141,7 @@ flowchart TD
 | cli | `src/forgeloop/cli/serve.py` | `serve` 命令：常驻服务（R1）。HTTP 服务在后台线程运行、主线程等待 `SIGTERM`／`SIGINT` 后优雅停止并退出码 0；`/`、`/api/progress` 与静态模块复用 `cli.web` 的读模型与请求处理器，新增 `GET /api/service`（worker 状态、生效配置、与进展文档同源的「需人工核对」清单）；配置数值规则在 `domain.service`，本模块只读 TOML 并检查项目档案的隔离 HOME（`.pi/agent/models.json` 必须存在且非空）；非回环地址拒绝启动；把项目档案、并发上限与进程 HOME 注入 `graph.worker`（`auto_advance` 默认关闭）；**R3 起提供页面写入口**：`POST /api/requirements` 与 `POST /api/requirements/{req_id}/approve|advance|accept|stop`，写请求须过页面令牌、同源校验与体量上限，批准/验收/停止调用 `cli.main` 注入的**同一函数对象** |
 | mail | `src/forgeloop/mail/__init__.py` | 层声明：邮箱接口与纯逻辑层，只依赖标准库；当前仅登记分层，尚无实现模块 |
 
-CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`／`dispatch`／`slot list|clear`／`actions list|clear`；版本交付 `merge`、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）；常驻服务 `serve`（`GET /api/service`，`--once --json` 自检）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json`、`GET /api/progress` 与 `GET /api/service`／`serve --once --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
+CLI 对外命令分四条业务线：单任务研发 `submit`、`approve`、`grant`、`status`、`stop`；需求研发 `requirement submit`／`revise`／`analyze`／`plan`／`approve`／`advance`／`accept`／`retry`／`status`／`dispatch`／`slot list|clear`／`actions list|clear`；版本交付 `merge`（`--by` 记入任务-提交关联）、`release`、`deploy`、`rollback`、`candidate <task_id>`；邮件工作流 `mail poll --once`、`mail confirm`；只读状态页 `web`（`GET /api/progress`）；常驻服务 `serve`（`GET /api/service`，`--once --json` 自检）。`status --json`、`requirement status --json`、`mail poll --once --json`／`mail confirm --json`、`GET /api/progress` 与 `GET /api/service`／`serve --once --json` 的输出结构是对外契约，由 `contracts/cli-contract.json` 快照守住。
 
 **第二套 CLI 入口**：`cli.commit_policy` 不经 `build_parser()`，自带 argparse 与 `main()`，模式为 `--check-now`／`--message <path>`／`--audit BASE HEAD`／`--validate-config`，由 `scripts/check_commit_policy.py` 转发给 pre-commit／commit-msg 钩子与 CI。只统计 `build_parser()` 的子命令会漏掉这条真实对外接口。
 
@@ -274,7 +274,7 @@ flowchart LR
 - **执行现场**：每个任务一个目录 `<records_root>/<task_id>/`，内含 `workspace/`（代码副本）与 `sessions/`（PI 会话与 stderr）。现场默认保留，由用户清理。
 - **代码副本**：`prepare_workspace` 用 `git clone --no-hardlinks` 建立自有 `.git` 的副本，再以 detached HEAD 检出基线提交，不与源仓库共享任何可写对象。候选 diff 由 `git add -A` 后 `git diff <基线提交>` 得到，覆盖修改／新增／删除，**不依赖 PI 的文本自述**。
 - **前置产物应用（接缝）**：需求内下游任务在克隆副本后、进入实现前，由 `graph.nodes` 的 dev 节点把已完成前置任务的候选 diff 交给 `graph.requirements.apply_prerequisite_candidates`：逐条读取并按权威记录校验值核对，任一缺失或校验不符即整体阻塞、不写任何代码、不启动 PI；全部通过才按依赖顺序应用（菱形/冗余依赖下被传递包含的祖先标记为不单独应用），应用失败回退到应用前的干净副本。逐条结果同时写入下游任务现场 `prerequisite-applications.json` 与记录表 `prerequisite_applications`，重复启动据二者幂等跳过。
-- **main 保护**：副本与容器不得直接改写真实 `main`。候选结果先经人工验收，再由 `merge` 以受控路径接回；`create_candidate_branch` 与 `merge_candidate_to_main` 都要求现场干净、HEAD 等于基线且位于 main。
+- **main 保护**：副本与容器不得直接改写真实 `main`。候选结果先经人工验收，再由 `merge` 以受控路径接回；`create_candidate_branch` 与 `merge_candidate_to_main` 都要求现场干净、位于 main，并先以 `git apply --check` 判定候选可干净应用；主干前进不再是拒绝理由（任务与 commit 一对多累积），冲突必须人工解决并留痕，不做自动拼接。
 - **PI 工具权限取决于进程权限与开放资源**，不能把 `cwd` 当作隔离。
 
 本节的「隔离」由两层实现，强度不同，不能互相代替：
@@ -315,10 +315,10 @@ flowchart LR
 
 | 存储 | 文件 | 内容 | 管理者 |
 | --- | --- | --- | --- |
-| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 16 张表＋需求 8 张表＋邮件线索 3 张表＋人工续跑决定 1 张，共 28 张） | `records.store.RecordStore`、`records.requirements.RequirementStore`、`records.mail_threads.MailThreadStore`、`records.checkpoints`（续跑决定与人工释放审计 `action_releases` 写入） |
+| 业务记录 | `records.sqlite` | 领域事实的**权威**记录（任务 17 张表＋需求 8 张表＋邮件线索 3 张表＋人工续跑决定 1 张，共 29 张；新增 `task_commits` 任务-提交关联） | `records.store.RecordStore`、`records.requirements.RequirementStore`、`records.mail_threads.MailThreadStore`、`records.checkpoints`（续跑决定与人工释放审计 `action_releases` 写入） |
 | 图检查点 | `checkpoints.sqlite` | `TaskState` 的推进状态，`thread_id = task_id` | LangGraph `SqliteSaver` |
 
-图检查点由 LangGraph `SqliteSaver` 管理；`records.checkpoints` 解析其待执行节点、`halted_reason` 与检查点身份，并汇总 `records.sqlite` 的未完成/已完成动作身份，供需求推进器判定可续跑与重复推进的幂等口径（动作身份 `actions.action_id`，记录缺失输出 `unknown`）。除人工释放外，该模块只读；释放会在同一事务内把权威 `started` 动作置为 `released` 并追加 `action_releases` 审计行。同一模块在 `records.sqlite` 维护人工续跑决定表 `requirement_retry_decisions`：在 fail-closed 校验通过后写入调用方标识、理由、时间及绑定的任务身份／方案版本／检查点身份，并使匹配当前现场的决定把 `halted_reason` 视为已清除。
+图检查点由 LangGraph `SqliteSaver` 管理；`records.checkpoints` 解析其待执行节点、`halted_reason` 与检查点身份，并汇总 `records.sqlite` 的未完成/已完成动作身份，供需求推进器判定可续跑与重复推进的幂等口径（动作身份 `actions.action_id`，记录缺失输出 `unknown`）。除人工释放外，该模块只读；释放会在同一事务内把权威 `started` 动作置为 `released` 并追加 `action_releases` 审计行。同一模块在 `records.sqlite` 维护人工续跑决定表 `requirement_retry_decisions`：在 fail-closed 校验通过后写入调用方标识、理由、时间及绑定的任务身份／方案版本／检查点身份，并使匹配当前现场的决定把 `halted_reason` 视为已清除。任务与 commit 的关联另由 `records.sqlite.task_commits` 承载（2026-10-18 所有者决定）：验收通过时记录验收时点提交与任务工作副本产出的提交（`implementation`／`acceptance`），归并成功后记录归并提交（`merge`）；同一任务可关联多个提交，验收不通过继续改即累加，关联不断裂。
 
 记录表：任务侧 `tasks`、`plans`、`approvals`、`approval_consumption`、`acceptance_bindings`、`failure_rounds`、`grants`、`budget`、`stops`、`actions`、`slot_cleanups`、`action_releases`、`merges`、`deliveries`、`releases`、`prerequisite_applications`（16 张）；需求侧 `requirements`、`requirement_versions`、`requirement_analyses`、`requirement_task_plans`、`requirement_plan_approvals`、`requirement_task_runs`、`requirement_task_artifacts`、`requirement_budget`（8 张）；邮件线索侧 `mail_threads`（出向 Message-ID 与需求绑定）、`mail_deliveries`（出向幂等账）、`mail_inbound`（入向去重账）（3 张）；人工续跑侧 `requirement_retry_decisions`（决定、绑定方案版本与检查点身份）（1 张）。各记录集共用同一 `records.sqlite`，各自管理连接与表——**不是一条全局连接**：`RecordStore`／`RequirementStore` 各自建连，`MailThreadStore` 用调用方传入的裸连接，`checkpoints` 每次读临时开只读连接。
 

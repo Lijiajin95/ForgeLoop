@@ -182,6 +182,9 @@ class TestMergeToMain:
     def test_merge_refuses_drifted_main(self, tmp_path: Path, capsys, monkeypatch) -> None:
         import subprocess
 
+        from forgeloop.adapter.git_workspace import read_main_head
+        from forgeloop.records.store import RecordStore
+
         task_id, source = self._deliver_task(tmp_path, capsys, monkeypatch)
         # 交付后 main 前进（漂移）。
         (source / "other.txt").write_text("drift\n", encoding="utf-8")
@@ -196,12 +199,30 @@ class TestMergeToMain:
             ["git", "commit", "-m", "chore: main drifted"],
         ):
             subprocess.run(args, cwd=source, check=True, capture_output=True, env=env)
+        drifted = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        ).stdout.strip()
         code, out = run_cli(
-            ["merge", task_id, "--no-push", "--records-root", str(tmp_path)], capsys
+            ["merge", task_id, "--no-push", "--by", "owner", "--records-root", str(tmp_path)],
+            capsys,
         )
-        assert code == 1
-        assert "漂移" in out
-        assert (source / "feature.txt").read_text(encoding="utf-8") == "old\n"
+        # 关联模型（2026-10-18）：主干前进本身不再是否决条件；材料未变且候选可干净
+        # 应用即允许归并，并把归并提交挂到任务上。
+        assert code == 0, out
+        assert "已归并 main" in out
+        assert read_main_head(source) != drifted
+        store = RecordStore(tmp_path / "records.sqlite")
+        try:
+            relations = {item.relation for item in store.task_commits(task_id)}
+            merged = [item for item in store.task_commits(task_id) if item.relation == "merge"]
+        finally:
+            store.close()
+        assert "merge" in relations
+        assert merged and merged[-1].commit_sha == read_main_head(source)
 
     def test_merge_refuses_replaced_accepted_candidate(
         self, tmp_path: Path, capsys, monkeypatch

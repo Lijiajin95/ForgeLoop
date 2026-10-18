@@ -98,11 +98,24 @@ def check_acceptance_content(approved: DeliveryBinding, current: DeliveryBinding
 def check_merge_readiness(
     task_status: str,
     acceptance_recorded: bool,
-    baseline_commit: str,
-    main_head: str,
     diff_text: str,
+    *,
+    materials_unchanged: bool,
+    applies_cleanly: bool,
 ) -> MergeDecision:
-    """归并前的纯规则判定；全部通过才允许更新 main。"""
+    """归并前的纯规则判定；全部通过才允许更新 main。
+
+    2026-10-18 所有者决定的关联模型：任务与 commit 是**一对多的累积关系**，不再要求
+    ``main HEAD == 交付基线``——代码先提交、任务后验收，或验收不通过继续改（关联多个
+    commit）都属于正常情形，不该判成漂移。取而代之的两条判定是：
+
+    1. **验收材料未变**：候选 diff、测试证据与审查结论仍与验收批准时绑定的那一份一致
+       （由 :func:`check_acceptance_content` 得出，调用方传入结论）；
+    2. **候选可干净应用**：改动能直接应用到当前 main（由适配层 ``git apply --check``
+       得出，调用方传入结论）；冲突必须人工解决并留痕，不做自动拼接。
+
+    不放松的仍然是：未验收交付、缺少验收批准、候选为空、材料漂移、应用不干净。
+    """
 
     if task_status != "delivered":
         return MergeDecision(
@@ -110,14 +123,13 @@ def check_merge_readiness(
         )
     if not acceptance_recorded:
         return MergeDecision(False, "缺少验收批准记录；未经验收不更新 main")
-    if not baseline_commit:
-        return MergeDecision(False, "交付未固化基线提交号（非 git 工作副本任务不能归并）")
     if not diff_text.strip():
         return MergeDecision(False, "候选 diff 为空；没有可归并的改动")
-    if main_head != baseline_commit:
+    if not materials_unchanged:
+        return MergeDecision(False, "验收材料已漂移；拒绝沿用原验收归并")
+    if not applies_cleanly:
         return MergeDecision(
             False,
-            f"main 已漂移：交付基线 {baseline_commit[:12]}，当前 {main_head[:12]}；"
-            "须核对差异后重新执行任务",
+            "候选改动不能干净应用到当前 main：请人工解决冲突、保留冲突处理过程后再归并",
         )
-    return MergeDecision(True, "已验收交付且 main 未漂移")
+    return MergeDecision(True, "验收材料未变且候选可干净应用")

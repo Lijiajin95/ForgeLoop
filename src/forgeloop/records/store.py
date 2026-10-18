@@ -6,10 +6,11 @@
 """
 
 import json
+import re
 import sqlite3
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -76,6 +77,17 @@ CREATE TABLE IF NOT EXISTS acceptance_bindings (
     recorded_at TEXT NOT NULL,
     PRIMARY KEY (task_id, plan_version)
 );
+CREATE TABLE IF NOT EXISTS task_commits (
+    record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    recorded_by TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    UNIQUE (task_id, commit_sha, relation)
+);
+CREATE INDEX IF NOT EXISTS task_commits_by_task ON task_commits(task_id);
 CREATE TABLE IF NOT EXISTS failure_rounds (
     round_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
@@ -161,6 +173,25 @@ CREATE TABLE IF NOT EXISTS prerequisite_applications (
     PRIMARY KEY (task_id, prerequisite_task_id)
 );
 """
+
+
+# 任务与 commit 的关联关系（所有者 2026-10-18 决定）：任务产出、验收时点、归并结果。
+# 一个任务可以关联多个 commit（验收不通过继续改即累加），只追加不覆盖。
+TASK_COMMIT_RELATIONS: frozenset[str] = frozenset({"implementation", "acceptance", "merge"})
+
+_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+@dataclass(frozen=True)
+class TaskCommit:
+    """任务与一个 commit 的关联记录（一对多，按时间累积）。"""
+
+    task_id: str
+    commit_sha: str
+    relation: str
+    source: str = ""
+    recorded_by: str = ""
+    recorded_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(frozen=True)
@@ -771,6 +802,65 @@ class RecordStore:
                 binding.baseline_commit,
                 _iso(_now()),
             ),
+        )
+
+    def record_task_commit(
+        self,
+        task_id: str,
+        commit_sha: str,
+        relation: str,
+        *,
+        source: str = "",
+        by: str = "",
+        at: datetime | None = None,
+    ) -> TaskCommit:
+        """记录任务与 commit 的关联；同任务+同提交+同关系重复调用只保留一条。
+
+        校验 fail-closed：关系必须是 :data:`TASK_COMMIT_RELATIONS` 之一，提交号必须是
+        7-64 位十六进制（小写化后比对），否则抛 ``ValueError``，不写任何记录。
+        """
+
+        normalized = commit_sha.strip().lower()
+        if relation not in TASK_COMMIT_RELATIONS:
+            allowed = "、".join(sorted(TASK_COMMIT_RELATIONS))
+            raise ValueError(f"未知的任务-提交关联关系: {relation!r}（允许 {allowed}）")
+        if not _COMMIT_SHA_PATTERN.match(normalized):
+            raise ValueError(f"提交号必须是 7-64 位十六进制: {commit_sha!r}")
+        stamp = at or datetime.now(UTC)
+        with self._write_transaction():
+            self._db.execute(
+                "INSERT OR IGNORE INTO task_commits"
+                " (task_id, commit_sha, relation, source, recorded_by, recorded_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (task_id, normalized, relation, source, by, _iso(stamp)),
+            )
+        return TaskCommit(
+            task_id=task_id,
+            commit_sha=normalized,
+            relation=relation,
+            source=source,
+            recorded_by=by,
+            recorded_at=stamp,
+        )
+
+    def task_commits(self, task_id: str) -> tuple[TaskCommit, ...]:
+        """按时间与写入顺序回查一个任务关联的全部 commit（含实现/验收/归并三类）。"""
+
+        rows = self._db.execute(
+            "SELECT task_id, commit_sha, relation, source, recorded_by, recorded_at"
+            " FROM task_commits WHERE task_id = ? ORDER BY recorded_at, record_id",
+            (task_id,),
+        ).fetchall()
+        return tuple(
+            TaskCommit(
+                task_id=str(row[0]),
+                commit_sha=str(row[1]),
+                relation=str(row[2]),
+                source=str(row[3]),
+                recorded_by=str(row[4]),
+                recorded_at=datetime.fromisoformat(str(row[5])),
+            )
+            for row in rows
         )
 
     def record_approval(self, approval: Approval) -> None:

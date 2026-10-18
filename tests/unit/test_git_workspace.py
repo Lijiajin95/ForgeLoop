@@ -304,17 +304,26 @@ class TestMergeToMain:
         with pytest.raises(WorkspaceError, match="不干净"):
             merge_candidate_to_main(source, baseline, "+diff\n", "feat: x")
 
-    def test_drifted_main_is_rejected(self, tmp_path: Path) -> None:
+    def test_main_moved_on_is_no_longer_a_refusal(self, tmp_path: Path) -> None:
+        """关联模型（2026-10-18）：主干前进不再是拒绝理由，判定落到「能否干净应用」。"""
+
         source, baseline = self._repo_with_baseline(tmp_path)
         (source / "feature.txt").write_text("moved\n", encoding="utf-8")
         git(source, "add", "-A")
         git(source, "commit", "-m", "chore: main moved on")
-        with pytest.raises(WorkspaceError, match="漂移"):
-            merge_candidate_to_main(source, baseline, "+diff\n", "feat: x")
+        moved = read_main_head(source)
+        assert moved != baseline
+        # 改动能干净应用 → 归并成功，且不沿用旧基线。
+        diff = "diff --git a/note.txt b/note.txt\nnew file mode 100644\n--- /dev/null\n+++ b/note.txt\n@@ -0,0 +1 @@\n+hello\n"
+        merged = merge_candidate_to_main(source, baseline, diff, "feat: x")
+        assert merged not in {baseline, moved}
+        assert (source / "note.txt").read_text(encoding="utf-8") == "hello\n"
 
-    def test_invalid_diff_is_rejected_without_touching_main(self, tmp_path: Path) -> None:
+    def test_conflicting_or_invalid_diff_is_rejected_without_touching_main(
+        self, tmp_path: Path
+    ) -> None:
         source, baseline = self._repo_with_baseline(tmp_path)
-        with pytest.raises(WorkspaceError, match="git apply"):
+        with pytest.raises(WorkspaceError, match="人工解决冲突"):
             merge_candidate_to_main(source, baseline, "not a diff\n", "feat: x")
         assert read_main_head(source) == baseline  # main 未被改动
 

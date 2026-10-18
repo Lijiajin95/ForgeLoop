@@ -4,6 +4,8 @@
 "必需检查判定"（通过/未完成/失败/缺失）和候选分支命名规则。
 """
 
+import inspect
+
 from forgeloop.cli.merge import CHECK_POLL_MAX_SECONDS, check_poll_delay
 from forgeloop.domain.delivery import build_binding
 from forgeloop.domain.merge import (
@@ -23,9 +25,11 @@ def check(**overrides) -> MergeDecision:
     kwargs = {
         "task_status": "delivered",
         "acceptance_recorded": True,
-        "baseline_commit": BASE,
-        "main_head": BASE,
         "diff_text": "diff --git a/x b/x\n+new\n",
+        # 2026-10-18 关联模型：不再要求 main HEAD == 交付基线，改为核对
+        # 「验收材料未变」与「候选可干净应用」两条。
+        "materials_unchanged": True,
+        "applies_cleanly": True,
     }
     kwargs.update(overrides)
     decision = check_merge_readiness(**kwargs)
@@ -58,16 +62,24 @@ class TestMergeReadiness:
     def test_missing_acceptance_record_is_rejected(self) -> None:
         assert "验收批准" in refused(acceptance_recorded=False).reason
 
-    def test_missing_baseline_is_rejected(self) -> None:
-        assert "基线" in refused(baseline_commit="").reason
-
     def test_empty_diff_is_rejected(self) -> None:
         assert "diff 为空" in refused(diff_text="   \n").reason
 
-    def test_main_drift_is_rejected(self) -> None:
-        decision = refused(main_head=OTHER)
-        assert "漂移" in decision.reason
-        assert BASE[:12] in decision.reason and OTHER[:12] in decision.reason
+    def test_changed_acceptance_materials_are_rejected(self) -> None:
+        # 关联模型下唯一的内容判据：材料漂移一律拒绝沿用原验收。
+        assert "材料" in refused(materials_unchanged=False).reason
+
+    def test_conflicting_apply_is_rejected_with_human_instruction(self) -> None:
+        reason = refused(applies_cleanly=False).reason
+        assert "人工解决冲突" in reason
+
+    def test_main_head_is_not_an_input_anymore(self) -> None:
+        """主干前进不再是否决条件：判定里根本没有 main HEAD 与交付基线这两个入参。"""
+
+        parameters = set(inspect.signature(check_merge_readiness).parameters)
+        assert "main_head" not in parameters
+        assert "baseline_commit" not in parameters
+        assert {"materials_unchanged", "applies_cleanly"} <= parameters
 
 
 REQUIRED = ("quality", "security", "commit-policy")

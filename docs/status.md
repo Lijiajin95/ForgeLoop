@@ -221,6 +221,35 @@
 - **已核实不属于「未做」的项**：R1–R4 全部交付并逐条对表（含页面「问题」段的未核对动作、断线推进、过期/重复批准反例、kill -9 重启不重放）；三门硬规则由代码强制（回环限定、令牌+同源、批准绑定/未核对动作不放行）；审计归属与幂等键按所有者决定落地；变异范围前端 96.13%、Python `service.py` 95.3%。
 - **本轮门槛**：契约自检通过（上一轮已在同一份代码上跑齐 `make check` 1625/117、`test-system` 43、`coverage` 1815（行 94.79%／分支 90.34%）、`frontend-e2e` 6）。
 
+2026-10-18（提交 `d6a7bed` + 刷新路线被机器拒绝：该操作当前不存在，未提交任何伪造记录）：按所有者决定先提交在途批次，再以新 HEAD 为基线刷新邮件任务；刷新这一步被确定性校验 fail-closed 拦下，如实记录经过与结论。
+
+- **提交完成**：所有者 2026-10-18 指令「先提交在途 64 项，再以新 HEAD 为基线刷新」下，本机策略登记当日批次授权（`.cache/forgeloop/commit-policy.toml`，入库存模板不变），`check_commit_policy.py --validate-config/--check-now` 均放行（判定 `outside_work_hours`），提交前 `make check` exit 0（高频 1625 项 + 前端 117 项），提交为 **`d6a7bed feat(serve): 常驻服务与页面操作入口、审计归属与幂等键`**（63 项变更）。**并发会话**当时正在同一工作树里开发面板功能（`cli/panel.py`、`domain/conversation.py`、`domain/projects.py`、`graph/conversation.py`、`records/conversations.py`），其未跟踪文件让预提交钩子的全树 pyright/ruff 失败；所有者指示该会话改用独立 worktree，其文件随后迁出（迁出时也带走了它在 `domain/service.py` 内的面板改动），本提交因此只含本会话批次；`docs/branch-protection.md` 的既有改动保留在工作树、未提交。
+- **刷新被拒绝（确定性校验按设计工作）**：`requirement retry --node dev --baseline d6a7bed` 的返回是——「任务状态不符：当前 awaiting_acceptance，只有 interrupted 或存在 halted_reason 的任务可人工续跑」「检查点没有 halted_reason，无需指定重入节点 dev；请去掉 --node」。即：**「按新基线刷新同一任务」在当前实现里没有受支持的入口**；`retry` 的语义被严格限定为「不可归因的陈旧中断」，不允许用它做基线迁移（这是我此前实现缺陷 #24 时一并加固的纪律）。现场随后恢复原样：工作副本改名已撤回、任务仍为 `awaiting_acceptance`、续跑决定记录未新增（仍 10 条），旧候选另存 `candidate.baseline-e22945a.diff` 备查。
+- **三条可行路径（需所有者选一条）**：① **实现受控的「刷新」操作**（新 CLI + 人工决定记录 + 工作副本轮换 + 前置校验 + 测试/文档/契约）：符合所有者原意，属开发工作，需一轮以上；② **重新规划**：`requirement revise` 追加版本 → 旧任务包 v6 与批准失效 → 重新 `plan` → 所有者批准新任务包 → `advance` 在新基线上创建并跑新任务（流程内合法，但需要所有者再次批准任务包、且任务身份/版本会变）；③ **手工合并**（所有者此前排除，但产物与验证仍有效：`.cache/mail-merge-precheck/`，合并树 `make check` 1702 项全绿）。
+
+2026-10-18（第 14 轮：把「① 受控刷新」写成可评审方案，未实现、未提交）：所有者要求用大白话说明当前冲突后，三条路径仍未拍板。按项目规矩「确需扩大范围先交方案评审，不自行扩写清单取得授权」，本轮只产出方案文档，不动代码。
+
+- **新增 [`docs/adr/0003-requirement-baseline-refresh.md`](adr/0003-requirement-baseline-refresh.md)（状态：提议，待评审）**：把「按新基线刷新同一任务」定义为受控操作 `requirement refresh`——同一任务身份与任务包版本、只换批准基线、重跑 dev→review→test、候选对新基线计算；旧现场与旧候选封存为 `baseline-<旧提交>`；必须留下人工决定（谁/何时/理由/新旧基线）。
+- **机器强制的前置条件（逐条 fail-closed，无 `--force`）**：批准未过期、任务停在该决策边界（`interrupted` 无归因仍走既有 `retry`）、无未核对动作、无残留槽位、检查点身份可信、新基线是真实提交且与当前基线不同、无正在运行的推进、需求未停止或终态。
+- **明确不做**：不放行验收、不清失败累计、不改授权额度与任务包版本、不自动归并——避免把「刷新」变成绕过人工门或改写历史的万能钥匙。
+- **未决点已列出请所有者拍板**：能否刷新已交付任务（建议禁止）、是否计入失败轮次（建议不计入）、旧现场保留期限（建议留到新交付落地）、是否限制刷新次数（建议不设上限但每次独立记录）。
+- **当前阻塞未变**：邮件任务仍在 `awaiting_acceptance`（任务身份 `task-req-20261016021551-ed498a-v6-mail-ports`），落地路径三选一未定（① 实现上述刷新／② 走重新规划需所有者再批任务包／③ 手工合并，产物在 `.cache/mail-merge-precheck/`，合并树 `make check` 1702 项全绿）。主干已提交 `d6a7bed`，工作树仅余并发会话遗留的 `docs/branch-protection.md`（未动、未提交）。
+
+2026-10-18（所有者四项决定冻结「刷新」语义；本轮完成方案定稿与技术勘察，未动代码）：所有者对 ADR 0003 的四个未决点给出决定，语义定稿，实现留待后续轮次（硬规则代码必须与两侧行为测试一起落）。
+
+- **决定内容**：① 刷新需要人工批准；② **禁止刷新已交付的任务**（后续改动走新需求）；③ 旧基线／commit 丢失时，任务**重新分析是否已完成**并在**新基线上做实现校准**，旧基线记录、校准原因与过程全部保留；④ 刷新**不计入失败轮次**；⑤ 旧现场**归档冷备份**。ADR 0003 状态改为「已接受（尚未实现）」，并补两条派生硬性要求：命令必须要求非空 `--by`／`--reason` 且无 `--force` 可绕过；基线丢失必须显式声明（`--baseline-lost`）并写 `old_baseline_lost=true` 与校准说明，未声明即拒绝。
+- **技术关键（本轮勘察得出，直接决定实现是否有效）**：停在验收门的检查点 `next_nodes=('gate_acceptance',)` 且无 `halted_reason`，执行器据 `_keeps_waiting` 会一直等人工门——因此刷新**不能**只复用 `retry` 的「清除 halted_reason」通路；必须由 `read_authorized_checkpoint` 在处理刷新决定时，合成绑定当前检查点身份／任务包版本的重入状态（`resumed_from_halt=True`、`halted_node='dev'`、`next_nodes=('dev',)`），不匹配则不合成、保持 fail-closed。此结论已写入 ADR 的实现方案（含逐文件改动表与两侧测试矩阵）。
+- **邮件任务保持原样**：仍在 `awaiting_acceptance`，工作副本与候选未做任何改动（上一轮的改名已撤回、无新增决定记录）。四选一路径不变，等实现完成后即可按所有者原意刷新。
+
+2026-10-18（所有者批准后实现「任务↔commit 累积关联」并改判归并规则，未提交）：把「待验收任务不存在漂移问题」的模型落成代码，同时把归并的硬判据从「主干等于交付基线」换成与模型一致的两条。
+
+- **新增关联表 `task_commits`**（`records.sqlite`，只追加不覆盖）：`task_id + commit_sha + relation`，`relation ∈ {implementation, acceptance, merge}`，同任务同提交同关系幂等；提交号必须 7-64 位十六进制、关系非法即拒绝（fail-closed）。一个任务可关联多个提交——验收不通过继续改即累加，关联不断裂。
+- **验收落库**：`approve --stage acceptance` 通过时记录两类事实——任务工作副本里「批准基线..HEAD」的产出提交（`implementation`）与项目仓库当时的 HEAD（`acceptance`）；取不到（非 git 现场、路径缺失）如实跳过并打印原因，不编造提交号。
+- **归并改判**：`check_merge_readiness` 不再接受 `main_head`／`baseline_commit`，改为「**验收材料未变**（`check_acceptance_content` 与验收绑定比对）+ **候选可干净应用**（适配层 `git apply --check` 预检）」；适配层 `_require_clean_main` 去掉「HEAD == 基线」，`create_candidate_branch` 与 `merge_candidate_to_main` 共用同一组约束；冲突 fail-closed 提示人工解决并留痕，不自动拼接；工作树不干净的提示保持原样（先判脏树、再判可应用性）；归并成功后把归并提交记为 `merge`。CLI 新增 `merge --by`。
+- **文档与契约**：`docs/architecture.md` 的 domain/merge 模块行、main 保护段、记录表清单（28 → 29 张，新增 `task_commits`）、CLI 命令组与持久化小节同步；CLI 契约重新导出并通过；架构契约自检通过。
+- **验证**：`make check` **exit 0**（高频 **1631 项**＝新增 6 项，前端 117 项）。改写测试 11 个文件：新增关联表 5 项；归并判定 3 项改为「材料漂移拒绝」「冲突拒绝并提示人工」「主干前进不再是入参」；场景层原「拒绝漂移」用例改为「主干前进仍可归并 + 归并提交落关联」。
+- **对邮件任务的含义（按所有者模型）**：它属于「代码尚未 commit」的情形——**不需要刷新**，继续等人工验收；验收通过后走归并（若候选与当前 main 冲突，按新规则 fail-closed 要求人工解决并留痕），归并提交自动落进关联表。
+
 ### 实现范围
 
 | 层 | 内容 |
