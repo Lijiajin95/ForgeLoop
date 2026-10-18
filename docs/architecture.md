@@ -116,7 +116,7 @@ flowchart TD
 | adapter | `src/forgeloop/adapter/deployment.py` | 下载 Release 资产、独立版本 venv 安装、原子切换 `current`、冒烟检查、部署日志 |
 | adapter | `src/forgeloop/adapter/execution_environment.py` | 受限执行环境（两种模式，dev／review／test 共用）：`container` 用容器运行时（默认 `docker`）执行，只挂载工作副本（dev／test 可写、review 只读）、专用 PI 配置目录与测试资源，源仓库从不挂载、容器内没有源库／main 写入口（镜像见 `runtime/Dockerfile`）；`host` 直跑，只支撑「本次运行未改写源库」。模式由任务配置或 `FORGELOOP_EXECUTION_ENV` 等环境变量选择，**默认 `host`**，无 CLI 参数 |
 | adapter | `src/forgeloop/adapter/artifact.py` | 候选产物构建与验证：真实 `uv build`（工作区内缓存）、独立 venv 安装、`forgeloop --help` 冒烟 |
-| adapter | `src/forgeloop/adapter/mail.py` | `ImapMailReceiver`／`SmtpMailSender`：邮箱授权码登录 IMAP/SMTP，`poll_once` 单次拉取未读邮件并解析为 `InboundMail`（缺 Message-ID 判为无法解析），出向先写自身 Message-ID 再发送、成功才交记录接缝落库；关联与去重由注入接缝完成，发送失败抛 `MailSendError` 不静默丢弃，附件只留元数据不解析 |
+| adapter | `src/forgeloop/adapter/mail.py` | `ImapMailReceiver`／`SmtpMailSender`：邮箱授权码登录 IMAP/SMTP，`poll_once` 单次拉取未读邮件并解析为 `InboundMail`（缺 Message-ID 判为无法解析），出向先写自身 Message-ID 再发送、成功才交记录接缝落库；关联与去重由注入接缝完成，发送失败抛 `MailSendError` 不静默丢弃，附件只留元数据不解析 |；入向拉取自 2026-10-18 起默认拉取文件夹内**全部**邮件（共享邮箱里客户端会把邮件读掉，`UNSEEN` 会漏处理），由 `Message-ID` 幂等去重，需要旧行为时置 `only_unseen=True`
 | graph | `src/forgeloop/graph/__init__.py` | 层声明 |
 | graph | `src/forgeloop/graph/state.py` | `TaskState`：只放路由与续跑所需的最小字段 |
 | graph | `src/forgeloop/graph/planning.py` | 需求只读分析：PI 产出目标／场景／验收标准／待澄清项并做结构化校验；缺信息等待澄清、畸形如实阻塞，只追加版本不改源码 |

@@ -81,6 +81,9 @@ class ImapSettings:
     use_ssl: bool = True
     folder: str = "INBOX"
     timeout: float = 30.0
+    # 2026-10-18 所有者决定：默认拉取文件夹内全部邮件（共享邮箱里客户端会把邮件读掉，
+    # UNSEEN 会漏处理），由 Message-ID 幂等去重；需要旧行为时置 True。
+    only_unseen: bool = False
 
     def __post_init__(self) -> None:
         if not self.host.strip():
@@ -335,8 +338,14 @@ class ImapMailReceiver:
         self._connection = connection
 
     def fetch_unseen(self) -> tuple[bytes, ...]:
-        """在已选文件夹里拉取未读邮件的原始字节；使用 ``BODY.PEEK[]`` 不标记已读，
-        以便登记失败后重复轮询仍能看见同一封邮件（重复登记由记录接缝幂等处理）。"""
+        """在已选文件夹里拉取**未被本系统处理过**的邮件原始字节。
+
+        2026-10-18 所有者决定（"非必要需求不要卡点"）：共享邮箱里客户端会把邮件读掉，
+        ``SEARCH UNSEEN`` 会漏掉这些本来该处理的邮件。因此默认改为拉取文件夹内的
+        **全部**邮件，由记录接缝按 ``Message-ID`` 幂等去重（已登记过的不会再建需求）；
+        仍使用 ``BODY.PEEK[]`` 不标记已读，便于失败后重复轮询。需要旧行为时传
+        ``only_unseen=True``。
+        """
 
         connection = self._connection
         if connection is None:
@@ -345,9 +354,10 @@ class ImapMailReceiver:
             status, _ = connection.select(self._settings.folder)
             if status != "OK":
                 raise MailConnectionError(f"无法打开文件夹 {self._settings.folder}")
-            status, data = connection.search(None, "UNSEEN")
+            criteria = "UNSEEN" if self._settings.only_unseen else "ALL"
+            status, data = connection.search(None, criteria)
             if status != "OK" or not data or not isinstance(data[0], (bytes, bytearray)):
-                raise MailConnectionError("IMAP SEARCH UNSEEN 失败")
+                raise MailConnectionError(f"IMAP SEARCH {criteria} 失败")
             messages: list[bytes] = []
             for number in bytes(data[0]).split():
                 status, parts = connection.fetch(number.decode("ascii"), "(BODY.PEEK[])")

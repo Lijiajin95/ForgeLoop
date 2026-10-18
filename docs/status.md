@@ -250,6 +250,14 @@
 - **验证**：`make check` **exit 0**（高频 **1631 项**＝新增 6 项，前端 117 项）。改写测试 11 个文件：新增关联表 5 项；归并判定 3 项改为「材料漂移拒绝」「冲突拒绝并提示人工」「主干前进不再是入参」；场景层原「拒绝漂移」用例改为「主干前进仍可归并 + 归并提交落关联」。
 - **对邮件任务的含义（按所有者模型）**：它属于「代码尚未 commit」的情形——**不需要刷新**，继续等人工验收；验收通过后走归并（若候选与当前 main 冲突，按新规则 fail-closed 要求人工解决并留痕），归并提交自动落进关联表。
 
+2026-10-18（按所有者「按 C 办」决定：收信为硬路径、回执 best-effort；真实 QQ 全流程跑通，未提交前已过门槛）：邮件线的卡点从"设计缺陷"变成"已跑通"。
+
+- **所有者决定（原话"按C办，优先跑通全流程，非必要需求不要卡点"）**：SMTP 只做**单向回执**、失败不阻断需求流转；不拿邮件做消歧交互（消歧走页面/CLI）；IMAP 收信是硬路径。
+- **根因修复**：`adapter/mail.py` 的入向拉取默认从 `SEARCH UNSEEN` 改为 `SEARCH ALL`（新增 `only_unseen` 开关保留旧行为），由既有 `Message-ID` 幂等接缝去重。真实环境暴露的问题：共享邮箱里客户端会把邮件标为已读（实测收件箱 126 封**未读 0**），`UNSEEN` 永远拉不到本应处理的邮件。
+- **真实 QQ 全流程已跑通（实测）**：建需求 → 真实 SMTP 投递到本人邮箱（被 QQ 过滤规则归档进 `FORGE_INBOX`）→ `mail poll --once --imap-folder '&UXZO1mWHTvZZOQ-/FORGE_INBOX'` **fetched=12 registered=12 skipped=0 errors=0**，本次邮件成功关联到需求（`req-20261018142704-17adf7`，给出 `disambiguate` 待确认建议）→ `mail confirm` best-effort 回执 `sent: true`。权威记录：`mail_inbound 12`、`mail_threads 1`、`mail_deliveries 1`。
+- **交付面**：`mail-ports` 已验收（关联 `acceptance d6a7bed`）并归并（`merge e8cc3fb`）；`mail-smtp-send` 按决定**降级为非卡点**（回执 best-effort），优先保证收信闭环——它此前因 PI 模型请求超时（外部原因）停在 `pi_dev_unsettled`，不再作为阻塞项。
+- **验证**：`make check` **exit 0（1711 项 + 前端 117）**；架构说明补记拉取口径。
+
 ### 实现范围
 
 | 层 | 内容 |

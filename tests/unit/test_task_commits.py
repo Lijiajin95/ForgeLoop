@@ -60,3 +60,21 @@ class TestTaskCommitRelation:
         store.record_task_commit("task-other", SHA, "implementation")
         store.record_task_commit(TASK_ID, OTHER, "implementation")
         assert [item.commit_sha for item in store.task_commits(TASK_ID)] == [OTHER]
+
+
+class TestPrerequisiteThreadId:
+    """前置单任务身份推导（关联表按单任务身份落库）。"""
+
+    def test_derives_same_prefix_with_prerequisite_name(self) -> None:
+        from forgeloop.graph.requirements import _prerequisite_thread_id
+
+        downstream = "task-req-20261016021551-ed498a-v6-mail-smtp-send"
+        assert _prerequisite_thread_id(downstream, "mail-ports") == (
+            "task-req-20261016021551-ed498a-v6-mail-ports"
+        )
+
+    def test_unknown_shape_returns_empty_instead_of_guessing(self) -> None:
+        from forgeloop.graph.requirements import _prerequisite_thread_id
+
+        assert _prerequisite_thread_id("task-plain", "mail-ports") == ""
+        assert _prerequisite_thread_id("task-x-v-notdigits-y", "mail-ports") == ""

@@ -349,6 +349,21 @@ def apply_prerequisite_candidates(
                     "已被其他直接依赖传递包含，其改动随该前置一并带入，不单独应用",
                 )
                 continue
+            # 已归并进 main 的前置候选：改动已由工作副本基线承载，不再重复应用。
+            # 判据是权威关联表里的 merge 记录（2026-10-18 关联模型）；落地时文档与
+            # 契约经人工合并，现场反向校验必然失败，重复应用只会撞同一冲突并永久
+            # 阻断下游任务。
+            prerequisite = _prerequisite_thread_id(task_id, candidate.task_id)
+            if prerequisite and "merge" in _task_commit_relations(record_path, prerequisite):
+                outcomes_by_task[candidate.task_id] = PrerequisiteApplication(
+                    candidate.task_id,
+                    candidate.candidate_sha256,
+                    PrerequisiteApplyStatus.ALREADY_APPLIED,
+                    "该前置候选已归并进 main（任务-提交关联含 merge 记录），"
+                    "改动由副本基线承载，跳过重复应用",
+                )
+                present_in_workspace.append(candidate.task_id)
+                continue
             key = (candidate.task_id, candidate.candidate_sha256)
             recorded_entry = recorded.get(candidate.task_id)
             recorded_applied = (
@@ -996,3 +1011,41 @@ class RequirementExecutor:
             consumed_seconds=consumed,
             limit_seconds=limit,
         )
+
+
+def _prerequisite_thread_id(downstream_task_id: str, prerequisite_task_id: str) -> str:
+    """由下游单任务身份推导前置的单任务身份（``task-<req>-v<n>-<task>`` 同前缀）。
+
+    任务与 commit 的关联按**单任务身份**落库（``records.sqlite.task_commits``），而
+    前置候选只带计划内的任务名；推导失败返回空串，调用方据此退回原有应用逻辑，
+    不猜测身份。
+    """
+
+    marker = downstream_task_id.rfind("-v")
+    if marker < 0:
+        return ""
+    version, _, rest = downstream_task_id[marker + 2 :].partition("-")
+    if not version.isdigit() or not rest:
+        return ""
+    return f"{downstream_task_id[: marker + 2]}{version}-{prerequisite_task_id}"
+
+
+def _task_commit_relations(record_path: Path, task_id: str) -> set[str]:
+    """只读查询某单任务身份已落库的关联关系；库或表缺失返回空集（不建表、不改现场）。"""
+
+    db_path = record_path.parent.parent / "records.sqlite"
+    if not db_path.is_file():
+        return set()
+    try:
+        connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return set()
+    try:
+        rows = connection.execute(
+            "SELECT relation FROM task_commits WHERE task_id = ?", (task_id,)
+        ).fetchall()
+    except sqlite3.Error:
+        return set()
+    finally:
+        connection.close()
+    return {str(row[0]) for row in rows}
