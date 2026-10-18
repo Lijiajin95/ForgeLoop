@@ -627,6 +627,33 @@
       "object"
     ],
     "properties": {
+      "acceptance": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "acceptance_fingerprint": {
+            "type": [
+              "string"
+            ]
+          },
+          "acceptance_source": {
+            "type": [
+              "string"
+            ]
+          },
+          "accepted_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "accepted_by": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
       "analysis": {
         "type": [
           "null",
@@ -943,6 +970,28 @@
           "reason",
           "task_id"
         ]
+      },
+      "submission": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "client_key": {
+            "type": [
+              "string"
+            ]
+          },
+          "source": {
+            "type": [
+              "string"
+            ]
+          },
+          "submitted_by": {
+            "type": [
+              "string"
+            ]
+          }
+        }
       },
       "tasks": {
         "type": [
@@ -1574,6 +1623,345 @@
         "item": {
           "$ref": "#/document"
         }
+      }
+    }
+  },
+  "service_command": "forgeloop serve --once --json",
+  "service_exit_codes": {
+    "ok": 0,
+    "config_invalid": 1,
+    "listen_failed": 1
+  },
+  "service_status_route": "GET /api/service",
+  "service_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "config_path": {
+        "type": [
+          "string"
+        ]
+      },
+      "counts": {
+        "$ref": "#/web_progress_document/properties/counts"
+      },
+      "generated_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "operations_enabled": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "pid": {
+        "type": [
+          "integer"
+        ]
+      },
+      "projects": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "string"
+          ]
+        }
+      },
+      "records_root": {
+        "type": [
+          "string"
+        ]
+      },
+      "review_required": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "$ref": "#/web_progress_document/properties/issues/item"
+        }
+      },
+      "schema_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "started_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "worker": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "auto_advance": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "executable_projects": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "execution_enabled": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string"
+            ]
+          },
+          "last_poll_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "last_tick": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "candidates": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "executed": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "empty-array"
+                  ]
+                }
+              },
+              "results": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "empty-array"
+                  ]
+                }
+              },
+              "skipped": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "object"
+                  ],
+                  "properties": {
+                    "reason": {
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "req_id": {
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "pending_advance": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "poll_seconds": {
+            "type": [
+              "integer"
+            ]
+          },
+          "polls": {
+            "type": [
+              "integer"
+            ]
+          },
+          "projects": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "running": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "startup_checked_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "startup_review": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "detail": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "ref_id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "summary": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "service_submit_route": "POST /api/requirements",
+  "service_action_routes": [
+    "POST /api/requirements/{req_id}/approve",
+    "POST /api/requirements/{req_id}/advance",
+    "POST /api/requirements/{req_id}/accept",
+    "POST /api/requirements/{req_id}/stop"
+  ],
+  "service_operation_codes": {
+    "submit": 201,
+    "approve": 200,
+    "advance": 202,
+    "accept": 200,
+    "stop": 202
+  },
+  "service_operation_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "by": {
+        "type": [
+          "string"
+        ]
+      },
+      "detail": {
+        "type": [
+          "string"
+        ]
+      },
+      "note": {
+        "type": [
+          "string"
+        ]
+      },
+      "ok": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "operation": {
+        "type": [
+          "string"
+        ]
+      },
+      "output": {
+        "type": [
+          "string"
+        ]
+      },
+      "queued": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "reason": {
+        "type": [
+          "string"
+        ]
+      },
+      "req_id": {
+        "type": [
+          "string"
+        ]
+      },
+      "source": {
+        "type": [
+          "string"
+        ]
+      },
+      "task_id": {
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "optional_keys": [
+      "by",
+      "detail",
+      "note",
+      "queued",
+      "source",
+      "task_id"
+    ]
+  },
+  "service_operation_error_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "detail": {
+        "type": [
+          "string"
+        ]
+      },
+      "error": {
+        "type": [
+          "string"
+        ]
       }
     }
   }

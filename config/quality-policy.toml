@@ -72,15 +72,31 @@ mutation_killed_min = 90
 # 键为 `文件:行:列:变异算子:替换内容`；同一位置的多个等价变异由一条登记覆盖。
 # 未登记的幸存者会让 scripts/check_frontend_mutation.py 失败；条目过期只作提示。
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:46:19:ConditionalExpression:false'
+mutant = 'src/actions.ts:81:10:ConditionalExpression:true'
+reason = '等价变异：只把 `typeof value === "object"` 这一个子句放宽为真，同一表达式内的 `value !== null` 仍守着 null；非 null 非对象（JSON 标量）读字段得 undefined，与走兜底分支的可观察结果一致。放宽整个表达式（LogicalOperator 版本）已被 null 载荷用例杀掉。'
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/actions.ts:87:9:ConditionalExpression:true'
+reason = '等价变异：错误体按对象读取时，标量载荷读出的 `detail`／`error` 都是 undefined，仍落到 `HTTP <status>`；null 载荷抛出的 TypeError 被同一函数的 try/catch 收敛为同一兜底文案（已由 null 错误体用例覆盖该路径）。'
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/actions.ts:93:11:ConditionalExpression:true'
+reason = '等价变异：只放宽 `typeof code === "string"`，同一表达式内的 `code.length > 0` 仍排除空串；空串与缺失两种输入都走同一条 `HTTP <status>` 兜底（有专门用例）。'
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/actions.ts:147:56:ArrowFunction:() => undefined'
+reason = '等价变异：成功响应体不是 JSON 时，`.catch` 返回 undefined 与返回空对象都被 `isRecord` 判假并回落到中性文案「操作已完成。」，可观察结果相同（有专门用例）。'
+
+[[frontend.reviewed_survivors]]
+mutant = 'src/format.ts:47:19:ConditionalExpression:false'
 reason = "等价变异：Number(数字) 与数字本身恒等，`typeof value === \"number\"` 的三元分支只影响同一结果的路径。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:46:36:StringLiteral:""'
+mutant = 'src/format.ts:47:36:StringLiteral:""'
 reason = "等价变异：`typeof value === \"\"` 恒为假，退化为 Number(value)，与上一行同一结果。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:68:41:ObjectLiteral:{}'
+mutant = 'src/format.ts:69:41:ObjectLiteral:{}'
 reason = "本机 ICU 下 zh-CN 的默认 hour12 与显式 false 相同（实测输出一致）；测试已钉死 24 小时制形状，跨 ICU 行为差异由真实浏览器用例间接覆盖。"
 
 [[frontend.reviewed_survivors]]
@@ -126,6 +142,54 @@ require_nonempty_report = true
 
 
 # 变异幸存者逐项审阅记录（2026-10-12 审阅；源码变更后须重新核对，清单失效时门槛脚本会显式失败）。
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__command__mutmut_5"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__command__mutmut_9"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__command__mutmut_10"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__command__mutmut_11"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_8"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_12"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_13"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_14"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_25"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_29"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_30"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_31"
+reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
+
 [[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.limits.xǁExecutionBudgetǁ__post_init____mutmut_4"
 reason = "错误消息文本变异（XX 包裹/大小写/None）：消息内容非行为契约；测试断言异常类型与关键语义，不断言全文。"

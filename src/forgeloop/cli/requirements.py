@@ -368,6 +368,7 @@ def cmd_requirement_retry(args: argparse.Namespace) -> int:
             task_status=selected.task_status,
             by=args.by,
             reason=args.reason,
+            resume_node=args.node,
         )
         if not outcome.allowed or outcome.decision is None:
             _print_retry_rejection(root, args.req_id, outcome, inspection)
@@ -379,6 +380,8 @@ def cmd_requirement_retry(args: argparse.Namespace) -> int:
             f"人工续跑决定已记录: by={decision.decided_by}，"
             f"时间 {decision.decided_at.isoformat()}，理由 {decision.reason}"
         )
+        if decision.resume_node:
+            print(f"人工指定重入节点: {decision.resume_node}")
 
         # 记录决定后释放该任务仍未完成的动作：未完成动作是独立的阻塞事实，只清除
         # halted_reason 不足以解除 B03 红线。释放与决定使用同一人工理由，动作身份
@@ -453,7 +456,10 @@ def add_requirement_retry(
 
     retry = subparsers.add_parser(
         "retry",
-        help="人工核对现场后续跑一条中断任务（必填 --by/--reason/--pi-command，立即续跑）",
+        help=(
+            "人工核对现场后续跑一条中断任务（必填 --by/--reason/--pi-command，立即续跑；"
+            "无法归因的陈旧中断另需 --node）"
+        ),
     )
     retry.add_argument("req_id", help="需求身份")
     retry.add_argument(
@@ -463,6 +469,14 @@ def add_requirement_retry(
     )
     retry.add_argument("--by", required=True, help="调用方标识（如 owner）")
     retry.add_argument("--reason", required=True, help="人工续跑理由（不能为空白）")
+    retry.add_argument(
+        "--node",
+        default="",
+        help=(
+            "人工点名重入业务节点 dev|review|test；只用于检查点自身无法归因的陈旧中断"
+            "（例如迁移前的 plan_approval_stale），可归因时不得改指其他节点"
+        ),
+    )
     retry.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
     retry.add_argument("--project-path", default="", help="被开发项目路径")
     retry.add_argument("--baseline", default="", help="代码基线")

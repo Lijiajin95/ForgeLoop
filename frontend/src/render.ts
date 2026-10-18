@@ -36,6 +36,20 @@ export interface PageElements {
   readonly tasksEmpty: HTMLElement;
   readonly issuesBody: HTMLElement;
   readonly issuesEmpty: HTMLElement;
+  readonly operations: HTMLElement;
+  readonly submitForm: HTMLFormElement;
+  readonly submitProject: HTMLInputElement;
+  readonly submitText: HTMLTextAreaElement;
+  readonly operationsBy: HTMLInputElement;
+  readonly submitReason: HTMLInputElement;
+  readonly submitButton: HTMLButtonElement;
+  readonly actionReq: HTMLSelectElement;
+  readonly actionReason: HTMLInputElement;
+  readonly actionApprove: HTMLButtonElement;
+  readonly actionAdvance: HTMLButtonElement;
+  readonly actionAccept: HTMLButtonElement;
+  readonly actionStop: HTMLButtonElement;
+  readonly operationsStatus: HTMLElement;
 }
 
 const ELEMENT_IDS = {
@@ -54,6 +68,20 @@ const ELEMENT_IDS = {
   tasksEmpty: "tasks-empty",
   issuesBody: "issues-body",
   issuesEmpty: "issues-empty",
+  operations: "operations",
+  submitForm: "submit-form",
+  submitProject: "submit-project",
+  submitText: "submit-text",
+  operationsBy: "operations-by",
+  submitReason: "submit-reason",
+  submitButton: "submit-button",
+  actionReq: "action-req",
+  actionReason: "action-reason",
+  actionApprove: "action-approve",
+  actionAdvance: "action-advance",
+  actionAccept: "action-accept",
+  actionStop: "action-stop",
+  operationsStatus: "operations-status",
 } as const satisfies Record<keyof PageElements, string>;
 
 function requireElement<T extends HTMLElement>(document: Document, id: string): T {
@@ -145,6 +173,7 @@ function issueRow(document: Document, entry: IssueEntry): HTMLTableRowElement {
  * 把一份进展快照渲染到页面：计数、刷新说明、时间与三张表。
  */
 export function renderProgress(elements: PageElements, progress: ProgressDocument): void {
+  renderRequirementOptions(elements, progress.requirements);
   const document = elements.banner.ownerDocument;
   elements.refreshNote.textContent = refreshNote(progress.refresh_seconds, progress.refresh_source);
   elements.generatedAt.textContent = formatTimestamp(progress.generated_at);
@@ -170,6 +199,46 @@ export function renderProgress(elements: PageElements, progress: ProgressDocumen
 }
 
 /** 显示读取失败：报错必须可见，不能把失败伪装成「没有记录」。 */
+/**
+ * 把需求清单灌进操作面板的下拉框：保留当前选择，未选中的新需求自动选第一条。
+ *
+ * 只读渲染：不发起请求、不改业务状态；空清单时下拉框为空并禁用动作按钮由调用方处理。
+ */
+function renderRequirementOptions(
+  elements: PageElements,
+  requirements: readonly RequirementEntry[],
+): void {
+  const previous = elements.actionReq.value;
+  elements.actionReq.replaceChildren();
+  for (const requirement of requirements) {
+    const option = elements.actionReq.ownerDocument.createElement("option");
+    option.value = requirement.req_id;
+    option.textContent = `${requirement.req_id}（${requirement.requirement_status}）`;
+    elements.actionReq.append(option);
+  }
+  const stillThere = requirements.some((item) => item.req_id === previous);
+  if (stillThere) {
+    elements.actionReq.value = previous;
+  } else if (requirements.length > 0) {
+    elements.actionReq.value = requirements[0]?.req_id ?? "";
+  }
+}
+
+/** 写操作结果：空文本清空状态；失败用醒目色，成功用普通色。 */
+export function renderOperationStatus(
+  elements: PageElements,
+  message: string,
+  tone: "info" | "error",
+): void {
+  elements.operationsStatus.textContent = message;
+  elements.operationsStatus.dataset["tone"] = tone;
+}
+
+/** 操作面板可见性：只有拿到令牌（`serve` 下发）时才显示。 */
+export function renderOperationsAvailability(elements: PageElements, available: boolean): void {
+  elements.operations.hidden = !available;
+}
+
 export function showError(elements: PageElements, message: string): void {
   elements.banner.textContent = message;
   elements.banner.style.display = "block";

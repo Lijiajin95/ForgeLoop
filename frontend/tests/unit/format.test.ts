@@ -124,6 +124,7 @@ describe("label 翻译", () => {
     ["task_stop_requested", "待确认停止"],
     ["requirement_blocked", "需求阻断"],
     ["slot_residue", "执行槽位残留"],
+    ["outstanding_action", "未核对动作"],
   ])("问题种类 %s 译为 %s", (kind, label) => {
     expect(issueKindLabel(kind)).toBe(label);
   });

@@ -88,3 +88,54 @@ export interface ProgressDocument {
   readonly tasks: readonly TaskEntry[];
   readonly issues: readonly IssueEntry[];
 }
+
+/** 只读进展接口之外的写入口：提交需求与单需求动作（服务端 `cli/serve.py`）。 */
+export const REQUIREMENTS_URL = "/api/requirements";
+
+/** 页面令牌：服务端注入 `<meta name="forgeloop-token">`，写请求放在请求头里。 */
+export const TOKEN_META_NAME = "forgeloop-token";
+export const TOKEN_HEADER = "X-Forgeloop-Token";
+
+/**
+ * 未经注入的令牌占位：`forgeloop web`（只读服务）不下发令牌，页面据此隐藏操作面板，
+ * 而不是拿着占位串去发一个必然被拒的请求。
+ */
+export const TOKEN_PLACEHOLDER = "__FORGELOOP_TOKEN__";
+
+/** 提交键在会话存储里的键名：刷新页面后仍复用同一个键，避免「刷新即重复提交」。 */
+export const SUBMIT_KEY_STORAGE = "forgeloop:submit-key";
+
+/** 单需求可做的四类人工动作（与服务端路由一致）。 */
+export type RequirementAction = "approve" | "advance" | "accept" | "stop";
+
+/** 单需求动作的写端点。 */
+export function requirementActionUrl(reqId: string, action: RequirementAction): string {
+  return `${REQUIREMENTS_URL}/${encodeURIComponent(reqId)}/${action}`;
+}
+
+/** 写请求体：`by` 必填；理由只有人工决定（批准/验收/停止）必填。 */
+export interface OperationBody {
+  readonly by: string;
+  readonly reason?: string;
+  readonly project?: string;
+  readonly text?: string;
+  /** 提交类：客户端幂等键（方案 §4.2 的 UUID），同键同内容不重复建需求。 */
+  readonly key?: string;
+}
+
+/** 写操作成功响应（服务端返回的字段子集）。 */
+export interface OperationResult {
+  readonly ok?: boolean;
+  readonly operation?: string;
+  readonly req_id?: string;
+  readonly task_id?: string;
+  readonly output?: string;
+  /** 推进请求的受理标记：202 排队，执行落在常驻心跳（方案 §4.2）。 */
+  readonly queued?: boolean;
+}
+
+/** 写操作失败响应：稳定的机器标签 + 可直接展示的原因。 */
+export interface OperationError {
+  readonly error: string;
+  readonly detail: string;
+}

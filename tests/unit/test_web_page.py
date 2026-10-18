@@ -30,7 +30,15 @@ from forgeloop.domain.progress import DEFAULT_REFRESH_SECONDS, RefreshSetting, R
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SRC = ROOT / "frontend" / "src"
 # 页面行为代码必须随包分发；这些名字由 frontend/src 的模块决定（漂移门禁核对内容）。
-PAGE_MODULES = ("app.js", "format.js", "page.js", "payload.js", "progress.js", "render.js")
+PAGE_MODULES = (
+    "actions.js",
+    "app.js",
+    "format.js",
+    "page.js",
+    "payload.js",
+    "progress.js",
+    "render.js",
+)
 
 TOP_LEVEL_FIELDS = (
     "schema_version",
@@ -75,6 +83,7 @@ ISSUE_KIND_LABELS = {
     "task_stop_requested",
     "requirement_blocked",
     "slot_residue",
+    "outstanding_action",
 }
 REFRESH_SOURCE_LABELS = {"cli", "config", "default"}
 
@@ -102,6 +111,29 @@ class TestPageAssets:
         """行为代码只在 TypeScript 源里：HTML 不再内联脚本（避免绕过类型与 lint 门禁）。"""
 
         assert "<script>" not in page
+
+    def test_page_carries_the_token_placeholder_and_operation_panel(self, page: str) -> None:
+        """写入口的页面契约：令牌 meta（占位形式）与操作面板的元素 id 必须存在。"""
+
+        assert 'name="forgeloop-token"' in page
+        assert "__FORGELOOP_TOKEN__" in page
+        for element_id in (
+            "operations",
+            "submit-form",
+            "submit-project",
+            "submit-text",
+            "operations-by",
+            "submit-reason",
+            "submit-button",
+            "action-req",
+            "action-reason",
+            "action-approve",
+            "action-advance",
+            "action-accept",
+            "action-stop",
+            "operations-status",
+        ):
+            assert f'id="{element_id}"' in page, element_id
 
     @pytest.mark.parametrize("name", PAGE_MODULES)
     def test_module_is_shipped_in_the_package(self, name: str) -> None:
@@ -187,6 +219,41 @@ class TestApiFieldContract:
             for field in ISSUE_FIELDS:
                 assert field in issue, field
             assert issue["kind"] in ISSUE_KIND_LABELS
+
+    def test_unreleased_action_becomes_its_own_issue(self, tmp_path: Path) -> None:
+        """未核对动作独立成项：任务状态仍是进行中，但必须出现在页面「问题」段。"""
+
+        from forgeloop.cli.web import ProgressDocuments
+        from forgeloop.records.store import RecordStore
+
+        root = tmp_path / ".forgeloop"
+        root.mkdir()
+        store = RecordStore(root / "records.sqlite")
+        try:
+            store.create_task(
+                "task-1",
+                "forgeloop",
+                "原始需求文本",
+                {"pi_command": '["pi"]', "test_command": '["pytest"]'},
+                limit_seconds=100.0,
+            )
+            store.set_task_status("task-1", "implementing")
+            store.actions.begin("task-1", "dev")
+        finally:
+            store.close()
+        documents = ProgressDocuments(_requirement_document, _status_document)
+
+        document = build_progress_document(
+            root, RefreshSetting(60, RefreshSource.DEFAULT), documents
+        )
+
+        kinds = [issue["kind"] for issue in document["issues"]]
+        assert "outstanding_action" in kinds
+        issue = next(item for item in document["issues"] if item["kind"] == "outstanding_action")
+        assert issue["ref_id"] == "task-1"
+        assert "禁止盲目重放" in issue["summary"]
+        assert "dev" in issue["detail"]
+        assert "actions list" in issue["detail"]
 
     def test_refresh_source_is_a_label_the_page_knows(self, document: dict) -> None:
         assert document["refresh_source"] in REFRESH_SOURCE_LABELS

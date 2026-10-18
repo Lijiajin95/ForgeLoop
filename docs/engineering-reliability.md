@@ -109,6 +109,12 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 
 关键分母规则（复刻）：一般模块 killed 比例以有效、非等价变异中的 killed/survived/no coverage/有效 timeout 总数为分母，timeout 不计入 killed；pending 与未完成范围不能从分母删除后宣称完成。
 
+**变异范围与口径的实测记录（2026-10-18，所有者决定后更新）**：
+
+- **纳入 `domain/service.py`（核心配置纯规则）**：该模块代码几乎全是校验分支，可观察差异主要落在错误消息上，因此对**本模块**取「消息即契约」口径——`tests/unit/test_service_config.py::TestMessagesAreTheContract` 逐字断言文案（字段名、`1..65535`／`>= 1` 范围写法、未知键清单与分隔符），把消息变异钉死。这是对「消息内容非行为契约」既有先例的**收紧例外**，只适用于配置校验这类「文案就是运维界面」的模块。实测 254 个变异体：242 杀死／12 存活（**95.3%**），12 个存活全部是 `cast("...")` 实参（运行时 no-op，等价），逐条登记在 `config/quality-policy.toml`。
+- **纳入前端 `src/actions.ts`**：先补 15 条针对真实回退行为的用例把分数从 72.95% 提到 90.16%，再纳入 Stryker 夜间范围（**不动任何阈值**）；全量实跑 93.45%（format 96.99／progress 92.59／actions 90.16），4 个等价幸存者逐项登记，检查脚本报击杀率 96.13%。
+- **两处会让变异运行给出错误结论的环境缺口（已修，写进 `pyproject.toml`）**：① 变异沙箱缺 `contracts/`，`tests/component/test_cli_contract.py` 直接基线失败 → 把 `contracts` 加入 `also_copy`；② **基线只受 `pytest_add_cli_args_test_selection` 约束「每个变异体跑哪些测试」，仍会收集全套**，系统层在沙箱里撞 `pytest-timeout` → 补 `--ignore=tests/system`、`--ignore=tests/integration`。另有 `mutants/` **只在首次创建时整体拷贝**的陷阱：本地改过 `tests/`、页面 HTML 或 `static/*.js` 后必须 `rm -rf mutants` 再跑，否则拿到陈旧夹具的结论（CI 干净检出不受影响）。
+
 ## 6. 执行分层
 
 | 时机 | 必须执行 | 成本控制 |

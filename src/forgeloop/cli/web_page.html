@@ -3,6 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- 写入口令牌：`forgeloop serve` 启动时把占位替换成一次性令牌；只读的 `forgeloop web` 不替换。 -->
+    <meta name="forgeloop-token" content="__FORGELOOP_TOKEN__" />
     <title>ForgeLoop 研发进展</title>
     <style>
       :root {
@@ -154,6 +156,55 @@
       code {
         font-size: 12px;
       }
+      #operations form,
+      #operations .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+        margin-bottom: 10px;
+      }
+      #operations label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      #operations input,
+      #operations textarea,
+      #operations select {
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 8px;
+        min-width: 160px;
+      }
+      #operations textarea {
+        min-width: 320px;
+        min-height: 60px;
+      }
+      #operations button {
+        font: inherit;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 12px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      #operations button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #operations-status {
+        min-height: 1.2em;
+      }
+      #operations-status[data-tone="error"] {
+        color: var(--danger);
+      }
     </style>
   </head>
   <body>
@@ -243,6 +294,49 @@
         <tbody id="issues-body"></tbody>
       </table>
       <p class="empty" id="issues-empty">没有待处理问题。</p>
+    </section>
+
+    <section id="operations" hidden>
+      <h2>操作</h2>
+      <p class="meta">
+        写操作与 CLI 等价：批准绑定需求身份与任务包版本，理由写进权威记录；只有
+        <code>forgeloop serve</code>（常驻服务）下发令牌，只读的
+        <code>forgeloop web</code> 不显示本面板。
+      </p>
+      <form id="submit-form">
+        <label>
+          项目
+          <input id="submit-project" name="project" required />
+        </label>
+        <label>
+          需求正文
+          <textarea id="submit-text" name="text" required></textarea>
+        </label>
+        <label>
+          操作人
+          <input id="operations-by" name="by" value="owner" required />
+        </label>
+        <label>
+          理由/备注
+          <input id="submit-reason" name="reason" />
+        </label>
+        <button id="submit-button" type="submit">提交需求</button>
+      </form>
+      <div class="actions">
+        <label>
+          需求
+          <select id="action-req"></select>
+        </label>
+        <label>
+          理由（批准/验收/停止必填）
+          <input id="action-reason" />
+        </label>
+        <button id="action-approve" type="button">批准任务包</button>
+        <button id="action-advance" type="button">推进本次</button>
+        <button id="action-accept" type="button">整体验收</button>
+        <button id="action-stop" type="button">请求停止</button>
+      </div>
+      <p class="meta" id="operations-status" role="status"></p>
     </section>
 
     <!-- 行为代码是 TypeScript 源（frontend/src）编译出的模块，见 docs/engineering-reliability.md 第 1 节；本文件只保留结构与样式。 -->

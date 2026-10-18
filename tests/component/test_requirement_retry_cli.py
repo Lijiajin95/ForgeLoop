@@ -83,6 +83,18 @@ def _approved(root: Path) -> str:
         store.close()
 
 
+def _msgpack_loads(checkpoint_type: str, blob: bytes) -> dict:
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    return cast(dict, JsonPlusSerializer().loads_typed((checkpoint_type, blob)))
+
+
+def _msgpack_dumps(values: dict) -> bytes:
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    return JsonPlusSerializer().dumps_typed(values)[1]
+
+
 def _runner(root: Path, req_id: str) -> RequirementTaskRunner:
     return RequirementTaskRunner(
         records_root=root,
@@ -154,13 +166,45 @@ def _retry_argv(
     *,
     task: str | None = TASK,
     reason: str = REASON,
+    node: str | None = None,
 ) -> list[str]:
     argv = ["requirement", "retry", req_id]
     if task is not None:
         argv += ["--task", task]
     argv += ["--by", "owner", "--reason", reason, "--pi-command", PI_COMMAND]
+    if node is not None:
+        argv += ["--node", node]
     argv += ["--records-root", str(root)]
     return argv
+
+
+def _mark_legacy_stale(root: Path, thread_id: str) -> None:
+    """把真实中断现场改写成迁移前的陈旧 ``halted_reason``（缺陷 #24 的现场形态）。
+
+    只替换检查点里的原因文本，其余现场（检查点身份、任务身份、方案版本、``next`` 为空）
+    保持真实，用于验证「无法归因时人工必须点名节点」的 CLI 行为。
+    """
+
+    import sqlite3 as _sqlite3
+
+    connection = _sqlite3.connect(root / "checkpoints.sqlite", check_same_thread=False)
+    try:
+        row = connection.execute(
+            "SELECT checkpoint_id, type, checkpoint FROM checkpoints"
+            " WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
+            (thread_id,),
+        ).fetchone()
+        assert row is not None, f"没有找到线程 {thread_id} 的检查点"
+        checkpoint_id, checkpoint_type, blob = row
+        values = _msgpack_loads(str(checkpoint_type), bytes(blob))
+        values["channel_values"]["halted_reason"] = "plan_approval_stale"
+        connection.execute(
+            "UPDATE checkpoints SET checkpoint = ? WHERE thread_id = ? AND checkpoint_id = ?",
+            (_msgpack_dumps(values), thread_id, checkpoint_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def _completed_nodes(root: Path, thread_id: str) -> list[str]:
@@ -214,6 +258,43 @@ class TestRetryDrivesResume:
 
         assert code == 0, captured.out + captured.err
         assert f"实际处理任务: {TASK}" in captured.out
+        assert _completed_nodes(tmp_path, thread_id) == ["dev", "dev", "review", "test"]
+
+    def test_legacy_stale_halt_requires_explicit_node(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """缺陷 #24：无法归因的陈旧中断必须人工点名节点，否则 fail-closed 拒绝。"""
+
+        req_id, thread_id = _halted(tmp_path, monkeypatch)
+        _mark_legacy_stale(tmp_path, thread_id)
+        monkeypatch.setenv("FAKE_PI_MODE", "ok")
+        before = _completed_nodes(tmp_path, thread_id)
+
+        code = cli_main(_retry_argv(tmp_path, req_id))
+        captured = capsys.readouterr()
+
+        assert code == 1
+        assert "--node" in captured.err
+        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert _completed_nodes(tmp_path, thread_id) == before
+
+    def test_legacy_stale_halt_resumes_at_named_node(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """人工点名 dev 后，陈旧现场按该节点就地续跑并继续 review/test。"""
+
+        req_id, thread_id = _halted(tmp_path, monkeypatch)
+        _mark_legacy_stale(tmp_path, thread_id)
+        monkeypatch.setenv("FAKE_PI_MODE", "ok")
+
+        code = cli_main(_retry_argv(tmp_path, req_id, node="dev"))
+        captured = capsys.readouterr()
+
+        assert code == 0, captured.out + captured.err
+        assert "人工指定重入节点: dev" in captured.out
+        decision = latest_retry_decision(tmp_path, req_id, thread_id)
+        assert decision is not None
+        assert decision.resume_node == "dev"
         assert _completed_nodes(tmp_path, thread_id) == ["dev", "dev", "review", "test"]
 
     def test_blank_reason_does_not_enter_graph(

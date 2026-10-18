@@ -49,6 +49,14 @@ module.exports = {
       to: { path: "^src/(progress|app)\\.ts$" },
     },
     {
+      name: "actions-is-a-leaf-above-payload",
+      severity: "error",
+      comment:
+        "actions.ts 只拼写请求与发请求：不得依赖渲染、轮询、格式化或装配模块，业务判定全在服务端。",
+      from: { path: "^src/actions\\.ts$" },
+      to: { path: "^src/(format|render|progress|page|app)\\.ts$" },
+    },
+    {
       name: "progress-does-not-render",
       severity: "error",
       comment: "progress.ts 只管取数与调度：不得依赖渲染或入口模块。",

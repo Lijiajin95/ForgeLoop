@@ -17,9 +17,11 @@
 
 import argparse
 import contextlib
+import hashlib
 import json
 import sys
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -46,6 +48,7 @@ from forgeloop.cli.requirements import (
     task_budget_summary,
     task_status_reason,
 )
+from forgeloop.cli.serve import ServeOperations, add_serve_parser
 from forgeloop.cli.web import ProgressDocuments, add_web_parser
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
@@ -56,6 +59,7 @@ from forgeloop.domain.delivery import (
 from forgeloop.domain.dependency_facts import assess_dependency
 from forgeloop.domain.requirement import (
     BLOCKED,
+    IdempotencyConflictError,
     RequirementError,
     RequirementNotFoundError,
 )
@@ -231,8 +235,18 @@ def cmd_approve(args: argparse.Namespace) -> int:
         if plan is None:
             raise SystemExit(f"任务尚无方案，无法批准: {args.task_id}")
         if args.decision == "approved":
-            store.record_approval(Approval(args.task_id, plan.version, stage, datetime.now(UTC)))
-            print(f"{stage.value} 批准已记录（方案版本 {plan.version}）。")
+            store.record_approval(
+                Approval(
+                    args.task_id,
+                    plan.version,
+                    stage,
+                    datetime.now(UTC),
+                    approved_by=str(getattr(args, "by", "")),
+                    source=str(getattr(args, "source", "")),
+                )
+            )
+            who = str(getattr(args, "by", "")) or "未署名"
+            print(f"{stage.value} 批准已记录（方案版本 {plan.version}，批准人 {who}）。")
         else:
             print(f"{stage.value} 拒绝决定已记录（不写入批准）。")
     finally:
@@ -455,7 +469,12 @@ def cmd_stop(args: argparse.Namespace) -> int:
     root = records_root(args)
     store = open_store(root, args.task_id)
     try:
-        store.outcomes.request_stop(args.task_id, args.note or "")
+        store.outcomes.request_stop(
+            args.task_id,
+            args.note or "",
+            requested_by=str(getattr(args, "by", "")),
+            source=str(getattr(args, "source", "")),
+        )
         print(f"停止请求已记录: {args.task_id}")
         print("当前工具完成并保存结果后将不再启动新动作；结果不明确时保留现场待核对。")
     finally:
@@ -495,10 +514,23 @@ def cmd_requirement_submit(args: argparse.Namespace) -> int:
     text = _read_input(args.input)
     store = RequirementStore(root / "records.sqlite")
     try:
-        requirement = store.submit(args.project, text)
+        outcome = store.submit_once(
+            args.project,
+            text,
+            submitted_by=str(getattr(args, "by", "")),
+            source=str(getattr(args, "source", "")),
+            client_key=str(getattr(args, "client_key", "")),
+        )
+    except IdempotencyConflictError as error:
+        print(f"幂等键冲突: {error}", file=sys.stderr)
+        return 1
     finally:
         store.close()
-    print(f"需求已创建: {requirement.req_id}")
+    requirement = outcome.requirement
+    if outcome.created:
+        print(f"需求已创建: {requirement.req_id}")
+    else:
+        print(f"幂等命中，未新建需求: {requirement.req_id}（同一客户端幂等键）")
     print("下一步: 只读分析（clarify 缺的关键信息）。")
     return 0
 
@@ -643,6 +675,20 @@ def _requirement_delivery(
     return RequirementDelivery(req_id, tuple(deliveries)), ""
 
 
+def _acceptance_fingerprint(bindings: Mapping[str, DeliveryBinding]) -> str:
+    """需求级验收的材料指纹：把每个任务的候选/测试/审查校验值按任务身份排序后哈希。
+
+    与任务级验收批准同一口径——验收必须绑定当时核对的材料身份，事后可回查；
+    材料一旦替换，指纹随之改变，历史验收记录不会「悄悄适配」新内容。
+    """
+
+    payload = "\n".join(
+        f"{task_id}:{binding.candidate_sha256}:{binding.test_evidence_sha256}:{binding.review_sha256}"
+        for task_id, binding in sorted(bindings.items())
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def cmd_requirement_accept(args: argparse.Namespace) -> int:
     """需求整体验收：全部任务已验收且材料与批准一致时置 ``accepted``。"""
 
@@ -670,8 +716,16 @@ def cmd_requirement_accept(args: argparse.Namespace) -> int:
         if not decision.allowed:
             print(f"需求整体验收被拒绝: {decision.reason}")
             return 1
-        store.set_requirement_status(args.req_id, REQUIREMENT_ACCEPTED, "")
+        fingerprint = _acceptance_fingerprint(current)
+        store.record_requirement_acceptance(
+            args.req_id,
+            accepted_by=str(getattr(args, "by", "")),
+            source=str(getattr(args, "source", "")),
+            fingerprint=fingerprint,
+        )
+        who = str(getattr(args, "by", "")) or "未署名"
         print(f"需求整体验收通过: {args.req_id}")
+        print(f"验收人: {who}；材料指纹: {fingerprint[:12]}")
         print(f"依据: {decision.reason}")
         print("下一步: 归并并发布已验收任务。")
         return 0
@@ -688,6 +742,13 @@ def _requirement_approval_section(approval: TaskPlanApproval | None) -> dict | N
         "approved_by": approval.approved_by,
         "source": approval.source,
     }
+
+
+def _requirement_submission_section(store: RequirementStore, req_id: str) -> dict[str, str]:
+    """提交归属与幂等键：谁提交、从哪来、用了哪个键（旧记录为空串）。"""
+
+    submitted_by, source, client_key = store.submission_attribution(req_id)
+    return {"submitted_by": submitted_by, "source": source, "client_key": client_key}
 
 
 def _requirement_analysis_section(store: RequirementStore, req_id: str) -> dict | None:
@@ -840,6 +901,9 @@ def _requirement_document(root: Path, store: RequirementStore, req_id: str) -> d
         "analysis": _requirement_analysis_section(store, req_id),
         "plan": _requirement_plan_section(store, req_id),
         "approval": _requirement_approval_section(store.plan_approval(req_id)),
+        # 2026-10-18 追加：提交归属、幂等键与需求级验收归属（审计可回查）。
+        "submission": _requirement_submission_section(store, req_id),
+        "acceptance": store.requirement_acceptance(req_id),
         "authorization": {
             "can_execute": authorization.can_execute,
             "reason": authorization.reason,
@@ -901,6 +965,9 @@ def _add_requirement_parsers(
     submit = actions.add_parser("submit", help="受理需求原文并分配需求身份")
     submit.add_argument("--project", required=True, help="需求绑定的项目名")
     submit.add_argument("--input", required=True, help="需求正文；@path 读取 UTF-8 文本文件")
+    submit.add_argument("--by", default="", help="提交人身份（写进权威记录）")
+    submit.add_argument("--source", default="", help="提交来源（如 web/cli；写进权威记录）")
+    submit.add_argument("--client-key", default="", help="客户端幂等键：同键同内容不重复建需求")
     submit.add_argument("--records-root", default=default_records_root)
     submit.set_defaults(func=cmd_requirement_submit)
 
@@ -942,6 +1009,8 @@ def _add_requirement_parsers(
 
     accept = actions.add_parser("accept", help="需求整体验收（全部任务验收且材料一致）")
     accept.add_argument("req_id")
+    accept.add_argument("--by", default="", help="验收人身份（写进权威记录）")
+    accept.add_argument("--source", default="", help="验收来源（如 web/cli；写进权威记录）")
     accept.add_argument("--records-root", default=default_records_root)
     accept.set_defaults(func=cmd_requirement_accept)
 
@@ -996,6 +1065,8 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("task_id")
     approve.add_argument("--stage", choices=["plan", "acceptance"], default="plan")
     approve.add_argument("--decision", choices=["approved", "rejected"], default="approved")
+    approve.add_argument("--by", default="", help="批准人身份（写进权威记录）")
+    approve.add_argument("--source", default="", help="批准来源（如 web/cli；写进权威记录）")
     approve.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
     approve.set_defaults(func=cmd_approve)
 
@@ -1031,6 +1102,8 @@ def build_parser() -> argparse.ArgumentParser:
     stop = subparsers.add_parser("stop", help="请求停止（当前工具完成后生效）")
     stop.add_argument("task_id")
     stop.add_argument("--note", default="", help="停止原因备注")
+    stop.add_argument("--by", default="", help="请求人身份（写进权威记录）")
+    stop.add_argument("--source", default="", help="请求来源（如 web/cli；写进权威记录）")
     stop.add_argument("--records-root", default=DEFAULT_RECORDS_ROOT)
     stop.set_defaults(func=cmd_stop)
 
@@ -1049,6 +1122,19 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         DEFAULT_RECORDS_ROOT,
         ProgressDocuments(_requirement_document, _status_document),
+    )
+
+    # 常驻服务：复用同一份只读读模型与页面模块；页面写入口注入与 CLI 相同的
+    # 函数对象（批准/验收/停止），因此绑定、幂等与审计完全一致（R3，见方案）。
+    add_serve_parser(
+        subparsers,
+        DEFAULT_RECORDS_ROOT,
+        ProgressDocuments(_requirement_document, _status_document),
+        ServeOperations(
+            approve_requirement=cmd_requirement_approve,
+            accept_requirement=cmd_requirement_accept,
+            stop_task=cmd_stop,
+        ),
     )
 
     return parser

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -115,7 +115,8 @@ CREATE TABLE IF NOT EXISTS {RETRY_DECISION_TABLE} (
     reason TEXT NOT NULL,
     decided_at TEXT NOT NULL,
     plan_version INTEGER,
-    checkpoint_id TEXT
+    checkpoint_id TEXT,
+    resume_node TEXT
 );
 CREATE INDEX IF NOT EXISTS retry_decisions_by_task
     ON {RETRY_DECISION_TABLE} (req_id, task_id, decided_at);
@@ -125,6 +126,8 @@ CREATE INDEX IF NOT EXISTS retry_decisions_by_task
 _RETRY_DECISION_EXTRA_COLUMNS: Mapping[str, str] = {
     "plan_version": "INTEGER",
     "checkpoint_id": "TEXT",
+    # 人工显式指定的重入节点（缺陷 #24）：只在检查点自身无法归因时使用。
+    "resume_node": "TEXT",
 }
 
 
@@ -248,6 +251,10 @@ class RetryDecision:
     ``plan_version`` 与 ``checkpoint_id`` 记录授权时被校验过的方案版本与检查点
     身份：读取叠加清除时据此重新核对，过期决定不得清除已被替换的检查点现场。
     旧记录缺列时为 ``None`` / ``""``，一律不匹配任何现场（fail-closed）。
+
+    ``resume_node`` 是人工显式点名的重入业务节点，只用于检查点自身无法归因的陈旧
+    中断（缺陷 #24：迁移前的 ``plan_approval_stale`` 等）。检查点可自行归因时该字段
+    必须与之一致或留空，避免人工指定覆盖现场事实。
     """
 
     requirement_id: str
@@ -257,6 +264,7 @@ class RetryDecision:
     decided_at: datetime
     plan_version: int | None = None
     checkpoint_id: str = ""
+    resume_node: str = ""
 
 
 @dataclass(frozen=True)
@@ -982,8 +990,9 @@ def _record_retry_decision(records_root: str | Path, decision: RetryDecision) ->
     try:
         connection.execute(
             f"INSERT INTO {RETRY_DECISION_TABLE}"
-            " (req_id, task_id, decided_by, reason, decided_at, plan_version, checkpoint_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " (req_id, task_id, decided_by, reason, decided_at, plan_version, checkpoint_id,"
+            " resume_node)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 decision.requirement_id,
                 decision.task_id,
@@ -992,6 +1001,7 @@ def _record_retry_decision(records_root: str | Path, decision: RetryDecision) ->
                 decision.decided_at.astimezone(UTC).isoformat(),
                 decision.plan_version,
                 decision.checkpoint_id,
+                decision.resume_node,
             ),
         )
     finally:
@@ -999,15 +1009,21 @@ def _record_retry_decision(records_root: str | Path, decision: RetryDecision) ->
     return decision
 
 
-def _row_to_decision(row: tuple[Any, ...]) -> RetryDecision:
+def _row_to_decision(row: Sequence[Any]) -> RetryDecision:
+    """决定记录行 → 领域对象；旧库缺 ``resume_node`` 列时按空处理。"""
+
+    values = list(row)
+    while len(values) < 8:
+        values.append(None)
     return RetryDecision(
-        requirement_id=str(row[0]),
-        task_id=str(row[1]),
-        decided_by=str(row[2]),
-        reason=str(row[3]),
-        decided_at=datetime.fromisoformat(str(row[4])),
-        plan_version=None if row[5] is None else int(row[5]),
-        checkpoint_id="" if row[6] is None else str(row[6]),
+        requirement_id=str(values[0]),
+        task_id=str(values[1]),
+        decided_by=str(values[2]),
+        reason=str(values[3]),
+        decided_at=datetime.fromisoformat(str(values[4])),
+        plan_version=None if values[5] is None else int(values[5]),
+        checkpoint_id="" if values[6] is None else str(values[6]),
+        resume_node="" if values[7] is None else str(values[7]),
     )
 
 
@@ -1044,9 +1060,10 @@ def retry_decisions(
         # 旧库可能缺新增的绑定列：缺失时补 NULL，读取不掩盖既有决定。
         plan_expr = "plan_version" if "plan_version" in columns else "NULL"
         checkpoint_expr = "checkpoint_id" if "checkpoint_id" in columns else "NULL"
+        resume_expr = "resume_node" if "resume_node" in columns else "NULL"
         statement = (
             "SELECT req_id, task_id, decided_by, reason, decided_at,"
-            f" {plan_expr}, {checkpoint_expr}"
+            f" {plan_expr}, {checkpoint_expr}, {resume_expr}"
             f" FROM {RETRY_DECISION_TABLE} WHERE req_id = ?"
             + (" AND task_id = ?" if task_id is not None else "")
             + " ORDER BY decided_at, decision_id"
@@ -1074,17 +1091,23 @@ def latest_retry_decision(
     return decisions[-1] if decisions else None
 
 
-def clear_halted_reason(state: CheckpointState | None) -> CheckpointState | None:
+def clear_halted_reason(
+    state: CheckpointState | None, *, resume_node: str = ""
+) -> CheckpointState | None:
     """返回清除 ``halted_reason`` 的检查点摘要；没有检查点时保持 ``None``。
 
     只返回新摘要，不改写 LangGraph 检查点库；持久化事实由人工续跑决定记录承载，
     :func:`read_authorized_checkpoint` 据此叠加出「已清除」的有效现场。新摘要保留
     ``halted_node`` 并置 ``resumed_from_halt``，供推进器确定就地重入的业务节点。
+
+    检查点自身无法归因（``halted_node`` 为空）时用人工点名的 ``resume_node`` 补上；
+    两者都为空时重入点仍然缺失，推进器据此继续 fail-closed 等待人工。
     """
 
     if state is None:
         return None
-    return replace(state, halted_reason="", resumed_from_halt=True)
+    node = state.halted_node.strip() or resume_node.strip()
+    return replace(state, halted_reason="", resumed_from_halt=True, halted_node=node)
 
 
 def read_authorized_checkpoint(
@@ -1113,7 +1136,7 @@ def read_authorized_checkpoint(
             decision.plan_version == state.plan_version
             and decision.checkpoint_id == state.checkpoint_id
         ):
-            return clear_halted_reason(state)
+            return clear_halted_reason(state, resume_node=decision.resume_node)
     return state
 
 
@@ -1126,13 +1149,19 @@ def validate_retry(
     task_status: str,
     by: str,
     reason: str,
+    resume_node: str = "",
 ) -> RetryCheck:
-    """可复用的人工续跑前置校验：状态、检查点可信与取值全部通过才放行。
+    """可复用的人工续跑前置校验：状态、检查点可信、取值与重入点全部通过才放行。
 
     状态必须为 ``interrupted`` 或检查点落有 ``halted_reason``；检查点的缺失、读取
     失败、状态损坏、``task_id`` 与目标任务不一致、``plan_version`` 与已批准任务包
     版本不一致，以及「任务为 interrupted 但检查点无 halted_reason」一律判为不可信。
     每条拒绝都给出可操作原因，调用方据此 fail-closed。
+
+    ``resume_node`` 是人工显式点名的重入业务节点，只用于**检查点自身无法归因**的
+    陈旧中断（缺陷 #24：迁移前的 ``plan_approval_stale`` 等无法映射到业务节点，原规则
+    下 ``retry`` 永远拒绝）。放开面严格限定为：必须点名、必须是可续跑业务节点、且
+    检查点已能归因时不得改指其他节点；其余校验一条不放宽。
     """
 
     reasons: list[str] = []
@@ -1184,8 +1213,41 @@ def validate_retry(
             reasons.append(
                 "任务为 interrupted 但检查点无 halted_reason，无法确认中断现场，禁止盲目续跑"
             )
+        reasons.extend(_resume_node_reasons(state, halted, resume_node))
 
     return RetryCheck(allowed=not reasons, reasons=tuple(reasons))
+
+
+def _resume_node_reasons(
+    state: CheckpointState | None, halted: bool, resume_node: str
+) -> tuple[str, ...]:
+    """人工点名重入节点的规则（缺陷 #24）；不合法时给出可操作原因。"""
+
+    requested = resume_node.strip()
+    # 现场可能有 halted_reason 但 halted_node 为空（例如直接构造的摘要）：归因优先取
+    # 已落库的字段，其次按原因文本归因——与 inspect_checkpoint 同一判据，不猜节点。
+    attributed = ""
+    if state is not None:
+        attributed = state.halted_node.strip() or halted_node_of(state.halted_reason)
+    if not halted:
+        if requested:
+            return (f"检查点没有 halted_reason，无需指定重入节点 {requested}；请去掉 --node",)
+        return ()
+    if requested and requested not in RESUMABLE_NODES:
+        allowed = "、".join(sorted(RESUMABLE_NODES))
+        return (f"重入节点不合法：{requested}，只接受可续跑业务节点（{allowed}）之一",)
+    if attributed and requested and requested != attributed:
+        return (
+            f"检查点已可归因为 {attributed}，不接受改指 {requested}"
+            "（与现场归因不一致）；请去掉 --node 或与现场归因保持一致",
+        )
+    if not attributed and not requested:
+        allowed = "|".join(sorted(RESUMABLE_NODES))
+        return (
+            "该中断无法归因到可续跑业务节点（例如迁移前遗留的陈旧 halted_reason），"
+            f"必须由人工核对现场后用 --node {allowed} 显式指定重入节点；不指定一律拒绝",
+        )
+    return ()
 
 
 def authorize_retry(
@@ -1198,13 +1260,14 @@ def authorize_retry(
     task_status: str,
     by: str,
     reason: str,
+    resume_node: str = "",
     at: datetime | None = None,
 ) -> RetryAuthorization:
     """校验通过后才记录人工决定并清除 ``halted_reason``；失败时零副作用。
 
     固定次序：先 :func:`validate_retry`，只有全部通过才写入决定记录并返回把
     ``halted_reason`` 清空的检查点摘要。任何一项不通过都直接返回拒绝结果，既不写
-    决定也不改动检查点现场。
+    决定也不改动检查点现场。``resume_node`` 只在检查点自身无法归因时用于补齐重入点。
     """
 
     check = validate_retry(
@@ -1215,10 +1278,11 @@ def authorize_retry(
         task_status=task_status,
         by=by,
         reason=reason,
+        resume_node=resume_node,
     )
     if not check.allowed:
         return RetryAuthorization(False, check)
-    cleared = clear_halted_reason(inspection.state)
+    cleared = clear_halted_reason(inspection.state, resume_node=resume_node)
     state = inspection.state
     decision = RetryDecision(
         requirement_id=requirement_id,
@@ -1228,6 +1292,7 @@ def authorize_retry(
         decided_at=at or datetime.now(UTC),
         plan_version=plan_version,
         checkpoint_id=state.checkpoint_id if state is not None else "",
+        resume_node=resume_node.strip(),
     )
     _record_retry_decision(records_root, decision)
     return RetryAuthorization(True, check, decision, cleared)

@@ -33,6 +33,20 @@ export function loadPageBody(): number {
 }
 
 /** 一条需求：默认已批准、两个任务交付一个。 */
+/**
+ * 在 jsdom 的 `<head>` 里放一个与真实页面同名的令牌 meta。
+ *
+ * `loadPageBody()` 只装 `<body>`，因此这里显式补上服务端注入点；「真实页面确实带这个
+ * meta（占位形式）」由 Python 侧的页面契约用例核对。
+ */
+export function installTokenMeta(content: string): void {
+  const meta = document.createElement("meta");
+  meta.setAttribute("name", "forgeloop-token");
+  meta.setAttribute("content", content);
+  document.head.append(meta);
+  document.body.append(document.createElement("div"));
+}
+
 export function sampleRequirement(overrides: Partial<RequirementEntry> = {}): RequirementEntry {
   return {
     req_id: "req-forgeloop-1",

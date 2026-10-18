@@ -26,7 +26,9 @@ from forgeloop.domain.dependency_facts import (
 )
 from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.requirement import (
+    ACCEPTED,
     DRAFT,
+    IdempotencyConflictError,
     Requirement,
     RequirementAnalysis,
     RequirementError,
@@ -58,7 +60,16 @@ CREATE TABLE IF NOT EXISTS requirements (
     project TEXT NOT NULL,
     created_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft',
-    blocked_reason TEXT NOT NULL DEFAULT ''
+    blocked_reason TEXT NOT NULL DEFAULT '',
+    -- 审计归属：谁提交的、从哪个入口来、客户端幂等键（方案 §4.2 的 UUID）。
+    submitted_by TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    client_key TEXT NOT NULL DEFAULT '',
+    -- 需求级整体验收的归属与材料身份：谁验收、何时、依据哪份材料指纹。
+    accepted_at TEXT NOT NULL DEFAULT '',
+    accepted_by TEXT NOT NULL DEFAULT '',
+    acceptance_source TEXT NOT NULL DEFAULT '',
+    acceptance_fingerprint TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS requirement_versions (
     req_id TEXT NOT NULL,
@@ -230,6 +241,14 @@ def _row_to_task_artifact(row: tuple[Any, ...]) -> TaskArtifact:
     )
 
 
+@dataclass(frozen=True)
+class SubmitOutcome:
+    """一次提交的结果：需求身份 + 是否为本次新建（幂等命中时为 False）。"""
+
+    requirement: Requirement
+    created: bool
+
+
 class RequirementStore:
     """需求身份与修订版本的 SQLite 权威记录。"""
 
@@ -251,28 +270,154 @@ class RequirementStore:
             self._db.execute(
                 "ALTER TABLE requirements ADD COLUMN blocked_reason TEXT NOT NULL DEFAULT ''"
             )
+        # 审计归属与幂等键（2026-10-18）：旧库升级即补列；幂等键用**部分唯一索引**，
+        # 空串（历史记录与不传键的调用）不参与唯一性，因此不会互相冲突。
+        for name in (
+            "submitted_by",
+            "source",
+            "client_key",
+            "accepted_at",
+            "accepted_by",
+            "acceptance_source",
+            "acceptance_fingerprint",
+        ):
+            if name not in columns:
+                self._db.execute(
+                    f"ALTER TABLE requirements ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
+                )
+        self._db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_requirements_client_key"
+            " ON requirements(client_key) WHERE client_key != ''"
+        )
 
     def close(self) -> None:
         self._db.close()
 
-    def submit(self, project: str, text: str) -> Requirement:
-        """提交首次原文：分配需求身份并保存版本 1。"""
+    def submit(
+        self,
+        project: str,
+        text: str,
+        *,
+        submitted_by: str = "",
+        source: str = "",
+        client_key: str = "",
+    ) -> Requirement:
+        """提交首次原文：分配需求身份并保存版本 1（带幂等键时见 ``submit_once``）。"""
 
+        return self.submit_once(
+            project,
+            text,
+            submitted_by=submitted_by,
+            source=source,
+            client_key=client_key,
+        ).requirement
+
+    def submit_once(
+        self,
+        project: str,
+        text: str,
+        *,
+        submitted_by: str = "",
+        source: str = "",
+        client_key: str = "",
+    ) -> SubmitOutcome:
+        """幂等提交（方案 §4.2 的客户端 UUID）：同一个键不产生第二条需求。
+
+        - 键非空且已存在、且**最新原文一致** → 返回既有需求（``created=False``），不写任何记录；
+        - 键非空且已存在、但原文不同 → fail-closed 抛 ``IdempotencyConflictError``
+          （不猜用户想改哪一条，交给调用方报 409）；
+        - 键为空 → 每次都是一次新提交（历史行为不变）。
+        """
+
+        key = client_key.strip()
+        if key:
+            existing = self._requirement_by_client_key(key)
+            if existing is not None:
+                if existing.latest.text != text:
+                    raise IdempotencyConflictError(
+                        f"幂等键 {key} 已用于需求 {existing.req_id}，但原文不同；"
+                        "同一个键不能提交两份不同内容"
+                    )
+                return SubmitOutcome(existing, False)
         requirement = Requirement(
             allocate_requirement_id(),
             project,
             (RequirementVersion(1, text, _now()),),
         )
         self._db.execute(
-            "INSERT INTO requirements (req_id, project, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO requirements"
+            " (req_id, project, created_at, submitted_by, source, client_key)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             (
                 requirement.req_id,
                 requirement.project,
                 _iso(requirement.versions[0].created_at),
+                submitted_by,
+                source,
+                key,
             ),
         )
         self._insert_version(requirement.req_id, requirement.versions[0])
-        return requirement
+        return SubmitOutcome(requirement, True)
+
+    def _requirement_by_client_key(self, client_key: str) -> Requirement | None:
+        row = self._db.execute(
+            "SELECT req_id FROM requirements WHERE client_key = ?", (client_key,)
+        ).fetchone()
+        return None if row is None else self.get(str(row[0]))
+
+    def submission_attribution(self, req_id: str) -> tuple[str, str, str]:
+        """提交归属与幂等键：``(submitted_by, source, client_key)``；未知身份明确失败。"""
+
+        self._require(req_id)
+        row = self._db.execute(
+            "SELECT submitted_by, source, client_key FROM requirements WHERE req_id = ?",
+            (req_id,),
+        ).fetchone()
+        assert row is not None
+        return str(row[0]), str(row[1]), str(row[2])
+
+    def record_requirement_acceptance(
+        self,
+        req_id: str,
+        *,
+        accepted_by: str,
+        source: str,
+        fingerprint: str,
+        at: datetime | None = None,
+    ) -> None:
+        """记录需求级整体验收：状态、验收人、入口与**材料指纹**一起落库。
+
+        与任务级验收批准同一口径：验收必须绑定当时核对的材料身份，事后可回查
+        「谁在何时依据哪份材料验收」。指纹由调用方按交付材料算出并传入。
+        """
+
+        moment = _now() if at is None else at
+        cursor = self._db.execute(
+            "UPDATE requirements SET status = ?, blocked_reason = '', accepted_at = ?,"
+            " accepted_by = ?, acceptance_source = ?, acceptance_fingerprint = ?"
+            " WHERE req_id = ?",
+            (ACCEPTED, _iso(moment), accepted_by, source, fingerprint, req_id),
+        )
+        if cursor.rowcount == 0:
+            raise RequirementNotFoundError(f"未知需求身份: {req_id}")
+
+    def requirement_acceptance(self, req_id: str) -> dict[str, str]:
+        """需求级验收记录（未验收时各字段为空串），供状态文档如实展示。"""
+
+        row = self._db.execute(
+            "SELECT accepted_at, accepted_by, acceptance_source, acceptance_fingerprint"
+            " FROM requirements WHERE req_id = ?",
+            (req_id,),
+        ).fetchone()
+        if row is None:
+            raise RequirementNotFoundError(f"未知需求身份: {req_id}")
+        return {
+            "accepted_at": str(row[0]),
+            "accepted_by": str(row[1]),
+            "acceptance_source": str(row[2]),
+            "acceptance_fingerprint": str(row[3]),
+        }
 
     def append(self, req_id: str, text: str) -> Requirement:
         """为已有身份追加一个修订版本；未知身份明确失败。

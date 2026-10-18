@@ -98,6 +98,7 @@ class IssueKind(StrEnum):
     TASK_STOP_REQUESTED = "task_stop_requested"
     REQUIREMENT_BLOCKED = "requirement_blocked"
     SLOT_RESIDUE = "slot_residue"
+    OUTSTANDING_ACTION = "outstanding_action"
 
 
 @dataclass(frozen=True)
@@ -161,6 +162,28 @@ def requirement_issue(status: str, *, ref_id: str, detail: str = "") -> IssueIte
         return None
     kind, summary = entry
     return IssueItem(kind, ref_id, summary, detail)
+
+
+def outstanding_action_issue(
+    *, ref_id: str, node: str, action_id: str, started_at: str
+) -> IssueItem:
+    """未核对的未完成动作：结果不明确，禁止盲目重放，必须先人工核对后释放。
+
+    这一项与任务状态无关（动作可能停在任意节点、任务状态看起来仍在推进），因此由
+    ``actions`` 记录直接判定，而不是从任务状态推导——否则「崩在 dev 中途」在页面上
+    会显示成正常进行中。
+    """
+
+    detail = (
+        f"节点: {node or '未知'}；动作: {action_id or '未知'}；开始: {started_at or '未知'}；"
+        "确认现场后用 `forgeloop requirement actions list|clear` 释放"
+    )
+    return IssueItem(
+        IssueKind.OUTSTANDING_ACTION,
+        ref_id,
+        "存在未核对的未完成动作，禁止盲目重放",
+        detail,
+    )
 
 
 def slot_issue(*, slot: str, owner: str = "", started_at: str = "") -> IssueItem:

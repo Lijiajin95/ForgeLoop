@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS approvals (
     plan_version INTEGER NOT NULL,
     stage TEXT NOT NULL,
     decided_at TEXT NOT NULL,
+    -- 审计归属：谁作出的决定、从哪个入口来（页面写 web）。旧库由 _migrate 补列。
+    approved_by TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (task_id, stage, plan_version)
 );
 CREATE TABLE IF NOT EXISTS approval_consumption (
@@ -96,7 +99,10 @@ CREATE TABLE IF NOT EXISTS stops (
     task_id TEXT PRIMARY KEY,
     requested_at TEXT NOT NULL,
     confirmed_at TEXT,
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    -- 审计归属：谁请求停止、从哪个入口来。旧库由 _migrate 补列。
+    requested_by TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS actions (
     action_id TEXT PRIMARY KEY,
@@ -258,7 +264,15 @@ def _approval_from_row(
     task_id = str(row[0])
     plan_version = int(str(row[1]))
     binding = bindings.get((task_id, plan_version)) if stage is ApprovalStage.ACCEPTANCE else None
-    return Approval(task_id, plan_version, stage, _parse(str(row[3])), binding)
+    return Approval(
+        task_id,
+        plan_version,
+        stage,
+        _parse(str(row[3])),
+        binding,
+        str(row[4]) if len(row) > 4 else "",
+        str(row[5]) if len(row) > 5 else "",
+    )
 
 
 def _read_text(path: Path) -> str:
@@ -470,6 +484,20 @@ class RecordStore:
             self._db.execute("ALTER TABLE actions ADD COLUMN pid INTEGER")
         if "heartbeat_at" not in columns:
             self._db.execute("ALTER TABLE actions ADD COLUMN heartbeat_at TEXT")
+        # 审计归属（2026-10-18）：谁作出决定 / 谁请求停止、从哪个入口来。旧库升级即补列，
+        # 未补时读批准与停止记录会缺列失败，因此这里与建表语句保持同形。
+        approval_columns = {str(row[1]) for row in self._db.execute("PRAGMA table_info(approvals)")}
+        if "approved_by" not in approval_columns:
+            self._db.execute(
+                "ALTER TABLE approvals ADD COLUMN approved_by TEXT NOT NULL DEFAULT ''"
+            )
+        if "source" not in approval_columns:
+            self._db.execute("ALTER TABLE approvals ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+        stop_columns = {str(row[1]) for row in self._db.execute("PRAGMA table_info(stops)")}
+        if "requested_by" not in stop_columns:
+            self._db.execute("ALTER TABLE stops ADD COLUMN requested_by TEXT NOT NULL DEFAULT ''")
+        if "source" not in stop_columns:
+            self._db.execute("ALTER TABLE stops ADD COLUMN source TEXT NOT NULL DEFAULT ''")
 
     @property
     def root(self) -> Path:
@@ -662,7 +690,8 @@ class RecordStore:
 
     def _load_approval_book(self, task_id: str) -> ApprovalBook:
         rows = self._db.execute(
-            "SELECT task_id, plan_version, stage, decided_at FROM approvals WHERE task_id = ?"
+            "SELECT task_id, plan_version, stage, decided_at, approved_by, source"
+            " FROM approvals WHERE task_id = ?"
             " ORDER BY plan_version",
             (task_id,),
         ).fetchall()
@@ -751,13 +780,16 @@ class RecordStore:
             binding = self.capture_delivery_binding(approval.task_id, approval.plan_version)
         with self._write_transaction():
             self._db.execute(
-                "INSERT OR REPLACE INTO approvals (task_id, plan_version, stage, decided_at)"
-                " VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO approvals"
+                " (task_id, plan_version, stage, decided_at, approved_by, source)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     approval.task_id,
                     approval.plan_version,
                     approval.stage.value,
                     _iso(approval.decided_at),
+                    approval.approved_by,
+                    approval.source,
                 ),
             )
             if binding is not None:
@@ -907,11 +939,16 @@ class OutcomeStore:
     def __init__(self, db: sqlite3.Connection) -> None:
         self._db = db
 
-    def request_stop(self, task_id: str, note: str) -> None:
+    def request_stop(
+        self, task_id: str, note: str, *, requested_by: str = "", source: str = ""
+    ) -> None:
+        """记录停止请求：理由进 ``note``，操作人与入口进独立列（不混装进 note）。"""
+
         self._db.execute(
-            "INSERT OR REPLACE INTO stops (task_id, requested_at, confirmed_at, note)"
-            " VALUES (?, ?, NULL, ?)",
-            (task_id, _iso(_now()), note),
+            "INSERT OR REPLACE INTO stops"
+            " (task_id, requested_at, confirmed_at, note, requested_by, source)"
+            " VALUES (?, ?, NULL, ?, ?, ?)",
+            (task_id, _iso(_now()), note, requested_by, source),
         )
 
     def confirm_stop(self, task_id: str, note: str) -> None:
@@ -921,6 +958,14 @@ class OutcomeStore:
         ).rowcount
         if changed == 0:
             raise KeyError(f"No stop request for task {task_id}")
+
+    def stop_attribution(self, task_id: str) -> tuple[str, str]:
+        """停止请求的操作人与入口；没有记录时返回两个空串。"""
+
+        row = self._db.execute(
+            "SELECT requested_by, source FROM stops WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        return ("", "") if row is None else (str(row[0]), str(row[1]))
 
     def stop_record(self, task_id: str) -> tuple[datetime, datetime | None, str] | None:
         row = self._db.execute(

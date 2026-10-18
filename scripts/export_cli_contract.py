@@ -18,13 +18,16 @@ from typing import Any
 from forgeloop.adapter.mail import InboundResult, PollReport
 from forgeloop.cli.mail import _mail_confirm_document, _mail_poll_document
 from forgeloop.cli.main import _requirement_document, _status_document
-from forgeloop.cli.web import ProgressDocuments, build_progress_document
+from forgeloop.cli.serve import ServeOperations, ServeSettings, build_service_document
+from forgeloop.cli.web import ProgressDocuments, WebSettings, build_progress_document
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.counting import FailureStage
 from forgeloop.domain.progress import RefreshSetting, RefreshSource
 from forgeloop.domain.release import ReleaseRecord
 from forgeloop.domain.requirement import RequirementAnalysis
+from forgeloop.domain.service import resolve_service_settings
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+from forgeloop.graph.worker import ServiceWorker
 from forgeloop.records.checkpoints import (
     CheckpointHealth,
     CheckpointInspection,
@@ -146,6 +149,9 @@ def build_contract() -> dict:
 
         document = merge(shape(minimal), shape(full))
         web_document = build_progress_contract(Path(tmp))
+        service_document = build_service_contract(Path(tmp))
+        service_operation_document = build_service_operation_contract()
+        service_operation_error_document = build_service_operation_error_contract()
 
     mail_poll_document, mail_confirm_document = build_mail_contract()
     return {
@@ -167,6 +173,29 @@ def build_contract() -> dict:
         # 状态页（B01）只读接口：页面脚本消费的对外结构，刷新配置随文档返回。
         "web_progress_route": "GET /api/progress",
         "web_progress_document": web_document,
+        # 常驻服务：HTTP 路由与 `serve --once --json` 是同一份结构。
+        "service_command": "forgeloop serve --once --json",
+        "service_exit_codes": {"ok": 0, "config_invalid": 1, "listen_failed": 1},
+        "service_status_route": "GET /api/service",
+        "service_document": service_document,
+        # 页面写入口（R3）：提交与四类人工动作，成功与失败各一份结构。
+        "service_submit_route": "POST /api/requirements",
+        "service_action_routes": [
+            "POST /api/requirements/{req_id}/approve",
+            "POST /api/requirements/{req_id}/advance",
+            "POST /api/requirements/{req_id}/accept",
+            "POST /api/requirements/{req_id}/stop",
+        ],
+        # 每个写端点的成功状态码（方案 §4.2 的表）：推进与停止是「受理」，其余是「已完成」。
+        "service_operation_codes": {
+            "submit": 201,
+            "approve": 200,
+            "advance": 202,
+            "accept": 200,
+            "stop": 202,
+        },
+        "service_operation_document": service_operation_document,
+        "service_operation_error_document": service_operation_error_document,
     }
 
 
@@ -353,6 +382,192 @@ def build_progress_contract(root: Path) -> dict:
     properties = document["properties"]
     properties["requirements"]["item"] = {"$ref": "#/requirement_document"}
     properties["tasks"]["item"] = {"$ref": "#/document"}
+    return document
+
+
+def build_service_operation_contract() -> dict:
+    """页面写操作的成功响应结构：提交（带 ``req_id``）与人工动作（带 ``output``）合并。"""
+
+    submit = shape(
+        {
+            "ok": True,
+            "operation": "submit",
+            "req_id": "req-20261018000000-abcdef",
+            "by": "owner",
+            "note": "页面提交",
+            "source": "web",
+        }
+    )
+    action = shape(
+        {
+            "ok": True,
+            "operation": "approve",
+            "req_id": "req-20261018000000-abcdef",
+            "by": "owner",
+            "reason": "页面批准",
+            "output": "任务包 v6 已批准（授权来源 web:owner）。",
+        }
+    )
+    advance = shape(
+        {
+            "ok": True,
+            "operation": "advance",
+            "req_id": "req-20261018000000-abcdef",
+            "queued": True,
+            "detail": "已受理，常驻进程将在下一次心跳执行",
+        }
+    )
+    stop = shape(
+        {
+            "ok": True,
+            "operation": "stop",
+            "req_id": "req-20261018000000-abcdef",
+            "task_id": "task-req-20261018000000-abcdef-v6-first",
+            "reason": "页面停止",
+            "output": "停止请求已记录",
+        }
+    )
+    return merge(merge(merge(submit, action), advance), stop)
+
+
+def build_service_operation_error_contract() -> dict:
+    """页面写操作的失败响应结构：稳定机器标签 + 可直接展示的原因。"""
+
+    return shape({"error": "refused", "detail": "该需求当前不可自动推进"})
+
+
+def _contract_operations() -> ServeOperations:
+    """契约快照用的写入口替身：只提供函数形状，不执行任何动作。"""
+
+    def _noop(args: argparse.Namespace) -> int:
+        return 0
+
+    return ServeOperations(approve_requirement=_noop, accept_requirement=_noop, stop_task=_noop)
+
+
+def _seed_worker_sample(root: Path) -> None:
+    """合成「一条可自动接续 + 一条项目未配置会被跳过」的需求，供常驻状态快照使用。"""
+
+    from datetime import UTC, datetime
+
+    from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+
+    store = RequirementStore(root / "records.sqlite")
+    try:
+        for project in ("demo", "proj"):
+            requirement = store.submit(project, f"常驻服务契约样本（{project}）")
+            plan = TaskPlan(
+                task_plan_id=f"plan-{requirement.req_id}-1",
+                requirement_id=requirement.req_id,
+                project=project,
+                plan_version=1,
+                requirement_version=requirement.version_count,
+                tasks=(
+                    PlannedTask(
+                        task_id="sample",
+                        goal="契约样本任务",
+                        files=("src/sample.py",),
+                        acceptance="样本验收",
+                        test_command=("pytest", "-q"),
+                    ),
+                ),
+                created_at=datetime.now(UTC),
+            )
+            store.record_task_plan(requirement.req_id, plan)
+            store.record_plan_approval(requirement.req_id, 1, "owner", source="contract-sample")
+            if project == "proj":
+                # 再给「未配置项目」那条留一个未释放动作：契约快照要覆盖
+                # outstanding_action 这一问題种类（页面「问题」段与常驻清单共用）。
+                thread_id = f"task-{requirement.req_id}-v1-sample"
+                record = RecordStore(root / "records.sqlite")
+                try:
+                    record.create_task(
+                        thread_id,
+                        project,
+                        "契约样本任务",
+                        {"pi_command": '["pi"]', "test_command": '["pytest", "-q"]'},
+                        7200.0,
+                    )
+                    record.actions.begin(thread_id, "dev")
+                finally:
+                    record.close()
+    finally:
+        store.close()
+
+
+def build_service_contract(root: Path) -> dict:
+    """常驻服务 ``GET /api/service``/``serve --once --json`` 的对外结构。
+
+    ``counts`` 与 ``review_required`` 的元素就是进展文档的对应结构（同一份读模型、
+    同一套问题分类），因此这里写 ``$ref`` 指向 ``web_progress_document`` 的相关位置，
+    不重复抄一份；本接口新增的只有常驻进程自身的 worker 状态与配置信息。
+    """
+
+    store = RecordStore(root / "records.sqlite")
+    try:
+        store.create_task(
+            "task-serve-blocked",
+            "proj",
+            "原始文本",
+            {"pi_command": "[]", "test_command": "[]"},
+            7200.0,
+        )
+        store.set_task_status("task-serve-blocked", "blocked")
+        store.actions.claim_slot("req-proj-serve", "advance")
+    finally:
+        store.close()
+    _seed_worker_sample(root)
+    # 合成一个项目档案，让 ``projects`` 的元素形状被快照记录为字符串（空数组只能
+    # 记成 empty-array，会丢掉元素类型）。
+    service = resolve_service_settings(
+        {
+            "schema_version": 1,
+            "projects": {
+                "demo": {
+                    "path": "/tmp/demo",
+                    "pi_command": ["pi"],
+                    "test_command": ["pytest"],
+                    "baseline": "",
+                    "pi_home": "/tmp/demo-home",
+                }
+            },
+        }
+    )
+    web = WebSettings(
+        root,
+        service.host,
+        service.port,
+        RefreshSetting(60, RefreshSource.DEFAULT),
+        Path("config/web.toml"),
+        ProgressDocuments(_requirement_document, _status_document),
+    )
+    worker = ServiceWorker(
+        root,
+        poll_seconds=service.poll_seconds,
+        auto_advance=service.auto_advance,
+        projects=service.projects,
+        process_home="/tmp/demo-home",
+    )
+    # 只读筛选一次：让 ``last_tick.candidates``（字符串数组）与 ``skipped``（对象数组）
+    # 的元素类型进入快照；``executed``/``results`` 在合成现场里没有执行，保持空数组。
+    worker.survey()
+    document = shape(
+        build_service_document(
+            ServeSettings(
+                web=web,
+                service=service,
+                config_path=Path("config/service.toml"),
+                operations=_contract_operations(),
+            ),
+            worker,
+            operations_enabled=True,
+        )
+    )
+    properties = document["properties"]
+    properties["counts"] = {"$ref": "#/web_progress_document/properties/counts"}
+    properties["review_required"]["item"] = {
+        "$ref": "#/web_progress_document/properties/issues/item"
+    }
     return document
 
 
