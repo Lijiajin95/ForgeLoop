@@ -130,13 +130,15 @@ only_mutate = [
   "src/forgeloop/domain/status.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/unit/", "tests/property/"]
-# 架构契约门禁是仓库结构检查（依赖 contracts/ 与 docs/，不在 mutants 副本内），
-# 与核心领域规则的变异判定无关：从变异运行中排除，避免基线收集失败。
+# 架构契约门禁与前端门禁都是仓库结构检查（分别依赖 contracts/、docs/ 与 frontend/，
+# 都不在 mutants 副本内），与核心领域规则的变异判定无关：从变异运行中排除，
+# 避免基线收集失败（前端门禁的真实执行在 make check-static 与夜间 frontend-mutation 作业）。
 pytest_add_cli_args = [
   "--import-mode=importlib",
   "-o",
   "addopts=",
   "--ignore=tests/unit/test_architecture_contract.py",
+  "--ignore=tests/unit/test_frontend_gates.py",
 ]
 also_copy = ["tests", "config", "scripts"]
 
