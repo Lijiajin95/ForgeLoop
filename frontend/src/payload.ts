@@ -16,13 +16,30 @@ export interface NextStep {
 }
 
 /** 需求任务包的最小信息（页面只显示版本号）。 */
-interface RequirementPlan {
+export interface RequirementPlan {
   readonly plan_version: number;
 }
 
-/** 需求内单个任务的推进状态（`delivered` 表示已交付）。 */
+/**
+ * 需求任务包内的一条任务；页面靠这两个身份把它与任务段串起来：
+ * `task_id` 是任务包内的身份，`single_task_id` 是任务记录身份
+ * （形如 `task-<需求>-v<任务包版本>-<任务>`，未派发时任务段里查不到它）。
+ */
 export interface RequirementTaskEntry {
+  readonly task_id: string;
+  readonly single_task_id: string;
   readonly state: string;
+}
+
+/** 需求的一次修订版本；页面展示最新一版作为需求原文。 */
+export interface RequirementVersion {
+  readonly version: number;
+  readonly text: string;
+}
+
+/** 任务条目的任务包摘要：页面读目标作为任务描述。 */
+export interface TaskPlanSummary {
+  readonly goal: string;
 }
 
 /** 需求条目（`requirement status --json` 文档的子集）。 */
@@ -31,6 +48,7 @@ export interface RequirementEntry {
   readonly project: string;
   readonly requirement_status: string;
   readonly plan: RequirementPlan | null;
+  readonly versions: readonly RequirementVersion[];
   readonly tasks: readonly RequirementTaskEntry[];
   readonly next_step: NextStep | null;
   readonly blocked_reason: string;
@@ -55,6 +73,7 @@ export interface TaskEntry {
   readonly task_id: string;
   readonly project: string;
   readonly status: string;
+  readonly plan: TaskPlanSummary | null;
   readonly next_action: NextStep | null;
   readonly failures: FailureSummary;
   readonly budget: BudgetSummary;

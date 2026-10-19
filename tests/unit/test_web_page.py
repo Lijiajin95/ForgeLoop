@@ -30,7 +30,17 @@ from forgeloop.domain.progress import DEFAULT_REFRESH_SECONDS, RefreshSetting, R
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SRC = ROOT / "frontend" / "src"
 # 页面行为代码必须随包分发；这些名字由 frontend/src 的模块决定（漂移门禁核对内容）。
-PAGE_MODULES = ("app.js", "format.js", "page.js", "payload.js", "progress.js", "render.js")
+PAGE_MODULES = (
+    "app.js",
+    "dom.js",
+    "format.js",
+    "link.js",
+    "page.js",
+    "payload.js",
+    "progress.js",
+    "render.js",
+    "tabs.js",
+)
 
 TOP_LEVEL_FIELDS = (
     "schema_version",
@@ -51,15 +61,23 @@ REQUIREMENT_FIELDS = (
     "project",
     "requirement_status",
     "plan",
+    "versions",
     "tasks",
     "next_step",
     "blocked_reason",
     "blocked_reason_text",
 )
+# 需求任务包条目：页面用它把需求分解出的任务与任务段按身份对上。
+REQUIREMENT_TASK_FIELDS = ("task_id", "single_task_id", "state")
+# 需求原文版本：页面的需求描述读最新一版的文本。
+REQUIREMENT_VERSION_FIELDS = ("version", "text")
+# 任务包摘要：页面的任务描述读 goal。
+TASK_PLAN_FIELDS = ("goal",)
 TASK_FIELDS = (
     "task_id",
     "project",
     "status",
+    "plan",
     "next_action",
     "failures",
     "budget",
@@ -139,7 +157,10 @@ class TestCrossLanguageContracts:
 class TestApiFieldContract:
     @pytest.fixture()
     def document(self, tmp_path: Path) -> dict:
+        from datetime import UTC, datetime
+
         from forgeloop.domain.project import project_data_root
+        from forgeloop.domain.task_plan import PlannedTask, TaskPlan
         from forgeloop.records.projects import ProjectStore, project_records_path
         from forgeloop.records.requirements import RequirementStore
         from forgeloop.records.store import RecordStore
@@ -167,7 +188,28 @@ class TestApiFieldContract:
             store.close()
         requirement_store = RequirementStore(root / "records.sqlite")
         try:
-            requirement_store.submit("forgeloop", "页面要显示需求进展")
+            requirement = requirement_store.submit("forgeloop", "页面要显示需求进展")
+            # 页面按身份把需求分解出的任务与任务段串起来，因此这里必须真有任务包条目。
+            requirement_store.record_task_plan(
+                requirement.req_id,
+                TaskPlan(
+                    task_plan_id="plan-page",
+                    requirement_id=requirement.req_id,
+                    project="forgeloop",
+                    plan_version=1,
+                    requirement_version=1,
+                    tasks=(
+                        PlannedTask(
+                            task_id="first",
+                            goal="把状态页分成需求、任务、问题三段",
+                            files=("frontend/src/render.ts",),
+                            acceptance="三个页签按身份串起来",
+                            test_command=("pytest", "-q"),
+                        ),
+                    ),
+                    created_at=datetime.now(UTC),
+                ),
+            )
         finally:
             requirement_store.close()
         documents = ProgressDocuments(_requirement_document, _status_document)
@@ -184,8 +226,20 @@ class TestApiFieldContract:
         task = document["tasks"][0]
         for field in REQUIREMENT_FIELDS:
             assert field in requirement, field
+        assert requirement["versions"], "需求必须带原文版本，否则卡片没有描述可显示"
+        for version in requirement["versions"]:
+            for field in REQUIREMENT_VERSION_FIELDS:
+                assert field in version, field
+        for entry in requirement["tasks"]:
+            for field in REQUIREMENT_TASK_FIELDS:
+                assert field in entry, field
         for field in TASK_FIELDS:
             assert field in task, field
+        # 单任务流程创建的任务可能没有任务包（plan 为 null）；有任务包时必须带目标。
+        plan = task["plan"]
+        if plan is not None:
+            for field in TASK_PLAN_FIELDS:
+                assert field in plan, field
         for field in FAILURE_FIELDS:
             assert field in task["failures"], field
         for field in BUDGET_FIELDS:

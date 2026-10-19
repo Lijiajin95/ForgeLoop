@@ -72,15 +72,15 @@ mutation_killed_min = 90
 # 键为 `文件:行:列:变异算子:替换内容`；同一位置的多个等价变异由一条登记覆盖。
 # 未登记的幸存者会让 scripts/check_frontend_mutation.py 失败；条目过期只作提示。
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:46:19:ConditionalExpression:false'
+mutant = 'src/format.ts:55:19:ConditionalExpression:false'
 reason = "等价变异：Number(数字) 与数字本身恒等，`typeof value === \"number\"` 的三元分支只影响同一结果的路径。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:46:36:StringLiteral:""'
+mutant = 'src/format.ts:55:36:StringLiteral:""'
 reason = "等价变异：`typeof value === \"\"` 恒为假，退化为 Number(value)，与上一行同一结果。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:68:41:ObjectLiteral:{}'
+mutant = 'src/format.ts:77:41:ObjectLiteral:{}'
 reason = "本机 ICU 下 zh-CN 的默认 hour12 与显式 false 相同（实测输出一致）；测试已钉死 24 小时制形状，跨 ICU 行为差异由真实浏览器用例间接覆盖。"
 
 [[frontend.reviewed_survivors]]

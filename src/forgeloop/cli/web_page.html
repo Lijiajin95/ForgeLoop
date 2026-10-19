@@ -13,6 +13,7 @@
         --text: #1f2320;
         --muted: #6b7280;
         --accent: #2f6f4f;
+        --accent-soft: #e6f1ea;
         --issue: #a33a2a;
         --issue-bg: #fdf1ee;
       }
@@ -24,6 +25,7 @@
           --text: #e8eaea;
           --muted: #9aa3a8;
           --accent: #6fbf95;
+          --accent-soft: #22322a;
           --issue: #f0a08f;
           --issue-bg: #2c1f1c;
         }
@@ -32,8 +34,9 @@
         box-sizing: border-box;
       }
       body {
-        margin: 0;
-        padding: 24px;
+        margin: 0 auto;
+        padding: 20px 24px 56px;
+        max-width: 1360px;
         background: var(--bg);
         color: var(--text);
         font:
@@ -43,7 +46,7 @@
           "Noto Sans CJK SC",
           sans-serif;
       }
-      header {
+      .app-head {
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
@@ -52,18 +55,6 @@
       h1 {
         font-size: 20px;
         margin: 0;
-      }
-      h2 {
-        font-size: 16px;
-        margin: 0 0 8px;
-      }
-      .meta {
-        color: var(--muted);
-        font-size: 13px;
-      }
-      .meta b {
-        color: var(--text);
-        font-weight: 600;
       }
       #refresh-button {
         margin-left: auto;
@@ -79,66 +70,296 @@
         cursor: progress;
         color: var(--muted);
       }
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 8px 0 0;
+      }
+      .meta b {
+        color: var(--text);
+        font-weight: 600;
+      }
       #banner {
         display: none;
-        margin: 16px 0 0;
+        margin: 14px 0 0;
         padding: 10px 14px;
         border-radius: 6px;
         background: var(--issue-bg);
         color: var(--issue);
         white-space: pre-wrap;
       }
-      .counts {
+
+      /* 页签：需求 → 它分解出的任务 → 任务上的问题。 */
+      .tabs {
+        position: sticky;
+        top: 0;
+        z-index: 5;
         display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin: 16px 0;
+        gap: 4px;
+        margin: 18px 0 0;
+        padding-top: 8px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--line);
       }
-      .count {
-        min-width: 128px;
-        padding: 10px 16px;
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border: 1px solid transparent;
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .tab:hover {
+        color: var(--text);
+      }
+      .tab[aria-selected="true"] {
+        color: var(--text);
+        font-weight: 600;
+        background: var(--panel);
+        border-color: var(--line);
+      }
+      .tab-count {
+        min-width: 24px;
+        padding: 1px 7px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 999px;
+        background: var(--bg);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 400;
+        text-align: center;
+      }
+      .tab[aria-selected="true"] .tab-count {
+        color: var(--accent);
+        border-color: currentColor;
+      }
+      [role="tabpanel"] {
+        margin-top: 16px;
+      }
+      .panel-note {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+
+      /* 需求卡片与任务分组。 */
+      .cards,
+      .groups {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .card {
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
         background: var(--panel);
       }
-      .count strong {
-        display: block;
-        font-size: 22px;
+      .card-head,
+      .group-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
       }
-      .count span {
+      .group-head {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
+        background: var(--panel);
+      }
+      .group table {
+        border: 1px solid var(--line);
+        border-radius: 0 0 10px 10px;
+        background: var(--panel);
+      }
+      .chip {
+        padding: 1px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--bg);
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .chip.status[data-status="blocked"],
+      .chip.status[data-status="interrupted"],
+      .chip.status[data-status="time_exhausted"] {
+        color: var(--issue);
+        border-color: currentColor;
+        background: var(--issue-bg);
+      }
+      .id {
+        font-weight: 600;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12.5px;
+      }
+      .id + .mono,
+      .mono + .mono {
+        margin-left: 6px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .id-link,
+      .link-button {
+        padding: 1px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      .id-link:hover,
+      .link-button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .issue-chip {
+        padding: 1px 8px;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        background: var(--issue-bg);
+        color: var(--issue);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      /* 折叠：开关靠右，正文用 hidden 属性真正隐藏（读屏也不会读到）。 */
+      .collapse-toggle {
+        margin-left: auto;
+        padding: 1px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--muted);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .collapse-toggle:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      .card-body {
+        margin-top: 6px;
+      }
+      /* 描述：需求原文这类长文本限高滚动，卡片不会被一篇长文撑开。 */
+      .description-block {
+        margin: 6px 0 0;
+      }
+      .description-block .label {
+        display: inline-block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .description {
+        margin: 0;
+        padding: 8px 10px;
+        max-height: 12em;
+        overflow: auto;
+        border-left: 3px solid var(--line);
+        border-radius: 0 6px 6px 0;
+        background: var(--bg);
+        font-size: 13px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .goal {
+        margin: 3px 0 0;
+        max-width: 460px;
+        max-height: 6.5em;
+        overflow: auto;
+        color: var(--muted);
+        font-size: 12.5px;
+        font-weight: 400;
+      }
+      .object-note {
+        display: block;
+        margin: 4px 0 0;
+        max-width: 320px;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .line {
+        margin: 8px 0 0;
         color: var(--muted);
         font-size: 13px;
       }
-      section {
-        margin-top: 24px;
+      .line.blocked {
+        color: var(--issue);
       }
+      .empty-inline {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
       table {
         width: 100%;
         border-collapse: collapse;
-        background: var(--panel);
       }
-      caption {
-        text-align: left;
-        color: var(--muted);
-        font-size: 13px;
-        padding-bottom: 6px;
+      .card table {
+        margin-top: 10px;
       }
       th,
       td {
-        border: 1px solid var(--line);
         padding: 6px 10px;
+        border-bottom: 1px solid var(--line);
         text-align: left;
         vertical-align: top;
         font-size: 13px;
       }
       th {
-        background: var(--bg);
+        color: var(--muted);
+        font-size: 12px;
         font-weight: 600;
         white-space: nowrap;
       }
-      td.wrap {
+      /* 问题表的对象与摘要留出宽度；「依据」是长文本，必须允许换行，否则撑破表格。 */
+      #issues-body td:nth-child(1) {
+        white-space: nowrap;
+      }
+      #issues-body td:nth-child(2) {
+        min-width: 260px;
+      }
+      #issues-body td:nth-child(3) {
+        min-width: 240px;
+      }
+      /* 状态、轮次与工时不拆行；原因列拿走剩余宽度，避免整表被挤成窄条。 */
+      .card tbody td:nth-child(n + 2),
+      .group tbody td:nth-child(2),
+      .group tbody td:nth-child(4),
+      .group tbody td:nth-child(5),
+      .group tbody td:nth-child(7) {
+        white-space: nowrap;
+      }
+      .group tbody td:nth-child(3) {
+        min-width: 170px;
+        white-space: nowrap;
+      }
+      .group tbody td:nth-child(6) {
+        min-width: 260px;
+      }
+      .card tbody td:first-child,
+      .group tbody td:first-child {
         max-width: 420px;
-        overflow-wrap: anywhere;
+      }
+      tbody tr:not(.issue):hover td {
+        background: var(--accent-soft);
       }
       tr.issue td {
         background: var(--issue-bg);
@@ -147,17 +368,31 @@
         color: var(--issue);
         font-weight: 600;
       }
+      .target {
+        background: var(--accent-soft);
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+      }
       .empty {
         color: var(--muted);
         font-size: 13px;
       }
-      code {
-        font-size: 12px;
+      @media (max-width: 720px) {
+        body {
+          padding: 16px 12px 40px;
+        }
+        .tabs {
+          flex-wrap: wrap;
+        }
+        th,
+        td {
+          padding: 6px 8px;
+        }
       }
     </style>
   </head>
   <body>
-    <header>
+    <header class="app-head">
       <h1>ForgeLoop 研发进展</h1>
       <button id="refresh-button" type="button">立即刷新</button>
     </header>
@@ -168,70 +403,78 @@
     </p>
     <div id="banner" role="alert"></div>
 
-    <div class="counts">
-      <div class="count">
-        <strong id="count-requirements">—</strong><span>需求</span>
-      </div>
-      <div class="count">
-        <strong id="count-tasks">—</strong><span>任务</span>
-      </div>
-      <div class="count">
-        <strong id="count-issues">—</strong><span>待处理问题</span>
-      </div>
-    </div>
+    <nav class="tabs" role="tablist" aria-label="研发进展分段">
+      <button
+        id="tab-requirements"
+        class="tab"
+        type="button"
+        role="tab"
+        aria-selected="true"
+        aria-controls="panel-requirements"
+      >
+        需求<span class="tab-count" id="count-requirements">—</span>
+      </button>
+      <button
+        id="tab-tasks"
+        class="tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-tasks"
+      >
+        任务<span class="tab-count" id="count-tasks">—</span>
+      </button>
+      <button
+        id="tab-issues"
+        class="tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-issues"
+      >
+        问题<span class="tab-count" id="count-issues">—</span>
+      </button>
+    </nav>
 
-    <section>
-      <h2>需求</h2>
-      <table>
-        <caption>
-          需求原文与任务包来自权威记录；「任务进展」为已交付任务数 /
-          任务包任务数。
-        </caption>
-        <thead>
-          <tr>
-            <th>需求</th>
-            <th>项目</th>
-            <th>状态</th>
-            <th>任务包</th>
-            <th>任务进展</th>
-            <th>下一步</th>
-            <th>阻断原因</th>
-          </tr>
-        </thead>
-        <tbody id="requirements-body"></tbody>
-      </table>
+    <section
+      id="panel-requirements"
+      role="tabpanel"
+      aria-labelledby="tab-requirements"
+      tabindex="0"
+    >
+      <p class="panel-note">
+        一条需求一张卡片，卡内是它分解出的任务（按身份关联）；「任务进展」为已交付任务数
+        / 任务包任务数，点任务可跳到任务页签。
+      </p>
+      <div class="cards" id="requirements-body"></div>
       <p class="empty" id="requirements-empty">没有需求记录。</p>
     </section>
 
-    <section>
-      <h2>任务</h2>
-      <table>
-        <caption>
-          含需求任务映射出的单任务记录（身份形如
-          task-&lt;需求&gt;-v&lt;任务包版本&gt;-&lt;任务&gt;）。
-        </caption>
-        <thead>
-          <tr>
-            <th>任务</th>
-            <th>项目</th>
-            <th>状态</th>
-            <th>下一步</th>
-            <th>失败轮次</th>
-            <th>工时</th>
-            <th>阻断原因</th>
-          </tr>
-        </thead>
-        <tbody id="tasks-body"></tbody>
-      </table>
+    <section
+      id="panel-tasks"
+      role="tabpanel"
+      aria-labelledby="tab-tasks"
+      tabindex="0"
+      hidden
+    >
+      <p class="panel-note">
+        按所属需求分组；未关联需求的单任务单独成组。点组头回到需求，点「问题」看这条任务上的问题。
+      </p>
+      <div class="groups" id="tasks-body"></div>
       <p class="empty" id="tasks-empty">没有任务记录。</p>
     </section>
 
-    <section>
-      <h2>问题</h2>
+    <section
+      id="panel-issues"
+      role="tabpanel"
+      aria-labelledby="tab-issues"
+      tabindex="0"
+      hidden
+    >
+      <p class="panel-note">
+        需要人工介入的当前事实：阻断、中断、等待追加授权、工时耗尽、待确认停止与未完成执行槽位。等待批准/验收属于正常流程门，不在此列；点对象跳到它所在的那一段。
+      </p>
       <table>
-        <caption>
-          需要人工介入的当前事实：阻断、中断、等待追加授权、工时耗尽、待确认停止与未完成执行槽位。等待批准/验收属于正常流程门，不在此列。
-        </caption>
         <thead>
           <tr>
             <th>种类</th>

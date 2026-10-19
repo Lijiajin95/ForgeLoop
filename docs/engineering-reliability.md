@@ -685,7 +685,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 **触发条件成立**：第 1 节原写明前端工具链「不移植（首版无前端，B01 前不接入）」，并预留了触发条件——出现前端界面与真实浏览器需求时按同方法接入。2026-10-17 所有者选中 B01 只读状态页，并要求按 Python 的 lint／编码风格规则补一套 TypeScript 适配规则，因此本节记录实际接入的范围、数值来源、门禁强度与代价。
 
-**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`（`payload.ts` → `format.ts` → `render.ts`／`progress.ts` → `page.ts` → `app.ts`），经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；渲染不取数），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
+**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`（`payload.ts` → `format.ts`／`link.ts` → `dom.ts` → `render.ts`／`tabs.ts`／`progress.ts` → `page.ts` → `app.ts`；`link.ts` 是需求／任务／问题的身份关联规则，`dom.ts` 是 DOM 原语、页面句柄与折叠状态，`tabs.ts` 是页签与跳转），经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；渲染不取数），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
 
 **Python 规则 → TypeScript 规则的对应**（数值同源于 `config/quality-policy.toml`）：
 
@@ -698,12 +698,12 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 | import-linter（分层与环） | dependency-cruiser（`no-circular` + 三条边界规则） | 硬门禁 |
 | deptry（未声明/未使用依赖） | knip（未使用依赖、导出与文件） | 硬门禁 |
 | 覆盖率 `line/branch ≥ 90` | Vitest（v8）lines／branches／functions／statements 各 90 | 硬门禁 |
-| mutmut（核心领域规则） | Stryker（`format.ts`、`progress.ts`；break 90，high 95／low 90 只作报告着色） | 凌晨作业 |
+| mutmut（核心领域规则） | Stryker（`format.ts`、`progress.ts`、`link.ts`；break 90，high 95／low 90 只作报告着色） | 凌晨作业 |
 | pip-audit | npm audit（`--audit-level=high`，显式指向公共 registry） | 安全作业 |
 | 结构数字（函数 50、文件 500、复杂度 10、嵌套 4、参数 5、语句 50） | ESLint `max-lines-per-function`／`max-lines`／`complexity`／`max-depth`／`max-params`／`max-statements` | **审阅提示**（`warn`，与 Python 同强度） |
 | 真实外部边界用真实执行 | Playwright 起真实 `forgeloop web` 进程 + 真实 Chromium（记录 → 服务端 → 编译产物 → DOM） | CI 推送路径 |
 
-**门禁节奏**：`make check`（= `check-static` + 高频测试）包含格式、ESLint、tsc、产物漂移、策略同源、模块边界、knip 与 jsdom 用例（68 项）；CI 的 `quality` 作业另跑覆盖率与真实浏览器用例（4 项）、`security` 作业跑 npm audit；夜间作业（03:00 Asia/Shanghai）跑 Stryker 并用 `scripts/check_frontend_mutation.py` 判定击杀率与幸存者审阅。本地可用 `make frontend-check` 单独跑高频部分。
+**门禁节奏**：`make check`（= `check-static` + 高频测试）包含格式、ESLint、tsc、产物漂移、策略同源、模块边界、knip 与 jsdom 用例（当前 143 项）；CI 的 `quality` 作业另跑覆盖率与真实浏览器用例（当前 11 项）、`security` 作业跑 npm audit；夜间作业（03:00 Asia/Shanghai）跑 Stryker 并用 `scripts/check_frontend_mutation.py` 判定击杀率与幸存者审阅。本地可用 `make frontend-check` 单独跑高频部分。
 
 **变异实测（2026-10-17 本机，213 个变异体、24 秒）**：击杀率 **95.77%**（检出 204：killed 201 + timeout 3；未检出 9：survived 9 + no coverage 0），`format.ts` 97.73%、`progress.ts` 92.59%，高于门槛 90%。第一轮实测只有 **68.08%**，据此补了三类测试缺口：缺值标记与全部七类问题标签原先只断言了部分字面量、时间戳格式只断言了「不是原串」、错误响应体只覆盖了对象形态；另把 `progress` 的用例从组件层移到单元层（变异只选单元层用例）。九个幸存者逐项审阅后**全部判为等价变异**并登记在 `[[frontend.reviewed_survivors]]`（理由逐条写明），未审阅幸存者会让门槛脚本失败。
 
@@ -715,7 +715,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 - `npm audit --audit-level=high` 当前对本仓库报 **2 个 moderate**（`@stryker-mutator/core → typed-rest-client → qs`），**全部位于开发期变异工具链，不进入随包页面与 wheel**；high 及以上为空。该结果如实保留在安全作业输出里，不通过降级门槛隐藏。
 - 前端工具链引入 **Node 26 与 npm registry 依赖**（`package-lock.json` 锁定、`npm ci` 安装），浏览器为 Playwright 下载的 Chromium（落在 `.cache/ms-playwright`）。这改变了「纯 Python、无 Node」的旧状态，`make setup` 现在同时准备两侧工具链。
 - 版本选择：除上一条的 vitest 之外，其余工具取当前**未被标记弃用**的版本（eslint 10、typescript 6.0、typescript-eslint 8、playwright 1.64、knip 6、dependency-cruiser 18、prettier 3.9）。首次安装 npm 曾提示 `eslint@9.39.5` 已弃用（EvidHist 的钉法是 9.x），因此改为 eslint 10；TypeScript 停在 6.0 是因为 `typescript-eslint` 的 peer 范围是 `<6.1.0`。
-- 变异范围**不覆盖 DOM 渲染**（`render.ts`）：与 Python 侧只变异核心领域规则同一口径，DOM 管线的等价变异与展示细节噪声高、收益低；后续确有渲染逻辑缺陷漏检时再纳入并重新审阅幸存者。
+- 变异范围**不覆盖 DOM 渲染**（`dom.ts`／`render.ts`／`tabs.ts`）：与 Python 侧只变异核心领域规则同一口径，DOM 管线的等价变异与展示细节噪声高、收益低；后续确有渲染逻辑缺陷漏检时再纳入并重新审阅幸存者。纯规则模块（含 2026-10-19 新增的身份关联 `link.ts`）仍在范围内。
 - 未接入 **Vitest 浏览器模式、axe 可访问性扫描、Stryker 的 HTML 报告归档以外的前端可观测性**：本次只按所有者选中的范围接入，不因工具存在而扩大。
 
 ## 29. 提交策略改为可选本机配置：仓库只发布模板（2026-10-17 所有者决定）
