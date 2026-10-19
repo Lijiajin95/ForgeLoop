@@ -18,6 +18,7 @@
 import argparse
 import contextlib
 import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -95,6 +96,7 @@ from forgeloop.graph.requirements import (
     TaskResult,
 )
 from forgeloop.graph.state import TaskState
+from forgeloop.graph.worker import current_task_thread_id
 from forgeloop.records.mail_threads import MailThreadStore
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
@@ -648,6 +650,7 @@ def cmd_requirement_revise(args: argparse.Namespace) -> int:
 
 _MAIL_OPERATIONS_ACCEPT = frozenset({"验收", "accept"})
 _MAIL_OPERATIONS_ADVANCE = frozenset({"推进", "advance"})
+_MAIL_OPERATIONS_STOP = frozenset({"停止", "stop"})
 
 
 def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
@@ -660,6 +663,17 @@ def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
     document = getattr(args, "poll_document", None) or {}
     root = records_root(args)
     messages: list[str] = []
+    quiet = bool(getattr(args, "json", False))
+
+    def run(command: object, namespace: argparse.Namespace) -> int:
+        """执行既有命令；--json 时吞掉命令自身的 stdout，保证轮询文档独占输出。"""
+
+        if not quiet:
+            return command(namespace)  # type: ignore[operator]
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            return command(namespace)  # type: ignore[operator]
+
     for entry in document.get("requirements", []):
         req_id = str(entry.get("req_id") or "")
         operation = str(entry.get("operation") or "").strip().lower()
@@ -672,8 +686,24 @@ def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
                 by=str(entry.get("mail_sender") or "mail"),
                 source="mail",
             )
-            code = cmd_requirement_accept(namespace)
+            code = run(cmd_requirement_accept, namespace)
             messages.append(f"{req_id}: 验收{'完成' if code == 0 else '未通过（见上方原因）'}")
+        elif operation in _MAIL_OPERATIONS_STOP:
+            # 停止：先把需求解析成当前任务（与页面共用同一只读解析），再走既有停止入口。
+            try:
+                task_id = current_task_thread_id(root, req_id)
+            except Exception as error:
+                messages.append(f"{req_id}: 停止未执行（{error}）")
+                continue
+            namespace = argparse.Namespace(
+                task_id=task_id,
+                note=str(entry.get("operation_reason") or ""),
+                by=str(entry.get("mail_sender") or "mail"),
+                source="mail",
+                records_root=str(root),
+            )
+            code = run(cmd_stop, namespace)
+            messages.append(f"{task_id}: 停止请求{'已记录' if code == 0 else '被拒绝'}")
         elif operation in _MAIL_OPERATIONS_ADVANCE:
             pi_command = str(getattr(args, "pi_command", "") or "").strip()
             if not pi_command:
@@ -687,7 +717,7 @@ def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
                 baseline=str(getattr(args, "baseline", "") or ""),
                 pi_timeout_seconds=float(getattr(args, "pi_timeout_seconds", 0.0) or 0.0),
             )
-            code = cmd_requirement_advance(namespace)
+            code = run(cmd_requirement_advance, namespace)
             messages.append(f"{req_id}: 推进{'完成' if code == 0 else '未通过（见上方原因）'}")
     return messages
 

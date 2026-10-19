@@ -214,3 +214,122 @@ class TestApproveParity:
                 "source_marks_entry": True,
             }
         )
+
+
+class TestStopParity:
+    """停止：CLI 与邮件落在同一停止请求记录（任务、操作人、来源都留痕）。"""
+
+    def _approved_with_task(self, records_root: Path, text: str) -> tuple[str, str]:
+        from datetime import UTC, datetime
+
+        from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+        from forgeloop.graph.worker import current_task_thread_id
+        from forgeloop.records.store import RecordStore
+
+        req_id = _seed(records_root, text)
+        store = RequirementStore(records_root / "records.sqlite")
+        try:
+            store.record_task_plan(
+                req_id,
+                TaskPlan(
+                    task_plan_id=f"plan-{req_id}",
+                    requirement_id=req_id,
+                    project="ForgeLoop",
+                    plan_version=1,
+                    requirement_version=1,
+                    tasks=(
+                        PlannedTask(
+                            task_id="task-1",
+                            goal="实现导出",
+                            files=("src/export.py",),
+                            acceptance="测试通过",
+                            test_command=("pytest", "-q"),
+                        ),
+                    ),
+                    created_at=datetime(2026, 10, 19, tzinfo=UTC),
+                ),
+            )
+            store.record_plan_approval(req_id, 1, "owner", source="cli")
+        finally:
+            store.close()
+        task_id = current_task_thread_id(records_root, req_id)
+        record_store = RecordStore(records_root / "records.sqlite")
+        try:
+            record_store.create_task(task_id, "ForgeLoop", text, {"pi_command": "pi"}, 60.0)
+        finally:
+            record_store.close()
+        return req_id, task_id
+
+    def _facts(self, records_root: Path, task_id: str) -> dict[str, object]:
+        from forgeloop.records.store import RecordStore
+
+        store = RecordStore(records_root / "records.sqlite")
+        try:
+            requested_by, source = store.outcomes.stop_attribution(task_id)
+            return {
+                "has_request": store.outcomes.stop_record(task_id) is not None,
+                "by_non_empty": bool(requested_by),
+                "source_non_empty": bool(source),
+            }
+        finally:
+            store.close()
+
+    def test_cli_and_mail_record_the_same_stop_facts(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.scenario.test_mail_cli import (
+            build_message,
+            install_transport,
+            poll,
+        )
+
+        cli_root = tmp_path / "cli-stop"
+        cli_root.mkdir()
+        _cli_req, cli_task = self._approved_with_task(cli_root, "等价性：CLI 停止")
+        code, _out = run_cli(
+            [
+                "stop",
+                cli_task,
+                "--note",
+                "现场核对",
+                "--by",
+                "owner",
+                "--source",
+                "cli",
+                "--records-root",
+                str(cli_root),
+            ],
+            capsys,
+        )
+        assert code == 0
+
+        mail_root = tmp_path / "mail-stop"
+        mail_root.mkdir()
+        mail_req, mail_task = self._approved_with_task(mail_root, "等价性：邮件停止")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<parity-stop@example.com>",
+                    subject=f"Re: [ForgeLoop] {mail_req}",
+                    body="操作: 停止\n理由: 现场核对",
+                )
+            ],
+        )
+        document = poll(mail_root, capsys, "--whitelist", "requester@example.com")
+        entry = next(item for item in document["requirements"] if item["req_id"] == mail_req)
+        # 先钉住管道：轮询文档必须把指令带上，否则后面断言失败无法区分是哪一层。
+        assert entry["operation"] == "停止", entry
+
+        cli_facts = self._facts(cli_root, cli_task)
+        mail_facts = self._facts(mail_root, mail_task)
+        # 完整等价：两条入口都产生停止请求、都留下操作人、都记录入口来源。
+        assert (
+            cli_facts
+            == mail_facts
+            == {
+                "has_request": True,
+                "by_non_empty": True,
+                "source_non_empty": True,
+            }
+        )

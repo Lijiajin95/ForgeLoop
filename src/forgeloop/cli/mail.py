@@ -438,7 +438,10 @@ def _build_adapter(
         # 邮件对话闭环（所有者 2026-10-19）：同一线索引发的**新**入向邮件，把正文作为
         # 答复追加成需求的修订版本，状态回到 draft 等待重新分析——答复不再是孤立的
         # 邮件记录，而是真的进入需求材料。只追加、不覆盖；已验收/已取消的终态不追加。
-        if created and mail.body.strip() and not cancelled_by_mail:
+        # 操作类邮件（操作: 批准/停止/…）是**决定**，不是答复材料：回流会把需求改回
+        # draft、使批准失效，从而让"当前任务"消失（停止/推进随即无法定位）。取消同样不回流。
+        is_operation_mail = bool(operation)
+        if created and mail.body.strip() and not cancelled_by_mail and not is_operation_mail:
             try:
                 current = requirement_store.requirement_status(req_id)
             except RequirementNotFoundError:
