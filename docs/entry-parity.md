@@ -72,6 +72,24 @@
 CLI 侧用不存在的命令），把"真执行分支"交给**分派层单测**用替身覆盖。等价性测试不得因为
 要验证而真的跑模型。
 
+## 2.5 测试证据清单（2026-10-19 第 10 轮核对）
+
+按"操作 × 入口 × 证据位置"逐项落位；**没有证据的组合如实标为未覆盖**。
+
+| 操作 | CLI 证据 | 邮件证据 | 页面证据 | 跨入口对照 |
+| --- | --- | --- | --- | --- |
+| 提交 | `test_requirement_*`（场景） | `test_mail_cli.py`（建需求/白名单） | `test_serve_operations.py` 提交端点 | ✅ `test_entry_parity.py::TestSubmitParity` |
+| 取消 | `test_requirement_cancel.py` | `test_mail_cli.py::TestMailEquivalenceForCancel` | `test_serve_operations.py::TestPageCancel` | ✅ `TestCancelParity` |
+| 批准 | `test_requirement_*`（批准） | `test_mail_cli.py::TestMailEquivalenceForApprove` | 批准端点集成测试 | ✅ `TestApproveParity` |
+| 停止 | `test_guards.py`（停止） | `TestStopParity`（本轮前完成） | 停止端点集成测试 | ✅ `TestStopParity` + 分派层单测 |
+| 推进 | `test_worker_execution.py`（集成） | 零副作用对照 | 推进端点集成测试 | ✅ `TestAdvanceNoSideEffectParity` |
+| 验收（拒绝） | 拒绝语义测试 | `TestAcceptRefusalParity` | `TestAcceptanceAttributionOverHttp`（拒绝分支） | ✅ `TestAcceptRefusalParity` |
+| 验收（成功） | — | — | `TestAcceptanceAttributionOverHttp`（成功分支，真实服务） | ⛔ **未覆盖**：需要"全部任务已验收 + 材料一致"的重现场 |
+| 回信（发问/接纳） | — | `test_mail_cli.py::TestAutoReply` | — | ➖ 邮件独有形态（无 CLI/页面等价物） |
+| 读状态 | `requirement status` | 回执含状态 | 页面只读展示 | 🟡 三处都能读，但输出形态不同（未做逐字段对照） |
+
+**结论**：6 条链路的跨入口记录事实对照已完成；**验收成功路径**是唯一未覆盖的等价性对照。
+
 ## 3. 等价性测试分层
 
 | 层 | 内容 | 位置 |
