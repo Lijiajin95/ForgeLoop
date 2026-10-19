@@ -577,3 +577,152 @@ class TestAcceptRefusalParity:
                 "acceptance_fingerprint": "",
             }
         )
+
+
+class TestAcceptanceSuccessParity:
+    """验收成功路径：合法现场（真实图 + 替身 runner + 公开批准/消费 API）下，
+    CLI 与邮件各做一次整体验收，验收记录必须等价。
+
+    现场构造严格遵守纪律：跑真实 `RequirementExecutor.advance()` 让任务交付，再用图内
+    acceptance 门消费的**同一对公开 API**（`record_approval` + `consume_approval`）生成
+    验收绑定——不手写表、不伪造记录。
+    """
+
+    def _acceptable_scene(self, root: Path) -> str:
+        from datetime import UTC, datetime
+
+        from test_requirement_execution import (
+            FakeClock,
+            ScriptedRunner,
+            approved_scene,
+            artifact,
+            planned,
+        )
+
+        from forgeloop.domain.approval import Approval, ApprovalStage
+        from forgeloop.graph.builder import requirement_task_id
+        from forgeloop.graph.requirements import (
+            RequirementExecutor,
+            TaskResult,
+            TaskRunState,
+        )
+        from forgeloop.records.store import RecordStore
+
+        store, req_id = approved_scene(root, (planned("task-1"),))
+        try:
+            clock = FakeClock()
+            runner = ScriptedRunner(
+                clock,
+                {"task-1": (10.0, TaskResult(TaskRunState.DELIVERED, artifact("task-1", "a")))},
+            )
+            RequirementExecutor(store, req_id, runner, clock=clock).advance()
+        finally:
+            store.close()
+
+        task_id = requirement_task_id(req_id, 1, "task-1")
+        task_dir = root / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "candidate.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
+        (task_dir / "test-run.jsonl").write_text('{"status":"passed"}\n', encoding="utf-8")
+        (task_dir / "review-report.json").write_text('{"verdict":"ok"}\n', encoding="utf-8")
+
+        record_store = RecordStore(root / "records.sqlite")
+        try:
+            binding = record_store.capture_delivery_binding(task_id, 1)
+            record_store.record_approval(
+                Approval(
+                    task_id=task_id,
+                    plan_version=1,
+                    stage=ApprovalStage.ACCEPTANCE,
+                    decided_at=datetime.now(UTC),
+                    binding=binding,
+                    approved_by="owner",
+                    source="cli",
+                )
+            )
+            assert (
+                record_store.consume_approval(
+                    task_id, 1, ApprovalStage.ACCEPTANCE, binding
+                ).status.value
+                == "ok"
+            )
+        finally:
+            record_store.close()
+        return req_id
+
+    def _facts(self, root: Path, req_id: str) -> dict[str, object]:
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            record = store.requirement_acceptance(req_id)
+            return {
+                "accepted_by_non_empty": bool(record.get("accepted_by")),
+                "fingerprint_non_empty": bool(record.get("acceptance_fingerprint")),
+                "status": store.requirement_status(req_id),
+            }
+        finally:
+            store.close()
+
+    def test_cli_and_mail_accept_the_same_record_shape(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.scenario.test_mail_cli import (
+            build_message,
+            connection_args,
+            install_transport,
+        )
+
+        cli_root = tmp_path / "cli-accept-ok"
+        cli_root.mkdir()
+        cli_req = self._acceptable_scene(cli_root)
+        code, _out = run_cli(
+            [
+                "requirement",
+                "accept",
+                cli_req,
+                "--by",
+                "owner",
+                "--source",
+                "cli",
+                "--records-root",
+                str(cli_root),
+            ],
+            capsys,
+        )
+        assert code == 0
+
+        mail_root = tmp_path / "mail-accept-ok"
+        mail_root.mkdir()
+        mail_req = self._acceptable_scene(mail_root)
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<accept-ok@example.com>",
+                    subject=f"Re: [ForgeLoop] {mail_req}",
+                    body="操作: 验收",
+                )
+            ],
+        )
+        _code, out = run_cli(
+            [
+                "mail",
+                "poll",
+                "--once",
+                "--project",
+                "ForgeLoop",
+                "--whitelist",
+                "requester@example.com",
+                *connection_args(mail_root),
+            ],
+            capsys,
+        )
+        assert "验收完成" in out or "验收通过" in out, out
+
+        cli_facts = self._facts(cli_root, cli_req)
+        mail_facts = self._facts(mail_root, mail_req)
+        expected = {
+            "accepted_by_non_empty": True,
+            "fingerprint_non_empty": True,
+            "status": "accepted",
+        }
+        assert cli_facts == mail_facts == expected, (cli_facts, mail_facts)
