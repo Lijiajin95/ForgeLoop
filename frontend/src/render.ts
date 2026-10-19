@@ -49,6 +49,7 @@ export interface PageElements {
   readonly actionAdvance: HTMLButtonElement;
   readonly actionAccept: HTMLButtonElement;
   readonly actionStop: HTMLButtonElement;
+  readonly actionCancel: HTMLButtonElement;
   readonly operationsStatus: HTMLElement;
 }
 
@@ -81,6 +82,7 @@ const ELEMENT_IDS = {
   actionAdvance: "action-advance",
   actionAccept: "action-accept",
   actionStop: "action-stop",
+  actionCancel: "action-cancel",
   operationsStatus: "operations-status",
 } as const satisfies Record<keyof PageElements, string>;
 

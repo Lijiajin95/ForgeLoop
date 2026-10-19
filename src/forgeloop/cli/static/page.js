@@ -280,7 +280,7 @@ function wirePanel(elements, client, latestDocument) {
     });
 }
 /** 需要理由的三类人工决定：与 `cli/serve.py` 的 `reason_required` 一致。 */
-const REASON_REQUIRED = ["approve", "accept", "stop"];
+const REASON_REQUIRED = ["approve", "accept", "stop", "cancel"];
 /** action → 按钮元素，避免在事件回调里做字符串分支。 */
 function actionButton(elements, action) {
     switch (action) {
@@ -290,6 +290,8 @@ function actionButton(elements, action) {
             return elements.actionAdvance;
         case "accept":
             return elements.actionAccept;
+        case "cancel":
+            return elements.actionCancel;
         default:
             return elements.actionStop;
     }
@@ -302,6 +304,7 @@ function setBusy(elements, busy) {
         elements.actionAdvance,
         elements.actionAccept,
         elements.actionStop,
+        elements.actionCancel,
     ]) {
         button.disabled = busy;
     }
@@ -373,7 +376,7 @@ function wireOperations(elements, client, fetcher) {
         return;
     }
     wireSubmit(elements, client, token, fetcher);
-    for (const action of ["approve", "advance", "accept", "stop"]) {
+    for (const action of ["approve", "advance", "accept", "stop", "cancel"]) {
         actionButton(elements, action).addEventListener("click", () => {
             const reqId = elements.actionReq.value;
             const reason = elements.actionReason.value.trim();

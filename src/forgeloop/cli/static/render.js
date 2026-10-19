@@ -35,6 +35,7 @@ const ELEMENT_IDS = {
     actionAdvance: "action-advance",
     actionAccept: "action-accept",
     actionStop: "action-stop",
+    actionCancel: "action-cancel",
     operationsStatus: "operations-status",
 };
 function requireElement(document, id) {

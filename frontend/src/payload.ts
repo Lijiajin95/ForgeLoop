@@ -106,7 +106,7 @@ export const TOKEN_PLACEHOLDER = "__FORGELOOP_TOKEN__";
 export const SUBMIT_KEY_STORAGE = "forgeloop:submit-key";
 
 /** 单需求可做的四类人工动作（与服务端路由一致）。 */
-export type RequirementAction = "approve" | "advance" | "accept" | "stop";
+export type RequirementAction = "approve" | "advance" | "accept" | "stop" | "cancel";
 
 /** 单需求动作的写端点。 */
 export function requirementActionUrl(reqId: string, action: RequirementAction): string {
