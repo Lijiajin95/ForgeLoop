@@ -38,7 +38,7 @@ from forgeloop.adapter.git_workspace import (
 from forgeloop.cli.candidate import add_candidate_parser
 from forgeloop.cli.common import open_store, records_root
 from forgeloop.cli.deploy import add_deploy_parser
-from forgeloop.cli.mail import add_mail_parser
+from forgeloop.cli.mail import add_mail_parser, auto_analyze_setting, cmd_mail_poll
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
@@ -636,6 +636,65 @@ def cmd_requirement_revise(args: argparse.Namespace) -> int:
     return 0
 
 
+def _auto_analyze_after_poll(args: argparse.Namespace, req_ids: list[str]) -> list[str]:
+    """对刚收到新入向邮件的需求各跑一次分析（auto_analyze 开启时）。
+
+    返回逐条结果（人类可读）。分析走既有 ``requirement analyze`` 管线：批准、槽位、
+    工时等规则不变；失败只记录并继续处理其它需求，不让一封邮件拖垮整轮轮询。
+    """
+
+    results: list[str] = []
+    for req_id in req_ids:
+        analysis_args = argparse.Namespace(
+            req_id=req_id,
+            records_root=getattr(args, "records_root", ""),
+            pi_command=getattr(args, "pi_command", ""),
+            project_path=getattr(args, "project_path", ""),
+            baseline=getattr(args, "baseline", ""),
+            pi_timeout_seconds=getattr(args, "pi_timeout_seconds", 0.0),
+        )
+        try:
+            code = cmd_requirement_analyze(analysis_args)
+        except Exception as error:
+            results.append(f"{req_id}: 自动分析失败（{type(error).__name__}: {error}）")
+            continue
+        results.append(f"{req_id}: {'分析完成' if code == 0 else '分析未完成（见上方）'}")
+    return results
+
+
+def cmd_mail_poll_with_analysis(args: argparse.Namespace) -> int:
+    """``mail poll`` 的入口：先轮询，再按 auto_analyze 设置决定是否自动分析新答复。"""
+
+    code = cmd_mail_poll(args)
+    if code != 0:
+        return code
+    if not auto_analyze_setting(args):
+        return code
+    document = getattr(args, "poll_document", None) or {}
+    affected = [
+        entry["req_id"]
+        for entry in document.get("requirements", [])
+        if entry.get("req_id") and entry.get("registered")
+    ]
+    if not affected:
+        return code
+    messages: list[str] = []
+    if not str(getattr(args, "pi_command", "") or "").strip():
+        messages.append(
+            "自动分析已开启，但缺少 --pi-command；本次不分析（答复已入需求，可稍后手工分析）"
+        )
+    else:
+        messages.append("自动分析：")
+        messages.extend(
+            f"  {line}" for line in _auto_analyze_after_poll(args, sorted(set(affected)))
+        )
+    # --json 时文档必须独占 stdout：自动分析的说明只走人类输出。
+    if not getattr(args, "json", False):
+        for message in messages:
+            print(message)
+    return code
+
+
 def cmd_requirement_analyze(args: argparse.Namespace) -> int:
     root = records_root(args)
     store = _open_requirement(root, args.req_id)
@@ -1202,7 +1261,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_candidate_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
-    add_mail_parser(subparsers, DEFAULT_RECORDS_ROOT)
+    add_mail_parser(subparsers, DEFAULT_RECORDS_ROOT, poll_entry=cmd_mail_poll_with_analysis)
 
     _add_requirement_parsers(subparsers, DEFAULT_RECORDS_ROOT)
 

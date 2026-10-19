@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -280,6 +281,29 @@ def _resolve_requirement(
     if whitelist and mail.sender.strip().lower() not in whitelist:
         return None
     return requirement_store.submit(project, _requirement_text(mail)).req_id
+
+
+def auto_analyze_setting(args: argparse.Namespace) -> bool:
+    """自动分析开关：``--auto-analyze/--no-auto-analyze`` 优先，其次邮件配置，缺省关闭。
+
+    关闭是刻意的默认（分析要花模型调用）。配置不可读时按关闭处理并如实报告。
+    """
+
+    explicit = getattr(args, "auto_analyze", None)
+    if explicit is not None:
+        return bool(explicit)
+    try:
+        from forgeloop.mail.config import load_mail_config
+
+        explicit_config = str(getattr(args, "config", "") or "").strip()
+        config = load_mail_config(
+            explicit_path=Path(explicit_config).expanduser() if explicit_config else None,
+            repo_root=Path.cwd(),
+            home=Path.home(),
+        )
+    except Exception:
+        return False
+    return bool(config.auto_analyze)
 
 
 def _effective_whitelist(args: argparse.Namespace) -> tuple[frozenset[str], str]:
@@ -600,12 +624,10 @@ def cmd_mail_poll(args: argparse.Namespace) -> int:
         connection.close()
         requirement_store.close()
     whitelist, whitelist_source = _effective_whitelist(args)
-    _emit(
-        _mail_poll_document(
-            report, entries, whitelist=whitelist, whitelist_source=whitelist_source
-        ),
-        args.json,
+    args.poll_document = _mail_poll_document(
+        report, entries, whitelist=whitelist, whitelist_source=whitelist_source
     )
+    _emit(args.poll_document, args.json)
     if not args.json:
         note = (
             f"建需求白名单：{'、'.join(sorted(whitelist))}（{whitelist_source}）"
@@ -708,7 +730,12 @@ def _add_connection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--smtp-starttls", action="store_true")
 
 
-def add_mail_parser(subparsers: argparse._SubParsersAction, default_records_root: str) -> None:
+def add_mail_parser(
+    subparsers: argparse._SubParsersAction,
+    default_records_root: str,
+    *,
+    poll_entry: Callable[[argparse.Namespace], int] | None = None,
+) -> None:
     """注册 ``mail`` 命令组（poll/confirm）；解析器装配留在命令模块内。"""
 
     mail = subparsers.add_parser("mail", help="邮件工作流：cron 轮询、分类建议与人工确认发信")
@@ -717,6 +744,16 @@ def add_mail_parser(subparsers: argparse._SubParsersAction, default_records_root
     poll = actions.add_parser("poll", help="单次轮询邮件需求并展示分类建议（不发信）")
     poll.add_argument("--once", action="store_true", help="cron 单次执行入口（必填）")
     poll.add_argument("--project", required=True, help="新邮件需求绑定的项目名")
+    poll.add_argument(
+        "--auto-analyze",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="新入向邮件登记后自动跑一次需求分析（缺省取邮件配置 auto_analyze；需 --pi-command）",
+    )
+    poll.add_argument("--pi-command", default="", help="自动分析用的 PI RPC 启动命令（JSON 数组）")
+    poll.add_argument("--project-path", default="", help="被开发项目路径（自动分析用）")
+    poll.add_argument("--baseline", default="", help="代码基线（自动分析用）")
+    poll.add_argument("--pi-timeout-seconds", type=float, default=0.0)
     poll.add_argument(
         "--whitelist",
         action="append",
@@ -733,7 +770,8 @@ def add_mail_parser(subparsers: argparse._SubParsersAction, default_records_root
     poll.add_argument("--json", action="store_true", help="输出稳定 JSON 文档")
     poll.add_argument("--records-root", default=default_records_root)
     _add_connection_args(poll)
-    poll.set_defaults(func=cmd_mail_poll)
+    # 实际入口在组合根（main.cmd_mail_poll_with_analysis）：轮询后按 auto_analyze 决定是否分析。
+    poll.set_defaults(func=poll_entry or cmd_mail_poll)
 
     confirm = actions.add_parser("confirm", help="人工确认后发送一类反馈邮件")
     confirm.add_argument("req_id")

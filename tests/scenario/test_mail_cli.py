@@ -1052,3 +1052,85 @@ class TestMailConversationLoop:
         poll(tmp_path, capsys)
         _, after, _ = self._status(tmp_path, req_id)
         assert after == before, "终态需求不再接收答复回流"
+
+
+class TestAutoAnalyzeWiring:
+    """auto_analyze 接线（所有者 2026-10-19）：轮询后按设置自动分析新答复。"""
+
+    def _patch_analyze(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        import forgeloop.cli.main as cli_main
+
+        calls: list[str] = []
+
+        def fake_auto(args, req_ids):
+            calls.extend(req_ids)
+            return [f"{req_id}: 分析完成（替身）" for req_id in req_ids]
+
+        monkeypatch.setattr(cli_main, "_auto_analyze_after_poll", fake_auto)
+        return calls
+
+    def test_auto_analyze_runs_for_newly_registered_reply(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能", clarifications=("导出格式?",))
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<auto-1@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="需要 CSV 与 Excel 两种格式。",
+                )
+            ],
+        )
+        calls = self._patch_analyze(monkeypatch)
+        document = poll(tmp_path, capsys, "--auto-analyze", "--pi-command", '["pi"]')
+        assert calls == [req_id]
+        assert document["registered"] == 1
+
+    def test_auto_analyze_is_off_by_default(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<auto-2@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="补充说明。",
+                )
+            ],
+        )
+        calls = self._patch_analyze(monkeypatch)
+        poll(tmp_path, capsys)
+        assert calls == [], "缺省不自动分析（模型调用需要显式开启）"
+
+    def test_auto_analyze_requires_pi_command(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<auto-3@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="补充说明。",
+                )
+            ],
+        )
+        calls = self._patch_analyze(monkeypatch)
+        code, out = run_cli(
+            [
+                "mail",
+                "poll",
+                "--once",
+                "--project",
+                PROJECT,
+                "--auto-analyze",
+                *connection_args(tmp_path),
+            ],
+            capsys,
+        )
+        assert code == 0 and "缺少 --pi-command" in out and calls == []
