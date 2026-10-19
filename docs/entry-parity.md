@@ -226,12 +226,14 @@ make check                                                   # 全量门槛（19
    尝试记录（第 22–23 轮）：
    - 第 22 轮：手搓 `argparse.Namespace` 调 `cmd_requirement_submit` 取不到新建需求
      （`StopIteration`）→ 已回滚。
-   - 第 23 轮：改走真实参数解析（`main([...])`，命令以 SystemExit 结束）后命令确实成功，
-     但**按 `store.for_project("ForgeLoop")` 仍找不到刚建的需求**（`StopIteration`）。
-     这说明 `requirement submit` 落库的 **project 值可能与页面/邮件路径不一致或经过规范化**
-     ——如果属实，这本身就是一个**等价性缺陷**（同一个项目名经不同入口落库不同）。
-   - 下一步：先只打印三条路径落库后的 `requirements.project` 实际值做对照（一行 SQL），
-     再决定是修规范化还是修测试的查询口径。**未完成，已回滚不留半成品。**
+   - 第 23 轮：改走真实参数解析（`main([...])`）后命令确实成功，但按项目过滤仍找不到需求
+     （`StopIteration`）。
+   - 第 24 轮**用探针推翻了自己的猜测**：CLI 提交落库的 `project` 就是 `ForgeLoop`，
+     `for_project("ForgeLoop")` 也能查到 → **不存在项目名落库不一致**。
+     因此卡点在那条测试的**邮件腿**（或查询用了错误的 needle），不在 project。
+   - 下一步：在测试里先断言 `document["registered"]` 与 `document["requirements"]`，
+     再按返回的 `req_id` 读事实——不要用"文本包含"反查，那是歧义来源。
+     仍**未完成**，测试已回滚，不留半成品。
 3. **归并/发布**是否纳入完全等价：**待所有者确认**。
 4. 已登记未修：PI 启动失败时会话日志未关闭；页面停止在项目未配置档案时的条件性差异（§2.9）。
 
