@@ -222,6 +222,23 @@ graph/worker.py 的 current_task_thread_id ──▶ 纯记录只读（供页面
 对比断言统一为**记录事实**（状态、批准/决定/验收记录的关键字段），而非 HTTP 状态码或输出文案；
 入口标签（`source`、`by`）允许不同，但必须如实记录来源。
 
+## 4.1 等价性覆盖现状（第 30 轮核验）
+
+| 操作 | 场景层对照 | 真实验证 | 页面 | 邮件 | CLI |
+| --- | --- | --- | --- | --- | --- |
+| 提交 | ✅ `TestSubmitParity` | ✅ `TestThreeEntryParityForSubmit` | ✅ | ✅ | ✅ |
+| 取消 | ✅ `TestCancelParity` | ✅ `TestThreeEntryParityRealService` | ✅ | ✅ | ✅ |
+| 批准 | ✅ `TestApproveParity` | ✅ `TestThreeEntryParityForApproval` | ✅ | ✅ | ✅ |
+| 停止 | ✅ `TestStopParity` | ✅ `TestThreeEntryParityForStop` | ✅ | ✅ | ✅ |
+| 推进 | ✅ `TestAdvanceNoSideEffectParity` | ✅ `TestThreeEntryParityForAdvance` | ✅ | ✅ | ✅ |
+| 验收（拒绝） | ✅ `TestAcceptRefusalParity` | ✅ `TestThreeEntryParityForAcceptanceRefusal` | ✅ | ✅ | ✅ |
+| **验收（成功）** | ✅ **`TestAcceptanceSuccessParity`** | ⏳（同构，可复用现场构造） | ✅ | ✅ | ✅ |
+| 归并 / 发布 | ➖ **范围待所有者确认** | ➖ | ⛔ | ⛔ | ✅ |
+
+**结论**：三入口在全部 7 类交互操作上均已实现并完成跨入口记录事实对照；
+唯一未决的是**归并/发布是否属于"三入口等价"的范围**（当前仅 CLI 提供，页面与邮件都未实现，
+因此不是"某入口落后"，而是三者共同的范围边界）。
+
 ## 5. 证据包（如何复核本目标）
 
 ### 5.1 复现命令
