@@ -214,3 +214,34 @@ class TestProviderPresets:
     def test_unknown_provider_fails_closed(self) -> None:
         with pytest.raises(MailConfigurationError, match="未知邮箱 provider"):
             preset_for("outlook")
+
+
+class TestNotificationCarriesQuestionText:
+    """出向回执带问题正文与作答指引（所有者 2026-10-19：只发编号对方看不懂）。"""
+
+    def test_question_texts_and_reply_hint_are_rendered(self) -> None:
+        from forgeloop.domain.mail import (
+            DisambiguationQuestion,
+            MailStatus,
+            MailThread,
+            render_notification,
+        )
+
+        thread = MailThread(req_id="req-1", status=MailStatus.DISAMBIGUATING)
+        body = render_notification(
+            thread,
+            (
+                DisambiguationQuestion("q1", "导出格式是什么?"),
+                DisambiguationQuestion("q2", "需要保留多少历史数据?"),
+            ),
+        )
+        assert "q1：导出格式是什么?" in body
+        assert "q2：需要保留多少历史数据?" in body
+        assert "请直接回复本邮件" in body
+
+    def test_no_questions_renders_the_plain_notification(self) -> None:
+        from forgeloop.domain.mail import MailStatus, MailThread, render_notification
+
+        thread = MailThread(req_id="req-1", status=MailStatus.DISAMBIGUATING)
+        body = render_notification(thread)
+        assert "待澄清问题编号：无" in body and "请直接回复" not in body

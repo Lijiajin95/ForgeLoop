@@ -334,6 +334,9 @@ _NOTIFICATION_TEMPLATE = (
     "【ForgeLoop 需求通知】\n需求编号：{req_id}\n当前状态：{status}\n待澄清问题编号：{questions}\n"
 )
 
+# 待澄清问题的可答复正文（所有者 2026-10-19：只发编号对方看不懂要回答什么）。
+_QUESTION_SECTION_TEMPLATE = "\n请直接回复本邮件逐条作答（保留主题中的需求编号）：\n{lines}\n"
+
 
 def status_label(status: MailStatus) -> str:
     """状态的中文标签，供通知模板与 CLI 展示。"""
@@ -348,8 +351,18 @@ def render_notification(
     """用固定中文纯文本模板渲染通知；没有待澄清问题时写「无」。"""
 
     question_ids = "、".join(question.question_id for question in questions) or "无"
-    return _NOTIFICATION_TEMPLATE.format(
+    body = _NOTIFICATION_TEMPLATE.format(
         req_id=thread.req_id,
         status=status_label(thread.status),
         questions=question_ids,
     )
+    # 附上问题正文与作答指引：回复正文会作为需求的新修订版本被下一轮分析读取。
+    if questions:
+        lines = "\n".join(
+            f"- {question.question_id}：{question.text}"
+            if question.text and question.text != question.question_id
+            else f"- {question.question_id}"
+            for question in questions
+        )
+        body += _QUESTION_SECTION_TEMPLATE.format(lines=lines)
+    return body
