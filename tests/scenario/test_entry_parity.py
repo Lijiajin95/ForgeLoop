@@ -414,3 +414,89 @@ class TestSubmitParity:
         expected = [{"status": "draft", "versions": 1, "text_non_empty": True}]
         assert self._facts(cli_root) == expected
         assert self._facts_of(mail_root, mail_req) == expected[0]
+
+
+class TestAdvanceNoSideEffectParity:
+    """推进（零副作用版）：没有命令/没有批准时，两条入口都不得改变任何记录事实。
+
+    按 docs/entry-parity.md §2.4 的自我保护约定：端到端不给邮件配命令，
+    CLI 侧用不存在的命令（拒绝判定若失效也只会启动失败，不消耗模型调用）。
+    """
+
+    def _facts(self, records_root: Path, req_id: str) -> dict[str, object]:
+        store = RequirementStore(records_root / "records.sqlite")
+        try:
+            plan = store.latest_task_plan(req_id)
+            return {
+                "status": store.requirement_status(req_id),
+                "authorized": store.authorized_task_plan(req_id) is not None,
+                "plan_version": 0 if plan is None else plan.plan_version,
+            }
+        finally:
+            store.close()
+
+    def test_cli_reports_next_step_and_mail_stays_side_effect_free(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.scenario.test_mail_cli import (
+            build_message,
+            connection_args,
+            install_transport,
+        )
+
+        cli_root = tmp_path / "cli-advance-safe"
+        cli_root.mkdir()
+        cli_req = _seed(cli_root, "等价性：CLI 推进（零副作用）")
+        code, cli_out = run_cli(
+            [
+                "requirement",
+                "advance",
+                cli_req,
+                "--pi-command",
+                '["/nonexistent-forgeloop-pi"]',
+                "--records-root",
+                str(cli_root),
+            ],
+            capsys,
+        )
+        assert code in (0, 1), cli_out
+        assert "当前任务: 无" in cli_out and "生成或批准任务包" in cli_out
+
+        mail_root = tmp_path / "mail-advance-safe"
+        mail_root.mkdir()
+        mail_req = _seed(mail_root, "等价性：邮件推进（零副作用）")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<parity-advance-safe@example.com>",
+                    subject=f"Re: [ForgeLoop] {mail_req}",
+                    body="操作: 推进",
+                )
+            ],
+        )
+        _code, out = run_cli(
+            [
+                "mail",
+                "poll",
+                "--once",
+                "--project",
+                "ForgeLoop",
+                "--whitelist",
+                "requester@example.com",
+                *connection_args(mail_root),
+            ],
+            capsys,
+        )
+        assert "推进未执行（未配置 --pi-command）" in out, out
+
+        # 等价事实：两条入口都没有改变状态、没有产生授权、没有任务包。
+        assert (
+            self._facts(cli_root, cli_req)
+            == self._facts(mail_root, mail_req)
+            == {
+                "status": "draft",
+                "authorized": False,
+                "plan_version": 0,
+            }
+        )
