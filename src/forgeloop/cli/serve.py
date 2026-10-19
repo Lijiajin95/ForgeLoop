@@ -12,7 +12,7 @@
   前提（项目档案的 PI HOME，见工程可靠性方案第 22.2 节）并在非法时拒绝启动。
 - **只允许回环**：非回环监听地址由领域规则直接拒绝，页面写入口因此只可能来自本机。
 - **写入口（R3）**：``POST /api/requirements`` 提交需求；``POST
-  /api/requirements/{req_id}/approve|advance|accept|stop`` 做人工决定。写请求必须同时
+  /api/requirements/{req_id}/approve|advance|accept|stop|cancel`` 做人工决定。写请求必须同时
   通过三道闸门——一次性页面令牌（``GET /`` 注入 meta）、同源校验（``Origin``/``Referer``
   的 authority 必须等于 ``Host``）与请求体大小上限；批准/验收/停止**调用与 CLI 相同的
   函数对象**（由 ``cli.main`` 以 :class:`ServeOperations` 注入），因此绑定、幂等与审计
@@ -75,7 +75,11 @@ from forgeloop.domain.projects import (
     PanelProjectError,
     ProjectEntry,
 )
-from forgeloop.domain.requirement import IdempotencyConflictError, RequirementNotFoundError
+from forgeloop.domain.requirement import (
+    IdempotencyConflictError,
+    RequirementError,
+    RequirementNotFoundError,
+)
 from forgeloop.domain.service import (
     DEFAULT_SERVICE_HOST,
     DEFAULT_SERVICE_PORT,
@@ -96,7 +100,7 @@ SERVICE_API_SCHEMA_VERSION = 1
 SERVICE_STATUS_ROUTE = "/api/service"
 REQUIREMENTS_ROUTE = "/api/requirements"
 REQUIREMENT_ACTION_ROUTE = re.compile(
-    r"/api/requirements/(?P<req_id>[A-Za-z0-9._-]+)/(?P<action>approve|advance|accept|stop)"
+    r"/api/requirements/(?P<req_id>[A-Za-z0-9._-]+)/(?P<action>approve|advance|accept|stop|cancel)"
 )
 TOKEN_HEADER = "X-Forgeloop-Token"
 TOKEN_PLACEHOLDER = "__FORGELOOP_TOKEN__"
@@ -572,6 +576,8 @@ class ServiceRequestHandler(ProgressRequestHandler):
             return self._advance(req_id)
         if action == "stop":
             return self._stop(req_id, by, reason)
+        if action == "cancel":
+            return self._cancel(req_id, by, reason)
         return self._decide(action, req_id, by, reason)
 
     def _advance(self, req_id: str) -> tuple[int, dict]:
@@ -595,6 +601,39 @@ class ServiceRequestHandler(ProgressRequestHandler):
             "req_id": req_id,
             "queued": True,
             "detail": "已受理，常驻进程将在下一次心跳执行",
+        }
+
+    def _cancel(self, req_id: str, by: str, reason: str) -> tuple[int, dict]:
+        """取消需求（所有者 2026-10-19：页面上取消，理由必填）。
+
+        取消 = 撤下 + 留痕，不删除记录：终态 ``cancelled``，身份、版本、批准、交付与
+        现场原样保留，后续推进一律拦下（与 CLI ``requirement cancel`` 同一条记录路径）。
+        """
+
+        if not reason.strip():
+            raise OperationRejected(400, "reason_required", "取消需求必须填写理由")
+        root = self.serve_settings.web.records_root
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            try:
+                store.record_requirement_cancellation(
+                    req_id, by=by or "page", reason=reason.strip()
+                )
+            except RequirementNotFoundError as error:
+                raise OperationRejected(404, "requirement_not_found", str(error)) from error
+            except RequirementError as error:
+                raise OperationRejected(409, "refused", str(error)) from error
+            decision = store.requirement_cancellation(req_id) or {}
+        finally:
+            store.close()
+        return 200, {
+            "ok": True,
+            "operation": "cancel",
+            "req_id": req_id,
+            "by": decision.get("cancelled_by", by),
+            "reason": decision.get("reason", reason.strip()),
+            "source": OPERATION_SOURCE,
+            "note": "已取消（记录保留：身份、版本、批准与交付均保留）",
         }
 
     def _stop(self, req_id: str, by: str, reason: str) -> tuple[int, dict]:

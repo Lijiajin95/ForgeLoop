@@ -1018,3 +1018,42 @@ class TestAuditFacts:
         # 理由原样交给既有停止入口（它写 stops.note）；页面既不丢理由，也不把 by 塞进 note。
         assert operations["stop"].calls[-1].note == "页面停止"
         assert "by" not in operations["stop"].calls[-1].note
+
+
+class TestPageCancel:
+    """页面取消需求（所有者 2026-10-19：删除=取消+记录；理由必填）。"""
+
+    def test_cancel_requires_reason(
+        self, live_service: tuple[str, int, Path, ServiceWorker]
+    ) -> None:
+        address = live_service[:2]
+        req_id = _approved_requirement(live_service[2])
+        status, payload = post(
+            address,
+            f"/api/requirements/{req_id}/cancel",
+            {"by": "owner", "reason": "   "},
+            origin=f"http://{address[0]}:{address[1]}",
+        )
+        assert status == 400 and payload["error"] == "reason_required"
+
+    def test_cancel_records_decision_and_terminal_status(
+        self, live_service: tuple[str, int, Path, ServiceWorker]
+    ) -> None:
+        address = live_service[:2]
+        records_root = live_service[2]
+        req_id = _approved_requirement(records_root)
+        status, payload = post(
+            address,
+            f"/api/requirements/{req_id}/cancel",
+            {"by": "owner", "reason": "页面取消：不再需要"},
+            origin=f"http://{address[0]}:{address[1]}",
+        )
+        assert status == 200, payload
+        assert payload["operation"] == "cancel" and payload["reason"] == "页面取消：不再需要"
+        store = RequirementStore(records_root / "records.sqlite")
+        try:
+            assert store.requirement_status(req_id) == "cancelled"
+            decision = store.requirement_cancellation(req_id)
+            assert decision is not None and decision["cancelled_by"] == "owner"
+        finally:
+            store.close()
