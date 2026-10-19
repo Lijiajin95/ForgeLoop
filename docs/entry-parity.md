@@ -222,18 +222,9 @@ make check                                                   # 全量门槛（19
    逐任务 `approve --stage acceptance` → CLI 与邮件各整体验收一次 → 断言
    `accepted_by`/`acceptance_source`/指纹非空且一致。**禁止**直接写
    `acceptance_bindings`/`approval_consumption` 伪造现场。
-2. **提交的真实验证**：目前提交只有场景层对照，未纳入真服务集成层。
-   尝试记录（第 22–23 轮）：
-   - 第 22 轮：手搓 `argparse.Namespace` 调 `cmd_requirement_submit` 取不到新建需求
-     （`StopIteration`）→ 已回滚。
-   - 第 23 轮：改走真实参数解析（`main([...])`）后命令确实成功，但按项目过滤仍找不到需求
-     （`StopIteration`）。
-   - 第 24 轮**用探针推翻了自己的猜测**：CLI 提交落库的 `project` 就是 `ForgeLoop`，
-     `for_project("ForgeLoop")` 也能查到 → **不存在项目名落库不一致**。
-     因此卡点在那条测试的**邮件腿**（或查询用了错误的 needle），不在 project。
-   - 下一步：在测试里先断言 `document["registered"]` 与 `document["requirements"]`，
-     再按返回的 `req_id` 读事实——不要用"文本包含"反查，那是歧义来源。
-     仍**未完成**，测试已回滚，不留半成品。
+2. **提交的真实验证**：✅ 已完成（第 25 轮）。页面（真实 HTTP）、CLI（真实参数解析入口）、
+   邮件（真实轮询入口 + 假收发器）各建一个需求，三条路径的记录形状一致
+   （draft/单版本/原文非空）；取号一律用轮询文档返回的 `req_id`，不用文本反查。
 3. **归并/发布**是否纳入完全等价：**待所有者确认**。
 4. 已登记未修：PI 启动失败时会话日志未关闭；页面停止在项目未配置档案时的条件性差异（§2.9）。
 

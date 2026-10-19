@@ -1802,3 +1802,148 @@ class TestThreeEntryParityForAdvance:
             "mail": self._facts(root, mail_req),
         }
         assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
+
+
+class TestThreeEntryParityForSubmit:
+    """真实验证（提交）：页面、CLI、邮件各建一个需求，记录形状必须一致。
+
+    等价标准：都是 draft、都只有 1 个版本（邮件不因"答复回流"多一版）、原文都非空。
+    取号方式：邮件侧从轮询文档的 `requirements[0]["req_id"]` 取，**不用文本反查**
+    （第 22-24 轮的绕路就是反查造成的歧义）。
+    """
+
+    def _facts(self, root: Path, req_id: str) -> dict[str, object]:
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            requirement = store.get(req_id)
+            return {
+                "status": store.requirement_status(req_id),
+                "versions": len(requirement.versions),
+                "text_non_empty": bool(requirement.latest.text.strip()),
+            }
+        finally:
+            store.close()
+
+    def test_all_three_entries_create_the_same_record_shape(
+        self,
+        real_service: tuple[str, int, Path],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import argparse
+        from email.message import EmailMessage
+
+        host, port, root = real_service
+
+        # 页面
+        status, payload = post(
+            (host, port),
+            "/api/requirements",
+            {"project": "ForgeLoop", "text": "真实对照：页面提交的导出需求", "by": "owner"},
+            origin=f"http://{host}:{port}",
+        )
+        assert status in (200, 201), payload
+        page_req = payload["req_id"]
+
+        # CLI（真实参数解析入口）
+        from forgeloop.cli.main import main
+
+        try:
+            code = main(
+                [
+                    "requirement",
+                    "submit",
+                    "--project",
+                    "ForgeLoop",
+                    "--input",
+                    "真实对照：CLI 提交的导出需求",
+                    "--records-root",
+                    str(root),
+                ]
+            )
+        except SystemExit as exit_error:
+            code = int(exit_error.code or 0)
+        assert code == 0
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            cli_req = next(
+                item.req_id
+                for item in store.for_project("ForgeLoop")
+                if "CLI 提交" in item.latest.text
+            )
+        finally:
+            store.close()
+
+        # 邮件（真实轮询入口 + 假收发器）
+        from forgeloop.cli.main import cmd_mail_poll_with_analysis as cmd_mail_poll
+
+        message = EmailMessage()
+        message["From"] = "requester@example.com"
+        message["To"] = "owner@example.com"
+        message["Subject"] = "真实对照：邮件提交的导出需求"
+        message["Message-ID"] = "<real-parity-submit@example.com>"
+        message["Date"] = "Mon, 19 Oct 2026 08:00:00 +0800"
+        message.set_content("用于等价性对照。")
+
+        class _Receiver:
+            folder = "INBOX"
+
+            def authenticate(self) -> None: ...
+
+            def fetch_unseen(self) -> tuple[bytes, ...]:
+                return (message.as_bytes(),)
+
+            def close(self) -> None: ...
+
+        class _Sender:
+            sender = "owner@example.com"
+            recipient = "owner@example.com"
+
+            def send(self, outgoing: EmailMessage) -> str:
+                return "<out-real-parity-submit@example.com>"
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr("forgeloop.cli.mail._make_receiver", lambda args: _Receiver())
+        monkeypatch.setattr("forgeloop.cli.mail._make_sender", lambda args: _Sender())
+        poll_args = argparse.Namespace(
+            poll_command="poll",
+            once=True,
+            json=False,
+            project="ForgeLoop",
+            out_of_scope=[],
+            whitelist=["requester@example.com"],
+            auto_reply=False,
+            auto_analyze=False,
+            final_not_accept=False,
+            questions=[],
+            requirements_root=str(root),
+            records_root=str(root),
+            imap_host="imap.example.com",
+            imap_user="owner@example.com",
+            imap_secret="authorization-code",
+            imap_folder="INBOX",
+            smtp_host="smtp.example.com",
+            smtp_user="owner@example.com",
+            smtp_secret="authorization-code",
+            smtp_sender="owner@example.com",
+            smtp_recipient="owner@example.com",
+            config="",
+            pi_command="",
+            project_path="",
+            baseline="",
+            pi_timeout_seconds=0.0,
+        )
+        assert cmd_mail_poll(poll_args) == 0
+        document = poll_args.poll_document
+        assert document["registered"] == 1, document
+        mail_req = document["requirements"][0]["req_id"]
+        assert mail_req, document
+
+        expected = {"status": "draft", "versions": 1, "text_non_empty": True}
+        facts = {
+            "page": self._facts(root, page_req),
+            "cli": self._facts(root, cli_req),
+            "mail": self._facts(root, mail_req),
+        }
+        assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
