@@ -11,10 +11,20 @@
   失效，因此非回环地址一律拒绝，而不是留一个「先跑起来再补鉴权」的缺口。
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import cast
+
+from forgeloop.domain.toml_fields import (
+    command_field,
+    flag_field,
+    integer_field,
+    optional_text_field,
+    project_name_field,
+    reject_unknown_keys,
+    text_field,
+)
 
 SERVICE_SCHEMA_VERSION = 1
 """``config/service.toml`` 的 schema 版本；不匹配即拒绝启动。"""
@@ -26,6 +36,10 @@ DEFAULT_SERVICE_PORT = 8712
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 DEFAULT_POLL_SECONDS = 2
 DEFAULT_MAX_CONCURRENT = 2
+DEFAULT_PANEL_CONCURRENCY = 2
+MAX_PANEL_CONCURRENCY = 8
+"""面板会话并发上限：每一轮都会启动一个 PI 子进程，不设上限等于不设护栏。"""
+DEFAULT_TURN_TIMEOUT_SECONDS = 900
 MIN_PORT = 0
 """``0`` 表示由系统分配端口（供测试与临时实例使用），启动后打印实际端口。"""
 
@@ -40,9 +54,24 @@ _TOP_LEVEL_KEYS = frozenset(
         "max_concurrent",
         "auto_advance",
         "projects",
+        "panel",
     }
 )
 _PROJECT_KEYS = frozenset({"path", "pi_command", "test_command", "baseline", "pi_home"})
+_PANEL_KEYS = frozenset(
+    {
+        "concurrency",
+        "turn_timeout_seconds",
+        "session_idle_seconds",
+        "max_live_sessions",
+        "tool_approval",
+    }
+)
+TOOL_APPROVAL_POLICIES = ("off", "write", "all")
+DEFAULT_SESSION_IDLE_SECONDS = 900
+DEFAULT_MAX_LIVE_SESSIONS = 4
+MAX_LIVE_SESSIONS = 16
+DEFAULT_TOOL_APPROVAL = "write"
 
 
 class ServiceConfigError(ValueError):
@@ -66,6 +95,17 @@ class ProjectProfile:
 
 
 @dataclass(frozen=True)
+class PanelSettings:
+    """页面会话面板的执行设置：并发、单轮超时、常驻进程与工具审批策略。"""
+
+    concurrency: int
+    turn_timeout_seconds: int
+    session_idle_seconds: int
+    max_live_sessions: int
+    tool_approval: str
+
+
+@dataclass(frozen=True)
 class ServiceSettings:
     """生效的常驻服务设置；``projects`` 为空表示只提供只读页面、不执行任务。"""
 
@@ -75,6 +115,7 @@ class ServiceSettings:
     max_concurrent: int
     auto_advance: bool
     projects: Mapping[str, ProjectProfile]
+    panel: PanelSettings
 
 
 def resolve_service_settings(
@@ -90,7 +131,7 @@ def resolve_service_settings(
     """
 
     config: Mapping[str, object] = {} if document is None else document
-    _reject_unknown(config, _TOP_LEVEL_KEYS, "常驻服务配置")
+    reject_unknown_keys(config, _TOP_LEVEL_KEYS, "常驻服务配置", error=ServiceConfigError)
     if document is not None:
         version = document.get("schema_version")
         if version != SERVICE_SCHEMA_VERSION:
@@ -100,14 +141,23 @@ def resolve_service_settings(
     return ServiceSettings(
         host=_resolve_host(host if host is not None else config.get("host")),
         port=_resolve_port(port if port is not None else config.get("port")),
-        poll_seconds=_integer(
-            config.get("poll_seconds", DEFAULT_POLL_SECONDS), "poll_seconds", minimum=1
+        poll_seconds=integer_field(
+            config.get("poll_seconds", DEFAULT_POLL_SECONDS),
+            "poll_seconds",
+            minimum=1,
+            error=ServiceConfigError,
         ),
-        max_concurrent=_integer(
-            config.get("max_concurrent", DEFAULT_MAX_CONCURRENT), "max_concurrent", minimum=1
+        max_concurrent=integer_field(
+            config.get("max_concurrent", DEFAULT_MAX_CONCURRENT),
+            "max_concurrent",
+            minimum=1,
+            error=ServiceConfigError,
         ),
-        auto_advance=_flag(config.get("auto_advance", False), "auto_advance"),
+        auto_advance=flag_field(
+            config.get("auto_advance", False), "auto_advance", error=ServiceConfigError
+        ),
         projects=_resolve_projects(config.get("projects")),
+        panel=resolve_panel_settings(config.get("panel")),
     )
 
 
@@ -117,63 +167,10 @@ def host_is_loopback(host: str) -> bool:
     return host in LOOPBACK_HOSTS
 
 
-def _reject_unknown(mapping: Mapping[str, object], allowed: frozenset[str], where: str) -> None:
-    """拒绝未知键：配置写错名字时失败，而不是静默忽略。"""
-
-    unknown = sorted(set(mapping) - allowed)
-    if unknown:
-        raise ServiceConfigError(f"{where} 含未知配置项: {'、'.join(unknown)}")
-
-
-def _text(value: object, name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ServiceConfigError(f"{name} 必须是非空字符串")
-    return value
-
-
-def _optional_text(value: object, name: str) -> str:
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise ServiceConfigError(f"{name} 必须是字符串")
-    return value
-
-
-def _integer(value: object, name: str, *, minimum: int, maximum: int | None = None) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ServiceConfigError(f"{name} 必须是整数")
-    if value < minimum or (maximum is not None and value > maximum):
-        bound = f"{minimum}..{maximum}" if maximum is not None else f">= {minimum}"
-        raise ServiceConfigError(f"{name} 必须在 {bound} 范围内，实际 {value}")
-    return value
-
-
-def _flag(value: object, name: str) -> bool:
-    if not isinstance(value, bool):
-        raise ServiceConfigError(f"{name} 必须是布尔值")
-    return value
-
-
-def _command(value: object, name: str) -> tuple[str, ...]:
-    """校验 argv 数组：不接受字符串（拆词歧义），也不接受空数组。"""
-
-    if isinstance(value, str) or not isinstance(value, Sequence):
-        raise ServiceConfigError(f"{name} 必须是字符串数组")
-    raw_items = cast("Sequence[object]", value)
-    if not raw_items:
-        raise ServiceConfigError(f"{name} 不能为空")
-    items: list[str] = []
-    for item in raw_items:
-        if not isinstance(item, str) or not item.strip():
-            raise ServiceConfigError(f"{name} 的每一项都必须是非空字符串")
-        items.append(item)
-    return tuple(items)
-
-
 def _resolve_host(value: object | None) -> str:
     if value is None:
         return DEFAULT_SERVICE_HOST
-    text = _text(value, "host")
+    text = text_field(value, "host", error=ServiceConfigError)
     if not host_is_loopback(text):
         allowed = "、".join(sorted(LOOPBACK_HOSTS))
         raise ServiceConfigError(
@@ -185,7 +182,9 @@ def _resolve_host(value: object | None) -> str:
 def _resolve_port(value: object | None) -> int:
     if value is None:
         return DEFAULT_SERVICE_PORT
-    return _integer(value, "port", minimum=MIN_PORT, maximum=MAX_PORT)
+    return integer_field(
+        value, "port", minimum=MIN_PORT, maximum=MAX_PORT, error=ServiceConfigError
+    )
 
 
 def _resolve_projects(value: object | None) -> Mapping[str, ProjectProfile]:
@@ -197,18 +196,87 @@ def _resolve_projects(value: object | None) -> Mapping[str, ProjectProfile]:
     profiles: dict[str, ProjectProfile] = {}
     for name in sorted(raw_projects):
         raw = raw_projects[name]
-        if not name.strip() or any(character.isspace() for character in name):
-            raise ServiceConfigError(f"项目名必须非空且不含空白字符，实际 {name!r}")
+        project_name_field(name, "项目名", error=ServiceConfigError)
         if not isinstance(raw, Mapping):
             raise ServiceConfigError(f"projects.{name} 必须是表")
         fields = cast("Mapping[str, object]", raw)
-        _reject_unknown(fields, _PROJECT_KEYS, f"projects.{name}")
+        reject_unknown_keys(fields, _PROJECT_KEYS, f"projects.{name}", error=ServiceConfigError)
         profiles[name] = ProjectProfile(
             name=name,
-            path=_text(fields.get("path"), f"projects.{name}.path"),
-            pi_command=_command(fields.get("pi_command"), f"projects.{name}.pi_command"),
-            test_command=_command(fields.get("test_command"), f"projects.{name}.test_command"),
-            baseline=_optional_text(fields.get("baseline"), f"projects.{name}.baseline"),
-            pi_home=_text(fields.get("pi_home"), f"projects.{name}.pi_home"),
+            path=text_field(fields.get("path"), f"projects.{name}.path", error=ServiceConfigError),
+            pi_command=command_field(
+                fields.get("pi_command"), f"projects.{name}.pi_command", error=ServiceConfigError
+            ),
+            test_command=command_field(
+                fields.get("test_command"),
+                f"projects.{name}.test_command",
+                error=ServiceConfigError,
+            ),
+            baseline=optional_text_field(
+                fields.get("baseline"), f"projects.{name}.baseline", error=ServiceConfigError
+            ),
+            pi_home=text_field(
+                fields.get("pi_home"), f"projects.{name}.pi_home", error=ServiceConfigError
+            ),
         )
     return MappingProxyType(profiles)
+
+
+def resolve_panel_settings(value: object | None = None) -> PanelSettings:
+    """解析面板会话设置：``[panel]`` 表缺省即用内建默认，出现非法值则显式失败。
+
+    ``turn_timeout_seconds`` 是**单轮**上限（一轮要跑完 PI 的 dev/review/测试，分钟级），
+    超时按失败处理并登记「待人工决定」，不静默重试。
+    """
+
+    if value is None:
+        return PanelSettings(
+            concurrency=DEFAULT_PANEL_CONCURRENCY,
+            turn_timeout_seconds=DEFAULT_TURN_TIMEOUT_SECONDS,
+            session_idle_seconds=DEFAULT_SESSION_IDLE_SECONDS,
+            max_live_sessions=DEFAULT_MAX_LIVE_SESSIONS,
+            tool_approval=DEFAULT_TOOL_APPROVAL,
+        )
+    if not isinstance(value, Mapping):
+        raise ServiceConfigError("panel 必须是表（形如 [panel]）")
+    fields = cast("Mapping[str, object]", value)
+    reject_unknown_keys(fields, _PANEL_KEYS, "panel", error=ServiceConfigError)
+    return PanelSettings(
+        concurrency=integer_field(
+            fields.get("concurrency", DEFAULT_PANEL_CONCURRENCY),
+            "panel.concurrency",
+            minimum=1,
+            maximum=MAX_PANEL_CONCURRENCY,
+            error=ServiceConfigError,
+        ),
+        turn_timeout_seconds=integer_field(
+            fields.get("turn_timeout_seconds", DEFAULT_TURN_TIMEOUT_SECONDS),
+            "panel.turn_timeout_seconds",
+            minimum=1,
+            error=ServiceConfigError,
+        ),
+        session_idle_seconds=integer_field(
+            fields.get("session_idle_seconds", DEFAULT_SESSION_IDLE_SECONDS),
+            "panel.session_idle_seconds",
+            minimum=1,
+            error=ServiceConfigError,
+        ),
+        max_live_sessions=integer_field(
+            fields.get("max_live_sessions", DEFAULT_MAX_LIVE_SESSIONS),
+            "panel.max_live_sessions",
+            minimum=1,
+            maximum=MAX_LIVE_SESSIONS,
+            error=ServiceConfigError,
+        ),
+        tool_approval=_tool_approval(fields.get("tool_approval", DEFAULT_TOOL_APPROVAL)),
+    )
+
+
+def _tool_approval(value: object) -> str:
+    """工具审批策略：``off``（不审）、``write``（写文件与执行）、``all``（全部工具）。"""
+
+    text = text_field(value, "panel.tool_approval", error=ServiceConfigError)
+    if text not in TOOL_APPROVAL_POLICIES:
+        allowed = "、".join(TOOL_APPROVAL_POLICIES)
+        raise ServiceConfigError(f"panel.tool_approval 必须是 {allowed} 之一，实际 {text!r}")
+    return text

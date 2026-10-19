@@ -26,6 +26,19 @@
 - FAKE_PI_MODE=review-bad-issues：review 返回 blocking_issues 但不是列表。
 - FAKE_PI_MODE=review-no-issues：review 返回的 JSON 没有 blocking_issues 字段。
 - FAKE_PI_MODE=review-empty-text：review 正常 settled 但既无结构化载荷也无文本。
+- FAKE_PI_MODE=chat：面板会话轮次返回自然语言回复（非 JSON 载荷）。
+- FAKE_PI_MODE=chat-hitl：面板会话轮次返回显式人工决定请求
+  （{"awaiting_human": true, "question": ...}）。
+- FAKE_PI_MODE=chat-hitl-first：首轮请求人工决定，之后正常回复
+  （状态文件 FAKE_PI_STATE）——HITL 往返的真实浏览器场景。
+- FAKE_PI_MODE=panel-stream：面板流式场景——逐段推 message_update 文本增量，
+  并让这一轮持续数百毫秒（人能看见文字在增长）。
+  增量间隔可用 FAKE_PI_CHUNK_DELAY_MS 放慢（默认 50ms），供「流式可见」用例使用。
+- FAKE_PI_MODE=panel-tools：面板工具场景——先说话、再调用 bash（执行类工具）
+  与 read（只读工具）、最后总结；用于工具留痕与轮次边界审批。
+- FAKE_PI_MODE=panel-compact：面板压缩场景——推一条 entry_appended(context_edit)。
+- FAKE_PI_MODE=panel-multi：面板多轮场景——按**本进程已服务的轮次数**回复
+  （第 N 轮），据此可核对「第二轮确实由同一个常驻进程承接」。
 - FAKE_PI_MODE=edit：dev 角色真实修改工作副本（写入 feature.txt=new，
   工作区路径取自 prompt 的 workspace 字段）——git diff 路径的场景替身。
 """
@@ -33,6 +46,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 DEV_RESULT = {
@@ -103,6 +117,25 @@ def prompt_role(text: str) -> str:
     return "dev"
 
 
+def _hitl_first_done() -> bool:
+    """首轮是否已经请求过人工决定；状态文件缺失时视为「还没有」。"""
+
+    state_path = Path(os.environ.get("FAKE_PI_STATE", "fake-pi-state.json"))
+    if not state_path.exists():
+        return False
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    return bool(state.get("hitl_done"))
+
+
+def _mark_hitl_done() -> None:
+    state_path = Path(os.environ.get("FAKE_PI_STATE", "fake-pi-state.json"))
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"hitl_done": True}), encoding="utf-8")
+
+
 def _blocking_first_result() -> dict:
     state_path = Path(os.environ.get("FAKE_PI_STATE", "fake-pi-state.json"))
     state = {"blocking_done": False}
@@ -157,6 +190,102 @@ def log_prompt(message: str) -> None:
         log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+_PROCESS_TURNS = 0
+"""本进程已服务的轮次数：panel-multi 用它证明「同一进程承接了多轮」。"""
+
+
+def _stream_delay() -> float:
+    """每个增量之间的间隔：可用 ``FAKE_PI_CHUNK_DELAY_MS`` 放慢，便于核对「流式可见」。"""
+
+    raw = os.environ.get("FAKE_PI_CHUNK_DELAY_MS", "")
+    try:
+        return max(0.0, float(raw) / 1000.0)
+    except ValueError:
+        return 0.05
+
+
+def _emit_panel_stream(text: str, *, chunks: int = 4, delay: float = 0.05) -> None:
+    """模拟真实推流：message_start → 若干 text_delta → message_end。"""
+
+    emit({"type": "message_start", "message": {"role": "assistant", "content": []}})
+    delay = _stream_delay()
+    size = max(1, len(text) // chunks)
+    for start in range(0, len(text), size):
+        emit(
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {
+                    "type": "text_delta",
+                    "contentIndex": 0,
+                    "delta": text[start : start + size],
+                },
+            }
+        )
+        time.sleep(delay)
+    emit({"type": "message_end", "message": {"role": "assistant", "content": []}})
+
+
+def _emit_panel_tool(call_id: str, name: str, args: dict, result: str, *, duration: int) -> None:
+    emit({"type": "tool_execution_start", "toolCallId": call_id, "toolName": name, "args": args})
+    emit(
+        {
+            "type": "tool_execution_end",
+            "toolCallId": call_id,
+            "toolName": name,
+            "result": {"content": [{"type": "text", "text": result}]},
+            "isError": False,
+            "durationMs": duration,
+        }
+    )
+
+
+def _serve_panel_mode(mode: str, message: str) -> str | None:
+    """面板模式的事件流：流式、工具、压缩、多轮。返回该轮最终文本。"""
+
+    global _PROCESS_TURNS
+    if mode == "panel-multi":
+        _PROCESS_TURNS += 1
+        text = f"第 {_PROCESS_TURNS} 轮回复（本进程已服务 {_PROCESS_TURNS} 次）。"
+        _emit_panel_stream(text, chunks=2, delay=0.01)
+        emit({"type": "agent_end", "messages": [], "willRetry": False})
+        emit({"type": "agent_settled", "aborted": False})
+        return text
+    if mode == "panel-stream":
+        text = "我已经看过仓库结构，正在整理改动方案。"
+        _emit_panel_stream(text)
+        emit({"type": "agent_end", "messages": [], "willRetry": False})
+        emit({"type": "agent_settled", "aborted": False})
+        return text
+    if mode == "panel-tools":
+        _emit_panel_stream("先看一下目录。", chunks=1, delay=0.01)
+        _emit_panel_tool("call-bash-1", "bash", {"command": "ls -la"}, "total 12", duration=8)
+        _emit_panel_tool("call-read-1", "read", {"path": "README.md"}, "# ForgeLoop", duration=3)
+        _emit_panel_stream("看完了：目录里就是本仓库。", chunks=1, delay=0.01)
+        emit({"type": "agent_end", "messages": [], "willRetry": False})
+        emit({"type": "agent_settled", "aborted": False})
+        return "看完了：目录里就是本仓库。"
+    if mode == "panel-compact":
+        emit(
+            {
+                "type": "entry_appended",
+                "entry": {
+                    "type": "context_edit",
+                    "id": "edit-1",
+                    "parentId": "entry-0",
+                    "targetId": "entry-0",
+                    "replacement": None,
+                },
+            }
+        )
+        text = "上下文压缩过了，我继续按原目标做。"
+        _emit_panel_stream(text, chunks=2, delay=0.01)
+        emit({"type": "agent_end", "messages": [], "willRetry": False})
+        emit({"type": "agent_settled", "aborted": False})
+        return text
+    del message
+    return None
+
+
 def _serve_prompt(request: dict, mode: str) -> str | None:
     """处理 prompt：输出事件流；返回该轮最终文本（None 表示无文本可取）。"""
 
@@ -173,6 +302,8 @@ def _serve_prompt(request: dict, mode: str) -> str | None:
     if mode == "ok-blank":
         sys.stdout.write("\n")
         sys.stdout.flush()
+    if mode.startswith("panel-"):
+        return _serve_panel_mode(mode, message)
     if mode in ("edit", "edit-then-error") and prompt_role(message) != "review":
         workspace = _prompt_workspace(message)
         if workspace is not None:
@@ -202,6 +333,21 @@ def _serve_prompt(request: dict, mode: str) -> str | None:
         return ""
     if mode == "plain-text":
         return "审查通过：未发现阻断问题（自然语言文本）"
+    if mode == "chat":
+        return "已按面板消息处理：这是假 PI 的会话回复。"
+    if mode == "chat-hitl":
+        return json.dumps(
+            {"awaiting_human": True, "question": "需要人工确认：是否继续这一步?"},
+            ensure_ascii=False,
+        )
+    if mode == "chat-hitl-first":
+        if _hitl_first_done():
+            return "已按人工决定继续：这一步做完了。"
+        _mark_hitl_done()
+        return json.dumps(
+            {"awaiting_human": True, "question": "需要人工确认：是否继续这一步?"},
+            ensure_ascii=False,
+        )
     return json.dumps(result, ensure_ascii=False)
 
 

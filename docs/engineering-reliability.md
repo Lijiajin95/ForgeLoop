@@ -113,6 +113,8 @@ EvidHist 的可靠性方案由四部分组成：统一门槛配置、分层测�
 
 - **纳入 `domain/service.py`（核心配置纯规则）**：该模块代码几乎全是校验分支，可观察差异主要落在错误消息上，因此对**本模块**取「消息即契约」口径——`tests/unit/test_service_config.py::TestMessagesAreTheContract` 逐字断言文案（字段名、`1..65535`／`>= 1` 范围写法、未知键清单与分隔符），把消息变异钉死。这是对「消息内容非行为契约」既有先例的**收紧例外**，只适用于配置校验这类「文案就是运维界面」的模块。实测 254 个变异体：242 杀死／12 存活（**95.3%**），12 个存活全部是 `cast("...")` 实参（运行时 no-op，等价），逐条登记在 `config/quality-policy.toml`。
 - **纳入前端 `src/actions.ts`**：先补 15 条针对真实回退行为的用例把分数从 72.95% 提到 90.16%，再纳入 Stryker 夜间范围（**不动任何阈值**）；全量实跑 93.45%（format 96.99／progress 92.59／actions 90.16），4 个等价幸存者逐项登记，检查脚本报击杀率 96.13%。
+- **`src/panel.ts` 续批（2026-10-18，流式与常驻会话）**：轮询从固定 `setInterval` 改为**自适应 `setTimeout` 链**（有轮次在跑、有会话排队或详情里有 `streaming` 消息时 600ms，空闲 1500ms）。首跑 91.20%（32 存活），据此补 8 条真实行为用例（在跑／排队／清单里部分会话在跑／详情流式／详情空闲各自的下一拍间隔、请求在途时 `stop()` 落地后不再安排下一拍），提到 **94.54%**；两处等价变异（字段初值在首读前必被覆盖、`clearTimeout(undefined)` 与 `await undefined` 是 no-op）与 5 条行号平移的类型守卫登记后，全量 **94.72%**（检出 538／未检出 30，全部登记）。**同一批把工具列表渲染拆到新模块 `src/panel_tools.ts`**——它不在变异范围内（DOM 管线，与 `panel_render.ts` 同一口径），拆分理由是该文件接近单文件行数上限。
+- **纳入前端 `src/panel.ts`（会话面板的取数、轮询与写请求构建，2026-10-18）**：与 `actions.ts` 同一口径——单元层可完全覆盖的请求构建与调度，DOM 管线（`panel_render.ts`）不纳入。首跑 70.13%（44 存活），据此补了真实定时器（`start`／`stop`）、缓存语义（`no-store`）、状态行文案、空 detail 回落、新建会话后自动选中、失败不刷新等 10 条用例，提到 **94.16%**（154 变异：145 杀死／9 等价存活），9 个等价幸存者逐条登记（`isRecord`／`failureDetail` 的子句放宽、`stop()` 的定时器判定、`#ticks` 加减对取模对称、可选回调默认值等）。同批**修正 `actions.ts` 既有登记条目与源码行号的漂移**（4 条位置更新，原因原文保留）并补登 5 个此前未登记的等价幸存者（可选链缺失存储→同一 try/catch 兜底；回退幂等键的 radix 不影响既有断言口径；`.catch` 回落），全量实跑 **94.92%**（检出 504／未检出 27，全部登记），检查脚本报 OK。
 - **两处会让变异运行给出错误结论的环境缺口（已修，写进 `pyproject.toml`）**：① 变异沙箱缺 `contracts/`，`tests/component/test_cli_contract.py` 直接基线失败 → 把 `contracts` 加入 `also_copy`；② **基线只受 `pytest_add_cli_args_test_selection` 约束「每个变异体跑哪些测试」，仍会收集全套**，系统层在沙箱里撞 `pytest-timeout` → 补 `--ignore=tests/system`、`--ignore=tests/integration`。另有 `mutants/` **只在首次创建时整体拷贝**的陷阱：本地改过 `tests/`、页面 HTML 或 `static/*.js` 后必须 `rm -rf mutants` 再跑，否则拿到陈旧夹具的结论（CI 干净检出不受影响）。
 
 ## 6. 执行分层
@@ -691,7 +693,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 **触发条件成立**：第 1 节原写明前端工具链「不移植（首版无前端，B01 前不接入）」，并预留了触发条件——出现前端界面与真实浏览器需求时按同方法接入。2026-10-17 所有者选中 B01 只读状态页，并要求按 Python 的 lint／编码风格规则补一套 TypeScript 适配规则，因此本节记录实际接入的范围、数值来源、门禁强度与代价。
 
-**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`（`payload.ts` → `format.ts` → `render.ts`／`progress.ts` → `page.ts` → `app.ts`），经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；渲染不取数），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
+**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`（`payload.ts` → `format.ts` → `render.ts`／`panel_render.ts`／`panel_tools.ts` → `actions.ts` → `progress.ts`／`panel.ts` → `page.ts` → `app.ts`），经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；渲染不取数；`panel.ts` 不依赖渲染与装配；`actions.ts` 不依赖面板——2026-10-18 会话面板落地时按同一口径补了两条规则），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
 
 **Python 规则 → TypeScript 规则的对应**（数值同源于 `config/quality-policy.toml`）：
 

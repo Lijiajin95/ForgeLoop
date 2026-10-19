@@ -34,7 +34,7 @@ export function operationsAvailable(token: string): boolean {
   return token.length > 0;
 }
 
-/** 一次写请求：URL 与请求体。 */
+/** 一次写请求：URL 与请求体（既有五类操作与面板写入口共用这一道发送实现）。 */
 export interface OperationRequest {
   readonly url: string;
   readonly body: OperationBody;
@@ -167,7 +167,8 @@ function successMessage(payload: OperationResult): string {
   if (typeof payload.req_id === "string" && payload.req_id.length > 0) {
     return `已受理：${payload.req_id}`;
   }
-  return "操作已完成。";
+  // 面板写端点用 `detail` 报人读结果（例如「已受理，一轮执行在常驻进程内进行」）。
+  return payload.detail !== undefined && payload.detail !== "" ? payload.detail : "操作已完成。";
 }
 
 /**

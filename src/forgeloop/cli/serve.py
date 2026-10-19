@@ -41,6 +41,16 @@ from typing import cast
 from urllib.parse import urlsplit
 
 from forgeloop.cli.common import fail, records_root
+from forgeloop.cli.panel import (
+    PANEL_ROUTE,
+    PANEL_SESSIONS_ROUTE,
+    PanelContext,
+    PanelRegistry,
+    PanelRejected,
+    handle_panel_post,
+    panel_document,
+    session_document,
+)
 from forgeloop.cli.web import (
     DEFAULT_WEB_CONFIG,
     HTML_TYPE,
@@ -54,9 +64,16 @@ from forgeloop.cli.web import (
     page_html,
     refresh_text,
 )
+from forgeloop.domain.conversation import ToolApprovalPolicy
 from forgeloop.domain.progress import (
     ProgressConfigError,
     resolve_refresh_seconds,
+)
+from forgeloop.domain.projects import (
+    DEFAULT_PROJECTS_FILE,
+    SOURCE_PANEL,
+    PanelProjectError,
+    ProjectEntry,
 )
 from forgeloop.domain.requirement import IdempotencyConflictError, RequirementNotFoundError
 from forgeloop.domain.service import (
@@ -66,6 +83,7 @@ from forgeloop.domain.service import (
     ServiceSettings,
     resolve_service_settings,
 )
+from forgeloop.graph.conversation import ConversationRunner
 from forgeloop.graph.worker import ServiceWorker, WorkerRefused
 from forgeloop.records.requirements import RequirementStore
 
@@ -122,12 +140,14 @@ class ServeConfigError(ValueError):
 
 @dataclass(frozen=True)
 class ServeSettings:
-    """一次常驻服务的全部依赖：只读页设置、生效服务设置、写操作入口与配置文件路径。"""
+    """一次常驻服务的全部依赖：只读页、生效设置、写操作入口与两份配置文件路径。"""
 
     web: WebSettings
     service: ServiceSettings
     config_path: Path
     operations: ServeOperations
+    projects_path: Path = Path(DEFAULT_PROJECTS_FILE)
+    """面板项目档案路径（页面独占写入；与手写 ``config/service.toml`` 项目不得同名）。"""
 
 
 def load_service_config(path: Path) -> Mapping[str, object] | None:
@@ -174,6 +194,64 @@ def check_projects(settings: ServiceSettings) -> None:
         raise ServeConfigError(
             "项目档案的 PI HOME 不可用（隔离 HOME 需含非空的 .pi/agent/models.json）："
             + "；".join(problems)
+        )
+
+
+def panel_project_problems(entry: ProjectEntry) -> tuple[str, ...]:
+    """项目能否承载一轮会话：路径必须存在，隔离 HOME 必须可用（不猜、不代建）。
+
+    与 ``check_projects`` 同一判据来源（``pi_home_problems``）：页面显示、会话创建与
+    写路径校验共用同一份判定，避免「页面说就绪、执行时才发现」。
+    """
+
+    problems: list[str] = []
+    path = Path(entry.path).expanduser()
+    if not path.is_dir():
+        problems.append(f"项目路径不存在或不是目录: {path}")
+    problems.extend(pi_home_problems(entry.pi_home))
+    return tuple(problems)
+
+
+def build_panel_context(settings: ServeSettings) -> PanelContext:
+    """装配面板：项目注册表（手写档案 + 页面档案）与一轮执行器。"""
+
+    registry = PanelRegistry(settings.service.projects, settings.projects_path)
+    runner = ConversationRunner(
+        records_path=settings.web.records_root / "records.sqlite",
+        session_root=settings.web.records_root / "panel",
+        projects=registry.by_name,
+        readiness=panel_project_problems,
+        concurrency=settings.service.panel.concurrency,
+        turn_timeout_seconds=settings.service.panel.turn_timeout_seconds,
+        tool_approval=ToolApprovalPolicy(settings.service.panel.tool_approval),
+        session_idle_seconds=float(settings.service.panel.session_idle_seconds),
+        max_live_sessions=settings.service.panel.max_live_sessions,
+    )
+    return PanelContext(
+        registry=registry,
+        runner=runner,
+        readiness=panel_project_problems,
+        db_path=settings.web.records_root / "records.sqlite",
+    )
+
+
+def check_panel(registry: PanelRegistry) -> None:
+    """启动前提：面板项目档案可读、无同名冲突，且每个页面项目的隔离 HOME 可用。"""
+
+    try:
+        entries = registry.entries()
+    except PanelProjectError as error:
+        raise ServeConfigError(f"{registry.path}: {error}") from error
+    problems = [
+        f"projects.{entry.name}: {reason}"
+        for entry in entries
+        if entry.source == SOURCE_PANEL
+        for reason in pi_home_problems(entry.pi_home)
+    ]
+    if problems:
+        raise ServeConfigError(
+            f"{registry.path} 的项目档案 PI HOME 不可用"
+            "（隔离 HOME 需含非空的 .pi/agent/models.json）：" + "；".join(problems)
         )
 
 
@@ -323,7 +401,7 @@ def service_text(document: Mapping[str, object]) -> tuple[str, ...]:
 
 
 class ServiceRequestHandler(ProgressRequestHandler):
-    """只读页处理器 + 一条常驻状态路由；写方法仍一律 405。"""
+    """只读页处理器 + 常驻状态与面板读路由；其余写方法仍一律 405。"""
 
     server_version = "ForgeLoopServe/1"
 
@@ -339,7 +417,14 @@ class ServiceRequestHandler(ProgressRequestHandler):
     def token(self) -> str:
         return cast("ServiceHTTPServer", self.server).token
 
+    @property
+    def panel(self) -> PanelContext:
+        return cast("ServiceHTTPServer", self.server).panel
+
     def _route(self, route: str) -> tuple[int, str, bytes]:
+        panel_route = self._panel_read(route)
+        if panel_route is not None:
+            return panel_route
         if route == SERVICE_STATUS_ROUTE:
             document = build_service_document(
                 self.serve_settings, self.worker, operations_enabled=bool(self.token)
@@ -349,11 +434,35 @@ class ServiceRequestHandler(ProgressRequestHandler):
             return 200, HTML_TYPE, page_html_with_token(self.token).encode("utf-8")
         return super()._route(route)
 
+    def _panel_read(self, route: str) -> tuple[int, str, bytes] | None:
+        """面板的两条读路由；未命中返回 ``None``，交给只读页路由继续判定。"""
+
+        if route == PANEL_ROUTE:
+            document = panel_document(self.panel)
+            return 200, JSON_TYPE, json.dumps(document, ensure_ascii=False).encode("utf-8")
+        if route.startswith(f"{PANEL_SESSIONS_ROUTE}/"):
+            session_id = route[len(PANEL_SESSIONS_ROUTE) + 1 :]
+            session = session_document(self.panel, session_id)
+            if session is None:
+                return (
+                    404,
+                    JSON_TYPE,
+                    json.dumps(
+                        {"error": "session_not_found", "detail": f"会话不存在: {session_id}"},
+                        ensure_ascii=False,
+                    ).encode("utf-8"),
+                )
+            return 200, JSON_TYPE, json.dumps(session, ensure_ascii=False).encode("utf-8")
+        return None
+
     def do_POST(self) -> None:
         route = urlsplit(self.path).path
         try:
             status, payload = self._handle_post(route)
         except OperationRejected as rejection:
+            status = rejection.status
+            payload = {"error": rejection.code, "detail": str(rejection)}
+        except PanelRejected as rejection:
             status = rejection.status
             payload = {"error": rejection.code, "detail": str(rejection)}
         except Exception as error:  # 内部错误必须可见，不伪装成成功
@@ -377,6 +486,9 @@ class ServiceRequestHandler(ProgressRequestHandler):
         reason = str(body.get("reason", "")).strip()
         if not by:
             raise OperationRejected(400, "by_required", "写操作必须带 by（例如 owner）")
+        if route == PANEL_ROUTE or route.startswith(f"{PANEL_ROUTE}/"):
+            # 面板写入口：与既有五类操作同一道令牌 + 同源 + 请求体上限闸门。
+            return handle_panel_post(self.panel, route, body, by)
         if route == REQUIREMENTS_ROUTE:
             return self._submit_requirement(body, by, reason)
         match = REQUIREMENT_ACTION_ROUTE.fullmatch(route)
@@ -545,13 +657,20 @@ class ServiceRequestHandler(ProgressRequestHandler):
 
 
 class ServiceHTTPServer(ThreadingHTTPServer):
-    """常驻服务监听：同时持有只读页设置（供继承的处理器复用）与 worker。"""
+    """常驻服务监听：持有只读页设置、worker 与会话面板上下文。"""
 
     daemon_threads = True
 
-    def __init__(self, settings: ServeSettings, worker: ServiceWorker, token: str = "") -> None:
+    def __init__(
+        self,
+        settings: ServeSettings,
+        worker: ServiceWorker,
+        panel: PanelContext,
+        token: str = "",
+    ) -> None:
         self.serve_settings = settings
         self.worker = worker
+        self.panel = panel
         # 令牌每次启动随机生成：只注入页面 meta，重启即失效。
         self.token = token
         # 继承的 ProgressRequestHandler 经 self.server.settings 取只读页设置。
@@ -560,11 +679,21 @@ class ServiceHTTPServer(ThreadingHTTPServer):
 
 
 def build_server(
-    settings: ServeSettings, worker: ServiceWorker, *, token: str = ""
+    settings: ServeSettings,
+    worker: ServiceWorker,
+    panel: PanelContext | None = None,
+    *,
+    token: str = "",
 ) -> ServiceHTTPServer:
-    """按设置绑定真实回环地址；端口冲突等绑定错误由调用方处理。"""
+    """按设置绑定真实回环地址；端口冲突等绑定错误由调用方处理。
 
-    return ServiceHTTPServer(settings, worker, token)
+    ``panel`` 缺省时按生效设置现场装配（与 ``cmd_serve`` 同一条路径）：调用方只在需要
+    注入替代执行器（测试）时才显式传入。
+    """
+
+    return ServiceHTTPServer(
+        settings, worker, panel if panel is not None else build_panel_context(settings), token
+    )
 
 
 def _resolve_settings(
@@ -599,6 +728,7 @@ def _resolve_settings(
         service=service_settings,
         config_path=service_config_path,
         operations=args.operations,
+        projects_path=Path(args.projects_file),
     )
 
 
@@ -663,6 +793,13 @@ def _serve_until_stopped(
         "页面写入口: 已启用（提交/批准/推进/验收/停止；仅本机 + 页面令牌 + 同源校验）",
         flush=True,
     )
+    panel = settings.service.panel
+    print(
+        f"会话面板: 并发 {panel.concurrency}，单轮超时 {panel.turn_timeout_seconds} 秒，"
+        f"常驻会话 {panel.max_live_sessions} 个（空闲 {panel.session_idle_seconds} 秒回收），"
+        f"工具审批 {panel.tool_approval}，项目档案 {settings.projects_path}",
+        flush=True,
+    )
     print("按 Ctrl+C 或 SIGTERM 停止。", flush=True)
 
     stop = threading.Event()
@@ -679,6 +816,8 @@ def _serve_until_stopped(
     http_thread.join(timeout=HTTP_JOIN_TIMEOUT_SECONDS)
     server.server_close()
     worker.stop()
+    # 面板执行器：中止在跑的轮次并收起线程池，避免留下无人认领的 PI 子进程。
+    server.panel.runner.shutdown()
     print("已停止。", flush=True)
     return 0
 
@@ -701,6 +840,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
         max_concurrent=settings.service.max_concurrent,
         process_home=os.environ.get("HOME", ""),
     )
+    panel = build_panel_context(settings)
+    try:
+        check_panel(panel.registry)
+    except (ServeConfigError, PanelProjectError) as error:
+        panel.runner.shutdown()
+        return fail(str(error))
     if args.once:
         # 只读筛选一次：让自检也回答「现在会不会被执行、为什么不会」，但不启动任何动作。
         worker.survey()
@@ -709,8 +854,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # 页面写入口的一次性令牌：每次启动随机生成，只注入页面 meta，重启即失效。
     token = secrets.token_urlsafe(TOKEN_BYTES)
     try:
-        server = build_server(settings, worker, token=token)
+        server = build_server(settings, worker, panel, token=token)
     except OSError as error:
+        panel.runner.shutdown()
         return fail(f"无法监听 {settings.service.host}:{settings.service.port}: {error}")
     return _serve_until_stopped(server, worker, settings, web_config_path)
 
@@ -744,6 +890,11 @@ def add_serve_parser(
         "--web-config",
         default=DEFAULT_WEB_CONFIG,
         help=f"页面刷新配置文件（默认 {DEFAULT_WEB_CONFIG}）",
+    )
+    serve.add_argument(
+        "--projects-file",
+        default=DEFAULT_PROJECTS_FILE,
+        help=f"页面管理的项目档案（默认 {DEFAULT_PROJECTS_FILE}；与手写项目不得同名）",
     )
     serve.add_argument(
         "--refresh-seconds",

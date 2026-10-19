@@ -72,52 +72,124 @@ mutation_killed_min = 90
 # 键为 `文件:行:列:变异算子:替换内容`；同一位置的多个等价变异由一条登记覆盖。
 # 未登记的幸存者会让 scripts/check_frontend_mutation.py 失败；条目过期只作提示。
 [[frontend.reviewed_survivors]]
-mutant = 'src/actions.ts:81:10:ConditionalExpression:true'
-reason = '等价变异：只把 `typeof value === "object"` 这一个子句放宽为真，同一表达式内的 `value !== null` 仍守着 null；非 null 非对象（JSON 标量）读字段得 undefined，与走兜底分支的可观察结果一致。放宽整个表达式（LogicalOperator 版本）已被 null 载荷用例杀掉。'
+mutant = "src/actions.ts:130:10:ConditionalExpression:true"
+reason = "等价变异：只放宽 `typeof code === \"string\"`，同一表达式内的 `code.length > 0` 仍排除空串；空串与缺失两种输入都走同一条 `HTTP <status>` 兜底（有专门用例）。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/actions.ts:87:9:ConditionalExpression:true'
-reason = '等价变异：错误体按对象读取时，标量载荷读出的 `detail`／`error` 都是 undefined，仍落到 `HTTP <status>`；null 载荷抛出的 TypeError 被同一函数的 try/catch 收敛为同一兜底文案（已由 null 错误体用例覆盖该路径）。'
+mutant = "src/actions.ts:136:9:ConditionalExpression:true"
+reason = "等价变异：只放宽 `typeof code === \"string\"`，同一表达式内的 `code.length > 0` 仍排除空串；空串与缺失两种输入都走同一条 `HTTP <status>` 兜底（有专门用例）。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/actions.ts:93:11:ConditionalExpression:true'
-reason = '等价变异：只放宽 `typeof code === "string"`，同一表达式内的 `code.length > 0` 仍排除空串；空串与缺失两种输入都走同一条 `HTTP <status>` 兜底（有专门用例）。'
+mutant = "src/actions.ts:142:11:ConditionalExpression:true"
+reason = "等价变异：只放宽 `typeof code === \"string\"`，同一表达式内的 `code.length > 0` 仍排除空串；空串与缺失两种输入都走同一条 `HTTP <status>` 兜底（有专门用例）。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/actions.ts:147:56:ArrowFunction:() => undefined'
-reason = '等价变异：成功响应体不是 JSON 时，`.catch` 返回 undefined 与返回空对象都被 `isRecord` 判假并回落到中性文案「操作已完成。」，可观察结果相同（有专门用例）。'
+mutant = "src/actions.ts:197:56:ArrowFunction:() => undefined"
+reason = "等价变异：成功响应体不是 JSON 时，`.catch` 返回 undefined 与返回空对象都被 `isRecord` 判假并回落到中性文案「操作已完成。」，可观察结果相同（有专门用例）。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:47:19:ConditionalExpression:false'
+mutant = "src/actions.ts:54:42:MethodExpression:Math.random().toString(36)"
+reason = "等价变异：回退幂等键的既有断言只钉「以 `k-` 开头」与「两次不同」两条可观察契约；radix 参数只改变随机后缀的字符集，不影响键的身份语义（唯一性由随机源与时间戳前缀保证）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/actions.ts:63:12:OptionalChaining:storage.getItem"
+reason = "等价变异：去掉可选链后 `storage` 为 undefined 时抛出的 TypeError 被同一函数的 try/catch 收敛为同一兜底值 `\"\"`；既有「没有存储时读回空串且写入不抛错」用例覆盖该路径。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/actions.ts:63:12:OptionalChaining:storage?.getItem(SUBMIT_KEY_STORAGE).trim"
+reason = "等价变异：去掉可选链后 `storage` 为 undefined 时抛出的 TypeError 被同一函数的 try/catch 收敛为同一兜底值 `\"\"`；既有「没有存储时读回空串且写入不抛错」用例覆盖该路径。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/actions.ts:72:5:OptionalChaining:storage.setItem"
+reason = "等价变异：去掉可选链后 `storage` 为 undefined 时抛出的 TypeError 被 `rememberSubmitKey` 的 try/catch 吞掉，与「静默退化、只保留内存中的键」同一可观察结果（既有用例断言不抛错）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/actions.ts:81:5:OptionalChaining:storage.removeItem"
+reason = "等价变异：同上——`forgetSubmitKey` 的 try/catch 让缺失存储与抛错两条路径都成为「清理失败不影响业务」（既有用例断言不抛错）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/format.ts:47:19:ConditionalExpression:false"
 reason = "等价变异：Number(数字) 与数字本身恒等，`typeof value === \"number\"` 的三元分支只影响同一结果的路径。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:47:36:StringLiteral:""'
+mutant = "src/format.ts:47:36:StringLiteral:\"\""
 reason = "等价变异：`typeof value === \"\"` 恒为假，退化为 Number(value)，与上一行同一结果。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/format.ts:69:41:ObjectLiteral:{}'
+mutant = "src/format.ts:69:41:ObjectLiteral:{}"
 reason = "本机 ICU 下 zh-CN 的默认 hour12 与显式 false 相同（实测输出一致）；测试已钉死 24 小时制形状，跨 ICU 行为差异由真实浏览器用例间接覆盖。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/progress.ts:36:10:ConditionalExpression:true'
-reason = "等价变异：isRecord 判定的放宽只改变进入分支的路径，非对象响应体在 try/catch 后仍落到同一 `HTTP <status>` 兜底文案。"
+mutant = "src/panel.ts:123:9:ConditionalExpression:true"
+reason = "等价变异：`stop()` 的 `this.#timer !== undefined` 恒真时，未启动过的情况下 `clearInterval(undefined)` 是空操作、`#timer` 仍被置空；已启动时行为不变，无对外可观察差异（重复 stop 已有用例）。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/progress.ts:36:10:LogicalOperator:typeof value === "object" || value !== null'
-reason = "等价变异：`||` 版本对 null 响应体会抛 TypeError，但同样被 errorDetail 的 try/catch 收敛为 `HTTP <status>`，可观察结果不变。"
+mutant = "src/panel.ts:134:9:ConditionalExpression:true"
+reason = "等价变异：`stop()` 的 `this.#timer !== undefined` 恒真时，未启动过的情况下 `clearInterval(undefined)` 是空操作、`#timer` 仍被置空；已启动时行为不变，无对外可观察差异（重复 stop 已有用例）。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/progress.ts:36:39:ConditionalExpression:true'
-reason = "等价变异：`value !== null` 恒真时，null 响应体走 `payload.detail` 抛错并被 try/catch 吞掉，兜底文案相同。"
+mutant = "src/panel.ts:157:5:AssignmentOperator:this.#ticks -= 1"
+reason = "等价变异：`#ticks` 只用于「每 4 拍刷新一次总览」的取模判定，加减方向对 4 的倍数集合对称（4、8 与 -4、-8 同为零），刷新节奏不变。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/progress.ts:161:27:ConditionalExpression:false'
+mutant = "src/panel.ts:67:10:ConditionalExpression:true"
+reason = "等价变异：`stop()` 的 `this.#timer !== undefined` 恒真时，未启动过的情况下 `clearInterval(undefined)` 是空操作、`#timer` 仍被置空；已启动时行为不变，无对外可观察差异（重复 stop 已有用例）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:67:10:ConditionalExpression:true"
+reason = "等价变异：`stop()` 的 `this.#timer !== undefined` 恒真时，未启动过的情况下 `clearInterval(undefined)` 是空操作、`#timer` 仍被置空；已启动时行为不变，无对外可观察差异（重复 stop 已有用例）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:67:10:LogicalOperator:typeof value === \"object\" || value !== null"
+reason = "等价变异：`&&` 换成 `||` 后，字符串载荷被判为记录但读不出 detail，null 载荷的 TypeError 同样被 catch，可观察结果都是 `HTTP <status>`，与真实实现一致。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:67:39:ConditionalExpression:true"
+reason = "等价变异：`stop()` 的 `this.#timer !== undefined` 恒真时，未启动过的情况下 `clearInterval(undefined)` 是空操作、`#timer` 仍被置空；已启动时行为不变，无对外可观察差异（重复 stop 已有用例）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:73:30:ConditionalExpression:true"
+reason = "等价变异：`stop()` 的 `this.#timer !== undefined` 恒真时，未启动过的情况下 `clearInterval(undefined)` 是空操作、`#timer` 仍被置空；已启动时行为不变，无对外可观察差异（重复 stop 已有用例）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:73:9:ConditionalExpression:true"
+reason = "等价变异：`stop()` 的 `this.#timer !== undefined` 恒真时，未启动过的情况下 `clearInterval(undefined)` 是空操作、`#timer` 仍被置空；已启动时行为不变，无对外可观察差异（重复 stop 已有用例）。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:73:9:LogicalOperator:isRecord(payload) || typeof payload.detail === \"string\""
+reason = "等价变异：把两段判定改成 `||` 后，标量载荷读出的 detail 是 undefined、空串 detail 仍被长度判定排除，两条路径的可观察结果与真实实现相同。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:93:11:BooleanLiteral:true"
+reason = "等价变异：`#busy` 的字段初值在 `#nextDelay()` 读取前必被一次刷新重算（`refreshPanel`／`refreshSelected` 都会赋值），初值改成 true 不影响任何一次间隔判定。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/panel.ts:94:14:BooleanLiteral:true"
+reason = "等价变异：`#busy` 的字段初值在 `#nextDelay()` 读取前必被一次刷新重算（`refreshPanel`／`refreshSelected` 都会赋值），初值改成 true 不影响任何一次间隔判定。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/progress.ts:161:27:ConditionalExpression:false"
 reason = "等价变异：refresh_seconds 为 0 时 tick() 在 autoRefreshOff 分支提前返回，nextRefreshAt 的取值不会被读取。"
 
 [[frontend.reviewed_survivors]]
-mutant = 'src/progress.ts:161:27:EqualityOperator:seconds < 0'
+mutant = "src/progress.ts:161:27:EqualityOperator:seconds < 0"
 reason = "等价变异：同上，seconds 为 0 时该赋值的两种取值都不可观察。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/progress.ts:36:10:ConditionalExpression:true"
+reason = "等价变异：`value !== null` 恒真时，null 响应体走 `payload.detail` 抛错并被 try/catch 吞掉，兜底文案相同。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/progress.ts:36:10:ConditionalExpression:true"
+reason = "等价变异：`value !== null` 恒真时，null 响应体走 `payload.detail` 抛错并被 try/catch 吞掉，兜底文案相同。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/progress.ts:36:10:LogicalOperator:typeof value === \"object\" || value !== null"
+reason = "等价变异：`||` 版本对 null 响应体会抛 TypeError，但同样被 errorDetail 的 try/catch 收敛为 `HTTP <status>`，可观察结果不变。"
+
+[[frontend.reviewed_survivors]]
+mutant = "src/progress.ts:36:39:ConditionalExpression:true"
+reason = "等价变异：`value !== null` 恒真时，null 响应体走 `payload.detail` 抛错并被 try/catch 吞掉，兜底文案相同。"
 
 [coverage]
 line_min = 90

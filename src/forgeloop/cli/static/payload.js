@@ -23,3 +23,35 @@ export const SUBMIT_KEY_STORAGE = "forgeloop:submit-key";
 export function requirementActionUrl(reqId, action) {
     return `${REQUIREMENTS_URL}/${encodeURIComponent(reqId)}/${action}`;
 }
+/* ---------------------------------------------------------------------------
+ * 会话面板（`forgeloop serve`）：项目、运行时、会话与待人工决定。
+ *
+ * 字段与服务端 `cli/panel.py` 组装的文档一致；页面只声明真正读取的字段，
+ * 不读取的部分不在这里建模（避免把没读过的东西伪装成契约）。
+ * ------------------------------------------------------------------------- */
+/** 面板读模型与写入口根路径。 */
+export const PANEL_URL = "/api/panel";
+export const PANEL_SESSIONS_URL = "/api/panel/sessions";
+export const PANEL_PROJECTS_URL = "/api/panel/projects";
+/** 会话身份在 URL 里始终转义，避免拼接出别的路径。 */
+function encodeId(value) {
+    return encodeURIComponent(value);
+}
+export function panelSessionUrl(sessionId) {
+    return `${PANEL_SESSIONS_URL}/${encodeId(sessionId)}`;
+}
+export function panelMessageUrl(sessionId) {
+    return `${panelSessionUrl(sessionId)}/messages`;
+}
+export function panelTerminateUrl(sessionId) {
+    return `${panelSessionUrl(sessionId)}/terminate`;
+}
+export function panelDecisionUrl(sessionId, decisionId) {
+    return `${panelSessionUrl(sessionId)}/decisions/${encodeId(decisionId)}`;
+}
+export function panelProjectUpdateUrl(name) {
+    return `${PANEL_PROJECTS_URL}/${encodeId(name)}/update`;
+}
+export function panelProjectRemoveUrl(name) {
+    return `${PANEL_PROJECTS_URL}/${encodeId(name)}/remove`;
+}

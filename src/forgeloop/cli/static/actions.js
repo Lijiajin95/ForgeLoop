@@ -119,7 +119,8 @@ function successMessage(payload) {
     if (typeof payload.req_id === "string" && payload.req_id.length > 0) {
         return `已受理：${payload.req_id}`;
     }
-    return "操作已完成。";
+    // 面板写端点用 `detail` 报人读结果（例如「已受理，一轮执行在常驻进程内进行」）。
+    return payload.detail !== undefined && payload.detail !== "" ? payload.detail : "操作已完成。";
 }
 /**
  * 发送一次写请求：带令牌与同源（浏览器自动带 Origin），返回可展示结果。

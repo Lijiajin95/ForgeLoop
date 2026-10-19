@@ -8,9 +8,11 @@
  *     ↑
  *   format（纯格式化规则，不碰 DOM、不发请求）
  *     ↑
- *   render（DOM 渲染，不发请求）
+ *   render／panel_render（DOM 渲染，不发请求）
  *     ↑
- *   progress（轮询与调度，只依赖类型）
+ *   actions（写请求构建与发送）
+ *     ↑
+ *   progress／panel（轮询与调度，只依赖类型与请求构建）
  *     ↑
  *   page → app（装配与入口）
  *
@@ -54,7 +56,22 @@ module.exports = {
       comment:
         "actions.ts 只拼写请求与发请求：不得依赖渲染、轮询、格式化或装配模块，业务判定全在服务端。",
       from: { path: "^src/actions\\.ts$" },
-      to: { path: "^src/(format|render|progress|page|app)\\.ts$" },
+      to: { path: "^src/(format|render|panel|panel_render|progress|page|app)\\.ts$" },
+    },
+    {
+      name: "panel-is-a-client",
+      severity: "error",
+      comment:
+        "panel.ts 只取数、调度与拼写面板写请求：不得依赖渲染、格式化或装配模块（写请求复用 actions.ts）。",
+      from: { path: "^src/panel\\.ts$" },
+      to: { path: "^src/(format|render|panel_render|progress|page|app)\\.ts$" },
+    },
+    {
+      name: "panel-render-does-not-fetch",
+      severity: "error",
+      comment: "panel_render.ts 只画 DOM：不得依赖取数与装配模块。",
+      from: { path: "^src/panel_render\\.ts$" },
+      to: { path: "^src/(panel|progress|page|app)\\.ts$" },
     },
     {
       name: "progress-does-not-render",

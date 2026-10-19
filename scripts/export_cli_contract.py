@@ -18,9 +18,21 @@ from typing import Any
 from forgeloop.adapter.mail import InboundResult, PollReport
 from forgeloop.cli.mail import _mail_confirm_document, _mail_poll_document
 from forgeloop.cli.main import _requirement_document, _status_document
-from forgeloop.cli.serve import ServeOperations, ServeSettings, build_service_document
+from forgeloop.cli.panel import (
+    PanelContext,
+    PanelRegistry,
+    panel_document,
+    session_document,
+)
+from forgeloop.cli.serve import (
+    ServeOperations,
+    ServeSettings,
+    build_service_document,
+    panel_project_problems,
+)
 from forgeloop.cli.web import ProgressDocuments, WebSettings, build_progress_document
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
+from forgeloop.domain.conversation import DecisionKind, MessageRole, SessionStatus
 from forgeloop.domain.counting import FailureStage
 from forgeloop.domain.progress import RefreshSetting, RefreshSource
 from forgeloop.domain.release import ReleaseRecord
@@ -152,6 +164,7 @@ def build_contract() -> dict:
         service_document = build_service_contract(Path(tmp))
         service_operation_document = build_service_operation_contract()
         service_operation_error_document = build_service_operation_error_contract()
+        panel_document_shape, panel_session_shape = build_panel_contract(Path(tmp))
 
     mail_poll_document, mail_confirm_document = build_mail_contract()
     return {
@@ -196,6 +209,34 @@ def build_contract() -> dict:
         },
         "service_operation_document": service_operation_document,
         "service_operation_error_document": service_operation_error_document,
+        # 会话面板：读模型两份文档 + 写端点的成功与失败结构。
+        "panel_route": "GET /api/panel",
+        "panel_document": panel_document_shape,
+        "panel_session_route": "GET /api/panel/sessions/{session_id}",
+        "panel_session_document": panel_session_shape,
+        "panel_project_routes": [
+            "POST /api/panel/projects",
+            "POST /api/panel/projects/{name}/update",
+            "POST /api/panel/projects/{name}/remove",
+        ],
+        "panel_session_routes": [
+            "POST /api/panel/sessions",
+            "POST /api/panel/sessions/{session_id}/messages",
+            "POST /api/panel/sessions/{session_id}/terminate",
+            "POST /api/panel/sessions/{session_id}/decisions/{decision_id}",
+        ],
+        "panel_operation_codes": {
+            "project_create": 201,
+            "project_update": 200,
+            "project_remove": 200,
+            "session_create": 201,
+            "session_message": 202,
+            "session_terminate": 200,
+            "session_decision_approve": 202,
+            "session_decision_reject": 200,
+        },
+        "panel_operation_document": build_panel_operation_contract(),
+        "panel_operation_error_document": build_service_operation_error_contract(),
     }
 
 
@@ -383,6 +424,131 @@ def build_progress_contract(root: Path) -> dict:
     properties["requirements"]["item"] = {"$ref": "#/requirement_document"}
     properties["tasks"]["item"] = {"$ref": "#/document"}
     return document
+
+
+def build_panel_contract(root: Path) -> tuple[dict, dict]:
+    """面板读模型的两份对外结构：总览（`GET /api/panel`）与单会话详情。
+
+    用真实记录根与真实项目档案文件合成：一条只读（手写 ``config/service.toml`` 形状）
+    与一条页面管理的项目、一条含一问一答与一条待人工决定的会话。执行器用**不启动任何
+    轮次**的空跑器，因为快照只描述结构。
+    """
+
+    from forgeloop.domain.projects import PanelProject
+    from forgeloop.graph.conversation import ConversationRunner
+
+    projects_path = root / "projects.toml"
+    registry = PanelRegistry({}, projects_path)
+    registry.create(
+        PanelProject(
+            name="demo",
+            path=str(root),
+            description="契约样本项目",
+            pi_command=("pi", "--mode", "rpc", "--no-session"),
+            pi_home=str(root / "pi-home"),
+        )
+    )
+    runner = ConversationRunner(
+        records_path=root / "records.sqlite",
+        session_root=root / "panel",
+        projects=registry.by_name,
+        readiness=panel_project_problems,
+        concurrency=2,
+        turn_timeout_seconds=900,
+    )
+    try:
+        context = PanelContext(
+            registry=registry,
+            runner=runner,
+            readiness=panel_project_problems,
+            db_path=root / "records.sqlite",
+        )
+        store = context.store()
+        try:
+            session = store.create_session(
+                project="demo", title="契约样本会话", by="owner", cwd=str(root)
+            )
+            store.append_message(
+                session.session_id, role=MessageRole.HUMAN, content="看一下构建", author="owner"
+            )
+            store.append_message(
+                session.session_id, role=MessageRole.AGENT, content="已修复构建脚本。"
+            )
+            store.open_decision(
+                session.session_id,
+                kind=DecisionKind.AGENT_REQUEST,
+                question="是否删除旧的构建入口?",
+            )
+            store.set_status(session.session_id, SessionStatus.AWAITING_HUMAN, last_error="")
+        finally:
+            store.close()
+        overview = shape(panel_document(context))
+        detail = shape(session_document(context, session.session_id) or {})
+        # 会话摘要在总览与详情里是同一份结构：详情用 $ref 指过去，
+        # 避免同一份字段在两个位置各审一遍 diff（与 web_progress_document 同一口径）。
+        detail["properties"]["session"] = {"$ref": "#/panel_document/properties/sessions/item"}
+    finally:
+        runner.shutdown()
+    return overview, detail
+
+
+def build_panel_operation_contract() -> dict:
+    """面板写操作的成功响应结构：项目档案三动作 + 会话四动作合并。"""
+
+    project_write = shape(
+        {
+            "ok": True,
+            "operation": "project_update",
+            "name": "demo",
+            "path": "/home/link/Project/ForgeLoop",
+            "source": "web:owner",
+        }
+    )
+    session_create = shape(
+        {
+            "ok": True,
+            "operation": "session_create",
+            "session_id": "cs-20261018120000-abcdef",
+            "project": "demo",
+            "title": "排查构建失败",
+            "source": "web:owner",
+        }
+    )
+    message = shape(
+        {
+            "ok": True,
+            "operation": "session_message",
+            "session_id": "cs-20261018120000-abcdef",
+            "turn_count": 1,
+            "queued": False,
+            "detail": "已受理，一轮执行在常驻进程内进行；轮询会话详情即可看到结果",
+        }
+    )
+    terminate = shape(
+        {
+            "ok": True,
+            "operation": "session_terminate",
+            "session_id": "cs-20261018120000-abcdef",
+            "terminated": True,
+            "aborted": False,
+            "already_terminated": False,
+            "detail": "会话已终止",
+        }
+    )
+    decision = shape(
+        {
+            "ok": True,
+            "operation": "session_decision",
+            "session_id": "cs-20261018120000-abcdef",
+            "decision_id": "dc-20261018120000-123456",
+            "decision": "approve",
+            "turn_count": 2,
+            "queued": False,
+            "session_status": "active",
+            "detail": "已批准并重新发起一轮执行",
+        }
+    )
+    return merge(merge(merge(project_write, session_create), merge(message, terminate)), decision)
 
 
 def build_service_operation_contract() -> dict:
