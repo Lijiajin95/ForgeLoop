@@ -134,6 +134,22 @@ graph/worker.py 的 current_task_thread_id ──▶ 纯记录只读（供页面
 2. **校验必须在被复用的入口内执行**（批准版本绑定、时长/失败累计、槽位互斥等）；
 3. **入口标签必须留痕**（`source`/`by` 写进记录），否则"等价"就变成"无法区分来源"。
 
+## 2.8 真实场景验证的设计（第 14 轮勘察结论）
+
+**可用的真实夹具**：`tests/integration/test_serve_operations.py::real_service` ——
+启动**真实 HTTP 服务**（回环 + 令牌 + 同源），并把页面写入口接到**真实 CLI 命令**
+（`cmd_requirement_approve/accept`、`cmd_stop`）；记录根是真实的 SQLite。
+
+**约束**：该 fixture 定义在测试模块内（非 conftest），因此真实三入口对照测试应
+**追加在同一文件**，而不是新开文件。
+
+**设计**（下一轮实现）：
+1. 在同一个真实记录根里播种三个需求；
+2. 分别经 **页面**（POST + 令牌 + 同源）、**CLI**（`run_cli` 真实参数）、**邮件**
+   （进程内假 IMAP/SMTP + 真实轮询命令）各取消一个；
+3. 用 `tests/scenario/parity_facts.cancel_facts` 统一读取，断言三份事实一致
+   （终态、决定存在、理由与留痕非空；入口来源各自不同但都必须留痕）。
+
 ## 3. 等价性测试分层
 
 | 层 | 内容 | 位置 |
