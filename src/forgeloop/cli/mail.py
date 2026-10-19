@@ -52,7 +52,12 @@ from forgeloop.domain.mail import (
     requests_cancellation,
     suggest_classification,
 )
-from forgeloop.domain.requirement import RequirementNotFoundError
+from forgeloop.domain.requirement import (
+    ACCEPTED,
+    CANCELLED,
+    RequirementError,
+    RequirementNotFoundError,
+)
 from forgeloop.records.mail_threads import MailThreadStore
 from forgeloop.records.requirements import RequirementStore
 
@@ -66,6 +71,9 @@ _KIND_MARKERS: dict[Classification, str] = {
 _TERMINAL_KINDS: frozenset[Classification] = frozenset(
     {Classification.NOT_ACCEPT_CANDIDATE, Classification.ACCEPT_SUCCESS}
 )
+# 终态需求不再接收邮件答复回流（取消/验收后只读）。
+_TERMINAL_REQUIREMENT_STATUSES = frozenset({ACCEPTED, CANCELLED})
+
 _ACTION_KINDS: dict[str, Classification] = {
     "disambiguate": Classification.DISAMBIGUATE,
     "not_accept": Classification.NOT_ACCEPT_CANDIDATE,
@@ -315,7 +323,7 @@ def _build_adapter(
     sender = _make_sender(args)
 
     def record_inbound(mail: InboundMail, req_id: str) -> bool:
-        return thread_store.record_inbound(
+        created = thread_store.record_inbound(
             mail.message_id,
             req_id,
             mail.received_at,
@@ -323,6 +331,22 @@ def _build_adapter(
             subject=mail.subject,
             folder=mail.folder,
         ).created
+        # 邮件对话闭环（所有者 2026-10-19）：同一线索引发的**新**入向邮件，把正文作为
+        # 答复追加成需求的修订版本，状态回到 draft 等待重新分析——答复不再是孤立的
+        # 邮件记录，而是真的进入需求材料。只追加、不覆盖；已验收/已取消的终态不追加。
+        if created and mail.body.strip():
+            try:
+                current = requirement_store.requirement_status(req_id)
+            except RequirementNotFoundError:
+                current = ""
+            if current not in _TERMINAL_REQUIREMENT_STATUSES:
+                try:
+                    requirement_store.append(
+                        req_id, f"【邮件答复】{mail.subject}\n\n{mail.body.strip()}"
+                    )
+                except RequirementError:
+                    return created
+        return created
 
     def record_outbound(message_id: str, req_id: str, kind: str, sent_at: datetime) -> bool:
         return thread_store.record_outbound(message_id, req_id, kind, sent_at).created
