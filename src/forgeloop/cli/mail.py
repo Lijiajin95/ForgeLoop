@@ -264,6 +264,7 @@ def _resolve_requirement(
     project: str,
     *,
     whitelist: frozenset[str] = frozenset(),
+    created_ids: set[str] | None = None,
 ) -> str | None:
     """按固定优先级把邮件关联需求；无任何线索时新建需求（幂等）。
 
@@ -281,7 +282,11 @@ def _resolve_requirement(
     # 能**新建**需求；名单外只跳过并如实报告，不静默建单。回复既有需求不受限制。
     if whitelist and mail.sender.strip().lower() not in whitelist:
         return None
-    return requirement_store.submit(project, _requirement_text(mail)).req_id
+    created = requirement_store.submit(project, _requirement_text(mail))
+    if created_ids is not None:
+        # 记下"这个需求就是本封邮件建的"：它不是答复，不该再回流一遍正文。
+        created_ids.add(created.req_id)
+    return created.req_id
 
 
 def auto_analyze_setting(args: argparse.Namespace) -> bool:
@@ -393,6 +398,8 @@ def _build_adapter(
     receiver = _make_receiver(args)
     sender = _make_sender(args)
 
+    created_by_this_poll: set[str] = set()
+
     def record_inbound(mail: InboundMail, req_id: str) -> bool:
         created = thread_store.record_inbound(
             mail.message_id,
@@ -441,7 +448,14 @@ def _build_adapter(
         # 操作类邮件（操作: 批准/停止/…）是**决定**，不是答复材料：回流会把需求改回
         # draft、使批准失效，从而让"当前任务"消失（停止/推进随即无法定位）。取消同样不回流。
         is_operation_mail = bool(operation)
-        if created and mail.body.strip() and not cancelled_by_mail and not is_operation_mail:
+        created_this_mail = req_id in created_by_this_poll
+        if (
+            created
+            and mail.body.strip()
+            and not cancelled_by_mail
+            and not is_operation_mail
+            and not created_this_mail
+        ):
             try:
                 current = requirement_store.requirement_status(req_id)
             except RequirementNotFoundError:
@@ -467,6 +481,7 @@ def _build_adapter(
             requirement_store,
             args.project,
             whitelist=_effective_whitelist(args)[0],
+            created_ids=created_by_this_poll,
         ),
         record_inbound=record_inbound,
         cancel_intent=lambda mail: requests_cancellation(mail.subject, mail.body),

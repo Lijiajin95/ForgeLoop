@@ -333,3 +333,84 @@ class TestStopParity:
                 "source_non_empty": True,
             }
         )
+
+
+class TestSubmitParity:
+    """提交：CLI 与邮件都必须产生**同一形状的需求记录**（草稿、单版本、有原文）。
+
+    等价标准是记录事实，不是文案：邮件把"主题 + 正文"作为需求原文，CLI 用 --input；
+    两者都不直接进入执行（仍是 draft，需人工批准任务包）。
+    """
+
+    def _facts(self, records_root: Path) -> list[dict[str, object]]:
+        store = RequirementStore(records_root / "records.sqlite")
+        try:
+            return [
+                {
+                    "status": store.requirement_status(requirement.req_id),
+                    "versions": len(requirement.versions),
+                    "text_non_empty": bool(requirement.latest.text.strip()),
+                }
+                for requirement in store.for_project("ForgeLoop")
+            ]
+        finally:
+            store.close()
+
+    def _facts_of(self, records_root: Path, req_id: str) -> dict[str, object]:
+        store = RequirementStore(records_root / "records.sqlite")
+        try:
+            requirement = store.get(req_id)
+            return {
+                "status": store.requirement_status(req_id),
+                "versions": len(requirement.versions),
+                "text_non_empty": bool(requirement.latest.text.strip()),
+            }
+        finally:
+            store.close()
+
+    def test_cli_and_mail_create_the_same_record_shape(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.scenario.test_mail_cli import (
+            build_message,
+            install_transport,
+            poll,
+        )
+
+        cli_root = tmp_path / "cli-submit"
+        cli_root.mkdir()
+        code, out = run_cli(
+            [
+                "requirement",
+                "submit",
+                "--project",
+                "ForgeLoop",
+                "--input",
+                "等价性：希望支持批量导出",
+                "--records-root",
+                str(cli_root),
+            ],
+            capsys,
+        )
+        assert code == 0 and "需求已创建" in out
+
+        mail_root = tmp_path / "mail-submit"
+        mail_root.mkdir()
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<parity-submit@example.com>",
+                    subject="希望支持批量导出",
+                    body="用于等价性对照。",
+                )
+            ],
+        )
+        document = poll(mail_root, capsys, "--whitelist", "requester@example.com")
+        assert document["registered"] == 1, document
+        mail_req = document["requirements"][0]["req_id"]
+        assert mail_req, document
+
+        expected = [{"status": "draft", "versions": 1, "text_non_empty": True}]
+        assert self._facts(cli_root) == expected
+        assert self._facts_of(mail_root, mail_req) == expected[0]
