@@ -215,3 +215,28 @@ class TestEffectiveWhitelist:
         monkeypatch.delenv("FORGELOOP_MAIL_CONFIG", raising=False)
         senders, source = _effective_whitelist(args())
         assert senders == frozenset() and "未" in source
+
+
+class TestCancellationIntentDetection:
+    """邮件取消意图检测（纯函数）：只认明确措辞，命中只代表"提议"。"""
+
+    def test_explicit_phrases_are_detected(self) -> None:
+        from forgeloop.domain.mail import requests_cancellation
+
+        for subject, body in (
+            ("取消需求", ""),
+            ("Re: [ForgeLoop] req-1", "请删除该需求，我们不再做了"),
+            ("Withdraw requirement", ""),
+            ("Re: cancel requirement", "please stop"),
+        ):
+            assert requests_cancellation(subject, body) is True, (subject, body)
+
+    def test_ordinary_feedback_is_not_mistaken_for_cancellation(self) -> None:
+        from forgeloop.domain.mail import requests_cancellation
+
+        for subject, body in (
+            ("Re: [ForgeLoop] req-1", "确认按方案实施，请继续"),
+            ("关于导出功能", "希望支持批量导出，取消按钮的位置也需要调整"),
+            ("", "删除按钮的样式不对"),
+        ):
+            assert requests_cancellation(subject, body) is False, (subject, body)
