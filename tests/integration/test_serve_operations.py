@@ -1947,3 +1947,120 @@ class TestThreeEntryParityForSubmit:
             "mail": self._facts(root, mail_req),
         }
         assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
+
+
+class TestThreeEntryParityForAcceptanceSuccess:
+    """真实验证（验收成功）：页面入口在合法现场下真正通过整体验收并留下可回查记录。
+
+    合法现场（不伪造）：真实 RequirementExecutor.advance() 交付任务 + 图内 acceptance
+    门使用的同一对公开 API（record_approval + consume_approval）生成验收绑定。
+    """
+
+    def _acceptable_scene(self, root: Path) -> str:
+        from datetime import UTC, datetime
+
+        from forgeloop.domain.approval import Approval, ApprovalStage
+        from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
+        from forgeloop.graph.builder import requirement_task_id
+        from forgeloop.graph.requirements import (
+            RequirementExecutor,
+            TaskResult,
+            TaskRunState,
+        )
+        from forgeloop.records.requirements import TaskArtifact
+
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            req_id = store.submit("ForgeLoop", "真实对照：验收成功路径").req_id
+            store.record_task_plan(
+                req_id,
+                TaskPlan(
+                    task_plan_id=f"plan-{req_id}-1",
+                    requirement_id=req_id,
+                    project="ForgeLoop",
+                    plan_version=1,
+                    requirement_version=1,
+                    tasks=(
+                        PlannedTask(
+                            task_id="task-1",
+                            goal="实现导出",
+                            files=("src/export.py",),
+                            acceptance="测试通过",
+                            test_command=("pytest", "-q"),
+                            limits=TaskLimits(limit_seconds=7200.0, max_failure_rounds=3),
+                        ),
+                    ),
+                    created_at=datetime(2026, 10, 19, tzinfo=UTC),
+                ),
+            )
+            store.record_plan_approval(req_id, 1, "owner", source="cli")
+            artifact = TaskArtifact(
+                task_id="task-1",
+                candidate_sha256="a" * 64,
+                test_evidence_sha256="A" * 64,
+                review_sha256="r" * 64,
+                acceptance="accepted",
+                authorization_source="plan-approval:task-1:v1:owner",
+            )
+            RequirementExecutor(
+                store,
+                req_id,
+                lambda execution: TaskResult(TaskRunState.DELIVERED, artifact),
+            ).advance()
+        finally:
+            store.close()
+
+        task_id = requirement_task_id(req_id, 1, "task-1")
+        task_dir = root / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "candidate.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
+        (task_dir / "test-run.jsonl").write_text('{"status":"passed"}\n', encoding="utf-8")
+        (task_dir / "review-report.json").write_text('{"verdict":"ok"}\n', encoding="utf-8")
+
+        record_store = RecordStore(root / "records.sqlite")
+        try:
+            binding = record_store.capture_delivery_binding(task_id, 1)
+            record_store.record_approval(
+                Approval(
+                    task_id=task_id,
+                    plan_version=1,
+                    stage=ApprovalStage.ACCEPTANCE,
+                    decided_at=datetime.now(UTC),
+                    binding=binding,
+                    approved_by="owner",
+                    source="cli",
+                )
+            )
+            assert (
+                record_store.consume_approval(
+                    task_id, 1, ApprovalStage.ACCEPTANCE, binding
+                ).status.value
+                == "ok"
+            )
+        finally:
+            record_store.close()
+        return req_id
+
+    def test_page_acceptance_succeeds_on_a_legitimate_scene(
+        self, real_service: tuple[str, int, Path]
+    ) -> None:
+        host, port, root = real_service
+        req_id = self._acceptable_scene(root)
+
+        status, payload = post(
+            (host, port),
+            f"/api/requirements/{req_id}/accept",
+            {"by": "owner", "reason": "页面验收，真实验证"},
+            origin=f"http://{host}:{port}",
+        )
+        assert status == 200, payload
+
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            record = store.requirement_acceptance(req_id)
+            assert store.requirement_status(req_id) == "accepted"
+            assert record["accepted_by"] == "owner"
+            assert record["acceptance_source"] == "web:owner"
+            assert record["acceptance_fingerprint"]
+        finally:
+            store.close()

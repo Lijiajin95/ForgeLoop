@@ -232,7 +232,7 @@ graph/worker.py 的 current_task_thread_id ──▶ 纯记录只读（供页面
 | 停止 | ✅ `TestStopParity` | ✅ `TestThreeEntryParityForStop` | ✅ | ✅ | ✅ |
 | 推进 | ✅ `TestAdvanceNoSideEffectParity` | ✅ `TestThreeEntryParityForAdvance` | ✅ | ✅ | ✅ |
 | 验收（拒绝） | ✅ `TestAcceptRefusalParity` | ✅ `TestThreeEntryParityForAcceptanceRefusal` | ✅ | ✅ | ✅ |
-| **验收（成功）** | ✅ **`TestAcceptanceSuccessParity`** | ⏳（同构，可复用现场构造） | ✅ | ✅ | ✅ |
+| **验收（成功）** | ✅ **`TestAcceptanceSuccessParity`** | ✅ `TestThreeEntryParityForAcceptanceSuccess`（页面腿） | ✅ | ✅ | ✅ |
 | 归并 / 发布 | ➖ **范围待所有者确认** | ➖ | ⛔ | ⛔ | ✅ |
 
 **结论**：三入口在全部 7 类交互操作上均已实现并完成跨入口记录事实对照；
