@@ -1417,6 +1417,11 @@
                 "boolean"
               ]
             },
+            "cancel_proposal": {
+              "type": [
+                "boolean"
+              ]
+            },
             "confirm_command": {
               "type": [
                 "string"
@@ -1476,6 +1481,33 @@
         "type": [
           "integer"
         ]
+      },
+      "whitelist": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "enforced": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "senders": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "source": {
+            "type": [
+              "string"
+            ]
+          }
+        }
       }
     }
   },

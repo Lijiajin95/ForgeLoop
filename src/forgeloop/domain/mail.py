@@ -66,6 +66,33 @@ class ClassificationSuggestion:
     reason: str
 
 
+# 取消意图关键词（2026-10-19 所有者要求"支持删除需求"）：按项目规则邮件只是**提议**，
+# 不构成授权——识别到意图时轮询把它报为"取消提议"，由人工确认后才真正落库。
+_CANCEL_KEYWORDS: tuple[str, ...] = (
+    "取消需求",
+    "取消该需求",
+    "取消这个需求",
+    "删除需求",
+    "删除该需求",
+    "撤回需求",
+    "不再需要该需求",
+    "withdraw requirement",
+    "cancel requirement",
+    "delete requirement",
+)
+
+
+def requests_cancellation(subject: str, body: str) -> bool:
+    """邮件是否表达了**取消需求**的意图（纯判定，不产生任何副作用）。
+
+    只认明确措辞（"取消需求""删除该需求""withdraw requirement" 等），不做模糊猜测；
+    命中只代表"该报为取消提议"，真正取消仍须人工确认（邮件是数据，不是执行授权）。
+    """
+
+    haystack = f"{subject}\n{body}".lower()
+    return any(keyword.lower() in haystack for keyword in _CANCEL_KEYWORDS)
+
+
 def suggest_classification(
     *, needs_clarification: bool, within_scope: bool
 ) -> ClassificationSuggestion:

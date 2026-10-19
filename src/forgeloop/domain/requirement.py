@@ -30,6 +30,9 @@ AWAITING_CLARIFICATION = "awaiting_clarification"
 BLOCKED = "blocked"
 # 需求级整体验收通过后的终态；由记录层与 CLI 共用同一词表（不各写一份字面量）。
 ACCEPTED = "accepted"
+# 取消后的终态（2026-10-19）：结束自动推进并**保留**身份、版本、批准、交付与现场。
+# 与"删除"区分：记录只追加，不做物理删除。
+CANCELLED = "cancelled"
 
 
 class RequirementError(ValueError):

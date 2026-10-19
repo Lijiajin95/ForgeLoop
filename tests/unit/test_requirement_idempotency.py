@@ -313,3 +313,60 @@ class TestOldDatabaseUpgrade:
         assert approval is not None and approval.approved_by == "" and approval.source == ""
         assert attribution == ("", "")
         assert stop is not None and stop[2] == "旧停止"
+
+
+class TestRequirementCancellation:
+    """取消需求（2026-10-19）：终态 + 人工决定留痕，**不删除任何记录**。"""
+
+    def test_cancel_records_decision_and_sets_terminal_status(self, tmp_path) -> None:
+        from forgeloop.domain.requirement import CANCELLED
+        from forgeloop.records.requirements import RequirementStore
+
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            requirement = store.submit("ForgeLoop", "取消测试：批量导出")
+            store.record_requirement_cancellation(
+                requirement.req_id, by="owner", reason="不再需要该需求"
+            )
+            assert store.requirement_status(requirement.req_id) == CANCELLED
+            decision = store.requirement_cancellation(requirement.req_id)
+            assert decision is not None
+            assert decision == {
+                "cancelled_by": "owner",
+                "reason": "不再需要该需求",
+                "cancelled_at": decision["cancelled_at"],
+            }
+            assert decision["cancelled_at"]
+        finally:
+            store.close()
+
+    def test_missing_reason_or_by_is_refused_without_side_effects(self, tmp_path) -> None:
+        from forgeloop.domain.requirement import CANCELLED
+        from forgeloop.records.requirements import RequirementStore
+
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            requirement = store.submit("ForgeLoop", "取消测试：缺理由")
+            cases = (("", "理由"), ("owner", "  "))
+            for decided_by, reason in cases:
+                with pytest.raises(Exception, match="必须给出"):
+                    store.record_requirement_cancellation(
+                        requirement.req_id, by=decided_by, reason=reason
+                    )
+            assert store.requirement_status(requirement.req_id) != CANCELLED
+            assert store.requirement_cancellation(requirement.req_id) is None
+        finally:
+            store.close()
+
+    def test_cancelling_twice_keeps_the_first_decision(self, tmp_path) -> None:
+        from forgeloop.records.requirements import RequirementStore
+
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            requirement = store.submit("ForgeLoop", "取消测试：重复取消")
+            store.record_requirement_cancellation(requirement.req_id, by="owner", reason="第一次")
+            store.record_requirement_cancellation(requirement.req_id, by="someone", reason="第二次")
+            decision = store.requirement_cancellation(requirement.req_id)
+            assert decision is not None and decision["reason"] == "第一次"
+        finally:
+            store.close()

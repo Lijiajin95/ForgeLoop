@@ -154,6 +154,8 @@ class InboundResult:
     registered: bool
     reason: str
     attachments_recorded: int = 0
+    # 邮件是否表达"取消需求"意图（所有者 2026-10-19：删除=取消+记录，不是物理删除）
+    cancel_requested: bool = False
 
 
 @dataclass(frozen=True)
@@ -447,6 +449,7 @@ class MailAdapter:
         sender: SmtpMailSender,
         *,
         resolve_requirement: Callable[[InboundMail], str | None],
+        cancel_intent: Callable[[InboundMail], bool] | None = None,
         record_inbound: Callable[[InboundMail, str], bool],
         record_outbound: Callable[[str, str, str, datetime], bool],
         now: Callable[[], datetime] | None = None,
@@ -454,6 +457,8 @@ class MailAdapter:
         self._receiver = receiver
         self._sender = sender
         self._resolve_requirement = resolve_requirement
+        # 取消意图判定由组合根注入（架构禁止 adapter 依赖 domain）。
+        self._cancel_intent = cancel_intent
         self._recorder = _Recorder(record_inbound, record_outbound)
         self._now = now if now is not None else lambda: datetime.now(UTC)
 
@@ -465,6 +470,7 @@ class MailAdapter:
         """
 
         self._receiver.authenticate()
+
         raw_messages = self._receiver.fetch_unseen()
         results: list[InboundResult] = []
         errors: list[str] = []
@@ -485,6 +491,9 @@ class MailAdapter:
                         registered=False,
                         reason="未关联到需求编号，未纳入需求",
                         attachments_recorded=len(mail.attachments),
+                        cancel_requested=self._cancel_intent(mail)
+                        if self._cancel_intent
+                        else False,
                     )
                 )
                 continue
@@ -496,6 +505,7 @@ class MailAdapter:
                     registered=created,
                     reason="已登记" if created else "重复轮询命中幂等，未重复登记",
                     attachments_recorded=len(mail.attachments),
+                    cancel_requested=self._cancel_intent(mail) if self._cancel_intent else False,
                 )
             )
         return PollReport(

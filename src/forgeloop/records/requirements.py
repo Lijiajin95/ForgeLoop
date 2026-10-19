@@ -27,6 +27,7 @@ from forgeloop.domain.dependency_facts import (
 from forgeloop.domain.limits import ExecutionBudget
 from forgeloop.domain.requirement import (
     ACCEPTED,
+    CANCELLED,
     DRAFT,
     IdempotencyConflictError,
     Requirement,
@@ -55,6 +56,12 @@ from forgeloop.domain.task_plan import (
 from forgeloop.records.store import TaskDependencyRecord, read_task_dependency_record
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS requirement_cancellations (
+    req_id TEXT PRIMARY KEY,
+    cancelled_by TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    cancelled_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS requirements (
     req_id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -731,6 +738,48 @@ class RequirementStore:
             source=str(row[2]),
             approved_at=_parse(str(row[3])),
         )
+
+    def record_requirement_cancellation(
+        self, req_id: str, *, by: str, reason: str, at: datetime | None = None
+    ) -> None:
+        """记录一次需求取消：终态 + 人工决定留痕（谁/何时/理由），**不删除任何记录**。
+
+        校验 fail-closed：需求必须存在、调用方标识与理由不能为空；已取消时重复调用只
+        保留首条决定（幂等），不覆盖历史。取消只影响后续推进，既有版本、批准、交付与
+        现场原样保留。
+        """
+
+        requirement = self.get(req_id)  # 不存在即抛 RequirementNotFoundError
+        decided_by = by.strip()
+        if not decided_by:
+            raise RequirementError("取消需求必须给出调用方标识 --by")
+        if not reason.strip():
+            raise RequirementError("取消需求必须给出理由 --reason")
+        stamp = at or datetime.now(UTC)
+        # 取消是终态 + 决定留痕：两步同事务，避免出现"状态改了但没有决定记录"。
+        with self._db:
+            self._db.execute(
+                "INSERT OR IGNORE INTO requirement_cancellations"
+                " (req_id, cancelled_by, reason, cancelled_at) VALUES (?, ?, ?, ?)",
+                (req_id, decided_by, reason.strip(), stamp.astimezone(UTC).isoformat()),
+            )
+            self._db.execute(
+                "UPDATE requirements SET status = ? WHERE req_id = ?",
+                (CANCELLED, req_id),
+            )
+        _ = requirement  # 仅为触发"需求存在"校验
+
+    def requirement_cancellation(self, req_id: str) -> dict[str, str] | None:
+        """回查取消决定；未取消返回 ``None``。"""
+
+        row = self._db.execute(
+            "SELECT cancelled_by, reason, cancelled_at FROM requirement_cancellations"
+            " WHERE req_id = ?",
+            (req_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {"cancelled_by": str(row[0]), "reason": str(row[1]), "cancelled_at": str(row[2])}
 
     def plan_authorization(self, req_id: str) -> PlanAuthorization:
         """判定当前任务包能否执行：未批准、旧版本或需求已修订都不放行。"""

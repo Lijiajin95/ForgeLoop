@@ -49,6 +49,7 @@ from forgeloop.domain.mail import (
     MailThread,
     parse_reply_reference,
     render_notification,
+    requests_cancellation,
     suggest_classification,
 )
 from forgeloop.domain.requirement import RequirementNotFoundError
@@ -273,6 +274,36 @@ def _resolve_requirement(
     return requirement_store.submit(project, _requirement_text(mail)).req_id
 
 
+def _effective_whitelist(args: argparse.Namespace) -> tuple[frozenset[str], str]:
+    """生效的发件人白名单：``--whitelist`` 优先，其次邮件配置里的 ``whitelist``。
+
+    返回 ``(白名单, 来源说明)``。都没有时返回空集合——表示**不限制**（保持既有行为）；
+    配置不可读时不报错、退回不限制，并把原因写进来源说明（fail-open 在这里是刻意的：
+    白名单只影响"谁能新建需求"，不影响同一条线索的既有往来）。
+    """
+
+    explicit = [
+        item.strip().lower() for item in (getattr(args, "whitelist", None) or []) if item.strip()
+    ]
+    if explicit:
+        return frozenset(explicit), "命令行 --whitelist"
+    try:
+        from forgeloop.mail.config import load_mail_config
+
+        explicit_config = str(getattr(args, "config", "") or "").strip()
+        config = load_mail_config(
+            explicit_path=Path(explicit_config).expanduser() if explicit_config else None,
+            repo_root=Path.cwd(),
+            home=Path.home(),
+        )
+    except Exception as error:
+        return frozenset(), f"未配置（邮件配置不可用：{type(error).__name__}）"
+    configured = frozenset(item.strip().lower() for item in config.whitelist if item.strip())
+    if configured:
+        return configured, f"邮件配置 {config.source_path} 的 whitelist"
+    return frozenset(), f"未配置（{config.source_path} 没有 whitelist）"
+
+
 def _build_adapter(
     args: argparse.Namespace,
     thread_store: MailThreadStore,
@@ -304,13 +335,10 @@ def _build_adapter(
             thread_store,
             requirement_store,
             args.project,
-            whitelist=frozenset(
-                item.strip().lower()
-                for item in (getattr(args, "whitelist", None) or [])
-                if item.strip()
-            ),
+            whitelist=_effective_whitelist(args)[0],
         ),
         record_inbound=record_inbound,
+        cancel_intent=lambda mail: requests_cancellation(mail.subject, mail.body),
         record_outbound=record_outbound,
         now=lambda: datetime.now(UTC),
     )
@@ -343,10 +371,12 @@ def _entry(
     terminal: bool,
     feedback_sent: bool,
     pending_action: bool,
+    cancel_proposal: bool = False,
 ) -> dict:
     return {
         "req_id": req_id,
         "message_id": message_id,
+        "cancel_proposal": cancel_proposal,
         "registered": registered,
         "suggestion": (
             None
@@ -407,6 +437,7 @@ def _pending_entries(
                 suggestion=suggestion,
                 terminal=terminal,
                 feedback_sent=bool(kinds),
+                cancel_proposal=result.cancel_requested,
                 pending_action=_pending_action(
                     kinds,
                     suggestion,
@@ -418,11 +449,23 @@ def _pending_entries(
     return entries
 
 
-def _mail_poll_document(report: PollReport, entries: list[dict]) -> dict:
+def _mail_poll_document(
+    report: PollReport,
+    entries: list[dict],
+    *,
+    whitelist: frozenset[str] = frozenset(),
+    whitelist_source: str = "",
+) -> dict:
     """``mail poll --once --json`` 的稳定文档：只读事实与待确认动作。"""
 
     return {
         "command": "forgeloop mail poll --once",
+        # 建需求白名单（2026-10-19）：谁能通过邮件新建需求；source 说明它来自哪里。
+        "whitelist": {
+            "senders": sorted(whitelist),
+            "source": whitelist_source,
+            "enforced": bool(whitelist),
+        },
         "fetched": report.fetched,
         "registered": report.registered,
         "skipped": len(report.skipped),
@@ -532,7 +575,20 @@ def cmd_mail_poll(args: argparse.Namespace) -> int:
         adapter.close()
         connection.close()
         requirement_store.close()
-    _emit(_mail_poll_document(report, entries), args.json)
+    whitelist, whitelist_source = _effective_whitelist(args)
+    _emit(
+        _mail_poll_document(
+            report, entries, whitelist=whitelist, whitelist_source=whitelist_source
+        ),
+        args.json,
+    )
+    if not args.json:
+        note = (
+            f"建需求白名单：{'、'.join(sorted(whitelist))}（{whitelist_source}）"
+            if whitelist
+            else f"建需求白名单：未启用（{whitelist_source}）——任何来信都会建草稿需求"
+        )
+        print(note)
     return 0
 
 

@@ -336,6 +336,22 @@
 - **真实试验抓到的缺陷（已修 + 已补回归）**：`panel_tool_calls` 早期把 `tool_call_id` 当全局主键，而 PI 的 `toolCallId` 只在一次会话内唯一——两个会话各跑一次 `bash`（假 PI 都用 `call-bash-1`）时，后一条 `ON CONFLICT` 更新覆盖了前一条的会话归属，第二个会话的工具行在面板上「消失」（快速层的用例每个服务实例只建一个带工具的会话，因此没覆盖到）。改为复合主键 `(session_id, tool_call_id)`、结束事件按会话限定更新，并为旧现场补一次性重建迁移（幂等，按 pk 序号判形状）；回归用例：记录层两条（同名 id 两会话各留一行 + 旧表迁移不丢行）、集成层一条（同一服务实例内两个工具会话各记两行）。
 - 发现但不碰：① `config/quality-policy.toml` 里 `panel.ts` 的 5 条类型守卫幸存者随源码行号平移（62→67、68→73），原因原文未改；另有 3 条新增等价幸存者（两个字段初值在首读前必被赋值覆盖、`clearTimeout(undefined)` 与 `await undefined` 是 no-op），逐条写明理由后登记；② 面板的**前端**没有展示 `live` 明细（只显示常驻会话数与每个会话的 pid 复用事实），完整明细在 `/api/panel` 的 `runtime.live` 里——按当前使用场景（单用户本机）不再加界面；③ 面板仍不覆盖 IDE 级工具拦截（需要 PI SDK 的 tool dispatch 包装，而非 RPC），属后续单独立项。
 
+2026-10-19（取消需求：终态守卫与 CLI，撤下+留痕；两次环境事故已恢复）：所有者要求"支持删除需求"，按项目记录保留规则实现为**取消**。
+
+- **语义**：取消 = 结束自动推进 + 人工决定留痕；身份、版本、批准、交付与现场**原样保留**（与"物理删除记录"区分，后者未获授权、不做）。
+- **记录层**：`requirement_cancellations` 表（只追加、首条决定为准）+ 落库 API：需求必须存在，`--by`/`--reason` 缺失即 fail-closed 且零副作用；状态与决定同事务。
+- **CLI**：`requirement cancel <req_id> --by --reason`（记录决定并打印；未知需求/空理由退出码 1）。
+- **终态守卫**：`REQUIREMENT_TERMINAL_STATUSES` 纳入 `cancelled` —— 推进只做只读回查，**不得把 cancelled 覆盖成 executing**（与既有 accepted/rejected 同一条路径）。
+- **测试**：记录层 3 项 + CLI 场景 4 项（成功取消后 status 显示 cancelled、空理由被拒、未知需求报错、取消后推进仍保持 cancelled）。
+- **环境事故（如实记录，均非代码问题，内容完好）**：① `.git/config` 的 `core.bare` 两次被置真（`git log` 正常、`git status` 报"必须在一个工作区中运行"），全仓库搜索无任何代码/脚本会设置它，来源不明；② 由此连带一次索引异常——`git status` 显示 `.github/workflows/*`、`Makefile`、`AGENTS.md` 等一批跟踪文件"已暂存删除"，而**磁盘上文件都在**（逐项核对：4 个 workflow、Makefile、AGENTS.md 均在位）。用 `git reset`（只重置索引）恢复；此后提交改为**显式列出文件名**，不再用 `git add -A`；`git fsck` 仅两个悬空 blob（正常历史残留）。
+
+2026-10-19（**所有者确认删除口径 + 取消提议接线完成**）：所有者明确"删除是取消+记录，不是物理删除"。
+
+- **口径决定（已记档）**：删除 = **取消 + 记录**；不做物理删除。需求取消后进入终态 `cancelled`，身份、版本、批准、交付与现场**全部保留**，后续推进一律拦下（终态守卫）。
+- **取消提议接线**：轮询结果标注 `cancel_requested`（适配层用 `domain.mail.requests_cancellation` 判定，正文可用处即判定），并透出到轮询文档条目的 `cancel_proposal` 字段；**只标注、不执行**——真正取消仍由人跑 `requirement cancel`（邮件是数据，不构成授权）。
+- **测试**：场景测试 2 项（正文"请取消需求"→ `cancel_proposal: true`；"取消按钮的位置也请调整"→ `false`，不误判）；CLI 契约快照补字段并重导出。
+- 途中修正：插入 `_entry` 返回字段时因同名字段出现两次而误插到 `mail confirm` 文档（作用域无该变量），已删除误插；lint/type/测试全部通过后提交。
+
 ### 实现范围
 
 | 层 | 内容 |
