@@ -131,6 +131,14 @@
 - **一次真实失败与归因（如实记录）**：首次真实运行把 `--patch` 写在 `--json` 之后，DSH 启动器把 `--json` 之后的参数交给应用，应用报 `unknown option '--patch'`；适配器把该 `error` 事件转成 `runtime-error: unknown option '--patch'` 并按未取得结果中断（任务 interrupted、零候选写入）。修正为启动器参数在前（`--profile headless --patch <overlay> --json`）后通过；该失败现场与事件原文保留在首个任务记录里。
 - 仍未验证：DSH `--session-id` 会话恢复、容器内 DSH、以及真实模型的**长任务**（本批均为最小任务）；`make mutation` 的结论不受本补充影响（`pi_rpc` 不在变异范围）。
 
+2026-10-19（Agent Runtime 分支合入 main，合并提交 `3f89058`）：`feat/agent-runtime-hot-switch`（`1273e6f`）已合入 main；与同期多项目隔离、邮箱交互批次（`d1c76cf`、`89ec274`）合并时做了以下适配与修复：
+
+- **运行状态按项目隔离**：`forgeloop runtime show|set|list` 必填 `--project`，状态落在 `<records-root>/projects/<project_id>/records.sqlite`（与需求、任务、会话同一记录根）；`runtime show --json` 增 `project` 字段并同步 CLI 契约快照。本文件上一批次里“`runtime` 是记录根级（`scope=default`）单一选择”的描述据此更正为按项目隔离。
+- **合并修复（对方批次遗留）**：`tests/project_support.py` 未登记进 `domain.repo_facts.TEST_ROOT_FILES`，合并后 `test_every_tracked_path_is_legal` 失败；已在合法清单登记并同步 `tests/unit/test_planning_repo_facts.py` 的固定事实断言。`cli/main.py`、`cli/requirements.py`、`graph/nodes.py` 同时保留项目登记/定位与 Agent Runtime 解析（`NodeContext` 同时携带 `repository` 与 `records_root`）。
+- **覆盖率修复**：合并后分支覆盖率一度 **88.88%**（低于 90% 门槛，由两批新增代码的未覆盖分支叠加）；补邮件适配器边界（配置校验、解析辅助、IMAP/SMTP 失败分支）、DSH 生命周期与协议边界、runtime 文本输出与 `cli.common` 定位边界用例后，最终 1953 通过、9 跳过，**行 95.44%、分支 90.28%**、增量通过。
+- **合入门禁**：`make check` **exit 0**（1810 通过、3 跳过、5 未选；前端 68 项通过；结构 0 失败 / 417 条审阅提示）；`make test-system` **20 项通过**；`make coverage` **exit 0**；合并提交与分支提交的本地 hooks（lint／format／pyright／提交时段／Conventional Commit）全部通过。
+- **合入方式**：`git merge --no-ff`，合并提交 `3f89058` 的两父提交为 `1273e6f` 与 `89ec274`；合入前对方批次已提交、工作树干净，未覆盖、未回退、未 stash 任何在途改动。**未推送 `origin/main`**（需所有者另行授权）；推送前需注意规则集 `main-protection` 的签名与必需检查要求。
+
 ### 实现范围
 
 | 层 | 内容 |
