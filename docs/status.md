@@ -146,7 +146,14 @@
 - **内容**：状态页按需求／任务／问题三页签组织，按身份关联（`single_task_id`、`ref_id`）并支持跨段跳转、深链与 `hashchange`；需求卡片与任务分组可折叠且重绘后保留状态；各段补充描述；随包产物与跨语言契约测试同批更新。
 - **合入后验证（独立复跑）**：`make check` **exit 0**（**1813 通过、3 跳过、5 未选**；前端 **144 项通过**；lint／format／pyright／契约／结构 0 失败、421 条审阅提示）；`make frontend-mutation` **通过**（击杀率 **97.31%**，检出 325／未检出 9、登记幸存者 8 条）；`make frontend-e2e` **11 项通过**（真实 Chromium）。原始日志：`/tmp/forgeloop-postmerge-check4.log`、`/tmp/forgeloop-fe-mutation.log`、`/tmp/forgeloop-fe-e2e.log`。
 - **过程中的真实失败与处理**：首次合入后 `make check` 因本地 `reports/frontend-mutation.json` 是旧代码生成的陈旧报告而失败（登记的 `format.ts` 幸存者行号随代码移动），重新执行 `make frontend-mutation` 生成当前报告后转为通过；另一次失败是 Hypothesis 截止时间 flaky（`test_requirement_retry_property.py::test_cli_blank_reason_never_drives_resume`，单跑 13.49s 通过），均非合并代码缺陷。
-- **推送状态**：`origin/main` 已由另一执行方推送到 `8780844`（包含邮箱交互批次 `d1c76cf`／`89ec274`）；本次合并提交 `3df845a` 及其分支提交 `f965c89` **仍在本地**（`main` 领先 `origin/main` 2 个提交），推送需所有者另行授权。
+- **推送状态**：`origin/main` 先由另一执行方推到 `8780844`（包含邮箱交互批次 `d1c76cf`／`89ec274`）；所有者 2026-10-19 授权后，本会话把本地 `main` push 到远端，`8780844..6ed4f03` 成功，`origin/main=6ed4f03`，GitHub API 校验合并提交与状态记录为 `verified=true, reason=valid`。
+
+2026-10-19（环境事故：仓库 `.git/config` 被外部进程覆盖，已恢复，未提交代码改动）：约 19:46–19:48 发现主工作区 `git status` 报 `fatal: this operation must be run in a work tree`，`git worktree list` 把主仓库标为 `(bare)`。检查 `.git/config` 发现被改写为 `core.bare = true`、`user.name = Tester`、`user.email = tester@example.test`，且 `[remote "origin"]` 与 `branch.main` 的上游配置丢失；对象库、索引、引用与工作树文件未受影响（`git fsck --connectivity-only` exit 0，仅有 dangling 对象；`origin/main` 与本地提交均在）。
+
+- **恢复动作（只改 `.git/config`，未改任何受跟踪文件）**：`core.bare=false`；重建 `remote.origin.url=https://github.com/Lijiajin95/ForgeLoop.git` 与 `remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*`；`git branch --set-upstream-to=origin/main main`；删除被写入的本地 `user.name`／`user.email`，回落到全局身份 `lijiajin`／`lijiajin9528@gmail.com`。恢复后 `git status` 正常、`main...origin/main` 同步。
+- **事实核对**：`Tester`／`tester@example.test` 字符串来自 `tests/component/test_commit_policy_audit.py` 的 `init_repository()`（`git init -q` 后写入该身份）；但该文件 fixtures 使用 `tmp_path`，静态检查未见指向真实仓库的路径。`core.bare=true` 与在已有仓库目录内执行 `git init --bare` 的效果一致；**具体触发者未能从现有证据确定**（沙箱禁止 `ps`，无法核对当时进程）。
+- **发现但不碰**：需要后续排查是否有测试或命令会在真实仓库根执行 `git init --bare` 或 `git config`，并加防呆（例如拒绝在已含 `.git` 的目录初始化裸仓库、测试统一用临时目录）。本批次不改相关测试与实现。
+
 
 
 ### 实现范围
