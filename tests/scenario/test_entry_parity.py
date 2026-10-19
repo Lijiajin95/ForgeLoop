@@ -23,17 +23,10 @@ def _seed(records_root: Path, text: str = "等价性：导出功能") -> str:
 
 
 def _cancel_facts(records_root: Path, req_id: str) -> dict[str, object]:
-    store = RequirementStore(records_root / "records.sqlite")
-    try:
-        decision = store.requirement_cancellation(req_id)
-        return {
-            "status": store.requirement_status(req_id),
-            "has_decision": decision is not None,
-            "reason_non_empty": bool(decision and decision.get("reason")),
-            "by_non_empty": bool(decision and decision.get("cancelled_by")),
-        }
-    finally:
-        store.close()
+    # 统一口径：所有跨入口对照都用 tests/scenario/parity_facts.py 的读取器。
+    from parity_facts import cancel_facts
+
+    return cancel_facts(records_root, req_id)
 
 
 class TestCancelParity:
