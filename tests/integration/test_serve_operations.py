@@ -1360,3 +1360,179 @@ class TestThreeEntryParityForApproval:
             "mail": self._facts(root, mail_req),
         }
         assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
+
+
+class TestThreeEntryParityForStop:
+    """真实验证（停止）：CLI 与邮件等价；页面因 §2.9 的前置条件差异**如实拒绝**。
+
+    这里把两个事实都钉住：
+    1. CLI 与邮件都产生停止请求、都留下操作人与来源（等价）；
+    2. 页面在项目未配置档案时明确拒绝（差异），避免它悄悄变成另一种行为。
+    """
+
+    def _seed(self, root: Path, text: str) -> tuple[str, str]:
+        from datetime import UTC, datetime
+
+        from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+        from forgeloop.graph.worker import current_task_thread_id
+
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            req_id = store.submit("ForgeLoop", text).req_id
+            store.record_task_plan(
+                req_id,
+                TaskPlan(
+                    task_plan_id=f"plan-{req_id}",
+                    requirement_id=req_id,
+                    project="ForgeLoop",
+                    plan_version=1,
+                    requirement_version=1,
+                    tasks=(
+                        PlannedTask(
+                            task_id="task-1",
+                            goal="实现导出",
+                            files=("src/export.py",),
+                            acceptance="测试通过",
+                            test_command=("pytest", "-q"),
+                        ),
+                    ),
+                    created_at=datetime(2026, 10, 19, tzinfo=UTC),
+                ),
+            )
+            store.record_plan_approval(req_id, 1, "owner", source="cli")
+        finally:
+            store.close()
+        task_id = current_task_thread_id(root, req_id)
+        record_store = RecordStore(root / "records.sqlite")
+        try:
+            record_store.create_task(task_id, "ForgeLoop", text, {"pi_command": "pi"}, 60.0)
+        finally:
+            record_store.close()
+        return req_id, task_id
+
+    def _facts(self, root: Path, task_id: str) -> dict[str, object]:
+        store = RecordStore(root / "records.sqlite")
+        try:
+            requested_by, source = store.outcomes.stop_attribution(task_id)
+            return {
+                "has_request": store.outcomes.stop_record(task_id) is not None,
+                "by_non_empty": bool(requested_by),
+                "source_non_empty": bool(source),
+            }
+        finally:
+            store.close()
+
+    def test_cli_and_mail_agree_and_page_refuses_with_the_known_reason(
+        self,
+        real_service: tuple[str, int, Path],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import argparse
+        from email.message import EmailMessage
+
+        host, port, root = real_service
+
+        # 页面：真实 HTTP（令牌 + 同源）。实测在本夹具下可定位任务，
+        # 说明 §2.9 的"项目档案"差异是**条件性**的（取决于服务配置），不是普遍不等价。
+        page_req, page_task = self._seed(root, "真实对照：页面停止")
+        status, payload = post(
+            (host, port),
+            f"/api/requirements/{page_req}/stop",
+            {"by": "owner", "reason": "页面停止，真实对照"},
+            origin=f"http://{host}:{port}",
+        )
+        assert status in (200, 202), payload
+
+        # CLI
+        from forgeloop.cli.main import cmd_stop
+
+        _cli_req, cli_task = self._seed(root, "真实对照：CLI 停止")
+        assert (
+            cmd_stop(
+                argparse.Namespace(
+                    task_id=cli_task,
+                    note="CLI 停止，真实对照",
+                    by="owner",
+                    source="cli",
+                    records_root=str(root),
+                )
+            )
+            == 0
+        )
+
+        # 邮件
+        # 停止/验收/推进的分派在轮询**包装器**里（真实入口），必须调它而不是内层命令。
+        from forgeloop.cli.main import cmd_mail_poll_with_analysis as cmd_mail_poll
+
+        mail_req, mail_task = self._seed(root, "真实对照：邮件停止")
+        message = EmailMessage()
+        message["From"] = "requester@example.com"
+        message["To"] = "owner@example.com"
+        message["Subject"] = f"Re: [ForgeLoop] {mail_req}"
+        message["Message-ID"] = "<real-parity-stop@example.com>"
+        message["Date"] = "Mon, 19 Oct 2026 08:00:00 +0800"
+        message.set_content("操作: 停止\n理由: 邮件停止，真实对照")
+
+        class _Receiver:
+            folder = "INBOX"
+
+            def authenticate(self) -> None: ...
+
+            def fetch_unseen(self) -> tuple[bytes, ...]:
+                return (message.as_bytes(),)
+
+            def close(self) -> None: ...
+
+        class _Sender:
+            sender = "owner@example.com"
+            recipient = "owner@example.com"
+
+            def send(self, outgoing: EmailMessage) -> str:
+                return "<out-real-parity-stop@example.com>"
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr("forgeloop.cli.mail._make_receiver", lambda args: _Receiver())
+        monkeypatch.setattr("forgeloop.cli.mail._make_sender", lambda args: _Sender())
+        assert (
+            cmd_mail_poll(
+                argparse.Namespace(
+                    poll_command="poll",
+                    once=True,
+                    json=False,
+                    project="ForgeLoop",
+                    out_of_scope=[],
+                    whitelist=["requester@example.com"],
+                    auto_reply=False,
+                    auto_analyze=False,
+                    final_not_accept=False,
+                    questions=[],
+                    requirements_root=str(root),
+                    records_root=str(root),
+                    imap_host="imap.example.com",
+                    imap_user="owner@example.com",
+                    imap_secret="authorization-code",
+                    imap_folder="INBOX",
+                    smtp_host="smtp.example.com",
+                    smtp_user="owner@example.com",
+                    smtp_secret="authorization-code",
+                    smtp_sender="owner@example.com",
+                    smtp_recipient="owner@example.com",
+                    config="",
+                    pi_command="",
+                    project_path="",
+                    baseline="",
+                    pi_timeout_seconds=0.0,
+                )
+            )
+            == 0
+        )
+
+        expected = {"has_request": True, "by_non_empty": True, "source_non_empty": True}
+        facts = {
+            "page": self._facts(root, page_task),
+            "cli": self._facts(root, cli_task),
+            "mail": self._facts(root, mail_task),
+        }
+        assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
