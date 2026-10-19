@@ -359,6 +359,14 @@
 - **对话现已可往复**：邮件提需求 → 分析产生待澄清问题 → `mail confirm --questions` 发问 → 对方回信 → 答复回流 → 重新分析 → …（≤3 轮消歧上限仍生效）；批准/验收/取消仍需人工动作。
 - **仍缺（下一步）**：① 出向回执带上**问题正文**（现在只有问题编号）；② `auto_analyze` 接线（收到即自动跑一次分析，免去手工 `requirement analyze`）；③ 页面"待确认取消提议/答复待分析"段。
 
+2026-10-19（**auto_analyze 接线完成**，未落实项转为已实现）：所有者要求把 `auto_analyze` 真正接上。
+
+- **行为**：`mail poll` 新增 `--auto-analyze/--no-auto-analyze`（三态，缺省取邮件配置 `auto_analyze`，默认关闭）与 `--pi-command/--project-path/--baseline/--pi-timeout-seconds`；轮询后对**本次新登记**入向邮件的需求各跑一次既有分析管线（approvals/槽位/工时规则不变），单条失败只记录不中断；缺 `--pi-command` 时明确提示"本次不分析"。
+- **实现位置**：组合根 `main.cmd_mail_poll_with_analysis`（`cli/mail.py` 不能反向导入 `main`，避免环依赖），通过 `add_mail_parser(..., poll_entry=...)` 注入。
+- **JSON 隔离**：`--json` 时文档独占 stdout，自动分析说明只走人类输出（此前会破坏 JSON 解析，被 18 个场景测试当场抓出）。
+- **测试**：3 项（开启时对受影响需求调用一次、缺省不调用、缺 pi-command 时提示且不调用）。
+- **模板**：`config/mail.example.toml` 补注释说明该开关的真实语义与前置条件。
+
 ### 实现范围
 
 | 层 | 内容 |

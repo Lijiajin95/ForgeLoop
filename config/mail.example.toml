@@ -18,4 +18,6 @@ recipient = "notify-to@example.com"
 subject_prefix = "[ForgeLoop]"
 folder = "INBOX"
 whitelist = ["notify-from@example.com"]
+# auto_analyze = true 时，轮询登记的**新**入向邮件会让对应需求自动跑一次分析
+# （需要同时给 mail poll 传 --pi-command；缺省关闭，因为分析要花模型调用）。
 auto_analyze = false
