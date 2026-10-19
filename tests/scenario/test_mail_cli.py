@@ -533,7 +533,9 @@ class TestHumanConfirmation:
                 )
             ],
         )
-        document = poll(tmp_path, capsys)
+        # 人工路径：显式关闭自动回复，验证 confirm 仍能稳定发出并绑定线索
+        # （自动回复默认开启后，轮询会自己把接纳回执发出去，见 TestAutoReply）。
+        document = poll(tmp_path, capsys, "--no-auto-reply")
         assert document["requirements"][0]["suggestion"]["kind"] == (
             Classification.ACCEPT_SUCCESS.value
         )
@@ -1134,3 +1136,66 @@ class TestAutoAnalyzeWiring:
             capsys,
         )
         assert code == 0 and "缺少 --pi-command" in out and calls == []
+
+
+class TestAutoReply:
+    """自动回信（所有者 2026-10-19：回信由系统自动分析回复，不需逐封人工确认）。"""
+
+    def test_disambiguation_is_sent_automatically_after_poll(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(
+            tmp_path, "导出功能", clarifications=("导出格式?", "历史数据保留多久?")
+        )
+        _receiver, sender = install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<auto-reply-1@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="补充：希望尽快。",
+                )
+            ],
+        )
+        poll(tmp_path, capsys)
+        sent = [message for message in sender.sent if req_id in str(message["Subject"])]
+        assert sent, "轮询后应自动发出回信"
+        part = sent[-1].get_body(preferencelist=("plain",))
+        assert part is not None
+        body = part.get_content()
+        assert "导出格式?" in body and "请直接回复本邮件" in body
+
+    def test_terminal_not_accept_is_left_for_human(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # 不在受理范围内的需求 → 建议"不接纳"；这是终局否定决定，不自动发。
+        req_id = seed_requirement(tmp_path, "无关需求")
+        _receiver, sender = install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<auto-reply-2@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="补充说明。",
+                )
+            ],
+        )
+        poll(tmp_path, capsys, "--out-of-scope", req_id)
+        assert sender.sent == [], "不接纳不自动发送，留人工确认"
+
+    def test_flag_can_turn_auto_reply_off(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能", clarifications=("导出格式?",))
+        _receiver, sender = install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<auto-reply-3@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="补充。",
+                )
+            ],
+        )
+        poll(tmp_path, capsys, "--no-auto-reply")
+        assert sender.sent == []

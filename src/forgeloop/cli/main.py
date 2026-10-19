@@ -35,10 +35,18 @@ from forgeloop.adapter.git_workspace import (
     read_main_head,
     recorded_baseline,
 )
+from forgeloop.adapter.mail import MailAdapterError
 from forgeloop.cli.candidate import add_candidate_parser
 from forgeloop.cli.common import open_store, records_root
 from forgeloop.cli.deploy import add_deploy_parser
-from forgeloop.cli.mail import add_mail_parser, auto_analyze_setting, cmd_mail_poll
+from forgeloop.cli.mail import (
+    _open_thread_connection,
+    add_mail_parser,
+    auto_analyze_setting,
+    auto_reply_setting,
+    cmd_mail_poll,
+    send_feedback,
+)
 from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
@@ -64,6 +72,7 @@ from forgeloop.domain.delivery import (
     assess_requirement_acceptance,
 )
 from forgeloop.domain.dependency_facts import assess_dependency
+from forgeloop.domain.mail import Classification, DisambiguationQuestion
 from forgeloop.domain.requirement import (
     BLOCKED,
     IdempotencyConflictError,
@@ -86,6 +95,7 @@ from forgeloop.graph.requirements import (
     TaskResult,
 )
 from forgeloop.graph.state import TaskState
+from forgeloop.records.mail_threads import MailThreadStore
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
@@ -636,6 +646,74 @@ def cmd_requirement_revise(args: argparse.Namespace) -> int:
     return 0
 
 
+def _auto_reply_after_poll(args: argparse.Namespace) -> list[str]:
+    """按轮询算出的建议**自动发出回信**（所有者 2026-10-19：回信不需要逐封人工确认）。
+
+    只自动发两类：发问（消歧）与接纳回执。「不接纳」是终局否定决定，仍留给人工确认。
+    发信仍走既有约束：同一入向只回一封、消歧 ≤3 轮、终态不再发信。
+    """
+
+    document = getattr(args, "poll_document", None) or {}
+    root = records_root(args)
+    requirement_store = RequirementStore(root / "records.sqlite")
+    connection = _open_thread_connection(root)
+    thread_store = MailThreadStore(connection)
+    messages: list[str] = []
+    try:
+        for entry in document.get("requirements", []):
+            req_id = entry.get("req_id") or ""
+            suggestion = entry.get("suggestion") or {}
+            kind_value = str(suggestion.get("kind") or "")
+            if not req_id or not entry.get("awaiting_human_confirmation"):
+                continue
+            if kind_value == Classification.NOT_ACCEPT_CANDIDATE.value:
+                messages.append(f"自动回信：{req_id} 建议不接纳（终局决定，留人工确认）")
+                continue
+            if kind_value == Classification.ACCEPT_SUCCESS.value:
+                kind = Classification.ACCEPT_SUCCESS
+                questions: tuple[DisambiguationQuestion, ...] = ()
+            elif kind_value == Classification.DISAMBIGUATE.value:
+                kind = Classification.DISAMBIGUATE
+                questions = _analysis_questions(requirement_store, req_id)
+                if not questions:
+                    messages.append(f"自动回信：{req_id} 待澄清但没有问题正文，留人工确认")
+                    continue
+            else:
+                continue
+            try:
+                confirm = send_feedback(
+                    args, thread_store, requirement_store, req_id, kind, questions
+                )
+            except MailAdapterError as error:
+                messages.append(f"自动回信：{req_id} 发送失败（{error}）")
+                continue
+            if confirm.get("sent"):
+                messages.append(f"自动回信：{req_id} 已发送 {kind.value}")
+            else:
+                messages.append(f"自动回信：{req_id} 未发送（{confirm.get('reason', '')}）")
+    finally:
+        connection.close()
+        requirement_store.close()
+    return messages
+
+
+def _analysis_questions(
+    requirement_store: RequirementStore, req_id: str
+) -> tuple[DisambiguationQuestion, ...]:
+    """把最近一次分析的待澄清项转成带正文的问题（供自动回信使用）。"""
+
+    try:
+        analysis = requirement_store.latest_analysis(req_id)
+    except RequirementNotFoundError:
+        return ()
+    if analysis is None:
+        return ()
+    return tuple(
+        DisambiguationQuestion(f"q{index}", text)
+        for index, text in enumerate(analysis.clarifications, 1)
+    )
+
+
 def _auto_analyze_after_poll(args: argparse.Namespace, req_ids: list[str]) -> list[str]:
     """对刚收到新入向邮件的需求各跑一次分析（auto_analyze 开启时）。
 
@@ -668,7 +746,13 @@ def cmd_mail_poll_with_analysis(args: argparse.Namespace) -> int:
     code = cmd_mail_poll(args)
     if code != 0:
         return code
+    messages: list[str] = []
+    if auto_reply_setting(args):
+        messages.extend(_auto_reply_after_poll(args))
     if not auto_analyze_setting(args):
+        if messages and not getattr(args, "json", False):
+            for message in messages:
+                print(message)
         return code
     document = getattr(args, "poll_document", None) or {}
     affected = [
@@ -678,7 +762,6 @@ def cmd_mail_poll_with_analysis(args: argparse.Namespace) -> int:
     ]
     if not affected:
         return code
-    messages: list[str] = []
     if not str(getattr(args, "pi_command", "") or "").strip():
         messages.append(
             "自动分析已开启，但缺少 --pi-command；本次不分析（答复已入需求，可稍后手工分析）"

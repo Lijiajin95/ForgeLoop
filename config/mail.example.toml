@@ -18,6 +18,10 @@ recipient = "notify-to@example.com"
 subject_prefix = "[ForgeLoop]"
 folder = "INBOX"
 whitelist = ["notify-from@example.com"]
+# auto_reply = true（默认）时，轮询会把系统算出的回信**自动发出**（发问/接纳）；
+# 「不接纳」是终局否定决定，仍留人工 confirm。
+auto_reply = true
+
 # auto_analyze = true 时，轮询登记的**新**入向邮件会让对应需求自动跑一次分析
 # （需要同时给 mail poll 传 --pi-command；缺省关闭，因为分析要花模型调用）。
 auto_analyze = false

@@ -31,7 +31,7 @@ USER_FORGELOOP_CONFIG_RELATIVE = Path(".config/forgeloop/mail.toml")
 CONFIG_ENV_VAR = "FORGELOOP_MAIL_CONFIG"
 
 REQUIRED_KEYS = ("provider", "sender", "recipient")
-OPTIONAL_KEYS = ("subject_prefix", "folder", "whitelist", "auto_analyze")
+OPTIONAL_KEYS = ("subject_prefix", "folder", "whitelist", "auto_analyze", "auto_reply")
 KNOWN_KEYS = frozenset((*REQUIRED_KEYS, *OPTIONAL_KEYS))
 DEFAULT_SUBJECT_PREFIX = "[ForgeLoop]"
 DEFAULT_FOLDER = "INBOX"
@@ -57,6 +57,8 @@ class MailConfig:
     folder: str = DEFAULT_FOLDER
     whitelist: tuple[str, ...] = ()
     auto_analyze: bool = False
+    # 回信是否由系统自动发出（所有者 2026-10-19：回信不需要人工逐封确认）。
+    auto_reply: bool = True
 
 
 def config_candidates(
@@ -116,6 +118,9 @@ def parse_mail_config(document: Mapping[str, Any], *, source_path: Path) -> Mail
     auto_analyze = document.get("auto_analyze", False)
     if not isinstance(auto_analyze, bool):
         raise MailConfigurationError(f"auto_analyze 必须是布尔值（{source_path}）")
+    auto_reply = document.get("auto_reply", True)
+    if not isinstance(auto_reply, bool):
+        raise MailConfigurationError(f"auto_reply 必须是布尔值（{source_path}）")
     subject_prefix = str(document.get("subject_prefix", DEFAULT_SUBJECT_PREFIX)).strip()
     folder = str(document.get("folder", DEFAULT_FOLDER)).strip()
     return MailConfig(
@@ -127,6 +132,7 @@ def parse_mail_config(document: Mapping[str, Any], *, source_path: Path) -> Mail
         folder=folder or DEFAULT_FOLDER,
         whitelist=tuple(item.strip().lower() for item in raw_whitelist),
         auto_analyze=auto_analyze,
+        auto_reply=auto_reply,
     )
 
 

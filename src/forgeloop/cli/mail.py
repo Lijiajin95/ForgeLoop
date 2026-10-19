@@ -306,6 +306,26 @@ def auto_analyze_setting(args: argparse.Namespace) -> bool:
     return bool(config.auto_analyze)
 
 
+def auto_reply_setting(args: argparse.Namespace) -> bool:
+    """自动回复开关：命令行优先，其次邮件配置 ``auto_reply``（缺省开启）。"""
+
+    explicit = getattr(args, "auto_reply", None)
+    if explicit is not None:
+        return bool(explicit)
+    try:
+        from forgeloop.mail.config import load_mail_config
+
+        explicit_config = str(getattr(args, "config", "") or "").strip()
+        config = load_mail_config(
+            explicit_path=Path(explicit_config).expanduser() if explicit_config else None,
+            repo_root=Path.cwd(),
+            home=Path.home(),
+        )
+    except Exception:
+        return True
+    return bool(config.auto_reply)
+
+
 def _effective_whitelist(args: argparse.Namespace) -> tuple[frozenset[str], str]:
     """生效的发件人白名单：``--whitelist`` 优先，其次邮件配置里的 ``whitelist``。
 
@@ -620,7 +640,6 @@ def cmd_mail_poll(args: argparse.Namespace) -> int:
         except MailAdapterError as error:
             return fail(str(error))
     finally:
-        adapter.close()
         connection.close()
         requirement_store.close()
     whitelist, whitelist_source = _effective_whitelist(args)
@@ -636,6 +655,63 @@ def cmd_mail_poll(args: argparse.Namespace) -> int:
         )
         print(note)
     return 0
+
+
+def _feedback_decision(thread_store: MailThreadStore, req_id: str, kind: Classification) -> str:
+    """能否发信：``""`` 表示可以；否则返回人类可读的拒绝原因（只读判定）。"""
+
+    existing = tuple(thread_store.kind_sequence(req_id))
+    if any(item in _TERMINAL_KINDS for item in existing):
+        return "需求已进入终态，不再发送新的反馈"
+    inbound_count = len(thread_store.inbound(req_id))
+    if kind not in _TERMINAL_KINDS and len(existing) >= inbound_count:
+        return "该入向邮件已有一封反馈，重复确认不重复发信"
+    if (
+        kind is Classification.DISAMBIGUATE
+        and thread_store.disambiguation_rounds(req_id) >= MAX_DISAMBIGUATION_ROUNDS
+    ):
+        return f"消歧轮次已达上限 {MAX_DISAMBIGUATION_ROUNDS} 轮，退回人工处理"
+    return ""
+
+
+def send_feedback(
+    args: argparse.Namespace,
+    thread_store: MailThreadStore,
+    requirement_store: RequirementStore,
+    req_id: str,
+    kind: Classification,
+    questions: tuple[DisambiguationQuestion, ...] = (),
+    reason: str = "",
+) -> dict:
+    """把一次反馈真正发出去并返回确认文档（人工确认与自动回复共用同一内核）。
+
+    只做"能不能发 + 发 + 记"，不做策略判断：调用方负责决定 kind 与 questions。
+    """
+
+    refusal = _feedback_decision(thread_store, req_id, kind)
+    if refusal:
+        return _mail_confirm_document(
+            req_id,
+            kind.value,
+            sent=False,
+            already_sent="已有一封反馈" in refusal,
+            message_id=None,
+            reason=refusal,
+        )
+    adapter = _build_adapter(args, thread_store, requirement_store)
+    try:
+        subject, body = _build_feedback(req_id, kind, questions, reason)
+        receipt = adapter.send_feedback(req_id=req_id, kind=kind.value, subject=subject, body=body)
+    finally:
+        adapter.close()
+    return _mail_confirm_document(
+        req_id,
+        kind.value,
+        sent=True,
+        already_sent=False,
+        message_id=receipt.message_id,
+        reason="已发送并绑定需求线索",
+    )
 
 
 def cmd_mail_confirm(args: argparse.Namespace) -> int:
@@ -655,48 +731,29 @@ def cmd_mail_confirm(args: argparse.Namespace) -> int:
     requirement_store = RequirementStore(root / "records.sqlite")
     connection = _open_thread_connection(root)
     thread_store = MailThreadStore(connection)
-    adapter = _build_adapter(args, thread_store, requirement_store)
     try:
         try:
             existing = tuple(thread_store.kind_sequence(args.req_id))
-            inbound_count = len(thread_store.inbound(args.req_id))
             if any(item in _TERMINAL_KINDS for item in existing):
                 return fail("需求已进入终态，不再发送新的反馈")
-            # 「每一封入向邮件只对应一封出向反馈」：重复确认同一入向不再发信；
-            # 新一轮入向到达后计数再次放开（保留最多 3 轮消歧）。
-            already_sent = kind not in _TERMINAL_KINDS and len(existing) >= inbound_count
-            rounds_exhausted = (
+            if (
                 kind is Classification.DISAMBIGUATE
                 and thread_store.disambiguation_rounds(args.req_id) >= MAX_DISAMBIGUATION_ROUNDS
-            )
-            if already_sent:
-                document = _mail_confirm_document(
-                    args.req_id,
-                    kind.value,
-                    sent=False,
-                    already_sent=True,
-                    message_id=None,
-                    reason="该入向邮件已有一封反馈，重复确认不重复发信",
-                )
-            elif rounds_exhausted:
+                and len(existing) < len(thread_store.inbound(args.req_id))
+            ):
                 return fail(f"消歧轮次已达上限 {MAX_DISAMBIGUATION_ROUNDS} 轮，退回人工处理")
-            else:
-                subject, body = _build_feedback(args.req_id, kind, questions, args.reason)
-                receipt = adapter.send_feedback(
-                    req_id=args.req_id, kind=kind.value, subject=subject, body=body
-                )
-                document = _mail_confirm_document(
-                    args.req_id,
-                    kind.value,
-                    sent=True,
-                    already_sent=False,
-                    message_id=receipt.message_id,
-                    reason="已发送并绑定需求线索",
-                )
+            document = send_feedback(
+                args,
+                thread_store,
+                requirement_store,
+                args.req_id,
+                kind,
+                questions,
+                args.reason,
+            )
         except MailAdapterError as error:
             return fail(str(error))
     finally:
-        adapter.close()
         connection.close()
         requirement_store.close()
     _emit(document, args.json)
@@ -744,6 +801,12 @@ def add_mail_parser(
     poll = actions.add_parser("poll", help="单次轮询邮件需求并展示分类建议（不发信）")
     poll.add_argument("--once", action="store_true", help="cron 单次执行入口（必填）")
     poll.add_argument("--project", required=True, help="新邮件需求绑定的项目名")
+    poll.add_argument(
+        "--auto-reply",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="轮询后自动发出回信（发问/接纳）；缺省取邮件配置 auto_reply，默认开启",
+    )
     poll.add_argument(
         "--auto-analyze",
         action=argparse.BooleanOptionalAction,
