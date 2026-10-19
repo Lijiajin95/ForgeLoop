@@ -251,6 +251,8 @@ def _resolve_requirement(
     thread_store: MailThreadStore,
     requirement_store: RequirementStore,
     project: str,
+    *,
+    whitelist: frozenset[str] = frozenset(),
 ) -> str | None:
     """按固定优先级把邮件关联需求；无任何线索时新建需求（幂等）。
 
@@ -264,6 +266,10 @@ def _resolve_requirement(
     reference = parse_reply_reference(_to_reply(mail))
     if reference is not None:
         return reference
+    # 2026-10-19：让 `mail.whitelist` 配置真正生效——名单非空时只有名单内的发件人
+    # 能**新建**需求；名单外只跳过并如实报告，不静默建单。回复既有需求不受限制。
+    if whitelist and mail.sender.strip().lower() not in whitelist:
+        return None
     return requirement_store.submit(project, _requirement_text(mail)).req_id
 
 
@@ -294,7 +300,15 @@ def _build_adapter(
         receiver,
         sender,
         resolve_requirement=lambda mail: _resolve_requirement(
-            mail, thread_store, requirement_store, args.project
+            mail,
+            thread_store,
+            requirement_store,
+            args.project,
+            whitelist=frozenset(
+                item.strip().lower()
+                for item in (getattr(args, "whitelist", None) or [])
+                if item.strip()
+            ),
         ),
         record_inbound=record_inbound,
         record_outbound=record_outbound,
@@ -623,6 +637,12 @@ def add_mail_parser(subparsers: argparse._SubParsersAction, default_records_root
     poll = actions.add_parser("poll", help="单次轮询邮件需求并展示分类建议（不发信）")
     poll.add_argument("--once", action="store_true", help="cron 单次执行入口（必填）")
     poll.add_argument("--project", required=True, help="新邮件需求绑定的项目名")
+    poll.add_argument(
+        "--whitelist",
+        action="append",
+        default=[],
+        help="允许**新建需求**的发件人（可重复）；给出后名单外的来信只跳过并如实报告",
+    )
     poll.add_argument(
         "--out-of-scope",
         action="append",

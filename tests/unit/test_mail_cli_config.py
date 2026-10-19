@@ -94,3 +94,91 @@ class TestResolveConnection:
 
         with pytest.raises(MailError, match="口令"):
             _resolve_connection(args(config=str(configured)))
+
+
+class TestWhitelistGateForNewRequirements:
+    """2026-10-19：`mail.whitelist` 真正生效——名单外的来信不建需求（只报告跳过）。"""
+
+    def _mail(self, sender: str):
+        from datetime import UTC, datetime
+        from email.message import EmailMessage
+
+        from forgeloop.adapter.mail import parse_inbound
+
+        message = EmailMessage()
+        message["From"] = sender
+        message["To"] = "owner@qq.com"
+        message["Subject"] = "希望支持批量导出"
+        message["Message-ID"] = "<w-1@example.com>"
+        message["Date"] = "Mon, 19 Oct 2026 08:00:00 +0800"
+        message.set_content("这是正文")
+        return parse_inbound(
+            message.as_bytes(), folder="INBOX", default_received_at=datetime.now(UTC)
+        )
+
+    def _resolvers(self):
+        class _Threads:
+            def inbound_message(self, message_id: str):
+                return None
+
+        class _Requirements:
+            def __init__(self) -> None:
+                self.submitted: list[tuple[str, str]] = []
+
+            def submit(self, project: str, text: str):
+                self.submitted.append((project, text))
+                from types import SimpleNamespace
+
+                return SimpleNamespace(req_id="req-new-1")
+
+        return _Threads(), _Requirements()
+
+    def test_sender_outside_whitelist_does_not_create_requirement(self) -> None:
+        from typing import cast
+
+        from forgeloop.cli.mail import _resolve_requirement
+        from forgeloop.records.mail_threads import MailThreadStore
+        from forgeloop.records.requirements import RequirementStore
+
+        threads, requirements = self._resolvers()
+        resolved = _resolve_requirement(
+            self._mail("stranger@example.com"),
+            cast("MailThreadStore", threads),
+            cast("RequirementStore", requirements),
+            "ForgeLoop",
+            whitelist=frozenset({"owner@example.com"}),
+        )
+        assert resolved is None and requirements.submitted == []
+
+    def test_whitelisted_sender_creates_requirement(self) -> None:
+        from typing import cast
+
+        from forgeloop.cli.mail import _resolve_requirement
+        from forgeloop.records.mail_threads import MailThreadStore
+        from forgeloop.records.requirements import RequirementStore
+
+        threads, requirements = self._resolvers()
+        resolved = _resolve_requirement(
+            self._mail("owner@example.com"),
+            cast("MailThreadStore", threads),
+            cast("RequirementStore", requirements),
+            "ForgeLoop",
+            whitelist=frozenset({"owner@example.com"}),
+        )
+        assert resolved == "req-new-1" and requirements.submitted[0][0] == "ForgeLoop"
+
+    def test_empty_whitelist_keeps_previous_behaviour(self) -> None:
+        from typing import cast
+
+        from forgeloop.cli.mail import _resolve_requirement
+        from forgeloop.records.mail_threads import MailThreadStore
+        from forgeloop.records.requirements import RequirementStore
+
+        threads, requirements = self._resolvers()
+        resolved = _resolve_requirement(
+            self._mail("anyone@example.com"),
+            cast("MailThreadStore", threads),
+            cast("RequirementStore", requirements),
+            "ForgeLoop",
+        )
+        assert resolved == "req-new-1"
