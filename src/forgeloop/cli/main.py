@@ -70,6 +70,9 @@ from forgeloop.domain.requirement import (
     RequirementError,
     RequirementNotFoundError,
 )
+from forgeloop.domain.requirement import (
+    CANCELLED as REQUIREMENT_CANCELLED,
+)
 from forgeloop.domain.status import ActionActor, NextAction, next_action
 from forgeloop.domain.task_plan import TaskPlan, TaskPlanApproval
 from forgeloop.graph.builder import RequirementTaskRunner, build_graph, requirement_task_id
@@ -91,7 +94,9 @@ DEFAULT_LIMIT_SECONDS = 7200.0
 # 需求整体验收通过后的状态（契约精简集合 §4）；由 ``requirement accept`` 写入。
 REQUIREMENT_ACCEPTED = "accepted"
 # 契约 §4 的需求终态：整体验收通过或明确拒绝后不再回退到执行中。
-REQUIREMENT_TERMINAL_STATUSES = frozenset({REQUIREMENT_ACCEPTED, "rejected"})
+# 终态词表：整体验收通过、被拒、以及**取消**（2026-10-19）。取消=撤下+留痕，
+# 与"删除"不同；进入终态后推进一律只做只读回查，不再覆盖状态执行。
+REQUIREMENT_TERMINAL_STATUSES = frozenset({REQUIREMENT_ACCEPTED, "rejected", REQUIREMENT_CANCELLED})
 
 
 def _read_input(raw: str) -> str:

@@ -92,3 +92,47 @@ class TestRequirementCancel:
             capsys,
         )
         assert code == 1 and "需求不存在" in out
+
+
+class TestCancelledIsTerminalForAdvance:
+    """取消是终态：推进只做只读回查，不得把 cancelled 覆盖成 executing。"""
+
+    def test_advance_after_cancel_keeps_cancelled_and_reports_terminal(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        req_id = submit(tmp_path, capsys, text="取消终态：推进应被拦下")
+        cancel_code, _ = run_cli(
+            [
+                "requirement",
+                "cancel",
+                req_id,
+                "--by",
+                "owner",
+                "--reason",
+                "撤下该需求",
+                "--records-root",
+                str(tmp_path),
+            ],
+            capsys,
+        )
+        assert cancel_code == 0
+
+        code, out = run_cli(
+            [
+                "requirement",
+                "advance",
+                req_id,
+                "--pi-command",
+                '["pi", "--mode", "rpc"]',
+                "--records-root",
+                str(tmp_path),
+            ],
+            capsys,
+        )
+        # 终态不回退：命令如实返回，状态保持 cancelled，不进入执行。
+        assert code in (0, 1), out
+        status_code, status = run_cli(
+            ["requirement", "status", req_id, "--records-root", str(tmp_path)], capsys
+        )
+        assert status_code == 0, status
+        assert "cancelled" in status
