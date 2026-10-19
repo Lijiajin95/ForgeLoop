@@ -500,3 +500,87 @@ class TestAdvanceNoSideEffectParity:
                 "plan_version": 0,
             }
         )
+
+
+class TestAcceptRefusalParity:
+    """验收（拒绝语义）：没有可验收材料时，两条入口都必须拒绝且不写任何验收记录。"""
+
+    def _facts(self, records_root: Path, req_id: str) -> dict[str, object]:
+        store = RequirementStore(records_root / "records.sqlite")
+        try:
+            return {
+                "status": store.requirement_status(req_id),
+                # 未验收时指纹为空（requirement_acceptance 始终返回结构，空指纹即无验收）.
+                "acceptance_fingerprint": store.requirement_acceptance(req_id).get(
+                    "fingerprint", ""
+                ),
+            }
+        finally:
+            store.close()
+
+    def test_both_entries_refuse_and_record_nothing(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.scenario.test_mail_cli import (
+            build_message,
+            connection_args,
+            install_transport,
+        )
+
+        cli_root = tmp_path / "cli-accept"
+        cli_root.mkdir()
+        cli_req = _seed(cli_root, "等价性：CLI 验收被拒")
+        code, cli_out = run_cli(
+            [
+                "requirement",
+                "accept",
+                cli_req,
+                "--by",
+                "owner",
+                "--source",
+                "cli",
+                "--records-root",
+                str(cli_root),
+            ],
+            capsys,
+        )
+        assert code == 1, cli_out
+        assert "被拒绝" in cli_out, cli_out
+
+        mail_root = tmp_path / "mail-accept"
+        mail_root.mkdir()
+        mail_req = _seed(mail_root, "等价性：邮件验收被拒")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<parity-accept@example.com>",
+                    subject=f"Re: [ForgeLoop] {mail_req}",
+                    body="操作: 验收",
+                )
+            ],
+        )
+        _code, out = run_cli(
+            [
+                "mail",
+                "poll",
+                "--once",
+                "--project",
+                "ForgeLoop",
+                "--whitelist",
+                "requester@example.com",
+                *connection_args(mail_root),
+            ],
+            capsys,
+        )
+        assert "验收未通过" in out, out
+
+        # 等价事实：两条入口都拒绝、状态不变、都没有写出验收记录。
+        assert (
+            self._facts(cli_root, cli_req)
+            == self._facts(mail_root, mail_req)
+            == {
+                "status": "draft",
+                "acceptance_fingerprint": "",
+            }
+        )
