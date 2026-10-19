@@ -223,10 +223,15 @@ make check                                                   # 全量门槛（19
    `accepted_by`/`acceptance_source`/指纹非空且一致。**禁止**直接写
    `acceptance_bindings`/`approval_consumption` 伪造现场。
 2. **提交的真实验证**：目前提交只有场景层对照，未纳入真服务集成层。
-   尝试记录（第 22 轮）：按页面/CLI/邮件各建一个需求再比对记录形状，页面与邮件两侧已就绪，
-   **CLI 侧卡在 `cmd_requirement_submit` 的参数形状**（用 `argparse.Namespace` 直接调用时
-   取不到刚建的需求，`StopIteration`）。正确做法是像 `test_entry_parity.py` 那样用
-   `run_cli([...])` 走真实参数解析，而不是手搓 Namespace——本轮未完成，已回滚不留半成品。
+   尝试记录（第 22–23 轮）：
+   - 第 22 轮：手搓 `argparse.Namespace` 调 `cmd_requirement_submit` 取不到新建需求
+     （`StopIteration`）→ 已回滚。
+   - 第 23 轮：改走真实参数解析（`main([...])`，命令以 SystemExit 结束）后命令确实成功，
+     但**按 `store.for_project("ForgeLoop")` 仍找不到刚建的需求**（`StopIteration`）。
+     这说明 `requirement submit` 落库的 **project 值可能与页面/邮件路径不一致或经过规范化**
+     ——如果属实，这本身就是一个**等价性缺陷**（同一个项目名经不同入口落库不同）。
+   - 下一步：先只打印三条路径落库后的 `requirements.project` 实际值做对照（一行 SQL），
+     再决定是修规范化还是修测试的查询口径。**未完成，已回滚不留半成品。**
 3. **归并/发布**是否纳入完全等价：**待所有者确认**。
 4. 已登记未修：PI 启动失败时会话日志未关闭；页面停止在项目未配置档案时的条件性差异（§2.9）。
 
