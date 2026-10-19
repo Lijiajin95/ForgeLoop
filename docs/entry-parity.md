@@ -189,3 +189,47 @@ graph/worker.py 的 current_task_thread_id ──▶ 纯记录只读（供页面
 
 对比断言统一为**记录事实**（状态、批准/决定/验收记录的关键字段），而非 HTTP 状态码或输出文案；
 入口标签（`source`、`by`）允许不同，但必须如实记录来源。
+
+## 5. 证据包（如何复核本目标）
+
+### 5.1 复现命令
+
+```bash
+make check                                                   # 全量门槛（1979 项 + 前端 184）
+.venv/bin/pytest tests/scenario/test_entry_parity.py -q      # 场景层跨入口记录事实对照（6 条）
+.venv/bin/pytest tests/scenario/test_parity_facts.py -q      # 统一读取器的双向自测
+.venv/bin/pytest tests/integration/test_serve_operations.py -q  # 真实验证（真服务+真命令+假收发器，44 项）
+.venv/bin/pytest tests/unit/test_mail_operation_dispatch.py -q  # 邮件指令分派（合成文档，独立于邮件管道）
+```
+
+### 5.2 每条断言证明什么
+
+| 测试 | 证明 |
+| --- | --- |
+| `test_entry_parity.py::TestSubmitParity` | 提交：两条入口产生同一形状记录（draft/单版本/原文） |
+| `TestCancelParity` | 取消：终态、决定、理由、留痕一致 |
+| `TestApproveParity` | 批准：批准存在、版本绑定、来源留痕一致 |
+| `TestStopParity` | 停止：请求、操作人、来源一致 |
+| `TestAdvanceNoSideEffectParity` | 推进：无批准时两入口都不改变记录 |
+| `TestAcceptRefusalParity` | 验收：无材料时两入口都拒绝且不写记录 |
+| `test_serve_operations.py::TestThreeEntryParity*` | **真实验证**：真实 HTTP 服务 + 真命令 + 假收发器下，取消/批准/停止/验收拒绝/推进三入口记录一致 |
+| `test_parity_facts.py` | 读取器本身不会永远说"成功"或永远说"未发生" |
+
+### 5.3 已知未完成（不宣称完成）
+
+1. **验收成功路径**：三入口都已实现，但尚无测试证明"会成功且记录一致"。
+   下一步（需真实图）：用 `FAKE_PI_MODE=ok` 跑到每个任务 `awaiting_acceptance` →
+   逐任务 `approve --stage acceptance` → CLI 与邮件各整体验收一次 → 断言
+   `accepted_by`/`acceptance_source`/指纹非空且一致。**禁止**直接写
+   `acceptance_bindings`/`approval_consumption` 伪造现场。
+2. **提交的真实验证**：目前提交只有场景层对照，未纳入真服务集成层。
+3. **归并/发布**是否纳入完全等价：**待所有者确认**。
+4. 已登记未修：PI 启动失败时会话日志未关闭；页面停止在项目未配置档案时的条件性差异（§2.9）。
+
+### 5.4 过程中被抓出并修复的真实缺陷
+
+1. 操作类邮件被当成答复回流 → 批准失效、停止无处落库；
+2. `--json` 被命令输出污染 → 轮询文档 JSON 损坏；
+3. 新建需求被多追加一个版本（回流误作用于创造它的邮件）；
+4. 类体中间插入模块级函数切断了 `ServiceWorker`（类型检查当场发现）。
+
