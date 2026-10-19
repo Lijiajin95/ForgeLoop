@@ -195,6 +195,21 @@ graph/worker.py 的 current_task_thread_id ──▶ 纯记录只读（供页面
    消费生成 `acceptance_bindings` → 交付汇总 → 需求整体验收。
    **不能跳过第 2–3 步直接写表**（那是伪造）。
 
+## 2.11 验收成功路径：探针结论（第 27 轮）
+
+用脚本探针（非测试）跑通/证伪了两条假设：
+
+1. **`forgeloop approve <task> --stage acceptance` 对需求任务无效**：报
+   "任务尚无方案，无法批准"——它走的是旧任务流的方案校验，不是需求任务。
+2. **验收材料绑定只由图内 acceptance 门生成**：`graph/nodes.py` 的 acceptance gate 在
+   `resume({"decision": "accepted"})` 时调用 `consume_approval` 写入
+   `acceptance_bindings`，之后 `task_delivery(...).accepted` 才为真。
+   探针中直接写材料文件 + 调任务级批准后，`acceptance_binding` 仍为 False、
+   整体验收被拒（"任务 task-1 尚无已消费的验收材料"）——这正说明**不能绕过图**。
+
+**结论**：验收成功路径必须"运行需求图并在 acceptance 门恢复"（真实图 + 假 PI provider），
+这是下一步唯一合法路径；在测试里手写表或调任务级批准都造不出合法现场。
+
 ## 3. 等价性测试分层
 
 | 层 | 内容 | 位置 |
