@@ -116,7 +116,17 @@ cat <<'CHECKS'
 
 验收（对应 docs/resident-service-acceptance.md 的 A 组）：
   systemctl --user status forgeloop --no-pager
-  curl -s localhost:8765/api/service | head -c 400      # 端口取自 config/service.toml
+  # 端口以配置为准（config/service.toml 的 port），启动日志里也会打印"状态页: http://127.0.0.1:<port>/"
+  PORT="$("$PY" -c "
+import sys; sys.path.insert(0, '${REPO}/src')
+try:
+    from forgeloop.domain.service import resolve_service_settings
+    from forgeloop.domain.toml_fields import load_toml
+    print(resolve_service_settings(load_toml('${REPO}/config/service.toml')).port)
+except Exception:
+    print(8712)
+" 2>/dev/null || echo 8712)"
+  curl -s "localhost:${PORT}/api/service" | head -c 400
   journalctl --user -u forgeloop -n 50 --no-pager        # 启动核对记录
   systemctl --user restart forgeloop                     # 重启后应回 active
   systemctl --user stop forgeloop                        # 应优雅退出（SIGTERM）
