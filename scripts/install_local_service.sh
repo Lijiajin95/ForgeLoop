@@ -31,6 +31,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# 服务配置：优先用本机实跑配置（不提交，含 [projects.*]），否则用仓库模板（无项目）。
+SERVICE_CONFIG="${REPO}/.cache/local/service.toml"
+[ -f "$SERVICE_CONFIG" ] || SERVICE_CONFIG="${REPO}/config/service.toml"
+
 PY="${REPO}/.venv/bin/python"
 [ -x "$PY" ] || { echo "缺少项目虚拟环境：${PY}（先在仓库执行 uv sync）" >&2; exit 1; }
 
@@ -78,7 +82,7 @@ Type=simple
 WorkingDirectory=${REPO}
 Environment=HOME=${HOME}
 Environment=PATH=${PREFIX}/current/bin:${REPO}/.venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=${PREFIX}/current/bin/forgeloop serve
+ExecStart=${PREFIX}/current/bin/forgeloop serve --service-config ${SERVICE_CONFIG}
 Restart=on-failure
 RestartSec=5
 
