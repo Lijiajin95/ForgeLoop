@@ -150,9 +150,10 @@ graph/worker.py 的 current_task_thread_id ──▶ 纯记录只读（供页面
 3. 用 `tests/scenario/parity_facts.cancel_facts` 统一读取，断言三份事实一致
    （终态、决定存在、理由与留痕非空；入口来源各自不同但都必须留痕）。
 
-**真实验证进展（第 15–16 轮）**：`tests/integration/test_serve_operations.py` 内已有
-两条真实三入口对照——**取消**（`TestThreeEntryParityRealService`）与**批准**
-（`TestThreeEntryParityForApproval`）：同一真实记录根、真实 HTTP 服务（令牌+同源）、
+**真实验证进展（第 15–19 轮）**：`tests/integration/test_serve_operations.py` 内已有
+四条真实三入口对照——**取消**（`TestThreeEntryParityRealService`）、**批准**
+（`TestThreeEntryParityForApproval`）、**停止**（`TestThreeEntryParityForStop`）与
+**验收拒绝**（`TestThreeEntryParityForAcceptanceRefusal`）：同一真实记录根、真实 HTTP 服务（令牌+同源）、
 真实命令函数、进程内假收发器，三条入口产生的记录事实完全一致。
 
 ## 2.9 页面停止的前置条件（第 17 轮发现，第 18 轮**更正**为条件性）
