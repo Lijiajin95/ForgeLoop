@@ -182,3 +182,36 @@ class TestWhitelistGateForNewRequirements:
             "ForgeLoop",
         )
         assert resolved == "req-new-1"
+
+
+class TestEffectiveWhitelist:
+    """生效白名单：命令行优先 → 邮件配置 → 都不限制（2026-10-19）。"""
+
+    def test_command_line_wins(self, configured: Path, monkeypatch) -> None:
+        from forgeloop.cli.mail import _effective_whitelist
+
+        monkeypatch.chdir(configured.parent)
+        senders, source = _effective_whitelist(args(config=str(configured), whitelist=["A@x.com"]))
+        assert senders == frozenset({"a@x.com"}) and "命令行" in source
+
+    def test_config_whitelist_is_used_when_no_flag(self, tmp_path: Path, monkeypatch) -> None:
+        from forgeloop.cli.mail import _effective_whitelist
+
+        config = tmp_path / "mail.toml"
+        config.write_text(
+            'provider = "qq"\nsender = "o@qq.com"\nrecipient = "r@qq.com"\n'
+            'whitelist = ["Owner@Example.com"]\n',
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        senders, source = _effective_whitelist(args(config=str(config)))
+        assert senders == frozenset({"owner@example.com"}) and "whitelist" in source
+
+    def test_no_whitelist_anywhere_means_unrestricted(self, tmp_path: Path, monkeypatch) -> None:
+        from forgeloop.cli.mail import _effective_whitelist
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("FORGELOOP_MAIL_CONFIG", raising=False)
+        senders, source = _effective_whitelist(args())
+        assert senders == frozenset() and "未" in source
