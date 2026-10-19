@@ -467,6 +467,7 @@ def _build_adapter(
         ),
         record_inbound=record_inbound,
         cancel_intent=lambda mail: requests_cancellation(mail.subject, mail.body),
+        operation_intent=lambda mail: mail_operation(mail.subject, mail.body)[0],
         record_outbound=record_outbound,
         now=lambda: datetime.now(UTC),
     )
@@ -500,11 +501,15 @@ def _entry(
     feedback_sent: bool,
     pending_action: bool,
     cancel_proposal: bool = False,
+    operation: str = "",
+    mail_sender: str = "",
 ) -> dict:
     return {
         "req_id": req_id,
         "message_id": message_id,
         "cancel_proposal": cancel_proposal,
+        "operation": operation,
+        "mail_sender": mail_sender,
         "registered": registered,
         "suggestion": (
             None
@@ -566,6 +571,8 @@ def _pending_entries(
                 terminal=terminal,
                 feedback_sent=bool(kinds),
                 cancel_proposal=result.cancel_requested,
+                operation=result.operation,
+                mail_sender=result.sender,
                 pending_action=_pending_action(
                     kinds,
                     suggestion,

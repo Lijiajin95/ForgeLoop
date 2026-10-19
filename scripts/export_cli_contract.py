@@ -271,6 +271,8 @@ def build_mail_contract() -> tuple[dict, dict]:
         "awaiting_human_confirmation": True,
         "confirm_command": "forgeloop mail confirm req-1 --action <disambiguate|not_accept|accept>",
         "cancel_proposal": False,
+        "operation": "",
+        "mail_sender": "",
     }
     terminal_entry = {
         **entry,

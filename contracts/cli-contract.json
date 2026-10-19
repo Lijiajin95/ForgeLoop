@@ -1432,7 +1432,17 @@
                 "boolean"
               ]
             },
+            "mail_sender": {
+              "type": [
+                "string"
+              ]
+            },
             "message_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "operation": {
               "type": [
                 "string"
               ]

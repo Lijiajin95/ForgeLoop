@@ -646,6 +646,52 @@ def cmd_requirement_revise(args: argparse.Namespace) -> int:
     return 0
 
 
+_MAIL_OPERATIONS_ACCEPT = frozenset({"验收", "accept"})
+_MAIL_OPERATIONS_ADVANCE = frozenset({"推进", "advance"})
+
+
+def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
+    """把轮询文档里带操作指令的条目的**验收/推进**分派到既有命令（数据流，不反向依赖）。
+
+    只在白名单发件人且操作明确时执行；推进使用命令行/配置提供的 --pi-command，
+    邮件本身不携带可执行命令。失败只记录并继续，结果回显给人类输出。
+    """
+
+    document = getattr(args, "poll_document", None) or {}
+    root = records_root(args)
+    messages: list[str] = []
+    for entry in document.get("requirements", []):
+        req_id = str(entry.get("req_id") or "")
+        operation = str(entry.get("operation") or "").strip().lower()
+        if not req_id or not operation:
+            continue
+        if operation in _MAIL_OPERATIONS_ACCEPT:
+            namespace = argparse.Namespace(
+                req_id=req_id,
+                records_root=root,
+                by=str(entry.get("mail_sender") or "mail"),
+                source="mail",
+            )
+            code = cmd_requirement_accept(namespace)
+            messages.append(f"{req_id}: 验收{'完成' if code == 0 else '未通过（见上方原因）'}")
+        elif operation in _MAIL_OPERATIONS_ADVANCE:
+            pi_command = str(getattr(args, "pi_command", "") or "").strip()
+            if not pi_command:
+                messages.append(f"{req_id}: 推进未执行（未配置 --pi-command）")
+                continue
+            namespace = argparse.Namespace(
+                req_id=req_id,
+                records_root=root,
+                pi_command=pi_command,
+                project_path=str(getattr(args, "project_path", "") or ""),
+                baseline=str(getattr(args, "baseline", "") or ""),
+                pi_timeout_seconds=float(getattr(args, "pi_timeout_seconds", 0.0) or 0.0),
+            )
+            code = cmd_requirement_advance(namespace)
+            messages.append(f"{req_id}: 推进{'完成' if code == 0 else '未通过（见上方原因）'}")
+    return messages
+
+
 def _auto_reply_after_poll(args: argparse.Namespace) -> list[str]:
     """按轮询算出的建议**自动发出回信**（所有者 2026-10-19：回信不需要逐封人工确认）。
 
@@ -746,7 +792,7 @@ def cmd_mail_poll_with_analysis(args: argparse.Namespace) -> int:
     code = cmd_mail_poll(args)
     if code != 0:
         return code
-    messages: list[str] = []
+    messages: list[str] = list(_apply_mail_operations(args))
     if auto_reply_setting(args):
         messages.extend(_auto_reply_after_poll(args))
     if not auto_analyze_setting(args):

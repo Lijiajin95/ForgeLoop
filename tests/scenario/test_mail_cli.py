@@ -1327,3 +1327,65 @@ class TestMailEquivalenceForApprove:
             assert store.plan_approval(req_id) is None
         finally:
             store.close()
+
+
+class TestMailAcceptanceViaDataFlow:
+    """邮件验收/推进：数据流分派到既有命令（无 mail → main 反向依赖）。"""
+
+    def test_accept_operation_is_dispatched_and_refused_without_deliveries(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<flow-1@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="操作: 验收",
+                )
+            ],
+        )
+        _code, out = run_cli(
+            [
+                "mail",
+                "poll",
+                "--once",
+                "--project",
+                PROJECT,
+                "--whitelist",
+                "requester@example.com",
+                *connection_args(tmp_path),
+            ],
+            capsys,
+        )
+        assert "验收未通过" in out or "验收被拒绝" in out
+
+    def test_advance_without_pi_command_explains_instead_of_running(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<flow-2@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="操作: 推进",
+                )
+            ],
+        )
+        _code, out = run_cli(
+            [
+                "mail",
+                "poll",
+                "--once",
+                "--project",
+                PROJECT,
+                "--whitelist",
+                "requester@example.com",
+                *connection_args(tmp_path),
+            ],
+            capsys,
+        )
+        assert "推进未执行（未配置 --pi-command）" in out
