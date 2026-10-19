@@ -948,3 +948,43 @@ class TestContractSnapshot:
             (ROOT / "contracts" / "cli-contract.json").read_text(encoding="utf-8")
         )
         assert _covers(snapshot["mail_confirm_document"], gate.shape(result))
+
+
+class TestCancellationProposal:
+    """取消提议（所有者 2026-10-19：删除=取消+记录）：邮件表达意图时如实标注，不代替人执行。"""
+
+    def test_cancel_intent_is_reported_as_proposal(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<cancel-1@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="请取消需求，我们不做了。",
+                )
+            ],
+        )
+        document = poll(tmp_path, capsys)
+        entry = next(item for item in document["requirements"] if item["req_id"] == req_id)
+        assert entry["cancel_proposal"] is True
+
+    def test_ordinary_feedback_is_not_a_cancel_proposal(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<cancel-2@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="确认按方案实施；取消按钮的位置也请一并调整。",
+                )
+            ],
+        )
+        document = poll(tmp_path, capsys)
+        entry = next(item for item in document["requirements"] if item["req_id"] == req_id)
+        assert entry["cancel_proposal"] is False

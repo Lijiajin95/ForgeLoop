@@ -49,6 +49,7 @@ from forgeloop.domain.mail import (
     MailThread,
     parse_reply_reference,
     render_notification,
+    requests_cancellation,
     suggest_classification,
 )
 from forgeloop.domain.requirement import RequirementNotFoundError
@@ -337,6 +338,7 @@ def _build_adapter(
             whitelist=_effective_whitelist(args)[0],
         ),
         record_inbound=record_inbound,
+        cancel_intent=lambda mail: requests_cancellation(mail.subject, mail.body),
         record_outbound=record_outbound,
         now=lambda: datetime.now(UTC),
     )
@@ -369,10 +371,12 @@ def _entry(
     terminal: bool,
     feedback_sent: bool,
     pending_action: bool,
+    cancel_proposal: bool = False,
 ) -> dict:
     return {
         "req_id": req_id,
         "message_id": message_id,
+        "cancel_proposal": cancel_proposal,
         "registered": registered,
         "suggestion": (
             None
@@ -433,6 +437,7 @@ def _pending_entries(
                 suggestion=suggestion,
                 terminal=terminal,
                 feedback_sent=bool(kinds),
+                cancel_proposal=result.cancel_requested,
                 pending_action=_pending_action(
                     kinds,
                     suggestion,
