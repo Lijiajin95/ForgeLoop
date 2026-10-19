@@ -1668,3 +1668,137 @@ class TestThreeEntryParityForAcceptanceRefusal:
             "mail": self._facts(root, mail_req),
         }
         assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
+
+
+class TestThreeEntryParityForAdvance:
+    """真实验证（推进，零副作用）：没有有效批准时，三条入口都不改变任何记录事实。
+
+    按 docs/entry-parity.md §2.4：端到端不给邮件配命令、CLI 用不存在的命令，
+    避免等价性验证本身触发模型调用。
+    """
+
+    def _seed(self, root: Path, text: str) -> str:
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            return store.submit("ForgeLoop", text).req_id
+        finally:
+            store.close()
+
+    def _facts(self, root: Path, req_id: str) -> dict[str, object]:
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            plan = store.latest_task_plan(req_id)
+            return {
+                "status": store.requirement_status(req_id),
+                "authorized": store.authorized_task_plan(req_id) is not None,
+                "plan_version": 0 if plan is None else plan.plan_version,
+            }
+        finally:
+            store.close()
+
+    def test_no_entry_advances_without_approval(
+        self,
+        real_service: tuple[str, int, Path],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import argparse
+        from email.message import EmailMessage
+
+        host, port, root = real_service
+
+        page_req = self._seed(root, "真实对照：页面推进")
+        status, _payload = post(
+            (host, port),
+            f"/api/requirements/{page_req}/advance",
+            {"by": "owner", "reason": "页面推进，真实对照"},
+            origin=f"http://{host}:{port}",
+        )
+        assert status == 409, status
+
+        from forgeloop.cli.main import cmd_mail_poll_with_analysis as cmd_mail_poll
+        from forgeloop.cli.main import cmd_requirement_advance
+
+        cli_req = self._seed(root, "真实对照：CLI 推进")
+        assert cmd_requirement_advance(
+            argparse.Namespace(
+                req_id=cli_req,
+                pi_command='["/nonexistent-forgeloop-pi"]',
+                project_path="",
+                baseline="",
+                pi_timeout_seconds=0.0,
+                records_root=str(root),
+            )
+        ) in (0, 1)
+
+        mail_req = self._seed(root, "真实对照：邮件推进")
+        message = EmailMessage()
+        message["From"] = "requester@example.com"
+        message["To"] = "owner@example.com"
+        message["Subject"] = f"Re: [ForgeLoop] {mail_req}"
+        message["Message-ID"] = "<real-parity-advance@example.com>"
+        message["Date"] = "Mon, 19 Oct 2026 08:00:00 +0800"
+        message.set_content("操作: 推进")
+
+        class _Receiver:
+            folder = "INBOX"
+
+            def authenticate(self) -> None: ...
+
+            def fetch_unseen(self) -> tuple[bytes, ...]:
+                return (message.as_bytes(),)
+
+            def close(self) -> None: ...
+
+        class _Sender:
+            sender = "owner@example.com"
+            recipient = "owner@example.com"
+
+            def send(self, outgoing: EmailMessage) -> str:
+                return "<out-real-parity-advance@example.com>"
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr("forgeloop.cli.mail._make_receiver", lambda args: _Receiver())
+        monkeypatch.setattr("forgeloop.cli.mail._make_sender", lambda args: _Sender())
+        assert (
+            cmd_mail_poll(
+                argparse.Namespace(
+                    poll_command="poll",
+                    once=True,
+                    json=False,
+                    project="ForgeLoop",
+                    out_of_scope=[],
+                    whitelist=["requester@example.com"],
+                    auto_reply=False,
+                    auto_analyze=False,
+                    final_not_accept=False,
+                    questions=[],
+                    requirements_root=str(root),
+                    records_root=str(root),
+                    imap_host="imap.example.com",
+                    imap_user="owner@example.com",
+                    imap_secret="authorization-code",
+                    imap_folder="INBOX",
+                    smtp_host="smtp.example.com",
+                    smtp_user="owner@example.com",
+                    smtp_secret="authorization-code",
+                    smtp_sender="owner@example.com",
+                    smtp_recipient="owner@example.com",
+                    config="",
+                    pi_command="",
+                    project_path="",
+                    baseline="",
+                    pi_timeout_seconds=0.0,
+                )
+            )
+            == 0
+        )
+
+        expected = {"status": "draft", "authorized": False, "plan_version": 0}
+        facts = {
+            "page": self._facts(root, page_req),
+            "cli": self._facts(root, cli_req),
+            "mail": self._facts(root, mail_req),
+        }
+        assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
