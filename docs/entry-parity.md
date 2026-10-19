@@ -178,6 +178,23 @@ graph/worker.py 的 current_task_thread_id ──▶ 纯记录只读（供页面
   再统一三条入口；届时同步调整那 3 个测试的契约。**在完成前，矩阵里"停止"的页面一格
   标注为"前置条件更强"，不宣称完全等价。**
 
+## 2.10 验收成功路径：已确认的协议事实（第 26 轮勘察）
+
+为下一轮准备，以下是从代码读出来的**确定事实**（不再是猜测）：
+
+1. `graph/requirements.py::RequirementExecutor.advance()` 是"跑一步并返回进度"的公开入口。
+2. 假 runner 的契约是 `(TaskExecution) -> TaskResult`，其中
+   `TaskResult(state: TaskRunState, artifact: TaskArtifact | None = None, reason: str = "")`；
+   `TaskRunState` 取值：`DELIVERED / AWAITING_USER / FAILED / BLOCKED`。
+3. `TaskArtifact` 定义在 `records/requirements.py`，字段为
+   `task_id / candidate_sha256 / test_evidence_sha256 / review_sha256 / acceptance / authorization_source`。
+4. 生产实现里 artifact 由 `graph/builder.py::_artifact` 从 **`store.acceptance_binding(task_id)`**
+   读取——也就是说"任务进入验收绑定"发生在**验收阶段的批准被消费**之后。
+5. 因此验收成功路径的合法现场必须是：
+   材料（`candidate.diff`/`test-run.jsonl`/`review-report.json`）→ 任务验收批准 →
+   消费生成 `acceptance_bindings` → 交付汇总 → 需求整体验收。
+   **不能跳过第 2–3 步直接写表**（那是伪造）。
+
 ## 3. 等价性测试分层
 
 | 层 | 内容 | 位置 |
