@@ -138,6 +138,7 @@
 - **覆盖率修复**：合并后分支覆盖率一度 **88.88%**（低于 90% 门槛，由两批新增代码的未覆盖分支叠加）；补邮件适配器边界（配置校验、解析辅助、IMAP/SMTP 失败分支）、DSH 生命周期与协议边界、runtime 文本输出与 `cli.common` 定位边界用例后，最终 1953 通过、9 跳过，**行 95.44%、分支 90.28%**、增量通过。
 - **合入门禁**：`make check` **exit 0**（1810 通过、3 跳过、5 未选；前端 68 项通过；结构 0 失败 / 417 条审阅提示）；`make test-system` **20 项通过**；`make coverage` **exit 0**；合并提交与分支提交的本地 hooks（lint／format／pyright／提交时段／Conventional Commit）全部通过。
 - **合入方式**：`git merge --no-ff`，合并提交 `3f89058` 的两父提交为 `1273e6f` 与 `89ec274`；合入前对方批次已提交、工作树干净，未覆盖、未回退、未 stash 任何在途改动。**未推送 `origin/main`**（需所有者另行授权）；推送前需注意规则集 `main-protection` 的签名与必需检查要求。
+- **合入后变异复核（一次真实失败与处理）**：首次 `make mutation` 在基线收集阶段失败——`mutants/` 是 2026-10-17 的生成副本（当时仓库仍发布 `config/commit-policy.toml`），mutmut 检测到非 Python 文件变化后选择保留缓存结果，导致副本内 `test_repository_ships_only_a_template` 失败；**不是本次合并代码的问题**。删除可重建的 `mutants/` 副本后复跑：`make mutation` **通过**，1083/1242 杀死、159 幸存全部有审阅记录、no tests／skipped／suspicious／timeout 为 0。同时清理一条过期审阅条目（`counting.xǁGrantLedgerǁrecord_failure__mutmut_8` 现已不再幸存，`counting.py` 源码未变、系测试选择变化所致），清理后门槛脚本无提示通过。原始证据：`mutants/mutmut-cicd-stats.json`。
 
 ### 实现范围
 

@@ -789,4 +789,6 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 补测试后重跑该模块变异与 `scripts/check_mutation_stats.py` 通过；完整统计在 `mutants/mutmut-cicd-stats.json`，审阅条目在同节 `[[mutation.reviewed_survivors]]`。**没有通过放宽门槛、删除变异体或改写失败记录让门禁变绿。**
 
+**合入后复核（2026-10-19，main `3f89058`）**：首次 `make mutation` 因 `mutants/` 陈旧副本（2026-10-17 生成、仍含已移除的 `config/commit-policy.toml`）在基线用例上失败；删除可重建副本后复跑通过：**1083/1242 杀死、159 幸存全部有审阅记录**、未完成状态为 0，并清理一条因测试选择变化而不再幸存的过期审阅条目（源码未变）。该失败与清理如实留在 `docs/status.md` 同日合入记录里。
+
 **真实环境验证（2026-10-19 同日补充，非默认门禁）**：真实 DSH（`dsh 0.2.1-rc.2`）＋真实模型（`deepseek-v4.1-flash`）已完成最小调用、单任务闭环（实现＋审查＋正式测试＋验收，任务 delivered）与**同一推进进程内热切换**（dev 由 DSH，`runtime set pi` 后 review 由真实 PI，任务 delivered）；真实 PI 回归 `pi_live` 5/5 通过，新增 `tests/integration/test_dsh_live.py` 2/2 通过（`make dsh-live`，默认跳过、不产生模型费用）。首次真实运行暴露启动器参数顺序错误（`--patch` 必须在 `--json` 之前），适配器按 `runtime-error` 失败关闭并保留现场；修正后通过。仍未验证：`--session-id` 会话恢复、容器内 DSH、真实模型长任务。详细证据见 `docs/status.md` 同日补充。变异范围扩展到新模块不改变其他九项的既有结论。
