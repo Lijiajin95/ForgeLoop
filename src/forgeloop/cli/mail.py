@@ -327,6 +327,32 @@ def auto_reply_setting(args: argparse.Namespace) -> bool:
     return bool(config.auto_reply)
 
 
+_MAIL_OPERATION_PREFIXES = ("操作:", "操作：", "action:")
+
+
+def mail_operation(subject: str, body: str) -> tuple[str, str]:
+    """解析邮件里的结构化操作指令，返回 ``(操作, 理由)``；没有指令返回 ``("", "")``。
+
+    只认**明确行**（``操作: 批准`` / ``action: cancel``），不做自由文本推断——批准、验收
+    这类高风险动作不能被一句闲聊触发。理由可写在下一行（``理由: ...``）。
+    """
+
+    lines = [line.strip() for line in f"{subject}\n{body}".splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        lowered = line.lower()
+        prefix = next((item for item in _MAIL_OPERATION_PREFIXES if lowered.startswith(item)), "")
+        if not prefix:
+            continue
+        operation = line[len(prefix) :].strip().lower()
+        reason = ""
+        for follow in lines[index + 1 : index + 3]:
+            for marker in ("理由:", "理由：", "reason:"):
+                if follow.lower().startswith(marker):
+                    reason = follow[len(marker) :].strip()
+        return operation, reason
+    return "", ""
+
+
 def _effective_whitelist(args: argparse.Namespace) -> tuple[frozenset[str], str]:
     """生效的发件人白名单：``--whitelist`` 优先，其次邮件配置里的 ``whitelist``。
 
@@ -380,6 +406,16 @@ def _build_adapter(
         # 的取消意图**直接生效**——按该身份落库终态并留痕（source=mail），白名单外仍只是
         # 数据（仅作取消提议，等人工处理）。既有全部记录规则不变：不删记录、理由必填。
         whitelist = _effective_whitelist(args)[0]
+        operation, operation_reason = mail_operation(mail.subject, mail.body)
+        if created and operation and (not whitelist or mail.sender.strip().lower() in whitelist):
+            plan = requirement_store.latest_task_plan(req_id)
+            if operation in {"批准", "approve"} and plan is not None:
+                requirement_store.record_plan_approval(
+                    req_id,
+                    plan.plan_version,
+                    mail.sender.strip(),
+                    source=f"mail:{operation_reason or '邮件批准'}",
+                )
         cancelled_by_mail = False
         if (
             created

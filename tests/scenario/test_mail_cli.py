@@ -1250,3 +1250,80 @@ class TestMailEquivalenceForCancel:
             assert store.requirement_status(req_id) != "cancelled"
         finally:
             store.close()
+
+
+class TestMailEquivalenceForApprove:
+    """邮件等价入口：白名单发件人用**明确指令行**批准任务包（同 CLI 记录路径）。"""
+
+    def _with_plan(self, tmp_path: Path) -> str:
+        from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+
+        req_id = seed_requirement(tmp_path, "导出功能")
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            plan = TaskPlan(
+                task_plan_id="plan-1",
+                requirement_id=req_id,
+                project=PROJECT,
+                plan_version=1,
+                requirement_version=1,
+                tasks=(
+                    PlannedTask(
+                        task_id="task-1",
+                        goal="实现导出",
+                        files=("src/export.py",),
+                        acceptance="测试通过",
+                        test_command=("pytest", "-q"),
+                    ),
+                ),
+                created_at=WHEN,
+            )
+            store.record_task_plan(req_id, plan)
+        finally:
+            store.close()
+        return req_id
+
+    def test_whitelisted_directive_approves_the_latest_plan(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = self._with_plan(tmp_path)
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<approve-1@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="操作: 批准\n理由: 邮件批准该方案",
+                )
+            ],
+        )
+        poll(tmp_path, capsys, "--whitelist", "requester@example.com")
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            approval = store.plan_approval(req_id)
+            assert approval is not None and approval.plan_version == 1
+            assert approval.approved_by == "requester@example.com"
+            assert approval.source.startswith("mail:")
+        finally:
+            store.close()
+
+    def test_non_whitelisted_directive_is_ignored(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = self._with_plan(tmp_path)
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<approve-2@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="操作: 批准\n理由: 不该生效",
+                )
+            ],
+        )
+        poll(tmp_path, capsys, "--whitelist", "someone-else@example.com")
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            assert store.plan_approval(req_id) is None
+        finally:
+            store.close()
