@@ -118,6 +118,17 @@ source_paths = ["src/forgeloop/"]
 # （幸存 171＋no tests 214，序列化、ID 分配、候选构建身份等仅由场景／系统层
 # 覆盖），而 unresolved_incomplete_states_max=0 会直接判失败；补齐覆盖并重新
 # 审阅幸存者后再加入，见可靠性方案第 26 节。
+# `domain/service.py`（R1 常驻配置纯规则）**已纳入**（2026-10-18 所有者决定）：该模块
+# 的代码几乎全是校验分支，可观察差异主要落在错误消息上，因此对**本模块**取「消息即契约」
+# 口径——`tests/unit/test_service_config.py::TestMessagesAreTheContract` 逐字断言文案
+# （字段名、范围写法 1..65535／>= 1、未知键清单与分隔符），把消息变异钉死。这是对既有
+# 「消息内容非行为契约」先例的**收紧例外**，只适用于配置校验这类「文案就是运维界面」的
+# 模块；其余模块的登记先例不变。剩下的不可杀死变异是 `cast("...")` 实参（运行时 no-op，
+# 天然等价），逐条登记在 config/quality-policy.toml 的 [[mutation.reviewed_survivors]]。
+# 注意（2026-10-18 实测）：`mutants/` 只在**首次**创建时整体拷贝，之后同一目录里的
+# 测试与包数据不会随工作区刷新。本地改过 tests/、页面 HTML 或 static/*.js 后必须
+# `rm -rf mutants` 再跑，否则会拿到陈旧夹具的结论（实测：改测试后重跑数字不变；
+# 页面 HTML 陈旧直接让基线失败）。CI 与夜间作业是干净检出，不受影响。
 only_mutate = [
   "src/forgeloop/domain/counting.py",
   "src/forgeloop/domain/approval.py",
@@ -128,6 +139,10 @@ only_mutate = [
   "src/forgeloop/domain/release.py",
   "src/forgeloop/domain/deploy.py",
   "src/forgeloop/domain/status.py",
+  # 2026-10-18 所有者决定纳入：配置校验模块的**消息即契约**（运维照着改配置），
+  # 因此为它逐字断言文案，而不是按其他模块的先例把消息变异登记为「非契约」。
+  # 实测 254 个变异体：242 杀死 / 12 存活（95.3%），存活全部是 cast(...) 等价变异。
+  "src/forgeloop/domain/service.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/unit/", "tests/property/"]
 pytest_add_cli_args = [
@@ -136,6 +151,12 @@ pytest_add_cli_args = [
   "addopts=",
   # 架构契约门禁是仓库结构检查（依赖 contracts/ 与 docs/，不在 mutants 副本内），
   # 与核心领域规则的变异判定无关：排除以免基线收集失败。
+  # 变异基线只跑 unit+property（与上面的 test_selection 同口径）：系统层要起真实进程
+  # 与回环端口，在沙箱里会撞 pytest-timeout（2026-10-18 实测：基线跑到
+  # tests/system/test_serve_async.py 超时，整个运行报 failed to collect stats）；
+  # 集成层同理不属于「变异由稳定单元测试判定」的范围。
+  "--ignore=tests/system",
+  "--ignore=tests/integration",
   "--ignore=tests/unit/test_architecture_contract.py",
   # 下面三个属性用例用 Hypothesis + 函数级 fixture（tmp_path），在 mutmut 的多执行器
   # 基线下触发 HealthCheck.differing_executors——Hypothesis 明确说这是测试正确性问题、
@@ -150,7 +171,11 @@ pytest_add_cli_args = [
 # frontend/quality-thresholds.json；不复制就会在基线收集阶段 FileNotFoundError
 # （2026-10-18 实测：修好 planning-repo-facts 的跳过后它们成为 mutmut 的首个失败）。
 # 目录项先于文件项，保证 mutants/frontend/ 已存在。
-also_copy = ["tests", "config", "scripts", "frontend/src", "frontend/quality-thresholds.json"]
+# `contracts/` 必须一并复制（2026-10-18 实测）：`tests/component/test_cli_contract.py` 会读
+# `contracts/cli-contract.json`，沙箱里没有它就基线失败——扩大 only_mutate 后这条暴露出来
+# （此前只在跑窄范围时才没被选中）。契约快照是仓库结构检查，与变异判定无关，但缺了会直接
+# 让整个变异运行报「failed to collect stats」。
+also_copy = ["tests", "config", "scripts", "contracts", "frontend/src", "frontend/quality-thresholds.json"]
 
 [tool.pylint.main]
 # Pylint 原先只启用 too-many-public-methods 与 too-many-lines 两项；

@@ -18,6 +18,14 @@
 - ``<task>-<role>.events.jsonl``：收到的事件（含接收时间）
 - ``<task>-<role>.requests.jsonl``：发出的请求（含发送时间）
 - ``<task>-<role>.stderr.log``：进程 stderr 原文
+
+增量事件回调（``on_event``，2026-10-18 按真实轨迹补充）：协议在整轮结束前就会推流
+——``message_update`` 携带 ``assistantMessageEvent``（``text_delta``、``thinking_delta``、
+``toolcall_delta``），``tool_execution_start/update/end`` 携带工具名、参数、结果、
+``isError`` 与 ``durationMs``，``entry_appended`` 携带上下文编辑（PI 的自动压缩）。
+``on_event`` 在读到事件的当下回调，供上层做流式落库与工具留痕；不传回调时行为与
+以前完全一致（任务图不关心这些事件）。回调抛错会终止本次读取并向上抛——上层据此
+把「记录不下来」当成失败处理，而不是继续跑一个记不全的轮次。
 """
 
 import contextlib
@@ -26,7 +34,7 @@ import os
 import selectors
 import subprocess
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -130,9 +138,12 @@ class PIProcess:
         role: str,
         session_dir: Path,
         options: PISpawnOptions | None = None,
+        *,
+        on_event: Callable[[PIEvent], None] | None = None,
     ) -> None:
         if not command:
             raise ValueError("PI command must not be empty")
+        self._on_event = on_event
         self._command = tuple(command)
         self._task_id = task_id
         self._role = role
@@ -155,6 +166,17 @@ class PIProcess:
     @property
     def events(self) -> tuple[PIEvent, ...]:
         return tuple(self._events)
+
+    @property
+    def pid(self) -> int | None:
+        """子进程身份；未启动时为 ``None``（运行时可核对「是不是同一个进程」）。"""
+
+        return None if self._proc is None else self._proc.pid
+
+    def is_alive(self) -> bool:
+        """进程是否仍在运行（未启动或已退出都是 ``False``）。"""
+
+        return self._proc is not None and self._proc.poll() is None
 
     def start(self) -> None:
         if self._proc is not None:
@@ -233,9 +255,16 @@ class PIProcess:
                 continue
             event = status
             self._record_event(event)
+            self._notify(event)
             outcome = self._apply_event(event)
             if outcome is not None:
                 return outcome
+
+    def _notify(self, event: PIEvent) -> None:
+        """把事件交给上层回调（流式落库、工具留痕）；回调异常向上抛，不静默吞掉。"""
+
+        if self._on_event is not None:
+            self._on_event(event)
 
     def _apply_event(self, event: PIEvent) -> PIInvocationResult | None:
         """事件分派：响应可能直接给出结果；settled 触发取文本；其余记录。"""

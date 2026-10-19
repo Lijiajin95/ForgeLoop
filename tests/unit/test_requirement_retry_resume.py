@@ -151,6 +151,7 @@ def _authorize(
     task_id: str | None = None,
     plan_version: int = REQ_VERSION,
     task_status: str = INTERRUPTED,
+    resume_node: str = "",
     at: datetime = WHEN,
 ) -> bool:
     """按已记录的真实检查点记录一次人工续跑决定；返回授权是否通过。"""
@@ -164,9 +165,33 @@ def _authorize(
         task_status=task_status,
         by=BY,
         reason=REASON,
+        resume_node=resume_node,
         at=at,
     )
     return outcome.allowed
+
+
+def _record_legacy_decision(root: Path, req_id: str, thread_id: str) -> None:
+    """直接写入一条迁移前形态的人工决定（表里没有 resume_node 列）。"""
+
+    connection = sqlite3.connect(root / "records.sqlite")
+    try:
+        connection.executescript(
+            "CREATE TABLE IF NOT EXISTS requirement_retry_decisions ("
+            " decision_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " req_id TEXT NOT NULL, task_id TEXT NOT NULL,"
+            " decided_by TEXT NOT NULL, reason TEXT NOT NULL,"
+            " decided_at TEXT NOT NULL, plan_version INTEGER, checkpoint_id TEXT);"
+        )
+        connection.execute(
+            "INSERT INTO requirement_retry_decisions"
+            " (req_id, task_id, decided_by, reason, decided_at, plan_version, checkpoint_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (req_id, thread_id, BY, REASON, WHEN.isoformat(), REQ_VERSION, CHECKPOINT_ID),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def _requirement_of(thread_id: str) -> str:
@@ -459,13 +484,17 @@ class TestResumeRefusal:
 
         assert runner.calls == []
 
-    def test_unattributable_halt_refuses_resume(self, tmp_path: Path) -> None:
-        """中断原因无法归因到业务节点时，即使有决定也 fail-closed 等待人工。"""
+    def test_legacy_decision_without_node_still_refuses_resume(self, tmp_path: Path) -> None:
+        """迁移前记录的决定没有重入节点：执行器仍 fail-closed 等待人工（纵深防御）。
+
+        缺陷 #24 修复后，新决定必须点名节点才会通过校验；但**已落库的旧决定**仍可能
+        绑定同一现场。执行器不能因为「有一条决定」就放行一个没有重入点的现场。
+        """
 
         store, req_id = _approved(tmp_path)
         thread = _thread(req_id)
-        _write_checkpoint(tmp_path, thread, halted_reason="time_exhausted")
-        assert _authorize(tmp_path, thread) is True
+        _write_checkpoint(tmp_path, thread, halted_reason="plan_approval_stale")
+        _record_legacy_decision(tmp_path, req_id, thread)
         clock = FakeClock()
         runner = RunnableStub(
             tmp_path, req_id, clock, result=TaskResult(TaskRunState.DELIVERED, _artifact())
@@ -479,6 +508,25 @@ class TestResumeRefusal:
         assert run is not None
         assert run.state == TaskRunState.AWAITING_USER.value
         assert progress.current_task == TASK
+
+    def test_explicit_node_decision_resumes_at_that_node(self, tmp_path: Path) -> None:
+        """人工点名重入节点后，陈旧中断现场按该节点就地续跑（不重放更早节点）。"""
+
+        store, req_id = _approved(tmp_path)
+        thread = _thread(req_id)
+        _write_checkpoint(tmp_path, thread, nodes=(), halted_reason="plan_approval_stale")
+        assert _authorize(tmp_path, thread, resume_node="dev", task_status="blocked") is True
+        clock = FakeClock()
+        runner = RunnableStub(
+            tmp_path, req_id, clock, result=TaskResult(TaskRunState.DELIVERED, _artifact())
+        )
+
+        RequirementExecutor(store, req_id, runner, clock=clock).advance()
+        store.close()
+
+        assert len(runner.calls) == 1
+        assert runner.calls[0].resume is True
+        assert runner.calls[0].resume_node == "dev"
 
     def test_decision_requires_trusted_checkpoint_identity(self, tmp_path: Path) -> None:
         store, req_id = _approved(tmp_path)

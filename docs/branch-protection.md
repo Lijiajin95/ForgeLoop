@@ -7,6 +7,12 @@
 
 **2026-10-15 所有者需求澄清**：ForgeLoop 应能修改自身项目并交付可验收代码；所有者、DSH 与其他工具仍可按项目约定开发和提交。服务端排他写入及“只有 ForgeLoop 才能提交”的要求已撤销，C04 取消。已有基本保护继续保留，GitHub 配置不承担工具来源排他判定。
 
+**2026-10-18 所有者需求澄清（取消 GitHub 账号 Signing Key 要求）**：**取消“必须在 GitHub 账号登记 SSH 公钥为 Signing Key”这一要求**——账号级签名密钥登记不再作为本项目的要求、准入条件或验收前提。本机 SSH 签名与服务端 `required_signatures` 规则**均保留，未撤销**；账号侧现有登记**保持现状，本次不删除**（是否删除由所有者另行决定）。
+
+- 实际改动范围：本次只取消要求并订正本文档，**未修改 GitHub 规则集、未改本机 git 配置、未删除账号密钥**。
+- 事实核对（2026-10-18）：规则集 `main-protection`（id 25133735，active）现有规则为 `deletion` + `non_fast_forward` + `required_signatures`，bypass=所有者（mode=always）；本机仓库配置为 `gpg.format=ssh`、`user.signingkey=~/.ssh/id_ed25519.pub`、`commit.gpgsign=true`，三者保留；`origin/main` 最新提交 `28c403b` 经 GitHub API 返回 `verified=true, reason=valid`，说明账号侧当前存在可验证该签名的登记。
+- 已知后果（依据 GitHub 文档，**未实测删除登记后的行为**）：GitHub 只把能对账号内已登记公钥验证成功的提交标为 Verified；一旦账号侧没有对应登记，新推送的提交会显示 Unverified，而 `required_signatures` 阻止的是**未签名或未验证**的提交。所有者对该规则集有 `always` 绕过权限，因此本机提交与推送不受影响；无绕过权限的推送者会被该规则阻断——这是“保留服务端规则 + 不强制账号登记”这一组合的已知代价，如实记录为事实而非缺口。已验签提交的验证记录在仓库网络内持久保留，不因后续登记变化而被改写。
+
 ## 1. 先弄清楚一个容易搞错的点
 
 GitHub 的必需状态检查可以约束无绕过权限的分支更新。提交通过检查后，可通过合并或直接推送进入受保护分支；是否必须 PR 由 PR 规则另行决定。不能把“允许通过检查的提交直推”解释为“状态检查不阻断直推”。参见 [About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) 与 [Available rules for rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)。
@@ -71,8 +77,10 @@ curl -sS -X POST \
   }'
 ```
 
-签名密钥：本机以 SSH 签名（`gpg.format=ssh`、`user.signingkey=~/.ssh/id_ed25519.pub`、`commit.gpgsign=true`，
-写入仓库本地配置），并在 GitHub 账号登记同一把公钥为 **Signing Key**。
+签名密钥（2026-10-18 修订）：本机以 SSH 签名——`gpg.format=ssh`、`user.signingkey=~/.ssh/id_ed25519.pub`、`commit.gpgsign=true`，
+写入仓库本地配置（**保留**，未随本次取消改动）。在 GitHub 账号登记同一把公钥为 **Signing Key** 曾作为要求记录，
+**该要求已于 2026-10-18 由所有者取消**：登记与否不再是本项目的要求、准入条件或验收前提；账号现有登记保持现状，本次不删除。
+未登记时 GitHub 会把提交标为 Unverified，对服务端 `required_signatures` 规则的影响见开头的 2026-10-18 澄清。
 
 ## 4. 启用顺序（已全部完成）
 
@@ -90,6 +98,7 @@ curl -sS -X POST \
 | 规则已创建（Active） | **已完成**：`main-protection`，规则 `deletion`+`non_fast_forward`+`required_signatures`，bypass=所有者 |
 | 禁删除 / 禁强推 | **已实测**（临时分支挂同规则）：强推改写与删除分支均被拒，报错 `push declined due to repository rule violations` |
 | 要求签名提交 | **已实测**：向挂该规则的临时分支推送**未签名**提交被拒；同时 main 上已有**已验证**提交（`git log --show-signature` 为 `Good "git" signature`，GitHub API 返回 `verified=true, reason=valid`） |
+| GitHub 账号登记 Signing Key | **要求已取消**（所有者 2026-10-18）：不再要求登记或维持，也不再作为准入条件与验收前提；账号现有登记本次未动、未删除。本机 SSH 签名与服务端 `required_signatures` 保留——见开头 2026-10-18 澄清 |
 | 要求 PR（曾短暂启用后按所有者决定移除） | 已实测其行为：无 bypass 时直推被拒；有 bypass 时放行 |
 | 正常推送不受影响 | **已实测**：普通快进推送放行 |
 | DogFood 来源门禁技术负例（真实 git：无回执／补挂任务 ID／内容漂移／伪造签名） | **已实测**：`tests/scenario/test_dogfood_gate.py`（8 项）与 `tests/unit/test_dogfood_provenance.py`（22 项） |
@@ -100,4 +109,4 @@ curl -sS -X POST \
 
 原方案用 HMAC-SHA256 来源回执和 CI 校验限制提交来源。所有者于 2026-10-15 撤销该要求，原启用步骤失效；不再要求配置 `FORGELOOP_DOGFOOD_SIGNING_KEY`、仓库来源 Secret、专用写入身份或把 `dogfood-provenance` 加入必需检查，也不为此新建来源策略或排他开发 Prompt。
 
-当前代码仍保留来源签名、校验脚本、`config/dogfood-policy.toml`（`enabled = false`）、CI 作业及测试；它们的清理尚未实施。历史验证记录继续保留，后续清理单独确认文件范围。任务、批准、候选、测试及验收材料的绑定继续保留，以验证自我迭代交付质量。
+当前代码**已不再保留**来源签名相关实现。**2026-10-18 按实际仓库状态订正**（原文写于清理落地之前）：清理已完成——`b3827a7`（2026-10-15，净删 948 行、8 个文件）删除了 `src/forgeloop/cli/merge.py` 的来源签名、`scripts/check_dogfood_provenance.py`、`config/dogfood-policy.toml`、`quality.yml` 的来源作业、`tests/scenario/test_dogfood_gate.py`、`tests/unit/test_dogfood_provenance.py` 与 `graph/builder.py` 的来源前缀说明；上述文件在 2026-10-18 核对时均已不存在。仓库 Secret `FORGELOOP_DOGFOOD_SIGNING_KEY` 已由所有者删除（[DogFood 计划](dogfood-execution-plan.md)记录，本次未独立核对）。第 5 节的历史验证记录按原样保留。任务、批准、候选、测试及验收材料的绑定继续保留，以验证自我迭代交付质量。

@@ -3,6 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- 写入口令牌：`forgeloop serve` 启动时把占位替换成一次性令牌；只读的 `forgeloop web` 不替换。 -->
+    <meta name="forgeloop-token" content="__FORGELOOP_TOKEN__" />
     <title>ForgeLoop 研发进展</title>
     <style>
       :root {
@@ -15,6 +17,10 @@
         --accent: #2f6f4f;
         --issue: #a33a2a;
         --issue-bg: #fdf1ee;
+        /* 操作面板与对话框面板共用的别名：--border／--danger 原先只在规则里出现、
+           没有定义，输入框边框与失败文案取不到颜色。这里补齐，两处面板共用同一份。 */
+        --border: var(--line);
+        --danger: var(--issue);
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -26,6 +32,8 @@
           --accent: #6fbf95;
           --issue: #f0a08f;
           --issue-bg: #2c1f1c;
+          --border: var(--line);
+          --danger: var(--issue);
         }
       }
       * {
@@ -154,96 +162,499 @@
       code {
         font-size: 12px;
       }
+      #operations form,
+      #operations .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+        margin-bottom: 10px;
+      }
+      #operations label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      #operations input,
+      #operations textarea,
+      #operations select {
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 8px;
+        min-width: 160px;
+      }
+      #operations textarea {
+        min-width: 320px;
+        min-height: 60px;
+      }
+      #operations button {
+        font: inherit;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 12px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      #operations button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #operations-status {
+        min-height: 1.2em;
+      }
+      #operations-status[data-tone="error"] {
+        color: var(--danger);
+      }
+
+      /* 右侧对话框面板：左侧保持既有进展视图，右栏固定宽度并跟随滚动。 */
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 420px;
+        gap: 20px;
+        align-items: start;
+      }
+      @media (max-width: 1180px) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        #panel {
+          position: static;
+          max-height: none;
+        }
+      }
+      #panel {
+        position: sticky;
+        top: 24px;
+        max-height: calc(100vh - 48px);
+        overflow: auto;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+      .panel-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+      .panel-head h2 {
+        margin: 0;
+      }
+      #panel-refresh {
+        margin-left: auto;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+        margin: 10px 0;
+      }
+      .tabs button[aria-pressed="true"] {
+        border-color: var(--accent);
+        color: var(--accent);
+        font-weight: 600;
+      }
+      #panel button {
+        font: inherit;
+        font-size: 13px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 10px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      #panel button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .panel-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      #panel select,
+      #panel input,
+      #panel textarea {
+        font: inherit;
+        font-size: 13px;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 6px;
+        max-width: 100%;
+      }
+      #panel label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      #panel-tools {
+        list-style: none;
+        margin: 4px 0 8px;
+        padding: 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #panel-tools li {
+        border-left: 2px solid var(--border);
+        padding: 3px 0 3px 8px;
+        margin: 3px 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #panel-tools li.tool-approval {
+        border-left-color: var(--danger);
+      }
+      #panel-messages li.msg-streaming p::after {
+        content: "▌";
+        margin-left: 2px;
+        opacity: 0.7;
+      }
+      #panel-messages {
+        list-style: none;
+        margin: 8px 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 40vh;
+        overflow: auto;
+      }
+      .msg {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+      }
+      .msg p {
+        margin: 4px 0 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .msg-head {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .msg-agent {
+        background: var(--bg);
+      }
+      .msg-error {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+      .decision {
+        border: 1px solid var(--accent);
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+      }
+      .decision p {
+        margin: 4px 0;
+      }
+      #panel-status[data-tone="error"] {
+        color: var(--danger);
+      }
+      #panel table {
+        font-size: 12px;
+      }
+      #panel th,
+      #panel td {
+        padding: 4px 6px;
+      }
     </style>
   </head>
   <body>
-    <header>
-      <h1>ForgeLoop 研发进展</h1>
-      <button id="refresh-button" type="button">立即刷新</button>
-    </header>
-    <p class="meta">
-      <span id="refresh-note">自动刷新: 每 60 秒</span> ·
-      <span id="countdown">等待首次加载</span> · 生成时间
-      <b id="generated-at">—</b> · 记录根 <b id="records-root">—</b>
-    </p>
-    <div id="banner" role="alert"></div>
+    <div class="layout">
+      <main class="progress">
+        <header>
+          <h1>ForgeLoop 研发进展</h1>
+          <button id="refresh-button" type="button">立即刷新</button>
+        </header>
+        <p class="meta">
+          <span id="refresh-note">自动刷新: 每 60 秒</span> ·
+          <span id="countdown">等待首次加载</span> · 生成时间
+          <b id="generated-at">—</b> · 记录根 <b id="records-root">—</b>
+        </p>
+        <div id="banner" role="alert"></div>
 
-    <div class="counts">
-      <div class="count">
-        <strong id="count-requirements">—</strong><span>需求</span>
-      </div>
-      <div class="count">
-        <strong id="count-tasks">—</strong><span>任务</span>
-      </div>
-      <div class="count">
-        <strong id="count-issues">—</strong><span>待处理问题</span>
-      </div>
+        <div class="counts">
+          <div class="count">
+            <strong id="count-requirements">—</strong><span>需求</span>
+          </div>
+          <div class="count">
+            <strong id="count-tasks">—</strong><span>任务</span>
+          </div>
+          <div class="count">
+            <strong id="count-issues">—</strong><span>待处理问题</span>
+          </div>
+        </div>
+
+        <section>
+          <h2>需求</h2>
+          <table>
+            <caption>
+              需求原文与任务包来自权威记录；「任务进展」为已交付任务数 /
+              任务包任务数。
+            </caption>
+            <thead>
+              <tr>
+                <th>需求</th>
+                <th>项目</th>
+                <th>状态</th>
+                <th>任务包</th>
+                <th>任务进展</th>
+                <th>下一步</th>
+                <th>阻断原因</th>
+              </tr>
+            </thead>
+            <tbody id="requirements-body"></tbody>
+          </table>
+          <p class="empty" id="requirements-empty">没有需求记录。</p>
+        </section>
+
+        <section>
+          <h2>任务</h2>
+          <table>
+            <caption>
+              含需求任务映射出的单任务记录（身份形如
+              task-&lt;需求&gt;-v&lt;任务包版本&gt;-&lt;任务&gt;）。
+            </caption>
+            <thead>
+              <tr>
+                <th>任务</th>
+                <th>项目</th>
+                <th>状态</th>
+                <th>下一步</th>
+                <th>失败轮次</th>
+                <th>工时</th>
+                <th>阻断原因</th>
+              </tr>
+            </thead>
+            <tbody id="tasks-body"></tbody>
+          </table>
+          <p class="empty" id="tasks-empty">没有任务记录。</p>
+        </section>
+
+        <section>
+          <h2>问题</h2>
+          <table>
+            <caption>
+              需要人工介入的当前事实：阻断、中断、等待追加授权、工时耗尽、待确认停止与未完成执行槽位。等待批准/验收属于正常流程门，不在此列。
+            </caption>
+            <thead>
+              <tr>
+                <th>种类</th>
+                <th>对象</th>
+                <th>摘要</th>
+                <th>依据</th>
+              </tr>
+            </thead>
+            <tbody id="issues-body"></tbody>
+          </table>
+          <p class="empty" id="issues-empty">没有待处理问题。</p>
+        </section>
+
+        <section id="operations" hidden>
+          <h2>操作</h2>
+          <p class="meta">
+            写操作与 CLI
+            等价：批准绑定需求身份与任务包版本，理由写进权威记录；只有
+            <code>forgeloop serve</code>（常驻服务）下发令牌，只读的
+            <code>forgeloop web</code> 不显示本面板。
+          </p>
+          <form id="submit-form">
+            <label>
+              项目
+              <input id="submit-project" name="project" required />
+            </label>
+            <label>
+              需求正文
+              <textarea id="submit-text" name="text" required></textarea>
+            </label>
+            <label>
+              操作人
+              <input id="operations-by" name="by" value="owner" required />
+            </label>
+            <label>
+              理由/备注
+              <input id="submit-reason" name="reason" />
+            </label>
+            <button id="submit-button" type="submit">提交需求</button>
+          </form>
+          <div class="actions">
+            <label>
+              需求
+              <select id="action-req"></select>
+            </label>
+            <label>
+              理由（批准/验收/停止必填）
+              <input id="action-reason" />
+            </label>
+            <button id="action-approve" type="button">批准任务包</button>
+            <button id="action-advance" type="button">推进本次</button>
+            <button id="action-accept" type="button">整体验收</button>
+            <button id="action-stop" type="button">请求停止</button>
+          </div>
+          <p class="meta" id="operations-status" role="status"></p>
+        </section>
+      </main>
+
+      <aside id="panel" aria-label="会话面板" hidden>
+        <div class="panel-head">
+          <h2>会话面板</h2>
+          <button id="panel-refresh" type="button">刷新</button>
+        </div>
+        <p class="meta">
+          一轮 = 一条消息驱动一次真实 PI 调用；需要人工判断时 Agent
+          会显式请求，面板停在「待人工决定」，不自动重试。
+        </p>
+        <nav class="tabs">
+          <button id="panel-tab-sessions" type="button" aria-pressed="true">
+            会话
+          </button>
+          <button id="panel-tab-runtime" type="button" aria-pressed="false">
+            运行时
+          </button>
+          <button id="panel-tab-projects" type="button" aria-pressed="false">
+            项目
+          </button>
+        </nav>
+        <p class="meta" id="panel-status" role="status"></p>
+
+        <section id="panel-sessions-view">
+          <div class="panel-row">
+            <select id="panel-session-list"></select>
+            <button id="panel-new-session" type="button">新建会话</button>
+          </div>
+          <div id="panel-new-session-form" hidden>
+            <label>
+              项目（只列运行时已就绪的项目）
+              <select id="panel-project-select"></select>
+            </label>
+            <label>
+              会话标题
+              <input id="panel-session-title" />
+            </label>
+            <div class="panel-row">
+              <button id="panel-create-session" type="button">创建</button>
+              <button id="panel-cancel-session" type="button">取消</button>
+            </div>
+          </div>
+          <p class="meta" id="panel-session-meta">未选择会话</p>
+          <p class="meta" id="panel-empty">
+            选择一个会话查看对话，或新建一个。
+          </p>
+          <ol id="panel-messages"></ol>
+          <p class="meta" id="panel-tools-meta" hidden></p>
+          <ul id="panel-tools" hidden></ul>
+          <div id="panel-decisions"></div>
+          <form id="panel-composer">
+            <label>
+              给 Agent 的消息
+              <textarea id="panel-message-text" rows="3"></textarea>
+            </label>
+            <label>
+              理由（人工决定与终止必填，会写进记录）
+              <input id="panel-reason" />
+            </label>
+            <label>
+              人工决定的补充指令（可选，批准后立即发起新一轮）
+              <input id="panel-decision-text" />
+            </label>
+            <div class="panel-row">
+              <button id="panel-send" type="submit">发送</button>
+              <button id="panel-terminate" type="button">终止会话</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="panel-runtime-view" hidden>
+          <p class="meta" id="panel-runtime-summary"></p>
+          <table>
+            <caption>
+              「就绪」= 项目路径存在且隔离 HOME
+              里的模型配置可用；未就绪不能建会话。
+            </caption>
+            <thead>
+              <tr>
+                <th>项目</th>
+                <th>就绪</th>
+                <th>问题</th>
+                <th>PI 命令</th>
+                <th>隔离 HOME</th>
+                <th>在跑</th>
+              </tr>
+            </thead>
+            <tbody id="panel-runtime-body"></tbody>
+          </table>
+          <p class="empty" id="panel-runtime-empty">
+            项目档案为空：到「项目」页签新增一个。
+          </p>
+        </section>
+
+        <section id="panel-projects-view" hidden>
+          <table>
+            <caption>
+              手写配置（config/service.toml）的项目只读；页面管理的项目可增删改，同名会拒绝。
+            </caption>
+            <thead>
+              <tr>
+                <th>项目</th>
+                <th>来源</th>
+                <th>路径</th>
+                <th>git</th>
+                <th>问题</th>
+                <th>进行中会话</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="panel-projects-body"></tbody>
+          </table>
+          <p class="empty" id="panel-projects-empty">还没有项目档案。</p>
+          <form id="panel-project-form">
+            <label>
+              项目名
+              <input id="panel-project-name" />
+            </label>
+            <label>
+              代码仓路径
+              <input id="panel-project-path" />
+            </label>
+            <label>
+              说明
+              <input id="panel-project-description" />
+            </label>
+            <label>
+              PI 命令（JSON 数组，不拆词）
+              <input
+                id="panel-project-command"
+                placeholder='["pi", "--mode", "rpc", "--no-session"]'
+              />
+            </label>
+            <label>
+              隔离 HOME（需含非空的 .pi/agent/models.json）
+              <input id="panel-project-home" />
+            </label>
+            <p class="meta" id="panel-project-source"></p>
+            <div class="panel-row">
+              <button id="panel-project-submit" type="submit">新增项目</button>
+              <button id="panel-project-reset" type="button">清空</button>
+            </div>
+          </form>
+        </section>
+      </aside>
     </div>
-
-    <section>
-      <h2>需求</h2>
-      <table>
-        <caption>
-          需求原文与任务包来自权威记录；「任务进展」为已交付任务数 /
-          任务包任务数。
-        </caption>
-        <thead>
-          <tr>
-            <th>需求</th>
-            <th>项目</th>
-            <th>状态</th>
-            <th>任务包</th>
-            <th>任务进展</th>
-            <th>下一步</th>
-            <th>阻断原因</th>
-          </tr>
-        </thead>
-        <tbody id="requirements-body"></tbody>
-      </table>
-      <p class="empty" id="requirements-empty">没有需求记录。</p>
-    </section>
-
-    <section>
-      <h2>任务</h2>
-      <table>
-        <caption>
-          含需求任务映射出的单任务记录（身份形如
-          task-&lt;需求&gt;-v&lt;任务包版本&gt;-&lt;任务&gt;）。
-        </caption>
-        <thead>
-          <tr>
-            <th>任务</th>
-            <th>项目</th>
-            <th>状态</th>
-            <th>下一步</th>
-            <th>失败轮次</th>
-            <th>工时</th>
-            <th>阻断原因</th>
-          </tr>
-        </thead>
-        <tbody id="tasks-body"></tbody>
-      </table>
-      <p class="empty" id="tasks-empty">没有任务记录。</p>
-    </section>
-
-    <section>
-      <h2>问题</h2>
-      <table>
-        <caption>
-          需要人工介入的当前事实：阻断、中断、等待追加授权、工时耗尽、待确认停止与未完成执行槽位。等待批准/验收属于正常流程门，不在此列。
-        </caption>
-        <thead>
-          <tr>
-            <th>种类</th>
-            <th>对象</th>
-            <th>摘要</th>
-            <th>依据</th>
-          </tr>
-        </thead>
-        <tbody id="issues-body"></tbody>
-      </table>
-      <p class="empty" id="issues-empty">没有待处理问题。</p>
-    </section>
 
     <!-- 行为代码是 TypeScript 源（frontend/src）编译出的模块，见 docs/engineering-reliability.md 第 1 节；本文件只保留结构与样式。 -->
     <script type="module" src="/app.js"></script>

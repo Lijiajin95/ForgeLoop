@@ -28,6 +28,8 @@ from typing import cast
 DRAFT = "draft"
 AWAITING_CLARIFICATION = "awaiting_clarification"
 BLOCKED = "blocked"
+# 需求级整体验收通过后的终态；由记录层与 CLI 共用同一词表（不各写一份字面量）。
+ACCEPTED = "accepted"
 
 
 class RequirementError(ValueError):
@@ -36,6 +38,10 @@ class RequirementError(ValueError):
 
 class RequirementNotFoundError(LookupError):
     """按身份回查不到需求；未知身份必须明确失败。"""
+
+
+class IdempotencyConflictError(RequirementError):
+    """同一个客户端幂等键被用于不同内容：fail-closed 拒绝，不猜用户想改哪一条。"""
 
 
 class AnalysisMalformedError(RequirementError):

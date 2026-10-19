@@ -523,3 +523,122 @@ class TestAuthorizeRetry:
         assert outcome.allowed is False
         assert outcome.checkpoint is None
         assert latest_retry_decision(tmp_path, REQ, TASK) is None
+
+
+class TestExplicitResumeNode:
+    """缺陷 #24：无法归因的陈旧 ``halted_reason`` 允许人工显式点名重入节点。
+
+    迁移前的旧现场（如 ``plan_approval_stale``）没有任何可归因节点，原规则下 ``retry``
+    永远 fail-closed。修复只放开「人工点名节点」这一条，其余校验一条不放宽：
+
+    - 无法归因且未点名 → 拒绝，并给出可操作提示（不写决定、不改现场）；
+    - 无法归因且点名合法节点 → 放行，决定里留下点名的节点；
+    - 已可归因的中断不接受改指其他节点（冲突即拒绝）；
+    - 点名节点必须是可续跑业务节点；
+    - 迁移前写入的决定行（无 ``resume_node`` 列）仍可读，缺列按空处理。
+    """
+
+    def _unattributable(self, root: Path) -> None:
+        _write_checkpoint(root, nodes=(), halted_reason="plan_approval_stale")
+
+    def _authorize(
+        self,
+        root: Path,
+        *,
+        resume_node: str = "",
+        task_status: str = "blocked",
+    ) -> RetryAuthorization:
+        return authorize_retry(
+            root,
+            inspection=inspect_checkpoint(root, THREAD),
+            requirement_id=REQ,
+            task_id=TASK,
+            plan_version=PLAN_VERSION,
+            task_status=task_status,
+            by=BY,
+            reason="人工核对陈旧中断现场后指定重入节点",
+            resume_node=resume_node,
+            at=WHEN,
+        )
+
+    def test_unattributable_halt_requires_explicit_node(self, tmp_path: Path) -> None:
+        self._unattributable(tmp_path)
+
+        outcome = self._authorize(tmp_path)
+
+        assert outcome.allowed is False
+        assert any("--node" in reason for reason in outcome.check.reasons)
+        assert latest_retry_decision(tmp_path, REQ, TASK) is None
+
+    def test_explicit_node_authorizes_and_clears_halt(self, tmp_path: Path) -> None:
+        self._unattributable(tmp_path)
+
+        outcome = self._authorize(tmp_path, resume_node="dev")
+
+        assert outcome.allowed is True, outcome.check.reasons
+        assert outcome.decision is not None
+        assert outcome.decision.resume_node == "dev"
+        assert outcome.checkpoint is not None
+        assert outcome.checkpoint.halted_reason == ""
+        assert outcome.checkpoint.halted_node == "dev"
+        assert outcome.checkpoint.resumed_from_halt is True
+        reloaded = read_authorized_checkpoint(tmp_path, THREAD, requirement_id=REQ, task_id=TASK)
+        assert reloaded is not None
+        assert reloaded.halted_reason == ""
+        assert reloaded.halted_node == "dev"
+        latest = latest_retry_decision(tmp_path, REQ, TASK)
+        assert latest is not None and latest.resume_node == "dev"
+
+    def test_invalid_node_is_rejected_without_side_effects(self, tmp_path: Path) -> None:
+        self._unattributable(tmp_path)
+
+        outcome = self._authorize(tmp_path, resume_node="deploy")
+
+        assert outcome.allowed is False
+        assert any("可续跑业务节点" in reason for reason in outcome.check.reasons)
+        assert latest_retry_decision(tmp_path, REQ, TASK) is None
+
+    def test_attributable_halt_rejects_conflicting_node(self, tmp_path: Path) -> None:
+        _write_checkpoint(tmp_path)  # pi_dev_unsettled → 可归因为 dev
+
+        outcome = self._authorize(tmp_path, resume_node="review", task_status=INTERRUPTED)
+
+        assert outcome.allowed is False
+        assert any("不一致" in reason for reason in outcome.check.reasons)
+        assert latest_retry_decision(tmp_path, REQ, TASK) is None
+
+    def test_attributable_halt_accepts_the_same_node(self, tmp_path: Path) -> None:
+        _write_checkpoint(tmp_path)
+
+        outcome = self._authorize(tmp_path, resume_node="dev", task_status=INTERRUPTED)
+
+        assert outcome.allowed is True, outcome.check.reasons
+        assert outcome.decision is not None and outcome.decision.resume_node == "dev"
+
+    def test_decision_table_without_resume_node_column_still_reads(self, tmp_path: Path) -> None:
+        """迁移前的决定表没有 resume_node 列：读取按空处理，不掩盖既有决定。"""
+
+        connection = sqlite3.connect(tmp_path / "records.sqlite")
+        try:
+            connection.executescript(
+                "CREATE TABLE requirement_retry_decisions ("
+                " decision_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " req_id TEXT NOT NULL, task_id TEXT NOT NULL,"
+                " decided_by TEXT NOT NULL, reason TEXT NOT NULL,"
+                " decided_at TEXT NOT NULL, plan_version INTEGER, checkpoint_id TEXT);"
+            )
+            connection.execute(
+                "INSERT INTO requirement_retry_decisions"
+                " (req_id, task_id, decided_by, reason, decided_at, plan_version, checkpoint_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (REQ, TASK, BY, "迁移前记录的决定", WHEN.isoformat(), PLAN_VERSION, "cp-1"),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        decision = latest_retry_decision(tmp_path, REQ, TASK)
+
+        assert decision is not None
+        assert decision.resume_node == ""
+        assert decision.checkpoint_id == "cp-1"

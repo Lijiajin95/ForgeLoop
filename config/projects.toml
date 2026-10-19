@@ -1,0 +1,16 @@
+# 页面「开发项目管理」维护的项目档案（schema_version = 1）。
+#
+# - 本文件由页面整份生成：新增/编辑/删除都在页面上做，手工编辑同样生效。
+# - 与 config/service.toml 的 [projects.<名字>] 不得同名：项目身份只有一个来源，
+#   同名即启动失败（手写档案由所有者改文件，页面不可编辑）。
+# - 每个项目需要 path（被开发代码仓路径）、pi_command（PI RPC argv 数组）、
+#   pi_home（隔离 HOME，需含非空的 .pi/agent/models.json）与可选的 description。
+#
+# 示例：
+# [projects.forgeloop]
+# path = "/home/link/Project/ForgeLoop"
+# description = "ForgeLoop 自身"
+# pi_command = ["pi", "--mode", "rpc", "--no-session"]
+# pi_home = "/home/link/.local/share/forgeloop/pi-home"
+
+schema_version = 1

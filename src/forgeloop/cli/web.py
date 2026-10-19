@@ -47,6 +47,7 @@ from forgeloop.domain.progress import (
     ProgressConfigError,
     RefreshSetting,
     RefreshSource,
+    outstanding_action_issue,
     requirement_issue,
     resolve_refresh_seconds,
     slot_issue,
@@ -202,6 +203,17 @@ def build_progress_document(
             )
             if issue is not None:
                 issues.append(issue)
+            action = record_store.actions.outstanding(task.id)
+            if action is not None:
+                # 未释放的动作独立成项：任务状态可能仍显示「进行中」，但结果不明确。
+                issues.append(
+                    outstanding_action_issue(
+                        ref_id=task.id,
+                        node=action.node,
+                        action_id=action.action_id,
+                        started_at=action.started_at.isoformat(),
+                    )
+                )
         for occupant in record_store.actions.outstanding_slots():
             issues.append(
                 slot_issue(

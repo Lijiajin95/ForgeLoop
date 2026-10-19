@@ -48,6 +48,9 @@ class Approval:
     decided_at: datetime
     # 验收批准绑定实际材料；方案批准与历史记录保持为空。
     binding: DeliveryBinding | None = None
+    # 审计归属：谁作出的决定、从哪个入口来（页面写 ``web``）。旧记录为空串。
+    approved_by: str = ""
+    source: str = ""
 
 
 class ConsumeStatus(StrEnum):

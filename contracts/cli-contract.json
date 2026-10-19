@@ -627,6 +627,33 @@
       "object"
     ],
     "properties": {
+      "acceptance": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "acceptance_fingerprint": {
+            "type": [
+              "string"
+            ]
+          },
+          "acceptance_source": {
+            "type": [
+              "string"
+            ]
+          },
+          "accepted_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "accepted_by": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
       "analysis": {
         "type": [
           "null",
@@ -943,6 +970,28 @@
           "reason",
           "task_id"
         ]
+      },
+      "submission": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "client_key": {
+            "type": [
+              "string"
+            ]
+          },
+          "source": {
+            "type": [
+              "string"
+            ]
+          },
+          "submitted_by": {
+            "type": [
+              "string"
+            ]
+          }
+        }
       },
       "tasks": {
         "type": [
@@ -1574,6 +1623,899 @@
         "item": {
           "$ref": "#/document"
         }
+      }
+    }
+  },
+  "service_command": "forgeloop serve --once --json",
+  "service_exit_codes": {
+    "ok": 0,
+    "config_invalid": 1,
+    "listen_failed": 1
+  },
+  "service_status_route": "GET /api/service",
+  "service_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "config_path": {
+        "type": [
+          "string"
+        ]
+      },
+      "counts": {
+        "$ref": "#/web_progress_document/properties/counts"
+      },
+      "generated_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "operations_enabled": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "pid": {
+        "type": [
+          "integer"
+        ]
+      },
+      "projects": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "string"
+          ]
+        }
+      },
+      "records_root": {
+        "type": [
+          "string"
+        ]
+      },
+      "review_required": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "$ref": "#/web_progress_document/properties/issues/item"
+        }
+      },
+      "schema_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "started_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "worker": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "auto_advance": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "executable_projects": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "execution_enabled": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string"
+            ]
+          },
+          "last_poll_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "last_tick": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "candidates": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "executed": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "empty-array"
+                  ]
+                }
+              },
+              "results": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "empty-array"
+                  ]
+                }
+              },
+              "skipped": {
+                "type": [
+                  "array"
+                ],
+                "item": {
+                  "type": [
+                    "object"
+                  ],
+                  "properties": {
+                    "reason": {
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "req_id": {
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "pending_advance": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "poll_seconds": {
+            "type": [
+              "integer"
+            ]
+          },
+          "polls": {
+            "type": [
+              "integer"
+            ]
+          },
+          "projects": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "running": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "startup_checked_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "startup_review": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "detail": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "ref_id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "summary": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "service_submit_route": "POST /api/requirements",
+  "service_action_routes": [
+    "POST /api/requirements/{req_id}/approve",
+    "POST /api/requirements/{req_id}/advance",
+    "POST /api/requirements/{req_id}/accept",
+    "POST /api/requirements/{req_id}/stop"
+  ],
+  "service_operation_codes": {
+    "submit": 201,
+    "approve": 200,
+    "advance": 202,
+    "accept": 200,
+    "stop": 202
+  },
+  "service_operation_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "by": {
+        "type": [
+          "string"
+        ]
+      },
+      "detail": {
+        "type": [
+          "string"
+        ]
+      },
+      "note": {
+        "type": [
+          "string"
+        ]
+      },
+      "ok": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "operation": {
+        "type": [
+          "string"
+        ]
+      },
+      "output": {
+        "type": [
+          "string"
+        ]
+      },
+      "queued": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "reason": {
+        "type": [
+          "string"
+        ]
+      },
+      "req_id": {
+        "type": [
+          "string"
+        ]
+      },
+      "source": {
+        "type": [
+          "string"
+        ]
+      },
+      "task_id": {
+        "type": [
+          "string"
+        ]
+      }
+    },
+    "optional_keys": [
+      "by",
+      "detail",
+      "note",
+      "queued",
+      "source",
+      "task_id"
+    ]
+  },
+  "service_operation_error_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "detail": {
+        "type": [
+          "string"
+        ]
+      },
+      "error": {
+        "type": [
+          "string"
+        ]
+      }
+    }
+  },
+  "panel_route": "GET /api/panel",
+  "panel_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "projects": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "description": {
+              "type": [
+                "string"
+              ]
+            },
+            "editable": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "is_git_repo": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "live_sessions": {
+              "type": [
+                "integer"
+              ]
+            },
+            "name": {
+              "type": [
+                "string"
+              ]
+            },
+            "path": {
+              "type": [
+                "string"
+              ]
+            },
+            "problems": {
+              "type": [
+                "array"
+              ],
+              "item": {
+                "type": [
+                  "string"
+                ]
+              }
+            },
+            "runtime": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "pi_command": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "string"
+                    ]
+                  }
+                },
+                "pi_home": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "problems": {
+                  "type": [
+                    "array"
+                  ],
+                  "item": {
+                    "type": [
+                      "string"
+                    ]
+                  }
+                },
+                "ready": {
+                  "type": [
+                    "boolean"
+                  ]
+                },
+                "running_turns": {
+                  "type": [
+                    "integer"
+                  ]
+                }
+              }
+            },
+            "source": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "runtime": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "concurrency": {
+            "type": [
+              "integer"
+            ]
+          },
+          "live": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "live_sessions": {
+            "type": [
+              "integer"
+            ]
+          },
+          "queued_sessions": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "queued_turns": {
+            "type": [
+              "integer"
+            ]
+          },
+          "running_sessions": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "running_turns": {
+            "type": [
+              "integer"
+            ]
+          },
+          "tool_approval": {
+            "type": [
+              "string"
+            ]
+          },
+          "turn_timeout_seconds": {
+            "type": [
+              "integer"
+            ]
+          }
+        }
+      },
+      "schema_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "sessions": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "compaction_count": {
+              "type": [
+                "integer"
+              ]
+            },
+            "created_at": {
+              "type": [
+                "string"
+              ]
+            },
+            "created_by": {
+              "type": [
+                "string"
+              ]
+            },
+            "cwd": {
+              "type": [
+                "string"
+              ]
+            },
+            "last_error": {
+              "type": [
+                "string"
+              ]
+            },
+            "message_count": {
+              "type": [
+                "integer"
+              ]
+            },
+            "pending_decisions": {
+              "type": [
+                "integer"
+              ]
+            },
+            "project": {
+              "type": [
+                "string"
+              ]
+            },
+            "running": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "session_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "status": {
+              "type": [
+                "string"
+              ]
+            },
+            "terminate_reason": {
+              "type": [
+                "string"
+              ]
+            },
+            "terminated_at": {
+              "type": [
+                "null"
+              ]
+            },
+            "terminated_by": {
+              "type": [
+                "string"
+              ]
+            },
+            "title": {
+              "type": [
+                "string"
+              ]
+            },
+            "turn_count": {
+              "type": [
+                "integer"
+              ]
+            },
+            "updated_at": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "panel_session_route": "GET /api/panel/sessions/{session_id}",
+  "panel_session_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "decisions": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "created_at": {
+              "type": [
+                "string"
+              ]
+            },
+            "decided_at": {
+              "type": [
+                "null"
+              ]
+            },
+            "decided_by": {
+              "type": [
+                "string"
+              ]
+            },
+            "decision_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "kind": {
+              "type": [
+                "string"
+              ]
+            },
+            "question": {
+              "type": [
+                "string"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string"
+              ]
+            },
+            "status": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "generated_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "messages": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "author": {
+              "type": [
+                "string"
+              ]
+            },
+            "content": {
+              "type": [
+                "string"
+              ]
+            },
+            "context_mode": {
+              "type": [
+                "string"
+              ]
+            },
+            "created_at": {
+              "type": [
+                "string"
+              ]
+            },
+            "message_id": {
+              "type": [
+                "integer"
+              ]
+            },
+            "role": {
+              "type": [
+                "string"
+              ]
+            },
+            "state": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "schema_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "session": {
+        "$ref": "#/panel_document/properties/sessions/item"
+      },
+      "tool_calls": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "empty-array"
+          ]
+        }
+      }
+    }
+  },
+  "panel_project_routes": [
+    "POST /api/panel/projects",
+    "POST /api/panel/projects/{name}/update",
+    "POST /api/panel/projects/{name}/remove"
+  ],
+  "panel_session_routes": [
+    "POST /api/panel/sessions",
+    "POST /api/panel/sessions/{session_id}/messages",
+    "POST /api/panel/sessions/{session_id}/terminate",
+    "POST /api/panel/sessions/{session_id}/decisions/{decision_id}"
+  ],
+  "panel_operation_codes": {
+    "project_create": 201,
+    "project_update": 200,
+    "project_remove": 200,
+    "session_create": 201,
+    "session_message": 202,
+    "session_terminate": 200,
+    "session_decision_approve": 202,
+    "session_decision_reject": 200
+  },
+  "panel_operation_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "aborted": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "already_terminated": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "decision": {
+        "type": [
+          "string"
+        ]
+      },
+      "decision_id": {
+        "type": [
+          "string"
+        ]
+      },
+      "detail": {
+        "type": [
+          "string"
+        ]
+      },
+      "name": {
+        "type": [
+          "string"
+        ]
+      },
+      "ok": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "operation": {
+        "type": [
+          "string"
+        ]
+      },
+      "path": {
+        "type": [
+          "string"
+        ]
+      },
+      "project": {
+        "type": [
+          "string"
+        ]
+      },
+      "queued": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "session_id": {
+        "type": [
+          "string"
+        ]
+      },
+      "session_status": {
+        "type": [
+          "string"
+        ]
+      },
+      "source": {
+        "type": [
+          "string"
+        ]
+      },
+      "terminated": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "title": {
+        "type": [
+          "string"
+        ]
+      },
+      "turn_count": {
+        "type": [
+          "integer"
+        ]
+      }
+    },
+    "optional_keys": [
+      "aborted",
+      "already_terminated",
+      "decision",
+      "decision_id",
+      "name",
+      "path",
+      "project",
+      "session_status",
+      "source",
+      "terminated",
+      "title"
+    ]
+  },
+  "panel_operation_error_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "detail": {
+        "type": [
+          "string"
+        ]
+      },
+      "error": {
+        "type": [
+          "string"
+        ]
       }
     }
   }

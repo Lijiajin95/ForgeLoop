@@ -15,6 +15,7 @@ const ISSUE_KIND_LABELS = {
     task_stop_requested: "待确认停止",
     requirement_blocked: "需求阻断",
     slot_residue: "执行槽位残留",
+    outstanding_action: "未核对动作",
 };
 /** 刷新间隔来源 → 中文说明。 */
 const REFRESH_SOURCE_LABELS = {
