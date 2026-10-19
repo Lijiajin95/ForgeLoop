@@ -2,7 +2,10 @@
 # ForgeLoop 本机接入（一次性）：部署当前版本 + 安装用户级 systemd 服务
 #
 # 用法：
-#   scripts/install_local_service.sh [--prefix ~/.local/share/forgeloop] [--no-enable]
+#   scripts/install_local_service.sh [--prefix ~/.local/share/forgeloop] [--no-enable] [--skip-deploy]
+#
+# 幂等说明：前缀里**已有激活版本**时默认跳过部署（沿用已激活的那份产物，直接进 unit 安装）；
+# 同版本换一份不同字节的产物会被部署规则拒绝（这是保护：一个版本只对应一份产物）。
 #
 # 做三件事（每步都可单独重跑，幂等）：
 #   1. 构建 wheel 并用 forgeLoop 的受控部署路径装进 <prefix>（原子激活，失败自动回滚）；
@@ -15,10 +18,12 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${HOME}/.local/share/forgeloop"
 ENABLE=1
+SKIP_DEPLOY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix) PREFIX="$2"; shift 2 ;;
     --no-enable) ENABLE=0; shift ;;
+    --skip-deploy) SKIP_DEPLOY=1; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
@@ -34,10 +39,25 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO}/.cache/uv}" "${REPO}/.venv/bin/uv" build -
 WHEEL="$(ls -t "${DIST}"/forgeloop-*.whl | head -1)"
 echo "      wheel: ${WHEEL}"
 
-echo "[2/3] 受控部署到 ${PREFIX}"
-"$PY" -m forgeloop deploy --tag "v$("$PY" -c "
-import tomllib,pathlib;print(tomllib.loads(pathlib.Path('${REPO}/pyproject.toml').read_text())['project']['version'])")" \
-  --artifact "$WHEEL" --bootstrap --bootstrap-note "本机接入（脚本）" --prefix "$PREFIX"
+VERSION="$("$PY" -c "
+import tomllib,pathlib;print(tomllib.loads(pathlib.Path('${REPO}/pyproject.toml').read_text())['project']['version'])")"
+ACTIVE="$("$PY" -c "
+import sys; sys.path.insert(0, '${REPO}/src')
+from pathlib import Path
+from forgeloop.adapter.deployment import current_version
+print(current_version(Path('${PREFIX}')) or '')")"
+if [ "$SKIP_DEPLOY" = "1" ]; then
+  echo "[2/3] 跳过部署（--skip-deploy）；当前激活版本：${ACTIVE:-无}"
+elif [ -n "$ACTIVE" ]; then
+  # 已有激活版本：一个版本只对应一份产物（不同字节会被拒绝，这是保护）。想装新产物请升版本号，
+  # 或先 rollback/清理前缀；这里默认沿用已激活的那份，直接进 unit 安装。
+  echo "[2/3] 前缀已有激活版本 ${ACTIVE}，沿用该产物（不重新部署）"
+  echo "      如需安装新构建的产物：把 pyproject 的 version 升一位后重跑（或 --skip-deploy 手动处理）"
+else
+  echo "[2/3] 受控部署到 ${PREFIX}"
+  "$PY" -m forgeloop deploy --tag "v${VERSION}" \
+    --artifact "$WHEEL" --bootstrap --bootstrap-note "本机接入（脚本）" --prefix "$PREFIX"
+fi
 
 UNIT_DIR="${HOME}/.config/systemd/user"
 UNIT="${UNIT_DIR}/forgeloop.service"
