@@ -1200,3 +1200,163 @@ class TestThreeEntryParityRealService:
             "by_non_empty": True,
         }
         assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
+
+
+class TestThreeEntryParityForApproval:
+    """真实验证（批准）：真服务 + 真记录 + 真命令，三条入口各批准一次任务包。
+
+    与取消那条同构：播种需求与任务包后，分别经页面/CLI/邮件批准，比较批准记录事实。
+    """
+
+    def _seed_with_plan(self, root: Path, text: str) -> str:
+        from datetime import UTC, datetime
+
+        from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            req_id = store.submit("ForgeLoop", text).req_id
+            store.record_task_plan(
+                req_id,
+                TaskPlan(
+                    task_plan_id=f"plan-{req_id}",
+                    requirement_id=req_id,
+                    project="ForgeLoop",
+                    plan_version=1,
+                    requirement_version=1,
+                    tasks=(
+                        PlannedTask(
+                            task_id="task-1",
+                            goal="实现导出",
+                            files=("src/export.py",),
+                            acceptance="测试通过",
+                            test_command=("pytest", "-q"),
+                        ),
+                    ),
+                    created_at=datetime(2026, 10, 19, tzinfo=UTC),
+                ),
+            )
+        finally:
+            store.close()
+        return req_id
+
+    def _facts(self, root: Path, req_id: str) -> dict[str, object]:
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            approval = store.plan_approval(req_id)
+            return {
+                "has_approval": approval is not None,
+                "plan_version": None if approval is None else approval.plan_version,
+                "source_recorded": bool(approval and approval.source),
+            }
+        finally:
+            store.close()
+
+    def test_approve_through_page_cli_and_mail_yields_the_same_record(
+        self,
+        real_service: tuple[str, int, Path],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import argparse
+        from email.message import EmailMessage
+
+        host, port, root = real_service
+
+        page_req = self._seed_with_plan(root, "真实对照：页面批准")
+        status, _payload = post(
+            (host, port),
+            f"/api/requirements/{page_req}/approve",
+            {"by": "owner", "reason": "页面批准，真实对照"},
+            origin=f"http://{host}:{port}",
+        )
+        assert status == 200
+
+        from forgeloop.cli.main import cmd_requirement_approve
+
+        cli_req = self._seed_with_plan(root, "真实对照：CLI 批准")
+        assert (
+            cmd_requirement_approve(
+                argparse.Namespace(
+                    req_id=cli_req,
+                    by="owner",
+                    source="cli",
+                    records_root=str(root),
+                )
+            )
+            == 0
+        )
+
+        from forgeloop.cli.mail import cmd_mail_poll
+
+        mail_req = self._seed_with_plan(root, "真实对照：邮件批准")
+        message = EmailMessage()
+        message["From"] = "requester@example.com"
+        message["To"] = "owner@example.com"
+        message["Subject"] = f"Re: [ForgeLoop] {mail_req}"
+        message["Message-ID"] = "<real-parity-approve@example.com>"
+        message["Date"] = "Mon, 19 Oct 2026 08:00:00 +0800"
+        message.set_content("操作: 批准\n理由: 邮件批准，真实对照")
+
+        class _Receiver:
+            folder = "INBOX"
+
+            def authenticate(self) -> None: ...
+
+            def fetch_unseen(self) -> tuple[bytes, ...]:
+                return (message.as_bytes(),)
+
+            def close(self) -> None: ...
+
+        class _Sender:
+            sender = "owner@example.com"
+            recipient = "owner@example.com"
+
+            def send(self, outgoing: EmailMessage) -> str:
+                return "<out-real-parity-approve@example.com>"
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr("forgeloop.cli.mail._make_receiver", lambda args: _Receiver())
+        monkeypatch.setattr("forgeloop.cli.mail._make_sender", lambda args: _Sender())
+        assert (
+            cmd_mail_poll(
+                argparse.Namespace(
+                    poll_command="poll",
+                    once=True,
+                    json=False,
+                    project="ForgeLoop",
+                    out_of_scope=[],
+                    whitelist=["requester@example.com"],
+                    auto_reply=False,
+                    auto_analyze=False,
+                    final_not_accept=False,
+                    questions=[],
+                    requirements_root=str(root),
+                    records_root=str(root),
+                    imap_host="imap.example.com",
+                    imap_user="owner@example.com",
+                    imap_secret="authorization-code",
+                    imap_folder="INBOX",
+                    smtp_host="smtp.example.com",
+                    smtp_user="owner@example.com",
+                    smtp_secret="authorization-code",
+                    smtp_sender="owner@example.com",
+                    smtp_recipient="owner@example.com",
+                    config="",
+                    pi_command="",
+                    project_path="",
+                    baseline="",
+                    pi_timeout_seconds=0.0,
+                )
+            )
+            == 0
+        )
+
+        expected = {"has_approval": True, "plan_version": 1, "source_recorded": True}
+        facts = {
+            "page": self._facts(root, page_req),
+            "cli": self._facts(root, cli_req),
+            "mail": self._facts(root, mail_req),
+        }
+        assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
