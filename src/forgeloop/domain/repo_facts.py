@@ -54,7 +54,7 @@ TEST_LAYERS = (
     "fixtures",
 )
 # 测试根顶层共享文件：精确清单（真实存在，必须放行），其余顶层臆造文件拒绝。
-TEST_ROOT_FILES = ("conftest.py",)
+TEST_ROOT_FILES = ("conftest.py", "project_support.py")
 
 # 契约快照：规划任务可显式更新这两个机读事实，不得臆造其它契约文件名。
 CONTRACT_SNAPSHOTS = ("contracts/cli-contract.json", "contracts/architecture.json")

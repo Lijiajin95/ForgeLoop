@@ -1857,5 +1857,195 @@
         ]
       }
     }
+  },
+  "runtime_command": "forgeloop runtime show --json",
+  "runtime_exit_codes": {
+    "ok": 0,
+    "config_error": 1
+  },
+  "runtime_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "active": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "reason": {
+            "type": [
+              "string"
+            ]
+          },
+          "runtime": {
+            "type": [
+              "string"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "updated_by": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "optional_keys": [
+          "command",
+          "reason",
+          "runtime",
+          "updated_at",
+          "updated_by"
+        ]
+      },
+      "effective": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "command_source": {
+            "type": [
+              "string"
+            ]
+          },
+          "runtime": {
+            "type": [
+              "string"
+            ]
+          },
+          "runtime_source": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "optional_keys": [
+          "command",
+          "command_source",
+          "runtime",
+          "runtime_source"
+        ]
+      },
+      "effective_error": {
+        "type": [
+          "string"
+        ]
+      },
+      "environment": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "dsh_command": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "empty-array"
+              ]
+            }
+          },
+          "runtime_override": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
+      "history": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "empty-array",
+            "object"
+          ],
+          "properties": {
+            "command": {
+              "type": [
+                "array"
+              ],
+              "item": {
+                "type": [
+                  "string"
+                ]
+              }
+            },
+            "from_runtime": {
+              "type": [
+                "string"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string"
+              ]
+            },
+            "switch_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "switched_at": {
+              "type": [
+                "string"
+              ]
+            },
+            "switched_by": {
+              "type": [
+                "string"
+              ]
+            },
+            "to_runtime": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "optional_keys": [
+            "command",
+            "from_runtime",
+            "reason",
+            "switch_id",
+            "switched_at",
+            "switched_by",
+            "to_runtime"
+          ]
+        }
+      },
+      "project": {
+        "type": [
+          "string"
+        ]
+      }
+    }
   }
 }

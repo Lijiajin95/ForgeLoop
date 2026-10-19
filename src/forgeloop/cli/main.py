@@ -56,7 +56,9 @@ from forgeloop.cli.requirements import (
     task_budget_summary,
     task_status_reason,
 )
+from forgeloop.cli.runtime import add_runtime_parser
 from forgeloop.cli.web import ProgressDocuments, add_web_parser
+from forgeloop.domain.agent_runtime import AgentRuntimeError
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
     DeliveryBinding,
@@ -115,6 +117,14 @@ def _decode_command(raw: str, flag: str) -> tuple[str, ...]:
     ):
         raise SystemExit(f"{flag} 必须是非空字符串数组（JSON）")
     return tuple(command)
+
+
+def _decode_optional_command(raw: str, flag: str) -> tuple[str, ...]:
+    """可缺省的启动命令：空串返回空元组，其余按 ``_decode_command`` 严格校验。"""
+
+    if raw is None or not str(raw).strip():
+        return ()
+    return _decode_command(str(raw), flag)
 
 
 def _new_task_id() -> str:
@@ -179,7 +189,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
     if args.pi_timeout_seconds is not None and args.pi_timeout_seconds < 0:
         raise SystemExit("--pi-timeout-seconds 不能为负")
     test_command = _decode_command(args.test_command, "--test-command")
-    pi_command = _decode_command(args.pi_command, "--pi-command")
+    # PI 命令可缺省：运行状态切到 DSH 时不需要它（Agent Runtime 热切换）。
+    pi_command = _decode_optional_command(args.pi_command, "--pi-command")
     override: Path | None = None
     if args.project_path:
         override = Path(args.project_path).expanduser()
@@ -200,13 +211,15 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "project_path": str(source),
         "baseline": args.baseline or "",
         "model": args.model or "",
-        "pi_command": json.dumps(list(pi_command)),
         "test_command": json.dumps(list(test_command)),
         "goal": args.goal or "",
         "scope": args.scope or "",
         "acceptance": args.acceptance or "",
         "pi_timeout_seconds": str(args.pi_timeout_seconds or ""),
     }
+    # 只有显式给出 PI 命令才写进任务快照：运行状态切到 DSH 时不需要它。
+    if pi_command:
+        config["pi_command"] = json.dumps(list(pi_command))
     store = RecordStore(root / "records.sqlite")
     try:
         store.create_task(task_id, project.project_id, original_input, config, args.limit_seconds)
@@ -529,8 +542,9 @@ def _planning_context(
         store,
         args.req_id,
         root / "requirements" / args.req_id / "analysis",
-        _decode_command(args.pi_command, "--pi-command"),
+        _decode_optional_command(args.pi_command, "--pi-command"),
         timeout_seconds=args.pi_timeout_seconds,
+        records_root=root,
     )
 
 
@@ -562,7 +576,11 @@ def cmd_requirement_analyze(args: argparse.Namespace) -> int:
     root = _requirement_root(args, args.req_id)
     store = _open_requirement(root, args.req_id)
     try:
-        outcome = analyze_requirement(_planning_context(args, root, store))
+        try:
+            outcome = analyze_requirement(_planning_context(args, root, store))
+        except AgentRuntimeError as error:
+            print(f"FAIL: {error}", file=sys.stderr)
+            return 1
     finally:
         store.close()
     if outcome.analysis is None:
@@ -583,7 +601,11 @@ def cmd_requirement_plan(args: argparse.Namespace) -> int:
     root = _requirement_root(args, args.req_id)
     store = _open_requirement(root, args.req_id)
     try:
-        outcome = plan_requirement(_planning_context(args, root, store))
+        try:
+            outcome = plan_requirement(_planning_context(args, root, store))
+        except AgentRuntimeError as error:
+            print(f"FAIL: {error}", file=sys.stderr)
+            return 1
     finally:
         store.close()
     if outcome.plan is None:
@@ -626,7 +648,7 @@ def cmd_requirement_advance(args: argparse.Namespace) -> int:
             req_id=args.req_id,
             plan_version=plan.plan_version if plan else 0,
             project=requirement.project,
-            pi_command=_decode_command(args.pi_command, "--pi-command"),
+            pi_command=_decode_optional_command(args.pi_command, "--pi-command"),
             project_path=args.project_path or project_repository(base, requirement.project),
             baseline=args.baseline,
             pi_timeout_seconds=args.pi_timeout_seconds or None,
@@ -645,6 +667,9 @@ def cmd_requirement_advance(args: argparse.Namespace) -> int:
             requirement_status = progress.requirement_status
     except RequirementAlreadyRunningError as error:
         print(str(error), file=sys.stderr)
+        return 1
+    except AgentRuntimeError as error:
+        print(f"推进未启动执行器（运行时不可用）：{error}", file=sys.stderr)
         return 1
     finally:
         record_store.close()
@@ -970,16 +995,20 @@ def _add_requirement_parsers(
     revise.add_argument("--records-root", default=default_records_root)
     revise.set_defaults(func=cmd_requirement_revise)
 
-    analyze = actions.add_parser("analyze", help="只读分析（PI）并记录结构化结论")
+    analyze = actions.add_parser("analyze", help="只读分析（Agent Runtime）并记录结构化结论")
     analyze.add_argument("req_id")
-    analyze.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    analyze.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     analyze.add_argument("--pi-timeout-seconds", type=float, default=300.0)
     analyze.add_argument("--records-root", default=default_records_root)
     analyze.set_defaults(func=cmd_requirement_analyze)
 
-    plan = actions.add_parser("plan", help="从就绪分析生成任务包（PI）")
+    plan = actions.add_parser("plan", help="从就绪分析生成任务包（Agent Runtime）")
     plan.add_argument("req_id")
-    plan.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    plan.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     plan.add_argument("--pi-timeout-seconds", type=float, default=300.0)
     plan.add_argument("--records-root", default=default_records_root)
     plan.set_defaults(func=cmd_requirement_plan)
@@ -993,7 +1022,9 @@ def _add_requirement_parsers(
 
     advance = actions.add_parser("advance", help="按依赖推进任务（接单任务业务图，含验收）")
     advance.add_argument("req_id")
-    advance.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    advance.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     advance.add_argument("--project-path", default="", help="被开发项目路径")
     advance.add_argument("--baseline", default="", help="代码基线")
     advance.add_argument("--pi-timeout-seconds", type=float, default=0.0)
@@ -1023,7 +1054,11 @@ def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:
     submit.add_argument(
         "--test-command", required=True, help="批准的正式测试命令（JSON 字符串数组）"
     )
-    submit.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 字符串数组）")
+    submit.add_argument(
+        "--pi-command",
+        default="",
+        help="PI RPC 启动命令（JSON 字符串数组）；运行状态为 DSH 时可省略",
+    )
     submit.add_argument("--goal", default="", help="目标（缺省用正文）")
     submit.add_argument("--scope", default="", help="边界（缺省用正文）")
     submit.add_argument("--acceptance", default="", help="验收标准（缺省用正文）")
@@ -1111,6 +1146,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     _add_requirement_parsers(subparsers, DEFAULT_RECORDS_ROOT)
+
+    add_runtime_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     # 状态页（B01）：把本模块的只读查询文档构建器注入 ``cli.web``，页面与
     # ``--json`` 查询共用同一份读模型；方向是 main → web（web 不反向导入 main，

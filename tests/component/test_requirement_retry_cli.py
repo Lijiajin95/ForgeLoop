@@ -2,7 +2,8 @@
 
 覆盖本任务验收的核心行为（不依赖 fixture 伪造成功）：
 
-- 命令注册后，``--by``/``--reason``/``--pi-command`` 必填，缺项由解析层拒绝；
+- 命令注册后，``--by``/``--reason`` 必填，缺项由解析层拒绝；``--pi-command`` 可省略
+  （运行状态可能已切到 DSH），缺可用命令时在启动执行器前 fail-closed；
 - 对业务节点返回 ``halted_reason`` 的真实中断现场，命令在记录人工决定后立即驱动
   ``RequirementTaskRunner`` 就地续跑：``dev`` 重入一次后继续 ``review``/``test``，
   不重放更早的 ``plan``；
@@ -287,16 +288,54 @@ class TestStatusReportsDecision:
 
 
 class TestMissingRequiredOption:
-    def test_missing_pi_command_is_rejected(
+    def test_missing_pi_command_is_accepted_by_parser(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        # 省略 --pi-command 不应由解析层拒绝：运行状态可能已切到 DSH。这里没有
+        # 可续跑现场，命令由业务校验拒绝（exit 1），错误信息里不再出现缺参提示。
         req_id = _approved(tmp_path)
         argv = _retry_argv(tmp_path, req_id)
         index = argv.index("--pi-command")
         del argv[index : index + 2]
 
-        with pytest.raises(SystemExit) as excinfo:
-            cli_main(argv)
+        code = cli_main(argv)
 
-        assert excinfo.value.code != 0
-        assert "--pi-command" in capsys.readouterr().err
+        assert code == 1
+        assert "--pi-command" not in capsys.readouterr().err
+
+
+class TestRuntimeUnavailable:
+    """运行时不可用时 fail-closed：不伪装续跑成功，也不丢现场。"""
+
+    def test_retry_aborts_when_executor_reports_runtime_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        req_id, _thread_id = _halted(tmp_path, monkeypatch)
+        from forgeloop.cli import requirements as requirements_module
+        from forgeloop.domain.agent_runtime import AgentRuntimeError
+
+        def _raise(self) -> None:
+            raise AgentRuntimeError("Agent Runtime pi 缺少启动命令")
+
+        monkeypatch.setattr(requirements_module.RequirementExecutor, "advance", _raise)
+
+        code = cli_main(
+            [
+                "requirement",
+                "retry",
+                req_id,
+                "--task",
+                TASK,
+                "--by",
+                "owner",
+                "--reason",
+                REASON,
+                "--records-root",
+                str(tmp_path),
+            ]
+        )
+        captured = capsys.readouterr()
+
+        assert code == 1
+        assert "运行时不可用" in captured.err
+        assert "缺少启动命令" in captured.err

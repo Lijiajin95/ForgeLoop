@@ -47,6 +47,9 @@
 | B28 | 主动需求发现 | 真实使用中有可证明价值的自动建议 | 只提出明确问题和候选需求，用户批准后才进入研发，不自动扩大当前任务 |
 | B29 | 主动重构 | 明确可维护性问题影响实际交付 | 单独目标、范围、收益与回归场景，经批准实施，不混入普通审查阻断 |
 
+
+**B21 部分落实（2026-10-19）**：DSH（`dsh --profile headless --json`）已作为第二个 Agent Runtime 接入，PI／DSH 可按动作热切换（`forgeloop runtime`），事件、成果与取消（`turn_end.reason.kind=aborted`）已有适配器与测试；**真实 DSH＋真实模型已完成端到端验证**（真实任务 delivered；同一推进进程内 dev 用 DSH、切到 PI 后 review 用 PI；`make dsh-live` 2/2、`make pi-live` 5/5 通过，见状态记录）。**未实现**：DSH 会话恢复（`--session-id` 续跑）、容器镜像内运行 DSH（`runtime/Dockerfile` 只装 PI）。Codex／Claude Code 等其他候选仍未评估。
+
 ## 4. 首版必须已经有的基础
 
 以下能力不会通过后置清单省略：明确项目与任务身份、执行前批准、独立工作区／容器、PI 原始记录、真实测试输出、独立审查、人工验收、工时限制、研发每次三失败轮次及追加记录、main 保护、现场默认保留。

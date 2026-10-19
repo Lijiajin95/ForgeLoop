@@ -1,16 +1,16 @@
-"""需求只读分析与任务规划（A02、A03）：经 PI 产出结构化结果，畸形如实阻塞。
+"""需求只读分析与任务规划（A02、A03）：经 Agent Runtime 产出结构化结果，畸形如实阻塞。
 
 职责边界（DogFood 执行计划 A02、A03 与业务交接约定 §5）：
-- 只读分析角色通过 PI 生成目标、业务场景、验收标准和待澄清项；
+- 只读分析角色通过 Agent Runtime（PI 或 DSH）生成目标、业务场景、验收标准和待澄清项；
 - 结构化校验由 ``domain.requirement.parse_analysis`` 负责，本模块只编排；
 - 待澄清项非空时不推进，状态置 ``awaiting_clarification``，等待所有者回答；
 - 回答澄清 = 追加需求版本；再次分析追加新的分析版本，历史不覆盖；
-- 分析结果畸形、PI 未 settle、模型报错或中止时置 ``blocked`` 并保留原因，
+- 分析结果畸形、Agent 未给出终态、模型报错或中止时置 ``blocked`` 并保留原因，
   不把不可用结果当成“无待澄清”放行。
 - 规划阶段从已就绪分析生成任务包（至少两个且有依赖），置 ``plan_proposed``；
   任务包未批准不可执行，任务级授权来源只由记录层的真实批准写入。
 
-**分析与规划阶段不改代码**：PI 在独立目录内运行（``PISpawnOptions.cwd``），
+**分析与规划阶段不改代码**：Agent 在独立目录内运行（``AgentSpawnOptions.cwd``），
 不接收被测项目工作区，也不调用 ``prepare_workspace``；本模块不写任何源码。
 
 人类审阅入口是记录层：``RequirementStore.latest_analysis`` / ``analyses`` /
@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess, PISpawnOptions
+from forgeloop.adapter.agent_runtime import AgentInvocationResult, AgentSpawnOptions
 from forgeloop.domain.repo_facts import (
     DEFAULT_REPO_FACTS,
     RepoFacts,
@@ -48,6 +48,7 @@ from forgeloop.domain.task_plan import (
     parse_task_plan,
     require_actionable_plan,
 )
+from forgeloop.graph.agent_execution import resolve_planning_runtime, run_agent_session
 from forgeloop.records.requirements import RequirementStore
 
 # 单次分析调用的默认等待上限；与业务图 PI 调用同量级，测试可显式覆盖。
@@ -62,12 +63,12 @@ ANALYSIS_OUTPUT_CONTRACT = (
     "scenarios 与 acceptance_criteria 可以为空数组。"
 )
 # 只读约束写进提示词；真正的边界是进程工作目录与不提供项目工作区。
-# 显式声明“无工具”很关键：pi 的系统前言会把自己描述为可读写文件、执行命令的
-# 编码助手，真实模型（deepseek-v4.1-flash）因此会输出 DSML 工具调用而不是
-# 约定的 JSON；声明无工具后模型才稳定回到纯文本 JSON 输出。
+# 显式声明“无工具”很关键：执行器的系统前言通常把自己描述为可读写文件、执行
+# 命令的编码助手，真实模型（deepseek-v4.1-flash）因此会输出 DSML 工具调用而
+# 不是约定的 JSON；声明无工具后模型才稳定回到纯文本 JSON 输出。
 ANALYSIS_READ_ONLY_INSTRUCTION = (
     "本阶段是只读分析：不要修改、创建或删除任何文件，不要运行会改动代码的命令。"
-    "你没有文件系统访问权，也无法调用任何工具（包括 bash、read、grep）；不要尝试执行任何命令，"
+    "不要调用任何工具（包括 bash、read、grep）；这是流程约束，不要尝试执行任何命令，"
     "不要输出工具调用或 DSML 标记。请仅依据需求文本与全部修订直接输出一个 JSON 对象。"
 )
 # A03 任务包输出契约：模型拆分任务，但授权来源不由模型给出。
@@ -87,7 +88,7 @@ PLANNING_OUTPUT_CONTRACT = (
 )
 PLANNING_READ_ONLY_INSTRUCTION = (
     "本阶段只生成任务包供人批准：不要修改、创建或删除任何文件，不要运行会改动代码的命令。"
-    "你没有文件系统访问权，也无法调用任何工具（包括 bash、read、grep）；不要尝试执行任何命令，"
+    "不要调用任何工具（包括 bash、read、grep）；这是流程约束，不要尝试执行任何命令，"
     "不要输出工具调用或 DSML 标记。请仅依据需求文本、全部修订、已就绪分析与 repository_facts"
     "推断合法的相对文件路径与测试命令，直接输出一个 JSON 对象。"
 )
@@ -95,24 +96,27 @@ PLANNING_READ_ONLY_INSTRUCTION = (
 
 @dataclass(frozen=True)
 class PlanningContext:
-    """一次需求只读分析的现场：权威记录、需求身份、独立分析目录与 PI 命令。
+    """一次需求只读分析的现场：权威记录、需求身份、独立分析目录与运行时。
 
-    ``analysis_dir`` 是 PI 的真实工作目录，与被测项目分离；会话与 stderr 落在
+    ``analysis_dir`` 是 Agent 的真实工作目录，与被测项目分离；会话与 stderr 落在
     其下的 ``sessions/``。整个现场不进 LangGraph 检查点。``extra_env`` 用于
     真实运行时的隔离环境（例如隔离 HOME），默认不改动进程环境。
+
+    运行时不在这里固定：``records_root`` 提供记录层的热切换状态，``pi_command`` /
+    ``dsh_command`` 是本次调用的显式覆盖；实际用哪个运行时、哪条命令由
+    ``graph.agent_execution.resolve_planning_runtime`` 在调用前解析，缺命令
+    fail-closed（不在这里静默接受空命令）。
     """
 
     store: RequirementStore
     req_id: str
     analysis_dir: Path
-    pi_command: tuple[str, ...]
+    pi_command: tuple[str, ...] = ()
     timeout_seconds: float = ANALYSIS_TIMEOUT_CAP_SECONDS
     extra_env: Mapping[str, str] = field(default_factory=dict)
     repo_facts: RepoFacts = DEFAULT_REPO_FACTS
-
-    def __post_init__(self) -> None:
-        if not self.pi_command:
-            raise ValueError("PI command must not be empty")
+    dsh_command: tuple[str, ...] = ()
+    records_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -306,38 +310,47 @@ def _planning_prompt(
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _invoke_analysis(ctx: PlanningContext, prompt: str) -> PIInvocationResult:
+def _invoke_analysis(ctx: PlanningContext, prompt: str) -> AgentInvocationResult:
     return _invoke(ctx, prompt, "analysis")
 
 
-def _invoke_planning(ctx: PlanningContext, prompt: str) -> PIInvocationResult:
+def _invoke_planning(ctx: PlanningContext, prompt: str) -> AgentInvocationResult:
     return _invoke(ctx, prompt, "planning")
 
 
-def _invoke(ctx: PlanningContext, prompt: str, role: str) -> PIInvocationResult:
-    """在独立目录内运行一次只读 PI 会话；结果不明确时如实返回，不重跑。"""
+def _invoke(ctx: PlanningContext, prompt: str, role: str) -> AgentInvocationResult:
+    """在独立目录内运行一次只读 Agent 会话；结果不明确时如实返回，不重跑。
+
+    运行时按热切换规则在调用前解析（记录层状态 > 进程环境覆盖 > 显式参数），
+    缺命令 fail-closed；分析与规划会话因此与实现与审查会话走同一个 Agent Runtime
+    接缝，只是工作目录与提示词不同。
+    """
 
     ctx.analysis_dir.mkdir(parents=True, exist_ok=True)
-    process = PIProcess(
-        ctx.pi_command,
-        ctx.req_id,
-        role,
-        ctx.analysis_dir / "sessions",
-        PISpawnOptions(cwd=ctx.analysis_dir, extra_env=ctx.extra_env),
+    resolved = resolve_planning_runtime(
+        ctx.records_root, pi_command=ctx.pi_command, dsh_command=ctx.dsh_command
     )
-    process.start()
-    try:
-        process.send_prompt(prompt)
-        return process.wait_until_settled(ctx.timeout_seconds + 1.0)
-    finally:
-        process.close()
+    return run_agent_session(
+        resolved,
+        task_id=ctx.req_id,
+        role=role,
+        session_dir=ctx.analysis_dir / "sessions",
+        options=AgentSpawnOptions(
+            cwd=ctx.analysis_dir,
+            extra_env=ctx.extra_env,
+            runtime=resolved.runtime,
+        ),
+        prompt=prompt,
+        timeout_seconds=ctx.timeout_seconds + 1.0,
+    )
 
 
-def _outcome_halt(outcome: PIInvocationResult, prefix: str = "analysis") -> str | None:
-    """PI 结果的未完成判定：中止、协议错误或 provider 模型错误都据实阻塞。
+def _outcome_halt(outcome: AgentInvocationResult, prefix: str = "analysis") -> str | None:
+    """Agent 结果的未完成判定：中止、协议错误或 provider 模型错误都据实阻塞。
 
-    与业务图 ``nodes._pi_outcome_halt`` 同口径：``agent_settled`` 只表示不再自动
-    推进，provider 重试耗尽后的 ``stopReason=error`` 也算未取得结果。
+    与业务图 ``nodes._agent_outcome_halt`` 同口径：PI 的 ``agent_settled`` 只表示
+    不再自动推进（provider 重试耗尽后的 ``stopReason=error`` 也算未取得结果）；
+    DSH 的非 ``completed`` 终态由适配器转成 ``error`` 或 ``model_error``。
     """
 
     if outcome.aborted:

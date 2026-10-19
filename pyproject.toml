@@ -98,6 +98,7 @@ markers = [
   "scenario: deterministic multi-step workflow behavior",
   "component: CLI output contract tests driven through command entry points",
   "pi_live: real PI RPC invocation in the restricted container (explicit opt-in)",
+  "dsh_live: real DSH headless invocation with a real model (explicit opt-in)",
   "install: 真实执行 uv venv 与 wheel 安装的慢速用例（make test-install，预算 180s）",
 ]
 filterwarnings = ["error"]
@@ -122,6 +123,7 @@ source_paths = ["src/forgeloop/"]
 # unit 用例覆盖（100% 行／分支），但尚未实测变异幸存者与 no tests 并逐条审阅；
 # 在补齐前加入会让夜间作业因未审阅项失败。
 only_mutate = [
+  "src/forgeloop/domain/agent_runtime.py",
   "src/forgeloop/domain/counting.py",
   "src/forgeloop/domain/approval.py",
   "src/forgeloop/domain/delivery.py",

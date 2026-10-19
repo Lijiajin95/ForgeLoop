@@ -195,7 +195,7 @@ def _halted(root: Path, req_id: str, task_id: str) -> str:
 
 
 class TestRequiredArguments:
-    @pytest.mark.parametrize("missing", ["--by", "--reason", "--pi-command"])
+    @pytest.mark.parametrize("missing", ["--by", "--reason"])
     def test_missing_required_option_is_rejected(
         self, tmp_path: Path, root: Path, missing: str, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -209,6 +209,18 @@ class TestRequiredArguments:
 
         assert excinfo.value.code != 0
         assert missing in capsys.readouterr().err
+
+    def test_pi_command_may_be_omitted(self, tmp_path: Path) -> None:
+        # 运行状态可能已切到 DSH：--pi-command 不再是解析层的必填项。真正缺少
+        # 可用运行时命令时，由动作启动前的解析 fail-closed（组件测试覆盖命令
+        # 路径；这里只钉住解析层契约，避免伪造检查点被真实续跑消费）。
+        from forgeloop.cli.main import build_parser
+
+        req_id = _approved(tmp_path, ("first",))
+        args = build_parser().parse_args(
+            _retry_argv(tmp_path, req_id, task="first", pi_command=None)
+        )
+        assert args.pi_command == ""
 
 
 class TestValueValidation:

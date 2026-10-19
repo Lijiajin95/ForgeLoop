@@ -14,7 +14,7 @@ FRONTEND_STATIC_GATES := frontend-policy-check frontend-format-check frontend-li
 STATIC_GATES := lint typecheck cli-contract-check architecture-contract-check commit-policy-config \
 	structure-metrics import-lint deptry $(FRONTEND_STATIC_GATES)
 
-.PHONY: setup format lint typecheck test test-install test-system check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live coverage coverage-thresholds mutation audit security hooks precommit commit-policy-config frontend-setup frontend-browsers frontend-check frontend-format-check frontend-lint frontend-typecheck frontend-test frontend-coverage frontend-depcruise frontend-knip frontend-build frontend-build-check frontend-policy-check frontend-e2e frontend-mutation frontend-audit frontend-deps
+.PHONY: setup format lint typecheck test test-install test-system check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live dsh-live coverage coverage-thresholds mutation audit security hooks precommit commit-policy-config frontend-setup frontend-browsers frontend-check frontend-format-check frontend-lint frontend-typecheck frontend-test frontend-coverage frontend-depcruise frontend-knip frontend-build frontend-build-check frontend-policy-check frontend-e2e frontend-mutation frontend-audit frontend-deps
 
 # 一条命令备好两侧工具链：Python（uv）与前端（npm ci，需要 Node 26）。
 setup:
@@ -159,6 +159,11 @@ frontend-audit: frontend-deps
 
 pi-live:
 	env FORGELOOP_PI_LIVE=1 .venv/bin/pytest tests/integration/test_pi_live.py -v
+
+# 真实 DSH headless + 真实模型：需要 FORGELOOP_DSH_HOME 与（启用凭据的）
+# FORGELOOP_DSH_COMMAND，见 tests/integration/test_dsh_live.py 的模块说明。
+dsh-live:
+	env FORGELOOP_DSH_LIVE=1 .venv/bin/pytest tests/integration/test_dsh_live.py -v
 
 precommit:
 	PRE_COMMIT_HOME=$(CURDIR)/.cache/pre-commit .venv/bin/pre-commit run --all-files

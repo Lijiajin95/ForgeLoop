@@ -40,6 +40,7 @@ from forgeloop.records.checkpoints import (
     advance_fingerprint,
     classify_checkpoint,
     completed_action_ids,
+    halted_node_of,
     read_checkpoint,
 )
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
@@ -667,3 +668,19 @@ class TestNoProgressReport:
         assert "等待决定: gate_acceptance" in second.blocked_reason
         assert second.next_step.actor is ActionActor.USER
         assert second.next_step.action
+
+
+class TestHaltedNodeAttribution:
+    """中断原因 → 可续跑节点的归因：新前缀与旧检查点的历史前缀都识别。"""
+
+    def test_agent_prefixes_map_to_nodes(self) -> None:
+        assert halted_node_of("agent_dev_unsettled:process-exited") == "dev"
+        assert halted_node_of("agent_review_unsettled:model_error:x") == "review"
+
+    def test_legacy_pi_prefixes_still_map(self) -> None:
+        # 旧检查点里写的是 pi_*：不追溯改写旧记录，续跑仍要能找到重入点。
+        assert halted_node_of("pi_dev_unsettled:timeout") == "dev"
+        assert halted_node_of("pi_review_unsettled:aborted") == "review"
+
+    def test_unattributable_reason_returns_empty(self) -> None:
+        assert halted_node_of("plan_missing") == ""

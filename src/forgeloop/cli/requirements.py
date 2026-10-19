@@ -27,6 +27,7 @@ from forgeloop.cli.common import (
     locate_task_root,
     project_repository,
 )
+from forgeloop.domain.agent_runtime import AgentRuntimeError
 from forgeloop.domain.budget_summary import (
     BudgetSummary,
     BudgetSummaryState,
@@ -62,10 +63,17 @@ from forgeloop.records.store import RecordStore
 
 
 def _decode_pi_command(raw: str) -> tuple[str, ...]:
-    """解析 PI RPC 启动命令；必须是 JSON 非空字符串数组。"""
+    """解析 PI RPC 启动命令（可缺省）。
 
+    空串返回空元组：运行状态可能已切到 DSH，此时真正用的命令来自运行状态或
+    ``FORGELOOP_DSH_COMMAND``；缺可用命令时由 ``graph.agent_execution`` 在动作
+    启动前 fail-closed，不在这里猜。
+    """
+
+    if raw is None or not str(raw).strip():
+        return ()
     try:
-        command = json.loads(raw)
+        command = json.loads(str(raw))
     except json.JSONDecodeError as error:
         raise SystemExit(f"--pi-command 必须是 JSON 字符串数组: {error}") from error
     if (
@@ -357,7 +365,8 @@ def cmd_requirement_retry(args: argparse.Namespace) -> int:
 
     base = base_records_root(args)
     root = locate_requirement_root(base, args.req_id).root
-    # --pi-command 缺失由解析器拒绝；内容非法在此确定失败，尚未写任何记录。
+    # --pi-command 可省略（运行状态可能已切到 DSH）；内容非法在此确定失败，
+    # 尚未写任何记录。真正缺少可用运行时命令时由动作启动前的解析 fail-closed。
     pi_command = _decode_pi_command(args.pi_command)
     store = RequirementStore(root / "records.sqlite")
     record_store = RecordStore(root / "records.sqlite")
@@ -453,6 +462,10 @@ def cmd_requirement_retry(args: argparse.Namespace) -> int:
         except RequirementAlreadyRunningError as error:
             print(str(error), file=sys.stderr)
             return 1
+        except AgentRuntimeError as error:
+            # 运行时配置缺失/非法：就地 fail-closed，不伪装续跑成功，也不重跑。
+            print(f"人工续跑未启动执行器（运行时不可用）：{error}", file=sys.stderr)
+            return 1
         print(f"需求状态: {progress.requirement_status}")
         print(f"当前任务: {progress.current_task or '无'}")
         print(f"已完成: {'、'.join(progress.completed_tasks) or '无'}")
@@ -489,7 +502,7 @@ def add_requirement_retry(
 
     retry = subparsers.add_parser(
         "retry",
-        help="人工核对现场后续跑一条中断任务（必填 --by/--reason/--pi-command，立即续跑）",
+        help="人工核对现场后续跑一条中断任务（必填 --by/--reason，立即续跑）",
     )
     retry.add_argument("req_id", help="需求身份")
     retry.add_argument(
@@ -499,7 +512,9 @@ def add_requirement_retry(
     )
     retry.add_argument("--by", required=True, help="调用方标识（如 owner）")
     retry.add_argument("--reason", required=True, help="人工续跑理由（不能为空白）")
-    retry.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    retry.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     retry.add_argument("--project-path", default="", help="被开发项目路径")
     retry.add_argument("--baseline", default="", help="代码基线")
     retry.add_argument("--pi-timeout-seconds", type=float, default=0.0)
@@ -529,6 +544,10 @@ def cmd_requirement_dispatch(args: argparse.Namespace) -> int:
         except RequirementAlreadyRunningError as error:
             print(str(error), file=sys.stderr)
             return 1
+        except AgentRuntimeError as error:
+            # 运行时配置缺失/非法：fail-closed，不伪装推进成功，也不重跑。
+            print(f"并行推进未启动执行器（运行时不可用）：{error}", file=sys.stderr)
+            return 1
     blocked = False
     for req_id in args.req_ids:
         progress = results[req_id]
@@ -553,7 +572,9 @@ def add_requirement_dispatch(
         "dispatch", help="并行推进多条已批准需求（同需求不重复运行、限制并发资源）"
     )
     dispatch.add_argument("req_ids", nargs="+", help="一条或多条已批准需求身份")
-    dispatch.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    dispatch.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     dispatch.add_argument("--project-path", default="", help="被开发项目路径")
     dispatch.add_argument("--baseline", default="", help="代码基线")
     dispatch.add_argument("--pi-timeout-seconds", type=float, default=0.0)

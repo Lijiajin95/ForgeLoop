@@ -4,8 +4,8 @@
 - plan 保存方案并等待第一次本地批准（范围+方案+验收标准+测试命令）。
 - gate_plan_approval 用领域批准绑定校验：未批准不开始改代码；
   旧版本或重复决定不能重复执行。
-- dev 由 PI 在任务工作副本实现并自验证；review 用独立 PI 会话审查
-  候选 diff，阻断问题回 dev。
+- dev 由 Agent Runtime（PI 或 DSH）在任务工作副本实现并自验证；review 用独立
+  Agent Runtime 会话审查候选 diff，阻断问题回 dev。
 - test 程序执行批准的测试命令：失败计一轮失败轮次，本次授权额度
   用尽后等待追加授权；通过后等待第二次批准（整体验收）。
 - 用户验收拒绝按同一正式候选轮次规则计数（重复反馈不重复加数）。
@@ -27,6 +27,7 @@ from pathlib import Path
 
 from langgraph.types import interrupt
 
+from forgeloop.adapter.agent_runtime import AgentInvocationResult, AgentSpawnOptions
 from forgeloop.adapter.execution_environment import (
     ExecutionEnvironment,
     build_execution_environment,
@@ -38,11 +39,15 @@ from forgeloop.adapter.git_workspace import (
     is_git_workspace,
     prepare_workspace,
 )
-from forgeloop.adapter.pi_rpc import PIInvocationResult, PIProcess, PISpawnOptions
 from forgeloop.adapter.test_runner import run_test_command
 from forgeloop.domain.approval import ApprovalStage, ConsumeStatus, Plan
 from forgeloop.domain.counting import FailureStage, GrantExhaustedError
 from forgeloop.domain.delivery import verify_binding
+from forgeloop.graph.agent_execution import (
+    resolve_task_runtime,
+    run_agent_session,
+    runtime_evidence,
+)
 from forgeloop.graph.evidence import capture_partial_candidate, previous_failure_context
 from forgeloop.graph.prompts import dev_prompt, review_prompt
 from forgeloop.graph.requirements import (
@@ -76,6 +81,8 @@ class NodeContext:
     # 源仓库不参与 worktree 宿主。单元测试或旧现场没有镜像时为 None，由
     # ``prepare_workspace`` 在记录根下派生一个散列命名的镜像。
     repository: Path | None = None
+    # 记录根：运行状态（Agent Runtime 热切换）按它定位；缺省时由任务目录反推。
+    records_root: Path | None = None
     # 已完成前置任务的候选改动：在克隆副本后、进入实现前应用（I01 接缝）。
     prerequisites: tuple[PrerequisiteCandidate, ...] = ()
     # 需求任务包版本；由需求执行器注入。检查点落库的 ``plan_version`` 据此对齐到
@@ -98,7 +105,13 @@ class NodeContext:
             sessions_dir=task_dir / "sessions",
             config=task.config,
             repository=repository if repository.is_dir() else None,
+            records_root=records_root,
         )
+
+    def root(self) -> Path:
+        """记录根：显式字段优先，其次由任务目录（记录根/任务身份）反推。"""
+
+        return self.records_root if self.records_root is not None else self.task_dir.parent
 
 
 def _pi_command(config: Mapping[str, str]) -> tuple[str, ...]:
@@ -113,6 +126,19 @@ def _pi_command(config: Mapping[str, str]) -> tuple[str, ...]:
     ):
         raise ValueError("pi_command must be a JSON array of command parts")
     return tuple(command)
+
+
+def _pi_command_or_empty(config: Mapping[str, str]) -> tuple[str, ...]:
+    """任务配置里的 PI 命令（可缺省）。
+
+    缺省不再直接报错：运行状态可能已切到 DSH，此时 PI 命令用不到；真正缺少可用
+    命令时由 ``graph.agent_execution`` 的运行时解析 fail-closed。
+    """
+
+    raw = config.get("pi_command")
+    if not raw or raw == "[]":
+        return ()
+    return _pi_command(config)
 
 
 def _interrupted(state: TaskState) -> str | None:
@@ -253,11 +279,12 @@ def make_gate_plan_approval(ctx: NodeContext) -> NodeFn:
     return gate_plan_approval
 
 
-def _pi_outcome_halt(outcome: PIInvocationResult) -> str | None:
-    """PI 结果的未完成判定：中止、协议错误或 provider 模型错误都据实标记。
+def _agent_outcome_halt(outcome: AgentInvocationResult) -> str | None:
+    """Agent 结果的未完成判定：中止、协议错误或 provider 模型错误都据实标记。
 
-    实测发现：agent_settled 只表示不再自动推进——provider 自动重试耗尽后
-    也会 settled（最终消息 stopReason=error）。模型错误不伪装为完成。
+    实测发现：PI 的 agent_settled 只表示不再自动推进——provider 自动重试耗尽后
+    也会 settled（最终消息 stopReason=error）。模型错误不伪装为完成。DSH 的非
+    ``completed`` 终态在适配器里已转成 ``error`` 或 ``model_error``，同一判定适用。
     """
 
     if outcome.aborted:
@@ -269,12 +296,17 @@ def _pi_outcome_halt(outcome: PIInvocationResult) -> str | None:
     return None
 
 
+# 兼容别名：既有调用点与测试仍可用旧名字引用同一判定。
+_pi_outcome_halt = _agent_outcome_halt
+
+
 def pi_timeout_seconds(ctx: NodeContext) -> float:
-    """单次 PI 调用的等待上限：任务配置可覆盖默认 300s，且不超过剩余预算。
+    """单次 Agent 调用的等待上限：任务配置可覆盖默认 300s，且不超过剩余预算。
 
     重任务（多文件实现、需自行探索的审查）会超过默认 300s；此时由提交方用
     ``--pi-timeout-seconds`` 显式抬高上限，而不是改默认值让所有任务都变慢。
-    配置缺失或非法一律回落到默认值。
+    配置缺失或非法一律回落到默认值。配置键沿用 ``pi_timeout_seconds``：它是提交时
+    写进任务快照的时间上限，与具体运行时无关（PI 与 DSH 共用）。
     """
 
     configured = ctx.config.get("pi_timeout_seconds", "")
@@ -292,48 +324,65 @@ def _execution_environment(
 ) -> ExecutionEnvironment:
     """按任务配置构建执行环境，并把正式测试命令点名的资源纳入挂载。
 
-    测试资源必须在 PI 进程启动前就确定：dev 会话要能在同一容器里跑自验证测试。
+    测试资源必须在 Agent 进程启动前就确定：dev 会话要能在同一容器里跑自验证测试。
     """
 
     resources = command_test_resources(test_command, ctx.workspace)
     return build_execution_environment(ctx.config, ctx.workspace, test_resources=resources)
 
 
-def _invoke_pi(
+def _invoke_agent(
     ctx: NodeContext, role: str, prompt: str, environment: ExecutionEnvironment
-) -> PIInvocationResult:
-    """运行一个 PI 会话并计工时：未明确结果如实返回，不自动重跑。
+) -> tuple[AgentInvocationResult, Mapping[str, object]]:
+    """运行一个 Agent 会话并计工时：运行时按热切换规则在启动前解析。
 
     子进程显式在任务范围内运行：实现会话在独立工作副本内（容器里可写），审查会话
     在任务记录目录内（其结论来自提示词中的候选 diff，避免误改候选工作区）；不依赖
     提示词里的路径让模型自觉。执行环境决定是否加一层容器边界：host 直接运行，
     container 只挂载工作副本（review 只读）、配置目录与测试资源，并记录环境标签。
+    返回结果与本次运行时身份（运行状态在每次动作启动前重读，切换后下一个动作生效）。
     """
 
     timeout = pi_timeout_seconds(ctx)
     cwd = ctx.workspace if role == "dev" else ctx.task_dir
     cwd.mkdir(parents=True, exist_ok=True)
-    command = environment.command(_pi_command(ctx.config), workspace_read_only=(role != "dev"))
-    options = PISpawnOptions(
+    resolved = resolve_task_runtime(ctx.root(), _pi_command_or_empty(ctx.config))
+    # 容器模式要把逻辑命令包装成容器启动命令；证据里记录的必须是实际启动的那条。
+    effective = replace(
+        resolved,
+        command=environment.command(resolved.command, workspace_read_only=(role != "dev")),
+    )
+    options = AgentSpawnOptions(
         cwd=environment.process_cwd(cwd),
         extra_env=environment.spawn_env(),
         execution_environment=environment.kind,
+        runtime=effective.runtime,
     )
-    process = PIProcess(command, ctx.task_id, role, ctx.sessions_dir, options)
-    process.start()
     started = time.monotonic()
     try:
-        process.send_prompt(prompt)
-        return process.wait_until_settled(timeout + 1.0)
+        outcome = run_agent_session(
+            effective,
+            task_id=ctx.task_id,
+            role=role,
+            session_dir=ctx.sessions_dir,
+            options=options,
+            prompt=prompt,
+            timeout_seconds=timeout + 1.0,
+        )
     finally:
         ctx.store.charge_budget(ctx.task_id, time.monotonic() - started)
-        process.close()
+    return outcome, runtime_evidence(effective)
 
 
 def _append_dev_report(
-    ctx: NodeContext, attempt: int, text: str, diff_source: str, baseline: str
+    ctx: NodeContext,
+    attempt: int,
+    text: str,
+    diff_source: str,
+    baseline: str,
+    evidence: Mapping[str, object],
 ) -> None:
-    """PI 的最终文本与候选来源按尝试追加保留（原始记录不丢失）。"""
+    """Agent 的最终文本、候选来源与运行时身份按尝试追加保留（原始记录不丢失）。"""
 
     reports_path = ctx.task_dir / "dev-reports.jsonl"
     reports_path.parent.mkdir(parents=True, exist_ok=True)
@@ -342,6 +391,7 @@ def _append_dev_report(
         "text": text,
         "diff_source": diff_source,
         "baseline_commit": baseline,
+        **evidence,
     }
     with reports_path.open("a", encoding="utf-8") as reports_file:
         reports_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -398,26 +448,29 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
                 # 失败回边带真实证据：上次正式测试输出与审查阻断问题（截断后）。
                 previous_failure=previous_failure_context(ctx.task_dir),
             )
-            outcome = _invoke_pi(ctx, "dev", prompt, environment)
-            halt = _pi_outcome_halt(outcome)
+            outcome, evidence = _invoke_agent(ctx, "dev", prompt, environment)
+            halt = _agent_outcome_halt(outcome)
             if halt:
                 # 未取得明确结果时把副本已有改动落盘为部分候选（只写 partial-*，供人工恢复）。
-                capture_partial_candidate(ctx.task_dir, ctx.workspace, f"pi_dev_unsettled:{halt}")
+                reason = f"agent_dev_unsettled:{halt}"
+                capture_partial_candidate(ctx.task_dir, ctx.workspace, reason)
                 ctx.store.set_task_status(ctx.task_id, "interrupted")
-                return {"halted_reason": f"pi_dev_unsettled:{halt}"}
+                return {"halted_reason": reason}
             result = dict(outcome.result or {})
             candidate = ctx.task_dir / "candidate.diff"
             candidate.parent.mkdir(parents=True, exist_ok=True)
             if is_git_workspace(ctx.workspace):
-                # 候选 diff 来自工作副本对批准基线的真实差异，不依赖 PI 文本自述；
-                # 显式带上 prepare 时固化的基线，PI 自行 commit 也不会漏改动。
+                # 候选 diff 来自工作副本对批准基线的真实差异，不依赖模型文本自述；
+                # 显式带上 prepare 时固化的基线，模型自行 commit 也不会漏改动。
                 change = collect_candidate_change(ctx.workspace, prepared_baseline or None)
                 candidate.write_text(change.diff, encoding="utf-8")
-                _append_dev_report(ctx, attempt, outcome.text or "", "git", change.baseline_commit)
+                _append_dev_report(
+                    ctx, attempt, outcome.text or "", "git", change.baseline_commit, evidence
+                )
             else:
                 diff = result.get("diff")
                 candidate.write_text(diff if isinstance(diff, str) else "", encoding="utf-8")
-                _append_dev_report(ctx, attempt, outcome.text or "", "payload", "")
+                _append_dev_report(ctx, attempt, outcome.text or "", "payload", "", evidence)
             return {"dev_attempts": attempt}
         finally:
             ctx.store.actions.finish(action.action_id, "dev 动作结束")
@@ -425,17 +478,21 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
     return dev_node
 
 
-def _write_review_reports(ctx: NodeContext, attempt: int, blocking: list, result: dict) -> None:
+def _write_review_reports(
+    ctx: NodeContext, attempt: int, blocking: list, result: dict, evidence: Mapping[str, object]
+) -> None:
     """审查结论按尝试追加保留（原始记录不丢失），并保存最新摘要。
 
     ``blocking_issues_valid`` 记录该轮是否给出了结构化阻断列表；为假表示结果
-    不可用（审查节点据此中断，而不是判为"无阻断"）。
+    不可用（审查节点据此中断，而不是判为“无阻断”）。运行时身份一并落盘，供回查
+    这次审查到底由 PI 还是 DSH 完成。
     """
 
     payload = {
         "blocking_issues": blocking,
         "blocking_issues_valid": bool(result.get("blocking_issues_valid", True)),
         "summary": result.get("summary", ""),
+        **evidence,
     }
     reviews_path = ctx.task_dir / "reviews.jsonl"
     reviews_path.parent.mkdir(parents=True, exist_ok=True)
@@ -459,11 +516,11 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
         try:
             ctx.store.set_task_status(ctx.task_id, "reviewing")
             prompt = review_prompt(plan, candidate_diff=diff_text)
-            outcome = _invoke_pi(ctx, "review", prompt, _execution_environment(ctx))
-            halt = _pi_outcome_halt(outcome)
+            outcome, evidence = _invoke_agent(ctx, "review", prompt, _execution_environment(ctx))
+            halt = _agent_outcome_halt(outcome)
             if halt:
                 ctx.store.set_task_status(ctx.task_id, "interrupted")
-                return {"halted_reason": f"pi_review_unsettled:{halt}"}
+                return {"halted_reason": f"agent_review_unsettled:{halt}"}
             result = dict(outcome.result or {})
             if not result.get("summary") and outcome.text:
                 result["summary"] = outcome.text
@@ -475,6 +532,7 @@ def make_review_node(ctx: NodeContext) -> NodeFn:
                 state.get("dev_attempts", 0) + 1,
                 blocking,
                 {**result, "blocking_issues_valid": valid},
+                evidence,
             )
             if not valid:
                 # 结果缺失或非结构化时不能得出"无阻断"：中断交人工决定，禁止错误放行。
