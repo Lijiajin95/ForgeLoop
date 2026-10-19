@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sqlite3
@@ -375,10 +376,33 @@ def _build_adapter(
             subject=mail.subject,
             folder=mail.folder,
         ).created
+        # 邮件等价操作（所有者 2026-10-19：邮件与页面/CLI 同等位置）：白名单内发件人
+        # 的取消意图**直接生效**——按该身份落库终态并留痕（source=mail），白名单外仍只是
+        # 数据（仅作取消提议，等人工处理）。既有全部记录规则不变：不删记录、理由必填。
+        whitelist = _effective_whitelist(args)[0]
+        cancelled_by_mail = False
+        if (
+            created
+            and mail.body.strip()
+            and requests_cancellation(mail.subject, mail.body)
+            and (not whitelist or mail.sender.strip().lower() in whitelist)
+        ):
+            try:
+                current = requirement_store.requirement_status(req_id)
+            except RequirementNotFoundError:
+                current = ""
+            if current not in _TERMINAL_REQUIREMENT_STATUSES:
+                with contextlib.suppress(RequirementError, RequirementNotFoundError):
+                    requirement_store.record_requirement_cancellation(
+                        req_id,
+                        by=mail.sender.strip(),
+                        reason=f"[邮件/取消] {mail.subject}".strip(),
+                    )
+                    cancelled_by_mail = True
         # 邮件对话闭环（所有者 2026-10-19）：同一线索引发的**新**入向邮件，把正文作为
         # 答复追加成需求的修订版本，状态回到 draft 等待重新分析——答复不再是孤立的
         # 邮件记录，而是真的进入需求材料。只追加、不覆盖；已验收/已取消的终态不追加。
-        if created and mail.body.strip():
+        if created and mail.body.strip() and not cancelled_by_mail:
             try:
                 current = requirement_store.requirement_status(req_id)
             except RequirementNotFoundError:

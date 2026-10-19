@@ -1199,3 +1199,54 @@ class TestAutoReply:
         )
         poll(tmp_path, capsys, "--no-auto-reply")
         assert sender.sent == []
+
+
+class TestMailEquivalenceForCancel:
+    """所有者 2026-10-19：邮件与页面/CLI 等价。白名单发件人的取消意图直接生效。"""
+
+    def test_whitelisted_sender_cancels_the_requirement(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<cancel-mail-1@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="请取消需求，我们不再做了。",
+                )
+            ],
+        )
+        poll(tmp_path, capsys, "--whitelist", "requester@example.com")
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            assert store.requirement_status(req_id) == "cancelled"
+            decision = store.requirement_cancellation(req_id)
+            assert decision is not None and decision["cancelled_by"] == "requester@example.com"
+            assert "[邮件/取消]" in decision["reason"]
+        finally:
+            store.close()
+
+    def test_sender_outside_whitelist_only_gets_a_proposal(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<cancel-mail-2@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="请取消需求。",
+                )
+            ],
+        )
+        document = poll(tmp_path, capsys, "--whitelist", "someone-else@example.com")
+        entry = next(item for item in document["requirements"] if item["req_id"] == req_id)
+        assert entry["cancel_proposal"] is True
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            assert store.requirement_status(req_id) != "cancelled"
+        finally:
+            store.close()
