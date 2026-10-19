@@ -90,6 +90,26 @@ CLI 侧用不存在的命令），把"真执行分支"交给**分派层单测**�
 
 **结论**：6 条链路的跨入口记录事实对照已完成；**验收成功路径**是唯一未覆盖的等价性对照。
 
+## 2.6 唯一未覆盖项：验收成功路径（第 11 轮结论）
+
+**现状**：项目里没有"某需求全部任务已验收且材料一致"的可复用现场。
+`tests/integration/test_serve_operations.py::TestAcceptanceAttributionOverHttp` 对成功/拒绝
+两分支都容许（`status in (200, 409)`），`tests/scenario/test_delivery_binding.py` 只覆盖
+**单个任务**的验收与"一个任务通过 ≠ 整体验收"。
+
+**被否决的做法（不做）**：直接伪造 `acceptance_bindings` 表 + `approval_consumption` 行
++ 材料文件，从而"造出"可验收状态。这属于 fixture 造假（项目纪律明确禁止：未知、缺失、
+跳过与未验证事项如实标记，不补造记录）。
+
+**可接受的实现路线（下一轮照做）**：
+1. 用真实图跑到每个任务 `awaiting_acceptance`（`FAKE_PI_MODE=ok`，不消耗模型调用）；
+2. 对每个任务 `approve <task_id> --stage acceptance`（消费验收批准，落验收绑定）；
+3. 此时 `requirement_acceptance` 尚未写入（空指纹）→ 分别用 CLI `requirement accept`
+   与邮件 `操作: 验收` 各做一次整体验收；
+4. 断言两入口的**验收记录三要素**：`accepted_by`（各自身份）、`acceptance_source`
+   （`cli` / `mail`）、`acceptance_fingerprint` 非空；指纹是否**逐字节相同**取决于材料
+   是否相同，跨两次播种不承诺相同——等价标准是"都通过且都留下可回查的指纹与来源"。
+
 ## 3. 等价性测试分层
 
 | 层 | 内容 | 位置 |
