@@ -1057,3 +1057,146 @@ class TestPageCancel:
             assert decision is not None and decision["cancelled_by"] == "owner"
         finally:
             store.close()
+
+
+class TestThreeEntryParityRealService:
+    """真实验证：真实 HTTP 服务 + 真实记录 + 真实命令 + 进程内假邮件收发器。
+
+    同一操作（取消）经页面、CLI、邮件三条入口各做一次，用统一的记录事实读取器比对。
+    等价的标准是**记录**（终态、决定、理由、留痕），不是响应码或输出文案。
+    """
+
+    def _seed(self, root: Path, text: str) -> str:
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            return store.submit("ForgeLoop", text).req_id
+        finally:
+            store.close()
+
+    def _facts(self, root: Path, req_id: str) -> dict[str, object]:
+        # 与 tests/scenario/parity_facts.py 的 cancel_facts 同口径（集成层暂内联：
+        # 跨目录导入需要额外路径配置，会干扰 pyright 的 stub 搜索；见 entry-parity.md）。
+        store = RequirementStore(root / "records.sqlite")
+        try:
+            decision = store.requirement_cancellation(req_id)
+            return {
+                "status": store.requirement_status(req_id),
+                "has_decision": decision is not None,
+                "reason_non_empty": bool(decision and decision.get("reason")),
+                "by_non_empty": bool(decision and decision.get("cancelled_by")),
+            }
+        finally:
+            store.close()
+
+    def test_cancel_through_page_cli_and_mail_yields_the_same_record(
+        self,
+        real_service: tuple[str, int, Path],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import argparse
+        from email.message import EmailMessage
+
+        host, port, root = real_service
+
+        # 1) 页面入口：真实 HTTP + 令牌 + 同源
+        page_req = self._seed(root, "真实对照：页面取消")
+        status, _payload = post(
+            (host, port),
+            f"/api/requirements/{page_req}/cancel",
+            {"by": "owner", "reason": "页面取消，真实对照"},
+            origin=f"http://{host}:{port}",
+        )
+        assert status == 200
+
+        # 2) CLI 入口：同一命令函数 + 真实参数
+        from forgeloop.cli.requirements import cmd_requirement_cancel
+
+        cli_req = self._seed(root, "真实对照：CLI 取消")
+        code = cmd_requirement_cancel(
+            argparse.Namespace(
+                req_id=cli_req,
+                by="owner",
+                reason="CLI 取消，真实对照",
+                records_root=str(root),
+            )
+        )
+        assert code == 0
+
+        # 3) 邮件入口：真实轮询命令 + 进程内假收发器（不发真实邮件）
+        from forgeloop.cli.mail import cmd_mail_poll
+
+        mail_req = self._seed(root, "真实对照：邮件取消")
+        message = EmailMessage()
+        message["From"] = "requester@example.com"
+        message["To"] = "owner@example.com"
+        message["Subject"] = f"Re: [ForgeLoop] {mail_req}"
+        message["Message-ID"] = "<real-parity@example.com>"
+        message["Date"] = "Mon, 19 Oct 2026 08:00:00 +0800"
+        message.set_content("请取消需求。")
+
+        class _Receiver:
+            folder = "INBOX"
+
+            def authenticate(self) -> None: ...
+
+            def fetch_unseen(self) -> tuple[bytes, ...]:
+                return (message.as_bytes(),)
+
+            def close(self) -> None: ...
+
+        class _Sender:
+            sender = "owner@example.com"
+            recipient = "owner@example.com"
+
+            def send(self, outgoing: EmailMessage) -> str:
+                return "<out-real-parity@example.com>"
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr("forgeloop.cli.mail._make_receiver", lambda args: _Receiver())
+        monkeypatch.setattr("forgeloop.cli.mail._make_sender", lambda args: _Sender())
+        poll_code = cmd_mail_poll(
+            argparse.Namespace(
+                poll_command="poll",
+                once=True,
+                json=False,
+                project="ForgeLoop",
+                out_of_scope=[],
+                whitelist=["requester@example.com"],
+                auto_reply=False,
+                auto_analyze=False,
+                final_not_accept=False,
+                questions=[],
+                requirements_root=str(root),
+                records_root=str(root),
+                imap_host="imap.example.com",
+                imap_user="owner@example.com",
+                imap_secret="authorization-code",
+                imap_folder="INBOX",
+                smtp_host="smtp.example.com",
+                smtp_user="owner@example.com",
+                smtp_secret="authorization-code",
+                smtp_sender="owner@example.com",
+                smtp_recipient="owner@example.com",
+                config="",
+                pi_command="",
+                project_path="",
+                baseline="",
+                pi_timeout_seconds=0.0,
+            )
+        )
+        assert poll_code == 0
+
+        facts = {
+            "page": self._facts(root, page_req),
+            "cli": self._facts(root, cli_req),
+            "mail": self._facts(root, mail_req),
+        }
+        expected = {
+            "status": "cancelled",
+            "has_decision": True,
+            "reason_non_empty": True,
+            "by_non_empty": True,
+        }
+        assert facts == {"page": expected, "cli": expected, "mail": expected}, facts
