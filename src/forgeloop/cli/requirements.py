@@ -28,7 +28,11 @@ from forgeloop.domain.budget_summary import (
     summarize_budget,
 )
 from forgeloop.domain.dependency_facts import DependencyFacts
-from forgeloop.domain.requirement import BLOCKED, RequirementNotFoundError
+from forgeloop.domain.requirement import (
+    BLOCKED,
+    RequirementError,
+    RequirementNotFoundError,
+)
 from forgeloop.domain.status_reason import StatusReason, derive_status_reason
 from forgeloop.domain.task_plan import TaskPlan, TaskPlanNotFoundError
 from forgeloop.graph.builder import RequirementTaskRunner, requirement_task_id
@@ -446,6 +450,53 @@ def requirement_retry_section(root: Path, req_id: str) -> dict | None:
         "plan_version": latest.plan_version,
         "checkpoint_id": latest.checkpoint_id,
     }
+
+
+def cmd_requirement_cancel(args: argparse.Namespace) -> int:
+    """取消需求：终态 + 人工决定留痕；**不删除任何记录**（2026-10-19 所有者要求）。
+
+    取消只结束自动推进，需求身份、版本、批准、交付与现场原样保留；缺 ``--by`` 或
+    ``--reason`` 一律拒绝且零副作用（记录层校验）。
+    """
+
+    root = records_root(args)
+    store = RequirementStore(root / "records.sqlite")
+    try:
+        try:
+            store.record_requirement_cancellation(args.req_id, by=args.by, reason=args.reason)
+        except RequirementNotFoundError:
+            print(f"需求不存在: {args.req_id}", file=sys.stderr)
+            return 1
+        except RequirementError as error:
+            print(f"取消被拒绝（fail-closed）：{error}", file=sys.stderr)
+            return 1
+        decision = store.requirement_cancellation(args.req_id) or {}
+    finally:
+        store.close()
+    print(f"需求已取消（记录保留）：{args.req_id}")
+    print("下一步: 无（终态）；身份、版本、批准与交付记录原样保留")
+    print(
+        f"取消决定: by={decision.get('cancelled_by', '')}，"
+        f"时间 {decision.get('cancelled_at', '')}，理由 {decision.get('reason', '')}"
+    )
+    return 0
+
+
+def add_requirement_cancel(
+    subparsers: argparse._SubParsersAction,
+    default_records_root: str,
+) -> None:
+    """把 ``requirement cancel`` 子命令登记到需求子解析器上。"""
+
+    cancel = subparsers.add_parser(
+        "cancel",
+        help="取消需求（撤下+留痕，不删除记录；必填 --by/--reason）",
+    )
+    cancel.add_argument("req_id", help="需求身份")
+    cancel.add_argument("--by", required=True, help="调用方标识（如 owner）")
+    cancel.add_argument("--reason", required=True, help="取消理由（不能为空白）")
+    cancel.add_argument("--records-root", default=default_records_root)
+    cancel.set_defaults(func=cmd_requirement_cancel)
 
 
 def add_requirement_retry(

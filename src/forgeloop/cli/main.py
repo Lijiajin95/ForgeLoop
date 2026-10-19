@@ -43,6 +43,7 @@ from forgeloop.cli.merge import add_merge_parser, merge_section
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
     add_requirement_actions,
+    add_requirement_cancel,
     add_requirement_dispatch,
     add_requirement_retry,
     aggregate_missing,
@@ -1105,6 +1106,7 @@ def _add_requirement_parsers(
     status.set_defaults(func=cmd_requirement_status)
 
     add_requirement_dispatch(actions, default_records_root)
+    add_requirement_cancel(actions, default_records_root)
     add_requirement_retry(actions, default_records_root)
     add_requirement_actions(actions, default_records_root)
 
