@@ -81,6 +81,23 @@ WantedBy=default.target
 UNIT_EOF
 echo "      unit: ${UNIT}"
 
+# 预检：已激活的产物必须真的支持 serve（真实事故：前缀里是旧构建，缺 serve，
+# 服务被 enable 后陷入重启循环）。缺 serve 时**先不启用**，并给出可操作结论。
+if [ ! -x "${PREFIX}/current/bin/forgeloop" ]; then
+  echo "前缀里没有可执行文件：${PREFIX}/current/bin/forgeloop；请先部署" >&2
+  exit 1
+fi
+if ! "${PREFIX}/current/bin/forgeloop" serve --help >/dev/null 2>&1; then
+  cat >&2 <<'PREFLIGHT'
+已激活的产物过旧：它的 CLI 不支持 serve（常驻服务是后来才实现的）。
+请升级版本号后重跑本脚本，让它部署新构建（一个版本只对应一份产物，不能覆盖同名版本）：
+  1) 修改 pyproject.toml 的 version（例如 0.0.2）
+  2) 重跑 scripts/install_local_service.sh
+在部署成功前不会启用服务，避免陷入重启循环。
+PREFLIGHT
+  exit 1
+fi
+
 if [ "$ENABLE" = "1" ]; then
   echo "[3/3] 启用并启动"
   systemctl --user daemon-reload
