@@ -39,7 +39,12 @@ from forgeloop.domain.status import ActionActor
 from forgeloop.domain.task_plan import TaskPlan
 from forgeloop.graph.builder import RequirementTaskRunner, requirement_task_id
 from forgeloop.graph.dispatch import RequirementDispatcher
-from forgeloop.graph.requirements import RequirementAlreadyRunningError, RequirementExecutor
+from forgeloop.graph.requirements import (
+    RequirementAlreadyRunningError,
+    RequirementExecutor,
+    TaskExecution,
+    TaskResult,
+)
 from forgeloop.records.actions import SLOT_PREFIX
 from forgeloop.records.requirements import Requirement, RequirementStore
 from forgeloop.records.store import RecordStore
@@ -421,24 +426,14 @@ class ServiceWorker:
         """需求当前任务的单任务身份（供停止入口定位）；没有可定位任务时抛 :class:`WorkerRefused`。"""
 
         store = RequirementStore(self._records_root / "records.sqlite")
-        record_store = RecordStore(self._records_root / "records.sqlite")
         try:
             requirement = store.get(req_id)
-            plan = store.latest_task_plan(req_id)
-            if plan is None:
-                raise WorkerRefused("需求还没有任务包，无法定位要停止的任务")
-            profile = self._projects.get(requirement.project)
-            if profile is None:
+            if self._projects.get(requirement.project) is None:
                 raise WorkerRefused("项目未在 config/service.toml 配置，无法定位执行现场")
-            runner = self._runner(requirement, plan, profile)
-            executor = RequirementExecutor(store, req_id, runner, slots=record_store.actions)
-            current = executor.progress().current_task
-            if not current:
-                raise WorkerRefused("需求当前没有可停止的任务")
-            return requirement_task_id(req_id, plan.plan_version, current)
         finally:
-            record_store.close()
             store.close()
+        # 解析本身与项目档案无关：与页面/邮件共用同一只读实现（见模块级函数）。
+        return current_task_thread_id(self._records_root, req_id)
 
     def request_advance(self, req_id: str) -> None:
         """排队一次**显式**推进请求（页面「推进本次」按钮）。
@@ -583,3 +578,33 @@ def _progress_summary(progress: object) -> dict:
         "next_step": str(getattr(getattr(progress, "next_step", None), "action", "")),
         "blocked_reason": str(getattr(progress, "blocked_reason", "")),
     }
+
+
+def current_task_thread_id(records_root: Path, req_id: str) -> str:
+    """需求当前任务的单任务身份；**只读记录**，不依赖项目档案（三入口共用）。
+
+    页面与邮件都要"把需求解析成可停止的当前任务"。此前该解析只在常驻 worker 的方法里、
+    依赖服务配置的项目档案，致使邮件入口必须先起服务。这里下沉为纯记录解析：最新任务包
+    + 执行进度；`RequirementExecutor.progress()` 本身是只读汇总，不启动任何动作。
+    """
+
+    store = RequirementStore(records_root / "records.sqlite")
+    record_store = RecordStore(records_root / "records.sqlite")
+    try:
+        plan = store.latest_task_plan(req_id)
+        if plan is None:
+            raise WorkerRefused("需求还没有任务包，无法定位要停止的任务")
+        executor = RequirementExecutor(store, req_id, _read_only_runner, slots=record_store.actions)
+        current = executor.progress().current_task
+        if not current:
+            raise WorkerRefused("需求当前没有可停止的任务")
+        return requirement_task_id(req_id, plan.plan_version, current)
+    finally:
+        record_store.close()
+        store.close()
+
+
+def _read_only_runner(_task: TaskExecution) -> TaskResult:
+    """占位运行器：只读解析永不调用它；真被调用说明用法错了，直接拒绝。"""
+
+    raise WorkerRefused("只读解析不应启动执行")
