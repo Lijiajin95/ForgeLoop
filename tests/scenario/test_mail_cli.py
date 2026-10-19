@@ -988,3 +988,67 @@ class TestCancellationProposal:
         document = poll(tmp_path, capsys)
         entry = next(item for item in document["requirements"] if item["req_id"] == req_id)
         assert entry["cancel_proposal"] is False
+
+
+class TestMailConversationLoop:
+    """邮件对话闭环（所有者 2026-10-19）：答复回流成需求修订，供下一轮分析使用。"""
+
+    def _status(self, records_root: Path, req_id: str) -> tuple[str, int, str]:
+        store = RequirementStore(records_root / "records.sqlite")
+        try:
+            requirement = store.get(req_id)
+            return (
+                store.requirement_status(req_id),
+                len(requirement.versions),
+                requirement.latest.text,
+            )
+        finally:
+            store.close()
+
+    def test_reply_answers_are_appended_as_new_requirement_version(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能", clarifications=("导出格式",))
+        status, before, _ = self._status(tmp_path, req_id)
+        assert status == "awaiting_clarification" and before == 1
+
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<answer-1@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="需要 CSV 与 Excel 两种格式。",
+                )
+            ],
+        )
+        poll(tmp_path, capsys)
+
+        status, after, text = self._status(tmp_path, req_id)
+        assert status == "draft", "答复回流后应回到 draft 等待重新分析"
+        assert after == before + 1 and "CSV 与 Excel" in text and "邮件答复" in text
+
+    def test_terminal_requirement_does_not_receive_mail_answers(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        req_id = seed_requirement(tmp_path, "导出功能")
+        store = RequirementStore(tmp_path / "records.sqlite")
+        try:
+            store.record_requirement_cancellation(req_id, by="owner", reason="已取消")
+            before = len(store.get(req_id).versions)
+        finally:
+            store.close()
+
+        install_transport(
+            monkeypatch,
+            [
+                build_message(
+                    "<answer-2@example.com>",
+                    subject=f"Re: [ForgeLoop] {req_id}",
+                    body="补充一些内容。",
+                )
+            ],
+        )
+        poll(tmp_path, capsys)
+        _, after, _ = self._status(tmp_path, req_id)
+        assert after == before, "终态需求不再接收答复回流"
