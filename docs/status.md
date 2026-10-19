@@ -56,6 +56,38 @@
 - 代价与限制（如实记录）：① 引入 **Node 26 与 npm registry** 依赖（`package-lock.json` 锁定，`npm ci` 安装；Chromium 由 Playwright 下载到 `.cache/ms-playwright`，本机实测 572 MB），`make setup` 现在同时准备两侧工具链；② `npm audit --audit-level=high` 当前报 **2 个 moderate**（`@stryker-mutator/core → typed-rest-client → qs`，全部在开发期变异工具链，不进入随包页面与 wheel），high 及以上为空，结果如实保留在安全作业输出；③ 结构数字的分级口径不同：Python 报告有 hint(40)/review(50) 两级，ESLint 只能给一个 `warn`，前端取复核阈值 50；④ 变异范围不含 `render.ts`（DOM 管线等价变异多、收益低），与 Python 只变异核心领域规则同口径；⑤ 前端工具链未接入 axe 可访问性扫描与 Vitest 浏览器模式。
 - 发现但不碰：① 页面**操作入口**（批准／推进／验收）仍未实现，仍在 B01 触发条件下等待，且必须复用 CLI 的批准绑定与幂等校验；② `frontend/package.json` 的依赖树里 `qs`（经 `typed-rest-client`）有 moderate 通告，上游未修，未用 `overrides` 强行改版本；③ `docs/quality-assurance-plan.md` 的 Q 线批次未包含前端工具链，其「有效数值以 `config/quality-policy.toml` 与可靠性方案为准」的表述已足以覆盖本次接入，故未改动该文件。
 
+2026-10-19（Agent Runtime：DSH 接入与热切换，未提交）：按所有者要求新增 DSH（`dsh --profile headless --json`）作为第二个 Agent Runtime，与 PI 同属可插拔执行器；`forgeloop runtime set` 写权威运行状态，**每个动作启动前**重新解析，因此切换对下一个动作生效、无需重启推进进程，正在运行的会话不被打断。
+
+- 计划范围：新增 `src/forgeloop/domain/agent_runtime.py`、`records/agent_runtimes.py`、`adapter/agent_runtime.py`、`adapter/dsh_headless.py`、`graph/agent_execution.py`、`cli/runtime.py`、`tests/fixtures/fake_dsh.py`、五份分层测试（domain／records／adapter／component／scenario）与 [ADR 0003](adr/0003-agent-runtime-hot-switch.md)；修改 `adapter/pi_rpc.py`（收敛到共同契约与共用行读取器）、`graph/nodes.py`／`graph/planning.py`（动作前解析运行时、证据落盘）、`graph/builder.py`（`pi_command` 可缺省）、`records/checkpoints.py`（识别新旧中断前缀）、`cli/main.py`／`cli/requirements.py`（`--pi-command` 可省略、`runtime` 命令、运行时不可用时失败关闭）、`scripts/export_cli_contract.py`、`docs/architecture.md`、`contracts/architecture.json`、`contracts/cli-contract.json`、`docs/pending-requirements.md`（B21 部分落实）、`CONTEXT.md`、`README.md`、`pyproject.toml` 与 `config/quality-policy.toml`（变异范围与 18 条幸存者审阅）、本文件。
+- 实际行为（已实现）：
+  - `forgeloop runtime show|set|list`：`set` 必填 `--by`/`--reason`，未知运行时、非法命令、空白身份或理由一律 fail-closed 且零副作用；每次 `set` 追加切换审计（谁/何时/从哪到哪/命令/理由）；`show --json` 给出当前选择、生效解析、进程环境覆盖与历史（进入 CLI 契约快照）。
+  - 选择优先级：`FORGELOOP_AGENT_RUNTIME` > 记录层运行状态 > 默认 `pi`；命令优先级：显式参数 > PI 任务配置快照 > 运行状态同名命令 > DSH 官方默认。PI 没有内建默认命令：缺命令在动作启动前 fail-closed，不静默猜。
+  - DSH 归类：只有 `turn_end.reason.kind=completed`（且有 `final`）与 `aborted` 记为 settled；provider `error` 记 `model_error`；`blocked`/`max-tokens`/`interrupted`/`forked`、运行器 `error` 事件、缺 `final`、非 JSON 行与超时按“未取得结果”中断（`agent_dev_unsettled:`／`agent_review_unsettled:`）。
+  - 兼容性：默认仍是 PI，既有任务配置／批准／检查点语义不变；`records.checkpoints` 继续识别旧检查点的 `pi_*_unsettled` 原因，旧现场可就地续跑。
+  - 证据：会话请求日志、`dev-reports.jsonl`、`reviews.jsonl` 与 `runtime` 查询都记录运行时身份与命令来源。
+- 验证结果：`make check` **exit 0**（1619 通过、4 跳过、5 未选；前端 68 项通过；lint/format/typecheck／CLI 契约／架构契约／提交策略配置／import-linter／deptry 全通过；结构报告 0 失败 / 357 条审阅提示）；`make coverage` **exit 0**（1753 通过、9 跳过；行 95.57%、分支 90.15%、增量通过）；`make test-system` **20 项通过**；`tests/integration` **134 项通过、5 项 pi_live 跳过**；`make mutation` **通过**（1082/1242 杀死、160 幸存全部有审阅记录）。原始日志：`/tmp/fl-runtime-check.log`、`/tmp/fl-runtime-coverage.log`、`/tmp/fl-runtime-system.log`、`/tmp/fl-runtime-integration.log`。
+- 热切换的真实证据（不依赖模型）：场景用例在**同一进程内**先由 PI（假 PI 子进程）实现、`runtime set` 切到 DSH 后由假 DSH 子进程完成审查，两侧会话请求分别标注 `pi` 与 `dsh`；另有 CLI 全链路（提交→批准→DSH 实现→DSH 审查→真实测试命令→验收→交付）与 DSH 驱动的分析与规划用例。
+- 未验证（如实记录）：
+  - **没有用真实 DSH／真实模型跑过一次会话**（**同日补充已实测并覆盖本项**，见下）：全部 DSH 用例使用 `tests/fixtures/fake_dsh.py`（按官方 0.2.1 事件流契约编写）；本机 `dsh 0.2.1-rc.2` 在 DSH 沙箱内因 `~/.dsh` 写权限被拒，仅用隔离 `DSH_HOME` 核对过 `--profile headless --help` 与 `--json` 选项存在，未执行真实任务，也未验证凭据、工具权限与真实 `turn_end` 文本。
+  - **DSH 会话恢复未实现**：`--session-id` 续跑未接入，跨运行时会话不可互换；切换只发生在动作边界。
+  - **容器 + DSH 未验证**：`runtime/Dockerfile` 只装 PI，容器模式下 DSH 命令需要镜像自带 `dsh`；host 模式仍是提示词级只读约束，不构成文件系统边界。
+  - 真实 PI 回归（`pi_live`）本次未启用（需真实模型成本）。
+- 一处真实失败与修复（变异门禁）：首次 `make mutation` 对新增模块报 **25 个未审阅幸存者**；逐项核对后 **7 个行为型变异补测试杀死**（JSON 字符串载荷不得按字符拆分、非序列值失败关闭、`runtime`/`runtime_source` 字段分支、字符串命令按 JSON 解析），其余 **18 个判为等价变异**（错误消息文本、`label` 默认值、`typing.cast` 首参、`list(command)` 规范化）并逐条登记理由；重跑模块与门槛脚本通过。过程见[可靠性方案第 30 节](engineering-reliability.md)。
+- 发现但不碰：① `src/forgeloop/cli/main.py` 增至 **1100** 物理行，本批只新增运行时命令注册与失败关闭分支（拆分建议见既有状态记录）；② `runtime` 命令当前是**记录根级**（`scope=default`）单一选择，多项目/多范围选择未实现，需要时再按真实场景扩；③ `adapter` 仍是 `if` 分支而非可注册插件体系（第三执行器出现前不抽象）；④ 前端未改动。
+- 架构同步：新增 6 个模块（`domain.agent_runtime` 叶子、`records.agent_runtimes`、`adapter.agent_runtime`／`adapter.dsh_headless`、`graph.agent_execution`、`cli.runtime`），跨层边未新增（`contracts/architecture.json` 仅多 6 条 `modules`，`layer_edges` 仍 9 条）；`adapter` 新增两条同层依赖（两个实现 → 共同契约）；`records.sqlite` 新增 2 张表（共 30 张）；会话请求记录新增运行时身份字段。`docs/architecture.md` 第 1、2、3、4、5、6、7 节与两份契约快照同批更新。
+- 此次**未创建任何 commit**（所有者未要求）；改动在独立 git worktree `.cache/worktrees/agent-runtime`（分支 `feat/agent-runtime-hot-switch`）内，主工作区在途改动未触碰。
+
+2026-10-19 同日补充（**真实 DSH／真实模型端到端验证**，未提交）：把上面的“未验证”逐项补成实测。全部使用本机真实 `dsh 0.2.1-rc.2`、真实模型（`deepseek-v4.1-flash`）与本机已安装的 `pi 1.1.0`；DSH 用工作区内 `DSH_HOME` + `--patch` 覆盖启用已保存凭据（headless 默认禁用凭据存储）。
+
+- **真实 DSH 最小调用**：`dsh --profile headless --patch <overlay> --json` 返回标准事件流（`session` → `status` → `text` → `step_end(usage)` → `turn_end(completed)` → `final`），exit 0，8,961 tokens，stderr 空。核对到官方契约里的全部关键字段。
+- **真实单任务闭环（DSH 实现＋DSH 审查＋真实测试＋人工验收）**：任务 `task-20261019043110-4bef68`（项目 dsh-live）→ **delivered**。实现会话 44 个事件、7 次工具调用（bash／glob／read／write）、63,514 tokens；审查会话 46 个事件、10 次工具调用、79,189 tokens，返回合法结构化 `blocking_issues: []`；正式测试命令真实执行 exit 0；候选 diff 只含 `hello.py`；工时 32.8s。**源仓库工作树干净、README 未被改写**，改动只出现在任务副本内。审查模型在总结里如实说明“本机沙箱不可用导致验收命令未能实际执行”——这正是“候选 diff 来自 git、正式测试由框架跑”的分工。
+- **同一推进进程内真实热切换**：任务 `task-20261019043756-454cc2` 的 `approve` 进程启动后 2 秒（dev 会话已开始、由 DSH 执行），另一进程执行 `runtime set pi`；**同一个** `approve` 进程随后的审查动作使用真实 PI（`pi --mode rpc --no-session --provider cc-switch-open-code-go --model deepseek-v4.1-flash`）。证据：dev 请求记录 `agent_runtime=dsh`、review 请求记录 `agent_runtime=pi`、`dev-reports.jsonl` 为 dsh、`reviews.jsonl` 为 pi、测试 exit 0、任务 **delivered**；切换审计里能看到 `dsh → pi` 的时间与理由。另有 `task-20261019043341-0e1290`（square，全 DSH 实现＋审查）同样 delivered。
+- **真实需求线（分析与规划，只读）**：`requirement analyze` 由真实 DSH 完成（8.6s，10,491 tokens，`agent_runtime=dsh`，零工具调用），产出可审阅目标且无待澄清项；`requirement plan` 同样由真实 DSH 完成（11.5s，12,316 tokens），产出 3 个带依赖的任务包并通过 `domain.repo_facts` 的路径／命令校验；任务包已由所有者批准（`plan-approval:req-…:v1:owner`），**未执行 `advance`**（真实自我迭代执行留待明确授权）。需求 `req-20261019054436-0083fa`（项目 req-live）。
+- **真实 PI 回归**：`FORGELOOP_PI_LIVE=1 .venv/bin/pytest tests/integration/test_pi_live.py` **5/5 通过**（11.15s，真实模型），此前只在本机装 DSH 沙箱外运行过。
+- **把真实路径固化为可选测试**：新增 `tests/integration/test_dsh_live.py`（marker `dsh_live`，`FORGELOOP_DSH_LIVE=1` 才运行；`FORGELOOP_DSH_HOME`／`FORGELOOP_DSH_COMMAND` 提供现场）与 `make dsh-live`；实跑 **2/2 通过**（9.35s），第二个用例验证真实模型在工作目录内真实调用工具创建文件。默认 CI／`make check`／`make coverage` 下该层跳过，不产生模型费用。
+- **一次真实失败与归因（如实记录）**：首次真实运行把 `--patch` 写在 `--json` 之后，DSH 启动器把 `--json` 之后的参数交给应用，应用报 `unknown option '--patch'`；适配器把该 `error` 事件转成 `runtime-error: unknown option '--patch'` 并按未取得结果中断（任务 interrupted、零候选写入）。修正为启动器参数在前（`--profile headless --patch <overlay> --json`）后通过；该失败现场与事件原文保留在首个任务记录里。
+- 仍未验证：DSH `--session-id` 会话恢复、容器内 DSH、以及真实模型的**长任务**（本批均为最小任务）；`make mutation` 的结论不受本补充影响（`pi_rpc` 不在变异范围）。
+
 ### 实现范围
 
 | 层 | 内容 |
@@ -200,8 +232,8 @@
 | `make hooks` | 2026-10-13 **11:0x 才在本仓库实际安装**（此前 09:1x 的提交未经 hook 校验——原记载有误，已更正）；hook 内已补 `PRE_COMMIT_HOME` 指向工作区缓存目录（沙箱禁止写 `~/.cache`），并实测拦截窗口内提交（第 22 节） |
 | I01 三条业务线入口 | 代码与门槛已落地：`requirement` 命令、`RequirementTaskRunner`、需求状态 JSON 契约；需求线系统用例通过（组合式假 PI＋真实检查点与测试命令）。**真实模型闭环已执行**（G01/G02，2026-10-15/16）：真实 PI 分析、任务包生成、独立副本实现、独立审查与真实正式测试均已跑通；假 PI 仍用于系统用例 |
 | 需求线真实端到端（G02） | **部分执行（2026-10-15/16）**：分析→任务→交付（含独立审查、真实正式测试、人工验收与受控归并）已用真实模型多轮跑通；**发布→部署段未执行**（尚无真实发布） |
-| 变异门槛（既有红点） | **当前为红**：`domain/release.py` 的 `check_release_artifact`／`check_release_retry` 无 unit/property 覆盖，产生 63 个 no tests；`domain/merge.py` 新增 8 个未审阅幸存者与 4 条过期条目。修复需补测试与审阅（测试文件不在本任务范围），见[第 26 节](engineering-reliability.md) |
-| 容器隔离 | PI 仍直接宿主运行（架构 §5 的受限容器未接入） |
+| 变异门槛 | **当前通过（2026-10-19 实测）**：`make mutation` 1082/1242 杀死、160 幸存全部登记审阅（含本批新增 `domain/agent_runtime.py` 与 18 条等价变异；首次运行 25 个未审阅幸存者已按“补测试 7 个＋审阅 18 个”处理，见[第 30 节](engineering-reliability.md)） |
+| 容器隔离 | PI 与 DSH 仍直接宿主运行（架构 §5 的受限容器未接入；容器镜像也只装 PI，容器+DSH 未验证） |
 | S1 真实发布 | 未执行：仓库仍无标签。**A01 已于 2026-10-16 完成**（已有真实任务归并记录），首个发布可由所有者指定版本号执行 `forgeloop release` |
 | S2 真实部署链路 | 引导部署已在真实前缀执行；**「Release → 自托管 runner → 本机部署」未执行**（需先有真实发布），真实两版本回滚未演练（本机仅一个版本） |
 | S3 CI 合入门槛 | 代码侧完成（候选分支流程 + 检查判定）；**ruleset 已设置**（`main-protection`，active，2026-10-16 核对）；GitHub 真实检查下的端到端归并**未验证**（本地用假检查状态覆盖通过/失败/超时/重试） |

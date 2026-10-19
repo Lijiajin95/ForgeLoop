@@ -763,3 +763,30 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 - **门禁状态的时间点差异（如实记录）**：本次改动在 2026-10-17 21:38 实测 `make check` exit 0（1457 通过 / 3 跳过）；21:47 起另一会话 `git add` 了 `frontend/**` 等 65 个文件（12408 插入），使上述仓库结构用例因 frontend 路径不在 `domain/repo_facts.py` 的合法路径清单内而失败——失败路径全部位于 `frontend/`，`repo_facts.py` 本次未触碰，属他人会话在途工作，本会话**未修、未回退、未清理**（该用例在 21:38 的门禁中是通过的）。21:52 复跑确认：`make check` exit 2，**唯一失败即该用例**，其余 1456 通过 / 3 跳过。
 - 本次**未创建任何 commit**（所有者未要求）；上述全部改动与钩子/CI 文案同属未提交状态（其中 `frontend`／契约等文件的暂存状态由另一会话产生）。
 - 验证用的探针仓库副本 `.cache/policy-probe` 为一次性产物，已删除；该路径下此前另一会话的旧探针副本被本次重建覆盖（`.cache/` 为可丢弃缓存区，仓库内无唯一数据丢失）。
+
+## 30. Agent Runtime 抽象与变异范围扩展：DSH 接入与热切换（2026-10-19）
+
+本批新增 Agent Runtime 抽象（PI 与 DSH 同属可插拔执行器、按动作热切换），并把新纯规则模块 `domain/agent_runtime.py` 纳入 `[tool.mutmut].only_mutate`。技术决策见 [ADR 0003](adr/0003-agent-runtime-hot-switch.md)，业务行为与范围见 `docs/status.md` 同日批次。
+
+**本批的门禁实测（本机 macOS ARM64，Asia/Shanghai）**：
+
+| 项 | 结果 | 日志 |
+| --- | --- | --- |
+| `make check` | exit 0：1619 通过、4 跳过、5 未选；前端 68 项通过；lint／format／typecheck／CLI 契约／架构契约／提交策略配置／import-linter／deptry 全通过；结构 **0 失败 / 357 条审阅提示** | `/tmp/fl-runtime-check.log` |
+| `make coverage` | exit 0：1753 通过、9 跳过；**行 95.57%、分支 90.15%**、增量（diff-cover 对 `origin/main`）通过 | `/tmp/fl-runtime-coverage.log` |
+| `make test-system` | exit 0：20 项通过 | `/tmp/fl-runtime-system.log` |
+| `tests/integration -m "not install"` | exit 0：134 项通过、5 项真实模型用例（`pi_live`）跳过 | `/tmp/fl-runtime-integration.log` |
+| `make mutation` | 通过：**1082/1242 杀死、160 幸存全部有审阅记录**；no tests／skipped／suspicious／timeout 等未完成状态为 0 | `mutants/mutmut-cicd-stats.json` |
+
+**变异门禁的一次真实失败与处理（不掩盖）**：首次 `make mutation`（1242 个变异体，含新增模块）以 **25 个未审阅幸存者**失败，全部来自 `forgeloop.domain.agent_runtime`。逐项用 `mutmut show` 核对后分两类处理：
+
+1. **7 个行为型变异补测试杀死**（先确认原实现的行为语义，再补断言）：
+   - `parse_command` 收到解出来是字符串的 JSON 载荷（如 `"dsh"`）时必须拒绝，而不是按字符拆成 `("d","s","h")`（`and` → `or` 变异）；
+   - 非序列值（`42`）必须带明确原因失败关闭，而不是 `raise AgentRuntimeError(None)`；
+   - `switch_command` 的字符串命令必须按 JSON 解析，而不是 `list("...")` 逐字符拆开（`and False` 变异）；
+   - `resolve_agent_runtime` 的 DSH 命令分支与 PI 状态分支必须返回正确的 `runtime` 与 `runtime_source`（原测试只断言了命令与命令来源，字段被改成 `None` 也能通过）。
+2. **18 个判为等价变异并逐条登记理由**：错误消息文本（大小写／XX 包裹／`None`）、`label` 关键字默认值（生产调用点都显式传参，标签只出现在消息里）、`typing.cast` 的第一个参数（运行时恒等）、`list(command)` 规范化（`Sequence[str]` 入参下与直接传递等价）。
+
+补测试后重跑该模块变异与 `scripts/check_mutation_stats.py` 通过；完整统计在 `mutants/mutmut-cicd-stats.json`，审阅条目在同节 `[[mutation.reviewed_survivors]]`。**没有通过放宽门槛、删除变异体或改写失败记录让门禁变绿。**
+
+**真实环境验证（2026-10-19 同日补充，非默认门禁）**：真实 DSH（`dsh 0.2.1-rc.2`）＋真实模型（`deepseek-v4.1-flash`）已完成最小调用、单任务闭环（实现＋审查＋正式测试＋验收，任务 delivered）与**同一推进进程内热切换**（dev 由 DSH，`runtime set pi` 后 review 由真实 PI，任务 delivered）；真实 PI 回归 `pi_live` 5/5 通过，新增 `tests/integration/test_dsh_live.py` 2/2 通过（`make dsh-live`，默认跳过、不产生模型费用）。首次真实运行暴露启动器参数顺序错误（`--patch` 必须在 `--json` 之前），适配器按 `runtime-error` 失败关闭并保留现场；修正后通过。仍未验证：`--session-id` 会话恢复、容器内 DSH、真实模型长任务。详细证据见 `docs/status.md` 同日补充。变异范围扩展到新模块不改变其他九项的既有结论。

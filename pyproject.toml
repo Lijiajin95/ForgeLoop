@@ -98,6 +98,7 @@ markers = [
   "scenario: deterministic multi-step workflow behavior",
   "component: CLI output contract tests driven through command entry points",
   "pi_live: real PI RPC invocation in the restricted container (explicit opt-in)",
+  "dsh_live: real DSH headless invocation with a real model (explicit opt-in)",
   "install: 真实执行 uv venv 与 wheel 安装的慢速用例（make test-install，预算 180s）",
 ]
 filterwarnings = ["error"]
@@ -119,6 +120,7 @@ source_paths = ["src/forgeloop/"]
 # 覆盖），而 unresolved_incomplete_states_max=0 会直接判失败；补齐覆盖并重新
 # 审阅幸存者后再加入，见可靠性方案第 26 节。
 only_mutate = [
+  "src/forgeloop/domain/agent_runtime.py",
   "src/forgeloop/domain/counting.py",
   "src/forgeloop/domain/approval.py",
   "src/forgeloop/domain/delivery.py",

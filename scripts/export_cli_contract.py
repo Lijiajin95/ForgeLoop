@@ -18,6 +18,7 @@ from typing import Any
 from forgeloop.adapter.mail import InboundResult, PollReport
 from forgeloop.cli.mail import _mail_confirm_document, _mail_poll_document
 from forgeloop.cli.main import _requirement_document, _status_document
+from forgeloop.cli.runtime import runtime_document
 from forgeloop.cli.web import ProgressDocuments, build_progress_document
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.counting import FailureStage
@@ -25,6 +26,7 @@ from forgeloop.domain.progress import RefreshSetting, RefreshSource
 from forgeloop.domain.release import ReleaseRecord
 from forgeloop.domain.requirement import RequirementAnalysis
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+from forgeloop.records.agent_runtimes import AgentRuntimeStore
 from forgeloop.records.checkpoints import (
     CheckpointHealth,
     CheckpointInspection,
@@ -146,6 +148,7 @@ def build_contract() -> dict:
 
         document = merge(shape(minimal), shape(full))
         web_document = build_progress_contract(Path(tmp))
+        runtime_snapshot = build_runtime_contract(Path(tmp))
 
     mail_poll_document, mail_confirm_document = build_mail_contract()
     return {
@@ -167,7 +170,34 @@ def build_contract() -> dict:
         # 状态页（B01）只读接口：页面脚本消费的对外结构，刷新配置随文档返回。
         "web_progress_route": "GET /api/progress",
         "web_progress_document": web_document,
+        # Agent Runtime 运行状态（PI/DSH 热切换）：当前选择、生效解析与切换审计。
+        "runtime_command": "forgeloop runtime show --json",
+        "runtime_exit_codes": {"ok": 0, "config_error": 1},
+        "runtime_document": runtime_snapshot,
     }
+
+
+def build_runtime_contract(root: Path) -> dict:
+    """合成运行状态样本（未设置 + 已切换到 DSH），提取 ``runtime show --json`` 结构。
+
+    未设置样本让 ``active`` 与 ``effective`` 的 ``null`` 进入快照，已切换样本覆盖
+    命令、来源标签与历史条目；时间戳被 :func:`shape` 折叠为类型，不随运行漂移。
+    """
+
+    store = AgentRuntimeStore(root / "records.sqlite")
+    try:
+        fresh = runtime_document(store)
+        store.set_runtime("pi", by="owner", reason="初始")
+        store.set_runtime(
+            "dsh",
+            command=("dsh", "--profile", "headless", "--json"),
+            by="owner",
+            reason="切到 DSH",
+        )
+        switched = runtime_document(store)
+    finally:
+        store.close()
+    return merge(shape(fresh), shape(switched))
 
 
 def build_mail_contract() -> tuple[dict, dict]:

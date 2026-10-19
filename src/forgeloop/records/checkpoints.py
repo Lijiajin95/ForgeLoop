@@ -315,9 +315,13 @@ def halted_node_of(reason: str) -> str:
         return ""
     if reason.startswith("action_unchecked:"):
         return reason.split(":", 1)[1].strip()
-    if reason.startswith("pi_dev_unsettled") or reason.startswith("prerequisite_blocked"):
+    # ``agent_*`` 是运行时可切换后的通用前缀；``pi_*`` 是既有检查点里的历史原因，
+    # 继续识别以便旧现场的 retry 仍能就地续跑（不追溯改写旧记录）。
+    if reason.startswith(("agent_dev_unsettled", "pi_dev_unsettled", "prerequisite_blocked")):
         return "dev"
-    if reason.startswith("pi_review_unsettled") or reason == "review_result_invalid":
+    if reason.startswith(("agent_review_unsettled", "pi_review_unsettled")) or (
+        reason == "review_result_invalid"
+    ):
         return "review"
     if reason == "test_timeout":
         return "test"

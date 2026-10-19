@@ -55,7 +55,7 @@ TASK = "first"
 BY = "owner"
 REASON = "人工核对后确认可续跑"
 CHECKPOINT_ID = "cp-1"
-HALTED_REASON = "pi_dev_unsettled:process-exited"
+HALTED_REASON = "agent_dev_unsettled:process-exited"
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 FAKE_PI_COMMAND = [sys.executable, str(FIXTURES / "fake_pi.py")]
@@ -423,7 +423,7 @@ class TestResumeRefusal:
         assert runner.calls == []
         assert run is not None
         assert run.state == TaskRunState.AWAITING_USER.value
-        assert "pi_dev_unsettled" in run.reason
+        assert "agent_dev_unsettled" in run.reason
         assert progress.current_task == TASK
 
     def test_rejected_authorization_refuses_resume(self, tmp_path: Path) -> None:
@@ -580,7 +580,7 @@ def _halted_requirement(root: Path, monkeypatch) -> tuple[RequirementTaskRunner,
     """用真实业务图把 dev 跑到返回 ``halted_reason`` 的中断现场。
 
     返回执行器、需求身份与单任务线程身份。检查点由真实 ``SqliteSaver`` 落库：
-    ``next`` 为空、``halted_reason`` 为 ``pi_dev_unsettled``，与生产中断现场一致。
+    ``next`` 为空、``halted_reason`` 为 ``agent_dev_unsettled``，与生产中断现场一致。
     """
 
     monkeypatch.setenv("FAKE_PI_MODE", "unsettled")
@@ -606,7 +606,7 @@ class TestRealGraphResume:
 
         assert inspection.state is not None
         assert inspection.state.next_nodes == ()
-        assert inspection.state.halted_reason.startswith("pi_dev_unsettled")
+        assert inspection.state.halted_reason.startswith("agent_dev_unsettled")
         assert inspection.state.plan_version == REQ_VERSION
         assert inspection.state.recorded_task_id == thread
         assert inspection.state.halted_node == "dev"
@@ -674,5 +674,5 @@ class TestRealGraphResume:
         assert _completed_nodes(tmp_path, thread) == ["dev"]
         assert run is not None
         assert run.state == TaskRunState.AWAITING_USER.value
-        assert "pi_dev_unsettled" in run.reason
+        assert "agent_dev_unsettled" in run.reason
         assert progress.current_task == TASK

@@ -452,14 +452,14 @@ class TestPartialCandidateCapture:
         try:
             update = make_dev_node(ctx)({"task_id": task_id})
 
-            assert str(update["halted_reason"]).startswith("pi_dev_unsettled:")
+            assert str(update["halted_reason"]).startswith("agent_dev_unsettled:")
             task = store.get_task(task_id)
             assert task is not None and task.status == "interrupted"
             partial = ctx.task_dir / "partial-candidate.diff"
             assert partial.is_file() and "feature.txt" in partial.read_text(encoding="utf-8")
             note = json.loads((ctx.task_dir / "partial-candidate.json").read_text(encoding="utf-8"))
             assert note["changed_files"] == ["feature.txt"]
-            assert note["halted_reason"].startswith("pi_dev_unsettled:")
+            assert note["halted_reason"].startswith("agent_dev_unsettled:")
             # 安全性质：部分候选绝不写成 candidate.diff（否则会放行不完整交付）
             assert not (ctx.task_dir / "candidate.diff").exists()
         finally:
@@ -472,10 +472,35 @@ class TestPartialCandidateCapture:
         try:
             update = make_dev_node(ctx)({"task_id": task_id})
 
-            assert str(update["halted_reason"]).startswith("pi_dev_unsettled:")
+            assert str(update["halted_reason"]).startswith("agent_dev_unsettled:")
             task = store.get_task(task_id)
             assert task is not None and task.status == "interrupted"
             assert not (ctx.task_dir / "partial-candidate.diff").exists()
             assert not (ctx.task_dir / "candidate.diff").exists()
         finally:
             store.close()
+
+
+class TestReviewRuntimeFailure:
+    def test_review_model_error_halts_with_agent_prefix(
+        self, store, tmp_path: Path, monkeypatch
+    ) -> None:
+        import sys
+
+        monkeypatch.setenv("FAKE_PI_MODE", "model-error")
+        ctx = context(
+            store,
+            tmp_path,
+            "task-review-error",
+            {"pi_command": json.dumps([sys.executable, str(FIXTURES / "fake_pi.py")])},
+        )
+        make_plan_node(ctx)({"task_id": "task-review-error"})
+
+        result = make_review_node(ctx)({"task_id": "task-review-error"})
+
+        assert result == {
+            "halted_reason": (
+                "agent_review_unsettled:model_error:403: active subscription required"
+            )
+        }
+        assert store.get_task("task-review-error").status == "interrupted"
