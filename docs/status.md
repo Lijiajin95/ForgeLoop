@@ -140,6 +140,15 @@
 - **合入方式**：`git merge --no-ff`，合并提交 `3f89058` 的两父提交为 `1273e6f` 与 `89ec274`；合入前对方批次已提交、工作树干净，未覆盖、未回退、未 stash 任何在途改动。**未推送 `origin/main`**（需所有者另行授权）；推送前需注意规则集 `main-protection` 的签名与必需检查要求。
 - **合入后变异复核（一次真实失败与处理）**：首次 `make mutation` 在基线收集阶段失败——`mutants/` 是 2026-10-17 的生成副本（当时仓库仍发布 `config/commit-policy.toml`），mutmut 检测到非 Python 文件变化后选择保留缓存结果，导致副本内 `test_repository_ships_only_a_template` 失败；**不是本次合并代码的问题**。删除可重建的 `mutants/` 副本后复跑：`make mutation` **通过**，1083/1242 杀死、159 幸存全部有审阅记录、no tests／skipped／suspicious／timeout 为 0。同时清理一条过期审阅条目（`counting.xǁGrantLedgerǁrecord_failure__mutmut_8` 现已不再幸存，`counting.py` 源码未变、系测试选择变化所致），清理后门槛脚本无提示通过。原始证据：`mutants/mutmut-cicd-stats.json`。
 
+2026-10-19（状态页三页签分支合入 main，合并提交 `3df845a`）：`feat/web-tabs-layout`（`f965c89`）已合入 main。
+
+- **合入方式**：`git merge --no-ff`，合并提交 `3df845a` 的两父提交为 `8780844` 与 `f965c89`；合入前分支相对 main 落后 1 个提交，`git merge-tree --write-tree` 预演无冲突、实际合入无冲突。未删除 worktree 与分支（`.cache/worktrees/web-tabs` 保留）。
+- **内容**：状态页按需求／任务／问题三页签组织，按身份关联（`single_task_id`、`ref_id`）并支持跨段跳转、深链与 `hashchange`；需求卡片与任务分组可折叠且重绘后保留状态；各段补充描述；随包产物与跨语言契约测试同批更新。
+- **合入后验证（独立复跑）**：`make check` **exit 0**（**1813 通过、3 跳过、5 未选**；前端 **144 项通过**；lint／format／pyright／契约／结构 0 失败、421 条审阅提示）；`make frontend-mutation` **通过**（击杀率 **97.31%**，检出 325／未检出 9、登记幸存者 8 条）；`make frontend-e2e` **11 项通过**（真实 Chromium）。原始日志：`/tmp/forgeloop-postmerge-check4.log`、`/tmp/forgeloop-fe-mutation.log`、`/tmp/forgeloop-fe-e2e.log`。
+- **过程中的真实失败与处理**：首次合入后 `make check` 因本地 `reports/frontend-mutation.json` 是旧代码生成的陈旧报告而失败（登记的 `format.ts` 幸存者行号随代码移动），重新执行 `make frontend-mutation` 生成当前报告后转为通过；另一次失败是 Hypothesis 截止时间 flaky（`test_requirement_retry_property.py::test_cli_blank_reason_never_drives_resume`，单跑 13.49s 通过），均非合并代码缺陷。
+- **推送状态**：`origin/main` 已由另一执行方推送到 `8780844`（包含邮箱交互批次 `d1c76cf`／`89ec274`）；本次合并提交 `3df845a` 及其分支提交 `f965c89` **仍在本地**（`main` 领先 `origin/main` 2 个提交），推送需所有者另行授权。
+
+
 ### 实现范围
 
 | 层 | 内容 |
