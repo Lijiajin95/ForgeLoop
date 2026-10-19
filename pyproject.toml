@@ -118,6 +118,9 @@ source_paths = ["src/forgeloop/"]
 # （幸存 171＋no tests 214，序列化、ID 分配、候选构建身份等仅由场景／系统层
 # 覆盖），而 unresolved_incomplete_states_max=0 会直接判失败；补齐覆盖并重新
 # 审阅幸存者后再加入，见可靠性方案第 26 节。
+# `domain/mail_interaction.py`（2026-10-19 新增）同样**暂不纳入**：纯协议规则已由
+# unit 用例覆盖（100% 行／分支），但尚未实测变异幸存者与 no tests 并逐条审阅；
+# 在补齐前加入会让夜间作业因未审阅项失败。
 only_mutate = [
   "src/forgeloop/domain/counting.py",
   "src/forgeloop/domain/approval.py",

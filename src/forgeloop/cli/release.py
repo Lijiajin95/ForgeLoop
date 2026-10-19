@@ -29,7 +29,12 @@ from forgeloop.adapter.git_workspace import (
     read_main_head,
     tag_commit,
 )
-from forgeloop.cli.common import fail, open_store, records_root
+from forgeloop.cli.common import (
+    base_records_root,
+    fail,
+    open_task,
+    project_repository,
+)
 from forgeloop.domain.approval import ApprovalStage
 from forgeloop.domain.merge import check_acceptance_content
 from forgeloop.domain.release import (
@@ -296,7 +301,9 @@ def _project_version(project: Path) -> str:
     return version if isinstance(version, str) else ""
 
 
-def _prepare_release(store: RecordStore, args: argparse.Namespace, root: Path) -> _ReleasePlan:
+def _prepare_release(
+    store: RecordStore, args: argparse.Namespace, root: Path, repository: str
+) -> _ReleasePlan:
     """收集并校验发布前置；不满足时抛 ReleaseRefused，不写任何现场。"""
 
     task = store.get_task(args.task_id)
@@ -304,9 +311,9 @@ def _prepare_release(store: RecordStore, args: argparse.Namespace, root: Path) -
     delivery = store.outcomes.delivery(args.task_id)
     if task is None or merge is None or delivery is None or store.latest_plan(args.task_id) is None:
         raise ReleaseRefused("任务尚无归并与交付记录，无法发布")
-    project_path = task.config.get("project_path", "")
+    project_path = repository or task.config.get("project_path", "")
     if not project_path:
-        raise ReleaseRefused("任务未绑定 project_path，无法发布")
+        raise ReleaseRefused("任务未绑定项目仓库，无法发布")
     project = Path(project_path)
     digest = sha256_of_text(Path(delivery[0]).read_text(encoding="utf-8"))
     report = json.loads(Path(delivery[1]).read_text(encoding="utf-8"))
@@ -429,8 +436,9 @@ def _print_release(record: ReleaseRecord, plan: _ReleasePlan) -> None:
 def cmd_release(args: argparse.Namespace) -> int:
     """验收归并后的受控发布（S1）：创建并推送版本标签并固化回执。"""
 
-    root = records_root(args)
-    store = open_store(root, args.task_id)
+    base = base_records_root(args)
+    location = open_task(base, args.task_id)
+    store, root = location.store, location.root
     try:
         task = store.get_task(args.task_id)
         assert task is not None
@@ -446,7 +454,12 @@ def cmd_release(args: argparse.Namespace) -> int:
         try:
             # 发布也要更新同项目主干（标签指向 main），与归并及另一发布互斥。
             with project_delivery(root, task.project, timeout=args.delivery_timeout):
-                return _release_locked(args, store, root)
+                return _release_locked(
+                    args,
+                    store,
+                    root,
+                    project_repository(base, task.project, task.config.get("project_path", "")),
+                )
         except ProjectDeliveryBusyError as error:
             hint = ""
             if not residue.cleaned and residue.assessment.occupant is not None:
@@ -456,7 +469,9 @@ def cmd_release(args: argparse.Namespace) -> int:
         store.close()
 
 
-def _release_locked(args: argparse.Namespace, store: RecordStore, root: Path) -> int:
+def _release_locked(
+    args: argparse.Namespace, store: RecordStore, root: Path, repository: str
+) -> int:
     """持有同项目交付互斥后的发布主体（调用方保证已取得项目槽位）。"""
 
     existing = store.outcomes.release_record(args.task_id)
@@ -477,7 +492,7 @@ def _release_locked(args: argparse.Namespace, store: RecordStore, root: Path) ->
         print(f"发布回执: {existing.receipt_path}")
         return 0
     try:
-        plan = _prepare_release(store, args, root)
+        plan = _prepare_release(store, args, root, repository)
         record = _publish_release(plan, args)
     except ReleaseRefused as refusal:
         return fail(str(refusal))

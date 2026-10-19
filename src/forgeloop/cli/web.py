@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
-from forgeloop.cli.common import fail, records_root
+from forgeloop.cli.common import base_records_root, fail
 from forgeloop.domain.progress import (
     AUTO_REFRESH_OFF,
     IssueItem,
@@ -53,6 +53,7 @@ from forgeloop.domain.progress import (
     task_issue,
 )
 from forgeloop.records.actions import SLOT_PREFIX
+from forgeloop.records.projects import ProjectLocation, iter_projects
 from forgeloop.records.requirements import RequirementStore
 from forgeloop.records.store import RecordStore
 
@@ -95,7 +96,7 @@ class ProgressDocuments:
 
 @dataclass(frozen=True)
 class WebSettings:
-    """一次状态页服务的全部依赖：记录根、监听地址、生效刷新间隔与读模型。"""
+    """一次状态页服务的全部依赖：登记根、监听地址、生效刷新间隔与读模型。"""
 
     records_root: Path
     host: str
@@ -103,6 +104,7 @@ class WebSettings:
     refresh: RefreshSetting
     config_path: Path
     documents: ProgressDocuments
+    project_id: str = ""
 
 
 def load_web_config(path: Path) -> Mapping[str, object] | None:
@@ -148,36 +150,50 @@ def page_module(name: str) -> bytes | None:
     return path.read_bytes()
 
 
-def issue_section(issue: IssueItem) -> dict:
-    """问题项 → JSON 段：机器标签与中文摘要分开，页面按标签分组。"""
+def issue_section(issue: IssueItem, project_id: str = "") -> dict:
+    """问题项 → JSON 段：机器标签、所属项目与中文摘要分开，页面按标签分组。"""
 
     return {
         "kind": str(issue.kind),
+        "project": project_id,
         "ref_id": issue.ref_id,
         "summary": issue.summary,
         "detail": issue.detail,
     }
 
 
-def build_progress_document(
-    root: Path,
-    refresh: RefreshSetting,
+def _project_section(location: ProjectLocation) -> dict:
+    """项目元信息：身份、显示名、仓库与记录根；页面据此标注条目归属。"""
+
+    return {
+        "project_id": location.project.project_id,
+        "name": location.project.name,
+        "repo_path": location.project.repo_path,
+        "records_root": str(location.root),
+    }
+
+
+def _collect_project(
+    location: ProjectLocation,
     documents: ProgressDocuments,
-    *,
-    generated_at: datetime | None = None,
+    requirements: list[dict],
+    tasks: list[dict],
+    issues: list[dict],
 ) -> dict:
-    """组装 ``/api/progress``：只读权威记录，需求/任务/问题三段一次取齐。"""
+    """只读汇总一个项目的需求、任务与问题；返回该项目的计数。"""
 
-    moment = datetime.now(UTC) if generated_at is None else generated_at
-    requirements: list[dict] = []
-    tasks: list[dict] = []
-    issues: list[IssueItem] = []
+    project_id = location.project.project_id
+    db = location.root / "records.sqlite"
+    counts = {"requirements": 0, "tasks": 0, "issues": 0}
+    if not db.is_file():
+        return counts
 
-    requirement_store = RequirementStore(root / "records.sqlite")
+    requirement_store = RequirementStore(db)
     try:
         for requirement in requirement_store.all_requirements():
-            document = documents.requirement(root, requirement_store, requirement.req_id)
+            document = documents.requirement(location.root, requirement_store, requirement.req_id)
             requirements.append(document)
+            counts["requirements"] += 1
             issue = requirement_issue(
                 str(document.get("requirement_status", "")),
                 ref_id=requirement.req_id,
@@ -186,32 +202,69 @@ def build_progress_document(
                 ),
             )
             if issue is not None:
-                issues.append(issue)
+                issues.append(issue_section(issue, project_id))
+                counts["issues"] += 1
     finally:
         requirement_store.close()
 
-    record_store = RecordStore(root / "records.sqlite")
+    record_store = RecordStore(db)
     try:
         for task in record_store.all_tasks():
             document = documents.task(record_store, task.id)
             tasks.append(document)
+            counts["tasks"] += 1
             issue = task_issue(
                 str(document.get("status", "")),
                 ref_id=task.id,
                 detail=str(document.get("blocked_reason_text") or ""),
             )
             if issue is not None:
-                issues.append(issue)
+                issues.append(issue_section(issue, project_id))
+                counts["issues"] += 1
         for occupant in record_store.actions.outstanding_slots():
             issues.append(
-                slot_issue(
-                    slot=occupant.task_id.removeprefix(SLOT_PREFIX),
-                    owner=occupant.role or "",
-                    started_at=occupant.started_at.isoformat(),
+                issue_section(
+                    slot_issue(
+                        slot=occupant.task_id.removeprefix(SLOT_PREFIX),
+                        owner=occupant.role or "",
+                        started_at=occupant.started_at.isoformat(),
+                    ),
+                    project_id,
                 )
             )
+            counts["issues"] += 1
     finally:
         record_store.close()
+    return counts
+
+
+def build_progress_document(
+    root: Path,
+    refresh: RefreshSetting,
+    documents: ProgressDocuments,
+    *,
+    project_id: str = "",
+    generated_at: datetime | None = None,
+) -> dict:
+    """组装 ``/api/progress``：跨项目只读聚合，需求/任务/问题三段带项目归属。
+
+    ``project_id`` 非空时只聚合该项目；未登记身份返回空文档并在 ``projects`` 里
+    如实标记空列表，由命令入口在启动前拒绝未登记项目，避免服务起来后静默空白。
+    """
+
+    moment = datetime.now(UTC) if generated_at is None else generated_at
+    locations = iter_projects(root)
+    if project_id:
+        locations = tuple(
+            location for location in locations if location.project.project_id == project_id
+        )
+    requirements: list[dict] = []
+    tasks: list[dict] = []
+    issues: list[dict] = []
+    projects: list[dict] = []
+    for location in locations:
+        counts = _collect_project(location, documents, requirements, tasks, issues)
+        projects.append({**_project_section(location), "counts": counts})
 
     return {
         "schema_version": WEB_API_SCHEMA_VERSION,
@@ -219,14 +272,16 @@ def build_progress_document(
         "records_root": str(root),
         "refresh_seconds": refresh.seconds,
         "refresh_source": str(refresh.source),
+        "projects": projects,
         "counts": {
+            "projects": len(projects),
             "requirements": len(requirements),
             "tasks": len(tasks),
             "issues": len(issues),
         },
         "requirements": requirements,
         "tasks": tasks,
-        "issues": [issue_section(issue) for issue in issues],
+        "issues": issues,
     }
 
 
@@ -293,7 +348,10 @@ class ProgressRequestHandler(BaseHTTPRequestHandler):
                 return 200, JS_TYPE, module
         if route == "/api/progress":
             document = build_progress_document(
-                self.settings.records_root, self.settings.refresh, self.settings.documents
+                self.settings.records_root,
+                self.settings.refresh,
+                self.settings.documents,
+                project_id=self.settings.project_id,
             )
             return 200, JSON_TYPE, json.dumps(document, ensure_ascii=False).encode("utf-8")
         return 404, JSON_TYPE, self._error_bytes("not_found", f"未知路径: {route}")
@@ -342,8 +400,13 @@ def build_server(settings: WebSettings) -> ProgressHTTPServer:
 
 
 def cmd_web(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    root = base_records_root(args)
     config_path = Path(args.web_config)
+    project_id = getattr(args, "project", "") or ""
+    if project_id and not any(
+        location.project.project_id == project_id for location in iter_projects(root)
+    ):
+        return fail(f"项目未登记: {project_id}")
     try:
         config = load_web_config(config_path)
         refresh = resolve_refresh_seconds(config, cli_value=args.refresh_seconds)
@@ -351,7 +414,15 @@ def cmd_web(args: argparse.Namespace) -> int:
         return fail(str(error))
     try:
         server = build_server(
-            WebSettings(root, args.host, args.port, refresh, config_path, args.progress_documents)
+            WebSettings(
+                root,
+                args.host,
+                args.port,
+                refresh,
+                config_path,
+                args.progress_documents,
+                project_id,
+            )
         )
     except OSError as error:
         return fail(f"无法监听 {args.host}:{args.port}: {error}")
@@ -396,6 +467,11 @@ def add_web_parser(
         "--web-config",
         default=DEFAULT_WEB_CONFIG,
         help=f"状态页配置文件（默认 {DEFAULT_WEB_CONFIG}）",
+    )
+    web.add_argument(
+        "--project",
+        default="",
+        help="只看一个已登记项目（缺省跨全部已登记项目聚合，条目带项目归属）",
     )
     web.add_argument("--records-root", default=default_records_root)
     web.set_defaults(func=cmd_web, progress_documents=documents)

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from project_support import project_records, record_store, register_project
 
 from forgeloop.cli.main import main as cli_main
 
@@ -54,6 +55,7 @@ class _StateReadFailure:
 def submit_argv(input_value: str, records: Path) -> list[str]:
     """最小 submit 参数（多个契约用例共用，避免重复同一段列表）。"""
 
+    register_project(records)  # 登记项目：CLI 只从已登记项目读取业务记录
     return [
         "submit",
         "--project",
@@ -127,7 +129,7 @@ class TestStatusJsonContract:
     def test_document_for_delivered_task(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         task_id = submit_task(tmp_path, capsys)
-        (tmp_path / task_id / "workspace").mkdir(parents=True, exist_ok=True)
+        (project_records(tmp_path) / task_id / "workspace").mkdir(parents=True, exist_ok=True)
         run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)
         run_cli(
             ["approve", task_id, "--stage", "acceptance", "--records-root", str(tmp_path)], capsys
@@ -159,9 +161,7 @@ class TestStatusJsonContract:
     def test_unknown_status_falls_to_manual_review(self, tmp_path: Path, capsys) -> None:
         """未知状态不猜测：输出人工核对动作，主体为 user，原因带原始状态值。"""
 
-        from forgeloop.records.store import RecordStore
-
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task("task-mystery", "p", "input", {}, limit_seconds=60.0)
             store.set_task_status("task-mystery", "mystery_state")
@@ -223,9 +223,8 @@ class TestStatusJsonContract:
             cli_main(["stop", "task-none", "--records-root", str(tmp_path)])
 
     def test_text_status_shows_stop_and_delivery(self, tmp_path: Path, capsys, monkeypatch) -> None:
-        from forgeloop.records.store import RecordStore
-
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
+        register_project(tmp_path)
         code, out = run_cli(
             [
                 "submit",
@@ -243,7 +242,7 @@ class TestStatusJsonContract:
             capsys,
         )
         task_id = out.split("任务已创建: ")[1].splitlines()[0].strip()
-        (tmp_path / task_id / "workspace").mkdir(parents=True, exist_ok=True)
+        (project_records(tmp_path) / task_id / "workspace").mkdir(parents=True, exist_ok=True)
         run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)
         run_cli(
             ["approve", task_id, "--stage", "acceptance", "--records-root", str(tmp_path)], capsys
@@ -254,7 +253,7 @@ class TestStatusJsonContract:
         assert "停止请求" not in out
 
         # 停止请求的任务在文本输出中展示停止记录。
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.outcomes.request_stop(task_id, "验收后归档前暂停")
         finally:
@@ -265,9 +264,8 @@ class TestStatusJsonContract:
         assert "备注: 验收后归档前暂停" in out
 
     def test_approve_task_without_plan_fails(self, tmp_path: Path, capsys) -> None:
-        from forgeloop.records.store import RecordStore
 
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task("task-noplan", "p", "input", {}, limit_seconds=60.0)
         finally:
@@ -276,9 +274,8 @@ class TestStatusJsonContract:
             cli_main(["approve", "task-noplan", "--records-root", str(tmp_path)])
 
     def test_text_status_without_plan_uses_defaults(self, tmp_path: Path, capsys) -> None:
-        from forgeloop.records.store import RecordStore
 
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task("task-noplan2", "p", "input", {}, limit_seconds=60.0)
         finally:

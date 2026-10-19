@@ -25,13 +25,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata, empty_checkpoint
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
+from project_support import project_records, record_store, register_project, requirement_store
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
 from forgeloop.graph.builder import RequirementTaskRunner, build_graph, requirement_task_id
 from forgeloop.graph.nodes import NodeContext
-from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.component
 
@@ -56,7 +55,7 @@ def _planned() -> PlannedTask:
 
 def _runner(tmp_path: Path, req_id: str) -> RequirementTaskRunner:
     return RequirementTaskRunner(
-        records_root=tmp_path,
+        records_root=register_project(tmp_path),
         req_id=req_id,
         plan_version=1,
         project=PROJECT,
@@ -68,7 +67,7 @@ def _runner(tmp_path: Path, req_id: str) -> RequirementTaskRunner:
 def _approved(tmp_path: Path) -> str:
     """真实记录层：提交需求并批准含单个任务的任务包，返回 ``req_id``。"""
 
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path, legacy_project=PROJECT)
     try:
         requirement = store.submit(PROJECT, "需求：检查点续跑")
         plan = TaskPlan(
@@ -96,6 +95,7 @@ def _write_checkpoint(
 ) -> None:
     """写一条真实 LangGraph 检查点，供不触发业务图执行的等待用例使用。"""
 
+    root = register_project(root)
     root.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(root / "checkpoints.sqlite", check_same_thread=False)
     try:
@@ -142,14 +142,15 @@ def _park_at_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str,
     task = _planned()
     runner = _runner(tmp_path, req_id)
     task_id = requirement_task_id(req_id, runner.plan_version, task.task_id)
-    store = RecordStore(tmp_path / "records.sqlite")
+    root = register_project(tmp_path)
+    store = record_store(tmp_path)
     graph = None
     try:
         store.create_task(
             task_id, PROJECT, task.goal, runner._config(task), task.limits.limit_seconds
         )
-        context = NodeContext.for_task(store, tmp_path, task_id)
-        graph = build_graph(context, tmp_path / "checkpoints.sqlite")
+        context = NodeContext.for_task(store, root, task_id)
+        graph = build_graph(context, root / "checkpoints.sqlite")
         config: RunnableConfig = {"configurable": {"thread_id": task_id}}
         graph.invoke({"task_id": task_id}, config)
         runner._approve_plan(store, task_id)
@@ -191,7 +192,7 @@ def _advance(tmp_path: Path, req_id: str, capsys) -> tuple[int, str]:
 
 
 def _budget(tmp_path: Path, req_id: str) -> float:
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     try:
         return store.requirement_budget(req_id).consumed_seconds
     finally:
@@ -199,7 +200,7 @@ def _budget(tmp_path: Path, req_id: str) -> float:
 
 
 def _history(tmp_path: Path, task_id: str) -> tuple[tuple[str, str], ...]:
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         return tuple((action.node, action.state.value) for action in store.actions.history(task_id))
     finally:
@@ -219,8 +220,8 @@ class TestParkedTestResume:
         assert "下一步:" in out
         assert "原因:" in out
         # dev/review/test 真正执行：候选 diff 与验收门现场由真实业务图产生。
-        assert (tmp_path / task_id / "candidate.diff").is_file()
-        store = RecordStore(tmp_path / "records.sqlite")
+        assert (project_records(tmp_path) / task_id / "candidate.diff").is_file()
+        store = record_store(tmp_path)
         try:
             record = store.get_task(task_id)
             history = store.actions.history(task_id)
@@ -254,7 +255,7 @@ class TestDecisionAndHaltedDoNotResume:
         assert code == 0, out
         # 报告保留原始 halted 原因，且没有启动任何业务节点。
         assert "pi_dev_unsettled:timeout" in out
-        assert not (tmp_path / task_id / "candidate.diff").exists()
+        assert not (project_records(tmp_path) / task_id / "candidate.diff").exists()
         assert _history(tmp_path, task_id) == ()
         assert _budget(tmp_path, req_id) == 0.0
 
@@ -270,7 +271,7 @@ class TestDecisionAndHaltedDoNotResume:
 
         assert code == 0, again
         assert "下一步:" in again
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             record = store.get_task(task_id)
         finally:
@@ -287,7 +288,7 @@ class TestDecisionAndHaltedDoNotResume:
 
         assert code == 0, out
         assert "gate_plan_approval" in out
-        assert not (tmp_path / task_id / "candidate.diff").exists()
+        assert not (project_records(tmp_path) / task_id / "candidate.diff").exists()
         assert _history(tmp_path, task_id) == ()
 
 

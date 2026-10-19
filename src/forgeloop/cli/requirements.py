@@ -21,7 +21,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from forgeloop.cli.common import records_root
+from forgeloop.cli.common import (
+    base_records_root,
+    locate_requirement_root,
+    locate_task_root,
+    project_repository,
+)
 from forgeloop.domain.budget_summary import (
     BudgetSummary,
     BudgetSummaryState,
@@ -51,6 +56,7 @@ from forgeloop.records.checkpoints import (
     release_action,
     release_outstanding_action,
 )
+from forgeloop.records.projects import iter_projects
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
@@ -71,8 +77,20 @@ def _decode_pi_command(raw: str) -> tuple[str, ...]:
     return tuple(command)
 
 
+def _project_record_roots(args: argparse.Namespace) -> tuple[tuple[str, Path], ...]:
+    """全部有记录库的已登记项目 ``(project_id, 记录根)``；无记录的项目跳过。"""
+
+    base = base_records_root(args)
+    return tuple(
+        (location.project.project_id, location.root)
+        for location in iter_projects(base)
+        if (location.root / "records.sqlite").is_file()
+    )
+
+
 def _runner_for(
     args: argparse.Namespace,
+    base: Path,
     root: Path,
     req_id: str,
     pi_command: tuple[str, ...],
@@ -95,78 +113,95 @@ def _runner_for(
         plan_version=plan_version,
         project=requirement.project,
         pi_command=pi_command,
-        project_path=args.project_path,
+        project_path=args.project_path or project_repository(base, requirement.project),
         baseline=args.baseline,
         pi_timeout_seconds=args.pi_timeout_seconds or None,
     )
 
 
-def cmd_requirement_slot_list(args: argparse.Namespace) -> int:
-    """列出所有未完成的执行槽位，供中断后人工核对现场。"""
+def _slot_line(project_id: str, name: str, owner: str, started_at: str) -> None:
+    print(f"槽位: {name}（项目: {project_id}）")
+    print(f"  占用者: {owner or '未知'}")
+    print(f"  开始: {started_at}")
+    print(f"  清理: forgeloop requirement slot clear --slot {name}")
 
-    root = records_root(args)
-    store = RecordStore(root / "records.sqlite")
-    try:
-        slots = store.actions.outstanding_slots()
-    finally:
-        store.close()
-    if not slots:
+
+def cmd_requirement_slot_list(args: argparse.Namespace) -> int:
+    """列出所有项目未完成的执行槽位，供中断后人工核对现场。"""
+
+    found = False
+    for project_id, root in _project_record_roots(args):
+        store = RecordStore(root / "records.sqlite")
+        try:
+            slots = store.actions.outstanding_slots()
+        finally:
+            store.close()
+        for record in slots:
+            found = True
+            _slot_line(
+                project_id,
+                record.task_id.removeprefix(SLOT_PREFIX),
+                record.role or "",
+                record.started_at.isoformat(),
+            )
+    if not found:
         print("没有未完成的执行槽位。")
-        return 0
-    for record in slots:
-        name = record.task_id.removeprefix(SLOT_PREFIX)
-        print(f"槽位: {name}")
-        print(f"  占用者: {record.role or '未知'}")
-        print(f"  开始: {record.started_at.isoformat()}")
-        print(f"  清理: forgeloop requirement slot clear --slot {name}")
     return 0
 
 
 def cmd_requirement_slot_clear(args: argparse.Namespace) -> int:
     """人工核对现场后清理一个残留执行槽位；未被占用时明确失败。"""
 
-    root = records_root(args)
-    store = RecordStore(root / "records.sqlite")
-    try:
+    for project_id, root in _project_record_roots(args):
+        store = RecordStore(root / "records.sqlite")
         try:
-            cleared = store.actions.clear_slot(args.slot, detail="cleared by operator")
-        except KeyError as error:
-            print(str(error), file=sys.stderr)
-            return 1
-    finally:
-        store.close()
-    print(
-        f"已清理执行槽位: {args.slot}"
-        f"（占用者 {cleared.role or '未知'}，开始于 {cleared.started_at.isoformat()}）"
-    )
-    return 0
+            try:
+                cleared = store.actions.clear_slot(args.slot, detail="cleared by operator")
+            except KeyError:
+                continue
+        finally:
+            store.close()
+        print(
+            f"已清理执行槽位: {args.slot}（项目: {project_id}）"
+            f"（占用者 {cleared.role or '未知'}，开始于 {cleared.started_at.isoformat()}）"
+        )
+        return 0
+    print(f"槽位未被占用或不存在: {args.slot}", file=sys.stderr)
+    return 1
 
 
 def cmd_requirement_actions_list(args: argparse.Namespace) -> int:
     """列出未完成动作（任务身份、节点、开始时间、动作 ID），供中断后人工核对。"""
 
-    root = records_root(args)
-    actions = outstanding_actions(root, task_id=args.task or None)
-    if not actions:
+    task_filter = args.task or None
+    if task_filter is not None:
+        location = locate_task_root(base_records_root(args), task_filter)
+        groups = ((location.project.project_id, location.root),)
+    else:
+        groups = _project_record_roots(args)
+    found = False
+    for project_id, root in groups:
+        for action in outstanding_actions(root, task_id=task_filter):
+            found = True
+            print(f"动作: {action.action_id}（项目: {project_id}）")
+            print(f"  任务: {action.task_id}")
+            print(f"  节点: {action.node}")
+            print(f"  开始: {action.started_at.isoformat()}")
+            print(
+                "  释放: forgeloop requirement actions clear"
+                f" --task {action.task_id} --action {action.action_id}"
+                " --by <by> --reason <reason>"
+            )
+    if not found:
         print("没有未完成动作。")
-        return 0
-    for action in actions:
-        print(f"动作: {action.action_id}")
-        print(f"  任务: {action.task_id}")
-        print(f"  节点: {action.node}")
-        print(f"  开始: {action.started_at.isoformat()}")
-        print(
-            "  释放: forgeloop requirement actions clear"
-            f" --task {action.task_id} --action {action.action_id}"
-            " --by <by> --reason <reason>"
-        )
     return 0
 
 
 def cmd_requirement_actions_clear(args: argparse.Namespace) -> int:
     """人工核对后释放一个未完成动作并写回审计；缺理由或身份不明时 fail-closed。"""
 
-    root = records_root(args)
+    location = locate_task_root(base_records_root(args), args.task)
+    root = location.root
     if args.action:
         result = release_action(
             root,
@@ -320,7 +355,8 @@ def _print_retry_rejection(
 def cmd_requirement_retry(args: argparse.Namespace) -> int:
     """人工续跑一条需求内被中断的任务：校验、记录决定并立即就地续跑。"""
 
-    root = records_root(args)
+    base = base_records_root(args)
+    root = locate_requirement_root(base, args.req_id).root
     # --pi-command 缺失由解析器拒绝；内容非法在此确定失败，尚未写任何记录。
     pi_command = _decode_pi_command(args.pi_command)
     store = RequirementStore(root / "records.sqlite")
@@ -407,7 +443,7 @@ def cmd_requirement_retry(args: argparse.Namespace) -> int:
             plan_version=plan.plan_version,
             project=requirement.project,
             pi_command=pi_command,
-            project_path=args.project_path,
+            project_path=args.project_path or project_repository(base, requirement.project),
             baseline=args.baseline,
             pi_timeout_seconds=args.pi_timeout_seconds or None,
         )
@@ -472,17 +508,27 @@ def add_requirement_retry(
 
 
 def cmd_requirement_dispatch(args: argparse.Namespace) -> int:
-    """并行推进多条已批准需求，逐条报告状态；任一阻塞则整体退出码为 1。"""
+    """并行推进多条已批准需求，逐条报告状态；任一阻塞则整体退出码为 1。
 
-    root = records_root(args)
+    需求可能分属不同项目：按项目记录根分组，各自用独立 ``RequirementDispatcher``
+    推进，互不共享记录、槽位与执行工时。
+    """
+
+    base = base_records_root(args)
     pi_command = _decode_pi_command(args.pi_command)
-    requests = {req_id: _runner_for(args, root, req_id, pi_command) for req_id in args.req_ids}
-    dispatcher = RequirementDispatcher(root, max_concurrent=max(1, args.max_concurrent))
-    try:
-        results = dispatcher.advance_all(requests)
-    except RequirementAlreadyRunningError as error:
-        print(str(error), file=sys.stderr)
-        return 1
+    groups: dict[Path, list[str]] = {}
+    for req_id in args.req_ids:
+        root = locate_requirement_root(base, req_id).root
+        groups.setdefault(root, []).append(req_id)
+    results = {}
+    for root, req_ids in groups.items():
+        requests = {req_id: _runner_for(args, base, root, req_id, pi_command) for req_id in req_ids}
+        dispatcher = RequirementDispatcher(root, max_concurrent=max(1, args.max_concurrent))
+        try:
+            results.update(dispatcher.advance_all(requests))
+        except RequirementAlreadyRunningError as error:
+            print(str(error), file=sys.stderr)
+            return 1
     blocked = False
     for req_id in args.req_ids:
         progress = results[req_id]

@@ -35,7 +35,7 @@ from forgeloop.adapter.deployment import (
     version_binary,
 )
 from forgeloop.adapter.git_workspace import tag_commit
-from forgeloop.cli.common import fail, records_root
+from forgeloop.cli.common import base_records_root, fail
 from forgeloop.domain.deploy import (
     DeployRequest,
     RollbackRequest,
@@ -44,7 +44,8 @@ from forgeloop.domain.deploy import (
     parse_checksum_file,
     select_wheel,
 )
-from forgeloop.records.store import RecordStore
+from forgeloop.domain.release import ReleaseRecord
+from forgeloop.records.projects import ProjectLocation, releases_by_tag
 
 CHECKSUM_ASSET = "SHA256SUMS"
 
@@ -122,16 +123,23 @@ def _bootstrap_plan(args: argparse.Namespace, prefix: Path) -> _DeployPlan:
     )
 
 
-def _store(args: argparse.Namespace) -> RecordStore:
-    return RecordStore(records_root(args) / "records.sqlite")
+def _release_project(args: argparse.Namespace, tag: str) -> tuple[Path, str]:
+    """跨项目定位标签的发布回执；重复标签必须用 ``--project`` 消歧。"""
 
-
-def _release_project(store: RecordStore, task_id: str) -> Path:
-    task = store.get_task(task_id)
-    project_path = task.config.get("project_path", "") if task is not None else ""
-    if not project_path:
-        raise DeployRefused(f"发布回执绑定的任务缺少 project_path：{task_id}")
-    return Path(project_path)
+    matches: list[tuple[ProjectLocation, ReleaseRecord]] = list(
+        releases_by_tag(base_records_root(args), tag)
+    )
+    if args.project:
+        matches = [item for item in matches if item[0].project.project_id == args.project]
+    if not matches:
+        raise DeployRefused(f"缺少 {tag} 的发布回执；未发布的版本不部署")
+    if len(matches) > 1:
+        projects = "、".join(sorted(item[0].project.project_id for item in matches))
+        raise DeployRefused(
+            f"标签 {tag} 在多个项目有发布回执（{projects}）；请用 --project 指定项目"
+        )
+    location, release = matches[0]
+    return Path(location.project.repo_path), release.merge_commit
 
 
 def _release_slug(args: argparse.Namespace, project: Path) -> str:
@@ -159,15 +167,7 @@ def _download_release(plan_tag: str, slug: str, version: str, prefix: Path) -> t
 def _controlled_plan(args: argparse.Namespace, prefix: Path) -> _DeployPlan:
     """控制路径：发布回执 + 标签提交 + 发布校验值三者一致才允许部署。"""
 
-    store = _store(args)
-    try:
-        release = store.outcomes.release_by_tag(args.tag)
-        if release is None:
-            raise DeployRefused(f"缺少 {args.tag} 的发布回执；未发布的版本不部署")
-        project = _release_project(store, release.task_id)
-        merge_commit = release.merge_commit
-    finally:
-        store.close()
+    project, merge_commit = _release_project(args, args.tag)
     slug = _release_slug(args, project)
     version = args.tag.removeprefix("v")
     artifact, published = _download_release(args.tag, slug, version, prefix)
@@ -226,6 +226,11 @@ def add_deploy_parser(subparsers: argparse._SubParsersAction, default_records_ro
     deploy.add_argument("--bootstrap-note", default="", help="引导部署说明（写入部署日志）")
     deploy.add_argument(
         "--repo", default="", help="GitHub owner/name（缺省从发布回执的项目仓库推断）"
+    )
+    deploy.add_argument(
+        "--project",
+        default="",
+        help="发布回执所属项目身份（同一标签在多个项目出现时必须指定）",
     )
     deploy.add_argument("--prefix", default="", help="部署前缀（缺省 ~/.local/share/forgeloop）")
     deploy.add_argument("--records-root", default=default_records_root)

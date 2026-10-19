@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from project_support import project_records, record_store
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
@@ -37,7 +38,7 @@ def task_status(tmp_path: Path, task_id: str, capsys) -> dict:
 def seed_task(tmp_path: Path, task_id: str = "task-1", *, plan: bool = False) -> RecordStore:
     """建立最小任务记录；``plan`` 为真时写入一条方案（仍未批准）。"""
 
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     store.create_task(task_id, "proj", "input", {}, 7200.0)
     if plan:
         store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("cmd",)))
@@ -128,7 +129,7 @@ class TestReadOnlyFacts:
         finally:
             store.close()
 
-        connection = sqlite3.connect(tmp_path / "records.sqlite")
+        connection = sqlite3.connect(project_records(tmp_path) / "records.sqlite")
         try:
             count = connection.execute(
                 "SELECT COUNT(*) FROM grants WHERE task_id = ?", ("task-1",)
@@ -138,7 +139,7 @@ class TestReadOnlyFacts:
         assert count == 0
 
     def test_status_reason_facts_reports_missing_task(self, tmp_path: Path) -> None:
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             facts = store.status_reason_facts("ghost")
         finally:

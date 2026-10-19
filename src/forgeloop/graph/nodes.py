@@ -33,6 +33,7 @@ from forgeloop.adapter.execution_environment import (
     command_test_resources,
 )
 from forgeloop.adapter.git_workspace import (
+    MIRROR_DIRNAME,
     collect_candidate_change,
     is_git_workspace,
     prepare_workspace,
@@ -71,6 +72,10 @@ class NodeContext:
     workspace: Path
     sessions_dir: Path
     config: Mapping[str, str]
+    # 项目 bare 镜像（项目记录根下的 repo.git）；存在时 worktree 从这里建立，
+    # 源仓库不参与 worktree 宿主。单元测试或旧现场没有镜像时为 None，由
+    # ``prepare_workspace`` 在记录根下派生一个散列命名的镜像。
+    repository: Path | None = None
     # 已完成前置任务的候选改动：在克隆副本后、进入实现前应用（I01 接缝）。
     prerequisites: tuple[PrerequisiteCandidate, ...] = ()
     # 需求任务包版本；由需求执行器注入。检查点落库的 ``plan_version`` 据此对齐到
@@ -84,6 +89,7 @@ class NodeContext:
         if task is None:
             raise KeyError(f"Unknown task {task_id}")
         task_dir = records_root / task_id
+        repository = records_root / MIRROR_DIRNAME
         return cls(
             store=store,
             task_id=task_id,
@@ -91,6 +97,7 @@ class NodeContext:
             workspace=task_dir / "workspace",
             sessions_dir=task_dir / "sessions",
             config=task.config,
+            repository=repository if repository.is_dir() else None,
         )
 
 
@@ -361,7 +368,10 @@ def make_dev_node(ctx: NodeContext) -> NodeFn:
             try:
                 if project_path:
                     prepared_baseline = prepare_workspace(
-                        Path(project_path), ctx.config.get("baseline", ""), ctx.workspace
+                        Path(project_path),
+                        ctx.config.get("baseline", ""),
+                        ctx.workspace,
+                        mirror=ctx.repository,
                     )
             finally:
                 ctx.store.charge_budget(ctx.task_id, time.monotonic() - prepared)

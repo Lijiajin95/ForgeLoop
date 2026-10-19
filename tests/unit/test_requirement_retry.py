@@ -46,6 +46,24 @@ PROJECT = "ForgeLoop"
 PLAN_VERSION = 1
 PI_COMMAND = json.dumps([sys.executable, "fake_pi.py"])
 REASON = "人工核对检查点现场后确认可续跑"
+PROJECT_ID = "forgeloop"
+
+
+@pytest.fixture()
+def root(tmp_path: Path) -> Path:
+    """登记一个项目并返回其记录根；CLI 只从已登记项目定位需求。"""
+
+    from forgeloop.domain.project import project_data_root
+    from forgeloop.records.projects import ProjectStore, project_records_path
+
+    store = ProjectStore(project_records_path(tmp_path))
+    try:
+        store.add(PROJECT_ID, "ForgeLoop", str(tmp_path / "repo"), legacy_project=PROJECT)
+    finally:
+        store.close()
+    project_root = project_data_root(tmp_path, PROJECT_ID)
+    project_root.mkdir(parents=True, exist_ok=True)
+    return project_root
 
 
 def _planned(task_id: str) -> PlannedTask:
@@ -179,9 +197,9 @@ def _halted(root: Path, req_id: str, task_id: str) -> str:
 class TestRequiredArguments:
     @pytest.mark.parametrize("missing", ["--by", "--reason", "--pi-command"])
     def test_missing_required_option_is_rejected(
-        self, tmp_path: Path, missing: str, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, missing: str, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
+        req_id = _approved(root, ("first",))
         argv = _retry_argv(tmp_path, req_id, task="first")
         index = argv.index(missing)
         del argv[index : index + 2]
@@ -195,25 +213,25 @@ class TestRequiredArguments:
 
 class TestValueValidation:
     def test_blank_reason_is_rejected_without_side_effects(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
-        thread_id = _halted(tmp_path, req_id, "first")
+        req_id = _approved(root, ("first",))
+        thread_id = _halted(root, req_id, "first")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first", reason="   "))
 
         assert code == 1
         assert "理由" in capsys.readouterr().err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
-        state = inspect_checkpoint(tmp_path, thread_id).state
+        assert latest_retry_decision(root, req_id, thread_id) is None
+        state = inspect_checkpoint(root, thread_id).state
         assert state is not None
         assert state.halted_reason == "pi_dev_unsettled"
 
     def test_blank_by_is_rejected_with_actionable_example(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
-        thread_id = _halted(tmp_path, req_id, "first")
+        req_id = _approved(root, ("first",))
+        thread_id = _halted(root, req_id, "first")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first", by="   "))
 
@@ -221,40 +239,40 @@ class TestValueValidation:
         err = capsys.readouterr().err
         assert "--by" in err
         assert "owner" in err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(root, req_id, thread_id) is None
 
     def test_overlong_by_is_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
-        thread_id = _halted(tmp_path, req_id, "first")
+        req_id = _approved(root, ("first",))
+        thread_id = _halted(root, req_id, "first")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first", by="a" * 65))
 
         assert code == 1
         assert "--by" in capsys.readouterr().err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(root, req_id, thread_id) is None
 
     def test_non_printable_by_is_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
-        thread_id = _halted(tmp_path, req_id, "first")
+        req_id = _approved(root, ("first",))
+        thread_id = _halted(root, req_id, "first")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first", by="own\x01er"))
 
         assert code == 1
         assert "--by" in capsys.readouterr().err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(root, req_id, thread_id) is None
 
     def test_status_mismatch_reports_current_and_required(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
+        req_id = _approved(root, ("first",))
         thread_id = requirement_task_id(req_id, PLAN_VERSION, "first")
         # 非中断现场：检查点停在可续跑业务节点但任务状态不是 interrupted。
-        _write_checkpoint(tmp_path, thread_id, halted_reason="", nodes=("dev",))
-        _publish_single_task(tmp_path, thread_id, "implementing")
+        _write_checkpoint(root, thread_id, halted_reason="", nodes=("dev",))
+        _publish_single_task(root, thread_id, "implementing")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first"))
 
@@ -263,15 +281,15 @@ class TestValueValidation:
         assert "状态不符" in err
         assert "implementing" in err
         assert "interrupted" in err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(root, req_id, thread_id) is None
 
     def test_missing_checkpoint_reports_recovery_path(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
+        req_id = _approved(root, ("first",))
         thread_id = requirement_task_id(req_id, PLAN_VERSION, "first")
         # 状态为中断但没有可读检查点：必须 fail-closed 并给出人工处置路径。
-        _publish_single_task(tmp_path, thread_id, "interrupted")
+        _publish_single_task(root, thread_id, "interrupted")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first"))
 
@@ -279,15 +297,15 @@ class TestValueValidation:
         err = capsys.readouterr().err
         assert "检查点缺失" in err
         assert "slot list" in err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(root, req_id, thread_id) is None
 
     def test_corrupt_checkpoint_reports_recovery_path(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
+        req_id = _approved(root, ("first",))
         thread_id = requirement_task_id(req_id, PLAN_VERSION, "first")
-        _publish_single_task(tmp_path, thread_id, "interrupted")
-        (tmp_path / "checkpoints.sqlite").write_bytes(b"this is not a sqlite database")
+        _publish_single_task(root, thread_id, "interrupted")
+        (root / "checkpoints.sqlite").write_bytes(b"this is not a sqlite database")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first"))
 
@@ -295,15 +313,15 @@ class TestValueValidation:
         err = capsys.readouterr().err
         assert "检查点" in err
         assert "slot list" in err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(root, req_id, thread_id) is None
 
     def test_plan_identity_mismatch_is_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
+        req_id = _approved(root, ("first",))
         thread_id = requirement_task_id(req_id, PLAN_VERSION, "first")
-        _write_checkpoint(tmp_path, thread_id, plan_version=PLAN_VERSION + 1)
-        _publish_single_task(tmp_path, thread_id, "interrupted")
+        _write_checkpoint(root, thread_id, plan_version=PLAN_VERSION + 1)
+        _publish_single_task(root, thread_id, "interrupted")
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="first"))
 
@@ -311,13 +329,13 @@ class TestValueValidation:
         err = capsys.readouterr().err
         assert "plan_version" in err
         assert "slot list" in err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(root, req_id, thread_id) is None
 
     def test_invalid_pi_command_is_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first",))
-        _halted(tmp_path, req_id, "first")
+        req_id = _approved(root, ("first",))
+        _halted(root, req_id, "first")
 
         with pytest.raises(SystemExit) as excinfo:
             cli_main(_retry_argv(tmp_path, req_id, task="first", pi_command="not-json"))
@@ -327,9 +345,9 @@ class TestValueValidation:
 
 class TestTaskSelection:
     def test_unknown_task_lists_pack_tasks(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first", "second"))
+        req_id = _approved(root, ("first", "second"))
 
         code = cli_main(_retry_argv(tmp_path, req_id, task="does-not-exist"))
 
@@ -340,9 +358,9 @@ class TestTaskSelection:
         assert "second" in err
 
     def test_omitted_task_rejects_zero_interrupted_and_lists_tasks(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first", "second"))
+        req_id = _approved(root, ("first", "second"))
 
         code = cli_main(_retry_argv(tmp_path, req_id))
 
@@ -353,12 +371,12 @@ class TestTaskSelection:
         assert "second" in err
 
     def test_omitted_task_rejects_multiple_and_lists_candidates(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path, root: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        req_id = _approved(tmp_path, ("first", "second"))
-        _halted(tmp_path, req_id, "first")
+        req_id = _approved(root, ("first", "second"))
+        _halted(root, req_id, "first")
         _publish_single_task(
-            tmp_path, requirement_task_id(req_id, PLAN_VERSION, "second"), "interrupted"
+            root, requirement_task_id(req_id, PLAN_VERSION, "second"), "interrupted"
         )
 
         code = cli_main(_retry_argv(tmp_path, req_id))
@@ -369,7 +387,7 @@ class TestTaskSelection:
         assert "first" in err
         assert "second" in err
         # 歧义时绝不猜测：没有写入任何人工决定。
-        assert latest_retry_decision(tmp_path, req_id) is None
+        assert latest_retry_decision(root, req_id) is None
 
     def test_select_single_interrupted_candidate(self) -> None:
         candidates = (

@@ -17,12 +17,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from project_support import record_store, requirement_store
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 from forgeloop.graph.builder import requirement_task_id
-from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.component
 
@@ -57,7 +56,7 @@ BUDGET_SUMMARY_FIELDS = frozenset(
 def approved_requirement(tmp_path: Path) -> str:
     """登记一条已批准需求，包内 alpha 是 beta 的前置；返回需求身份。"""
 
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     try:
         requirement = store.submit("proj", "需求：把工时摘要接入 CLI 查询")
         plan = TaskPlan(
@@ -96,7 +95,7 @@ def seed_single_task(
 ) -> None:
     """在权威记录里登记映射单任务（含 budget 行）并设置状态。"""
 
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         store.create_task(task_id, "proj", "input", {}, limit_seconds)
         if consumed_seconds:
@@ -114,7 +113,7 @@ def record_requirement_run(
     *,
     executed_seconds: float = 0.0,
 ) -> None:
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     try:
         store.record_task_run(req_id, 1, task_id, state, executed_seconds=executed_seconds)
     finally:
@@ -348,7 +347,7 @@ class TestBudgetSummaryIsReadOnly:
         seed_single_task(tmp_path, alpha, status="delivered", consumed_seconds=1770.0)
         record_requirement_run(tmp_path, req_id, "alpha", "delivered", executed_seconds=1770.0)
 
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             before = store.budget(alpha)
         finally:
@@ -357,7 +356,7 @@ class TestBudgetSummaryIsReadOnly:
         requirement_status_json(tmp_path, req_id, capsys)
         requirement_status_text(tmp_path, req_id, capsys)
 
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             after = store.budget(alpha)
         finally:
@@ -368,9 +367,9 @@ class TestBudgetSummaryIsReadOnly:
         )
         assert (before.limit_seconds, before.consumed_seconds) == (7200.0, 1770.0)
 
-        requirement_store = RequirementStore(tmp_path / "records.sqlite")
+        requirement_records = requirement_store(tmp_path)
         try:
-            runs = requirement_store.task_runs(req_id, 1)
+            runs = requirement_records.task_runs(req_id, 1)
         finally:
-            requirement_store.close()
+            requirement_records.close()
         assert [run.task_id for run in runs] == ["alpha"]  # 查询未新增推进记录

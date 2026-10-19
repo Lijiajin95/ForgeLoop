@@ -9,7 +9,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from support import run_cli, run_git, status_document, submit_task
+from support import run_cli, run_git, status_document, submit_task, task_dir
 
 from forgeloop.adapter.git_workspace import list_branches
 from forgeloop.adapter.github_checks import ChecksError
@@ -80,7 +80,9 @@ def fake_checks(monkeypatch, outcomes: list[dict[str, str]]) -> dict:
 
 
 def evidence(task_id: str, tmp_path: Path) -> dict:
-    return json.loads((tmp_path / task_id / "merge-evidence.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (task_dir(tmp_path, task_id) / "merge-evidence.json").read_text(encoding="utf-8")
+    )
 
 
 class TestCandidateBranchFlow:
@@ -179,7 +181,7 @@ class TestCandidateBranchFlow:
         local_head = run_git(source, "rev-parse", "HEAD")
         assert local_head == remote_head(bare)
         assert list_branches(source) == ("main",)  # 不产生候选分支
-        assert not (tmp_path / task_id / "merge-evidence.json").exists()
+        assert not (task_dir(tmp_path, task_id) / "merge-evidence.json").exists()
 
     def test_checks_can_be_disabled_for_repos_without_ci(
         self, tmp_path: Path, capsys, monkeypatch

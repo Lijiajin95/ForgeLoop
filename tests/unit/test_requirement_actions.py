@@ -59,6 +59,22 @@ REASON = "人工核对现场后确认该动作没有产生有效结果，释放�
 CHECKPOINT_ID = "cp-1"
 
 
+def _cli_project(base: Path) -> Path:
+    """登记一个项目并返回其记录根；CLI 只从已登记项目定位任务。"""
+
+    from forgeloop.domain.project import project_data_root
+    from forgeloop.records.projects import ProjectStore, project_records_path
+
+    store = ProjectStore(project_records_path(base))
+    try:
+        store.add("forgeloop", "ForgeLoop", str(base / "repo"))
+    finally:
+        store.close()
+    root = project_data_root(base, "forgeloop")
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def _thread(req_id: str, task_id: str = TASK, plan_version: int = REQ_VERSION) -> str:
     """需求内任务映射到单任务图的稳定线程身份（与 builder 同一约定）。"""
 
@@ -113,10 +129,22 @@ def _write_checkpoint(
 
 
 def _start_action(root: Path, task_id: str, node: str) -> str:
-    """登记一个未完成（``started``）的真实动作，返回其 ``action_id``。"""
+    """登记一个未完成（``started``）的真实动作，返回其 ``action_id``。
+
+    任务行不存在时一并建立：动作必须能归属到一个真实任务，CLI 才能按任务身份
+    定位项目；只写动作不写任务会让定位层无法区分「没有任务」与「没有记录」。
+    """
 
     store = RecordStore(root / "records.sqlite")
     try:
+        if store.get_task(task_id) is None:
+            store.create_task(
+                task_id,
+                "forgeloop",
+                "输入",
+                {"pi_command": "[]", "test_command": "[]"},
+                7200.0,
+            )
         return store.actions.begin(task_id, node).action_id
     finally:
         store.close()
@@ -717,7 +745,8 @@ class TestOutstandingActionListingAndCli:
     def test_cli_actions_list_shows_identity_and_release_hint(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        action_id = _start_action(tmp_path, TASK, "dev")
+        root = _cli_project(tmp_path)
+        action_id = _start_action(root, TASK, "dev")
 
         assert cli_main(["requirement", "actions", "list", "--records-root", str(tmp_path)]) == 0
 
@@ -730,7 +759,8 @@ class TestOutstandingActionListingAndCli:
     def test_cli_actions_clear_releases_and_records_audit(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        action_id = _start_action(tmp_path, TASK, "dev")
+        root = _cli_project(tmp_path)
+        action_id = _start_action(root, TASK, "dev")
 
         assert (
             cli_main(
@@ -754,18 +784,19 @@ class TestOutstandingActionListingAndCli:
         output = capsys.readouterr().out
         assert action_id in output
         assert BY in output
-        records = action_releases(tmp_path, TASK)
+        records = action_releases(root, TASK)
         assert len(records) == 1
         assert records[0].action_id == action_id
         assert records[0].task_id == TASK
         assert records[0].released_by == BY
         assert records[0].reason == REASON
-        assert outstanding_actions(tmp_path) == ()
+        assert outstanding_actions(root) == ()
 
     def test_cli_actions_clear_with_explicit_action(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        action_id = _start_action(tmp_path, TASK, "dev")
+        root = _cli_project(tmp_path)
+        action_id = _start_action(root, TASK, "dev")
 
         assert (
             cli_main(
@@ -789,12 +820,13 @@ class TestOutstandingActionListingAndCli:
         )
 
         capsys.readouterr()
-        assert action_releases(tmp_path, TASK)[0].action_id == action_id
+        assert action_releases(root, TASK)[0].action_id == action_id
 
     def test_cli_actions_clear_missing_reason_is_rejected(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        _start_action(tmp_path, TASK, "dev")
+        root = _cli_project(tmp_path)
+        _start_action(root, TASK, "dev")
 
         assert (
             cli_main(
@@ -817,8 +849,8 @@ class TestOutstandingActionListingAndCli:
 
         error = capsys.readouterr().err
         assert "理由" in error
-        assert action_releases(tmp_path, TASK) == ()
-        assert outstanding_action_node(tmp_path, TASK) == "dev"
+        assert action_releases(root, TASK) == ()
+        assert outstanding_action_node(root, TASK) == "dev"
 
 
 class TestActionReleaseRejections:

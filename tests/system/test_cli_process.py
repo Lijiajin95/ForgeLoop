@@ -16,6 +16,37 @@ pytestmark = pytest.mark.system
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 FAKE_PI_COMMAND = [sys.executable, str(FIXTURES / "fake_pi.py")]
 PASSING_TEST_COMMAND = [sys.executable, "-c", "print('suite passed')"]
+PROJECT_ID = "forgeloop"
+
+
+def project_root(records_root: Path) -> Path:
+    return records_root / "projects" / PROJECT_ID
+
+
+def prepare_project(records_root: Path) -> None:
+    """建立真实源仓库并登记项目：CLI 子进程只从已登记项目读取记录。"""
+
+    repo = records_root.parent / f"{records_root.name}-repo"
+    if not (repo / ".git").exists():
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "README.md").write_text("baseline\n", encoding="utf-8")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(repo.parent)}
+
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-C", str(repo), *args], check=True, capture_output=True, env=env
+            )
+
+        git("init", "-b", "main")
+        git("config", "user.name", "t")
+        git("config", "user.email", "t@example.com")
+        git("add", "-A")
+        git("commit", "-m", "chore: baseline")
+    added = run_cli_process(
+        ["project", "add", PROJECT_ID, "--name", "ForgeLoop", "--path", str(repo)],
+        records_root,
+    )
+    assert added.returncode == 0, added.stderr
 
 
 def run_cli_process(argv: list[str], records_root: Path) -> subprocess.CompletedProcess[str]:
@@ -34,6 +65,7 @@ def run_cli_process(argv: list[str], records_root: Path) -> subprocess.Completed
 
 class TestCliProcess:
     def test_submit_and_status_across_processes(self, tmp_path: Path) -> None:
+        prepare_project(tmp_path)
         result = run_cli_process(
             [
                 "submit",
@@ -63,6 +95,7 @@ class TestCliProcess:
         assert json.loads(missing.stdout) == {"task_id": "task-none", "error": "task_not_found"}
 
     def test_full_loop_in_real_processes(self, tmp_path: Path) -> None:
+        prepare_project(tmp_path)
         result = run_cli_process(
             [
                 "submit",
@@ -78,7 +111,7 @@ class TestCliProcess:
             tmp_path,
         )
         task_id = result.stdout.split("任务已创建: ")[1].splitlines()[0].strip()
-        (tmp_path / task_id / "workspace").mkdir(parents=True, exist_ok=True)
+        (project_root(tmp_path) / task_id / "workspace").mkdir(parents=True, exist_ok=True)
 
         approved = run_cli_process(["approve", task_id], tmp_path)
         assert approved.returncode == 0, approved.stderr
@@ -91,7 +124,7 @@ class TestCliProcess:
         assert Path(document["delivery"]["report_path"]).exists()
 
         # 会话文件真实落盘（PI 事件/请求/stderr）。
-        sessions = tmp_path / task_id / "sessions"
+        sessions = project_root(tmp_path) / task_id / "sessions"
         assert (sessions / f"{task_id}-dev.events.jsonl").exists()
         assert (sessions / f"{task_id}-review.events.jsonl").exists()
         assert (sessions / f"{task_id}-dev.stderr.log").exists()

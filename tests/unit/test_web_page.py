@@ -38,12 +38,13 @@ TOP_LEVEL_FIELDS = (
     "records_root",
     "refresh_seconds",
     "refresh_source",
+    "projects",
     "counts",
     "requirements",
     "tasks",
     "issues",
 )
-COUNT_FIELDS = ("requirements", "tasks", "issues")
+COUNT_FIELDS = ("projects", "requirements", "tasks", "issues")
 # 页面表格直接读取的字段：改名即页面空白，因此在这里固定。
 REQUIREMENT_FIELDS = (
     "req_id",
@@ -66,7 +67,7 @@ TASK_FIELDS = (
 )
 FAILURE_FIELDS = ("cumulative", "remaining_in_current_grant", "awaiting_grant_decision")
 BUDGET_FIELDS = ("consumed_seconds", "limit_seconds")
-ISSUE_FIELDS = ("kind", "ref_id", "summary", "detail")
+ISSUE_FIELDS = ("kind", "project", "ref_id", "summary", "detail")
 ISSUE_KIND_LABELS = {
     "task_blocked",
     "task_interrupted",
@@ -138,11 +139,20 @@ class TestCrossLanguageContracts:
 class TestApiFieldContract:
     @pytest.fixture()
     def document(self, tmp_path: Path) -> dict:
+        from forgeloop.domain.project import project_data_root
+        from forgeloop.records.projects import ProjectStore, project_records_path
         from forgeloop.records.requirements import RequirementStore
         from forgeloop.records.store import RecordStore
 
-        root = tmp_path / ".forgeloop"
-        root.mkdir()
+        base = tmp_path / ".forgeloop"
+        base.mkdir()
+        projects = ProjectStore(project_records_path(base))
+        try:
+            projects.add("forgeloop", "ForgeLoop", str(tmp_path / "repo"))
+        finally:
+            projects.close()
+        root = project_data_root(base, "forgeloop")
+        root.mkdir(parents=True)
         store = RecordStore(root / "records.sqlite")
         try:
             store.create_task(
@@ -161,7 +171,7 @@ class TestApiFieldContract:
         finally:
             requirement_store.close()
         documents = ProgressDocuments(_requirement_document, _status_document)
-        return build_progress_document(root, RefreshSetting(60, RefreshSource.DEFAULT), documents)
+        return build_progress_document(base, RefreshSetting(60, RefreshSource.DEFAULT), documents)
 
     def test_top_level_fields_and_counts(self, document: dict) -> None:
         for field in TOP_LEVEL_FIELDS:

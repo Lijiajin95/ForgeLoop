@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import type {
   IssueEntry,
   ProgressDocument,
+  ProjectEntry,
   RequirementEntry,
   TaskEntry,
 } from "../../src/payload.js";
@@ -65,10 +66,23 @@ export function sampleTask(overrides: Partial<TaskEntry> = {}): TaskEntry {
   };
 }
 
+/** 一个已登记项目。 */
+function sampleProject(overrides: Partial<ProjectEntry> = {}): ProjectEntry {
+  return {
+    project_id: "forgeloop",
+    name: "ForgeLoop",
+    repo_path: "/tmp/forgeloop",
+    records_root: "/tmp/records/projects/forgeloop",
+    counts: { projects: 1, requirements: 1, tasks: 1, issues: 1 },
+    ...overrides,
+  };
+}
+
 /** 一条问题项。 */
 export function sampleIssue(overrides: Partial<IssueEntry> = {}): IssueEntry {
   return {
     kind: "task_blocked",
+    project: "forgeloop",
     ref_id: "task-blocked",
     summary: "任务执行被阻断，需人工核对后才能继续",
     detail: "任务需要人工核对现场（状态：blocked）",
@@ -81,13 +95,16 @@ export function sampleDocument(overrides: Partial<ProgressDocument> = {}): Progr
   const requirements = overrides.requirements ?? [sampleRequirement()];
   const tasks = overrides.tasks ?? [sampleTask()];
   const issues = overrides.issues ?? [sampleIssue()];
+  const projects = overrides.projects ?? [sampleProject()];
   return {
     schema_version: 1,
     generated_at: "2026-10-17T04:00:00+00:00",
     records_root: "/tmp/records",
     refresh_seconds: 60,
     refresh_source: "config",
+    projects,
     counts: {
+      projects: projects.length,
       requirements: requirements.length,
       tasks: tasks.length,
       issues: issues.length,

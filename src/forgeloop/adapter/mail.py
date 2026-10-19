@@ -27,6 +27,8 @@ import ssl
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.errors import HeaderParseError
+from email.header import decode_header, make_header
 from email.message import EmailMessage, Message
 from email.utils import make_msgid, parseaddr, parsedate_to_datetime
 from typing import Any, cast
@@ -140,6 +142,9 @@ class InboundMail:
     references: tuple[str, ...]
     attachments: tuple[MailAttachment, ...]
     folder: str
+    # ``Auto-Submitted`` 非 ``no`` 表示自动回复（休假、退信、机器人），交互入口据此
+    # 拒绝执行命令，避免自动回复触发批准或推进。
+    auto_submitted: str = ""
 
 
 @dataclass(frozen=True)
@@ -188,6 +193,17 @@ def _decode_part(part: Message) -> str:
         return bytes(payload).decode(charset, errors="replace")
     except LookupError:
         return bytes(payload).decode("utf-8", errors="replace")
+
+
+def _decode_header_value(raw: str) -> str:
+    """解码 RFC 2047 编码的邮件头（中文主题常被编码）；失败时保留原文。"""
+
+    if not raw:
+        return ""
+    try:
+        return str(make_header(decode_header(raw)))
+    except (HeaderParseError, LookupError, ValueError):
+        return raw
 
 
 def _is_attachment(part: Message) -> bool:
@@ -258,10 +274,11 @@ def parse_inbound(
     message_id = (message.get("Message-ID") or "").strip()
     if not message_id:
         raise MailParseError("邮件缺少 Message-ID，无法登记与去重")
-    sender = parseaddr(message.get("From") or "")[1]
-    subject = str(message.get("Subject") or "")
+    sender = parseaddr(_decode_header_value(message.get("From") or ""))[1]
+    subject = _decode_header_value(str(message.get("Subject") or ""))
     references = tuple(str(message.get("References") or "").split())
     in_reply_to = message.get("In-Reply-To")
+    auto_submitted = str(message.get("Auto-Submitted") or "").strip()
     return InboundMail(
         message_id=message_id,
         sender=sender,
@@ -274,6 +291,7 @@ def parse_inbound(
         references=references,
         attachments=_extract_attachments(message),
         folder=folder,
+        auto_submitted=auto_submitted,
     )
 
 
@@ -419,6 +437,40 @@ class SmtpMailSender:
             self._settings.host, self._settings.port, timeout=self._settings.timeout
         )
 
+    def send_reply(
+        self,
+        *,
+        to: str,
+        subject: str,
+        body: str,
+        message_id: str = "",
+        in_reply_to: str | None = None,
+        references: Sequence[str] = (),
+    ) -> str:
+        """发送一封交互回信并返回其 ``Message-ID``；不写任何业务记录。
+
+        调用方传入稳定的 ``message_id`` 以便发送失败后原样重试；不传时由发送端
+        生成。``In-Reply-To`` 与 ``References`` 保持邮件线程，便于入向回复关联到
+        同一需求。发送失败抛 ``MailSendError``，由调用方如实记录。
+        """
+
+        if not to.strip():
+            raise MailAdapterError("回信必须有收件地址")
+        if not subject.strip():
+            raise MailAdapterError("回信必须有主题")
+        message = EmailMessage()
+        message["From"] = self._settings.sender
+        message["To"] = to
+        message["Subject"] = subject
+        message["Message-ID"] = message_id.strip() or make_msgid(domain="forgeloop.local")
+        if in_reply_to:
+            message["In-Reply-To"] = in_reply_to
+        thread = [item for item in references if item.strip()]
+        if thread:
+            message["References"] = " ".join(thread)
+        message.set_content(body)
+        return self.send(message)
+
 
 @dataclass(frozen=True)
 class _Recorder:
@@ -524,6 +576,30 @@ class MailAdapter:
         delivered_id = self._sender.send(message)
         recorded = self._recorder.outbound(delivered_id, req_id, kind, self._now())
         return OutboundReceipt(message_id=delivered_id, req_id=req_id, kind=kind, recorded=recorded)
+
+    def send_reply(
+        self,
+        *,
+        to: str,
+        subject: str,
+        body: str,
+        message_id: str = "",
+        in_reply_to: str | None = None,
+        references: Sequence[str] = (),
+    ) -> str:
+        """发送一封邮件交互回信并返回其 ``Message-ID``；不写分类反馈账。
+
+        委托给 :meth:`SmtpMailSender.send_reply`，由调用方把回信身份写入交互记录。
+        """
+
+        return self._sender.send_reply(
+            to=to,
+            subject=subject,
+            body=body,
+            message_id=message_id,
+            in_reply_to=in_reply_to,
+            references=references,
+        )
 
     def close(self) -> None:
         """释放 IMAP 连接。"""

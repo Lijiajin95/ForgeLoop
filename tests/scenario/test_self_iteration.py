@@ -11,7 +11,8 @@ import json
 from pathlib import Path
 
 import pytest
-from support import run_cli, run_git, status_document, submit_task
+from project_support import record_store
+from support import run_cli, run_git, status_document, submit_task, task_dir
 
 
 class TestSelfIterationLoop:
@@ -90,7 +91,7 @@ class TestSelfIterationLoop:
         # dev 报告记录 diff 来源与基线提交号。
         dev_reports = [
             json.loads(line)
-            for line in (tmp_path / task_id / "dev-reports.jsonl")
+            for line in (task_dir(tmp_path, task_id) / "dev-reports.jsonl")
             .read_text(encoding="utf-8")
             .splitlines()
         ]
@@ -99,14 +100,14 @@ class TestSelfIterationLoop:
 
         # 交付报告固化基线提交号（A02：最终交付明确基线与改动）。
         report = json.loads(
-            (tmp_path / task_id / "delivery-report.json").read_text(encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "delivery-report.json").read_text(encoding="utf-8")
         )
         assert len(report["baseline_commit"]) == 40
 
         # 正式测试在副本内真实执行且通过（feature.txt 已被 PI 修改）。
         runs = [
             json.loads(line)
-            for line in (tmp_path / task_id / "test-run.jsonl")
+            for line in (task_dir(tmp_path, task_id) / "test-run.jsonl")
             .read_text(encoding="utf-8")
             .splitlines()
         ]
@@ -208,7 +209,7 @@ class TestMergeToMain:
     ) -> None:
         # K11：验收后再替换候选 diff，归并必须拒绝（不能沿用原验收）。
         task_id, source = self._deliver_task(tmp_path, capsys, monkeypatch)
-        candidate = tmp_path / task_id / "candidate.diff"
+        candidate = task_dir(tmp_path, task_id) / "candidate.diff"
         candidate.write_text(
             candidate.read_text(encoding="utf-8") + "\n+tampered", encoding="utf-8"
         )
@@ -261,9 +262,9 @@ def seed_candidate_artifact(
     对同一产物的绑定与幂等判定，不重复跑一次耗时的 uv build。
     """
 
-    task_dir = tmp_path / task_id
+    task_path = task_dir(tmp_path, task_id)
     wheel_name = f"forgeloop-{version}-py3-none-any.whl"
-    wheel = task_dir / "artifacts" / wheel_name
+    wheel = task_path / "artifacts" / wheel_name
     wheel.parent.mkdir(parents=True, exist_ok=True)
     wheel.write_bytes(b"accepted candidate wheel\n")
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
@@ -281,7 +282,7 @@ def seed_candidate_artifact(
         "wheel_path": str(wheel),
         "built_at": "2026-10-11T20:00:00+00:00",
     }
-    (task_dir / "candidate-artifact.json").write_text(
+    (task_path / "candidate-artifact.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return digest
@@ -345,7 +346,7 @@ class TestReleaseAfterMerge:
         assert receipt["baseline_commit"] == report["baseline_commit"]
         # K12：发布复用 C01 的同一份已验收 wheel，回执固化其 sha256。
         candidate_receipt = json.loads(
-            (tmp_path / task_id / "candidate-artifact.json").read_text(encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "candidate-artifact.json").read_text(encoding="utf-8")
         )
         assert receipt["artifact_sha256"] == candidate_receipt["sha256"]
         assert receipt["wheel_name"] == candidate_receipt["wheel_name"]
@@ -371,7 +372,7 @@ class TestReleaseAfterMerge:
         task_id, source = merged_task(tmp_path, capsys, monkeypatch)
         assert release_task(tmp_path, capsys, task_id)[0] == 0
         # 重试时候选产物被换成另一份（校验值不同），不得按幂等放行、也不得新建身份。
-        receipt_path = tmp_path / task_id / "candidate-artifact.json"
+        receipt_path = task_dir(tmp_path, task_id) / "candidate-artifact.json"
         document = json.loads(receipt_path.read_text(encoding="utf-8"))
         document["sha256"] = "f" * 64
         document["rebuild_sha256"] = "f" * 64
@@ -389,10 +390,9 @@ class TestReleaseAfterMerge:
 
         from forgeloop.domain.approval import Approval, ApprovalStage
         from forgeloop.domain.delivery import DeliveryBinding
-        from forgeloop.records.store import RecordStore
 
         task_id, source = merged_task(tmp_path, capsys, monkeypatch)
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             plan = store.latest_plan(task_id)
             accepted = store.acceptance_binding(task_id)
@@ -435,7 +435,7 @@ class TestReleaseAfterMerge:
         self, tmp_path: Path, capsys, monkeypatch, field: str, value: object, needle: str
     ) -> None:
         task_id, source = merged_task(tmp_path, capsys, monkeypatch)
-        receipt_path = tmp_path / task_id / "candidate-artifact.json"
+        receipt_path = task_dir(tmp_path, task_id) / "candidate-artifact.json"
         document = json.loads(receipt_path.read_text(encoding="utf-8"))
         document[field] = value
         receipt_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
@@ -449,7 +449,7 @@ class TestReleaseAfterMerge:
     ) -> None:
         task_id, source = merged_task(tmp_path, capsys, monkeypatch)
         receipt = json.loads(
-            (tmp_path / task_id / "candidate-artifact.json").read_text(encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "candidate-artifact.json").read_text(encoding="utf-8")
         )
         Path(receipt["wheel_path"]).unlink()
         code, out = release_task(tmp_path, capsys, task_id)
@@ -461,7 +461,9 @@ class TestReleaseAfterMerge:
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
         task_id, source = merged_task(tmp_path, capsys, monkeypatch)
-        (tmp_path / task_id / "candidate-artifact.json").write_text("not json", encoding="utf-8")
+        (task_dir(tmp_path, task_id) / "candidate-artifact.json").write_text(
+            "not json", encoding="utf-8"
+        )
         code, out = release_task(tmp_path, capsys, task_id)
         assert code == 1
         assert "候选产物" in out
@@ -505,7 +507,7 @@ class TestReleaseAfterMerge:
         assert code == 0, out
         annotation = tag_annotation(source, "v0.1.0")
         receipt = json.loads(
-            (tmp_path / task_id / "release-receipt.json").read_text(encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "release-receipt.json").read_text(encoding="utf-8")
         )
         assert "chore(release): 手写说明" in annotation
         assert f"accepted-artifact-sha256: {receipt['artifact_sha256']}" in annotation

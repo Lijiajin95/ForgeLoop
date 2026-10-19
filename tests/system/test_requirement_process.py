@@ -52,6 +52,15 @@ def role_of(message):
     return str(parsed.get("role", "dev")) if isinstance(parsed, dict) else "dev"
 
 
+def workspace_of(message):
+    try:
+        parsed = json.loads(message)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    value = parsed.get("workspace") if isinstance(parsed, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
 def result_for(role):
     fallback = {
         "analysis": '{"goal": "占位", "scenarios": [], "acceptance_criteria": [], "clarifications": []}',
@@ -76,7 +85,16 @@ for line in sys.stdin:
     request = json.loads(line)
     kind = request.get("type")
     if kind == "prompt":
-        text = result_for(role_of(request.get("message", "")))
+        message = request.get("message", "")
+        if role_of(message) == "dev":
+            workspace = workspace_of(message)
+            if workspace:
+                from pathlib import Path
+
+                target = Path(workspace) / "dev-change.txt"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("done\n", encoding="utf-8")
+        text = result_for(role_of(message))
         respond(request, True, {"disposition": "started"})
         emit({"type": "agent_start"})
         emit({"type": "agent_end", "messages": [], "willRetry": False})
@@ -145,7 +163,34 @@ def requirement_json(argv: list[str], records_root: Path) -> dict:
     return json.loads(result.stdout)
 
 
+def prepare_project(records_root: Path) -> None:
+    """建立真实源仓库并登记项目：CLI 子进程只从已登记项目读取记录。"""
+
+    repo = records_root.parent / f"{records_root.name}-repo"
+    if not (repo / ".git").exists():
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "README.md").write_text("baseline\n", encoding="utf-8")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(repo.parent)}
+
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-C", str(repo), *args], check=True, capture_output=True, env=env
+            )
+
+        git("init", "-b", "main")
+        git("config", "user.name", "t")
+        git("config", "user.email", "t@example.com")
+        git("add", "-A")
+        git("commit", "-m", "chore: baseline")
+    added = run_requirement(
+        ["project", "add", "forgeloop", "--name", "ForgeLoop", "--path", str(repo)],
+        records_root,
+    )
+    assert added.returncode == 0, added.stderr
+
+
 def submit(records_root: Path, text: str = "跨进程需求") -> str:
+    prepare_project(records_root)
     result = run_requirement(
         ["requirement", "submit", "--project", "forgeloop", "--input", text], records_root
     )

@@ -12,12 +12,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from langgraph.types import Command
+from project_support import project_records, record_store
 from support import (
     run_cli,
     run_git,
     seed_test_control,
     status_document,
     submit_task,
+    task_dir,
 )
 
 from forgeloop.cli.main import _build_runtime, _close_runtime, _run_config
@@ -31,7 +33,6 @@ from forgeloop.domain.delivery import (
     verify_binding,
 )
 from forgeloop.graph.nodes import NodeContext, make_deliver_node
-from forgeloop.records.store import RecordStore
 
 
 def reach_awaiting_acceptance(tmp_path: Path, capsys, monkeypatch) -> str:
@@ -60,17 +61,17 @@ class TestAcceptanceBindsMaterial:
         assert code == 0, out
         assert status_document(tmp_path, task_id, capsys)["status"] == "delivered"
 
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             accepted = store.acceptance_binding(task_id)
             assert accepted is not None
             # 批准绑定的是任务目录里真实候选与测试证据的内容校验值。
-            candidate = (tmp_path / task_id / "candidate.diff").read_text(encoding="utf-8")
-            evidence = (tmp_path / task_id / "test-run.jsonl").read_text(encoding="utf-8")
+            candidate = (task_dir(tmp_path, task_id) / "candidate.diff").read_text(encoding="utf-8")
+            evidence = (task_dir(tmp_path, task_id) / "test-run.jsonl").read_text(encoding="utf-8")
             assert accepted.candidate_sha256 == sha256_of_text(candidate)
             assert accepted.test_evidence_sha256 == sha256_of_text(evidence)
             report = json.loads(
-                (tmp_path / task_id / "delivery-report.json").read_text(encoding="utf-8")
+                (task_dir(tmp_path, task_id) / "delivery-report.json").read_text(encoding="utf-8")
             )
             assert report["binding"]["candidate_sha256"] == accepted.candidate_sha256
             assert report["binding"]["test_evidence_sha256"] == accepted.test_evidence_sha256
@@ -84,7 +85,7 @@ class TestAcceptanceBindsMaterial:
         task_id = reach_awaiting_acceptance(tmp_path, capsys, monkeypatch)
 
         # 记录验收批准（自动绑定当前材料），随后替换候选 diff：模拟批准后材料被换掉。
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             plan = store.latest_plan(task_id)
             assert plan is not None
@@ -95,12 +96,12 @@ class TestAcceptanceBindsMaterial:
             assert pending is not None and pending.accepted is False  # 批准未消费不算已验收
         finally:
             store.close()
-        candidate = tmp_path / task_id / "candidate.diff"
+        candidate = task_dir(tmp_path, task_id) / "candidate.diff"
         candidate.write_text(
             candidate.read_text(encoding="utf-8") + "\n+tampered", encoding="utf-8"
         )
 
-        store, _ctx, graph = _build_runtime(tmp_path, task_id)
+        store, _ctx, graph = _build_runtime(project_records(tmp_path), task_id)
         try:
             graph.invoke(Command(resume={"decision": "accepted"}), _run_config(task_id))
         finally:
@@ -109,7 +110,7 @@ class TestAcceptanceBindsMaterial:
 
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "blocked"  # 材料变化，原批准不能沿用
-        assert not (tmp_path / task_id / "delivery-report.json").exists()
+        assert not (task_dir(tmp_path, task_id) / "delivery-report.json").exists()
 
     def test_delivered_binding_detects_later_material_drift(
         self, tmp_path: Path, capsys, monkeypatch
@@ -119,7 +120,7 @@ class TestAcceptanceBindsMaterial:
             ["approve", task_id, "--stage", "acceptance", "--records-root", str(tmp_path)],
             capsys,
         )
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             accepted = store.acceptance_binding(task_id)
             assert accepted is not None
@@ -127,7 +128,9 @@ class TestAcceptanceBindsMaterial:
                 accepted, store.capture_delivery_binding(task_id, accepted.plan_version)
             ).valid
             # 替换正式测试证据：同一验收决定不再覆盖新材料。
-            (tmp_path / task_id / "test-run.jsonl").write_text("tampered", encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "test-run.jsonl").write_text(
+                "tampered", encoding="utf-8"
+            )
             drifted = store.capture_delivery_binding(task_id, accepted.plan_version)
             decision = verify_binding(accepted, drifted)
             assert not decision.valid
@@ -145,7 +148,7 @@ class TestRequirementOverallAcceptance:
             ["approve", task_id, "--stage", "acceptance", "--records-root", str(tmp_path)],
             capsys,
         )
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             accepted = store.task_delivery(task_id)
             assert accepted is not None and accepted.accepted is True
@@ -179,7 +182,7 @@ class TestRequirementOverallAcceptance:
             ["approve", task_id, "--stage", "acceptance", "--records-root", str(tmp_path)],
             capsys,
         )
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             accepted = store.acceptance_binding(task_id)
             assert accepted is not None
@@ -192,11 +195,15 @@ class TestRequirementOverallAcceptance:
             with_artifact = build_binding(
                 accepted.task_id,
                 accepted.plan_version,
-                candidate_text=(tmp_path / task_id / "candidate.diff").read_text(encoding="utf-8"),
-                test_evidence_text=(tmp_path / task_id / "test-run.jsonl").read_text(
+                candidate_text=(task_dir(tmp_path, task_id) / "candidate.diff").read_text(
                     encoding="utf-8"
                 ),
-                review_text=(tmp_path / task_id / "review-report.json").read_text(encoding="utf-8"),
+                test_evidence_text=(task_dir(tmp_path, task_id) / "test-run.jsonl").read_text(
+                    encoding="utf-8"
+                ),
+                review_text=(task_dir(tmp_path, task_id) / "review-report.json").read_text(
+                    encoding="utf-8"
+                ),
                 artifact_sha256="c" * 64,
             )
             bound = RequirementDelivery("req-forgeloop-1").with_task(
@@ -214,28 +221,28 @@ class TestDeliverRechecksMaterial:
         self, tmp_path: Path
     ) -> None:
         task_id = "task-recheck"
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task(task_id, "forgeloop", "input", {}, 600.0)
             store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("true",)))
-            task_dir = tmp_path / task_id
-            task_dir.mkdir(parents=True)
-            (task_dir / "candidate.diff").write_text("original", encoding="utf-8")
-            (task_dir / "test-run.jsonl").write_text('{"exit_code": 0}\n', encoding="utf-8")
-            (task_dir / "review-report.json").write_text(
+            task_path = task_dir(tmp_path, task_id)
+            task_path.mkdir(parents=True)
+            (task_path / "candidate.diff").write_text("original", encoding="utf-8")
+            (task_path / "test-run.jsonl").write_text('{"exit_code": 0}\n', encoding="utf-8")
+            (task_path / "review-report.json").write_text(
                 '{"blocking_issues": []}', encoding="utf-8"
             )
             # 验收批准绑定原始候选；落交付前候选被替换，二次核对必须拦下。
             store.record_approval(Approval(task_id, 1, ApprovalStage.ACCEPTANCE, datetime.now(UTC)))
-            (task_dir / "candidate.diff").write_text("tampered", encoding="utf-8")
-            ctx = NodeContext.for_task(store, tmp_path, task_id)
+            (task_path / "candidate.diff").write_text("tampered", encoding="utf-8")
+            ctx = NodeContext.for_task(store, project_records(tmp_path), task_id)
             update = make_deliver_node(ctx)({"task_id": task_id})
             task = store.get_task(task_id)
             assert task is not None and task.status == "blocked"
         finally:
             store.close()
         assert update == {"halted_reason": "delivery_material_changed"}
-        assert not (tmp_path / task_id / "delivery-report.json").exists()
+        assert not (task_dir(tmp_path, task_id) / "delivery-report.json").exists()
 
 
 class TestGitBackedAcceptanceBinding:
@@ -270,7 +277,7 @@ class TestGitBackedAcceptanceBinding:
         )
         assert code == 0, out
         assert status_document(tmp_path, task_id, capsys)["status"] == "delivered"
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             accepted = store.acceptance_binding(task_id)
             assert accepted is not None
@@ -279,12 +286,12 @@ class TestGitBackedAcceptanceBinding:
             store.close()
         dev_reports = [
             json.loads(line)
-            for line in (tmp_path / task_id / "dev-reports.jsonl")
+            for line in (task_dir(tmp_path, task_id) / "dev-reports.jsonl")
             .read_text(encoding="utf-8")
             .splitlines()
         ]
         assert dev_reports[-1]["baseline_commit"] == baseline
         report = json.loads(
-            (tmp_path / task_id / "delivery-report.json").read_text(encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "delivery-report.json").read_text(encoding="utf-8")
         )
         assert report["binding"]["baseline_commit"] == baseline

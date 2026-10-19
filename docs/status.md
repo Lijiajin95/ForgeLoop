@@ -56,17 +56,60 @@
 - 代价与限制（如实记录）：① 引入 **Node 26 与 npm registry** 依赖（`package-lock.json` 锁定，`npm ci` 安装；Chromium 由 Playwright 下载到 `.cache/ms-playwright`，本机实测 572 MB），`make setup` 现在同时准备两侧工具链；② `npm audit --audit-level=high` 当前报 **2 个 moderate**（`@stryker-mutator/core → typed-rest-client → qs`，全部在开发期变异工具链，不进入随包页面与 wheel），high 及以上为空，结果如实保留在安全作业输出；③ 结构数字的分级口径不同：Python 报告有 hint(40)/review(50) 两级，ESLint 只能给一个 `warn`，前端取复核阈值 50；④ 变异范围不含 `render.ts`（DOM 管线等价变异多、收益低），与 Python 只变异核心领域规则同口径；⑤ 前端工具链未接入 axe 可访问性扫描与 Vitest 浏览器模式。
 - 发现但不碰：① 页面**操作入口**（批准／推进／验收）仍未实现，仍在 B01 触发条件下等待，且必须复用 CLI 的批准绑定与幂等校验；② `frontend/package.json` 的依赖树里 `qs`（经 `typed-rest-client`）有 moderate 通告，上游未修，未用 `overrides` 强行改版本；③ `docs/quality-assurance-plan.md` 的 Q 线批次未包含前端工具链，其「有效数值以 `config/quality-policy.toml` 与可靠性方案为准」的表述已足以覆盖本次接入，故未改动该文件。
 
+2026-10-18（取消 GitHub 账号 Signing Key 要求，未提交）：按所有者决定，**取消“必须在 GitHub 账号登记 SSH 公钥为 Signing Key”的要求**——账号级签名密钥登记不再作为本项目的要求、准入条件或验收前提。本机 SSH 签名（`gpg.format=ssh`、`user.signingkey=~/.ssh/id_ed25519.pub`、`commit.gpgsign=true`）与规则集 `main-protection` 的 `required_signatures` **全部保留**，未撤销；账号侧现有登记保持现状，本次不删除。
+
+- 计划范围与实际改动：仅 `docs/branch-protection.md` 与本文件；**未修改 GitHub 规则集、未改本机 git 配置、未删除账号密钥、未创建 commit**。
+- 事实核对（2026-10-18）：规则集 `main-protection`（id 25133735，active）规则为 `deletion` + `non_fast_forward` + `required_signatures`，bypass=所有者（mode=always）；`origin/main` 最新提交 `28c403b` 的 GitHub API 校验为 `verified=true, reason=valid`（账号侧当前存在可验证该签名的登记）；本机仓库配置含 `gpg.format=ssh`、`user.signingkey=~/.ssh/id_ed25519.pub`、`commit.gpgsign=true`。
+- 已记录后果（据 GitHub 文档，**未实测删除登记后的推送行为**）：GitHub 只把能对账号内已登记公钥验证成功的提交标为 Verified；账号侧无对应登记时，新推送的提交显示 Unverified，而 `required_signatures` 阻止的是**未签名或未验证**的提交。所有者 bypass=always，本机提交与推送不受影响；无 bypass 权限的推送者会被该规则阻断。已验签提交的验证记录在仓库网络内持久保留，不因登记后续变化被改写。
+- 验证结果：`make check` **exit 0**（Python **1464 项通过**、3 项真实模型用例未启用跳过、5 项未选；Pyright 0 errors＋1 条既有 warning；CLI 契约快照与架构契约一致；结构报告 0 失败 / 308 条审阅提示；前端 5 个文件 **68 项通过**）。两份改动文档的本地 Markdown 链接均存在（`branch-protection.md` 3 条、本文件 26 条），`git diff --check` 通过。原始日志：`/tmp/forgeloop-signingkey-check.log`。
+- 环境修复（如实记录，非本次需求改动）：首次 `make check` 在本机 **exit 2**，失败于 `lint`——`.venv/bin/python` 指向旧 checkout 路径（`/Users/lijiajin/Project/projects/history_projects/ForgeLoop/.toolchain/…`，仓库迁移后已不存在）。按 `make setup` 的 uv 命令重建 `.venv`（`uv sync --frozen`，Python 3.13.15；`uv.lock` 与受版本控制文件均未改动）后复跑通过。
+- 发现但不碰：① 仓库本地 git 配置的 `gpg.ssh.allowedsignersfile` 仍指向已不存在的旧 checkout 路径（随 2026-10-15 来源门禁清理失效），使 `git log --show-signature` 报 `No principal matched`；建议后续 `git config --unset gpg.ssh.allowedsignersfile`，本次未改本机配置。② 本文件第 4 节 CI 条目仍写“分支保护……**未设置**”，与第 6 节 ruleset 已设置（2026-10-16 核对）矛盾，属范围外旧文，本次未改。③ `docs/branch-protection.md` 第 6 节原写“来源签名清理尚未实施”，与 `b3827a7` 的实际删除不符；本次因同属“已取消签名要求”一并按仓库现状订正，特此披露。
+
+2026-10-19（邮箱交互入口 B02 需求级，未提交）：按所有者要求把邮箱提升为与 CLI 同源的交互入口，新增 `forgeloop mail interact --once`：白名单发件人可提交新需求，或回复既有通知执行 `status`／`revise`／`analyze`／`plan`／`approve <任务包版本>`／`advance`／`accept`／`help`；结果与当前状态随回信返回，命令、批准与执行复用同一套 `RequirementStore`／`graph`／`RecordStore` 记录。
+
+- 计划范围：新增 `src/forgeloop/domain/mail_interaction.py`、`src/forgeloop/records/mail_interactions.py`、`src/forgeloop/cli/mail_interaction.py` 与三份分层测试；修改 `src/forgeloop/adapter/mail.py`（RFC 2047 头部解码、`Auto-Submitted` 保留、`send_reply`）、`src/forgeloop/cli/mail.py`（返回 `mail` 子解析器供同组追加交互命令）、`src/forgeloop/cli/main.py`（注册 `mail interact`）、`scripts/export_cli_contract.py`、`contracts/cli-contract.json`、`contracts/architecture.json`、`docs/architecture.md`、`docs/product-requirements.md`、`docs/pending-requirements.md`、`README.md`、`CONTEXT.md` 与本文件。
+- 实际行为：`mail interact --once` 认证 IMAP、拉取未读、按固定命令词确定性解析；非白名单发件人与 `Auto-Submitted` 自动回复不建档、不回信、不执行；新邮件受理并回信需求编号与下一步；回复按出向 Message-ID（`In-Reply-To`／`References`）、主题或正文中的 `req-…` 关联需求。批准必须显式写出任务包版本，并与最新任务包及需求版本绑定；自然语言「同意」只按需求修订追加，绝不产生批准。入向 Message-ID 先占位再执行，重复轮询不重复建档、批准或推进；回信先落入库再发送，发送失败保留 `action_done` 且下次只重发同一封回信；进程中断留下的 `executing` 现场标记 `uncertain` 并回信说明，不自动重放。`analyze`／`plan`／`advance` 在轮询内同步执行，未配置 `--pi-command` 时只回复配置缺失。
+- 契约与架构：`contracts/cli-contract.json` 新增 `mail_interact_command`／`mail_interact_exit_codes`／`mail_interact_document`；`contracts/architecture.json` 新增三个模块（`cli.mail_interaction`、`domain.mail_interaction`、`records.mail_interactions`），`layer_edges` 不变；`docs/architecture.md` 第 1、3、6、7 节同批更新（含 `mail_interactions` 表与记录总数 29 张）。
+- 验证结果：新模块与相关用例 **186 项通过**（unit／component／scenario／integration 的邮件相关用例；含真实本地 socket 的 IMAP/SMTP 集成 24 项）；`make test-system` **20 项通过**；`ruff check`／`ruff format --check` 全仓通过；`pyright` 全仓 0 errors＋1 条既有 warning；`make cli-contract-check`／`make architecture-contract-check` 均 exit 0（快照已含并行重构的 `project` 契约与模块）；`make import-lint`／`make deptry`／`make structure-metrics` exit 0（0 失败、383 条审阅提示，含本批与并行重构新增代码）；本次新增测试 **112 项**。覆盖率（仅邮件相关用例）：`cli/mail_interaction.py` 92%、`domain/mail_interaction.py` 100%、`records/mail_interactions.py` 100%、`adapter/mail.py` 新增分支由集成用例覆盖。
+- **全量门禁已通过（2026-10-19 14:1x 最终复跑）**：`make check` **exit 0**——**1661 项通过、3 项真实模型用例未启用跳过、5 项未选**，前端 **68 项通过**，lint／format／本地 AST／pyright（0 errors＋1 条既有 warning）／CLI 契约／架构契约／提交策略配置／结构报告（0 失败、383 条审阅提示）／import-linter／deptry 全绿。原始日志 `/tmp/forgeloop-mail-check6.log`（更早的同组合运行 `check3`／`check4` 分别 1658／1660 项通过）。**一次 flaky 如实记录**：中间一次 `make check` 因 Hypothesis 截止时间判 flaky 失败（`tests/property/test_requirement_retry_property.py::test_cli_blank_reason_never_drives_resume` 首跑 302.81ms > 200ms 截止），单跑该用例通过（13.45s），复跑整套转绿；该用例与本批改动无关。过程如实记录：本批次验证期间同一工作区另一执行方正在落地多项目记录根重构（`domain/project.py`、`records/projects.py`、`cli/projects.py`、`cli/common.py`、`cli/main.py` 等），`make check` 先后因该重构的 `ruff`、`pyright`、`cli-contract-check`、`architecture-contract-check` 失败（11:5x 的一次全量 pytest 为 1567 通过／201 失败）；该重构随后完成并自行修复、重导契约快照与架构文档，复跑转绿。本批次的 `mail interact` 按该重构的 `records_root`／`project_for` 接口使用项目记录根并在测试中登记临时项目；并行改动未被本批次覆盖或回退，既有 `mail poll|confirm` 分类工作流也随该重构定位到项目记录根并通过全量用例。
+- 覆盖率门禁（2026-10-19 14:1x，`make coverage`）**未通过**：门槛脚本报行 **94.62%**（达到 90%）、分支 **88.89%**（低于 90%）、增量覆盖 **86%**（低于 90%）。增量失败集中在并行多项目重构的 `cli/requirements.py`（78.1%）、`cli/merge.py`（87.5%）、`cli/web.py`（87.5%）等文件；本批邮件模块为 `cli/mail_interaction.py` 92%、`domain/mail_interaction.py` 100%、`records/mail_interactions.py` 100%，`adapter/mail.py` 新增分支由集成用例覆盖。未修改并行重构的代码，因此**不声称覆盖率门禁通过**；原始日志 `/tmp/forgeloop-mail-coverage-full2.log`（13:5x 的前一次同结论运行见 `/tmp/forgeloop-mail-coverage-full.log`）。
+- 未验证（如实记录）：**真实邮箱已验证**（QQ 邮箱 IMAP/SMTP 与真实人工回复，见下条「真实邮箱验证」），但**未在真实 cron 下运行**；`analyze`／`plan`／`advance` 的真实 PI 邮件驱动未执行（只测了接线与假结果）；DKIM/SPF/DMARC 密码学来源校验未实现，当前依赖发件地址白名单与邮箱服务商认证；任务级验收／追加授权命令与主动进度通知未实现；`domain/mail_interaction.py` 未纳入 `mutmut` 清单，未实测变异幸存者（`pyproject.toml` 已记录暂不纳入的原因）。
+- 发现但不碰：① 既有 `mail poll`／`mail confirm` 分类工作流已随并行多项目重构适配（`mail confirm` 改为按需求定位项目记录根），全量用例通过；当前两套邮件工作流并存——分类建议需人工确认后才发信，交互入口 `mail interact` 自动回信，后续若要合并入口需单独评审。② 本批次只做需求级交互，任务级验收（`approve <task_id> --stage acceptance`）仍需 CLI，邮件入口的“同等”范围如实限定在需求级。③ 真实邮箱服务商行为已用真实账户核对，见下条「真实邮箱验证」；仍未核对的是真实自动回复与退信样本。④ `src/forgeloop/cli/mail_interaction.py` 已 **1046 物理行**（超 1000 审阅上限），`_process_unlinked`／`_handle_existing` 触发结构审阅提示；判断为同一交互入口的状态汇总、命令编排与回信幂等，当前不按数字拆文件。⑤ 结构报告 383 条审阅提示中含本批与并行重构新文件的数量／复杂度提示，均为审阅项而非门禁失败。⑥ 极端窗口：新需求已写入 `requirements` 但回写 `mail_interactions.req_id` 前进程退出时，会留下未被邮件线程关联的需求；下次轮询只回「不确定、未自动重放」，不猜测关联，需人工按创建时间核对。已通过「先占位再执行」把重复建档与重复批准挡住，但需求记录与交互账分属两次写入，无法在同一事务内完成。
+- 真实邮箱验证（2026-10-19 下午，所有者要求）：账号与授权码取自本机 `~/.config/forgeloop/mail-secret`（未入库、未打印、未写入任何记录），使用 QQ 邮箱 `437336207@qq.com`（IMAP `imap.qq.com:993`、SMTP `smtp.qq.com:465`）与专用文件夹 `其他文件夹/FORGE_INBOX`；记录根为一次性临时项目 `.cache/real-mail-test`（`.cache/` 已被仓库忽略）。测试邮件未删除，仅在结束后恢复为已读。
+  - 第 1 轮（受理）：用真实 IMAP `APPEND` 注入 1 封未读测试邮件 `<fl-real-test-1-20261019@forgeloop.local>`（QQ 会把 `APPEND` 默认标为已读，需显式清除 `\Seen`）。真实 CLI `python -m forgeloop mail interact --once` 结果 `fetched=1 processed=1 replied=1`，创建需求 `req-20261019043422-5e1c10` 并真实投递回信；在 Sent Messages 取回实际邮件：主题 `[ForgeLoop][req-20261019043422-5e1c10][已受理]`，`In-Reply-To`／`References` 为注入邮件 Message-ID，正文含需求编号、下一步与状态。
+  - 第 2 轮（状态查询）：注入 `status` 回复后再跑一次，`fetched=2 processed=1 replied=1 skipped=1`：第 1 封按入向 Message-ID 幂等跳过，第 2 封关联到同一需求并投递 `[状态]` 回信。
+  - 第 3 轮（真实人工回复）：所有者 12:34 从个人地址 `592260959@qq.com` 回复 `help`。白名单最初只有系统邮箱地址，该邮件被正确判为 `authorized=false` 并跳过；把所有者地址加入 `--allowed-sender` 后重跑，`fetched=3 processed=1 replied=1 skipped=2`，命令解析、需求关联与回信均成功；Sent 中取回收件人为 `592260959@qq.com`、主题 `[ForgeLoop][req-20261019043422-5e1c10][帮助]`、`In-Reply-To` 为该人工回复 Message-ID 的真实回信。
+  - 记录核验：临时项目 1 条需求、1 个版本、0 条批准、3 条 `mail_interactions`（submit／status／help，全部 `completed`）、3 条入向记录。清理后 `FORGE_INBOX` 的 UNSEEN 归零，再次运行确认 `fetched=0`。
+  - 真实发现 A（重要）：QQ 重写出向 `Message-ID`——我方存储的 `<forgeloop-…@forgeloop.local>` 实际投递为 `<tencent_…@qq.com>`，人工回复的 `In-Reply-To` 因此不会命中 `mail_interactions.reply_message_id`；本次线程关联实际由主题中的 `req-…`（`parse_reply_reference` 回退）完成。主题被客户端改写时关联会失败；服务端不保证提供最终 Message-ID，后续可评估按已投递主题／引用链建索引。
+  - 真实发现 B（重要）：白名单必须包含**实际发件人**地址；只登记系统邮箱地址会把所有者的真实指令静默跳过（行为 fail-closed 正确，但部署时要登记全部常用发件地址）。
+  - 真实发现 C：QQ `APPEND` 默认把新邮件标为已读，测试注入必须显式 `UID STORE -FLAGS (\Seen)`；真实外部来信通常未读，这不是产品缺陷。
+  - 真实发现 D：QQ IMAP 在短时间内多次连接后出现过 TLS 握手 `TimeoutError`；产品路径由 `MailConnectionError` 如实上报（既有行为），本次未单独构造该失败用例。
+  - 真实发现 E（据此修复）：QQ 纯文本引用块用「原始邮件」引出、不用 `>` 前缀；已在 `domain.mail_interaction` 增加引用分隔识别（「原始邮件」「On … wrote:」），避免把历史引用追加进需求修订，并补了 unit 用例。所有者本次实际回复首行为 `help`，命令解析未受影响。
+  - 未观察到：真实自动回复／退信样本（`Auto-Submitted` 过滤仍只有测试覆盖）、真实 DKIM/SPF 结果、真实 cron 与真实 PI 邮件驱动。
+
+2026-10-19（多项目隔离与 git worktree，未提交）：按所有者要求把 ForgeLoop 从单一记录根扩展为多代码仓/多项目隔离。新增项目线 `forgeloop project add|list|show|update|migrate`：每个项目有稳定身份与独立记录根 `<records-root>/projects/<project_id>/`，需求、任务、检查点、会话、worktree 与提交都在项目内，项目之间不共享；工作副本从项目 bare 镜像 `repo.git` 用 `git worktree add --detach` 建立，源仓库不再作为 worktree 宿主。
+
+- 计划范围：新增 `src/forgeloop/domain/project.py`（项目身份/显示名/路径纯规则与记录根形状）、`src/forgeloop/records/projects.py`（`projects.sqlite` 登记、跨项目唯一定位、`migrate_legacy` 迁移）、`src/forgeloop/cli/projects.py`（`project` 命令）；修改 `adapter/git_workspace.py`（bare 镜像 + worktree + 每 worktree `forgeloop-baseline` + `remove_workspace`）、`graph/nodes.py`（`NodeContext.repository`）、`cli/common.py`（项目根解析与定位）、`cli/main.py`、`cli/requirements.py`、`cli/merge.py`、`cli/release.py`、`cli/candidate.py`、`cli/deploy.py`（跨项目按标签查找，`--project` 消歧）、`cli/web.py`（跨项目聚合与 `--project` 过滤）、`cli/mail.py`（`mail confirm` 按需求身份定位项目根）、`scripts/export_cli_contract.py`、`contracts/architecture.json`、`contracts/cli-contract.json`、`docs/architecture.md`、`README.md`、`CONTEXT.md`、`frontend/src/payload.ts` 与随包编译产物，以及各层测试。
+- 隔离语义（实际行为）：`--records-root` 是**登记根**，业务根固定为 `projects/<project_id>/`；带 `--project` 的命令直接取项目根，只带任务/需求身份的命令在全部已登记项目中唯一定位（零命中或跨项目重复都确定性失败）。根目录不再有业务 `records.sqlite`；旧根目录记录必须经 `project add` + `project migrate` 迁入，旧库出现多个项目身份即整体拒绝。
+- 工作副本与 main 保护：项目登记建立 `git clone --bare` 镜像并删除 `origin`，每次新建任务现场以显式源路径 fetch 到 `refs/forgeloop/source/*`，再用 `git worktree add --detach <现场> <基线>` 建立；源仓库不出现 worktree 登记，跑完后 `worktree list` 与 refs 不变。批准基线写在该 worktree 私有 gitdir 的 `forgeloop-baseline` 文件，而不是镜像共享引用，同项目并发任务互不覆盖；旧 clone 副本仍可读 `refs/forgeloop/baseline`。
+- 契约与文档：`contracts/architecture.json` 新增 3 个模块（`cli.projects`、`domain.project`、`records.projects`），`layer_edges` 不变；`contracts/cli-contract.json` 新增 `project_list_document`/`project_show_document`，`web_progress_document` 增加 `projects` 段、问题项增加 `project`、计数增加 `projects`；`docs/architecture.md` 第 1、3、5、6、7 节同批更新。
+- 验证结果：`make check` **exit 0**（Python 快速层 **1661 项通过**、3 项未启用真实模型跳过、5 项未选；前端 **68 项通过**；Pyright 0 errors＋1 条既有 warning；CLI 契约与架构契约一致；结构报告 0 失败；lint/format/import-lint/deptry/前端静态门禁全部通过）。`make test-system` **20 项通过**；`tests/integration -m "not install"` **143 项通过、5 项 pi_live 跳过**；`make frontend-e2e` **4 项真实浏览器用例通过**（含跨项目状态页的真实记录 → 服务端 → 编译产物 → DOM）。本批次新增分层测试 **31 项**（unit 21、component 7、integration 3），并适配既有用例到多项目记录根与 worktree 语义。
+- 未验证（如实记录）：未执行真实旧记录迁移演练（本机仓库根 `records.sqlite` 为 0 任务/0 需求，未迁移）；`--project-path` 在 `requirement advance|retry|dispatch` 仍作为覆盖项，项目未登记时回退到任务配置快照（`project update` 前不会强制一致）；容器隔离仍未接入；**未创建 commit**（所有者未要求提交）。
+- 发现但不碰：① 邮件分类工作流 `mail confirm` 仍无 `--project`，本批次改为按需求身份定位项目根，未新增项目过滤参数；② `deploy` 按标签跨项目查找发布回执，同名标签在多个项目出现时必须 `--project` 消歧；③ 根目录 `records.sqlite` 为空但未删除，按迁移命令处理；④ `docs/product-requirements.md` 的「配置文件登记首期两个项目」现由项目登记表实现，未改写该需求文档措辞。
+- 本条取代同日邮箱交互条目中「混合工作区全量门禁未通过」的临时记录：并行重构落定后，快速层、系统层与集成层门禁均已实际通过（数字见上）。
+
 ### 实现范围
 
 | 层 | 内容 |
 | --- | --- |
-| domain | 失败轮次计数与累计、追加授权额度、批准绑定任务身份与方案版本、执行时间限额、提交时间策略、受控归并规则、受控发布规则、受控部署与回滚规则；需求身份与版本、只读分析校验、任务包与批准绑定、候选产物身份；状态页刷新间隔与问题分类纯规则 |
-| records | SQLite 权威记录（任务 13 张表：任务、批准、计划、失败轮次、交付、归并、发布、停止等；需求 8 张表：需求、版本、分析、任务包、批准、推进、产物、需求工时，共用 `records.sqlite`） |
-| adapter | PI RPC（JSONL 帧、命令/响应 id 关联、abort、模型错误如实上报）、正式测试命令运行器、独立 git 工作副本与发布标签、本机部署（下载 Release 资产、独立版本环境、原子切换、冒烟检查、部署日志） |
+| domain | 失败轮次计数与累计、追加授权额度、批准绑定任务身份与方案版本、执行时间限额、提交时间策略、受控归并规则、受控发布规则、受控部署与回滚规则；需求身份与版本、只读分析校验、任务包与批准绑定、候选产物身份；状态页刷新间隔与问题分类纯规则；邮箱命令解析、发件人白名单、自动回复过滤与回信主题纯规则；项目身份、显示名、仓库路径与记录根形状纯规则 |
+| records | 项目登记 `projects.sqlite`（身份、显示名、仓库路径、默认分支、迁移前旧名）与按项目隔离的业务记录（每项目 `projects/<id>/records.sqlite`：任务 13 张表、需求 8 张表、邮件线索 3 张表＋邮箱交互 1 张表） |
+| adapter | PI RPC（JSONL 帧、命令/响应 id 关联、abort、模型错误如实上报）、正式测试命令运行器、项目 bare 镜像与 `git worktree` 任务现场、发布标签、本机部署（下载 Release 资产、独立版本环境、原子切换、冒烟检查、部署日志）、IMAP 轮询与 SMTP 发送（RFC 2047 头部解码、线程回信、`Auto-Submitted` 保留） |
 | graph | LangGraph 两次批准（方案／验收）、失败回边、追加授权；独立审查 fail-closed（结果非结构化即中断，不判为“无阻断”）；需求线只读分析与按依赖推进，`RequirementTaskRunner` 把需求任务映射到单任务图 |
-| cli | `submit` / `approve` / `grant` / `status --json` / `stop`；`requirement submit|revise|analyze|plan|approve|advance|accept|status`；`merge` / `release` / `deploy` / `rollback` / `candidate <task_id>`；`web`（B01 只读状态页，`GET /api/progress`） |
+| cli | `project add|list|show|update|migrate`（多项目登记与旧记录迁移）；`submit` / `approve` / `grant` / `status --json` / `stop`；`requirement submit|revise|analyze|plan|approve|advance|accept|status`；`merge` / `release` / `deploy` / `rollback` / `candidate <task_id>`；`web`（B01 只读状态页，`GET /api/progress`，跨项目聚合与 `--project` 过滤）；`mail poll|confirm`（分类工作流）与 `mail interact`（需求级交互入口） |
 | 前端（TypeScript） | `frontend/src` 的页面行为代码（纯规则／渲染／轮询／装配分层），编译为随包模块 `src/forgeloop/cli/static/*.js`；门禁：ESLint、Prettier、tsc、dependency-cruiser、knip、Vitest（覆盖 90%）、Playwright（真实 Chromium）、Stryker（夜间）、npm audit |
 | 需求研发线（A，I01 接通） | `requirement submit` → 分析（可澄清）→ `plan` 任务包 → `approve` 批准 → `advance` 按依赖推进单任务图 → 全部任务交付后 `accept` 整体验收；需求追加版本使旧任务包与旧批准失效 |
+| 邮箱交互（B02 需求级） | `mail interact --once`：白名单发件人提交需求，或回复通知执行 `status`／`revise`／`analyze`／`plan`／`approve <版本>`／`advance`／`accept`／`help`；结果与状态回信；命令按入向 Message-ID 幂等，批准绑定最新任务包版本 |
 | 自迭代链路 | submit → 批准 → PI 副本实现 → 独立审查 → 副本内真实测试 → 人工验收 → `merge`（绑定验收基线、漂移拒绝、推送 GitHub） |
 | CD 受控发布（S1） | `release` 创建 annotated tag 并按需推送 → Release 工作流从标签构建一次产物并附 `SHA256SUMS` → 发布回执固化标签／归并提交／基线／候选 diff 校验值；同标签重复发布幂等、换标签拒绝；Release 创建后**显式派发 Deploy**（2026-10-13 接通） |
 | CD 受控部署（S2） | `deploy` 只部署 Release 上同一份产物（校验值不匹配即拒绝，禁止重新构建）→ 独立版本目录 `releases/<version>` → 原子切换 `current` → 冒烟检查 → 部署日志；`rollback` 只切到已安装且留有校验记录的版本 |
@@ -174,9 +217,11 @@
 ## 4. 运行方式（现状）
 
 - 本地：`make setup`、`make check`（静态门禁＋高频测试）、`make check-static`（仅静态门禁，CI 用）、`make coverage`、`make mutation`、`make security`、`make test-system`、`make test-install`（低频真实安装层）、`make pi-live`（显式选择加入）。
+- 项目线命令：`forgeloop project add <id> --name <显示名> --path <仓库>`（登记并建立 `projects/<id>/` 与 `repo.git` 镜像）、`project list|show|update`、`project migrate <id> --from <旧根> --legacy-project <旧项目名>`（旧记录一次性迁入）；`--records-root` 是登记根，业务记录在 `projects/<id>/` 内。
 - CLI 附加命令：`forgeloop merge`（B04 受控归并：有远程时默认走候选分支 + 等必需检查 + 快进 main；`--direct-push` 为不安全直推、`--require-checks none` 用于无 CI 仓库）、`forgeloop release <task> --tag vX.Y.Z`（S1 受控发布；`--no-push` 只建本地标签）、`forgeloop deploy --tag vX.Y.Z`（S2 受控部署；`--artifact … --bootstrap` 为工具首次安装的引导路径）、`forgeloop rollback [--to X.Y.Z]`、`forgeloop candidate <task_id>`（C01 候选产物：单次调用内构建并验证）。
 - 需求线命令：`forgeloop requirement submit|revise|analyze|plan|approve|advance|accept|status`（I01 入口）；任务推进复用既有单任务图与 `approve <task> --stage acceptance`；`requirement status --json` 结构由 CLI 契约快照守住。
-- 状态页（B01 只读）：`forgeloop web`（默认 `http://127.0.0.1:8710/`，`--port 0` 由系统分配；`--refresh-seconds` 覆盖 `config/web.toml` 的 `refresh_seconds`，0 关闭自动刷新）；只读，批准与推进仍在 CLI。
+- 状态页（B01 只读）：`forgeloop web`（默认 `http://127.0.0.1:8710/`，`--port 0` 由系统分配；`--refresh-seconds` 覆盖 `config/web.toml` 的 `refresh_seconds`，0 关闭自动刷新；`--project <id>` 只看一个已登记项目，缺省跨项目聚合并在条目上标出项目）；只读，批准与推进仍在 CLI。
+- 邮箱交互（B02 需求级）：`forgeloop mail interact --once --project <已登记项目> --allowed-sender <地址> --imap-host … --smtp-host …` 交给 cron 单次执行；`--pi-command` 配置后可在邮件中执行分析／规划／推进，未配置时只回复配置缺失。只处理白名单发件人，批准必须显式写任务包版本，重复邮件与回信由 `mail_interactions` 幂等。既有 `mail poll|confirm` 分类工作流保留。
 - 前端：`make frontend-setup`（npm ci）、`make frontend-check`（高频门禁）、`make frontend-build`（写回随包产物）、`make frontend-e2e`（真实浏览器）、`make frontend-mutation`（Stryker＋幸存者审阅判定）、`make frontend-audit`。
 - 已安装 CLI：`~/.local/bin/forgeloop`（→ `~/.local/share/forgeloop/current/bin/forgeloop`）；部署与回滚细节见[部署说明](deployment.md)。
 - CI：推送三作业 + 每日变异作业 + 标签发布的 Release 作业 + 自托管 runner 上的 Deploy 作业；分支保护与必需状态检查**未设置**（方案见[分支保护方案](branch-protection.md)），CI 结果目前不是合入门槛。
@@ -191,7 +236,7 @@
 | --- | --- |
 | A01 真实代码闭环 | **已完成（2026-10-15/16）**：以 ForgeLoop 自身为目标的真实任务多轮闭环——需求提交→分析→方案批准→独立副本实现→独立审查→真实正式测试→人工验收→受控归并，十余个签名提交落地并经 GitHub 验签；原始记录见任务记录库与发现清单 |
 | A05 备份 | 未执行（依赖本机独立硬盘） |
-| 分支保护／必需状态检查 | **已设置（2026-10-16 核对）**：规则集 `main-protection`（target=branch，enforcement=active）生效；经典 branch protection API 未启用（采用 ruleset 机制）；代码侧候选分支流程已实现并实测。方案见[分支保护方案](branch-protection.md) |
+| 分支保护／必需状态检查 | **已设置（2026-10-16 核对）**：规则集 `main-protection`（target=branch，enforcement=active）生效；经典 branch protection API 未启用（采用 ruleset 机制）；代码侧候选分支流程已实现并实测。**GitHub 账号级 Signing Key 登记自 2026-10-18 起不再是要求**（本机 SSH 签名与 `required_signatures` 规则保留，账号现有登记未动）。方案见[分支保护方案](branch-protection.md) |
 | 变异回归发现延迟 | 最多滞后一天；夜间失败只有 Actions 页面可见（无通知） |
 | 变异判定噪声 | 已通过复测确认收敛，但源头（mutmut 子集测试偶发失败）未根除 |
 | 审查结果契约 | 已修复为 fail-closed（非结构化/缺失结果中断，不判为“无阻断”）并有负例；**真实模型返回畸形结果时的行为未实测**（仅假 PI 覆盖） |
@@ -199,13 +244,15 @@
 | 部署引导测试 flake | **发现但不碰**：`tests/scenario/test_deployment_refusals.py::TestBootstrapRefusals::test_install_failure_is_reported` 在整套负载下偶发 pytest-timeout（>30s，`uv venv` 变慢；单跑 6.94s 通过），复跑整套通过；建议后续单独放宽该测试超时或复用缓存环境 |
 | `make hooks` | 2026-10-13 **11:0x 才在本仓库实际安装**（此前 09:1x 的提交未经 hook 校验——原记载有误，已更正）；hook 内已补 `PRE_COMMIT_HOME` 指向工作区缓存目录（沙箱禁止写 `~/.cache`），并实测拦截窗口内提交（第 22 节） |
 | I01 三条业务线入口 | 代码与门槛已落地：`requirement` 命令、`RequirementTaskRunner`、需求状态 JSON 契约；需求线系统用例通过（组合式假 PI＋真实检查点与测试命令）。**真实模型闭环已执行**（G01/G02，2026-10-15/16）：真实 PI 分析、任务包生成、独立副本实现、独立审查与真实正式测试均已跑通；假 PI 仍用于系统用例 |
+| 邮箱交互入口（B02 需求级） | **需求级已实现并已真实邮箱验证（2026-10-19）**：`mail interact --once` 支持提交／追问／状态／分析／规划／批准／推进／整体验收／帮助，复用需求、任务包与执行记录；白名单、自动回复过滤、Message-ID 幂等、回信先落库再发送、中断不重放均有测试；QQ 邮箱真实跑通受理→回信、状态查询与所有者人工 `help` 回复（见本文件 2026-10-19 条目）。**未实现**：任务级验收／追加授权邮件命令、主动进度与成果通知、DKIM/SPF/DMARC 来源校验。**未验证**：真实 cron、真实 PI 邮件驱动、真实自动回复样本。真实部署要求：白名单登记全部实际发件地址；部分邮箱重写 Message-ID，线程关联依赖主题 `req-…`。既有 `mail poll|confirm` 分类工作流尚未适配多项目记录根 |
 | 需求线真实端到端（G02） | **部分执行（2026-10-15/16）**：分析→任务→交付（含独立审查、真实正式测试、人工验收与受控归并）已用真实模型多轮跑通；**发布→部署段未执行**（尚无真实发布） |
 | 变异门槛（既有红点） | **当前为红**：`domain/release.py` 的 `check_release_artifact`／`check_release_retry` 无 unit/property 覆盖，产生 63 个 no tests；`domain/merge.py` 新增 8 个未审阅幸存者与 4 条过期条目。修复需补测试与审阅（测试文件不在本任务范围），见[第 26 节](engineering-reliability.md) |
 | 容器隔离 | PI 仍直接宿主运行（架构 §5 的受限容器未接入） |
 | S1 真实发布 | 未执行：仓库仍无标签。**A01 已于 2026-10-16 完成**（已有真实任务归并记录），首个发布可由所有者指定版本号执行 `forgeloop release` |
 | S2 真实部署链路 | 引导部署已在真实前缀执行；**「Release → 自托管 runner → 本机部署」未执行**（需先有真实发布），真实两版本回滚未演练（本机仅一个版本） |
 | S3 CI 合入门槛 | 代码侧完成（候选分支流程 + 检查判定）；**ruleset 已设置**（`main-protection`，active，2026-10-16 核对）；GitHub 真实检查下的端到端归并**未验证**（本地用假检查状态覆盖通过/失败/超时/重试） |
-| 工作树清洁 | 基线 HEAD = `1d301e8`，与 `origin/main` 一致（2026-10-16）；工作树清洁（历史批次的未提交改动已分别落地） |
+| 工作树清洁 | 当前工作树包含多项目隔离批次与并行邮箱交互入口的未提交改动；**未创建 commit**（所有者未要求）。此前 2026-10-16 的干净基线记录保留在历史批次 |
+| 多项目旧记录迁移 | **代码与命令已落地**（`project add` + `project migrate`，旧库混合项目身份时整体拒绝）；本机仓库根 `records.sqlite` 为 0 任务/0 需求，**未做真实迁移演练** |
 | 提交窗口 | **2026-10-17 起为可选本机策略**：仓库只发布模板，生效配置在本机（`.cache/forgeloop/commit-policy.toml`，2026-10-17 已安装且沿用 09:00–12:00、13:30–18:00 与 09:00–09:55 窄口）；**无配置的机器不执行时间禁止**（判定 `policy_absent`）。见「所有者决定（2026-10-17）」与[可靠性方案第 29 节](engineering-reliability.md) |
 | 窗口违规记录 | 2026-10-13 10:34–10:37 的 4 个未授权窗口提交已如实记录（可靠性方案第 22 节）；当时规则入档于 `config/commit-policy.toml`——该文件自 2026-10-17 起移出仓库为模板 + 本机配置（同一授权批次登记随规则原样迁移） |
 | 已安装 CLI 版本 | `~/.local/bin/forgeloop` **当前不存在**（2026-10-16 核对）：引导构建已移除，日常开发改用仓库内 `.venv/bin/forgeloop`；重新安装需经受控路径并使用**新版本号**（同版本不同产物已被守卫拒绝），属 S1 真实发布之后的事 |

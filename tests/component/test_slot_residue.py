@@ -16,6 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from project_support import (
+    project_records,
+    record_store,
+    register_project,
+    requirement_store,
+)
 
 from forgeloop.cli.merge import cmd_merge
 from forgeloop.cli.release import cmd_release
@@ -31,8 +37,7 @@ from forgeloop.graph.requirements import (
     TaskRunState,
 )
 from forgeloop.records.actions import SLOT_PREFIX
-from forgeloop.records.requirements import RequirementStore, TaskArtifact
-from forgeloop.records.store import RecordStore
+from forgeloop.records.requirements import TaskArtifact
 
 pytestmark = pytest.mark.component
 
@@ -69,9 +74,12 @@ def patch_process_liveness(
 def seed_delivery_task(tmp_path: Path) -> None:
     """创建最小任务，使 ``cmd_merge``/``cmd_release`` 能走到交付互斥获取之前。"""
 
-    store = RecordStore(tmp_path / "records.sqlite")
+    register_project(tmp_path, legacy_project=PROJECT)
+    store = record_store(tmp_path)
     try:
-        store.create_task(TASK_ID, PROJECT, "输入", {"project_path": str(tmp_path)}, 7200.0)
+        store.create_task(
+            TASK_ID, PROJECT, "输入", {"project_path": str(tmp_path / "repo")}, 7200.0
+        )
     finally:
         store.close()
 
@@ -115,7 +123,7 @@ def _planned_alpha() -> PlannedTask:
 def approve_requirement(tmp_path: Path) -> str:
     """真实记录层：提交需求并批准含单个任务的任务包，返回 ``req_id``。"""
 
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     try:
         requirement = store.submit("project-a", "需求：project-a")
         plan = TaskPlan(
@@ -160,7 +168,7 @@ class TestDeliverySlotResidue:
     ) -> None:
         seed_delivery_task(tmp_path)
         slot_key = project_delivery_slot(PROJECT)
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.claim_slot(slot_key, owner=PROJECT, pid=DEAD_PID)
         finally:
@@ -174,7 +182,7 @@ class TestDeliverySlotResidue:
         err = capsys.readouterr().err
         assert "已自动清理已死残留交付槽位" in err
         assert "任务尚无交付记录" in err
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is None
             history = verify.actions.cleanup_history(slot_key)
@@ -188,7 +196,7 @@ class TestDeliverySlotResidue:
     ) -> None:
         seed_delivery_task(tmp_path)
         slot_key = project_delivery_slot(PROJECT)
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.claim_slot(slot_key, owner=PROJECT, pid=DEAD_PID)
         finally:
@@ -201,7 +209,7 @@ class TestDeliverySlotResidue:
         err = capsys.readouterr().err
         assert "已自动清理已死残留交付槽位" in err
         assert "任务尚无归并与交付记录" in err
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is None
             assert len(verify.actions.cleanup_history(slot_key)) == 1
@@ -211,7 +219,7 @@ class TestDeliverySlotResidue:
     def test_merge_keeps_waiting_and_reports_live_residue(self, tmp_path: Path, capsys) -> None:
         seed_delivery_task(tmp_path)
         slot_key = project_delivery_slot(PROJECT)
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.claim_slot(slot_key, owner=PROJECT, pid=os.getpid())
         finally:
@@ -223,7 +231,7 @@ class TestDeliverySlotResidue:
         err = capsys.readouterr().err
         assert "同项目交付" in err
         assert "仍存活" in err
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is not None
             assert verify.actions.cleanup_history(slot_key) == ()
@@ -235,7 +243,7 @@ class TestDeliverySlotResidue:
     ) -> None:
         seed_delivery_task(tmp_path)
         slot_key = project_delivery_slot(PROJECT)
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             # 旧记录没有进程身份：无法确认存活，绝不清理。
             seed.actions.begin(f"{SLOT_PREFIX}{slot_key}", "execution_slot", role=PROJECT)
@@ -248,7 +256,7 @@ class TestDeliverySlotResidue:
         err = capsys.readouterr().err
         assert "同项目交付" in err
         assert "缺少进程身份" in err
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is not None
             assert verify.actions.cleanup_history(slot_key) == ()
@@ -264,7 +272,7 @@ class TestRequirementSlotResidue:
     ) -> None:
         req_id = approve_requirement(tmp_path)
         slot_key = f"requirement:{req_id}"
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.claim_slot(slot_key, owner=req_id, pid=DEAD_PID)
         finally:
@@ -272,11 +280,13 @@ class TestRequirementSlotResidue:
         patch_process_liveness(monkeypatch, dead_pids={DEAD_PID})
 
         calls: list[str] = []
-        progress = RequirementDispatcher(tmp_path).advance(req_id, delivering_runner(calls))
+        progress = RequirementDispatcher(project_records(tmp_path)).advance(
+            req_id, delivering_runner(calls)
+        )
 
         assert calls == ["alpha"]
         assert progress.completed_tasks == ("alpha",)
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is None
             history = verify.actions.cleanup_history(slot_key)
@@ -288,7 +298,7 @@ class TestRequirementSlotResidue:
     def test_live_requirement_slot_is_not_cleaned_and_reports_reason(self, tmp_path: Path) -> None:
         req_id = approve_requirement(tmp_path)
         slot_key = f"requirement:{req_id}"
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.claim_slot(slot_key, owner=req_id, pid=os.getpid())
         finally:
@@ -296,13 +306,15 @@ class TestRequirementSlotResidue:
 
         calls: list[str] = []
         with pytest.raises(RequirementAlreadyRunningError) as excinfo:
-            RequirementDispatcher(tmp_path).advance(req_id, delivering_runner(calls))
+            RequirementDispatcher(project_records(tmp_path)).advance(
+                req_id, delivering_runner(calls)
+            )
 
         # 报告具体原因，并保留人工核对入口；被拒绝时不启动业务图。
         assert "仍存活" in str(excinfo.value)
         assert "slot clear" in str(excinfo.value)
         assert calls == []
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is not None
             assert verify.actions.cleanup_history(slot_key) == ()
@@ -314,7 +326,7 @@ class TestRequirementSlotResidue:
     ) -> None:
         req_id = approve_requirement(tmp_path)
         slot_key = f"requirement:{req_id}"
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.begin(f"{SLOT_PREFIX}{slot_key}", "execution_slot", role=req_id)
         finally:
@@ -322,11 +334,13 @@ class TestRequirementSlotResidue:
 
         calls: list[str] = []
         with pytest.raises(RequirementAlreadyRunningError) as excinfo:
-            RequirementDispatcher(tmp_path).advance(req_id, delivering_runner(calls))
+            RequirementDispatcher(project_records(tmp_path)).advance(
+                req_id, delivering_runner(calls)
+            )
 
         assert "缺少进程身份" in str(excinfo.value)
         assert calls == []
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is not None
             assert verify.actions.cleanup_history(slot_key) == ()
@@ -340,7 +354,7 @@ class TestSlotCliSemanticsUnchanged:
     def test_list_then_clear_round_trip(self, tmp_path: Path, capsys) -> None:
         req_id = approve_requirement(tmp_path)
         slot_key = f"requirement:{req_id}"
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.claim_slot(slot_key, owner=req_id, pid=os.getpid())
         finally:
@@ -357,7 +371,7 @@ class TestSlotCliSemanticsUnchanged:
             )
             == 0
         )
-        verify = RecordStore(tmp_path / "records.sqlite")
+        verify = record_store(tmp_path)
         try:
             assert verify.actions.slot_owner(slot_key) is None
         finally:

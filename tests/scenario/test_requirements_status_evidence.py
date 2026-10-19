@@ -15,13 +15,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from project_support import record_store, requirement_store
+from support import task_dir
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 from forgeloop.graph.builder import requirement_task_id
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.scenario
 
@@ -29,7 +30,7 @@ WHEN = datetime(2026, 10, 14, 10, 0, tzinfo=UTC)
 
 
 def approved_requirement(tmp_path: Path) -> tuple[RequirementStore, str]:
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path, legacy_project="proj")
     requirement = store.submit("proj", "需求：CLI 汇总交付证据身份")
     plan = TaskPlan(
         task_plan_id=f"plan-{requirement.req_id}-1",
@@ -60,14 +61,14 @@ def seed_single_task(
 ) -> None:
     """建立单任务记录与现场材料；``terminal`` 决定验收批准是否已消费。"""
 
-    task_dir = tmp_path / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-    (task_dir / "candidate.diff").write_text(
+    task_path = task_dir(tmp_path, task_id)
+    task_path.mkdir(parents=True, exist_ok=True)
+    (task_path / "candidate.diff").write_text(
         f"diff --git a/{marker}.py b/{marker}.py\n--- a/{marker}.py\n+++ b/{marker}.py\n"
         f"@@ -0,0 +1 @@\n+{marker}\n",
         encoding="utf-8",
     )
-    (task_dir / "review-report.json").write_text(
+    (task_path / "review-report.json").write_text(
         json.dumps(
             {
                 "summary": "review",
@@ -77,16 +78,16 @@ def seed_single_task(
         ),
         encoding="utf-8",
     )
-    (task_dir / "test-run.jsonl").write_text(
+    (task_path / "test-run.jsonl").write_text(
         json.dumps({"exit_code": exit_code}) + "\n", encoding="utf-8"
     )
-    (task_dir / "candidate-artifact.json").write_text(
+    (task_path / "candidate-artifact.json").write_text(
         json.dumps({"sha256": marker * 64}), encoding="utf-8"
     )
-    (task_dir / "dev-reports.jsonl").write_text(
+    (task_path / "dev-reports.jsonl").write_text(
         json.dumps({"baseline_commit": marker * 40}) + "\n", encoding="utf-8"
     )
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path, legacy_project="proj")
     try:
         store.create_task(task_id, "proj", "input", {}, 7200.0)
         store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("cmd",)))
@@ -126,7 +127,7 @@ class TestRequirementDeliveryEvidence:
         store.close()
         alpha = requirement_task_id(req_id, 1, "alpha")
         seed_single_task(tmp_path, alpha, terminal=True, marker="a")
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path, legacy_project="proj")
         try:
             store.record_task_artifact(
                 req_id,
@@ -216,7 +217,7 @@ class TestRequirementDeliveryEvidence:
         store.close()
         alpha = requirement_task_id(req_id, 1, "alpha")
         seed_single_task(tmp_path, alpha, terminal=True)
-        (tmp_path / alpha / "review-report.json").write_text(
+        (task_dir(tmp_path, alpha) / "review-report.json").write_text(
             json.dumps({"summary": "review", "blocking_issues": []}),
             encoding="utf-8",
         )

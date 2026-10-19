@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from project_support import project_records, record_store, requirement_store
 
 from forgeloop.cli.requirements import (
     cmd_requirement_slot_clear,
@@ -29,8 +30,7 @@ from forgeloop.graph.requirements import (
     TaskRunState,
 )
 from forgeloop.records.actions import SLOT_PREFIX
-from forgeloop.records.requirements import RequirementStore, TaskArtifact
-from forgeloop.records.store import RecordStore
+from forgeloop.records.requirements import TaskArtifact
 
 pytestmark = pytest.mark.scenario
 
@@ -66,7 +66,7 @@ def _artifact(task_id: str, marker: str = "a") -> TaskArtifact:
 def approve_requirement(tmp_path: Path, project: str = "project-a") -> str:
     """真实记录层：提交需求并取得含单个任务的任务包批准，返回 ``req_id``。"""
 
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     try:
         requirement = store.submit(project, f"需求：{project}")
         plan = TaskPlan(
@@ -100,7 +100,7 @@ def seed_requirement_slot(
 ) -> None:
     """按现场需要登记一个需求级槽位占用（真实或缺少进程身份的旧记录）。"""
 
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         slot_key = f"requirement:{req_id}"
         if legacy:
@@ -112,7 +112,7 @@ def seed_requirement_slot(
 
 
 def cleanup_history(tmp_path: Path, slot_key: str):
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         return store.actions.cleanup_history(slot_key)
     finally:
@@ -120,7 +120,7 @@ def cleanup_history(tmp_path: Path, slot_key: str):
 
 
 def slot_occupied(tmp_path: Path, slot_key: str) -> bool:
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         return store.actions.slot_owner(slot_key) is not None
     finally:
@@ -136,7 +136,7 @@ class TestDeadResidueScenario:
         req_id = approve_requirement(tmp_path)
         seed_requirement_slot(tmp_path, req_id)
         calls: list[str] = []
-        dispatcher = RequirementDispatcher(tmp_path)
+        dispatcher = RequirementDispatcher(project_records(tmp_path))
 
         first = dispatcher.advance(req_id, delivering_runner(calls))
 
@@ -166,7 +166,7 @@ class TestLiveResidueScenario:
         req_id = approve_requirement(tmp_path)
         seed_requirement_slot(tmp_path, req_id, pid=os.getpid())
         calls: list[str] = []
-        dispatcher = RequirementDispatcher(tmp_path)
+        dispatcher = RequirementDispatcher(project_records(tmp_path))
 
         with pytest.raises(RequirementAlreadyRunningError) as excinfo:
             dispatcher.advance(req_id, delivering_runner(calls))
@@ -204,7 +204,7 @@ class TestUncertainResidueScenario:
         req_id = approve_requirement(tmp_path)
         seed_requirement_slot(tmp_path, req_id, legacy=True)
         calls: list[str] = []
-        dispatcher = RequirementDispatcher(tmp_path)
+        dispatcher = RequirementDispatcher(project_records(tmp_path))
 
         with pytest.raises(RequirementAlreadyRunningError) as excinfo:
             dispatcher.advance(req_id, delivering_runner(calls))
@@ -215,7 +215,7 @@ class TestUncertainResidueScenario:
         assert slot_occupied(tmp_path, slot_key)
         assert cleanup_history(tmp_path, slot_key) == ()
 
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.actions.clear_slot(slot_key, detail="cleared by operator")
         finally:

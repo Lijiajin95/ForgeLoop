@@ -3,11 +3,13 @@
 import json
 from pathlib import Path
 
+from project_support import project_records, record_store
 from support import (
     run_cli,
     seed_test_control,
     status_document,
     submit_task,
+    task_dir,
 )
 
 
@@ -22,7 +24,7 @@ class TestGraphGuards:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=0)
-        store, _ctx, graph = _build_runtime(tmp_path, task_id)
+        store, _ctx, graph = _build_runtime(project_records(tmp_path), task_id)
         try:
             graph.invoke(Command(resume={"decision": "approved"}), _run_config(task_id))
         finally:
@@ -31,7 +33,7 @@ class TestGraphGuards:
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "blocked"  # 未批准不开始改代码
         assert document["approvals"]["plan"] is None
-        assert not (tmp_path / task_id / "candidate.diff").exists()
+        assert not (task_dir(tmp_path, task_id) / "candidate.diff").exists()
 
     def test_grant_denial_stops_the_task(self, tmp_path: Path, capsys, monkeypatch) -> None:
         from langgraph.types import Command
@@ -44,7 +46,7 @@ class TestGraphGuards:
         run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "awaiting_grant"
-        store, _ctx, graph = _build_runtime(tmp_path, task_id)
+        store, _ctx, graph = _build_runtime(project_records(tmp_path), task_id)
         try:
             graph.invoke(Command(resume={"decision": "stop"}), _run_config(task_id))
         finally:
@@ -61,7 +63,6 @@ class TestActionReplayGuard:
     def test_reapproval_after_dev_crash_does_not_replay(
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
-        from forgeloop.records.store import RecordStore
 
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         prompt_log = tmp_path / "prompts.jsonl"
@@ -69,7 +70,7 @@ class TestActionReplayGuard:
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=0)
         # 模拟上一次进程在 dev 动作中途被杀：只留下 started 记录，未登记完成。
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.actions.begin(task_id, "dev")
         finally:
@@ -78,7 +79,7 @@ class TestActionReplayGuard:
         assert code == 0, out
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "interrupted"  # 未核对动作不盲目重放
-        assert not (tmp_path / task_id / "candidate.diff").exists()
+        assert not (task_dir(tmp_path, task_id) / "candidate.diff").exists()
         assert not prompt_log.exists()  # 没有启动新的 PI 会话
 
     def test_reapproval_after_consumed_approval_surfaces_unchecked_action(
@@ -87,14 +88,13 @@ class TestActionReplayGuard:
         from datetime import UTC, datetime
 
         from forgeloop.domain.approval import Approval, ApprovalStage
-        from forgeloop.records.store import RecordStore
 
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         prompt_log = tmp_path / "prompts.jsonl"
         monkeypatch.setenv("FAKE_PI_PROMPT_LOG", str(prompt_log))
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=0)
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             plan = store.latest_plan(task_id)
             assert plan is not None
@@ -110,7 +110,7 @@ class TestActionReplayGuard:
         assert code == 0, out
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "interrupted"  # 未被"批准已用"掩盖成 blocked
-        assert not (tmp_path / task_id / "candidate.diff").exists()
+        assert not (task_dir(tmp_path, task_id) / "candidate.diff").exists()
         assert not prompt_log.exists()
 
 
@@ -128,7 +128,7 @@ class TestStopFacts:
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=3)
         run_cli(["approve", task_id, "--records-root", str(tmp_path)], capsys)
-        store, _ctx, graph = _build_runtime(tmp_path, task_id)
+        store, _ctx, graph = _build_runtime(project_records(tmp_path), task_id)
         try:
             graph.invoke(Command(resume={"decision": "stop"}), _run_config(task_id))
         finally:
@@ -142,12 +142,11 @@ class TestStopFacts:
     def test_confirmed_stop_with_unchecked_action_stays_interrupted(
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
-        from forgeloop.records.store import RecordStore
 
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=0)
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.outcomes.request_stop(task_id, "已核对停止")
             store.outcomes.confirm_stop(task_id, "已核对")
@@ -175,7 +174,7 @@ class TestStopAndRejection:
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "rejected"
         assert document["approvals"]["plan"] is None  # 拒绝不写入批准
-        assert not (tmp_path / task_id / "candidate.diff").exists()  # 未批准不改候选代码
+        assert not (task_dir(tmp_path, task_id) / "candidate.diff").exists()  # 未批准不改候选代码
 
     def test_stop_request_halts_before_new_action(
         self, tmp_path: Path, capsys, monkeypatch
@@ -192,7 +191,7 @@ class TestStopAndRejection:
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "stop_requested"
         assert document["stop"]["note"] == "测试停止"
-        assert not (tmp_path / task_id / "candidate.diff").exists()  # 未启动新动作
+        assert not (task_dir(tmp_path, task_id) / "candidate.diff").exists()  # 未启动新动作
 
     def test_tiny_time_limit_exhausts_before_dev(self, tmp_path: Path, capsys, monkeypatch) -> None:
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
@@ -231,17 +230,16 @@ class TestPiOutcomeHalts:
         assert document["status"] == "interrupted"  # 模型错误不伪装完成
         assert document["failures"]["cumulative"] == 0  # 不消耗失败轮次
         assert (
-            not (tmp_path / task_id / "candidate.diff").exists()
-            or (tmp_path / task_id / "candidate.diff").read_text(encoding="utf-8") == ""
+            not (task_dir(tmp_path, task_id) / "candidate.diff").exists()
+            or (task_dir(tmp_path, task_id) / "candidate.diff").read_text(encoding="utf-8") == ""
         )
 
     def test_confirmed_stop_halts_as_stopped(self, tmp_path: Path, capsys, monkeypatch) -> None:
-        from forgeloop.records.store import RecordStore
 
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=0)
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.outcomes.request_stop(task_id, "已核对停止")
             store.outcomes.confirm_stop(task_id, "已核对")
@@ -263,7 +261,7 @@ class TestPiOutcomeHalts:
         assert document.get("delivery") is None
         reviews = [
             json.loads(line)
-            for line in (tmp_path / task_id / "reviews.jsonl")
+            for line in (task_dir(tmp_path, task_id) / "reviews.jsonl")
             .read_text(encoding="utf-8")
             .splitlines()
         ]

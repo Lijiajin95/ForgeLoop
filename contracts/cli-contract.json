@@ -1474,6 +1474,110 @@
       }
     }
   },
+  "mail_interact_command": "forgeloop mail interact --once --json",
+  "mail_interact_exit_codes": {
+    "ok": 0,
+    "refused": 1
+  },
+  "mail_interact_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "command": {
+        "type": [
+          "string"
+        ]
+      },
+      "errors": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "string"
+          ]
+        }
+      },
+      "fetched": {
+        "type": [
+          "integer"
+        ]
+      },
+      "interactions": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "authorized": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "command": {
+              "type": [
+                "string"
+              ]
+            },
+            "detail": {
+              "type": [
+                "string"
+              ]
+            },
+            "message_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "processed": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "replied": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "reply_message_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "req_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "state": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "processed": {
+        "type": [
+          "integer"
+        ]
+      },
+      "replied": {
+        "type": [
+          "integer"
+        ]
+      },
+      "skipped": {
+        "type": [
+          "integer"
+        ]
+      }
+    }
+  },
   "web_progress_route": "GET /api/progress",
   "web_progress_document": {
     "type": [
@@ -1486,6 +1590,11 @@
         ],
         "properties": {
           "issues": {
+            "type": [
+              "integer"
+            ]
+          },
+          "projects": {
             "type": [
               "integer"
             ]
@@ -1526,12 +1635,71 @@
                 "string"
               ]
             },
+            "project": {
+              "type": [
+                "string"
+              ]
+            },
             "ref_id": {
               "type": [
                 "string"
               ]
             },
             "summary": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "projects": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "counts": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "issues": {
+                  "type": [
+                    "integer"
+                  ]
+                },
+                "requirements": {
+                  "type": [
+                    "integer"
+                  ]
+                },
+                "tasks": {
+                  "type": [
+                    "integer"
+                  ]
+                }
+              }
+            },
+            "name": {
+              "type": [
+                "string"
+              ]
+            },
+            "project_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "records_root": {
+              "type": [
+                "string"
+              ]
+            },
+            "repo_path": {
               "type": [
                 "string"
               ]
@@ -1574,6 +1742,119 @@
         "item": {
           "$ref": "#/document"
         }
+      }
+    }
+  },
+  "project_command": "forgeloop project list --json",
+  "project_list_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "count": {
+        "type": [
+          "integer"
+        ]
+      },
+      "projects": {
+        "type": [
+          "array"
+        ],
+        "item": {
+          "type": [
+            "object"
+          ],
+          "properties": {
+            "created_at": {
+              "type": [
+                "string"
+              ]
+            },
+            "default_branch": {
+              "type": [
+                "string"
+              ]
+            },
+            "name": {
+              "type": [
+                "string"
+              ]
+            },
+            "project_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "records_root": {
+              "type": [
+                "string"
+              ]
+            },
+            "repo_path": {
+              "type": [
+                "string"
+              ]
+            },
+            "requirements": {
+              "type": [
+                "integer"
+              ]
+            },
+            "tasks": {
+              "type": [
+                "integer"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "project_show_command": "forgeloop project show <project_id> --json",
+  "project_show_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "created_at": {
+        "type": [
+          "string"
+        ]
+      },
+      "default_branch": {
+        "type": [
+          "string"
+        ]
+      },
+      "name": {
+        "type": [
+          "string"
+        ]
+      },
+      "project_id": {
+        "type": [
+          "string"
+        ]
+      },
+      "records_root": {
+        "type": [
+          "string"
+        ]
+      },
+      "repo_path": {
+        "type": [
+          "string"
+        ]
+      },
+      "requirements": {
+        "type": [
+          "integer"
+        ]
+      },
+      "tasks": {
+        "type": [
+          "integer"
+        ]
       }
     }
   }

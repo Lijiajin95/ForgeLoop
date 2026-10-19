@@ -17,10 +17,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from project_support import project_records, record_store, register_project
+
 from forgeloop.adapter.deployment import sha256_of_file
+from forgeloop.adapter.git_workspace import prepare_workspace
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.release import ReleaseRecord
-from forgeloop.records.store import RecordStore
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 FAKE_PI_COMMAND = [sys.executable, str(FIXTURES / "fake_pi.py")]
@@ -36,6 +38,9 @@ def run_cli(argv: list[str], capsys) -> tuple[int, str]:
 
 
 def submit_task(tmp_path: Path, capsys, **overrides) -> str:
+    # 用例可用 project-path 指定真实源仓库：登记项目时就绑定它，CLI 只按登记路径执行。
+    source_path = overrides.get("project-path")
+    register_project(tmp_path, repo_path=str(source_path) if source_path else "")
     argv = [
         "submit",
         "--project",
@@ -64,9 +69,22 @@ def submit_task(tmp_path: Path, capsys, **overrides) -> str:
     return match.group(1)
 
 
+def task_dir(records: Path, task_id: str) -> Path:
+    """任务现场目录：多项目布局下位于项目记录根内。"""
+
+    return project_records(records) / task_id
+
+
 def seed_test_control(tmp_path: Path, task_id: str, fail_first: int) -> None:
-    workspace = tmp_path / task_id / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
+    """在真实任务 worktree 内写入测试控制文件。
+
+    多项目布局下 workspace 是从项目镜像派生的 git worktree；先按生产路径建立它，
+    再写入未跟踪的控制文件，避免在不存在的空目录里预置文件而被准备阶段拒绝。
+    """
+
+    root = project_records(tmp_path)
+    workspace = task_dir(tmp_path, task_id) / "workspace"
+    prepare_workspace(tmp_path / "repo", "", workspace, mirror=root / "repo.git")
     (workspace / "test-control.json").write_text(
         json.dumps({"fail_first": fail_first, "runs": 0}), encoding="utf-8"
     )
@@ -232,7 +250,8 @@ def record_release(
 ) -> Path:
     """写入一条发布回执（S1 记录），供 S2 控制路径核对。"""
 
-    store = RecordStore(records / "records.sqlite")
+    register_project(records, repo_path=str(project) if project is not None else "")
+    store = record_store(records)
     try:
         config = {"test_command": "[]", "pi_command": "[]"}
         if project is not None:

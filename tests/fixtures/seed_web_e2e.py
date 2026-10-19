@@ -11,6 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+from forgeloop.domain.project import project_data_root
+from forgeloop.records.projects import ProjectStore, project_records_path
 from forgeloop.records.requirements import RequirementStore
 from forgeloop.records.store import RecordStore
 
@@ -25,7 +27,13 @@ def main(argv: list[str]) -> int:
         return 2
     root = Path(argv[1])
     root.mkdir(parents=True, exist_ok=True)
-    records = root / "records.sqlite"
+    projects = ProjectStore(project_records_path(root))
+    try:
+        projects.add(PROJECT, "ForgeLoop", str(root / "forgeloop-repo"))
+    finally:
+        projects.close()
+    records = project_data_root(root, PROJECT) / "records.sqlite"
+    records.parent.mkdir(parents=True, exist_ok=True)
 
     requirement_store = RequirementStore(records)
     try:

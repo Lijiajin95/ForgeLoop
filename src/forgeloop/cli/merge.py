@@ -34,7 +34,12 @@ from forgeloop.adapter.git_workspace import (
     switch_to_main,
 )
 from forgeloop.adapter.github_checks import ChecksError, check_runs, github_token
-from forgeloop.cli.common import fail, open_store, records_root
+from forgeloop.cli.common import (
+    base_records_root,
+    fail,
+    open_task,
+    project_repository,
+)
 from forgeloop.domain.approval import ApprovalStage
 from forgeloop.domain.merge import (
     ChecksDecision,
@@ -352,8 +357,9 @@ def _merge_direct(args: argparse.Namespace, store: RecordStore, context: _MergeC
 def cmd_merge(args: argparse.Namespace) -> int:
     """验收后受控归并 main（B04）：绑定基线与 diff，漂移拒绝，未验收不更新。"""
 
-    root = records_root(args)
-    store = open_store(root, args.task_id)
+    base = base_records_root(args)
+    location = open_task(base, args.task_id)
+    store, root = location.store, location.root
     try:
         task = store.get_task(args.task_id)
         assert task is not None
@@ -370,7 +376,12 @@ def cmd_merge(args: argparse.Namespace) -> int:
             # 同项目交付整体串行：检查—归并—推送在同一互斥内，避免两个同项目需求
             # 同时读到旧 main 再各自快进/推送。
             with project_delivery(root, task.project, timeout=args.delivery_timeout):
-                return _merge_locked(args, store, root)
+                return _merge_locked(
+                    args,
+                    store,
+                    root,
+                    project_repository(base, task.project, task.config.get("project_path", "")),
+                )
         except ProjectDeliveryBusyError as error:
             hint = ""
             if not residue.cleaned and residue.assessment.occupant is not None:
@@ -380,7 +391,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         store.close()
 
 
-def _merge_locked(args: argparse.Namespace, store: RecordStore, root: Path) -> int:
+def _merge_locked(args: argparse.Namespace, store: RecordStore, root: Path, repository: str) -> int:
     """持有同项目交付互斥后的归并主体（调用方保证已取得项目槽位）。"""
 
     task = store.get_task(args.task_id)
@@ -392,9 +403,9 @@ def _merge_locked(args: argparse.Namespace, store: RecordStore, root: Path) -> i
     diff_text = Path(delivery[0]).read_text(encoding="utf-8")
     report = json.loads(Path(delivery[1]).read_text(encoding="utf-8"))
     baseline = str(report.get("baseline_commit", ""))
-    project_path = task.config.get("project_path", "")
+    project_path = repository or task.config.get("project_path", "")
     if not project_path:
-        return fail("任务未绑定 project_path，无法归并")
+        return fail("任务未绑定项目仓库，无法归并")
     project = Path(project_path)
     acceptance = store.effective_approval(args.task_id, ApprovalStage.ACCEPTANCE)
     binding = acceptance.binding if acceptance is not None else None

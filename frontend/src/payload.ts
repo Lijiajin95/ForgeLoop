@@ -61,16 +61,27 @@ export interface TaskEntry {
   readonly blocked_reason_text: string;
 }
 
+/** 已登记项目：页面据此标注条目归属。 */
+export interface ProjectEntry {
+  readonly project_id: string;
+  readonly name: string;
+  readonly repo_path: string;
+  readonly records_root: string;
+  readonly counts: ProgressCounts;
+}
+
 /** 待人工处理的问题项。 */
 export interface IssueEntry {
   readonly kind: string;
+  readonly project: string;
   readonly ref_id: string;
   readonly summary: string;
   readonly detail: string;
 }
 
-/** 三段计数。 */
+/** 计数：项目数与前三次段总数（项目级计数在 `ProjectEntry.counts`）。 */
 interface ProgressCounts {
+  readonly projects: number;
   readonly requirements: number;
   readonly tasks: number;
   readonly issues: number;
@@ -83,6 +94,7 @@ export interface ProgressDocument {
   readonly records_root: string;
   readonly refresh_seconds: number;
   readonly refresh_source: string;
+  readonly projects: readonly ProjectEntry[];
   readonly counts: ProgressCounts;
   readonly requirements: readonly RequirementEntry[];
   readonly tasks: readonly TaskEntry[];

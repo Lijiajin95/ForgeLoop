@@ -53,31 +53,51 @@ def make_source_repo(tmp_path: Path) -> Path:
 
 
 class TestPrepareWorkspace:
-    def test_clones_independently_and_records_baseline(self, tmp_path: Path) -> None:
+    def test_worktree_is_created_from_project_mirror_and_records_baseline(
+        self, tmp_path: Path
+    ) -> None:
         source = make_source_repo(tmp_path)
         workspace = tmp_path / "task" / "workspace"
-        baseline = prepare_workspace(source, "", workspace)
+        mirror = tmp_path / "project" / "repo.git"
+        baseline = prepare_workspace(source, "", workspace, mirror=mirror)
         assert is_git_workspace(workspace)
         assert len(baseline) == 40  # 实际基线提交号
         assert (workspace / "feature.txt").read_text(encoding="utf-8") == "old\n"
-        # 独立副本：有自己的 .git，不共享源仓库引用。
-        assert (workspace / ".git").is_dir()
+        # worktree 的 .git 是指向项目镜像的 gitfile，而不是源仓库的 .git。
+        assert (workspace / ".git").is_file()
+        common = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "--git-common-dir"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert Path(common).resolve() == mirror.resolve()
+        assert str(source) not in (workspace / ".git").read_text(encoding="utf-8")
+        # 源仓库没有被登记成 worktree，main 现场保持不变。
+        source_worktrees = subprocess.run(
+            ["git", "-C", str(source), "worktree", "list", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert str(workspace) not in source_worktrees
 
-    def test_clone_does_not_keep_source_as_origin(self, tmp_path: Path) -> None:
-        """删除 origin：副本内 ``git push`` 不能回写源 main。"""
+    def test_mirror_does_not_keep_source_as_origin(self, tmp_path: Path) -> None:
+        """镜像删除 origin：副本内 ``git push`` 不能回写源 main。"""
 
         source = make_source_repo(tmp_path)
         workspace = tmp_path / "task" / "workspace"
-        prepare_workspace(source, "", workspace)
+        mirror = tmp_path / "project" / "repo.git"
+        prepare_workspace(source, "", workspace, mirror=mirror)
         remotes = subprocess.run(
-            ["git", "-C", str(workspace), "remote"],
+            ["git", "-C", str(mirror), "remote"],
             check=True,
             capture_output=True,
             text=True,
         ).stdout
         assert remotes.strip() == ""
-        # 源仓库路径不再出现在副本配置里。
-        config = (workspace / ".git" / "config").read_text(encoding="utf-8")
+        # 源仓库路径不再出现在镜像配置里。
+        config = (mirror / "config").read_text(encoding="utf-8")
         assert str(source) not in config
 
     def test_reused_workspace_drops_a_pre_existing_source_remote(self, tmp_path: Path) -> None:
@@ -200,7 +220,7 @@ class TestPrepareWorkspace:
 
     def test_invalid_baseline_is_rejected(self, tmp_path: Path) -> None:
         source = make_source_repo(tmp_path)
-        with pytest.raises(WorkspaceError, match="git checkout"):
+        with pytest.raises(WorkspaceError, match="基线不存在"):
             prepare_workspace(source, "no-such-revision", tmp_path / "w")
 
 

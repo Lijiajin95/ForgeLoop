@@ -24,7 +24,12 @@ from forgeloop.adapter.artifact import (
     install_and_smoke,
     sha256_of_file,
 )
-from forgeloop.cli.common import fail, open_store, records_root
+from forgeloop.cli.common import (
+    base_records_root,
+    fail,
+    open_task,
+    project_repository,
+)
 from forgeloop.domain.artifact import (
     ArtifactRecord,
     check_artifact_identity,
@@ -38,10 +43,11 @@ class CandidateRefused(RuntimeError):
     """候选构建前置不满足（未授权提交、未归并、缺少项目路径）；转成统一失败输出。"""
 
 
-def _prepare(args: argparse.Namespace, root: Path) -> tuple[str, Path]:
-    """收集构建前置：只允许任务已归并的提交，返回（提交号，项目路径）。"""
+def _prepare(args: argparse.Namespace, base: Path) -> tuple[str, Path, Path]:
+    """收集构建前置：只允许任务已归并的提交，返回（提交号，项目路径，项目记录根）。"""
 
-    store = open_store(root, args.task_id)
+    location = open_task(base, args.task_id)
+    store, root = location.store, location.root
     try:
         task = store.get_task(args.task_id)
         assert task is not None
@@ -51,13 +57,13 @@ def _prepare(args: argparse.Namespace, root: Path) -> tuple[str, Path]:
         decision = check_commit_authorization(args.task_id, commit, authorized)
         if not decision.allowed:
             raise CandidateRefused(decision.reason)
-        project_path = task.config.get("project_path", "")
+        project_path = project_repository(base, task.project, task.config.get("project_path", ""))
         if not project_path:
-            raise CandidateRefused("任务未绑定 project_path，无法构建候选产物")
+            raise CandidateRefused("任务未绑定项目仓库，无法构建候选产物")
         project = Path(project_path)
         if not project.is_dir() or not (project / ".git").exists():
             raise CandidateRefused(f"项目路径不是 git 仓库：{project}")
-        return commit, project
+        return commit, project, root
     finally:
         store.close()
 
@@ -120,9 +126,9 @@ def _print_result(record: ArtifactRecord, comparison_reason: str, smoke_detail: 
 def cmd_candidate(args: argparse.Namespace) -> int:
     """从已归并提交构建并验证候选产物（S4）：授权提交、可复现与独立冒烟。"""
 
-    root = records_root(args)
+    root: Path
     try:
-        commit, project = _prepare(args, root)
+        commit, project, root = _prepare(args, base_records_root(args))
     except CandidateRefused as refusal:
         return fail(str(refusal))
     work = (

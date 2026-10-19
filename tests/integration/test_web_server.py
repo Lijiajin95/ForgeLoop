@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from project_support import project_records, record_store, register_project, requirement_store
 
 from forgeloop.cli.main import _requirement_document, _status_document
 from forgeloop.cli.web import (
@@ -22,8 +23,6 @@ from forgeloop.cli.web import (
     page_html,
 )
 from forgeloop.domain.progress import RefreshSetting, RefreshSource, resolve_refresh_seconds
-from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.integration
 
@@ -35,7 +34,8 @@ DOCUMENTS = ProgressDocuments(_requirement_document, _status_document)
 def make_task(
     root: Path, task_id: str, project: str = "forgeloop", status: str = "created"
 ) -> None:
-    store = RecordStore(root / "records.sqlite")
+    register_project(root)
+    store = record_store(root)
     try:
         store.create_task(
             task_id,
@@ -50,7 +50,7 @@ def make_task(
 
 
 def claim_slot(root: Path, slot: str, owner: str) -> None:
-    store = RecordStore(root / "records.sqlite")
+    store = record_store(root)
     try:
         # claim_slot 自己加 SLOT_PREFIX，调用方只给槽位名。
         store.actions.claim_slot(slot, owner)
@@ -112,14 +112,14 @@ class TestProgressApi:
         assert document["requirements"] == []
         assert document["tasks"] == []
         assert document["issues"] == []
-        assert document["counts"] == {"requirements": 0, "tasks": 0, "issues": 0}
+        assert document["counts"] == {"projects": 0, "requirements": 0, "tasks": 0, "issues": 0}
         assert document["generated_at"]
 
     def test_requirements_and_tasks_come_from_records(
         self, live_server: tuple[str, int, Path]
     ) -> None:
         _, _, root = live_server
-        store = RequirementStore(root / "records.sqlite")
+        store = requirement_store(root)
         try:
             requirement = store.submit("forgeloop", "页面要显示需求进展")
         finally:
@@ -265,11 +265,11 @@ class TestReadOnly:
     ) -> None:
         _, _, root = live_server
         make_task(root, "task-1")
-        before = (root / "records.sqlite").read_bytes()
+        before = (project_records(root) / "records.sqlite").read_bytes()
 
         http_request(live_server[:2], "POST", "/api/progress")
 
-        assert (root / "records.sqlite").read_bytes() == before
+        assert (project_records(root) / "records.sqlite").read_bytes() == before
 
 
 class TestWebConfigFile:
