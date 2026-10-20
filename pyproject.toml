@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forgeloop"
-version = "0.0.2"
+version = "0.0.3"
 description = "CLI-driven automated development loop: bounded small requirements to accepted code diffs"
 readme = "README.md"
 # Python 3.13 是骨架提案基线：须在最小技术方案核查中与 LangGraph、PI RPC 容器
