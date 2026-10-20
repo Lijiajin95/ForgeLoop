@@ -499,7 +499,8 @@
   最终：**1520/1698 杀死、178 个幸存者全部有审阅依据**，`make mutation` 通过（`178 reviewed`）。
 - **真实前缀交付（本批完成）**：经所有者授权的一次性沙箱放宽后，`scripts/install_local_service.sh --no-unit` 在**真实前缀**完成构建→安装→激活→冒烟：`current -> releases/0.0.4`（产物校验值 `1dc1858f…d5dd`，上一版本 0.0.3 保留可回滚，部署日志已写、通知邮件已发）；`systemctl --user restart forgeloop` 后单元 `active`，`/api/service` 返回 `project: forgeloop`、`active_version: 0.0.4`、`operations_enabled: true`，`/api/progress` 返回 `projects: [forgeloop]`、页面 200。即常驻服务现运行合并后的 0.0.4。
 - **CI 与 CD 的实测回执**：`main` 的 `41aa030` 跑 `Engineering quality` **三个作业全绿**（quality / security / commit-policy；quality 内含静态门禁、覆盖率、系统层与真实浏览器 e2e），见 run `39422717570`。CD 工作流首次在自托管 runner 上真实执行（run `39423751574`，手动 `workflow_dispatch -f tag=v0.0.4`）：预检通过（激活指针 `releases/0.0.4`、CLI 支持 `--project`、项目已登记），随后被权威判据拒绝——`FAIL: 缺少 v0.0.4 的发布回执；未发布的版本不部署`，并把两项补办命令原样打印；作业按 fail-closed 退出 1，未安装任何东西。这条与上一轮的“跑不起来/装错记录根”是本质区别。
-- **未完成（如实记录）**：① 一次**成功**的 `release → deploy` 自升级——需要一次真实交付产生的已验收产物（S1 规则不允许在标签工作流重建产物），本轮验证到“工作流真实可达 + 授权门禁 fail-closed + 部署器/manifest 与真实前缀安装”；② 105 个变异幸存者的补测与逐条审阅（另立批次）；③ 单任务在真实模型下的推进未在本轮复跑（假 PI 验收，模型调用需授权）。
+- **标签与 Release 清理（所有者要求，2026-10-20）**：删除两个已并入 `main` 的归档标签（`archive/task-20261014101006-7f8664` → `64f3685`、`archive/task-20261014130149-27caec` → `5240022`，`git cherry main` 均为 `-`）与过时的 `v0.0.1` GitHub Release（含 `forgeloop-0.0.1-py3-none-any.whl` 与 `SHA256SUMS`，下载数 0）及其同名标签。现状：本地与远端**均无标签**，远端只剩 `main`；本机部署日志（0.0.1/0.0.2/0.0.3 bootstrap、0.0.4 激活）不受影响。后续 `release` 会创建新标签与新 Release。
+- **未完成（如实记录）**：① 一次**成功**的 `release → deploy` 自升级——需要一次真实交付产生的已验收产物（S1 规则不允许在标签工作流重建产物），本轮验证到“工作流真实可达 + 授权门禁 fail-closed + 部署器/manifest 与真实前缀安装”；② 单任务在真实模型下的推进未在本轮复跑（假 PI 验收，模型调用需授权）。
 
 ### 实现范围
 
