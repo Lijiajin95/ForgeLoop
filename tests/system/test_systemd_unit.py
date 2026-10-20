@@ -11,6 +11,7 @@ unit 是**逐机模板**（路径写成 `%h/Project/ForgeLoop/...`，安装时�
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -76,12 +77,31 @@ def test_service_documents_the_manual_steps_and_boundaries() -> None:
         assert fragment in text, fragment
 
 
+def _portable_unit(tmp_path: Path) -> Path:
+    """把逐机路径替换成本机一定存在的路径，只留指令与语法参与判定。
+
+    模板里的 ``%h/Project/ForgeLoop/.venv/bin/python`` 是**按本机修改**的示例；在别的宿主
+    （CI 的 HOME=/home/runner）上 systemd-analyze 会因“可执行文件不存在”返回非 0——那是路径
+    问题，不是 unit 语法问题。测试的既定范围就是语法与指令（见模块 docstring），因此这里先
+    换成本机真实的解释器与工作目录再校验。
+    """
+
+    text = _unit_text()
+    text = re.sub(r"(?m)^ExecStart=.*$", f"ExecStart={sys.executable} -m forgeloop serve", text)
+    text = re.sub(r"(?m)^WorkingDirectory=.*$", f"WorkingDirectory={tmp_path}", text)
+    text = re.sub(r"(?m)^Environment=HOME=.*$", f"Environment=HOME={tmp_path}", text)
+    text = re.sub(r"(?m)^Documentation=.*\n", "", text, count=1)
+    target = tmp_path / UNIT.name
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 @pytest.mark.skipif(
     shutil.which("systemd-analyze") is None, reason="本机没有 systemd-analyze，跳过离线校验"
 )
-def test_systemd_analyze_verify_accepts_the_unit() -> None:
+def test_systemd_analyze_verify_accepts_the_unit(tmp_path: Path) -> None:
     result = subprocess.run(
-        ["systemd-analyze", "verify", str(UNIT)],
+        ["systemd-analyze", "verify", str(_portable_unit(tmp_path))],
         capture_output=True,
         text=True,
         timeout=60,

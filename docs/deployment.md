@@ -227,11 +227,12 @@ curl -s http://127.0.0.1:8712/api/service | python3 -m json.tool | grep -A3 outs
   走完 S1 发布（标签 + Release）后才能验证；当前只有引导路径的真实验证。链路的断点已修
   （2026-10-13 显式派发 Deploy；2026-10-20 多项目记录根与前置校验，见上节），但**一次成功的
   自升级仍需真实发布**。
-- **本机 0.0.4 的安装与重启未在本会话完成**：`deploy` 的构建/安装/激活/冒烟已在工作区彩排
-  前缀实测通过（相对与绝对前缀各一次），但写 `~/.local/share/forgeloop` 与
-  `~/.config/systemd/user` 需要工作区外写权限，本会话沙箱拒绝；请按下面「本机接入」在真实宿主执行。
-    另外本机记录根已从旧单根迁移到项目布局（`.forgeloop/projects/forgeloop/`，旧库当时为空），
-    迁移后 `serve --once --json` 显示 `project: forgeloop` 且进展聚合正常。
+- **本机 0.0.4 已安装并重启验证（2026-10-20）**：`scripts/install_local_service.sh --no-unit`
+  在真实前缀完成构建→安装→激活→冒烟，`current -> releases/0.0.4`（产物校验值
+  `1dc1858f…d5dd`，上一版本 0.0.3 保留可回滚）；`systemctl --user restart forgeloop` 后
+  `/api/service` 返回 `project: forgeloop`、`active_version: 0.0.4`、`operations_enabled: true`，
+  `/api/progress` 按项目聚合并返回 `projects: [forgeloop]`。记录根同步从旧单根迁移到项目布局
+  （`.forgeloop/projects/forgeloop/`，旧库当时为空）。仍缺的一次真实自升级见上一条。
 - **真实两版本回滚未在真实前缀演练**：本机目前只安装了一个版本；回滚链路由场景测试
   （真实文件系统 + 真实安装 + 真实切换）覆盖，等第二个版本交付后补真实演练。
 - runner 标签是否包含 `forgeloop-deploy` 无法在本地核对（标签在 GitHub 侧），需在 Runners

@@ -494,7 +494,8 @@
 - **CD 工作流（`deploy.yml`）多项目化**：新增 `project`（缺省 `forgeloop`）与 `records-root`（缺省本机登记根）输入，前缀可由仓库变量 `FORGELOOP_DEPLOY_PREFIX` 覆盖；安装前两项只读前置（本机 CLI 支持 `--project`、项目已登记）失败即退出且不安装；`deploy` 被拒时把发布回执与 `deploy-approve` 的补办命令一起打印。仍不代做批准：缺回执或缺该版本一次性批准时 fail-closed，人必须在记录根上批准。
 - **本机现场**：登记根 `.forgeloop` 由旧单根迁到项目布局（旧库当时为空，`project add forgeloop` + `project migrate` 如实提示“未迁移的目录: projects”）；`serve --once --json` 在真实记录根上显示 `project: forgeloop`、`project_records_root: …/projects/forgeloop`，`deploy` 段为“没有已发布版本”。`0.0.4` wheel 在**工作区彩排前缀**完成构建→安装→激活→冒烟（不触碰真实前缀）。
 - **夜间变异**：先修结构缺口——mutmut 副本不拷贝点文件，`tests/unit/test_hook_git_env.py` 在基线收集阶段直接失败；`[tool.mutmut].also_copy` 纳入 `.pre-commit-config.yaml` 后基线可跑。**仍未通过**：合并后的树有 **105 个未审阅幸存者**（1698 个变异体、1437 杀死、261 幸存、171 条已登记，另有 15 条登记已过期）。这是需要专门批次的补测／审阅工作，本次未用“全登记等价”糊过去。
-- **未完成（如实记录）**：① 真实前缀安装与服务重启——本会话沙箱对 `~/.local/share/forgeloop` 与 `~/.config/systemd/user` 只读，需在真实宿主执行 `scripts/install_local_service.sh` 并 `systemctl --user restart forgeloop`；② 一次真实 `release → deploy` 自升级——需要一次真实交付的已验收产物（S1 规则不允许在标签工作流重建产物）；③ 105 个变异幸存者的补测与逐条审阅。
+- **真实前缀交付（本批完成）**：经所有者授权的一次性沙箱放宽后，`scripts/install_local_service.sh --no-unit` 在**真实前缀**完成构建→安装→激活→冒烟：`current -> releases/0.0.4`（产物校验值 `1dc1858f…d5dd`，上一版本 0.0.3 保留可回滚，部署日志已写、通知邮件已发）；`systemctl --user restart forgeloop` 后单元 `active`，`/api/service` 返回 `project: forgeloop`、`active_version: 0.0.4`、`operations_enabled: true`，`/api/progress` 返回 `projects: [forgeloop]`、页面 200。即常驻服务现运行合并后的 0.0.4。
+- **未完成（如实记录）**：① 一次真实 `release → deploy` 自升级——需要一次真实交付的已验收产物（S1 规则不允许在标签工作流重建产物），本轮只验证到部署器与前置判据；② 105 个变异幸存者的补测与逐条审阅（另立批次）；③ 单任务在真实模型下的推进未在本轮复跑（假 PI 验收，模型调用需授权）。
 
 ### 实现范围
 
