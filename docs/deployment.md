@@ -104,6 +104,11 @@ FAIL: 冒烟检查失败（exit=3）：...
   形成自升级链路。
 - 若作业一直排队，通常是 runner 缺少 `forgeloop-deploy` 标签或未在线；在仓库
   Settings → Actions → Runners 页面核对标签与状态。
+- **实测回执（2026-10-20）**：手动 `workflow_dispatch -f tag=v0.0.4`（run `39423751574`）在
+  自托管 runner 上真实执行：预检拿到激活指针 `releases/0.0.4`、确认 CLI 支持 `--project`、
+  项目 `forgeloop` 已登记；随后 `deploy` 以 `缺少 v0.0.4 的发布回执；未发布的版本不部署`
+  fail-closed 退出，并打印两项补办命令，**未安装任何东西**。这说明链路已可达、门禁生效——
+  剩余缺的一步是“真实发布 + 该版本的一次性批准”。
 - **多项目口径（2026-10-20 起）**：业务记录在 `<records-root>/projects/<project_id>/` 下，
   因此工作流显式带项目与登记根（`project` 缺省 `forgeloop`、`records-root` 缺省
   `/home/link/Project/ForgeLoop/.forgeloop`，可用 `workflow_dispatch` 输入覆盖；前缀可用

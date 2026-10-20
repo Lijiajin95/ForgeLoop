@@ -495,7 +495,8 @@
 - **本机现场**：登记根 `.forgeloop` 由旧单根迁到项目布局（旧库当时为空，`project add forgeloop` + `project migrate` 如实提示“未迁移的目录: projects”）；`serve --once --json` 在真实记录根上显示 `project: forgeloop`、`project_records_root: …/projects/forgeloop`，`deploy` 段为“没有已发布版本”。`0.0.4` wheel 在**工作区彩排前缀**完成构建→安装→激活→冒烟（不触碰真实前缀）。
 - **夜间变异**：先修结构缺口——mutmut 副本不拷贝点文件，`tests/unit/test_hook_git_env.py` 在基线收集阶段直接失败；`[tool.mutmut].also_copy` 纳入 `.pre-commit-config.yaml` 后基线可跑。**仍未通过**：合并后的树有 **105 个未审阅幸存者**（1698 个变异体、1437 杀死、261 幸存、171 条已登记，另有 15 条登记已过期）。这是需要专门批次的补测／审阅工作，本次未用“全登记等价”糊过去。
 - **真实前缀交付（本批完成）**：经所有者授权的一次性沙箱放宽后，`scripts/install_local_service.sh --no-unit` 在**真实前缀**完成构建→安装→激活→冒烟：`current -> releases/0.0.4`（产物校验值 `1dc1858f…d5dd`，上一版本 0.0.3 保留可回滚，部署日志已写、通知邮件已发）；`systemctl --user restart forgeloop` 后单元 `active`，`/api/service` 返回 `project: forgeloop`、`active_version: 0.0.4`、`operations_enabled: true`，`/api/progress` 返回 `projects: [forgeloop]`、页面 200。即常驻服务现运行合并后的 0.0.4。
-- **未完成（如实记录）**：① 一次真实 `release → deploy` 自升级——需要一次真实交付的已验收产物（S1 规则不允许在标签工作流重建产物），本轮只验证到部署器与前置判据；② 105 个变异幸存者的补测与逐条审阅（另立批次）；③ 单任务在真实模型下的推进未在本轮复跑（假 PI 验收，模型调用需授权）。
+- **CI 与 CD 的实测回执**：`main` 的 `41aa030` 跑 `Engineering quality` **三个作业全绿**（quality / security / commit-policy；quality 内含静态门禁、覆盖率、系统层与真实浏览器 e2e），见 run `39422717570`。CD 工作流首次在自托管 runner 上真实执行（run `39423751574`，手动 `workflow_dispatch -f tag=v0.0.4`）：预检通过（激活指针 `releases/0.0.4`、CLI 支持 `--project`、项目已登记），随后被权威判据拒绝——`FAIL: 缺少 v0.0.4 的发布回执；未发布的版本不部署`，并把两项补办命令原样打印；作业按 fail-closed 退出 1，未安装任何东西。这条与上一轮的“跑不起来/装错记录根”是本质区别。
+- **未完成（如实记录）**：① 一次**成功**的 `release → deploy` 自升级——需要一次真实交付产生的已验收产物（S1 规则不允许在标签工作流重建产物），本轮验证到“工作流真实可达 + 授权门禁 fail-closed + 部署器/manifest 与真实前缀安装”；② 105 个变异幸存者的补测与逐条审阅（另立批次）；③ 单任务在真实模型下的推进未在本轮复跑（假 PI 验收，模型调用需授权）。
 
 ### 实现范围
 
