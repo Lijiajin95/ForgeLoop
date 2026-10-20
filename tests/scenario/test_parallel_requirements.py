@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from project_support import project_records, record_store, requirement_store
 
 from forgeloop.cli.merge import cmd_merge
 from forgeloop.cli.release import cmd_release
@@ -42,8 +43,7 @@ from forgeloop.graph.requirements import (
     TaskRunState,
 )
 from forgeloop.records.actions import ActionStore, ExecutionSlotBusyError
-from forgeloop.records.requirements import RequirementStore, TaskArtifact
-from forgeloop.records.store import RecordStore
+from forgeloop.records.requirements import TaskArtifact
 
 WHEN = datetime(2026, 10, 14, 10, 0, tzinfo=UTC)
 
@@ -105,7 +105,7 @@ def artifact(task_id: str, marker: str) -> TaskArtifact:
 def approve_requirement(tmp_path: Path, project: str, tasks: tuple[PlannedTask, ...]) -> str:
     """真实记录层：提交需求、记录任务包并取得所有者批准，返回 ``req_id``。"""
 
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     try:
         requirement = store.submit(project, f"需求：{project}")
         plan = TaskPlan(
@@ -144,14 +144,14 @@ class TestParallelAdvanceIsolation:
             finally:
                 active.leave()
 
-        dispatcher = RequirementDispatcher(tmp_path, max_concurrent=2)
+        dispatcher = RequirementDispatcher(project_records(tmp_path), max_concurrent=2)
         results = dispatcher.advance_all({req_a: runner, req_b: runner})
 
         assert active.max_active == 2
         assert results[req_a].completed_tasks == ("alpha",)
         assert results[req_b].completed_tasks == ("beta",)
 
-        reopened = RequirementStore(tmp_path / "records.sqlite")
+        reopened = requirement_store(tmp_path)
         try:
             assert [run.task_id for run in reopened.task_runs(req_a, 1)] == ["alpha"]
             assert [run.task_id for run in reopened.task_runs(req_b, 1)] == ["beta"]
@@ -181,8 +181,8 @@ class TestSameRequirementNotRepeated:
             release.wait(10)
             return TaskResult(TaskRunState.DELIVERED, artifact(execution.task.task_id, "a"))
 
-        holder = RequirementDispatcher(tmp_path)
-        contender = RequirementDispatcher(tmp_path)
+        holder = RequirementDispatcher(project_records(tmp_path))
+        contender = RequirementDispatcher(project_records(tmp_path))
 
         def run_holder() -> None:
             try:
@@ -227,7 +227,7 @@ class TestConcurrencyLimit:
         def run_all() -> None:
             try:
                 results.update(
-                    RequirementDispatcher(tmp_path, max_concurrent=2).advance_all(
+                    RequirementDispatcher(project_records(tmp_path), max_concurrent=2).advance_all(
                         {req_id: runner for req_id in req_ids}
                     )
                 )
@@ -252,8 +252,8 @@ class TestConcurrencyLimit:
 
 class TestProjectDeliverySerialization:
     def test_same_project_delivery_is_serialized_across_dispatchers(self, tmp_path: Path) -> None:
-        first = RequirementDispatcher(tmp_path)
-        second = RequirementDispatcher(tmp_path, delivery_timeout=0.2)
+        first = RequirementDispatcher(project_records(tmp_path))
+        second = RequirementDispatcher(project_records(tmp_path), delivery_timeout=0.2)
         inside = threading.Event()
         second_inside = threading.Event()
         release = threading.Event()
@@ -290,7 +290,7 @@ class TestProjectDeliverySerialization:
         assert not holder.is_alive()
 
     def test_different_projects_deliver_concurrently(self, tmp_path: Path) -> None:
-        dispatcher = RequirementDispatcher(tmp_path)
+        dispatcher = RequirementDispatcher(project_records(tmp_path))
         barrier = threading.Barrier(2, timeout=10)
         errors: list[BaseException] = []
 
@@ -315,7 +315,7 @@ class TestProjectDeliverySerialization:
 
 class TestExecutionSlotRecord:
     def test_slot_rejects_second_claim_until_released(self, tmp_path: Path) -> None:
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             actions: ActionStore = store.actions
             slot = actions.claim_slot("requirement:req-x", owner="req-x")
@@ -338,13 +338,13 @@ class TestStaleSlotRecovery:
     ) -> None:
         req_id = approve_requirement(tmp_path, "project-a", (planned("alpha"),))
         # 模拟上一进程在推进中途被 SIGKILL：槽位停在 started，没有释放。
-        seed = RecordStore(tmp_path / "records.sqlite")
+        seed = record_store(tmp_path)
         try:
             seed.actions.claim_slot(f"requirement:{req_id}", owner=req_id)
         finally:
             seed.close()
 
-        dispatcher = RequirementDispatcher(tmp_path)
+        dispatcher = RequirementDispatcher(project_records(tmp_path))
         calls: list[str] = []
 
         def runner(execution) -> TaskResult:
@@ -385,7 +385,7 @@ class TestDeliveryEntryUsesProjectSlot:
     """归并/发布真实入口获取同项目交付互斥，而不是只在测试里演示。"""
 
     def _task(self, tmp_path: Path) -> None:
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task(
                 "task-delivery",
@@ -399,7 +399,7 @@ class TestDeliveryEntryUsesProjectSlot:
 
     def test_merge_refuses_while_project_slot_held(self, tmp_path: Path, capsys) -> None:
         self._task(tmp_path)
-        holder = RequirementDispatcher(tmp_path, delivery_timeout=None)
+        holder = RequirementDispatcher(project_records(tmp_path), delivery_timeout=None)
         with holder.project_delivery("proj-x"):
             args = argparse.Namespace(
                 task_id="task-delivery",
@@ -419,7 +419,7 @@ class TestDeliveryEntryUsesProjectSlot:
 
     def test_release_refuses_while_project_slot_held(self, tmp_path: Path, capsys) -> None:
         self._task(tmp_path)
-        holder = RequirementDispatcher(tmp_path, delivery_timeout=None)
+        holder = RequirementDispatcher(project_records(tmp_path), delivery_timeout=None)
         with holder.project_delivery("proj-x"):
             args = argparse.Namespace(
                 task_id="task-delivery",
@@ -463,7 +463,7 @@ class TestApprovalAndBudgetInvariants:
             clock.tick(5.0)
             return TaskResult(TaskRunState.DELIVERED, artifact(execution.task.task_id, "a"))
 
-        dispatcher = RequirementDispatcher(tmp_path, max_concurrent=1, clock=clock)
+        dispatcher = RequirementDispatcher(project_records(tmp_path), max_concurrent=1, clock=clock)
         first = dispatcher.advance(req_id, runner)
         second = dispatcher.advance(req_id, runner)
 
@@ -472,7 +472,7 @@ class TestApprovalAndBudgetInvariants:
         assert second.consumed_seconds == 5.0
         assert second.completed_tasks == ("alpha",)
 
-        reopened = RequirementStore(tmp_path / "records.sqlite")
+        reopened = requirement_store(tmp_path)
         try:
             assert reopened.plan_authorization(req_id).can_execute is True
             budget = reopened.requirement_budget(req_id)

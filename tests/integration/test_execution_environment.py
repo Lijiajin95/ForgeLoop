@@ -384,7 +384,7 @@ class TestDevPromptUsesContainerPaths:
     def test_dev_node_translates_prompt_and_command(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from forgeloop.graph import nodes
+        from forgeloop.graph import agent_execution
         from forgeloop.graph.nodes import NodeContext, make_dev_node, make_plan_node
         from forgeloop.records.store import RecordStore
 
@@ -416,7 +416,8 @@ class TestDevPromptUsesContainerPaths:
             def close(self) -> None:
                 pass
 
-        monkeypatch.setattr(nodes, "PIProcess", _CapturingProcess)
+        # 运行时构造点在 agent_execution（PI 与 DSH 共用的接缝）。
+        monkeypatch.setattr(agent_execution, "PIProcess", _CapturingProcess)
 
         home = tmp_path / "pi-home"
         home.mkdir()
@@ -460,6 +461,7 @@ class TestDevPromptUsesContainerPaths:
         options = captured["options"]
         assert options.execution_environment == "container"
         assert options.cwd is None
+        assert options.runtime == "pi"
 
 
 class TestBuildExecutionEnvironment:

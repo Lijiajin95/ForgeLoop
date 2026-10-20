@@ -17,6 +17,11 @@ from typing import Any
 
 from forgeloop.adapter.mail import InboundResult, PollReport
 from forgeloop.cli.mail import _mail_confirm_document, _mail_poll_document
+from forgeloop.cli.mail_interaction import (
+    InteractionOutcome,
+    InteractionReport,
+    _mail_interact_document,
+)
 from forgeloop.cli.main import _requirement_document, _status_document
 from forgeloop.cli.panel import (
     PanelContext,
@@ -24,6 +29,8 @@ from forgeloop.cli.panel import (
     panel_document,
     session_document,
 )
+from forgeloop.cli.projects import project_document, project_list_document
+from forgeloop.cli.runtime import runtime_document
 from forgeloop.cli.serve import (
     ServeOperations,
     ServeSettings,
@@ -40,11 +47,19 @@ from forgeloop.domain.requirement import RequirementAnalysis
 from forgeloop.domain.service import resolve_service_settings
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 from forgeloop.graph.worker import ServiceWorker
+from forgeloop.records.agent_runtimes import AgentRuntimeStore
 from forgeloop.records.checkpoints import (
     CheckpointHealth,
     CheckpointInspection,
     CheckpointState,
     authorize_retry,
+)
+from forgeloop.records.projects import (
+    ProjectLocation,
+    ProjectStore,
+    iter_projects,
+    project_location,
+    project_records_path,
 )
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
@@ -160,13 +175,18 @@ def build_contract() -> dict:
         requirement_document, requirement_not_found = build_requirement_contract(Path(tmp))
 
         document = merge(shape(minimal), shape(full))
+        location = _seed_contract_project(Path(tmp))
         web_document = build_progress_contract(Path(tmp))
         service_document = build_service_contract(Path(tmp))
         service_operation_document = build_service_operation_contract()
         service_operation_error_document = build_service_operation_error_contract()
         panel_document_shape, panel_session_shape = build_panel_contract(Path(tmp))
+        project_list = shape(project_list_document(iter_projects(Path(tmp))))
+        project_show = shape(project_document(location))
+        runtime_snapshot = build_runtime_contract(Path(tmp))
 
     mail_poll_document, mail_confirm_document = build_mail_contract()
+    mail_interact_document = build_mail_interact_contract()
     return {
         "schema_version": 1,
         "command": "forgeloop status --json",
@@ -183,6 +203,10 @@ def build_contract() -> dict:
         "mail_poll_document": mail_poll_document,
         "mail_confirm_command": "forgeloop mail confirm <req_id> --action <...> --json",
         "mail_confirm_document": mail_confirm_document,
+        # 邮箱交互入口：与 CLI 共用需求、批准与执行记录；命令与回信身份可回查。
+        "mail_interact_command": "forgeloop mail interact --once --json",
+        "mail_interact_exit_codes": {"ok": 0, "refused": 1},
+        "mail_interact_document": mail_interact_document,
         # 状态页（B01）只读接口：页面脚本消费的对外结构，刷新配置随文档返回。
         "web_progress_route": "GET /api/progress",
         "web_progress_document": web_document,
@@ -237,7 +261,39 @@ def build_contract() -> dict:
         },
         "panel_operation_document": build_panel_operation_contract(),
         "panel_operation_error_document": build_service_operation_error_contract(),
+        # 项目登记（多项目隔离）：项目清单与单项目查询的稳定 JSON 结构。
+        "project_command": "forgeloop project list --json",
+        "project_list_document": project_list,
+        "project_show_command": "forgeloop project show <project_id> --json",
+        "project_show_document": project_show,
+        # Agent Runtime 运行状态（PI/DSH 热切换）：当前选择、生效解析与切换审计。
+        "runtime_command": "forgeloop runtime show --json",
+        "runtime_exit_codes": {"ok": 0, "config_error": 1},
+        "runtime_document": runtime_snapshot,
     }
+
+
+def build_runtime_contract(root: Path) -> dict:
+    """合成运行状态样本（未设置 + 已切换到 DSH），提取 ``runtime show --json`` 结构。
+
+    未设置样本让 ``active`` 与 ``effective`` 的 ``null`` 进入快照，已切换样本覆盖
+    命令、来源标签与历史条目；时间戳被 :func:`shape` 折叠为类型，不随运行漂移。
+    """
+
+    store = AgentRuntimeStore(root / "records.sqlite")
+    try:
+        fresh = runtime_document(store, project="forgeloop")
+        store.set_runtime("pi", by="owner", reason="初始")
+        store.set_runtime(
+            "dsh",
+            command=("dsh", "--profile", "headless", "--json"),
+            by="owner",
+            reason="切到 DSH",
+        )
+        switched = runtime_document(store, project="forgeloop")
+    finally:
+        store.close()
+    return merge(shape(fresh), shape(switched))
 
 
 def build_mail_contract() -> tuple[dict, dict]:
@@ -310,6 +366,54 @@ def build_mail_contract() -> tuple[dict, dict]:
         ),
     )
     return poll_document, confirm_document
+
+
+def build_mail_interact_contract() -> dict:
+    """合成一次邮箱交互结果，提取 ``mail interact --once --json`` 的结构。
+
+    样本覆盖三类结果：命令执行并回信（``completed``）、回信待重试（``action_done``）、
+    越权发件人被跳过（``skipped``）；``reply_message_id`` 的可空结构由跳过样本给出。
+    """
+
+    report = InteractionReport(
+        fetched=3,
+        outcomes=(
+            InteractionOutcome(
+                message_id="<in-1@example.com>",
+                req_id="req-1",
+                command="approve",
+                authorized=True,
+                processed=True,
+                replied=True,
+                state="completed",
+                detail="已执行命令并回信",
+                reply_message_id="<out-1@forgeloop.local>",
+            ),
+            InteractionOutcome(
+                message_id="<in-2@example.com>",
+                req_id="req-1",
+                command="status",
+                authorized=True,
+                processed=True,
+                replied=False,
+                state="action_done",
+                detail="回信发送失败：SMTP 发送失败",
+                reply_message_id="<out-2@forgeloop.local>",
+            ),
+            InteractionOutcome(
+                message_id="<in-3@example.com>",
+                req_id="",
+                command="",
+                authorized=False,
+                processed=False,
+                replied=False,
+                state="skipped",
+                detail="发件人不在允许列表，未建档、未执行命令、未回信",
+            ),
+        ),
+        errors=("无法解析邮件：邮件缺少 Message-ID，无法登记与去重",),
+    )
+    return shape(_mail_interact_document(report))
 
 
 def build_requirement_contract(root: Path) -> tuple[dict, dict]:
@@ -396,6 +500,32 @@ def build_requirement_contract(root: Path) -> tuple[dict, dict]:
     return merge(shape(minimal_document), shape(full_document)), shape(missing)
 
 
+def _seed_contract_project(root: Path) -> ProjectLocation:
+    """登记一个项目并在其记录根写入状态页样本（阻断任务与未完成槽位）。"""
+
+    store = ProjectStore(project_records_path(root))
+    try:
+        project = store.add("proj", "示例项目", str(root / "project"), "")
+    finally:
+        store.close()
+    location = project_location(project, root)
+    location.root.mkdir(parents=True, exist_ok=True)
+    record_store = RecordStore(location.root / "records.sqlite")
+    try:
+        record_store.create_task(
+            "task-blocked",
+            "proj",
+            "原始文本",
+            {"pi_command": "[]", "test_command": "[]"},
+            7200.0,
+        )
+        record_store.set_task_status("task-blocked", "blocked")
+        record_store.actions.claim_slot("req-proj-1", "advance")
+    finally:
+        record_store.close()
+    return location
+
+
 def build_progress_contract(root: Path) -> dict:
     """状态页 ``GET /api/progress`` 的对外结构。
 
@@ -403,22 +533,9 @@ def build_progress_contract(root: Path) -> dict:
     ``document`` 两份文档本身（页面直接展示它们），因此元素位置写 ``$ref`` 指向
     本文件里已合并的最小/全字段结构，而不是再抄一份：同一份结构出现两次会让一次
     字段改动在两个地方各审一遍 diff。本接口新增的结构是外层信封（生成时间、生效
-    刷新配置、计数）与问题项，用真实记录（一个阻断任务与一个未完成执行槽位）合成。
+    刷新配置、项目归属、计数）与问题项，用真实登记项目下的记录合成。
     """
 
-    store = RecordStore(root / "records.sqlite")
-    try:
-        store.create_task(
-            "task-blocked",
-            "proj",
-            "原始文本",
-            {"pi_command": "[]", "test_command": "[]"},
-            7200.0,
-        )
-        store.set_task_status("task-blocked", "blocked")
-        store.actions.claim_slot("req-proj-1", "advance")
-    finally:
-        store.close()
     documents = ProgressDocuments(_requirement_document, _status_document)
     document = shape(
         build_progress_document(root, RefreshSetting(60, RefreshSource.DEFAULT), documents)

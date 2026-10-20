@@ -21,6 +21,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from project_support import (
+    project_records,
+    requirement_store,
+)
 
 pytestmark = pytest.mark.system
 
@@ -42,9 +46,8 @@ TASK = "first"
 def _seed_approved_requirement(records: Path) -> str:
     sys.path.insert(0, str(SRC))
     from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
-    from forgeloop.records.requirements import RequirementStore
 
-    store = RequirementStore(records / "records.sqlite")
+    store = requirement_store(records)
     try:
         requirement = store.submit(PROJECT, "需求：强杀重启核对")
         plan = TaskPlan(
@@ -174,7 +177,9 @@ def _stop(process: subprocess.Popen[str], *, hard: bool = False) -> None:
 
 def _action_states(records: Path, thread_id: str) -> list[str]:
     try:
-        connection = sqlite3.connect(f"file:{records / 'records.sqlite'}?mode=ro", uri=True)
+        connection = sqlite3.connect(
+            f"file:{project_records(records) / 'records.sqlite'}?mode=ro", uri=True
+        )
     except sqlite3.Error:  # pragma: no cover - 记录库尚未建立
         return []
     try:

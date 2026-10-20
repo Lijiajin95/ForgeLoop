@@ -13,10 +13,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from project_support import record_store, register_project
 
 from forgeloop.graph.dispatch import project_delivery_slot
 from forgeloop.records.actions import SLOT_PREFIX
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.system
 
@@ -49,7 +49,8 @@ def run_cli(argv: list[str], records_root: Path) -> subprocess.CompletedProcess[
 
 
 def seed_task(tmp_path: Path) -> None:
-    store = RecordStore(tmp_path / "records.sqlite")
+    register_project(tmp_path)
+    store = record_store(tmp_path)
     try:
         store.create_task(TASK_ID, PROJECT, "输入", {"project_path": str(tmp_path)}, 7200.0)
     finally:
@@ -57,7 +58,7 @@ def seed_task(tmp_path: Path) -> None:
 
 
 def seed_delivery_slot(tmp_path: Path, *, pid: int | None = None, legacy: bool = False) -> None:
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         slot_key = project_delivery_slot(PROJECT)
         if legacy:
@@ -69,7 +70,7 @@ def seed_delivery_slot(tmp_path: Path, *, pid: int | None = None, legacy: bool =
 
 
 def read_slot_state(tmp_path: Path) -> tuple[bool, int]:
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         slot_key = project_delivery_slot(PROJECT)
         return (

@@ -33,11 +33,17 @@ FRONTEND_SRC = ROOT / "frontend" / "src"
 PAGE_MODULES = (
     "actions.js",
     "app.js",
+    "dom.js",
     "format.js",
+    "link.js",
     "page.js",
+    "panel.js",
+    "panel_render.js",
+    "panel_tools.js",
     "payload.js",
     "progress.js",
     "render.js",
+    "tabs.js",
 )
 
 TOP_LEVEL_FIELDS = (
@@ -46,27 +52,36 @@ TOP_LEVEL_FIELDS = (
     "records_root",
     "refresh_seconds",
     "refresh_source",
+    "projects",
     "counts",
     "requirements",
     "tasks",
     "issues",
 )
-COUNT_FIELDS = ("requirements", "tasks", "issues")
+COUNT_FIELDS = ("projects", "requirements", "tasks", "issues")
 # 页面表格直接读取的字段：改名即页面空白，因此在这里固定。
 REQUIREMENT_FIELDS = (
     "req_id",
     "project",
     "requirement_status",
     "plan",
+    "versions",
     "tasks",
     "next_step",
     "blocked_reason",
     "blocked_reason_text",
 )
+# 需求任务包条目：页面用它把需求分解出的任务与任务段按身份对上。
+REQUIREMENT_TASK_FIELDS = ("task_id", "single_task_id", "state")
+# 需求原文版本：页面的需求描述读最新一版的文本。
+REQUIREMENT_VERSION_FIELDS = ("version", "text")
+# 任务包摘要：页面的任务描述读 goal。
+TASK_PLAN_FIELDS = ("goal",)
 TASK_FIELDS = (
     "task_id",
     "project",
     "status",
+    "plan",
     "next_action",
     "failures",
     "budget",
@@ -74,7 +89,7 @@ TASK_FIELDS = (
 )
 FAILURE_FIELDS = ("cumulative", "remaining_in_current_grant", "awaiting_grant_decision")
 BUDGET_FIELDS = ("consumed_seconds", "limit_seconds")
-ISSUE_FIELDS = ("kind", "ref_id", "summary", "detail")
+ISSUE_FIELDS = ("kind", "project", "ref_id", "summary", "detail")
 ISSUE_KIND_LABELS = {
     "task_blocked",
     "task_interrupted",
@@ -170,11 +185,23 @@ class TestCrossLanguageContracts:
 class TestApiFieldContract:
     @pytest.fixture()
     def document(self, tmp_path: Path) -> dict:
+        from datetime import UTC, datetime
+
+        from forgeloop.domain.project import project_data_root
+        from forgeloop.domain.task_plan import PlannedTask, TaskPlan
+        from forgeloop.records.projects import ProjectStore, project_records_path
         from forgeloop.records.requirements import RequirementStore
         from forgeloop.records.store import RecordStore
 
-        root = tmp_path / ".forgeloop"
-        root.mkdir()
+        base = tmp_path / ".forgeloop"
+        base.mkdir()
+        projects = ProjectStore(project_records_path(base))
+        try:
+            projects.add("forgeloop", "ForgeLoop", str(tmp_path / "repo"))
+        finally:
+            projects.close()
+        root = project_data_root(base, "forgeloop")
+        root.mkdir(parents=True)
         store = RecordStore(root / "records.sqlite")
         try:
             store.create_task(
@@ -189,11 +216,32 @@ class TestApiFieldContract:
             store.close()
         requirement_store = RequirementStore(root / "records.sqlite")
         try:
-            requirement_store.submit("forgeloop", "页面要显示需求进展")
+            requirement = requirement_store.submit("forgeloop", "页面要显示需求进展")
+            # 页面按身份把需求分解出的任务与任务段串起来，因此这里必须真有任务包条目。
+            requirement_store.record_task_plan(
+                requirement.req_id,
+                TaskPlan(
+                    task_plan_id="plan-page",
+                    requirement_id=requirement.req_id,
+                    project="forgeloop",
+                    plan_version=1,
+                    requirement_version=1,
+                    tasks=(
+                        PlannedTask(
+                            task_id="first",
+                            goal="把状态页分成需求、任务、问题三段",
+                            files=("frontend/src/render.ts",),
+                            acceptance="三个页签按身份串起来",
+                            test_command=("pytest", "-q"),
+                        ),
+                    ),
+                    created_at=datetime.now(UTC),
+                ),
+            )
         finally:
             requirement_store.close()
         documents = ProgressDocuments(_requirement_document, _status_document)
-        return build_progress_document(root, RefreshSetting(60, RefreshSource.DEFAULT), documents)
+        return build_progress_document(base, RefreshSetting(60, RefreshSource.DEFAULT), documents)
 
     def test_top_level_fields_and_counts(self, document: dict) -> None:
         for field in TOP_LEVEL_FIELDS:
@@ -206,8 +254,20 @@ class TestApiFieldContract:
         task = document["tasks"][0]
         for field in REQUIREMENT_FIELDS:
             assert field in requirement, field
+        assert requirement["versions"], "需求必须带原文版本，否则卡片没有描述可显示"
+        for version in requirement["versions"]:
+            for field in REQUIREMENT_VERSION_FIELDS:
+                assert field in version, field
+        for entry in requirement["tasks"]:
+            for field in REQUIREMENT_TASK_FIELDS:
+                assert field in entry, field
         for field in TASK_FIELDS:
             assert field in task, field
+        # 单任务流程创建的任务可能没有任务包（plan 为 null）；有任务包时必须带目标。
+        plan = task["plan"]
+        if plan is not None:
+            for field in TASK_PLAN_FIELDS:
+                assert field in plan, field
         for field in FAILURE_FIELDS:
             assert field in task["failures"], field
         for field in BUDGET_FIELDS:
@@ -224,10 +284,20 @@ class TestApiFieldContract:
         """未核对动作独立成项：任务状态仍是进行中，但必须出现在页面「问题」段。"""
 
         from forgeloop.cli.web import ProgressDocuments
+        from forgeloop.domain.project import project_data_root
+        from forgeloop.records.projects import ProjectStore, project_records_path
         from forgeloop.records.store import RecordStore
 
-        root = tmp_path / ".forgeloop"
-        root.mkdir()
+        # 多项目模式：业务记录在项目的记录根下（页面按项目聚合），登记根不再有业务库。
+        base = tmp_path / ".forgeloop"
+        base.mkdir()
+        projects = ProjectStore(project_records_path(base))
+        try:
+            projects.add("forgeloop", "ForgeLoop", str(tmp_path / "repo"))
+        finally:
+            projects.close()
+        root = project_data_root(base, "forgeloop")
+        root.mkdir(parents=True)
         store = RecordStore(root / "records.sqlite")
         try:
             store.create_task(
@@ -244,7 +314,7 @@ class TestApiFieldContract:
         documents = ProgressDocuments(_requirement_document, _status_document)
 
         document = build_progress_document(
-            root, RefreshSetting(60, RefreshSource.DEFAULT), documents
+            base, RefreshSetting(60, RefreshSource.DEFAULT), documents
         )
 
         kinds = [issue["kind"] for issue in document["issues"]]

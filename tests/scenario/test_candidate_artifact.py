@@ -10,11 +10,11 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+from project_support import project_records, record_store, register_project
 from support import run_cli, run_git
 
 from forgeloop.cli import candidate as candidate_cli
 from forgeloop.domain import artifact as artifact_domain
-from forgeloop.records.store import RecordStore
 
 TASK_ID = "task-cand"
 
@@ -63,7 +63,8 @@ def make_candidate_project(tmp_path: Path, version: str = "0.0.1") -> Path:
 def seed_task(records: Path, project: Path, commit: str, merged: bool = True) -> None:
     """写入任务与（可选的）归并记录，作为候选构建的授权来源。"""
 
-    store = RecordStore(records / "records.sqlite")
+    register_project(records, repo_path=str(project))
+    store = record_store(records)
     try:
         store.create_task(
             TASK_ID,
@@ -91,7 +92,9 @@ def sha256_of_file(path: Path) -> str:
 
 
 def read_receipt(records: Path) -> dict:
-    return json.loads((records / TASK_ID / "candidate-artifact.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (project_records(records) / TASK_ID / "candidate-artifact.json").read_text(encoding="utf-8")
+    )
 
 
 class TestCandidateBuildScenario:
@@ -117,7 +120,7 @@ class TestCandidateBuildScenario:
         wheel = Path(receipt["wheel_path"])
         assert wheel.is_file()
         assert sha256_of_file(wheel) == receipt["sha256"]
-        assert wheel.parent == records / TASK_ID / "artifacts"
+        assert wheel.parent == project_records(records) / TASK_ID / "artifacts"
 
     def test_unauthorized_commit_is_refused(self, tmp_path: Path, capsys) -> None:
         project = make_candidate_project(tmp_path)
@@ -129,7 +132,7 @@ class TestCandidateBuildScenario:
 
         assert code == 1, out
         assert "未授权提交" in out
-        assert not (records / TASK_ID / "candidate-artifact.json").exists()
+        assert not (project_records(records) / TASK_ID / "candidate-artifact.json").exists()
 
     def test_unmerged_task_is_refused(self, tmp_path: Path, capsys) -> None:
         project = make_candidate_project(tmp_path)
@@ -141,7 +144,7 @@ class TestCandidateBuildScenario:
 
         assert code == 1, out
         assert "归并" in out
-        assert not (records / TASK_ID / "candidate-artifact.json").exists()
+        assert not (project_records(records) / TASK_ID / "candidate-artifact.json").exists()
 
     def test_repeated_build_difference_is_reported(
         self, tmp_path: Path, capsys, monkeypatch

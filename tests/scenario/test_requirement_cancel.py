@@ -8,16 +8,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from project_support import register_project
 from support import run_cli
+
+PROJECT = "forgeloop"
 
 
 def submit(tmp_path: Path, capsys, text: str = "取消场景：批量导出") -> str:
+    register_project(tmp_path)
     code, out = run_cli(
         [
             "requirement",
             "submit",
             "--project",
-            "ForgeLoop",
+            PROJECT,
             "--input",
             text,
             "--records-root",
@@ -77,21 +82,23 @@ class TestRequirementCancel:
         assert code == 1 and "fail-closed" in out
 
     def test_unknown_requirement_fails_loudly(self, tmp_path: Path, capsys) -> None:
-        code, out = run_cli(
-            [
-                "requirement",
-                "cancel",
-                "req-19990101000000-000000",
-                "--by",
-                "owner",
-                "--reason",
-                "不存在",
-                "--records-root",
-                str(tmp_path),
-            ],
-            capsys,
-        )
-        assert code == 1 and "需求不存在" in out
+        # 与其它需求命令同一口径：定位不到需求时确定性失败（SystemExit → 退出码 1）。
+        register_project(tmp_path)
+        with pytest.raises(SystemExit, match="需求不存在"):
+            run_cli(
+                [
+                    "requirement",
+                    "cancel",
+                    "req-19990101000000-000000",
+                    "--by",
+                    "owner",
+                    "--reason",
+                    "不存在",
+                    "--records-root",
+                    str(tmp_path),
+                ],
+                capsys,
+            )
 
 
 class TestCancelledIsTerminalForAdvance:

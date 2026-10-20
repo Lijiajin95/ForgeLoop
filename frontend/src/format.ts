@@ -5,7 +5,16 @@
  * 结果写进 DOM。这样这些规则可以被单元测试与变异测试直接覆盖，不需要浏览器。
  */
 
-import type { BudgetSummary, FailureSummary, NextStep, RequirementTaskEntry } from "./payload.js";
+import type {
+  BudgetSummary,
+  FailureSummary,
+  NextStep,
+  RequirementPlan,
+  RequirementTaskEntry,
+  RequirementVersion,
+  TaskEntry,
+  TaskPlanSummary,
+} from "./payload.js";
 
 /** 缺值与空值的统一写法。 */
 export const EMPTY = "—";
@@ -127,4 +136,69 @@ export function countdownText(remainingSeconds: number, autoRefreshOff: boolean)
     return "正在刷新…";
   }
   return `${remainingSeconds} 秒后刷新`;
+}
+
+/**
+ * 需要人工关注的任务状态；这些状态的行会被标红并与问题段对应。
+ *
+ * 停机与工时耗尽同样是「等人决定」的状态，不能只认 blocked / interrupted，
+ * 否则页面会把它们显示得和正常推进一样。
+ */
+const ABNORMAL_TASK_STATUSES = new Set(["blocked", "interrupted", "time_exhausted"]);
+
+/** 任务状态是否属于需要人工关注的那一类。 */
+export function statusIsAbnormal(status: string): boolean {
+  return ABNORMAL_TASK_STATUSES.has(status);
+}
+
+/** 任务包说明：有版本写版本，没有写缺值（不假装有任务包）。 */
+export function planLabel(plan: RequirementPlan | null): string {
+  return plan === null ? `任务包 ${EMPTY}` : `任务包 v${plan.plan_version}`;
+}
+
+/** 任务执行状态：记录不存在时如实写「未派发」，不显示不存在的执行事实。 */
+export function taskStatusText(task: TaskEntry | null): string {
+  return task === null ? "未派发" : text(task.status);
+}
+
+/** 问题徽标文案；没有问题时返回空串（由渲染层决定不渲染徽标）。 */
+export function issueBadgeText(count: number): string {
+  return count === 0 ? "" : `问题 ${count}`;
+}
+
+/**
+ * 需求说明行的性质：记录里有阻断原因、或处于阻断／中断态才算真正阻断。
+ *
+ * 已验收与草稿也会带派生文案（「需求整体验收已完成」「还没有任务包」），那些是
+ * 说明而不是告警，不能一律标红——否则页面上每条正常需求都像出了问题。
+ */
+const BLOCKED_REQUIREMENT_STATUSES = new Set(["blocked", "interrupted"]);
+
+export function requirementIsBlocked(status: string, blockedReason: string): boolean {
+  return blockedReason !== "" || BLOCKED_REQUIREMENT_STATUSES.has(status);
+}
+
+/** 取版本号最大的一版需求原文；没有原文时返回 `null`（不编造内容）。 */
+export function latestVersion(versions: readonly RequirementVersion[]): RequirementVersion | null {
+  let latest: RequirementVersion | null = null;
+  versions.forEach((version) => {
+    if (latest === null || version.version > latest.version) {
+      latest = version;
+    }
+  });
+  return latest;
+}
+
+/** 任务目标作为任务描述；没有任务包或目标为空时给出空串。 */
+export function taskGoal(plan: TaskPlanSummary | null): string {
+  return plan === null ? "" : plan.goal;
+}
+
+/** 描述摘录：把换行与连续空白压成单空格，超长按字数截断并标出省略。 */
+export function excerpt(value: string, max: number): string {
+  const flat = value.replaceAll(/\s+/gu, " ").trim();
+  if (flat.length <= max) {
+    return flat;
+  }
+  return `${flat.slice(0, max)}…`;
 }

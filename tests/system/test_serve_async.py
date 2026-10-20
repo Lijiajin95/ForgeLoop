@@ -27,6 +27,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from project_support import (
+    project_records,
+    requirement_store,
+)
 
 pytestmark = pytest.mark.system
 
@@ -49,9 +53,8 @@ def _seed_requirement(records: Path) -> str:
 
     sys.path.insert(0, str(SRC))
     from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
-    from forgeloop.records.requirements import RequirementStore
 
-    store = RequirementStore(records / "records.sqlite")
+    store = requirement_store(records)
     try:
         requirement = store.submit(PROJECT, "需求：常驻进程自动接续")
         task = PlannedTask(
@@ -206,7 +209,9 @@ def _workspace_status(records: Path, thread_id: str) -> tuple[str, int]:
     """只读 SQLite：返回（任务状态，已完成动作数）；记录不存在时返回 ("missing", 0)。"""
 
     try:
-        connection = sqlite3.connect(f"file:{records / 'records.sqlite'}?mode=ro", uri=True)
+        connection = sqlite3.connect(
+            f"file:{project_records(records) / 'records.sqlite'}?mode=ro", uri=True
+        )
     except sqlite3.Error:  # pragma: no cover - 记录库尚未建立
         return "missing", 0
     try:

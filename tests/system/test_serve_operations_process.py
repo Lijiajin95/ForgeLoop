@@ -23,6 +23,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from project_support import (
+    project_records,
+    register_project,
+    requirement_store,
+)
 
 pytestmark = pytest.mark.system
 
@@ -231,6 +236,8 @@ def test_page_flow_submit_approve_advance_accept(tmp_path: Path) -> None:
     """页面提交 → 页面批准 → 自动推进 → 页面验收，全程只经 HTTP 与真实记录。"""
 
     records = tmp_path / "records"
+    # 多项目模式：先登记项目，常驻服务才会把业务记录写进项目记录根。
+    register_project(records)
     home = _pi_home(tmp_path)
     service_config = _service_config(tmp_path, home)
 
@@ -290,9 +297,8 @@ def _prepare_plan(records: Path, req_id: str) -> None:
 
     sys.path.insert(0, str(SRC))
     from forgeloop.domain.task_plan import PlannedTask, TaskPlan
-    from forgeloop.records.requirements import RequirementStore
 
-    store = RequirementStore(records / "records.sqlite")
+    store = requirement_store(records)
     try:
         plan = TaskPlan(
             task_plan_id=f"plan-{req_id}-1",
@@ -321,7 +327,9 @@ def _approval_source(records: Path) -> str:
 
     import sqlite3
 
-    connection = sqlite3.connect(f"file:{records / 'records.sqlite'}?mode=ro", uri=True)
+    connection = sqlite3.connect(
+        f"file:{project_records(records) / 'records.sqlite'}?mode=ro", uri=True
+    )
     try:
         row = connection.execute(
             "SELECT source FROM requirement_plan_approvals ORDER BY approved_at DESC LIMIT 1"
@@ -334,7 +342,9 @@ def _approval_source(records: Path) -> str:
 def _read_tasks(records: Path) -> dict[str, str]:
     import sqlite3
 
-    connection = sqlite3.connect(f"file:{records / 'records.sqlite'}?mode=ro", uri=True)
+    connection = sqlite3.connect(
+        f"file:{project_records(records) / 'records.sqlite'}?mode=ro", uri=True
+    )
     try:
         return {
             str(row[0]): str(row[1]) for row in connection.execute("SELECT id, status FROM tasks")

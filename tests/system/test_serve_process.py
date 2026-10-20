@@ -21,6 +21,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from project_support import (
+    record_store,
+)
 
 pytestmark = pytest.mark.system
 
@@ -248,9 +251,8 @@ def seed_blocked_task(records: Path) -> None:
     """直接写真实 SQLite 记录（与集成层同一个夹具口径），供常驻进程读取。"""
 
     sys.path.insert(0, str(SRC))
-    from forgeloop.records.store import RecordStore
 
-    store = RecordStore(records / "records.sqlite")
+    store = record_store(records)
     try:
         store.create_task(
             "task-blocked",

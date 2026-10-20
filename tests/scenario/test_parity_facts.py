@@ -11,14 +11,13 @@ from parity_facts import (
     cancel_facts,
     submit_facts,
 )
-
-from forgeloop.records.requirements import RequirementStore
+from project_support import requirement_store
 
 
 def _seed(records_root: Path, text: str = "事实读取器：导出功能") -> str:
-    store = RequirementStore(records_root / "records.sqlite")
+    store = requirement_store(records_root)
     try:
-        return store.submit("ForgeLoop", text).req_id
+        return store.submit("forgeloop", text).req_id
     finally:
         store.close()
 
@@ -56,7 +55,7 @@ def test_facts_are_all_negative_before_any_operation(tmp_path: Path) -> None:
 
 def test_cancel_facts_positive_after_cancellation(tmp_path: Path) -> None:
     req_id = _seed(tmp_path)
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     try:
         store.record_requirement_cancellation(req_id, by="owner", reason="事实读取器测试")
     finally:

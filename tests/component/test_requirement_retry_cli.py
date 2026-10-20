@@ -2,7 +2,8 @@
 
 覆盖本任务验收的核心行为（不依赖 fixture 伪造成功）：
 
-- 命令注册后，``--by``/``--reason``/``--pi-command`` 必填，缺项由解析层拒绝；
+- 命令注册后，``--by``/``--reason`` 必填，缺项由解析层拒绝；``--pi-command`` 可省略
+  （运行状态可能已切到 DSH），缺可用命令时在启动执行器前 fail-closed；
 - 对业务节点返回 ``halted_reason`` 的真实中断现场，命令在记录人工决定后立即驱动
   ``RequirementTaskRunner`` 就地续跑：``dev`` 重入一次后继续 ``review``/``test``，
   不重放更早的 ``plan``；
@@ -20,6 +21,7 @@ from typing import cast
 import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
+from project_support import project_records, record_store, register_project, requirement_store
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
@@ -31,8 +33,6 @@ from forgeloop.records.checkpoints import (
     latest_retry_decision,
     outstanding_action_node,
 )
-from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.component
 
@@ -62,7 +62,7 @@ def _planned() -> PlannedTask:
 def _approved(root: Path) -> str:
     """建立已批准的单任务需求，返回需求身份。"""
 
-    store = RequirementStore(root / "records.sqlite")
+    store = requirement_store(root, legacy_project=PROJECT)
     try:
         requirement = store.submit(PROJECT, "需求：CLI 人工续跑")
         plan = TaskPlan(
@@ -97,7 +97,7 @@ def _msgpack_dumps(values: dict) -> bytes:
 
 def _runner(root: Path, req_id: str) -> RequirementTaskRunner:
     return RequirementTaskRunner(
-        records_root=root,
+        records_root=register_project(root, legacy_project=PROJECT),
         req_id=req_id,
         plan_version=PLAN_VERSION,
         project=PROJECT,
@@ -134,15 +134,16 @@ def _halted_action_unchecked(root: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     runner = _runner(root, req_id)
     thread_id = requirement_task_id(req_id, PLAN_VERSION, TASK)
     task = _planned()
-    store = RecordStore(root / "records.sqlite")
+    store = record_store(root)
     graph = None
     action_id = ""
     try:
         store.create_task(
             thread_id, PROJECT, task.goal, runner._config(task), task.limits.limit_seconds
         )
-        context = NodeContext.for_task(store, root, thread_id)
-        graph = build_graph(context, root / "checkpoints.sqlite")
+        project_root = register_project(root, legacy_project=PROJECT)
+        context = NodeContext.for_task(store, project_root, thread_id)
+        graph = build_graph(context, project_root / "checkpoints.sqlite")
         config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
         graph.invoke({"task_id": thread_id}, config)
         runner._approve_plan(store, thread_id)
@@ -187,7 +188,9 @@ def _mark_legacy_stale(root: Path, thread_id: str) -> None:
 
     import sqlite3 as _sqlite3
 
-    connection = _sqlite3.connect(root / "checkpoints.sqlite", check_same_thread=False)
+    connection = _sqlite3.connect(
+        project_records(root) / "checkpoints.sqlite", check_same_thread=False
+    )
     try:
         row = connection.execute(
             "SELECT checkpoint_id, type, checkpoint FROM checkpoints"
@@ -208,7 +211,7 @@ def _mark_legacy_stale(root: Path, thread_id: str) -> None:
 
 
 def _completed_nodes(root: Path, thread_id: str) -> list[str]:
-    store = RecordStore(root / "records.sqlite")
+    store = record_store(root)
     try:
         return [
             action.node
@@ -232,14 +235,14 @@ class TestRetryDrivesResume:
         assert code == 0, captured.out + captured.err
         assert f"实际处理任务: {TASK}" in captured.out
         assert thread_id in captured.out
-        decision = latest_retry_decision(tmp_path, req_id, thread_id)
+        decision = latest_retry_decision(project_records(tmp_path), req_id, thread_id)
         assert decision is not None
         assert decision.decided_by == "owner"
         assert decision.reason == REASON
         # 真实图就地续跑：dev 重入一次后继续 review/test，plan 未从 START 重放。
         assert _completed_nodes(tmp_path, thread_id) == ["dev", "dev", "review", "test"]
-        assert (tmp_path / thread_id / "candidate.diff").is_file()
-        store = RecordStore(tmp_path / "records.sqlite")
+        assert (project_records(tmp_path) / thread_id / "candidate.diff").is_file()
+        store = record_store(tmp_path)
         try:
             plan = store.latest_plan(thread_id)
         finally:
@@ -275,7 +278,7 @@ class TestRetryDrivesResume:
 
         assert code == 1
         assert "--node" in captured.err
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(project_records(tmp_path), req_id, thread_id) is None
         assert _completed_nodes(tmp_path, thread_id) == before
 
     def test_legacy_stale_halt_resumes_at_named_node(
@@ -292,7 +295,7 @@ class TestRetryDrivesResume:
 
         assert code == 0, captured.out + captured.err
         assert "人工指定重入节点: dev" in captured.out
-        decision = latest_retry_decision(tmp_path, req_id, thread_id)
+        decision = latest_retry_decision(project_records(tmp_path), req_id, thread_id)
         assert decision is not None
         assert decision.resume_node == "dev"
         assert _completed_nodes(tmp_path, thread_id) == ["dev", "dev", "review", "test"]
@@ -309,13 +312,13 @@ class TestRetryDrivesResume:
         assert code == 1
         assert "理由" in captured.err
         assert _completed_nodes(tmp_path, thread_id) == before
-        assert latest_retry_decision(tmp_path, req_id, thread_id) is None
+        assert latest_retry_decision(project_records(tmp_path), req_id, thread_id) is None
 
     def test_retry_releases_outstanding_action_and_resumes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         req_id, thread_id, action_id = _halted_action_unchecked(tmp_path, monkeypatch)
-        assert outstanding_action_node(tmp_path, thread_id) == "dev"
+        assert outstanding_action_node(project_records(tmp_path), thread_id) == "dev"
         monkeypatch.setenv("FAKE_PI_MODE", "ok")
 
         code = cli_main(_retry_argv(tmp_path, req_id))
@@ -325,14 +328,14 @@ class TestRetryDrivesResume:
         assert f"实际处理任务: {TASK}" in captured.out
         assert "已释放未完成动作" in captured.out
         # 审计可回查：谁/何时/理由/动作身份都在档。
-        releases = action_releases(tmp_path, thread_id)
+        releases = action_releases(project_records(tmp_path), thread_id)
         assert [item.action_id for item in releases] == [action_id]
         assert releases[0].released_by == "owner"
         assert releases[0].reason == REASON
-        assert outstanding_action_node(tmp_path, thread_id) == ""
+        assert outstanding_action_node(project_records(tmp_path), thread_id) == ""
         # 真实图从被释放动作所在节点就地重入，dev/review/test 只执行一次。
         assert _completed_nodes(tmp_path, thread_id) == ["dev", "review", "test"]
-        assert (tmp_path / thread_id / "candidate.diff").is_file()
+        assert (project_records(tmp_path) / thread_id / "candidate.diff").is_file()
 
 
 class TestStatusReportsDecision:
@@ -368,16 +371,54 @@ class TestStatusReportsDecision:
 
 
 class TestMissingRequiredOption:
-    def test_missing_pi_command_is_rejected(
+    def test_missing_pi_command_is_accepted_by_parser(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        # 省略 --pi-command 不应由解析层拒绝：运行状态可能已切到 DSH。这里没有
+        # 可续跑现场，命令由业务校验拒绝（exit 1），错误信息里不再出现缺参提示。
         req_id = _approved(tmp_path)
         argv = _retry_argv(tmp_path, req_id)
         index = argv.index("--pi-command")
         del argv[index : index + 2]
 
-        with pytest.raises(SystemExit) as excinfo:
-            cli_main(argv)
+        code = cli_main(argv)
 
-        assert excinfo.value.code != 0
-        assert "--pi-command" in capsys.readouterr().err
+        assert code == 1
+        assert "--pi-command" not in capsys.readouterr().err
+
+
+class TestRuntimeUnavailable:
+    """运行时不可用时 fail-closed：不伪装续跑成功，也不丢现场。"""
+
+    def test_retry_aborts_when_executor_reports_runtime_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        req_id, _thread_id = _halted(tmp_path, monkeypatch)
+        from forgeloop.cli import requirements as requirements_module
+        from forgeloop.domain.agent_runtime import AgentRuntimeError
+
+        def _raise(self) -> None:
+            raise AgentRuntimeError("Agent Runtime pi 缺少启动命令")
+
+        monkeypatch.setattr(requirements_module.RequirementExecutor, "advance", _raise)
+
+        code = cli_main(
+            [
+                "requirement",
+                "retry",
+                req_id,
+                "--task",
+                TASK,
+                "--by",
+                "owner",
+                "--reason",
+                REASON,
+                "--records-root",
+                str(tmp_path),
+            ]
+        )
+        captured = capsys.readouterr()
+
+        assert code == 1
+        assert "运行时不可用" in captured.err
+        assert "缺少启动命令" in captured.err

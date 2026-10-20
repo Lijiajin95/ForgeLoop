@@ -40,7 +40,7 @@ from types import FrameType
 from typing import cast
 from urllib.parse import urlsplit
 
-from forgeloop.cli.common import fail, records_root
+from forgeloop.cli.common import base_records_root, fail
 from forgeloop.cli.panel import (
     PANEL_ROUTE,
     PANEL_SESSIONS_ROUTE,
@@ -69,6 +69,7 @@ from forgeloop.domain.progress import (
     ProgressConfigError,
     resolve_refresh_seconds,
 )
+from forgeloop.domain.project import Project, project_data_root
 from forgeloop.domain.projects import (
     DEFAULT_PROJECTS_FILE,
     SOURCE_PANEL,
@@ -89,6 +90,7 @@ from forgeloop.domain.service import (
 )
 from forgeloop.graph.conversation import ConversationRunner
 from forgeloop.graph.worker import ServiceWorker, WorkerRefused
+from forgeloop.records.projects import iter_projects, project_by_name
 from forgeloop.records.requirements import RequirementStore
 
 # signal.getsignal/signal.signal 的处理器类型：``signal.Handlers`` 在 3.13 是
@@ -152,6 +154,25 @@ class ServeSettings:
     operations: ServeOperations
     projects_path: Path = Path(DEFAULT_PROJECTS_FILE)
     """面板项目档案路径（页面独占写入；与手写 ``config/service.toml`` 项目不得同名）。"""
+
+    project: Project | None = None
+    """本进程服务的项目（多项目模式下记录在 ``projects/<project_id>/`` 下）。
+
+    ``None`` 只出现在登记根尚无项目的旧现场：此时业务记录退回登记根本身，
+    与 ``cli.common.records_root`` 对无 ``--project`` 命令的口径一致。
+    """
+
+    @property
+    def records_root(self) -> Path:
+        """业务记录根：项目记录根（有项目）或登记根（旧单根现场）。"""
+
+        if self.project is None:
+            return self.web.records_root
+        return project_data_root(self.web.records_root, self.project.project_id)
+
+    @property
+    def project_id(self) -> str:
+        return "" if self.project is None else self.project.project_id
 
 
 def load_service_config(path: Path) -> Mapping[str, object] | None:
@@ -221,8 +242,8 @@ def build_panel_context(settings: ServeSettings) -> PanelContext:
 
     registry = PanelRegistry(settings.service.projects, settings.projects_path)
     runner = ConversationRunner(
-        records_path=settings.web.records_root / "records.sqlite",
-        session_root=settings.web.records_root / "panel",
+        records_path=settings.records_root / "records.sqlite",
+        session_root=settings.records_root / "panel",
         projects=registry.by_name,
         readiness=panel_project_problems,
         concurrency=settings.service.panel.concurrency,
@@ -235,7 +256,7 @@ def build_panel_context(settings: ServeSettings) -> PanelContext:
         registry=registry,
         runner=runner,
         readiness=panel_project_problems,
-        db_path=settings.web.records_root / "records.sqlite",
+        db_path=settings.records_root / "records.sqlite",
     )
 
 
@@ -297,7 +318,7 @@ def deploy_section(settings: ServeSettings) -> dict[str, object]:
         active = current_version(default_prefix()) or ""
     except Exception:
         active = ""
-    store = RecordStore(settings.web.records_root / "records.sqlite")
+    store = RecordStore(settings.records_root / "records.sqlite")
     try:
         released = store.latest_release()
         approval = store.deploy_approval(released[0]) if released is not None else None
@@ -332,6 +353,7 @@ def build_service_document(
         settings.web.records_root,
         settings.web.refresh,
         settings.web.documents,
+        project_id=settings.project_id,
         generated_at=moment,
     )
     review = list(progress["issues"])
@@ -353,6 +375,8 @@ def build_service_document(
         "schema_version": SERVICE_API_SCHEMA_VERSION,
         "generated_at": moment.isoformat(),
         "records_root": str(settings.web.records_root),
+        "project": settings.project_id,
+        "project_records_root": str(settings.records_root),
         "config_path": str(settings.config_path),
         "pid": os.getpid(),
         "started_at": worker.started_at.isoformat(),
@@ -544,7 +568,7 @@ class ServiceRequestHandler(ProgressRequestHandler):
             raise OperationRejected(
                 400, "invalid_key", f"幂等键必须是 ≤{MAX_CLIENT_KEY_CHARS} 字符且不含空白的字符串"
             )
-        root = self.serve_settings.web.records_root
+        root = self.serve_settings.records_root
         store = RequirementStore(root / "records.sqlite")
         try:
             outcome = store.submit_once(
@@ -612,7 +636,7 @@ class ServiceRequestHandler(ProgressRequestHandler):
 
         if not reason.strip():
             raise OperationRejected(400, "reason_required", "取消需求必须填写理由")
-        root = self.serve_settings.web.records_root
+        root = self.serve_settings.records_root
         store = RequirementStore(root / "records.sqlite")
         try:
             try:
@@ -735,6 +759,32 @@ def build_server(
     )
 
 
+def _served_project(base: Path, requested: str) -> Project | None:
+    """解析本进程服务的项目：显式 ``--project`` 优先，否则要求唯一已登记项目。
+
+    登记根尚无项目时返回 ``None``（旧单根现场的兼容口径，与 CLI 无 ``--project`` 的
+    命令一致）；有多个项目却不指定时明确失败——让服务进程自己挑一个会把页面写入口
+    与常驻接续作用到错误的项目上。
+    """
+
+    if requested:
+        project = project_by_name(base, requested)
+        if project is None:
+            raise ServeConfigError(
+                f"项目未登记: {requested}（先运行 `forgeloop project add` 登记要服务的项目）"
+            )
+        return project
+    locations = list(iter_projects(base))
+    if not locations:
+        return None
+    if len(locations) > 1:
+        listed = "、".join(sorted(item.project.project_id for item in locations))
+        raise ServeConfigError(
+            f"记录根里有多个已登记项目（{listed}）；请用 --project 指定本进程服务的项目"
+        )
+    return locations[0].project
+
+
 def _resolve_settings(
     args: argparse.Namespace,
     root: Path,
@@ -768,6 +818,7 @@ def _resolve_settings(
         config_path=service_config_path,
         operations=args.operations,
         projects_path=Path(args.projects_file),
+        project=_served_project(root, getattr(args, "project", "") or ""),
     )
 
 
@@ -812,6 +863,11 @@ def _serve_until_stopped(
     service = settings.service
     print(f"状态页: http://{host}:{port}/", flush=True)
     print(f"记录根: {settings.web.records_root}", flush=True)
+    print(
+        f"服务项目: {settings.project_id or '（未登记项目：旧单根现场）'}，"
+        f"业务记录根 {settings.records_root}",
+        flush=True,
+    )
     print(f"自动刷新: {refresh_text(settings.web.refresh, web_config_path)}", flush=True)
     status = worker.status()
     print(f"常驻 worker: 每 {service.poll_seconds} 秒心跳", flush=True)
@@ -864,7 +920,8 @@ def _serve_until_stopped(
 def cmd_serve(args: argparse.Namespace) -> int:
     """常驻服务入口：默认常驻；``--once`` 只做一次启动核对。"""
 
-    root = records_root(args)
+    # ``--records-root`` 是登记根：业务记录在所选项目的记录根下（见 ServeSettings.records_root）。
+    root = base_records_root(args)
     service_config_path = Path(args.service_config)
     web_config_path = Path(args.web_config)
     try:
@@ -872,7 +929,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     except (ServeConfigError, ServiceConfigError, WebConfigError, ProgressConfigError) as error:
         return fail(str(error))
     worker = ServiceWorker(
-        root,
+        settings.records_root,
         poll_seconds=settings.service.poll_seconds,
         auto_advance=settings.service.auto_advance,
         projects=settings.service.projects,
@@ -947,5 +1004,10 @@ def add_serve_parser(
         help="只做一次启动核对并打印状态（不监听端口、不常驻）",
     )
     serve.add_argument("--json", action="store_true", help="配合 --once 输出稳定 JSON 文档")
+    serve.add_argument(
+        "--project",
+        default="",
+        help="本进程服务的项目身份（缺省取唯一已登记项目；有多个项目时必须指定）",
+    )
     serve.add_argument("--records-root", default=default_records_root)
     serve.set_defaults(func=cmd_serve, progress_documents=documents, operations=operations)

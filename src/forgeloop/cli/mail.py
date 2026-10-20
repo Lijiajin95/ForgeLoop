@@ -39,7 +39,12 @@ from forgeloop.adapter.mail import (
     SmtpMailSender,
     SmtpSettings,
 )
-from forgeloop.cli.common import fail, records_root
+from forgeloop.cli.common import (
+    base_records_root,
+    fail,
+    locate_requirement_root,
+    records_root,
+)
 from forgeloop.domain.mail import (
     MAX_DISAMBIGUATION_ROUNDS,
     Attachment,
@@ -812,7 +817,7 @@ def cmd_mail_confirm(args: argparse.Namespace) -> int:
     if kind is Classification.DISAMBIGUATE and not questions:
         return fail("消歧反馈至少要给出一个 --question ID=问题")
 
-    root = records_root(args)
+    root = locate_requirement_root(base_records_root(args), args.req_id).root
     requirement_store = RequirementStore(root / "records.sqlite")
     connection = _open_thread_connection(root)
     thread_store = MailThreadStore(connection)
@@ -877,8 +882,13 @@ def add_mail_parser(
     default_records_root: str,
     *,
     poll_entry: Callable[[argparse.Namespace], int] | None = None,
-) -> None:
-    """注册 ``mail`` 命令组（poll/confirm）；解析器装配留在命令模块内。"""
+) -> argparse._SubParsersAction:
+    """注册 ``mail`` 命令组（poll/confirm）；解析器装配留在命令模块内。
+
+    返回 ``mail`` 的子命令动作，供 ``cli.main`` 追加同组的 ``interact`` 子命令，
+    避免 ``cli.mail`` 反向导入交互模块形成环。``poll_entry`` 由组合根注入，
+    让「轮询 → 操作分派/自动回信/自动分析」留在 ``cli.main``（不反向依赖）。
+    """
 
     mail = subparsers.add_parser("mail", help="邮件工作流：cron 轮询、分类建议与人工确认发信")
     actions = mail.add_subparsers(dest="mail_command", required=True)
@@ -944,3 +954,4 @@ def add_mail_parser(
     confirm.add_argument("--records-root", default=default_records_root)
     _add_connection_args(confirm)
     confirm.set_defaults(func=cmd_mail_confirm)
+    return actions

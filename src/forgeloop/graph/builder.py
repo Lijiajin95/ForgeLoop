@@ -203,7 +203,9 @@ class RequirementTaskRunner:
     req_id: str
     plan_version: int
     project: str
-    pi_command: tuple[str, ...]
+    # PI 启动命令：可缺省。运行状态切到 DSH 时用不到；真正缺少可用命令时由
+    # ``graph.agent_execution`` 在动作启动前 fail-closed，不在这里猜一条。
+    pi_command: tuple[str, ...] = ()
     project_path: str = ""
     baseline: str = ""
     pi_timeout_seconds: float | None = None
@@ -294,10 +296,11 @@ class RequirementTaskRunner:
             "scope": "\n".join(task.files),
             "acceptance": task.acceptance,
             "test_command": json.dumps(list(task.test_command), ensure_ascii=False),
-            "pi_command": json.dumps(list(self.pi_command), ensure_ascii=False),
             "project_path": self.project_path,
             "baseline": self.baseline,
         }
+        if self.pi_command:
+            config["pi_command"] = json.dumps(list(self.pi_command), ensure_ascii=False)
         if self.pi_timeout_seconds is not None:
             config["pi_timeout_seconds"] = str(self.pi_timeout_seconds)
         return config

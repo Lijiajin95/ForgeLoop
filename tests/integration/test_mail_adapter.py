@@ -329,6 +329,7 @@ def build_message(
     references: tuple[str, ...] = (),
     attachment: tuple[str, bytes] | None = None,
     date: datetime = WHEN,
+    auto_submitted: str | None = None,
 ) -> bytes:
     message = EmailMessage()
     if message_id is not None:
@@ -341,6 +342,8 @@ def build_message(
         message["In-Reply-To"] = in_reply_to
     if references:
         message["References"] = " ".join(references)
+    if auto_submitted is not None:
+        message["Auto-Submitted"] = auto_submitted
     message.set_content(body)
     if attachment is not None:
         filename, content = attachment
@@ -688,6 +691,42 @@ class TestSendFeedback:
             adapter.send_feedback(req_id="  ", kind="disambiguate", subject="x", body="y")
 
 
+class TestSendReply:
+    def test_reply_keeps_thread_headers_and_stable_message_id(self, store: MailThreadStore) -> None:
+        with running_mail(store, messages=[]) as (adapter, _imap, smtp_server):
+            delivered = adapter.send_reply(
+                to="owner@example.com",
+                subject=f"[ForgeLoop][{REQ}][状态]",
+                body="状态：executing",
+                message_id="<reply-1@forgeloop.local>",
+                in_reply_to="<in-1@example.com>",
+                references=("<root@example.com>", "<in-1@example.com>"),
+            )
+            captured = smtp_server.messages[0]
+
+        assert delivered == "<reply-1@forgeloop.local>"
+        assert b"Message-ID: <reply-1@forgeloop.local>" in captured
+        assert b"In-Reply-To: <in-1@example.com>" in captured
+        assert b"References: <root@example.com> <in-1@example.com>" in captured
+        # 交互回信不进入分类反馈账（出向绑定由交互记录负责）。
+        assert store.outbound(REQ) == ()
+
+    def test_reply_generates_message_id_when_missing(self, store: MailThreadStore) -> None:
+        with running_mail(store, messages=[]) as (adapter, _imap, smtp_server):
+            delivered = adapter.send_reply(to="owner@example.com", subject="s", body="b")
+
+        assert delivered.startswith("<")
+        assert delivered.endswith(">")
+        assert f"Message-ID: {delivered}".encode() in smtp_server.messages[0]
+
+    def test_reply_requires_recipient_and_subject(self, store: MailThreadStore) -> None:
+        with running_mail(store, messages=[]) as (adapter, _imap, _smtp):
+            with pytest.raises(Exception, match="收件地址"):
+                adapter.send_reply(to=" ", subject="s", body="b")
+            with pytest.raises(Exception, match="主题"):
+                adapter.send_reply(to="owner@example.com", subject=" ", body="b")
+
+
 class TestParsing:
     def test_missing_message_id_is_a_parse_error(self) -> None:
         with pytest.raises(MailParseError, match="Message-ID"):
@@ -701,3 +740,33 @@ class TestParsing:
         )
         parsed = parse_inbound(raw, folder="INBOX", default_received_at=WHEN)
         assert parsed.references == ("<a@x>", "<b@x>")
+
+    def test_auto_submitted_header_is_preserved(self) -> None:
+        raw = build_message(
+            "<in-7@example.com>",
+            body="休假自动回复",
+            auto_submitted="auto-replied",
+        )
+        parsed = parse_inbound(raw, folder="INBOX", default_received_at=WHEN)
+        assert parsed.auto_submitted == "auto-replied"
+
+    def test_absent_auto_submitted_is_empty(self) -> None:
+        parsed = parse_inbound(
+            build_message("<in-8@example.com>", body="正常回复"),
+            folder="INBOX",
+            default_received_at=WHEN,
+        )
+        assert parsed.auto_submitted == ""
+
+    def test_encoded_subject_is_decoded_for_linking(self) -> None:
+        # 中文主题会被邮件客户端编码；不解码会丢失主题里的需求编号与线程线索。
+        parsed = parse_inbound(
+            build_message(
+                "<in-9@example.com>",
+                subject="[ForgeLoop][req-20261016071651-c4f6e4][任务包]",
+                body="status",
+            ),
+            folder="INBOX",
+            default_received_at=WHEN,
+        )
+        assert parsed.subject == "[ForgeLoop][req-20261016071651-c4f6e4][任务包]"

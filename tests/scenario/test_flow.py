@@ -14,6 +14,7 @@ from support import (
     seed_test_control,
     status_document,
     submit_task,
+    task_dir,
 )
 
 
@@ -21,7 +22,8 @@ class TestHappyLoopWithOneFailure:
     def test_approve_implement_review_test_fix_accept_deliver(
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
-        monkeypatch.setenv("FAKE_PI_MODE", "ok")
+        # edit：PI 真实改写 worktree 内文件，候选 diff 才来自工作树对基线的差异。
+        monkeypatch.setenv("FAKE_PI_MODE", "edit")
         task_id = submit_task(tmp_path, capsys)
         seed_test_control(tmp_path, task_id, fail_first=1)
 
@@ -56,14 +58,14 @@ class TestHappyLoopWithOneFailure:
         assert delivery is not None
         diff = Path(delivery["diff_path"])
         assert diff.exists() and "+new" in diff.read_text(encoding="utf-8")
-        test_runs = tmp_path / task_id / "test-run.jsonl"
+        test_runs = task_dir(tmp_path, task_id) / "test-run.jsonl"
         assert test_runs.exists()
         runs = [json.loads(line) for line in test_runs.read_text(encoding="utf-8").splitlines()]
         assert len(runs) == 2
         assert runs[0]["exit_code"] == 1 and runs[1]["exit_code"] == 0
-        assert (tmp_path / task_id / "reviews.jsonl").exists()
+        assert (task_dir(tmp_path, task_id) / "reviews.jsonl").exists()
         report = json.loads(
-            (tmp_path / task_id / "delivery-report.json").read_text(encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "delivery-report.json").read_text(encoding="utf-8")
         )
         assert report["task_id"] == task_id
         assert report["dev_attempts"] == 2
@@ -116,7 +118,7 @@ class TestReviewBlocking:
 
         reviews = [
             json.loads(line)
-            for line in (tmp_path / task_id / "reviews.jsonl")
+            for line in (task_dir(tmp_path, task_id) / "reviews.jsonl")
             .read_text(encoding="utf-8")
             .splitlines()
         ]
@@ -131,7 +133,7 @@ class TestReviewBlocking:
         document = status_document(tmp_path, task_id, capsys)
         assert document["status"] == "delivered"
         report = json.loads(
-            (tmp_path / task_id / "delivery-report.json").read_text(encoding="utf-8")
+            (task_dir(tmp_path, task_id) / "delivery-report.json").read_text(encoding="utf-8")
         )
         assert report["dev_attempts"] == 2
 

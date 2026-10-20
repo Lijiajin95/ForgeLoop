@@ -18,9 +18,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-
-from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
+from project_support import record_store, register_project, requirement_store
 
 pytestmark = pytest.mark.system
 
@@ -96,7 +94,8 @@ def running_web(records_root: Path, *extra: str) -> Iterator[str]:
 def seed_records(root: Path) -> str:
     """写入一条真实需求与一个阻断任务；返回需求身份。"""
 
-    store = RecordStore(root / "records.sqlite")
+    register_project(root)
+    store = record_store(root)
     try:
         store.create_task(
             "task-blocked",
@@ -108,11 +107,11 @@ def seed_records(root: Path) -> str:
         store.set_task_status("task-blocked", "blocked")
     finally:
         store.close()
-    requirement_store = RequirementStore(root / "records.sqlite")
+    requirements = requirement_store(root)
     try:
-        return requirement_store.submit("forgeloop", "状态页要显示需求进展").req_id
+        return requirements.submit("forgeloop", "状态页要显示需求进展").req_id
     finally:
-        requirement_store.close()
+        requirements.close()
 
 
 def fetch_json(url: str) -> tuple[int, dict]:
@@ -132,7 +131,7 @@ class TestWebProcess:
         assert status == 200
         assert [item["req_id"] for item in document["requirements"]] == [req_id]
         assert [item["task_id"] for item in document["tasks"]] == ["task-blocked"]
-        assert document["counts"] == {"requirements": 1, "tasks": 1, "issues": 1}
+        assert document["counts"] == {"projects": 1, "requirements": 1, "tasks": 1, "issues": 1}
         assert document["issues"][0]["kind"] == "task_blocked"
         # 没有配置文件时用内建默认：每 1 分钟刷新一次。
         assert document["refresh_seconds"] == 60

@@ -32,7 +32,8 @@ interface ProgressEntry {
 }
 
 async function requirementRow(page: Page, reqId: string): Promise<string> {
-  const row = page.locator("#requirements-body tr", { hasText: reqId }).first();
+  // 需求页签是卡片（三页签布局）：按身份定位卡片，不再有表格行。
+  const row = page.locator(`#requirements-body article.card[data-ref="${reqId}"]`).first();
   await expect(row).toBeVisible();
   return (await row.textContent()) ?? "";
 }

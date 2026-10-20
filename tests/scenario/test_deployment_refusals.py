@@ -169,12 +169,13 @@ class TestControlledRefusals:
         assert code == 1
         assert "发布回执" in out
 
-    def test_without_project_path_is_refused(self, tmp_path: Path, capsys) -> None:
+    def test_release_project_without_remote_is_refused(self, tmp_path: Path, capsys) -> None:
+        # 项目仓库由登记表提供；没有可解析的 GitHub owner/name 时在下载前拒绝。
         records = tmp_path / "records"
         record_release(records, None, merge_commit="a" * 40)
         code, out = deploy(capsys, prefix=tmp_path / "prefix", records_root=records)
         assert code == 1
-        assert "project_path" in out
+        assert "无法从项目仓库确定" in out
 
     def test_without_remote_slug_is_refused(self, tmp_path: Path, capsys, monkeypatch) -> None:
         env = prepare_release_env(tmp_path, monkeypatch, ReleaseScene(remote=""))

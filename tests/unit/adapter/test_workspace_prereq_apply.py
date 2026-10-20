@@ -37,6 +37,19 @@ GIT_ENV = {
 }
 
 
+def git_dir(workspace: Path) -> Path:
+    """工作副本的 git 目录：worktree 下是镜像内的私有 gitdir，不再是 .git 目录。"""
+
+    raw = subprocess.run(
+        ["git", "-C", str(workspace), "rev-parse", "--git-dir"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    path = Path(raw)
+    return path if path.is_absolute() else workspace / path
+
+
 def git(path: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(path), *args],
@@ -108,7 +121,7 @@ class TestMarkerRoundTrip:
     def test_corrupted_marker_is_treated_as_not_applied(self, tmp_path: Path) -> None:
         source = make_source_repo(tmp_path)
         workspace = make_workspace(tmp_path, source)
-        marker = workspace / ".git" / "forgeloop-applied-prerequisites.json"
+        marker = git_dir(workspace) / "forgeloop-applied-prerequisites.json"
         marker.write_text("{not-json", encoding="utf-8")
 
         assert applied_prerequisites(workspace) == frozenset()
@@ -204,7 +217,7 @@ class TestMarkerIsNotPartOfCandidateDiff:
         assert change.diff.strip() == ""
         assert "forgeloop-applied-prerequisites" not in change.diff
         assert json.loads(
-            (workspace / ".git" / "forgeloop-applied-prerequisites.json").read_text(
+            (git_dir(workspace) / "forgeloop-applied-prerequisites.json").read_text(
                 encoding="utf-8"
             )
         ) == [["alpha", "a" * 64]]

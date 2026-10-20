@@ -18,9 +18,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import make_project, run_cli, run_git
-
-from forgeloop.records.store import RecordStore
+from project_support import record_store, register_project
+from support import make_project, run_cli, run_git, task_dir
 
 # 组合式假 PI：按 prompt 的 role 返回分析/规划/实现/审查结构化结果。
 # 讲真实 PI JSONL RPC 协议（response + agent_start/agent_end/agent_settled）。
@@ -89,7 +88,7 @@ for line in sys.stdin:
         respond(request, True, {"disposition": "started"})
         emit({"type": "agent_start"})
         if role == "dev":
-            target = os.environ.get("FAKE_DEV_WRITE")
+            target = os.environ.get("FAKE_DEV_WRITE") or "dev-change.txt"
             workspace = payload(message).get("workspace")
             if target and isinstance(workspace, str):
                 path = Path(workspace) / target
@@ -158,6 +157,7 @@ def set_results(monkeypatch, **values: object) -> None:
 
 
 def submit_requirement(tmp_path: Path, capsys, text: str = "把三条业务线接到真实入口") -> str:
+    register_project(tmp_path)
     code, out = run_cli(
         [
             "requirement",
@@ -579,6 +579,8 @@ class TestDeliveryLineStillReachable:
         project = make_project(tmp_path, remote="")
         run_git(project, "config", "user.name", "t")
         run_git(project, "config", "user.email", "t@example.com")
+        # 项目登记绑定真实源仓库：merge 只从登记路径执行，不再读取命令级 project-path。
+        register_project(tmp_path, repo_path=str(project))
         req_id = submit_requirement(tmp_path, capsys)
         run_cli(
             [
@@ -671,15 +673,15 @@ class TestRequirementOverallAcceptance:
         advance(tmp_path, req_id, pi_command, capsys, pi_timeout_seconds=120.0)
 
         # 需求身份写入映射任务配置，且验收材料绑定可回查（来源门禁已按所有者决定取消）。
-        record_store = RecordStore(tmp_path / "records.sqlite")
+        records = record_store(tmp_path)
         try:
-            mapped = record_store.get_task(alpha["single_task_id"])
+            mapped = records.get_task(alpha["single_task_id"])
             assert mapped is not None
             assert mapped.config["requirement_id"] == req_id
-            binding = record_store.acceptance_binding(alpha["single_task_id"])
+            binding = records.acceptance_binding(alpha["single_task_id"])
             assert binding is not None
         finally:
-            record_store.close()
+            records.close()
 
         code, out = run_cli(
             ["requirement", "accept", req_id, "--records-root", str(tmp_path)], capsys
@@ -803,7 +805,7 @@ class TestRequirementOverallAcceptance:
 
         # 全部任务验收后替换一个任务的候选材料：原验收失效，整体验收必须拒绝。
         alpha = document["tasks"][0]
-        (tmp_path / alpha["single_task_id"] / "candidate.diff").write_text(
+        (task_dir(tmp_path, alpha["single_task_id"]) / "candidate.diff").write_text(
             "tampered\n", encoding="utf-8"
         )
         code, out = run_cli(

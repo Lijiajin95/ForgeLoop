@@ -693,7 +693,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 **触发条件成立**：第 1 节原写明前端工具链「不移植（首版无前端，B01 前不接入）」，并预留了触发条件——出现前端界面与真实浏览器需求时按同方法接入。2026-10-17 所有者选中 B01 只读状态页，并要求按 Python 的 lint／编码风格规则补一套 TypeScript 适配规则，因此本节记录实际接入的范围、数值来源、门禁强度与代价。
 
-**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`（`payload.ts` → `format.ts` → `render.ts`／`panel_render.ts`／`panel_tools.ts` → `actions.ts` → `progress.ts`／`panel.ts` → `page.ts` → `app.ts`），经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；渲染不取数；`panel.ts` 不依赖渲染与装配；`actions.ts` 不依赖面板——2026-10-18 会话面板落地时按同一口径补了两条规则），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
+**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`：`payload.ts` → `format.ts`／`link.ts` → `dom.ts` → `render.ts`／`tabs.ts`／`progress.ts` → `page.ts` → `app.ts`；面板侧另有 `panel.ts`（取数与自适应轮询）、`panel_render.ts`（面板渲染）、`panel_tools.ts`（工具调用列表渲染）与 `actions.ts`（写请求构建与发送）。`link.ts` 是需求／任务／问题的身份关联规则，`dom.ts` 是 DOM 原语、页面句柄与折叠状态，`tabs.ts` 是页签与跳转。源经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；DOM 原语不含业务判断；渲染与页签不取数；`panel.ts` 不依赖渲染与装配；`actions.ts` 不依赖面板——2026-10-18 面板落地与 2026-10-19 三页签重构各按同一口径补了规则），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
 
 **Python 规则 → TypeScript 规则的对应**（数值同源于 `config/quality-policy.toml`）：
 
@@ -706,12 +706,12 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 | import-linter（分层与环） | dependency-cruiser（`no-circular` + 三条边界规则） | 硬门禁 |
 | deptry（未声明/未使用依赖） | knip（未使用依赖、导出与文件） | 硬门禁 |
 | 覆盖率 `line/branch ≥ 90` | Vitest（v8）lines／branches／functions／statements 各 90 | 硬门禁 |
-| mutmut（核心领域规则） | Stryker（`format.ts`、`progress.ts`；break 90，high 95／low 90 只作报告着色） | 凌晨作业 |
+| mutmut（核心领域规则） | Stryker（`format.ts`、`progress.ts`、`link.ts`；break 90，high 95／low 90 只作报告着色） | 凌晨作业 |
 | pip-audit | npm audit（`--audit-level=high`，显式指向公共 registry） | 安全作业 |
 | 结构数字（函数 50、文件 500、复杂度 10、嵌套 4、参数 5、语句 50） | ESLint `max-lines-per-function`／`max-lines`／`complexity`／`max-depth`／`max-params`／`max-statements` | **审阅提示**（`warn`，与 Python 同强度） |
 | 真实外部边界用真实执行 | Playwright 起真实 `forgeloop web` 进程 + 真实 Chromium（记录 → 服务端 → 编译产物 → DOM） | CI 推送路径 |
 
-**门禁节奏**：`make check`（= `check-static` + 高频测试）包含格式、ESLint、tsc、产物漂移、策略同源、模块边界、knip 与 jsdom 用例（68 项）；CI 的 `quality` 作业另跑覆盖率与真实浏览器用例（4 项）、`security` 作业跑 npm audit；夜间作业（03:00 Asia/Shanghai）跑 Stryker 并用 `scripts/check_frontend_mutation.py` 判定击杀率与幸存者审阅。本地可用 `make frontend-check` 单独跑高频部分。
+**门禁节奏**：`make check`（= `check-static` + 高频测试）包含格式、ESLint、tsc、产物漂移、策略同源、模块边界、knip 与 jsdom 用例（当前 143 项）；CI 的 `quality` 作业另跑覆盖率与真实浏览器用例（当前 11 项）、`security` 作业跑 npm audit；夜间作业（03:00 Asia/Shanghai）跑 Stryker 并用 `scripts/check_frontend_mutation.py` 判定击杀率与幸存者审阅。本地可用 `make frontend-check` 单独跑高频部分。
 
 **变异实测（2026-10-17 本机，213 个变异体、24 秒）**：击杀率 **95.77%**（检出 204：killed 201 + timeout 3；未检出 9：survived 9 + no coverage 0），`format.ts` 97.73%、`progress.ts` 92.59%，高于门槛 90%。第一轮实测只有 **68.08%**，据此补了三类测试缺口：缺值标记与全部七类问题标签原先只断言了部分字面量、时间戳格式只断言了「不是原串」、错误响应体只覆盖了对象形态；另把 `progress` 的用例从组件层移到单元层（变异只选单元层用例）。九个幸存者逐项审阅后**全部判为等价变异**并登记在 `[[frontend.reviewed_survivors]]`（理由逐条写明），未审阅幸存者会让门槛脚本失败。
 
@@ -723,7 +723,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 - `npm audit --audit-level=high` 当前对本仓库报 **2 个 moderate**（`@stryker-mutator/core → typed-rest-client → qs`），**全部位于开发期变异工具链，不进入随包页面与 wheel**；high 及以上为空。该结果如实保留在安全作业输出里，不通过降级门槛隐藏。
 - 前端工具链引入 **Node 26 与 npm registry 依赖**（`package-lock.json` 锁定、`npm ci` 安装），浏览器为 Playwright 下载的 Chromium（落在 `.cache/ms-playwright`）。这改变了「纯 Python、无 Node」的旧状态，`make setup` 现在同时准备两侧工具链。
 - 版本选择：除上一条的 vitest 之外，其余工具取当前**未被标记弃用**的版本（eslint 10、typescript 6.0、typescript-eslint 8、playwright 1.64、knip 6、dependency-cruiser 18、prettier 3.9）。首次安装 npm 曾提示 `eslint@9.39.5` 已弃用（EvidHist 的钉法是 9.x），因此改为 eslint 10；TypeScript 停在 6.0 是因为 `typescript-eslint` 的 peer 范围是 `<6.1.0`。
-- 变异范围**不覆盖 DOM 渲染**（`render.ts`）：与 Python 侧只变异核心领域规则同一口径，DOM 管线的等价变异与展示细节噪声高、收益低；后续确有渲染逻辑缺陷漏检时再纳入并重新审阅幸存者。
+- 变异范围**不覆盖 DOM 渲染**（`dom.ts`／`render.ts`／`tabs.ts`）：与 Python 侧只变异核心领域规则同一口径，DOM 管线的等价变异与展示细节噪声高、收益低；后续确有渲染逻辑缺陷漏检时再纳入并重新审阅幸存者。纯规则模块（含 2026-10-19 新增的身份关联 `link.ts`）仍在范围内。
 - 未接入 **Vitest 浏览器模式、axe 可访问性扫描、Stryker 的 HTML 报告归档以外的前端可观测性**：本次只按所有者选中的范围接入，不因工具存在而扩大。
 
 ## 29. 提交策略改为可选本机配置：仓库只发布模板（2026-10-17 所有者决定）
@@ -771,3 +771,32 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 - **门禁状态的时间点差异（如实记录）**：本次改动在 2026-10-17 21:38 实测 `make check` exit 0（1457 通过 / 3 跳过）；21:47 起另一会话 `git add` 了 `frontend/**` 等 65 个文件（12408 插入），使上述仓库结构用例因 frontend 路径不在 `domain/repo_facts.py` 的合法路径清单内而失败——失败路径全部位于 `frontend/`，`repo_facts.py` 本次未触碰，属他人会话在途工作，本会话**未修、未回退、未清理**（该用例在 21:38 的门禁中是通过的）。21:52 复跑确认：`make check` exit 2，**唯一失败即该用例**，其余 1456 通过 / 3 跳过。
 - 本次**未创建任何 commit**（所有者未要求）；上述全部改动与钩子/CI 文案同属未提交状态（其中 `frontend`／契约等文件的暂存状态由另一会话产生）。
 - 验证用的探针仓库副本 `.cache/policy-probe` 为一次性产物，已删除；该路径下此前另一会话的旧探针副本被本次重建覆盖（`.cache/` 为可丢弃缓存区，仓库内无唯一数据丢失）。
+
+## 30. Agent Runtime 抽象与变异范围扩展：DSH 接入与热切换（2026-10-19）
+
+本批新增 Agent Runtime 抽象（PI 与 DSH 同属可插拔执行器、按动作热切换），并把新纯规则模块 `domain/agent_runtime.py` 纳入 `[tool.mutmut].only_mutate`。技术决策见 [ADR 0003](adr/0003-agent-runtime-hot-switch.md)，业务行为与范围见 `docs/status.md` 同日批次。
+
+**本批的门禁实测（本机 macOS ARM64，Asia/Shanghai）**：
+
+| 项 | 结果 | 日志 |
+| --- | --- | --- |
+| `make check` | exit 0：1619 通过、4 跳过、5 未选；前端 68 项通过；lint／format／typecheck／CLI 契约／架构契约／提交策略配置／import-linter／deptry 全通过；结构 **0 失败 / 357 条审阅提示** | `/tmp/fl-runtime-check.log` |
+| `make coverage` | exit 0：1753 通过、9 跳过；**行 95.57%、分支 90.15%**、增量（diff-cover 对 `origin/main`）通过 | `/tmp/fl-runtime-coverage.log` |
+| `make test-system` | exit 0：20 项通过 | `/tmp/fl-runtime-system.log` |
+| `tests/integration -m "not install"` | exit 0：134 项通过、5 项真实模型用例（`pi_live`）跳过 | `/tmp/fl-runtime-integration.log` |
+| `make mutation` | 通过：**1082/1242 杀死、160 幸存全部有审阅记录**；no tests／skipped／suspicious／timeout 等未完成状态为 0 | `mutants/mutmut-cicd-stats.json` |
+
+**变异门禁的一次真实失败与处理（不掩盖）**：首次 `make mutation`（1242 个变异体，含新增模块）以 **25 个未审阅幸存者**失败，全部来自 `forgeloop.domain.agent_runtime`。逐项用 `mutmut show` 核对后分两类处理：
+
+1. **7 个行为型变异补测试杀死**（先确认原实现的行为语义，再补断言）：
+   - `parse_command` 收到解出来是字符串的 JSON 载荷（如 `"dsh"`）时必须拒绝，而不是按字符拆成 `("d","s","h")`（`and` → `or` 变异）；
+   - 非序列值（`42`）必须带明确原因失败关闭，而不是 `raise AgentRuntimeError(None)`；
+   - `switch_command` 的字符串命令必须按 JSON 解析，而不是 `list("...")` 逐字符拆开（`and False` 变异）；
+   - `resolve_agent_runtime` 的 DSH 命令分支与 PI 状态分支必须返回正确的 `runtime` 与 `runtime_source`（原测试只断言了命令与命令来源，字段被改成 `None` 也能通过）。
+2. **18 个判为等价变异并逐条登记理由**：错误消息文本（大小写／XX 包裹／`None`）、`label` 关键字默认值（生产调用点都显式传参，标签只出现在消息里）、`typing.cast` 的第一个参数（运行时恒等）、`list(command)` 规范化（`Sequence[str]` 入参下与直接传递等价）。
+
+补测试后重跑该模块变异与 `scripts/check_mutation_stats.py` 通过；完整统计在 `mutants/mutmut-cicd-stats.json`，审阅条目在同节 `[[mutation.reviewed_survivors]]`。**没有通过放宽门槛、删除变异体或改写失败记录让门禁变绿。**
+
+**合入后复核（2026-10-19，main `3f89058`）**：首次 `make mutation` 因 `mutants/` 陈旧副本（2026-10-17 生成、仍含已移除的 `config/commit-policy.toml`）在基线用例上失败；删除可重建副本后复跑通过：**1083/1242 杀死、159 幸存全部有审阅记录**、未完成状态为 0，并清理一条因测试选择变化而不再幸存的过期审阅条目（源码未变）。该失败与清理如实留在 `docs/status.md` 同日合入记录里。
+
+**真实环境验证（2026-10-19 同日补充，非默认门禁）**：真实 DSH（`dsh 0.2.1-rc.2`）＋真实模型（`deepseek-v4.1-flash`）已完成最小调用、单任务闭环（实现＋审查＋正式测试＋验收，任务 delivered）与**同一推进进程内热切换**（dev 由 DSH，`runtime set pi` 后 review 由真实 PI，任务 delivered）；真实 PI 回归 `pi_live` 5/5 通过，新增 `tests/integration/test_dsh_live.py` 2/2 通过（`make dsh-live`，默认跳过、不产生模型费用）。首次真实运行暴露启动器参数顺序错误（`--patch` 必须在 `--json` 之前），适配器按 `runtime-error` 失败关闭并保留现场；修正后通过。仍未验证：`--session-id` 会话恢复、容器内 DSH、真实模型长任务。详细证据见 `docs/status.md` 同日补充。变异范围扩展到新模块不改变其他九项的既有结论。

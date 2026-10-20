@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from project_support import record_store, requirement_store
 from support import status_document, submit_task
 
 from forgeloop.cli.main import main as cli_main
@@ -21,7 +22,6 @@ from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 from forgeloop.graph.builder import requirement_task_id
 from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.scenario
 
@@ -29,7 +29,7 @@ WHEN = datetime(2026, 10, 14, 10, 0, tzinfo=UTC)
 
 
 def approved_requirement(tmp_path: Path) -> tuple[RequirementStore, str, TaskPlan]:
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path, legacy_project="proj")
     requirement = store.submit("proj", "需求：状态回查给出阻断原因文本")
     plan = TaskPlan(
         task_plan_id=f"plan-{requirement.req_id}-1",
@@ -56,7 +56,7 @@ def approved_requirement(tmp_path: Path) -> tuple[RequirementStore, str, TaskPla
 
 
 def seed_single_task(tmp_path: Path, task_id: str, *, terminal: bool = False) -> None:
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path, legacy_project="proj")
     try:
         store.create_task(task_id, "proj", "input", {}, 7200.0)
         store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("cmd",)))

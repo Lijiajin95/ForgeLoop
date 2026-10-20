@@ -38,7 +38,15 @@ from forgeloop.adapter.git_workspace import (
 )
 from forgeloop.adapter.mail import MailAdapterError
 from forgeloop.cli.candidate import add_candidate_parser
-from forgeloop.cli.common import open_store, records_root
+from forgeloop.cli.common import (
+    base_records_root,
+    locate_requirement_root,
+    open_task,
+    project_for,
+    project_repository,
+    project_root_for,
+    records_root,
+)
 from forgeloop.cli.deploy import add_deploy_parser
 from forgeloop.cli.mail import (
     _open_thread_connection,
@@ -48,7 +56,9 @@ from forgeloop.cli.mail import (
     cmd_mail_poll,
     send_feedback,
 )
+from forgeloop.cli.mail_interaction import add_mail_interaction_parser
 from forgeloop.cli.merge import add_merge_parser, merge_section
+from forgeloop.cli.projects import add_project_parser
 from forgeloop.cli.release import cmd_release, release_section
 from forgeloop.cli.requirements import (
     add_requirement_actions,
@@ -64,8 +74,10 @@ from forgeloop.cli.requirements import (
     task_budget_summary,
     task_status_reason,
 )
+from forgeloop.cli.runtime import add_runtime_parser
 from forgeloop.cli.serve import ServeOperations, add_serve_parser
 from forgeloop.cli.web import ProgressDocuments, add_web_parser
+from forgeloop.domain.agent_runtime import AgentRuntimeError
 from forgeloop.domain.approval import Approval, ApprovalStage
 from forgeloop.domain.delivery import (
     DeliveryBinding,
@@ -98,6 +110,7 @@ from forgeloop.graph.requirements import (
 from forgeloop.graph.state import TaskState
 from forgeloop.graph.worker import current_task_thread_id
 from forgeloop.records.mail_threads import MailThreadStore
+from forgeloop.records.projects import RecordLocationError, locate_requirement, locate_task
 from forgeloop.records.requirements import RequirementStore, TaskArtifact
 from forgeloop.records.store import RecordStore
 
@@ -134,21 +147,29 @@ def _decode_command(raw: str, flag: str) -> tuple[str, ...]:
     return tuple(command)
 
 
+def _decode_optional_command(raw: str, flag: str) -> tuple[str, ...]:
+    """可缺省的启动命令：空串返回空元组，其余按 ``_decode_command`` 严格校验。"""
+
+    if raw is None or not str(raw).strip():
+        return ()
+    return _decode_command(str(raw), flag)
+
+
 def _new_task_id() -> str:
     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     return f"task-{stamp}-{uuid.uuid4().hex[:6]}"
 
 
 def _build_runtime(
-    records_root: Path, task_id: str
+    root: Path, task_id: str
 ) -> tuple[RecordStore, NodeContext, CompiledStateGraph[TaskState]]:
-    store = RecordStore(records_root / "records.sqlite")
+    store = RecordStore(root / "records.sqlite")
     try:
-        ctx = NodeContext.for_task(store, records_root, task_id)
+        ctx = NodeContext.for_task(store, root, task_id)
     except KeyError as error:
         store.close()
         raise SystemExit(f"任务不存在: {task_id}") from error
-    graph = build_graph(ctx, records_root / "checkpoints.sqlite")
+    graph = build_graph(ctx, root / "checkpoints.sqlite")
     return store, ctx, graph
 
 
@@ -191,31 +212,45 @@ def _describe_interrupt(graph: CompiledStateGraph[TaskState], task_id: str) -> s
 
 
 def cmd_submit(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    # 参数与输入先校验：取值错误在解析层确定失败，不因项目未登记而报成另一个错。
     original_input = _read_input(args.input)
-    if args.project_path:
-        source = Path(args.project_path)
-        if not source.is_dir() or not (source / ".git").exists():
-            raise SystemExit(f"project_path 不是 git 仓库: {source}")
     if args.pi_timeout_seconds is not None and args.pi_timeout_seconds < 0:
         raise SystemExit("--pi-timeout-seconds 不能为负")
     test_command = _decode_command(args.test_command, "--test-command")
-    pi_command = _decode_command(args.pi_command, "--pi-command")
+    # PI 命令可缺省：运行状态切到 DSH 时不需要它（Agent Runtime 热切换）。
+    pi_command = _decode_optional_command(args.pi_command, "--pi-command")
+    override: Path | None = None
+    if args.project_path:
+        override = Path(args.project_path).expanduser()
+        if not override.is_dir() or not (override / ".git").exists():
+            raise SystemExit(f"project_path 不是 git 仓库: {override}")
+    base = base_records_root(args)
+    project = project_for(base, args.project)
+    root = project_root_for(base, project.project_id)
+    source = Path(project.repo_path)
+    if override is not None and override.resolve() != source.resolve():
+        raise SystemExit(
+            f"--project-path 与已登记项目 {project.project_id} 的仓库不一致："
+            f"{override} != {source}；请用 `forgeloop project update` 更新登记"
+        )
     task_id = _new_task_id()
     config = {
-        "project_path": args.project_path or "",
+        "project_id": project.project_id,
+        "project_path": str(source),
         "baseline": args.baseline or "",
         "model": args.model or "",
-        "pi_command": json.dumps(list(pi_command)),
         "test_command": json.dumps(list(test_command)),
         "goal": args.goal or "",
         "scope": args.scope or "",
         "acceptance": args.acceptance or "",
         "pi_timeout_seconds": str(args.pi_timeout_seconds or ""),
     }
+    # 只有显式给出 PI 命令才写进任务快照：运行状态切到 DSH 时不需要它。
+    if pi_command:
+        config["pi_command"] = json.dumps(list(pi_command))
     store = RecordStore(root / "records.sqlite")
     try:
-        store.create_task(task_id, args.project, original_input, config, args.limit_seconds)
+        store.create_task(task_id, project.project_id, original_input, config, args.limit_seconds)
         ctx = NodeContext.for_task(store, root, task_id)
         graph = build_graph(ctx, root / "checkpoints.sqlite")
         try:
@@ -226,14 +261,15 @@ def cmd_submit(args: argparse.Namespace) -> int:
     finally:
         store.close()
     print(f"任务已创建: {task_id}")
+    print(f"项目: {project.project_id}（{project.name}）")
     print(f"状态: {task.status if task else 'unknown'}")
     print("等待第一次本地批准（范围+方案+验收标准+测试命令）。")
     print(f"批准命令: forgeloop approve {task_id}")
     return 0
 
 
-def _resume_graph(records_root: Path, task_id: str, resume: dict) -> RecordStore:
-    store, _ctx, graph = _build_runtime(records_root, task_id)
+def _resume_graph(root: Path, task_id: str, resume: dict) -> RecordStore:
+    store, _ctx, graph = _build_runtime(root, task_id)
     try:
         graph.invoke(Command(resume=resume), _run_config(task_id), durability="sync")
         pending = _describe_interrupt(graph, task_id)
@@ -252,8 +288,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
     resume_decision = "approved" if stage is ApprovalStage.PLAN else "accepted"
     if args.decision == "rejected":
         resume_decision = "rejected"
-    root = records_root(args)
-    store = open_store(root, args.task_id)
+    location = open_task(base_records_root(args), args.task_id)
+    store, root = location.store, location.root
     try:
         plan = store.latest_plan(args.task_id)
         if plan is None:
@@ -358,8 +394,8 @@ def _git_lines(project: Path, *arguments: str) -> list[str]:
 
 
 def cmd_grant(args: argparse.Namespace) -> int:
-    root = records_root(args)
-    store = open_store(root, args.task_id)
+    location = open_task(base_records_root(args), args.task_id)
+    store, root = location.store, location.root
     try:
         ledger = store.ledger(args.task_id)
         print(
@@ -525,8 +561,23 @@ def _task_evidence_section(store: RecordStore, task_id: str) -> dict:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    root = records_root(args)
-    store = RecordStore(root / "records.sqlite")
+    base = base_records_root(args)
+    try:
+        location = locate_task(base, args.task_id)
+    except RecordLocationError as error:
+        # 查询命令保留既有「任务不存在」契约：JSON 报固定错误码，文本报到 stderr。
+        detail = str(error)
+        document = (
+            {"task_id": args.task_id, "error": "task_not_found"}
+            if f"任务不存在: {args.task_id}" == detail
+            else {"task_id": args.task_id, "error": "task_lookup_failed", "detail": detail}
+        )
+        if args.json:
+            print(json.dumps(document, ensure_ascii=False, indent=2))
+        else:
+            print(detail, file=sys.stderr)
+        return 1
+    store = RecordStore(location.root / "records.sqlite")
     try:
         document = _status_document(store, args.task_id)
     finally:
@@ -568,8 +619,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    root = records_root(args)
-    store = open_store(root, args.task_id)
+    location = open_task(base_records_root(args), args.task_id)
+    store = location.store
     try:
         store.outcomes.request_stop(
             args.task_id,
@@ -599,6 +650,12 @@ def _open_requirement(root: Path, req_id: str) -> RequirementStore:
     return store
 
 
+def _requirement_root(args: argparse.Namespace, req_id: str) -> Path:
+    """按需求身份定位项目记录根；跨项目歧义与未找到都确定性失败。"""
+
+    return locate_requirement_root(base_records_root(args), req_id).root
+
+
 def _planning_context(
     args: argparse.Namespace, root: Path, store: RequirementStore
 ) -> PlanningContext:
@@ -606,8 +663,9 @@ def _planning_context(
         store,
         args.req_id,
         root / "requirements" / args.req_id / "analysis",
-        _decode_command(args.pi_command, "--pi-command"),
+        _decode_optional_command(args.pi_command, "--pi-command"),
         timeout_seconds=args.pi_timeout_seconds,
+        records_root=root,
     )
 
 
@@ -638,7 +696,7 @@ def cmd_requirement_submit(args: argparse.Namespace) -> int:
 
 
 def cmd_requirement_revise(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    root = _requirement_root(args, args.req_id)
     store = _open_requirement(root, args.req_id)
     try:
         updated = store.append(args.req_id, _read_input(args.input))
@@ -661,6 +719,10 @@ def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
     """
 
     document = getattr(args, "poll_document", None) or {}
+    # 分派给既有命令时用的必须是**登记根**（命令按 ``--records-root`` 自己定位项目）；
+    # 只有 ``current_task_thread_id`` 需要项目记录根本身。多项目模式下两者不同，混用会
+    # 让分派在项目根里找 projects.sqlite 而报「需求不存在」。
+    base = base_records_root(args)
     root = records_root(args)
     messages: list[str] = []
     quiet = bool(getattr(args, "json", False))
@@ -682,7 +744,7 @@ def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
         if operation in _MAIL_OPERATIONS_ACCEPT:
             namespace = argparse.Namespace(
                 req_id=req_id,
-                records_root=root,
+                records_root=base,
                 by=str(entry.get("mail_sender") or "mail"),
                 source="mail",
             )
@@ -700,7 +762,7 @@ def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
                 note=str(entry.get("operation_reason") or ""),
                 by=str(entry.get("mail_sender") or "mail"),
                 source="mail",
-                records_root=str(root),
+                records_root=str(base),
             )
             code = run(cmd_stop, namespace)
             messages.append(f"{task_id}: 停止请求{'已记录' if code == 0 else '被拒绝'}")
@@ -711,7 +773,7 @@ def _apply_mail_operations(args: argparse.Namespace) -> list[str]:
                 continue
             namespace = argparse.Namespace(
                 req_id=req_id,
-                records_root=root,
+                records_root=base,
                 pi_command=pi_command,
                 project_path=str(getattr(args, "project_path", "") or ""),
                 baseline=str(getattr(args, "baseline", "") or ""),
@@ -855,10 +917,14 @@ def cmd_mail_poll_with_analysis(args: argparse.Namespace) -> int:
 
 
 def cmd_requirement_analyze(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    root = _requirement_root(args, args.req_id)
     store = _open_requirement(root, args.req_id)
     try:
-        outcome = analyze_requirement(_planning_context(args, root, store))
+        try:
+            outcome = analyze_requirement(_planning_context(args, root, store))
+        except AgentRuntimeError as error:
+            print(f"FAIL: {error}", file=sys.stderr)
+            return 1
     finally:
         store.close()
     if outcome.analysis is None:
@@ -876,10 +942,14 @@ def cmd_requirement_analyze(args: argparse.Namespace) -> int:
 
 
 def cmd_requirement_plan(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    root = _requirement_root(args, args.req_id)
     store = _open_requirement(root, args.req_id)
     try:
-        outcome = plan_requirement(_planning_context(args, root, store))
+        try:
+            outcome = plan_requirement(_planning_context(args, root, store))
+        except AgentRuntimeError as error:
+            print(f"FAIL: {error}", file=sys.stderr)
+            return 1
     finally:
         store.close()
     if outcome.plan is None:
@@ -894,7 +964,7 @@ def cmd_requirement_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_requirement_approve(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    root = _requirement_root(args, args.req_id)
     store = _open_requirement(root, args.req_id)
     try:
         plan = store.latest_task_plan(args.req_id)
@@ -910,7 +980,8 @@ def cmd_requirement_approve(args: argparse.Namespace) -> int:
 
 
 def cmd_requirement_advance(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    base = base_records_root(args)
+    root = locate_requirement_root(base, args.req_id).root
     store = _open_requirement(root, args.req_id)
     record_store = RecordStore(root / "records.sqlite")
     try:
@@ -921,8 +992,8 @@ def cmd_requirement_advance(args: argparse.Namespace) -> int:
             req_id=args.req_id,
             plan_version=plan.plan_version if plan else 0,
             project=requirement.project,
-            pi_command=_decode_command(args.pi_command, "--pi-command"),
-            project_path=args.project_path,
+            pi_command=_decode_optional_command(args.pi_command, "--pi-command"),
+            project_path=args.project_path or project_repository(base, requirement.project),
             baseline=args.baseline,
             pi_timeout_seconds=args.pi_timeout_seconds or None,
         )
@@ -940,6 +1011,9 @@ def cmd_requirement_advance(args: argparse.Namespace) -> int:
             requirement_status = progress.requirement_status
     except RequirementAlreadyRunningError as error:
         print(str(error), file=sys.stderr)
+        return 1
+    except AgentRuntimeError as error:
+        print(f"推进未启动执行器（运行时不可用）：{error}", file=sys.stderr)
         return 1
     finally:
         record_store.close()
@@ -1000,7 +1074,7 @@ def _acceptance_fingerprint(bindings: Mapping[str, DeliveryBinding]) -> str:
 def cmd_requirement_accept(args: argparse.Namespace) -> int:
     """需求整体验收：全部任务已验收且材料与批准一致时置 ``accepted``。"""
 
-    root = records_root(args)
+    root = _requirement_root(args, args.req_id)
     store = _open_requirement(root, args.req_id)
     record_store = RecordStore(root / "records.sqlite")
     try:
@@ -1230,7 +1304,22 @@ def _requirement_document(root: Path, store: RequirementStore, req_id: str) -> d
 
 
 def cmd_requirement_status(args: argparse.Namespace) -> int:
-    root = records_root(args)
+    base = base_records_root(args)
+    try:
+        location = locate_requirement(base, args.req_id)
+    except RecordLocationError as error:
+        detail = str(error)
+        document = (
+            {"req_id": args.req_id, "error": "requirement_not_found"}
+            if f"需求不存在: {args.req_id}" == detail
+            else {"req_id": args.req_id, "error": "requirement_lookup_failed", "detail": detail}
+        )
+        if args.json:
+            print(json.dumps(document, ensure_ascii=False, indent=2))
+        else:
+            print(detail, file=sys.stderr)
+        return 1
+    root = location.root
     store = RequirementStore(root / "records.sqlite")
     try:
         document = _requirement_document(root, store, args.req_id)
@@ -1285,16 +1374,20 @@ def _add_requirement_parsers(
     revise.add_argument("--records-root", default=default_records_root)
     revise.set_defaults(func=cmd_requirement_revise)
 
-    analyze = actions.add_parser("analyze", help="只读分析（PI）并记录结构化结论")
+    analyze = actions.add_parser("analyze", help="只读分析（Agent Runtime）并记录结构化结论")
     analyze.add_argument("req_id")
-    analyze.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    analyze.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     analyze.add_argument("--pi-timeout-seconds", type=float, default=300.0)
     analyze.add_argument("--records-root", default=default_records_root)
     analyze.set_defaults(func=cmd_requirement_analyze)
 
-    plan = actions.add_parser("plan", help="从就绪分析生成任务包（PI）")
+    plan = actions.add_parser("plan", help="从就绪分析生成任务包（Agent Runtime）")
     plan.add_argument("req_id")
-    plan.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    plan.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     plan.add_argument("--pi-timeout-seconds", type=float, default=300.0)
     plan.add_argument("--records-root", default=default_records_root)
     plan.set_defaults(func=cmd_requirement_plan)
@@ -1308,7 +1401,9 @@ def _add_requirement_parsers(
 
     advance = actions.add_parser("advance", help="按依赖推进任务（接单任务业务图，含验收）")
     advance.add_argument("req_id")
-    advance.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 数组）")
+    advance.add_argument(
+        "--pi-command", default="", help="PI RPC 启动命令（JSON 数组）；运行状态为 DSH 时可省略"
+    )
     advance.add_argument("--project-path", default="", help="被开发项目路径")
     advance.add_argument("--baseline", default="", help="代码基线")
     advance.add_argument("--pi-timeout-seconds", type=float, default=0.0)
@@ -1336,16 +1431,24 @@ def _add_requirement_parsers(
 
 def _add_submit_parser(subparsers: argparse._SubParsersAction) -> None:
     submit = subparsers.add_parser("submit", help="提交文本小任务并生成方案")
-    submit.add_argument("--project", required=True, help="任务绑定的项目名")
+    submit.add_argument("--project", required=True, help="已登记项目身份（project_id）")
     submit.add_argument("--input", required=True, help="任务正文；@path 读取 UTF-8 文本文件")
     submit.add_argument(
         "--test-command", required=True, help="批准的正式测试命令（JSON 字符串数组）"
     )
-    submit.add_argument("--pi-command", required=True, help="PI RPC 启动命令（JSON 字符串数组）")
+    submit.add_argument(
+        "--pi-command",
+        default="",
+        help="PI RPC 启动命令（JSON 字符串数组）；运行状态为 DSH 时可省略",
+    )
     submit.add_argument("--goal", default="", help="目标（缺省用正文）")
     submit.add_argument("--scope", default="", help="边界（缺省用正文）")
     submit.add_argument("--acceptance", default="", help="验收标准（缺省用正文）")
-    submit.add_argument("--project-path", default="", help="项目路径")
+    submit.add_argument(
+        "--project-path",
+        default="",
+        help="项目路径核对项；给出时必须与登记路径一致（缺省用登记路径）",
+    )
     submit.add_argument("--baseline", default="", help="代码基线")
     submit.add_argument("--model", default="", help="模型配置标识")
     submit.add_argument(
@@ -1367,6 +1470,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="ForgeLoop：CLI 自动研发闭环（提交、批准、查询、停止）",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    add_project_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     _add_submit_parser(subparsers)
 
@@ -1420,9 +1525,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_candidate_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
-    add_mail_parser(subparsers, DEFAULT_RECORDS_ROOT, poll_entry=cmd_mail_poll_with_analysis)
+    # 邮箱交互入口（B02 交互部分）：与 CLI 共用需求、批准与执行记录；命令处理
+    # 与回信幂等由 ``cli.mail_interaction`` 负责，本入口只做解析器装配。
+    # ``mail poll`` 的入口仍由组合根注入（轮询后按 auto_analyze 决定是否分析）。
+    add_mail_interaction_parser(
+        add_mail_parser(subparsers, DEFAULT_RECORDS_ROOT, poll_entry=cmd_mail_poll_with_analysis),
+        DEFAULT_RECORDS_ROOT,
+    )
 
     _add_requirement_parsers(subparsers, DEFAULT_RECORDS_ROOT)
+
+    add_runtime_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     # 状态页（B01）：把本模块的只读查询文档构建器注入 ``cli.web``，页面与
     # ``--json`` 查询共用同一份读模型；方向是 main → web（web 不反向导入 main，

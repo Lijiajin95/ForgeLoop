@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from forgeloop.domain.agent_runtime import AgentRuntimeError
 from forgeloop.domain.requirement import (
     AWAITING_CLARIFICATION,
     BLOCKED,
@@ -437,10 +438,14 @@ class TestAnalysisGuards:
     """A02 防御分支：畸形字段、版本越界、旧库迁移、未知身份与空命令都明确失败。"""
 
     def test_empty_pi_command_is_rejected(self, tmp_path: Path) -> None:
+        # 命令缺省不再在构造时拒绝（运行状态可能已切到 DSH），而是在真正调用前由
+        # 运行时解析 fail-closed：没有 PI 命令、也没有别的可用运行时即拒绝。
         store = RequirementStore(tmp_path / "records.sqlite")
         try:
-            with pytest.raises(ValueError, match="PI command"):
-                PlanningContext(store, "req-x", tmp_path / "analysis", ())
+            requirement = store.submit("ForgeLoop", "需求：验证空命令守卫")
+            context = PlanningContext(store, requirement.req_id, tmp_path / "analysis", ())
+            with pytest.raises(AgentRuntimeError, match="缺少启动命令"):
+                analyze_requirement(context)
         finally:
             store.close()
 

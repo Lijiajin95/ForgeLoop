@@ -8,7 +8,9 @@
  *     ↑
  *   format（纯格式化规则，不碰 DOM、不发请求）
  *     ↑
- *   render／panel_render（DOM 渲染，不发请求）
+ *   render（三段页签的渲染，不发请求）  tabs（页签与跳转，不取数、不渲染内容）
+ *     ↑
+ *   panel_render（会话面板的渲染，不发请求）
  *     ↑
  *   actions（写请求构建与发送）
  *     ↑
@@ -39,16 +41,37 @@ module.exports = {
     {
       name: "format-is-pure",
       severity: "error",
-      comment: "format.ts 是纯规则：不得依赖渲染、轮询或入口模块。",
+      comment: "format.ts 是纯规则：不得依赖渲染、页签、关联、轮询或入口模块。",
       from: { path: "^src/format\\.ts$" },
-      to: { path: "^src/(render|progress|page|app)\\.ts$" },
+      to: { path: "^src/(link|render|tabs|progress|page|app)\\.ts$" },
+    },
+    {
+      name: "link-is-pure",
+      severity: "error",
+      comment: "link.ts 只算身份关联：不得依赖渲染、页签、轮询或入口模块。",
+      from: { path: "^src/link\\.ts$" },
+      to: { path: "^src/(render|tabs|progress|page|app)\\.ts$" },
+    },
+    {
+      name: "dom-is-a-primitive",
+      severity: "error",
+      comment: "dom.ts 只造元素与解析句柄：不得依赖渲染、页签、关联之外的页面模块。",
+      from: { path: "^src/dom\\.ts$" },
+      to: { path: "^src/(render|tabs|progress|page|app)\\.ts$" },
     },
     {
       name: "render-does-not-fetch",
       severity: "error",
       comment: "render.ts 只画 DOM：不得依赖轮询或入口模块。",
       from: { path: "^src/render\\.ts$" },
-      to: { path: "^src/(progress|app)\\.ts$" },
+      to: { path: "^src/(progress|page|app)\\.ts$" },
+    },
+    {
+      name: "tabs-do-not-fetch",
+      severity: "error",
+      comment: "tabs.ts 只管页签与跳转：不得依赖渲染内容、轮询或入口模块。",
+      from: { path: "^src/tabs\\.ts$" },
+      to: { path: "^src/(render|progress|page|app)\\.ts$" },
     },
     {
       name: "actions-is-a-leaf-above-payload",
@@ -76,9 +99,9 @@ module.exports = {
     {
       name: "progress-does-not-render",
       severity: "error",
-      comment: "progress.ts 只管取数与调度：不得依赖渲染或入口模块。",
+      comment: "progress.ts 只管取数与调度：不得依赖渲染、页签或入口模块。",
       from: { path: "^src/progress\\.ts$" },
-      to: { path: "^src/(render|app)\\.ts$" },
+      to: { path: "^src/(render|tabs|page|app)\\.ts$" },
     },
   ],
   options: {

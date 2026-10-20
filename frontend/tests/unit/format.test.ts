@@ -8,17 +8,25 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EMPTY,
   budgetText,
   countdownText,
   deliveryProgress,
-  EMPTY,
+  excerpt,
   failureText,
   formatSeconds,
   formatTimestamp,
+  issueBadgeText,
   issueKindLabel,
+  latestVersion,
   nextStepText,
+  planLabel,
   refreshNote,
   refreshSourceLabel,
+  requirementIsBlocked,
+  statusIsAbnormal,
+  taskGoal,
+  taskStatusText,
   text,
 } from "../../src/format.js";
 
@@ -141,15 +149,21 @@ describe("label 翻译", () => {
 });
 
 describe("deliveryProgress", () => {
+  const task = (state: string, id = "t") => ({
+    task_id: id,
+    single_task_id: `task-${id}`,
+    state,
+  });
+
   it("统计已交付任务数", () => {
-    expect(deliveryProgress([{ state: "delivered" }, { state: "awaiting_user" }])).toBe(
+    expect(deliveryProgress([task("delivered", "a"), task("awaiting_user", "b")])).toBe(
       "1 / 2 已交付",
     );
   });
 
   it("全部交付与全部未交付都能读出", () => {
-    expect(deliveryProgress([{ state: "delivered" }])).toBe("1 / 1 已交付");
-    expect(deliveryProgress([{ state: "pending" }])).toBe("0 / 1 已交付");
+    expect(deliveryProgress([task("delivered")])).toBe("1 / 1 已交付");
+    expect(deliveryProgress([task("pending")])).toBe("0 / 1 已交付");
   });
 
   it("没有任务包时显示缺值", () => {
@@ -191,5 +205,140 @@ describe("countdownText", () => {
   it("其余情况显示剩余秒数", () => {
     expect(countdownText(1, false)).toBe("1 秒后刷新");
     expect(countdownText(60, false)).toBe("60 秒后刷新");
+  });
+});
+
+describe("statusIsAbnormal", () => {
+  it("阻断、中断与工时耗尽需要人工关注", () => {
+    expect(statusIsAbnormal("blocked")).toBe(true);
+    expect(statusIsAbnormal("interrupted")).toBe(true);
+    expect(statusIsAbnormal("time_exhausted")).toBe(true);
+  });
+
+  it("正常推进与终态不标红", () => {
+    expect(statusIsAbnormal("awaiting_plan_approval")).toBe(false);
+    expect(statusIsAbnormal("merged")).toBe(false);
+    expect(statusIsAbnormal("")).toBe(false);
+  });
+});
+
+describe("planLabel", () => {
+  it("有任务包时写出版本号", () => {
+    expect(planLabel({ plan_version: 1 })).toBe("任务包 v1");
+    expect(planLabel({ plan_version: 12 })).toBe("任务包 v12");
+  });
+
+  it("没有任务包时写缺值，不假装有任务包", () => {
+    expect(planLabel(null)).toBe(`任务包 ${EMPTY}`);
+  });
+});
+
+describe("taskStatusText", () => {
+  const dispatched = {
+    task_id: "task-1",
+    project: "forgeloop",
+    status: "blocked",
+    plan: { goal: "把三段拆成页签" },
+    next_action: null,
+    failures: { cumulative: 0, remaining_in_current_grant: 3, awaiting_grant_decision: false },
+    budget: { consumed_seconds: 0, limit_seconds: 100 },
+    blocked_reason_text: "",
+  };
+
+  it("已派发的任务显示执行状态", () => {
+    expect(taskStatusText(dispatched)).toBe("blocked");
+  });
+
+  it("没有任务记录时如实写「未派发」", () => {
+    expect(taskStatusText(null)).toBe("未派发");
+  });
+});
+
+describe("issueBadgeText", () => {
+  it("有问题时给出条数", () => {
+    expect(issueBadgeText(1)).toBe("问题 1");
+    expect(issueBadgeText(7)).toBe("问题 7");
+  });
+
+  it("没有问题时不渲染徽标（空串）", () => {
+    expect(issueBadgeText(0)).toBe("");
+  });
+});
+
+describe("requirementIsBlocked", () => {
+  it("记录里有阻断原因就是阻断", () => {
+    expect(requirementIsBlocked("executing", "等待人工决定: halted prerequiste_blocked")).toBe(
+      true,
+    );
+    expect(requirementIsBlocked("blocked", "time_exhausted")).toBe(true);
+  });
+
+  it("阻断态即使没有原因文案也算阻断", () => {
+    expect(requirementIsBlocked("blocked", "")).toBe(true);
+    expect(requirementIsBlocked("interrupted", "")).toBe(true);
+  });
+
+  it("已验收与草稿的派生文案只是说明，不是阻断", () => {
+    expect(requirementIsBlocked("accepted", "")).toBe(false);
+    expect(requirementIsBlocked("draft", "")).toBe(false);
+  });
+});
+
+describe("latestVersion", () => {
+  it("取版本号最大的一版原文", () => {
+    expect(
+      latestVersion([
+        { version: 1, text: "第一版" },
+        { version: 3, text: "第三版" },
+        { version: 2, text: "第二版" },
+      ]),
+    ).toEqual({ version: 3, text: "第三版" });
+  });
+
+  it("版本号相同（异常记录）时保留先出现的一版，结果确定", () => {
+    expect(
+      latestVersion([
+        { version: 2, text: "先出现的" },
+        { version: 2, text: "后出现的" },
+      ]),
+    ).toEqual({ version: 2, text: "先出现的" });
+  });
+
+  it("没有需求原文时返回 null，不编造内容", () => {
+    expect(latestVersion([])).toBeNull();
+  });
+});
+
+describe("excerpt", () => {
+  it("短文本原样返回", () => {
+    expect(excerpt("任务执行被阻断", 20)).toBe("任务执行被阻断");
+  });
+
+  it("把换行与连续空白压成单空格，便于放进一行说明", () => {
+    expect(excerpt("需求：分页签\n\n  背景：看不清层级", 40)).toBe("需求：分页签 背景：看不清层级");
+  });
+
+  it("超长文本按字数截断并标出省略", () => {
+    expect(excerpt("一二三四五六七八九十", 4)).toBe("一二三四…");
+  });
+
+  it("恰好等于上限时不截断，也不多出一个省略号", () => {
+    expect(excerpt("一二三四", 4)).toBe("一二三四");
+  });
+
+  it("空文本与缺值都是空串（由调用方决定怎么显示缺值）", () => {
+    expect(excerpt("", 10)).toBe("");
+    expect(excerpt("   \n ", 10)).toBe("");
+  });
+});
+
+describe("taskGoal", () => {
+  it("有任务包时给出目标", () => {
+    expect(taskGoal({ goal: "把三段拆成页签" })).toBe("把三段拆成页签");
+  });
+
+  it("没有任务包或目标为空时给出空串", () => {
+    expect(taskGoal(null)).toBe("");
+    expect(taskGoal({ goal: "" })).toBe("");
   });
 });

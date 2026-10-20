@@ -98,6 +98,7 @@ markers = [
   "scenario: deterministic multi-step workflow behavior",
   "component: CLI output contract tests driven through command entry points",
   "pi_live: real PI RPC invocation in the restricted container (explicit opt-in)",
+  "dsh_live: real DSH headless invocation with a real model (explicit opt-in)",
   "install: 真实执行 uv venv 与 wheel 安装的慢速用例（make test-install，预算 180s）",
 ]
 filterwarnings = ["error"]
@@ -129,7 +130,11 @@ source_paths = ["src/forgeloop/"]
 # 测试与包数据不会随工作区刷新。本地改过 tests/、页面 HTML 或 static/*.js 后必须
 # `rm -rf mutants` 再跑，否则会拿到陈旧夹具的结论（实测：改测试后重跑数字不变；
 # 页面 HTML 陈旧直接让基线失败）。CI 与夜间作业是干净检出，不受影响。
+# `domain/mail_interaction.py`（2026-10-19 新增）同样**暂不纳入**：纯协议规则已由
+# unit 用例覆盖（100% 行／分支），但尚未实测变异幸存者与 no tests 并逐条审阅；
+# 在补齐前加入会让夜间作业因未审阅项失败。
 only_mutate = [
+  "src/forgeloop/domain/agent_runtime.py",
   "src/forgeloop/domain/counting.py",
   "src/forgeloop/domain/approval.py",
   "src/forgeloop/domain/delivery.py",

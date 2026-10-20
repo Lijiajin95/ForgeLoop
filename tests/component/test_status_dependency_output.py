@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from project_support import project_records, record_store, requirement_store
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.approval import Approval, ApprovalStage, Plan
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 from forgeloop.graph.builder import requirement_task_id
 from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.component
 
@@ -29,7 +29,7 @@ WHEN = datetime(2026, 10, 14, 10, 0, tzinfo=UTC)
 
 
 def approved_requirement(tmp_path: Path) -> tuple[RequirementStore, str]:
-    store = RequirementStore(tmp_path / "records.sqlite")
+    store = requirement_store(tmp_path)
     requirement = store.submit("proj", "需求：CLI 输出依赖事实")
     plan = TaskPlan(
         task_plan_id=f"plan-{requirement.req_id}-1",
@@ -49,9 +49,9 @@ def approved_requirement(tmp_path: Path) -> tuple[RequirementStore, str]:
 
 
 def seed_single_task(tmp_path: Path, task_id: str, *, terminal: bool) -> None:
-    task_dir = tmp_path / task_id
+    task_dir = project_records(tmp_path) / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
-    store = RecordStore(tmp_path / "records.sqlite")
+    store = record_store(tmp_path)
     try:
         store.create_task(task_id, "proj", "input", {}, 7200.0)
         store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("cmd",)))
@@ -132,7 +132,7 @@ class TestDependencyOutput:
         beta = requirement_task_id(req_id, 1, "beta")
         seed_single_task(tmp_path, alpha, terminal=True)
         seed_single_task(tmp_path, beta, terminal=False)
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.actions.begin(beta, "dev")
         finally:
@@ -150,7 +150,7 @@ class TestDependencyOutput:
         store.close()
         alpha = requirement_task_id(req_id, 1, "alpha")
         seed_single_task(tmp_path, alpha, terminal=True)
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.set_task_status(alpha, "blocked")
         finally:
@@ -210,8 +210,8 @@ class TestSingleTaskStatusEvidence:
 
     def test_evidence_identity_is_aggregated(self, tmp_path: Path, capsys) -> None:
         task_id = "task-evidence"
-        seed_materials(tmp_path / task_id, marker="a")
-        store = RecordStore(tmp_path / "records.sqlite")
+        seed_materials(project_records(tmp_path) / task_id, marker="a")
+        store = record_store(tmp_path)
         try:
             store.create_task(task_id, "proj", "input", {}, 7200.0)
             store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("cmd",)))
@@ -244,7 +244,7 @@ class TestSingleTaskStatusEvidence:
 
     def test_missing_evidence_lists_every_field(self, tmp_path: Path, capsys) -> None:
         task_id = "task-bare"
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task(task_id, "proj", "input", {}, 7200.0)
         finally:
@@ -269,12 +269,12 @@ class TestSingleTaskStatusEvidence:
     def test_blocking_review_and_failed_test_are_explicit(self, tmp_path: Path, capsys) -> None:
         task_id = "task-failed"
         seed_materials(
-            tmp_path / task_id,
+            project_records(tmp_path) / task_id,
             marker="b",
             exit_code=1,
             blocking_issues=("缺边界检查",),
         )
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task(task_id, "proj", "input", {}, 7200.0)
             store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("cmd",)))
@@ -290,8 +290,8 @@ class TestSingleTaskStatusEvidence:
 
     def test_unusable_review_result_is_missing_not_passing(self, tmp_path: Path, capsys) -> None:
         task_id = "task-review-unknown"
-        seed_materials(tmp_path / task_id, marker="c", blocking_valid=False)
-        store = RecordStore(tmp_path / "records.sqlite")
+        seed_materials(project_records(tmp_path) / task_id, marker="c", blocking_valid=False)
+        store = record_store(tmp_path)
         try:
             store.create_task(task_id, "proj", "input", {}, 7200.0)
             store.save_plan(Plan(task_id, 1, "goal", "scope", "accept", ("cmd",)))
@@ -308,7 +308,7 @@ class TestSingleTaskStatusEvidence:
 
     def test_outstanding_action_reports_running(self, tmp_path: Path, capsys) -> None:
         task_id = "task-running"
-        store = RecordStore(tmp_path / "records.sqlite")
+        store = record_store(tmp_path)
         try:
             store.create_task(task_id, "proj", "input", {}, 7200.0)
             store.actions.begin(task_id, "dev")

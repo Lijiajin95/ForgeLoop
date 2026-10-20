@@ -9,15 +9,23 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from project_support import (
+    project_records,
+    register_project,
+    requirement_store,
+)
+from project_support import (
+    record_store as open_record_store,
+)
 from support import run_cli
 
-from forgeloop.records.requirements import RequirementStore
+PROJECT = "forgeloop"
 
 
 def _seed(records_root: Path, text: str = "等价性：导出功能") -> str:
-    store = RequirementStore(records_root / "records.sqlite")
+    store = requirement_store(records_root)
     try:
-        return store.submit("ForgeLoop", text).req_id
+        return store.submit(PROJECT, text).req_id
     finally:
         store.close()
 
@@ -77,7 +85,7 @@ class TestCancelParity:
                 "poll",
                 "--once",
                 "--project",
-                "ForgeLoop",
+                PROJECT,
                 "--whitelist",
                 "requester@example.com",
                 *connection_args(mail_root),
@@ -100,14 +108,14 @@ class TestApproveParity:
         from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 
         req_id = _seed(records_root, text)
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             store.record_task_plan(
                 req_id,
                 TaskPlan(
                     task_plan_id=f"plan-{req_id}",
                     requirement_id=req_id,
-                    project="ForgeLoop",
+                    project=PROJECT,
                     plan_version=1,
                     requirement_version=1,
                     tasks=(
@@ -129,7 +137,7 @@ class TestApproveParity:
         return req_id
 
     def _approval_facts(self, records_root: Path, req_id: str) -> dict[str, object]:
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             approval = store.plan_approval(req_id)
             return {
@@ -187,7 +195,7 @@ class TestApproveParity:
                 "poll",
                 "--once",
                 "--project",
-                "ForgeLoop",
+                PROJECT,
                 "--whitelist",
                 "requester@example.com",
                 *connection_args(mail_root),
@@ -217,17 +225,16 @@ class TestStopParity:
 
         from forgeloop.domain.task_plan import PlannedTask, TaskPlan
         from forgeloop.graph.worker import current_task_thread_id
-        from forgeloop.records.store import RecordStore
 
         req_id = _seed(records_root, text)
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             store.record_task_plan(
                 req_id,
                 TaskPlan(
                     task_plan_id=f"plan-{req_id}",
                     requirement_id=req_id,
-                    project="ForgeLoop",
+                    project=PROJECT,
                     plan_version=1,
                     requirement_version=1,
                     tasks=(
@@ -245,18 +252,17 @@ class TestStopParity:
             store.record_plan_approval(req_id, 1, "owner", source="cli")
         finally:
             store.close()
-        task_id = current_task_thread_id(records_root, req_id)
-        record_store = RecordStore(records_root / "records.sqlite")
+        task_id = current_task_thread_id(project_records(records_root), req_id)
+        record_store = open_record_store(records_root)
         try:
-            record_store.create_task(task_id, "ForgeLoop", text, {"pi_command": "pi"}, 60.0)
+            record_store.create_task(task_id, PROJECT, text, {"pi_command": "pi"}, 60.0)
         finally:
             record_store.close()
         return req_id, task_id
 
     def _facts(self, records_root: Path, task_id: str) -> dict[str, object]:
-        from forgeloop.records.store import RecordStore
 
-        store = RecordStore(records_root / "records.sqlite")
+        store = open_record_store(records_root)
         try:
             requested_by, source = store.outcomes.stop_attribution(task_id)
             return {
@@ -336,7 +342,7 @@ class TestSubmitParity:
     """
 
     def _facts(self, records_root: Path) -> list[dict[str, object]]:
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             return [
                 {
@@ -344,13 +350,13 @@ class TestSubmitParity:
                     "versions": len(requirement.versions),
                     "text_non_empty": bool(requirement.latest.text.strip()),
                 }
-                for requirement in store.for_project("ForgeLoop")
+                for requirement in store.for_project(PROJECT)
             ]
         finally:
             store.close()
 
     def _facts_of(self, records_root: Path, req_id: str) -> dict[str, object]:
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             requirement = store.get(req_id)
             return {
@@ -372,12 +378,13 @@ class TestSubmitParity:
 
         cli_root = tmp_path / "cli-submit"
         cli_root.mkdir()
+        register_project(cli_root)
         code, out = run_cli(
             [
                 "requirement",
                 "submit",
                 "--project",
-                "ForgeLoop",
+                PROJECT,
                 "--input",
                 "等价性：希望支持批量导出",
                 "--records-root",
@@ -417,7 +424,7 @@ class TestAdvanceNoSideEffectParity:
     """
 
     def _facts(self, records_root: Path, req_id: str) -> dict[str, object]:
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             plan = store.latest_task_plan(req_id)
             return {
@@ -474,7 +481,7 @@ class TestAdvanceNoSideEffectParity:
                 "poll",
                 "--once",
                 "--project",
-                "ForgeLoop",
+                PROJECT,
                 "--whitelist",
                 "requester@example.com",
                 *connection_args(mail_root),
@@ -499,7 +506,7 @@ class TestAcceptRefusalParity:
     """验收（拒绝语义）：没有可验收材料时，两条入口都必须拒绝且不写任何验收记录。"""
 
     def _facts(self, records_root: Path, req_id: str) -> dict[str, object]:
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             return {
                 "status": store.requirement_status(req_id),
@@ -559,7 +566,7 @@ class TestAcceptRefusalParity:
                 "poll",
                 "--once",
                 "--project",
-                "ForgeLoop",
+                PROJECT,
                 "--whitelist",
                 "requester@example.com",
                 *connection_args(mail_root),
@@ -606,9 +613,10 @@ class TestAcceptanceSuccessParity:
             TaskResult,
             TaskRunState,
         )
-        from forgeloop.records.store import RecordStore
 
-        store, req_id = approved_scene(root, (planned("task-1"),))
+        # 多项目模式：场景记录写在项目记录根下，CLI 才能按需求身份定位到它。
+        project_root = register_project(root)
+        store, req_id = approved_scene(project_root, (planned("task-1"),))
         try:
             clock = FakeClock()
             runner = ScriptedRunner(
@@ -620,13 +628,13 @@ class TestAcceptanceSuccessParity:
             store.close()
 
         task_id = requirement_task_id(req_id, 1, "task-1")
-        task_dir = root / task_id
+        task_dir = project_root / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
         (task_dir / "candidate.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
         (task_dir / "test-run.jsonl").write_text('{"status":"passed"}\n', encoding="utf-8")
         (task_dir / "review-report.json").write_text('{"verdict":"ok"}\n', encoding="utf-8")
 
-        record_store = RecordStore(root / "records.sqlite")
+        record_store = open_record_store(root)
         try:
             binding = record_store.capture_delivery_binding(task_id, 1)
             record_store.record_approval(
@@ -651,7 +659,7 @@ class TestAcceptanceSuccessParity:
         return req_id
 
     def _facts(self, root: Path, req_id: str) -> dict[str, object]:
-        store = RequirementStore(root / "records.sqlite")
+        store = requirement_store(root)
         try:
             record = store.requirement_acceptance(req_id)
             return {
@@ -709,7 +717,7 @@ class TestAcceptanceSuccessParity:
                 "poll",
                 "--once",
                 "--project",
-                "ForgeLoop",
+                PROJECT,
                 "--whitelist",
                 "requester@example.com",
                 *connection_args(mail_root),

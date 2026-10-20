@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from project_support import record_store, requirement_store
+
 from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 
 def requirement_root(records_root: Path) -> RequirementStore:
-    return RequirementStore(records_root / "records.sqlite")
+    """需求记录（多项目模式：按登记根解析到项目记录根，并自动登记临时项目）。"""
+
+    return requirement_store(records_root)
 
 
 def cancel_facts(records_root: Path, req_id: str) -> dict[str, object]:
@@ -50,7 +53,7 @@ def approval_facts(records_root: Path, req_id: str) -> dict[str, object]:
 def stop_facts(records_root: Path, task_id: str) -> dict[str, object]:
     """停止：请求是否存在、操作人与入口来源是否留痕。"""
 
-    store = RecordStore(records_root / "records.sqlite")
+    store = record_store(records_root)
     try:
         requested_by, source = store.outcomes.stop_attribution(task_id)
         return {

@@ -24,6 +24,7 @@ from hypothesis import strategies as st
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata, empty_checkpoint
 from langgraph.checkpoint.sqlite import SqliteSaver
+from project_support import project_records, record_store, register_project, requirement_store
 
 from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.task_plan import PlannedTask, TaskPlan
@@ -37,8 +38,6 @@ from forgeloop.records.checkpoints import (
     inspect_checkpoint,
     latest_retry_decision,
 )
-from forgeloop.records.requirements import RequirementStore
-from forgeloop.records.store import RecordStore
 
 WHEN = datetime(2026, 10, 16, 10, 0, tzinfo=UTC)
 PROJECT = "ForgeLoop"
@@ -107,7 +106,8 @@ def _write_checkpoint(root: Path, thread_id: str) -> None:
 def _approved(root: Path) -> tuple[str, str]:
     """建立已批准的单任务需求与中断现场，返回需求身份与单任务身份。"""
 
-    store = RequirementStore(root / "records.sqlite")
+    project_root = register_project(root, legacy_project=PROJECT)
+    store = requirement_store(root, legacy_project=PROJECT)
     try:
         requirement = store.submit(PROJECT, "需求：属性测试")
         plan = TaskPlan(
@@ -133,19 +133,19 @@ def _approved(root: Path) -> tuple[str, str]:
     finally:
         store.close()
     thread_id = requirement_task_id(req_id, PLAN_VERSION, TASK)
-    _write_checkpoint(root, thread_id)
-    record_store = RecordStore(root / "records.sqlite")
+    _write_checkpoint(project_root, thread_id)
+    records = record_store(root)
     try:
-        record_store.create_task(
+        records.create_task(
             thread_id,
             PROJECT,
             "task",
             {"pi_command": "[]", "test_command": "[]"},
             7200.0,
         )
-        record_store.set_task_status(thread_id, "interrupted")
+        records.set_task_status(thread_id, "interrupted")
     finally:
-        record_store.close()
+        records.close()
     return req_id, thread_id
 
 
@@ -225,7 +225,8 @@ def test_cli_blank_reason_never_drives_resume(tmp_path: Path, by: str, reason: s
     )
 
     assert code == 1
-    assert latest_retry_decision(root, req_id, thread_id) is None
-    state = inspect_checkpoint(root, thread_id).state
+    project_root = project_records(root)
+    assert latest_retry_decision(project_root, req_id, thread_id) is None
+    state = inspect_checkpoint(project_root, thread_id).state
     assert state is not None
     assert state.halted_reason == "pi_dev_unsettled"

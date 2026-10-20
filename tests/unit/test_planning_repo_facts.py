@@ -471,7 +471,7 @@ class TestFactsPayload:
         ]
         assert payload["architecture_doc"] == "docs/architecture.md"
         assert payload["source_root_files"] == ["__init__.py", "__main__.py"]
-        assert payload["test_root_files"] == ["conftest.py"]
+        assert payload["test_root_files"] == ["conftest.py", "project_support.py"]
         assert ".github" in payload["auxiliary_roots"]
         assert "pyproject.toml" in payload["top_level_files"]
         assert payload["interpreters"] == ["uv run", "python3"]

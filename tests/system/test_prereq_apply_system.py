@@ -205,6 +205,18 @@ def configure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     return json.dumps([sys.executable, str(script)])
 
 
+def project_root(records_root: Path) -> Path:
+    return records_root / "projects" / "forgeloop"
+
+
+def register_project(records_root: Path, source: Path) -> None:
+    added = run_requirement(
+        ["project", "add", "forgeloop", "--name", "ForgeLoop", "--path", str(source)],
+        records_root,
+    )
+    assert added.returncode == 0, added.stderr
+
+
 def single_task_id(document: dict, task_id: str) -> str:
     for entry in document["tasks"]:
         if entry["task_id"] == task_id:
@@ -218,6 +230,7 @@ class TestPrerequisiteCodeAcrossProcesses:
     ) -> None:
         pi_command = configure(monkeypatch, tmp_path)
         source = make_source_repo(tmp_path)
+        register_project(tmp_path, source)
 
         submitted = run_requirement(
             ["requirement", "submit", "--project", "forgeloop", "--input", "前置进入下游"],
@@ -251,7 +264,7 @@ class TestPrerequisiteCodeAcrossProcesses:
         assert advanced.returncode == 0, advanced.stderr
         document = requirement_json(["requirement", "status", req_id, "--json"], tmp_path)
         alpha_id = single_task_id(document, "alpha")
-        assert (tmp_path / alpha_id / "workspace" / "alpha.txt").read_text(
+        assert (project_root(tmp_path) / alpha_id / "workspace" / "alpha.txt").read_text(
             encoding="utf-8"
         ) == "alpha-from-pi\n"
         # 基线源仓库没有该文件：后续下游副本里的出现只可能来自前置应用。
@@ -276,20 +289,24 @@ class TestPrerequisiteCodeAcrossProcesses:
         document = requirement_json(["requirement", "status", req_id, "--json"], tmp_path)
         beta_id = single_task_id(document, "beta")
 
-        beta_workspace = tmp_path / beta_id / "workspace"
+        beta_workspace = project_root(tmp_path) / beta_id / "workspace"
         # 真实读取下游副本文件：上游代码作为代码输入进入 beta 实现现场。
         assert (beta_workspace / "alpha.txt").read_text(encoding="utf-8") == "alpha-from-pi\n"
         assert (beta_workspace / "beta.txt").read_text(encoding="utf-8") == "beta-from-pi\n"
 
         record = json.loads(
-            (tmp_path / beta_id / "prerequisite-applications.json").read_text(encoding="utf-8")
+            (project_root(tmp_path) / beta_id / "prerequisite-applications.json").read_text(
+                encoding="utf-8"
+            )
         )
         assert record["blocked_reason"] == ""
         assert record["applications"][0]["task_id"] == "alpha"
         assert record["applications"][0]["status"] == "applied"
 
         # 下游候选 diff 相对基线采集，已带上由前置带入的改动。
-        candidate_diff = (tmp_path / beta_id / "candidate.diff").read_text(encoding="utf-8")
+        candidate_diff = (project_root(tmp_path) / beta_id / "candidate.diff").read_text(
+            encoding="utf-8"
+        )
         assert "alpha.txt" in candidate_diff
         assert "+alpha-from-pi" in candidate_diff
 
@@ -300,6 +317,7 @@ class TestPrerequisiteCodeAcrossProcesses:
 
         pi_command = configure(monkeypatch, tmp_path)
         source = make_source_repo(tmp_path)
+        register_project(tmp_path, source)
         submitted = run_requirement(
             ["requirement", "submit", "--project", "forgeloop", "--input", "隔离检查"],
             tmp_path,
@@ -325,5 +343,5 @@ class TestPrerequisiteCodeAcrossProcesses:
         )
         document = requirement_json(["requirement", "status", req_id, "--json"], tmp_path)
         alpha_id = single_task_id(document, "alpha")
-        assert not (tmp_path / alpha_id / "workspace" / "beta.txt").exists()
+        assert not (project_root(tmp_path) / alpha_id / "workspace" / "beta.txt").exists()
         assert not (source / "beta.txt").exists()

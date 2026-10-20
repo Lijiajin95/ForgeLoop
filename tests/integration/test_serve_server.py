@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from project_support import project_records, register_project
 
 from forgeloop.cli.main import _requirement_document, _status_document
 from forgeloop.cli.serve import (
@@ -26,6 +27,7 @@ from forgeloop.cli.web import ProgressDocuments, WebSettings, load_web_config
 from forgeloop.domain.progress import resolve_refresh_seconds
 from forgeloop.domain.service import ServiceSettings, resolve_service_settings
 from forgeloop.graph.worker import ServiceWorker
+from forgeloop.records.projects import iter_projects
 from forgeloop.records.store import RecordStore
 
 pytestmark = pytest.mark.integration
@@ -56,7 +58,7 @@ STUB_OPERATIONS = ServeOperations(
 def make_blocked_task(root: Path) -> None:
     """造一个真实阻断任务与一个残留槽位：两类「需人工核对」事实各一条。"""
 
-    store = RecordStore(root / "records.sqlite")
+    store = RecordStore(project_records(root) / "records.sqlite")
     try:
         store.create_task(
             "task-blocked",
@@ -87,11 +89,14 @@ def serve_settings(root: Path, service_document: dict | None = None) -> ServeSet
         config_path=ROOT / "config" / "web.toml",
         documents=DOCUMENTS,
     )
+    # 多项目模式：设置里带上登记根解析出的服务项目，业务记录根随之为项目记录根。
+    project = next(iter(iter_projects(root)), None)
     return ServeSettings(
         web=web,
         service=service,
         config_path=ROOT / "config" / "service.toml",
         operations=STUB_OPERATIONS,
+        project=None if project is None else project.project,
     )
 
 
@@ -99,8 +104,10 @@ def serve_settings(root: Path, service_document: dict | None = None) -> ServeSet
 def live_service(tmp_path: Path) -> Iterator[tuple[str, int, Path, ServiceWorker]]:
     root = tmp_path / ".forgeloop"
     root.mkdir()
-    worker = ServiceWorker(root, poll_seconds=1, auto_advance=False)
-    server = build_server(serve_settings(root), worker)
+    register_project(root)
+    settings = serve_settings(root)
+    worker = ServiceWorker(settings.records_root, poll_seconds=1, auto_advance=False)
+    server = build_server(settings, worker)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     thread.start()
@@ -160,7 +167,7 @@ class TestReadOnlyRoutes:
             assert status == 405
             assert headers["allow"] == "GET, HEAD"
         # 被拒绝的写请求不能留下任何业务事实：任务、槽位、动作都必须是空的。
-        store = RecordStore(root / "records.sqlite")
+        store = RecordStore(project_records(root) / "records.sqlite")
         try:
             assert store.all_tasks() == ()
             assert store.actions.outstanding_slots() == ()
@@ -247,6 +254,7 @@ class TestDocumentShape:
 
         root = tmp_path / ".forgeloop"
         root.mkdir()
+        register_project(root)
         service = resolve_service_settings(load_service_config(ROOT / "config" / "service.toml"))
         web = WebSettings(
             records_root=root,
@@ -267,5 +275,5 @@ class TestDocumentShape:
             ),
             ServiceWorker(root, poll_seconds=1, auto_advance=False),
         )
-        assert document["counts"] == {"requirements": 0, "tasks": 0, "issues": 0}
+        assert document["counts"] == {"projects": 1, "requirements": 0, "tasks": 0, "issues": 0}
         assert web.refresh.seconds == AUTO_REFRESH_OFF

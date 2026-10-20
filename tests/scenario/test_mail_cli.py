@@ -27,6 +27,7 @@ from types import ModuleType
 from typing import Any, cast
 
 import pytest
+from project_support import project_records, register_project, requirement_store
 
 from forgeloop.adapter.mail import (
     ImapMailReceiver,
@@ -49,7 +50,6 @@ from forgeloop.cli.main import main as cli_main
 from forgeloop.domain.mail import Classification, DisambiguationQuestion
 from forgeloop.domain.requirement import RequirementAnalysis
 from forgeloop.records.mail_threads import MailThreadStore
-from forgeloop.records.requirements import RequirementStore
 
 pytestmark = pytest.mark.scenario
 
@@ -192,7 +192,7 @@ def seed_requirement(
 ) -> str:
     """建立一个需求并写入一次分析；有待澄清项时即为「缺关键信息」。"""
 
-    store = RequirementStore(records_root / "records.sqlite")
+    store = requirement_store(records_root, legacy_project=PROJECT)
     try:
         requirement = store.submit(PROJECT, text)
         analysis = RequirementAnalysis(
@@ -211,7 +211,7 @@ def seed_requirement(
 
 
 def requirement_ids(records_root: Path) -> list[str]:
-    store = RequirementStore(records_root / "records.sqlite")
+    store = requirement_store(records_root, legacy_project=PROJECT)
     try:
         return [requirement.req_id for requirement in store.for_project(PROJECT)]
     finally:
@@ -223,6 +223,7 @@ def poll(
     capsys: pytest.CaptureFixture[str],
     *extra: str,
 ) -> dict:
+    register_project(records_root, legacy_project=PROJECT)
     code, out = run_cli(
         [
             "mail",
@@ -297,7 +298,9 @@ class TestPollOnce:
         assert len(requirement_ids(tmp_path)) == 1
         assert sender.sent == []
 
-        connection = sqlite3.connect(tmp_path / "records.sqlite", isolation_level=None)
+        connection = sqlite3.connect(
+            project_records(tmp_path) / "records.sqlite", isolation_level=None
+        )
         thread_store = MailThreadStore(connection)
         try:
             req_id = first["requirements"][0]["req_id"]
@@ -367,7 +370,7 @@ class TestPollOnce:
 
         assert document["registered"] == 1
         req_id = document["requirements"][0]["req_id"]
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path, legacy_project=PROJECT)
         try:
             assert store.get(req_id).original_text == "只有正文的需求描述"
         finally:
@@ -376,6 +379,7 @@ class TestPollOnce:
     def test_poll_reports_adapter_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        register_project(tmp_path, legacy_project=PROJECT)
         monkeypatch.setattr(
             "forgeloop.cli.mail._make_receiver",
             lambda args: cast(ImapMailReceiver, RaisingReceiver([])),
@@ -681,6 +685,7 @@ class TestHumanReadableOutput:
             build_message(None, subject="无编号", body="无法解析的信"),
         ]
         install_transport(monkeypatch, messages)
+        register_project(tmp_path, legacy_project=PROJECT)
 
         code, out = run_cli(
             ["mail", "poll", "--once", "--project", PROJECT, *connection_args(tmp_path)],
@@ -697,6 +702,7 @@ class TestHumanReadableOutput:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         install_transport(monkeypatch, [])
+        register_project(tmp_path, legacy_project=PROJECT)
 
         code, out = run_cli(
             ["mail", "poll", "--once", "--project", PROJECT, *connection_args(tmp_path)],
@@ -825,7 +831,7 @@ class TestHelperEdges:
         assert sender.recipient == "owner@example.com"
 
     def test_suggestion_for_unknown_requirement_is_disambiguate(self, tmp_path: Path) -> None:
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path, legacy_project=PROJECT)
         try:
             suggestion = _suggestion_for(store, "req-missing", frozenset())
         finally:
@@ -833,8 +839,11 @@ class TestHelperEdges:
         assert suggestion.kind is Classification.DISAMBIGUATE
 
     def test_pending_entries_skips_unresolved_results(self, tmp_path: Path) -> None:
-        connection = sqlite3.connect(tmp_path / "records.sqlite", isolation_level=None)
-        store = RequirementStore(tmp_path / "records.sqlite")
+        register_project(tmp_path, legacy_project=PROJECT)
+        connection = sqlite3.connect(
+            project_records(tmp_path) / "records.sqlite", isolation_level=None
+        )
+        store = requirement_store(tmp_path, legacy_project=PROJECT)
         try:
             report = PollReport(
                 fetched=1,
@@ -996,7 +1005,7 @@ class TestMailConversationLoop:
     """邮件对话闭环（所有者 2026-10-19）：答复回流成需求修订，供下一轮分析使用。"""
 
     def _status(self, records_root: Path, req_id: str) -> tuple[str, int, str]:
-        store = RequirementStore(records_root / "records.sqlite")
+        store = requirement_store(records_root)
         try:
             requirement = store.get(req_id)
             return (
@@ -1034,7 +1043,7 @@ class TestMailConversationLoop:
         self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         req_id = seed_requirement(tmp_path, "导出功能")
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path)
         try:
             store.record_requirement_cancellation(req_id, by="owner", reason="已取消")
             before = len(store.get(req_id).versions)
@@ -1219,7 +1228,7 @@ class TestMailEquivalenceForCancel:
             ],
         )
         poll(tmp_path, capsys, "--whitelist", "requester@example.com")
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path)
         try:
             assert store.requirement_status(req_id) == "cancelled"
             decision = store.requirement_cancellation(req_id)
@@ -1245,7 +1254,7 @@ class TestMailEquivalenceForCancel:
         document = poll(tmp_path, capsys, "--whitelist", "someone-else@example.com")
         entry = next(item for item in document["requirements"] if item["req_id"] == req_id)
         assert entry["cancel_proposal"] is True
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path)
         try:
             assert store.requirement_status(req_id) != "cancelled"
         finally:
@@ -1259,7 +1268,7 @@ class TestMailEquivalenceForApprove:
         from forgeloop.domain.task_plan import PlannedTask, TaskPlan
 
         req_id = seed_requirement(tmp_path, "导出功能")
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path)
         try:
             plan = TaskPlan(
                 task_plan_id="plan-1",
@@ -1298,7 +1307,7 @@ class TestMailEquivalenceForApprove:
             ],
         )
         poll(tmp_path, capsys, "--whitelist", "requester@example.com")
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path)
         try:
             approval = store.plan_approval(req_id)
             assert approval is not None and approval.plan_version == 1
@@ -1322,7 +1331,7 @@ class TestMailEquivalenceForApprove:
             ],
         )
         poll(tmp_path, capsys, "--whitelist", "someone-else@example.com")
-        store = RequirementStore(tmp_path / "records.sqlite")
+        store = requirement_store(tmp_path)
         try:
             assert store.plan_approval(req_id) is None
         finally:

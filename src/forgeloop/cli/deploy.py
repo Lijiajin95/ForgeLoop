@@ -36,7 +36,7 @@ from forgeloop.adapter.deployment import (
     version_binary,
 )
 from forgeloop.adapter.git_workspace import tag_commit
-from forgeloop.cli.common import fail, records_root
+from forgeloop.cli.common import base_records_root, fail
 from forgeloop.domain.deploy import (
     DeployRequest,
     RollbackRequest,
@@ -44,6 +44,15 @@ from forgeloop.domain.deploy import (
     check_rollback_readiness,
     parse_checksum_file,
     select_wheel,
+)
+from forgeloop.domain.project import ProjectError, project_data_root
+from forgeloop.domain.release import ReleaseRecord
+from forgeloop.records.projects import (
+    ProjectLocation,
+    ProjectStore,
+    iter_projects,
+    project_records_path,
+    releases_by_tag,
 )
 from forgeloop.records.store import RecordStore
 
@@ -123,16 +132,57 @@ def _bootstrap_plan(args: argparse.Namespace, prefix: Path) -> _DeployPlan:
     )
 
 
+def _approval_root(args: argparse.Namespace) -> Path:
+    """部署批准归属的记录根：显式 ``--project`` 优先，否则要求唯一已登记项目。
+
+    部署批准绑定 ``(tag, artifact_sha256)``，与发布回执同属一个项目；多项目下必须
+    消歧，不能猜——猜错会把批准写进另一个项目的权威记录。
+    """
+
+    base = base_records_root(args)
+    project_id = getattr(args, "project", "") or ""
+    if project_id:
+        store = ProjectStore(project_records_path(base))
+        try:
+            return project_data_root(base, store.require(project_id).project_id)
+        except ProjectError as error:
+            raise DeployRefused(str(error)) from error
+        finally:
+            store.close()
+    locations = tuple(iter_projects(base))
+    if len(locations) == 1:
+        return locations[0].root
+    if not locations:
+        raise DeployRefused(
+            f"记录根 {base} 里没有已登记项目；先运行 `forgeloop project add` 登记项目"
+        )
+    projects = "、".join(sorted(item.project.project_id for item in locations))
+    raise DeployRefused(f"记录根里有多个已登记项目（{projects}）；请用 --project 指定部署批准归属")
+
+
 def _store(args: argparse.Namespace) -> RecordStore:
-    return RecordStore(records_root(args) / "records.sqlite")
+    """部署批准与查询用的记录存储（按 :func:`_approval_root` 定位项目）。"""
+
+    return RecordStore(_approval_root(args) / "records.sqlite")
 
 
-def _release_project(store: RecordStore, task_id: str) -> Path:
-    task = store.get_task(task_id)
-    project_path = task.config.get("project_path", "") if task is not None else ""
-    if not project_path:
-        raise DeployRefused(f"发布回执绑定的任务缺少 project_path：{task_id}")
-    return Path(project_path)
+def _release_project(args: argparse.Namespace, tag: str) -> tuple[Path, str]:
+    """跨项目定位标签的发布回执；重复标签必须用 ``--project`` 消歧。"""
+
+    matches: list[tuple[ProjectLocation, ReleaseRecord]] = list(
+        releases_by_tag(base_records_root(args), tag)
+    )
+    if args.project:
+        matches = [item for item in matches if item[0].project.project_id == args.project]
+    if not matches:
+        raise DeployRefused(f"缺少 {tag} 的发布回执；未发布的版本不部署")
+    if len(matches) > 1:
+        projects = "、".join(sorted(item[0].project.project_id for item in matches))
+        raise DeployRefused(
+            f"标签 {tag} 在多个项目有发布回执（{projects}）；请用 --project 指定项目"
+        )
+    location, release = matches[0]
+    return Path(location.project.repo_path), release.merge_commit
 
 
 def _release_slug(args: argparse.Namespace, project: Path) -> str:
@@ -160,15 +210,7 @@ def _download_release(plan_tag: str, slug: str, version: str, prefix: Path) -> t
 def _controlled_plan(args: argparse.Namespace, prefix: Path) -> _DeployPlan:
     """控制路径：发布回执 + 标签提交 + 发布校验值三者一致才允许部署。"""
 
-    store = _store(args)
-    try:
-        release = store.outcomes.release_by_tag(args.tag)
-        if release is None:
-            raise DeployRefused(f"缺少 {args.tag} 的发布回执；未发布的版本不部署")
-        project = _release_project(store, release.task_id)
-        merge_commit = release.merge_commit
-    finally:
-        store.close()
+    project, merge_commit = _release_project(args, args.tag)
     slug = _release_slug(args, project)
     version = args.tag.removeprefix("v")
     artifact, published = _download_release(args.tag, slug, version, prefix)
@@ -228,6 +270,11 @@ def add_deploy_parser(subparsers: argparse._SubParsersAction, default_records_ro
     deploy.add_argument(
         "--repo", default="", help="GitHub owner/name（缺省从发布回执的项目仓库推断）"
     )
+    deploy.add_argument(
+        "--project",
+        default="",
+        help="发布回执所属项目身份（同一标签在多个项目出现时必须指定）",
+    )
     deploy.add_argument("--prefix", default="", help="部署前缀（缺省 ~/.local/share/forgeloop）")
     deploy.add_argument("--records-root", default=default_records_root)
     deploy.set_defaults(func=cmd_deploy)
@@ -239,6 +286,9 @@ def add_deploy_parser(subparsers: argparse._SubParsersAction, default_records_ro
     approve.add_argument("--artifact-sha256", required=True, help="产物校验值（64 位十六进制小写）")
     approve.add_argument("--by", required=True, help="调用方标识（如 owner）")
     approve.add_argument("--reason", required=True, help="批准理由（安装到本机的决定）")
+    approve.add_argument(
+        "--project", default="", help="批准归属的项目身份（有多个已登记项目时必须指定）"
+    )
     approve.add_argument("--records-root", default=default_records_root)
     approve.set_defaults(func=cmd_deploy_approve)
 
@@ -252,7 +302,10 @@ def add_deploy_parser(subparsers: argparse._SubParsersAction, default_records_ro
 def cmd_deploy_approve(args: argparse.Namespace) -> int:
     """记录一次人工部署批准；缺少调用方标识或理由一律拒绝（零副作用）。"""
 
-    store = _store(args)
+    try:
+        store = _store(args)
+    except DeployRefused as refusal:
+        return fail(str(refusal))
     try:
         try:
             tag, digest = store.record_deploy_approval(
@@ -356,13 +409,16 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         plan = _bootstrap_plan(args, prefix) if args.artifact else _controlled_plan(args, prefix)
     except DeployRefused as refusal:
         return fail(str(refusal))
-    store = _store(args)
-    try:
-        approval = (
-            None if plan.request.source == "bootstrap" else store.deploy_approval(plan.request.tag)
-        )
-    finally:
-        store.close()
+    approval = None
+    if plan.request.source != "bootstrap":
+        try:
+            store = _store(args)
+        except DeployRefused as refusal:
+            return fail(str(refusal))
+        try:
+            approval = store.deploy_approval(plan.request.tag)
+        finally:
+            store.close()
     decision = check_deploy_readiness(plan.request, deploy_approval=approval)
     if not decision.allowed:
         return fail(decision.reason)
