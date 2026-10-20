@@ -477,6 +477,15 @@
 - **未做（如实记录）**：真实浏览器端到端（`make frontend-e2e` 需要 Chromium 与真实服务，本轮未跑）、Python 变异（`make mutation`，夜间层）、真实模型用例（`pi_live` 需模型开销授权）。
 - **发现但不碰**：① `cli/serve.py`、`cli/panel.py`、`graph/worker.py` 仍是单项目模型，页面与常驻的“多项目一个进程”需要单独方案；② `frontend/src/page.ts`（520 行）与 `render.ts`（542 行）超 500 行审阅阈值，属审阅提示、未拆；③ 本地 `web_page.html` 的结构块重复是本轮之前就存在的缺陷，本次合并时收敛，未另开修复批次。
 
+2026-10-20（合并推送 origin/main 与 CI 结果；覆盖率分支门槛红为合并继承的既有缺口）
+
+- **推送**：`04a2589..4c97e13 main -> main`（合并提交 `4c97e13`，父提交 `8173eda` 与 `04a2589`，作者/提交者 `lijiajin <lijiajin9528@gmail.com>`，本地 SSH 签名 Good）。推送前的 pre-push 钩子实跑：Ruff、Ruff format、Pyright、前端门禁、高频测试全部通过；`main` 已设置跟踪 `origin/main`，`git rev-list --left-right --count main...origin/main` 为 0/0。
+- **远端规则集事实**：推送时 GitHub 返回 `Bypassed rule violations for refs/heads/main: Commits must have verified signatures（68 个提交）`。即 `main-protection` 的 `required_signatures` 仍然启用，但账号侧未把本机签名公钥登记为 Signing Key（所有者 2026-10-18 已取消该登记要求），因此这些提交显示 Unverified，由所有者 bypass 放行。这是该组合的已记录后果，不是本轮新增门禁，也未修改任何规则集。
+- **CI（run 39411783236）**：`commit-policy` **成功**（提交头与时间审计通过）、`security` **成功**；`quality` **失败**，唯一失败点是覆盖率门槛——`check_coverage_thresholds.py` 报行 **94.02%**、**分支 89.47% 低于 90%**、changed-lines 通过；同一步测试 **2509 通过、12 跳过**（真实模型、容器镜像与 `reports/` 类用例按既有约定跳过）。因覆盖率检查先于 e2e 中止，该作业未执行到真实浏览器用例。
+- **覆盖率归因（如实）**：合并前本地 main 的覆盖率报告（2026-10-18，`reports/coverage.json`）为行 93.83%、分支 **90.34%**；远端分支自身批次曾记录分支 88.89%（当时已如实标注未达门槛）。本次合并把远端新增模块（`mail_interaction`、`projects`、`agent_runtime`、`context` 等）与本地新代码合在一起，分支覆盖率落在 **89.47%**，因此**低于门槛**。这是合并继承的既有缺口，不是合并改坏了既有代码；本次未通过放宽门槛、跳过检查或改写报告来“修复”。
+- **本机提交策略**：按所有者 2026-10-20 指令取消提交时间禁止，生效配置移出为 `.cache/forgeloop/commit-policy.toml.disabled-2026-10-20`（两处生效位置均无配置），判定 `policy_absent`、NOT enforced；模板、领域规则、hooks 与 CI 的 `commit-policy` 作业保持不变。提交与推送全程未使用 `--no-verify`、未改时钟。
+- **未做（需另立批次或授权）**：① 补测把分支覆盖率恢复到 ≥90%（候选缺口：`mail/config.py` 87%、`domain/toml_fields.py` 88%、`cli/serve.py` 与 `records/projects.py` 的新增分支）；② 在本地复跑 `make frontend-e2e`（CI 因覆盖率提前中止未执行到该步）；③ Python 变异（`make mutation`，夜间层）；④ 一个进程聚合多个项目的常驻服务（本轮按所有者指令取“一个进程服务一个项目”，聚合列为后续方案）。
+
 ### 实现范围
 
 | 层 | 内容 |
