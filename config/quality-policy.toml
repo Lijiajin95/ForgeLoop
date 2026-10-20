@@ -216,22 +216,6 @@ require_nonempty_report = true
 
 # 变异幸存者逐项审阅记录（2026-10-12 审阅；源码变更后须重新核对，清单失效时门槛脚本会显式失败）。
 [[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__command__mutmut_5"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__command__mutmut_9"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__command__mutmut_10"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__command__mutmut_11"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_8"
 reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
 
@@ -245,22 +229,6 @@ reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，�
 
 [[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_14"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_25"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_29"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_30"
-reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_31"
 reason = '等价变异：`cast(...)` 的实参只在类型检查期有意义，运行时是 no-op（直接返回原值），因此把 `"Sequence[object]"`／`"Mapping[str, object]"` 改成 `None`、大小写或 XX 包裹，对可观察行为没有任何影响；`domain/service.py` 已按所有者决定纳入变异范围（2026-10-18，消息即契约），其余变异体全部被 unit+property 杀死。'
 
 [[mutation.reviewed_survivors]]
@@ -534,18 +502,6 @@ mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_31"
 reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
 
 [[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_54"
-reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；测试已断言两侧实际校验值可读出。"
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_55"
-reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；测试已断言两侧实际校验值可读出。"
-
-
-# 2026-10-13：S3 候选分支流程把 src/forgeloop/domain/merge.py 纳入变异范围后的
-# 新幸存者审阅。行为类变异（allowed False→None、reason→None）已由测试杀死；
-# 下表只保留消息文本与短 SHA 位数变异。
-[[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.merge.x_check_required_checks__mutmut_10"
 reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；测试断言关键语义词，不断言全文。"
 
@@ -565,10 +521,6 @@ mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_23"
 reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；基线缺失判定本身由测试覆盖。"
 
 [[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_24"
-reason = "错误消息文本变异（大小写）：消息内容非行为契约；基线缺失判定本身由测试覆盖。"
-
-[[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_31"
 reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；空 diff 判定本身由测试覆盖。"
 
@@ -576,26 +528,6 @@ reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约�
 mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_39"
 reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；漂移判定与两侧实际提交由测试覆盖。"
 
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_40"
-reason = "提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；漂移判定与两侧实际提交由测试覆盖。"
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_41"
-reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；漂移判定本身由测试覆盖。"
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_47"
-reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；通过判定本身由测试覆盖。"
-
-[[mutation.reviewed_survivors]]
-mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_48"
-reason = "错误消息文本变异（大小写）：消息内容非行为契约；通过判定本身由测试覆盖。"
-
-# 2026-10-14：B04 交付绑定把 src/forgeloop/domain/delivery.py 纳入变异范围后的
-# 新幸存者审阅。行为类变异（判定 False→None、原因→None、缺产物任务清单丢失、
-# 默认基线被改写、缺字段标签）已由新增契约测试杀死；下表只保留消息文本、
-# 展示格式与等价变异。approval.py 只新增 1 处拒绝消息文本变异。
 [[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.approval.xǁApprovalBookǁconsume__mutmut_46"
 reason = "错误消息文本变异（XX 包裹）：消息内容非行为契约；重复消费判定与返回批准由测试覆盖。"
@@ -939,3 +871,91 @@ reason = "错误消息文本变异（XX 包裹/大小写/None）：同一 fail-c
 [[mutation.reviewed_survivors]]
 mutant = "forgeloop.domain.agent_runtime.x_resolve_agent_runtime__mutmut_67"
 reason = "错误消息文本变异（XX 包裹/大小写/None）：同一 fail-closed 分支仍抛 AgentRuntimeError；测试断言异常类型与关键语义，不断言全文（与既有 limits／commit_policy 条目同口径）。"
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.counting.xǁGrantLedgerǁrecord_failure__mutmut_8"
+reason = '错误消息文本变异（异常消息改为 None）：仍在失败轮次用尽时抛同一 GrantExhaustedError，异常类型与分支不变；测试断言异常类型与「轮次用尽」语义，不断言全文（与既有 counting／approval 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_41"
+reason = '错误消息文本变异（XX 包裹）：仍在缺少人工部署批准时返回 approved=False 的同一结论；结论与关键语义词由测试断言，消息内容非行为契约（与既有 deploy 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_42"
+reason = '错误消息文本变异（大小写）：仍在缺少人工部署批准时返回 approved=False 的同一结论；结论与关键语义词由测试断言，消息内容非行为契约（与既有 deploy 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_52"
+reason = '提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；批准不符判定本身由测试覆盖（与既有 deploy 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_53"
+reason = '提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；批准不符判定本身由测试覆盖（与既有 deploy 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_73"
+reason = '提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；已激活校验值不同的拒绝判定由测试覆盖（与既有 deploy 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_check_deploy_readiness__mutmut_74"
+reason = '提示消息短 SHA 位数变异（12→13 位）：展示格式非行为契约；已激活校验值不同的拒绝判定由测试覆盖（与既有 deploy 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_deploy_offer__mutmut_7"
+reason = '错误消息文本变异（XX 包裹）：仍在没有已发布版本时返回 pending=False；结论由测试断言，消息内容非行为契约。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_deploy_offer__mutmut_19"
+reason = '等价变异：active_version 为空时 parse_version(v) 仍返回 None（VERSION_PATTERN 要求 v 后跟三段数字）；非空时分支不变，结论完全相同。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_deploy_offer__mutmut_25"
+reason = '错误消息文本变异（消息改为 None）：仍在发布版本不高于当前激活版本时返回 pending=False；结论由测试断言，消息内容非行为契约。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.deploy.x_deploy_offer__mutmut_47"
+reason = '等价变异：去掉末尾 False 实参后 approved 仍取 DeployOffer 的默认值 False（dataclass 默认值），返回对象与判定完全相同。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_38"
+reason = '错误消息文本变异（XX 包裹）：归并结论与分支不变，消息内容非行为契约；测试断言结论与关键语义（与既有 merge 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.merge.x_check_merge_readiness__mutmut_45"
+reason = '错误消息文本变异（XX 包裹）：归并结论与分支不变，消息内容非行为契约；测试断言结论与关键语义（与既有 merge 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x_resolve_panel_settings__mutmut_14"
+reason = '错误消息文本变异（XX 包裹）：仍抛 ServiceConfigError；类型与关键语义由测试断言，消息内容非行为契约。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x_resolve_panel_settings__mutmut_17"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x_resolve_panel_settings__mutmut_21"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x_resolve_panel_settings__mutmut_22"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x_resolve_panel_settings__mutmut_23"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_28"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_32"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_33"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+
+[[mutation.reviewed_survivors]]
+mutant = "forgeloop.domain.service.x__resolve_projects__mutmut_34"
+reason = '等价变异：「cast(...)」的实参只在类型检查期有意义，运行时是 no-op（直接返回原值）；把它改成 None、大小写或 XX 包裹不改变任何可观察行为（与既有 service 条目同口径）。'
+

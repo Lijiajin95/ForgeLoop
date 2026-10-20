@@ -298,6 +298,14 @@ class TestDeployOffer:
         assert self.offer("1.2.2", ("v1.2.3", DIGEST), ("v1.2.3", "b" * 64)).approved is False
         assert self.offer("1.2.2", ("v1.2.3", DIGEST), ("v9.9.9", DIGEST)).approved is False
 
+    def test_approved_offer_carries_tag_version_and_approval(self) -> None:
+        # 页面/运维据此直接读「待部署哪个标签、哪个版本」：字段留空或写错版本都不是等价变异。
+        result = self.offer("1.2.2", ("v1.2.3", DIGEST), ("v1.2.3", DIGEST))
+        assert result.pending is True and result.approved is True
+        assert result.tag == "v1.2.3"
+        assert result.version == "1.2.3"
+        assert result.reason.startswith("待部署：v1.2.3（已获人工批准）")
+
     def test_invalid_tag_is_reported_instead_of_guessed(self) -> None:
         result = self.offer("1.2.2", ("not-a-tag", DIGEST))
         assert result.pending is False and "标签不合法" in result.reason
