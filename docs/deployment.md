@@ -104,6 +104,17 @@ FAIL: 冒烟检查失败（exit=3）：...
   形成自升级链路。
 - 若作业一直排队，通常是 runner 缺少 `forgeloop-deploy` 标签或未在线；在仓库
   Settings → Actions → Runners 页面核对标签与状态。
+- **多项目口径（2026-10-20 起）**：业务记录在 `<records-root>/projects/<project_id>/` 下，
+  因此工作流显式带项目与登记根（`project` 缺省 `forgeloop`、`records-root` 缺省
+  `/home/link/Project/ForgeLoop/.forgeloop`，可用 `workflow_dispatch` 输入覆盖；前缀可用
+  仓库变量 `FORGELOOP_DEPLOY_PREFIX` 覆盖）。工作流在安装前先做两项只读前置，失败即退出、
+  不装任何东西：
+  1. **本机 CLI 支持多项目**：`current/bin/forgeloop deploy --help` 必须含 `--project`；
+     旧版本会给出升级命令（`scripts/install_local_service.sh --no-unit`）。
+  2. **项目已登记**：`project show <project> --records-root <root>` 必须成功；否则打印
+     `project add …` 的补办命令。
+  安装仍由 `deploy` 的权威判据把关：缺**发布回执**或缺**该版本的一次性人工部署批准**时
+  fail-closed 拒绝，工作流把两项补办命令一起打印，界面/日志里能直接照着做。
 
 ## 常驻服务（R1，手工安装）
 
@@ -213,9 +224,14 @@ curl -s http://127.0.0.1:8712/api/service | python3 -m json.tool | grep -A3 outs
 ## 未验证与已知边界
 
 - 「Release → 自托管 runner → 本机部署」的真实端到端链路**尚未执行**：需要一次真实交付
-  走完 S1 发布（标签 + Release）后才能验证；当前只有引导路径的真实验证。链路本身已修复
-  （2026-10-13：原配置只靠 `release.published`，而 `GITHUB_TOKEN` 创建的 Release 事件不触发
-  下游工作流，`release.yml` 现改为显式派发 Deploy）。
+  走完 S1 发布（标签 + Release）后才能验证；当前只有引导路径的真实验证。链路的断点已修
+  （2026-10-13 显式派发 Deploy；2026-10-20 多项目记录根与前置校验，见上节），但**一次成功的
+  自升级仍需真实发布**。
+- **本机 0.0.4 的安装与重启未在本会话完成**：`deploy` 的构建/安装/激活/冒烟已在工作区彩排
+  前缀实测通过（相对与绝对前缀各一次），但写 `~/.local/share/forgeloop` 与
+  `~/.config/systemd/user` 需要工作区外写权限，本会话沙箱拒绝；请按下面「本机接入」在真实宿主执行。
+    另外本机记录根已从旧单根迁移到项目布局（`.forgeloop/projects/forgeloop/`，旧库当时为空），
+    迁移后 `serve --once --json` 显示 `project: forgeloop` 且进展聚合正常。
 - **真实两版本回滚未在真实前缀演练**：本机目前只安装了一个版本；回滚链路由场景测试
   （真实文件系统 + 真实安装 + 真实切换）覆盖，等第二个版本交付后补真实演练。
 - runner 标签是否包含 `forgeloop-deploy` 无法在本地核对（标签在 GitHub 侧），需在 Runners

@@ -804,6 +804,8 @@ def _resolve_settings(
     refresh = resolve_refresh_seconds(
         load_web_config(web_config_path), cli_value=args.refresh_seconds
     )
+    # 服务项目先解析：只读页的跨项目聚合也要按它过滤，两个入口才看到同一份事实。
+    project = _served_project(root, getattr(args, "project", "") or "")
     web = WebSettings(
         root,
         service_settings.host,
@@ -811,6 +813,7 @@ def _resolve_settings(
         refresh,
         web_config_path,
         args.progress_documents,
+        project_id="" if project is None else project.project_id,
     )
     return ServeSettings(
         web=web,
@@ -818,7 +821,7 @@ def _resolve_settings(
         config_path=service_config_path,
         operations=args.operations,
         projects_path=Path(args.projects_file),
-        project=_served_project(root, getattr(args, "project", "") or ""),
+        project=project,
     )
 
 

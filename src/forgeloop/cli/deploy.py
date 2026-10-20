@@ -78,7 +78,14 @@ class _DeployPlan:
 
 
 def _prefix(args: argparse.Namespace) -> Path:
-    return Path(args.prefix).expanduser() if args.prefix else default_prefix()
+    """部署前缀一律解析为**绝对路径**。
+
+    激活指针是符号链接：相对路径会被按链接所在目录解析成 ``<前缀>/<前缀>/releases/…``，
+    装完即坏（2026-10-20 实测：``--prefix .cache/x`` 安装成功但冒烟 127）。因此这里
+    统一绝对化，调用方传相对路径也不会写出坏指针。
+    """
+
+    return Path(args.prefix).expanduser().resolve() if args.prefix else default_prefix()
 
 
 def _print_recovery_entry(prefix: Path, previous: str) -> None:

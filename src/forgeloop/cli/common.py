@@ -33,9 +33,15 @@ from forgeloop.records.store import RecordStore
 
 
 def base_records_root(args: argparse.Namespace) -> Path:
-    """登记根：``--records-root`` 原值，不做项目解析。"""
+    """登记根：``--records-root`` 解析为**绝对路径**，不做项目解析。
 
-    return Path(args.records_root)
+    绝对化不是洁癖：任务现场是从相对记录根派生的 ``git worktree`` 路径，PI 与测试命令
+    又在各自的 cwd 里执行，相对记录根会让两处解析到不同目录——2026-10-20 实测：常驻
+    服务用相对记录根时任务停在 ``implementing``（动作未释放），改成绝对路径即恢复到
+    验收门。因此所有命令统一在这里绝对化，避免每个入口各写一次。
+    """
+
+    return Path(args.records_root).expanduser().resolve()
 
 
 def project_for(base: Path, project_id: str) -> Project:

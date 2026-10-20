@@ -16,7 +16,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+from forgeloop.domain.project import project_data_root
 from forgeloop.domain.task_plan import PlannedTask, TaskLimits, TaskPlan
+from forgeloop.records.projects import ProjectStore, project_records_path
 from forgeloop.records.requirements import RequirementStore
 
 PROJECT = "ForgeLoop"
@@ -37,6 +39,22 @@ def main(argv: list[str]) -> int:
     models = home / ".pi" / "agent" / "models.json"
     models.parent.mkdir(parents=True, exist_ok=True)
     models.write_text('{"providers": {}}', encoding="utf-8")
+    records.mkdir(parents=True, exist_ok=True)
+    # 多项目模式：业务记录写在项目记录根下，并登记项目身份（常驻服务据此解析
+    # ``--project`` 与 /api/progress 的项目过滤）。记录里的 project 值沿用服务配置的
+    # 项目档案名（``ForgeLoop``），由 legacy_project 映射到登记身份 ``forgeloop``。
+    projects = ProjectStore(project_records_path(records))
+    try:
+        if projects.get("forgeloop") is None:
+            projects.add(
+                "forgeloop",
+                "ForgeLoop",
+                str(Path(__file__).resolve().parents[2]),
+                legacy_project=PROJECT,
+            )
+    finally:
+        projects.close()
+    records = project_data_root(records, "forgeloop")
     records.mkdir(parents=True, exist_ok=True)
 
     store = RequirementStore(records / "records.sqlite")

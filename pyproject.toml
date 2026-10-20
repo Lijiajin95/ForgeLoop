@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forgeloop"
-version = "0.0.3"
+version = "0.0.4"
 description = "CLI-driven automated development loop: bounded small requirements to accepted code diffs"
 readme = "README.md"
 # Python 3.13 是骨架提案基线：须在最小技术方案核查中与 LangGraph、PI RPC 容器
@@ -180,7 +180,17 @@ pytest_add_cli_args = [
 # `contracts/cli-contract.json`，沙箱里没有它就基线失败——扩大 only_mutate 后这条暴露出来
 # （此前只在跑窄范围时才没被选中）。契约快照是仓库结构检查，与变异判定无关，但缺了会直接
 # 让整个变异运行报「failed to collect stats」。
-also_copy = ["tests", "config", "scripts", "contracts", "frontend/src", "frontend/quality-thresholds.json"]
+# `.pre-commit-config.yaml` 是点文件、默认不拷贝（2026-10-20 实测）：`tests/unit/test_hook_git_env.py`
+# 把「跑测试的钩子先清掉 git 仓库定位变量」钉成机器判定，副本里缺它会直接基线失败。
+also_copy = [
+    "tests",
+    "config",
+    "scripts",
+    "contracts",
+    "frontend/src",
+    "frontend/quality-thresholds.json",
+    ".pre-commit-config.yaml",
+]
 
 [tool.pylint.main]
 # Pylint 原先只启用 too-many-public-methods 与 too-many-lines 两项；

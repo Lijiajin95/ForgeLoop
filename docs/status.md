@@ -486,6 +486,16 @@
 - **本机提交策略**：按所有者 2026-10-20 指令取消提交时间禁止，生效配置移出为 `.cache/forgeloop/commit-policy.toml.disabled-2026-10-20`（两处生效位置均无配置），判定 `policy_absent`、NOT enforced；模板、领域规则、hooks 与 CI 的 `commit-policy` 作业保持不变。提交与推送全程未使用 `--no-verify`、未改时钟。
 - **未做（需另立批次或授权）**：① 补测把分支覆盖率恢复到 ≥90%（候选缺口：`mail/config.py` 87%、`domain/toml_fields.py` 88%、`cli/serve.py` 与 `records/projects.py` 的新增分支）；② 在本地复跑 `make frontend-e2e`（CI 因覆盖率提前中止未执行到该步）；③ Python 变异（`make mutation`，夜间层）；④ 一个进程聚合多个项目的常驻服务（本轮按所有者指令取“一个进程服务一个项目”，聚合列为后续方案）。
 
+2026-10-20（CI/CD 修复：恢复覆盖率门禁、变异沙箱可运行、修掉 CD 的多项目与相对路径缺陷）
+
+- **CI 红点（Engineering quality）**：合并后唯一失败点是分支覆盖率 89.47% < 90%。按“补测而不是放宽门槛”处理：新增 `tests/unit/test_serve_project_scope.py`（`_served_project` 的显式／唯一／多项目／旧名／未登记五个分支、`ServeSettings.records_root` 与 `project_id`、`_resolve_settings` 的 web 项目过滤与 `--project`、`deploy_section` 的无发布／待批准／已批准、服务文档的 `project` 字段与进展过滤、部署批准归属 `_approval_root` 的 fail-closed 分支、`service_text`／`_emit`／停止钩子的两种形态、记录根绝对化）与 `tests/unit/test_deploy_prefix.py`（相对／`~` 前缀绝对化、激活链接必须是绝对目标）。复跑：**分支 90.22%、行 94.34%、changed-lines 通过**。未修改任何门槛数值。
+- **前端 e2e 重新跑通（18/18）**，并抓出两处合并遗留缺陷：① `tests/fixtures/seed_serve_operations_e2e.py` 仍写旧单根记录，改项目登记 + 项目记录根（否则 `/api/progress` 为空、页面无可操作对象）；② **相对 `--records-root` 会让任务停在 `implementing`**——任务现场是 `git worktree` 派生路径、PI 与测试命令在各自 cwd 执行，相对根被两处解析成不同目录（实测两次对照：相对卡住、绝对到验收门）。修复在 `cli.common.base_records_root`：统一 `expanduser().resolve()`，所有命令共用同一口径。
+- **部署前缀缺陷**：`deploy --prefix <相对路径>` 安装成功但激活链接写成相对目标，按链接所在目录再解析一次 → 冒烟 127「未找到可执行文件」（实测）。修复：`_prefix` 绝对化 + `activate` 写绝对链接目标；相对与绝对前缀各实测一次，均完成安装→激活→冒烟。版本号 `0.0.3 → 0.0.4`（`pyproject.toml` + `uv.lock`）：一个版本只对应一份产物，本轮改动需要新产物才能交付。
+- **CD 工作流（`deploy.yml`）多项目化**：新增 `project`（缺省 `forgeloop`）与 `records-root`（缺省本机登记根）输入，前缀可由仓库变量 `FORGELOOP_DEPLOY_PREFIX` 覆盖；安装前两项只读前置（本机 CLI 支持 `--project`、项目已登记）失败即退出且不安装；`deploy` 被拒时把发布回执与 `deploy-approve` 的补办命令一起打印。仍不代做批准：缺回执或缺该版本一次性批准时 fail-closed，人必须在记录根上批准。
+- **本机现场**：登记根 `.forgeloop` 由旧单根迁到项目布局（旧库当时为空，`project add forgeloop` + `project migrate` 如实提示“未迁移的目录: projects”）；`serve --once --json` 在真实记录根上显示 `project: forgeloop`、`project_records_root: …/projects/forgeloop`，`deploy` 段为“没有已发布版本”。`0.0.4` wheel 在**工作区彩排前缀**完成构建→安装→激活→冒烟（不触碰真实前缀）。
+- **夜间变异**：先修结构缺口——mutmut 副本不拷贝点文件，`tests/unit/test_hook_git_env.py` 在基线收集阶段直接失败；`[tool.mutmut].also_copy` 纳入 `.pre-commit-config.yaml` 后基线可跑。**仍未通过**：合并后的树有 **105 个未审阅幸存者**（1698 个变异体、1437 杀死、261 幸存、171 条已登记，另有 15 条登记已过期）。这是需要专门批次的补测／审阅工作，本次未用“全登记等价”糊过去。
+- **未完成（如实记录）**：① 真实前缀安装与服务重启——本会话沙箱对 `~/.local/share/forgeloop` 与 `~/.config/systemd/user` 只读，需在真实宿主执行 `scripts/install_local_service.sh` 并 `systemctl --user restart forgeloop`；② 一次真实 `release → deploy` 自升级——需要一次真实交付的已验收产物（S1 规则不允许在标签工作流重建产物）；③ 105 个变异幸存者的补测与逐条审阅。
+
 ### 实现范围
 
 | 层 | 内容 |

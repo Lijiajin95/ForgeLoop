@@ -198,7 +198,8 @@ def activate(prefix: Path, version: str) -> None:
     temporary = prefix / f"current.tmp-{os.getpid()}"
     if temporary.is_symlink() or temporary.exists():
         temporary.unlink()
-    temporary.symlink_to(target, target_is_directory=True)
+    # 链接目标写成绝对路径：相对目标会按链接所在目录解析，前缀本身是相对路径时直接坏掉。
+    temporary.symlink_to(target.resolve(), target_is_directory=True)
     os.replace(temporary, prefix / "current")
 
 
