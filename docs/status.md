@@ -666,7 +666,7 @@
 | 结构数字 | 函数行数、文件长度、公开接口数、复杂度、参数数、分支数均为**审阅提示**（2026-10-14：0 失败 / 155 条提示）；只有配置损坏、源码不可读或解析失败让结构门禁失败。不为数字超限拆函数或拆文件（可靠性方案第 25 节） |
 | 真实 CI | **已在 GitHub 执行（2026-10-16）**：`quality` 与 `commit-policy` 作业通过。`security` 曾因 `pip-audit` 报 `mcp 1.29.0` 的 CVE-2026-59951 失败；经核实 `mcp` 仅为 `semgrep` 的开发期传递依赖、`semgrep` 精确钉死 `mcp>=1.29.0,<1.29.0+`（最新 1.181.0 仍如此，无法升级）、且漏洞路径（stateful 模式 Streamable HTTP 服务端）在本仓库不可达（0 处引用 mcp／0 处实现 MCP 服务），已按所有者授权在 `make audit` 登记**带复查条件的例外**，`make security` 复跑通过（`No known vulnerabilities found, 1 ignored`；SAST 4 规则 0 命中）。复查条件：`semgrep` 放宽钉死或本仓库开始使用 `mcp` 时必须移除该例外。**2026-10-17 更新：SAST 引擎已由 semgrep 换为 Ruff S 子集 + 本地 AST 检查；`mcp` 与 `semgrep` 已离开依赖树，`make audit` 不再传 `--ignore-vuln`，该审计例外已移除（见可靠性方案第 27 节）。** |
 
-2026-10-21（邮箱入口并入 `serve` + 自然语言批准，未提交）：按所有者当日决定实施——自然语言批准一步到位；邮件以回复形式进入 `serve` 常驻服务并延续会话；owner 名单即白名单。
+2026-10-21（邮箱入口并入 `serve` + 自然语言批准，已提交 `2de5b62`）：按所有者当日决定实施——自然语言批准一步到位；邮件以回复形式进入 `serve` 常驻服务并延续会话；owner 名单即白名单。
 
 - **实现**：
   - `domain.mail_interaction.parse_approval_intent`：只接受封闭短语（批准／同意／可以／没问题／按这个方案做／lgtm／okay／ok，可带版本；验收／验收通过／接受），带解释、条件或多行的句子不算批准，仍按修订处理。
@@ -679,6 +679,7 @@
   - 真实自然语言批准**未执行**：没有所有者本人的“批准”邮件，不伪造批准；该路径由 `tests/scenario/test_mail_interaction.py` 的计划绑定、版本过期、重复与未关联用例覆盖。
 - **全量门禁已通过（2026-10-21 15:2x 复跑）**：并行热升级工作落地后，`make check` **exit 0**——**2449 项通过、3 项跳过、6 项未选**，前端 **260 项通过**；Ruff、format、本地 AST、pyright（0 errors＋1 条既有 warning）、CLI 契约、架构契约、结构（0 失败 / 641 条审阅提示）、import-linter、deptry 全绿。原始日志 `/tmp/fl-mail-nl-check7.log`。为恢复门禁做了三处**非本批语义**的机械修复：`tests/unit/test_conversation_runner.py` 的停止断言改为匹配“已停止/排空中”两种拒绝文案；`tests/unit/test_upgrade_state.py` 删除两条已多余的 `# type: ignore`；`test_upgrade_state.py`／`test_worker_drain.py` 仅格式化。未修改热升级实现。
 - **运行状态**：LaunchAgent `com.forgeloop.mail-interact` 已从“每 5 分钟 `mail interact --once`”改为常驻 `serve --mail --mail-interval 60`（RunAtLoad + KeepAlive）；2026-10-21 15:33 已用最终代码重启，pid 11676，`last exit code = 0`，启动日志含“邮件网关: 每 60 秒轮询”。当前源码下 `serve --once` 与新起 `serve --mail` 冒烟均通过并可优雅停止。
+- **提交（2026-10-21 18:11 +0800）**：`2de5b62`（`feat(service): 邮件入口并入 serve、自然语言批准与受控热升级`），**56 文件、+11425/−348**；提交前 `--check-now` 放行（`outside_work_hours`），`make check` **exit 0**（**2481 通过、3 跳过、6 未选**；前端 260 通过），pre-commit／commit-msg hooks（时间策略、Ruff、Pyright、Conventional Commit）全部通过。按所有者选择，本提交同时包含并行执行方的受控热升级（ADR 0006），提交说明已如实注明。**未 push**：`main` 领先 `origin/main` 1 个提交。
 - **未实现**（与本批边界一致）：自由 Chat/项目级问答、LLM 意图路由、会话摘要与多项目路由；`--pi-command` 未配置，邮件中的 `analyze`/`plan`/`advance` 仍只回复配置缺失。
 
 2026-10-21（受控热升级 T0–T5，未提交）：按所有者当日交付的 [热升级实施方案](hot-upgrade-implementation-plan.md) 与 ADR 0006 实施：固定启动器托管、排空后切换、失败恢复、持久推进请求与统一执行准入。仓库基线 e69a117；并行会话的邮件改动（cli/mail_worker.py、自然语言批准等）原样保留，未覆盖、未回退。
