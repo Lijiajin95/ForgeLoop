@@ -135,8 +135,8 @@ class TestSocketProtocol:
                 try:
                     connection.sendall(b"x" * (70 * 1024))
                     data = connection.recv(4096)
-                except BrokenPipeError:
-                    # 服务端在读满上限前就拒绝并关闭：这是被拒绝的真实形态之一。
+                except (BrokenPipeError, ConnectionResetError):
+                    # 服务端在读满上限前就拒绝并关闭：这是被拒绝的两种真实形态。
                     data = b""
             assert data == b"" or b"ok" not in data
         finally:
