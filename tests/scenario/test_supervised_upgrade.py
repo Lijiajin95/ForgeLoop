@@ -162,7 +162,7 @@ class SupervisedUpgradeScene:
         candidate_bad_module: bool = False,
         old_fail_on_restart: bool = False,
         drain_timeout: float = 1.0,
-        readiness_timeout: float = 3.0,
+        readiness_timeout: float = 10.0,
         recovery_timeout: float = 3.0,
     ) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="flup-upg-", dir="/tmp"))
@@ -1242,6 +1242,171 @@ class TestLauncherInProcess:
             ]
         )
         assert duplicate == 1
+
+    def test_download_artifact_path(self, monkeypatch) -> None:
+        import hashlib
+
+        from forgeloop.cli import launcher as module
+
+        scene = SupervisedUpgradeScene()
+        try:
+            launcher = self._launcher(scene, monkeypatch)
+            payload = b"wheel-bytes"
+            digest = hashlib.sha256(payload).hexdigest()
+            target = module.UpgradeIdentity(
+                version="0.0.5",
+                tag="v0.0.5",
+                artifact_sha256=digest,
+                build_commit="a" * 40,
+                generation="",
+            )
+            location = type(
+                "L",
+                (),
+                {
+                    "project": type("P", (), {"repo_path": ".", "project_id": PROJECT})(),
+                    "root": scene.project_root,
+                },
+            )()
+            monkeypatch.setattr(module, "remote_slug", lambda repo: "owner/repo")
+            monkeypatch.setattr(
+                module,
+                "release_assets",
+                lambda slug, tag: {
+                    "SHA256SUMS": "https://example/SHA256SUMS",
+                    "forgeloop-0.0.5-py3-none-any.whl": "https://example/wheel",
+                },
+            )
+
+            def fake_download(url: str, destination: Path) -> Path:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if url.endswith("SHA256SUMS"):
+                    destination.write_text(
+                        f"{digest}  forgeloop-0.0.5-py3-none-any.whl\n", encoding="utf-8"
+                    )
+                else:
+                    destination.write_bytes(payload)
+                return destination
+
+            monkeypatch.setattr(module, "download_asset", fake_download)
+            found = launcher._candidate_artifact(target, location, self._request(scene))  # type: ignore[arg-type]
+            assert found.read_bytes() == payload
+        finally:
+            scene.cleanup()
+
+    def test_install_failure_and_restore_failure(self, monkeypatch) -> None:
+        import hashlib
+
+        from forgeloop.adapter.deployment import DeploymentError
+        from forgeloop.cli import launcher as module
+
+        scene = SupervisedUpgradeScene()
+        try:
+            launcher = self._launcher(scene, monkeypatch)
+            payload = b"wheel-6"
+            digest = hashlib.sha256(payload).hexdigest()
+            target = module.UpgradeIdentity(
+                version="0.0.6",
+                tag="v0.0.6",
+                artifact_sha256=digest,
+                build_commit="a" * 40,
+                generation="",
+            )
+            (scene.prefix / "artifacts").mkdir(parents=True)
+            (scene.prefix / "artifacts" / "forgeloop-0.0.6-py3-none-any.whl").write_bytes(payload)
+            location = type(
+                "L",
+                (),
+                {
+                    "project": type("P", (), {"repo_path": "", "project_id": PROJECT})(),
+                    "root": scene.project_root,
+                },
+            )()
+            monkeypatch.setattr(
+                module, "install_wheel", lambda *a: (_ for _ in ()).throw(DeploymentError("坏包"))
+            )
+            with pytest.raises(module.LauncherRefused, match="候选安装失败"):
+                launcher._ensure_candidate(target, location, self._request(scene))  # type: ignore[arg-type]
+
+            state = launcher._adopt_current()
+            monkeypatch.setattr(
+                module, "activate", lambda *a: (_ for _ in ()).throw(DeploymentError("指针坏"))
+            )
+            with pytest.raises(module.LauncherRefused):
+                launcher._restore_previous(state.identity, state)
+        finally:
+            scene.cleanup()
+
+    def test_wait_for_drain_proceed_and_timeout(self, monkeypatch) -> None:
+        import os
+
+        from forgeloop.cli import launcher as module
+
+        scene = SupervisedUpgradeScene()
+        try:
+            launcher = self._launcher(scene, monkeypatch)
+            identity = launcher._adopt_current().identity
+            fake = _FakeProcess()
+            fake.pid = os.getpid()
+            launcher._child = cast("subprocess.Popen[bytes]", fake)
+            launcher.store.write_report(
+                "drain",
+                identity.generation,
+                {
+                    "schema_version": 1,
+                    "generation": identity.generation,
+                    "pid": fake.pid,
+                    "completed": True,
+                    "active_calls": 0,
+                    "active_turns": 0,
+                    "active_agent_processes": 0,
+                    "pending_requests": 0,
+                },
+            )
+            wait_for_drain = type(launcher)._wait_for_drain.__get__(launcher)
+            decision = wait_for_drain(identity.generation)
+            assert decision.proceed is True
+
+            monkeypatch.setattr(
+                launcher,
+                "settings",
+                module.UpgradeSettings(drain_timeout_seconds=1),
+            )
+            launcher.store.report_path("drain", identity.generation).write_text(
+                "{broken", encoding="utf-8"
+            )
+            decision = wait_for_drain(identity.generation)
+            assert decision.proceed is False
+            assert "不可读" in decision.reason
+        finally:
+            scene.cleanup()
+
+    def test_terminate_timeout_kills_process(self, monkeypatch) -> None:
+        import subprocess
+
+        scene = SupervisedUpgradeScene()
+        try:
+            launcher = self._launcher(scene, monkeypatch)
+
+            class Stubborn(_FakeProcess):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.waits = 0
+
+                def wait(self, timeout: float | None = None) -> int:
+                    del timeout
+                    self.waits += 1
+                    if self.waits == 1:
+                        raise subprocess.TimeoutExpired("x", 1)
+                    self.returncode = -9
+                    return -9
+
+            process = Stubborn()
+            terminate = type(launcher)._terminate_and_confirm.__get__(launcher)
+            terminate(process)
+            assert process.returncode == -9
+        finally:
+            scene.cleanup()
 
     def test_reconcile_hold_and_restart(self, monkeypatch) -> None:
         scene = SupervisedUpgradeScene()

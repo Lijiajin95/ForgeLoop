@@ -525,8 +525,6 @@ def switch_decision(state: UpgradeState | None, request: UpgradeRequest) -> Swit
             f"同版本不同产物：已运行 {state.identity.artifact_sha256[:12]}，"
             f"请求 {request.artifact_sha256[:12]}；拒绝",
         )
-    if state.identity.version == request.version and state.identity.tag != request.tag:
-        return SwitchDecision(False, "同版本标签不一致；拒绝")
     return SwitchDecision(True, "可升级")
 
 

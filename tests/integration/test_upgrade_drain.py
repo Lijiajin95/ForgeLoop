@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from forgeloop.graph.worker import ServiceWorker
 from forgeloop.records.service_requests import ServiceRequestStore
 
@@ -262,6 +264,85 @@ class TestManagedRuntime:
         runtime._resume(worker, panel, mail)  # type: ignore[arg-type]
         assert started == ["start"]
         assert worker.draining is False
+
+    def test_await_outcome_new_generation_sets_stop(self, tmp_path: Path) -> None:
+        from dataclasses import replace
+        from threading import Event
+
+        runtime, worker, panel, store = self._runtime(tmp_path)
+        state = store.read()
+        assert state is not None
+        store.write(
+            replace(
+                state,
+                generation="gen-000002",
+                identity=replace(state.identity, generation="gen-000002"),
+                phase="starting",
+            )
+        )
+        stop = Event()
+        runtime._await_outcome(stop, worker, panel, None)
+        assert stop.is_set()
+
+    def test_observe_none_and_new_generation(self, tmp_path: Path, monkeypatch) -> None:
+        from dataclasses import replace
+        from threading import Event
+
+        runtime, worker, panel, store = self._runtime(tmp_path)
+        monkeypatch.setattr(runtime, "read_state", lambda: None)
+        runtime._observe(Event(), worker, panel, None)
+
+        state = store.read()
+        assert state is not None
+        store.write(
+            replace(
+                state,
+                generation="gen-000002",
+                identity=replace(state.identity, generation="gen-000002"),
+                phase="committed",
+            )
+        )
+        monkeypatch.setattr(runtime, "read_state", lambda: store.read())
+        stop = Event()
+        runtime._observe(stop, worker, panel, None)
+        assert stop.is_set()
+
+    def test_missing_generation_guards(self, tmp_path: Path, capsys) -> None:
+        runtime, worker, panel, _store = self._runtime(tmp_path)
+        runtime.generation = ""
+        runtime.write_ready("127.0.0.1", 1)
+        captured = capsys.readouterr()
+        assert "缺少 generation" in captured.out
+        assert not runtime.ready_path.exists()
+        runtime.start_watchdog(threading.Event(), worker, panel, None)
+        assert runtime._thread is None
+
+    def test_managed_prefix_from_env_and_state(self, tmp_path: Path, monkeypatch) -> None:
+        from types import SimpleNamespace
+        from typing import Any
+
+        from forgeloop.cli import serve as module
+
+        admission: Any = SimpleNamespace(state_path=tmp_path / "prefix" / "control" / "state.json")
+        monkeypatch.delenv(module.ENV_UPGRADE_PREFIX, raising=False)
+        assert module._managed_prefix(admission) == tmp_path / "prefix"
+        monkeypatch.setenv(module.ENV_UPGRADE_PREFIX, str(tmp_path / "explicit"))
+        assert module._managed_prefix(admission) == (tmp_path / "explicit").resolve()
+
+    def test_check_panel_reports_bad_pi_home(self, tmp_path: Path, monkeypatch) -> None:
+        from types import SimpleNamespace
+
+        from forgeloop.cli import serve as module
+
+        registry = SimpleNamespace(
+            path=tmp_path / "projects.toml",
+            entries=lambda: [
+                SimpleNamespace(name="forgeloop", source=module.SOURCE_PANEL, pi_home=tmp_path)
+            ],
+        )
+        monkeypatch.setattr(module, "pi_home_problems", lambda home: ["缺少 models.json"])
+        with pytest.raises(module.ServeConfigError, match="PI HOME 不可用"):
+            module.check_panel(registry)  # type: ignore[arg-type]
 
     def test_from_environment_and_unmanaged_document(self, tmp_path: Path, monkeypatch) -> None:
         from forgeloop.cli import serve as module

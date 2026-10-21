@@ -315,7 +315,7 @@ class Launcher:
             else:
                 state = self._restart_state(state, decision.generation)
             self._start_committed(state)
-            return state
+            return self.state if self.state is not None else state
         if decision.action == "adopt":
             assert state is not None
             self._adopted_pid = state.child_pid
@@ -621,8 +621,6 @@ class Launcher:
             state = self._adopt_current()
         current_identity = state.identity
         current_generation = state.generation
-        if state.phase not in {PHASE_COMMITTED, PHASE_ROLLED_BACK, PHASE_DEFERRED}:
-            return _control_failure("refused", f"现场阶段 {state.phase} 不允许切换")
         prepared = replace(
             state,
             phase=PHASE_PREPARED,
