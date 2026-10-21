@@ -14,7 +14,7 @@ FRONTEND_STATIC_GATES := frontend-policy-check frontend-format-check frontend-li
 STATIC_GATES := lint typecheck cli-contract-check architecture-contract-check commit-policy-config \
 	structure-metrics import-lint deptry $(FRONTEND_STATIC_GATES)
 
-.PHONY: setup format lint typecheck test test-install test-system check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live dsh-live coverage coverage-thresholds mutation audit security hooks precommit commit-policy-config frontend-setup frontend-browsers frontend-check frontend-format-check frontend-lint frontend-typecheck frontend-test frontend-coverage frontend-depcruise frontend-knip frontend-build frontend-build-check frontend-policy-check frontend-e2e frontend-mutation frontend-audit frontend-deps
+.PHONY: setup format lint typecheck test test-install test-system test-upgrade check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live dsh-live coverage coverage-thresholds mutation audit security hooks precommit commit-policy-config frontend-setup frontend-browsers frontend-check frontend-format-check frontend-lint frontend-typecheck frontend-test frontend-coverage frontend-depcruise frontend-knip frontend-build frontend-build-check frontend-policy-check frontend-e2e frontend-mutation frontend-audit frontend-deps
 
 # 一条命令备好两侧工具链：Python（uv）与前端（npm ci，需要 Node 26）。
 setup:
@@ -42,6 +42,12 @@ test:
 
 test-system:
 	.venv/bin/pytest tests/system -m "not install"
+
+# 受控热升级定向门禁：控制接口、排空、切换/回退场景与真实启动器系统用例。
+test-upgrade:
+	.venv/bin/pytest tests/integration/test_upgrade_drain.py tests/integration/test_upgrade_control.py \
+		tests/scenario/test_supervised_upgrade.py tests/scenario/test_supervised_upgrade_refusals.py \
+		tests/system/test_supervised_upgrade.py -q
 
 # 低频层：真实执行 uv venv 与 wheel 安装（部署），预算 180s，不进入高频路径。
 test-install:

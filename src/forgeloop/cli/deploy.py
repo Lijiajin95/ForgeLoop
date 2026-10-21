@@ -36,6 +36,7 @@ from forgeloop.adapter.deployment import (
     version_binary,
 )
 from forgeloop.adapter.git_workspace import tag_commit
+from forgeloop.adapter.upgrade_control import is_managed
 from forgeloop.cli.common import base_records_root, fail
 from forgeloop.domain.deploy import (
     DeployRequest,
@@ -57,6 +58,18 @@ from forgeloop.records.projects import (
 from forgeloop.records.store import RecordStore
 
 CHECKSUM_ASSET = "SHA256SUMS"
+
+
+def _managed_refusal(prefix: Path) -> str:
+    """托管前缀不能再走 direct deploy/bootstrap/rollback：那会绕开排空与代际提交。"""
+
+    if not is_managed(prefix):
+        return ""
+    return (
+        f"前缀 {prefix} 已由固定启动器托管；direct deploy/bootstrap/rollback 会绕过排空与"
+        "代际准入。请使用 `forgeloop upgrade apply --tag <tag> --artifact-sha256 <sha> "
+        "--by <身份> --reason <理由>`（首次接入由 install_local_service.sh 完成）。"
+    )
 
 
 class DeployRefused(RuntimeError):
@@ -412,6 +425,9 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     """把已发布产物安装到独立版本目录并原子激活（S2 受控部署）。"""
 
     prefix = _prefix(args)
+    refusal = _managed_refusal(prefix)
+    if refusal:
+        return fail(refusal)
     try:
         plan = _bootstrap_plan(args, prefix) if args.artifact else _controlled_plan(args, prefix)
     except DeployRefused as refusal:
@@ -500,6 +516,9 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     """回滚到已安装且留有产物校验记录的版本（S2 可核对恢复入口）。"""
 
     prefix = _prefix(args)
+    refusal = _managed_refusal(prefix)
+    if refusal:
+        return fail(refusal)
     target = (args.to or previous_version(prefix) or "").removeprefix("v")
     if not target:
         return fail("没有可回滚的上一版本记录；请用 --to X.Y.Z 指定目标版本")

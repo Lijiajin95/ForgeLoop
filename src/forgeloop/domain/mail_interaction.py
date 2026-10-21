@@ -44,6 +44,16 @@ _TRAILING_PUNCTUATION = "：:。.，,；;\uff01!\uff1f?、 \t"
 # 追加进需求修订。
 _QUOTE_SEPARATORS = frozenset({"原始邮件", "原始郵件", "-----original message-----"})
 _QUOTE_ATTRIBUTION = re.compile(r"^(On .+ wrote:|在 .{1,60}写道[:：]?)$", re.IGNORECASE)
+# 自然语言批准只接受“整句就是批准”的封闭表达；带其他内容（如“同意，但先改 X”）
+# 一律按修订处理，避免把讨论中的一句话误当成批准。版本后缀可选，命中后仍由
+# 记录层校验“是否最新版本”。
+_APPROVAL_PATTERN = re.compile(
+    r"^(?P<phrase>按这个方案做|按此方案|批准|同意|可以|没问题|就这样|"
+    r"lgtm|okay|ok)(?:\s*[vV]?\s*(?P<version>\d+))?$",
+    re.IGNORECASE,
+)
+_ACCEPT_PATTERN = re.compile(r"^(?P<phrase>验收通过|通过验收|验收|接受)$")
+_APPROVAL_PARTICLES = "了吧啊呀"
 
 
 class MailInteractionError(ValueError):
@@ -65,10 +75,15 @@ class MailCommandKind(StrEnum):
 
 @dataclass(frozen=True)
 class MailCommand:
-    """一条已解析的命令；``argument`` 是命令后的原文，不做语义解释。"""
+    """一条已解析的命令；``argument`` 是命令后的原文，不做语义解释。
+
+    ``source`` 区分确定性命令与自然语言表达（后者只用于批准/验收）：自然语言
+    批准仍由确定性解析器绑定最新任务包版本，不把自然语言当作命令。
+    """
 
     kind: MailCommandKind
     argument: str = ""
+    source: str = "command"
 
     @property
     def needs_requirement(self) -> bool:
@@ -167,6 +182,29 @@ def revision_text(body: str) -> str:
         lines = reply_text(body).splitlines()
         return "\n".join(lines[1:]).strip()
     return reply_text(body)
+
+
+def parse_approval_intent(body: str) -> MailCommand | None:
+    """把“整句就是批准/验收”的回复解析为自然语言命令；其余返回 ``None``。
+
+    只接受固定的封闭表达，且要求正文只有一个有效行：带解释、条件或请求的句子
+    仍按修订处理，避免自然语言批准被扩大解释。版本后缀可选；是否可批仍由记录层
+    的“最新版本 + 需求版本绑定”规则判定。
+    """
+
+    lines = [line.strip() for line in revision_text(body).splitlines() if line.strip()]
+    if len(lines) != 1:
+        return None
+    text = " ".join(lines[0].split()).rstrip(_TRAILING_PUNCTUATION).rstrip(_APPROVAL_PARTICLES)
+    if not text:
+        return None
+    approval = _APPROVAL_PATTERN.fullmatch(text)
+    if approval is not None:
+        version = approval.group("version")
+        return MailCommand(MailCommandKind.APPROVE, version or "", source="natural_language")
+    if _ACCEPT_PATTERN.fullmatch(text):
+        return MailCommand(MailCommandKind.ACCEPT, source="natural_language")
+    return None
 
 
 def normalize_address(raw: str) -> str:

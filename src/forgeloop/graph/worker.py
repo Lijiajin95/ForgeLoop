@@ -28,11 +28,12 @@
 
 import hashlib
 import os
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Lock, Thread
 
 from forgeloop.domain.service import ProjectProfile
 from forgeloop.domain.status import ActionActor
@@ -47,7 +48,9 @@ from forgeloop.graph.requirements import (
 )
 from forgeloop.records.actions import SLOT_PREFIX
 from forgeloop.records.requirements import Requirement, RequirementStore
+from forgeloop.records.service_requests import ServiceRequest, ServiceRequestStore
 from forgeloop.records.store import RecordStore
+from forgeloop.records.upgrade_state import read_managed_admission
 
 WORKER_THREAD_NAME = "forgeloop-serve-worker"
 DEFAULT_STOP_TIMEOUT_SECONDS = 5.0
@@ -55,6 +58,20 @@ DEFAULT_STOP_TIMEOUT_SECONDS = 5.0
 
 class WorkerRefused(RuntimeError):
     """显式推进被拒：需求不符合自动接续的筛选条件（原因可直接展示给人工）。"""
+
+
+@dataclass(frozen=True)
+class DrainReport:
+    """worker 侧的排空证明：没有在途调度调用，才可能进入切换。
+
+    它不是全进程的排空证明——面板轮次、Agent/测试子进程与 HTTP 写请求由
+    `cli.serve` 的编排器合并后再写升级报告。
+    """
+
+    completed: bool
+    active_calls: int = 0
+    pending_requests: int = 0
+    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -145,8 +162,15 @@ class ServiceWorker:
         self._stop = Event()
         self._lock = Lock()
         self._thread: Thread | None = None
+        # 排空与在途执行：`drain()` 等到这里归零才返回 completed；`stop(timeout)`
+        # 的返回不参与这个判定（方案 §3.4）。
+        self._execution_lock = Lock()
+        self._execution_cv = Condition(self._execution_lock)
+        self._active_executions = 0
+        self._draining = Event()
         self._state = WorkerState()
-        # 显式推进请求（页面按钮）：进程内调度提示，重启即消失，不进业务记录。
+        # 显式推进请求（页面按钮）：权威事实在项目库（records.service_requests）；
+        # 内存里只保留本进程尚未消费的请求身份，便于状态文档快速展示。
         self._pending: dict[str, None] = {}
 
     @property
@@ -177,8 +201,12 @@ class ServiceWorker:
         thread.start()
 
     def stop(self, *, timeout: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> None:
-        """请求停止并等待线程退出；超时不阻塞进程关闭（daemon 线程不阻止退出）。"""
+        """请求停止并等待线程退出；超时不阻塞进程关闭（daemon 线程不阻止退出）。
 
+        注意：本方法的返回**不是排空证明**。要证明在途调用结束，用 `drain()`。
+        """
+
+        self._draining.set()
         with self._lock:
             thread = self._thread
         self._stop.set()
@@ -188,14 +216,54 @@ class ServiceWorker:
             self._thread = None
             self._state.running = False
 
+    def drain(self, *, timeout: float = 300.0) -> DrainReport:
+        """关闭新动作并等待在途调度调用结束；超时如实返回未完成。
+
+        这解决的是“`stop(timeout)` 返回 ≠ 已排空”：这里只在
+        `_active_executions` 归零时才给出 `completed=True`，否则返回剩余数量与原因，
+        由启动器决定 `deferred`（旧进程继续），绝不强杀。
+        """
+
+        self._draining.set()
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._execution_cv:
+            while self._active_executions > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._execution_cv.wait(remaining)
+            active = self._active_executions
+        pending = len(self.pending_advance())
+        completed = active == 0
+        return DrainReport(
+            completed=completed,
+            active_calls=active,
+            pending_requests=pending,
+            detail="" if completed else f"仍有 {active} 个在途调度调用未结束（超时）",
+        )
+
+    def resume(self) -> None:
+        """排空被取消（`deferred`）：旧代重新允许启动新动作，持久请求保持原样。"""
+
+        self._draining.clear()
+
+    @property
+    def draining(self) -> bool:
+        return self._draining.is_set()
+
     def status(self) -> dict:
         """运行状态快照（进 ``GET /api/service`` 与 ``serve --once --json``）。"""
 
+        pending = self.pending_advance()
         with self._lock:
-            self._state.pending_advance = tuple(self._pending)
+            self._state.pending_advance = pending
             state = self._state
+            with self._execution_cv:
+                active_calls = self._active_executions
             return {
                 "running": state.running,
+                "draining": self._draining.is_set(),
+                "active_calls": active_calls,
                 "execution_enabled": self._execution_enabled,
                 "auto_advance": self._auto_advance,
                 "poll_seconds": self._poll_seconds,
@@ -388,13 +456,35 @@ class ServiceWorker:
                     self._state.polls += 1
                     self._state.last_poll_at = datetime.now(UTC)
 
+    def _begin_execution(self) -> bool:
+        """登记一次在途执行；排空中返回 False（不登记、不启动）。"""
+
+        with self._execution_cv:
+            if self._draining.is_set():
+                return False
+            self._active_executions += 1
+            return True
+
+    def _end_execution(self) -> None:
+        with self._execution_cv:
+            self._active_executions = max(0, self._active_executions - 1)
+            self._execution_cv.notify_all()
+
     def advance_requirement(self, req_id: str) -> dict:
-        """显式推进**一条**需求（页面「推进本次」）；不符合筛选条件时抛 :class:`WorkerRefused`。
+        """显式推进**一条**需求（页面「推进本次」）；被拒绝时抛 :class:`WorkerRefused`。
 
         与自动接续使用同一套筛选与同一套编排：批准绑定、停止、失败累计、槽位互斥
-        一条不放宽，也不越过人工验收。
+        一条不放宽，也不越过人工验收；排空/切换期间拒绝启动。
         """
 
+        if not self._begin_execution():
+            raise WorkerRefused("热升级排空/切换中，拒绝启动新的执行动作")
+        try:
+            return self._advance_requirement(req_id)
+        finally:
+            self._end_execution()
+
+    def _advance_requirement(self, req_id: str) -> dict:
         store = RequirementStore(self._records_root / "records.sqlite")
         record_store = RecordStore(self._records_root / "records.sqlite")
         try:
@@ -435,30 +525,95 @@ class ServiceWorker:
         # 解析本身与项目档案无关：与页面/邮件共用同一只读实现（见模块级函数）。
         return current_task_thread_id(self._records_root, req_id)
 
-    def request_advance(self, req_id: str) -> None:
-        """排队一次**显式**推进请求（页面「推进本次」按钮）。
+    def request_advance(
+        self,
+        req_id: str,
+        *,
+        by: str = "",
+        source: str = "worker",
+        request_id: str = "",
+    ) -> ServiceRequest:
+        """**先持久化再受理**一次显式推进请求（页面「推进本次」按钮）。
 
-        这是调度提示而不是业务状态：只存在进程内存里，重启即消失（业务事实仍在记录
-        里，人工可以再点一次）。之所以排队而不是就地执行，是因为一次推进要跑完当前
-        任务的 dev/review/test（分钟级），HTTP 请求不该陪着一起等——接口按方案 §4.2
-        返回 202 受理，实际执行落在下一次心跳。
+        方案 §3.4：入口返回 202 之前必须把请求写进项目库，否则换代/重启会丢掉已经
+        承诺受理的动作。重复请求在同需求已有 pending 时返回既有事实（幂等），不建立
+        第二套任务状态——这里只记录“请求推进哪个任务包版本”。
+
+        之所以排队而不是就地执行，是因为一次推进要跑完当前任务的 dev/review/test
+        （分钟级），HTTP 请求不该陪着一起等；实际执行落在下一次心跳。
         """
 
+        requirement_store = RequirementStore(self._records_root / "records.sqlite")
+        try:
+            requirement = requirement_store.get(req_id)
+            plan = requirement_store.latest_task_plan(req_id)
+            # 页面入口会先拒绝“没有任务包”的请求；这里保留低层可调用的受理事实
+            # （plan_version=0 表示尚无任务包），由执行筛选如实在 skipped 里说明。
+        finally:
+            requirement_store.close()
+        store = ServiceRequestStore(self._records_root / "records.sqlite")
+        try:
+            request = store.record(
+                req_id=req_id,
+                project=requirement.project,
+                plan_version=plan.plan_version if plan is not None else 0,
+                requested_by=by.strip() or "unspecified",
+                source=source.strip() or "worker",
+                request_id=request_id,
+            )
+        finally:
+            store.close()
         with self._lock:
             self._pending[req_id] = None
+        return request
 
     def pending_advance(self) -> tuple[str, ...]:
-        """当前排队等待执行的显式推进请求（进状态文档，让人工看得见）。"""
+        """当前排队等待执行的显式推进请求：以项目库为准，重建 worker 后仍可见。"""
 
+        try:
+            store = ServiceRequestStore(self._records_root / "records.sqlite")
+        except Exception:
+            # 记录库暂时不可读时退回本进程已知的提示，不伪造“没有请求”。
+            with self._lock:
+                return tuple(self._pending)
+        try:
+            return tuple(item.req_id for item in store.pending())
+        except Exception:
+            with self._lock:
+                return tuple(self._pending)
+        finally:
+            store.close()
+
+    def claim_pending_advance(self) -> tuple[str, ...]:
+        """把当前 pending 请求原子地消费一次（先消费后执行，崩溃不重放）。
+
+        返回被本次 claim 的需求身份；同一条请求不会第二次返回。执行失败也不自动
+        重排——由人工重新点击或按恢复路径决定。
+        """
+
+        store = ServiceRequestStore(self._records_root / "records.sqlite")
+        claimed: list[str] = []
+        try:
+            for item in store.pending():
+                if store.consume(item.request_id, detail="claimed by worker"):
+                    claimed.append(item.req_id)
+        finally:
+            store.close()
         with self._lock:
-            return tuple(self._pending)
+            for req_id in claimed:
+                self._pending.pop(req_id, None)
+        return tuple(claimed)
 
     def advance_eligibility(self, req_id: str) -> Eligibility:
         """只读判定某需求此刻能否推进（页面点击时立刻给拒绝原因，不排队）。
 
         找不到需求时抛 ``RequirementNotFoundError``（与状态查询同一口径）。
+        托管现场还会先服从代际准入：排空/切换期间不排一个注定被拒绝的队。
         """
 
+        admission = read_managed_admission()
+        if not admission.allowed:
+            return Eligibility(False, admission.reason or "热升级代际不允许启动新动作")
         store = RequirementStore(self._records_root / "records.sqlite")
         record_store = RecordStore(self._records_root / "records.sqlite")
         try:
@@ -488,6 +643,19 @@ class ServiceWorker:
         ``only`` 里的需求若此刻不再满足前提，就如实记进 ``last_tick.skipped``。
         """
 
+        if not self._begin_execution():
+            return {}
+        try:
+            return self._advance_once_locked(only=only)
+        finally:
+            self._end_execution()
+
+    def _advance_once_locked(self, *, only: set[str] | None = None) -> dict[str, dict]:
+        admission = read_managed_admission()
+        if not admission.allowed:
+            with self._lock:
+                self._state.last_error = admission.reason or "热升级代际不允许启动新动作"
+            return {}
         runners, skipped = self.survey()
         if only is not None:
             runners = {req_id: runner for req_id, runner in runners.items() if req_id in only}
@@ -519,21 +687,28 @@ class ServiceWorker:
         return summaries
 
     def _tick(self) -> None:
-        """一次心跳：先执行排队的显式推进，再按开关自动接续本轮筛选出的需求。"""
+        """一次心跳：先执行排队的显式推进，再按开关自动接续本轮筛选出的需求。
 
-        explicit = self._take_pending()
-        if explicit:
-            self.advance_once(only=set(explicit))
-        if self._auto_advance:
-            self.advance_once()
+        排空/切换期间不消费持久请求：它们留在库里，待新代际提交后再执行一次。
+        """
 
-    def _take_pending(self) -> tuple[str, ...]:
-        """取走排队的显式请求（取走即消费；执行失败不自动重排，由人工决定）。"""
-
-        with self._lock:
-            pending = tuple(self._pending)
-            self._pending.clear()
-        return pending
+        admission = read_managed_admission()
+        if not admission.allowed:
+            with self._lock:
+                self._state.last_error = admission.reason or "热升级代际不允许启动新动作"
+            return
+        # 整个心跳持有一个在途执行名额：排空要么等这次心跳结束，要么在它开始前
+        # 关闭；不会出现“请求已消费但执行被中途拒绝”的窗口。
+        if not self._begin_execution():
+            return
+        try:
+            explicit = self.claim_pending_advance()
+            if explicit:
+                self._advance_once_locked(only=set(explicit))
+            if self._auto_advance:
+                self._advance_once_locked()
+        finally:
+            self._end_execution()
 
 
 def _slot_item(occupant: object) -> dict[str, str]:

@@ -59,6 +59,18 @@ SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "export_cli_cont
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.fixture(autouse=True)
+def isolate_mail_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """隔离开发机的生效邮件配置：否则本机 whitelist 会过滤掉测试发件人。"""
+
+    config = tmp_path / "mail.toml"
+    config.write_text(
+        'provider = "qq"\nsender = "system@example.com"\nrecipient = "owner@example.com"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FORGELOOP_MAIL_CONFIG", str(config))
+
+
 # --------------------------------------------------------------------------- #
 # 可控邮箱边界：真实适配器与领域路径，只替换 IMAP/SMTP socket
 # --------------------------------------------------------------------------- #

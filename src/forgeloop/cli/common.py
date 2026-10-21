@@ -30,6 +30,7 @@ from forgeloop.records.projects import (
     project_records_path,
 )
 from forgeloop.records.store import RecordStore
+from forgeloop.records.upgrade_state import ManagedAdmission, read_managed_admission
 
 
 def base_records_root(args: argparse.Namespace) -> Path:
@@ -154,6 +155,25 @@ def open_store(root: Path, task_id: str) -> RecordStore:
     """兼容旧调用：只返回任务存储；需要记录根的新代码用 :func:`open_task`。"""
 
     return open_task(root, task_id).store
+
+
+def execution_admission() -> ManagedAdmission:
+    """当前进程的执行准入（供 CLI / 常驻 / 邮件入口共用）。
+
+    非托管环境返回 `managed=False, allowed=True`，既有行为不变；托管环境读取
+    启动器写入的现场，缺文件/损坏/代际不符一律失败关闭。
+    """
+
+    return read_managed_admission()
+
+
+def admission_refusal(admission: ManagedAdmission) -> str:
+    """准入拒绝时可直接展示的中文原因；允许时为空串。"""
+
+    if admission.allowed:
+        return ""
+    detail = admission.reason or "热升级代际不允许启动新的执行动作"
+    return f"热升级排空/切换中，已拒绝启动新动作：{detail}"
 
 
 def fail(message: str) -> int:

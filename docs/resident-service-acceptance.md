@@ -10,7 +10,7 @@
 
 | # | 命令 | 通过判据 | 证据留存 |
 | --- | --- | --- | --- |
-| A1 | `forgeloop serve --print-unit > ~/.config/systemd/user/forgeloop.service`（或按 `docs/deployment.md` 安装） | unit 文件生成且 `systemd-analyze --user verify` 无错 | unit 文件内容 |
+| A1 | `scripts/install_local_service.sh --no-enable`（按 `docs/deployment.md`；首次接入是维护窗口） | 生成 unit、`control/owner.json` 与固定启动器环境；`systemd-analyze --user verify` 无错 | unit、owner.json 与脚本输出 |
 | A2 | `systemctl --user daemon-reload && systemctl --user enable --now forgeloop` | `systemctl --user is-active forgeloop` 输出 `active` | `systemctl --user status forgeloop` 全文 |
 | A3 | `curl -s localhost:<port>/api/service \| head -c 400` | 返回 JSON，含服务状态、worker 心跳与「需人工核对」段 | 响应全文 |
 | A4 | `journalctl --user -u forgeloop -n 50 --no-pager` | 启动核对记录可见（扫描到的未核对动作/残留槽位数量，可为 0） | 日志片段 |
@@ -57,14 +57,34 @@
 | D5 | 只放生产配置（`~/.config/forgeloop/mail.toml`）不带参数运行 | `mail poll --once --project ForgeLoop` 直接工作 | ⏳ 配置已就绪，待复跑确认 |
 | D6 | 收件人被确认收到回信 | 所有者邮箱可见 | ✅ 已确认 |
 
-## E. 未落实项（不得视为已验收）
+## E. 受控热升级真机验收（固定启动器；普通升级不得 restart systemd）
+
+前提：已完成一次性接入（A1，维护窗口允许重启）；存在一条已发布且**已获人工部署批准**的候选版本与一份可用产物；记录根、项目身份与 `control/owner.json` 一致。每步都留存命令输出、`upgrade-state.json`、`upgrade-events.jsonl`、`ready/drain-*.json` 与 `deployments.jsonl`。
+
+| # | 步骤 | 通过判据 | 证据留存 |
+| --- | --- | --- | --- |
+| E1 | 首次接入后 `systemctl --user status forgeloop --no-pager` 与 `forgeloop upgrade status --prefix <prefix> --json` | unit `ExecStart` 指向 `launcher/.venv/bin/forgeloop-launcher`；systemd MainPID = 启动器 PID；业务进程 PID/generation 可见；`current` 与运行版本一致 | 两份输出 |
+| E2 | 空闲 A→B：`deploy-approve` 后执行 `forgeloop upgrade apply --prefix <prefix> --tag vB --by <身份> --reason <理由>`；**不执行** systemctl | 启动器 PID/systemd MainPID 不变；业务 PID/generation 改变；`current`、运行版本与产物 SHA 均为 B；项目库记录仍在 | 前后状态、事件日志 |
+| E3 | 有任务/会话在跑时发起升级 | 排空前不启动新动作；当前调用/会话轮完成后才切换；任务只执行一次；工时与失败累计不清零 | 状态与业务记录 |
+| E4 | 构造排空超时（旧进程不写完成报告） | 状态 `deferred`；旧进程继续；无强杀、无指针切换、已受理请求不丢 | `deferred` 现场与旧 PID |
+| E5 | 合法批准但候选启动失败/就绪超时 | 候选确认退出；从旧版本绝对路径恢复；`rolled_back` 记录两代身份；服务可用 | 两代身份与进程证据 |
+| E6 | 回退也失败（旧版本被破坏） | `recovery_required`；停止自动推进；不启动第二个实例；保留证据等待人工 | 状态、日志与进程清单 |
+| E7 | 缺批准/身份漂移/同版本异产物/篡改产物 | 请求拒绝；旧版继续；`current` 不变 | 拒绝原因与旧 PID |
+| E8 | `kill -9` 启动器后重启 launcher | 按现场对账只接管一个已有执行代；不启动第二个业务进程 | 前后 PID 清单 |
+| E9 | 数据兼容 | 新旧程序读取同一项目库有测试依据；不兼容候选在切换前拒绝；不把代码回退当数据回退 | 兼容性测试输出 |
+
+**不通过时的处置**：E2 若 MainPID 改变，说明仍在走 systemd 重启路径，停止验收并核对 unit；E4 出现强杀或指针变化属硬规则缺陷；E6 不得继续自动重试，保留现场交人工。
+
+## F. 未落实项（不得视为已验收）
 
 1. `auto_analyze`：配置层已解析但**无消费点**，`true` 与 `false` 行为相同——需接线或从模板移除。
 2. 副作用一致性：仅把证据交人工核对，**不自动判定**。
 3. 页面无登录与多用户：单操作者回环设计（B01 触发条件未满足）。
-4. 邮件轮询尚未纳入常驻 worker（当前由 cron 调 `mail poll --once`）。
+4. 邮件轮询在 `serve --mail` 已接线，但真实邮箱长轮询未在固定启动器宿主上验收。
+5. 受控热升级的**真机** A→B、排空超时、失败回退与 `recovery_required` 尚未在目标 Debian 宿主执行；仓库内只有真实子进程/替身协议证据。
+6. 数据库兼容性目前是「同一项目库读取」测试与「不兼容拒绝自动升级」的设计约束，尚无自动迁移/版本协商机制。
 
-## F. 判据汇总
+## G. 判据汇总
 
 | 组 | 通过条件 | 执行者 |
 | --- | --- | --- |
@@ -72,3 +92,4 @@
 | B | B1–B4 全部满足，且 B2 全程无自动重放 | 同上 |
 | C | C1–C5 全部满足，C2 无计数错乱 | 所有者授权后由 Agent 执行或所有者执行 |
 | D | D1–D6 全部满足（D4 的失败不阻断需补反例测试后确认） | 已完成，D5 待复跑 |
+| E | E1–E9 全部满足，且 E2/E3 全程无 `systemctl restart`、无强杀在途任务 | 所有者授权宿主后执行 |

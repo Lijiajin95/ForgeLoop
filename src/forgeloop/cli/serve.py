@@ -22,6 +22,7 @@
 """
 
 import argparse
+import importlib.metadata
 import io
 import json
 import os
@@ -29,10 +30,11 @@ import re
 import secrets
 import signal
 import threading
+import time
 import tomllib
 from collections.abc import Callable, Mapping
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -40,7 +42,9 @@ from types import FrameType
 from typing import cast
 from urllib.parse import urlsplit
 
+from forgeloop.adapter.mail import MailAdapterError
 from forgeloop.cli.common import base_records_root, fail
+from forgeloop.cli.mail_worker import MailWorker, MailWorkerConfigError, build_mail_worker
 from forgeloop.cli.panel import (
     PANEL_ROUTE,
     PANEL_SESSIONS_ROUTE,
@@ -88,10 +92,37 @@ from forgeloop.domain.service import (
     ServiceSettings,
     resolve_service_settings,
 )
+from forgeloop.domain.upgrade import (
+    ADMITTED_PHASES,
+    PHASE_COMMITTED,
+    PHASE_DEFERRED,
+    PHASE_DRAINING,
+    PHASE_PREPARED,
+    PHASE_PROBING,
+    PHASE_RECOVERY_REQUIRED,
+    PHASE_ROLLED_BACK,
+    PHASE_STARTING,
+    ArtifactManifest,
+    UpgradeSettings,
+    UpgradeSettingsError,
+    UpgradeState,
+    resolve_upgrade_settings,
+)
+from forgeloop.domain.upgrade import (
+    SCHEMA_VERSION as UPGRADE_SCHEMA_VERSION,
+)
 from forgeloop.graph.conversation import ConversationRunner
 from forgeloop.graph.worker import ServiceWorker, WorkerRefused
+from forgeloop.mail.ports import MailConfigurationError
 from forgeloop.records.projects import iter_projects, project_by_name
 from forgeloop.records.requirements import RequirementStore
+from forgeloop.records.upgrade_state import (
+    ManagedAdmission,
+    UpgradeStateStore,
+    read_json,
+    read_managed_admission,
+    write_json_atomic,
+)
 
 # signal.getsignal/signal.signal 的处理器类型：``signal.Handlers`` 在 3.13 是
 # IntEnum（SIG_DFL/SIG_IGN），不是「可调用或整数」的联合，故用显式别名。
@@ -161,6 +192,9 @@ class ServeSettings:
     ``None`` 只出现在登记根尚无项目的旧现场：此时业务记录退回登记根本身，
     与 ``cli.common.records_root`` 对无 ``--project`` 命令的口径一致。
     """
+
+    upgrade: UpgradeSettings = field(default_factory=UpgradeSettings)
+    """``[upgrade]`` 的排空/就绪/恢复时限；未配置时用方案 §3.3 的默认值。"""
 
     @property
     def records_root(self) -> Path:
@@ -334,6 +368,396 @@ def deploy_section(settings: ServeSettings) -> dict[str, object]:
     }
 
 
+ENV_UPGRADE_MANAGED = "FORGELOOP_UPGRADE_MANAGED"
+ENV_UPGRADE_STATE = "FORGELOOP_UPGRADE_STATE"
+ENV_UPGRADE_GENERATION = "FORGELOOP_UPGRADE_GENERATION"
+ENV_UPGRADE_READY = "FORGELOOP_UPGRADE_READY"
+ENV_UPGRADE_DRAIN_REPORT = "FORGELOOP_UPGRADE_DRAIN_REPORT"
+ENV_UPGRADE_PREFIX = "FORGELOOP_UPGRADE_PREFIX"
+DRAIN_OUTCOME_WAIT_SECONDS = 120.0
+"""排空报告写出后等待启动器决定（starting/deferred）的上限；超时恢复旧代。"""
+
+
+@dataclass(frozen=True)
+class RuntimeIdentity:
+    """业务进程实际加载的版本身份；由安装目录里的 artifact.json 证明。"""
+
+    version: str
+    tag: str
+    artifact_sha256: str
+    build_commit: str
+    module_path: str
+    release_dir: str
+    source: str
+
+
+def _package_dir() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def runtime_identity() -> RuntimeIdentity:
+    """读取实际加载身份：向上查找 releases/<version>/artifact.json。
+
+    工作区源码运行没有 artifact.json，如实返回 source=workspace 与空的产物/提交；
+    托管启动器的就绪核对因此会拒绝它（不能把工作区源码冒充候选安装）。
+    """
+
+    package_dir = _package_dir()
+    manifest: ArtifactManifest | None = None
+    release_dir = ""
+    for ancestor in (package_dir, *package_dir.parents):
+        artifact = ancestor / "artifact.json"
+        if not artifact.is_file():
+            continue
+        try:
+            manifest = ArtifactManifest.from_document(read_json(artifact))
+        except Exception:
+            manifest = None
+        release_dir = str(ancestor)
+        break
+    module_path = str(package_dir / "__init__.py")
+    if manifest is not None:
+        return RuntimeIdentity(
+            version=manifest.version,
+            tag=manifest.tag,
+            artifact_sha256=manifest.artifact_sha256,
+            build_commit=manifest.build_commit,
+            module_path=module_path,
+            release_dir=release_dir,
+            source=manifest.source or "release",
+        )
+    try:
+        version = importlib.metadata.version("forgeloop")
+    except importlib.metadata.PackageNotFoundError:
+        version = "0.0.0"
+    return RuntimeIdentity(
+        version=version,
+        tag="",
+        artifact_sha256="",
+        build_commit="",
+        module_path=module_path,
+        release_dir=release_dir,
+        source="workspace",
+    )
+
+
+def _managed_prefix(admission: ManagedAdmission) -> Path:
+    explicit = os.environ.get(ENV_UPGRADE_PREFIX, "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    if admission.state_path is not None:
+        return admission.state_path.parent.parent
+    from forgeloop.adapter.deployment import default_prefix
+
+    return default_prefix()
+
+
+def upgrade_document(settings: ServeSettings) -> dict[str, object]:
+    """业务进程侧的实际运行身份与准入快照（不冒充 current 指针）。"""
+
+    admission = read_managed_admission()
+    identity = runtime_identity()
+    from forgeloop.adapter.deployment import current_version
+
+    prefix = _managed_prefix(admission)
+    try:
+        current = current_version(prefix) or ""
+    except Exception:
+        current = ""
+    return {
+        "managed": admission.managed,
+        "admitted": admission.allowed,
+        "reason": admission.reason,
+        "phase": admission.phase,
+        "generation": admission.generation,
+        "process_generation": admission.process_generation,
+        "running_version": identity.version,
+        "running_tag": identity.tag,
+        "artifact_sha256": identity.artifact_sha256,
+        "build_commit": identity.build_commit,
+        "module_path": identity.module_path,
+        "release_dir": identity.release_dir,
+        "source": identity.source,
+        "current_version": current,
+        "project": settings.project_id,
+        "records_root": str(settings.records_root),
+        "state_path": "" if admission.state_path is None else str(admission.state_path),
+    }
+
+
+class ManagedRuntime:
+    """托管业务进程的排空/就绪/换代观察器（只读升级现场，只写证据报告）。
+
+    启动器用环境变量指定现场与报告路径；本类不写 upgrade-state.json。排空完成后
+    写 drain-<generation>.json 并等待启动器提交或延期：`deferred` 恢复旧代，
+    `starting/probing/committed`（新一代）让本进程优雅退出。
+    """
+
+    def __init__(
+        self,
+        *,
+        state_path: Path,
+        generation: str,
+        ready_path: Path,
+        drain_path: Path,
+        prefix: Path,
+        settings: UpgradeSettings,
+        identity: RuntimeIdentity,
+        project_id: str,
+        records_root: str,
+    ) -> None:
+        self.state_path = state_path
+        self.generation = generation
+        self.ready_path = ready_path
+        self.drain_path = drain_path
+        self.prefix = prefix
+        self.settings = settings
+        self.identity = identity
+        self.project_id = project_id
+        self.records_root = records_root
+        self._drained = False
+        self._ready_written = False
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+
+    @classmethod
+    def from_environment(cls, settings: ServeSettings) -> "ManagedRuntime | None":
+        managed = os.environ.get(ENV_UPGRADE_MANAGED, "").strip() == "1"
+        state_value = os.environ.get(ENV_UPGRADE_STATE, "").strip()
+        if not managed and not state_value:
+            return None
+        generation = os.environ.get(ENV_UPGRADE_GENERATION, "").strip()
+        state_path = (
+            Path(state_value)
+            if state_value
+            else Path(os.environ.get(ENV_UPGRADE_PREFIX, str(settings.records_root)))
+            / "control"
+            / "upgrade-state.json"
+        )
+        control = state_path.parent
+        ready_value = os.environ.get(ENV_UPGRADE_READY, "").strip()
+        drain_value = os.environ.get(ENV_UPGRADE_DRAIN_REPORT, "").strip()
+        ready_path = Path(ready_value) if ready_value else control / f"ready-{generation}.json"
+        drain_path = Path(drain_value) if drain_value else control / f"drain-{generation}.json"
+        return cls(
+            state_path=state_path,
+            generation=generation,
+            ready_path=ready_path,
+            drain_path=drain_path,
+            prefix=Path(os.environ.get(ENV_UPGRADE_PREFIX, control.parent)).expanduser(),
+            settings=settings.upgrade,
+            identity=runtime_identity(),
+            project_id=settings.project_id,
+            records_root=str(settings.records_root),
+        )
+
+    def write_ready(self, host: str, port: int) -> None:
+        """HTTP 绑定成功、worker 已装配后写就绪报告；失败如实打印，不假装就绪。"""
+
+        if not self.generation:
+            print("热升级: 缺少 generation，无法写就绪报告", flush=True)
+            return
+        document = {
+            "schema_version": UPGRADE_SCHEMA_VERSION,
+            "ready": True,
+            "pid": os.getpid(),
+            "generation": self.generation,
+            "version": self.identity.version,
+            "tag": self.identity.tag,
+            "artifact_sha256": self.identity.artifact_sha256,
+            "build_commit": self.identity.build_commit,
+            "project": self.project_id,
+            "prefix": str(self.prefix),
+            "records_root": self.records_root,
+            "module_path": self.identity.module_path,
+            "http_host": host,
+            "http_port": port,
+        }
+        try:
+            write_json_atomic(self.ready_path, document)
+        except Exception as error:
+            print(f"热升级: 写就绪报告失败：{error}", flush=True)
+            return
+        self._ready_written = True
+        print(f"热升级: 就绪报告已写 {self.ready_path}（generation {self.generation}）", flush=True)
+
+    def read_state(self) -> UpgradeState | None:
+        try:
+            return UpgradeStateStore(self.state_path.parent).read()
+        except Exception as error:
+            print(f"热升级: 升级现场不可读：{error}", flush=True)
+            return None
+
+    def start_watchdog(
+        self,
+        stop: threading.Event,
+        worker: ServiceWorker,
+        panel: PanelContext,
+        mail_worker: MailWorker | None,
+    ) -> None:
+        if not self.generation:
+            print("热升级: 缺少 generation，跳过现场观察（拒绝执行新动作）", flush=True)
+            return
+        thread = threading.Thread(
+            target=self._watch,
+            args=(stop, worker, panel, mail_worker),
+            name="forgeloop-upgrade-watch",
+            daemon=True,
+        )
+        self._thread = thread
+        thread.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=timeout)
+
+    def _watch(
+        self,
+        stop: threading.Event,
+        worker: ServiceWorker,
+        panel: PanelContext,
+        mail_worker: MailWorker | None,
+    ) -> None:
+        while not stop.wait(self.settings.poll_seconds):
+            try:
+                self._observe(stop, worker, panel, mail_worker)
+            except Exception as error:
+                print(f"热升级: 现场观察异常：{error}", flush=True)
+
+    def _observe(
+        self,
+        stop: threading.Event,
+        worker: ServiceWorker,
+        panel: PanelContext,
+        mail_worker: MailWorker | None,
+    ) -> None:
+        state = self.read_state()
+        if state is None:
+            return
+        if state.generation != self.generation:
+            if state.phase in (PHASE_STARTING, PHASE_PROBING, PHASE_COMMITTED):
+                print(
+                    f"热升级: 新一代 {state.generation} 已进入 {state.phase}，本进程退出",
+                    flush=True,
+                )
+                stop.set()
+            return
+        if state.phase == PHASE_DRAINING and not self._drained:
+            self._perform_drain(worker, panel, mail_worker)
+            self._await_outcome(stop, worker, panel, mail_worker)
+            return
+        if state.phase == PHASE_DEFERRED:
+            self._resume(worker, panel, mail_worker)
+            return
+        if state.phase in ADMITTED_PHASES and (worker.draining or panel.runner.draining):
+            self._resume(worker, panel, mail_worker)
+
+    def _perform_drain(
+        self,
+        worker: ServiceWorker,
+        panel: PanelContext,
+        mail_worker: MailWorker | None,
+    ) -> None:
+        timeout = self.settings.drain_timeout_seconds
+        started = time.monotonic()
+        mail_stopped = True
+        if mail_worker is not None:
+            mail_worker.stop(timeout=timeout)
+            mail_stopped = not mail_worker.running
+        remaining = max(0.1, timeout - (time.monotonic() - started))
+        worker_report = worker.drain(timeout=remaining)
+        remaining = max(0.1, timeout - (time.monotonic() - started))
+        panel_report = panel.runner.drain(timeout=remaining)
+        outstanding = sum(
+            1 for item in worker.reconcile() if item.get("kind") == "outstanding_action"
+        )
+        completed = (
+            worker_report.completed and panel_report.completed and mail_stopped and outstanding == 0
+        )
+        detail_parts = [
+            part
+            for part in (
+                worker_report.detail,
+                panel_report.detail,
+                "" if mail_stopped else "邮件网关线程未在时限内退出",
+                f"仍有 {outstanding} 个未核对动作" if outstanding else "",
+            )
+            if part
+        ]
+        report = {
+            "schema_version": UPGRADE_SCHEMA_VERSION,
+            "generation": self.generation,
+            "pid": os.getpid(),
+            "completed": completed,
+            "active_calls": worker_report.active_calls,
+            "active_turns": panel_report.active_turns + panel_report.queued_turns,
+            "active_agent_processes": panel_report.live_sessions,
+            "pending_requests": worker_report.pending_requests,
+            "detail": "；".join(detail_parts),
+        }
+        try:
+            write_json_atomic(self.drain_path, report)
+        except Exception as error:
+            print(f"热升级: 写排空报告失败：{error}", flush=True)
+        self._drained = completed
+        print(
+            "热升级: 排空报告 "
+            + ("完成" if completed else "未完成（等待启动器延期）")
+            + f" -> {self.drain_path}",
+            flush=True,
+        )
+
+    def _await_outcome(
+        self,
+        stop: threading.Event,
+        worker: ServiceWorker,
+        panel: PanelContext,
+        mail_worker: MailWorker | None,
+    ) -> None:
+        deadline = time.monotonic() + DRAIN_OUTCOME_WAIT_SECONDS
+        while not stop.wait(self.settings.poll_seconds):
+            state = self.read_state()
+            if state is not None:
+                if state.generation != self.generation and state.phase in (
+                    PHASE_STARTING,
+                    PHASE_PROBING,
+                    PHASE_COMMITTED,
+                ):
+                    stop.set()
+                    return
+                if state.generation == self.generation and state.phase in (
+                    PHASE_DEFERRED,
+                    PHASE_PREPARED,
+                    PHASE_COMMITTED,
+                    PHASE_ROLLED_BACK,
+                ):
+                    self._resume(worker, panel, mail_worker)
+                    return
+                if state.phase == PHASE_RECOVERY_REQUIRED:
+                    print("热升级: 现场进入 recovery_required，保持只读等待人工核对", flush=True)
+                    return
+            if time.monotonic() >= deadline:
+                print("热升级: 等待启动器决定超时，恢复旧代执行", flush=True)
+                self._resume(worker, panel, mail_worker)
+                return
+
+    def _resume(
+        self,
+        worker: ServiceWorker,
+        panel: PanelContext,
+        mail_worker: MailWorker | None,
+    ) -> None:
+        if worker.draining:
+            worker.resume()
+        if panel.runner.draining:
+            panel.runner.resume()
+        if mail_worker is not None and not mail_worker.running:
+            mail_worker.start()
+        self._drained = False
+
+
 def build_service_document(
     settings: ServeSettings,
     worker: ServiceWorker,
@@ -384,6 +808,8 @@ def build_service_document(
         # 待部署结论（2026-10-18 所有者决定：只报告不安装）：本机激活版本、最近发布与
         # 是否已获人工部署批准。只读事实，页面/运维据此提示"待确认部署"。
         "deploy": deploy_section(settings),
+        # 实际运行身份与代际准入（不拿 current 指针冒充运行版本）。
+        "upgrade": upgrade_document(settings),
         "projects": sorted(settings.service.projects),
         # 页面写入口是否可用：只有 serve 注入了令牌才是 true，web 只读服务恒为 false。
         "operations_enabled": operations_enabled,
@@ -597,19 +1023,20 @@ class ServiceRequestHandler(ProgressRequestHandler):
         self, action: str, req_id: str, by: str, reason: str
     ) -> tuple[int, dict]:
         if action == "advance":
-            return self._advance(req_id)
+            return self._advance(req_id, by)
         if action == "stop":
             return self._stop(req_id, by, reason)
         if action == "cancel":
             return self._cancel(req_id, by, reason)
         return self._decide(action, req_id, by, reason)
 
-    def _advance(self, req_id: str) -> tuple[int, dict]:
-        """受理一次推进请求（202）：先只读判定，再排队交给常驻心跳执行。
+    def _advance(self, req_id: str, by: str) -> tuple[int, dict]:
+        """受理一次推进请求（202）：先只读判定，再**持久化**后交给常驻心跳执行。
 
         一次推进要跑完当前任务的 dev/review/test（分钟级），HTTP 请求不该陪着一起等；
-        方案 §4.2 定的就是「202 受理 + 同需求并发只允许一个」。前提不成立时**同步**拒绝
-        并把原因带回页面，不排一个注定失败的队。
+        方案 §3.4 定的就是「先持久化、202 受理 + 同需求并发只允许一个」。前提不成立时
+        **同步**拒绝并把原因带回页面，不排一个注定失败的队；持久化失败则不返回 202，
+        避免承诺一个重启后会消失的受理。
         """
 
         try:
@@ -618,13 +1045,21 @@ class ServiceRequestHandler(ProgressRequestHandler):
             raise OperationRejected(404, "requirement_not_found", str(error)) from error
         if not decision.eligible:
             raise OperationRejected(409, "refused", decision.reason or "该需求当前不可推进")
-        self.worker.request_advance(req_id)
+        try:
+            request = self.worker.request_advance(req_id, by=by, source=OPERATION_SOURCE)
+        except WorkerRefused as error:
+            raise OperationRejected(409, "refused", str(error)) from error
+        except Exception as error:  # 记录库不可写：不能承诺已受理
+            raise OperationRejected(
+                500, "request_not_persisted", f"推进请求未持久化，未受理：{error}"
+            ) from error
         return 202, {
             "ok": True,
             "operation": "advance",
             "req_id": req_id,
+            "request_id": getattr(request, "request_id", ""),
             "queued": True,
-            "detail": "已受理，常驻进程将在下一次心跳执行",
+            "detail": "已持久化受理，常驻进程将在下一次心跳执行",
         }
 
     def _cancel(self, req_id: str, by: str, reason: str) -> tuple[int, dict]:
@@ -794,11 +1229,13 @@ def _resolve_settings(
     """解析配置文件与命令行的生效设置；任何非法值都抛异常，不静默回落。"""
 
     try:
-        service_settings = resolve_service_settings(
-            load_service_config(service_config_path), host=args.host, port=args.port
+        document = load_service_config(service_config_path)
+        service_settings = resolve_service_settings(document, host=args.host, port=args.port)
+        upgrade_settings = resolve_upgrade_settings(
+            None if document is None else document.get("upgrade")
         )
         check_projects(service_settings)
-    except (ServiceConfigError, ServeConfigError) as error:
+    except (ServiceConfigError, ServeConfigError, UpgradeSettingsError) as error:
         # 领域规则与服务化检查都不知道文件位置：在这里补上前缀，失败信息才能定位到配置。
         raise ServeConfigError(f"{service_config_path}: {error}") from error
     refresh = resolve_refresh_seconds(
@@ -822,6 +1259,7 @@ def _resolve_settings(
         operations=args.operations,
         projects_path=Path(args.projects_file),
         project=project,
+        upgrade=upgrade_settings,
     )
 
 
@@ -859,8 +1297,10 @@ def _serve_until_stopped(
     worker: ServiceWorker,
     settings: ServeSettings,
     web_config_path: Path,
+    mail_worker: MailWorker | None = None,
+    upgrade: ManagedRuntime | None = None,
 ) -> int:
-    """启动 worker 与 HTTP 线程，等待停止信号后优雅关闭。"""
+    """启动 worker、邮件网关与 HTTP 线程，等待停止信号后优雅关闭。"""
 
     host, port = server.server_address[:2]
     service = settings.service
@@ -898,13 +1338,26 @@ def _serve_until_stopped(
         f"工具审批 {panel.tool_approval}，项目档案 {settings.projects_path}",
         flush=True,
     )
+    if mail_worker is not None:
+        mail_status = mail_worker.status()
+        print(
+            f"邮件网关: 每 {mail_worker.interval_seconds:g} 秒轮询；配置 {mail_status.get('config', '?')}；"
+            f"白名单 {mail_status.get('allowed_senders', 0)} 个",
+            flush=True,
+        )
     print("按 Ctrl+C 或 SIGTERM 停止。", flush=True)
 
     stop = threading.Event()
     previous = _install_stop_handlers(stop)
     http_thread = threading.Thread(target=server.serve_forever, name=HTTP_THREAD_NAME, daemon=True)
     worker.start()
+    if mail_worker is not None:
+        mail_worker.start()
     http_thread.start()
+    if upgrade is not None:
+        # 就绪报告只在端口真正绑定后写：启动器据此核对实际加载身份。
+        upgrade.write_ready(str(host), int(port))
+        upgrade.start_watchdog(stop, worker, server.panel, mail_worker)
     try:
         while not stop.wait(SIGNAL_WAIT_SECONDS):
             pass
@@ -913,6 +1366,10 @@ def _serve_until_stopped(
     server.shutdown()
     http_thread.join(timeout=HTTP_JOIN_TIMEOUT_SECONDS)
     server.server_close()
+    if upgrade is not None:
+        upgrade.stop()
+    if mail_worker is not None:
+        mail_worker.stop()
     worker.stop()
     # 面板执行器：中止在跑的轮次并收起线程池，避免留下无人认领的 PI 子进程。
     server.panel.runner.shutdown()
@@ -945,11 +1402,32 @@ def cmd_serve(args: argparse.Namespace) -> int:
     except (ServeConfigError, PanelProjectError) as error:
         panel.runner.shutdown()
         return fail(str(error))
+    mail_worker: MailWorker | None = None
+    if getattr(args, "mail", False):
+        if settings.project is None:
+            panel.runner.shutdown()
+            return fail("--mail 需要已登记项目：请先运行 forgeloop project add")
+        try:
+            mail_worker = build_mail_worker(
+                project=settings.project,
+                records_root=settings.records_root,
+                config_path=Path(args.mail_config) if getattr(args, "mail_config", "") else None,
+                interval_seconds=float(getattr(args, "mail_interval", 60.0)),
+            )
+        except (
+            MailWorkerConfigError,
+            MailConfigurationError,
+            MailAdapterError,
+            ValueError,
+        ) as error:
+            panel.runner.shutdown()
+            return fail(f"邮件网关配置失败：{error}")
     if args.once:
         # 只读筛选一次：让自检也回答「现在会不会被执行、为什么不会」，但不启动任何动作。
         worker.survey()
         _emit(build_service_document(settings, worker), args.json)
         return 0
+    upgrade = ManagedRuntime.from_environment(settings)
     # 页面写入口的一次性令牌：每次启动随机生成，只注入页面 meta，重启即失效。
     token = secrets.token_urlsafe(TOKEN_BYTES)
     try:
@@ -957,7 +1435,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     except OSError as error:
         panel.runner.shutdown()
         return fail(f"无法监听 {settings.service.host}:{settings.service.port}: {error}")
-    return _serve_until_stopped(server, worker, settings, web_config_path)
+    return _serve_until_stopped(server, worker, settings, web_config_path, mail_worker, upgrade)
 
 
 def add_serve_parser(
@@ -1000,6 +1478,22 @@ def add_serve_parser(
         type=int,
         default=None,
         help="页面自动刷新间隔秒数；0 表示关闭自动刷新（覆盖配置文件）",
+    )
+    serve.add_argument(
+        "--mail",
+        action="store_true",
+        help="启用邮箱交互网关（常驻轮询；需 mail.toml 与 whitelist）",
+    )
+    serve.add_argument(
+        "--mail-config",
+        default="",
+        help="邮件配置文件；缺省按配置链查找（~/.config/forgeloop/mail.toml 等）",
+    )
+    serve.add_argument(
+        "--mail-interval",
+        type=float,
+        default=60.0,
+        help="邮件轮询间隔秒数（默认 60）",
     )
     serve.add_argument(
         "--once",

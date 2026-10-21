@@ -121,7 +121,90 @@ FAIL: 冒烟检查失败（exit=3）：...
   安装仍由 `deploy` 的权威判据把关：缺**发布回执**或缺**该版本的一次性人工部署批准**时
   fail-closed 拒绝，工作流把两项补办命令一起打印，界面/日志里能直接照着做。
 
+## 受控热升级（固定启动器，2026-10-21）
+
+目标：普通业务版本升级**不调用** \`systemctl restart\`／\`daemon-reload\`，不改写 unit；systemd 只托管固定启动器，启动器替换业务子进程并处理失败恢复。允许切换期间短暂 HTTP 断连；不承诺现有代码尚未提供的任意节点无损暂停。
+
+### 布局与现场
+
+\`\`\`text
+<prefix>/
+  launcher/.venv/                 固定启动器环境（普通升级不改写）
+  releases/<version>/             各业务版本独立环境 + artifact.json
+  current -> releases/<version>   激活指针（只在提交/回退时切换）
+  control/
+    owner.json                    项目、登记根、前缀与启动参数绑定（0700 目录）
+    launcher.lock                 单启动器/单次切换互斥
+    upgrade.sock                  本机控制接口（0600；同 UID 校验）
+    upgrade-state.json            权威升级现场（原子写）
+    upgrade-events.jsonl          追加式升级审计
+    ready-<generation>.json       业务进程就绪证据
+    drain-<generation>.json       业务进程排空证据
+  deployments.jsonl               既有部署回执
+\`\`\`
+
+阶段：\`prepared\`（候选已安装、未激活）→ \`draining\`（拒绝新动作、等待在途调用/会话轮）→ \`starting\` → \`probing\`（只做就绪核对）→ \`committed\`。排空超时进入 \`deferred\`（取消本次切换、旧进程继续），新版失败且确认退出后 \`rolled_back\`，回退也失败进入 \`recovery_required\` 并停止自动推进。相同请求幂等；并发/跨项目/同版本异产物拒绝。
+
+### 一次性接入（维护窗口，允许重启；所有者执行）
+
+前提：项目已登记；\`config/service.toml\` 的 \`[upgrade]\` 与项目档案可用；宿主有用户 systemd 总线。
+
+\`\`\`bash
+cd /home/link/Project/ForgeLoop
+scripts/install_local_service.sh --no-enable \
+  --project forgeloop \
+  --records-root /home/link/Project/ForgeLoop/.forgeloop
+# 审阅将要写入的 unit、<prefix>/control/owner.json、目录权限与启动器环境后：
+systemctl --user daemon-reload
+systemctl --user enable --now forgeloop
+\`\`\`
+
+unit 的 \`ExecStart\` 必须指向 \`<prefix>/launcher/.venv/bin/forgeloop-launcher --prefix <prefix>\`，**不指向** \`current/bin/forgeloop\`。脚本在已接入前缀上拒绝再次 bootstrap/direct deploy；启动器自身更新用 \`--refresh-launcher\`（低频维护，需单独授权）。
+
+### 普通升级（不重启 systemd）
+
+前置：该标签已有发布回执；该版本已有一次性人工部署批准（绑定 tag + 产物 SHA256）；候选产物与回执/SHA 一致。
+
+\`\`\`bash
+forgeloop deploy-approve --tag v0.0.5 --artifact-sha256 <64位sha> \
+  --by owner --reason "确认升级到 0.0.5" --project forgeloop \
+  --records-root /home/link/Project/ForgeLoop/.forgeloop
+
+# 选择任意一个已安装 CLI 调用控制接口（客户端不写前缀）：
+forgeloop upgrade apply --prefix ~/.local/share/forgeloop --tag v0.0.5 \
+  --by owner --reason "受控升级"
+\`\`\`
+
+\`apply\` 默认从本机部署批准读取产物 SHA；也可显式传 \`--artifact-sha256\`。启动器会自行复核发布回执、批准、标签提交、项目/前缀绑定、产物 SHA256 与候选 \`artifact.json\`，不信任请求里的“已批准”字段。
+
+### 核对
+
+\`\`\`bash
+forgeloop upgrade status --prefix ~/.local/share/forgeloop --json
+systemctl --user show forgeloop -p MainPID --value
+readlink ~/.local/share/forgeloop/current
+cat ~/.local/share/forgeloop/control/upgrade-state.json
+tail -n 10 ~/.local/share/forgeloop/control/upgrade-events.jsonl
+\`\`\`
+
+通过判据：systemd MainPID 与启动器 PID 不变；业务进程 PID/generation 改变；\`current\` 与运行版本/产物 SHA 为 B；项目库记录保留。**不要**用 \`current\` 指针冒充运行版本。
+
+### 失败与恢复
+
+- 排空超时：\`deferred\`，旧进程继续；不扣研发失败额度、不强杀在途任务；待人工重新发起。
+- 候选启动失败/就绪超时：启动器确认候选退出后，从 \`releases/<previous>/bin/forgeloop\` 绝对路径恢复旧版；现场记录两代身份。
+- 回退失败：\`recovery_required\`，停止自动推进；保留进程证据与失败原因，人工核对后再处理。
+- 数据库不兼容/不可逆迁移：拒绝自动升级，走单独维护流程；代码回退不等于数据回退。
+- 启动器自身异常退出：重启时按现场对账；无法确认退出/提交的现场等待人工，绝不启动第二个可执行实例。
+
+### 边界（如实声明）
+
+- 本机（macOS）**没有**真实部署前缀与用户 systemd；仓库内以真实启动器进程 + 真实业务替身验证切换/延期/回退，**真机 unit 不重启验证未执行**。
+- 首次接入、启动器自身更新与不可逆迁移仍是维护操作；普通升级授权不覆盖它们。
+- 托管前缀的 \`deploy\`／\`bootstrap\`／\`rollback\` 会被拒绝；这是防止绕过排空与代际提交的保护，不是兼容性回退。
+
 ## 常驻服务（R1，手工安装）
+
 
 `forgeloop serve` 是常驻入口：同一个进程提供只读状态页（`/`、`/api/progress`）与常驻状态接口
 （`GET /api/service`），并按 `config/service.toml` 的 `poll_seconds` 心跳，逐个心跳做一次**只读筛选**。
@@ -136,12 +219,15 @@ FAIL: 冒烟检查失败（exit=3）：...
 
 ### 安装（systemd user unit，不需要 sudo）
 
+**2026-10-21 起**模板的 `ExecStart` 指向固定启动器（见上一节“受控热升级”），不再直接执行
+`current/bin/forgeloop serve`。未接入现场仍可手工复制模板，但接入后普通升级必须走
+`forgeloop upgrade apply`；手工复制时按本机路径修改 `WorkingDirectory`／`ExecStart`／`Environment`：
+
 ```bash
 mkdir -p ~/.config/systemd/user
 cp runtime/systemd/forgeloop-serve.service ~/.config/systemd/user/
-# 按本机路径修改 WorkingDirectory／ExecStart／Environment
 systemctl --user daemon-reload
-systemctl --user enable --now forgeloop-serve
+systemctl --user enable --now forgeloop
 ```
 
 ### 核对与停止
@@ -255,11 +341,13 @@ scripts/install_local_service.sh                 # 默认前缀 ~/.local/share/f
 scripts/install_local_service.sh --no-enable     # 只装不启用
 ```
 
-脚本做三件事：① 构建 wheel 并用受控部署路径装进 `<prefix>`（原子激活，失败自动回滚）；
-② 写 `~/.config/systemd/user/forgeloop.service`（`ExecStart=<prefix>/current/bin/forgeloop serve`，
-`Restart=on-failure`）；③ `systemctl --user daemon-reload && enable --now`，并打印验收命令。
+脚本做四件事：① 构建 wheel 并**仅在首次接入**用 bootstrap 装进 `<prefix>`；② 在
+`<prefix>/launcher/.venv` 安装固定启动器环境并写 `control/owner.json`；③ 写
+`~/.config/systemd/user/forgeloop.service`（`ExecStart=<prefix>/launcher/.venv/bin/forgeloop-launcher`，
+`Restart=on-failure`）；④ 可选 `systemctl --user daemon-reload && enable --now`。
 
-**之后每次发布**：人工 `deploy-approve`（绑定版本与产物校验值）→ `deploy`（健康检查 + 失败自动回滚）
-→ 结果邮件通知；`/api/service` 的 `deploy` 段给出"待部署/已批准"只读结论。
+**之后每次发布**：人工 `deploy-approve`（绑定版本与产物校验值）→ `forgeloop upgrade apply`
+（启动器复核、排空、就绪、失败恢复）→ 结果回执；**不 restart systemd**。`/api/service` 的
+`deploy` 段仍给出“待部署/已批准”只读结论，`upgrade` 段给出实际运行版本与代际准入。
 
-真机验收判据见 [常驻服务与邮件入口的真实场景验收方案](resident-service-acceptance.md)（A/B/C 组）。
+真机验收判据见 [常驻服务与邮件入口的真实场景验收方案](resident-service-acceptance.md)（A/B/C/E 组）。

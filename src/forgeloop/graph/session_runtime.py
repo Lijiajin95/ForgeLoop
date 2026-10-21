@@ -183,6 +183,20 @@ class SessionProcessPool:
         slot.close()
         return True
 
+    def close_idle(self) -> int:
+        """收起所有空闲常驻进程（排空/换代用）；正在跑的轮次不受影响。
+
+        返回实际收起的进程数。池本身保持可用：排空被延期后，下一次取用会按冷启动
+        规则新建进程并回放历史。
+        """
+
+        with self._lock:
+            idle = [session_id for session_id, slot in self._sessions.items() if not slot.busy]
+            slots = [self._sessions.pop(session_id) for session_id in idle]
+        for slot in slots:
+            slot.close()
+        return len(slots)
+
     def reap(self) -> tuple[str, ...]:
         """回收空闲超时的会话进程，返回被回收的会话身份（供状态与日志）。"""
 

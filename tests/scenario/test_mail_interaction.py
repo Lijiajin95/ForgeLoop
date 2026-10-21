@@ -616,9 +616,95 @@ class TestLinkedCommands:
             assert store.plan_approval(req_id) is None
         finally:
             store.close()
-        # 未识别成命令时按需求修订处理，绝不据此批准。
+        # 带解释/条件时仍按需求修订处理，绝不据此批准。
         assert document["interactions"][0]["command"] == "revise"
         assert "已修订" in str(sender.calls[0]["subject"])
+
+    @pytest.mark.parametrize("body", ["批准", "同意", "没问题"])
+    def test_natural_language_approval_is_one_step(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        body: str,
+    ) -> None:
+        req_id = seed_requirement(tmp_path)
+        version = seed_plan(tmp_path, req_id)
+        raw = build_message(
+            "<approve-nl@example.com>",
+            subject=f"[ForgeLoop][{req_id}][任务包]",
+            body=body,
+        )
+        _receiver, sender = install_transport(monkeypatch, [raw])
+
+        _code, document = run_interact(tmp_path, capsys)
+
+        store = RequirementStore(project_records(tmp_path, PROJECT) / "records.sqlite")
+        try:
+            approval = store.plan_approval(req_id, version)
+        finally:
+            store.close()
+        assert approval is not None
+        assert approval.source.startswith("email-natural-language:")
+        assert document["interactions"][0]["command"] == "approve"
+        reply = str(sender.calls[0]["body"])
+        assert "自然语言批准" in reply
+        assert f"v{version}" in reply
+
+    def test_natural_language_approval_with_stale_version_is_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        req_id = seed_requirement(tmp_path)
+        seed_plan(tmp_path, req_id)
+        raw = build_message(
+            "<approve-nl-stale@example.com>",
+            subject=f"[ForgeLoop][{req_id}][任务包]",
+            body="批准 v9",
+        )
+        _receiver, sender = install_transport(monkeypatch, [raw])
+
+        _code, _document = run_interact(tmp_path, capsys)
+
+        store = RequirementStore(project_records(tmp_path, PROJECT) / "records.sqlite")
+        try:
+            assert store.plan_approval(req_id) is None
+        finally:
+            store.close()
+        assert "版本不匹配" in str(sender.calls[0]["body"])
+
+    def test_natural_language_acceptance_uses_accept_not_revision(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        req_id = seed_requirement(tmp_path)
+        seed_plan(tmp_path, req_id)
+        raw = build_message(
+            "<accept-nl@example.com>",
+            subject=f"[ForgeLoop][{req_id}][任务包]",
+            body="验收通过",
+        )
+        _receiver, sender = install_transport(monkeypatch, [raw])
+
+        _code, document = run_interact(tmp_path, capsys)
+
+        assert document["interactions"][0]["command"] == "accept"
+        assert requirement_versions(tmp_path, req_id) == 1
+        assert "验收" in str(sender.calls[0]["subject"])
+
+    def test_unlinked_natural_language_approval_creates_no_requirement(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        raw = build_message(
+            "<approve-unlinked@example.com>",
+            subject="[ForgeLoop]",
+            body="批准",
+        )
+        _receiver, sender = install_transport(monkeypatch, [raw])
+
+        _code, document = run_interact(tmp_path, capsys)
+
+        assert requirement_count(tmp_path) == 0
+        assert document["interactions"][0]["command"] == "approve"
+        assert "没有关联到需求编号" in str(sender.calls[0]["body"])
 
 
 # --------------------------------------------------------------------------- #

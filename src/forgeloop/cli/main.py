@@ -39,7 +39,10 @@ from forgeloop.adapter.git_workspace import (
 from forgeloop.adapter.mail import MailAdapterError
 from forgeloop.cli.candidate import add_candidate_parser
 from forgeloop.cli.common import (
+    admission_refusal,
     base_records_root,
+    execution_admission,
+    fail,
     locate_requirement_root,
     open_task,
     project_for,
@@ -76,6 +79,7 @@ from forgeloop.cli.requirements import (
 )
 from forgeloop.cli.runtime import add_runtime_parser
 from forgeloop.cli.serve import ServeOperations, add_serve_parser
+from forgeloop.cli.upgrade import add_upgrade_parser
 from forgeloop.cli.web import ProgressDocuments, add_web_parser
 from forgeloop.domain.agent_runtime import AgentRuntimeError
 from forgeloop.domain.approval import Approval, ApprovalStage
@@ -1522,6 +1526,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop.set_defaults(func=cmd_stop)
 
     add_deploy_parser(subparsers, DEFAULT_RECORDS_ROOT)
+    add_upgrade_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
     add_candidate_parser(subparsers, DEFAULT_RECORDS_ROOT)
 
@@ -1562,9 +1567,42 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# 会启动 Agent / 测试 / 交付副作用的命令：排空期间它们必须在入口同步拒绝，而不是
+# 走到一半才发现代际不允许。只读查询、批准/验收/停止等人工决定不在集合内。
+_EXECUTION_COMMANDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("submit", ""),
+        ("candidate", ""),
+        ("merge", ""),
+        ("release", ""),
+        ("deploy", ""),
+        ("rollback", ""),
+        ("requirement", "analyze"),
+        ("requirement", "plan"),
+        ("requirement", "advance"),
+        ("requirement", "dispatch"),
+        ("requirement", "retry"),
+        ("mail", "poll"),
+        ("mail", "interact"),
+    }
+)
+
+
+def _starts_execution(args: argparse.Namespace) -> bool:
+    """按真实命令装配判定命令是否会启动执行动作（不是按是否写记录）。"""
+
+    command = str(getattr(args, "command", ""))
+    subcommand = str(getattr(args, f"{command}_command", "") or "")
+    return (command, subcommand) in _EXECUTION_COMMANDS
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if _starts_execution(args):
+        refusal = admission_refusal(execution_admission())
+        if refusal:
+            return fail(refusal)
     return args.func(args)
 
 

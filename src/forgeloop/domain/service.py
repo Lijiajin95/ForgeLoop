@@ -55,6 +55,9 @@ _TOP_LEVEL_KEYS = frozenset(
         "auto_advance",
         "projects",
         "panel",
+        # [upgrade] 的排空/就绪/恢复时限由 domain.upgrade 独立校验（常驻服务与
+        # 固定启动器共用同一份配置）；这里只承认该键，避免把合法配置判成未知键。
+        "upgrade",
     }
 )
 _PROJECT_KEYS = frozenset({"path", "pi_command", "test_command", "baseline", "pi_home"})

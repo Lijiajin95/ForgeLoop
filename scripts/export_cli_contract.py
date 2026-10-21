@@ -127,6 +127,74 @@ def merge(left: dict, right: dict) -> dict:
     return merged
 
 
+def build_upgrade_contract() -> tuple[dict, dict, dict]:
+    """受控热升级 CLI/控制接口的对外结构（status / apply 成功 / 拒绝或延期）。"""
+
+    from forgeloop.domain.upgrade import PROTOCOL_VERSION, UpgradeIdentity, UpgradeState
+
+    identity = UpgradeIdentity(
+        version="0.0.2",
+        tag="v0.0.2",
+        artifact_sha256="b" * 64,
+        build_commit="a" * 40,
+        generation="gen-000002",
+    )
+    state = UpgradeState(
+        identity=identity,
+        project="forgeloop",
+        prefix="/home/link/.local/share/forgeloop",
+        records_root="/home/link/.local/share/forgeloop/projects/forgeloop",
+        phase="committed",
+        generation="gen-000002",
+        request_id="upg-0123456789abcdef",
+        previous=UpgradeIdentity(
+            version="0.0.1",
+            tag="v0.0.1",
+            artifact_sha256="c" * 64,
+            build_commit="d" * 40,
+            generation="gen-000001",
+        ),
+    ).to_document()
+    status = {
+        "ok": True,
+        "protocol_version": PROTOCOL_VERSION,
+        "launcher_pid": 1234,
+        "state": state,
+        "child_pid": 5678,
+        "child_alive": True,
+        "owner": {
+            "schema_version": 1,
+            "project": "forgeloop",
+            "prefix": "/home/link/.local/share/forgeloop",
+            "registration_root": "/home/link/Project/ForgeLoop/.forgeloop",
+            "records_root": "/home/link/Project/ForgeLoop/.forgeloop/projects/forgeloop",
+            "service_config": "/home/link/Project/ForgeLoop/config/service.toml",
+            "web_config": "/home/link/Project/ForgeLoop/config/web.toml",
+            "projects_file": "/home/link/Project/ForgeLoop/config/projects.toml",
+        },
+        "prefix": {
+            "prefix": "/home/link/.local/share/forgeloop",
+            "current_version": "0.0.2",
+            "installed_versions": ["0.0.1", "0.0.2"],
+            "last_deployment": None,
+        },
+    }
+    apply_success = {
+        "ok": True,
+        "protocol_version": PROTOCOL_VERSION,
+        "message": "已切换到 0.0.2（generation gen-000002）",
+        "state": state,
+    }
+    apply_refusal = {
+        "ok": False,
+        "protocol_version": PROTOCOL_VERSION,
+        "code": "deferred",
+        "message": "排空未完成，已延期：仍在途",
+        "state": {**state, "phase": "deferred"},
+    }
+    return shape(status), shape(apply_success), shape(apply_refusal)
+
+
 def build_contract() -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         records = Path(tmp) / "records.sqlite"
@@ -178,6 +246,9 @@ def build_contract() -> dict:
         location = _seed_contract_project(Path(tmp))
         web_document = build_progress_contract(Path(tmp))
         service_document = build_service_contract(Path(tmp))
+        upgrade_status_document, upgrade_apply_document, upgrade_refusal_document = (
+            build_upgrade_contract()
+        )
         service_operation_document = build_service_operation_contract()
         service_operation_error_document = build_service_operation_error_contract()
         panel_document_shape, panel_session_shape = build_panel_contract(Path(tmp))
@@ -215,6 +286,12 @@ def build_contract() -> dict:
         "service_exit_codes": {"ok": 0, "config_invalid": 1, "listen_failed": 1},
         "service_status_route": "GET /api/service",
         "service_document": service_document,
+        # 受控热升级薄入口：status 只读；apply 需要发布回执 + 每版本部署批准。
+        "upgrade_status_command": "forgeloop upgrade status --json",
+        "upgrade_status_document": upgrade_status_document,
+        "upgrade_apply_command": "forgeloop upgrade apply --tag vX.Y.Z --json",
+        "upgrade_apply_document": upgrade_apply_document,
+        "upgrade_apply_refusal_document": upgrade_refusal_document,
         # 页面写入口（R3）：提交与四类人工动作，成功与失败各一份结构。
         "service_submit_route": "POST /api/requirements",
         "service_action_routes": [

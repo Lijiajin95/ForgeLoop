@@ -36,6 +36,7 @@ from forgeloop.domain.agent_runtime import (
     resolve_agent_runtime,
 )
 from forgeloop.records.agent_runtimes import AgentRuntimeStore
+from forgeloop.records.upgrade_state import read_managed_admission
 
 ENV_AGENT_RUNTIME = "FORGELOOP_AGENT_RUNTIME"
 ENV_DSH_COMMAND = "FORGELOOP_DSH_COMMAND"
@@ -124,8 +125,17 @@ def run_agent_session(
     prompt: str,
     timeout_seconds: float,
 ) -> AgentInvocationResult:
-    """启动一次 Agent 会话并等待终态；结果不明确时如实返回，不重跑。"""
+    """启动一次 Agent 会话并等待终态；结果不明确时如实返回，不重跑。
 
+    代际准入是最后一道闸门：即使调用方绕过了 CLI/页面入口，排空或切换期间也
+    不能启动新的 Agent 调用（`prepared`/`deferred` 的旧代仍允许）。
+    """
+
+    admission = read_managed_admission()
+    if not admission.allowed:
+        raise AgentRuntimeError(
+            f"热升级排空/切换中，拒绝启动 Agent 调用：{admission.reason or '代际未准入'}"
+        )
     session = open_agent_session(
         resolved.runtime, resolved.command, task_id, role, session_dir, options
     )

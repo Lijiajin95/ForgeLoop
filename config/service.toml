@@ -41,6 +41,18 @@ poll_seconds = 2
 max_concurrent = 2
 auto_advance = false
 
+# 受控热升级的时限（固定启动器与 serve 共用；规则在 domain.upgrade，越界即启动失败）：
+# - drain_timeout_seconds：排空等待上限；超时只延期升级，旧进程继续，不强杀在途任务。
+# - readiness_timeout_seconds：候选进程写出就绪报告并核对身份的上限。
+# - recovery_timeout_seconds：旧进程退出/上一版本恢复的确认上限。
+# - poll_seconds：启动器观察升级现场的轮询间隔。
+[upgrade]
+schema_version = 1
+drain_timeout_seconds = 300
+readiness_timeout_seconds = 30
+recovery_timeout_seconds = 30
+poll_seconds = 0.25
+
 [panel]
 concurrency = 2
 turn_timeout_seconds = 900

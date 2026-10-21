@@ -21,6 +21,8 @@ dependencies = [
 
 [project.scripts]
 forgeloop = "forgeloop.cli:main"
+# 固定启动器：独立环境里的稳定入口；普通业务版本升级不改写它。
+forgeloop-launcher = "forgeloop.cli.launcher:main"
 
 [dependency-groups]
 dev = [

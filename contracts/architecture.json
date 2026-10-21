@@ -17,13 +17,16 @@
     "forgeloop.adapter.mail": "adapter",
     "forgeloop.adapter.pi_rpc": "adapter",
     "forgeloop.adapter.test_runner": "adapter",
+    "forgeloop.adapter.upgrade_control": "adapter",
     "forgeloop.cli": "cli",
     "forgeloop.cli.candidate": "cli",
     "forgeloop.cli.commit_policy": "cli",
     "forgeloop.cli.common": "cli",
     "forgeloop.cli.deploy": "cli",
+    "forgeloop.cli.launcher": "cli",
     "forgeloop.cli.mail": "cli",
     "forgeloop.cli.mail_interaction": "cli",
+    "forgeloop.cli.mail_worker": "cli",
     "forgeloop.cli.main": "cli",
     "forgeloop.cli.merge": "cli",
     "forgeloop.cli.panel": "cli",
@@ -32,6 +35,7 @@
     "forgeloop.cli.requirements": "cli",
     "forgeloop.cli.runtime": "cli",
     "forgeloop.cli.serve": "cli",
+    "forgeloop.cli.upgrade": "cli",
     "forgeloop.cli.web": "cli",
     "forgeloop.domain": "domain",
     "forgeloop.domain.agent_runtime": "domain",
@@ -59,6 +63,7 @@
     "forgeloop.domain.status_reason": "domain",
     "forgeloop.domain.task_plan": "domain",
     "forgeloop.domain.toml_fields": "domain",
+    "forgeloop.domain.upgrade": "domain",
     "forgeloop.graph": "graph",
     "forgeloop.graph.agent_execution": "graph",
     "forgeloop.graph.builder": "graph",
@@ -87,7 +92,9 @@
     "forgeloop.records.mail_threads": "records",
     "forgeloop.records.projects": "records",
     "forgeloop.records.requirements": "records",
-    "forgeloop.records.store": "records"
+    "forgeloop.records.service_requests": "records",
+    "forgeloop.records.store": "records",
+    "forgeloop.records.upgrade_state": "records"
   },
   "layer_edges": [
     [

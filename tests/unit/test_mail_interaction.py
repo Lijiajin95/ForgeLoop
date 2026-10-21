@@ -10,6 +10,7 @@ from forgeloop.domain.mail_interaction import (
     interaction_subject,
     is_auto_submitted,
     normalize_address,
+    parse_approval_intent,
     parse_mail_command,
     reply_text,
     revision_text,
@@ -112,6 +113,50 @@ class TestRevisionText:
     def test_english_quote_attribution_stops_revision_text(self) -> None:
         body = "补充说明\n\nOn Mon, Oct 19, 2026 at 12:34 PM Owner <owner@example.com> wrote:\n> 原通知"
         assert revision_text(body) == "补充说明"
+
+
+class TestApprovalIntent:
+    @pytest.mark.parametrize(
+        "body",
+        ["批准", "同意。", "同意吧", "可以", "没问题!", "lgtm", "OK", "按这个方案做"],
+    )
+    def test_closed_approval_phrases_are_natural_language_approval(self, body: str) -> None:
+        command = parse_approval_intent(body)
+        assert command is not None
+        assert command.kind is MailCommandKind.APPROVE
+        assert command.argument == ""
+        assert command.source == "natural_language"
+
+    @pytest.mark.parametrize(("body", "version"), [("批准 v3", "3"), ("同意V2", "2")])
+    def test_version_suffix_is_preserved(self, body: str, version: str) -> None:
+        command = parse_approval_intent(body)
+        assert command is not None
+        assert command.kind is MailCommandKind.APPROVE
+        assert command.argument == version
+        assert command.source == "natural_language"
+
+    @pytest.mark.parametrize("body", ["验收", "验收通过", "接受"])
+    def test_acceptance_phrases_are_natural_language_accept(self, body: str) -> None:
+        command = parse_approval_intent(body)
+        assert command is not None
+        assert command.kind is MailCommandKind.ACCEPT
+        assert command.source == "natural_language"
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "同意，但先补测试",
+            "请批准这个方案",
+            "批准 v3 并推进",
+            "通过",
+            "验收 v2",
+            "批准\n同意",
+            "> 批准\n> 同意",
+            "",
+        ],
+    )
+    def test_ambiguous_or_extra_text_is_not_approval(self, body: str) -> None:
+        assert parse_approval_intent(body) is None
 
 
 class TestSender:

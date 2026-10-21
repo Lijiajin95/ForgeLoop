@@ -1,21 +1,19 @@
 name: Deploy
 
 # S2 本机部署：由自托管 runner（标签 forgeloop-deploy）在本机执行。
-# 只下载该 Release 上发布的同一份产物，交给**本机已安装**的 forgeloop 部署；
+# 只下载该 Release 上发布的同一份产物，交给本机已安装的 forgeloop 部署；
 # 不使用长期凭据（公开仓库匿名下载 + runner 自身身份），也不重新构建产物。
 #
+# 受控热升级（固定启动器）：
+# - 前缀里有 control/owner.json 时，普通升级不再调用 direct deploy，也不 restart systemd；
+#   改为调用固定启动器环境里的 forgeloop upgrade apply（发布回执 + 每版本部署批准 +
+#   排空 + 就绪核对 + 失败恢复）。
+# - 未接入的前缀仍走既有 deploy 路径（首次接入由 install_local_service.sh 完成）。
+#
 # 触发路径：
-# - 自动：Release 工作流发布后**显式 workflow_dispatch 派发**本工作流
+# - 自动：Release 工作流发布后显式 workflow_dispatch 派发本工作流
 #   （GITHUB_TOKEN 创建的 release 事件不触发下游工作流，不能只靠 release.published）；
 # - 人工：在 GitHub 上手动创建 Release（release.published），或手动 workflow_dispatch。
-#
-# 多项目口径（2026-10-20 起）：业务记录在 `<records-root>/projects/<project_id>/` 下，
-# 因此部署必须指定项目；缺省 `forgeloop`（本机登记的项目身份）。部署前置仍按权威记录
-# 判定，本工作流只负责执行，不代做批准：
-#   1）该标签的发布回执（`forgeloop release` 写入项目记录根）；
-#   2）该版本的一次性人工部署批准（`forgeloop deploy-approve --tag … --artifact-sha256 …`
-#      在本机执行）。缺任一项时 `deploy` 会 fail-closed 拒绝，本工作流把原因与补办命令
-#      一起打印出来，不做任何安装。
 on:
   release:
     types: [published]
@@ -53,45 +51,78 @@ jobs:
       - name: Resolve tag
         id: tag
         run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
-      - name: Preflight — installed CLI and project registration
+      - name: Preflight — installed CLI/launcher and project registration
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
+          if [ -f "${PREFIX}/control/owner.json" ]; then
+            launcher="${PREFIX}/launcher/.venv/bin/forgeloop"
+            if [ ! -x "${launcher}" ]; then
+              echo "前缀已由固定启动器托管，但找不到 ${launcher}" >&2
+              exit 1
+            fi
+            if ! "${launcher}" upgrade --help 2>&1 | grep -q -- 'apply'; then
+              echo "固定启动器环境里的 CLI 不支持 upgrade apply；先做启动器维护升级：" >&2
+              echo "  scripts/install_local_service.sh --refresh-launcher" >&2
+              exit 1
+            fi
+            echo "托管前缀：$(readlink "${PREFIX}/current" || true)"
+          else
+            cli="${PREFIX}/current/bin/forgeloop"
+            if [ ! -x "${cli}" ]; then
+              echo "本机尚未安装 forgeloop；请先手动 bootstrap 部署（见 docs/deployment.md）" >&2
+              exit 1
+            fi
+            echo "激活指针: $(readlink "${PREFIX}/current")"
+            if ! "${cli}" deploy --help 2>&1 | grep -q -- '--project'; then
+              echo "本机 CLI 不支持多项目部署（缺少 --project）；先升级：" >&2
+              echo "  /home/link/Project/ForgeLoop/scripts/install_local_service.sh --no-unit" >&2
+              exit 1
+            fi
+          fi
           cli="${PREFIX}/current/bin/forgeloop"
-          if [ ! -x "${cli}" ]; then
-            echo "本机尚未安装 forgeloop；请先手动 bootstrap 部署（见 docs/deployment.md）" >&2
-            exit 1
-          fi
-          echo "激活指针: $(readlink "${PREFIX}/current")"
-          # 多项目口径需要 CLI 认识 --project；旧版本只会在这一步失败，不会装错记录根。
-          if ! "${cli}" deploy --help 2>&1 | grep -q -- '--project'; then
-            echo "本机 CLI 不支持多项目部署（缺少 --project）；先升级：" >&2
-            echo "  /home/link/Project/ForgeLoop/scripts/install_local_service.sh --no-unit" >&2
-            exit 1
-          fi
           if ! "${cli}" project show "${PROJECT}" --records-root "${RECORDS_ROOT}" --json >/dev/null 2>&1; then
             echo "项目未登记: ${PROJECT}（记录根 ${RECORDS_ROOT}）" >&2
             echo "先登记项目（一次性）：" >&2
             echo "  ${cli} project add ${PROJECT} --name ForgeLoop --path /home/link/Project/ForgeLoop --records-root ${RECORDS_ROOT}" >&2
             exit 1
           fi
-      - name: Deploy with the installed CLI
+      - name: Deploy or hot-upgrade with the installed CLI
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          cli="${PREFIX}/current/bin/forgeloop"
-          if ! "${cli}" deploy --tag "${TAG}" --project "${PROJECT}" --prefix "${PREFIX}" \
-              --records-root "${RECORDS_ROOT}"; then
-            echo "部署被拒绝。补办前置后重跑本工作流：" >&2
-            echo "  1) 发布回执：forgeloop release <task_id> --tag ${TAG}（记录根 ${RECORDS_ROOT}）" >&2
-            echo "  2) 部署批准：forgeloop deploy-approve --tag ${TAG} --artifact-sha256 <sha> --by <身份> --reason <理由> --project ${PROJECT} --records-root ${RECORDS_ROOT}" >&2
-            exit 1
+          if [ -f "${PREFIX}/control/owner.json" ]; then
+            launcher="${PREFIX}/launcher/.venv/bin/forgeloop"
+            if ! "${launcher}" upgrade apply --prefix "${PREFIX}" --tag "${TAG}" \
+                --by "github-actions" --reason "CD run ${GITHUB_RUN_ID}：受控热升级"; then
+              echo "热升级被拒绝/延期。核对发布回执与部署批准后重跑：" >&2
+              echo "  forgeloop deploy-approve --tag ${TAG} --artifact-sha256 <sha> --by <身份> --reason <理由> --project ${PROJECT} --records-root ${RECORDS_ROOT}" >&2
+              echo "  ${launcher} upgrade status --prefix ${PREFIX}" >&2
+              exit 1
+            fi
+          else
+            cli="${PREFIX}/current/bin/forgeloop"
+            if ! "${cli}" deploy --tag "${TAG}" --project "${PROJECT}" --prefix "${PREFIX}" \
+                --records-root "${RECORDS_ROOT}"; then
+              echo "部署被拒绝。补办前置后重跑本工作流：" >&2
+              echo "  1) 发布回执：forgeloop release <task_id> --tag ${TAG}（记录根 ${RECORDS_ROOT}）" >&2
+              echo "  2) 部署批准：forgeloop deploy-approve --tag ${TAG} --artifact-sha256 <sha> --by <身份> --reason <理由> --project ${PROJECT} --records-root ${RECORDS_ROOT}" >&2
+              exit 1
+            fi
           fi
-      - name: Verify activation
+      - name: Verify activation/running identity
         run: |
           set -euo pipefail
-          "${PREFIX}/current/bin/forgeloop" --help > /dev/null
-          echo "激活指针: $(readlink "${PREFIX}/current")"
-          tail -n 1 "${PREFIX}/deployments.jsonl"
+          if [ -f "${PREFIX}/control/owner.json" ]; then
+            launcher="${PREFIX}/launcher/.venv/bin/forgeloop"
+            "${launcher}" upgrade status --prefix "${PREFIX}" --json | tee /tmp/forgeloop-upgrade-status.json
+            grep -q '"phase": "committed"' /tmp/forgeloop-upgrade-status.json
+            echo "激活指针: $(readlink "${PREFIX}/current")"
+            tail -n 3 "${PREFIX}/control/upgrade-events.jsonl"
+          else
+            "${PREFIX}/current/bin/forgeloop" --help > /dev/null
+            echo "激活指针: $(readlink "${PREFIX}/current")"
+            tail -n 1 "${PREFIX}/deployments.jsonl"
+          fi

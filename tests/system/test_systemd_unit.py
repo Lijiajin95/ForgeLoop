@@ -54,12 +54,14 @@ def test_unit_declares_the_required_directives() -> None:
         assert directive in text, directive
 
 
-def test_exec_start_runs_the_resident_service_with_the_shipped_config() -> None:
-    """启动命令必须真的启动常驻服务，并指向随仓库分发的服务配置。"""
+def test_exec_start_runs_the_fixed_launcher_not_current() -> None:
+    """普通升级不改写 unit：ExecStart 必须指向固定启动器，而不是 current 业务入口。"""
 
     line = next(line for line in _unit_text().splitlines() if line.startswith("ExecStart="))
-    assert re.search(r"forgeloop\s+serve\b", line), line
-    assert "--service-config" in line and "config/service.toml" in line, line
+    assert "forgeloop-launcher" in line, line
+    assert "--prefix" in line, line
+    assert "current/bin" not in line, line
+    assert not re.search(r"forgeloop\s+serve\b", line), line
     assert "--host" not in line, "监听地址由 config/service.toml 决定，unit 不重复配置"
 
 
@@ -69,10 +71,13 @@ def test_service_documents_the_manual_steps_and_boundaries() -> None:
     text = _unit_text()
     for fragment in (
         "systemctl --user daemon-reload",
-        "systemctl --user enable --now forgeloop-serve",
-        "journalctl --user -u forgeloop-serve",
+        "systemctl --user enable --now forgeloop",
+        "journalctl --user -u forgeloop",
+        "forgeloop upgrade apply",
+        "--refresh-launcher",
+        "普通业务版本升级**不要**执行 systemctl restart",
         "非回环监听由程序本身拒绝",
-        "不做自动重放（R4）",
+        "recovery_required",
     ):
         assert fragment in text, fragment
 
@@ -80,14 +85,18 @@ def test_service_documents_the_manual_steps_and_boundaries() -> None:
 def _portable_unit(tmp_path: Path) -> Path:
     """把逐机路径替换成本机一定存在的路径，只留指令与语法参与判定。
 
-    模板里的 ``%h/Project/ForgeLoop/.venv/bin/python`` 是**按本机修改**的示例；在别的宿主
+    模板里的 ``%h/.local/share/forgeloop/launcher`` 是**按本机修改**的示例；在别的宿主
     （CI 的 HOME=/home/runner）上 systemd-analyze 会因“可执行文件不存在”返回非 0——那是路径
     问题，不是 unit 语法问题。测试的既定范围就是语法与指令（见模块 docstring），因此这里先
-    换成本机真实的解释器与工作目录再校验。
+    换成本机真实的解释器与工作目录再校验（只验证语法，不启动服务）。
     """
 
     text = _unit_text()
-    text = re.sub(r"(?m)^ExecStart=.*$", f"ExecStart={sys.executable} -m forgeloop serve", text)
+    text = re.sub(
+        r"(?m)^ExecStart=.*$",
+        f"ExecStart={sys.executable} -m forgeloop.cli.launcher --prefix {tmp_path}",
+        text,
+    )
     text = re.sub(r"(?m)^WorkingDirectory=.*$", f"WorkingDirectory={tmp_path}", text)
     text = re.sub(r"(?m)^Environment=HOME=.*$", f"Environment=HOME={tmp_path}", text)
     text = re.sub(r"(?m)^Documentation=.*\n", "", text, count=1)

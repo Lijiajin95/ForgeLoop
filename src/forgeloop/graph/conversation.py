@@ -50,6 +50,7 @@ from forgeloop.domain.conversation import (
 from forgeloop.domain.projects import ProjectEntry
 from forgeloop.graph.session_runtime import SessionProcessPool
 from forgeloop.records.conversations import ConversationStore, SessionRecord
+from forgeloop.records.upgrade_state import read_managed_admission
 
 CHAT_ROLE = "chat"
 """PI 会话文件里的角色名：面板轮次与开发/审查角色的轨迹分开落盘。"""
@@ -62,6 +63,17 @@ STREAM_FLUSH_CHARS = 200
 
 REAPER_INTERVAL_SECONDS = 5.0
 """空闲进程回收的检查间隔。"""
+
+
+@dataclass(frozen=True)
+class DrainReport:
+    """面板会话的排空证明：没有在跑/排队的轮次，常驻进程已收起。"""
+
+    completed: bool
+    active_turns: int = 0
+    queued_turns: int = 0
+    live_sessions: int = 0
+    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -277,10 +289,12 @@ class ConversationRunner:
             max_workers=concurrency, thread_name_prefix="forgeloop-panel"
         )
         self._lock = threading.Lock()
+        self._idle = threading.Condition(self._lock)
         self._running: set[str] = set()
         self._queued: set[str] = set()
         self._writers: dict[str, TurnStreamWriter] = {}
         self._closed = False
+        self._draining = False
         self._sessions = SessionProcessPool(
             self._session_process,
             idle_seconds=session_idle_seconds,
@@ -295,23 +309,41 @@ class ConversationRunner:
     # ---- 受理与终止 ----------------------------------------------------------
 
     def start_turn(self, session_id: str, text: str, by: str) -> TurnTicket:
-        """受理一轮人工输入：先落人工消息，再把执行交给线程池（HTTP 立即返回）。"""
+        """受理一轮人工输入：先落人工消息，再把执行交给线程池（HTTP 立即返回）。
 
+        排空/切换期间（托管环境）在**落消息之前**拒绝；已受理的轮次继续跑完。
+        """
+
+        admission = read_managed_admission()
+        if not admission.allowed:
+            raise ConversationError(
+                f"热升级排空/切换中，不再受理新轮次：{admission.reason or '代际未准入'}"
+            )
         store = ConversationStore(self._records_path)
         try:
             self._require_live_session(store, session_id)
-            store.append_message(session_id, role=MessageRole.HUMAN, content=text, author=by)
-            store.start_turn(session_id)
-            store.set_status(session_id, SessionStatus.ACTIVE)
-            refreshed = store.get_session(session_id)
-            assert refreshed is not None
+            with self._lock:
+                if self._closed:
+                    raise ConversationError("会话执行器已停止，不再受理新轮次")
+                if self._draining:
+                    raise ConversationError("会话执行器正在排空，不再受理新轮次")
+                # 先占位再落库：排空启动后不会把一条“刚受理”的轮次漏在队列外。
+                self._queued.add(session_id)
+            try:
+                store.append_message(session_id, role=MessageRole.HUMAN, content=text, author=by)
+                store.start_turn(session_id)
+                store.set_status(session_id, SessionStatus.ACTIVE)
+                refreshed = store.get_session(session_id)
+                assert refreshed is not None
+            except BaseException:
+                with self._lock:
+                    self._queued.discard(session_id)
+                    self._idle.notify_all()
+                raise
         finally:
             store.close()
         with self._lock:
-            if self._closed:
-                raise ConversationError("会话执行器已停止，不再受理新轮次")
             queued = len(self._running) >= self._concurrency
-            self._queued.add(session_id)
         self._pool.submit(self._execute, session_id, text)
         return TurnTicket(session_id=session_id, turn_count=refreshed.turn_count, queued=queued)
 
@@ -327,6 +359,44 @@ class ConversationRunner:
         self._sessions.release(session_id, keep=False)
         return TerminateResult(terminated=terminated, aborted=aborted)
 
+    def drain(self, *, timeout: float = 300.0) -> DrainReport:
+        """关闭新轮次并等待在跑/排队的轮次结束；随后收起空闲常驻进程。
+
+        超时如实返回未完成，由调用方决定 `deferred`；不中止正在跑的轮次。返回
+        `completed=True` 才表示“本轮会话已保存、常驻进程已收起”。
+        """
+
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._idle:
+            self._draining = True
+            while self._running or self._queued:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._idle.wait(remaining)
+            active = len(self._running)
+            queued = len(self._queued)
+        completed = active == 0 and queued == 0
+        live = self._sessions.close_idle() if completed else 0
+        return DrainReport(
+            completed=completed,
+            active_turns=active,
+            queued_turns=queued,
+            live_sessions=live,
+            detail="" if completed else f"仍有 {active} 轮在跑、{queued} 轮排队（超时）",
+        )
+
+    def resume(self) -> None:
+        """排空被取消（`deferred`）：重新受理新轮次；空闲进程已收起，按冷启动恢复。"""
+
+        with self._idle:
+            self._draining = False
+            self._idle.notify_all()
+
+    @property
+    def draining(self) -> bool:
+        return self._draining
+
     def is_running(self, session_id: str) -> bool:
         with self._lock:
             return session_id in self._running or session_id in self._queued
@@ -337,9 +407,11 @@ class ConversationRunner:
         with self._lock:
             running = sorted(self._running)
             queued = sorted(self._queued)
+            draining = self._draining
         live = self._sessions.status()
         return {
             "concurrency": self._concurrency,
+            "draining": draining,
             "turn_timeout_seconds": self._turn_timeout_seconds,
             "tool_approval": self._tool_approval.value,
             "running_turns": len(running),
@@ -364,8 +436,10 @@ class ConversationRunner:
     def shutdown(self) -> None:
         """停机：停止回收线程、中止常驻进程并收起线程池。"""
 
-        with self._lock:
+        with self._idle:
             self._closed = True
+            self._draining = True
+            self._idle.notify_all()
         self._reaper_stop.set()
         self._sessions.shutdown()
         self._pool.shutdown(wait=False, cancel_futures=True)
@@ -414,8 +488,9 @@ class ConversationRunner:
             self._record_failure(store, session_id, f"内部错误：{error}")
         finally:
             store.close()
-            with self._lock:
+            with self._idle:
                 self._running.discard(session_id)
+                self._idle.notify_all()
 
     def _invoke(
         self,

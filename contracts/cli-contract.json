@@ -1946,12 +1946,114 @@
           "string"
         ]
       },
+      "upgrade": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "admitted": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "artifact_sha256": {
+            "type": [
+              "string"
+            ]
+          },
+          "build_commit": {
+            "type": [
+              "string"
+            ]
+          },
+          "current_version": {
+            "type": [
+              "string"
+            ]
+          },
+          "generation": {
+            "type": [
+              "string"
+            ]
+          },
+          "managed": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "module_path": {
+            "type": [
+              "string"
+            ]
+          },
+          "phase": {
+            "type": [
+              "string"
+            ]
+          },
+          "process_generation": {
+            "type": [
+              "string"
+            ]
+          },
+          "project": {
+            "type": [
+              "string"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string"
+            ]
+          },
+          "records_root": {
+            "type": [
+              "string"
+            ]
+          },
+          "release_dir": {
+            "type": [
+              "string"
+            ]
+          },
+          "running_tag": {
+            "type": [
+              "string"
+            ]
+          },
+          "running_version": {
+            "type": [
+              "string"
+            ]
+          },
+          "source": {
+            "type": [
+              "string"
+            ]
+          },
+          "state_path": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
       "worker": {
         "type": [
           "object"
         ],
         "properties": {
+          "active_calls": {
+            "type": [
+              "integer"
+            ]
+          },
           "auto_advance": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "draining": {
             "type": [
               "boolean"
             ]
@@ -2111,6 +2213,606 @@
                 }
               }
             }
+          }
+        }
+      }
+    }
+  },
+  "upgrade_status_command": "forgeloop upgrade status --json",
+  "upgrade_status_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "child_alive": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "child_pid": {
+        "type": [
+          "integer"
+        ]
+      },
+      "launcher_pid": {
+        "type": [
+          "integer"
+        ]
+      },
+      "ok": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "owner": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "prefix": {
+            "type": [
+              "string"
+            ]
+          },
+          "project": {
+            "type": [
+              "string"
+            ]
+          },
+          "projects_file": {
+            "type": [
+              "string"
+            ]
+          },
+          "records_root": {
+            "type": [
+              "string"
+            ]
+          },
+          "registration_root": {
+            "type": [
+              "string"
+            ]
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "service_config": {
+            "type": [
+              "string"
+            ]
+          },
+          "web_config": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
+      "prefix": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "current_version": {
+            "type": [
+              "string"
+            ]
+          },
+          "installed_versions": {
+            "type": [
+              "array"
+            ],
+            "item": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "last_deployment": {
+            "type": [
+              "null"
+            ]
+          },
+          "prefix": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      },
+      "protocol_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "state": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "candidate": {
+            "type": [
+              "null"
+            ]
+          },
+          "child_pid": {
+            "type": [
+              "null"
+            ]
+          },
+          "child_started_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "detail": {
+            "type": [
+              "string"
+            ]
+          },
+          "drain_deadline": {
+            "type": [
+              "string"
+            ]
+          },
+          "generation": {
+            "type": [
+              "string"
+            ]
+          },
+          "identity": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "artifact_sha256": {
+                "type": [
+                  "string"
+                ]
+              },
+              "build_commit": {
+                "type": [
+                  "string"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string"
+                ]
+              },
+              "tag": {
+                "type": [
+                  "string"
+                ]
+              },
+              "version": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "phase": {
+            "type": [
+              "string"
+            ]
+          },
+          "prefix": {
+            "type": [
+              "string"
+            ]
+          },
+          "previous": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "artifact_sha256": {
+                "type": [
+                  "string"
+                ]
+              },
+              "build_commit": {
+                "type": [
+                  "string"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string"
+                ]
+              },
+              "tag": {
+                "type": [
+                  "string"
+                ]
+              },
+              "version": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "project": {
+            "type": [
+              "string"
+            ]
+          },
+          "records_root": {
+            "type": [
+              "string"
+            ]
+          },
+          "request_id": {
+            "type": [
+              "string"
+            ]
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "upgrade_key": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "upgrade_apply_command": "forgeloop upgrade apply --tag vX.Y.Z --json",
+  "upgrade_apply_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "message": {
+        "type": [
+          "string"
+        ]
+      },
+      "ok": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "protocol_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "state": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "candidate": {
+            "type": [
+              "null"
+            ]
+          },
+          "child_pid": {
+            "type": [
+              "null"
+            ]
+          },
+          "child_started_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "detail": {
+            "type": [
+              "string"
+            ]
+          },
+          "drain_deadline": {
+            "type": [
+              "string"
+            ]
+          },
+          "generation": {
+            "type": [
+              "string"
+            ]
+          },
+          "identity": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "artifact_sha256": {
+                "type": [
+                  "string"
+                ]
+              },
+              "build_commit": {
+                "type": [
+                  "string"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string"
+                ]
+              },
+              "tag": {
+                "type": [
+                  "string"
+                ]
+              },
+              "version": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "phase": {
+            "type": [
+              "string"
+            ]
+          },
+          "prefix": {
+            "type": [
+              "string"
+            ]
+          },
+          "previous": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "artifact_sha256": {
+                "type": [
+                  "string"
+                ]
+              },
+              "build_commit": {
+                "type": [
+                  "string"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string"
+                ]
+              },
+              "tag": {
+                "type": [
+                  "string"
+                ]
+              },
+              "version": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "project": {
+            "type": [
+              "string"
+            ]
+          },
+          "records_root": {
+            "type": [
+              "string"
+            ]
+          },
+          "request_id": {
+            "type": [
+              "string"
+            ]
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "upgrade_key": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "upgrade_apply_refusal_document": {
+    "type": [
+      "object"
+    ],
+    "properties": {
+      "code": {
+        "type": [
+          "string"
+        ]
+      },
+      "message": {
+        "type": [
+          "string"
+        ]
+      },
+      "ok": {
+        "type": [
+          "boolean"
+        ]
+      },
+      "protocol_version": {
+        "type": [
+          "integer"
+        ]
+      },
+      "state": {
+        "type": [
+          "object"
+        ],
+        "properties": {
+          "candidate": {
+            "type": [
+              "null"
+            ]
+          },
+          "child_pid": {
+            "type": [
+              "null"
+            ]
+          },
+          "child_started_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "detail": {
+            "type": [
+              "string"
+            ]
+          },
+          "drain_deadline": {
+            "type": [
+              "string"
+            ]
+          },
+          "generation": {
+            "type": [
+              "string"
+            ]
+          },
+          "identity": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "artifact_sha256": {
+                "type": [
+                  "string"
+                ]
+              },
+              "build_commit": {
+                "type": [
+                  "string"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string"
+                ]
+              },
+              "tag": {
+                "type": [
+                  "string"
+                ]
+              },
+              "version": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "phase": {
+            "type": [
+              "string"
+            ]
+          },
+          "prefix": {
+            "type": [
+              "string"
+            ]
+          },
+          "previous": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "artifact_sha256": {
+                "type": [
+                  "string"
+                ]
+              },
+              "build_commit": {
+                "type": [
+                  "string"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string"
+                ]
+              },
+              "tag": {
+                "type": [
+                  "string"
+                ]
+              },
+              "version": {
+                "type": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "project": {
+            "type": [
+              "string"
+            ]
+          },
+          "records_root": {
+            "type": [
+              "string"
+            ]
+          },
+          "request_id": {
+            "type": [
+              "string"
+            ]
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string"
+            ]
+          },
+          "upgrade_key": {
+            "type": [
+              "string"
+            ]
           }
         }
       }
@@ -2335,6 +3037,11 @@
           "concurrency": {
             "type": [
               "integer"
+            ]
+          },
+          "draining": {
+            "type": [
+              "boolean"
             ]
           },
           "live": {

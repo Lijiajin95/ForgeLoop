@@ -748,7 +748,8 @@ class TestFailuresAndTermination:
         fixture.runner.shutdown()
         with pytest.raises(ConversationError) as error:
             fixture.runner.start_turn(session_id, "再来", "owner")
-        assert "已停止" in str(error.value)
+        # 关闭后可能处于「已停止」或「排空中」，两者都必须拒绝新轮次。
+        assert "不再受理" in str(error.value)
 
 
 class TestRunningVisibility:

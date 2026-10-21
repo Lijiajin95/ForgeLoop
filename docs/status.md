@@ -665,3 +665,32 @@
 | 权限隔离 | **未完成**：容器隔离未接入，PI 仍直接宿主运行。因此「运行未修改源 main」只证明本次行为，**不构成「PI 无权修改 main」**——该结论待受限执行环境（V-A02／B01）单独验收（可靠性方案第 25 节、DogFood 计划 G01） |
 | 结构数字 | 函数行数、文件长度、公开接口数、复杂度、参数数、分支数均为**审阅提示**（2026-10-14：0 失败 / 155 条提示）；只有配置损坏、源码不可读或解析失败让结构门禁失败。不为数字超限拆函数或拆文件（可靠性方案第 25 节） |
 | 真实 CI | **已在 GitHub 执行（2026-10-16）**：`quality` 与 `commit-policy` 作业通过。`security` 曾因 `pip-audit` 报 `mcp 1.29.0` 的 CVE-2026-59951 失败；经核实 `mcp` 仅为 `semgrep` 的开发期传递依赖、`semgrep` 精确钉死 `mcp>=1.29.0,<1.29.0+`（最新 1.181.0 仍如此，无法升级）、且漏洞路径（stateful 模式 Streamable HTTP 服务端）在本仓库不可达（0 处引用 mcp／0 处实现 MCP 服务），已按所有者授权在 `make audit` 登记**带复查条件的例外**，`make security` 复跑通过（`No known vulnerabilities found, 1 ignored`；SAST 4 规则 0 命中）。复查条件：`semgrep` 放宽钉死或本仓库开始使用 `mcp` 时必须移除该例外。**2026-10-17 更新：SAST 引擎已由 semgrep 换为 Ruff S 子集 + 本地 AST 检查；`mcp` 与 `semgrep` 已离开依赖树，`make audit` 不再传 `--ignore-vuln`，该审计例外已移除（见可靠性方案第 27 节）。** |
+
+2026-10-21（邮箱入口并入 `serve` + 自然语言批准，未提交）：按所有者当日决定实施——自然语言批准一步到位；邮件以回复形式进入 `serve` 常驻服务并延续会话；owner 名单即白名单。
+
+- **实现**：
+  - `domain.mail_interaction.parse_approval_intent`：只接受封闭短语（批准／同意／可以／没问题／按这个方案做／lgtm／okay／ok，可带版本；验收／验收通过／接受），带解释、条件或多行的句子不算批准，仍按修订处理。
+  - `cli.mail_interaction`：自然语言批准/验收先于普通修订解析；无版本批准由记录层绑定**最新**任务包，版本过期/不匹配仍拒绝；批准来源记为 `email-natural-language:<Message-ID>`，验收回信标注来源；未关联需求的“批准”明确拒绝且不创建需求（`_process_unlinked` 的未关联命令分支）。
+  - 新增 `cli.mail_worker`：常驻轮询线程（启动/停止、间隔、最近报告、失败计数），单轮异常记录并重置 IMAP 连接后继续；`serve --mail`（`--mail-config`、`--mail-interval`，默认 60 秒）启动，连接参数/白名单复用 `cli.mail` 与配置链，缺白名单/配置/口令时启动失败关闭。
+  - 文档同批更新：`docs/architecture.md`（`cli.mail_worker`、`serve --mail`、自然语言批准）、`docs/product-requirements.md`、`docs/pending-requirements.md` B02、`README.md`、`contracts/architecture.json`（新增 `forgeloop.cli.mail_worker`）。
+- **验证**：
+  - 邮件相关定向用例 **206 项通过**（unit/component/scenario/integration；含新增自然语言批准、未关联拒绝、验收短语与 worker 生命周期）；serve 定向用例 **37 项通过**；`test_mail_cli` 的 1 项契约快照断言失败，原因是同一工作区另一执行方新增 CLI 命令但尚未重导 `contracts/cli-contract.json`（非本批代码）。
+  - 真实邮箱（QQ）：以所有者地址注入一封 `status` 回复，`serve --mail` 真实 IMAP 拉取、关联到 `req-20261021015151-fbbc3f` 并真实 SMTP 回信；Sent Messages 取回主题 `[ForgeLoop][req-20261021015151-fbbc3f][状态]`，`In-Reply-To` 指向该入向邮件；`mail_interactions` 记录 `completed`，重复轮询不重发。
+  - 真实自然语言批准**未执行**：没有所有者本人的“批准”邮件，不伪造批准；该路径由 `tests/scenario/test_mail_interaction.py` 的计划绑定、版本过期、重复与未关联用例覆盖。
+- **全量门禁已通过（2026-10-21 15:2x 复跑）**：并行热升级工作落地后，`make check` **exit 0**——**2449 项通过、3 项跳过、6 项未选**，前端 **260 项通过**；Ruff、format、本地 AST、pyright（0 errors＋1 条既有 warning）、CLI 契约、架构契约、结构（0 失败 / 641 条审阅提示）、import-linter、deptry 全绿。原始日志 `/tmp/fl-mail-nl-check7.log`。为恢复门禁做了三处**非本批语义**的机械修复：`tests/unit/test_conversation_runner.py` 的停止断言改为匹配“已停止/排空中”两种拒绝文案；`tests/unit/test_upgrade_state.py` 删除两条已多余的 `# type: ignore`；`test_upgrade_state.py`／`test_worker_drain.py` 仅格式化。未修改热升级实现。
+- **运行状态**：LaunchAgent `com.forgeloop.mail-interact` 已从“每 5 分钟 `mail interact --once`”改为常驻 `serve --mail --mail-interval 60`（RunAtLoad + KeepAlive）；2026-10-21 15:33 已用最终代码重启，pid 11676，`last exit code = 0`，启动日志含“邮件网关: 每 60 秒轮询”。当前源码下 `serve --once` 与新起 `serve --mail` 冒烟均通过并可优雅停止。
+- **未实现**（与本批边界一致）：自由 Chat/项目级问答、LLM 意图路由、会话摘要与多项目路由；`--pi-command` 未配置，邮件中的 `analyze`/`plan`/`advance` 仍只回复配置缺失。
+
+2026-10-21（受控热升级 T0–T5，未提交）：按所有者当日交付的 [热升级实施方案](hot-upgrade-implementation-plan.md) 与 ADR 0006 实施：固定启动器托管、排空后切换、失败恢复、持久推进请求与统一执行准入。仓库基线 e69a117；并行会话的邮件改动（cli/mail_worker.py、自然语言批准等）原样保留，未覆盖、未回退。
+
+- **T0 基线与决定**：核对 HEAD 与在途改动；本机是 macOS，无 ~/.local/share/forgeloop 前缀、无用户 systemd，方案中的 Debian 宿主不在本机；记录根 .forgeloop/projects/forgeloop 已登记，发布/部署批准表为空。新增 [ADR 0006](adr/0006-supervised-hot-upgrade.md)，明确启动器、控制协议、状态机、回退与边界。
+- **T1 持久请求与准入**：新增 domain/upgrade.py（请求校验与 upgrade_key、代际准入、状态流转、排空/就绪/启动器重启对账）、records/service_requests.py（项目库 service_requests 表，同需求 pending 幂等、消费至多一次）。页面 POST …/advance 先落库再返回 202；ServiceWorker 重建后仍能看到 pending；CLI 执行类命令、graph.agent_execution 与面板会话共用同一代际准入（draining/starting/probing/recovery_required 拒绝，只读与人工决定保持可用）。
+- **T2 排空与资源收口**：worker 以在途执行 ticket 等待真实调度调用结束（stop(timeout) 不再充当排空证明）；会话执行器等待在跑/排队轮次并收起空闲常驻进程；cli.serve 的托管观察器合并 worker、会话、邮件网关与未核对动作，写 drain-<generation>.json，排空超时由启动器延期、旧进程继续。
+- **T3 固定启动器**：新增 cli/launcher.py（forgeloop-launcher，pyproject 入口）、adapter/upgrade_control.py（Unix socket、同 UID、fcntl.flock 单启动器锁、owner 绑定与进程身份）、records/upgrade_state.py（原子写现场/追加审计/证据文件）。控制协议只接收 status/switch，版本固定为 1；普通业务版本不重装启动器环境。
+- **T4 受控切换与回退**：新增 cli/upgrade.py（upgrade status|apply 薄客户端）；启动器自行核对发布回执、部署批准、项目/前缀、标签提交、产物 SHA256 与 artifact.json，按 prepared→draining→starting→probing→committed 切换，失败确认退出后从旧版本绝对路径恢复；回退失败进入 recovery_required。托管前缀的 deploy/bootstrap/rollback 明确拒绝并指向 upgrade apply。
+- **T5 接入与验收**：重写 scripts/install_local_service.sh（首次接入 vs 普通升级 vs --refresh-launcher）、runtime/systemd/forgeloop-serve.service（ExecStart 指向启动器，不指向 current）、config/service.toml 的 [upgrade]、.github/workflows/deploy.yml 的托管分支与 Makefile 的 test-upgrade；同步架构说明/契约与 CLI 契约，新增操作文档与真机验收 E 组。
+
+- **验证（2026-10-21）**：make check **exit 0**（Python **2481 passed / 3 skipped / 6 deselected**；前端 **260 passed**；lint、pyright、CLI/架构契约、结构报告、deptry 与前端静态门禁同批通过）。make test-system **58 passed / 1 skipped**（仅 systemd-analyze 因本机无 systemd 跳过）。make test-upgrade **62 passed**（控制接口、排空、切换/回退、拒绝与真实启动器系统用例；业务版本为真实子进程替身，非真实模型）。定向新增/改写测试：unit（升级现场、持久请求、worker/会话排空、准入、启动器分支）、property（准入/状态/就绪/排空/请求）、component（排空期间 CLI 拒绝且只读可用、upgrade CLI）、integration（真实 serve 排空、控制 socket、ManagedRuntime）、scenario（空闲切换、幂等、延期、候选失败回退、回退失败、身份漂移/缺批准/标签漂移/托管前缀绕行）、system（真实启动器 + 真实 CLI 子进程 + 真实业务替身）。
+- **质量门禁未全绿（如实记录）**：make coverage **exit 2**——行覆盖 **92.84%** 达标，分支覆盖 **88.05%**（门槛 90%）、changed-line **81%**（门槛 90%）未达标；主要是 `cli/launcher.py`（启动器错误分支）、`cli/serve.py`（托管观察器/CLI 子命令）与 `domain/upgrade.py` 的防御分支未被 in-process 用例覆盖（系统/场景层走真实子进程，pytest-cov 不计子进程）。未下调门槛、未用 omit/pragma 绕过。变异验证**未执行**：`domain/upgrade.py` 尚未加入 `only_mutate`，避免在未审阅幸存者的情况下让夜间门禁变红；该缺口随分支覆盖一起列为后续任务。
+- **未验证（如实记录）**：① 真实 Debian 宿主的首次接入、systemd MainPID/unit 不重启与 A→B 真机升级**未执行**（本机无前缀与用户 systemd）；② 真实模型长跑中的排空/会话恢复未执行（替身协议覆盖）；③ 数据库兼容性只有「同一项目库可读」与「不兼容拒绝自动升级」的设计/测试口径，没有自动迁移或版本协商；④ 启动器异常退出的逐阶段故障注入只覆盖重启接管/恢复路径，未覆盖所有断电时刻；⑤ 启动器自身更新（--refresh-launcher）未在真实前缀演练。
+- **发现但不碰**：① 并行邮件批次新增的 serve --mail 与自然语言批准不在本批范围，未改其语义；其状态记录里提到的“32 个 Ruff/pyright 错误”已由本批实现修复（当前 lint/pyright 为 0 error）；② 旧文档部分 Debian 路径与历史部署数字沿用原文，未在本批重写；③ 本机工作树包含其他会话的未提交改动，未创建 commit、未 push、未改宿主。

@@ -1,46 +1,47 @@
-# ForgeLoop 常驻服务（R1）systemd user unit 模板。
+# ForgeLoop 常驻服务（固定启动器托管）systemd user unit 模板。
 #
-# 安装（不需要 sudo，路径按本机情况修改）：
-#   mkdir -p ~/.config/systemd/user
-#   cp runtime/systemd/forgeloop-serve.service ~/.config/systemd/user/
+# 首次接入（维护窗口，允许重启；不需要 sudo）：
+#   scripts/install_local_service.sh --no-enable
+#   # 审阅脚本将写入的 unit / owner.json / 目录权限后：
 #   systemctl --user daemon-reload
-#   systemctl --user enable --now forgeloop-serve
+#   systemctl --user enable --now forgeloop
+#
+# 普通业务版本升级**不要**执行 systemctl restart / daemon-reload，也不改写本 unit：
+#   forgeloop upgrade apply --prefix %h/.local/share/forgeloop \
+#     --tag vX.Y.Z --by <身份> --reason <理由>
+# 固定启动器（独立 venv）保持运行，替换业务子进程并处理失败恢复。
 #
 # 查看状态与日志：
-#   systemctl --user status forgeloop-serve
-#   journalctl --user -u forgeloop-serve -f
-#
-# 停止与重启：
-#   systemctl --user stop forgeloop-serve
-#   systemctl --user restart forgeloop-serve
+#   systemctl --user status forgeloop
+#   journalctl --user -u forgeloop -f
+#   forgeloop upgrade status --prefix %h/.local/share/forgeloop
 #
 # 边界（如实声明）：
-# - 本 unit 只负责「进程常驻、按失败重启、日志进 journal」；执行参数（项目档案、
-#   PI 隔离 HOME、并发上限）来自 config/service.toml，不在 unit 里重复配置，避免漂移。
-# - 非回环监听由程序本身拒绝（domain.service），unit 不提供绕过开关。
-# - R2 起 worker 可在 auto_advance = true 时自动接续已批准需求；重启恢复仍要求人工核对，
-#   不做自动重放（R4）。
+# - 启动器自身升级是低频维护操作（scripts/install_local_service.sh --refresh-launcher），
+#   不属于普通升级。
+# - 普通升级不访问 systemd 总线；本 unit 只在首次接入/维护时重载。
+# - 回退失败会进入 recovery_required 并停止自动推进，等待人工核对。
+# - 非回环监听由程序本身拒绝；部署批准、发布回执与产物 SHA256 由启动器独立核对。
 
 [Unit]
-Description=ForgeLoop 常驻服务（只读状态页 + 常驻 worker）
-Documentation=file:%h/Project/ForgeLoop/docs/resident-service-plan.md
+Description=ForgeLoop 常驻服务（固定启动器托管）
+Documentation=file:%h/Project/ForgeLoop/docs/deployment.md
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=%h/Project/ForgeLoop
-ExecStart=%h/Project/ForgeLoop/.venv/bin/python -m forgeloop serve --records-root %h/Project/ForgeLoop/.forgeloop --service-config %h/Project/ForgeLoop/config/service.toml
+ExecStart=%h/.local/share/forgeloop/launcher/.venv/bin/forgeloop-launcher --prefix %h/.local/share/forgeloop
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
-TimeoutStopSec=30
+TimeoutStopSec=60
 Environment=PYTHONUNBUFFERED=1
 # PI 的隔离 HOME：必须含非空的 .pi/agent/models.json，且与 config/service.toml 里项目档案的
 # pi_home 一致，否则该项目会被如实跳过（不匹配就不执行）。按本机实际情况修改路径。
 Environment=HOME=%h/.local/share/forgeloop/pi-home
-# 测试命令是任务包里的快照（本项目为 `uv run pytest …`）：PATH 必须能找到这些工具，
-# 否则 test 节点会以 FileNotFoundError 真实失败（2026-10-18 实测）。
-Environment=PATH=%h/Project/ForgeLoop/.venv/bin:/usr/local/bin:/usr/bin:/bin
+# 测试命令是任务包里的快照（本项目为 uv run pytest …）：PATH 必须能找到这些工具。
+Environment=PATH=%h/.local/share/forgeloop/launcher/.venv/bin:%h/Project/ForgeLoop/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target

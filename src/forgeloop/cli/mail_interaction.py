@@ -58,6 +58,7 @@ from forgeloop.domain.mail_interaction import (
     interaction_subject,
     is_auto_submitted,
     normalize_address,
+    parse_approval_intent,
     parse_mail_command,
     revision_text,
     sender_allowed,
@@ -220,6 +221,11 @@ class MailInteractionGateway:
         self._pi_timeout_seconds = pi_timeout_seconds
         self._now = now if now is not None else lambda: datetime.now(UTC)
 
+    def reset(self) -> None:
+        """丢弃可能已损坏的 IMAP 连接；常驻轮询在单轮失败后调用。"""
+
+        self._receiver.close()
+
     def process_once(self) -> InteractionReport:
         """拉取未读邮件并逐封处理；单封失败登记到报告，不拖垮其余邮件。"""
 
@@ -296,7 +302,7 @@ class MailInteractionGateway:
             if existing is not None
             else self._resolve_req_id(mail, interaction_store)
         )
-        command = parse_mail_command(mail.body)
+        command = parse_approval_intent(mail.body) or parse_mail_command(mail.body)
         if req_id is None:
             return self._process_unlinked(
                 mail, command, requirement_store, thread_store, interaction_store
@@ -473,9 +479,14 @@ class MailInteractionGateway:
         if kind is MailCommandKind.REVISE:
             return self._revise(req_id, command.argument, requirement_store)
         if kind is MailCommandKind.APPROVE:
-            return self._approve(req_id, command.argument, mail, requirement_store)
+            return self._approve(req_id, command, mail, requirement_store)
         if kind is MailCommandKind.ACCEPT:
-            return self._accept(req_id, requirement_store)
+            source = (
+                f"email-natural-language:{mail.message_id}"
+                if command.source == "natural_language"
+                else ""
+            )
+            return self._accept(req_id, requirement_store, source=source)
         if kind is MailCommandKind.ANALYZE:
             return self._analyze(req_id, requirement_store)
         if kind is MailCommandKind.PLAN:
@@ -503,21 +514,30 @@ class MailInteractionGateway:
     def _approve(
         self,
         req_id: str,
-        argument: str,
+        command: MailCommand,
         mail: InboundMail,
         requirement_store: RequirementStore,
     ) -> CommandResult:
         plan = requirement_store.latest_task_plan(req_id)
+        natural = command.source == "natural_language"
         if plan is None:
-            return CommandResult(False, "需求还没有任务包，无法批准。", "批准被拒绝")
-        version_text = argument.strip().lstrip("vV")
-        if not version_text.isdigit():
             return CommandResult(
                 False,
-                f"批准命令必须写出任务包版本，例如：approve {plan.plan_version}",
+                "需求还没有任务包，无法批准；本次没有写入任何批准。",
                 "批准被拒绝",
             )
-        version = int(version_text)
+        if natural and not command.argument.strip():
+            version = plan.plan_version
+        else:
+            version_text = command.argument.strip().lstrip("vV")
+            if not version_text.isdigit():
+                hint = (
+                    "回复“批准”可批准最新任务包；带版本时写 v3 这样的形式。"
+                    if natural
+                    else f"批准命令必须写出任务包版本，例如：approve {plan.plan_version}"
+                )
+                return CommandResult(False, hint, "批准被拒绝")
+            version = int(version_text)
         if version != plan.plan_version:
             return CommandResult(
                 False,
@@ -525,17 +545,23 @@ class MailInteractionGateway:
                 "批准被拒绝",
             )
         approved_by = normalize_address(mail.sender) or mail.sender
-        approval = requirement_store.record_plan_approval(
-            req_id, version, approved_by, source=f"email:{mail.message_id}"
+        source = (
+            f"email-natural-language:{mail.message_id}" if natural else f"email:{mail.message_id}"
         )
+        approval = requirement_store.record_plan_approval(
+            req_id, version, approved_by, source=source
+        )
+        method = "自然语言批准" if natural else "批准"
         return CommandResult(
             True,
-            f"任务包 v{approval.plan_version} 已批准（批准来源 email:{mail.message_id}）。\n"
+            f"任务包 v{approval.plan_version} 已{method}（来源 {source}）。\n"
             "下一步：回复 advance 推进。\n\n" + self._status_text(requirement_store, req_id),
             "已批准",
         )
 
-    def _accept(self, req_id: str, requirement_store: RequirementStore) -> CommandResult:
+    def _accept(
+        self, req_id: str, requirement_store: RequirementStore, *, source: str = ""
+    ) -> CommandResult:
         status = requirement_store.requirement_status(req_id)
         if status == ACCEPTED:
             return CommandResult(True, f"需求 {req_id} 已经完成整体验收。", "已验收")
@@ -576,9 +602,10 @@ class MailInteractionGateway:
             reason = decision.reason
         finally:
             record_store.close()
+        suffix = f"\n验收来源：{source}" if source else ""
         return CommandResult(
             True,
-            f"需求 {req_id} 整体验收通过。\n依据：{reason}\n下一步：归并并发布已验收任务。",
+            f"需求 {req_id} 整体验收通过。\n依据：{reason}\n下一步：归并并发布已验收任务。{suffix}",
             "已验收",
         )
 
