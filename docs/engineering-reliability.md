@@ -693,7 +693,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 
 **触发条件成立**：第 1 节原写明前端工具链「不移植（首版无前端，B01 前不接入）」，并预留了触发条件——出现前端界面与真实浏览器需求时按同方法接入。2026-10-17 所有者选中 B01 只读状态页，并要求按 Python 的 lint／编码风格规则补一套 TypeScript 适配规则，因此本节记录实际接入的范围、数值来源、门禁强度与代价。
 
-**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`：`payload.ts` → `format.ts`／`link.ts` → `dom.ts` → `render.ts`／`tabs.ts`／`progress.ts` → `page.ts` → `app.ts`；面板侧另有 `panel.ts`（取数与自适应轮询）、`panel_render.ts`（面板渲染）、`panel_tools.ts`（工具调用列表渲染）与 `actions.ts`（写请求构建与发送）。`link.ts` 是需求／任务／问题的身份关联规则，`dom.ts` 是 DOM 原语、页面句柄与折叠状态，`tabs.ts` 是页签与跳转。源经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖渲染与轮询；DOM 原语不含业务判断；渲染与页签不取数；`panel.ts` 不依赖渲染与装配；`actions.ts` 不依赖面板——2026-10-18 面板落地与 2026-10-19 三页签重构各按同一口径补了规则），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
+**结构与分层**：状态页行为代码从静态 HTML 内联脚本迁移为 TypeScript 源 `frontend/src`：`payload.ts` → `format.ts`／`link.ts`／`mentions.ts` → `records.ts` → `dom.ts` → `render.ts`／`records_render.ts`／`tabs.ts`／`progress.ts` → `page.ts` → `app.ts`；会话侧另有 `panel.ts`（取数与自适应轮询）、`panel_render.ts`（会话工作区与引用菜单渲染）、`panel_tools.ts`（工具调用列表渲染）与 `actions.ts`（写请求构建与发送）。`link.ts` 是需求／任务／问题的身份关联规则，`mentions.ts` 是 `@` 引用的查询与插入规则，`records.ts` 是索引/档案视图模型，`dom.ts` 是 DOM 原语与页面句柄，`tabs.ts` 是主导航、页签与跳转。源经 `tsc` 编译为随包产物 `src/forgeloop/cli/static/*.js`。源的依赖方向由 `frontend/.dependency-cruiser.cjs` 强制（无环；纯规则不依赖 DOM、渲染与轮询；DOM 原语不含业务判断；渲染与页签不取数；`panel.ts` 不依赖渲染与装配；`actions.ts` 不依赖面板——2026-10-18 面板落地、2026-10-19 三页签重构与 2026-10-22 会话优先/索引+档案各按同一口径补了规则），对应 Python 的 `domain` 纯度与 import-linter 分层。页面 HTML 只保留结构与样式，不再内联任何行为代码。
 
 **Python 规则 → TypeScript 规则的对应**（数值同源于 `config/quality-policy.toml`）：
 
@@ -703,7 +703,7 @@ FAIL: v0.0.1 已激活但产物校验值不同：已激活 ab03c19885c7，待部
 | Pyright strict 合并选项 | `tsconfig.json`：`strict`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`noImplicitReturns`、`noUnusedLocals`、`noUnusedParameters`、`noFallthroughCasesInSwitch`、`verbatimModuleSyntax` | 硬门禁 |
 | Ruff S 子集（禁 `eval`／不安全反序列化） | ESLint `no-restricted-syntax`：禁 `eval`、`new Function`、字符串 `setTimeout`、`innerHTML`／`outerHTML`／`insertAdjacentHTML`（记录文本只许 `textContent`） | 硬门禁 |
 | Ruff format + `line-length = 100` | Prettier `printWidth: 100`（含页面 HTML） | 硬门禁 |
-| import-linter（分层与环） | dependency-cruiser（`no-circular` + 三条边界规则） | 硬门禁 |
+| import-linter（分层与环） | dependency-cruiser（`no-circular` + 按模块分层的边界规则） | 硬门禁 |
 | deptry（未声明/未使用依赖） | knip（未使用依赖、导出与文件） | 硬门禁 |
 | 覆盖率 `line/branch ≥ 90` | Vitest（v8）lines／branches／functions／statements 各 90 | 硬门禁 |
 | mutmut（核心领域规则） | Stryker（`format.ts`、`progress.ts`、`link.ts`；break 90，high 95／low 90 只作报告着色） | 凌晨作业 |

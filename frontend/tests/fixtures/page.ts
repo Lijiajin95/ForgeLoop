@@ -104,21 +104,6 @@ export function sampleRequirement(overrides: Partial<RequirementEntry> = {}): Re
   };
 }
 
-/** 第二条需求：默认还没有任务包（用于核对「尚无任务包」的展示）。 */
-export function sampleDraftRequirement(
-  overrides: Partial<RequirementEntry> = {},
-): RequirementEntry {
-  return sampleRequirement({
-    req_id: "req-forgeloop-2",
-    requirement_status: "draft",
-    plan: null,
-    tasks: [],
-    next_step: { action: "生成或批准任务包", actor: "user" },
-    blocked_reason_text: "还没有任务包；未批准不执行",
-    ...overrides,
-  });
-}
-
 /** 一条任务：默认为阻断态（会被页面标红并出现在问题段）。 */
 export function sampleTask(overrides: Partial<TaskEntry> = {}): TaskEntry {
   return {
@@ -164,18 +149,6 @@ export function sampleDeliveredTask(overrides: Partial<TaskEntry> = {}): TaskEnt
   });
 }
 
-/** 一条不属于任何需求的单任务记录（页面归入「未关联需求」）。 */
-export function sampleOrphanTask(overrides: Partial<TaskEntry> = {}): TaskEntry {
-  return sampleTask({
-    task_id: "task-orphan",
-    status: "interrupted",
-    plan: { goal: "核对一次中断任务的现场" },
-    next_action: { action: "人工核对现场", actor: "user" },
-    blocked_reason_text: "任务执行中，执行结果不明（状态：interrupted）",
-    ...overrides,
-  });
-}
-
 /** 一条问题项：默认指向那条被阻断的任务。 */
 export function sampleIssue(overrides: Partial<IssueEntry> = {}): IssueEntry {
   return {
@@ -186,6 +159,31 @@ export function sampleIssue(overrides: Partial<IssueEntry> = {}): IssueEntry {
     detail: "任务需要人工核对现场（状态：blocked）",
     ...overrides,
   };
+}
+
+/** 第二条需求：默认还没有任务包（用于核对「尚无任务包」的展示）。 */
+function sampleDraftRequirement(overrides: Partial<RequirementEntry> = {}): RequirementEntry {
+  return sampleRequirement({
+    req_id: "req-forgeloop-2",
+    requirement_status: "draft",
+    plan: null,
+    tasks: [],
+    next_step: { action: "生成或批准任务包", actor: "user" },
+    blocked_reason_text: "还没有任务包；未批准不执行",
+    ...overrides,
+  });
+}
+
+/** 一条不属于任何需求的单任务记录（页面归入「未关联需求」）。 */
+function sampleOrphanTask(overrides: Partial<TaskEntry> = {}): TaskEntry {
+  return sampleTask({
+    task_id: "task-orphan",
+    status: "interrupted",
+    plan: { goal: "核对一次中断任务的现场" },
+    next_action: { action: "人工核对现场", actor: "user" },
+    blocked_reason_text: "任务执行中，执行结果不明（状态：interrupted）",
+    ...overrides,
+  });
 }
 
 /** 一份进展快照：两条需求、三条任务（含一条未关联需求）与两条问题。 */

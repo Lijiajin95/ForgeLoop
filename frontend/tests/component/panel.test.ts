@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { OperationFetcher } from "../../src/actions.js";
+import { mentionItems } from "../../src/mentions.js";
 import { bootstrapPanel } from "../../src/page.js";
 import type { PanelClient } from "../../src/panel.js";
 import {
@@ -32,6 +33,7 @@ import {
   installTokenMeta,
   loadPageBody,
   sampleDecision,
+  sampleDocument,
   samplePanelDocument,
   sampleProject,
   sampleSession,
@@ -106,9 +108,16 @@ function flush(): Promise<void> {
 
 let clients: PanelClient[] = [];
 
-function startPanel(fetcher: OperationFetcher, token = "panel-token"): PanelClient {
+function startPanel(
+  fetcher: OperationFetcher,
+  token = "panel-token",
+  mentionSource?: () => readonly ReturnType<typeof mentionItems>[number][],
+): PanelClient {
   installTokenMeta(token);
-  const client = bootstrapPanel(document, { operationFetcher: fetcher });
+  const client = bootstrapPanel(document, {
+    operationFetcher: fetcher,
+    ...(mentionSource === undefined ? {} : { mentionItems: mentionSource }),
+  });
   expect(client).toBeDefined();
   const started = client as PanelClient;
   clients.push(started);
@@ -131,7 +140,9 @@ describe("元素契约", () => {
     const panel = elements();
     expect(panel.panel.id).toBe("panel");
     expect(panel.tabs).toHaveLength(3);
-    expect(panel.sessionList.tagName).toBe("SELECT");
+    expect(panel.sessionList.tagName).toBe("DIV");
+    expect(panel.sessionEmpty.id).toBe("panel-session-empty");
+    expect(panel.chatUnavailable.id).toBe("chat-unavailable");
     expect(panel.composer.tagName).toBe("FORM");
   });
 
@@ -147,6 +158,7 @@ describe("渲染", () => {
 
     expect(client).toBeUndefined();
     expect(elements().panel.hidden).toBe(true);
+    expect(elements().chatUnavailable.hidden).toBe(false);
   });
 
   it("页签切换只显示当前视图", () => {
@@ -174,21 +186,22 @@ describe("渲染", () => {
     expect(panel.status.dataset["tone"]).toBe("error");
   });
 
-  it("会话清单保留下拉选择并给出占位项", () => {
+  it("会话清单按记录渲染成可点条目，并标出当前选择", () => {
     const panel = elements();
     const first = sampleSession({ session_id: "cs-1", title: "第一" });
     const second = sampleSession({ session_id: "cs-2", title: "第二" });
 
     renderPanelDocument(panel, samplePanelDocument({ sessions: [first, second] }), "cs-2");
-    expect(panel.sessionList.value).toBe("cs-2");
-    expect([...panel.sessionList.options].map((option) => option.textContent)).toEqual([
-      "第一（可对话·1 轮）",
-      "第二（可对话·1 轮）",
-    ]);
+    const items = [...panel.sessionList.querySelectorAll<HTMLButtonElement>(".session-item")];
+    expect(items.map((item) => item.dataset["sessionId"])).toEqual(["cs-1", "cs-2"]);
+    expect(items[1]?.getAttribute("aria-current")).toBe("true");
+    expect(items[1]?.classList.contains("is-selected")).toBe(true);
+    expect(items[0]?.textContent).toContain("第一");
+    expect(items[0]?.textContent).toContain("可对话");
 
     renderPanelDocument(panel, samplePanelDocument({ sessions: [] }), "cs-2");
-    expect(panel.sessionList.value).toBe("");
-    expect(panel.sessionList.options[0]?.textContent).toBe("还没有会话");
+    expect(panel.sessionList.querySelectorAll(".session-item")).toHaveLength(0);
+    expect(panel.sessionEmpty.hidden).toBe(false);
   });
 
   it("项目下拉只列就绪项目，没有就绪项目时禁用新建", () => {
@@ -365,12 +378,9 @@ describe("装配与写操作", () => {
 
     expect(elements().panel.hidden).toBe(false);
     expect(elements().projectsBody.querySelectorAll("tr")).toHaveLength(1);
-    // 未选中会话时第一项是占位项，真实会话跟在后面，下拉值保持为空。
-    expect([...elements().sessionList.options].map((option) => option.textContent)).toEqual([
-      "选择一个会话",
-      "排查构建失败（可对话·1 轮）",
-    ]);
-    expect(elements().sessionList.value).toBe("");
+    expect(elements().sessionList.querySelectorAll(".session-item")).toHaveLength(1);
+    expect(elements().sessionList.textContent).toContain("排查构建失败");
+    expect(elements().sessionList.textContent).toContain("可对话");
   });
 
   it("新建会话：本地必填校验不发请求，成功后自动选中", async () => {
@@ -607,8 +617,9 @@ describe("装配与写操作", () => {
     calls.length = 0;
 
     const panel = elements();
-    panel.sessionList.value = sampleSession().session_id;
-    panel.sessionList.dispatchEvent(new Event("change"));
+    panel.sessionList
+      .querySelector<HTMLButtonElement>(`[data-session-id="${sampleSession().session_id}"]`)
+      ?.click();
     await flush();
     expect(calls[0]?.url).toBe(`${PANEL_SESSIONS_URL}/${sampleSession().session_id}`);
 
@@ -735,9 +746,14 @@ describe("装配与写操作", () => {
     expect(panel.toolsMeta.hidden).toBe(true);
   });
 
-  it("未选择会话时点发送不发请求", async () => {
+  it("会话清单为空时点发送不发请求", async () => {
     const calls: Call[] = [];
-    const client = startPanel(recorder({ onCall: (call) => calls.push(call) }));
+    const client = startPanel(
+      recorder({
+        onCall: (call) => calls.push(call),
+        panel: () => samplePanelDocument({ sessions: [] }),
+      }),
+    );
     await client.pending;
     calls.length = 0;
 
@@ -748,5 +764,131 @@ describe("装配与写操作", () => {
 
     expect(calls).toEqual([]);
     expect(panel.status.textContent).toBe("先选择一个会话。");
+  });
+});
+
+describe("引用菜单", () => {
+  it("输入 @ 打开候选，Enter 插入记录身份并关闭菜单", async () => {
+    installTokenMeta("panel-token");
+    const client = bootstrapPanel(document, {
+      operationFetcher: recorder({}),
+      mentionItems: () => mentionItems(sampleDocument()),
+    });
+    expect(client).toBeDefined();
+    const started = client as PanelClient;
+    clients.push(started);
+    await started.pending;
+
+    const panel = elements();
+    panel.messageText.value = "@task";
+    panel.messageText.setSelectionRange(5, 5);
+    panel.messageText.dispatchEvent(new Event("input"));
+
+    expect(panel.mentionMenu.hidden).toBe(false);
+    expect(panel.mentionMenu.querySelectorAll(".mention-item").length).toBeGreaterThan(0);
+
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+
+    expect(panel.messageText.value).toBe("@task-blocked ");
+    expect(panel.mentionMenu.hidden).toBe(true);
+  });
+
+  it("方向键移动活动项，Escape 收起", async () => {
+    installTokenMeta("panel-token");
+    const client = bootstrapPanel(document, {
+      operationFetcher: recorder({}),
+      mentionItems: () => mentionItems(sampleDocument()),
+    });
+    const started = client as PanelClient;
+    clients.push(started);
+    await started.pending;
+
+    const panel = elements();
+    panel.messageText.value = "@task";
+    panel.messageText.setSelectionRange(5, 5);
+    panel.messageText.dispatchEvent(new Event("input"));
+    const first = panel.mentionMenu.querySelector(".mention-item.is-active");
+    expect(first).not.toBeNull();
+
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    const items = [...panel.mentionMenu.querySelectorAll(".mention-item")];
+    expect(items[1]?.classList.contains("is-active")).toBe(true);
+
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    expect(panel.mentionMenu.hidden).toBe(true);
+  });
+});
+
+describe("引用菜单的边界交互", () => {
+  function panelWithMentions(): PanelElements {
+    const client = startPanel(recorder({}), "panel-token", () => mentionItems(sampleDocument()));
+    clients.push(client);
+    return elements();
+  }
+
+  it("点击候选插入，空候选收起，点击非候选不插入", async () => {
+    const panel = panelWithMentions();
+    await flush();
+
+    panel.messageText.value = "@task";
+    panel.messageText.setSelectionRange(5, 5);
+    panel.messageText.dispatchEvent(new Event("input"));
+    panel.mentionMenu.querySelector<HTMLButtonElement>(".mention-item")?.click();
+    expect(panel.messageText.value).toBe("@task-blocked ");
+    expect(panel.mentionMenu.hidden).toBe(true);
+
+    panel.messageText.value = "@zzzz";
+    panel.messageText.setSelectionRange(5, 5);
+    panel.messageText.dispatchEvent(new Event("input"));
+    expect(panel.mentionMenu.hidden).toBe(true);
+
+    panel.messageText.value = "@task";
+    panel.messageText.setSelectionRange(5, 5);
+    panel.messageText.dispatchEvent(new Event("input"));
+    const before = panel.messageText.value;
+    panel.mentionMenu.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(panel.messageText.value).toBe(before);
+  });
+
+  it("ArrowUp 循环活动项，Tab 插入", async () => {
+    const panel = panelWithMentions();
+    await flush();
+
+    panel.messageText.value = "@task";
+    panel.messageText.setSelectionRange(5, 5);
+    panel.messageText.dispatchEvent(new Event("input"));
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+    );
+    const items = [...panel.mentionMenu.querySelectorAll(".mention-item")];
+    expect(items[items.length - 1]?.classList.contains("is-active")).toBe(true);
+
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+    );
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    );
+    expect(panel.messageText.value.startsWith("@task-")).toBe(true);
+    expect(panel.mentionMenu.hidden).toBe(true);
+  });
+
+  it("菜单收起时方向键与 Escape 不改变输入", async () => {
+    const panel = panelWithMentions();
+    await flush();
+    panel.messageText.value = "普通消息";
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    panel.messageText.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    expect(panel.messageText.value).toBe("普通消息");
   });
 });

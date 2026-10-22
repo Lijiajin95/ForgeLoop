@@ -6,11 +6,15 @@
  *
  *   payload（类型与端点常量，不依赖任何本地模块）
  *     ↑
- *   format（纯格式化规则，不碰 DOM、不发请求）
+ *   format（纯格式化规则，不碰 DOM、不发请求）  mentions（引用查询与插入，纯规则）
  *     ↑
- *   render（三段页签的渲染，不发请求）  tabs（页签与跳转，不取数、不渲染内容）
+ *   link（身份关联，纯规则）  records（索引/档案视图模型，纯规则）
  *     ↑
- *   panel_render（会话面板的渲染，不发请求）
+ *   dom（DOM 原语与句柄）
+ *     ↑
+ *   render（索引/档案与页头渲染，不发请求）  records_render（索引 + 档案的 DOM）
+ *     ↑
+ *   panel_render（会话面板的渲染，不发请求）  tabs（页签与跳转，不取数）
  *     ↑
  *   actions（写请求构建与发送）
  *     ↑
@@ -51,6 +55,33 @@ module.exports = {
       comment: "link.ts 只算身份关联：不得依赖渲染、页签、轮询或入口模块。",
       from: { path: "^src/link\\.ts$" },
       to: { path: "^src/(render|tabs|progress|page|app)\\.ts$" },
+    },
+    {
+      name: "mentions-is-pure",
+      severity: "error",
+      comment: "mentions.ts 只做引用查询与插入：不得依赖 DOM、取数、渲染或装配模块。",
+      from: { path: "^src/mentions\\.ts$" },
+      to: {
+        path: "^src/(link|dom|records|records_render|render|tabs|progress|panel|panel_render|panel_tools|actions|page|app)\\.ts$",
+      },
+    },
+    {
+      name: "records-is-pure",
+      severity: "error",
+      comment: "records.ts 只算索引/档案视图模型：不得依赖 DOM、取数、渲染或装配模块。",
+      from: { path: "^src/records\\.ts$" },
+      to: {
+        path: "^src/(dom|render|records_render|tabs|progress|panel|panel_render|panel_tools|actions|page|app)\\.ts$",
+      },
+    },
+    {
+      name: "records-render-does-not-fetch",
+      severity: "error",
+      comment: "records_render.ts 只画索引与档案：不得依赖取数、页签或装配模块。",
+      from: { path: "^src/records_render\\.ts$" },
+      to: {
+        path: "^src/(tabs|progress|panel|panel_render|panel_tools|actions|page|app)\\.ts$",
+      },
     },
     {
       name: "dom-is-a-primitive",

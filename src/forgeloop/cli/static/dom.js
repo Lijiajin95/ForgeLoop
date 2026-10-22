@@ -9,7 +9,6 @@
  * 阻断原因与问题详情都是用户或模型产出的文本。ESLint 的 `no-restricted-syntax`
  * 也禁用了 `innerHTML`/`insertAdjacentHTML`（见 eslint.config.js）。
  */
-import { text } from "./format.js";
 const ELEMENT_IDS = {
     banner: "banner",
     refreshButton: "refresh-button",
@@ -22,11 +21,17 @@ const ELEMENT_IDS = {
     countIssues: "count-issues",
     requirementsBody: "requirements-body",
     requirementsEmpty: "requirements-empty",
+    requirementsDetail: "requirements-detail",
     tasksBody: "tasks-body",
     tasksEmpty: "tasks-empty",
+    tasksDetail: "tasks-detail",
     issuesBody: "issues-body",
     issuesEmpty: "issues-empty",
+    issuesDetail: "issues-detail",
     operations: "operations",
+    operationsOpen: "operations-open",
+    operationsDrawer: "operations-drawer",
+    operationsClose: "operations-close",
     submitForm: "submit-form",
     submitProject: "submit-project",
     submitText: "submit-text",
@@ -60,26 +65,6 @@ export function resolveElements(document) {
     }
     return elements;
 }
-/** 一段纯文本元素（记录里的文本一律经这里进入 DOM）。 */
-export function span(document, className, value) {
-    const element = document.createElement("span");
-    element.className = className;
-    element.textContent = value;
-    return element;
-}
-/** 状态标签：机器状态原样显示，另用 `data-status` 供样式区分异常态。 */
-export function statusChip(document, status, abnormal = false) {
-    const chip = span(document, abnormal ? "chip status abnormal" : "chip status", text(status));
-    chip.dataset.status = status;
-    return chip;
-}
-/** 说明行（下一步、阻断原因）。 */
-export function line(document, className, value) {
-    const paragraph = document.createElement("p");
-    paragraph.className = `line ${className}`;
-    paragraph.textContent = value;
-    return paragraph;
-}
 /** 可点击的跳转按钮：身份写在 `data-*` 上，行为交给导航。 */
 export function jumpButton(document, navigation, target, label, className) {
     const button = document.createElement("button");
@@ -92,46 +77,6 @@ export function jumpButton(document, navigation, target, label, className) {
         navigation.goTo(target.tab, target.refId);
     });
     return button;
-}
-/** 表格行：单元格按内容类型写入文本或元素。 */
-export function row(document, className, cells) {
-    const element = document.createElement("tr");
-    element.className = className;
-    cells.forEach((value) => {
-        const cell = document.createElement("td");
-        if (typeof value === "string") {
-            cell.textContent = value;
-        }
-        else {
-            cell.appendChild(value);
-        }
-        element.appendChild(cell);
-    });
-    return element;
-}
-/** 建一张带表头的表（表体由调用方填充）；表头用 `th` 并声明列范围。 */
-export function table(document, headers) {
-    const element = document.createElement("table");
-    const head = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    headers.forEach((label) => {
-        const cell = document.createElement("th");
-        cell.setAttribute("scope", "col");
-        cell.textContent = label;
-        headRow.appendChild(cell);
-    });
-    head.appendChild(headRow);
-    element.appendChild(head);
-    element.appendChild(document.createElement("tbody"));
-    return element;
-}
-/** 填充一段内容：清空旧的、追加新的，并切换空态提示。 */
-export function fill(container, empty, children) {
-    container.textContent = "";
-    children.forEach((child) => {
-        container.appendChild(child);
-    });
-    empty.style.display = children.length === 0 ? "block" : "none";
 }
 /** 建立一份折叠状态；可给初始就收起的身份清单。 */
 export function createCollapseState(collapsed = []) {
@@ -178,11 +123,4 @@ export function collapsible(document, id, state, headClassName = "card-head") {
         sync(collapsed);
     });
     return { head, body, toggle };
-}
-/** 一段说明文本（需求原文、任务目标、对象描述都用它）。 */
-export function description(document, className, value) {
-    const element = document.createElement("p");
-    element.className = className;
-    element.textContent = value;
-    return element;
 }

@@ -26,6 +26,14 @@ function resetFakePiState(): void {
   rmSync(FAKE_PI_STATE, { force: true });
 }
 
+/** 打开「人工决定与终止」折叠区：理由/补充指令默认收在 composer 里。 */
+async function openComposerOptions(page: Page): Promise<void> {
+  const details = page.locator("#panel-composer details");
+  if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await details.locator("summary").click();
+  }
+}
+
 /** 新建一个会话并等它被自动选中（面板刷新后消息区出现空态提示）。 */
 async function newSession(page: Page, title: string, project = "demo"): Promise<void> {
   await page.locator("#panel-new-session").click();
@@ -39,7 +47,8 @@ async function newSession(page: Page, title: string, project = "demo"): Promise<
 test("面板显示项目与运行时就绪，并能新建会话", async ({ page }) => {
   await page.goto("/");
 
-  // 只读的进展视图仍在，右栏面板同时可见（令牌由 serve 注入）。
+  // 有令牌时默认落在会话：进展页签仍可见，会话工作区同时可见。
+  await expect(page.locator("#tab-chat")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#count-requirements")).toBeVisible();
   await expect(page.locator("#panel")).toBeVisible();
   await expect(page.locator("#panel-status")).toHaveText("");
@@ -59,7 +68,9 @@ test("面板显示项目与运行时就绪，并能新建会话", async ({ page 
 
   await page.locator("#panel-tab-sessions").click();
   await newSession(page, "浏览器用例会话");
-  await expect(page.locator("#panel-session-list")).toHaveValue(/cs-/);
+  await expect(
+    page.locator('#panel-session-list .session-item[aria-current="true"]'),
+  ).toHaveAttribute("data-session-id", /^cs-/);
 });
 
 test("一轮消息真的驱动 PI 并显示回复，HITL 决定后继续", async ({ page }) => {
@@ -78,6 +89,7 @@ test("一轮消息真的驱动 PI 并显示回复，HITL 决定后继续", async
   await expect(page.locator("#panel-messages li.msg-agent").last()).toContainText("需要人工确认");
 
   // 没填理由不能作出决定：只提示，不发请求。
+  await openComposerOptions(page);
   await page.locator("#panel-decision-text").fill("改用方案 B");
   await page.locator("#panel-decisions button[data-choice='approve']").click();
   await expect(page.locator("#panel-status")).toHaveText("作出人工决定必须填写理由。");
@@ -103,6 +115,7 @@ test("终止会话需要理由，终止后面板不再接受新消息", async ({
     timeout: 30_000,
   });
 
+  await openComposerOptions(page);
   await page.locator("#panel-terminate").click();
   await expect(page.locator("#panel-status")).toHaveText("终止会话必须填写理由。");
 
@@ -165,6 +178,7 @@ test("工具调用逐次可见，轮次边界审批后可以继续", async ({ pa
   const decision = page.locator("#panel-decisions .decision");
   await expect(decision).toContainText("轮次边界");
   await expect(decision).toContainText("bash");
+  await openComposerOptions(page);
   await page.locator("#panel-reason").fill("这台机器上的 ls 可以跑");
   await decision.locator('button[data-choice="approve"]').click();
 

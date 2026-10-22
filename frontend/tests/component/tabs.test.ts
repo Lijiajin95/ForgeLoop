@@ -29,7 +29,8 @@ function stubScrollIntoView(): ReturnType<typeof vi.fn> {
 }
 
 describe("tabFromHash", () => {
-  it("认识三段页签的片段", () => {
+  it("认识会话与三段记录页签的片段", () => {
+    expect(tabFromHash("#chat")).toBe("chat");
     expect(tabFromHash("#requirements")).toBe("requirements");
     expect(tabFromHash("#tasks")).toBe("tasks");
     expect(tabFromHash("#issues")).toBe("issues");
@@ -43,11 +44,11 @@ describe("tabFromHash", () => {
 });
 
 describe("resolveTabs", () => {
-  it("在真实页面 HTML 上解析出三个页签按钮与三个面板", () => {
+  it("在真实页面 HTML 上解析出四个页签按钮与四个面板", () => {
     const tabs = resolveTabs(document);
 
-    expect([...tabs.buttons.keys()]).toEqual(["requirements", "tasks", "issues"]);
-    expect([...tabs.panels.keys()]).toEqual(["requirements", "tasks", "issues"]);
+    expect([...tabs.buttons.keys()]).toEqual(["chat", "requirements", "tasks", "issues"]);
+    expect([...tabs.panels.keys()]).toEqual(["chat", "requirements", "tasks", "issues"]);
     expect(tabs.buttons.get("tasks")?.getAttribute("role")).toBe("tab");
     expect(tabs.panels.get("tasks")?.getAttribute("role")).toBe("tabpanel");
   });
@@ -55,7 +56,17 @@ describe("resolveTabs", () => {
   it("缺页签元素时明确失败", () => {
     document.body.innerHTML = "<div></div>";
 
-    expect(() => resolveTabs(document)).toThrow(/页面缺少元素 #tab-requirements/);
+    expect(() => resolveTabs(document)).toThrow(/页面缺少元素 #tab-chat/);
+  });
+});
+
+describe("activeTab", () => {
+  it("没有选中项时回退到会话", () => {
+    const tabs = resolveTabs(document);
+    tabs.buttons.forEach((button) => {
+      button.setAttribute("aria-selected", "false");
+    });
+    expect(activeTab(tabs)).toBe("chat");
   });
 });
 
@@ -76,11 +87,16 @@ describe("activateTab", () => {
 });
 
 describe("wireTabs", () => {
-  it("按地址栏片段决定初始页签，缺省停在需求", () => {
+  it("地址栏有片段时优先它；缺省用调用方给的视图", () => {
     const tabs = resolveTabs(document);
 
     wireTabs(tabs);
-    expect(activeTab(tabs)).toBe("requirements");
+    expect(activeTab(tabs)).toBe("chat");
+
+    window.location.hash = "";
+    const readOnly = resolveTabs(document);
+    wireTabs(readOnly, "requirements");
+    expect(activeTab(readOnly)).toBe("requirements");
 
     window.location.hash = "#issues";
     const other = resolveTabs(document);
@@ -100,7 +116,7 @@ describe("wireTabs", () => {
 
   it("地址栏片段变化（手动改地址或前进后退）会切到对应页签", () => {
     const tabs = resolveTabs(document);
-    wireTabs(tabs);
+    wireTabs(tabs, "requirements");
     expect(activeTab(tabs)).toBe("requirements");
 
     window.location.hash = "#issues";
@@ -115,7 +131,7 @@ describe("wireTabs", () => {
 
   it("左右方向键在页签之间移动", () => {
     const tabs = resolveTabs(document);
-    wireTabs(tabs);
+    wireTabs(tabs, "requirements");
 
     tabs.buttons
       .get("requirements")

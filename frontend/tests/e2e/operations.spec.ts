@@ -20,6 +20,14 @@ const OPERATIONS_URL = "http://127.0.0.1:8714";
 const RECORDS_ROOT = ".cache/frontend-e2e-operations/records";
 const run = promisify(execFile);
 
+test.use({ baseURL: OPERATIONS_URL });
+
+/** 写入口收在抽屉里：打开后才填表单，和真实操作一致。 */
+async function openOperations(page: Page): Promise<void> {
+  await page.locator("#operations-open").click();
+  await expect(page.locator("#operations-drawer")).toBeVisible();
+}
+
 interface ProgressTask {
   readonly task_id: string;
   readonly status: string;
@@ -32,8 +40,8 @@ interface ProgressEntry {
 }
 
 async function requirementRow(page: Page, reqId: string): Promise<string> {
-  // 需求页签是卡片（三页签布局）：按身份定位卡片，不再有表格行。
-  const row = page.locator(`#requirements-body article.card[data-ref="${reqId}"]`).first();
+  // 需求页签是索引 + 档案：按身份定位索引行。
+  const row = page.locator(`#requirements-body .record-row[data-ref="${reqId}"]`).first();
   await expect(row).toBeVisible();
   return (await row.textContent()) ?? "";
 }
@@ -65,6 +73,7 @@ test("服务端已建需求但响应丢失时，刷新重试不会重复建需�
   };
 
   await page.goto(`${operationsUrl}/`);
+  await openOperations(page);
   const before = await countRequirements();
   const text = `幂等刷新重试用例-${Date.now()}`;
 
@@ -87,6 +96,7 @@ test("服务端已建需求但响应丢失时，刷新重试不会重复建需�
   expect(await page.evaluate(() => sessionStorage.getItem("forgeloop:submit-key"))).toBe(
     pendingKey,
   );
+  await openOperations(page);
   await page.fill("#submit-project", "ForgeLoop");
   await page.fill("#submit-text", text);
   await page.click("#submit-button");
@@ -99,6 +109,7 @@ test("服务端已建需求但响应丢失时，刷新重试不会重复建需�
 test("页面提交、批准、自动推进与整体验收", async ({ page, request }) => {
   test.setTimeout(90_000);
   await page.goto(`${OPERATIONS_URL}/`);
+  await openOperations(page);
 
   // 令牌已注入：操作面板可见（只读的 web 服务不会显示它）。
   await expect(page.locator("#operations")).toBeVisible();
@@ -156,8 +167,12 @@ test("页面提交、批准、自动推进与整体验收", async ({ page, reque
   );
   await waitForTaskStatus(request, taskId, "delivered");
 
-  // 6) 页面整体验收
+  // 6) 页面整体验收：先收起抽屉刷新，再打开写入口。
+  await page.click("#operations-close");
+  const refreshed = page.waitForResponse((response) => response.url().endsWith("/api/progress"));
   await page.click("#refresh-button");
+  await refreshed;
+  await openOperations(page);
   await page.selectOption("#action-req", seeded as string);
   await page.fill("#action-reason", "浏览器用例：整体验收");
   await page.click("#action-accept");
@@ -175,5 +190,7 @@ test("页面提交、批准、自动推进与整体验收", async ({ page, reque
       { timeout: 15_000 },
     )
     .toBe("accepted");
+  await page.click("#operations-close");
+  await page.click("#tab-requirements");
   expect(await requirementRow(page, seeded as string)).toContain("accepted");
 });

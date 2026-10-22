@@ -10,28 +10,89 @@
  * `tabs.ts` 落到 DOM 上；自动刷新重绘内容不会重置当前页签。
  */
 import { actionRequest, forgetSubmitKey, loadSubmitKey, newClientKey, operationsAvailable, rememberSubmitKey, performOperation, readToken, submitRequest, } from "./actions.js";
+import { buildIndex } from "./link.js";
+import { filterMentions, insertMention, mentionQuery } from "./mentions.js";
 import { PanelClient } from "./panel.js";
-import { PANEL_TABS, fillProjectForm, renderPanelAvailability, renderPanelDocument, renderPanelSessionDetail, renderPanelStatus, renderPanelTab, resolvePanelElements, } from "./panel_render.js";
-import { PROGRESS_URL } from "./payload.js";
+import { PANEL_TABS, fillProjectForm, renderMentionMenu, renderPanelAvailability, renderPanelDocument, renderPanelSessionDetail, renderPanelStatus, renderPanelTab, resolvePanelElements, } from "./panel_render.js";
+import { EMPTY_SELECTION, selectRecord, selectRef, } from "./records.js";
+import { PROGRESS_URL, } from "./payload.js";
 import { ProgressClient } from "./progress.js";
-import { createCollapseState, resolveElements } from "./dom.js";
+import { resolveElements } from "./dom.js";
 import { clearError, renderOperationStatus, renderOperationsAvailability, renderProgress, showError, } from "./render.js";
 import { focusTarget, resolveTabs, wireTabs } from "./tabs.js";
+/** 打开写入口抽屉；有目标需求时顺手把动作下拉框对到它。 */
+function openOperations(elements, reqId = "") {
+    if (elements.operations.hidden) {
+        return;
+    }
+    if (reqId !== "") {
+        elements.actionReq.value = reqId;
+    }
+    elements.operationsDrawer.hidden = false;
+    elements.submitProject.focus();
+}
+/** 关闭写入口抽屉，把焦点还给入口按钮。 */
+function closeOperations(elements) {
+    elements.operationsDrawer.hidden = true;
+    if (!elements.operationsOpen.hidden) {
+        elements.operationsOpen.focus();
+    }
+}
+/** 抽屉开合：入口、关闭、遮罩与 Escape 都走同一对函数。 */
+function wireOperationsDrawer(elements) {
+    elements.operationsOpen.addEventListener("click", () => {
+        openOperations(elements);
+    });
+    elements.operationsClose.addEventListener("click", () => {
+        closeOperations(elements);
+    });
+    elements.operationsDrawer.addEventListener("click", (event) => {
+        const target = event.target;
+        if (target.dataset["operationsClose"] !== undefined) {
+            closeOperations(elements);
+        }
+    });
+    elements.operationsDrawer.ownerDocument.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !elements.operationsDrawer.hidden) {
+            closeOperations(elements);
+        }
+    });
+}
 /** 解析元素、接上页签与事件并启动轮询；返回客户端供测试等待与断言。 */
 export function bootstrap(document, options = {}) {
     const elements = resolveElements(document);
     const tabs = resolveTabs(document);
-    // 折叠状态随装配建立一次：自动刷新重绘内容不会把用户的展开／收起选择抹掉。
-    const collapse = createCollapseState();
+    const chatAvailable = operationsAvailable(readToken(document));
+    let latest;
+    let selection = EMPTY_SELECTION;
+    const navigation = {
+        goTo: (tab, refId) => {
+            if (latest === undefined) {
+                return;
+            }
+            selection = selectRef(buildIndex(latest), latest, selection, tab, refId);
+            redraw(latest);
+            focusTarget(tabs, tab, refId);
+        },
+    };
+    function redraw(progress) {
+        selection = renderProgress(elements, progress, navigation, selection, {
+            onSelect: (tab, key) => {
+                selection = selectRecord(selection, tab, key);
+                redraw(progress);
+            },
+            onOperate: (reqId) => {
+                openOperations(elements, reqId);
+            },
+        });
+    }
     const client = new ProgressClient({
         url: PROGRESS_URL,
         onDocument: (progress) => {
+            latest = progress;
             clearError(elements);
-            renderProgress(elements, progress, {
-                goTo: (tab, refId) => {
-                    focusTarget(tabs, tab, refId);
-                },
-            }, collapse);
+            redraw(progress);
+            options.onProgress?.(progress);
         },
         onError: (message) => {
             showError(elements, message);
@@ -44,7 +105,8 @@ export function bootstrap(document, options = {}) {
     elements.refreshButton.addEventListener("click", () => {
         client.manualRefresh();
     });
-    wireTabs(tabs);
+    wireTabs(tabs, chatAvailable ? "chat" : "requirements");
+    wireOperationsDrawer(elements);
     wireOperations(elements, client, options.operationFetcher);
     client.start();
     return client;
@@ -73,6 +135,13 @@ export function bootstrapPanel(document, options = {}) {
         onDocument: (panelDocument) => {
             latest = panelDocument;
             renderPanelDocument(elements, panelDocument, client.selectedSessionId);
+            // 会话优先：第一次拿到清单时自动打开最近一条，页面打开就是可读的对话。
+            if (client.selectedSessionId === "") {
+                const first = panelDocument.sessions[0];
+                if (first !== undefined) {
+                    client.openSession(first.session_id).catch(() => undefined);
+                }
+            }
         },
         onSession: (detail) => {
             renderPanelSessionDetail(elements, detail);
@@ -81,12 +150,15 @@ export function bootstrapPanel(document, options = {}) {
             renderPanelStatus(elements, message, tone);
         },
         onSelected: (sessionId) => {
+            if (sessionId === "") {
+                renderPanelSessionDetail(elements, undefined);
+            }
             if (latest !== undefined) {
                 renderPanelDocument(elements, latest, sessionId);
             }
         },
     });
-    wirePanel(elements, client, () => latest);
+    wirePanel(elements, client, () => latest, options.mentionItems ?? (() => []));
     client.start();
     return client;
 }
@@ -158,6 +230,91 @@ function wireComposer(elements, client) {
         }
         client.terminate(reason).catch(() => undefined);
     });
+}
+/**
+ * `@` 引用的交互：从进展快照取候选，在光标处插入。
+ *
+ * 菜单只在输入框有引用查询时出现；方向键移动，Enter/Tab 选中，Escape 收起。
+ * 插入的是记录身份本身，不改变消息的服务端语义。
+ */
+function wireMentions(elements, source) {
+    let items = [];
+    let active = 0;
+    let current = null;
+    const close = () => {
+        current = null;
+        items = [];
+        active = 0;
+        elements.mentionMenu.hidden = true;
+        elements.mentionMenu.replaceChildren();
+        elements.messageText.setAttribute("aria-expanded", "false");
+        elements.messageText.removeAttribute("aria-activedescendant");
+    };
+    const choose = (index) => {
+        const item = items[index];
+        if (item === undefined || current === null) {
+            return;
+        }
+        const inserted = insertMention(elements.messageText.value, current, item);
+        elements.messageText.value = inserted.value;
+        elements.messageText.setSelectionRange(inserted.caret, inserted.caret);
+        close();
+        elements.messageText.focus();
+    };
+    const refresh = () => {
+        const query = mentionQuery(elements.messageText.value, elements.messageText.selectionStart);
+        if (query === null) {
+            close();
+            return;
+        }
+        const matches = filterMentions(source(), query.query);
+        if (matches.length === 0) {
+            close();
+            return;
+        }
+        current = query;
+        items = matches;
+        active = 0;
+        renderMentionMenu(elements, items, active);
+    };
+    elements.messageText.addEventListener("input", refresh);
+    elements.messageText.addEventListener("click", refresh);
+    elements.messageText.addEventListener("keydown", (event) => {
+        if (current === null) {
+            return;
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            const step = event.key === "ArrowDown" ? 1 : -1;
+            active = (active + step + items.length) % items.length;
+            renderMentionMenu(elements, items, active);
+            return;
+        }
+        if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+            event.preventDefault();
+            choose(active);
+            return;
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            close();
+        }
+    });
+    elements.mentionMenu.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+    });
+    elements.mentionMenu.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-mention-index]");
+        const raw = button?.dataset["mentionIndex"];
+        if (raw === undefined) {
+            return;
+        }
+        const index = Number(raw);
+        if (Number.isInteger(index)) {
+            choose(index);
+        }
+    });
+    elements.composer.addEventListener("submit", close);
 }
 /** 待人工决定：按钮带 data-decision／data-choice，理由与补充指令取表单输入。 */
 function wireDecisions(elements, client) {
@@ -275,22 +432,23 @@ function wireProjectRows(elements, client, latestDocument) {
     });
 }
 /** 面板事件总装：页签、会话选择与刷新、新建会话、发送/终止、决定、项目增删改。 */
-function wirePanel(elements, client, latestDocument) {
+function wirePanel(elements, client, latestDocument, mentionSource) {
     wirePanelTabs(elements);
     wireNewSession(elements, client);
     wireComposer(elements, client);
+    wireMentions(elements, mentionSource);
     wireDecisions(elements, client);
     wireProjectForm(elements, client);
     wireProjectRows(elements, client, latestDocument);
     elements.refreshButton.addEventListener("click", () => {
         client.refreshPanel().catch(() => undefined);
     });
-    elements.sessionList.addEventListener("change", () => {
-        const sessionId = elements.sessionList.value;
-        if (sessionId === "") {
-            return;
+    elements.sessionList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-session-id]");
+        const sessionId = button?.dataset["sessionId"] ?? "";
+        if (sessionId !== "") {
+            client.openSession(sessionId).catch(() => undefined);
         }
-        client.openSession(sessionId).catch(() => undefined);
     });
 }
 /** 需要理由的三类人工决定：与 `cli/serve.py` 的 `reason_required` 一致。 */

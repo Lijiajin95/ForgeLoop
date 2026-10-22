@@ -5,84 +5,65 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- 写入口令牌：`forgeloop serve` 启动时把占位替换成一次性令牌；只读的 `forgeloop web` 不替换。 -->
     <meta name="forgeloop-token" content="__FORGELOOP_TOKEN__" />
-    <title>ForgeLoop 研发进展</title>
+    <title>ForgeLoop · 研发与运维值班台</title>
     <style>
       :root {
         color-scheme: light dark;
-        --bg: #f2f5f2;
-        --bg-accent: rgba(46, 125, 82, 0.09);
-        --bg-accent-2: rgba(46, 125, 82, 0.04);
-        --panel: #ffffff;
-        --panel-2: #f7f9f7;
-        --panel-3: #edf2ee;
-        --line: #dfe6e0;
-        --line-strong: #c8d3ca;
-        --text: #16211a;
-        --muted: #5f6d65;
-        --faint: #8b978f;
-        --accent: #2e7d52;
-        --accent-strong: #1c5b3b;
-        --accent-soft: #e8f3ec;
-        --accent-line: #bdd9c9;
-        --on-accent: #ffffff;
-        --issue: #ad422e;
-        --issue-soft: #fbefeb;
-        --issue-line: #ecc9bf;
-        --on-issue: #ffffff;
-        --warn: #97690f;
-        --warn-soft: #fbf3e0;
-        --shadow-sm:
-          0 1px 2px rgba(22, 33, 26, 0.05), 0 1px 1px rgba(22, 33, 26, 0.03);
-        --shadow-md:
-          0 18px 40px -26px rgba(22, 33, 26, 0.3),
-          0 2px 6px rgba(22, 33, 26, 0.04);
-        --shadow-lg: 0 32px 64px -36px rgba(22, 33, 26, 0.38);
-        --radius-sm: 8px;
-        --radius: 12px;
-        --radius-lg: 16px;
-        --ring: 0 0 0 3px rgba(46, 125, 82, 0.18);
+        --bg: #eef2ec;
+        --surface: #f8faf6;
+        --surface-2: #f1f5ef;
+        --ink: #15221b;
+        --muted: #5d6d63;
+        --faint: #86958b;
+        --rule: #ccd8cf;
+        --rule-strong: #aebfb3;
+        --brand: #1f5a44;
+        --brand-soft: #e1ece4;
+        --brand-line: #b7cdbf;
+        --on-brand: #f8fbf8;
+        --rust: #b24a30;
+        --rust-soft: #f6e8e3;
+        --rust-line: #e0b8ab;
+        --on-rust: #ffffff;
+        --amber: #93671b;
+        --amber-soft: #f6edd9;
         --mono:
           ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
           "Liberation Mono", monospace;
-        /* 操作面板与对话框面板共用的别名：--border／--danger 与输入框、失败文案同源。 */
-        --border: var(--line);
-        --danger: var(--issue);
+        --serif:
+          "Iowan Old Style", "Palatino Linotype", "Songti SC",
+          "Noto Serif CJK SC", Georgia, serif;
+        --sans:
+          "Avenir Next", "Segoe UI", "PingFang SC", "Noto Sans CJK SC",
+          sans-serif;
+        --border: var(--rule);
+        --danger: var(--rust);
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #0e1310;
-          --bg-accent: rgba(108, 197, 150, 0.1);
-          --bg-accent-2: rgba(108, 197, 150, 0.045);
-          --panel: #161d19;
-          --panel-2: #1b2420;
-          --panel-3: #222d27;
-          --line: #2a3730;
-          --line-strong: #3b4c43;
-          --text: #e8efe9;
-          --muted: #a0aea5;
-          --faint: #7d8c82;
-          --accent: #6cc596;
-          --accent-strong: #93dab3;
-          --accent-soft: #1c3026;
-          --accent-line: #33513f;
-          --on-accent: #0c1711;
-          --issue: #f0a08d;
-          --issue-soft: #2d1e19;
-          --issue-line: #5b3a31;
-          --on-issue: #1a0f0c;
-          --warn: #dfb15f;
-          --warn-soft: #2c2417;
-          --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-          --shadow-md:
-            0 22px 48px -28px rgba(0, 0, 0, 0.75), 0 1px 2px rgba(0, 0, 0, 0.4);
-          --shadow-lg: 0 36px 72px -36px rgba(0, 0, 0, 0.8);
-          --ring: 0 0 0 3px rgba(108, 197, 150, 0.24);
+          --bg: #0f1512;
+          --surface: #151d18;
+          --surface-2: #19231d;
+          --ink: #e6ede8;
+          --muted: #9fafa4;
+          --faint: #74857a;
+          --rule: #2b3a31;
+          --rule-strong: #43584b;
+          --brand: #7cc5a1;
+          --brand-soft: #1c2f25;
+          --brand-line: #35513f;
+          --on-brand: #0e1712;
+          --rust: #e08a70;
+          --rust-soft: #2d1e19;
+          --rust-line: #5a3a31;
+          --on-rust: #1a0f0c;
+          --amber: #d9ad5f;
+          --amber-soft: #2b2416;
         }
       }
       * {
         box-sizing: border-box;
       }
-      /* 页面大量用 hidden 属性切换视图；显式兜底，避免组件 display 覆盖可见性语义。 */
       [hidden] {
         display: none !important;
       }
@@ -91,937 +72,529 @@
       }
       body {
         margin: 0 auto;
-        padding: 28px 28px 72px;
-        max-width: 1400px;
+        padding: 0 32px 64px;
+        max-width: 1480px;
         min-height: 100vh;
-        background:
-          radial-gradient(
-            1100px 560px at 6% -10%,
-            var(--bg-accent),
-            transparent 62%
-          ),
-          radial-gradient(
-            900px 480px at 102% -6%,
-            var(--bg-accent-2),
-            transparent 58%
-          ),
-          var(--bg);
-        background-attachment: fixed;
-        color: var(--text);
-        font:
-          14px/1.65 ui-sans-serif,
-          -apple-system,
-          BlinkMacSystemFont,
-          "SF Pro Text",
-          "PingFang SC",
-          "Microsoft YaHei",
-          "Noto Sans CJK SC",
-          sans-serif;
-        font-variant-numeric: tabular-nums;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.6 var(--sans);
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility;
+        font-variant-numeric: tabular-nums;
       }
       ::selection {
-        background: var(--accent-soft);
-        color: var(--text);
+        background: var(--brand-soft);
+        color: var(--ink);
       }
       h1,
-      h2 {
-        letter-spacing: -0.012em;
+      h2,
+      h3,
+      p,
+      dl,
+      dd,
+      ol,
+      ul {
+        margin: 0;
       }
-      .app-head {
+      button {
+        font: inherit;
+      }
+      code {
+        padding: 1px 4px;
+        border: 1px solid var(--rule);
+        background: var(--surface-2);
+        font-family: var(--mono);
+        font-size: 0.88em;
+      }
+      .mono {
+        font-family: var(--mono);
+        font-variant-ligatures: none;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      :focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 2px;
+      }
+
+      /* ---------------- masthead ---------------- */
+      .masthead {
         display: flex;
         flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
         gap: 16px;
-        align-items: center;
+        padding: 26px 0 18px;
+        border-bottom: 1px solid var(--rule);
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 14px;
-        min-width: 0;
+        gap: 13px;
+        color: inherit;
+        text-decoration: none;
       }
       .brand-mark {
         display: grid;
         place-items: center;
-        flex: none;
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-        background: linear-gradient(150deg, #3f9a68, var(--accent-strong));
-        color: #fff;
-        font-size: 19px;
-        font-weight: 800;
-        letter-spacing: -0.04em;
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.35),
-          0 8px 18px -10px rgba(28, 91, 59, 0.9);
+        width: 38px;
+        height: 38px;
+        border: 1px solid var(--brand-line);
+        border-radius: 50%;
+        background: var(--brand-soft);
+        color: var(--brand);
       }
-      .brand-copy {
-        min-width: 0;
+      .brand-mark svg {
+        width: 21px;
+        height: 21px;
       }
-      h1 {
-        margin: 0;
-        font-size: 21px;
-        font-weight: 700;
-        line-height: 1.3;
+      .brand-text {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
       }
-      .brand-sub {
-        margin: 2px 0 0;
-        color: var(--muted);
-        font-size: 12px;
-        letter-spacing: 0.04em;
-      }
-      #refresh-button {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        margin-left: auto;
-        padding: 8px 14px;
-        border: 1px solid var(--accent-line);
-        border-radius: 10px;
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-        font: inherit;
-        font-size: 13px;
+      .brand-name {
+        font-family: var(--serif);
+        font-size: 27px;
         font-weight: 600;
-        cursor: pointer;
-        box-shadow: var(--shadow-sm);
+        letter-spacing: -0.025em;
+        line-height: 1.1;
       }
-      #refresh-button svg {
-        flex: none;
-      }
-      #refresh-button:hover:not(:disabled) {
-        border-color: transparent;
-        background: var(--accent);
-        color: var(--on-accent);
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-md);
-      }
-      #refresh-button:disabled {
-        cursor: progress;
+      .brand-tagline {
         color: var(--muted);
-        border-color: var(--line);
-        background: var(--panel-2);
+        font-size: 11px;
+        letter-spacing: 0.08em;
       }
-      #refresh-button:disabled svg {
-        animation: spin 0.9s linear infinite;
-      }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-      .meta {
-        margin: 8px 0 0;
-        color: var(--muted);
-        font-size: 12.5px;
-      }
-      .meta b {
-        color: var(--text);
-        font-weight: 600;
-      }
-      /* 顶部运行信息：一条紧凑的信息条，不和标题、页签抢层级。 */
-      .app-head + .meta {
+      .masthead-tools {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 4px 10px;
-        width: fit-content;
-        max-width: 100%;
-        margin-top: 16px;
-        padding: 8px 14px;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        background: var(--panel);
-        box-shadow: var(--shadow-sm);
-        font-size: 12.5px;
+        gap: 10px;
+      }
+      .refresh-note {
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+      .status-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 28px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--rule);
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+      .status-item {
+        min-width: 0;
+      }
+      .status-item b {
+        color: var(--ink);
+        font-weight: 500;
+        overflow-wrap: anywhere;
+      }
+      .status-key {
+        margin-right: 6px;
+        color: var(--faint);
       }
       #banner {
         display: none;
         margin: 16px 0 0;
-        padding: 12px 16px;
-        border: 1px solid var(--issue-line);
-        border-left: 3px solid var(--issue);
-        border-radius: 10px;
-        background: var(--issue-soft);
-        color: var(--issue);
-        font-size: 13px;
+        padding: 10px 14px;
+        border-left: 2px solid var(--rust);
+        background: var(--rust-soft);
+        color: var(--rust);
+        font-size: 12.5px;
         white-space: pre-wrap;
       }
 
-      /* 页签：需求 → 它分解出的任务 → 任务上的问题。 */
-      .tabs[role="tablist"] {
-        position: sticky;
-        top: 12px;
-        z-index: 20;
-        display: inline-flex;
-        gap: 4px;
-        max-width: 100%;
-        margin: 22px 0 0;
-        padding: 4px;
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        background: var(--panel);
-        box-shadow: var(--shadow-sm);
+      /* ---------------- primary tabs ---------------- */
+      .primary-tabs {
+        display: flex;
+        gap: 32px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid var(--rule);
+        overflow-x: auto;
       }
-      .tab {
+      .primary-tab {
+        position: relative;
         display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
-        border: 1px solid transparent;
-        border-radius: 10px;
+        align-items: baseline;
+        gap: 7px;
+        flex: none;
+        padding: 16px 0 13px;
+        border: 0;
         background: transparent;
         color: var(--muted);
         font: inherit;
         font-size: 13.5px;
-        font-weight: 600;
-        white-space: nowrap;
         cursor: pointer;
       }
-      .tab:hover {
-        background: var(--panel-2);
-        color: var(--text);
+      .primary-tab:hover {
+        color: var(--ink);
       }
-      .tabs[role="tablist"] .tab[aria-selected="true"] {
-        color: var(--accent-strong);
-        background: var(--accent-soft);
-        box-shadow: inset 0 0 0 1px var(--accent-line);
+      .primary-tab[aria-selected="true"] {
+        color: var(--ink);
+      }
+      .primary-tab[aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        background: var(--brand);
       }
       .tab-count {
-        min-width: 24px;
-        padding: 1px 8px;
-        border: 1px solid transparent;
-        border-radius: 999px;
-        background: var(--panel-3);
-        color: var(--muted);
-        font-size: 11.5px;
-        font-weight: 600;
-        text-align: center;
-      }
-      .tabs[role="tablist"] .tab[aria-selected="true"] .tab-count {
-        border-color: var(--accent-line);
-        background: var(--panel);
-        color: var(--accent-strong);
-      }
-      [role="tabpanel"] {
-        margin-top: 18px;
-        outline: none;
-      }
-      .panel-note {
-        max-width: 92ch;
-        margin: 0 0 14px;
-        color: var(--muted);
-        font-size: 12.5px;
-        line-height: 1.7;
-      }
-
-      /* 需求卡片与任务分组。 */
-      .cards,
-      .groups {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-      }
-      .card,
-      .group {
-        overflow: hidden;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        background: var(--panel);
-        box-shadow: var(--shadow-sm);
-        transition:
-          border-color 0.18s ease,
-          box-shadow 0.18s ease;
-      }
-      .card:hover,
-      .group:hover {
-        border-color: var(--line-strong);
-        box-shadow: var(--shadow-md);
-      }
-      .card-head,
-      .group-head {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        align-items: center;
-      }
-      .card-head {
-        padding: 14px 16px;
-        border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, var(--panel), var(--panel-2));
-      }
-      .card:has(> .card-body[hidden]) > .card-head {
-        border-bottom-color: transparent;
-      }
-      .group-head {
-        padding: 12px 14px;
-        border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, var(--panel), var(--panel-2));
-      }
-      .group:has(> .card-body[hidden]) > .group-head {
-        border-bottom-color: transparent;
-      }
-      .card-body {
-        margin-top: 0;
-        padding: 16px;
-      }
-      .group > .card-body {
-        padding: 0;
-        overflow-x: auto;
-      }
-      /* 卡片身份前加一个状态点：一眼看出这是哪条记录的开头。 */
-      .card-head > .id:first-child {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .card-head > .id:first-child::before {
-        content: "";
-        flex: none;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--accent);
-        box-shadow: 0 0 0 3px var(--accent-soft);
-      }
-      .id {
-        color: var(--text);
-        font-weight: 600;
-      }
-      .mono {
-        font-family: var(--mono);
-        font-size: 12px;
-        font-variant-ligatures: none;
-      }
-      .id + .mono,
-      .mono + .mono {
-        margin-left: 6px;
-      }
-      .muted {
-        color: var(--muted);
-      }
-      .chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        height: 24px;
-        padding: 0 9px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: var(--panel-2);
-        color: var(--muted);
-        font-size: 11.5px;
-        font-weight: 500;
-        line-height: 1;
-        white-space: nowrap;
-      }
-      .chip.status[data-status="merged"],
-      .chip.status[data-status="delivered"],
-      .chip.status[data-status="accepted"] {
-        border-color: var(--accent-line);
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-      }
-      .chip.status[data-status="blocked"],
-      .chip.status[data-status="interrupted"],
-      .chip.status[data-status="time_exhausted"] {
-        border-color: var(--issue-line);
-        background: var(--issue-soft);
-        color: var(--issue);
-      }
-      .id-link,
-      .link-button,
-      .collapse-toggle,
-      .issue-chip {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--panel);
-        color: var(--text);
-        font: inherit;
-        cursor: pointer;
-      }
-      .id-link {
-        padding: 3px 8px;
-        font-family: var(--mono);
-        font-size: 11.5px;
-      }
-      .id-link:hover {
-        border-color: var(--accent-line);
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-      }
-      .link-button {
-        padding: 3px 9px;
-        border-color: var(--accent-line);
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-        font-size: 11.5px;
-        font-weight: 500;
-      }
-      .link-button:hover {
-        border-color: transparent;
-        background: var(--accent);
-        color: var(--on-accent);
-      }
-      .issue-chip {
-        padding: 3px 9px;
-        border-color: var(--issue-line);
-        background: var(--issue-soft);
-        color: var(--issue);
-        font-size: 11.5px;
-        font-weight: 600;
-      }
-      .issue-chip:hover {
-        border-color: transparent;
-        background: var(--issue);
-        color: var(--on-issue);
-      }
-      .collapse-toggle {
-        margin-left: auto;
-        padding: 4px 10px;
-        color: var(--muted);
-        font-size: 11.5px;
-        font-weight: 500;
-      }
-      .collapse-toggle:hover {
-        border-color: var(--accent-line);
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-      }
-      .description-block {
-        margin: 14px 0 0;
-      }
-      .card-body > .description-block:first-child {
-        margin-top: 0;
-      }
-      .description-block .label {
-        display: inline-block;
-        margin-bottom: 6px;
+        min-width: 17px;
+        border-bottom: 1px solid var(--rule);
         color: var(--faint);
-        font-size: 11.5px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-      }
-      /* 描述：需求原文这类长文本限高滚动，卡片不会被一篇长文撑开。 */
-      .description {
-        margin: 0;
-        padding: 12px 14px;
-        max-height: 13em;
-        overflow: auto;
-        border: 1px solid var(--line);
-        border-left: 3px solid var(--accent-line);
-        border-radius: 4px 10px 10px 4px;
-        background: var(--panel-2);
-        font-size: 13px;
-        line-height: 1.75;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-      .goal {
-        margin: 3px 0 0;
-        max-width: 460px;
-        max-height: 6.5em;
-        overflow: auto;
-        color: var(--muted);
-        font-size: 12.5px;
-        font-weight: 400;
-      }
-      .object-note {
-        display: block;
-        max-width: 320px;
-        margin: 4px 0 0;
-        color: var(--muted);
-        font-size: 12.5px;
-      }
-      .line {
-        margin: 10px 0 0;
-        color: var(--muted);
-        font-size: 13px;
-      }
-      .line.blocked {
-        color: var(--issue);
-      }
-      .empty-inline {
-        margin: 12px 0 0;
-        padding: 10px 12px;
-        border: 1px dashed var(--line);
-        border-radius: var(--radius-sm);
-        background: var(--panel-2);
-        color: var(--muted);
-        font-size: 12.5px;
-      }
-
-      /* 表格：卡片里是记录明细，问题页签是待处理清单。 */
-      table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-      }
-      .card table {
-        margin-top: 14px;
-        overflow: hidden;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-      }
-      .group table {
-        overflow: hidden;
-        border: 0;
-        border-radius: 0;
-      }
-      th,
-      td {
-        padding: 8px 12px;
-        border-bottom: 1px solid var(--line);
-        text-align: left;
-        vertical-align: top;
-        font-size: 12.5px;
-        overflow-wrap: break-word;
-      }
-      thead th {
-        background: var(--panel-2);
-        color: var(--muted);
-        font-size: 11.5px;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        white-space: nowrap;
-      }
-      tbody tr:last-child td {
-        border-bottom: 0;
-      }
-      tbody tr:not(.issue):hover td,
-      #issues-body tr:hover td {
-        background: var(--accent-soft);
-      }
-      /* 问题页签只有一张表：给它卡片边界，避免整页铺成一块无主的内容。 */
-      #panel-issues > table {
-        overflow: hidden;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        background: var(--panel);
-        box-shadow: var(--shadow-sm);
-      }
-      /* 问题表的对象与摘要留出宽度；「依据」是长文本，必须允许换行，否则撑破表格。 */
-      #issues-body td:nth-child(1) {
-        white-space: nowrap;
-      }
-      #issues-body td:nth-child(2) {
-        min-width: 260px;
-      }
-      #issues-body td:nth-child(3) {
-        min-width: 240px;
-      }
-      /* 状态、轮次与工时不拆行；原因列拿走剩余宽度，避免整表被挤成窄条。 */
-      .card tbody td:nth-child(n + 2),
-      .group tbody td:nth-child(2),
-      .group tbody td:nth-child(4),
-      .group tbody td:nth-child(5),
-      .group tbody td:nth-child(7) {
-        white-space: nowrap;
-      }
-      .group tbody td:nth-child(3) {
-        min-width: 120px;
-        white-space: normal;
-      }
-      .group tbody td:nth-child(4),
-      .group tbody td:nth-child(5) {
-        white-space: normal;
-      }
-      .group tbody td:nth-child(6) {
-        min-width: 160px;
-      }
-      .card tbody td:first-child {
-        max-width: 420px;
-      }
-      .group tbody td:first-child {
-        min-width: 190px;
-        max-width: 280px;
-      }
-      .group th,
-      .group td {
-        padding: 7px 8px;
-      }
-      .group .goal {
-        max-width: 260px;
-      }
-      .card tbody tr.issue td,
-      .group tbody tr.issue td {
-        background: var(--issue-soft);
-      }
-      .card tbody tr.issue td:first-child,
-      .group tbody tr.issue td:first-child {
-        color: var(--issue);
-        font-weight: 600;
-      }
-      .target {
-        border-radius: var(--radius-sm);
-        outline: 2px solid var(--accent);
-        outline-offset: -2px;
-      }
-      tr.target td {
-        background: var(--accent-soft);
-      }
-      .empty {
-        margin: 0;
-        padding: 28px 18px;
-        border: 1px dashed var(--line-strong);
-        border-radius: var(--radius);
-        background: var(--panel);
-        color: var(--muted);
-        font-size: 13px;
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.4;
         text-align: center;
       }
-      /* 读屏、键盘用户都能看到焦点；鼠标点击不额外描边。 */
-      :focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
+      .primary-tab[aria-selected="true"] .tab-count {
+        border-bottom-color: var(--brand);
+        color: var(--brand);
       }
-      :where(button, input, select, textarea, [tabindex]):focus-visible {
-        border-color: var(--accent);
+      .view {
         outline: none;
-        box-shadow: var(--ring);
       }
 
-      /* 写操作面板：与只读进展同一套卡片与表单语言。 */
-      #operations {
-        margin-top: 30px;
-        padding: 18px 20px 8px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        background: var(--panel);
-        box-shadow: var(--shadow-sm);
-      }
-      #operations h2 {
-        margin: 0;
-        font-size: 16px;
-      }
-      #operations .meta {
-        max-width: 92ch;
-        margin-top: 6px;
-      }
-      #operations code {
-        padding: 1px 5px;
-        border: 1px solid var(--line);
-        border-radius: 5px;
-        background: var(--panel-3);
-        font-family: var(--mono);
-        font-size: 12px;
-      }
-      #operations #submit-form {
-        display: grid;
-        grid-template-columns:
-          minmax(0, 1fr) minmax(0, 1fr)
-          minmax(0, 1.2fr);
-        gap: 12px 16px;
-        align-items: end;
-        margin: 16px 0 14px;
-      }
-      /* 正文独占一行：表单在桌面端是三列元信息 + 一条长文本 + 提交。 */
-      #operations #submit-form label:nth-child(4) {
-        grid-column: 1 / -1;
-      }
-      #operations #submit-form button {
-        justify-self: start;
-      }
-      #operations .actions {
-        display: grid;
-        grid-template-columns: minmax(360px, 1.3fr) minmax(200px, 2fr);
-        gap: 12px 14px;
-        align-items: end;
-        margin: 0 0 10px;
-      }
-      #operations .action-buttons {
-        display: flex;
-        flex-wrap: wrap;
-        grid-column: 1 / -1;
-        gap: 8px;
-      }
-      #operations label {
-        display: flex;
-        flex-direction: column;
+      /* ---------------- buttons and fields ---------------- */
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         gap: 6px;
-        color: var(--muted);
+        padding: 7px 12px;
+        border: 1px solid var(--rule-strong);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
         font-size: 12px;
-        font-weight: 500;
-      }
-      #operations input,
-      #operations textarea,
-      #operations select {
-        min-width: 180px;
-        max-width: 100%;
-        padding: 7px 10px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        background: var(--panel-2);
-        color: var(--text);
-        font: inherit;
-        font-size: 13px;
-      }
-      #operations textarea {
-        width: 100%;
-        min-width: 0;
-        min-height: 84px;
-        resize: vertical;
-      }
-      #operations button {
-        padding: 7px 13px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-sm);
-        background: var(--panel);
-        color: var(--text);
-        font: inherit;
-        font-size: 12.5px;
-        font-weight: 500;
+        line-height: 1.3;
+        white-space: nowrap;
         cursor: pointer;
+        text-decoration: none;
+        transition:
+          background-color 0.12s ease,
+          border-color 0.12s ease,
+          color 0.12s ease;
       }
-      #operations button:hover:not(:disabled) {
-        border-color: var(--line-strong);
-        background: var(--panel-2);
+      .button:hover:not(:disabled) {
+        border-color: var(--brand-line);
+        background: var(--brand-soft);
+        color: var(--brand);
       }
-      #operations button:disabled,
-      #panel button:disabled {
-        opacity: 0.55;
+      .button:disabled {
+        opacity: 0.5;
         cursor: not-allowed;
       }
-      #operations button.primary,
-      #panel button.primary {
-        border-color: transparent;
-        background: var(--accent);
-        color: var(--on-accent);
-        font-weight: 600;
-        box-shadow: 0 8px 18px -14px rgba(28, 91, 59, 0.9);
+      .button-small {
+        padding: 5px 9px;
+        font-size: 11px;
       }
-      #operations button.primary:hover:not(:disabled),
-      #panel button.primary:hover:not(:disabled) {
-        background: var(--accent-strong);
-        transform: translateY(-1px);
+      .button-primary {
+        border-color: var(--brand);
+        background: var(--brand);
+        color: var(--on-brand);
       }
-      #operations button.accent,
-      #panel button.accent {
-        border-color: var(--accent-line);
-        background: var(--accent-soft);
-        color: var(--accent-strong);
+      .button-primary:hover:not(:disabled) {
+        border-color: var(--brand);
+        background: var(--ink);
+        color: var(--surface);
       }
-      #operations button.accent:hover:not(:disabled),
-      #panel button.accent:hover:not(:disabled) {
-        border-color: var(--accent);
+      .button-danger {
+        border-color: var(--rust-line);
+        color: var(--rust);
       }
-      #operations button.danger,
-      #panel button.danger {
-        border-color: var(--issue-line);
-        background: var(--panel);
-        color: var(--issue);
+      .button-danger:hover:not(:disabled) {
+        border-color: var(--rust);
+        background: var(--rust-soft);
+        color: var(--rust);
       }
-      #operations button.danger:hover:not(:disabled),
-      #panel button.danger:hover:not(:disabled) {
-        border-color: var(--issue);
-        background: var(--issue-soft);
-      }
-      #operations-status {
-        min-height: 1.2em;
-      }
-      #operations-status[data-tone="error"] {
-        color: var(--danger);
-      }
-
-      /* 右侧对话框面板：左侧保持既有进展视图，右栏固定宽度并跟随滚动。 */
-      .layout {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 420px;
-        gap: 24px;
-        align-items: start;
-      }
-      /* 只读模式没有会话面板：不留一列空白，正文保持可读宽度并居中。 */
-      .layout:has(#panel[hidden]) {
-        grid-template-columns: minmax(0, 1120px);
-        justify-content: center;
-      }
-      @media (max-width: 1180px) {
-        .layout {
-          grid-template-columns: minmax(0, 1fr);
-        }
-        #panel {
-          position: static;
-          max-height: none;
-        }
-        #panel .panel-head {
-          position: static;
-        }
-      }
-      #panel {
-        position: sticky;
-        top: 20px;
-        max-height: calc(100vh - 40px);
-        overflow: auto;
-        padding: 0;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        background: var(--panel);
-        box-shadow: var(--shadow-md);
-      }
-      .panel-head {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 15px 18px;
-        border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, var(--panel), var(--panel-2));
-      }
-      .panel-head h2 {
-        margin: 0;
-        font-size: 15px;
-      }
-      #panel-refresh {
-        margin-left: auto;
-      }
-      #panel > .meta {
-        margin: 12px 18px 0;
-      }
-      #panel .tabs {
-        display: flex;
-        gap: 3px;
-        margin: 14px 18px 0;
-        padding: 3px;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: var(--panel-2);
-      }
-      #panel .tabs button {
-        flex: 1;
-        margin: 0;
-        padding: 6px 8px;
-        border: 0;
-        border-radius: 7px;
-        background: transparent;
+      .button-quiet {
+        border-color: var(--rule);
         color: var(--muted);
-        font-size: 12.5px;
-        font-weight: 600;
-        cursor: pointer;
       }
-      #panel .tabs button[aria-pressed="true"] {
-        background: var(--panel);
-        color: var(--accent-strong);
-        box-shadow: var(--shadow-sm);
+      .button-icon {
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        font-size: 18px;
+        line-height: 1;
       }
-      #panel-sessions-view,
-      #panel-runtime-view,
-      #panel-projects-view {
-        padding: 2px 18px 18px;
-      }
-      #panel button {
-        padding: 6px 11px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        background: var(--panel);
-        color: inherit;
-        font: inherit;
-        font-size: 12.5px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-      #panel button:hover:not(:disabled) {
-        border-color: var(--line-strong);
-        background: var(--panel-2);
-      }
-      .panel-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        align-items: center;
-        margin-bottom: 10px;
-      }
-      .panel-row select {
-        flex: 1;
-        min-width: 0;
-      }
-      #panel select,
-      #panel input,
-      #panel textarea {
+      input,
+      select,
+      textarea {
+        width: 100%;
         max-width: 100%;
-        padding: 7px 9px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        background: var(--panel-2);
-        color: var(--text);
+        padding: 8px 10px;
+        border: 1px solid var(--rule-strong);
+        border-radius: 4px;
+        background: var(--surface);
+        color: var(--ink);
         font: inherit;
         font-size: 12.5px;
       }
-      #panel textarea {
-        resize: vertical;
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--brand);
+        outline: none;
+        box-shadow: 0 0 0 2px var(--brand-soft);
       }
-      #panel label {
+      input::placeholder,
+      textarea::placeholder {
+        color: var(--faint);
+      }
+      label {
         display: flex;
         flex-direction: column;
         gap: 5px;
-        margin-bottom: 8px;
         color: var(--muted);
-        font-size: 12px;
-        font-weight: 500;
+        font-size: 11px;
       }
-      #panel-new-session-form {
-        margin: 10px 0;
-        padding: 10px 12px;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: var(--panel-2);
+
+      /* ---------------- chat workspace ---------------- */
+      .chat-shell {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        height: calc(100vh - 232px);
+        min-height: 560px;
+        border: 1px solid var(--rule);
+        background: var(--surface);
       }
-      #panel-composer {
-        margin-top: 14px;
-        padding-top: 12px;
-        border-top: 1px solid var(--line);
-      }
-      #panel-tools {
-        margin: 4px 0 10px;
-        padding: 0;
-        list-style: none;
-        color: var(--muted);
-        font-size: 12px;
-      }
-      #panel-tools li {
-        margin: 4px 0;
-        padding: 4px 0 4px 9px;
-        border-left: 2px solid var(--line);
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      #panel-tools li.tool-approval {
-        border-left-color: var(--warn);
-      }
-      #panel-messages li.msg-streaming p::after {
-        content: "▌";
-        margin-left: 2px;
-        color: var(--accent);
-        opacity: 0.75;
-        animation: blink 1.1s steps(2, start) infinite;
-      }
-      @keyframes blink {
-        to {
-          visibility: hidden;
-        }
-      }
-      #panel-messages {
+      .chat-rail {
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        max-height: 42vh;
-        margin: 10px 0;
-        padding: 0;
+        min-height: 0;
+        border-right: 1px solid var(--rule);
+        background: var(--surface-2);
+      }
+      .rail-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 18px 18px 14px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .rail-head h2 {
+        font-family: var(--serif);
+        font-size: 21px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+      .session-list {
+        flex: 1;
+        min-height: 0;
         overflow: auto;
+        padding: 6px 0;
+      }
+      .session-item {
+        display: flex;
+        gap: 10px;
+        width: 100%;
+        padding: 11px 18px;
+        border: 0;
+        border-left: 2px solid transparent;
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+      .session-item:hover {
+        background: var(--surface);
+      }
+      .session-item.is-selected {
+        border-left-color: var(--brand);
+        background: var(--surface);
+      }
+      .session-dot {
+        flex: none;
+        width: 6px;
+        height: 6px;
+        margin-top: 7px;
+        border-radius: 50%;
+        background: var(--rule-strong);
+      }
+      .session-dot[data-status="active"] {
+        background: var(--brand);
+      }
+      .session-dot[data-status="awaiting_human"] {
+        background: var(--amber);
+      }
+      .session-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .session-title {
+        overflow: hidden;
+        font-size: 12.5px;
+        line-height: 1.45;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .session-meta {
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 9.5px;
+      }
+      .rail-empty {
+        padding: 14px 18px;
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .rail-foot {
+        padding: 10px 18px 14px;
+        border-top: 1px solid var(--rule);
+      }
+      .workspace-tabs {
+        display: flex;
+        gap: 14px;
+        margin-bottom: 7px;
+      }
+      .workspace-tab {
+        padding: 0 0 3px;
+        border: 0;
+        border-bottom: 1px solid transparent;
+        background: transparent;
+        color: var(--faint);
+        font: inherit;
+        font-size: 10.5px;
+        cursor: pointer;
+      }
+      .workspace-tab:hover {
+        color: var(--ink);
+      }
+      .workspace-tab[aria-pressed="true"] {
+        border-bottom-color: var(--brand);
+        color: var(--brand);
+      }
+      .status-text {
+        min-height: 1.4em;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+      .status-text[data-tone="error"] {
+        color: var(--rust);
+      }
+      .chat-main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+      }
+      .chat-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 13px 24px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .chat-meta {
+        overflow: hidden;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.5;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .chat-view {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .thread-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 22px 24px 8px;
+      }
+      .transcript {
+        position: relative;
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 0;
         list-style: none;
       }
-      .msg {
-        padding: 8px 10px;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        background: var(--panel);
+      .transcript::before {
+        content: "";
+        position: absolute;
+        top: 8px;
+        bottom: 8px;
+        left: 60px;
+        width: 1px;
+        background: var(--rule);
       }
-      .msg p {
-        margin: 3px 0 0;
-        font-size: 12.5px;
+      .msg {
+        position: relative;
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr);
+        gap: 18px;
+        padding: 10px 0 18px;
+      }
+      .msg::before {
+        content: "";
+        position: absolute;
+        top: 14px;
+        left: 57px;
+        z-index: 1;
+        width: 7px;
+        height: 7px;
+        border: 1px solid var(--rule-strong);
+        border-radius: 50%;
+        background: var(--surface);
+      }
+      .msg-human::before {
+        border-color: var(--brand);
+        background: var(--brand);
+      }
+      .msg-rail {
+        padding-top: 2px;
+        color: var(--faint);
+        font-size: 9.5px;
+        line-height: 1.5;
+        text-align: right;
+      }
+      .msg-role {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 600;
+      }
+      .msg-time {
+        display: block;
+        font-family: var(--mono);
+        font-size: 9px;
+      }
+      .msg-body {
+        max-width: 680px;
+        padding-top: 1px;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+      .msg-body p {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
@@ -1029,264 +602,828 @@
         display: block;
         margin-bottom: 2px;
         color: var(--faint);
+        font-size: 10px;
+      }
+      .msg-head:empty {
+        display: none;
+      }
+      .msg-human .msg-body {
+        padding: 9px 13px;
+        border-left: 2px solid var(--brand);
+        background: var(--brand-soft);
+      }
+      .msg-error .msg-body {
+        border-left: 2px solid var(--rust);
+        background: var(--rust-soft);
+      }
+      .msg-streaming p::after {
+        content: "▌";
+        margin-left: 2px;
+        color: var(--brand);
+        animation: blink 1.1s steps(2, start) infinite;
+      }
+      @keyframes blink {
+        to {
+          visibility: hidden;
+        }
+      }
+      .chat-empty {
+        max-width: 460px;
+        margin: 54px auto;
+        color: var(--muted);
+        font-family: var(--serif);
+        font-size: 16px;
+        line-height: 1.6;
+        text-align: center;
+      }
+      .transcript-meta {
+        max-width: 820px;
+        margin: 10px auto 0;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+      .tool-list {
+        max-width: 820px;
+        margin: 8px auto 0;
+        padding: 0;
+        list-style: none;
+        color: var(--muted);
         font-size: 11px;
-        letter-spacing: 0.02em;
       }
-      .msg-human {
-        background: var(--panel-2);
+      .tool-list li {
+        margin: 4px 0;
+        padding: 4px 0 4px 10px;
+        border-left: 1px solid var(--rule);
+        white-space: pre-wrap;
+        word-break: break-word;
       }
-      .msg-agent {
-        border-color: var(--accent-line);
-        background: var(--accent-soft);
+      .tool-list li.tool-approval {
+        border-left-color: var(--amber);
       }
-      .msg-error {
-        border-color: var(--issue-line);
-        background: var(--issue-soft);
-        color: var(--issue);
+      .decisions {
+        max-width: 820px;
+        margin: 0 auto;
       }
       .decision {
-        margin-bottom: 10px;
-        padding: 10px 12px;
-        border: 1px solid var(--accent-line);
-        border-left: 3px solid var(--accent);
-        border-radius: 10px;
-        background: var(--accent-soft);
+        margin: 4px 0 14px;
+        padding: 10px 13px;
+        border: 1px solid var(--amber);
+        background: var(--amber-soft);
       }
       .decision p {
         margin: 4px 0;
-        font-size: 12.5px;
+        font-size: 12px;
       }
       .decision button {
         margin-right: 6px;
       }
-      #panel .decision button[data-choice="approve"] {
-        border-color: transparent;
-        background: var(--accent);
-        color: var(--on-accent);
-        font-weight: 600;
+      .new-session {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+        gap: 10px;
+        align-items: end;
+        max-width: 820px;
+        margin: 16px auto 0;
+        padding: 12px;
+        border: 1px solid var(--rule);
+        background: var(--surface-2);
       }
-      #panel .decision button[data-choice="approve"]:hover:not(:disabled) {
-        background: var(--accent-strong);
-      }
-      #panel .decision button[data-choice="reject"] {
-        border-color: var(--issue-line);
-        color: var(--issue);
-      }
-      #panel .decision button[data-choice="reject"]:hover:not(:disabled) {
-        background: var(--issue-soft);
-        border-color: var(--issue);
-      }
-      #panel-status[data-tone="error"] {
-        color: var(--danger);
-      }
-      #panel table {
-        font-size: 11.5px;
-      }
-      /* 右栏只有 420px：项目与运行时表改成逐条卡片，字段名和值上下配对，不再横向截断。 */
-      #panel-projects-view table,
-      #panel-runtime-view table {
-        display: block;
-      }
-      #panel-projects-view thead,
-      #panel-runtime-view thead {
-        position: absolute;
-        left: -10000px;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-      }
-      #panel-projects-view tbody,
-      #panel-runtime-view tbody {
+      .new-session-actions {
         display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-      #panel-projects-view tbody tr,
-      #panel-runtime-view tbody tr {
-        display: block;
-        padding: 10px 11px;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: var(--panel-2);
-      }
-      #panel-projects-view tbody td,
-      #panel-runtime-view tbody td {
-        display: block;
-        padding: 2px 0 2px 82px;
-        border: 0;
-        text-indent: -82px;
-        white-space: normal;
-        overflow-wrap: anywhere;
-      }
-      #panel-projects-view tbody td::before,
-      #panel-runtime-view tbody td::before {
-        display: inline-block;
-        width: 72px;
-        margin-right: 10px;
-        color: var(--faint);
-        font-size: 11px;
-        font-weight: 500;
-        text-indent: 0;
-        vertical-align: top;
-      }
-      #panel-projects-view tbody td button,
-      #panel-runtime-view tbody td button {
-        text-indent: 0;
-      }
-      #panel-projects-view tbody td:nth-child(1)::before {
-        content: "项目";
-      }
-      #panel-projects-view tbody td:nth-child(2)::before {
-        content: "来源";
-      }
-      #panel-projects-view tbody td:nth-child(3)::before {
-        content: "路径";
-      }
-      #panel-projects-view tbody td:nth-child(4)::before {
-        content: "git";
-      }
-      #panel-projects-view tbody td:nth-child(5)::before {
-        content: "问题";
-      }
-      #panel-projects-view tbody td:nth-child(6)::before {
-        content: "进行中会话";
-      }
-      #panel-projects-view tbody td:nth-child(7)::before {
-        content: "操作";
-      }
-      #panel-runtime-view tbody td:nth-child(1)::before {
-        content: "项目";
-      }
-      #panel-runtime-view tbody td:nth-child(2)::before {
-        content: "就绪";
-      }
-      #panel-runtime-view tbody td:nth-child(3)::before {
-        content: "问题";
-      }
-      #panel-runtime-view tbody td:nth-child(4)::before {
-        content: "PI 命令";
-      }
-      #panel-runtime-view tbody td:nth-child(5)::before {
-        content: "隔离 HOME";
-      }
-      #panel-runtime-view tbody td:nth-child(6)::before {
-        content: "在跑";
-      }
-      #panel-projects-view caption,
-      #panel-runtime-view caption {
-        display: block;
-        width: 100%;
-        white-space: normal;
-      }
-      caption {
-        padding: 0 0 6px;
-        color: var(--faint);
-        font-size: 11.5px;
-        text-align: left;
-      }
-      #panel th,
-      #panel td {
-        padding: 5px 6px;
-      }
-      #panel td {
-        overflow-wrap: anywhere;
-      }
-      #panel table button {
-        margin: 1px 2px 1px 0;
-        padding: 3px 7px;
-        font-size: 11px;
-      }
-      #panel table button[data-action="remove"] {
-        border-color: var(--issue-line);
-        color: var(--issue);
-      }
-      #panel table button[data-action="remove"]:hover:not(:disabled) {
-        background: var(--issue-soft);
+        gap: 6px;
       }
 
-      @media (max-width: 820px) {
+      /* composer */
+      .composer {
+        position: relative;
+        padding: 12px 24px 15px;
+        border-top: 1px solid var(--rule);
+        background: var(--surface);
+      }
+      .composer textarea {
+        display: block;
+        min-height: 54px;
+        max-height: 180px;
+        padding: 11px 13px;
+        resize: vertical;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .composer-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 7px;
+      }
+      .composer-hint {
+        color: var(--faint);
+        font-size: 10px;
+      }
+      .composer-options {
+        margin-top: 8px;
+        padding-top: 7px;
+        border-top: 1px dashed var(--rule);
+      }
+      .composer-options summary {
+        color: var(--faint);
+        font-size: 10.5px;
+        cursor: pointer;
+      }
+      .composer-options-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: end;
+        margin-top: 8px;
+      }
+      .mention-menu {
+        position: absolute;
+        top: 8px;
+        right: 24px;
+        left: 24px;
+        z-index: 30;
+        max-height: 310px;
+        overflow: auto;
+        border: 1px solid var(--rule-strong);
+        background: var(--surface);
+        transform: translateY(-100%);
+      }
+      .mention-item {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        gap: 10px;
+        width: 100%;
+        padding: 9px 12px;
+        border: 0;
+        border-bottom: 1px solid var(--rule);
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+      .mention-item:last-child {
+        border-bottom: 0;
+      }
+      .mention-item:hover,
+      .mention-item.is-active {
+        background: var(--brand-soft);
+      }
+      .mention-kind {
+        color: var(--faint);
+        font-size: 10px;
+      }
+      .mention-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+      }
+      .mention-title {
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 10.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .mention-detail {
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* read-only chat notice */
+      .chat-unavailable {
+        max-width: 600px;
+        margin: 68px auto;
+        padding: 0 20px;
+      }
+      .chat-unavailable h2 {
+        margin: 0 0 10px;
+        font-family: var(--serif);
+        font-size: 28px;
+        font-weight: 600;
+      }
+      .chat-unavailable p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 13.5px;
+        line-height: 1.75;
+      }
+      .chat-unavailable .kicker {
+        margin-bottom: 6px;
+        color: var(--rust);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      /* runtime / projects inside the workspace */
+      .workspace-view {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 22px 24px;
+      }
+      .workspace-view h2 {
+        margin-bottom: 6px;
+        font-family: var(--serif);
+        font-size: 22px;
+      }
+      .workspace-view .meta {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .workspace-view table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+      }
+      .workspace-view th,
+      .workspace-view td {
+        padding: 7px 8px;
+        border-bottom: 1px solid var(--rule);
+        text-align: left;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+      .workspace-view th {
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .workspace-view caption {
+        padding-bottom: 8px;
+        color: var(--faint);
+        font-size: 10.5px;
+        text-align: left;
+      }
+      .workspace-view form {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--rule);
+      }
+      .workspace-view form .panel-row {
+        grid-column: 1 / -1;
+      }
+      .panel-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      /* ---------------- records: index + dossier ---------------- */
+      .records {
+        display: grid;
+        grid-template-columns: 340px minmax(0, 1fr);
+        min-height: calc(100vh - 238px);
+        border: 1px solid var(--rule);
+        background: var(--surface);
+      }
+      .record-index {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        border-right: 1px solid var(--rule);
+        background: var(--surface-2);
+      }
+      .index-head {
+        padding: 18px 20px 13px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .index-head h2 {
+        font-family: var(--serif);
+        font-size: 21px;
+        font-weight: 600;
+      }
+      .index-head p {
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+      .record-list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+      }
+      .record-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        width: 100%;
+        padding: 14px 16px 14px 18px;
+        border: 0;
+        border-bottom: 1px solid var(--rule);
+        border-left: 2px solid transparent;
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+      .record-row:hover {
+        background: var(--surface);
+      }
+      .record-row.is-selected,
+      .record-row.target {
+        border-left-color: var(--brand);
+        background: var(--surface);
+      }
+      .record-row.target {
+        outline: 2px solid var(--brand);
+        outline-offset: -2px;
+      }
+      .record-main {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+      .record-id {
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.4;
+      }
+      .record-desc {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.55;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+      .record-side {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+      }
+      .record-count,
+      .record-kind {
+        color: var(--faint);
+        font-size: 9.5px;
+        white-space: nowrap;
+      }
+      .status-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--rule-strong);
+      }
+      .status-dot[data-status="merged"],
+      .status-dot[data-status="delivered"],
+      .status-dot[data-status="accepted"],
+      .status-dot[data-status="active"] {
+        background: var(--brand);
+      }
+      .status-dot[data-status="blocked"],
+      .status-dot[data-status="interrupted"],
+      .status-dot[data-status="time_exhausted"],
+      .status-dot[data-status="awaiting_human"] {
+        background: var(--rust);
+      }
+      .status-dot[data-status="draft"],
+      .status-dot[data-status="pending"] {
+        background: var(--amber);
+      }
+      .empty {
+        padding: 24px 18px;
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .dossier {
+        min-height: 0;
+        overflow: auto;
+        padding: 28px 34px 44px;
+      }
+      .dossier-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .dossier-kind {
+        margin-bottom: 4px;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+      .dossier-id {
+        font-family: var(--mono);
+        font-size: 20px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+      .dossier-actions {
+        display: flex;
+        flex: none;
+        gap: 7px;
+      }
+      .dossier-lead {
+        max-width: 68ch;
+        max-height: 22rem;
+        margin-top: 20px;
+        padding-left: 18px;
+        overflow: auto;
+        border-left: 2px solid var(--brand-line);
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: 18px;
+        line-height: 1.68;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 26px;
+        margin-top: 22px;
+        border-top: 1px solid var(--rule);
+      }
+      .metric {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 10px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--rule);
+      }
+      .metric-label {
+        color: var(--faint);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+      .metric-value {
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      .callout {
+        margin-top: 18px;
+        padding: 10px 13px;
+        border-left: 2px solid var(--rule-strong);
+        background: var(--surface-2);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .callout-alert {
+        border-left-color: var(--rust);
+        background: var(--rust-soft);
+        color: var(--rust);
+      }
+      .dossier-section {
+        margin-top: 28px;
+      }
+      .section-title {
+        margin-bottom: 9px;
+        font-family: var(--serif);
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .section-empty {
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .detail-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11.5px;
+      }
+      .detail-table th {
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--rule);
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 500;
+        text-align: left;
+        white-space: nowrap;
+      }
+      .detail-table td {
+        padding: 8px;
+        border-bottom: 1px solid var(--rule);
+        vertical-align: top;
+      }
+      .detail-table tr:last-child td {
+        border-bottom: 0;
+      }
+      .task-cell .record-desc {
+        margin-top: 3px;
+        font-size: 11.5px;
+        -webkit-line-clamp: 2;
+      }
+      .task-link {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--brand);
+        font: inherit;
+        font-family: var(--mono);
+        font-size: 11px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .task-link:hover {
+        text-decoration: underline;
+      }
+      .issue-list {
+        padding: 0;
+        list-style: none;
+      }
+      .issue-line {
+        display: flex;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--rule);
+        font-size: 11.5px;
+      }
+      .issue-line:last-child {
+        border-bottom: 0;
+      }
+      .issue-link {
+        flex: none;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--rust);
+        font: inherit;
+        font-size: 11.5px;
+        cursor: pointer;
+      }
+      .issue-link:hover {
+        text-decoration: underline;
+      }
+      .issue-summary {
+        color: var(--muted);
+      }
+      .issue-empty {
+        color: var(--faint);
+        font-size: 11.5px;
+      }
+      .dossier-body {
+        max-width: 70ch;
+        margin-top: 18px;
+        color: var(--ink);
+        font-size: 12.5px;
+        line-height: 1.75;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .dossier-empty {
+        max-width: 420px;
+        padding: 64px 0;
+      }
+      .dossier-empty-title {
+        margin-bottom: 5px;
+        font-family: var(--serif);
+        font-size: 20px;
+      }
+      .dossier-empty p:last-child {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      /* ---------------- operations drawer ---------------- */
+      .drawer {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+      }
+      .drawer-scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 21, 18, 0.35);
+      }
+      .drawer-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        width: min(560px, 100%);
+        overflow: auto;
+        border-left: 1px solid var(--rule);
+        background: var(--surface);
+        padding: 22px 26px 36px;
+      }
+      .drawer-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .drawer-head h2 {
+        font-family: var(--serif);
+        font-size: 23px;
+        font-weight: 600;
+      }
+      .drawer-head .kicker {
+        margin-bottom: 3px;
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 9.5px;
+      }
+      #operations h3 {
+        margin: 22px 0 8px;
+        font-family: var(--serif);
+        font-size: 16px;
+        font-weight: 600;
+      }
+      #operations .meta {
+        margin: 8px 0 16px;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.65;
+      }
+      #submit-form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px;
+        align-items: end;
+      }
+      #submit-form label:nth-child(3),
+      #submit-form label:last-of-type {
+        grid-column: 1 / -1;
+      }
+      #submit-form textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+      #submit-form button {
+        justify-self: start;
+      }
+      .action-grid {
+        display: grid;
+        grid-template-columns: minmax(300px, 1fr) minmax(0, 1fr);
+        gap: 10px;
+        align-items: end;
+        margin-top: 8px;
+      }
+      .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        grid-column: 1 / -1;
+        gap: 7px;
+      }
+      #operations-status {
+        min-height: 1.4em;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      #operations-status[data-tone="error"] {
+        color: var(--rust);
+      }
+
+      @media (max-width: 1100px) {
+        .chat-shell {
+          grid-template-columns: 250px minmax(0, 1fr);
+        }
+        .records {
+          grid-template-columns: 300px minmax(0, 1fr);
+        }
+        .dossier {
+          padding: 24px 26px 36px;
+        }
+      }
+      @media (max-width: 900px) {
+        .chat-shell {
+          grid-template-columns: minmax(0, 1fr);
+          height: auto;
+          min-height: 0;
+        }
+        .chat-rail {
+          border-right: 0;
+          border-bottom: 1px solid var(--rule);
+        }
+        .session-list {
+          max-height: 210px;
+        }
+        .chat-main {
+          min-height: 620px;
+        }
+        .records {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .record-index {
+          border-right: 0;
+          border-bottom: 1px solid var(--rule);
+        }
+        .record-list {
+          max-height: 320px;
+        }
+        .dossier {
+          min-height: 420px;
+        }
+      }
+      @media (max-width: 640px) {
         body {
-          padding: 18px 14px 48px;
+          padding: 0 16px 44px;
         }
-        .app-head {
-          gap: 10px;
+        .masthead {
+          padding-top: 20px;
         }
-        .brand {
-          gap: 11px;
+        .brand-name {
+          font-size: 23px;
         }
-        .brand-mark {
-          width: 34px;
-          height: 34px;
-          border-radius: 10px;
+        .brand-tagline {
+          display: none;
+        }
+        .masthead-tools {
+          width: 100%;
+        }
+        .masthead-tools .refresh-note {
+          flex: 1 1 100%;
+        }
+        .masthead-tools .button {
+          flex: 1 1 0;
+        }
+        .primary-tabs {
+          gap: 20px;
+        }
+        .status-line {
+          gap: 5px 16px;
+        }
+        .thread-scroll {
+          padding: 18px 16px 6px;
+        }
+        .composer {
+          padding: 10px 16px 14px;
+        }
+        .chat-head {
+          padding: 11px 16px;
+        }
+        .transcript::before,
+        .msg::before {
+          display: none;
+        }
+        .msg {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 3px;
+        }
+        .msg-rail {
+          display: flex;
+          gap: 8px;
+          text-align: left;
+        }
+        .msg-time {
+          font-size: 9px;
+        }
+        .metric-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .dossier {
+          padding: 20px 16px 30px;
+        }
+        .dossier-head {
+          flex-direction: column;
+        }
+        .dossier-lead {
           font-size: 16px;
         }
-        h1 {
-          font-size: 18px;
-        }
-        #refresh-button {
-          padding: 7px 11px;
-        }
-        .app-head + .meta {
-          width: 100%;
-          border-radius: 12px;
-        }
-        .tabs[role="tablist"] {
-          top: 8px;
-          display: flex;
-          width: 100%;
-          overflow-x: auto;
-        }
-        .tab {
-          flex: 1;
-          justify-content: center;
-          padding: 8px 10px;
-        }
-        .card-head {
-          padding: 12px;
-        }
-        .group-head {
-          padding: 10px 12px;
-        }
-        .card-body {
-          padding: 13px;
-          overflow-x: auto;
-        }
-        /* 明细列多，窄屏用卡内横向滚动换可读性，不把每列压成一条字。 */
-        .card table,
-        .group table {
-          min-width: 720px;
-        }
-        #panel-issues {
-          overflow-x: auto;
-        }
-        #panel-issues > table {
-          min-width: 680px;
-        }
-        th,
-        td {
-          padding: 7px 9px;
-        }
-        .description {
-          max-height: 16em;
-        }
-        #operations {
-          padding: 15px 14px 6px;
-        }
-        #operations #submit-form,
-        #operations .actions {
+        .new-session,
+        .composer-options-grid {
           grid-template-columns: minmax(0, 1fr);
-          gap: 10px;
         }
-        #operations #submit-form label:nth-child(4) {
-          grid-column: 1;
+        .mention-menu {
+          right: 16px;
+          left: 16px;
         }
-        #operations input,
-        #operations select {
-          width: 100%;
-          min-width: 0;
+        .drawer-panel {
+          padding: 18px 16px 30px;
         }
-        .layout {
-          gap: 16px;
+        #submit-form {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .action-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .dossier-section {
+          overflow-x: auto;
+        }
+        .detail-table {
+          min-width: 620px;
         }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -1300,155 +1437,509 @@
       }
       * {
         scrollbar-width: thin;
-        scrollbar-color: var(--line-strong) transparent;
+        scrollbar-color: var(--rule-strong) transparent;
       }
       ::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent;
+        width: 8px;
+        height: 8px;
       }
       ::-webkit-scrollbar-thumb {
-        border: 3px solid transparent;
-        border-radius: 999px;
-        background: var(--line-strong);
-        background-clip: content-box;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: var(--faint);
+        border: 2px solid transparent;
+        background: var(--rule-strong);
         background-clip: content-box;
       }
     </style>
   </head>
   <body>
-    <div class="layout">
-      <main class="progress">
-        <header class="app-head">
-          <div class="brand">
-            <span class="brand-mark" aria-hidden="true">F</span>
-            <div class="brand-copy">
-              <h1>ForgeLoop 研发进展</h1>
-              <p class="brand-sub">需求 · 任务 · 问题</p>
-            </div>
-          </div>
-          <button id="refresh-button" type="button">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
+    <header class="masthead">
+      <a class="brand" href="#chat" aria-label="ForgeLoop 会话">
+        <span class="brand-mark" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+          >
+            <path d="M4 12a8 8 0 0 1 13.6-5.7L20 8.6" stroke-linecap="round" />
+            <path
+              d="M20 4v4.6h-4.6"
               stroke-linecap="round"
               stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <path d="M21 3v6h-6" />
-            </svg>
-            立即刷新
+            />
+            <path d="M20 12a8 8 0 0 1-13.6 5.7L4 15.4" stroke-linecap="round" />
+            <path
+              d="M4 20v-4.6h4.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-name">ForgeLoop</span>
+          <span class="brand-tagline">研发与运维值班台</span>
+        </span>
+      </a>
+      <div class="masthead-tools">
+        <span class="refresh-note" id="refresh-note">自动刷新: 加载中</span>
+        <button
+          id="operations-open"
+          class="button button-quiet"
+          type="button"
+          hidden
+        >
+          新需求 / 操作
+        </button>
+        <button id="refresh-button" class="button button-quiet" type="button">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+          刷新
+        </button>
+      </div>
+    </header>
+
+    <div class="status-line">
+      <span class="status-item"
+        ><span class="status-key">生成</span><b id="generated-at">—</b></span
+      >
+      <span class="status-item"
+        ><span class="status-key">记录根</span><b id="records-root">—</b></span
+      >
+      <span class="status-item" id="countdown">等待首次加载</span>
+    </div>
+    <div id="banner" role="alert"></div>
+
+    <nav class="primary-tabs" role="tablist" aria-label="主要视图">
+      <button
+        id="tab-chat"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="true"
+        aria-controls="panel-chat"
+      >
+        会话
+      </button>
+      <button
+        id="tab-requirements"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-requirements"
+      >
+        需求<span class="tab-count" id="count-requirements">—</span>
+      </button>
+      <button
+        id="tab-tasks"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-tasks"
+      >
+        任务<span class="tab-count" id="count-tasks">—</span>
+      </button>
+      <button
+        id="tab-issues"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-issues"
+      >
+        问题<span class="tab-count" id="count-issues">—</span>
+      </button>
+    </nav>
+
+    <main class="views">
+      <section
+        id="panel-chat"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-chat"
+        tabindex="0"
+      >
+        <div id="chat-unavailable" class="chat-unavailable" hidden>
+          <p class="kicker">只读模式</p>
+          <h2>会话需要常驻服务</h2>
+          <p>
+            当前由 <code>forgeloop web</code> 提供服务，只读、不下发写令牌。用
+            <code>forgeloop serve</code> 打开同一页面即可与 Agent
+            对话；需求、任务、问题仍可查看。
+          </p>
+          <a class="button" href="#requirements">查看需求</a>
+        </div>
+
+        <div id="panel" class="chat-shell" hidden>
+          <aside class="chat-rail" aria-label="会话导航">
+            <div class="rail-head">
+              <h2>会话</h2>
+              <button
+                id="panel-new-session"
+                class="button button-small"
+                type="button"
+              >
+                新会话
+              </button>
+            </div>
+            <p id="panel-session-empty" class="rail-empty">
+              还没有会话。新建一个开始。
+            </p>
+            <div
+              id="panel-session-list"
+              class="session-list"
+              role="listbox"
+              aria-label="会话列表"
+            ></div>
+            <div class="rail-foot">
+              <nav
+                class="workspace-tabs"
+                role="tablist"
+                aria-label="工作区视图"
+              >
+                <button
+                  id="panel-tab-sessions"
+                  class="workspace-tab"
+                  type="button"
+                  aria-pressed="true"
+                >
+                  对话
+                </button>
+                <button
+                  id="panel-tab-runtime"
+                  class="workspace-tab"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  运行时
+                </button>
+                <button
+                  id="panel-tab-projects"
+                  class="workspace-tab"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  项目
+                </button>
+              </nav>
+              <p id="panel-status" class="status-text" role="status"></p>
+            </div>
+          </aside>
+
+          <div class="chat-main">
+            <header class="chat-head">
+              <p id="panel-session-meta" class="chat-meta">未选择会话</p>
+              <button
+                id="panel-refresh"
+                class="button button-small"
+                type="button"
+              >
+                刷新
+              </button>
+            </header>
+
+            <section id="panel-sessions-view" class="chat-view">
+              <div id="panel-new-session-form" class="new-session" hidden>
+                <label>
+                  项目
+                  <select id="panel-project-select"></select>
+                </label>
+                <label>
+                  标题
+                  <input id="panel-session-title" autocomplete="off" />
+                </label>
+                <div class="new-session-actions">
+                  <button
+                    id="panel-create-session"
+                    class="button button-primary"
+                    type="button"
+                  >
+                    创建
+                  </button>
+                  <button
+                    id="panel-cancel-session"
+                    class="button"
+                    type="button"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+              <div class="thread-scroll">
+                <p id="panel-empty" class="chat-empty">
+                  选择一个会话查看对话，或新建一个。
+                </p>
+                <ol id="panel-messages" class="transcript"></ol>
+                <p id="panel-tools-meta" class="transcript-meta" hidden></p>
+                <ul id="panel-tools" class="tool-list" hidden></ul>
+                <div id="panel-decisions" class="decisions"></div>
+              </div>
+              <form id="panel-composer" class="composer" hidden>
+                <div
+                  id="mention-menu"
+                  class="mention-menu"
+                  role="listbox"
+                  aria-label="引用记录"
+                  hidden
+                ></div>
+                <label class="sr-only" for="panel-message-text"
+                  >给 Agent 的消息</label
+                >
+                <textarea
+                  id="panel-message-text"
+                  rows="2"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="mention-menu"
+                  placeholder="给 Agent 发消息… 输入 @ 引用需求、任务或问题"
+                ></textarea>
+                <div class="composer-bar">
+                  <span class="composer-hint"
+                    >Enter 发送 · Shift+Enter 换行 · @ 引用记录</span
+                  >
+                  <button
+                    id="panel-send"
+                    class="button button-primary"
+                    type="submit"
+                  >
+                    发送
+                  </button>
+                </div>
+                <details class="composer-options">
+                  <summary>人工决定与终止（需要时展开）</summary>
+                  <div class="composer-options-grid">
+                    <label>
+                      理由
+                      <input
+                        id="panel-reason"
+                        placeholder="批准、验收、停止或终止时必填"
+                      />
+                    </label>
+                    <label>
+                      补充指令
+                      <input
+                        id="panel-decision-text"
+                        placeholder="批准后立即发起新一轮（可选）"
+                      />
+                    </label>
+                    <button
+                      id="panel-terminate"
+                      class="button button-danger"
+                      type="button"
+                    >
+                      终止会话
+                    </button>
+                  </div>
+                </details>
+              </form>
+            </section>
+
+            <section id="panel-runtime-view" class="workspace-view" hidden>
+              <h2>运行时</h2>
+              <p class="meta" id="panel-runtime-summary"></p>
+              <table>
+                <caption>
+                  就绪 = 项目路径存在，且隔离 HOME
+                  里的模型配置可用；未就绪不能建会话。
+                </caption>
+                <thead>
+                  <tr>
+                    <th>项目</th>
+                    <th>就绪</th>
+                    <th>问题</th>
+                    <th>PI 命令</th>
+                    <th>隔离 HOME</th>
+                    <th>在跑</th>
+                  </tr>
+                </thead>
+                <tbody id="panel-runtime-body"></tbody>
+              </table>
+              <p class="empty" id="panel-runtime-empty">
+                项目档案为空：到「项目」页签新增一个。
+              </p>
+            </section>
+
+            <section id="panel-projects-view" class="workspace-view" hidden>
+              <h2>项目</h2>
+              <p class="meta">
+                手写配置（config/service.toml）的项目只读；页面管理的项目可增删改，同名会拒绝。
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>项目</th>
+                    <th>来源</th>
+                    <th>路径</th>
+                    <th>git</th>
+                    <th>问题</th>
+                    <th>进行中会话</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="panel-projects-body"></tbody>
+              </table>
+              <p class="empty" id="panel-projects-empty">还没有项目档案。</p>
+              <form id="panel-project-form">
+                <label>
+                  项目名
+                  <input id="panel-project-name" />
+                </label>
+                <label>
+                  代码仓路径
+                  <input id="panel-project-path" />
+                </label>
+                <label>
+                  说明
+                  <input id="panel-project-description" />
+                </label>
+                <label>
+                  PI 命令（JSON 数组，不拆词）
+                  <input
+                    id="panel-project-command"
+                    placeholder='["pi", "--mode", "rpc", "--no-session"]'
+                  />
+                </label>
+                <label>
+                  隔离 HOME（需含非空的 .pi/agent/models.json）
+                  <input id="panel-project-home" />
+                </label>
+                <p class="meta" id="panel-project-source"></p>
+                <div class="panel-row">
+                  <button
+                    id="panel-project-submit"
+                    class="button button-primary"
+                    type="submit"
+                  >
+                    新增项目
+                  </button>
+                  <button id="panel-project-reset" class="button" type="button">
+                    清空
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="panel-requirements"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-requirements"
+        tabindex="0"
+        hidden
+      >
+        <div class="records">
+          <aside class="record-index" aria-label="需求索引">
+            <header class="index-head">
+              <h2>需求</h2>
+              <p>按 ID 与最新原文排列</p>
+            </header>
+            <div id="requirements-body" class="record-list"></div>
+            <p class="empty" id="requirements-empty">没有需求记录。</p>
+          </aside>
+          <article
+            id="requirements-detail"
+            class="dossier"
+            aria-live="polite"
+          ></article>
+        </div>
+      </section>
+
+      <section
+        id="panel-tasks"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-tasks"
+        tabindex="0"
+        hidden
+      >
+        <div class="records">
+          <aside class="record-index" aria-label="任务索引">
+            <header class="index-head">
+              <h2>任务</h2>
+              <p>按任务目标与执行状态排列</p>
+            </header>
+            <div id="tasks-body" class="record-list"></div>
+            <p class="empty" id="tasks-empty">没有任务记录。</p>
+          </aside>
+          <article
+            id="tasks-detail"
+            class="dossier"
+            aria-live="polite"
+          ></article>
+        </div>
+      </section>
+
+      <section
+        id="panel-issues"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-issues"
+        tabindex="0"
+        hidden
+      >
+        <div class="records">
+          <aside class="record-index" aria-label="问题索引">
+            <header class="index-head">
+              <h2>问题</h2>
+              <p>需要人工介入的当前事实</p>
+            </header>
+            <div id="issues-body" class="record-list"></div>
+            <p class="empty" id="issues-empty">没有待处理问题。</p>
+          </aside>
+          <article
+            id="issues-detail"
+            class="dossier"
+            aria-live="polite"
+          ></article>
+        </div>
+      </section>
+    </main>
+
+    <div id="operations-drawer" class="drawer" hidden>
+      <div class="drawer-scrim" data-operations-close></div>
+      <section
+        class="drawer-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="operations-title"
+      >
+        <header class="drawer-head">
+          <div>
+            <p class="kicker">写入口</p>
+            <h2 id="operations-title">需求操作</h2>
+          </div>
+          <button
+            id="operations-close"
+            class="button button-icon"
+            type="button"
+            aria-label="关闭"
+          >
+            ×
           </button>
         </header>
-        <p class="meta">
-          <span id="refresh-note">自动刷新: 每 60 秒</span> ·
-          <span id="countdown">等待首次加载</span> · 生成时间
-          <b id="generated-at">—</b> · 记录根 <b id="records-root">—</b>
-        </p>
-        <div id="banner" role="alert"></div>
-
-        <nav class="tabs" role="tablist" aria-label="研发进展分段">
-          <button
-            id="tab-requirements"
-            class="tab"
-            type="button"
-            role="tab"
-            aria-selected="true"
-            aria-controls="panel-requirements"
-          >
-            需求<span class="tab-count" id="count-requirements">—</span>
-          </button>
-          <button
-            id="tab-tasks"
-            class="tab"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="panel-tasks"
-          >
-            任务<span class="tab-count" id="count-tasks">—</span>
-          </button>
-          <button
-            id="tab-issues"
-            class="tab"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="panel-issues"
-          >
-            问题<span class="tab-count" id="count-issues">—</span>
-          </button>
-        </nav>
-
-        <section
-          id="panel-requirements"
-          role="tabpanel"
-          aria-labelledby="tab-requirements"
-          tabindex="0"
-        >
-          <p class="panel-note">
-            一条需求一张卡片，卡内是它分解出的任务（按身份关联）；「任务进展」为已交付任务数
-            / 任务包任务数，点任务可跳到任务页签。
-          </p>
-          <div class="cards" id="requirements-body"></div>
-          <p class="empty" id="requirements-empty">没有需求记录。</p>
-        </section>
-
-        <section
-          id="panel-tasks"
-          role="tabpanel"
-          aria-labelledby="tab-tasks"
-          tabindex="0"
-          hidden
-        >
-          <p class="panel-note">
-            按所属需求分组；未关联需求的单任务单独成组。点组头回到需求，点「问题」看这条任务上的问题。
-          </p>
-          <div class="groups" id="tasks-body"></div>
-          <p class="empty" id="tasks-empty">没有任务记录。</p>
-        </section>
-
-        <section
-          id="panel-issues"
-          role="tabpanel"
-          aria-labelledby="tab-issues"
-          tabindex="0"
-          hidden
-        >
-          <p class="panel-note">
-            需要人工介入的当前事实：阻断、中断、等待追加授权、工时耗尽、待确认停止与未完成执行槽位。等待批准/验收属于正常流程门，不在此列；点对象跳到它所在的那一段。
-          </p>
-          <table>
-            <thead>
-              <tr>
-                <th>种类</th>
-                <th>对象</th>
-                <th>摘要</th>
-                <th>依据</th>
-              </tr>
-            </thead>
-            <tbody id="issues-body"></tbody>
-          </table>
-          <p class="empty" id="issues-empty">没有待处理问题。</p>
-        </section>
-
         <section id="operations" hidden>
-          <h2>操作</h2>
+          <h3>提交需求</h3>
           <p class="meta">
             写操作与 CLI
-            等价：批准绑定需求身份与任务包版本，理由写进权威记录；只有
-            <code>forgeloop serve</code>（常驻服务）下发令牌，只读的
-            <code>forgeloop web</code> 不显示本面板。
+            等价：批准绑定需求身份与任务包版本，理由写进权威记录。只有
+            <code>forgeloop serve</code> 下发令牌，只读的
+            <code>forgeloop web</code>
+            不显示本面板。
           </p>
           <form id="submit-form">
             <label>
@@ -1467,11 +1958,17 @@
               需求正文
               <textarea id="submit-text" name="text" required></textarea>
             </label>
-            <button id="submit-button" class="primary" type="submit">
+            <button
+              id="submit-button"
+              class="button button-primary"
+              type="submit"
+            >
               提交需求
             </button>
           </form>
-          <div class="actions">
+
+          <h3>处理已有需求</h3>
+          <div class="action-grid">
             <label>
               需求
               <select id="action-req"></select>
@@ -1481,179 +1978,38 @@
               <input id="action-reason" />
             </label>
             <div class="action-buttons">
-              <button id="action-approve" class="primary" type="button">
+              <button
+                id="action-approve"
+                class="button button-primary"
+                type="button"
+              >
                 批准任务包
               </button>
-              <button id="action-advance" class="accent" type="button">
+              <button id="action-advance" class="button" type="button">
                 推进本次
               </button>
-              <button id="action-accept" type="button">整体验收</button>
-              <button id="action-stop" class="danger" type="button">
+              <button id="action-accept" class="button" type="button">
+                整体验收
+              </button>
+              <button
+                id="action-stop"
+                class="button button-danger"
+                type="button"
+              >
                 请求停止
               </button>
-              <button id="action-cancel" class="danger" type="button">
+              <button
+                id="action-cancel"
+                class="button button-danger"
+                type="button"
+              >
                 取消需求
               </button>
             </div>
           </div>
-          <p class="meta" id="operations-status" role="status"></p>
+          <p id="operations-status" role="status"></p>
         </section>
-      </main>
-
-      <aside id="panel" aria-label="会话面板" hidden>
-        <div class="panel-head">
-          <h2>会话面板</h2>
-          <button id="panel-refresh" type="button">刷新</button>
-        </div>
-        <p class="meta">
-          一轮 = 一条消息驱动一次真实 PI 调用；需要人工判断时 Agent
-          会显式请求，面板停在「待人工决定」，不自动重试。
-        </p>
-        <nav class="tabs">
-          <button id="panel-tab-sessions" type="button" aria-pressed="true">
-            会话
-          </button>
-          <button id="panel-tab-runtime" type="button" aria-pressed="false">
-            运行时
-          </button>
-          <button id="panel-tab-projects" type="button" aria-pressed="false">
-            项目
-          </button>
-        </nav>
-        <p class="meta" id="panel-status" role="status"></p>
-
-        <section id="panel-sessions-view">
-          <div class="panel-row">
-            <select id="panel-session-list"></select>
-            <button id="panel-new-session" class="accent" type="button">
-              新建会话
-            </button>
-          </div>
-          <div id="panel-new-session-form" hidden>
-            <label>
-              项目（只列运行时已就绪的项目）
-              <select id="panel-project-select"></select>
-            </label>
-            <label>
-              会话标题
-              <input id="panel-session-title" />
-            </label>
-            <div class="panel-row">
-              <button id="panel-create-session" class="primary" type="button">
-                创建
-              </button>
-              <button id="panel-cancel-session" type="button">取消</button>
-            </div>
-          </div>
-          <p class="meta" id="panel-session-meta">未选择会话</p>
-          <p class="meta" id="panel-empty">
-            选择一个会话查看对话，或新建一个。
-          </p>
-          <ol id="panel-messages"></ol>
-          <p class="meta" id="panel-tools-meta" hidden></p>
-          <ul id="panel-tools" hidden></ul>
-          <div id="panel-decisions"></div>
-          <form id="panel-composer">
-            <label>
-              给 Agent 的消息
-              <textarea id="panel-message-text" rows="3"></textarea>
-            </label>
-            <label>
-              理由（人工决定与终止必填，会写进记录）
-              <input id="panel-reason" />
-            </label>
-            <label>
-              人工决定的补充指令（可选，批准后立即发起新一轮）
-              <input id="panel-decision-text" />
-            </label>
-            <div class="panel-row">
-              <button id="panel-send" class="primary" type="submit">
-                发送
-              </button>
-              <button id="panel-terminate" class="danger" type="button">
-                终止会话
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section id="panel-runtime-view" hidden>
-          <p class="meta" id="panel-runtime-summary"></p>
-          <table>
-            <caption>
-              「就绪」= 项目路径存在且隔离 HOME
-              里的模型配置可用；未就绪不能建会话。
-            </caption>
-            <thead>
-              <tr>
-                <th>项目</th>
-                <th>就绪</th>
-                <th>问题</th>
-                <th>PI 命令</th>
-                <th>隔离 HOME</th>
-                <th>在跑</th>
-              </tr>
-            </thead>
-            <tbody id="panel-runtime-body"></tbody>
-          </table>
-          <p class="empty" id="panel-runtime-empty">
-            项目档案为空：到「项目」页签新增一个。
-          </p>
-        </section>
-
-        <section id="panel-projects-view" hidden>
-          <table>
-            <caption>
-              手写配置（config/service.toml）的项目只读；页面管理的项目可增删改，同名会拒绝。
-            </caption>
-            <thead>
-              <tr>
-                <th>项目</th>
-                <th>来源</th>
-                <th>路径</th>
-                <th>git</th>
-                <th>问题</th>
-                <th>进行中会话</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="panel-projects-body"></tbody>
-          </table>
-          <p class="empty" id="panel-projects-empty">还没有项目档案。</p>
-          <form id="panel-project-form">
-            <label>
-              项目名
-              <input id="panel-project-name" />
-            </label>
-            <label>
-              代码仓路径
-              <input id="panel-project-path" />
-            </label>
-            <label>
-              说明
-              <input id="panel-project-description" />
-            </label>
-            <label>
-              PI 命令（JSON 数组，不拆词）
-              <input
-                id="panel-project-command"
-                placeholder='["pi", "--mode", "rpc", "--no-session"]'
-              />
-            </label>
-            <label>
-              隔离 HOME（需含非空的 .pi/agent/models.json）
-              <input id="panel-project-home" />
-            </label>
-            <p class="meta" id="panel-project-source"></p>
-            <div class="panel-row">
-              <button id="panel-project-submit" class="primary" type="submit">
-                新增项目
-              </button>
-              <button id="panel-project-reset" type="button">清空</button>
-            </div>
-          </form>
-        </section>
-      </aside>
+      </section>
     </div>
 
     <!-- 行为代码是 TypeScript 源（frontend/src）编译出的模块，见 docs/engineering-reliability.md 第 1 节；本文件只保留结构与样式。 -->

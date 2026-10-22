@@ -8,6 +8,7 @@
  * 元素 id 与 `web_page.html` 一一对应，缺一个就明确失败（与 `render.ts` 同一口径）。
  */
 import { EMPTY, formatTimestamp, text } from "./format.js";
+import { mentionKindLabel } from "./mentions.js";
 import { renderToolCalls } from "./panel_tools.js";
 const ELEMENT_IDS = {
     panel: "panel",
@@ -16,6 +17,7 @@ const ELEMENT_IDS = {
     projectsView: "panel-projects-view",
     status: "panel-status",
     sessionList: "panel-session-list",
+    sessionEmpty: "panel-session-empty",
     sessionMeta: "panel-session-meta",
     messages: "panel-messages",
     toolCalls: "panel-tools",
@@ -26,6 +28,8 @@ const ELEMENT_IDS = {
     composer: "panel-composer",
     messageText: "panel-message-text",
     emptyHint: "panel-empty",
+    mentionMenu: "mention-menu",
+    chatUnavailable: "chat-unavailable",
     newSessionButton: "panel-new-session",
     newSessionForm: "panel-new-session-form",
     projectSelect: "panel-project-select",
@@ -124,9 +128,10 @@ export function renderPanelTab(elements, tab) {
         button.setAttribute("aria-pressed", PANEL_TABS[index] === tab ? "true" : "false");
     });
 }
-/** 面板整体可见性：只有拿到令牌（`forgeloop serve`）时才显示。 */
+/** 面板整体可见性：只有拿到令牌（`forgeloop serve`）时才显示；只读时给出说明。 */
 export function renderPanelAvailability(elements, available) {
     elements.panel.hidden = !available;
+    elements.chatUnavailable.hidden = available;
 }
 /** 状态行：成功用普通色，失败用醒目色。 */
 export function renderPanelStatus(elements, message, tone) {
@@ -149,24 +154,73 @@ function fill(body, empty, rows) {
     body.replaceChildren(...rows);
     empty.style.display = rows.length === 0 ? "block" : "none";
 }
-/** 会话清单：保留下拉框当前选择，新会话出现时不改动人的选择。 */
+/** 会话清单：会话身份挂在按钮上，选中态用 `aria-selected` 与样式共同表达。 */
 function renderPanelSessions(elements, sessions, selected) {
-    elements.sessionList.replaceChildren();
-    for (const session of sessions) {
-        const option = elements.sessionList.ownerDocument.createElement("option");
-        option.value = session.session_id;
-        option.textContent = `${session.title}（${sessionStatusLabel(session.status)}·${session.turn_count} 轮）`;
-        elements.sessionList.append(option);
+    const document = elements.sessionList.ownerDocument;
+    const items = sessions.map((session) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "session-item";
+        button.dataset["sessionId"] = session.session_id;
+        if (session.session_id === selected) {
+            button.classList.add("is-selected");
+            button.setAttribute("aria-current", "true");
+        }
+        const dot = document.createElement("span");
+        dot.className = "session-dot";
+        dot.dataset["status"] = session.status;
+        const copy = document.createElement("span");
+        copy.className = "session-copy";
+        const title = document.createElement("span");
+        title.className = "session-title";
+        title.textContent = text(session.title);
+        const meta = document.createElement("span");
+        meta.className = "session-meta";
+        meta.textContent = `${sessionStatusLabel(session.status)} · ${session.turn_count} 轮`;
+        copy.append(title, meta);
+        button.append(dot, copy);
+        return button;
+    });
+    elements.sessionList.replaceChildren(...items);
+    elements.sessionEmpty.hidden = sessions.length > 0;
+}
+/** `@` 引用菜单：候选项带种类、身份与一句说明；活动项只做视觉高亮。 */
+export function renderMentionMenu(elements, items, active) {
+    const document = elements.mentionMenu.ownerDocument;
+    const buttons = items.map((item, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "mention-item";
+        button.id = `mention-option-${index}`;
+        button.dataset["mentionIndex"] = String(index);
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", String(index === active));
+        if (index === active) {
+            button.classList.add("is-active");
+        }
+        const kind = document.createElement("span");
+        kind.className = "mention-kind";
+        kind.textContent = mentionKindLabel(item.kind);
+        const copy = document.createElement("span");
+        copy.className = "mention-copy";
+        const title = document.createElement("span");
+        title.className = "mention-title mono";
+        title.textContent = item.title;
+        const detail = document.createElement("span");
+        detail.className = "mention-detail";
+        detail.textContent = item.detail;
+        copy.append(title, detail);
+        button.append(kind, copy);
+        return button;
+    });
+    elements.mentionMenu.replaceChildren(...buttons);
+    elements.mentionMenu.hidden = buttons.length === 0;
+    elements.messageText.setAttribute("aria-expanded", String(buttons.length > 0));
+    if (buttons.length === 0) {
+        elements.messageText.removeAttribute("aria-activedescendant");
     }
-    const stillThere = sessions.some((item) => item.session_id === selected);
-    elements.sessionList.value = stillThere ? selected : "";
-    const placeholder = sessions.length === 0 ? "还没有会话" : "选择一个会话";
-    if (!stillThere) {
-        const option = elements.sessionList.ownerDocument.createElement("option");
-        option.value = "";
-        option.textContent = placeholder;
-        elements.sessionList.prepend(option);
-        elements.sessionList.value = "";
+    else {
+        elements.messageText.setAttribute("aria-activedescendant", `mention-option-${active}`);
     }
 }
 /** 项目下拉框（新建会话用）：只列运行时已就绪的项目。 */
@@ -242,15 +296,25 @@ function messageNode(elements, message) {
         `msg msg-${message.role}` +
             (message.state === "error" ? " msg-error" : "") +
             (streaming ? " msg-streaming" : "");
-    const head = elements.messages.ownerDocument.createElement("span");
-    head.className = "msg-head";
-    head.textContent =
-        `${ROLE_LABELS[message.role] ?? text(message.role)} · ${formatTimestamp(message.created_at)}` +
-            (streaming ? " · 正在生成" : "") +
-            contextModeNote(message);
-    const body = elements.messages.ownerDocument.createElement("p");
-    body.textContent = message.content;
-    item.append(head, body);
+    const document = elements.messages.ownerDocument;
+    const rail = document.createElement("span");
+    rail.className = "msg-rail";
+    const role = document.createElement("span");
+    role.className = "msg-role";
+    role.textContent = ROLE_LABELS[message.role] ?? text(message.role);
+    const time = document.createElement("time");
+    time.className = "msg-time";
+    time.textContent = formatTimestamp(message.created_at);
+    rail.append(role, time);
+    const body = document.createElement("div");
+    body.className = "msg-body";
+    const meta = document.createElement("span");
+    meta.className = "msg-head";
+    meta.textContent = (streaming ? "正在生成" : "") + contextModeNote(message);
+    const paragraph = document.createElement("p");
+    paragraph.textContent = message.content;
+    body.append(meta, paragraph);
+    item.append(rail, body);
     return item;
 }
 /**
@@ -308,6 +372,7 @@ export function renderPanelSessionDetail(elements, detail) {
         renderToolCalls(elements.toolCalls, elements.toolsMeta, []);
         elements.decisions.replaceChildren();
         elements.emptyHint.hidden = false;
+        elements.composer.hidden = true;
         return;
     }
     const session = detail.session;

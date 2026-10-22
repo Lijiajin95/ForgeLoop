@@ -11,15 +11,24 @@
  * - 高亮是暂时的：到点自动撤掉，避免页面上留下一个说不清来由的标记。
  */
 
-import { TAB_IDS, type TabId } from "./link.js";
+import { TAB_IDS } from "./link.js";
 
 /** 跳转高亮的持续时间（毫秒）。 */
 const HIGHLIGHT_MS = 3000;
 
+/**
+ * 页面视图：会话是主页面，另外三段是记录档案。
+ *
+ * 数据跳转仍只用 `TabId`（需求/任务/问题）；会话只参与主导航，不会被记录链接指向。
+ */
+const VIEW_IDS = ["chat", ...TAB_IDS] as const;
+
+export type ViewId = (typeof VIEW_IDS)[number];
+
 /** 页签元素句柄：按钮与面板按身份成对出现。 */
 export interface TabView {
-  readonly buttons: ReadonlyMap<TabId, HTMLButtonElement>;
-  readonly panels: ReadonlyMap<TabId, HTMLElement>;
+  readonly buttons: ReadonlyMap<ViewId, HTMLButtonElement>;
+  readonly panels: ReadonlyMap<ViewId, HTMLElement>;
 }
 
 function requireElement<T extends HTMLElement>(document: Document, id: string): T {
@@ -31,33 +40,33 @@ function requireElement<T extends HTMLElement>(document: Document, id: string): 
   return element as T;
 }
 
-/** 解析三段页签的按钮与面板；任一缺失即抛错。 */
+/** 解析全部视图的按钮与面板；任一缺失即抛错。 */
 export function resolveTabs(document: Document): TabView {
-  const buttons = new Map<TabId, HTMLButtonElement>();
-  const panels = new Map<TabId, HTMLElement>();
-  TAB_IDS.forEach((id) => {
+  const buttons = new Map<ViewId, HTMLButtonElement>();
+  const panels = new Map<ViewId, HTMLElement>();
+  VIEW_IDS.forEach((id) => {
     buttons.set(id, requireElement<HTMLButtonElement>(document, `tab-${id}`));
     panels.set(id, requireElement<HTMLElement>(document, `panel-${id}`));
   });
   return { buttons, panels };
 }
 
-/** 地址栏片段 → 页签身份；空片段与未知片段返回 `null`（由调用方回退默认段）。 */
-export function tabFromHash(hash: string): TabId | null {
+/** 地址栏片段 → 视图身份；空片段与未知片段返回 `null`（由调用方回退默认视图）。 */
+export function tabFromHash(hash: string): ViewId | null {
   const name = hash.startsWith("#") ? hash.slice(1) : hash;
-  return TAB_IDS.find((id) => id === name) ?? null;
+  return VIEW_IDS.find((id) => id === name) ?? null;
 }
 
-/** 当前选中的页签；尚未接线时回退到第一段（需求）。 */
-export function activeTab(view: TabView): TabId {
-  const selected = TAB_IDS.find(
+/** 当前选中的视图；尚未接线时回退到第一段（会话）。 */
+export function activeTab(view: TabView): ViewId {
+  const selected = VIEW_IDS.find(
     (id) => view.buttons.get(id)?.getAttribute("aria-selected") === "true",
   );
-  return selected ?? TAB_IDS[0];
+  return selected ?? VIEW_IDS[0];
 }
 
-/** 切换页签：选中态、面板显隐与地址栏片段一起更新。 */
-export function activateTab(view: TabView, id: TabId): void {
+/** 切换视图：选中态、面板显隐与地址栏片段一起更新。 */
+export function activateTab(view: TabView, id: ViewId): void {
   view.buttons.forEach((button, candidate) => {
     button.setAttribute("aria-selected", String(candidate === id));
   });
@@ -68,14 +77,19 @@ export function activateTab(view: TabView, id: TabId): void {
 }
 
 /** 环形移动：左右方向键在首尾之间循环。 */
-function neighbour(id: TabId, step: number): TabId {
-  const at = TAB_IDS.indexOf(id);
-  return TAB_IDS[(at + step + TAB_IDS.length) % TAB_IDS.length] as TabId;
+function neighbour(id: ViewId, step: number): ViewId {
+  const at = VIEW_IDS.indexOf(id);
+  return VIEW_IDS[(at + step + VIEW_IDS.length) % VIEW_IDS.length] as ViewId;
 }
 
-/** 接上点击、左右方向键与地址栏片段变化，并按地址栏片段决定初始页签。 */
-export function wireTabs(view: TabView): void {
-  activateTab(view, tabFromHash(globalThis.location.hash) ?? TAB_IDS[0]);
+/**
+ * 接上点击、左右方向键与地址栏片段变化。
+ *
+ * 地址栏有可识别片段时优先它；否则用调用方给的默认视图。只读模式没有会话面板，
+ * 装配层会把默认视图落到需求；常驻服务则默认落在会话。
+ */
+export function wireTabs(view: TabView, fallback: ViewId = "chat"): void {
+  activateTab(view, tabFromHash(globalThis.location.hash) ?? fallback);
   view.buttons.forEach((button, id) => {
     button.addEventListener("click", () => {
       activateTab(view, id);
@@ -115,7 +129,7 @@ function findTarget(panel: HTMLElement, refId: string): HTMLElement | null {
  * 对象不在这段（记录刚变、已经消失）时只切页签：跳转让位于如实展示，不报错也不
  * 编一个空标记。
  */
-export function focusTarget(view: TabView, id: TabId, refId: string): void {
+export function focusTarget(view: TabView, id: ViewId, refId: string): void {
   activateTab(view, id);
   const panel = view.panels.get(id);
   const target = panel === undefined ? null : findTarget(panel, refId);

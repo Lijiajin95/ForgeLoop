@@ -27,7 +27,7 @@ export const TAB_IDS = ["requirements", "tasks", "issues"] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
 /** 需求分解出的一条任务：计划身份 + 已派发时的任务记录。 */
-export interface LinkedTask {
+interface LinkedTask {
   readonly task_id: string;
   readonly single_task_id: string;
   readonly state: string;

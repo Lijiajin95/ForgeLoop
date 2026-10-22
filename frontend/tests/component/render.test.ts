@@ -1,40 +1,27 @@
 /**
- * 渲染层的组件测试：在 jsdom 里把**真实页面 HTML** 交给渲染函数。
+ * 记录索引与档案的组件测试：在 jsdom 里把**真实页面 HTML** 交给渲染函数。
  *
- * 覆盖三件在浏览器里才会暴露的事：脚本要的元素 id 是否真的存在（缺一个就抛错，
- * 而不是静默空白）、页签内的层级是否按身份串起来（需求 → 它分解出的任务 → 任务
- * 上的问题）、以及跳转按钮是否把「哪一段的哪个对象」交给导航。
+ * 覆盖四件事：脚本要的元素 id 是否真的存在、索引是否以身份+描述为主、档案是否
+ * 带齐指标与关联、以及跳转按钮是否把「哪一段的哪个对象」交给导航。
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { TabId } from "../../src/link.js";
-import {
-  createCollapseState,
-  resolveElements,
-  type CollapseState,
-  type Navigation,
-  type PageElements,
-} from "../../src/dom.js";
-import { clearError, renderProgress, showError } from "../../src/render.js";
+import { resolveElements, type Navigation, type PageElements } from "../../src/dom.js";
+import { EMPTY_SELECTION, type RecordSelection, type RecordTab } from "../../src/records.js";
+import { clearError, renderProgress, showError, type ProgressActions } from "../../src/render.js";
 import {
   loadPageBody,
-  sampleDeliveredTask,
   sampleDocument,
-  sampleDraftRequirement,
   sampleIssue,
-  sampleOrphanTask,
   sampleRequirement,
-  sampleRequirementTask,
   sampleTask,
   REQUIREMENT_TEXT,
 } from "../fixtures/page.js";
 
 type ProgressSnapshot = Parameters<typeof renderProgress>[1];
 
-const EMPTY = "—";
-
-/** 记录跳转的导航替身：渲染层只声明「去哪一段的哪个对象」。 */
 function navigationSpy(): Navigation & { readonly calls: [TabId, string][] } {
   const calls: [TabId, string][] = [];
   return {
@@ -45,27 +32,42 @@ function navigationSpy(): Navigation & { readonly calls: [TabId, string][] } {
   };
 }
 
+function actionSpy(): ProgressActions & {
+  readonly selected: [RecordTab, string][];
+  readonly operated: string[];
+} {
+  const selected: [RecordTab, string][] = [];
+  const operated: string[] = [];
+  return {
+    selected,
+    operated,
+    onSelect: (tab, key) => {
+      selected.push([tab, key]);
+    },
+    onOperate: (reqId) => {
+      operated.push(reqId);
+    },
+  };
+}
+
 function render(
   navigation: Navigation & { readonly calls: [TabId, string][] } = navigationSpy(),
   snapshot: ProgressSnapshot = sampleDocument(),
-  collapse: CollapseState = createCollapseState(),
+  selection: RecordSelection = EMPTY_SELECTION,
+  actions: ProgressActions = actionSpy(),
 ): {
   elements: PageElements;
   navigation: Navigation & { readonly calls: [TabId, string][] };
-  collapse: CollapseState;
+  actions: ProgressActions;
+  selection: RecordSelection;
 } {
   const elements = resolveElements(document);
-  renderProgress(elements, snapshot, navigation, collapse);
-  return { elements, navigation, collapse };
+  const resolved = renderProgress(elements, snapshot, navigation, selection, actions);
+  return { elements, navigation, actions, selection: resolved };
 }
 
 function rows(container: Element | null): HTMLTableRowElement[] {
-  // 只取表体行：表头行也是 tr，但不是记录行。
   return [...(container?.querySelectorAll("tbody tr") ?? [])] as HTMLTableRowElement[];
-}
-
-function texts(cells: Element | null | undefined): string[] {
-  return [...(cells?.querySelectorAll("th,td") ?? [])].map((cell) => cell.textContent ?? "");
 }
 
 beforeEach(() => {
@@ -76,8 +78,9 @@ describe("resolveElements", () => {
   it("在真实页面 HTML 上解析出全部句柄", () => {
     const elements = resolveElements(document);
     expect(elements.requirementsBody.id).toBe("requirements-body");
+    expect(elements.requirementsDetail.id).toBe("requirements-detail");
+    expect(elements.operationsOpen.id).toBe("operations-open");
     expect(elements.refreshButton.tagName).toBe("BUTTON");
-    expect(elements.banner.id).toBe("banner");
   });
 
   it("缺元素时明确失败，不返回半初始化的句柄", () => {
@@ -96,418 +99,243 @@ describe("renderProgress：计数与页头", () => {
     expect(elements.refreshNote.textContent).toBe("自动刷新: 每 60 秒（来源: 配置文件）");
     expect(elements.recordsRoot.textContent).toBe("/tmp/records");
   });
+
+  it("默认选中第一条需求，并返回解析后的选择", () => {
+    const { selection } = render();
+    expect(selection.requirement).toBe("req-forgeloop-1");
+    expect(selection.task).toBe("task-first");
+    expect(selection.issue).toBe("task_blocked:task-blocked");
+  });
 });
 
-describe("renderProgress：需求页签", () => {
-  it("每条需求一张卡片，卡头带项目、状态、任务包与交付进展", () => {
+describe("需求索引与档案", () => {
+  it("索引以 ID + 最新原文为主，不铺开指标", () => {
     const { elements } = render();
+    const items = [...elements.requirementsBody.querySelectorAll<HTMLButtonElement>(".record-row")];
 
-    const cards = elements.requirementsBody.querySelectorAll("article.card");
-    expect(cards).toHaveLength(2);
-    expect(cards[0]?.getAttribute("data-ref")).toBe("req-forgeloop-1");
-
-    const head = cards[0]?.querySelector(".card-head");
-    expect(head?.textContent).toContain("req-forgeloop-1");
-    expect(head?.textContent).toContain("forgeloop");
-    expect(head?.textContent).toContain("plan_proposed");
-    expect(head?.textContent).toContain("任务包 v1");
-    expect(head?.textContent).toContain("1 / 2 已交付");
+    expect(items).toHaveLength(2);
+    expect(items[0]?.dataset["ref"]).toBe("req-forgeloop-1");
+    expect(items[0]?.classList.contains("is-selected")).toBe(true);
+    expect(items[0]?.textContent).toContain("req-forgeloop-1");
+    expect(items[0]?.textContent).toContain("状态页要把需求、任务、问题分成三个页签");
+    expect(items[0]?.textContent).toContain("2 任务");
+    expect(items[0]?.querySelector("table")).toBeNull();
   });
 
-  it("需求卡片按身份列出它分解出的任务，并标出是否已派发", () => {
+  it("档案展示完整原文、指标、任务与问题", () => {
     const { elements } = render();
+    const detail = elements.requirementsDetail;
 
-    const subtasks = rows(elements.requirementsBody.querySelector("article.card table"));
-    expect(subtasks.map((row) => row.getAttribute("data-ref"))).toEqual([
+    expect(detail.querySelector(".dossier-id")?.textContent).toBe("req-forgeloop-1");
+    expect(detail.querySelector(".dossier-lead")?.textContent).toContain(REQUIREMENT_TEXT);
+    expect(detail.textContent).toContain("任务包 v1");
+    expect(detail.textContent).toContain("1 / 2 已交付");
+    expect(rows(detail.querySelector("table"))).toHaveLength(2);
+    expect(detail.textContent).toContain("任务执行被阻断");
+  });
+
+  it("点索引行把身份交给装配层，不自己切详情", () => {
+    const actions = actionSpy();
+    const { elements } = render(navigationSpy(), sampleDocument(), EMPTY_SELECTION, actions);
+    elements.requirementsBody.querySelectorAll<HTMLButtonElement>(".record-row")[1]?.click();
+    expect(actions.selected).toEqual([["requirements", "req-forgeloop-2"]]);
+  });
+
+  it("档案里的任务链接回到任务页签", () => {
+    const navigation = navigationSpy();
+    const { elements } = render(navigation);
+    elements.requirementsDetail.querySelector<HTMLButtonElement>(".task-link")?.click();
+    expect(navigation.calls).toEqual([["tasks", "task-first"]]);
+  });
+
+  it("档案里的「处理这条需求」打开写入口", () => {
+    const actions = actionSpy();
+    const { elements } = render(navigationSpy(), sampleDocument(), EMPTY_SELECTION, actions);
+    [...elements.requirementsDetail.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "处理这条需求")
+      ?.click();
+    expect(actions.operated).toEqual(["req-forgeloop-1"]);
+  });
+});
+
+describe("任务索引与档案", () => {
+  it("索引列出已派发任务与未关联需求的单任务", () => {
+    const { elements } = render();
+    const items = [...elements.tasksBody.querySelectorAll<HTMLButtonElement>(".record-row")];
+    expect(items.map((item) => item.dataset["ref"])).toEqual([
       "task-first",
       "task-blocked",
+      "task-orphan",
     ]);
-    expect(texts(subtasks[0])[0]).toContain("first");
-    expect(texts(subtasks[0])[1]).toBe("delivered");
-    expect(texts(subtasks[0])[2]).toBe("merged");
-    expect(texts(subtasks[1])[2]).toBe("blocked");
-    // 失败轮次与工时来自任务记录。
-    expect(texts(subtasks[1])[3]).toBe("1 累计；本次剩余 2");
-    expect(texts(subtasks[1])[4]).toBe("2 分 5 秒 / 120 分");
+    expect(items[0]?.textContent).toContain("先交付一个正常任务");
+    expect(items[2]?.textContent).toContain("未关联需求");
   });
 
-  it("计划里还没派发的任务显示「未派发」，不显示执行事实", () => {
-    const { elements } = render(
-      navigationSpy(),
-      sampleDocument({
-        requirements: [
-          sampleRequirement({
-            tasks: [sampleRequirementTask({ task_id: "later", single_task_id: "task-later" })],
-          }),
-        ],
-        tasks: [sampleTask()],
-      }),
-    );
-
-    const subtask = rows(elements.requirementsBody.querySelector("article.card table"))[0];
-    expect(texts(subtask)[2]).toBe("未派发");
-    expect(texts(subtask)[3]).toBe(EMPTY);
-    expect(texts(subtask)[4]).toBe(EMPTY);
-    expect(subtask?.querySelector("button")).toBeNull();
-  });
-
-  it("被阻断的任务在需求卡片里也标红", () => {
+  it("档案展示目标、状态、失败轮次、工时与归属", () => {
     const { elements } = render();
-
-    const subtasks = rows(elements.requirementsBody.querySelector("article.card table"));
-    expect(subtasks[0]?.className).toBe("");
-    expect(subtasks[1]?.className).toBe("issue");
+    const detail = elements.tasksDetail;
+    expect(detail.querySelector(".dossier-id")?.textContent).toBe("task-first");
+    expect(detail.querySelector(".dossier-lead")?.textContent).toBe("先交付一个正常任务");
+    expect(detail.textContent).toContain("merged");
+    expect(detail.textContent).toContain("0 累计");
+    expect(detail.textContent).toContain("10 分 / 120 分");
+    expect(detail.textContent).toContain("req-forgeloop-1");
   });
 
-  it("没有任务包的需求明确写「尚无任务包」", () => {
-    const { elements } = render();
-
-    const cards = elements.requirementsBody.querySelectorAll("article.card");
-    expect(cards[1]?.textContent).toContain("任务包 —");
-    expect(cards[1]?.textContent).toContain("尚无任务包");
-    expect(cards[1]?.querySelector("table")).toBeNull();
+  it("点任务索引行只交任务身份", () => {
+    const actions = actionSpy();
+    const { elements } = render(navigationSpy(), sampleDocument(), EMPTY_SELECTION, actions);
+    elements.tasksBody.querySelectorAll<HTMLButtonElement>(".record-row")[1]?.click();
+    expect(actions.selected).toEqual([["tasks", "task-blocked"]]);
   });
 
-  it("记录里有原始阻断原因时优先显示它", () => {
-    const { elements } = render(
-      navigationSpy(),
-      sampleDocument({
-        requirements: [
-          sampleRequirement({
-            blocked_reason: "任务包校验失败: 臆造路径",
-            blocked_reason_text: "派生文案",
-          }),
-        ],
-      }),
-    );
-
-    const blocked = elements.requirementsBody.querySelector(".blocked");
-    expect(blocked?.textContent).toContain("阻断原因：任务包校验失败: 臆造路径");
-    expect(blocked?.textContent).not.toContain("派生文案");
-  });
-
-  it("已验收需求的收尾文案只作说明，不标红成阻断", () => {
-    const { elements } = render(
-      navigationSpy(),
-      sampleDocument({
-        requirements: [
-          sampleRequirement({
-            requirement_status: "accepted",
-            blocked_reason: "",
-            blocked_reason_text: "需求整体验收已完成",
-          }),
-        ],
-        tasks: [],
-        issues: [],
-      }),
-    );
-
-    const note = elements.requirementsBody.querySelector(".note");
-    expect(note?.textContent).toContain("说明：需求整体验收已完成");
-    expect(elements.requirementsBody.querySelector(".blocked")).toBeNull();
-  });
-
-  it("卡片带需求原文：显示最新一版与版本标签，旧版本不再展示", () => {
-    const { elements } = render();
-
-    const card = elements.requirementsBody.querySelector("article.card");
-    expect(card?.querySelector(".description")?.textContent).toBe(REQUIREMENT_TEXT);
-    expect(card?.textContent).toContain("需求原文 v2");
-    expect(card?.querySelector(".description")?.textContent).not.toContain(
-      "需求：状态页要分三个页签。",
-    );
-  });
-
-  it("没有需求原文时如实说明，不留空白", () => {
-    const { elements } = render(
-      navigationSpy(),
-      sampleDocument({ requirements: [sampleRequirement({ versions: [] })] }),
-    );
-
-    expect(elements.requirementsBody.querySelector(".description")?.textContent).toContain(
-      "尚无需求原文",
-    );
-  });
-
-  it("卡片默认展开；点「收起」把正文藏起来，重绘后仍然收起", () => {
-    const { elements, collapse } = render();
-    const card = elements.requirementsBody.querySelector<HTMLElement>("article.card");
-    const toggle = card?.querySelector<HTMLButtonElement>(".collapse-toggle");
-
-    expect(toggle?.textContent).toBe("收起");
-    expect(card?.querySelector<HTMLElement>(".card-body")?.hidden).toBe(false);
-
-    toggle?.click();
-    expect(card?.querySelector<HTMLElement>(".card-body")?.hidden).toBe(true);
-    expect(collapse.isCollapsed("req-forgeloop-1")).toBe(true);
-
-    render(navigationSpy(), sampleDocument(), collapse);
-
-    const rebuilt = elements.requirementsBody.querySelector<HTMLElement>("article.card");
-    expect(rebuilt?.querySelector<HTMLElement>(".card-body")?.hidden).toBe(true);
-    expect(rebuilt?.querySelector<HTMLButtonElement>(".collapse-toggle")?.textContent).toBe("展开");
-  });
-
-  it("有问题的需求显示问题徽标，点击跳到问题页签并指向该需求", () => {
-    const { elements, navigation } = render();
-
-    const badge = elements.requirementsBody.querySelector<HTMLButtonElement>(
-      "article.card .issue-chip",
-    );
-    expect(badge?.textContent).toContain("问题 1");
-
-    badge?.click();
-    expect(navigation.calls).toEqual([["issues", "req-forgeloop-1"]]);
-  });
-
-  it("点击需求里的任务跳到任务页签并指向该任务记录", () => {
-    const { elements, navigation } = render();
-
-    const jump = elements.requirementsBody.querySelector<HTMLButtonElement>(
-      'tr[data-ref="task-blocked"] .link-button',
-    );
-    jump?.click();
-
-    expect(navigation.calls).toEqual([["tasks", "task-blocked"]]);
-  });
-});
-
-describe("renderProgress：任务页签", () => {
-  it("按需求分组：组头是所属需求，组内是该需求分解出的任务", () => {
-    const { elements } = render();
-
-    const groups = elements.tasksBody.querySelectorAll("section.group");
-    expect([...groups].map((group) => group.getAttribute("data-ref"))).toEqual([
-      "req-forgeloop-1",
-      "__orphan__:forgeloop",
-    ]);
-    expect(groups[0]?.querySelector(".group-head")?.textContent).toContain("req-forgeloop-1");
-    expect(
-      rows(groups[0]?.querySelector("table") ?? null).map((row) => row.getAttribute("data-ref")),
-    ).toEqual(["task-first", "task-blocked"]);
-  });
-
-  it("任务行显示状态、下一步、失败轮次、工时与阻断原因", () => {
-    const { elements } = render();
-
-    const taskRow = rows(elements.tasksBody.querySelector("section.group table"))[1];
-    expect(texts(taskRow)[0]).toContain("task-blocked");
-    expect(texts(taskRow).slice(1)).toEqual([
-      "blocked",
-      "人工核对批准绑定（人工）",
-      "1 累计；本次剩余 2",
-      "2 分 5 秒 / 120 分",
-      "任务需要人工核对现场（状态：blocked）",
-      "问题 1",
-    ]);
-    expect(taskRow?.className).toBe("task issue");
-  });
-
-  it("正常流程状态不标红", () => {
-    const { elements } = render();
-
-    const first = rows(elements.tasksBody.querySelector("section.group table"))[0];
-    expect(first?.className).toBe("task");
-  });
-
-  it("未关联需求的单任务归入单独的组，并标出所属项目", () => {
-    const { elements } = render();
-
-    const groups = elements.tasksBody.querySelectorAll("section.group");
-    const orphan = groups[1];
-    expect(orphan?.querySelector(".group-head")?.textContent).toContain("未关联需求");
-    expect(orphan?.querySelector(".group-head")?.textContent).toContain("forgeloop");
-    expect(
-      rows(orphan?.querySelector("table") ?? null).map((row) => row.getAttribute("data-ref")),
-    ).toEqual(["task-orphan"]);
-  });
-
-  it("跨项目的未关联任务按项目分成不同的组，不混在一个组里", () => {
-    const { elements } = render(
-      navigationSpy(),
-      sampleDocument({
-        requirements: [],
-        tasks: [
-          sampleOrphanTask(),
-          sampleOrphanTask({ task_id: "task-other", project: "another" }),
-        ],
-        issues: [],
-      }),
-    );
-
-    const groups = elements.tasksBody.querySelectorAll("section.group");
-    expect([...groups].map((group) => group.getAttribute("data-ref"))).toEqual([
-      "__orphan__:forgeloop",
-      "__orphan__:another",
-    ]);
-    expect(rows(groups[1]?.querySelector("table") ?? null)).toHaveLength(1);
-  });
-
-  it("组头可以跳回需求页签并指向该需求", () => {
-    const { elements, navigation } = render();
-
-    elements.tasksBody
-      .querySelector<HTMLButtonElement>("section.group .group-head button")
+  it("任务档案的「查看所属需求」回到需求页签", () => {
+    const navigation = navigationSpy();
+    const { elements } = render(navigation);
+    [...elements.tasksDetail.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "查看所属需求")
       ?.click();
-
     expect(navigation.calls).toEqual([["requirements", "req-forgeloop-1"]]);
   });
-
-  it("任务行带任务目标；没有任务包时显示缺值", () => {
-    const { elements } = render();
-
-    const taskRow = rows(elements.tasksBody.querySelector("section.group table"))[1];
-    expect(taskRow?.querySelector(".goal")?.textContent).toBe(
-      "把三段拆成页签，并让任务与需求按身份对上",
-    );
-
-    render(
-      navigationSpy(),
-      sampleDocument({ tasks: [sampleTask({ plan: null })] }),
-      createCollapseState(),
-    );
-    expect(
-      rows(elements.tasksBody.querySelector("section.group table"))[0]?.querySelector(".goal")
-        ?.textContent,
-    ).toBe(EMPTY);
-  });
-
-  it("任务分组也能折叠，且与需求卡片的折叠互不影响", () => {
-    const { elements, collapse } = render();
-    const group = elements.tasksBody.querySelector<HTMLElement>("section.group");
-    const toggle = group?.querySelector<HTMLButtonElement>(".collapse-toggle");
-
-    toggle?.click();
-
-    expect(group?.querySelector<HTMLElement>(".card-body")?.hidden).toBe(true);
-    expect(collapse.isCollapsed("group:req-forgeloop-1")).toBe(true);
-    expect(collapse.isCollapsed("req-forgeloop-1")).toBe(false);
-  });
-
-  it("任务上的问题徽标跳到问题页签并指向该任务", () => {
-    const { elements, navigation } = render();
-
-    elements.tasksBody
-      .querySelector<HTMLButtonElement>('tr[data-ref="task-blocked"] .issue-chip')
-      ?.click();
-
-    expect(navigation.calls).toEqual([["issues", "task-blocked"]]);
-  });
 });
 
-describe("renderProgress：问题页签", () => {
-  it("问题行把机器标签译成中文，并给出对象所在页签的跳转", () => {
-    const { elements, navigation } = render();
+describe("问题索引与档案", () => {
+  it("索引以对象身份 + 摘要为主，并标出种类", () => {
+    const { elements } = render();
+    const items = [...elements.issuesBody.querySelectorAll<HTMLButtonElement>(".record-row")];
+    expect(items).toHaveLength(2);
+    expect(items[0]?.dataset["ref"]).toBe("task-blocked");
+    expect(items[0]?.textContent).toContain("任务阻断");
+    expect(items[0]?.textContent).toContain("任务执行被阻断");
+  });
 
-    const issues = rows(elements.issuesBody);
-    expect(issues).toHaveLength(2);
-    expect(texts(issues[0])[0]).toBe("任务阻断");
-    expect(issues[0]?.getAttribute("data-ref")).toBe("task-blocked");
-    expect(issues[0]?.getAttribute("data-owner")).toBe("req-forgeloop-1");
-    expect(issues.map((row) => row.className)).toEqual(["issue", "issue"]);
+  it("档案展示依据、对象状态、所属需求与对象入口", () => {
+    const { elements } = render();
+    const detail = elements.issuesDetail;
+    expect(detail.querySelector(".dossier-id")?.textContent).toBe("task-blocked");
+    expect(detail.textContent).toContain("任务执行被阻断");
+    expect(detail.textContent).toContain("blocked");
+    expect(detail.textContent).toContain("req-forgeloop-1");
+    expect(detail.querySelector(".dossier-body")?.textContent).toContain("人工核对");
+  });
 
-    issues[0]?.querySelector<HTMLButtonElement>("button")?.click();
+  it("问题的对象入口跳到对象所在页签", () => {
+    const navigation = navigationSpy();
+    const { elements } = render(navigation);
+    elements.issuesDetail.querySelector<HTMLButtonElement>(".button")?.click();
     expect(navigation.calls).toEqual([["tasks", "task-blocked"]]);
   });
-
-  it("对象对不上记录时显示为纯文本，不造假链接", () => {
-    const { elements } = render(
-      navigationSpy(),
-      sampleDocument({
-        issues: [sampleIssue({ kind: "slot_residue", ref_id: "slot-nowhere" })],
-      }),
-    );
-
-    const cell = rows(elements.issuesBody)[0]?.querySelectorAll("td")[1];
-    expect(cell?.textContent).toContain("slot-nowhere");
-    expect(cell?.querySelector("button")).toBeNull();
-  });
-
-  it("问题行给出对象描述：说明这条问题卡在什么事情上", () => {
-    const { elements } = render();
-
-    const cell = rows(elements.issuesBody)[0]?.querySelectorAll("td")[1];
-    expect(cell?.querySelector(".object-note")?.textContent).toContain(
-      "把三段拆成页签，并让任务与需求按身份对上",
-    );
-  });
-
-  it("问题行保留对象当前状态，便于判断这条问题还成不成立", () => {
-    const { elements } = render();
-
-    const cell = rows(elements.issuesBody)[0]?.querySelectorAll("td")[1];
-    expect(cell?.textContent).toContain("blocked");
-  });
 });
 
-describe("renderProgress：安全与空态", () => {
-  it("记录文本一律写入 textContent，不解析成 HTML", () => {
-    const injected = "<img src=x onerror=alert(1)>";
-    const { elements } = render(
-      navigationSpy(),
-      sampleDocument({
-        requirements: [sampleRequirement({ req_id: injected, tasks: [] })],
-        tasks: [],
-        issues: [],
-      }),
-    );
-
-    const card = elements.requirementsBody.querySelector("article.card");
-    expect(card?.textContent).toContain(injected);
-    expect(elements.requirementsBody.querySelector("img")).toBeNull();
-  });
-
-  it("空数据时显示空态提示，有数据时隐藏", () => {
-    const elements = resolveElements(document);
-
-    renderProgress(
-      elements,
-      sampleDocument({ requirements: [], tasks: [], issues: [] }),
-      navigationSpy(),
-      createCollapseState(),
-    );
-
+describe("空态与选择回退", () => {
+  it("没有记录时索引与档案显示明确空态", () => {
+    const empty = sampleDocument({
+      requirements: [],
+      tasks: [],
+      issues: [],
+      counts: { projects: 1, requirements: 0, tasks: 0, issues: 0 },
+    });
+    const { elements, selection } = render(navigationSpy(), empty);
+    expect(selection).toEqual(EMPTY_SELECTION);
     expect(elements.requirementsEmpty.style.display).toBe("block");
     expect(elements.tasksEmpty.style.display).toBe("block");
     expect(elements.issuesEmpty.style.display).toBe("block");
-    expect(elements.requirementsBody.querySelectorAll("article.card")).toHaveLength(0);
-
-    renderProgress(elements, sampleDocument(), navigationSpy(), createCollapseState());
-
-    expect(elements.requirementsEmpty.style.display).toBe("none");
-    expect(elements.tasksEmpty.style.display).toBe("none");
-    expect(elements.issuesEmpty.style.display).toBe("none");
+    expect(elements.requirementsDetail.textContent).toContain("没有可展示的需求");
+    expect(elements.issuesDetail.textContent).toContain("没有待处理问题");
   });
 
-  it("重复渲染不累积旧行", () => {
-    const elements = resolveElements(document);
-
-    renderProgress(elements, sampleDocument(), navigationSpy(), createCollapseState());
-    renderProgress(elements, sampleDocument(), navigationSpy(), createCollapseState());
-
-    expect(elements.tasksBody.querySelectorAll("tbody tr")).toHaveLength(3);
-    expect(elements.requirementsBody.querySelectorAll("article.card")).toHaveLength(2);
+  it("原选择消失时回退到仍存在的记录", () => {
+    const snapshot = sampleDocument({
+      requirements: [sampleRequirement({ req_id: "req-new" })],
+      tasks: [sampleTask({ task_id: "task-new" })],
+      issues: [sampleIssue({ ref_id: "task-new" })],
+      counts: { projects: 1, requirements: 1, tasks: 1, issues: 1 },
+    });
+    const { selection } = render(navigationSpy(), snapshot, {
+      requirement: "req-gone",
+      task: "task-gone",
+      issue: "kind:gone",
+    });
+    expect(selection.requirement).toBe("req-new");
+    expect(selection.task).toBe("task-new");
+    expect(selection.issue).toBe("task_blocked:task-new");
   });
 });
 
-describe("showError / clearError", () => {
-  it("错误可见，并在恢复后清除", () => {
+describe("错误横幅", () => {
+  it("显示与清除走同一对函数", () => {
     const elements = resolveElements(document);
-
-    showError(elements, "读取进展失败: HTTP 500");
+    showError(elements, "读取失败");
     expect(elements.banner.style.display).toBe("block");
-    expect(elements.banner.textContent).toBe("读取进展失败: HTTP 500");
-
+    expect(elements.banner.textContent).toBe("读取失败");
     clearError(elements);
     expect(elements.banner.style.display).toBe("none");
-    expect(elements.banner.textContent).toBe("");
   });
 });
 
-describe("夹具自检", () => {
-  it("导出的任务与需求都带身份，层级才串得起来", () => {
-    expect(sampleDeliveredTask().task_id).toBe("task-first");
-    expect(sampleOrphanTask().task_id).toBe("task-orphan");
-    expect(sampleDraftRequirement().tasks).toEqual([]);
+describe("档案边缘状态", () => {
+  it("阻断原因用告警样式，正常终态用说明样式", () => {
+    const blocked = sampleDocument({
+      requirements: [
+        sampleRequirement({
+          requirement_status: "blocked",
+          blocked_reason: "等待人工核对批准绑定",
+        }),
+      ],
+      tasks: [],
+      issues: [],
+      counts: { projects: 1, requirements: 1, tasks: 0, issues: 0 },
+    });
+    let rendered = render(navigationSpy(), blocked);
+    expect(rendered.elements.requirementsDetail.querySelector(".callout-alert")).not.toBeNull();
+
+    const normal = sampleDocument({
+      requirements: [
+        sampleRequirement({ requirement_status: "accepted", blocked_reason_text: "" }),
+      ],
+      tasks: [],
+      issues: [],
+      counts: { projects: 1, requirements: 1, tasks: 0, issues: 0 },
+    });
+    rendered = render(navigationSpy(), normal);
+    expect(rendered.elements.requirementsDetail.querySelector(".callout")).toBeNull();
+  });
+
+  it("没有任务的需求显示空态，未关联需求的任务不显示归属按钮", () => {
+    const snapshot = sampleDocument();
+    const withDraft = render(navigationSpy(), snapshot, {
+      ...EMPTY_SELECTION,
+      requirement: "req-forgeloop-2",
+    });
+    expect(withDraft.elements.requirementsDetail.textContent).toContain("尚无任务包。");
+
+    const orphan = render(navigationSpy(), snapshot, { ...EMPTY_SELECTION, task: "task-orphan" });
+    expect(orphan.elements.tasksDetail.textContent).toContain("未关联需求");
+    expect(
+      [...orphan.elements.tasksDetail.querySelectorAll("button")].some(
+        (button) => button.textContent === "查看所属需求",
+      ),
+    ).toBe(false);
+  });
+
+  it("对不上记录的问题只显示纯文本，不伪造对象入口", () => {
+    const snapshot = sampleDocument({
+      issues: [sampleIssue({ ref_id: "slot-missing", kind: "slot_residue" })],
+      counts: { projects: 1, requirements: 2, tasks: 3, issues: 1 },
+    });
+    const { elements } = render(navigationSpy(), snapshot);
+    expect(elements.issuesDetail.textContent).toContain("执行槽位残留");
+    expect(elements.issuesDetail.textContent).toContain("—");
+    expect(
+      [...elements.issuesDetail.querySelectorAll("button")].some(
+        (button) => button.textContent === "查看对象",
+      ),
+    ).toBe(false);
+  });
+
+  it("renderProgress 的默认选择与动作可省略", () => {
+    const elements = resolveElements(document);
+    const selection = renderProgress(elements, sampleDocument(), navigationSpy());
+    expect(selection.requirement).toBe("req-forgeloop-1");
   });
 });

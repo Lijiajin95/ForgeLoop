@@ -24,10 +24,13 @@ import {
   type OperationOutcome,
   type OperationRequest,
 } from "./actions.js";
+import { buildIndex } from "./link.js";
+import { filterMentions, insertMention, mentionQuery, type MentionItem } from "./mentions.js";
 import { PanelClient, type ProjectDraft } from "./panel.js";
 import {
   PANEL_TABS,
   fillProjectForm,
+  renderMentionMenu,
   renderPanelAvailability,
   renderPanelDocument,
   renderPanelSessionDetail,
@@ -36,9 +39,21 @@ import {
   resolvePanelElements,
   type PanelElements,
 } from "./panel_render.js";
-import { PROGRESS_URL, type PanelDocument, type RequirementAction } from "./payload.js";
+import {
+  EMPTY_SELECTION,
+  selectRecord,
+  selectRef,
+  type RecordSelection,
+  type RecordTab,
+} from "./records.js";
+import {
+  PROGRESS_URL,
+  type PanelDocument,
+  type ProgressDocument,
+  type RequirementAction,
+} from "./payload.js";
 import { ProgressClient, type ProgressFetcher } from "./progress.js";
-import { createCollapseState, resolveElements } from "./dom.js";
+import { resolveElements, type PageElements } from "./dom.js";
 import {
   clearError,
   renderOperationStatus,
@@ -54,28 +69,91 @@ export interface BootstrapOptions {
   readonly now?: () => number;
   /** 写请求实现（默认真实 `fetch`）；测试注入替身，避免真实网络。 */
   readonly operationFetcher?: OperationFetcher;
+  /** 每次成功读取进展后回调：入口用它在会话输入框里提供 @ 引用。 */
+  readonly onProgress?: (progress: ProgressDocument) => void;
+  /** 会话输入框的引用来源；只读模式下可为空。 */
+  readonly mentionItems?: () => readonly MentionItem[];
+}
+
+/** 打开写入口抽屉；有目标需求时顺手把动作下拉框对到它。 */
+function openOperations(elements: PageElements, reqId = ""): void {
+  if (elements.operations.hidden) {
+    return;
+  }
+  if (reqId !== "") {
+    elements.actionReq.value = reqId;
+  }
+  elements.operationsDrawer.hidden = false;
+  elements.submitProject.focus();
+}
+
+/** 关闭写入口抽屉，把焦点还给入口按钮。 */
+function closeOperations(elements: PageElements): void {
+  elements.operationsDrawer.hidden = true;
+  if (!elements.operationsOpen.hidden) {
+    elements.operationsOpen.focus();
+  }
+}
+
+/** 抽屉开合：入口、关闭、遮罩与 Escape 都走同一对函数。 */
+function wireOperationsDrawer(elements: PageElements): void {
+  elements.operationsOpen.addEventListener("click", () => {
+    openOperations(elements);
+  });
+  elements.operationsClose.addEventListener("click", () => {
+    closeOperations(elements);
+  });
+  elements.operationsDrawer.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    if (target.dataset["operationsClose"] !== undefined) {
+      closeOperations(elements);
+    }
+  });
+  elements.operationsDrawer.ownerDocument.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !elements.operationsDrawer.hidden) {
+      closeOperations(elements);
+    }
+  });
 }
 
 /** 解析元素、接上页签与事件并启动轮询；返回客户端供测试等待与断言。 */
 export function bootstrap(document: Document, options: BootstrapOptions = {}): ProgressClient {
   const elements = resolveElements(document);
   const tabs = resolveTabs(document);
-  // 折叠状态随装配建立一次：自动刷新重绘内容不会把用户的展开／收起选择抹掉。
-  const collapse = createCollapseState();
+  const chatAvailable = operationsAvailable(readToken(document));
+  let latest: ProgressDocument | undefined;
+  let selection: RecordSelection = EMPTY_SELECTION;
+
+  const navigation = {
+    goTo: (tab: RecordTab, refId: string): void => {
+      if (latest === undefined) {
+        return;
+      }
+      selection = selectRef(buildIndex(latest), latest, selection, tab, refId);
+      redraw(latest);
+      focusTarget(tabs, tab, refId);
+    },
+  };
+
+  function redraw(progress: ProgressDocument): void {
+    selection = renderProgress(elements, progress, navigation, selection, {
+      onSelect: (tab, key) => {
+        selection = selectRecord(selection, tab, key);
+        redraw(progress);
+      },
+      onOperate: (reqId) => {
+        openOperations(elements, reqId);
+      },
+    });
+  }
+
   const client = new ProgressClient({
     url: PROGRESS_URL,
     onDocument: (progress) => {
+      latest = progress;
       clearError(elements);
-      renderProgress(
-        elements,
-        progress,
-        {
-          goTo: (tab, refId) => {
-            focusTarget(tabs, tab, refId);
-          },
-        },
-        collapse,
-      );
+      redraw(progress);
+      options.onProgress?.(progress);
     },
     onError: (message) => {
       showError(elements, message);
@@ -88,7 +166,8 @@ export function bootstrap(document: Document, options: BootstrapOptions = {}): P
   elements.refreshButton.addEventListener("click", () => {
     client.manualRefresh();
   });
-  wireTabs(tabs);
+  wireTabs(tabs, chatAvailable ? "chat" : "requirements");
+  wireOperationsDrawer(elements);
   wireOperations(elements, client, options.operationFetcher);
   client.start();
   return client;
@@ -121,6 +200,13 @@ export function bootstrapPanel(
     onDocument: (panelDocument) => {
       latest = panelDocument;
       renderPanelDocument(elements, panelDocument, client.selectedSessionId);
+      // 会话优先：第一次拿到清单时自动打开最近一条，页面打开就是可读的对话。
+      if (client.selectedSessionId === "") {
+        const first = panelDocument.sessions[0];
+        if (first !== undefined) {
+          client.openSession(first.session_id).catch(() => undefined);
+        }
+      }
     },
     onSession: (detail) => {
       renderPanelSessionDetail(elements, detail);
@@ -129,12 +215,15 @@ export function bootstrapPanel(
       renderPanelStatus(elements, message, tone);
     },
     onSelected: (sessionId) => {
+      if (sessionId === "") {
+        renderPanelSessionDetail(elements, undefined);
+      }
       if (latest !== undefined) {
         renderPanelDocument(elements, latest, sessionId);
       }
     },
   });
-  wirePanel(elements, client, () => latest);
+  wirePanel(elements, client, () => latest, options.mentionItems ?? (() => []));
   client.start();
   return client;
 }
@@ -210,6 +299,96 @@ function wireComposer(elements: PanelElements, client: PanelClient): void {
     }
     client.terminate(reason).catch(() => undefined);
   });
+}
+
+/**
+ * `@` 引用的交互：从进展快照取候选，在光标处插入。
+ *
+ * 菜单只在输入框有引用查询时出现；方向键移动，Enter/Tab 选中，Escape 收起。
+ * 插入的是记录身份本身，不改变消息的服务端语义。
+ */
+function wireMentions(elements: PanelElements, source: () => readonly MentionItem[]): void {
+  let items: readonly MentionItem[] = [];
+  let active = 0;
+  let current: ReturnType<typeof mentionQuery> = null;
+
+  const close = (): void => {
+    current = null;
+    items = [];
+    active = 0;
+    elements.mentionMenu.hidden = true;
+    elements.mentionMenu.replaceChildren();
+    elements.messageText.setAttribute("aria-expanded", "false");
+    elements.messageText.removeAttribute("aria-activedescendant");
+  };
+
+  const choose = (index: number): void => {
+    const item = items[index];
+    if (item === undefined || current === null) {
+      return;
+    }
+    const inserted = insertMention(elements.messageText.value, current, item);
+    elements.messageText.value = inserted.value;
+    elements.messageText.setSelectionRange(inserted.caret, inserted.caret);
+    close();
+    elements.messageText.focus();
+  };
+
+  const refresh = (): void => {
+    const query = mentionQuery(elements.messageText.value, elements.messageText.selectionStart);
+    if (query === null) {
+      close();
+      return;
+    }
+    const matches = filterMentions(source(), query.query);
+    if (matches.length === 0) {
+      close();
+      return;
+    }
+    current = query;
+    items = matches;
+    active = 0;
+    renderMentionMenu(elements, items, active);
+  };
+
+  elements.messageText.addEventListener("input", refresh);
+  elements.messageText.addEventListener("click", refresh);
+  elements.messageText.addEventListener("keydown", (event) => {
+    if (current === null) {
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      active = (active + step + items.length) % items.length;
+      renderMentionMenu(elements, items, active);
+      return;
+    }
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      event.preventDefault();
+      choose(active);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  });
+  elements.mentionMenu.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+  });
+  elements.mentionMenu.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-mention-index]");
+    const raw = button?.dataset["mentionIndex"];
+    if (raw === undefined) {
+      return;
+    }
+    const index = Number(raw);
+    if (Number.isInteger(index)) {
+      choose(index);
+    }
+  });
+  elements.composer.addEventListener("submit", close);
 }
 
 /** 待人工决定：按钮带 data-decision／data-choice，理由与补充指令取表单输入。 */
@@ -344,22 +523,24 @@ function wirePanel(
   elements: PanelElements,
   client: PanelClient,
   latestDocument: () => PanelDocument | undefined,
+  mentionSource: () => readonly MentionItem[],
 ): void {
   wirePanelTabs(elements);
   wireNewSession(elements, client);
   wireComposer(elements, client);
+  wireMentions(elements, mentionSource);
   wireDecisions(elements, client);
   wireProjectForm(elements, client);
   wireProjectRows(elements, client, latestDocument);
   elements.refreshButton.addEventListener("click", () => {
     client.refreshPanel().catch(() => undefined);
   });
-  elements.sessionList.addEventListener("change", () => {
-    const sessionId = elements.sessionList.value;
-    if (sessionId === "") {
-      return;
+  elements.sessionList.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-session-id]");
+    const sessionId = button?.dataset["sessionId"] ?? "";
+    if (sessionId !== "") {
+      client.openSession(sessionId).catch(() => undefined);
     }
-    client.openSession(sessionId).catch(() => undefined);
   });
 }
 
@@ -367,10 +548,7 @@ function wirePanel(
 const REASON_REQUIRED: readonly RequirementAction[] = ["approve", "accept", "stop", "cancel"];
 
 /** action → 按钮元素，避免在事件回调里做字符串分支。 */
-function actionButton(
-  elements: ReturnType<typeof resolveElements>,
-  action: RequirementAction,
-): HTMLButtonElement {
+function actionButton(elements: PageElements, action: RequirementAction): HTMLButtonElement {
   switch (action) {
     case "approve":
       return elements.actionApprove;
@@ -386,7 +564,7 @@ function actionButton(
 }
 
 /** 写请求期间禁用全部按钮：避免同一决定被连点两次。 */
-function setBusy(elements: ReturnType<typeof resolveElements>, busy: boolean): void {
+function setBusy(elements: PageElements, busy: boolean): void {
   for (const button of [
     elements.submitButton,
     elements.actionApprove,
@@ -401,7 +579,7 @@ function setBusy(elements: ReturnType<typeof resolveElements>, busy: boolean): v
 
 /** 发一次写请求并把结果渲染成状态行；成功后回读一次进展。 */
 async function dispatchOperation(
-  elements: ReturnType<typeof resolveElements>,
+  elements: PageElements,
   client: ProgressClient,
   token: string,
   request: OperationRequest,
@@ -434,7 +612,7 @@ function sessionKeyStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"
 
 /** 提交表单接线：项目与正文都非空才发；幂等键在一次成功之前保持不变。 */
 function wireSubmit(
-  elements: ReturnType<typeof resolveElements>,
+  elements: PageElements,
   client: ProgressClient,
   token: string,
   fetcher?: OperationFetcher,
@@ -483,7 +661,7 @@ function wireSubmit(
  * 都在服务端，页面把拒绝原因原样显示，不自己解释成别的结论。
  */
 function wireOperations(
-  elements: ReturnType<typeof resolveElements>,
+  elements: PageElements,
   client: ProgressClient,
   fetcher?: OperationFetcher,
 ): void {
