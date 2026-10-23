@@ -1,141 +1,185 @@
 {
-  "schema_version": 1,
-  "doc": "docs/architecture.md",
-  "source_root": "src/forgeloop",
-  "modules": {
-    "forgeloop": "(root)",
-    "forgeloop.__main__": "__main__",
-    "forgeloop.adapter": "adapter",
-    "forgeloop.adapter.agent_runtime": "adapter",
-    "forgeloop.adapter.artifact": "adapter",
-    "forgeloop.adapter.commit_policy": "adapter",
-    "forgeloop.adapter.deployment": "adapter",
-    "forgeloop.adapter.dsh_headless": "adapter",
-    "forgeloop.adapter.execution_environment": "adapter",
-    "forgeloop.adapter.git_workspace": "adapter",
-    "forgeloop.adapter.github_checks": "adapter",
-    "forgeloop.adapter.mail": "adapter",
-    "forgeloop.adapter.pi_rpc": "adapter",
-    "forgeloop.adapter.test_runner": "adapter",
-    "forgeloop.adapter.upgrade_control": "adapter",
-    "forgeloop.cli": "cli",
-    "forgeloop.cli.candidate": "cli",
-    "forgeloop.cli.commit_policy": "cli",
-    "forgeloop.cli.common": "cli",
-    "forgeloop.cli.deploy": "cli",
-    "forgeloop.cli.launcher": "cli",
-    "forgeloop.cli.mail": "cli",
-    "forgeloop.cli.mail_interaction": "cli",
-    "forgeloop.cli.mail_worker": "cli",
-    "forgeloop.cli.main": "cli",
-    "forgeloop.cli.merge": "cli",
-    "forgeloop.cli.panel": "cli",
-    "forgeloop.cli.projects": "cli",
-    "forgeloop.cli.release": "cli",
-    "forgeloop.cli.requirements": "cli",
-    "forgeloop.cli.runtime": "cli",
-    "forgeloop.cli.serve": "cli",
-    "forgeloop.cli.upgrade": "cli",
-    "forgeloop.cli.web": "cli",
-    "forgeloop.domain": "domain",
-    "forgeloop.domain.agent_runtime": "domain",
-    "forgeloop.domain.approval": "domain",
-    "forgeloop.domain.artifact": "domain",
-    "forgeloop.domain.budget_summary": "domain",
-    "forgeloop.domain.commit_policy": "domain",
-    "forgeloop.domain.conversation": "domain",
-    "forgeloop.domain.counting": "domain",
-    "forgeloop.domain.delivery": "domain",
-    "forgeloop.domain.dependency_facts": "domain",
-    "forgeloop.domain.deploy": "domain",
-    "forgeloop.domain.limits": "domain",
-    "forgeloop.domain.mail": "domain",
-    "forgeloop.domain.mail_interaction": "domain",
-    "forgeloop.domain.merge": "domain",
-    "forgeloop.domain.progress": "domain",
-    "forgeloop.domain.project": "domain",
-    "forgeloop.domain.projects": "domain",
-    "forgeloop.domain.release": "domain",
-    "forgeloop.domain.repo_facts": "domain",
-    "forgeloop.domain.requirement": "domain",
-    "forgeloop.domain.service": "domain",
-    "forgeloop.domain.status": "domain",
-    "forgeloop.domain.status_reason": "domain",
-    "forgeloop.domain.task_plan": "domain",
-    "forgeloop.domain.toml_fields": "domain",
-    "forgeloop.domain.upgrade": "domain",
-    "forgeloop.graph": "graph",
-    "forgeloop.graph.agent_execution": "graph",
-    "forgeloop.graph.builder": "graph",
-    "forgeloop.graph.conversation": "graph",
-    "forgeloop.graph.dispatch": "graph",
-    "forgeloop.graph.evidence": "graph",
-    "forgeloop.graph.nodes": "graph",
-    "forgeloop.graph.planning": "graph",
-    "forgeloop.graph.prompts": "graph",
-    "forgeloop.graph.requirements": "graph",
-    "forgeloop.graph.session_runtime": "graph",
-    "forgeloop.graph.state": "graph",
-    "forgeloop.graph.worker": "graph",
-    "forgeloop.mail": "mail",
-    "forgeloop.mail.config": "mail",
-    "forgeloop.mail.ports": "mail",
-    "forgeloop.mail.presets": "mail",
-    "forgeloop.mail.render": "mail",
-    "forgeloop.mail.secret": "mail",
-    "forgeloop.records": "records",
-    "forgeloop.records.actions": "records",
-    "forgeloop.records.agent_runtimes": "records",
-    "forgeloop.records.checkpoints": "records",
-    "forgeloop.records.conversations": "records",
-    "forgeloop.records.mail_interactions": "records",
-    "forgeloop.records.mail_threads": "records",
-    "forgeloop.records.projects": "records",
-    "forgeloop.records.requirements": "records",
-    "forgeloop.records.service_requests": "records",
-    "forgeloop.records.store": "records",
-    "forgeloop.records.upgrade_state": "records"
+  "schema_version": 2,
+  "product": "forgeloop-dsh",
+  "runtime": {
+    "host": "deepseek-harness",
+    "language": "typescript",
+    "package": "packages/forgeloop",
+    "python_runtime": "retired",
+    "legacy_snapshot": "legacy/"
   },
-  "layer_edges": [
-    [
-      "__main__",
-      "cli"
+  "layers": [
+    {
+      "name": "config",
+      "path": "packages/forgeloop/src/config.ts",
+      "may_import": [
+        "domain"
+      ]
+    },
+    {
+      "name": "domain",
+      "path": "packages/forgeloop/src/domain",
+      "may_import": []
+    },
+    {
+      "name": "records",
+      "path": "packages/forgeloop/src/records",
+      "may_import": [
+        "domain"
+      ]
+    },
+    {
+      "name": "runtime",
+      "path": "packages/forgeloop/src/runtime",
+      "may_import": [
+        "domain",
+        "records",
+        "config"
+      ]
+    },
+    {
+      "name": "entry",
+      "path": "packages/forgeloop/src",
+      "may_import": [
+        "domain",
+        "records",
+        "runtime",
+        "config"
+      ]
+    }
+  ],
+  "modules": [
+    "packages/forgeloop/src/cli/pack.ts",
+    "packages/forgeloop/src/commands.ts",
+    "packages/forgeloop/src/config.ts",
+    "packages/forgeloop/src/domain/approval.ts",
+    "packages/forgeloop/src/domain/counting.ts",
+    "packages/forgeloop/src/domain/delivery.ts",
+    "packages/forgeloop/src/domain/errors.ts",
+    "packages/forgeloop/src/domain/impact-explain.ts",
+    "packages/forgeloop/src/domain/impact.ts",
+    "packages/forgeloop/src/domain/language.ts",
+    "packages/forgeloop/src/domain/limits.ts",
+    "packages/forgeloop/src/domain/requirement.ts",
+    "packages/forgeloop/src/domain/status.ts",
+    "packages/forgeloop/src/domain/task-plan.ts",
+    "packages/forgeloop/src/domain/work.ts",
+    "packages/forgeloop/src/index.ts",
+    "packages/forgeloop/src/records/db.ts",
+    "packages/forgeloop/src/records/repository.ts",
+    "packages/forgeloop/src/runtime/agent-runner.ts",
+    "packages/forgeloop/src/runtime/board.ts",
+    "packages/forgeloop/src/runtime/coordinator.ts",
+    "packages/forgeloop/src/runtime/formal-test.ts",
+    "packages/forgeloop/src/runtime/lock.ts",
+    "packages/forgeloop/src/runtime/prompts.ts",
+    "packages/forgeloop/src/runtime/service.ts",
+    "packages/forgeloop/src/runtime/workspace.ts",
+    "packages/forgeloop/src/tools.ts"
+  ],
+  "persistence": {
+    "engine": "sqlite",
+    "driver": "node:sqlite",
+    "database": "<recordsRoot>/projects/<project>/records.sqlite",
+    "tables": [
+      "actions",
+      "requirement_analyses",
+      "requirement_budget",
+      "requirement_cancellations",
+      "requirement_candidates",
+      "requirement_failure_rounds",
+      "requirement_grants",
+      "requirement_plan_approvals",
+      "requirement_task_artifacts",
+      "requirement_task_evidence",
+      "requirement_task_plans",
+      "requirement_task_runs",
+      "requirement_versions",
+      "requirements",
+      "runtime_meta",
+      "service_requests"
     ],
-    [
-      "cli",
-      "adapter"
-    ],
-    [
-      "cli",
-      "domain"
-    ],
-    [
-      "cli",
-      "graph"
-    ],
-    [
-      "cli",
-      "mail"
-    ],
-    [
-      "cli",
-      "records"
-    ],
-    [
-      "graph",
-      "adapter"
-    ],
-    [
-      "graph",
-      "domain"
-    ],
-    [
-      "graph",
-      "records"
-    ],
-    [
-      "records",
-      "domain"
+    "durable_artifacts": [
+      "<recordsRoot>/projects/<project>/evidence/<req>/v<plan>/<task>",
+      "<recordsRoot>/projects/<project>/candidates/<req>/v<plan>",
+      "<recordsRoot>/projects/<project>/sessions"
     ]
-  ]
+  },
+  "external_seams": {
+    "agent_execution": "ctx.agents (in-process DSH Agent sessions)",
+    "impact_inference": "ctx.agents (tool-less analyze session; only when --explain/explain=true is explicit)",
+    "commands": "ctx.commands.register",
+    "tools": "ctx.tools.register",
+    "subprocess": "ctx.subprocess / node:child_process for git and formal tests",
+    "database": "node:sqlite",
+    "model_config": "agentDefaultModel or plugin config agent.provider/model",
+    "web_board_rpc": "ctx.connection.rpc.handle('/forgeloop') — authenticated read-only board endpoint for the Web client; absent in profiles without a browser connection service"
+  },
+  "human_surface": {
+    "command": "fl",
+    "subcommands": [
+      "help",
+      "status",
+      "submit",
+      "revise",
+      "analyze",
+      "plan",
+      "advance",
+      "show",
+      "impact",
+      "plan-show",
+      "approve",
+      "grant",
+      "accept",
+      "candidate",
+      "evidence",
+      "requests",
+      "recover",
+      "stop",
+      "cancel",
+      "config"
+    ]
+  },
+  "model_surface": {
+    "tools": [
+      "forgeloop_status",
+      "forgeloop_show_requirement",
+      "forgeloop_show_plan",
+      "forgeloop_evidence",
+      "forgeloop_requests",
+      "forgeloop_impact",
+      "forgeloop_submit_requirement"
+    ],
+    "note": "批准/验收/推进/停止只从人类命令入口进入，工具不能自证 owner 或 approved；forgeloop_impact 只读，默认不调用模型，显式 explain 的模型输出单列为推断且不可作为决定依据"
+  },
+  "ui_surface": {
+    "client_bundle": "packages/forgeloop/client.js",
+    "slot": "conversation.view",
+    "composer_slot": "conversation.input.left",
+    "composer_id": "forgeloop-mode",
+    "view_id": "forgeloop",
+    "order": 20,
+    "label_zh": "天工",
+    "label_en": "Forge",
+    "data_path": "/api/forgeloop/board",
+    "data_endpoints": [
+      "board",
+      "detail"
+    ],
+    "read_only": true,
+    "note": "会话区第三个视图，位于对话(0)与轨迹(10)之后；只读展示需求、任务与待处理问题，没有批准、推进或验收入口"
+  },
+  "retired": {
+    "python_core": "legacy/",
+    "http_service": "forgeloop serve/web retired",
+    "web_console": "ADRs 0006/0007 product paths retired",
+    "independent_launcher": "forgeloop-launcher retired"
+  },
+  "verification": {
+    "check": "make check",
+    "architecture_contract": "make architecture-contract",
+    "cli_contract": "make cli-contract",
+    "plugin_install": "dsh plugin --profile <name> add <tarball|path>",
+    "package": "npm run candidate --workspace forgeloop-dsh"
+  }
 }

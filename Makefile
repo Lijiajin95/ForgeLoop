@@ -1,175 +1,107 @@
-UV_BIN := $(if $(wildcard .venv/bin/uv),.venv/bin/uv,uv)
-UV := env UV_CACHE_DIR=$(CURDIR)/.cache/uv UV_PYTHON_INSTALL_DIR=$(CURDIR)/.toolchain/python $(UV_BIN)
-FAST_TESTS := tests/unit tests/property tests/component tests/scenario
-# 前端：npm 缓存与浏览器都落在工作区内（沙箱与 CI 都不依赖家目录）。
-NPM := env npm_config_cache=$(CURDIR)/.cache/npm npm --prefix $(CURDIR)/frontend
-PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.cache/ms-playwright
+# ForgeLoop（TypeScript 原生 DSH 插件）统一入口。
+#
+# 活动实现只有 TypeScript：领域、记录、运行时、插件接入、测试与自有工具链都在
+# packages/forgeloop 与 scripts/ts。旧 Python 实现隔离在 legacy/，不参与任何目标。
+# 具体门槛以 vitest/tsc 配置与 contracts/ 为准，本文件只做入口编排。
 
-# 本地入口：make check 跑静态门禁与高频测试（每次编辑/推送可用）。
-# CI 入口：make check-static coverage test-system frontend-e2e —— 高频与集成用例在一次带覆盖采集的
-# 执行里跑完（不再先跑一遍无覆盖的高频套件），另加系统测试与全部静态门禁。
-# 低频层（真实安装、变异、安全）按各自节奏运行，见 docs/engineering-reliability.md。
-FRONTEND_STATIC_GATES := frontend-policy-check frontend-format-check frontend-lint frontend-typecheck \
-	frontend-build-check frontend-depcruise frontend-knip
-STATIC_GATES := lint typecheck cli-contract-check architecture-contract-check commit-policy-config \
-	structure-metrics import-lint deptry $(FRONTEND_STATIC_GATES)
+NPM := env npm_config_cache=$(CURDIR)/.cache/npm npm
+PKG := packages/forgeloop
+NODE := node
+CONTRACTS := $(NODE) scripts/ts/contracts.ts
+COMMIT_POLICY := $(NODE) scripts/ts/commit-policy.ts
 
-.PHONY: setup format lint typecheck test test-install test-system test-upgrade check check-static cli-contract cli-contract-check architecture-contract architecture-contract-check structure-metrics import-lint deptry pi-live dsh-live coverage coverage-thresholds mutation audit security hooks precommit commit-policy-config frontend-setup frontend-browsers frontend-check frontend-format-check frontend-lint frontend-typecheck frontend-test frontend-coverage frontend-depcruise frontend-knip frontend-build frontend-build-check frontend-policy-check frontend-e2e frontend-mutation frontend-audit frontend-deps
+.PHONY: setup build typecheck test check check-static lint format contracts \
+	architecture-contract architecture-contract-check cli-contract cli-contract-check \
+	commit-policy commit-policy-config hooks precommit verify-plugin package test-host \
+	coverage mutation audit security help verify-web
 
-# 一条命令备好两侧工具链：Python（uv）与前端（npm ci，需要 Node 26）。
+help:
+	@echo "make check                 类型检查 + 契约 + 提交策略配置 + 行为测试"
+	@echo "make test                  仅 TypeScript 行为测试（vitest）"
+	@echo "make build                 编译到 packages/forgeloop/lib"
+	@echo "make package               构建本地候选安装包与摘要"
+	@echo "make contracts             架构与 CLI 契约校验"
+	@echo "make commit-policy-config  校验本机提交策略配置"
+	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
+	@echo "make verify-web            安装包在真实 Web 宿主中的命令与重启回查（不调用模型）"
+	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts）"
+	@echo "make mutation              未接入：显式失败，不冒充通过"
+
 setup:
-	$(UV) sync --frozen --default-index https://pypi.org/simple --group mutation --group security
-	$(MAKE) frontend-setup
+	$(NPM) install --cache $(CURDIR)/.cache/npm --no-audit --no-fund
 
-format:
-	.venv/bin/ruff check --fix src tests scripts
-	.venv/bin/ruff format src tests scripts
-
-lint:
-	.venv/bin/ruff check src tests scripts
-	.venv/bin/ruff format --check src tests scripts
-	# 本地 AST 检查：Ruff S506（本仓库已选入）覆盖 Loader=yaml.Loader/UnsafeLoader、
-	# 无 Loader 的 yaml.load 及第二个位置参数传 Loader，唯一未覆盖的是 yaml.unsafe_load；
-	# 本检查补上该缺口，对 S506 已覆盖形态只作防御性重复，与已移除的 Semgrep 规则同源。
-	.venv/bin/python scripts/check_untrusted_deserialization.py
+build:
+	$(NPM) run build --workspace forgeloop-dsh
 
 typecheck:
-	.venv/bin/pyright
+	$(NPM) run typecheck --workspace forgeloop-dsh
 
 test:
-	.venv/bin/pytest $(FAST_TESTS) -m "not install"
-	$(NPM) run test
-
-test-system:
-	.venv/bin/pytest tests/system -m "not install"
-
-# 受控热升级定向门禁：控制接口、排空、切换/回退场景与真实启动器系统用例。
-test-upgrade:
-	.venv/bin/pytest tests/integration/test_upgrade_drain.py tests/integration/test_upgrade_control.py \
-		tests/scenario/test_supervised_upgrade.py tests/scenario/test_supervised_upgrade_refusals.py \
-		tests/system/test_supervised_upgrade.py -q
-
-# 低频层：真实执行 uv venv 与 wheel 安装（部署），预算 180s，不进入高频路径。
-test-install:
-	.venv/bin/pytest -m install --timeout=180
+	$(NPM) run test --workspace forgeloop-dsh
 
 check: check-static test
 
-check-static: $(STATIC_GATES)
+check-static: typecheck contracts commit-policy-config
 
-cli-contract:
-	.venv/bin/python scripts/export_cli_contract.py
-
-cli-contract-check:
-	.venv/bin/python scripts/export_cli_contract.py --check
+contracts: architecture-contract-check cli-contract-check
+	$(CONTRACTS)
 
 architecture-contract:
-	.venv/bin/python scripts/export_architecture_contract.py
+	$(CONTRACTS) --update-architecture
 
 architecture-contract-check:
-	.venv/bin/python scripts/export_architecture_contract.py --check
+	$(CONTRACTS) --architecture
 
-structure-metrics:
-	.venv/bin/python scripts/check_structure_metrics.py
+cli-contract:
+	$(CONTRACTS) --update-cli
 
-import-lint:
-	.venv/bin/lint-imports
+cli-contract-check:
+	$(CONTRACTS) --cli
 
-deptry:
-	.venv/bin/deptry .
-
-coverage:
-	mkdir -p reports
-	.venv/bin/pytest $(FAST_TESTS) tests/integration -m "not install" --cov --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-report=json:reports/coverage.json
-	.venv/bin/python scripts/check_coverage_thresholds.py
-	$(NPM) run coverage
-
-coverage-thresholds:
-	.venv/bin/python scripts/check_coverage_thresholds.py
-
-mutation:
-	.venv/bin/mutmut run --max-children 2
-	.venv/bin/mutmut export-cicd-stats
-	.venv/bin/python scripts/check_mutation_stats.py
-
-audit:
-	mkdir -p reports
-	$(UV) export --frozen --all-groups --no-emit-project --format requirements-txt --output-file reports/requirements-audit.txt > /dev/null
-	.venv/bin/pip-audit --strict --no-deps --disable-pip --cache-dir .cache/pip-audit -r reports/requirements-audit.txt -f json -o reports/dependency-audit.json
-
-security: audit frontend-audit
-
-hooks:
-	PRE_COMMIT_HOME=$(CURDIR)/.cache/pre-commit .venv/bin/pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
+commit-policy:
+	$(COMMIT_POLICY) --check-now
 
 commit-policy-config:
-	.venv/bin/python scripts/check_commit_policy.py --validate-config
+	$(COMMIT_POLICY) --validate-config
 
-# ---- 前端（TypeScript 状态页）----
-# 结构数值在 ESLint 里是审阅提示（warn，不阻断）；正确性、格式、类型、模块边界、
-# 死代码、覆盖率与真实浏览器用例是硬门禁。变异只进夜间作业（与 Python 变异同节奏）。
-
-frontend-deps:
-	@test -d frontend/node_modules || { echo "缺少前端依赖：先运行 make frontend-setup"; exit 1; }
-
-frontend-setup:
-	$(NPM) ci --no-audit --no-fund
-
-# 真实浏览器（Chromium）落在工作区缓存里；缺失时 frontend-e2e 会给出安装提示。
-frontend-browsers:
-	env PLAYWRIGHT_BROWSERS_PATH=$(PLAYWRIGHT_BROWSERS_PATH) $(NPM) exec -- playwright install chromium
-
-frontend-format-check: frontend-deps
-	$(NPM) run format:check
-
-frontend-lint: frontend-deps
-	$(NPM) run lint
-
-frontend-typecheck: frontend-deps
-	$(NPM) run typecheck
-
-# 校验随包页面模块与 TypeScript 源一致；不一致时用 frontend-build 写回。
-frontend-build-check: frontend-deps
-	.venv/bin/python scripts/check_frontend_build.py
-
-frontend-build: frontend-deps
-	.venv/bin/python scripts/check_frontend_build.py --update
-
-frontend-policy-check:
-	.venv/bin/python scripts/check_frontend_policy.py
-
-frontend-depcruise: frontend-deps
-	$(NPM) run depcruise
-
-frontend-knip: frontend-deps
-	$(NPM) run knip
-
-frontend-test: frontend-deps
-	$(NPM) run test
-
-frontend-coverage: frontend-deps
-	$(NPM) run coverage
-
-frontend-check: $(FRONTEND_STATIC_GATES) frontend-test
-
-frontend-e2e: frontend-deps
-	env PLAYWRIGHT_BROWSERS_PATH=$(PLAYWRIGHT_BROWSERS_PATH) $(NPM) run e2e
-
-frontend-mutation: frontend-deps
-	$(NPM) run mutation
-	.venv/bin/python scripts/check_frontend_mutation.py
-
-# 前端依赖审计：与 pip-audit 同为依赖漏洞门禁（devDependency 链也纳入报告）。
-frontend-audit: frontend-deps
-	$(NPM) run audit
-
-pi-live:
-	env FORGELOOP_PI_LIVE=1 .venv/bin/pytest tests/integration/test_pi_live.py -v
-
-# 真实 DSH headless + 真实模型：需要 FORGELOOP_DSH_HOME 与（启用凭据的）
-# FORGELOOP_DSH_COMMAND，见 tests/integration/test_dsh_live.py 的模块说明。
-dsh-live:
-	env FORGELOOP_DSH_LIVE=1 .venv/bin/pytest tests/integration/test_dsh_live.py -v
+# 本地钩子只做早起拒绝；CI 与产品运行时的判定不依赖钩子。
+hooks:
+	git config core.hooksPath .githooks
+	chmod +x .githooks/pre-commit .githooks/commit-msg
+	@echo "已安装 .githooks（pre-commit / commit-msg）"
 
 precommit:
-	PRE_COMMIT_HOME=$(CURDIR)/.cache/pre-commit .venv/bin/pre-commit run --all-files
+	$(MAKE) check
+
+package: build
+	$(NPM) run candidate --workspace forgeloop-dsh
+
+# 真实宿主装载冒烟：需要 FORGELOOP_DSH_HOME 与模型凭据（见 docs/deployment.md）。
+verify-plugin:
+	$(NODE) scripts/ts/verify-plugin.ts
+
+test-host:
+	$(NODE) scripts/ts/verify-plugin.ts --full
+
+verify-web: package
+	$(NODE) scripts/ts/verify-web.ts
+
+coverage:
+	$(NPM) run coverage --workspace forgeloop-dsh
+
+# 以下两项当前没有接入对应工具；显式失败，避免被误读为“已通过”。
+mutation:
+	@echo "mutation: NOT CONFIGURED（TypeScript 变异测试尚未接入；不得视为通过）" >&2
+	@exit 1
+
+# 依赖漏洞扫描：本地在受限缓存下可能无法访问审计服务；失败即失败，不标注为通过。
+audit:
+	env npm_config_cache=$(CURDIR)/.cache/npm npm audit --audit-level=high
+
+security: audit
+
+format:
+	@echo "format: NOT CONFIGURED（尚未选定 TypeScript 格式化器；不冒充分已格式化）" >&2
+	@exit 1
+
+lint: typecheck contracts

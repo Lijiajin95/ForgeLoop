@@ -1,0 +1,6 @@
+#!/bin/sh
+# 本地早起拒绝：提交时间策略与 TypeScript 类型检查。
+# 这里不是完整保障；CI 与运行时规则另有强制入口。
+set -e
+node scripts/ts/commit-policy.ts --check-now
+npm run typecheck --workspace forgeloop-dsh

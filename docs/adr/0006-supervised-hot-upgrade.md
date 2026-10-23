@@ -2,7 +2,7 @@
 
 - **状态**：**已接受**（所有者 2026-10-21 交付实施方案并要求按 T0–T5 实施）；**仓库内实现进行中**，真机接入与验收另需授权
 - **日期**：2026-10-21（Asia/Shanghai）
-- **依据**：[热升级实施方案](../hot-upgrade-implementation-plan.md)、[ADR 0004 本机 CD](0004-local-cd-auto-deploy.md)、[常驻服务验收方案](../resident-service-acceptance.md)
+- **依据**：[热升级实施方案](../history/hot-upgrade-implementation-plan.md)、[ADR 0004 本机 CD](0004-local-cd-auto-deploy.md)、[常驻服务验收方案](../history/resident-service-acceptance.md)
 - **基线**：实施前核对为 `e69a117`（与方案记录一致）；本 ADR 只记录方向性决定，不表示宿主接入或真机验收已完成
 
 ## 背景与现状

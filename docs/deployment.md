@@ -1,353 +1,123 @@
-# 本机部署与回滚（P1 S2）
+# 安装、升级与恢复（本机 DSH 插件）
 
-把已验收并发布的产物部署到**这台 Debian 设备**：只使用同一份已发布产物，独立版本目录，
-原子切换激活，保留上一版本与可核对的回滚入口。
+本文描述当前 TypeScript 原生 DSH 插件的本地安装、候选打包、V0→V1 切换与恢复。旧的 Debian
+wheel／systemd／热升级部署路径已退役，历史记录见 Git、[ADR 0006](adr/0006-supervised-hot-upgrade.md)
+与 `legacy/`。
 
-## 不变量
+## 1. 前置
 
-- **同一份产物**：控制路径只接受 Release 上发布的 wheel，且其 sha256 必须等于 Release 的
-  `SHA256SUMS`；不匹配即拒绝，**不重新构建**。
-- **身份绑定**：标签指向的提交必须等于 S1 发布回执里的归并提交，部署日志同时固化任务、
-  归并提交与产物校验值。
-- **不被覆盖**：每个版本装在 `releases/<version>`，已存在的版本目录一律拒绝覆盖。
-- **原子激活**：先建临时符号链接再 `os.replace` 覆盖 `current`，切换瞬间不存在半激活状态。
-- **可核对回滚**：回滚只允许切到已安装且留有产物校验记录的版本；`deployments.jsonl` 是权威记录。
-- **失败如实报告**：冒烟检查失败时**不自动回退**，保留现场并打印确切的恢复入口。
-- **独立恢复入口**：恢复命令直接调用上一稳定版本的 `releases/<previous>/bin/forgeloop`，
-  **不经过 `current`**；因此 `PATH` 上的 `forgeloop` 已指向坏版本、甚至坏版本无法启动时，
-  仍能恢复旧版本。每次部署、回滚都追加 `deployments.jsonl`，失败也有回执；回滚只追加、
-  不删除记录，回滚后既有记录仍可读取。
+- DSH `0.2.1-rc.2`（或插件 `engines.dsh` 允许的版本）、Node ≥ 22.5；
+- 一个可用的 DSH profile（示例名 `forgeloop`）与模型路由；
+- 项目路径与记录根。记录根布局：`<recordsRoot>/projects/<project>/records.sqlite`。
 
-## 目录布局
+## 2. 从源码安装（开发用）
+
+```sh
+npm install --cache .cache/npm-cache
+npm run build --workspace forgeloop-dsh
+dsh plugin --profile forgeloop add "$PWD/packages/forgeloop"
+dsh --profile forgeloop --dump-config | grep forgeloop-dsh
+```
+
+源码安装是 `link:` 依赖：修改源码并重新构建后，重启宿主即可生效。它适合开发，**不能**用来
+声称“验证了安装包”。
+
+## 3. 构建候选安装包
+
+```sh
+npm run candidate --workspace forgeloop-dsh
+```
+
+输出 `packages/forgeloop/dist/forgeloop-dsh-<version>.tgz` 与 `artifact.json`（版本、大小、
+SHA-256、文件清单、构建时的 git HEAD 与工作树状态）。通过插件内的正式流程构建时使用：
 
 ```text
-~/.local/share/forgeloop/
-├── releases/<version>/            每版本一个独立 venv（不覆盖旧版本）
-│   ├── .venv/                     该版本的依赖环境
-│   └── bin/forgeloop              稳定入口 shim → .venv/bin/forgeloop
-├── current -> releases/<version>  激活指针（原子切换）
-├── artifacts/                     下载到的产物原件与 SHA256SUMS（便于复核）
-├── cache/uv、toolchain/python     部署自带的 uv 缓存与解释器目录（不依赖家目录缓存）
-└── deployments.jsonl              部署日志：版本、产物校验值、来源、上一版本、冒烟结果
+/fl candidate <需求身份> <x.y.z>
 ```
 
-`~/.local/bin/forgeloop` 是一次性符号链接，指向 `current/bin/forgeloop`，因此后续部署
-（切换 `current`）无需再动它。
+它只应用已交付并绑定的 diff，在独立快照中构建、打包并核对 tarball 摘要。
 
-## 首次安装（引导路径，bootstrap）
+## 4. 安装到桌面 profile（Electron 独占）
 
-工具自身第一次安装时尚无发布回执，必须显式使用 `--bootstrap` 并在日志里标注来源
-（不冒充控制路径）：
+DSH CLI 拒绝修改 `desktop` profile（`profile "desktop" is managed exclusively by the Electron
+application`）。本机的做法（2026-10-23 已执行）：
 
-```bash
-cd /home/link/Project/ForgeLoop
-uv build                                        # 产出 dist/forgeloop-<version>-py3-none-any.whl
-.venv/bin/forgeloop deploy --tag v0.0.1 \
-  --artifact dist/forgeloop-0.0.1-py3-none-any.whl \
-  --bootstrap --bootstrap-note "首次安装：工作副本构建产物" \
-  --prefix ~/.local/share/forgeloop
-mkdir -p ~/.local/bin
-ln -sfn ~/.local/share/forgeloop/current/bin/forgeloop ~/.local/bin/forgeloop
+```sh
+# 1. 备份
+cp ~/.dsh/profiles/desktop/package.json        .cache/forgeloop/desktop-install/package.json.bak
+cp ~/.dsh/profiles/desktop/cordis.patch.yml    .cache/forgeloop/desktop-install/cordis.patch.yml.bak
+
+# 2. 安装包（在 profile 目录内用 pnpm，不经过 dsh plugin 的独占检查）
+cd ~/.dsh/profiles/desktop
+pnpm add "file:/abs/path/<tarball>"
+
+# 3. 在 package.json 的 dsh.profile.bundles 追加 "forgeloop-dsh"
+# 4. 在 cordis.patch.yml 覆盖 forgeloop 行的 recordsRoot/projectPath 等配置
+# 5. 重启 DSH Desktop 才会加载
 ```
 
-**本机已执行的记录（2026-10-13 08:10，Asia/Shanghai）**：部署 `v0.0.1`，来源 `bootstrap`，
-产物 `forgeloop-0.0.1-py3-none-any.whl`，校验值 `ab03c19885c7aac7a35fd20a212bcf754a1616825c91c39f5e18f82cb2350c4e`，
-冒烟 `exit 0`；安装环境为独立 venv（Python 3.13.5，langgraph 可导入）。
+验证组合层不要直接 `--dump-config desktop`（同样被独占检查拒绝）。可复制 manifest 到临时
+profile（`node_modules` 软链到 desktop）后 `dsh --profile <copy> --dump-config | grep forgeloop-dsh`，
+本机已用此法验证。
 
-## 受控部署（发布路径）
+## 5. 安装候选包（V1，非桌面 profile）
 
-```bash
-forgeloop deploy --tag vX.Y.Z --prefix ~/.local/share/forgeloop --records-root ~/forgeloop-records
+```sh
+dsh plugin --profile forgeloop add /abs/path/forgeloop-dsh-<version>.tgz
+# 必要时重启 DSH 宿主，使新包生效
 ```
 
-流程：读取该标签的发布回执（S1）→ 从 Release 下载 wheel 与 `SHA256SUMS`（公开仓库匿名下载，
-无需凭据）→ 校验 sha256 → 核对标签提交与回执一致 → 安装新版本目录 → 原子切换 → 冒烟检查
-→ 写部署日志。`--repo owner/name` 可在无法从回执任务推断仓库时显式指定。
+安装后确认：
 
-## 回滚
-
-```bash
-forgeloop rollback --prefix ~/.local/share/forgeloop          # 回到最近记录的上一版本
-forgeloop rollback --to 0.0.1 --prefix ~/.local/share/forgeloop --note "原因"
+```sh
+dsh --profile forgeloop --dump-config | grep forgeloop-dsh
+ls -la "$DSH_HOME/profiles/forgeloop/node_modules/forgeloop-dsh"   # 应是安装目录，不是 link
 ```
 
-回滚同样做原子切换与冒烟检查，并追加日志；不删除任何版本目录。
+`make verify-plugin` 会检查 profile 清单、安装形态、组合层，并用真实模型调用插件工具；
+`make verify-plugin` 加 `--full`（或 `make test-host`）还会通过真实 `commands` 注册表执行
+只读的 `/fl status`。需要宿主可用模型凭据；脚本不读取或打印密钥。
 
-## 新版本冒烟失败时的恢复
-
-受控部署先安装、激活，再冒烟检查（`current/bin/forgeloop --help`）。冒烟失败时**不回退**，
-保留现场并把新版本连同 `smoke_exit_code` 写入 `deployments.jsonl`。此时 `PATH` 上的
-`forgeloop`（以及 `current/bin/forgeloop`）已指向坏版本，直接执行会再次调用坏版本；命令会
-打印独立恢复入口，直接调用上一稳定版本的 shim：
+## 6. 验证新版本与历史
 
 ```text
-FAIL: 冒烟检查失败（exit=3）：...
-未自动回退；上一版本: 0.0.1
-恢复稳定版本（无需调用新版本）: ~/.local/share/forgeloop/releases/0.0.1/bin/forgeloop rollback --prefix ~/.local/share/forgeloop
+/fl config
+/fl status
+/fl status <旧需求身份>
+/fl evidence <旧需求身份>
+/fl impact <需求身份>          # V1 起提供
 ```
 
-按提示执行该入口即可原子切回 `0.0.1`；因为它不经过 `current`，坏版本即使完全无法启动也能恢复。
-若这是首次部署、没有上一版本，命令会明确提示无可回退版本，按「首次安装」重新引导即可。
-回滚只向 `deployments.jsonl` 追加一条记录、保留全部历史，因此恢复后既有记录仍可读取。
+- 记录库与证据目录不随插件版本删除；旧需求应仍可按身份查询。
+- 候选包摘要、安装版本与运行版本应一致；不一致时如实记录，不声称升级成功。
 
-## 自动化（GitHub Actions）
+## 7. 恢复 V0
 
-- 工作流：[.github/workflows/deploy.yml](../.github/workflows/deploy.yml)。触发路径两条：
-  - **自动（标签交付）**：`release.yml` 创建 Release 后**显式 `workflow_dispatch` 派发**本工作流
-    （`gh workflow run deploy.yml --ref <tag> -f tag=<tag>`）。这一步必需：按 GitHub 规则，用
-    `GITHUB_TOKEN` 创建 Release 所产生的 `release.published` 事件**不会**触发下游工作流（只有
-    `workflow_dispatch` 与 `repository_dispatch` 例外），只靠 `release.published` 会断链。
-  - **人工**：在 GitHub 上手动创建 Release（`release.published` 生效），或手动 `workflow_dispatch`
-    并填标签。
-- 运行位置：**自托管 runner**，标签 `forgeloop-deploy`（安装步骤见
-  [自托管 runner 说明](self-hosted-runner.md)）；作业调用本机**已安装**的 forgeloop 部署，
-  形成自升级链路。
-- 若作业一直排队，通常是 runner 缺少 `forgeloop-deploy` 标签或未在线；在仓库
-  Settings → Actions → Runners 页面核对标签与状态。
-- **实测回执（2026-10-20）**：手动 `workflow_dispatch -f tag=v0.0.4`（run `39423751574`）在
-  自托管 runner 上真实执行：预检拿到激活指针 `releases/0.0.4`、确认 CLI 支持 `--project`、
-  项目 `forgeloop` 已登记；随后 `deploy` 以 `缺少 v0.0.4 的发布回执；未发布的版本不部署`
-  fail-closed 退出，并打印两项补办命令，**未安装任何东西**。这说明链路已可达、门禁生效——
-  剩余缺的一步是“真实发布 + 该版本的一次性批准”。
-- **多项目口径（2026-10-20 起）**：业务记录在 `<records-root>/projects/<project_id>/` 下，
-  因此工作流显式带项目与登记根（`project` 缺省 `forgeloop`、`records-root` 缺省
-  `/home/link/Project/ForgeLoop/.forgeloop`，可用 `workflow_dispatch` 输入覆盖；前缀可用
-  仓库变量 `FORGELOOP_DEPLOY_PREFIX` 覆盖）。工作流在安装前先做两项只读前置，失败即退出、
-  不装任何东西：
-  1. **本机 CLI 支持多项目**：`current/bin/forgeloop deploy --help` 必须含 `--project`；
-     旧版本会给出升级命令（`scripts/install_local_service.sh --no-unit`）。
-  2. **项目已登记**：`project show <project> --records-root <root>` 必须成功；否则打印
-     `project add …` 的补办命令。
-  安装仍由 `deploy` 的权威判据把关：缺**发布回执**或缺**该版本的一次性人工部署批准**时
-  fail-closed 拒绝，工作流把两项补办命令一起打印，界面/日志里能直接照着做。
+1. 保留每版 tarball 与 `artifact.json`（示例：`.cache/forgeloop/artifacts/v0/`）。
+2. 重新安装旧包：
 
-## 受控热升级（固定启动器，2026-10-21）
+   ```sh
+   dsh plugin --profile forgeloop add /abs/path/<tarball>
+   ```
 
-目标：普通业务版本升级**不调用** \`systemctl restart\`／\`daemon-reload\`，不改写 unit；systemd 只托管固定启动器，启动器替换业务子进程并处理失败恢复。允许切换期间短暂 HTTP 断连；不承诺现有代码尚未提供的任意节点无损暂停。
+3. 重启宿主，运行 `/fl config` 与 `/fl status` 确认版本与记录可读。
+4. 恢复不得删除记录、证据或候选包；未知请求与未收口动作按记录核对，不自动重放。
 
-### 布局与现场
+## 8. 隔离验证环境
 
-\`\`\`text
-<prefix>/
-  launcher/.venv/                 固定启动器环境（普通升级不改写）
-  releases/<version>/             各业务版本独立环境 + artifact.json
-  current -> releases/<version>   激活指针（只在提交/回退时切换）
-  control/
-    owner.json                    项目、登记根、前缀与启动参数绑定（0700 目录）
-    launcher.lock                 单启动器/单次切换互斥
-    upgrade.sock                  本机控制接口（0600；同 UID 校验）
-    upgrade-state.json            权威升级现场（原子写）
-    upgrade-events.jsonl          追加式升级审计
-    ready-<generation>.json       业务进程就绪证据
-    drain-<generation>.json       业务进程排空证据
-  deployments.jsonl               既有部署回执
-\`\`\`
+本机验证使用工作区内的 `DSH_HOME`，避免触碰桌面 profile：
 
-阶段：\`prepared\`（候选已安装、未激活）→ \`draining\`（拒绝新动作、等待在途调用/会话轮）→ \`starting\` → \`probing\`（只做就绪核对）→ \`committed\`。排空超时进入 \`deferred\`（取消本次切换、旧进程继续），新版失败且确认退出后 \`rolled_back\`，回退也失败进入 \`recovery_required\` 并停止自动推进。相同请求幂等；并发/跨项目/同版本异产物拒绝。
-
-### 一次性接入（维护窗口，允许重启；所有者执行）
-
-前提：项目已登记；\`config/service.toml\` 的 \`[upgrade]\` 与项目档案可用；宿主有用户 systemd 总线。
-
-\`\`\`bash
-cd /home/link/Project/ForgeLoop
-scripts/install_local_service.sh --no-enable \
-  --project forgeloop \
-  --records-root /home/link/Project/ForgeLoop/.forgeloop
-# 审阅将要写入的 unit、<prefix>/control/owner.json、目录权限与启动器环境后：
-systemctl --user daemon-reload
-systemctl --user enable --now forgeloop
-\`\`\`
-
-unit 的 \`ExecStart\` 必须指向 \`<prefix>/launcher/.venv/bin/forgeloop-launcher --prefix <prefix>\`，**不指向** \`current/bin/forgeloop\`。脚本在已接入前缀上拒绝再次 bootstrap/direct deploy；启动器自身更新用 \`--refresh-launcher\`（低频维护，需单独授权）。
-
-### 普通升级（不重启 systemd）
-
-前置：该标签已有发布回执；该版本已有一次性人工部署批准（绑定 tag + 产物 SHA256）；候选产物与回执/SHA 一致。
-
-\`\`\`bash
-forgeloop deploy-approve --tag v0.0.5 --artifact-sha256 <64位sha> \
-  --by owner --reason "确认升级到 0.0.5" --project forgeloop \
-  --records-root /home/link/Project/ForgeLoop/.forgeloop
-
-# 选择任意一个已安装 CLI 调用控制接口（客户端不写前缀）：
-forgeloop upgrade apply --prefix ~/.local/share/forgeloop --tag v0.0.5 \
-  --by owner --reason "受控升级"
-\`\`\`
-
-\`apply\` 默认从本机部署批准读取产物 SHA；也可显式传 \`--artifact-sha256\`。启动器会自行复核发布回执、批准、标签提交、项目/前缀绑定、产物 SHA256 与候选 \`artifact.json\`，不信任请求里的“已批准”字段。
-
-### 核对
-
-\`\`\`bash
-forgeloop upgrade status --prefix ~/.local/share/forgeloop --json
-systemctl --user show forgeloop -p MainPID --value
-readlink ~/.local/share/forgeloop/current
-cat ~/.local/share/forgeloop/control/upgrade-state.json
-tail -n 10 ~/.local/share/forgeloop/control/upgrade-events.jsonl
-\`\`\`
-
-通过判据：systemd MainPID 与启动器 PID 不变；业务进程 PID/generation 改变；\`current\` 与运行版本/产物 SHA 为 B；项目库记录保留。**不要**用 \`current\` 指针冒充运行版本。
-
-### 失败与恢复
-
-- 排空超时：\`deferred\`，旧进程继续；不扣研发失败额度、不强杀在途任务；待人工重新发起。
-- 候选启动失败/就绪超时：启动器确认候选退出后，从 \`releases/<previous>/bin/forgeloop\` 绝对路径恢复旧版；现场记录两代身份。
-- 回退失败：\`recovery_required\`，停止自动推进；保留进程证据与失败原因，人工核对后再处理。
-- 数据库不兼容/不可逆迁移：拒绝自动升级，走单独维护流程；代码回退不等于数据回退。
-- 启动器自身异常退出：重启时按现场对账；无法确认退出/提交的现场等待人工，绝不启动第二个可执行实例。
-
-### 边界（如实声明）
-
-- 本机（macOS）**没有**真实部署前缀与用户 systemd；仓库内以真实启动器进程 + 真实业务替身验证切换/延期/回退，**真机 unit 不重启验证未执行**。
-- 首次接入、启动器自身更新与不可逆迁移仍是维护操作；普通升级授权不覆盖它们。
-- 托管前缀的 \`deploy\`／\`bootstrap\`／\`rollback\` 会被拒绝；这是防止绕过排空与代际提交的保护，不是兼容性回退。
-
-## 常驻服务（R1，手工安装）
-
-
-`forgeloop serve` 是常驻入口：同一个进程提供只读状态页（`/`、`/api/progress`）与常驻状态接口
-（`GET /api/service`），并按 `config/service.toml` 的 `poll_seconds` 心跳，逐个心跳做一次**只读筛选**。
-`auto_advance`（默认 `false`）打开后，筛选通过的需求会交给既有编排自动推进：项目已配置、任务包已批准、
-下一步主体是 agent、且 PI HOME 与进程 HOME 一致；批准、验收、停止、失败累计与槽位互斥全部沿用既有规则，
-常驻进程不会代替所有者做任何验收。页面操作入口属 R3，见[常驻服务与页面操作入口方案](resident-service-plan.md)。
-
-**PI HOME 前提（重要）**：宿主模式下 PI 子进程继承常驻进程的环境，因此 unit 里必须显式设置
-`Environment=HOME=<隔离 HOME>`，且该 HOME 要含非空的 `.pi/agent/models.json`（工程可靠性方案第 22.2 节），
-并与 `config/service.toml` 中项目档案的 `pi_home` **一致**。不一致的项目不会被执行，只在状态文档的
-`worker.last_tick.skipped` 里如实说明原因（例如「PI HOME 与常驻进程 HOME 不一致」）。
-
-### 安装（systemd user unit，不需要 sudo）
-
-**2026-10-21 起**模板的 `ExecStart` 指向固定启动器（见上一节“受控热升级”），不再直接执行
-`current/bin/forgeloop serve`。未接入现场仍可手工复制模板，但接入后普通升级必须走
-`forgeloop upgrade apply`；手工复制时按本机路径修改 `WorkingDirectory`／`ExecStart`／`Environment`：
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp runtime/systemd/forgeloop-serve.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now forgeloop
+```sh
+export DSH_HOME="$PWD/.cache/forgeloop/dsh-home"
+export FORGELOOP_PROFILE=forgeloop
 ```
 
-### 核对与停止
+该目录位于 `.cache/`（不入库），包含专用 profile 与模型路由补丁。真实用户使用时把同样的
+插件安装到自己的 profile 即可。
 
-```bash
-systemctl --user status forgeloop-serve
-journalctl --user -u forgeloop-serve -f
-curl -s http://127.0.0.1:8712/api/service | python3 -m json.tool
-systemctl --user stop forgeloop-serve        # SIGTERM，退出码 0
-```
+## 9. 已知限制
 
-不用 systemd 时也可以直接前台运行（`Ctrl+C` 停止）：
-
-```bash
-.venv/bin/python -m forgeloop serve --records-root .forgeloop
-```
-
-### 运行环境前提（2026-10-18 实测补充）
-
-- **测试命令所需的工具必须在 PATH 里**：任务包里的 `test_command` 是快照（本项目为
-  `uv run pytest …`），而图与常驻进程都用宿主环境执行它。2026-10-18 的真实续跑就因为环境
-  PATH 缺 `uv`，让 `test` 节点以 `FileNotFoundError` 真实失败（检查点停在 `test`、无未完成
-  动作，补上 PATH 后 `requirement advance` 正常续跑并 exit 0）。部署常驻服务时请在 unit 里
-  显式设置 PATH，例如把仓库 `.venv/bin` 与工具目录加进去：
-
-  ```ini
-  Environment=PATH=%h/Project/ForgeLoop/.venv/bin:/usr/local/bin:/usr/bin:/bin
-  ```
-
-- **页面写入口只对本机开放**：写请求需要页面令牌（`GET /` 注入 meta）与同源校验，非回环
-  监听由程序拒绝；没有登录与多用户（B01 触发条件未满足）。
-
-### unit 文件的离线校验
-
-`runtime/systemd/forgeloop-serve.service` 的指令与语法由 `systemd-analyze verify` 核对，
-并已固化为系统层用例 `tests/system/test_systemd_unit.py`（工具缺席时跳过，不伪装成已验证）：
-
-```bash
-systemd-analyze verify runtime/systemd/forgeloop-serve.service   # 本机实测：零输出、退出码 0
-```
-
-**仍未验证**：真机 `systemctl --user enable --now`、`restart` 后恢复、`journalctl --user -u` 日志
-（沙箱与 CI 内无用户 systemd 总线），需在目标宿主手工执行。
-
-### 页面「推进」的语义（R4 定稿）
-
-页面点「推进本次」是**受理**（HTTP 202），不是就地执行：接口先只读判定前提（不满足立刻返回 409 与原因），
-满足则把请求排进常驻进程的内存队列，由下一次心跳执行。三点要知道：
-
-- 排队请求**不是业务状态**：进程重启即消失（业务事实仍在记录里，人工可以再点一次）；
-- 排队请求**不受 `auto_advance` 限制**：开关关闭只表示「不自动接续」，人工点下的推进照常执行；
-- 想确认请求是否被受理/执行，看 `GET /api/service` 的 `worker.pending_advance`（排队中）与
-  `worker.last_tick`（已执行/跳过的需求与原因）。
-
-### 被强杀后的恢复步骤（R4）
-
-常驻进程被强杀（`kill -9`、掉电、systemd 强停）会留下未核对的动作与残留槽位。**不会自动重放**，
-按下面顺序人工核对：
-
-```bash
-# 1) 先看清单：未核对动作 / 残留槽位 + 副作用证据（候选 diff 身份、工作副本是否存在）
-curl -s http://127.0.0.1:8712/api/service | python3 -m json.tool | grep -A3 outstanding_action
-.cache/dogfood/fl-debian.sh requirement actions list --task <单任务身份> --records-root <记录根>
-
-# 2) 对照工作副本与候选 diff，确认上次动作到底做到哪一步（不要跳过这一步）
-
-# 3) 释放未完成动作（写审计：谁、何时、理由），必要时清理残留槽位
-.cache/dogfood/fl-debian.sh requirement actions clear --task <单任务身份> --by owner --reason "核对现场后释放"
-.cache/dogfood/fl-debian.sh requirement slot clear --slot requirement:<需求身份>
-
-# 4) 恢复推进：常驻服务（auto_advance=true）会在下一个心跳接续；也可显式推进一次
-.cache/dogfood/fl-debian.sh requirement advance <需求身份> --pi-command '<JSON 数组>' --records-root <记录根>
-```
-
-核对清单里没有的任务不受影响：`auto_advance` 打开时常驻进程仍会正常接续它们。
-
-### 边界（如实声明）
-
-- 执行参数（项目档案、PI 隔离 HOME、并发上限）只在 `config/service.toml` 里配置，unit 不重复，
-  避免两处漂移；非回环监听由程序本身拒绝，unit 不提供绕过开关。
-- **systemd 安装与重启在 CI 内无法验证**，只能手工验收；沙箱环境（无用户 systemd bus）下同样
-  无法执行，需在真实宿主上验收。
-- 常驻服务不新增任何表，也不改变既有部署路径（`deploy`／`rollback` 仍只管版本产物）。
-
-## 未验证与已知边界
-
-- 「Release → 自托管 runner → 本机部署」的真实端到端链路**尚未执行**：需要一次真实交付
-  走完 S1 发布（标签 + Release）后才能验证；当前只有引导路径的真实验证。链路的断点已修
-  （2026-10-13 显式派发 Deploy；2026-10-20 多项目记录根与前置校验，见上节），但**一次成功的
-  自升级仍需真实发布**。
-- **本机 0.0.4 已安装并重启验证（2026-10-20）**：`scripts/install_local_service.sh --no-unit`
-  在真实前缀完成构建→安装→激活→冒烟，`current -> releases/0.0.4`（产物校验值
-  `1dc1858f…d5dd`，上一版本 0.0.3 保留可回滚）；`systemctl --user restart forgeloop` 后
-  `/api/service` 返回 `project: forgeloop`、`active_version: 0.0.4`、`operations_enabled: true`，
-  `/api/progress` 按项目聚合并返回 `projects: [forgeloop]`。记录根同步从旧单根迁移到项目布局
-  （`.forgeloop/projects/forgeloop/`，旧库当时为空）。仍缺的一次真实自升级见上一条。
-- **真实两版本回滚未在真实前缀演练**：本机目前只安装了一个版本；回滚链路由场景测试
-  （真实文件系统 + 真实安装 + 真实切换）覆盖，等第二个版本交付后补真实演练。
-- runner 标签是否包含 `forgeloop-deploy` 无法在本地核对（标签在 GitHub 侧），需在 Runners
-  页面确认。
-- 部署目录不含生产凭据；本机部署不需要任何 token。
-- **常驻服务的 systemd 验收未执行**：R1 交付的是 unit 模板与代码侧行为（真实子进程 + 真实 HTTP
-  已验证），开机自启、`Restart=on-failure` 与 journal 日志需要在真实宿主上手工验收。
-
-## 本机接入（一次性，CD 前置）
-
-CD（持续部署）在本机的落地只差一次性接入：把已部署的版本交给用户级 systemd 托管。
-
-```bash
-scripts/install_local_service.sh                 # 默认前缀 ~/.local/share/forgeloop
-scripts/install_local_service.sh --no-enable     # 只装不启用
-```
-
-脚本做四件事：① 构建 wheel 并**仅在首次接入**用 bootstrap 装进 `<prefix>`；② 在
-`<prefix>/launcher/.venv` 安装固定启动器环境并写 `control/owner.json`；③ 写
-`~/.config/systemd/user/forgeloop.service`（`ExecStart=<prefix>/launcher/.venv/bin/forgeloop-launcher`，
-`Restart=on-failure`）；④ 可选 `systemctl --user daemon-reload && enable --now`。
-
-**之后每次发布**：人工 `deploy-approve`（绑定版本与产物校验值）→ `forgeloop upgrade apply`
-（启动器复核、排空、就绪、失败恢复）→ 结果回执；**不 restart systemd**。`/api/service` 的
-`deploy` 段仍给出“待部署/已批准”只读结论，`upgrade` 段给出实际运行版本与代际准入。
-
-真机验收判据见 [常驻服务与邮件入口的真实场景验收方案](resident-service-acceptance.md)（A/B/C/E 组）。
+- DSH developer preview：升级宿主后重新跑 `make verify-plugin`，不能假设跨版本兼容。
+- 安装/卸载不是事务：tarball 损坏或宿主中断时按 §6 恢复，不伪造成功。
+- 插件禁用/卸载会停止协调器并取消在途 Agent；已受理但未收口的请求保持 `unknown`，需人工核对。
+- 无 Python、无独立 HTTP 服务；旧 `forgeloop` CLI 不再是安装或恢复入口。

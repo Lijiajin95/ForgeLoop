@@ -1,0 +1,10 @@
+# ForgeLoop 插件装载层：把 forgeloop-dsh 的宿主插件插入宿主组合。
+# 记录根、项目与执行参数由 profile 的 cordis.patch.yml 覆盖本行 config；
+# 未覆盖时使用插件 Config 的默认值（相对当前工作目录）。
+- insert:
+    - id: forgeloop
+      name: forgeloop-dsh
+      config:
+        project: forgeloop
+        pollSeconds: 5
+        autoAdvance: false

@@ -1,66 +1,56 @@
 # 贡献与提交规范
 
-ForgeLoop 是个人研发工具项目。许可方式（代码与文档）由所有者后续决定；未决定前不对外分发代码。贡献遵循本规范与[研发纪律](docs/development-discipline.md)。
+ForgeLoop 是个人研发工具项目。许可方式（代码与文档）由所有者后续决定；未决定前不对外分发。
+贡献遵循本规范与[研发纪律](docs/development-discipline.md)。
+
+## 开发流程
+
+1. 读 [AGENTS.md](AGENTS.md)、[架构说明](docs/architecture.md) 与[状态记录](docs/status.md)，
+   核对源码与契约；范围外问题记录为“发现但不碰”。
+2. 关键规则先写失败的 TypeScript 行为测试，再实现；运行 `make check`。
+3. 架构、持久化、命令/工具表面变化同批更新 `docs/architecture.md` 与 `contracts/`，运行
+   `make contracts`；方向性选择写 `docs/adr/`。
+4. 真实宿主行为变化运行 `make verify-plugin`（需 DSH 与模型凭据）；安装包变化运行
+   `make package` 并记录 tarball SHA-256。
+5. 需要提交时由所有者明确授权；提交前运行提交策略检查。
 
 ## 提交时间限制
 
-提交时间限制是**可选的本机策略**：仓库只发布配置模板 `config/commit-policy.template.toml`，**实际生效的配置不入库**，只从本机两个位置二选一读取（高优先级优先，两份不合并）：
+提交时间限制是**可选的本机策略**：仓库只发布配置模板 `config/commit-policy.template.toml`，
+**实际生效的配置不入库**，只从本机两个位置二选一读取：
 
 1. `.cache/forgeloop/commit-policy.toml`（仓库内缓存，已被 `.gitignore` 忽略）
 2. `~/.config/forgeloop/commit-policy.toml`（用户级，位于仓库之外）
 
-把模板复制到上述任一位置即在本机启用限制；**两处都没有配置文件时不执行提交时间禁止**——`pre-commit`／`commit-msg` 与 CI 审计都会放行，并在输出里标注 `policy_absent` 与 NOT enforced：这是「没有规则」，不是「检查通过」。配置存在而损坏、年历目录缺失，或旧路径 `commit-policy.local.toml` 未迁移时仍然拒绝（失败关闭）。
+把模板复制到上述任一位置即在本机启用限制；**两处都没有配置文件时不执行提交时间禁止**——
+`pre-commit`／`commit-msg` 与 CI 审计都会放行，并在输出里标注 `policy_absent` 与 NOT
+enforced：这是“没有规则”，不是“检查通过”。配置存在而损坏、年历目录缺失或旧路径
+`commit-policy.local.toml` 未迁移时仍然拒绝（失败关闭）。
 
-启用后的窗口、午间可提交时段、授权窄口与授权登记都来自**生效配置**，判定由 `src/forgeloop/domain/commit_policy.py` 实现；模板默认值沿用旧口径（09:00–12:00 与 13:30–18:00 禁止、午间 12:00–13:30 可提交、授权只限 09:00–09:55 窄口），授权批次逐条登记在 `[[authorized_batches]]` 并写明来源，未登记的日期即使落在窄口内也拒绝。**10:00 是领域硬上限**：任何配置都不得把授权窗口延伸到 10:00 之后，超出即配置无效。数值不在本文复制，以配置与领域判定为准。
+窗口、午间可提交时段、授权窄口与授权批次来自**生效配置**，判定由
+`scripts/ts/commit-policy.ts` 实现；模板默认值沿用旧口径（09:00–12:00 与 13:30–18:00 禁止、
+午间 12:00–13:30 可提交、授权只限 09:00–09:55 窄口）。授权批次逐条登记在
+`[[authorized_batches]]` 并写明来源，未登记的日期即使落在窄口内也拒绝。**10:00 是领域硬
+上限**：任何配置都不得把授权窗口延伸到 10:00 之后，超出即配置无效。数值以配置与代码为准，
+不在本文复制。
 
-年度安排存放在 `config/workday-calendars/`，每份日历附官方出处和核验日期。2026 年按国务院办公厅通知维护，包括 1 月 4 日、2 月 14/28 日、5 月 9 日、9 月 20 日和 10 月 10 日的调休工作日。[官方通知](https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html)
+## 提交消息
 
-缺少年度日历时，已配置窗口的机器在窗口内拒绝提交，不默认把未知年份的周末当成休息日；窗口之外可提交。次年官方通知公布后，应在非禁止时段更新日历，核对放假、补班、跨年日期及边界测试。
+消息头遵循 Conventional Commits（`type(scope): summary`），由 `.githooks/commit-msg` 调用同一
+TypeScript 工具校验，与是否启用本机策略无关。禁止 `--no-verify`、禁用 hooks、修改时钟或伪造
+作者/提交者时间绕过已启用的策略。
 
-规范要求本地 `pre-commit` 与 `commit-msg` 都读取真实时钟；`commit-msg` 同时检查消息头（Conventional Commits 语法与配置无关，始终生效）。CI 核对新增 commit 的作者时间、提交者时间和消息，按配置时区转换，CI 的运行时间不作为 commit 创建时间。禁止使用 `--no-verify`、禁用 hooks 或伪造时间戳绕过已启用的本机策略。`scripts/check_commit_policy.py` 已实现并消费同一份配置：`--check-now` 判断当前时刻、`--audit BASE HEAD` 核对历史提交、`--validate-config` 校验配置；无配置时前两者放行并显式标注未强制，配置损坏或年历缺失时拒绝而非放行。
+## 本地钩子
 
-未安装配置的机器（包括未注入配置的 CI）上，**提交时间规则未落实**：这是所有者选择的可选强制，不能读成「规则已生效」或「检查通过」。需要服务端强制时，须在 CI 步骤中另行注入配置（当前未实现）。
-
-Git 本地 hooks 可以被仓库使用者绕过；CI 核对的 Git 时间戳也不是不可伪造的外部时间证明。发布远程仓库后须设置受保护分支与必要状态检查，才能把检查结果落实为合入门槛。
-
-## Commit 消息与范围
-
-遵循 Conventional Commits 的项目约定：
-
-```text
-type(scope): 简洁描述
-
-说明修改原因、行为变化和验证方式（必要时）。
+```sh
+make hooks     # git config core.hooksPath .githooks
 ```
 
-支持 `feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`。scope 可省略；建议使用 `cli`、`graph`、`adapter`、`domain`、`records`、`quality`、`docs` 等明确范围。描述可使用中文，首行最多 100 个字符，禁止空描述及前后多余空格。
+`pre-commit` 运行提交时间检查与 `npm run typecheck --workspace forgeloop-dsh`；`commit-msg`
+校验消息头。钩子只做本地早起拒绝，不是完整保障；CI 与产品运行时的判定各自独立。
 
-破坏兼容性时使用 `!`，并在正文解释迁移方式及影响，例如 `feat(cli)!: 调整 status 输出契约`。格式校验只检查首行语法，破坏性变更和 footer 的正确性仍需审阅。[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+## 真实记录
 
-一个 commit 表达一个可解释、可验证的变化。行为变更与回归测试同行；无关重构、格式修改和新功能尽量分开。合入优先保持符合规范的线性历史；GitHub squash 或 merge 创建的新 commit 也须遵守提交时间约束。
-
-## 架构描述同步
-
-架构的人工权威描述是[架构说明](docs/architecture.md)，机读事实是 `contracts/architecture.json`。两者与源码必须同时成立，缺一不可。
-
-以下情况属于**架构变化**，必须在同一次改动中更新上述两份文件：
-
-- 模块的新增、删除、改名或换层；
-- 跨层依赖方向的新增、删除或改变；
-- `scripts/export_architecture_contract.py` 中 `LAYER_RULES` 允许依赖表的改变；
-- 业务图节点增删或拓扑、路由改变；
-- 持久化介质、记录表结构或现场产物文件名的改变；
-- 外部依赖系统的新增或替换、接缝形态的改变；
-- 前端结构变化（`frontend/src` 模块增删或依赖方向改变）与随包页面模块（`src/forgeloop/cli/static/`）的同步。
-
-流程：改代码 → 更新[架构说明](docs/architecture.md)（至少层与模块清单）→ 运行 `make architecture-contract` 重新导出快照 → 运行 `make check`。方向性选择（换编排框架、换执行器、改变分层）另写[分层决策](docs/adr/)记录，ADR 只回答「为什么」，架构说明回答「现在是什么」。
-
-该义务由 `make architecture-contract-check`（含在 `make check` 内）机器强制：模块增删换层、跨层边漂移、越层依赖、import 环，以及架构说明的模块清单与源码不互为镜像，任一发生即失败。同层内部重构且不改变任何边时不算架构变化，但快照仍须保持一致。
-
-## 开发与检查
-
-先阅读[研发纪律](docs/development-discipline.md)与[工程可靠性方案](docs/engineering-reliability.md)，执行 `make setup`（Python 与前端两侧工具链，前端需要 Node 26）、`make hooks` 和 `make check`。提交前运行相关测试；涉及 CLI 输出、PI Adapter、容器边界或安全时，执行对应层级检查并记录结果。前端改动另跑 `make frontend-check`（含 jsdom 用例、边界与产物漂移），真实浏览器与变异在 CI 与夜间作业（`make frontend-e2e`、`make frontend-mutation`）；改了 `frontend/src` 必须 `make frontend-build` 写回随包产物，否则 `make check` 会拒绝漂移。
-
-PR 说明要描述用户问题、修改后的行为、验证证据和实质限制。CLI 输出变更同时更新契约快照；新增外部依赖需说明用途、许可、锁定版本和运行成本。缺失、跳过、超时及不稳定测试保留在结果中。
-
-简单优先，只修改已确认方案列出的文件；范围外发现写入变更摘要的“发现但不碰”。新增关键判断、计算、状态流转和幂等逻辑，先运行失败的行为测试，再实现使其通过，之后在测试保护下改善结构。其他改动按风险选择验证方式。核心领域规则同时接受属性与变异检查；不以覆盖率、绿色 CI 或模型自评代替用户任务验收。
+- 不补造批准、失败、测试或验收记录；未知、跳过与未验证如实标记。
+- 外部工具完成的改动不计为 ForgeLoop 独立成果；记录实际执行来源与人工介入。
+- 提交、推送、发布与部署以所有者明确授权和生效策略为准；命令通过不代替授权。

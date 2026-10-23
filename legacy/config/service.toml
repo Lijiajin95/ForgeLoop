@@ -1,0 +1,63 @@
+# 常驻服务配置（R2）：监听地址、心跳间隔、并发上限、自动接续开关与项目档案。
+#
+# 数值规则在 domain.service：非法值（非回环 host、坏端口、poll_seconds < 1、用布尔冒充
+# 整数等）一律启动失败，不静默回落到默认值；命令行 --host/--port 覆盖本文件。
+#
+# auto_advance 是**自动接续**开关：
+# - false（默认）：常驻进程只提供 Web 操作台与状态接口，不自动推进任何需求（页面显式
+#   点下的推进/分析/规划仍会执行；前台 `forgeloop web` 固定不自动接续）；
+# - true：worker 按 poll_seconds 扫描权威记录，把「项目已配置、任务包已批准、下一步主体
+#   是 agent、PI HOME 与进程 HOME 一致」的需求交给既有编排自动推进；批准/验收/停止/
+#   失败累计/槽位互斥全部沿用既有规则，常驻进程不代替所有者做任何验收。
+#
+# PI HOME 前提：宿主模式下 PI 子进程继承常驻进程的环境，因此只有 pi_home 与进程 HOME
+# 一致的项目会被执行（不一致的项目在状态文档里如实跳过并给出原因）。pi_home 必须含
+# 非空的 .pi/agent/models.json（工程可靠性方案第 22.2 节），否则拒绝启动。
+#
+# 执行档案有两个来源：本文件的 [projects.<名字>] 与页面维护的 config/projects.toml。
+# 两者同名即拒绝启动；页面创建的项目同样可以执行需求（测试命令来自任务包，基线为空）。
+# 没有可执行项目时，页面仍可查看与提交需求，但推进/分析/规划会被明确拒绝。
+
+# [projects.forgeloop]
+# path = "/home/link/Project/ForgeLoop"
+# pi_command = ["pi", "--mode", "rpc", "--no-session", "--provider", "cc-switch-open-code-go", "--model", "deepseek-v4.1-flash"]
+# test_command = ["uv", "run", "pytest", "-q", "tests/unit", "tests/property"]
+# baseline = ""
+# pi_home = "/home/link/.local/share/forgeloop/pi-home"
+
+# 页面会话面板（[panel]）：一轮 = 一条人工消息驱动一次 PI 调用。
+# - concurrency：同时在跑的轮次上限（1..8）。
+# - turn_timeout_seconds：单轮上限；超时按失败处理并登记「待人工决定」，不静默重试。
+# - session_idle_seconds / max_live_sessions：每个会话一个**常驻 PI 进程**（服务端多轮
+#   上下文：暖进程只发本次输入，冷启动回放历史）。空闲超时或超过上限（按最近使用淘汰）
+#   就收起进程，下次发消息时冷启动。
+# - tool_approval：工具审批策略——off（不审）／write（写文件与执行类工具，默认）／
+#   all（全部工具）。PI 在轮次内自行执行工具（协议没有执行前拦截事件），因此这道闸门是
+#   「下一步之前的人工确认」：本轮跑过需确认的工具就停下等人批准，文案如实这么写。
+# 面板项目档案默认读 config/projects.toml（--projects-file 覆盖），由页面独占写入。
+
+schema_version = 1
+host = "127.0.0.1"
+port = 8712
+poll_seconds = 2
+max_concurrent = 2
+auto_advance = false
+
+# 受控热升级的时限（固定启动器与 serve 共用；规则在 domain.upgrade，越界即启动失败）：
+# - drain_timeout_seconds：排空等待上限；超时只延期升级，旧进程继续，不强杀在途任务。
+# - readiness_timeout_seconds：候选进程写出就绪报告并核对身份的上限。
+# - recovery_timeout_seconds：旧进程退出/上一版本恢复的确认上限。
+# - poll_seconds：启动器观察升级现场的轮询间隔。
+[upgrade]
+schema_version = 1
+drain_timeout_seconds = 300
+readiness_timeout_seconds = 30
+recovery_timeout_seconds = 30
+poll_seconds = 0.25
+
+[panel]
+concurrency = 2
+turn_timeout_seconds = 900
+session_idle_seconds = 900
+max_live_sessions = 4
+tool_approval = "write"

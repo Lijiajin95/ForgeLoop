@@ -1,4 +1,9 @@
 name: Engineering quality
+
+# 活动实现是 TypeScript 原生 DSH 插件；CI 只用 Node 与仓库内脚本，不再安装 Python。
+# 真实宿主验证（make verify-plugin）需要模型凭据，不在公共 CI 中执行；由本机按
+# docs/deployment.md 运行并记录。
+
 on:
   push:
   pull_request:
@@ -17,57 +22,38 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          version: "0.13.4"
-          python-version: "3.13"
-      - run: uv sync --frozen
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "26"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      # 前端工具链与真实浏览器（Chromium 落在工作区缓存里，与本地同一路径）。
-      # 浏览器依赖用 --with-deps 装系统库；本地用 `make frontend-browsers` 即可。
-      - name: Prepare frontend toolchain and browser
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
-        run: |
-          make frontend-setup
-          npm --prefix frontend exec -- playwright install --with-deps chromium
-      # 一次带覆盖采集的执行跑完高频与集成用例（不再重复跑一遍无覆盖的高频套件），
-      # 另加系统测试、真实浏览器用例与全部静态门禁；静态失败即中止作业，退出码照常传播。
-      - run: make check-static coverage test-system frontend-e2e
+      - run: npm ci --no-audit --no-fund
+      - run: make check
+      - run: make coverage
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: quality-reports
-          path: reports/
+          name: coverage-summary
+          path: packages/forgeloop/coverage/coverage-summary.json
           retention-days: 7
 
   security:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          version: "0.13.4"
-          python-version: "3.13"
-      - run: uv sync --frozen --group security
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "26"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      # 前端依赖审计（npm audit）与 pip-audit 同属依赖漏洞门禁，需要前端依赖树。
-      - run: make frontend-setup
-      - run: make security
+      - run: npm ci --no-audit --no-fund
+      # 依赖漏洞扫描：本机在受限缓存下无法完成，CI 网络环境中执行；失败即阻断。
+      # 例外必须登记复查条件，不能静默忽略。
+      - run: npm audit --audit-level=high
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: security-reports
-          path: reports/
+          name: security-logs
+          path: .cache/npm-cache/_logs/
           retention-days: 7
 
   commit-policy:
@@ -77,21 +63,15 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - name: Audit new commit headers and timestamps
-        env:
-          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
-          HEAD_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
-          PYTHONPATH: src
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+      - name: Validate local policy config and audit commit headers
         run: |
           set -euo pipefail
-          BASE="$EVENT_BASE"
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            # 新分支推送时 before 全零：改为只审计该分支相对 main 的新增提交，
-            # 不把已在主干的历史提交（含已记录的违规批次）重新判一遍。
-            git fetch --quiet origin main
-            BASE="$(git merge-base "$HEAD_REVISION" origin/main || true)"
+          node scripts/ts/commit-policy.ts --validate-config
+          base="${{ github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="HEAD~1"
           fi
-          # 生效配置不入库（仓库只有模板），CI 上也没有本机配置：时间维度放行并打印
-          # policy_absent / NOT enforced，消息头校验照常执行。需要服务端强制时间规则
-          # 时须在此步之前注入配置（未实现，见 docs/engineering-reliability.md）。
-          python3 scripts/check_commit_policy.py --audit "$BASE" "$HEAD_REVISION"
+          node scripts/ts/commit-policy.ts --audit "${base}..HEAD"

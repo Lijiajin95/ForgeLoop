@@ -1,0 +1,270 @@
+/**
+ * DSH 宿主内 Agent 执行器：在本进程创建独立 Agent、投递一次任务、等待回合结束，
+ * 读取该会话自己的事件日志，保存可回查轨迹。
+ *
+ * 这是真实的 DSH Agent（不是旧 Python 业务核心，也不是自建对话壳）：
+ * 模型、工具、权限与会话生命周期都由宿主提供；本模块只负责投递、等待、取消与取证。
+ */
+
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import type { AgentConfig } from '../config.js'
+
+type AnyRecord = Record<string, unknown>
+
+export interface AgentRunRequest {
+  readonly role: 'analyze' | 'plan' | 'dev' | 'review'
+  readonly cwd: string
+  readonly prompt: string
+  readonly permission: 'workspace-write' | 'danger-full-access'
+  readonly timeoutMs: number
+  readonly transcriptPath: string
+  readonly signal?: AbortSignal
+  /** 'none' 用于只做推理的阶段：不给 Agent 任何工具，避免无界探索。 */
+  readonly tools?: 'none' | 'default'
+}
+
+export interface AgentRunResult {
+  readonly status: 'completed' | 'aborted' | 'timeout' | 'error'
+  readonly text: string
+  readonly sessionId: string
+  readonly reason: string
+  readonly transcriptPath: string
+  readonly durationMs: number
+  readonly toolCalls: readonly string[]
+}
+
+export interface AgentRunnerOptions {
+  readonly ctx: AnyRecord
+  readonly agent: AgentConfig
+}
+
+interface AgentView {
+  readonly id: string
+  readonly session: SessionView
+  followup(message: unknown): void
+  whenIdle(): Promise<void>
+  cancel(cause: unknown, options?: unknown): void
+}
+
+interface SessionView {
+  ownEvents(): readonly AnyRecord[]
+}
+
+function serviceOf(ctx: AnyRecord, name: string): unknown {
+  const getter = ctx.get
+  if (typeof getter === 'function') return (getter as (key: string) => unknown).call(ctx, name)
+  return ctx[name]
+}
+
+function textOfContent(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((block): block is AnyRecord => typeof block === 'object' && block !== null)
+    .filter((block) => block.type === 'text' && typeof block.text === 'string')
+    .map((block) => String(block.text))
+    .join('\n')
+    .trim()
+}
+
+function extractAssistantText(events: readonly AnyRecord[]): string {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (!event || event.type !== 'assistant/message') continue
+    const data = event.data as AnyRecord | undefined
+    const message = data?.message as AnyRecord | undefined
+    const text = textOfContent(message?.content)
+    if (text) return text
+  }
+  return ''
+}
+
+function extractTurnEnd(events: readonly AnyRecord[]): { kind: string; detail: string } {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (!event || event.type !== 'turn/end') continue
+    const data = event.data as AnyRecord | undefined
+    const reason = data?.reason as AnyRecord | undefined
+    const kind = typeof reason?.kind === 'string' ? reason.kind : ''
+    const error = reason?.error as AnyRecord | undefined
+    const message = typeof error?.message === 'string' ? error.message : ''
+    return { kind, detail: message }
+  }
+  return { kind: '', detail: '回合未给出结束原因' }
+}
+
+function toolCallsOf(events: readonly AnyRecord[]): string[] {
+  const names: string[] = []
+  for (const event of events) {
+    if (event.type !== 'tool/call') continue
+    const data = event.data as AnyRecord | undefined
+    if (typeof data?.name === 'string') names.push(data.name)
+  }
+  return names
+}
+
+export class AgentRunner {
+  private readonly ctx: AnyRecord
+  private readonly agent: AgentConfig
+
+  constructor(options: AgentRunnerOptions) {
+    this.ctx = options.ctx
+    this.agent = options.agent
+  }
+
+  /** 解析实际使用的 provider/model：配置显式给出优先，否则用宿主默认选择。 */
+  resolveSelection(): { provider: string; model: string } {
+    if (this.agent.provider && this.agent.model) {
+      return { provider: this.agent.provider, model: this.agent.model }
+    }
+    const service = serviceOf(this.ctx, 'agentDefaultModel') as
+      | { currentSelection(): { provider?: string; model?: string } }
+      | undefined
+    const selection = service?.currentSelection()
+    if (!selection?.provider || !selection.model) {
+      throw new Error(
+        '没有可用的模型选择：请在插件配置 agent.provider/agent.model 指定，或确保宿主提供默认模型',
+      )
+    }
+    return { provider: selection.provider, model: selection.model }
+  }
+
+  async run(request: AgentRunRequest): Promise<AgentRunResult> {
+    const started = Date.now()
+    const selection = this.resolveSelection()
+    const sessionId = `session-fl-${request.role}-${randomUUID()}`
+    const agents = this.ctx.agents as { create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }> }
+    const tools = serviceOf(this.ctx, 'tools') as
+      | { schemas(scope?: unknown): Array<{ name?: string }> }
+      | undefined
+    const setup =
+      request.tools === 'none' && tools
+        ? (agentCtx: AnyRecord) => {
+            const names = tools.schemas().map((schema) => schema.name).filter((name): name is string => Boolean(name))
+            const scoped = serviceOf(agentCtx, 'tools') as
+              | { restrict(filter: { deny: string[] }): () => void }
+              | undefined
+            if (names.length > 0) scoped?.restrict({ deny: names })
+          }
+        : undefined
+    const handle = await agents.create({
+      sessionId,
+      meta: { cwd: request.cwd },
+      agentOptions: { provider: selection.provider, model: selection.model },
+      ...(setup ? { setup } : {}),
+    })
+    const sessions = serviceOf(this.ctx, 'permissionPresets') as
+      | { set(session: unknown, preset: string): void }
+      | undefined
+    sessions?.set(handle.agent.session, request.permission)
+
+    let aborted = false
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      handle.agent.cancel({ kind: 'user' })
+    }, request.timeoutMs)
+    timer.unref?.()
+    const onAbort = () => {
+      aborted = true
+      handle.agent.cancel({ kind: 'user' })
+    }
+    request.signal?.addEventListener('abort', onAbort, { once: true })
+
+    let whenIdleError = ''
+    try {
+      handle.agent.followup({
+        id: randomUUID(),
+        role: 'user',
+        content: [{ type: 'text', text: request.prompt }],
+        source: { kind: 'user' },
+      })
+      await handle.agent.whenIdle()
+    } catch (error) {
+      whenIdleError = (error as Error).message
+    } finally {
+      clearTimeout(timer)
+      request.signal?.removeEventListener('abort', onAbort)
+    }
+
+    const events = handle.agent.session.ownEvents()
+    const transcriptPath = request.transcriptPath
+    mkdirSync(dirname(transcriptPath), { recursive: true })
+    writeFileSync(
+      transcriptPath,
+      `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
+      'utf8',
+    )
+
+    await handle.dispose().catch(() => undefined)
+
+    const turn = extractTurnEnd(events)
+    const text = extractAssistantText(events)
+    const durationMs = Date.now() - started
+    if (timedOut) {
+      return {
+        status: 'timeout',
+        text,
+        sessionId,
+        reason: `Agent 回合超过 ${Math.round(request.timeoutMs / 1000)} 秒上限，已取消`,
+        transcriptPath,
+        durationMs,
+        toolCalls: toolCallsOf(events),
+      }
+    }
+    if (aborted) {
+      return {
+        status: 'aborted',
+        text,
+        sessionId,
+        reason: 'Agent 回合因停止请求被取消；外部副作用需核对',
+        transcriptPath,
+        durationMs,
+        toolCalls: toolCallsOf(events),
+      }
+    }
+    if (whenIdleError) {
+      return {
+        status: 'error',
+        text,
+        sessionId,
+        reason: `Agent 回合失败：${whenIdleError}`,
+        transcriptPath,
+        durationMs,
+        toolCalls: toolCallsOf(events),
+      }
+    }
+    if (turn.kind !== 'completed') {
+      return {
+        status: turn.kind === 'aborted' ? 'aborted' : 'error',
+        text,
+        sessionId,
+        reason: `Agent 回合未正常完成：${turn.kind || 'unknown'}${turn.detail ? `（${turn.detail}）` : ''}`,
+        transcriptPath,
+        durationMs,
+        toolCalls: toolCallsOf(events),
+      }
+    }
+    if (!text) {
+      return {
+        status: 'error',
+        text: '',
+        sessionId,
+        reason: 'Agent 回合完成但没有产出可用文本',
+        transcriptPath,
+        durationMs,
+        toolCalls: toolCallsOf(events),
+      }
+    }
+    return {
+      status: 'completed',
+      text,
+      sessionId,
+      reason: '',
+      transcriptPath,
+      durationMs,
+      toolCalls: toolCallsOf(events),
+    }
+  }
+}

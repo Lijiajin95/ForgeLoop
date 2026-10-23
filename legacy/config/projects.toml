@@ -1,0 +1,10 @@
+# 页面「开发项目管理」维护的项目档案；手工编辑同样生效。
+# 这些项目既用于页面会话，也进入 worker 的执行档案（与 config/service.toml 的
+# [projects.<名字>] 合并；同名即拒绝启动）。
+schema_version = 1
+
+[projects."forgeloop"]
+path = "/Users/lijiajin/Project/ForgeLoop"
+description = "ForgeLoop 自身"
+pi_command = ["pi", "--mode", "rpc", "--no-session", "--provider", "cc-switch-open-code-go", "--model", "deepseek-v4.1-flash"]
+pi_home = "/Users/lijiajin"

@@ -27,7 +27,7 @@
 2. 首次部署：`forgeloop deploy --artifact <wheel> --prefix ~/.local/share/forgeloop`。
 3. 常驻服务 unit：`~/.config/systemd/user/forgeloop.service`，`ExecStart` 指向 `<prefix>/current/bin/forgeloop serve`（`systemctl --user enable --now forgeloop`）。
 4. 需要自动部署时：在 `service.toml` 里 `auto_deploy = true` 并登记决定。
-5. 验收按 [常驻服务与邮件入口的真实场景验收方案](../resident-service-acceptance.md) 的 A/B 组执行；本 ADR 的验收另加 C 组（见下）。
+5. 验收按 [常驻服务与邮件入口的真实场景验收方案](../history/resident-service-acceptance.md) 的 A/B 组执行；本 ADR 的验收另加 C 组（见下）。
 
 ## 验收条件（实现时）
 

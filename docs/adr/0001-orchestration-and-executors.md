@@ -10,4 +10,4 @@ date: 2026-10-12
 共同底座共享代码和 Interface，不共享业务图中的领域规则或运行数据。将来自研 Runtime 作为新增执行器接入，不要求改写已确定的审批、计数与版本规则。本决策取代讨论中“ForgeLoop 自有编排、不使用共同流程框架”及“首版完整自研 Runtime”的方向；仅确认设计，尚未完成兼容性或故障测试。
 
 
-2026-10-12 快速启动范围调整：该分层方向继续有效；首版先直接使用 LangGraph 与一个 PI Adapter，公共包在真实重复后抽取。邮件、页面、发布与复杂恢复都后置，实施范围见[首版需求](../product-requirements.md)与[需求审查](../requirements-review.md)。
+2026-10-12 快速启动范围调整：该分层方向继续有效；首版先直接使用 LangGraph 与一个 PI Adapter，公共包在真实重复后抽取。邮件、页面、发布与复杂恢复都后置，实施范围见[首版需求](../product-requirements.md)与[需求审查](../history/requirements-review.md)。

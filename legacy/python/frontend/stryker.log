@@ -1,0 +1,12 @@
+19:34:08 (61886) WARN MutantTestPlanner Detected 21 static mutants (6% of total) that are estimated to take 51% of the time running the tests!
+  You might want to enable "ignoreStatic" to ignore these static mutants for your next run. 
+  For more information about static mutants visit: https://stryker-mutator.io/docs/mutation-testing-elements/static-mutants
+  (disable "warnings.slow" to ignore this warning)
+19:34:12 (61956) WARN MutantTestPlanner Detected 21 static mutants (6% of total) that are estimated to take 45% of the time running the tests!
+  You might want to enable "ignoreStatic" to ignore these static mutants for your next run. 
+  For more information about static mutants visit: https://stryker-mutator.io/docs/mutation-testing-elements/static-mutants
+  (disable "warnings.slow" to ignore this warning)
+12:11:33 (5547) WARN MutantTestPlanner Detected 23 static mutants (3% of total) that are estimated to take 49% of the time running the tests!
+  You might want to enable "ignoreStatic" to ignore these static mutants for your next run. 
+  For more information about static mutants visit: https://stryker-mutator.io/docs/mutation-testing-elements/static-mutants
+  (disable "warnings.slow" to ignore this warning)

@@ -42,3 +42,8 @@ frontend/playwright-report/
 frontend/test-results/
 frontend/.stryker-tmp/
 frontend/stryker.log
+
+# TypeScript 工程构建产物与本机安装缓存（不进入快照与版本库）
+.pnpm-store/
+packages/*/lib/
+.runtime/

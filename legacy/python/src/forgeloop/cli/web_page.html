@@ -1,0 +1,2038 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- 写入口令牌：`forgeloop web` 与 `forgeloop serve` 启动时把占位替换成一次性令牌；
+         只有直接构造的只读 HTTP 基座不替换（页面据此隐藏写入口）。 -->
+    <meta name="forgeloop-token" content="__FORGELOOP_TOKEN__" />
+    <title>ForgeLoop · 研发与运维值班台</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #eef2ec;
+        --surface: #f8faf6;
+        --surface-2: #f1f5ef;
+        --ink: #15221b;
+        --muted: #5d6d63;
+        --faint: #86958b;
+        --rule: #ccd8cf;
+        --rule-strong: #aebfb3;
+        --brand: #1f5a44;
+        --brand-soft: #e1ece4;
+        --brand-line: #b7cdbf;
+        --on-brand: #f8fbf8;
+        --rust: #b24a30;
+        --rust-soft: #f6e8e3;
+        --rust-line: #e0b8ab;
+        --on-rust: #ffffff;
+        --amber: #93671b;
+        --amber-soft: #f6edd9;
+        --mono:
+          ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+        --serif:
+          "Iowan Old Style", "Palatino Linotype", "Songti SC",
+          "Noto Serif CJK SC", Georgia, serif;
+        --sans:
+          "Avenir Next", "Segoe UI", "PingFang SC", "Noto Sans CJK SC",
+          sans-serif;
+        --border: var(--rule);
+        --danger: var(--rust);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1512;
+          --surface: #151d18;
+          --surface-2: #19231d;
+          --ink: #e6ede8;
+          --muted: #9fafa4;
+          --faint: #74857a;
+          --rule: #2b3a31;
+          --rule-strong: #43584b;
+          --brand: #7cc5a1;
+          --brand-soft: #1c2f25;
+          --brand-line: #35513f;
+          --on-brand: #0e1712;
+          --rust: #e08a70;
+          --rust-soft: #2d1e19;
+          --rust-line: #5a3a31;
+          --on-rust: #1a0f0c;
+          --amber: #d9ad5f;
+          --amber-soft: #2b2416;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0 auto;
+        padding: 0 32px 64px;
+        max-width: 1480px;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.6 var(--sans);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        font-variant-numeric: tabular-nums;
+      }
+      ::selection {
+        background: var(--brand-soft);
+        color: var(--ink);
+      }
+      h1,
+      h2,
+      h3,
+      p,
+      dl,
+      dd,
+      ol,
+      ul {
+        margin: 0;
+      }
+      button {
+        font: inherit;
+      }
+      code {
+        padding: 1px 4px;
+        border: 1px solid var(--rule);
+        background: var(--surface-2);
+        font-family: var(--mono);
+        font-size: 0.88em;
+      }
+      .mono {
+        font-family: var(--mono);
+        font-variant-ligatures: none;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      :focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 2px;
+      }
+
+      /* ---------------- masthead ---------------- */
+      .masthead {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 26px 0 18px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        color: inherit;
+        text-decoration: none;
+      }
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border: 1px solid var(--brand-line);
+        border-radius: 50%;
+        background: var(--brand-soft);
+        color: var(--brand);
+      }
+      .brand-mark svg {
+        width: 21px;
+        height: 21px;
+      }
+      .brand-text {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .brand-name {
+        font-family: var(--serif);
+        font-size: 27px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
+      }
+      .brand-tagline {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+      }
+      .masthead-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      .refresh-note {
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+      .status-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 28px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--rule);
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+      .status-item {
+        min-width: 0;
+      }
+      .status-item b {
+        color: var(--ink);
+        font-weight: 500;
+        overflow-wrap: anywhere;
+      }
+      .status-key {
+        margin-right: 6px;
+        color: var(--faint);
+      }
+      #banner {
+        display: none;
+        margin: 16px 0 0;
+        padding: 10px 14px;
+        border-left: 2px solid var(--rust);
+        background: var(--rust-soft);
+        color: var(--rust);
+        font-size: 12.5px;
+        white-space: pre-wrap;
+      }
+
+      /* ---------------- primary tabs ---------------- */
+      .primary-tabs {
+        display: flex;
+        gap: 32px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid var(--rule);
+        overflow-x: auto;
+      }
+      .primary-tab {
+        position: relative;
+        display: inline-flex;
+        align-items: baseline;
+        gap: 7px;
+        flex: none;
+        padding: 16px 0 13px;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 13.5px;
+        cursor: pointer;
+      }
+      .primary-tab:hover {
+        color: var(--ink);
+      }
+      .primary-tab[aria-selected="true"] {
+        color: var(--ink);
+      }
+      .primary-tab[aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        background: var(--brand);
+      }
+      .tab-count {
+        min-width: 17px;
+        border-bottom: 1px solid var(--rule);
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.4;
+        text-align: center;
+      }
+      .primary-tab[aria-selected="true"] .tab-count {
+        border-bottom-color: var(--brand);
+        color: var(--brand);
+      }
+      .view {
+        outline: none;
+      }
+
+      /* ---------------- buttons and fields ---------------- */
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 7px 12px;
+        border: 1px solid var(--rule-strong);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        line-height: 1.3;
+        white-space: nowrap;
+        cursor: pointer;
+        text-decoration: none;
+        transition:
+          background-color 0.12s ease,
+          border-color 0.12s ease,
+          color 0.12s ease;
+      }
+      .button:hover:not(:disabled) {
+        border-color: var(--brand-line);
+        background: var(--brand-soft);
+        color: var(--brand);
+      }
+      .button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .button-small {
+        padding: 5px 9px;
+        font-size: 11px;
+      }
+      .button-primary {
+        border-color: var(--brand);
+        background: var(--brand);
+        color: var(--on-brand);
+      }
+      .button-primary:hover:not(:disabled) {
+        border-color: var(--brand);
+        background: var(--ink);
+        color: var(--surface);
+      }
+      .button-danger {
+        border-color: var(--rust-line);
+        color: var(--rust);
+      }
+      .button-danger:hover:not(:disabled) {
+        border-color: var(--rust);
+        background: var(--rust-soft);
+        color: var(--rust);
+      }
+      .button-quiet {
+        border-color: var(--rule);
+        color: var(--muted);
+      }
+      .button-icon {
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        font-size: 18px;
+        line-height: 1;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        max-width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--rule-strong);
+        border-radius: 4px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12.5px;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--brand);
+        outline: none;
+        box-shadow: 0 0 0 2px var(--brand-soft);
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: var(--faint);
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      /* ---------------- chat workspace ---------------- */
+      .chat-shell {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        height: calc(100vh - 232px);
+        min-height: 560px;
+        border: 1px solid var(--rule);
+        background: var(--surface);
+      }
+      .chat-rail {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        border-right: 1px solid var(--rule);
+        background: var(--surface-2);
+      }
+      .rail-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 18px 18px 14px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .rail-head h2 {
+        font-family: var(--serif);
+        font-size: 21px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+      .session-list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 6px 0;
+      }
+      .session-item {
+        display: flex;
+        gap: 10px;
+        width: 100%;
+        padding: 11px 18px;
+        border: 0;
+        border-left: 2px solid transparent;
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+      .session-item:hover {
+        background: var(--surface);
+      }
+      .session-item.is-selected {
+        border-left-color: var(--brand);
+        background: var(--surface);
+      }
+      .session-dot {
+        flex: none;
+        width: 6px;
+        height: 6px;
+        margin-top: 7px;
+        border-radius: 50%;
+        background: var(--rule-strong);
+      }
+      .session-dot[data-status="active"] {
+        background: var(--brand);
+      }
+      .session-dot[data-status="awaiting_human"] {
+        background: var(--amber);
+      }
+      .session-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .session-title {
+        overflow: hidden;
+        font-size: 12.5px;
+        line-height: 1.45;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .session-meta {
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 9.5px;
+      }
+      .rail-empty {
+        padding: 14px 18px;
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .rail-foot {
+        padding: 10px 18px 14px;
+        border-top: 1px solid var(--rule);
+      }
+      .workspace-tabs {
+        display: flex;
+        gap: 14px;
+        margin-bottom: 7px;
+      }
+      .workspace-tab {
+        padding: 0 0 3px;
+        border: 0;
+        border-bottom: 1px solid transparent;
+        background: transparent;
+        color: var(--faint);
+        font: inherit;
+        font-size: 10.5px;
+        cursor: pointer;
+      }
+      .workspace-tab:hover {
+        color: var(--ink);
+      }
+      .workspace-tab[aria-pressed="true"] {
+        border-bottom-color: var(--brand);
+        color: var(--brand);
+      }
+      .status-text {
+        min-height: 1.4em;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+      .status-text[data-tone="error"] {
+        color: var(--rust);
+      }
+      .chat-main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+      }
+      .chat-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 13px 24px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .chat-meta {
+        overflow: hidden;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.5;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .chat-view {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .thread-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 22px 24px 8px;
+      }
+      .transcript {
+        position: relative;
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 0;
+        list-style: none;
+      }
+      .transcript::before {
+        content: "";
+        position: absolute;
+        top: 8px;
+        bottom: 8px;
+        left: 60px;
+        width: 1px;
+        background: var(--rule);
+      }
+      .msg {
+        position: relative;
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr);
+        gap: 18px;
+        padding: 10px 0 18px;
+      }
+      .msg::before {
+        content: "";
+        position: absolute;
+        top: 14px;
+        left: 57px;
+        z-index: 1;
+        width: 7px;
+        height: 7px;
+        border: 1px solid var(--rule-strong);
+        border-radius: 50%;
+        background: var(--surface);
+      }
+      .msg-human::before {
+        border-color: var(--brand);
+        background: var(--brand);
+      }
+      .msg-rail {
+        padding-top: 2px;
+        color: var(--faint);
+        font-size: 9.5px;
+        line-height: 1.5;
+        text-align: right;
+      }
+      .msg-role {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 600;
+      }
+      .msg-time {
+        display: block;
+        font-family: var(--mono);
+        font-size: 9px;
+      }
+      .msg-body {
+        max-width: 680px;
+        padding-top: 1px;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+      .msg-body p {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .msg-head {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--faint);
+        font-size: 10px;
+      }
+      .msg-head:empty {
+        display: none;
+      }
+      .msg-human .msg-body {
+        padding: 9px 13px;
+        border-left: 2px solid var(--brand);
+        background: var(--brand-soft);
+      }
+      .msg-error .msg-body {
+        border-left: 2px solid var(--rust);
+        background: var(--rust-soft);
+      }
+      .msg-streaming p::after {
+        content: "▌";
+        margin-left: 2px;
+        color: var(--brand);
+        animation: blink 1.1s steps(2, start) infinite;
+      }
+      @keyframes blink {
+        to {
+          visibility: hidden;
+        }
+      }
+      .chat-empty {
+        max-width: 460px;
+        margin: 54px auto;
+        color: var(--muted);
+        font-family: var(--serif);
+        font-size: 16px;
+        line-height: 1.6;
+        text-align: center;
+      }
+      .transcript-meta {
+        max-width: 820px;
+        margin: 10px auto 0;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+      .tool-list {
+        max-width: 820px;
+        margin: 8px auto 0;
+        padding: 0;
+        list-style: none;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .tool-list li {
+        margin: 4px 0;
+        padding: 4px 0 4px 10px;
+        border-left: 1px solid var(--rule);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .tool-list li.tool-approval {
+        border-left-color: var(--amber);
+      }
+      .decisions {
+        max-width: 820px;
+        margin: 0 auto;
+      }
+      .decision {
+        margin: 4px 0 14px;
+        padding: 10px 13px;
+        border: 1px solid var(--amber);
+        background: var(--amber-soft);
+      }
+      .decision p {
+        margin: 4px 0;
+        font-size: 12px;
+      }
+      .decision button {
+        margin-right: 6px;
+      }
+      .new-session {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+        gap: 10px;
+        align-items: end;
+        max-width: 820px;
+        margin: 16px auto 0;
+        padding: 12px;
+        border: 1px solid var(--rule);
+        background: var(--surface-2);
+      }
+      .new-session-actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      /* composer */
+      .composer {
+        position: relative;
+        padding: 12px 24px 15px;
+        border-top: 1px solid var(--rule);
+        background: var(--surface);
+      }
+      .composer textarea {
+        display: block;
+        min-height: 54px;
+        max-height: 180px;
+        padding: 11px 13px;
+        resize: vertical;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .composer-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 7px;
+      }
+      .composer-hint {
+        color: var(--faint);
+        font-size: 10px;
+      }
+      .composer-options {
+        margin-top: 8px;
+        padding-top: 7px;
+        border-top: 1px dashed var(--rule);
+      }
+      .composer-options summary {
+        color: var(--faint);
+        font-size: 10.5px;
+        cursor: pointer;
+      }
+      .composer-options-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: end;
+        margin-top: 8px;
+      }
+      .mention-menu {
+        position: absolute;
+        top: 8px;
+        right: 24px;
+        left: 24px;
+        z-index: 30;
+        max-height: 310px;
+        overflow: auto;
+        border: 1px solid var(--rule-strong);
+        background: var(--surface);
+        transform: translateY(-100%);
+      }
+      .mention-item {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        gap: 10px;
+        width: 100%;
+        padding: 9px 12px;
+        border: 0;
+        border-bottom: 1px solid var(--rule);
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+      .mention-item:last-child {
+        border-bottom: 0;
+      }
+      .mention-item:hover,
+      .mention-item.is-active {
+        background: var(--brand-soft);
+      }
+      .mention-kind {
+        color: var(--faint);
+        font-size: 10px;
+      }
+      .mention-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+      }
+      .mention-title {
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 10.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .mention-detail {
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* read-only chat notice */
+      .chat-unavailable {
+        max-width: 600px;
+        margin: 68px auto;
+        padding: 0 20px;
+      }
+      .chat-unavailable h2 {
+        margin: 0 0 10px;
+        font-family: var(--serif);
+        font-size: 28px;
+        font-weight: 600;
+      }
+      .chat-unavailable p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 13.5px;
+        line-height: 1.75;
+      }
+      .chat-unavailable .kicker {
+        margin-bottom: 6px;
+        color: var(--rust);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      /* runtime / projects inside the workspace */
+      .workspace-view {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 22px 24px;
+      }
+      .workspace-view h2 {
+        margin-bottom: 6px;
+        font-family: var(--serif);
+        font-size: 22px;
+      }
+      .workspace-view .meta {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .workspace-view table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+      }
+      .workspace-view th,
+      .workspace-view td {
+        padding: 7px 8px;
+        border-bottom: 1px solid var(--rule);
+        text-align: left;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+      .workspace-view th {
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .workspace-view caption {
+        padding-bottom: 8px;
+        color: var(--faint);
+        font-size: 10.5px;
+        text-align: left;
+      }
+      .workspace-view form {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--rule);
+      }
+      .workspace-view form .panel-row {
+        grid-column: 1 / -1;
+      }
+      .panel-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      /* ---------------- records: index + dossier ---------------- */
+      .records {
+        display: grid;
+        grid-template-columns: 340px minmax(0, 1fr);
+        min-height: calc(100vh - 238px);
+        border: 1px solid var(--rule);
+        background: var(--surface);
+      }
+      .record-index {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        border-right: 1px solid var(--rule);
+        background: var(--surface-2);
+      }
+      .index-head {
+        padding: 18px 20px 13px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .index-head h2 {
+        font-family: var(--serif);
+        font-size: 21px;
+        font-weight: 600;
+      }
+      .index-head p {
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+      .record-list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+      }
+      .record-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        width: 100%;
+        padding: 14px 16px 14px 18px;
+        border: 0;
+        border-bottom: 1px solid var(--rule);
+        border-left: 2px solid transparent;
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+      .record-row:hover {
+        background: var(--surface);
+      }
+      .record-row.is-selected,
+      .record-row.target {
+        border-left-color: var(--brand);
+        background: var(--surface);
+      }
+      .record-row.target {
+        outline: 2px solid var(--brand);
+        outline-offset: -2px;
+      }
+      .record-main {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+      .record-id {
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.4;
+      }
+      .record-desc {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.55;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+      .record-side {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+      }
+      .record-count,
+      .record-kind {
+        color: var(--faint);
+        font-size: 9.5px;
+        white-space: nowrap;
+      }
+      .status-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--rule-strong);
+      }
+      .status-dot[data-status="merged"],
+      .status-dot[data-status="delivered"],
+      .status-dot[data-status="accepted"],
+      .status-dot[data-status="active"] {
+        background: var(--brand);
+      }
+      .status-dot[data-status="blocked"],
+      .status-dot[data-status="interrupted"],
+      .status-dot[data-status="time_exhausted"],
+      .status-dot[data-status="awaiting_human"] {
+        background: var(--rust);
+      }
+      .status-dot[data-status="draft"],
+      .status-dot[data-status="pending"] {
+        background: var(--amber);
+      }
+      .empty {
+        padding: 24px 18px;
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .dossier {
+        min-height: 0;
+        overflow: auto;
+        padding: 28px 34px 44px;
+      }
+      .dossier-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .dossier-kind {
+        margin-bottom: 4px;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+      .dossier-id {
+        font-family: var(--mono);
+        font-size: 20px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+      .dossier-actions {
+        display: flex;
+        flex: none;
+        gap: 7px;
+      }
+      .dossier-lead {
+        max-width: 68ch;
+        max-height: 22rem;
+        margin-top: 20px;
+        padding-left: 18px;
+        overflow: auto;
+        border-left: 2px solid var(--brand-line);
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: 18px;
+        line-height: 1.68;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 26px;
+        margin-top: 22px;
+        border-top: 1px solid var(--rule);
+      }
+      .metric {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 10px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--rule);
+      }
+      .metric-label {
+        color: var(--faint);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+      .metric-value {
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      .callout {
+        margin-top: 18px;
+        padding: 10px 13px;
+        border-left: 2px solid var(--rule-strong);
+        background: var(--surface-2);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .callout-alert {
+        border-left-color: var(--rust);
+        background: var(--rust-soft);
+        color: var(--rust);
+      }
+      .dossier-section {
+        margin-top: 28px;
+      }
+      .section-title {
+        margin-bottom: 9px;
+        font-family: var(--serif);
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .section-empty {
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .detail-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11.5px;
+      }
+      .detail-table th {
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--rule);
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 500;
+        text-align: left;
+        white-space: nowrap;
+      }
+      .detail-table td {
+        padding: 8px;
+        border-bottom: 1px solid var(--rule);
+        vertical-align: top;
+      }
+      .detail-table tr:last-child td {
+        border-bottom: 0;
+      }
+      .task-cell .record-desc {
+        margin-top: 3px;
+        font-size: 11.5px;
+        -webkit-line-clamp: 2;
+      }
+      .task-link {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--brand);
+        font: inherit;
+        font-family: var(--mono);
+        font-size: 11px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .task-link:hover {
+        text-decoration: underline;
+      }
+      .issue-list {
+        padding: 0;
+        list-style: none;
+      }
+      .issue-line {
+        display: flex;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--rule);
+        font-size: 11.5px;
+      }
+      .issue-line:last-child {
+        border-bottom: 0;
+      }
+      .issue-link {
+        flex: none;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--rust);
+        font: inherit;
+        font-size: 11.5px;
+        cursor: pointer;
+      }
+      .issue-link:hover {
+        text-decoration: underline;
+      }
+      .issue-summary {
+        color: var(--muted);
+      }
+      .issue-empty {
+        color: var(--faint);
+        font-size: 11.5px;
+      }
+      .dossier-body {
+        max-width: 70ch;
+        margin-top: 18px;
+        color: var(--ink);
+        font-size: 12.5px;
+        line-height: 1.75;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .dossier-empty {
+        max-width: 420px;
+        padding: 64px 0;
+      }
+      .dossier-empty-title {
+        margin-bottom: 5px;
+        font-family: var(--serif);
+        font-size: 20px;
+      }
+      .dossier-empty p:last-child {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      /* ---------------- operations drawer ---------------- */
+      .drawer {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+      }
+      .drawer-scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 21, 18, 0.35);
+      }
+      .drawer-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        width: min(560px, 100%);
+        overflow: auto;
+        border-left: 1px solid var(--rule);
+        background: var(--surface);
+        padding: 22px 26px 36px;
+      }
+      .drawer-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .drawer-head h2 {
+        font-family: var(--serif);
+        font-size: 23px;
+        font-weight: 600;
+      }
+      .drawer-head .kicker {
+        margin-bottom: 3px;
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 9.5px;
+      }
+      #operations h3 {
+        margin: 22px 0 8px;
+        font-family: var(--serif);
+        font-size: 16px;
+        font-weight: 600;
+      }
+      #operations .meta {
+        margin: 8px 0 16px;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.65;
+      }
+      #submit-form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px;
+        align-items: end;
+      }
+      #submit-form label:nth-child(3),
+      #submit-form label:last-of-type {
+        grid-column: 1 / -1;
+      }
+      #submit-form textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+      #submit-form button {
+        justify-self: start;
+      }
+      .action-grid {
+        display: grid;
+        grid-template-columns: minmax(300px, 1fr) minmax(0, 1fr);
+        gap: 10px;
+        align-items: end;
+        margin-top: 8px;
+      }
+      .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        grid-column: 1 / -1;
+        gap: 7px;
+      }
+      #operations-status {
+        min-height: 1.4em;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      #operations-status[data-tone="error"] {
+        color: var(--rust);
+      }
+
+      @media (max-width: 1100px) {
+        .chat-shell {
+          grid-template-columns: 250px minmax(0, 1fr);
+        }
+        .records {
+          grid-template-columns: 300px minmax(0, 1fr);
+        }
+        .dossier {
+          padding: 24px 26px 36px;
+        }
+      }
+      @media (max-width: 900px) {
+        .chat-shell {
+          grid-template-columns: minmax(0, 1fr);
+          height: auto;
+          min-height: 0;
+        }
+        .chat-rail {
+          border-right: 0;
+          border-bottom: 1px solid var(--rule);
+        }
+        .session-list {
+          max-height: 210px;
+        }
+        .chat-main {
+          min-height: 620px;
+        }
+        .records {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .record-index {
+          border-right: 0;
+          border-bottom: 1px solid var(--rule);
+        }
+        .record-list {
+          max-height: 320px;
+        }
+        .dossier {
+          min-height: 420px;
+        }
+      }
+      @media (max-width: 640px) {
+        body {
+          padding: 0 16px 44px;
+        }
+        .masthead {
+          padding-top: 20px;
+        }
+        .brand-name {
+          font-size: 23px;
+        }
+        .brand-tagline {
+          display: none;
+        }
+        .masthead-tools {
+          width: 100%;
+        }
+        .masthead-tools .refresh-note {
+          flex: 1 1 100%;
+        }
+        .masthead-tools .button {
+          flex: 1 1 0;
+        }
+        .primary-tabs {
+          gap: 20px;
+        }
+        .status-line {
+          gap: 5px 16px;
+        }
+        .thread-scroll {
+          padding: 18px 16px 6px;
+        }
+        .composer {
+          padding: 10px 16px 14px;
+        }
+        .chat-head {
+          padding: 11px 16px;
+        }
+        .transcript::before,
+        .msg::before {
+          display: none;
+        }
+        .msg {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 3px;
+        }
+        .msg-rail {
+          display: flex;
+          gap: 8px;
+          text-align: left;
+        }
+        .msg-time {
+          font-size: 9px;
+        }
+        .metric-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .dossier {
+          padding: 20px 16px 30px;
+        }
+        .dossier-head {
+          flex-direction: column;
+        }
+        .dossier-lead {
+          font-size: 16px;
+        }
+        .new-session,
+        .composer-options-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .mention-menu {
+          right: 16px;
+          left: 16px;
+        }
+        .drawer-panel {
+          padding: 18px 16px 30px;
+        }
+        #submit-form {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .action-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .dossier-section {
+          overflow-x: auto;
+        }
+        .detail-table {
+          min-width: 620px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--rule-strong) transparent;
+      }
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-thumb {
+        border: 2px solid transparent;
+        background: var(--rule-strong);
+        background-clip: content-box;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="#chat" aria-label="ForgeLoop 会话">
+        <span class="brand-mark" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+          >
+            <path d="M4 12a8 8 0 0 1 13.6-5.7L20 8.6" stroke-linecap="round" />
+            <path
+              d="M20 4v4.6h-4.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path d="M20 12a8 8 0 0 1-13.6 5.7L4 15.4" stroke-linecap="round" />
+            <path
+              d="M4 20v-4.6h4.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-name">ForgeLoop</span>
+          <span class="brand-tagline">研发与运维值班台</span>
+        </span>
+      </a>
+      <div class="masthead-tools">
+        <span class="refresh-note" id="refresh-note">自动刷新: 加载中</span>
+        <button
+          id="operations-open"
+          class="button button-quiet"
+          type="button"
+          hidden
+        >
+          新需求 / 操作
+        </button>
+        <button id="refresh-button" class="button button-quiet" type="button">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+          刷新
+        </button>
+      </div>
+    </header>
+
+    <div class="status-line">
+      <span class="status-item"
+        ><span class="status-key">生成</span><b id="generated-at">—</b></span
+      >
+      <span class="status-item"
+        ><span class="status-key">记录根</span><b id="records-root">—</b></span
+      >
+      <span class="status-item" id="countdown">等待首次加载</span>
+    </div>
+    <div id="banner" role="alert"></div>
+
+    <nav class="primary-tabs" role="tablist" aria-label="主要视图">
+      <button
+        id="tab-chat"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="true"
+        aria-controls="panel-chat"
+      >
+        会话
+      </button>
+      <button
+        id="tab-requirements"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-requirements"
+      >
+        需求<span class="tab-count" id="count-requirements">—</span>
+      </button>
+      <button
+        id="tab-tasks"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-tasks"
+      >
+        任务<span class="tab-count" id="count-tasks">—</span>
+      </button>
+      <button
+        id="tab-issues"
+        class="primary-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-issues"
+      >
+        问题<span class="tab-count" id="count-issues">—</span>
+      </button>
+    </nav>
+
+    <main class="views">
+      <section
+        id="panel-chat"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-chat"
+        tabindex="0"
+      >
+        <div id="chat-unavailable" class="chat-unavailable" hidden>
+          <p class="kicker">未启用操作入口</p>
+          <h2>会话需要操作入口</h2>
+          <p>
+            当前页面没有注入写令牌（只读 HTTP 基座）。用
+            <code>forgeloop web</code> 或
+            <code>forgeloop serve</code> 启动操作管理台即可与 Agent
+            对话；需求、任务、问题仍可查看。
+          </p>
+          <a class="button" href="#requirements">查看需求</a>
+        </div>
+
+        <div id="panel" class="chat-shell" hidden>
+          <aside class="chat-rail" aria-label="会话导航">
+            <div class="rail-head">
+              <h2>会话</h2>
+              <button
+                id="panel-new-session"
+                class="button button-small"
+                type="button"
+              >
+                新会话
+              </button>
+            </div>
+            <p id="panel-session-empty" class="rail-empty">
+              还没有会话。新建一个开始。
+            </p>
+            <div
+              id="panel-session-list"
+              class="session-list"
+              role="listbox"
+              aria-label="会话列表"
+            ></div>
+            <div class="rail-foot">
+              <nav
+                class="workspace-tabs"
+                role="tablist"
+                aria-label="工作区视图"
+              >
+                <button
+                  id="panel-tab-sessions"
+                  class="workspace-tab"
+                  type="button"
+                  aria-pressed="true"
+                >
+                  对话
+                </button>
+                <button
+                  id="panel-tab-runtime"
+                  class="workspace-tab"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  运行时
+                </button>
+                <button
+                  id="panel-tab-projects"
+                  class="workspace-tab"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  项目
+                </button>
+              </nav>
+              <p id="panel-status" class="status-text" role="status"></p>
+            </div>
+          </aside>
+
+          <div class="chat-main">
+            <header class="chat-head">
+              <p id="panel-session-meta" class="chat-meta">未选择会话</p>
+              <button
+                id="panel-refresh"
+                class="button button-small"
+                type="button"
+              >
+                刷新
+              </button>
+            </header>
+
+            <section id="panel-sessions-view" class="chat-view">
+              <div id="panel-new-session-form" class="new-session" hidden>
+                <label>
+                  项目
+                  <select id="panel-project-select"></select>
+                </label>
+                <label>
+                  标题
+                  <input id="panel-session-title" autocomplete="off" />
+                </label>
+                <div class="new-session-actions">
+                  <button
+                    id="panel-create-session"
+                    class="button button-primary"
+                    type="button"
+                  >
+                    创建
+                  </button>
+                  <button
+                    id="panel-cancel-session"
+                    class="button"
+                    type="button"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+              <div class="thread-scroll">
+                <p id="panel-empty" class="chat-empty">
+                  选择一个会话查看对话，或新建一个。
+                </p>
+                <ol id="panel-messages" class="transcript"></ol>
+                <p id="panel-tools-meta" class="transcript-meta" hidden></p>
+                <ul id="panel-tools" class="tool-list" hidden></ul>
+                <div id="panel-decisions" class="decisions"></div>
+              </div>
+              <form id="panel-composer" class="composer" hidden>
+                <div
+                  id="mention-menu"
+                  class="mention-menu"
+                  role="listbox"
+                  aria-label="引用记录"
+                  hidden
+                ></div>
+                <label class="sr-only" for="panel-message-text"
+                  >给 Agent 的消息</label
+                >
+                <textarea
+                  id="panel-message-text"
+                  rows="2"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="mention-menu"
+                  placeholder="给 Agent 发消息… 输入 @ 引用需求、任务或问题"
+                ></textarea>
+                <div class="composer-bar">
+                  <span class="composer-hint"
+                    >Enter 发送 · Shift+Enter 换行 · @ 引用记录</span
+                  >
+                  <button
+                    id="panel-send"
+                    class="button button-primary"
+                    type="submit"
+                  >
+                    发送
+                  </button>
+                </div>
+                <details class="composer-options">
+                  <summary>人工决定与终止（需要时展开）</summary>
+                  <div class="composer-options-grid">
+                    <label>
+                      理由
+                      <input
+                        id="panel-reason"
+                        placeholder="批准、验收、停止或终止时必填"
+                      />
+                    </label>
+                    <label>
+                      补充指令
+                      <input
+                        id="panel-decision-text"
+                        placeholder="批准后立即发起新一轮（可选）"
+                      />
+                    </label>
+                    <button
+                      id="panel-terminate"
+                      class="button button-danger"
+                      type="button"
+                    >
+                      终止会话
+                    </button>
+                  </div>
+                </details>
+              </form>
+            </section>
+
+            <section id="panel-runtime-view" class="workspace-view" hidden>
+              <h2>运行时</h2>
+              <p class="meta" id="panel-runtime-summary"></p>
+              <table>
+                <caption>
+                  就绪 = 项目路径存在，且隔离 HOME
+                  里的模型配置可用；未就绪不能建会话。
+                </caption>
+                <thead>
+                  <tr>
+                    <th>项目</th>
+                    <th>就绪</th>
+                    <th>问题</th>
+                    <th>PI 命令</th>
+                    <th>隔离 HOME</th>
+                    <th>在跑</th>
+                  </tr>
+                </thead>
+                <tbody id="panel-runtime-body"></tbody>
+              </table>
+              <p class="empty" id="panel-runtime-empty">
+                项目档案为空：到「项目」页签新增一个。
+              </p>
+            </section>
+
+            <section id="panel-projects-view" class="workspace-view" hidden>
+              <h2>项目</h2>
+              <p class="meta">
+                手写配置（config/service.toml）的项目只读；页面管理的项目可增删改，同名会拒绝。
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>项目</th>
+                    <th>来源</th>
+                    <th>路径</th>
+                    <th>git</th>
+                    <th>问题</th>
+                    <th>进行中会话</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="panel-projects-body"></tbody>
+              </table>
+              <p class="empty" id="panel-projects-empty">还没有项目档案。</p>
+              <form id="panel-project-form">
+                <label>
+                  项目名
+                  <input id="panel-project-name" />
+                </label>
+                <label>
+                  代码仓路径
+                  <input id="panel-project-path" />
+                </label>
+                <label>
+                  说明
+                  <input id="panel-project-description" />
+                </label>
+                <label>
+                  PI 命令（JSON 数组，不拆词）
+                  <input
+                    id="panel-project-command"
+                    placeholder='["pi", "--mode", "rpc", "--no-session"]'
+                  />
+                </label>
+                <label>
+                  隔离 HOME（需含非空的 .pi/agent/models.json）
+                  <input id="panel-project-home" />
+                </label>
+                <p class="meta" id="panel-project-source"></p>
+                <div class="panel-row">
+                  <button
+                    id="panel-project-submit"
+                    class="button button-primary"
+                    type="submit"
+                  >
+                    新增项目
+                  </button>
+                  <button id="panel-project-reset" class="button" type="button">
+                    清空
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="panel-requirements"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-requirements"
+        tabindex="0"
+        hidden
+      >
+        <div class="records">
+          <aside class="record-index" aria-label="需求索引">
+            <header class="index-head">
+              <h2>需求</h2>
+              <p>按 ID 与最新原文排列</p>
+            </header>
+            <div id="requirements-body" class="record-list"></div>
+            <p class="empty" id="requirements-empty">没有需求记录。</p>
+          </aside>
+          <article
+            id="requirements-detail"
+            class="dossier"
+            aria-live="polite"
+          ></article>
+        </div>
+      </section>
+
+      <section
+        id="panel-tasks"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-tasks"
+        tabindex="0"
+        hidden
+      >
+        <div class="records">
+          <aside class="record-index" aria-label="任务索引">
+            <header class="index-head">
+              <h2>任务</h2>
+              <p>按任务目标与执行状态排列</p>
+            </header>
+            <div id="tasks-body" class="record-list"></div>
+            <p class="empty" id="tasks-empty">没有任务记录。</p>
+          </aside>
+          <article
+            id="tasks-detail"
+            class="dossier"
+            aria-live="polite"
+          ></article>
+        </div>
+      </section>
+
+      <section
+        id="panel-issues"
+        class="view"
+        role="tabpanel"
+        aria-labelledby="tab-issues"
+        tabindex="0"
+        hidden
+      >
+        <div class="records">
+          <aside class="record-index" aria-label="问题索引">
+            <header class="index-head">
+              <h2>问题</h2>
+              <p>需要人工介入的当前事实</p>
+            </header>
+            <div id="issues-body" class="record-list"></div>
+            <p class="empty" id="issues-empty">没有待处理问题。</p>
+          </aside>
+          <article
+            id="issues-detail"
+            class="dossier"
+            aria-live="polite"
+          ></article>
+        </div>
+      </section>
+    </main>
+
+    <div id="operations-drawer" class="drawer" hidden>
+      <div class="drawer-scrim" data-operations-close></div>
+      <section
+        class="drawer-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="operations-title"
+      >
+        <header class="drawer-head">
+          <div>
+            <p class="kicker">写入口</p>
+            <h2 id="operations-title">需求操作</h2>
+          </div>
+          <button
+            id="operations-close"
+            class="button button-icon"
+            type="button"
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </header>
+        <section id="operations" hidden>
+          <h3>提交需求</h3>
+          <p class="meta">
+            Web 是操作管理界面，写操作与 CLI
+            等价：批准绑定需求身份与任务包版本，修订追加版本并保留历史，取消保留全部记录。
+            所有操作都写进权威记录，页面与 <code>forgeloop serve</code>
+            共用同一套校验。
+          </p>
+          <form id="submit-form">
+            <label>
+              项目
+              <input id="submit-project" name="project" required />
+            </label>
+            <label>
+              操作人
+              <input id="operations-by" name="by" value="owner" required />
+            </label>
+            <label>
+              理由/备注
+              <input id="submit-reason" name="reason" />
+            </label>
+            <label>
+              需求正文
+              <textarea id="submit-text" name="text" required></textarea>
+            </label>
+            <button
+              id="submit-button"
+              class="button button-primary"
+              type="submit"
+            >
+              提交需求
+            </button>
+          </form>
+
+          <h3>处理已有需求</h3>
+          <div class="action-grid">
+            <label>
+              需求
+              <select id="action-req"></select>
+            </label>
+            <label>
+              理由（批准/验收/停止/取消必填）
+              <input id="action-reason" />
+            </label>
+            <div class="action-buttons">
+              <button
+                id="action-approve"
+                class="button button-primary"
+                type="button"
+              >
+                批准任务包
+              </button>
+              <button id="action-advance" class="button" type="button">
+                推进本次
+              </button>
+              <button id="action-analyze" class="button" type="button">
+                分析需求
+              </button>
+              <button id="action-plan" class="button" type="button">
+                生成任务包
+              </button>
+              <button id="action-accept" class="button" type="button">
+                整体验收
+              </button>
+              <button
+                id="action-stop"
+                class="button button-danger"
+                type="button"
+              >
+                请求停止
+              </button>
+              <button
+                id="action-cancel"
+                class="button button-danger"
+                type="button"
+              >
+                取消需求
+              </button>
+            </div>
+          </div>
+
+          <h3>修订选中需求</h3>
+          <p class="meta">
+            追加一个新版本，历史原文不覆盖；修订后旧分析与旧任务包批准失效，需要重新分析。
+          </p>
+          <label>
+            修订正文
+            <textarea id="revise-text" rows="4"></textarea>
+          </label>
+          <button id="action-revise" class="button" type="button">
+            保存修订（追加版本）
+          </button>
+
+          <p id="operations-status" role="status"></p>
+        </section>
+      </section>
+    </div>
+
+    <!-- 行为代码是 TypeScript 源（frontend/src）编译出的模块，见 docs/engineering-reliability.md 第 1 节；本文件只保留结构与样式。 -->
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

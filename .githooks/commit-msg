@@ -1,0 +1,4 @@
+#!/bin/sh
+# Conventional Commits 消息头校验（与配置无关，始终生效）。
+set -e
+node scripts/ts/commit-policy.ts --message-file "$1"
