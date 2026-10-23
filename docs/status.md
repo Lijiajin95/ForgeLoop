@@ -196,8 +196,16 @@ v2（3 个任务，拓扑依赖）、人工批准 v2、真实 DSH Agent 实现�
   - `command-surface.test.ts`：`/fl` 全部子命令的成功与拒绝路径、usage 错误、异常收口与注册；
   - `tools.test.ts`：7 个模型工具的只读查询、受理身份不可伪造、幂等键冲突与渲染；
   - `config-validation.test.ts`：项目名、轮询间隔、超时、尝试次数与命令列表的装载期拒绝。
-- 仍未覆盖的低值区域：`service.ts` 的深层执行流水线（81.23% 行、76.44% 分支）依赖真实 Agent
+- 仍未覆盖的低值区域：`service.ts` 的深层执行流水线（82.67% 行、79.33% 分支）依赖真实 Agent
   回合的失败组合；`index.ts`/`cli/` 按配置从覆盖率统计中排除。
+
+### 3.5 版本标签与仓库同步（2026-10-23 19:33）
+
+- 同步提交 `f316f06`（整个工作树）已推送 `origin/main`；注释标签 **`v0.0.2`** 指向该提交，
+  这是产品版本的唯一权威来源。
+- `package.json` 的 `0.0.2` 只是构建标识；文档与契约不再记录产品版本字面量。
+- HTTPS OAuth 令牌缺少 `workflow` 作用域，GitHub 拒绝更新工作流文件；本次改用本机已认证的
+  SSH 身份推送，remote URL 未修改。CI 已随代码推送，但尚未在 GitHub 上执行。
 
 ## 4. 当前能力与缺口
 
@@ -214,7 +222,7 @@ v2（3 个任务，拓扑依赖）、人工批准 v2、真实 DSH Agent 实现�
 | 专用 profile 安装 | **已执行**：`~/.dsh/profiles/forgeloop`（headless 模板）安装 V1 tarball，真实模型调用 `forgeloop_status` 成功；启动需提供 `QWEN_TOKEN_PLAN_CN_API_KEY` 或在 Models 页登记 |
 | 桌面 profile（`~/.dsh/profiles/desktop`） | **2026-10-23 已安装当前构建**：通过 `plugin_manager` 安装候选 tarball（`application: applied`），重载即时生效、页面刷新后显示真实数据；记录根配置仍在 `cordis.patch.yml`。应用独占管理该 profile，CLI 拒绝直接启动/转储 |
 | 常驻宿主中断开客户端后继续推进 | **未单独执行**：协调器行为有单测与真实命令链路；验证宿主是无头的一次性进程，不等同浏览器长连 |
-| GitHub Actions | 工作流已改为 Node/TypeScript（quality/nightly）；**未推送、未在 GitHub 执行**，本地只验证了同一组 `make` 命令 |
+| GitHub Actions | 工作流已改为 Node/TypeScript（quality/nightly）；随同步提交推送到 origin，**未在 GitHub 执行**，本地只验证了同一组 `make` 命令 |
 | 容器/OS 级审查隔离 | 未接入；当前是独立会话＋无工具＋固定 diff |
 | 多用户、远程访问、邮件/IM、发布/部署 | 不在首版范围 |
 | 覆盖率 | 已接入：行/语句 **92.16%**、函数 **95.45%**、分支 **85.1%**；门槛 90/90/93/84（`vitest.config.ts`） |
