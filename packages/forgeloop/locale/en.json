@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "ForgeLoop Delivery Board",
-    "description": "Show requirement, task and open-issue status inside the conversation area; read-only, with approval and acceptance still entering through /fl."
+    "description": "Show requirement, task and open-issue status inside the conversation area; read-only, with no approve, advance or accept entry."
   }
 }

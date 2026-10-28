@@ -59,7 +59,7 @@ export function acquireHostLock(lockRoot: string, owner: string): HostLock {
   }
 
   if (!tryAcquire()) {
-    const { record, raw } = readHolder(lockDir)
+    const { record } = readHolder(lockDir)
     if (record && processAlive(record.pid) && record.owner !== owner) {
       return {
         acquired: false,

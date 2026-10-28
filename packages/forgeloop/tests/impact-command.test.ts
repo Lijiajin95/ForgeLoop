@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { CommandSurface } from '../src/commands.js'
 import { buildTools } from '../src/tools.js'
 import { resolveConfig } from '../src/config.js'
-import { Coordinator } from '../src/runtime/coordinator.js'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import type { PlannedTask, TaskPlan, TaskPlanApproval } from '../src/domain/task-plan.js'
@@ -165,7 +163,6 @@ function recordingRunner(text = '分析 v1 已过期，建议优先重新分析�
 
 let dir = ''
 let runtime: ForgeLoopRuntime
-let surface: CommandSurface
 let recorder: RecordingRunner
 
 function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
@@ -184,23 +181,17 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
   return new ForgeLoopRuntime({ ctx: {}, config, runner })
 }
 
-async function command(rawInput: string): Promise<{ kind: 'success' | 'error'; text: string }> {
-  return surface.handle({ rawInput })
-}
-
-function parseBody(text: string): ImpactDataView {
-  const newline = text.indexOf('\n')
-  expect(newline).toBeGreaterThan(-1)
-  return JSON.parse(text.slice(newline + 1)) as ImpactDataView
-}
-
-async function impactCommand(
+async function impact(
   reqId: string,
   explain = false,
 ): Promise<{ kind: 'success' | 'error'; text: string; data: ImpactDataView }> {
-  const output = await command(`impact ${reqId}${explain ? ' --explain' : ''}`)
-  expect(output.kind, output.text).toBe('success')
-  return { ...output, data: parseBody(output.text) }
+  const outcome = await runtime.impact(reqId, { explain })
+  expect(outcome.ok, outcome.message).toBe(true)
+  return {
+    kind: outcome.ok ? 'success' : 'error',
+    text: outcome.message,
+    data: outcome.data as ImpactDataView,
+  }
 }
 
 async function impactTool(args: Record<string, unknown>): Promise<ToolResultView> {
@@ -332,11 +323,6 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'forgeloop-impact-command-'))
   recorder = recordingRunner()
   runtime = makeRuntime(recorder.runner)
-  surface = new CommandSurface(
-    runtime,
-    new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false }),
-    runtime.config,
-  )
 })
 
 afterEach(() => {
@@ -344,8 +330,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-describe('/fl impact and forgeloop_impact: requirement revision is stale', () => {
-  it('shows all versions, basis versions, delivery materials, stale/pending marks and unknown requests for command and tool', async () => {
+describe('forgeloop_impact: requirement revision is stale', () => {
+  it('shows all versions, basis versions, delivery materials, stale/pending marks and unknown requests on the tool surface', async () => {
     const reqId = submitRequirement()
     recordAnalysis(reqId, 1, 1)
     recordPlan(reqId, 1, 1, [task('a'), task('b', ['a'])])
@@ -354,7 +340,7 @@ describe('/fl impact and forgeloop_impact: requirement revision is stale', () =>
     recordRequest(reqId, 'rq-unknown', 'unknown')
     reviseRequirement(reqId)
 
-    const output = await impactCommand(reqId)
+    const output = await impact(reqId)
     const facts = output.data.facts
 
     expect(output.data.kind).toBe('impact-explain')
@@ -439,8 +425,6 @@ describe('/fl impact and forgeloop_impact: requirement revision is stale', () =>
     expect(facts.state).toBe('stale_pending')
     expect(facts.stale).toBe(true)
     expect(facts.pending).toBe(true)
-    expect(output.text).toContain('需核对')
-
     const tool = await impactTool({ req_id: reqId })
     expect(tool.ok, tool.text).toBe(true)
     expect(tool.data).toEqual(output.data)
@@ -451,8 +435,8 @@ describe('/fl impact and forgeloop_impact: requirement revision is stale', () =>
   })
 })
 
-describe('/fl impact and forgeloop_impact: requirement is still valid', () => {
-  it('reports a current, fully delivered requirement without stale or pending items on both surfaces', async () => {
+describe('forgeloop_impact: requirement is still valid', () => {
+  it('reports a current, fully delivered requirement without stale or pending items on the tool surface', async () => {
     const reqId = submitRequirement()
     recordAnalysis(reqId, 1, 1)
     recordPlan(reqId, 1, 1, [task('a'), task('b', ['a'])])
@@ -461,7 +445,7 @@ describe('/fl impact and forgeloop_impact: requirement is still valid', () => {
     recordDelivery(reqId, 1, 'b')
     recordRequest(reqId, 'rq-done', 'done')
 
-    const output = await impactCommand(reqId)
+    const output = await impact(reqId)
     const facts = output.data.facts
 
     expect(output.data.explainRequested).toBe(false)
@@ -503,11 +487,11 @@ describe('/fl impact and forgeloop_impact: requirement is still valid', () => {
   })
 })
 
-describe('/fl impact and forgeloop_impact: requirement was never planned', () => {
-  it('returns the deterministic gap facts instead of failing, on both surfaces', async () => {
+describe('forgeloop_impact: requirement was never planned', () => {
+  it('returns the deterministic gap facts instead of failing, on the tool surface', async () => {
     const reqId = submitRequirement()
 
-    const output = await impactCommand(reqId)
+    const output = await impact(reqId)
     const facts = output.data.facts
 
     expect(output.kind).toBe('success')
@@ -545,7 +529,7 @@ describe('/fl impact and forgeloop_impact: requirement was never planned', () =>
   })
 })
 
-describe('/fl impact --explain and forgeloop_impact explain', () => {
+describe('forgeloop_impact explain', () => {
   it('calls one tool-less Agent and separates marked inference from deterministic facts', async () => {
     const reqId = submitRequirement()
     recordAnalysis(reqId, 1, 1)
@@ -554,8 +538,8 @@ describe('/fl impact --explain and forgeloop_impact explain', () => {
     recordDelivery(reqId, 1, 'a')
     recordDelivery(reqId, 1, 'b')
 
-    const plain = await impactCommand(reqId)
-    const explained = await impactCommand(reqId, true)
+    const plain = await impact(reqId)
+    const explained = await impact(reqId, true)
     const data = explained.data
 
     expect(recorder.calls).toHaveLength(1)

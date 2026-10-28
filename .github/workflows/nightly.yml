@@ -1,7 +1,7 @@
 name: Nightly quality
 
 # 夜间只跑当前已接入的检查。变异测试尚未接入 TypeScript 工具链，不在此伪造通过；
-# 缺口记录在 docs/engineering-reliability.md 与 docs/status.md。
+# 缺口记录在 docs/status.md；检查入口与门槛以 Makefile 和 vitest 配置为准。
 on:
   schedule:
     - cron: "0 19 * * *" # 19:00 UTC = 03:00 Asia/Shanghai next day

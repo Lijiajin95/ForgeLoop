@@ -1,29 +1,26 @@
 # ForgeLoop（TypeScript 原生 DSH 插件）统一入口。
 #
 # 活动实现只有 TypeScript：领域、记录、运行时、插件接入、测试与自有工具链都在
-# packages/forgeloop 与 scripts/ts。旧 Python 实现隔离在 legacy/，不参与任何目标。
+# packages/forgeloop 与 scripts/ts。退役 Python 实现已清理，从 Git 历史回查。
 # 具体门槛以 vitest/tsc 配置与 contracts/ 为准，本文件只做入口编排。
 
 NPM := env npm_config_cache=$(CURDIR)/.cache/npm npm
 PKG := packages/forgeloop
 NODE := node
 CONTRACTS := $(NODE) scripts/ts/contracts.ts
-COMMIT_POLICY := $(NODE) scripts/ts/commit-policy.ts
 
 .PHONY: setup build typecheck test check check-static lint format contracts \
-	architecture-contract architecture-contract-check cli-contract cli-contract-check \
-	commit-policy commit-policy-config hooks precommit verify-plugin package test-host \
-	coverage mutation audit security help verify-web
+	architecture-contract architecture-contract-check \
+	precommit verify-plugin package \
+	coverage mutation audit security help
 
 help:
-	@echo "make check                 类型检查 + 契约 + 提交策略配置 + 行为测试"
+	@echo "make check                 类型检查 + 架构契约 + 行为测试"
 	@echo "make test                  仅 TypeScript 行为测试（vitest）"
 	@echo "make build                 编译到 packages/forgeloop/lib"
 	@echo "make package               构建本地候选安装包与摘要"
-	@echo "make contracts             架构与 CLI 契约校验"
-	@echo "make commit-policy-config  校验本机提交策略配置"
+	@echo "make contracts             架构契约校验"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
-	@echo "make verify-web            安装包在真实 Web 宿主中的命令与重启回查（不调用模型）"
 	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts）"
 	@echo "make mutation              未接入：显式失败，不冒充通过"
 
@@ -41,34 +38,15 @@ test:
 
 check: check-static test
 
-check-static: typecheck contracts commit-policy-config
+check-static: typecheck contracts
 
-contracts: architecture-contract-check cli-contract-check
-	$(CONTRACTS)
+contracts: architecture-contract-check
 
 architecture-contract:
 	$(CONTRACTS) --update-architecture
 
 architecture-contract-check:
-	$(CONTRACTS) --architecture
-
-cli-contract:
-	$(CONTRACTS) --update-cli
-
-cli-contract-check:
-	$(CONTRACTS) --cli
-
-commit-policy:
-	$(COMMIT_POLICY) --check-now
-
-commit-policy-config:
-	$(COMMIT_POLICY) --validate-config
-
-# 本地钩子只做早起拒绝；CI 与产品运行时的判定不依赖钩子。
-hooks:
-	git config core.hooksPath .githooks
-	chmod +x .githooks/pre-commit .githooks/commit-msg
-	@echo "已安装 .githooks（pre-commit / commit-msg）"
+	$(CONTRACTS)
 
 precommit:
 	$(MAKE) check
@@ -79,12 +57,6 @@ package: build
 # 真实宿主装载冒烟：需要 FORGELOOP_DSH_HOME 与模型凭据（见 docs/deployment.md）。
 verify-plugin:
 	$(NODE) scripts/ts/verify-plugin.ts
-
-test-host:
-	$(NODE) scripts/ts/verify-plugin.ts --full
-
-verify-web: package
-	$(NODE) scripts/ts/verify-web.ts
 
 coverage:
 	$(NPM) run coverage --workspace forgeloop-dsh

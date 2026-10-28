@@ -41,10 +41,11 @@ describe('formal test runner without a subprocess service', () => {
   it('records a non-zero exit code without inventing success', async () => {
     const result = await runFormalTest({
       cwd: dir,
-      argv: ['node', '-e', 'process.exit(3)'],
+      argv: ['node', '-e', 'console.log("all tests passed"); process.exit(3)'],
       timeoutMs: 5000,
       logPath: logPath('failure'),
     })
+    expect(result.output).toContain('all tests passed')
     expect(result.exitCode).toBe(3)
     expect(result.timedOut).toBe(false)
   })
@@ -68,6 +69,7 @@ describe('formal test runner without a subprocess service', () => {
       logPath: logPath('timeout'),
     })
     expect(result.timedOut).toBe(true)
+    expect(readFileSync(result.logPath, 'utf8')).toContain('timed_out: true')
     expect(result.exitCode).toBeNull()
   })
 

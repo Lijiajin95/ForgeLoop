@@ -25,7 +25,7 @@ import {
   TASK_RUN_AWAITING_USER,
 } from '../domain/status.js'
 
-/** 页面默认展示的需求条数；更早的历史仍可用 `/fl status` 回查。 */
+/** 页面默认展示的需求条数；更早的历史仍在权威记录中可回查。 */
 export const BOARD_DEFAULT_LIMIT = 20
 /** 问题列的展示上限，避免一次渲染过长列表。 */
 export const BOARD_MAX_ISSUES = 60
@@ -296,7 +296,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         kind: ISSUE_APPROVAL,
         severity: 'attention',
         title: `任务包 v${plan.planVersion} 待批准`,
-        detail: authorization.reason || '批准只从 /fl approve 进入',
+        detail: authorization.reason || '任务包尚未获得批准',
         createdAt: plan.createdAt,
       })
     }

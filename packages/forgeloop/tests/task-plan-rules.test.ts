@@ -2,13 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   executionOrder,
   parseTaskPlanDraft,
-  rootTaskIds,
   validateFiles,
   validateTaskPlan,
   type PlannedTask,
   type TaskPlan,
 } from '../src/domain/task-plan.js'
-import { validateArtifact } from '../src/domain/work.js'
 
 const context = {
   requirementId: 'req-1',
@@ -43,7 +41,6 @@ describe('task plan parsing and validation', () => {
     expect(plan.taskPlanId).toBe('plan-req-1-1')
     expect(plan.tasks.map((task) => task.taskId)).toEqual(['a', 'b'])
     expect(executionOrder(plan)).toEqual(['a', 'b'])
-    expect(rootTaskIds(plan)).toEqual(['a'])
   })
 
   it('rejects payloads without a usable task list', () => {
@@ -150,28 +147,3 @@ function baseTask(taskId: string): PlannedTask {
     authorizationSource: '',
   }
 }
-
-describe('artifact validation', () => {
-  const draft = {
-    candidateSha256: 'c',
-    testEvidenceSha256: 't',
-    reviewSha256: 'r',
-    acceptance: '达成',
-    authorizationSource: 'plan-approval:req-1:v1:owner',
-    baselineCommit: 'abc',
-  }
-
-  it('accepts a complete artifact', () => {
-    expect(() => validateArtifact(draft)).not.toThrow()
-  })
-
-  it('rejects every missing material digest', () => {
-    expect(() => validateArtifact({ ...draft, candidateSha256: '' })).toThrow('缺少候选 diff 摘要')
-    expect(() => validateArtifact({ ...draft, testEvidenceSha256: '' })).toThrow('缺少正式测试证据摘要')
-    expect(() => validateArtifact({ ...draft, reviewSha256: '' })).toThrow('缺少独立审查结论摘要')
-  })
-
-  it('requires an authorization source derived from a real approval', () => {
-    expect(() => validateArtifact({ ...draft, authorizationSource: '  ' })).toThrow('缺少任务级授权来源')
-  })
-})

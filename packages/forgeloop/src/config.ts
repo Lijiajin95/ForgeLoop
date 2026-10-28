@@ -112,7 +112,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
   }
 }
 
-/** 记录根下的项目目录：与旧版 `.forgeloop/projects/<name>` 布局一致。 */
+/** 记录根下的项目目录：`<recordsRoot>/projects/<name>`。 */
 export function projectDir(config: ForgeLoopConfig): string {
   return join(config.recordsRoot, 'projects', config.project)
 }

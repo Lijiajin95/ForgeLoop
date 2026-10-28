@@ -120,7 +120,7 @@ export class ForgeLoopRuntime {
     })
     return ok(
       created
-        ? `已受理需求 ${requirement.reqId}（版本 1）。下一步：/fl analyze ${requirement.reqId}`
+        ? `已受理需求 ${requirement.reqId}（版本 1）`
         : `同一客户端幂等键已受理为需求 ${requirement.reqId}，未重复创建`,
       this.requirementView(requirement),
     )
@@ -191,7 +191,7 @@ export class ForgeLoopRuntime {
       if (!authorization.ok) return authorization.result
       planVersion = authorization.value.plan.planVersion
     } else if (input.action === 'plan' && this.repo.latestAnalysis(input.reqId) === null) {
-      return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论；先运行 /fl analyze`)
+      return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论`)
     }
     try {
       const { request, created } = this.repo.recordRequest({
@@ -255,7 +255,7 @@ export class ForgeLoopRuntime {
     this.repo.recordPlanApproval(approval)
     this.repo.setStatus(input.reqId, APPROVED)
     return ok(
-      `已批准需求 ${input.reqId} 的任务包 v${input.planVersion}（依据需求 v${plan.requirementVersion}）；下一步 /fl advance ${input.reqId}`,
+      `已记录需求 ${input.reqId} 的任务包 v${input.planVersion} 批准（依据需求 v${plan.requirementVersion}）`,
       { authorizationSource: authorizationSourceOf(approval), tasks: plan.tasks.map((task) => task.taskId) },
     )
   }
@@ -273,7 +273,7 @@ export class ForgeLoopRuntime {
     if (!input.confirm) {
       return fail(
         'confirm_required',
-        `需求 ${input.reqId} 有 ${requests.length} 条结果未知的请求；核对工作副本与产物后使用 /fl recover ${input.reqId} confirm`,
+        `需求 ${input.reqId} 有 ${requests.length} 条结果未知的请求；核对工作副本与产物后再确认恢复`,
       )
     }
     for (const request of requests) {
@@ -412,7 +412,7 @@ export class ForgeLoopRuntime {
     }
     let binding
     try {
-      binding = this.buildAcceptanceBinding(input.reqId, latestPlan, artifacts, input.artifactSha256)
+      binding = this.buildAcceptanceBinding(latestPlan, artifacts, input.artifactSha256)
     } catch (error) {
       return fail('material_invalid', (error as Error).message)
     }
@@ -431,7 +431,6 @@ export class ForgeLoopRuntime {
   }
 
   private buildAcceptanceBinding(
-    reqId: string,
     plan: TaskPlan,
     artifacts: ReturnType<Repository['taskArtifacts']>,
     artifactSha256?: string,
@@ -710,7 +709,7 @@ export class ForgeLoopRuntime {
       detail:
         analysis.clarifications.length > 0
           ? `分析 v${analysis.analysisVersion} 完成，有 ${analysis.clarifications.length} 条待澄清；等待人工回答后修订需求`
-          : `分析 v${analysis.analysisVersion} 完成；下一步 /fl plan ${reqId}`,
+          : `分析 v${analysis.analysisVersion} 完成`,
     }
   }
 
@@ -781,7 +780,7 @@ export class ForgeLoopRuntime {
       this.repo.setStatus(reqId, PLAN_PROPOSED)
       return {
         state: 'done',
-        detail: `已生成任务包 v${plan.planVersion}（${plan.tasks.length} 个任务）；审阅后 /fl approve ${reqId} ${plan.planVersion}`,
+        detail: `已生成任务包 v${plan.planVersion}（${plan.tasks.length} 个任务）；等待批准`,
       }
     }
     this.repo.setStatus(reqId, 'blocked', lastError)
@@ -794,7 +793,7 @@ export class ForgeLoopRuntime {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, result: fail('not_found', `未找到需求 ${reqId}`) }
     const plan = this.repo.latestTaskPlan(reqId)
-    if (!plan) return { ok: false, result: fail('plan_missing', `需求 ${reqId} 尚无任务包；先 /fl plan`) }
+    if (!plan) return { ok: false, result: fail('plan_missing', `需求 ${reqId} 尚无任务包`) }
     if (plan.requirementVersion !== requirement.versions.length) {
       return {
         ok: false,
@@ -811,7 +810,7 @@ export class ForgeLoopRuntime {
         ok: false,
         result: fail(
           'plan_not_approved',
-          `${authorization.reason}；先 /fl approve ${reqId} ${plan.planVersion}`,
+          `${authorization.reason}；任务包尚未获得批准`,
         ),
       }
     }
@@ -870,7 +869,7 @@ export class ForgeLoopRuntime {
     const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
     return {
       state: 'done',
-      detail: `任务包 v${plan.planVersion} 的 ${artifacts.length} 个任务已交付；等待整体验收：/fl accept ${reqId}`,
+      detail: `任务包 v${plan.planVersion} 的 ${artifacts.length} 个任务已交付；等待整体验收`,
     }
   }
 
@@ -1122,7 +1121,7 @@ export class ForgeLoopRuntime {
         if (!ledger.canRecordFailure) {
           return {
             state: 'awaiting_user',
-            reason: `正式测试失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * 3}）；等待 /fl grant ${requirement.reqId} 或停止`,
+            reason: `正式测试失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * 3}）；等待追加授权或停止`,
             requirementStatus: 'blocked',
           }
         }

@@ -1,6 +1,6 @@
 /**
- * SQLite 记录层基础设施：与旧 Python 记录共用同一批表（可读旧库），
- * 新增的运行时表只承载请求领取、动作身份与证据路径。
+ * SQLite 记录层基础设施：当前实现的权威表结构与事务入口。
+ * 新库从空库按本结构建立，不承担旧业务库的读取、补列或迁移。
  *
  * 数据库通过 Node 内置 `node:sqlite` 访问，不引入原生扩展，也不依赖 Python。
  */
@@ -176,22 +176,8 @@ CREATE TABLE IF NOT EXISTS runtime_meta (
 );
 `
 
-/** 旧库补列：只加列，不改既有值。 */
-const COLUMN_MIGRATIONS: ReadonlyArray<readonly [string, string, string]> = [
-  ['requirements', 'accepted_at', "TEXT NOT NULL DEFAULT ''"],
-  ['requirements', 'accepted_by', "TEXT NOT NULL DEFAULT ''"],
-  ['requirements', 'acceptance_source', "TEXT NOT NULL DEFAULT ''"],
-  ['requirements', 'acceptance_fingerprint', "TEXT NOT NULL DEFAULT ''"],
-  ['requirement_versions', 'revised_by', "TEXT NOT NULL DEFAULT ''"],
-  ['requirement_versions', 'source', "TEXT NOT NULL DEFAULT ''"],
-  ['service_requests', 'action', "TEXT NOT NULL DEFAULT 'advance'"],
-  ['service_requests', 'owner', "TEXT NOT NULL DEFAULT ''"],
-  ['service_requests', 'claimed_at', "TEXT NOT NULL DEFAULT ''"],
-  ['service_requests', 'attempts', 'INTEGER NOT NULL DEFAULT 0'],
-]
-
 export interface OpenOptions {
-  /** true 时库不存在则不创建（用于显式迁移/校验，不制造空库）。 */
+  /** true 时打开已有库且不创建新库，也不执行任何写入。 */
   readonly readOnly?: boolean
 }
 
@@ -212,9 +198,6 @@ export class Database {
       handle.exec('PRAGMA journal_mode = WAL')
       handle.exec('PRAGMA foreign_keys = OFF')
       handle.exec(SCHEMA)
-      for (const [table, column, definition] of COLUMN_MIGRATIONS) {
-        addColumnIfMissing(handle, table, column, definition)
-      }
     }
     return new Database(handle, path)
   }
@@ -238,18 +221,6 @@ export class Database {
       }
       throw error
     }
-  }
-}
-
-function addColumnIfMissing(
-  handle: DatabaseSync,
-  table: string,
-  column: string,
-  definition: string,
-): void {
-  const rows = handle.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>
-  if (!rows.some((row) => row.name === column)) {
-    handle.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
   }
 }
 

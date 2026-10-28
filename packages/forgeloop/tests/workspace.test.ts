@@ -5,13 +5,9 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import {
   captureCandidate,
-  changedSinceBaseline,
-  ensureWorktree,
   git,
-  hasChanges,
   headCommit,
   prepareSnapshotWorkspace,
-  removeWorktree,
   requireGit,
   runCommand,
 } from '../src/runtime/workspace.js'
@@ -72,9 +68,13 @@ describe('command helpers', () => {
 })
 
 describe('snapshot workspaces', () => {
-  it('copies tracked files into an independent repository and skips legacy', () => {
+  it('copies tracked and untracked progress without excluding a directory by its name', () => {
     mkdirSync(join(project, 'legacy'))
-    writeFileSync(join(project, 'legacy/old.py'), 'print(1)\n')
+    writeFileSync(join(project, 'legacy/notes.md'), 'project notes\n')
+    writeFileSync(join(project, 'docs/a.md'), 'uncommitted progress\n')
+    writeFileSync(join(project, '.gitignore'), '.cache/\n')
+    mkdirSync(join(project, '.cache'))
+    writeFileSync(join(project, '.cache/ignored.txt'), 'local cache\n')
     const workspace = join(dir, 'snapshot')
     const snapshot = prepareSnapshotWorkspace({
       projectPath: project,
@@ -83,32 +83,20 @@ describe('snapshot workspaces', () => {
     })
     expect(snapshot.fileCount).toBeGreaterThanOrEqual(2)
     expect(existsSync(join(workspace, 'README.md'))).toBe(true)
-    expect(existsSync(join(workspace, 'docs/a.md'))).toBe(true)
-    expect(existsSync(join(workspace, 'legacy'))).toBe(false)
+    expect(readFileSync(join(workspace, 'docs/a.md'), 'utf8')).toBe('uncommitted progress\n')
+    expect(existsSync(join(workspace, 'legacy/notes.md'))).toBe(true)
+    expect(existsSync(join(workspace, '.cache/ignored.txt'))).toBe(false)
     expect(headCommit(workspace)).toMatch(/^[0-9a-f]{40}$/)
     expect(headCommit(workspace)).not.toBe(headCommit(project))
-  })
-
-  it('creates and removes a worktree at the recorded baseline', () => {
-    const baseline = headCommit(project)
-    const worktree = join(dir, 'worktree')
-    ensureWorktree(project, worktree, baseline)
-    expect(headCommit(worktree)).toBe(baseline)
-    expect(existsSync(join(worktree, 'README.md'))).toBe(true)
-    removeWorktree(project, worktree)
-    expect(existsSync(worktree)).toBe(false)
   })
 
   it('captures the staged diff, changed files and out-of-scope violations', () => {
     const baseline = headCommit(project)
     const worktree = join(dir, 'capture')
-    ensureWorktree(project, worktree, baseline)
-    expect(hasChanges(worktree)).toBe(false)
-    expect(changedSinceBaseline(worktree)).toEqual([])
+    prepareSnapshotWorkspace({ projectPath: project, workspacePath: worktree, baselineCommit: baseline })
 
     writeFileSync(join(worktree, 'docs/a.md'), 'a changed\n')
     writeFileSync(join(worktree, 'secret.md'), 'not allowed\n')
-    expect(hasChanges(worktree)).toBe(true)
 
     const capture = captureCandidate({
       worktreePath: worktree,

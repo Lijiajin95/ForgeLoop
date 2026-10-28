@@ -2,12 +2,14 @@
 
 本记录说明本轮转向的计划范围、实际改动、验证证据、未完成事项与恢复步骤。事实以源码、记录库
 与原始日志为准；未执行或未验证的事项逐条标注，不把“已退役”写成“已迁移”。
+本文保留当批事实，后续安装状态与检查结果见[状态记录](../status.md)；历史手动安装／恢复步骤
+不作为现行操作指引，实际操作按[安装说明](../deployment.md)。新需求以[统一方案](../product.md)为准。
 
 ## 1. 范围与计划
 
 所有者当日决定：ForgeLoop 全量转为 TypeScript 实现的 DSH 原生插件，DSH 为唯一常驻宿主，
 不保留 Python 业务核心或跨语言桥接；首版完成一条真实自迭代闭环。依据与边界见
-[docs/dsh-plugin-10h-goal-prompt.md](../dsh-plugin-10h-goal-prompt.md) 与
+当时的 `docs/dsh-plugin-10h-goal-prompt.md`（已移出工作树，原文可从 Git 历史回查）与
 [ADR 0008](../adr/0008-typescript-native-dsh-plugin.md)。
 
 执行时间：2026-10-22T22:36 +08:00 开始；会话中途中断约 8 小时，2026-10-23T08:46 收口。

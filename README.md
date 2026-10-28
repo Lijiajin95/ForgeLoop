@@ -1,77 +1,35 @@
 # ForgeLoop
 
-ForgeLoop 是一个 **TypeScript 原生 DSH 插件**：把边界明确的需求变成可审查、可测试、可回查的
-代码改动，用户负责人工批准与整体验收。DSH 是唯一需要启动的常驻宿主；ForgeLoop 不再提供
-独立网页、`serve` 或 Python 核心。
+ForgeLoop 面向需要软件但不懂研发的人，在客户确定的业务目标和授权边界内，通过多 Agent
+完成软件建设、持续迭代与线上运维，提供全链路审计，并将例外决策交给客户。
 
-- 现在是什么状态、验证到哪一步：见[状态记录](docs/status.md)
-- 架构、分层、持久化与信任边界：见[架构说明](docs/architecture.md)
-- 为什么转为 TypeScript／DSH：见[ADR 0008](docs/adr/0008-typescript-native-dsh-plugin.md)
-- 开发、检查与提交纪律：[CONTRIBUTING.md](CONTRIBUTING.md)、[研发纪律](docs/development-discipline.md)
+[产品与首版方案](docs/product.md)统一保存最新产品目标、需求、技术、验证规则和待决项。
+首版从零建设自身进行 DogFood：先建立种子，再验证自主闭环，最后分别验收研发与运维的人工介入率。
+已确定使用 DSH 插件、当前 macOS 开发机和独立 DSH 子运行时；这些方案尚不等于当前能力。
 
-## 一条闭环
+## 当前实现
 
-```
-/fl submit 需求原文
-  → /fl analyze 结构化分析（无工具 Agent）
-  → /fl plan 任务包（文件清单 + 正式测试命令 + 依赖）
-  → /fl approve <需求> <任务包版本>        （人类决定）
-  → /fl advance 实现 → 独立审查 → 正式测试 → 交付证据
-  → /fl candidate 构建本地安装包与摘要
-  → /fl accept <需求> <产物摘要>           （人类决定）
+当前是 TypeScript 原生 DSH 插件，DSH 为唯一常驻宿主；运行时有需求、任务包、代码实施、
+独立审查、正式测试和候选包记录。2026-10-28 已删除 `/fl` 命令表面与旧业务库兼容，
+模型工具只读查询与受理需求，页面仍为只读看板；新方案的客户决定入口尚未实现。
 
-/fl impact <需求> [--explain]   修订影响摘要：确定性事实为主，--explain 才给模型推断
-```
-
-批准绑定需求版本、任务包版本与授权来源；验收绑定候选 diff、测试日志、审查结论与产物摘要。
-材料变化后原批准失效。模型可以提交需求、查询状态与证据，但不能批准、推进或验收。
-
-## 安装
-
-需要 DSH `0.2.1-rc.2` 或兼容版本、Node ≥ 22.5（本机验证用 Node 26）。
-
-```sh
-# 从源码目录安装到专用 profile
-dsh plugin --profile forgeloop add /path/to/ForgeLoop/packages/forgeloop
-dsh --profile forgeloop --dump-config | grep forgeloop-dsh
-
-# 或从本地候选包安装
-dsh plugin --profile forgeloop add packages/forgeloop/dist/forgeloop-dsh-<version>.tgz
-```
-
-在 profile 的 `cordis.patch.yml` 中覆盖插件行的配置（至少有 `recordsRoot`、`project`、
-`projectPath`；模型可用 `agent.provider/model` 指定，缺省用宿主默认选择）：
-
-```yaml
-- id: forgeloop
-  config:
-    recordsRoot: /path/to/project/.forgeloop
-    project: my-project
-    projectPath: /path/to/project
-    agent:
-      provider: <provider>
-      model: <model>
-```
-
-重启 DSH 后在任意会话使用 `/fl help`。记录根布局与旧版兼容：
-`<recordsRoot>/projects/<project>/records.sqlite`。
+- [状态与证据](docs/status.md)：实际检查、安装版本、历史交付和已知缺口。
+- [当前架构](docs/architecture.md)与[领域语言](CONTEXT.md)：源码使用的模块、状态与术语。
+- [插件使用说明](packages/forgeloop/README.md)：当前入口与配置。
+- [安装、升级与恢复](docs/deployment.md)：依赖要求、源码／候选安装、桌面 profile 和验证步骤。
+- [文档索引](docs/README.md)：统一方案、工程约定和保留记录的阅读入口。
 
 ## 开发与检查
 
 ```sh
 npm install --cache .cache/npm-cache
-make check                  # tsc 类型检查 + 契约 + 提交策略配置 + vitest
-make build                  # 编译 packages/forgeloop/lib
-make package                # 构建本地候选包与 artifact.json
-make verify-plugin          # 隔离 DSH_HOME 中真实装载、真实模型调用（需凭据）
+make check                  # 类型、架构契约与行为测试
+make build                  # 编译插件
+make package                # 生成候选包与 artifact.json
+make verify-plugin          # 真实宿主装载与模型调用，需要可用模型接入
 ```
 
-检查入口全部是 TypeScript；旧 Python 实现隔离在 `legacy/`，不参与构建、检查或运行。
-变异测试、依赖漏洞扫描与格式化器**尚未接入**，对应 `make` 目标会显式失败，不冒充通过。
-
-## 范围与限制
-
-- 首版只做本地专用 profile、单项目、单宿主；多租户、远程访问、邮件/IM、发布/部署不在范围。
-- 独立审查是“独立会话 + 无工具 + 固定 diff”，不是 OS/容器级隔离。
-- DSH 仍是 developer preview；升级插件前需重新验证接缝。
-- 未验证事项在状态记录中逐条标注，不用“已退役”替代“已迁移”。
+修改前阅读[开发约定与研发纪律](AGENTS.md)、[贡献规范](CONTRIBUTING.md)。
+具体门槛由 [Makefile](Makefile)、项目配置与契约维护，实际结果写入状态记录。
+旧 Python／Web／serve 代码及失效安装脚本已从工作树删除，原文从 Git 历史回查，见
+[清理记录](docs/status.md#13-冗余功能与代码清理2026-10-28)。

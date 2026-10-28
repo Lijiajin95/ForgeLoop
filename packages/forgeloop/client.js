@@ -4,8 +4,7 @@
  * 页面只读：从本插件 Host 半的认证路由 `/api/forgeloop/board` 读取状态看板，
  * 展示需求、任务与待处理问题。可展开单条需求查看分析、任务、批准、失败轮次与请求。
  *
- * 信任边界：页面不提供批准、推进、验收或停止入口。需要决定时只复制 `/fl` 命令文本，
- * 由人在会话里执行；这里没有任何写入通道。
+ * 信任边界：页面不提供批准、推进、验收或停止入口，也没有任何写入通道。
  *
  * 作为普通 dsh.client 模块加载：`factory(require)` 只注册，副作用在 apply 内由
  * ctx.effect / slot 生命周期持有；样式随组件挂载渲染并在卸载时移除。
@@ -19,8 +18,6 @@ window.__ModuleLoader__.load({
     const NS = 'forgeloop-board'
     const BOARD_PATH = '/api/forgeloop/board'
     const TERMINAL = { accepted: true, rejected: true, cancelled: true }
-    const MODE_KEY = 'forgeloop.workflow-mode'
-    const FORGE_PREFIX = '/fl submit '
 
     const zh = {
       'view.label': '天工',
@@ -29,12 +26,8 @@ window.__ModuleLoader__.load({
       'page.refresh': '刷新',
       'page.loading': '正在读取记录…',
       'page.retry': '重试',
-      'page.empty': '这个项目还没有需求记录。用 /fl submit 提交第一条需求。',
-      'page.footer': '只读视图：批准、推进与验收只从 /fl 命令进入；这里的按钮只复制命令，不执行。',
-      'mode.label': '工作流',
-      'mode.dsh': 'DSH',
-      'mode.forgeloop': 'ForgeLoop',
-      'mode.hint': 'DSH：普通消息交给 DSH 处理。ForgeLoop：消息以 /fl submit 前缀提交为需求，由 ForgeLoop 记录并推进；批准仍从 /fl 命令进入。',
+      'page.empty': '这个项目还没有需求记录。',
+      'page.footer': '只读视图：页面只展示记录，不提供批准、推进或验收入口。',
       'error.transport': '当前页面没有连接服务，无法读取看板。',
       'error.request': '读取看板失败。',
       'filter.all': '全部',
@@ -100,14 +93,6 @@ window.__ModuleLoader__.load({
       'detail.failures': '失败轮次',
       'detail.requests': '待处理请求',
       'detail.noRequests': '没有待处理请求',
-      'detail.commands': '复制命令',
-      'detail.copyShow': '/fl show {reqId}',
-      'detail.copyApprove': '/fl approve {reqId} {plan}',
-      'detail.copyAdvance': '/fl advance {reqId}',
-      'detail.copyEvidence': '/fl evidence {reqId}',
-      'detail.copied': '已复制',
-      'detail.copyFailed': '复制失败，请手动选择命令文本',
-      'detail.commandHint': '这些按钮只把命令放进剪贴板；执行请回到会话输入框。',
     }
 
     const en = {
@@ -117,12 +102,8 @@ window.__ModuleLoader__.load({
       'page.refresh': 'Refresh',
       'page.loading': 'Reading records…',
       'page.retry': 'Retry',
-      'page.empty': 'No requirements yet. Submit the first one with /fl submit.',
-      'page.footer': 'Read-only view: approve, advance and accept only through /fl. Buttons here copy commands; they never run them.',
-      'mode.label': 'Workflow',
-      'mode.dsh': 'DSH',
-      'mode.forgeloop': 'ForgeLoop',
-      'mode.hint': 'DSH: ordinary messages go to DSH. ForgeLoop: messages are prefixed with /fl submit and recorded as requirements; approval still enters through /fl.',
+      'page.empty': 'No requirements yet.',
+      'page.footer': 'Read-only view: the page only shows records and offers no approve, advance or accept entry.',
       'error.transport': 'This page has no connection service, so the board cannot be read.',
       'error.request': 'Reading the board failed.',
       'filter.all': 'All',
@@ -188,14 +169,6 @@ window.__ModuleLoader__.load({
       'detail.failures': 'Failure rounds',
       'detail.requests': 'Pending requests',
       'detail.noRequests': 'No pending requests',
-      'detail.commands': 'Copy command',
-      'detail.copyShow': '/fl show {reqId}',
-      'detail.copyApprove': '/fl approve {reqId} {plan}',
-      'detail.copyAdvance': '/fl advance {reqId}',
-      'detail.copyEvidence': '/fl evidence {reqId}',
-      'detail.copied': 'Copied',
-      'detail.copyFailed': 'Copy failed; select the command text manually',
-      'detail.commandHint': 'These buttons only copy the command; run it in the composer.',
     }
 
     const REQUIREMENT_TONES = {
@@ -236,13 +209,6 @@ window.__ModuleLoader__.load({
       return h('span', { className: 'flb-chip', 'data-tone': props.tone || 'idle' }, props.children)
     }
 
-    function copyText(text) {
-      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        return navigator.clipboard.writeText(text)
-      }
-      return Promise.reject(new Error('clipboard unavailable'))
-    }
-
     /**
      * 读取看板与需求详情：只走本插件注册的认证 Fetch 路由。
      * 宿主连接层负责 Host/Origin 检查与浏览器凭据准入；页面不直接访问记录库。
@@ -272,91 +238,6 @@ window.__ModuleLoader__.load({
         }
         return payload.value
       }
-    }
-
-    const MODE_STYLE = `
-.flb-mode{display:inline-flex;align-items:center;gap:4px;height:24px}
-.flb-mode-label{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
-.flb-mode-select{height:22px;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;padding:0 2px;cursor:pointer}
-.flb-mode-select:focus-visible{outline:1px solid var(--dsw-alias-brand-primary);outline-offset:1px}
-`
-
-    /** 纯路由：返回应当写入的草稿，null 表示不改写（便于行为测试）。 */
-    function nextDraft(mode, previousMode, draft) {
-      if (typeof draft !== 'string') return null
-      if (mode === 'forgeloop') {
-        if (draft === '') return FORGE_PREFIX
-        if (previousMode !== 'forgeloop' && !draft.startsWith('/fl')) return FORGE_PREFIX + draft
-        return null
-      }
-      if (previousMode === 'forgeloop' && draft.startsWith(FORGE_PREFIX)) {
-        return draft.slice(FORGE_PREFIX.length)
-      }
-      return null
-    }
-
-    function readWorkflowMode() {
-      try {
-        return globalThis.localStorage && globalThis.localStorage.getItem(MODE_KEY) === 'forgeloop' ? 'forgeloop' : 'dsh'
-      } catch {
-        return 'dsh'
-      }
-    }
-
-    function persistWorkflowMode(mode) {
-      try {
-        if (globalThis.localStorage) globalThis.localStorage.setItem(MODE_KEY, mode)
-      } catch {
-        // 隐私模式或存储被禁用时保持本次会话内存状态。
-      }
-    }
-
-    /**
-     * 工作流选择器：DSH 模式不做任何改写；ForgeLoop 模式把草稿保持在 `/fl submit ` 前缀下，
-     * 使回车提交的是人类命令而不是普通模型消息。前缀可被用户删掉，删掉即按 DSH 处理。
-     */
-    function WorkflowMode(props) {
-      const t = props.t
-      const inputActions = props.inputActions
-      const [mode, setMode] = React.useState(readWorkflowMode)
-      const previous = React.useRef('dsh')
-      const draft = typeof props.useInput === 'function' ? props.useInput((state) => state.draft) : ''
-
-      React.useEffect(() => {
-        persistWorkflowMode(mode)
-      }, [mode])
-
-      React.useEffect(() => {
-        const from = previous.current
-        previous.current = mode
-        if (!inputActions || typeof inputActions.setDraft !== 'function') return
-        const next = nextDraft(mode, from, draft)
-        if (next !== null) inputActions.setDraft(next)
-      }, [mode])
-
-      React.useEffect(() => {
-        if (mode !== 'forgeloop' || draft !== '') return
-        if (!inputActions || typeof inputActions.setDraft !== 'function') return
-        inputActions.setDraft(nextDraft('forgeloop', 'forgeloop', ''))
-      }, [mode, draft, inputActions])
-
-      return h(
-        'label',
-        { className: 'flb-mode', title: t('mode.hint') },
-        h('style', null, MODE_STYLE),
-        h('span', { className: 'flb-mode-label' }, t('mode.label')),
-        h(
-          'select',
-          {
-            className: 'flb-mode-select',
-            value: mode,
-            'aria-label': t('mode.label'),
-            onChange: (event) => setMode(event.target.value === 'forgeloop' ? 'forgeloop' : 'dsh'),
-          },
-          h('option', { value: 'dsh' }, t('mode.dsh')),
-          h('option', { value: 'forgeloop' }, t('mode.forgeloop')),
-        ),
-      )
     }
 
     function RequirementCard(props) {
@@ -441,9 +322,6 @@ window.__ModuleLoader__.load({
     function RequirementDetail(props) {
       const t = props.t
       const detail = props.detail
-      const reqId = props.requirement.reqId
-      const copy = props.onCopy
-      const copied = props.copied
 
       if (detail.phase === 'loading') {
         return h('div', { className: 'flb-detail' }, h('div', { className: 'flb-empty' }, t('detail.loading')))
@@ -461,8 +339,6 @@ window.__ModuleLoader__.load({
 
       const data = detail.data
       const analysis = data.analysis || null
-      const plan = Array.isArray(data.plans) && data.plans.length > 0 ? data.plans[data.plans.length - 1] : null
-      const planVersion = plan ? plan.planVersion : props.requirement.planVersion
       const tasks = props.tasks
       const runs = new Map((data.runs || []).map((run) => [run.taskId, run]))
       const approval = data.approval || null
@@ -563,36 +439,6 @@ window.__ModuleLoader__.load({
                 ),
               ),
         ),
-      )
-
-      const commands = [t('detail.copyShow', { reqId })]
-      if (planVersion != null && (!approval || approval.planVersion !== planVersion)) {
-        commands.push(t('detail.copyApprove', { reqId, plan: planVersion }))
-      }
-      if (planVersion != null && approval && approval.planVersion === planVersion) {
-        commands.push(t('detail.copyAdvance', { reqId }))
-      }
-      commands.push(t('detail.copyEvidence', { reqId }))
-
-      sections.push(
-        DetailSection(t('detail.commands'), [
-          h(
-            'div',
-            { className: 'flb-actions', key: 'actions' },
-            commands.map((command) =>
-              h(
-                'button',
-                { type: 'button', className: 'flb-action', key: command, onClick: () => copy(command) },
-                command,
-              ),
-            ),
-          ),
-          h(
-            'div',
-            { className: 'flb-detail-muted', key: 'hint' },
-            copied === 'ok' ? t('detail.copied') : copied === 'failed' ? t('detail.copyFailed') : t('detail.commandHint'),
-          ),
-        ]),
       )
 
       return h('div', { className: 'flb-detail' }, ...sections)
@@ -705,10 +551,6 @@ window.__ModuleLoader__.load({
 .flb-detail-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere}
 .flb-detail-muted{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}
 .flb-detail-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dsw-alias-label-secondary)}
-.flb-actions{display:flex;flex-wrap:wrap;gap:6px}
-.flb-action{box-sizing:border-box;height:22px;padding:0 8px;border-radius:4px;border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-brand-primary);font:inherit;font-size:11px;cursor:pointer}
-.flb-action:hover{background:var(--dsw-alias-bg-layer-1)}
-.flb-action:focus-visible{outline:1px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .flb-footer{margin-top:16px;font-size:11px;color:var(--dsw-alias-label-secondary)}
 `
 
@@ -723,10 +565,8 @@ window.__ModuleLoader__.load({
         const [filter, setFilter] = React.useState('all')
         const [openReq, setOpenReq] = React.useState('')
         const [detail, setDetail] = React.useState({ phase: 'idle', reqId: '', data: null, error: '' })
-        const [copied, setCopied] = React.useState('')
         const inflight = React.useRef(null)
         const detailInflight = React.useRef(null)
-        const copyTimer = React.useRef(null)
 
         const load = React.useCallback(() => {
           if (inflight.current) inflight.current.abort()
@@ -788,21 +628,6 @@ window.__ModuleLoader__.load({
           setFilter('all')
           setOpenReq((previous) => (previous === reqId ? '' : reqId))
         }, [])
-
-        const copy = React.useCallback((command) => {
-          copyText(command)
-            .then(() => setCopied('ok'))
-            .catch(() => setCopied('failed'))
-          if (copyTimer.current) clearTimeout(copyTimer.current)
-          copyTimer.current = setTimeout(() => setCopied(''), 2000)
-        }, [])
-
-        React.useEffect(
-          () => () => {
-            if (copyTimer.current) clearTimeout(copyTimer.current)
-          },
-          [],
-        )
 
         const board = state.board
         const requirements = board ? board.requirements : []
@@ -907,9 +732,7 @@ window.__ModuleLoader__.load({
                             ? detail
                             : { phase: 'loading', data: null, error: '' },
                         tasks: allTasks.filter((task) => task.reqId === requirement.reqId),
-                        copied,
                         onToggle: openRequirement,
-                        onCopy: copy,
                       }),
                     ),
                     t('empty.requirements'),
@@ -933,23 +756,6 @@ window.__ModuleLoader__.load({
         )
       }
 
-      function WorkflowModeView(props) {
-        return h(WorkflowMode, { ...props, t })
-      }
-
-      ctx.slots.inject('conversation.input.left', () =>
-        ctx.slots.register(
-          {
-            name: 'conversation.input.left',
-            id: 'forgeloop-mode',
-            order: 50,
-            locale: NS,
-            label: () => t('mode.label'),
-          },
-          WorkflowModeView,
-        ),
-      )
-
       ctx.slots.inject('conversation.view', () =>
         ctx.slots.register(
           {
@@ -968,7 +774,6 @@ window.__ModuleLoader__.load({
       name: 'forgeloop-board',
       inject: ['slots', 'locale'],
       apply,
-      __test: { nextDraft },
     }
   },
 })

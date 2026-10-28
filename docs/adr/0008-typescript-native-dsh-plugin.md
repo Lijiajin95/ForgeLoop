@@ -1,8 +1,12 @@
 # ADR 0008：ForgeLoop 转为 TypeScript 原生 DSH 插件
 
 - 状态：已接受（2026-10-22，所有者当日决定）
-- 取代：[ADR 0006](0006-supervised-hot-upgrade.md) 与 [ADR 0007](0007-web-operations-console.md) 所描述的“独立 serve／Web 操作台作为产品宿主”路径
-- 相关：[十小时目标](../dsh-plugin-10h-goal-prompt.md)、[DSH 平台采用评估](../library/research/2026-10-22-dsh-platform-adoption-assessment.md)、[DSH 宿主内持久工作](../library/research/2026-10-22-dsh-hosted-durable-workflows.md)
+- 取代：旧 ADR 0006 与 0007 所描述的“独立 serve／Web 操作台作为产品宿主”路径；旧文件已清理，原文从 Git 历史回查
+- 相关：[迁移交付记录](../delivery/2026-10-22-typescript-dsh.md)；十小时目标与当时调研材料保留其历史来源，不作为新的产品规划
+- 适用性：保留 2026-10-22 的决定与理由。最新方案见[产品与首版方案](../product.md)；独立子运行时、新存储和客户入口已作出后续选择，本 ADR 的相应细节不再作为新实施要求。
+- 实现核对：本文“工作区写权限”等为当时设计要求；当前宽权限及停止接线缺口见[状态记录](../status.md#41-当前实现缺口2026-10-28-整理)，不能以 ADR 接受状态证明已强制落实。
+- 后续处置：2026-10-28 按 [ADR 0009](0009-remove-retired-implementation.md) 删除 `legacy/` 工作树快照及旧安装脚本，下文保留迁移当时的决定，当前从 Git 历史回查退役源码。
+  同日按 [ADR 0010](0010-remove-command-surface-legacy-compat-and-commit-policy.md) 删除 `/fl` 命令面、旧库兼容与提交时间策略；下文所述 `ctx.commands`、CLI 契约与提交策略校验不再代表当前实现。
 
 ## 背景
 

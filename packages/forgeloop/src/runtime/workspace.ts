@@ -1,5 +1,5 @@
 /**
- * Git 工作副本：每个任务一个独立 worktree，开发改动只落在副本里。
+ * 快照工作副本：包含当前未提交进展，开发改动只落在副本里。
  * 交付候选 = 暂存后的二进制 diff（含未跟踪文件），并核对改动是否在批准的文件清单内。
  */
 
@@ -51,19 +51,6 @@ export function headCommit(projectPath: string): string {
   return requireGit(projectPath, ['rev-parse', 'HEAD'])
 }
 
-export function ensureWorktree(projectPath: string, worktreePath: string, baseline: string): void {
-  mkdirSync(dirname(worktreePath), { recursive: true })
-  // 旧副本可能残留：先按 worktree 注册信息移除，再兜底删除目录。
-  git(projectPath, ['worktree', 'remove', '--force', worktreePath])
-  rmSync(worktreePath, { recursive: true, force: true })
-  requireGit(projectPath, ['worktree', 'add', '--detach', worktreePath, baseline])
-}
-
-export function removeWorktree(projectPath: string, worktreePath: string): void {
-  git(projectPath, ['worktree', 'remove', '--force', worktreePath])
-  git(projectPath, ['worktree', 'prune'])
-}
-
 export interface SnapshotResult {
   readonly baselineCommit: string
   readonly snapshotSha256: string
@@ -94,8 +81,6 @@ export function prepareSnapshotWorkspace(input: {
   const files = listSnapshotFiles(input.projectPath)
   const digestParts: string[] = []
   for (const relative of files) {
-    // legacy/ 是明确隔离的历史快照，不进入候选开发副本，避免无谓复制与误改。
-    if (relative === 'legacy' || relative.startsWith('legacy/')) continue
     const source = join(input.projectPath, relative)
     let stat
     try {
@@ -153,18 +138,4 @@ export function captureCandidate(input: {
   mkdirSync(dirname(input.diffPath), { recursive: true })
   writeFileSync(input.diffPath, diff, 'utf8')
   return { diff, diffSha256, changedFiles: changed, violations, diffPath: input.diffPath }
-}
-
-/** 采集副本相对快照基线的新增文件（用于“无改动”判定）。 */
-export function changedSinceBaseline(worktreePath: string): string[] {
-  return requireGit(worktreePath, ['status', '--porcelain'])
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-}
-
-/** 工作副本是否相对基线有改动（用于开发步骤的“无改动”判定）。 */
-export function hasChanges(worktreePath: string): boolean {
-  const status = requireGit(worktreePath, ['status', '--porcelain'])
-  return status.length > 0
 }

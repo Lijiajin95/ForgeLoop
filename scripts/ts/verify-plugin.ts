@@ -1,22 +1,19 @@
 #!/usr/bin/env node
 /**
  * 真实 DSH 宿主装载验证：检查 profile 是否安装插件、可组合，并在真实模型下调用插件工具。
- * `--full` 还会通过 commands registry 执行只读的 `/fl status`。
  *
  * 需要：FORGELOOP_DSH_HOME（或 .cache/forgeloop/dsh-home）、FORGELOOP_PROFILE（或 forgeloop）、
  * 以及宿主可用的模型凭据（由启动环境提供，本脚本不读取或打印密钥）。
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { randomUUID } from 'node:crypto'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const DSH_HOME = resolve(process.env.FORGELOOP_DSH_HOME ?? join(ROOT, '.cache/forgeloop/dsh-home'))
 const PROFILE = process.env.FORGELOOP_PROFILE ?? 'forgeloop'
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
-const full = process.argv.includes('--full')
 const failures: string[] = []
 
 function dsh(args: string[], input?: string): { code: number; stdout: string; stderr: string } {
@@ -98,54 +95,12 @@ function checkToolLoop(): void {
   console.log(`[verify-plugin] tool-loop final=${final ? final[1]!.slice(0, 120) : '(none)'}`)
 }
 
-function checkCommands(): void {
-  const probeDir = join(ROOT, '.cache/forgeloop/verify')
-  mkdirSync(probeDir, { recursive: true })
-  const patch = join(probeDir, 'commands.patch.yml')
-  const module = join(probeDir, 'commands-probe.mjs')
-  writeFileSync(
-    module,
-    `import { randomUUID } from 'node:crypto'
-export const name = 'forgeloop-verify-commands'
-export const inject = ['commands', 'agents', 'agentLoop', 'agentDefaultModel']
-export async function apply(ctx) {
-  const selection = ctx.agentDefaultModel.currentSelection()
-  const handle = await ctx.agents.create({
-    sessionId: 'session-verify-' + randomUUID(),
-    meta: { cwd: process.cwd() },
-    agentOptions: { provider: selection.provider, model: selection.model },
-  })
-  try {
-    const execution = await ctx.commands.execute(handle.agent, '/fl status', [], new AbortController().signal)
-    console.log('VERIFY_COMMAND_RESULT', JSON.stringify(execution?.result ?? null))
-  } finally {
-    await handle.dispose()
-  }
-}
-`,
-    'utf8',
-  )
-  writeFileSync(patch, `- insert:\n    - id: forgeloop-verify-commands\n      name: ./commands-probe.mjs\n`, 'utf8')
-  const result = dsh(['--profile', PROFILE, '--patch', patch, 'Reply with OK.'])
-  const line = result.stdout.split('\n').find((candidate) => candidate.startsWith('VERIFY_COMMAND_RESULT'))
-  if (!line) {
-    failures.push(`命令注册表探针没有输出：${result.stderr.trim().slice(0, 500)}`)
-    return
-  }
-  const parsed = JSON.parse(line.slice('VERIFY_COMMAND_RESULT '.length)) as { kind?: string }
-  if (parsed.kind !== 'success') failures.push(`/fl status 返回 ${parsed.kind ?? 'unknown'} 而不是 success`)
-  console.log(`[verify-plugin] command=/fl status kind=${parsed.kind ?? 'unknown'}`)
-}
-
 checkProfile()
-if (failures.length === 0) {
-  checkToolLoop()
-  if (full) checkCommands()
-}
+if (failures.length === 0) checkToolLoop()
 
 if (failures.length > 0) {
   for (const failure of failures) console.error(`[verify-plugin] FAIL ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('[verify-plugin] OK：profile 安装、组合层、真实模型工具链与命令入口均可用')
+  console.log('[verify-plugin] OK：profile 安装、组合层与真实模型工具链可用')
 }

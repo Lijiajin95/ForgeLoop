@@ -6,8 +6,7 @@
  * - 分析结果必须是结构化对象；有待澄清项时等待回答，不进入实现。
  */
 
-import { randomBytes } from 'node:crypto'
-import { MalformedError, NotFoundError, RuleViolationError } from './errors.js'
+import { MalformedError, RuleViolationError } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
 
 export interface RequirementVersion {
@@ -26,20 +25,6 @@ export interface Requirement {
   readonly versions: readonly RequirementVersion[]
   readonly submittedBy: string
   readonly source: string
-}
-
-export function allocateRequirementId(now = new Date()): string {
-  const stamp = now
-    .toISOString()
-    .replace(/[-:TZ.]/g, '')
-    .slice(0, 14)
-  return `req-${stamp}-${randomBytes(3).toString('hex')}`
-}
-
-export function requireVersionText(text: string): string {
-  const trimmed = text.trim()
-  if (!trimmed) throw new RuleViolationError('需求原文不能为空')
-  return trimmed
 }
 
 /** 构造并校验一条需求的全部版本：版本号连续、原文非空、绑定项目。 */
@@ -63,18 +48,6 @@ export function latestVersion(requirement: Requirement): RequirementVersion {
   const version = requirement.versions[requirement.versions.length - 1]
   if (!version) throw new RuleViolationError('需求至少要有原始输入这一版本')
   return version
-}
-
-export function originalText(requirement: Requirement): string {
-  const version = requirement.versions[0]
-  if (!version) throw new RuleViolationError('需求至少要有原始输入这一版本')
-  return version.text
-}
-
-/** 未知身份明确失败（与空结果区分）。 */
-export function requireFound<T>(value: T | undefined, reqId: string): T {
-  if (value === undefined) throw new NotFoundError(`未找到需求 ${reqId}`)
-  return value
 }
 
 export interface RequirementAnalysis {

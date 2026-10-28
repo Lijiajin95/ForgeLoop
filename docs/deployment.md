@@ -1,26 +1,37 @@
 # 安装、升级与恢复（本机 DSH 插件）
 
-本文描述当前 TypeScript 原生 DSH 插件的本地安装、候选打包、V0→V1 切换与恢复。旧的 Debian
-wheel／systemd／热升级部署路径已退役，历史记录见 Git、[ADR 0006](adr/0006-supervised-hot-upgrade.md)
-与 `legacy/`。
+本文描述当前实现的操作步骤。新首版的同包验证、第三方受控发布与上线判定见[统一方案](product.md#8-客户入口发布与运维)，自动发布链路尚待实现。
+历史构建角色 V0／V1 及其操作记录见[交付记录](delivery/2026-10-22-typescript-dsh.md)，下文使用实际目标 profile 与候选包。
 
-## 1. 前置
+## 1. 选择目标与前置条件
 
-- DSH `0.2.1-rc.2`（或插件 `engines.dsh` 允许的版本）、Node ≥ 22.5；
-- 一个可用的 DSH profile（示例名 `forgeloop`）与模型路由；
-- 项目路径与记录根。记录根布局：`<recordsRoot>/projects/<project>/records.sqlite`。
+- DSH 和 Node 满足[插件包声明](../packages/forgeloop/package.json)，并有可用模型接入。
+- 明确目标 DSH home、profile、项目路径与记录根；业务库为 `<recordsRoot>/projects/<project>/records.sqlite`。
+- 安装前保留上一已验证 tarball、`artifact.json` 和配置／记录副本，记录本次目标与包摘要。
+
+| 使用场景 | 入口 | 注意事项 |
+| --- | --- | --- |
+| DSH Desktop 的 desktop profile | §4，宿主插件管理器 | 应用独占，不用 CLI 启动、转储或手动改 manifest |
+| 非桌面专用 profile | §2 或 §5，DSH CLI | 显式核对 `DSH_HOME` 与 profile，避免装到其他环境 |
+| 真实宿主验收 | §8，仓库验证脚本 | 使用测试 home；与正式模型配置分开，按实际方式提供认证 |
+
+以下 shell 命令在仓库根目录运行，路径占位符须替换为实际目标。操作成功仍需 §6 的版本和行为检查。
 
 ## 2. 从源码安装（开发用）
 
+此例仅用于非桌面 profile；将 home 和 profile 替换为已准备好的开发环境：
+
 ```sh
+export DSH_HOME="/abs/path/to/development-dsh-home"
+export FORGELOOP_PROFILE="forgeloop"
 npm install --cache .cache/npm-cache
 npm run build --workspace forgeloop-dsh
-dsh plugin --profile forgeloop add "$PWD/packages/forgeloop"
-dsh --profile forgeloop --dump-config | grep forgeloop-dsh
+dsh plugin --profile "$FORGELOOP_PROFILE" add "$PWD/packages/forgeloop"
+dsh --profile "$FORGELOOP_PROFILE" --dump-config | grep forgeloop-dsh
 ```
 
-源码安装是 `link:` 依赖：修改源码并重新构建后，重启宿主即可生效。它适合开发，**不能**用来
-声称“验证了安装包”。
+源码安装为 `link:` 依赖，重新构建并重启该宿主后加载。它用于开发，不算安装包验证。
+插件的项目与模型路由配置见[包说明](../packages/forgeloop/README.md)。
 
 ## 3. 构建候选安装包
 
@@ -28,96 +39,74 @@ dsh --profile forgeloop --dump-config | grep forgeloop-dsh
 npm run candidate --workspace forgeloop-dsh
 ```
 
-输出 `packages/forgeloop/dist/forgeloop-dsh-<version>.tgz` 与 `artifact.json`（版本、大小、
-SHA-256、文件清单、构建时的 git HEAD 与工作树状态）。通过插件内的正式流程构建时使用：
+输出 `packages/forgeloop/dist/forgeloop-dsh-<version>.tgz` 与 `artifact.json`，保存版本、大小、
+SHA-256、文件清单、构建时 Git HEAD 与工作树状态。运行时也保留按已交付 diff 在独立快照构建、
+打包并记录摘要的内部操作，但当前没有人类入口调用它。构建完成不等于已经安装或验收。
+
+## 4. 安装到桌面 profile
+
+通过 DSH 宿主插件管理器的 `install_bundle` 安装目标 tarball。最近安装记录与摘要见[状态记录 §9](status.md#9-移除输入框工作流选择器2026-10-26)。
+当批结果为 `application: applied`，宿主重载后刷新页面生效；不能据此假设每次安装都不需重启。
+按管理器结果完成必要的重载／重启，再执行 §6；安装回执本身不证明业务行为正常。
+
+## 5. 安装候选包到非桌面 profile
+
+在独立终端明确目标，避免沿用上一操作的测试或开发 home：
+
+```sh
+export DSH_HOME="/abs/path/to/target-dsh-home"
+export FORGELOOP_PROFILE="forgeloop"
+dsh plugin --profile "$FORGELOOP_PROFILE" add /abs/path/to/candidate.tgz
+dsh --profile "$FORGELOOP_PROFILE" --dump-config | grep forgeloop-dsh
+ls -ld "$DSH_HOME/profiles/$FORGELOOP_PROFILE/node_modules/forgeloop-dsh"
+```
+
+确认候选安装为目录而非 `link:`，按宿主要求重载／重启，再执行 §6。
+不要以安装目录名或 package 版本字符串单独证明运行的是目标候选。
+
+## 6. 安装后检查
+
+通过 DSH 工具卡片调用只读工具：
 
 ```text
-/fl candidate <需求身份> <x.y.z>
+forgeloop_status
+forgeloop_evidence <已有需求身份>
+forgeloop_impact <需求身份>
 ```
 
-它只应用已交付并绑定的 diff，在独立快照中构建、打包并核对 tarball 摘要。
+核对安装依据、工具与页面关键入口、本次改动的业务行为及必要历史读取；配置从宿主日志和
+profile 配置核对。安装不删除业务库和证据；新方案丢弃旧业务数据是独立的清理事项，
+不能顺带删除 DSH 配置、凭据或其他项目。
+安装目标、测试环境、实际结果和未验证项分别记录，不把测试 home 成功当作正式目标已验证。
 
-## 4. 安装到桌面 profile（Electron 独占）
+## 7. 恢复上一已验证版本
 
-DSH CLI 拒绝修改 `desktop` profile（`profile "desktop" is managed exclusively by the Electron
-application`）。本机的做法（2026-10-23 已执行）：
+1. 先保存当前状态与异常依据，确定上一已验证包及摘要，并检查当前数据能否由它读取。
+2. 桌面 profile 使用 §4 的宿主入口；非桌面 profile 使用 §5 的 CLI 入口，指定旧 tarball。
+3. 完成必要重载／重启，按 §6 检查旧版本行为、业务记录及故障是否恢复。
+4. 保留记录与失败历史；未知请求和未收口动作先核对，不盲目重放。
+
+若数据不兼容，不能仅靠重装旧包宣称恢复，也不能默认整库覆盖丢掉升级后的新数据。另行明确处置方案。
+
+## 8. 真实宿主验收环境
+
+[验证脚本](../scripts/ts/verify-plugin.ts)读取 `FORGELOOP_DSH_HOME` 和 `FORGELOOP_PROFILE`，默认分别为
+`.cache/forgeloop/dsh-home` 与 `forgeloop`；只设置普通 `DSH_HOME` 不会覆盖脚本选择。
 
 ```sh
-# 1. 备份
-cp ~/.dsh/profiles/desktop/package.json        .cache/forgeloop/desktop-install/package.json.bak
-cp ~/.dsh/profiles/desktop/cordis.patch.yml    .cache/forgeloop/desktop-install/cordis.patch.yml.bak
-
-# 2. 安装包（在 profile 目录内用 pnpm，不经过 dsh plugin 的独占检查）
-cd ~/.dsh/profiles/desktop
-pnpm add "file:/abs/path/<tarball>"
-
-# 3. 在 package.json 的 dsh.profile.bundles 追加 "forgeloop-dsh"
-# 4. 在 cordis.patch.yml 覆盖 forgeloop 行的 recordsRoot/projectPath 等配置
-# 5. 重启 DSH Desktop 才会加载
+export FORGELOOP_DSH_HOME="$PWD/.cache/forgeloop/dsh-home"
+export FORGELOOP_PROFILE="forgeloop"
+make verify-plugin
 ```
 
-验证组合层不要直接 `--dump-config desktop`（同样被独占检查拒绝）。可复制 manifest 到临时
-profile（`node_modules` 软链到 desktop）后 `dsh --profile <copy> --dump-config | grep forgeloop-dsh`，
-本机已用此法验证。
-
-## 5. 安装候选包（V1，非桌面 profile）
-
-```sh
-dsh plugin --profile forgeloop add /abs/path/forgeloop-dsh-<version>.tgz
-# 必要时重启 DSH 宿主，使新包生效
-```
-
-安装后确认：
-
-```sh
-dsh --profile forgeloop --dump-config | grep forgeloop-dsh
-ls -la "$DSH_HOME/profiles/forgeloop/node_modules/forgeloop-dsh"   # 应是安装目录，不是 link
-```
-
-`make verify-plugin` 会检查 profile 清单、安装形态、组合层，并用真实模型调用插件工具；
-`make verify-plugin` 加 `--full`（或 `make test-host`）还会通过真实 `commands` 注册表执行
-只读的 `/fl status`。需要宿主可用模型凭据；脚本不读取或打印密钥。
-
-## 6. 验证新版本与历史
-
-```text
-/fl config
-/fl status
-/fl status <旧需求身份>
-/fl evidence <旧需求身份>
-/fl impact <需求身份>          # V1 起提供
-```
-
-- 记录库与证据目录不随插件版本删除；旧需求应仍可按身份查询。
-- 候选包摘要、安装版本与运行版本应一致；不一致时如实记录，不声称升级成功。
-
-## 7. 恢复 V0
-
-1. 保留每版 tarball 与 `artifact.json`（示例：`.cache/forgeloop/artifacts/v0/`）。
-2. 重新安装旧包：
-
-   ```sh
-   dsh plugin --profile forgeloop add /abs/path/<tarball>
-   ```
-
-3. 重启宿主，运行 `/fl config` 与 `/fl status` 确认版本与记录可读。
-4. 恢复不得删除记录、证据或候选包；未知请求与未收口动作按记录核对，不自动重放。
-
-## 8. 隔离验证环境
-
-本机验证使用工作区内的 `DSH_HOME`，避免触碰桌面 profile：
-
-```sh
-export DSH_HOME="$PWD/.cache/forgeloop/dsh-home"
-export FORGELOOP_PROFILE=forgeloop
-```
-
-该目录位于 `.cache/`（不入库），包含专用 profile 与模型路由补丁。真实用户使用时把同样的
-插件安装到自己的 profile 即可。
+前提是该测试 home 中已准备 profile、安装包与可用模型认证；新 home 不自动继承正式配置。
+需要手动调用同一测试实例时，用 `DSH_HOME="$FORGELOOP_DSH_HOME" dsh --profile "$FORGELOOP_PROFILE" ...`。
+`make verify-plugin` 检查安装形态、组合层并真实调用模型工具。
+这些检查覆盖宿主接缝，不能代替统一方案要求的完整业务端到端验证。
 
 ## 9. 已知限制
 
-- DSH developer preview：升级宿主后重新跑 `make verify-plugin`，不能假设跨版本兼容。
-- 安装/卸载不是事务：tarball 损坏或宿主中断时按 §6 恢复，不伪造成功。
-- 插件禁用/卸载会停止协调器并取消在途 Agent；已受理但未收口的请求保持 `unknown`，需人工核对。
-- 无 Python、无独立 HTTP 服务；旧 `forgeloop` CLI 不再是安装或恢复入口。
+- DSH 接缝与版本兼容需实际验证；当前已有证据见[状态记录](status.md)。
+- 安装／卸载不是业务事务，异常后按实际副作用核对并恢复。
+- 插件卸载会停止协调器并请求取消在途 Agent；重启后未收口请求需核对，不能把卸载成功等同于副作用已清理。
+- 旧 Python、独立 HTTP 服务及旧 `forgeloop` CLI 不参与当前安装与恢复。

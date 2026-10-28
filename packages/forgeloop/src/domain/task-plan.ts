@@ -303,8 +303,3 @@ export function ancestorTaskIds(plan: TaskPlan, taskId: string): string[] {
   visit(target.taskId)
   return executionOrder(plan).filter((id) => seen.has(id))
 }
-
-/** 顶层任务（无依赖）。 */
-export function rootTaskIds(plan: TaskPlan): string[] {
-  return plan.tasks.filter((task) => task.dependsOn.length === 0).map((task) => task.taskId)
-}

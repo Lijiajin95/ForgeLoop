@@ -42,7 +42,7 @@ ${requirementContext(requirement)}
 分析结论目标：${analysisGoal}
 
 已知工程事实（以此为准，不要臆造目录）：
-- 插件活动源码在 packages/forgeloop/src/（入口 src/index.ts，运行时 src/runtime/service.ts，命令 src/commands.ts，工具 src/tools.ts，记录 src/records/，领域 src/domain/）
+- 插件活动源码在 packages/forgeloop/src/（入口 src/index.ts，运行时 src/runtime/service.ts，工具 src/tools.ts，记录 src/records/，领域 src/domain/）
 - 行为测试在 packages/forgeloop/tests/（vitest）
 - 正式检查命令：["npm","run","check","--workspace","forgeloop-dsh"]
 - 仓库根目录另有 docs/、contracts/、config/、Makefile 与根 package.json
@@ -112,7 +112,7 @@ export function reviewPrompt(input: {
   changedFiles: readonly string[]
   diffPath: string
 }): string {
-  const { requirement, plan, task, diff, changedFiles, diffPath } = input
+  const { requirement, task, diff, changedFiles, diffPath } = input
   return `你是 ForgeLoop 的独立审查者。你只看到固定的候选改动，没有实现者的上下文。
 你没有可用工具：不要调用工具，也不得修改任何文件；你的结论由程序解析并绑定候选摘要。
 

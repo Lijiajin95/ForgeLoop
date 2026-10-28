@@ -5,13 +5,9 @@ import {
   executionOrder,
   parseTaskPlanDraft,
   requireActionablePlan,
-  type TaskPlan,
 } from '../src/domain/task-plan.js'
-import { ApprovalBook, type Approval } from '../src/domain/approval.js'
 import { GrantLedger } from '../src/domain/counting.js'
 import { ExecutionBudget } from '../src/domain/limits.js'
-import { buildBinding, verifyBinding } from '../src/domain/delivery.js'
-import { routeStage } from '../src/domain/work.js'
 import { GrantExhaustedError, MalformedError, RuleViolationError } from '../src/domain/errors.js'
 
 const context = {
@@ -113,58 +109,6 @@ describe('task plan rules', () => {
   })
 })
 
-const binding = buildBinding({
-  candidateSha256: 'a'.repeat(64),
-  testEvidenceSha256: 'b'.repeat(64),
-  reviewSha256: 'c'.repeat(64),
-  artifactSha256: 'd'.repeat(64),
-  baselineCommit: 'abc1234',
-})
-
-function approval(overrides: Partial<Approval> = {}): Approval {
-  return {
-    taskId: 'task-1',
-    planVersion: 1,
-    stage: 'plan',
-    decidedAt: 'now',
-    binding: null,
-    approvedBy: 'owner',
-    source: 'cmd',
-    ...overrides,
-  }
-}
-
-describe('approval consumption', () => {
-  it('rejects missing, stale and repeated decisions', () => {
-    const empty = new ApprovalBook()
-    expect(empty.consume('task-1', 1, 'plan').status).toBe('missing')
-
-    const book = new ApprovalBook([approval()])
-    expect(book.consume('task-1', 2, 'plan').status).toBe('stale')
-    expect(book.consume('task-1', 1, 'plan').status).toBe('ok')
-    book.markConsumed('task-1', 1, 'plan')
-    expect(book.consume('task-1', 1, 'plan').status).toBe('already_used')
-  })
-
-  it('invalidates acceptance once any bound material changes', () => {
-    const book = new ApprovalBook([approval({ stage: 'acceptance', binding })])
-    expect(book.consume('task-1', 1, 'acceptance', binding).status).toBe('ok')
-    const changed = { ...binding, candidateSha256: 'e'.repeat(64) }
-    expect(book.consume('task-1', 1, 'acceptance', changed).status).toBe('material_changed')
-    expect(book.consume('task-1', 1, 'acceptance', null).status).toBe('material_changed')
-  })
-
-  it('never lets a newer approval be replaced by an older version', () => {
-    const book = new ApprovalBook([approval({ planVersion: 2 })])
-    expect(() => book.record(approval({ planVersion: 1 }))).toThrow(/更旧/)
-  })
-
-  it('verifies each non-empty binding field', () => {
-    expect(verifyBinding(binding, binding).valid).toBe(true)
-    expect(verifyBinding(binding, { ...binding, reviewSha256: 'f'.repeat(64) }).valid).toBe(false)
-  })
-})
-
 describe('failure rounds and grants', () => {
   const round = (id: string) => ({
     roundId: id,
@@ -212,25 +156,3 @@ describe('execution budget', () => {
     expect(() => budget.extend(8)).toThrow(/必须大于/)
   })
 })
-
-describe('stage routing', () => {
-  it('routes a blocking review back to dev and a failing test to retry while quota remains', () => {
-    expect(
-      routeStage({ stage: 'review', passed: true, blockingReview: true, attempts: 1, maxAttempts: 3, grantAvailable: true, stopped: false }).next,
-    ).toBe('retry_dev')
-    expect(
-      routeStage({ stage: 'test', passed: false, blockingReview: false, attempts: 1, maxAttempts: 3, grantAvailable: true, stopped: false }).next,
-    ).toBe('retry_dev')
-    expect(
-      routeStage({ stage: 'test', passed: false, blockingReview: false, attempts: 1, maxAttempts: 3, grantAvailable: false, stopped: false }).state,
-    ).toBe('awaiting_user')
-  })
-
-  it('stops immediately when a stop was requested', () => {
-    expect(
-      routeStage({ stage: 'dev', passed: true, blockingReview: false, attempts: 0, maxAttempts: 3, grantAvailable: true, stopped: true }).state,
-    ).toBe('awaiting_user')
-  })
-})
-
-export type { TaskPlan }

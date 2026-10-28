@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 架构与 CLI 契约校验（TypeScript）：检查模块清单、依赖方向、持久化表、
- * 人类命令/模型工具与契约文件是否一致，并确认活动代码不再引用 Python。
+ * 架构契约校验（TypeScript）：检查模块清单、依赖方向、持久化表、
+ * 模型工具与契约文件是否一致，并确认活动代码不再引用 Python。
  *
- * 用法：node scripts/ts/contracts.ts [--architecture|--cli]
+ * 用法：node scripts/ts/contracts.ts [--update-architecture]
  */
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
@@ -90,16 +90,6 @@ function checkArchitecture(): void {
     fail(`持久化表漂移：契约 ${expected.join(',')}；实现 ${actual.join(',')}`)
   }
 
-  const commandsSource = readFileSync(join(ROOT, 'packages/forgeloop/src/commands.ts'), 'utf8')
-  const subcommands = [...commandsSource.matchAll(/case '([a-z-]+)':/g)].map((match) => match[1]!)
-  const expectedSubs = contract.human_surface.subcommands as string[]
-  for (const sub of expectedSubs) {
-    if (!subcommands.includes(sub)) fail(`契约声明了子命令 ${sub}，commands.ts 未实现`)
-  }
-  for (const sub of new Set(subcommands)) {
-    if (!expectedSubs.includes(sub)) fail(`commands.ts 实现了未登记的子命令 ${sub}`)
-  }
-
   const toolsSource = readFileSync(join(ROOT, 'packages/forgeloop/src/tools.ts'), 'utf8')
   const tools = [...toolsSource.matchAll(/name: '(forgeloop_\w+)'/g)].map((match) => match[1]!)
   const expectedTools = contract.model_surface.tools as string[]
@@ -114,8 +104,8 @@ function checkArchitecture(): void {
 
   checkUiSurface()
 
-  if (existsSync(join(ROOT, 'src/forgeloop')) && !existsSync(join(ROOT, 'legacy'))) {
-    fail('旧 Python 实现仍在 src/forgeloop 且没有 legacy/ 隔离快照')
+  for (const path of contract.retired.source_paths as string[]) {
+    if (existsSync(join(ROOT, path))) fail(`已退役路径不得重新进入工作树：${path}`)
   }
 }
 
@@ -149,8 +139,6 @@ function checkUiSurface(): void {
     ['视图身份', `id: '${ui.view_id}'`],
     ['排序', `order: ${ui.order}`],
     ['数据路径', `BOARD_PATH = '${ui.data_path}'`],
-    ['工作流槽位', `name: '${ui.composer_slot}'`],
-    ['工作流控件', `id: '${ui.composer_id}'`],
   ]
   for (const [label, needle] of expected) {
     if (!client.includes(needle)) fail(`client.js 与 ui_surface 不一致：缺少${label} ${needle}`)
@@ -191,26 +179,6 @@ function checkUiSurface(): void {
   }
 }
 
-function checkCli(): void {
-  const contract = readJson('contracts/cli-contract.json')
-  if (contract.schema_version !== 2) fail('cli-contract.json schema_version 必须是 2')
-  const architecture = readJson('contracts/architecture.json')
-  const declared = (contract.command.subcommands as Array<{ name: string }>).map((item) => item.name)
-  const architectureSubs = architecture.human_surface.subcommands as string[]
-  if (JSON.stringify([...declared].sort()) !== JSON.stringify([...architectureSubs].sort())) {
-    fail('cli-contract 与 architecture-contract 的子命令清单不一致')
-  }
-  const tools = (contract.tools as Array<{ name: string }>).map((item) => item.name)
-  if (JSON.stringify([...tools].sort()) !== JSON.stringify([...(architecture.model_surface.tools as string[])].sort())) {
-    fail('cli-contract 与 architecture-contract 的工具清单不一致')
-  }
-  for (const name of contract.decision_trust ? Object.keys(contract.decision_trust) : []) {
-    if (name === 'note') continue
-    if (!declared.includes(name)) fail(`决定信任表引用了未声明的子命令 ${name}`)
-    if (tools.includes(`forgeloop_${name}`)) fail(`决定 ${name} 不得作为模型工具暴露`)
-  }
-}
-
 function checkNoPython(): void {
   const files = [
     ...filesUnder('packages/forgeloop/src'),
@@ -223,11 +191,6 @@ function checkNoPython(): void {
     const text = readFileSync(join(ROOT, file), 'utf8')
     if (pattern.test(text)) fail(`活动文件仍引用 Python/旧虚拟环境：${file}`)
   }
-}
-
-function generatedSubcommands(): string[] {
-  const source = readFileSync(join(ROOT, 'packages/forgeloop/src/commands.ts'), 'utf8')
-  return [...new Set([...source.matchAll(/case '([a-z-]+)':/g)].map((match) => match[1]!))]
 }
 
 function generatedTools(): string[] {
@@ -245,30 +208,9 @@ function updateArchitecture(): void {
   const contract = JSON.parse(readFileSync(path, 'utf8'))
   contract.modules = filesUnder('packages/forgeloop/src').sort()
   contract.persistence.tables = generatedTables()
-  contract.human_surface.subcommands = generatedSubcommands()
   contract.model_surface.tools = generatedTools()
   writeFileSync(path, `${JSON.stringify(contract, null, 2)}\n`, 'utf8')
   console.log('[contracts] 已从实现更新 architecture.json')
-}
-
-function updateCli(): void {
-  const path = join(ROOT, 'contracts/cli-contract.json')
-  const contract = JSON.parse(readFileSync(path, 'utf8'))
-  const existing = new Map(
-    (contract.command.subcommands as Array<{ name: string; effect: string; arguments: string[] }>).map(
-      (item) => [item.name, item],
-    ),
-  )
-  contract.command.subcommands = generatedSubcommands().map(
-    (name) => existing.get(name) ?? { name, effect: 'read', arguments: [] },
-  )
-  contract.tools = generatedTools().map((name) => ({
-    name,
-    effect: name === 'forgeloop_submit_requirement' ? 'write-intake' : 'read',
-    trust: 'model',
-  }))
-  writeFileSync(path, `${JSON.stringify(contract, null, 2)}\n`, 'utf8')
-  console.log('[contracts] 已从实现更新 cli-contract.json')
 }
 
 const args = new Set(process.argv.slice(2))
@@ -277,20 +219,12 @@ try {
     updateArchitecture()
     process.exit(0)
   }
-  if (args.has('--update-cli')) {
-    updateCli()
-    process.exit(0)
-  }
 } catch (error) {
   console.error(`[contracts] 生成失败：${(error as Error).message}`)
   process.exit(1)
 }
-if (args.has('--update-architecture') || args.has('--update-cli')) {
-  process.exit(0)
-}
 try {
-  if (!args.has('--cli')) checkArchitecture()
-  if (!args.has('--architecture')) checkCli()
+  checkArchitecture()
   checkNoPython()
 } catch (error) {
   fail(`契约校验异常：${(error as Error).message}`)
@@ -300,5 +234,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`[contracts] FAIL ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('[contracts] OK：模块、依赖方向、表、命令/工具与文档一致；活动代码未引用 Python')
+  console.log('[contracts] OK：模块、依赖方向、表、工具与文档一致；活动代码未引用 Python')
 }

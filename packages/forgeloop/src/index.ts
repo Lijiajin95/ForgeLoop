@@ -1,10 +1,10 @@
 /**
  * forgeloop-dsh 插件入口：装载 TypeScript 业务运行时、持久工作协调器、
- * 人类命令、模型工具与只读 Web 看板通道。运行期不依赖 Python 解释器或独立 HTTP 服务。
+ * 模型工具与只读 Web 看板通道。运行期不依赖 Python 解释器或独立 HTTP 服务。
+ * 当前没有人类 slash 命令表面；新方案的客户决定入口尚未实现。
  */
 
 import { resolveConfig, type RawConfig } from './config.js'
-import { CommandSurface, registerCommands } from './commands.js'
 import { buildTools, registerTools } from './tools.js'
 import { Coordinator } from './runtime/coordinator.js'
 import { ForgeLoopRuntime } from './runtime/service.js'
@@ -98,10 +98,10 @@ function registerBoardRoute(ctx: AnyRecord, runtime: ForgeLoopRuntime): void {
 }
 
 /**
- * 必需的宿主服务：Agent 工厂（agent-loop）、命令与工具注册表。
+ * 必需的宿主服务：Agent 工厂（agent-loop）与工具注册表。
  * 默认模型/权限预设/子进程按可选方式读取，缺失时仍能加载并明确报错。
  */
-export const inject = ['agents', 'agentLoop', 'commands', 'tools']
+export const inject = ['agents', 'agentLoop', 'tools']
 
 export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
   const config = resolveConfig(rawConfig)
@@ -111,18 +111,13 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
     pollSeconds: config.pollSeconds,
     autoAdvance: config.autoAdvance,
   })
-  const surface = new CommandSurface(runtime, coordinator, config)
-  const commands = ctx.commands as { register(definition: unknown): () => void }
   const tools = ctx.tools as { register(definition: unknown): () => void }
-  const disposers = [
-    ...registerCommands(commands, surface),
-    ...registerTools(tools, buildTools(runtime, config)),
-  ]
+  const disposers = registerTools(tools, buildTools(runtime, config))
 
   const effect = ctx.effect as (callback: () => unknown) => unknown
   effect(() => {
     coordinator.start()
-    // Web 看板路由可选：无浏览器连接的 profile（headless）保持只有命令与工具。
+    // Web 看板路由可选：无浏览器连接的 profile（headless）保持只有工具。
     registerBoardRoute(ctx, runtime)
     const summary = runtime.directorySummary() as AnyRecord
     // 启动信息只写宿主日志，不作为业务状态或验收证据。

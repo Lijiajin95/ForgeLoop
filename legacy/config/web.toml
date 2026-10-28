@@ -1,9 +1,0 @@
-# 状态页（B01）配置：刷新间隔。
-#
-# refresh_seconds 是页面自动拉取 /api/progress 的间隔秒数，缺失时用内建默认
-# 60 秒（每 1 分钟刷新一次）；0 表示关闭自动刷新，页面只保留手动刷新。
-# 命令行 `forgeloop web --refresh-seconds N` 覆盖本文件；非法值启动即失败。
-# 修改本文件只影响下一次启动的页面，不影响任何业务记录。
-
-schema_version = 1
-refresh_seconds = 60

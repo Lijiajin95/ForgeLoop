@@ -37,7 +37,6 @@ function fakeHost(options: { withFetch?: boolean } = {}) {
   const ctx = {
     agents: {},
     agentLoop: {},
-    commands: { register: () => () => {} },
     tools: { register: () => () => {} },
     effect(callback: () => unknown) {
       cleanup = callback() as () => unknown

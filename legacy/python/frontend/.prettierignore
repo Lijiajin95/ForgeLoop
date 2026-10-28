@@ -1,7 +1,0 @@
-node_modules/
-coverage/
-playwright-report/
-test-results/
-.stryker-tmp/
-reports/
-package-lock.json

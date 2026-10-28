@@ -13,9 +13,6 @@ interface Registered {
     name?: string
     inject: string[]
     apply: (ctx: unknown) => void
-    __test?: {
-      nextDraft: (mode: string, previousMode: string, draft: string) => string | null
-    }
   }
 }
 
@@ -107,24 +104,10 @@ describe('client conversation view', () => {
     expect(typeof view!.component).toBe('function')
   })
 
-  it('registers the workflow selector in the composer tool row', () => {
+  it('does not register a workflow selector in the composer tool row', () => {
     const control = registrations.find((entry) => entry.name === 'conversation.input.left')
-    expect(control).toBeDefined()
-    expect(control!.id).toBe('forgeloop-mode')
-    expect(control!.order).toBe(50)
-    expect(control!.label()).toBe('工作流')
-    expect(typeof control!.component).toBe('function')
-  })
-
-  it('routes composer drafts between DSH and ForgeLoop without clobbering typed commands', () => {
-    const nextDraft = registered.exports.__test!.nextDraft
-    expect(nextDraft('dsh', 'dsh', '')).toBeNull()
-    expect(nextDraft('forgeloop', 'dsh', '')).toBe('/fl submit ')
-    expect(nextDraft('forgeloop', 'dsh', '给看板加过滤')).toBe('/fl submit 给看板加过滤')
-    expect(nextDraft('forgeloop', 'forgeloop', '继续输入')).toBeNull()
-    expect(nextDraft('forgeloop', 'dsh', '/fl status')).toBeNull()
-    expect(nextDraft('dsh', 'forgeloop', '/fl submit 给看板加过滤')).toBe('给看板加过滤')
-    expect(nextDraft('dsh', 'forgeloop', '/fl status')).toBeNull()
+    expect(control).toBeUndefined()
+    expect(registrations.map((entry) => entry.id)).not.toContain('forgeloop-mode')
   })
 
   it('ships both locales for every visible label', () => {

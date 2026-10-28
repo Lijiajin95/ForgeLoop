@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  allocateRequirementId,
   parseAnalysisDraft,
-  requireFound,
   statusForAnalysis,
   validateRequirement,
 } from '../src/domain/requirement.js'
 import type { RequirementVersion } from '../src/domain/requirement.js'
-import { MalformedError, NotFoundError, RuleViolationError } from '../src/domain/errors.js'
+import { MalformedError, RuleViolationError } from '../src/domain/errors.js'
 
 function version(n: number, text = `v${n}`): RequirementVersion {
   return {
@@ -20,12 +18,6 @@ function version(n: number, text = `v${n}`): RequirementVersion {
 }
 
 describe('requirement identity and versions', () => {
-  it('allocates distinct ids with the stable req- prefix', () => {
-    const ids = new Set(Array.from({ length: 20 }, () => allocateRequirementId()))
-    expect(ids.size).toBe(20)
-    for (const id of ids) expect(id).toMatch(/^req-\d{14}-[0-9a-f]{6}$/)
-  })
-
   it('accepts contiguous versions starting at 1', () => {
     expect(() =>
       validateRequirement({ reqId: 'req-1', project: 'p', versions: [version(1), version(2)] }),
@@ -48,11 +40,6 @@ describe('requirement identity and versions', () => {
     expect(() =>
       validateRequirement({ reqId: 'req-1', project: '', versions: [version(1)] }),
     ).toThrow(/项目/)
-  })
-
-  it('fails explicitly for an unknown id instead of returning empty', () => {
-    expect(() => requireFound(undefined, 'req-x')).toThrow(NotFoundError)
-    expect(requireFound('value', 'req-x')).toBe('value')
   })
 })
 

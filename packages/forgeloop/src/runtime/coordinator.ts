@@ -11,7 +11,6 @@
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './service.js'
-import { ACTION_ANALYZE, ACTION_PLAN, ACTION_ADVANCE } from '../domain/status.js'
 import { projectDir } from '../config.js'
 import { acquireHostLock, type HostLock } from './lock.js'
 
@@ -205,5 +204,3 @@ export class Coordinator {
       }))
   }
 }
-
-export const COORDINATOR_ACTIONS = [ACTION_ANALYZE, ACTION_PLAN, ACTION_ADVANCE] as const
