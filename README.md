@@ -1,35 +1,88 @@
 # ForgeLoop
 
-ForgeLoop 面向需要软件但不懂研发的人，在客户确定的业务目标和授权边界内，通过多 Agent
-完成软件建设、持续迭代与线上运维，提供全链路审计，并将例外决策交给客户。
+English | [简体中文](README.zh-CN.md)
 
-[产品与首版方案](docs/product.md)统一保存最新产品目标、需求、技术、验证规则和待决项。
-首版从零建设自身进行 DogFood：先建立种子，再验证自主闭环，最后分别验收研发与运维的人工介入率。
-已确定使用 DSH 插件、当前 macOS 开发机和独立 DSH 子运行时；这些方案尚不等于当前能力。
+**Multi-agent software development and operations, built on [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness).**
 
-## 当前实现
+ForgeLoop aims to help people who need software but do not work in software engineering turn business goals into running applications. Customers define the goals and authorization boundaries; agents handle routine engineering and bring exceptions back for a human decision. Requirements, changes, verification results, and delivery evidence remain traceable throughout the process.
 
-当前是 TypeScript 原生 DSH 插件，DSH 为唯一常驻宿主；运行时有需求、任务包、代码实施、
-独立审查、正式测试和候选包记录。2026-10-28 已删除 `/fl` 命令表面与旧业务库兼容，
-模型工具只读查询与受理需求，页面仍为只读看板；新方案的客户决定入口尚未实现。
+> **Early development.** ForgeLoop has a native TypeScript plugin foundation. The complete autonomous development, deployment, and operations workflow is still being built and validated. Product goals are not claims of completed capability.
 
-- [状态与证据](docs/status.md)：实际检查、安装版本、历史交付和已知缺口。
-- [当前架构](docs/architecture.md)与[领域语言](CONTEXT.md)：源码使用的模块、状态与术语。
-- [插件使用说明](packages/forgeloop/README.md)：当前入口与配置。
-- [安装、升级与恢复](docs/deployment.md)：依赖要求、源码／候选安装、桌面 profile 和验证步骤。
-- [文档索引](docs/README.md)：统一方案、工程约定和保留记录的阅读入口。
+## What ForgeLoop is building
 
-## 开发与检查
+- **A path from requirements to running software.** Coordinate analysis, technical planning, implementation, independent verification, release, and checks in the running environment.
+- **Clear customer decisions.** Escalate conflicting goals, changes to authorization boundaries, major architecture changes, and other defined exceptions with evidence and understandable options.
+- **Delivery you can inspect.** Connect each requirement to its tasks, candidate changes, test results, review findings, and release artifacts.
+- **Continuous improvement.** Turn authorized operational feedback into recovery work and follow-up development requirements.
 
-```sh
-npm install --cache .cache/npm-cache
-make check                  # 类型、架构契约与行为测试
-make build                  # 编译插件
-make package                # 生成候选包与 artifact.json
-make verify-plugin          # 真实宿主装载与模型调用，需要可用模型接入
+The intended workflow is:
+
+```text
+Requirements → Analysis & planning → Implementation → Independent verification
+             → Business acceptance → Deployment → Checks in the running environment
 ```
 
-修改前阅读[开发约定与研发纪律](AGENTS.md)、[贡献规范](CONTRIBUTING.md)。
-具体门槛由 [Makefile](Makefile)、项目配置与契约维护，实际结果写入状态记录。
-旧 Python／Web／serve 代码及失效安装脚本已从工作树删除，原文从 Git 历史回查，见
-[清理记录](docs/status.md#13-冗余功能与代码清理2026-10-28)。
+The first use case is ForgeLoop itself: build a usable seed, use it for real improvements, and measure how much external help each iteration requires. Development and operations are assessed separately; the long-term target is less than 10% human intervention in each, not a result already achieved.
+
+## Built for DeepSeek Harness
+
+DSH is the only persistent host. It provides sessions, model access, tools, UI integration, and process lifecycle services. ForgeLoop adds the software delivery workflow and its business records.
+
+| Layer | Responsibility |
+| --- | --- |
+| DSH host | Sessions, models, tools, permissions, and plugin UI integration |
+| ForgeLoop domain | Requirements, task plans, authorization, failure accounting, and delivery rules |
+| ForgeLoop runtime | Durable coordination, Agent execution, workspaces, review, and formal test execution |
+| Records and evidence | SQLite business records; files for diffs, logs, reports, and candidate artifacts |
+
+The active implementation lives in [`packages/forgeloop`](packages/forgeloop). It uses TypeScript and Node's built-in SQLite support. ForgeLoop does not require a separate persistent backend.
+
+The target design defines three roles: **Requirements Agent**, **Development Agent**, and **Verification Agent**. Independent child runtimes and enforceable role boundaries are part of that design; current in-process Agent sessions do not establish those boundaries. See the [architecture](docs/architecture.md) and [product plan](docs/product.md) for the distinction.
+
+## Current foundation and priorities
+
+The repository includes versioned requirements and task plans, snapshot workspaces, candidate diffs, independent diff review, formal test execution, durable requests, and evidence records. DSH tools and a web board expose project information.
+
+Some workflow operations remain internal, and availability depends on the revision being used. A successful tool call, test run, or package installation does not by itself prove complete delivery. The [status record](docs/status.md) documents implementation, actual validation, and known gaps.
+
+Current priorities are:
+
+1. **A usable DSH workbench:** unified navigation, requirement and task details, execution activity, errors, and evidence for everyday use and debugging.
+2. **Controlled execution:** role permissions, reliable stopping and recovery, and consistent authorization and failure accounting at action boundaries.
+3. **A verified delivery loop:** carry the same candidate through verification, controlled deployment, and checks of the running version.
+4. **Real self-improvement:** record outcomes, failures, external intervention, and operational recovery before assessing autonomy.
+
+## Development
+
+Use Node.js, npm, and a DSH version compatible with the [workspace](package.json) and [plugin](packages/forgeloop/package.json) manifests. The first target environment is macOS.
+
+```sh
+git clone https://github.com/Lijiajin95/ForgeLoop.git
+cd ForgeLoop
+make setup       # Install dependencies
+make check       # Type checking, architecture contracts, and behavior tests
+make build       # Compile the plugin
+make package     # Build a candidate tarball and artifact manifest
+```
+
+For installation, model configuration, and profile selection, follow the [deployment guide](docs/deployment.md) and [plugin guide](packages/forgeloop/README.md). `make verify-plugin` runs a real host/model smoke test and requires a separate test DSH home with working model authentication; see the deployment guide before running it.
+
+## Documentation
+
+Most detailed project documentation is currently in Chinese.
+
+| Document | Contents |
+| --- | --- |
+| [Product and first-release plan](docs/product.md) | Goals, scope, design decisions, and validation rules |
+| [Status and evidence](docs/status.md) | Implemented capabilities, checks, installation records, and known gaps |
+| [Architecture](docs/architecture.md) | Current modules, persistence, and external interfaces |
+| [Domain language](CONTEXT.md) | Business objects, identities, and lifecycle terminology |
+| [Plugin guide](packages/forgeloop/README.md) | Plugin entry points and configuration |
+| [Deployment guide](docs/deployment.md) | Installation, upgrades, validation, and recovery |
+| [Documentation index](docs/README.md) | Design decisions and historical records |
+
+## Contributing and license
+
+Read [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before making changes. Keep changes scoped, preserve ongoing work, and support critical behavior with tests and actual execution evidence.
+
+A license for the code and documentation has not yet been selected. See [CONTRIBUTING.md](CONTRIBUTING.md) for the current distribution policy.
