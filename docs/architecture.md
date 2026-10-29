@@ -1,12 +1,12 @@
 # ForgeLoop 架构（TypeScript 原生 DSH 插件）
 
-编写日期：2026-10-22；文档适用性与缺口说明更新：2026-10-28。本文描述**当前活动实现**。
+编写日期：2026-10-22；文档适用性与缺口说明更新：2026-10-29。本文描述**当前活动实现**。
 新方案的主控／独立子运行时、角色权限和全新存储见[产品与首版方案](product.md#5-宿主协调与多-agent-流程)，尚不能视为当前实现。
 旧 Python／Web／serve 路线由 [ADR 0008](adr/0008-typescript-native-dsh-plugin.md) 取代，
 退役代码快照已按 [ADR 0009](adr/0009-remove-retired-implementation.md) 删除；源码和旧文档从 Git 历史回查。
 2026-10-28 又按 [ADR 0010](adr/0010-remove-command-surface-legacy-compat-and-commit-policy.md)
 删除 `/fl` 命令表面、旧业务库兼容与本机提交时间策略。架构契约由 `contracts/architecture.json`
-与 `make architecture-contract` 强制。
+与 `make contracts` 强制：只固定分层、依赖方向、外部表面与退役路径；源码文件、工具和端点从实现扫描。
 
 ## 1. 目标与唯一宿主
 
@@ -14,14 +14,16 @@ ForgeLoop 的产品价值是复杂软件项目中的目标、约束、研发、�
 `packages/forgeloop`（TypeScript 原生 DSH 插件）。本轮把通用交互、会话、模型、工具、权限与
 进程生命周期交给 DSH：
 
-**用户只启动 DSH 宿主 → 插件提供工具与只读页面 → 插件内持久工作服务唤醒 DSH Agent 执行 →
+**用户只启动 DSH 宿主 → 插件提供工具与认证页面（查询 + 客户决定动作）→ 插件内持久工作服务唤醒 DSH Agent 执行 →
 业务记录、证据与候选包留在项目现场。**
 
 不再需要 `forgeloop serve`、`forgeloop-launcher`、独立 HTTP 服务或自建网页。调用 Git、
 构建与测试时使用受控子进程；不得借此启动旧 Python 核心。
 
-当前插件没有人类 slash 命令表面，也没有客户决定入口；模型工具只读查询并受理需求。
-新方案的 DSH 业务工作台／专用会话决定入口尚未实现，不能用工具参数或文档声明代替。
+当前插件没有人类 slash 命令表面。需求入口是 **ForgeLoop 业务会话**：用户选择 `forgeloop`
+agent preset 后，在普通输入框输入；插件在 `agent/pre-step` 接管人类输入，交给需求 Agent
+拆解为结构化需求。任务包批准、推进、验收与停止通过浏览器认证动作实现；例外取舍、追加授权与重新规划仍没有完整入口，
+不能用工具参数或文档声明代替。
 
 ## 2. 运行结构
 
@@ -31,9 +33,10 @@ DSH 宿主（唯一常驻产品）
 ├── forgeloop-dsh 插件（同进程）
 │   ├── domain/     纯规则：身份、版本、批准、失败轮次、工时、材料身份；影响事实/推断分区只经注入窄接口
 │   ├── records/    node:sqlite：权威记录、请求领取、动作身份、证据索引
-│   ├── runtime/    协调器、Agent 执行器、正式测试、快照工作副本、候选打包、只读状态看板
+│   ├── runtime/    协调器、Agent 执行器、正式测试、快照工作副本、候选打包、状态看板事实
+│   ├── session/    ForgeLoop 业务会话：preset、agent/pre-step 输入接管、自定义会话事件
 │   ├── tools.ts    模型只读工具 + 需求受理（不能批准、推进或验收）
-│   └── client.js   Web 会话区「天工」页：只读展示需求、任务与待处理问题
+│   └── client.js   Web 会话区「天工」页 + ForgeLoop 受理/分析自定义 Chat 节点
 ├── DSH Agent（宿主内独立会话）
 │   ├── 分析 / 规划 / 审查：无工具，纯推理，结果按 JSON 校验
 │   └── 实现：有工具，在独立快照副本中工作
@@ -47,60 +50,128 @@ DSH 宿主（唯一常驻产品）
 | config | `src/config.ts` | domain | 配置解析与路径布局；非法值装载时失败 |
 | domain | `src/domain/` | 无 | 不可变事实与纯判定；不直接接触文件、数据库或模型实现；影响推断只经注入的无工具 Agent 窄接口 |
 | records | `src/records/` | domain | SQLite 权威表读写；事务领取；不读取或修补旧业务库 |
-| runtime | `src/runtime/` | domain、records、config | 编排、Agent、测试、快照、打包、只读状态看板 |
-| entry | `src/index.ts`、`tools.ts`、`cli/` | 以上全部 | 插件接入与工具表面 |
+| runtime | `src/runtime/` | domain、records、config | 编排、Agent、测试、快照、打包、状态看板事实与任务重试准入 |
+| entry | `src/index.ts`、`tools.ts`、`session/`、`cli/` | 以上全部 | 插件接入、工具表面与业务会话输入接管 |
 
 任务包授权由 `domain/task-plan.ts` 判定，运行时与记录层保存批准及验收材料指纹；
-`domain/delivery.ts` 提供摘要计算，`domain/work.ts` 定义任务运行与产物类型。
+`domain/delivery.ts` 提供摘要计算，`domain/work.ts` 定义任务运行与产物类型，
+`domain/failure-advice.ts` 把失败原因、正式测试日志与审查结论整理成确定性的下一步建议。
 工作副本使用 `runtime/workspace.ts` 的快照路径，包含未提交进展；文件选择遵循 Git 跟踪与忽略规则。
 
-`client.js` 是浏览器端入口（普通 `dsh.client` 模块，不参与 tsc 编译），只通过认证 Fetch 路由
-读取看板，不导入任何 DSH Client 包；`contracts/architecture.json` 的 `ui_surface` 固定槽位、
-排序、通道与展示资源，`make architecture-contract` 校验其与实现一致。
+`client.js` 是浏览器端入口（普通 `dsh.client` 模块，不参与 tsc 编译），通过认证 Fetch 路由
+读取看板并按客户动作写入批准、推进、重试、取消与停止，用 `uiConversation.events.register` + `conversation.chat.node`
+渲染 ForgeLoop 受理、分析、澄清与任务包节点；不导入任何 DSH Client 包。`contracts/architecture.json`
+固定槽位、视图身份、数据路径、preset 与输入接管事件；客户端节点和会话事件从源码自动发现并校验配对。
 
-`make architecture-contract` 解析实际相对导入并拒绝反向依赖；模块清单、持久化表与工具清单
-同时核对。文档检查只覆盖已编码的要求，不保证全文描述和业务结论正确，仍须依据源码审阅。
+`make contracts` 扫描 `packages/forgeloop/src` 的全部 `.ts` 文件：按 `layers` 判定分层、解析相对导入、
+拒绝反向/越界依赖并检测循环。模块不需要逐项登记；新增源码自动纳入检查。工具名从 `tools.ts`
+自动发现并校验 `forgeloop_` 前缀与禁止的决定方法；Web 端点从 `BOARD_ENDPOINTS` 自动发现并校验每个
+非默认端点都有分发分支；数据库只检查 SQLite 驱动与路径边界，表结构以 `records/db.ts` 为准。
+退役路径由 `retired_paths` 拒绝重新进入工作树。文档描述仍需人工审阅，不能由检查代替。
 
 ## 4. 入口与业务闭环
 
-当前入口只有模型工具与只读看板：`forgeloop_submit_requirement` 落库受理需求，
-其余工具只读查询。`/fl` 人类命令表面已删除，批准、验收、推进、停止等客户决定没有当前入口；
-替代入口须按统一方案实现并验证，不能由工具或参数伪造。
+### 4.1 ForgeLoop 业务会话（输入接管）
 
-运行时仍保留下列内部操作，供协调器、测试和未来可靠入口复用，不能据此宣称已有客户入口：
+1. 插件装载时注册 `forgeloop` agent preset（无普通助手工具），展示为“ForgeLoop 业务会话”。
+2. 用户在该 preset 会话的普通输入框提交文本；DSH 照常把消息交给会话 Agent。
+3. 插件在 `agent/pre-step` 中检查当前生效 preset 为 `forgeloop`（运行中组合优先，
+   `session.header.agentPreset` 仅作回退），排除 `origin=subagent` 或带父会话的子 Agent；
+   只处理 `message.source.kind === 'user'` 的消息。
+4. 对每条人类消息：用 `sessionId + messageId` 作为幂等键提交需求（版本 1），追加
+   `plugin:forgeloop/intake` 会话事件，然后调用运行时 `analyzeRequirement`，由需求 Agent 输出
+   目标、业务场景、验收标准与待澄清项；分析提示词同时携带程序查询的当前项目活动需求与任务
+   （标题、状态、创建／更新时间、任务包版本与批准状态、任务状态与最近活动），已结束需求只给数量，
+   这些内容只是背景事实，不构成授权；成功追加 `plugin:forgeloop/analysis`，失败追加
+   `plugin:forgeloop/error`。有待澄清项时再追加 `plugin:forgeloop/clarification-request`。
+5. 同一会话存在待澄清需求时，下一条人类消息按澄清回答处理：追加需求版本并重新分析，
+   追加 `plugin:forgeloop/clarification-answer`、`plugin:forgeloop/analysis`，必要时再次推送
+   `plugin:forgeloop/clarification-request`；不会新建第二条需求。
+6. 分析无待澄清项时自动调用研发 Agent 生成技术方案与任务包，追加 `plugin:forgeloop/plan`；
+   规划失败追加 `plugin:forgeloop/error`。规划成功把需求置为 `plan_proposed`，但不批准、不推进。
+7. 会话末尾的 `conversation.chat.turnTail` 组件读取 `session` 端点，按
+   **需要澄清 | 不需要澄清** 的顺序展示该会话已拆解需求；普通会话没有需求时不渲染。
+8. 无论成功或失败都返回 `{ kind: 'reject' }`，普通模型聊天不会发生；用户看到的是自定义
+   Chat 节点，不是 assistant 回复。
+9. 这些自定义事件是 log-only 呈现，不带 `surfaceOp`，不进入模型历史，也不构成客户决定或验收。
 
-1. **受理**：`forgeloop_submit_requirement` 先落库，返回稳定需求身份与版本 1。
-   工具提供客户端幂等键：同键同内容复用、内容不同拒绝。
+`forgeloop` preset 组合为空（没有普通工具）；已在 DSH 0.2.1-rc.4 的真实 Web 会话验证
+`agent/pre-step` 接管、澄清回答与规划链路。
+
+### 4.2 运行时内部操作
+
+模型工具仍只读查询或受理需求：`forgeloop_submit_requirement` 先落库，返回稳定需求身份与
+版本 1；其余工具只读查询。`/fl` 人类命令表面已删除。批准与推进的唯一入口是 Web 任务包卡片
+上的认证动作；验收、停止、例外取舍仍没有完整入口，不能由工具或参数伪造。
+
+运行时仍保留下列内部操作，供协调器、业务会话、测试和未来可靠入口复用：
+
+1. **受理**：业务会话的输入接管或 `forgeloop_submit_requirement` 先落库，返回稳定需求身份
+   与版本 1。两者都提供客户端幂等键：同键同内容复用、内容不同拒绝。
 2. **分析**：运行时排队 `analyze`；协调器领取后创建无工具 Agent，校验结构化分析
    （目标、场景、验收标准、待澄清项）并按版本保存。有待澄清项时等待人工。
 3. **规划**：排队 `plan`，依据最新且同版本的分析生成任务包。任务包必须≥2 个任务、至少一条
    依赖、文件清单在 TypeScript 工程内、测试命令为真实 argv；不得引用 Python、旧 `.venv`、
    旧 `forgeloop` CLI 或并行的第二个插件包。违规时带拒绝原因重试，仍不合规即阻塞。
-4. **批准**：运行时校验语言／工程边界、需求版本与任务包版本一致，写入绑定需求身份与版本的
-   批准行与授权来源。当前没有可信入口调用这条路径；记录存在不等于新方案授权模型已实现。
+4. **批准**：Web 任务包卡片的“批准任务包”动作调用认证 Fetch 路由；运行时校验语言／工程边界、
+   需求版本与任务包版本一致，写入绑定需求身份与版本的批准行与授权来源。`by` 来自插件配置的
+   本机 owner，模型工具不能调用该路径。
 5. **推进**：领取后按拓扑序逐任务执行：
    - 在**包含未提交在途改动的快照副本**中准备依赖（`npm install --no-package-lock`），
      再还原准备阶段对跟踪文件的改动，保证候选 diff 只来自开发回合；
    - 实现 Agent 在有工具的独立副本中工作；采集二进制 diff 并核对改动是否越出批准清单；
    - 独立审查 Agent 使用新会话、无工具、独立目录，只审查固定 diff；阻断则回到实现；
    - 正式测试由程序运行批准过的 argv，保存命令、退出码、耗时与完整日志；
+   - `verification: true` 且 `files: []` 的验证任务只运行正式测试，不修改文件；交付使用空候选 diff
+     与验证说明，跳过独立审查，随后仍须整体验收；
    - 失败计入失败轮次（同一轮幂等），额度未尽才自动重试；用尽则等待追加授权或停止；
    - 交付写入候选摘要、测试证据摘要、审查结论摘要、授权来源与基线。
 6. **候选包**：把已交付 diff 应用到另一份快照，执行构建与 `npm pack`，核对 tarball 摘要与清单，
    记录候选包身份。本地打包入口见 `npm run candidate --workspace forgeloop-dsh`。
 7. **验收**：运行时绑定实际材料；材料变化或摘要不一致即拒绝。存在候选包时必须匹配其摘要；
    没有候选时当前允许按任务材料验收，不能据此认定已安装。验收后需求进入终态。
-8. **查询与呈现**：影响摘要和只读看板共用权威记录，不提供批准或推进入口。
+8. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`approve/advance/retry/accept/stop/cancel` 是仅有的写动作端点。
+   任务包卡片展示批准状态、交付进度，并在批准后提供推进/验收/停止按钮；验收要求全部任务已交付，
+   有候选包时必须显式绑定产物摘要；停止会中止该需求当前在途请求并置阻塞。
    `domain/impact.ts` 计算过期／待核对事实；`impact-explain.ts` 仅在显式请求时通过注入接口产生单列推断，不能回写事实或产生授权。
    看板经认证 Fetch 路由读取 `runtime/board.ts` 生成的状态；没有连接服务时不注册路由。
-   当前页面不接收决定，普通 DSH 消息不自动成为需求。完整入口见[插件说明](../packages/forgeloop/README.md)。
+   失败任务卡展示运行原因与 `domain/failure-advice.ts` 的确定性建议；任务详情进一步给出正式测试日志尾部、
+   失败轮次与独立审查阻断项。重试只重排一次 advance：不新建任务包、不清零失败轮次、不越过已批准文件边界；
+   失败额度用尽、任务已交付、前置任务未交付或存在在途请求时拒绝。结果未知（unknown）的请求须先核对现场并
+   经二次确认才能关闭，随后才排队重试，不自动重放。
+   普通 DSH 消息不自动成为需求；批准与推进必须点击任务包动作。完整入口见[插件说明](../packages/forgeloop/README.md)。
+
+### 4.3 天工工作台（Web 只读事实 + 客户动作）
+
+- 入口仍是 `conversation.view` 的 `forgeloop` 视图（标签「天工」/Forge）。页面提供
+  **总览 / 需求 / 任务 / 问题** 四个视图；总览显示统计、当前执行/等待输入、需要处理的问题、
+  下一步建议、能力与边界。
+- 搜索走同一认证 `board` 端点，`query` 只匹配权威记录中的文字事实：需求身份/状态/原文与版本、
+  分析结论、最新任务包与任务目标/文件/验收标准、任务运行原因、失败轮次、请求说明与看板问题文字；
+  不读取 Agent 日志文件。`limit` 限制 1..100，客户端默认请求 50；结果被截断时页面明确提示。
+- 需求详情由 `requirementDetail` 返回：原文与版本历史、分析（目标/场景/验收标准/待澄清）、
+  最新任务包正文（技术方案、任务、文件、依赖）、交付进度与产物摘要、验收记录、批准、失败轮次与请求。
+- 任务详情由 `taskDetail` 返回：目标、依赖、允许文件、验收标准、实际运行状态、失败原因与建议、
+  失败轮次、Agent 活动（最近 120 条及总数）、正式测试日志（末尾 4000 字符、字节数、路径与截断标记）、
+  独立审查结论、交付产物摘要、证据路径与会话身份。心跳/最后活动不是推进证明；页面把超过 60 秒
+  未更新的运行中任务标为可能停滞。
+- 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`resultUnknown` 表示需求存在
+  unknown 请求；`stopRequested` 表示阻塞原因是停止请求。三者都不等于任务已经停稳或结果已经收口。
+- 需求级动作由服务端 `actions` 判定：`approve`、`advance`、`replan`、`stop`、`cancel`；任务级 `retry` 仍由
+  `retryTask` 复核批准、额度、任务顺序、在途请求与 unknown 确认。
+- `replan` 是受限的最小重新规划：只复制当前已批准任务包，给一个失败的非验证任务补充允许文件
+  （如 `contracts/architecture.json`），生成新的待批准版本；不改变需求原文、不新建任务、不自动批准，
+  旧批准显示为过期。存在 unknown 请求时必须由 owner 确认已核对现场后才关闭；验证任务不能补充允许文件。
+  它解决“任务包漏登记文件”一类阻断，不替代完整重规划、追加授权或验收。
+- 天工页不提供验收；验收仍在任务包会话完成。页面不另存业务状态，所有事实来自 SQLite 与登记证据。
 
 ## 5. 持久化
 
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`。
 - 表：需求与版本、分析、任务包、任务包批准、任务运行、任务产物、工时、取消、证据路径、
-  失败轮次、授权、候选包、持久请求、动作身份、运行元信息（见 `contracts/architecture.json`）。
+  失败轮次、授权、候选包、持久请求、动作身份、运行元信息；权威 Schema 在 `records/db.ts`，
+  契约只固定 SQLite 驱动、数据库路径与单库边界，不复制表清单。
 - 新库从空库按当前结构建立；不承担旧业务库兼容、补列、迁移或只读历史查询。
   旧记录和证据按历史保留，但不进入当前产品承诺。
 - 证据：`evidence/<req>/v<plan>/<task>/` 保存 `baseline.json`、`candidate.diff`、
@@ -124,11 +195,17 @@ DSH 宿主（唯一常驻产品）
 
 ## 7. 信任边界
 
+- **业务会话入口**：只有 `agentPreset=forgeloop` 的非子 Agent 会话中、来源为真实人类
+  （`source.kind === 'user'`）的消息才受理；会话身份、消息身份与原始文本落库后可回查。
+  输入接管只创建需求、回答待澄清项并调用需求 Agent；批准与推进走任务包卡片的认证动作，
+  不来自聊天文本或模型工具。
+  澄清回答与 `reqId + requirementVersion + analysisVersion` 对应；多待澄清项或其他会话不得猜测。
 - **模型工具**：只读查询与需求受理。工具不能提交 `by=owner` 或 `approved=true`，也不能触发
   推进或验收。`forgeloop_impact` 默认不调用模型；显式 `explain=true` 的推断与事实分区，
   推断不能作为批准、推进或验收依据。
-- **客户决定入口**：当前不存在。批准、验收、推进、停止只能由未来可信入口调用运行时；
-  不能把工具参数、消息角色标签或模型转述当作所有者决定。
+- **客户决定入口**：任务包批准、推进、取消、停止、验收已实现为浏览器认证动作；例外取舍、
+  追加授权、重新规划仍缺失。
+  不能把工具参数、消息角色标签或模型转述当作所有者决定；动作身份使用本机 owner 配置。
 - **Agent**：审查使用独立上下文；实现使用独立副本；模型自评、消息投递回执与工具退出码都
   不是验收证据。
 - 已知边界：审查的“受控访问”是独立会话＋无工具＋固定 diff，不是 OS/容器级隔离；宿主插件
@@ -138,15 +215,22 @@ DSH 宿主（唯一常驻产品）
 ## 8. DSH 接缝与版本
 
 - 宿主服务：`ctx.agents`（创建/驱动会话）、`ctx.tools`、`ctx.subprocess`、
-  `ctx.permissionPresets`（可选）、`agentDefaultModel`（可选）。影响摘要的推断复用
-  `ctx.agents`，只在显式 `--explain`/`explain=true` 时创建无工具会话。
+  `ctx.permissionPresets`（可选）、`agentDefaultModel`（可选）、`ctx.agentPresets`（可选，
+  业务会话 preset 注册）。影响摘要的推断复用 `ctx.agents`，只在显式 `--explain`/`explain=true`
+  时创建无工具会话。
+- `agent/pre-step` waterfall 负责业务会话输入接管；`ctx.on` 的监听器随插件 effect 释放。
+  业务会话事件使用 `session.append` 追加自定义事件，客户端用 `uiConversation.events.register`
+  与 `conversation.chat.node` 注册节点和渲染器。
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
-  的认证路由 `/api/forgeloop/board`；浏览器半是 `dsh.client` 模块，经
-  `ctx.slots.inject('conversation.view')` 注册「天工」页（英文 Forge），并用同源 `fetch` 读取数据。
-  该模块只注册这一个槽位；profile 不提供连接服务时不激活，headless profile 的装载不受影响。
+  的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`approve`、`advance`、`retry`、`replan`、`cancel`、`accept`、`stop`；
+  `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
+  浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
+  并注册 ForgeLoop Chat 节点（含技术方案/任务包）与 `conversation.chat.turnTail` 需求摘要，
+  用同源 `fetch` 读取数据并提交 owner 动作。
+  profile 不提供连接服务时不激活，headless profile 的装载不受影响。
 - 不用 `ctx.connection.rpc.handle()`：DSH 0.2.1-rc.2 中它以 Connection 插件自身的上下文为注册
   owner，该上下文没有注入 `webServer`，注册即抛错；Fetch 路由是同一认证层的宿主功能入口。
-- 已验证本机版本：DSH `0.2.1-rc.2`、Node `26.11.1`、TypeScript `5.9`、SQLite 通过
+- 已验证本机版本：DSH `0.2.1-rc.4`、Node `26.11.1`、TypeScript `5.9`、SQLite 通过
   `node:sqlite`。参考源码版本见 ADR 0008。
 - 插件以 npm bundle 发布：`dsh.bundle.patch` 插入 `forgeloop-dsh` 行；`engines.dsh` 限定范围。
 
@@ -163,12 +247,13 @@ DSH 宿主（唯一常驻产品）
 | 本机提交时间策略 | 删除 `commit-policy` 脚本、配置模板、年历、钩子与 CI 作业；提交授权只来自用户明确要求 |
 | 孤立的内存批准簿、材料绑定、阶段路由与 worktree API | 删除无活动调用的重复实现；保留实际授权、快照、正式测试与验收路径 |
 
-历史源码从 Git 回查。架构契约的 `retired.source_paths` 登记退役仓库路径，检查拒绝其重新进入工作树，
+历史源码从 Git 回查。架构契约的 `retired_paths` 登记退役仓库路径，检查拒绝其重新进入工作树，
 包括同时放回旧源码与 `legacy/` 的情况。
 
 ## 10. 未验证与后续
 
-- 客户决定入口、专用会话模式与工作台操作尚未实现；当前插件不能完成从受理到批准的完整人工闭环。
+- 批准、推进、取消、验收与停止已实现；最小“补文件重新规划”已实现，完整重新规划、例外取舍、
+  追加授权、专用会话模式与完整工作台操作仍未实现。
 - 真实 Debian/生产宿主、容器隔离、多用户身份、远程访问未验证。
 - 邮件／IM、自动发布／部署和跨版本升级兼容尚未形成当前完整能力。新首版的发布与运维要求见统一方案。
 - 变异测试与格式化器尚未接入 TypeScript 工具链；对应 `make` 目标显式失败。
