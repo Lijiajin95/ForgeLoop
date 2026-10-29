@@ -18,12 +18,14 @@ export function isTerminal(status: string): boolean {
 }
 
 /** 任务一次推进的结果：交付、等待人工、失败或阻塞。 */
+export const TASK_RUN_RUNNING = 'running'
 export const TASK_RUN_DELIVERED = 'delivered'
 export const TASK_RUN_AWAITING_USER = 'awaiting_user'
 export const TASK_RUN_FAILED = 'failed'
 export const TASK_RUN_BLOCKED = 'blocked'
 
 export type TaskRunState =
+  | typeof TASK_RUN_RUNNING
   | typeof TASK_RUN_DELIVERED
   | typeof TASK_RUN_AWAITING_USER
   | typeof TASK_RUN_FAILED

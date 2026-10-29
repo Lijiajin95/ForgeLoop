@@ -468,6 +468,23 @@ export class Repository {
       )
   }
 
+  /** 只刷新运行中心跳，不增加执行秒数；任务尚未开始时不做隐式插入。 */
+  heartbeatTaskRun(input: {
+    requirementId: string
+    planVersion: number
+    taskId: string
+    reason: string
+    updatedAt: string
+  }): void {
+    this.db.handle
+      .prepare(
+        `UPDATE requirement_task_runs
+         SET state = 'running', reason = ?, updated_at = ?
+         WHERE req_id = ? AND plan_version = ? AND task_id = ?`,
+      )
+      .run(input.reason, input.updatedAt, input.requirementId, input.planVersion, input.taskId)
+  }
+
   taskRuns(reqId: string, planVersion: number): TaskRun[] {
     const rows = this.db.handle
       .prepare(
@@ -988,6 +1005,13 @@ function planToPayload(plan: TaskPlan): unknown {
     plan_version: plan.planVersion,
     requirement_version: plan.requirementVersion,
     created_at: plan.createdAt,
+    technical_solution: plan.technicalSolution
+      ? {
+          summary: plan.technicalSolution.summary,
+          approach: plan.technicalSolution.approach,
+          risks: plan.technicalSolution.risks,
+        }
+      : undefined,
     tasks: plan.tasks.map((task) => ({
       task_id: task.taskId,
       goal: task.goal,
@@ -1000,6 +1024,7 @@ function planToPayload(plan: TaskPlan): unknown {
         max_failure_rounds: task.limits.maxFailureRounds,
       },
       authorization_source: task.authorizationSource,
+      ...(task.verification === true ? { verification: true } : {}),
     })),
   }
 }
@@ -1010,12 +1035,21 @@ function planFromPayload(
 ): TaskPlan {
   const data = payload as Record<string, unknown>
   const rawTasks = Array.isArray(data.tasks) ? data.tasks : []
+  const rawSolution = data.technical_solution
+  const technicalSolution = rawSolution && typeof rawSolution === 'object'
+    ? {
+        summary: String((rawSolution as Record<string, unknown>).summary ?? ''),
+        approach: stringArray((rawSolution as Record<string, unknown>).approach),
+        risks: stringArray((rawSolution as Record<string, unknown>).risks),
+      }
+    : undefined
   return {
     taskPlanId: context.taskPlanId,
     requirementId: context.requirementId,
     project: String(data.project ?? ''),
     planVersion: context.planVersion,
     requirementVersion: Number(data.requirement_version ?? 1),
+    ...(technicalSolution === undefined ? {} : { technicalSolution }),
     createdAt: context.createdAt,
     tasks: rawTasks.map((raw) => {
       const task = raw as Record<string, unknown>
@@ -1032,6 +1066,7 @@ function planFromPayload(
           maxFailureRounds: Number(limits.max_failure_rounds ?? 3),
         },
         authorizationSource: String(task.authorization_source ?? ''),
+        ...(task.verification === true ? { verification: true } : {}),
       }
     }),
   }

@@ -49,6 +49,79 @@ describe('task plan parsing and validation', () => {
     expect(() => parseTaskPlanDraft('not json', context)).toThrow('不是可解析的 JSON')
   })
 
+  it('parses a technical solution with the task package', () => {
+    const plan = parseTaskPlanDraft(
+      {
+        technical_solution: {
+          summary: '复用现有插件注册一个只读视图',
+          approach: ['先增加查询端点', '再注册会话末尾组件'],
+          risks: ['不要改变现有看板默认行为'],
+        },
+        tasks: [rawTask('a'), rawTask('b', { depends_on: ['a'] })],
+      },
+      context,
+    )
+    expect(plan.technicalSolution).toEqual({
+      summary: '复用现有插件注册一个只读视图',
+      approach: ['先增加查询端点', '再注册会话末尾组件'],
+      risks: ['不要改变现有看板默认行为'],
+    })
+  })
+
+  it('rejects an incomplete technical solution', () => {
+    expect(() =>
+      parseTaskPlanDraft(
+        {
+          technical_solution: { summary: ' ', approach: ['步骤'], risks: [] },
+          tasks: [rawTask('a'), rawTask('b', { depends_on: ['a'] })],
+        },
+        context,
+      ),
+    ).toThrow('technical_solution.summary')
+    expect(() =>
+      parseTaskPlanDraft(
+        {
+          technical_solution: { summary: '方案', approach: [], risks: [] },
+          tasks: [rawTask('a'), rawTask('b', { depends_on: ['a'] })],
+        },
+        context,
+      ),
+    ).toThrow('technical_solution.approach')
+  })
+
+  it('accepts a verification task only with no writable files', () => {
+    const plan = parseTaskPlanDraft(
+      {
+        tasks: [
+          rawTask('a'),
+          {
+            ...rawTask('verify'),
+            files: [],
+            verification: true,
+            depends_on: ['a'],
+          },
+        ],
+      },
+      context,
+    )
+    expect(plan.tasks[1]!.verification).toBe(true)
+    expect(plan.tasks[1]!.files).toEqual([])
+  })
+
+  it('rejects a verification task that declares writable files', () => {
+    expect(() =>
+      parseTaskPlanDraft(
+        {
+          tasks: [
+            rawTask('a'),
+            { ...rawTask('verify'), verification: true, depends_on: ['a'] },
+          ],
+        },
+        context,
+      ),
+    ).toThrow('验证任务不得声明准修改文件')
+  })
+
   it('refuses model-supplied authorization sources', () => {
     expect(() =>
       parseTaskPlanDraft(

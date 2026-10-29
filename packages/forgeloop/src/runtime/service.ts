@@ -30,14 +30,17 @@ import {
 import { GrantLedger, FAILURE_FORMAL_TEST, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { sha256OfBytes, sha256OfText } from '../domain/delivery.js'
-import { ACCEPTED, APPROVED, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
+import { ACCEPTED, APPROVED, AWAITING_CLARIFICATION, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
 import {
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
   TASK_RUN_DELIVERED,
   TASK_RUN_FAILED,
+  TASK_RUN_RUNNING,
 } from '../domain/status.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
+import { buildTaskFailureAdvice } from '../domain/failure-advice.js'
+import type { TaskRun } from '../domain/work.js'
 import { buildImpactFacts, type ImpactRequest } from '../domain/impact.js'
 import {
   explainImpactFacts,
@@ -45,7 +48,13 @@ import {
   type ImpactExplainAgentResponse,
 } from '../domain/impact-explain.js'
 import { AgentRunner } from './agent-runner.js'
-import { buildStatusBoard, type StatusBoardView } from './board.js'
+import {
+  buildProjectFacts,
+  buildStatusBoard,
+  requirementTitle,
+  taskIdOfFailureRound,
+  type StatusBoardView,
+} from './board.js'
 import { runFormalTest } from './formal-test.js'
 import { analysisPrompt, devPrompt, parseReviewVerdict, planningPrompt, reviewPrompt, requirementContext } from './prompts.js'
 import { captureCandidate, headCommit, prepareSnapshotWorkspace, runCommand } from './workspace.js'
@@ -76,6 +85,96 @@ export interface RuntimeOptions {
   /** 测试注入：真实插件使用 AgentRunner；用例可替换为确定性假执行器。 */
   readonly runner?: AgentLike
   readonly formalTest?: typeof runFormalTest
+}
+
+function summarizeActivity(events: readonly Record<string, unknown>[]): string {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (!event || typeof event.type !== 'string') continue
+    const data = event.data as Record<string, unknown> | undefined
+    if (event.type === 'tool/call') {
+      const name = typeof data?.name === 'string' ? data.name : '工具'
+      return `正在调用工具 ${name}`
+    }
+    if (event.type === 'tool/result') return '工具返回结果'
+    if (event.type === 'step/start') return `执行步骤 ${String(data?.step ?? '')}`.trim()
+    if (event.type === 'assistant/message') return '模型回复并继续'
+    if (event.type === 'turn/start') return '回合开始'
+    if (event.type === 'turn/end') return '回合结束'
+  }
+  return '等待 Agent 活动'
+}
+
+function readActivity(
+  path: string,
+  limit: number,
+): { items: Array<{ type: string; at: string; summary: string }>; total: number; truncated: boolean } {
+  if (!existsSync(path)) return { items: [], total: 0, truncated: false }
+  const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line.trim() !== '')
+  const selected = lines.slice(-limit)
+  const result: Array<{ type: string; at: string; summary: string }> = []
+  for (const line of selected) {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>
+      const type = typeof event.type === 'string' ? event.type : 'event'
+      const data = (event.data ?? {}) as Record<string, unknown>
+      const at = typeof event.time === 'number' ? new Date(event.time).toISOString() : ''
+      let summary = type
+      if (type === 'tool/call') {
+        const name = typeof data.name === 'string' ? data.name : '工具'
+        const args = typeof data.arguments === 'string' ? data.arguments.replace(/\s+/g, ' ').slice(0, 240) : ''
+        summary = `调用 ${name}${args ? `: ${args}` : ''}`
+      } else if (type === 'tool/result') {
+        summary = '工具返回结果'
+      } else if (type === 'assistant/message') {
+        const message = data.message as Record<string, unknown> | undefined
+        const content = Array.isArray(message?.content) ? message.content : []
+        const text = content
+          .filter((block): block is Record<string, unknown> => typeof block === 'object' && block !== null)
+          .filter((block) => block.type === 'text' && typeof block.text === 'string')
+          .map((block) => String(block.text))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .slice(0, 300)
+        summary = text ? `模型回复: ${text}` : '模型回复'
+      } else if (type === 'step/start') {
+        summary = `步骤 ${String(data.step ?? '')}`.trim()
+      } else if (type === 'turn/start' || type === 'turn/end') {
+        summary = type === 'turn/start' ? '回合开始' : '回合结束'
+      }
+      result.push({ type, at, summary })
+    } catch {
+      // 轨迹中损坏的单行不阻断详情页。
+    }
+  }
+  return { items: result, total: lines.length, truncated: lines.length > limit }
+}
+
+function readJson(path: string): unknown {
+  if (!existsSync(path)) return null
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as unknown
+  } catch {
+    return null
+  }
+}
+
+function normalizeReplanFiles(files: readonly string[]): string[] {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new RuleViolationError('重新规划至少需要一个补充文件')
+  }
+  if (files.length > 20) throw new RuleViolationError('重新规划一次最多补充 20 个文件')
+  const normalized: string[] = []
+  for (const raw of files) {
+    if (typeof raw !== 'string') throw new RuleViolationError('补充文件必须是字符串')
+    const file = raw.trim()
+    if (!file) throw new RuleViolationError('补充文件不能为空')
+    if (file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file) || file.split('/').includes('..')) {
+      throw new RuleViolationError(`补充文件必须是项目内相对路径：${file}`)
+    }
+    if (!normalized.includes(file)) normalized.push(file)
+  }
+  return normalized
 }
 
 export class ForgeLoopRuntime {
@@ -124,6 +223,330 @@ export class ForgeLoopRuntime {
         : `同一客户端幂等键已受理为需求 ${requirement.reqId}，未重复创建`,
       this.requirementView(requirement),
     )
+  }
+
+  /**
+   * 读取一个业务会话关联的待澄清需求。会话关系来自需求受理 source：
+   * `dsh-session:<sessionId>:<messageId>`；只返回当前需求版本已有待澄清分析的需求。
+   */
+  pendingClarifications(sessionId: string): Array<{
+    reqId: string
+    title: string
+    requirementVersion: number
+    analysisVersion: number
+    questions: readonly string[]
+    updatedAt: string
+  }> {
+    const prefix = `dsh-session:${sessionId}:`
+    const result: Array<{
+      reqId: string
+      title: string
+      requirementVersion: number
+      analysisVersion: number
+      questions: readonly string[]
+      updatedAt: string
+    }> = []
+    for (const requirement of this.repo.listRequirements(this.config.project)) {
+      if (!requirement.source.startsWith(prefix)) continue
+      if (requirement.status !== AWAITING_CLARIFICATION) continue
+      const analysis = this.repo.latestAnalysis(requirement.reqId)
+      if (!analysis) continue
+      if (analysis.requirementVersion !== requirement.versions.length) continue
+      if (analysis.clarifications.length === 0) continue
+      const latest = requirement.versions[requirement.versions.length - 1]
+      result.push({
+        reqId: requirement.reqId,
+        title: requirementTitle(requirement),
+        requirementVersion: requirement.versions.length,
+        analysisVersion: analysis.analysisVersion,
+        questions: analysis.clarifications,
+        updatedAt: latest?.createdAt ?? '',
+      })
+    }
+    return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /**
+   * 回答一个待澄清需求：追加需求版本（保留原文与历史），再让需求 Agent 重新分析。
+   * 只有会话输入接管或未来可信入口调用；模型工具不能调用。
+   */
+  async answerClarifications(input: {
+    reqId: string
+    answer: string
+    by: string
+    source: string
+    signal?: AbortSignal
+  }): Promise<{
+    ok: boolean
+    code: string
+    message: string
+    reqId: string
+    requirementVersion?: number
+    analysis?: RequirementAnalysis
+  }> {
+    const answer = input.answer.trim()
+    if (!answer) return { ok: false, code: 'empty_answer', message: '澄清回答不能为空', reqId: input.reqId }
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return { ok: false, code: 'not_found', message: `未找到需求 ${input.reqId}`, reqId: input.reqId }
+    if (requirement.status !== AWAITING_CLARIFICATION) {
+      return {
+        ok: false,
+        code: 'no_clarification',
+        message: `需求 ${input.reqId} 当前不在待澄清状态`,
+        reqId: input.reqId,
+      }
+    }
+    const analysis = this.repo.latestAnalysis(input.reqId)
+    if (!analysis || analysis.requirementVersion !== requirement.versions.length || analysis.clarifications.length === 0) {
+      return {
+        ok: false,
+        code: 'no_clarification',
+        message: `需求 ${input.reqId} 没有与当前版本对应的待澄清项`,
+        reqId: input.reqId,
+      }
+    }
+    const latest = requirement.versions[requirement.versions.length - 1]
+    if (!latest) return { ok: false, code: 'not_found', message: `需求 ${input.reqId} 没有可修订版本`, reqId: input.reqId }
+    const text = `${latest.text}
+
+澄清回答（针对分析 v${analysis.analysisVersion}）：
+${answer}`
+    const revised = this.revise({ reqId: input.reqId, text, by: input.by, source: input.source })
+    if (!revised.ok) return { ...revised, reqId: input.reqId }
+    const refreshed = this.repo.getRequirement(input.reqId)
+    const next = await this.analyzeRequirement(input.reqId, input.signal)
+    if (!next.ok) {
+      return {
+        ok: false,
+        code: next.code,
+        message: next.message,
+        reqId: input.reqId,
+        requirementVersion: refreshed?.versions.length,
+      }
+    }
+    return {
+      ok: true,
+      code: 'ok',
+      message: next.message,
+      reqId: input.reqId,
+      requirementVersion: refreshed?.versions.length,
+      analysis: next.analysis,
+    }
+  }
+
+  /**
+   * 研发 Agent 的技术方案与任务包入口：对已分析且无待澄清项的需求运行规划，
+   * 校验任务包并落库。规划不等于批准，也不会推进实现。
+   */
+  async planRequirement(
+    reqId: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    ok: boolean
+    code: string
+    message: string
+    plan?: TaskPlan
+    analysis?: RequirementAnalysis
+  }> {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return { ok: false, code: 'not_found', message: `未找到需求 ${reqId}` }
+    const analysis = this.repo.latestAnalysis(reqId) ?? undefined
+    const outcome = await this.executePlanning(reqId, signal ?? new AbortController().signal)
+    const plan = this.repo.latestTaskPlan(reqId)
+    if (outcome.state !== 'done' || !plan) {
+      return { ok: false, code: 'plan_failed', message: outcome.detail || '任务包未生成', analysis }
+    }
+    return {
+      ok: true,
+      code: 'ok',
+      message: outcome.detail,
+      plan,
+      analysis,
+    }
+  }
+
+  /** 一个业务会话已经受理并拆解的需求，用于会话末尾摘要。 */
+  sessionSummary(sessionId: string): {
+    sessionId: string
+    generatedAt: string
+    requirements: Array<{
+      reqId: string
+      title: string
+      status: string
+      version: number
+      updatedAt: string
+      goal: string
+      scenarios: readonly string[]
+      acceptanceCriteria: readonly string[]
+      clarifications: readonly string[]
+      planVersion: number | null
+      approved: boolean
+      delivered: number
+      taskCount: number
+    }>
+  } {
+    const prefix = `dsh-session:${sessionId}:`
+    const requirements = this.repo
+      .listRequirements(this.config.project)
+      .filter((requirement) => requirement.source.startsWith(prefix))
+      .map((requirement) => {
+        const latest = requirement.versions[requirement.versions.length - 1]
+        const analysis = this.repo.latestAnalysis(requirement.reqId)
+        const plan = this.repo.latestTaskPlan(requirement.reqId)
+        const approval = plan ? this.repo.planApproval(requirement.reqId, plan.planVersion) : null
+        const artifacts = plan ? this.repo.taskArtifacts(requirement.reqId, plan.planVersion) : []
+        return {
+          reqId: requirement.reqId,
+          title: requirementTitle(requirement),
+          status: requirement.status,
+          version: requirement.versions.length,
+          updatedAt: latest?.createdAt ?? '',
+          goal: analysis?.goal ?? '',
+          scenarios: analysis?.scenarios ?? [],
+          acceptanceCriteria: analysis?.acceptanceCriteria ?? [],
+          clarifications: analysis?.clarifications ?? [],
+          planVersion: plan?.planVersion ?? null,
+          approved: approval !== null,
+          delivered: artifacts.length,
+          taskCount: plan?.tasks.length ?? 0,
+        }
+      })
+    return { sessionId, generatedAt: this.now(), requirements }
+  }
+
+  /** 单个任务的运行状态、证据与 Agent 活动过程；只读查询。 */
+  taskDetail(reqId: string, taskId: string, planVersion?: number): OperationResult {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
+    const plan = planVersion === undefined
+      ? this.repo.latestTaskPlan(reqId)
+      : this.repo.taskPlan(reqId, planVersion)
+    if (!plan) return fail('plan_missing', `需求 ${reqId} 没有任务包`)
+    const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
+    if (!task) return fail('task_missing', `任务包内没有任务 ${taskId}`)
+    const run = this.repo.taskRuns(reqId, plan.planVersion).find((candidate) => candidate.taskId === taskId) ?? null
+    const artifact = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
+    const evidence = this.repo.evidence(reqId, plan.planVersion, taskId)
+    const taskDir = evidenceDir(this.config, reqId, plan.planVersion, taskId)
+    const activityInfo = readActivity(join(taskDir, 'dev.jsonl'), 120)
+    const activity = activityInfo.items
+    const review = readJson(join(taskDir, 'review.json'))
+    const testLogPath = join(taskDir, 'formal-test.log')
+    const testLog = existsSync(testLogPath) ? readFileSync(testLogPath, 'utf8') : ''
+    const testLogTail = testLog.slice(-4000)
+    const rounds = this.repo.failureRounds(reqId)
+    const remainingRounds = this.remainingFailureRounds(reqId)
+    const advice = buildTaskFailureAdvice({
+      state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
+      reason: run?.reason ?? '',
+      files: task.files,
+      remainingRounds,
+      testLogTail,
+      review,
+    })
+    const eligibility = this.retryEligibility(reqId, plan.planVersion, taskId)
+    const requests = this.repo.requestsFor(reqId)
+    const unknownRequests = requests.filter((request) => request.state === 'unknown').length
+    const activeRequests = requests.filter(
+      (request) => request.state === 'pending' || request.state === 'claimed',
+    ).length
+    const waitingForInput =
+      run?.state === TASK_RUN_RUNNING && /ask_user_question/i.test(run.reason)
+    const stopRequested = requirement.blockedReason.startsWith('停止请求')
+    return ok(`任务 ${taskId} 详情`, {
+      reqId,
+      planVersion: plan.planVersion,
+      generatedAt: this.now(),
+      requirement: {
+        status: requirement.status,
+        blockedReason: requirement.blockedReason,
+        stopRequested,
+      },
+      task: {
+        taskId: task.taskId,
+        goal: task.goal,
+        files: task.files,
+        acceptance: task.acceptance,
+        testCommand: task.testCommand,
+        dependsOn: task.dependsOn,
+        verification: task.verification === true,
+      },
+      run,
+      artifact,
+      evidence,
+      activity,
+      activityTotal: activityInfo.total,
+      activityTruncated: activityInfo.truncated,
+      review,
+      reviewPath: join(taskDir, 'review.json'),
+      testLogPath,
+      testLogBytes: Buffer.byteLength(testLog, 'utf8'),
+      testLogTail,
+      testLogTruncated: testLog.length > testLogTail.length,
+      failureRounds: rounds.map((round) => ({
+        roundId: round.roundId,
+        stage: round.stage,
+        summary: round.summary,
+        occurredAt: round.occurredAt,
+      })),
+      remainingRounds,
+      unknownRequests,
+      activeRequests,
+      waitingForInput,
+      resultUnknown: unknownRequests > 0,
+      advice,
+      retry: eligibility.ok
+        ? { allowed: true, reason: '', requiresRecovery: unknownRequests > 0 }
+        : { allowed: false, reason: eligibility.message, requiresRecovery: false },
+    })
+  }
+
+  /**
+   * 需求 Agent 的分析入口：对已受理需求运行一次结构化分析，落库后返回
+   * 目标、场景、验收标准与待澄清项。已有同版本分析时直接复用，避免重复调用模型。
+   * 只供可信入口（当前是 ForgeLoop 业务会话的输入接管）调用；不是客户决定入口。
+   */
+  async analyzeRequirement(
+    reqId: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    ok: boolean
+    code: string
+    message: string
+    requirement?: unknown
+    analysis?: RequirementAnalysis
+  }> {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
+    if (isTerminal(requirement.status)) {
+      return fail('terminal', `需求 ${reqId} 已处于终态 ${requirement.status}，不能再分析`)
+    }
+    const existing = this.repo.latestAnalysis(reqId)
+    if (existing && existing.requirementVersion === requirement.versions.length) {
+      return {
+        ok: true,
+        code: 'ok',
+        message: `需求 ${reqId} 已有 v${existing.analysisVersion} 分析，未重复调用模型`,
+        requirement: this.requirementView(requirement),
+        analysis: existing,
+      }
+    }
+    const outcome = await this.executeAnalysis(reqId, signal ?? new AbortController().signal)
+    const refreshed = this.repo.getRequirement(reqId)
+    const analysis = this.repo.latestAnalysis(reqId)
+    if (outcome.state !== 'done' || !analysis) {
+      return {
+        ...fail('analysis_failed', outcome.detail || '需求分析未完成'),
+        requirement: refreshed ? this.requirementView(refreshed) : null,
+      }
+    }
+    return {
+      ok: true,
+      code: 'ok',
+      message: outcome.detail,
+      requirement: refreshed ? this.requirementView(refreshed) : null,
+      analysis,
+    }
   }
 
   revise(input: { reqId: string; text: string; by: string; source: string }): OperationResult {
@@ -190,6 +613,13 @@ export class ForgeLoopRuntime {
       const authorization = this.requireAuthorizedPlan(input.reqId)
       if (!authorization.ok) return authorization.result
       planVersion = authorization.value.plan.planVersion
+      // 额度用尽后不再接受新的推进；人工重试同样受此约束，不能借重试绕过计数。
+      if (this.remainingFailureRounds(input.reqId) === 0) {
+        return fail(
+          'grant_required',
+          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权或重新规划后才能继续推进`,
+        )
+      }
     } else if (input.action === 'plan' && this.repo.latestAnalysis(input.reqId) === null) {
       return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论`)
     }
@@ -216,6 +646,236 @@ export class ForgeLoopRuntime {
   }
 
   // ------------------------------------------------------------ 决定
+
+  /**
+   * 任务重试：只重新排队一次 advance，不新建任务包、不清零失败轮次。
+   * 结果未知的请求必须在明确确认后再核对关闭，避免把中断当成可直接重放。
+   */
+  retryTask(input: {
+    reqId: string
+    planVersion: number
+    taskId: string
+    by: string
+    source: string
+    confirmRecovery?: boolean
+  }): OperationResult {
+    const eligibility = this.retryEligibility(input.reqId, input.planVersion, input.taskId)
+    if (!eligibility.ok) return fail(eligibility.code, eligibility.message)
+
+    const unknown = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
+    if (unknown.length > 0 && input.confirmRecovery !== true) {
+      return fail(
+        'recovery_required',
+        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；请先核对工作副本、Git 与证据，再确认重试（不会自动重放 unknown 请求）`,
+      )
+    }
+    let recovered = 0
+    if (unknown.length > 0) {
+      const recovery = this.recover({ reqId: input.reqId, by: input.by, confirm: true })
+      if (!recovery.ok) return recovery
+      recovered = unknown.length
+    }
+    const queued = this.requestOperation({
+      reqId: input.reqId,
+      action: 'advance',
+      by: input.by,
+      source: `${input.source}:retry:${input.taskId}${recovered > 0 ? `:recovered-${recovered}` : ''}`,
+    })
+    if (!queued.ok) return queued
+    return ok(`已受理任务 ${input.taskId} 的重试：${queued.message}`, {
+      ...(queued.data as Record<string, unknown>),
+      taskId: input.taskId,
+      recovered,
+    })
+  }
+
+  /** 判断一个失败任务能否人工重试；只读，供任务详情与 retryTask 共用。 */
+  private retryEligibility(
+    reqId: string,
+    planVersion: number,
+    taskId: string,
+  ):
+    | { ok: true; plan: TaskPlan; task: PlannedTask; run: TaskRun; remainingRounds: number }
+    | { ok: false; code: string; message: string } {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return { ok: false, code: 'not_found', message: `未找到需求 ${reqId}` }
+    if (isTerminal(requirement.status)) {
+      return { ok: false, code: 'terminal', message: `需求 ${reqId} 已处于终态 ${requirement.status}` }
+    }
+    const plan = this.repo.latestTaskPlan(reqId)
+    if (!plan) return { ok: false, code: 'plan_missing', message: `需求 ${reqId} 尚无任务包` }
+    if (plan.planVersion !== planVersion) {
+      return {
+        ok: false,
+        code: 'stale_plan',
+        message: `任务包 v${planVersion} 不是最新版本（最新 v${plan.planVersion}）；刷新后再重试`,
+      }
+    }
+    if (plan.requirementVersion !== requirement.versions.length) {
+      return {
+        ok: false,
+        code: 'stale_requirement',
+        message: `任务包 v${plan.planVersion} 依据需求 v${plan.requirementVersion}，当前是 v${requirement.versions.length}；需重新规划与批准`,
+      }
+    }
+    const authorization = authorizePlan(plan, this.repo.planApproval(reqId, plan.planVersion))
+    if (authorization.status !== 'approved') {
+      return { ok: false, code: 'plan_not_approved', message: `${authorization.reason}；任务包尚未获得批准` }
+    }
+    const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
+    if (!task) return { ok: false, code: 'task_missing', message: `任务包内没有任务 ${taskId}` }
+    if (this.repo.taskArtifact(reqId, plan.planVersion, taskId)) {
+      return { ok: false, code: 'already_delivered', message: `任务 ${taskId} 已有交付产物，不能重试` }
+    }
+    const run = this.repo.taskRuns(reqId, plan.planVersion).find((candidate) => candidate.taskId === taskId)
+    if (!run) {
+      return { ok: false, code: 'not_failed', message: `任务 ${taskId} 尚未运行，不能重试` }
+    }
+    if (![TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(run.state)) {
+      return { ok: false, code: 'not_failed', message: `任务 ${taskId} 当前状态是 ${run.state}，不是失败状态` }
+    }
+    const active = this.repo
+      .requestsFor(reqId)
+      .find((request) => request.state === 'pending' || request.state === 'claimed')
+    if (active) {
+      return {
+        ok: false,
+        code: 'busy',
+        message: `需求 ${reqId} 已有待执行或执行中的 ${active.action} 请求 ${active.requestId}；等待结束后再重试`,
+      }
+    }
+    const remainingRounds = this.remainingFailureRounds(reqId)
+    if (remainingRounds === 0) {
+      return {
+        ok: false,
+        code: 'grant_required',
+        message: `需求 ${reqId} 的失败轮次额度已用尽；需要追加授权或重新规划后再重试`,
+      }
+    }
+    const next = executionOrder(plan).find(
+      (candidate) => !this.repo.taskArtifact(reqId, plan.planVersion, candidate),
+    )
+    if (next !== taskId) {
+      return {
+        ok: false,
+        code: 'predecessor_pending',
+        message: `任务 ${next ?? '（无）'} 尚未交付，不能重试后续任务 ${taskId}`,
+      }
+    }
+    return { ok: true, plan, task, run, remainingRounds }
+  }
+
+  private remainingFailureRounds(reqId: string): number {
+    const used = this.repo.failureRounds(reqId).length
+    return Math.max(0, this.repo.grantCount(reqId) * MAX_ROUNDS_PER_GRANT - used)
+  }
+
+  /**
+   * 最小重新规划：复制当前已批准任务包，给一个失败任务补充允许文件，生成新的待批准版本。
+   * 不自动批准、不重放旧请求；已有 unknown 请求时要求 owner 显式确认核对后再关闭。
+   */
+  replanTask(input: {
+    reqId: string
+    planVersion: number
+    taskId?: string
+    files: readonly string[]
+    by: string
+    source: string
+    confirmRecovery?: boolean
+  }): OperationResult {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    if (isTerminal(requirement.status)) return fail('terminal', `需求已处于终态 ${requirement.status}`)
+    const plan = this.repo.taskPlan(input.reqId, input.planVersion)
+    if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包 v${input.planVersion}`)
+    const latest = this.repo.latestTaskPlan(input.reqId)
+    if (!latest || latest.planVersion !== plan.planVersion) {
+      return fail('stale_plan', `任务包 v${plan.planVersion} 不是最新版本，不能重新规划`)
+    }
+    if (!this.repo.planApproval(input.reqId, plan.planVersion)) {
+      return fail('plan_not_approved', `任务包 v${plan.planVersion} 尚未批准，不能基于它重新规划`)
+    }
+    if (this.repo.requestsFor(input.reqId).some((request) => request.state === 'pending' || request.state === 'claimed')) {
+      return fail('busy', `需求 ${input.reqId} 仍有待执行请求，不能重新规划`)
+    }
+    if (this.repo.taskRuns(input.reqId, plan.planVersion).some((run) => run.state === TASK_RUN_RUNNING)) {
+      return fail('busy', `需求 ${input.reqId} 仍有运行中的任务，不能重新规划`)
+    }
+
+    const unknown = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
+    if (unknown.length > 0 && input.confirmRecovery !== true) {
+      return fail(
+        'recovery_required',
+        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；请先核对工作副本、Git 与证据，再次确认重新规划（不会自动重放 unknown 请求）`,
+      )
+    }
+
+    let added: string[]
+    try {
+      added = normalizeReplanFiles(input.files)
+    } catch (error) {
+      return fail('bad_files', (error as Error).message)
+    }
+    const runs = this.repo.taskRuns(input.reqId, plan.planVersion)
+    const failedTaskIds = new Set(
+      runs
+        .filter((run) => [TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(run.state as typeof TASK_RUN_FAILED))
+        .map((run) => run.taskId),
+    )
+    const chosenTaskId =
+      input.taskId?.trim() ||
+      executionOrder(plan).find(
+        (taskId) =>
+          failedTaskIds.has(taskId) &&
+          !this.repo.taskArtifact(input.reqId, plan.planVersion, taskId),
+      )
+    if (!chosenTaskId) return fail('task_missing', `需求 ${input.reqId} 没有可补充文件的失败任务`)
+    const task = plan.tasks.find((candidate) => candidate.taskId === chosenTaskId)
+    if (!task) return fail('task_missing', `任务包 v${plan.planVersion} 没有任务 ${chosenTaskId}`)
+    if (task.verification) return fail('verification_task', `任务 ${task.taskId} 是验证任务，不能补充允许文件`)
+    if (this.repo.taskArtifact(input.reqId, plan.planVersion, task.taskId)) {
+      return fail('already_delivered', `任务 ${task.taskId} 已经交付，不能重新规划`)
+    }
+    const taskRun = runs.find((run) => run.taskId === task.taskId)
+    if (!taskRun || ![TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(taskRun.state as typeof TASK_RUN_FAILED)) {
+      return fail('not_failed', `任务 ${task.taskId} 当前不是失败/阻塞/待决定状态，不需要重新规划`)
+    }
+    const newFiles = added.filter((file) => !task.files.includes(file))
+    if (newFiles.length === 0) {
+      return fail('no_change', `任务 ${task.taskId} 的允许文件已经包含 ${added.join('、')}，不需要重新规划`)
+    }
+
+    const planVersion = this.repo.nextPlanVersion(input.reqId)
+    const now = this.now()
+    const nextPlan: TaskPlan = {
+      ...plan,
+      taskPlanId: `plan-${input.reqId}-${planVersion}`,
+      planVersion,
+      createdAt: now,
+      tasks: plan.tasks.map((candidate) =>
+        candidate.taskId === task.taskId
+          ? { ...candidate, files: [...candidate.files, ...newFiles], authorizationSource: '' }
+          : candidate,
+      ),
+    }
+    try {
+      this.repo.recordTaskPlan(nextPlan)
+    } catch (error) {
+      return fail('invalid_plan', `新任务包未通过校验：${(error as Error).message}`)
+    }
+    this.repo.setStatus(input.reqId, PLAN_PROPOSED)
+
+    let recovered = 0
+    if (unknown.length > 0) {
+      const result = this.recover({ reqId: input.reqId, by: input.by, confirm: true })
+      if (!result.ok) return result
+      recovered = unknown.length
+    }
+    return ok(
+      `已生成需求 ${input.reqId} 的任务包 v${planVersion}（任务 ${task.taskId} 补充 ${newFiles.join('、')}）；等待批准`,
+      { planVersion, taskId: task.taskId, files: newFiles, recovered },
+    )
+  }
 
   approvePlan(input: { reqId: string; planVersion: number; by: string; source: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
@@ -481,6 +1141,7 @@ export class ForgeLoopRuntime {
       approval: approval
         ? { planVersion: approval.planVersion, approvedBy: approval.approvedBy, approvedAt: approval.approvedAt }
         : null,
+      candidate: latestPlan ? this.repo.candidate(requirement.reqId, latestPlan.planVersion) : null,
       delivered: artifacts.map((artifact) => artifact.taskId),
       runs: runs.map((run) => ({ taskId: run.taskId, state: run.state, reason: run.reason })),
       failureRounds: recordedFailures.length,
@@ -490,6 +1151,9 @@ export class ForgeLoopRuntime {
         stage: round.stage,
         summary: round.summary,
         occurredAt: round.occurredAt,
+        ...(taskIdOfFailureRound(latestPlan ?? null, round.roundId)
+          ? { taskId: taskIdOfFailureRound(latestPlan ?? null, round.roundId) }
+          : {}),
       })),
       grantQuota: {
         grants,
@@ -592,9 +1256,60 @@ export class ForgeLoopRuntime {
   /**
    * 只读状态看板：需求、任务与待处理问题的事实视图。
    * 供 Web 客户端页面与测试共用；不写记录，也不提供批准、推进或验收入口。
+   * @param limit 需求条数上限；搜索时仍受同一上限约束。
+   * @param query 搜索词；匹配范围见 runtime/board.ts。
    */
-  statusBoard(limit?: number): StatusBoardView {
-    return buildStatusBoard({ repository: this.repo, project: this.config.project, limit })
+  statusBoard(limit?: number, query?: string): StatusBoardView {
+    return buildStatusBoard({ repository: this.repo, project: this.config.project, limit, query })
+  }
+
+  /**
+   * 单条需求的完整只读详情：在 status 视图之上补充最新任务包正文、
+   * 交付产物、验收记录与进度，供工作台展开需求后展示。
+   */
+  requirementDetail(reqId: string): OperationResult {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
+    const view = this.requirementView(requirement) as Record<string, unknown>
+    const plan = this.repo.latestTaskPlan(reqId)
+    const artifacts = plan ? this.repo.taskArtifacts(reqId, plan.planVersion) : []
+    const runs = plan ? this.repo.taskRuns(reqId, plan.planVersion) : []
+    const delivered = new Set(artifacts.map((artifact) => artifact.taskId))
+    const runByTask = new Map(runs.map((run) => [run.taskId, run]))
+    const progress = {
+      total: plan?.tasks.length ?? 0,
+      delivered: 0,
+      failed: 0,
+      awaitingUser: 0,
+      awaitingInput: 0,
+      blocked: 0,
+      running: 0,
+      pending: 0,
+    }
+    for (const task of plan?.tasks ?? []) {
+      const run = runByTask.get(task.taskId)
+      if (delivered.has(task.taskId)) progress.delivered += 1
+      else if (run?.state === TASK_RUN_RUNNING && /ask_user_question/i.test(run.reason)) {
+        progress.awaitingInput += 1
+      } else if (run?.state === TASK_RUN_RUNNING) progress.running += 1
+      else if (run?.state === TASK_RUN_FAILED) progress.failed += 1
+      else if (run?.state === TASK_RUN_BLOCKED) progress.blocked += 1
+      else if (run?.state === TASK_RUN_AWAITING_USER) progress.awaitingUser += 1
+      else progress.pending += 1
+    }
+    const requests = this.repo.requestsFor(reqId)
+    return ok(`需求 ${reqId} 详情`, {
+      ...view,
+      latestPlan: plan,
+      artifacts,
+      acceptanceRecord: this.repo.acceptance(reqId),
+      progress,
+      unknownRequests: requests.filter((request) => request.state === 'unknown').length,
+      activeRequests: requests.filter(
+        (request) => request.state === 'pending' || request.state === 'claimed',
+      ).length,
+      stopRequested: requirement.blockedReason.startsWith('停止请求'),
+    })
   }
 
   showPlan(reqId: string, planVersion?: number): OperationResult {
@@ -657,7 +1372,7 @@ export class ForgeLoopRuntime {
     if (request.action === 'plan') {
       return this.executePlanning(request.reqId, signal)
     }
-    return this.executeAdvance(request.reqId, signal)
+    return this.executeAdvance(request.reqId, signal, request.requestId)
   }
 
   private async executeAnalysis(
@@ -668,10 +1383,17 @@ export class ForgeLoopRuntime {
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
     const started = Date.now()
     const transcript = join(sessionsDir(this.config), `${reqId}-analyze.jsonl`)
+    // 需求 Agent 只读项目事实：活动需求、任务、时间与状态；不开放工具，也不写记录。
+    const facts = buildProjectFacts({
+      repository: this.repo,
+      project: this.config.project,
+      currentReqId: reqId,
+      now: this.now(),
+    })
     const result = await this.runner.run({
       role: 'analyze',
       cwd: this.config.projectPath,
-      prompt: analysisPrompt(requirement),
+      prompt: analysisPrompt(requirement, facts),
       permission: 'workspace-write',
       timeoutMs: this.config.agent.timeoutSeconds * 1000,
       transcriptPath: transcript,
@@ -820,6 +1542,7 @@ export class ForgeLoopRuntime {
   private async executeAdvance(
     reqId: string,
     signal: AbortSignal,
+    requestId: string,
   ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
     const authorized = this.requireAuthorizedPlan(reqId)
     if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
@@ -857,6 +1580,7 @@ export class ForgeLoopRuntime {
         baseline,
         authorizationSource,
         signal,
+        requestId,
       })
       if (outcome.state !== 'delivered') {
         this.repo.setStatus(reqId, outcome.requirementStatus, outcome.reason)
@@ -880,20 +1604,27 @@ export class ForgeLoopRuntime {
     baseline: string
     authorizationSource: string
     signal: AbortSignal
+    /** 推进请求身份：失败轮次 ID 带上它，跨请求重试时同一尝试序号不会互相吞掉。 */
+    requestId: string
   }): Promise<{
     state: 'delivered' | 'awaiting_user' | 'failed' | 'unknown' | 'blocked'
     reason: string
     requirementStatus: string
   }> {
-    const { requirement, plan, taskId, baseline, authorizationSource, signal } = input
+    const { requirement, plan, taskId, baseline, authorizationSource, signal, requestId } = input
     const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
     if (!task) return { state: 'blocked', reason: `任务包内没有任务 ${taskId}`, requirementStatus: 'blocked' }
     const taskDir = evidenceDir(this.config, requirement.reqId, plan.planVersion, taskId)
     const worktree = workspaceDir(this.config, requirement.reqId, plan.planVersion, taskId)
     mkdirSync(taskDir, { recursive: true })
 
-    let feedback = ''
+    // 人工重试是新的一次 advance；把上一次失败原因和测试日志尾部重新交给实现者，
+    // 不要求它从零猜测，也不因此跳过失败轮次或文件边界。
+    let feedback = this.previousTaskFailure(requirement.reqId, plan.planVersion, taskId)
     let attempt = 0
+    // 失败轮次 ID 绑定本次推进请求：跨请求重试时 attempt 从 1 重新开始，
+    // 不能因为与上一次请求的 a1 同名而被当成重复计数。
+    const roundIdFor = (attemptNumber: number): string => `${taskId}-${requestId}-a${attemptNumber}`
     const ledger = new GrantLedger(this.repo.grantCount(requirement.reqId), this.repo.failureRounds(requirement.reqId))
     while (attempt < this.config.maxTaskAttempts) {
       attempt += 1
@@ -966,6 +1697,117 @@ export class ForgeLoopRuntime {
         runCommand('git', ['clean', '-fd'], worktree)
       }
 
+      this.recordRun(
+        requirement.reqId,
+        plan,
+        task,
+        TASK_RUN_RUNNING,
+        task.verification === true ? '启动验证任务' : '启动开发 Agent',
+        0,
+      )
+      if (task.verification === true) {
+        const verificationStarted = Date.now()
+        const test = await this.formalTest({
+          ctx: this.ctx,
+          cwd: worktree,
+          argv: task.testCommand,
+          timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
+          logPath: join(taskDir, 'formal-test.log'),
+          signal,
+        })
+        this.charge(requirement.reqId, verificationStarted)
+        if (test.aborted) {
+          return {
+            state: 'unknown',
+            reason: '验证任务被停止：外部副作用需核对，不会盲目重放',
+            requirementStatus: 'blocked',
+          }
+        }
+        if (test.timedOut) {
+          return {
+            state: 'unknown',
+            reason: `验证任务超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止；需人工核对`,
+            requirementStatus: 'blocked',
+          }
+        }
+        if (test.exitCode !== 0) {
+          const roundId = roundIdFor(attempt)
+          const recorded = ledger.recordFailure({
+            roundId,
+            stage: FAILURE_FORMAL_TEST,
+            summary: `验证任务正式测试退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
+            occurredAt: this.now(),
+          })
+          if (recorded.recorded) {
+            this.repo.recordFailureRound(requirement.reqId, {
+              roundId,
+              stage: FAILURE_FORMAL_TEST,
+              summary: `验证任务正式测试退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
+              occurredAt: this.now(),
+            })
+          }
+          this.recordRun(
+            requirement.reqId,
+            plan,
+            task,
+            TASK_RUN_FAILED,
+            `验证任务正式测试失败（退出码 ${test.exitCode}），日志 ${test.logPath}`,
+            0,
+          )
+          if (!ledger.canRecordFailure) {
+            return {
+              state: 'awaiting_user',
+              reason: `验证任务失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * 3}）；等待追加授权或停止`,
+              requirementStatus: 'blocked',
+            }
+          }
+          continue
+        }
+
+        // 验证任务不产生 diff；候选摘要使用空 diff 的稳定摘要，审查材料记录
+        // “仅验证、无文件改动”的结论，避免把空 diff 冒充实现。
+        const emptyDiff = ''
+        const candidatePath = join(taskDir, 'candidate.diff')
+        writeFileSync(candidatePath, emptyDiff, 'utf8')
+        const reviewPath = join(taskDir, 'review.json')
+        const reviewNote = {
+          kind: 'verification',
+          taskId,
+          verdict: 'pass',
+          detail: '验证任务仅运行批准过的正式测试，不修改文件，因此没有候选 diff。',
+          at: this.now(),
+        }
+        writeFileSync(reviewPath, `${JSON.stringify(reviewNote, null, 2)}\n`, 'utf8')
+        this.repo.recordTaskArtifact({
+          requirementId: requirement.reqId,
+          planVersion: plan.planVersion,
+          taskId,
+          candidateSha256: sha256OfText(emptyDiff),
+          testEvidenceSha256: test.logSha256,
+          reviewSha256: sha256OfText(JSON.stringify(reviewNote)),
+          acceptance: task.acceptance,
+          authorizationSource,
+          recordedAt: this.now(),
+          baselineCommit: baseline,
+        })
+        this.repo.recordEvidence({
+          requirementId: requirement.reqId,
+          planVersion: plan.planVersion,
+          taskId,
+          baselineCommit: baseline,
+          workspacePath: worktree,
+          candidatePath,
+          testLogPath: test.logPath,
+          reviewPath,
+          devSession: '',
+          reviewSession: '',
+          recordedAt: this.now(),
+        })
+        this.recordRun(requirement.reqId, plan, task, TASK_RUN_DELIVERED, '', 0)
+        rmSync(worktree, { recursive: true, force: true })
+        return { state: 'delivered', reason: '', requirementStatus: EXECUTING }
+      }
+
       const devStarted = Date.now()
       const dev = await this.runner.run({
         role: 'dev',
@@ -975,6 +1817,15 @@ export class ForgeLoopRuntime {
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(taskDir, 'dev.jsonl'),
         signal,
+        onActivity: (events) => {
+          this.repo.heartbeatTaskRun({
+            requirementId: requirement.reqId,
+            planVersion: plan.planVersion,
+            taskId,
+            reason: summarizeActivity(events),
+            updatedAt: this.now(),
+          })
+        },
       })
       this.charge(requirement.reqId, devStarted)
       if (dev.status === 'aborted' || dev.status === 'timeout') {
@@ -1097,14 +1948,14 @@ export class ForgeLoopRuntime {
       }
       if (test.exitCode !== 0) {
         const recorded = ledger.recordFailure({
-          roundId: `${taskId}-a${attempt}`,
+          roundId: roundIdFor(attempt),
           stage: FAILURE_FORMAL_TEST,
           summary: `正式测试退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
           occurredAt: this.now(),
         })
         if (recorded.recorded) {
           this.repo.recordFailureRound(requirement.reqId, {
-            roundId: `${taskId}-a${attempt}`,
+            roundId: roundIdFor(attempt),
             stage: FAILURE_FORMAL_TEST,
             summary: `正式测试退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
             occurredAt: this.now(),
@@ -1165,11 +2016,38 @@ export class ForgeLoopRuntime {
     }
   }
 
+  /**
+   * 上一次失败留下的可复用上下文：运行原因、最近失败轮次与正式测试日志尾部。
+   * 只在任务最近一次运行确为失败/阻塞/待决定时返回；交付或运行中不产生反馈。
+   */
+  private previousTaskFailure(reqId: string, planVersion: number, taskId: string): string {
+    const run = this.repo.taskRuns(reqId, planVersion).find((candidate) => candidate.taskId === taskId)
+    if (!run || ![TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(run.state)) {
+      return ''
+    }
+    const parts = [`上一次任务运行（${run.state}）：${run.reason || '未记录原因'}`]
+    const rounds = this.repo.failureRounds(reqId).slice(-2)
+    if (rounds.length > 0) {
+      parts.push(`已记录失败轮次：${rounds.map((round) => `${round.roundId} ${round.summary}`).join('；')}`)
+    }
+    const logPath = join(evidenceDir(this.config, reqId, planVersion, taskId), 'formal-test.log')
+    if (existsSync(logPath)) {
+      const tail = readFileSync(logPath, 'utf8').slice(-2000).trim()
+      if (tail) parts.push(`上一次正式测试日志尾部：\n${tail}`)
+    }
+    return `\n\n${parts.join('\n')}\n请先针对上述失败修复，不要重复同样的失败。`
+  }
+
   private recordRun(
     reqId: string,
     plan: TaskPlan,
     task: PlannedTask,
-    state: typeof TASK_RUN_DELIVERED | typeof TASK_RUN_FAILED | typeof TASK_RUN_BLOCKED | typeof TASK_RUN_AWAITING_USER,
+    state:
+      | typeof TASK_RUN_RUNNING
+      | typeof TASK_RUN_DELIVERED
+      | typeof TASK_RUN_FAILED
+      | typeof TASK_RUN_BLOCKED
+      | typeof TASK_RUN_AWAITING_USER,
     reason: string,
     executedSeconds: number,
   ): void {
@@ -1192,6 +2070,7 @@ export class ForgeLoopRuntime {
     suffix: string,
   ): { ok: boolean; detail: string } {
     const rawDiff = readFileSync(diffPath, 'utf8')
+    if (rawDiff.trim() === '') return { ok: true, detail: '' }
     const normalized = rawDiff.endsWith('\n') ? rawDiff : `${rawDiff}\n`
     const applyPath = join(dir, `.apply-${suffix}-${label}.diff`)
     writeFileSync(applyPath, normalized, 'utf8')

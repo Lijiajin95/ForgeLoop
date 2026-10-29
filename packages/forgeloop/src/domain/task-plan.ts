@@ -30,6 +30,14 @@ export interface PlannedTask {
   readonly dependsOn: readonly string[]
   readonly limits: TaskLimits
   readonly authorizationSource: string
+  /** 验证任务只检查既有交付，不修改文件；可没有 files，交付语义见运行时。 */
+  readonly verification?: boolean
+}
+
+export interface TechnicalSolution {
+  readonly summary: string
+  readonly approach: readonly string[]
+  readonly risks: readonly string[]
 }
 
 export interface TaskPlan {
@@ -39,6 +47,8 @@ export interface TaskPlan {
   readonly planVersion: number
   readonly requirementVersion: number
   readonly tasks: readonly PlannedTask[]
+  /** 研发 Agent 给出的技术方案；新任务包应提供，历史记录可能没有。 */
+  readonly technicalSolution?: TechnicalSolution
   readonly createdAt: string
 }
 
@@ -85,7 +95,13 @@ export function validateTask(task: PlannedTask): void {
   requireNonEmpty(task.taskId, 'task_id')
   requireNonEmpty(task.goal, 'goal')
   requireNonEmpty(task.acceptance, 'acceptance')
-  validateFiles(task.files)
+  if (task.verification === true) {
+    if (task.files.length > 0) {
+      throw new RuleViolationError('验证任务不得声明准修改文件；files 必须为空')
+    }
+  } else {
+    validateFiles(task.files)
+  }
   if (task.testCommand.length === 0) throw new RuleViolationError('任务必须给出可执行的正式测试命令')
   for (const argument of task.testCommand) requireNonEmpty(argument, 'test_command')
   if (task.dependsOn.includes(task.taskId)) {
@@ -128,6 +144,11 @@ export function executionOrder(plan: Pick<TaskPlan, 'tasks'>): string[] {
 
 export function validateTaskPlan(plan: TaskPlan): void {
   requireNonEmpty(plan.taskPlanId, 'task_plan_id')
+  if (plan.technicalSolution !== undefined) {
+    requireNonEmpty(plan.technicalSolution.summary, 'technical_solution.summary')
+    toStringList(plan.technicalSolution.approach, 'technical_solution.approach', false)
+    toStringList(plan.technicalSolution.risks, 'technical_solution.risks', true)
+  }
   requireNonEmpty(plan.requirementId, 'requirement_id')
   requireNonEmpty(plan.project, 'project')
   if (plan.planVersion < 1) throw new RuleViolationError('任务包版本号必须从 1 开始')
@@ -231,6 +252,15 @@ function limitsFrom(value: unknown): TaskLimits {
 }
 
 /** 解析模型给出的任务包载荷；不允许载荷自带 authorization_source。 */
+function parseTechnicalSolution(value: unknown): TechnicalSolution {
+  const data = asRecord(value, 'technical_solution')
+  return {
+    summary: requireNonEmpty(data.summary, 'technical_solution.summary'),
+    approach: toStringList(data.approach, 'technical_solution.approach', false),
+    risks: toStringList(data.risks ?? [], 'technical_solution.risks', true),
+  }
+}
+
 export function parseTaskPlanDraft(
   raw: unknown,
   context: { requirementId: string; project: string; planVersion: number; requirementVersion: number; now: string },
@@ -259,14 +289,18 @@ export function parseTaskPlanDraft(
     return {
       taskId: requireNonEmpty(task.task_id ?? task.taskId, 'task_id'),
       goal: requireNonEmpty(task.goal, 'goal'),
-      files: toStringList(task.files, 'files', false),
+      files: toStringList(task.files, 'files', task.verification === true),
       acceptance: requireNonEmpty(task.acceptance, 'acceptance'),
       testCommand: toStringList(task.test_command ?? task.testCommand, 'test_command', false),
       dependsOn: toStringList(task.depends_on ?? task.dependsOn ?? [], 'depends_on', true),
       limits: limitsFrom(task.limits),
       authorizationSource: '',
+      ...(task.verification === true ? { verification: true } : {}),
     } satisfies PlannedTask
   })
+  const solution = data.technical_solution === undefined
+    ? undefined
+    : parseTechnicalSolution(data.technical_solution)
   const plan: TaskPlan = {
     taskPlanId: `plan-${context.requirementId}-${context.planVersion}`,
     requirementId: context.requirementId,
@@ -274,6 +308,7 @@ export function parseTaskPlanDraft(
     planVersion: context.planVersion,
     requirementVersion: context.requirementVersion,
     tasks,
+    ...(solution === undefined ? {} : { technicalSolution: solution }),
     createdAt: context.now,
   }
   validateTaskPlan(plan)

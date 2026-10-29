@@ -43,7 +43,7 @@ check-static: typecheck contracts
 contracts: architecture-contract-check
 
 architecture-contract:
-	$(CONTRACTS) --update-architecture
+	$(CONTRACTS)
 
 architecture-contract-check:
 	$(CONTRACTS)

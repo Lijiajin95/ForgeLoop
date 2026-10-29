@@ -7,10 +7,13 @@ import { Repository } from '../src/records/repository.js'
 import { MAX_ROUNDS_PER_GRANT } from '../src/domain/counting.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
 import {
+  BOARD_TASK_AWAITING_INPUT,
   BOARD_TASK_DELIVERED,
   BOARD_TASK_PENDING,
+  buildProjectFacts,
   buildStatusBoard,
   requirementTitle,
+  taskIdOfFailureRound,
 } from '../src/runtime/board.js'
 
 const PROJECT = 'forgeloop'
@@ -102,8 +105,9 @@ function analyze(reqId: string, clarifications: string[], analysisVersion = 1): 
   })
 }
 
-function board(limit?: number) {
-  return buildStatusBoard({ repository, project: PROJECT, now: NOW, limit })
+function board(options?: number | { limit?: number; query?: string }) {
+  const normalized = typeof options === 'number' ? { limit: options } : (options ?? {})
+  return buildStatusBoard({ repository, project: PROJECT, now: NOW, ...normalized })
 }
 
 describe('status board', () => {
@@ -167,6 +171,10 @@ describe('status board', () => {
 
     const view = board()
     expect(view.tasks[0]!.state).toBe('failed')
+    expect(view.tasks[0]!.failureReason).toBe('正式测试退出码 1')
+    const actions = view.tasks[0]!.failureAdvice?.actions.join('\n') ?? ''
+    expect(actions).toContain('正式测试日志')
+    expect(actions).toContain('重试')
     expect(view.requirements[0]!.progress.failed).toBe(1)
     const issue = view.issues.find((candidate) => candidate.kind === 'failure_round')
     expect(issue).toMatchObject({ reqId, severity: 'attention', title: '正式测试退出码 1' })
@@ -235,6 +243,36 @@ describe('status board', () => {
     expect(view.requirements[0]!.approval).toBe('stale')
     const issue = view.issues.find((candidate) => candidate.kind === 'approval')
     expect(issue?.detail).toContain('旧版本批准不能驱动新任务包')
+  })
+
+  it('offers replan for an approved plan with a failed task and hides it for terminal requirements', () => {
+    const reqId = submit('req-replan')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 't1',
+      state: 'failed',
+      reason: '正式测试失败（退出码 1）',
+      executedSeconds: 1,
+      updatedAt: NOW,
+    })
+    repository.setStatus(reqId, 'blocked', '任务失败，等待决定')
+
+    const view = board()
+    const requirement = view.requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.actions).toContain('replan')
+    expect(requirement.actions).not.toContain('accept')
+
+    repository.setStatus(reqId, 'cancelled')
+    expect(board().requirements.find((item) => item.reqId === reqId)?.actions).toEqual([])
   })
 
   it('reports blocked requirements with the recorded reason', () => {
@@ -338,5 +376,228 @@ describe('status board', () => {
     const requirement = repository.getRequirement('req-1')!
     expect(requirementTitle({ ...requirement, versions: requirement.versions })).toContain('第一行')
     expect(requirement.versions[0]!.text).toBe(long.trim())
+  })
+
+  it('marks a running task waiting for input and keeps the requirement stop/unknown facts separate', () => {
+    const reqId = submit('req-1')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.setStatus(reqId, 'blocked', '停止请求：等待核对')
+    repository.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 't1',
+      state: 'running',
+      reason: '正在调用工具 ask_user_question',
+      executedSeconds: 3,
+      updatedAt: NOW,
+    })
+    repository.recordRequest({
+      requestId: 'request-unknown',
+      reqId,
+      project: PROJECT,
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: NOW,
+    })
+    repository.resolveRequest('request-unknown', 'unknown', '宿主停止', NOW)
+
+    const view = board()
+    const requirement = view.requirements[0]!
+    const task = view.tasks[0]!
+    expect(task.state).toBe(BOARD_TASK_AWAITING_INPUT)
+    expect(task.resultUnknown).toBe(true)
+    expect(requirement.progress.awaitingInput).toBe(1)
+    expect(requirement.progress.running).toBe(0)
+    expect(requirement.stopRequested).toBe(true)
+    expect(requirement.unknownRequests).toBe(1)
+    expect(requirement.actions).toEqual(['stop', 'cancel'])
+    const blocked = view.issues.find((issue) => issue.kind === 'blocked')
+    expect(blocked?.detail).toContain('不能认定已经停稳')
+  })
+
+  it('exposes server-judged actions for approval, advance and stop without inventing acceptance', () => {
+    const proposed = submit('req-proposed')
+    repository.recordTaskPlan(plan(proposed))
+    repository.setStatus(proposed, 'plan_proposed')
+    expect(board().requirements.find((item) => item.reqId === proposed)?.actions).toEqual([
+      'approve',
+      'cancel',
+    ])
+
+    const approved = submit('req-approved')
+    repository.recordTaskPlan(plan(approved))
+    repository.recordPlanApproval({
+      requirementId: approved,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.setStatus(approved, 'executing')
+    repository.recordTaskRun({
+      requirementId: approved,
+      planVersion: 1,
+      taskId: 't1',
+      state: 'running',
+      reason: '启动开发 Agent',
+      executedSeconds: 1,
+      updatedAt: NOW,
+    })
+    const executing = board().requirements.find((item) => item.reqId === approved)!
+    // 任务仍在运行/等待输入时不重复提供“推进”；停止与取消仍可用。
+    expect(executing.actions).not.toContain('advance')
+    expect(executing.actions).toContain('stop')
+    expect(executing.actions).toContain('cancel')
+    expect(executing.actions).not.toContain('accept')
+
+    // 没有运行中任务时，已批准执行中的需求可以继续推进。
+    const idle = submit('req-idle')
+    repository.recordTaskPlan(plan(idle))
+    repository.recordPlanApproval({
+      requirementId: idle,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.setStatus(idle, 'executing')
+    expect(board().requirements.find((item) => item.reqId === idle)?.actions).toContain('advance')
+  })
+
+  it('searches requirement text, task goals and versions within the authoritative records', () => {
+    const first = submit('req-search-a', '给工作台增加搜索与筛选')
+    repository.recordTaskPlan(plan(first))
+    submit('req-search-b', '补测试与文档')
+
+    const byText = board({ query: '搜索' })
+    expect(byText.query).toBe('搜索')
+    expect(byText.requirements.map((item) => item.reqId)).toEqual(['req-search-a'])
+    expect(byText.tasks.every((task) => task.reqId === 'req-search-a')).toBe(true)
+
+    // “写文档”只出现在任务目标里，证明搜索也覆盖任务字段。
+    const byTaskGoal = board({ query: '写文档' })
+    expect(byTaskGoal.requirements.map((item) => item.reqId)).toEqual(['req-search-a'])
+
+    const none = board({ query: '完全不存在的词' })
+    expect(none.requirements).toEqual([])
+    expect(none.tasks).toEqual([])
+    expect(none.issues).toEqual([])
+    expect(none.summary.requirements).toBe(0)
+  })
+
+  it('reports truncation for search results beyond the limit', () => {
+    submit('req-a', '共同关键词 一')
+    submit('req-b', '共同关键词 二')
+    submit('req-c', '共同关键词 三')
+    const view = buildStatusBoard({ repository, project: PROJECT, now: NOW, limit: 2, query: '共同关键词' })
+    expect(view.limit).toBe(2)
+    expect(view.truncated).toBe(true)
+    expect(view.summary.requirements).toBe(3)
+    expect(view.requirements).toHaveLength(2)
+  })
+
+  it('links a failure-round issue to its task without guessing when the prefix is unknown', () => {
+    expect(taskIdOfFailureRound(plan('req-x'), 't1-rq-123-a1')).toBe('t1')
+    expect(taskIdOfFailureRound(plan('req-x'), 'other-task-a1')).toBeUndefined()
+    expect(taskIdOfFailureRound(null, 't1-a1')).toBeUndefined()
+
+    const reqId = submit('req-1')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordFailureRound(reqId, {
+      roundId: 't2-rq-1-a1',
+      stage: 'formal_test',
+      summary: '正式测试退出码 1',
+      occurredAt: NOW,
+    })
+    const issue = board().issues.find((candidate) => candidate.kind === 'failure_round')
+    expect(issue?.taskId).toBe('t2')
+  })
+})
+
+describe('project facts for the requirement Agent', () => {
+  it('puts the current requirement first with times, statuses and task states', () => {
+    const older = submit('req-older', '旧需求', '2026-10-22T00:00:00.000Z')
+    const newer = submit('req-newer', '新需求\n第二行', '2026-10-23T00:00:00.000Z')
+    repository.recordTaskPlan(plan(older))
+    repository.setStatus(older, 'executing')
+    deliver(older, 't1')
+    repository.recordTaskRun({
+      requirementId: older,
+      planVersion: 1,
+      taskId: 't2',
+      state: 'failed',
+      reason: '正式测试退出码 1',
+      executedSeconds: 3,
+      updatedAt: NOW,
+    })
+
+    const facts = buildProjectFacts({
+      repository,
+      project: PROJECT,
+      currentReqId: older,
+      now: NOW,
+    })
+
+    expect(facts.generatedAt).toBe(NOW)
+    expect(facts.total).toBe(2)
+    expect(facts.requirements.map((requirement) => requirement.reqId)).toEqual([older, newer])
+    const current = facts.requirements[0]!
+    expect(current).toMatchObject({
+      current: true,
+      status: 'executing',
+      version: 1,
+      createdAt: '2026-10-22T00:00:00.000Z',
+      updatedAt: '2026-10-22T00:00:00.000Z',
+      planVersion: 1,
+      approval: 'missing',
+      taskCount: 2,
+    })
+    expect(current.tasks.map((task) => [task.taskId, task.state, task.lastActivity])).toEqual([
+      ['t1', BOARD_TASK_DELIVERED, ''],
+      ['t2', 'failed', NOW],
+    ])
+    expect(facts.requirements[1]).toMatchObject({ current: false, title: '新需求' })
+
+    const capped = buildProjectFacts({
+      repository,
+      project: PROJECT,
+      currentReqId: older,
+      now: NOW,
+      taskLimit: 1,
+    })
+    expect(capped.requirements[0]!.tasks).toHaveLength(1)
+    expect(capped.requirements[0]!.taskCount).toBe(2)
+  })
+
+  it('excludes ended requirements from the list, counts them, and caps the list', () => {
+    const ids: string[] = []
+    for (let index = 0; index < 12; index += 1) {
+      ids.push(
+        submit(
+          `req-${index}`,
+          `需求 ${index}`,
+          `2026-10-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+        ),
+      )
+    }
+    repository.setStatus(ids[0]!, 'accepted')
+
+    const facts = buildProjectFacts({ repository, project: PROJECT, now: NOW, limit: 5 })
+
+    expect(facts.total).toBe(11)
+    expect(facts.terminal).toBe(1)
+    expect(facts.requirements).toHaveLength(5)
+    expect(facts.notListed).toBe(6)
+    expect(facts.requirements.some((requirement) => requirement.reqId === ids[0])).toBe(false)
+    expect(facts.requirements[0]!.reqId).toBe(ids[11])
   })
 })

@@ -1,11 +1,7 @@
 {
-  "schema_version": 2,
-  "product": "forgeloop-dsh",
+  "schema_version": 3,
   "runtime": {
-    "host": "deepseek-harness",
-    "language": "typescript",
-    "package": "packages/forgeloop",
-    "python_runtime": "retired"
+    "package": "packages/forgeloop"
   },
   "layers": [
     {
@@ -47,114 +43,28 @@
       ]
     }
   ],
-  "modules": [
-    "packages/forgeloop/src/cli/pack.ts",
-    "packages/forgeloop/src/config.ts",
-    "packages/forgeloop/src/domain/counting.ts",
-    "packages/forgeloop/src/domain/delivery.ts",
-    "packages/forgeloop/src/domain/errors.ts",
-    "packages/forgeloop/src/domain/impact-explain.ts",
-    "packages/forgeloop/src/domain/impact.ts",
-    "packages/forgeloop/src/domain/language.ts",
-    "packages/forgeloop/src/domain/limits.ts",
-    "packages/forgeloop/src/domain/requirement.ts",
-    "packages/forgeloop/src/domain/status.ts",
-    "packages/forgeloop/src/domain/task-plan.ts",
-    "packages/forgeloop/src/domain/work.ts",
-    "packages/forgeloop/src/index.ts",
-    "packages/forgeloop/src/records/db.ts",
-    "packages/forgeloop/src/records/repository.ts",
-    "packages/forgeloop/src/runtime/agent-runner.ts",
-    "packages/forgeloop/src/runtime/board.ts",
-    "packages/forgeloop/src/runtime/coordinator.ts",
-    "packages/forgeloop/src/runtime/formal-test.ts",
-    "packages/forgeloop/src/runtime/lock.ts",
-    "packages/forgeloop/src/runtime/prompts.ts",
-    "packages/forgeloop/src/runtime/service.ts",
-    "packages/forgeloop/src/runtime/workspace.ts",
-    "packages/forgeloop/src/tools.ts"
-  ],
   "persistence": {
     "engine": "sqlite",
     "driver": "node:sqlite",
-    "database": "<recordsRoot>/projects/<project>/records.sqlite",
-    "tables": [
-      "actions",
-      "requirement_analyses",
-      "requirement_budget",
-      "requirement_cancellations",
-      "requirement_candidates",
-      "requirement_failure_rounds",
-      "requirement_grants",
-      "requirement_plan_approvals",
-      "requirement_task_artifacts",
-      "requirement_task_evidence",
-      "requirement_task_plans",
-      "requirement_task_runs",
-      "requirement_versions",
-      "requirements",
-      "runtime_meta",
-      "service_requests"
-    ],
-    "durable_artifacts": [
-      "<recordsRoot>/projects/<project>/evidence/<req>/v<plan>/<task>",
-      "<recordsRoot>/projects/<project>/candidates/<req>/v<plan>",
-      "<recordsRoot>/projects/<project>/sessions"
-    ]
-  },
-  "external_seams": {
-    "agent_execution": "ctx.agents (in-process DSH Agent sessions)",
-    "impact_inference": "ctx.agents (tool-less analyze session; only when --explain/explain=true is explicit)",
-    "tools": "ctx.tools.register",
-    "subprocess": "ctx.subprocess / node:child_process for git and formal tests",
-    "database": "node:sqlite",
-    "model_config": "agentDefaultModel or plugin config agent.provider/model",
-    "web_board_rpc": "ctx.connection.rpc.handle('/forgeloop') — authenticated read-only board endpoint for the Web client; absent in profiles without a browser connection service"
+    "database": "<recordsRoot>/projects/<project>/records.sqlite"
   },
   "model_surface": {
-    "tools": [
-      "forgeloop_status",
-      "forgeloop_show_requirement",
-      "forgeloop_show_plan",
-      "forgeloop_evidence",
-      "forgeloop_requests",
-      "forgeloop_impact",
-      "forgeloop_submit_requirement"
-    ],
-    "note": "模型工具只读查询与需求受理；不能批准、验收、推进或停止。2026-10-28 已删除 /fl 人类命令表面，新方案的客户决定入口尚未实现，不得用工具或参数伪造所有者决定"
+    "prefix": "forgeloop_"
   },
   "ui_surface": {
-    "client_bundle": "packages/forgeloop/client.js",
     "slot": "conversation.view",
     "view_id": "forgeloop",
     "order": 20,
-    "label_zh": "天工",
-    "label_en": "Forge",
-    "data_path": "/api/forgeloop/board",
-    "data_endpoints": [
-      "board",
-      "detail"
-    ],
-    "read_only": true,
-    "note": "会话区第三个视图，位于对话(0)与轨迹(10)之后；只读展示需求、任务与待处理问题，没有批准、推进或验收入口"
+    "data_path": "/api/forgeloop/board"
   },
-  "retired": {
-    "python_core": "removed from the working tree; recover from Git history",
-    "http_service": "forgeloop serve/web retired",
-    "web_console": "ADRs 0006/0007 product paths retired",
-    "independent_launcher": "forgeloop-launcher retired",
-    "source_paths": [
-      "legacy",
-      "src/forgeloop",
-      "frontend",
-      "scripts/install_local_service.sh"
-    ],
-    "human_command_surface": "/fl 斜杠命令已于 2026-10-28 从工作树删除；替代的工作台／专用会话入口尚未实现"
-  },
-  "verification": {
-    "check": "make check",
-    "architecture_contract": "make architecture-contract",
-    "plugin_install": "dsh plugin --profile <name> add <tarball|path>",
-    "package": "npm run candidate --workspace forgeloop-dsh"
+  "retired_paths": [
+    "legacy",
+    "src/forgeloop",
+    "frontend",
+    "scripts/install_local_service.sh"
+  ],
+  "session_surface": {
+    "preset_id": "forgeloop",
+    "interception": "agent/pre-step"
   }
 }

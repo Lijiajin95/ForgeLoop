@@ -192,6 +192,18 @@ export class Coordinator {
     }
   }
 
+  /** 中止某个需求当前在途的请求；返回中止数量。 */
+  abortRequirement(reqId: string): number {
+    let aborted = 0
+    for (const [requestId, controller] of this.inflight) {
+      const request = this.runtime.repo.request(requestId)
+      if (request?.reqId !== reqId) continue
+      controller.abort()
+      aborted += 1
+    }
+    return aborted
+  }
+
   /** 供查询展示：动作与请求的对应关系。 */
   describeActions(reqId: string): unknown[] {
     return this.runtime.repo

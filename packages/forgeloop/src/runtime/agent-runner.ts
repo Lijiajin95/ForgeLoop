@@ -23,6 +23,8 @@ export interface AgentRunRequest {
   readonly signal?: AbortSignal
   /** 'none' 用于只做推理的阶段：不给 Agent 任何工具，避免无界探索。 */
   readonly tools?: 'none' | 'default'
+  /** 运行中周期性回报当前事件快照，供任务心跳与详情页使用。 */
+  readonly onActivity?: (events: readonly AnyRecord[]) => void
 }
 
 export interface AgentRunResult {
@@ -138,6 +140,9 @@ export class AgentRunner {
     const tools = serviceOf(this.ctx, 'tools') as
       | { schemas(scope?: unknown): Array<{ name?: string }> }
       | undefined
+    // 编程式 Agent 默认不组合会话 preset，也就没有 shell/fs 等编码工具。
+    // 开发与审查角色必须显式挂载 standard preset；只做推理的角色继续显式禁用全部工具。
+    const presetId = request.tools === 'none' ? undefined : 'standard'
     const setup =
       request.tools === 'none' && tools
         ? (agentCtx: AnyRecord) => {
@@ -147,10 +152,18 @@ export class AgentRunner {
               | undefined
             if (names.length > 0) scoped?.restrict({ deny: names })
           }
-        : undefined
+        : presetId
+          ? async (agentCtx: AnyRecord) => {
+              const registry = serviceOf(this.ctx, 'agentPresets') as
+                | { mount(context: AnyRecord, id: string): Promise<unknown> }
+                | undefined
+              if (!registry?.mount) throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
+              await registry.mount(agentCtx, presetId)
+            }
+          : undefined
     const handle = await agents.create({
       sessionId,
-      meta: { cwd: request.cwd },
+      meta: { cwd: request.cwd, ...(presetId ? { agentPreset: presetId } : {}) },
       agentOptions: { provider: selection.provider, model: selection.model },
       ...(setup ? { setup } : {}),
     })
@@ -172,6 +185,22 @@ export class AgentRunner {
     }
     request.signal?.addEventListener('abort', onAbort, { once: true })
 
+    mkdirSync(dirname(request.transcriptPath), { recursive: true })
+    const flushActivity = (): void => {
+      try {
+        const events = handle.agent.session.ownEvents()
+        writeFileSync(
+          request.transcriptPath,
+          `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
+          'utf8',
+        )
+        request.onActivity?.(events)
+      } catch {
+        // 活动快照是观测数据；写入失败不能中断 Agent 回合。
+      }
+    }
+    const activityTimer = setInterval(flushActivity, 1_500)
+    activityTimer.unref?.()
     let whenIdleError = ''
     try {
       handle.agent.followup({
@@ -185,6 +214,7 @@ export class AgentRunner {
       whenIdleError = (error as Error).message
     } finally {
       clearTimeout(timer)
+      clearInterval(activityTimer)
       request.signal?.removeEventListener('abort', onAbort)
     }
 

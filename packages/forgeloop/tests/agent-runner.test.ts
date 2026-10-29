@@ -12,6 +12,8 @@ function fakeContext(options: {
   events: unknown[]
   behavior?: 'complete' | 'hang' | 'throw'
   onCancel?: () => void
+  onMount?: (id: string) => void
+  onDeny?: (names: string[]) => void
 }) {
   let cancelled = false
   const agent = {
@@ -41,7 +43,27 @@ function fakeContext(options: {
   }
   return {
     ctx: {
-      agents: { create: async () => ({ agent, dispose: async () => undefined }) },
+      agents: {
+        create: async (createOptions: Record<string, unknown>) => {
+          const setup = createOptions.setup as ((ctx: unknown) => unknown) | undefined
+          await setup?.({
+            tools: {
+              restrict: (filter: { deny: string[] }) => {
+                options.onDeny?.(filter.deny)
+                return () => undefined
+              },
+            },
+          })
+          return { agent, dispose: async () => undefined }
+        },
+      },
+      agentPresets: {
+        mount: async (_ctx: unknown, id: string) => {
+          options.onMount?.(id)
+          return { id }
+        },
+      },
+      tools: { schemas: () => [{ name: 'bash' }, { name: 'fs' }] },
       agentDefaultModel: { currentSelection: () => ({ provider: 'p', model: 'm' }) },
     },
     agent,
@@ -135,5 +157,58 @@ describe('AgentRunner result extraction', () => {
         agent: { provider: 'x', model: 'y', timeoutSeconds: 60 },
       }).resolveSelection(),
     ).toEqual({ provider: 'x', model: 'y' })
+  })
+})
+
+describe('AgentRunner tool composition', () => {
+  it('mounts the standard preset for coding roles and denies all tools for reasoning roles', async () => {
+    const mounted: string[] = []
+    const denied: string[][] = []
+    const { ctx } = fakeContext({
+      events: [event('turn/end', { reason: { kind: 'completed' } })],
+      onMount: (id) => mounted.push(id),
+      onDeny: (names) => denied.push(names),
+    })
+    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: 'p', model: 'm', timeoutSeconds: 60 } })
+
+    await runner.run(request({ role: 'dev' }))
+    expect(mounted).toEqual(['standard'])
+
+    await runner.run(request({ role: 'analyze', tools: 'none' }))
+    expect(denied).toEqual([['bash', 'fs']])
+  })
+
+  it('reports a host without agentPresets.mount when a coding role needs tools', async () => {
+    const { ctx } = fakeContext({
+      events: [event('turn/end', { reason: { kind: 'completed' } })],
+    })
+    delete (ctx as Record<string, unknown>).agentPresets
+    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: 'p', model: 'm', timeoutSeconds: 60 } })
+    await expect(runner.run(request({ role: 'dev' }))).rejects.toThrow('agentPresets.mount')
+  })
+})
+
+describe('AgentRunner live activity', () => {
+  it('reports periodic activity snapshots and keeps the transcript current', async () => {
+    const { ctx } = fakeContext({
+      events: [event('turn/start', { turn: 1 }), event('step/start', { step: 1 })],
+      behavior: 'hang',
+    })
+    const controller = new AbortController()
+    const snapshots: number[] = []
+    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: 'p', model: 'm', timeoutSeconds: 60 } })
+    const pending = runner.run(
+      request({
+        role: 'dev',
+        signal: controller.signal,
+        onActivity: (events) => snapshots.push(events.length),
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 1_700))
+    controller.abort()
+    const result = await pending
+    expect(result.status).toBe('aborted')
+    expect(snapshots.length).toBeGreaterThan(0)
+    expect(snapshots[0]).toBeGreaterThan(0)
   })
 })
