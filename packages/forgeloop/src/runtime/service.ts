@@ -4,10 +4,12 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { businessReviewDir, candidatesDir, evidenceDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
+import { PLUGIN_VERSION } from './version.js'
 import { Database } from '../records/db.js'
 import { Repository, type PlanReviewRecord, type ServiceRequestRecord, type VerificationRecord } from '../records/repository.js'
 import { RuleViolationError } from '../domain/errors.js'
@@ -1400,6 +1402,10 @@ ${answer}`
     return ok(`已核对并关闭 ${requests.length} 条未收口请求；不会自动重放其外部副作用`)
   }
 
+  /**
+   * 候选包：只从“已通过独立验证的那一份工作区”构建，保证安装的就是被验证的候选。
+   * 构建前后核对候选内容、产物摘要与包版本，并记录验证绑定。
+   */
   buildCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
@@ -1411,15 +1417,58 @@ ${answer}`
     if (missing.length > 0) {
       return fail('not_delivered', `仍有任务未交付，不能打包：${missing.map((task) => task.taskId).join('、')}`)
     }
-    if (this.config.candidateBuildCommand.length === 0 || this.config.candidatePackageCommand.length === 0 || !this.config.candidateArtifactPath) {
+    if (
+      this.config.candidateBuildCommand.length === 0 ||
+      this.config.candidatePackageCommand.length === 0 ||
+      !this.config.candidateArtifactPath
+    ) {
       return fail('candidate_not_configured', '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath')
     }
     if (input.version !== undefined && !/^\d+\.\d+\.\d+$/.test(input.version)) {
       return fail('version_invalid', `候选版本必须是 x.y.z，实际 ${JSON.stringify(input.version)}`)
     }
+
+    if (!this.repo.acceptance(input.reqId).accepted_at) {
+      return fail('acceptance_required', `需求 ${input.reqId} 尚未通过整体验收；不能构建可发布候选`)
+    }
+    const identity = this.candidateIdentity(plan, artifacts)
+    const verification = this.repo.verificationForCandidate(input.reqId, plan.planVersion, identity)
+    if (!verification || verification.verdict !== 'pass') {
+      return fail('verification_required', `候选 ${identity.slice(0, 16)}… 没有通过的独立验证；不能构建可发布候选`)
+    }
+    if (!this.verificationMaterialValid(verification)) {
+      return fail('verification_invalid', '独立验证报告文件缺失或摘要不一致；不能构建可发布候选')
+    }
+    const review = this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
+    if (!review || review.verdict !== 'pass' || review.verificationSha256 !== verification.reportSha256) {
+      return fail('business_review_required', `候选 ${identity.slice(0, 16)}… 没有通过的业务终审；不能构建可发布候选`)
+    }
+    const source = join(verification.evidenceDir, 'workspace')
+    if (!existsSync(source)) {
+      return fail('verification_workspace_missing', `独立验证工作区不存在：${source}`)
+    }
+    // 验证副本必须仍是当时那一份内容：受保护内容摘要与记录一致。
+    let protectedDigest = ''
+    let recordedDigest = ''
+    try {
+      protectedDigest = sha256OfText(requireGit(source, ['diff', 'HEAD', '--binary']))
+      const canonical = JSON.parse(readFileSync(verification.reportPath, 'utf8')) as {
+        candidateIntegrity?: { candidateContentSha256?: unknown }
+      }
+      recordedDigest =
+        typeof canonical.candidateIntegrity?.candidateContentSha256 === 'string'
+          ? canonical.candidateIntegrity.candidateContentSha256
+          : ''
+    } catch {
+      return fail('verification_workspace_invalid', '无法核对独立验证工作区的候选内容')
+    }
+    if (!recordedDigest || protectedDigest !== recordedDigest) {
+      return fail('candidate_content_mismatch', '独立验证工作区的受保护内容与验证记录不一致；不能据此构建')
+    }
     const dir = candidatesDir(this.config, input.reqId, plan.planVersion)
-    const baseline = headCommit(this.config.projectPath)
-    prepareSnapshotWorkspace({ projectPath: this.config.projectPath, workspacePath: dir, baselineCommit: baseline })
+    rmSync(dir, { recursive: true, force: true })
+    mkdirSync(dir, { recursive: true })
+    cpSync(source, dir, { recursive: true })
     if (input.version !== undefined) {
       const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
       if (!existsSync(packageJsonPath)) {
@@ -1429,15 +1478,10 @@ ${answer}`
       packageJson.version = input.version
       writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
     }
-    for (const taskId of executionOrder(plan)) {
-      const evidence = this.repo.evidence(input.reqId, plan.planVersion, taskId)
-      if (!evidence) return fail('evidence_missing', `任务 ${taskId} 缺少证据路径`)
-      // 历史候选 diff 可能缺尾部换行；为 patch 归一化到临时文件，不改动证据原文。
-      const applied = this.applyDiffFile(dir, evidence.candidatePath, taskId, taskId)
-      if (!applied.ok) {
-        return fail('patch_failed', `任务 ${taskId} 的候选 diff 无法应用到候选副本：${applied.detail}`)
-      }
-    }
+    const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
+    const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
+    if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
     const log: string[] = []
     for (const [label, command, timeout] of [
       ['prepare', this.config.worktreePrepareCommand, this.config.formalTestTimeoutSeconds * 1000],
@@ -1446,9 +1490,7 @@ ${answer}`
     ] as const) {
       if (command.length === 0) continue
       const result = runCommand(command[0]!, command.slice(1), dir, timeout)
-      log.push(
-        `=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`,
-      )
+      log.push(`=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`)
       if (result.code !== 0) {
         writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
         return fail('candidate_build_failed', `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`)
@@ -1465,29 +1507,247 @@ ${answer}`
       files?: string[]
       gitHead?: string
       builtAt?: string
+      version?: string
     }
     if (!artifact.sha256 || !artifact.tarball) {
       return fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`)
+    }
+    if (artifact.version && artifact.version !== packageVersion) {
+      return fail('artifact_version_mismatch', `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`)
     }
     const candidateSha = sha256OfBytes(readFileSync(artifact.tarball))
     if (candidateSha !== artifact.sha256) {
       return fail('artifact_mismatch', `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${candidateSha}`)
     }
+    const buildDir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'build')
+    mkdirSync(buildDir, { recursive: true })
+    const recordPath = join(buildDir, 'candidate-build.json')
+    const record = {
+      kind: 'candidate-build',
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: identity,
+      verificationSha256: verification.reportSha256,
+      packageVersion,
+      artifactSha256: candidateSha,
+      tarball: artifact.tarball,
+      files: artifact.files ?? [],
+      gitHead: artifact.gitHead ?? '',
+      builtAt: artifact.builtAt ?? this.now(),
+      candidateContentSha256: protectedDigest,
+      sourceWorkspace: source,
+      at: this.now(),
+    }
+    writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
     this.repo.recordCandidate({
       reqId: input.reqId,
       planVersion: plan.planVersion,
       sha256: candidateSha,
       tarball: artifact.tarball,
       files: artifact.files ?? [],
-      gitHead: artifact.gitHead ?? baseline,
-      builtAt: artifact.builtAt ?? this.now(),
+      gitHead: artifact.gitHead ?? '',
+      builtAt: record.builtAt,
       evidenceDir: dir,
     })
-    return ok(`已构建候选包 ${artifact.tarball}（sha256 ${candidateSha.slice(0, 16)}…）`, {
+    this.repo.recordCandidateBuild({
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: identity,
+      verificationSha256: verification.reportSha256,
+      packageVersion,
+      artifactSha256: candidateSha,
+      tarball: artifact.tarball,
+      files: artifact.files ?? [],
+      gitHead: artifact.gitHead ?? '',
+      builtAt: record.builtAt,
+      evidenceDir: dir,
+    })
+    return ok(`已从已验证候选构建安装包 ${packageVersion}（sha256 ${candidateSha.slice(0, 16)}…）`, {
       sha256: candidateSha,
       tarball: artifact.tarball,
       files: artifact.files ?? [],
       evidenceDir: dir,
+      packageVersion,
+      candidateSha256: identity,
+      verificationSha256: verification.reportSha256,
+      recordPath,
+    })
+  }
+
+  /**
+   * 上线核对：安装由外部受控机制完成，本方法只核对“装进去的、正在跑的”是否就是
+   * 被验证并验收的那份候选；任一不一致都保留失败记录，不把安装回执当交付完成。
+   */
+  verifyDeployment(input: {
+    reqId: string
+    targetProfile: string
+    by: string
+    source: string
+  }): OperationResult {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(input.targetProfile)) {
+      return fail('profile_invalid', `目标 profile 只能是安全的 profile 名，实际 ${JSON.stringify(input.targetProfile)}`)
+    }
+    const plan = this.repo.latestTaskPlan(input.reqId)
+    if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
+    const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
+    const missing = plan.tasks.filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
+    if (missing.length > 0) {
+      return fail('not_delivered', `仍有任务未交付，不能做上线核对`)
+    }
+    const identity = this.candidateIdentity(plan, artifacts)
+    const build = this.repo.candidateBuild(input.reqId, plan.planVersion)
+    if (!build) return fail('candidate_missing', `需求 ${input.reqId} 尚未构建可安装候选`)
+    if (build.candidateSha256 !== identity) {
+      return fail('candidate_stale', '候选包绑定的候选身份与当前交付材料不一致；需重新验证并构建')
+    }
+    if (!this.repo.acceptance(input.reqId).accepted_at) {
+      return fail('acceptance_required', '需求尚未通过整体验收；不能做上线核对')
+    }
+    const profileDir = join(this.config.dshProfilesRoot, input.targetProfile)
+    const installedRoot = join(profileDir, 'node_modules', 'forgeloop-dsh')
+    if (!existsSync(profileDir)) return fail('profile_missing', `目标 profile 不存在：${profileDir}`)
+    if (!existsSync(installedRoot)) {
+      return fail('not_installed', `目标 profile 尚未安装 forgeloop-dsh：${installedRoot}`)
+    }
+    const checks: Array<{ id: string; ok: boolean; detail: string }> = []
+    const check = (id: string, ok: boolean, detail: string): void => {
+      checks.push({ id, ok, detail })
+    }
+
+    let installedVersion = ''
+    try {
+      const installed = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8')) as {
+        version?: unknown
+      }
+      installedVersion = typeof installed.version === 'string' ? installed.version : ''
+    } catch {
+      installedVersion = ''
+    }
+    check(
+      'installed_version',
+      installedVersion === build.packageVersion,
+      `安装版本 ${installedVersion || '未知'}，候选包版本 ${build.packageVersion}`,
+    )
+
+    let filesOk = true
+    const fileIssues: string[] = []
+    for (const file of build.files) {
+      const installedPath = join(installedRoot, file)
+      if (!existsSync(installedPath)) {
+        filesOk = false
+        fileIssues.push(`缺少 ${file}`)
+        continue
+      }
+      let packed: Buffer | null = null
+      // npm pack 的成员带 `package/` 前缀；测试或本地 tar 可能没有，两种都核对。
+      for (const member of [`package/${file}`, file]) {
+        try {
+          packed = execFileSync('tar', ['-xzf', build.tarball, '-O', member], {
+            maxBuffer: 64 * 1024 * 1024,
+            stdio: ['ignore', 'pipe', 'ignore'],
+          })
+          break
+        } catch {
+          packed = null
+        }
+      }
+      if (!packed) {
+        filesOk = false
+        fileIssues.push(`无法读取包内 ${file}`)
+        continue
+      }
+      if (sha256OfBytes(packed) !== sha256OfBytes(readFileSync(installedPath))) {
+        filesOk = false
+        fileIssues.push(`内容不一致 ${file}`)
+      }
+    }
+    check('installed_files', filesOk, filesOk ? `${build.files.length} 个文件与包内容一致` : fileIssues.join('；'))
+
+    check(
+      'running_version',
+      PLUGIN_VERSION === build.packageVersion,
+      `实际运行版本 ${PLUGIN_VERSION}，候选包版本 ${build.packageVersion}`,
+    )
+
+    const expectedModules = plan.tasks
+      .flatMap((task) => task.files)
+      .filter((file) => file.startsWith('packages/forgeloop/src/') && file.endsWith('.ts'))
+      .map((file) => file.replace('packages/forgeloop/src/', 'lib/').replace(/\.ts$/, '.js'))
+    const absentModules = expectedModules.filter((file) => !existsSync(join(installedRoot, file)))
+    check(
+      'requirement_modules',
+      absentModules.length === 0,
+      absentModules.length === 0
+        ? `本次需求的 ${new Set(expectedModules).size} 个源码模块已随安装包加载`
+        : `安装包缺少本次需求的模块：${absentModules.join('、')}`,
+    )
+
+    let boardOk = false
+    try {
+      const board = this.statusBoard(1)
+      boardOk = Array.isArray(board.requirements)
+    } catch {
+      boardOk = false
+    }
+    check('key_entry', boardOk, boardOk ? '看板与记录查询可用' : '看板与记录查询不可用')
+
+    const acceptance = this.repo.acceptance(input.reqId)
+    const review = this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
+    check(
+      'business_records',
+      Boolean(acceptance.accepted_at) && review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256,
+      `验收 ${acceptance.accepted_at || '缺失'}；业务终审 ${review?.verdict ?? '缺失'}`,
+    )
+
+    const dir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'deployment', input.targetProfile)
+    mkdirSync(dir, { recursive: true })
+    const state = checks.every((entry) => entry.ok) ? 'verified' : 'failed'
+    const report = {
+      kind: 'deployment',
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: identity,
+      verificationSha256: build.verificationSha256,
+      artifactSha256: build.artifactSha256,
+      packageVersion: build.packageVersion,
+      targetProfile: input.targetProfile,
+      profileDir,
+      runtimeVersion: PLUGIN_VERSION,
+      state,
+      checks,
+      at: this.now(),
+    }
+    const reportPath = join(dir, 'deployment.json')
+    writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
+    this.repo.recordDeployment({
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: identity,
+      packageVersion: build.packageVersion,
+      targetProfile: input.targetProfile,
+      artifactSha256: build.artifactSha256,
+      runtimeVersion: PLUGIN_VERSION,
+      state,
+      checks,
+      evidenceDir: dir,
+      recordedBy: input.by,
+      source: input.source,
+      recordedAt: this.now(),
+    })
+    if (state !== 'verified') {
+      const failed = checks.filter((entry) => !entry.ok).map((entry) => `${entry.id}：${entry.detail}`)
+      return fail('deployment_check_failed', `上线核对未通过：${failed.join('；')}；证据 ${reportPath}`)
+    }
+    return ok(`上线核对通过：运行版本 ${PLUGIN_VERSION}，候选 ${identity.slice(0, 16)}…，profile ${input.targetProfile}`, {
+      state,
+      reportPath,
+      runtimeVersion: PLUGIN_VERSION,
+      packageVersion: build.packageVersion,
+      candidateSha256: identity,
+      artifactSha256: build.artifactSha256,
+      checks,
     })
   }
 
@@ -1940,6 +2200,23 @@ ${answer}`
       latestPlan: plan,
       artifacts,
       acceptanceRecord: this.repo.acceptance(reqId),
+      businessReview: plan ? this.repo.businessReviewForCandidate(
+        reqId,
+        plan.planVersion,
+        plan.tasks.every((task) => delivered.has(task.taskId))
+          ? this.candidateIdentity(plan, artifacts)
+          : '',
+      ) : null,
+      candidateBuild: plan ? this.repo.candidateBuild(reqId, plan.planVersion) : null,
+      deployment: plan ? this.repo.deployment(reqId, plan.planVersion) : null,
+      archivedDeliveries: plan
+        ? plan.tasks.flatMap((task) =>
+            this.repo.archivedArtifacts(reqId, plan.planVersion, task.taskId).map((entry) => ({
+              taskId: task.taskId,
+              ...entry,
+            })),
+          )
+        : [],
       progress,
       unknownRequests: requests.filter((request) => request.state === 'unknown').length,
       activeRequests: requests.filter(

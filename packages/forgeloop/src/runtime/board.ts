@@ -73,7 +73,17 @@ export interface BoardTaskView {
   readonly resultUnknown: boolean
 }
 
-export type BoardRequirementAction = 'plan' | 'approve' | 'advance' | 'verify' | 'replan' | 'stop' | 'cancel'
+export type BoardRequirementAction =
+  | 'plan'
+  | 'approve'
+  | 'advance'
+  | 'verify'
+  | 'rework'
+  | 'build'
+  | 'deploy'
+  | 'replan'
+  | 'stop'
+  | 'cancel'
 
 export interface BoardPlanReviewView {
   readonly verdict: 'pass' | 'block'
@@ -91,6 +101,33 @@ export interface BoardVerificationView {
   readonly verifiedAt: string
 }
 
+export interface BoardBusinessReviewView {
+  readonly verdict: 'pass' | 'block'
+  readonly fresh: boolean
+  readonly summary: string
+  readonly blocking: readonly string[]
+  readonly candidateSha256: string
+  readonly reviewedAt: string
+}
+
+export interface BoardCandidateView {
+  readonly candidateSha256: string
+  readonly packageVersion: string
+  readonly artifactSha256: string
+  readonly builtAt: string
+  readonly verificationSha256: string
+}
+
+export interface BoardDeploymentView {
+  readonly state: string
+  readonly targetProfile: string
+  readonly runtimeVersion: string
+  readonly packageVersion: string
+  readonly artifactSha256: string
+  readonly recordedAt: string
+  readonly failedChecks: readonly string[]
+}
+
 export interface BoardRequirementView {
   readonly reqId: string
   readonly title: string
@@ -100,6 +137,9 @@ export interface BoardRequirementView {
   readonly approval: 'approved' | 'missing' | 'stale' | 'none'
   readonly planReview: BoardPlanReviewView | null
   readonly verification: BoardVerificationView | null
+  readonly businessReview: BoardBusinessReviewView | null
+  readonly candidate: BoardCandidateView | null
+  readonly deployment: BoardDeploymentView | null
   readonly clarifications: number
   readonly failureRounds: number
   readonly grants: number
@@ -420,6 +460,60 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         }
       : null
 
+    const businessReviewRecord = repository.businessReview(requirement.reqId, plan?.planVersion ?? 0)
+    const businessReviewView: BoardBusinessReviewView | null = businessReviewRecord
+      ? {
+          verdict: businessReviewRecord.verdict,
+          fresh:
+            currentCandidateSha256 !== '' &&
+            businessReviewRecord.candidateSha256 === currentCandidateSha256 &&
+            verificationRecord !== null &&
+            businessReviewRecord.verificationSha256 === verificationRecord.reportSha256,
+          summary: (() => {
+            try {
+              return (JSON.parse(businessReviewRecord.reportJson) as { summary?: string }).summary ?? ''
+            } catch {
+              return ''
+            }
+          })(),
+          blocking: (() => {
+            try {
+              const parsed = JSON.parse(businessReviewRecord.reportJson) as { blocking?: unknown }
+              return Array.isArray(parsed.blocking) ? parsed.blocking.map(String) : []
+            } catch {
+              return []
+            }
+          })(),
+          candidateSha256: businessReviewRecord.candidateSha256,
+          reviewedAt: businessReviewRecord.reviewedAt,
+        }
+      : null
+    const buildRecord = plan ? repository.candidateBuild(requirement.reqId, plan.planVersion) : null
+    const candidateView: BoardCandidateView | null = buildRecord
+      ? {
+          candidateSha256: buildRecord.candidateSha256,
+          packageVersion: buildRecord.packageVersion,
+          artifactSha256: buildRecord.artifactSha256,
+          builtAt: buildRecord.builtAt,
+          verificationSha256: buildRecord.verificationSha256,
+        }
+      : null
+    const deploymentRecord = plan ? repository.deployment(requirement.reqId, plan.planVersion) : null
+    const deploymentView: BoardDeploymentView | null = deploymentRecord
+      ? {
+          state: deploymentRecord.state,
+          targetProfile: deploymentRecord.targetProfile,
+          runtimeVersion: deploymentRecord.runtimeVersion,
+          packageVersion: deploymentRecord.packageVersion,
+          artifactSha256: deploymentRecord.artifactSha256,
+          recordedAt: deploymentRecord.recordedAt,
+          failedChecks: deploymentRecord.checks
+            .filter((check): check is { id: string; ok: boolean; detail: string } => typeof check === 'object' && check !== null)
+            .filter((check) => check.ok === false)
+            .map((check) => `${check.id}：${check.detail}`),
+        }
+      : null
+
     const progress = {
       total: plan?.tasks.length ?? 0,
       delivered: 0,
@@ -517,6 +611,36 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       }
       if (
         authorization?.status === 'approved' &&
+        verificationFresh &&
+        verificationView?.verdict === 'block' &&
+        remainingRounds > 0 &&
+        progress.running === 0 &&
+        progress.awaitingInput === 0 &&
+        !activeRequest
+      ) {
+        actions.push('rework')
+      }
+      if (
+        terminal &&
+        requirement.status === 'accepted' &&
+        verificationFresh &&
+        verificationView?.verdict === 'pass' &&
+        businessReviewView?.fresh === true &&
+        businessReviewView.verdict === 'pass' &&
+        candidateView === null
+      ) {
+        actions.push('build')
+      }
+      if (
+        terminal &&
+        requirement.status === 'accepted' &&
+        candidateView !== null &&
+        deploymentView?.state !== 'verified'
+      ) {
+        actions.push('deploy')
+      }
+      if (
+        authorization?.status === 'approved' &&
         requirement.status !== PLAN_PROPOSED &&
         replanTarget !== undefined &&
         progress.running === 0 &&
@@ -538,6 +662,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       approval: authorization?.status ?? 'none',
       planReview: planReviewView,
       verification: verificationView,
+      businessReview: businessReviewView,
+      candidate: candidateView,
+      deployment: deploymentView,
       clarifications: latestAnalysis?.clarifications.length ?? 0,
       failureRounds: rounds.length,
       grants,

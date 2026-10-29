@@ -186,6 +186,38 @@ CREATE TABLE IF NOT EXISTS requirement_grants (
     granted_by TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (req_id, grant_index)
 );
+CREATE TABLE IF NOT EXISTS requirement_candidate_builds (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    verification_sha256 TEXT NOT NULL,
+    package_version TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    tarball TEXT NOT NULL,
+    files_json TEXT NOT NULL,
+    git_head TEXT NOT NULL DEFAULT '',
+    built_at TEXT NOT NULL,
+    evidence_dir TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, candidate_sha256)
+);
+
+CREATE TABLE IF NOT EXISTS requirement_deployments (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    package_version TEXT NOT NULL,
+    target_profile TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    runtime_version TEXT NOT NULL,
+    state TEXT NOT NULL,
+    checks_json TEXT NOT NULL,
+    evidence_dir TEXT NOT NULL,
+    recorded_by TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, candidate_sha256, target_profile)
+);
+
 CREATE TABLE IF NOT EXISTS requirement_business_reviews (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,

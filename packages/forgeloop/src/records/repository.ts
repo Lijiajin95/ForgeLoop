@@ -1317,6 +1317,174 @@ export class Repository {
     }
   }
 
+  recordCandidateBuild(build: {
+    reqId: string
+    planVersion: number
+    candidateSha256: string
+    verificationSha256: string
+    packageVersion: string
+    artifactSha256: string
+    tarball: string
+    files: readonly string[]
+    gitHead: string
+    builtAt: string
+    evidenceDir: string
+  }): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_candidate_builds
+          (req_id, plan_version, candidate_sha256, verification_sha256, package_version,
+           artifact_sha256, tarball, files_json, git_head, built_at, evidence_dir)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, plan_version, candidate_sha256) DO UPDATE SET
+           verification_sha256 = excluded.verification_sha256,
+           package_version = excluded.package_version,
+           artifact_sha256 = excluded.artifact_sha256, tarball = excluded.tarball,
+           files_json = excluded.files_json, git_head = excluded.git_head,
+           built_at = excluded.built_at, evidence_dir = excluded.evidence_dir`,
+      )
+      .run(
+        build.reqId,
+        build.planVersion,
+        build.candidateSha256,
+        build.verificationSha256,
+        build.packageVersion,
+        build.artifactSha256,
+        build.tarball,
+        JSON.stringify(build.files),
+        build.gitHead,
+        build.builtAt,
+        build.evidenceDir,
+      )
+  }
+
+  candidateBuild(reqId: string, planVersion: number): {
+    reqId: string
+    planVersion: number
+    candidateSha256: string
+    verificationSha256: string
+    packageVersion: string
+    artifactSha256: string
+    tarball: string
+    files: string[]
+    gitHead: string
+    builtAt: string
+    evidenceDir: string
+  } | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_candidate_builds
+         WHERE req_id = ? AND plan_version = ? ORDER BY built_at DESC LIMIT 1`,
+      )
+      .get(reqId, planVersion) as Row | undefined
+    if (!row) return null
+    return {
+      reqId: text(row, 'req_id'),
+      planVersion: num(row, 'plan_version'),
+      candidateSha256: text(row, 'candidate_sha256'),
+      verificationSha256: text(row, 'verification_sha256'),
+      packageVersion: text(row, 'package_version'),
+      artifactSha256: text(row, 'artifact_sha256'),
+      tarball: text(row, 'tarball'),
+      files: parseStringList(text(row, 'files_json')),
+      gitHead: text(row, 'git_head'),
+      builtAt: text(row, 'built_at'),
+      evidenceDir: text(row, 'evidence_dir'),
+    }
+  }
+
+  recordDeployment(deployment: {
+    reqId: string
+    planVersion: number
+    candidateSha256: string
+    packageVersion: string
+    targetProfile: string
+    artifactSha256: string
+    runtimeVersion: string
+    state: string
+    checks: readonly unknown[]
+    evidenceDir: string
+    recordedBy: string
+    source: string
+    recordedAt: string
+  }): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_deployments
+          (req_id, plan_version, candidate_sha256, package_version, target_profile,
+           artifact_sha256, runtime_version, state, checks_json, evidence_dir,
+           recorded_by, source, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, plan_version, candidate_sha256, target_profile) DO UPDATE SET
+           package_version = excluded.package_version, artifact_sha256 = excluded.artifact_sha256,
+           runtime_version = excluded.runtime_version, state = excluded.state,
+           checks_json = excluded.checks_json, evidence_dir = excluded.evidence_dir,
+           recorded_by = excluded.recorded_by, source = excluded.source,
+           recorded_at = excluded.recorded_at`,
+      )
+      .run(
+        deployment.reqId,
+        deployment.planVersion,
+        deployment.candidateSha256,
+        deployment.packageVersion,
+        deployment.targetProfile,
+        deployment.artifactSha256,
+        deployment.runtimeVersion,
+        deployment.state,
+        JSON.stringify(deployment.checks),
+        deployment.evidenceDir,
+        deployment.recordedBy,
+        deployment.source,
+        deployment.recordedAt,
+      )
+  }
+
+  deployment(reqId: string, planVersion: number): {
+    reqId: string
+    planVersion: number
+    candidateSha256: string
+    packageVersion: string
+    targetProfile: string
+    artifactSha256: string
+    runtimeVersion: string
+    state: string
+    checks: unknown[]
+    evidenceDir: string
+    recordedBy: string
+    source: string
+    recordedAt: string
+  } | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_deployments
+         WHERE req_id = ? AND plan_version = ? ORDER BY recorded_at DESC LIMIT 1`,
+      )
+      .get(reqId, planVersion) as Row | undefined
+    if (!row) return null
+    let checks: unknown[] = []
+    try {
+      const parsed: unknown = JSON.parse(text(row, 'checks_json'))
+      if (Array.isArray(parsed)) checks = parsed
+    } catch {
+      checks = []
+    }
+    return {
+      reqId: text(row, 'req_id'),
+      planVersion: num(row, 'plan_version'),
+      candidateSha256: text(row, 'candidate_sha256'),
+      packageVersion: text(row, 'package_version'),
+      targetProfile: text(row, 'target_profile'),
+      artifactSha256: text(row, 'artifact_sha256'),
+      runtimeVersion: text(row, 'runtime_version'),
+      state: text(row, 'state'),
+      checks,
+      evidenceDir: text(row, 'evidence_dir'),
+      recordedBy: text(row, 'recorded_by'),
+      source: text(row, 'source'),
+      recordedAt: text(row, 'recorded_at'),
+    }
+  }
+
   // ---------------------------------------------------------------- 运维事件
 
   createOpsEvent(input: {

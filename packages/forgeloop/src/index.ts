@@ -18,7 +18,7 @@ export const name = 'forgeloop'
 
 /** Web 客户端读取看板事实的认证 HTTP 路径；只在有浏览器连接服务的 profile 中注册。 */
 export const BOARD_HTTP_PATH = '/api/forgeloop/board'
-const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'retry', 'replan', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-confirm-unknown', 'ops-request-fix']
+const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'rework', 'build', 'deploy', 'retry', 'replan', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-confirm-unknown', 'ops-request-fix']
 
 interface BoardFailure {
   readonly code: string
@@ -87,6 +87,8 @@ function registerBoardRoute(
             planVersion?: unknown
             taskId?: unknown
             artifactSha256?: unknown
+            targetProfile?: unknown
+            version?: unknown
             eventId?: unknown
             decision?: unknown
             reason?: unknown
@@ -192,6 +194,50 @@ function registerBoardRoute(
                 action: 'verify',
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}:verify`,
+              })
+              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+            }
+            if (endpoint === 'rework') {
+              const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+              const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
+              if (!reqId || !Number.isInteger(planVersion) || planVersion < 1) {
+                return boardResponse(boardFailure('bad_request', '重新研发需要 reqId 与正整数 planVersion'), 400)
+              }
+              const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+              const result = runtime.rework({
+                reqId,
+                planVersion,
+                by: config.owner,
+                source: `web-decision:${sessionId || 'unknown-session'}:rework`,
+                confirmRecovery: body?.confirmRecovery === true,
+              })
+              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+            }
+            if (endpoint === 'build') {
+              const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+              if (!reqId) return boardResponse(boardFailure('bad_request', '构建候选需要 reqId'), 400)
+              const version =
+                typeof body?.version === 'string' && body.version.trim() ? body.version.trim() : undefined
+              const result = runtime.buildCandidate({
+                reqId,
+                by: config.owner,
+                ...(version ? { version } : {}),
+              })
+              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+            }
+            if (endpoint === 'deploy') {
+              const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+              const targetProfile =
+                typeof body?.targetProfile === 'string' ? body.targetProfile.trim() : ''
+              if (!reqId || !targetProfile) {
+                return boardResponse(boardFailure('bad_request', '上线核对需要 reqId 与 targetProfile'), 400)
+              }
+              const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+              const result = runtime.verifyDeployment({
+                reqId,
+                targetProfile,
+                by: config.owner,
+                source: `web-decision:${sessionId || 'unknown-session'}:deploy`,
               })
               return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
             }

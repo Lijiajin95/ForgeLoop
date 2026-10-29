@@ -81,6 +81,8 @@ export interface ForgeLoopConfig {
   readonly candidateBuildCommand: readonly string[]
   readonly candidatePackageCommand: readonly string[]
   readonly candidateArtifactPath: string
+  /** DSH profile 根目录：部署核对读取目标 profile 的实际安装版本。 */
+  readonly dshProfilesRoot: string
   readonly ops: OpsConfig
 }
 
@@ -98,6 +100,7 @@ export interface RawConfig {
   candidateBuildCommand?: string[]
   candidatePackageCommand?: string[]
   candidateArtifactPath?: string
+  dshProfilesRoot?: string
   ops?: RawOpsConfig
 }
 
@@ -261,6 +264,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),
     candidateArtifactPath: raw.candidateArtifactPath?.trim() || '',
+    dshProfilesRoot: resolve(projectPath, expandHome(raw.dshProfilesRoot?.trim() || join(homedir(), '.dsh', 'profiles'))),
     ops: parseOpsConfig(raw.ops),
   }
 }
