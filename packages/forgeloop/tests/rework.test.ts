@@ -124,6 +124,19 @@ function fakeRunner(workspace: VerifyOptions): AgentLike {
         writeFileSync(join(verification, 'report.json'), verificationReport())
         return result(request, verificationReport())
       }
+      if (request.role === 'business-review') {
+        return result(
+          request,
+          JSON.stringify({
+            verdict: 'pass',
+            summary: '业务终审通过',
+            findings: [],
+            blocking: [],
+            scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
+            acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
+          }),
+        )
+      }
       if (request.role === 'review') {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }

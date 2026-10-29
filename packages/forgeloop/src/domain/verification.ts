@@ -242,6 +242,12 @@ function normalizeEvidence(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+/** 证据必须是命令输出中的原文片段（归一化空白后至少 8 个字符）。 */
+export function matchesCommandOutput(output: string, evidence: string): boolean {
+  const needle = normalizeEvidence(evidence)
+  return needle.length >= MIN_EVIDENCE_CHARS && normalizeEvidence(output).includes(needle)
+}
+
 /**
  * 场景证据必须能落到本次实际执行的命令上：label 存在、命令成功、证据是输出原文。
  * 非空字符串、模型填写 pass 或无关命令退出 0 都不能替代。
@@ -275,11 +281,9 @@ export function validateScenarioEvidence(
       issues.push(`必过场景关联的验证命令没有成功执行：${item.scenario}`)
       continue
     }
-    const needle = normalizeEvidence(result.evidence)
-    const matched =
-      needle.length >= MIN_EVIDENCE_CHARS &&
-      executed.some((run) => normalizeEvidence(run.output).includes(needle))
-    if (!matched) issues.push(`必过场景证据无法在验证命令输出中核对：${item.scenario}`)
+    if (!executed.some((run) => matchesCommandOutput(run.output, result.evidence))) {
+      issues.push(`必过场景证据无法在验证命令输出中核对：${item.scenario}`)
+    }
   }
   return issues
 }

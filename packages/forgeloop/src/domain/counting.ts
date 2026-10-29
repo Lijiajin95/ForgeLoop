@@ -12,8 +12,13 @@ export const MAX_ROUNDS_PER_GRANT = 3
 
 export const FAILURE_FORMAL_TEST = 'formal_test'
 export const FAILURE_VERIFICATION = 'verification'
+export const FAILURE_BUSINESS_REVIEW = 'business_review'
 export const FAILURE_USER_ACCEPTANCE = 'user_acceptance'
-export type FailureStage = typeof FAILURE_FORMAL_TEST | typeof FAILURE_VERIFICATION | typeof FAILURE_USER_ACCEPTANCE
+export type FailureStage =
+  | typeof FAILURE_FORMAL_TEST
+  | typeof FAILURE_VERIFICATION
+  | typeof FAILURE_BUSINESS_REVIEW
+  | typeof FAILURE_USER_ACCEPTANCE
 
 export interface FailureRound {
   readonly roundId: string

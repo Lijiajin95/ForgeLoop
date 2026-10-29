@@ -166,6 +166,19 @@ function fakeRunner(options: {
         options.onVerify?.(request, workspaceOptions)
         return result(request, workspaceOptions.report ?? verificationReportOf())
       }
+      if (request.role === 'business-review') {
+        return result(
+          request,
+          JSON.stringify({
+            verdict: 'pass',
+            summary: '业务终审通过',
+            findings: [],
+            blocking: [],
+            scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
+            acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
+          }),
+        )
+      }
       if (request.role === 'review') {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }

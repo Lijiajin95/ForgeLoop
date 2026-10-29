@@ -428,3 +428,84 @@ export function parseReviewVerdict(raw: string): ReviewVerdict {
   }
   return { verdict, blocking, findings, summary }
 }
+export interface BusinessReviewCommandFact {
+  readonly label: string
+  readonly argv: readonly string[]
+  readonly exitCode: number | null
+  readonly logTail: string
+}
+
+/**
+ * 业务终审提示词：需求 Agent 新会话按原始需求复核业务结果。
+ * 只提供需求、分析、任务与独立验证实际执行的命令输出；不提供验证报告结论，
+ * 避免把“验证 Agent 说通过”当作业务复核依据。
+ */
+export function businessReviewPrompt(input: {
+  requirement: Requirement
+  analysis: RequirementAnalysis
+  plan: TaskPlan
+  candidateSha256: string
+  commands: readonly BusinessReviewCommandFact[]
+}): string {
+  const tasks = input.plan.tasks
+    .map(
+      (task) =>
+        `- ${task.taskId}｜${task.goal}\n  验收标准：${task.acceptance}\n  允许文件：${task.files.join('、') || '（无，验证任务）'}`,
+    )
+    .join('\n')
+  const commands = input.commands
+    .map(
+      (command) =>
+        `### ${command.label}\nargv: ${JSON.stringify(command.argv)}\nexit_code: ${command.exitCode === null ? 'null' : command.exitCode}\n输出末尾：\n${command.logTail || '（无输出）'}`,
+    )
+    .join('\n\n')
+  return `你是 ForgeLoop 的需求 Agent，现在做正式业务终审。你没有工具：只能依据下面的事实判断，不要臆造未提供的运行结果。
+
+${requirementContext(input.requirement)}
+
+需求分析（目标、业务场景、验收标准）：
+目标：${input.analysis.goal}
+业务场景：
+${input.analysis.scenarios.map((scenario, index) => `${index + 1}. ${scenario}`).join('\n')}
+验收标准：
+${input.analysis.acceptanceCriteria.map((criterion, index) => `${index + 1}. ${criterion}`).join('\n')}
+
+已批准任务包 v${input.plan.planVersion}：
+${tasks}
+
+候选身份：${input.candidateSha256}
+
+独立验证实际执行的命令（程序重跑后的真实退出码与输出，不是验证 Agent 的结论）：
+${commands || '（没有可用的验证命令输出）'}
+
+请按原始需求逐项复核，只输出一个 JSON 对象：
+{
+  "verdict": "pass" 或 "block",
+  "summary": "一句话业务结论",
+  "findings": ["非阻断发现"],
+  "blocking": ["阻断原因；没有就留空数组"],
+  "scenarios": [
+    {
+      "scenario": "必须与上面的业务场景原文一致",
+      "status": "pass" 或 "fail" 或 "not_verified",
+      "evidence": "命令输出中的原文片段（至少 8 个字符，逐字复制）",
+      "commands": ["上面命令的 label"]
+    }
+  ],
+  "acceptance": [
+    {
+      "criterion": "必须与上面的验收标准原文一致",
+      "status": "pass" 或 "fail" 或 "not_verified",
+      "evidence": "命令输出中的原文片段（至少 8 个字符，逐字复制）",
+      "commands": ["上面命令的 label"]
+    }
+  ]
+}
+
+规则：
+- 每个业务场景和验收标准都必须出现，并引用实际执行的命令与可在其输出中逐字核对的证据。
+- 不能只复述验证 Agent 的结论，也不能用“代码看起来正确”“测试通过”代替业务结果；缺证据就判 not_verified。
+- verdict=pass 时 blocking 必须为空；verdict=block 时至少一条 blocking。
+- 这是需求 Agent 的业务判断，不是所有者验收；不要声称或伪造所有者批准。
+- 只输出 JSON。`
+}

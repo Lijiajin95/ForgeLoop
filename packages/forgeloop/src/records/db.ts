@@ -186,6 +186,21 @@ CREATE TABLE IF NOT EXISTS requirement_grants (
     granted_by TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (req_id, grant_index)
 );
+CREATE TABLE IF NOT EXISTS requirement_business_reviews (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    verification_sha256 TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_path TEXT NOT NULL,
+    report_sha256 TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, candidate_sha256)
+);
+
 CREATE TABLE IF NOT EXISTS requirement_task_artifact_history (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,

@@ -28,6 +28,22 @@ function num(row: Row, key: string): number {
   return typeof value === 'number' ? value : Number(value ?? 0)
 }
 
+function businessReviewRow(row: Row): BusinessReviewRecord {
+  return {
+    requirementId: text(row, 'req_id'),
+    planVersion: num(row, 'plan_version'),
+    candidateSha256: text(row, 'candidate_sha256'),
+    requirementVersion: num(row, 'requirement_version'),
+    verificationSha256: text(row, 'verification_sha256'),
+    verdict: text(row, 'verdict') === 'pass' ? 'pass' : 'block',
+    reportJson: text(row, 'report_json'),
+    reportPath: text(row, 'report_path'),
+    reportSha256: text(row, 'report_sha256'),
+    sessionId: text(row, 'session_id'),
+    reviewedAt: text(row, 'reviewed_at'),
+  }
+}
+
 function verificationRow(row: Row): VerificationRecord {
   return {
     requirementId: text(row, 'req_id'),
@@ -85,6 +101,20 @@ export interface VerificationRecord {
   readonly evidenceDir: string
   readonly sessionId: string
   readonly verifiedAt: string
+}
+
+export interface BusinessReviewRecord {
+  readonly requirementId: string
+  readonly planVersion: number
+  readonly candidateSha256: string
+  readonly requirementVersion: number
+  readonly verificationSha256: string
+  readonly verdict: 'pass' | 'block'
+  readonly reportJson: string
+  readonly reportPath: string
+  readonly reportSha256: string
+  readonly sessionId: string
+  readonly reviewedAt: string
 }
 
 export interface ServiceRequestRecord {
@@ -664,6 +694,60 @@ export class Repository {
       )
       .get(reqId, planVersion, candidateSha256) as Row | undefined
     return row ? verificationRow(row) : null
+  }
+
+  recordBusinessReview(review: BusinessReviewRecord): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_business_reviews
+          (req_id, plan_version, candidate_sha256, requirement_version, verification_sha256,
+           verdict, report_json, report_path, report_sha256, session_id, reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, plan_version, candidate_sha256) DO UPDATE SET
+           requirement_version = excluded.requirement_version,
+           verification_sha256 = excluded.verification_sha256,
+           verdict = excluded.verdict, report_json = excluded.report_json,
+           report_path = excluded.report_path, report_sha256 = excluded.report_sha256,
+           session_id = excluded.session_id, reviewed_at = excluded.reviewed_at`,
+      )
+      .run(
+        review.requirementId,
+        review.planVersion,
+        review.candidateSha256,
+        review.requirementVersion,
+        review.verificationSha256,
+        review.verdict,
+        review.reportJson,
+        review.reportPath,
+        review.reportSha256,
+        review.sessionId,
+        review.reviewedAt,
+      )
+  }
+
+  businessReview(reqId: string, planVersion: number): BusinessReviewRecord | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_business_reviews
+         WHERE req_id = ? AND plan_version = ?
+         ORDER BY reviewed_at DESC LIMIT 1`,
+      )
+      .get(reqId, planVersion) as Row | undefined
+    return row ? businessReviewRow(row) : null
+  }
+
+  businessReviewForCandidate(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): BusinessReviewRecord | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_business_reviews
+         WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?`,
+      )
+      .get(reqId, planVersion, candidateSha256) as Row | undefined
+    return row ? businessReviewRow(row) : null
   }
 
   // ---------------------------------------------------------------- 任务运行与产物

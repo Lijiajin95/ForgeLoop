@@ -155,6 +155,39 @@ function verify(reqId: string, planVersion = 1): string {
     sessionId: report.sessionId,
     verifiedAt: report.at,
   })
+  const review = {
+    kind: 'business-review',
+    reqId,
+    planVersion,
+    requirementVersion: plan.requirementVersion,
+    candidateSha256,
+    verificationSha256: sha256OfText(reportJson),
+    verdict: 'pass',
+    summary: '业务终审通过',
+    findings: [],
+    blocking: [],
+    scenarios: [{ scenario: '场景', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] }],
+    acceptance: [{ criterion: '验收', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] }],
+    sessionId: 'session-business-review',
+    at: '2026-10-23T00:00:05.000Z',
+  }
+  const reviewJson = `${JSON.stringify(review, null, 2)}\n`
+  const reviewPath = join(dir, 'reviews', reqId, `v${planVersion}`, 'business', 'business-review.json')
+  mkdirSync(join(reviewPath, '..'), { recursive: true })
+  writeFileSync(reviewPath, reviewJson, 'utf8')
+  runtime.repo.recordBusinessReview({
+    requirementId: reqId,
+    planVersion,
+    candidateSha256,
+    requirementVersion: plan.requirementVersion,
+    verificationSha256: sha256OfText(reportJson),
+    verdict: 'pass',
+    reportJson: reviewJson,
+    reportPath: reviewPath,
+    reportSha256: sha256OfText(reviewJson),
+    sessionId: review.sessionId,
+    reviewedAt: review.at,
+  })
   return candidateSha256
 }
 

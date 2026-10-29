@@ -306,6 +306,11 @@ export function verificationDir(
   return join(projectDir(config), 'verifications', reqId, `v${planVersion}`, candidateSha256.slice(0, 16))
 }
 
+/** 业务终审目录：按任务包版本保存，报告绑定当前候选身份。 */
+export function businessReviewDir(config: ForgeLoopConfig, reqId: string, planVersion: number): string {
+  return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, 'business')
+}
+
 export function candidatesDir(config: ForgeLoopConfig, reqId: string, planVersion: number): string {
   return join(projectDir(config), 'candidates', reqId, `v${planVersion}`)
 }

@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { Coordinator } from '../src/runtime/coordinator.js'
 import { resolveConfig } from '../src/config.js'
+import { sha256OfText } from '../src/domain/delivery.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 
 let dir = ''
@@ -148,6 +149,23 @@ function fakeRunner(
         )
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
         return result(request, VERIFICATION_REPORT)
+      }
+      if (request.role === 'business-review') {
+        return result(
+          request,
+          JSON.stringify({
+            verdict: 'pass',
+            summary: '业务终审通过',
+            findings: [],
+            blocking: [],
+            scenarios: [
+              { scenario: '任务按依赖完成', status: 'pass', evidence: VERIFY_OUTPUT, commands: ['smoke'] },
+            ],
+            acceptance: [
+              { criterion: '两个任务交付且测试通过', status: 'pass', evidence: VERIFY_OUTPUT, commands: ['smoke'] },
+            ],
+          }),
+        )
       }
       if (request.role === 'review') {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
@@ -300,13 +318,13 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
       },
     }
     runtime = makeRuntime(verificationRunner, async (request) => {
-      writeFileSync(request.logPath, 'verification ok\nexit_code: 0\n')
+      writeFileSync(request.logPath, `${VERIFY_OUTPUT}\nexit_code: 0\n`)
       return {
         exitCode: 0,
         timedOut: false,
         aborted: false,
         logPath: request.logPath,
-        logSha256: 'b'.repeat(64),
+        logSha256: sha256OfText(readFileSync(request.logPath, 'utf8')),
         durationMs: 1,
         output: VERIFY_OUTPUT,
       }
@@ -454,7 +472,7 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
         timedOut: false,
         aborted: false,
         logPath: request.logPath,
-        logSha256: 'a'.repeat(64),
+        logSha256: sha256OfText(readFileSync(request.logPath, 'utf8')),
         durationMs: 1,
         output: 'forced failure',
       }
@@ -833,18 +851,18 @@ describe('task retry', () => {
           timedOut: false,
           aborted: false,
           logPath: request.logPath,
-          logSha256: 'a'.repeat(64),
+          logSha256: sha256OfText(readFileSync(request.logPath, 'utf8')),
           durationMs: 1,
           output: 'contract failure',
         }
       }
-      writeFileSync(request.logPath, 'ok\n')
+      writeFileSync(request.logPath, `${VERIFY_OUTPUT}\nexit_code: 0\n`)
       return {
         exitCode: 0,
         timedOut: false,
         aborted: false,
         logPath: request.logPath,
-        logSha256: 'b'.repeat(64),
+        logSha256: sha256OfText(readFileSync(request.logPath, 'utf8')),
         durationMs: 1,
         output: VERIFY_OUTPUT,
       }
@@ -1006,7 +1024,7 @@ describe('task retry', () => {
         timedOut: false,
         aborted: false,
         logPath: request.logPath,
-        logSha256: 'c'.repeat(64),
+        logSha256: sha256OfText(readFileSync(request.logPath, 'utf8')),
         durationMs: 1,
         output: 'forced failure',
       }

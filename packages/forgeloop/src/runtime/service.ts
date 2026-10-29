@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import { candidatesDir, evidenceDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
+import { businessReviewDir, candidatesDir, evidenceDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
 import { Database } from '../records/db.js'
 import { Repository, type PlanReviewRecord, type ServiceRequestRecord, type VerificationRecord } from '../records/repository.js'
 import { RuleViolationError } from '../domain/errors.js'
@@ -27,7 +27,7 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import { GrantLedger, FAILURE_FORMAL_TEST, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
 import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
@@ -38,6 +38,7 @@ import {
   TASK_RUN_FAILED,
   TASK_RUN_RUNNING,
 } from '../domain/status.js'
+import { parseBusinessReview, validateBusinessReview, type BusinessReview } from '../domain/business-review.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import { buildTaskFailureAdvice } from '../domain/failure-advice.js'
 import {
@@ -68,7 +69,7 @@ import {
   type StatusBoardView,
 } from './board.js'
 import { runFormalTest } from './formal-test.js'
-import { analysisPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, verificationPrompt } from './prompts.js'
+import { analysisPrompt, businessReviewPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, verificationPrompt } from './prompts.js'
 import { captureCandidate, git, headCommit, prepareSnapshotWorkspace, runCommand, requireGit } from './workspace.js'
 import { parseTaskExecution } from './task-execution.js'
 
@@ -1539,6 +1540,32 @@ ${answer}`
         `独立验证未通过：${verificationBlocking(verification.reportJson)}`,
       )
     }
+    const businessReview = this.repo.businessReviewForCandidate(
+      input.reqId,
+      latestPlan.planVersion,
+      identity,
+    )
+    if (!businessReview) {
+      return fail(
+        'business_review_required',
+        `需求 ${input.reqId} 尚未完成需求 Agent 的业务终审；不能验收`,
+      )
+    }
+    if (
+      businessReview.verificationSha256 !== verification.reportSha256 ||
+      businessReview.requirementVersion !== requirement.versions.length
+    ) {
+      return fail('business_review_stale', '业务终审绑定的验证或需求版本与当前材料不一致；必须重新终审')
+    }
+    if (!this.businessReviewMaterialValid(businessReview)) {
+      return fail('business_review_invalid', '业务终审报告文件缺失或摘要不一致；不能验收')
+    }
+    if (businessReview.verdict !== 'pass') {
+      return fail(
+        'business_review_blocked',
+        `业务终审未通过：${verificationBlocking(businessReview.reportJson)}`,
+      )
+    }
     const candidate = this.repo.candidate(input.reqId, latestPlan.planVersion)
     if (candidate) {
       if (!input.artifactSha256) {
@@ -1553,7 +1580,7 @@ ${answer}`
     }
     let binding
     try {
-      binding = this.buildAcceptanceBinding(latestPlan, artifacts, verification, input.artifactSha256)
+      binding = this.buildAcceptanceBinding(latestPlan, artifacts, verification, businessReview, input.artifactSha256)
     } catch (error) {
       return fail('material_invalid', (error as Error).message)
     }
@@ -1575,6 +1602,7 @@ ${answer}`
     plan: TaskPlan,
     artifacts: ReturnType<Repository['taskArtifacts']>,
     verification: VerificationRecord,
+    businessReview: ReturnType<Repository['businessReviewForCandidate']> & object,
     artifactSha256?: string,
   ) {
     const ordered = plan.tasks.map((task) => {
@@ -1588,6 +1616,7 @@ ${answer}`
       reviewSha256: sha256OfText(ordered.map((artifact) => artifact.reviewSha256).join(':')),
       verificationSha256: verification.reportSha256,
       verificationCandidateSha256: verification.candidateSha256,
+      businessReviewSha256: businessReview.reportSha256,
       artifactSha256: artifactSha256 ?? '',
       baselineCommit: ordered[0]?.baselineCommit ?? '',
     }
@@ -2658,10 +2687,206 @@ ${answer}`
       }
     }
 
+    const businessReview = await this.executeBusinessReview(reqId, signal)
+    if (businessReview.state !== 'done') return businessReview
     this.repo.setStatus(reqId, EXECUTING)
     return {
       state: 'done',
-      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证（${report.scenarios.length} 个场景，${commandRuns.length} 条命令）；等待验收`,
+      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证（${report.scenarios.length} 个场景，${commandRuns.length} 条命令）；${businessReview.detail}`,
+    }
+  }
+
+  /** 业务终审报告文件与摘要是否仍一致。 */
+  private businessReviewMaterialValid(record: { reportPath: string; reportSha256: string }): boolean {
+    return (
+      existsSync(record.reportPath) &&
+      sha256OfText(readFileSync(record.reportPath, 'utf8')) === record.reportSha256
+    )
+  }
+
+  /**
+   * 业务终审：需求 Agent 在新会话里按原始需求复核业务场景与验收标准。
+   * 证据必须来自独立验证实际执行的命令输出，不能只复述验证报告。
+   */
+  private async executeBusinessReview(
+    reqId: string,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+    const authorized = this.requireAuthorizedPlan(reqId)
+    if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
+    const analysis = this.repo.latestAnalysis(reqId)
+    if (!analysis) return { state: 'failed', detail: `需求 ${reqId} 尚无分析结论；不能做业务终审` }
+    const plan = authorized.value.plan
+    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
+    const missing = plan.tasks.filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
+    if (missing.length > 0) {
+      return {
+        state: 'failed',
+        detail: `仍有任务未交付，不能做业务终审：${missing.map((task) => task.taskId).join('、')}`,
+      }
+    }
+    const verification = this.repo.verification(reqId, plan.planVersion)
+    if (!verification || verification.verdict !== 'pass') {
+      return { state: 'failed', detail: `独立验证未通过；不能做业务终审` }
+    }
+    const candidateSha256 = this.candidateIdentity(plan, artifacts)
+    if (verification.candidateSha256 !== candidateSha256) {
+      return { state: 'failed', detail: '独立验证绑定的候选与当前材料不一致；需重新验证后再终审' }
+    }
+    if (!this.verificationMaterialValid(verification)) {
+      return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；不能做业务终审' }
+    }
+    const existing = this.repo.businessReviewForCandidate(reqId, plan.planVersion, candidateSha256)
+    if (existing) {
+      if (existing.verdict === 'block') {
+        return {
+          state: 'failed',
+          detail: `候选 ${candidateSha256.slice(0, 16)}… 的业务终审已阻断；需修复后产生新候选`,
+        }
+      }
+      if (existing.verificationSha256 === verification.reportSha256 && this.businessReviewMaterialValid(existing)) {
+        return { state: 'done', detail: '业务终审已通过；等待验收' }
+      }
+      return {
+        state: 'failed',
+        detail: '业务终审报告缺失、摘要不一致或未绑定当前独立验证；需重新终审',
+      }
+    }
+
+    // 终审证据只取独立验证实际执行的命令输出；报告文件缺失或摘要不符即 fail-closed。
+    const facts: Array<{ label: string; argv: readonly string[]; exitCode: number | null; logTail: string }> = []
+    let canonical: Record<string, unknown> = {}
+    try {
+      canonical = JSON.parse(readFileSync(verification.reportPath, 'utf8')) as Record<string, unknown>
+    } catch {
+      return { state: 'failed', detail: '独立验证报告无法解析；不能做业务终审' }
+    }
+    const commands = Array.isArray(canonical.commands) ? canonical.commands : []
+    for (const raw of commands) {
+      if (typeof raw !== 'object' || raw === null) continue
+      const command = raw as Record<string, unknown>
+      const label = typeof command.label === 'string' ? command.label : ''
+      const logPath = typeof command.logPath === 'string' ? command.logPath : ''
+      if (!label || !logPath) continue
+      if (!existsSync(logPath)) {
+        return { state: 'failed', detail: `验证命令 ${label} 的日志缺失；不能做业务终审` }
+      }
+      const text = readFileSync(logPath, 'utf8')
+      if (typeof command.logSha256 === 'string' && sha256OfText(text) !== command.logSha256) {
+        return { state: 'failed', detail: `验证命令 ${label} 的日志摘要不一致；不能做业务终审` }
+      }
+      facts.push({
+        label,
+        argv: Array.isArray(command.argv) ? command.argv.map((part) => String(part)) : [],
+        exitCode: typeof command.exitCode === 'number' ? command.exitCode : null,
+        logTail: text.slice(-4000),
+      })
+    }
+    if (facts.length === 0) {
+      return { state: 'failed', detail: '独立验证没有可核对的命令输出；不能做业务终审' }
+    }
+
+    const dir = businessReviewDir(this.config, reqId, plan.planVersion)
+    mkdirSync(dir, { recursive: true })
+    const started = Date.now()
+    const run = await this.runner.run({
+      role: 'business-review',
+      cwd: dir,
+      prompt: businessReviewPrompt({
+        requirement,
+        analysis,
+        plan,
+        candidateSha256,
+        commands: facts,
+      }),
+      permission: 'workspace-write',
+      timeoutMs: this.config.agent.timeoutSeconds * 1000,
+      transcriptPath: join(dir, 'business-review.jsonl'),
+      signal,
+      tools: 'none',
+    })
+    this.charge(reqId, started)
+    if (run.status !== 'completed') {
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `业务终审 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
+      )
+      return {
+        state: run.status === 'aborted' || run.status === 'timeout' ? 'unknown' : 'failed',
+        detail: `业务终审未取得结论：${run.reason}`,
+      }
+    }
+    let review: BusinessReview
+    try {
+      review = parseBusinessReview(run.text)
+    } catch (error) {
+      this.repo.setStatus(reqId, 'blocked', `业务终审材料畸形：${(error as Error).message}`)
+      return { state: 'failed', detail: `业务终审材料畸形（fail-closed）：${(error as Error).message}` }
+    }
+    const issues = validateBusinessReview({
+      scenarios: analysis.scenarios,
+      acceptanceCriteria: analysis.acceptanceCriteria,
+      review,
+      runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
+    })
+    const verdict: 'pass' | 'block' = review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
+    const blocking = verdict === 'block' ? (issues.length > 0 ? issues : review.blocking) : []
+    const report = {
+      kind: 'business-review',
+      reqId,
+      planVersion: plan.planVersion,
+      requirementVersion: plan.requirementVersion,
+      candidateSha256,
+      verificationSha256: verification.reportSha256,
+      verdict,
+      summary: review.summary,
+      findings: review.findings,
+      blocking,
+      scenarios: review.scenarios,
+      acceptance: review.acceptance,
+      sessionId: run.sessionId,
+      at: this.now(),
+    }
+    const reportJson = `${JSON.stringify(report, null, 2)}\n`
+    const reportPath = join(dir, 'business-review.json')
+    writeFileSync(reportPath, reportJson, 'utf8')
+    this.repo.recordBusinessReview({
+      requirementId: reqId,
+      planVersion: plan.planVersion,
+      candidateSha256,
+      requirementVersion: plan.requirementVersion,
+      verificationSha256: verification.reportSha256,
+      verdict,
+      reportJson,
+      reportPath,
+      reportSha256: sha256OfText(reportJson),
+      sessionId: run.sessionId,
+      reviewedAt: this.now(),
+    })
+    if (verdict === 'block') {
+      this.repo.recordFailureRound(reqId, {
+        roundId: `business-review-${plan.planVersion}-${candidateSha256.slice(0, 12)}`,
+        stage: FAILURE_BUSINESS_REVIEW,
+        summary: `业务终审阻断：${blocking.join('；') || review.summary}`.slice(0, 1000),
+        occurredAt: this.now(),
+      })
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `业务终审阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blocking.join('；') || review.summary}`,
+      )
+      return {
+        state: 'failed',
+        detail: `业务终审阻断：${blocking.join('；') || review.summary}；证据 ${reportPath}`,
+      }
+    }
+    this.repo.setStatus(reqId, EXECUTING)
+    return {
+      state: 'done',
+      detail: `业务终审通过（候选 ${candidateSha256.slice(0, 16)}…，${review.scenarios.length} 个业务场景）`,
     }
   }
 
