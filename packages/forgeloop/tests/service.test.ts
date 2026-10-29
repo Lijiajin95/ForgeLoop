@@ -83,6 +83,8 @@ const PLAN_REVIEW = JSON.stringify({
   ],
 })
 
+const VERIFY_OUTPUT = 'smoke ok: verified'
+
 const VERIFICATION_REPORT = JSON.stringify({
   verdict: 'pass',
   summary: '候选通过独立验证',
@@ -92,7 +94,7 @@ const VERIFICATION_REPORT = JSON.stringify({
     {
       scenario: '任务按依赖完成',
       status: 'pass',
-      evidence: 'smoke 命令退出码 0；两个任务的交付证据在候选副本中可见',
+      evidence: VERIFY_OUTPUT,
       commands: ['smoke'],
     },
   ],
@@ -142,7 +144,7 @@ function fakeRunner(
         mkdirSync(verification, { recursive: true })
         writeFileSync(
           join(verification, 'commands.json'),
-          JSON.stringify({ commands: [{ label: 'smoke', argv: ['node', '-e', 'process.exit(0)'] }] }),
+          JSON.stringify({ commands: [{ label: 'smoke', argv: ['node', '-e', "console.log('smoke ok: verified')"] }] }),
         )
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
         return result(request, VERIFICATION_REPORT)
@@ -306,7 +308,7 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
         logPath: request.logPath,
         logSha256: 'b'.repeat(64),
         durationMs: 1,
-        output: 'verification ok',
+        output: VERIFY_OUTPUT,
       }
     })
     await runQueued('plan', reqId)
@@ -844,7 +846,7 @@ describe('task retry', () => {
         logPath: request.logPath,
         logSha256: 'b'.repeat(64),
         durationMs: 1,
-        output: 'ok',
+        output: VERIFY_OUTPUT,
       }
     })
 

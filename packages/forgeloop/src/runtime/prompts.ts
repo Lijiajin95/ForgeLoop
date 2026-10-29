@@ -303,8 +303,8 @@ ${input.diff || '（空 diff）'}
     {
       "scenario": "必须与实现前验证计划中的 scenario 文本一致",
       "status": "pass" 或 "fail" 或 "not_verified",
-      "evidence": "实际执行了什么、看到什么结果；写到命令或日志依据",
-      "commands": ["命令清单中的 label"]
+      "evidence": "命令输出中的原文片段（至少 8 个字符，逐字复制，不要改写或总结）",
+      "commands": ["verification/commands.json 中实际会执行的命令 label"]
     }
   ]
 }
@@ -315,8 +315,9 @@ ${input.diff || '（空 diff）'}
 2. \`verification/report.json\`：上面的报告 JSON 原文。
 
 规则：
-- 必过场景必须实际执行并以 pass 出现在 scenarios 中，evidence 要指向真实输出；模型自述不算证据，程序会重跑命令并用退出码判定。
-- 验证测试和辅助脚本只能放在 \`verification/\`；不得修改候选源码、测试或配置来让验证通过。
+- 必过场景必须实际执行并以 pass 出现在 scenarios 中；evidence 必须能在所引用命令的输出里逐字核对，模型自述或无关命令退出 0 不算证据，程序会重跑命令并用退出码判定。
+- commands 只能引用 commands.json 里的 label；引用不存在的命令、无法核对的 evidence 都会判阻断。
+- 验证测试和辅助脚本只能放在 \`verification/\`；验证命令也不得修改候选源码、测试或配置，否则按候选被篡改阻断。
 - 若候选未满足需求，如实判 block 并给出可复现步骤、预期、实际结果与证据。
 - verdict=pass 时 blocking 必须为空；verdict=block 时至少给出一条 blocking。
 - 只输出报告 JSON；文件内容必须与之一致。`

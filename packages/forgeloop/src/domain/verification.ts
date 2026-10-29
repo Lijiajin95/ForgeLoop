@@ -226,3 +226,60 @@ export function validateVerificationCoverage(
   }
   return issues
 }
+
+/** 程序实际执行的一条验证命令及其结果；只由运行时按执行记录产生。 */
+export interface VerificationCommandRun {
+  readonly label: string
+  readonly exitCode: number | null
+  readonly timedOut: boolean
+  readonly aborted: boolean
+  readonly output: string
+}
+
+const MIN_EVIDENCE_CHARS = 8
+
+function normalizeEvidence(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * 场景证据必须能落到本次实际执行的命令上：label 存在、命令成功、证据是输出原文。
+ * 非空字符串、模型填写 pass 或无关命令退出 0 都不能替代。
+ */
+export function validateScenarioEvidence(
+  plan: readonly VerificationScenarioPlan[],
+  report: VerificationReport,
+  runs: readonly VerificationCommandRun[],
+): string[] {
+  const issues: string[] = []
+  const byLabel = new Map(runs.map((run) => [run.label, run]))
+  for (const result of report.scenarios) {
+    if (result.status !== 'pass') continue
+    for (const label of result.commands) {
+      if (!byLabel.has(label)) issues.push(`场景 ${result.scenario} 引用了未执行的验证命令：${label}`)
+    }
+  }
+  for (const item of plan.filter((scenario) => scenario.required)) {
+    const result = report.scenarios.find((scenario) => scenario.scenario === item.scenario)
+    if (!result || result.status !== 'pass') continue
+    if (result.commands.length === 0) {
+      issues.push(`必过场景没有关联验证命令：${item.scenario}`)
+      continue
+    }
+    const referenced = result.commands
+      .map((label) => byLabel.get(label))
+      .filter((run): run is VerificationCommandRun => run !== undefined)
+    if (referenced.length === 0) continue
+    const executed = referenced.filter((run) => !run.timedOut && !run.aborted && run.exitCode === 0)
+    if (executed.length === 0) {
+      issues.push(`必过场景关联的验证命令没有成功执行：${item.scenario}`)
+      continue
+    }
+    const needle = normalizeEvidence(result.evidence)
+    const matched =
+      needle.length >= MIN_EVIDENCE_CHARS &&
+      executed.some((run) => normalizeEvidence(run.output).includes(needle))
+    if (!matched) issues.push(`必过场景证据无法在验证命令输出中核对：${item.scenario}`)
+  }
+  return issues
+}

@@ -45,6 +45,7 @@ import {
   parseVerificationCommands,
   parseVerificationReport,
   validatePlanCoverage,
+  validateScenarioEvidence,
   validateVerificationCoverage,
   type PlanReview,
   type VerificationCommand,
@@ -68,7 +69,7 @@ import {
 } from './board.js'
 import { runFormalTest } from './formal-test.js'
 import { analysisPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, verificationPrompt } from './prompts.js'
-import { captureCandidate, headCommit, prepareSnapshotWorkspace, runCommand, requireGit } from './workspace.js'
+import { captureCandidate, git, headCommit, prepareSnapshotWorkspace, runCommand, requireGit } from './workspace.js'
 import { parseTaskExecution } from './task-execution.js'
 
 export interface OperationResult {
@@ -205,6 +206,53 @@ function verificationBlocking(reportJson: string): string {
   } catch {
     return reportJson.slice(0, 300)
   }
+}
+
+/** 验证 Agent 的合法材料目录；候选受保护内容不含此目录。 */
+const VERIFICATION_MATERIAL_DIR = 'verification/'
+
+/**
+ * 列出 Git 可见的工作区变化（含未忽略的新文件）。Git 忽略的构建输出
+ * （例如 `packages` 下的 `lib` 目录、`coverage` 目录）不属于候选，也不进入本列表。
+ */
+function workspaceChanges(workspace: string): string[] {
+  // 不能用 requireGit：它会给输出 trim，从而吃掉首条记录状态位前的空格。
+  const result = git(workspace, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  if (result.code !== 0) {
+    throw new RuleViolationError(`git status 失败：${result.stderr.trim() || result.stdout.trim()}`)
+  }
+  const entries = result.stdout.split('\0')
+  const paths: string[] = []
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]!
+    if (!entry) continue
+    const status = entry.slice(0, 2)
+    const path = entry.slice(3)
+    if (status.includes('R') || status.includes('C')) index += 1
+    if (path) paths.push(path)
+  }
+  return [...new Set(paths)].sort()
+}
+
+/** 记录验证材料清单与摘要，使报告能绑定实际存在的材料。 */
+function verificationMaterials(dir: string): Array<{ path: string; sha256: string; bytes: number }> {
+  const root = join(dir, 'workspace', 'verification')
+  if (!existsSync(root)) return []
+  const files: Array<{ path: string; sha256: string; bytes: number }> = []
+  const walk = (relative: string): void => {
+    for (const entry of readdirSync(relative ? join(root, relative) : root, { withFileTypes: true })) {
+      const path = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        walk(path)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const bytes = readFileSync(join(root, path))
+      files.push({ path: `verification/${path}`, sha256: sha256OfBytes(bytes), bytes: bytes.length })
+    }
+  }
+  walk('')
+  return files.sort((left, right) => left.path.localeCompare(right.path))
 }
 
 function parseFormalTestHeader(text: string): {
@@ -2256,17 +2304,13 @@ ${answer}`
       return { state: 'failed', detail: `独立验证材料畸形（fail-closed）：${(error as Error).message}` }
     }
 
-    const changed = requireGit(workspace, ['status', '--porcelain'])
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => line.slice(3).trim())
+    const changed = workspaceChanges(workspace)
     const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
     if (currentHead !== workspaceHead) {
       this.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
       return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
     }
-    const outsideVerification = changed.filter((path) => !path.startsWith('verification/'))
+    const outsideVerification = changed.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
     if (outsideVerification.length > 0) {
       this.repo.setStatus(
         reqId,
@@ -2288,6 +2332,7 @@ ${answer}`
       logPath: string
       logSha256: string
       durationMs: number
+      output: string
     }> = []
     const failedCommands: string[] = []
     for (const [index, command] of commands.entries()) {
@@ -2309,6 +2354,7 @@ ${answer}`
         logPath: test.logPath,
         logSha256: test.logSha256,
         durationMs: test.durationMs,
+        output: test.output,
       })
       if (test.aborted) {
         this.repo.setStatus(reqId, 'blocked', '独立验证命令被停止；外部副作用需核对')
@@ -2321,14 +2367,39 @@ ${answer}`
       }
     }
 
+    // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
+    // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
+    const integrityIssues: string[] = []
+    const afterHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+    if (afterHead !== workspaceHead) {
+      integrityIssues.push(
+        `验证期间候选提交发生变化：${workspaceHead.slice(0, 12)} → ${afterHead.slice(0, 12)}`,
+      )
+    }
+    const afterChanges = workspaceChanges(workspace)
+    const outsideAfter = afterChanges.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
+    if (outsideAfter.length > 0) {
+      integrityIssues.push(`验证命令修改了固定候选：${outsideAfter.join('、')}`)
+    }
+    const candidateContentSha256 = sha256OfText(requireGit(workspace, ['diff', 'HEAD', '--binary']))
+    const materials = verificationMaterials(dir)
+
     const coverageIssues = validateVerificationCoverage(planReview.verificationPlan, report)
+    const evidenceIssues = validateScenarioEvidence(planReview.verificationPlan, report, commandRuns)
     const anyScenarioFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
     const verdict: 'pass' | 'block' =
-      report.verdict === 'pass' && failedCommands.length === 0 && coverageIssues.length === 0 && !anyScenarioFailed
+      report.verdict === 'pass' &&
+      failedCommands.length === 0 &&
+      coverageIssues.length === 0 &&
+      evidenceIssues.length === 0 &&
+      integrityIssues.length === 0 &&
+      !anyScenarioFailed
         ? 'pass'
         : 'block'
     const blocking = [
       ...report.blocking,
+      ...integrityIssues,
+      ...evidenceIssues,
       ...(anyScenarioFailed ? ['报告存在未通过的验证场景'] : []),
       ...failedCommands.map((failure) => `验证命令失败：${failure}`),
       ...coverageIssues,
@@ -2346,7 +2417,15 @@ ${answer}`
       findings: report.findings,
       blocking,
       scenarios: report.scenarios,
-      commands: commandRuns,
+      commands: commandRuns.map(({ output: _output, ...rest }) => rest),
+      candidateIntegrity: {
+        head: afterHead,
+        candidateContentSha256,
+        changes: afterChanges,
+        allowedPaths: [VERIFICATION_MATERIAL_DIR],
+        ignoredBuildOutputsExcluded: true,
+      },
+      materials,
       sessionId: run.sessionId,
       at: this.now(),
     }

@@ -33,7 +33,7 @@ function makeProject(): string {
   git(project, ['init', '-q'])
   git(project, ['config', 'user.email', 'test@example.com'])
   git(project, ['config', 'user.name', 'Test'])
-  writeFileSync(join(project, '.gitignore'), '.forgeloop/\n')
+  writeFileSync(join(project, '.gitignore'), '.forgeloop/\ncoverage/\n')
   writeFileSync(join(project, 'README.md'), 'fixture\n')
   git(project, ['add', '-A'])
   git(project, ['commit', '-qm', 'base'])
@@ -100,11 +100,15 @@ function planReviewOf(verdict: 'pass' | 'block'): string {
   })
 }
 
+const SMOKE_OUTPUT = 'smoke ok: verified'
+const DEFAULT_SMOKE_ARGV = ['node', '-e', `console.log('${SMOKE_OUTPUT}')`]
+
 function verificationReportOf(options: {
   verdict?: 'pass' | 'block'
   scenario?: string
   status?: 'pass' | 'fail' | 'not_verified'
   evidence?: string
+  commands?: readonly string[]
 } = {}): string {
   return JSON.stringify({
     verdict: options.verdict ?? 'pass',
@@ -115,15 +119,18 @@ function verificationReportOf(options: {
       {
         scenario: options.scenario ?? SCENARIO,
         status: options.status ?? 'pass',
-        evidence: options.evidence ?? 'smoke 退出码 0',
-        commands: ['smoke'],
+        evidence: options.evidence ?? SMOKE_OUTPUT,
+        commands: options.commands ?? ['smoke'],
       },
     ],
   })
 }
 
-function commandsOf(argv: readonly string[] = ['node', '-e', 'process.exit(0)']): string {
-  return JSON.stringify({ commands: [{ label: 'smoke', argv }] })
+function commandsOf(
+  argv: readonly string[] = DEFAULT_SMOKE_ARGV,
+  label = 'smoke',
+): string {
+  return JSON.stringify({ commands: [{ label, argv }] })
 }
 
 interface VerifyOptions {
@@ -362,7 +369,7 @@ describe('verification materials', () => {
 
   it('rejects duplicate or empty verification commands', () => {
     expect(parseVerificationCommands(commandsOf())).toEqual([
-      { label: 'smoke', argv: ['node', '-e', 'process.exit(0)'] },
+      { label: 'smoke', argv: DEFAULT_SMOKE_ARGV },
     ])
     expect(() => parseVerificationCommands(JSON.stringify({ commands: [] }))).toThrow(/至少一条命令/)
     expect(() =>
@@ -934,5 +941,89 @@ describe('independent verification gate', () => {
       ok: false,
       code: 'verification_stale',
     })
+  })
+
+  it('blocks a report that cites a verification command that was never executed', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ workspace: { report: verificationReportOf({ commands: ['never-run'] }) } }))
+    const { reqId, advance } = await runPipeline()
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('引用了未执行的验证命令：never-run')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+  })
+
+  it('blocks scenario evidence that cannot be checked against the executed output', async () => {
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({
+        workspace: {
+          commands: commandsOf(),
+          report: verificationReportOf({ evidence: '所有场景均已通过，无需复核' }),
+        },
+      }),
+    )
+    const { reqId, advance } = await runPipeline()
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('证据无法在验证命令输出中核对')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+  })
+
+  it('blocks verification commands that change the fixed candidate', async () => {
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({
+        workspace: {
+          commands: commandsOf([
+            'node',
+            '-e',
+            `require('fs').appendFileSync('docs/a.md', 'tampered\\n'); console.log('${SMOKE_OUTPUT}')`,
+          ]),
+        },
+      }),
+    )
+    const { reqId, advance } = await runPipeline()
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('验证命令修改了固定候选：docs/a.md')
+    expect(runtime.repo.verification(reqId, 1)?.verdict).toBe('block')
+    expect(runtime.accept({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'verification_blocked',
+    })
+  })
+
+  it('blocks verification commands that add unprotected files outside verification/', async () => {
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({
+        workspace: {
+          commands: commandsOf([
+            'node',
+            '-e',
+            `require('fs').mkdirSync('docs', { recursive: true }); require('fs').writeFileSync('docs/extra.md', 'x'); console.log('${SMOKE_OUTPUT}')`,
+          ]),
+        },
+      }),
+    )
+    const { advance } = await runPipeline()
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('验证命令修改了固定候选：docs/extra.md')
+  })
+
+  it('allows ignored build output while the tracked candidate stays unchanged', async () => {
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({
+        workspace: {
+          commands: commandsOf([
+            'node',
+            '-e',
+            `require('fs').mkdirSync('coverage', { recursive: true }); require('fs').writeFileSync('coverage/out.txt', 'x'); console.log('${SMOKE_OUTPUT}')`,
+          ]),
+        },
+      }),
+    )
+    const { reqId, advance } = await runPipeline()
+    expect(advance.state, advance.detail).toBe('done')
+    expect(runtime.repo.verification(reqId, 1)?.verdict).toBe('pass')
   })
 })
