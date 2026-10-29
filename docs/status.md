@@ -4,18 +4,19 @@
 更新时区分当前快照与历史批次，数字绑定检查日期、构建和原始日志；发现冲突先核对并留勘误。
 本文件不把工程检查、安装回执或历史自迭代当作新方案的完整验收。
 
-## 当前快照（2026-10-28）
+## 当前快照（2026-10-29）
 
 | 项目 | 最近有依据的状态 | 回查 |
 | --- | --- | --- |
 | 新产品方案 | 产品、技术与验证决定已合并；种子范围、首条真实需求及 M2 参数仍待明确 | [统一方案 §14](product.md#14-实施边界与待决项) |
-| 活动实现 | TypeScript 原生 DSH 插件，宿主内 Agent、SQLite 与只读看板；`/fl` 命令面、旧库兼容与提交时间策略已删除，客户决定入口未实现 | [架构](architecture.md)、§14 |
+| 活动实现 | TypeScript 原生 DSH 插件；业务会话已实现输入接管、需求拆解、澄清回答、技术方案/任务包、批准、推进、验证任务、验收与停止；任务失败原因/确定性解决方案、失败任务重试与最小重新规划已接入；需求分析读取当前活动需求与任务事实（状态、时间）；天工页具备总览/需求/任务/问题、搜索、需求与任务详情、调试证据与响应式布局；真实候选构建、运行中停止等仍未验证 | [架构](architecture.md)、§15–§31 |
+| 架构契约 | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤 | §30 |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查 | §13、[ADR 0009](adr/0009-remove-retired-implementation.md) |
-| 最近安装记录 | 2026-10-26 desktop profile 安装移除选择器后的候选；本次未重新核验运行实例 | §9 的包摘要与槽位实测 |
-| 最近工程检查 | 2026-10-28 `make check`、覆盖率与候选打包通过，25 个测试文件、202 项测试；未重跑真实宿主 | §14 |
-| 真实业务链路 | 历史需求闭环有证据；新方案的自主研发／运维闭环与介入率未验收 | [迁移交付记录](delivery/2026-10-22-typescript-dsh.md) |
-| 关键缺口 | 客户决定入口缺失；需求级停止、逐动作工时、跨请求失败额度及副本外权限未完整落实 | [§4.1](#41-当前实现缺口2026-10-28-整理)、§14 |
-| 覆盖率 | 2026-10-28 行／语句 91.52%、函数 96.07%、分支 84.11%，门槛通过 | §14；历史测量及勘误见 §13、§3.4、§2.2 |
+| 最近安装记录 | 2026-10-29 最小重新规划候选包 `6b9363…`（103,109 字节）已安装到正式 `web` profile，并热重载正式 3080（PID 82207，owner `MacAir.local:82207:3d3e7f3c`，acquiredAt `2026-10-29T11:33:37.308Z`）；安装后客户端 143,687 字节，SHA-256 `a5cf66…` | §29 |
+| 最近工程检查 | 2026-10-29 `make check` 通过，27 个测试文件、277 项测试；覆盖率 行/语句 91.65%、函数 95.87%、分支 84.81%；本批未重新打包 | §31 |
+| 真实业务链路 | 真实 Web 已完成“输入 → 需求 → 拆解 → 澄清 → 技术方案/任务包 → 批准 → 推进 → 验证 → 验收”；停止入口真实触发；失败任务的真实证据已用于核对原因/建议；本批工作台在隔离环境完成真实浏览器检查，但不计为正式业务链路验收 | §16–§28 |
+| 关键缺口 | 实际候选构建 → 摘要 → 验收未闭环；开发 Agent 运行中停止与副作用核对未验证；例外取舍、追加授权、完整重新规划仍缺失；最小重新规划只补文件、不新建任务；正式 blocked 需求仍需 owner 在页面确认后才会生成待批准 v2；架构检查仍是静态正则，不能替代代码审阅 | §4.1、§21–§30 |
+| 覆盖率 | 2026-10-29 行／语句 91.65%、函数 95.87%、分支 84.81%，门槛通过 | §31；历史测量及勘误见 §30、§29、§28、§27、§26、§25、§23、§22、§21、§19、§18、§15、§14、§13、§3.4、§2.2 |
 
 产品版本以 Git tag 为准；历史记录中的包名、构建标识与摘要用于追溯，不单独作为运行版本证明。
 以下章节保留原编号和锚点，历史批次按当时环境理解；没有再次执行的检查不刷新为本次结果。
@@ -219,7 +220,7 @@
 | --- | --- |
 | 客户入口、[服务](../packages/forgeloop/src/runtime/service.ts)、[协调器](../packages/forgeloop/src/runtime/coordinator.ts) | 当前没有客户决定入口；stop／cancel 的运行时操作能更新状态并撤销 pending，但在途 AbortController 只接协调器整体 stop，需求级停止未接通。成功文案不能证明 Agent 已停稳；在途修订的停止边界同样需验证 |
 | 服务与[工时规则](../packages/forgeloop/src/domain/limits.ts) | 推进开始检查工时，后续动作／尝试未逐一复检；领域存在 extend，但无公开工时延长命令。不能声明逐动作工时已强制 |
-| 服务与[失败计数](../packages/forgeloop/src/domain/counting.ts) | 失败额度主要在记录失败及循环分支检查，重新推进前缺完整额度准入；回合 ID 使用任务及当次尝试序号，跨请求重试与幂等累计需专项验证 |
+| 服务与[失败计数](../packages/forgeloop/src/domain/counting.ts) | 失败额度在记录失败、循环分支、advance 入口与 retryTask 检查（2026-10-29 补齐推进准入）；回合 ID 已绑定推进请求与尝试序号，跨请求重试不再吞轮次；追加授权入口与额度用尽后的继续路径仍未实现 |
 | 服务与[Agent 执行器](../packages/forgeloop/src/runtime/agent-runner.ts) | 实现请求 `danger-full-access`，独立副本与事后 diff 检查未形成副本外写入的预防性限制；ADR 中“工作区写权限”不能当作实际约束证据 |
 | 失败计数与入口 | 有 `user_acceptance` 失败类型，但当前无公开的用户验收失败反馈入口，尚未形成完整累计路径 |
 | [服务验收入口](../packages/forgeloop/src/runtime/service.ts)与[记录层](../packages/forgeloop/src/records/repository.ts) | 当前允许未构建候选包时按任务材料验收；验收成功不证明已经打包、安装或上线。历史 diff 对变化后源码重放曾需外部合并，见 §2 与交付记录 |
@@ -558,3 +559,956 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
   本批没有删除业务流水线，也没有为便于调用而放宽任何授权或材料判定。
 - 旧数据库、证据、候选包和本机提交记录未清理；新库不再兼容旧库，是否迁移或清理业务数据另行决定。
 - 历史批次中的 `/fl`、提交策略与旧库兼容记录按当时事实保留，不改为“从未存在”。
+
+## 15. 业务会话输入接管与需求拆解（2026-10-28）
+
+来源：所有者要求“实现 ForgeLoop 劫持用户输入，转入 ForgeLoop 流程，对接需求 Agent，
+把用户输入拆解为需求”。本批由 DSH 会话内 Agent 直接实施，未通过 ForgeLoop 受理需求，
+不计为插件自主执行成果。
+
+### 15.1 计划范围与实际改动
+
+| 范围 | 目的与实际处置 |
+| --- | --- |
+| `src/session/intake.ts` | 在 `agent/pre-step` 中识别 `agentPreset=forgeloop` 的非子 Agent 会话；只处理真实人类消息，按 `sessionId + messageId` 幂等提交需求，调用需求 Agent 分析后追加会话事件并 reject 普通模型步骤 |
+| `src/session/events.ts`、`src/session/index.ts` | 定义 `forgeloop/intake`、`forgeloop/analysis`、`forgeloop/error` 自定义会话事件；安装输入接管监听器，统一释放 |
+| `src/session/preset.ts` | 注册 `forgeloop` agent preset（显示名“ForgeLoop 业务会话”，空插件组合）；宿主没有 `agentPresets` 时不注册并保留原因 |
+| `src/runtime/service.ts` | 新增 `analyzeRequirement`：复用需求分析链路，已有同版本分析时不重复调用模型；失败或终态显式返回 |
+| `client.js` | 注册三个自定义 Chat 节点定义与 keyed 渲染器；展示原始输入、需求身份、需求 Agent 的目标/场景/验收/待澄清结果与失败原因 |
+| `tests/session-intake.test.ts`、`tests/client-view.test.ts`、`contracts/architecture.json`、`scripts/ts/contracts.ts` | 增加输入接管、幂等、普通会话不拦截、失败事件、preset 注册、节点折叠测试；登记 `session_surface` 并由契约检查 preset、事件、节点与实现一致 |
+| 架构说明、插件 README、本记录 | 说明业务会话入口、真实宿主未验证和当前边界 |
+
+没有新增 `/fl` 命令、客户决定入口、旧库兼容或新的通用框架。输入接管只在 host 半实现；
+没有改 DSH 源码。
+
+### 15.2 行为与证据
+
+1. 用户选择 ForgeLoop 业务会话后，普通输入框的文本由 `agent/pre-step` 接管；成功时写入
+   `forgeloop/intake` 与 `forgeloop/analysis`，普通聊天步骤被 reject，不调用模型聊天。
+2. 需求身份由 `sessionId + messageId` 幂等键保证；同一消息重复投递不会重复建需求。
+3. 非 ForgeLoop 会话、子 Agent 会话、`runtime-context` 等非人类消息不进入受理；不会误拦截。
+4. 需求 Agent 失败时写入 `forgeloop/error`，需求与原始输入仍保留，普通聊天仍被拒绝。
+5. 客户端按事件类型渲染卡片；节点事件是 log-only，不进入模型历史。
+
+### 15.3 检查与实际结果
+
+- `make check` 通过：类型检查、架构契约与行为测试，26 个测试文件、220 项测试。
+- 新增 `tests/session-intake.test.ts` 15 项：受理并展示分析、普通/子 Agent 不拦截、系统上下文
+  不受理、同消息幂等、需求 Agent 失败、preset/事件 helper、监听器释放与失败回退。
+- `tests/client-view.test.ts` 增加到 6 项：自定义节点注册、事件折叠与普通 DSH 行为不受影响。
+- `make contracts` 通过：`session_surface` 的 preset、`agent/pre-step`、人类来源、会话事件与
+  客户端节点均与实现一致。
+- `make coverage` 通过：行／语句 91.54%、函数 95.28%、分支 84.35%，门槛保持原样。
+- `make package` 通过：候选构建标识 `0.0.2`，68,160 字节，SHA-256
+  `63b234588f9b5517f94f530bd73183d0958b3e3f4390cc92b0740405c16bcb2e`；tarball 含新增
+  `lib/session/*.js` 模块。
+- 2026-10-29 已在 DSH `0.2.1-rc.4` Web profile 完成首次真实试验，见 §16；重启恢复与多会话
+  隔离仍未验证。
+
+### 15.4 未完成与发现但不碰
+
+- 客户决定入口、批准/验收/推进/停止仍无入口；本批只做到“输入 → 需求 → 需求 Agent 拆解”。
+- 只受理文本；附件、图片和一条输入拆成多条需求尚未实现。当前一条人类消息对应一条需求。
+- 需求分析在 `agent/pre-step` 内同步等待，耗时期间该轮占用输入；长耗时需要改为异步队列 +
+  会话事件回填，尚待后续任务。
+- 会话事件只在其 agent 存活时追加；重启后的补发/outbox 未实现，业务事实以 SQLite 为准。
+- 真实宿主上的 preset 空组合如不被接受，需要增加最小 session 标记插件行；这不改变本批
+  的输入接管判定。
+- 未创建 commit；工作树改动与验证结果保留，等待所有者下一步指示。
+
+## 16. DSH Web 首次安装与业务会话试验（2026-10-29）
+
+来源：所有者要求“DSH web 安装 ForgeLoop 插件，并试验第一个版本功能”。本批由 DSH 会话内
+Agent 直接执行，不是 ForgeLoop 自主交付。
+
+### 16.1 安装与配置
+
+- 目标：DSH `0.2.1-rc.4`，profile `web`，现有 Web 实例 `127.0.0.1:3080` 保留不动。
+- 安装：`dsh plugin --profile web add packages/forgeloop/dist/forgeloop-dsh-0.0.2.tgz`；
+  候选包 SHA-256 `63b234588f9b5517f94f530bd73183d0958b3e3f4390cc92b0740405c16bcb2e`，
+  68,160 字节。profile 的 `dsh.profile.bundles` 增加了 `forgeloop-dsh`。
+- 配置：在 `~/.dsh/profiles/web/cordis.patch.yml` 覆盖 `forgeloop` 的 `recordsRoot`、`project`、
+  `projectPath`；测试实例再用 `--patch` 覆盖到独立记录根
+  `.cache/forgeloop/dsh-web-test2`，避免污染正式项目记录。
+- 启动：同一 web profile 在 3090 启动隔离实例（`dsh --profile web --patch ... --no-open --port 3090`）；
+  3080 原实例不重启，避免中断当前会话。试验结束后 3090 实例与自动化浏览器已关闭。
+
+### 16.2 实际试验与结果
+
+1. 新会话选择 **“ForgeLoop 业务会话”** preset，在普通输入框输入
+   `给需求看板增加按状态过滤` 并发送。
+2. 聊天区出现 `已进入 ForgeLoop 流程` 与 `需求 Agent 拆解结果` 卡片（默认折叠在
+   “已完成分析” 过程组内，展开可见）；没有普通 assistant 回复。
+3. 需求落库：`req-20261028235909-a9efb3`，会话 `session-2960bfd5-a759-40d5-bff8-0c17b1e629b2`，项目 `forgeloop-web-test2`，状态
+   `awaiting_clarification`；需求原文、session 身份与 message 身份保存在 `requirements`。
+4. 需求 Agent 产出目标、4 条业务场景、5 条验收标准与 4 条待澄清项，记录在
+   `requirement_analyses`；会话日志有 `forgeloop/intake`、`forgeloop/analysis`。
+5. 该轮会话日志为 `turn/start → forgeloop/intake → forgeloop/analysis → turn/end(blocked)`，
+   **没有 `step/start`、`user/message` 或 `assistant/message`**；普通聊天步骤被拒绝。
+6. 截图：`.cache/forgeloop/dsh-web-test2/forgeloop-web-test.png`（本机证据，不随仓库分发）。
+
+试验中发现并修正了一个真实问题：Web 会话 header 是创建事实，用户可能在首轮前切换 preset；
+只读 header 会把已选择 `forgeloop` 的会话误判为普通会话。实现已改为优先读取运行中的
+preset 组合，header 仅作回退；重新安装候选包后在 3090 实例复验通过。
+
+### 16.3 限制与后续
+
+- 自定义卡片默认折叠在“已完成分析”过程组内，用户需要展开；入口可见性需要后续调整。
+- 需求 Agent 产生了待澄清项；当前没有客户回答/决定入口，状态停在 `awaiting_clarification`。
+- 只验证了单条文本、单会话、首次受理；重启恢复、并发会话、附件、审批与后续规划未验证。
+- 3090 测试实例已停止；3080 正式实例未重启，是否加载了新包未作为本批结论。安装与配置记录
+  已写入本机 web profile 与 `.cache`，未提交代码或文档之外的运行配置。
+
+## 17. 独立测试环境与正式环境隔离（2026-10-29）
+
+### 17.1 环境边界
+
+| 项 | 正式环境 | 测试环境 |
+| --- | --- | --- |
+| DSH_HOME | `~/.dsh` | `~/.dsh-forgeloop-test` |
+| profile | `web` | `forgeloop-test` |
+| Web 端口 | 3080（运行进程 pid 82207） | 3091（试验后已停止） |
+| ForgeLoop 记录根 | `~/Library/Application Support/ForgeLoop/production` | `~/.dsh-forgeloop-test/forgeloop` |
+| 项目名 | `forgeloop` | `forgeloop-test` |
+| 项目路径 | `/Users/lijiajin/Project/ForgeLoop` | `/Users/lijiajin/Project/ForgeLoop/.cache/forgeloop/test-workspace`（git worktree） |
+| DSH sessions/storages | `~/.dsh/sessions`、`~/.dsh/storages` | `~/.dsh-forgeloop-test/sessions`、`storages` |
+| 凭据 | `~/.dsh/.credentials.yaml` | `~/.dsh-forgeloop-test/.credentials.yaml`（权限 600 的本机副本） |
+| 配置 | `~/.dsh/profiles/web/cordis.patch.yml` | `~/.dsh-forgeloop-test/profiles/forgeloop-test/cordis.patch.yml` |
+
+两套 DSH_HOME、profile、记录根、会话存储、凭据文件与工作副本均独立；测试启动命令：
+
+```sh
+DSH_HOME="$HOME/.dsh-forgeloop-test" \
+  dsh --profile forgeloop-test --no-open --port 3091
+```
+
+### 17.2 隔离验证
+
+- 正式 `web` profile 在 3080 运行进程已按新配置生成
+  `~/Library/Application Support/ForgeLoop/production/projects/forgeloop/records.sqlite`，
+  当前 `requirements` 为 0；锁 owner 为 pid 82207。
+- 测试实例使用独立 DSH_HOME 启动后，日志显示记录根为
+  `~/.dsh-forgeloop-test/forgeloop/projects/forgeloop-test/records.sqlite`，没有单消费者锁冲突。
+- 测试输入 `给隔离测试环境增加状态过滤` 生成需求 `req-20261029011147-921826`，需求 Agent
+  输出目标“为隔离测试环境增加按状态筛选的能力”等结构化结果；会话
+  `session-9589452d-619e-468e-a148-31c5968cd5ab` 有 `forgeloop/intake`、
+  `forgeloop/analysis` 和 `turn/end(blocked)`，无 `step/start` 或 assistant 回复。
+- 测试 DSH_HOME 的 sessions 与正式 `~/.dsh/sessions` 分开；测试运行未写入正式记录根。
+- 隔离测试截图：`~/.dsh-forgeloop-test/forgeloop/isolated-test.png`。
+
+### 17.3 限制与残留
+
+- 测试 DSH_HOME 的 `.credentials.yaml` 是正式凭据的本机只读用途副本；必须保持 600 权限，
+  不进入版本库或候选包。更严格的做法是提供独立测试凭据。
+- 09:10 之前的 3090 快速试验曾共享正式 DSH_HOME，其测试会话仍留在 `~/.dsh/sessions`；
+  未擅自删除。后续测试统一使用独立 DSH_HOME。
+- 正式 3080 实例已按新配置持有正式记录根，但没有在 UI 上重新跑一遍输入接管；本批只把测试
+  实例的真实 Web 试验作为功能证据。
+- 测试实例在验证后已关闭；需要时按 §17.1 命令重新启动。
+
+## 18. 需求澄清闭环与会话末尾需求摘要（2026-10-29）
+
+来源：所有者要求“增加需求澄清闭环功能，把等待澄清的需求推送到会话中；把已拆解的需求，
+同步展现到会话末尾。以 需要澄清 | 不需要澄清 的顺序布局会话”。
+
+### 18.1 实现
+
+| 范围 | 改动 |
+| --- | --- |
+| `src/runtime/service.ts` | 新增 `pendingClarifications(sessionId)`、`answerClarifications(...)` 与 `sessionSummary(sessionId)`；回答追加需求版本、调用需求 Agent 重新分析；摘要按会话 source 过滤 |
+| `src/session/intake.ts` | 会话存在唯一待澄清需求时，下一条人类输入作为澄清回答而不是新需求；多待澄清项时拒绝猜测；追加 `forgeloop/clarification-answer`、`forgeloop/analysis`，必要时再次推送 `forgeloop/clarification-request` |
+| `src/session/events.ts` | 新增 `forgeloop/clarification-request` 与 `forgeloop/clarification-answer` 事件及载荷 |
+| `src/index.ts` | `/api/forgeloop/board` 增加 `session` 端点，按会话返回已拆解需求与待澄清项 |
+| `client.js` | 注册澄清请求/回答 Chat 节点；注册 `conversation.chat.turnTail` 需求摘要，按 **需要澄清 | 不需要澄清** 两列展示，等待澄清在左且在前 |
+| 测试、契约、架构、插件说明 | 新增澄清回答、版本绑定、多待澄清拒绝、会话摘要、UI 注册测试；更新 `session_surface` 与文档 |
+
+回答不会新建需求：需求 Agent 把澄清回答追加为需求新版本（保留原文与历史），重新分析后
+需求可离开 `awaiting_clarification`。
+
+### 18.2 真实测试结果
+
+- 测试环境：`~/.dsh-forgeloop-test`，profile `forgeloop-test`，records
+  `~/.dsh-forgeloop-test/forgeloop`，端口 3091；测试后已关闭。
+- 需求：`req-20261029013231-395402`。
+- 第一轮：需求 v1、分析 v1 有 4 条待澄清；会话末尾摘要显示
+  `需要澄清 1`、`不需要澄清 0`。
+- 第二轮：输入澄清回答后，需求变为 v2、分析 v2、状态 `draft`，没有创建第二条需求；
+  会话末尾摘要显示 `需要澄清 0`、`不需要澄清 1`。
+- 会话 `session-eebc8fcb-2185-4a8d-b43a-5089302c9820` 的事件顺序包含
+  `forgeloop/intake → forgeloop/analysis → forgeloop/clarification-request →
+   forgeloop/clarification-answer → forgeloop/analysis`，两轮均为 `turn/end(blocked)`，
+  无普通 assistant 回复。
+- 截图：`~/.dsh-forgeloop-test/forgeloop/clarification-loop.png`。
+
+### 18.3 检查与未完成
+
+- `make check` 通过：26 个测试文件、226 项测试。
+- `make coverage` 通过：行／语句 91.43%、函数 95.39%、分支 84.31%，门槛保持原样。
+- `make package` 通过：70,944 字节，SHA-256
+  `436da0ad9d106c37109eb4dd1bece15d97f278f141b18f96ecc34b2de1582566`；候选包已安装到测试与正式 web profile。
+- 多待澄清需求当前返回错误并要求先收敛，没有提供选择/切换待澄清需求的 UI；需要后续任务。
+- 摘要端点按会话 source 过滤，页面每轮结束时重新读取；未实现主动推送/轮询。
+- 正式 3080 已更新候选包，但未在正式实例上重跑澄清闭环；本批真实证据来自隔离测试实例。
+- 待澄清期间新输入都会作为回答，用户不能直接提交第二条新需求；后续需要显式“新需求”入口。
+
+## 19. 研发 Agent 技术方案与任务包（2026-10-29）
+
+来源：所有者要求“下一步接入研发 Agent 生成技术方案与任务包”。
+
+### 19.1 实现
+
+| 范围 | 改动 |
+| --- | --- |
+| `src/domain/task-plan.ts` | 任务包增加可选 `technicalSolution`（摘要、实施步骤、风险）；校验空摘要、空步骤与重复项 |
+| `src/runtime/prompts.ts` | 规划提示词要求研发 Agent 同时输出 `technical_solution` 与 `tasks`，任务包仍须依赖、文件、验收和测试命令 |
+| `src/runtime/service.ts` | 新增 `planRequirement(reqId)` 包装 `executePlanning`；规划成功写任务包并置 `plan_proposed`，规划仍不等于批准或执行 |
+| `src/session/intake.ts` | 需求分析无待澄清项时自动调用研发 Agent；追加 `forgeloop/plan`，规划失败追加 `forgeloop/error` |
+| `src/session/events.ts` | 新增 `forgeloop/plan` 事件，带技术方案与任务清单 |
+| `client.js` | 新增“研发 Agent 任务包”Chat 节点，展示技术方案、实施步骤、风险、任务、文件和依赖 |
+| 测试、契约、架构、插件说明 | 技术方案解析/拒绝、自动规划、事件顺序、节点注册与契约同步 |
+
+历史任务包没有技术方案仍可读取；新规划提示词要求提供技术方案。
+
+### 19.2 真实测试结果
+
+- 测试环境：`~/.dsh-forgeloop-test`，profile `forgeloop-test`，端口 3091；测试后已关闭。
+- 需求：`req-20261029014038-8bbf45`（README 末尾追加一行）。
+- 分析 v1 无待澄清项；随后研发 Agent 生成技术方案与任务包 v1：
+  - 技术方案摘要、5 条实施步骤、4 条风险；
+  - 2 个任务：`core`（修改 `README.md`）与 `verify`（新增回归测试，依赖 `core`）；
+  - 需求状态 `plan_proposed`（页面显示“待批准”）。
+- 会话 `session-ca6cebc7-7375-4011-a41b-af3e743d9342` 的事件顺序为
+  `forgeloop/intake → forgeloop/analysis → forgeloop/plan → turn/end(blocked)`；
+  没有普通 assistant 回复，没有批准、推进或执行。
+- 规划子会话 `session-fl-plan-...` 真实调用了模型；任务包通过语言/工程边界与任务规则校验。
+- 截图：
+  - `~/.dsh-forgeloop-test/forgeloop/dev-agent-plan.png`（会话末尾摘要，状态待批准）；
+  - `~/.dsh-forgeloop-test/forgeloop/dev-agent-plan-card.png`（技术方案与实施步骤）。
+
+### 19.3 检查与未完成
+
+- `make check` 通过：26 个测试文件、228 项测试。
+- `make coverage` 通过：行／语句 91.47%、函数 95.43%、分支 84.12%，门槛保持原样。
+- `make package` 通过：72,554 字节，SHA-256
+  `1b4f0738f19f43a5d29c8d0fb1102978218675883d44cbeffba54ee79e2230e3`；已安装到测试与正式
+  `web` profile。真实 Web 验证在代码相同的 52beaa 构建上完成；最终包差异为同批文档。
+- 任务包仍停在 `plan_proposed`；还没有批准/推进入口，也没有执行工作副本、候选包、验证或部署。
+- 规划在输入接管内同步执行，耗时由模型与任务包复杂度决定；没有独立后台队列或取消入口。
+- 正式 3080 已安装新包，但未在正式实例上重跑规划链路；真实证据来自隔离测试实例。
+- 规划 Agent 的“技术方案”是任务包字段，不是独立版本的架构文档；后续若需要方案评审与变更历史，
+  应另建对象或版本化记录。
+
+## 20. 测试环境模型配置（2026-10-29）
+
+来源：所有者要求“配置测试环境模型为”并给出 penguin-go 自定义 provider 的界面配置。
+
+### 20.1 配置
+
+测试 profile `forgeloop-test`（`~/.dsh-forgeloop-test/profiles/forgeloop-test/cordis.patch.yml`）
+新增两条 patch：
+
+- `llm-pi-ai.providers.penguin-go`：
+  - 显示名称 `penguin-go`
+  - API key 环境变量 `PENGUIN_GO_API_KEY`
+  - 协议 `anthropic-messages`
+  - 地址 `https://go.penguin.ooo/api/anthropic`
+  - 模型 `deepseek-flash`，上下文 1,000,000，最大输出 384,000，支持 text/image，
+    reasoning 档位 off/low/high/max
+- `agent-default-model`：`provider: penguin-go`、`model: deepseek-flash`、
+  `reasoningEffort: max`
+
+测试 DSH_HOME 的凭据副本已包含 `PENGUIN_GO_API_KEY`，未读取正式 profile 的运行时状态；
+正式 `web` profile 的模型配置未改动。
+
+### 20.2 验证
+
+- `DSH_HOME=~/.dsh-forgeloop-test dsh --profile forgeloop-test --dump-config` 显示
+  `agent-default-model = penguin-go/deepseek-flash`，`llm-pi-ai` 带 penguin-go provider。
+- 测试 Web 实例输入“在 README.md 末尾增加一行：penguin-go 模型验证。”，需求
+  `req-20261029014719-701466` 完成分析并生成任务包 v1，状态 `plan_proposed`，页面模型显示
+  `deepseek-flash / Max`；没有认证或协议错误。
+- 测试实例验证后已关闭；正式 3080 未使用该测试 profile。
+
+### 20.3 边界
+
+- 测试与正式使用同一模型路由，但 profile、DSH_HOME、记录根、sessions 与凭据文件仍独立；
+  测试凭据是正式凭据的本机只读用途副本，权限 600。
+- 模型配置属于本机 profile，不进入仓库、候选包或正式记录。
+- 该验证证明测试环境模型可调用，不代表正式 3080 已切换到该模型或已重启。
+
+## 21. 任务包批准与任务推进（2026-10-29）
+
+来源：所有者要求“实现任务包批准与任务推进”。
+
+### 21.1 实现
+
+| 范围 | 改动 |
+| --- | --- |
+| `src/index.ts` | 认证 Fetch 路由新增 `approve` 与 `advance`；批准/推进的 `by` 使用插件配置的本机 owner，模型工具不能调用 |
+| `client.js` | 任务包卡片增加“批准任务包”“推进任务”按钮；显示批准状态、已交付数量、推进受理与错误；批准/推进后 3 秒轮询详情 |
+| `src/runtime/service.ts` | `sessionSummary` 增加 planVersion、approved、delivered、taskCount，供会话末尾显示进度 |
+| `src/runtime/agent-runner.ts` | 编程式 dev/review Agent 显式挂载 `standard` preset，取得 shell/fs 等编码工具；只推理角色继续禁用全部工具 |
+| `src/runtime/prompts.ts` | 规划要求每个任务在 files 中产生实际改动，禁止无改动的“纯验证任务” |
+| 测试、契约、架构、插件说明 | 增加批准/推进路由、非法动作拒绝、Agent preset 组合与任务进度测试 |
+
+批准写入绑定需求版本与任务包版本的批准行，授权来源为
+`plan-approval:<reqId>:v<planVersion>:<owner>`；推进只排队 `advance` 请求，由协调器领取后逐任务执行，
+不是同步执行，也不等于验收。
+
+### 21.2 真实测试结果
+
+- 测试环境：`~/.dsh-forgeloop-test`，profile `forgeloop-test`，端口 3091；测试后已关闭。
+- 第一次推进（工具组合修复前）：需求 `req-20261029015137-6ff9d1` 批准成功，但开发 Agent 只有
+  只读查询工具，无法写文件，三个任务尝试均失败。
+- 修复：`AgentRunner` 为 dev/review 明确 `agentPresets.mount(agentCtx, 'standard')`。
+- 第二次推进：需求 `req-20261029015606-04a05c`：
+  - 任务包 v1 批准成功；点击“推进任务”返回推进请求并领取；
+  - 第一个任务 `readme-append` **交付成功**：在独立工作副本的 `README.md` 末尾追加
+    “开发工具组合验证。”，生成候选 diff、正式测试日志与审查材料；
+  - 第二个任务 `verify-check` 连续 3 次失败：“开发回合没有产生任何文件改动”；
+  - 需求最终 `blocked`，等待人工决定；没有冒充成功或自动验收。
+- 该失败暴露了任务包设计边界：只运行检查、不修改文件的验证任务不能产生候选 diff。
+  规划提示词已改为要求每个任务产生实际改动，但当前已生成的任务包不能追溯修正。
+- 截图：
+  - `~/.dsh-forgeloop-test/forgeloop/approve-advance.png`
+  - `~/.dsh-forgeloop-test/forgeloop/approve-advance-actions.png`
+
+### 21.3 检查与未完成
+
+- `make check` 通过：26 个测试文件、232 项测试。
+- `make coverage` 通过：行／语句 91.58%、函数 95.78%、分支 84.28%，门槛保持原样。
+- `make package` 通过：74,285 字节，SHA-256
+  `3a65c19e43d8b4add091055e2a0c7d3407bacb9a98f68a79481d5b3ddfa7ad58`；已安装到测试与正式
+  `web` profile。
+- 批准/推进是异步的：按钮只负责排队，协调器执行；页面轮询 3–4 秒刷新，没有独立实时推送。
+- 没有验收、停止、追加授权、取消或“重新规划”入口；当前阻塞需求需人工处理。
+- 任务包中纯验证任务缺少 diff 的语义尚未建模；当前用规划提示词规避，后续需要显式任务类型或
+  验证任务交付规则。
+- 正式 3080 已安装最终包，但未在正式实例重跑批准/推进；真实证据来自隔离测试实例。
+- 未创建 commit。
+
+## 22. 验证任务交付、验收与停止入口（2026-10-29）
+
+来源：所有者要求“先补验证任务的交付语义，再补验收和停止入口”。
+
+### 22.1 验证任务交付语义
+
+- 任务包新增可选 `verification: true`；验证任务必须 `files: []`，不得声明可修改文件。
+- 规划提示词允许显式验证任务，但仍优先把验证放进实现任务的 `test_command`；普通实现任务不得标成验证任务。
+- 运行时对验证任务只运行批准过的正式测试，不调用开发 Agent、不生成 diff、不要求文件改动。
+- 交付材料包含空候选 diff、正式测试日志和“仅验证、无文件改动”的审查说明；候选/测试/审查摘要照常记录。
+- 后续任务应用空 diff 和候选构建都跳过空 patch，不把验证任务当成实现改动。
+- 非验证任务保持原规则：必须有实际文件改动，否则失败。
+
+### 22.2 验收与停止入口
+
+- 任务包卡片在全部任务交付后显示“验收交付”，调用认证 `accept` 端点；有候选包时仍要求显式产物摘要。
+- “停止需求”调用认证 `stop` 端点；协调器先中止该需求在途请求，再置阻塞并撤销待执行请求。
+- 批准、推进、验收、停止均使用配置的本机 owner 身份；模型工具不能调用。
+- 会话末尾需求摘要增加任务进度、批准与交付数量，并按 4 秒轮询刷新。
+
+### 22.3 测试与真实证据
+
+- 新增确定性测试：
+  - 验证任务无 diff 交付：空候选摘要、空 diff 文件、验证说明、随后整体验收通过；
+  - 验证任务声明文件被拒绝；
+  - `accept`/`stop` 路由的缺少身份、未知需求、成功停止与在途中止计数；
+  - AgentRunner 的开发/推理工具组合。
+- 真实 Web 证据仍来自 §21：批准后首个实现任务真实交付；当前测试需求
+  `req-20261029015606-04a05c` 因旧任务包的纯验证任务失败而阻塞，未重跑。
+- 本批没有在真实 Web 上重新验证“验证任务交付 → 验收 → 停止”的完整链路；相关结论仅来自
+  确定性测试与路由测试，必须如实标注。
+
+### 22.4 检查与边界
+
+- `make check` 通过：26 个测试文件、236 项测试。
+- `make coverage` 通过：行／语句 90.80%、函数 95.80%、分支 84.17%，门槛保持原样。
+- `make package` 通过：75,844 字节，SHA-256
+  `e80f836c8fbea99de73d82c524bd9fe7e22d4ddc6a0b4d644cdf50473a39ebb5`；已安装到测试与正式
+  `web` profile。
+- 验证任务跳过独立审查，只以正式测试与验证说明作为材料；这是当前简化，不等于完整验证 Agent 角色。
+- 验收没有候选包摘要输入控件；有候选包时按钮会返回“必须显式给出产物 SHA256”，需要后续补齐输入。
+- 停止是请求式：中止在途信号依赖协调器实际持有该请求；已完成动作不会回滚。
+- 未创建 commit。
+
+## 23. 真实 Web 验证任务、验收与停止（2026-10-29）
+
+来源：所有者要求“补真实 Web 的‘验证任务 → 验收 → 停止’端到端验证，并补候选产物摘要输入”。
+
+### 23.1 候选产物摘要输入
+
+- `requirementView` 增加当前任务包的 `candidate` 字段。
+- 任务包卡片在存在候选包时显示“候选产物 SHA-256”输入框；默认填入已记录的候选摘要，
+  可手工修改。
+- 验收按钮在候选包存在但摘要为空时禁用；点击后把输入值作为 `artifactSha256` 传给认证
+  `accept` 端点，运行时仍按候选记录严格比对。
+- 没有候选包时不显示输入框，验收仍可依据任务材料完成。
+
+### 23.2 真实 Web 验证任务 → 验收
+
+- 需求：`req-20261029033744-563cbb`。
+- 任务包 v1 含两个任务：`readme-append`（实现）与 `verify`（`verification: true`、`files: []`）。
+- 在真实 Web 会话中批准并推进：
+  - `readme-append` 交付真实候选 diff；
+  - `verify` 只运行 `node -e process.exit(0)`，交付空候选 diff
+    （SHA-256 `e3b0c442…b855`）、正式测试日志和验证说明；
+  - 两个任务均 `delivered`，需求状态停留 `executing` 等待验收。
+- 为验证候选摘要输入，在测试记录库中登记了一个候选包摘要
+  `78c0a7ba…19c9d`（**该候选记录为 UI 测试种子，不是实际构建产物**）。
+- 页面候选摘要输入框自动带出该值；点击“验收交付”后：
+  - 需求状态 `accepted`；
+  - `accepted_by=test-owner`；
+  - `acceptance_source=web-decision:session-5116e778-494a-4645-be42-d929cd7e05ae:accept`。
+- 截图：
+  - `~/.dsh-forgeloop-test/forgeloop/e2e-candidate-input.png`
+  - `~/.dsh-forgeloop-test/forgeloop/e2e-accept.png`
+
+### 23.3 真实 Web 停止
+
+- 需求：`req-20261029034207-2f2444`。
+- 在真实 Web 会话中批准并点击“推进任务”，随后点击“停止需求”：
+  - 状态变为 `blocked`，原因“停止请求：从任务包卡片停止（test-owner）”；
+  - 推进请求最终为 `unknown`，详情为
+    `执行异常：aborted before spawn: AbortError: This operation was aborted`；
+  - 没有生成任务交付产物，未发生代码副作用。
+- 截图：`~/.dsh-forgeloop-test/forgeloop/e2e-stop.png`。
+- 这次中途中止发生在开发 Agent 启动前；停止信号中止了协调器请求，但没有验证“开发 Agent
+  已运行后停止”的收口路径。
+
+### 23.4 其他真实验证事实
+
+- 第一次验证任务使用 `npm run check --workspace forgeloop-dsh`，在隔离工作副本中因缺少
+  `tsc`/依赖以退出码 127 失败；这是环境/依赖问题，不是验证任务语义失败，需求按规则阻塞。
+- 修复：验证任务测试命令改为不依赖已安装依赖的 `node -e process.exit(0)`。
+- 会话末尾状态已修正：`accepted` 优先显示“已验收”，不再被“已批准”覆盖。
+
+### 23.5 检查与边界
+
+- `make check` 通过：26 个测试文件、236 项测试。
+- `make coverage` 通过：行／语句 90.80%、函数 95.80%、分支 84.17%，门槛保持原样。
+- `make package` 通过：76,213 字节，SHA-256
+  `ce01593f2526bc410cbf2516fed7b22065be5cc0c00a67a3f470c2b742519f28`；已安装到测试与正式
+  `web` profile。
+- 本轮真实 Web 测试使用隔离测试 DSH_HOME、penguin-go/deepseek-flash（Max）和测试工作副本；
+  测试实例已关闭。
+- 候选包摘要是种子记录，不是实际 `buildCandidate` 产物；候选摘要输入控件与验收绑定已验证，
+  但“构建候选包 → 输入摘要 → 验收”的完整真实链路仍未验证。
+- 验证任务的正式测试是空退出命令，证明交付语义，不证明业务验证质量。
+- 停止发生在开发 Agent 启动前；运行中 Agent 的停止与副作用核对仍未真实验证。
+- 正式 3080 未重跑这些入口；未创建 commit。
+
+## 24. 正式环境装载（2026-10-29）
+
+- 正式 profile：`~/.dsh/profiles/web`，包 `forgeloop-dsh@0.0.2`，已安装最终候选包
+  SHA-256 `ce0159…`（76,213 字节）。
+- 正式记录根：`~/Library/Application Support/ForgeLoop/production`；项目 `forgeloop`，
+  项目路径 `/Users/lijiajin/Project/ForgeLoop`，`autoAdvance=false`。
+- 正式 DSH Web 进程 pid 82207（3080）未重启；通过 profile patch 触发热重载后，
+  ForgeLoop 协调器 owner 从 `MacAir.local:82207:b7fab49a` 变为
+  `MacAir.local:82207:9335f622`，`host.lock` 取得时间更新为 `2026-10-29T06:57:34.569Z`，
+  说明插件宿主已重新装载。
+- 正式 `forgeloop_status` 可查询，当前正式记录根需求数为 0。
+- 浏览器页面仍需刷新以取得新的 ForgeLoop 客户端 bundle；新会话必须重新选择
+  “ForgeLoop 业务会话”，已有会话的 preset 不会自动改变。
+- 测试环境仍是独立的 `~/.dsh-forgeloop-test`，不共享正式记录、sessions 或凭据文件。
+
+## 25. 天工页交互与取消需求（2026-10-29）
+
+来源：所有者要求“增加取消/归档需求的按钮，误提交的 `req-…f214fd` 可被取消”；同时明确天工页
+不是只读页面，应支持批准、推进，不支持验收。
+
+### 25.1 天工页交互
+
+- 天工需求卡新增按钮：
+  - **批准任务包**：`plan_proposed`、有任务包且未批准时显示；
+  - **推进任务**：任务包已批准且仍有未交付任务时显示；
+  - **取消需求**：非终态需求显示。
+- 天工页**不显示验收按钮**；验收仍在 ForgeLoop 任务包卡片中完成。
+- 批准/推进/取消使用认证 Fetch 路由，`by` 为配置的本机 owner；按钮动作后刷新天工记录和详情。
+- 页脚由“只读视图”改为“可交互看板：支持批准、推进和取消需求；验收请回到任务包会话完成”。
+
+### 25.2 取消语义
+
+- 新增认证 `cancel` 端点；先中止该需求当前在途请求，再调用运行时 `cancel`。
+- 取消后需求进入终态 `cancelled`；原文、版本、分析、任务包、批准、运行与证据全部保留，
+  不物理删除数据库行。
+- 取消的需求从“进行中”筛选隐藏；“全部”仍可回查。
+- `req-20261029070857-f214fd` 仍为 `awaiting_clarification`；页面刷新并打开任一天工页后，
+  可点击“取消需求”将其置为 `cancelled`。本批没有替所有者自动点击。
+- `req-20261029070230-bab6bf` 可在天工页直接“批准任务包”，再“推进任务”。
+
+### 25.3 测试与边界
+
+- 新增路由测试：缺少 reqId 拒绝、取消成功、详情状态 `cancelled`；天工动作接线复用
+  `approve/advance` 路由。
+- `make check` 通过：26 个测试文件、237 项测试。
+- `make coverage` 通过：行／语句 90.80%、函数 95.80%、分支 84.19%。
+- `make package` 通过：77,184 字节，SHA-256
+  `899af384db5d0baf812fd5b3f60a93dbbc23b2d14a38b1981e1250ec2d7a4262`。
+- 取消/归档目前只有 `cancelled` 终态和“进行中”隐藏，没有独立归档状态、恢复或物理删除入口。
+- 最终包已安装到正式 `web` 与独立测试 profile；正式 3080 通过 profile 热重载，协调器 owner
+  于 `2026-10-29T07:22:12.299Z` 更新为 `MacAir.local:82207:634cb860`，取消路由已随宿主加载。
+- 天工页动作没有在正式 3080 上做真实点击验证；正式页面需要刷新加载新客户端 bundle。
+- 未创建 commit。
+
+## 26. 任务心跳、最后活动与任务详情（2026-10-29）
+
+来源：所有者要求“在页面显示正在执行哪个任务、最后活动时间，增加任务心跳或运行中状态；
+点击任务详情页，可以看到 Agent 执行过程”。
+
+### 26.1 实现
+
+- `TASK_RUN_RUNNING`：任务启动时写入运行中状态；`heartbeatTaskRun` 只刷新 `reason/updated_at`，
+  不增加执行秒数。
+- `AgentRunner` 每 1.5 秒把当前事件快照写入 `dev.jsonl`，并回调 `onActivity`；开发任务把最新活动
+  写入任务运行记录，例如“正在调用工具 bash”“执行步骤 N”“模型回复并继续”。
+- 天工页：
+  - 任务卡显示“执行中”和最后活动时间；
+  - 需求卡显示“正在执行：taskId · goal · 最后活动”；
+  - 任务卡可打开任务详情抽屉。
+- 任务详情端点 `task` 返回任务、运行状态、证据、测试日志尾部和 Agent 活动摘要；详情抽屉显示
+  文件、验收标准、测试命令、活动过程与正式测试日志。
+- 天工页仍不提供验收；验收只在任务包卡片。
+
+### 26.2 当前真实阻塞
+
+正式 `req-20261029070230-bab6bf` 的 `queue-core` 任务：
+
+- 第一次正式测试失败（退出码 1）；
+- 第二次开发 Agent 在 `step 8` 调用了 `ask_user_question`，当前会话在等待工具结果；
+- 请求仍是 `claimed`，动作仍是 `started`，需求仍为 `executing`；
+- 该任务不是“正常执行中”，而是**等待一个尚未接入任务详情/回答入口的 Agent 提问**。
+
+这意味着仅做心跳只能显示“正在调用 ask_user_question”，不能替用户回答。任务详情抽屉会展示
+该问题，但还没有回答按钮；这是下一步需要补的闭环。
+
+### 26.3 检查与装载边界
+
+- `make check` 通过：26 个测试文件、239 项测试。
+- `make coverage` 通过：行／语句 90.66%、函数 95.56%、分支 84.02%。
+- `make package` 通过：80,404 字节，SHA-256
+  `866c950798af90723ee26af4b3040e689883922260dd8dc9f6cd9fafefc645ca`。
+- 正式 3080 已在所有者确认“停止任务并热重载”后热重载（协调器 owner 更新为
+  `MacAir.local:82207:41263e35`，acquiredAt `2026-10-29T07:35:39.695Z`）。
+- 在途开发回合被停止：`req-20261029070230-bab6bf` 状态变为 `blocked`，原因
+  “开发回合被停止：工作副本可能有未收口改动，需核对；不会盲目重放”；推进请求和动作均为
+  `unknown`，没有自动重放。
+- 待决问题原文：架构契约要求新模块登记 `contracts/architecture.json`，但该文件不在
+  `queue-core` 允许清单；开发 Agent 给出的选项是扩大范围、保持范围只交付可编译模块、或取消/改方案。
+- 正式页面仍需刷新以加载心跳/任务详情客户端；未在正式页面做真实点击验证。
+- 待当前任务停止/结束，或所有者确认可以中断后，再热重载正式 profile 并刷新页面。
+- 未创建 commit。
+
+## 27. 任务失败原因、解决方案与重试（2026-10-29）
+
+来源：所有者要求“任务失败，展示失败原因，并给出解决方案；任务卡片增加重试按钮，支持重试机制”。
+本批由 DSH 会话内 Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执行成果。
+
+### 27.1 计划范围与实际改动
+
+| 范围 | 目的与实际处置 |
+| --- | --- |
+| `src/domain/failure-advice.ts` | 纯函数：从任务运行原因、正式测试日志尾部与审查结论归纳失败原因、可执行下一步和涉及文件；覆盖契约未登记、文件越界、审查阻断、无改动、停止/超时、测试失败、额度用尽与原因缺失 |
+| `src/runtime/board.ts` | 任务视图新增 `failureReason` 与 `failureAdvice`；失败/阻塞/待决定任务卡可直接显示原因与首条建议 |
+| `src/runtime/service.ts` | 新增 `retryTask`/`retryEligibility`；任务详情返回失败轮次、建议与重试准入；重试时把上一次失败原因和测试日志尾部带回开发提示词；推进入口共用失败额度准入；失败轮次 ID 绑定推进请求，跨请求重试不吞轮次 |
+| `src/index.ts` | 新增认证 `retry` 端点；请求体增加 `confirmRecovery`，其余端点不变 |
+| `client.js` | 失败任务卡显示原因与首条解决方案；任务详情显示失败原因、完整建议、失败轮次与测试日志；新增重试按钮，unknown 请求采用“第一次提示核对、第二次确认重试”两步 |
+| `tests/failure-advice.test.ts`、`tests/status-board.test.ts`、`tests/service.test.ts`、`tests/board-channel.test.ts`、`tests/client-view.test.ts` | 覆盖建议分类、看板字段、重试准入两侧、额度不清零、失败上下文回灌、unknown 二次确认、路由校验与中英文标签 |
+| `contracts/architecture.json`、`scripts/ts/contracts.ts`、架构说明、插件 README、`CONTEXT.md`、本记录 | 登记新模块与 `retry` 端点，说明重试边界与术语 |
+
+没有新增持久化表、任务包版本、重新规划或扩范围入口，也没有修改模型工具；重试不是新的批准路径。
+
+### 27.2 行为与规则
+
+1. **展示原因**：任务运行记录中的 `reason` 原样进入看板任务视图；失败/阻塞/待决定时显示在任务卡上。
+2. **给出方案**：`failure-advice.ts` 只依据已记录证据做确定性归因。正式测试日志中的
+   `[contracts] FAIL 活动源码未登记在契约 modules：…` 会转成“在 `contracts/architecture.json`
+   登记模块、把契约文件纳入任务清单、重新规划并批准后再重试”；文件越界、审查阻断、无改动、
+   停止/超时、额度用尽分别给出对应下一步。证据不足时明确写“未记录失败原因”，不调用模型猜方案。
+3. **重试准入**（服务端强制，页面只做展示）：
+   - 需求非终态、任务包是最新版本、依据当前需求版本且已批准；
+   - 任务有失败/阻塞/待决定运行记录，且没有交付产物；
+   - 没有 pending/claimed 请求；失败轮次额度必须大于 0；
+   - 该任务是拓扑序中第一个未交付任务，不能跳过前置任务；
+   - 不满足时返回 `terminal`、`plan_not_approved`、`stale_plan`、`stale_requirement`、
+     `already_delivered`、`not_failed`、`busy`、`grant_required` 或 `predecessor_pending`。
+4. **重试语义**：只排队一次 `advance`，由协调器按原任务包重新执行；不新建任务包、不清零失败轮次与证据、
+   不扩大已批准文件清单。下一次实现回合会收到上一次运行原因、最近失败轮次与正式测试日志尾部。
+   失败轮次 ID 从“任务 + 尝试序号”改为“任务 + 推进请求 + 尝试序号”，跨请求重试的 `a1` 不会被
+   上一次请求的同名轮次吞掉；同一请求重复执行仍保持幂等。
+5. **unknown 请求**：存在结果未知请求时，第一次调用返回 `recovery_required`，不关闭也不重放；
+   携带 `confirmRecovery:true` 后才把 unknown 标为 `dismissed` 并排队重试。该确认由 Web owner 动作触发，
+   模型工具没有该入口。
+6. **额度共用**：`requestOperation` 的普通 `advance` 与 `retryTask` 使用同一失败额度判定；额度用尽后
+   两者都拒绝，避免借重试或再次推进绕过计数。
+
+### 27.3 真实证据核对
+
+用正式记录根 `/Users/lijiajin/Library/Application Support/ForgeLoop/production` 的失败任务
+`req-20261029070230-bab6bf` / `queue-core` 离线核对（只读）：
+
+- 看板任务卡带出原因“正式测试失败（退出码 1），日志 …/formal-test.log”，并给出查看日志、修复后重试的建议；
+- 任务详情读取真实日志尾部后识别出两个未登记模块
+  `requirement-queue.ts`、`requirement-stage.ts`，建议登记 `contracts/architecture.json` 并重新规划；
+- 重试准入为 `allowed:true`、`requiresRecovery:true`（该需求确有 1 条 unknown 推进请求），与页面两步确认一致。
+
+这是记录与建议链路的核对，不是浏览器点击验收；正式页面仍需刷新加载新客户端。
+
+### 27.4 检查与实际结果
+
+- `make check` 通过：27 个测试文件、255 项测试。
+- `make coverage` 通过：行／语句 91.22%、函数 95.72%、分支 84.56%。
+- `make package` 通过：86,446 字节，SHA-256
+  `dcb9af33c9ae011cf8e6417f03b76ffe5cd517bffac39e847a05a68069ef78a3`；tarball 含
+  `lib/domain/failure-advice.js` 与更新后的 `client.js`。
+- 已安装到正式 `web` profile 并触发热重载：协调器 owner 为 `MacAir.local:82207:0fea7f5e`，
+  acquiredAt `2026-10-29T08:05:19.043Z`；正式 3080 未重启。
+- 认证路由 `/api/forgeloop/board` 在无浏览器凭据时返回 401，未绕过认证做真实点击；
+  重试按钮、两步确认与页面刷新后的展示仍待所有者实际操作确认。
+
+### 27.5 未完成与发现但不碰
+
+- 重试不改变已批准文件边界。`queue-core` 的根因是任务包未包含 `contracts/architecture.json`；
+  正确处置是重新规划并批准，而该入口仍未实现。页面会如实提示“直接重试会再次被同一契约检查阻断”。
+- 规划提示词未要求“新增 `src` 模块时把 `contracts/architecture.json` 纳入同一任务”；这会重复触发本类失败。
+  位置：`src/runtime/prompts.ts` 的规划硬性规则；建议在规划规则或契约校验前移中处理，本批未改。
+- 失败建议文案目前为中文，英文界面只本地化标签；现有看板问题详情也如此，未新增第二套服务端文案。
+- 未在正式 3080 点击验证重试、unknown 确认或刷新后的客户端；未创建 commit。
+
+## 28. 天工 UI 工作台首批（2026-10-29）
+
+来源：所有者要求“请将 ForgeLoop 的 UI 工作台作为当前高优先级需求，优先开发”，并给出统一导航、
+需求/任务详情、执行过程与调试证据三组首批范围。本批由 DSH 会话内 Agent 直接实施，未通过
+ForgeLoop 受理需求，不计为插件自主执行成果。
+
+### 28.1 计划范围与实际改动
+
+| 范围 | 目的与实际处置 |
+| --- | --- |
+| `src/runtime/board.ts` | `board` 支持 `query`/`limit`；新增 `awaiting_input`、`resultUnknown`、`stopRequested`、服务端 `actions`（approve/advance/stop/cancel，无 accept）、任务/请求/失败轮次搜索事实与 `taskIdOfFailureRound`；运行中或等待输入时不重复提供 `advance`；已交付任务不标“结果未知” |
+| `src/runtime/service.ts` | `readActivity` 返回 `total/truncated`；任务详情增加活动总数、日志字节数/尾部/截断、审查路径、unknown/active request、等待输入与结果未知；新增 `requirementDetail`（原文版本、分析、任务包正文、交付进度、产物摘要、验收记录、失败轮次与请求） |
+| `src/index.ts` | `board` 端点校验 `query` 字符串与 `limit` 1..100；`detail` 改走 `requirementDetail`；其余端点与认证不变 |
+| `client.js` | 重写天工页：总览/需求/任务/问题四视图、搜索（300ms 防抖）、刷新/自动刷新、筛选、空与无结果与读取失败状态；需求详情、任务详情抽屉、失败原因/建议/重试/停止/取消/批准/推进；响应式单列与 390px 窄屏；不提供验收 |
+| `tests/status-board.test.ts`、`tests/service.test.ts`、`tests/board-channel.test.ts`、`tests/failure-advice.test.ts` | 覆盖搜索范围与截断、运行/等待/停止/unknown 事实、服务端动作准入、失败轮次与任务关联、任务详情证据字段、需求详情、路由参数校验、旧审查结论不得解释新测试失败 |
+| `contracts/architecture.json`、架构说明、插件 README、`CONTEXT.md`、本记录 | 登记工作台视图、搜索范围、详情字段、证据截断与状态边界；未新增模块、持久化表、端点或模型工具 |
+
+没有改变批准/验收/失败额度/unknown 的服务端准入，也没有新增 Agent 权限、前端业务状态或第二条数据源。
+
+### 28.2 行为与边界
+
+1. **统一导航与搜索**：总览显示统计、当前执行/等待输入、需要处理的问题、下一步与能力边界；
+   需求/任务/问题独立筛选。搜索只读权威记录文字，不读取 Agent 日志文件内容；结果被截断时
+   页面明确提示“最多显示 50 条”。
+2. **需求与任务详情**：需求详情展示原文/版本、分析、任务包正文与任务跳转、交付进度、产物摘要、
+   验收记录、批准、失败轮次（带任务跳转）与请求；任务详情展示目标/依赖/允许文件/验收标准、
+   实际状态、失败原因与建议、失败轮次、活动（最近 120 条及总数）、正式测试日志（末尾 4000 字符、
+   字节数、路径、截断标记）、独立审查、产物摘要与证据路径/会话。
+3. **状态语义**：`awaiting_input` 表示最近活动出现 `ask_user_question`；`resultUnknown` 表示需求存在
+   unknown 请求；`stopRequested` 表示阻塞原因为停止请求。心跳/最后活动超过 60 秒标“可能停滞”；
+   三种状态都不等于任务已经停稳或副作用已经核对。
+4. **动作入口**：需求级动作由服务端 `actions` 判定；任务级重试仍由 `retryTask` 复核批准、额度、
+   前置任务、在途请求与 unknown 二次确认；天工页始终不提供验收。页面只展示服务端返回的
+   `allowed/reason`，不自行推断可重试。
+5. **数据来源**：所有事实来自 SQLite 与登记证据；页面不另存业务状态。读取失败保留旧内容并显示
+   错误横幅与重试，不伪造空状态。
+
+### 28.3 检查与实际界面核对
+
+- `make check` 通过：27 个测试文件、262 项测试；`make architecture-contract-check` 通过。
+  同步 `contracts/architecture.json` 时，契约更新命令一并登记了其他执行方在途的 `src/session` 模块
+  与 `session_surface`；未改动这些模块的实现。
+- `make coverage` 通过：行／语句 91.54%、函数 95.76%、分支 84.81%，高于门槛 90/93/84。
+- `make package` 通过：100,220 字节，SHA-256
+  `badc3f83648780e97a73befdb66e2ad9fd423dd0bfdfeec46e7b72c69e5bf116`。
+- 隔离环境：`DSH_HOME=~/.dsh-forgeloop-test`，profile `forgeloop-test`，记录根
+  `~/.dsh-forgeloop-test/forgeloop/projects/forgeloop-test`；测试宿主端口 3090，空项目宿主
+  端口 3091（记录根 `/tmp/fl-ui-empty/records`）。Chromium 1248 真实浏览器，截图保存在
+  `.cache/forgeloop/ui-workbench-20261029/`（01–16）。
+- 页面状态实际核对：正常项目总览、需求/任务/问题列表、搜索命中（“工作台”匹配 1 条需求、
+  2 个任务）、搜索无结果、读取失败（注入 500，保留旧内容并显示错误横幅）、执行中/等待输入、
+  失败任务、结果未知与停止请求、已交付任务的产物/证据、空项目、390×844 窄屏。页面底部内容
+  可在 DSH 会话滚动区滚到输入框上方，未被输入框遮挡；任务详情抽屉不覆盖输入框。
+- 一条可追溯链路：`req-20261029033605-e867ed` 的 `verify` 任务失败退出码 127 → 任务卡显示原因/
+  建议 → 任务详情显示 512 字节正式测试日志的末尾 4000 字符与截断标记、3 个失败轮次与审查阻断 →
+  重试被服务端以额度 3/3 用尽拒绝；需求详情的 3 个失败轮次均带“查看执行”任务跳转。
+  `req-20261029033744-563cbb` 验收详情展示 2/2、产物摘要与证据路径；`req-20261029034207-2f2444`
+  同时展示结果未知与停止请求横幅；`req-ui-20261029-running` 展示等待输入与心跳可能停滞。
+- 这是真实浏览器对测试记录根的界面核对，不是正式业务数据验收。正式 3080 随后已安装并热重载本批：
+  `dsh plugin --profile web add …/forgeloop-dsh-0.0.2.tgz` 后安装客户端 140,194 字节、SHA-256
+  `e8522a45669aae63fda528f803ab3e6962124ad47b5ee77faa30290bdc2a3c70`；在 profile patch 追加
+  注释触发热重载，协调器 owner 更新为 `MacAir.local:82207:d907b201`，acquiredAt
+  `2026-10-29T09:24:52.461Z`，Web 进程 PID 82207 未重启。安装前备份在
+  `/tmp/forgeloop-web-backup-20261029-1723`。
+  正式记录中 `rq-753ce3ae-…` 仍为 unknown、无运行中任务，安装/热重载未重放或修改它。
+  浏览器控制台只出现 DSH 自身的 `/api/changes.summary` 404（非 ForgeLoop）与脚本主动注入的
+  一次 500；没有 ForgeLoop 客户端异常。
+
+### 28.4 未完成、未验证与发现但不碰
+
+- 已按所有者“安装到正式环境”的明确授权安装到正式 `web` profile 并热重载 3080；正式页面需刷新
+  以加载新客户端 bundle。未在正式 3080 做点击验证，未绕过认证。未创建 commit。
+- 未在浏览器实际点击批准、推进、停止、取消或重试，避免改变测试记录；这些动作的服务端准入由
+  行为测试覆盖，页面只调用既有认证端点。停止确认对话框、过滤组合、键盘操作、读屏、长列表性能
+  与正式数据规模未验证。
+- 工作台没有仓库内浏览器自动化；本批使用临时 Playwright 脚本，截图是人工核对材料，未接入 CI。
+- 发现但不碰：规划提示词仍未要求把 `contracts/architecture.json` 纳入新增模块任务，可能重复触发
+  契约未登记失败（`src/runtime/prompts.ts`）；失败建议文案仍为中文，英文界面只本地化标签
+  （`src/domain/failure-advice.ts`）；DSH 自身 `/api/changes.summary` 404 与本插件无关，未改动；
+  追加授权、重新规划与需求级验收仍无页面入口。
+
+## 27. 新会话日志兼容性修复（2026-10-29）
+
+来源：正式 Web 新建会话失败：
+
+```text
+SessionQueryError: failed to observe session "session-2960…":
+contains event type "forgeloop/intake" (seq 9) unknown to this harness
+and not marked ignorable
+```
+
+### 27.1 根因
+
+ForgeLoop 旧实现用 `session.append('forgeloop/…')` 写入自定义会话事件。这些事件不是 DSH
+已知事件，也没有 `ignorable: true` 信封标记；当前 DSH 读取旧会话时拒绝解释日志，导致
+会话列表/新建会话失败。
+
+### 27.2 修复
+
+- 旧生产会话与旧测试会话中已有的 `forgeloop/…` 事件加 `ignorable: true`，保留原事件；
+  修复前备份到：
+  - `~/.dsh/session-backups/forgeloop-event-repair-20261029-173939`
+  - `~/.dsh-forgeloop-test/session-backups/forgeloop-event-repair-20261029-174119`
+- 插件新事件改为 DSH 插件记录类型：
+  - `plugin:forgeloop/intake`
+  - `plugin:forgeloop/analysis`
+  - `plugin:forgeloop/clarification-request`
+  - `plugin:forgeloop/clarification-answer`
+  - `plugin:forgeloop/plan`
+  - `plugin:forgeloop/error`
+- `appendSessionEvent` 从 DSH 入口解析 `appendPluginRecord`，写入 `ignorable: true` 的
+  `plugin:` 记录；测试用假会话没有 DSH 时回退到旧的 append 仅用于断言。
+- 旧会话中的 `forgeloop/…` 事件会被当前读取器跳过；它们的历史卡片不再渲染，但会话可正常打开。
+  新会话的事件以 `plugin:forgeloop/…` 写入，客户端仍按原节点渲染。
+
+### 27.3 验证
+
+- 修复后测试环境新建 ForgeLoop 会话成功，日志中实际出现：
+
+```json
+{"type":"plugin:forgeloop/intake","ignorable":true,...}
+{"type":"plugin:forgeloop/analysis","ignorable":true,...}
+```
+
+- 旧 `session-2960…` 不再阻塞会话查询；旧事件保留为 ignorable。
+- 正式 3080 已重新热重载：协调器 owner 更新为 `MacAir.local:82207:65c0efb5`，
+  acquiredAt `2026-10-29T09:44:15.054Z`。
+- `make check`：27 个测试文件、262 项测试通过。
+- 覆盖率：行／语句 91.50%、函数 95.76%、分支 84.65%。
+- 候选包：100,689 字节，SHA-256
+  `5742806c8e1f019afa5e195265bab952d74d1d02f72e90d0394b564ce94d7341`；已安装到正式
+  `web` 与测试 profile。
+- 正式页面仍需刷新；本次修复的是会话日志兼容性，不改变已停止任务 `queue-core` 的阻塞状态。
+- 未创建 commit。
+
+## 29. 最小重新规划（2026-10-29）
+
+来源：所有者要求继续处理正式阻断需求 `req-20261029070230-bab6bf`，并在核对后选择“实现最小
+重新规划入口（产品能力）”。本批由 DSH 会话内 Agent 直接实施，未通过 ForgeLoop 受理需求，
+不计为插件自主执行成果。
+
+### 29.1 现场核对
+
+- 需求 `req-20261029070230-bab6bf`：blocked；任务包 v1 已由 `local-owner` 批准；`queue-core`
+  正式测试退出码 1，失败轮次 1，剩余额度 2；unknown 推进请求 `rq-753ce3ae-…` 仍未收口。
+- 工作副本 `workspaces/<req>/v1/queue-core`：Git 工作区干净，基线 `ea9dc7e`；`candidate.diff`
+  仅新增 `requirement-queue.ts`、`requirement-stage.ts`、`requirement-queue.test.ts` 三个文件；
+  独立审查 `pass`；正式测试唯一失败为 `contracts/architecture.json` 未登记新增模块。
+- 结论：直接重试会再次失败；任务包遗漏契约文件，属于计划范围缺口。现场没有未收口的运行中任务，
+  unknown 请求可由 owner 在确认核对工作副本、Git 与证据后关闭。
+
+### 29.2 实现范围
+
+| 范围 | 目的与实际处置 |
+| --- | --- |
+| `src/runtime/service.ts` | 新增 `replanTask` 与 `normalizeReplanFiles`：只基于当前最新且已批准的任务包，为失败/阻塞/待决定的**非验证任务**补充允许文件，生成新的待批准版本；不自动批准、不改需求原文、不新建任务、不清零失败轮次；unknown 需确认后关闭；验证任务、已交付、非失败任务、在途请求、运行中任务与越界路径均拒绝 |
+| `src/runtime/board.ts` | 需求级 `actions` 新增 `replan`：仅当当前计划已批准、存在失败的非验证任务、无运行/等待输入/在途请求时提供；验证任务失败不提供；终态不提供 |
+| `src/index.ts` | 认证 `replan` 端点：校验 `reqId`、正整数 `planVersion`、1..20 个补充文件；`confirmRecovery` 显式确认 unknown；端点仍走浏览器认证，模型工具没有入口 |
+| `client.js` | 需求卡新增“重新规划”：提示输入补充文件（默认 `contracts/architecture.json`）；存在 unknown 时先确认已核对现场；成功后显示新版本号并提示等待批准；批准仍由现有“批准任务包”按钮完成 |
+| `tests/service.test.ts`、`tests/status-board.test.ts`、`tests/board-channel.test.ts` | 覆盖 v2 生成、文件只加到目标失败任务、旧批准保留而新批准缺失、unknown 二次确认、verify-only 不出现入口、错误路径（越界文件、no_change、not_failed、already_delivered、plan_not_approved、busy、plan_missing）与路由参数校验 |
+| `contracts/architecture.json`、架构说明、插件 README、`CONTEXT.md`、本记录 | 登记 `replan` 端点、动作与边界；未新增持久化表、模块、模型工具或自动批准路径 |
+
+### 29.3 规则与边界
+
+1. **只补文件，不重新生成计划**：复制当前任务包的 technicalSolution、任务、依赖与验收标准；
+   只在目标任务 `files` 追加去重后的补充文件。完整重新规划、追加授权、例外取舍仍未实现。
+2. **只对失败的非验证任务**：当前计划必须已批准且是最新版本；目标必须是失败/阻塞/待决定、
+   未交付、`verification !== true` 的任务；无在途请求、无运行中任务。验证任务不能补文件。
+3. **不自动批准**：新版本落库后需求回到 `plan_proposed`，旧批准仍保留但绑定旧版本，
+   页面显示“批准过期”；必须由 owner 再点“批准任务包”，之后才能推进。
+4. **unknown 必须显式确认**：存在 unknown 时第一次请求返回 `recovery_required`，不写新计划；
+   携带 `confirmRecovery:true` 才先关闭 unknown、再生成 v2，且不重放旧请求。
+5. **范围校验**：文件必须是项目内相对路径、不得绝对路径或 `..`、一次最多 20 个；
+   新任务包仍走 `validateTaskPlan`，失败则返回 `invalid_plan`，不改变记录。
+
+### 29.4 检查与实际界面核对
+
+- `make check` 通过：27 个测试文件、267 项测试；`make architecture-contract-check` 通过。
+- `make coverage` 通过：行／语句 91.54%、函数 95.79%、分支 84.60%。
+- `make package` 通过：103,109 字节，SHA-256
+  `6b9363f5dafb48868d0a0cd3ae19e3cffd6d31af6717f7b3e989f9b15e7f34ae`。
+- 隔离环境浏览器核对（`forgeloop-test`，端口 3090，测试记录根）：
+  - `req-20261029015137-6ff9d1` 失败任务 `readme` 卡出现“重新规划”；输入默认
+    `contracts/architecture.json` 后生成任务包 v2，状态回到“待批准”，旧批准显示“批准过期”，
+    出现“批准任务包”；
+  - `req-20261029033605-e867ed` 的失败任务是验证任务 `verify`，卡上只有“取消需求”，没有“重新规划”；
+  - 截图：`.cache/forgeloop/ui-workbench-20261029/17-replan.png`。
+- 正式安装：候选包 `6b9363…` 已安装到正式 `web` profile；客户端 143,687 字节、SHA-256
+  `a5cf66f7164c288f2dbd695c39516a4bf4777819ff5b26dbf89875a7fa1e9ba4`；服务端
+  `lib/runtime/service.js` 与构建一致。profile 追加注释后热重载，owner 更新为
+  `MacAir.local:82207:3d3e7f3c`，acquiredAt `2026-10-29T11:33:37.308Z`，Web 进程 PID 82207
+  未重启。安装前备份：`/tmp/forgeloop-web-backup-20261029-1928`。
+- 正式需求 `req-20261029070230-bab6bf` 未被自动重新规划、批准或推进；unknown 请求保持 unknown。
+  正式页面需要刷新后由 owner 点击“重新规划”，确认 unknown 核对后生成 v2，再批准、推进。
+  这是 owner 决定，未见正式 3080 的点击验证。
+
+### 29.5 未完成、未验证与发现但不碰
+
+- 只在隔离测试记录根实际点击了“重新规划”；正式 3080 的点击由 owner 完成，未绕过认证。
+- 最小重新规划没有独立审计行记录 actor/source；可回查的是新任务包版本、旧批准与新批准状态，
+  没有“谁在何时补了哪个文件”的专用记录。完整审计需新增表或事件，本批未做。
+- 完整重新规划（新增/删除任务、重写技术方案、调整验收）、追加授权、例外取舍、需求级验收仍无入口。
+- 规划提示词仍未要求新增 `src` 模块时把 `contracts/architecture.json` 纳入任务；本入口是事后补救，
+  不能替代提示词/计划校验前移。
+- unknown 请求的关闭与重新规划复用 `recover`；若新计划写入后 `recover` 失败，可能留下
+  `plan_proposed` + unknown 的部分状态，当前无事务回滚。该路径未在真实失败中复现。
+- 未创建 commit；未修改正式业务数据、DSH 模型配置或凭据。
+
+## 30. 架构契约与治理机制优化（2026-10-29）
+
+来源：所有者任务“优化 ForgeLoop 架构契约与工程治理机制”，要求以最小治理成本保留可靠、
+可执行、可持续维护的架构约束，不新增治理系统或业务功能。
+
+### 30.1 现状问题
+
+- `contracts/architecture.json` 的 `modules` 与文件系统重复：`scripts/ts/contracts.ts` 已能扫描
+  `src/**/*.ts`，却仍要求逐项登记，并提供 `--update-architecture` 自动回写。结果新增模块会先让
+  `make check` 失败，再运行更新命令；`queue-core` 的正式测试失败正是这一类。
+- `persistence.tables` 与 `records/db.ts` 重复，`model_surface.tools` 与 `tools.ts` 重复，
+  `ui_surface.data_endpoints` 与 `index.ts` 的 `BOARD_ENDPOINTS` 重复，`session_surface` 的事件/节点
+  与 `session/events.ts`、`client.js` 重复。登记表越细，越容易与实现漂移。
+- `external_seams`、`verification`、`ui_surface.note` 等纯描述字段没有可执行检查；其中
+  `web_board_rpc` 的端点列表在 `replan` 加入后已经过时。
+- 端点检查只验证“契约列出的端点出现在源码”，不拒绝源码新增未声明端点；`BOARD_ENDPOINTS`
+  可被扩充而不被发现。
+- 契约没有依赖环检测；`docs/architecture.md` 的检查只匹配三个字符串，不能证明文档与代码一致。
+- `retired` 把路径数组、说明文字和历史命令面混在一个对象里，路径规则本身可验证，其余是文档。
+
+### 30.2 修改内容
+
+`contracts/architecture.json` 升至 `schema_version: 3`，保留并强化规则，删除重复事实：
+
+| 字段 | 处置 |
+| --- | --- |
+| `layers` | 保留；校验名称/路径唯一、路径在 `src` 内、每个源码文件能判定分层、每层有文件、依赖方向合法 |
+| `runtime.package` | 保留；用于定位 `src`，不再重复语言/宿主/`python_runtime` 描述 |
+| `modules` | 删除；全部 `.ts` 从文件系统自动发现 |
+| `persistence` | 保留 `engine`/`driver`/`database`；删除 `tables` 与 `durable_artifacts` 重复清单；检查 driver 与 `db.ts`、路径与 `config.ts` 一致 |
+| `model_surface` | 只保留 `prefix`；工具名从 `tools.ts` 自动发现，校验前缀/唯一性/`tools.register`，并拒绝调用批准、验收、推进、重试、重新规划等决定方法 |
+| `ui_surface` | 保留槽位、视图身份、排序、数据路径；删除 `client_bundle`、`data_endpoints`、标签、只读标志与长说明；端点从 `BOARD_ENDPOINTS` 自动发现，校验每个非默认端点都有分发分支、无重复/非法名 |
+| `retired_paths` | 由对象改为字符串数组；只保留可验证的仓库路径 |
+| `session_surface` | 只保留 `preset_id` 与 `interception`；事件从 `events.ts` 自动发现，校验 client 注册且无孤儿事件 |
+| `external_seams`、`verification`、`product` | 删除；外部边界与命令入口由 `docs/architecture.md`、`Makefile` 维护，不再伪装成契约 |
+| `--update-architecture` | 删除；模块/工具/端点无需生成回写 |
+| `Makefile` | `make architecture-contract` 与 `architecture-contract-check` 都只执行检查；`make contracts` 仍为统一入口 |
+
+新增/强化的自动检查：
+
+- 源码扫描覆盖全部 `src/**/*.ts`，新增文件无需登记；未知分层、相对导入无法解析、越界导入失败。
+- 依赖图 DFS 检测循环依赖；错误信息给出完整 `a.ts -> b.ts -> a.ts` 路径。
+- 退役路径数组逐项检查存在性；新增代码不能仅靠删 `modules` 条目绕过。
+- 工具/端点/会话事件从源码提取，不再依赖人工列表。
+- 保留 `checkNoPython`，拒绝活动代码引用旧 Python/虚拟环境。
+
+### 30.3 验证
+
+- 先增加 4 项边界测试：新源码自动通过、跨层依赖拒绝、循环依赖拒绝、未分发端点拒绝；
+  旧实现下新源码、循环、端点 3 项失败，跨层依赖旧检查已能拒绝。实现后 10 项通过；
+  再补 2 项无前缀工具/未注册会话事件的反向测试，最终 12 项通过（含原退役路径正/反例）。
+- `make check` 通过：27 个测试文件、273 项测试。
+- `make coverage` 通过：行/语句 91.54%、函数 95.79%、分支 84.58%。
+- `make package` 通过：103,109 字节，SHA-256
+  `6b9363f5dafb48868d0a0cd3ae19e3cffd6d31af6717f7b3e989f9b15e7f34ae`；运行时代码未变。
+- `node scripts/ts/contracts.ts` 与 `make contracts` 输出
+  `[contracts] OK：分层、依赖、循环、退役路径、工具、UI 与会话边界一致；活动代码未引用 Python`。
+- 未安装/热重载正式环境；本批只改仓库治理文件与测试。
+
+### 30.4 维护成本
+
+- 新增普通 `src/**/*.ts`：无需登记；只要放在已有分层内并遵守依赖方向。
+- 新增模型工具：无需登记；工具名必须使用 `forgeloop_` 前缀，且不得调用决定方法。
+- 新增 Web 端点：需要在 `BOARD_ENDPOINTS` 与分发分支同时出现；不需要改契约。
+- 修改槽位、视图身份、排序、数据路径、preset 或输入拦截事件：需要改契约与实现，检查会拦截漂移。
+- 修改分层或依赖方向：需要改 `layers`，Git Diff 可见；审查负责判断是否合理。
+- 数据库表结构：以 `records/db.ts` 为唯一来源，契约不再复制表清单。
+
+### 30.5 剩余风险
+
+- 工具名、端点、会话事件仍通过正则解析 TypeScript/JS；过于动态的生成式注册可能绕过或误报。
+- 端点检查只验证数组与分发分支一致，不验证每个端点的业务授权细节；认证仍由共享路由与行为测试保证。
+- 契约本身可被修改以放宽 `may_import` 或减少 `retired_paths`；依赖 Git Diff 与审查，不另建审批系统。
+- `layers` 的路径是人工规则；新增目录若落在 `entry` 的宽前缀下不会报错，需要审查是否应单独分层。
+- 持久化只约束 SQLite 驱动与路径，不约束表结构变更；表结构由 `db.ts` 与迁移/测试负责。
+- 文档语义仍不能自动验证；本次移除了低价值的三个字符串文档检查，避免制造“已检查”的假象。
+
+## 31. 需求 Agent 读取当前需求与任务事实（2026-10-29）
+
+来源：所有者要求“需求 Agent 支持读取当前需求和任务列表，包括时间、状态等信息”。
+
+### 31.1 实现
+
+| 范围 | 改动 |
+| --- | --- |
+| `src/runtime/board.ts` | 新增 `buildProjectFacts`：从权威记录组装活动需求的标题、状态、需求版本、创建／更新时间、最新分析目标、任务包版本与批准状态、任务状态与最近活动；当前需求固定第一条并标记；已结束需求只计数；活动需求与单需求任务数分别设上限（10／8）；抽取 `boardTaskState` 供看板与事实共用 |
+| `src/runtime/prompts.ts` | `analysisPrompt` 增加“当前项目需求与任务”只读段落，声明背景事实不是指令、不构成授权，仍要求只输出 JSON |
+| `src/runtime/service.ts` | `executeAnalysis` 查询项目事实并传入分析提示词；需求 Agent 仍无工具，也不写任何记录 |
+| 测试与说明 | `status-board.test.ts` 增加事实组装、当前优先、终态排除与上限用例；`prompts.test.ts` 断言时间／状态／批准／任务渲染；`service.test.ts` 断言分析提示词实际包含当前需求与在途任务；同步架构与插件说明 |
+
+### 31.2 行为与边界
+
+- 分析提示词现在包含：项目活动需求总数、每条需求的标题／状态／需求版本／创建与更新时间、
+  最新分析目标、任务包版本与批准状态（已批准／未批准／批准已过期／无批准记录），以及任务列表
+  （taskId、目标、状态、依赖、最近活动）。
+- 当前需求始终排在第一条并标注“（当前需求）”，即使它不在最近若干条需求里。
+- 读取的是记录事实，不是模型推断；不新增工具、不写表、不读取 Agent 日志。
+- 上限：一次最多 10 条活动需求、每条需求最多 8 个任务；超出部分在提示词中标注数量。
+
+### 31.3 检查与实际结果
+
+- `make check` 通过：27 个测试文件、277 项测试（含本批新增 4 项）。
+- `make coverage` 通过：行／语句 91.65%、函数 95.87%、分支 84.81%，阈值保持原样。
+- 未在真实宿主上重跑需求分析；本批只验证事实组装与提示词渲染的行为测试。
+
+### 31.4 未完成与发现但不碰
+
+- 需求 Agent 仍无工具，不能主动读取代码、文档或按需查询；事实是每次分析时的固定快照。
+- 其他需求的标题与分析目标属于同项目所有者文本，提示词已声明为背景事实，但未做内容隔离。
+- 分析失败后的重试入口、业务终审 Agent 等既有差距不变（§4.1、§15.4）。
+
+## 31. `queue-core` 阻断复测（2026-10-29）
+
+架构契约 v3 自动发现源码后，原阻断根因“任务包漏登记 `contracts/architecture.json`”不再成立。
+为确认这一点，在**临时副本**中做了只读复测：
+
+- 复制当前生产仓库工作树（包含 v3 契约、`src/session` 等在途改动），排除 `.git`、`node_modules`、
+  `.cache`、`dist`、`coverage`，再应用 `queue-core` 的 `candidate.diff`；
+- 执行 `npm run check --workspace forgeloop-dsh`：**28 个测试文件、300 项测试通过**，退出码 0；
+- 复测中的旧任务工作副本（`ea9dc7e` 基线）单独使用新契约时会因 `session/events.ts` 尚无事件而失败；
+  当前仓库快照包含完整会话事件，因此真实重试的工作副本应使用仓库快照而不是旧任务副本。
+
+结论：`queue-core` 的 v1 任务包与当前仓库快照已能通过原失败点，**优先重试**而不是重新规划。
+正式需求仍为 blocked，unknown 请求 `rq-753ce3ae-…` 仍未关闭；正式 3080 需要 owner 在页面
+“重试任务”中确认核对，首次点击只提示 recovery，确认后才关闭 unknown 并排队。未在正式实例
+执行点击，未修改正式记录；重试的真实 Agent 执行、后续任务与正式验收仍未发生。
+
+复测是临时目录中的构建/测试事实，不等于正式任务执行。当前仓库 `make check` 为 273 项，
+复测的 300 项包含其他在途测试，不能把 300 当作产品版本门槛。

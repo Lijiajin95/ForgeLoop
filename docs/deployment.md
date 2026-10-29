@@ -110,3 +110,25 @@ make verify-plugin
 - 安装／卸载不是业务事务，异常后按实际副作用核对并恢复。
 - 插件卸载会停止协调器并请求取消在途 Agent；重启后未收口请求需核对，不能把卸载成功等同于副作用已清理。
 - 旧 Python、独立 HTTP 服务及旧 `forgeloop` CLI 不参与当前安装与恢复。
+
+## 10. 独立测试环境
+
+测试环境必须与正式环境分开，不能只靠 `--patch` 覆盖同一个 `DSH_HOME`：
+
+- 独立 `DSH_HOME`（例如 `~/.dsh-forgeloop-test`），从而分开 sessions、storages 与凭据文件；
+- 独立 profile（例如 `forgeloop-test`），单独安装候选包；
+- 独立 `recordsRoot`（例如测试 DSH_HOME 下的 `forgeloop/`），正式库不得指向该目录；
+- 独立 `projectPath`，优先使用测试副本或 git worktree，避免测试改正式工作树；
+- 独立端口（例如 3091），正式 Web 继续使用 3080；
+- 测试凭据使用独立副本或专用测试凭据，权限保持 600，不进入版本库或候选包。
+
+启动示例：
+
+```sh
+DSH_HOME="$HOME/.dsh-forgeloop-test" \
+  dsh --profile forgeloop-test --no-open --port 3091
+```
+
+正式与测试配置应分别保存在各自 DSH_HOME 的 profile 中；不要让正式 profile 的
+`recordsRoot` 指向测试目录，也不要在测试 profile 中操作正式记录根。启动日志会打印实际
+`records` 路径，可用于核对。测试结束应关闭测试实例；正式实例的重启与切换需另行确认。
