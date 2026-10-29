@@ -54,7 +54,8 @@
 - 运行 `make check`；按影响运行 `make verify-plugin`、`make package` 与候选场景。
   门槛以 [Makefile](Makefile)、vitest 配置及 `contracts/` 为准。
 - 模块增删改名换层、依赖方向、持久化表／介质、现场产物约定、外部接缝及工具表面变化，
-  同批更新[架构说明](docs/architecture.md)与 `contracts/architecture.json`，运行 `make architecture-contract`；
+  同批更新[架构说明](docs/architecture.md)；分层、依赖方向、外部表面或退役路径变化时更新
+  `contracts/architecture.json`，运行 `make contracts`。新增普通源码文件不需要登记；
   方向性选择写入 `docs/adr/`。契约检查负责其已编码的规则，不能代替文档语义与实际行为审阅。
 
 ## 授权、DogFood 与真实记录
