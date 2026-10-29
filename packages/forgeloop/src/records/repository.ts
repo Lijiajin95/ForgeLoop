@@ -836,6 +836,81 @@ export class Repository {
 
   // ---------------------------------------------------------------- 失败轮次与授权
 
+  /**
+   * 归档一次已交付产物：重新研发前保留旧候选、材料与授权来源，
+   * 新尝试按 attempt 递增，不覆盖历史。
+   */
+  recordArchivedArtifact(input: {
+    artifact: TaskArtifact
+    attempt: number
+    archivedAt: string
+    archivedPath: string
+    reason: string
+  }): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_task_artifact_history
+          (req_id, plan_version, task_id, attempt, candidate_sha256, test_evidence_sha256,
+           review_sha256, acceptance, authorization_source, recorded_at, archived_at, archived_path, reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, plan_version, task_id, attempt) DO UPDATE SET
+           candidate_sha256 = excluded.candidate_sha256,
+           test_evidence_sha256 = excluded.test_evidence_sha256,
+           review_sha256 = excluded.review_sha256,
+           acceptance = excluded.acceptance,
+           authorization_source = excluded.authorization_source,
+           recorded_at = excluded.recorded_at,
+           archived_at = excluded.archived_at,
+           archived_path = excluded.archived_path,
+           reason = excluded.reason`,
+      )
+      .run(
+        input.artifact.requirementId,
+        input.artifact.planVersion,
+        input.artifact.taskId,
+        input.attempt,
+        input.artifact.candidateSha256,
+        input.artifact.testEvidenceSha256,
+        input.artifact.reviewSha256,
+        input.artifact.acceptance,
+        input.artifact.authorizationSource,
+        input.artifact.recordedAt,
+        input.archivedAt,
+        input.archivedPath,
+        input.reason,
+      )
+  }
+
+  archivedArtifacts(
+    reqId: string,
+    planVersion: number,
+    taskId: string,
+  ): Array<{ attempt: number; candidateSha256: string; archivedAt: string; archivedPath: string; reason: string }> {
+    const rows = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_task_artifact_history
+         WHERE req_id = ? AND plan_version = ? AND task_id = ? ORDER BY attempt`,
+      )
+      .all(reqId, planVersion, taskId) as Row[]
+    return rows.map((row) => ({
+      attempt: num(row, 'attempt'),
+      candidateSha256: text(row, 'candidate_sha256'),
+      archivedAt: text(row, 'archived_at'),
+      archivedPath: text(row, 'archived_path'),
+      reason: text(row, 'reason'),
+    }))
+  }
+
+  /** 重新研发：清掉“已交付”标记，让 advance 按原批准任务包重新执行。 */
+  clearTaskDelivery(reqId: string, planVersion: number, taskId: string): void {
+    this.db.handle
+      .prepare('DELETE FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? AND task_id = ?')
+      .run(reqId, planVersion, taskId)
+    this.db.handle
+      .prepare('DELETE FROM requirement_task_evidence WHERE req_id = ? AND plan_version = ? AND task_id = ?')
+      .run(reqId, planVersion, taskId)
+  }
+
   failureRounds(reqId: string): FailureRound[] {
     const rows = this.db.handle
       .prepare('SELECT * FROM requirement_failure_rounds WHERE req_id = ? ORDER BY occurred_at')

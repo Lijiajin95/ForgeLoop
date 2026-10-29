@@ -4,8 +4,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { candidatesDir, evidenceDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
 import { Database } from '../records/db.js'
@@ -995,6 +995,124 @@ ${answer}`
       taskId: input.taskId,
       recovered,
     })
+  }
+
+  /**
+   * 独立验证阻断后回到研发：归档旧交付与材料，清掉“已交付”标记，
+   * 让同一份已批准任务包重新执行并产生新候选身份。
+   * 不新建任务包、不清零失败轮次、不改变文件边界。
+   */
+  rework(input: {
+    reqId: string
+    planVersion: number
+    by: string
+    source: string
+    confirmRecovery?: boolean
+  }): OperationResult {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    if (isTerminal(requirement.status)) {
+      return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}`)
+    }
+    const authorized = this.requireAuthorizedPlan(input.reqId)
+    if (!authorized.ok) return authorized.result
+    const plan = authorized.value.plan
+    if (plan.planVersion !== input.planVersion) {
+      return fail('stale_plan', `任务包 v${input.planVersion} 不是最新版本（最新 v${plan.planVersion}）`)
+    }
+    if (this.remainingFailureRounds(input.reqId) === 0) {
+      return fail('grant_required', `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权后才能重新研发`)
+    }
+    const requests = this.repo.requestsFor(input.reqId)
+    if (requests.some((request) => request.state === 'pending' || request.state === 'claimed')) {
+      return fail('busy', `需求 ${input.reqId} 仍有在途请求；等结果收口后再重新研发`)
+    }
+    const activeRun = this.repo
+      .taskRuns(input.reqId, plan.planVersion)
+      .find((run) => run.state === TASK_RUN_RUNNING || run.state === TASK_RUN_AWAITING_USER)
+    if (activeRun) {
+      return fail('busy', `任务 ${activeRun.taskId} 仍是运行中或等待输入；停止并核对后才能重新研发`)
+    }
+    const unknown = requests.filter((request) => request.state === 'unknown')
+    if (unknown.length > 0 && input.confirmRecovery !== true) {
+      return fail(
+        'recovery_required',
+        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；请先核对工作副本、Git 与证据，再确认重新研发`,
+      )
+    }
+    if (unknown.length > 0) {
+      const recovery = this.recover({ reqId: input.reqId, by: input.by, confirm: true })
+      if (!recovery.ok) return recovery
+    }
+    const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
+    if (artifacts.length !== plan.tasks.length) {
+      return fail('not_delivered', `任务尚未全部交付，没有可重新研发的固定候选`)
+    }
+    let identity = ''
+    try {
+      identity = this.candidateIdentity(plan, artifacts)
+    } catch (error) {
+      return fail('material_invalid', (error as Error).message)
+    }
+    const verification = this.repo.verificationForCandidate(input.reqId, plan.planVersion, identity)
+    if (!verification || verification.verdict !== 'block') {
+      return fail(
+        'verification_not_blocked',
+        `候选 ${identity.slice(0, 16)}… 没有独立验证阻断结论；只有被阻断的候选才能回到研发修复`,
+      )
+    }
+    const archived: Array<{ taskId: string; attempt: number; archivedPath: string }> = []
+    for (const task of plan.tasks) {
+      if (task.verification === true) continue
+      const artifact = this.repo.taskArtifact(input.reqId, plan.planVersion, task.taskId)
+      if (!artifact) continue
+      const evidence = this.repo.evidence(input.reqId, plan.planVersion, task.taskId)
+      const taskDir = evidence
+        ? dirname(evidence.candidatePath)
+        : evidenceDir(this.config, input.reqId, plan.planVersion, task.taskId)
+      const attempt = this.repo.archivedArtifacts(input.reqId, plan.planVersion, task.taskId).length + 1
+      const archiveRoot = join(dirname(taskDir), `${task.taskId}.history`)
+      const archivedPath = join(archiveRoot, `attempt-${attempt}-${artifact.candidateSha256.slice(0, 12) || 'empty'}`)
+      if (existsSync(taskDir)) {
+        mkdirSync(archiveRoot, { recursive: true })
+        cpSync(taskDir, archivedPath, { recursive: true })
+      }
+      this.repo.recordArchivedArtifact({
+        artifact,
+        attempt,
+        archivedAt: this.now(),
+        archivedPath,
+        reason: `独立验证阻断（候选 ${identity.slice(0, 16)}…）后重新研发`,
+      })
+      this.repo.clearTaskDelivery(input.reqId, plan.planVersion, task.taskId)
+      this.recordRun(
+        input.reqId,
+        plan,
+        task,
+        TASK_RUN_BLOCKED,
+        `独立验证阻断后重新研发（旧候选 ${artifact.candidateSha256.slice(0, 12)}… 与材料已归档）`,
+        0,
+      )
+      archived.push({ taskId: task.taskId, attempt, archivedPath })
+    }
+    if (archived.length === 0) {
+      return fail('no_change', '没有可重新研发的已交付任务；验证任务不能单独重新研发')
+    }
+    const queued = this.requestOperation({
+      reqId: input.reqId,
+      action: 'advance',
+      by: input.by,
+      source: `${input.source}:rework:${identity.slice(0, 12)}`,
+    })
+    if (!queued.ok) return queued
+    return ok(
+      `已归档候选 ${identity.slice(0, 16)}… 的 ${archived.length} 个任务并排队重新研发；旧验证与失败轮次保留`,
+      {
+        ...(queued.data as Record<string, unknown>),
+        previousCandidateSha256: identity,
+        archived,
+      },
+    )
   }
 
   /** 判断一个失败任务能否人工重试；只读，供任务详情与 retryTask 共用。 */
@@ -2109,6 +2227,69 @@ ${answer}`
   }
 
   /**
+   * 候选在验证开始前就无法组装（例如交付 diff 与当前基线冲突）：
+   * 如实记录一次阻断验证与失败轮次，让“回到研发修复”有据可依。
+   */
+  private recordPreflightBlock(input: {
+    reqId: string
+    plan: TaskPlan
+    candidateSha256: string
+    planReviewSha256: string
+    blocking: readonly string[]
+  }): string {
+    const dir = verificationDir(this.config, input.reqId, input.plan.planVersion, input.candidateSha256)
+    mkdirSync(dir, { recursive: true })
+    const report = {
+      kind: 'verification',
+      reqId: input.reqId,
+      planVersion: input.plan.planVersion,
+      requirementVersion: input.plan.requirementVersion,
+      candidateSha256: input.candidateSha256,
+      workspaceSha256: '',
+      planReviewSha256: input.planReviewSha256,
+      verdict: 'block',
+      summary: '候选无法在当前基线组装，未执行验证命令',
+      findings: [],
+      blocking: [...input.blocking],
+      scenarios: [],
+      commands: [],
+      candidateIntegrity: null,
+      materials: [],
+      sessionId: '',
+      at: this.now(),
+    }
+    const reportJson = `${JSON.stringify(report, null, 2)}\n`
+    const reportPath = join(dir, 'verification.json')
+    writeFileSync(reportPath, reportJson, 'utf8')
+    this.repo.recordVerification({
+      requirementId: input.reqId,
+      planVersion: input.plan.planVersion,
+      candidateSha256: input.candidateSha256,
+      requirementVersion: input.plan.requirementVersion,
+      workspaceSha256: '',
+      verdict: 'block',
+      reportJson,
+      reportPath,
+      reportSha256: sha256OfText(reportJson),
+      evidenceDir: dir,
+      sessionId: '',
+      verifiedAt: this.now(),
+    })
+    this.repo.recordFailureRound(input.reqId, {
+      roundId: `verification-${input.plan.planVersion}-${input.candidateSha256.slice(0, 12)}-preflight`,
+      stage: FAILURE_VERIFICATION,
+      summary: `独立验证无法组装候选：${input.blocking.join('；')}`.slice(0, 1000),
+      occurredAt: this.now(),
+    })
+    this.repo.setStatus(
+      input.reqId,
+      'blocked',
+      `独立验证无法组装候选（候选 ${input.candidateSha256.slice(0, 16)}…）：${input.blocking.join('；')}`,
+    )
+    return reportPath
+  }
+
+  /**
    * 独立验证：把已交付任务的全部 diff 应用成固定候选，交给验证 Agent 在独立目录
    * 编写验证测试并产出命令清单与逐场景报告；程序随后实际执行命令并只看退出码、
    * 日志与必过场景覆盖，模型自述不构成通过。
@@ -2192,9 +2373,17 @@ ${answer}`
       }
       const applied = this.applyDiffFile(workspace, evidence.candidatePath, task.taskId, task.taskId)
       if (!applied.ok) {
+        const blocking = [`任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}`]
+        const reportPath = this.recordPreflightBlock({
+          reqId,
+          plan,
+          candidateSha256,
+          planReviewSha256: reviewRecord.reportSha256,
+          blocking,
+        })
         return {
           state: 'failed',
-          detail: `任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}`,
+          detail: `任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}；证据 ${reportPath}；需修复后产生新候选再验证`,
         }
       }
       const diff = readFileSync(evidence.candidatePath, 'utf8')
