@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
+import { PLUGIN_VERSION } from '../src/runtime/version.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 
 /**
@@ -36,7 +37,7 @@ function makeProject(): string {
   mkdirSync(join(project, 'packages/forgeloop'), { recursive: true })
   writeFileSync(
     join(project, 'packages/forgeloop/package.json'),
-    JSON.stringify({ name: 'forgeloop-dsh', version: '0.0.2', type: 'module' }, null, 2),
+    JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION, type: 'module' }, null, 2),
   )
   writeFileSync(join(project, 'packages/forgeloop/src.ts'), 'export const version = 1\n')
   writeFileSync(
@@ -55,8 +56,9 @@ function makeProject(): string {
       "  const tarball = resolve('packages/forgeloop/dist/artifact.tar.gz')",
       "  execFileSync('tar', ['-czf', tarball, '-C', 'packages/forgeloop', 'lib'])",
       "  const sha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex')",
+      "  const pkg = JSON.parse(readFileSync('packages/forgeloop/package.json', 'utf8'))",
       "  writeFileSync('packages/forgeloop/dist/artifact.json', JSON.stringify({",
-      "    name: 'forgeloop-dsh', version: '0.0.2', sha256, tarball,",
+      "    name: 'forgeloop-dsh', version: pkg.version, sha256, tarball,",
       "    files: ['lib/index.js'], gitHead: '', builtAt: new Date().toISOString(),",
       "  }))",
       "}",
@@ -249,7 +251,7 @@ describe('candidate build and deployment checks', () => {
     const verification = runtime.repo.verification(reqId, 1)!
     expect(build.verificationSha256).toBe(verification.reportSha256)
     expect(build.candidateSha256).toBe(verification.candidateSha256)
-    expect(build.packageVersion).toBe('0.0.2')
+    expect(build.packageVersion).toBe(PLUGIN_VERSION)
     expect(build.files).toEqual(['lib/index.js'])
     expect(readFileSync(build.tarball).length).toBeGreaterThan(0)
     const record = JSON.parse(readFileSync(join(build.evidenceDir, 'build', 'candidate-build.json'), 'utf8'))
@@ -275,13 +277,13 @@ describe('candidate build and deployment checks', () => {
     const build = runtime.repo.candidateBuild(reqId, 1)!
     const installed = installProfile('web')
     execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
-    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: '0.0.2' }), 'utf8')
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }), 'utf8')
 
     const deployed = runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' })
     expect(deployed.ok, deployed.message).toBe(true)
     const deployment = runtime.repo.deployment(reqId, 1)!
     expect(deployment.state).toBe('verified')
-    expect(deployment.runtimeVersion).toBe('0.0.2')
+    expect(deployment.runtimeVersion).toBe(PLUGIN_VERSION)
     expect(deployment.candidateSha256).toBe(build.candidateSha256)
     expect(deployment.checks.every((check) => (check as { ok: boolean }).ok)).toBe(true)
   })
@@ -292,7 +294,7 @@ describe('candidate build and deployment checks', () => {
     const build = runtime.repo.candidateBuild(reqId, 1)!
     const installed = installProfile('web')
     execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
-    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: '0.0.2' }), 'utf8')
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }), 'utf8')
     writeFileSync(join(installed, 'lib/index.js'), 'export const ok = 999\n', 'utf8')
 
     const deployed = runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' })
