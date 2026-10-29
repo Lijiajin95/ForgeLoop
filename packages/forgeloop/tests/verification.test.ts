@@ -757,6 +757,75 @@ describe('pre-implementation review gate', () => {
   })
 })
 
+describe('coverage acceptance of wording variance', () => {
+  it('accepts a plan entry that quotes the analysis text verbatim and adds testable detail', () => {
+    const review = parsePlanReview(
+      JSON.stringify({
+        verdict: 'pass',
+        blocking: [],
+        findings: [],
+        summary: '可进入实现',
+        verification_plan: [
+          {
+            scenario: `${SCENARIO}（覆盖依赖顺序）`,
+            acceptance_criterion: `${CRITERION}；并核对两个任务的交付证据`,
+            method: '在独立候选上执行验证命令',
+            required: true,
+          },
+        ],
+      }),
+    )
+    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review)).toEqual(
+      [],
+    )
+  })
+
+  it('still blocks a plan entry that paraphrases instead of referencing the analysis text', () => {
+    const review = parsePlanReview(
+      JSON.stringify({
+        verdict: 'pass',
+        blocking: [],
+        findings: [],
+        summary: '可进入实现',
+        verification_plan: [
+          {
+            scenario: '依赖按顺序完成',
+            acceptance_criterion: '两个任务都交付了',
+            method: '在独立候选上执行验证命令',
+            required: true,
+          },
+        ],
+      }),
+    )
+    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review)).toEqual([
+      `验证计划缺少业务场景：${SCENARIO}`,
+      `验证计划缺少验收标准：${CRITERION}`,
+    ])
+  })
+
+  it('matches references after collapsing whitespace differences', () => {
+    const review = parsePlanReview(
+      JSON.stringify({
+        verdict: 'pass',
+        blocking: [],
+        findings: [],
+        summary: '可进入实现',
+        verification_plan: [
+          {
+            scenario: '任务按依赖   完成',
+            acceptance_criterion: '两个任务交付且测试通过',
+            method: '在独立候选上执行验证命令',
+            required: true,
+          },
+        ],
+      }),
+    )
+    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review)).toEqual(
+      [],
+    )
+  })
+})
+
 describe('independent verification gate', () => {
   it('requires delivery, a passing review and a recorded request to start verification', () => {
     runtime.close()

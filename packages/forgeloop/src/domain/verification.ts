@@ -187,6 +187,17 @@ export function parseVerificationReport(raw: string): VerificationReport {
   }
 }
 
+/**
+ * 分析原文是否被验证计划引用：原文必须逐字出现在计划字段里，
+ * 允许计划补充可检查的细节或归一化空白，但不接受改写或概括。
+ * 这样既保留“必须覆盖每一条”的强制，又不把合法补充判成缺项。
+ */
+function referencesText(field: string, source: string): boolean {
+  // 原文可能被换行或缩进重排：按“去掉全部空白”比较，标点与字词仍须逐字一致。
+  const strip = (text: string): string => text.replace(/\s+/g, '')
+  return strip(field).includes(strip(source))
+}
+
 /** 验证计划必须逐项覆盖分析中的业务场景与验收标准；文本按原文核对。 */
 export function validatePlanCoverage(
   analysis: { readonly scenarios: readonly string[]; readonly acceptanceCriteria: readonly string[] },
@@ -194,12 +205,12 @@ export function validatePlanCoverage(
 ): string[] {
   const issues: string[] = []
   for (const scenario of analysis.scenarios) {
-    if (!review.verificationPlan.some((item) => item.scenario === scenario)) {
+    if (!review.verificationPlan.some((item) => referencesText(item.scenario, scenario))) {
       issues.push(`验证计划缺少业务场景：${scenario}`)
     }
   }
   for (const criterion of analysis.acceptanceCriteria) {
-    if (!review.verificationPlan.some((item) => item.acceptanceCriterion === criterion)) {
+    if (!review.verificationPlan.some((item) => referencesText(item.acceptanceCriterion, criterion))) {
       issues.push(`验证计划缺少验收标准：${criterion}`)
     }
   }

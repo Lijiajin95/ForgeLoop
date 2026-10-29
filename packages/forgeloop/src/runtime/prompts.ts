@@ -255,7 +255,8 @@ ${planContext(input.plan)}
 }
 
 规则：
-- 验证计划必须覆盖分析中的每个业务场景与验收标准，并至少包含一条 required=true 的必过场景；场景文本要与分析原文一致，便于程序核对。
+- 验证计划必须覆盖分析中的每个业务场景与验收标准，并至少包含一条 required=true 的必过场景。
+- scenario 或 acceptance_criterion 字段必须**逐字包含**分析原文（可以附带补充说明），程序按去掉空白后的原文比对；改写、概括或换成自己的措辞都会被判为缺项。
 - 任务包缺少关键文件、正式测试命令不能证明验收、技术方案存在重大未说明架构风险或越出当前工程边界时，判 block。
 - 实现前评审不是实现验收；不要因为实现尚未发生就判 block。
 - verdict=pass 时 blocking 必须为空，verification_plan 不能为空；verdict=block 时至少给出一条 blocking。
