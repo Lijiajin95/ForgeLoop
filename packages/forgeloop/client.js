@@ -41,6 +41,17 @@ window.__ModuleLoader__.load({
       'action.advanced': '已受理推进请求',
       'action.planned': '已受理重新生成任务包请求',
       'action.verified': '已受理独立验证请求',
+      'action.rework': '重新研发',
+      'action.reworkHelp': '独立验证阻断后，归档旧候选并把同一任务包重新交给研发；旧证据与失败轮次保留。',
+      'action.reworked': '已归档旧候选并排队重新研发',
+      'action.reworkRecoveryConfirm': '该需求有结果未知的请求。已核对工作副本、Git 与证据后，确认关闭 unknown 并重新研发？',
+      'action.build': '构建安装包',
+      'action.buildHelp': '只从已通过验证的候选工作区构建安装包；验收后才能构建。',
+      'action.built': '候选包已构建',
+      'action.deploy': '核对上线',
+      'action.deployHelp': '安装后核对安装文件、运行版本、需求模块与业务记录。',
+      'action.deployPrompt': '输入目标 DSH profile 名称（例如 web）：',
+      'action.deployed': '上线核对通过',
       'action.cancelled': '需求已取消',
       'error.transport': '当前页面没有连接服务，无法读取看板。',
       'error.request': '读取看板失败。',
@@ -216,6 +227,17 @@ window.__ModuleLoader__.load({
       'action.advanced': 'Advance request accepted',
       'action.planned': 'Regeneration request accepted',
       'action.verified': 'Verification request accepted',
+      'action.rework': 'Rework candidate',
+      'action.reworkHelp': 'After a blocked verification, archive the old candidate and hand the same task package back to development; evidence and failure rounds are kept.',
+      'action.reworked': 'Old candidate archived; rework queued',
+      'action.reworkRecoveryConfirm': 'This requirement has an unknown-outcome request. After verifying the workspace, Git and evidence, close it and rework?',
+      'action.build': 'Build installable candidate',
+      'action.buildHelp': 'Build only from the verified candidate workspace; acceptance is required first.',
+      'action.built': 'Candidate package built',
+      'action.deploy': 'Check deployment',
+      'action.deployHelp': 'After installation, check installed files, running version, requirement modules and business records.',
+      'action.deployPrompt': 'Target DSH profile name (for example web):',
+      'action.deployed': 'Deployment checks passed',
       'action.cancelled': 'Requirement cancelled',
       'error.transport': 'This page has no connection service, so the board cannot be read.',
       'error.request': 'Reading the board failed.',
@@ -467,6 +489,10 @@ window.__ModuleLoader__.load({
       'action.replanRecoveryConfirm': '该需求有结果未知的请求。已核对工作副本、Git 与证据后，确认关闭 unknown 并重新规划？',
       'action.replanned': '已生成任务包 v{plan}，任务 {task} 补充 {files}；等待批准。',
       'action.replannedRecovered': '已关闭 {count} 条 unknown。',
+      'wb.release': '发布与运行',
+      'wb.businessReview': '业务终审',
+      'wb.candidate': '候选包',
+      'wb.deployment': '部署核对',
       'action.stop': '请求停止',
       'action.stopHelp': '请求停止会撤销待执行请求；完成前不能认定已经停稳。',
       'action.stopConfirm': '确认请求停止该需求？停止请求会撤销待执行请求，结果仍需核对。',
@@ -794,6 +820,10 @@ window.__ModuleLoader__.load({
       'action.replanRecoveryConfirm': 'This requirement has an unknown request. After verifying the workspace, Git and evidence, close it and re-plan?',
       'action.replanned': 'Created task package v{plan}; task {task} now allows {files}; awaiting approval.',
       'action.replannedRecovered': 'Closed {count} unknown request(s).',
+      'wb.release': 'Release and runtime',
+      'wb.businessReview': 'Business review',
+      'wb.candidate': 'Candidate package',
+      'wb.deployment': 'Deployment check',
       'action.stop': 'Request stop',
       'action.stopHelp': 'A stop request dismisses pending requests; it does not prove the task has stopped.',
       'action.stopConfirm': 'Request stop for this requirement? Pending requests are dismissed and the result still needs verification.',
@@ -1767,6 +1797,9 @@ window.__ModuleLoader__.load({
         approve: t('action.approve'),
         advance: t('action.advance'),
         verify: t('action.verify'),
+        rework: t('action.rework'),
+        build: t('action.build'),
+        deploy: t('action.deploy'),
         replan: t('action.replan'),
         stop: t('action.stop'),
         cancel: t('action.cancel'),
@@ -1774,6 +1807,9 @@ window.__ModuleLoader__.load({
       const titles = {
         plan: t('action.planHelp'),
         verify: t('action.verifyHelp'),
+        rework: t('action.reworkHelp'),
+        build: t('action.buildHelp'),
+        deploy: t('action.deployHelp'),
         replan: t('action.replanHelp'),
         stop: t('action.stopHelp'),
       }
@@ -3211,6 +3247,29 @@ window.__ModuleLoader__.load({
               })
             return
           }
+          const extra = {}
+          if (endpoint === 'rework') {
+            extra.planVersion = requirement.planVersion
+            if (requirement.unknownRequests > 0) {
+              const confirmed =
+                typeof window === 'undefined' || typeof window.confirm !== 'function'
+                  ? false
+                  : window.confirm(t('action.reworkRecoveryConfirm'))
+              if (!confirmed) return
+              extra.confirmRecovery = true
+            }
+          }
+          if (endpoint === 'build') extra.planVersion = requirement.planVersion
+          if (endpoint === 'deploy') {
+            const raw =
+              typeof window === 'undefined' || typeof window.prompt !== 'function'
+                ? ''
+                : window.prompt(t('action.deployPrompt'), 'web')
+            if (raw === null) return
+            const targetProfile = String(raw).trim()
+            if (!targetProfile) return
+            extra.targetProfile = targetProfile
+          }
           setAction({ reqId: requirement.reqId, busy: endpoint, message: '' })
           read(endpoint === 'stop' ? 'stop' : endpoint, {
             reqId: requirement.reqId,
@@ -3218,6 +3277,7 @@ window.__ModuleLoader__.load({
             ...(endpoint === 'approve' ? { planVersion: requirement.planVersion } : {}),
             ...(endpoint === 'cancel' ? { reason: t('action.cancelReason') } : {}),
             ...(endpoint === 'stop' ? { reason: t('action.stopReason') } : {}),
+            ...extra,
           })
             .then(() => {
               const key =
@@ -3229,9 +3289,15 @@ window.__ModuleLoader__.load({
                       ? 'planned'
                       : endpoint === 'verify'
                         ? 'verified'
-                        : endpoint === 'stop'
-                          ? 'stopped'
-                          : 'cancelled'
+                        : endpoint === 'rework'
+                          ? 'reworked'
+                          : endpoint === 'build'
+                            ? 'built'
+                            : endpoint === 'deploy'
+                              ? 'deployed'
+                              : endpoint === 'stop'
+                                ? 'stopped'
+                                : 'cancelled'
               setAction({ reqId: requirement.reqId, busy: '', message: t(`action.${key}`) })
               load()
               setDetailNonce((value) => value + 1)
@@ -4836,6 +4902,40 @@ window.__ModuleLoader__.load({
                       requirement.verification.summary || '—',
                     ].join(' · ')
                   : t('requirement.verificationMissing'),
+              ),
+              h(
+                Kv,
+                { label: t('wb.businessReview') },
+                requirement.businessReview
+                  ? [
+                      t(`detail.verdict.${requirement.businessReview.verdict}`),
+                      requirement.businessReview.fresh ? t('detail.verificationFresh') : t('detail.verificationStale'),
+                      requirement.businessReview.summary || '—',
+                    ].join(' · ')
+                  : t('wb.missing'),
+              ),
+              h(
+                Kv,
+                { label: t('wb.candidate') },
+                requirement.candidate
+                  ? [
+                      'v' + requirement.candidate.packageVersion,
+                      String(requirement.candidate.artifactSha256 || '').slice(0, 16) + '…',
+                      formatMoment(requirement.candidate.builtAt),
+                    ].join(' · ')
+                  : t('wb.missing'),
+              ),
+              h(
+                Kv,
+                { label: t('wb.deployment') },
+                requirement.deployment
+                  ? [
+                      requirement.deployment.state,
+                      requirement.deployment.targetProfile,
+                      'v' + requirement.deployment.runtimeVersion,
+                      ...[].concat(requirement.deployment.failedChecks || []).slice(0, 2),
+                    ].join(' · ')
+                  : t('wb.missing'),
               ),
             )
           : null,
