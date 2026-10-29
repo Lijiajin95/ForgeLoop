@@ -21,6 +21,7 @@
 | --- | --- |
 | [status.md](status.md) | 当前能力、已知缺口、实际检查与安装记录；事实唯一入口 |
 | [architecture.md](architecture.md) | 当前模块、持久化与外部接缝，对应源码和架构契约 |
+| [ops-agent.md](ops-agent.md) | 运维 Agent 首版：登记目录、事件、诊断、授权处置、恢复复核与限制 |
 | [CONTEXT.md](../CONTEXT.md) | 当前代码的领域术语；与新方案差异有明确说明 |
 | [插件 README](../packages/forgeloop/README.md) | 当前插件入口与最小使用说明 |
 | [deployment.md](deployment.md) | 当前本机安装、升级、验证与恢复操作 |
@@ -84,6 +85,8 @@
 [2026-10-29 架构契约与治理优化](status.md#30-架构契约与治理机制优化2026-10-29)：契约 v3 只保留分层/依赖/循环/退役/外部表面；模块、工具、端点自动发现，取消登记回写。
 
 [2026-10-29 queue-core 阻断复测](status.md#31-queue-core-阻断复测2026-10-29)：契约 v3 后当前仓库快照 + queue-core 候选通过 `npm run check`；正式仍待 owner 确认重试。
+
+[2026-10-29 层级工作台与 Agent 执行过程](status.md#32-层级工作台与-agent-执行过程2026-10-29)：三栏需求树/任务/详情，真实 dev.jsonl 公开事件与工具调用，390px 与读取失败核对；编辑/删除/回答仍无服务端入口。
 
 本机 `docs/library/` 是阅读资料、来源快照与历史研究，不是现行产品方案。
 原始业务证据、数据库和候选包独立保存；代码清理不处理这些数据，也不改变 DSH 配置。

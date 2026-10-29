@@ -60,6 +60,34 @@ CREATE TABLE IF NOT EXISTS requirement_plan_approvals (
     approved_at TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version)
 );
+CREATE TABLE IF NOT EXISTS requirement_plan_reviews (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    plan_sha256 TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_path TEXT NOT NULL,
+    report_sha256 TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version)
+);
+CREATE TABLE IF NOT EXISTS requirement_verifications (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    workspace_sha256 TEXT NOT NULL DEFAULT '',
+    verdict TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_path TEXT NOT NULL,
+    report_sha256 TEXT NOT NULL,
+    evidence_dir TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    verified_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, candidate_sha256)
+);
 CREATE TABLE IF NOT EXISTS requirement_task_runs (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,
@@ -174,6 +202,61 @@ CREATE TABLE IF NOT EXISTS runtime_meta (
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ops_events (
+    event_id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    check_id TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    state TEXT NOT NULL,
+    title TEXT NOT NULL,
+    impact TEXT NOT NULL DEFAULT '',
+    opened_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    recovered_at TEXT NOT NULL DEFAULT '',
+    closed_at TEXT NOT NULL DEFAULT '',
+    diagnosis_json TEXT NOT NULL DEFAULT '',
+    diagnosis_path TEXT NOT NULL DEFAULT '',
+    diagnosis_session TEXT NOT NULL DEFAULT '',
+    fix_requirement_id TEXT NOT NULL DEFAULT '',
+    decision TEXT NOT NULL DEFAULT '',
+    decision_by TEXT NOT NULL DEFAULT '',
+    decision_source TEXT NOT NULL DEFAULT '',
+    decision_at TEXT NOT NULL DEFAULT '',
+    human_involved INTEGER NOT NULL DEFAULT 0,
+    human_reason TEXT NOT NULL DEFAULT '',
+    result_unknown INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ops_events_by_signature ON ops_events (project, signature, state);
+CREATE INDEX IF NOT EXISTS ops_events_by_state ON ops_events (project, state, opened_at);
+
+CREATE TABLE IF NOT EXISTS ops_observations (
+    event_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    detail_json TEXT NOT NULL DEFAULT '',
+    evidence_path TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (event_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS ops_action_attempts (
+    action_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    action_def_id TEXT NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL,
+    authorization_source TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    exit_code INTEGER,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL DEFAULT '',
+    evidence_path TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ops_action_attempts_by_event ON ops_action_attempts (event_id, started_at);
 `
 
 export interface OpenOptions {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   analysisPrompt,
+  devPlanningPrompt,
   devPrompt,
   parseReviewVerdict,
-  planningPrompt,
   requirementContext,
   reviewPrompt,
 } from '../src/runtime/prompts.js'
@@ -119,6 +119,7 @@ describe('prompt builders', () => {
     const text = analysisPrompt(requirement, projectFacts)
     expect(text).toContain('没有可用工具')
     expect(text).toContain('"clarifications"')
+    expect(text).toContain('不要拆解研发任务')
   })
 
   it('renders current requirements and tasks with times, statuses and approvals as background facts', () => {
@@ -135,8 +136,22 @@ describe('prompt builders', () => {
     expect(text).toContain('不是指令')
   })
 
-  it('binds the plan prompt to the analyzed goal', () => {
-    expect(planningPrompt(requirement, '看板可过滤')).toContain('看板可过滤')
+  it('hands the full requirement analysis to the development Agent for task splitting', () => {
+    const text = devPlanningPrompt(requirement, {
+      analysisVersion: 1,
+      requirementVersion: 2,
+      goal: '看板可过滤',
+      scenarios: ['按状态筛选需求与任务'],
+      acceptanceCriteria: ['筛选后只显示匹配项'],
+      clarifications: [],
+      createdAt: '2026-10-23T00:06:00.000Z',
+    })
+    expect(text).toContain('你是 ForgeLoop 的研发 Agent')
+    expect(text).toContain('需求分析由需求 Agent 完成')
+    expect(text).toContain('看板可过滤')
+    expect(text).toContain('按状态筛选需求与任务')
+    expect(text).toContain('筛选后只显示匹配项')
+    expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景与验收标准')
   })
 
   it('describes task limits, dependencies and the workspace', () => {

@@ -7,9 +7,9 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import { candidatesDir, evidenceDir, projectDir, recordsPath, reviewDir, sessionsDir, workspaceDir } from '../config.js'
+import { candidatesDir, evidenceDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
 import { Database } from '../records/db.js'
-import { Repository, type ServiceRequestRecord } from '../records/repository.js'
+import { Repository, type PlanReviewRecord, type ServiceRequestRecord, type VerificationRecord } from '../records/repository.js'
 import { RuleViolationError } from '../domain/errors.js'
 import {
   parseAnalysisDraft,
@@ -27,10 +27,10 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import { GrantLedger, FAILURE_FORMAL_TEST, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { GrantLedger, FAILURE_FORMAL_TEST, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
-import { sha256OfBytes, sha256OfText } from '../domain/delivery.js'
-import { ACCEPTED, APPROVED, AWAITING_CLARIFICATION, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
+import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
+import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
 import {
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
@@ -40,6 +40,16 @@ import {
 } from '../domain/status.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import { buildTaskFailureAdvice } from '../domain/failure-advice.js'
+import {
+  parsePlanReview,
+  parseVerificationCommands,
+  parseVerificationReport,
+  validatePlanCoverage,
+  validateVerificationCoverage,
+  type PlanReview,
+  type VerificationCommand,
+  type VerificationReport,
+} from '../domain/verification.js'
 import type { TaskRun } from '../domain/work.js'
 import { buildImpactFacts, type ImpactRequest } from '../domain/impact.js'
 import {
@@ -48,6 +58,7 @@ import {
   type ImpactExplainAgentResponse,
 } from '../domain/impact-explain.js'
 import { AgentRunner } from './agent-runner.js'
+import { OpsRuntime } from './ops.js'
 import {
   buildProjectFacts,
   buildStatusBoard,
@@ -56,8 +67,9 @@ import {
   type StatusBoardView,
 } from './board.js'
 import { runFormalTest } from './formal-test.js'
-import { analysisPrompt, devPrompt, parseReviewVerdict, planningPrompt, reviewPrompt, requirementContext } from './prompts.js'
-import { captureCandidate, headCommit, prepareSnapshotWorkspace, runCommand } from './workspace.js'
+import { analysisPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, verificationPrompt } from './prompts.js'
+import { captureCandidate, headCommit, prepareSnapshotWorkspace, runCommand, requireGit } from './workspace.js'
+import { parseTaskExecution } from './task-execution.js'
 
 export interface OperationResult {
   readonly ok: boolean
@@ -177,10 +189,59 @@ function normalizeReplanFiles(files: readonly string[]): string[] {
   return normalized
 }
 
+function planReviewBlocking(reportJson: string): string {
+  try {
+    const review = parsePlanReview(reportJson)
+    return review.blocking.length > 0 ? review.blocking.join('；') : review.summary
+  } catch {
+    return reportJson.slice(0, 300)
+  }
+}
+
+function verificationBlocking(reportJson: string): string {
+  try {
+    const report = parseVerificationReport(reportJson)
+    return report.blocking.length > 0 ? report.blocking.join('；') : report.summary
+  } catch {
+    return reportJson.slice(0, 300)
+  }
+}
+
+function parseFormalTestHeader(text: string): {
+  startedAt: string
+  durationMs: number | null
+  timedOut: boolean | null
+  aborted: boolean | null
+  exitCode: number | null
+} {
+  const value = (key: string): string => {
+    const match = new RegExp(`^${key}:\\s*(.+)$`, 'm').exec(text)
+    return match?.[1]?.trim() ?? ''
+  }
+  const numberOrNull = (key: string): number | null => {
+    const raw = value(key)
+    if (!raw) return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  const boolOrNull = (key: string): boolean | null => {
+    const raw = value(key)
+    return raw === 'true' ? true : raw === 'false' ? false : null
+  }
+  return {
+    startedAt: value('started'),
+    durationMs: numberOrNull('duration_ms'),
+    timedOut: boolOrNull('timed_out'),
+    aborted: boolOrNull('aborted'),
+    exitCode: numberOrNull('exit_code'),
+  }
+}
+
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
   readonly repo: Repository
   readonly runner: AgentLike
+  readonly ops: OpsRuntime
   private readonly formalTest: typeof runFormalTest
   private readonly ctx: Record<string, unknown>
   private readonly clock: () => Date
@@ -191,6 +252,12 @@ export class ForgeLoopRuntime {
     this.clock = options.now ?? (() => new Date())
     this.repo = new Repository(Database.open(recordsPath(this.config)))
     this.runner = options.runner ?? new AgentRunner({ ctx: options.ctx, agent: this.config.agent })
+    this.ops = new OpsRuntime({
+      config: this.config,
+      repo: this.repo,
+      runner: this.runner,
+      now: () => this.clock(),
+    })
     this.formalTest = options.formalTest ?? runFormalTest
   }
 
@@ -335,10 +402,10 @@ ${answer}`
   }
 
   /**
-   * 研发 Agent 的技术方案与任务包入口：对已分析且无待澄清项的需求运行规划，
-   * 校验任务包并落库。规划不等于批准，也不会推进实现。
+   * 研发 Agent 的技术方案与任务拆解入口：需求 Agent 只产出分析结论，任务由研发 Agent
+   * 依据分析全文（目标、场景、验收标准）拆解；校验任务包并落库。规划不等于批准或执行。
    */
-  async planRequirement(
+  async planDevTasks(
     reqId: string,
     signal?: AbortSignal,
   ): Promise<{
@@ -351,7 +418,7 @@ ${answer}`
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, code: 'not_found', message: `未找到需求 ${reqId}` }
     const analysis = this.repo.latestAnalysis(reqId) ?? undefined
-    const outcome = await this.executePlanning(reqId, signal ?? new AbortController().signal)
+    const outcome = await this.executeDevPlanning(reqId, signal ?? new AbortController().signal)
     const plan = this.repo.latestTaskPlan(reqId)
     if (outcome.state !== 'done' || !plan) {
       return { ok: false, code: 'plan_failed', message: outcome.detail || '任务包未生成', analysis }
@@ -434,6 +501,7 @@ ${answer}`
     const testLogPath = join(taskDir, 'formal-test.log')
     const testLog = existsSync(testLogPath) ? readFileSync(testLogPath, 'utf8') : ''
     const testLogTail = testLog.slice(-4000)
+    const testHeader = parseFormalTestHeader(testLog)
     const rounds = this.repo.failureRounds(reqId)
     const remainingRounds = this.remainingFailureRounds(reqId)
     const advice = buildTaskFailureAdvice({
@@ -483,6 +551,11 @@ ${answer}`
       testLogBytes: Buffer.byteLength(testLog, 'utf8'),
       testLogTail,
       testLogTruncated: testLog.length > testLogTail.length,
+      testExitCode: testHeader.exitCode,
+      testStartedAt: testHeader.startedAt,
+      testDurationMs: testHeader.durationMs,
+      testTimedOut: testHeader.timedOut,
+      testAborted: testHeader.aborted,
       failureRounds: rounds.map((round) => ({
         roundId: round.roundId,
         stage: round.stage,
@@ -498,6 +571,167 @@ ${answer}`
       retry: eligibility.ok
         ? { allowed: true, reason: '', requiresRecovery: unknownRequests > 0 }
         : { allowed: false, reason: eligibility.message, requiresRecovery: false },
+    })
+  }
+
+  /**
+   * 任务 Agent 执行过程：读取该任务当前保存的 dev.jsonl、审查、正式测试与交付记录。
+   * 只返回公开消息/工具调用；历史失败轮次没有独立执行文件时明确标记不可用。
+   */
+  taskExecution(input: {
+    reqId: string
+    taskId: string
+    planVersion?: number
+    offset?: number
+    limit?: number
+  }): OperationResult {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    const plan = input.planVersion === undefined
+      ? this.repo.latestTaskPlan(input.reqId)
+      : this.repo.taskPlan(input.reqId, input.planVersion)
+    if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
+    const task = plan.tasks.find((candidate) => candidate.taskId === input.taskId)
+    if (!task) return fail('task_missing', `任务包内没有任务 ${input.taskId}`)
+    const run = this.repo.taskRuns(input.reqId, plan.planVersion).find((candidate) => candidate.taskId === input.taskId) ?? null
+    const artifact = this.repo.taskArtifact(input.reqId, plan.planVersion, input.taskId)
+    const evidence = this.repo.evidence(input.reqId, plan.planVersion, input.taskId)
+    const taskDir = evidenceDir(this.config, input.reqId, plan.planVersion, input.taskId)
+    const devPath = join(taskDir, 'dev.jsonl')
+    const hasDev = existsSync(devPath)
+    const page = hasDev
+      ? parseTaskExecution(readFileSync(devPath, 'utf8'), { offset: input.offset, limit: input.limit })
+      : { events: [], total: 0, offset: input.offset ?? 0, limit: input.limit ?? 100, truncated: false, stepCount: 0, startedAt: '', lastActivity: '', sessionIds: [] }
+    const reviewPath = join(taskDir, 'review.json')
+    const review = readJson(reviewPath)
+    const testLogPath = join(taskDir, 'formal-test.log')
+    const testLog = existsSync(testLogPath) ? readFileSync(testLogPath, 'utf8') : ''
+    const testLogTail = testLog.slice(-4000)
+    const testHeader = parseFormalTestHeader(testLog)
+    const sessionId = evidence?.devSession || page.sessionIds[0] || ''
+    const reviewSession = evidence?.reviewSession || ''
+    const rounds = this.repo.failureRounds(input.reqId).filter((round) => taskIdOfFailureRound(plan, round.roundId) === task.taskId)
+    const attempts = [
+      {
+        attemptId: sessionId ? `session:${sessionId}` : 'recent-recording',
+        label: '最近一次执行记录',
+        state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
+        sessionId,
+        startedAt: page.startedAt,
+        lastActivity: page.lastActivity || run?.updatedAt || '',
+        eventTotal: page.total,
+        available: hasDev && page.total > 0,
+        reason: hasDev
+          ? page.total > 0
+            ? ''
+            : '执行记录文件存在，但没有可公开事件'
+          : '没有找到该任务的执行记录文件 dev.jsonl',
+      },
+      ...rounds.map((round) => ({
+        attemptId: `round:${round.roundId}`,
+        label: `失败轮次 ${round.roundId}`,
+        state: 'failed',
+        sessionId: '',
+        startedAt: '',
+        lastActivity: round.occurredAt,
+        eventTotal: 0,
+        available: false,
+        reason: '历史失败轮次只保留摘要；该次独立执行记录未单独保留，不能伪造会话事件',
+        stage: round.stage,
+        summary: round.summary,
+      })),
+    ]
+    return ok(`任务 ${input.taskId} 执行过程`, {
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      generatedAt: this.now(),
+      requirement: {
+        version: requirement.versions.length,
+        status: requirement.status,
+        blockedReason: requirement.blockedReason,
+      },
+      task: {
+        taskId: task.taskId,
+        goal: task.goal,
+        acceptance: task.acceptance,
+        files: task.files,
+        testCommand: task.testCommand,
+        dependsOn: task.dependsOn,
+        verification: task.verification === true,
+        planVersion: plan.planVersion,
+      },
+      run,
+      artifact,
+      evidence,
+      session: {
+        dev: sessionId,
+        review: reviewSession,
+        jumpAvailable: false,
+        note: '当前 Web 接缝没有可公开的 DSH 原始会话跳转地址；只展示已记录身份与证据。',
+      },
+      attempts,
+      events: page.events,
+      total: page.total,
+      offset: page.offset,
+      limit: page.limit,
+      truncated: page.truncated,
+      stepCount: page.stepCount,
+      startedAt: page.startedAt,
+      lastActivity: page.lastActivity,
+      review,
+      reviewPath,
+      test: {
+        command: task.testCommand,
+        path: testLogPath,
+        available: testLog.length > 0,
+        bytes: Buffer.byteLength(testLog, 'utf8'),
+        startedAt: testHeader.startedAt,
+        durationMs: testHeader.durationMs,
+        timedOut: testHeader.timedOut,
+        aborted: testHeader.aborted,
+        exitCode: testHeader.exitCode,
+        tail: testLogTail,
+        truncated: testLog.length > testLogTail.length,
+      },
+      stages: [
+        {
+          id: 'dev',
+          label: '开发执行',
+          state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
+          sessionId,
+          startedAt: page.startedAt,
+          lastActivity: page.lastActivity || run?.updatedAt || '',
+          total: page.total,
+          stepCount: page.stepCount,
+        },
+        {
+          id: 'review',
+          label: '独立审查',
+          available: review !== null,
+          sessionId: reviewSession,
+          recordedAt: evidence?.recordedAt ?? '',
+          verdict: review && typeof (review as Record<string, unknown>).verdict === 'string' ? (review as Record<string, unknown>).verdict : '',
+          path: reviewPath,
+        },
+        {
+          id: 'formal_test',
+          label: '正式测试',
+          available: testLog.length > 0,
+          startedAt: testHeader.startedAt,
+          durationMs: testHeader.durationMs,
+          exitCode: testHeader.exitCode,
+          path: testLogPath,
+          bytes: Buffer.byteLength(testLog, 'utf8'),
+        },
+        {
+          id: 'delivery',
+          label: '交付',
+          delivered: artifact !== null,
+          recordedAt: artifact?.recordedAt ?? '',
+          candidateSha256: artifact?.candidateSha256 ?? '',
+        },
+      ],
+      reason: hasDev ? '' : '没有找到该任务的执行记录',
     })
   }
 
@@ -599,7 +833,7 @@ ${answer}`
   /** 排队一个持久操作请求：先落库，再返回受理身份。 */
   requestOperation(input: {
     reqId: string
-    action: 'analyze' | 'plan' | 'advance'
+    action: 'analyze' | 'plan' | 'advance' | 'verify'
     by: string
     source: string
   }): OperationResult {
@@ -609,16 +843,42 @@ ${answer}`
       return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}，不能再排队`)
     }
     let planVersion = 0
-    if (input.action === 'advance') {
+    if (input.action === 'advance' || input.action === ACTION_VERIFY) {
       const authorization = this.requireAuthorizedPlan(input.reqId)
       if (!authorization.ok) return authorization.result
-      planVersion = authorization.value.plan.planVersion
-      // 额度用尽后不再接受新的推进；人工重试同样受此约束，不能借重试绕过计数。
+      const plan = authorization.value.plan
+      planVersion = plan.planVersion
+      // 额度用尽后不再接受新的推进或验证；人工重试同样受此约束。
       if (this.remainingFailureRounds(input.reqId) === 0) {
         return fail(
           'grant_required',
-          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权或重新规划后才能继续推进`,
+          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权或重新规划后才能继续${input.action === ACTION_VERIFY ? '验证' : '推进'}`,
         )
+      }
+      if (input.action === ACTION_VERIFY) {
+        const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
+        const missing = plan.tasks.filter(
+          (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+        )
+        if (missing.length > 0) {
+          return fail(
+            'not_delivered',
+            `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
+          )
+        }
+        const review = this.repo.planReview(input.reqId, plan.planVersion)
+        if (!review) {
+          return fail(
+            'plan_review_required',
+            `任务包 v${plan.planVersion} 尚未通过验证 Agent 的实现前评审；不能开始独立验证`,
+          )
+        }
+        if (review.verdict !== 'pass') {
+          return fail(
+            'plan_review_blocked',
+            `任务包 v${plan.planVersion} 的实现前评审未通过：${review.reportJson.slice(0, 200)}`,
+          )
+        }
       }
     } else if (input.action === 'plan' && this.repo.latestAnalysis(input.reqId) === null) {
       return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论`)
@@ -903,6 +1163,32 @@ ${answer}`
         `任务包 v${plan.planVersion} 依据需求 v${plan.requirementVersion}，当前需求是 v${latestVersion}；请重新规划后再批准`,
       )
     }
+    const review = this.repo.planReview(input.reqId, plan.planVersion)
+    if (!review) {
+      return fail(
+        'plan_review_required',
+        `任务包 v${plan.planVersion} 尚未通过验证 Agent 的实现前评审；不能批准进入实现`,
+      )
+    }
+    const planSha = sha256OfText(JSON.stringify(plan))
+    if (review.planSha256 !== planSha || review.requirementVersion !== latestVersion) {
+      return fail(
+        'plan_review_stale',
+        `任务包 v${plan.planVersion} 的实现前评审已过期（任务包或需求版本发生变化）；请重新生成任务包并评审`,
+      )
+    }
+    if (
+      !existsSync(review.reportPath) ||
+      sha256OfText(readFileSync(review.reportPath, 'utf8')) !== review.reportSha256
+    ) {
+      return fail('plan_review_invalid', '实现前评审证据文件缺失或摘要不一致；不能批准')
+    }
+    if (review.verdict !== 'pass') {
+      return fail(
+        'plan_review_blocked',
+        `实现前评审阻断：${planReviewBlocking(review.reportJson)}`,
+      )
+    }
     const approval = {
       requirementId: input.reqId,
       planVersion: input.planVersion,
@@ -1058,6 +1344,35 @@ ${answer}`
     if (missing.length > 0) {
       return fail('not_delivered', `仍有任务未交付：${missing.map((task) => task.taskId).join('、')}`)
     }
+    const verification = this.repo.verification(input.reqId, latestPlan.planVersion)
+    if (!verification) {
+      return fail(
+        'verification_required',
+        `需求 ${input.reqId} 尚未完成验证 Agent 的独立验证；不能验收`,
+      )
+    }
+    const identity = this.candidateIdentity(latestPlan, artifacts)
+    if (
+      verification.candidateSha256 !== identity ||
+      verification.requirementVersion !== requirement.versions.length
+    ) {
+      return fail(
+        'verification_stale',
+        '独立验证结论绑定的候选或需求版本与当前材料不一致；必须对当前候选重新验证后再验收',
+      )
+    }
+    if (
+      !existsSync(verification.reportPath) ||
+      sha256OfText(readFileSync(verification.reportPath, 'utf8')) !== verification.reportSha256
+    ) {
+      return fail('verification_invalid', '独立验证报告文件缺失或摘要不一致；不能验收')
+    }
+    if (verification.verdict !== 'pass') {
+      return fail(
+        'verification_blocked',
+        `独立验证未通过：${verificationBlocking(verification.reportJson)}`,
+      )
+    }
     const candidate = this.repo.candidate(input.reqId, latestPlan.planVersion)
     if (candidate) {
       if (!input.artifactSha256) {
@@ -1072,7 +1387,7 @@ ${answer}`
     }
     let binding
     try {
-      binding = this.buildAcceptanceBinding(latestPlan, artifacts, input.artifactSha256)
+      binding = this.buildAcceptanceBinding(latestPlan, artifacts, verification, input.artifactSha256)
     } catch (error) {
       return fail('material_invalid', (error as Error).message)
     }
@@ -1093,6 +1408,7 @@ ${answer}`
   private buildAcceptanceBinding(
     plan: TaskPlan,
     artifacts: ReturnType<Repository['taskArtifacts']>,
+    verification: VerificationRecord,
     artifactSha256?: string,
   ) {
     const ordered = plan.tasks.map((task) => {
@@ -1101,15 +1417,93 @@ ${answer}`
       return artifact
     })
     return {
-      candidateSha256: sha256OfText(ordered.map((artifact) => artifact.candidateSha256).join(':')),
+      candidateSha256: this.candidateIdentity(plan, artifacts),
       testEvidenceSha256: sha256OfText(ordered.map((artifact) => artifact.testEvidenceSha256).join(':')),
       reviewSha256: sha256OfText(ordered.map((artifact) => artifact.reviewSha256).join(':')),
+      verificationSha256: verification.reportSha256,
+      verificationCandidateSha256: verification.candidateSha256,
       artifactSha256: artifactSha256 ?? '',
       baselineCommit: ordered[0]?.baselineCommit ?? '',
     }
   }
 
+  /** 一次交付的候选身份；验证与验收必须绑定同一摘要。 */
+  private candidateIdentity(
+    plan: TaskPlan,
+    artifacts: ReturnType<Repository['taskArtifacts']>,
+  ): string {
+    const ordered = plan.tasks.map((task) => {
+      const artifact = artifacts.find((candidate) => candidate.taskId === task.taskId)
+      if (!artifact) throw new RuleViolationError(`任务 ${task.taskId} 缺少交付产物`)
+      return artifact
+    })
+    return candidateIdentityOf({
+      planVersion: plan.planVersion,
+      requirementVersion: plan.requirementVersion,
+      baselineCommit: ordered[0]?.baselineCommit ?? '',
+      candidateHashes: ordered.map((artifact) => artifact.candidateSha256),
+    })
+  }
+
   // ------------------------------------------------------------ 查询
+
+  private planReviewView(reqId: string, planVersion: number): unknown {
+    const record = this.repo.planReview(reqId, planVersion)
+    if (!record) return null
+    let review: PlanReview | null = null
+    try {
+      review = parsePlanReview(record.reportJson)
+    } catch {
+      review = null
+    }
+    return {
+      verdict: record.verdict,
+      summary: review?.summary ?? '',
+      blocking: review?.blocking ?? [],
+      findings: review?.findings ?? [],
+      verificationPlan: review?.verificationPlan ?? [],
+      reportPath: record.reportPath,
+      reportSha256: record.reportSha256,
+      sessionId: record.sessionId,
+      reviewedAt: record.reviewedAt,
+    }
+  }
+
+  private verificationView(
+    reqId: string,
+    plan: TaskPlan,
+    artifacts: ReturnType<Repository['taskArtifacts']>,
+  ): unknown {
+    const record = this.repo.verification(reqId, plan.planVersion)
+    if (!record) return null
+    let report: VerificationReport | null = null
+    try {
+      report = parseVerificationReport(record.reportJson)
+    } catch {
+      report = null
+    }
+    const currentIdentity = (() => {
+      try {
+        return this.candidateIdentity(plan, artifacts)
+      } catch {
+        return ''
+      }
+    })()
+    return {
+      verdict: record.verdict,
+      summary: report?.summary ?? '',
+      blocking: report?.blocking ?? [],
+      findings: report?.findings ?? [],
+      scenarios: report?.scenarios ?? [],
+      candidateSha256: record.candidateSha256,
+      workspaceSha256: record.workspaceSha256,
+      reportPath: record.reportPath,
+      reportSha256: record.reportSha256,
+      sessionId: record.sessionId,
+      verifiedAt: record.verifiedAt,
+      fresh: currentIdentity !== '' && currentIdentity === record.candidateSha256,
+    }
+  }
 
   requirementView(requirement: Requirement): unknown {
     const latestAnalysis = this.repo.latestAnalysis(requirement.reqId)
@@ -1141,6 +1535,8 @@ ${answer}`
       approval: approval
         ? { planVersion: approval.planVersion, approvedBy: approval.approvedBy, approvedAt: approval.approvedAt }
         : null,
+      planReview: latestPlan ? this.planReviewView(requirement.reqId, latestPlan.planVersion) : null,
+      verification: latestPlan ? this.verificationView(requirement.reqId, latestPlan, artifacts) : null,
       candidate: latestPlan ? this.repo.candidate(requirement.reqId, latestPlan.planVersion) : null,
       delivered: artifacts.map((artifact) => artifact.taskId),
       runs: runs.map((run) => ({ taskId: run.taskId, state: run.state, reason: run.reason })),
@@ -1263,6 +1659,52 @@ ${answer}`
     return buildStatusBoard({ repository: this.repo, project: this.config.project, limit, query })
   }
 
+  // ------------------------------------------------------------ 运维
+
+  /** 供协调器周期调用；不直接暴露给模型或页面动作。 */
+  async opsTick(signal?: AbortSignal): Promise<Awaited<ReturnType<OpsRuntime['tick']>>> {
+    return this.ops.tick(signal)
+  }
+
+  opsStatus(eventId?: string): OperationResult {
+    if (eventId) {
+      const detail = this.ops.detail(eventId)
+      if (!detail) return fail('not_found', `未找到运维事件 ${eventId}`)
+      return ok(`运维事件 ${eventId}`, detail)
+    }
+    return ok('运维事件与统计', {
+      summary: this.ops.summary(),
+      events: this.ops.list(),
+    })
+  }
+
+  opsDecide(input: {
+    eventId: string
+    decision: 'approve' | 'decline'
+    by: string
+    source: string
+    reason?: string
+  }): OperationResult {
+    return this.ops.decide(input)
+  }
+
+  opsConfirmUnknown(input: { eventId: string; by: string; reason: string }): OperationResult {
+    return this.ops.confirmUnknown(input)
+  }
+
+  opsClose(input: {
+    eventId: string
+    by: string
+    reason: string
+    confirmUnknown?: boolean
+  }): OperationResult {
+    return this.ops.close(input)
+  }
+
+  opsRequestFix(input: { eventId: string; by: string; source: string }): OperationResult {
+    return this.ops.requestFix(input)
+  }
+
   /**
    * 单条需求的完整只读详情：在 status 视图之上补充最新任务包正文、
    * 交付产物、验收记录与进度，供工作台展开需求后展示。
@@ -1370,7 +1812,10 @@ ${answer}`
       return this.executeAnalysis(request.reqId, signal)
     }
     if (request.action === 'plan') {
-      return this.executePlanning(request.reqId, signal)
+      return this.executeDevPlanning(request.reqId, signal)
+    }
+    if (request.action === ACTION_VERIFY) {
+      return this.executeVerification(request.reqId, signal)
     }
     return this.executeAdvance(request.reqId, signal, request.requestId)
   }
@@ -1435,7 +1880,7 @@ ${answer}`
     }
   }
 
-  private async executePlanning(
+  private async executeDevPlanning(
     reqId: string,
     signal: AbortSignal,
   ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
@@ -1454,13 +1899,14 @@ ${answer}`
     }
     let feedback = ''
     let lastError = ''
+    let lastPlan: TaskPlan | undefined
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const transcript = join(sessionsDir(this.config), `${reqId}-plan-a${attempt}.jsonl`)
       const started = Date.now()
       const result = await this.runner.run({
         role: 'plan',
         cwd: this.config.projectPath,
-        prompt: planningPrompt(requirement, analysis.goal) + feedback,
+        prompt: devPlanningPrompt(requirement, analysis) + feedback,
         permission: 'workspace-write',
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath: transcript,
@@ -1499,14 +1945,463 @@ ${answer}`
         continue
       }
       this.repo.recordTaskPlan(plan)
+      lastPlan = plan
+      const reviewOutcome = await this.reviewPlan(requirement, analysis, plan, signal)
+      if (reviewOutcome.state !== 'done') {
+        this.repo.setStatus(
+          reqId,
+          PLAN_PROPOSED,
+          '任务包已生成，但验证 Agent 的实现前评审未完成；不能批准',
+        )
+        return { state: reviewOutcome.state, detail: reviewOutcome.detail }
+      }
+      if (reviewOutcome.review.verdict === 'block') {
+        lastError = `实现前评审阻断：${reviewOutcome.review.blocking.join('；')}`
+        feedback = `\n\n上一次任务包被验证 Agent 的实现前评审阻断：\n- ${reviewOutcome.review.blocking.join('\n- ')}\n请修正技术方案、任务文件范围或测试命令后重新输出完整 JSON。`
+        continue
+      }
       this.repo.setStatus(reqId, PLAN_PROPOSED)
       return {
         state: 'done',
-        detail: `已生成任务包 v${plan.planVersion}（${plan.tasks.length} 个任务）；等待批准`,
+        detail: `已生成任务包 v${plan.planVersion}（${plan.tasks.length} 个任务）并通过实现前评审；等待批准`,
       }
     }
-    this.repo.setStatus(reqId, 'blocked', lastError)
+    if (lastPlan) {
+      this.repo.setStatus(reqId, PLAN_PROPOSED, lastError)
+    } else {
+      this.repo.setStatus(reqId, 'blocked', lastError)
+    }
     return { state: 'failed', detail: lastError }
+  }
+
+  /**
+   * 实现前评审：验证 Agent 只读任务包与分析，产出验证计划。
+   * 评审通过才允许批准；阻断原因会反馈给规划 Agent 重新生成任务包。
+   */
+  private async reviewPlan(
+    requirement: Requirement,
+    analysis: RequirementAnalysis,
+    plan: TaskPlan,
+    signal: AbortSignal,
+  ): Promise<
+    | { state: 'done'; review: PlanReview }
+    | { state: 'failed' | 'unknown'; detail: string }
+  > {
+    const started = Date.now()
+    const transcript = join(
+      sessionsDir(this.config),
+      `${requirement.reqId}-plan-review-v${plan.planVersion}.jsonl`,
+    )
+    const result = await this.runner.run({
+      role: 'verify-plan',
+      cwd: this.config.projectPath,
+      prompt: planReviewPrompt({ requirement, analysis, plan }),
+      permission: 'workspace-write',
+      timeoutMs: this.config.agent.timeoutSeconds * 1000,
+      transcriptPath: transcript,
+      signal,
+      tools: 'none',
+    })
+    this.charge(requirement.reqId, started)
+    if (result.status !== 'completed') {
+      return {
+        state: result.status === 'aborted' || result.status === 'timeout' ? 'unknown' : 'failed',
+        detail: `实现前评审未取得可用结论：${result.reason}`,
+      }
+    }
+    let review: PlanReview
+    try {
+      review = parsePlanReview(result.text)
+    } catch (error) {
+      return { state: 'failed', detail: `实现前评审结果畸形（fail-closed）：${(error as Error).message}` }
+    }
+    // 评审模型自报通过还不够：验证计划必须覆盖分析中的每个场景与验收标准；
+    // 缺项按阻断记录，避免未覆盖的任务包留在“已通过评审”状态被直接批准。
+    if (review.verdict === 'pass') {
+      const coverage = validatePlanCoverage(analysis, review)
+      if (coverage.length > 0) {
+        review = { ...review, verdict: 'block', blocking: coverage }
+      }
+    }
+    const dir = planReviewDir(this.config, requirement.reqId, plan.planVersion)
+    mkdirSync(dir, { recursive: true })
+    const reportPath = join(dir, 'plan-review.json')
+    // 摘要必须绑定“已落库的任务包”：内存对象与恢复对象的字段顺序不同，
+    // 若按内存对象计算，批准时重新加载后再核对会永远判为过期。
+    const planSha256 = sha256OfText(JSON.stringify(this.repo.taskPlan(requirement.reqId, plan.planVersion) ?? plan))
+    const report = {
+      kind: 'plan-review',
+      reqId: requirement.reqId,
+      planVersion: plan.planVersion,
+      requirementVersion: plan.requirementVersion,
+      planSha256,
+      verdict: review.verdict,
+      blocking: review.blocking,
+      findings: review.findings,
+      summary: review.summary,
+      verification_plan: review.verificationPlan,
+      sessionId: result.sessionId,
+      at: this.now(),
+    }
+    const reportJson = `${JSON.stringify(report, null, 2)}\n`
+    writeFileSync(reportPath, reportJson, 'utf8')
+    this.repo.recordPlanReview({
+      requirementId: requirement.reqId,
+      planVersion: plan.planVersion,
+      requirementVersion: plan.requirementVersion,
+      planSha256,
+      verdict: review.verdict,
+      reportJson,
+      reportPath,
+      reportSha256: sha256OfText(reportJson),
+      sessionId: result.sessionId,
+      reviewedAt: this.now(),
+    })
+    return { state: 'done', review }
+  }
+
+  /**
+   * 独立验证：把已交付任务的全部 diff 应用成固定候选，交给验证 Agent 在独立目录
+   * 编写验证测试并产出命令清单与逐场景报告；程序随后实际执行命令并只看退出码、
+   * 日志与必过场景覆盖，模型自述不构成通过。
+   */
+  private async executeVerification(
+    reqId: string,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+    const authorized = this.requireAuthorizedPlan(reqId)
+    if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
+    const analysis = this.repo.latestAnalysis(reqId)
+    if (!analysis) return { state: 'failed', detail: `需求 ${reqId} 尚无分析结论；不能验证` }
+    const plan = authorized.value.plan
+    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
+    const missing = plan.tasks.filter(
+      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+    )
+    if (missing.length > 0) {
+      return {
+        state: 'failed',
+        detail: `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
+      }
+    }
+    const reviewRecord = this.repo.planReview(reqId, plan.planVersion)
+    if (!reviewRecord) {
+      return { state: 'failed', detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立验证` }
+    }
+    if (reviewRecord.verdict !== 'pass') {
+      return {
+        state: 'failed',
+        detail: `任务包 v${plan.planVersion} 的实现前评审未通过：${planReviewBlocking(reviewRecord.reportJson)}`,
+      }
+    }
+    let planReview: PlanReview
+    try {
+      planReview = parsePlanReview(reviewRecord.reportJson)
+    } catch (error) {
+      return { state: 'failed', detail: `实现前评审证据畸形：${(error as Error).message}` }
+    }
+    const candidateSha256 = this.candidateIdentity(plan, artifacts)
+    const existing = this.repo.verificationForCandidate(reqId, plan.planVersion, candidateSha256)
+    if (existing) {
+      if (existing.verdict === 'block') {
+        return {
+          state: 'failed',
+          detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立验证已阻断：${verificationBlocking(existing.reportJson)}；需修复后产生新候选再验证`,
+        }
+      }
+      if (!this.verificationMaterialValid(existing)) {
+        return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；需重新验证' }
+      }
+      return {
+        state: 'done',
+        detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证；等待验收`,
+      }
+    }
+
+    this.repo.ensureBudget(reqId, plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0))
+    const budget = new ExecutionBudget(this.repo.budget(reqId).limitSeconds, this.repo.budget(reqId).consumedSeconds)
+    if (!budget.canStartAction()) {
+      this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
+      return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
+    }
+
+    const dir = verificationDir(this.config, reqId, plan.planVersion, candidateSha256)
+    const workspace = join(dir, 'workspace')
+    mkdirSync(dir, { recursive: true })
+    const baseline = headCommit(this.config.projectPath)
+    const snapshot = prepareSnapshotWorkspace({
+      projectPath: this.config.projectPath,
+      workspacePath: workspace,
+      baselineCommit: baseline,
+    })
+    const diffs: string[] = []
+    for (const task of plan.tasks) {
+      const evidence = this.repo.evidence(reqId, plan.planVersion, task.taskId)
+      if (!evidence) {
+        return { state: 'failed', detail: `任务 ${task.taskId} 缺少交付证据；不能验证` }
+      }
+      const applied = this.applyDiffFile(workspace, evidence.candidatePath, task.taskId, task.taskId)
+      if (!applied.ok) {
+        return {
+          state: 'failed',
+          detail: `任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}`,
+        }
+      }
+      const diff = readFileSync(evidence.candidatePath, 'utf8')
+      if (diff.trim()) diffs.push(diff)
+    }
+    runCommand('git', ['add', '-A'], workspace)
+    runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
+    if (this.config.worktreePrepareCommand.length > 0) {
+      const prepare = runCommand(
+        this.config.worktreePrepareCommand[0]!,
+        this.config.worktreePrepareCommand.slice(1),
+        workspace,
+        this.config.formalTestTimeoutSeconds * 1000,
+      )
+      writeFileSync(
+        join(dir, 'workspace-prepare.log'),
+        `${JSON.stringify(this.config.worktreePrepareCommand)}\nexit_code: ${prepare.code}\n${prepare.stdout}\n${prepare.stderr}\n`,
+        'utf8',
+      )
+      if (prepare.code !== 0) {
+        this.repo.setStatus(
+          reqId,
+          'blocked',
+          `验证工作副本准备命令失败（退出码 ${prepare.code}）；这是环境问题，候选未被判定失败`,
+        )
+        return {
+          state: 'failed',
+          detail: `验证工作副本准备命令失败（退出码 ${prepare.code}）；需修复依赖或环境后重新验证`,
+        }
+      }
+      runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
+      runCommand('git', ['clean', '-fd'], workspace)
+    }
+    const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}'])
+    const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+    const candidateDiff = diffs.join('\n')
+    writeFileSync(join(dir, 'candidate.diff'), candidateDiff, 'utf8')
+    writeFileSync(
+      join(dir, 'candidate.json'),
+      `${JSON.stringify(
+        {
+          reqId,
+          planVersion: plan.planVersion,
+          requirementVersion: plan.requirementVersion,
+          candidateSha256,
+          workspaceSha256,
+          baselineCommit: baseline,
+          snapshot,
+          tasks: plan.tasks.map((task) => ({
+            taskId: task.taskId,
+            candidateSha256: artifacts.find((artifact) => artifact.taskId === task.taskId)?.candidateSha256 ?? '',
+          })),
+          at: this.now(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+
+    const started = Date.now()
+    const run = await this.runner.run({
+      role: 'verify',
+      cwd: workspace,
+      prompt: verificationPrompt({
+        requirement,
+        analysis,
+        plan,
+        planReview,
+        candidateSha256,
+        workspaceSha256,
+        workspacePath: workspace,
+        diff: candidateDiff,
+      }),
+      permission: 'workspace-write',
+      timeoutMs: this.config.agent.timeoutSeconds * 1000,
+      transcriptPath: join(dir, 'verify.jsonl'),
+      signal,
+      tools: 'default',
+    })
+    this.charge(reqId, started)
+    if (run.status !== 'completed') {
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `独立验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
+      )
+      return {
+        state: run.status === 'aborted' || run.status === 'timeout' ? 'unknown' : 'failed',
+        detail: `独立验证未取得可用结论：${run.reason}`,
+      }
+    }
+
+    const commandsPath = join(workspace, 'verification/commands.json')
+    const reportPathInWorkspace = join(workspace, 'verification/report.json')
+    if (!existsSync(commandsPath) || !existsSync(reportPathInWorkspace)) {
+      this.repo.setStatus(reqId, 'blocked', '独立验证未产出 verification/commands.json 与 verification/report.json')
+      return { state: 'failed', detail: '独立验证未产出命令清单或逐场景报告；需重新验证' }
+    }
+    let commands: VerificationCommand[]
+    let report: VerificationReport
+    try {
+      commands = parseVerificationCommands(readFileSync(commandsPath, 'utf8'))
+      report = parseVerificationReport(readFileSync(reportPathInWorkspace, 'utf8'))
+    } catch (error) {
+      this.repo.setStatus(reqId, 'blocked', `独立验证材料畸形：${(error as Error).message}`)
+      return { state: 'failed', detail: `独立验证材料畸形（fail-closed）：${(error as Error).message}` }
+    }
+
+    const changed = requireGit(workspace, ['status', '--porcelain'])
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.slice(3).trim())
+    const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+    if (currentHead !== workspaceHead) {
+      this.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
+      return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
+    }
+    const outsideVerification = changed.filter((path) => !path.startsWith('verification/'))
+    if (outsideVerification.length > 0) {
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `独立验证修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
+      )
+      return {
+        state: 'failed',
+        detail: `独立验证越出独立验证目录（fail-closed）：${outsideVerification.join('、')}`,
+      }
+    }
+
+    const commandRuns: Array<{
+      label: string
+      argv: readonly string[]
+      exitCode: number | null
+      timedOut: boolean
+      aborted: boolean
+      logPath: string
+      logSha256: string
+      durationMs: number
+    }> = []
+    const failedCommands: string[] = []
+    for (const [index, command] of commands.entries()) {
+      const label = command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
+      const test = await this.formalTest({
+        ctx: this.ctx,
+        cwd: workspace,
+        argv: command.argv,
+        timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
+        logPath: join(dir, `verification-${index + 1}-${label}.log`),
+        signal,
+      })
+      commandRuns.push({
+        label: command.label,
+        argv: command.argv,
+        exitCode: test.exitCode,
+        timedOut: test.timedOut,
+        aborted: test.aborted,
+        logPath: test.logPath,
+        logSha256: test.logSha256,
+        durationMs: test.durationMs,
+      })
+      if (test.aborted) {
+        this.repo.setStatus(reqId, 'blocked', '独立验证命令被停止；外部副作用需核对')
+        return { state: 'unknown', detail: '独立验证命令被停止：外部副作用需核对，不会盲目重放' }
+      }
+      if (test.timedOut) {
+        failedCommands.push(`${command.label} 超时`)
+      } else if (test.exitCode !== 0) {
+        failedCommands.push(`${command.label} 退出码 ${test.exitCode === null ? 'null' : test.exitCode}`)
+      }
+    }
+
+    const coverageIssues = validateVerificationCoverage(planReview.verificationPlan, report)
+    const anyScenarioFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
+    const verdict: 'pass' | 'block' =
+      report.verdict === 'pass' && failedCommands.length === 0 && coverageIssues.length === 0 && !anyScenarioFailed
+        ? 'pass'
+        : 'block'
+    const blocking = [
+      ...report.blocking,
+      ...(anyScenarioFailed ? ['报告存在未通过的验证场景'] : []),
+      ...failedCommands.map((failure) => `验证命令失败：${failure}`),
+      ...coverageIssues,
+    ]
+    const canonical = {
+      kind: 'verification',
+      reqId,
+      planVersion: plan.planVersion,
+      requirementVersion: plan.requirementVersion,
+      candidateSha256,
+      workspaceSha256,
+      planReviewSha256: reviewRecord.reportSha256,
+      verdict,
+      summary: report.summary,
+      findings: report.findings,
+      blocking,
+      scenarios: report.scenarios,
+      commands: commandRuns,
+      sessionId: run.sessionId,
+      at: this.now(),
+    }
+    const reportJson = `${JSON.stringify(canonical, null, 2)}\n`
+    const reportPath = join(dir, 'verification.json')
+    writeFileSync(reportPath, reportJson, 'utf8')
+    this.repo.recordVerification({
+      requirementId: reqId,
+      planVersion: plan.planVersion,
+      candidateSha256,
+      requirementVersion: plan.requirementVersion,
+      workspaceSha256,
+      verdict,
+      reportJson,
+      reportPath,
+      reportSha256: sha256OfText(reportJson),
+      evidenceDir: dir,
+      sessionId: run.sessionId,
+      verifiedAt: this.now(),
+    })
+
+    if (verdict === 'block') {
+      const roundId = `verification-${plan.planVersion}-${candidateSha256.slice(0, 12)}`
+      const recorded = this.repo.recordFailureRound(reqId, {
+        roundId,
+        stage: FAILURE_VERIFICATION,
+        summary: `独立验证阻断：${blocking.join('；') || report.summary}`.slice(0, 1000),
+        occurredAt: this.now(),
+      })
+      const budgetLeft = this.remainingFailureRounds(reqId)
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blocking.join('；') || report.summary}${
+          recorded ? `；失败轮次 ${this.repo.failureRounds(reqId).length}` : ''
+        }${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}`,
+      )
+      return {
+        state: 'failed',
+        detail: `独立验证阻断：${blocking.join('；') || report.summary}；证据 ${reportPath}`,
+      }
+    }
+
+    this.repo.setStatus(reqId, EXECUTING)
+    return {
+      state: 'done',
+      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证（${report.scenarios.length} 个场景，${commandRuns.length} 条命令）；等待验收`,
+    }
+  }
+
+  private verificationMaterialValid(record: VerificationRecord): boolean {
+    return (
+      existsSync(record.reportPath) &&
+      sha256OfText(readFileSync(record.reportPath, 'utf8')) === record.reportSha256
+    )
   }
 
   private requireAuthorizedPlan(
@@ -1591,9 +2486,11 @@ ${answer}`
       }
     }
     const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
+    const verification = await this.executeVerification(reqId, signal)
+    if (verification.state !== 'done') return verification
     return {
       state: 'done',
-      detail: `任务包 v${plan.planVersion} 的 ${artifacts.length} 个任务已交付；等待整体验收`,
+      detail: `任务包 v${plan.planVersion} 的 ${artifacts.length} 个任务已交付，${verification.detail}`,
     }
   }
 
@@ -2083,6 +2980,7 @@ ${answer}`
         120_000,
       )
     }
+    if (applied.code === 0) rmSync(applyPath, { force: true })
     return { ok: applied.code === 0, detail: applied.stderr.trim() || applied.stdout.trim() }
   }
 

@@ -14,12 +14,15 @@
 import type { Repository } from '../records/repository.js'
 import type { Requirement } from '../domain/requirement.js'
 import { authorizePlan, type TaskPlan } from '../domain/task-plan.js'
+import { candidateIdentityOf } from '../domain/delivery.js'
+import { parsePlanReview, parseVerificationReport, type PlanReview, type VerificationReport } from '../domain/verification.js'
 import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
 import {
   ACTION_ANALYZE,
   ACTION_PLAN,
   ACTION_ADVANCE,
+  ACTION_VERIFY,
   APPROVED,
   EXECUTING,
   REQUEST_UNKNOWN,
@@ -70,7 +73,23 @@ export interface BoardTaskView {
   readonly resultUnknown: boolean
 }
 
-export type BoardRequirementAction = 'approve' | 'advance' | 'replan' | 'stop' | 'cancel'
+export type BoardRequirementAction = 'plan' | 'approve' | 'advance' | 'verify' | 'replan' | 'stop' | 'cancel'
+
+export interface BoardPlanReviewView {
+  readonly verdict: 'pass' | 'block'
+  readonly summary: string
+  readonly blocking: readonly string[]
+  readonly reviewedAt: string
+}
+
+export interface BoardVerificationView {
+  readonly verdict: 'pass' | 'block'
+  readonly fresh: boolean
+  readonly summary: string
+  readonly blocking: readonly string[]
+  readonly candidateSha256: string
+  readonly verifiedAt: string
+}
 
 export interface BoardRequirementView {
   readonly reqId: string
@@ -79,6 +98,8 @@ export interface BoardRequirementView {
   readonly version: number
   readonly planVersion: number | null
   readonly approval: 'approved' | 'missing' | 'stale' | 'none'
+  readonly planReview: BoardPlanReviewView | null
+  readonly verification: BoardVerificationView | null
   readonly clarifications: number
   readonly failureRounds: number
   readonly grants: number
@@ -213,6 +234,7 @@ function requestActionLabel(action: string): string {
   if (action === ACTION_ANALYZE) return '分析'
   if (action === ACTION_PLAN) return '规划'
   if (action === ACTION_ADVANCE) return '推进'
+  if (action === ACTION_VERIFY) return '独立验证'
   return action
 }
 
@@ -281,6 +303,12 @@ function haystackOf(input: {
       )
     }
   }
+  if (view.planReview) {
+    parts.push(view.planReview.summary, ...view.planReview.blocking)
+  }
+  if (view.verification) {
+    parts.push(view.verification.summary, ...view.verification.blocking)
+  }
   for (const task of tasks) {
     parts.push(task.taskId, task.goal, task.state, task.failureReason)
   }
@@ -339,6 +367,58 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       (request) => request.state === 'pending' || request.state === 'claimed',
     )
     const stopRequested = requirement.blockedReason.startsWith('停止请求')
+    const reviewRecord = plan ? repository.planReview(requirement.reqId, plan.planVersion) : null
+    const reviewReport: PlanReview | null = (() => {
+      if (!reviewRecord) return null
+      try {
+        return parsePlanReview(reviewRecord.reportJson)
+      } catch {
+        return null
+      }
+    })()
+    const verificationRecord = plan ? repository.verification(requirement.reqId, plan.planVersion) : null
+    const verificationReport: VerificationReport | null = (() => {
+      if (!verificationRecord) return null
+      try {
+        return parseVerificationReport(verificationRecord.reportJson)
+      } catch {
+        return null
+      }
+    })()
+    const currentCandidateSha256 = (() => {
+      if (!plan || artifacts.length !== plan.tasks.length) return ''
+      const ordered = plan.tasks.map((task) => artifacts.find((artifact) => artifact.taskId === task.taskId))
+      if (ordered.some((artifact) => !artifact)) return ''
+      return candidateIdentityOf({
+        planVersion: plan.planVersion,
+        requirementVersion: plan.requirementVersion,
+        baselineCommit: ordered[0]!.baselineCommit,
+        candidateHashes: ordered.map((artifact) => artifact!.candidateSha256),
+      })
+    })()
+    const verificationFresh =
+      verificationRecord !== null &&
+      currentCandidateSha256 !== '' &&
+      verificationRecord.candidateSha256 === currentCandidateSha256 &&
+      verificationRecord.requirementVersion === requirement.versions.length
+    const planReviewView: BoardPlanReviewView | null = reviewRecord
+      ? {
+          verdict: reviewRecord.verdict,
+          summary: reviewReport?.summary ?? '',
+          blocking: reviewReport?.blocking ?? [],
+          reviewedAt: reviewRecord.reviewedAt,
+        }
+      : null
+    const verificationView: BoardVerificationView | null = verificationRecord
+      ? {
+          verdict: verificationRecord.verdict,
+          fresh: verificationFresh,
+          summary: verificationReport?.summary ?? '',
+          blocking: verificationReport?.blocking ?? [],
+          candidateSha256: verificationRecord.candidateSha256,
+          verifiedAt: verificationRecord.verifiedAt,
+        }
+      : null
 
     const progress = {
       total: plan?.tasks.length ?? 0,
@@ -404,7 +484,11 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         authorization !== null &&
         authorization.status !== 'approved'
       ) {
-        actions.push('approve')
+        if (planReviewView?.verdict === 'pass') {
+          actions.push('approve')
+        } else if (!activeRequest && progress.running === 0) {
+          actions.push('plan')
+        }
       }
       if (
         authorization?.status === 'approved' &&
@@ -416,6 +500,20 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         !activeRequest
       ) {
         actions.push('advance')
+      }
+      if (
+        authorization?.status === 'approved' &&
+        (requirement.status === APPROVED || requirement.status === EXECUTING) &&
+        progress.total > 0 &&
+        progress.delivered === progress.total &&
+        remainingRounds > 0 &&
+        planReviewView?.verdict === 'pass' &&
+        progress.running === 0 &&
+        progress.awaitingInput === 0 &&
+        !activeRequest &&
+        !(verificationFresh && verificationView !== null)
+      ) {
+        actions.push('verify')
       }
       if (
         authorization?.status === 'approved' &&
@@ -438,6 +536,8 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       version: requirement.versions.length,
       planVersion: plan?.planVersion ?? null,
       approval: authorization?.status ?? 'none',
+      planReview: planReviewView,
+      verification: verificationView,
       clarifications: latestAnalysis?.clarifications.length ?? 0,
       failureRounds: rounds.length,
       grants,
@@ -482,8 +582,10 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       }
 
       const latestRound = rounds[rounds.length - 1]
-      if (latestRound) {
-        const taskId = taskIdOfFailureRound(plan, latestRound.roundId)
+      const latestRoundTaskId = latestRound ? taskIdOfFailureRound(plan, latestRound.roundId) : undefined
+      // 已交付任务的旧失败轮次是历史证据，不再作为待处理问题占据首屏。
+      if (latestRound && !(latestRoundTaskId && delivered.has(latestRoundTaskId))) {
+        const taskId = latestRoundTaskId
         requirementIssues.push({
           issueId: `failure:${requirement.reqId}:${latestRound.roundId}`,
           reqId: requirement.reqId,
@@ -521,15 +623,37 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         authorization &&
         authorization.status !== 'approved'
       ) {
-        requirementIssues.push({
-          issueId: `approval:${requirement.reqId}:v${plan.planVersion}`,
-          reqId: requirement.reqId,
-          kind: ISSUE_APPROVAL,
-          severity: 'attention',
-          title: `任务包 v${plan.planVersion} 待批准`,
-          detail: authorization.reason || '任务包尚未获得批准',
-          createdAt: plan.createdAt,
-        })
+        if (planReviewView?.verdict === 'block') {
+          requirementIssues.push({
+            issueId: `plan-review:${requirement.reqId}:v${plan.planVersion}`,
+            reqId: requirement.reqId,
+            kind: ISSUE_APPROVAL,
+            severity: 'blocking',
+            title: `任务包 v${plan.planVersion} 实现前评审阻断`,
+            detail: planReviewView.blocking.join('；') || planReviewView.summary,
+            createdAt: planReviewView.reviewedAt,
+          })
+        } else if (planReviewView?.verdict === 'pass') {
+          requirementIssues.push({
+            issueId: `approval:${requirement.reqId}:v${plan.planVersion}`,
+            reqId: requirement.reqId,
+            kind: ISSUE_APPROVAL,
+            severity: 'attention',
+            title: `任务包 v${plan.planVersion} 待批准`,
+            detail: authorization.reason || '任务包尚未获得批准',
+            createdAt: plan.createdAt,
+          })
+        } else {
+          requirementIssues.push({
+            issueId: `plan-review-missing:${requirement.reqId}:v${plan.planVersion}`,
+            reqId: requirement.reqId,
+            kind: ISSUE_APPROVAL,
+            severity: 'attention',
+            title: `任务包 v${plan.planVersion} 待实现前评审`,
+            detail: '尚未取得验证 Agent 的实现前评审结论；不能批准或进入实现',
+            createdAt: plan.createdAt,
+          })
+        }
       }
     }
 

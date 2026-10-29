@@ -317,7 +317,7 @@ export class SessionIntake {
     await this.planIfReady(session, reqId, outcome.analysis, input.signal, at)
   }
 
-  /** 分析已无待澄清项时接入研发 Agent；规划本身不等于批准或执行。 */
+  /** 需求分析完成且无待澄清项后交给研发 Agent 拆解任务；拆解本身不等于批准或执行。 */
   private async planIfReady(
     session: SessionViewLike | undefined,
     reqId: string,
@@ -326,11 +326,11 @@ export class SessionIntake {
     at: string,
   ): Promise<void> {
     if (analysis.clarifications.length > 0) return
-    let outcome: Awaited<ReturnType<ForgeLoopRuntime['planRequirement']>>
+    let outcome: Awaited<ReturnType<ForgeLoopRuntime['planDevTasks']>>
     try {
-      outcome = await this.runtime.planRequirement(reqId, signal)
+      outcome = await this.runtime.planDevTasks(reqId, signal)
     } catch (error) {
-      this.appendError(session, `forgeloop:error:${reqId}:plan`, reqId, `任务包规划异常：${(error as Error).message}`, at)
+      this.appendError(session, `forgeloop:error:${reqId}:plan`, reqId, `研发 Agent 任务拆解异常：${(error as Error).message}`, at)
       return
     }
     if (!outcome.ok || !outcome.plan) {

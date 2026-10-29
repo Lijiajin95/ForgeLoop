@@ -68,6 +68,36 @@ const PLAN = JSON.stringify({
   ],
 })
 
+const PLAN_REVIEW = JSON.stringify({
+  verdict: 'pass',
+  blocking: [],
+  findings: [],
+  summary: '任务包与验收标准一致，可以进入实现',
+  verification_plan: [
+    {
+      scenario: '任务按依赖完成',
+      acceptance_criterion: '两个任务交付且测试通过',
+      method: '在独立候选上执行正式测试，并核对两个任务的交付证据',
+      required: true,
+    },
+  ],
+})
+
+const VERIFICATION_REPORT = JSON.stringify({
+  verdict: 'pass',
+  summary: '候选通过独立验证',
+  findings: [],
+  blocking: [],
+  scenarios: [
+    {
+      scenario: '任务按依赖完成',
+      status: 'pass',
+      evidence: 'smoke 命令退出码 0；两个任务的交付证据在候选副本中可见',
+      commands: ['smoke'],
+    },
+  ],
+})
+
 const VERIFICATION_PLAN = JSON.stringify({
   tasks: [
     {
@@ -93,6 +123,7 @@ function fakeRunner(
   overrides: {
     onDev?: (request: AgentRunRequest, content: string) => void
     onAnalyze?: (request: AgentRunRequest, content: string) => void
+    onPlan?: (request: AgentRunRequest, content: string) => void
   } = {},
 ): AgentLike {
   return {
@@ -101,7 +132,21 @@ function fakeRunner(
         overrides.onAnalyze?.(request, request.prompt)
         return result(request, ANALYSIS)
       }
-      if (request.role === 'plan') return result(request, PLAN)
+      if (request.role === 'plan') {
+        overrides.onPlan?.(request, request.prompt)
+        return result(request, PLAN)
+      }
+      if (request.role === 'verify-plan') return result(request, PLAN_REVIEW)
+      if (request.role === 'verify') {
+        const verification = join(request.cwd, 'verification')
+        mkdirSync(verification, { recursive: true })
+        writeFileSync(
+          join(verification, 'commands.json'),
+          JSON.stringify({ commands: [{ label: 'smoke', argv: ['node', '-e', 'process.exit(0)'] }] }),
+        )
+        writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+        return result(request, VERIFICATION_REPORT)
+      }
       if (request.role === 'review') {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }
@@ -208,8 +253,14 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
 
   it('passes current requirements and tasks to the requirement Agent as facts', async () => {
     const prompts: string[] = []
+    const planPrompts: string[] = []
     runtime.close()
-    runtime = makeRuntime(fakeRunner({ onAnalyze: (request) => prompts.push(request.prompt) }))
+    runtime = makeRuntime(
+      fakeRunner({
+        onAnalyze: (request) => prompts.push(request.prompt),
+        onPlan: (request) => planPrompts.push(request.prompt),
+      }),
+    )
     const first = runtime.submit({ text: '第一个需求：增加过滤', by: 'owner', source: 'test' })
     const firstId = (first.data as { reqId: string }).reqId
     await runQueued('analyze', firstId)
@@ -225,6 +276,12 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     expect(prompt).toContain('任务包 v1（未批准）')
     expect(prompt).toContain('任务（列出 2/2）')
     expect(prompt).toContain('｜pending｜')
+
+    const planPrompt = planPrompts[0]!
+    expect(planPrompt).toContain('你是 ForgeLoop 的研发 Agent')
+    expect(planPrompt).toContain('业务场景：')
+    expect(planPrompt).toContain('任务按依赖完成')
+    expect(planPrompt).toContain('两个任务交付且测试通过')
   })
 
   it('delivers a verification-only task without a candidate diff', async () => {

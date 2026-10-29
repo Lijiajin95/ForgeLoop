@@ -40,6 +40,7 @@ export const REQUEST_UNKNOWN = 'unknown'
 export const ACTION_ANALYZE = 'analyze'
 export const ACTION_PLAN = 'plan'
 export const ACTION_ADVANCE = 'advance'
+export const ACTION_VERIFY = 'verify'
 
 /** 需求分析/规划/推进的下一步主体：人还是 Agent。 */
 export const ACTOR_USER = 'user'

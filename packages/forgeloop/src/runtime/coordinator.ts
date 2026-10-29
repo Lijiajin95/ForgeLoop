@@ -35,6 +35,8 @@ export class Coordinator {
   private readonly autoAdvance: boolean
   readonly owner: string
   private timer: NodeJS.Timeout | undefined
+  private opsTimer: NodeJS.Timeout | undefined
+  private opsCurrent: Promise<void> | undefined
   private stopped = true
   private ticking = false
   private inflight = new Map<string, AbortController>()
@@ -80,6 +82,8 @@ export class Coordinator {
     const now = new Date().toISOString()
     const unknownRequests = this.runtime.repo.markClaimedUnknown(now)
     const interrupted = this.runtime.repo.markStartedActionsInterrupted(now)
+    // 运维动作的结果未知：先核对，不自动重放。
+    const interruptedOps = this.runtime.repo.markRunningOpsActionsUnknown(now)
     this.runtime.repo.setMeta('host_owner', this.owner, now)
     this.runtime.repo.setMeta(
       'last_recovery',
@@ -87,6 +91,7 @@ export class Coordinator {
         at: now,
         unknownRequests: unknownRequests.map((request) => request.requestId),
         interruptedActions: interrupted,
+        interruptedOps,
       }),
       now,
     )
@@ -95,6 +100,11 @@ export class Coordinator {
       void this.kick()
     }, this.pollSeconds * 1000)
     this.timer.unref?.()
+    if (this.runtime.ops.enabled) {
+      this.opsTimer = setInterval(() => void this.kickOps(), this.pollSeconds * 1000)
+      this.opsTimer.unref?.()
+      setTimeout(() => void this.kickOps(), 80).unref?.()
+    }
     // 启动扫描：先核对/恢复，再立即消费 pending。
     setTimeout(() => void this.kick(), 50).unref?.()
   }
@@ -103,8 +113,11 @@ export class Coordinator {
     this.stopped = true
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
+    if (this.opsTimer) clearInterval(this.opsTimer)
+    this.opsTimer = undefined
     for (const controller of this.inflight.values()) controller.abort()
     await this.current?.catch(() => undefined)
+    await this.opsCurrent?.catch(() => undefined)
     this.lock?.release()
     this.lock = undefined
   }
@@ -118,6 +131,28 @@ export class Coordinator {
       this.ticking = false
     })
     return this.current
+  }
+
+  /** 运维巡检与研发推进各自独立；同一时刻只允许一轮巡检。 */
+  kickOps(): Promise<void> {
+    if (this.stopped || !this.runtime.ops.enabled) return Promise.resolve()
+    if (this.opsCurrent) return this.opsCurrent
+    this.opsCurrent = this.runtime
+      .opsTick()
+      .then((outcome) => {
+        if (outcome.errors.length > 0) {
+          this.lastError = outcome.errors.join('；')
+          console.error(`[forgeloop] 运维巡检错误：${this.lastError}`)
+        }
+      })
+      .catch((error) => {
+        this.lastError = `运维巡检异常：${(error as Error).message}`
+        console.error(`[forgeloop] ${this.lastError}`)
+      })
+      .finally(() => {
+        this.opsCurrent = undefined
+      })
+    return this.opsCurrent
   }
 
   private async runOnce(): Promise<void> {

@@ -14,6 +14,7 @@ import { validateTaskPlan } from '../domain/task-plan.js'
 import type { FailureRound } from '../domain/counting.js'
 import type { TaskArtifact, TaskRun } from '../domain/work.js'
 import type { TaskRunState } from '../domain/status.js'
+import type { OpsSeverity } from '../domain/ops.js'
 
 type Row = Record<string, unknown>
 
@@ -25,6 +26,23 @@ function text(row: Row, key: string): string {
 function num(row: Row, key: string): number {
   const value = row[key]
   return typeof value === 'number' ? value : Number(value ?? 0)
+}
+
+function verificationRow(row: Row): VerificationRecord {
+  return {
+    requirementId: text(row, 'req_id'),
+    planVersion: num(row, 'plan_version'),
+    candidateSha256: text(row, 'candidate_sha256'),
+    requirementVersion: num(row, 'requirement_version'),
+    workspaceSha256: text(row, 'workspace_sha256'),
+    verdict: text(row, 'verdict') === 'pass' ? 'pass' : 'block',
+    reportJson: text(row, 'report_json'),
+    reportPath: text(row, 'report_path'),
+    reportSha256: text(row, 'report_sha256'),
+    evidenceDir: text(row, 'evidence_dir'),
+    sessionId: text(row, 'session_id'),
+    verifiedAt: text(row, 'verified_at'),
+  }
 }
 
 export interface RequirementEvidence {
@@ -39,6 +57,34 @@ export interface RequirementEvidence {
   readonly devSession: string
   readonly reviewSession: string
   readonly recordedAt: string
+}
+
+export interface PlanReviewRecord {
+  readonly requirementId: string
+  readonly planVersion: number
+  readonly requirementVersion: number
+  readonly planSha256: string
+  readonly verdict: 'pass' | 'block'
+  readonly reportJson: string
+  readonly reportPath: string
+  readonly reportSha256: string
+  readonly sessionId: string
+  readonly reviewedAt: string
+}
+
+export interface VerificationRecord {
+  readonly requirementId: string
+  readonly planVersion: number
+  readonly candidateSha256: string
+  readonly requirementVersion: number
+  readonly workspaceSha256: string
+  readonly verdict: 'pass' | 'block'
+  readonly reportJson: string
+  readonly reportPath: string
+  readonly reportSha256: string
+  readonly evidenceDir: string
+  readonly sessionId: string
+  readonly verifiedAt: string
 }
 
 export interface ServiceRequestRecord {
@@ -69,6 +115,78 @@ export interface ActionRecord {
   readonly detail: string
   readonly pid: number | null
   readonly heartbeatAt: string
+}
+
+export interface OpsEventRecord {
+  readonly eventId: string
+  readonly project: string
+  readonly resourceId: string
+  readonly checkId: string
+  readonly signature: string
+  readonly severity: OpsSeverity
+  readonly state: string
+  readonly title: string
+  readonly impact: string
+  readonly openedAt: string
+  readonly updatedAt: string
+  readonly recoveredAt: string
+  readonly closedAt: string
+  readonly diagnosisJson: string
+  readonly diagnosisPath: string
+  readonly diagnosisSession: string
+  readonly fixRequirementId: string
+  readonly decision: string
+  readonly decisionBy: string
+  readonly decisionSource: string
+  readonly decisionAt: string
+  readonly humanInvolved: boolean
+  readonly humanReason: string
+  readonly resultUnknown: boolean
+}
+
+export interface OpsObservationRecord {
+  readonly eventId: string
+  readonly seq: number
+  readonly at: string
+  readonly kind: string
+  readonly summary: string
+  readonly detailJson: string
+  readonly evidencePath: string
+}
+
+export interface OpsActionAttemptRecord {
+  readonly actionId: string
+  readonly eventId: string
+  readonly actionDefId: string
+  readonly paramsJson: string
+  readonly state: string
+  readonly authorizationSource: string
+  readonly detail: string
+  readonly exitCode: number | null
+  readonly startedAt: string
+  readonly finishedAt: string
+  readonly evidencePath: string
+}
+
+export interface OpsEventPatch {
+  state?: string
+  title?: string
+  impact?: string
+  severity?: string
+  recoveredAt?: string
+  closedAt?: string
+  diagnosisJson?: string
+  diagnosisPath?: string
+  diagnosisSession?: string
+  fixRequirementId?: string
+  decision?: string
+  decisionBy?: string
+  decisionSource?: string
+  decisionAt?: string
+  humanInvolved?: boolean
+  humanReason?: string
+  resultUnknown?: boolean
+  updatedAt?: string
 }
 
 export interface SubmitResult {
@@ -442,6 +560,110 @@ export class Repository {
       source: text(row, 'source'),
       approvedAt: text(row, 'approved_at'),
     }
+  }
+
+  // ---------------------------------------------------------------- 验证 Agent
+
+  recordPlanReview(review: PlanReviewRecord): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_plan_reviews
+          (req_id, plan_version, requirement_version, plan_sha256, verdict, report_json,
+           report_path, report_sha256, session_id, reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, plan_version) DO UPDATE SET
+           requirement_version = excluded.requirement_version,
+           plan_sha256 = excluded.plan_sha256, verdict = excluded.verdict,
+           report_json = excluded.report_json, report_path = excluded.report_path,
+           report_sha256 = excluded.report_sha256, session_id = excluded.session_id,
+           reviewed_at = excluded.reviewed_at`,
+      )
+      .run(
+        review.requirementId,
+        review.planVersion,
+        review.requirementVersion,
+        review.planSha256,
+        review.verdict,
+        review.reportJson,
+        review.reportPath,
+        review.reportSha256,
+        review.sessionId,
+        review.reviewedAt,
+      )
+  }
+
+  planReview(reqId: string, planVersion: number): PlanReviewRecord | null {
+    const row = this.db.handle
+      .prepare('SELECT * FROM requirement_plan_reviews WHERE req_id = ? AND plan_version = ?')
+      .get(reqId, planVersion) as Row | undefined
+    if (!row) return null
+    return {
+      requirementId: text(row, 'req_id'),
+      planVersion: num(row, 'plan_version'),
+      requirementVersion: num(row, 'requirement_version'),
+      planSha256: text(row, 'plan_sha256'),
+      verdict: text(row, 'verdict') === 'pass' ? 'pass' : 'block',
+      reportJson: text(row, 'report_json'),
+      reportPath: text(row, 'report_path'),
+      reportSha256: text(row, 'report_sha256'),
+      sessionId: text(row, 'session_id'),
+      reviewedAt: text(row, 'reviewed_at'),
+    }
+  }
+
+  recordVerification(verification: VerificationRecord): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_verifications
+          (req_id, plan_version, candidate_sha256, requirement_version, workspace_sha256,
+           verdict, report_json, report_path, report_sha256, evidence_dir, session_id, verified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, plan_version, candidate_sha256) DO UPDATE SET
+           requirement_version = excluded.requirement_version,
+           workspace_sha256 = excluded.workspace_sha256, verdict = excluded.verdict,
+           report_json = excluded.report_json, report_path = excluded.report_path,
+           report_sha256 = excluded.report_sha256, evidence_dir = excluded.evidence_dir,
+           session_id = excluded.session_id, verified_at = excluded.verified_at`,
+      )
+      .run(
+        verification.requirementId,
+        verification.planVersion,
+        verification.candidateSha256,
+        verification.requirementVersion,
+        verification.workspaceSha256,
+        verification.verdict,
+        verification.reportJson,
+        verification.reportPath,
+        verification.reportSha256,
+        verification.evidenceDir,
+        verification.sessionId,
+        verification.verifiedAt,
+      )
+  }
+
+  verification(reqId: string, planVersion: number): VerificationRecord | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_verifications
+         WHERE req_id = ? AND plan_version = ?
+         ORDER BY verified_at DESC LIMIT 1`,
+      )
+      .get(reqId, planVersion) as Row | undefined
+    return row ? verificationRow(row) : null
+  }
+
+  verificationForCandidate(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): VerificationRecord | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_verifications
+         WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?`,
+      )
+      .get(reqId, planVersion, candidateSha256) as Row | undefined
+    return row ? verificationRow(row) : null
   }
 
   // ---------------------------------------------------------------- 任务运行与产物
@@ -936,6 +1158,261 @@ export class Repository {
     }
   }
 
+  // ---------------------------------------------------------------- 运维事件
+
+  createOpsEvent(input: {
+    eventId: string
+    project: string
+    resourceId: string
+    checkId: string
+    signature: string
+    severity: string
+    state: string
+    title: string
+    impact?: string
+    openedAt: string
+    updatedAt: string
+  }): OpsEventRecord {
+    this.db.handle
+      .prepare(
+        `INSERT INTO ops_events
+           (event_id, project, resource_id, check_id, signature, severity, state, title, impact, opened_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.eventId,
+        input.project,
+        input.resourceId,
+        input.checkId,
+        input.signature,
+        input.severity,
+        input.state,
+        input.title,
+        input.impact ?? '',
+        input.openedAt,
+        input.updatedAt,
+      )
+    const record = this.opsEvent(input.eventId)
+    if (!record) throw new RuleViolationError(`运维事件 ${input.eventId} 写入后不可读`)
+    return record
+  }
+
+  opsEvent(eventId: string): OpsEventRecord | null {
+    const row = this.db.handle.prepare('SELECT * FROM ops_events WHERE event_id = ?').get(eventId) as
+      | Row
+      | undefined
+    return row ? opsEventFromRow(row) : null
+  }
+
+  /** 同一项目内按失败签名查找仍在处理中的事件；终态事件不吸收新告警。 */
+  findActiveOpsEvent(project: string, signature: string): OpsEventRecord | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM ops_events
+          WHERE project = ? AND signature = ?
+            AND state IN ('open', 'diagnosed', 'awaiting_decision', 'recovering', 'unresolved', 'unknown')
+          ORDER BY opened_at DESC LIMIT 1`,
+      )
+      .get(project, signature) as Row | undefined
+    return row ? opsEventFromRow(row) : null
+  }
+
+  listOpsEvents(project: string, limit = 200): OpsEventRecord[] {
+    const rows = this.db.handle
+      .prepare('SELECT * FROM ops_events WHERE project = ? ORDER BY opened_at DESC LIMIT ?')
+      .all(project, limit) as Row[]
+    return rows.map(opsEventFromRow)
+  }
+
+  /** 按白名单列更新事件；未知字段直接拒绝，避免把任意键拼进 SQL。 */
+  updateOpsEvent(eventId: string, patch: OpsEventPatch): OpsEventRecord {
+    const columns: Record<keyof OpsEventPatch, string> = {
+      state: 'state',
+      title: 'title',
+      impact: 'impact',
+      severity: 'severity',
+      recoveredAt: 'recovered_at',
+      closedAt: 'closed_at',
+      diagnosisJson: 'diagnosis_json',
+      diagnosisPath: 'diagnosis_path',
+      diagnosisSession: 'diagnosis_session',
+      fixRequirementId: 'fix_requirement_id',
+      decision: 'decision',
+      decisionBy: 'decision_by',
+      decisionSource: 'decision_source',
+      decisionAt: 'decision_at',
+      humanInvolved: 'human_involved',
+      humanReason: 'human_reason',
+      resultUnknown: 'result_unknown',
+      updatedAt: 'updated_at',
+    }
+    const assignments: string[] = []
+    const values: unknown[] = []
+    for (const [key, value] of Object.entries(patch) as Array<[keyof OpsEventPatch, unknown]>) {
+      const column = columns[key]
+      if (!column) throw new RuleViolationError(`运维事件不支持更新字段 ${String(key)}`)
+      if (value === undefined) continue
+      assignments.push(`${column} = ?`)
+      values.push(typeof value === 'boolean' ? (value ? 1 : 0) : value)
+    }
+    if (assignments.length === 0) throw new RuleViolationError('运维事件更新至少需要一个字段')
+    this.db.handle
+      .prepare(`UPDATE ops_events SET ${assignments.join(', ')} WHERE event_id = ?`)
+      .run(...(values as Array<string | number>), eventId)
+    const record = this.opsEvent(eventId)
+    if (!record) throw new RuleViolationError(`未找到运维事件 ${eventId}`)
+    return record
+  }
+
+  linkOpsFixRequirement(eventId: string, reqId: string, now: string): void {
+    const event = this.opsEvent(eventId)
+    if (!event) throw new RuleViolationError(`未找到运维事件 ${eventId}`)
+    if (event.fixRequirementId && event.fixRequirementId !== reqId) {
+      throw new RuleViolationError(`运维事件 ${eventId} 已经关联修复需求 ${event.fixRequirementId}`)
+    }
+    this.updateOpsEvent(eventId, { fixRequirementId: reqId, updatedAt: now })
+  }
+
+  appendOpsObservation(input: {
+    eventId: string
+    at: string
+    kind: string
+    summary: string
+    detailJson?: string
+    evidencePath?: string
+  }): OpsObservationRecord {
+    const seq = this.db.transaction(() => {
+      const row = this.db.handle
+        .prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM ops_observations WHERE event_id = ?')
+        .get(input.eventId) as Row | undefined
+      const next = (row ? num(row, 'seq') : 0) + 1
+      this.db.handle
+        .prepare(
+          `INSERT INTO ops_observations (event_id, seq, at, kind, summary, detail_json, evidence_path)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(input.eventId, next, input.at, input.kind, input.summary, input.detailJson ?? '', input.evidencePath ?? '')
+      return next
+    })
+    return {
+      eventId: input.eventId,
+      seq,
+      at: input.at,
+      kind: input.kind,
+      summary: input.summary,
+      detailJson: input.detailJson ?? '',
+      evidencePath: input.evidencePath ?? '',
+    }
+  }
+
+  opsObservations(eventId: string): OpsObservationRecord[] {
+    const rows = this.db.handle
+      .prepare('SELECT * FROM ops_observations WHERE event_id = ? ORDER BY seq')
+      .all(eventId) as Row[]
+    return rows.map((row) => ({
+      eventId: text(row, 'event_id'),
+      seq: num(row, 'seq'),
+      at: text(row, 'at'),
+      kind: text(row, 'kind'),
+      summary: text(row, 'summary'),
+      detailJson: text(row, 'detail_json'),
+      evidencePath: text(row, 'evidence_path'),
+    }))
+  }
+
+  recordOpsActionAttempt(input: {
+    actionId: string
+    eventId: string
+    actionDefId: string
+    paramsJson?: string
+    state: string
+    authorizationSource: string
+    detail?: string
+    exitCode?: number | null
+    startedAt: string
+    evidencePath?: string
+  }): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO ops_action_attempts
+           (action_id, event_id, action_def_id, params_json, state, authorization_source, detail, exit_code, started_at, evidence_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.actionId,
+        input.eventId,
+        input.actionDefId,
+        input.paramsJson ?? '{}',
+        input.state,
+        input.authorizationSource,
+        input.detail ?? '',
+        input.exitCode ?? null,
+        input.startedAt,
+        input.evidencePath ?? '',
+      )
+  }
+
+  finishOpsActionAttempt(
+    actionId: string,
+    patch: {
+      state: string
+      detail: string
+      exitCode: number | null
+      finishedAt: string
+      evidencePath?: string
+    },
+  ): void {
+    this.db.handle
+      .prepare(
+        `UPDATE ops_action_attempts
+            SET state = ?, detail = ?, exit_code = ?, finished_at = ?, evidence_path = ?
+          WHERE action_id = ?`,
+      )
+      .run(patch.state, patch.detail, patch.exitCode, patch.finishedAt, patch.evidencePath ?? '', actionId)
+  }
+
+  opsActionAttempts(eventId: string): OpsActionAttemptRecord[] {
+    const rows = this.db.handle
+      .prepare('SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at, action_id')
+      .all(eventId) as Row[]
+    return rows.map(opsActionAttemptFromRow)
+  }
+
+  latestOpsActionAttempt(eventId: string): OpsActionAttemptRecord | null {
+    const row = this.db.handle
+      .prepare('SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at DESC, action_id DESC LIMIT 1')
+      .get(eventId) as Row | undefined
+    return row ? opsActionAttemptFromRow(row) : null
+  }
+
+  /**
+   * 宿主启动时把未收口的动作标为 unknown：外部副作用无法确认，不能自动重放。
+   * 返回被标记的动作，供启动记录引用。
+   */
+  markRunningOpsActionsUnknown(now: string): Array<{ actionId: string; eventId: string }> {
+    const rows = this.db.handle
+      .prepare("SELECT * FROM ops_action_attempts WHERE state = 'running' ORDER BY started_at")
+      .all() as Row[]
+    const marked: Array<{ actionId: string; eventId: string }> = []
+    for (const row of rows) {
+      const actionId = text(row, 'action_id')
+      const eventId = text(row, 'event_id')
+      this.db.handle
+        .prepare(
+          `UPDATE ops_action_attempts
+              SET state = 'unknown', detail = ?, finished_at = ?
+            WHERE action_id = ?`,
+        )
+        .run('宿主中断：动作结果未知，需核对外部副作用后再收口；不自动重放', now, actionId)
+      const event = this.opsEvent(eventId)
+      if (event && event.state !== 'closed') {
+        this.updateOpsEvent(eventId, { state: 'unknown', resultUnknown: true, updatedAt: now })
+      }
+      marked.push({ actionId, eventId })
+    }
+    return marked
+  }
+
   // ---------------------------------------------------------------- 元信息
 
   setMeta(key: string, value: string, now = isoNow()): void {
@@ -986,6 +1463,52 @@ function actionFromRow(row: Row): ActionRecord {
     detail: text(row, 'detail'),
     pid: row.pid === null || row.pid === undefined ? null : num(row, 'pid'),
     heartbeatAt: text(row, 'heartbeat_at'),
+  }
+}
+
+function opsEventFromRow(row: Row): OpsEventRecord {
+  return {
+    eventId: text(row, 'event_id'),
+    project: text(row, 'project'),
+    resourceId: text(row, 'resource_id'),
+    checkId: text(row, 'check_id'),
+    signature: text(row, 'signature'),
+    severity: text(row, 'severity') as OpsSeverity,
+    state: text(row, 'state'),
+    title: text(row, 'title'),
+    impact: text(row, 'impact'),
+    openedAt: text(row, 'opened_at'),
+    updatedAt: text(row, 'updated_at'),
+    recoveredAt: text(row, 'recovered_at'),
+    closedAt: text(row, 'closed_at'),
+    diagnosisJson: text(row, 'diagnosis_json'),
+    diagnosisPath: text(row, 'diagnosis_path'),
+    diagnosisSession: text(row, 'diagnosis_session'),
+    fixRequirementId: text(row, 'fix_requirement_id'),
+    decision: text(row, 'decision'),
+    decisionBy: text(row, 'decision_by'),
+    decisionSource: text(row, 'decision_source'),
+    decisionAt: text(row, 'decision_at'),
+    humanInvolved: num(row, 'human_involved') === 1,
+    humanReason: text(row, 'human_reason'),
+    resultUnknown: num(row, 'result_unknown') === 1,
+  }
+}
+
+function opsActionAttemptFromRow(row: Row): OpsActionAttemptRecord {
+  const exitCode = row.exit_code
+  return {
+    actionId: text(row, 'action_id'),
+    eventId: text(row, 'event_id'),
+    actionDefId: text(row, 'action_def_id'),
+    paramsJson: text(row, 'params_json'),
+    state: text(row, 'state'),
+    authorizationSource: text(row, 'authorization_source'),
+    detail: text(row, 'detail'),
+    exitCode: exitCode === null || exitCode === undefined ? null : num(row, 'exit_code'),
+    startedAt: text(row, 'started_at'),
+    finishedAt: text(row, 'finished_at'),
+    evidencePath: text(row, 'evidence_path'),
   }
 }
 

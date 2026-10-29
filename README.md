@@ -37,11 +37,13 @@ DSH is the only persistent host. It provides sessions, model access, tools, UI i
 
 The active implementation lives in [`packages/forgeloop`](packages/forgeloop). It uses TypeScript and Node's built-in SQLite support. ForgeLoop does not require a separate persistent backend.
 
-The target design defines three roles: **Requirements Agent**, **Development Agent**, and **Verification Agent**. Independent child runtimes and enforceable role boundaries are part of that design; current in-process Agent sessions do not establish those boundaries. See the [architecture](docs/architecture.md) and [product plan](docs/product.md) for the distinction.
+The target design defines three roles: **Requirements Agent**, **Development Agent**, and **Verification Agent**. The Verification Agent is now implemented with two enforced gates: a pre-implementation review that must pass before approval, and an independent verification whose evidence must pass before acceptance. These are in-process Agent sessions with runtime checks, not OS-level role isolation. See the [architecture](docs/architecture.md) and [product plan](docs/product.md) for the distinction.
+
+A first-version **Operations Agent** is also in place: registered resource checks and a small catalog of recovery actions, a tool-free diagnosis session, recovery actions executed only with catalog or owner authorization and re-checked afterwards, and linked fix requirements when a diagnosis calls for permanent repair. Actions run in the host account with no OS isolation, and online incidents have not been exercised yet — see the [operations design](docs/ops-agent.md).
 
 ## Current foundation and priorities
 
-The repository includes versioned requirements and task plans, snapshot workspaces, candidate diffs, independent diff review, formal test execution, durable requests, and evidence records. DSH tools and a web board expose project information.
+The repository includes versioned requirements and task plans, snapshot workspaces, candidate diffs, pre-implementation plan review, independent verification, independent diff review, formal test execution, durable requests, and evidence records. DSH tools and a web board expose project information.
 
 Some workflow operations remain internal, and availability depends on the revision being used. A successful tool call, test run, or package installation does not by itself prove complete delivery. The [status record](docs/status.md) documents implementation, actual validation, and known gaps.
 

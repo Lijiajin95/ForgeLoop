@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
 import { MAX_ROUNDS_PER_GRANT } from '../src/domain/counting.js'
+import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
 import {
   BOARD_TASK_AWAITING_INPUT,
@@ -77,8 +78,7 @@ function plan(reqId: string, planVersion = 1, requirementVersion = 1): TaskPlan 
   }
 }
 
-function deliver(reqId: string, taskId: string, planVersion = 1): void {
-  repository.recordTaskArtifact({
+function deliver(reqId: string, taskId: string, planVersion = 1): void {  repository.recordTaskArtifact({
     requirementId: reqId,
     planVersion,
     taskId,
@@ -108,6 +108,99 @@ function analyze(reqId: string, clarifications: string[], analysisVersion = 1): 
 function board(options?: number | { limit?: number; query?: string }) {
   const normalized = typeof options === 'number' ? { limit: options } : (options ?? {})
   return buildStatusBoard({ repository, project: PROJECT, now: NOW, ...normalized })
+}
+
+/** 计划评审是批准的硬门禁：看板只在评审通过时提供“批准”。 */
+function seedPlanReview(
+  reqId: string,
+  planVersion = 1,
+  verdict: 'pass' | 'block' = 'pass',
+): void {
+  const stored = repository.taskPlan(reqId, planVersion)!
+  const planSha256 = sha256OfText(JSON.stringify(stored))
+  const review = {
+    kind: 'plan-review',
+    reqId,
+    planVersion,
+    requirementVersion: stored.requirementVersion,
+    planSha256,
+    verdict,
+    blocking: verdict === 'pass' ? [] : ['任务包没有覆盖验收标准'],
+    findings: [],
+    summary: verdict === 'pass' ? '任务包可进入实现' : '任务包阻断',
+    verification_plan: [
+      {
+        scenario: '场景',
+        acceptance_criterion: '标准',
+        method: '在独立候选上执行测试',
+        required: true,
+      },
+    ],
+    sessionId: 'session-plan-review',
+    at: NOW,
+  }
+  const reportJson = `${JSON.stringify(review, null, 2)}\n`
+  const reportPath = join(dir, `plan-review-${reqId}-v${planVersion}.json`)
+  writeFileSync(reportPath, reportJson, 'utf8')
+  repository.recordPlanReview({
+    requirementId: reqId,
+    planVersion,
+    requirementVersion: stored.requirementVersion,
+    planSha256,
+    verdict,
+    reportJson,
+    reportPath,
+    reportSha256: sha256OfText(reportJson),
+    sessionId: review.sessionId,
+    reviewedAt: NOW,
+  })
+}
+
+/** 独立验证绑定固定候选；新鲜度决定看板是否还提供“独立验证”。 */
+function seedVerification(reqId: string, planVersion = 1, verdict: 'pass' | 'block' = 'pass'): string {
+  const plan = repository.taskPlan(reqId, planVersion)!
+  const artifacts = plan.tasks.map((task) => repository.taskArtifact(reqId, planVersion, task.taskId)!)
+  const candidateSha256 = candidateIdentityOf({
+    planVersion,
+    requirementVersion: plan.requirementVersion,
+    baselineCommit: artifacts[0]?.baselineCommit ?? '',
+    candidateHashes: artifacts.map((artifact) => artifact.candidateSha256),
+  })
+  const report = {
+    kind: 'verification',
+    reqId,
+    planVersion,
+    requirementVersion: plan.requirementVersion,
+    candidateSha256,
+    workspaceSha256: 'tree',
+    planReviewSha256: 'plan-review',
+    verdict,
+    summary: verdict === 'pass' ? '候选通过独立验证' : '候选未通过独立验证',
+    findings: [],
+    blocking: verdict === 'pass' ? [] : ['必过场景未通过'],
+    scenarios: [{ scenario: '场景', status: verdict === 'pass' ? 'pass' : 'fail', evidence: '正式测试', commands: ['smoke'] }],
+    commands: [],
+    sessionId: 'session-verification',
+    at: NOW,
+  }
+  const reportJson = `${JSON.stringify(report, null, 2)}\n`
+  const reportPath = join(dir, `verification-${reqId}-v${planVersion}.json`)
+  writeFileSync(reportPath, reportJson, 'utf8')
+  repository.recordVerification({
+    requirementId: reqId,
+    planVersion,
+    candidateSha256,
+    requirementVersion: plan.requirementVersion,
+    workspaceSha256: 'tree',
+    verdict,
+    reportJson,
+    reportPath,
+    reportSha256: sha256OfText(reportJson),
+    evidenceDir: dir,
+    sessionId: report.sessionId,
+    verifiedAt: NOW,
+  })
+  return candidateSha256
 }
 
 describe('status board', () => {
@@ -217,9 +310,11 @@ describe('status board', () => {
     const reqId = submit('req-1')
     repository.recordTaskPlan(plan(reqId))
     repository.setStatus(reqId, 'plan_proposed')
+    seedPlanReview(reqId)
 
     const view = board()
     expect(view.requirements[0]!.approval).toBe('missing')
+    expect(view.requirements[0]!.planReview?.verdict).toBe('pass')
     const issue = view.issues.find((candidate) => candidate.kind === 'approval')
     expect(issue).toMatchObject({ reqId, severity: 'attention', title: '任务包 v1 待批准' })
   })
@@ -230,6 +325,7 @@ describe('status board', () => {
     repository.setStatus(reqId, 'executing')
     repository.recordTaskPlan(plan(reqId, 2))
     repository.setStatus(reqId, 'plan_proposed')
+    seedPlanReview(reqId, 2)
     repository.recordPlanApproval({
       requirementId: reqId,
       planVersion: 1,
@@ -243,6 +339,51 @@ describe('status board', () => {
     expect(view.requirements[0]!.approval).toBe('stale')
     const issue = view.issues.find((candidate) => candidate.kind === 'approval')
     expect(issue?.detail).toContain('旧版本批准不能驱动新任务包')
+  })
+
+  it('gates approval on the plan review and verification on the fixed candidate', () => {
+    const reqId = submit('req-verify')
+    repository.recordTaskPlan(plan(reqId))
+    repository.setStatus(reqId, 'plan_proposed')
+
+    let item = board().requirements[0]!
+    expect(item.actions).toEqual(['plan', 'cancel'])
+    expect(item.planReview).toBeNull()
+    expect(board().issues.find((issue) => issue.kind === 'approval')).toMatchObject({
+      severity: 'attention',
+      title: '任务包 v1 待实现前评审',
+    })
+
+    // 评审阻断时不能批准：只保留“重新生成任务包”，并给出阻断原因。
+    seedPlanReview(reqId, 1, 'block')
+    expect(board().issues.find((issue) => issue.kind === 'approval')).toMatchObject({
+      severity: 'blocking',
+      title: '任务包 v1 实现前评审阻断',
+    })
+    expect(board().requirements[0]!.actions).toEqual(['plan', 'cancel'])
+
+    seedPlanReview(reqId)
+    expect(board().requirements[0]!.actions).toEqual(['approve', 'cancel'])
+
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.setStatus(reqId, 'executing')
+    deliver(reqId, 't1')
+    deliver(reqId, 't2')
+    item = board().requirements[0]!
+    expect(item.verification).toBeNull()
+    expect(item.actions).toContain('verify')
+
+    // 通过且与当前候选一致的验证结论才算 fresh，之后不再重复提供验证。
+    seedVerification(reqId)
+    item = board().requirements[0]!
+    expect(item.verification).toMatchObject({ verdict: 'pass', fresh: true })
+    expect(item.actions).not.toContain('verify')
   })
 
   it('offers replan for an approved plan with a failed task and hides it for terminal requirements', () => {
@@ -273,6 +414,28 @@ describe('status board', () => {
 
     repository.setStatus(reqId, 'cancelled')
     expect(board().requirements.find((item) => item.reqId === reqId)?.actions).toEqual([])
+  })
+
+  it('does not keep a delivered task failure round in first-screen attention', () => {
+    const reqId = submit('req-delivered-history')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    deliver(reqId, 't1')
+    repository.recordFailureRound(reqId, {
+      roundId: 't1-a1',
+      stage: 'formal_test',
+      summary: '交付前的旧失败',
+      occurredAt: '2026-10-23T00:00:04.000Z',
+    })
+    repository.setStatus(reqId, 'executing')
+    const view = board()
+    expect(view.issues.some((issue) => issue.kind === 'failure_round')).toBe(false)
   })
 
   it('reports blocked requirements with the recorded reason', () => {
@@ -428,6 +591,7 @@ describe('status board', () => {
     const proposed = submit('req-proposed')
     repository.recordTaskPlan(plan(proposed))
     repository.setStatus(proposed, 'plan_proposed')
+    seedPlanReview(proposed)
     expect(board().requirements.find((item) => item.reqId === proposed)?.actions).toEqual([
       'approve',
       'cancel',

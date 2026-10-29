@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime } from '../src/runtime/service.js'
 import { resolveConfig, type ForgeLoopConfig } from '../src/config.js'
+import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
 
 let dir = ''
@@ -107,6 +108,54 @@ function deliver(reqId: string, taskId: string, planVersion = 1): void {
     recordedAt: '2026-10-23T00:00:03.000Z',
     baselineCommit: 'abc',
   })
+}
+
+/** 验收必须绑定当前候选的独立验证结论；这里写入可核对的通过证据。 */
+function verify(reqId: string, planVersion = 1): string {
+  const plan = runtime.repo.taskPlan(reqId, planVersion)!
+  const artifacts = plan.tasks.map((task) => runtime.repo.taskArtifact(reqId, planVersion, task.taskId)!)
+  const candidateSha256 = candidateIdentityOf({
+    planVersion,
+    requirementVersion: plan.requirementVersion,
+    baselineCommit: artifacts[0]?.baselineCommit ?? '',
+    candidateHashes: artifacts.map((artifact) => artifact.candidateSha256),
+  })
+  const report = {
+    kind: 'verification',
+    reqId,
+    planVersion,
+    requirementVersion: plan.requirementVersion,
+    candidateSha256,
+    workspaceSha256: 'tree',
+    planReviewSha256: 'plan-review',
+    verdict: 'pass',
+    summary: '候选通过独立验证',
+    findings: [],
+    blocking: [],
+    scenarios: [{ scenario: '场景', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] }],
+    commands: [],
+    sessionId: 'session-verification',
+    at: '2026-10-23T00:00:04.000Z',
+  }
+  const reportJson = `${JSON.stringify(report, null, 2)}\n`
+  const reportPath = join(dir, 'verifications', reqId, `v${planVersion}`, candidateSha256.slice(0, 16), 'verification.json')
+  mkdirSync(join(reportPath, '..'), { recursive: true })
+  writeFileSync(reportPath, reportJson, 'utf8')
+  runtime.repo.recordVerification({
+    requirementId: reqId,
+    planVersion,
+    candidateSha256,
+    requirementVersion: plan.requirementVersion,
+    workspaceSha256: 'tree',
+    verdict: 'pass',
+    reportJson,
+    reportPath,
+    reportSha256: sha256OfText(reportJson),
+    evidenceDir: join(reportPath, '..'),
+    sessionId: report.sessionId,
+    verifiedAt: report.at,
+  })
+  return candidateSha256
 }
 
 describe('requirement lifecycle commands', () => {
@@ -346,6 +395,11 @@ describe('acceptance rules', () => {
     deliver(reqId, 't1')
     expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({ ok: false, code: 'not_delivered' })
     deliver(reqId, 't2')
+    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({
+      ok: false,
+      code: 'verification_required',
+    })
+    verify(reqId)
     const accepted = runtime.accept({ reqId, by: 'owner', source: 't' })
     expect(accepted.ok).toBe(true)
     expect(accepted.message).toContain('材料指纹')
@@ -371,6 +425,7 @@ describe('acceptance rules', () => {
     approve(reqId)
     deliver(reqId, 't1')
     deliver(reqId, 't2')
+    verify(reqId)
     const sha = 'a'.repeat(64)
     runtime.repo.recordCandidate({
       reqId,

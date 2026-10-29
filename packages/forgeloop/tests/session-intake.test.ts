@@ -33,10 +33,59 @@ function runtimeWithQueue(
   status: 'completed' | 'error' = 'completed',
 ) {
   let index = 0
+  let lastAnalysis = { scenarios: ['按状态筛选需求与任务'], acceptanceCriteria: ['筛选后只显示匹配项'] }
+  const planReviewFor = (analysis: typeof lastAnalysis) => {
+    const items: Array<{ scenario: string; acceptance_criterion: string; method: string; required: boolean }> = []
+    const seen = new Set<string>()
+    const add = (scenario: string, criterion: string) => {
+      if (!scenario || seen.has(scenario)) return
+      seen.add(scenario)
+      items.push({
+        scenario,
+        acceptance_criterion: criterion || scenario,
+        method: '在独立候选上执行该场景并保留证据',
+        required: true,
+      })
+    }
+    for (const [position, scenario] of analysis.scenarios.entries()) {
+      add(scenario, analysis.acceptanceCriteria[position] ?? analysis.acceptanceCriteria[0] ?? scenario)
+    }
+    for (const criterion of analysis.acceptanceCriteria) {
+      add(`${criterion}（验收标准）`, criterion)
+    }
+    if (items.length === 0) add('按验收标准执行', '按验收标准执行')
+    return JSON.stringify({
+      verdict: 'pass',
+      blocking: [],
+      findings: [],
+      summary: '任务包可进入实现',
+      verification_plan: items,
+    })
+  }
   const runner: AgentLike = {
     async run(request: AgentRunRequest): Promise<AgentRunResult> {
-      const text = request.role === 'plan' ? planText : responses[Math.min(index, responses.length - 1)] ?? ''
-      if (request.role !== 'plan') index += 1
+      let text: string
+      if (request.role === 'verify-plan') {
+        text = planReviewFor(lastAnalysis)
+      } else if (request.role === 'plan') {
+        text = planText
+      } else {
+        text = responses[Math.min(index, responses.length - 1)] ?? ''
+        index += 1
+        if (request.role === 'analyze') {
+          try {
+            const draft = JSON.parse(text) as { scenarios?: string[]; acceptance_criteria?: string[] }
+            lastAnalysis = {
+              scenarios: Array.isArray(draft.scenarios) ? draft.scenarios : lastAnalysis.scenarios,
+              acceptanceCriteria: Array.isArray(draft.acceptance_criteria)
+                ? draft.acceptance_criteria
+                : lastAnalysis.acceptanceCriteria,
+            }
+          } catch {
+            // 分析本身畸形时沿用默认场景，让测试关注输入接管而不是评审夹具。
+          }
+        }
+      }
       return {
         status,
         text,

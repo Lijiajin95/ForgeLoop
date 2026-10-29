@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { apply } from '../src/index.js'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
+import { sha256OfText } from '../src/domain/delivery.js'
 
 /**
  * 插件装配测试：用假宿主验证 apply 真的把只读看板挂到 Connection 的认证 Fetch 路由上。
@@ -103,6 +104,49 @@ function post(body: string): Request {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body,
+  })
+}
+
+/** 计划评审通过是批准的硬门禁：路由测试必须先写入可核对的评审证据。 */
+function seedPlanReview(repository: Repository, reqId: string, planVersion = 1): void {
+  const stored = repository.taskPlan(reqId, planVersion)!
+  const planSha256 = sha256OfText(JSON.stringify(stored))
+  const review = {
+    kind: 'plan-review',
+    reqId,
+    planVersion,
+    requirementVersion: stored.requirementVersion,
+    planSha256,
+    verdict: 'pass',
+    blocking: [],
+    findings: [],
+    summary: '任务包可进入实现',
+    verification_plan: [
+      {
+        scenario: 'a 先改文档',
+        acceptance_criterion: 'a 完成',
+        method: '在独立候选上执行正式测试',
+        required: true,
+      },
+    ],
+    sessionId: 'session-plan-review',
+    at: '2026-10-23T00:00:02.000Z',
+  }
+  const reportJson = `${JSON.stringify(review, null, 2)}\n`
+  const reportPath = join(dir, 'reviews', reqId, `v${planVersion}`, 'plan', 'plan-review.json')
+  mkdirSync(join(dir, 'reviews', reqId, `v${planVersion}`, 'plan'), { recursive: true })
+  writeFileSync(reportPath, reportJson, 'utf8')
+  repository.recordPlanReview({
+    requirementId: reqId,
+    planVersion,
+    requirementVersion: stored.requirementVersion,
+    planSha256,
+    verdict: 'pass',
+    reportJson,
+    reportPath,
+    reportSha256: sha256OfText(reportJson),
+    sessionId: review.sessionId,
+    reviewedAt: review.at,
   })
 }
 
@@ -220,6 +264,7 @@ describe('web board host wiring', () => {
       ],
     })
     repository.setStatus(reqId, 'plan_proposed')
+    seedPlanReview(repository, reqId, 1)
     repository.close()
 
     const host = fakeHost()
@@ -243,6 +288,110 @@ describe('web board host wiring', () => {
     const advancedBody = (await advanced.json()) as { ok: boolean; value: { requestId: string } }
     expect(advancedBody.ok).toBe(true)
     expect(advancedBody.value.requestId).toMatch(/^rq-/)
+    host.cleanup()
+  })
+
+  it('queues plan and verify decisions only when their preconditions hold', async () => {
+    const planReq = 'req-plan-decision'
+    const verifyReq = 'req-verify-decision'
+    seedRequirement(planReq)
+    seedRequirement(verifyReq)
+    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository = new Repository(database)
+    repository.recordTaskPlan({
+      taskPlanId: `plan-${verifyReq}-1`,
+      requirementId: verifyReq,
+      project: 'testproj',
+      planVersion: 1,
+      requirementVersion: 1,
+      createdAt: '2026-10-23T00:00:00.000Z',
+      tasks: [
+        {
+          taskId: 'a',
+          goal: '先改文档',
+          files: ['docs/a.md'],
+          acceptance: 'a 完成',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: [],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+        {
+          taskId: 'b',
+          goal: '再补测试',
+          files: ['docs/b.md'],
+          acceptance: 'b 完成',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: ['a'],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+      ],
+    })
+    seedPlanReview(repository, verifyReq, 1)
+    repository.recordPlanApproval({
+      requirementId: verifyReq,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:01.000Z',
+      source: 'test',
+    })
+    repository.recordAnalysis({
+      reqId: planReq,
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: '目标',
+      scenarios: ['场景'],
+      acceptanceCriteria: ['标准'],
+      clarifications: [],
+      createdAt: '2026-10-23T00:00:02.000Z',
+    })
+    for (const taskId of ['a', 'b']) {
+      repository.recordTaskArtifact({
+        requirementId: verifyReq,
+        planVersion: 1,
+        taskId,
+        candidateSha256: `candidate-${taskId}`,
+        testEvidenceSha256: `test-${taskId}`,
+        reviewSha256: `review-${taskId}`,
+        acceptance: '达成',
+        authorizationSource: `plan-approval:${verifyReq}:v1:owner`,
+        recordedAt: '2026-10-23T00:00:03.000Z',
+        baselineCommit: 'abc',
+      })
+    }
+    repository.close()
+
+    const host = fakeHost()
+    start(host)
+    const route = host.routes[0]!
+
+    const badPlan = await route.fetch(post(JSON.stringify({ endpoint: 'plan' })))
+    expect(badPlan.status).toBe(400)
+    const badVerify = await route.fetch(post(JSON.stringify({ endpoint: 'verify' })))
+    expect(badVerify.status).toBe(400)
+
+    const planned = await route.fetch(
+      post(JSON.stringify({ endpoint: 'plan', reqId: planReq, sessionId: 'session-a' })),
+    )
+    expect(planned.status).toBe(200)
+    const plannedBody = (await planned.json()) as { ok: boolean; value: { action: string } }
+    expect(plannedBody.value.action).toBe('plan')
+
+    const verified = await route.fetch(
+      post(JSON.stringify({ endpoint: 'verify', reqId: verifyReq, sessionId: 'session-a' })),
+    )
+    expect(verified.status).toBe(200)
+    const verifiedBody = (await verified.json()) as { ok: boolean; value: { action: string } }
+    expect(verifiedBody.value.action).toBe('verify')
+
+    // 独立验证是服务端门禁，不是按钮文案：没有任务包的需求不能借路由排队验证。
+    const notReady = await route.fetch(
+      post(JSON.stringify({ endpoint: 'verify', reqId: planReq, sessionId: 'session-a' })),
+    )
+    expect(notReady.status).toBe(409)
+    const notReadyBody = (await notReady.json()) as { ok: boolean; error: { code: string } }
+    expect(notReadyBody).toMatchObject({ ok: false, error: { code: 'plan_missing' } })
     host.cleanup()
   })
 
@@ -367,6 +516,7 @@ describe('web board host wiring', () => {
       approvedAt: '2026-10-29T00:00:01.000Z',
       source: 'test',
     })
+    seedPlanReview(repository, reqId, 1)
     repository.setStatus(reqId, 'plan_proposed')
     repository.close()
 
@@ -400,6 +550,8 @@ describe('web board host wiring', () => {
         artifacts: unknown[]
         progress: { total: number; delivered: number }
         acceptanceRecord: Record<string, string>
+        planReview: { verdict: string; summary: string } | null
+        verification: unknown
       }
     }
     expect(detailBody.value.latestPlan.tasks).toHaveLength(2)
@@ -407,6 +559,9 @@ describe('web board host wiring', () => {
     expect(detailBody.value.artifacts).toEqual([])
     expect(detailBody.value.progress).toMatchObject({ total: 2, delivered: 0 })
     expect(detailBody.value.acceptanceRecord.accepted_by).toBe('')
+    // 详情页必须能看到实现前评审结论；没有独立验证时明确为空，而不是伪造“已通过”。
+    expect(detailBody.value.planReview).toMatchObject({ verdict: 'pass' })
+    expect(detailBody.value.verification).toBeNull()
     host.cleanup()
   })
 
@@ -624,6 +779,140 @@ describe('web board host wiring', () => {
     expect(detailBody.value.latestPlan.planVersion).toBe(2)
     expect(detailBody.value.approval).toBeNull()
     expect(detailBody.value.latestPlan.tasks[0]?.files).toEqual(['docs/a.md', 'contracts/architecture.json'])
+    host.cleanup()
+  })
+
+  it('serves the task public execution process with real session and evidence identities', async () => {
+    const reqId = 'req-execution-1'
+    seedRequirement(reqId)
+    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository = new Repository(database)
+    repository.recordTaskPlan({
+      taskPlanId: `plan-${reqId}-1`,
+      requirementId: reqId,
+      project: 'testproj',
+      planVersion: 1,
+      requirementVersion: 1,
+      createdAt: '2026-10-29T00:00:00.000Z',
+      tasks: [
+        {
+          taskId: 'a',
+          goal: '实现执行过程',
+          files: ['docs/a.md'],
+          acceptance: '事件可回放',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: [],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+        {
+          taskId: 'b',
+          goal: '没有执行的后续任务',
+          files: ['docs/b.md'],
+          acceptance: '保持未开始',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: ['a'],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+      ],
+    })
+    repository.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 'a',
+      state: 'delivered',
+      reason: '',
+      executedSeconds: 2,
+      updatedAt: '2026-10-29T00:00:05.000Z',
+    })
+    repository.recordEvidence({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 'a',
+      baselineCommit: 'base',
+      workspacePath: '/tmp/workspace',
+      candidatePath: '/tmp/candidate.diff',
+      testLogPath: '/tmp/formal-test.log',
+      reviewPath: '/tmp/review.json',
+      devSession: 'session-dev-real',
+      reviewSession: 'session-review-real',
+      recordedAt: '2026-10-29T00:00:06.000Z',
+    })
+    repository.close()
+    const taskDir = join(dir, '.forgeloop', 'projects', 'testproj', 'evidence', reqId, 'v1', 'a')
+    mkdirSync(taskDir, { recursive: true })
+    writeFileSync(
+      join(taskDir, 'dev.jsonl'),
+      [
+        JSON.stringify({ type: 'user/message', seq: 1, time: 1000, data: { content: [{ type: 'text', text: '任务输入' }] } }),
+        JSON.stringify({
+          type: 'assistant/message',
+          seq: 2,
+          time: 2000,
+          data: { message: { content: [{ type: 'reasoning', text: '隐藏推理' }, { type: 'text', text: '公开消息' }] } },
+        }),
+        JSON.stringify({ type: 'tool/call', seq: 3, time: 2100, data: { callId: 'call-1', name: 'bash', arguments: '{}' } }),
+        JSON.stringify({ type: 'tool/result', seq: 4, time: 2200, data: { toolCallId: 'call-1', message: { content: [{ type: 'text', text: 'ok' }], isError: false } } }),
+        JSON.stringify({ type: 'step/start', seq: 5, time: 2300, data: {} }),
+        JSON.stringify({ type: 'session-log-deepseek/delivery-accepted', seq: 6, time: 2400, data: { sessionId: 'session-dev-real' } }),
+      ].join('\n'),
+    )
+    writeFileSync(
+      join(taskDir, 'formal-test.log'),
+      'command: "npm" "run" "check"\nstarted: 2026-10-29T00:00:03.000Z\nduration_ms: 1000\ntimed_out: false\naborted: false\nexit_code: 0\n',
+    )
+    writeFileSync(join(taskDir, 'review.json'), JSON.stringify({ verdict: 'pass', summary: '通过' }))
+
+    const host = fakeHost()
+    start(host)
+    const route = host.routes[0]!
+    const response = await route.fetch(
+      post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'a', planVersion: 1, offset: 0, limit: 1 })),
+    )
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as {
+      value: {
+        session: { dev: string; review: string }
+        total: number
+        truncated: boolean
+        stepCount: number
+        events: Array<{ kind: string; text?: string }>
+        attempts: Array<{ sessionId: string; available: boolean }>
+        test: { exitCode: number; available: boolean }
+        review: { verdict: string }
+      }
+    }
+    expect(payload.value.session).toMatchObject({ dev: 'session-dev-real', review: 'session-review-real' })
+    expect(payload.value.total).toBe(3)
+    expect(payload.value.truncated).toBe(true)
+    expect(payload.value.stepCount).toBe(1)
+    expect(payload.value.events).toHaveLength(1)
+    expect(JSON.stringify(payload)).not.toContain('隐藏推理')
+    expect(payload.value.attempts[0]).toMatchObject({ sessionId: 'session-dev-real', available: true })
+    expect(payload.value.test).toMatchObject({ exitCode: 0, available: true })
+    expect(payload.value.review.verdict).toBe('pass')
+
+    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository2 = new Repository(database2)
+    repository2.recordFailureRound(reqId, {
+      roundId: 'a-old',
+      stage: 'formal_test',
+      summary: '旧失败',
+      occurredAt: '2026-10-29T00:00:07.000Z',
+    })
+    repository2.close()
+    const history = await route.fetch(post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'a', planVersion: 1 })))
+    const historyBody = (await history.json()) as { value: { attempts: Array<{ available: boolean; reason?: string }> } }
+    expect(historyBody.value.attempts).toHaveLength(2)
+    expect(historyBody.value.attempts[1]).toMatchObject({ available: false })
+
+    const empty = await route.fetch(post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'b', planVersion: 1 })))
+    const emptyBody = (await empty.json()) as { value: { total: number; attempts: Array<{ available: boolean; reason: string }>; reason: string } }
+    expect(empty.status).toBe(200)
+    expect(emptyBody.value.total).toBe(0)
+    expect(emptyBody.value.attempts[0]).toMatchObject({ available: false })
+    expect(emptyBody.value.reason).toContain('没有找到')
     host.cleanup()
   })
 

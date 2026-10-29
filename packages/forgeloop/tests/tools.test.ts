@@ -93,7 +93,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('read-only tool surface', () => {
-  it('exposes exactly the seven documented tools with renderable output', () => {
+  it('exposes exactly the eight documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -101,6 +101,7 @@ describe('read-only tool surface', () => {
       'forgeloop_evidence',
       'forgeloop_requests',
       'forgeloop_impact',
+      'forgeloop_ops',
       'forgeloop_submit_requirement',
     ])
     const rendered = tool('forgeloop_status').output.render({}, { ok: true, text: '标题', data: { a: 1 } })
@@ -156,6 +157,13 @@ describe('read-only tool surface', () => {
 })
 
 describe('requirement intake tool', () => {
+  it('reads the operations view without exposing decisions', async () => {
+    const outcome = await call('forgeloop_ops', {})
+    expect(outcome.ok).toBe(true)
+    expect(outcome.data).toMatchObject({ summary: { enabled: false }, events: [] })
+    expect((await call('forgeloop_ops', { event_id: 'ops-missing' })).ok).toBe(false)
+  })
+
   it('requires text and records the tool identity, never the caller claims', async () => {
     const missing = await call('forgeloop_submit_requirement', {})
     expect(missing.ok).toBe(false)
@@ -201,7 +209,7 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(7)
-    expect(disposers).toHaveLength(7)
+    expect(registered).toHaveLength(8)
+    expect(disposers).toHaveLength(8)
   })
 })

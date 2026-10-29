@@ -182,6 +182,23 @@ export function buildTools(runtime: ForgeLoopRuntime, config: ForgeLoopConfig): 
       },
     }),
     defineTool({
+      name: 'forgeloop_ops',
+      description:
+        'Read ForgeLoop operations events, diagnoses, registered recovery attempts and statistics. Pass event_id for one event. Read-only; never executes a check, action or decision.',
+      parameters: {
+        type: 'object',
+        properties: {
+          event_id: { type: 'string', description: 'Exact ops event id, e.g. ops-20261029...' },
+        },
+        additionalProperties: false,
+      },
+      async run(args) {
+        const eventId = stringArg(args, 'event_id')
+        const outcome = runtime.opsStatus(eventId)
+        return { ok: outcome.ok, text: outcome.message, data: outcome.data }
+      },
+    }),
+    defineTool({
       name: 'forgeloop_submit_requirement',
       description:
         'Submit a new ForgeLoop requirement as durable intake (version 1). This records a work item only; it does not approve, execute or accept anything. Use client_key to make retries idempotent.',
