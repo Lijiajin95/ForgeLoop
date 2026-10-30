@@ -2360,8 +2360,8 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 - 目标：`DSH_HOME=/home/link/.dsh`，profile `web`；宿主进程
   `node /home/link/.local/bin/dsh web --host 192.168.3.13`（PID 178026，当前会话所在 Web 宿主）。
-- 包：`packages/forgeloop/dist/forgeloop-dsh-0.0.2.tgz`，197,204 字节，SHA-256
-  `1614ca5e7ca8985dfea65d842d6c43e18d9da91a897c3c0f34cb1051bf45d426`；版本仍为 0.0.2。
+- 包：`packages/forgeloop/dist/forgeloop-dsh-0.0.2.tgz`，197,452 字节，SHA-256
+  `a86ff87cc784cb1dfa17fe42928784473ef63cb81840a84499473f85ddb0c18e`；版本仍为 0.0.2。
 - 通过宿主插件管理器先移除再安装 `forgeloop-dsh`，两次 `application` 均为 `applied`；
   安装后 `include:forgeloop` fiber 为 active，profile `package.json` 仍指向同一 tarball。
 - 生产记录库新增表 `requirement_admissions`、`requirement_code_candidates`、`requirement_commits`，
@@ -2400,7 +2400,8 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 47.4 验证与边界
 
-- `make check`：43 个测试文件、490 项测试通过；`make contracts` 通过；客户端字典中英文键一致。
+- `make check`：43 个测试文件、491 项测试通过；`make contracts` 通过；`make coverage` 通过；
+  客户端字典中英文键一致。提交检查工作树复用主项目 `node_modules`，避免真实 `npm run check` 因缺依赖误判。
 - 已安装的 `client.js` 含 `LEGACY_GATE_ACTIONS` 过滤与新页脚文案；宿主 fiber active。
 - 部署后尚未在正式生产需求上重新跑真实闭环；正式库既有需求未触碰。页面需刷新后加载新客户端资源。
 - 未 push、未打 tag、未递增版本；未改动模型路由/凭据、其他项目或已部署应用。
