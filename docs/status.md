@@ -13,7 +13,7 @@
 | 架构契约 | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤 | §30 |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查 | §13、[ADR 0009](adr/0009-remove-retired-implementation.md) |
 | 最近安装记录 | 2026-10-30 `forgeloop-dsh@0.1.6` tarball（177,096 字节，SHA-256 `0ebbfa37…`）已通过 `plugin_manager` 安装到正式 `web` profile 并热重载（3080 进程 PID 82207 未重启；新 owner `MacAir.local:2477:c0ce681f` 起于 `2026-10-30T01:28:42Z`），`last_recovery` 记录 `interruptedRuns: 1`；安装记录不等于交付完成 | §36 |
-| 最近工程检查 | 2026-10-30 `make check` 通过，41 个测试文件、433 项测试；`make coverage` 通过（行/语句 92.13%、函数 96.89%、分支 84.05%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变） | §39 |
+| 最近工程检查 | 2026-10-30 `make check` 通过，41 个测试文件、433 项测试；`make coverage` 通过（行/语句 92.14%、函数 96.90%、分支 84.07%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变） | §39 |
 | 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行 | §16–§28、§33、§36 |
 | 运维 Agent | 2026-10-29 首版：登记资源/检查/少量恢复动作，事件归并与未知收口，无工具诊断，目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求；只读工具与认证端点、天工“运维”视图；尚无真实线上事件验证 | §35、[运维设计](ops-agent.md) |
 | 关键缺口 | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维无真实线上事件；需求编辑、草稿删除、问题补充与等待回答无服务端入口 | §4.1、§21–§37 |
@@ -2128,7 +2128,8 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 | `src/domain/status.ts` | 删除 `REQUEST_UNKNOWN`；请求状态收敛为 `pending → claimed → done / failed / dismissed` |
 | `src/records/repository.ts` | `markClaimedUnknown` → `failClaimedOnRestart`（claimed 判 failed）；新增 `migrateLegacyUnknown` 把旧库 unknown 迁成 failed，保留原 detail |
 | `src/runtime/service.ts` | 新增 `recoverInterrupted`：迁移旧 unknown、收口 claimed、删除该任务包的一次性工作副本，并把需求标为“可重新执行”；删除 `recover`/`diagnoseUnknown`/诊断事实采集；`retryTask` 不再要求 recovery 确认；`accept` 不再因 unknown 拒绝 |
-| `src/runtime/coordinator.ts` | 启动时调用 `recoverInterrupted`，`last_recovery` 记录中断请求、迁移数与丢弃的工作副本 |
+| `src/runtime/coordinator.ts` | 启动时调用 `recoverInterrupted`，`last_recovery` 记录中断请求、迁移数与丢弃的工作副本；执行异常按 failed 落库 |
+| `src/runtime/service.ts`（补充） | `executeRequest` 在请求层把内部 `unknown` 统一收敛为 `failed`（附“按失败收口，可重新执行”），中断/超时不再写进请求状态 |
 | 删除 | `src/domain/diagnosis.ts`、未知诊断提示词、`diagnosis` Agent 角色、`requirement_unknown_diagnoses` 表、`diagnose`/`recover` 端点、看板 `diagnosis` 视图、客户端诊断按钮与“结果未知”标记 |
 | 看板 | 任务不再有 `resultUnknown`；请求失败作为 attention 问题展示；`requeue`/`autoAdvance` 负责重新执行 |
 | 测试 | 删除诊断与 unknown 用例；改写重启收口、重试、requeue、impact 与看板用例为 failed 语义 |
@@ -2142,7 +2143,7 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 43.4 验证
 
-- `make check` 通过：41 个测试文件、433 项测试；`make coverage` 通过（92.13/96.89/84.05）；
+- `make check` 通过：41 个测试文件、433 项测试；`make coverage` 通过（92.14/96.90/84.07）；
   `make contracts` 通过。
 - 手工验证点：重启收口把 claimed 变 failed 并删除工作副本；旧 unknown 迁移为 failed；
   `requeue` 不要求额外确认；看板不再出现“结果未知，需核对”。
