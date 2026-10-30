@@ -540,7 +540,7 @@ describe('forgeloop_impact explain', () => {
     const data = explained.data
 
     expect(recorder.calls).toHaveLength(1)
-    expect(recorder.calls[0]).toMatchObject({ role: 'analyze', tools: 'none' })
+    expect(recorder.calls[0]).toMatchObject({ role: 'product', tools: 'none' })
     expect(recorder.calls[0]?.prompt).toContain(reqId)
     expect(recorder.calls[0]?.prompt).toContain('确定性事实 JSON')
 

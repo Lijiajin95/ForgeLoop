@@ -292,16 +292,16 @@ describe('operation requests', () => {
     expect(conflicting.message).toContain('不能同时排队')
   })
 
-  it('requires an approved plan before advancing', () => {
+  it('requires system admission or a legacy approval before advancing', () => {
     const reqId = submit()
     expect(runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 't' })).toMatchObject({
       ok: false,
-      code: 'plan_missing',
+      code: 'admission_required',
     })
     seedPlan(reqId)
     expect(runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 't' })).toMatchObject({
       ok: false,
-      code: 'plan_not_approved',
+      code: 'admission_required',
     })
   })
 })

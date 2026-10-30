@@ -139,7 +139,7 @@ describe('impact explanation with --explain', () => {
     })
 
     expect(recorder.calls).toHaveLength(1)
-    expect(recorder.calls[0]).toMatchObject({ role: 'analyze', tools: 'none' })
+    expect(recorder.calls[0]).toMatchObject({ role: 'product', tools: 'none' })
     expect(recorder.calls[0]?.prompt).toContain(input.reqId)
     expect(recorder.calls[0]?.prompt).toContain('确定性事实 JSON')
     expect(recorder.calls[0]?.prompt).toContain('"latestRequirementVersion":2')

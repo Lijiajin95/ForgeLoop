@@ -416,7 +416,7 @@ describe('web board host wiring', () => {
     )
     expect(notReady.status).toBe(409)
     const notReadyBody = (await notReady.json()) as { ok: boolean; error: { code: string } }
-    expect(notReadyBody).toMatchObject({ ok: false, error: { code: 'plan_missing' } })
+    expect(notReadyBody).toMatchObject({ ok: false, error: { code: 'admission_required' } })
     host.cleanup()
   })
 
@@ -444,7 +444,7 @@ describe('web board host wiring', () => {
     const denied = await route.fetch(post(JSON.stringify({ endpoint: 'advance', reqId: 'req-advance-denied' })))
     expect(denied.status).toBe(409)
     const deniedBody = (await denied.json()) as { error: { code: string } }
-    expect(deniedBody.error.code).toBe('plan_missing')
+    expect(deniedBody.error.code).toBe('admission_required')
 
     host.cleanup()
   })

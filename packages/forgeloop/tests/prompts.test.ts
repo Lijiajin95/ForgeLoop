@@ -147,7 +147,7 @@ describe('prompt builders', () => {
       createdAt: '2026-10-23T00:06:00.000Z',
     })
     expect(text).toContain('你是 ForgeLoop 的研发 Agent')
-    expect(text).toContain('需求分析由需求 Agent 完成')
+    expect(text).toContain('需求分析由产品 Agent 完成')
     expect(text).toContain('看板可过滤')
     expect(text).toContain('按状态筛选需求与任务')
     expect(text).toContain('筛选后只显示匹配项')

@@ -73,7 +73,7 @@ function fakeContext(options: {
 function request(overrides: Partial<Parameters<AgentRunner['run']>[0]> = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-agent-'))
   return {
-    role: 'review' as const,
+    role: 'verify' as const,
     cwd: dir,
     prompt: 'p',
     permission: 'workspace-write' as const,
@@ -174,7 +174,7 @@ describe('AgentRunner tool composition', () => {
     await runner.run(request({ role: 'dev' }))
     expect(mounted).toEqual(['standard'])
 
-    await runner.run(request({ role: 'analyze', tools: 'none' }))
+    await runner.run(request({ role: 'product', tools: 'none' }))
     expect(denied).toEqual([['bash', 'fs']])
   })
 

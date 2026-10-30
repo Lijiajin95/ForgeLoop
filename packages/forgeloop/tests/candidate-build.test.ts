@@ -153,10 +153,10 @@ const BUSINESS_REVIEW = JSON.stringify({
 function fakeRunner(): AgentLike {
   return {
     async run(request) {
-      if (request.role === 'analyze') return result(request, ANALYSIS)
-      if (request.role === 'plan') return result(request, PLAN)
-      if (request.role === 'verify-plan') return result(request, PLAN_REVIEW)
-      if (request.role === 'verify') {
+      if (request.role === 'product') return result(request, ANALYSIS)
+      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) return result(request, PLAN)
+      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, PLAN_REVIEW)
+      if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
         writeFileSync(
@@ -166,8 +166,8 @@ function fakeRunner(): AgentLike {
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
         return result(request, VERIFICATION_REPORT)
       }
-      if (request.role === 'business-review') return result(request, BUSINESS_REVIEW)
-      if (request.role === 'review') {
+      if (request.role === 'verify' && request.prompt.includes('业务验收')) return result(request, BUSINESS_REVIEW)
+      if (request.role === 'verify' && request.prompt.includes('独立审查')) {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }
       const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'

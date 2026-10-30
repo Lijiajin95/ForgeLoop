@@ -65,14 +65,14 @@ function runtimeWithQueue(
   const runner: AgentLike = {
     async run(request: AgentRunRequest): Promise<AgentRunResult> {
       let text: string
-      if (request.role === 'verify-plan') {
+      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) {
         text = planReviewFor(lastAnalysis)
-      } else if (request.role === 'plan') {
+      } else if (request.role === 'dev' && request.prompt.includes('技术方案')) {
         text = planText
       } else {
         text = responses[Math.min(index, responses.length - 1)] ?? ''
         index += 1
-        if (request.role === 'analyze') {
+        if (request.role === 'product') {
           try {
             const draft = JSON.parse(text) as { scenarios?: string[]; acceptance_criteria?: string[] }
             lastAnalysis = {

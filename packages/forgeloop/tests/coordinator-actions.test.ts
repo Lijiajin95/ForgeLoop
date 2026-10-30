@@ -219,7 +219,7 @@ describe('auto advance requests', () => {
     await coordinator.stop()
   })
 
-  it('skips requirements that are not approved, fully delivered or already queued', () => {
+  it('skips requirements without admission or approval and already queued ones', () => {
     const draftId = submit()
     const deliveredId = submit()
     approveWithPlan(deliveredId)
@@ -239,7 +239,7 @@ describe('auto advance requests', () => {
     const coordinator = makeCoordinator(true)
     autoAdvanceScan(coordinator)
     expect(runtime.repo.requestsFor(draftId)).toHaveLength(0)
-    expect(runtime.repo.requestsFor(deliveredId)).toHaveLength(0)
+    expect(runtime.repo.requestsFor(deliveredId)).toHaveLength(1)
     expect(runtime.repo.requestsFor(queuedId)).toHaveLength(1)
   })
 
@@ -273,7 +273,7 @@ describe('auto advance requests', () => {
 
     autoAdvanceScan(coordinator)
     expect(runtime.repo.requestsFor(failedId)).toHaveLength(1)
-    expect(runtime.repo.requestsFor(failedId)[0]?.source).toBe('auto-requeue')
+    expect(runtime.repo.requestsFor(failedId)[0]?.source).toBe('auto-advance')
     expect(runtime.repo.requestsFor(exhaustedId)).toHaveLength(0)
   })
 

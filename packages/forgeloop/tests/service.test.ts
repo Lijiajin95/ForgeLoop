@@ -131,16 +131,16 @@ function fakeRunner(
 ): AgentLike {
   return {
     async run(request) {
-      if (request.role === 'analyze') {
+      if (request.role === 'product') {
         overrides.onAnalyze?.(request, request.prompt)
         return result(request, ANALYSIS)
       }
-      if (request.role === 'plan') {
+      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         overrides.onPlan?.(request, request.prompt)
         return result(request, PLAN)
       }
-      if (request.role === 'verify-plan') return result(request, PLAN_REVIEW)
-      if (request.role === 'verify') {
+      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, PLAN_REVIEW)
+      if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
         writeFileSync(
@@ -150,7 +150,7 @@ function fakeRunner(
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
         return result(request, VERIFICATION_REPORT)
       }
-      if (request.role === 'business-review') {
+      if (request.role === 'verify' && request.prompt.includes('业务验收')) {
         return result(
           request,
           JSON.stringify({
@@ -167,7 +167,7 @@ function fakeRunner(
           }),
         )
       }
-      if (request.role === 'review') {
+      if (request.role === 'verify' && request.prompt.includes('独立审查')) {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }
       const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
@@ -313,7 +313,7 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     const baseRunner = fakeRunner()
     const verificationRunner: AgentLike = {
       async run(request) {
-        if (request.role === 'plan') return result(request, VERIFICATION_PLAN)
+        if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) return result(request, VERIFICATION_PLAN)
         return baseRunner.run(request)
       },
     }
@@ -421,7 +421,7 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
 
     const beforeApproval = runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'test' })
     expect(beforeApproval.ok).toBe(false)
-    expect(beforeApproval.code).toBe('plan_not_approved')
+    expect(beforeApproval.code).toBe('admission_required')
 
     runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
     runtime.revise({ reqId, text: '第二版', by: 'owner', source: 'test' })
@@ -511,7 +511,7 @@ describe('durable coordinator behaviour', () => {
     coordinator.start()
     const running = coordinator.kick()
     await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(seen).toBe('analyze')
+    expect(seen).toBe('product')
     await coordinator.stop()
     await running
     const request = runtime.repo.request(requestId)!
@@ -1034,7 +1034,7 @@ describe('execution scope, plan freeze and repair loop', () => {
     const base = fakeRunner()
     const runner: AgentLike = {
       async run(request) {
-        if (request.role === 'dev') {
+        if (request.role === 'dev' && request.prompt.includes('当前任务：')) {
           mkdirSync(join(request.cwd, 'docs'), { recursive: true })
           writeFileSync(join(request.cwd, 'docs/shared.md'), `shared ${Date.now()}\n`)
         }
@@ -1072,7 +1072,7 @@ describe('execution scope, plan freeze and repair loop', () => {
     const base = fakeRunner()
     const runner: AgentLike = {
       async run(request) {
-        if (request.role === 'dev') {
+        if (request.role === 'dev' && request.prompt.includes('当前任务：')) {
           return {
             status: 'timeout',
             text: '',
@@ -1144,7 +1144,7 @@ describe('execution scope, plan freeze and repair loop', () => {
     const base = fakeRunner()
     const runner: AgentLike = {
       async run(request) {
-        if (request.role === 'dev') throw new Error('spawn failed')
+        if (request.role === 'dev' && request.prompt.includes('当前任务：')) throw new Error('spawn failed')
         return base.run(request)
       },
     }
@@ -1200,7 +1200,7 @@ describe('execution scope, plan freeze and repair loop', () => {
     const base = fakeRunner()
     const runner: AgentLike = {
       async run(request) {
-        if (request.role === 'verify') {
+        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
           verifyCalls += 1
           const verification = join(request.cwd, 'verification')
           mkdirSync(verification, { recursive: true })

@@ -147,13 +147,13 @@ function fakeRunner(options: {
   let reviewAttempt = 0
   return {
     async run(request) {
-      if (request.role === 'analyze') return result(request, ANALYSIS)
-      if (request.role === 'plan') return result(request, PLAN)
-      if (request.role === 'verify-plan') {
+      if (request.role === 'product') return result(request, ANALYSIS)
+      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) return result(request, PLAN)
+      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) {
         reviewAttempt += 1
         return result(request, options.verifyPlan ? options.verifyPlan(reviewAttempt) : planReviewOf('pass'))
       }
-      if (request.role === 'verify') {
+      if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
         const workspaceOptions = options.workspace ?? {}
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
@@ -166,7 +166,7 @@ function fakeRunner(options: {
         options.onVerify?.(request, workspaceOptions)
         return result(request, workspaceOptions.report ?? verificationReportOf())
       }
-      if (request.role === 'business-review') {
+      if (request.role === 'verify' && request.prompt.includes('业务验收')) {
         return result(
           request,
           JSON.stringify({
@@ -179,7 +179,7 @@ function fakeRunner(options: {
           }),
         )
       }
-      if (request.role === 'review') {
+      if (request.role === 'verify' && request.prompt.includes('独立审查')) {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }
       const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
@@ -754,7 +754,7 @@ describe('pre-implementation review gate', () => {
     const base = fakeRunner()
     const failing: AgentLike = {
       async run(request) {
-        if (request.role === 'verify-plan') return result(request, '', 'error')
+        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, '', 'error')
         return base.run(request)
       },
     }
@@ -776,7 +776,7 @@ describe('pre-implementation review gate', () => {
     runtime.close()
     const malformed: AgentLike = {
       async run(request) {
-        if (request.role === 'verify-plan') return result(request, 'not json')
+        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, 'not json')
         return base.run(request)
       },
     }
@@ -888,7 +888,7 @@ describe('pre-implementation review gate', () => {
     runtime = makeRuntime({
       ...fakeRunner(),
       async run(request) {
-        if (request.role === 'verify-plan') return result(request, 'not json at all')
+        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, 'not json at all')
         return fakeRunner().run(request)
       },
     } as AgentLike)
@@ -1016,16 +1016,6 @@ describe('independent verification gate', () => {
 
     deliver(reqId, 'a')
     deliver(reqId, 'b')
-    expect(
-      runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' }),
-    ).toMatchObject({ ok: false, code: 'plan_review_required' })
-
-    seedPlanReview(reqId, 1, 'block')
-    expect(
-      runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' }),
-    ).toMatchObject({ ok: false, code: 'plan_review_blocked' })
-
-    seedPlanReview(reqId, 1, 'pass')
     const queued = runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' })
     expect(queued.ok, queued.message).toBe(true)
     expect((queued.data as { action: string }).action).toBe('verify')
@@ -1081,7 +1071,7 @@ describe('independent verification gate', () => {
     const base = fakeRunner()
     const failing: AgentLike = {
       async run(request) {
-        if (request.role === 'verify') return result(request, '', 'error')
+        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) return result(request, '', 'error')
         return base.run(request)
       },
     }
@@ -1158,7 +1148,7 @@ describe('independent verification gate', () => {
     const runner = fakeRunner()
     const silent: AgentLike = {
       async run(request) {
-        if (request.role === 'verify') {
+        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
           return result(request, verificationReportOf())
         }
         return runner.run(request)
