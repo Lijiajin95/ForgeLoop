@@ -2402,6 +2402,8 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 - `make check`：43 个测试文件、491 项测试通过；`make contracts` 通过；`make coverage` 通过；
   客户端字典中英文键一致。提交检查工作树复用主项目 `node_modules`，避免真实 `npm run check` 因缺依赖误判。
+- 已用真实 Git worktree 验证生产 `commitCheckCommand`：在无 `node_modules` 的临时工作树中链接主项目依赖后，
+  `npm run check --workspace forgeloop-dsh` 通过（43 个测试文件、491 项测试）。
 - 已安装的 `client.js` 含 `LEGACY_GATE_ACTIONS` 过滤与新页脚文案；宿主 fiber active。
 - 部署后尚未在正式生产需求上重新跑真实闭环；正式库既有需求未触碰。页面需刷新后加载新客户端资源。
 - 未 push、未打 tag、未递增版本；未改动模型路由/凭据、其他项目或已部署应用。
