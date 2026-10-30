@@ -2238,4 +2238,46 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   仍由所有者决定。
 - 旧库迁移在协调器取得单消费者锁时执行；只读宿主不会迁移，若页面直接读取旧库仍可能看到历史
   `unknown` 原文。当前只读宿主不领取工作，不影响正式推进。
-- 本批未改版本号（仍为 0.0.2），未重新打包、安装或重载正式宿主。
+- 版本号仍为 0.0.2（按规则未改）；本批随后已打包并安装到当前 web profile，见 §45。
+
+## 45. 部署到当前 DSH 正式环境（2026-10-30）
+
+### 45.1 目标与配置
+
+- 目标：`DSH_HOME=/home/link/.dsh`，profile `web`（运行中的 `dsh web`，PID 40055，
+  `127.0.0.1:3080`）。部署前该 profile 没有安装 `forgeloop-dsh`。
+- 新建 `~/.forgeloop/config.json`（权限 600）：
+  `project=forgeloop`、`projectPath=/home/link/Project/ForgeLoop`、
+  `recordsRoot=~/.forgeloop/production`、`owner=link`、`pollSeconds=5`、`autoAdvance=false`；
+  未配置 `agent`，使用宿主默认模型；`ops` 未启用。
+- 记录根为全新目录：0 条需求、0 条请求，不与 `~/.local/share/forgeloop` 下的旧 0.0.4
+  发布物混用，也没有删除旧目录。
+
+### 45.2 安装
+
+- 候选：`packages/forgeloop/dist/forgeloop-dsh-0.0.2.tgz`，180,887 字节，
+  SHA-256 `d1d16cc4e9045e3b52db4bf382b739fdce5ec602bd1bd9b8f8781a34261261ab`，
+  构建时 Git HEAD `270642d`，工作树干净。
+- 通过宿主插件管理器 `install_bundle` 安装上述 tarball，结果 `application: applied`。
+  profile `package.json` 记录 `forgeloop-dsh: file:...tgz`，`dsh.profile.bundles` 已包含
+  `forgeloop-dsh`；插件 `forgeloop` 的 fiber 为 active。
+
+### 45.3 安装后核对
+
+- `forgeloop_status`：返回项目 `forgeloop` 0 条需求；`forgeloop_ops`：返回运维统计且
+  `enabled=false`，没有事件。
+- 生产库 `runtime_meta.host_owner` 为 `link-debian:40055:c50f5380`，`last_recovery` 各项为 0；
+  `host.lock/owner.json` 指向 PID 40055，说明当前 web 宿主持有单消费者锁并已启动协调器。
+- 客户端 `conversation.view` 槽位已注册 `forgeloop-board` 的 `forgeloop` 视图
+  （order 20，active），与「对话」「轨迹」并列；页面需要刷新后显示「天工」。
+- 未认证请求 `POST /api/forgeloop/board` 返回 401，符合认证路由预期；浏览器会话刷新后可读。
+
+### 45.4 未完成与边界
+
+- 尚未用真实需求跑端到端交付、验证、验收或发布；本次只证明安装、装载、工具、协调器与
+  客户端视图可用。
+- 没有配置或启用运维目录；`forgeloop_ops` 为空是配置结果，不是部署失败。
+- 未推送、未打 tag、未改版本号；未修改正式库之外的其他项目或凭据。
+- 回退路径：此前未安装该插件，需要回退时卸载 `forgeloop-dsh` 并保留
+  `~/.forgeloop/production`（当前为空）与 `~/.forgeloop/config.json`；不要删除旧
+  `~/.local/share/forgeloop` 发布物。
