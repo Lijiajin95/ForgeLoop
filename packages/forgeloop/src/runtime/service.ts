@@ -3544,6 +3544,14 @@ ${answer}`
         })
         this.charge(requirement.reqId, verificationStarted)
         if (test.aborted) {
+          this.recordRun(
+            requirement.reqId,
+            plan,
+            task,
+            TASK_RUN_BLOCKED,
+            '验证任务被停止：外部副作用需核对，不会盲目重放',
+            0,
+          )
           return {
             state: 'unknown',
             reason: '验证任务被停止：外部副作用需核对，不会盲目重放',
@@ -3551,6 +3559,14 @@ ${answer}`
           }
         }
         if (test.timedOut) {
+          this.recordRun(
+            requirement.reqId,
+            plan,
+            task,
+            TASK_RUN_BLOCKED,
+            `验证任务超时（${this.config.formalTestTimeoutSeconds} 秒）被终止；需核对`,
+            0,
+          )
           return {
             state: 'unknown',
             reason: `验证任务超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止；需人工核对`,
@@ -3657,11 +3673,13 @@ ${answer}`
       })
       this.charge(requirement.reqId, devStarted)
       if (dev.status === 'aborted' || dev.status === 'timeout') {
-        return {
-          state: 'unknown',
-          reason: `开发回合${dev.status === 'aborted' ? '被停止' : '超时'}：工作副本可能有未收口改动，需核对；不会盲目重放`,
-          requirementStatus: 'blocked',
-        }
+        const reason = `开发回合${
+          dev.status === 'aborted' ? '被停止' : `超时（${dev.reason || '未给出原因'}）`
+        }：工作副本可能有未收口改动，需核对；不会盲目重放`
+        // 运行记录必须收口为 blocked：否则任务会永远显示“执行中”，
+        // 心跳也停在中断那一刻，看板无法区分“还在跑”和“已经中断”。
+        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
+        return { state: 'unknown', reason, requirementStatus: 'blocked' }
       }
       if (dev.status !== 'completed') {
         this.recordRun(requirement.reqId, plan, task, TASK_RUN_FAILED, dev.reason, 0)
@@ -3704,9 +3722,11 @@ ${answer}`
       })
       this.charge(requirement.reqId, reviewStarted)
       if (reviewRun.status !== 'completed') {
+        const reason = `独立审查未取得可用结论：${reviewRun.reason}`
+        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
         return {
           state: reviewRun.status === 'aborted' || reviewRun.status === 'timeout' ? 'unknown' : 'blocked',
-          reason: `独立审查未取得可用结论：${reviewRun.reason}`,
+          reason,
           requirementStatus: 'blocked',
         }
       }

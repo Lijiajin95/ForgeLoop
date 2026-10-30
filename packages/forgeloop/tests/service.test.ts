@@ -1095,6 +1095,35 @@ describe('execution scope, plan freeze and repair loop', () => {
     expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
   })
 
+  it('records a timed-out development turn as blocked instead of leaving the task running', async () => {
+    const base = fakeRunner()
+    const runner: AgentLike = {
+      async run(request) {
+        if (request.role === 'dev') {
+          return {
+            status: 'timeout',
+            text: '',
+            sessionId: 'session-timeout',
+            reason: 'pi-ai stream idle timeout after 300000ms',
+            transcriptPath: '',
+            durationMs: 1,
+            toolCalls: [],
+          }
+        }
+        return base.run(request)
+      },
+    }
+    runtime.close()
+    runtime = makeRuntime(runner)
+    const reqId = await prepared('开发超时')
+    const outcome = await runQueued('advance', reqId)
+    expect(outcome.state).toBe('unknown')
+    const run = runtime.repo.taskRuns(reqId, 1).find((item) => item.taskId === 'a')!
+    expect(run.state).toBe('blocked')
+    expect(run.reason).toContain('超时')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+  })
+
   it('runs the execution role with workspace-write permission', async () => {
     const permissions: string[] = []
     const base = fakeRunner()

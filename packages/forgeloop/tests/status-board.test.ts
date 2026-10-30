@@ -466,6 +466,48 @@ describe('status board', () => {
     expect(view.actions).not.toContain('requeue')
   })
 
+  it('marks only started-but-unsettled tasks as result unknown, not every pending task', () => {
+    const reqId = submit('req-unknown-scope')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.setStatus(reqId, 'blocked', '开发回合超时：工作副本可能有未收口改动，需核对')
+    repository.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 't1',
+      state: 'running',
+      reason: '执行步骤 20',
+      executedSeconds: 1,
+      updatedAt: NOW,
+    })
+    repository.recordRequest({
+      requestId: 'rq-unknown-scope',
+      reqId,
+      project: PROJECT,
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: NOW,
+    })
+    repository.claimNextRequest('tester', NOW)
+    repository.markClaimedUnknown(NOW)
+
+    const item = board().requirements.find((entry) => entry.reqId === reqId)!
+    const tasks = board().tasks.filter((task) => task.reqId === reqId)
+    const running = tasks.find((task) => task.taskId === 't1')!
+    const pending = tasks.find((task) => task.taskId === 't2')!
+    expect(running.resultUnknown).toBe(true)
+    expect(pending.resultUnknown).toBe(false)
+    expect(pending.state).toBe('pending')
+  })
+
   it('freezes an approved plan and never offers plan or replan for it', () => {
     const reqId = submit('req-frozen')
     repository.recordTaskPlan(plan(reqId))

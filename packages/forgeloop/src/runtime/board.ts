@@ -597,7 +597,14 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         lastActivity: run?.updatedAt ?? '',
         failureReason: failureAdvice ? (run?.reason ?? '') : '',
         failureAdvice,
-        resultUnknown: unknownRequests > 0 && state !== BOARD_TASK_DELIVERED,
+        // 只有“已开始但结果未收口”的任务才标结果未知：待执行任务没有产生任何副作用，
+        // 不能因为需求级存在 unknown 就把整列任务都标成“需核对”。
+        resultUnknown:
+          unknownRequests > 0 &&
+          (state === 'running' ||
+            state === 'blocked' ||
+            state === BOARD_TASK_AWAITING_INPUT ||
+            state === 'awaiting_user'),
       })
     }
 
