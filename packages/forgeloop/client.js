@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
       'page.loading': '正在读取记录…',
       'page.retry': '重试',
       'page.empty': '这个项目还没有需求记录。',
-      'page.footer': '可交互看板：支持批准、推进、重试和取消需求；验收请回到任务包会话完成。',
+      'page.footer': '交互式看板：已准入需求自动推进；停止、取消、重试、构建与上线保持显式动作。',
       'action.approve': '批准任务包',
       'action.advance': '推进任务',
       'action.plan': '重新生成任务包',
@@ -215,7 +215,7 @@ window.__ModuleLoader__.load({
       'page.loading': 'Reading records…',
       'page.retry': 'Retry',
       'page.empty': 'No requirements yet.',
-      'page.footer': 'Interactive board: approve, advance, retry and cancel requirements; complete acceptance in the task-package conversation.',
+      'page.footer': 'Interactive board: admitted requirements advance automatically; stop, cancel, retry, build and deploy remain explicit actions.',
       'action.approve': 'Approve task package',
       'action.advance': 'Advance tasks',
       'action.plan': 'Regenerate task package',
@@ -1394,14 +1394,16 @@ window.__ModuleLoader__.load({
           ? h(
               'div',
               { className: 'flb-flow-section' },
-              h('div', { className: 'flb-flow-label' }, t('node.plan.review')),
+              review
+                ? h('div', { className: 'flb-flow-label' }, t('node.plan.review'))
+                : null,
               review
                 ? h(
                     'div',
                     { className: 'flb-flow-text' },
                     `${t(`detail.verdict.${review.verdict}`)} · ${review.summary || '—'}`,
                   )
-                : h('div', { className: 'flb-flow-meta' }, t('node.plan.reviewMissing')),
+                : null,
               review && Array.isArray(review.blocking) && review.blocking.length > 0
                 ? listItems(t, t('detail.blocking'), review.blocking, 'review-blocking')
                 : null,
@@ -1451,45 +1453,6 @@ window.__ModuleLoader__.load({
           { className: 'flb-flow-actions' },
           detail
             ? h('span', { className: 'flb-flow-meta' }, t('node.plan.progress', { delivered, total: tasks.length }))
-            : null,
-          detail && !approved && detail.status === 'plan_proposed'
-            ? review && review.verdict === 'pass'
-              ? h(
-                  'button',
-                  { type: 'button', className: 'flb-flow-action', disabled: Boolean(busy), onClick: () => act('approve') },
-                  busy === 'approve' ? t('node.plan.busy') : t('node.plan.approve'),
-                )
-              : h(
-                  'button',
-                  { type: 'button', className: 'flb-flow-action', disabled: Boolean(busy), onClick: () => act('plan') },
-                  busy === 'plan' ? t('node.plan.busy') : t('node.plan.regenerate'),
-                )
-            : null,
-          approved && !allDelivered && !accepted && detail.status !== 'blocked'
-            ? h(
-                'button',
-                { type: 'button', className: 'flb-flow-action', disabled: Boolean(busy), onClick: () => act('advance') },
-                busy === 'advance' ? t('node.plan.busy') : t('node.plan.advance'),
-              )
-            : null,
-          approved && allDelivered && !accepted && detail.status !== 'blocked' && !verificationPassed
-            ? h(
-                'button',
-                { type: 'button', className: 'flb-flow-action', disabled: Boolean(busy), onClick: () => act('verify') },
-                busy === 'verify' ? t('node.plan.busy') : t('node.plan.verify'),
-              )
-            : null,
-          approved && allDelivered && !accepted && detail.status !== 'blocked' && verificationPassed
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-flow-action',
-                  disabled: Boolean(busy) || Boolean(detail.candidate && !artifactSha),
-                  onClick: () => act('accept'),
-                },
-                busy === 'accept' ? t('node.plan.busy') : t('node.plan.accept'),
-              )
             : null,
           approved && !accepted
             ? h(
@@ -1781,7 +1744,12 @@ window.__ModuleLoader__.load({
 
     function ActionButtons(props) {
       const t = props.t
-      const actions = Array.isArray(props.actions) ? props.actions : []
+      // 普通需求由系统准入和协调器自动推进；旧批准/实现前评审/手工验证/整体验收
+      // 不再出现在操作区。历史记录仍可在详情中只读查看。
+      const LEGACY_GATE_ACTIONS = new Set(['plan', 'approve', 'advance', 'verify'])
+      const actions = (Array.isArray(props.actions) ? props.actions : []).filter(
+        (action) => !LEGACY_GATE_ACTIONS.has(action),
+      )
       const labels = {
         plan: t('action.plan'),
         approve: t('action.approve'),
@@ -1831,12 +1799,6 @@ window.__ModuleLoader__.load({
       const open = props.open
       const progress = requirement.progress || { total: 0, delivered: 0 }
       const ratio = progress.total > 0 ? Math.round((progress.delivered / progress.total) * 100) : 0
-      const approvalKey =
-        requirement.approval === 'approved'
-          ? 'requirement.approved'
-          : requirement.approval === 'stale'
-            ? 'requirement.approvalStale'
-            : requirement.approvalMissing
       const runningTask = (props.tasks || []).find(
         (task) => task.state === 'running' || task.state === 'awaiting_input',
       )
@@ -1855,14 +1817,8 @@ window.__ModuleLoader__.load({
         h('span', { className: 'flb-card-meta' }, t('requirement.version', { version: requirement.version })),
         requirement.planVersion === null
           ? h('span', { className: 'flb-card-meta' }, t('requirement.noPlan'))
-          : h(
-              'span',
-              { className: 'flb-card-meta' },
-              t('requirement.plan', { plan: requirement.planVersion }),
-              ' · ',
-              t(approvalKey),
-            ),
-        requirement.planVersion === null
+          : h('span', { className: 'flb-card-meta' }, t('requirement.plan', { plan: requirement.planVersion })),
+        requirement.planVersion === null || !requirement.planReview
           ? null
           : planReviewChip(t, requirement.planReview),
         requirement.verification
@@ -2207,7 +2163,9 @@ window.__ModuleLoader__.load({
                     ),
                   ),
                 ),
-            h('div', { className: 'flb-label', key: 'acceptance-label' }, t('detail.acceptanceRecord')),
+            acceptance.accepted_at
+              ? h('div', { className: 'flb-label', key: 'acceptance-label' }, t('detail.acceptanceRecord'))
+              : null,
             acceptance.accepted_at
               ? h(
                   'div',
@@ -2218,7 +2176,7 @@ window.__ModuleLoader__.load({
                     source: acceptance.acceptance_source || '—',
                   }),
                 )
-              : h('div', { className: 'flb-muted', key: 'not-accepted' }, t('detail.notAccepted')),
+              : null,
             data.candidate
               ? h(
                   'div',
@@ -2236,24 +2194,24 @@ window.__ModuleLoader__.load({
         }),
       )
 
-      sections.push(
-        Section({
-          title: t('detail.approval'),
-          children: [
-            data.approval
-              ? h(
-                  'div',
-                  { className: 'flb-text', key: 'approval' },
-                  t('detail.approvedBy', {
-                    by: data.approval.approvedBy,
-                    at: formatMoment(data.approval.approvedAt),
-                    plan: data.approval.planVersion,
-                  }),
-                )
-              : h('div', { className: 'flb-muted', key: 'no-approval' }, t('detail.notApproved')),
-          ],
-        }),
-      )
+      if (data.approval) {
+        sections.push(
+          Section({
+            title: t('detail.approval'),
+            children: [
+              h(
+                'div',
+                { className: 'flb-text', key: 'approval' },
+                t('detail.approvedBy', {
+                  by: data.approval.approvedBy,
+                  at: formatMoment(data.approval.approvedAt),
+                  plan: data.approval.planVersion,
+                }),
+              ),
+            ],
+          }),
+        )
+      }
 
       if (failures.length > 0) {
         sections.push(
@@ -4886,14 +4844,14 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'flb-card-meta' }, t('detail.recordedAt') + ': ' + formatMoment(artifact.recordedAt)),
               ),
             ),
-        h(
-          'div',
-          { className: 'flb-section', style: { marginTop: '10px' } },
-          h('div', { className: 'flb-label' }, t('detail.acceptanceRecord')),
-          data.acceptanceRecord
-            ? h('div', { className: 'flb-task-text' }, data.acceptanceRecord.accepted_by ? t('detail.acceptedMeta', { by: data.acceptanceRecord.accepted_by, time: formatMoment(data.acceptanceRecord.accepted_at), source: data.acceptanceRecord.acceptance_source || '—' }) : t('detail.notAccepted'))
-            : h('div', { className: 'flb-wb-sub' }, t('detail.notAccepted')),
-        ),
+        data.acceptanceRecord && data.acceptanceRecord.accepted_at
+          ? h(
+              'div',
+              { className: 'flb-section', style: { marginTop: '10px' } },
+              h('div', { className: 'flb-label' }, t('detail.acceptanceRecord')),
+              h('div', { className: 'flb-task-text' }, t('detail.acceptedMeta', { by: data.acceptanceRecord.accepted_by, time: formatMoment(data.acceptanceRecord.accepted_at), source: data.acceptanceRecord.acceptance_source || '—' })),
+            )
+          : null,
       )
     }
 
@@ -5714,9 +5672,6 @@ window.__ModuleLoader__.load({
         const items = []
         const seen = new Set()
         for (const requirement of requirements) {
-          if (requirement.status === 'plan_proposed') {
-            items.push({ key: 'approve:' + requirement.reqId, reqId: requirement.reqId, taskId: '', kind: 'approval', kindLabel: statusLabel(t, 'plan_proposed'), title: requirement.title, detail: t('wb.planPending'), tone: 'warn', issue: null })
-          }
           const reqIssues = requirementIssues(requirement.reqId).filter((issue) => ['blocking', 'attention'].includes(issue.severity))
           for (const issue of reqIssues) {
             const key = issue.taskId ? requirement.reqId + ':task:' + issue.taskId : requirement.reqId + ':req:' + issue.issueId
