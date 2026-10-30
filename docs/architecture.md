@@ -142,14 +142,29 @@ DSH 宿主（唯一常驻产品）
      新的快照副本，记录候选身份 `candidateIdentityOf(planVersion, requirementVersion, baselineCommit,
      candidateHashes)`、工作区树摘要与候选 HEAD；验证 Agent 在有工具会话中只能写 `verification/`，
      产出 `commands.json` 与逐场景 `report.json`。运行时拒绝任何 `verification/` 之外的改动或 HEAD
-     变化，随后重新执行命令，只按退出码、超时与必过场景覆盖判定；报告、命令日志与 `verification.json`
-     写入 `verifications/<req>/v<plan>/<candidate 前 16 位>/`。阻断计入 `stage=verification` 的失败轮次。
-6. **候选包**：把已交付 diff 应用到另一份快照，执行构建与 `npm pack`，核对 tarball 摘要与清单，
-   记录候选包身份。本地打包入口见 `npm run candidate --workspace forgeloop-dsh`。
-7. **验收**：运行时绑定实际材料；材料变化或摘要不一致即拒绝。必须存在与当前候选身份、需求版本一致
-   且已通过、证据文件完整的独立验证；验证缺失、过期、被篡改或结论为阻断时拒绝。存在候选包时必须
-   匹配其摘要；没有候选时当前允许按任务材料验收，不能据此认定已安装。验收后需求进入终态。
-8. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`plan/approve/advance/verify/retry/accept/stop/cancel` 是仅有的写动作端点。
+     变化，随后重新执行命令，只按退出码、超时与必过场景覆盖判定。必过场景的 `commands` 只能引用本次
+     实际执行的 label，`evidence` 必须是所引用命令输出的原文（空白归一化后至少 8 个字符）；引用不存在、
+     命令未成功、超时/中止或证据无法核对都阻断。验证 Agent 结束后与命令执行后分别核对候选：Git 可见
+     改动只允许 `verification/`，其余变化（含未保护的新文件）判“验证命令修改了固定候选”；Git 忽略的
+     构建输出不属于候选，该范围写入 `verification.json` 的 `candidateIntegrity`。报告、命令日志、
+     `verification/` 材料清单与 `verification.json` 写入 `verifications/<req>/v<plan>/<candidate 前 16 位>/`；
+     阻断计入 `stage=verification` 的失败轮次。候选无法在当前基线组装时记录一次 preflight 阻断验证与
+     失败轮次，使“回到研发修复”可达。
+6. **业务终审**：独立验证通过后，需求 Agent 在新会话中按原始需求复核；必须逐项覆盖分析中的业务场景
+   与验收标准，证据只能引用独立验证实际执行的命令与可在其输出中逐字核对的片段。报告绑定候选、独立
+   验证摘要与需求版本，写入 `reviews/<req>/v<plan>/business/`；阻断计入 `stage=business_review` 失败轮次。
+7. **候选包**：只从“已通过独立验证的那一份工作区”复制构建，先核对受保护内容摘要与验证记录一致，
+   再执行构建与 `npm pack`，核对包版本与 tarball 摘要，记录候选包身份、验证绑定与构建证据
+   （`candidate-builds`）。验证之后内容或版本变化形成新候选，必须重新验证；本地入口见
+   `npm run candidate --workspace forgeloop-dsh`。
+8. **验收**：运行时绑定实际材料；材料变化或摘要不一致即拒绝。必须存在与当前候选身份、需求版本一致
+   且已通过、证据文件完整的独立验证，以及与候选、验证摘要一致且已通过的业务终审；验证或终审缺失、
+   过期、被篡改、结论阻断，或仍有 unknown 请求时拒绝。存在候选包时必须匹配其摘要；没有候选时当前
+   允许按任务材料验收，不能据此认定已安装。验收后需求进入终态，表示“可发布”，不表示已安装。
+9. **上线核对**：安装由外部受控机制完成；`deploy` 核对目标 profile 的安装文件与包内内容逐一致、
+   安装版本与实际运行版本、本次需求模块随包加载、看板/记录入口与验收/终审记录，写入
+   `deployments`。任一不一致保留失败记录；“已安装”和“交付完成”分别记录，不把安装回执当上线验证。
+8. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`plan/approve/advance/verify/rework/recover/build/deploy/retry/accept/stop/cancel` 是仅有的写动作端点。
    任务包卡片展示批准状态、评审结论、交付进度与验证状态；只有通过实现前评审才提供批准，全部任务
    交付后才提供独立验证，只有与当前候选一致的通过验证才提供验收；验收要求全部任务已交付，
    有候选包时必须显式绑定产物摘要；停止会中止该需求当前在途请求并置阻塞。
@@ -194,8 +209,11 @@ DSH 宿主（唯一常驻产品）
   页面不执行命令，也不另存业务状态。
 - 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`resultUnknown` 表示需求存在
   unknown 请求；`stopRequested` 表示阻塞原因是停止请求。三者都不等于任务已经停稳或结果已经收口。
-- 需求级动作由服务端 `actions` 判定：`approve`、`advance`、`replan`、`stop`、`cancel`；任务级 `retry` 仍由
-  `retryTask` 复核批准、额度、任务顺序、在途请求与 unknown 确认。
+- 需求级动作由服务端 `actions` 判定：`plan`、`approve`、`advance`、`verify`、`rework`、`recover`、
+  `build`、`deploy`、`replan`、`stop`、`cancel`；任务级 `retry` 仍由 `retryTask` 复核批准、额度、任务顺序、
+  在途请求与 unknown 确认。`rework` 只对当前候选确有阻断验证结论时可用，归档旧产物与材料后重新研发；
+  `recover` 只关闭 unknown 请求、不重放；`build` 要求验收后且只从已验证工作区构建；`deploy` 只做
+  安装后核对。批准入口还会按现行 `validateTaskPlan` 复校已落库任务包，旧规则下生成的任务包不会被放行。
 - `replan` 是受限的最小重新规划：只复制当前已批准任务包，给一个失败的非验证任务补充允许文件
   （如 `contracts/architecture.json`），生成新的待批准版本；不改变需求原文、不新建任务、不自动批准，
   旧批准显示为过期。存在 unknown 请求时必须由 owner 确认已核对现场后才关闭；验证任务不能补充允许文件。
@@ -206,9 +224,9 @@ DSH 宿主（唯一常驻产品）
 
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`。
-- 表：需求与版本、分析、任务包、任务包批准、任务包实现前评审、独立验证、任务运行、任务产物、
-  工时、取消、证据路径、失败轮次、授权、候选包、持久请求、动作身份、运行元信息，以及运维事件、
-  运维观测与运维动作 attempt；权威 Schema 在
+- 表：需求与版本、分析、任务包、任务包批准、任务包实现前评审、独立验证、业务终审、任务运行、任务产物、
+  产物历史（重新研发前归档）、工时、取消、证据路径、失败轮次、授权、候选包、候选构建、部署核对、持久请求、
+  动作身份、运行元信息，以及运维事件、运维观测与运维动作 attempt；权威 Schema 在
   `records/db.ts`，契约只固定 SQLite 驱动、数据库路径与单库边界，不复制表清单。
 - 新库从空库按当前结构建立；不承担旧业务库兼容、补列、迁移或只读历史查询。
   旧记录和证据按历史保留，但不进入当前产品承诺。
@@ -227,7 +245,8 @@ DSH 宿主（唯一常驻产品）
 - 单消费者锁：`<记录根>/host.lock` 目录原子创建并记录 PID；第二个宿主只读、不领取、不把
   别人的在途请求标为 unknown；进程已退出的残留锁会被清理后重试一次。
 - 宿主启动时：`claimed` 请求改为 `unknown`（先核对，不重放），`started` 动作改为
-  `interrupted`；保留证据与原因。
+  `interrupted`，仍为 `running` 的任务运行标为 `blocked` 并记录中断原因；保留证据与原因，
+  恢复摘要写入 `runtime_meta`。
 - 停止：需求级操作撤销待执行请求并记录状态；当前在途 Agent 的取消接在协调器整体停止路径，
   需求级取消未落实。结果未知的动作不自动重放。
 - 运维：动作先写 running 意图；宿主启动时把未收口的动作标为 unknown，并把对应事件标为结果未知。
@@ -250,8 +269,9 @@ DSH 宿主（唯一常驻产品）
   补充允许文件。
   不能把工具参数、消息角色标签或模型转述当作所有者决定；动作身份使用本机 owner 配置。
 - **Agent**：审查使用独立上下文；实现使用独立副本；运维诊断无工具，只读取程序提供的检查输出；
-  验证 Agent 的评审无工具、独立验证只写
-  `verification/` 且运行时重跑命令；模型自评、消息投递回执与工具退出码都不是验收证据。
+  验证 Agent 的评审无工具、独立验证只写 `verification/` 且运行时重跑命令并核对候选完整性；业务终审
+  由需求 Agent 在新会话中按原始需求复核，证据只能引用验证命令输出；模型自评、消息投递回执与工具退出码
+  都不是验收证据。
   计划评审、独立验证与验收的绑定与门禁由运行时执行，页面与工具只展示服务端判定。
 - 已知边界：审查的“受控访问”是独立会话＋无工具＋固定 diff，不是 OS/容器级隔离；宿主插件
   本身拥有比普通工作区工具更宽的文件权限，必须继续按动作检查授权。
@@ -268,7 +288,7 @@ DSH 宿主（唯一常驻产品）
   与 `conversation.chat.node` 注册节点和渲染器。
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
-  `plan`、`approve`、`advance`、`verify`、`retry`、`replan`、`cancel`、`accept`、`stop`，
+  `plan`、`approve`、`advance`、`verify`、`rework`、`recover`、`build`、`deploy`、`retry`、`replan`、`cancel`、`accept`、`stop`，
   以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-confirm-unknown`、`ops-close`、`ops-request-fix`；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
@@ -299,13 +319,16 @@ DSH 宿主（唯一常驻产品）
 
 ## 10. 未验证与后续
 
-- 批准、推进、取消、验收与停止已实现；最小“补文件重新规划”已实现；层级工作台与任务执行过程已实现。
-  实现前评审、独立验证与验收门禁已实现并由运行时强制，但尚未在真实生产需求上跑通完整验证批次。
+- 批准、推进、取消、验收与停止已实现；最小“补文件重新规划”已实现并会重新走实现前评审；层级工作台与
+  任务执行过程已实现。实现前评审、独立验证、业务终审、候选构建与上线核对已实现并由运行时强制，
+  但尚未在真实正式需求上跑通完整批次（截至 2026-10-30，正式需求停在中断核对后的 blocked）。
   需求/任务编辑、草稿删除、问题补充说明、等待回答与完整重新规划仍无服务端入口，不能用按钮冒充。
 - 真实 Debian/生产宿主、容器隔离、多用户身份、远程访问未验证。
 - 运维 Agent 已接入协调器与天工视图，但真实线上事件、严重故障抢占研发与外部接管核对尚未验证；
   当前只在本地命令与行为测试中验证，限制见[运维 Agent](ops-agent.md#9-首版限制如实保留)。
 - 邮件／IM、自动发布／部署和跨版本升级兼容尚未形成当前完整能力。新首版的发布与运维要求见统一方案。
+- 候选安装仍由 `plugin_manager` 等外部机制完成；安装后的正式上线核对只在行为测试中验证，未在正式需求执行。
+- 验证、研发与业务终审 Agent 仍是宿主内会话与 `workspace-write`，不是 OS 隔离。
 - 变异测试与格式化器尚未接入 TypeScript 工具链；对应 `make` 目标显式失败。
   依赖审计已配置为 `make audit`，实际执行与验证情况见状态记录。
 - DSH 仍是 developer preview；升级可能改变接缝，需按版本重新验证。
