@@ -13,7 +13,7 @@
 | 架构契约 | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤 | §30 |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查 | §13、[ADR 0009](adr/0009-remove-retired-implementation.md) |
 | 最近安装记录 | 2026-10-30 `forgeloop-dsh@0.1.6` tarball（177,096 字节，SHA-256 `0ebbfa37…`）已通过 `plugin_manager` 安装到正式 `web` profile 并热重载（3080 进程 PID 82207 未重启；新 owner `MacAir.local:2477:c0ce681f` 起于 `2026-10-30T01:28:42Z`），`last_recovery` 记录 `interruptedRuns: 1`；安装记录不等于交付完成 | §36 |
-| 最近工程检查 | 2026-10-30 `make check` 通过，38 个测试文件、417 项测试；`make coverage` 通过（行/语句 92.31%、函数 96.84%、分支 84.11%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（175,134 字节，SHA-256 `f347bd72…`；版本号未变） | §38 |
+| 最近工程检查 | 2026-10-30 `make check` 通过，39 个测试文件、431 项测试；`make coverage` 通过（行/语句 92.49%、函数 96.91%、分支 84.39%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变） | §39 |
 | 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统标为 blocked + unknown 并要求核对，未自动重放 | §16–§28、§33、§36 |
 | 运维 Agent | 2026-10-29 首版：登记资源/检查/少量恢复动作，事件归并与未知收口，无工具诊断，目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求；只读工具与认证端点、天工“运维”视图；尚无真实线上事件验证 | §35、[运维设计](ops-agent.md) |
 | 关键缺口 | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `danger-full-access`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维无真实线上事件；需求编辑、草稿删除、问题补充与等待回答无服务端入口 | §4.1、§21–§37 |
@@ -1938,3 +1938,43 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `workspace-write` 阻止工作副本之外的写入，但不提供 OS 级隔离；验证/终审 Agent 仍非独立沙箱。
 - 同版本重装需要先卸载；版本冻结期间无法用版本号区分不同构建，只能用 tarball 摘要识别。
 - 正式需求仍在 blocked，未因本批重装而推进或改变状态。
+
+## 39. 未知请求的 Agent 根因诊断（2026-10-30）
+
+所有者要求：不使用「核对未知」按钮，改为由 Agent 分析问题根因、把具体问题描述清楚并给出解决方案，
+文本限制在 100 字节内。
+
+### 39.1 实现
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/domain/diagnosis.ts` | 新增：`parseUnknownDiagnosis`（`root_cause`/`solution` 各 ≤100 字节，超长/缺字段/空串拒绝）、`replaySafe`（按工作副本是否有非基线提交判定）、`renderUnknownFacts` |
+| `src/records/db.ts` | 新表 `requirement_unknown_diagnoses`：根因、方案、重放安全性、事实 JSON、报告路径与摘要、会话、关闭条数 |
+| `src/records/repository.ts` | `recordUnknownDiagnosis`、`unknownDiagnoses`、`latestUnknownDiagnosis` |
+| `src/runtime/service.ts` | `diagnoseUnknown()`：采集现场事实 → `diagnosis` 角色（无工具）→ 校验材料 → 程序判定重放安全 → 安全才关闭 unknown；`collectUnknownFacts()` |
+| `src/runtime/prompts.ts` | `unknownDiagnosisPrompt`：只给程序采集的事实，明确 100 字节上限与“不要空话” |
+| `src/runtime/agent-runner.ts` | 新增 `diagnosis` 角色 |
+| `src/runtime/board.ts` | 动作 `recover` → `diagnose`；新增 `diagnosis` 视图（根因/方案/安全性/关闭条数） |
+| `src/index.ts`、`client.js` | 新端点 `diagnose`；按钮改为「分析根因」，移除确认弹窗；详情显示诊断结果 |
+
+### 39.2 判定权仍在程序
+
+- 模型只提供“解释 + 方案”，不参与“能否解除阻塞”的判定；
+- 重放安全性看工作副本事实：运行时建立的快照只有一个基线提交，出现第二个提交即判 `replay_unsafe`；
+- 材料不合格（超长、缺字段、畸形、回合失败）一律不关闭 unknown，原文另存 `*.rejected`；
+- `recover` 端点保留给“已知现场、人工收口”，但看板不再默认展示它。
+
+### 39.3 验证
+
+- 先写 `tests/diagnosis.test.ts`（9 项）与路由/服务测试，覆盖：正常诊断、超 100 字节拒绝、
+  缺字段拒绝、`replay_unsafe` 保留 unknown、回合失败保留 unknown、无 unknown 时拒绝、看板视图。
+- `make check` 通过：39 个测试文件、431 项测试；`make coverage` 通过（92.49/96.91/84.39）；
+  `make contracts` 通过。
+
+### 39.4 未完成与风险
+
+- 100 字节对“根因 + 方案”非常紧，模型常需压缩表达；超长会被拒绝并留下 `*.rejected`，
+  需要重试或调整提示词。
+- 重放安全性只覆盖“执行者是否自行提交”这一种越界；未覆盖“执行者把改动写到工作副本外”等情况。
+- 诊断结论不改变任务包、不清零失败轮次、不自动推进；解除阻塞后仍需所有者点「推进任务」。
+- 正式需求仍为 blocked，本批未对它执行诊断或推进。
