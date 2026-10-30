@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import { businessReviewDir, candidatesDir, evidenceDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
+import { businessReviewDir, candidatesDir, devWorkspaceDir, evidenceDir, integrationDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
 import { PLUGIN_VERSION } from './version.js'
 import { Database } from '../records/db.js'
 import { Repository, type PlanReviewRecord, type ServiceRequestRecord, type VerificationRecord } from '../records/repository.js'
@@ -34,7 +34,9 @@ import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_VERI
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
 import { retryDecision } from '../domain/retry-policy.js'
-import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
+import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, COMMITTED, DEVELOPING, EXECUTING, PLAN_PROPOSED, SPECIFIED, VERIFYING, isTerminal } from '../domain/status.js'
+import { AGENT_DEV, AGENT_PRODUCT, AGENT_VERIFY } from '../domain/agents.js'
+import { decideAdmission, type AdmissionDecision } from '../domain/admission.js'
 import {
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
@@ -63,7 +65,8 @@ import {
   type ImpactExplainAgent,
   type ImpactExplainAgentResponse,
 } from '../domain/impact-explain.js'
-import { AgentRunner } from './agent-runner.js'
+import { AgentRunner, type AgentOpenRequest, type AgentRunResult, type AgentSession } from './agent-runner.js'
+import { exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
 import { OpsRuntime } from './ops.js'
 import {
   buildProjectFacts,
@@ -94,6 +97,7 @@ function fail(code: string, message: string): OperationResult {
 
 export interface AgentLike {
   run(request: Parameters<AgentRunner['run']>[0]): ReturnType<AgentRunner['run']>
+  open?(request: AgentOpenRequest): Promise<AgentSession>
 }
 
 export interface RuntimeOptions {
@@ -319,9 +323,22 @@ export class ForgeLoopRuntime {
       clientKey: input.clientKey ?? '',
       now: this.now(),
     })
+    const trusted = this.config.autonomy.enabled &&
+      this.config.autonomy.trustedSources.some((prefix) => prefix.length > 0 && input.source.startsWith(prefix))
+    let handoff = ''
+    if (created && trusted) {
+      const queued = this.requestOperation({
+        reqId: requirement.reqId,
+        action: 'analyze',
+        by: 'system:intake',
+        source: 'system:intake',
+      })
+      if (queued.ok) handoff = '；已自动交给产品 Agent 澄清需求'
+      else handoff = `；自动分析未排队：${queued.message}`
+    }
     return ok(
       created
-        ? `已受理需求 ${requirement.reqId}（版本 1）`
+        ? `已受理需求 ${requirement.reqId}（版本 1）${handoff}`
         : `同一客户端幂等键已受理为需求 ${requirement.reqId}，未重复创建`,
       this.requirementView(requirement),
     )
@@ -894,39 +911,42 @@ ${answer}`
     }
     let planVersion = 0
     if (input.action === 'advance' || input.action === ACTION_VERIFY) {
-      const authorization = this.requireAuthorizedPlan(input.reqId)
-      if (!authorization.ok) return authorization.result
-      const plan = authorization.value.plan
-      planVersion = plan.planVersion
+      const latestPlan = this.repo.latestTaskPlan(input.reqId)
+      const admission = this.currentAdmission(input.reqId)
+      const legacyApproval = latestPlan ? this.repo.planApproval(input.reqId, latestPlan.planVersion) : null
+      if (!admission && !legacyApproval) {
+        return fail(
+          'admission_required',
+          `需求 ${input.reqId} 尚未获得系统准入或人类批准；不能自动进入研发`,
+        )
+      }
+      if (latestPlan) {
+        if (latestPlan.requirementVersion !== requirement.versions.length) {
+          return fail(
+            'stale_requirement',
+            `任务包 v${latestPlan.planVersion} 依据需求 v${latestPlan.requirementVersion}，当前是 v${requirement.versions.length}；需要重新生成任务包`,
+          )
+        }
+        planVersion = latestPlan.planVersion
+      } else if (input.action === ACTION_VERIFY) {
+        return fail('plan_missing', `需求 ${input.reqId} 尚无任务包，不能开始验证`)
+      }
       // 额度用尽后不再接受新的推进或验证；人工重试同样受此约束。
       if (this.remainingFailureRounds(input.reqId) === 0) {
         return fail(
           'grant_required',
-          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权或重新规划后才能继续${input.action === ACTION_VERIFY ? '验证' : '推进'}`,
+          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权后才能继续${input.action === ACTION_VERIFY ? '验证' : '推进'}`,
         )
       }
-      if (input.action === ACTION_VERIFY) {
-        const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
-        const missing = plan.tasks.filter(
+      if (input.action === ACTION_VERIFY && latestPlan) {
+        const artifacts = this.repo.taskArtifacts(input.reqId, latestPlan.planVersion)
+        const missing = latestPlan.tasks.filter(
           (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
         )
         if (missing.length > 0) {
           return fail(
             'not_delivered',
             `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
-          )
-        }
-        const review = this.repo.planReview(input.reqId, plan.planVersion)
-        if (!review) {
-          return fail(
-            'plan_review_required',
-            `任务包 v${plan.planVersion} 尚未通过验证 Agent 的实现前评审；不能开始独立验证`,
-          )
-        }
-        if (review.verdict !== 'pass') {
-          return fail(
-            'plan_review_blocked',
-            `任务包 v${plan.planVersion} 的实现前评审未通过：${review.reportJson.slice(0, 200)}`,
           )
         }
       }
@@ -1155,6 +1175,134 @@ ${answer}`
   private remainingFailureRounds(reqId: string): number {
     const used = this.repo.failureRounds(reqId).length
     return Math.max(0, this.repo.grantCount(reqId) * MAX_ROUNDS_PER_GRANT - used)
+  }
+
+  /**
+   * 系统准入：按真实来源、所有者、授权策略与当前需求说明判定。
+   * 结果单独写 requirement_admissions；不写 plan approval，也不伪造 by=owner。
+   */
+  private admitRequirement(reqId: string): { ok: true; admitted: boolean; decision: AdmissionDecision } | { ok: false; message: string } {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return { ok: false, message: `未找到需求 ${reqId}` }
+    const analysis = this.repo.latestAnalysis(reqId)
+    const decision = decideAdmission(
+      {
+        requirementStatus: requirement.status,
+        requirementVersion: requirement.versions.length,
+        project: this.config.project,
+        projectPath: this.config.projectPath,
+        source: requirement.source,
+        submittedBy: requirement.submittedBy,
+        owner: this.config.owner,
+        analysisVersion: analysis?.analysisVersion ?? null,
+        analysisRequirementVersion: analysis?.requirementVersion ?? null,
+        clarifications: analysis?.clarifications.length ?? 0,
+      },
+      this.config.autonomy,
+    )
+    const latest = this.repo.latestAdmission(reqId, requirement.versions.length)
+    const decisionName = decision.admit ? 'admit' : 'block'
+    if (!latest || latest.decision !== decisionName || latest.code !== decision.code) {
+      this.repo.recordAdmission({
+        requirementId: reqId,
+        requirementVersion: requirement.versions.length,
+        decision,
+        decidedBy: 'system:admission',
+        createdAt: this.now(),
+      })
+    }
+    return { ok: true, admitted: decision.admit, decision }
+  }
+
+  /** 当前需求版本是否已有系统准入；不把旧的准入沿用到新版本。 */
+  private currentAdmission(reqId: string): ReturnType<Repository['latestAdmission']> {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return null
+    const admission = this.repo.latestAdmission(reqId, requirement.versions.length)
+    return admission?.decision === 'admit' ? admission : null
+  }
+
+  /**
+   * 确定性的自动推进队列：只排一次 advance，具体动作仍由协调器领取执行。
+   * 系统准入覆盖普通需求；旧的显式批准只作为兼容路径，不成为新的常规门禁。
+   */
+  autoAdvanceRequests(now = this.now()): string[] {
+    const queued: string[] = []
+    for (const requirement of this.repo.listRequirements(this.config.project)) {
+      if (isTerminal(requirement.status)) continue
+      const active = this.repo
+        .requestsFor(requirement.reqId)
+        .some((request) => ['pending', 'claimed'].includes(request.state))
+      if (active) continue
+      const admission = this.currentAdmission(requirement.reqId)
+      const plan = this.repo.latestTaskPlan(requirement.reqId)
+      const approval = plan ? this.repo.planApproval(requirement.reqId, plan.planVersion) : null
+      if (!admission && !approval) continue
+      if (plan && plan.requirementVersion !== requirement.versions.length) continue
+      const allowed =
+        requirement.status === 'blocked'
+          ? admission
+            ? this.remainingFailureRounds(requirement.reqId) > 0
+            : this.retryDecisionFor(requirement.reqId).allowed
+          : ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(requirement.status)
+      if (!allowed) continue
+      try {
+        this.repo.recordRequest({
+          requestId: `rq-${randomUUID()}`,
+          reqId: requirement.reqId,
+          project: this.config.project,
+          planVersion: plan?.planVersion ?? 0,
+          action: 'advance',
+          requestedBy: 'coordinator:auto-advance',
+          source: 'auto-advance',
+          now,
+        })
+        queued.push(requirement.reqId)
+      } catch {
+        // 并发扫描或已有的在途请求：留给下一轮，不制造第二套状态。
+      }
+    }
+    return queued
+  }
+
+  /**
+   * 打开连续 Agent 会话；测试可注入只实现 run 的假执行器，
+   * 此时退化为每轮独立执行（业务状态与证据仍由主控收口）。
+   */
+  private async openAgent(request: AgentOpenRequest): Promise<AgentSession> {
+    if (typeof this.runner.open === 'function') return this.runner.open(request)
+    const runner = this.runner
+    let closed = false
+    return {
+      sessionId: `session-fl-${request.role}-fallback`,
+      async send(turn) {
+        if (closed) {
+          return {
+            status: 'error',
+            text: '',
+            sessionId: `session-fl-${request.role}-fallback`,
+            reason: '会话已关闭',
+            transcriptPath: turn.transcriptPath,
+            durationMs: 0,
+            toolCalls: [],
+          }
+        }
+        return runner.run({
+          role: request.role,
+          cwd: request.cwd,
+          prompt: turn.prompt,
+          permission: request.permission,
+          timeoutMs: turn.timeoutMs,
+          transcriptPath: turn.transcriptPath,
+          ...(turn.signal ? { signal: turn.signal } : {}),
+          ...(request.tools ? { tools: request.tools } : {}),
+          ...(turn.onActivity ? { onActivity: turn.onActivity } : {}),
+        })
+      },
+      async close() {
+        closed = true
+      },
+    }
   }
 
   approvePlan(input: { reqId: string; planVersion: number; by: string; source: string }): OperationResult {
@@ -1937,7 +2085,7 @@ ${answer}`
     return {
       run: async (request): Promise<ImpactExplainAgentResponse> => {
         const result = await this.runner.run({
-          role: 'analyze',
+          role: AGENT_PRODUCT,
           cwd: this.config.projectPath,
           prompt: request.prompt,
           permission: 'workspace-write',
@@ -2167,13 +2315,17 @@ ${answer}`
     if (request.action === ACTION_VERIFY) {
       const verification = await this.executeVerification(request.reqId, signal)
       if (verification.state === 'repair') {
-        return this.executeAdvance(request.reqId, signal, request.requestId)
+        return this.currentAdmission(request.reqId)
+          ? this.executeContinuousAdvance(request.reqId, signal)
+          : this.executeAdvance(request.reqId, signal, request.requestId)
       }
       return verification.state === 'done'
         ? { state: 'done' as const, detail: verification.detail }
         : { state: verification.state, detail: verification.detail }
     }
-    return this.executeAdvance(request.reqId, signal, request.requestId)
+    return this.currentAdmission(request.reqId)
+      ? this.executeContinuousAdvance(request.reqId, signal)
+      : this.executeAdvance(request.reqId, signal, request.requestId)
   }
 
   private async executeAnalysis(
@@ -2192,7 +2344,7 @@ ${answer}`
       now: this.now(),
     })
     const result = await this.runner.run({
-      role: 'analyze',
+      role: AGENT_PRODUCT,
       cwd: this.config.projectPath,
       prompt: analysisPrompt(requirement, facts),
       permission: 'workspace-write',
@@ -2227,12 +2379,33 @@ ${answer}`
       status,
       analysis.clarifications.length > 0 ? `待澄清：${analysis.clarifications.join('；')}` : '',
     )
+    if (analysis.clarifications.length > 0) {
+      return {
+        state: 'done',
+        detail: `分析 v${analysis.analysisVersion} 完成，有 ${analysis.clarifications.length} 条待澄清；等待人工回答后修订需求`,
+      }
+    }
+    const trusted = this.config.autonomy.enabled &&
+      this.config.autonomy.trustedSources.some((prefix) => prefix.length > 0 && requirement.source.startsWith(prefix))
+    if (!trusted) {
+      return {
+        state: 'done',
+        detail: `分析 v${analysis.analysisVersion} 完成；需求来源不在系统准入范围，等待所有者决定`,
+      }
+    }
+    const admission = this.admitRequirement(reqId)
+    if (!admission.ok) return { state: 'failed', detail: admission.message }
+    if (!admission.admitted) {
+      this.repo.setStatus(reqId, 'blocked', `系统准入未通过：${admission.decision.reason}`)
+      return {
+        state: 'done',
+        detail: `分析 v${analysis.analysisVersion} 完成；系统准入未通过：${admission.decision.reason}`,
+      }
+    }
+    this.repo.setStatus(reqId, SPECIFIED, admission.decision.reason)
     return {
       state: 'done',
-      detail:
-        analysis.clarifications.length > 0
-          ? `分析 v${analysis.analysisVersion} 完成，有 ${analysis.clarifications.length} 条待澄清；等待人工回答后修订需求`
-          : `分析 v${analysis.analysisVersion} 完成`,
+      detail: `分析 v${analysis.analysisVersion} 完成；系统准入通过，等待协调器自动排入研发`,
     }
   }
 
@@ -2269,7 +2442,7 @@ ${answer}`
       const transcript = join(sessionsDir(this.config), `${reqId}-plan-a${attempt}.jsonl`)
       const started = Date.now()
       const result = await this.runner.run({
-        role: 'plan',
+        role: AGENT_DEV,
         cwd: this.config.projectPath,
         prompt: devPlanningPrompt(requirement, analysis) + feedback,
         permission: 'workspace-write',
@@ -2363,7 +2536,7 @@ ${answer}`
         `${requirement.reqId}-plan-review-v${plan.planVersion}-r${attempt}.jsonl`,
       )
       const result = await this.runner.run({
-        role: 'verify-plan',
+        role: AGENT_VERIFY,
         cwd: this.config.projectPath,
         prompt: planReviewPrompt({ requirement, analysis, plan }) + feedback,
         permission: 'workspace-write',
@@ -2667,7 +2840,7 @@ ${answer}`
 
     const started = Date.now()
     const run = await this.runner.run({
-      role: 'verify',
+      role: AGENT_VERIFY,
       cwd: workspace,
       prompt: verificationPrompt({
         requirement,
@@ -3011,7 +3184,7 @@ ${answer}`
     mkdirSync(dir, { recursive: true })
     const started = Date.now()
     const run = await this.runner.run({
-      role: 'business-review',
+      role: AGENT_VERIFY,
       cwd: dir,
       prompt: businessReviewPrompt({
         requirement,
@@ -3144,6 +3317,1018 @@ ${answer}`
       }
     }
     return { ok: true, value: { plan } }
+  }
+
+  /** 从需求说明生成确定性验证基线；不再依赖单独的实现前评审门禁。 */
+  private verificationBaseline(analysis: RequirementAnalysis): PlanReview {
+    const criteria = analysis.acceptanceCriteria
+    const scenarios = analysis.scenarios.map((scenario, index) => ({
+      scenario,
+      acceptanceCriterion: criteria[index] ?? criteria[0] ?? scenario,
+      method: '验证 Agent 在独立候选上设计并执行自动化测试，逐项核对业务结果与证据',
+      required: true,
+    }))
+    return {
+      verdict: 'pass',
+      blocking: [],
+      findings: [],
+      summary: '由产品 Agent 的需求说明生成验证基线；不构成对人类批准的替代',
+      verificationPlan: scenarios,
+    }
+  }
+
+  private authorizedPlan(plan: TaskPlan, source: string): TaskPlan {
+    return {
+      ...plan,
+      tasks: plan.tasks.map((task) => ({ ...task, authorizationSource: source })),
+    }
+  }
+
+  /** 需求级研发现场；需求版本变化时重建，旧现场保留在目录中不再复用。 */
+  private ensureDevWorkspace(
+    reqId: string,
+    requirementVersion: number,
+  ): { workspace: string; baselineCommit: string; snapshotCommit: string; fresh: boolean } {
+    const workspace = devWorkspaceDir(this.config, reqId)
+    const metaPath = join(projectDir(this.config), 'workspaces', reqId, 'dev-meta.json')
+    if (existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as {
+          requirementVersion?: number
+          baselineCommit?: string
+          snapshotCommit?: string
+        }
+        if (
+          meta.requirementVersion === requirementVersion &&
+          typeof meta.baselineCommit === 'string' &&
+          typeof meta.snapshotCommit === 'string' &&
+          existsSync(join(workspace, '.git'))
+        ) {
+          return {
+            workspace,
+            baselineCommit: meta.baselineCommit,
+            snapshotCommit: meta.snapshotCommit,
+            fresh: false,
+          }
+        }
+      } catch {
+        // 元数据损坏时重建，不把半截现场当成可复用基线。
+      }
+    }
+    rmSync(workspace, { recursive: true, force: true })
+    const baselineCommit = headCommit(this.config.projectPath)
+    prepareSnapshotWorkspace({
+      projectPath: this.config.projectPath,
+      workspacePath: workspace,
+      baselineCommit,
+    })
+    const snapshotCommit = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+    writeFileSync(
+      metaPath,
+      `${JSON.stringify({ requirementVersion, baselineCommit, snapshotCommit, createdAt: this.now() }, null, 2)}\n`,
+      'utf8',
+    )
+    return { workspace, baselineCommit, snapshotCommit, fresh: true }
+  }
+
+  /** 重启后把已交付任务的增量 diff 依次恢复到同一个研发工作区。 */
+  private restoreDeliveredArtifacts(
+    reqId: string,
+    plan: TaskPlan,
+    workspace: string,
+    baselineCommit: string,
+  ): { ok: true } | { ok: false; reason: string } {
+    for (const taskId of executionOrder(plan)) {
+      const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
+      if (!task) continue
+      const artifact = this.repo.taskArtifact(reqId, plan.planVersion, task.taskId)
+      if (!artifact) continue
+      if (artifact.baselineCommit !== baselineCommit) {
+        return {
+          ok: false,
+          reason: `任务 ${task.taskId} 的交付基线 ${artifact.baselineCommit.slice(0, 12)} 与当前现场 ${baselineCommit.slice(0, 12)} 不一致；不能自动拼接`,
+        }
+      }
+      const evidence = this.repo.evidence(reqId, plan.planVersion, task.taskId)
+      if (!evidence || !existsSync(evidence.candidatePath)) {
+        return { ok: false, reason: `任务 ${task.taskId} 缺交付证据，不能恢复现场` }
+      }
+      const applied = this.applyDiffFile(workspace, evidence.candidatePath, task.taskId, task.taskId)
+      if (!applied.ok) {
+        return { ok: false, reason: `恢复任务 ${task.taskId} 的 diff 失败：${applied.detail}` }
+      }
+      runCommand('git', ['add', '-A'], workspace)
+      runCommand('git', ['commit', '-qm', `forgeloop: restore ${task.taskId}`], workspace)
+    }
+    return { ok: true }
+  }
+
+  /** 在研发会话中完成技术方案与任务拆解；技术方案是工作记录，不是批准门禁。 */
+  private async planInSession(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    workspace: string
+    session: AgentSession
+    authorizationSource: string
+    signal: AbortSignal
+  }): Promise<{ ok: true; plan: TaskPlan } | { ok: false; code: string; reason: string }> {
+    let feedback = ''
+    let lastError = ''
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const result = await input.session.send({
+        prompt: devPlanningPrompt(input.requirement, input.analysis) + feedback,
+        timeoutMs: this.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(sessionsDir(this.config), `${input.reqId}-plan-a${attempt}.jsonl`),
+        signal: input.signal,
+      })
+      if (result.status === 'aborted' || result.status === 'timeout') {
+        return { ok: false, code: 'interrupted', reason: result.reason }
+      }
+      if (result.status !== 'completed') {
+        lastError = result.reason || '研发 Agent 未正常完成'
+        feedback = `\n\n上一次输出未完成：${lastError}。请重新输出完整任务包 JSON。`
+        continue
+      }
+      let plan: TaskPlan
+      try {
+        plan = parseTaskPlanDraft(result.text, {
+          requirementId: input.reqId,
+          project: input.requirement.project,
+          planVersion: this.repo.nextPlanVersion(input.reqId),
+          requirementVersion: input.requirement.versions.length,
+          now: this.now(),
+        })
+      } catch (error) {
+        lastError = `任务包不合规：${(error as Error).message}`
+        feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。请修正后重新输出完整 JSON。`
+        continue
+      }
+      const packages = this.existingPackages()
+      const violations = [
+        ...languageViolations(plan),
+        ...outsideActiveSource(plan),
+        ...unknownPackages(plan, packages),
+      ]
+      if (violations.length > 0) {
+        lastError = `任务包越过 TypeScript 语言/工程边界：${violations
+          .map((violation) => `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`)
+          .join('；')}`
+        feedback = `\n\n上一次输出的任务包越过授权边界：${lastError}。请缩小到当前项目与已登记依赖。`
+        continue
+      }
+      const authorized = this.authorizedPlan(plan, input.authorizationSource)
+      this.repo.recordTaskPlan(authorized)
+      this.repo.setStatus(input.reqId, DEVELOPING, '系统准入通过，研发 Agent 已形成技术方案与任务拆解')
+      return { ok: true, plan: authorized }
+    }
+    return { ok: false, code: 'plan_failed', reason: lastError || '任务包生成失败' }
+  }
+
+  /** 在同一个研发会话与工作区里完成一个任务；自验失败留在现场继续修，不重建副本。 */
+  private async developTaskInSession(input: {
+    reqId: string
+    requirement: Requirement
+    plan: TaskPlan
+    task: PlannedTask
+    workspace: string
+    session: AgentSession
+    authorizationSource: string
+    signal: AbortSignal
+  }): Promise<{ state: 'delivered' | 'blocked'; reason: string }> {
+    const taskDir = evidenceDir(this.config, input.reqId, input.plan.planVersion, input.task.taskId)
+    mkdirSync(taskDir, { recursive: true })
+    let feedback = this.previousTaskFailure(input.reqId, input.plan.planVersion, input.task.taskId)
+    for (let attempt = 1; attempt <= this.config.maxTaskAttempts; attempt += 1) {
+      if (input.signal.aborted) {
+        const reason = '停止请求：任务未交付，研发现场保留，可继续执行'
+        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+        return { state: 'blocked', reason }
+      }
+      this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_RUNNING, '研发 Agent 工作中', 0)
+      const result = await input.session.send({
+        prompt: devPrompt({
+          requirement: input.requirement,
+          plan: input.plan,
+          task: input.task,
+          workdir: input.workspace,
+        }) + feedback,
+        timeoutMs: this.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(taskDir, `dev-a${attempt}.jsonl`),
+        signal: input.signal,
+        onActivity: (events) => {
+          this.repo.heartbeatTaskRun({
+            requirementId: input.reqId,
+            planVersion: input.plan.planVersion,
+            taskId: input.task.taskId,
+            reason: summarizeActivity(events),
+            updatedAt: this.now(),
+          })
+        },
+      })
+      if (result.status === 'aborted' || result.status === 'timeout') {
+        const reason = `研发回合${result.status === 'aborted' ? '被停止' : '超时'}：${result.reason}；现场保留，可继续修复`
+        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+        return { state: 'blocked', reason }
+      }
+      if (result.status !== 'completed') {
+        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_FAILED, result.reason, 0)
+        feedback = `\n\n上一次研发回合未完成：${result.reason}。请继续完成同一个任务。`
+        continue
+      }
+      const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+      if (status.code !== 0 || status.stdout.trim() === '') {
+        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_FAILED, '研发回合没有产生任何文件改动', 0)
+        feedback = '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
+        continue
+      }
+      const test = await this.formalTest({
+        ctx: this.ctx,
+        cwd: input.workspace,
+        argv: input.task.testCommand,
+        timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
+        logPath: join(taskDir, 'formal-test.log'),
+        signal: input.signal,
+      })
+      if (test.aborted || test.timedOut) {
+        const reason = test.aborted
+          ? '研发自验被停止：现场保留，可继续执行'
+          : `研发自验超时（${this.config.formalTestTimeoutSeconds} 秒）：现场保留，可继续修复`
+        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+        return { state: 'blocked', reason }
+      }
+      if (test.exitCode !== 0) {
+        this.recordRun(
+          input.reqId,
+          input.plan,
+          input.task,
+          TASK_RUN_FAILED,
+          `研发自验退出码 ${test.exitCode}，日志 ${test.logPath}`,
+          0,
+        )
+        feedback = `\n\n研发自验未通过（退出码 ${test.exitCode}）。日志：${test.logPath}\n${test.output.slice(-4000)}\n请在同一工作区修复后继续。`
+        continue
+      }
+      const capture = captureCandidate({
+        worktreePath: input.workspace,
+        diffPath: join(taskDir, 'candidate.diff'),
+      })
+      if (capture.changedFiles.length === 0) {
+        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_FAILED, '研发回合没有产生任何文件改动', 0)
+        feedback = '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
+        continue
+      }
+      runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)
+      const reviewNote = {
+        kind: 'self-check',
+        taskId: input.task.taskId,
+        verdict: 'pass',
+        detail: '研发 Agent 自验通过；独立验证由验证 Agent 在固定候选上完成。',
+        testLog: test.logPath,
+        at: this.now(),
+      }
+      const reviewPath = join(taskDir, 'review.json')
+      writeFileSync(reviewPath, `${JSON.stringify(reviewNote, null, 2)}\n`, 'utf8')
+      this.repo.recordTaskArtifact({
+        requirementId: input.reqId,
+        planVersion: input.plan.planVersion,
+        taskId: input.task.taskId,
+        candidateSha256: capture.diffSha256,
+        testEvidenceSha256: test.logSha256,
+        reviewSha256: sha256OfText(JSON.stringify(reviewNote)),
+        acceptance: input.task.acceptance,
+        authorizationSource: input.authorizationSource,
+        recordedAt: this.now(),
+        baselineCommit: headCommit(this.config.projectPath),
+      })
+      this.repo.recordEvidence({
+        requirementId: input.reqId,
+        planVersion: input.plan.planVersion,
+        taskId: input.task.taskId,
+        baselineCommit: headCommit(this.config.projectPath),
+        workspacePath: input.workspace,
+        candidatePath: capture.diffPath,
+        testLogPath: test.logPath,
+        reviewPath,
+        devSession: input.session.sessionId,
+        reviewSession: '',
+        recordedAt: this.now(),
+      })
+      this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_DELIVERED, '', 0)
+      return { state: 'delivered', reason: '' }
+    }
+    const reason = `任务 ${input.task.taskId} 已尝试 ${this.config.maxTaskAttempts} 次仍未通过自验；现场保留，等待修复或授权`
+    this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+    return { state: 'blocked', reason }
+  }
+
+  /** 把研发工作区当前 HEAD 固定为需求级候选；旧候选与报告保留。 */
+  private finalizeCandidate(input: {
+    reqId: string
+    plan: TaskPlan
+    workspace: string
+    baselineCommit: string
+    snapshotCommit: string
+  }): CandidateFile {
+    const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+    if (status.code === 0 && status.stdout.trim()) {
+      runCommand('git', ['add', '-A'], input.workspace)
+      runCommand('git', ['commit', '-qm', 'forgeloop: candidate checkpoint'], input.workspace)
+    }
+    const candidateVersion = this.repo.codeCandidates(input.reqId, input.plan.planVersion).length + 1
+    const outputPath = join(
+      candidatesDir(this.config, input.reqId, input.plan.planVersion),
+      `candidate-${candidateVersion}.diff`,
+    )
+    const candidate = exportCandidate({
+      workspace: input.workspace,
+      snapshotCommit: input.snapshotCommit,
+      baselineCommit: input.baselineCommit,
+      reqId: input.reqId,
+      planVersion: input.plan.planVersion,
+      requirementVersion: input.plan.requirementVersion,
+      candidateVersion,
+      outputPath,
+      now: this.now(),
+    })
+    this.repo.recordCodeCandidate({ requirementId: candidate.reqId, ...candidate })
+    return candidate
+  }
+
+  /**
+   * 验证 Agent 在同一会话里完成独立验证与业务验收：先设计并执行验证，再依据
+   * 实际命令输出核对业务场景；不修改候选，不降低需求标准。
+   */
+  private async verifyCandidate(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    plan: TaskPlan
+    candidate: CandidateFile
+    devWorkspace: string
+    signal: AbortSignal
+  }): Promise<{
+    state: 'pass' | 'block'
+    detail: string
+    blocking: string[]
+    verification: VerificationRecord | null
+  }> {
+    const dir = verificationDir(this.config, input.reqId, input.plan.planVersion, input.candidate.candidateSha256)
+    const workspace = join(dir, 'workspace')
+    mkdirSync(dir, { recursive: true })
+    rmSync(workspace, { recursive: true, force: true })
+    const added = runCommand(
+      'git',
+      ['worktree', 'add', '--detach', workspace, input.candidate.snapshotCommit],
+      input.devWorkspace,
+      60_000,
+    )
+    if (added.code !== 0) {
+      return {
+        state: 'block',
+        detail: `无法从研发现场创建独立验证工作区：${added.stderr.trim() || added.stdout.trim()}`,
+        blocking: ['独立验证工作区创建失败'],
+        verification: null,
+      }
+    }
+    const applied = runCommand(
+      'git',
+      ['apply', '--binary', input.candidate.diffPath],
+      workspace,
+      60_000,
+    )
+    if (applied.code !== 0) {
+      return {
+        state: 'block',
+        detail: `候选 diff 无法应用到独立验证工作区：${applied.stderr.trim() || applied.stdout.trim()}`,
+        blocking: ['候选 diff 无法应用'],
+        verification: null,
+      }
+    }
+    runCommand('git', ['add', '-A'], workspace)
+    runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
+    if (this.config.worktreePrepareCommand.length > 0) {
+      const prepare = runCommand(
+        this.config.worktreePrepareCommand[0]!,
+        this.config.worktreePrepareCommand.slice(1),
+        workspace,
+        this.config.formalTestTimeoutSeconds * 1000,
+      )
+      if (prepare.code !== 0) {
+        return {
+          state: 'block',
+          detail: `验证工作区准备命令失败（退出码 ${prepare.code}）`,
+          blocking: [`验证工作区准备命令失败（退出码 ${prepare.code}）`],
+          verification: null,
+        }
+      }
+      runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
+      runCommand('git', ['clean', '-fd'], workspace)
+    }
+    const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}']).trim()
+    const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+    const diff = readFileSync(input.candidate.diffPath, 'utf8')
+    writeFileSync(join(dir, 'candidate.diff'), diff, 'utf8')
+    writeFileSync(
+      join(dir, 'candidate.json'),
+      `${JSON.stringify(
+        {
+          reqId: input.reqId,
+          planVersion: input.plan.planVersion,
+          requirementVersion: input.plan.requirementVersion,
+          candidateSha256: input.candidate.candidateSha256,
+          candidateVersion: input.candidate.candidateVersion,
+          baselineCommit: input.candidate.baselineCommit,
+          snapshotCommit: input.candidate.snapshotCommit,
+          workspaceSha256,
+          at: this.now(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+    const baseline = this.verificationBaseline(input.analysis)
+    const session = await this.openAgent({
+      role: AGENT_VERIFY,
+      cwd: workspace,
+      permission: 'workspace-write',
+      tools: 'default',
+    })
+    try {
+      const started = Date.now()
+      const run = await session.send({
+        prompt: verificationPrompt({
+          requirement: input.requirement,
+          analysis: input.analysis,
+          plan: input.plan,
+          planReview: baseline,
+          candidateSha256: input.candidate.candidateSha256,
+          workspaceSha256,
+          workspacePath: workspace,
+          diff,
+        }),
+        timeoutMs: this.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(dir, 'verify.jsonl'),
+        signal: input.signal,
+      })
+      this.charge(input.reqId, started)
+      if (run.status !== 'completed') {
+        return {
+          state: 'block',
+          detail: `验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
+          blocking: [run.reason],
+          verification: null,
+        }
+      }
+      const commandsPath = join(workspace, 'verification/commands.json')
+      const reportPath = join(workspace, 'verification/report.json')
+      if (!existsSync(commandsPath) || !existsSync(reportPath)) {
+        return {
+          state: 'block',
+          detail: '验证 Agent 未产出 commands.json 与 report.json',
+          blocking: ['验证材料缺失'],
+          verification: null,
+        }
+      }
+      let commands: VerificationCommand[]
+      let report: VerificationReport
+      try {
+        commands = parseVerificationCommands(readFileSync(commandsPath, 'utf8'))
+        report = parseVerificationReport(readFileSync(reportPath, 'utf8'))
+      } catch (error) {
+        return {
+          state: 'block',
+          detail: `验证材料畸形：${(error as Error).message}`,
+          blocking: [`验证材料畸形：${(error as Error).message}`],
+          verification: null,
+        }
+      }
+      const changed = workspaceChanges(workspace)
+      const currentHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+      if (currentHead !== workspaceHead) {
+        return {
+          state: 'block',
+          detail: '验证期间候选提交发生变化',
+          blocking: ['验证期间候选提交发生变化'],
+          verification: null,
+        }
+      }
+      const outside = changed.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
+      if (outside.length > 0) {
+        return {
+          state: 'block',
+          detail: `验证修改了 verification/ 之外的文件：${outside.join('、')}`,
+          blocking: [`验证修改了候选文件：${outside.join('、')}`],
+          verification: null,
+        }
+      }
+      const runs: Array<{
+        label: string
+        argv: readonly string[]
+        exitCode: number | null
+        timedOut: boolean
+        aborted: boolean
+        logPath: string
+        logSha256: string
+        durationMs: number
+        output: string
+      }> = []
+      const failedCommands: string[] = []
+      for (const [index, command] of commands.entries()) {
+        const label = command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
+        const test = await this.formalTest({
+          ctx: this.ctx,
+          cwd: workspace,
+          argv: command.argv,
+          timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
+          logPath: join(dir, `verification-${index + 1}-${label}.log`),
+          signal: input.signal,
+        })
+        runs.push({
+          label: command.label,
+          argv: command.argv,
+          exitCode: test.exitCode,
+          timedOut: test.timedOut,
+          aborted: test.aborted,
+          logPath: test.logPath,
+          logSha256: test.logSha256,
+          durationMs: test.durationMs,
+          output: test.output,
+        })
+        if (test.aborted) {
+          return {
+            state: 'block',
+            detail: '独立验证命令被停止；验证工作区可丢弃，可重新验证',
+            blocking: ['独立验证命令被停止'],
+            verification: null,
+          }
+        }
+        if (test.timedOut) failedCommands.push(`${command.label} 超时`)
+        else if (test.exitCode !== 0) failedCommands.push(`${command.label} 退出码 ${test.exitCode}`)
+      }
+      const integrity: string[] = []
+      const afterHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+      if (afterHead !== workspaceHead) integrity.push('验证命令改变了候选提交')
+      const afterChanges = workspaceChanges(workspace).filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
+      if (afterChanges.length > 0) integrity.push(`验证命令修改了候选文件：${afterChanges.join('、')}`)
+      const coverage = validateVerificationCoverage(baseline.verificationPlan, report)
+      const evidence = validateScenarioEvidence(baseline.verificationPlan, report, runs)
+      const anyFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
+      const verdict: 'pass' | 'block' =
+        report.verdict === 'pass' &&
+        failedCommands.length === 0 &&
+        coverage.length === 0 &&
+        evidence.length === 0 &&
+        integrity.length === 0 &&
+        !anyFailed
+          ? 'pass'
+          : 'block'
+      const blocking = [
+        ...report.blocking,
+        ...integrity,
+        ...evidence,
+        ...(anyFailed ? ['报告存在未通过的验证场景'] : []),
+        ...failedCommands.map((failure) => `验证命令失败：${failure}`),
+        ...coverage,
+      ]
+      const canonical = {
+        kind: 'verification',
+        reqId: input.reqId,
+        planVersion: input.plan.planVersion,
+        requirementVersion: input.plan.requirementVersion,
+        candidateSha256: input.candidate.candidateSha256,
+        candidateVersion: input.candidate.candidateVersion,
+        snapshotCommit: input.candidate.snapshotCommit,
+        workspaceSha256,
+        verdict,
+        summary: report.summary,
+        findings: report.findings,
+        blocking,
+        scenarios: report.scenarios,
+        commands: runs.map(({ output: _output, ...rest }) => rest),
+        candidateIntegrity: { head: afterHead, changes: afterChanges, allowedPaths: [VERIFICATION_MATERIAL_DIR] },
+        sessionId: run.sessionId,
+        at: this.now(),
+      }
+      const reportJson = `${JSON.stringify(canonical, null, 2)}\n`
+      const verificationPath = join(dir, 'verification.json')
+      writeFileSync(verificationPath, reportJson, 'utf8')
+      const verification: VerificationRecord = {
+        requirementId: input.reqId,
+        planVersion: input.plan.planVersion,
+        candidateSha256: input.candidate.candidateSha256,
+        requirementVersion: input.plan.requirementVersion,
+        workspaceSha256,
+        verdict,
+        reportJson,
+        reportPath: verificationPath,
+        reportSha256: sha256OfText(reportJson),
+        evidenceDir: dir,
+        sessionId: run.sessionId,
+        verifiedAt: this.now(),
+      }
+      this.repo.recordVerification(verification)
+      if (verdict === 'block') {
+        this.repo.recordFailureRound(input.reqId, {
+          roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}`,
+          stage: FAILURE_VERIFICATION,
+          summary: `独立验证阻断：${blocking.join('；') || report.summary}`.slice(0, 1000),
+          occurredAt: this.now(),
+        })
+        return {
+          state: 'block',
+          detail: `独立验证阻断：${blocking.join('；') || report.summary}；证据 ${reportPath}`,
+          blocking,
+          verification,
+        }
+      }
+
+      // 同一验证会话继续做业务验收；证据只取程序实际重跑的命令输出。
+      const facts = runs.map((item) => ({
+        label: item.label,
+        argv: item.argv,
+        exitCode: item.exitCode,
+        logTail: item.output.slice(-4000),
+      }))
+      const businessStarted = Date.now()
+      const businessRun = await session.send({
+        prompt: businessReviewPrompt({
+          requirement: input.requirement,
+          analysis: input.analysis,
+          plan: input.plan,
+          candidateSha256: input.candidate.candidateSha256,
+          commands: facts,
+        }),
+        timeoutMs: this.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(dir, 'business-review.jsonl'),
+        signal: input.signal,
+      })
+      this.charge(input.reqId, businessStarted)
+      if (businessRun.status !== 'completed') {
+        this.repo.recordFailureRound(input.reqId, {
+          roundId: `business-review-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-${randomUUID()}`,
+          stage: FAILURE_BUSINESS_REVIEW,
+          summary: `业务验收未取得结论：${businessRun.reason}`.slice(0, 1000),
+          occurredAt: this.now(),
+        })
+        return {
+          state: 'block',
+          detail: `业务验收未取得结论：${businessRun.reason}`,
+          blocking: [businessRun.reason],
+          verification,
+        }
+      }
+      let review: BusinessReview
+      try {
+        review = parseBusinessReview(businessRun.text)
+      } catch (error) {
+        this.repo.recordFailureRound(input.reqId, {
+          roundId: `business-review-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-${randomUUID()}`,
+          stage: FAILURE_BUSINESS_REVIEW,
+          summary: `业务验收材料畸形：${(error as Error).message}`.slice(0, 1000),
+          occurredAt: this.now(),
+        })
+        return {
+          state: 'block',
+          detail: `业务验收材料畸形：${(error as Error).message}`,
+          blocking: [`业务验收材料畸形：${(error as Error).message}`],
+          verification,
+        }
+      }
+      const issues = validateBusinessReview({
+        scenarios: input.analysis.scenarios,
+        acceptanceCriteria: input.analysis.acceptanceCriteria,
+        review,
+        runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
+      })
+      const businessVerdict: 'pass' | 'block' = review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
+      const businessBlocking = businessVerdict === 'block' ? (issues.length > 0 ? issues : review.blocking) : []
+      const businessReport = {
+        kind: 'business-review',
+        reqId: input.reqId,
+        planVersion: input.plan.planVersion,
+        requirementVersion: input.plan.requirementVersion,
+        candidateSha256: input.candidate.candidateSha256,
+        verificationSha256: verification.reportSha256,
+        verdict: businessVerdict,
+        summary: review.summary,
+        findings: review.findings,
+        blocking: [...businessBlocking],
+        scenarios: review.scenarios,
+        acceptance: review.acceptance,
+        sessionId: businessRun.sessionId,
+        at: this.now(),
+      }
+      const businessJson = `${JSON.stringify(businessReport, null, 2)}\n`
+      const businessPath = join(dir, 'business-review.json')
+      writeFileSync(businessPath, businessJson, 'utf8')
+      this.repo.recordBusinessReview({
+        requirementId: input.reqId,
+        planVersion: input.plan.planVersion,
+        candidateSha256: input.candidate.candidateSha256,
+        requirementVersion: input.plan.requirementVersion,
+        verificationSha256: verification.reportSha256,
+        verdict: businessVerdict,
+        reportJson: businessJson,
+        reportPath: businessPath,
+        reportSha256: sha256OfText(businessJson),
+        sessionId: businessRun.sessionId,
+        reviewedAt: this.now(),
+      })
+      if (businessVerdict === 'block') {
+        this.repo.recordFailureRound(input.reqId, {
+          roundId: `business-review-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}`,
+          stage: FAILURE_BUSINESS_REVIEW,
+          summary: `业务验收阻断：${businessBlocking.join('；') || review.summary}`.slice(0, 1000),
+          occurredAt: this.now(),
+        })
+        return {
+          state: 'block',
+          detail: `业务验收阻断：${businessBlocking.join('；') || review.summary}；证据 ${businessPath}`,
+          blocking: [...businessBlocking],
+          verification,
+        }
+      }
+      return {
+        state: 'pass',
+        detail: `候选 ${input.candidate.candidateSha256.slice(0, 16)}… 通过独立验证与业务验收（${runs.length} 条命令）`,
+        blocking: [],
+        verification,
+      }
+    } finally {
+      await session.close()
+    }
+  }
+
+  private async commitCandidate(input: {
+    reqId: string
+    plan: TaskPlan
+    candidate: CandidateFile
+    requirementTitle: string
+  }): Promise<{ ok: true; commitSha: string } | { ok: false; detail: string }> {
+    if (!this.config.autonomy.allowCodeCommit) {
+      return { ok: false, detail: '系统授权不允许代码提交；等待所有者授权' }
+    }
+    const commit = integrateCandidate({
+      projectPath: this.config.projectPath,
+      candidateDiffPath: input.candidate.diffPath,
+      candidateBaseline: input.candidate.baselineCommit,
+      expectedDiffSha256: input.candidate.diffSha256,
+      checkCommand: this.config.autonomy.commitCheckCommand,
+      commitMessage: [
+        `feat: ${input.requirementTitle}`.slice(0, 120),
+        '',
+        `ForgeLoop requirement: ${input.reqId}`,
+        `Plan: v${input.plan.planVersion}`,
+        `Candidate: ${input.candidate.candidateSha256}`,
+        `Requirement version: v${input.candidate.requirementVersion}`,
+      ].join('\n'),
+      evidenceDir: integrationDir(this.config, input.reqId, input.candidate.candidateSha256),
+      timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
+    })
+    if (!commit.ok) return { ok: false, detail: commit.detail }
+    this.repo.recordCommit({
+      requirementId: input.reqId,
+      planVersion: input.plan.planVersion,
+      candidateSha256: input.candidate.candidateSha256,
+      commitSha: commit.commitSha,
+      commitMessage: input.requirementTitle,
+      checkCommand: this.config.autonomy.commitCheckCommand,
+      checkLogPath: commit.checkLogPath,
+      checkSha256: commit.checkSha256,
+      files: commit.files,
+      committedAt: this.now(),
+    })
+    writeFileSync(
+      join(integrationDir(this.config, input.reqId, input.candidate.candidateSha256), 'commit.json'),
+      `${JSON.stringify(
+        {
+          reqId: input.reqId,
+          planVersion: input.plan.planVersion,
+          candidateSha256: input.candidate.candidateSha256,
+          commitSha: commit.commitSha,
+          files: commit.files,
+          checkCommand: this.config.autonomy.commitCheckCommand,
+          checkLogPath: commit.checkLogPath,
+          checkSha256: commit.checkSha256,
+          at: this.now(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+    return { ok: true, commitSha: commit.commitSha }
+  }
+
+  /** 验证阻断后的定向修复：同一研发会话与工作区，只处理缺陷，不重建全部任务。 */
+  private async repairCandidate(input: {
+    reqId: string
+    requirement: Requirement
+    plan: TaskPlan
+    workspace: string
+    session: AgentSession
+    blocking: readonly string[]
+    candidate: CandidateFile
+    signal: AbortSignal
+    round: number
+  }): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const reportDir = join(
+      verificationDir(this.config, input.reqId, input.plan.planVersion, input.candidate.candidateSha256),
+      'repair',
+    )
+    mkdirSync(reportDir, { recursive: true })
+    const prompt = `你是 ForgeLoop 的研发 Agent。验证 Agent 在候选 ${input.candidate.candidateSha256.slice(0, 16)}… 上发现缺陷。
+当前工作区就是候选的工作现场，已有成果必须保留；只修复下面列出的缺陷，不要重做全部任务，不要修改需求或验收标准，不要改版本号。
+
+需求：${requirementTitle(input.requirement)}
+
+缺陷与阻断证据：
+${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给出具体阻断项'}
+
+请在同一工作区定位并修复，完成后用简短文本说明改了什么、如何验证。不要执行 git commit/push，程序会采集并固定新候选。`
+    for (let attempt = 1; attempt <= this.config.maxTaskAttempts; attempt += 1) {
+      if (input.signal.aborted) return { ok: false, reason: '停止请求：修复未完成，现场保留' }
+      const result = await input.session.send({
+        prompt,
+        timeoutMs: this.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(reportDir, `dev-${input.round}-a${attempt}.jsonl`),
+        signal: input.signal,
+      })
+      if (result.status === 'aborted' || result.status === 'timeout') {
+        return { ok: false, reason: `修复回合${result.status === 'aborted' ? '被停止' : '超时'}：${result.reason}` }
+      }
+      if (result.status !== 'completed') continue
+      const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+      if (status.code !== 0 || status.stdout.trim() === '') {
+        continue
+      }
+      runCommand('git', ['add', '-A'], input.workspace)
+      runCommand('git', ['commit', '-qm', `forgeloop: repair round ${input.round}`], input.workspace)
+      return { ok: true }
+    }
+    return { ok: false, reason: '修复回合没有产生可用改动' }
+  }
+
+  /**
+   * 连续研发：系统准入后由同一个推进请求完成方案、实现、自验、独立验证、
+   * 定向修复和受控提交；例外（越界、额度用尽、提交检查失败）才停下等待决定。
+   */
+  private async executeContinuousAdvance(
+    reqId: string,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
+    if (isTerminal(requirement.status)) return { state: 'failed', detail: `需求已处于终态 ${requirement.status}` }
+    const admission = this.currentAdmission(reqId)
+    if (!admission) return { state: 'failed', detail: '需求没有系统准入，不能自动研发' }
+    const analysis = this.repo.latestAnalysis(reqId)
+    if (!analysis || analysis.requirementVersion !== requirement.versions.length) {
+      this.repo.setStatus(reqId, 'blocked', '需求说明缺失或已过期；需要产品 Agent 重新澄清')
+      return { state: 'failed', detail: '需求说明缺失或已过期' }
+    }
+    const budget = this.repo.budget(reqId)
+    if (budget.limitSeconds <= budget.consumedSeconds) {
+      this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需要显式延长或拆分需求')
+      return { state: 'failed', detail: '执行工时已用尽' }
+    }
+    const authorizationSource = `system-admission:${admission.admissionId}`
+    const workspaceInfo = this.ensureDevWorkspace(reqId, requirement.versions.length)
+    const workspace = workspaceInfo.workspace
+    const session = await this.openAgent({
+      role: AGENT_DEV,
+      cwd: workspace,
+      permission: 'workspace-write',
+      tools: 'default',
+    })
+    try {
+      let plan = this.repo.latestTaskPlan(reqId)
+      if (!plan || plan.requirementVersion !== requirement.versions.length) {
+        const planned = await this.planInSession({
+          reqId,
+          requirement,
+          analysis,
+          workspace,
+          session,
+          authorizationSource,
+          signal,
+        })
+        if (!planned.ok) {
+          this.repo.setStatus(reqId, 'blocked', `技术方案未形成：${planned.reason}`)
+          return { state: 'failed', detail: `技术方案未形成：${planned.reason}` }
+        }
+        plan = planned.plan
+      }
+      this.repo.ensureBudget(reqId, plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0))
+      this.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一工作区实现并自验')
+      if (workspaceInfo.fresh) {
+        const restored = this.restoreDeliveredArtifacts(reqId, plan, workspace, workspaceInfo.baselineCommit)
+        if (!restored.ok) {
+          this.repo.setStatus(reqId, 'blocked', restored.reason)
+          return { state: 'failed', detail: restored.reason }
+        }
+      }
+      for (const taskId of executionOrder(plan)) {
+        const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
+        if (!task) continue
+        if (this.repo.taskArtifact(reqId, plan.planVersion, taskId)) continue
+        const outcome = await this.developTaskInSession({
+          reqId,
+          requirement,
+          plan,
+          task,
+          workspace,
+          session,
+          authorizationSource,
+          signal,
+        })
+        if (outcome.state !== 'delivered') {
+          this.repo.setStatus(reqId, 'blocked', outcome.reason)
+          return { state: 'failed', detail: outcome.reason }
+        }
+      }
+      let candidate = this.finalizeCandidate({
+        reqId,
+        plan,
+        workspace,
+        baselineCommit: workspaceInfo.baselineCommit,
+        snapshotCommit: workspaceInfo.snapshotCommit,
+      })
+      for (let round = 1; ; round += 1) {
+        this.repo.setStatus(reqId, VERIFYING, `验证 Agent 正在验证候选 v${candidate.candidateVersion}`)
+        const verification = await this.verifyCandidate({
+          reqId,
+          requirement,
+          analysis,
+          plan,
+          candidate,
+          devWorkspace: workspace,
+          signal,
+        })
+        if (verification.verification === null && verification.state === 'block') {
+          // 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。
+          this.repo.recordFailureRound(reqId, {
+            roundId: `verification-prep-${randomUUID()}`,
+            stage: FAILURE_VERIFICATION,
+            summary: verification.detail.slice(0, 1000),
+            occurredAt: this.now(),
+          })
+          this.repo.setStatus(reqId, 'blocked', verification.detail)
+          return { state: 'failed', detail: verification.detail }
+        }
+        if (verification.state === 'pass') {
+          const commit = await this.commitCandidate({
+            reqId,
+            plan,
+            candidate,
+            requirementTitle: requirementTitle(requirement),
+          })
+          if (!commit.ok) {
+            this.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+            return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
+          }
+          this.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
+          return {
+            state: 'done',
+            detail: `需求 ${reqId} 已完成研发、独立验证与提交：${commit.commitSha.slice(0, 12)}`,
+          }
+        }
+        if (this.remainingFailureRounds(reqId) === 0) {
+          this.repo.setStatus(
+            reqId,
+            'blocked',
+            `验证未通过且失败额度已用尽：${verification.blocking.join('；') || verification.detail}`,
+          )
+          return { state: 'failed', detail: `验证未通过且失败额度已用尽：${verification.detail}` }
+        }
+        const repaired = await this.repairCandidate({
+          reqId,
+          requirement,
+          plan,
+          workspace,
+          session,
+          blocking: verification.blocking,
+          candidate,
+          signal,
+          round,
+        })
+        if (!repaired.ok) {
+          this.repo.setStatus(reqId, 'blocked', `定向修复未完成：${repaired.reason}`)
+          return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
+        }
+        candidate = this.finalizeCandidate({
+          reqId,
+          plan,
+          workspace,
+          baselineCommit: workspaceInfo.baselineCommit,
+          snapshotCommit: workspaceInfo.snapshotCommit,
+        })
+      }
+    } finally {
+      await session.close()
+    }
   }
 
   private async executeAdvance(
@@ -3523,7 +4708,7 @@ ${answer}`
       mkdirSync(reviewWorkspace, { recursive: true })
       const reviewStarted = Date.now()
       const reviewRun = await this.runner.run({
-        role: 'review',
+        role: AGENT_VERIFY,
         cwd: reviewWorkspace,
         prompt: reviewPrompt({
           requirement,

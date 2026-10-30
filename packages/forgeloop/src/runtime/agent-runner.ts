@@ -10,19 +10,12 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AgentConfig } from '../config.js'
+import type { AgentIdentity } from '../domain/agents.js'
 
 type AnyRecord = Record<string, unknown>
 
 export interface AgentRunRequest {
-  readonly role:
-    | 'analyze'
-    | 'plan'
-    | 'dev'
-    | 'review'
-    | 'verify-plan'
-    | 'verify'
-    | 'business-review'
-    | 'ops'
+  readonly role: AgentIdentity
   readonly cwd: string
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'
@@ -33,6 +26,28 @@ export interface AgentRunRequest {
   readonly tools?: 'none' | 'default'
   /** 运行中周期性回报当前事件快照，供任务心跳与详情页使用。 */
   readonly onActivity?: (events: readonly AnyRecord[]) => void
+}
+
+export interface AgentOpenRequest {
+  readonly role: AgentIdentity
+  readonly cwd: string
+  readonly permission: 'workspace-write' | 'danger-full-access'
+  readonly tools?: 'none' | 'default'
+}
+
+export interface AgentTurnRequest {
+  readonly prompt: string
+  readonly timeoutMs: number
+  readonly transcriptPath: string
+  readonly signal?: AbortSignal
+  readonly onActivity?: (events: readonly AnyRecord[]) => void
+}
+
+/** 同一身份的一段连续工作：多轮 send 共享会话、工作目录与上下文。 */
+export interface AgentSession {
+  readonly sessionId: string
+  send(turn: AgentTurnRequest): Promise<AgentRunResult>
+  close(): Promise<void>
 }
 
 export interface AgentRunResult {
@@ -138,6 +153,167 @@ export class AgentRunner {
       )
     }
     return { provider: selection.provider, model: selection.model }
+  }
+
+  /**
+   * 打开一段连续会话：不再每轮新建 Agent，供同一需求的技术方案、实现、自验、
+   * 修复或验证阶段复用上下文与工作目录。宿主重启后会话不存在，依据持久证据恢复。
+   */
+  async open(request: AgentOpenRequest): Promise<AgentSession> {
+    const selection = this.resolveSelection()
+    const sessionId = `session-fl-${request.role}-${randomUUID()}`
+    const agents = this.ctx.agents as { create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }> }
+    const tools = serviceOf(this.ctx, 'tools') as
+      | { schemas(scope?: unknown): Array<{ name?: string }> }
+      | undefined
+    const presetId = request.tools === 'none' ? undefined : 'standard'
+    const setup =
+      request.tools === 'none' && tools
+        ? (agentCtx: AnyRecord) => {
+            const names = tools.schemas().map((schema) => schema.name).filter((name): name is string => Boolean(name))
+            const scoped = serviceOf(agentCtx, 'tools') as
+              | { restrict(filter: { deny: string[] }): () => void }
+              | undefined
+            if (names.length > 0) scoped?.restrict({ deny: names })
+          }
+        : presetId
+          ? async (agentCtx: AnyRecord) => {
+              const registry = serviceOf(this.ctx, 'agentPresets') as
+                | { mount(context: AnyRecord, id: string): Promise<unknown> }
+                | undefined
+              if (!registry?.mount) throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
+              await registry.mount(agentCtx, presetId)
+            }
+          : undefined
+    const handle = await agents.create({
+      sessionId,
+      meta: { cwd: request.cwd, ...(presetId ? { agentPreset: presetId } : {}) },
+      agentOptions: { provider: selection.provider, model: selection.model },
+      ...(setup ? { setup } : {}),
+    })
+    const presets = serviceOf(this.ctx, 'permissionPresets') as
+      | { set(session: unknown, preset: string): void }
+      | undefined
+    presets?.set(handle.agent.session, request.permission)
+
+    let dead = false
+    let disposed = false
+    return {
+      sessionId,
+      async send(turn: AgentTurnRequest): Promise<AgentRunResult> {
+        const started = Date.now()
+        if (dead) {
+          return {
+            status: 'error',
+            text: '',
+            sessionId,
+            reason: '会话已结束，不能继续投递回合',
+            transcriptPath: turn.transcriptPath,
+            durationMs: 0,
+            toolCalls: [],
+          }
+        }
+        let aborted = false
+        let timedOut = false
+        const timer = setTimeout(() => {
+          timedOut = true
+          handle.agent.cancel({ kind: 'user' })
+        }, turn.timeoutMs)
+        timer.unref?.()
+        const onAbort = () => {
+          aborted = true
+          handle.agent.cancel({ kind: 'user' })
+        }
+        turn.signal?.addEventListener('abort', onAbort, { once: true })
+        mkdirSync(dirname(turn.transcriptPath), { recursive: true })
+        const flush = (): void => {
+          try {
+            const events = handle.agent.session.ownEvents()
+            writeFileSync(
+              turn.transcriptPath,
+              `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
+              'utf8',
+            )
+            turn.onActivity?.(events)
+          } catch {
+            // 活动快照是观测数据；写入失败不能中断 Agent 回合。
+          }
+        }
+        const activityTimer = setInterval(flush, 1_500)
+        activityTimer.unref?.()
+        let whenIdleError = ''
+        try {
+          handle.agent.followup({
+            id: randomUUID(),
+            role: 'user',
+            content: [{ type: 'text', text: turn.prompt }],
+            source: { kind: 'user' },
+          })
+          await handle.agent.whenIdle()
+        } catch (error) {
+          whenIdleError = (error as Error).message
+        } finally {
+          clearTimeout(timer)
+          clearInterval(activityTimer)
+          turn.signal?.removeEventListener('abort', onAbort)
+        }
+        const events = handle.agent.session.ownEvents()
+        mkdirSync(dirname(turn.transcriptPath), { recursive: true })
+        writeFileSync(
+          turn.transcriptPath,
+          `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
+          'utf8',
+        )
+        const text = extractAssistantText(events)
+        const durationMs = Date.now() - started
+        const base = {
+          text,
+          sessionId,
+          transcriptPath: turn.transcriptPath,
+          durationMs,
+          toolCalls: toolCallsOf(events),
+        }
+        if (timedOut) {
+          dead = true
+          return {
+            ...base,
+            status: 'timeout',
+            reason: `Agent 回合超过 ${Math.round(turn.timeoutMs / 1000)} 秒上限，已取消`,
+          }
+        }
+        if (aborted) {
+          dead = true
+          return {
+            ...base,
+            status: 'aborted',
+            reason: 'Agent 回合因停止请求被取消；回合未正常完成',
+          }
+        }
+        if (whenIdleError) {
+          dead = true
+          return { ...base, status: 'error', reason: `Agent 回合失败：${whenIdleError}` }
+        }
+        const end = extractTurnEnd(events)
+        if (end.kind !== 'completed') {
+          dead = true
+          return {
+            ...base,
+            status: end.kind === 'aborted' ? 'aborted' : 'error',
+            reason: `Agent 回合未正常完成：${end.kind || '未给出结束原因'}${end.detail ? `（${end.detail}）` : ''}`,
+          }
+        }
+        if (!text) {
+          return { ...base, status: 'error', reason: 'Agent 回合完成但没有产出可用文本' }
+        }
+        return { ...base, status: 'completed', reason: '' }
+      },
+      async close(): Promise<void> {
+        if (disposed) return
+        disposed = true
+        dead = true
+        await handle.dispose().catch(() => undefined)
+      },
+    }
   }
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {

@@ -179,52 +179,8 @@ export class Coordinator {
   }
 
   private ensureAutoAdvanceRequests(): void {
-    for (const requirement of this.runtime.repo.listRequirements(this.runtime.config.project)) {
-      // 失败停在 blocked 的需求也可以自动再来一次：判定与手动 requeue 共用 retryDecision，
-      // 额度、在途请求与终态都会在判定里拦下，不会无限重试。
-      if (requirement.status === 'blocked') {
-        const decision = this.runtime.retryDecisionFor(requirement.reqId)
-        if (!decision.allowed) continue
-        try {
-          this.runtime.repo.recordRequest({
-            requestId: `rq-${randomUUID()}`,
-            reqId: requirement.reqId,
-            project: this.runtime.config.project,
-            planVersion: this.runtime.repo.latestTaskPlan(requirement.reqId)?.planVersion ?? 0,
-            action: 'advance',
-            requestedBy: 'coordinator:auto-requeue',
-            source: 'auto-requeue',
-            now: new Date().toISOString(),
-          })
-        } catch {
-          // 与 auto-advance 一样：冲突留给下一次扫描判断，不制造第二套状态。
-        }
-        continue
-      }
-      if (!['approved', 'executing'].includes(requirement.status)) continue
-      const active = this.runtime.repo
-        .requestsFor(requirement.reqId)
-        .some((request) => ['pending', 'claimed'].includes(request.state))
-      if (active) continue
-      const plan = this.runtime.repo.latestTaskPlan(requirement.reqId)
-      if (!plan) continue
-      const artifacts = this.runtime.repo.taskArtifacts(requirement.reqId, plan.planVersion)
-      if (artifacts.length >= plan.tasks.length) continue
-      try {
-        this.runtime.repo.recordRequest({
-          requestId: `rq-${randomUUID()}`,
-          reqId: requirement.reqId,
-          project: this.runtime.config.project,
-          planVersion: plan.planVersion,
-          action: 'advance',
-          requestedBy: 'coordinator:auto-advance',
-          source: 'auto-advance',
-          now: new Date().toISOString(),
-        })
-      } catch {
-        // 动作冲突/不可排队时由下一次扫描再判断，不制造第二套状态。
-      }
-    }
+    // 判定与手动 requeue 共用同一套准入/额度/在途请求规则；协调器只负责排队。
+    this.runtime.autoAdvanceRequests(new Date().toISOString())
   }
 
   private async execute(request: NonNullable<ReturnType<ForgeLoopRuntime['repo']['request']>>): Promise<void> {

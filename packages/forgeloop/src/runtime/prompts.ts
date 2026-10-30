@@ -54,7 +54,7 @@ export function projectFactsContext(facts: ProjectFacts): string {
 }
 
 export function analysisPrompt(requirement: Requirement, projectFacts: ProjectFacts): string {
-  return `你是 ForgeLoop 的需求分析者。你的输出会被程序解析并落库。你没有可用工具：不要尝试读取或修改任何文件，也不要调用工具。
+  return `你是 ForgeLoop 的产品 Agent。你的输出会被程序解析并落库。你没有可用工具：不要尝试读取或修改任何文件，也不要调用工具。
 
 ${requirementContext(requirement)}
 
@@ -213,7 +213,7 @@ ${input.logTail || '（没有日志）'}
 }
 
 export function devPlanningPrompt(requirement: Requirement, analysis: RequirementAnalysis): string {
-  return `你是 ForgeLoop 的研发 Agent，负责技术方案与研发任务拆解。需求分析由需求 Agent 完成；你不能改写分析结论，也不得把分析之外的范围塞进任务。你的输出会被程序校验并落库。你没有可用工具：不要尝试读取或修改任何文件，也不要调用工具。
+  return `你是 ForgeLoop 的研发 Agent，负责技术方案与研发任务拆解。需求分析由产品 Agent 完成；你不能改写分析结论，也不得把分析之外的范围塞进任务。你的输出会被程序校验并落库。你可以使用只读工具查看当前工作区；本回合只产出方案，不要修改文件。
 
 ${requirementContext(requirement)}
 
@@ -250,12 +250,12 @@ ${analysisContext(analysis)}
 - 任务拆解必须覆盖分析中的每条业务场景与验收标准，并在任务目标和验收标准中能看出对应关系；不要重新定义需求范围；
 - 至少 2 个任务，且至少一条 depends_on 依赖；
 - 默认每个任务都必须在其 files 中产生至少一个实际改动；验证应优先放进任务的 test_command；
-- 若确实需要独立的验证任务，必须显式给出 verification: true 且 files: []，该任务只运行已批准测试、不得修改文件；不要把普通实现任务标成验证任务；
+- 若确实需要独立的验证任务，必须显式给出 verification: true 且 files: []，该任务只运行已准入测试、不得修改文件；不要把普通实现任务标成验证任务；
 - 依赖必须存在且无环；task_id 唯一；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
 - files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
-- 不要输出 authorization_source；授权只由真实批准写入；
+- 不要输出 authorization_source；授权只由系统准入或真实批准写入；
 - 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
 - 禁止把 Python 解释器、旧 .venv、旧 forgeloop CLI、src/forgeloop/、tests/（旧 Python 测试）、frontend/src/ 写进 files 或 test_command；
 - 正式测试命令必须是 TypeScript 工程可执行的真实 argv，例如 ["npm","run","check","--workspace","forgeloop-dsh"]；
@@ -347,8 +347,8 @@ ${analysisContext(input.analysis)}
 
 ${planContext(input.plan)}
 
-实现前评审结论：${review.verdict} — ${review.summary}
-实现前验证计划：
+需求验证基线：${review.verdict} — ${review.summary}
+验证基线场景：
 ${JSON.stringify(review.verificationPlan, null, 2)}
 
 候选身份：${input.candidateSha256}
@@ -366,7 +366,7 @@ ${input.diff || '（空 diff）'}
   "blocking": ["阻断原因；没有就留空数组"],
   "scenarios": [
     {
-      "scenario": "必须与实现前验证计划中的 scenario 文本一致",
+      "scenario": "必须与需求验证基线中的 scenario 文本一致",
       "status": "pass" 或 "fail" 或 "not_verified",
       "evidence": "命令输出中的原文片段（至少 8 个字符，逐字复制，不要改写或总结）",
       "commands": ["verification/commands.json 中实际会执行的命令 label"]
@@ -396,7 +396,7 @@ export function devPrompt(input: {
 }): string {
   const { requirement, plan, task, workdir } = input
   const dependencies = task.dependsOn.length > 0 ? task.dependsOn.join('、') : '无'
-  return `你是 ForgeLoop 的实现者，在一个隔离的 Git 工作副本中完成一个已批准任务。
+  return `你是 ForgeLoop 的研发 Agent，在需求级 Git 工作副本中完成一个已准入任务。
 
 ${requirementContext(requirement)}
 
@@ -405,7 +405,7 @@ ${requirementContext(requirement)}
 任务目标：${task.goal}
 验收标准：${task.acceptance}
 计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：${task.files.join('、') || '（无）'}
-正式测试命令（批准时固定）：${JSON.stringify(task.testCommand)}
+正式测试命令（准入时固定）：${JSON.stringify(task.testCommand)}
 依赖任务：${dependencies}
 工作目录：${workdir}
 
@@ -504,7 +504,7 @@ export interface BusinessReviewCommandFact {
 }
 
 /**
- * 业务终审提示词：需求 Agent 新会话按原始需求复核业务结果。
+ * 业务验收提示词：验证 Agent 在同一验证会话里按原始需求复核业务结果。
  * 只提供需求、分析、任务与独立验证实际执行的命令输出；不提供验证报告结论，
  * 避免把“验证 Agent 说通过”当作业务复核依据。
  */
@@ -527,7 +527,7 @@ export function businessReviewPrompt(input: {
         `### ${command.label}\nargv: ${JSON.stringify(command.argv)}\nexit_code: ${command.exitCode === null ? 'null' : command.exitCode}\n输出末尾：\n${command.logTail || '（无输出）'}`,
     )
     .join('\n\n')
-  return `你是 ForgeLoop 的需求 Agent，现在做正式业务终审。你没有工具：只能依据下面的事实判断，不要臆造未提供的运行结果。
+  return `你是 ForgeLoop 的验证 Agent，现在做业务验收（独立验证与业务验收由同一身份完成）。你没有工具：只能依据下面的事实判断，不要臆造未提供的运行结果。
 
 ${requirementContext(input.requirement)}
 
@@ -538,7 +538,7 @@ ${input.analysis.scenarios.map((scenario, index) => `${index + 1}. ${scenario}`)
 验收标准：
 ${input.analysis.acceptanceCriteria.map((criterion, index) => `${index + 1}. ${criterion}`).join('\n')}
 
-已批准任务包 v${input.plan.planVersion}：
+已准入任务包 v${input.plan.planVersion}：
 ${tasks}
 
 候选身份：${input.candidateSha256}
@@ -574,6 +574,6 @@ ${commands || '（没有可用的验证命令输出）'}
 - 每个业务场景和验收标准都必须出现，并引用实际执行的命令与可在其输出中逐字核对的证据。
 - 不能只复述验证 Agent 的结论，也不能用“代码看起来正确”“测试通过”代替业务结果；缺证据就判 not_verified。
 - verdict=pass 时 blocking 必须为空；verdict=block 时至少一条 blocking。
-- 这是需求 Agent 的业务判断，不是所有者验收；不要声称或伪造所有者批准。
+- 这是验证 Agent 的业务判断，不是所有者验收；不要声称或伪造所有者批准。
 - 只输出 JSON。`
 }
