@@ -646,25 +646,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         actions.push('rework')
       }
       if (
-        terminal &&
-        requirement.status === 'accepted' &&
-        verificationFresh &&
-        verificationView?.verdict === 'pass' &&
-        businessReviewView?.fresh === true &&
-        businessReviewView.verdict === 'pass' &&
-        candidateView === null
-      ) {
-        actions.push('build')
-      }
-      if (
-        terminal &&
-        requirement.status === 'accepted' &&
-        candidateView !== null &&
-        deploymentView?.state !== 'verified'
-      ) {
-        actions.push('deploy')
-      }
-      if (
         authorization?.status === 'approved' &&
         requirement.status !== PLAN_PROPOSED &&
         replanTarget !== undefined &&
@@ -676,6 +657,24 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       }
       if (activeRequest || progress.running > 0 || progress.awaitingInput > 0) actions.push('stop')
       actions.push('cancel')
+    }
+    // 验收后（终态）仍可构建与上线核对：它们绑定已验收材料，不重新推进需求。
+    if (
+      requirement.status === 'accepted' &&
+      verificationFresh &&
+      verificationView?.verdict === 'pass' &&
+      businessReviewView?.fresh === true &&
+      businessReviewView.verdict === 'pass' &&
+      candidateView === null
+    ) {
+      actions.push('build')
+    }
+    if (
+      requirement.status === 'accepted' &&
+      candidateView !== null &&
+      deploymentView?.state !== 'verified'
+    ) {
+      actions.push('deploy')
     }
 
     const view: BoardRequirementView = {

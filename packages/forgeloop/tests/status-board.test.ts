@@ -637,6 +637,223 @@ describe('status board', () => {
     expect(board().requirements.find((item) => item.reqId === idle)?.actions).toContain('advance')
   })
 
+  it('offers rework, recover, build and deploy only when the underlying records allow them', () => {
+    // rework：全部交付、验证阻断且仍有失败额度。
+    const reworkReq = submit('req-board-rework')
+    repository.recordTaskPlan(plan(reworkReq))
+    repository.recordPlanApproval({
+      requirementId: reworkReq,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    for (const task of plan(reworkReq).tasks) {
+      repository.recordTaskArtifact({
+        requirementId: reworkReq,
+        planVersion: 1,
+        taskId: task.taskId,
+        candidateSha256: `candidate-${task.taskId}`,
+        testEvidenceSha256: `test-${task.taskId}`,
+        reviewSha256: `review-${task.taskId}`,
+        acceptance: '完成',
+        authorizationSource: `plan-approval:${reworkReq}:v1:owner`,
+        recordedAt: NOW,
+        baselineCommit: 'abc',
+      })
+    }
+    seedVerification(reworkReq, 1, 'block')
+    repository.setStatus(reworkReq, 'blocked', '独立验证阻断')
+    const reworkView = board().requirements.find((item) => item.reqId === reworkReq)!
+    expect(reworkView.actions).toContain('rework')
+    expect(reworkView.verification).toMatchObject({ verdict: 'block', fresh: true })
+
+    // recover：存在 unknown 请求时提供，且不自动重放。
+    const recoverReq = submit('req-board-recover')
+    repository.recordRequest({
+      requestId: 'rq-board-recover',
+      reqId: recoverReq,
+      project: PROJECT,
+      planVersion: 0,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: NOW,
+    })
+    repository.claimNextRequest('tester', NOW)
+    repository.markClaimedUnknown(NOW)
+    expect(board().requirements.find((item) => item.reqId === recoverReq)?.actions).toContain('recover')
+
+    // build：已验收、验证与业务终审都新鲜通过，且尚未构建。
+    const buildReq = submit('req-board-build')
+    repository.recordTaskPlan(plan(buildReq))
+    repository.recordPlanApproval({
+      requirementId: buildReq,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    for (const task of plan(buildReq).tasks) {
+      repository.recordTaskArtifact({
+        requirementId: buildReq,
+        planVersion: 1,
+        taskId: task.taskId,
+        candidateSha256: `candidate-${task.taskId}`,
+        testEvidenceSha256: `test-${task.taskId}`,
+        reviewSha256: `review-${task.taskId}`,
+        acceptance: '完成',
+        authorizationSource: `plan-approval:${buildReq}:v1:owner`,
+        recordedAt: NOW,
+        baselineCommit: 'abc',
+      })
+    }
+    const candidateSha = seedVerification(buildReq, 1, 'pass')
+    const verification = repository.verification(buildReq, 1)!
+    const reviewJson = `${JSON.stringify({
+      kind: 'business-review',
+      verdict: 'pass',
+      summary: '业务终审通过',
+      blocking: [],
+      scenarios: [],
+      acceptance: [],
+    })}\n`
+    const reviewPath = join(dir, `business-${buildReq}.json`)
+    writeFileSync(reviewPath, reviewJson, 'utf8')
+    repository.recordBusinessReview({
+      requirementId: buildReq,
+      planVersion: 1,
+      candidateSha256: candidateSha,
+      requirementVersion: 1,
+      verificationSha256: verification.reportSha256,
+      verdict: 'pass',
+      reportJson: reviewJson,
+      reportPath: reviewPath,
+      reportSha256: sha256OfText(reviewJson),
+      sessionId: 'session-business',
+      reviewedAt: NOW,
+    })
+    repository.recordAcceptance({
+      reqId: buildReq,
+      acceptedBy: 'owner',
+      source: 'test',
+      fingerprint: 'fingerprint',
+      now: NOW,
+    })
+    expect(board().requirements.find((item) => item.reqId === buildReq)?.actions).toContain('build')
+
+    // deploy：已有候选构建但尚无通过的上线核对。
+    repository.recordCandidateBuild({
+      reqId: buildReq,
+      planVersion: 1,
+      candidateSha256: candidateSha,
+      verificationSha256: verification.reportSha256,
+      packageVersion: '0.1.0',
+      artifactSha256: 'artifact',
+      tarball: '/tmp/x.tgz',
+      files: ['lib/index.js'],
+      gitHead: 'abc',
+      builtAt: NOW,
+      evidenceDir: dir,
+    })
+    const deployView = board().requirements.find((item) => item.reqId === buildReq)!
+    expect(deployView.actions).toContain('deploy')
+    expect(deployView.actions).not.toContain('build')
+    expect(deployView.candidate).toMatchObject({ packageVersion: '0.1.0', artifactSha256: 'artifact' })
+
+    repository.recordDeployment({
+      reqId: buildReq,
+      planVersion: 1,
+      candidateSha256: candidateSha,
+      packageVersion: '0.1.0',
+      targetProfile: 'web',
+      artifactSha256: 'artifact',
+      runtimeVersion: '0.1.0',
+      state: 'verified',
+      checks: [{ id: 'installed_files', ok: true, detail: 'ok' }],
+      evidenceDir: dir,
+      recordedBy: 'owner',
+      source: 'test',
+      recordedAt: NOW,
+    })
+    const verifiedView = board().requirements.find((item) => item.reqId === buildReq)!
+    expect(verifiedView.actions).not.toContain('deploy')
+    expect(verifiedView.deployment).toMatchObject({ state: 'verified', targetProfile: 'web' })
+    expect(verifiedView.deployment?.failedChecks).toEqual([])
+
+    repository.recordDeployment({
+      reqId: buildReq,
+      planVersion: 1,
+      candidateSha256: candidateSha,
+      packageVersion: '0.1.0',
+      targetProfile: 'canary',
+      artifactSha256: 'artifact',
+      runtimeVersion: '0.1.0',
+      state: 'failed',
+      checks: [
+        { id: 'installed_files', ok: false, detail: '内容不一致 lib/index.js' },
+        { id: 'running_version', ok: true, detail: 'ok' },
+      ],
+      evidenceDir: dir,
+      recordedBy: 'owner',
+      source: 'test',
+      recordedAt: '2026-10-23T11:00:00.000Z',
+    })
+    const failedView = board().requirements.find((item) => item.reqId === buildReq)!
+    expect(failedView.deployment?.state).toBe('failed')
+    expect(failedView.deployment?.failedChecks).toEqual(['installed_files：内容不一致 lib/index.js'])
+    expect(failedView.actions).toContain('deploy')
+  })
+
+  it('offers regeneration for a stored plan that violates current rules and stops offering build/deploy once done', () => {
+    const legacy = submit('req-board-legacy')
+    repository.db.handle
+      .prepare(
+        'INSERT INTO requirement_task_plans (req_id, plan_version, task_plan_id, plan, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(
+        legacy,
+        1,
+        `plan-${legacy}-1`,
+        JSON.stringify({
+          task_plan_id: `plan-${legacy}-1`,
+          requirement_id: legacy,
+          project: PROJECT,
+          plan_version: 1,
+          requirement_version: 1,
+          created_at: NOW,
+          tasks: [
+            {
+              task_id: 't1',
+              goal: '写实现',
+              files: ['packages/forgeloop/src/a.ts'],
+              acceptance: 'a 完成',
+              test_command: ['npx', 'vitest', 'run', 'packages/forgeloop/tests/a.test.ts'],
+              depends_on: [],
+              limits: { limit_seconds: 60, max_failure_rounds: 2 },
+              authorization_source: '',
+            },
+            {
+              task_id: 't2',
+              goal: '写实现',
+              files: ['packages/forgeloop/src/b.ts'],
+              acceptance: 'b 完成',
+              test_command: ['node', '-e', 'process.exit(0)'],
+              depends_on: ['t1'],
+              limits: { limit_seconds: 60, max_failure_rounds: 2 },
+              authorization_source: '',
+            },
+          ],
+        }),
+        NOW,
+      )
+    repository.setStatus(legacy, 'plan_proposed')
+    seedPlanReview(legacy)
+    const legacyView = board().requirements.find((item) => item.reqId === legacy)!
+    expect(legacyView.actions).toContain('plan')
+    expect(legacyView.actions).not.toContain('approve')
+  })
+
   it('searches requirement text, task goals and versions within the authoritative records', () => {
     const first = submit('req-search-a', '给工作台增加搜索与筛选')
     repository.recordTaskPlan(plan(first))

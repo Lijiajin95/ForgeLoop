@@ -305,6 +305,19 @@ describe('business final review', () => {
     })
   })
 
+  it('rejects acceptance when the business review is bound to another verification', async () => {
+    const { reqId } = await runPipeline()
+    const review = runtime.repo.businessReview(reqId, 1)!
+    runtime.repo.db.handle
+      .prepare('UPDATE requirement_business_reviews SET verification_sha256 = ? WHERE req_id = ?')
+      .run('f'.repeat(64), reqId)
+    expect(runtime.accept({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'business_review_stale',
+    })
+    expect(review.verdict).toBe('pass')
+  })
+
   it('rejects acceptance when the business review report was tampered with', async () => {
     const { reqId } = await runPipeline()
     const review = runtime.repo.businessReview(reqId, 1)!

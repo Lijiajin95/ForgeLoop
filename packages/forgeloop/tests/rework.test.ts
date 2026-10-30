@@ -328,3 +328,91 @@ describe('verification failure rework', () => {
     expect(readFileSync(join(dir, 'README.md'), 'utf8')).toContain('fixture')
   })
 })
+
+describe('rework preconditions', () => {
+  async function blockedPipeline(): Promise<string> {
+    const workspace: VerifyOptions = { commands: commandsOf(1) }
+    runtime.close()
+    runtime = makeRuntime(fakeRunner(workspace))
+    const { reqId } = await runPipeline()
+    expect(runtime.repo.verification(reqId, 1)?.verdict).toBe('block')
+    return reqId
+  }
+
+  it('rejects stale plans, running tasks and exhausted failure budgets', async () => {
+    const reqId = await blockedPipeline()
+    expect(runtime.rework({ reqId, planVersion: 99, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'stale_plan',
+    })
+
+    const plan = runtime.repo.latestTaskPlan(reqId)!
+    runtime.repo.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: plan.tasks[0]!.taskId,
+      state: 'running',
+      reason: '执行步骤 4',
+      executedSeconds: 0,
+      updatedAt: new Date().toISOString(),
+    })
+    expect(runtime.rework({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'busy',
+    })
+    runtime.repo.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: plan.tasks[0]!.taskId,
+      state: 'delivered',
+      reason: '',
+      executedSeconds: 0,
+      updatedAt: new Date().toISOString(),
+    })
+
+    for (let index = 0; index < 3; index += 1) {
+      runtime.repo.recordFailureRound(reqId, {
+        roundId: `exhaust-${index}`,
+        stage: 'verification',
+        summary: '额度用尽',
+        occurredAt: new Date().toISOString(),
+      })
+    }
+    expect(runtime.rework({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'grant_required',
+    })
+  })
+
+  it('rejects rework when the candidate is incomplete or not blocked by verification', async () => {
+    const reqId = await blockedPipeline()
+    const plan = runtime.repo.latestTaskPlan(reqId)!
+    const artifact = runtime.repo.taskArtifact(reqId, 1, plan.tasks[0]!.taskId)!
+    runtime.repo.clearTaskDelivery(reqId, 1, plan.tasks[0]!.taskId)
+    expect(runtime.rework({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'not_delivered',
+    })
+    runtime.repo.recordTaskArtifact(artifact)
+
+    // 通过验证的候选不允许“重新研发”。
+    runtime.repo.recordVerification({
+      requirementId: reqId,
+      planVersion: 1,
+      candidateSha256: identityOf(reqId),
+      requirementVersion: 1,
+      workspaceSha256: 'tree',
+      verdict: 'pass',
+      reportJson: '{}',
+      reportPath: join(dir, 'pass-verification.json'),
+      reportSha256: 'sha',
+      evidenceDir: dir,
+      sessionId: 'session',
+      verifiedAt: new Date(Date.now() + 1000).toISOString(),
+    })
+    expect(runtime.rework({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'verification_not_blocked',
+    })
+  })
+})
