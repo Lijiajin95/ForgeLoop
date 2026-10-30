@@ -2326,9 +2326,20 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 46.4 验证与未完成
 
-- `make check` 通过；新增测试覆盖准入、连续提交、定向修复和脏项目阻断；`make contracts` 通过。
-- 尚未完成：真实 DSH + DeepSeek v4.1 Flash + 真实代码工具的端到端需求验证；正式生产插件仍是旧
-  0.0.2，未部署本次改动；未 push、未打 tag、未递增版本。
+- `make check` 通过：43 个测试文件、480 项测试；新增测试覆盖准入、连续提交、定向修复、模型/工具失败
+  与脏项目阻断；`make contracts` 通过。`make coverage` 行覆盖 90.37%，分支 83.9%，仍低于 84% 门槛。
+- `make package` 生成 `forgeloop-dsh-0.0.2.tgz`，196,497 字节，SHA-256
+  `c363c2612b3fa3b6cb7e2c5cd920c75e1a919faef4d9b9758232455d7b3b48e7`；未安装到正式 profile。
+- 真实宿主验证（隔离 `DSH_HOME` + `e2eheadless` profile，DSH 0.2.1-rc.5，真实
+  `deepseek/deepseek-v4.1-flash`）：模型真实调用 `forgeloop_status` 与工具链成功；通过
+  `forgeloop_submit_requirement` 提交真实需求后，产品 Agent 完成分析，但系统准入以
+  `owner_mismatch` 阻断。原因是工具固定提交 `by=agent:<owner>`，而系统准入要求提交者等于所有者；
+  这正是“模型工具不能冒充 owner”的确定性规则，不是等待可恢复的故障。
+- **未完成真实 happy path**：隔离 headless profile 没有 `agentPresets`，无法走真实人类业务会话入口；
+  用工具入口又按设计不能自准入。因此“输入真实需求 → 实现 → 自验 → 独立验证 → 提交”的真实全链路
+  尚未取得证据；不能用测试替身或伪造 owner 宣称完成。下一步需要在真实 Web 业务会话中以所有者输入
+  同一需求，或提供不冒充 owner 的受控人类测试入口。
+- 未部署、未 push、未打 tag、未递增版本；正式生产插件仍是旧 0.0.2。
 - 未触碰：正式生产库中的既有需求与失败记录、模型路由/凭据、其他项目、已部署应用；
   `package-lock.json` 版本与根包版本不一致、缺失 `.pre-commit-config.yaml` 仍是既有问题。
 - 旧 UI 的任务包批准/验收卡片仍显示历史字段；普通新需求不经过这些动作，但完整界面收敛尚未完成。
