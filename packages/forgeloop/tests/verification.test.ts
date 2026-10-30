@@ -597,6 +597,77 @@ describe('pre-implementation review gate', () => {
     expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
   })
 
+  it('refuses to approve a stored plan that violates the current test-file scope rule', () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner())
+    const reqId = 'req-invalid-plan'
+    runtime.repo.submit({
+      reqId,
+      project: 'testproj',
+      text: '旧任务包',
+      submittedBy: 'owner',
+      source: 'test',
+      now: '2026-10-29T00:00:00.000Z',
+    })
+    runtime.repo.recordAnalysis({
+      reqId,
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: '旧任务包',
+      scenarios: ['任务按依赖完成'],
+      acceptanceCriteria: ['两个任务交付且测试通过'],
+      clarifications: [],
+      createdAt: '2026-10-29T00:00:00.000Z',
+    })
+    // 直接写入旧结构的任务包：它早于当前“测试文件必须在允许文件内”的规则，
+    // 但仍在库里；批准入口必须按现行规则拒绝它。
+    runtime.repo.db.handle
+      .prepare(
+        'INSERT INTO requirement_task_plans (req_id, plan_version, task_plan_id, plan, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(
+        reqId,
+        1,
+        `plan-${reqId}-1`,
+        JSON.stringify({
+          task_plan_id: `plan-${reqId}-1`,
+          requirement_id: reqId,
+          project: 'testproj',
+          plan_version: 1,
+          requirement_version: 1,
+          created_at: '2026-10-29T00:00:01.000Z',
+          tasks: [
+            {
+              task_id: 'a',
+              goal: '写实现',
+              files: ['packages/forgeloop/src/a.ts'],
+              acceptance: 'a 完成',
+              test_command: ['npx', 'vitest', 'run', 'packages/forgeloop/tests/a.test.ts'],
+              depends_on: [],
+              limits: { limit_seconds: 60, max_failure_rounds: 2 },
+              authorization_source: '',
+            },
+            {
+              task_id: 'b',
+              goal: '写实现',
+              files: ['packages/forgeloop/src/b.ts'],
+              acceptance: 'b 完成',
+              test_command: ['node', '-e', 'process.exit(0)'],
+              depends_on: ['a'],
+              limits: { limit_seconds: 60, max_failure_rounds: 2 },
+              authorization_source: '',
+            },
+          ],
+        }),
+        '2026-10-29T00:00:01.000Z',
+      )
+    seedPlanReview(reqId, 1, 'pass')
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'plan_invalid',
+    })
+  })
+
   it('treats a review plan missing analysis coverage as blocking and replans', async () => {
     runtime.close()
     let attempts = 0

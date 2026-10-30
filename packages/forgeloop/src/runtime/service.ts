@@ -26,6 +26,7 @@ import {
   bindAuthorization,
   executionOrder,
   parseTaskPlanDraft,
+  validateTaskPlan,
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
@@ -1329,6 +1330,13 @@ ${answer}`
     if (isTerminal(requirement.status)) return fail('terminal', `需求已处于终态 ${requirement.status}`)
     const plan = this.repo.taskPlan(input.reqId, input.planVersion)
     if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包 v${input.planVersion}`)
+    // 存储的旧任务包可能早于当前硬性规则；批准前按现行规则再校验一次，
+    // 不能因为“当时能落库”就放行一个现在明确不合规的任务包。
+    try {
+      validateTaskPlan(plan)
+    } catch (error) {
+      return fail('plan_invalid', `任务包 v${plan.planVersion} 不满足当前硬性规则：${(error as Error).message}`)
+    }
     const boundary = [
       ...languageViolations(plan),
       ...outsideActiveSource(plan),

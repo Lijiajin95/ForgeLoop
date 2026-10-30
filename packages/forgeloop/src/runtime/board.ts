@@ -15,6 +15,7 @@ import type { Repository } from '../records/repository.js'
 import type { Requirement } from '../domain/requirement.js'
 import { authorizePlan, type TaskPlan } from '../domain/task-plan.js'
 import { candidateIdentityOf } from '../domain/delivery.js'
+import { validateTaskPlan } from '../domain/task-plan.js'
 import { parsePlanReview, parseVerificationReport, type PlanReview, type VerificationReport } from '../domain/verification.js'
 import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
@@ -441,6 +442,15 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       currentCandidateSha256 !== '' &&
       verificationRecord.candidateSha256 === currentCandidateSha256 &&
       verificationRecord.requirementVersion === requirement.versions.length
+    const planValid = (() => {
+      if (!plan) return false
+      try {
+        validateTaskPlan(plan)
+        return true
+      } catch {
+        return false
+      }
+    })()
     const planReviewView: BoardPlanReviewView | null = reviewRecord
       ? {
           verdict: reviewRecord.verdict,
@@ -578,7 +588,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         authorization !== null &&
         authorization.status !== 'approved'
       ) {
-        if (planReviewView?.verdict === 'pass') {
+        if (planReviewView?.verdict === 'pass' && planValid) {
           actions.push('approve')
         } else if (!activeRequest && progress.running === 0) {
           actions.push('plan')
@@ -588,7 +598,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       // 让新版本重新走评审与批准；不能靠补造评审记录继续。
       if (
         authorization?.status === 'approved' &&
-        planReviewView?.verdict !== 'pass' &&
+        (planReviewView?.verdict !== 'pass' || !planValid) &&
         progress.running === 0 &&
         progress.awaitingInput === 0 &&
         !activeRequest
