@@ -2281,3 +2281,54 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 回退路径：此前未安装该插件，需要回退时卸载 `forgeloop-dsh` 并保留
   `~/.forgeloop/production`（当前为空）与 `~/.forgeloop/config.json`；不要删除旧
   `~/.local/share/forgeloop` 发布物。
+
+## 46. 四 Agent 连续研发闭环（2026-10-30）
+
+### 46.1 目标与角色映射
+
+- 目标：普通可信需求在既有授权内，从输入、产品澄清、系统准入、研发实现与自验、独立验证与业务验收
+  到受控提交，不逐阶段等待人工批准；技术失败和额度内缺陷自动恢复。
+- 身份收敛为 **产品 Agent（product）、研发 Agent（dev）、验证 Agent（verify）、运维 Agent（ops）**。
+  删除 `analyze`、`plan`、`review`、`verify-plan`、`business-review`、`diagnosis` 作为独立 Agent 身份；
+  阶段、提示词和状态仍可细分，但不再创建新的业务身份或永久会话。
+- 研发 Agent 吸收原规划、实现、独立审查前的实现与修复；验证 Agent 吸收原实现前评审中的验证设计、
+  独立审查和业务终审；产品 Agent 只做需求澄清与真实业务歧义，不做常规技术批准或最终业务验收。
+- 主控仍是确定性协调者：负责领取请求、自动排入研发、状态、准入/授权校验、身份与版本绑定、停止与恢复、
+  失败额度、证据与提交整合，不是第五个 Agent。
+
+### 46.2 主要改动
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/domain/agents.ts` | 新增唯一四身份词表与阶段常量；任何新子角色都会被类型和契约测试挡回 |
+| `src/domain/admission.ts` | 新增确定性系统准入：可信来源、所有者、项目、需求版本、分析版本、澄清项；输出绑定依据与是否允许代码提交 |
+| `src/domain/status.ts` | 新增 `specified`、`developing`、`verifying`、`committed`；`committed` 为终态 |
+| `src/config.ts` | 新增 `autonomy.enabled/allowCodeCommit/trustedSources/commitCheckCommand`；新增需求级研发工作区与提交证据目录 |
+| `src/records/db.ts`、`repository.ts` | 新增 `requirement_admissions`、`requirement_code_candidates`、`requirement_commits`；准入与人类批准、候选与候选包、提交与临时快照分开记录 |
+| `src/runtime/agent-runner.ts` | 角色收敛为四身份；新增可复用的 `open/send/close` 连续会话，同一研发过程不再每轮新建 Agent |
+| `src/runtime/integration.ts` | 新增候选导出与受控提交：真实项目干净/基线一致检查、临时工作树检查、只暂存本候选、记录提交与检查日志 |
+| `src/runtime/service.ts` | 新增产品→准入→研发→验证→定向修复→提交的连续推进；准入后自动排队；验证与业务验收同一会话；修复保留现场和旧候选；提交只包含本需求 |
+| `src/runtime/coordinator.ts` | 自动推进判定统一委托 `autoAdvanceRequests`；覆盖已准入的 `specified/developing/verifying`，不再只服务旧 `approved/executing` |
+| `src/runtime/prompts.ts` | 提示词改为四身份；研发方案允许只读工具；验证基线由需求说明生成；业务验收由验证 Agent 完成 |
+| `client.js` | 新增四个状态的中英文标签与色调；历史批准/验收入口保留给旧记录 |
+| `tests/admission.test.ts`、`tests/continuous-flow.test.ts` | 新增准入正反例、四身份、可信需求自动分析→准入→研发→验证→提交、定向修复保留成果、脏项目阻断提交等行为测试 |
+| 其他测试 | 角色断言改为四身份；旧批准/验收路径保留为历史兼容测试；协调器自动推进期望同步 |
+
+### 46.3 正常路径与人工节点
+
+- 正常路径：`submit`（可信来源）→ 自动 `analyze` → 产品说明无歧义 → 系统准入 `admit` →
+  协调器自动 `advance` → 研发方案/任务/实现/自验 → 候选 → 验证 Agent 独立验证 → 同会话业务验收 →
+  受控本地提交。普通需求在该路径上的人工节点为 **0**。
+- 仍保留的真实例外：业务目标/承诺冲突、需要改变已生效授权边界、无法确认后果的高风险动作、
+  发布/部署授权、运维目录外的生产操作、额度用尽或提交检查失败后的客户决定。
+- 旧的任务包批准、实现前评审、独立验收入口保留为历史记录与兼容路径，不再是可信新需求的常规门禁；
+  没有伪造 `by=owner`、`approved=true` 或批准行。
+
+### 46.4 验证与未完成
+
+- `make check` 通过；新增测试覆盖准入、连续提交、定向修复和脏项目阻断；`make contracts` 通过。
+- 尚未完成：真实 DSH + DeepSeek v4.1 Flash + 真实代码工具的端到端需求验证；正式生产插件仍是旧
+  0.0.2，未部署本次改动；未 push、未打 tag、未递增版本。
+- 未触碰：正式生产库中的既有需求与失败记录、模型路由/凭据、其他项目、已部署应用；
+  `package-lock.json` 版本与根包版本不一致、缺失 `.pre-commit-config.yaml` 仍是既有问题。
+- 旧 UI 的任务包批准/验收卡片仍显示历史字段；普通新需求不经过这些动作，但完整界面收敛尚未完成。
