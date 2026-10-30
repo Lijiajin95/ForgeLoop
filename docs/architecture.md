@@ -160,12 +160,12 @@ DSH 宿主（唯一常驻产品）
    `npm run candidate --workspace forgeloop-dsh`。
 8. **验收**：运行时绑定实际材料；材料变化或摘要不一致即拒绝。必须存在与当前候选身份、需求版本一致
    且已通过、证据文件完整的独立验证，以及与候选、验证摘要一致且已通过的业务终审；验证或终审缺失、
-   过期、被篡改、结论阻断，或仍有 unknown 请求时拒绝。存在候选包时必须匹配其摘要；没有候选时当前
+   过期、被篡改或结论阻断时拒绝。存在候选包时必须匹配其摘要；没有候选时当前
    允许按任务材料验收，不能据此认定已安装。验收后需求进入终态，表示“可发布”，不表示已安装。
 9. **上线核对**：安装由外部受控机制完成；`deploy` 核对目标 profile 的安装文件与包内内容逐一致、
    安装版本与实际运行版本、本次需求模块随包加载、看板/记录入口与验收/终审记录，写入
    `deployments`。任一不一致保留失败记录；“已安装”和“交付完成”分别记录，不把安装回执当上线验证。
-8. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`plan/approve/advance/verify/recover/build/deploy/retry/accept/stop/cancel` 是仅有的写动作端点。
+8. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`plan/approve/advance/verify/requeue/build/deploy/retry/accept/stop/cancel` 是仅有的写动作端点。
    任务包卡片展示批准状态、评审结论、交付进度与验证状态；只有通过实现前评审才提供批准，全部任务
    交付后才提供独立验证，只有与当前候选一致的通过验证才提供验收；验收要求全部任务已交付，
    有候选包时必须显式绑定产物摘要；停止会中止该需求当前在途请求并置阻塞。
@@ -173,7 +173,7 @@ DSH 宿主（唯一常驻产品）
    看板经认证 Fetch 路由读取 `runtime/board.ts` 生成的状态；没有连接服务时不注册路由。
    失败任务卡展示运行原因与 `domain/failure-advice.ts` 的确定性建议；任务详情进一步给出正式测试日志尾部、
    失败轮次与独立审查阻断项。重试只重排一次 advance：不新建任务包、不清零失败轮次、不越过已批准文件边界；
-   失败额度用尽、任务已交付、前置任务未交付或存在在途请求时拒绝。结果未知（unknown）的请求须先核对现场并
+   失败额度用尽、任务已交付、前置任务未交付或存在在途请求时拒绝。
    经二次确认才能关闭，随后才排队重试，不自动重放。
    普通 DSH 消息不自动成为需求；批准与推进必须点击任务包动作。完整入口见[插件说明](../packages/forgeloop/README.md)。
 
@@ -209,14 +209,12 @@ DSH 宿主（唯一常驻产品）
   动作只有批准/拒绝处置、核对未知、关闭与生成修复需求。服务端校验事件状态、动作目录与参数，
   页面不执行命令，也不另存业务状态。
 - 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`resultUnknown` 表示需求存在
-  unknown 请求；`stopRequested` 表示阻塞原因是停止请求。三者都不等于任务已经停稳或结果已经收口。
-- 需求级动作由服务端 `actions` 判定：`plan`、`approve`、`advance`、`verify`、`requeue`、`diagnose`、`recover`、
-  `build`、`deploy`、`stop`、`cancel`；任务级 `retry` 仍由 `retryTask` 复核批准、额度、任务顺序、
-  在途请求与 unknown 确认。`recover` 只关闭 unknown 请求、不重放（保留给已确认现场的人工收口）；
-  `diagnose` 让诊断 Agent 说明根因与处置，再由程序按工作副本事实判定重放安全性；`requeue` 在失败停在
-  blocked 后重新排队一次执行（与 `retry` 共用 `retryDecision`：额度、在途请求、unknown、批准状态与终态
-  都在判定里拦下，不新建任务包、不清零失败轮次）；协调器的 `autoAdvance` 打开时，同一判定也会自动
-  为 blocked 需求排队；`build` 要求验收后且
+  `stopRequested` 表示阻塞原因是停止请求。两者都不等于任务已经停稳或结果已经收口。
+- 需求级动作由服务端 `actions` 判定：`plan`、`approve`、`advance`、`verify`、`requeue`、
+  `build`、`deploy`、`stop`、`cancel`；任务级 `retry` 仍由 `retryTask` 复核批准、额度、任务顺序与
+  在途请求。`requeue` 在失败停在 blocked 后重新排队一次执行（与 `retry` 共用 `retryDecision`：
+  额度、在途请求、批准状态与终态都在判定里拦下，不新建任务包、不清零失败轮次）；协调器的
+  `autoAdvance` 打开时，同一判定也会自动为 blocked 需求排队；`build` 要求验收后且
   只从已验证工作区构建；`deploy` 只做安装后核对。批准入口还会按现行 `validateTaskPlan` 复校已落库
   任务包，旧规则下生成的任务包不会被放行。
 - **执行范围**：需求批准后，研发执行 Agent 使用 DSH 默认代码工具，权限 preset 为
@@ -250,26 +248,24 @@ DSH 宿主（唯一常驻产品）
 
 ## 6. 持久工作、去重与恢复
 
-- 请求状态：`pending → claimed → done | failed | unknown | dismissed`。
+- 请求状态：`pending → claimed → done | failed | dismissed`。没有 unknown 中间态：
+  执行者中断后，工作副本是一次性快照，直接判 failed 并丢弃快照，随后可重新执行。
 - 受理先落库再返回；`service_requests` 对同需求同动作复用、不同动作拒绝，数据库唯一索引
   兜底。
 - 协调器单实例、单条领取：`UPDATE … WHERE state='pending'` 原子领取；重复唤醒不会重复执行。
 - 单消费者锁：`<记录根>/host.lock` 目录原子创建并记录 PID；第二个宿主只读、不领取、不把
-  别人的在途请求标为 unknown；进程已退出的残留锁会被清理后重试一次。
-- 宿主启动时：`claimed` 请求改为 `unknown`（先核对，不重放），`started` 动作改为
-  `interrupted`，仍为 `running` 的任务运行标为 `blocked` 并记录中断原因；保留证据与原因，
-  恢复摘要写入 `runtime_meta`。
+  别人的在途请求不领取、不修改；进程已退出的残留锁会被清理后重试一次。
+- 宿主启动时：`claimed` 请求改为 `failed`（执行者已不在，结果按“未交付”收口），丢弃该任务包
+  的一次性工作副本，`started` 动作改为 `interrupted`，仍为 `running` 的任务运行标为 `blocked`
+  并记录中断原因；恢复摘要（含丢弃的工作副本）写入 `runtime_meta`。
 - 停止：需求级操作撤销待执行请求并记录状态；当前在途 Agent 的取消接在协调器整体停止路径，
   需求级取消未落实。结果未知的动作不自动重放。
 - 运维：动作先写 running 意图；宿主启动时把未收口的动作标为 unknown，并把对应事件标为结果未知。
   所有者核对后才能转为未解决或关闭；不自动重放。
 - 工时：只累计真实执行段，用户等待不计入；目前在推进开始检查，尚未在每个后续动作／尝试前复检。
-- **未知请求诊断**：`diagnose` 端点（`runtime.diagnoseUnknown`）先由程序采集现场事实（未知请求、
-  任务运行、各任务工作副本是否存在、是否有非基线提交、已修改与未跟踪文件），再让 `diagnosis` 角色
-  Agent 在无工具条件下只输出 `root_cause` 与 `solution`；两字段各限 100 个字符（按 Unicode 码点计，中英文同等），超长、缺字段、
-  空串判为 `diagnosis_invalid`，原文另存 `*.rejected`。重放安全性由程序判定：快照只该有运行时建立的
-  基线提交，出现第二个提交即 `replay_unsafe`，未知请求保持原状。判定安全才关闭全部未知请求并把
-  诊断写入 `requirement_unknown_diagnoses` 与报告文件；看板 `diagnosis` 字段展示根因、方案与安全性。
+- **中断恢复**：不保留“无法判定”的状态。执行发生在一次性快照内，运行时是唯一写入记录的一方；
+  宿主重启时把 `claimed` 判为 `failed`、丢弃快照，再由 `requeue`/`autoAdvance` 重新执行。
+  残余风险是执行者在沙箱内发起的网络调用等外部副作用无法回收，已在状态记录中列为边界。
 - 失败额度与验收失败入口等已知缺口见[状态记录 §4.1](status.md#41-当前实现缺口2026-10-28-整理)。
 
 ## 7. 信任边界
@@ -306,7 +302,7 @@ DSH 宿主（唯一常驻产品）
   与 `conversation.chat.node` 注册节点和渲染器。
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
-  `plan`、`approve`、`advance`、`verify`、`requeue`、`diagnose`、`recover`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
+  `plan`、`approve`、`advance`、`verify`、`requeue`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
   以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-confirm-unknown`、`ops-close`、`ops-request-fix`；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
