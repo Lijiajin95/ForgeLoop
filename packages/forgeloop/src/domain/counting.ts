@@ -11,6 +11,7 @@ import { GrantExhaustedError, RuleViolationError } from './errors.js'
 export const MAX_ROUNDS_PER_GRANT = 3
 
 export const FAILURE_FORMAL_TEST = 'formal_test'
+export const FAILURE_PLANNING = 'planning'
 /** 执行回合超时/被停止：同样消耗一轮额度，避免自动重试无限循环。 */
 export const FAILURE_INTERRUPTED = 'interrupted'
 export const FAILURE_VERIFICATION = 'verification'
@@ -18,6 +19,7 @@ export const FAILURE_BUSINESS_REVIEW = 'business_review'
 export const FAILURE_USER_ACCEPTANCE = 'user_acceptance'
 export type FailureStage =
   | typeof FAILURE_FORMAL_TEST
+  | typeof FAILURE_PLANNING
   | typeof FAILURE_INTERRUPTED
   | typeof FAILURE_VERIFICATION
   | typeof FAILURE_BUSINESS_REVIEW

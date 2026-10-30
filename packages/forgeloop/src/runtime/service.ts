@@ -30,7 +30,7 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_PLANNING, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
 import { retryDecision } from '../domain/retry-policy.js'
@@ -1242,7 +1242,7 @@ ${answer}`
       const allowed =
         requirement.status === 'blocked'
           ? admission
-            ? this.remainingFailureRounds(requirement.reqId) > 0
+            ? plan !== null && this.remainingFailureRounds(requirement.reqId) > 0
             : this.retryDecisionFor(requirement.reqId).allowed
           : ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(requirement.status)
       if (!allowed) continue
@@ -3429,18 +3429,23 @@ ${answer}`
     requirement: Requirement
     analysis: RequirementAnalysis
     workspace: string
-    session: AgentSession
     authorizationSource: string
     signal: AbortSignal
   }): Promise<{ ok: true; plan: TaskPlan } | { ok: false; code: string; reason: string }> {
     let feedback = ''
     let lastError = ''
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const result = await input.session.send({
+      // 方案回合不挂载工具：模型在“可调用工具”的会话里容易把 DSML/工具调用
+      // 当成最终文本，导致任务包不是 JSON。方案是工作记录，实现回合再读代码。
+      const result = await this.runner.run({
+        role: AGENT_DEV,
+        cwd: input.workspace,
         prompt: devPlanningPrompt(input.requirement, input.analysis) + feedback,
+        permission: 'workspace-write',
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(sessionsDir(this.config), `${input.reqId}-plan-a${attempt}.jsonl`),
         signal: input.signal,
+        tools: 'none',
       })
       if (result.status === 'aborted' || result.status === 'timeout') {
         return { ok: false, code: 'interrupted', reason: result.reason }
@@ -3461,7 +3466,7 @@ ${answer}`
         })
       } catch (error) {
         lastError = `任务包不合规：${(error as Error).message}`
-        feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。请修正后重新输出完整 JSON。`
+        feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。不要输出 <｜｜DSML｜｜> 或工具调用标记；请只输出完整 JSON 文本。`
         continue
       }
       const packages = this.existingPackages()
@@ -4197,6 +4202,30 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     const authorizationSource = `system-admission:${admission.admissionId}`
     const workspaceInfo = this.ensureDevWorkspace(reqId, requirement.versions.length)
     const workspace = workspaceInfo.workspace
+    let plan = this.repo.latestTaskPlan(reqId)
+    if (!plan || plan.requirementVersion !== requirement.versions.length) {
+      const planned = await this.planInSession({
+        reqId,
+        requirement,
+        analysis,
+        workspace,
+        authorizationSource,
+        signal,
+      })
+      if (!planned.ok) {
+        // 方案格式/模型异常已在研发会话内重试；仍失败时计一轮并停在 blocked，
+        // 不自动整轮重放，避免同样的畸形输出无限循环。
+        this.repo.recordFailureRound(reqId, {
+          roundId: `planning-${randomUUID()}`,
+          stage: FAILURE_PLANNING,
+          summary: `技术方案未形成：${planned.reason}`.slice(0, 1000),
+          occurredAt: this.now(),
+        })
+        this.repo.setStatus(reqId, 'blocked', `技术方案未形成：${planned.reason}`)
+        return { state: 'failed', detail: `技术方案未形成：${planned.reason}` }
+      }
+      plan = planned.plan
+    }
     const session = await this.openAgent({
       role: AGENT_DEV,
       cwd: workspace,
@@ -4204,23 +4233,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       tools: 'default',
     })
     try {
-      let plan = this.repo.latestTaskPlan(reqId)
-      if (!plan || plan.requirementVersion !== requirement.versions.length) {
-        const planned = await this.planInSession({
-          reqId,
-          requirement,
-          analysis,
-          workspace,
-          session,
-          authorizationSource,
-          signal,
-        })
-        if (!planned.ok) {
-          this.repo.setStatus(reqId, 'blocked', `技术方案未形成：${planned.reason}`)
-          return { state: 'failed', detail: `技术方案未形成：${planned.reason}` }
-        }
-        plan = planned.plan
-      }
       this.repo.ensureBudget(reqId, plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0))
       this.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一工作区实现并自验')
       if (workspaceInfo.fresh) {

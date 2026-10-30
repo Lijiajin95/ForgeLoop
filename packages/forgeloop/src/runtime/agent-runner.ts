@@ -311,7 +311,15 @@ export class AgentRunner {
         if (disposed) return
         disposed = true
         dead = true
-        await handle.dispose().catch(() => undefined)
+        // 宿主 dispose 在极端情况下可能等待未完成的工具/流；收口必须有界，
+        // 否则请求会永远停在 claimed，协调器无法记录失败或重排。
+        await Promise.race([
+          handle.dispose().catch(() => undefined),
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 5_000)
+            timer.unref?.()
+          }),
+        ])
       },
     }
   }

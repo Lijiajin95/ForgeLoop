@@ -273,6 +273,17 @@ export function parseTaskPlanDraft(
       try {
         return JSON.parse(body) as unknown
       } catch (error) {
+        // 模型偶尔把 JSON 包在工具调用标记或说明文字里；只接受唯一一段完整对象，
+        // 不猜测多个候选，也不放宽任务包校验。
+        const start = body.indexOf('{')
+        const end = body.lastIndexOf('}')
+        if (start >= 0 && end > start) {
+          try {
+            return JSON.parse(body.slice(start, end + 1)) as unknown
+          } catch {
+            // 落到统一的畸形错误。
+          }
+        }
         throw new MalformedError(`任务包不是可解析的 JSON：${(error as Error).message}`)
       }
     })()
