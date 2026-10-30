@@ -1,6 +1,6 @@
 {
   "name": "forgeloop-dsh",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "ForgeLoop: durable project delivery workflow as a native DSH plugin",
   "type": "module",
   "main": "./lib/index.js",
