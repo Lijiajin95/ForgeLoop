@@ -1089,7 +1089,7 @@ window.__ModuleLoader__.load({
         match(event) {
           if (!event || event.type !== eventType) return null
           const data = event.data || {}
-          const id = data.eventId || data.reqId || data.seq || 'unknown'
+          const id = data.eventId || data.reqId || data.seq || 'unidentified'
           return { id: String(id), role: 'start' }
         },
         start(_context, match) {

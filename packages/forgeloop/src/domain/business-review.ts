@@ -116,8 +116,8 @@ function checkItem(
   }
   const referenced = item.commands.map((label) => runs.get(label)).filter((run): run is BusinessReviewCommandRun => run !== undefined)
   if (referenced.length !== item.commands.length) {
-    const unknown = item.commands.filter((label) => !runs.has(label))
-    issues.push(`${what}引用了未执行的验证命令：${unknown.join('、')}`)
+    const unreported = item.commands.filter((label) => !runs.has(label))
+    issues.push(`${what}引用了未执行的验证命令：${unreported.join('、')}`)
     return issues
   }
   if (!referenced.some((run) => matchesCommandOutput(run.output, item.evidence))) {

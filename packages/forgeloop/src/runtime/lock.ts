@@ -3,7 +3,7 @@
  *
  * 目录创建是原子的：`mkdir(lockDir)` 成功即获得所有权；存在时读取持有者进程，
  * 进程已退出视为残留并清理一次。第二个宿主仍可提供只读命令，但不得领取请求、
- * 不得把别人的在途请求标为 unknown。
+ * 不得修改别人的在途请求状态。
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'

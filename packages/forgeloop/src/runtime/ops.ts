@@ -755,7 +755,7 @@ export class OpsRuntime {
       }
       authorizationSource = authorization.source
     } else if (event.decision === 'approved' && event.decisionBy) {
-      authorizationSource = `owner:${event.decisionBy}:${event.decisionSource || 'unknown-source'}`
+      authorizationSource = `owner:${event.decisionBy}:${event.decisionSource || 'missing-source'}`
     } else {
       return 'not_started'
     }
