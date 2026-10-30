@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { Coordinator } from '../src/runtime/coordinator.js'
-import { resolveConfig } from '../src/config.js'
+import { resolveConfig, workspaceDir } from '../src/config.js'
 import { sha256OfText } from '../src/domain/delivery.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 
@@ -1171,5 +1171,170 @@ describe('execution scope, plan freeze and repair loop', () => {
       expect(runtime.repo.archivedArtifacts(reqId, 1, taskId)).toHaveLength(1)
     }
     expect(runtime.repo.taskRuns(reqId, 1).every((run) => run.state === 'delivered')).toBe(true)
+  })
+})
+
+
+describe('unknown diagnosis service', () => {
+  function seedUnknown(reqId: string, runState: 'blocked' | 'running' = 'blocked'): void {
+    runtime.repo.submit({
+      reqId,
+      project: 'testproj',
+      text: '未知诊断',
+      submittedBy: 'owner',
+      source: 'test',
+      now: '2026-10-30T00:00:00.000Z',
+    })
+    runtime.repo.recordTaskPlan({
+      taskPlanId: `plan-${reqId}-1`,
+      requirementId: reqId,
+      project: 'testproj',
+      planVersion: 1,
+      requirementVersion: 1,
+      createdAt: '2026-10-30T00:00:01.000Z',
+      tasks: [
+        {
+          taskId: 'a',
+          goal: '中断任务',
+          files: ['docs/a.md'],
+          acceptance: 'a 完成',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: [],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+        {
+          taskId: 'b',
+          goal: '后续任务',
+          files: ['docs/b.md'],
+          acceptance: 'b 完成',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: ['a'],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+      ],
+    })
+    runtime.repo.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 'a',
+      state: runState,
+      reason: '宿主中断',
+      executedSeconds: 1,
+      updatedAt: '2026-10-30T00:00:02.000Z',
+    })
+    runtime.repo.setStatus(reqId, 'blocked', '开发回合被停止')
+    runtime.repo.recordRequest({
+      requestId: `rq-${reqId}`,
+      reqId,
+      project: 'testproj',
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: '2026-10-30T00:00:03.000Z',
+    })
+    runtime.repo.resolveRequest(`rq-${reqId}`, 'unknown', '宿主停止', '2026-10-30T00:00:04.000Z')
+  }
+
+  function diagnosisRunner(text: string): AgentLike {
+    return {
+      async run(request) {
+        if (request.role === 'diagnosis') return result(request, text)
+        return result(request, '{}')
+      },
+    }
+  }
+
+  it('records the diagnosis, closes unknown requests and exposes both in the board', async () => {
+    const reqId = 'req-diagnose-service'
+    seedUnknown(reqId)
+    runtime.close()
+    runtime = makeRuntime(
+      diagnosisRunner(JSON.stringify({ root_cause: '中断留下未提交改动', solution: '丢弃快照重跑' })),
+    )
+    const outcome = await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })
+    expect(outcome.ok, outcome.message).toBe(true)
+    const data = outcome.data as { rootCause: string; closedRequests: number; reportPath: string }
+    expect(data.closedRequests).toBe(1)
+    expect(existsSync(data.reportPath)).toBe(true)
+    expect(runtime.repo.request(`rq-${reqId}`)?.state).toBe('dismissed')
+    const view = runtime.statusBoard() as unknown as {
+      requirements: Array<{ reqId: string; diagnosis: { rootCause: string; replaySafe: boolean } | null; actions: string[] }>
+    }
+    const item = view.requirements.find((entry) => entry.reqId === reqId)!
+    expect(item.diagnosis).toMatchObject({ rootCause: '中断留下未提交改动', replaySafe: true })
+    expect(item.actions).not.toContain('diagnose')
+  })
+
+  it('keeps unknown open when the diagnosis is over the byte limit or the run fails', async () => {
+    const reqId = 'req-diagnose-invalid'
+    seedUnknown(reqId)
+    runtime.close()
+    runtime = makeRuntime(diagnosisRunner(JSON.stringify({ root_cause: '中'.repeat(40), solution: '重跑' })))
+    expect(await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'diagnosis_invalid',
+    })
+    expect(runtime.repo.request(`rq-${reqId}`)?.state).toBe('unknown')
+
+    runtime.close()
+    runtime = makeRuntime({
+      async run() {
+        return {
+          status: 'timeout',
+          text: '',
+          sessionId: 'session-timeout',
+          reason: '超过 30 秒',
+          transcriptPath: '',
+          durationMs: 1,
+          toolCalls: [],
+        }
+      },
+    })
+    expect(await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'diagnosis_failed',
+    })
+    expect(runtime.repo.request(`rq-${reqId}`)?.state).toBe('unknown')
+  })
+
+  it('refuses diagnosis when nothing is unknown and records unsafe replays without closing', async () => {
+    const reqId = 'req-diagnose-none'
+    runtime.repo.submit({
+      reqId,
+      project: 'testproj',
+      text: '无未知',
+      submittedBy: 'owner',
+      source: 'test',
+      now: '2026-10-30T00:00:00.000Z',
+    })
+    expect(await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'nothing_to_recover',
+    })
+
+    // 工作副本出现执行者提交：诊断可记录，但不得关闭未知请求。
+    const unsafeId = 'req-diagnose-unsafe'
+    seedUnknown(unsafeId)
+    const workspace = workspaceDir(runtime.config, unsafeId, 1, 'a')
+    mkdirSync(workspace, { recursive: true })
+    execFileSync('git', ['init', '-q'], { cwd: workspace })
+    execFileSync('git', ['config', 'user.email', 'x@y'], { cwd: workspace })
+    execFileSync('git', ['config', 'user.name', 'x'], { cwd: workspace })
+    writeFileSync(join(workspace, 'a.txt'), 'a', 'utf8')
+    execFileSync('git', ['add', '-A'], { cwd: workspace })
+    execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: workspace })
+    writeFileSync(join(workspace, 'b.txt'), 'b', 'utf8')
+    execFileSync('git', ['add', '-A'], { cwd: workspace })
+    execFileSync('git', ['commit', '-qm', 'executor'], { cwd: workspace })
+
+    runtime.close()
+    runtime = makeRuntime(diagnosisRunner(JSON.stringify({ root_cause: '执行者自行提交', solution: '人工处置' })))
+    const outcome = await runtime.diagnoseUnknown({ reqId: unsafeId, by: 'owner', source: 'test' })
+    expect(outcome).toMatchObject({ ok: false, code: 'replay_unsafe' })
+    expect(runtime.repo.request(`rq-${unsafeId}`)?.state).toBe('unknown')
+    expect(runtime.repo.unknownDiagnoses(unsafeId)[0]).toMatchObject({ replaySafe: false })
   })
 })

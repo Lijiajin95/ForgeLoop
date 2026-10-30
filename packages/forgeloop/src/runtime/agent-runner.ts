@@ -14,7 +14,16 @@ import type { AgentConfig } from '../config.js'
 type AnyRecord = Record<string, unknown>
 
 export interface AgentRunRequest {
-  readonly role: 'analyze' | 'plan' | 'dev' | 'review' | 'verify-plan' | 'verify' | 'business-review' | 'ops'
+  readonly role:
+    | 'analyze'
+    | 'plan'
+    | 'dev'
+    | 'review'
+    | 'verify-plan'
+    | 'verify'
+    | 'business-review'
+    | 'ops'
+    | 'diagnosis'
   readonly cwd: string
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'

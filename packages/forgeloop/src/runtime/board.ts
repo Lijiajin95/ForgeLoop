@@ -80,6 +80,7 @@ export type BoardRequirementAction =
   | 'advance'
   | 'verify'
   | 'recover'
+  | 'diagnose'
   | 'build'
   | 'deploy'
   | 'stop'
@@ -118,6 +119,16 @@ export interface BoardCandidateView {
   readonly verificationSha256: string
 }
 
+export interface BoardDiagnosisView {
+  readonly diagnosisId: string
+  readonly rootCause: string
+  readonly solution: string
+  readonly replaySafe: boolean
+  readonly safeReason: string
+  readonly closedRequests: number
+  readonly diagnosedAt: string
+}
+
 export interface BoardDeploymentView {
   readonly state: string
   readonly targetProfile: string
@@ -140,6 +151,8 @@ export interface BoardRequirementView {
   readonly businessReview: BoardBusinessReviewView | null
   readonly candidate: BoardCandidateView | null
   readonly deployment: BoardDeploymentView | null
+  /** 最近一次未知请求诊断：根因与方案各 ≤100 字节，附程序判定的重放安全性。 */
+  readonly diagnosis: BoardDiagnosisView | null
   readonly clarifications: number
   readonly failureRounds: number
   readonly grants: number
@@ -469,6 +482,19 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         }
       : null
 
+    const diagnosisRecord = repository.latestUnknownDiagnosis(requirement.reqId)
+    const latestDiagnosis: BoardDiagnosisView | null = diagnosisRecord
+      ? {
+          diagnosisId: diagnosisRecord.diagnosisId,
+          rootCause: diagnosisRecord.rootCause,
+          solution: diagnosisRecord.solution,
+          replaySafe: diagnosisRecord.replaySafe,
+          safeReason: diagnosisRecord.safeReason,
+          closedRequests: diagnosisRecord.closedRequests,
+          diagnosedAt: diagnosisRecord.diagnosedAt,
+        }
+      : null
+
     const businessReviewRecord = repository.businessReview(requirement.reqId, plan?.planVersion ?? 0)
     const businessReviewView: BoardBusinessReviewView | null = businessReviewRecord
       ? {
@@ -610,8 +636,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       ) {
         actions.push('verify')
       }
+      // 未知请求的默认处置是 Agent 诊断：根因与方案由程序校验，重放安全性由程序按现场事实判定。
       if (unknownRequests > 0 && progress.running === 0 && progress.awaitingInput === 0 && !activeRequest) {
-        actions.push('recover')
+        actions.push('diagnose')
       }
       if (activeRequest || progress.running > 0 || progress.awaitingInput > 0) actions.push('stop')
       actions.push('cancel')
@@ -645,6 +672,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       planReview: planReviewView,
       verification: verificationView,
       businessReview: businessReviewView,
+      diagnosis: latestDiagnosis,
       candidate: candidateView,
       deployment: deploymentView,
       clarifications: latestAnalysis?.clarifications.length ?? 0,

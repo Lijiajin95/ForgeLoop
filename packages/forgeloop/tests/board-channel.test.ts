@@ -826,6 +826,128 @@ describe('web board host wiring', () => {
     host.cleanup()
   })
 
+  it('diagnoses an unknown request and releases the block when replay is safe', async () => {
+    const reqId = 'req-diagnose-route'
+    seedRequirement(reqId)
+    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository = new Repository(database)
+    repository.recordTaskPlan({
+      taskPlanId: `plan-${reqId}-1`,
+      requirementId: reqId,
+      project: 'testproj',
+      planVersion: 1,
+      requirementVersion: 1,
+      createdAt: '2026-10-30T00:00:00.000Z',
+      tasks: [
+        {
+          taskId: 'a',
+          goal: '中断的任务',
+          files: ['docs/a.md'],
+          acceptance: 'a 完成',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: [],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+        {
+          taskId: 'b',
+          goal: '后续任务',
+          files: ['docs/b.md'],
+          acceptance: 'b 完成',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: ['a'],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
+      ],
+    })
+    repository.setStatus(reqId, 'blocked', '开发回合被停止：工作副本可能有未收口改动，需核对')
+    repository.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 'a',
+      state: 'blocked',
+      reason: '宿主中断：执行结果未收口',
+      executedSeconds: 1,
+      updatedAt: '2026-10-30T00:00:02.000Z',
+    })
+    repository.recordRequest({
+      requestId: 'rq-unknown-diagnose',
+      reqId,
+      project: 'testproj',
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: '2026-10-30T00:00:03.000Z',
+    })
+    repository.resolveRequest('rq-unknown-diagnose', 'unknown', '宿主停止', '2026-10-30T00:00:04.000Z')
+    repository.close()
+
+    const host = fakeHost({
+      agentText: JSON.stringify({
+        root_cause: '宿主重启中断开发回合，快照内留未提交改动',
+        solution: '丢弃一次性快照后重跑推进',
+      }),
+    })
+    start(host)
+    const route = host.routes[0]!
+    const response = await route.fetch(post(JSON.stringify({ endpoint: 'diagnose', reqId })))
+    const raw = await response.text()
+    if (response.status !== 200) throw new Error(`status ${response.status}: ${raw}`)
+    const body = JSON.parse(raw) as {
+      ok: boolean
+      value: { rootCause: string; replaySafe: boolean; closedRequests: number }
+    }
+    expect(body.ok).toBe(true)
+    expect(body.value.replaySafe).toBe(true)
+    expect(body.value.closedRequests).toBe(1)
+    expect(Buffer.byteLength(body.value.rootCause, 'utf8')).toBeLessThanOrEqual(100)
+
+    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository2 = new Repository(database2)
+    expect(repository2.request('rq-unknown-diagnose')?.state).toBe('dismissed')
+    expect(repository2.unknownDiagnoses(reqId)).toHaveLength(1)
+    repository2.close()
+    host.cleanup()
+  })
+
+  it('rejects an over-long diagnosis and keeps the unknown request open', async () => {
+    const reqId = 'req-diagnose-long'
+    seedRequirement(reqId)
+    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository = new Repository(database)
+    repository.recordRequest({
+      requestId: 'rq-unknown-long',
+      reqId,
+      project: 'testproj',
+      planVersion: 0,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: '2026-10-30T00:00:03.000Z',
+    })
+    repository.resolveRequest('rq-unknown-long', 'unknown', '宿主停止', '2026-10-30T00:00:04.000Z')
+    repository.close()
+
+    const host = fakeHost({
+      agentText: JSON.stringify({ root_cause: '中'.repeat(40), solution: '重跑' }),
+    })
+    start(host)
+    const route = host.routes[0]!
+    const response = await route.fetch(post(JSON.stringify({ endpoint: 'diagnose', reqId })))
+    expect(response.status).toBe(409)
+    const body = (await response.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('diagnosis_invalid')
+    expect(body.error.message).toContain('超过 100 字节')
+
+    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository2 = new Repository(database2)
+    expect(repository2.request('rq-unknown-long')?.state).toBe('unknown')
+    repository2.close()
+    host.cleanup()
+  })
+
   it('serves the task public execution process with real session and evidence identities', async () => {
     const reqId = 'req-execution-1'
     seedRequirement(reqId)

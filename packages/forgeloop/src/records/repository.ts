@@ -44,6 +44,23 @@ function businessReviewRow(row: Row): BusinessReviewRecord {
   }
 }
 
+function unknownDiagnosisRow(row: Row): UnknownDiagnosisRecord {
+  return {
+    reqId: text(row, 'req_id'),
+    diagnosisId: text(row, 'diagnosis_id'),
+    rootCause: text(row, 'root_cause'),
+    solution: text(row, 'solution'),
+    replaySafe: num(row, 'replay_safe') === 1,
+    safeReason: text(row, 'safe_reason'),
+    factsJson: text(row, 'facts_json'),
+    reportPath: text(row, 'report_path'),
+    reportSha256: text(row, 'report_sha256'),
+    sessionId: text(row, 'session_id'),
+    closedRequests: num(row, 'closed_requests'),
+    diagnosedAt: text(row, 'diagnosed_at'),
+  }
+}
+
 function verificationRow(row: Row): VerificationRecord {
   return {
     requirementId: text(row, 'req_id'),
@@ -115,6 +132,21 @@ export interface BusinessReviewRecord {
   readonly reportSha256: string
   readonly sessionId: string
   readonly reviewedAt: string
+}
+
+export interface UnknownDiagnosisRecord {
+  readonly reqId: string
+  readonly diagnosisId: string
+  readonly rootCause: string
+  readonly solution: string
+  readonly replaySafe: boolean
+  readonly safeReason: string
+  readonly factsJson: string
+  readonly reportPath: string
+  readonly reportSha256: string
+  readonly sessionId: string
+  readonly closedRequests: number
+  readonly diagnosedAt: string
 }
 
 export interface ServiceRequestRecord {
@@ -723,6 +755,54 @@ export class Repository {
         review.sessionId,
         review.reviewedAt,
       )
+  }
+
+  recordUnknownDiagnosis(record: UnknownDiagnosisRecord): void {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_unknown_diagnoses
+          (req_id, diagnosis_id, root_cause, solution, replay_safe, safe_reason, facts_json,
+           report_path, report_sha256, session_id, closed_requests, diagnosed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, diagnosis_id) DO UPDATE SET
+           root_cause = excluded.root_cause, solution = excluded.solution,
+           replay_safe = excluded.replay_safe, safe_reason = excluded.safe_reason,
+           facts_json = excluded.facts_json, report_path = excluded.report_path,
+           report_sha256 = excluded.report_sha256, session_id = excluded.session_id,
+           closed_requests = excluded.closed_requests, diagnosed_at = excluded.diagnosed_at`,
+      )
+      .run(
+        record.reqId,
+        record.diagnosisId,
+        record.rootCause,
+        record.solution,
+        record.replaySafe ? 1 : 0,
+        record.safeReason,
+        record.factsJson,
+        record.reportPath,
+        record.reportSha256,
+        record.sessionId,
+        record.closedRequests,
+        record.diagnosedAt,
+      )
+  }
+
+  unknownDiagnoses(reqId: string): UnknownDiagnosisRecord[] {
+    const rows = this.db.handle
+      .prepare(
+        'SELECT * FROM requirement_unknown_diagnoses WHERE req_id = ? ORDER BY diagnosed_at DESC',
+      )
+      .all(reqId) as Row[]
+    return rows.map(unknownDiagnosisRow)
+  }
+
+  latestUnknownDiagnosis(reqId: string): UnknownDiagnosisRecord | null {
+    const row = this.db.handle
+      .prepare(
+        'SELECT * FROM requirement_unknown_diagnoses WHERE req_id = ? ORDER BY diagnosed_at DESC LIMIT 1',
+      )
+      .get(reqId) as Row | undefined
+    return row ? unknownDiagnosisRow(row) : null
   }
 
   businessReview(reqId: string, planVersion: number): BusinessReviewRecord | null {

@@ -33,6 +33,15 @@ import {
 import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
+import {
+  DIAGNOSIS_TEXT_MAX_BYTES,
+  parseUnknownDiagnosis,
+  renderUnknownFacts,
+  replaySafe,
+  type UnknownDiagnosis,
+  type UnknownFacts,
+  type UnknownWorkspaceFact,
+} from '../domain/diagnosis.js'
 import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
 import {
   TASK_RUN_AWAITING_USER,
@@ -72,7 +81,7 @@ import {
   type StatusBoardView,
 } from './board.js'
 import { runFormalTest } from './formal-test.js'
-import { analysisPrompt, businessReviewPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, verificationPrompt } from './prompts.js'
+import { analysisPrompt, businessReviewPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, unknownDiagnosisPrompt, verificationPrompt } from './prompts.js'
 import { captureCandidate, git, headCommit, prepareSnapshotWorkspace, runCommand, requireGit } from './workspace.js'
 import { parseTaskExecution } from './task-execution.js'
 
@@ -1214,6 +1223,197 @@ ${answer}`
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     const count = this.repo.appendGrant(input.reqId, input.by, this.now())
     return ok(`已为需求 ${input.reqId} 追加第 ${count} 次失败轮次授权（累计不清零）`, { grants: count })
+  }
+
+  /**
+   * 诊断“结果未知”的请求：由 Agent 说清根因与处置，程序校验字段与字节上限，
+   * 再用程序采集的工作副本事实判定重放是否安全；安全则关闭未知请求并解除阻塞。
+   *
+   * 判定权仍在程序：Agent 只提供解释与方案，不能凭自述跳过核对。
+   */
+  async diagnoseUnknown(input: {
+    reqId: string
+    by: string
+    source: string
+    signal?: AbortSignal
+  }): Promise<OperationResult> {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    const requests = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
+    if (requests.length === 0) return fail('nothing_to_recover', `需求 ${input.reqId} 没有待核对的请求`)
+
+    const facts = this.collectUnknownFacts(requirement)
+    const safety = replaySafe(facts)
+    const factsJson = JSON.stringify(facts)
+    const dir = join(projectDir(this.config), 'diagnoses', input.reqId)
+    mkdirSync(dir, { recursive: true })
+    const diagnosisId = `diag-${randomUUID()}`
+    const reportPath = join(dir, `${diagnosisId}.json`)
+    const transcriptPath = join(dir, `${diagnosisId}.jsonl`)
+
+    const run = await this.runner.run({
+      role: 'diagnosis',
+      cwd: this.config.projectPath,
+      prompt: unknownDiagnosisPrompt({
+        requirement,
+        facts: renderUnknownFacts(facts),
+        byteLimit: DIAGNOSIS_TEXT_MAX_BYTES,
+      }),
+      permission: 'workspace-write',
+      timeoutMs: this.config.agent.timeoutSeconds * 1000,
+      transcriptPath,
+      signal: input.signal ?? new AbortController().signal,
+      tools: 'none',
+    })
+    if (run.status !== 'completed') {
+      return fail('diagnosis_failed', `诊断回合未完成（${run.status}）：${run.reason || '无原因'}；未知请求保持原状`)
+    }
+
+    let diagnosis: UnknownDiagnosis
+    try {
+      diagnosis = parseUnknownDiagnosis(run.text)
+    } catch (error) {
+      writeFileSync(
+        `${reportPath}.rejected`,
+        `${JSON.stringify({ raw: run.text, error: (error as Error).message }, null, 2)}\n`,
+        'utf8',
+      )
+      return fail(
+        'diagnosis_invalid',
+        `诊断材料不合格，未知请求保持原状：${(error as Error).message}`,
+      )
+    }
+
+    const reportJson = `${JSON.stringify(
+      {
+        kind: 'unknown-diagnosis',
+        reqId: input.reqId,
+        diagnosisId,
+        rootCause: diagnosis.rootCause,
+        solution: diagnosis.solution,
+        byteLimit: DIAGNOSIS_TEXT_MAX_BYTES,
+        replaySafe: safety.safe,
+        safeReason: safety.reason,
+        facts,
+        closedRequests: safety.safe ? requests.length : 0,
+        sessionId: run.sessionId,
+        at: this.now(),
+      },
+      null,
+      2,
+    )}\n`
+    writeFileSync(reportPath, reportJson, 'utf8')
+    this.repo.recordUnknownDiagnosis({
+      reqId: input.reqId,
+      diagnosisId,
+      rootCause: diagnosis.rootCause,
+      solution: diagnosis.solution,
+      replaySafe: safety.safe,
+      safeReason: safety.reason,
+      factsJson,
+      reportPath,
+      reportSha256: sha256OfText(reportJson),
+      sessionId: run.sessionId,
+      closedRequests: safety.safe ? requests.length : 0,
+      diagnosedAt: this.now(),
+    })
+
+    if (!safety.safe) {
+      return fail(
+        'replay_unsafe',
+        `诊断已记录，但重放不安全：${safety.reason}；未知请求保持原状，需要人工处置`,
+      )
+    }
+    for (const request of requests) {
+      this.repo.resolveRequest(
+        request.requestId,
+        'dismissed',
+        `诊断 ${diagnosisId} 判定重放安全并关闭（${this.now()}）`,
+        this.now(),
+      )
+    }
+    return ok(
+      `已诊断并关闭 ${requests.length} 条未知请求：${diagnosis.rootCause}；处置：${diagnosis.solution}`,
+      {
+        diagnosisId,
+        rootCause: diagnosis.rootCause,
+        solution: diagnosis.solution,
+        replaySafe: true,
+        safeReason: safety.reason,
+        closedRequests: requests.length,
+        reportPath,
+        sessionId: run.sessionId,
+      },
+    )
+  }
+
+  /** 采集未知请求的现场事实：只读，不修改任何工作副本。 */
+  private collectUnknownFacts(requirement: Requirement): UnknownFacts {
+    const plan = this.repo.latestTaskPlan(requirement.reqId)
+    const requests = this.repo.requestsFor(requirement.reqId)
+      .filter((request) => request.state === 'unknown')
+      .map((request) => ({
+        requestId: request.requestId,
+        action: request.action,
+        planVersion: request.planVersion,
+        createdAt: request.createdAt,
+      }))
+    const workspaces: UnknownWorkspaceFact[] = []
+    const taskRuns: Array<{ taskId: string; state: string; reason: string }> = []
+    if (plan) {
+      for (const run of this.repo.taskRuns(requirement.reqId, plan.planVersion)) {
+        taskRuns.push({ taskId: run.taskId, state: run.state, reason: run.reason })
+      }
+      for (const task of plan.tasks) {
+        const run = this.repo.taskRuns(requirement.reqId, plan.planVersion).find((item) => item.taskId === task.taskId)
+        // 只检查确实开始过的任务：没跑过的任务没有工作副本，也没有重放风险。
+        if (!run) continue
+        const workspacePath = workspaceDir(this.config, requirement.reqId, plan.planVersion, task.taskId)
+        if (!existsSync(workspacePath)) {
+          workspaces.push({
+            taskId: task.taskId,
+            workspacePath,
+            exists: false,
+            headIsBaseline: true,
+            changedFiles: [],
+            untrackedFiles: [],
+          })
+          continue
+        }
+        const changed: string[] = []
+        const untracked: string[] = []
+        try {
+          for (const path of workspaceChanges(workspacePath)) {
+            // 未知路径一律按“已修改”处理：宁可保守，也不把改动当成不存在。
+            changed.push(path)
+          }
+        } catch {
+          changed.push('（git status 不可读）')
+        }
+        let headIsBaseline = true
+        try {
+          // 快照由运行时自己建立：出现第二个提交就意味着执行者越界提交。
+          const count = requireGit(workspacePath, ['rev-list', '--count', 'HEAD'])
+          headIsBaseline = Number(count) <= 1
+        } catch {
+          headIsBaseline = false
+        }
+        workspaces.push({
+          taskId: task.taskId,
+          workspacePath,
+          exists: true,
+          headIsBaseline,
+          changedFiles: changed,
+          untrackedFiles: untracked,
+        })
+      }
+    }
+    return {
+      requests,
+      workspaces,
+      blockedReason: requirement.blockedReason,
+      taskRuns,
+    }
   }
 
   recover(input: { reqId: string; by: string; confirm: boolean }): OperationResult {

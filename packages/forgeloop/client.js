@@ -41,10 +41,14 @@ window.__ModuleLoader__.load({
       'action.advanced': '已受理推进请求',
       'action.planned': '已受理重新生成任务包请求',
       'action.verified': '已受理独立验证请求',
-      'action.recover': '核对未知',
-      'action.recoverHelp': '中断或停止后可能存在未收口的外部副作用。核对工作副本、Git、产物与证据后关闭未知请求；不会重放。',
-      'action.recoverConfirm': '确认已核对工作副本、Git、产物与证据，并关闭该需求的未知请求？关闭不会重放任何副作用。',
-      'action.recovered': '已核对并关闭未知请求',
+      'action.diagnose': '分析根因',
+      'action.diagnoseHelp': '由 Agent 说明为什么结果未知，并给出处置方案（各限 100 字节）；重放安全性由程序按工作副本事实判定。',
+      'action.diagnosed': '已完成根因诊断',
+      'action.diagnoseUnsafe': '诊断已完成，但重放不安全，未知请求保留',
+      'wb.diagnosis': '未知根因',
+      'wb.diagnosisNone': '尚未诊断',
+      'wb.diagnosisSafe': '可重放',
+      'wb.diagnosisUnsafe': '不可重放',
       'action.build': '构建安装包',
       'action.buildHelp': '只从已通过验证的候选工作区构建安装包；验收后才能构建。',
       'action.built': '候选包已构建',
@@ -227,10 +231,14 @@ window.__ModuleLoader__.load({
       'action.advanced': 'Advance request accepted',
       'action.planned': 'Regeneration request accepted',
       'action.verified': 'Verification request accepted',
-      'action.recover': 'Reconcile unknown',
-      'action.recoverHelp': 'After a stop or interruption external side effects may be unresolved. Verify the workspace, Git, artifacts and evidence, then close the unknown request; nothing is replayed.',
-      'action.recoverConfirm': 'Confirm you verified the workspace, Git, artifacts and evidence, and close this requirement\'s unknown requests? Closing never replays side effects.',
-      'action.recovered': 'Unknown requests reconciled and closed',
+      'action.diagnose': 'Diagnose root cause',
+      'action.diagnoseHelp': 'An agent explains why the outcome is unknown and proposes a fix (100 bytes each); replay safety is judged by the runtime from workspace facts.',
+      'action.diagnosed': 'Root cause diagnosed',
+      'action.diagnoseUnsafe': 'Diagnosis recorded, but replay is unsafe; unknown requests kept',
+      'wb.diagnosis': 'Unknown root cause',
+      'wb.diagnosisNone': 'Not diagnosed yet',
+      'wb.diagnosisSafe': 'Replay safe',
+      'wb.diagnosisUnsafe': 'Replay unsafe',
       'action.build': 'Build installable candidate',
       'action.buildHelp': 'Build only from the verified candidate workspace; acceptance is required first.',
       'action.built': 'Candidate package built',
@@ -1785,7 +1793,7 @@ window.__ModuleLoader__.load({
         approve: t('action.approve'),
         advance: t('action.advance'),
         verify: t('action.verify'),
-        recover: t('action.recover'),
+        diagnose: t('action.diagnose'),
         build: t('action.build'),
         deploy: t('action.deploy'),
         stop: t('action.stop'),
@@ -1794,7 +1802,7 @@ window.__ModuleLoader__.load({
       const titles = {
         plan: t('action.planHelp'),
         verify: t('action.verifyHelp'),
-        recover: t('action.recoverHelp'),
+        diagnose: t('action.diagnoseHelp'),
         build: t('action.buildHelp'),
         deploy: t('action.deployHelp'),
         stop: t('action.stopHelp'),
@@ -3181,14 +3189,6 @@ window.__ModuleLoader__.load({
             if (!confirmed) return
           }
           const extra = {}
-          if (endpoint === 'recover') {
-            const confirmed =
-              typeof window === 'undefined' || typeof window.confirm !== 'function'
-                ? false
-                : window.confirm(t('action.recoverConfirm'))
-            if (!confirmed) return
-            extra.confirmRecovery = true
-          }
           if (endpoint === 'build') extra.planVersion = requirement.planVersion
           if (endpoint === 'deploy') {
             const raw =
@@ -3219,8 +3219,6 @@ window.__ModuleLoader__.load({
                       ? 'planned'
                       : endpoint === 'verify'
                         ? 'verified'
-                          : endpoint === 'recover'
-                            ? 'recovered'
                           : endpoint === 'build'
                             ? 'built'
                             : endpoint === 'deploy'

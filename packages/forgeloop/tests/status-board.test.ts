@@ -637,8 +637,8 @@ describe('status board', () => {
     expect(board().requirements.find((item) => item.reqId === idle)?.actions).toContain('advance')
   })
 
-  it('offers recover, build and deploy only when the underlying records allow them', () => {
-    // recover：存在 unknown 请求时提供，且不自动重放。
+  it('offers diagnosis, build and deploy only when the underlying records allow them', () => {
+    // 未知请求：默认提供 Agent 诊断，而不是让人直接点“已核对”。
     const recoverReq = submit('req-board-recover')
     repository.recordRequest({
       requestId: 'rq-board-recover',
@@ -652,7 +652,7 @@ describe('status board', () => {
     })
     repository.claimNextRequest('tester', NOW)
     repository.markClaimedUnknown(NOW)
-    expect(board().requirements.find((item) => item.reqId === recoverReq)?.actions).toContain('recover')
+    expect(board().requirements.find((item) => item.reqId === recoverReq)?.actions).toContain('diagnose')
 
     // build：已验收、验证与业务终审都新鲜通过，且尚未构建。
     const buildReq = submit('req-board-build')
