@@ -2326,8 +2326,9 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 46.4 验证与未完成
 
-- `make check` 通过：43 个测试文件、481 项测试；新增测试覆盖准入、连续提交、定向修复、模型/工具失败、
-  方案畸形与脏项目阻断；`make contracts` 通过。`make coverage` 行覆盖约 90%，分支仍低于 84% 门槛。
+- `make check` 通过：43 个测试文件、490 项测试；新增测试覆盖准入、连续提交、定向修复、模型/工具失败、
+  方案畸形、恢复、额度与脏项目阻断；`make contracts` 通过。`make coverage` 行覆盖 90.44%、分支 84.03%，
+  均达到配置门槛。
 - `make package` 生成 `forgeloop-dsh-0.0.2.tgz`，197,247 字节，SHA-256
   `f0427486b07e2105d39d57ef5434ab369b382ba1b3eda41c750945f59aabf694`；未安装到正式 profile。
 - **真实 happy path 已跑通**（隔离 `DSH_HOME` + `e2eweb` profile，DSH 0.2.1-rc.5，真实
