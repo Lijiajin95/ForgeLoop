@@ -174,14 +174,16 @@ DSH 宿主（唯一常驻产品）
    失败任务卡展示运行原因与 `domain/failure-advice.ts` 的确定性建议；任务详情进一步给出正式测试日志尾部、
    失败轮次与独立审查阻断项。重试只重排一次 advance：不新建任务包、不清零失败轮次、不越过已批准文件边界；
    失败额度用尽、任务已交付、前置任务未交付或存在在途请求时拒绝。
-   经二次确认才能关闭，随后才排队重试，不自动重放。
+   中断/超时按未交付收口，一次性工作副本丢弃后可重新执行，不再需要人工“核对未知”。
    普通 DSH 消息不自动成为需求；批准与推进必须点击任务包动作。完整入口见[插件说明](../packages/forgeloop/README.md)。
 
 9. **运维巡检**：协调器按 `ops.intervalSeconds` 运行登记的只读检查；失败按签名归并为 `ops` 事件。
    运维 Agent 无工具，只读取检查输出与登记动作目录，输出业务影响、事实、推断与一个动作建议。
    主控校验动作与参数：目录 `auto` 且诊断未要求人工时自动执行，否则停在待决定；页面批准后由协调器执行。
    动作先写 running 意图再启动，退出码 0 才进入恢复复核；复核只认登记检查退出码。
-   超时/中断标为 unknown，不自动重放；未恢复或诊断 `fix_required` 时创建关联修复需求并排队分析。
+   超时/中止是确定事实（动作未完成、无退出码），按未解决收口；宿主中断时动作标为 `interrupted`，
+   事件按未解决收口，再由运维 Agent 基于已记录事实分析根因并上报，不自动重放。
+   未恢复或诊断 `fix_required` 时创建关联修复需求并排队分析。
    当前不抢占研发任务，每个事件最多执行一次动作；细节与限制见[运维 Agent](ops-agent.md)。
 
 ### 4.3 天工层级工作台（Web 只读事实 + 客户动作）
@@ -206,10 +208,11 @@ DSH 宿主（唯一常驻产品）
   工具调用/输出、尝试列表、会话与测试头信息。心跳/最后活动不是推进证明；页面把超过 60 秒
   未更新的运行中任务标为可能停滞。
 - **运维**视图读取 `ops` 端点：事件列表、严重度与状态、业务影响、诊断事实与推断、处置记录与证据路径；
-  动作只有批准/拒绝处置、核对未知、关闭与生成修复需求。服务端校验事件状态、动作目录与参数，
+  动作只有批准/拒绝处置、关闭与生成修复需求。服务端校验事件状态、动作目录与参数，
   页面不执行命令，也不另存业务状态。
-- 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`resultUnknown` 表示需求存在
-  `stopRequested` 表示阻塞原因是停止请求。两者都不等于任务已经停稳或结果已经收口。
+- 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`stopRequested` 表示阻塞原因是
+  请求停止。两者都不等于任务已经停稳或结果已经收口；中断的运维动作以 `interrupted` 记录，
+  根因报告作为观测与证据展示，不是新的业务状态。
 - 需求级动作由服务端 `actions` 判定：`plan`、`approve`、`advance`、`verify`、`requeue`、
   `build`、`deploy`、`stop`、`cancel`；任务级 `retry` 仍由 `retryTask` 复核批准、额度、任务顺序与
   在途请求。`requeue` 在失败停在 blocked 后重新排队一次执行（与 `retry` 共用 `retryDecision`：
@@ -250,6 +253,8 @@ DSH 宿主（唯一常驻产品）
 
 - 请求状态：`pending → claimed → done | failed | dismissed`。没有 unknown 中间态：
   执行者中断后，工作副本是一次性快照，直接判 failed 并丢弃快照，随后可重新执行。
+- 任务运行状态：`running → delivered | awaiting_user | failed | blocked`。停止、超时与宿主中断
+  都收口为 `failed`/`blocked` 并写入确定原因；不保留“无法判定”的任务状态。
 - 受理先落库再返回；`service_requests` 对同需求同动作复用、不同动作拒绝，数据库唯一索引
   兜底。
 - 协调器单实例、单条领取：`UPDATE … WHERE state='pending'` 原子领取；重复唤醒不会重复执行。
@@ -257,11 +262,12 @@ DSH 宿主（唯一常驻产品）
   别人的在途请求不领取、不修改；进程已退出的残留锁会被清理后重试一次。
 - 宿主启动时：`claimed` 请求改为 `failed`（执行者已不在，结果按“未交付”收口），丢弃该任务包
   的一次性工作副本，`started` 动作改为 `interrupted`，仍为 `running` 的任务运行标为 `blocked`
-  并记录中断原因；恢复摘要（含丢弃的工作副本）写入 `runtime_meta`。
+  （任务未交付，副本会在下次执行时重建）；恢复摘要（含丢弃的工作副本）写入 `runtime_meta`。
 - 停止：需求级操作撤销待执行请求并记录状态；当前在途 Agent 的取消接在协调器整体停止路径，
-  需求级取消未落实。结果未知的动作不自动重放。
-- 运维：动作先写 running 意图；宿主启动时把未收口的动作标为 unknown，并把对应事件标为结果未知。
-  所有者核对后才能转为未解决或关闭；不自动重放。
+  需求级取消未落实。中断的任务按未交付收口，可重新执行。
+- 运维：动作先写 running 意图；宿主启动时把未收口的动作标为 `interrupted`，事件按 `unresolved`
+  收口，并由运维 Agent 基于事实分析根因、写出观测与证据；不自动重放有副作用的动作。
+  旧库中的运维 `unknown` 在启动时迁移为 `interrupted`/`unresolved`，新路径不写入该状态。
 - 工时：只累计真实执行段，用户等待不计入；目前在推进开始检查，尚未在每个后续动作／尝试前复检。
 - **中断恢复**：不保留“无法判定”的状态。执行发生在一次性快照内，运行时是唯一写入记录的一方；
   宿主重启时把 `claimed` 判为 `failed`、丢弃快照，再由 `requeue`/`autoAdvance` 重新执行。
@@ -279,7 +285,7 @@ DSH 宿主（唯一常驻产品）
   推进或验收。`forgeloop_impact` 默认不调用模型；显式 `explain=true` 的推断与事实分区，
   推断不能作为批准、推进或验收依据。
 - **客户决定入口**：任务包批准、重新生成任务包、推进、独立验证、验收、取消、停止，以及运维处置
-  批准/拒绝、未知核对与关闭已实现为浏览器认证动作；例外取舍、追加授权仍缺失；已批准任务包冻结，
+  批准/拒绝与关闭已实现为浏览器认证动作；例外取舍、追加授权仍缺失；已批准任务包冻结，
   修改需所有者显式许可并说明原因。
   不能把工具参数、消息角色标签或模型转述当作所有者决定；动作身份使用本机 owner 配置。
 - **Agent**：审查使用独立上下文；实现使用独立副本；运维诊断无工具，只读取程序提供的检查输出；
@@ -303,7 +309,7 @@ DSH 宿主（唯一常驻产品）
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
   `plan`、`approve`、`advance`、`verify`、`requeue`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
-  以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-confirm-unknown`、`ops-close`、`ops-request-fix`；
+  以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
   并注册 ForgeLoop Chat 节点（含技术方案/任务包）与 `conversation.chat.turnTail` 需求摘要，
