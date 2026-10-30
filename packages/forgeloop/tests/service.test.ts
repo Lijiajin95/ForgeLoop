@@ -487,7 +487,7 @@ describe('durable coordinator behaviour', () => {
     expect(runtime.repo.claimNextRequest('host-b', new Date().toISOString())).toBeNull()
   })
 
-  it('marks an in-flight request unknown when the host stops instead of claiming success', async () => {
+  it('closes an in-flight request as failed when the host stops instead of claiming success', async () => {
     let seen = ''
     const hanging: AgentLike = {
       run(request) {
@@ -515,8 +515,9 @@ describe('durable coordinator behaviour', () => {
     await coordinator.stop()
     await running
     const request = runtime.repo.request(requestId)!
-    expect(request.state).toBe('unknown')
-    expect(runtime.repo.action(`act-${requestId}`)?.state).toBe('unknown')
+    expect(request.state).toBe('failed')
+    expect(request.detail).toContain('按失败收口')
+    expect(runtime.repo.action(`act-${requestId}`)?.state).toBe('failed')
   })
 
   it('refuses a second concurrent consumer and leaves pending work untouched', async () => {
@@ -802,7 +803,6 @@ describe('task retry', () => {
     expect(evidenceValue.review).toMatchObject({ verdict: 'pass', findings: ['实现了队列'] })
     expect(evidenceValue.artifact?.candidateSha256).toBeTruthy()
     expect(evidenceValue.waitingForInput).toBe(false)
-    expect(evidenceValue.resultUnknown).toBe(false)
   })
 
   it('retries a failed task without any recovery confirmation', () => {
@@ -1091,7 +1091,7 @@ describe('execution scope, plan freeze and repair loop', () => {
     runtime = makeRuntime(runner)
     const reqId = await prepared('开发超时')
     const outcome = await runQueued('advance', reqId)
-    expect(outcome.state).toBe('unknown')
+    expect(outcome.state).toBe('failed')
     const run = runtime.repo.taskRuns(reqId, 1).find((item) => item.taskId === 'a')!
     expect(run.state).toBe('blocked')
     expect(run.reason).toContain('超时')

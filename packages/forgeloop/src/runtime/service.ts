@@ -549,7 +549,6 @@ ${answer}`
     })
     const eligibility = this.retryEligibility(reqId, plan.planVersion, taskId)
     const requests = this.repo.requestsFor(reqId)
-    const unknownRequests = requests.filter((request) => request.state === 'unknown').length
     const activeRequests = requests.filter(
       (request) => request.state === 'pending' || request.state === 'claimed',
     ).length
@@ -598,14 +597,12 @@ ${answer}`
         occurredAt: round.occurredAt,
       })),
       remainingRounds,
-      unknownRequests,
       activeRequests,
       waitingForInput,
-      resultUnknown: unknownRequests > 0,
       advice,
       retry: eligibility.ok
-        ? { allowed: true, reason: '', requiresRecovery: unknownRequests > 0 }
-        : { allowed: false, reason: eligibility.message, requiresRecovery: false },
+        ? { allowed: true, reason: '' }
+        : { allowed: false, reason: eligibility.message },
     })
   }
 
@@ -1888,7 +1885,7 @@ ${answer}`
       },
       pendingRequests: this.repo
         .requestsFor(requirement.reqId)
-        .filter((request) => ['pending', 'claimed', 'unknown'].includes(request.state))
+        .filter((request) => ['pending', 'claimed'].includes(request.state))
         .map(requestView),
     }
   }
@@ -2093,7 +2090,6 @@ ${answer}`
           )
         : [],
       progress,
-      unknownRequests: requests.filter((request) => request.state === 'unknown').length,
       activeRequests: requests.filter(
         (request) => request.state === 'pending' || request.state === 'claimed',
       ).length,
@@ -2145,8 +2141,24 @@ ${answer}`
 
   // ------------------------------------------------------------ 执行流水线
 
-  /** 执行一条已领取的请求；返回结局文本。调用方负责请求状态落库。 */
+  /**
+   * 执行一条已领取的请求；返回结局文本。调用方负责请求状态落库。
+   * 中断/超时在请求层一律收口为 failed：执行者已不在，工作副本可丢弃，随后重新执行。
+   */
   async executeRequest(
+    request: ServiceRequestRecord,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const outcome = await this.dispatchRequest(request, signal)
+    if (outcome.state === 'done') return { state: 'done' as const, detail: outcome.detail }
+    if (outcome.state === 'failed') return { state: 'failed' as const, detail: outcome.detail }
+    return {
+      state: 'failed' as const,
+      detail: `${outcome.detail}；按失败收口，可重新执行`,
+    }
+  }
+
+  private async dispatchRequest(
     request: ServiceRequestRecord,
     signal: AbortSignal,
   ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {

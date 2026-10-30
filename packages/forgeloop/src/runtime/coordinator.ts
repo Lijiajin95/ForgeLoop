@@ -245,10 +245,10 @@ export class Coordinator {
       this.runtime.repo.resolveRequest(request.requestId, outcome.state, outcome.detail, finishedAt)
     } catch (error) {
       const finishedAt = new Date().toISOString()
-      const detail = `执行异常：${(error as Error).message}`
+      const detail = `执行异常：${(error as Error).message}；按失败收口，可重新执行`
       this.lastError = detail
-      this.runtime.repo.finishAction(actionId, 'unknown', detail, finishedAt)
-      this.runtime.repo.resolveRequest(request.requestId, 'unknown', detail, finishedAt)
+      this.runtime.repo.finishAction(actionId, 'failed', detail, finishedAt)
+      this.runtime.repo.resolveRequest(request.requestId, 'failed', detail, finishedAt)
     } finally {
       this.inflight.delete(request.requestId)
     }
