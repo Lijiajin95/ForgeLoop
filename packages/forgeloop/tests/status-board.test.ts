@@ -806,7 +806,7 @@ describe('status board', () => {
             {
               task_id: 't2',
               goal: '写实现',
-              files: ['packages/forgeloop/src/b.ts'],
+              files: [],
               acceptance: 'b 完成',
               test_command: ['node', '-e', 'process.exit(0)'],
               depends_on: ['t1'],

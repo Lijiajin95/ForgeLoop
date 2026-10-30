@@ -104,19 +104,6 @@ export function validateTask(task: PlannedTask): void {
   }
   if (task.testCommand.length === 0) throw new RuleViolationError('任务必须给出可执行的正式测试命令')
   for (const argument of task.testCommand) requireNonEmpty(argument, 'test_command')
-  // 正式测试命令引用项目内测试文件时，该文件必须在允许修改清单里；否则实现者
-  // 要么写不出测试（越界被拒），要么测试命令指向不存在的文件（正式测试必失败）。
-  if (task.verification !== true) {
-    const cited = task.testCommand.filter(
-      (argument) => !argument.startsWith('-') && /\.(test|spec)\.[cm]?[jt]sx?$/.test(argument),
-    )
-    const outside = cited.filter((file) => !task.files.includes(file))
-    if (outside.length > 0) {
-      throw new RuleViolationError(
-        `任务 ${task.taskId} 的正式测试命令引用了不在允许文件内的测试文件：${outside.join('、')}`,
-      )
-    }
-  }
   if (task.dependsOn.includes(task.taskId)) {
     throw new RuleViolationError(`任务不能依赖自身: ${task.taskId}`)
   }

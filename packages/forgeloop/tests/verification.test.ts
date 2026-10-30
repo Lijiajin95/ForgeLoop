@@ -597,7 +597,7 @@ describe('pre-implementation review gate', () => {
     expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
   })
 
-  it('refuses to approve a stored plan that violates the current test-file scope rule', () => {
+  it('refuses to approve a stored plan that violates current task rules', () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     const reqId = 'req-invalid-plan'
@@ -619,8 +619,7 @@ describe('pre-implementation review gate', () => {
       clarifications: [],
       createdAt: '2026-10-29T00:00:00.000Z',
     })
-    // 直接写入旧结构的任务包：它早于当前“测试文件必须在允许文件内”的规则，
-    // 但仍在库里；批准入口必须按现行规则拒绝它。
+    // 直接写入不合规的任务包：验证任务声明了 files。批准入口必须按现行规则拒绝。
     runtime.repo.db.handle
       .prepare(
         'INSERT INTO requirement_task_plans (req_id, plan_version, task_plan_id, plan, created_at) VALUES (?, ?, ?, ?, ?)',
@@ -642,15 +641,16 @@ describe('pre-implementation review gate', () => {
               goal: '写实现',
               files: ['packages/forgeloop/src/a.ts'],
               acceptance: 'a 完成',
-              test_command: ['npx', 'vitest', 'run', 'packages/forgeloop/tests/a.test.ts'],
+              test_command: ['node', '-e', 'process.exit(0)'],
               depends_on: [],
               limits: { limit_seconds: 60, max_failure_rounds: 2 },
               authorization_source: '',
             },
             {
               task_id: 'b',
-              goal: '写实现',
+              goal: '验证',
               files: ['packages/forgeloop/src/b.ts'],
+              verification: true,
               acceptance: 'b 完成',
               test_command: ['node', '-e', 'process.exit(0)'],
               depends_on: ['a'],
