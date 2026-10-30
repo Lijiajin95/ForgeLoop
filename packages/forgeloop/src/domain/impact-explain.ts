@@ -9,6 +9,8 @@
  * 本模块不导入记录库或运行时，不提供批准、推进、验收等写操作。
  */
 
+import { AGENT_PRODUCT, type AgentIdentity } from './agents.js'
+
 /** 只需要识别事实快照的身份；其余字段原样透传，避免领域模块互相复制结构。 */
 export interface ImpactFactsLike {
   readonly kind: 'facts'
@@ -17,7 +19,7 @@ export interface ImpactFactsLike {
 
 /** 推断 Agent 的请求：只传文本，工具固定为 none。 */
 export interface ImpactExplainAgentRequest {
-  readonly role: 'analyze'
+  readonly role: AgentIdentity
   readonly prompt: string
   /** 无工具约束；调用方必须据此禁用全部工具。 */
   readonly tools: 'none'
@@ -152,7 +154,7 @@ async function runInference<F extends ImpactFactsLike>(
   const prompt = `${PROMPT_HEADER}\n\n确定性事实 JSON：\n${serialized}`
   let response: ImpactExplainAgentResponse
   try {
-    response = await agent.run({ role: 'analyze', prompt, tools: 'none' })
+    response = await agent.run({ role: AGENT_PRODUCT, prompt, tools: 'none' })
   } catch (error) {
     return {
       kind: 'inference',

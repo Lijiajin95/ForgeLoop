@@ -5,6 +5,7 @@
  * 只读写当前实现建立的权威表；不读取或修补旧业务库。
  */
 
+import { randomUUID } from 'node:crypto'
 import { Database, isoNow } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
 import type { Requirement, RequirementAnalysis, RequirementVersion } from '../domain/requirement.js'
@@ -15,6 +16,7 @@ import type { FailureRound } from '../domain/counting.js'
 import type { TaskArtifact, TaskRun } from '../domain/work.js'
 import type { TaskRunState } from '../domain/status.js'
 import type { OpsSeverity } from '../domain/ops.js'
+import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
 type Row = Record<string, unknown>
 
@@ -220,6 +222,45 @@ export interface OpsEventPatch {
 export interface SubmitResult {
   readonly requirement: Requirement
   readonly created: boolean
+}
+
+export interface AdmissionRecord {
+  readonly admissionId: string
+  readonly requirementId: string
+  readonly requirementVersion: number
+  readonly decision: 'admit' | 'block'
+  readonly code: string
+  readonly reason: string
+  readonly basis: AdmissionBasis
+  readonly policyVersion: string
+  readonly decidedBy: string
+  readonly createdAt: string
+}
+
+export interface CodeCandidateRecord {
+  readonly requirementId: string
+  readonly planVersion: number
+  readonly candidateVersion: number
+  readonly candidateSha256: string
+  readonly requirementVersion: number
+  readonly baselineCommit: string
+  readonly snapshotCommit: string
+  readonly diffPath: string
+  readonly diffSha256: string
+  readonly createdAt: string
+}
+
+export interface RequirementCommitRecord {
+  readonly requirementId: string
+  readonly planVersion: number
+  readonly candidateSha256: string
+  readonly commitSha: string
+  readonly commitMessage: string
+  readonly checkCommand: readonly string[]
+  readonly checkLogPath: string
+  readonly checkSha256: string
+  readonly files: readonly string[]
+  readonly committedAt: string
 }
 
 export class Repository {
@@ -588,6 +629,176 @@ export class Repository {
       source: text(row, 'source'),
       approvedAt: text(row, 'approved_at'),
     }
+  }
+
+  // ---------------------------------------------------------------- 系统准入
+
+  recordAdmission(input: {
+    requirementId: string
+    requirementVersion: number
+    decision: AdmissionDecision
+    decidedBy: string
+    createdAt: string
+  }): AdmissionRecord {
+    const admissionId = `adm-${randomUUID()}`
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_admissions
+          (admission_id, req_id, requirement_version, decision, code, reason, basis_json, policy_version, decided_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        admissionId,
+        input.requirementId,
+        input.requirementVersion,
+        input.decision.admit ? 'admit' : 'block',
+        input.decision.code,
+        input.decision.reason,
+        JSON.stringify(input.decision.basis),
+        input.decision.basis.policyVersion,
+        input.decidedBy,
+        input.createdAt,
+      )
+    return {
+      admissionId,
+      requirementId: input.requirementId,
+      requirementVersion: input.requirementVersion,
+      decision: input.decision.admit ? 'admit' : 'block',
+      code: input.decision.code,
+      reason: input.decision.reason,
+      basis: input.decision.basis,
+      policyVersion: input.decision.basis.policyVersion,
+      decidedBy: input.decidedBy,
+      createdAt: input.createdAt,
+    }
+  }
+
+  admissionsFor(reqId: string): AdmissionRecord[] {
+    const rows = this.db.handle
+      .prepare(
+        'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at, admission_id',
+      )
+      .all(reqId) as Row[]
+    return rows.map(admissionFromRow)
+  }
+
+  latestAdmission(reqId: string, requirementVersion?: number): AdmissionRecord | null {
+    const rows =
+      requirementVersion === undefined
+        ? (this.db.handle
+            .prepare(
+              'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at DESC, admission_id DESC LIMIT 1',
+            )
+            .all(reqId) as Row[])
+        : (this.db.handle
+            .prepare(
+              `SELECT * FROM requirement_admissions
+                WHERE req_id = ? AND requirement_version = ?
+                ORDER BY created_at DESC, admission_id DESC LIMIT 1`,
+            )
+            .all(reqId, requirementVersion) as Row[])
+    return rows.length > 0 ? admissionFromRow(rows[0]!) : null
+  }
+
+  // ---------------------------------------------------------------- 代码候选与提交
+
+  recordCodeCandidate(input: CodeCandidateRecord): CodeCandidateRecord {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_code_candidates
+          (req_id, plan_version, candidate_version, candidate_sha256, requirement_version,
+           baseline_commit, snapshot_commit, diff_path, diff_sha256, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.requirementId,
+        input.planVersion,
+        input.candidateVersion,
+        input.candidateSha256,
+        input.requirementVersion,
+        input.baselineCommit,
+        input.snapshotCommit,
+        input.diffPath,
+        input.diffSha256,
+        input.createdAt,
+      )
+    return input
+  }
+
+  codeCandidates(reqId: string, planVersion: number): CodeCandidateRecord[] {
+    const rows = this.db.handle
+      .prepare(
+        'SELECT * FROM requirement_code_candidates WHERE req_id = ? AND plan_version = ? ORDER BY candidate_version',
+      )
+      .all(reqId, planVersion) as Row[]
+    return rows.map(codeCandidateFromRow)
+  }
+
+  latestCodeCandidate(reqId: string, planVersion: number): CodeCandidateRecord | null {
+    const rows = this.codeCandidates(reqId, planVersion)
+    return rows.length > 0 ? rows[rows.length - 1]! : null
+  }
+
+  codeCandidate(reqId: string, planVersion: number, candidateSha256: string): CodeCandidateRecord | null {
+    const row = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_code_candidates
+          WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?
+          ORDER BY candidate_version DESC LIMIT 1`,
+      )
+      .get(reqId, planVersion, candidateSha256) as Row | undefined
+    return row ? codeCandidateFromRow(row) : null
+  }
+
+  recordCommit(input: RequirementCommitRecord): RequirementCommitRecord {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_commits
+          (req_id, plan_version, candidate_sha256, commit_sha, commit_message, check_command_json,
+           check_log_path, check_sha256, files_json, committed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, plan_version, candidate_sha256) DO UPDATE SET
+           commit_sha = excluded.commit_sha,
+           commit_message = excluded.commit_message,
+           check_command_json = excluded.check_command_json,
+           check_log_path = excluded.check_log_path,
+           check_sha256 = excluded.check_sha256,
+           files_json = excluded.files_json,
+           committed_at = excluded.committed_at`,
+      )
+      .run(
+        input.requirementId,
+        input.planVersion,
+        input.candidateSha256,
+        input.commitSha,
+        input.commitMessage,
+        JSON.stringify(input.checkCommand),
+        input.checkLogPath,
+        input.checkSha256,
+        JSON.stringify(input.files),
+        input.committedAt,
+      )
+    return input
+  }
+
+  commitForCandidate(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): RequirementCommitRecord | null {
+    const row = this.db.handle
+      .prepare(
+        'SELECT * FROM requirement_commits WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?',
+      )
+      .get(reqId, planVersion, candidateSha256) as Row | undefined
+    return row ? commitFromRow(row) : null
+  }
+
+  latestCommit(reqId: string): RequirementCommitRecord | null {
+    const row = this.db.handle
+      .prepare('SELECT * FROM requirement_commits WHERE req_id = ? ORDER BY committed_at DESC LIMIT 1')
+      .get(reqId) as Row | undefined
+    return row ? commitFromRow(row) : null
   }
 
   // ---------------------------------------------------------------- 验证 Agent
@@ -1841,6 +2052,52 @@ function actionFromRow(row: Row): ActionRecord {
     detail: text(row, 'detail'),
     pid: row.pid === null || row.pid === undefined ? null : num(row, 'pid'),
     heartbeatAt: text(row, 'heartbeat_at'),
+  }
+}
+
+function admissionFromRow(row: Row): AdmissionRecord {
+  const decision = text(row, 'decision') === 'admit' ? 'admit' : 'block'
+  return {
+    admissionId: text(row, 'admission_id'),
+    requirementId: text(row, 'req_id'),
+    requirementVersion: num(row, 'requirement_version'),
+    decision,
+    code: text(row, 'code'),
+    reason: text(row, 'reason'),
+    basis: JSON.parse(text(row, 'basis_json')) as AdmissionBasis,
+    policyVersion: text(row, 'policy_version'),
+    decidedBy: text(row, 'decided_by'),
+    createdAt: text(row, 'created_at'),
+  }
+}
+
+function codeCandidateFromRow(row: Row): CodeCandidateRecord {
+  return {
+    requirementId: text(row, 'req_id'),
+    planVersion: num(row, 'plan_version'),
+    candidateVersion: num(row, 'candidate_version'),
+    candidateSha256: text(row, 'candidate_sha256'),
+    requirementVersion: num(row, 'requirement_version'),
+    baselineCommit: text(row, 'baseline_commit'),
+    snapshotCommit: text(row, 'snapshot_commit'),
+    diffPath: text(row, 'diff_path'),
+    diffSha256: text(row, 'diff_sha256'),
+    createdAt: text(row, 'created_at'),
+  }
+}
+
+function commitFromRow(row: Row): RequirementCommitRecord {
+  return {
+    requirementId: text(row, 'req_id'),
+    planVersion: num(row, 'plan_version'),
+    candidateSha256: text(row, 'candidate_sha256'),
+    commitSha: text(row, 'commit_sha'),
+    commitMessage: text(row, 'commit_message'),
+    checkCommand: parseStringList(text(row, 'check_command_json')),
+    checkLogPath: text(row, 'check_log_path'),
+    checkSha256: text(row, 'check_sha256'),
+    files: parseStringList(text(row, 'files_json')),
+    committedAt: text(row, 'committed_at'),
   }
 }
 

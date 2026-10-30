@@ -68,6 +68,24 @@ export interface RawOpsConfig {
   actions?: RawOpsAction[]
 }
 
+export interface AutonomyConfig {
+  /** 系统准入总开关；关闭后可信需求也只停在待处理。 */
+  readonly enabled: boolean
+  /** 是否允许系统准入后整合并提交代码；发布/部署另有授权。 */
+  readonly allowCodeCommit: boolean
+  /** 可信人类入口来源前缀。 */
+  readonly trustedSources: readonly string[]
+  /** 提交前在真实项目中执行的检查 argv；为空表示不做额外提交检查。 */
+  readonly commitCheckCommand: readonly string[]
+}
+
+export interface RawAutonomyConfig {
+  enabled?: boolean
+  allowCodeCommit?: boolean
+  trustedSources?: string[]
+  commitCheckCommand?: string[]
+}
+
 export interface ForgeLoopConfig {
   readonly recordsRoot: string
   readonly project: string
@@ -84,6 +102,7 @@ export interface ForgeLoopConfig {
   readonly candidateArtifactPath: string
   /** DSH profile 根目录：部署核对读取目标 profile 的实际安装版本。 */
   readonly dshProfilesRoot: string
+  readonly autonomy: AutonomyConfig
   readonly ops: OpsConfig
 }
 
@@ -102,6 +121,7 @@ export interface RawConfig {
   candidatePackageCommand?: string[]
   candidateArtifactPath?: string
   dshProfilesRoot?: string
+  autonomy?: RawAutonomyConfig
   ops?: RawOpsConfig
 }
 
@@ -196,6 +216,25 @@ function objectList(value: unknown, field: string): Array<Record<string, unknown
     }
     return item as Record<string, unknown>
   })
+}
+
+/**
+ * 系统准入与提交检查配置。默认对可信人类入口开放研发与提交，但发布/部署不在授权内；
+ * 所有者可以在配置文件中关闭或收紧来源前缀。
+ */
+function parseAutonomyConfig(raw: RawAutonomyConfig | undefined): AutonomyConfig {
+  const source = (raw ?? {}) as RawAutonomyConfig
+  const trustedSources = stringList(source.trustedSources, 'autonomy.trustedSources', ['dsh-session:'])
+  if (trustedSources.length === 0) {
+    throw new RuleViolationError('配置 autonomy.trustedSources 不能为空；关闭准入请用 enabled=false')
+  }
+  const commitCheckCommand = stringList(source.commitCheckCommand, 'autonomy.commitCheckCommand', [])
+  return {
+    enabled: booleanValue(source.enabled, 'autonomy.enabled', true),
+    allowCodeCommit: booleanValue(source.allowCodeCommit, 'autonomy.allowCodeCommit', true),
+    trustedSources,
+    commitCheckCommand,
+  }
 }
 
 /**
@@ -311,6 +350,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),
     candidateArtifactPath: raw.candidateArtifactPath?.trim() || '',
     dshProfilesRoot: resolve(projectPath, expandHome(raw.dshProfilesRoot?.trim() || join(homedir(), '.dsh', 'profiles'))),
+    autonomy: parseAutonomyConfig(raw.autonomy),
     ops: parseOpsConfig(raw.ops),
   }
 }
@@ -335,6 +375,16 @@ export function evidenceDir(
 
 export function workspaceDir(config: ForgeLoopConfig, reqId: string, planVersion: number, taskId: string): string {
   return join(projectDir(config), 'workspaces', reqId, `v${planVersion}`, taskId)
+}
+
+/** 需求级研发现场：同一需求的方案、实现、自验与修复共用，不按阶段重建。 */
+export function devWorkspaceDir(config: ForgeLoopConfig, reqId: string): string {
+  return join(projectDir(config), 'workspaces', reqId, 'dev')
+}
+
+/** 提交检查与整合证据目录；每次提交尝试独立一份，旧记录不覆盖。 */
+export function integrationDir(config: ForgeLoopConfig, reqId: string, candidateSha256: string): string {
+  return join(projectDir(config), 'integrations', reqId, candidateSha256.slice(0, 16))
 }
 
 export function reviewDir(config: ForgeLoopConfig, reqId: string, planVersion: number, taskId: string): string {

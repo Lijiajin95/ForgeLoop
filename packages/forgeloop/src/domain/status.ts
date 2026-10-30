@@ -3,15 +3,24 @@
 export const DRAFT = 'draft'
 export const AWAITING_CLARIFICATION = 'awaiting_clarification'
 export const BLOCKED = 'blocked'
+export const SPECIFIED = 'specified'
 export const PLAN_PROPOSED = 'plan_proposed'
 export const APPROVED = 'approved'
+export const DEVELOPING = 'developing'
 export const EXECUTING = 'executing'
+export const VERIFYING = 'verifying'
+export const COMMITTED = 'committed'
 export const ACCEPTED = 'accepted'
 export const REJECTED = 'rejected'
 export const CANCELLED = 'cancelled'
 
 /** 终态不回退，也不能再排队分析、规划、推进或修订。 */
-export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([ACCEPTED, REJECTED, CANCELLED])
+export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  COMMITTED,
+  ACCEPTED,
+  REJECTED,
+  CANCELLED,
+])
 
 export function isTerminal(status: string): boolean {
   return TERMINAL_STATUSES.has(status)

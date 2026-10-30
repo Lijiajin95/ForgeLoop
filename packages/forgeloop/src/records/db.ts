@@ -261,6 +261,55 @@ CREATE TABLE IF NOT EXISTS requirement_candidates (
     evidence_dir TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version)
 );
+
+-- 系统准入与人类批准分开记录；这里不写 by=owner，也不代表所有者批准。
+CREATE TABLE IF NOT EXISTS requirement_admissions (
+    admission_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    decision TEXT NOT NULL,
+    code TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    basis_json TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    decided_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS requirement_admissions_by_req
+    ON requirement_admissions(req_id, requirement_version, created_at);
+
+-- 需求级代码候选：同一需求可有多版候选，旧候选、验证与报告保留。
+CREATE TABLE IF NOT EXISTS requirement_code_candidates (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    baseline_commit TEXT NOT NULL DEFAULT '',
+    snapshot_commit TEXT NOT NULL DEFAULT '',
+    diff_path TEXT NOT NULL,
+    diff_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, candidate_version)
+);
+CREATE INDEX IF NOT EXISTS requirement_code_candidates_by_sha
+    ON requirement_code_candidates(req_id, plan_version, candidate_sha256);
+
+-- 受控整合提交：只记录真实项目中的提交，不包含临时快照基线提交。
+CREATE TABLE IF NOT EXISTS requirement_commits (
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    commit_message TEXT NOT NULL,
+    check_command_json TEXT NOT NULL,
+    check_log_path TEXT NOT NULL,
+    check_sha256 TEXT NOT NULL,
+    files_json TEXT NOT NULL,
+    committed_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, plan_version, candidate_sha256)
+);
+
 CREATE TABLE IF NOT EXISTS runtime_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
