@@ -2353,3 +2353,55 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   `package-lock.json` 版本与根包版本不一致、缺失 `.pre-commit-config.yaml` 仍是既有问题。
 - 旧 UI 的任务包批准/验收卡片仍显示历史字段；普通新需求不经过这些动作，但完整界面收敛尚未完成。
 - 既有文档中部分相对链接指向仓库外 `references/`，不是本批新增；未改动。
+
+## 47. 部署到正式 Web profile 与旧批准/验收 UI 收敛（2026-10-31）
+
+### 47.1 部署
+
+- 目标：`DSH_HOME=/home/link/.dsh`，profile `web`；宿主进程
+  `node /home/link/.local/bin/dsh web --host 192.168.3.13`（PID 178026，当前会话所在 Web 宿主）。
+- 包：`packages/forgeloop/dist/forgeloop-dsh-0.0.2.tgz`，197,204 字节，SHA-256
+  `1614ca5e7ca8985dfea65d842d6c43e18d9da91a897c3c0f34cb1051bf45d426`；版本仍为 0.0.2。
+- 通过宿主插件管理器先移除再安装 `forgeloop-dsh`，两次 `application` 均为 `applied`；
+  安装后 `include:forgeloop` fiber 为 active，profile `package.json` 仍指向同一 tarball。
+- 生产记录库新增表 `requirement_admissions`、`requirement_code_candidates`、`requirement_commits`，
+  说明新代码已随插件重载生效；既有需求 `req-20261030134652-e934a6` 仍为 `plan_proposed`，未改动。
+
+### 47.2 正式配置调整
+
+`~/.forgeloop/config.json` 已从旧值改为：
+
+```json
+{
+  "autoAdvance": true,
+  "autonomy": {
+    "enabled": true,
+    "allowCodeCommit": true,
+    "commitCheckCommand": ["npm", "run", "check", "--workspace", "forgeloop-dsh"]
+  }
+}
+```
+
+其余字段（project、projectPath、recordsRoot、owner、pollSeconds）保持不变；文件权限 600。
+旧配置备份在 `~/.forgeloop/config.json.bak-20261031`。该调整使普通已准入需求可以自动推进并在提交前
+运行项目检查；发布/部署仍需独立授权。
+
+### 47.3 旧批准/验收 UI 收敛
+
+- 客户端操作区过滤 `plan`、`approve`、`advance`、`verify` 四个旧门禁动作；普通新需求只显示
+  停止、取消、恢复、构建、上线等显式动作。
+- 需求卡不再显示“未批准/批准有效”作为常规元数据；实现前评审 chip 只在历史记录存在时显示。
+- 聊天区任务包节点不再提供批准、推进、独立验证、验收按钮；历史评审区块仅在存在时展示。
+- 需求详情的批准与验收记录改为存在才显示；任务详情的验收记录同样只读且仅存在时显示。
+- 关注列表不再把 `plan_proposed` 作为“待批准”待办项；历史记录仍可从需求列表进入查看。
+- 页脚说明改为“已准入需求自动推进；停止、取消、重试、构建与上线保持显式动作”。
+- 服务端旧端点与 `BoardRequirementAction` 保留以兼容历史记录和现有测试；它们是 API 兼容层，
+  不再驱动新 UI。
+
+### 47.4 验证与边界
+
+- `make check`：43 个测试文件、490 项测试通过；`make contracts` 通过；客户端字典中英文键一致。
+- 已安装的 `client.js` 含 `LEGACY_GATE_ACTIONS` 过滤与新页脚文案；宿主 fiber active。
+- 部署后尚未在正式生产需求上重新跑真实闭环；正式库既有需求未触碰。页面需刷新后加载新客户端资源。
+- 未 push、未打 tag、未递增版本；未改动模型路由/凭据、其他项目或已部署应用。
+- 旧 API 动作与详情字段仍可能存在；本批只收敛 UI，不删除历史数据或兼容端点。
