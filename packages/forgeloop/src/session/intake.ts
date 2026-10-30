@@ -272,7 +272,8 @@ export class SessionIntake {
     }
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
-    await this.planIfReady(session, reqId, outcome.analysis, input.signal, at)
+    // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
+    // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
 
   private async answerOne(input: {
@@ -314,7 +315,8 @@ export class SessionIntake {
     appendSessionEvent(session, FORGELOOP_ANSWER_EVENT, answer as unknown as Record<string, unknown>, this.log)
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
-    await this.planIfReady(session, reqId, outcome.analysis, input.signal, at)
+    // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
+    // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
 
   /** 需求分析完成且无待澄清项后交给研发 Agent 拆解任务；拆解本身不等于批准或执行。 */

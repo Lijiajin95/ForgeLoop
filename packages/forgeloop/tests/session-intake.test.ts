@@ -177,7 +177,6 @@ describe('ForgeLoop session input takeover', () => {
     expect(session.events.map((event) => event.type)).toEqual([
       'plugin:forgeloop/intake',
       'plugin:forgeloop/analysis',
-      'plugin:forgeloop/plan',
     ])
     const intakeEvent = session.events[0]!.data as Record<string, unknown>
     expect(intakeEvent).toMatchObject({
@@ -196,13 +195,9 @@ describe('ForgeLoop session input takeover', () => {
       clarifications: [],
     })
 
-    expect(session.events[2]!.data).toMatchObject({
-      technicalSolution: { summary: '在现有 ForgeLoop 插件内增加过滤视图和查询参数' },
-      tasks: [{ taskId: 'ui' }, { taskId: 'test', dependsOn: ['ui'] }],
-    })
     const requirement = runtime.repo.getRequirement(String(intakeEvent.reqId))
     expect(requirement?.versions[0]?.text).toBe('给看板加状态过滤')
-    expect(requirement?.status).toBe('plan_proposed')
+    expect(requirement?.status).toBe('specified')
     expect(runtime.repo.latestAnalysis(String(intakeEvent.reqId))?.goal).toBe('看板支持按状态过滤')
     runtime.close()
   })
@@ -515,7 +510,6 @@ describe('session intake failure paths', () => {
     expect(session.events.map((event) => event.type)).toEqual([
       'plugin:forgeloop/intake',
       'plugin:forgeloop/analysis',
-      'plugin:forgeloop/plan',
     ])
 
     const standard = new SessionIntake({ runtime, config: runtime.config, presetOf: () => 'standard' })
@@ -576,7 +570,7 @@ describe('clarification loop', () => {
     expect(requirements[0]!.reqId).toBe(firstReq.reqId)
     expect(requirements[0]!.versions).toHaveLength(2)
     expect(requirements[0]!.versions[1]!.text).toContain('澄清回答')
-    expect(requirements[0]!.status).toBe('plan_proposed')
+    expect(requirements[0]!.status).toBe('specified')
     expect(runtime.pendingClarifications('session-forgeloop-1')).toEqual([])
     expect(session.events.map((event) => event.type)).toEqual([
       'plugin:forgeloop/intake',
@@ -584,7 +578,6 @@ describe('clarification loop', () => {
       'plugin:forgeloop/clarification-request',
       'plugin:forgeloop/clarification-answer',
       'plugin:forgeloop/analysis',
-      'plugin:forgeloop/plan',
     ])
     expect((session.events[3]!.data as Record<string, unknown>).answer).toContain('draft/approved')
     runtime.close()
