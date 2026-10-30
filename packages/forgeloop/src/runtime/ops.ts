@@ -7,14 +7,15 @@
  * - 目录在装载期登记；动作只能来自目录，参数只能取允许值，恢复只认检查退出码。
  *
  * 安全与恢复：
- * - 动作先登记意图（running）再执行；宿主中断后标为 unknown，不自动重放。
+ * - 动作先登记意图（running）再执行；宿主中断后标记为 `interrupted`，事件按未解决收口。
+ * - 没有结果记录时不由状态猜测：运维 Agent 基于已记录事实分析根因并上报，不自动重放。
  * - 每个事件首版只执行一次处置动作；失败后不循环重试，等待人工决定或修复需求。
  * - 正常巡检通过不产生事件，也不进入人工介入统计的分母。
  */
 
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { opsDir, projectDir } from '../config.js'
@@ -25,13 +26,16 @@ import type {
   Repository,
 } from '../records/repository.js'
 import {
+  OPS_ATTEMPT_FAILED,
+  OPS_ATTEMPT_INTERRUPTED,
+  OPS_ATTEMPT_RUNNING,
+  OPS_ATTEMPT_SUCCEEDED,
   OPS_AWAITING_DECISION,
   OPS_CLOSED,
   OPS_DIAGNOSED,
   OPS_OPEN,
   OPS_RECOVERED,
   OPS_RECOVERING,
-  OPS_UNKNOWN,
   OPS_UNRESOLVED,
   actionArgv,
   authorizeOpsAction,
@@ -39,16 +43,18 @@ import {
   opsSignatureOf,
   opsStats,
   parseOpsDiagnosis,
+  parseOpsInterruptionReport,
   recoveryPassed,
   serializeOpsDiagnosis,
   type OpsAction,
   type OpsCheck,
   type OpsDiagnosis,
+  type OpsInterruptionReport,
   type OpsResource,
   type OpsStats,
 } from '../domain/ops.js'
 import type { AgentRunRequest, AgentRunResult } from './agent-runner.js'
-import { opsDiagnosisPrompt } from './prompts.js'
+import { opsDiagnosisPrompt, opsInterruptionPrompt } from './prompts.js'
 
 export interface OpsRunner {
   run(request: AgentRunRequest): Promise<AgentRunResult>
@@ -101,7 +107,7 @@ function appendOutput(current: string, chunk: Buffer): string {
 
 /**
  * 执行登记过的 argv。不用 Shell，不展开变量；超时或宿主停止都返回可判定的结果，
- * 由调用方决定是否标为 unknown，而不是当作普通失败重试。
+ * 由调用方按“失败/中断”收口，而不是当作可重试的成功或未知状态。
  */
 export function runOpsCommand(
   argv: readonly string[],
@@ -189,7 +195,6 @@ export interface OpsEventView {
   readonly fixRequirementId: string
   readonly decision: string
   readonly humanInvolved: boolean
-  readonly resultUnknown: boolean
   readonly diagnosis: OpsDiagnosis | null
   readonly lastObservation: string
 }
@@ -408,6 +413,17 @@ export class OpsRuntime {
           }
         }
         if (!progressed) break
+      }
+
+      // 中断的处置动作没有结果记录：由运维 Agent 分析根因并上报；不重放动作。
+      for (const event of this.repo.listOpsEvents(this.config.project)) {
+        if (signal?.aborted) break
+        if (!isOpsActive(event.state)) continue
+        try {
+          await this.reportInterruption(event)
+        } catch (error) {
+          errors.push(`事件 ${event.eventId} 中断根因上报失败：${(error as Error).message}`)
+        }
       }
 
       // 已恢复但需要永久修复的事件，生成一次关联修复需求；不重复创建。
@@ -697,7 +713,7 @@ export class OpsRuntime {
   private async executeEvent(
     event: OpsEventRecord,
     signal?: AbortSignal,
-  ): Promise<'recovered' | 'unresolved' | 'unknown' | 'not_started'> {
+  ): Promise<'recovered' | 'unresolved' | 'not_started'> {
     const diagnosis = this.readDiagnosis(event)
     const proposed = diagnosis?.proposedAction
     const action = proposed ? this.action(proposed.actionId) : undefined
@@ -712,7 +728,7 @@ export class OpsRuntime {
       return 'not_started'
     }
     if (this.repo.opsActionAttempts(event.eventId).length > 0) {
-      // 首版每个事件只执行一次处置动作；失败/未知不自动重放。
+      // 首版每个事件只执行一次处置动作；失败或中断都不自动重放。
       return 'not_started'
     }
 
@@ -766,7 +782,7 @@ export class OpsRuntime {
       eventId: event.eventId,
       actionDefId: action.id,
       paramsJson: JSON.stringify(proposed.params),
-      state: 'running',
+      state: OPS_ATTEMPT_RUNNING,
       authorizationSource,
       startedAt: this.isoNow(),
     })
@@ -782,33 +798,37 @@ export class OpsRuntime {
     writeFileSync(evidencePath, logOf(argv, result), 'utf8')
 
     if (result.aborted || result.timedOut) {
+      // 中止或超时是确定事实：动作没有成功收口、没有退出码。
+      // 不把它改写成“未知”状态，也不自动重放。
       this.repo.finishOpsActionAttempt(attemptId, {
-        state: 'unknown',
+        state: OPS_ATTEMPT_FAILED,
         detail: result.aborted
-          ? '宿主停止：动作结果未知，需核对后收口；不自动重放'
-          : `动作超时（${action.timeoutSeconds} 秒）：结果未知，需核对后收口；不自动重放`,
+          ? '宿主停止：动作没有完成，没有退出码；事件按未解决收口，不自动重放'
+          : `动作超时（${action.timeoutSeconds} 秒）：动作没有完成，没有退出码；不自动重放`,
         exitCode: null,
         finishedAt: this.isoNow(),
         evidencePath,
       })
-      this.repo.updateOpsEvent(event.eventId, {
-        state: OPS_UNKNOWN,
-        resultUnknown: true,
-        updatedAt: this.isoNow(),
-      })
+      this.repo.updateOpsEvent(event.eventId, { state: OPS_UNRESOLVED, updatedAt: this.isoNow() })
       this.repo.appendOpsObservation({
         eventId: event.eventId,
         at: this.isoNow(),
         kind: 'action',
-        summary: `动作 ${action.id} 结果未知（${result.aborted ? '宿主停止' : '超时'}），等待核对`,
+        summary: `动作 ${action.id} 未完成（${result.aborted ? '宿主停止' : '超时'}）；没有退出码，按未解决收口`,
         evidencePath,
       })
-      return 'unknown'
+      const latest = this.repo.opsEvent(event.eventId)
+      if (latest) this.ensureFixIfNeeded(latest, diagnosis)
+      if (result.timedOut) {
+        // 超时后仍可用登记的恢复检查判定实际服务状态；检查通过即视为已恢复。
+        return this.verifyAfterAction(event.eventId, action, diagnosis, attemptIndex)
+      }
+      return 'unresolved'
     }
 
     if (result.code !== 0) {
       this.repo.finishOpsActionAttempt(attemptId, {
-        state: 'failed',
+        state: OPS_ATTEMPT_FAILED,
         detail: `动作退出码 ${result.code}`,
         exitCode: result.code,
         finishedAt: this.isoNow(),
@@ -828,7 +848,7 @@ export class OpsRuntime {
     }
 
     this.repo.finishOpsActionAttempt(attemptId, {
-      state: 'succeeded',
+      state: OPS_ATTEMPT_SUCCEEDED,
       detail: '动作退出码 0',
       exitCode: 0,
       finishedAt: this.isoNow(),
@@ -850,7 +870,7 @@ export class OpsRuntime {
     action: OpsAction,
     diagnosis: OpsDiagnosis,
     attemptIndex: number,
-  ): Promise<'recovered' | 'unresolved' | 'unknown' | 'not_started'> {
+  ): Promise<'recovered' | 'unresolved' | 'not_started'> {
     const check = this.check(action.verifyCheckId)
     if (!check) {
       this.repo.updateOpsEvent(eventId, { state: OPS_UNRESOLVED, updatedAt: this.isoNow() })
@@ -887,7 +907,6 @@ export class OpsRuntime {
       this.repo.updateOpsEvent(eventId, {
         state: OPS_RECOVERED,
         recoveredAt: this.isoNow(),
-        resultUnknown: false,
         updatedAt: this.isoNow(),
       })
     } else {
@@ -898,10 +917,10 @@ export class OpsRuntime {
     return passed ? 'recovered' : 'unresolved'
   }
 
-  /** 宿主中断后恢复：已有动作记录的事件不再执行，只按记录收口或等待核对。 */
+  /** 宿主中断后恢复：已有动作记录的事件不再执行，只按记录收口；无记录时等待人工决定。 */
   private async verifyEvent(
     event: OpsEventRecord,
-  ): Promise<'recovered' | 'unresolved' | 'unknown' | 'not_started'> {
+  ): Promise<'recovered' | 'unresolved' | 'not_started'> {
     const attempt = this.repo.latestOpsActionAttempt(event.eventId)
     if (!attempt) {
       this.repo.updateOpsEvent(event.eventId, { state: OPS_AWAITING_DECISION, updatedAt: this.isoNow() })
@@ -909,24 +928,21 @@ export class OpsRuntime {
         eventId: event.eventId,
         at: this.isoNow(),
         kind: 'decision_required',
-        summary: '恢复中的事件缺少处置动作记录，不能自动继续；需人工核对现场',
+        summary: '恢复中的事件缺少处置动作记录；没有执行痕迹，可由所有者重新决定',
       })
       return 'not_started'
     }
-    if (attempt.state === 'running') return 'not_started'
-    if (attempt.state === 'unknown') {
-      this.repo.updateOpsEvent(event.eventId, {
-        state: OPS_UNKNOWN,
-        resultUnknown: true,
-        updatedAt: this.isoNow(),
-      })
-      return 'unknown'
-    }
-    if (attempt.state === 'failed') {
+    if (attempt.state === OPS_ATTEMPT_RUNNING) return 'not_started'
+    if (attempt.state === OPS_ATTEMPT_INTERRUPTED) {
+      // 事实：动作已开始但没有结果记录；事件按未解决收口，根因由运维 Agent 上报。
       this.repo.updateOpsEvent(event.eventId, { state: OPS_UNRESOLVED, updatedAt: this.isoNow() })
       return 'unresolved'
     }
-    if (attempt.state !== 'succeeded') return 'not_started'
+    if (attempt.state === OPS_ATTEMPT_FAILED) {
+      this.repo.updateOpsEvent(event.eventId, { state: OPS_UNRESOLVED, updatedAt: this.isoNow() })
+      return 'unresolved'
+    }
+    if (attempt.state !== OPS_ATTEMPT_SUCCEEDED) return 'not_started'
     const diagnosis = this.readDiagnosis(event)
     const action = this.action(attempt.actionDefId)
     if (!diagnosis || !action) {
@@ -939,6 +955,149 @@ export class OpsRuntime {
       diagnosis,
       this.repo.opsActionAttempts(event.eventId).length,
     )
+  }
+
+  /**
+   * 中断的动作没有结果记录：先把确定性事实写入观测，再由运维 Agent 分析根因并上报。
+   * 报告只用于人工判断，不改变“每个事件只执行一次动作”的规则，也不自动重放。
+   * 每次中断只尝试一次模型报告；失败时保留事实并记录错误，不反复调用模型。
+   */
+  private async reportInterruption(event: OpsEventRecord): Promise<void> {
+    const observations = this.repo.opsObservations(event.eventId)
+    if (
+      observations.some(
+        (item) => item.kind === 'interruption_report' || item.kind === 'interruption_error',
+      )
+    ) {
+      return
+    }
+    const attempt = this.repo
+      .opsActionAttempts(event.eventId)
+      .find((item) => item.state === OPS_ATTEMPT_INTERRUPTED)
+    if (!attempt) return
+    const action = this.action(attempt.actionDefId)
+    let params: Record<string, string> = {}
+    try {
+      const parsed: unknown = JSON.parse(attempt.paramsJson || '{}')
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        params = parsed as Record<string, string>
+      }
+    } catch {
+      params = {}
+    }
+    let argv: readonly string[] = []
+    try {
+      if (action) argv = actionArgv(action, params)
+    } catch {
+      argv = []
+    }
+    const factSummary = `处置动作 ${attempt.actionDefId} 被宿主中断，没有退出码；按未解决收口，不自动重放`
+    if (!observations.some((item) => item.kind === 'interruption')) {
+      this.repo.appendOpsObservation({
+        eventId: event.eventId,
+        at: this.isoNow(),
+        kind: 'interruption',
+        summary: factSummary,
+        detailJson: JSON.stringify({
+          actionId: attempt.actionDefId,
+          params,
+          argv,
+          authorizationSource: attempt.authorizationSource,
+          startedAt: attempt.startedAt,
+          detail: attempt.detail,
+          evidencePath: attempt.evidencePath,
+        }),
+        evidencePath: attempt.evidencePath,
+      })
+    }
+
+    let logTail = ''
+    try {
+      if (attempt.evidencePath && existsSync(attempt.evidencePath)) {
+        logTail = readFileSync(attempt.evidencePath, 'utf8').slice(-4000)
+      }
+    } catch {
+      logTail = ''
+    }
+    const evidenceDir = opsDir(this.config, event.eventId)
+    let result: AgentRunResult
+    try {
+      result = await this.runner.run({
+        role: 'ops',
+        cwd: this.config.projectPath,
+        prompt: opsInterruptionPrompt({
+          eventId: event.eventId,
+          title: event.title,
+          severity: event.severity,
+          openedAt: event.openedAt,
+          resource: this.resource(event.resourceId) ?? {
+            id: event.resourceId,
+            kind: 'other',
+            label: event.resourceId,
+          },
+          checkId: event.checkId,
+          observations: observations
+            .slice(-5)
+            .map((item) => `${item.kind}：${item.summary}`),
+          attempt: {
+            actionId: attempt.actionDefId,
+            params,
+            authorizationSource: attempt.authorizationSource,
+            startedAt: attempt.startedAt,
+            detail: attempt.detail,
+            evidencePath: attempt.evidencePath,
+          },
+          logTail,
+        }),
+        permission: 'workspace-write',
+        timeoutMs: this.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(evidenceDir, 'interruption-report.jsonl'),
+        tools: 'none',
+      })
+    } catch (error) {
+      this.repo.appendOpsObservation({
+        eventId: event.eventId,
+        at: this.isoNow(),
+        kind: 'interruption_error',
+        summary: `中断根因分析异常：${(error as Error).message}；保留上述事实`,
+      })
+      return
+    }
+    if (result.status !== 'completed') {
+      this.repo.appendOpsObservation({
+        eventId: event.eventId,
+        at: this.isoNow(),
+        kind: 'interruption_error',
+        summary: `中断根因分析未完成：${result.reason || result.status}；保留上述事实`,
+      })
+      return
+    }
+    let report: OpsInterruptionReport
+    try {
+      report = parseOpsInterruptionReport(result.text)
+    } catch (error) {
+      this.repo.appendOpsObservation({
+        eventId: event.eventId,
+        at: this.isoNow(),
+        kind: 'interruption_error',
+        summary: `中断根因报告不可用：${(error as Error).message}；保留上述事实`,
+      })
+      return
+    }
+    const reportPath = this.writeEvidence(
+      event.eventId,
+      `interruption-${attempt.actionId}.json`,
+      `${JSON.stringify({ report, session: result.sessionId, modelStatus: result.status }, null, 2)}\n`,
+    )
+    this.repo.appendOpsObservation({
+      eventId: event.eventId,
+      at: this.isoNow(),
+      kind: 'interruption_report',
+      summary: report.summary,
+      detailJson: JSON.stringify(report),
+      evidencePath: reportPath,
+    })
+    this.repo.updateOpsEvent(event.eventId, { updatedAt: this.isoNow() })
   }
 
   // ------------------------------------------------------------ 修复需求
@@ -1081,37 +1240,11 @@ export class OpsRuntime {
     return ok(`已拒绝事件 ${event.eventId} 的处置 ${action.id}，事件保留为未解决`)
   }
 
-  confirmUnknown(input: { eventId: string; by: string; reason: string }): OpsResult {
-    const event = this.repo.opsEvent(input.eventId)
-    if (!event) return fail('not_found', `未找到运维事件 ${input.eventId}`)
-    if (event.state !== OPS_UNKNOWN) {
-      return fail('not_unknown', `事件 ${input.eventId} 当前状态 ${event.state}，没有待核对的未知结果`)
-    }
-    const now = this.isoNow()
-    this.repo.updateOpsEvent(event.eventId, {
-      state: OPS_UNRESOLVED,
-      resultUnknown: false,
-      humanInvolved: true,
-      humanReason: `${input.by} 已核对结果未知：${input.reason || '未说明'}`,
-      updatedAt: now,
-    })
-    this.repo.appendOpsObservation({
-      eventId: event.eventId,
-      at: now,
-      kind: 'reconciliation',
-      summary: `${input.by} 已核对未知结果：${input.reason || '未说明'}`,
-    })
-    return ok(`已核对事件 ${event.eventId} 的未知结果；事件保留为未解决，未重放动作`)
-  }
-
-  close(input: { eventId: string; by: string; reason: string; confirmUnknown?: boolean }): OpsResult {
+  close(input: { eventId: string; by: string; reason: string }): OpsResult {
     const event = this.repo.opsEvent(input.eventId)
     if (!event) return fail('not_found', `未找到运维事件 ${input.eventId}`)
     if (event.state === OPS_CLOSED) return fail('already_closed', `事件 ${input.eventId} 已经关闭`)
-    if (event.state === OPS_UNKNOWN && input.confirmUnknown !== true) {
-      return fail('recovery_required', '事件结果未知；先核对外部副作用并确认，才能关闭')
-    }
-    if (this.repo.latestOpsActionAttempt(event.eventId)?.state === 'running') {
+    if (this.repo.latestOpsActionAttempt(event.eventId)?.state === OPS_ATTEMPT_RUNNING) {
       return fail('action_running', '事件仍有动作在执行，不能关闭')
     }
     const now = this.isoNow()
@@ -1177,7 +1310,6 @@ export class OpsRuntime {
         fixRequirementId: event.fixRequirementId,
         decision: event.decision,
         humanInvolved: event.humanInvolved,
-        resultUnknown: event.resultUnknown,
         diagnosis,
         lastObservation: observations[observations.length - 1]?.summary ?? '',
       }

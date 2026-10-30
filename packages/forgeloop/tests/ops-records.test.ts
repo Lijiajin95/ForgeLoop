@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
-import { OPS_AWAITING_DECISION, OPS_RECOVERING, OPS_UNKNOWN } from '../src/domain/ops.js'
+import { OPS_ATTEMPT_INTERRUPTED, OPS_AWAITING_DECISION, OPS_RECOVERING, OPS_UNRESOLVED } from '../src/domain/ops.js'
 
 const PROJECT = 'forgeloop'
 const NOW = '2026-10-29T10:00:00.000Z'
@@ -123,7 +123,7 @@ describe('ops action attempts', () => {
     expect(attempts[0]?.authorizationSource).toBe('ops-action:auto:restart-web')
   })
 
-  it('marks an interrupted action unknown and never replays it automatically', () => {
+  it('marks a running action as interrupted, closes the event as unresolved and never auto-replays', () => {
     event()
     repository.updateOpsEvent('ops-1', { state: OPS_RECOVERING, updatedAt: NOW })
     repository.recordOpsActionAttempt({
@@ -135,11 +135,28 @@ describe('ops action attempts', () => {
       authorizationSource: 'owner:test',
       startedAt: NOW,
     })
-    const marked = repository.markRunningOpsActionsUnknown('2026-10-29T10:05:00.000Z')
+    const marked = repository.markRunningOpsActionsInterrupted('2026-10-29T10:05:00.000Z')
     expect(marked).toEqual([{ actionId: 'act-1', eventId: 'ops-1' }])
-    expect(repository.opsActionAttempts('ops-1')[0]?.state).toBe('unknown')
-    expect(repository.opsEvent('ops-1')?.state).toBe(OPS_UNKNOWN)
-    expect(repository.opsEvent('ops-1')?.resultUnknown).toBe(true)
-    expect(repository.markRunningOpsActionsUnknown('2026-10-29T10:06:00.000Z')).toEqual([])
+    expect(repository.opsActionAttempts('ops-1')[0]?.state).toBe(OPS_ATTEMPT_INTERRUPTED)
+    expect(repository.opsActionAttempts('ops-1')[0]?.detail).toContain('不自动重放')
+    expect(repository.opsEvent('ops-1')?.state).toBe(OPS_UNRESOLVED)
+    expect(repository.markRunningOpsActionsInterrupted('2026-10-29T10:06:00.000Z')).toEqual([])
+  })
+
+  it('migrates legacy ops unknown rows to interrupted attempts and unresolved events', () => {
+    event()
+    repository.recordOpsActionAttempt({
+      actionId: 'act-legacy',
+      eventId: 'ops-1',
+      actionDefId: 'restart-web',
+      paramsJson: '{}',
+      state: 'unknown',
+      authorizationSource: 'owner:test',
+      startedAt: NOW,
+    })
+    repository.updateOpsEvent('ops-1', { state: 'unknown', updatedAt: NOW })
+    expect(repository.migrateLegacyOpsUnknown('2026-10-29T10:05:00.000Z')).toBe(2)
+    expect(repository.opsActionAttempts('ops-1')[0]?.state).toBe(OPS_ATTEMPT_INTERRUPTED)
+    expect(repository.opsEvent('ops-1')?.state).toBe(OPS_UNRESOLVED)
   })
 })

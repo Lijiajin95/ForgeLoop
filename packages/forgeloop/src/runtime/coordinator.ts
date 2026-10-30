@@ -4,8 +4,9 @@
  * 规则：
  * - 输入先落库（service_requests），再由这里领取；重复唤醒不会重复领取。
  * - 同一时刻只领取一条请求；在途请求有动作身份与 AbortController。
- * - 宿主停止时不再领取，取消在途 Agent，保留可核对状态。
- * - 重启时 claimed 请求标为 unknown、started 动作标为 interrupted；不自动重放。
+ * - 宿主停止时不再领取，取消在途 Agent；中断的请求按 failed 收口。
+ * - 重启时 claimed 请求判 failed、started 动作标 interrupted、未收口的运维动作标 interrupted；
+ *   没有“无法判定”的状态，也不自动重放有副作用的动作。
  */
 
 import { hostname } from 'node:os'
@@ -72,7 +73,7 @@ export class Coordinator {
     const lock = acquireHostLock(projectDir(this.runtime.config), this.owner)
     this.lock = lock
     if (!lock.acquired) {
-      // 只读宿主：不领取、不把别人的在途请求标为 unknown。
+      // 只读宿主：不领取、不修改别人的在途请求。
       this.stopped = true
       this.lastError = `单消费者锁未取得：${lock.reason}（${lock.holder}）`
       console.error(`[forgeloop] ${this.lastError}`)
@@ -80,11 +81,12 @@ export class Coordinator {
     }
     this.stopped = false
     const now = new Date().toISOString()
-    // 上次没跑完的请求直接收口为 failed，并丢弃一次性工作副本；不再产生 unknown。
+    // 上次没跑完的请求直接收口为 failed，并丢弃一次性工作副本；不保留无法判定的状态。
     const recovery = this.runtime.recoverInterrupted(now)
     const interrupted = this.runtime.repo.markStartedActionsInterrupted(now)
-    // 运维动作的结果未知：先核对，不自动重放。
-    const interruptedOps = this.runtime.repo.markRunningOpsActionsUnknown(now)
+    // 旧库里的运维 unknown 先迁成“中断/未解决”；随后把本次未收口的动作标为 interrupted。
+    const migratedOpsUnknown = this.runtime.repo.migrateLegacyOpsUnknown(now)
+    const interruptedOps = this.runtime.repo.markRunningOpsActionsInterrupted(now)
     // 任务运行也可能停在 running：标记为阻塞，等待重新执行。
     const interruptedRuns = this.runtime.repo.markRunningTaskRunsInterrupted(now)
     this.runtime.repo.setMeta('host_owner', this.owner, now)
@@ -96,6 +98,7 @@ export class Coordinator {
         migratedUnknown: recovery.migratedUnknown,
         discardedWorkspaces: recovery.discardedWorkspaces,
         interruptedActions: interrupted,
+        migratedOpsUnknown,
         interruptedOps,
         interruptedRuns,
       }),
@@ -178,7 +181,7 @@ export class Coordinator {
   private ensureAutoAdvanceRequests(): void {
     for (const requirement of this.runtime.repo.listRequirements(this.runtime.config.project)) {
       // 失败停在 blocked 的需求也可以自动再来一次：判定与手动 requeue 共用 retryDecision，
-      // 额度、在途请求、unknown 与终态都会在判定里拦下，不会无限重试。
+      // 额度、在途请求与终态都会在判定里拦下，不会无限重试。
       if (requirement.status === 'blocked') {
         const decision = this.runtime.retryDecisionFor(requirement.reqId)
         if (!decision.allowed) continue

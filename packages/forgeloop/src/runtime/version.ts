@@ -13,9 +13,9 @@ function readVersion(): string {
   try {
     const path = new URL('../../package.json', import.meta.url)
     const data = JSON.parse(readFileSync(path, 'utf8')) as PackageJson
-    return typeof data.version === 'string' ? data.version : 'unknown'
+    return typeof data.version === 'string' ? data.version : 'unavailable'
   } catch {
-    return 'unknown'
+    return 'unavailable'
   }
 }
 

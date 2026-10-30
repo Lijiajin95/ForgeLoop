@@ -18,7 +18,7 @@ export const name = 'forgeloop'
 
 /** Web 客户端读取看板事实的认证 HTTP 路径；只在有浏览器连接服务的 profile 中注册。 */
 export const BOARD_HTTP_PATH = '/api/forgeloop/board'
-const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'requeue', 'build', 'deploy', 'retry', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-confirm-unknown', 'ops-request-fix']
+const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'requeue', 'build', 'deploy', 'retry', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-request-fix']
 
 interface BoardFailure {
   readonly code: string
@@ -338,21 +338,6 @@ function registerBoardRoute(
                 result.ok ? 200 : 409,
               )
             }
-            if (endpoint === 'ops-confirm-unknown') {
-              const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
-              if (!eventId) return boardResponse(boardFailure('bad_request', '核对未知结果需要 eventId'), 400)
-              const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-              const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
-              const result = runtime.opsConfirmUnknown({
-                eventId,
-                by: config.owner,
-                reason: reason || `Web 核对（${sessionId || 'unknown-session'}）`,
-              })
-              return boardResponse(
-                result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
-                result.ok ? 200 : 409,
-              )
-            }
             if (endpoint === 'ops-close') {
               const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
               if (!eventId) return boardResponse(boardFailure('bad_request', '关闭事件需要 eventId'), 400)
@@ -362,7 +347,6 @@ function registerBoardRoute(
                 eventId,
                 by: config.owner,
                 reason: reason || `Web 关闭（${sessionId || 'unknown-session'}）`,
-                confirmUnknown: body?.confirmRecovery === true,
               })
               return boardResponse(
                 result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),

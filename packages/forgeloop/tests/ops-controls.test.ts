@@ -21,7 +21,6 @@ import {
   OPS_RECOVERING,
   OPS_RECOVERED,
   OPS_UNRESOLVED,
-  OPS_UNKNOWN,
 } from '../src/domain/ops.js'
 
 const PROJECT = 'forgeloop'
@@ -268,13 +267,15 @@ describe('ops owner decisions', () => {
     expect(ops.list()[0]?.state).toBe(OPS_AWAITING_DECISION)
   })
 
-  it('reconciles only events whose result is actually unknown', () => {
+  it('closes an unresolved event without any reconciliation confirmation', () => {
     const runner = runnerOf(() => diagnosisText())
     const { ops } = makeOps(raw(), runner)
-
-    expect(ops.confirmUnknown({ eventId: 'ops-missing', by: 'owner', reason: '核对' }).code).toBe('not_found')
-    const recovered = seedEvent({ state: OPS_RECOVERED })
-    expect(ops.confirmUnknown({ eventId: recovered, by: 'owner', reason: '核对' }).code).toBe('not_unknown')
+    const unresolved = seedEvent({ state: OPS_UNRESOLVED })
+    const closed = ops.close({ eventId: unresolved, by: 'owner', reason: '人工核对外部状态后关闭' })
+    expect(closed.ok).toBe(true)
+    const event = ops.list().find((item) => item.eventId === unresolved)!
+    expect(event.state).toBe(OPS_CLOSED)
+    expect(event.humanInvolved).toBe(true)
   })
 
   it('closes resolved events, refuses a second close and protects running actions', () => {
@@ -287,9 +288,6 @@ describe('ops owner decisions', () => {
     expect(ops.list().find((event) => event.eventId === resolved)?.state).toBe(OPS_CLOSED)
     expect(ops.stats().closed).toBe(1)
     expect(ops.close({ eventId: resolved, by: 'owner', reason: '再次关闭' }).code).toBe('already_closed')
-
-    const unknown = seedEvent({ state: OPS_UNKNOWN })
-    expect(ops.close({ eventId: unknown, by: 'owner', reason: '关闭' }).code).toBe('recovery_required')
 
     const running = seedEvent({ state: OPS_RECOVERING })
     repository.recordOpsActionAttempt({
@@ -508,7 +506,7 @@ describe('ops command and recovery boundaries', () => {
       actionId: 'opa-interrupted',
       eventId: interrupted,
       actionDefId: 'restart-web',
-      state: 'unknown',
+      state: 'interrupted',
       authorizationSource: 'ops-action:auto:restart-web',
       startedAt: clock.toISOString(),
     })
@@ -535,11 +533,15 @@ describe('ops command and recovery boundaries', () => {
 
     await ops.tick()
     const byId = new Map(ops.list().map((event) => [event.eventId, event]))
-    expect(byId.get(interrupted)?.state).toBe(OPS_UNKNOWN)
-    expect(byId.get(interrupted)?.resultUnknown).toBe(true)
+    expect(byId.get(interrupted)?.state).toBe(OPS_UNRESOLVED)
     expect(byId.get(failed)?.state).toBe(OPS_UNRESOLVED)
     expect(byId.get(orphan)?.state).toBe(OPS_AWAITING_DECISION)
     expect(byId.get(stillRunning)?.state).toBe(OPS_RECOVERING)
+    // 中断的动作只上报事实，不产生第二条动作记录，也不自动重放。
+    expect(repository.opsActionAttempts(interrupted)).toHaveLength(1)
+    expect(
+      repository.opsObservations(interrupted).some((item) => item.kind === 'interruption'),
+    ).toBe(true)
   })
 
   it('truncates oversized command output instead of keeping it all', async () => {

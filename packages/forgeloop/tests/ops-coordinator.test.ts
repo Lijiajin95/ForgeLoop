@@ -6,7 +6,7 @@ import { ForgeLoopRuntime } from '../src/runtime/service.js'
 import { Coordinator } from '../src/runtime/coordinator.js'
 import { resolveConfig } from '../src/config.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
-import { OPS_RECOVERED, OPS_UNKNOWN } from '../src/domain/ops.js'
+import { OPS_ATTEMPT_INTERRUPTED, OPS_RECOVERED, OPS_UNRESOLVED } from '../src/domain/ops.js'
 
 let dir = ''
 let runtime: ForgeLoopRuntime
@@ -32,6 +32,13 @@ const DIAGNOSIS = JSON.stringify({
   decision_required: false,
   fix_required: false,
   summary: '重启并复核',
+})
+
+const INTERRUPTION = JSON.stringify({
+  summary: '动作被宿主中断，结果没有记录',
+  root_cause: '动作已开始但没有退出码；无法判断是否生效，不自动重放',
+  evidence: ['动作 restart-web 已登记为 running', '没有退出码与恢复复核结果'],
+  next_step: '人工检查 Web 进程与健康检查后再决定',
 })
 
 function makeRuntime(): ForgeLoopRuntime {
@@ -70,7 +77,10 @@ function makeRuntime(): ForgeLoopRuntime {
   return new ForgeLoopRuntime({
     ctx: {},
     config,
-    runner: { run: async (request) => result(request, DIAGNOSIS) },
+    runner: {
+      run: async (request) =>
+        result(request, request.prompt.includes('被中断的处置动作') ? INTERRUPTION : DIAGNOSIS),
+    },
   })
 }
 
@@ -107,7 +117,7 @@ describe('coordinator ops wiring', () => {
     expect(runtime.ops.detail(event.eventId)?.attempts[0]?.state).toBe('succeeded')
   })
 
-  it('marks an action left running by a previous host as unknown and does not replay it', async () => {
+  it('marks an action left running by a previous host as interrupted and reports instead of replaying', async () => {
     runtime.repo.createOpsEvent({
       eventId: 'ops-interrupted',
       project: 'testproj',
@@ -133,11 +143,14 @@ describe('coordinator ops wiring', () => {
     coordinator = new Coordinator({ runtime, pollSeconds: 3600, autoAdvance: false })
     coordinator.start()
     const event = runtime.repo.opsEvent('ops-interrupted')
-    expect(event?.state).toBe(OPS_UNKNOWN)
-    expect(event?.resultUnknown).toBe(true)
-    expect(runtime.repo.opsActionAttempts('ops-interrupted')[0]?.state).toBe('unknown')
+    expect(event?.state).toBe(OPS_UNRESOLVED)
+    expect(runtime.repo.opsActionAttempts('ops-interrupted')[0]?.state).toBe(OPS_ATTEMPT_INTERRUPTED)
 
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await waitFor(() =>
+      runtime.repo
+        .opsObservations('ops-interrupted')
+        .some((item) => item.kind === 'interruption_report'),
+    )
     expect(runtime.repo.opsActionAttempts('ops-interrupted')).toHaveLength(1)
   })
 })

@@ -290,8 +290,7 @@ CREATE TABLE IF NOT EXISTS ops_events (
     decision_source TEXT NOT NULL DEFAULT '',
     decision_at TEXT NOT NULL DEFAULT '',
     human_involved INTEGER NOT NULL DEFAULT 0,
-    human_reason TEXT NOT NULL DEFAULT '',
-    result_unknown INTEGER NOT NULL DEFAULT 0
+    human_reason TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ops_events_by_signature ON ops_events (project, signature, state);
 CREATE INDEX IF NOT EXISTS ops_events_by_state ON ops_events (project, state, opened_at);

@@ -195,8 +195,27 @@ describe('client conversation view', () => {
     expect(dicts!.zh['task.failureReason']).toBe('失败原因')
     expect(dicts!.zh['task.solution']).toBe('解决方案')
     expect(dicts!.zh['task.retry']).toBe('重试任务')
-    expect(dicts!.zh['task.retryConfirm']).toBe('核对并重试')
     expect(dicts!.en['task.failureReason']).toBe('Failure reason')
     expect(dicts!.en['task.retry']).toBe('Retry task')
+  })
+
+  it('has no unknown-state labels left in either locale', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    const removed = [
+      'status.unknown',
+      'task.retryConfirm',
+      'task.retryRecoveryHint',
+      'requirement.unknownCount',
+      'detail.unknownRequest',
+      'overview.next.unknown',
+      'ops.unknown',
+      'ops.state.unknown',
+      'ops.confirmUnknown',
+      'ops.unknownConfirm',
+    ]
+    for (const key of removed) {
+      expect(dicts!.zh[key], key).toBeUndefined()
+      expect(dicts!.en[key], key).toBeUndefined()
+    }
   })
 })

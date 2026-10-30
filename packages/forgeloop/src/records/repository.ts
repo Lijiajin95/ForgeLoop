@@ -171,7 +171,6 @@ export interface OpsEventRecord {
   readonly decisionAt: string
   readonly humanInvolved: boolean
   readonly humanReason: string
-  readonly resultUnknown: boolean
 }
 
 export interface OpsObservationRecord {
@@ -215,7 +214,6 @@ export interface OpsEventPatch {
   decisionAt?: string
   humanInvolved?: boolean
   humanReason?: string
-  resultUnknown?: boolean
   updatedAt?: string
 }
 
@@ -920,7 +918,7 @@ export class Repository {
 
   /**
    * 宿主启动时把上一次仍在 running 的任务运行标为 blocked：
-   * 执行结果没有收口、工作副本可能有改动，只记录中断，不自动重放。
+   * 执行者已不在，任务未交付；一次性工作副本会在下次执行时重建。
    */
   markRunningTaskRunsInterrupted(now: string): number {
     const result = this.db.handle
@@ -928,7 +926,7 @@ export class Repository {
         "UPDATE requirement_task_runs SET state = 'blocked', reason = ?, updated_at = ? WHERE state = 'running'",
       )
       .run(
-        `宿主中断：上一次执行结果未收口，工作副本可能有改动，需核对后重试（${now}）；不会自动重放`,
+        `宿主中断：任务未交付，一次性工作副本会在下次执行时重建（${now}）；可重新执行`,
         now,
       )
     return Number(result.changes)
@@ -1567,7 +1565,7 @@ export class Repository {
       .prepare(
         `SELECT * FROM ops_events
           WHERE project = ? AND signature = ?
-            AND state IN ('open', 'diagnosed', 'awaiting_decision', 'recovering', 'unresolved', 'unknown')
+            AND state IN ('open', 'diagnosed', 'awaiting_decision', 'recovering', 'unresolved')
           ORDER BY opened_at DESC LIMIT 1`,
       )
       .get(project, signature) as Row | undefined
@@ -1600,7 +1598,6 @@ export class Repository {
       decisionAt: 'decision_at',
       humanInvolved: 'human_involved',
       humanReason: 'human_reason',
-      resultUnknown: 'result_unknown',
       updatedAt: 'updated_at',
     }
     const assignments: string[] = []
@@ -1743,10 +1740,11 @@ export class Repository {
   }
 
   /**
-   * 宿主启动时把未收口的动作标为 unknown：外部副作用无法确认，不能自动重放。
-   * 返回被标记的动作，供启动记录引用。
+   * 宿主启动时收口上次未完成的处置动作：动作已经不在，但退出码没有落库。
+   * 记录为 `interrupted`（事实：没有结果记录），事件按“未解决”收口，
+   * 由运维 Agent 分析根因后上报；不自动重放动作。
    */
-  markRunningOpsActionsUnknown(now: string): Array<{ actionId: string; eventId: string }> {
+  markRunningOpsActionsInterrupted(now: string): Array<{ actionId: string; eventId: string }> {
     const rows = this.db.handle
       .prepare("SELECT * FROM ops_action_attempts WHERE state = 'running' ORDER BY started_at")
       .all() as Row[]
@@ -1757,17 +1755,40 @@ export class Repository {
       this.db.handle
         .prepare(
           `UPDATE ops_action_attempts
-              SET state = 'unknown', detail = ?, finished_at = ?
+              SET state = 'interrupted', detail = ?, finished_at = ?
             WHERE action_id = ?`,
         )
-        .run('宿主中断：动作结果未知，需核对外部副作用后再收口；不自动重放', now, actionId)
+        .run('宿主中断：没有退出码或结果记录；事件按未解决收口，不自动重放', now, actionId)
       const event = this.opsEvent(eventId)
-      if (event && event.state !== 'closed') {
-        this.updateOpsEvent(eventId, { state: 'unknown', resultUnknown: true, updatedAt: now })
+      if (event && event.state !== 'closed' && event.state !== 'recovered') {
+        this.updateOpsEvent(eventId, { state: 'unresolved', updatedAt: now })
       }
       marked.push({ actionId, eventId })
     }
     return marked
+  }
+
+  /**
+   * 旧库里的运维 unknown 收口：事件改为未解决，动作尝试改为 interrupted。
+   * 只做一次迁移；新库不会写入 unknown。
+   */
+  migrateLegacyOpsUnknown(now: string): number {
+    return this.db.transaction(() => {
+      const attempts = this.db.handle
+        .prepare(
+          `UPDATE ops_action_attempts
+              SET state = 'interrupted', detail = detail || ?
+            WHERE state = 'unknown'`,
+        )
+        .run(`（旧 unknown 已改为 interrupted：${now}）`)
+      const events = this.db.handle
+        .prepare(
+          `UPDATE ops_events SET state = 'unresolved', updated_at = ?
+            WHERE state = 'unknown'`,
+        )
+        .run(now)
+      return Number(attempts.changes) + Number(events.changes)
+    })
   }
 
   // ---------------------------------------------------------------- 元信息
@@ -1848,7 +1869,6 @@ function opsEventFromRow(row: Row): OpsEventRecord {
     decisionAt: text(row, 'decision_at'),
     humanInvolved: num(row, 'human_involved') === 1,
     humanReason: text(row, 'human_reason'),
-    resultUnknown: num(row, 'result_unknown') === 1,
   }
 }
 

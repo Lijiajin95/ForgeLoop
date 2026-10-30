@@ -3,13 +3,13 @@ import {
   OPS_AWAITING_DECISION,
   OPS_CLOSED,
   OPS_RECOVERED,
-  OPS_UNKNOWN,
   OPS_UNRESOLVED,
   actionArgv,
   authorizeOpsAction,
   opsSignatureOf,
   opsStats,
   parseOpsDiagnosis,
+  parseOpsInterruptionReport,
   recoveryPassed,
   validateOpsCatalog,
   type OpsAction,
@@ -293,7 +293,7 @@ describe('ops statistics', () => {
         fixRequirementId: 'req-2',
       },
       {
-        state: OPS_UNKNOWN,
+        state: OPS_UNRESOLVED,
         humanInvolved: false,
         openedAt: '2026-10-01T03:00:00.000Z',
         recoveredAt: '',
@@ -310,9 +310,59 @@ describe('ops statistics', () => {
     expect(stats.total).toBe(5)
     expect(stats.humanInvolved).toBe(3)
     expect(stats.recovered).toBe(2)
-    expect(stats.unresolved).toBe(1)
-    expect(stats.unknown).toBe(1)
+    expect(stats.unresolved).toBe(2)
     expect(stats.fixRequirements).toBe(2)
     expect(stats.averageRecoverySeconds).toBe(450)
+  })
+})
+
+describe('ops interruption report', () => {
+  it('parses a bounded root-cause report for an interrupted action', () => {
+    const report = parseOpsInterruptionReport(
+      JSON.stringify({
+        summary: '动作被宿主中断，没有退出码',
+        root_cause: '日志只记录到动作启动，没有退出码；无法判断重启是否生效',
+        evidence: ['动作 restart-web 在 10:00 开始', '没有退出码', '没有恢复复核结果'],
+        next_step: '人工检查 Web 进程与健康检查，再决定是否重试',
+      }),
+    )
+    expect(report.summary).toContain('中断')
+    expect(report.evidence).toHaveLength(3)
+    expect(report.nextStep).toContain('人工')
+  })
+
+  it('rejects missing, empty and oversized report fields instead of storing a guess', () => {
+    expect(() => parseOpsInterruptionReport('not json')).toThrow()
+    expect(() => parseOpsInterruptionReport(JSON.stringify([]))).toThrow(/JSON 对象/)
+    expect(() =>
+      parseOpsInterruptionReport(
+        JSON.stringify({ summary: '', root_cause: 'x', evidence: ['y'], next_step: 'z' }),
+      ),
+    ).toThrow(/结论/)
+    expect(() =>
+      parseOpsInterruptionReport(
+        JSON.stringify({ summary: 'x', root_cause: 'y', evidence: [], next_step: 'z' }),
+      ),
+    ).toThrow(/至少需要一条事实/)
+    expect(() =>
+      parseOpsInterruptionReport(
+        JSON.stringify({
+          summary: 'x',
+          root_cause: 'y',
+          evidence: Array.from({ length: 21 }, (_, index) => `fact-${index}`),
+          next_step: 'z',
+        }),
+      ),
+    ).toThrow(/20/)
+    expect(() =>
+      parseOpsInterruptionReport(
+        JSON.stringify({ summary: 'x'.repeat(501), root_cause: 'y', evidence: ['z'], next_step: 'w' }),
+      ),
+    ).toThrow(/500/)
+    expect(() =>
+      parseOpsInterruptionReport(
+        JSON.stringify({ summary: 'x', root_cause: 'y', evidence: ['z'], next_step: 'w'.repeat(2001) }),
+      ),
+    ).toThrow(/2000/)
   })
 })

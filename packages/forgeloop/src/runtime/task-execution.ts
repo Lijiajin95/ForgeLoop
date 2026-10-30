@@ -243,7 +243,7 @@ export function parseTaskExecution(
       textTruncated: false,
       tool: {
         callId,
-        name: 'unknown',
+        name: 'unrecorded',
         input: '',
         output: output.text,
         isError: result.isError,

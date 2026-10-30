@@ -9,9 +9,11 @@ import { OpsRuntime } from '../src/runtime/ops.js'
 import type { AgentLike } from '../src/runtime/service.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import {
+  OPS_ATTEMPT_FAILED,
+  OPS_ATTEMPT_INTERRUPTED,
   OPS_AWAITING_DECISION,
   OPS_RECOVERED,
-  OPS_UNKNOWN,
+  OPS_RECOVERING,
   OPS_UNRESOLVED,
 } from '../src/domain/ops.js'
 
@@ -277,7 +279,7 @@ describe('ops failure handling', () => {
     expect(ops.list().filter((item) => item.fixRequirementId === event.fixRequirementId)).toHaveLength(1)
   })
 
-  it('records a timed-out action as unknown and never replays it', async () => {
+  it('records a timed-out action as failed and closes the event as unresolved without replay', async () => {
     const runner = fakeRunner(diagnosisText())
     // 把动作超时缩到 1 秒，避免测试等待。
     const raw = opsRaw({ actionCommand: ['node', '-e', 'setTimeout(() => {}, 60000)'] })
@@ -292,43 +294,108 @@ describe('ops failure handling', () => {
 
     await fast.tick()
     const event = fast.list()[0]!
-    expect(event.state).toBe(OPS_UNKNOWN)
-    expect(event.resultUnknown).toBe(true)
-    expect(fast.detail(event.eventId)?.attempts[0]?.state).toBe('unknown')
+    expect(event.state).toBe(OPS_UNRESOLVED)
+    const detail = fast.detail(event.eventId)!
+    expect(detail.attempts[0]?.state).toBe(OPS_ATTEMPT_FAILED)
+    expect(detail.attempts[0]?.exitCode).toBeNull()
+    expect(detail.attempts[0]?.detail).toContain('没有退出码')
+    // 超时后仍只用登记的恢复检查判定服务状态；检查失败即未解决，不猜成功。
+    expect(detail.observations.some((item) => item.kind === 'recovery')).toBe(true)
 
-    const before = fast.detail(event.eventId)?.attempts.length
+    const before = detail.attempts.length
     clock = new Date(clock.getTime() + 61_000)
     await fast.tick()
     expect(fast.detail(event.eventId)?.attempts.length).toBe(before)
-    expect(fast.list()[0]?.state).toBe(OPS_UNKNOWN)
+    expect(fast.list()[0]?.state).toBe(OPS_UNRESOLVED)
   })
 
-  it('closes an unknown event only after the owner confirms reconciliation', () => {
-    const runner = fakeRunner(diagnosisText())
-    const { ops } = makeOps(opsRaw(), runner)
-    writeFileSync(join(dir, 'down'), '1')
+  it('closes an interrupted unresolved event without a reconciliation confirmation', () => {
+    const { ops } = makeOps(opsRaw(), fakeRunner(diagnosisText()))
     repository.createOpsEvent({
-      eventId: 'ops-manual',
+      eventId: 'ops-interrupted',
       project: PROJECT,
       resourceId: 'web',
       checkId: 'web-health',
       signature: 'web/web-health/1/manual',
       severity: 'major',
-      state: OPS_UNKNOWN,
-      title: '人工构造的未知事件',
+      state: OPS_UNRESOLVED,
+      title: '人工构造的中断事件',
       openedAt: clock.toISOString(),
       updatedAt: clock.toISOString(),
     })
-    repository.updateOpsEvent('ops-manual', { resultUnknown: true, updatedAt: clock.toISOString() })
+    repository.recordOpsActionAttempt({
+      actionId: 'opa-interrupted',
+      eventId: 'ops-interrupted',
+      actionDefId: 'restart-web',
+      state: OPS_ATTEMPT_INTERRUPTED,
+      authorizationSource: 'owner:test',
+      startedAt: clock.toISOString(),
+    })
 
-    const refused = ops.close({ eventId: 'ops-manual', by: 'owner', reason: '关闭', confirmUnknown: false })
-    expect(refused.ok).toBe(false)
-    expect(ops.list().find((event) => event.eventId === 'ops-manual')?.state).toBe(OPS_UNKNOWN)
-
-    const confirmed = ops.confirmUnknown({ eventId: 'ops-manual', by: 'owner', reason: '已核对无残留' })
-    expect(confirmed.ok).toBe(true)
-    const event = ops.list().find((item) => item.eventId === 'ops-manual')!
-    expect(event.resultUnknown).toBe(false)
+    const closed = ops.close({ eventId: 'ops-interrupted', by: 'owner', reason: '已核对外部状态' })
+    expect(closed.ok).toBe(true)
+    const event = ops.list().find((item) => item.eventId === 'ops-interrupted')!
+    expect(event.state).toBe('closed')
     expect(event.humanInvolved).toBe(true)
+  })
+
+  it('asks the ops agent to report the root cause of an interrupted action exactly once', async () => {
+    const prompts: string[] = []
+    const runner: AgentLike = {
+      async run(request) {
+        prompts.push(request.prompt)
+        if (request.prompt.includes('被中断的处置动作')) {
+          return result(
+            request,
+            JSON.stringify({
+              summary: '动作被宿主中断，结果没有记录',
+              root_cause: '动作已开始但没有退出码，无法判断是否生效；不重放',
+              evidence: ['动作 restart-web 已登记为 running', '没有退出码与恢复复核结果'],
+              next_step: '人工检查 Web 进程和健康检查后决定是否重试',
+            }),
+          )
+        }
+        return result(request, diagnosisText())
+      },
+    }
+    const { ops } = makeOps(opsRaw(), runner)
+    repository.createOpsEvent({
+      eventId: 'ops-interrupted',
+      project: PROJECT,
+      resourceId: 'web',
+      checkId: 'web-health',
+      signature: 'web/web-health/1/interrupted',
+      severity: 'major',
+      state: OPS_RECOVERING,
+      title: '中断的动作',
+      openedAt: clock.toISOString(),
+      updatedAt: clock.toISOString(),
+    })
+    repository.recordOpsActionAttempt({
+      actionId: 'opa-interrupted',
+      eventId: 'ops-interrupted',
+      actionDefId: 'restart-web',
+      state: 'running',
+      authorizationSource: 'owner:test',
+      startedAt: clock.toISOString(),
+    })
+    repository.markRunningOpsActionsInterrupted(clock.toISOString())
+
+    await ops.tick()
+    const detail = ops.detail('ops-interrupted')!
+    expect(ops.list().find((item) => item.eventId === 'ops-interrupted')?.state).toBe(OPS_UNRESOLVED)
+    expect(detail.attempts[0]?.state).toBe(OPS_ATTEMPT_INTERRUPTED)
+    const kinds = detail.observations.map((item) => item.kind)
+    expect(kinds).toContain('interruption')
+    expect(kinds).toContain('interruption_report')
+    const report = detail.observations.find((item) => item.kind === 'interruption_report')!
+    expect(report.summary).toContain('中断')
+    expect(report.evidencePath).toContain('interruption-')
+    expect(detail.attempts).toHaveLength(1)
+
+    const calls = prompts.length
+    clock = new Date(clock.getTime() + 61_000)
+    await ops.tick()
+    expect(prompts.length).toBe(calls)
   })
 })

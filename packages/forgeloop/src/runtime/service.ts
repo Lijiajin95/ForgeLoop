@@ -989,7 +989,7 @@ ${answer}`
 
   /**
    * 需求级重新执行：失败停在 blocked 后，不再要求人工逐个任务重试。
-   * 与 retryTask 共用同一份判定（额度、在途、unknown、批准、终态），
+   * 与 retryTask 共用同一份判定（额度、在途请求、批准、终态），
    * 只排队一次 advance；不新建任务包、不清零失败轮次。
    */
   requeue(input: { reqId: string; by: string; source: string }): OperationResult {
@@ -1242,7 +1242,7 @@ ${answer}`
 
   /**
    * 宿主启动时的确定性收口：执行者已经不在了，工作副本是运行时建的一次性快照，
-   * 直接判失败并丢弃快照，随后可重新执行。不再保留“无法判定”的 unknown。
+   * 直接判失败并丢弃快照，随后可重新执行。没有“无法判定”的中间状态。
    */
   recoverInterrupted(now = this.now()): {
     interruptedRequests: string[]
@@ -2015,16 +2015,7 @@ ${answer}`
     return this.ops.decide(input)
   }
 
-  opsConfirmUnknown(input: { eventId: string; by: string; reason: string }): OperationResult {
-    return this.ops.confirmUnknown(input)
-  }
-
-  opsClose(input: {
-    eventId: string
-    by: string
-    reason: string
-    confirmUnknown?: boolean
-  }): OperationResult {
+  opsClose(input: { eventId: string; by: string; reason: string }): OperationResult {
     return this.ops.close(input)
   }
 
@@ -2143,25 +2134,21 @@ ${answer}`
 
   /**
    * 执行一条已领取的请求；返回结局文本。调用方负责请求状态落库。
-   * 中断/超时在请求层一律收口为 failed：执行者已不在，工作副本可丢弃，随后重新执行。
+   * 只有“已交付”和“未交付（失败）”两种结局：中断/超时也按失败收口，
+   * 执行者已不在，一次性工作副本可丢弃，随后重新执行。
    */
   async executeRequest(
     request: ServiceRequestRecord,
     signal: AbortSignal,
   ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const outcome = await this.dispatchRequest(request, signal)
-    if (outcome.state === 'done') return { state: 'done' as const, detail: outcome.detail }
-    if (outcome.state === 'failed') return { state: 'failed' as const, detail: outcome.detail }
-    return {
-      state: 'failed' as const,
-      detail: `${outcome.detail}；按失败收口，可重新执行`,
-    }
+    return { state: outcome.state, detail: outcome.detail }
   }
 
   private async dispatchRequest(
     request: ServiceRequestRecord,
     signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const requirement = this.repo.getRequirement(request.reqId)
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${request.reqId}` }
     if (isTerminal(requirement.status)) {
@@ -2192,7 +2179,7 @@ ${answer}`
   private async executeAnalysis(
     reqId: string,
     signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
     const started = Date.now()
@@ -2215,7 +2202,7 @@ ${answer}`
       tools: 'none',
     })
     this.charge(reqId, started)
-    if (result.status !== 'completed') return { state: this.mapAgentState(result.status), detail: result.reason }
+    if (result.status !== 'completed') return { state: 'failed', detail: result.reason }
     let draft
     try {
       draft = parseAnalysisDraft(result.text)
@@ -2253,7 +2240,7 @@ ${answer}`
     reqId: string,
     signal: AbortSignal,
     permittedPlanChange = false,
-  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
     // 入队时未批准、执行时已批准：仍必须拒绝，避免旧请求悄悄覆盖已冻结的任务包。
@@ -2293,7 +2280,7 @@ ${answer}`
       })
       this.charge(reqId, started)
       if (result.status !== 'completed') {
-        return { state: this.mapAgentState(result.status), detail: result.reason }
+        return { state: 'failed', detail: result.reason }
       }
       let plan: TaskPlan
       try {
@@ -2363,7 +2350,7 @@ ${answer}`
     signal: AbortSignal,
   ): Promise<
     | { state: 'done'; review: PlanReview }
-    | { state: 'failed' | 'unknown'; detail: string }
+    | { state: 'failed'; detail: string }
   > {
     let feedback = ''
     let lastMalformed = ''
@@ -2388,7 +2375,7 @@ ${answer}`
       this.charge(requirement.reqId, started)
       if (result.status !== 'completed') {
         return {
-          state: result.status === 'aborted' || result.status === 'timeout' ? 'unknown' : 'failed',
+          state: 'failed',
           detail: `实现前评审未取得可用结论：${result.reason}`,
         }
       }
@@ -2531,7 +2518,7 @@ ${answer}`
   private async executeVerification(
     reqId: string,
     signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'unknown' | 'repair'; detail: string }> {
+  ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
     const authorized = this.requireAuthorizedPlan(reqId)
     if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
     const requirement = this.repo.getRequirement(reqId)
@@ -2706,7 +2693,7 @@ ${answer}`
         `独立验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
       )
       return {
-        state: run.status === 'aborted' || run.status === 'timeout' ? 'unknown' : 'failed',
+        state: 'failed',
         detail: `独立验证未取得可用结论：${run.reason}`,
       }
     }
@@ -2780,8 +2767,11 @@ ${answer}`
         output: test.output,
       })
       if (test.aborted) {
-        this.repo.setStatus(reqId, 'blocked', '独立验证命令被停止；外部副作用需核对')
-        return { state: 'unknown', detail: '独立验证命令被停止：外部副作用需核对，不会盲目重放' }
+        this.repo.setStatus(reqId, 'blocked', '独立验证命令被停止；验证工作区可丢弃，可重新验证')
+        return {
+          state: 'failed',
+          detail: '独立验证命令被停止：验证工作区可丢弃，候选未被判定失败；可重新验证',
+        }
       }
       if (test.timedOut) {
         failedCommands.push(`${command.label} 超时`)
@@ -2940,7 +2930,7 @@ ${answer}`
   private async executeBusinessReview(
     reqId: string,
     signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const authorized = this.requireAuthorizedPlan(reqId)
     if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
     const requirement = this.repo.getRequirement(reqId)
@@ -3044,7 +3034,7 @@ ${answer}`
         `业务终审 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
       )
       return {
-        state: run.status === 'aborted' || run.status === 'timeout' ? 'unknown' : 'failed',
+        state: 'failed',
         detail: `业务终审未取得结论：${run.reason}`,
       }
     }
@@ -3160,7 +3150,7 @@ ${answer}`
     reqId: string,
     signal: AbortSignal,
     requestId: string,
-  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const authorized = this.requireAuthorizedPlan(reqId)
     if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
     const requirement = this.repo.getRequirement(reqId)
@@ -3182,7 +3172,10 @@ ${answer}`
     // 修复额度由失败轮次控制，用尽后停在 blocked，不再自动循环。
     for (;;) {
       for (const taskId of executionOrder(plan)) {
-        if (signal.aborted) return { state: 'unknown', detail: '收到停止请求：在途动作结果需核对' }
+        if (signal.aborted) {
+          this.repo.setStatus(reqId, 'blocked', '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建')
+          return { state: 'failed', detail: '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建；可重新执行' }
+        }
         const existing = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
         if (existing) {
           if (existing.authorizationSource !== authorizationSource) {
@@ -3193,18 +3186,39 @@ ${answer}`
           }
           continue
         }
-        const outcome = await this.deliverTask({
-          requirement,
-          plan,
-          taskId,
-          baseline,
-          authorizationSource,
-          signal,
-          requestId,
-        })
+        let outcome
+        try {
+          outcome = await this.deliverTask({
+            requirement,
+            plan,
+            taskId,
+            baseline,
+            authorizationSource,
+            signal,
+            requestId,
+          })
+        } catch (error) {
+          // 未预期异常也必须写出终态：否则运行记录会停在 running，看板无法区分
+          // “还在跑”和“已经崩溃”。已落产物说明交付实际完成，不能改判失败。
+          const reason = `任务执行异常：${(error as Error).message}；任务未交付，可重新执行`
+          const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
+          const artifact = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
+          if (artifact && task) {
+            this.recordRun(reqId, plan, task, TASK_RUN_DELIVERED, '', 0)
+            outcome = { state: 'delivered' as const, reason: '', requirementStatus: EXECUTING }
+          } else if (task) {
+            this.recordRun(reqId, plan, task, TASK_RUN_FAILED, reason, 0)
+            this.repo.setStatus(reqId, 'blocked', reason)
+            return { state: 'failed', detail: reason }
+          } else {
+            this.repo.setStatus(reqId, 'blocked', reason)
+            return { state: 'failed', detail: reason }
+          }
+        }
         if (outcome.state !== 'delivered') {
           // 中断/超时也计一轮失败：否则 autoAdvance 会无穷重试同一条 30 分钟上限的任务。
-          if ((outcome.state === 'failed' || outcome.state === 'unknown') && /超时|被停止|中断/.test(outcome.reason)) {
+          // 由执行结果明确标记 interrupted，不再依赖原因文本匹配。
+          if (outcome.interrupted) {
             this.repo.recordFailureRound(reqId, {
               roundId: `interrupted-${requestId}-${taskId}`,
               stage: 'interrupted',
@@ -3214,7 +3228,7 @@ ${answer}`
           }
           this.repo.setStatus(reqId, outcome.requirementStatus, outcome.reason)
           return {
-            state: outcome.state === 'awaiting_user' ? 'done' : outcome.state === 'unknown' ? 'unknown' : 'failed',
+            state: outcome.state === 'awaiting_user' ? 'done' : 'failed',
             detail: outcome.reason,
           }
         }
@@ -3223,9 +3237,7 @@ ${answer}`
       const verification = await this.executeVerification(reqId, signal)
       if (verification.state === 'repair') continue
       if (verification.state !== 'done') {
-        return verification.state === 'unknown'
-          ? { state: 'unknown' as const, detail: verification.detail }
-          : { state: 'failed' as const, detail: verification.detail }
+        return { state: 'failed', detail: verification.detail }
       }
       return {
         state: 'done',
@@ -3244,9 +3256,11 @@ ${answer}`
     /** 推进请求身份：失败轮次 ID 带上它，跨请求重试时同一尝试序号不会互相吞掉。 */
     requestId: string
   }): Promise<{
-    state: 'delivered' | 'awaiting_user' | 'failed' | 'unknown' | 'blocked'
+    state: 'delivered' | 'awaiting_user' | 'failed' | 'blocked'
     reason: string
     requirementStatus: string
+    /** 这次尝试是否因停止/超时/宿主中断而未完成；用于计一轮中断失败。 */
+    interrupted?: boolean
   }> {
     const { requirement, plan, taskId, baseline, authorizationSource, signal, requestId } = input
     const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
@@ -3266,7 +3280,12 @@ ${answer}`
     while (attempt < this.config.maxTaskAttempts) {
       attempt += 1
       if (signal.aborted) {
-        return { state: 'unknown', reason: '停止请求：开发副本可能已产生改动，需核对后重试', requirementStatus: 'blocked' }
+        return {
+          state: 'blocked',
+          reason: '停止请求：任务未交付，一次性工作副本会在下次执行时重建；可重新执行',
+          requirementStatus: 'blocked',
+          interrupted: true,
+        }
       }
       const snapshot = prepareSnapshotWorkspace({
         projectPath: this.config.projectPath,
@@ -3354,33 +3373,23 @@ ${answer}`
         })
         this.charge(requirement.reqId, verificationStarted)
         if (test.aborted) {
-          this.recordRun(
-            requirement.reqId,
-            plan,
-            task,
-            TASK_RUN_BLOCKED,
-            '验证任务被停止：外部副作用需核对，不会盲目重放',
-            0,
-          )
+          const reason = '验证任务被停止：任务未交付，一次性工作副本可丢弃；可重新执行'
+          this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
           return {
-            state: 'unknown',
-            reason: '验证任务被停止：外部副作用需核对，不会盲目重放',
+            state: 'blocked',
+            reason,
             requirementStatus: 'blocked',
+            interrupted: true,
           }
         }
         if (test.timedOut) {
-          this.recordRun(
-            requirement.reqId,
-            plan,
-            task,
-            TASK_RUN_BLOCKED,
-            `验证任务超时（${this.config.formalTestTimeoutSeconds} 秒）被终止；需核对`,
-            0,
-          )
+          const reason = `验证任务超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止：任务未交付，可重新执行`
+          this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
           return {
-            state: 'unknown',
-            reason: `验证任务超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止；需人工核对`,
+            state: 'blocked',
+            reason,
             requirementStatus: 'blocked',
+            interrupted: true,
           }
         }
         if (test.exitCode !== 0) {
@@ -3485,11 +3494,11 @@ ${answer}`
       if (dev.status === 'aborted' || dev.status === 'timeout') {
         const reason = `开发回合${
           dev.status === 'aborted' ? '被停止' : `超时（${dev.reason || '未给出原因'}）`
-        }：工作副本可能有未收口改动，需核对；不会盲目重放`
+        }：任务未交付，一次性工作副本可丢弃；可重新执行`
         // 运行记录必须收口为 blocked：否则任务会永远显示“执行中”，
         // 心跳也停在中断那一刻，看板无法区分“还在跑”和“已经中断”。
         this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
-        return { state: 'unknown', reason, requirementStatus: 'blocked' }
+        return { state: 'blocked', reason, requirementStatus: 'blocked', interrupted: true }
       }
       if (dev.status !== 'completed') {
         this.recordRun(requirement.reqId, plan, task, TASK_RUN_FAILED, dev.reason, 0)
@@ -3535,9 +3544,10 @@ ${answer}`
         const reason = `独立审查未取得可用结论：${reviewRun.reason}`
         this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
         return {
-          state: reviewRun.status === 'aborted' || reviewRun.status === 'timeout' ? 'unknown' : 'blocked',
+          state: 'blocked',
           reason,
           requirementStatus: 'blocked',
+          interrupted: reviewRun.status === 'aborted' || reviewRun.status === 'timeout',
         }
       }
       let verdict
@@ -3577,17 +3587,23 @@ ${answer}`
       })
       this.charge(requirement.reqId, testStarted)
       if (test.aborted) {
+        const reason = '正式测试被停止：任务未交付，一次性工作副本可丢弃；可重新执行'
+        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
         return {
-          state: 'unknown',
-          reason: '正式测试被停止：外部副作用需核对，不会盲目重放',
+          state: 'blocked',
+          reason,
           requirementStatus: 'blocked',
+          interrupted: true,
         }
       }
       if (test.timedOut) {
+        const reason = `正式测试超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止：任务未交付，可重新执行`
+        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
         return {
-          state: 'unknown',
-          reason: `正式测试超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止；需人工核对`,
+          state: 'blocked',
+          reason,
           requirementStatus: 'blocked',
+          interrupted: true,
         }
       }
       if (test.exitCode !== 0) {
@@ -3743,10 +3759,6 @@ ${answer}`
 
   private charge(reqId: string, startedAt: number): void {
     this.repo.chargeBudget(reqId, Math.max(0, (Date.now() - startedAt) / 1000))
-  }
-
-  private mapAgentState(status: 'completed' | 'aborted' | 'timeout' | 'error'): 'failed' | 'unknown' {
-    return status === 'aborted' || status === 'timeout' ? 'unknown' : 'failed'
   }
 
   directorySummary(): unknown {

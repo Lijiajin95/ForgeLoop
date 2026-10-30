@@ -23,7 +23,6 @@ export const OPS_AWAITING_DECISION = 'awaiting_decision'
 export const OPS_RECOVERING = 'recovering'
 export const OPS_RECOVERED = 'recovered'
 export const OPS_UNRESOLVED = 'unresolved'
-export const OPS_UNKNOWN = 'unknown'
 export const OPS_CLOSED = 'closed'
 
 export type OpsEventState =
@@ -33,8 +32,23 @@ export type OpsEventState =
   | typeof OPS_RECOVERING
   | typeof OPS_RECOVERED
   | typeof OPS_UNRESOLVED
-  | typeof OPS_UNKNOWN
   | typeof OPS_CLOSED
+
+/**
+ * 处置动作尝试的状态：只记录可判定的事实，不保留“结果未知”。
+ * `interrupted` 表示宿主在动作结束前退出、没有退出码；事实是“没有结果记录”，
+ * 不是一种业务状态。事件按未解决收口，再由运维 Agent 分析根因并上报。
+ */
+export const OPS_ATTEMPT_RUNNING = 'running'
+export const OPS_ATTEMPT_SUCCEEDED = 'succeeded'
+export const OPS_ATTEMPT_FAILED = 'failed'
+export const OPS_ATTEMPT_INTERRUPTED = 'interrupted'
+
+export type OpsAttemptState =
+  | typeof OPS_ATTEMPT_RUNNING
+  | typeof OPS_ATTEMPT_SUCCEEDED
+  | typeof OPS_ATTEMPT_FAILED
+  | typeof OPS_ATTEMPT_INTERRUPTED
 
 /** 仍在处理中的事件：同一失败只归并到这些事件，不重复计数。 */
 export const OPS_ACTIVE_STATES: ReadonlySet<string> = new Set([
@@ -43,7 +57,6 @@ export const OPS_ACTIVE_STATES: ReadonlySet<string> = new Set([
   OPS_AWAITING_DECISION,
   OPS_RECOVERING,
   OPS_UNRESOLVED,
-  OPS_UNKNOWN,
 ])
 
 export function isOpsActive(state: string): boolean {
@@ -402,6 +415,56 @@ export function authorizeOpsAction(input: {
   return { auto: true, source: `ops-action:auto:${input.action.id}`, reason: '' }
 }
 
+export interface OpsInterruptionReport {
+  /** 面向所有者的一句话结论。 */
+  readonly summary: string
+  /** 基于已记录事实与推断的根因分析。 */
+  readonly rootCause: string
+  /** Agent 实际使用的事实；不能凭空补造。 */
+  readonly evidence: readonly string[]
+  /** 建议的人工下一步；不会因此自动执行动作。 */
+  readonly nextStep: string
+}
+
+const INTERRUPTION_LIMITS = {
+  summary: 500,
+  rootCause: 4000,
+  evidenceItems: 20,
+  evidenceItem: 1000,
+  nextStep: 2000,
+} as const
+
+function boundedString(value: unknown, what: string, max: number): string {
+  const text = nonEmptyString(value, what)
+  if (text.length > max) throw new MalformedError(`${what}超过 ${max} 字符上限`)
+  return text
+}
+
+/**
+ * 解析“动作被中断、没有结果记录”时的根因报告。
+ * 这是上报材料，不是业务状态，也不能作为重新执行动作的授权。
+ */
+export function parseOpsInterruptionReport(text: string): OpsInterruptionReport {
+  const payload = parseJsonLoose(text, '运维中断根因报告')
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new MalformedError('运维中断根因报告必须是 JSON 对象')
+  }
+  const data = payload as Record<string, unknown>
+  const evidence = stringArray(data.evidence, '运维中断根因报告的事实')
+  if (evidence.length === 0) throw new MalformedError('运维中断根因报告至少需要一条事实')
+  if (evidence.length > INTERRUPTION_LIMITS.evidenceItems) {
+    throw new MalformedError(`运维中断根因报告的事实超过 ${INTERRUPTION_LIMITS.evidenceItems} 条`)
+  }
+  return {
+    summary: boundedString(data.summary, '运维中断根因报告的结论', INTERRUPTION_LIMITS.summary),
+    rootCause: boundedString(data.root_cause, '运维中断根因报告的根因', INTERRUPTION_LIMITS.rootCause),
+    evidence: evidence.map((item, index) =>
+      boundedString(item, `运维中断根因报告的事实[${index}]`, INTERRUPTION_LIMITS.evidenceItem),
+    ),
+    nextStep: boundedString(data.next_step, '运维中断根因报告的下一步', INTERRUPTION_LIMITS.nextStep),
+  }
+}
+
 export interface OpsEventStat {
   readonly state: string
   readonly humanInvolved: boolean
@@ -416,7 +479,6 @@ export interface OpsStats {
   readonly humanRate: number
   readonly recovered: number
   readonly unresolved: number
-  readonly unknown: number
   readonly awaitingDecision: number
   readonly active: number
   readonly closed: number
@@ -426,7 +488,7 @@ export interface OpsStats {
 
 /**
  * 运维统计口径（产品 §12.2）：一次独立事件计入分母；同一故障的重复告警已在事件层归并。
- * 正常巡检不产生事件，因此不进入分母。人工决定、关闭或核对未知都记为介入。
+ * 正常巡检不产生事件，因此不进入分母。人工决定、关闭或要求修复都记为介入。
  */
 export function opsStats(events: readonly OpsEventStat[]): OpsStats {
   const total = events.length
@@ -447,7 +509,6 @@ export function opsStats(events: readonly OpsEventStat[]): OpsStats {
     humanRate: total === 0 ? 0 : humanInvolved / total,
     recovered,
     unresolved: events.filter((event) => event.state === OPS_UNRESOLVED).length,
-    unknown: events.filter((event) => event.state === OPS_UNKNOWN).length,
     awaitingDecision: events.filter((event) => event.state === OPS_AWAITING_DECISION).length,
     active: events.filter((event) => isOpsActive(event.state)).length,
     closed: events.filter((event) => event.state === OPS_CLOSED).length,

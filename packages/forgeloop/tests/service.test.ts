@@ -516,7 +516,7 @@ describe('durable coordinator behaviour', () => {
     await running
     const request = runtime.repo.request(requestId)!
     expect(request.state).toBe('failed')
-    expect(request.detail).toContain('按失败收口')
+    expect(request.detail).toContain('fake failure')
     expect(runtime.repo.action(`act-${requestId}`)?.state).toBe('failed')
   })
 
@@ -792,7 +792,6 @@ describe('task retry', () => {
       review: { verdict: string; findings: string[] }
       artifact: { candidateSha256: string } | null
       waitingForInput: boolean
-      resultUnknown: boolean
     }
     expect(evidenceValue.activity).toHaveLength(120)
     expect(evidenceValue.activityTotal).toBe(130)
@@ -1097,6 +1096,67 @@ describe('execution scope, plan freeze and repair loop', () => {
     expect(run.reason).toContain('超时')
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(1)
     expect(runtime.repo.failureRounds(reqId)[0]?.stage).toBe('interrupted')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+  })
+
+  it('records a stopped formal test as a blocked run instead of leaving it running', async () => {
+    let calls = 0
+    const formalTest = async (request: {
+      logPath: string
+      argv: readonly string[]
+    }): Promise<{
+      exitCode: number | null
+      timedOut: boolean
+      aborted: boolean
+      logPath: string
+      logSha256: string
+      durationMs: number
+      output: string
+    }> => {
+      calls += 1
+      return {
+        exitCode: null,
+        timedOut: false,
+        aborted: true,
+        logPath: request.logPath,
+        logSha256: 'sha-stopped',
+        durationMs: 1,
+        output: 'stopped',
+      }
+    }
+    runtime.close()
+    runtime = makeRuntime(fakeRunner(), formalTest as never)
+    const reqId = await prepared('正式测试被停止')
+    const outcome = await runQueued('advance', reqId)
+    expect(calls).toBe(1)
+    expect(outcome.state).toBe('failed')
+    const run = runtime.repo.taskRuns(reqId, 1).find((item) => item.taskId === 'a')!
+    expect(run.state).toBe('blocked')
+    expect(run.reason).toContain('正式测试被停止')
+    expect(run.reason).toContain('可重新执行')
+    expect(runtime.repo.taskArtifact(reqId, 1, 'a')).toBeNull()
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(1)
+    expect(runtime.repo.failureRounds(reqId)[0]?.stage).toBe('interrupted')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+  })
+
+  it('writes a failed run when the development turn throws instead of leaving it running', async () => {
+    const base = fakeRunner()
+    const runner: AgentLike = {
+      async run(request) {
+        if (request.role === 'dev') throw new Error('spawn failed')
+        return base.run(request)
+      },
+    }
+    runtime.close()
+    runtime = makeRuntime(runner)
+    const reqId = await prepared('开发异常')
+    const outcome = await runQueued('advance', reqId)
+    expect(outcome.state).toBe('failed')
+    expect(outcome.detail).toContain('任务执行异常')
+    const run = runtime.repo.taskRuns(reqId, 1).find((item) => item.taskId === 'a')!
+    expect(run.state).toBe('failed')
+    expect(run.reason).toContain('spawn failed')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
 

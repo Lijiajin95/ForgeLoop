@@ -107,7 +107,7 @@ export interface ImpactRequest {
 export interface RequestImpactFact extends ImpactCheck {
   readonly requestId: string
   readonly action: string
-  /** 持久请求自身状态（pending/claimed/unknown…），与 ImpactCheck.state 判定分开。 */
+  /** 持久请求自身状态（pending/claimed/done/failed/dismissed），与 ImpactCheck.state 判定分开。 */
   readonly requestState: string
   readonly planVersion: number
   readonly createdAt: string

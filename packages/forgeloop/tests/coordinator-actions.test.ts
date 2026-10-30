@@ -158,7 +158,7 @@ describe('coordinator lifecycle', () => {
     const run = runtime.repo.taskRuns(reqId, 1)[0]!
     expect(run.state).toBe('blocked')
     expect(run.reason).toContain('宿主中断')
-    expect(run.reason).toContain('核对')
+    expect(run.reason).toContain('可重新执行')
     const meta = JSON.parse(String(runtime.repo.getMeta('last_recovery'))) as {
       interruptedRuns?: number
     }

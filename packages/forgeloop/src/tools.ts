@@ -146,7 +146,7 @@ export function buildTools(runtime: ForgeLoopRuntime, config: ForgeLoopConfig): 
     defineTool({
       name: 'forgeloop_requests',
       description:
-        'Read durable ForgeLoop operation requests (pending/claimed/done/failed/unknown) for a requirement or the whole project. Read-only.',
+        'Read durable ForgeLoop operation requests (pending/claimed/done/failed/dismissed) for a requirement or the whole project. Read-only.',
       parameters: {
         type: 'object',
         properties: { req_id: { type: 'string' } },
@@ -161,7 +161,7 @@ export function buildTools(runtime: ForgeLoopRuntime, config: ForgeLoopConfig): 
     defineTool({
       name: 'forgeloop_impact',
       description:
-        'Read the deterministic revision impact summary for a requirement: all requirement versions, analyses and plans with their basis versions, tasks, current approval binding, delivery materials, stale/pending marks and unknown requests. Set explain=true only when the user explicitly asks for model inference; inference is separated from facts and marked as inference. Read-only; never approves, advances or accepts.',
+        'Read the deterministic revision impact summary for a requirement: all requirement versions, analyses and plans with their basis versions, tasks, current approval binding, delivery materials, stale/pending marks and unresolved request states. Set explain=true only when the user explicitly asks for model inference; inference is separated from facts and marked as inference. Read-only; never approves, advances or accepts.',
       parameters: {
         type: 'object',
         properties: {

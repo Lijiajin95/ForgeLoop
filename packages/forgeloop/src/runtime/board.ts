@@ -70,7 +70,6 @@ export interface BoardTaskView {
   readonly failureReason: string
   /** 依据记录与原因给出的下一步建议；非失败状态为 null。 */
   readonly failureAdvice: TaskFailureAdvice | null
-  /** 该需求是否存在结果未知（unknown）请求；有则任务结果不能当作已收口。 */
 }
 
 export type BoardRequirementAction =

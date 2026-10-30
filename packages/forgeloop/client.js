@@ -76,7 +76,6 @@ window.__ModuleLoader__.load({
       'status.accepted': '已验收',
       'status.rejected': '已驳回',
       'status.cancelled': '已取消',
-      'status.unknown': '未知状态',
       'task.delivered': '已交付',
       'task.pending': '待执行',
       'task.running': '执行中',
@@ -97,11 +96,9 @@ window.__ModuleLoader__.load({
       'task.failureReason': '失败原因',
       'task.solution': '解决方案',
       'task.retry': '重试任务',
-      'task.retryConfirm': '核对并重试',
       'task.retrying': '排队中…',
       'task.retryQueued': '已受理重试请求，等待宿主执行。',
       'task.retryHelp': '重试只重排一次推进：保留失败轮次、证据与批准，不清零。',
-      'task.retryRecoveryHint': '存在未收口的未知请求；先核对工作副本与证据，再点“核对并重试”。',
       'task.failureRounds': '失败轮次',
       'issue.clarification': '待澄清',
       'issue.blocked': '阻塞',
@@ -262,7 +259,6 @@ window.__ModuleLoader__.load({
       'status.accepted': 'Accepted',
       'status.rejected': 'Rejected',
       'status.cancelled': 'Cancelled',
-      'status.unknown': 'Unknown status',
       'task.delivered': 'Delivered',
       'task.pending': 'Pending',
       'task.running': 'Running',
@@ -283,11 +279,9 @@ window.__ModuleLoader__.load({
       'task.failureReason': 'Failure reason',
       'task.solution': 'Solution',
       'task.retry': 'Retry task',
-      'task.retryConfirm': 'Acknowledge and retry',
       'task.retrying': 'Queuing…',
       'task.retryQueued': 'Retry request accepted; waiting for the host.',
       'task.retryHelp': 'A retry queues one more advance; failure rounds, evidence and approval are kept.',
-      'task.retryRecoveryHint': 'An unknown-outcome request exists; verify the workspace and evidence, then click “Acknowledge and retry”.',
       'task.failureRounds': 'Failure rounds',
       'issue.clarification': 'Clarification',
       'issue.blocked': 'Blocked',
@@ -411,7 +405,6 @@ window.__ModuleLoader__.load({
       'requirement.failedTasks': '失败任务 {count}',
       'requirement.clarifications': '待澄清 {count}',
       'requirement.stopRequested': '停止请求',
-      'requirement.unknownCount': '未知请求 {count}',
       'task.awaiting_input': '等待输入',
       'task.waitingCard': '等待输入：{taskId} · {goal} · 最后活动 {time}',
       'task.goalTitle': '目标',
@@ -479,7 +472,6 @@ window.__ModuleLoader__.load({
       'detail.verdict.block': '阻断',
       'detail.blocking': '阻断原因',
       'detail.scenarios': '验证场景',
-      'detail.unknownRequest': '结果未知，需核对',
       'detail.clarificationHint': '回答请在 ForgeLoop 业务会话输入；本页不提供回答入口。',
       'wb.release': '发布与运行',
       'wb.businessReview': '业务终审',
@@ -514,14 +506,14 @@ window.__ModuleLoader__.load({
       'overview.feature.actions': '批准、推进、重试、请求停止与取消；验收仍在任务包会话',
       'overview.boundaryHeartbeat': '心跳/最后活动不是推进证明；超过 60 秒未更新时标记可能停滞。',
       'overview.boundarySource': '事实来自 SQLite 与已登记证据；页面不另存业务状态。',
-      'overview.boundaryStop': '停止请求不等于已经停稳；unknown 结果需先核对现场。',
+      'overview.boundaryStop': '停止请求不等于已经停稳；未交付任务按失败收口，可重新执行。',
       'overview.boundaryAccept': '天工页不提供验收；验收仍在任务包会话完成。',
       'overview.boundaryClarification': '待澄清回答仍在 ForgeLoop 业务会话输入；本页只读展示问题。',
       'overview.boundaryGrant': '追加授权与重新规划尚无页面入口；额度用尽时重试会被明确拒绝。',
       'overview.searchScope': '搜索范围：需求身份/状态/原文与版本、分析结论、任务目标/文件/验收标准、运行原因、失败轮次、请求说明与问题文字；最多显示 50 条。',
       'overview.next.approvals': '{count} 个任务包待批准',
       'overview.next.failures': '{count} 个失败任务待查看证据/重试',
-      'overview.next.unknown': '{count} 条结果未知请求待核对',
+      'overview.next.requestFailures': '{count} 条请求失败待处理',
       'overview.next.clarifications': '{count} 条待澄清问题',
       'overview.next.running': '{count} 个任务在执行或等待输入',
       'overview.next.none': '当前没有阻断项；可以继续跟踪任务或提交新需求。',
@@ -661,7 +653,6 @@ window.__ModuleLoader__.load({
       'ops.human': '人工介入',
       'ops.recovered': '已恢复',
       'ops.unresolved': '未解决',
-      'ops.unknown': '结果未知',
       'ops.awaiting': '待决定',
       'ops.fix': '修复需求',
       'ops.noEvents': '没有匹配的运维事件。',
@@ -678,7 +669,6 @@ window.__ModuleLoader__.load({
       'ops.state.recovering': '处置中',
       'ops.state.recovered': '已恢复',
       'ops.state.unresolved': '未解决',
-      'ops.state.unknown': '结果未知',
       'ops.state.closed': '已关闭',
       'ops.impact': '业务影响',
       'ops.noImpact': '尚无诊断结论',
@@ -688,6 +678,13 @@ window.__ModuleLoader__.load({
       'ops.noAction': '没有可执行的登记动作；需要人工处理或生成修复需求。',
       'ops.attempts': '处置记录',
       'ops.noAttempts': '尚未执行处置动作',
+      'ops.attempt.running': '执行中',
+      'ops.attempt.succeeded': '成功',
+      'ops.attempt.failed': '失败',
+      'ops.attempt.interrupted': '中断（无结果记录）',
+      'ops.obs.interruption': '中断事实',
+      'ops.obs.interruption_report': '中断根因',
+      'ops.obs.interruption_error': '根因分析失败',
       'ops.observations': '证据与观测',
       'ops.evidence': '证据',
       'ops.action': '动作',
@@ -701,12 +698,10 @@ window.__ModuleLoader__.load({
       'ops.humanNote': '人工介入',
       'ops.approve': '批准处置',
       'ops.decline': '拒绝处置',
-      'ops.confirmUnknown': '核对并确认',
       'ops.close': '关闭事件',
       'ops.requestFix': '生成修复需求',
       'ops.approveConfirm': '批准后由协调器执行登记动作，页面不会立即执行。确认批准？',
       'ops.declineConfirm': '拒绝后事件保留为未解决，不执行动作。确认拒绝？',
-      'ops.unknownConfirm': '只在已经核对外部副作用后确认。确认结果未知已核对？',
       'ops.closeConfirm': '关闭会保留证据并结束事件，不会撤销已发生的动作。确认关闭？',
       'ops.done': '已受理；等待协调器处理',
       'ops.fixCreated': '已关联修复需求 {req}',
@@ -733,7 +728,6 @@ window.__ModuleLoader__.load({
       'requirement.failedTasks': '{count} failed tasks',
       'requirement.clarifications': '{count} clarifications',
       'requirement.stopRequested': 'Stop requested',
-      'requirement.unknownCount': '{count} unknown requests',
       'task.awaiting_input': 'Waiting input',
       'task.waitingCard': 'Waiting for input: {taskId} · {goal} · last activity {time}',
       'task.goalTitle': 'Goal',
@@ -801,7 +795,6 @@ window.__ModuleLoader__.load({
       'detail.verdict.block': 'block',
       'detail.blocking': 'Blocking reasons',
       'detail.scenarios': 'Verification scenarios',
-      'detail.unknownRequest': 'Unknown outcome; verify',
       'detail.clarificationHint': 'Answer in the ForgeLoop business conversation; this page has no answer entry.',
       'wb.release': 'Release and runtime',
       'wb.businessReview': 'Business review',
@@ -836,14 +829,14 @@ window.__ModuleLoader__.load({
       'overview.feature.actions': 'Approve, advance, retry, request stop and cancel; acceptance stays in the task-package conversation',
       'overview.boundaryHeartbeat': 'Heartbeat/last activity is not proof of progress; stale heartbeats are marked as possibly stalled.',
       'overview.boundarySource': 'Facts come from SQLite and registered evidence; the page keeps no separate business state.',
-      'overview.boundaryStop': 'A stop request is not proof of a stopped task; unknown results need on-site verification.',
+      'overview.boundaryStop': 'A stop request is not proof of a stopped task; undelivered work closes as failed and can be re-executed.',
       'overview.boundaryAccept': 'The Forge page does not provide acceptance; acceptance stays in the task-package conversation.',
       'overview.boundaryClarification': 'Clarification answers still go through the ForgeLoop business conversation; this page only lists the questions.',
       'overview.boundaryGrant': 'Extra grants and re-planning have no page entry yet; retry is explicitly rejected when the budget is exhausted.',
       'overview.searchScope': 'Search scope: requirement id/status/text/versions, analysis, task goals/files/acceptance, run reasons, failure rounds, request text and issue text; at most 50 results.',
       'overview.next.approvals': '{count} task packages waiting for approval',
       'overview.next.failures': '{count} failed tasks to inspect/retry',
-      'overview.next.unknown': '{count} unknown-outcome requests to verify',
+      'overview.next.requestFailures': '{count} failed requests to handle',
       'overview.next.clarifications': '{count} clarifications to answer',
       'overview.next.running': '{count} tasks running or waiting for input',
       'overview.next.none': 'No blocking items; continue tracking tasks or submit a new requirement.',
@@ -983,7 +976,6 @@ window.__ModuleLoader__.load({
       'ops.human': 'Human involved',
       'ops.recovered': 'Recovered',
       'ops.unresolved': 'Unresolved',
-      'ops.unknown': 'Result unknown',
       'ops.awaiting': 'Awaiting decision',
       'ops.fix': 'Fix requirement',
       'ops.noEvents': 'No matching operations events.',
@@ -1000,7 +992,6 @@ window.__ModuleLoader__.load({
       'ops.state.recovering': 'Recovering',
       'ops.state.recovered': 'Recovered',
       'ops.state.unresolved': 'Unresolved',
-      'ops.state.unknown': 'Result unknown',
       'ops.state.closed': 'Closed',
       'ops.impact': 'Business impact',
       'ops.noImpact': 'No diagnosis yet',
@@ -1010,6 +1001,13 @@ window.__ModuleLoader__.load({
       'ops.noAction': 'No registered action is available; handle it manually or file a fix requirement.',
       'ops.attempts': 'Recovery attempts',
       'ops.noAttempts': 'No recovery action executed',
+      'ops.attempt.running': 'Running',
+      'ops.attempt.succeeded': 'Succeeded',
+      'ops.attempt.failed': 'Failed',
+      'ops.attempt.interrupted': 'Interrupted (no result recorded)',
+      'ops.obs.interruption': 'Interruption facts',
+      'ops.obs.interruption_report': 'Interruption root cause',
+      'ops.obs.interruption_error': 'Root-cause analysis failed',
       'ops.observations': 'Evidence and observations',
       'ops.evidence': 'Evidence',
       'ops.action': 'Action',
@@ -1023,12 +1021,10 @@ window.__ModuleLoader__.load({
       'ops.humanNote': 'Human involvement',
       'ops.approve': 'Approve action',
       'ops.decline': 'Decline action',
-      'ops.confirmUnknown': 'Confirm reconciliation',
       'ops.close': 'Close event',
       'ops.requestFix': 'File fix requirement',
       'ops.approveConfirm': 'The coordinator will execute the registered action; the page will not run it directly. Approve?',
       'ops.declineConfirm': 'The event stays unresolved and no action runs. Decline?',
-      'ops.unknownConfirm': 'Only confirm after checking external side effects. Confirm the unknown result has been reconciled?',
       'ops.closeConfirm': 'Closing keeps the evidence and ends the event; it does not undo actions already taken. Close?',
       'ops.done': 'Accepted; waiting for the coordinator',
       'ops.fixCreated': 'Linked fix requirement {req}',
@@ -1531,7 +1527,7 @@ window.__ModuleLoader__.load({
     function statusLabel(t, status) {
       const key = `status.${status}`
       const label = t(key)
-      return label === key ? t('status.unknown') : label
+      return label === key ? String(status || '—') : label
     }
 
     /** 评审与验证是批/验收的硬门禁；没有结论时显示“未评审/未验证”，不冒充通过。 */
@@ -1863,9 +1859,6 @@ window.__ModuleLoader__.load({
             ? verificationChip(t, null)
             : null,
         requirement.stopRequested ? h(Chip, { tone: 'warn' }, t('requirement.stopRequested')) : null,
-        requirement.unknownRequests > 0
-          ? h(Chip, { tone: 'error' }, t('requirement.unknownCount', { count: requirement.unknownRequests }))
-          : null,
         h('span', { className: 'flb-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
       )
 
@@ -2299,7 +2292,6 @@ window.__ModuleLoader__.load({
                       'div',
                       { className: 'flb-card-meta' },
                       `${request.action} · ${request.state} · ${formatMoment(request.createdAt)}`,
-                      request.state === 'unknown' ? h(Chip, { tone: 'error' }, t('detail.unknownRequest')) : null,
                     ),
                     h('div', { className: 'flb-text' }, request.detail || '—'),
                   ),
@@ -2386,9 +2378,7 @@ window.__ModuleLoader__.load({
                 },
                 retry && retry.busy
                   ? t('task.retrying')
-                  : retry && retry.confirm
-                    ? t('task.retryConfirm')
-                    : t('task.retry'),
+                  : t('task.retry'),
               )
             : null,
         ),
@@ -2633,16 +2623,11 @@ window.__ModuleLoader__.load({
                 },
                 retry && retry.busy
                   ? t('task.retrying')
-                  : retry && retry.confirm
-                    ? t('task.retryConfirm')
-                    : t('task.retry'),
+                  : t('task.retry'),
               )
             : null,
           data.retry && !data.retry.allowed && data.retry.reason
             ? h('span', { className: 'flb-muted' }, t('task.retryNotAllowed', { reason: data.retry.reason }))
-            : null,
-          data.retry && data.retry.requiresRecovery
-            ? h('span', { className: 'flb-muted' }, t('task.retryRecoveryHint'))
             : null,
           props.onOpenRequirement && props.task
             ? h(
@@ -2701,14 +2686,14 @@ window.__ModuleLoader__.load({
       const counts = {
         approvals: issues.filter((issue) => issue.kind === 'approval').length,
         failures: issues.filter((issue) => issue.kind === 'failure_round').length,
-        unknown: issues.filter((issue) => issue.kind === 'request').length,
+        requestFailures: issues.filter((issue) => issue.kind === 'request').length,
         clarifications: issues.filter((issue) => issue.kind === 'clarification').length,
         running: running.length,
       }
       const next = []
       if (counts.approvals > 0) next.push({ key: 'approvals', text: t('overview.next.approvals', { count: counts.approvals }), view: 'requirements' })
       if (counts.failures > 0) next.push({ key: 'failures', text: t('overview.next.failures', { count: counts.failures }), view: 'tasks' })
-      if (counts.unknown > 0) next.push({ key: 'unknown', text: t('overview.next.unknown', { count: counts.unknown }), view: 'issues' })
+      if (counts.requestFailures > 0) next.push({ key: 'requestFailures', text: t('overview.next.requestFailures', { count: counts.requestFailures }), view: 'issues' })
       if (counts.clarifications > 0) next.push({ key: 'clarifications', text: t('overview.next.clarifications', { count: counts.clarifications }), view: 'requirements' })
       if (counts.running > 0) next.push({ key: 'running', text: t('overview.next.running', { count: counts.running }), view: 'tasks' })
       if (next.length === 0) {
@@ -3115,7 +3100,7 @@ window.__ModuleLoader__.load({
       const [taskOpen, setTaskOpen] = React.useState(null)
       const [taskNonce, setTaskNonce] = React.useState(0)
       const [taskDetail, setTaskDetail] = React.useState({ phase: 'idle', data: null, error: '' })
-      const [retry, setRetry] = React.useState({ key: '', busy: false, message: '', confirm: false })
+      const [retry, setRetry] = React.useState({ key: '', busy: false, message: '' })
       const inflight = React.useRef(null)
       const detailInflight = React.useRef(null)
 
@@ -3230,28 +3215,24 @@ window.__ModuleLoader__.load({
         (task) => {
           const key = `${task.reqId}:${task.planVersion}:${task.taskId}`
           if (retry.busy && retry.key === key) return
-          const confirmRecovery = retry.confirm && retry.key === key
-          setRetry({ key, busy: true, message: '', confirm: confirmRecovery })
+          setRetry({ key, busy: true, message: '' })
           read('retry', {
             reqId: task.reqId,
             planVersion: task.planVersion,
             taskId: task.taskId,
             sessionId: props.sessionId,
-            confirmRecovery,
           })
             .then(() => {
-              setRetry({ key, busy: false, message: t('task.retryQueued'), confirm: false })
+              setRetry({ key, busy: false, message: t('task.retryQueued') })
               load()
               setDetailNonce((value) => value + 1)
               setTaskNonce((value) => value + 1)
             })
             .catch((error) => {
-              const code = error && error.code
               setRetry({
                 key,
                 busy: false,
                 message: (error && error.message) || String(error),
-                confirm: code === 'recovery_required',
               })
             })
         },
@@ -4207,9 +4188,7 @@ window.__ModuleLoader__.load({
                 },
                 props.retry && props.retry.busy
                   ? t('task.retrying')
-                  : props.retry && props.retry.confirm
-                    ? t('task.retryConfirm')
-                    : t('task.retry'),
+                  : t('task.retry'),
               )
             : retry && retry.reason
               ? h('span', { className: 'flb-muted' }, t('task.retryNotAllowed', { reason: retry.reason }))
@@ -5000,7 +4979,7 @@ window.__ModuleLoader__.load({
                         disabled: Boolean(props.retry && props.retry.busy),
                         onClick: () => props.onRetry(task),
                       },
-                      props.retry && props.retry.confirm ? t('task.retryConfirm') : t('task.retry'),
+                      props.retry && props.retry.busy ? t('task.retrying') : t('task.retry'),
                     )
                   : null,
               )
@@ -5212,12 +5191,11 @@ window.__ModuleLoader__.load({
       recovering: 'warn',
       recovered: 'success',
       unresolved: 'error',
-      unknown: 'error',
       closed: 'idle',
     }
     const OPS_SEVERITY_TONE = { critical: 'error', major: 'warn', minor: 'idle' }
 
-    /** 运维视图：只读事实 + 所有者动作（批准/拒绝/核对未知/关闭/生成修复需求）。 */
+    /** 运维视图：只读事实 + 所有者动作（批准/拒绝/关闭/生成修复需求）。 */
     function OpsPane(props) {
       const t = props.t
       const data = props.data
@@ -5239,6 +5217,11 @@ window.__ModuleLoader__.load({
         const key = 'ops.state.' + state
         const value = t(key)
         return value === key ? state : value
+      }
+      const labeled = (prefix, value) => {
+        const key = prefix + value
+        const text = t(key)
+        return text === key ? value : text
       }
       const stat = (label, value) =>
         h(
@@ -5265,9 +5248,6 @@ window.__ModuleLoader__.load({
         if (event.state === 'awaiting_decision') {
           items.push(actionButton(event, t('ops.approve'), 'ops-decide', { decision: 'approve' }))
           items.push(actionButton(event, t('ops.decline'), 'ops-decide', { decision: 'decline' }))
-        }
-        if (event.state === 'unknown') {
-          items.push(actionButton(event, t('ops.confirmUnknown'), 'ops-confirm-unknown', {}))
         }
         if (event.state !== 'closed') {
           items.push(actionButton(event, t('ops.close'), 'ops-close', {}))
@@ -5346,7 +5326,7 @@ window.__ModuleLoader__.load({
                     h(
                       'div',
                       null,
-                      `${attempt.actionDefId} · ${attempt.state}${
+                      `${attempt.actionDefId} · ${labeled('ops.attempt.', attempt.state)}${
                         attempt.exitCode === null ? '' : ' · ' + t('ops.exit') + ' ' + attempt.exitCode
                       }`,
                     ),
@@ -5365,7 +5345,7 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { className: 'flb-ops-obs', key: String(item.seq) },
-                    h('div', null, `${formatMoment(item.at)} · ${item.kind}`),
+                    h('div', null, `${formatMoment(item.at)} · ${labeled('ops.obs.', item.kind)}`),
                     h('div', null, item.summary),
                     item.evidencePath ? h('div', { className: 'flb-ops-evidence' }, item.evidencePath) : null,
                   ),
@@ -5410,7 +5390,6 @@ window.__ModuleLoader__.load({
           stat(t('ops.awaiting'), stats.awaitingDecision || 0),
           stat(t('ops.recovered'), stats.recovered || 0),
           stat(t('ops.unresolved'), stats.unresolved || 0),
-          stat(t('ops.unknown'), stats.unknown || 0),
           stat(t('ops.human'), stats.humanInvolved || 0),
         ),
         events.length === 0
@@ -5470,7 +5449,7 @@ window.__ModuleLoader__.load({
       const [fullDetail, setFullDetail] = React.useState(false)
       const [auto, setAuto] = React.useState(true)
       const [action, setAction] = React.useState({ busy: '', message: '' })
-      const [retry, setRetry] = React.useState({ key: '', busy: false, message: '', confirm: false })
+      const [retry, setRetry] = React.useState({ key: '', busy: false, message: '' })
       const [reqDetail, setReqDetail] = React.useState({ phase: 'idle', reqId: '', data: null, error: '' })
       const [taskDetail, setTaskDetail] = React.useState({ phase: 'idle', key: '', data: null, error: '' })
       const [detailNonce, setDetailNonce] = React.useState(0)
@@ -5688,16 +5667,13 @@ window.__ModuleLoader__.load({
               : 'ops.declineConfirm'
             : endpoint === 'ops-close'
               ? 'ops.closeConfirm'
-              : endpoint === 'ops-confirm-unknown'
-                ? 'ops.unknownConfirm'
-                : ''
+              : ''
         if (confirmKey) {
           const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function' ? false : window.confirm(t(confirmKey))
           if (!confirmed) return
         }
         setOpsBusy({ eventId: event.eventId, message: '' })
         const body = { eventId: event.eventId, sessionId: props.sessionId, ...extra }
-        if (endpoint === 'ops-close' && event.state === 'unknown') body.confirmRecovery = true
         read(endpoint, body)
           .then(() => {
             setOpsBusy({ eventId: event.eventId, message: t('ops.done') })
@@ -5709,17 +5685,16 @@ window.__ModuleLoader__.load({
       const retryTask = (task) => {
         const key = task.reqId + ':' + task.planVersion + ':' + task.taskId
         if (retry.busy && retry.key === key) return
-        const confirmRecovery = retry.confirm && retry.key === key
-        setRetry({ key, busy: true, message: '', confirm: confirmRecovery })
-        read('retry', { reqId: task.reqId, planVersion: task.planVersion, taskId: task.taskId, sessionId: props.sessionId, confirmRecovery })
+        setRetry({ key, busy: true, message: '' })
+        read('retry', { reqId: task.reqId, planVersion: task.planVersion, taskId: task.taskId, sessionId: props.sessionId })
           .then(() => {
-            setRetry({ key, busy: false, message: t('task.retryQueued'), confirm: false })
+            setRetry({ key, busy: false, message: t('task.retryQueued') })
             load()
             setDetailNonce((value) => value + 1)
             setTaskNonce((value) => value + 1)
           })
           .catch((error) => {
-            setRetry({ key, busy: false, message: error.message || String(error), confirm: error.code === 'recovery_required' })
+            setRetry({ key, busy: false, message: error.message || String(error) })
           })
       }
 
