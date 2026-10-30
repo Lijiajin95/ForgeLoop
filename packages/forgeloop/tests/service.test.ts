@@ -1095,6 +1095,8 @@ describe('execution scope, plan freeze and repair loop', () => {
     const run = runtime.repo.taskRuns(reqId, 1).find((item) => item.taskId === 'a')!
     expect(run.state).toBe('blocked')
     expect(run.reason).toContain('超时')
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(1)
+    expect(runtime.repo.failureRounds(reqId)[0]?.stage).toBe('interrupted')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
 

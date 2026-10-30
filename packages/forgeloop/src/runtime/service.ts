@@ -3203,6 +3203,15 @@ ${answer}`
           requestId,
         })
         if (outcome.state !== 'delivered') {
+          // 中断/超时也计一轮失败：否则 autoAdvance 会无穷重试同一条 30 分钟上限的任务。
+          if ((outcome.state === 'failed' || outcome.state === 'unknown') && /超时|被停止|中断/.test(outcome.reason)) {
+            this.repo.recordFailureRound(reqId, {
+              roundId: `interrupted-${requestId}-${taskId}`,
+              stage: 'interrupted',
+              summary: outcome.reason.slice(0, 200),
+              occurredAt: this.now(),
+            })
+          }
           this.repo.setStatus(reqId, outcome.requirementStatus, outcome.reason)
           return {
             state: outcome.state === 'awaiting_user' ? 'done' : outcome.state === 'unknown' ? 'unknown' : 'failed',
