@@ -30,13 +30,38 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-function fakeHost(options: { withFetch?: boolean } = {}) {
+function fakeAgent(text: string) {
+  return {
+    create: async () => ({
+      agent: {
+        id: 'session-fake-agent',
+        session: {
+          ownEvents: () => [
+            {
+              type: 'assistant/message',
+              seq: 1,
+              time: 0,
+              data: { message: { role: 'assistant', content: [{ type: 'text', text }] } },
+            },
+            { type: 'turn/end', seq: 2, time: 0, data: { reason: { kind: 'completed' } } },
+          ],
+        },
+        followup: () => undefined,
+        whenIdle: async () => undefined,
+        cancel: () => undefined,
+      },
+      dispose: async () => undefined,
+    }),
+  }
+}
+
+function fakeHost(options: { withFetch?: boolean; agentText?: string } = {}) {
   const routes: RegisteredRoute[] = []
   let injected = false
   let disposed = false
   let cleanup: (() => unknown) | undefined
   const ctx = {
-    agents: {},
+    agents: options.agentText ? fakeAgent(options.agentText) : {},
     agentLoop: {},
     tools: { register: () => () => {} },
     effect(callback: () => unknown) {
@@ -328,6 +353,16 @@ describe('web board host wiring', () => {
         },
       ],
     })
+    repository.recordAnalysis({
+      reqId: planReq,
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: '排队规划',
+      scenarios: ['场景'],
+      acceptanceCriteria: ['标准'],
+      clarifications: [],
+      createdAt: '2026-10-23T00:00:02.000Z',
+    })
     seedPlanReview(repository, verifyReq, 1)
     repository.recordPlanApproval({
       requirementId: verifyReq,
@@ -335,16 +370,6 @@ describe('web board host wiring', () => {
       approvedBy: 'owner',
       approvedAt: '2026-10-23T00:00:01.000Z',
       source: 'test',
-    })
-    repository.recordAnalysis({
-      reqId: planReq,
-      analysisVersion: 1,
-      requirementVersion: 1,
-      goal: '目标',
-      scenarios: ['场景'],
-      acceptanceCriteria: ['标准'],
-      clarifications: [],
-      createdAt: '2026-10-23T00:00:02.000Z',
     })
     for (const taskId of ['a', 'b']) {
       repository.recordTaskArtifact({
@@ -663,7 +688,8 @@ describe('web board host wiring', () => {
         }),
       ),
     )
-    expect(confirmed.status).toBe(200)
+    const rawBody = await confirmed.clone().text()
+    if (confirmed.status !== 200) throw new Error(`status ${confirmed.status}: ${rawBody}`)
     const confirmedBody = (await confirmed.json()) as { ok: boolean; value: { requestId: string } }
     expect(confirmedBody.ok).toBe(true)
     expect(confirmedBody.value.requestId).toMatch(/^rq-/)
@@ -706,6 +732,16 @@ describe('web board host wiring', () => {
       approvedAt: '2026-10-29T00:00:01.000Z',
       source: 'test',
     })
+    repository.recordAnalysis({
+      reqId,
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: '看板需求',
+      scenarios: ['场景一'],
+      acceptanceCriteria: ['标准一'],
+      clarifications: [],
+      createdAt: '2026-10-29T00:00:00.500Z',
+    })
     repository.setStatus(reqId, 'blocked', '开发回合被停止')
     repository.recordTaskRun({
       requirementId: reqId,
@@ -729,7 +765,21 @@ describe('web board host wiring', () => {
     repository.resolveRequest('rq-unknown-replan', 'unknown', '宿主停止', '2026-10-29T00:00:05.000Z')
     repository.close()
 
-    const host = fakeHost()
+    const reviewText = JSON.stringify({
+      verdict: 'pass',
+      blocking: [],
+      findings: [],
+      summary: '可进入实现',
+      verification_plan: [
+        {
+          scenario: '场景一',
+          acceptance_criterion: '标准一',
+          method: '执行验证命令',
+          required: true,
+        },
+      ],
+    })
+    const host = fakeHost({ agentText: reviewText })
     start(host)
     const route = host.routes[0]!
     const malformed = await route.fetch(post(JSON.stringify({ endpoint: 'replan', reqId, planVersion: 1 })))
@@ -754,11 +804,11 @@ describe('web board host wiring', () => {
         }),
       ),
     )
-    expect(confirmed.status).toBe(200)
     const confirmedBody = (await confirmed.json()) as {
       ok: boolean
       value: { planVersion: number; taskId: string; files: string[]; recovered: number }
     }
+    if (!confirmedBody.ok) throw new Error(JSON.stringify(confirmedBody))
     expect(confirmedBody.ok).toBe(true)
     expect(confirmedBody.value).toMatchObject({
       planVersion: 2,

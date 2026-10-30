@@ -1203,7 +1203,7 @@ ${answer}`
    * 最小重新规划：复制当前已批准任务包，给一个失败任务补充允许文件，生成新的待批准版本。
    * 不自动批准、不重放旧请求；已有 unknown 请求时要求 owner 显式确认核对后再关闭。
    */
-  replanTask(input: {
+  async replanTask(input: {
     reqId: string
     planVersion: number
     taskId?: string
@@ -1211,7 +1211,7 @@ ${answer}`
     by: string
     source: string
     confirmRecovery?: boolean
-  }): OperationResult {
+  }): Promise<OperationResult> {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     if (isTerminal(requirement.status)) return fail('terminal', `需求已处于终态 ${requirement.status}`)
@@ -1300,8 +1300,25 @@ ${answer}`
       if (!result.ok) return result
       recovered = unknown.length
     }
+    // 新任务包同样必须通过实现前评审；否则它会停在“无法批准”的状态，
+    // 重规划入口看似成功、实际继续阻断。
+    const analysis = this.repo.latestAnalysis(input.reqId)
+    if (!analysis) return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论；不能评审新任务包`)
+    const reviewed = await this.reviewPlan(requirement, analysis, nextPlan, new AbortController().signal)
+    if (reviewed.state !== 'done') {
+      return fail(
+        'plan_review_failed',
+        `任务包 v${planVersion} 已生成，但实现前评审未完成：${reviewed.detail}`,
+      )
+    }
+    if (reviewed.review.verdict !== 'pass') {
+      return fail(
+        'plan_review_blocked',
+        `任务包 v${planVersion} 已生成，但实现前评审阻断：${reviewed.review.blocking.join('；')}`,
+      )
+    }
     return ok(
-      `已生成需求 ${input.reqId} 的任务包 v${planVersion}（任务 ${task.taskId} 补充 ${newFiles.join('、')}）；等待批准`,
+      `已生成需求 ${input.reqId} 的任务包 v${planVersion}（任务 ${task.taskId} 补充 ${newFiles.join('、')}）；已通过实现前评审，等待批准`,
       { planVersion, taskId: task.taskId, files: newFiles, recovered },
     )
   }

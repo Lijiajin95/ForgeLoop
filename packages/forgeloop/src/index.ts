@@ -277,7 +277,7 @@ function registerBoardRoute(
                 return boardResponse(boardFailure('bad_request', '重新规划需要 reqId、正整数 planVersion 与 1..20 个补充文件'), 400)
               }
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-              const result = runtime.replanTask({
+              const result = await runtime.replanTask({
                 reqId,
                 planVersion,
                 ...(taskId ? { taskId } : {}),

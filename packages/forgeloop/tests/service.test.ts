@@ -638,6 +638,16 @@ describe('task retry', () => {
       source: 'test',
       now: '2026-10-29T00:00:00.000Z',
     })
+    runtime.repo.recordAnalysis({
+      reqId,
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: '实现两个小改动',
+      scenarios: ['任务按依赖完成'],
+      acceptanceCriteria: ['两个任务交付且测试通过'],
+      clarifications: [],
+      createdAt: '2026-10-29T00:00:00.500Z',
+    })
   }
 
   function recordPlan(reqId: string): void {
@@ -677,12 +687,12 @@ describe('task retry', () => {
     })
   }
 
-  it('creates a new plan version with additional files and leaves approval to the owner', () => {
+  it('creates a new plan version with additional files and leaves approval to the owner', async () => {
     const reqId = 'req-replan'
     seedApprovedPlan(reqId)
     seedFailedRun(reqId, 'a')
 
-    const result = runtime.replanTask({
+    const result = await runtime.replanTask({
       reqId,
       planVersion: 1,
       by: 'owner',
@@ -707,7 +717,7 @@ describe('task retry', () => {
     expect(runtime.repo.taskPlan(reqId, 1)?.tasks[0]?.files).toEqual(['docs/a.md'])
   })
 
-  it('requires recovery confirmation before replanning and closes only confirmed unknown requests', () => {
+  it('requires recovery confirmation before replanning and closes only confirmed unknown requests', async () => {
     const reqId = 'req-replan-unknown'
     seedApprovedPlan(reqId)
     seedFailedRun(reqId, 'a')
@@ -729,7 +739,7 @@ describe('task retry', () => {
       '2026-10-29T00:00:04.000Z',
     )
 
-    const blocked = runtime.replanTask({
+    const blocked = await runtime.replanTask({
       reqId,
       planVersion: 1,
       by: 'owner',
@@ -740,7 +750,7 @@ describe('task retry', () => {
     expect(blocked.code).toBe('recovery_required')
     expect(runtime.repo.taskPlan(reqId, 2)).toBeNull()
 
-    const replanned = runtime.replanTask({
+    const replanned = await runtime.replanTask({
       reqId,
       planVersion: 1,
       by: 'owner',
@@ -753,7 +763,7 @@ describe('task retry', () => {
     expect(runtime.repo.requestsFor(reqId).every((request) => request.state === 'dismissed')).toBe(true)
   })
 
-  it('rejects unsafe or meaningless replans', () => {
+  it('rejects unsafe or meaningless replans', async () => {
     const reqId = 'req-replan-errors'
     seedApprovedPlan(reqId)
     seedFailedRun(reqId, 'a')
@@ -764,10 +774,10 @@ describe('task retry', () => {
       source: 'test-replan',
       confirmRecovery: true,
     }
-    expect(runtime.replanTask({ ...base, files: ['/etc/passwd'] }).code).toBe('bad_files')
-    expect(runtime.replanTask({ ...base, files: ['docs/a.md'] }).code).toBe('no_change')
-    expect(runtime.replanTask({ ...base, taskId: 'b', files: ['contracts/architecture.json'] }).code).toBe('not_failed')
-    expect(runtime.replanTask({ ...base, planVersion: 9, files: ['contracts/architecture.json'] }).code).toBe('plan_missing')
+    expect((await runtime.replanTask({ ...base, files: ['/etc/passwd'] })).code).toBe('bad_files')
+    expect((await runtime.replanTask({ ...base, files: ['docs/a.md'] })).code).toBe('no_change')
+    expect((await runtime.replanTask({ ...base, taskId: 'b', files: ['contracts/architecture.json'] })).code).toBe('not_failed')
+    expect((await runtime.replanTask({ ...base, planVersion: 9, files: ['contracts/architecture.json'] })).code).toBe('plan_missing')
 
     runtime.repo.recordTaskArtifact({
       requirementId: reqId,
@@ -781,20 +791,20 @@ describe('task retry', () => {
       recordedAt: '2026-10-29T00:00:06.000Z',
       baselineCommit: 'abc123',
     })
-    expect(runtime.replanTask({ ...base, taskId: 'a', files: ['contracts/architecture.json'] }).code).toBe('already_delivered')
+    expect((await runtime.replanTask({ ...base, taskId: 'a', files: ['contracts/architecture.json'] })).code).toBe('already_delivered')
 
     const unapproved = 'req-replan-unapproved'
     seedRequirement(unapproved)
     recordPlan(unapproved)
     seedFailedRun(unapproved, 'a')
     expect(
-      runtime.replanTask({
+      (await runtime.replanTask({
         reqId: unapproved,
         planVersion: 1,
         files: ['contracts/architecture.json'],
         by: 'owner',
         source: 'test',
-      }).code,
+      })).code,
     ).toBe('plan_not_approved')
 
     const busy = 'req-replan-busy'
@@ -811,13 +821,13 @@ describe('task retry', () => {
       now: '2026-10-29T00:00:02.000Z',
     })
     expect(
-      runtime.replanTask({
+      (await runtime.replanTask({
         reqId: busy,
         planVersion: 1,
         files: ['contracts/architecture.json'],
         by: 'owner',
         source: 'test',
-      }).code,
+      })).code,
     ).toBe('busy')
   })
 
