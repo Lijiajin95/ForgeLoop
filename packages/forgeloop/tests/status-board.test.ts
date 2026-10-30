@@ -610,6 +610,12 @@ describe('status board', () => {
       approvedAt: '2026-10-23T00:00:03.000Z',
       source: 'test',
     })
+    repository.recordStop({
+      requirementId: reqId,
+      requestedBy: 'owner',
+      reason: '等待核对',
+      requestedAt: NOW,
+    })
     repository.setStatus(reqId, 'blocked', '停止请求：等待核对')
     repository.recordTaskRun({
       requirementId: reqId,

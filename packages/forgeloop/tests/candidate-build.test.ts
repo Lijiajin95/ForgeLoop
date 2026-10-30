@@ -183,6 +183,7 @@ function makeRuntime(): ForgeLoopRuntime {
     {
       project: 'testproj',
       projectPath: dir,
+      owner: 'owner',
       recordsRoot: join(dir, '.forgeloop'),
       pollSeconds: 1,
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
@@ -220,6 +221,36 @@ async function acceptedRequirement(): Promise<string> {
   expect(accepted.ok, accepted.message).toBe(true)
   return reqId
 }
+
+
+  it('builds an admitted candidate without any plan approval or overall acceptance', async () => {
+    const submitted = runtime.submit({
+      text: '实现两个文档改动',
+      by: 'owner',
+      source: 'dsh-session:test-session:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    expect((await runQueued('analyze', reqId)).state).toBe('done')
+    expect(runtime.repo.latestAdmission(reqId)?.decision).toBe('admit')
+    expect(runtime.repo.planApproval(reqId, 1)).toBeNull()
+    const advance = await runQueued('advance', reqId)
+    expect(advance.state, advance.detail).toBe('done')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('committed')
+    expect(runtime.repo.acceptance(reqId).accepted_at).toBe('')
+    const build = runtime.buildCandidate({ reqId, by: 'owner' })
+    expect(build.ok, build.message).toBe(true)
+    expect((build.data as { candidateSha256: string }).candidateSha256).toHaveLength(64)
+    const installed = installProfile('admitted')
+    execFileSync('tar', ['-xzf', (build.data as { tarball: string }).tarball, '-C', installed])
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }), 'utf8')
+    const deploy = runtime.verifyDeployment({
+      reqId,
+      targetProfile: 'admitted',
+      by: 'owner',
+      source: 'test',
+    })
+    expect(deploy.ok, deploy.message).toBe(true)
+  })
 
 function installProfile(name: string): string {
   const profile = join(profilesRoot, name)

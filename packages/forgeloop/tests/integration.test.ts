@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { exportCandidate, integrateCandidate } from '../src/runtime/integration.js'
@@ -302,6 +302,47 @@ describe('candidate export and controlled integration', () => {
     })
     expect(result.ok).toBe(true)
     expect(result.checkPassed).toBe(true)
+  })
+
+  it('blocks when another process stages unrelated work during the check', () => {
+    const project = repo()
+    const { record } = candidate(project)
+    const before = git(project, ['rev-parse', 'HEAD'])
+    const script = `printf 'other work\\n' > ${JSON.stringify(join(project, 'unrelated.txt'))} && git -C ${JSON.stringify(project)} add unrelated.txt`
+    const result = integrateCandidate({
+      projectPath: project,
+      candidateDiffPath: record.diffPath,
+      candidateBaseline: record.baselineCommit,
+      expectedDiffSha256: record.diffSha256,
+      checkCommand: ['sh', '-c', script],
+      commitMessage: 'feat: test',
+      evidenceDir: evidence(),
+      timeoutMs: 30_000,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.detail).toContain('检查期间项目工作树、暂存区或 HEAD 发生变化')
+    expect(git(project, ['rev-parse', 'HEAD'])).toBe(before)
+    expect(git(project, ['diff', '--cached', '--name-only'])).toBe('unrelated.txt')
+    expect(existsSync(join(project, 'docs/a.md'))).toBe(false)
+  })
+
+  it('refuses a second concurrent ForgeLoop commit while the lock is held', () => {
+    const project = repo()
+    const { record } = candidate(project)
+    mkdirSync(join(project, '.git/forgeloop-commit.lock'))
+    const result = integrateCandidate({
+      projectPath: project,
+      candidateDiffPath: record.diffPath,
+      candidateBaseline: record.baselineCommit,
+      expectedDiffSha256: record.diffSha256,
+      checkCommand: ['node', '-e', 'process.exit(0)'],
+      commitMessage: 'feat: test',
+      evidenceDir: evidence(),
+      timeoutMs: 30_000,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.detail).toContain('另一个 ForgeLoop 提交正在进行')
+    rmSync(join(project, '.git/forgeloop-commit.lock'), { recursive: true, force: true })
   })
 
 })

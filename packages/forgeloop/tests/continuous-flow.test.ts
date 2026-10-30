@@ -1061,4 +1061,24 @@ describe('continuous four-Agent flow', () => {
     expect(runtime.repo.taskRuns(reqId, 1).every((run) => run.state !== 'running')).toBe(true)
   })
 
+  it('does not auto-resume an explicitly stopped requirement until an explicit decision', async () => {
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-stop:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    expect(runtime.autoAdvanceRequests()).toContain(reqId)
+    const stopped = runtime.stop({ reqId, by: 'owner', reason: '暂停一下' })
+    expect(stopped.ok).toBe(true)
+    expect(runtime.repo.activeStop(reqId)?.requestedAt).toBeTruthy()
+    expect(runtime.repo.activeStop(reqId)?.settledAt).toBeTruthy()
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
+    expect(runtime.retryDecisionFor(reqId).allowed).toBe(false)
+    const resumed = runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'test-explicit-resume' })
+    expect(resumed.ok, resumed.message).toBe(true)
+    expect(runtime.repo.stop(reqId)?.resumedAt).toBeTruthy()
+  })
+
 })
