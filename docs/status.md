@@ -1838,7 +1838,10 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   `coverage/coverage-summary.json` 已刷新。
 - `make contracts` 通过：分层、依赖、循环、退役路径、工具、UI 与会话边界一致。
 - `make package` 通过：`forgeloop-dsh@0.1.6`，177,096 字节，SHA-256
-  `0ebbfa3745e67544f39d02b11c32a3cbaf44b9e3f4a6f7ee8665905eb8f8b2e3`。
+  `0ebbfa3745e67544f39d02b11c32a3cbaf44b9e3f4a6f7ee8665905eb8f8b2e3`（已安装并运行）。
+- 当前 HEAD 另构建了 `forgeloop-dsh@0.1.7`，177,496 字节，SHA-256
+  `84ec016c607781e8c7ad00e714004b27449a9d0783ac692083bebeab61b6f509`（含“验收后仍可构建/核对上线”
+  的看板修复）；所有者决定先停，**未安装**，交付前需重新执行安装与上线核对。
 - 安装：0.1.0→0.1.6 均通过 `plugin_manager` 装入正式 `web` profile；0.1.6 安装后宿主热重载
   （owner `MacAir.local:2477:c0ce681f`，`last_recovery` 于 `2026-10-30T01:28:42Z` 记录
   `interruptedRuns: 1`），3080 进程未重启。
