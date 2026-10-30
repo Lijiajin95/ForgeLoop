@@ -34,15 +34,6 @@ import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_VERI
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
 import { retryDecision } from '../domain/retry-policy.js'
-import {
-  DIAGNOSIS_TEXT_MAX_CHARS,
-  parseUnknownDiagnosis,
-  renderUnknownFacts,
-  replaySafe,
-  type UnknownDiagnosis,
-  type UnknownFacts,
-  type UnknownWorkspaceFact,
-} from '../domain/diagnosis.js'
 import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, EXECUTING, PLAN_PROPOSED, isTerminal } from '../domain/status.js'
 import {
   TASK_RUN_AWAITING_USER,
@@ -82,7 +73,7 @@ import {
   type StatusBoardView,
 } from './board.js'
 import { runFormalTest } from './formal-test.js'
-import { analysisPrompt, businessReviewPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, unknownDiagnosisPrompt, verificationPrompt } from './prompts.js'
+import { analysisPrompt, businessReviewPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, verificationPrompt } from './prompts.js'
 import { captureCandidate, git, headCommit, prepareSnapshotWorkspace, runCommand, requireGit } from './workspace.js'
 import { parseTaskExecution } from './task-execution.js'
 
@@ -983,35 +974,19 @@ ${answer}`
     taskId: string
     by: string
     source: string
-    confirmRecovery?: boolean
   }): OperationResult {
     const eligibility = this.retryEligibility(input.reqId, input.planVersion, input.taskId)
     if (!eligibility.ok) return fail(eligibility.code, eligibility.message)
-
-    const unknown = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
-    if (unknown.length > 0 && input.confirmRecovery !== true) {
-      return fail(
-        'recovery_required',
-        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；请先核对工作副本、Git 与证据，再确认重试（不会自动重放 unknown 请求）`,
-      )
-    }
-    let recovered = 0
-    if (unknown.length > 0) {
-      const recovery = this.recover({ reqId: input.reqId, by: input.by, confirm: true })
-      if (!recovery.ok) return recovery
-      recovered = unknown.length
-    }
     const queued = this.requestOperation({
       reqId: input.reqId,
       action: 'advance',
       by: input.by,
-      source: `${input.source}:retry:${input.taskId}${recovered > 0 ? `:recovered-${recovered}` : ''}`,
+      source: `${input.source}:retry:${input.taskId}`,
     })
     if (!queued.ok) return queued
     return ok(`已受理任务 ${input.taskId} 的重试：${queued.message}`, {
       ...(queued.data as Record<string, unknown>),
       taskId: input.taskId,
-      recovered,
     })
   }
 
@@ -1047,7 +1022,6 @@ ${answer}`
       status: requirement.status,
       blockedReason: requirement.blockedReason,
       remainingRounds: this.remainingFailureRounds(reqId),
-      unknownRequests: requests.filter((request) => request.state === 'unknown').length,
       activeRequest: requests.some((request) => request.state === 'pending' || request.state === 'claimed'),
       runningTasks: runs.filter((run) => run.state === TASK_RUN_RUNNING).length,
       awaitingInputTasks: runs.filter((run) => run.state === TASK_RUN_AWAITING_USER).length,
@@ -1270,214 +1244,37 @@ ${answer}`
   }
 
   /**
-   * 诊断“结果未知”的请求：由 Agent 说清根因与处置，程序校验字段与字节上限，
-   * 再用程序采集的工作副本事实判定重放是否安全；安全则关闭未知请求并解除阻塞。
-   *
-   * 判定权仍在程序：Agent 只提供解释与方案，不能凭自述跳过核对。
+   * 宿主启动时的确定性收口：执行者已经不在了，工作副本是运行时建的一次性快照，
+   * 直接判失败并丢弃快照，随后可重新执行。不再保留“无法判定”的 unknown。
    */
-  async diagnoseUnknown(input: {
-    reqId: string
-    by: string
-    source: string
-    signal?: AbortSignal
-  }): Promise<OperationResult> {
-    const requirement = this.repo.getRequirement(input.reqId)
-    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    const requests = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
-    if (requests.length === 0) return fail('nothing_to_recover', `需求 ${input.reqId} 没有待核对的请求`)
-
-    const facts = this.collectUnknownFacts(requirement)
-    const safety = replaySafe(facts)
-    const factsJson = JSON.stringify(facts)
-    const dir = join(projectDir(this.config), 'diagnoses', input.reqId)
-    mkdirSync(dir, { recursive: true })
-    const diagnosisId = `diag-${randomUUID()}`
-    const reportPath = join(dir, `${diagnosisId}.json`)
-    const transcriptPath = join(dir, `${diagnosisId}.jsonl`)
-
-    const run = await this.runner.run({
-      role: 'diagnosis',
-      cwd: this.config.projectPath,
-      prompt: unknownDiagnosisPrompt({
-        requirement,
-        facts: renderUnknownFacts(facts),
-        charLimit: DIAGNOSIS_TEXT_MAX_CHARS,
-      }),
-      permission: 'workspace-write',
-      timeoutMs: this.config.agent.timeoutSeconds * 1000,
-      transcriptPath,
-      signal: input.signal ?? new AbortController().signal,
-      tools: 'none',
-    })
-    if (run.status !== 'completed') {
-      return fail('diagnosis_failed', `诊断回合未完成（${run.status}）：${run.reason || '无原因'}；未知请求保持原状`)
-    }
-
-    let diagnosis: UnknownDiagnosis
-    try {
-      diagnosis = parseUnknownDiagnosis(run.text)
-    } catch (error) {
-      writeFileSync(
-        `${reportPath}.rejected`,
-        `${JSON.stringify({ raw: run.text, error: (error as Error).message }, null, 2)}\n`,
-        'utf8',
-      )
-      return fail(
-        'diagnosis_invalid',
-        `诊断材料不合格，未知请求保持原状：${(error as Error).message}`,
-      )
-    }
-
-    const reportJson = `${JSON.stringify(
-      {
-        kind: 'unknown-diagnosis',
-        reqId: input.reqId,
-        diagnosisId,
-        rootCause: diagnosis.rootCause,
-        solution: diagnosis.solution,
-        charLimit: DIAGNOSIS_TEXT_MAX_CHARS,
-        replaySafe: safety.safe,
-        safeReason: safety.reason,
-        facts,
-        closedRequests: safety.safe ? requests.length : 0,
-        sessionId: run.sessionId,
-        at: this.now(),
-      },
-      null,
-      2,
-    )}\n`
-    writeFileSync(reportPath, reportJson, 'utf8')
-    this.repo.recordUnknownDiagnosis({
-      reqId: input.reqId,
-      diagnosisId,
-      rootCause: diagnosis.rootCause,
-      solution: diagnosis.solution,
-      replaySafe: safety.safe,
-      safeReason: safety.reason,
-      factsJson,
-      reportPath,
-      reportSha256: sha256OfText(reportJson),
-      sessionId: run.sessionId,
-      closedRequests: safety.safe ? requests.length : 0,
-      diagnosedAt: this.now(),
-    })
-
-    if (!safety.safe) {
-      return fail(
-        'replay_unsafe',
-        `诊断已记录，但重放不安全：${safety.reason}；未知请求保持原状，需要人工处置`,
-      )
-    }
+  recoverInterrupted(now = this.now()): {
+    interruptedRequests: string[]
+    migratedUnknown: number
+    discardedWorkspaces: string[]
+  } {
+    const migratedUnknown = this.repo.migrateLegacyUnknown(now)
+    const requests = this.repo.failClaimedOnRestart(now)
+    const discarded: string[] = []
     for (const request of requests) {
-      this.repo.resolveRequest(
-        request.requestId,
-        'dismissed',
-        `诊断 ${diagnosisId} 判定重放安全并关闭（${this.now()}）`,
-        this.now(),
-      )
-    }
-    return ok(
-      `已诊断并关闭 ${requests.length} 条未知请求：${diagnosis.rootCause}；处置：${diagnosis.solution}`,
-      {
-        diagnosisId,
-        rootCause: diagnosis.rootCause,
-        solution: diagnosis.solution,
-        replaySafe: true,
-        safeReason: safety.reason,
-        closedRequests: requests.length,
-        reportPath,
-        sessionId: run.sessionId,
-      },
-    )
-  }
-
-  /** 采集未知请求的现场事实：只读，不修改任何工作副本。 */
-  private collectUnknownFacts(requirement: Requirement): UnknownFacts {
-    const plan = this.repo.latestTaskPlan(requirement.reqId)
-    const requests = this.repo.requestsFor(requirement.reqId)
-      .filter((request) => request.state === 'unknown')
-      .map((request) => ({
-        requestId: request.requestId,
-        action: request.action,
-        planVersion: request.planVersion,
-        createdAt: request.createdAt,
-      }))
-    const workspaces: UnknownWorkspaceFact[] = []
-    const taskRuns: Array<{ taskId: string; state: string; reason: string }> = []
-    if (plan) {
-      for (const run of this.repo.taskRuns(requirement.reqId, plan.planVersion)) {
-        taskRuns.push({ taskId: run.taskId, state: run.state, reason: run.reason })
-      }
+      const plan = this.repo.latestTaskPlan(request.reqId)
+      if (!plan) continue
       for (const task of plan.tasks) {
-        const run = this.repo.taskRuns(requirement.reqId, plan.planVersion).find((item) => item.taskId === task.taskId)
-        // 只检查确实开始过的任务：没跑过的任务没有工作副本，也没有重放风险。
-        if (!run) continue
-        const workspacePath = workspaceDir(this.config, requirement.reqId, plan.planVersion, task.taskId)
-        if (!existsSync(workspacePath)) {
-          workspaces.push({
-            taskId: task.taskId,
-            workspacePath,
-            exists: false,
-            headIsBaseline: true,
-            changedFiles: [],
-            untrackedFiles: [],
-          })
-          continue
-        }
-        const changed: string[] = []
-        const untracked: string[] = []
-        try {
-          for (const path of workspaceChanges(workspacePath)) {
-            // 未知路径一律按“已修改”处理：宁可保守，也不把改动当成不存在。
-            changed.push(path)
-          }
-        } catch {
-          changed.push('（git status 不可读）')
-        }
-        let headIsBaseline = true
-        try {
-          // 快照由运行时自己建立：出现第二个提交就意味着执行者越界提交。
-          const count = requireGit(workspacePath, ['rev-list', '--count', 'HEAD'])
-          headIsBaseline = Number(count) <= 1
-        } catch {
-          headIsBaseline = false
-        }
-        workspaces.push({
-          taskId: task.taskId,
-          workspacePath,
-          exists: true,
-          headIsBaseline,
-          changedFiles: changed,
-          untrackedFiles: untracked,
-        })
+        const dir = workspaceDir(this.config, request.reqId, plan.planVersion, task.taskId)
+        if (!existsSync(dir)) continue
+        rmSync(dir, { recursive: true, force: true })
+        discarded.push(dir)
       }
+      this.repo.setStatus(
+        request.reqId,
+        'blocked',
+        `上一次执行被宿主中断（${now}）：一次性工作副本已丢弃，可重新执行`,
+      )
     }
     return {
-      requests,
-      workspaces,
-      blockedReason: requirement.blockedReason,
-      taskRuns,
+      interruptedRequests: requests.map((request) => request.requestId),
+      migratedUnknown,
+      discardedWorkspaces: discarded,
     }
-  }
-
-  recover(input: { reqId: string; by: string; confirm: boolean }): OperationResult {
-    const requests = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
-    if (requests.length === 0) return fail('nothing_to_recover', `需求 ${input.reqId} 没有待核对的请求`)
-    if (!input.confirm) {
-      return fail(
-        'confirm_required',
-        `需求 ${input.reqId} 有 ${requests.length} 条结果未知的请求；核对工作副本与产物后再确认恢复`,
-      )
-    }
-    for (const request of requests) {
-      this.repo.resolveRequest(
-        request.requestId,
-        'dismissed',
-        `人工 ${input.by} 已核对并关闭未收口请求（${this.now()}）`,
-        this.now(),
-      )
-    }
-    return ok(`已核对并关闭 ${requests.length} 条未收口请求；不会自动重放其外部副作用`)
   }
 
   /**
@@ -1832,14 +1629,6 @@ ${answer}`
   accept(input: { reqId: string; by: string; source: string; artifactSha256?: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    // 结果未知的请求意味着可能有未收口的外部副作用；验收前必须核对并显式收口。
-    const unknown = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
-    if (unknown.length > 0) {
-      return fail(
-        'recovery_required',
-        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；核对工作副本、产物与证据并关闭后才能验收`,
-      )
-    }
     const latestPlan = this.repo.latestTaskPlan(input.reqId)
     if (!latestPlan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
     const approval = this.repo.planApproval(input.reqId, latestPlan.planVersion)

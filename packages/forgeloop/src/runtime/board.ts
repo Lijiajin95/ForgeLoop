@@ -27,7 +27,6 @@ import {
   ACTION_VERIFY,
   APPROVED,
   EXECUTING,
-  REQUEST_UNKNOWN,
   REQUEST_FAILED,
   PLAN_PROPOSED,
   isTerminal,
@@ -72,7 +71,6 @@ export interface BoardTaskView {
   /** 依据记录与原因给出的下一步建议；非失败状态为 null。 */
   readonly failureAdvice: TaskFailureAdvice | null
   /** 该需求是否存在结果未知（unknown）请求；有则任务结果不能当作已收口。 */
-  readonly resultUnknown: boolean
 }
 
 export type BoardRequirementAction =
@@ -121,16 +119,6 @@ export interface BoardCandidateView {
   readonly verificationSha256: string
 }
 
-export interface BoardDiagnosisView {
-  readonly diagnosisId: string
-  readonly rootCause: string
-  readonly solution: string
-  readonly replaySafe: boolean
-  readonly safeReason: string
-  readonly closedRequests: number
-  readonly diagnosedAt: string
-}
-
 export interface BoardDeploymentView {
   readonly state: string
   readonly targetProfile: string
@@ -153,8 +141,6 @@ export interface BoardRequirementView {
   readonly businessReview: BoardBusinessReviewView | null
   readonly candidate: BoardCandidateView | null
   readonly deployment: BoardDeploymentView | null
-  /** 最近一次未知请求诊断：根因与方案各 ≤100 个字符，附程序判定的重放安全性。 */
-  readonly diagnosis: BoardDiagnosisView | null
   /** 是否还能重新执行，以及不能时的具体原因。 */
   readonly retry: { readonly allowed: boolean; readonly reason: string }
   readonly clarifications: number
@@ -165,7 +151,6 @@ export interface BoardRequirementView {
   readonly actions: readonly BoardRequirementAction[]
   /** 需求处于“停止请求”阻塞原因下；不等于已经停稳。 */
   readonly stopRequested: boolean
-  readonly unknownRequests: number
   readonly activeRequest: boolean
   readonly progress: {
     readonly total: number
@@ -419,7 +404,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
     const grants = repository.grantCount(requirement.reqId)
     const remainingRounds = Math.max(0, grants * MAX_ROUNDS_PER_GRANT - rounds.length)
     const requests = repository.requestsFor(requirement.reqId)
-    const unknownRequests = requests.filter((request) => request.state === REQUEST_UNKNOWN).length
     const activeRequest = requests.some(
       (request) => request.state === 'pending' || request.state === 'claimed',
     )
@@ -483,19 +467,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
           blocking: verificationReport?.blocking ?? [],
           candidateSha256: verificationRecord.candidateSha256,
           verifiedAt: verificationRecord.verifiedAt,
-        }
-      : null
-
-    const diagnosisRecord = repository.latestUnknownDiagnosis(requirement.reqId)
-    const latestDiagnosis: BoardDiagnosisView | null = diagnosisRecord
-      ? {
-          diagnosisId: diagnosisRecord.diagnosisId,
-          rootCause: diagnosisRecord.rootCause,
-          solution: diagnosisRecord.solution,
-          replaySafe: diagnosisRecord.replaySafe,
-          safeReason: diagnosisRecord.safeReason,
-          closedRequests: diagnosisRecord.closedRequests,
-          diagnosedAt: diagnosisRecord.diagnosedAt,
         }
       : null
 
@@ -597,14 +568,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         lastActivity: run?.updatedAt ?? '',
         failureReason: failureAdvice ? (run?.reason ?? '') : '',
         failureAdvice,
-        // 只有“已开始但结果未收口”的任务才标结果未知：待执行任务没有产生任何副作用，
-        // 不能因为需求级存在 unknown 就把整列任务都标成“需核对”。
-        resultUnknown:
-          unknownRequests > 0 &&
-          (state === 'running' ||
-            state === 'blocked' ||
-            state === BOARD_TASK_AWAITING_INPUT ||
-            state === 'awaiting_user'),
       })
     }
 
@@ -612,7 +575,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       status: requirement.status,
       blockedReason: requirement.blockedReason,
       remainingRounds,
-      unknownRequests,
       activeRequest,
       runningTasks: progress.running,
       awaitingInputTasks: progress.awaitingInput,
@@ -662,10 +624,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       ) {
         actions.push('verify')
       }
-      // 未知请求的默认处置是 Agent 诊断：根因与方案由程序校验，重放安全性由程序按现场事实判定。
-      if (unknownRequests > 0 && progress.running === 0 && progress.awaitingInput === 0 && !activeRequest) {
-        actions.push('diagnose')
-      }
       if (activeRequest || progress.running > 0 || progress.awaitingInput > 0) actions.push('stop')
       actions.push('cancel')
     }
@@ -698,7 +656,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       planReview: planReviewView,
       verification: verificationView,
       businessReview: businessReviewView,
-      diagnosis: latestDiagnosis,
       retry,
       candidate: candidateView,
       deployment: deploymentView,
@@ -708,7 +665,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       remainingRounds,
       actions,
       stopRequested,
-      unknownRequests,
       activeRequest,
       progress,
       updatedAt: updatedAtOf(requirement),
@@ -738,9 +694,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
           severity: 'blocking',
           title: requirement.blockedReason || '需求已阻塞，未记录原因',
           detail:
-            stopRequested || unknownRequests > 0
-              ? '停止请求或中断已记录；在核对工作副本、Git 与证据前，不能认定已经停稳或没有副作用'
-              : '阻塞状态需要人工核对现场后决定下一步；不会自动重试',
+            stopRequested
+              ? '停止请求已记录；在核对工作副本、Git 与证据前，不能认定已经停稳'
+              : '阻塞状态会按重新执行规则重排；额度用尽或需要处置时等待人工决定',
           createdAt: updatedAt,
         })
       }
@@ -766,17 +722,14 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       }
 
       for (const request of requests) {
-        if (request.state !== REQUEST_UNKNOWN && request.state !== REQUEST_FAILED) continue
+        if (request.state !== REQUEST_FAILED) continue
         requirementIssues.push({
           issueId: `request:${request.requestId}`,
           reqId: requirement.reqId,
           kind: ISSUE_REQUEST,
-          severity: request.state === REQUEST_UNKNOWN ? 'blocking' : 'attention',
-          title: `${requestActionLabel(request.action)}请求${request.state === REQUEST_UNKNOWN ? '结果未知' : '失败'}`,
-          detail:
-            request.state === REQUEST_UNKNOWN
-              ? `${request.detail ? `${request.detail}；` : ''}结果未知：先核对工作副本、Git 与产物，不盲目重放`
-              : request.detail || '请求执行失败，等待重新排队或人工处理',
+          severity: 'attention',
+          title: `${requestActionLabel(request.action)}请求失败`,
+          detail: request.detail || '请求执行失败，等待重新排队或人工处理',
           createdAt: request.createdAt,
         })
       }

@@ -431,39 +431,6 @@ describe('release gate error paths', () => {
     expect(missingModule.message).toContain('requirement_modules')
   })
 
-  it('rejects unknown recovery without confirmation and when nothing is unknown', () => {
-    const reqId = 'req-recover-domain'
-    runtime.repo.submit({
-      reqId,
-      project: 'testproj',
-      text: '未知核对',
-      submittedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:00.000Z',
-    })
-    expect(runtime.recover({ reqId, by: 'owner', confirm: true })).toMatchObject({
-      ok: false,
-      code: 'nothing_to_recover',
-    })
-    runtime.repo.recordRequest({
-      requestId: 'rq-recover-domain',
-      reqId,
-      project: 'testproj',
-      planVersion: 0,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:01.000Z',
-    })
-    runtime.repo.claimNextRequest('tester', '2026-10-30T00:00:02.000Z')
-    runtime.repo.markClaimedUnknown('2026-10-30T00:00:03.000Z')
-    expect(runtime.recover({ reqId, by: 'owner', confirm: false })).toMatchObject({
-      ok: false,
-      code: 'confirm_required',
-    })
-  })
-})
-
   it('records a failed check when the candidate artifact no longer matches the current delivery', async () => {
     const reqId = await acceptedRequirement()
     expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
@@ -723,4 +690,5 @@ describe('release gate error paths', () => {
     }
   })
 
+})
 })

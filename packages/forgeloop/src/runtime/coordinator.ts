@@ -80,18 +80,21 @@ export class Coordinator {
     }
     this.stopped = false
     const now = new Date().toISOString()
-    const unknownRequests = this.runtime.repo.markClaimedUnknown(now)
+    // 上次没跑完的请求直接收口为 failed，并丢弃一次性工作副本；不再产生 unknown。
+    const recovery = this.runtime.recoverInterrupted(now)
     const interrupted = this.runtime.repo.markStartedActionsInterrupted(now)
     // 运维动作的结果未知：先核对，不自动重放。
     const interruptedOps = this.runtime.repo.markRunningOpsActionsUnknown(now)
-    // 任务运行也可能停在 running：同样是“结果未收口”，标记为阻塞等待人工核对。
+    // 任务运行也可能停在 running：标记为阻塞，等待重新执行。
     const interruptedRuns = this.runtime.repo.markRunningTaskRunsInterrupted(now)
     this.runtime.repo.setMeta('host_owner', this.owner, now)
     this.runtime.repo.setMeta(
       'last_recovery',
       JSON.stringify({
         at: now,
-        unknownRequests: unknownRequests.map((request) => request.requestId),
+        interruptedRequests: recovery.interruptedRequests,
+        migratedUnknown: recovery.migratedUnknown,
+        discardedWorkspaces: recovery.discardedWorkspaces,
         interruptedActions: interrupted,
         interruptedOps,
         interruptedRuns,

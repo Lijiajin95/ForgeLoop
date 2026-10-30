@@ -23,7 +23,6 @@ export interface AgentRunRequest {
     | 'verify'
     | 'business-review'
     | 'ops'
-    | 'diagnosis'
   readonly cwd: string
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'

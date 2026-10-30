@@ -463,7 +463,7 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
 })
 
 describe('durable coordinator behaviour', () => {
-  it('marks claimed requests unknown on restart instead of replaying them', async () => {
+  it('closes claimed requests as failed on restart and leaves them retryable', async () => {
     const submitted = runtime.submit({ text: '重启核对', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
     const queued = runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
@@ -473,8 +473,8 @@ describe('durable coordinator behaviour', () => {
     const coordinator = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false })
     coordinator.start()
     const recovered = runtime.repo.request(requestId)
-    expect(recovered?.state).toBe('unknown')
-    expect(recovered?.detail).toContain('无法确认外部副作用')
+    expect(recovered?.state).toBe('failed')
+    expect(recovered?.detail).toContain('一次性工作副本已丢弃')
     await coordinator.stop()
   })
 
@@ -805,7 +805,7 @@ describe('task retry', () => {
     expect(evidenceValue.resultUnknown).toBe(false)
   })
 
-  it('requires explicit recovery before retrying over an unknown request', () => {
+  it('retries a failed task without any recovery confirmation', () => {
     const reqId = 'req-retry-unknown'
     seedApprovedPlan(reqId)
     seedFailedRun(reqId, 'a')
@@ -815,36 +815,10 @@ describe('task retry', () => {
       summary: '正式测试退出码 1',
       occurredAt: '2026-10-29T00:00:03.000Z',
     })
-    runtime.repo.recordRequest({
-      requestId: 'rq-old',
-      reqId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-29T00:00:04.000Z',
-    })
-    runtime.repo.resolveRequest('rq-old', 'unknown', '宿主停止', '2026-10-29T00:00:05.000Z')
-    runtime.repo.setStatus(reqId, 'blocked', '停止请求')
+    runtime.repo.setStatus(reqId, 'blocked', '任务 a 失败')
 
-    const first = runtime.retryTask({ reqId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
-    expect(first.ok).toBe(false)
-    expect(first.code).toBe('recovery_required')
-    // 第一次调用只提示核对，不关闭 unknown，也不排队新的推进。
-    expect(runtime.repo.request('rq-old')?.state).toBe('unknown')
-    expect(runtime.repo.pendingRequests()).toHaveLength(0)
-
-    const confirmed = runtime.retryTask({
-      reqId,
-      planVersion: 1,
-      taskId: 'a',
-      by: 'owner',
-      source: 'test-retry',
-      confirmRecovery: true,
-    })
-    expect(confirmed.ok, confirmed.message).toBe(true)
-    expect(runtime.repo.request('rq-old')?.state).toBe('dismissed')
+    const retried = runtime.retryTask({ reqId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
+    expect(retried.ok, retried.message).toBe(true)
     expect(runtime.repo.pendingRequests()).toHaveLength(1)
   })
 
@@ -1204,170 +1178,6 @@ describe('execution scope, plan freeze and repair loop', () => {
 })
 
 
-describe('unknown diagnosis service', () => {
-  function seedUnknown(reqId: string, runState: 'blocked' | 'running' = 'blocked'): void {
-    runtime.repo.submit({
-      reqId,
-      project: 'testproj',
-      text: '未知诊断',
-      submittedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:00.000Z',
-    })
-    runtime.repo.recordTaskPlan({
-      taskPlanId: `plan-${reqId}-1`,
-      requirementId: reqId,
-      project: 'testproj',
-      planVersion: 1,
-      requirementVersion: 1,
-      createdAt: '2026-10-30T00:00:01.000Z',
-      tasks: [
-        {
-          taskId: 'a',
-          goal: '中断任务',
-          files: ['docs/a.md'],
-          acceptance: 'a 完成',
-          testCommand: ['node', '-e', 'process.exit(0)'],
-          dependsOn: [],
-          limits: { limitSeconds: 60, maxFailureRounds: 3 },
-          authorizationSource: '',
-        },
-        {
-          taskId: 'b',
-          goal: '后续任务',
-          files: ['docs/b.md'],
-          acceptance: 'b 完成',
-          testCommand: ['node', '-e', 'process.exit(0)'],
-          dependsOn: ['a'],
-          limits: { limitSeconds: 60, maxFailureRounds: 3 },
-          authorizationSource: '',
-        },
-      ],
-    })
-    runtime.repo.recordTaskRun({
-      requirementId: reqId,
-      planVersion: 1,
-      taskId: 'a',
-      state: runState,
-      reason: '宿主中断',
-      executedSeconds: 1,
-      updatedAt: '2026-10-30T00:00:02.000Z',
-    })
-    runtime.repo.setStatus(reqId, 'blocked', '开发回合被停止')
-    runtime.repo.recordRequest({
-      requestId: `rq-${reqId}`,
-      reqId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:03.000Z',
-    })
-    runtime.repo.resolveRequest(`rq-${reqId}`, 'unknown', '宿主停止', '2026-10-30T00:00:04.000Z')
-  }
-
-  function diagnosisRunner(text: string): AgentLike {
-    return {
-      async run(request) {
-        if (request.role === 'diagnosis') return result(request, text)
-        return result(request, '{}')
-      },
-    }
-  }
-
-  it('records the diagnosis, closes unknown requests and exposes both in the board', async () => {
-    const reqId = 'req-diagnose-service'
-    seedUnknown(reqId)
-    runtime.close()
-    runtime = makeRuntime(
-      diagnosisRunner(JSON.stringify({ root_cause: '中断留下未提交改动', solution: '丢弃快照重跑' })),
-    )
-    const outcome = await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })
-    expect(outcome.ok, outcome.message).toBe(true)
-    const data = outcome.data as { rootCause: string; closedRequests: number; reportPath: string }
-    expect(data.closedRequests).toBe(1)
-    expect(existsSync(data.reportPath)).toBe(true)
-    expect(runtime.repo.request(`rq-${reqId}`)?.state).toBe('dismissed')
-    const view = runtime.statusBoard() as unknown as {
-      requirements: Array<{ reqId: string; diagnosis: { rootCause: string; replaySafe: boolean } | null; actions: string[] }>
-    }
-    const item = view.requirements.find((entry) => entry.reqId === reqId)!
-    expect(item.diagnosis).toMatchObject({ rootCause: '中断留下未提交改动', replaySafe: true })
-    expect(item.actions).not.toContain('diagnose')
-  })
-
-  it('keeps unknown open when the diagnosis is over the byte limit or the run fails', async () => {
-    const reqId = 'req-diagnose-invalid'
-    seedUnknown(reqId)
-    runtime.close()
-    runtime = makeRuntime(diagnosisRunner(JSON.stringify({ root_cause: '中'.repeat(101), solution: '重跑' })))
-    expect(await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })).toMatchObject({
-      ok: false,
-      code: 'diagnosis_invalid',
-    })
-    expect(runtime.repo.request(`rq-${reqId}`)?.state).toBe('unknown')
-
-    runtime.close()
-    runtime = makeRuntime({
-      async run() {
-        return {
-          status: 'timeout',
-          text: '',
-          sessionId: 'session-timeout',
-          reason: '超过 30 秒',
-          transcriptPath: '',
-          durationMs: 1,
-          toolCalls: [],
-        }
-      },
-    })
-    expect(await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })).toMatchObject({
-      ok: false,
-      code: 'diagnosis_failed',
-    })
-    expect(runtime.repo.request(`rq-${reqId}`)?.state).toBe('unknown')
-  })
-
-  it('refuses diagnosis when nothing is unknown and records unsafe replays without closing', async () => {
-    const reqId = 'req-diagnose-none'
-    runtime.repo.submit({
-      reqId,
-      project: 'testproj',
-      text: '无未知',
-      submittedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:00.000Z',
-    })
-    expect(await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })).toMatchObject({
-      ok: false,
-      code: 'nothing_to_recover',
-    })
-
-    // 工作副本出现执行者提交：诊断可记录，但不得关闭未知请求。
-    const unsafeId = 'req-diagnose-unsafe'
-    seedUnknown(unsafeId)
-    const workspace = workspaceDir(runtime.config, unsafeId, 1, 'a')
-    mkdirSync(workspace, { recursive: true })
-    execFileSync('git', ['init', '-q'], { cwd: workspace })
-    execFileSync('git', ['config', 'user.email', 'x@y'], { cwd: workspace })
-    execFileSync('git', ['config', 'user.name', 'x'], { cwd: workspace })
-    writeFileSync(join(workspace, 'a.txt'), 'a', 'utf8')
-    execFileSync('git', ['add', '-A'], { cwd: workspace })
-    execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: workspace })
-    writeFileSync(join(workspace, 'b.txt'), 'b', 'utf8')
-    execFileSync('git', ['add', '-A'], { cwd: workspace })
-    execFileSync('git', ['commit', '-qm', 'executor'], { cwd: workspace })
-
-    runtime.close()
-    runtime = makeRuntime(diagnosisRunner(JSON.stringify({ root_cause: '执行者自行提交', solution: '人工处置' })))
-    const outcome = await runtime.diagnoseUnknown({ reqId: unsafeId, by: 'owner', source: 'test' })
-    expect(outcome).toMatchObject({ ok: false, code: 'replay_unsafe' })
-    expect(runtime.repo.request(`rq-${unsafeId}`)?.state).toBe('unknown')
-    expect(runtime.repo.unknownDiagnoses(unsafeId)[0]).toMatchObject({ replaySafe: false })
-  })
-})
-
 describe('requeue after a failure', () => {
   it('requeues once, keeps the plan version and reports refusal reasons', async () => {
     const submitted = runtime.submit({ text: '重新执行', by: 'owner', source: 'test' })
@@ -1401,27 +1211,13 @@ describe('requeue after a failure', () => {
     expect(runtime.retryDecisionFor(reqId).reason).toContain('在途请求')
   })
 
-  it('refuses requeue for unknown requests, delivered plans and terminal requirements', async () => {
+  it('refuses requeue for terminal requirements and reports the reason', async () => {
     const submitted = runtime.submit({ text: '拒绝重新执行', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
     await runQueued('analyze', reqId)
     await runQueued('plan', reqId)
     runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })
 
-    runtime.repo.recordRequest({
-      requestId: 'rq-requeue-unknown',
-      reqId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: new Date().toISOString(),
-    })
-    runtime.repo.resolveRequest('rq-requeue-unknown', 'unknown', '宿主停止', new Date().toISOString())
-    expect(runtime.retryDecisionFor(reqId).reason).toContain('根因诊断')
-
-    runtime.repo.resolveRequest('rq-requeue-unknown', 'dismissed', '人工关闭', new Date().toISOString())
     runtime.repo.setStatus(reqId, 'cancelled')
     expect(runtime.requeue({ reqId, by: 'owner', source: 'test' })).toMatchObject({
       ok: false,

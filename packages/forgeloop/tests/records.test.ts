@@ -147,7 +147,7 @@ describe('service requests', () => {
     ).toThrow(/不能同时排队/)
   })
 
-  it('claims at most once and marks unclosed claims unknown on restart instead of replaying', () => {
+  it('claims at most once and closes unclosed claims as failed on restart', () => {
     submit()
     repository.recordRequest({
       requestId: 'rq-1',
@@ -163,9 +163,9 @@ describe('service requests', () => {
     expect(claimed?.state).toBe('claimed')
     expect(repository.claimNextRequest('host-2', 'now')).toBeNull()
 
-    const unknown = repository.markClaimedUnknown('restart')
-    expect(unknown).toHaveLength(1)
-    expect(repository.request('rq-1')?.state).toBe('unknown')
+    const failed = repository.failClaimedOnRestart('restart')
+    expect(failed).toHaveLength(1)
+    expect(repository.request('rq-1')?.state).toBe('failed')
     expect(repository.pendingRequests()).toHaveLength(0)
   })
 

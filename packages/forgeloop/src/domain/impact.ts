@@ -15,7 +15,6 @@
 import { latestVersion, type Requirement, type RequirementAnalysis } from './requirement.js'
 import type { TaskPlan, TaskPlanApproval } from './task-plan.js'
 import type { TaskArtifact } from './work.js'
-import { REQUEST_UNKNOWN } from './status.js'
 
 export type ImpactState = 'current' | 'stale' | 'pending' | 'stale_pending'
 
@@ -558,14 +557,6 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
 
   const requestFacts: RequestImpactFact[] = requests.map((request) => {
     const pendingReasons: ImpactReason[] = []
-    if (request.state === REQUEST_UNKNOWN) {
-      pendingReasons.push(
-        reason(
-          'request_result_unknown',
-          `请求 ${request.requestId}（${request.action}）结果未知；需先核对，不能重放其外部副作用`,
-        ),
-      )
-    }
     return {
       requestId: request.requestId,
       action: request.action,
@@ -609,18 +600,6 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
       )
     }
   }
-  const unknownRequests = requestFacts.filter((request) => request.requestState === REQUEST_UNKNOWN)
-  if (unknownRequests.length > 0) {
-    gapReasons.push(
-      reason(
-        'unknown_requests_pending',
-        `存在 ${unknownRequests.length} 条结果未知请求：${unknownRequests
-          .map((request) => request.requestId)
-          .join('、')}；需先核对`,
-      ),
-    )
-  }
-
   const itemFacts: ImpactCheck[] = [
     ...analysisFacts,
     ...planFacts,

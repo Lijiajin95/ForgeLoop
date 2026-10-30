@@ -33,8 +33,6 @@ export type TaskRunState =
 
 /** 持久操作请求状态。 */
 export const REQUEST_FAILED = 'failed'
-/** 受理后宿主中断、无法确认是否已产生外部副作用：先核对，不重放。 */
-export const REQUEST_UNKNOWN = 'unknown'
 
 /** 请求动作。 */
 export const ACTION_ANALYZE = 'analyze'

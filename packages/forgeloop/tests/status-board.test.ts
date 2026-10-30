@@ -386,7 +386,7 @@ describe('status board', () => {
     expect(item.actions).not.toContain('verify')
   })
 
-  it('offers requeue for a failed requirement and refuses it while work is unknown or in flight', () => {
+  it('offers requeue for a failed requirement and refuses it while work is in flight', () => {
     const reqId = submit('req-requeue')
     repository.recordTaskPlan(plan(reqId))
     repository.recordPlanApproval({
@@ -412,9 +412,9 @@ describe('status board', () => {
     expect(failed.actions).toContain('requeue')
     expect(failed.actions).not.toContain('advance')
 
-    // 出现 unknown 请求后不再允许直接重新执行。
+    // 有在途请求时不再允许直接重新执行。
     repository.recordRequest({
-      requestId: 'rq-requeue-unknown',
+      requestId: 'rq-requeue-inflight',
       reqId,
       project: PROJECT,
       planVersion: 1,
@@ -423,13 +423,10 @@ describe('status board', () => {
       source: 'test',
       now: NOW,
     })
-    repository.claimNextRequest('tester', NOW)
-    repository.markClaimedUnknown(NOW)
-    const unknown = board().requirements.find((item) => item.reqId === reqId)!
-    expect(unknown.retry.allowed).toBe(false)
-    expect(unknown.retry.reason).toContain('根因诊断')
-    expect(unknown.actions).not.toContain('requeue')
-    expect(unknown.actions).toContain('diagnose')
+    const busy = board().requirements.find((item) => item.reqId === reqId)!
+    expect(busy.retry.allowed).toBe(false)
+    expect(busy.retry.reason).toContain('在途请求')
+    expect(busy.actions).not.toContain('requeue')
   })
 
   it('refuses requeue when the failure budget is exhausted', () => {
@@ -464,48 +461,6 @@ describe('status board', () => {
     expect(view.retry.allowed).toBe(false)
     expect(view.retry.reason).toContain('额度已用尽')
     expect(view.actions).not.toContain('requeue')
-  })
-
-  it('marks only started-but-unsettled tasks as result unknown, not every pending task', () => {
-    const reqId = submit('req-unknown-scope')
-    repository.recordTaskPlan(plan(reqId))
-    repository.recordPlanApproval({
-      requirementId: reqId,
-      planVersion: 1,
-      approvedBy: 'owner',
-      approvedAt: '2026-10-23T00:00:03.000Z',
-      source: 'test',
-    })
-    repository.setStatus(reqId, 'blocked', '开发回合超时：工作副本可能有未收口改动，需核对')
-    repository.recordTaskRun({
-      requirementId: reqId,
-      planVersion: 1,
-      taskId: 't1',
-      state: 'running',
-      reason: '执行步骤 20',
-      executedSeconds: 1,
-      updatedAt: NOW,
-    })
-    repository.recordRequest({
-      requestId: 'rq-unknown-scope',
-      reqId,
-      project: PROJECT,
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: NOW,
-    })
-    repository.claimNextRequest('tester', NOW)
-    repository.markClaimedUnknown(NOW)
-
-    const item = board().requirements.find((entry) => entry.reqId === reqId)!
-    const tasks = board().tasks.filter((task) => task.reqId === reqId)
-    const running = tasks.find((task) => task.taskId === 't1')!
-    const pending = tasks.find((task) => task.taskId === 't2')!
-    expect(running.resultUnknown).toBe(true)
-    expect(pending.resultUnknown).toBe(false)
-    expect(pending.state).toBe('pending')
   })
 
   it('freezes an approved plan and never offers plan or replan for it', () => {
@@ -573,25 +528,8 @@ describe('status board', () => {
     })
   })
 
-  it('distinguishes an unknown request from a failed one', () => {
+  it('reports a failed request as an attention issue', () => {
     const reqId = submit('req-1')
-    repository.recordRequest({
-      requestId: 'request-1',
-      reqId,
-      project: PROJECT,
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: NOW,
-    })
-    repository.resolveRequest('request-1', 'unknown', '宿主中断', NOW)
-
-    const unknownView = board()
-    const unknownIssue = unknownView.issues.find((issue) => issue.kind === 'request')
-    expect(unknownIssue).toMatchObject({ severity: 'blocking', title: '推进请求结果未知' })
-    expect(unknownIssue?.detail).toContain('不盲目重放')
-
     repository.recordRequest({
       requestId: 'request-2',
       reqId,
@@ -603,8 +541,7 @@ describe('status board', () => {
       now: NOW,
     })
     repository.resolveRequest('request-2', 'failed', '执行器异常', NOW)
-    const failedView = board()
-    const failedIssue = failedView.issues.find((issue) => issue.title.includes('分析'))
+    const failedIssue = board().issues.find((issue) => issue.title.includes('分析'))
     expect(failedIssue).toMatchObject({ severity: 'attention', title: '分析请求失败' })
   })
 
@@ -663,7 +600,7 @@ describe('status board', () => {
     expect(requirement.versions[0]!.text).toBe(long.trim())
   })
 
-  it('marks a running task waiting for input and keeps the requirement stop/unknown facts separate', () => {
+  it('marks a running task waiting for input and keeps the requirement stop facts separate', () => {
     const reqId = submit('req-1')
     repository.recordTaskPlan(plan(reqId))
     repository.recordPlanApproval({
@@ -683,27 +620,14 @@ describe('status board', () => {
       executedSeconds: 3,
       updatedAt: NOW,
     })
-    repository.recordRequest({
-      requestId: 'request-unknown',
-      reqId,
-      project: PROJECT,
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: NOW,
-    })
-    repository.resolveRequest('request-unknown', 'unknown', '宿主停止', NOW)
 
     const view = board()
     const requirement = view.requirements[0]!
     const task = view.tasks[0]!
     expect(task.state).toBe(BOARD_TASK_AWAITING_INPUT)
-    expect(task.resultUnknown).toBe(true)
     expect(requirement.progress.awaitingInput).toBe(1)
     expect(requirement.progress.running).toBe(0)
     expect(requirement.stopRequested).toBe(true)
-    expect(requirement.unknownRequests).toBe(1)
     expect(requirement.actions).toEqual(['stop', 'cancel'])
     const blocked = view.issues.find((issue) => issue.kind === 'blocked')
     expect(blocked?.detail).toContain('不能认定已经停稳')
@@ -759,23 +683,7 @@ describe('status board', () => {
     expect(board().requirements.find((item) => item.reqId === idle)?.actions).toContain('advance')
   })
 
-  it('offers diagnosis, build and deploy only when the underlying records allow them', () => {
-    // 未知请求：默认提供 Agent 诊断，而不是让人直接点“已核对”。
-    const recoverReq = submit('req-board-recover')
-    repository.recordRequest({
-      requestId: 'rq-board-recover',
-      reqId: recoverReq,
-      project: PROJECT,
-      planVersion: 0,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: NOW,
-    })
-    repository.claimNextRequest('tester', NOW)
-    repository.markClaimedUnknown(NOW)
-    expect(board().requirements.find((item) => item.reqId === recoverReq)?.actions).toContain('diagnose')
-
+  it('offers build and deploy only when the underlying records allow them', () => {
     // build：已验收、验证与业务终审都新鲜通过，且尚未构建。
     const buildReq = submit('req-board-build')
     repository.recordTaskPlan(plan(buildReq))

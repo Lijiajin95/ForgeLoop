@@ -347,10 +347,10 @@ describe('plan, evidence and request queries', () => {
 })
 
 describe('recovery and candidate preconditions', () => {
-  it('requires confirmation before dismissing unknown requests', () => {
+  it('closes an interrupted claimed request as failed and discards its workspace', () => {
     const reqId = submit()
     runtime.repo.recordRequest({
-      requestId: 'rq-unknown',
+      requestId: 'rq-interrupted',
       reqId,
       project: 'testproj',
       planVersion: 0,
@@ -359,17 +359,11 @@ describe('recovery and candidate preconditions', () => {
       source: 'test',
       now: '2026-10-23T00:00:02.000Z',
     })
-    runtime.repo.resolveRequest('rq-unknown', 'unknown', '宿主中断', '2026-10-23T00:00:03.000Z')
-
-    const unconfirmed = runtime.recover({ reqId, by: 'owner', confirm: false })
-    expect(unconfirmed).toMatchObject({ ok: false, code: 'confirm_required' })
-    const confirmed = runtime.recover({ reqId, by: 'owner', confirm: true })
-    expect(confirmed.ok).toBe(true)
-    expect(runtime.repo.requestsFor(reqId)[0]!.state).toBe('dismissed')
-    expect(runtime.recover({ reqId, by: 'owner', confirm: true })).toMatchObject({
-      ok: false,
-      code: 'nothing_to_recover',
-    })
+    runtime.repo.claimNextRequest('tester', '2026-10-23T00:00:03.000Z')
+    const recovery = runtime.recoverInterrupted('2026-10-23T00:00:04.000Z')
+    expect(recovery.interruptedRequests).toEqual(['rq-interrupted'])
+    expect(runtime.repo.request('rq-interrupted')?.state).toBe('failed')
+    expect(runtime.repo.request('rq-interrupted')?.detail).toContain('一次性工作副本已丢弃')
   })
 
   it('refuses to build a candidate before every task is delivered', () => {

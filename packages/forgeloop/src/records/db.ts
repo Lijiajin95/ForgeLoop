@@ -261,23 +261,6 @@ CREATE TABLE IF NOT EXISTS requirement_candidates (
     evidence_dir TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version)
 );
-CREATE TABLE IF NOT EXISTS requirement_unknown_diagnoses (
-    req_id TEXT NOT NULL,
-    diagnosis_id TEXT NOT NULL,
-    root_cause TEXT NOT NULL,
-    solution TEXT NOT NULL,
-    replay_safe INTEGER NOT NULL,
-    safe_reason TEXT NOT NULL DEFAULT '',
-    facts_json TEXT NOT NULL,
-    report_path TEXT NOT NULL DEFAULT '',
-    report_sha256 TEXT NOT NULL DEFAULT '',
-    session_id TEXT NOT NULL DEFAULT '',
-    closed_requests INTEGER NOT NULL DEFAULT 0,
-    diagnosed_at TEXT NOT NULL,
-    PRIMARY KEY (req_id, diagnosis_id)
-);
-CREATE INDEX IF NOT EXISTS unknown_diagnoses_by_requirement ON requirement_unknown_diagnoses (req_id, diagnosed_at);
-
 CREATE TABLE IF NOT EXISTS runtime_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,

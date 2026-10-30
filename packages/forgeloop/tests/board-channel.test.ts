@@ -590,7 +590,7 @@ describe('web board host wiring', () => {
     host.cleanup()
   })
 
-  it('retries a failed task through an explicit two-step recovery', async () => {
+  it('retries a failed task without a recovery confirmation', async () => {
     const reqId = 'req-retry-1'
     seedRequirement(reqId)
     const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
@@ -648,17 +648,6 @@ describe('web board host wiring', () => {
       summary: '正式测试退出码 1',
       occurredAt: '2026-10-29T00:00:03.000Z',
     })
-    repository.recordRequest({
-      requestId: 'rq-unknown',
-      reqId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-29T00:00:04.000Z',
-    })
-    repository.resolveRequest('rq-unknown', 'unknown', '宿主停止', '2026-10-29T00:00:05.000Z')
     repository.close()
 
     const host = fakeHost()
@@ -668,70 +657,18 @@ describe('web board host wiring', () => {
     const malformed = await route.fetch(post(JSON.stringify({ endpoint: 'retry', reqId })))
     expect(malformed.status).toBe(400)
 
-    const first = await route.fetch(
-      post(JSON.stringify({ endpoint: 'retry', reqId, planVersion: 1, taskId: 'a' })),
+    const retried = await route.fetch(
+      post(JSON.stringify({ endpoint: 'retry', reqId, planVersion: 1, taskId: 'a', sessionId: 'session-retry' })),
     )
-    expect(first.status).toBe(409)
-    const firstBody = (await first.json()) as { ok: boolean; error: { code: string } }
-    expect(firstBody.ok).toBe(false)
-    expect(firstBody.error.code).toBe('recovery_required')
-
-    const confirmed = await route.fetch(
-      post(
-        JSON.stringify({
-          endpoint: 'retry',
-          reqId,
-          planVersion: 1,
-          taskId: 'a',
-          confirmRecovery: true,
-          sessionId: 'session-retry',
-        }),
-      ),
-    )
-    const rawBody = await confirmed.clone().text()
-    if (confirmed.status !== 200) throw new Error(`status ${confirmed.status}: ${rawBody}`)
-    const confirmedBody = (await confirmed.json()) as { ok: boolean; value: { requestId: string } }
-    expect(confirmedBody.ok).toBe(true)
-    expect(confirmedBody.value.requestId).toMatch(/^rq-/)
+    const rawBody = await retried.clone().text()
+    if (retried.status !== 200) throw new Error(`status ${retried.status}: ${rawBody}`)
+    const retriedBody = (await retried.json()) as { ok: boolean; value: { requestId: string } }
+    expect(retriedBody.ok).toBe(true)
+    expect(retriedBody.value.requestId).toMatch(/^rq-/)
 
     const detail = await route.fetch(post(JSON.stringify({ endpoint: 'detail', reqId })))
     const detailBody = (await detail.json()) as { value: { pendingRequests: Array<{ action: string }> } }
     expect(detailBody.value.pendingRequests.map((request) => request.action)).toEqual(['advance'])
-    host.cleanup()
-  })
-
-  it('closes unknown requests only after an explicit owner confirmation', async () => {
-    const reqId = 'req-recover-route'
-    seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
-    const repository = new Repository(database)
-    repository.recordRequest({
-      requestId: 'rq-recover-route',
-      reqId,
-      project: 'testproj',
-      planVersion: 0,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:00.000Z',
-    })
-    repository.claimNextRequest('tester', '2026-10-30T00:00:01.000Z')
-    repository.markClaimedUnknown('2026-10-30T00:00:02.000Z')
-    repository.close()
-
-    const host = fakeHost()
-    start(host)
-    const route = host.routes[0]!
-    const refused = await route.fetch(post(JSON.stringify({ endpoint: 'recover', reqId })))
-    expect(refused.status).toBe(409)
-    const confirmed = await route.fetch(
-      post(JSON.stringify({ endpoint: 'recover', reqId, confirmRecovery: true })),
-    )
-    expect(confirmed.status).toBe(200)
-    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
-    const repository2 = new Repository(database2)
-    expect(repository2.request('rq-recover-route')?.state).toBe('dismissed')
-    repository2.close()
     host.cleanup()
   })
 
@@ -822,128 +759,6 @@ describe('web board host wiring', () => {
       .requestsFor(reqId)
       .find((candidate) => candidate.action === 'plan' && candidate.state === 'pending')
     expect(request?.source).toContain('plan-change:任务包遗漏关键文件')
-    repository2.close()
-    host.cleanup()
-  })
-
-  it('diagnoses an unknown request and releases the block when replay is safe', async () => {
-    const reqId = 'req-diagnose-route'
-    seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
-    const repository = new Repository(database)
-    repository.recordTaskPlan({
-      taskPlanId: `plan-${reqId}-1`,
-      requirementId: reqId,
-      project: 'testproj',
-      planVersion: 1,
-      requirementVersion: 1,
-      createdAt: '2026-10-30T00:00:00.000Z',
-      tasks: [
-        {
-          taskId: 'a',
-          goal: '中断的任务',
-          files: ['docs/a.md'],
-          acceptance: 'a 完成',
-          testCommand: ['node', '-e', 'process.exit(0)'],
-          dependsOn: [],
-          limits: { limitSeconds: 60, maxFailureRounds: 3 },
-          authorizationSource: '',
-        },
-        {
-          taskId: 'b',
-          goal: '后续任务',
-          files: ['docs/b.md'],
-          acceptance: 'b 完成',
-          testCommand: ['node', '-e', 'process.exit(0)'],
-          dependsOn: ['a'],
-          limits: { limitSeconds: 60, maxFailureRounds: 3 },
-          authorizationSource: '',
-        },
-      ],
-    })
-    repository.setStatus(reqId, 'blocked', '开发回合被停止：工作副本可能有未收口改动，需核对')
-    repository.recordTaskRun({
-      requirementId: reqId,
-      planVersion: 1,
-      taskId: 'a',
-      state: 'blocked',
-      reason: '宿主中断：执行结果未收口',
-      executedSeconds: 1,
-      updatedAt: '2026-10-30T00:00:02.000Z',
-    })
-    repository.recordRequest({
-      requestId: 'rq-unknown-diagnose',
-      reqId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:03.000Z',
-    })
-    repository.resolveRequest('rq-unknown-diagnose', 'unknown', '宿主停止', '2026-10-30T00:00:04.000Z')
-    repository.close()
-
-    const host = fakeHost({
-      agentText: JSON.stringify({
-        root_cause: '宿主重启中断开发回合，快照内留未提交改动',
-        solution: '丢弃一次性快照后重跑推进',
-      }),
-    })
-    start(host)
-    const route = host.routes[0]!
-    const response = await route.fetch(post(JSON.stringify({ endpoint: 'diagnose', reqId })))
-    const raw = await response.text()
-    if (response.status !== 200) throw new Error(`status ${response.status}: ${raw}`)
-    const body = JSON.parse(raw) as {
-      ok: boolean
-      value: { rootCause: string; replaySafe: boolean; closedRequests: number }
-    }
-    expect(body.ok).toBe(true)
-    expect(body.value.replaySafe).toBe(true)
-    expect(body.value.closedRequests).toBe(1)
-    expect([...body.value.rootCause].length).toBeLessThanOrEqual(100)
-
-    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
-    const repository2 = new Repository(database2)
-    expect(repository2.request('rq-unknown-diagnose')?.state).toBe('dismissed')
-    expect(repository2.unknownDiagnoses(reqId)).toHaveLength(1)
-    repository2.close()
-    host.cleanup()
-  })
-
-  it('rejects an over-long diagnosis and keeps the unknown request open', async () => {
-    const reqId = 'req-diagnose-long'
-    seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
-    const repository = new Repository(database)
-    repository.recordRequest({
-      requestId: 'rq-unknown-long',
-      reqId,
-      project: 'testproj',
-      planVersion: 0,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-30T00:00:03.000Z',
-    })
-    repository.resolveRequest('rq-unknown-long', 'unknown', '宿主停止', '2026-10-30T00:00:04.000Z')
-    repository.close()
-
-    const host = fakeHost({
-      agentText: JSON.stringify({ root_cause: '中'.repeat(101), solution: '重跑' }),
-    })
-    start(host)
-    const route = host.routes[0]!
-    const response = await route.fetch(post(JSON.stringify({ endpoint: 'diagnose', reqId })))
-    expect(response.status).toBe(409)
-    const body = (await response.json()) as { error: { code: string; message: string } }
-    expect(body.error.code).toBe('diagnosis_invalid')
-    expect(body.error.message).toContain('超过 100 个字符')
-
-    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
-    const repository2 = new Repository(database2)
-    expect(repository2.request('rq-unknown-long')?.state).toBe('unknown')
     repository2.close()
     host.cleanup()
   })

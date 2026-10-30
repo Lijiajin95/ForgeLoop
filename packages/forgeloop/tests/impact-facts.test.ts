@@ -104,15 +104,6 @@ describe('impact facts: requirement revision is stale', () => {
       plans: [plan(1, 1, [task('a'), task('b', ['a'])])],
       approvals: [approval(1)],
       deliveries: [artifact(1, 'a')],
-      requests: [
-        {
-          requestId: 'rq-unknown',
-          action: 'advance',
-          state: 'unknown',
-          planVersion: 1,
-          createdAt: T1,
-        },
-      ],
     })
 
     expect(facts.kind).toBe('facts')
@@ -162,21 +153,10 @@ describe('impact facts: requirement revision is stale', () => {
       baselineCommit: 'abc1234',
     })
 
-    expect(facts.requests[0]).toMatchObject({
-      requestId: 'rq-unknown',
-      requestState: 'unknown',
-      pending: true,
-    })
-    expect(facts.requests[0]?.pendingReasons.map((item) => item.code)).toContain(
-      'request_result_unknown',
-    )
-
     expect(facts.stale).toBe(true)
     expect(facts.pending).toBe(true)
     expect(facts.state).toBe('stale_pending')
-    expect(facts.pendingReasons.map((item) => item.code)).toEqual(
-      expect.arrayContaining(['request_result_unknown', 'unknown_requests_pending']),
-    )
+    expect(facts.pendingReasons.map((item) => item.code)).toContain('task_not_delivered')
   })
 
   it('keeps an old but fully delivered and approved version stale without marking it pending', () => {
@@ -297,8 +277,8 @@ describe('impact facts: requirement was never planned', () => {
   })
 })
 
-describe('impact facts: inconsistent versions and unknown requests need review', () => {
-  it('marks mismatched analysis/plan/approval versions and unknown requests as pending without inventing stale versions', () => {
+describe('impact facts: inconsistent versions and requests need review', () => {
+  it('marks mismatched analysis/plan/approval versions as pending without inventing stale versions', () => {
     const facts = buildImpactFacts({
       requirement: requirement([version(1), version(2)]),
       analyses: [analysis(2, 2)],
@@ -306,7 +286,7 @@ describe('impact facts: inconsistent versions and unknown requests need review',
       approvals: [approval(1)],
       deliveries: [artifact(2, 'a')],
       requests: [
-        { requestId: 'rq-unknown', action: 'advance', state: 'unknown', planVersion: 2, createdAt: T1 },
+        { requestId: 'rq-done', action: 'advance', state: 'done', planVersion: 2, createdAt: T1 },
       ],
     })
 
@@ -326,10 +306,8 @@ describe('impact facts: inconsistent versions and unknown requests need review',
     expect(facts.plans[0]?.pendingReasons.map((item) => item.code)).toContain(
       'plan_approval_missing',
     )
-    expect(facts.requests[0]?.pending).toBe(true)
-    expect(facts.pendingReasons.map((item) => item.code)).toEqual(
-      expect.arrayContaining(['unknown_requests_pending', 'latest_plan_approval_missing']),
-    )
+    expect(facts.requests[0]?.pending).toBe(false)
+    expect(facts.pendingReasons.map((item) => item.code)).toContain('latest_plan_approval_missing')
   })
 
   it('marks analysis/plan requirement-version disagreement as pending on both sides', () => {

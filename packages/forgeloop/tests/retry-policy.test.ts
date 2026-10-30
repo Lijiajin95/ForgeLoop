@@ -10,7 +10,6 @@ const OK: RetryFacts = {
   status: 'blocked',
   blockedReason: '任务 a 失败：正式测试退出码 1',
   remainingRounds: 2,
-  unknownRequests: 0,
   activeRequest: false,
   runningTasks: 0,
   awaitingInputTasks: 0,
@@ -41,8 +40,7 @@ describe('retry decision', () => {
     expect(retryDecision({ ...OK, delivered: 2 }).reason).toContain('下一步是独立验证')
   })
 
-  it('refuses while unknown, in-flight or running work exists', () => {
-    expect(retryDecision({ ...OK, unknownRequests: 1 }).reason).toContain('根因诊断')
+  it('refuses while in-flight or running work exists', () => {
     expect(retryDecision({ ...OK, activeRequest: true }).reason).toContain('在途请求')
     expect(retryDecision({ ...OK, runningTasks: 1 }).reason).toContain('仍有任务在运行')
     expect(retryDecision({ ...OK, awaitingInputTasks: 1 }).reason).toContain('等待人工回答')

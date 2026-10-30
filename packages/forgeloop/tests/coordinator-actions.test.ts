@@ -168,7 +168,7 @@ describe('coordinator lifecycle', () => {
     coordinator.stop()
   })
 
-  it('records the claimed requests and started actions as recovered on start', async () => {
+  it('closes claimed requests as failed on start and records the recovery summary', async () => {
     const reqId = submit()
     runtime.repo.recordRequest({
       requestId: 'rq-claimed',
@@ -183,7 +183,11 @@ describe('coordinator lifecycle', () => {
     runtime.repo.claimNextRequest('other-owner', '2026-10-23T00:00:03.000Z')
     const coordinator = makeCoordinator(false)
     coordinator.start()
-    expect(runtime.repo.request('rq-claimed')?.state).toBe('unknown')
+    expect(runtime.repo.request('rq-claimed')?.state).toBe('failed')
+    const recovery = JSON.parse(runtime.repo.getMeta('last_recovery')!) as {
+      interruptedRequests: string[]
+    }
+    expect(recovery.interruptedRequests).toEqual(['rq-claimed'])
     coordinator.stop()
   })
 })
@@ -239,7 +243,7 @@ describe('auto advance requests', () => {
     expect(runtime.repo.requestsFor(queuedId)).toHaveLength(1)
   })
 
-  it('auto-requeues a failed requirement but not one blocked by quota or unknown', async () => {
+  it('auto-requeues a failed requirement but not one blocked by quota', async () => {
     const coordinator = makeCoordinator(true)
 
     const failedId = submit()
@@ -267,31 +271,10 @@ describe('auto advance requests', () => {
       })
     }
 
-    const unknownId = submit()
-    approveWithPlan(unknownId)
-    runtime.repo.setStatus(unknownId, 'blocked', '任务失败')
-    runtime.repo.recordRequest({
-      requestId: 'rq-unknown-auto',
-      reqId: unknownId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-23T00:00:08.000Z',
-    })
-    runtime.repo.claimNextRequest('tester', '2026-10-23T00:00:08.500Z')
-    runtime.repo.markClaimedUnknown('2026-10-23T00:00:09.000Z')
-
     autoAdvanceScan(coordinator)
     expect(runtime.repo.requestsFor(failedId)).toHaveLength(1)
     expect(runtime.repo.requestsFor(failedId)[0]?.source).toBe('auto-requeue')
     expect(runtime.repo.requestsFor(exhaustedId)).toHaveLength(0)
-    // unknown 请求本身保留，但不会再自动排一条新的推进。
-    expect(
-      runtime.repo.requestsFor(unknownId).filter((request) => request.state === 'pending'),
-    ).toHaveLength(0)
-    expect(runtime.repo.requestsFor(unknownId)[0]?.state).toBe('unknown')
   })
 
   it('keeps the last error instead of crashing when a scan fails', async () => {

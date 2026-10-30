@@ -305,7 +305,7 @@ function recordDelivery(reqId: string, planVersion: number, taskId: string): Tas
   return artifact
 }
 
-function recordRequest(reqId: string, requestId: string, state: 'done' | 'unknown'): void {
+function recordRequest(reqId: string, requestId: string, state: 'done' | 'failed'): void {
   runtime.repo.recordRequest({
     requestId,
     reqId,
@@ -331,13 +331,13 @@ afterEach(() => {
 })
 
 describe('forgeloop_impact: requirement revision is stale', () => {
-  it('shows all versions, basis versions, delivery materials, stale/pending marks and unknown requests on the tool surface', async () => {
+  it('shows all versions, basis versions, delivery materials and stale/pending marks on the tool surface', async () => {
     const reqId = submitRequirement()
     recordAnalysis(reqId, 1, 1)
     recordPlan(reqId, 1, 1, [task('a'), task('b', ['a'])])
     recordApproval(reqId, 1)
     recordDelivery(reqId, 1, 'a')
-    recordRequest(reqId, 'rq-unknown', 'unknown')
+    recordRequest(reqId, 'rq-done', 'done')
     reviseRequirement(reqId)
 
     const output = await impact(reqId)
@@ -415,13 +415,10 @@ describe('forgeloop_impact: requirement revision is stale', () => {
     })
 
     expect(facts.requests[0]).toMatchObject({
-      requestId: 'rq-unknown',
-      requestState: 'unknown',
-      pending: true,
+      requestId: 'rq-done',
+      requestState: 'done',
+      pending: false,
     })
-    expect(facts.requests[0]?.pendingReasons.map((reason) => reason.code)).toContain(
-      'request_result_unknown',
-    )
     expect(facts.state).toBe('stale_pending')
     expect(facts.stale).toBe(true)
     expect(facts.pending).toBe(true)

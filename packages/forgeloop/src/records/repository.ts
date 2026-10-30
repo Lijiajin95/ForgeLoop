@@ -44,23 +44,6 @@ function businessReviewRow(row: Row): BusinessReviewRecord {
   }
 }
 
-function unknownDiagnosisRow(row: Row): UnknownDiagnosisRecord {
-  return {
-    reqId: text(row, 'req_id'),
-    diagnosisId: text(row, 'diagnosis_id'),
-    rootCause: text(row, 'root_cause'),
-    solution: text(row, 'solution'),
-    replaySafe: num(row, 'replay_safe') === 1,
-    safeReason: text(row, 'safe_reason'),
-    factsJson: text(row, 'facts_json'),
-    reportPath: text(row, 'report_path'),
-    reportSha256: text(row, 'report_sha256'),
-    sessionId: text(row, 'session_id'),
-    closedRequests: num(row, 'closed_requests'),
-    diagnosedAt: text(row, 'diagnosed_at'),
-  }
-}
-
 function verificationRow(row: Row): VerificationRecord {
   return {
     requirementId: text(row, 'req_id'),
@@ -132,21 +115,6 @@ export interface BusinessReviewRecord {
   readonly reportSha256: string
   readonly sessionId: string
   readonly reviewedAt: string
-}
-
-export interface UnknownDiagnosisRecord {
-  readonly reqId: string
-  readonly diagnosisId: string
-  readonly rootCause: string
-  readonly solution: string
-  readonly replaySafe: boolean
-  readonly safeReason: string
-  readonly factsJson: string
-  readonly reportPath: string
-  readonly reportSha256: string
-  readonly sessionId: string
-  readonly closedRequests: number
-  readonly diagnosedAt: string
 }
 
 export interface ServiceRequestRecord {
@@ -757,54 +725,6 @@ export class Repository {
       )
   }
 
-  recordUnknownDiagnosis(record: UnknownDiagnosisRecord): void {
-    this.db.handle
-      .prepare(
-        `INSERT INTO requirement_unknown_diagnoses
-          (req_id, diagnosis_id, root_cause, solution, replay_safe, safe_reason, facts_json,
-           report_path, report_sha256, session_id, closed_requests, diagnosed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(req_id, diagnosis_id) DO UPDATE SET
-           root_cause = excluded.root_cause, solution = excluded.solution,
-           replay_safe = excluded.replay_safe, safe_reason = excluded.safe_reason,
-           facts_json = excluded.facts_json, report_path = excluded.report_path,
-           report_sha256 = excluded.report_sha256, session_id = excluded.session_id,
-           closed_requests = excluded.closed_requests, diagnosed_at = excluded.diagnosed_at`,
-      )
-      .run(
-        record.reqId,
-        record.diagnosisId,
-        record.rootCause,
-        record.solution,
-        record.replaySafe ? 1 : 0,
-        record.safeReason,
-        record.factsJson,
-        record.reportPath,
-        record.reportSha256,
-        record.sessionId,
-        record.closedRequests,
-        record.diagnosedAt,
-      )
-  }
-
-  unknownDiagnoses(reqId: string): UnknownDiagnosisRecord[] {
-    const rows = this.db.handle
-      .prepare(
-        'SELECT * FROM requirement_unknown_diagnoses WHERE req_id = ? ORDER BY diagnosed_at DESC',
-      )
-      .all(reqId) as Row[]
-    return rows.map(unknownDiagnosisRow)
-  }
-
-  latestUnknownDiagnosis(reqId: string): UnknownDiagnosisRecord | null {
-    const row = this.db.handle
-      .prepare(
-        'SELECT * FROM requirement_unknown_diagnoses WHERE req_id = ? ORDER BY diagnosed_at DESC LIMIT 1',
-      )
-      .get(reqId) as Row | undefined
-    return row ? unknownDiagnosisRow(row) : null
-  }
-
   businessReview(reqId: string, planVersion: number): BusinessReviewRecord | null {
     const row = this.db.handle
       .prepare(
@@ -1271,8 +1191,12 @@ export class Repository {
       .run(state, detail, now, requestId)
   }
 
-  /** 宿主启动时把上次未收口的 claimed 标为 unknown：先核对，不自动重放。 */
-  markClaimedUnknown(now: string): ServiceRequestRecord[] {
+  /**
+   * 宿主启动时收口上次未完成的请求：执行者已不在了，工作副本是一次性快照，
+   * 直接判为 failed（未交付），由调用方丢弃快照后重新执行。
+   * 不再保留“unknown”这种无法判定的中间态。
+   */
+  failClaimedOnRestart(now: string): ServiceRequestRecord[] {
     return this.db.transaction(() => {
       const rows = this.db.handle
         .prepare("SELECT * FROM service_requests WHERE state = 'claimed'")
@@ -1280,11 +1204,21 @@ export class Repository {
       if (rows.length === 0) return []
       this.db.handle
         .prepare(
-          "UPDATE service_requests SET state = 'unknown', detail = ?, resolved_at = ? WHERE state = 'claimed'",
+          "UPDATE service_requests SET state = 'failed', detail = ?, resolved_at = ? WHERE state = 'claimed'",
         )
-        .run(`宿主重启时该请求仍在执行中，无法确认外部副作用是否已发生（${now}）；需先核对再决定`, now)
+        .run(`宿主中断：执行未完成（${now}）；一次性工作副本已丢弃，可重新执行`, now)
       return rows.map(requestFromRow)
     })
+  }
+
+  /** 旧库里的 unknown 收口为 failed：保留原因，不当作成功或失败证据。 */
+  migrateLegacyUnknown(now: string): number {
+    const result = this.db.handle
+      .prepare(
+        "UPDATE service_requests SET state = 'failed', detail = detail || ?, resolved_at = COALESCE(resolved_at, ?) WHERE state = 'unknown'",
+      )
+      .run(`（旧 unknown 已收口为 failed：${now}）`, now)
+    return Number(result.changes)
   }
 
   dismissPendingFor(reqId: string, detail: string, now: string): number {

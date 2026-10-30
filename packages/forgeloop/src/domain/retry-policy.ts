@@ -1,7 +1,7 @@
 /**
  * 重新执行的判定：任务失败后不再让需求永久停住。
  *
- * 只做确定性判断：额度、在途请求、未知请求、计划批准状态、是否还有可执行任务。
+ * 只做确定性判断：额度、在途请求、计划批准状态、是否还有可执行任务。
  * 自动重试与手动重试共用同一份判定，避免两条入口各自放宽条件。
  */
 
@@ -10,7 +10,6 @@ export interface RetryFacts {
   readonly blockedReason: string
   /** 当前授权下剩余失败轮次；0 表示必须先追加授权。 */
   readonly remainingRounds: number
-  readonly unknownRequests: number
   readonly activeRequest: boolean
   readonly runningTasks: number
   readonly awaitingInputTasks: number
@@ -45,9 +44,6 @@ export function retryDecision(facts: RetryFacts): RetryDecision {
   if (facts.total === 0) return { allowed: false, reason: '任务包没有任务' }
   if (facts.delivered >= facts.total) {
     return { allowed: false, reason: '任务已全部交付，下一步是独立验证' }
-  }
-  if (facts.unknownRequests > 0) {
-    return { allowed: false, reason: '存在结果未知的请求；先做根因诊断再重新执行' }
   }
   if (facts.activeRequest) return { allowed: false, reason: '已有在途请求，等待收口' }
   if (facts.runningTasks > 0) return { allowed: false, reason: '仍有任务在运行' }
