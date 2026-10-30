@@ -902,7 +902,7 @@ describe('web board host wiring', () => {
     expect(body.ok).toBe(true)
     expect(body.value.replaySafe).toBe(true)
     expect(body.value.closedRequests).toBe(1)
-    expect(Buffer.byteLength(body.value.rootCause, 'utf8')).toBeLessThanOrEqual(100)
+    expect([...body.value.rootCause].length).toBeLessThanOrEqual(100)
 
     const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
     const repository2 = new Repository(database2)
@@ -931,7 +931,7 @@ describe('web board host wiring', () => {
     repository.close()
 
     const host = fakeHost({
-      agentText: JSON.stringify({ root_cause: '中'.repeat(40), solution: '重跑' }),
+      agentText: JSON.stringify({ root_cause: '中'.repeat(101), solution: '重跑' }),
     })
     start(host)
     const route = host.routes[0]!
@@ -939,7 +939,7 @@ describe('web board host wiring', () => {
     expect(response.status).toBe(409)
     const body = (await response.json()) as { error: { code: string; message: string } }
     expect(body.error.code).toBe('diagnosis_invalid')
-    expect(body.error.message).toContain('超过 100 字节')
+    expect(body.error.message).toContain('超过 100 个字符')
 
     const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
     const repository2 = new Repository(database2)

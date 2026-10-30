@@ -4,18 +4,23 @@ import { MalformedError } from './errors.js'
 /**
  * 未知请求的根因诊断：把“结果未知、不敢重放”的原因说清楚，并给出可执行的处置。
  *
- * 两个面向所有人的字段各限 100 字节（UTF-8），超长直接拒绝——诊断结论要能一眼看完，
- * 不能靠长篇叙述掩盖“其实没核对”。判定由程序做，不采信模型自述。
+ * 两个面向所有人的字段各限 100 个字符（按 Unicode 码点计，中英文同等对待），
+ * 超长直接拒绝——诊断结论要能一眼看完，不能靠长篇叙述掩盖“其实没核对”。
+ * 判定由程序做，不采信模型自述。
  */
-export const DIAGNOSIS_TEXT_MAX_BYTES = 100
+export const DIAGNOSIS_TEXT_MAX_CHARS = 100
 
 export interface UnknownDiagnosis {
   readonly rootCause: string
   readonly solution: string
 }
 
-export function byteLength(text: string): number {
-  return Buffer.byteLength(text, 'utf8')
+/**
+ * 按字符（码点）计数，而不是字节：一个汉字算 1 个字符，一个 emoji 也算 1 个。
+ * 这样“100 个字”对中文和英文是同一标准，不会因为编码差异让中文只有 33 个字。
+ */
+export function charLength(text: string): number {
+  return [...text].length
 }
 
 /** 校验并截断检查：超长、空串、缺字段都是畸形材料，不做静默截断。 */
@@ -35,10 +40,10 @@ function field(value: unknown, name: string): string {
     throw new MalformedError(`未知请求诊断的 ${name} 必须是非空字符串`)
   }
   const trimmed = value.trim()
-  const bytes = byteLength(trimmed)
-  if (bytes > DIAGNOSIS_TEXT_MAX_BYTES) {
+  const chars = charLength(trimmed)
+  if (chars > DIAGNOSIS_TEXT_MAX_CHARS) {
     throw new MalformedError(
-      `未知请求诊断的 ${name} 超过 ${DIAGNOSIS_TEXT_MAX_BYTES} 字节（实际 ${bytes} 字节）：${trimmed}`,
+      `未知请求诊断的 ${name} 超过 ${DIAGNOSIS_TEXT_MAX_CHARS} 个字符（实际 ${chars} 个字符）：${trimmed}`,
     )
   }
   return trimmed

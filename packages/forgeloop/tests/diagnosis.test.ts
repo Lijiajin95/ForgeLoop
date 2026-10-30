@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DIAGNOSIS_TEXT_MAX_BYTES,
-  byteLength,
+  DIAGNOSIS_TEXT_MAX_CHARS,
+  charLength,
   parseUnknownDiagnosis,
   renderUnknownFacts,
   replaySafe,
@@ -43,8 +43,8 @@ describe('unknown diagnosis material', () => {
       solution: '丢弃一次性快照后重跑推进，不重放已关闭请求',
     })
     const parsed = parseUnknownDiagnosis(text)
-    expect(byteLength(parsed.rootCause)).toBeLessThanOrEqual(DIAGNOSIS_TEXT_MAX_BYTES)
-    expect(byteLength(parsed.solution)).toBeLessThanOrEqual(DIAGNOSIS_TEXT_MAX_BYTES)
+    expect(charLength(parsed.rootCause)).toBeLessThanOrEqual(DIAGNOSIS_TEXT_MAX_CHARS)
+    expect(charLength(parsed.solution)).toBeLessThanOrEqual(DIAGNOSIS_TEXT_MAX_CHARS)
   })
 
   it('accepts camelCase keys and fenced JSON', () => {
@@ -63,20 +63,27 @@ describe('unknown diagnosis material', () => {
     )
   })
 
-  it('rejects text longer than 100 bytes in either field', () => {
-    const long = '中'.repeat(34) // 102 bytes in UTF-8
+  it('rejects text longer than 100 characters in either field', () => {
+    const long = '中'.repeat(101)
     expect(() => parseUnknownDiagnosis(JSON.stringify({ root_cause: long, solution: '重跑' }))).toThrow(
-      `超过 ${DIAGNOSIS_TEXT_MAX_BYTES} 字节`,
+      `超过 ${DIAGNOSIS_TEXT_MAX_CHARS} 个字符`,
     )
     expect(() => parseUnknownDiagnosis(JSON.stringify({ root_cause: '中断', solution: long }))).toThrow(
-      `超过 ${DIAGNOSIS_TEXT_MAX_BYTES} 字节`,
+      `超过 ${DIAGNOSIS_TEXT_MAX_CHARS} 个字符`,
     )
-    // 恰好 100 字节可以通过：33 个汉字 = 99 字节，再加一个 ASCII 字符。
-    const exactly = `${'中'.repeat(33)}x`
-    expect(byteLength(exactly)).toBe(100)
-    expect(parseUnknownDiagnosis(JSON.stringify({ root_cause: exactly, solution: '重跑' })).rootCause).toBe(
-      exactly,
-    )
+    // 中英文混排按字符计：100 个字符可以通过，101 个拒绝。
+    const mixed = '中a'.repeat(50)
+    expect(charLength(mixed)).toBe(100)
+    expect(parseUnknownDiagnosis(JSON.stringify({ root_cause: mixed, solution: '重跑' })).rootCause).toBe(mixed)
+    expect(() =>
+      parseUnknownDiagnosis(JSON.stringify({ root_cause: `${mixed}中`, solution: '重跑' })),
+    ).toThrow(`超过 ${DIAGNOSIS_TEXT_MAX_CHARS} 个字符`)
+  })
+
+  it('counts emoji and surrogate pairs as single characters', () => {
+    const emoji = '😀'.repeat(100)
+    expect(charLength(emoji)).toBe(100)
+    expect(parseUnknownDiagnosis(JSON.stringify({ root_cause: emoji, solution: '重跑' })).rootCause).toBe(emoji)
   })
 })
 

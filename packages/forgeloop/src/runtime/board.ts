@@ -18,6 +18,7 @@ import { candidateIdentityOf } from '../domain/delivery.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
 import { parsePlanReview, parseVerificationReport, type PlanReview, type VerificationReport } from '../domain/verification.js'
 import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
 import {
   ACTION_ANALYZE,
@@ -81,6 +82,7 @@ export type BoardRequirementAction =
   | 'verify'
   | 'recover'
   | 'diagnose'
+  | 'requeue'
   | 'build'
   | 'deploy'
   | 'stop'
@@ -151,8 +153,10 @@ export interface BoardRequirementView {
   readonly businessReview: BoardBusinessReviewView | null
   readonly candidate: BoardCandidateView | null
   readonly deployment: BoardDeploymentView | null
-  /** 最近一次未知请求诊断：根因与方案各 ≤100 字节，附程序判定的重放安全性。 */
+  /** 最近一次未知请求诊断：根因与方案各 ≤100 个字符，附程序判定的重放安全性。 */
   readonly diagnosis: BoardDiagnosisView | null
+  /** 是否还能重新执行，以及不能时的具体原因。 */
+  readonly retry: { readonly allowed: boolean; readonly reason: string }
   readonly clarifications: number
   readonly failureRounds: number
   readonly grants: number
@@ -597,6 +601,19 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       })
     }
 
+    const retry = retryDecision({
+      status: requirement.status,
+      blockedReason: requirement.blockedReason,
+      remainingRounds,
+      unknownRequests,
+      activeRequest,
+      runningTasks: progress.running,
+      awaitingInputTasks: progress.awaitingInput,
+      planApproved: authorization?.status === 'approved',
+      delivered: progress.delivered,
+      total: progress.total,
+    })
+
     const actions: BoardRequirementAction[] = []
     if (!terminal) {
       if (
@@ -622,6 +639,8 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       ) {
         actions.push('advance')
       }
+      // 失败停在 blocked 后仍可再来一次：判定与 requeue 端点共用 retryDecision。
+      if (retry.allowed) actions.push('requeue')
       if (
         authorization?.status === 'approved' &&
         (requirement.status === APPROVED || requirement.status === EXECUTING) &&
@@ -673,6 +692,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       verification: verificationView,
       businessReview: businessReviewView,
       diagnosis: latestDiagnosis,
+      retry,
       candidate: candidateView,
       deployment: deploymentView,
       clarifications: latestAnalysis?.clarifications.length ?? 0,

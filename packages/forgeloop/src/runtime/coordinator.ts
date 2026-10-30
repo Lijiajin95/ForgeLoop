@@ -174,6 +174,27 @@ export class Coordinator {
 
   private ensureAutoAdvanceRequests(): void {
     for (const requirement of this.runtime.repo.listRequirements(this.runtime.config.project)) {
+      // 失败停在 blocked 的需求也可以自动再来一次：判定与手动 requeue 共用 retryDecision，
+      // 额度、在途请求、unknown 与终态都会在判定里拦下，不会无限重试。
+      if (requirement.status === 'blocked') {
+        const decision = this.runtime.retryDecisionFor(requirement.reqId)
+        if (!decision.allowed) continue
+        try {
+          this.runtime.repo.recordRequest({
+            requestId: `rq-${randomUUID()}`,
+            reqId: requirement.reqId,
+            project: this.runtime.config.project,
+            planVersion: this.runtime.repo.latestTaskPlan(requirement.reqId)?.planVersion ?? 0,
+            action: 'advance',
+            requestedBy: 'coordinator:auto-requeue',
+            source: 'auto-requeue',
+            now: new Date().toISOString(),
+          })
+        } catch {
+          // 与 auto-advance 一样：冲突留给下一次扫描判断，不制造第二套状态。
+        }
+        continue
+      }
       if (!['approved', 'executing'].includes(requirement.status)) continue
       const active = this.runtime.repo
         .requestsFor(requirement.reqId)

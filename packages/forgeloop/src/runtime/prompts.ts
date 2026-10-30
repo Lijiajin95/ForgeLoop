@@ -451,7 +451,7 @@ export interface BusinessReviewCommandFact {
 export function unknownDiagnosisPrompt(input: {
   requirement: Requirement
   facts: string
-  byteLimit: number
+  charLimit: number
 }): string {
   return `你是 ForgeLoop 的研发 Agent，这次只做一件事：诊断一条“结果未知”的请求，说明根因并给出处置方案。
 你没有工具，不得修改任何文件；你的结论由程序校验，不合格会被拒绝。
@@ -464,7 +464,7 @@ ${input.facts}
 要求：
 1. root_cause：具体说明为什么这次执行会停在“结果未知”，引用上面的事实（例如哪个任务、哪类改动）。
 2. solution：给出下一步怎么处置，必须可执行（例如丢弃一次性快照后重跑推进、或先人工处理某个提交）。
-3. 两个字段都不得超过 ${input.byteLimit} 个字节（UTF-8 编码；一个汉字通常 3 字节）。超长直接判为不合格。
+3. 两个字段都不得超过 ${input.charLimit} 个字符（按字符计，中英文同等；一个汉字算 1 个字符）。超长直接判为不合格。
 4. 不要写“请确认安全”“建议人工核对”这类空话；要给出具体判断和动作。
 
 只输出一个 JSON 对象：

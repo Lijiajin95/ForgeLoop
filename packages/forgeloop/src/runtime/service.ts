@@ -33,8 +33,9 @@ import {
 import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
+import { retryDecision } from '../domain/retry-policy.js'
 import {
-  DIAGNOSIS_TEXT_MAX_BYTES,
+  DIAGNOSIS_TEXT_MAX_CHARS,
   parseUnknownDiagnosis,
   renderUnknownFacts,
   replaySafe,
@@ -1015,6 +1016,49 @@ ${answer}`
   }
 
   /**
+   * 需求级重新执行：失败停在 blocked 后，不再要求人工逐个任务重试。
+   * 与 retryTask 共用同一份判定（额度、在途、unknown、批准、终态），
+   * 只排队一次 advance；不新建任务包、不清零失败轮次。
+   */
+  requeue(input: { reqId: string; by: string; source: string }): OperationResult {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    const decision = this.retryDecisionFor(input.reqId)
+    if (!decision.allowed) return fail('retry_not_allowed', decision.reason)
+    const queued = this.requestOperation({
+      reqId: input.reqId,
+      action: 'advance',
+      by: input.by,
+      source: `${input.source}:requeue`,
+    })
+    if (!queued.ok) return queued
+    return ok(`已重新排队执行需求 ${input.reqId}：${queued.message}`, queued.data)
+  }
+
+  /** 需求级“是否还能再来一次”的只读判定；看板与 requeue 共用。 */
+  retryDecisionFor(reqId: string): { allowed: boolean; reason: string } {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) return { allowed: false, reason: `未找到需求 ${reqId}` }
+    const plan = this.repo.latestTaskPlan(reqId)
+    const requests = this.repo.requestsFor(reqId)
+    const runs = plan ? this.repo.taskRuns(reqId, plan.planVersion) : []
+    const delivered = plan ? this.repo.taskArtifacts(reqId, plan.planVersion).length : 0
+    return retryDecision({
+      status: requirement.status,
+      blockedReason: requirement.blockedReason,
+      remainingRounds: this.remainingFailureRounds(reqId),
+      unknownRequests: requests.filter((request) => request.state === 'unknown').length,
+      activeRequest: requests.some((request) => request.state === 'pending' || request.state === 'claimed'),
+      runningTasks: runs.filter((run) => run.state === TASK_RUN_RUNNING).length,
+      awaitingInputTasks: runs.filter((run) => run.state === TASK_RUN_AWAITING_USER).length,
+      planApproved:
+        plan !== null && authorizePlan(plan, this.repo.planApproval(reqId, plan.planVersion)).status === 'approved',
+      delivered,
+      total: plan?.tasks.length ?? 0,
+    })
+  }
+
+  /**
    * 把已交付任务退回执行角色修复：归档旧产物与材料、清交付标记、记录修复原因。
    * 任务包版本不变；新一次执行会产生新的候选身份。
    */
@@ -1257,7 +1301,7 @@ ${answer}`
       prompt: unknownDiagnosisPrompt({
         requirement,
         facts: renderUnknownFacts(facts),
-        byteLimit: DIAGNOSIS_TEXT_MAX_BYTES,
+        charLimit: DIAGNOSIS_TEXT_MAX_CHARS,
       }),
       permission: 'workspace-write',
       timeoutMs: this.config.agent.timeoutSeconds * 1000,
@@ -1291,7 +1335,7 @@ ${answer}`
         diagnosisId,
         rootCause: diagnosis.rootCause,
         solution: diagnosis.solution,
-        byteLimit: DIAGNOSIS_TEXT_MAX_BYTES,
+        charLimit: DIAGNOSIS_TEXT_MAX_CHARS,
         replaySafe: safety.safe,
         safeReason: safety.reason,
         facts,

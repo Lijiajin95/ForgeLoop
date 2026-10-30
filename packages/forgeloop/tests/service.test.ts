@@ -1272,7 +1272,7 @@ describe('unknown diagnosis service', () => {
     const reqId = 'req-diagnose-invalid'
     seedUnknown(reqId)
     runtime.close()
-    runtime = makeRuntime(diagnosisRunner(JSON.stringify({ root_cause: '中'.repeat(40), solution: '重跑' })))
+    runtime = makeRuntime(diagnosisRunner(JSON.stringify({ root_cause: '中'.repeat(101), solution: '重跑' })))
     expect(await runtime.diagnoseUnknown({ reqId, by: 'owner', source: 'test' })).toMatchObject({
       ok: false,
       code: 'diagnosis_invalid',
@@ -1336,5 +1336,68 @@ describe('unknown diagnosis service', () => {
     expect(outcome).toMatchObject({ ok: false, code: 'replay_unsafe' })
     expect(runtime.repo.request(`rq-${unsafeId}`)?.state).toBe('unknown')
     expect(runtime.repo.unknownDiagnoses(unsafeId)[0]).toMatchObject({ replaySafe: false })
+  })
+})
+
+describe('requeue after a failure', () => {
+  it('requeues once, keeps the plan version and reports refusal reasons', async () => {
+    const submitted = runtime.submit({ text: '重新执行', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runQueued('analyze', reqId)
+    await runQueued('plan', reqId)
+    runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })
+    runtime.repo.setStatus(reqId, 'blocked', '任务 a 失败：正式测试退出码 1')
+    runtime.repo.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 'a',
+      state: 'failed',
+      reason: '正式测试失败（退出码 1）',
+      executedSeconds: 1,
+      updatedAt: new Date().toISOString(),
+    })
+
+    expect(runtime.retryDecisionFor(reqId)).toEqual({ allowed: true, reason: '' })
+    const requeued = runtime.requeue({ reqId, by: 'owner', source: 'test' })
+    expect(requeued.ok, requeued.message).toBe(true)
+    expect(runtime.repo.pendingRequests().map((request) => request.action)).toEqual(['advance'])
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(0)
+
+    // 已有在途请求时不得再排队第二条。
+    expect(runtime.requeue({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'retry_not_allowed',
+    })
+    expect(runtime.retryDecisionFor(reqId).reason).toContain('在途请求')
+  })
+
+  it('refuses requeue for unknown requests, delivered plans and terminal requirements', async () => {
+    const submitted = runtime.submit({ text: '拒绝重新执行', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runQueued('analyze', reqId)
+    await runQueued('plan', reqId)
+    runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })
+
+    runtime.repo.recordRequest({
+      requestId: 'rq-requeue-unknown',
+      reqId,
+      project: 'testproj',
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: new Date().toISOString(),
+    })
+    runtime.repo.resolveRequest('rq-requeue-unknown', 'unknown', '宿主停止', new Date().toISOString())
+    expect(runtime.retryDecisionFor(reqId).reason).toContain('根因诊断')
+
+    runtime.repo.resolveRequest('rq-requeue-unknown', 'dismissed', '人工关闭', new Date().toISOString())
+    runtime.repo.setStatus(reqId, 'cancelled')
+    expect(runtime.requeue({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'retry_not_allowed',
+    })
+    expect(runtime.retryDecisionFor('req-missing').allowed).toBe(false)
   })
 })

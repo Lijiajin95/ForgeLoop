@@ -386,6 +386,86 @@ describe('status board', () => {
     expect(item.actions).not.toContain('verify')
   })
 
+  it('offers requeue for a failed requirement and refuses it while work is unknown or in flight', () => {
+    const reqId = submit('req-requeue')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 't1',
+      state: 'failed',
+      reason: '正式测试失败（退出码 1）',
+      executedSeconds: 1,
+      updatedAt: NOW,
+    })
+    repository.setStatus(reqId, 'blocked', '任务 t1 失败：正式测试退出码 1')
+
+    const failed = board().requirements.find((item) => item.reqId === reqId)!
+    expect(failed.retry).toEqual({ allowed: true, reason: '' })
+    expect(failed.actions).toContain('requeue')
+    expect(failed.actions).not.toContain('advance')
+
+    // 出现 unknown 请求后不再允许直接重新执行。
+    repository.recordRequest({
+      requestId: 'rq-requeue-unknown',
+      reqId,
+      project: PROJECT,
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: NOW,
+    })
+    repository.claimNextRequest('tester', NOW)
+    repository.markClaimedUnknown(NOW)
+    const unknown = board().requirements.find((item) => item.reqId === reqId)!
+    expect(unknown.retry.allowed).toBe(false)
+    expect(unknown.retry.reason).toContain('根因诊断')
+    expect(unknown.actions).not.toContain('requeue')
+    expect(unknown.actions).toContain('diagnose')
+  })
+
+  it('refuses requeue when the failure budget is exhausted', () => {
+    const reqId = submit('req-requeue-budget')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 't1',
+      state: 'failed',
+      reason: '正式测试失败',
+      executedSeconds: 1,
+      updatedAt: NOW,
+    })
+    repository.setStatus(reqId, 'blocked', '任务失败')
+    for (let index = 0; index < 3; index += 1) {
+      repository.recordFailureRound(reqId, {
+        roundId: `round-${index}`,
+        stage: 'formal_test',
+        summary: '失败',
+        occurredAt: NOW,
+      })
+    }
+    const view = board().requirements.find((item) => item.reqId === reqId)!
+    expect(view.retry.allowed).toBe(false)
+    expect(view.retry.reason).toContain('额度已用尽')
+    expect(view.actions).not.toContain('requeue')
+  })
+
   it('freezes an approved plan and never offers plan or replan for it', () => {
     const reqId = submit('req-frozen')
     repository.recordTaskPlan(plan(reqId))

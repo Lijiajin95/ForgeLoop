@@ -18,7 +18,7 @@ export const name = 'forgeloop'
 
 /** Web 客户端读取看板事实的认证 HTTP 路径；只在有浏览器连接服务的 profile 中注册。 */
 export const BOARD_HTTP_PATH = '/api/forgeloop/board'
-const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'recover', 'diagnose', 'build', 'deploy', 'retry', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-confirm-unknown', 'ops-request-fix']
+const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'recover', 'diagnose', 'requeue', 'build', 'deploy', 'retry', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-confirm-unknown', 'ops-request-fix']
 
 interface BoardFailure {
   readonly code: string
@@ -212,6 +212,20 @@ function registerBoardRoute(
               }
               const result = runtime.recover({ reqId, by: config.owner, confirm: true })
               return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+            }
+            if (endpoint === 'requeue') {
+              const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+              if (!reqId) return boardResponse(boardFailure('bad_request', '重新执行需要 reqId'), 400)
+              const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+              const result = runtime.requeue({
+                reqId,
+                by: config.owner,
+                source: `web-decision:${sessionId || 'unknown-session'}`,
+              })
+              return boardResponse(
+                result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'diagnose') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''

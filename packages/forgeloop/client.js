@@ -41,6 +41,10 @@ window.__ModuleLoader__.load({
       'action.advanced': '已受理推进请求',
       'action.planned': '已受理重新生成任务包请求',
       'action.verified': '已受理独立验证请求',
+      'action.requeue': '重新执行',
+      'action.requeueHelp': '任务失败后重新排队一次执行；任务包不变、失败额度照常累计。',
+      'action.requeued': '已重新排队执行',
+      'action.requeueBlocked': '暂不能重新执行',
       'action.diagnose': '分析根因',
       'action.diagnoseHelp': '由 Agent 说明为什么结果未知，并给出处置方案（各限 100 字节）；重放安全性由程序按工作副本事实判定。',
       'action.diagnosed': '已完成根因诊断',
@@ -231,6 +235,10 @@ window.__ModuleLoader__.load({
       'action.advanced': 'Advance request accepted',
       'action.planned': 'Regeneration request accepted',
       'action.verified': 'Verification request accepted',
+      'action.requeue': 'Re-run',
+      'action.requeueHelp': 'Queue one more execution after a failure; the plan stays the same and failure rounds still count.',
+      'action.requeued': 'Re-execution queued',
+      'action.requeueBlocked': 'Cannot re-run yet',
       'action.diagnose': 'Diagnose root cause',
       'action.diagnoseHelp': 'An agent explains why the outcome is unknown and proposes a fix (100 bytes each); replay safety is judged by the runtime from workspace facts.',
       'action.diagnosed': 'Root cause diagnosed',
@@ -1793,6 +1801,7 @@ window.__ModuleLoader__.load({
         approve: t('action.approve'),
         advance: t('action.advance'),
         verify: t('action.verify'),
+        requeue: t('action.requeue'),
         diagnose: t('action.diagnose'),
         build: t('action.build'),
         deploy: t('action.deploy'),
@@ -1802,6 +1811,7 @@ window.__ModuleLoader__.load({
       const titles = {
         plan: t('action.planHelp'),
         verify: t('action.verifyHelp'),
+        requeue: t('action.requeueHelp'),
         diagnose: t('action.diagnoseHelp'),
         build: t('action.buildHelp'),
         deploy: t('action.deployHelp'),
@@ -3219,8 +3229,10 @@ window.__ModuleLoader__.load({
                       ? 'planned'
                       : endpoint === 'verify'
                         ? 'verified'
-                          : endpoint === 'build'
-                            ? 'built'
+                          : endpoint === 'requeue'
+                            ? 'requeued'
+                            : endpoint === 'build'
+                              ? 'built'
                             : endpoint === 'deploy'
                               ? 'deployed'
                               : endpoint === 'stop'

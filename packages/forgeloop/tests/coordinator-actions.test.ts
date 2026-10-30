@@ -239,6 +239,61 @@ describe('auto advance requests', () => {
     expect(runtime.repo.requestsFor(queuedId)).toHaveLength(1)
   })
 
+  it('auto-requeues a failed requirement but not one blocked by quota or unknown', async () => {
+    const coordinator = makeCoordinator(true)
+
+    const failedId = submit()
+    approveWithPlan(failedId)
+    runtime.repo.recordTaskRun({
+      requirementId: failedId,
+      planVersion: 1,
+      taskId: 't1',
+      state: 'failed',
+      reason: '正式测试失败（退出码 1）',
+      executedSeconds: 1,
+      updatedAt: '2026-10-23T00:00:06.000Z',
+    })
+    runtime.repo.setStatus(failedId, 'blocked', '任务 t1 失败：正式测试退出码 1')
+
+    const exhaustedId = submit()
+    approveWithPlan(exhaustedId)
+    runtime.repo.setStatus(exhaustedId, 'blocked', '任务失败')
+    for (let index = 0; index < 3; index += 1) {
+      runtime.repo.recordFailureRound(exhaustedId, {
+        roundId: `exhaust-${index}`,
+        stage: 'formal_test',
+        summary: '失败',
+        occurredAt: '2026-10-23T00:00:07.000Z',
+      })
+    }
+
+    const unknownId = submit()
+    approveWithPlan(unknownId)
+    runtime.repo.setStatus(unknownId, 'blocked', '任务失败')
+    runtime.repo.recordRequest({
+      requestId: 'rq-unknown-auto',
+      reqId: unknownId,
+      project: 'testproj',
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: '2026-10-23T00:00:08.000Z',
+    })
+    runtime.repo.claimNextRequest('tester', '2026-10-23T00:00:08.500Z')
+    runtime.repo.markClaimedUnknown('2026-10-23T00:00:09.000Z')
+
+    autoAdvanceScan(coordinator)
+    expect(runtime.repo.requestsFor(failedId)).toHaveLength(1)
+    expect(runtime.repo.requestsFor(failedId)[0]?.source).toBe('auto-requeue')
+    expect(runtime.repo.requestsFor(exhaustedId)).toHaveLength(0)
+    // unknown 请求本身保留，但不会再自动排一条新的推进。
+    expect(
+      runtime.repo.requestsFor(unknownId).filter((request) => request.state === 'pending'),
+    ).toHaveLength(0)
+    expect(runtime.repo.requestsFor(unknownId)[0]?.state).toBe('unknown')
+  })
+
   it('keeps the last error instead of crashing when a scan fails', async () => {
     runtime.repo.claimNextRequest = () => {
       throw new Error('claim failed')
