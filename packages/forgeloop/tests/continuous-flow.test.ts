@@ -296,6 +296,34 @@ function fakeRunner(options: {
   return {
     async run(request: AgentRunRequest) {
       if (request.role === 'product') return result(request, ANALYSIS)
+      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
+        if (options.planError) {
+          return {
+            status: 'error', text: '', sessionId: 'plan-error', reason: 'plan model error',
+            transcriptPath: request.transcriptPath, durationMs: 1, toolCalls: [],
+          }
+        }
+        if (options.planTimeout) {
+          return {
+            status: 'timeout', text: '', sessionId: 'plan-timeout', reason: 'plan timeout',
+            transcriptPath: request.transcriptPath, durationMs: 1, toolCalls: [],
+          }
+        }
+        plans += 1
+        if (options.badPlanFirst && plans === 1) {
+          return result(request, JSON.stringify({ tasks: [{ task_id: 'a' }] }))
+        }
+        if (options.languageViolationFirst && plans === 1) {
+          return result(request, JSON.stringify({
+            technical_solution: { summary: '方案', approach: ['步骤'], risks: [] },
+            tasks: [
+              { task_id: 'a', goal: '实现 A', files: ['src/forgeloop/app.py'], acceptance: CRITERION, test_command: ['node', '-e', 'process.exit(0)'] },
+              { task_id: 'b', goal: '实现 B', files: ['docs/b.md'], acceptance: CRITERION, test_command: ['node', '-e', 'process.exit(0)'], depends_on: ['a'] },
+            ],
+          }))
+        }
+        return result(request, PLAN)
+      }
       throw new Error(`unexpected single-turn role ${request.role}`)
     },
     async open(request: AgentOpenRequest) {
@@ -733,6 +761,8 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('技术方案未形成')
+    expect(runtime.repo.failureRounds(reqId).length).toBe(1)
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
   })
 
   it('blocks when the repair turn times out', async () => {

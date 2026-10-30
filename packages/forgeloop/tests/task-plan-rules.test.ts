@@ -49,6 +49,12 @@ describe('task plan parsing and validation', () => {
     expect(() => parseTaskPlanDraft('not json', context)).toThrow('不是可解析的 JSON')
   })
 
+  it('extracts one complete JSON object from model wrapper text', () => {
+    const wrapped = `<｜｜DSML｜｜tool_calls>\n${JSON.stringify(rawPlan([rawTask('a'), rawTask('b', { depends_on: ['a'] })]))}\n</｜｜DSML｜｜tool_calls>`
+    const plan = parseTaskPlanDraft(wrapped, context)
+    expect(plan.tasks.map((task) => task.taskId)).toEqual(['a', 'b'])
+  })
+
   it('parses a technical solution with the task package', () => {
     const plan = parseTaskPlanDraft(
       {
