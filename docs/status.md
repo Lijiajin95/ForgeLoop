@@ -13,7 +13,7 @@
 | 架构契约 | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤 | §30 |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查 | §13、[ADR 0009](adr/0009-remove-retired-implementation.md) |
 | 最近安装记录 | 2026-10-30 `forgeloop-dsh@0.1.6` tarball（177,096 字节，SHA-256 `0ebbfa37…`）已通过 `plugin_manager` 安装到正式 `web` profile 并热重载（3080 进程 PID 82207 未重启；新 owner `MacAir.local:2477:c0ce681f` 起于 `2026-10-30T01:28:42Z`），`last_recovery` 记录 `interruptedRuns: 1`；安装记录不等于交付完成 | §36 |
-| 最近工程检查 | 2026-10-30 `make check` 通过，40 个测试文件、446 项测试；`make coverage` 通过（行/语句 92.46%、函数 96.93%、分支 84.47%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变） | §39 |
+| 最近工程检查 | 2026-10-30 `make check` 通过，41 个测试文件、452 项测试；`make coverage` 通过（行/语句 92.48%、函数 96.96%、分支 84.47%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变） | §39 |
 | 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统标为 blocked + unknown 并要求核对，未自动重放 | §16–§28、§33、§36 |
 | 运维 Agent | 2026-10-29 首版：登记资源/检查/少量恢复动作，事件归并与未知收口，无工具诊断，目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求；只读工具与认证端点、天工“运维”视图；尚无真实线上事件验证 | §35、[运维设计](ops-agent.md) |
 | 关键缺口 | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `danger-full-access`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维无真实线上事件；需求编辑、草稿删除、问题补充与等待回答无服务端入口 | §4.1、§21–§37 |
@@ -2066,3 +2066,38 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   长任务仍可能在 30 分钟后被中止。
 - `autoAdvance: true` 会让合格需求在后台自动推进；如果不想让它继续跑，需要把配置改回或停止需求。
 - 正式需求仍为 blocked（1 条 unknown），未自动诊断或推进。
+
+## 42. ForgeLoop 独立配置文件（2026-10-30）
+
+所有者要求：ForgeLoop 的配置存放到独立文件，不再影响 DSH 自己的配置文件。
+
+### 42.1 实现
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/config.ts` | 新增 `defaultConfigPath`（`~/.forgeloop/config.json`，`FORGELOOP_CONFIG` 可覆盖）、`loadConfigFile`、`mergeConfig`、`loadConfigOrThrow`；文件缺失且无关键装载参数时装载失败，不静默回落 |
+| `src/index.ts` | `apply` 用 `loadConfigOrThrow(rawConfig)` 合并：宿主装载参数做底，独立文件覆盖 |
+| `tests/config-file.test.ts` | 覆盖缺失、合法、非法 JSON/非对象、覆盖顺序、拒绝静默回落 |
+| `~/.dsh/profiles/web/cordis.patch.yml` | 删除 ForgeLoop 的 `config:` 块，只留 `- id: forgeloop` 与说明；业务配置移入 `~/.forgeloop/config.json`（含 `autoAdvance: true`） |
+
+### 42.2 迁移中发现的问题
+
+- 删除 cordis 配置块后，运行中的旧版插件（不含独立文件加载）按默认值连到了
+  `~/.forgeloop/projects/forgeloop`（一个空库），出现“看着在跑、记录库却是另一个”的分叉。
+  已通过重新打包、重装并重载 `include:forgeloop` 恢复；正式记录库仍是
+  `~/Library/Application Support/ForgeLoop/production`。
+- 该空库只有 0 条需求、0 条请求，未写入业务数据；保留未删，避免误删。
+- 教训：配置回落不能静默；`loadConfigOrThrow` 就是为这类情况加的硬失败。
+
+### 42.3 验证
+
+- `make check` 通过：41 个测试文件、452 项测试；`make coverage` 通过（92.48/96.96/84.47）；`make contracts` 通过。
+- 安装 `forgeloop-dsh@0.0.2`（SHA-256 `aacade79…`，182,181 字节）后重载插件，
+  正式记录库 `runtime_meta.host_owner` 更新，确认使用 production 根；
+  `~/.forgeloop/config.json` 的 `autoAdvance: true` 生效。
+
+### 42.4 未完成与风险
+
+- 配置文件是明文 JSON，包含本机路径；未提供 schema 校验之外的权限收紧。
+- 修改配置仍需重载插件（DSH 配置或启停 `include:forgeloop` 触发），没有自动监听文件变化。
+- 版本号仍为 0.0.2（按规则未改）。

@@ -319,6 +319,16 @@ DSH 宿主（唯一常驻产品）
   `node:sqlite`。参考源码版本见 ADR 0008。
 - 插件以 npm bundle 发布：`dsh.bundle.patch` 插入 `forgeloop-dsh` 行；`engines.dsh` 限定范围。
 
+### 8.1 配置来源
+
+- 业务配置存放在 ForgeLoop 自己的文件：默认 `~/.forgeloop/config.json`，可用
+  `FORGELOOP_CONFIG` 指定其他路径；DSH 的 `cordis.patch.yml` 只负责装载插件，不再保存
+  `recordsRoot`、`project`、`autoAdvance` 等业务配置。
+- 合并顺序：宿主装载参数做底，独立文件覆盖；文件缺失且装载参数也没有关键值时插件**装载失败**
+  并指出路径，不静默回落到“当前目录/.forgeloop”（否则会连到另一个记录库）。
+- 文件是普通 JSON，字段与 `RawConfig` 一致；非法 JSON、非对象在装载期报错。
+- 修改配置后需要重载插件宿主；业务数据（记录库、证据、工作副本）仍只在 `recordsRoot` 下。
+
 ## 9. 已退役与清理
 
 | 旧形态 | 处置 |
