@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { businessReviewDir, candidatesDir, devWorkspaceDir, evidenceDir, integrationDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
@@ -571,7 +571,7 @@ ${answer}`
     ).length
     const waitingForInput =
       run?.state === TASK_RUN_RUNNING && /ask_user_question/i.test(run.reason)
-    const stopRequested = requirement.blockedReason.startsWith('停止请求')
+    const stopRequested = Boolean(this.repo.activeStop(requirement.reqId))
     return ok(`任务 ${taskId} 详情`, {
       reqId,
       planVersion: plan.planVersion,
@@ -874,9 +874,30 @@ ${answer}`
     if (isTerminal(requirement.status)) {
       return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}`)
     }
-    this.repo.dismissPendingFor(input.reqId, `停止请求（${input.by}）`, this.now())
+    const now = this.now()
+    this.repo.recordStop({
+      requirementId: input.reqId,
+      requestedBy: input.by,
+      reason: input.reason || '未说明',
+      requestedAt: now,
+    })
+    this.repo.dismissPendingFor(input.reqId, `停止请求（${input.by}）`, now)
     this.repo.setStatus(input.reqId, 'blocked', `停止请求：${input.reason || '未说明'}（${input.by}）`)
-    return ok(`已请求停止需求 ${input.reqId}；待执行请求已撤销，在途 Agent 会被取消`)
+    this.settleStopIfQuiet(input.reqId)
+    const settled = this.repo.stop(input.reqId)?.settledAt || ''
+    return ok(
+      `已请求停止需求 ${input.reqId}；待执行请求已撤销，在途 Agent 会被取消`,
+      { settled: Boolean(settled), settledAt: settled },
+    )
+  }
+
+  /** 没有在途请求/运行任务时，把停止请求收口为“实际停稳”；不自动恢复。 */
+  settleStopIfQuiet(reqId: string): void {
+    if (!this.repo.activeStop(reqId)) return
+    if (this.repo.requestsFor(reqId).some((request) => ['pending', 'claimed'].includes(request.state))) return
+    const plan = this.repo.latestTaskPlan(reqId)
+    if (plan && this.repo.taskRuns(reqId, plan.planVersion).some((run) => run.state === 'running')) return
+    this.repo.markStopSettled(reqId, this.now())
   }
 
   /** 排队一个持久操作请求：先落库，再返回受理身份。 */
@@ -893,6 +914,15 @@ ${answer}`
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     if (isTerminal(requirement.status)) {
       return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}，不能再排队`)
+    }
+    // 主动停止只能由显式恢复动作解除；自动扫描永远不会走到这里。
+    if (input.action === 'advance' && this.repo.activeStop(input.reqId)) {
+      this.repo.resumeStop({
+        requirementId: input.reqId,
+        resumedBy: input.by,
+        reason: input.reason || '显式恢复执行',
+        resumedAt: this.now(),
+      })
     }
     if (input.action === 'plan') {
       const latestPlan = this.repo.latestTaskPlan(input.reqId)
@@ -1031,6 +1061,9 @@ ${answer}`
   retryDecisionFor(reqId: string): { allowed: boolean; reason: string } {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { allowed: false, reason: `未找到需求 ${reqId}` }
+    if (this.repo.activeStop(reqId)) {
+      return { allowed: false, reason: '需求已被主动停止；恢复需要显式决定' }
+    }
     const plan = this.repo.latestTaskPlan(reqId)
     const requests = this.repo.requestsFor(reqId)
     const runs = plan ? this.repo.taskRuns(reqId, plan.planVersion) : []
@@ -1230,6 +1263,8 @@ ${answer}`
     const queued: string[] = []
     for (const requirement of this.repo.listRequirements(this.config.project)) {
       if (isTerminal(requirement.status)) continue
+      // 主动停止是明确决定：扫描、重启和重复唤醒都不能把它变成自动恢复。
+      if (this.repo.activeStop(requirement.reqId)) continue
       const active = this.repo
         .requestsFor(requirement.reqId)
         .some((request) => ['pending', 'claimed'].includes(request.state))
@@ -1426,9 +1461,160 @@ ${answer}`
    * 候选包：只从“已通过独立验证的那一份工作区”构建，保证安装的就是被验证的候选。
    * 构建前后核对候选内容、产物摘要与包版本，并记录验证绑定。
    */
+  /** 新链路：最近的系统准入候选及其验证、业务验收和本地提交。 */
+  private admittedDelivery(reqId: string): {
+    plan: TaskPlan
+    candidate: ReturnType<Repository['latestCodeCandidate']>
+    verification: ReturnType<Repository['verificationForCandidate']>
+    review: ReturnType<Repository['businessReviewForCandidate']>
+    commit: ReturnType<Repository['commitForCandidate']>
+  } | null {
+    if (!this.currentAdmission(reqId)) return null
+    const plans = this.repo.taskPlans(reqId)
+    for (const plan of [...plans].reverse()) {
+      const candidate = this.repo.latestCodeCandidate(reqId, plan.planVersion)
+      if (!candidate) continue
+      const verification = this.repo.verificationForCandidate(reqId, plan.planVersion, candidate.candidateSha256)
+      const review = this.repo.businessReviewForCandidate(reqId, plan.planVersion, candidate.candidateSha256)
+      const commit = this.repo.commitForCandidate(reqId, plan.planVersion, candidate.candidateSha256)
+      return { plan, candidate, verification, review, commit }
+    }
+    return null
+  }
+
+  /**
+   * 新链路构建：依据系统准入、固定候选、独立验证、业务验收和本地提交，
+   * 不再要求旧任务包批准或所有者整体验收。
+   */
+  private buildAdmittedCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
+    const delivery = this.admittedDelivery(input.reqId)
+    if (!delivery) return fail('candidate_missing', `需求 ${input.reqId} 没有可构建的新链路候选`)
+    const { plan, candidate, verification, review, commit } = delivery
+    if (!candidate || !verification || verification.verdict !== 'pass') {
+      return fail('verification_required', '候选没有通过的独立验证；不能构建')
+    }
+    if (!review || review.verdict !== 'pass' || review.verificationSha256 !== verification.reportSha256) {
+      return fail('business_review_required', '候选没有通过的业务验收；不能构建')
+    }
+    if (!commit || commit.commitSha === '') {
+      return fail('commit_required', '候选尚未受控提交；不能构建')
+    }
+    if (commit.candidateSha256 !== candidate.candidateSha256) {
+      return fail('candidate_stale', '提交绑定的候选与当前候选不一致；需要重新验证并提交')
+    }
+    if (
+      this.config.candidateBuildCommand.length === 0 ||
+      this.config.candidatePackageCommand.length === 0 ||
+      !this.config.candidateArtifactPath
+    ) {
+      return fail('candidate_not_configured', '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath')
+    }
+    if (input.version !== undefined && !/^\d+\.\d+\.\d+$/.test(input.version)) {
+      return fail('version_invalid', `候选版本必须是 x.y.z，实际 ${JSON.stringify(input.version)}`)
+    }
+    const source = join(verification.evidenceDir, 'workspace')
+    if (!existsSync(source)) return fail('verification_workspace_missing', `独立验证工作区不存在：${source}`)
+    const dir = candidatesDir(this.config, input.reqId, plan.planVersion)
+    rmSync(dir, { recursive: true, force: true })
+    cpSync(source, dir, { recursive: true })
+    const sharedModules = join(this.config.projectPath, 'node_modules')
+    if (existsSync(sharedModules) && !existsSync(join(dir, 'node_modules'))) {
+      try {
+        symlinkSync(sharedModules, join(dir, 'node_modules'), 'dir')
+      } catch {
+        // 构建失败会由命令输出说明；不伪造成功。
+      }
+    }
+    if (input.version !== undefined) {
+      const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
+      if (!existsSync(packageJsonPath)) return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+      packageJson.version = input.version
+      writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
+    }
+    const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
+    const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
+    if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
+    const log: string[] = []
+    for (const [label, command] of [
+      ['build', this.config.candidateBuildCommand],
+      ['package', this.config.candidatePackageCommand],
+    ] as const) {
+      const result = runCommand(command[0]!, command.slice(1), dir, this.config.formalTestTimeoutSeconds * 1000)
+      log.push(`=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`)
+      if (result.code !== 0) {
+        writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+        return fail('candidate_build_failed', `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`)
+      }
+    }
+    writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+    const artifactPath = join(dir, this.config.candidateArtifactPath)
+    if (!existsSync(artifactPath)) return fail('artifact_missing', `打包完成但没有找到产物清单 ${artifactPath}`)
+    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as {
+      sha256?: string
+      tarball?: string
+      files?: string[]
+      gitHead?: string
+      builtAt?: string
+      version?: string
+    }
+    if (!artifact.sha256 || !artifact.tarball) return fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`)
+    if (artifact.version && artifact.version !== packageVersion) {
+      return fail('artifact_version_mismatch', `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`)
+    }
+    const artifactSha = sha256OfBytes(readFileSync(artifact.tarball))
+    if (artifactSha !== artifact.sha256) return fail('artifact_mismatch', `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${artifactSha}`)
+    const buildDir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'build')
+    mkdirSync(buildDir, { recursive: true })
+    const recordPath = join(buildDir, 'candidate-build.json')
+    const record = {
+      kind: 'candidate-build',
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: candidate.candidateSha256,
+      verificationSha256: verification.reportSha256,
+      packageVersion,
+      artifactSha256: artifactSha,
+      tarball: artifact.tarball,
+      files: artifact.files ?? [],
+      gitHead: artifact.gitHead ?? '',
+      builtAt: artifact.builtAt ?? this.now(),
+      commitSha: commit.commitSha,
+      sourceWorkspace: source,
+      at: this.now(),
+    }
+    writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+    this.repo.recordCandidateBuild({
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: candidate.candidateSha256,
+      verificationSha256: verification.reportSha256,
+      packageVersion,
+      artifactSha256: artifactSha,
+      tarball: artifact.tarball,
+      files: artifact.files ?? [],
+      gitHead: artifact.gitHead ?? '',
+      builtAt: record.builtAt,
+      evidenceDir: dir,
+    })
+    return ok(`已从准入候选构建安装包 ${packageVersion}（sha256 ${artifactSha.slice(0, 16)}…）`, {
+      sha256: artifactSha,
+      tarball: artifact.tarball,
+      files: artifact.files ?? [],
+      evidenceDir: dir,
+      packageVersion,
+      candidateSha256: candidate.candidateSha256,
+      verificationSha256: verification.reportSha256,
+      commitSha: commit.commitSha,
+      recordPath,
+    })
+  }
+
   buildCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    if (this.currentAdmission(input.reqId)) return this.buildAdmittedCandidate(input)
     const authorized = this.requireAuthorizedPlan(input.reqId)
     if (!authorized.ok) return authorized.result
     const plan = authorized.value.plan
@@ -1609,20 +1795,26 @@ ${answer}`
     if (!/^[a-z0-9][a-z0-9_-]*$/.test(input.targetProfile)) {
       return fail('profile_invalid', `目标 profile 只能是安全的 profile 名，实际 ${JSON.stringify(input.targetProfile)}`)
     }
-    const plan = this.repo.latestTaskPlan(input.reqId)
+    const admitted = Boolean(this.currentAdmission(input.reqId))
+    const delivery = admitted ? this.admittedDelivery(input.reqId) : null
+    if (admitted && !delivery) return fail('candidate_missing', `需求 ${input.reqId} 没有新链路候选`)
+    const plan = admitted ? delivery!.plan : this.repo.latestTaskPlan(input.reqId)
     if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
-    const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
-    const missing = plan.tasks.filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
-    if (missing.length > 0) {
-      return fail('not_delivered', `仍有任务未交付，不能做上线核对`)
+    let identity = ''
+    if (admitted) {
+      identity = delivery!.candidate!.candidateSha256
+    } else {
+      const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
+      const missing = plan.tasks.filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
+      if (missing.length > 0) return fail('not_delivered', `仍有任务未交付，不能做上线核对`)
+      identity = this.candidateIdentity(plan, artifacts)
     }
-    const identity = this.candidateIdentity(plan, artifacts)
     const build = this.repo.candidateBuild(input.reqId, plan.planVersion)
     if (!build) return fail('candidate_missing', `需求 ${input.reqId} 尚未构建可安装候选`)
     if (build.candidateSha256 !== identity) {
       return fail('candidate_stale', '候选包绑定的候选身份与当前交付材料不一致；需重新验证并构建')
     }
-    if (!this.repo.acceptance(input.reqId).accepted_at) {
+    if (!admitted && !this.repo.acceptance(input.reqId).accepted_at) {
       return fail('acceptance_required', '需求尚未通过整体验收；不能做上线核对')
     }
     const profileDir = join(this.config.dshProfilesRoot, input.targetProfile)
@@ -1714,11 +1906,18 @@ ${answer}`
     check('key_entry', boardOk, boardOk ? '看板与记录查询可用' : '看板与记录查询不可用')
 
     const acceptance = this.repo.acceptance(input.reqId)
-    const review = this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
+    const review = admitted
+      ? delivery!.review
+      : this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
+    const businessOk = admitted
+      ? review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256
+      : Boolean(acceptance.accepted_at) && review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256
     check(
       'business_records',
-      Boolean(acceptance.accepted_at) && review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256,
-      `验收 ${acceptance.accepted_at || '缺失'}；业务终审 ${review?.verdict ?? '缺失'}`,
+      businessOk,
+      admitted
+        ? `系统准入；业务验收 ${review?.verdict ?? '缺失'}；提交 ${this.repo.commitForCandidate(input.reqId, plan.planVersion, identity)?.commitSha.slice(0, 12) ?? '缺失'}`
+        : `验收 ${acceptance.accepted_at || '缺失'}；业务终审 ${review?.verdict ?? '缺失'}`,
     )
 
     const dir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'deployment', input.targetProfile)
@@ -2232,7 +2431,7 @@ ${answer}`
       activeRequests: requests.filter(
         (request) => request.state === 'pending' || request.state === 'claimed',
       ).length,
-      stopRequested: requirement.blockedReason.startsWith('停止请求'),
+      stopRequested: Boolean(this.repo.activeStop(requirement.reqId)),
     })
   }
 

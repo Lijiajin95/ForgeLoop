@@ -5,7 +5,7 @@
  * 不 push、不创建 tag、不修改版本号；不把真实项目中的其他在途改动混入提交。
  */
 
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { sha256OfText } from '../domain/delivery.js'
 import { RuleViolationError } from '../domain/errors.js'
@@ -155,6 +155,21 @@ export function integrateCandidate(input: {
       detail: '候选 diff 摘要不一致',
     }
   }
+  const lockPath = join(input.projectPath, '.git', 'forgeloop-commit.lock')
+  try {
+    mkdirSync(lockPath)
+  } catch {
+    return {
+      ok: false,
+      checkPassed: false,
+      commitSha: '',
+      files: [],
+      checkLogPath: '',
+      checkSha256: '',
+      detail: '另一个 ForgeLoop 提交正在进行；保留双方现场，等待锁释放',
+    }
+  }
+  try {
   const status = git(input.projectPath, ['status', '--porcelain=v1', '--untracked-files=all'])
   if (status.code !== 0 || status.stdout.trim()) {
     return {
@@ -239,6 +254,35 @@ export function integrateCandidate(input: {
       }
     }
 
+    // 检查期间不持有真实项目 index 的写锁之外的保护；提交前重新核对 HEAD、
+    // 工作树与暂存区。任何他人在途改动都阻断，绝不 reset/clean 或覆盖。
+    const afterStatus = git(input.projectPath, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const afterHead = requireGit(input.projectPath, ['rev-parse', 'HEAD']).trim()
+    const afterIndex = git(input.projectPath, ['diff', '--cached', '--name-only'])
+    if (afterStatus.code !== 0 || afterStatus.stdout.trim() || afterIndex.code !== 0 || afterIndex.stdout.trim() || afterHead !== input.candidateBaseline) {
+      writeFileSync(checkPath, `${checkOutput}\n提交前复核失败：工作树/暂存区/HEAD 在检查期间发生变化。\n`, 'utf8')
+      return {
+        ok: false,
+        checkPassed: true,
+        commitSha: '',
+        files: [],
+        checkLogPath: checkPath,
+        checkSha256: sha256OfText(readFileSync(checkPath, 'utf8')),
+        detail: '检查期间项目工作树、暂存区或 HEAD 发生变化；保留双方现场，未提交',
+      }
+    }
+    const checkApply = runCommand('git', ['apply', '--check', '--binary', input.candidateDiffPath], input.projectPath, 30_000)
+    if (checkApply.code !== 0) {
+      return {
+        ok: false,
+        checkPassed: true,
+        commitSha: '',
+        files: [],
+        checkLogPath: checkPath,
+        checkSha256,
+        detail: `提交前候选无法干净应用：${checkApply.stderr.trim() || checkApply.stdout.trim()}`,
+      }
+    }
     // 检查通过：在真实干净项目上暂存同一 diff，创建本地提交。
     const staged = runCommand('git', ['apply', '--index', '--binary', input.candidateDiffPath], input.projectPath, 60_000)
     if (staged.code !== 0) {
@@ -256,6 +300,19 @@ export function integrateCandidate(input: {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
+    const stagedDiff = git(input.projectPath, ['diff', '--cached', '--binary'])
+    if (stagedDiff.code !== 0 || sha256OfText(stagedDiff.stdout) !== input.expectedDiffSha256) {
+      runCommand('git', ['reset'], input.projectPath, 30_000)
+      return {
+        ok: false,
+        checkPassed: true,
+        commitSha: '',
+        files,
+        checkLogPath: checkPath,
+        checkSha256,
+        detail: '暂存内容与获准候选不一致；已撤销本次暂存，未提交',
+      }
+    }
     const commit = runCommand('git', ['commit', '-m', input.commitMessage], input.projectPath, 60_000)
     if (commit.code !== 0) {
       runCommand('git', ['reset'], input.projectPath, 30_000)
@@ -281,5 +338,8 @@ export function integrateCandidate(input: {
     }
   } finally {
     worktreeRemove(input.projectPath, worktree)
+  }
+  } finally {
+    rmSync(lockPath, { recursive: true, force: true })
   }
 }

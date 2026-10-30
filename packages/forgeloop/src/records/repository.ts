@@ -237,6 +237,17 @@ export interface AdmissionRecord {
   readonly createdAt: string
 }
 
+export interface StopRecord {
+  readonly requirementId: string
+  readonly requestedBy: string
+  readonly reason: string
+  readonly requestedAt: string
+  readonly settledAt: string
+  readonly resumedBy: string
+  readonly resumeReason: string
+  readonly resumedAt: string
+}
+
 export interface CodeCandidateRecord {
   readonly requirementId: string
   readonly planVersion: number
@@ -698,6 +709,64 @@ export class Repository {
             )
             .all(reqId, requirementVersion) as Row[])
     return rows.length > 0 ? admissionFromRow(rows[0]!) : null
+  }
+
+  // ---------------------------------------------------------------- 主动停止
+
+  recordStop(input: {
+    requirementId: string
+    requestedBy: string
+    reason: string
+    requestedAt: string
+  }): StopRecord {
+    this.db.handle
+      .prepare(
+        `INSERT INTO requirement_stops
+          (req_id, requested_by, reason, requested_at, settled_at, resumed_by, resume_reason, resumed_at)
+         VALUES (?, ?, ?, ?, '', '', '', '')
+         ON CONFLICT(req_id) DO UPDATE SET
+           requested_by = excluded.requested_by,
+           reason = excluded.reason,
+           requested_at = excluded.requested_at,
+           settled_at = '',
+           resumed_by = '',
+           resume_reason = '',
+           resumed_at = ''`,
+      )
+      .run(input.requirementId, input.requestedBy, input.reason, input.requestedAt)
+    return this.stop(input.requirementId)!
+  }
+
+  stop(reqId: string): StopRecord | null {
+    const row = this.db.handle
+      .prepare('SELECT * FROM requirement_stops WHERE req_id = ?')
+      .get(reqId) as Row | undefined
+    return row ? stopFromRow(row) : null
+  }
+
+  activeStop(reqId: string): StopRecord | null {
+    const stop = this.stop(reqId)
+    return stop && !stop.resumedAt ? stop : null
+  }
+
+  markStopSettled(reqId: string, now: string): void {
+    this.db.handle
+      .prepare("UPDATE requirement_stops SET settled_at = ? WHERE req_id = ? AND settled_at = '' AND resumed_at = ''")
+      .run(now, reqId)
+  }
+
+  resumeStop(input: {
+    requirementId: string
+    resumedBy: string
+    reason: string
+    resumedAt: string
+  }): void {
+    this.db.handle
+      .prepare(
+        `UPDATE requirement_stops SET resumed_by = ?, resume_reason = ?, resumed_at = ?
+          WHERE req_id = ? AND resumed_at = ''`,
+      )
+      .run(input.resumedBy, input.reason, input.resumedAt, input.requirementId)
   }
 
   // ---------------------------------------------------------------- 代码候选与提交
@@ -2068,6 +2137,19 @@ function admissionFromRow(row: Row): AdmissionRecord {
     policyVersion: text(row, 'policy_version'),
     decidedBy: text(row, 'decided_by'),
     createdAt: text(row, 'created_at'),
+  }
+}
+
+function stopFromRow(row: Row): StopRecord {
+  return {
+    requirementId: text(row, 'req_id'),
+    requestedBy: text(row, 'requested_by'),
+    reason: text(row, 'reason'),
+    requestedAt: text(row, 'requested_at'),
+    settledAt: text(row, 'settled_at'),
+    resumedBy: text(row, 'resumed_by'),
+    resumeReason: text(row, 'resume_reason'),
+    resumedAt: text(row, 'resumed_at'),
   }
 }
 

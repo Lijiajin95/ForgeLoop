@@ -278,6 +278,18 @@ CREATE TABLE IF NOT EXISTS requirement_admissions (
 CREATE INDEX IF NOT EXISTS requirement_admissions_by_req
     ON requirement_admissions(req_id, requirement_version, created_at);
 
+-- 主动停止与可恢复失败分开记录；停止后不会因扫描或重启自动恢复。
+CREATE TABLE IF NOT EXISTS requirement_stops (
+    req_id TEXT PRIMARY KEY,
+    requested_by TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    requested_at TEXT NOT NULL,
+    settled_at TEXT NOT NULL DEFAULT '',
+    resumed_by TEXT NOT NULL DEFAULT '',
+    resume_reason TEXT NOT NULL DEFAULT '',
+    resumed_at TEXT NOT NULL DEFAULT ''
+);
+
 -- 需求级代码候选：同一需求可有多版候选，旧候选、验证与报告保留。
 CREATE TABLE IF NOT EXISTS requirement_code_candidates (
     req_id TEXT NOT NULL,

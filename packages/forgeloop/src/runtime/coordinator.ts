@@ -202,12 +202,14 @@ export class Coordinator {
       const finishedAt = new Date().toISOString()
       this.runtime.repo.finishAction(actionId, outcome.state, outcome.detail, finishedAt)
       this.runtime.repo.resolveRequest(request.requestId, outcome.state, outcome.detail, finishedAt)
+      this.runtime.settleStopIfQuiet(request.reqId)
     } catch (error) {
       const finishedAt = new Date().toISOString()
       const detail = `执行异常：${(error as Error).message}；按失败收口，可重新执行`
       this.lastError = detail
       this.runtime.repo.finishAction(actionId, 'failed', detail, finishedAt)
       this.runtime.repo.resolveRequest(request.requestId, 'failed', detail, finishedAt)
+      this.runtime.settleStopIfQuiet(request.reqId)
     } finally {
       this.inflight.delete(request.requestId)
     }

@@ -406,7 +406,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
     const activeRequest = requests.some(
       (request) => request.state === 'pending' || request.state === 'claimed',
     )
-    const stopRequested = requirement.blockedReason.startsWith('停止请求')
+    const stopRequested = repository.activeStop(requirement.reqId) !== null
     const reviewRecord = plan ? repository.planReview(requirement.reqId, plan.planVersion) : null
     const reviewReport: PlanReview | null = (() => {
       if (!reviewRecord) return null
@@ -626,7 +626,22 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       if (activeRequest || progress.running > 0 || progress.awaitingInput > 0) actions.push('stop')
       actions.push('cancel')
     }
-    // 验收后（终态）仍可构建与上线核对：它们绑定已验收材料，不重新推进需求。
+    // 构建与上线核对绑定已验证材料。新链路在 committed 后即可构建，
+    // 不要求补造旧批准或整体验收；旧链路保留 accepted 兼容。
+    if (
+      requirement.status === 'committed' &&
+      candidateView === null &&
+      verificationView?.verdict === 'pass'
+    ) {
+      actions.push('build')
+    }
+    if (
+      requirement.status === 'committed' &&
+      candidateView !== null &&
+      deploymentView?.state !== 'verified'
+    ) {
+      actions.push('deploy')
+    }
     if (
       requirement.status === 'accepted' &&
       verificationFresh &&
