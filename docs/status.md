@@ -2326,20 +2326,29 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 46.4 验证与未完成
 
-- `make check` 通过：43 个测试文件、480 项测试；新增测试覆盖准入、连续提交、定向修复、模型/工具失败
-  与脏项目阻断；`make contracts` 通过。`make coverage` 行覆盖 90.37%，分支 83.9%，仍低于 84% 门槛。
-- `make package` 生成 `forgeloop-dsh-0.0.2.tgz`，196,497 字节，SHA-256
-  `c363c2612b3fa3b6cb7e2c5cd920c75e1a919faef4d9b9758232455d7b3b48e7`；未安装到正式 profile。
-- 真实宿主验证（隔离 `DSH_HOME` + `e2eheadless` profile，DSH 0.2.1-rc.5，真实
-  `deepseek/deepseek-v4.1-flash`）：模型真实调用 `forgeloop_status` 与工具链成功；通过
-  `forgeloop_submit_requirement` 提交真实需求后，产品 Agent 完成分析，但系统准入以
-  `owner_mismatch` 阻断。原因是工具固定提交 `by=agent:<owner>`，而系统准入要求提交者等于所有者；
-  这正是“模型工具不能冒充 owner”的确定性规则，不是等待可恢复的故障。
-- **未完成真实 happy path**：隔离 headless profile 没有 `agentPresets`，无法走真实人类业务会话入口；
-  用工具入口又按设计不能自准入。因此“输入真实需求 → 实现 → 自验 → 独立验证 → 提交”的真实全链路
-  尚未取得证据；不能用测试替身或伪造 owner 宣称完成。下一步需要在真实 Web 业务会话中以所有者输入
-  同一需求，或提供不冒充 owner 的受控人类测试入口。
+- `make check` 通过：43 个测试文件、481 项测试；新增测试覆盖准入、连续提交、定向修复、模型/工具失败、
+  方案畸形与脏项目阻断；`make contracts` 通过。`make coverage` 行覆盖约 90%，分支仍低于 84% 门槛。
+- `make package` 生成 `forgeloop-dsh-0.0.2.tgz`，197,247 字节，SHA-256
+  `f0427486b07e2105d39d57ef5434ab369b382ba1b3eda41c750945f59aabf694`；未安装到正式 profile。
+- **真实 happy path 已跑通**（隔离 `DSH_HOME` + `e2eweb` profile，DSH 0.2.1-rc.5，真实
+  `deepseek/deepseek-v4.1-flash`）：在认证的 ForgeLoop 业务会话中以所有者 `link` 输入需求
+  `req-20261030155523-5939e5`，产品 Agent 完成分析 v1，系统准入 `admit`（来源
+  `dsh-session:...`、提交者 `link`），协调器自动排入 advance；研发 Agent 在需求级工作区完成 2 个任务
+  （`math-core`、`math-tests`），验证 Agent 在独立工作区执行 7 条自动化命令并通过，同一会话完成业务验收，
+  主控在干净基线提交 `667cf99b31a807630eec2e894e0dc95a3285948a`。
+- 交付证据：候选 `aefa0a6c0a9ccefa712932958993e08e6685101e131735f77f35288bca2d647a`，
+  验证报告摘要 `e9b0ceaa47516d7b451ba4026aa697fb0be93697e821756efff926b884de3378`，
+  业务验收摘要 `f5b948972d493ba2e0548a322b82ce5f61cd900f37fcd25c5b297bd99cfd0724`；
+  提交文件仅 `packages/forgeloop/src/math.js` 与 `packages/forgeloop/tests/math.test.js`；
+  项目内 `node --test` 为 2/2 通过。该路径没有任务包批准、实现前评审、手工推进、手工验证或整体验收。
+- 工具入口仍按设计拒绝自准入：`forgeloop_submit_requirement` 固定提交 `by=agent:<owner>`，与系统准入
+  的“提交者等于所有者”规则冲突并返回 `owner_mismatch`。这不是本轮 happy path 的入口；真实人类路径使用
+  认证业务会话，二者边界已记录。
+- 真实执行发现并修复：验证 Agent/研发 Agent 在有工具会话中可能把 DSML/工具调用文本当最终答案，
+  方案回合改为工具禁用并保留 3 次格式重试；宿主 session dispose 可能悬挂，关闭改为 5 秒有界；
+  方案失败计入 `stage=planning` 并停止自动整轮重放。
 - 未部署、未 push、未打 tag、未递增版本；正式生产插件仍是旧 0.0.2。
 - 未触碰：正式生产库中的既有需求与失败记录、模型路由/凭据、其他项目、已部署应用；
   `package-lock.json` 版本与根包版本不一致、缺失 `.pre-commit-config.yaml` 仍是既有问题。
 - 旧 UI 的任务包批准/验收卡片仍显示历史字段；普通新需求不经过这些动作，但完整界面收敛尚未完成。
+- 既有文档中部分相对链接指向仓库外 `references/`，不是本批新增；未改动。
