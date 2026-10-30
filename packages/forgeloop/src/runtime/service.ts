@@ -3396,7 +3396,8 @@ ${answer}`
         role: 'dev',
         cwd: worktree,
         prompt: devPrompt({ requirement, plan, task, workdir: worktree }) + feedback,
-        permission: 'danger-full-access',
+        // 研发执行只允许在隔离工作副本内改动；默认工具仍可用，越界写入由宿主沙箱拒绝。
+        permission: 'workspace-write',
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(taskDir, 'dev.jsonl'),
         signal,

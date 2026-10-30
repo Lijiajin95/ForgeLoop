@@ -159,6 +159,8 @@ describe('prompt builders', () => {
     expect(text).toContain('当前任务：t1')
     expect(text).toContain('计划中列出的预期文件')
     expect(text).toContain('执行范围是当前工作副本内的全部文件')
+    expect(text).toContain('只允许改动当前项目的文件')
+    expect(text).toContain('不允许改动其他项目的文件')
     expect(text).toContain('依赖任务：无')
     expect(text).toContain('工作目录：/tmp/ws')
   })

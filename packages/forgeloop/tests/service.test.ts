@@ -1095,6 +1095,23 @@ describe('execution scope, plan freeze and repair loop', () => {
     expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
   })
 
+  it('runs the execution role with workspace-write permission', async () => {
+    const permissions: string[] = []
+    const base = fakeRunner()
+    const runner: AgentLike = {
+      async run(request) {
+        if (request.role === 'dev') permissions.push(request.permission)
+        return base.run(request)
+      },
+    }
+    runtime.close()
+    runtime = makeRuntime(runner)
+    const reqId = await prepared('执行权限')
+    expect((await runQueued('advance', reqId)).state).toBe('done')
+    expect(permissions.length).toBeGreaterThan(0)
+    expect(permissions.every((permission) => permission === 'workspace-write')).toBe(true)
+  })
+
   it('freezes the approved task package unless the owner explicitly permits a change', async () => {
     const reqId = await prepared('任务包冻结')
     expect(
