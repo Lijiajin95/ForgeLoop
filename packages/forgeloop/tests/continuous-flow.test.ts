@@ -101,12 +101,15 @@ function fakeRunner(options: {
   verifyMode?: 'malformed' | 'outside' | 'business-malformed'
   repairNoChange?: boolean
   devTimeout?: boolean
+  devAborted?: boolean
   badPlanFirst?: boolean
   languageViolationFirst?: boolean
   verifyError?: boolean
+  verifyAborted?: boolean
   businessError?: boolean
   planTimeout?: boolean
   planError?: boolean
+  planAborted?: boolean
   repairTimeout?: boolean
   devNoChange?: boolean
   businessIncomplete?: boolean
@@ -175,6 +178,17 @@ function fakeRunner(options: {
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, PLAN)
       }
       if (request.role === 'dev' && turn.prompt.includes('当前任务：')) {
+        if (options.devAborted) {
+          return {
+            status: 'aborted',
+            text: '',
+            sessionId: 'dev-aborted',
+            reason: 'aborted',
+            transcriptPath: turn.transcriptPath,
+            durationMs: 1,
+            toolCalls: [],
+          }
+        }
         if (options.devTimeout) {
           return {
             status: 'timeout',
@@ -213,6 +227,12 @@ function fakeRunner(options: {
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'fixed')
       }
       if (request.role === 'verify' && turn.prompt.includes('独立验证 Agent')) {
+        if (options.verifyAborted) {
+          return {
+            status: 'aborted', text: '', sessionId: 'verify-aborted', reason: 'verify aborted',
+            transcriptPath: turn.transcriptPath, durationMs: 1, toolCalls: [],
+          }
+        }
         if (options.verifyError) {
           return {
             status: 'error',
@@ -297,6 +317,12 @@ function fakeRunner(options: {
     async run(request: AgentRunRequest) {
       if (request.role === 'product') return result(request, ANALYSIS)
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
+        if (options.planAborted) {
+          return {
+            status: 'aborted', text: '', sessionId: 'plan-aborted', reason: 'plan aborted',
+            transcriptPath: request.transcriptPath, durationMs: 1, toolCalls: [],
+          }
+        }
         if (options.planError) {
           return {
             status: 'error', text: '', sessionId: 'plan-error', reason: 'plan model error',
@@ -858,6 +884,181 @@ describe('continuous four-Agent flow', () => {
     // 规划模型错误会反馈重试；第三次仍无有效方案时阻塞，而不是伪造成功。
     expect(advance.state).toBe('failed')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+  })
+
+  it('auto-requeues an interrupted plan within quota but stops at exhausted quota', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ devTimeout: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-25:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    expect((await runNext(reqId, 'advance')).state).toBe('failed')
+    expect(runtime.repo.latestTaskPlan(reqId)).not.toBeNull()
+    expect(runtime.autoAdvanceRequests()).toContain(reqId)
+    for (let index = 0; index < 3; index += 1) {
+      runtime.repo.recordFailureRound(reqId, {
+        roundId: `quota-${index}`,
+        stage: 'formal_test',
+        summary: 'quota',
+        occurredAt: new Date().toISOString(),
+      })
+    }
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
+  })
+
+  it('records an aborted planning turn without creating a plan', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ planAborted: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-26:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('技术方案未形成')
+    expect(runtime.repo.latestTaskPlan(reqId)).toBeNull()
+  })
+
+  it('blocks when verification is aborted', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ verifyAborted: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-27:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('verify aborted')
+  })
+
+  it('rebuilds a workspace whose git metadata disappeared', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ devTimeout: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-28:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    expect((await runNext(reqId, 'advance')).state).toBe('failed')
+    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev', '.git'), { recursive: true, force: true })
+    runtime.close()
+    runtime = makeRuntime(fakeRunner())
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state, advance.detail).toBe('done')
+  })
+
+  it('rebuilds a workspace whose metadata has no usable baseline', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ devTimeout: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-29:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    expect((await runNext(reqId, 'advance')).state).toBe('failed')
+    const meta = join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev-meta.json')
+    writeFileSync(meta, JSON.stringify({ requirementVersion: 1, baselineCommit: null, snapshotCommit: 'x' }))
+    runtime.close()
+    runtime = makeRuntime(fakeRunner())
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state, advance.detail).toBe('done')
+  })
+
+  it('restores delivered task diffs into a fresh workspace before continuing', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ failFirstVerification: true, repairNoChange: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-30:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    expect((await runNext(reqId, 'advance')).state).toBe('failed')
+    expect(runtime.repo.taskArtifacts(reqId, 1)).toHaveLength(2)
+    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev'), { recursive: true, force: true })
+    runtime.close()
+    runtime = makeRuntime(fakeRunner())
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state, advance.detail).toBe('done')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('committed')
+  })
+
+  it('rebuilds a workspace recorded for another requirement version', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ devTimeout: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-31:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    expect((await runNext(reqId, 'advance')).state).toBe('failed')
+    const meta = join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev-meta.json')
+    writeFileSync(meta, JSON.stringify({ requirementVersion: 99, baselineCommit: 'x', snapshotCommit: 'y' }))
+    runtime.close()
+    runtime = makeRuntime(fakeRunner())
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state, advance.detail).toBe('done')
+  })
+
+  it('blocks before development when the execution budget is exhausted', async () => {
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-32:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.repo.ensureBudget(reqId, 0)
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('工时已用尽')
+    expect(runtime.repo.latestTaskPlan(reqId)).toBeNull()
+  })
+
+  it('records an aborted development turn as blocked without a running task', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ devAborted: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-33:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('被停止')
+    expect(runtime.repo.taskRuns(reqId, 1).every((run) => run.state !== 'running')).toBe(true)
   })
 
 })
