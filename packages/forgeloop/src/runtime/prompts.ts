@@ -190,7 +190,7 @@ ${analysisContext(analysis)}
 - 依赖必须存在且无环；task_id 唯一；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
 - files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
-- 每个任务必须给出非空 test_command，且是真正的 argv 数组；
+- 每个任务必须给出非空 test_command，且是真正的 argv 数组；test_command 里引用到的项目内测试文件（*.test.ts、*.spec.ts 等）必须同时列在该任务的 files 中，否则程序会拒绝；
 - 不要输出 authorization_source；授权只由真实批准写入；
 - 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
 - 禁止把 Python 解释器、旧 .venv、旧 forgeloop CLI、src/forgeloop/、tests/（旧 Python 测试）、frontend/src/ 写进 files 或 test_command；

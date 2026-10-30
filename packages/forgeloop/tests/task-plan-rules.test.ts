@@ -186,6 +186,48 @@ describe('task plan parsing and validation', () => {
     ).toThrow('limit_seconds 必须是数字')
   })
 
+  it('requires test files cited by the formal test command to be in the task file scope', () => {
+    expect(() =>
+      parseTaskPlanDraft(
+        rawPlan([
+          rawTask('a', {
+            test_command: ['npx', 'vitest', 'run', 'packages/forgeloop/tests/queue-a.test.ts'],
+          }),
+          rawTask('b', { depends_on: ['a'] }),
+        ]),
+        context,
+      ),
+    ).toThrow('正式测试命令引用了不在允许文件内的测试文件：packages/forgeloop/tests/queue-a.test.ts')
+
+    const plan = parseTaskPlanDraft(
+      rawPlan([
+        rawTask('a', {
+          files: ['packages/forgeloop/src/queue.ts', 'packages/forgeloop/tests/queue-a.test.ts'],
+          test_command: ['npx', 'vitest', 'run', 'packages/forgeloop/tests/queue-a.test.ts'],
+        }),
+        rawTask('b', { depends_on: ['a'] }),
+      ]),
+      context,
+    )
+    expect(plan.tasks[0]?.files).toContain('packages/forgeloop/tests/queue-a.test.ts')
+  })
+
+  it('does not require test paths for verification-only tasks', () => {
+    const plan = parseTaskPlanDraft(
+      rawPlan([
+        rawTask('a'),
+        rawTask('verify', {
+          files: [],
+          verification: true,
+          test_command: ['npx', 'vitest', 'run', 'packages/forgeloop/tests/any.test.ts'],
+          depends_on: ['a'],
+        }),
+      ]),
+      context,
+    )
+    expect(plan.tasks[1]?.verification).toBe(true)
+  })
+
   it('requires actionable plans with at least two tasks and one dependency', () => {
     expect(() => parseTaskPlanDraft(rawPlan([rawTask('a')]), context)).toThrow('至少要包含两个任务')
     expect(() => parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b')]), context)).toThrow('至少要有一条任务依赖')
