@@ -630,16 +630,52 @@ describe('pre-implementation review gate', () => {
     const planned = await runQueued('plan', reqId)
     expect(planned.state, planned.detail).toBe('done')
     expect(attempts).toBe(2)
-    expect(runtime.repo.taskPlans(reqId)).toHaveLength(2)
-    // 运行时把“自报通过但计划缺场景”的评审记为阻断，避免它被直接批准。
-    expect(runtime.repo.planReview(reqId, 1)?.verdict).toBe('block')
-    expect(runtime.repo.planReview(reqId, 1)?.reportJson).toContain(`验证计划缺少业务场景：${SCENARIO}`)
-    expect(runtime.repo.planReview(reqId, 2)?.verdict).toBe('pass')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    // 覆盖缺项属于评审材料问题：带着精确缺项重试同一任务包的评审，
+    // 修正后的评审才落库；任务包本身不需要因为评审措辞重生成。
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
+    expect(runtime.repo.planReview(reqId, 1)?.verdict).toBe('pass')
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+  })
+
+  it('records a blocking review after coverage stays missing and sends it back to planning', async () => {
+    runtime.close()
+    let attempts = 0
+    runtime = makeRuntime(
+      fakeRunner({
+        verifyPlan: (attempt) => {
+          attempts = attempt
+          return JSON.stringify({
+            verdict: 'pass',
+            blocking: [],
+            findings: [],
+            summary: '验证计划覆盖不完整',
+            verification_plan: [
+              {
+                scenario: '其他场景',
+                acceptance_criterion: CRITERION,
+                method: '执行其他场景',
+                required: true,
+              },
+            ],
+          })
+        },
+      }),
+    )
+    const submitted = runtime.submit({ text: '覆盖持续缺失', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runQueued('analyze', reqId)
+    const planned = await runQueued('plan', reqId)
+    expect(planned.state).toBe('failed')
+    expect(attempts).toBe(6) // 3 次规划 × 每次 2 次评审
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(3)
+    const latest = runtime.repo.latestTaskPlan(reqId)!
+    const review = runtime.repo.planReview(reqId, latest.planVersion)!
+    expect(review.verdict).toBe('block')
+    expect(review.reportJson).toContain(`验证计划缺少业务场景：${SCENARIO}`)
+    expect(runtime.approvePlan({ reqId, planVersion: latest.planVersion, by: 'owner', source: 'test' })).toMatchObject({
       ok: false,
       code: 'plan_review_blocked',
     })
-    expect(runtime.approvePlan({ reqId, planVersion: 2, by: 'owner', source: 'test' }).ok).toBe(true)
   })
 
   it('keeps the plan unapproved when the review agent fails or returns malformed output', async () => {
@@ -733,6 +769,67 @@ describe('pre-implementation review gate', () => {
     }
     expect(view.planReview).toMatchObject({ verdict: 'pass', summary: '', verificationPlan: [] })
     expect(view.verification).toMatchObject({ verdict: 'pass', summary: '', blocking: [], fresh: false })
+  })
+
+  it('treats a malformed review as a retriable planning failure instead of ending the loop', async () => {
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({
+        verifyPlan: (attempt) =>
+          attempt === 1
+            ? JSON.stringify({
+                verdict: 'pass',
+                blocking: [],
+                findings: [],
+                summary: '可进入实现',
+                verification_plan: [
+                  {
+                    scenario: SCENARIO,
+                    acceptance_criterion: CRITERION,
+                    method: '在独立候选上执行验证命令',
+                    required: true,
+                  },
+                  {
+                    scenario: SCENARIO,
+                    acceptance_criterion: CRITERION,
+                    method: '重复场景',
+                    required: true,
+                  },
+                ],
+              })
+            : planReviewOf('pass'),
+      }),
+    )
+    const submitted = runtime.submit({ text: '评审畸形后重试', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runQueued('analyze', reqId)
+    const planned = await runQueued('plan', reqId)
+    expect(planned.state, planned.detail).toBe('done')
+
+    // 畸形评审没有写成可批准的结论：重试后取得的合法评审才落库。
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
+    expect(runtime.repo.planReview(reqId, 1)?.verdict).toBe('pass')
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+  })
+
+  it('stops after repeated malformed reviews and keeps the failure visible', async () => {
+    runtime.close()
+    runtime = makeRuntime({
+      ...fakeRunner(),
+      async run(request) {
+        if (request.role === 'verify-plan') return result(request, 'not json at all')
+        return fakeRunner().run(request)
+      },
+    } as AgentLike)
+    const submitted = runtime.submit({ text: '评审持续畸形', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runQueued('analyze', reqId)
+    const planned = await runQueued('plan', reqId)
+    expect(planned.state).toBe('failed')
+    expect(planned.detail).toContain('实现前评审')
+    expect(runtime.repo.planReview(reqId, 1)).toBeNull()
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
+    expect(runtime.repo.getRequirement(reqId)?.blockedReason).toContain('实现前评审')
   })
 
   it('feeds a blocking review back to planning and accepts the corrected plan', async () => {

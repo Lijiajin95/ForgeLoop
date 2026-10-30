@@ -2459,42 +2459,64 @@ ${answer}`
     | { state: 'done'; review: PlanReview }
     | { state: 'failed' | 'unknown'; detail: string }
   > {
-    const started = Date.now()
-    const transcript = join(
-      sessionsDir(this.config),
-      `${requirement.reqId}-plan-review-v${plan.planVersion}.jsonl`,
-    )
-    const result = await this.runner.run({
-      role: 'verify-plan',
-      cwd: this.config.projectPath,
-      prompt: planReviewPrompt({ requirement, analysis, plan }),
-      permission: 'workspace-write',
-      timeoutMs: this.config.agent.timeoutSeconds * 1000,
-      transcriptPath: transcript,
-      signal,
-      tools: 'none',
-    })
-    this.charge(requirement.reqId, started)
-    if (result.status !== 'completed') {
+    let feedback = ''
+    let lastMalformed = ''
+    let review: PlanReview | null = null
+    let lastSession = ''
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const started = Date.now()
+      const transcript = join(
+        sessionsDir(this.config),
+        `${requirement.reqId}-plan-review-v${plan.planVersion}-r${attempt}.jsonl`,
+      )
+      const result = await this.runner.run({
+        role: 'verify-plan',
+        cwd: this.config.projectPath,
+        prompt: planReviewPrompt({ requirement, analysis, plan }) + feedback,
+        permission: 'workspace-write',
+        timeoutMs: this.config.agent.timeoutSeconds * 1000,
+        transcriptPath: transcript,
+        signal,
+        tools: 'none',
+      })
+      this.charge(requirement.reqId, started)
+      if (result.status !== 'completed') {
+        return {
+          state: result.status === 'aborted' || result.status === 'timeout' ? 'unknown' : 'failed',
+          detail: `实现前评审未取得可用结论：${result.reason}`,
+        }
+      }
+      lastSession = result.sessionId
+      let parsed: PlanReview
+      try {
+        parsed = parsePlanReview(result.text)
+      } catch (error) {
+        // 评审材料畸形属于可修正的评审输出问题：带着明确的 JSON 结构要求重试一次，
+        // 仍失败则 fail-closed，不伪造通过，也不占用研发重新规划的次数。
+        lastMalformed = (error as Error).message
+        feedback = `\n\n上一次输出无法解析：${lastMalformed}。请重新只输出一个完整 JSON 对象，字段与上面要求一致，scenarios 不得重复。`
+        continue
+      }
+      // 评审模型自报通过还不够：验证计划必须覆盖分析中的每个场景与验收标准。
+      // 缺项先带着精确缺项重试评审；仍缺项才按阻断记录，交回研发重新规划。
+      if (parsed.verdict === 'pass') {
+        const coverage = validatePlanCoverage(analysis, parsed)
+        if (coverage.length > 0) {
+          feedback = `\n\n上一次验证计划没有覆盖以下分析原文，请逐字引用（可附加说明，但不能改写）后重新输出：\n- ${coverage.join('\n- ')}`
+          if (attempt < 2) continue
+          parsed = { ...parsed, verdict: 'block', blocking: coverage }
+        }
+      }
+      review = parsed
+      break
+    }
+    if (!review) {
       return {
-        state: result.status === 'aborted' || result.status === 'timeout' ? 'unknown' : 'failed',
-        detail: `实现前评审未取得可用结论：${result.reason}`,
+        state: 'failed',
+        detail: `实现前评审结果畸形（fail-closed）：${lastMalformed || '连续两次未取得可用结论'}`,
       }
     }
-    let review: PlanReview
-    try {
-      review = parsePlanReview(result.text)
-    } catch (error) {
-      return { state: 'failed', detail: `实现前评审结果畸形（fail-closed）：${(error as Error).message}` }
-    }
-    // 评审模型自报通过还不够：验证计划必须覆盖分析中的每个场景与验收标准；
-    // 缺项按阻断记录，避免未覆盖的任务包留在“已通过评审”状态被直接批准。
-    if (review.verdict === 'pass') {
-      const coverage = validatePlanCoverage(analysis, review)
-      if (coverage.length > 0) {
-        review = { ...review, verdict: 'block', blocking: coverage }
-      }
-    }
+    const result = { sessionId: lastSession }
     const dir = planReviewDir(this.config, requirement.reqId, plan.planVersion)
     mkdirSync(dir, { recursive: true })
     const reportPath = join(dir, 'plan-review.json')
