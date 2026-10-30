@@ -210,10 +210,13 @@ DSH 宿主（唯一常驻产品）
   页面不执行命令，也不另存业务状态。
 - 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`resultUnknown` 表示需求存在
   unknown 请求；`stopRequested` 表示阻塞原因是停止请求。三者都不等于任务已经停稳或结果已经收口。
-- 需求级动作由服务端 `actions` 判定：`plan`、`approve`、`advance`、`verify`、`diagnose`、`recover`、
+- 需求级动作由服务端 `actions` 判定：`plan`、`approve`、`advance`、`verify`、`requeue`、`diagnose`、`recover`、
   `build`、`deploy`、`stop`、`cancel`；任务级 `retry` 仍由 `retryTask` 复核批准、额度、任务顺序、
   在途请求与 unknown 确认。`recover` 只关闭 unknown 请求、不重放（保留给已确认现场的人工收口）；
-  `diagnose` 让诊断 Agent 说明根因与处置，再由程序按工作副本事实判定重放安全性；`build` 要求验收后且
+  `diagnose` 让诊断 Agent 说明根因与处置，再由程序按工作副本事实判定重放安全性；`requeue` 在失败停在
+  blocked 后重新排队一次执行（与 `retry` 共用 `retryDecision`：额度、在途请求、unknown、批准状态与终态
+  都在判定里拦下，不新建任务包、不清零失败轮次）；协调器的 `autoAdvance` 打开时，同一判定也会自动
+  为 blocked 需求排队；`build` 要求验收后且
   只从已验证工作区构建；`deploy` 只做安装后核对。批准入口还会按现行 `validateTaskPlan` 复校已落库
   任务包，旧规则下生成的任务包不会被放行。
 - **执行范围**：需求批准后，研发执行 Agent 使用 DSH 默认代码工具，权限 preset 为
@@ -263,7 +266,7 @@ DSH 宿主（唯一常驻产品）
 - 工时：只累计真实执行段，用户等待不计入；目前在推进开始检查，尚未在每个后续动作／尝试前复检。
 - **未知请求诊断**：`diagnose` 端点（`runtime.diagnoseUnknown`）先由程序采集现场事实（未知请求、
   任务运行、各任务工作副本是否存在、是否有非基线提交、已修改与未跟踪文件），再让 `diagnosis` 角色
-  Agent 在无工具条件下只输出 `root_cause` 与 `solution`；两字段各限 100 字节（UTF-8），超长、缺字段、
+  Agent 在无工具条件下只输出 `root_cause` 与 `solution`；两字段各限 100 个字符（按 Unicode 码点计，中英文同等），超长、缺字段、
   空串判为 `diagnosis_invalid`，原文另存 `*.rejected`。重放安全性由程序判定：快照只该有运行时建立的
   基线提交，出现第二个提交即 `replay_unsafe`，未知请求保持原状。判定安全才关闭全部未知请求并把
   诊断写入 `requirement_unknown_diagnoses` 与报告文件；看板 `diagnosis` 字段展示根因、方案与安全性。
@@ -303,7 +306,7 @@ DSH 宿主（唯一常驻产品）
   与 `conversation.chat.node` 注册节点和渲染器。
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
-  `plan`、`approve`、`advance`、`verify`、`diagnose`、`recover`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
+  `plan`、`approve`、`advance`、`verify`、`requeue`、`diagnose`、`recover`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
   以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-confirm-unknown`、`ops-close`、`ops-request-fix`；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
