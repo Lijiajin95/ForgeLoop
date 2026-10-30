@@ -5,7 +5,7 @@
  * 当前没有人类 slash 命令表面；新方案的客户决定入口尚未实现。
  */
 
-import { resolveConfig, type RawConfig } from './config.js'
+import { loadConfigOrThrow, resolveConfig, type RawConfig } from './config.js'
 import { buildTools, registerTools } from './tools.js'
 import { Coordinator } from './runtime/coordinator.js'
 import { ForgeLoopRuntime } from './runtime/service.js'
@@ -449,7 +449,8 @@ function registerBoardRoute(
 export const inject = ['agents', 'agentLoop', 'tools']
 
 export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
-  const config = resolveConfig(rawConfig)
+  // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
+  const config = resolveConfig(loadConfigOrThrow(rawConfig))
   const runtime = new ForgeLoopRuntime({ ctx, config })
   const coordinator = new Coordinator({
     runtime,

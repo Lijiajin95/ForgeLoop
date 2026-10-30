@@ -3,6 +3,7 @@
  * 非法值在插件装载时失败（fail loudly），不静默回落。
  */
 
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { RuleViolationError } from './domain/errors.js'
@@ -102,6 +103,51 @@ export interface RawConfig {
   candidateArtifactPath?: string
   dshProfilesRoot?: string
   ops?: RawOpsConfig
+}
+
+/**
+ * ForgeLoop 自己的配置文件：默认 `~/.forgeloop/config.json`，可用 `FORGELOOP_CONFIG`
+ * 覆盖路径。DSH 的 cordis 配置只负责装载插件，不再存放业务配置；
+ * 文件里的值优先于装载参数，避免两处配置各说一套。
+ */
+export function defaultConfigPath(): string {
+  return join(homedir(), '.forgeloop', 'config.json')
+}
+
+export function loadConfigFile(path = process.env.FORGELOOP_CONFIG?.trim() || defaultConfigPath()): RawConfig {
+  if (!existsSync(path)) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
+  } catch (error) {
+    throw new RuleViolationError(`ForgeLoop 配置文件不是合法 JSON：${path}：${(error as Error).message}`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new RuleViolationError(`ForgeLoop 配置文件必须是 JSON 对象：${path}`)
+  }
+  return parsed as RawConfig
+}
+
+/** 合并顺序：宿主装载参数做底，独立配置文件覆盖；缺文件时保持原样。 */
+export function mergeConfig(base: RawConfig, file: RawConfig): RawConfig {
+  return { ...base, ...file }
+}
+
+/**
+ * 装载业务配置：优先独立文件。两者都没有关键值时报错，而不是静默回落到
+ * “当前目录/.forgeloop”——静默回落会让插件连到另一个记录库，造成假死或分叉。
+ */
+export function loadConfigOrThrow(base: RawConfig = {}, path = process.env.FORGELOOP_CONFIG?.trim() || defaultConfigPath()): RawConfig {
+  // 装载参数已经给出关键路径（测试或显式宿主配置）时以它为准；
+  // 只有宿主没有配置时才读取独立文件，避免测试被本机配置污染。
+  if (base.recordsRoot || base.projectPath) return base
+  const file = loadConfigFile(path)
+  if (Object.keys(file).length === 0) {
+    throw new RuleViolationError(
+      `ForgeLoop 配置缺失：请写入 ${path}（或用 FORGELOOP_CONFIG 指定路径），不要依赖默认目录`,
+    )
+  }
+  return mergeConfig(base, file)
 }
 
 function positiveNumber(value: unknown, field: string, fallback: number): number {
