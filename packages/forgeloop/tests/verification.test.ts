@@ -182,7 +182,7 @@ function fakeRunner(options: {
       if (request.role === 'review') {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }
-      const allowed = /允许修改的文件（只能改这些）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+      const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
       mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
       writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
       return result(request, 'done')
@@ -1111,11 +1111,11 @@ describe('independent verification gate', () => {
       }),
     )
     const { reqId } = await runPipeline()
-    expect(verifyRuns).toBe(1)
-    const again = await runQueued('verify', reqId)
-    expect(again.state).toBe('failed')
-    expect(again.detail).toContain('独立验证已阻断')
-    expect(verifyRuns).toBe(1)
+    // 每次阻断都会回研发修复；额度用尽后停在 blocked，不再自动重跑。
+    expect(verifyRuns).toBe(3)
+    const again = runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' })
+    expect(again).toMatchObject({ ok: false, code: 'grant_required' })
+    expect(verifyRuns).toBe(3)
   })
 
   it('blocks on a failing verification command and counts a verification failure round', async () => {

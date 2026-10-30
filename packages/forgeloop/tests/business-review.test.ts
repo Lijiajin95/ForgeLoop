@@ -160,7 +160,7 @@ function fakeRunner(options: {
       if (request.role === 'review') {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }
-      const allowed = /允许修改的文件（只能改这些）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+      const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
       mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
       writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
       return result(request, 'done')

@@ -170,7 +170,7 @@ function fakeRunner(
       if (request.role === 'review') {
         return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
       }
-      const allowed = /允许修改的文件（只能改这些）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+      const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
       const taskId = /当前任务：(.+)/.exec(request.prompt)?.[1]?.trim() ?? ''
       if (taskId === 'b' && !existsSync(join(request.cwd, 'docs/a.md'))) {
         throw new Error('依赖任务 a 的产物没有进入任务 b 的工作副本')
@@ -434,29 +434,6 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     expect(staleApproval.code).toBe('stale_requirement')
   })
 
-  it('blocks delivery when the implementer edits outside the approved file list', async () => {
-    const submitted = runtime.submit({ text: '越界改动', by: 'owner', source: 'test' })
-    const reqId = (submitted.data as { reqId: string }).reqId
-    await runQueued('analyze', reqId)
-    await runQueued('plan', reqId)
-    runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
-
-    runtime.close()
-    runtime = makeRuntime(
-      fakeRunner({
-        onDev: (request) => {
-          mkdirSync(join(request.cwd, 'docs'), { recursive: true })
-          writeFileSync(join(request.cwd, 'docs/outside.md'), 'not allowed\n')
-        },
-      }),
-    )
-    const outcome = await runQueued('advance', reqId)
-    expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('越出批准文件清单')
-    expect(runtime.repo.taskArtifacts(reqId, 1)).toHaveLength(0)
-    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
-  })
-
   it('records a failed formal test as a failure round and stops at the quota', async () => {
     const submitted = runtime.submit({ text: '测试失败', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
@@ -687,150 +664,6 @@ describe('task retry', () => {
     })
   }
 
-  it('creates a new plan version with additional files and leaves approval to the owner', async () => {
-    const reqId = 'req-replan'
-    seedApprovedPlan(reqId)
-    seedFailedRun(reqId, 'a')
-
-    const result = await runtime.replanTask({
-      reqId,
-      planVersion: 1,
-      by: 'owner',
-      source: 'test-replan',
-      files: ['contracts/architecture.json'],
-      confirmRecovery: true,
-    })
-    expect(result.ok, result.message).toBe(true)
-    expect(result.data).toMatchObject({
-      planVersion: 2,
-      taskId: 'a',
-      files: ['contracts/architecture.json'],
-      recovered: 0,
-    })
-
-    const v2 = runtime.repo.taskPlan(reqId, 2)!
-    expect(v2.tasks[0]?.files).toEqual(['docs/a.md', 'contracts/architecture.json'])
-    expect(v2.tasks[1]?.files).toEqual(['docs/b.md'])
-    expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
-    expect(runtime.repo.planApproval(reqId, 2)).toBeNull()
-    expect(runtime.repo.planApproval(reqId, 1)).not.toBeNull()
-    expect(runtime.repo.taskPlan(reqId, 1)?.tasks[0]?.files).toEqual(['docs/a.md'])
-  })
-
-  it('requires recovery confirmation before replanning and closes only confirmed unknown requests', async () => {
-    const reqId = 'req-replan-unknown'
-    seedApprovedPlan(reqId)
-    seedFailedRun(reqId, 'a')
-    runtime.repo.recordRequest({
-      requestId: 'rq-replan-unknown',
-      reqId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-29T00:00:02.000Z',
-    })
-    const claimed = runtime.repo.claimNextRequest('tester', '2026-10-29T00:00:03.000Z')!
-    runtime.repo.resolveRequest(
-      claimed.requestId,
-      'unknown',
-      '开发回合被停止，需核对',
-      '2026-10-29T00:00:04.000Z',
-    )
-
-    const blocked = await runtime.replanTask({
-      reqId,
-      planVersion: 1,
-      by: 'owner',
-      source: 'test-replan',
-      files: ['contracts/architecture.json'],
-    })
-    expect(blocked.ok).toBe(false)
-    expect(blocked.code).toBe('recovery_required')
-    expect(runtime.repo.taskPlan(reqId, 2)).toBeNull()
-
-    const replanned = await runtime.replanTask({
-      reqId,
-      planVersion: 1,
-      by: 'owner',
-      source: 'test-replan',
-      files: ['contracts/architecture.json'],
-      confirmRecovery: true,
-    })
-    expect(replanned.ok, replanned.message).toBe(true)
-    expect(replanned.data).toMatchObject({ recovered: 1 })
-    expect(runtime.repo.requestsFor(reqId).every((request) => request.state === 'dismissed')).toBe(true)
-  })
-
-  it('rejects unsafe or meaningless replans', async () => {
-    const reqId = 'req-replan-errors'
-    seedApprovedPlan(reqId)
-    seedFailedRun(reqId, 'a')
-    const base = {
-      reqId,
-      planVersion: 1,
-      by: 'owner',
-      source: 'test-replan',
-      confirmRecovery: true,
-    }
-    expect((await runtime.replanTask({ ...base, files: ['/etc/passwd'] })).code).toBe('bad_files')
-    expect((await runtime.replanTask({ ...base, files: ['docs/a.md'] })).code).toBe('no_change')
-    expect((await runtime.replanTask({ ...base, taskId: 'b', files: ['contracts/architecture.json'] })).code).toBe('not_failed')
-    expect((await runtime.replanTask({ ...base, planVersion: 9, files: ['contracts/architecture.json'] })).code).toBe('plan_missing')
-
-    runtime.repo.recordTaskArtifact({
-      requirementId: reqId,
-      planVersion: 1,
-      taskId: 'a',
-      candidateSha256: 'candidate',
-      testEvidenceSha256: 'test',
-      reviewSha256: 'review',
-      acceptance: '完成',
-      authorizationSource: 'plan-approval:test',
-      recordedAt: '2026-10-29T00:00:06.000Z',
-      baselineCommit: 'abc123',
-    })
-    expect((await runtime.replanTask({ ...base, taskId: 'a', files: ['contracts/architecture.json'] })).code).toBe('already_delivered')
-
-    const unapproved = 'req-replan-unapproved'
-    seedRequirement(unapproved)
-    recordPlan(unapproved)
-    seedFailedRun(unapproved, 'a')
-    expect(
-      (await runtime.replanTask({
-        reqId: unapproved,
-        planVersion: 1,
-        files: ['contracts/architecture.json'],
-        by: 'owner',
-        source: 'test',
-      })).code,
-    ).toBe('plan_not_approved')
-
-    const busy = 'req-replan-busy'
-    seedApprovedPlan(busy)
-    seedFailedRun(busy, 'a')
-    runtime.repo.recordRequest({
-      requestId: 'rq-replan-busy',
-      reqId: busy,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-29T00:00:02.000Z',
-    })
-    expect(
-      (await runtime.replanTask({
-        reqId: busy,
-        planVersion: 1,
-        files: ['contracts/architecture.json'],
-        by: 'owner',
-        source: 'test',
-      })).code,
-    ).toBe('busy')
-  })
-
   it('requeues a failed advance, preserves failure rounds and feeds the previous failure into the next attempt', async () => {
     const submitted = runtime.submit({ text: '重试任务', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
@@ -844,7 +677,7 @@ describe('task retry', () => {
     const runner = fakeRunner({
       onDev: (request) => {
         prompts.push(request.prompt)
-        const allowed = /允许修改的文件（只能改这些）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+        const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
         mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
         writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
       },
@@ -902,6 +735,7 @@ describe('task retry', () => {
     const retry = runtime.retryTask({ reqId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
     expect(retry.ok, retry.message).toBe(true)
     const pending = runtime.repo.requestsFor(reqId).find((request) => request.state === 'pending')
+    if (!pending) console.log('DEBUG first=', first, 'requests=', runtime.repo.requestsFor(reqId), 'runs=', runtime.repo.taskRuns(reqId, 1))
     expect(pending?.action).toBe('advance')
     expect(pending?.source).toContain('retry:a')
 
@@ -1209,5 +1043,116 @@ describe('task retry', () => {
     expect(
       runtime.retryTask({ reqId: busyId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' }).code,
     ).toBe('busy')
+  })
+})
+
+
+describe('execution scope, plan freeze and repair loop', () => {
+  async function prepared(reqText: string): Promise<string> {
+    const submitted = runtime.submit({ text: reqText, by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    expect((await runQueued('analyze', reqId)).state).toBe('done')
+    expect((await runQueued('plan', reqId)).state).toBe('done')
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+    return reqId
+  }
+
+  it('lets the execution role modify any file in the workspace, not only the planned list', async () => {
+    const base = fakeRunner()
+    const runner: AgentLike = {
+      async run(request) {
+        if (request.role === 'dev') {
+          mkdirSync(join(request.cwd, 'docs'), { recursive: true })
+          writeFileSync(join(request.cwd, 'docs/shared.md'), `shared ${Date.now()}\n`)
+        }
+        return base.run(request)
+      },
+    }
+    runtime.close()
+    runtime = makeRuntime(runner)
+    const reqId = await prepared('允许改共享文件')
+    const advance = await runQueued('advance', reqId)
+    expect(advance.state, advance.detail).toBe('done')
+    const evidence = runtime.repo.evidence(reqId, 1, 'a')!
+    expect(readFileSync(evidence.candidatePath, 'utf8')).toContain('docs/shared.md')
+  })
+
+  it('refuses a plan request queued before approval once the package is frozen', async () => {
+    const submitted = runtime.submit({ text: '排队后冻结', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runQueued('analyze', reqId)
+    await runQueued('plan', reqId)
+    const queued = runtime.requestOperation({ reqId, action: 'plan', by: 'owner', source: 'test:preapproval' })
+    expect(queued.ok).toBe(true)
+    const requestId = (queued.data as { requestId: string }).requestId
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+
+    const claimed = runtime.repo.claimNextRequest('tester', new Date().toISOString())!
+    expect(claimed.requestId).toBe(requestId)
+    const outcome = await runtime.executeRequest(claimed, new AbortController().signal)
+    expect(outcome.state).toBe('failed')
+    expect(outcome.detail).toContain('已批准并冻结')
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
+  })
+
+  it('freezes the approved task package unless the owner explicitly permits a change', async () => {
+    const reqId = await prepared('任务包冻结')
+    expect(
+      runtime.requestOperation({ reqId, action: 'plan', by: 'owner', source: 'test' }),
+    ).toMatchObject({ ok: false, code: 'plan_frozen' })
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
+
+    const permitted = runtime.requestOperation({
+      reqId,
+      action: 'plan',
+      by: 'owner',
+      source: 'test:permitted',
+      confirmPlanChange: true,
+      reason: '任务包遗漏关键文件',
+    })
+    expect(permitted.ok, permitted.message).toBe(true)
+  })
+
+  it('returns a blocked verification to the execution role without changing the plan version', async () => {
+    let verifyCalls = 0
+    const base = fakeRunner()
+    const runner: AgentLike = {
+      async run(request) {
+        if (request.role === 'verify') {
+          verifyCalls += 1
+          const verification = join(request.cwd, 'verification')
+          mkdirSync(verification, { recursive: true })
+          writeFileSync(
+            join(verification, 'commands.json'),
+            JSON.stringify({
+              commands: [
+                {
+                  label: 'smoke',
+                  argv: ['node', '-e', verifyCalls === 1 ? 'process.exit(1)' : "console.log('smoke ok: verified')"],
+                },
+              ],
+            }),
+          )
+          writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+          return result(request, VERIFICATION_REPORT)
+        }
+        return base.run(request)
+      },
+    }
+    runtime.close()
+    runtime = makeRuntime(runner)
+    const reqId = await prepared('验证失败自动回研发')
+
+    // 第一轮验证失败后，同一请求内把问题交回执行角色修复，再重新验证。
+    const advance = await runQueued('advance', reqId)
+    expect(advance.state, advance.detail).toBe('done')
+    expect(verifyCalls).toBe(2)
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(1)
+    expect(runtime.repo.verification(reqId, 1)?.verdict).toBe('pass')
+    for (const taskId of ['a', 'b']) {
+      expect(runtime.repo.archivedArtifacts(reqId, 1, taskId)).toHaveLength(1)
+    }
+    expect(runtime.repo.taskRuns(reqId, 1).every((run) => run.state === 'delivered')).toBe(true)
   })
 })

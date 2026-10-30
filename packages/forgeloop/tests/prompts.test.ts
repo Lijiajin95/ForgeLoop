@@ -157,7 +157,8 @@ describe('prompt builders', () => {
   it('describes task limits, dependencies and the workspace', () => {
     const text = devPrompt({ requirement, plan, task, workdir: '/tmp/ws' })
     expect(text).toContain('当前任务：t1')
-    expect(text).toContain('允许修改的文件')
+    expect(text).toContain('计划中列出的预期文件')
+    expect(text).toContain('执行范围是当前工作副本内的全部文件')
     expect(text).toContain('依赖任务：无')
     expect(text).toContain('工作目录：/tmp/ws')
   })

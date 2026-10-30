@@ -79,11 +79,9 @@ export type BoardRequirementAction =
   | 'approve'
   | 'advance'
   | 'verify'
-  | 'rework'
   | 'recover'
   | 'build'
   | 'deploy'
-  | 'replan'
   | 'stop'
   | 'cancel'
 
@@ -573,14 +571,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       })
     }
 
-    const replanTarget = plan?.tasks.find(
-      (task) =>
-        !task.verification &&
-        !delivered.has(task.taskId) &&
-        [TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(
-          (runByTask.get(task.taskId)?.state ?? '') as typeof TASK_RUN_FAILED,
-        ),
-    )
     const actions: BoardRequirementAction[] = []
     if (!terminal) {
       if (
@@ -594,17 +584,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         } else if (!activeRequest && progress.running === 0) {
           actions.push('plan')
         }
-      }
-      // 已批准但缺少通过的实现前评审（例如旧任务包早于评审门禁）：重新生成任务包，
-      // 让新版本重新走评审与批准；不能靠补造评审记录继续。
-      if (
-        authorization?.status === 'approved' &&
-        (planReviewView?.verdict !== 'pass' || !planValid) &&
-        progress.running === 0 &&
-        progress.awaitingInput === 0 &&
-        !activeRequest
-      ) {
-        actions.push('plan')
       }
       if (
         authorization?.status === 'approved' &&
@@ -633,27 +612,6 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       }
       if (unknownRequests > 0 && progress.running === 0 && progress.awaitingInput === 0 && !activeRequest) {
         actions.push('recover')
-      }
-      if (
-        authorization?.status === 'approved' &&
-        verificationFresh &&
-        verificationView?.verdict === 'block' &&
-        remainingRounds > 0 &&
-        progress.running === 0 &&
-        progress.awaitingInput === 0 &&
-        !activeRequest
-      ) {
-        actions.push('rework')
-      }
-      if (
-        authorization?.status === 'approved' &&
-        requirement.status !== PLAN_PROPOSED &&
-        replanTarget !== undefined &&
-        progress.running === 0 &&
-        progress.awaitingInput === 0 &&
-        !activeRequest
-      ) {
-        actions.push('replan')
       }
       if (activeRequest || progress.running > 0 || progress.awaitingInput > 0) actions.push('stop')
       actions.push('cancel')

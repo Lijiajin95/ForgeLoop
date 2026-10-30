@@ -735,8 +735,8 @@ describe('web board host wiring', () => {
     host.cleanup()
   })
 
-  it('creates a new plan version through replan after explicit unknown recovery', async () => {
-    const reqId = 'req-replan-1'
+  it('keeps an approved task package frozen and no longer exposes replan', async () => {
+    const reqId = 'req-frozen-1'
     seedRequirement(reqId)
     const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
     const repository = new Repository(database)
@@ -758,6 +758,16 @@ describe('web board host wiring', () => {
           limits: { limitSeconds: 60, maxFailureRounds: 3 },
           authorizationSource: '',
         },
+        {
+          taskId: 'b',
+          goal: '再补测试',
+          files: ['docs/b.md'],
+          acceptance: 'b 完成',
+          testCommand: ['node', '-e', 'process.exit(0)'],
+          dependsOn: ['a'],
+          limits: { limitSeconds: 60, maxFailureRounds: 3 },
+          authorizationSource: '',
+        },
       ],
     })
     repository.recordPlanApproval({
@@ -771,99 +781,48 @@ describe('web board host wiring', () => {
       reqId,
       analysisVersion: 1,
       requirementVersion: 1,
-      goal: '看板需求',
+      goal: '冻结任务包',
       scenarios: ['场景一'],
       acceptanceCriteria: ['标准一'],
       clarifications: [],
       createdAt: '2026-10-29T00:00:00.500Z',
     })
-    repository.setStatus(reqId, 'blocked', '开发回合被停止')
-    repository.recordTaskRun({
-      requirementId: reqId,
-      planVersion: 1,
-      taskId: 'a',
-      state: 'failed',
-      reason: '正式测试失败（退出码 1）',
-      executedSeconds: 1,
-      updatedAt: '2026-10-29T00:00:02.000Z',
-    })
-    repository.recordRequest({
-      requestId: 'rq-unknown-replan',
-      reqId,
-      project: 'testproj',
-      planVersion: 1,
-      action: 'advance',
-      requestedBy: 'owner',
-      source: 'test',
-      now: '2026-10-29T00:00:04.000Z',
-    })
-    repository.resolveRequest('rq-unknown-replan', 'unknown', '宿主停止', '2026-10-29T00:00:05.000Z')
+    repository.setStatus(reqId, 'blocked', '任务失败')
     repository.close()
 
-    const reviewText = JSON.stringify({
-      verdict: 'pass',
-      blocking: [],
-      findings: [],
-      summary: '可进入实现',
-      verification_plan: [
-        {
-          scenario: '场景一',
-          acceptance_criterion: '标准一',
-          method: '执行验证命令',
-          required: true,
-        },
-      ],
-    })
-    const host = fakeHost({ agentText: reviewText })
+    const host = fakeHost()
     start(host)
     const route = host.routes[0]!
-    const malformed = await route.fetch(post(JSON.stringify({ endpoint: 'replan', reqId, planVersion: 1 })))
-    expect(malformed.status).toBe(400)
 
-    const unconfirmed = await route.fetch(
-      post(JSON.stringify({ endpoint: 'replan', reqId, planVersion: 1, files: ['contracts/architecture.json'] })),
+    const removed = await route.fetch(
+      post(JSON.stringify({ endpoint: 'replan', reqId, planVersion: 1, files: ['docs/a.md'] })),
     )
-    expect(unconfirmed.status).toBe(409)
-    const unconfirmedBody = (await unconfirmed.json()) as { error: { code: string } }
-    expect(unconfirmedBody.error.code).toBe('recovery_required')
+    expect(removed.status).toBe(404)
 
-    const confirmed = await route.fetch(
+    const frozen = await route.fetch(post(JSON.stringify({ endpoint: 'plan', reqId })))
+    expect(frozen.status).toBe(409)
+    const frozenBody = (await frozen.json()) as { error: { code: string } }
+    expect(frozenBody.error.code).toBe('plan_frozen')
+
+    const permitted = await route.fetch(
       post(
         JSON.stringify({
-          endpoint: 'replan',
+          endpoint: 'plan',
           reqId,
-          planVersion: 1,
-          files: ['contracts/architecture.json'],
-          confirmRecovery: true,
-          sessionId: 'session-replan',
+          confirmPlanChange: true,
+          reason: '任务包遗漏关键文件',
+          sessionId: 'session-plan-change',
         }),
       ),
     )
-    const confirmedBody = (await confirmed.json()) as {
-      ok: boolean
-      value: { planVersion: number; taskId: string; files: string[]; recovered: number }
-    }
-    if (!confirmedBody.ok) throw new Error(JSON.stringify(confirmedBody))
-    expect(confirmedBody.ok).toBe(true)
-    expect(confirmedBody.value).toMatchObject({
-      planVersion: 2,
-      taskId: 'a',
-      files: ['contracts/architecture.json'],
-      recovered: 1,
-    })
-
-    const detail = await route.fetch(post(JSON.stringify({ endpoint: 'detail', reqId })))
-    const detailBody = (await detail.json()) as {
-      value: {
-        status: string
-        approval: unknown
-        latestPlan: { planVersion: number; tasks: Array<{ files: string[] }> }
-      }
-    }
-    expect(detailBody.value.status).toBe('plan_proposed')
-    expect(detailBody.value.latestPlan.planVersion).toBe(2)
-    expect(detailBody.value.approval).toBeNull()
-    expect(detailBody.value.latestPlan.tasks[0]?.files).toEqual(['docs/a.md', 'contracts/architecture.json'])
+    expect(permitted.status).toBe(200)
+    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository2 = new Repository(database2)
+    const request = repository2
+      .requestsFor(reqId)
+      .find((candidate) => candidate.action === 'plan' && candidate.state === 'pending')
+    expect(request?.source).toContain('plan-change:任务包遗漏关键文件')
+    repository2.close()
     host.cleanup()
   })
 

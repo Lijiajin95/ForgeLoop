@@ -386,8 +386,8 @@ describe('status board', () => {
     expect(item.actions).not.toContain('verify')
   })
 
-  it('offers replan for an approved plan with a failed task and hides it for terminal requirements', () => {
-    const reqId = submit('req-replan')
+  it('freezes an approved plan and never offers plan or replan for it', () => {
+    const reqId = submit('req-frozen')
     repository.recordTaskPlan(plan(reqId))
     repository.recordPlanApproval({
       requirementId: reqId,
@@ -407,10 +407,10 @@ describe('status board', () => {
     })
     repository.setStatus(reqId, 'blocked', '任务失败，等待决定')
 
-    const view = board()
-    const requirement = view.requirements.find((item) => item.reqId === reqId)!
-    expect(requirement.actions).toContain('replan')
-    expect(requirement.actions).not.toContain('accept')
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.actions).not.toContain('plan')
+    expect(requirement.actions).not.toContain('replan')
+    expect(requirement.actions).toContain('cancel')
 
     repository.setStatus(reqId, 'cancelled')
     expect(board().requirements.find((item) => item.reqId === reqId)?.actions).toEqual([])
@@ -637,37 +637,7 @@ describe('status board', () => {
     expect(board().requirements.find((item) => item.reqId === idle)?.actions).toContain('advance')
   })
 
-  it('offers rework, recover, build and deploy only when the underlying records allow them', () => {
-    // rework：全部交付、验证阻断且仍有失败额度。
-    const reworkReq = submit('req-board-rework')
-    repository.recordTaskPlan(plan(reworkReq))
-    repository.recordPlanApproval({
-      requirementId: reworkReq,
-      planVersion: 1,
-      approvedBy: 'owner',
-      approvedAt: '2026-10-23T00:00:03.000Z',
-      source: 'test',
-    })
-    for (const task of plan(reworkReq).tasks) {
-      repository.recordTaskArtifact({
-        requirementId: reworkReq,
-        planVersion: 1,
-        taskId: task.taskId,
-        candidateSha256: `candidate-${task.taskId}`,
-        testEvidenceSha256: `test-${task.taskId}`,
-        reviewSha256: `review-${task.taskId}`,
-        acceptance: '完成',
-        authorizationSource: `plan-approval:${reworkReq}:v1:owner`,
-        recordedAt: NOW,
-        baselineCommit: 'abc',
-      })
-    }
-    seedVerification(reworkReq, 1, 'block')
-    repository.setStatus(reworkReq, 'blocked', '独立验证阻断')
-    const reworkView = board().requirements.find((item) => item.reqId === reworkReq)!
-    expect(reworkView.actions).toContain('rework')
-    expect(reworkView.verification).toMatchObject({ verdict: 'block', fresh: true })
-
+  it('offers recover, build and deploy only when the underlying records allow them', () => {
     // recover：存在 unknown 请求时提供，且不自动重放。
     const recoverReq = submit('req-board-recover')
     repository.recordRequest({

@@ -41,10 +41,6 @@ window.__ModuleLoader__.load({
       'action.advanced': '已受理推进请求',
       'action.planned': '已受理重新生成任务包请求',
       'action.verified': '已受理独立验证请求',
-      'action.rework': '重新研发',
-      'action.reworkHelp': '独立验证阻断后，归档旧候选并把同一任务包重新交给研发；旧证据与失败轮次保留。',
-      'action.reworked': '已归档旧候选并排队重新研发',
-      'action.reworkRecoveryConfirm': '该需求有结果未知的请求。已核对工作副本、Git 与证据后，确认关闭 unknown 并重新研发？',
       'action.recover': '核对未知',
       'action.recoverHelp': '中断或停止后可能存在未收口的外部副作用。核对工作副本、Git、产物与证据后关闭未知请求；不会重放。',
       'action.recoverConfirm': '确认已核对工作副本、Git、产物与证据，并关闭该需求的未知请求？关闭不会重放任何副作用。',
@@ -231,10 +227,6 @@ window.__ModuleLoader__.load({
       'action.advanced': 'Advance request accepted',
       'action.planned': 'Regeneration request accepted',
       'action.verified': 'Verification request accepted',
-      'action.rework': 'Rework candidate',
-      'action.reworkHelp': 'After a blocked verification, archive the old candidate and hand the same task package back to development; evidence and failure rounds are kept.',
-      'action.reworked': 'Old candidate archived; rework queued',
-      'action.reworkRecoveryConfirm': 'This requirement has an unknown-outcome request. After verifying the workspace, Git and evidence, close it and rework?',
       'action.recover': 'Reconcile unknown',
       'action.recoverHelp': 'After a stop or interruption external side effects may be unresolved. Verify the workspace, Git, artifacts and evidence, then close the unknown request; nothing is replayed.',
       'action.recoverConfirm': 'Confirm you verified the workspace, Git, artifacts and evidence, and close this requirement\'s unknown requests? Closing never replays side effects.',
@@ -491,12 +483,6 @@ window.__ModuleLoader__.load({
       'detail.scenarios': '验证场景',
       'detail.unknownRequest': '结果未知，需核对',
       'detail.clarificationHint': '回答请在 ForgeLoop 业务会话输入；本页不提供回答入口。',
-      'action.replan': '重新规划',
-      'action.replanHelp': '复制当前任务包、补充文件并生成待批准的新版本；不会自动批准。',
-      'action.replanPrompt': '输入要补充到失败任务的文件路径（逗号或换行分隔）：',
-      'action.replanRecoveryConfirm': '该需求有结果未知的请求。已核对工作副本、Git 与证据后，确认关闭 unknown 并重新规划？',
-      'action.replanned': '已生成任务包 v{plan}，任务 {task} 补充 {files}；等待批准。',
-      'action.replannedRecovered': '已关闭 {count} 条 unknown。',
       'wb.release': '发布与运行',
       'wb.businessReview': '业务终审',
       'wb.candidate': '候选包',
@@ -822,12 +808,6 @@ window.__ModuleLoader__.load({
       'detail.scenarios': 'Verification scenarios',
       'detail.unknownRequest': 'Unknown outcome; verify',
       'detail.clarificationHint': 'Answer in the ForgeLoop business conversation; this page has no answer entry.',
-      'action.replan': 'Re-plan',
-      'action.replanHelp': 'Copy the current task package, add files and create a new version awaiting approval; it is not auto-approved.',
-      'action.replanPrompt': 'Files to add to the failed task (comma or newline separated):',
-      'action.replanRecoveryConfirm': 'This requirement has an unknown request. After verifying the workspace, Git and evidence, close it and re-plan?',
-      'action.replanned': 'Created task package v{plan}; task {task} now allows {files}; awaiting approval.',
-      'action.replannedRecovered': 'Closed {count} unknown request(s).',
       'wb.release': 'Release and runtime',
       'wb.businessReview': 'Business review',
       'wb.candidate': 'Candidate package',
@@ -1805,22 +1785,18 @@ window.__ModuleLoader__.load({
         approve: t('action.approve'),
         advance: t('action.advance'),
         verify: t('action.verify'),
-        rework: t('action.rework'),
         recover: t('action.recover'),
         build: t('action.build'),
         deploy: t('action.deploy'),
-        replan: t('action.replan'),
         stop: t('action.stop'),
         cancel: t('action.cancel'),
       }
       const titles = {
         plan: t('action.planHelp'),
         verify: t('action.verifyHelp'),
-        rework: t('action.reworkHelp'),
         recover: t('action.recoverHelp'),
         build: t('action.buildHelp'),
         deploy: t('action.deployHelp'),
-        replan: t('action.replanHelp'),
         stop: t('action.stopHelp'),
       }
       return h(
@@ -3204,71 +3180,7 @@ window.__ModuleLoader__.load({
                 : window.confirm(t('action.stopConfirm'))
             if (!confirmed) return
           }
-          if (endpoint === 'replan') {
-            const raw =
-              typeof window === 'undefined' || typeof window.prompt !== 'function'
-                ? ''
-                : window.prompt(t('action.replanPrompt'), 'contracts/architecture.json')
-            if (raw === null) return
-            const files = raw
-              .split(/[\n,]/)
-              .map((file) => file.trim())
-              .filter(Boolean)
-            if (files.length === 0) return
-            let confirmRecovery = false
-            if (requirement.unknownRequests > 0) {
-              const confirmed =
-                typeof window === 'undefined' || typeof window.confirm !== 'function'
-                  ? false
-                  : window.confirm(t('action.replanRecoveryConfirm'))
-              if (!confirmed) return
-              confirmRecovery = true
-            }
-            setAction({ reqId: requirement.reqId, busy: endpoint, message: '' })
-            read('replan', {
-              reqId: requirement.reqId,
-              planVersion: requirement.planVersion,
-              files,
-              sessionId: props.sessionId,
-              confirmRecovery,
-            })
-              .then((value) => {
-                const recovered = value && value.recovered > 0
-                  ? ` ${t('action.replannedRecovered', { count: value.recovered })}`
-                  : ''
-                setAction({
-                  reqId: requirement.reqId,
-                  busy: '',
-                  message: t('action.replanned', {
-                    plan: value && value.planVersion,
-                    task: value && value.taskId,
-                    files: value && Array.isArray(value.files) ? value.files.join(', ') : files.join(', '),
-                  }) + recovered,
-                })
-                load()
-                setDetailNonce((current) => current + 1)
-              })
-              .catch((error) => {
-                setAction({
-                  reqId: requirement.reqId,
-                  busy: '',
-                  message: (error && error.message) || String(error),
-                })
-              })
-            return
-          }
           const extra = {}
-          if (endpoint === 'rework') {
-            extra.planVersion = requirement.planVersion
-            if (requirement.unknownRequests > 0) {
-              const confirmed =
-                typeof window === 'undefined' || typeof window.confirm !== 'function'
-                  ? false
-                  : window.confirm(t('action.reworkRecoveryConfirm'))
-              if (!confirmed) return
-              extra.confirmRecovery = true
-            }
-          }
           if (endpoint === 'recover') {
             const confirmed =
               typeof window === 'undefined' || typeof window.confirm !== 'function'
@@ -3307,8 +3219,6 @@ window.__ModuleLoader__.load({
                       ? 'planned'
                       : endpoint === 'verify'
                         ? 'verified'
-                        : endpoint === 'rework'
-                          ? 'reworked'
                           : endpoint === 'recover'
                             ? 'recovered'
                           : endpoint === 'build'
@@ -5773,27 +5683,6 @@ window.__ModuleLoader__.load({
         if (endpoint === 'stop') {
           const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function' ? true : window.confirm(t('action.stopConfirm'))
           if (!confirmed) return
-        }
-        if (endpoint === 'replan') {
-          const raw = typeof window === 'undefined' || typeof window.prompt !== 'function' ? '' : window.prompt(t('action.replanPrompt'), 'contracts/architecture.json')
-          if (raw === null) return
-          const files = raw.split(/[\n,]/).map((file) => file.trim()).filter(Boolean)
-          if (files.length === 0) return
-          let confirmRecovery = false
-          if (requirement.unknownRequests > 0) {
-            const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function' ? false : window.confirm(t('action.replanRecoveryConfirm'))
-            if (!confirmed) return
-            confirmRecovery = true
-          }
-          setAction({ busy: 'replan', message: '' })
-          read('replan', { reqId: requirement.reqId, planVersion: requirement.planVersion, files, sessionId: props.sessionId, confirmRecovery })
-            .then((value) => {
-              setAction({ busy: '', message: t('action.replanned', { plan: value.planVersion, task: value.taskId, files: value.files.join(', ') }) })
-              load()
-              setDetailNonce((value) => value + 1)
-            })
-            .catch((error) => setAction({ busy: '', message: error.message || String(error) }))
-          return
         }
         setAction({ busy: endpoint, message: '' })
         read(endpoint, {

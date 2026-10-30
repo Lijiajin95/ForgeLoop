@@ -115,10 +115,15 @@ export interface CandidateCapture {
   readonly diffPath: string
 }
 
-/** 暂存全部改动并生成候选 diff；同时给出越出批准文件清单的改动。 */
+/**
+ * 暂存全部改动并生成候选 diff。
+ *
+ * `allowedFiles` 省略时表示执行范围是整个工作区（当前研发执行角色的默认策略）；
+ * 只有显式给出清单时才计算越界文件，供需要硬边界的调用方使用。
+ */
 export function captureCandidate(input: {
   worktreePath: string
-  allowedFiles: readonly string[]
+  allowedFiles?: readonly string[]
   diffPath: string
 }): CandidateCapture {
   requireGit(input.worktreePath, ['add', '-A'])
@@ -132,8 +137,8 @@ export function captureCandidate(input: {
     .filter(Boolean)
   // 保留原始换行：`patch`/`git apply` 要求 diff 以换行结束，不能 trim。
   const diff = rawDiff.stdout.endsWith('\n') ? rawDiff.stdout : `${rawDiff.stdout}\n`
-  const allowed = new Set(input.allowedFiles)
-  const violations = changed.filter((file) => !allowed.has(file))
+  const allowed = input.allowedFiles ? new Set(input.allowedFiles) : null
+  const violations = allowed ? changed.filter((file) => !allowed.has(file)) : []
   const diffSha256 = sha256OfText(diff)
   mkdirSync(dirname(input.diffPath), { recursive: true })
   writeFileSync(input.diffPath, diff, 'utf8')

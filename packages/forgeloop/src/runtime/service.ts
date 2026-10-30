@@ -176,24 +176,6 @@ function readJson(path: string): unknown {
   }
 }
 
-function normalizeReplanFiles(files: readonly string[]): string[] {
-  if (!Array.isArray(files) || files.length === 0) {
-    throw new RuleViolationError('重新规划至少需要一个补充文件')
-  }
-  if (files.length > 20) throw new RuleViolationError('重新规划一次最多补充 20 个文件')
-  const normalized: string[] = []
-  for (const raw of files) {
-    if (typeof raw !== 'string') throw new RuleViolationError('补充文件必须是字符串')
-    const file = raw.trim()
-    if (!file) throw new RuleViolationError('补充文件不能为空')
-    if (file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file) || file.split('/').includes('..')) {
-      throw new RuleViolationError(`补充文件必须是项目内相对路径：${file}`)
-    }
-    if (!normalized.includes(file)) normalized.push(file)
-  }
-  return normalized
-}
-
 function planReviewBlocking(reportJson: string): string {
   try {
     const review = parsePlanReview(reportJson)
@@ -888,11 +870,29 @@ ${answer}`
     action: 'analyze' | 'plan' | 'advance' | 'verify'
     by: string
     source: string
+    /** 已批准任务包默认冻结；只有所有者显式许可并说明原因才能重新生成。 */
+    confirmPlanChange?: boolean
+    reason?: string
   }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     if (isTerminal(requirement.status)) {
       return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}，不能再排队`)
+    }
+    if (input.action === 'plan') {
+      const latestPlan = this.repo.latestTaskPlan(input.reqId)
+      const frozen = latestPlan ? this.repo.planApproval(input.reqId, latestPlan.planVersion) : null
+      if (frozen) {
+        if (input.confirmPlanChange !== true) {
+          return fail(
+            'plan_frozen',
+            `需求 ${input.reqId} 的任务包 v${latestPlan!.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
+          )
+        }
+        if (!input.reason?.trim()) {
+          return fail('reason_required', '修改已批准任务包必须说明原因，便于审计')
+        }
+      }
     }
     let planVersion = 0
     if (input.action === 'advance' || input.action === ACTION_VERIFY) {
@@ -936,6 +936,10 @@ ${answer}`
       return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论`)
     }
     try {
+      const source =
+        input.action === 'plan' && input.confirmPlanChange === true
+          ? `${input.source}:plan-change:${input.reason?.trim()}`
+          : input.source
       const { request, created } = this.repo.recordRequest({
         requestId: `rq-${randomUUID()}`,
         reqId: input.reqId,
@@ -943,7 +947,7 @@ ${answer}`
         planVersion,
         action: input.action,
         requestedBy: input.by,
-        source: input.source,
+        source,
         now: this.now(),
       })
       return ok(
@@ -1002,79 +1006,25 @@ ${answer}`
   }
 
   /**
-   * 独立验证阻断后回到研发：归档旧交付与材料，清掉“已交付”标记，
-   * 让同一份已批准任务包重新执行并产生新候选身份。
-   * 不新建任务包、不清零失败轮次、不改变文件边界。
+   * 把已交付任务退回执行角色修复：归档旧产物与材料、清交付标记、记录修复原因。
+   * 任务包版本不变；新一次执行会产生新的候选身份。
    */
-  rework(input: {
+  private reopenDeliveredTasks(input: {
     reqId: string
-    planVersion: number
-    by: string
-    source: string
-    confirmRecovery?: boolean
-  }): OperationResult {
-    const requirement = this.repo.getRequirement(input.reqId)
-    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    if (isTerminal(requirement.status)) {
-      return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}`)
-    }
-    const authorized = this.requireAuthorizedPlan(input.reqId)
-    if (!authorized.ok) return authorized.result
-    const plan = authorized.value.plan
-    if (plan.planVersion !== input.planVersion) {
-      return fail('stale_plan', `任务包 v${input.planVersion} 不是最新版本（最新 v${plan.planVersion}）`)
-    }
-    if (this.remainingFailureRounds(input.reqId) === 0) {
-      return fail('grant_required', `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权后才能重新研发`)
-    }
-    const requests = this.repo.requestsFor(input.reqId)
-    if (requests.some((request) => request.state === 'pending' || request.state === 'claimed')) {
-      return fail('busy', `需求 ${input.reqId} 仍有在途请求；等结果收口后再重新研发`)
-    }
-    const activeRun = this.repo
-      .taskRuns(input.reqId, plan.planVersion)
-      .find((run) => run.state === TASK_RUN_RUNNING || run.state === TASK_RUN_AWAITING_USER)
-    if (activeRun) {
-      return fail('busy', `任务 ${activeRun.taskId} 仍是运行中或等待输入；停止并核对后才能重新研发`)
-    }
-    const unknown = requests.filter((request) => request.state === 'unknown')
-    if (unknown.length > 0 && input.confirmRecovery !== true) {
-      return fail(
-        'recovery_required',
-        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；请先核对工作副本、Git 与证据，再确认重新研发`,
-      )
-    }
-    if (unknown.length > 0) {
-      const recovery = this.recover({ reqId: input.reqId, by: input.by, confirm: true })
-      if (!recovery.ok) return recovery
-    }
-    const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
-    if (artifacts.length !== plan.tasks.length) {
-      return fail('not_delivered', `任务尚未全部交付，没有可重新研发的固定候选`)
-    }
-    let identity = ''
-    try {
-      identity = this.candidateIdentity(plan, artifacts)
-    } catch (error) {
-      return fail('material_invalid', (error as Error).message)
-    }
-    const verification = this.repo.verificationForCandidate(input.reqId, plan.planVersion, identity)
-    if (!verification || verification.verdict !== 'block') {
-      return fail(
-        'verification_not_blocked',
-        `候选 ${identity.slice(0, 16)}… 没有独立验证阻断结论；只有被阻断的候选才能回到研发修复`,
-      )
-    }
+    plan: TaskPlan
+    identity: string
+    reason: string
+  }): Array<{ taskId: string; attempt: number; archivedPath: string }> {
     const archived: Array<{ taskId: string; attempt: number; archivedPath: string }> = []
-    for (const task of plan.tasks) {
+    for (const task of input.plan.tasks) {
       if (task.verification === true) continue
-      const artifact = this.repo.taskArtifact(input.reqId, plan.planVersion, task.taskId)
+      const artifact = this.repo.taskArtifact(input.reqId, input.plan.planVersion, task.taskId)
       if (!artifact) continue
-      const evidence = this.repo.evidence(input.reqId, plan.planVersion, task.taskId)
+      const evidence = this.repo.evidence(input.reqId, input.plan.planVersion, task.taskId)
       const taskDir = evidence
         ? dirname(evidence.candidatePath)
-        : evidenceDir(this.config, input.reqId, plan.planVersion, task.taskId)
-      const attempt = this.repo.archivedArtifacts(input.reqId, plan.planVersion, task.taskId).length + 1
+        : evidenceDir(this.config, input.reqId, input.plan.planVersion, task.taskId)
+      const attempt = this.repo.archivedArtifacts(input.reqId, input.plan.planVersion, task.taskId).length + 1
       const archiveRoot = join(dirname(taskDir), `${task.taskId}.history`)
       const archivedPath = join(archiveRoot, `attempt-${attempt}-${artifact.candidateSha256.slice(0, 12) || 'empty'}`)
       if (existsSync(taskDir)) {
@@ -1086,37 +1036,20 @@ ${answer}`
         attempt,
         archivedAt: this.now(),
         archivedPath,
-        reason: `独立验证阻断（候选 ${identity.slice(0, 16)}…）后重新研发`,
+        reason: input.reason,
       })
-      this.repo.clearTaskDelivery(input.reqId, plan.planVersion, task.taskId)
+      this.repo.clearTaskDelivery(input.reqId, input.plan.planVersion, task.taskId)
       this.recordRun(
         input.reqId,
-        plan,
+        input.plan,
         task,
         TASK_RUN_BLOCKED,
-        `独立验证阻断后重新研发（旧候选 ${artifact.candidateSha256.slice(0, 12)}… 与材料已归档）`,
+        `${input.reason}（旧候选 ${artifact.candidateSha256.slice(0, 12)}… 与材料已归档）`,
         0,
       )
       archived.push({ taskId: task.taskId, attempt, archivedPath })
     }
-    if (archived.length === 0) {
-      return fail('no_change', '没有可重新研发的已交付任务；验证任务不能单独重新研发')
-    }
-    const queued = this.requestOperation({
-      reqId: input.reqId,
-      action: 'advance',
-      by: input.by,
-      source: `${input.source}:rework:${identity.slice(0, 12)}`,
-    })
-    if (!queued.ok) return queued
-    return ok(
-      `已归档候选 ${identity.slice(0, 16)}… 的 ${archived.length} 个任务并排队重新研发；旧验证与失败轮次保留`,
-      {
-        ...(queued.data as Record<string, unknown>),
-        previousCandidateSha256: identity,
-        archived,
-      },
-    )
+    return archived
   }
 
   /** 判断一个失败任务能否人工重试；只读，供任务详情与 retryTask 共用。 */
@@ -1198,130 +1131,6 @@ ${answer}`
   private remainingFailureRounds(reqId: string): number {
     const used = this.repo.failureRounds(reqId).length
     return Math.max(0, this.repo.grantCount(reqId) * MAX_ROUNDS_PER_GRANT - used)
-  }
-
-  /**
-   * 最小重新规划：复制当前已批准任务包，给一个失败任务补充允许文件，生成新的待批准版本。
-   * 不自动批准、不重放旧请求；已有 unknown 请求时要求 owner 显式确认核对后再关闭。
-   */
-  async replanTask(input: {
-    reqId: string
-    planVersion: number
-    taskId?: string
-    files: readonly string[]
-    by: string
-    source: string
-    confirmRecovery?: boolean
-  }): Promise<OperationResult> {
-    const requirement = this.repo.getRequirement(input.reqId)
-    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    if (isTerminal(requirement.status)) return fail('terminal', `需求已处于终态 ${requirement.status}`)
-    const plan = this.repo.taskPlan(input.reqId, input.planVersion)
-    if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包 v${input.planVersion}`)
-    const latest = this.repo.latestTaskPlan(input.reqId)
-    if (!latest || latest.planVersion !== plan.planVersion) {
-      return fail('stale_plan', `任务包 v${plan.planVersion} 不是最新版本，不能重新规划`)
-    }
-    if (!this.repo.planApproval(input.reqId, plan.planVersion)) {
-      return fail('plan_not_approved', `任务包 v${plan.planVersion} 尚未批准，不能基于它重新规划`)
-    }
-    if (this.repo.requestsFor(input.reqId).some((request) => request.state === 'pending' || request.state === 'claimed')) {
-      return fail('busy', `需求 ${input.reqId} 仍有待执行请求，不能重新规划`)
-    }
-    if (this.repo.taskRuns(input.reqId, plan.planVersion).some((run) => run.state === TASK_RUN_RUNNING)) {
-      return fail('busy', `需求 ${input.reqId} 仍有运行中的任务，不能重新规划`)
-    }
-
-    const unknown = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
-    if (unknown.length > 0 && input.confirmRecovery !== true) {
-      return fail(
-        'recovery_required',
-        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；请先核对工作副本、Git 与证据，再次确认重新规划（不会自动重放 unknown 请求）`,
-      )
-    }
-
-    let added: string[]
-    try {
-      added = normalizeReplanFiles(input.files)
-    } catch (error) {
-      return fail('bad_files', (error as Error).message)
-    }
-    const runs = this.repo.taskRuns(input.reqId, plan.planVersion)
-    const failedTaskIds = new Set(
-      runs
-        .filter((run) => [TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(run.state as typeof TASK_RUN_FAILED))
-        .map((run) => run.taskId),
-    )
-    const chosenTaskId =
-      input.taskId?.trim() ||
-      executionOrder(plan).find(
-        (taskId) =>
-          failedTaskIds.has(taskId) &&
-          !this.repo.taskArtifact(input.reqId, plan.planVersion, taskId),
-      )
-    if (!chosenTaskId) return fail('task_missing', `需求 ${input.reqId} 没有可补充文件的失败任务`)
-    const task = plan.tasks.find((candidate) => candidate.taskId === chosenTaskId)
-    if (!task) return fail('task_missing', `任务包 v${plan.planVersion} 没有任务 ${chosenTaskId}`)
-    if (task.verification) return fail('verification_task', `任务 ${task.taskId} 是验证任务，不能补充允许文件`)
-    if (this.repo.taskArtifact(input.reqId, plan.planVersion, task.taskId)) {
-      return fail('already_delivered', `任务 ${task.taskId} 已经交付，不能重新规划`)
-    }
-    const taskRun = runs.find((run) => run.taskId === task.taskId)
-    if (!taskRun || ![TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(taskRun.state as typeof TASK_RUN_FAILED)) {
-      return fail('not_failed', `任务 ${task.taskId} 当前不是失败/阻塞/待决定状态，不需要重新规划`)
-    }
-    const newFiles = added.filter((file) => !task.files.includes(file))
-    if (newFiles.length === 0) {
-      return fail('no_change', `任务 ${task.taskId} 的允许文件已经包含 ${added.join('、')}，不需要重新规划`)
-    }
-
-    const planVersion = this.repo.nextPlanVersion(input.reqId)
-    const now = this.now()
-    const nextPlan: TaskPlan = {
-      ...plan,
-      taskPlanId: `plan-${input.reqId}-${planVersion}`,
-      planVersion,
-      createdAt: now,
-      tasks: plan.tasks.map((candidate) =>
-        candidate.taskId === task.taskId
-          ? { ...candidate, files: [...candidate.files, ...newFiles], authorizationSource: '' }
-          : candidate,
-      ),
-    }
-    try {
-      this.repo.recordTaskPlan(nextPlan)
-    } catch (error) {
-      return fail('invalid_plan', `新任务包未通过校验：${(error as Error).message}`)
-    }
-    this.repo.setStatus(input.reqId, PLAN_PROPOSED)
-
-    let recovered = 0
-    if (unknown.length > 0) {
-      const result = this.recover({ reqId: input.reqId, by: input.by, confirm: true })
-      if (!result.ok) return result
-      recovered = unknown.length
-    }
-    // 新任务包同样必须通过实现前评审；否则它会停在“无法批准”的状态，
-    // 重规划入口看似成功、实际继续阻断。
-    const analysis = this.repo.latestAnalysis(input.reqId)
-    if (!analysis) return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论；不能评审新任务包`)
-    const reviewed = await this.reviewPlan(requirement, analysis, nextPlan, new AbortController().signal)
-    if (reviewed.state !== 'done') {
-      return fail(
-        'plan_review_failed',
-        `任务包 v${planVersion} 已生成，但实现前评审未完成：${reviewed.detail}`,
-      )
-    }
-    if (reviewed.review.verdict !== 'pass') {
-      return fail(
-        'plan_review_blocked',
-        `任务包 v${planVersion} 已生成，但实现前评审阻断：${reviewed.review.blocking.join('；')}`,
-      )
-    }
-    return ok(
-      `已生成需求 ${input.reqId} 的任务包 v${planVersion}（任务 ${task.taskId} 补充 ${newFiles.join('、')}）；已通过实现前评审，等待批准`,
-      { planVersion, taskId: task.taskId, files: newFiles, recovered },
-    )
   }
 
   approvePlan(input: { reqId: string; planVersion: number; by: string; source: string }): OperationResult {
@@ -2317,10 +2126,20 @@ ${answer}`
       return this.executeAnalysis(request.reqId, signal)
     }
     if (request.action === 'plan') {
-      return this.executeDevPlanning(request.reqId, signal)
+      return this.executeDevPlanning(
+        request.reqId,
+        signal,
+        request.source.includes(':plan-change:'),
+      )
     }
     if (request.action === ACTION_VERIFY) {
-      return this.executeVerification(request.reqId, signal)
+      const verification = await this.executeVerification(request.reqId, signal)
+      if (verification.state === 'repair') {
+        return this.executeAdvance(request.reqId, signal, request.requestId)
+      }
+      return verification.state === 'done'
+        ? { state: 'done' as const, detail: verification.detail }
+        : { state: verification.state, detail: verification.detail }
     }
     return this.executeAdvance(request.reqId, signal, request.requestId)
   }
@@ -2388,9 +2207,18 @@ ${answer}`
   private async executeDevPlanning(
     reqId: string,
     signal: AbortSignal,
+    permittedPlanChange = false,
   ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
+    // 入队时未批准、执行时已批准：仍必须拒绝，避免旧请求悄悄覆盖已冻结的任务包。
+    const latestPlan = this.repo.latestTaskPlan(reqId)
+    if (latestPlan && this.repo.planApproval(reqId, latestPlan.planVersion) && !permittedPlanChange) {
+      return {
+        state: 'failed',
+        detail: `任务包 v${latestPlan.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
+      }
+    }
     const analysis = this.repo.latestAnalysis(reqId)
     if (!analysis) return { state: 'failed', detail: '尚无分析结论，不能规划' }
     if (analysis.requirementVersion !== requirement.versions.length) {
@@ -2658,7 +2486,7 @@ ${answer}`
   private async executeVerification(
     reqId: string,
     signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'unknown'; detail: string }> {
+  ): Promise<{ state: 'done' | 'failed' | 'unknown' | 'repair'; detail: string }> {
     const authorized = this.requireAuthorizedPlan(reqId)
     if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
     const requirement = this.repo.getRequirement(reqId)
@@ -3006,16 +2834,40 @@ ${answer}`
         occurredAt: this.now(),
       })
       const budgetLeft = this.remainingFailureRounds(reqId)
+      const blockingText = blocking.join('；') || report.summary
+      const rounds = this.repo.failureRounds(reqId).length
+      // 任务包冻结：验证提出的问题交回研发执行角色修复，不重新规划。
+      // 修复额度用尽时停在 blocked，等待追加授权或所有者决定。
+      if (budgetLeft > 0) {
+        const repairReason = `独立验证阻断，返回研发修复：${blockingText}`.slice(0, 900)
+        const reopened = this.reopenDeliveredTasks({
+          reqId,
+          plan,
+          identity: candidateSha256,
+          reason: repairReason,
+        })
+        if (reopened.length > 0) {
+          this.repo.setStatus(
+            reqId,
+            'blocked',
+            `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blockingText}；已返回研发修复（失败轮次 ${rounds}，剩余 ${budgetLeft}）`,
+          )
+          return {
+            state: 'repair',
+            detail: `独立验证阻断：${blockingText}；已返回研发修复，任务包 v${plan.planVersion} 不变；证据 ${reportPath}`,
+          }
+        }
+      }
       this.repo.setStatus(
         reqId,
         'blocked',
-        `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blocking.join('；') || report.summary}${
-          recorded ? `；失败轮次 ${this.repo.failureRounds(reqId).length}` : ''
+        `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blockingText}${
+          recorded ? `；失败轮次 ${rounds}` : ''
         }${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}`,
       )
       return {
         state: 'failed',
-        detail: `独立验证阻断：${blocking.join('；') || report.summary}；证据 ${reportPath}`,
+        detail: `独立验证阻断：${blockingText}；证据 ${reportPath}`,
       }
     }
 
@@ -3281,41 +3133,50 @@ ${answer}`
     }
     this.repo.setStatus(reqId, EXECUTING)
 
-    for (const taskId of executionOrder(plan)) {
-      if (signal.aborted) return { state: 'unknown', detail: '收到停止请求：在途动作结果需核对' }
-      const existing = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
-      if (existing) {
-        if (existing.authorizationSource !== authorizationSource) {
+    // 任务包冻结：验证阻断时把问题交回同一任务包的执行角色修复，然后重新验证；
+    // 修复额度由失败轮次控制，用尽后停在 blocked，不再自动循环。
+    for (;;) {
+      for (const taskId of executionOrder(plan)) {
+        if (signal.aborted) return { state: 'unknown', detail: '收到停止请求：在途动作结果需核对' }
+        const existing = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
+        if (existing) {
+          if (existing.authorizationSource !== authorizationSource) {
+            return {
+              state: 'failed',
+              detail: `任务 ${taskId} 的既有交付绑定的是 ${existing.authorizationSource || '未知授权'}，与当前批准不一致；需人工核对`,
+            }
+          }
+          continue
+        }
+        const outcome = await this.deliverTask({
+          requirement,
+          plan,
+          taskId,
+          baseline,
+          authorizationSource,
+          signal,
+          requestId,
+        })
+        if (outcome.state !== 'delivered') {
+          this.repo.setStatus(reqId, outcome.requirementStatus, outcome.reason)
           return {
-            state: 'failed',
-            detail: `任务 ${taskId} 的既有交付绑定的是 ${existing.authorizationSource || '未知授权'}，与当前批准不一致；需人工核对`,
+            state: outcome.state === 'awaiting_user' ? 'done' : outcome.state === 'unknown' ? 'unknown' : 'failed',
+            detail: outcome.reason,
           }
         }
-        continue
       }
-      const outcome = await this.deliverTask({
-        requirement,
-        plan,
-        taskId,
-        baseline,
-        authorizationSource,
-        signal,
-        requestId,
-      })
-      if (outcome.state !== 'delivered') {
-        this.repo.setStatus(reqId, outcome.requirementStatus, outcome.reason)
-        return {
-          state: outcome.state === 'awaiting_user' ? 'done' : outcome.state === 'unknown' ? 'unknown' : 'failed',
-          detail: outcome.reason,
-        }
+      const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
+      const verification = await this.executeVerification(reqId, signal)
+      if (verification.state === 'repair') continue
+      if (verification.state !== 'done') {
+        return verification.state === 'unknown'
+          ? { state: 'unknown' as const, detail: verification.detail }
+          : { state: 'failed' as const, detail: verification.detail }
       }
-    }
-    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
-    const verification = await this.executeVerification(reqId, signal)
-    if (verification.state !== 'done') return verification
-    return {
-      state: 'done',
-      detail: `任务包 v${plan.planVersion} 的 ${artifacts.length} 个任务已交付，${verification.detail}`,
+      return {
+        state: 'done',
+        detail: `任务包 v${plan.planVersion} 的 ${artifacts.length} 个任务已交付，${verification.detail}`,
+      }
     }
   }
 
@@ -3563,26 +3424,12 @@ ${answer}`
         continue
       }
 
+      // 执行角色的范围是整个工作区：计划里的 files 只是预期说明，不是硬边界。
+      // 候选 diff 仍记录全部实际改动，供独立审查、验证和审计回查。
       const capture = captureCandidate({
         worktreePath: worktree,
-        allowedFiles: task.files,
         diffPath: join(taskDir, 'candidate.diff'),
       })
-      if (capture.violations.length > 0) {
-        this.recordRun(
-          requirement.reqId,
-          plan,
-          task,
-          TASK_RUN_BLOCKED,
-          `改动越出批准文件清单：${capture.violations.join('、')}`,
-          0,
-        )
-        return {
-          state: 'blocked',
-          reason: `任务 ${taskId} 的改动越出批准文件清单：${capture.violations.join('、')}；需人工决定`,
-          requirementStatus: 'blocked',
-        }
-      }
       if (capture.changedFiles.length === 0) {
         this.recordRun(requirement.reqId, plan, task, TASK_RUN_FAILED, '开发回合没有产生任何文件改动', 0)
         feedback = '\n\n上一次实现没有产生任何文件改动。请真正修改允许清单内的文件。'

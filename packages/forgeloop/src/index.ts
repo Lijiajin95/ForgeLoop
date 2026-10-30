@@ -18,7 +18,7 @@ export const name = 'forgeloop'
 
 /** Web 客户端读取看板事实的认证 HTTP 路径；只在有浏览器连接服务的 profile 中注册。 */
 export const BOARD_HTTP_PATH = '/api/forgeloop/board'
-const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'rework', 'recover', 'build', 'deploy', 'retry', 'replan', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-confirm-unknown', 'ops-request-fix']
+const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'recover', 'build', 'deploy', 'retry', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-confirm-unknown', 'ops-request-fix']
 
 interface BoardFailure {
   readonly code: string
@@ -93,6 +93,7 @@ function registerBoardRoute(
             decision?: unknown
             reason?: unknown
             confirmRecovery?: unknown
+            confirmPlanChange?: unknown
             files?: unknown
             query?: unknown
             limit?: unknown
@@ -150,11 +151,14 @@ function registerBoardRoute(
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
               if (!reqId) return boardResponse(boardFailure('bad_request', '重新生成任务包需要 reqId'), 400)
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+              const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
               const result = runtime.requestOperation({
                 reqId,
                 action: 'plan',
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}:plan`,
+                ...(body?.confirmPlanChange === true ? { confirmPlanChange: true } : {}),
+                ...(reason ? { reason } : {}),
               })
               return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
             }
@@ -194,22 +198,6 @@ function registerBoardRoute(
                 action: 'verify',
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}:verify`,
-              })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
-            }
-            if (endpoint === 'rework') {
-              const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
-              if (!reqId || !Number.isInteger(planVersion) || planVersion < 1) {
-                return boardResponse(boardFailure('bad_request', '重新研发需要 reqId 与正整数 planVersion'), 400)
-              }
-              const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-              const result = runtime.rework({
-                reqId,
-                planVersion,
-                by: config.owner,
-                source: `web-decision:${sessionId || 'unknown-session'}:rework`,
-                confirmRecovery: body?.confirmRecovery === true,
               })
               return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
             }
@@ -267,35 +255,6 @@ function registerBoardRoute(
                 taskId,
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}`,
-                confirmRecovery: body?.confirmRecovery === true,
-              })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
-            }
-            if (endpoint === 'replan') {
-              const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
-              const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : undefined
-              const files = Array.isArray(body?.files)
-                ? body.files.filter((file: unknown): file is string => typeof file === 'string')
-                : []
-              if (
-                !reqId ||
-                !Number.isInteger(planVersion) ||
-                planVersion < 1 ||
-                files.length === 0 ||
-                files.length > 20 ||
-                files.some((file) => !file.trim() || file.length > 200)
-              ) {
-                return boardResponse(boardFailure('bad_request', '重新规划需要 reqId、正整数 planVersion 与 1..20 个补充文件'), 400)
-              }
-              const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-              const result = await runtime.replanTask({
-                reqId,
-                planVersion,
-                ...(taskId ? { taskId } : {}),
-                files,
-                by: config.owner,
-                source: `web-decision:${sessionId || 'unknown-session'}:replan`,
                 confirmRecovery: body?.confirmRecovery === true,
               })
               return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
