@@ -19,6 +19,9 @@ function repo(): string {
   git(dir, ['config', 'user.email', 'test@example.com'])
   git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, 'README.md'), 'base\n')
+  writeFileSync(join(dir, '.gitignore'), 'node_modules/\n')
+  mkdirSync(join(dir, 'node_modules'), { recursive: true })
+  writeFileSync(join(dir, 'node_modules/marker'), 'installed\n')
   git(dir, ['add', '-A'])
   git(dir, ['commit', '-qm', 'base'])
   return dir
@@ -278,6 +281,27 @@ describe('candidate export and controlled integration', () => {
     })
     expect(failed.ok).toBe(false)
     expect(failed.detail).toContain('无法应用到提交检查工作树')
+  })
+
+  it('shares installed dependencies with the check worktree', () => {
+    const project = repo()
+    const { record } = candidate(project)
+    const result = integrateCandidate({
+      projectPath: project,
+      candidateDiffPath: record.diffPath,
+      candidateBaseline: record.baselineCommit,
+      expectedDiffSha256: record.diffSha256,
+      checkCommand: [
+        'node',
+        '-e',
+        "require('node:fs').accessSync('node_modules/marker')",
+      ],
+      commitMessage: 'feat: test',
+      evidenceDir: evidence(),
+      timeoutMs: 30_000,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.checkPassed).toBe(true)
   })
 
 })

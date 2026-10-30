@@ -5,7 +5,7 @@
  * 不 push、不创建 tag、不修改版本号；不把真实项目中的其他在途改动混入提交。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { sha256OfText } from '../domain/delivery.js'
 import { RuleViolationError } from '../domain/errors.js'
@@ -185,6 +185,16 @@ export function integrateCandidate(input: {
   const worktree = join(input.evidenceDir, 'check-worktree')
   try {
     worktreeAdd(input.projectPath, worktree, input.candidateBaseline)
+    // 提交检查工作树没有 node_modules（被忽略、不随 git 进入候选）；复用主项目的
+    // 已安装依赖，才能运行 tsc/vitest 等真实检查，而不是把缺依赖误判为候选失败。
+    const sharedModules = join(input.projectPath, 'node_modules')
+    if (existsSync(sharedModules) && !existsSync(join(worktree, 'node_modules'))) {
+      try {
+        symlinkSync(sharedModules, join(worktree, 'node_modules'), 'dir')
+      } catch {
+        // 权限或平台不支持时保留原检查结果；检查命令会给出明确失败。
+      }
+    }
     const applied = runCommand('git', ['apply', '--binary', input.candidateDiffPath], worktree, 60_000)
     if (applied.code !== 0) {
       const detail = `候选 diff 无法应用到提交检查工作树：${applied.stderr.trim() || applied.stdout.trim()}`
