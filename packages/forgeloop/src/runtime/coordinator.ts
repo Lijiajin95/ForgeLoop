@@ -84,6 +84,8 @@ export class Coordinator {
     const interrupted = this.runtime.repo.markStartedActionsInterrupted(now)
     // 运维动作的结果未知：先核对，不自动重放。
     const interruptedOps = this.runtime.repo.markRunningOpsActionsUnknown(now)
+    // 任务运行也可能停在 running：同样是“结果未收口”，标记为阻塞等待人工核对。
+    const interruptedRuns = this.runtime.repo.markRunningTaskRunsInterrupted(now)
     this.runtime.repo.setMeta('host_owner', this.owner, now)
     this.runtime.repo.setMeta(
       'last_recovery',
@@ -92,6 +94,7 @@ export class Coordinator {
         unknownRequests: unknownRequests.map((request) => request.requestId),
         interruptedActions: interrupted,
         interruptedOps,
+        interruptedRuns,
       }),
       now,
     )

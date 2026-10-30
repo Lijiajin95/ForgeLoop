@@ -700,6 +700,41 @@ describe('web board host wiring', () => {
     host.cleanup()
   })
 
+  it('closes unknown requests only after an explicit owner confirmation', async () => {
+    const reqId = 'req-recover-route'
+    seedRequirement(reqId)
+    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository = new Repository(database)
+    repository.recordRequest({
+      requestId: 'rq-recover-route',
+      reqId,
+      project: 'testproj',
+      planVersion: 0,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: '2026-10-30T00:00:00.000Z',
+    })
+    repository.claimNextRequest('tester', '2026-10-30T00:00:01.000Z')
+    repository.markClaimedUnknown('2026-10-30T00:00:02.000Z')
+    repository.close()
+
+    const host = fakeHost()
+    start(host)
+    const route = host.routes[0]!
+    const refused = await route.fetch(post(JSON.stringify({ endpoint: 'recover', reqId })))
+    expect(refused.status).toBe(409)
+    const confirmed = await route.fetch(
+      post(JSON.stringify({ endpoint: 'recover', reqId, confirmRecovery: true })),
+    )
+    expect(confirmed.status).toBe(200)
+    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const repository2 = new Repository(database2)
+    expect(repository2.request('rq-recover-route')?.state).toBe('dismissed')
+    repository2.close()
+    host.cleanup()
+  })
+
   it('creates a new plan version through replan after explicit unknown recovery', async () => {
     const reqId = 'req-replan-1'
     seedRequirement(reqId)

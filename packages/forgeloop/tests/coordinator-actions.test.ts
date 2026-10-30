@@ -142,6 +142,32 @@ describe('coordinator lifecycle', () => {
     await first.stop()
   })
 
+  it('marks task runs left running by a previous host as blocked and never replays them', () => {
+    const reqId = submit()
+    runtime.repo.recordTaskRun({
+      requirementId: reqId,
+      planVersion: 1,
+      taskId: 'a',
+      state: 'running',
+      reason: '执行步骤 35',
+      executedSeconds: 0,
+      updatedAt: '2026-10-23T00:00:02.000Z',
+    })
+    const coordinator = makeCoordinator(false)
+    coordinator.start()
+    const run = runtime.repo.taskRuns(reqId, 1)[0]!
+    expect(run.state).toBe('blocked')
+    expect(run.reason).toContain('宿主中断')
+    expect(run.reason).toContain('核对')
+    const meta = JSON.parse(String(runtime.repo.getMeta('last_recovery'))) as {
+      interruptedRuns?: number
+    }
+    expect(meta.interruptedRuns).toBe(1)
+    // 恢复只记录中断，不自动重放任务。
+    expect(runtime.repo.taskArtifact(reqId, 1, 'a')).toBeNull()
+    coordinator.stop()
+  })
+
   it('records the claimed requests and started actions as recovered on start', async () => {
     const reqId = submit()
     runtime.repo.recordRequest({

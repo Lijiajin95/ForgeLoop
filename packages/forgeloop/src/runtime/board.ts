@@ -80,6 +80,7 @@ export type BoardRequirementAction =
   | 'advance'
   | 'verify'
   | 'rework'
+  | 'recover'
   | 'build'
   | 'deploy'
   | 'replan'
@@ -629,6 +630,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         !(verificationFresh && verificationView !== null)
       ) {
         actions.push('verify')
+      }
+      if (unknownRequests > 0 && progress.running === 0 && progress.awaitingInput === 0 && !activeRequest) {
+        actions.push('recover')
       }
       if (
         authorization?.status === 'approved' &&

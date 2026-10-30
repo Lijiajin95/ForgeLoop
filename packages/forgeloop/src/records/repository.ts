@@ -918,6 +918,22 @@ export class Repository {
     }
   }
 
+  /**
+   * 宿主启动时把上一次仍在 running 的任务运行标为 blocked：
+   * 执行结果没有收口、工作副本可能有改动，只记录中断，不自动重放。
+   */
+  markRunningTaskRunsInterrupted(now: string): number {
+    const result = this.db.handle
+      .prepare(
+        "UPDATE requirement_task_runs SET state = 'blocked', reason = ?, updated_at = ? WHERE state = 'running'",
+      )
+      .run(
+        `宿主中断：上一次执行结果未收口，工作副本可能有改动，需核对后重试（${now}）；不会自动重放`,
+        now,
+      )
+    return Number(result.changes)
+  }
+
   // ---------------------------------------------------------------- 失败轮次与授权
 
   /**

@@ -237,6 +237,28 @@ describe('business final review', () => {
     expect(accepted.ok, accepted.message).toBe(true)
   })
 
+  it('refuses acceptance while an interrupted request is still unknown', async () => {
+    const { reqId } = await runPipeline()
+    runtime.repo.recordRequest({
+      requestId: 'rq-unknown-accept',
+      reqId,
+      project: 'testproj',
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: '2026-10-29T00:00:05.000Z',
+    })
+    runtime.repo.claimNextRequest('tester', '2026-10-29T00:00:06.000Z')
+    runtime.repo.markClaimedUnknown('2026-10-29T00:00:07.000Z')
+    expect(runtime.accept({ reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'recovery_required',
+    })
+    expect(runtime.recover({ reqId, by: 'owner', confirm: true }).ok).toBe(true)
+    expect(runtime.accept({ reqId, by: 'owner', source: 'test' }).ok).toBe(true)
+  })
+
   it('blocks acceptance when the business review reports a failure', async () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner({ review: () => businessReview({ verdict: 'block' }) }))

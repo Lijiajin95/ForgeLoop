@@ -1779,6 +1779,14 @@ ${answer}`
   accept(input: { reqId: string; by: string; source: string; artifactSha256?: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    // 结果未知的请求意味着可能有未收口的外部副作用；验收前必须核对并显式收口。
+    const unknown = this.repo.requestsFor(input.reqId).filter((request) => request.state === 'unknown')
+    if (unknown.length > 0) {
+      return fail(
+        'recovery_required',
+        `需求 ${input.reqId} 有 ${unknown.length} 条结果未知的请求；核对工作副本、产物与证据并关闭后才能验收`,
+      )
+    }
     const latestPlan = this.repo.latestTaskPlan(input.reqId)
     if (!latestPlan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
     const approval = this.repo.planApproval(input.reqId, latestPlan.planVersion)

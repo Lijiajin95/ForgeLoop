@@ -45,6 +45,10 @@ window.__ModuleLoader__.load({
       'action.reworkHelp': '独立验证阻断后，归档旧候选并把同一任务包重新交给研发；旧证据与失败轮次保留。',
       'action.reworked': '已归档旧候选并排队重新研发',
       'action.reworkRecoveryConfirm': '该需求有结果未知的请求。已核对工作副本、Git 与证据后，确认关闭 unknown 并重新研发？',
+      'action.recover': '核对未知',
+      'action.recoverHelp': '中断或停止后可能存在未收口的外部副作用。核对工作副本、Git、产物与证据后关闭未知请求；不会重放。',
+      'action.recoverConfirm': '确认已核对工作副本、Git、产物与证据，并关闭该需求的未知请求？关闭不会重放任何副作用。',
+      'action.recovered': '已核对并关闭未知请求',
       'action.build': '构建安装包',
       'action.buildHelp': '只从已通过验证的候选工作区构建安装包；验收后才能构建。',
       'action.built': '候选包已构建',
@@ -231,6 +235,10 @@ window.__ModuleLoader__.load({
       'action.reworkHelp': 'After a blocked verification, archive the old candidate and hand the same task package back to development; evidence and failure rounds are kept.',
       'action.reworked': 'Old candidate archived; rework queued',
       'action.reworkRecoveryConfirm': 'This requirement has an unknown-outcome request. After verifying the workspace, Git and evidence, close it and rework?',
+      'action.recover': 'Reconcile unknown',
+      'action.recoverHelp': 'After a stop or interruption external side effects may be unresolved. Verify the workspace, Git, artifacts and evidence, then close the unknown request; nothing is replayed.',
+      'action.recoverConfirm': 'Confirm you verified the workspace, Git, artifacts and evidence, and close this requirement\'s unknown requests? Closing never replays side effects.',
+      'action.recovered': 'Unknown requests reconciled and closed',
       'action.build': 'Build installable candidate',
       'action.buildHelp': 'Build only from the verified candidate workspace; acceptance is required first.',
       'action.built': 'Candidate package built',
@@ -1798,6 +1806,7 @@ window.__ModuleLoader__.load({
         advance: t('action.advance'),
         verify: t('action.verify'),
         rework: t('action.rework'),
+        recover: t('action.recover'),
         build: t('action.build'),
         deploy: t('action.deploy'),
         replan: t('action.replan'),
@@ -1808,6 +1817,7 @@ window.__ModuleLoader__.load({
         plan: t('action.planHelp'),
         verify: t('action.verifyHelp'),
         rework: t('action.reworkHelp'),
+        recover: t('action.recoverHelp'),
         build: t('action.buildHelp'),
         deploy: t('action.deployHelp'),
         replan: t('action.replanHelp'),
@@ -3259,6 +3269,14 @@ window.__ModuleLoader__.load({
               extra.confirmRecovery = true
             }
           }
+          if (endpoint === 'recover') {
+            const confirmed =
+              typeof window === 'undefined' || typeof window.confirm !== 'function'
+                ? false
+                : window.confirm(t('action.recoverConfirm'))
+            if (!confirmed) return
+            extra.confirmRecovery = true
+          }
           if (endpoint === 'build') extra.planVersion = requirement.planVersion
           if (endpoint === 'deploy') {
             const raw =
@@ -3291,6 +3309,8 @@ window.__ModuleLoader__.load({
                         ? 'verified'
                         : endpoint === 'rework'
                           ? 'reworked'
+                          : endpoint === 'recover'
+                            ? 'recovered'
                           : endpoint === 'build'
                             ? 'built'
                             : endpoint === 'deploy'
