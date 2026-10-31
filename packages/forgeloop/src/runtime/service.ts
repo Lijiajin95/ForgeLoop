@@ -47,6 +47,7 @@ import {
 import { parseBusinessReview, validateBusinessReview, type BusinessReview } from '../domain/business-review.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import { buildTaskFailureAdvice } from '../domain/failure-advice.js'
+import { requirementEvidence } from '../domain/requirement-evidence.js'
 import {
   parsePlanReview,
   parseVerificationCommands,
@@ -2406,10 +2407,16 @@ ${answer}`
       else progress.pending += 1
     }
     const requests = this.repo.requestsFor(reqId)
+    const evidence = requirementEvidence({
+      admissions: this.repo.admissionsFor(reqId),
+      commits: this.repo.commitsFor(reqId),
+    })
     return ok(`需求 ${reqId} 详情`, {
       ...view,
       latestPlan: plan,
       artifacts,
+      admission: evidence.admission,
+      commit: evidence.commit,
       acceptanceRecord: this.repo.acceptance(reqId),
       businessReview: plan ? this.repo.businessReviewForCandidate(
         reqId,

@@ -2408,3 +2408,32 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 部署后尚未在正式生产需求上重新跑真实闭环；正式库既有需求未触碰。页面需刷新后加载新客户端资源。
 - 未 push、未打 tag、未递增版本；未改动模型路由/凭据、其他项目或已部署应用。
 - 旧 API 动作与详情字段仍可能存在；本批只收敛 UI，不删除历史数据或兼容端点。
+
+## 48. 需求详情准入/提交证据（2026-10-31）
+
+### 48.1 需求与实现
+
+- 需求 `req-20261031014704-1d47b1` v1，任务包 `plan-req-20261031014704-1d47b1-1`（方案 v1）：
+  证据聚合、接口契约、详情页只读展示、统一验证四个任务。
+- 实现提交：`e50ad5e`（evidence-domain：领域聚合、记录读取、`requirementDetail` 注入）、
+  `9a05e87`（api-contract：runtime 方法与看板 `detail` 端点契约）、
+  `cb61ab7`（detail-ui：详情页两组证据与空态）。
+- `requirementDetail` 稳定返回最近一次系统准入的 `decision/code/reason/createdAt` 与最近一次受控提交的
+  `commitSha/files/committedAt`；无记录时为 `null`。详情页只读展示两组证据，无批准、推进或验收入口；
+  旧需求显示空态占位，其余详情内容照常渲染。
+
+### 48.2 验证
+
+- `npm run check --workspace forgeloop-dsh`：退出码 0；`tsc -p tsconfig.json --noEmit` 通过；
+  46 个测试文件、509 项测试通过。
+- 目标用例：`requirement-detail-evidence.test.ts`、`requirement-detail-contract.test.ts`、
+  `requirement-detail-view.test.ts` 共 14 项通过，覆盖最近一条选取、`admit`/`block` 映射、
+  runtime 与看板端点字段稳定、旧需求 `null` 与缺字段空态、证据块无动作按钮。
+- `make check`：退出码 0，类型检查、架构契约与全量测试通过。
+- 日志中的“不是一个工作区”来自既有负向用例（故意制造损坏工作副本），不是检查失败。
+
+### 48.3 边界
+
+- 未启动真实 DSH 宿主或浏览器，未做视觉与浏览器 E2E 验收；视图用例用假 React 渲染组件树。
+- 未运行需要模型凭据的 `make verify-plugin`，未构建或安装候选包。
+- 未 push、未打 tag、未改版本号；本次工作副本只更新本状态记录，未改动实现代码或业务记录。

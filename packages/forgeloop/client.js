@@ -455,6 +455,20 @@ window.__ModuleLoader__.load({
       'detail.openTask': '查看执行',
       'detail.dependsOn': '依赖',
       'detail.files': '允许文件',
+      'detail.evidence': '系统准入与受控提交',
+      'detail.admission': '最近一次系统准入',
+      'detail.admissionDecision': '决策',
+      'detail.admissionCode': '代码',
+      'detail.admissionReason': '原因',
+      'detail.admissionAt': '准入时间',
+      'detail.admissionEmpty': '没有系统准入记录',
+      'detail.commitEvidence': '最近一次受控提交',
+      'detail.commitSha': '提交',
+      'detail.commitFiles': '文件',
+      'detail.commitAt': '提交时间',
+      'detail.commitEmpty': '没有受控提交记录',
+      'detail.decision.admit': '准入通过',
+      'detail.decision.block': '拒绝准入',
       'detail.delivery': '交付进度与验收依据',
       'detail.progressNote': '已交付 {delivered}/{total} · 失败 {failed} · 执行中 {running} · 等待输入 {awaitingInput}',
       'detail.artifacts': '交付物与证据身份',
@@ -778,6 +792,20 @@ window.__ModuleLoader__.load({
       'detail.openTask': 'View execution',
       'detail.dependsOn': 'Depends on',
       'detail.files': 'Allowed files',
+      'detail.evidence': 'System admission and controlled commit',
+      'detail.admission': 'Latest system admission',
+      'detail.admissionDecision': 'Decision',
+      'detail.admissionCode': 'Code',
+      'detail.admissionReason': 'Reason',
+      'detail.admissionAt': 'Admitted at',
+      'detail.admissionEmpty': 'No system admission recorded',
+      'detail.commitEvidence': 'Latest controlled commit',
+      'detail.commitSha': 'Commit',
+      'detail.commitFiles': 'Files',
+      'detail.commitAt': 'Committed at',
+      'detail.commitEmpty': 'No controlled commit recorded',
+      'detail.decision.admit': 'Admitted',
+      'detail.decision.block': 'Blocked',
       'detail.delivery': 'Delivery progress and acceptance basis',
       'detail.progressNote': 'Delivered {delivered}/{total} · failed {failed} · running {running} · waiting input {awaitingInput}',
       'detail.artifacts': 'Artifacts and evidence identity',
@@ -1932,6 +1960,11 @@ window.__ModuleLoader__.load({
       const acceptance = data.acceptanceRecord || {}
       const review = data.planReview || null
       const verification = data.verification || null
+      const admission = data.admission && typeof data.admission === 'object' ? data.admission : null
+      const commit = data.commit && typeof data.commit === 'object' ? data.commit : null
+      const admissionDecision = admission
+        ? `${admission.decision === 'admit' ? t('detail.decision.admit') : admission.decision === 'block' ? t('detail.decision.block') : '—'} (${admission.decision || '—'})`
+        : '—'
       const sections = []
 
       sections.push(
@@ -2112,6 +2145,69 @@ window.__ModuleLoader__.load({
                   ),
                 )
               : null,
+          ],
+        }),
+      )
+      sections.push(
+        Section({
+          title: t('detail.evidence'),
+          children: [
+            h(
+              'div',
+              { className: 'flb-evidence', key: 'admission-evidence', 'data-evidence': 'admission' },
+              h('div', { className: 'flb-label' }, t('detail.admission')),
+              admission
+                ? h(
+                    'div',
+                    { className: 'flb-evidence-fields' },
+                    h(
+                      Kv,
+                      { label: t('detail.admissionDecision'), key: 'decision' },
+                      admissionDecision,
+                    ),
+                    h(Kv, { label: t('detail.admissionCode'), key: 'code' }, admission.code || '—'),
+                    h(Kv, { label: t('detail.admissionReason'), key: 'reason' }, admission.reason || '—'),
+                    h(Kv, { label: t('detail.admissionAt'), key: 'at' }, formatMoment(admission.createdAt)),
+                  )
+                : h(
+                    'div',
+                    { className: 'flb-muted', 'data-evidence-empty': 'admission' },
+                    t('detail.admissionEmpty'),
+                  ),
+            ),
+            h(
+              'div',
+              { className: 'flb-evidence', key: 'commit-evidence', 'data-evidence': 'commit' },
+              h('div', { className: 'flb-label' }, t('detail.commitEvidence')),
+              commit
+                ? h(
+                    'div',
+                    { className: 'flb-evidence-fields' },
+                    h(
+                      'div',
+                      { className: 'flb-card-meta', key: 'sha' },
+                      `${t('detail.commitSha')}: `,
+                      h('span', { className: 'flb-detail-code' }, commit.commitSha || '—'),
+                    ),
+                    h(
+                      'div',
+                      { className: 'flb-card-meta', key: 'files' },
+                      `${t('detail.commitFiles')}: ${
+                        Array.isArray(commit.files) && commit.files.length > 0 ? commit.files.join('、') : '—'
+                      }`,
+                    ),
+                    h(
+                      'div',
+                      { className: 'flb-card-meta', key: 'at' },
+                      `${t('detail.commitAt')}: ${formatMoment(commit.committedAt)}`,
+                    ),
+                  )
+                : h(
+                    'div',
+                    { className: 'flb-muted', 'data-evidence-empty': 'commit' },
+                    t('detail.commitEmpty'),
+                  ),
+            ),
           ],
         }),
       )
@@ -5930,6 +6026,8 @@ window.__ModuleLoader__.load({
       name: 'forgeloop-board',
       inject: ['slots', 'locale', 'uiConversation'],
       apply,
+      // 无浏览器视图测试的只读入口；宿主只消费 name/inject/apply。
+      __components: { RequirementDetail },
     }
   },
 })

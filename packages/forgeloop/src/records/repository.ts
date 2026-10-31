@@ -863,6 +863,15 @@ export class Repository {
     return row ? commitFromRow(row) : null
   }
 
+  commitsFor(reqId: string): RequirementCommitRecord[] {
+    const rows = this.db.handle
+      .prepare(
+        'SELECT * FROM requirement_commits WHERE req_id = ? ORDER BY committed_at, candidate_sha256',
+      )
+      .all(reqId) as Row[]
+    return rows.map(commitFromRow)
+  }
+
   latestCommit(reqId: string): RequirementCommitRecord | null {
     const row = this.db.handle
       .prepare('SELECT * FROM requirement_commits WHERE req_id = ? ORDER BY committed_at DESC LIMIT 1')
