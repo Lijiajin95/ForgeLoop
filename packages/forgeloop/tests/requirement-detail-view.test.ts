@@ -380,4 +380,99 @@ describe('requirement detail evidence view', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('renders 无提交信息 for an empty message in read-only detail data', () => {
+    for (const commitMessage of ['', ' \n\t ']) {
+      const page = renderDetail(
+        detailData({
+          commit: {
+            commitSha: 'rawmessage1234',
+            commitMessage,
+            files: ['packages/forgeloop/src/a.ts'],
+            committedAt: '2026-10-31T02:00:00.000Z',
+          },
+        }),
+      )
+      const commitBlock = findByAttr(page, 'data-evidence', 'commit')!
+      expect(textOf(commitBlock)).toContain('提交信息: 无提交信息')
+      expect(textOf(commitBlock)).not.toContain('—')
+      expect(buttonsIn(commitBlock)).toEqual([])
+      expect(editableIn(commitBlock)).toEqual([])
+    }
+  })
+
+  it('renders 无提交信息 for empty and whitespace-only messages without adding actions', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-detail-view-empty-message-'))
+    const config = resolveConfig(
+      {
+        project: 'testproj',
+        projectPath: dir,
+        recordsRoot: join(dir, '.forgeloop'),
+        pollSeconds: 1,
+        agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
+        formalTestTimeoutSeconds: 30,
+        maxTaskAttempts: 2,
+      },
+      dir,
+    )
+    const runtime = new ForgeLoopRuntime({ ctx: {}, config })
+    try {
+      const submitted = runtime.submit({ text: '空提交信息的需求', by: 'owner', source: 'test' })
+      expect(submitted.ok, submitted.message).toBe(true)
+      const reqId = (submitted.data as { reqId: string }).reqId
+      const record = (candidateSha256: string, commitMessage: string, committedAt: string): void => {
+        runtime.repo.recordCommit({
+          requirementId: reqId,
+          planVersion: 1,
+          candidateSha256,
+          commitSha: candidateSha256,
+          commitMessage,
+          checkCommand: ['npm', 'run', 'check'],
+          checkLogPath: join(dir, `${candidateSha256}.log`),
+          checkSha256: `check-${candidateSha256}`,
+          files: ['packages/forgeloop/client.js'],
+          committedAt,
+        })
+      }
+
+      record('candidate-empty-message', '', '2026-10-31T01:00:00.000Z')
+      const emptyResult = runtime.requirementDetail(reqId)
+      expect(emptyResult.ok, emptyResult.message).toBe(true)
+      expect(
+        (emptyResult.data as { commit: { commitMessage: string } }).commit.commitMessage,
+      ).toBe('无提交信息')
+      const emptyPage = renderDetail(emptyResult.data as unknown as DetailData)
+      const emptyBlock = findByAttr(emptyPage, 'data-evidence', 'commit')!
+      expect(textOf(emptyBlock)).toContain('提交信息: 无提交信息')
+      expect(textOf(emptyBlock)).not.toContain('—')
+      expect(buttonsIn(emptyBlock)).toEqual([])
+      expect(editableIn(emptyBlock)).toEqual([])
+
+      record('candidate-whitespace-message', ' \n\t ', '2026-10-31T02:00:00.000Z')
+      const whitespaceResult = runtime.requirementDetail(reqId)
+      expect(whitespaceResult.ok, whitespaceResult.message).toBe(true)
+      expect(
+        (whitespaceResult.data as { commit: { commitMessage: string } }).commit.commitMessage,
+      ).toBe('无提交信息')
+      const whitespacePage = renderDetail(whitespaceResult.data as unknown as DetailData)
+      const whitespaceBlock = findByAttr(whitespacePage, 'data-evidence', 'commit')!
+      expect(textOf(whitespaceBlock)).toContain('提交信息: 无提交信息')
+      expect(textOf(whitespaceBlock)).not.toContain('—')
+      expect(buttonsIn(whitespaceBlock)).toEqual([])
+      expect(editableIn(whitespaceBlock)).toEqual([])
+
+      record('candidate-original-message', 'fix: 保留原始提交信息', '2026-10-31T03:00:00.000Z')
+      const originalResult = runtime.requirementDetail(reqId)
+      expect(originalResult.ok, originalResult.message).toBe(true)
+      const originalPage = renderDetail(originalResult.data as unknown as DetailData)
+      const originalBlock = findByAttr(originalPage, 'data-evidence', 'commit')!
+      expect(textOf(originalBlock)).toContain('提交信息: fix: 保留原始提交信息')
+      expect(textOf(originalBlock)).not.toContain('无提交信息')
+      expect(buttonsIn(originalBlock)).toEqual([])
+      expect(editableIn(originalBlock)).toEqual([])
+    } finally {
+      runtime.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

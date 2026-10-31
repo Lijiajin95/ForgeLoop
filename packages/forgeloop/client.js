@@ -1726,6 +1726,14 @@ window.__ModuleLoader__.load({
       return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
     }
 
+    /**
+     * 受控提交信息为空或纯空白时显示“无提交信息”，非空时保留原文。
+     * 详情接口已在组装时格式化；这里兜底直接渲染的旧数据，避免又出现“—”。
+     */
+    function commitMessageText(value) {
+      return typeof value === 'string' && value.trim() !== '' ? value : '无提交信息'
+    }
+
     function heartbeatStale(lastActivity) {
       if (!lastActivity) return false
       const at = Date.parse(lastActivity)
@@ -2194,7 +2202,7 @@ window.__ModuleLoader__.load({
                     h(
                       'div',
                       { className: 'flb-card-meta', key: 'message' },
-                      `${t('detail.commitMessage')}: ${commit.commitMessage || '—'}`,
+                      `${t('detail.commitMessage')}: ${commitMessageText(commit.commitMessage)}`,
                     ),
                     h(
                       'div',

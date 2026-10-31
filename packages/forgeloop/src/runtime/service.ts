@@ -33,6 +33,7 @@ import {
 import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_PLANNING, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
+import { formatCommitMessage } from '../domain/commit-message.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, COMMITTED, DEVELOPING, EXECUTING, PLAN_PROPOSED, SPECIFIED, VERIFYING, isTerminal } from '../domain/status.js'
 import { AGENT_DEV, AGENT_PRODUCT, AGENT_VERIFY } from '../domain/agents.js'
@@ -2680,7 +2681,12 @@ ${answer}`
       latestPlan: plan,
       artifacts,
       admission: evidence.admission,
-      commit: evidence.commit,
+      commit: evidence.commit
+        ? {
+            ...evidence.commit,
+            commitMessage: formatCommitMessage(evidence.commit.commitMessage),
+          }
+        : null,
       acceptanceRecord: this.repo.acceptance(reqId),
       businessReview: plan ? this.repo.businessReviewForCandidate(
         reqId,
