@@ -2372,7 +2372,8 @@ ${answer}`
 
   /**
    * 单条需求的完整只读详情：在 status 视图之上补充最新任务包正文、
-   * 交付产物、验收记录与进度，供工作台展开需求后展示。
+   * 交付产物、验收记录、进度，以及最近一次系统准入与受控提交的只读证据
+   * （无记录时为 null），供工作台展开需求后展示。
    */
   requirementDetail(reqId: string): OperationResult {
     const requirement = this.repo.getRequirement(reqId)
@@ -2432,6 +2433,8 @@ ${answer}`
         (request) => request.state === 'pending' || request.state === 'claimed',
       ).length,
       stopRequested: Boolean(this.repo.activeStop(requirement.reqId)),
+      admission: this.repo.latestAdmissionEvidence(reqId),
+      commit: this.repo.latestCommitEvidence(reqId),
     })
   }
 
@@ -3881,6 +3884,10 @@ ${answer}`
     const workspace = join(dir, 'workspace')
     mkdirSync(dir, { recursive: true })
     rmSync(workspace, { recursive: true, force: true })
+    // 旧候选的验证 worktree 可能已登记但目录被清理；先移除登记再创建，
+    // 否则重试验证会永久卡在“丢失但已注册的工作区”。
+    runCommand('git', ['worktree', 'remove', '--force', workspace], input.devWorkspace, 30_000)
+    runCommand('git', ['worktree', 'prune'], input.devWorkspace, 30_000)
     const added = runCommand(
       'git',
       ['worktree', 'add', '--detach', workspace, input.candidate.snapshotCommit],

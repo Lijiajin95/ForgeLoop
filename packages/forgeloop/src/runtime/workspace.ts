@@ -15,14 +15,14 @@ export interface CommandResult {
   readonly stderr: string
 }
 
-export function runCommand(command: string, args: readonly string[], cwd: string, timeoutMs = 120_000): CommandResult {
+export function runCommand(command: string, args: readonly string[], cwd: string, timeoutMs = 120_000, extraEnv: NodeJS.ProcessEnv = {}): CommandResult {
   try {
     const stdout = execFileSync(command, [...args], {
       cwd,
       encoding: 'utf8',
       timeout: timeoutMs,
       maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv },
     })
     return { code: 0, stdout, stderr: '' }
   } catch (error) {

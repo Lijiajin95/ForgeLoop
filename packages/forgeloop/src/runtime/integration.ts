@@ -313,9 +313,15 @@ export function integrateCandidate(input: {
         detail: '暂存内容与获准候选不一致；已撤销本次暂存，未提交',
       }
     }
-    const commit = runCommand('git', ['commit', '-m', input.commitMessage], input.projectPath, 60_000)
+    // 该仓库的 pre-commit 钩子安装但缺少 .pre-commit-config.yaml；这不是候选缺陷。
+    // 有配置时正常跑钩子；没有配置时只允许钩子自身跳过，不执行任何检查绕过。
+    const commitEnv = existsSync(join(input.projectPath, '.pre-commit-config.yaml'))
+      ? {}
+      : { PRE_COMMIT_ALLOW_NO_CONFIG: '1' }
+    const commit = runCommand('git', ['commit', '-m', input.commitMessage], input.projectPath, 60_000, commitEnv)
     if (commit.code !== 0) {
       runCommand('git', ['reset'], input.projectPath, 30_000)
+      runCommand('git', ['apply', '-R', '--binary', input.candidateDiffPath], input.projectPath, 30_000)
       return {
         ok: false,
         checkPassed: true,
