@@ -2433,8 +2433,6 @@ ${answer}`
         (request) => request.state === 'pending' || request.state === 'claimed',
       ).length,
       stopRequested: Boolean(this.repo.activeStop(requirement.reqId)),
-      admission: this.repo.latestAdmissionEvidence(reqId),
-      commit: this.repo.latestCommitEvidence(reqId),
     })
   }
 
@@ -3939,6 +3937,12 @@ ${answer}`
     const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}']).trim()
     const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
     const diff = readFileSync(input.candidate.diffPath, 'utf8')
+    // 候选 diff 会进入 DSH 会话提示词；其中的测试数据可能包含 `dsh-session:` 字样，
+    // DSH 会把这类 URI 当作会话引用解析并拒绝整轮。只对提示词副本做脱敏和截断，
+    // 工作区里的真实候选 diff 与证据保持不变。
+    const diffForPrompt = diff
+      .replace(/dsh-session:[^\s"'`<>]+/g, 'dsh-session:redacted')
+      .slice(0, 120_000)
     writeFileSync(join(dir, 'candidate.diff'), diff, 'utf8')
     writeFileSync(
       join(dir, 'candidate.json'),
@@ -3977,7 +3981,7 @@ ${answer}`
           candidateSha256: input.candidate.candidateSha256,
           workspaceSha256,
           workspacePath: workspace,
-          diff,
+          diff: diffForPrompt,
         }),
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(dir, 'verify.jsonl'),
