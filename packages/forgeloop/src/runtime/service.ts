@@ -1534,6 +1534,7 @@ ${answer}`
       writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
     }
     const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
+    if (!existsSync(packageJsonPath)) return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
@@ -1686,6 +1687,7 @@ ${answer}`
       writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
     }
     const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
+    if (!existsSync(packageJsonPath)) return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
