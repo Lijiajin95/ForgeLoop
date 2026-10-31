@@ -2529,3 +2529,79 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 故障注入是人为隔离样本，不是自然业务缺陷；它证明了失败现场保留、定向修复、新候选和
   重新验证路径，但不能外推为任意代码缺陷都能自动修复。
 - 未 push、未打 tag、未改版本号；未触碰生产旧需求 `req-20261030134652-e934a6`。
+
+## 51. 候选完整性与正式目标复核（2026-10-31 第二轮收口）
+
+### 51.1 本次修复
+
+- 构建材料核验统一到新旧两条路径。构建前核对：
+  - 验证报告的登记摘要、文件实际摘要，以及需求/方案/需求版本/候选/工作区字段；
+  - 业务验收报告的登记摘要、文件实际摘要及验证摘要关联；
+  - 候选 diff 的实际摘要、候选身份、方案版本；
+  - 验证工作区的 HEAD 树、未提交改动是否只允许 `verification/`；
+  - 验证工作区实际候选 diff 与登记候选 diff 一致；
+  - 受控提交在真实项目中存在，实际文件集合等于登记文件集合与候选 diff 文件集合。
+- 构建副本在构建前对全部受版本控制的文件做快照；build 或 package 步骤修改/删除任一受保护文件
+  即拒绝构建，不沿用旧验证结论。旧路径的 prepare 步骤也在同一检查下。
+- 构建时保留候选 diff，避免既有 cleanup 删除候选材料。
+
+实现：`c5a3f7b`；测试：`4d8eb18`。
+测试先行时新增用例在修复前有 3 个失败：报告篡改仍成功、验证工作区源码被改仍成功、
+验证身份字段不一致落入业务错误；修复后全部通过。
+
+### 51.2 验证
+
+- `make check`：47 个测试文件、533 项测试通过。
+- `make coverage`：行 90.63%、分支 84.04%、函数 96.34%。
+- `make contracts`：通过。
+- 用当前构建代码在复制记录根 `/tmp/m0-integrity-records` 重建真实候选：
+  - 候选 `2f0df677a6d829c9…`
+  - 构建产物仍为 `9f873784bb57919e…`，与正式候选一致；
+  - 构建记录存于 `/home/link/.forgeloop/m0-fault/evidence/integrity-rebuild-build.json`。
+- 失败/拒绝用例：
+  - 验证报告被追加换行 → `verification_invalid`；
+  - 业务验收报告被修改 → `business_review_invalid`；
+  - 候选 diff 被修改/删除 → `candidate_content_mismatch`；
+  - 验证工作区 `packages/forgeloop/src.ts` 被改 → `candidate_content_mismatch`；
+  - 报告候选身份字段不一致 → `verification_invalid`；
+  - 受控提交文件清单被改 → `commit_identity_mismatch`；
+  - 构建或打包步骤修改/删除受保护源码 → `candidate_content_changed`；
+  - 旧路径同样拒绝构建期源码修改。
+- 正常候选通过：原有 legacy 与准入构建用例均通过；9f87 在复制记录根重建通过。
+
+### 51.3 正式目标与实际运行证据
+
+- 正式目标：`web` profile，3080，PID `2318025`，启动于 2026-10-31 13:24:25。
+- 正式安装依赖：
+  `file:/home/link/Project/ForgeLoop/packages/forgeloop/dist/forgeloop-dsh-0.0.2-m0fault.tgz`
+  （候选包 `9f87…`）。
+- 正式插件卡片实际显示：`ForgeLoop 研发看板 v0.0.2`、组件 `1 运行中`、来源
+  `.../forgeloop-dsh-0.0.2-m0fault.tgz`；截图
+  `/home/link/.forgeloop/production/evidence/formal-plugin-detail.png`。
+- 正式 API 空态：`req-20261030134652-e934a6` 返回 `commit: null`，记录到
+  `/home/link/.forgeloop/production/evidence/formal-empty.json`。
+- 正式 `verifyDeployment targetProfile=web` 通过，报告
+  `candidates/req-20261031040640-88c6e4/v1/deployment/web/deployment.json`。
+- 同候选运行实例（`m0web`，3092，PID `2403889`，记录根 `/home/link/.forgeloop/m0-fault`）：
+  - 有提交需求 `req-20261031040640-88c6e4`：`commit.commitSha=51618f…`，
+    `commitMessage` 与受控提交记录一致；
+  - 无提交夹具 `req-20261031065303-809e9b`：`commit=null`；
+  - 空态 → 有提交 → 空态切换无串记录；
+  - 证据文件：`target-positive.json`、`target-empty.json`、
+    `target-switch-positive.json`、`target-switch-back.json`；
+  - 插件卡片截图：`/home/link/.forgeloop/m0-fault/evidence/plugin-card.png`。
+- 真实浏览器只读组件测试覆盖：有提交展示、空态、无批准/推进/验收按钮、切换不串记录；
+  未取得需求详情页在正式目标浏览器中的截图。
+
+### 51.4 尚未关闭的缺口
+
+1. 正式生产记录库只有旧需求 `req-20261030134652-e934a6`，没有本次需求的受控提交记录；
+   因而“正式 3080 上有提交记录 → 显示 commitMessage”的业务检查无法在不写入/补造生产记录的前提下完成。
+   当前只完成正式空态检查；有提交、切换检查在 `m0web` 记录根的同一候选运行实例完成。
+2. 正式目标的“运行中”证据来自 DSH 插件卡片和安装包内容，尚未取得进程内加载代码的独立摘要；
+   `verifyDeployment.running_version` 仍只比较版本常量，不能单独证明进程内模块身份。
+3. 尚未取得需求详情页的正式浏览器截图；插件卡片截图不能替代业务页面截图。
+4. 本轮构建完整性修复提交晚于 9f87 候选包；9f87 未包含该修复。没有生成并独立验证一个同时包含
+   `commitMessage` 与构建完整性修复的新候选，也没有把新候选部署到正式目标。
+5. 因上述 1–4，本需求不能标记“交付完成”。当前可回查的交付仍为：
+   需求 `req-20261031040640-88c6e4`、提交 `51618f…`、候选 `2f0df…`、包 `9f87…`。
