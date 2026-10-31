@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { businessReviewDir, candidatesDir, devWorkspaceDir, evidenceDir, integrationDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
 import { PLUGIN_VERSION } from './version.js'
@@ -3847,6 +3847,54 @@ ${answer}`
   }
 
   /** 把研发工作区当前 HEAD 固定为需求级候选；旧候选与报告保留。 */
+  /**
+   * 隔离故障注入：只在显式设置 FORGELOOP_FAULT_INJECT 的测试宿主生效，
+   * 对每个需求/方案只注入一次，并把注入事实写入候选证据目录。生产不设置该变量。
+   */
+  private injectCandidateFault(reqId: string, planVersion: number, workspace: string): void {
+    const raw = process.env.FORGELOOP_FAULT_INJECT?.trim()
+    if (!raw) return
+    const dir = candidatesDir(this.config, reqId, planVersion)
+    const marker = join(dir, 'fault-injection.json')
+    if (existsSync(marker)) return
+    const spec = JSON.parse(raw) as { file?: unknown; append?: unknown; replaceFrom?: unknown; replaceTo?: unknown }
+    if (typeof spec.file !== 'string' || spec.file.trim() === '') {
+      throw new RuleViolationError('FORGELOOP_FAULT_INJECT 需要 file')
+    }
+    const root = resolve(workspace)
+    const target = resolve(root, spec.file)
+    if (target !== root && !target.startsWith(`${root}${sep}`)) {
+      throw new RuleViolationError('FORGELOOP_FAULT_INJECT 只能写需求工作区')
+    }
+    if (!existsSync(target)) throw new RuleViolationError(`故障注入目标不存在：${spec.file}`)
+    const before = readFileSync(target, 'utf8')
+    let after = before
+    if (typeof spec.replaceFrom === 'string' && typeof spec.replaceTo === 'string') {
+      after = after.replace(spec.replaceFrom, spec.replaceTo)
+    }
+    if (typeof spec.append === 'string') after += spec.append
+    if (after === before) throw new RuleViolationError('故障注入没有改变工作区内容')
+    writeFileSync(target, after, 'utf8')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      marker,
+      `${JSON.stringify(
+        {
+          kind: 'isolated-fault-injection',
+          reqId,
+          planVersion,
+          file: spec.file,
+          beforeSha256: sha256OfText(before),
+          afterSha256: sha256OfText(after),
+          at: this.now(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+  }
+
   private finalizeCandidate(input: {
     reqId: string
     plan: TaskPlan
@@ -3854,6 +3902,7 @@ ${answer}`
     baselineCommit: string
     snapshotCommit: string
   }): CandidateFile {
+    this.injectCandidateFault(input.reqId, input.plan.planVersion, input.workspace)
     const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
     if (status.code === 0 && status.stdout.trim()) {
       runCommand('git', ['add', '-A'], input.workspace)
