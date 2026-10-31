@@ -1884,8 +1884,18 @@ ${answer}`
       `实际运行版本 ${PLUGIN_VERSION}，候选包版本 ${build.packageVersion}`,
     )
 
-    const expectedModules = plan.tasks
-      .flatMap((task) => task.files)
+    // 新链路按候选 diff 的实际源码文件核对；旧链路仍按任务包声明核对。
+    const candidateDiffPath = admitted
+      ? existsSync(delivery!.candidate!.diffPath)
+        ? delivery!.candidate!.diffPath
+        : join(delivery!.verification!.evidenceDir, 'candidate.diff')
+      : ''
+    const expectedSources = admitted
+      ? [...readFileSync(candidateDiffPath, 'utf8').matchAll(/^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm)].map(
+          (match) => match[1]!,
+        )
+      : plan.tasks.flatMap((task) => task.files)
+    const expectedModules = expectedSources
       .filter((file) => file.startsWith('packages/forgeloop/src/') && file.endsWith('.ts'))
       .map((file) => file.replace('packages/forgeloop/src/', 'lib/').replace(/\.ts$/, '.js'))
     const absentModules = expectedModules.filter((file) => !existsSync(join(installedRoot, file)))
