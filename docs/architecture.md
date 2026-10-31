@@ -158,7 +158,8 @@ DSH 宿主（唯一常驻产品）
    `npm run candidate --workspace forgeloop-dsh`。
 8. **发布与上线核对**：发布使用独立授权。安装由外部受控机制完成；`deploy` 核对目标 profile 的安装
    文件与包内内容逐一致、安装版本与实际运行版本、候选 diff 中本次需求源码模块随包加载、
-   看板/记录入口与业务验收/提交记录，写入 `deployments`。发布授权缺失只阻断安装与上线，
+   看板/记录入口与业务验收/提交记录，并读取插件装载时写入的 `runtime-identity.json`，
+   校验存活 PID 与安装入口/服务摘要一致，写入 `deployments`。发布授权缺失只阻断安装与上线，
    不回退已完成研发、验证和本地提交。
 8. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`submit`、`analyze`、`advance`、`retry`、
    `requeue`、`stop`、`cancel` 以及历史兼容的 `plan/approve/verify/build/deploy/accept` 组成写动作端点。

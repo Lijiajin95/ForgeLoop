@@ -2605,3 +2605,72 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
    `commitMessage` 与构建完整性修复的新候选，也没有把新候选部署到正式目标。
 5. 因上述 1–4，本需求不能标记“交付完成”。当前可回查的交付仍为：
    需求 `req-20261031040640-88c6e4`、提交 `51618f…`、候选 `2f0df…`、包 `9f87…`。
+
+## 53. 正式业务检查、运行身份与新候选（2026-10-31）
+
+### 53.1 新生产需求
+
+在正式生产库创建并完成真实自身需求：
+
+- 需求：`req-20261031080821-f940b9`
+- 目标：把 `commitMessage` 为空时的显示从 `—` 改为“无提交信息”，并补充只读界面测试。
+- 受控提交：`9b3b9c840a697fe3ebbd0ecd55529515b693560d`
+- 独立验证 `pass`；业务验收 `pass`；失败轮次 0。
+- 候选：`a87863ff1646d1d4cdae0f925a78402c5127cd274255a5e7084cb58ae6dbbc4f`
+- 产物：`f3eeee74e52e5b8d72ce7d4dba80cded3e52edaa5bb5f9dafe01d59a49cdba29`
+- 安装包：`packages/forgeloop/dist/forgeloop-dsh-0.0.2-production.tgz`
+- 该包同时包含 `commitMessage` 功能、构建完整性修复、运行身份自述。
+
+### 53.2 正式目标运行身份与部署
+
+- 正式 `web` / 3080，PID `2863123`。
+- 安装依赖：`.../packages/forgeloop/dist/forgeloop-dsh-0.0.2-production.tgz`。
+- 插件运行身份文件：`~/.dsh/profiles/web/node_modules/forgeloop-dsh/runtime-identity.json`
+  - pid `2863123`
+  - 入口摘要 `7def08c6bff9308c…`
+  - 服务摘要 `a6fffd257e1c5556fe2fb87dd641c83c69…`
+- 上线核对 `targetProfile=web` 全部通过，包括：
+  - `installed_version`
+  - `installed_files`（43 个文件）
+  - `running_version`
+  - **`running_identity`**（存活 PID 与安装入口/服务摘要一致）
+  - `requirement_modules`
+  - `key_entry`
+  - `business_records`
+- 部署报告：
+  `candidates/req-20261031080821-f940b9/v1/deployment/web/deployment.json`
+- 正式插件页截图：
+  `/home/link/.forgeloop/production/evidence/formal-plugin-new.png`
+
+### 53.3 正式业务界面与接口检查
+
+- 正式 3080 的 ForgeLoop 天工视图实际展示新需求详情：
+  - 受控提交 `9b3b9c840a69…`
+  - 提交信息与记录一致；
+  - 只读，无新增批准/推进/验收动作。
+- 切换旧需求 `req-20261030134652-e934a6`：
+  - `commit: null`
+  - 界面显示“没有受控提交记录”。
+- 切回新需求：
+  - 再次显示同一条提交信息，无串记录。
+- API 证据：
+  - `formal-positive.json`
+  - `formal-empty-new.json`
+  - `formal-switch-back.json`
+- 截图：
+  - `/home/link/.forgeloop/production/evidence/formal-detail-committed.png`
+  - `/home/link/.forgeloop/production/evidence/formal-detail-empty.png`
+
+### 53.4 验证与判定
+
+- `make check`：50 个测试文件、543 项测试通过。
+- `make coverage`：行 90.67%、分支 84.03%、函数 96.36%。
+- `make contracts`：通过。
+- 原需求 `req-20261031040640-88c6e4` 的历史交付仍为：
+  - 提交 `51618f…`
+  - 候选 `2f0df…`
+  - 包 `9f87…`
+  - 其 `commitMessage` 功能包含在 f3ee 新包中；正式库使用新需求作为业务检查样本。
+- 新包已部署到正式 `web`，运行身份和业务页面均通过检查。
+- 原需求自身记录未迁入正式生产库；正式业务样本是获批新建的需求，这一边界保留在状态记录中。
+- 未 push、未打 tag、未改版本号；未改模型路由/凭据。
