@@ -3937,12 +3937,9 @@ ${answer}`
     const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}']).trim()
     const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
     const diff = readFileSync(input.candidate.diffPath, 'utf8')
-    // 候选 diff 会进入 DSH 会话提示词；其中的测试数据可能包含 `dsh-session:` 字样，
-    // DSH 会把这类 URI 当作会话引用解析并拒绝整轮。只对提示词副本做脱敏和截断，
-    // 工作区里的真实候选 diff 与证据保持不变。
-    const diffForPrompt = diff
-      .replace(/dsh-session:[^\s"'`<>]+/g, 'dsh-session:redacted')
-      .slice(0, 120_000)
+    // 候选 diff 可能很大，且测试数据中的 `dsh-session:` 字样会被 DSH 当作会话引用
+    // 解析并拒绝整轮。提示词只给摘要和工作区位置，验证 Agent 直接读取已应用的候选。
+    const diffForPrompt = `候选 diff 共 ${diff.length} 字节，已固定到工作区；请在 ${workspace} 内读取实际文件与 diff，不在提示词中展开。`
     writeFileSync(join(dir, 'candidate.diff'), diff, 'utf8')
     writeFileSync(
       join(dir, 'candidate.json'),
