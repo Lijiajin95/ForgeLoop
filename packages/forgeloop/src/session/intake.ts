@@ -15,14 +15,12 @@ import {
   FORGELOOP_CLARIFICATION_EVENT,
   FORGELOOP_ERROR_EVENT,
   FORGELOOP_INTAKE_EVENT,
-  FORGELOOP_PLAN_EVENT,
   appendSessionEvent,
   type AnalysisEventData,
   type AnswerEventData,
   type ClarificationEventData,
   type ErrorEventData,
   type IntakeEventData,
-  type PlanEventData,
   type SessionEventLogger,
 } from './events.js'
 
@@ -319,45 +317,6 @@ export class SessionIntake {
     // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
 
-  /** 需求分析完成且无待澄清项后交给研发 Agent 拆解任务；拆解本身不等于批准或执行。 */
-  private async planIfReady(
-    session: SessionViewLike | undefined,
-    reqId: string,
-    analysis: RequirementAnalysis,
-    signal: AbortSignal | undefined,
-    at: string,
-  ): Promise<void> {
-    if (analysis.clarifications.length > 0) return
-    let outcome: Awaited<ReturnType<ForgeLoopRuntime['planDevTasks']>>
-    try {
-      outcome = await this.runtime.planDevTasks(reqId, signal)
-    } catch (error) {
-      this.appendError(session, `forgeloop:error:${reqId}:plan`, reqId, `研发 Agent 任务拆解异常：${(error as Error).message}`, at)
-      return
-    }
-    if (!outcome.ok || !outcome.plan) {
-      this.appendError(session, `forgeloop:error:${reqId}:plan`, reqId, outcome.message, at)
-      return
-    }
-    const plan: PlanEventData = {
-      eventId: `forgeloop:plan:${reqId}:v${outcome.plan.planVersion}`,
-      reqId,
-      planVersion: outcome.plan.planVersion,
-      requirementVersion: outcome.plan.requirementVersion,
-      technicalSolution: outcome.plan.technicalSolution ?? null,
-      tasks: outcome.plan.tasks.map((task) => ({
-        taskId: task.taskId,
-        goal: task.goal,
-        files: task.files,
-        acceptance: task.acceptance,
-        testCommand: task.testCommand,
-        dependsOn: task.dependsOn,
-        ...(task.verification === true ? { verification: true } : {}),
-      })),
-      at,
-    }
-    appendSessionEvent(session, FORGELOOP_PLAN_EVENT, plan as unknown as Record<string, unknown>, this.log)
-  }
 
   private appendClarificationIfNeeded(
     session: SessionViewLike | undefined,
