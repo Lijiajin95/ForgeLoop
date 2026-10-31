@@ -172,6 +172,7 @@ describe('candidate export and controlled integration', () => {
     })
     expect(failed.ok).toBe(false)
     expect(failed.detail).toContain('创建提交失败')
+    expect(git(project, ['status', '--porcelain'])).toBe('')
     rmSync(hook)
     git(project, ['reset', '--hard', 'HEAD'])
     git(project, ['clean', '-fd'])
