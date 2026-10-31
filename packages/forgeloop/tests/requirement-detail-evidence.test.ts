@@ -22,6 +22,7 @@ interface AdmissionEvidenceView {
 
 interface CommitEvidenceView {
   readonly commitSha: string
+  readonly commitMessage: string
   readonly files: readonly string[]
   readonly committedAt: string
 }
@@ -172,6 +173,7 @@ describe('requirement detail admission and commit evidence', () => {
     expect(view.admission).toBeNull()
     expect(view.commit).toEqual({
       commitSha: 'abc1234',
+      commitMessage: 'commit abc1234',
       files: ['packages/forgeloop/src/a.ts'],
       committedAt: '2026-10-31T03:00:00.000Z',
     })
@@ -218,6 +220,7 @@ describe('requirement detail admission and commit evidence', () => {
 
     expect(view.commit).toEqual({
       commitSha: 'newest1',
+      commitMessage: 'commit newest1',
       files: ['docs/new.md'],
       committedAt: '2026-10-31T03:00:00.000Z',
     })

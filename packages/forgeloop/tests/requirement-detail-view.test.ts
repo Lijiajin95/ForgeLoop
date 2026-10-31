@@ -1,4 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { ForgeLoopRuntime } from '../src/runtime/service.js'
+import { resolveConfig } from '../src/config.js'
 
 /**
  * 需求详情页的准入/提交证据展示：
@@ -122,6 +127,23 @@ function buttonsIn(node: unknown): VNode[] {
   return found
 }
 
+/** 证据块必须只读：不允许出现输入框、下拉框或可编辑区域。 */
+function editableIn(node: unknown): VNode[] {
+  const found: VNode[] = []
+  walk(node, (current) => {
+    if (
+      typeof current.type === 'string' &&
+      ['input', 'textarea', 'select'].includes(current.type)
+    ) {
+      found.push(current)
+    }
+    if (current.props.contentEditable === true || current.props.contentEditable === 'true') {
+      found.push(current)
+    }
+  })
+  return found
+}
+
 interface DetailData {
   reqId: string
   versions: Array<{ version: number; text: string; createdAt: string; revisedBy: string }>
@@ -236,6 +258,7 @@ describe('requirement detail evidence view', () => {
       },
       commit: {
         commitSha: 'abcdef1234567890',
+        commitMessage: 'feat: 只读展示最近提交',
         files: ['packages/forgeloop/src/a.ts', 'packages/forgeloop/src/b.ts'],
         committedAt: '2026-10-31T02:00:00.000Z',
       },
@@ -258,14 +281,17 @@ describe('requirement detail evidence view', () => {
     const commitText = textOf(commitBlock)
     expect(commitText).toContain('最近一次受控提交')
     expect(commitText).toContain('abcdef1234567890')
+    expect(commitText).toContain('提交信息')
+    expect(commitText).toContain('feat: 只读展示最近提交')
     expect(commitText).toContain('packages/forgeloop/src/a.ts')
     expect(commitText).toContain('packages/forgeloop/src/b.ts')
     expect(commitText).toContain(new Date('2026-10-31T02:00:00.000Z').toLocaleString())
 
     expect(textOf(page)).toContain('系统准入与受控提交')
-    // 证据块只读：没有按钮，也没有批准/推进/验收等动作文案。
+    // 证据块只读：没有按钮、可编辑控件，也没有批准/推进/验收等动作文案。
     for (const block of [admissionBlock, commitBlock]) {
       expect(buttonsIn(block)).toEqual([])
+      expect(editableIn(block)).toEqual([])
       expect(textOf(block)).not.toMatch(/批准|推进|验收|approve|advance|accept/i)
     }
   })
@@ -299,5 +325,59 @@ describe('requirement detail evidence view', () => {
     expect(textOf(findByAttr(page, 'data-evidence-empty', 'admission')!)).toBe('没有系统准入记录')
     expect(textOf(findByAttr(page, 'data-evidence-empty', 'commit')!)).toBe('没有受控提交记录')
     expect(textOf(page)).toContain('需求原文：展示准入与提交证据')
+  })
+
+  it('renders the detail returned by requirementDetail for committed and old requirements', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-detail-view-e2e-'))
+    const config = resolveConfig(
+      {
+        project: 'testproj',
+        projectPath: dir,
+        recordsRoot: join(dir, '.forgeloop'),
+        pollSeconds: 1,
+        agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
+        formalTestTimeoutSeconds: 30,
+        maxTaskAttempts: 2,
+      },
+      dir,
+    )
+    const runtime = new ForgeLoopRuntime({ ctx: {}, config })
+    try {
+      const committed = runtime.submit({ text: '有受控提交的需求', by: 'owner', source: 'test' })
+      expect(committed.ok, committed.message).toBe(true)
+      const committedId = (committed.data as { reqId: string }).reqId
+      runtime.repo.recordCommit({
+        requirementId: committedId,
+        planVersion: 1,
+        candidateSha256: 'candidate-e2e',
+        commitSha: 'e2e1234',
+        commitMessage: 'feat: 端到端提交信息',
+        checkCommand: ['npm', 'run', 'check'],
+        checkLogPath: join(dir, 'check.log'),
+        checkSha256: 'check-e2e',
+        files: ['packages/forgeloop/client.js'],
+        committedAt: '2026-10-31T02:00:00.000Z',
+      })
+
+      const committedResult = runtime.requirementDetail(committedId)
+      expect(committedResult.ok, committedResult.message).toBe(true)
+      const committedPage = renderDetail(committedResult.data as unknown as DetailData)
+      const commitBlock = findByAttr(committedPage, 'data-evidence', 'commit')!
+      expect(textOf(commitBlock)).toContain('feat: 端到端提交信息')
+      expect(buttonsIn(commitBlock)).toEqual([])
+      expect(editableIn(commitBlock)).toEqual([])
+
+      const old = runtime.submit({ text: '没有受控提交的旧需求', by: 'owner', source: 'test' })
+      expect(old.ok, old.message).toBe(true)
+      const oldId = (old.data as { reqId: string }).reqId
+      const oldResult = runtime.requirementDetail(oldId)
+      expect(oldResult.ok, oldResult.message).toBe(true)
+      expect((oldResult.data as { commit: unknown }).commit).toBeNull()
+      const oldPage = renderDetail(oldResult.data as unknown as DetailData)
+      expect(textOf(findByAttr(oldPage, 'data-evidence-empty', 'commit')!)).toBe('没有受控提交记录')
+    } finally {
+      runtime.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

@@ -274,6 +274,8 @@ function installProfile(name: string): string {
 }
 
 beforeEach(() => {
+  // 故障注入只由用例显式开启，避免宿主进程的外部环境变量污染临时夹具。
+  delete process.env.FORGELOOP_FAULT_INJECT
   dir = makeProject()
   profilesRoot = mkdtempSync(join(tmpdir(), 'forgeloop-profiles-'))
   runtime = makeRuntime()

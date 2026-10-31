@@ -2,7 +2,8 @@
  * 需求详情中的只读证据：最近一次系统准入与最近一次受控提交。
  *
  * 这里只做确定性聚合与字段映射：按 createdAt / committedAt 取最近一条，
- * 无记录时返回 null。系统准入不是人类批准，这里也不提供任何写入口。
+ * commit 携带记录中的 commitMessage 供详情只读展示，无记录时返回 null。
+ * 系统准入不是人类批准，这里也不提供任何写入口。
  */
 
 export interface AdmissionEvidence {
@@ -14,6 +15,7 @@ export interface AdmissionEvidence {
 
 export interface CommitEvidence {
   readonly commitSha: string
+  readonly commitMessage: string
   readonly files: readonly string[]
   readonly committedAt: string
 }
@@ -33,6 +35,7 @@ export interface AdmissionEvidenceRecord {
 
 export interface CommitEvidenceRecord {
   readonly commitSha: string
+  readonly commitMessage: string
   readonly files: readonly string[]
   readonly committedAt: string
 }
@@ -76,6 +79,7 @@ export function requirementEvidence(input: {
     commit: commit
       ? {
           commitSha: commit.commitSha,
+          commitMessage: commit.commitMessage ?? '',
           files: [...commit.files],
           committedAt: commit.committedAt,
         }

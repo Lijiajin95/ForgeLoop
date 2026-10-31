@@ -464,6 +464,7 @@ window.__ModuleLoader__.load({
       'detail.admissionEmpty': '没有系统准入记录',
       'detail.commitEvidence': '最近一次受控提交',
       'detail.commitSha': '提交',
+      'detail.commitMessage': '提交信息',
       'detail.commitFiles': '文件',
       'detail.commitAt': '提交时间',
       'detail.commitEmpty': '没有受控提交记录',
@@ -801,6 +802,7 @@ window.__ModuleLoader__.load({
       'detail.admissionEmpty': 'No system admission recorded',
       'detail.commitEvidence': 'Latest controlled commit',
       'detail.commitSha': 'Commit',
+      'detail.commitMessage': 'Commit message',
       'detail.commitFiles': 'Files',
       'detail.commitAt': 'Committed at',
       'detail.commitEmpty': 'No controlled commit recorded',
@@ -2188,6 +2190,11 @@ window.__ModuleLoader__.load({
                       { className: 'flb-card-meta', key: 'sha' },
                       `${t('detail.commitSha')}: `,
                       h('span', { className: 'flb-detail-code' }, commit.commitSha || '—'),
+                    ),
+                    h(
+                      'div',
+                      { className: 'flb-card-meta', key: 'message' },
+                      `${t('detail.commitMessage')}: ${commit.commitMessage || '—'}`,
                     ),
                     h(
                       'div',

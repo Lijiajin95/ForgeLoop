@@ -25,6 +25,7 @@ interface EvidenceView {
   } | null
   readonly commit: {
     readonly commitSha: string
+    readonly commitMessage: string
     readonly files: readonly string[]
     readonly committedAt: string
   } | null
@@ -249,6 +250,7 @@ describe('requirement detail evidence contract', () => {
       })
       expect(view.commit).toEqual({
         commitSha: 'abcdef1234567890',
+        commitMessage: 'feat: 受控提交',
         files: ['packages/forgeloop/src/a.ts'],
         committedAt: '2026-10-31T02:00:00.000Z',
       })
@@ -275,6 +277,7 @@ describe('requirement detail evidence contract', () => {
       })
       expect((body.value as unknown as EvidenceView).commit).toEqual({
         commitSha: 'abcdef1234567890',
+        commitMessage: 'feat: 受控提交',
         files: ['packages/forgeloop/src/a.ts'],
         committedAt: '2026-10-31T02:00:00.000Z',
       })
