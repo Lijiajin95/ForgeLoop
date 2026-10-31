@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
@@ -518,7 +518,7 @@ describe('release gate error paths', () => {
     })
 
     // 恢复业务终审后，篡改验证工作区使受保护内容与记录不一致。
-    const reviewJson = `${JSON.stringify({ kind: 'business-review', verdict: 'pass', summary: '通过', blocking: [], scenarios: [], acceptance: [] })}\n`
+    const reviewJson = `${JSON.stringify({ kind: 'business-review', reqId, planVersion: 1, requirementVersion: 1, candidateSha256: verification.candidateSha256, verificationSha256: verification.reportSha256, verdict: 'pass', summary: '通过', blocking: [], scenarios: [], acceptance: [] })}\n`
     const reviewPath = join(dir, 'review-restore.json')
     writeFileSync(reviewPath, reviewJson, 'utf8')
     runtime.repo.recordBusinessReview({
@@ -542,6 +542,24 @@ describe('release gate error paths', () => {
     })
   })
 
+
+  it('rejects a legacy build that changes protected candidate content', async () => {
+    const reqId = await acceptedRequirement()
+    const originalPackage = runtime.config.candidatePackageCommand
+    try {
+      ;(runtime.config as { candidatePackageCommand: readonly string[] }).candidatePackageCommand = [
+        'sh',
+        '-c',
+        "printf -- '-mutation' >> docs/a.md",
+      ]
+      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        ok: false,
+        code: 'candidate_content_changed',
+      })
+    } finally {
+      ;(runtime.config as { candidatePackageCommand: readonly string[] }).candidatePackageCommand = originalPackage
+    }
+  })
   it('requires the exact accepted artifact digest once a candidate exists', async () => {
     const reqId = await acceptedRequirement()
     expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
@@ -737,6 +755,150 @@ describe('release gate error paths', () => {
   })
 
 })
+
+  it('rejects an admitted build when the verification report was modified after verification', async () => {
+    const reqId = await admittedRequirement()
+    const candidate = runtime.repo.latestCodeCandidate(reqId, 1)!
+    const verification = runtime.repo.verificationForCandidate(reqId, 1, candidate.candidateSha256)!
+    writeFileSync(verification.reportPath, `${readFileSync(verification.reportPath, 'utf8')}\n`, 'utf8')
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'verification_invalid',
+    })
+  })
+
+  it('rejects an admitted build when the verified workspace source changed', async () => {
+    const reqId = await admittedRequirement()
+    const candidate = runtime.repo.latestCodeCandidate(reqId, 1)!
+    const verification = runtime.repo.verificationForCandidate(reqId, 1, candidate.candidateSha256)!
+    const sourceFile = join(verification.evidenceDir, 'workspace', 'packages/forgeloop/src.ts')
+    expect(existsSync(sourceFile)).toBe(true)
+    writeFileSync(sourceFile, 'export const version = 999\n', 'utf8')
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'candidate_content_mismatch',
+    })
+  })
+
+  it('rejects an admitted build when the verification identity fields disagree', async () => {
+    const reqId = await admittedRequirement()
+    const candidate = runtime.repo.latestCodeCandidate(reqId, 1)!
+    const verification = runtime.repo.verificationForCandidate(reqId, 1, candidate.candidateSha256)!
+    const canonical = JSON.parse(readFileSync(verification.reportPath, 'utf8')) as Record<string, unknown>
+    canonical.candidateSha256 = '0'.repeat(64)
+    const text = `${JSON.stringify(canonical, null, 2)}\n`
+    writeFileSync(verification.reportPath, text, 'utf8')
+    runtime.repo.db.handle
+      .prepare('UPDATE requirement_verifications SET report_sha256 = ? WHERE req_id = ? AND candidate_sha256 = ?')
+      .run(sha256OfText(text), reqId, candidate.candidateSha256)
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'verification_invalid',
+    })
+  })
+
+  it('rejects a legacy build when the verified workspace source changed', async () => {
+    const reqId = await acceptedRequirement()
+    const verification = runtime.repo.verification(reqId, 1)!
+    const sourceFile = join(verification.evidenceDir, 'workspace', 'packages/forgeloop/src.ts')
+    expect(existsSync(sourceFile)).toBe(true)
+    writeFileSync(sourceFile, 'export const version = 999\n', 'utf8')
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'candidate_content_mismatch',
+    })
+  })
+
+  it('rejects a build that changes protected candidate content in the build or package step', async () => {
+    const reqId = await admittedRequirement()
+    const originalBuild = runtime.config.candidateBuildCommand
+    const originalPackage = runtime.config.candidatePackageCommand
+    const mutate = (file: string): string[] => [
+      'sh',
+      '-c',
+      `printf -- '-mutation' >> ${JSON.stringify(file)}`,
+    ]
+    try {
+      ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = mutate('packages/forgeloop/src.ts')
+      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        ok: false,
+        code: 'candidate_content_changed',
+      })
+      ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = originalBuild
+      ;(runtime.config as { candidatePackageCommand: readonly string[] }).candidatePackageCommand = mutate('packages/forgeloop/src.ts')
+      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        ok: false,
+        code: 'candidate_content_changed',
+      })
+      ;(runtime.config as { candidatePackageCommand: readonly string[] }).candidatePackageCommand = originalPackage
+      ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = ['sh', '-c', 'rm -f packages/forgeloop/src.ts']
+      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        ok: false,
+        code: 'candidate_content_changed',
+      })
+    } finally {
+      ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = originalBuild
+      ;(runtime.config as { candidatePackageCommand: readonly string[] }).candidatePackageCommand = originalPackage
+    }
+  })
+
+  it('rejects admitted builds when the business report, candidate diff or commit file list changed', async () => {
+    const reviewReq = await admittedRequirement()
+    const reviewCandidate = runtime.repo.latestCodeCandidate(reviewReq, 1)!
+    const review = runtime.repo.businessReviewForCandidate(reviewReq, 1, reviewCandidate.candidateSha256)!
+    writeFileSync(review.reportPath, `${readFileSync(review.reportPath, 'utf8')}\n`, 'utf8')
+    expect(runtime.buildCandidate({ reqId: reviewReq, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'business_review_invalid',
+    })
+
+    const diffReq = await admittedRequirement()
+    const diffCandidate = runtime.repo.latestCodeCandidate(diffReq, 1)!
+    writeFileSync(diffCandidate.diffPath, `${readFileSync(diffCandidate.diffPath, 'utf8')}\n`, 'utf8')
+    expect(runtime.buildCandidate({ reqId: diffReq, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'candidate_content_mismatch',
+    })
+
+    const commitReq = await admittedRequirement()
+    runtime.repo.db.handle
+      .prepare('UPDATE requirement_commits SET files_json = \'["tampered"]\' WHERE req_id = ?')
+      .run(commitReq)
+    expect(runtime.buildCandidate({ reqId: commitReq, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'commit_identity_mismatch',
+    })
+  })
+
+  it('rejects missing verification, business or candidate material files', async () => {
+    const noReport = await admittedRequirement()
+    const noReportCandidate = runtime.repo.latestCodeCandidate(noReport, 1)!
+    const noReportVerification = runtime.repo.verificationForCandidate(noReport, 1, noReportCandidate.candidateSha256)!
+    rmSync(noReportVerification.reportPath, { force: true })
+    expect(runtime.buildCandidate({ reqId: noReport, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'verification_invalid',
+    })
+
+    const noReview = await admittedRequirement()
+    const noReviewCandidate = runtime.repo.latestCodeCandidate(noReview, 1)!
+    const noReviewRecord = runtime.repo.businessReviewForCandidate(noReview, 1, noReviewCandidate.candidateSha256)!
+    rmSync(noReviewRecord.reportPath, { force: true })
+    expect(runtime.buildCandidate({ reqId: noReview, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'business_review_invalid',
+    })
+
+    const noDiff = await admittedRequirement()
+    const noDiffCandidate = runtime.repo.latestCodeCandidate(noDiff, 1)!
+    const noDiffVerification = runtime.repo.verificationForCandidate(noDiff, 1, noDiffCandidate.candidateSha256)!
+    rmSync(noDiffCandidate.diffPath, { force: true })
+    rmSync(join(noDiffVerification.evidenceDir, 'candidate.diff'), { force: true })
+    expect(runtime.buildCandidate({ reqId: noDiff, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'candidate_content_mismatch',
+    })
+  })
   it('refuses an admitted build when the controlled commit is missing', async () => {
     const reqId = await admittedRequirement()
     runtime.repo.db.handle.prepare('DELETE FROM requirement_commits WHERE req_id = ?').run(reqId)
@@ -816,7 +978,7 @@ describe('release gate error paths', () => {
     rmSync(join(manifestVerification.evidenceDir, 'workspace', 'packages/forgeloop/package.json'), { force: true })
     expect(runtime.buildCandidate({ reqId: noManifest, by: 'owner' })).toMatchObject({
       ok: false,
-      code: 'package_missing',
+      code: 'candidate_content_mismatch',
     })
 
     const noCommands = await admittedRequirement()
