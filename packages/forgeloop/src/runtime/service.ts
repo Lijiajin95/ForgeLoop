@@ -1519,7 +1519,10 @@ ${answer}`
     rmSync(dir, { recursive: true, force: true })
     cpSync(source, dir, { recursive: true })
     const sharedModules = join(this.config.projectPath, 'node_modules')
-    if (existsSync(sharedModules) && !existsSync(join(dir, 'node_modules'))) {
+    if (existsSync(sharedModules)) {
+      // 验证工作区可能带有不完整的 node_modules 副本；构建副本必须使用主项目
+      // 已安装的依赖，否则 tsc 等本地二进制不存在，会把环境缺依赖误判为候选失败。
+      rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
       try {
         symlinkSync(sharedModules, join(dir, 'node_modules'), 'dir')
       } catch {
