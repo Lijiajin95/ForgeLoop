@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import { PLUGIN_VERSION } from '../src/runtime/version.js'
-import { sha256OfText } from '../src/domain/delivery.js'
+import { sha256OfBytes, sha256OfText } from '../src/domain/delivery.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 
 /**
@@ -243,6 +243,20 @@ async function acceptedRequirement(): Promise<string> {
     const installed = installProfile('admitted')
     execFileSync('tar', ['-xzf', (build.data as { tarball: string }).tarball, '-C', installed])
     writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }), 'utf8')
+    mkdirSync(join(installed, 'lib/runtime'), { recursive: true })
+    writeFileSync(join(installed, 'lib/runtime/service.js'), 'export const service = 1\n', 'utf8')
+    writeFileSync(
+      join(installed, 'runtime-identity.json'),
+      JSON.stringify({
+        kind: 'forgeloop-runtime-identity',
+        version: PLUGIN_VERSION,
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        indexSha256: sha256OfBytes(readFileSync(join(installed, 'lib/index.js'))),
+        serviceSha256: sha256OfBytes(readFileSync(join(installed, 'lib/runtime/service.js'))),
+      }),
+      'utf8',
+    )
     const deploy = runtime.verifyDeployment({
       reqId,
       targetProfile: 'admitted',
@@ -250,6 +264,14 @@ async function acceptedRequirement(): Promise<string> {
       source: 'test',
     })
     expect(deploy.ok, deploy.message).toBe(true)
+    expect((deploy.data as { checks: Array<{ id: string; ok: boolean }> }).checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'running_identity', ok: true })]),
+    )
+    const marker = JSON.parse(readFileSync(join(installed, 'runtime-identity.json'), 'utf8')) as Record<string, unknown>
+    writeFileSync(join(installed, 'runtime-identity.json'), JSON.stringify({ ...marker, pid: 0 }), 'utf8')
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'admitted', by: 'owner', source: 'test' }).ok).toBe(false)
+    writeFileSync(join(installed, 'runtime-identity.json'), '{not json', 'utf8')
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'admitted', by: 'owner', source: 'test' }).ok).toBe(false)
   })
 
 async function admittedRequirement(): Promise<string> {
