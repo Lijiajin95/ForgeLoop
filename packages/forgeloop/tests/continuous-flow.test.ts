@@ -1081,4 +1081,69 @@ describe('continuous four-Agent flow', () => {
     expect(runtime.repo.stop(reqId)?.resumedAt).toBeTruthy()
   })
 
+  it('keeps a stop request open while a claimed request is still winding down', async () => {
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-stop-live:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const claimed = runtime.repo.claimNextRequest('owner', runtime.now())
+    expect(claimed?.reqId).toBe(reqId)
+    runtime.stop({ reqId, by: 'owner', reason: '在途时停止' })
+    expect(runtime.repo.activeStop(reqId)?.settledAt).toBe('')
+    runtime.repo.resolveRequest(claimed!.requestId, 'failed', 'test', runtime.now())
+    runtime.settleStopIfQuiet(reqId)
+    expect(runtime.repo.activeStop(reqId)?.settledAt).not.toBe('')
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
+  })
+
+  it('records, settles, resumes and re-records a stop without losing audit fields', async () => {
+    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    runtime.stop({ reqId, by: 'owner', reason: '' })
+    expect(runtime.repo.stop(reqId)?.reason).toBe('未说明')
+    runtime.repo.markStopSettled(reqId, runtime.now())
+    expect(runtime.repo.stop(reqId)?.settledAt).not.toBe('')
+    runtime.repo.resumeStop({ requirementId: reqId, resumedBy: 'owner', reason: '恢复', resumedAt: runtime.now() })
+    expect(runtime.repo.activeStop(reqId)).toBeNull()
+    runtime.repo.resumeStop({ requirementId: reqId, resumedBy: 'owner', reason: '重复恢复', resumedAt: runtime.now() })
+    runtime.repo.markStopSettled(reqId, runtime.now())
+    runtime.repo.recordStop({ requirementId: reqId, requestedBy: 'owner', reason: '再次停止', requestedAt: runtime.now() })
+    expect(runtime.repo.activeStop(reqId)?.resumedAt).toBe('')
+    expect(runtime.repo.activeStop(reqId)?.settledAt).toBe('')
+  })
+
+  it('refuses stop on missing or terminal requirements and ignores active requests when scanning', async () => {
+    expect(runtime.stop({ reqId: 'req-missing', by: 'owner', reason: 'x' })).toMatchObject({ ok: false, code: 'not_found' })
+    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    expect(runtime.cancel({ reqId, by: 'owner', reason: 'test' }).ok).toBe(true)
+    expect(runtime.stop({ reqId, by: 'owner', reason: 'x' })).toMatchObject({ ok: false, code: 'terminal' })
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
+    const other = runtime.submit({ text: '另一个需求', by: 'owner', source: 'test' })
+    const otherId = (other.data as { reqId: string }).reqId
+    runtime.requestOperation({ reqId: otherId, action: 'analyze', by: 'owner', source: 'test' })
+    expect(runtime.autoAdvanceRequests()).not.toContain(otherId)
+  })
+
+  it('returns deterministic retry and build errors for missing requirements', () => {
+    expect(runtime.retryDecisionFor('req-missing')).toMatchObject({ allowed: false })
+    expect(runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({ ok: false, code: 'not_found' })
+    expect(runtime.verifyDeployment({ reqId: 'req-missing', targetProfile: 'x', by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    })
+    const submitted = runtime.submit({ text: '一个需求', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'Bad!', by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'profile_invalid',
+    })
+    runtime.cancel({ reqId, by: 'owner', reason: 'test' })
+    expect(runtime.retryDecisionFor(reqId).allowed).toBe(false)
+  })
+
 })

@@ -252,6 +252,19 @@ async function acceptedRequirement(): Promise<string> {
     expect(deploy.ok, deploy.message).toBe(true)
   })
 
+async function admittedRequirement(): Promise<string> {
+  const submitted = runtime.submit({
+    text: '实现两个文档改动',
+    by: 'owner',
+    source: 'dsh-session:test-session:msg-1',
+  })
+  const reqId = (submitted.data as { reqId: string }).reqId
+  expect((await runQueued('analyze', reqId)).state).toBe('done')
+  expect((await runQueued('advance', reqId)).state).toBe('done')
+  expect(runtime.repo.getRequirement(reqId)?.status).toBe('committed')
+  return reqId
+}
+
 function installProfile(name: string): string {
   const profile = join(profilesRoot, name)
   const installed = join(profile, 'node_modules', 'forgeloop-dsh')
@@ -722,4 +735,140 @@ describe('release gate error paths', () => {
   })
 
 })
+  it('refuses an admitted build when the controlled commit is missing', async () => {
+    const reqId = await admittedRequirement()
+    runtime.repo.db.handle.prepare('DELETE FROM requirement_commits WHERE req_id = ?').run(reqId)
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({ ok: false, code: 'commit_required' })
+  })
+
+  it('refuses deployment before an admitted build and when the target profile is missing', async () => {
+    const reqId = await admittedRequirement()
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'missing', by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'candidate_missing',
+    })
+    expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'missing', by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'profile_missing',
+    })
+    mkdirSync(join(profilesRoot, 'empty-profile'), { recursive: true })
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'empty-profile', by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'not_installed',
+    })
+  })
+
+  it('fails an admitted deployment when installed content no longer matches the package', async () => {
+    const reqId = await admittedRequirement()
+    const built = runtime.buildCandidate({ reqId, by: 'owner' })
+    expect(built.ok, built.message).toBe(true)
+    const installed = installProfile('admitted-mismatch')
+    execFileSync('tar', ['-xzf', (built.data as { tarball: string }).tarball, '-C', installed])
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }), 'utf8')
+    writeFileSync(join(installed, 'lib/index.js'), 'tampered\n', 'utf8')
+    const rejected = runtime.verifyDeployment({ reqId, targetProfile: 'admitted-mismatch', by: 'owner', source: 'test' })
+    expect(rejected.ok).toBe(false)
+    expect(rejected.code).toBe('deployment_check_failed')
+  })
+
+  it('reports admitted build prerequisites and candidate material failures explicitly', async () => {
+    const noVerification = await admittedRequirement()
+    runtime.repo.db.handle.prepare('DELETE FROM requirement_verifications WHERE req_id = ?').run(noVerification)
+    expect(runtime.buildCandidate({ reqId: noVerification, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'verification_required',
+    })
+
+    const noReview = await admittedRequirement()
+    runtime.repo.db.handle.prepare('DELETE FROM requirement_business_reviews WHERE req_id = ?').run(noReview)
+    expect(runtime.buildCandidate({ reqId: noReview, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'business_review_required',
+    })
+
+    const badVersion = await admittedRequirement()
+    expect(runtime.buildCandidate({ reqId: badVersion, by: 'owner', version: 'latest' })).toMatchObject({
+      ok: false,
+      code: 'version_invalid',
+    })
+
+    const noWorkspace = await admittedRequirement()
+    const verification = runtime.repo.verificationForCandidate(
+      noWorkspace,
+      1,
+      runtime.repo.latestCodeCandidate(noWorkspace, 1)!.candidateSha256,
+    )!
+    rmSync(join(verification.evidenceDir, 'workspace'), { recursive: true, force: true })
+    expect(runtime.buildCandidate({ reqId: noWorkspace, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'verification_workspace_missing',
+    })
+
+    const noManifest = await admittedRequirement()
+    const manifestVerification = runtime.repo.verificationForCandidate(
+      noManifest,
+      1,
+      runtime.repo.latestCodeCandidate(noManifest, 1)!.candidateSha256,
+    )!
+    rmSync(join(manifestVerification.evidenceDir, 'workspace', 'packages/forgeloop/package.json'), { force: true })
+    expect(runtime.buildCandidate({ reqId: noManifest, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'package_missing',
+    })
+
+    const noCommands = await admittedRequirement()
+    const savedBuild = runtime.config.candidateBuildCommand
+    ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = []
+    expect(runtime.buildCandidate({ reqId: noCommands, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'candidate_not_configured',
+    })
+    ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = savedBuild
+
+    const failedVerification = await admittedRequirement()
+    runtime.repo.db.handle
+      .prepare("UPDATE requirement_verifications SET verdict = 'block' WHERE req_id = ?")
+      .run(failedVerification)
+    expect(runtime.buildCandidate({ reqId: failedVerification, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'verification_required',
+    })
+
+    const failedReview = await admittedRequirement()
+    runtime.repo.db.handle
+      .prepare("UPDATE requirement_business_reviews SET verdict = 'block' WHERE req_id = ?")
+      .run(failedReview)
+    expect(runtime.buildCandidate({ reqId: failedReview, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'business_review_required',
+    })
+  })
+
+  it('fails admitted deployment when the installed version or business evidence is wrong', async () => {
+    const reqId = await admittedRequirement()
+    const built = runtime.buildCandidate({ reqId, by: 'owner' })
+    expect(built.ok, built.message).toBe(true)
+    const installed = installProfile('admitted-version')
+    execFileSync('tar', ['-xzf', (built.data as { tarball: string }).tarball, '-C', installed])
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: 'forgeloop-dsh', version: '9.9.9' }), 'utf8')
+    expect(
+      runtime.verifyDeployment({ reqId, targetProfile: 'admitted-version', by: 'owner', source: 'test' }),
+    ).toMatchObject({ ok: false, code: 'deployment_check_failed' })
+
+    runtime.repo.db.handle.prepare('DELETE FROM requirement_business_reviews WHERE req_id = ?').run(reqId)
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'admitted-version', by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'deployment_check_failed',
+    })
+
+    runtime.repo.db.handle
+      .prepare("UPDATE requirement_candidate_builds SET candidate_sha256 = 'stale' WHERE req_id = ?")
+      .run(reqId)
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'admitted-version', by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'candidate_stale',
+    })
+  })
+
 })
