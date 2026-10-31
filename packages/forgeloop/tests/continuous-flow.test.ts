@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -865,7 +865,7 @@ describe('continuous four-Agent flow', () => {
     })
     const reqId = (submitted.data as { reqId: string }).reqId
     await runNext(reqId, 'analyze')
-    expect(runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'test' }).ok).toBe(true)
+    expect(runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'dsh-session:sess-fault:msg-1' }).ok).toBe(true)
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
   })
 
@@ -1101,7 +1101,7 @@ describe('continuous four-Agent flow', () => {
   })
 
   it('records, settles, resumes and re-records a stop without losing audit fields', async () => {
-    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'test' })
+    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
     const reqId = (submitted.data as { reqId: string }).reqId
     runtime.stop({ reqId, by: 'owner', reason: '' })
     expect(runtime.repo.stop(reqId)?.reason).toBe('未说明')
@@ -1118,32 +1118,58 @@ describe('continuous four-Agent flow', () => {
 
   it('refuses stop on missing or terminal requirements and ignores active requests when scanning', async () => {
     expect(runtime.stop({ reqId: 'req-missing', by: 'owner', reason: 'x' })).toMatchObject({ ok: false, code: 'not_found' })
-    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'test' })
+    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
     const reqId = (submitted.data as { reqId: string }).reqId
     expect(runtime.cancel({ reqId, by: 'owner', reason: 'test' }).ok).toBe(true)
     expect(runtime.stop({ reqId, by: 'owner', reason: 'x' })).toMatchObject({ ok: false, code: 'terminal' })
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
-    const other = runtime.submit({ text: '另一个需求', by: 'owner', source: 'test' })
+    const other = runtime.submit({ text: '另一个需求', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
     const otherId = (other.data as { reqId: string }).reqId
-    runtime.requestOperation({ reqId: otherId, action: 'analyze', by: 'owner', source: 'test' })
+    runtime.requestOperation({ reqId: otherId, action: 'analyze', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
     expect(runtime.autoAdvanceRequests()).not.toContain(otherId)
   })
 
   it('returns deterministic retry and build errors for missing requirements', () => {
     expect(runtime.retryDecisionFor('req-missing')).toMatchObject({ allowed: false })
     expect(runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({ ok: false, code: 'not_found' })
-    expect(runtime.verifyDeployment({ reqId: 'req-missing', targetProfile: 'x', by: 'owner', source: 'test' })).toMatchObject({
+    expect(runtime.verifyDeployment({ reqId: 'req-missing', targetProfile: 'x', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })).toMatchObject({
       ok: false,
       code: 'not_found',
     })
-    const submitted = runtime.submit({ text: '一个需求', by: 'owner', source: 'test' })
+    const submitted = runtime.submit({ text: '一个需求', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
     const reqId = (submitted.data as { reqId: string }).reqId
-    expect(runtime.verifyDeployment({ reqId, targetProfile: 'Bad!', by: 'owner', source: 'test' })).toMatchObject({
+    expect(runtime.verifyDeployment({ reqId, targetProfile: 'Bad!', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })).toMatchObject({
       ok: false,
       code: 'profile_invalid',
     })
     runtime.cancel({ reqId, by: 'owner', reason: 'test' })
     expect(runtime.retryDecisionFor(reqId).allowed).toBe(false)
+  })
+
+  it('injects an explicitly requested fault once and records its evidence', async () => {
+    process.env.FORGELOOP_FAULT_INJECT = JSON.stringify({ file: 'README.md', append: '\nfault-injected\n' })
+    try {
+      runtime = makeRuntime(fakeRunner())
+      const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
+      const reqId = (submitted.data as { reqId: string }).reqId
+      await runNext(reqId, 'analyze')
+      runtime.autoAdvanceRequests()
+      const advance = await runNext(reqId, 'advance')
+      expect(advance.state, advance.detail).toBe('done')
+      const marker = join(
+        project,
+        '.forgeloop/projects/demo/candidates',
+        reqId,
+        'v1',
+        'fault-injection.json',
+      )
+      expect(existsSync(marker)).toBe(true)
+      const record = JSON.parse(readFileSync(marker, 'utf8')) as { kind: string; file: string }
+      expect(record.kind).toBe('isolated-fault-injection')
+      expect(record.file).toBe('README.md')
+    } finally {
+      delete process.env.FORGELOOP_FAULT_INJECT
+    }
   })
 
 })
