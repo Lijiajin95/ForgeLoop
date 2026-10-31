@@ -159,7 +159,7 @@ DSH 宿主（唯一常驻产品）
    不回退已完成研发、验证和本地提交。
 8. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`submit`、`analyze`、`advance`、`retry`、
    `requeue`、`stop`、`cancel` 以及历史兼容的 `plan/approve/verify/build/deploy/accept` 组成写动作端点。
-   普通需求展示 `specified/developing/verifying/committed` 与准入、候选、提交证据；历史
+   普通需求展示 `specified/developing/verifying/committed` 与准入、候选、提交证据（含提交信息）；历史
    `plan_proposed/approved` 卡片保留给旧记录，不作为新需求的常规批准入口。停止会记录请求时间、人和原因，
    撤销待执行请求并置阻塞；实际停稳时间单独记录。扫描、重启和重复唤醒不会自动恢复，只有显式
    `advance`/`requeue` 才恢复并重新校验版本、额度与边界。失败任务卡展示运行原因、失败轮次与确定性建议；重试只重排一次 advance，不清零累计、

@@ -2424,7 +2424,7 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 48.2 验证与交付
 
-- `npm run check --workspace forgeloop-dsh`：退出码 0；`make check` 46 个测试文件、518 项测试通过。
+- `npm run check --workspace forgeloop-dsh`：退出码 0；当时 `make check` 46 个测试文件、518 项测试通过（当前总数见 §50）。
 - 独立验证结论 `pass`（报告摘要 `3795603818a1f8e3…`）；同一验证会话业务验收 `pass`；失败轮次 0。
 - 候选身份 `f7b7700ad393668c101f09494eda3aa343bc8ee4836063966e95b93e9a9fbf19`。
 - 候选包 `0.0.2`，tarball 摘要 `2509be6e2d7e3ee5…`；构建绑定提交 `527e17f115d6`。
@@ -2434,8 +2434,8 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 48.3 边界
 
-- 未部署到正式 `web` profile，未与浏览器做视觉 E2E；隔离安装只证明包内容与运行时版本一致。
-- 最终包 `0.0.2` 摘要 `267399f850c012ae…`；在隔离 headless profile `forgeloop` 上通过
+- 本条候选部署在 `m0verify`；正式 `web` 的后续部署见 §50。未做浏览器视觉 E2E。
+- 当时包 `0.0.2` 摘要 `267399f850c012ae…`；在隔离 headless profile `forgeloop` 上通过
   `make verify-plugin`：安装、组合层与真实模型 `forgeloop_status` 工具链可用。
 - 未 push、未打 tag、未改版本号；模型路由与凭据未改动。
 - 执行本条需求前先完成了 M0 停止、提交隔离、构建交接与业务会话交接修复，见 §49。
@@ -2467,8 +2467,8 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 - 通过/拒绝两侧测试：`stop` 不自动恢复与显式恢复、提交期间他人暂存被阻断、提交锁被占用被拒绝、
   提交钩子失败后工作树干净、准入候选无旧批准可构建、准入候选安装核对通过。
-- `make check`：46 个测试文件、518 项测试通过；`make coverage` 通过（行 90.58%、分支 84.01%、函数 96.30%）；`make contracts` 通过。
-- `make package`：最终包 `0.0.2`，tarball 摘要 `267399f850c012aead654e4b43716e9b6627b841bbcc37fdc9b5432f1abb2a3a`；
+- `make check`：47 个测试文件、525 项测试通过；`make coverage` 通过（行 90.61%、分支 84.12%、函数 96.31%）；`make contracts` 通过。
+- `make package`：当前包 `0.0.2`，tarball 摘要 `6ecb16a6fed84044bccfaa15496c04a777b9533f13d8c40d31d9991e0f8391dc`；
   `make verify-plugin` 在隔离 headless profile 上通过，真实模型调用了 `forgeloop_status`。
 - 真实闭环：`req-20261031014704-1d47b1` 从认证业务输入 → 分析 v2 → 系统准入 → 方案 v1 →
   三任务研发/自验 → 候选 v1 → 独立验证与业务验收 → 提交 `527e17f115d6` → 候选包
@@ -2479,8 +2479,53 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 - 真实需求首次验证即通过，没有真实候选代码缺陷回修记录；定向回修由失败注入测试与基础设施故障
   处置覆盖，不能算作真实业务缺陷回修。
-- 正式 `web` profile 仍运行上一版包；本轮只在 `m0web` 宿主、`m0verify` 隔离安装与 `forgeloop`
-  headless profile 验证，未做正式部署、未重启正式看板。正式发布需单独授权。
+- 正式 `web` 已按 §50 安装通过验证的候选包；未再重启进程，按所有者说明由 DSH Web 热加载。
+  本条只在 `m0web` 宿主、`m0verify` 隔离安装与 `forgeloop` headless profile 做验证。
 - 未 push、未打 tag、未改版本号；未触碰生产旧需求 `req-20261030134652-e934a6`，未改模型路由/凭据。
 - 一次真实运行中把 recordsRoot 放在项目 `.cache` 下，导致研发工作区落在真实 Git 根内、宿主允许
   直接改写真实项目；本轮改用项目外记录根后复现为干净候选。生产记录根在项目外。
+
+
+## 50. 隔离故障注入的真实定向修复与正式部署（2026-10-31）
+
+### 50.1 需求与故障注入
+
+- 真实自身需求 `req-20261031040640-88c6e4` v1：在需求详情的新链路受控提交证据中增加
+  `commitMessage`，只读展示最近一次提交信息；无提交时为 `null`。需求分析、准入、研发、自验、
+  独立验证、业务验收和受控提交均由运行中的 ForgeLoop 完成。
+- 隔离故障注入：仅在该测试宿主设置 `FORGELOOP_FAULT_INJECT`，在候选导出前向
+  `packages/forgeloop/src/runtime/service.ts` 追加一次语法错误；注入事实写入
+  `candidates/<req>/v1/fault-injection.json`，生产不设置该变量。
+- 候选 v1 `27e1070719fc52bb…` 被独立验证阻断：`tsc` 报 TS1110，`make check` 退出码 2，
+  三条业务场景无法加载。失败现场、候选 diff 和报告保留；失败轮次计 1。
+- 运行时把具体缺陷回给同一研发会话与工作区；修复后生成候选 v2
+  `2f0df677a6d829c9…`，重新验证 `pass`，同一验证会话业务验收 `pass`。
+- 受控提交：`51618f50867397a31d7cb04c5fa67c441fb36cb5`；只包含本需求文件，不 push、
+  不打 tag、不改版本号。
+
+### 50.2 构建、隔离安装与正式部署
+
+- 候选包 `0.0.2`：`9f873784bb57919e2c6de3e3d030f7a3607fe6b21b4fdc6cc367a7a3ae96ee39`。
+- 隔离安装到 `m0verify`，上线核对通过：安装文件、版本、运行版本、本次需求 2 个源码模块、
+  看板入口、业务验收与提交记录全部一致。
+- 正式 `web` profile 安装同一候选包（稳定路径
+  `packages/forgeloop/dist/forgeloop-dsh-0.0.2-m0fault.tgz`），未再重启；按所有者说明由
+  DSH Web 热加载。正式上线核对 `targetProfile=web` 通过，报告
+  `candidates/req-20261031040640-88c6e4/v1/deployment/web/deployment.json`。
+- 正式 profile 依赖：`file:/home/link/Project/ForgeLoop/packages/forgeloop/dist/forgeloop-dsh-0.0.2-m0fault.tgz`；
+  安装包摘要与候选一致。
+
+### 50.3 验证与边界
+
+- `make check`：47 个测试文件、525 项测试通过；`make coverage` 通过（行 90.61%、分支 84.12%、
+  函数 96.31%）；`make contracts` 通过。
+- `make package` 当前包 `0.0.2` 摘要 `6ecb16a6…`，在 headless `forgeloop` profile 上通过
+  `make verify-plugin`，真实模型实际调用了 `forgeloop_status`。
+- 正式部署使用通过验证的候选 `9f87…`；`6ecb…` 是其后构建的仓库包，包含构建依赖修复，
+  不再与正式候选混为同一制品。
+- 正式上线核对的 `running_version` 读取插件版本常量，不能单独证明进程内模块已被替换；
+  “热加载已发生”依据所有者说明与 DSH Web HMR 机制，未用浏览器重新断言运行中的
+  `commitMessage` 展示。部署后页面需刷新/重连。
+- 故障注入是人为隔离样本，不是自然业务缺陷；它证明了失败现场保留、定向修复、新候选和
+  重新验证路径，但不能外推为任意代码缺陷都能自动修复。
+- 未 push、未打 tag、未改版本号；未触碰生产旧需求 `req-20261030134652-e934a6`。
