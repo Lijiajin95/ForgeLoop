@@ -11,6 +11,7 @@ import { Coordinator } from './runtime/coordinator.js'
 import { ForgeLoopRuntime } from './runtime/service.js'
 import { BOARD_MAX_LIMIT } from './runtime/board.js'
 import { installSessionSurface } from './session/index.js'
+import { writeRuntimeIdentity } from './runtime/identity.js'
 
 type AnyRecord = Record<string, unknown>
 
@@ -406,6 +407,7 @@ function registerBoardRoute(
 export const inject = ['agents', 'agentLoop', 'tools']
 
 export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
+  writeRuntimeIdentity(import.meta.url)
   // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
   const config = resolveConfig(loadConfigOrThrow(rawConfig))
   const runtime = new ForgeLoopRuntime({ ctx, config })

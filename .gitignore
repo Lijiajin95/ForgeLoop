@@ -47,3 +47,6 @@ frontend/stryker.log
 .pnpm-store/
 packages/*/lib/
 .runtime/
+
+# 插件装载时写入的运行身份自述（本机现场，不入库）
+packages/forgeloop/runtime-identity.json

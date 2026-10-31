@@ -2099,6 +2099,45 @@ ${answer}`
       `实际运行版本 ${PLUGIN_VERSION}，候选包版本 ${build.packageVersion}`,
     )
 
+    // 包自述文件由插件装载时写入：进程存活且入口/服务摘要与安装内容一致，
+    // 才能把“同版本”区分为“同一构建实例”。旧包没有该文件时不伪造该检查。
+    const identityPath = join(installedRoot, 'runtime-identity.json')
+    if (existsSync(identityPath)) {
+      try {
+        const identity = JSON.parse(readFileSync(identityPath, 'utf8')) as {
+          kind?: unknown
+          version?: unknown
+          pid?: unknown
+          startedAt?: unknown
+          indexSha256?: unknown
+          serviceSha256?: unknown
+        }
+        const pid = typeof identity.pid === 'number' ? identity.pid : 0
+        let alive = false
+        try {
+          if (pid > 0) {
+            process.kill(pid, 0)
+            alive = true
+          }
+        } catch {
+          alive = false
+        }
+        const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))
+        const serviceHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/runtime/service.js')))
+        check(
+          'running_identity',
+          identity.kind === 'forgeloop-runtime-identity' &&
+            identity.version === build.packageVersion &&
+            alive &&
+            identity.indexSha256 === indexHash &&
+            identity.serviceSha256 === serviceHash,
+          `运行身份 pid=${pid || '未知'}，入口摘要 ${String(identity.indexSha256 ?? '')}，服务摘要 ${String(identity.serviceSha256 ?? '')}`,
+        )
+      } catch {
+        check('running_identity', false, '运行身份文件无法解析')
+      }
+    }
+
     // 新链路按候选 diff 的实际源码文件核对；旧链路仍按任务包声明核对。
     const candidateDiffPath = admitted
       ? existsSync(delivery!.candidate!.diffPath)
