@@ -6,12 +6,12 @@
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { businessReviewDir, candidatesDir, devWorkspaceDir, evidenceDir, integrationDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
 import { PLUGIN_VERSION } from './version.js'
 import { Database } from '../records/db.js'
-import { Repository, type PlanReviewRecord, type ServiceRequestRecord, type VerificationRecord } from '../records/repository.js'
+import { Repository, type BusinessReviewRecord, type CodeCandidateRecord, type PlanReviewRecord, type RequirementCommitRecord, type ServiceRequestRecord, type VerificationRecord } from '../records/repository.js'
 import { RuleViolationError } from '../domain/errors.js'
 import {
   parseAnalysisDraft,
@@ -67,7 +67,7 @@ import {
   type ImpactExplainAgentResponse,
 } from '../domain/impact-explain.js'
 import { AgentRunner, type AgentOpenRequest, type AgentRunResult, type AgentSession } from './agent-runner.js'
-import { exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
+import { candidateIdentity, exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
 import { OpsRuntime } from './ops.js'
 import {
   buildProjectFacts,
@@ -1483,6 +1483,204 @@ ${answer}`
     return null
   }
 
+  private buildMaterialFailure(code: string, message: string): { ok: false; code: string; message: string } {
+    return { ok: false, code, message }
+  }
+
+  /**
+   * 新旧构建路径共用的材料核验：文件摘要、规范字段、候选身份、验证工作区树、
+   * 未提交改动、候选 diff 与受控提交的文件集合都必须一致。只读取证据，不改写历史。
+   */
+  private validateBuildMaterials(input: {
+    reqId: string
+    plan: TaskPlan
+    verification: VerificationRecord
+    review: BusinessReviewRecord
+    commit: RequirementCommitRecord | null
+    candidate: CodeCandidateRecord | null
+    requireCommit: boolean
+  }): { ok: true; diffPath: string; protectedFiles: string[]; workspaceSha256: string } | { ok: false; code: string; message: string } {
+    const { verification, review, candidate, commit, plan } = input
+    if (!existsSync(verification.reportPath)) {
+      return this.buildMaterialFailure('verification_invalid', '独立验证报告文件缺失；不能构建')
+    }
+    const reportText = readFileSync(verification.reportPath, 'utf8')
+    if (sha256OfText(reportText) !== verification.reportSha256) {
+      return this.buildMaterialFailure('verification_invalid', '独立验证报告摘要与登记不一致；不能构建')
+    }
+    let canonical: Record<string, unknown>
+    try {
+      canonical = JSON.parse(reportText) as Record<string, unknown>
+    } catch {
+      return this.buildMaterialFailure('verification_invalid', '独立验证报告不是可解析 JSON；不能构建')
+    }
+    const canonicalCandidate = typeof canonical.candidateSha256 === 'string' ? canonical.candidateSha256 : ''
+    if (
+      canonical.reqId !== input.reqId ||
+      canonical.planVersion !== plan.planVersion ||
+      canonical.requirementVersion !== plan.requirementVersion ||
+      canonicalCandidate !== verification.candidateSha256 ||
+      canonical.workspaceSha256 !== verification.workspaceSha256 ||
+      canonical.verdict !== 'pass'
+    ) {
+      return this.buildMaterialFailure('verification_invalid', '独立验证报告的候选、需求、方案或工作区身份不一致；不能构建')
+    }
+
+    if (!existsSync(review.reportPath)) {
+      return this.buildMaterialFailure('business_review_invalid', '业务验收报告文件缺失；不能构建')
+    }
+    const reviewText = readFileSync(review.reportPath, 'utf8')
+    if (sha256OfText(reviewText) !== review.reportSha256) {
+      return this.buildMaterialFailure('business_review_invalid', '业务验收报告摘要与登记不一致；不能构建')
+    }
+    let reviewCanonical: Record<string, unknown>
+    try {
+      reviewCanonical = JSON.parse(reviewText) as Record<string, unknown>
+    } catch {
+      return this.buildMaterialFailure('business_review_invalid', '业务验收报告不是可解析 JSON；不能构建')
+    }
+    if (
+      reviewCanonical.reqId !== input.reqId ||
+      reviewCanonical.planVersion !== plan.planVersion ||
+      reviewCanonical.requirementVersion !== plan.requirementVersion ||
+      reviewCanonical.candidateSha256 !== verification.candidateSha256 ||
+      reviewCanonical.verificationSha256 !== verification.reportSha256 ||
+      reviewCanonical.verdict !== 'pass'
+    ) {
+      return this.buildMaterialFailure('business_review_invalid', '业务验收报告与验证/候选身份不一致；不能构建')
+    }
+
+    let diffPath = ''
+    let diffNames: string[] = []
+    if (candidate) {
+      diffPath = existsSync(candidate.diffPath)
+        ? candidate.diffPath
+        : join(verification.evidenceDir, 'candidate.diff')
+      if (!existsSync(diffPath)) {
+        return this.buildMaterialFailure('candidate_content_mismatch', '候选 diff 文件缺失；不能构建')
+      }
+      const diffText = readFileSync(diffPath, 'utf8')
+      if (sha256OfText(diffText) !== candidate.diffSha256) {
+        return this.buildMaterialFailure('candidate_content_mismatch', '候选 diff 摘要与登记不一致；不能构建')
+      }
+      const recomputed = candidateIdentity({
+        reqId: candidate.requirementId,
+        planVersion: candidate.planVersion,
+        requirementVersion: candidate.requirementVersion,
+        baselineCommit: candidate.baselineCommit,
+        snapshotCommit: candidate.snapshotCommit,
+        diffSha256: candidate.diffSha256,
+      })
+      if (recomputed !== candidate.candidateSha256 || candidate.planVersion !== plan.planVersion) {
+        return this.buildMaterialFailure('candidate_identity_mismatch', '候选身份与需求/方案绑定不一致；不能构建')
+      }
+      diffNames = [...diffText.matchAll(/^\+\+\+ b\/([^\n]+)$/gm)].map((match) => match[1]!)
+    }
+
+    if (input.requireCommit) {
+      if (!commit || commit.commitSha === '') {
+        return this.buildMaterialFailure('commit_required', '候选尚未受控提交；不能构建')
+      }
+      if (
+        commit.requirementId !== input.reqId ||
+        commit.planVersion !== plan.planVersion ||
+        commit.candidateSha256 !== verification.candidateSha256
+      ) {
+        return this.buildMaterialFailure('commit_identity_mismatch', '受控提交与当前候选/需求/方案不一致；不能构建')
+      }
+      const commitExists = runCommand('git', ['cat-file', '-e', `${commit.commitSha}^{commit}`], this.config.projectPath, 30_000)
+      if (commitExists.code !== 0) {
+        return this.buildMaterialFailure('commit_identity_mismatch', `受控提交 ${commit.commitSha.slice(0, 12)} 在真实项目中不存在；不能构建`)
+      }
+      const commitFiles = requireGit(this.config.projectPath, ['diff-tree', '--no-commit-id', '--name-only', '-r', commit.commitSha])
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .sort()
+      const expectedFiles = [...commit.files].sort()
+      if (JSON.stringify(commitFiles) !== JSON.stringify(expectedFiles)) {
+        return this.buildMaterialFailure('commit_identity_mismatch', '受控提交的实际文件与登记文件不一致；不能构建')
+      }
+      if (candidate && JSON.stringify(expectedFiles) !== JSON.stringify([...diffNames].sort())) {
+        return this.buildMaterialFailure('commit_identity_mismatch', '受控提交文件与候选 diff 文件不一致；不能构建')
+      }
+    }
+
+    const source = join(verification.evidenceDir, 'workspace')
+    if (!existsSync(source)) {
+      return this.buildMaterialFailure('verification_workspace_missing', `独立验证工作区不存在：${source}`)
+    }
+    const tree = requireGit(source, ['rev-parse', 'HEAD^{tree}']).trim()
+    if (tree !== verification.workspaceSha256) {
+      return this.buildMaterialFailure('verification_workspace_invalid', '独立验证工作区的 HEAD 树与验证记录不一致；不能构建')
+    }
+    const status = requireGit(source, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const outside = status
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.slice(3).trim())
+      .filter((path) => path !== '' && !path.startsWith(VERIFICATION_MATERIAL_DIR))
+    if (outside.length > 0) {
+      return this.buildMaterialFailure(
+        'candidate_content_mismatch',
+        `独立验证工作区在验证后出现了受保护改动：${outside.join('、')}`,
+      )
+    }
+
+    if (candidate) {
+      const applied = git(source, ['diff', `${candidate.snapshotCommit}..HEAD`, '--binary'])
+      if (applied.code !== 0 || sha256OfText(applied.stdout) !== candidate.diffSha256) {
+        return this.buildMaterialFailure('candidate_content_mismatch', '验证工作区的候选内容与候选 diff 不一致；不能构建')
+      }
+    } else {
+      const recordedContent = (canonical.candidateIntegrity as { candidateContentSha256?: unknown } | undefined)
+        ?.candidateContentSha256
+      if (typeof recordedContent === 'string') {
+        const actual = requireGit(source, ['diff', 'HEAD', '--binary'])
+        if (sha256OfText(actual) !== recordedContent) {
+          return this.buildMaterialFailure('candidate_content_mismatch', '验证工作区的受保护内容与验证记录不一致；不能构建')
+        }
+      }
+    }
+    // 构建源码不只包含候选 diff 的文件：验证后改写任何受版本控制的文件都可能
+    // 改变构建语义，因此对受保护文件做全量快照，而不是只保护 diff 清单。
+    const protectedFiles = requireGit(source, ['ls-files'])
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    return { ok: true, diffPath, protectedFiles, workspaceSha256: tree }
+  }
+
+  private protectedFileHashes(root: string, files: readonly string[]): Map<string, string> {
+    const hashes = new Map<string, string>()
+    for (const file of files) {
+      const path = join(root, file)
+      if (!existsSync(path)) {
+        hashes.set(file, '')
+        continue
+      }
+      hashes.set(file, sha256OfBytes(readFileSync(path)))
+    }
+    return hashes
+  }
+
+  private protectedFilesChanged(
+    root: string,
+    before: ReadonlyMap<string, string>,
+    ignored: readonly string[],
+  ): string[] {
+    const ignoredSet = new Set(ignored)
+    const changed: string[] = []
+    for (const [file, hash] of before) {
+      if (ignoredSet.has(file)) continue
+      const path = join(root, file)
+      const now = existsSync(path) ? sha256OfBytes(readFileSync(path)) : ''
+      if (now !== hash) changed.push(file)
+    }
+    return changed
+  }
+
   /**
    * 新链路构建：依据系统准入、固定候选、独立验证、业务验收和本地提交，
    * 不再要求旧任务包批准或所有者整体验收。
@@ -1494,14 +1692,8 @@ ${answer}`
     if (!candidate || !verification || verification.verdict !== 'pass') {
       return fail('verification_required', '候选没有通过的独立验证；不能构建')
     }
-    if (!review || review.verdict !== 'pass' || review.verificationSha256 !== verification.reportSha256) {
+    if (!review || review.verdict !== 'pass') {
       return fail('business_review_required', '候选没有通过的业务验收；不能构建')
-    }
-    if (!commit || commit.commitSha === '') {
-      return fail('commit_required', '候选尚未受控提交；不能构建')
-    }
-    if (commit.candidateSha256 !== candidate.candidateSha256) {
-      return fail('candidate_stale', '提交绑定的候选与当前候选不一致；需要重新验证并提交')
     }
     if (
       this.config.candidateBuildCommand.length === 0 ||
@@ -1513,11 +1705,22 @@ ${answer}`
     if (input.version !== undefined && !/^\d+\.\d+\.\d+$/.test(input.version)) {
       return fail('version_invalid', `候选版本必须是 x.y.z，实际 ${JSON.stringify(input.version)}`)
     }
+    const materials = this.validateBuildMaterials({
+      reqId: input.reqId,
+      plan,
+      verification,
+      review,
+      commit,
+      candidate,
+      requireCommit: true,
+    })
+    if (!materials.ok) return fail(materials.code, materials.message)
     const source = join(verification.evidenceDir, 'workspace')
-    if (!existsSync(source)) return fail('verification_workspace_missing', `独立验证工作区不存在：${source}`)
     const dir = candidatesDir(this.config, input.reqId, plan.planVersion)
+    const diffText = readFileSync(materials.diffPath, 'utf8')
     rmSync(dir, { recursive: true, force: true })
     cpSync(source, dir, { recursive: true })
+    writeFileSync(join(dir, basename(candidate.diffPath)), diffText, 'utf8')
     const sharedModules = join(this.config.projectPath, 'node_modules')
     if (existsSync(sharedModules)) {
       // 验证工作区可能带有不完整的 node_modules 副本；构建副本必须使用主项目
@@ -1541,6 +1744,8 @@ ${answer}`
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
+    const buildIgnore = input.version !== undefined ? ['packages/forgeloop/package.json'] : []
+    const protectedBefore = this.protectedFileHashes(dir, materials.protectedFiles)
     const log: string[] = []
     for (const [label, command] of [
       ['build', this.config.candidateBuildCommand],
@@ -1551,6 +1756,14 @@ ${answer}`
       if (result.code !== 0) {
         writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
         return fail('candidate_build_failed', `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`)
+      }
+      const changed = this.protectedFilesChanged(dir, protectedBefore, buildIgnore)
+      if (changed.length > 0) {
+        writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+        return fail(
+          'candidate_content_changed',
+          `候选构建过程修改了受保护内容：${changed.join('、')}；旧验证不能沿用，必须重新验证`,
+        )
       }
     }
     writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
@@ -1585,7 +1798,7 @@ ${answer}`
       files: artifact.files ?? [],
       gitHead: artifact.gitHead ?? '',
       builtAt: artifact.builtAt ?? this.now(),
-      commitSha: commit.commitSha,
+      commitSha: commit?.commitSha ?? '',
       sourceWorkspace: source,
       at: this.now(),
     }
@@ -1611,7 +1824,7 @@ ${answer}`
       packageVersion,
       candidateSha256: candidate.candidateSha256,
       verificationSha256: verification.reportSha256,
-      commitSha: commit.commitSha,
+      commitSha: commit?.commitSha ?? '',
       recordPath,
     })
   }
@@ -1647,35 +1860,22 @@ ${answer}`
     if (!verification || verification.verdict !== 'pass') {
       return fail('verification_required', `候选 ${identity.slice(0, 16)}… 没有通过的独立验证；不能构建可发布候选`)
     }
-    if (!this.verificationMaterialValid(verification)) {
-      return fail('verification_invalid', '独立验证报告文件缺失或摘要不一致；不能构建可发布候选')
-    }
     const review = this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
-    if (!review || review.verdict !== 'pass' || review.verificationSha256 !== verification.reportSha256) {
+    if (!review || review.verdict !== 'pass') {
       return fail('business_review_required', `候选 ${identity.slice(0, 16)}… 没有通过的业务终审；不能构建可发布候选`)
     }
+    const materials = this.validateBuildMaterials({
+      reqId: input.reqId,
+      plan,
+      verification,
+      review,
+      commit: this.repo.commitForCandidate(input.reqId, plan.planVersion, identity),
+      candidate: null,
+      requireCommit: false,
+    })
+    if (!materials.ok) return fail(materials.code, materials.message)
     const source = join(verification.evidenceDir, 'workspace')
-    if (!existsSync(source)) {
-      return fail('verification_workspace_missing', `独立验证工作区不存在：${source}`)
-    }
-    // 验证副本必须仍是当时那一份内容：受保护内容摘要与记录一致。
-    let protectedDigest = ''
-    let recordedDigest = ''
-    try {
-      protectedDigest = sha256OfText(requireGit(source, ['diff', 'HEAD', '--binary']))
-      const canonical = JSON.parse(readFileSync(verification.reportPath, 'utf8')) as {
-        candidateIntegrity?: { candidateContentSha256?: unknown }
-      }
-      recordedDigest =
-        typeof canonical.candidateIntegrity?.candidateContentSha256 === 'string'
-          ? canonical.candidateIntegrity.candidateContentSha256
-          : ''
-    } catch {
-      return fail('verification_workspace_invalid', '无法核对独立验证工作区的候选内容')
-    }
-    if (!recordedDigest || protectedDigest !== recordedDigest) {
-      return fail('candidate_content_mismatch', '独立验证工作区的受保护内容与验证记录不一致；不能据此构建')
-    }
+    const protectedDigest = sha256OfText(requireGit(source, ['diff', 'HEAD', '--binary']))
     const dir = candidatesDir(this.config, input.reqId, plan.planVersion)
     rmSync(dir, { recursive: true, force: true })
     mkdirSync(dir, { recursive: true })
@@ -1694,6 +1894,8 @@ ${answer}`
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
+    const buildIgnore = input.version !== undefined ? ['packages/forgeloop/package.json'] : []
+    const protectedBefore = this.protectedFileHashes(dir, materials.protectedFiles)
     const log: string[] = []
     for (const [label, command, timeout] of [
       ['prepare', this.config.worktreePrepareCommand, this.config.formalTestTimeoutSeconds * 1000],
@@ -1706,6 +1908,14 @@ ${answer}`
       if (result.code !== 0) {
         writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
         return fail('candidate_build_failed', `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`)
+      }
+      const changed = this.protectedFilesChanged(dir, protectedBefore, buildIgnore)
+      if (changed.length > 0) {
+        writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+        return fail(
+          'candidate_content_changed',
+          `候选构建过程修改了受保护内容：${changed.join('、')}；旧验证不能沿用，必须重新验证`,
+        )
       }
     }
     writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
