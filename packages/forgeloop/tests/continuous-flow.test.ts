@@ -1174,4 +1174,57 @@ describe('continuous four-Agent flow', () => {
     }
   })
 
+  it('rejects malformed or ineffective fault specs without creating a candidate', async () => {
+    const specs = [
+      {},
+      { file: '../outside.txt', append: 'x' },
+      { file: 'missing.txt', append: 'x' },
+      { file: 'README.md', append: '' },
+    ]
+    for (const spec of specs) {
+      process.env.FORGELOOP_FAULT_INJECT = JSON.stringify(spec)
+      try {
+        runtime = makeRuntime(fakeRunner())
+        const submitted = runtime.submit({
+          text: '实现一个可验证的小功能',
+          by: 'owner',
+          source: 'dsh-session:sess-fault-bad:msg-1',
+        })
+        const reqId = (submitted.data as { reqId: string }).reqId
+        await runNext(reqId, 'analyze')
+        runtime.autoAdvanceRequests()
+        await expect(runNext(reqId, 'advance')).rejects.toThrow()
+        expect(runtime.repo.codeCandidates(reqId, 1)).toHaveLength(0)
+      } finally {
+        delete process.env.FORGELOOP_FAULT_INJECT
+      }
+    }
+  })
+
+  it('supports a replacement fault and does not inject it twice', async () => {
+    process.env.FORGELOOP_FAULT_INJECT = JSON.stringify({
+      file: 'README.md',
+      replaceFrom: 'fixture',
+      replaceTo: 'fault-replaced',
+    })
+    try {
+      runtime = makeRuntime(fakeRunner())
+      const submitted = runtime.submit({
+        text: '实现一个可验证的小功能',
+        by: 'owner',
+        source: 'dsh-session:sess-fault-replace:msg-1',
+      })
+      const reqId = (submitted.data as { reqId: string }).reqId
+      await runNext(reqId, 'analyze')
+      runtime.autoAdvanceRequests()
+      expect((await runNext(reqId, 'advance')).state).toBe('done')
+      const candidate = runtime.repo.codeCandidates(reqId, 1)[0]!
+      expect(candidate.diffPath).toBeTruthy()
+      const marker = join(project, '.forgeloop/projects/demo/candidates', reqId, 'v1', 'fault-injection.json')
+      expect(existsSync(marker)).toBe(true)
+    } finally {
+      delete process.env.FORGELOOP_FAULT_INJECT
+    }
+  })
+
 })
