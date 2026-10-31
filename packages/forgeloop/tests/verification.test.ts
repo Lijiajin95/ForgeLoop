@@ -7,14 +7,25 @@ import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
 import {
+  judgeVerificationResult,
   parsePlanReview,
   parseVerificationCommands,
+  parseRequirementVerificationPlan,
   parseVerificationReport,
   validatePlanCoverage,
+  validateRequirementVerificationPlan,
   validateVerificationCoverage,
+  type VerificationArtifact,
 } from '../src/domain/verification.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
+import type { Requirement, RequirementAnalysis } from '../src/domain/requirement.js'
+import {
+  VerificationAgent,
+  type VerificationCheckExecutor,
+  type VerificationPlannerRequest,
+  type VerificationPlannerResult,
+} from '../src/agents/verification-agent.js'
 
 /**
  * 验证 Agent 的门禁测试：实现前评审决定能否批准，独立验证决定能否验收。
@@ -1265,5 +1276,396 @@ describe('independent verification gate', () => {
     const { reqId, advance } = await runPipeline()
     expect(advance.state, advance.detail).toBe('done')
     expect(runtime.repo.verification(reqId, 1)?.verdict).toBe('pass')
+  })
+})
+
+const EXTRA_SCENARIO = '异常输入被拒绝'
+const EXTRA_CRITERION = '错误输出包含原因'
+
+/** 验证 Agent 只拿需求原文与分析；不接触任务包、候选或实现代码。 */
+function requirementForVerificationPlan(): { requirement: Requirement; analysis: RequirementAnalysis } {
+  return {
+    requirement: {
+      reqId: 'req-verification-agent-1',
+      project: 'testproj',
+      status: 'specified',
+      blockedReason: '',
+      versions: [
+        {
+          version: 1,
+          text: '实现验证 Agent：依据需求说明生成验证方案并执行。',
+          createdAt: '2026-10-31T00:00:00.000Z',
+          revisedBy: 'owner',
+          source: 'dsh-session:sess-plan:msg-plan',
+        },
+      ],
+      submittedBy: 'owner',
+      source: 'dsh-session:sess-plan:msg-plan',
+    },
+    analysis: {
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: '验证 Agent 依据需求说明验证研发产物',
+      scenarios: [SCENARIO, EXTRA_SCENARIO],
+      acceptanceCriteria: [CRITERION, EXTRA_CRITERION],
+      clarifications: [],
+      createdAt: '2026-10-31T00:01:00.000Z',
+    },
+  }
+}
+
+function requirementVerificationPlanOf(options: { skipExtraScenario?: boolean } = {}): string {
+  const scenarios: Array<Record<string, unknown>> = [
+    {
+      scenario: SCENARIO,
+      acceptance_criterion: CRITERION,
+      method: '在独立工作区执行成功路径并核对输出',
+      required: true,
+      checks: [
+        {
+          label: 'happy-path',
+          argv: ['node', '-e', "console.log('verified ok')"],
+          expected_output: 'verified ok',
+        },
+      ],
+    },
+  ]
+  if (!options.skipExtraScenario) {
+    scenarios.push({
+      scenario: EXTRA_SCENARIO,
+      acceptance_criterion: EXTRA_CRITERION,
+      method: '在独立工作区执行异常输入并核对错误原因',
+      required: true,
+      checks: [
+        {
+          label: 'reject-path',
+          argv: ['node', '-e', "console.log('rejected: bad input')"],
+          expected_output: 'rejected',
+        },
+      ],
+    })
+  }
+  return JSON.stringify({ scenarios })
+}
+
+function makeVerificationAgent(
+  options: {
+    planText?: string
+    planStatus?: VerificationPlannerResult['status']
+    executeCheck?: VerificationCheckExecutor
+  } = {},
+): { agent: VerificationAgent; requests: VerificationPlannerRequest[] } {
+  const requests: VerificationPlannerRequest[] = []
+  const defaultExecute: VerificationCheckExecutor = async ({ argv }) => ({
+    exitCode: 0,
+    output: `ran ${argv.join(' ')} verified ok rejected: bad input`,
+    timedOut: false,
+    aborted: false,
+    durationMs: 3,
+  })
+  const agent = new VerificationAgent({
+    projectPath: dir,
+    timeoutMs: 30_000,
+    now: () => new Date('2026-10-31T01:00:00.000Z'),
+    platform: 'test-platform',
+    nodeVersion: 'v-test',
+    runner: {
+      async run(request) {
+        requests.push(request)
+        return {
+          status: options.planStatus ?? 'completed',
+          text: options.planText ?? requirementVerificationPlanOf(),
+          reason: '模型未完成',
+        }
+      },
+    },
+    executeCheck: options.executeCheck ?? defaultExecute,
+  })
+  return { agent, requests }
+}
+
+function verificationArtifact(): VerificationArtifact {
+  // 执行阶段要求产物工作区真实存在；测试替身仍使用真实目录，避免在错误位置执行命令。
+  mkdirSync(join(dir, 'artifact'), { recursive: true })
+  return { requirementVersion: 1, candidateSha256: 'a'.repeat(64), workspace: join(dir, 'artifact') }
+}
+
+const VERIFY_PLAN_TRANSCRIPT = () => join(dir, 'sessions', 'verify-plan.jsonl')
+
+describe('requirement-derived verification plan', () => {
+  it('designs a structured executable plan from the requirement description before any artifact exists', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const harness = makeVerificationAgent()
+
+    const plan = await harness.agent.plan({
+      requirement,
+      analysis,
+      transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+    })
+
+    expect(plan.scenarios).toHaveLength(2)
+    expect(plan.scenarios[0]).toMatchObject({
+      scenario: SCENARIO,
+      acceptanceCriterion: CRITERION,
+      required: true,
+    })
+    expect(plan.scenarios[0]?.checks[0]).toMatchObject({
+      label: 'happy-path',
+      expectedOutput: 'verified ok',
+    })
+    expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
+
+    expect(harness.requests).toHaveLength(1)
+    expect(harness.requests[0]).toMatchObject({ role: 'verify', tools: 'none' })
+    const prompt = harness.requests[0]!.prompt
+    expect(prompt).toContain(requirement.versions[0]!.text)
+    expect(prompt).toContain(SCENARIO)
+    expect(prompt).toContain(EXTRA_CRITERION)
+    // 方案阶段只依据需求说明，不携带任务包、候选或实现 diff。
+    expect(prompt).not.toContain('候选')
+    expect(prompt).not.toContain('task_id')
+    expect(prompt).not.toContain('diff')
+  })
+
+  it('refuses a plan that misses an analysis scenario or criterion', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const harness = makeVerificationAgent({
+      planText: requirementVerificationPlanOf({ skipExtraScenario: true }),
+    })
+
+    await expect(
+      harness.agent.plan({ requirement, analysis, transcriptPath: VERIFY_PLAN_TRANSCRIPT() }),
+    ).rejects.toThrow('验证方案未覆盖需求说明')
+  })
+
+  it('fails closed when the planning model fails or returns a malformed plan', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const failed = makeVerificationAgent({ planStatus: 'timeout' })
+    await expect(
+      failed.agent.plan({ requirement, analysis, transcriptPath: VERIFY_PLAN_TRANSCRIPT() }),
+    ).rejects.toThrow('验证方案生成未完成')
+
+    const malformed = makeVerificationAgent({
+      planText: JSON.stringify({
+        scenarios: [
+          {
+            scenario: SCENARIO,
+            acceptance_criterion: CRITERION,
+            method: '空命令',
+            required: true,
+            checks: [],
+          },
+        ],
+      }),
+    })
+    await expect(
+      malformed.agent.plan({ requirement, analysis, transcriptPath: VERIFY_PLAN_TRANSCRIPT() }),
+    ).rejects.toThrow('checks 必须给出至少一条可执行命令')
+  })
+
+  it('rejects duplicate command labels and plans without a required scenario', () => {
+    const duplicate = JSON.parse(requirementVerificationPlanOf()) as {
+      scenarios: Array<{ checks: Array<Record<string, unknown>> }>
+    }
+    duplicate.scenarios[0]!.checks[0]!.label = 'same-label'
+    duplicate.scenarios[1]!.checks[0]!.label = 'same-label'
+    expect(() => parseRequirementVerificationPlan(JSON.stringify(duplicate))).toThrow('label 不能重复')
+
+    const optionalOnly = JSON.parse(requirementVerificationPlanOf()) as {
+      scenarios: Array<Record<string, unknown>>
+    }
+    optionalOnly.scenarios[0]!.required = false
+    optionalOnly.scenarios[1]!.required = false
+    expect(() => parseRequirementVerificationPlan(JSON.stringify(optionalOnly))).toThrow('至少要有一个必过场景')
+  })
+})
+
+describe('verification result execution', () => {
+  it('executes the delivered artifact and passes with exit codes, output and environment recorded', async () => {
+    const harness = makeVerificationAgent()
+    const plan = parseRequirementVerificationPlan(requirementVerificationPlanOf())
+
+    const result = await harness.agent.execute({ plan, artifact: verificationArtifact() })
+
+    expect(result.verdict).toBe('passed')
+    expect(result.failures).toEqual([])
+    expect(result.scenarios.map((scenario) => scenario.status)).toEqual(['pass', 'pass'])
+    expect(result.checks.map((check) => check.exitCode)).toEqual([0, 0])
+    expect(result.checks[0]?.output).toContain('verified ok')
+    expect(result.checks[1]?.output).toContain('rejected: bad input')
+    expect(result.artifact).toEqual(verificationArtifact())
+    expect(result.environment).toMatchObject({ platform: 'test-platform', nodeVersion: 'v-test' })
+    expect(result.environment.startedAt).toBe('2026-10-31T01:00:00.000Z')
+    expect(result.finishedAt).toBe('2026-10-31T01:00:00.000Z')
+    // 执行阶段完全由真实命令结果判定，不调用模型。
+    expect(harness.requests).toEqual([])
+  })
+
+  it('records a failing exit code and marks the result failed', async () => {
+    const harness = makeVerificationAgent({
+      executeCheck: async ({ argv }) => ({
+        exitCode: argv.join(' ').includes('rejected') ? 1 : 0,
+        output: `${argv.join(' ')} verified ok`,
+        timedOut: false,
+        aborted: false,
+        durationMs: 2,
+      }),
+    })
+    const plan = parseRequirementVerificationPlan(requirementVerificationPlanOf())
+
+    const result = await harness.agent.execute({ plan, artifact: verificationArtifact() })
+
+    expect(result.verdict).toBe('failed')
+    expect(result.checks.map((check) => check.exitCode)).toEqual([0, 1])
+    expect(result.failures.join('；')).toContain('退出码 1')
+    expect(result.scenarios.map((scenario) => scenario.status)).toEqual(['pass', 'fail'])
+  })
+
+  it('fails on missing expected output, timeout or abort instead of trusting exit code 0', async () => {
+    const plan = parseRequirementVerificationPlan(requirementVerificationPlanOf())
+
+    const missingOutput = makeVerificationAgent({
+      executeCheck: async () => ({
+        exitCode: 0,
+        output: 'unrelated output',
+        timedOut: false,
+        aborted: false,
+        durationMs: 1,
+      }),
+    })
+    const missing = await missingOutput.agent.execute({ plan, artifact: verificationArtifact() })
+    expect(missing.verdict).toBe('failed')
+    expect(missing.failures.join('；')).toContain('输出缺少预期片段')
+
+    const timedOut = makeVerificationAgent({
+      executeCheck: async () => ({
+        exitCode: null,
+        output: '',
+        timedOut: true,
+        aborted: false,
+        durationMs: 30_000,
+      }),
+    })
+    const timeout = await timedOut.agent.execute({ plan, artifact: verificationArtifact() })
+    expect(timeout.verdict).toBe('failed')
+    expect(timeout.failures.join('；')).toContain('超时')
+
+    let executed = 0
+    const aborted = makeVerificationAgent({
+      executeCheck: async () => {
+        executed += 1
+        return { exitCode: null, output: '', timedOut: false, aborted: true, durationMs: 1 }
+      },
+    })
+    const abort = await aborted.agent.execute({ plan, artifact: verificationArtifact() })
+    expect(abort.verdict).toBe('failed')
+    expect(abort.checks).toHaveLength(1)
+    expect(executed).toBe(1)
+    expect(abort.failures.join('；')).toContain('被中止')
+  })
+
+  it('fails when a planned command has no recorded execution result', () => {
+    const result = judgeVerificationResult({
+      plan: parseRequirementVerificationPlan(requirementVerificationPlanOf()),
+      artifact: verificationArtifact(),
+      checks: [],
+      environment: { platform: 'test-platform', nodeVersion: 'v-test', startedAt: '2026-10-31T01:00:00.000Z' },
+      finishedAt: '2026-10-31T01:00:00.000Z',
+    })
+    expect(result.verdict).toBe('failed')
+    expect(result.failures).toContain('缺少验证命令执行结果：happy-path')
+    expect(result.scenarios.every((scenario) => scenario.status === 'fail')).toBe(true)
+  })
+
+  it('refuses to execute a plan against a missing artifact workspace', async () => {
+    const harness = makeVerificationAgent()
+    await expect(
+      harness.agent.execute({
+        plan: parseRequirementVerificationPlan(requirementVerificationPlanOf()),
+        artifact: { ...verificationArtifact(), workspace: join(dir, 'missing-artifact') },
+      }),
+    ).rejects.toThrow('验证产物工作区不存在')
+  })
+
+  it('turns an executor exception into a failed result instead of inventing a pass', async () => {
+    const harness = makeVerificationAgent({
+      executeCheck: async () => {
+        throw new Error('spawn failed')
+      },
+    })
+    const result = await harness.agent.execute({
+      plan: parseRequirementVerificationPlan(requirementVerificationPlanOf()),
+      artifact: verificationArtifact(),
+    })
+    expect(result.verdict).toBe('failed')
+    expect(result.checks[0]).toMatchObject({ exitCode: null })
+    expect(result.checks[0]?.output).toContain('验证命令执行异常：spawn failed')
+    expect(result.failures.join('；')).toContain('退出码 null')
+  })
+
+  it('records the host platform and node version when no environment is injected', async () => {
+    const agent = new VerificationAgent({
+      projectPath: dir,
+      timeoutMs: 5_000,
+      runner: {
+        async run() {
+          return { status: 'completed', text: requirementVerificationPlanOf(), reason: '' }
+        },
+      },
+      executeCheck: async () => ({
+        exitCode: 0,
+        output: 'verified ok rejected',
+        timedOut: false,
+        aborted: false,
+        durationMs: 1,
+      }),
+    })
+    const result = await agent.execute({
+      plan: parseRequirementVerificationPlan(requirementVerificationPlanOf()),
+      artifact: verificationArtifact(),
+    })
+    expect(result.verdict).toBe('passed')
+    expect(result.environment.platform).toBe(process.platform)
+    expect(result.environment.nodeVersion).toBe(process.version)
+    expect(result.environment.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+
+  it('passes the abort signal to both planning and command execution', async () => {
+    const controller = new AbortController()
+    const signals: Array<AbortSignal | undefined> = []
+    const agent = new VerificationAgent({
+      projectPath: dir,
+      timeoutMs: 5_000,
+      now: () => new Date('2026-10-31T02:00:00.000Z'),
+      runner: {
+        async run(request) {
+          signals.push(request.signal)
+          return { status: 'completed', text: requirementVerificationPlanOf(), reason: '' }
+        },
+      },
+      executeCheck: async (input) => {
+        signals.push(input.signal)
+        return {
+          exitCode: 0,
+          output: 'verified ok rejected',
+          timedOut: false,
+          aborted: false,
+          durationMs: 1,
+        }
+      },
+    })
+    const { requirement, analysis } = requirementForVerificationPlan()
+    await agent.plan({
+      requirement,
+      analysis,
+      transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+      signal: controller.signal,
+    })
+    await agent.execute({
+      plan: parseRequirementVerificationPlan(requirementVerificationPlanOf()),
+      artifact: verificationArtifact(),
+      signal: controller.signal,
+    })
+    expect(signals).toEqual([controller.signal, controller.signal, controller.signal])
   })
 })

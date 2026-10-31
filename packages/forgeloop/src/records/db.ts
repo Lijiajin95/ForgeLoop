@@ -122,6 +122,41 @@ CREATE TABLE IF NOT EXISTS requirement_cancellations (
     cancelled_at TEXT NOT NULL
 );
 
+-- 需求队列：按提出时间先后领取，同一时间最多一条处于研发中（claimed）。
+CREATE TABLE IF NOT EXISTS requirement_queue (
+    req_id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    enqueued_at TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    state TEXT NOT NULL DEFAULT 'queued',
+    claimed_at TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS requirement_queue_sequence
+    ON requirement_queue(sequence);
+CREATE INDEX IF NOT EXISTS requirement_queue_pending
+    ON requirement_queue(state, enqueued_at, sequence);
+
+-- 内建问题单：验证未通过时自动创建，关联需求与验证报告，驱动研发修复后重新验证。
+CREATE TABLE IF NOT EXISTS requirement_issues (
+    issue_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    project TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    verification_sha256 TEXT NOT NULL DEFAULT '',
+    candidate_sha256 TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    resolved_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS requirement_issues_by_requirement
+    ON requirement_issues(req_id, attempt);
+CREATE INDEX IF NOT EXISTS requirement_issues_by_status
+    ON requirement_issues(req_id, status, attempt);
+
 CREATE TABLE IF NOT EXISTS service_requests (
     request_id TEXT PRIMARY KEY,
     req_id TEXT NOT NULL,

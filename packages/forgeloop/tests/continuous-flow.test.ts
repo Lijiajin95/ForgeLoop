@@ -1183,6 +1183,7 @@ describe('continuous four-Agent flow', () => {
     ]
     for (const spec of specs) {
       process.env.FORGELOOP_FAULT_INJECT = JSON.stringify(spec)
+      let reqId = ''
       try {
         runtime = makeRuntime(fakeRunner())
         const submitted = runtime.submit({
@@ -1190,13 +1191,15 @@ describe('continuous four-Agent flow', () => {
           by: 'owner',
           source: 'dsh-session:sess-fault-bad:msg-1',
         })
-        const reqId = (submitted.data as { reqId: string }).reqId
+        reqId = (submitted.data as { reqId: string }).reqId
         await runNext(reqId, 'analyze')
         runtime.autoAdvanceRequests()
         await expect(runNext(reqId, 'advance')).rejects.toThrow()
         expect(runtime.repo.codeCandidates(reqId, 1)).toHaveLength(0)
       } finally {
         delete process.env.FORGELOOP_FAULT_INJECT
+        // 需求队列按提出时间串行：收口本轮需求，避免它作为在研需求阻塞下一轮新需求。
+        if (reqId) runtime.cancel({ reqId, by: 'owner', reason: '故障注入用例隔离' })
       }
     }
   })

@@ -298,3 +298,220 @@ export function validateScenarioEvidence(
   }
   return issues
 }
+
+// ---------------------------------------------------------------- 需求验证方案
+
+/**
+ * 由需求说明生成的验证方案：每个业务场景都落到可执行命令与判定口径。
+ * 与实现前评审的 verification_plan 不同，它不依赖任务包或候选，只依据需求说明。
+ */
+export interface VerificationCheckPlan {
+  readonly label: string
+  readonly argv: readonly string[]
+  /** 期望在命令输出中逐字出现的片段；空字符串表示只看退出码。 */
+  readonly expectedOutput: string
+}
+
+export interface VerificationPlanScenario extends VerificationScenarioPlan {
+  readonly checks: readonly VerificationCheckPlan[]
+}
+
+export interface VerificationPlan {
+  readonly scenarios: readonly VerificationPlanScenario[]
+}
+
+/**
+ * 解析验证 Agent 产出的方案。结构不合法时 fail-closed：
+ * 缺场景、缺命令、label 重复、没有必过场景都按畸形拒绝，不静默补全。
+ */
+export function parseRequirementVerificationPlan(raw: string): VerificationPlan {
+  const data = asRecord(parseJsonLoose(raw, '验证方案'), '验证方案')
+  if (!Array.isArray(data.scenarios) || data.scenarios.length === 0) {
+    throw new MalformedError('验证方案必须给出至少一个业务场景')
+  }
+  if (data.scenarios.length > 20) throw new MalformedError('验证方案的场景一次最多 20 个')
+  const labels = new Set<string>()
+  let totalChecks = 0
+  const scenarios = data.scenarios.map((item, index) => {
+    const scenario = asRecord(item, `scenarios[${index}]`)
+    if (typeof scenario.required !== 'boolean') {
+      throw new MalformedError(`scenarios[${index}].required 必须是布尔值`)
+    }
+    if (!Array.isArray(scenario.checks) || scenario.checks.length === 0) {
+      throw new MalformedError(`scenarios[${index}].checks 必须给出至少一条可执行命令`)
+    }
+    const checks = scenario.checks.map((rawCheck, checkIndex) => {
+      const check = asRecord(rawCheck, `scenarios[${index}].checks[${checkIndex}]`)
+      const label = nonEmpty(check.label, `scenarios[${index}].checks[${checkIndex}].label`)
+      if (labels.has(label)) throw new MalformedError(`验证方案的命令 label 不能重复：${label}`)
+      labels.add(label)
+      totalChecks += 1
+      const expected = check.expected_output ?? check.expectedOutput
+      if (expected !== undefined && typeof expected !== 'string') {
+        throw new MalformedError(`scenarios[${index}].checks[${checkIndex}].expected_output 必须是字符串`)
+      }
+      return {
+        label,
+        argv: stringList(check.argv, `scenarios[${index}].checks[${checkIndex}].argv`, false),
+        expectedOutput: typeof expected === 'string' ? expected.trim() : '',
+      } satisfies VerificationCheckPlan
+    })
+    return {
+      scenario: nonEmpty(scenario.scenario, `scenarios[${index}].scenario`),
+      acceptanceCriterion: nonEmpty(
+        scenario.acceptance_criterion ?? scenario.acceptanceCriterion,
+        `scenarios[${index}].acceptance_criterion`,
+      ),
+      method: nonEmpty(scenario.method, `scenarios[${index}].method`),
+      required: scenario.required,
+      checks,
+    } satisfies VerificationPlanScenario
+  })
+  if (totalChecks > 10) throw new MalformedError('验证方案的命令一次最多 10 条')
+  if (new Set(scenarios.map((scenario) => scenario.scenario)).size !== scenarios.length) {
+    throw new MalformedError('验证方案的场景不能重复')
+  }
+  if (!scenarios.some((scenario) => scenario.required)) {
+    throw new MalformedError('验证方案至少要有一个必过场景')
+  }
+  return { scenarios }
+}
+
+/** 验证方案必须逐字覆盖需求说明中的全部业务场景与验收标准。 */
+export function validateRequirementVerificationPlan(
+  analysis: { readonly scenarios: readonly string[]; readonly acceptanceCriteria: readonly string[] },
+  plan: VerificationPlan,
+): string[] {
+  return validatePlanCoverage(analysis, {
+    verdict: 'pass',
+    blocking: [],
+    findings: [],
+    summary: '',
+    verificationPlan: plan.scenarios,
+  })
+}
+
+// ---------------------------------------------------------------- 验证执行结果
+
+/** 程序实际执行的一条验证命令；由执行器记录，模型不能伪造。 */
+export interface VerificationCheckRun {
+  readonly label: string
+  readonly argv: readonly string[]
+  readonly exitCode: number | null
+  readonly timedOut: boolean
+  readonly aborted: boolean
+  readonly durationMs: number
+  readonly output: string
+}
+
+/** 研发 Agent 自验证后交给验证 Agent 的产物身份与独立工作区。 */
+export interface VerificationArtifact {
+  readonly requirementVersion: number
+  readonly candidateSha256: string
+  readonly workspace: string
+}
+
+export interface VerificationEnvironment {
+  readonly platform: string
+  readonly nodeVersion: string
+  readonly startedAt: string
+}
+
+export interface VerificationScenarioRun {
+  readonly scenario: string
+  readonly acceptanceCriterion: string
+  readonly status: 'pass' | 'fail'
+  readonly evidence: string
+  readonly checks: readonly VerificationCheckRun[]
+}
+
+export interface VerificationResult {
+  readonly verdict: 'passed' | 'failed'
+  readonly summary: string
+  readonly artifact: VerificationArtifact
+  readonly scenarios: readonly VerificationScenarioRun[]
+  readonly checks: readonly VerificationCheckRun[]
+  readonly failures: readonly string[]
+  readonly environment: VerificationEnvironment
+  readonly finishedAt: string
+}
+
+function outputContains(output: string, expected: string): boolean {
+  const needle = normalizeEvidence(expected)
+  if (!needle) return true
+  return normalizeEvidence(output).includes(needle)
+}
+
+/**
+ * 纯判定：所有必过场景与命令都实际执行、退出码为 0、未超时/中止，
+ * 且命令输出包含方案要求的预期片段，才判定 passed；任何报错或问题都 failed。
+ */
+export function judgeVerificationResult(input: {
+  readonly plan: VerificationPlan
+  readonly artifact: VerificationArtifact
+  readonly checks: readonly VerificationCheckRun[]
+  readonly environment: VerificationEnvironment
+  readonly finishedAt: string
+}): VerificationResult {
+  const byLabel = new Map(input.checks.map((run) => [run.label, run]))
+  const failures: string[] = []
+  const scenarios: VerificationScenarioRun[] = []
+  for (const planned of input.plan.scenarios) {
+    let failed = false
+    const runs: VerificationCheckRun[] = []
+    if (planned.checks.length === 0) {
+      failures.push(`验证场景没有可执行命令：${planned.scenario}`)
+      failed = true
+    }
+    for (const check of planned.checks) {
+      const run = byLabel.get(check.label)
+      if (!run) {
+        failures.push(`缺少验证命令执行结果：${check.label}`)
+        failed = true
+        continue
+      }
+      runs.push(run)
+      if (run.aborted) {
+        failures.push(`验证命令被中止：${check.label}`)
+        failed = true
+        continue
+      }
+      if (run.timedOut) {
+        failures.push(`验证命令超时：${check.label}`)
+        failed = true
+        continue
+      }
+      if (run.exitCode !== 0) {
+        failures.push(`验证命令失败：${check.label}（退出码 ${run.exitCode === null ? 'null' : run.exitCode}）`)
+        failed = true
+        continue
+      }
+      if (!outputContains(run.output, check.expectedOutput)) {
+        failures.push(`验证命令输出缺少预期片段：${check.label}（预期 ${check.expectedOutput}）`)
+        failed = true
+      }
+    }
+    scenarios.push({
+      scenario: planned.scenario,
+      acceptanceCriterion: planned.acceptanceCriterion,
+      status: failed ? 'fail' : 'pass',
+      evidence: runs[0] ? normalizeEvidence(runs[0].output).slice(0, 200) : '',
+      checks: runs,
+    })
+  }
+  const verdict: VerificationResult['verdict'] = failures.length === 0 ? 'passed' : 'failed'
+  return {
+    verdict,
+    summary:
+      verdict === 'passed'
+        ? `验证通过：${scenarios.length} 个业务场景、${input.checks.length} 条命令均无报错`
+        : `验证失败：${failures[0]}${failures.length > 1 ? ` 等 ${failures.length} 项问题` : ''}`,
+    artifact: input.artifact,
+    scenarios,
+    checks: input.checks,
+    failures,
+    environment: input.environment,
+    finishedAt: input.finishedAt,
+  }
+}
+

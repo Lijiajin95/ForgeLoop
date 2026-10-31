@@ -983,6 +983,18 @@ export class Repository {
     return row ? verificationRow(row) : null
   }
 
+  /** 一个需求按时间累积的全部独立验证结果；用于问题单与重试历史反查。 */
+  verificationsFor(reqId: string): VerificationRecord[] {
+    const rows = this.db.handle
+      .prepare(
+        `SELECT * FROM requirement_verifications
+         WHERE req_id = ?
+         ORDER BY verified_at, candidate_sha256`,
+      )
+      .all(reqId) as Row[]
+    return rows.map(verificationRow)
+  }
+
   recordBusinessReview(review: BusinessReviewRecord): void {
     this.db.handle
       .prepare(
@@ -1438,6 +1450,22 @@ export class Repository {
             .all(project)
         : this.db.handle
             .prepare("SELECT * FROM service_requests WHERE state = 'pending' ORDER BY created_at")
+            .all()
+    ) as Row[]
+    return rows.map(requestFromRow)
+  }
+
+  /** 未收口的请求（pending 或 claimed）；自动领取用它判断研发是否空闲。 */
+  activeRequests(project?: string): ServiceRequestRecord[] {
+    const rows = (
+      project
+        ? this.db.handle
+            .prepare(
+              "SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') AND project = ? ORDER BY created_at",
+            )
+            .all(project)
+        : this.db.handle
+            .prepare("SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') ORDER BY created_at")
             .all()
     ) as Row[]
     return rows.map(requestFromRow)

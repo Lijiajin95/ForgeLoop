@@ -135,6 +135,7 @@ function fakeRunner(options: {
   review?: () => string
   reviewStatus?: AgentRunResult['status']
   reviewText?: string
+  verificationCommand?: readonly string[]
 } = {}): AgentLike {
   return {
     async run(request) {
@@ -146,7 +147,14 @@ function fakeRunner(options: {
         mkdirSync(verification, { recursive: true })
         writeFileSync(
           join(verification, 'commands.json'),
-          JSON.stringify({ commands: [{ label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE_OUTPUT}')`] }] }),
+          JSON.stringify({
+            commands: [
+              {
+                label: 'smoke',
+                argv: options.verificationCommand ?? ['node', '-e', `console.log('${SMOKE_OUTPUT}')`],
+              },
+            ],
+          }),
         )
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
         return result(request, VERIFICATION_REPORT)
@@ -259,6 +267,27 @@ describe('business final review', () => {
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('业务终审缺少验收标准')
     expect(runtime.accept({ reqId, by: 'owner', source: 'test' }).ok).toBe(false)
+  })
+
+  it('finds evidence printed before the tail of a long verification output', async () => {
+    const evidence = 'EVIDENCE issue-create: internal issue attempt=1 linked=req environment=snapshot logs=2'
+    const noise = 'noise-'.repeat(1400)
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({
+        verificationCommand: [
+          'node',
+          '-e',
+          `console.log(${JSON.stringify(evidence)});console.error(${JSON.stringify(noise)});console.log(${JSON.stringify(SMOKE_OUTPUT)})`,
+        ],
+        review: () => businessReview({ evidence }),
+      }),
+    )
+
+    const { reqId, advance } = await runPipeline()
+
+    expect(advance.state, advance.detail).toBe('done')
+    expect(runtime.repo.businessReview(reqId, 1)?.verdict).toBe('pass')
   })
 
   it('does not accept evidence that cannot be checked against the verification output', async () => {

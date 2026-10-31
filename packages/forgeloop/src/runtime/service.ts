@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { hostname } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { businessReviewDir, candidatesDir, devWorkspaceDir, evidenceDir, integrationDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
@@ -67,6 +68,20 @@ import {
   type ImpactExplainAgent,
   type ImpactExplainAgentResponse,
 } from '../domain/impact-explain.js'
+import { RequirementQueue } from '../domain/requirement-queue.js'
+import { SqliteRequirementQueueStore } from '../records/requirement-queue.js'
+import { IssueStore } from '../records/issues.js'
+import {
+  buildRequirementIssue,
+  nextIssueAttempt,
+  ISSUE_FIXED,
+  ISSUE_OPEN,
+  ISSUE_STAGE_VERIFICATION,
+  type IssueCommandEvidence,
+  type IssueEnvironment,
+  type RequirementIssue,
+  type RequirementIssueEvidence,
+} from '../domain/issue.js'
 import { AgentRunner, type AgentOpenRequest, type AgentRunResult, type AgentSession } from './agent-runner.js'
 import { candidateIdentity, exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
 import { OpsRuntime } from './ops.js'
@@ -96,6 +111,13 @@ function ok(message: string, data?: unknown): OperationResult {
 function fail(code: string, message: string): OperationResult {
   return { ok: false, code, message }
 }
+
+/**
+ * 单个推进请求内最多尝试的验证次数。验证失败会建问题单并定向修复；
+ * 达到上限后请求收口为 blocked，由协调器依据未收口问题单自动排队下一次修复与验证。
+ * 跨请求的重试没有轮次上限，attempt 与验证历史持续累积。
+ */
+const VERIFICATION_ATTEMPTS_PER_REQUEST = 3
 
 export interface AgentLike {
   run(request: Parameters<AgentRunner['run']>[0]): ReturnType<AgentRunner['run']>
@@ -201,6 +223,15 @@ function verificationBlocking(reportJson: string): string {
   }
 }
 
+/**
+ * 业务验收的证据窗口：前置断言通常出现在输出开头，结论与退出信息在末尾。
+ * 只截尾部会让开头打印的证据无法核对；这里保留开头与末尾，中间省略。
+ */
+function businessReviewEvidenceWindow(output: string, window = 4000): string {
+  if (output.length <= window * 2) return output
+  return `${output.slice(0, window)}\n…（中间省略 ${output.length - window * 2} 字符）…\n${output.slice(-window)}`
+}
+
 /** 验证 Agent 的合法材料目录；候选受保护内容不含此目录。 */
 const VERIFICATION_MATERIAL_DIR = 'verification/'
 
@@ -283,6 +314,10 @@ export class ForgeLoopRuntime {
   readonly repo: Repository
   readonly runner: AgentLike
   readonly ops: OpsRuntime
+  /** 需求队列：只在研发空闲时领取队首需求，同一时间最多一个在研。 */
+  readonly requirementQueue: RequirementQueue
+  /** 验证失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
+  readonly issues: IssueStore
   private readonly formalTest: typeof runFormalTest
   private readonly ctx: Record<string, unknown>
   private readonly clock: () => Date
@@ -292,6 +327,11 @@ export class ForgeLoopRuntime {
     this.config = options.config
     this.clock = options.now ?? (() => new Date())
     this.repo = new Repository(Database.open(recordsPath(this.config)))
+    this.requirementQueue = new RequirementQueue(
+      new SqliteRequirementQueueStore(this.repo.db),
+      () => this.clock(),
+    )
+    this.issues = new IssueStore(this.repo.db)
     this.runner = options.runner ?? new AgentRunner({ ctx: options.ctx, agent: this.config.agent })
     this.ops = new OpsRuntime({
       config: this.config,
@@ -308,6 +348,80 @@ export class ForgeLoopRuntime {
 
   private now(): string {
     return this.clock().toISOString()
+  }
+
+  // ------------------------------------------------------------ 需求队列
+
+  /**
+   * 研发空闲时领取队首需求并排入分析；研发忙、已有在研需求或队列为空时返回 null。
+   * 入队本身立即返回，只有协调器在确认没有未收口请求后才让需求真正进入研发。
+   */
+  intakeQueuedRequirement(): string | null {
+    const claimed = this.requirementQueue.inFlight()
+    if (claimed) {
+      const requirement = this.repo.getRequirement(claimed.requirementId)
+      if (!requirement || !this.queueSlotActive(requirement)) {
+        this.completeQueueEntry(claimed.requirementId)
+      }
+    }
+    if (this.requirementQueue.inFlight()) return null
+    // 有未收口请求时不算空闲，避免新需求与在途分析/研发并发启动。
+    // 已是终态需求遗留的请求无法再执行，不占用研发位。
+    const busy = this.repo.activeRequests(this.config.project).some((request) => {
+      const requirement = this.repo.getRequirement(request.reqId)
+      return requirement !== null && !isTerminal(requirement.status)
+    })
+    if (busy) return null
+    for (;;) {
+      const entry = this.requirementQueue.claimNext()
+      if (!entry) return null
+      const requirement = this.repo.getRequirement(entry.requirementId)
+      if (!requirement || isTerminal(requirement.status)) {
+        this.completeQueueEntry(entry.requirementId)
+        continue
+      }
+      if (!this.startQueuedRequirement(requirement)) {
+        this.completeQueueEntry(entry.requirementId)
+        continue
+      }
+      return requirement.reqId
+    }
+  }
+
+  /** 队列占用是否仍对应研发位：有在途请求、未收口问题单或需求仍处于自动研发链路时为真。 */
+  private queueSlotActive(requirement: Requirement): boolean {
+    if (isTerminal(requirement.status)) return false
+    const active = this.repo
+      .activeRequests(this.config.project)
+      .some((request) => request.reqId === requirement.reqId)
+    if (active) return true
+    // 验证失败待修复/待复验的需求仍占用研发位，避免其它需求插队。
+    if (this.issues.latestOpen(requirement.reqId)) return true
+    // 没有自动推进时，分析收口即让出研发位；后续执行仍可由显式请求驱动。
+    if (!this.config.autoAdvance) return false
+    if (requirement.status === SPECIFIED) return this.currentAdmission(requirement.reqId) !== null
+    return [DEVELOPING, VERIFYING, APPROVED, EXECUTING].includes(requirement.status)
+  }
+
+  /** 让领取到的需求进入分析；当前版本已有分析时不重复调用分析 Agent。 */
+  private startQueuedRequirement(requirement: Requirement): boolean {
+    const analysis = this.repo.latestAnalysis(requirement.reqId)
+    if (analysis && analysis.requirementVersion === requirement.versions.length) return true
+    const queued = this.requestOperation({
+      reqId: requirement.reqId,
+      action: 'analyze',
+      by: 'system:intake',
+      source: 'system:intake',
+    })
+    return queued.ok
+  }
+
+  private completeQueueEntry(requirementId: string): void {
+    try {
+      this.requirementQueue.complete(requirementId)
+    } catch {
+      // 已完成或被并发收口：队列状态以记录为准，不重复报错。
+    }
   }
 
   // ------------------------------------------------------------ 受理与修订
@@ -329,14 +443,14 @@ export class ForgeLoopRuntime {
       this.config.autonomy.trustedSources.some((prefix) => prefix.length > 0 && input.source.startsWith(prefix))
     let handoff = ''
     if (created && trusted) {
-      const queued = this.requestOperation({
-        reqId: requirement.reqId,
-        action: 'analyze',
-        by: 'system:intake',
-        source: 'system:intake',
+      // 可信需求直接入队；研发空闲时立即领取，忙时排队等待，不阻塞本次提交。
+      this.requirementQueue.enqueue({
+        requirementId: requirement.reqId,
+        project: this.config.project,
+        enqueuedAt: requirement.versions[0]?.createdAt ?? this.now(),
       })
-      if (queued.ok) handoff = '；已自动交给产品 Agent 澄清需求'
-      else handoff = `；自动分析未排队：${queued.message}`
+      const started = this.intakeQueuedRequirement() === requirement.reqId
+      handoff = started ? '；已入队并开始自动分析' : '；已入队，等待研发任务空闲'
     }
     return ok(
       created
@@ -1279,7 +1393,9 @@ ${answer}`
       const allowed =
         requirement.status === 'blocked'
           ? admission
-            ? plan !== null && this.remainingFailureRounds(requirement.reqId) > 0
+            ? plan !== null &&
+              (this.remainingFailureRounds(requirement.reqId) > 0 ||
+                this.issues.latestOpen(requirement.reqId) !== null)
             : this.retryDecisionFor(requirement.reqId).allowed
           : ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(requirement.status)
       if (!allowed) continue
@@ -3650,7 +3766,7 @@ ${answer}`
         label,
         argv: Array.isArray(command.argv) ? command.argv.map((part) => String(part)) : [],
         exitCode: typeof command.exitCode === 'number' ? command.exitCode : null,
-        logTail: text.slice(-4000),
+        logTail: businessReviewEvidenceWindow(text),
       })
     }
     if (facts.length === 0) {
@@ -4487,7 +4603,7 @@ ${answer}`
         label: item.label,
         argv: item.argv,
         exitCode: item.exitCode,
-        logTail: item.output.slice(-4000),
+        logTail: businessReviewEvidenceWindow(item.output),
       }))
       const businessStarted = Date.now()
       const businessRun = await session.send({
@@ -4660,6 +4776,117 @@ ${answer}`
     return { ok: true, commitSha: commit.commitSha }
   }
 
+  /**
+   * 把一次验证阻断固化为内建问题单：绑定需求、验证报告与候选，
+   * 并保存实际执行的命令日志、运行环境与状态，供研发复现和后续反查。
+   */
+  private recordVerificationIssue(input: {
+    reqId: string
+    requirement: Requirement
+    plan: TaskPlan
+    candidate: CandidateFile
+    verification: VerificationRecord
+    blocking: readonly string[]
+  }): RequirementIssue {
+    const attempt = nextIssueAttempt(this.issues.issuesFor(input.reqId))
+    const now = this.now()
+    const blocking =
+      input.blocking.length > 0
+        ? [...input.blocking]
+        : ['独立验证判定为阻断，但验证报告没有给出具体阻断项']
+    const commands = this.issueCommands(input.verification.reportJson)
+    let verificationSummary = ''
+    try {
+      verificationSummary = parseVerificationReport(input.verification.reportJson).summary
+    } catch {
+      verificationSummary = ''
+    }
+    const environment: IssueEnvironment = {
+      project: this.config.project,
+      projectPath: this.config.projectPath,
+      platform: process.platform,
+      nodeVersion: process.version,
+      pid: process.pid,
+      hostname: hostname(),
+      pluginVersion: PLUGIN_VERSION,
+      requirementStatus: input.requirement.status,
+      requirementVersion: input.requirement.versions.length,
+      planVersion: input.plan.planVersion,
+      candidateSha256: input.candidate.candidateSha256,
+      candidateVersion: input.candidate.candidateVersion,
+      candidateDiffPath: input.candidate.diffPath,
+      verificationReportPath: input.verification.reportPath,
+      verificationReportSha256: input.verification.reportSha256,
+      verificationEvidenceDir: input.verification.evidenceDir,
+      devWorkspace: devWorkspaceDir(this.config, input.reqId),
+    }
+    const evidence: RequirementIssueEvidence = {
+      blocking,
+      summary: verificationSummary,
+      commands,
+      logs: [
+        ...commands.map((command) => command.logPath).filter((path) => path !== ''),
+        input.verification.reportPath,
+      ],
+      environment,
+      state: {
+        attempt,
+        stage: ISSUE_STAGE_VERIFICATION,
+        verificationVerdict: input.verification.verdict,
+      },
+    }
+    const issue = buildRequirementIssue({
+      issueId: `issue-${now.replace(/[-:TZ.]/g, '').slice(0, 14)}-${randomUUID().slice(0, 6)}`,
+      requirementId: input.reqId,
+      project: this.config.project,
+      attempt,
+      stage: ISSUE_STAGE_VERIFICATION,
+      status: ISSUE_OPEN,
+      summary: `独立验证阻断（attempt ${attempt}）：${blocking.join('；')}`.slice(0, 1000),
+      evidence,
+      verificationSha256: input.verification.reportSha256,
+      candidateSha256: input.candidate.candidateSha256,
+      createdAt: now,
+      updatedAt: now,
+      resolvedAt: '',
+    })
+    this.issues.record(issue)
+    return issue
+  }
+
+  /** 从验证报告提取实际执行过的命令；报告畸形时保留空清单，报告路径仍作为证据。 */
+  private issueCommands(reportJson: string): IssueCommandEvidence[] {
+    let data: unknown
+    try {
+      data = JSON.parse(reportJson)
+    } catch {
+      return []
+    }
+    if (typeof data !== 'object' || data === null) return []
+    const commands = (data as { commands?: unknown }).commands
+    if (!Array.isArray(commands)) return []
+    const collected: IssueCommandEvidence[] = []
+    for (const raw of commands) {
+      if (typeof raw !== 'object' || raw === null) continue
+      const item = raw as Record<string, unknown>
+      const label = typeof item.label === 'string' ? item.label : ''
+      if (!label) continue
+      collected.push({
+        label,
+        argv: Array.isArray(item.argv)
+          ? item.argv.filter((value): value is string => typeof value === 'string')
+          : [],
+        exitCode: typeof item.exitCode === 'number' ? item.exitCode : null,
+        timedOut: item.timedOut === true,
+        aborted: item.aborted === true,
+        logPath: typeof item.logPath === 'string' ? item.logPath : '',
+        logSha256: typeof item.logSha256 === 'string' ? item.logSha256 : '',
+        durationMs: typeof item.durationMs === 'number' ? item.durationMs : 0,
+      })
+    }
+    return collected
+  }
+
   /** 验证阻断后的定向修复：同一研发会话与工作区，只处理缺陷，不重建全部任务。 */
   private async repairCandidate(input: {
     reqId: string
@@ -4668,7 +4895,7 @@ ${answer}`
     workspace: string
     session: AgentSession
     blocking: readonly string[]
-    candidate: CandidateFile
+    candidate: { readonly candidateSha256: string }
     signal: AbortSignal
     round: number
   }): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -4794,6 +5021,35 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           return { state: 'failed', detail: outcome.reason }
         }
       }
+      // 上一次请求留下了未收口问题单：先按问题单修复，再进入验证。
+      const openIssue = this.issues.latestOpen(reqId)
+      if (openIssue) {
+        this.repo.setStatus(
+          reqId,
+          DEVELOPING,
+          `按问题单 ${openIssue.issueId}（attempt ${openIssue.attempt}）定向修复`,
+        )
+        const repaired = await this.repairCandidate({
+          reqId,
+          requirement,
+          plan,
+          workspace,
+          session,
+          blocking: openIssue.evidence.blocking,
+          candidate: { candidateSha256: openIssue.candidateSha256 },
+          signal,
+          round: openIssue.attempt,
+        })
+        if (!repaired.ok) {
+          this.repo.setStatus(
+            reqId,
+            'blocked',
+            `定向修复未完成：${repaired.reason}；问题单 ${openIssue.issueId} 保留在研发队列`,
+          )
+          return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
+        }
+        this.issues.updateStatus(openIssue.issueId, ISSUE_FIXED, this.now())
+      }
       let candidate = this.finalizeCandidate({
         reqId,
         plan,
@@ -4824,6 +5080,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           return { state: 'failed', detail: verification.detail }
         }
         if (verification.state === 'pass') {
+          this.issues.resolveOpen(reqId, this.now())
           const commit = await this.commitCandidate({
             reqId,
             plan,
@@ -4840,6 +5097,59 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
             detail: `需求 ${reqId} 已完成研发、独立验证与提交：${commit.commitSha.slice(0, 12)}`,
           }
         }
+        const recorded = verification.verification
+        if (recorded && recorded.verdict === 'block') {
+          // 验证执行后判定失败：建内建问题单并定向修复；跨请求重试没有轮次上限。
+          const issue = this.recordVerificationIssue({
+            reqId,
+            requirement,
+            plan,
+            candidate,
+            verification: recorded,
+            blocking: verification.blocking,
+          })
+          if (round >= VERIFICATION_ATTEMPTS_PER_REQUEST) {
+            const blocking = verification.blocking.join('；') || verification.detail
+            this.repo.setStatus(
+              reqId,
+              'blocked',
+              `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
+            )
+            return {
+              state: 'failed',
+              detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
+            }
+          }
+          const repaired = await this.repairCandidate({
+            reqId,
+            requirement,
+            plan,
+            workspace,
+            session,
+            blocking: verification.blocking,
+            candidate,
+            signal,
+            round,
+          })
+          if (!repaired.ok) {
+            this.repo.setStatus(
+              reqId,
+              'blocked',
+              `定向修复未完成：${repaired.reason}；问题单 ${issue.issueId} 保留在研发队列`,
+            )
+            return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
+          }
+          this.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.now())
+          candidate = this.finalizeCandidate({
+            reqId,
+            plan,
+            workspace,
+            baselineCommit: workspaceInfo.baselineCommit,
+            snapshotCommit: workspaceInfo.snapshotCommit,
+          })
+          continue
+        }
+        // 业务验收阻断（独立验证本身已通过）仍受失败额度约束。
         if (this.remainingFailureRounds(reqId) === 0) {
           this.repo.setStatus(
             reqId,

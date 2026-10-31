@@ -524,7 +524,7 @@ export function businessReviewPrompt(input: {
   const commands = input.commands
     .map(
       (command) =>
-        `### ${command.label}\nargv: ${JSON.stringify(command.argv)}\nexit_code: ${command.exitCode === null ? 'null' : command.exitCode}\n输出末尾：\n${command.logTail || '（无输出）'}`,
+        `### ${command.label}\nargv: ${JSON.stringify(command.argv)}\nexit_code: ${command.exitCode === null ? 'null' : command.exitCode}\n输出摘录（开头与末尾，中间可能省略）：\n${command.logTail || '（无输出）'}`,
     )
     .join('\n\n')
   return `你是 ForgeLoop 的验证 Agent，现在做业务验收（独立验证与业务验收由同一身份完成）。你没有工具：只能依据下面的事实判断，不要臆造未提供的运行结果。

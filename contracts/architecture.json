@@ -17,6 +17,13 @@
       "may_import": []
     },
     {
+      "name": "agents",
+      "path": "packages/forgeloop/src/agents",
+      "may_import": [
+        "domain"
+      ]
+    },
+    {
       "name": "records",
       "path": "packages/forgeloop/src/records",
       "may_import": [
