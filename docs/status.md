@@ -2659,6 +2659,7 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   - `formal-switch-back.json`
 - 截图：
   - `/home/link/.forgeloop/production/evidence/formal-detail-committed.png`
+  - `/home/link/.forgeloop/production/evidence/formal-detail-committed-large.png`
   - `/home/link/.forgeloop/production/evidence/formal-detail-empty.png`
 
 ### 53.4 验证与判定
