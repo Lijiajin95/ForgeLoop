@@ -2869,3 +2869,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - suppressions 69 → **64**；`make check` 58 文件 607 项，coverage 90.93/96.93/84.44，
   mutation 97.78。
 - 下一步：`buildStatusBoard`（464 行/复杂度 156）与 `service.ts` 分段。
+
+### 47.7 配置/准入/运维/失败建议拆分（Goal Round 3）
+
+- `resolveConfig` 抽出 `textOr`；`decideAdmission` 抽出代码提交判定与准入文案。
+- `validateOpsCatalog` 拆为资源、检查、动作、参数、占位符五段；`parseOpsDiagnosis` 拆出推断与动作解析。
+- `buildTaskFailureAdvice` 按失败类别拆成 8 个 advice 函数，预算建议改为不可变返回。
+- 五处豁免清零，suppressions 59 → **57**；`make check` 58 文件 607 项，
+  coverage 90.98/97.03/84.46，mutation 97.80。
+- 下一步：`buildStatusBoard`、`ops.ts` 的 tick/diagnoseEvent/executeEvent、`integrateCandidate`。
