@@ -4,7 +4,6 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
@@ -173,6 +172,7 @@ import {
   sessionRequirementView,
   type SessionRequirementView,
 } from './execution-views.js'
+import { readInstalledVersion, verifyInstalledFiles } from './deployment-inspect.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -2190,58 +2190,15 @@ ${answer}`
       checks.push({ id, ok, detail })
     }
 
-    let installedVersion = ''
-    try {
-      const installed = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8')) as {
-        version?: unknown
-      }
-      installedVersion = typeof installed.version === 'string' ? installed.version : ''
-    } catch {
-      installedVersion = ''
-    }
+    const installedVersion = readInstalledVersion(installedRoot)
     check(
       'installed_version',
       installedVersion === build.packageVersion,
       `安装版本 ${installedVersion || '未知'}，候选包版本 ${build.packageVersion}`,
     )
 
-    let filesOk = true
-    const fileIssues: string[] = []
-    for (const file of build.files) {
-      const installedPath = join(installedRoot, file)
-      if (!existsSync(installedPath)) {
-        filesOk = false
-        fileIssues.push(`缺少 ${file}`)
-        continue
-      }
-      let packed: Buffer | null = null
-      // npm pack 的成员带 `package/` 前缀；测试或本地 tar 可能没有，两种都核对。
-      for (const member of [`package/${file}`, file]) {
-        try {
-          packed = execFileSync('tar', ['-xzf', build.tarball, '-O', member], {
-            maxBuffer: 64 * 1024 * 1024,
-            stdio: ['ignore', 'pipe', 'ignore'],
-          })
-          break
-        } catch {
-          packed = null
-        }
-      }
-      if (!packed) {
-        filesOk = false
-        fileIssues.push(`无法读取包内 ${file}`)
-        continue
-      }
-      if (sha256OfBytes(packed) !== sha256OfBytes(readFileSync(installedPath))) {
-        filesOk = false
-        fileIssues.push(`内容不一致 ${file}`)
-      }
-    }
-    check(
-      'installed_files',
-      filesOk,
-      filesOk ? `${build.files.length} 个文件与包内容一致` : fileIssues.join('；'),
-    )
+    const filesCheck = verifyInstalledFiles(build, installedRoot)
+    check('installed_files', filesCheck.ok, filesCheck.detail)
 
     check(
       'running_version',

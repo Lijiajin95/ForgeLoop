@@ -2990,3 +2990,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 91.08/96.98/84.88，mutation 97.80。
 - 下一步：`verifyDeployment`（99 语句/61 复杂度）按候选身份、profile、检查项三段拆；
   随后 repository 文件行数与 DB schema。
+
+### 47.19 上线核对安装检查移出（Goal Round 15）
+
+- 新增 `src/runtime/deployment-inspect.ts`：`readInstalledVersion` 与 `verifyInstalledFiles`
+  （安装版本、包内文件与 tar 成员摘要比对）独立成模块。
+- `verifyDeployment` 语句 99 → **75**、复杂度 61 → **52**；仍未降到门槛内，
+  豁免暂留，下一轮继续拆。
+- service.ts **5,894 行**；tokens 67,509 → **67,145**，基线收紧。
+- `make check` 607 项通过，coverage 91.09/96.98/84.87，mutation 97.80。
+- 下一轮：把 `verifyDeployment` 的目标解析（准入/交付/计划/候选/验收）、运行身份、
+  业务记录三段移出，清零该函数的两条豁免。
