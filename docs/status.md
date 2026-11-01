@@ -2718,3 +2718,51 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   再把剩余规则逐类清零，避免“全绿但全是 disable”。
 - 格式化为一次性全仓 diff（95 个文件），与门禁配置同批提交；业务行为由 585 项测试确认未变。
 - `service.ts` 拆分与 schema 化会改变调用边界，必须单独评审，不能与工具接入混做。
+
+## 45. 快速 CI / 全量 CI 与严格检查（2026-11-01）
+
+### 45.1 测试分层
+
+按单文件实测耗时把测试拆成两层，避免每个 PR 都跑候选构建与完整流水线：
+
+| 层 | 内容 | 入口 |
+| --- | --- | --- |
+| 快速 | 42 个文件、364 项；不含候选构建、完整四 Agent 流水线、独立验证、契约夹具 | `make check-fast`（typecheck + lint + contracts + fast tests），`quality.yml` 每次 push/PR |
+| 全量 | 55 个文件、597 项；包含慢用例（约 45s 墙钟） | `make check`，`nightly.yml` 每日 |
+| 覆盖率 / 变异 | 全量测试 + Stryker | `nightly.yml` 的 `make coverage`、`make mutation` |
+
+慢用例清单维护在 `vitest.fast.config.ts` 的 `SLOW_TEST_FILES`；新增慢用例时同步加入。
+快速层的目标是把 PR 反馈压到 1 分钟内，不是用超时或跳过来“通过”。
+
+### 45.2 严格检查
+
+- ESLint 升级到 `strictTypeChecked`；全局只保留两条显式豁免：
+  `no-non-null-assertion`（35 处，集中在已校验的 Map/数组取值）与
+  `no-unnecessary-condition`（29 处，宿主/JSON 防御式校验）；其余规则全开。
+- `exactOptionalPropertyTypes` 启用：修正 15 处“可选属性传 undefined”，
+  可选属性与“缺省”语义分开。
+- 性质测试：fast-check 覆盖 `retryDecision` 的允许不变量与确定性、
+  `parseTaskPlanDraft` 的序列化往返与任务身份。
+- 变异测试：Stryker + vitest（快速层），当前只变异 `admission.ts` 与
+  `retry-policy.ts`；评分 **98.33%**（177 killed / 3 survived），
+  break 门槛 80、low 85、high 95；夜间 CI 执行。
+
+### 45.3 结果
+
+- `make check`：55 个文件、597 项通过。
+- `make check-fast`：42 个文件、364 项通过（测试执行约 2s）。
+- `make coverage`：行/语句 90.48%、函数 96.72%、分支 84.13%，关键文件门槛通过。
+- `make lint` / `make format` / `make contracts`：通过。
+- `make mutation`：98.33%，通过。
+
+### 45.4 仍未完成
+
+| 项 | 原因 |
+| --- | --- |
+| `service.ts` 拆分（5,836 行） | 需要按 analyze/plan/execute/verify/release/recover 独立重构并重跑全部行为测试，不能与门禁接入同批 |
+| DB 行 schema 化 | 与 219 处断言收敛一起做；当前仍靠 `as` 收窄 |
+| 故障注入（claim/agent/material 崩溃点） | 需要子进程夹具与稳定时钟；现有恢复测试用“模拟 claimed”覆盖语义 |
+| 浏览器 E2E / `verify-plugin` 发布门禁 | 需要模型凭据与固定 profile，不在公共 CI；仍按发布清单人工执行 |
+| `no-non-null-assertion` / `no-unnecessary-condition` 清零 | 逐条判断防御式校验与真实风险，避免用 disable 注释刷绿 |
+
+这些项已写入 ratchet，不计入“已完成”。
