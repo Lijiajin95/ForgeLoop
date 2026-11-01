@@ -163,7 +163,12 @@ import {
   runCommand,
   requireGit,
 } from './workspace.js'
-import { parseTaskExecution } from './task-execution.js'
+import {
+  buildExecutionAttempts,
+  buildExecutionStages,
+  buildExecutionTest,
+  loadExecutionPage,
+} from './execution-views.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -221,152 +226,6 @@ import {
 
 type AdmittedDelivery = NonNullable<ReturnType<ForgeLoopRuntime['admittedDelivery']>>
 
-function loadExecutionPage(
-  input: { offset?: number | undefined; limit?: number | undefined },
-  devPath: string,
-  hasDev: boolean,
-): ReturnType<typeof parseTaskExecution> {
-  if (!hasDev) {
-    return {
-      events: [],
-      total: 0,
-      offset: input.offset ?? 0,
-      limit: input.limit ?? 100,
-      truncated: false,
-      stepCount: 0,
-      startedAt: '',
-      lastActivity: '',
-      sessionIds: [],
-    }
-  }
-  return parseTaskExecution(readFileSync(devPath, 'utf8'), {
-    offset: input.offset,
-    limit: input.limit,
-  })
-}
-
-function buildExecutionAttempts(input: {
-  plan: TaskPlan
-  task: { taskId: string }
-  run: ReturnType<Repository['taskRuns']>[number] | null
-  artifact: ReturnType<Repository['taskArtifact']>
-  page: ReturnType<typeof parseTaskExecution>
-  hasDev: boolean
-  sessionId: string
-  rounds: ReturnType<Repository['failureRounds']>
-}): Array<Record<string, unknown>> {
-  const { run, artifact, page, hasDev, sessionId, rounds } = input
-  return [
-    {
-      attemptId: sessionId ? `session:${sessionId}` : 'recent-recording',
-      label: '最近一次执行记录',
-      state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
-      sessionId,
-      startedAt: page.startedAt,
-      lastActivity: page.lastActivity || run?.updatedAt || '',
-      eventTotal: page.total,
-      available: hasDev && page.total > 0,
-      reason: hasDev
-        ? page.total > 0
-          ? ''
-          : '执行记录文件存在，但没有可公开事件'
-        : '没有找到该任务的执行记录文件 dev.jsonl',
-    },
-    ...rounds.map((round) => ({
-      attemptId: `round:${round.roundId}`,
-      label: `失败轮次 ${round.roundId}`,
-      state: 'failed',
-      sessionId: '',
-      startedAt: '',
-      lastActivity: round.occurredAt,
-      eventTotal: 0,
-      available: false,
-      reason: '历史失败轮次只保留摘要；该次独立执行记录未单独保留，不能伪造会话事件',
-      stage: round.stage,
-      summary: round.summary,
-    })),
-  ]
-}
-
-function buildExecutionTest(input: {
-  task: { testCommand: readonly string[] }
-  testLog: string
-  testLogPath: string
-  testHeader: ReturnType<typeof parseFormalTestHeader>
-  testLogTail: string
-}): Record<string, unknown> {
-  const { task, testLog, testLogPath, testHeader, testLogTail } = input
-  return {
-    command: task.testCommand,
-    path: testLogPath,
-    available: testLog.length > 0,
-    bytes: Buffer.byteLength(testLog, 'utf8'),
-    startedAt: testHeader.startedAt,
-    durationMs: testHeader.durationMs,
-    timedOut: testHeader.timedOut,
-    aborted: testHeader.aborted,
-    exitCode: testHeader.exitCode,
-    tail: testLogTail,
-    truncated: testLog.length > testLogTail.length,
-  }
-}
-
-function buildExecutionStages(input: {
-  run: ReturnType<Repository['taskRuns']>[number] | null
-  artifact: ReturnType<Repository['taskArtifact']>
-  page: ReturnType<typeof parseTaskExecution>
-  sessionId: string
-  review: unknown
-  reviewSession: string
-  evidence: ReturnType<Repository['evidence']>
-  reviewPath: string
-  testLog: string
-  testLogPath: string
-  testHeader: ReturnType<typeof parseFormalTestHeader>
-}): Array<Record<string, unknown>> {
-  const { run, artifact, page, sessionId, review, reviewSession, evidence } = input
-  const { reviewPath, testLog, testLogPath, testHeader } = input
-  const reviewRecord = review as Record<string, unknown> | null
-  return [
-    {
-      id: 'dev',
-      label: '开发执行',
-      state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
-      sessionId,
-      startedAt: page.startedAt,
-      lastActivity: page.lastActivity || run?.updatedAt || '',
-      total: page.total,
-      stepCount: page.stepCount,
-    },
-    {
-      id: 'review',
-      label: '独立审查',
-      available: review !== null,
-      sessionId: reviewSession,
-      recordedAt: evidence?.recordedAt ?? '',
-      verdict: reviewRecord && typeof reviewRecord.verdict === 'string' ? reviewRecord.verdict : '',
-      path: reviewPath,
-    },
-    {
-      id: 'formal_test',
-      label: '正式测试',
-      available: testLog.length > 0,
-      startedAt: testHeader.startedAt,
-      durationMs: testHeader.durationMs,
-      exitCode: testHeader.exitCode,
-      path: testLogPath,
-      bytes: Buffer.byteLength(testLog, 'utf8'),
-    },
-    {
-      id: 'delivery',
-      label: '交付',
-      delivered: artifact !== null,
-      recordedAt: artifact?.recordedAt ?? '',
-      candidateSha256: artifact?.candidateSha256 ?? '',
-    },
-  ]
-}
-
 function sessionRequirementView(
   repository: Repository,
   requirement: Requirement,
@@ -411,6 +270,18 @@ interface SessionRequirementView {
 
 function fallback<T>(value: T | null | undefined, otherwise: T): T {
   return value ?? otherwise
+}
+
+function requestSource(input: {
+  action: 'analyze' | 'plan' | 'advance' | 'verify'
+  source: string
+  confirmPlanChange?: boolean
+  reason?: string
+}): string {
+  if (input.action === 'plan' && input.confirmPlanChange === true) {
+    return `${input.source}:plan-change:${input.reason?.trim()}`
+  }
+  return input.source
 }
 
 export class ForgeLoopRuntime {
@@ -1068,6 +939,104 @@ ${answer}`
   }
 
   /** 排队一个持久操作请求：先落库，再返回受理身份。 */
+  private resumeStoppedAdvance(input: {
+    reqId: string
+    action: 'analyze' | 'plan' | 'advance' | 'verify'
+    by: string
+    reason?: string
+  }): void {
+    if (input.action !== 'advance' || !this.repo.activeStop(input.reqId)) return
+    this.repo.resumeStop({
+      requirementId: input.reqId,
+      resumedBy: input.by,
+      reason: input.reason || '显式恢复执行',
+      resumedAt: this.now(),
+    })
+  }
+
+  private planChangeGuard(input: {
+    reqId: string
+    action: 'analyze' | 'plan' | 'advance' | 'verify'
+    confirmPlanChange?: boolean
+    reason?: string
+  }): OperationResult | null {
+    if (input.action !== 'plan') return null
+    const latestPlan = this.repo.latestTaskPlan(input.reqId)
+    const frozen = latestPlan ? this.repo.planApproval(input.reqId, latestPlan.planVersion) : null
+    if (!frozen) return null
+    if (input.confirmPlanChange !== true) {
+      return fail(
+        'plan_frozen',
+        `需求 ${input.reqId} 的任务包 v${latestPlan!.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
+      )
+    }
+    if (!input.reason?.trim()) {
+      return fail('reason_required', '修改已批准任务包必须说明原因，便于审计')
+    }
+    return null
+  }
+
+  private resolveAdvanceOperation(
+    input: { reqId: string; action: 'analyze' | 'plan' | 'advance' | 'verify' },
+    requirement: Requirement,
+  ): { ok: true; planVersion: number } | { ok: false; result: OperationResult } {
+    const latestPlan = this.repo.latestTaskPlan(input.reqId)
+    const admission = this.currentAdmission(input.reqId)
+    const legacyApproval = latestPlan
+      ? this.repo.planApproval(input.reqId, latestPlan.planVersion)
+      : null
+    if (!admission && !legacyApproval) {
+      return {
+        ok: false,
+        result: fail(
+          'admission_required',
+          `需求 ${input.reqId} 尚未获得系统准入或人类批准；不能自动进入研发`,
+        ),
+      }
+    }
+    if (latestPlan && latestPlan.requirementVersion !== requirement.versions.length) {
+      return {
+        ok: false,
+        result: fail(
+          'stale_requirement',
+          `任务包 v${latestPlan.planVersion} 依据需求 v${latestPlan.requirementVersion}，当前是 ${requirement.versions.length}；需要重新生成任务包`,
+        ),
+      }
+    }
+    if (!latestPlan && input.action === ACTION_VERIFY) {
+      return {
+        ok: false,
+        result: fail('plan_missing', `需求 ${input.reqId} 尚无任务包，不能开始验证`),
+      }
+    }
+    if (this.remainingFailureRounds(input.reqId) === 0) {
+      return {
+        ok: false,
+        result: fail(
+          'grant_required',
+          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权后才能继续${input.action === ACTION_VERIFY ? '验证' : '推进'}`,
+        ),
+      }
+    }
+    if (input.action === ACTION_VERIFY && latestPlan) {
+      const missing = this.missingDeliveryTasks(input.reqId, latestPlan)
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          result: fail('not_delivered', `仍有任务未交付，不能开始独立验证：${missing.join('、')}`),
+        }
+      }
+    }
+    return { ok: true, planVersion: latestPlan?.planVersion ?? 0 }
+  }
+
+  private missingDeliveryTasks(reqId: string, plan: TaskPlan): string[] {
+    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
+    return plan.tasks
+      .filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
+      .map((task) => task.taskId)
+  }
+
   requestOperation(input: {
     reqId: string
     action: 'analyze' | 'plan' | 'advance' | 'verify'
@@ -1083,80 +1052,19 @@ ${answer}`
       return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}，不能再排队`)
     }
     // 主动停止只能由显式恢复动作解除；自动扫描永远不会走到这里。
-    if (input.action === 'advance' && this.repo.activeStop(input.reqId)) {
-      this.repo.resumeStop({
-        requirementId: input.reqId,
-        resumedBy: input.by,
-        reason: input.reason || '显式恢复执行',
-        resumedAt: this.now(),
-      })
-    }
-    if (input.action === 'plan') {
-      const latestPlan = this.repo.latestTaskPlan(input.reqId)
-      const frozen = latestPlan ? this.repo.planApproval(input.reqId, latestPlan.planVersion) : null
-      if (frozen) {
-        if (input.confirmPlanChange !== true) {
-          return fail(
-            'plan_frozen',
-            `需求 ${input.reqId} 的任务包 v${latestPlan!.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
-          )
-        }
-        if (!input.reason?.trim()) {
-          return fail('reason_required', '修改已批准任务包必须说明原因，便于审计')
-        }
-      }
-    }
+    this.resumeStoppedAdvance(input)
+    const frozen = this.planChangeGuard(input)
+    if (frozen) return frozen
     let planVersion = 0
     if (input.action === 'advance' || input.action === ACTION_VERIFY) {
-      const latestPlan = this.repo.latestTaskPlan(input.reqId)
-      const admission = this.currentAdmission(input.reqId)
-      const legacyApproval = latestPlan
-        ? this.repo.planApproval(input.reqId, latestPlan.planVersion)
-        : null
-      if (!admission && !legacyApproval) {
-        return fail(
-          'admission_required',
-          `需求 ${input.reqId} 尚未获得系统准入或人类批准；不能自动进入研发`,
-        )
-      }
-      if (latestPlan) {
-        if (latestPlan.requirementVersion !== requirement.versions.length) {
-          return fail(
-            'stale_requirement',
-            `任务包 v${latestPlan.planVersion} 依据需求 v${latestPlan.requirementVersion}，当前是 v${requirement.versions.length}；需要重新生成任务包`,
-          )
-        }
-        planVersion = latestPlan.planVersion
-      } else if (input.action === ACTION_VERIFY) {
-        return fail('plan_missing', `需求 ${input.reqId} 尚无任务包，不能开始验证`)
-      }
-      // 额度用尽后不再接受新的推进或验证；人工重试同样受此约束。
-      if (this.remainingFailureRounds(input.reqId) === 0) {
-        return fail(
-          'grant_required',
-          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权后才能继续${input.action === ACTION_VERIFY ? '验证' : '推进'}`,
-        )
-      }
-      if (input.action === ACTION_VERIFY && latestPlan) {
-        const artifacts = this.repo.taskArtifacts(input.reqId, latestPlan.planVersion)
-        const missing = latestPlan.tasks.filter(
-          (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
-        )
-        if (missing.length > 0) {
-          return fail(
-            'not_delivered',
-            `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
-          )
-        }
-      }
+      const resolved = this.resolveAdvanceOperation(input, requirement)
+      if (!resolved.ok) return resolved.result
+      planVersion = resolved.planVersion
     } else if (input.action === 'plan' && this.repo.latestAnalysis(input.reqId) === null) {
       return fail('analysis_missing', `需求 ${input.reqId} 尚无分析结论`)
     }
     try {
-      const source =
-        input.action === 'plan' && input.confirmPlanChange === true
-          ? `${input.source}:plan-change:${input.reason?.trim()}`
-          : input.source
+      const source = requestSource(input)
       const { request, created } = this.repo.recordRequest({
         requestId: `rq-${randomUUID()}`,
         reqId: input.reqId,

@@ -2961,3 +2961,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 90.98/96.94/84.70，mutation 97.80。
 - 下一步：`requestOperation` 与旧链路 `buildCandidate`；之后把执行视图与候选构建整体移出
   service.ts，才真正降低文件行数与 token。
+
+### 47.16 requestOperation 拆分与执行视图移出（Goal Round 12）
+
+- `requestOperation` 拆出 `planChangeGuard`、`resolveAdvanceOperation`、`missingDeliveryTasks`、
+  `resumeStoppedAdvance` 与 `requestSource`；复杂度 33 → 15 以下，豁免清零。
+- 执行视图（页面、尝试、测试、阶段）移到 `src/runtime/execution-views.ts`；
+  service.ts tokens 68,721 → **67,801**，token 基线同步收紧到 67,801。
+- suppressions 34 → **33**；`make check` 607 项通过，coverage 90.98/96.96/84.77。
+- 下一步：旧链路 `buildCandidate`（77 语句/复杂度 40），随后把候选构建整体移出，
+  最后处理文件行数与 DB schema。

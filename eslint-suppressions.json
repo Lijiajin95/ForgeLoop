@@ -6,7 +6,7 @@
   },
   "packages/forgeloop/src/runtime/service.ts": {
     "complexity": {
-      "count": 12
+      "count": 11
     },
     "max-lines": {
       "count": 1
