@@ -2950,3 +2950,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - service.ts 同文件重构新增结构，token 基线 67,444 → 68,191（仍低于本批拆分前的 70,547）。
 - `make check` 607 项通过，coverage 90.95/96.92/84.68，mutation 97.80。
 - 下一步：`taskExecution`、`requestOperation`、service 箭头复杂度，并把候选构建整体移出 service。
+
+### 47.15 taskExecution 与 sessionSummary 拆分（Goal Round 11）
+
+- `taskExecution` 拆出 `loadExecutionPage`、`buildExecutionAttempts`、`buildExecutionTest`、
+  `buildExecutionStages`，复杂度 40 → 15 以下；两处豁免清零。
+- `sessionSummary` 的匿名 map 抽成 `sessionRequirementView`，并用 `fallback` 收敛默认值，
+  箭头函数复杂度 17 → 15 以下。
+- suppressions 36 → **34**；service token 基线 68,191 → 68,721（同文件拆分新增结构）。
+- `make check` 607 项通过，coverage 90.98/96.94/84.70，mutation 97.80。
+- 下一步：`requestOperation` 与旧链路 `buildCandidate`；之后把执行视图与候选构建整体移出
+  service.ts，才真正降低文件行数与 token。

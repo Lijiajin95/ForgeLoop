@@ -221,6 +221,198 @@ import {
 
 type AdmittedDelivery = NonNullable<ReturnType<ForgeLoopRuntime['admittedDelivery']>>
 
+function loadExecutionPage(
+  input: { offset?: number | undefined; limit?: number | undefined },
+  devPath: string,
+  hasDev: boolean,
+): ReturnType<typeof parseTaskExecution> {
+  if (!hasDev) {
+    return {
+      events: [],
+      total: 0,
+      offset: input.offset ?? 0,
+      limit: input.limit ?? 100,
+      truncated: false,
+      stepCount: 0,
+      startedAt: '',
+      lastActivity: '',
+      sessionIds: [],
+    }
+  }
+  return parseTaskExecution(readFileSync(devPath, 'utf8'), {
+    offset: input.offset,
+    limit: input.limit,
+  })
+}
+
+function buildExecutionAttempts(input: {
+  plan: TaskPlan
+  task: { taskId: string }
+  run: ReturnType<Repository['taskRuns']>[number] | null
+  artifact: ReturnType<Repository['taskArtifact']>
+  page: ReturnType<typeof parseTaskExecution>
+  hasDev: boolean
+  sessionId: string
+  rounds: ReturnType<Repository['failureRounds']>
+}): Array<Record<string, unknown>> {
+  const { run, artifact, page, hasDev, sessionId, rounds } = input
+  return [
+    {
+      attemptId: sessionId ? `session:${sessionId}` : 'recent-recording',
+      label: '最近一次执行记录',
+      state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
+      sessionId,
+      startedAt: page.startedAt,
+      lastActivity: page.lastActivity || run?.updatedAt || '',
+      eventTotal: page.total,
+      available: hasDev && page.total > 0,
+      reason: hasDev
+        ? page.total > 0
+          ? ''
+          : '执行记录文件存在，但没有可公开事件'
+        : '没有找到该任务的执行记录文件 dev.jsonl',
+    },
+    ...rounds.map((round) => ({
+      attemptId: `round:${round.roundId}`,
+      label: `失败轮次 ${round.roundId}`,
+      state: 'failed',
+      sessionId: '',
+      startedAt: '',
+      lastActivity: round.occurredAt,
+      eventTotal: 0,
+      available: false,
+      reason: '历史失败轮次只保留摘要；该次独立执行记录未单独保留，不能伪造会话事件',
+      stage: round.stage,
+      summary: round.summary,
+    })),
+  ]
+}
+
+function buildExecutionTest(input: {
+  task: { testCommand: readonly string[] }
+  testLog: string
+  testLogPath: string
+  testHeader: ReturnType<typeof parseFormalTestHeader>
+  testLogTail: string
+}): Record<string, unknown> {
+  const { task, testLog, testLogPath, testHeader, testLogTail } = input
+  return {
+    command: task.testCommand,
+    path: testLogPath,
+    available: testLog.length > 0,
+    bytes: Buffer.byteLength(testLog, 'utf8'),
+    startedAt: testHeader.startedAt,
+    durationMs: testHeader.durationMs,
+    timedOut: testHeader.timedOut,
+    aborted: testHeader.aborted,
+    exitCode: testHeader.exitCode,
+    tail: testLogTail,
+    truncated: testLog.length > testLogTail.length,
+  }
+}
+
+function buildExecutionStages(input: {
+  run: ReturnType<Repository['taskRuns']>[number] | null
+  artifact: ReturnType<Repository['taskArtifact']>
+  page: ReturnType<typeof parseTaskExecution>
+  sessionId: string
+  review: unknown
+  reviewSession: string
+  evidence: ReturnType<Repository['evidence']>
+  reviewPath: string
+  testLog: string
+  testLogPath: string
+  testHeader: ReturnType<typeof parseFormalTestHeader>
+}): Array<Record<string, unknown>> {
+  const { run, artifact, page, sessionId, review, reviewSession, evidence } = input
+  const { reviewPath, testLog, testLogPath, testHeader } = input
+  const reviewRecord = review as Record<string, unknown> | null
+  return [
+    {
+      id: 'dev',
+      label: '开发执行',
+      state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
+      sessionId,
+      startedAt: page.startedAt,
+      lastActivity: page.lastActivity || run?.updatedAt || '',
+      total: page.total,
+      stepCount: page.stepCount,
+    },
+    {
+      id: 'review',
+      label: '独立审查',
+      available: review !== null,
+      sessionId: reviewSession,
+      recordedAt: evidence?.recordedAt ?? '',
+      verdict: reviewRecord && typeof reviewRecord.verdict === 'string' ? reviewRecord.verdict : '',
+      path: reviewPath,
+    },
+    {
+      id: 'formal_test',
+      label: '正式测试',
+      available: testLog.length > 0,
+      startedAt: testHeader.startedAt,
+      durationMs: testHeader.durationMs,
+      exitCode: testHeader.exitCode,
+      path: testLogPath,
+      bytes: Buffer.byteLength(testLog, 'utf8'),
+    },
+    {
+      id: 'delivery',
+      label: '交付',
+      delivered: artifact !== null,
+      recordedAt: artifact?.recordedAt ?? '',
+      candidateSha256: artifact?.candidateSha256 ?? '',
+    },
+  ]
+}
+
+function sessionRequirementView(
+  repository: Repository,
+  requirement: Requirement,
+): SessionRequirementView {
+  const latest = requirement.versions[requirement.versions.length - 1]
+  const analysis = repository.latestAnalysis(requirement.reqId)
+  const plan = repository.latestTaskPlan(requirement.reqId)
+  const approval = plan ? repository.planApproval(requirement.reqId, plan.planVersion) : null
+  const artifacts = plan ? repository.taskArtifacts(requirement.reqId, plan.planVersion) : []
+  return {
+    reqId: requirement.reqId,
+    title: requirementTitle(requirement),
+    status: requirement.status,
+    version: requirement.versions.length,
+    updatedAt: fallback(latest?.createdAt, ''),
+    goal: fallback(analysis?.goal, ''),
+    scenarios: fallback(analysis?.scenarios, []),
+    acceptanceCriteria: fallback(analysis?.acceptanceCriteria, []),
+    clarifications: fallback(analysis?.clarifications, []),
+    planVersion: plan?.planVersion ?? null,
+    approved: approval !== null,
+    delivered: artifacts.length,
+    taskCount: plan?.tasks.length ?? 0,
+  }
+}
+
+interface SessionRequirementView {
+  reqId: string
+  title: string
+  status: string
+  version: number
+  updatedAt: string
+  goal: string
+  scenarios: readonly string[]
+  acceptanceCriteria: readonly string[]
+  clarifications: readonly string[]
+  planVersion: number | null
+  approved: boolean
+  delivered: number
+  taskCount: number
+}
+
+function fallback<T>(value: T | null | undefined, otherwise: T): T {
+  return value ?? otherwise
+}
+
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
   readonly repo: Repository
@@ -540,48 +732,13 @@ ${answer}`
   sessionSummary(sessionId: string): {
     sessionId: string
     generatedAt: string
-    requirements: Array<{
-      reqId: string
-      title: string
-      status: string
-      version: number
-      updatedAt: string
-      goal: string
-      scenarios: readonly string[]
-      acceptanceCriteria: readonly string[]
-      clarifications: readonly string[]
-      planVersion: number | null
-      approved: boolean
-      delivered: number
-      taskCount: number
-    }>
+    requirements: SessionRequirementView[]
   } {
     const prefix = `dsh-session:${sessionId}:`
     const requirements = this.repo
       .listRequirements(this.config.project)
       .filter((requirement) => requirement.source.startsWith(prefix))
-      .map((requirement) => {
-        const latest = requirement.versions[requirement.versions.length - 1]
-        const analysis = this.repo.latestAnalysis(requirement.reqId)
-        const plan = this.repo.latestTaskPlan(requirement.reqId)
-        const approval = plan ? this.repo.planApproval(requirement.reqId, plan.planVersion) : null
-        const artifacts = plan ? this.repo.taskArtifacts(requirement.reqId, plan.planVersion) : []
-        return {
-          reqId: requirement.reqId,
-          title: requirementTitle(requirement),
-          status: requirement.status,
-          version: requirement.versions.length,
-          updatedAt: latest?.createdAt ?? '',
-          goal: analysis?.goal ?? '',
-          scenarios: analysis?.scenarios ?? [],
-          acceptanceCriteria: analysis?.acceptanceCriteria ?? [],
-          clarifications: analysis?.clarifications ?? [],
-          planVersion: plan?.planVersion ?? null,
-          approved: approval !== null,
-          delivered: artifacts.length,
-          taskCount: plan?.tasks.length ?? 0,
-        }
-      })
+      .map((requirement) => sessionRequirementView(this.repo, requirement))
     return { sessionId, generatedAt: this.now(), requirements }
   }
 
@@ -707,22 +864,7 @@ ${answer}`
     const taskDir = evidenceDir(this.config, input.reqId, plan.planVersion, input.taskId)
     const devPath = join(taskDir, 'dev.jsonl')
     const hasDev = existsSync(devPath)
-    const page = hasDev
-      ? parseTaskExecution(readFileSync(devPath, 'utf8'), {
-          offset: input.offset,
-          limit: input.limit,
-        })
-      : {
-          events: [],
-          total: 0,
-          offset: input.offset ?? 0,
-          limit: input.limit ?? 100,
-          truncated: false,
-          stepCount: 0,
-          startedAt: '',
-          lastActivity: '',
-          sessionIds: [],
-        }
+    const page = loadExecutionPage(input, devPath, hasDev)
     const reviewPath = join(taskDir, 'review.json')
     const review = readJson(reviewPath)
     const testLogPath = join(taskDir, 'formal-test.log')
@@ -734,36 +876,16 @@ ${answer}`
     const rounds = this.repo
       .failureRounds(input.reqId)
       .filter((round) => taskIdOfFailureRound(plan, round.roundId) === task.taskId)
-    const attempts = [
-      {
-        attemptId: sessionId ? `session:${sessionId}` : 'recent-recording',
-        label: '最近一次执行记录',
-        state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
-        sessionId,
-        startedAt: page.startedAt,
-        lastActivity: page.lastActivity || run?.updatedAt || '',
-        eventTotal: page.total,
-        available: hasDev && page.total > 0,
-        reason: hasDev
-          ? page.total > 0
-            ? ''
-            : '执行记录文件存在，但没有可公开事件'
-          : '没有找到该任务的执行记录文件 dev.jsonl',
-      },
-      ...rounds.map((round) => ({
-        attemptId: `round:${round.roundId}`,
-        label: `失败轮次 ${round.roundId}`,
-        state: 'failed',
-        sessionId: '',
-        startedAt: '',
-        lastActivity: round.occurredAt,
-        eventTotal: 0,
-        available: false,
-        reason: '历史失败轮次只保留摘要；该次独立执行记录未单独保留，不能伪造会话事件',
-        stage: round.stage,
-        summary: round.summary,
-      })),
-    ]
+    const attempts = buildExecutionAttempts({
+      plan,
+      task,
+      run,
+      artifact,
+      page,
+      hasDev,
+      sessionId,
+      rounds,
+    })
     return ok(`任务 ${input.taskId} 执行过程`, {
       reqId: input.reqId,
       planVersion: plan.planVersion,
@@ -803,60 +925,20 @@ ${answer}`
       lastActivity: page.lastActivity,
       review,
       reviewPath,
-      test: {
-        command: task.testCommand,
-        path: testLogPath,
-        available: testLog.length > 0,
-        bytes: Buffer.byteLength(testLog, 'utf8'),
-        startedAt: testHeader.startedAt,
-        durationMs: testHeader.durationMs,
-        timedOut: testHeader.timedOut,
-        aborted: testHeader.aborted,
-        exitCode: testHeader.exitCode,
-        tail: testLogTail,
-        truncated: testLog.length > testLogTail.length,
-      },
-      stages: [
-        {
-          id: 'dev',
-          label: '开发执行',
-          state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
-          sessionId,
-          startedAt: page.startedAt,
-          lastActivity: page.lastActivity || run?.updatedAt || '',
-          total: page.total,
-          stepCount: page.stepCount,
-        },
-        {
-          id: 'review',
-          label: '独立审查',
-          available: review !== null,
-          sessionId: reviewSession,
-          recordedAt: evidence?.recordedAt ?? '',
-          verdict:
-            review && typeof (review as Record<string, unknown>).verdict === 'string'
-              ? (review as Record<string, unknown>).verdict
-              : '',
-          path: reviewPath,
-        },
-        {
-          id: 'formal_test',
-          label: '正式测试',
-          available: testLog.length > 0,
-          startedAt: testHeader.startedAt,
-          durationMs: testHeader.durationMs,
-          exitCode: testHeader.exitCode,
-          path: testLogPath,
-          bytes: Buffer.byteLength(testLog, 'utf8'),
-        },
-        {
-          id: 'delivery',
-          label: '交付',
-          delivered: artifact !== null,
-          recordedAt: artifact?.recordedAt ?? '',
-          candidateSha256: artifact?.candidateSha256 ?? '',
-        },
-      ],
+      test: buildExecutionTest({ task, testLog, testLogPath, testHeader, testLogTail }),
+      stages: buildExecutionStages({
+        run,
+        artifact,
+        page,
+        sessionId,
+        review,
+        reviewSession,
+        evidence,
+        reviewPath,
+        testLog,
+        testLogPath,
+        testHeader,
+      }),
       reason: hasDev ? '' : '没有找到该任务的执行记录',
     })
   }
