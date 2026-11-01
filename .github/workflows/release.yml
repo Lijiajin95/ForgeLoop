@@ -1,0 +1,52 @@
+name: Release candidate
+
+# 手动发布门禁：全量检查、候选包、SBOM；真实宿主验证由仓库变量 ENABLE_REAL_HOST
+# 控制（需要自托管 macOS 与模型凭据，公共 runner 不执行）。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: make check
+      - run: make coverage
+      - run: make sbom
+      - run: make package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: forgeloop-candidate
+          path: |
+            packages/forgeloop/dist/forgeloop-dsh-*.tgz
+            packages/forgeloop/dist/artifact.json
+            packages/forgeloop/dist/sbom.cdx.json
+          retention-days: 14
+
+  real-host:
+    # 需仓库变量 ENABLE_REAL_HOST=true、自托管 macOS runner 与模型凭据。
+    if: vars.ENABLE_REAL_HOST == 'true'
+    needs: candidate
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: make verify-plugin
+        env:
+          FORGELOOP_DSH_HOME: ${{ secrets.FORGELOOP_DSH_HOME }}
+          FORGELOOP_PROFILE: ${{ secrets.FORGELOOP_PROFILE }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

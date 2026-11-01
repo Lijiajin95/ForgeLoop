@@ -1,0 +1,10 @@
+# 默认所有者复核
+* @Lijiajin95
+
+# 授权、状态机、记录库、验证与构建材料属于高风险路径
+/packages/forgeloop/src/domain/ @Lijiajin95
+/packages/forgeloop/src/records/ @Lijiajin95
+/packages/forgeloop/src/runtime/service.ts @Lijiajin95
+/packages/forgeloop/src/runtime/coordinator.ts @Lijiajin95
+/contracts/ @Lijiajin95
+/.github/workflows/ @Lijiajin95
