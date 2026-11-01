@@ -49,9 +49,6 @@
   "packages/forgeloop/src/runtime/board-route.ts": {
     "complexity": {
       "count": 3
-    },
-    "max-statements": {
-      "count": 1
     }
   },
   "packages/forgeloop/src/runtime/board.ts": {
