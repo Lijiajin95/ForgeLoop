@@ -3144,3 +3144,22 @@ suppressions 20、service.ts 5,986 行。
 - 距目标（<20）仍有 **143 处**差距；DB 行 schema 尚未落地，下一步必须先建行类型，
   再按表替换 `as`，不能靠批量删除断言。
 - 未改业务代码；`make assertions` 通过。
+
+### 50. 可靠性目标第 30 轮收口（2026-11-02）
+
+本轮为当前目标轮次上限；目标**未完成**，不标记 complete。已交付与剩余如下。
+
+已交付：
+- 函数级豁免从 72 条 suppressions 降到 **20 条**；`executeVerification` 仅剩
+  `max-statements`（83 > 40），行数/复杂度已达标。
+- 拆出模块：`build-materials`、`deployment-inspect`、`acceptance-binding`、
+  `requirement-views`、`review-facts`、`verification-materials`、`execution-views`。
+- `as` 断言 165 → **163**，断言基线同步收紧；类型检查、ESLint（strictTypeChecked）、
+  fast/full CI、mutation 97.80%、coverage ~91/97/85 均通过。
+- 分支保护与 E2E 现状写入 `docs/branch-protection.md`，未落实项已标注。
+
+未完成（下一目标必须继续）：
+1. `executeVerification` max-statements 清零（命令执行与记录段整体移出模块）。
+2. service.ts 6,126 行 → ≤2,000；repository.ts 2,403 行 → ≤2,000。
+3. DB 行 schema 落地；`as` 断言 163 → <20（先建行类型，再按表替换）。
+4. E2E 套件与 `make e2e` 门禁、GitHub 分支保护设置。
