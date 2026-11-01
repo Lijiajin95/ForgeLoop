@@ -3023,3 +3023,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   mutation 97.80。
 - 剩余函数级豁免集中在 `requirementDetail`、`executeDevPlanning`、`executeVerification`、
   `executeBusinessReview` 与少数构建/交付方法；下一轮继续按阶段拆，随后处理文件行数。
+
+### 47.22 验收绑定移出（Goal Round 18）
+
+- `buildAcceptanceBinding` 移到 `src/runtime/acceptance-binding.ts`，service 只保留
+  一行委托并传入当前候选身份。
+- service tokens 67,569 → **67,323**，基线收紧；suppressions 维持 26。
+- `make check` 607 项通过，coverage 91.10/97.02/84.93，mutation 97.80。
+- 观察：按方法拆小只会把行数留在同一文件，service 仍约 6,100 行。要达成 ≤2,000 行，
+  下一步必须把整块业务（执行阶段、需求详情、看板视图）移到独立模块，而不是继续抽私有方法。

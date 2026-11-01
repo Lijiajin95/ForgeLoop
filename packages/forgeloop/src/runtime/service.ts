@@ -178,6 +178,7 @@ import {
   readInstalledVersion,
   verifyInstalledFiles,
 } from './deployment-inspect.js'
+import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -2584,31 +2585,11 @@ ${answer}`
     })
   }
 
-  private buildAcceptanceBinding(input: {
-    plan: TaskPlan
-    artifacts: ReturnType<Repository['taskArtifacts']>
-    verification: VerificationRecord
-    businessReview: ReturnType<Repository['businessReviewForCandidate']> & object
-    artifactSha256?: string | undefined
-  }) {
-    const { plan, artifacts, verification, businessReview, artifactSha256 } = input
-    const ordered = plan.tasks.map((task) => {
-      const artifact = artifacts.find((candidate) => candidate.taskId === task.taskId)
-      if (!artifact) throw new RuleViolationError(`任务 ${task.taskId} 缺少交付产物`)
-      return artifact
+  private buildAcceptanceBinding(input: Omit<AcceptanceBindingInput, 'candidateSha256'>) {
+    return buildAcceptanceBinding({
+      ...input,
+      candidateSha256: this.candidateIdentity(input.plan, input.artifacts),
     })
-    return {
-      candidateSha256: this.candidateIdentity(plan, artifacts),
-      testEvidenceSha256: sha256OfText(
-        ordered.map((artifact) => artifact.testEvidenceSha256).join(':'),
-      ),
-      reviewSha256: sha256OfText(ordered.map((artifact) => artifact.reviewSha256).join(':')),
-      verificationSha256: verification.reportSha256,
-      verificationCandidateSha256: verification.candidateSha256,
-      businessReviewSha256: businessReview.reportSha256,
-      artifactSha256: artifactSha256 ?? '',
-      baselineCommit: ordered[0]?.baselineCommit ?? '',
-    }
   }
 
   /** 一次交付的候选身份；验证与验收必须绑定同一摘要。 */
