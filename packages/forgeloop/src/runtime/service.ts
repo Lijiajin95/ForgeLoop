@@ -181,6 +181,7 @@ import {
 import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
 import { reviewFacts } from './review-facts.js'
+import { parseVerificationMaterials } from './verification-materials.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -3644,29 +3645,12 @@ ${answer}`
       }
     }
 
-    const commandsPath = join(workspace, 'verification/commands.json')
-    const reportPathInWorkspace = join(workspace, 'verification/report.json')
-    if (!existsSync(commandsPath) || !existsSync(reportPathInWorkspace)) {
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        '独立验证未产出 verification/commands.json 与 verification/report.json',
-      )
-      return { state: 'failed', detail: '独立验证未产出命令清单或逐场景报告；需重新验证' }
+    const parsed = parseVerificationMaterials(workspace)
+    if (!parsed.ok) {
+      this.repo.setStatus(reqId, 'blocked', parsed.detail)
+      return { state: 'failed', detail: parsed.detail }
     }
-    let commands: VerificationCommand[]
-    let report: VerificationReport
-    try {
-      commands = parseVerificationCommands(readFileSync(commandsPath, 'utf8'))
-      report = parseVerificationReport(readFileSync(reportPathInWorkspace, 'utf8'))
-    } catch (error) {
-      this.repo.setStatus(reqId, 'blocked', `独立验证材料畸形：${errorMessage(error)}`)
-      return {
-        state: 'failed',
-        detail: `独立验证材料畸形（fail-closed）：${errorMessage(error)}`,
-      }
-    }
-
+    const { commands, report } = parsed
     const changed = workspaceChanges(workspace)
     const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
     if (currentHead !== workspaceHead) {

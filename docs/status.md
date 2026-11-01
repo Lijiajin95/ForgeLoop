@@ -3116,3 +3116,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 当前基线不变：`make check` 607 项、coverage 90.95/96.96/84.86、mutation 97.80、
 suppressions 20、service.ts 5,986 行。
+
+### 47.29 验证材料解析移出（Goal Round 27）
+
+- 新增 `src/runtime/verification-materials.ts`：`parseVerificationMaterials(workspace)`
+  负责 commands.json / report.json 的存在性与解析，返回判别联合；service 只保留
+  `setStatus('blocked')` 与失败返回。
+- 删除 service 内重复的存在性检查，`executeVerification` 语句 90 → **83**，
+  max-lines-per-function 与 complexity 保持达标；`max-statements` 仍在（83 > 40）。
+- service.ts 5,986 → **5,971 行**；tokens 66,954 → **66,752**，基线收紧。
+- `make check` 607 项通过，coverage 90.95/96.96/84.87，mutation 97.80。
+- 下一步按计划移出 `runVerificationCommands`，再处理记录段，目标 ≤40 语句。
