@@ -20,6 +20,7 @@
 | 文档 | 保留职责 |
 | --- | --- |
 | [status.md](status.md) | 当前能力、已知缺口、实际检查与安装记录；事实唯一入口 |
+| [branch-protection.md](branch-protection.md) | 分支保护、必需检查与 E2E 门禁的已落实/未落实状态 |
 | [architecture.md](architecture.md) | 当前模块、持久化与外部接缝，对应源码和架构契约 |
 | [ops-agent.md](ops-agent.md) | 运维 Agent 首版：登记目录、事件、诊断、授权处置、恢复复核与限制 |
 | [CONTEXT.md](../CONTEXT.md) | 当前代码的领域术语；与新方案差异有明确说明 |
