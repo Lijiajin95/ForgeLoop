@@ -3073,3 +3073,16 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 91.08/96.94/84.90，mutation 97.80。
 - 函数级豁免只剩 `executeVerification`（420 行 / 142 语句 / 复杂度 49）；
   下一轮整块迁出该阶段。
+
+### 47.26 独立验证前置与工作区拆分（Goal Round 23）
+
+- `executeVerification` 抽出 `existingVerificationOutcome`（已有结论）、
+  `verificationBudgetGuard`（工时预算）、`prepareVerificationWorkspace`
+  （验证副本、候选 diff 应用、预检阻断记录）。
+- 函数从 **420 行 / 142 语句 / 复杂度 49** 降到 **361 行 / 120 语句 / 复杂度 15 以内**；
+  service.ts 6,036 → **5,906 行**。
+- `max-lines-per-function`、`max-statements` 两条豁免仍在（361 > 300、120 > 40），
+  本轮没有虚假清零。
+- tokens 65,974 → 66,353（新增助手签名），基线同步；suppressions 维持 21。
+- `make check` 607 项通过，coverage 91.07/96.95/84.89，mutation 97.80。
+- 下一轮继续拆验证命令执行与报告落库两段，目标 ≤300 行 / ≤40 语句。

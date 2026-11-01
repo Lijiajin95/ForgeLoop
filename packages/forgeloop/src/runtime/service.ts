@@ -3325,6 +3325,107 @@ ${answer}`
    * 编写验证测试并产出命令清单与逐场景报告；程序随后实际执行命令并只看退出码、
    * 日志与必过场景覆盖，模型自述不构成通过。
    */
+  private existingVerificationOutcome(
+    reqId: string,
+    plan: TaskPlan,
+    candidateSha256: string,
+  ): { state: 'done' | 'failed'; detail: string } | null {
+    const existing = this.repo.verificationForCandidate(reqId, plan.planVersion, candidateSha256)
+    if (!existing) return null
+    if (existing.verdict === 'block') {
+      return {
+        state: 'failed',
+        detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立验证已阻断：${verificationBlocking(existing.reportJson)}；需修复后产生新候选再验证`,
+      }
+    }
+    if (!this.verificationMaterialValid(existing)) {
+      return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；需重新验证' }
+    }
+    return {
+      state: 'done',
+      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证；等待验收`,
+    }
+  }
+
+  private verificationBudgetGuard(
+    reqId: string,
+    plan: TaskPlan,
+  ): { state: 'failed'; detail: string } | null {
+    this.repo.ensureBudget(
+      reqId,
+      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
+    )
+    const budget = new ExecutionBudget(
+      this.repo.budget(reqId).limitSeconds,
+      this.repo.budget(reqId).consumedSeconds,
+    )
+    if (budget.canStartAction()) return null
+    this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
+    return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
+  }
+
+  private prepareVerificationWorkspace(
+    reqId: string,
+    plan: TaskPlan,
+    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>,
+    candidateSha256: string,
+  ):
+    | {
+        ok: true
+        dir: string
+        workspace: string
+        diffs: string[]
+        baseline: string
+        snapshot: ReturnType<typeof prepareSnapshotWorkspace>
+      }
+    | { ok: false; outcome: { state: 'failed'; detail: string } } {
+    const dir = verificationDir(this.config, reqId, plan.planVersion, candidateSha256)
+    const workspace = join(dir, 'workspace')
+    mkdirSync(dir, { recursive: true })
+    const baseline = headCommit(this.config.projectPath)
+    const snapshot = prepareSnapshotWorkspace({
+      projectPath: this.config.projectPath,
+      workspacePath: workspace,
+      baselineCommit: baseline,
+    })
+    const diffs: string[] = []
+    for (const task of plan.tasks) {
+      const evidence = this.repo.evidence(reqId, plan.planVersion, task.taskId)
+      if (!evidence) {
+        return {
+          ok: false,
+          outcome: { state: 'failed', detail: `任务 ${task.taskId} 缺少交付证据；不能验证` },
+        }
+      }
+      const applied = this.applyDiffFile(
+        workspace,
+        evidence.candidatePath,
+        task.taskId,
+        task.taskId,
+      )
+      if (!applied.ok) {
+        const blocking = [`任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}`]
+        const reportPath = this.recordPreflightBlock({
+          reqId,
+          plan,
+          candidateSha256,
+          planReviewSha256: reviewRecord.reportSha256,
+          blocking,
+        })
+        return {
+          ok: false,
+          outcome: {
+            state: 'failed',
+            detail: `任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}；证据 ${reportPath}；需修复后产生新候选再验证`,
+          },
+        }
+      }
+      const diff = readFileSync(evidence.candidatePath, 'utf8')
+      if (diff.trim()) diffs.push(diff)
+    }
+    return { ok: true, dir, workspace, diffs, baseline, snapshot }
+  }
+
   private async executeVerification(
     reqId: string,
     signal: AbortSignal,
@@ -3366,74 +3467,13 @@ ${answer}`
       return { state: 'failed', detail: `实现前评审证据畸形：${errorMessage(error)}` }
     }
     const candidateSha256 = this.candidateIdentity(plan, artifacts)
-    const existing = this.repo.verificationForCandidate(reqId, plan.planVersion, candidateSha256)
-    if (existing) {
-      if (existing.verdict === 'block') {
-        return {
-          state: 'failed',
-          detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立验证已阻断：${verificationBlocking(existing.reportJson)}；需修复后产生新候选再验证`,
-        }
-      }
-      if (!this.verificationMaterialValid(existing)) {
-        return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；需重新验证' }
-      }
-      return {
-        state: 'done',
-        detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证；等待验收`,
-      }
-    }
-
-    this.repo.ensureBudget(
-      reqId,
-      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
-    )
-    const budget = new ExecutionBudget(
-      this.repo.budget(reqId).limitSeconds,
-      this.repo.budget(reqId).consumedSeconds,
-    )
-    if (!budget.canStartAction()) {
-      this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
-      return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
-    }
-
-    const dir = verificationDir(this.config, reqId, plan.planVersion, candidateSha256)
-    const workspace = join(dir, 'workspace')
-    mkdirSync(dir, { recursive: true })
-    const baseline = headCommit(this.config.projectPath)
-    const snapshot = prepareSnapshotWorkspace({
-      projectPath: this.config.projectPath,
-      workspacePath: workspace,
-      baselineCommit: baseline,
-    })
-    const diffs: string[] = []
-    for (const task of plan.tasks) {
-      const evidence = this.repo.evidence(reqId, plan.planVersion, task.taskId)
-      if (!evidence) {
-        return { state: 'failed', detail: `任务 ${task.taskId} 缺少交付证据；不能验证` }
-      }
-      const applied = this.applyDiffFile(
-        workspace,
-        evidence.candidatePath,
-        task.taskId,
-        task.taskId,
-      )
-      if (!applied.ok) {
-        const blocking = [`任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}`]
-        const reportPath = this.recordPreflightBlock({
-          reqId,
-          plan,
-          candidateSha256,
-          planReviewSha256: reviewRecord.reportSha256,
-          blocking,
-        })
-        return {
-          state: 'failed',
-          detail: `任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}；证据 ${reportPath}；需修复后产生新候选再验证`,
-        }
-      }
-      const diff = readFileSync(evidence.candidatePath, 'utf8')
-      if (diff.trim()) diffs.push(diff)
-    }
+    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
+    if (existingOutcome) return existingOutcome
+    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
+    if (budgetOutcome) return budgetOutcome
+    const prepared = this.prepareVerificationWorkspace(reqId, plan, reviewRecord, candidateSha256)
+    if (!prepared.ok) return prepared.outcome
+    const { dir, workspace, diffs, baseline, snapshot } = prepared
     runCommand('git', ['add', '-A'], workspace)
     runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
     if (this.config.worktreePrepareCommand.length > 0) {
