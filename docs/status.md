@@ -2971,3 +2971,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - suppressions 34 → **33**；`make check` 607 项通过，coverage 90.98/96.96/84.77。
 - 下一步：旧链路 `buildCandidate`（77 语句/复杂度 40），随后把候选构建整体移出，
   最后处理文件行数与 DB schema。
+
+### 47.17 会话视图与请求来源移出（Goal Round 13）
+
+- `sessionRequirementView`、`SessionRequirementView`、`fallback` 与 `requestSource` 移到
+  `execution-views.ts`；service.ts 只保留调用。
+- service tokens 67,801 → **67,311**，token 基线同步收紧；行数继续下降。
+- `make check` 607 项通过，coverage 90.98/96.96/84.77，mutation 97.80；未新增豁免。
+- 旧链路 `buildCandidate` 的拆分因与准入链路重复且改动面大，本轮未合入；下一轮先抽共享的
+  “复制候选副本 / 跑命令 / 读产物”助手，再拆 `buildCandidate`。

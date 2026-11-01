@@ -168,6 +168,9 @@ import {
   buildExecutionStages,
   buildExecutionTest,
   loadExecutionPage,
+  requestSource,
+  sessionRequirementView,
+  type SessionRequirementView,
 } from './execution-views.js'
 import {
   BuildMaterialValidator,
@@ -225,64 +228,6 @@ import {
 } from './service-helpers.js'
 
 type AdmittedDelivery = NonNullable<ReturnType<ForgeLoopRuntime['admittedDelivery']>>
-
-function sessionRequirementView(
-  repository: Repository,
-  requirement: Requirement,
-): SessionRequirementView {
-  const latest = requirement.versions[requirement.versions.length - 1]
-  const analysis = repository.latestAnalysis(requirement.reqId)
-  const plan = repository.latestTaskPlan(requirement.reqId)
-  const approval = plan ? repository.planApproval(requirement.reqId, plan.planVersion) : null
-  const artifacts = plan ? repository.taskArtifacts(requirement.reqId, plan.planVersion) : []
-  return {
-    reqId: requirement.reqId,
-    title: requirementTitle(requirement),
-    status: requirement.status,
-    version: requirement.versions.length,
-    updatedAt: fallback(latest?.createdAt, ''),
-    goal: fallback(analysis?.goal, ''),
-    scenarios: fallback(analysis?.scenarios, []),
-    acceptanceCriteria: fallback(analysis?.acceptanceCriteria, []),
-    clarifications: fallback(analysis?.clarifications, []),
-    planVersion: plan?.planVersion ?? null,
-    approved: approval !== null,
-    delivered: artifacts.length,
-    taskCount: plan?.tasks.length ?? 0,
-  }
-}
-
-interface SessionRequirementView {
-  reqId: string
-  title: string
-  status: string
-  version: number
-  updatedAt: string
-  goal: string
-  scenarios: readonly string[]
-  acceptanceCriteria: readonly string[]
-  clarifications: readonly string[]
-  planVersion: number | null
-  approved: boolean
-  delivered: number
-  taskCount: number
-}
-
-function fallback<T>(value: T | null | undefined, otherwise: T): T {
-  return value ?? otherwise
-}
-
-function requestSource(input: {
-  action: 'analyze' | 'plan' | 'advance' | 'verify'
-  source: string
-  confirmPlanChange?: boolean
-  reason?: string
-}): string {
-  if (input.action === 'plan' && input.confirmPlanChange === true) {
-    return `${input.source}:plan-change:${input.reason?.trim()}`
-  }
-  return input.source
-}
 
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
