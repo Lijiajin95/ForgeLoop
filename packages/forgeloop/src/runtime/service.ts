@@ -36,6 +36,7 @@ import { PLUGIN_VERSION } from './version.js'
 import { Database } from '../records/db.js'
 import {
   Repository,
+  type CodeCandidateRecord,
   type ServiceRequestRecord,
   type VerificationRecord,
 } from '../records/repository.js'
@@ -217,6 +218,8 @@ import {
   verificationMaterials,
   workspaceChanges,
 } from './service-helpers.js'
+
+type AdmittedDelivery = NonNullable<ReturnType<ForgeLoopRuntime['admittedDelivery']>>
 
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
@@ -1677,6 +1680,33 @@ ${answer}`
    * 新链路构建：依据系统准入、固定候选、独立验证、业务验收和本地提交，
    * 不再要求旧任务包批准或所有者整体验收。
    */
+  private buildReadiness(
+    delivery: AdmittedDelivery,
+    version: string | undefined,
+  ): OperationResult | null {
+    const { candidate, verification, review } = delivery
+    if (!candidate || !verification || verification.verdict !== 'pass') {
+      return fail('verification_required', '候选没有通过的独立验证；不能构建')
+    }
+    if (!review || review.verdict !== 'pass') {
+      return fail('business_review_required', '候选没有通过的业务验收；不能构建')
+    }
+    const configured =
+      this.config.candidateBuildCommand.length > 0 &&
+      this.config.candidatePackageCommand.length > 0 &&
+      Boolean(this.config.candidateArtifactPath)
+    if (!configured) {
+      return fail(
+        'candidate_not_configured',
+        '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath',
+      )
+    }
+    if (version !== undefined && !/^\d+\.\d+\.\d+$/.test(version)) {
+      return fail('version_invalid', `候选版本必须是 x.y.z，实际 ${JSON.stringify(version)}`)
+    }
+    return null
+  }
+
   private buildAdmittedCandidate(input: {
     reqId: string
     by: string
@@ -1685,25 +1715,12 @@ ${answer}`
     const delivery = this.admittedDelivery(input.reqId)
     if (!delivery) return fail('candidate_missing', `需求 ${input.reqId} 没有可构建的新链路候选`)
     const { plan, candidate, verification, review, commit } = delivery
-    if (!candidate || !verification || verification.verdict !== 'pass') {
+    const notReady = this.buildReadiness(delivery, input.version)
+    if (notReady) return notReady
+    if (!candidate || !verification) {
       return fail('verification_required', '候选没有通过的独立验证；不能构建')
     }
-    if (!review || review.verdict !== 'pass') {
-      return fail('business_review_required', '候选没有通过的业务验收；不能构建')
-    }
-    if (
-      this.config.candidateBuildCommand.length === 0 ||
-      this.config.candidatePackageCommand.length === 0 ||
-      !this.config.candidateArtifactPath
-    ) {
-      return fail(
-        'candidate_not_configured',
-        '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath',
-      )
-    }
-    if (input.version !== undefined && !/^\d+\.\d+\.\d+$/.test(input.version)) {
-      return fail('version_invalid', `候选版本必须是 x.y.z，实际 ${JSON.stringify(input.version)}`)
-    }
+    if (!review) return fail('business_review_required', '候选没有通过的业务验收；不能构建')
     const materials = this.validateBuildMaterials({
       reqId: input.reqId,
       plan,
@@ -1714,6 +1731,82 @@ ${answer}`
       requireCommit: true,
     })
     if (!materials.ok) return fail(materials.code, materials.message)
+    const prepared = this.prepareCandidateBuild(input, { plan, candidate, verification, materials })
+    if (!prepared.ok) return prepared.result
+    const { dir, source, packageVersion } = prepared
+    const artifact = this.readCandidateArtifact(dir, packageVersion)
+    if (!artifact.ok) return artifact.result
+    const { artifactSha, tarball, files, gitHead, builtAt } = artifact.value
+    const buildDir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'build')
+    mkdirSync(buildDir, { recursive: true })
+    const recordPath = join(buildDir, 'candidate-build.json')
+    const record = {
+      kind: 'candidate-build',
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: candidate.candidateSha256,
+      verificationSha256: verification.reportSha256,
+      packageVersion,
+      artifactSha256: artifactSha,
+      tarball,
+      files,
+      gitHead,
+      builtAt: builtAt || this.now(),
+      commitSha: commit?.commitSha ?? '',
+      sourceWorkspace: source,
+      at: this.now(),
+    }
+    writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+    this.repo.recordCandidateBuild({
+      reqId: input.reqId,
+      planVersion: plan.planVersion,
+      candidateSha256: candidate.candidateSha256,
+      verificationSha256: verification.reportSha256,
+      packageVersion,
+      artifactSha256: artifactSha,
+      tarball,
+      files,
+      gitHead,
+      builtAt: record.builtAt,
+      evidenceDir: dir,
+    })
+    return ok(`已从准入候选构建安装包 ${packageVersion}（sha256 ${artifactSha.slice(0, 16)}…）`, {
+      sha256: artifactSha,
+      tarball,
+      files,
+      evidenceDir: dir,
+      packageVersion,
+      candidateSha256: candidate.candidateSha256,
+      verificationSha256: verification.reportSha256,
+      commitSha: commit?.commitSha ?? '',
+      recordPath,
+    })
+  }
+
+  private patchCandidateVersion(dir: string, version: string | undefined): OperationResult | null {
+    if (version === undefined) return null
+    const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
+    if (!existsSync(packageJsonPath)) {
+      return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
+    }
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+    packageJson.version = version
+    writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
+    return null
+  }
+
+  private prepareCandidateBuild(
+    input: { reqId: string; version?: string },
+    context: {
+      plan: TaskPlan
+      candidate: CodeCandidateRecord
+      verification: VerificationRecord
+      materials: { diffPath: string; protectedFiles: string[] }
+    },
+  ):
+    | { ok: true; dir: string; source: string; packageVersion: string; log: string }
+    | { ok: false; result: OperationResult } {
+    const { plan, candidate, verification, materials } = context
     const source = join(verification.evidenceDir, 'workspace')
     const dir = candidatesDir(this.config, input.reqId, plan.planVersion)
     const diffText = readFileSync(materials.diffPath, 'utf8')
@@ -1731,23 +1824,23 @@ ${answer}`
         // 构建失败会由命令输出说明；不伪造成功。
       }
     }
-    if (input.version !== undefined) {
-      const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
-      if (!existsSync(packageJsonPath))
-        return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<
-        string,
-        unknown
-      >
-      packageJson.version = input.version
-      writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
-    }
+    const versionError = this.patchCandidateVersion(dir, input.version)
+    if (versionError) return { ok: false, result: versionError }
     const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
-    if (!existsSync(packageJsonPath))
-      return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
+    if (!existsSync(packageJsonPath)) {
+      return {
+        ok: false,
+        result: fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`),
+      }
+    }
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
-    if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
+    if (!packageVersion) {
+      return {
+        ok: false,
+        result: fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`),
+      }
+    }
     const buildIgnore = input.version !== undefined ? ['packages/forgeloop/package.json'] : []
     const protectedBefore = this.protectedFileHashes(dir, materials.protectedFiles)
     const log: string[] = []
@@ -1766,24 +1859,52 @@ ${answer}`
       )
       if (result.code !== 0) {
         writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
-        return fail(
-          'candidate_build_failed',
-          `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`,
-        )
+        return {
+          ok: false,
+          result: fail(
+            'candidate_build_failed',
+            `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`,
+          ),
+        }
       }
       const changed = this.protectedFilesChanged(dir, protectedBefore, buildIgnore)
       if (changed.length > 0) {
         writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
-        return fail(
-          'candidate_content_changed',
-          `候选构建过程修改了受保护内容：${changed.join('、')}；旧验证不能沿用，必须重新验证`,
-        )
+        return {
+          ok: false,
+          result: fail(
+            'candidate_content_changed',
+            `候选构建过程修改了受保护内容：${changed.join('、')}；旧验证不能沿用，必须重新验证`,
+          ),
+        }
       }
     }
     writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+    return { ok: true, dir, source, packageVersion, log: log.join('\n') }
+  }
+
+  private readCandidateArtifact(
+    dir: string,
+    packageVersion: string,
+  ):
+    | {
+        ok: true
+        value: {
+          artifactSha: string
+          tarball: string
+          files: string[]
+          gitHead: string
+          builtAt: string
+        }
+      }
+    | { ok: false; result: OperationResult } {
     const artifactPath = join(dir, this.config.candidateArtifactPath)
-    if (!existsSync(artifactPath))
-      return fail('artifact_missing', `打包完成但没有找到产物清单 ${artifactPath}`)
+    if (!existsSync(artifactPath)) {
+      return {
+        ok: false,
+        result: fail('artifact_missing', `打包完成但没有找到产物清单 ${artifactPath}`),
+      }
+    }
     const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as {
       sha256?: string
       tarball?: string
@@ -1792,64 +1913,41 @@ ${answer}`
       builtAt?: string
       version?: string
     }
-    if (!artifact.sha256 || !artifact.tarball)
-      return fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`)
+    if (!artifact.sha256 || !artifact.tarball) {
+      return {
+        ok: false,
+        result: fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`),
+      }
+    }
     if (artifact.version && artifact.version !== packageVersion) {
-      return fail(
-        'artifact_version_mismatch',
-        `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`,
-      )
+      return {
+        ok: false,
+        result: fail(
+          'artifact_version_mismatch',
+          `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`,
+        ),
+      }
     }
     const artifactSha = sha256OfBytes(readFileSync(artifact.tarball))
-    if (artifactSha !== artifact.sha256)
-      return fail(
-        'artifact_mismatch',
-        `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${artifactSha}`,
-      )
-    const buildDir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'build')
-    mkdirSync(buildDir, { recursive: true })
-    const recordPath = join(buildDir, 'candidate-build.json')
-    const record = {
-      kind: 'candidate-build',
-      reqId: input.reqId,
-      planVersion: plan.planVersion,
-      candidateSha256: candidate.candidateSha256,
-      verificationSha256: verification.reportSha256,
-      packageVersion,
-      artifactSha256: artifactSha,
-      tarball: artifact.tarball,
-      files: artifact.files ?? [],
-      gitHead: artifact.gitHead ?? '',
-      builtAt: artifact.builtAt ?? this.now(),
-      commitSha: commit?.commitSha ?? '',
-      sourceWorkspace: source,
-      at: this.now(),
+    if (artifactSha !== artifact.sha256) {
+      return {
+        ok: false,
+        result: fail(
+          'artifact_mismatch',
+          `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${artifactSha}`,
+        ),
+      }
     }
-    writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-    this.repo.recordCandidateBuild({
-      reqId: input.reqId,
-      planVersion: plan.planVersion,
-      candidateSha256: candidate.candidateSha256,
-      verificationSha256: verification.reportSha256,
-      packageVersion,
-      artifactSha256: artifactSha,
-      tarball: artifact.tarball,
-      files: artifact.files ?? [],
-      gitHead: artifact.gitHead ?? '',
-      builtAt: record.builtAt,
-      evidenceDir: dir,
-    })
-    return ok(`已从准入候选构建安装包 ${packageVersion}（sha256 ${artifactSha.slice(0, 16)}…）`, {
-      sha256: artifactSha,
-      tarball: artifact.tarball,
-      files: artifact.files ?? [],
-      evidenceDir: dir,
-      packageVersion,
-      candidateSha256: candidate.candidateSha256,
-      verificationSha256: verification.reportSha256,
-      commitSha: commit?.commitSha ?? '',
-      recordPath,
-    })
+    return {
+      ok: true,
+      value: {
+        artifactSha,
+        tarball: artifact.tarball,
+        files: artifact.files ?? [],
+        gitHead: artifact.gitHead ?? '',
+        builtAt: artifact.builtAt ?? '',
+      },
+    }
   }
 
   buildCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {

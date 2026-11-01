@@ -2940,3 +2940,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 91.12/96.90/84.71，mutation 97.80。
 - 下一步：`buildCandidate`（77 语句）、`buildAdmittedCandidate`（64/40）、
   `taskExecution`（40）、`requestOperation`（33），继续向 2,000 行目标拆分。
+
+### 47.14 准入候选构建拆分（Goal Round 10）
+
+- `buildAdmittedCandidate` 拆出 `buildReadiness`（验证/终审/配置/版本四类前置）、
+  `prepareCandidateBuild`（复制工作区、复用依赖、版本补丁、构建与打包、受保护文件检查）、
+  `readCandidateArtifact`（产物清单、版本、摘要）与 `patchCandidateVersion`。
+- 复杂度 40/64 语句的豁免清零，suppressions 38 → **36**。
+- service.ts 同文件重构新增结构，token 基线 67,444 → 68,191（仍低于本批拆分前的 70,547）。
+- `make check` 607 项通过，coverage 90.95/96.92/84.68，mutation 97.80。
+- 下一步：`taskExecution`、`requestOperation`、service 箭头复杂度，并把候选构建整体移出 service。
