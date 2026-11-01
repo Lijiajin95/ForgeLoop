@@ -339,25 +339,29 @@ function expandHome(value: string): string {
   return value
 }
 
+function textOr(value: string | undefined, fallback: string): string {
+  return value?.trim() || fallback
+}
+
 export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopConfig {
-  const project = raw.project?.trim() || 'forgeloop'
+  const project = textOr(raw.project, 'forgeloop')
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(project)) {
     throw new RuleViolationError(
       `配置 project 只能是安全的项目名，实际 ${JSON.stringify(raw.project)}`,
     )
   }
-  const projectPath = resolve(cwd, expandHome(raw.projectPath?.trim() || '.'))
+  const projectPath = resolve(cwd, expandHome(textOr(raw.projectPath, '.')))
   // Desktop 和 Web 的启动目录可能不同；项目数据始终相对已选项目定位。
-  const recordsRoot = resolve(projectPath, expandHome(raw.recordsRoot?.trim() || '.forgeloop'))
+  const recordsRoot = resolve(projectPath, expandHome(textOr(raw.recordsRoot, '.forgeloop')))
   const pollSeconds = positiveNumber(raw.pollSeconds, 'pollSeconds', 5)
   if (pollSeconds < 1) throw new RuleViolationError('配置 pollSeconds 不能小于 1 秒')
-  const agentProvider = raw.agent?.provider?.trim() || ''
-  const agentModel = raw.agent?.model?.trim() || ''
+  const agentProvider = textOr(raw.agent?.provider, '')
+  const agentModel = textOr(raw.agent?.model, '')
   return {
     recordsRoot,
     project,
     projectPath,
-    owner: raw.owner?.trim() || 'local-owner',
+    owner: textOr(raw.owner, 'local-owner'),
     pollSeconds,
     autoAdvance: raw.autoAdvance === true,
     agent: {
@@ -374,10 +378,10 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     worktreePrepareCommand: stringList(raw.worktreePrepareCommand, 'worktreePrepareCommand', []),
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),
-    candidateArtifactPath: raw.candidateArtifactPath?.trim() || '',
+    candidateArtifactPath: textOr(raw.candidateArtifactPath, ''),
     dshProfilesRoot: resolve(
       projectPath,
-      expandHome(raw.dshProfilesRoot?.trim() || join(homedir(), '.dsh', 'profiles')),
+      expandHome(textOr(raw.dshProfilesRoot, join(homedir(), '.dsh', 'profiles'))),
     ),
     autonomy: parseAutonomyConfig(raw.autonomy),
     ops: parseOpsConfig(raw.ops),

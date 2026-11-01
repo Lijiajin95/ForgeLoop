@@ -131,6 +131,12 @@ function assertPositive(value: number, what: string): void {
  * 资源、检查、动作只登记一次；动作只能引用同资源的检查作为恢复复核。
  */
 export function validateOpsCatalog(catalog: OpsCatalog): void {
+  const resources = validateOpsResources(catalog)
+  const checks = validateOpsChecks(catalog, resources)
+  validateOpsActions(catalog, resources, checks)
+}
+
+function validateOpsResources(catalog: OpsCatalog): Map<string, OpsResource> {
   const resources = new Map<string, OpsResource>()
   for (const resource of catalog.resources) {
     assertId(resource.id, '资源身份')
@@ -141,7 +147,13 @@ export function validateOpsCatalog(catalog: OpsCatalog): void {
     if (resources.has(resource.id)) throw new RuleViolationError(`重复的资源身份：${resource.id}`)
     resources.set(resource.id, resource)
   }
+  return resources
+}
 
+function validateOpsChecks(
+  catalog: OpsCatalog,
+  resources: Map<string, OpsResource>,
+): Map<string, OpsCheck> {
   const checks = new Map<string, OpsCheck>()
   for (const check of catalog.checks) {
     assertId(check.id, '检查身份')
@@ -156,7 +168,14 @@ export function validateOpsCatalog(catalog: OpsCatalog): void {
     }
     checks.set(check.id, check)
   }
+  return checks
+}
 
+function validateOpsActions(
+  catalog: OpsCatalog,
+  resources: Map<string, OpsResource>,
+  checks: Map<string, OpsCheck>,
+): void {
   const actions = new Map<string, OpsAction>()
   for (const action of catalog.actions) {
     assertId(action.id, '动作身份')
@@ -166,55 +185,64 @@ export function validateOpsCatalog(catalog: OpsCatalog): void {
     if (actions.has(action.id)) throw new RuleViolationError(`重复的动作身份：${action.id}`)
     assertArgv(action.command, `动作 ${action.id}`)
     assertPositive(action.timeoutSeconds, `动作 ${action.id} 的超时`)
+    validateVerifyCheck(action, checks)
+    const declared = validateActionParams(action)
+    validateActionPlaceholders(action, declared)
+    actions.set(action.id, action)
+  }
+}
 
-    const verify = checks.get(action.verifyCheckId)
-    if (!verify) {
-      throw new RuleViolationError(
-        `动作 ${action.id} 的恢复校验检查未登记：${action.verifyCheckId}`,
-      )
-    }
-    if (verify.resourceId !== action.resourceId) {
-      throw new RuleViolationError(
-        `动作 ${action.id} 的恢复校验检查 ${verify.id} 属于另一资源 ${verify.resourceId}`,
-      )
-    }
+function validateVerifyCheck(action: OpsAction, checks: Map<string, OpsCheck>): void {
+  const verify = checks.get(action.verifyCheckId)
+  if (!verify) {
+    throw new RuleViolationError(`动作 ${action.id} 的恢复校验检查未登记：${action.verifyCheckId}`)
+  }
+  if (verify.resourceId !== action.resourceId) {
+    throw new RuleViolationError(
+      `动作 ${action.id} 的恢复校验检查 ${verify.id} 属于另一资源 ${verify.resourceId}`,
+    )
+  }
+}
 
-    const declared = new Set<string>()
-    for (const param of action.params) {
-      assertId(param.name, `动作 ${action.id} 的参数名`)
-      if (declared.has(param.name)) {
-        throw new RuleViolationError(`动作 ${action.id} 重复声明参数：${param.name}`)
-      }
-      declared.add(param.name)
-      if (param.values.length === 0) {
-        throw new RuleViolationError(`动作 ${action.id} 的参数 ${param.name} 缺少允许值`)
-      }
-      for (const value of param.values) {
-        if (typeof value !== 'string' || value.length === 0) {
-          throw new RuleViolationError(
-            `动作 ${action.id} 的参数 ${param.name} 允许值必须是非空字符串`,
-          )
-        }
-      }
-      if (new Set(param.values).size !== param.values.length) {
-        throw new RuleViolationError(`动作 ${action.id} 的参数 ${param.name} 存在重复的允许值`)
+function validateActionParams(action: OpsAction): Set<string> {
+  const declared = new Set<string>()
+  for (const param of action.params) {
+    assertId(param.name, `动作 ${action.id} 的参数名`)
+    if (declared.has(param.name)) {
+      throw new RuleViolationError(`动作 ${action.id} 重复声明参数：${param.name}`)
+    }
+    declared.add(param.name)
+    if (param.values.length === 0) {
+      throw new RuleViolationError(`动作 ${action.id} 的参数 ${param.name} 缺少允许值`)
+    }
+    for (const value of param.values) {
+      if (typeof value !== 'string' || value.length === 0) {
+        throw new RuleViolationError(
+          `动作 ${action.id} 的参数 ${param.name} 允许值必须是非空字符串`,
+        )
       }
     }
+    if (new Set(param.values).size !== param.values.length) {
+      throw new RuleViolationError(`动作 ${action.id} 的参数 ${param.name} 存在重复的允许值`)
+    }
+  }
+  return declared
+}
 
-    const used = new Set<string>()
-    for (const token of action.command) {
-      for (const match of token.matchAll(PLACEHOLDER)) {
-        const name = match[1]!
-        if (!declared.has(name)) {
-          throw new RuleViolationError(`动作 ${action.id} 的命令引用了未声明的参数 {${name}}`)
-        }
-        used.add(name)
+function validateActionPlaceholders(action: OpsAction, declared: Set<string>): void {
+  const used = new Set<string>()
+  for (const token of action.command) {
+    for (const match of token.matchAll(PLACEHOLDER)) {
+      const name = match[1]!
+      if (!declared.has(name)) {
+        throw new RuleViolationError(`动作 ${action.id} 的命令引用了未声明的参数 {${name}}`)
       }
+      used.add(name)
     }
-    for (const name of declared) {
-      if (!used.has(name)) {
-        throw new RuleViolationError(`动作 ${action.id} 的参数 ${name} 未在命令中使用`)
-      }
+  }
+  for (const name of declared) {
+    if (!used.has(name)) {
+      throw new RuleViolationError(`动作 ${action.id} 的参数 ${name} 未在命令中使用`)
     }
   }
 }
@@ -316,6 +344,44 @@ function stringArray(value: unknown, what: string): string[] {
   return value.map((item, index) => nonEmptyString(item, `${what}[${index}]`))
 }
 
+function parseHypotheses(value: unknown): OpsHypothesis[] {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new MalformedError('运维诊断的推断必须是数组')
+  }
+  return (value ?? []).map((item: unknown, index: number) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new MalformedError(`运维诊断的推断[${index}]必须是对象`)
+    }
+    const hypothesis = item as Record<string, unknown>
+    const confidence = hypothesis.confidence
+    if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
+      throw new MalformedError(`运维诊断的推断[${index}]置信度必须是 low/medium/high`)
+    }
+    return {
+      statement: nonEmptyString(hypothesis.statement, `运维诊断的推断[${index}]`),
+      confidence,
+    }
+  })
+}
+
+function parseProposedAction(value: unknown): OpsProposedAction | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new MalformedError('运维诊断的 proposed_action 必须是对象或 null')
+  }
+  const action = value as Record<string, unknown>
+  const actionId = nonEmptyString(action.action_id, '运维诊断的 proposed_action.action_id')
+  const rawParams = action.params ?? {}
+  if (typeof rawParams !== 'object' || rawParams === null || Array.isArray(rawParams)) {
+    throw new MalformedError('运维诊断的 proposed_action.params 必须是对象')
+  }
+  const params: Record<string, string> = {}
+  for (const [name, param] of Object.entries(rawParams as Record<string, unknown>)) {
+    params[name] = nonEmptyString(param, `运维诊断的 proposed_action.params.${name}`)
+  }
+  return { actionId, params }
+}
+
 /**
  * 解析运维 Agent 的诊断 JSON。结构畸形直接失败，不把部分字段当成结论。
  * 这里不校验动作是否登记；调用方必须再用目录校验动作与参数。
@@ -331,46 +397,12 @@ export function parseOpsDiagnosis(text: string): OpsDiagnosis {
   if (data.hypotheses !== undefined && !Array.isArray(data.hypotheses)) {
     throw new MalformedError('运维诊断的推断必须是数组')
   }
-  const hypotheses: OpsHypothesis[] = (data.hypotheses ?? []).map(
-    (item: unknown, index: number) => {
-      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
-        throw new MalformedError(`运维诊断的推断[${index}]必须是对象`)
-      }
-      const hypothesis = item as Record<string, unknown>
-      const confidence = hypothesis.confidence
-      if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
-        throw new MalformedError(`运维诊断的推断[${index}]置信度必须是 low/medium/high`)
-      }
-      return {
-        statement: nonEmptyString(hypothesis.statement, `运维诊断的推断[${index}]`),
-        confidence,
-      }
-    },
-  )
-
-  let proposedAction: OpsProposedAction | null = null
-  const rawAction = data.proposed_action
-  if (rawAction !== undefined && rawAction !== null) {
-    if (typeof rawAction !== 'object' || Array.isArray(rawAction)) {
-      throw new MalformedError('运维诊断的 proposed_action 必须是对象或 null')
-    }
-    const action = rawAction as Record<string, unknown>
-    const actionId = nonEmptyString(action.action_id, '运维诊断的 proposed_action.action_id')
-    const rawParams = action.params ?? {}
-    if (typeof rawParams !== 'object' || rawParams === null || Array.isArray(rawParams)) {
-      throw new MalformedError('运维诊断的 proposed_action.params 必须是对象')
-    }
-    const params: Record<string, string> = {}
-    for (const [name, value] of Object.entries(rawParams as Record<string, unknown>)) {
-      params[name] = nonEmptyString(value, `运维诊断的 proposed_action.params.${name}`)
-    }
-    proposedAction = { actionId, params }
-  }
-
+  const hypotheses = parseHypotheses(data.hypotheses)
+  const proposedAction = parseProposedAction(data.proposed_action)
   if (typeof data.decision_required !== 'boolean') {
     throw new MalformedError('运维诊断缺少 decision_required 布尔值')
   }
-  const fixRequired = data.fix_required === undefined ? false : data.fix_required
+  const fixRequired = data.fix_required ?? false
   if (typeof fixRequired !== 'boolean')
     throw new MalformedError('运维诊断的 fix_required 必须是布尔值')
 

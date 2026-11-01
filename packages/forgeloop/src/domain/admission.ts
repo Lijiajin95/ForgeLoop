@@ -51,6 +51,16 @@ export interface AdmissionDecision {
 
 const TERMINAL = new Set(['accepted', 'rejected', 'cancelled', 'committed'])
 
+function codeCommitAllowed(policy: AdmissionPolicy, trustedSource: boolean): boolean {
+  return policy.enabled && policy.allowCodeCommit && trustedSource
+}
+
+function admittedReason(allowed: boolean): string {
+  return allowed
+    ? '可信需求来源、有效授权与需求说明齐备；允许研发、验证并提交代码'
+    : '可信需求来源与需求说明齐备；允许研发与验证，代码提交仍需单独授权'
+}
+
 function trusted(source: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => prefix.length > 0 && source.startsWith(prefix))
 }
@@ -67,7 +77,7 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
     requirementVersion: facts.requirementVersion,
     analysisVersion: facts.analysisVersion,
     trustedSource,
-    codeCommitAllowed: policy.enabled && policy.allowCodeCommit && trustedSource,
+    codeCommitAllowed: codeCommitAllowed(policy, trustedSource),
   }
   const block = (code: string, reason: string): AdmissionDecision => ({
     admit: false,
@@ -110,9 +120,7 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
   return {
     admit: true,
     code: 'admitted',
-    reason: basis.codeCommitAllowed
-      ? '可信需求来源、有效授权与需求说明齐备；允许研发、验证并提交代码'
-      : '可信需求来源与需求说明齐备；允许研发与验证，代码提交仍需单独授权',
+    reason: admittedReason(basis.codeCommitAllowed),
     basis,
   }
 }
