@@ -398,442 +398,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
 
   const chunks: RequirementChunk[] = []
 
-  for (const requirement of all) {
-    const terminal = isTerminal(requirement.status)
-    const latestAnalysis = repository.latestAnalysis(requirement.reqId)
-    const plan = repository.latestTaskPlan(requirement.reqId)
-    // 精确批准优先；只有旧版本批准时仍判为 stale，不能驱动当前任务包。
-    const approvalRecord = plan
-      ? (repository.planApproval(requirement.reqId, plan.planVersion) ??
-        repository.latestPlanApproval(requirement.reqId))
-      : null
-    const authorization = plan ? authorizePlan(plan, approvalRecord) : null
-    const artifacts = plan ? repository.taskArtifacts(requirement.reqId, plan.planVersion) : []
-    const runs = plan ? repository.taskRuns(requirement.reqId, plan.planVersion) : []
-    const delivered = new Set(artifacts.map((artifact) => artifact.taskId))
-    const runByTask = new Map(runs.map((run) => [run.taskId, run]))
-    const rounds = repository.failureRounds(requirement.reqId)
-    const grants = repository.grantCount(requirement.reqId)
-    const remainingRounds = Math.max(0, grants * MAX_ROUNDS_PER_GRANT - rounds.length)
-    const requests = repository.requestsFor(requirement.reqId)
-    const activeRequest = requests.some(
-      (request) => request.state === 'pending' || request.state === 'claimed',
-    )
-    const stopRequested = repository.activeStop(requirement.reqId) !== null
-    const reviewRecord = plan ? repository.planReview(requirement.reqId, plan.planVersion) : null
-    const reviewReport: PlanReview | null = (() => {
-      if (!reviewRecord) return null
-      try {
-        return parsePlanReview(reviewRecord.reportJson)
-      } catch {
-        return null
-      }
-    })()
-    const verificationRecord = plan
-      ? repository.verification(requirement.reqId, plan.planVersion)
-      : null
-    const verificationReport: VerificationReport | null = (() => {
-      if (!verificationRecord) return null
-      try {
-        return parseVerificationReport(verificationRecord.reportJson)
-      } catch {
-        return null
-      }
-    })()
-    const currentCandidateSha256 = (() => {
-      if (!plan || artifacts.length !== plan.tasks.length) return ''
-      const ordered = plan.tasks.map((task) =>
-        artifacts.find((artifact) => artifact.taskId === task.taskId),
-      )
-      if (ordered.some((artifact) => !artifact)) return ''
-      return candidateIdentityOf({
-        planVersion: plan.planVersion,
-        requirementVersion: plan.requirementVersion,
-        baselineCommit: ordered[0]!.baselineCommit,
-        candidateHashes: ordered.map((artifact) => artifact!.candidateSha256),
-      })
-    })()
-    const verificationFresh =
-      verificationRecord !== null &&
-      currentCandidateSha256 !== '' &&
-      verificationRecord.candidateSha256 === currentCandidateSha256 &&
-      verificationRecord.requirementVersion === requirement.versions.length
-    const planValid = (() => {
-      if (!plan) return false
-      try {
-        validateTaskPlan(plan)
-        return true
-      } catch {
-        return false
-      }
-    })()
-    const planReviewView: BoardPlanReviewView | null = reviewRecord
-      ? {
-          verdict: reviewRecord.verdict,
-          summary: reviewReport?.summary ?? '',
-          blocking: reviewReport?.blocking ?? [],
-          reviewedAt: reviewRecord.reviewedAt,
-        }
-      : null
-    const verificationView: BoardVerificationView | null = verificationRecord
-      ? {
-          verdict: verificationRecord.verdict,
-          fresh: verificationFresh,
-          summary: verificationReport?.summary ?? '',
-          blocking: verificationReport?.blocking ?? [],
-          candidateSha256: verificationRecord.candidateSha256,
-          verifiedAt: verificationRecord.verifiedAt,
-        }
-      : null
-
-    const businessReviewRecord = repository.businessReview(
-      requirement.reqId,
-      plan?.planVersion ?? 0,
-    )
-    const businessReviewView: BoardBusinessReviewView | null = businessReviewRecord
-      ? {
-          verdict: businessReviewRecord.verdict,
-          fresh:
-            currentCandidateSha256 !== '' &&
-            businessReviewRecord.candidateSha256 === currentCandidateSha256 &&
-            verificationRecord !== null &&
-            businessReviewRecord.verificationSha256 === verificationRecord.reportSha256,
-          summary: (() => {
-            try {
-              return (
-                (JSON.parse(businessReviewRecord.reportJson) as { summary?: string }).summary ?? ''
-              )
-            } catch {
-              return ''
-            }
-          })(),
-          blocking: (() => {
-            try {
-              const parsed = JSON.parse(businessReviewRecord.reportJson) as { blocking?: unknown }
-              return Array.isArray(parsed.blocking) ? parsed.blocking.map(String) : []
-            } catch {
-              return []
-            }
-          })(),
-          candidateSha256: businessReviewRecord.candidateSha256,
-          reviewedAt: businessReviewRecord.reviewedAt,
-        }
-      : null
-    const buildRecord = plan ? repository.candidateBuild(requirement.reqId, plan.planVersion) : null
-    const candidateView: BoardCandidateView | null = buildRecord
-      ? {
-          candidateSha256: buildRecord.candidateSha256,
-          packageVersion: buildRecord.packageVersion,
-          artifactSha256: buildRecord.artifactSha256,
-          builtAt: buildRecord.builtAt,
-          verificationSha256: buildRecord.verificationSha256,
-        }
-      : null
-    const deploymentRecord = plan
-      ? repository.deployment(requirement.reqId, plan.planVersion)
-      : null
-    const deploymentView: BoardDeploymentView | null = deploymentRecord
-      ? {
-          state: deploymentRecord.state,
-          targetProfile: deploymentRecord.targetProfile,
-          runtimeVersion: deploymentRecord.runtimeVersion,
-          packageVersion: deploymentRecord.packageVersion,
-          artifactSha256: deploymentRecord.artifactSha256,
-          recordedAt: deploymentRecord.recordedAt,
-          failedChecks: deploymentRecord.checks
-            .filter(
-              (check): check is { id: string; ok: boolean; detail: string } =>
-                typeof check === 'object' && check !== null,
-            )
-            .filter((check) => !check.ok)
-            .map((check) => `${check.id}：${check.detail}`),
-        }
-      : null
-
-    const progress = {
-      total: plan?.tasks.length ?? 0,
-      delivered: 0,
-      failed: 0,
-      awaitingUser: 0,
-      awaitingInput: 0,
-      blocked: 0,
-      running: 0,
-      pending: 0,
-    }
-    const requirementTasks: BoardTaskView[] = []
-
-    for (const task of plan?.tasks ?? []) {
-      const run = runByTask.get(task.taskId)
-      const state = boardTaskState({ delivered: delivered.has(task.taskId), run })
-
-      if (state === BOARD_TASK_DELIVERED) progress.delivered += 1
-      else if (state === 'failed') progress.failed += 1
-      else if (state === 'blocked') progress.blocked += 1
-      else if (state === 'awaiting_user') progress.awaitingUser += 1
-      else if (state === BOARD_TASK_AWAITING_INPUT) progress.awaitingInput += 1
-      else if (state === 'running') progress.running += 1
-      else progress.pending += 1
-
-      const failureAdvice =
-        state === TASK_RUN_AWAITING_USER || state === 'failed' || state === 'blocked'
-          ? buildTaskFailureAdvice({
-              state,
-              reason: run?.reason ?? '',
-              files: task.files,
-              remainingRounds,
-            })
-          : null
-
-      requirementTasks.push({
-        reqId: requirement.reqId,
-        planVersion: plan!.planVersion,
-        taskId: task.taskId,
-        goal: task.goal,
-        state,
-        dependsOn: task.dependsOn,
-        lastActivity: run?.updatedAt ?? '',
-        failureReason: failureAdvice ? (run?.reason ?? '') : '',
-        failureAdvice,
-      })
-    }
-
-    const retry = retryDecision({
-      status: requirement.status,
-      blockedReason: requirement.blockedReason,
-      remainingRounds,
-      activeRequest,
-      runningTasks: progress.running,
-      awaitingInputTasks: progress.awaitingInput,
-      planApproved: authorization?.status === 'approved',
-      delivered: progress.delivered,
-      total: progress.total,
-    })
-
-    const actions: BoardRequirementAction[] = []
-    if (!terminal) {
-      if (
-        requirement.status === PLAN_PROPOSED &&
-        plan !== null &&
-        authorization !== null &&
-        authorization.status !== 'approved'
-      ) {
-        if (planReviewView?.verdict === 'pass' && planValid) {
-          actions.push('approve')
-        } else if (!activeRequest && progress.running === 0) {
-          actions.push('plan')
-        }
-      }
-      if (
-        authorization?.status === 'approved' &&
-        (requirement.status === APPROVED || requirement.status === EXECUTING) &&
-        progress.delivered < progress.total &&
-        remainingRounds > 0 &&
-        progress.running === 0 &&
-        progress.awaitingInput === 0 &&
-        !activeRequest
-      ) {
-        actions.push('advance')
-      }
-      // 失败停在 blocked 后仍可再来一次：判定与 requeue 端点共用 retryDecision。
-      if (retry.allowed) actions.push('requeue')
-      if (
-        authorization?.status === 'approved' &&
-        (requirement.status === APPROVED || requirement.status === EXECUTING) &&
-        progress.total > 0 &&
-        progress.delivered === progress.total &&
-        remainingRounds > 0 &&
-        planReviewView?.verdict === 'pass' &&
-        progress.running === 0 &&
-        progress.awaitingInput === 0 &&
-        !activeRequest &&
-        !(verificationFresh && verificationView !== null)
-      ) {
-        actions.push('verify')
-      }
-      if (activeRequest || progress.running > 0 || progress.awaitingInput > 0) actions.push('stop')
-      actions.push('cancel')
-    }
-    // 构建与上线核对绑定已验证材料。新链路在 committed 后即可构建，
-    // 不要求补造旧批准或整体验收；旧链路保留 accepted 兼容。
-    if (
-      requirement.status === 'committed' &&
-      candidateView === null &&
-      verificationView?.verdict === 'pass'
-    ) {
-      actions.push('build')
-    }
-    if (
-      requirement.status === 'committed' &&
-      candidateView !== null &&
-      deploymentView?.state !== 'verified'
-    ) {
-      actions.push('deploy')
-    }
-    if (
-      requirement.status === 'accepted' &&
-      verificationFresh &&
-      verificationView?.verdict === 'pass' &&
-      businessReviewView?.fresh === true &&
-      businessReviewView.verdict === 'pass' &&
-      candidateView === null
-    ) {
-      actions.push('build')
-    }
-    if (
-      requirement.status === 'accepted' &&
-      candidateView !== null &&
-      deploymentView?.state !== 'verified'
-    ) {
-      actions.push('deploy')
-    }
-
-    const view: BoardRequirementView = {
-      reqId: requirement.reqId,
-      title: requirementTitle(requirement),
-      status: requirement.status,
-      version: requirement.versions.length,
-      planVersion: plan?.planVersion ?? null,
-      approval: authorization?.status ?? 'none',
-      planReview: planReviewView,
-      verification: verificationView,
-      businessReview: businessReviewView,
-      retry,
-      candidate: candidateView,
-      deployment: deploymentView,
-      clarifications: latestAnalysis?.clarifications.length ?? 0,
-      failureRounds: rounds.length,
-      grants,
-      remainingRounds,
-      actions,
-      stopRequested,
-      activeRequest,
-      progress,
-      updatedAt: updatedAtOf(requirement),
-    }
-
-    const requirementIssues: BoardIssueView[] = []
-    if (!terminal) {
-      const updatedAt = updatedAtOf(requirement)
-
-      for (const [index, clarification] of (latestAnalysis?.clarifications ?? []).entries()) {
-        requirementIssues.push({
-          issueId: `clarification:${requirement.reqId}:v${latestAnalysis?.analysisVersion ?? 1}:${index}`,
-          reqId: requirement.reqId,
-          kind: ISSUE_CLARIFICATION,
-          severity: 'blocking',
-          title: clarification,
-          detail: `分析 v${latestAnalysis?.analysisVersion ?? 1} 有待澄清项；回答前不进入实现`,
-          createdAt: latestAnalysis?.createdAt ?? updatedAt,
-        })
-      }
-
-      if (requirement.status === 'blocked') {
-        requirementIssues.push({
-          issueId: `blocked:${requirement.reqId}`,
-          reqId: requirement.reqId,
-          kind: ISSUE_BLOCKED,
-          severity: 'blocking',
-          title: requirement.blockedReason || '需求已阻塞，未记录原因',
-          detail: stopRequested
-            ? '停止请求已记录；在核对工作副本、Git 与证据前，不能认定已经停稳'
-            : '阻塞状态会按重新执行规则重排；额度用尽或需要处置时等待人工决定',
-          createdAt: updatedAt,
-        })
-      }
-
-      const latestRound = rounds[rounds.length - 1]
-      const latestRoundTaskId = latestRound
-        ? taskIdOfFailureRound(plan, latestRound.roundId)
-        : undefined
-      // 已交付任务的旧失败轮次是历史证据，不再作为待处理问题占据首屏。
-      if (latestRound && !(latestRoundTaskId && delivered.has(latestRoundTaskId))) {
-        const taskId = latestRoundTaskId
-        requirementIssues.push({
-          issueId: `failure:${requirement.reqId}:${latestRound.roundId}`,
-          reqId: requirement.reqId,
-          ...(taskId ? { taskId } : {}),
-          kind: ISSUE_FAILURE_ROUND,
-          severity: remainingRounds === 0 ? 'blocking' : 'attention',
-          title: latestRound.summary,
-          detail:
-            remainingRounds === 0
-              ? `失败轮次 ${rounds.length} 已用尽自动处理额度；等待追加授权或人工决定`
-              : `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds}；额度未尽时按规则自动重试`,
-          createdAt: latestRound.occurredAt,
-        })
-      }
-
-      for (const request of requests) {
-        if (request.state !== REQUEST_FAILED) continue
-        requirementIssues.push({
-          issueId: `request:${request.requestId}`,
-          reqId: requirement.reqId,
-          kind: ISSUE_REQUEST,
-          severity: 'attention',
-          title: `${requestActionLabel(request.action)}请求失败`,
-          detail: request.detail || '请求执行失败，等待重新排队或人工处理',
-          createdAt: request.createdAt,
-        })
-      }
-
-      if (
-        plan &&
-        requirement.status === PLAN_PROPOSED &&
-        authorization &&
-        authorization.status !== 'approved'
-      ) {
-        if (planReviewView?.verdict === 'block') {
-          requirementIssues.push({
-            issueId: `plan-review:${requirement.reqId}:v${plan.planVersion}`,
-            reqId: requirement.reqId,
-            kind: ISSUE_APPROVAL,
-            severity: 'blocking',
-            title: `任务包 v${plan.planVersion} 实现前评审阻断`,
-            detail: planReviewView.blocking.join('；') || planReviewView.summary,
-            createdAt: planReviewView.reviewedAt,
-          })
-        } else if (planReviewView?.verdict === 'pass') {
-          requirementIssues.push({
-            issueId: `approval:${requirement.reqId}:v${plan.planVersion}`,
-            reqId: requirement.reqId,
-            kind: ISSUE_APPROVAL,
-            severity: 'attention',
-            title: `任务包 v${plan.planVersion} 待批准`,
-            detail: authorization.reason || '任务包尚未获得批准',
-            createdAt: plan.createdAt,
-          })
-        } else {
-          requirementIssues.push({
-            issueId: `plan-review-missing:${requirement.reqId}:v${plan.planVersion}`,
-            reqId: requirement.reqId,
-            kind: ISSUE_APPROVAL,
-            severity: 'attention',
-            title: `任务包 v${plan.planVersion} 待实现前评审`,
-            detail: '尚未取得验证 Agent 的实现前评审结论；不能批准或进入实现',
-            createdAt: plan.createdAt,
-          })
-        }
-      }
-    }
-
-    chunks.push({
-      requirement,
-      view,
-      tasks: requirementTasks,
-      issues: requirementIssues,
-      haystack: haystackOf({
-        requirement,
-        view,
-        tasks: requirementTasks,
-        issues: requirementIssues,
-        analysis: latestAnalysis,
-        plan,
-        runs,
-        rounds,
-        requests,
-      }),
-    })
-  }
+  for (const requirement of all) chunks.push(buildRequirementChunk(repository, requirement))
 
   const needle = query.toLowerCase()
   const matched = needle ? chunks.filter((chunk) => chunk.haystack.includes(needle)) : chunks
@@ -1006,5 +571,730 @@ export function buildProjectFacts(input: BuildProjectFactsInput): ProjectFacts {
     notListed: Math.max(0, active.length - requirements.length),
     terminal: all.length - active.length,
     requirements,
+  }
+}
+
+interface IssueContext {
+  readonly requirement: Requirement
+  readonly terminal: boolean
+  readonly latestAnalysis: ReturnType<Repository['latestAnalysis']>
+  readonly plan: TaskPlan | null
+  readonly authorization: ReturnType<typeof authorizePlan> | null
+  readonly planReviewView: BoardPlanReviewView | null
+  readonly rounds: ReturnType<Repository['failureRounds']>
+  readonly remainingRounds: number
+  readonly delivered: ReadonlySet<string>
+  readonly requests: ReturnType<Repository['requestsFor']>
+  readonly stopRequested: boolean
+}
+
+function buildRequirementIssues(context: IssueContext): BoardIssueView[] {
+  if (context.terminal) return []
+  return [
+    ...clarificationIssues(context),
+    ...blockedIssue(context),
+    ...failureIssue(context),
+    ...requestIssues(context),
+    ...approvalIssues(context),
+  ]
+}
+
+function clarificationIssues(context: IssueContext): BoardIssueView[] {
+  const { requirement, latestAnalysis, terminal } = context
+  if (terminal) return []
+  const updatedAt = updatedAtOf(requirement)
+  return (latestAnalysis?.clarifications ?? []).map((clarification, index) => ({
+    issueId: `clarification:${requirement.reqId}:v${latestAnalysis?.analysisVersion ?? 1}:${index}`,
+    reqId: requirement.reqId,
+    kind: ISSUE_CLARIFICATION,
+    severity: 'blocking',
+    title: clarification,
+    detail: `分析 v${latestAnalysis?.analysisVersion ?? 1} 有待澄清项；回答前不进入实现`,
+    createdAt: latestAnalysis?.createdAt ?? updatedAt,
+  }))
+}
+
+function blockedIssue(context: IssueContext): BoardIssueView[] {
+  const { requirement, terminal, stopRequested } = context
+  if (terminal || requirement.status !== 'blocked') return []
+  return [
+    {
+      issueId: `blocked:${requirement.reqId}`,
+      reqId: requirement.reqId,
+      kind: ISSUE_BLOCKED,
+      severity: 'blocking',
+      title: requirement.blockedReason || '需求已阻塞，未记录原因',
+      detail: stopRequested
+        ? '停止请求已记录；在核对工作副本、Git 与证据前，不能认定已经停稳'
+        : '阻塞状态会按重新执行规则重排；额度用尽或需要处置时等待人工决定',
+      createdAt: updatedAtOf(requirement),
+    },
+  ]
+}
+
+function failureIssue(context: IssueContext): BoardIssueView[] {
+  const { requirement, plan, rounds, remainingRounds, delivered } = context
+  const latestRound = rounds[rounds.length - 1]
+  if (!latestRound) return []
+  const latestRoundTaskId = taskIdOfFailureRound(plan, latestRound.roundId)
+  // 已交付任务的旧失败轮次是历史证据，不再作为待处理问题占据首屏。
+  if (latestRoundTaskId && delivered.has(latestRoundTaskId)) return []
+  return [
+    {
+      issueId: `failure:${requirement.reqId}:${latestRound.roundId}`,
+      reqId: requirement.reqId,
+      ...(latestRoundTaskId ? { taskId: latestRoundTaskId } : {}),
+      kind: ISSUE_FAILURE_ROUND,
+      severity: remainingRounds === 0 ? 'blocking' : 'attention',
+      title: latestRound.summary,
+      detail:
+        remainingRounds === 0
+          ? `失败轮次 ${rounds.length} 已用尽自动处理额度；等待追加授权或人工决定`
+          : `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds}；额度未尽时按规则自动重试`,
+      createdAt: latestRound.occurredAt,
+    },
+  ]
+}
+
+function requestIssues(context: IssueContext): BoardIssueView[] {
+  const { requirement, requests } = context
+  return requests
+    .filter((request) => request.state === REQUEST_FAILED)
+    .map((request) => ({
+      issueId: `request:${request.requestId}`,
+      reqId: requirement.reqId,
+      kind: ISSUE_REQUEST,
+      severity: 'attention',
+      title: `${requestActionLabel(request.action)}请求失败`,
+      detail: request.detail || '请求执行失败，等待重新排队或人工处理',
+      createdAt: request.createdAt,
+    }))
+}
+
+function approvalIssues(context: IssueContext): BoardIssueView[] {
+  const { requirement, plan, authorization, planReviewView } = context
+  if (
+    !plan ||
+    requirement.status !== PLAN_PROPOSED ||
+    !authorization ||
+    authorization.status === 'approved'
+  ) {
+    return []
+  }
+  if (planReviewView?.verdict === 'block') {
+    return [
+      {
+        issueId: `plan-review:${requirement.reqId}:v${plan.planVersion}`,
+        reqId: requirement.reqId,
+        kind: ISSUE_APPROVAL,
+        severity: 'blocking',
+        title: `任务包 v${plan.planVersion} 实现前评审阻断`,
+        detail: planReviewView.blocking.join('；') || planReviewView.summary,
+        createdAt: planReviewView.reviewedAt,
+      },
+    ]
+  }
+  if (planReviewView?.verdict === 'pass') {
+    return [
+      {
+        issueId: `approval:${requirement.reqId}:v${plan.planVersion}`,
+        reqId: requirement.reqId,
+        kind: ISSUE_APPROVAL,
+        severity: 'attention',
+        title: `任务包 v${plan.planVersion} 待批准`,
+        detail: authorization.reason || '任务包尚未获得批准',
+        createdAt: plan.createdAt,
+      },
+    ]
+  }
+  return [
+    {
+      issueId: `plan-review-missing:${requirement.reqId}:v${plan.planVersion}`,
+      reqId: requirement.reqId,
+      kind: ISSUE_APPROVAL,
+      severity: 'attention',
+      title: `任务包 v${plan.planVersion} 待实现前评审`,
+      detail: '尚未取得验证 Agent 的实现前评审结论；不能批准或进入实现',
+      createdAt: plan.createdAt,
+    },
+  ]
+}
+
+type BoardProgress = {
+  total: number
+  delivered: number
+  failed: number
+  awaitingUser: number
+  awaitingInput: number
+  blocked: number
+  running: number
+  pending: number
+}
+
+function buildTaskViews(context: {
+  readonly requirement: Requirement
+  readonly plan: TaskPlan | null
+  readonly runByTask: Map<string, ReturnType<Repository['taskRuns']>[number]>
+  readonly delivered: ReadonlySet<string>
+  readonly remainingRounds: number
+}): { tasks: BoardTaskView[]; progress: BoardProgress } {
+  const { requirement, plan, runByTask, delivered, remainingRounds } = context
+  const progress: BoardProgress = {
+    total: plan?.tasks.length ?? 0,
+    delivered: 0,
+    failed: 0,
+    awaitingUser: 0,
+    awaitingInput: 0,
+    blocked: 0,
+    running: 0,
+    pending: 0,
+  }
+  const tasks: BoardTaskView[] = []
+  for (const task of plan?.tasks ?? []) {
+    const run = runByTask.get(task.taskId)
+    const state = boardTaskState({ delivered: delivered.has(task.taskId), run })
+    progress[state === BOARD_TASK_DELIVERED ? 'delivered' : progressKey(state)] += 1
+    const failureAdvice = taskAdvice(state, run, task.files, remainingRounds)
+    tasks.push({
+      reqId: requirement.reqId,
+      planVersion: plan!.planVersion,
+      taskId: task.taskId,
+      goal: task.goal,
+      state,
+      dependsOn: task.dependsOn,
+      lastActivity: run?.updatedAt ?? '',
+      failureReason: failureAdvice ? (run?.reason ?? '') : '',
+      failureAdvice,
+    })
+  }
+  return { tasks, progress }
+}
+
+function taskAdvice(
+  state: BoardTaskState,
+  run: ReturnType<Repository['taskRuns']>[number] | undefined,
+  files: readonly string[],
+  remainingRounds: number,
+): TaskFailureAdvice | null {
+  const needsAdvice = state === TASK_RUN_AWAITING_USER || state === 'failed' || state === 'blocked'
+  if (!needsAdvice) return null
+  return buildTaskFailureAdvice({ state, reason: run?.reason ?? '', files, remainingRounds })
+}
+
+function progressKey(state: BoardTaskState): keyof BoardProgress {
+  if (state === 'failed') return 'failed'
+  if (state === 'blocked') return 'blocked'
+  if (state === 'awaiting_user') return 'awaitingUser'
+  if (state === BOARD_TASK_AWAITING_INPUT) return 'awaitingInput'
+  if (state === 'running') return 'running'
+  return 'pending'
+}
+
+interface ActionContext {
+  readonly requirement: Requirement
+  readonly terminal: boolean
+  readonly plan: TaskPlan | null
+  readonly authorization: ReturnType<typeof authorizePlan> | null
+  readonly planReviewView: BoardPlanReviewView | null
+  readonly planValid: boolean
+  readonly progress: BoardProgress
+  readonly retry: ReturnType<typeof retryDecision>
+  readonly remainingRounds: number
+  readonly activeRequest: boolean
+  readonly verificationFresh: boolean
+  readonly verificationView: BoardVerificationView | null
+  readonly candidateView: BoardCandidateView | null
+  readonly deploymentView: BoardDeploymentView | null
+  readonly businessReviewView: BoardBusinessReviewView | null
+}
+
+function buildRequirementActions(context: ActionContext): BoardRequirementAction[] {
+  const flow = context.terminal ? [] : buildFlowActions(context)
+  return [...flow, ...buildReleaseActions(context)]
+}
+
+function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
+  const { progress, retry } = context
+  const actions: BoardRequirementAction[] = []
+  applyPlanAction(actions, context)
+  if (canAdvance(context)) actions.push('advance')
+  if (retry.allowed) actions.push('requeue')
+  if (canVerify(context)) actions.push('verify')
+  if (context.activeRequest || progress.running > 0 || progress.awaitingInput > 0) {
+    actions.push('stop')
+  }
+  actions.push('cancel')
+  return actions
+}
+
+function applyPlanAction(actions: BoardRequirementAction[], context: ActionContext): void {
+  const { requirement, plan, authorization, planReviewView, planValid, progress } = context
+  const pendingPlan =
+    requirement.status === PLAN_PROPOSED &&
+    plan !== null &&
+    authorization !== null &&
+    authorization.status !== 'approved'
+  if (!pendingPlan) return
+  if (planReviewView?.verdict === 'pass' && planValid) actions.push('approve')
+  else if (!context.activeRequest && progress.running === 0) actions.push('plan')
+}
+
+function canAdvance(context: ActionContext): boolean {
+  const { requirement, authorization, progress, remainingRounds } = context
+  return (
+    authorization?.status === 'approved' &&
+    (requirement.status === APPROVED || requirement.status === EXECUTING) &&
+    progress.delivered < progress.total &&
+    remainingRounds > 0 &&
+    progress.running === 0 &&
+    progress.awaitingInput === 0 &&
+    !context.activeRequest
+  )
+}
+
+function canVerify(context: ActionContext): boolean {
+  const { requirement, authorization, progress, remainingRounds, verificationFresh } = context
+  return (
+    authorization?.status === 'approved' &&
+    (requirement.status === APPROVED || requirement.status === EXECUTING) &&
+    progress.total > 0 &&
+    progress.delivered === progress.total &&
+    remainingRounds > 0 &&
+    context.planReviewView?.verdict === 'pass' &&
+    progress.running === 0 &&
+    progress.awaitingInput === 0 &&
+    !context.activeRequest &&
+    !(verificationFresh && context.verificationView !== null)
+  )
+}
+
+function buildReleaseActions(context: ActionContext): BoardRequirementAction[] {
+  return [...committedActions(context), ...acceptedActions(context)]
+}
+
+function committedActions(context: ActionContext): BoardRequirementAction[] {
+  const { requirement, candidateView, deploymentView, verificationView } = context
+  if (requirement.status !== 'committed') return []
+  const actions: BoardRequirementAction[] = []
+  if (candidateView === null && verificationView?.verdict === 'pass') actions.push('build')
+  if (candidateView !== null && deploymentView?.state !== 'verified') actions.push('deploy')
+  return actions
+}
+
+function acceptedActions(context: ActionContext): BoardRequirementAction[] {
+  const { requirement, candidateView, deploymentView, verificationFresh, verificationView } =
+    context
+  if (requirement.status !== 'accepted') return []
+  const actions: BoardRequirementAction[] = []
+  const verified = verificationFresh && verificationView?.verdict === 'pass'
+  const reviewed =
+    verified &&
+    context.businessReviewView?.fresh === true &&
+    context.businessReviewView.verdict === 'pass'
+  if (reviewed && candidateView === null) actions.push('build')
+  if (candidateView !== null && deploymentView?.state !== 'verified') actions.push('deploy')
+  return actions
+}
+
+function candidateSha256Of(
+  plan: TaskPlan | null,
+  artifacts: ReturnType<Repository['taskArtifacts']>,
+): string {
+  if (!plan || artifacts.length !== plan.tasks.length) return ''
+  const ordered = plan.tasks.map((task) =>
+    artifacts.find((artifact) => artifact.taskId === task.taskId),
+  )
+  if (ordered.some((artifact) => !artifact)) return ''
+  return candidateIdentityOf({
+    planVersion: plan.planVersion,
+    requirementVersion: plan.requirementVersion,
+    baselineCommit: ordered[0]!.baselineCommit,
+    candidateHashes: ordered.map((artifact) => artifact!.candidateSha256),
+  })
+}
+
+function verificationIsFresh(
+  verificationRecord: ReturnType<Repository['verification']>,
+  candidateSha256: string,
+  requirementVersions: number,
+): boolean {
+  return (
+    verificationRecord !== null &&
+    candidateSha256 !== '' &&
+    verificationRecord.candidateSha256 === candidateSha256 &&
+    verificationRecord.requirementVersion === requirementVersions
+  )
+}
+
+function planIsValid(plan: TaskPlan | null): boolean {
+  if (!plan) return false
+  try {
+    validateTaskPlan(plan)
+    return true
+  } catch {
+    return false
+  }
+}
+
+interface RecordViewsInput {
+  readonly repository: Repository
+  readonly requirement: Requirement
+  readonly plan: TaskPlan | null
+  readonly reviewRecord: ReturnType<Repository['planReview']>
+  readonly reviewReport: PlanReview | null
+  readonly verificationRecord: ReturnType<Repository['verification']>
+  readonly verificationReport: VerificationReport | null
+  readonly verificationFresh: boolean
+  readonly currentCandidateSha256: string
+}
+
+function buildRecordViews(input: RecordViewsInput): {
+  planReviewView: BoardPlanReviewView | null
+  verificationView: BoardVerificationView | null
+  businessReviewView: BoardBusinessReviewView | null
+  candidateView: BoardCandidateView | null
+  deploymentView: BoardDeploymentView | null
+} {
+  const { repository, requirement, plan, reviewRecord, reviewReport } = input
+  const { verificationRecord, verificationReport, verificationFresh, currentCandidateSha256 } =
+    input
+  const planReviewView: BoardPlanReviewView | null = reviewRecord
+    ? {
+        verdict: reviewRecord.verdict,
+        summary: reviewReport?.summary ?? '',
+        blocking: reviewReport?.blocking ?? [],
+        reviewedAt: reviewRecord.reviewedAt,
+      }
+    : null
+  const verificationView: BoardVerificationView | null = verificationRecord
+    ? {
+        verdict: verificationRecord.verdict,
+        fresh: verificationFresh,
+        summary: verificationReport?.summary ?? '',
+        blocking: verificationReport?.blocking ?? [],
+        candidateSha256: verificationRecord.candidateSha256,
+        verifiedAt: verificationRecord.verifiedAt,
+      }
+    : null
+  const businessReviewRecord = repository.businessReview(requirement.reqId, plan?.planVersion ?? 0)
+  return {
+    planReviewView,
+    verificationView,
+    businessReviewView: buildBusinessReviewView(
+      businessReviewRecord,
+      currentCandidateSha256,
+      verificationRecord,
+    ),
+    candidateView: buildCandidateView(
+      plan ? repository.candidateBuild(requirement.reqId, plan.planVersion) : null,
+    ),
+    deploymentView: buildDeploymentView(
+      plan ? repository.deployment(requirement.reqId, plan.planVersion) : null,
+    ),
+  }
+}
+
+function buildBusinessReviewView(
+  record: ReturnType<Repository['businessReview']>,
+  candidateSha256: string,
+  verificationRecord: ReturnType<Repository['verification']>,
+): BoardBusinessReviewView | null {
+  if (!record) return null
+  let summary = ''
+  let blocking: string[] = []
+  try {
+    const parsed = JSON.parse(record.reportJson) as { summary?: unknown; blocking?: unknown }
+    summary = typeof parsed.summary === 'string' ? parsed.summary : ''
+    blocking = Array.isArray(parsed.blocking) ? parsed.blocking.map(String) : []
+  } catch {
+    // 畸形报告不补造结论。
+  }
+  return {
+    verdict: record.verdict,
+    fresh:
+      candidateSha256 !== '' &&
+      record.candidateSha256 === candidateSha256 &&
+      verificationRecord !== null &&
+      record.verificationSha256 === verificationRecord.reportSha256,
+    summary,
+    blocking,
+    candidateSha256: record.candidateSha256,
+    reviewedAt: record.reviewedAt,
+  }
+}
+
+function buildCandidateView(
+  record: ReturnType<Repository['candidateBuild']>,
+): BoardCandidateView | null {
+  if (!record) return null
+  return {
+    candidateSha256: record.candidateSha256,
+    packageVersion: record.packageVersion,
+    artifactSha256: record.artifactSha256,
+    builtAt: record.builtAt,
+    verificationSha256: record.verificationSha256,
+  }
+}
+
+function buildDeploymentView(
+  record: ReturnType<Repository['deployment']>,
+): BoardDeploymentView | null {
+  if (!record) return null
+  return {
+    state: record.state,
+    targetProfile: record.targetProfile,
+    runtimeVersion: record.runtimeVersion,
+    packageVersion: record.packageVersion,
+    artifactSha256: record.artifactSha256,
+    recordedAt: record.recordedAt,
+    failedChecks: record.checks
+      .filter(
+        (check): check is { id: string; ok: boolean; detail: string } =>
+          typeof check === 'object' && check !== null,
+      )
+      .filter((check) => !check.ok)
+      .map((check) => `${check.id}：${check.detail}`),
+  }
+}
+
+function collectRequirementFacts(
+  repository: Repository,
+  requirement: Requirement,
+): {
+  terminal: boolean
+  latestAnalysis: ReturnType<Repository['latestAnalysis']>
+  plan: ReturnType<Repository['latestTaskPlan']>
+  approvalRecord: ReturnType<Repository['planApproval']>
+  authorization: ReturnType<typeof authorizePlan> | null
+  artifacts: ReturnType<Repository['taskArtifacts']>
+  runs: ReturnType<Repository['taskRuns']>
+  delivered: Set<string>
+  runByTask: Map<string, ReturnType<Repository['taskRuns']>[number]>
+  rounds: ReturnType<Repository['failureRounds']>
+  grants: number
+  remainingRounds: number
+  requests: ReturnType<Repository['requestsFor']>
+  activeRequest: boolean
+  stopRequested: boolean
+  reviewRecord: ReturnType<Repository['planReview']>
+  reviewReport: PlanReview | null
+  verificationRecord: ReturnType<Repository['verification']>
+  verificationReport: VerificationReport | null
+  currentCandidateSha256: string
+  verificationFresh: boolean
+  planValid: boolean
+  planReviewView: BoardPlanReviewView | null
+  verificationView: BoardVerificationView | null
+  businessReviewView: BoardBusinessReviewView | null
+  candidateView: BoardCandidateView | null
+  deploymentView: BoardDeploymentView | null
+} {
+  const terminal = isTerminal(requirement.status)
+  const latestAnalysis = repository.latestAnalysis(requirement.reqId)
+  const plan = repository.latestTaskPlan(requirement.reqId)
+  // 精确批准优先；只有旧版本批准时仍判为 stale，不能驱动当前任务包。
+  const approvalRecord = plan
+    ? (repository.planApproval(requirement.reqId, plan.planVersion) ??
+      repository.latestPlanApproval(requirement.reqId))
+    : null
+  const authorization = plan ? authorizePlan(plan, approvalRecord) : null
+  const artifacts = plan ? repository.taskArtifacts(requirement.reqId, plan.planVersion) : []
+  const runs = plan ? repository.taskRuns(requirement.reqId, plan.planVersion) : []
+  const delivered = new Set(artifacts.map((artifact) => artifact.taskId))
+  const runByTask = new Map(runs.map((run) => [run.taskId, run]))
+  const rounds = repository.failureRounds(requirement.reqId)
+  const grants = repository.grantCount(requirement.reqId)
+  const remainingRounds = Math.max(0, grants * MAX_ROUNDS_PER_GRANT - rounds.length)
+  const requests = repository.requestsFor(requirement.reqId)
+  const activeRequest = requests.some(
+    (request) => request.state === 'pending' || request.state === 'claimed',
+  )
+  const stopRequested = repository.activeStop(requirement.reqId) !== null
+  const reviewRecord = plan ? repository.planReview(requirement.reqId, plan.planVersion) : null
+  const reviewReport: PlanReview | null = (() => {
+    if (!reviewRecord) return null
+    try {
+      return parsePlanReview(reviewRecord.reportJson)
+    } catch {
+      return null
+    }
+  })()
+  const verificationRecord = plan
+    ? repository.verification(requirement.reqId, plan.planVersion)
+    : null
+  const verificationReport: VerificationReport | null = (() => {
+    if (!verificationRecord) return null
+    try {
+      return parseVerificationReport(verificationRecord.reportJson)
+    } catch {
+      return null
+    }
+  })()
+  const currentCandidateSha256 = candidateSha256Of(plan, artifacts)
+  const verificationFresh = verificationIsFresh(
+    verificationRecord,
+    currentCandidateSha256,
+    requirement.versions.length,
+  )
+  const planValid = planIsValid(plan)
+  const { planReviewView, verificationView, businessReviewView, candidateView, deploymentView } =
+    buildRecordViews({
+      repository,
+      requirement,
+      plan,
+      reviewRecord,
+      reviewReport,
+      verificationRecord,
+      verificationReport,
+      verificationFresh,
+      currentCandidateSha256,
+    })
+  return {
+    terminal,
+    latestAnalysis,
+    plan,
+    approvalRecord,
+    artifacts,
+    authorization,
+    runs,
+    delivered,
+    runByTask,
+    rounds,
+    grants,
+    remainingRounds,
+    requests,
+    activeRequest,
+    stopRequested,
+    currentCandidateSha256,
+    verificationFresh,
+    reviewRecord,
+    reviewReport,
+    verificationRecord,
+    verificationReport,
+    planValid,
+    planReviewView,
+    verificationView,
+    businessReviewView,
+    candidateView,
+    deploymentView,
+  }
+}
+
+function buildRequirementChunk(repository: Repository, requirement: Requirement): RequirementChunk {
+  const {
+    terminal,
+    latestAnalysis,
+    plan,
+    authorization,
+    runs,
+    delivered,
+    runByTask,
+    rounds,
+    grants,
+    remainingRounds,
+    requests,
+    activeRequest,
+    stopRequested,
+    verificationFresh,
+    planValid,
+    planReviewView,
+    verificationView,
+    businessReviewView,
+    candidateView,
+    deploymentView,
+  } = collectRequirementFacts(repository, requirement)
+
+  const { tasks: requirementTasks, progress } = buildTaskViews({
+    requirement,
+    plan,
+    runByTask,
+    delivered,
+    remainingRounds,
+  })
+
+  const retry = retryDecision({
+    status: requirement.status,
+    blockedReason: requirement.blockedReason,
+    remainingRounds,
+    activeRequest,
+    runningTasks: progress.running,
+    awaitingInputTasks: progress.awaitingInput,
+    planApproved: authorization?.status === 'approved',
+    delivered: progress.delivered,
+    total: progress.total,
+  })
+
+  const actions = buildRequirementActions({
+    requirement,
+    terminal,
+    plan,
+    authorization,
+    planReviewView,
+    planValid,
+    progress,
+    retry,
+    remainingRounds,
+    activeRequest,
+    verificationFresh,
+    verificationView,
+    candidateView,
+    deploymentView,
+    businessReviewView,
+  })
+
+  const view: BoardRequirementView = {
+    reqId: requirement.reqId,
+    title: requirementTitle(requirement),
+    status: requirement.status,
+    version: requirement.versions.length,
+    planVersion: plan?.planVersion ?? null,
+    approval: authorization?.status ?? 'none',
+    planReview: planReviewView,
+    verification: verificationView,
+    businessReview: businessReviewView,
+    retry,
+    candidate: candidateView,
+    deployment: deploymentView,
+    clarifications: latestAnalysis?.clarifications.length ?? 0,
+    failureRounds: rounds.length,
+    grants,
+    remainingRounds,
+    actions,
+    stopRequested,
+    activeRequest,
+    progress,
+    updatedAt: updatedAtOf(requirement),
+  }
+
+  const requirementIssues = buildRequirementIssues({
+    requirement,
+    terminal,
+    latestAnalysis,
+    plan,
+    authorization,
+    planReviewView,
+    rounds,
+    remainingRounds,
+    delivered,
+    requests,
+    stopRequested,
+  })
+
+  return {
+    requirement,
+    view,
+    tasks: requirementTasks,
+    issues: requirementIssues,
+    haystack: haystackOf({
+      requirement,
+      view,
+      tasks: requirementTasks,
+      issues: requirementIssues,
+      analysis: latestAnalysis,
+      plan,
+      runs,
+      rounds,
+      requests,
+    }),
   }
 }

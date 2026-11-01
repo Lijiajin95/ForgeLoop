@@ -2878,3 +2878,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 五处豁免清零，suppressions 59 → **57**；`make check` 58 文件 607 项，
   coverage 90.98/97.03/84.46，mutation 97.80。
 - 下一步：`buildStatusBoard`、`ops.ts` 的 tick/diagnoseEvent/executeEvent、`integrateCandidate`。
+
+### 47.8 buildStatusBoard 拆分（Goal Round 4）
+
+- `buildStatusBoard` 从 464 行/复杂度 156 拆为：`buildRequirementChunk`（装配）、
+  `collectRequirementFacts`（记录读取与派生）、`buildRecordViews`（评审/验证/终审/候选/部署视图）、
+  `buildTaskViews`、`buildRequirementIssues`、`buildRequirementActions`。
+- 每个函数 ≤300 行、≤4 参数、复杂度 ≤15；三处 board 豁免清零，suppressions 57 → **54**。
+- `make check` 58 文件 607 项通过，coverage 91.12/97.14/84.62，mutation 97.80，
+  budget/assertions/format 通过。
+- 下一步：`ops.ts` 的 tick/diagnoseEvent/executeEvent/reportInterruption、`integrateCandidate`、
+  `agent-runner` 的 send/run。
