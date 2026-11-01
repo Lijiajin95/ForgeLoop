@@ -3062,3 +3062,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 91.07/96.91/84.99，mutation 97.80。
 - 剩余大函数只有 `executeVerification`（420 行 / 142 语句 / 复杂度 49）与
   `executeBusinessReview`（73 语句 / 复杂度 40）；下一轮按阶段整块迁出。
+
+### 47.25 业务终审拆分与验证事实移出（Goal Round 22）
+
+- `executeBusinessReview` 拆出 `businessReviewInputs`、`existingReviewOutcome`、
+  `verificationFacts` / `verificationFact`，并收敛 `runStatusLabel`、`blockingOf`；
+  语句 73 → 40 以内、复杂度 40 → 15 以内，两条豁免清零。
+- 验证事实解析移到 `src/runtime/review-facts.ts`（纯函数）。
+- suppressions 23 → **21**；service tokens 66,113 → **65,974**，基线收紧。
+- `make check` 607 项通过，coverage 91.08/96.94/84.90，mutation 97.80。
+- 函数级豁免只剩 `executeVerification`（420 行 / 142 语句 / 复杂度 49）；
+  下一轮整块迁出该阶段。
