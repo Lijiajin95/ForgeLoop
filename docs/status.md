@@ -3098,3 +3098,21 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 90.95/96.96/84.86，mutation 97.80。
 - 下一轮只剩 `max-statements`：抽出“Agent 执行 + 材料读取”和“命令执行 + 完整性复核”两段，
   预计语句降到 40 以内，函数级豁免全部清零。
+
+### 47.28 独立验证剩余拆分计划（Goal Round 26）
+
+本轮未改代码：上一轮尝试在同一文件内继续抽私有方法时出现返回值包装与异步类型问题，
+已完整回退。为避免反复制造不可编译的中间状态，剩余拆分改为**模块化两步**，下轮执行：
+
+1. 新建 `src/runtime/verification-materials.ts`：`readVerificationMaterials(input)`
+   只做“读取 verification/ 材料 + 命令前后 HEAD/工作区完整性复核”，返回
+   `{ ok: true, commands, report, materials, candidateContentSha256 } | { ok: false, outcome }`；
+   repo 只通过回调读取，不持有 service 实例。
+2. 新建 `src/runtime/execution-commands.ts`：`runVerificationCommands(input)`
+   负责逐条执行、记录 commandRuns 与 failedCommands，返回同一联合类型。
+3. 主流程只保留“准备 -> 执行 -> 记录”三次调用；预计 `executeVerification` 降到
+   40 语句以内，最后一条 `max-statements` 豁免清零。
+4. 两步都通过 `make check` 后再处理文件行数与 DB schema，不在同一提交混入。
+
+当前基线不变：`make check` 607 项、coverage 90.95/96.96/84.86、mutation 97.80、
+suppressions 20、service.ts 5,986 行。
