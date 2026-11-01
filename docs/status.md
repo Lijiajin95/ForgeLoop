@@ -2766,3 +2766,53 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 | `no-non-null-assertion` / `no-unnecessary-condition` 清零 | 逐条判断防御式校验与真实风险，避免用 disable 注释刷绿 |
 
 这些项已写入 ratchet，不计入“已完成”。
+
+## 46. P2–P4 推进：规模预算、故障注入、SBOM（2026-11-01）
+
+### 46.1 P2：规模预算与契约
+
+| 项 | 结果 |
+| --- | --- |
+| 行数规则 | `max-lines` 2,000（`skipBlankLines`，注释计入）、`max-lines-per-function` 300、`max-statements` 40、`complexity` 15、`max-params` 4 |
+| 存量冻结 | ESLint 10 bulk suppressions：15 个文件、72 处；新增违规立即失败，`─prune-suppressions` 只能减少 |
+| Token 预算 | `scripts/ts/token-budget.ts`：文件上限 25,000 tokens；存量 `service.ts` 基线 69,843（只减不增）；`make budget` 纳入 `check-static` |
+| 类型断言预算 | `scripts/ts/assertion-budget.ts`：218 处基线（排除 `as const`），只减不增；`make assertions` 纳入 `check-static` |
+| Domain 纯度 | 契约脚本禁止 `src/domain` 导入 `node:fs/net/http/child_process/os` 等宿主副作用模块 |
+| `service.ts` 第一段拆分 | 纯辅助函数抽到 `src/runtime/service-helpers.ts`（208 行）；`service.ts` 6,416 → 6,229 行，tokens 71,887 → 69,843 |
+
+说明：`service.ts` 仍 6,229 行、9 个函数超过 300 行，距 2,000 行目标尚远；本批只完成“可安全抽出的纯函数”第一段，
+后续按 analyze/plan/execute/verify/release/recover 继续拆。
+
+### 46.2 P3：故障注入与断言 ratchet
+
+- 新增 `tests/fault-injection.test.ts`：子进程真实 `SIGKILL`，验证
+  `claimed → failed`、一次性工作副本被丢弃、需求标为 blocked、原因含“宿主中断”。
+- 断言预算建立 218 的基线；仓库 73 处集中在 `records/repository.ts`，34 处在 `service.ts`。
+- DB row schema 尚未落地；当前仍靠 `as` 收窄，是下一批 P3 的重点。
+
+### 46.3 P4：SBOM、发布门禁与归属
+
+- `scripts/ts/sbom.ts`：从 `package-lock.json` 生成 CycloneDX 1.5，当前 446 个组件，输出 `dist/sbom.cdx.json`。
+- `.github/workflows/release.yml`：手动发布跑全量检查、覆盖率、SBOM、候选包并上传；
+  真实宿主 `make verify-plugin` 由仓库变量 `ENABLE_REAL_HOST` 控制，需自托管 macOS 与模型凭据。
+- `.github/CODEOWNERS`：授权、记录、运行时核心、契约与 workflow 指定所有者复核。
+- 分支保护（必需检查、禁止直推 main）是 GitHub 仓库设置，代码内无法声明，需在仓库设置中启用。
+
+### 46.4 结果
+
+- `make check`：56 个文件、598 项通过。
+- `make check-fast`：44 个文件、377 项（含故障注入）。
+- `make coverage`：行/语句 90.60%、函数 96.73%、分支 84.19%。
+- `make mutation`：97.78%，高于 break 80。
+- `make budget` / `make assertions`：通过。
+
+### 46.5 仍未完成
+
+| 项 | 现状 |
+| --- | --- |
+| `service.ts` 2,000 行目标 | 6,229 行；已完成纯辅助模块拆分 |
+| 9 个超长函数（368–464 行） | 仍由 suppressions 冻结 |
+| DB row schema、`as` < 20 | 未开始；断言基线 218 |
+| 浏览器 E2E、`verify-plugin` 自动门禁 | 仅发布工作流手动/自托管触发 |
+| 分支保护 | 需仓库设置启用 |
+| `no-non-null-assertion` / `no-unnecessary-condition` | 仍为显式豁免（35 / 29） |
