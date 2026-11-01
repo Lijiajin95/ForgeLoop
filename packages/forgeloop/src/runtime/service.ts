@@ -179,6 +179,7 @@ import {
   verifyInstalledFiles,
 } from './deployment-inspect.js'
 import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
+import { buildRequirementView } from './requirement-views.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -2612,132 +2613,12 @@ ${answer}`
 
   // ------------------------------------------------------------ 查询
 
-  private planReviewView(reqId: string, planVersion: number): unknown {
-    const record = this.repo.planReview(reqId, planVersion)
-    if (!record) return null
-    let review: PlanReview | null = null
-    try {
-      review = parsePlanReview(record.reportJson)
-    } catch {
-      review = null
-    }
-    return {
-      verdict: record.verdict,
-      summary: review?.summary ?? '',
-      blocking: review?.blocking ?? [],
-      findings: review?.findings ?? [],
-      verificationPlan: review?.verificationPlan ?? [],
-      reportPath: record.reportPath,
-      reportSha256: record.reportSha256,
-      sessionId: record.sessionId,
-      reviewedAt: record.reviewedAt,
-    }
-  }
-
-  private verificationView(
-    reqId: string,
-    plan: TaskPlan,
-    artifacts: ReturnType<Repository['taskArtifacts']>,
-  ): unknown {
-    const record = this.repo.verification(reqId, plan.planVersion)
-    if (!record) return null
-    let report: VerificationReport | null = null
-    try {
-      report = parseVerificationReport(record.reportJson)
-    } catch {
-      report = null
-    }
-    const currentIdentity = (() => {
-      try {
-        return this.candidateIdentity(plan, artifacts)
-      } catch {
-        return ''
-      }
-    })()
-    return {
-      verdict: record.verdict,
-      summary: report?.summary ?? '',
-      blocking: report?.blocking ?? [],
-      findings: report?.findings ?? [],
-      scenarios: report?.scenarios ?? [],
-      candidateSha256: record.candidateSha256,
-      workspaceSha256: record.workspaceSha256,
-      reportPath: record.reportPath,
-      reportSha256: record.reportSha256,
-      sessionId: record.sessionId,
-      verifiedAt: record.verifiedAt,
-      fresh: currentIdentity !== '' && currentIdentity === record.candidateSha256,
-    }
-  }
-
   requirementView(requirement: Requirement): unknown {
-    const latestAnalysis = this.repo.latestAnalysis(requirement.reqId)
-    const plans = this.repo.taskPlans(requirement.reqId)
-    const latestPlan = plans[plans.length - 1]
-    const approval = latestPlan
-      ? this.repo.planApproval(requirement.reqId, latestPlan.planVersion)
-      : null
-    const artifacts = latestPlan
-      ? this.repo.taskArtifacts(requirement.reqId, latestPlan.planVersion)
-      : []
-    const runs = latestPlan ? this.repo.taskRuns(requirement.reqId, latestPlan.planVersion) : []
-    const recordedFailures = this.repo.failureRounds(requirement.reqId)
-    const grants = this.repo.grantCount(requirement.reqId)
-    return {
-      reqId: requirement.reqId,
-      project: requirement.project,
-      status: requirement.status,
-      blockedReason: requirement.blockedReason,
-      versions: requirement.versions.map((version) => ({
-        version: version.version,
-        text: version.text,
-        createdAt: version.createdAt,
-        revisedBy: version.revisedBy,
-      })),
-      analysis: latestAnalysis,
-      plans: plans.map((plan) => ({
-        planVersion: plan.planVersion,
-        requirementVersion: plan.requirementVersion,
-        tasks: plan.tasks.map((task) => task.taskId),
-        createdAt: plan.createdAt,
-      })),
-      approval: approval
-        ? {
-            planVersion: approval.planVersion,
-            approvedBy: approval.approvedBy,
-            approvedAt: approval.approvedAt,
-          }
-        : null,
-      planReview: latestPlan
-        ? this.planReviewView(requirement.reqId, latestPlan.planVersion)
-        : null,
-      verification: latestPlan
-        ? this.verificationView(requirement.reqId, latestPlan, artifacts)
-        : null,
-      candidate: latestPlan ? this.repo.candidate(requirement.reqId, latestPlan.planVersion) : null,
-      delivered: artifacts.map((artifact) => artifact.taskId),
-      runs: runs.map((run) => ({ taskId: run.taskId, state: run.state, reason: run.reason })),
-      failureRounds: recordedFailures.length,
-      grants,
-      failureRoundDetails: recordedFailures.map((round) => ({
-        roundId: round.roundId,
-        stage: round.stage,
-        summary: round.summary,
-        occurredAt: round.occurredAt,
-        ...(taskIdOfFailureRound(latestPlan ?? null, round.roundId)
-          ? { taskId: taskIdOfFailureRound(latestPlan ?? null, round.roundId) }
-          : {}),
-      })),
-      grantQuota: {
-        grants,
-        used: recordedFailures.length,
-        remaining: Math.max(0, grants * MAX_ROUNDS_PER_GRANT - recordedFailures.length),
-      },
-      pendingRequests: this.repo
-        .requestsFor(requirement.reqId)
-        .filter((request) => ['pending', 'claimed'].includes(request.state))
-        .map(requestView),
-    }
+    return buildRequirementView(this.repo, {
+      candidateIdentityOf: this.candidateIdentity.bind(this),
+      requestView,
+      requirement,
+    })
   }
 
   /**

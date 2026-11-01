@@ -3040,3 +3040,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - GitHub 分支保护、tag 保护与必需检查**尚未配置**，文档明确标为“未落实”。
 - 当前没有 Playwright/E2E 套件与 `make e2e`；文档说明现有集成测试覆盖范围，
   并给出引入 E2E 后加入必需检查的步骤，不提前声称 E2E 已通过。
+
+### 47.23 需求视图移出（Goal Round 20）
+
+- 新增 `src/runtime/requirement-views.ts`：`planReviewView`、`verificationView`、
+  `buildRequirementView` 独立；service 只保留一行委托并注入候选身份与请求视图。
+- 这是第一批“整块业务移出”而非同文件抽方法：service.ts **6,134 → 5,851 行**，
+  tokens **67,323 → 66,127**，基线收紧。
+- suppressions 维持 26；`make check` 607 项通过，coverage 91.11/97.03/84.94，
+  mutation 97.80。
+- 下一批同样整块移出：`requirementDetail`（复杂度 27）与执行段
+  `executeDevPlanning` / `executeVerification` / `executeBusinessReview`。
