@@ -2859,3 +2859,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - suppressions 总数 72 → **69**；`make check` 58 文件 607 项通过，
   coverage 90.88/96.87/84.30，mutation 97.78，budget/assertions 通过。
 - 下一步：`buildStatusBoard`（464 行）与 `buildImpactFacts`（368 行）拆分。
+
+### 47.6 影响事实与路由校验拆分（Goal Round 2）
+
+- `buildImpactFacts`（368 行/复杂度 22）拆成分析、任务包、批准、交付、缺口五个子函数；
+  主函数降到 300 行以下、参数 ≤4。
+- board 路由统一 `text`/`textOrUndefined` 与分页/重试/运维决定校验，
+  `handleExecution`/`handleRetry`/`handleOpsDecide` 复杂度清零。
+- suppressions 69 → **64**；`make check` 58 文件 607 项，coverage 90.93/96.93/84.44，
+  mutation 97.78。
+- 下一步：`buildStatusBoard`（464 行/复杂度 156）与 `service.ts` 分段。
