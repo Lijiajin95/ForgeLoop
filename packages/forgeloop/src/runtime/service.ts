@@ -1374,46 +1374,62 @@ ${answer}`
   autoAdvanceRequests(now = this.now()): string[] {
     const queued: string[] = []
     for (const requirement of this.repo.listRequirements(this.config.project)) {
-      if (isTerminal(requirement.status)) continue
-      // 主动停止是明确决定：扫描、重启和重复唤醒都不能把它变成自动恢复。
-      if (this.repo.activeStop(requirement.reqId)) continue
-      const active = this.repo
-        .requestsFor(requirement.reqId)
-        .some((request) => ['pending', 'claimed'].includes(request.state))
-      if (active) continue
+      if (!this.autoQueueCandidate(requirement)) continue
       const admission = this.currentAdmission(requirement.reqId)
       const plan = this.repo.latestTaskPlan(requirement.reqId)
       const approval = plan ? this.repo.planApproval(requirement.reqId, plan.planVersion) : null
       if (!admission && !approval) continue
       if (plan && plan.requirementVersion !== requirement.versions.length) continue
-      const allowed =
-        requirement.status === 'blocked'
-          ? admission
-            ? plan !== null &&
-              (this.remainingFailureRounds(requirement.reqId) > 0 ||
-                this.issues.latestOpen(requirement.reqId) !== null)
-            : this.retryDecisionFor(requirement.reqId).allowed
-          : ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(
-              requirement.status,
-            )
-      if (!allowed) continue
-      try {
-        this.repo.recordRequest({
-          requestId: `rq-${randomUUID()}`,
-          reqId: requirement.reqId,
-          project: this.config.project,
-          planVersion: plan?.planVersion ?? 0,
-          action: 'advance',
-          requestedBy: 'coordinator:auto-advance',
-          source: 'auto-advance',
-          now,
-        })
-        queued.push(requirement.reqId)
-      } catch {
-        // 并发扫描或已有的在途请求：留给下一轮，不制造第二套状态。
-      }
+      if (!this.advanceAllowed(requirement, admission, plan)) continue
+      if (this.recordAutoAdvance(requirement, plan, now)) queued.push(requirement.reqId)
     }
     return queued
+  }
+
+  private autoQueueCandidate(requirement: Requirement): boolean {
+    if (isTerminal(requirement.status)) return false
+    // 主动停止是明确决定：扫描、重启和重复唤醒都不能把它变成自动恢复。
+    if (this.repo.activeStop(requirement.reqId)) return false
+    return !this.repo
+      .requestsFor(requirement.reqId)
+      .some((request) => ['pending', 'claimed'].includes(request.state))
+  }
+
+  private advanceAllowed(
+    requirement: Requirement,
+    admission: ReturnType<ForgeLoopRuntime['currentAdmission']>,
+    plan: TaskPlan | null,
+  ): boolean {
+    if (requirement.status !== 'blocked') {
+      return ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(
+        requirement.status,
+      )
+    }
+    if (!admission) return this.retryDecisionFor(requirement.reqId).allowed
+    return (
+      plan !== null &&
+      (this.remainingFailureRounds(requirement.reqId) > 0 ||
+        this.issues.latestOpen(requirement.reqId) !== null)
+    )
+  }
+
+  private recordAutoAdvance(requirement: Requirement, plan: TaskPlan | null, now: string): boolean {
+    try {
+      this.repo.recordRequest({
+        requestId: `rq-${randomUUID()}`,
+        reqId: requirement.reqId,
+        project: this.config.project,
+        planVersion: plan?.planVersion ?? 0,
+        action: 'advance',
+        requestedBy: 'coordinator:auto-advance',
+        source: 'auto-advance',
+        now,
+      })
+      return true
+    } catch {
+      // 并发扫描或已有的在途请求：留给下一轮，不制造第二套状态。
+      return false
+    }
   }
 
   /**

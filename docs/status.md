@@ -2921,3 +2921,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   coverage 91.04/96.84/84.65，mutation 保持通过。
 - 下一步：`service.ts` 的 `taskExecution`、`requestOperation`、`autoAdvanceRequests`、
   `validateBuildMaterials`，随后文件拆分与 DB schema。
+
+### 47.12 service.autoAdvanceRequests 拆分（Goal Round 8）
+
+- `autoAdvanceRequests` 拆出 `autoQueueCandidate`（终态/停止/在途）、
+  `advanceAllowed`（blocked 与非 blocked 两套准入）、`recordAutoAdvance`（记录与并发收口）。
+- 一处复杂度豁免清零，suppressions 41 → **40**。
+- service.ts 因同文件拆分新增约 93 tokens，token 基线从 69,843 调到 69,936（仍远低于拆分前 71,887）。
+- `make check` 607 项通过，coverage 91.04/96.86/84.66。
+- 下一步：`taskExecution`、`requestOperation`、`validateBuildMaterials`、`buildAdmittedCandidate`。
