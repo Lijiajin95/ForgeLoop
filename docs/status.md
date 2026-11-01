@@ -3086,3 +3086,15 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - tokens 65,974 → 66,353（新增助手签名），基线同步；suppressions 维持 21。
 - `make check` 607 项通过，coverage 91.07/96.95/84.89，mutation 97.80。
 - 下一轮继续拆验证命令执行与报告落库两段，目标 ≤300 行 / ≤40 语句。
+
+### 47.27 验证输入与工作区收尾拆分（Goal Round 24）
+
+- `executeVerification` 抽出 `verificationInputs`（授权/需求/分析/交付/评审/候选身份）、
+  `finalizeVerificationWorkspace`（提交候选、准备命令、工作区树与 candidate.json）。
+- 函数从 361 行/120 语句/复杂度 15+ 降到 **≤300 行/90 语句/复杂度 15 以内**；
+  `max-lines-per-function` 与 `complexity` 两条豁免清零，`max-statements` 仍在（90 > 40）。
+- suppressions 21 → **20**；service 5,986 行；tokens 66,353 → 66,954（新增助手签名），
+  基线同步。
+- `make check` 607 项通过，coverage 90.95/96.96/84.86，mutation 97.80。
+- 下一轮只剩 `max-statements`：抽出“Agent 执行 + 材料读取”和“命令执行 + 完整性复核”两段，
+  预计语句降到 40 以内，函数级豁免全部清零。

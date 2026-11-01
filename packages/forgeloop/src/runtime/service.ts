@@ -3426,54 +3426,21 @@ ${answer}`
     return { ok: true, dir, workspace, diffs, baseline, snapshot }
   }
 
-  private async executeVerification(
-    reqId: string,
-    signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
-    const authorized = this.requireAuthorizedPlan(reqId)
-    if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
-    const requirement = this.repo.getRequirement(reqId)
-    if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
-    const analysis = this.repo.latestAnalysis(reqId)
-    if (!analysis) return { state: 'failed', detail: `需求 ${reqId} 尚无分析结论；不能验证` }
-    const plan = authorized.value.plan
-    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
-    const missing = plan.tasks.filter(
-      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
-    )
-    if (missing.length > 0) {
-      return {
-        state: 'failed',
-        detail: `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
-      }
-    }
-    const reviewRecord = this.repo.planReview(reqId, plan.planVersion)
-    if (!reviewRecord) {
-      return {
-        state: 'failed',
-        detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立验证`,
-      }
-    }
-    if (reviewRecord.verdict !== 'pass') {
-      return {
-        state: 'failed',
-        detail: `任务包 v${plan.planVersion} 的实现前评审未通过：${planReviewBlocking(reviewRecord.reportJson)}`,
-      }
-    }
-    let planReview: PlanReview
-    try {
-      planReview = parsePlanReview(reviewRecord.reportJson)
-    } catch (error) {
-      return { state: 'failed', detail: `实现前评审证据畸形：${errorMessage(error)}` }
-    }
-    const candidateSha256 = this.candidateIdentity(plan, artifacts)
-    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
-    if (existingOutcome) return existingOutcome
-    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
-    if (budgetOutcome) return budgetOutcome
-    const prepared = this.prepareVerificationWorkspace(reqId, plan, reviewRecord, candidateSha256)
-    if (!prepared.ok) return prepared.outcome
-    const { dir, workspace, diffs, baseline, snapshot } = prepared
+  private finalizeVerificationWorkspace(input: {
+    reqId: string
+    plan: TaskPlan
+    dir: string
+    workspace: string
+    diffs: readonly string[]
+    candidateSha256: string
+    baseline: string
+    snapshot: ReturnType<typeof prepareSnapshotWorkspace>
+    artifacts: ReturnType<Repository['taskArtifacts']>
+  }):
+    | { ok: true; workspaceSha256: string; workspaceHead: string; candidateDiff: string }
+    | { ok: false; outcome: { state: 'failed'; detail: string } } {
+    const { reqId, plan, dir, workspace, diffs, candidateSha256, baseline, snapshot, artifacts } =
+      input
     runCommand('git', ['add', '-A'], workspace)
     runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
     if (this.config.worktreePrepareCommand.length > 0) {
@@ -3495,8 +3462,11 @@ ${answer}`
           `验证工作副本准备命令失败（退出码 ${prepare.code}）；这是环境问题，候选未被判定失败`,
         )
         return {
-          state: 'failed',
-          detail: `验证工作副本准备命令失败（退出码 ${prepare.code}）；需修复依赖或环境后重新验证`,
+          ok: false,
+          outcome: {
+            state: 'failed',
+            detail: `验证工作副本准备命令失败（退出码 ${prepare.code}）；需修复依赖或环境后重新验证`,
+          },
         }
       }
       runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
@@ -3529,7 +3499,118 @@ ${answer}`
       )}\n`,
       'utf8',
     )
+    return { ok: true, workspaceSha256, workspaceHead, candidateDiff }
+  }
 
+  private verificationInputs(reqId: string):
+    | {
+        ok: true
+        requirement: Requirement
+        analysis: RequirementAnalysis
+        plan: TaskPlan
+        artifacts: ReturnType<Repository['taskArtifacts']>
+        reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
+        planReview: PlanReview
+        candidateSha256: string
+      }
+    | { ok: false; outcome: { state: 'failed'; detail: string } } {
+    const authorized = this.requireAuthorizedPlan(reqId)
+    if (!authorized.ok) {
+      return { ok: false, outcome: { state: 'failed', detail: authorized.result.message } }
+    }
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) {
+      return { ok: false, outcome: { state: 'failed', detail: `未找到需求 ${reqId}` } }
+    }
+    const analysis = this.repo.latestAnalysis(reqId)
+    if (!analysis) {
+      return {
+        ok: false,
+        outcome: { state: 'failed', detail: `需求 ${reqId} 尚无分析结论；不能验证` },
+      }
+    }
+    const plan = authorized.value.plan
+    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
+    const missing = plan.tasks.filter(
+      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+    )
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
+        },
+      }
+    }
+    const reviewRecord = this.repo.planReview(reqId, plan.planVersion)
+    if (!reviewRecord) {
+      return {
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立验证`,
+        },
+      }
+    }
+    if (reviewRecord.verdict !== 'pass') {
+      return {
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `任务包 v${plan.planVersion} 的实现前评审未通过：${planReviewBlocking(reviewRecord.reportJson)}`,
+        },
+      }
+    }
+    let planReview: PlanReview
+    try {
+      planReview = parsePlanReview(reviewRecord.reportJson)
+    } catch (error) {
+      return {
+        ok: false,
+        outcome: { state: 'failed', detail: `实现前评审证据畸形：${errorMessage(error)}` },
+      }
+    }
+    return {
+      ok: true,
+      requirement,
+      analysis,
+      plan,
+      artifacts,
+      reviewRecord,
+      planReview,
+      candidateSha256: this.candidateIdentity(plan, artifacts),
+    }
+  }
+
+  private async executeVerification(
+    reqId: string,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
+    const inputs = this.verificationInputs(reqId)
+    if (!inputs.ok) return inputs.outcome
+    const { requirement, analysis, plan, artifacts, reviewRecord, planReview, candidateSha256 } =
+      inputs
+    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
+    if (existingOutcome) return existingOutcome
+    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
+    if (budgetOutcome) return budgetOutcome
+    const prepared = this.prepareVerificationWorkspace(reqId, plan, reviewRecord, candidateSha256)
+    if (!prepared.ok) return prepared.outcome
+    const { dir, workspace, diffs, baseline, snapshot } = prepared
+    const finalized = this.finalizeVerificationWorkspace({
+      reqId,
+      plan,
+      dir,
+      workspace,
+      diffs,
+      candidateSha256,
+      baseline,
+      snapshot,
+      artifacts,
+    })
+    if (!finalized.ok) return finalized.outcome
+    const { workspaceSha256, workspaceHead, candidateDiff } = finalized
     const started = Date.now()
     const run = await this.runner.run({
       role: AGENT_VERIFY,
