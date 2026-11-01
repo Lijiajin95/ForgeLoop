@@ -2675,3 +2675,46 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 新包已部署到正式 `web`，运行身份和业务页面均通过检查。
 - 原需求自身记录未迁入正式生产库；正式业务样本是获批新建的需求，这一边界保留在状态记录中。
 - 未 push、未打 tag、未改版本号；未改模型路由/凭据。
+
+## 44. 代码可靠性门禁（2026-11-01）
+
+本轮把“代码可靠性”从约定升级为可执行门禁；范围是静态检查、格式、类型严格度与测试稳定性，
+未改业务行为。
+
+### 44.1 已落地
+
+| 项 | 内容 |
+| --- | --- |
+| ESLint | ESLint 9 flat config；`src` 用 typescript-eslint 类型感知 `recommendedTypeChecked`，启用 `no-floating-promises`、`no-misused-promises`、`await-thenable`、`switch-exhaustiveness-check`、`no-explicit-any`、`max-depth(7)`；`tests`/`scripts` 用无类型 `recommended`，避免为测试再建 program |
+| Prettier | 统一格式；`make format` 只检查，`make format-write` 写入；`.prettierignore` 排除 JSON/YAML/生成物 |
+| TypeScript | 新增 `noUnusedLocals`、`noUnusedParameters`、`noImplicitReturns`、`useUnknownInCatchVariables`、`allowUnreachableCode: false`、`allowUnusedLabels: false` |
+| 测试池 | vitest 从 threads 改为 forks：threads 池下 spawn 子进程的用例会卡住 worker RPC，实测单文件 22 分钟、全量多处 20 秒超时；forks 后 54 个文件、585 项正常完成 |
+| 覆盖率 | 关键文件单独门槛：`service.ts` 85/78/92、`coordinator.ts` 90/83/99、`repository.ts` 97/86/98、`verification.ts` 94/88/99、`admission.ts` 与 `retry-policy.ts` 100/100/100（行/分支/函数） |
+| CI | `quality.yml` 增加 `make format`；`make check` = typecheck + lint + contracts + tests |
+| 代码清理 | 修复 lint 暴露的未使用导入/变量、`require()` 导入、索引签名取值；格式化一次性应用到 `src`/`tests`/`scripts` |
+
+### 44.2 结果
+
+- `make check`：54 个测试文件、585 项通过。
+- `make coverage`：行/语句 90.48%、函数 96.72%、分支 84.13%，全局与关键文件门槛均通过。
+- `make contracts`：通过；`make format`：通过；ESLint：0 error。
+
+### 44.3 ratchet（暂缓项，配置中有显式说明）
+
+| 项 | 现状 | 原因 |
+| --- | --- | --- |
+| `strictTypeChecked` 全量 | 未启用 | 剩余 `no-non-null-assertion` 35 处、`no-unnecessary-condition` 29 处，多为宿主/JSON 防御式检查；逐条判断后再开，避免用 disable 注释刷绿 |
+| `no-useless-assignment` | 关闭 | 9 处为 `try/catch` 前初始化；先记录，不与正确性门禁混在一起 |
+| `require-await` | 关闭 | 宿主接口本身是 async 形状，方法体不一定 await |
+| `exactOptionalPropertyTypes` | 未开 | 需要逐模块处理“缺省 vs undefined”语义 |
+| `noPropertyAccessFromIndexSignature` | 未开 | 会引入 300+ 处索引访问改写，收益低于成本 |
+| 变异测试 / 性质测试 / 故障注入 | 未接入 | 需要独立批次与运行时预算 |
+| `service.ts` 拆分 | 未做 | 5,836 行，需按 analyze/plan/execute/verify/release/recover 独立重构 |
+| DB 行 schema | 未做 | 当前仍靠 `as` 收窄；与 219 处断言的收敛一起做 |
+
+### 44.4 取舍
+
+- 没有直接开 `strictTypeChecked`：130+ 处告警里混有真实风险与防御式误报，先落地可执行的严格档，
+  再把剩余规则逐类清零，避免“全绿但全是 disable”。
+- 格式化为一次性全仓 diff（95 个文件），与门禁配置同批提交；业务行为由 585 项测试确认未变。
+- `service.ts` 拆分与 schema 化会改变调用边界，必须单独评审，不能与工具接入混做。
