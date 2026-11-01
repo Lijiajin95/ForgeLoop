@@ -2980,3 +2980,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 90.98/96.96/84.77，mutation 97.80；未新增豁免。
 - 旧链路 `buildCandidate` 的拆分因与准入链路重复且改动面大，本轮未合入；下一轮先抽共享的
   “复制候选副本 / 跑命令 / 读产物”助手，再拆 `buildCandidate`。
+
+### 47.18 旧链路 buildCandidate 重写（Goal Round 14）
+
+- 复用 `readCandidateArtifact`；新增 `runCandidateCommands`、`legacyBuildGuard`、
+  `prepareLegacyCandidate`，旧链路与准入链路共享“复制副本 / 跑命令 / 读产物”语义。
+- `buildCandidate` 的 77 语句 / 40 复杂度豁免清零，suppressions 33 → **31**。
+- service.ts **5,937 行**；tokens 67,311 → 67,509（新助手结构），基线同步到 67,509。
+- `make check` 607 项通过，coverage 91.08/96.98/84.88，mutation 97.80。
+- 下一步：`verifyDeployment`（99 语句/61 复杂度）按候选身份、profile、检查项三段拆；
+  随后 repository 文件行数与 DB schema。
