@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { AgentRunner } from '../src/runtime/agent-runner.js'
@@ -90,12 +90,20 @@ describe('AgentRunner result extraction', () => {
         event('turn/start', { turn: 1 }),
         event('tool/call', { name: 'bash' }),
         event('assistant/message', {
-          message: { content: [{ type: 'reasoning', text: 'secret' }, { type: 'text', text: 'done' }] },
+          message: {
+            content: [
+              { type: 'reasoning', text: 'secret' },
+              { type: 'text', text: 'done' },
+            ],
+          },
         }),
         event('turn/end', { reason: { kind: 'completed' } }),
       ],
     })
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: '', model: '', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: '', model: '', timeoutSeconds: 60 },
+    })
     const result = await runner.run(request())
     expect(result.status).toBe('completed')
     expect(result.text).toBe('done')
@@ -110,7 +118,10 @@ describe('AgentRunner result extraction', () => {
         event('turn/end', { reason: { kind: 'error', error: { message: 'provider down' } } }),
       ],
     })
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: '', model: '', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: '', model: '', timeoutSeconds: 60 },
+    })
     const result = await runner.run(request())
     expect(result.status).toBe('error')
     expect(result.reason).toContain('provider down')
@@ -120,7 +131,10 @@ describe('AgentRunner result extraction', () => {
     const { ctx } = fakeContext({
       events: [event('turn/end', { reason: { kind: 'completed' } })],
     })
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: '', model: '', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: '', model: '', timeoutSeconds: 60 },
+    })
     const result = await runner.run(request())
     expect(result.status).toBe('error')
     expect(result.reason).toContain('没有产出可用文本')
@@ -131,7 +145,10 @@ describe('AgentRunner result extraction', () => {
       events: [event('turn/end', { reason: { kind: 'aborted' } })],
       behavior: 'hang',
     })
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: '', model: '', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: '', model: '', timeoutSeconds: 60 },
+    })
     const result = await runner.run(request({ timeoutMs: 20 }))
     expect(result.status).toBe('timeout')
     expect(result.reason).toContain('已取消')
@@ -139,7 +156,10 @@ describe('AgentRunner result extraction', () => {
 
   it('surfaces a whenIdle failure as error', async () => {
     const { ctx } = fakeContext({ events: [], behavior: 'throw' })
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: '', model: '', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: '', model: '', timeoutSeconds: 60 },
+    })
     const result = await runner.run(request())
     expect(result.status).toBe('error')
     expect(result.reason).toContain('boom')
@@ -169,7 +189,10 @@ describe('AgentRunner tool composition', () => {
       onMount: (id) => mounted.push(id),
       onDeny: (names) => denied.push(names),
     })
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: 'p', model: 'm', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: 'p', model: 'm', timeoutSeconds: 60 },
+    })
 
     await runner.run(request({ role: 'dev' }))
     expect(mounted).toEqual(['standard'])
@@ -183,7 +206,10 @@ describe('AgentRunner tool composition', () => {
       events: [event('turn/end', { reason: { kind: 'completed' } })],
     })
     delete (ctx as Record<string, unknown>).agentPresets
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: 'p', model: 'm', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: 'p', model: 'm', timeoutSeconds: 60 },
+    })
     await expect(runner.run(request({ role: 'dev' }))).rejects.toThrow('agentPresets.mount')
   })
 })
@@ -196,7 +222,10 @@ describe('AgentRunner live activity', () => {
     })
     const controller = new AbortController()
     const snapshots: number[] = []
-    const runner = new AgentRunner({ ctx: ctx as never, agent: { provider: 'p', model: 'm', timeoutSeconds: 60 } })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: 'p', model: 'm', timeoutSeconds: 60 },
+    })
     const pending = runner.run(
       request({
         role: 'dev',

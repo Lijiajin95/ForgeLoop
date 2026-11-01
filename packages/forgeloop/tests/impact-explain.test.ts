@@ -111,10 +111,13 @@ describe('impact explanation without --explain', () => {
   it('treats an explicit false as not requested and never touches the Agent', async () => {
     const recorder = recordingAgent({ status: 'completed', text: 'unused' })
 
-    const result = await explainImpact({ ...facts(), reqId: 'req-false' }, {
-      explain: false,
-      agent: recorder.agent,
-    })
+    const result = await explainImpact(
+      { ...facts(), reqId: 'req-false' },
+      {
+        explain: false,
+        agent: recorder.agent,
+      },
+    )
 
     expect(recorder.calls).toEqual([])
     expect(result.reqId).toBe('req-false')

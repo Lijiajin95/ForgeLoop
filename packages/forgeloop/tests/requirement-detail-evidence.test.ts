@@ -65,11 +65,7 @@ function detail(reqId: string): RequirementDetailView {
   return result.data as RequirementDetailView
 }
 
-function admissionDecision(
-  admit: boolean,
-  code: string,
-  reason: string,
-): AdmissionDecision {
+function admissionDecision(admit: boolean, code: string, reason: string): AdmissionDecision {
   return {
     admit,
     code,

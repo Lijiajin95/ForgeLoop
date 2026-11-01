@@ -9,7 +9,12 @@ import { SqliteRequirementQueueStore } from '../src/records/requirement-queue.js
 
 const FIXED_NOW = () => new Date('2026-10-31T12:00:00.000Z')
 
-function enqueue(queue: RequirementQueue, requirementId: string, enqueuedAt: string, project = 'forgeloop') {
+function enqueue(
+  queue: RequirementQueue,
+  requirementId: string,
+  enqueuedAt: string,
+  project = 'forgeloop',
+) {
   return queue.enqueue({ requirementId, project, enqueuedAt })
 }
 
@@ -79,7 +84,11 @@ describe('requirement queue (memory)', () => {
     expect(queue.inFlight()).toBeNull()
 
     const claimed = queue.claimNext()
-    expect(claimed).toMatchObject({ requirementId: 'req-a', state: 'claimed', claimedAt: '2026-10-31T12:00:00.000Z' })
+    expect(claimed).toMatchObject({
+      requirementId: 'req-a',
+      state: 'claimed',
+      claimedAt: '2026-10-31T12:00:00.000Z',
+    })
     expect(queue.inFlight()?.requirementId).toBe('req-a')
     expect(queue.pending().map((entry) => entry.requirementId)).toEqual(['req-b'])
   })
@@ -99,7 +108,9 @@ describe('requirement queue (memory)', () => {
   it('rejects empty identities and unparseable proposed times', () => {
     const queue = new RequirementQueue(new MemoryRequirementQueueStore(), FIXED_NOW)
     expect(() => enqueue(queue, '  ', '2026-10-31T08:00:00.000Z')).toThrow(RuleViolationError)
-    expect(() => queue.enqueue({ requirementId: 'req-a', project: ' ' })).toThrow(RuleViolationError)
+    expect(() => queue.enqueue({ requirementId: 'req-a', project: ' ' })).toThrow(
+      RuleViolationError,
+    )
     expect(() => enqueue(queue, 'req-a', 'not-a-time')).toThrow(RuleViolationError)
     expect(queue.pending()).toEqual([])
   })
@@ -127,9 +138,16 @@ describe('requirement queue (memory)', () => {
   it('keeps claim order stable when enqueues run concurrently with the same proposed time', async () => {
     const queue = new RequirementQueue(new MemoryRequirementQueueStore(), FIXED_NOW)
     const sameTime = '2026-10-31T08:00:00.000Z'
-    const submitted = Array.from({ length: 20 }, (_, index) => `req-${String(index).padStart(2, '0')}`)
+    const submitted = Array.from(
+      { length: 20 },
+      (_, index) => `req-${String(index).padStart(2, '0')}`,
+    )
 
-    await Promise.all(submitted.map((requirementId) => Promise.resolve().then(() => enqueue(queue, requirementId, sameTime))))
+    await Promise.all(
+      submitted.map((requirementId) =>
+        Promise.resolve().then(() => enqueue(queue, requirementId, sameTime)),
+      ),
+    )
 
     expect(drain(queue)).toEqual(submitted)
   })
@@ -208,9 +226,16 @@ describe('requirement queue (sqlite records)', () => {
   it('keeps claim order stable when enqueues run concurrently with the same proposed time', async () => {
     const queue = sqliteQueue(db!)
     const sameTime = '2026-10-31T08:00:00.000Z'
-    const submitted = Array.from({ length: 20 }, (_, index) => `req-${String(index).padStart(2, '0')}`)
+    const submitted = Array.from(
+      { length: 20 },
+      (_, index) => `req-${String(index).padStart(2, '0')}`,
+    )
 
-    await Promise.all(submitted.map((requirementId) => Promise.resolve().then(() => enqueue(queue, requirementId, sameTime))))
+    await Promise.all(
+      submitted.map((requirementId) =>
+        Promise.resolve().then(() => enqueue(queue, requirementId, sameTime)),
+      ),
+    )
 
     expect(drain(queue)).toEqual(submitted)
   })

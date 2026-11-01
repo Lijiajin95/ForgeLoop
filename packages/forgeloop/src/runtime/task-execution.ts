@@ -45,7 +45,9 @@ export interface ExecutionPage {
 const MAX_TEXT = 8000
 
 function asRecord(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as JsonRecord) : undefined
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : undefined
 }
 
 function textOfContent(content: unknown): string {
@@ -81,7 +83,7 @@ interface CallState {
   result?: { output: string; isError: boolean; time: number }
 }
 
-interface DraftEvent extends ExecutionEvent {}
+type DraftEvent = ExecutionEvent
 
 /**
  * 解析一轮或多轮 dev.jsonl。offset/limit 只作用于最终公开事件数组。
@@ -145,7 +147,12 @@ export function parseTaskExecution(
     if (type === 'user/message') {
       const text = textOfContent(data?.content)
       // DSH 在回合中追加的运行上下文/提醒不是业务公开消息，避免淹没任务输入与工具调用。
-      if (/^<system-reminder>|^Current runtime context\.|^Time sampled while preparing turn/.test(text.trim())) continue
+      if (
+        /^<system-reminder>|^Current runtime context\.|^Time sampled while preparing turn/.test(
+          text.trim(),
+        )
+      )
+        continue
       if (text) {
         const clipped = clip(text)
         drafts.push({
@@ -164,7 +171,8 @@ export function parseTaskExecution(
     if (type === 'tool/call') {
       const callId = typeof data?.callId === 'string' ? data.callId : ''
       const name = typeof data?.name === 'string' ? data.name : 'tool'
-      const input = typeof data?.arguments === 'string' ? data.arguments : JSON.stringify(data?.arguments ?? '')
+      const input =
+        typeof data?.arguments === 'string' ? data.arguments : JSON.stringify(data?.arguments ?? '')
       if (!callId) continue
       const clipped = clip(input)
       calls.set(callId, {
@@ -197,7 +205,8 @@ export function parseTaskExecution(
         at: atOf(time),
         kind: 'phase',
         role: 'phase',
-        title: type === 'turn/start' ? '回合开始' : type === 'turn/end' ? '回合结束' : '工作副本变更',
+        title:
+          type === 'turn/start' ? '回合开始' : type === 'turn/end' ? '回合结束' : '工作副本变更',
         text: '',
         textTruncated: false,
       })

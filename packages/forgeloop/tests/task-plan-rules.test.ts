@@ -118,10 +118,7 @@ describe('task plan parsing and validation', () => {
     expect(() =>
       parseTaskPlanDraft(
         {
-          tasks: [
-            rawTask('a'),
-            { ...rawTask('verify'), verification: true, depends_on: ['a'] },
-          ],
+          tasks: [rawTask('a'), { ...rawTask('verify'), verification: true, depends_on: ['a'] }],
         },
         context,
       ),
@@ -131,7 +128,10 @@ describe('task plan parsing and validation', () => {
   it('refuses model-supplied authorization sources', () => {
     expect(() =>
       parseTaskPlanDraft(
-        rawPlan([rawTask('a', { authorization_source: 'plan-approval:req-1:v1:owner' }), rawTask('b', { depends_on: ['a'] })]),
+        rawPlan([
+          rawTask('a', { authorization_source: 'plan-approval:req-1:v1:owner' }),
+          rawTask('b', { depends_on: ['a'] }),
+        ]),
         context,
       ),
     ).toThrow('授权来源由真实批准绑定')
@@ -143,7 +143,10 @@ describe('task plan parsing and validation', () => {
     expect(() => validateFiles([])).toThrow('不能为空')
     expect(() =>
       parseTaskPlanDraft(
-        rawPlan([rawTask('a', { files: ['docs/a.md', 'docs/a.md'] }), rawTask('b', { depends_on: ['a'] })]),
+        rawPlan([
+          rawTask('a', { files: ['docs/a.md', 'docs/a.md'] }),
+          rawTask('b', { depends_on: ['a'] }),
+        ]),
         context,
       ),
     ).toThrow('不能包含重复项')
@@ -159,19 +162,30 @@ describe('task plan parsing and validation', () => {
   })
 
   it('rejects duplicate, self-referencing and unknown dependencies', () => {
-    expect(() => parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('a')]), context)).toThrow('task_id 必须唯一')
+    expect(() => parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('a')]), context)).toThrow(
+      'task_id 必须唯一',
+    )
     expect(() =>
-      parseTaskPlanDraft(rawPlan([rawTask('a', { depends_on: ['a'] }), rawTask('b', { depends_on: ['a'] })]), context),
+      parseTaskPlanDraft(
+        rawPlan([rawTask('a', { depends_on: ['a'] }), rawTask('b', { depends_on: ['a'] })]),
+        context,
+      ),
     ).toThrow('不能依赖自身')
     expect(() =>
-      parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b', { depends_on: ['missing'] })]), context),
+      parseTaskPlanDraft(
+        rawPlan([rawTask('a'), rawTask('b', { depends_on: ['missing'] })]),
+        context,
+      ),
     ).toThrow('依赖不存在的任务')
   })
 
   it('rejects invalid limits', () => {
     expect(() =>
       parseTaskPlanDraft(
-        rawPlan([rawTask('a', { limits: { limit_seconds: 0 } }), rawTask('b', { depends_on: ['a'] })]),
+        rawPlan([
+          rawTask('a', { limits: { limit_seconds: 0 } }),
+          rawTask('b', { depends_on: ['a'] }),
+        ]),
         context,
       ),
     ).toThrow('执行限额必须为正数')
@@ -186,7 +200,10 @@ describe('task plan parsing and validation', () => {
     ).toThrow('失败轮次上限必须为正整数')
     expect(() =>
       parseTaskPlanDraft(
-        rawPlan([rawTask('a', { limits: { limit_seconds: '60' } }), rawTask('b', { depends_on: ['a'] })]),
+        rawPlan([
+          rawTask('a', { limits: { limit_seconds: '60' } }),
+          rawTask('b', { depends_on: ['a'] }),
+        ]),
         context,
       ),
     ).toThrow('limit_seconds 必须是数字')
@@ -194,7 +211,9 @@ describe('task plan parsing and validation', () => {
 
   it('requires actionable plans with at least two tasks and one dependency', () => {
     expect(() => parseTaskPlanDraft(rawPlan([rawTask('a')]), context)).toThrow('至少要包含两个任务')
-    expect(() => parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b')]), context)).toThrow('至少要有一条任务依赖')
+    expect(() => parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b')]), context)).toThrow(
+      '至少要有一条任务依赖',
+    )
   })
 
   it('rejects dependency cycles', () => {

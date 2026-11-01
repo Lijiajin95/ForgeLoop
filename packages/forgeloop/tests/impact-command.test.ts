@@ -71,10 +71,12 @@ interface ImpactFactsView extends ImpactCheckView {
     readonly requirementVersion: number | null
     readonly current: boolean
   })[]
-  readonly currentApproval: (ImpactCheckView & {
-    readonly planVersion: number
-    readonly requirementVersion: number | null
-  }) | null
+  readonly currentApproval:
+    | (ImpactCheckView & {
+        readonly planVersion: number
+        readonly requirementVersion: number | null
+      })
+    | null
   readonly deliveries: readonly (ImpactCheckView & {
     readonly planVersion: number
     readonly taskId: string
@@ -140,7 +142,9 @@ interface RecordingRunner {
   readonly runner: AgentLike
 }
 
-function recordingRunner(text = '分析 v1 已过期，建议优先重新分析；任务包 v1 可能需要返工。'): RecordingRunner {
+function recordingRunner(
+  text = '分析 v1 已过期，建议优先重新分析；任务包 v1 可能需要返工。',
+): RecordingRunner {
   const calls: AgentRunRequest[] = []
   return {
     calls,

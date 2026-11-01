@@ -62,9 +62,7 @@ function reviewBlocking(review: unknown): string[] {
   if (typeof review !== 'object' || review === null) return []
   const record = review as Record<string, unknown>
   if (record.verdict !== 'block' || !Array.isArray(record.blocking)) return []
-  return unique(
-    record.blocking.filter((item): item is string => typeof item === 'string'),
-  )
+  return unique(record.blocking.filter((item): item is string => typeof item === 'string'))
 }
 
 /**
@@ -89,8 +87,12 @@ export function buildTaskFailureAdvice(input: TaskFailureInput): TaskFailureAdvi
   if (modules.length > 0) {
     cause = `架构契约未登记新增模块：${modules.join('、')}。`
     scope = modules
-    actions.push(`在 contracts/architecture.json 的 modules 中登记：${modules.join('、')}，并同步架构说明。`)
-    actions.push('把 contracts/architecture.json 纳入该任务的允许文件清单；这改变了已批准边界，必须重新规划并取得批准。')
+    actions.push(
+      `在 contracts/architecture.json 的 modules 中登记：${modules.join('、')}，并同步架构说明。`,
+    )
+    actions.push(
+      '把 contracts/architecture.json 纳入该任务的允许文件清单；这改变了已批准边界，必须重新规划并取得批准。',
+    )
     actions.push('完成上述变更后再重试；若仍按当前范围直接重试，会再次被同一契约检查阻断。')
   } else if (boundaries.length > 0) {
     cause = `任务改动越出批准文件清单：${boundaries.join('、')}。`

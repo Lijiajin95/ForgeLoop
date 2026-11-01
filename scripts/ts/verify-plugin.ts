@@ -71,7 +71,8 @@ function checkProfile(): void {
 
   const dump = dsh(['--profile', PROFILE, '--dump-config'])
   if (dump.code !== 0) failures.push(`--dump-config 失败：${dump.stderr.trim()}`)
-  else if (!dump.stdout.includes('forgeloop-dsh')) failures.push('--dump-config 未出现 forgeloop-dsh 层')
+  else if (!dump.stdout.includes('forgeloop-dsh'))
+    failures.push('--dump-config 未出现 forgeloop-dsh 层')
 }
 
 function checkToolLoop(): void {
@@ -82,7 +83,9 @@ function checkToolLoop(): void {
     'Call the forgeloop_status tool with empty arguments, then answer with the tool ok flag.',
   ])
   if (result.code !== 0) {
-    failures.push(`真实模型工具调用失败（退出码 ${result.code}）：${result.stderr.trim().slice(0, 500)}`)
+    failures.push(
+      `真实模型工具调用失败（退出码 ${result.code}）：${result.stderr.trim().slice(0, 500)}`,
+    )
     return
   }
   if (!result.stdout.includes('"tool":"forgeloop_status"')) {

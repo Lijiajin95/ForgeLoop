@@ -237,10 +237,7 @@ function missingMaterial(artifact: TaskArtifact): string[] {
   return missing
 }
 
-function materialPendingReasons(
-  artifact: TaskArtifact,
-  label: string,
-): ImpactReason[] {
+function materialPendingReasons(artifact: TaskArtifact, label: string): ImpactReason[] {
   const missing = missingMaterial(artifact)
   if (missing.length === 0) return []
   return [
@@ -269,9 +266,7 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
   const analyses = [...(input.analyses ?? [])].sort(
     (left, right) => left.analysisVersion - right.analysisVersion,
   )
-  const plans = [...(input.plans ?? [])].sort(
-    (left, right) => left.planVersion - right.planVersion,
-  )
+  const plans = [...(input.plans ?? [])].sort((left, right) => left.planVersion - right.planVersion)
   const approvals = [...(input.approvals ?? [])].sort(
     (left, right) => left.planVersion - right.planVersion,
   )
@@ -423,10 +418,7 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
         }
       } else {
         taskPendingReasons.push(
-          ...materialPendingReasons(
-            artifact,
-            `任务 ${task.taskId}（任务包 v${plan.planVersion}）`,
-          ),
+          ...materialPendingReasons(artifact, `任务 ${task.taskId}（任务包 v${plan.planVersion}）`),
         )
       }
 
@@ -542,7 +534,10 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
       )
     }
     pendingReasons.push(
-      ...materialPendingReasons(artifact, `任务 ${artifact.taskId}（任务包 v${artifact.planVersion}）`),
+      ...materialPendingReasons(
+        artifact,
+        `任务 ${artifact.taskId}（任务包 v${artifact.planVersion}）`,
+      ),
     )
 
     return {
@@ -616,7 +611,9 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
   const currentApproval = approvalFacts.at(-1) ?? null
   const fullyDelivered =
     latestPlan !== undefined &&
-    latestPlan.tasks.every((task) => deliveryByKey.has(planTaskKey(latestPlan.planVersion, task.taskId)))
+    latestPlan.tasks.every((task) =>
+      deliveryByKey.has(planTaskKey(latestPlan.planVersion, task.taskId)),
+    )
 
   return {
     kind: 'facts',

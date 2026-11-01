@@ -103,7 +103,11 @@ export function buildRequirementIssue(input: NewRequirementIssue): RequirementIs
   if (!ISSUE_STAGES.includes(input.stage)) {
     throw new RuleViolationError(`问题单阶段未知：${input.stage}`)
   }
-  if (!Array.isArray(input.evidence.blocking) || input.evidence.blocking.some((item) => !item.trim())) {
+  const blocking = input.evidence.blocking as unknown
+  if (
+    !Array.isArray(blocking) ||
+    blocking.some((item: unknown) => typeof item !== 'string' || !item.trim())
+  ) {
     throw new RuleViolationError('问题单阻断项必须是非空字符串数组')
   }
   return {

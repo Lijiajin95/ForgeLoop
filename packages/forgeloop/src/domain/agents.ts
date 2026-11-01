@@ -11,10 +11,7 @@ export const AGENT_VERIFY = 'verify'
 export const AGENT_OPS = 'ops'
 
 export type AgentIdentity =
-  | typeof AGENT_PRODUCT
-  | typeof AGENT_DEV
-  | typeof AGENT_VERIFY
-  | typeof AGENT_OPS
+  typeof AGENT_PRODUCT | typeof AGENT_DEV | typeof AGENT_VERIFY | typeof AGENT_OPS
 
 export const AGENT_IDENTITIES: readonly AgentIdentity[] = [
   AGENT_PRODUCT,

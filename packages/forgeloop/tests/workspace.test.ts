@@ -63,7 +63,9 @@ describe('command helpers', () => {
   it('wraps git and throws a readable error when git refuses', () => {
     expect(headCommit(project)).toMatch(/^[0-9a-f]{40}$/)
     expect(git(project, ['rev-parse', '--is-inside-work-tree']).stdout.trim()).toBe('true')
-    expect(() => requireGit(project, ['definitely-not-a-subcommand'])).toThrow('git definitely-not-a-subcommand 失败')
+    expect(() => requireGit(project, ['definitely-not-a-subcommand'])).toThrow(
+      'git definitely-not-a-subcommand 失败',
+    )
   })
 })
 
@@ -93,7 +95,11 @@ describe('snapshot workspaces', () => {
   it('captures the staged diff, changed files and out-of-scope violations', () => {
     const baseline = headCommit(project)
     const worktree = join(dir, 'capture')
-    prepareSnapshotWorkspace({ projectPath: project, workspacePath: worktree, baselineCommit: baseline })
+    prepareSnapshotWorkspace({
+      projectPath: project,
+      workspacePath: worktree,
+      baselineCommit: baseline,
+    })
 
     writeFileSync(join(worktree, 'docs/a.md'), 'a changed\n')
     writeFileSync(join(worktree, 'secret.md'), 'not allowed\n')

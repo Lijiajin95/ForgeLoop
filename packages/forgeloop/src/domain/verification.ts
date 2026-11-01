@@ -161,7 +161,8 @@ export function parseVerificationReport(raw: string): VerificationReport {
   if (verdict === 'block' && blocking.length === 0) {
     throw new MalformedError('独立验证结论为 block 时必须给出至少一条阻断原因')
   }
-  if (!Array.isArray(data.scenarios)) throw new MalformedError('独立验证报告必须给出 scenarios 数组')
+  if (!Array.isArray(data.scenarios))
+    throw new MalformedError('独立验证报告必须给出 scenarios 数组')
   const scenarios = data.scenarios.map((item, index) => {
     const scenario = asRecord(item, `scenarios[${index}]`)
     const status = scenario.status
@@ -200,7 +201,10 @@ function referencesText(field: string, source: string): boolean {
 
 /** 验证计划必须逐项覆盖分析中的业务场景与验收标准；文本按原文核对。 */
 export function validatePlanCoverage(
-  analysis: { readonly scenarios: readonly string[]; readonly acceptanceCriteria: readonly string[] },
+  analysis: {
+    readonly scenarios: readonly string[]
+    readonly acceptanceCriteria: readonly string[]
+  },
   review: PlanReview,
 ): string[] {
   const issues: string[] = []
@@ -210,7 +214,9 @@ export function validatePlanCoverage(
     }
   }
   for (const criterion of analysis.acceptanceCriteria) {
-    if (!review.verificationPlan.some((item) => referencesText(item.acceptanceCriterion, criterion))) {
+    if (
+      !review.verificationPlan.some((item) => referencesText(item.acceptanceCriterion, criterion))
+    ) {
       issues.push(`验证计划缺少验收标准：${criterion}`)
     }
   }
@@ -273,7 +279,8 @@ export function validateScenarioEvidence(
   for (const result of report.scenarios) {
     if (result.status !== 'pass') continue
     for (const label of result.commands) {
-      if (!byLabel.has(label)) issues.push(`场景 ${result.scenario} 引用了未执行的验证命令：${label}`)
+      if (!byLabel.has(label))
+        issues.push(`场景 ${result.scenario} 引用了未执行的验证命令：${label}`)
     }
   }
   for (const item of plan.filter((scenario) => scenario.required)) {
@@ -348,7 +355,9 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
       totalChecks += 1
       const expected = check.expected_output ?? check.expectedOutput
       if (expected !== undefined && typeof expected !== 'string') {
-        throw new MalformedError(`scenarios[${index}].checks[${checkIndex}].expected_output 必须是字符串`)
+        throw new MalformedError(
+          `scenarios[${index}].checks[${checkIndex}].expected_output 必须是字符串`,
+        )
       }
       return {
         label,
@@ -379,7 +388,10 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
 
 /** 验证方案必须逐字覆盖需求说明中的全部业务场景与验收标准。 */
 export function validateRequirementVerificationPlan(
-  analysis: { readonly scenarios: readonly string[]; readonly acceptanceCriteria: readonly string[] },
+  analysis: {
+    readonly scenarios: readonly string[]
+    readonly acceptanceCriteria: readonly string[]
+  },
   plan: VerificationPlan,
 ): string[] {
   return validatePlanCoverage(analysis, {
@@ -482,7 +494,9 @@ export function judgeVerificationResult(input: {
         continue
       }
       if (run.exitCode !== 0) {
-        failures.push(`验证命令失败：${check.label}（退出码 ${run.exitCode === null ? 'null' : run.exitCode}）`)
+        failures.push(
+          `验证命令失败：${check.label}（退出码 ${run.exitCode === null ? 'null' : run.exitCode}）`,
+        )
         failed = true
         continue
       }
@@ -514,4 +528,3 @@ export function judgeVerificationResult(input: {
     finishedAt: input.finishedAt,
   }
 }
-

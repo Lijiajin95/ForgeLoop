@@ -35,7 +35,11 @@ export function writeRuntimeIdentity(moduleUrl: string): RuntimeIdentity | null 
       indexSha256: sha256(join(packageRoot, 'lib/index.js')),
       serviceSha256: sha256(join(packageRoot, 'lib/runtime/service.js')),
     }
-    writeFileSync(join(packageRoot, 'runtime-identity.json'), `${JSON.stringify(identity, null, 2)}\n`, 'utf8')
+    writeFileSync(
+      join(packageRoot, 'runtime-identity.json'),
+      `${JSON.stringify(identity, null, 2)}\n`,
+      'utf8',
+    )
     return identity
   } catch (error) {
     console.warn(`[forgeloop] 无法写入运行身份：${(error as Error).message}`)

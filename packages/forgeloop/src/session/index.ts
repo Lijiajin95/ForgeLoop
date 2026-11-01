@@ -5,7 +5,12 @@
 
 import type { ForgeLoopConfig } from '../config.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
-import { SessionIntake, type PreStepDecision, type PreStepNext, type PreStepPayloadLike } from './intake.js'
+import {
+  SessionIntake,
+  type PreStepDecision,
+  type PreStepNext,
+  type PreStepPayloadLike,
+} from './intake.js'
 import { presetRegistryOf, registerForgeLoopPreset, type PresetRegistration } from './preset.js'
 
 type AnyRecord = Record<string, unknown>
@@ -26,22 +31,31 @@ export interface SessionSurface {
 type Listener = (payload: PreStepPayloadLike, next: PreStepNext) => Promise<PreStepDecision>
 
 /** 安装输入接管与 preset；返回的 dispose 供插件卸载时释放。 */
-export function installSessionSurface(ctx: AnyRecord, options: SessionSurfaceOptions): SessionSurface {
-  const log = options.log ?? ((message: string) => console.warn(`[forgeloop] ${message}`))
+export function installSessionSurface(
+  ctx: AnyRecord,
+  options: SessionSurfaceOptions,
+): SessionSurface {
+  const log =
+    options.log ??
+    ((message: string) => {
+      console.warn(`[forgeloop] ${message}`)
+    })
   const registry = presetRegistryOf(ctx)
   const intake = new SessionIntake({
     runtime: options.runtime,
     config: options.config,
     log,
     presetOf: registry?.composedPreset
-      ? (agent) => registry.composedPreset?.(agent.ctx as never)
+      ? (agent) => registry.composedPreset?.(agent.ctx)
       : undefined,
   })
 
   const disposers: Array<() => void> = []
   const on = ctx.on as ((event: string, listener: Listener) => unknown) | undefined
   if (typeof on === 'function') {
-    const dispose = on.call(ctx, 'agent/pre-step', (payload, next) => intake.handlePreStep(payload, next))
+    const dispose = on.call(ctx, 'agent/pre-step', (payload, next) =>
+      intake.handlePreStep(payload, next),
+    )
     if (typeof dispose === 'function') disposers.push(dispose as () => void)
   } else {
     log('宿主没有 ctx.on，无法安装 agent/pre-step 输入接管')

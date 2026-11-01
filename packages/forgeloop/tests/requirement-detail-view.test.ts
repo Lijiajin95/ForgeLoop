@@ -76,8 +76,7 @@ function renderVNode(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(renderVNode)
   if (!isVNode(value)) return value
   if (typeof value.type === 'function') {
-    const children =
-      value.children.length <= 1 ? value.children[0] : value.children
+    const children = value.children.length <= 1 ? value.children[0] : value.children
     const rendered = (value.type as (props: Record<string, unknown>) => unknown)({
       ...value.props,
       children,
@@ -152,7 +151,13 @@ interface DetailData {
   artifacts: unknown[]
   failureRoundDetails: unknown[]
   pendingRequests: unknown[]
-  progress: { total: number; delivered: number; failed: number; running: number; awaitingInput: number }
+  progress: {
+    total: number
+    delivered: number
+    failed: number
+    running: number
+    awaitingInput: number
+  }
   acceptanceRecord: null
   planReview: null
   verification: null
@@ -203,7 +208,10 @@ function renderDetail(data: DetailData): VNode {
 beforeAll(async () => {
   ;(globalThis as { window?: unknown }).window = {
     __ModuleLoader__: {
-      load(options: { id: string; factory: (require: (name: string) => unknown) => ClientExports }) {
+      load(options: {
+        id: string
+        factory: (require: (name: string) => unknown) => ClientExports
+      }) {
         exportsValue = options.factory((name) => {
           if (name === 'react') return fakeReact
           throw new Error(`client.js 只允许 require('react')，收到 ${name}`)
@@ -420,7 +428,11 @@ describe('requirement detail evidence view', () => {
       const submitted = runtime.submit({ text: '空提交信息的需求', by: 'owner', source: 'test' })
       expect(submitted.ok, submitted.message).toBe(true)
       const reqId = (submitted.data as { reqId: string }).reqId
-      const record = (candidateSha256: string, commitMessage: string, committedAt: string): void => {
+      const record = (
+        candidateSha256: string,
+        commitMessage: string,
+        committedAt: string,
+      ): void => {
         runtime.repo.recordCommit({
           requirementId: reqId,
           planVersion: 1,
@@ -438,9 +450,9 @@ describe('requirement detail evidence view', () => {
       record('candidate-empty-message', '', '2026-10-31T01:00:00.000Z')
       const emptyResult = runtime.requirementDetail(reqId)
       expect(emptyResult.ok, emptyResult.message).toBe(true)
-      expect(
-        (emptyResult.data as { commit: { commitMessage: string } }).commit.commitMessage,
-      ).toBe('无提交信息')
+      expect((emptyResult.data as { commit: { commitMessage: string } }).commit.commitMessage).toBe(
+        '无提交信息',
+      )
       const emptyPage = renderDetail(emptyResult.data as unknown as DetailData)
       const emptyBlock = findByAttr(emptyPage, 'data-evidence', 'commit')!
       expect(textOf(emptyBlock)).toContain('提交信息: 无提交信息')

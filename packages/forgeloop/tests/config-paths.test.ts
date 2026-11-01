@@ -21,7 +21,10 @@ describe('project storage across Desktop and Web hosts', () => {
   })
 
   it('expands home paths consistently in both hosts', () => {
-    const config = resolveConfig({ projectPath: '~/Project/example', recordsRoot: '~/.forgeloop' }, '/')
+    const config = resolveConfig(
+      { projectPath: '~/Project/example', recordsRoot: '~/.forgeloop' },
+      '/',
+    )
 
     expect(config.projectPath).toBe(join(homedir(), 'Project/example'))
     expect(config.recordsRoot).toBe(join(homedir(), '.forgeloop'))

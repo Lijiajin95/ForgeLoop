@@ -33,9 +33,17 @@ function runtimeWithQueue(
   status: 'completed' | 'error' = 'completed',
 ) {
   let index = 0
-  let lastAnalysis = { scenarios: ['按状态筛选需求与任务'], acceptanceCriteria: ['筛选后只显示匹配项'] }
+  let lastAnalysis = {
+    scenarios: ['按状态筛选需求与任务'],
+    acceptanceCriteria: ['筛选后只显示匹配项'],
+  }
   const planReviewFor = (analysis: typeof lastAnalysis) => {
-    const items: Array<{ scenario: string; acceptance_criterion: string; method: string; required: boolean }> = []
+    const items: Array<{
+      scenario: string
+      acceptance_criterion: string
+      method: string
+      required: boolean
+    }> = []
     const seen = new Set<string>()
     const add = (scenario: string, criterion: string) => {
       if (!scenario || seen.has(scenario)) return
@@ -48,7 +56,10 @@ function runtimeWithQueue(
       })
     }
     for (const [position, scenario] of analysis.scenarios.entries()) {
-      add(scenario, analysis.acceptanceCriteria[position] ?? analysis.acceptanceCriteria[0] ?? scenario)
+      add(
+        scenario,
+        analysis.acceptanceCriteria[position] ?? analysis.acceptanceCriteria[0] ?? scenario,
+      )
     }
     for (const criterion of analysis.acceptanceCriteria) {
       add(`${criterion}（验收标准）`, criterion)
@@ -74,7 +85,10 @@ function runtimeWithQueue(
         index += 1
         if (request.role === 'product') {
           try {
-            const draft = JSON.parse(text) as { scenarios?: string[]; acceptance_criteria?: string[] }
+            const draft = JSON.parse(text) as {
+              scenarios?: string[]
+              acceptance_criteria?: string[]
+            }
             lastAnalysis = {
               scenarios: Array.isArray(draft.scenarios) ? draft.scenarios : lastAnalysis.scenarios,
               acceptanceCriteria: Array.isArray(draft.acceptance_criteria)
@@ -97,7 +111,12 @@ function runtimeWithQueue(
       }
     },
   }
-  return new ForgeLoopRuntime({ ctx: {}, config: configFor(root), runner, now: () => new Date('2026-10-28T10:00:00.000Z') })
+  return new ForgeLoopRuntime({
+    ctx: {},
+    config: configFor(root),
+    runner,
+    now: () => new Date('2026-10-28T10:00:00.000Z'),
+  })
 }
 
 function runtimeFor(root: string, text: string, status: 'completed' | 'error' = 'completed') {
@@ -153,7 +172,11 @@ const planText = JSON.stringify({
   ],
 })
 
-function makeIntake(root: string, text = analysisText, status: 'completed' | 'error' = 'completed') {
+function makeIntake(
+  root: string,
+  text = analysisText,
+  status: 'completed' | 'error' = 'completed',
+) {
   const runtime = runtimeFor(root, text, status)
   const intake = new SessionIntake({ runtime, config: runtime.config })
   return { runtime, intake }
@@ -210,11 +233,21 @@ describe('ForgeLoop session input takeover', () => {
     const subagent = new FakeSession({ agentPreset: 'forgeloop', origin: 'subagent' })
     const next = vi.fn(async () => ({ kind: 'enter' as const, messages: [] }))
 
-    expect(await intake.handlePreStep({ agent: { session: ordinary }, messages: [human('m', '普通对话')], turn: 1 }, next)).toEqual({
+    expect(
+      await intake.handlePreStep(
+        { agent: { session: ordinary }, messages: [human('m', '普通对话')], turn: 1 },
+        next,
+      ),
+    ).toEqual({
       kind: 'enter',
       messages: [],
     })
-    expect(await intake.handlePreStep({ agent: { session: subagent }, messages: [human('m2', '子 Agent')], turn: 1 }, next)).toEqual({
+    expect(
+      await intake.handlePreStep(
+        { agent: { session: subagent }, messages: [human('m2', '子 Agent')], turn: 1 },
+        next,
+      ),
+    ).toEqual({
       kind: 'enter',
       messages: [],
     })
@@ -235,7 +268,14 @@ describe('ForgeLoop session input takeover', () => {
     const decision = await intake.handlePreStep(
       {
         agent: { session },
-        messages: [{ id: 'ctx-1', role: 'user', content: [{ type: 'text', text: '系统上下文' }], source: { kind: 'runtime-context' } }],
+        messages: [
+          {
+            id: 'ctx-1',
+            role: 'user',
+            content: [{ type: 'text', text: '系统上下文' }],
+            source: { kind: 'runtime-context' },
+          },
+        ],
         turn: 1,
       },
       next,
@@ -260,7 +300,9 @@ describe('ForgeLoop session input takeover', () => {
     await intake.handlePreStep(payload, next)
 
     expect(runtime.repo.listRequirements('testproj')).toHaveLength(1)
-    expect(session.events.filter((event) => event.type === 'plugin:forgeloop/intake')).toHaveLength(1)
+    expect(session.events.filter((event) => event.type === 'plugin:forgeloop/intake')).toHaveLength(
+      1,
+    )
     runtime.close()
   })
 
@@ -278,7 +320,10 @@ describe('ForgeLoop session input takeover', () => {
 
     expect(decision).toEqual({ kind: 'reject' })
     expect(next).not.toHaveBeenCalled()
-    expect(session.events.map((event) => event.type)).toEqual(['plugin:forgeloop/intake', 'plugin:forgeloop/error'])
+    expect(session.events.map((event) => event.type)).toEqual([
+      'plugin:forgeloop/intake',
+      'plugin:forgeloop/error',
+    ])
     expect((session.events[1]!.data as Record<string, unknown>).message).toContain('fake failure')
     expect(runtime.repo.listRequirements('testproj')).toHaveLength(1)
     runtime.close()
@@ -309,7 +354,11 @@ describe('session preset registration', () => {
       },
     }
 
-    const surface = installSessionSurface(ctx as never, { runtime, config: runtime.config, log: () => undefined })
+    const surface = installSessionSurface(ctx as never, {
+      runtime,
+      config: runtime.config,
+      log: () => undefined,
+    })
     const ready = await surface.ready
     expect(ready.ok).toBe(true)
     expect(registrations).toEqual([
@@ -389,7 +438,10 @@ describe('session surface fallback paths', () => {
     const root = mkdtempSync(join(tmpdir(), 'forgeloop-intake-'))
     roots.push(root)
     const runtime = runtimeFor(root, analysisText)
-    const surface = installSessionSurface({}, { runtime, config: runtime.config, log: () => undefined })
+    const surface = installSessionSurface(
+      {},
+      { runtime, config: runtime.config, log: () => undefined },
+    )
     expect(await surface.ready).toMatchObject({ ok: false })
     await surface.dispose()
     runtime.close()
@@ -403,7 +455,11 @@ describe('session surface fallback paths', () => {
       on: () => undefined,
       agentPresets: { register: async () => async () => undefined },
     }
-    const surface = installSessionSurface(ctx as never, { runtime, config: runtime.config, log: () => undefined })
+    const surface = installSessionSurface(ctx as never, {
+      runtime,
+      config: runtime.config,
+      log: () => undefined,
+    })
     expect((await surface.ready).ok).toBe(true)
     await surface.dispose()
     runtime.close()
@@ -447,7 +503,9 @@ describe('session intake failure paths', () => {
       async () => ({ kind: 'enter' as const, messages: [] }),
     )
     expect(throwingSession.events.map((event) => event.type)).toEqual(['plugin:forgeloop/error'])
-    expect((throwingSession.events[0]!.data as Record<string, unknown>).message).toContain('submit failed')
+    expect((throwingSession.events[0]!.data as Record<string, unknown>).message).toContain(
+      'submit failed',
+    )
 
     const noIdRuntime = {
       pendingClarifications: () => [],
@@ -456,13 +514,18 @@ describe('session intake failure paths', () => {
         throw new Error('never called')
       },
     }
-    const noIdIntake = new SessionIntake({ runtime: noIdRuntime as never, config: { owner: 'owner' } as never })
+    const noIdIntake = new SessionIntake({
+      runtime: noIdRuntime as never,
+      config: { owner: 'owner' } as never,
+    })
     const noIdSession = new FakeSession()
     await noIdIntake.handlePreStep(
       { agent: { session: noIdSession }, messages: [human('m-noid', '内容')], turn: 1 },
       async () => ({ kind: 'enter' as const, messages: [] }),
     )
-    expect((noIdSession.events[0]!.data as Record<string, unknown>).message).toContain('没有返回身份')
+    expect((noIdSession.events[0]!.data as Record<string, unknown>).message).toContain(
+      '没有返回身份',
+    )
   })
 
   it('writes an error event when the requirement Agent throws', async () => {
@@ -473,26 +536,36 @@ describe('session intake failure paths', () => {
         throw new Error('agent crashed')
       },
     }
-    const intake = new SessionIntake({ runtime: runtime as never, config: { owner: 'owner' } as never })
+    const intake = new SessionIntake({
+      runtime: runtime as never,
+      config: { owner: 'owner' } as never,
+    })
     const session = new FakeSession()
     await intake.handlePreStep(
       { agent: { session }, messages: [human('m-agent-throw', '内容')], turn: 1 },
       async () => ({ kind: 'enter' as const, messages: [] }),
     )
-    expect(session.events.map((event) => event.type)).toEqual(['plugin:forgeloop/intake', 'plugin:forgeloop/error'])
+    expect(session.events.map((event) => event.type)).toEqual([
+      'plugin:forgeloop/intake',
+      'plugin:forgeloop/error',
+    ])
     expect((session.events[1]!.data as Record<string, unknown>).message).toContain('agent crashed')
   })
 
   it('falls back to a deterministic message id and ignores malformed sessions', () => {
     expect(isForgeLoopSession(undefined)).toBe(false)
     expect(isForgeLoopSession({ session: { header: undefined } })).toBe(false)
-    expect(isForgeLoopSession({ session: { header: { agentPreset: 'forgeloop', parentSession: 'parent' } } })).toBe(false)
+    expect(
+      isForgeLoopSession({
+        session: { header: { agentPreset: 'forgeloop', parentSession: 'parent' } },
+      }),
+    ).toBe(false)
   })
 
   it('uses the live preset selection rather than the session creation header', async () => {
     const root = mkdtempSync(join(tmpdir(), 'forgeloop-intake-'))
     roots.push(root)
-    const { runtime, intake } = makeIntake(root)
+    const { runtime } = makeIntake(root)
     const session = new FakeSession({ agentPreset: 'standard' })
     const selected = new SessionIntake({
       runtime,
@@ -512,11 +585,19 @@ describe('session intake failure paths', () => {
       'plugin:forgeloop/analysis',
     ])
 
-    const standard = new SessionIntake({ runtime, config: runtime.config, presetOf: () => 'standard' })
+    const standard = new SessionIntake({
+      runtime,
+      config: runtime.config,
+      presetOf: () => 'standard',
+    })
     const nextStandard = vi.fn(async () => ({ kind: 'enter' as const, messages: [] }))
     expect(
       await standard.handlePreStep(
-        { agent: { session: new FakeSession({ agentPreset: 'forgeloop' }), ctx: {} }, messages: [human('m2', 'x')], turn: 1 },
+        {
+          agent: { session: new FakeSession({ agentPreset: 'forgeloop' }), ctx: {} },
+          messages: [human('m2', 'x')],
+          turn: 1,
+        },
         nextStandard,
       ),
     ).toEqual({ kind: 'enter', messages: [] })
@@ -586,7 +667,11 @@ describe('clarification loop', () => {
   it('does not create a new requirement when multiple clarifications are pending', async () => {
     const root = mkdtempSync(join(tmpdir(), 'forgeloop-intake-'))
     roots.push(root)
-    const runtime = runtimeWithQueue(root, [clarificationAnalysis, clarificationAnalysis, answeredAnalysis])
+    const runtime = runtimeWithQueue(root, [
+      clarificationAnalysis,
+      clarificationAnalysis,
+      answeredAnalysis,
+    ])
     const intake = new SessionIntake({ runtime, config: runtime.config })
     const session = new FakeSession()
     const next = vi.fn(async () => ({ kind: 'enter' as const, messages: [] }))
@@ -598,14 +683,23 @@ describe('clarification loop', () => {
         source: `dsh-session:session-forgeloop-1:msg-${index}`,
         clientKey: `dsh-session:session-forgeloop-1:msg-${index}`,
       })
-      await runtime.analyzeRequirement(reqId === 'req-one' ? runtime.repo.listRequirements('testproj')[0]!.reqId : runtime.repo.listRequirements('testproj')[1]!.reqId)
+      await runtime.analyzeRequirement(
+        reqId === 'req-one'
+          ? runtime.repo.listRequirements('testproj')[0]!.reqId
+          : runtime.repo.listRequirements('testproj')[1]!.reqId,
+      )
     }
     expect(runtime.pendingClarifications('session-forgeloop-1')).toHaveLength(2)
 
-    await intake.handlePreStep({ agent: { session }, messages: [human('three', '随便回答')], turn: 3 }, next)
+    await intake.handlePreStep(
+      { agent: { session }, messages: [human('three', '随便回答')], turn: 3 },
+      next,
+    )
     expect(runtime.repo.listRequirements('testproj')).toHaveLength(2)
     expect(session.events.at(-1)!.type).toBe('plugin:forgeloop/error')
-    expect((session.events.at(-1)!.data as Record<string, unknown>).message).toContain('2 条需求等待澄清')
+    expect((session.events.at(-1)!.data as Record<string, unknown>).message).toContain(
+      '2 条需求等待澄清',
+    )
     runtime.close()
   })
 })
@@ -648,23 +742,31 @@ describe('clarification guard paths', () => {
     const runtime = runtimeFor(root, answeredAnalysis)
     const base = { by: 'owner', source: 'test' }
 
-    await expect(runtime.answerClarifications({ ...base, reqId: 'missing', answer: 'x' })).resolves.toMatchObject({
+    await expect(
+      runtime.answerClarifications({ ...base, reqId: 'missing', answer: 'x' }),
+    ).resolves.toMatchObject({
       ok: false,
       code: 'not_found',
     })
 
     const submitted = runtime.submit({ text: '没有澄清', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
-    await expect(runtime.answerClarifications({ ...base, reqId, answer: '  ' })).resolves.toMatchObject({
+    await expect(
+      runtime.answerClarifications({ ...base, reqId, answer: '  ' }),
+    ).resolves.toMatchObject({
       ok: false,
       code: 'empty_answer',
     })
-    await expect(runtime.answerClarifications({ ...base, reqId, answer: 'x' })).resolves.toMatchObject({
+    await expect(
+      runtime.answerClarifications({ ...base, reqId, answer: 'x' }),
+    ).resolves.toMatchObject({
       ok: false,
       code: 'no_clarification',
     })
     await runtime.analyzeRequirement(reqId)
-    await expect(runtime.answerClarifications({ ...base, reqId, answer: 'x' })).resolves.toMatchObject({
+    await expect(
+      runtime.answerClarifications({ ...base, reqId, answer: 'x' }),
+    ).resolves.toMatchObject({
       ok: false,
       code: 'no_clarification',
     })
@@ -695,7 +797,12 @@ describe('clarification guard paths', () => {
     runtime.submit({ text: '未分析需求', by: 'owner', source: 'dsh-session:s:9' })
     const summary = runtime.sessionSummary('s')
     expect(summary.requirements).toHaveLength(1)
-    expect(summary.requirements[0]).toMatchObject({ goal: '', scenarios: [], acceptanceCriteria: [], clarifications: [] })
+    expect(summary.requirements[0]).toMatchObject({
+      goal: '',
+      scenarios: [],
+      acceptanceCriteria: [],
+      clarifications: [],
+    })
     runtime.close()
   })
 })

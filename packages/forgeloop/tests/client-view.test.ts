@@ -29,7 +29,11 @@ interface SlotRegistration {
 interface ConversationDefinition {
   kind: string
   target: string
-  match(event: { type: string; seq: number; data: Record<string, unknown> }): { id: string; role: string } | null
+  match(event: {
+    type: string
+    seq: number
+    data: Record<string, unknown>
+  }): { id: string; role: string } | null
   start(context: unknown, match: { event: unknown }): unknown
   buildViewNode(context: unknown): unknown
 }
@@ -57,11 +61,17 @@ const fakeReact = {
 beforeAll(async () => {
   ;(globalThis as { window?: unknown }).window = {
     __ModuleLoader__: {
-      load(options: { id: string; factory: (require: (name: string) => unknown) => Registered['exports'] }) {
-        registered = { id: options.id, exports: options.factory((name) => {
-          if (name === 'react') return fakeReact
-          throw new Error(`client.js 只允许 require('react')，收到 ${name}`)
-        }) }
+      load(options: {
+        id: string
+        factory: (require: (name: string) => unknown) => Registered['exports']
+      }) {
+        registered = {
+          id: options.id,
+          exports: options.factory((name) => {
+            if (name === 'react') return fakeReact
+            throw new Error(`client.js 只允许 require('react')，收到 ${name}`)
+          }),
+        }
       },
     },
   }
@@ -149,7 +159,11 @@ describe('client conversation view', () => {
     ])
     expect(definitions.every((definition) => definition.target === 'chat')).toBe(true)
     const tail = registrations.find((entry) => entry.name === 'conversation.chat.turnTail')
-    expect(tail).toMatchObject({ id: 'forgeloop-requirements', order: 80, locale: 'forgeloop-board' })
+    expect(tail).toMatchObject({
+      id: 'forgeloop-requirements',
+      order: 80,
+      locale: 'forgeloop-board',
+    })
     expect(typeof tail!.component).toBe('function')
   })
 
@@ -177,9 +191,17 @@ describe('client conversation view', () => {
     const analysisEvent = {
       type: 'plugin:forgeloop/analysis',
       seq: 4,
-      data: { eventId: 'forgeloop:analysis:req-1:v1', reqId: 'req-1', goal: '目标', scenarios: ['场景'] },
+      data: {
+        eventId: 'forgeloop:analysis:req-1:v1',
+        reqId: 'req-1',
+        goal: '目标',
+        scenarios: ['场景'],
+      },
     }
-    expect(analysis.match(analysisEvent)).toEqual({ id: 'forgeloop:analysis:req-1:v1', role: 'start' })
+    expect(analysis.match(analysisEvent)).toEqual({
+      id: 'forgeloop:analysis:req-1:v1',
+      role: 'start',
+    })
   })
 
   it('ships both locales for every visible label', () => {

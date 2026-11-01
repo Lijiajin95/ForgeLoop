@@ -32,7 +32,9 @@ function issueFromRow(row: Row): RequirementIssue {
   try {
     evidence = JSON.parse(text(row, 'evidence_json')) as RequirementIssueEvidence
   } catch (error) {
-    throw new MalformedError(`问题单 ${text(row, 'issue_id')} 的证据不是可解析 JSON：${(error as Error).message}`)
+    throw new MalformedError(
+      `问题单 ${text(row, 'issue_id')} 的证据不是可解析 JSON：${(error as Error).message}`,
+    )
   }
   return {
     issueId: text(row, 'issue_id'),
@@ -119,7 +121,9 @@ export class IssueStore {
             .prepare('UPDATE requirement_issues SET status = ?, updated_at = ? WHERE issue_id = ?')
             .run(status, now, issueId)
         : this.db.handle
-            .prepare('UPDATE requirement_issues SET status = ?, updated_at = ?, summary = ? WHERE issue_id = ?')
+            .prepare(
+              'UPDATE requirement_issues SET status = ?, updated_at = ?, summary = ? WHERE issue_id = ?',
+            )
             .run(status, now, summary, issueId)
     return Number(result.changes) > 0
   }

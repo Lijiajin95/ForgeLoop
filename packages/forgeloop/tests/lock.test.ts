@@ -24,7 +24,10 @@ describe('host lock', () => {
     expect(lock.acquired).toBe(true)
     expect(lock.reason).toBe('')
     expect(existsSync(lockDir())).toBe(true)
-    const record = JSON.parse(readFileSync(join(lockDir(), 'owner.json'), 'utf8')) as { owner: string; pid: number }
+    const record = JSON.parse(readFileSync(join(lockDir(), 'owner.json'), 'utf8')) as {
+      owner: string
+      pid: number
+    }
     expect(record.owner).toBe('owner-a')
     expect(record.pid).toBe(process.pid)
     lock.release()
@@ -55,7 +58,9 @@ describe('host lock', () => {
     )
     const lock = acquireHostLock(dir, 'owner-a')
     expect(lock.acquired).toBe(true)
-    const record = JSON.parse(readFileSync(join(lockDir(), 'owner.json'), 'utf8')) as { owner: string }
+    const record = JSON.parse(readFileSync(join(lockDir(), 'owner.json'), 'utf8')) as {
+      owner: string
+    }
     expect(record.owner).toBe('owner-a')
     lock.release()
   })

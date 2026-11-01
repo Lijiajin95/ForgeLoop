@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
-import type { AgentOpenRequest, AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import type {
+  AgentOpenRequest,
+  AgentRunRequest,
+  AgentRunResult,
+} from '../src/runtime/agent-runner.js'
 import { COMMITTED } from '../src/domain/status.js'
 
 /**
@@ -190,7 +194,12 @@ async function runNext(reqId: string, action: 'analyze' | 'advance') {
   expect(claimed!.reqId).toBe(reqId)
   expect(claimed!.action).toBe(action)
   const outcome = await runtime.executeRequest(claimed!, new AbortController().signal)
-  runtime.repo.resolveRequest(claimed!.requestId, outcome.state, outcome.detail, new Date().toISOString())
+  runtime.repo.resolveRequest(
+    claimed!.requestId,
+    outcome.state,
+    outcome.detail,
+    new Date().toISOString(),
+  )
   return outcome
 }
 
@@ -241,7 +250,9 @@ describe('requirement pipeline gate', () => {
     // 第一个需求未收口时，第二个需求仍保持排队且没有分析请求。
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(first)
     expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([second])
-    expect(runtime.repo.pendingRequests('demo').some((request) => request.reqId === second)).toBe(false)
+    expect(runtime.repo.pendingRequests('demo').some((request) => request.reqId === second)).toBe(
+      false,
+    )
 
     // 第二轮推进：先按问题单修复，再验证失败一次，继续修复后通过并提交。
     const secondAttempt = await runNext(first, 'advance')
@@ -252,8 +263,12 @@ describe('requirement pipeline gate', () => {
     expect(runtime.issues.issuesFor(first).every((issue) => issue.status === 'resolved')).toBe(true)
     expect(runtime.repo.grantCount(first)).toBe(1)
     expect(runtime.repo.failureRounds(first)).toHaveLength(4)
-    expect(runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'block')).toHaveLength(4)
-    expect(runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'pass')).toHaveLength(1)
+    expect(
+      runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'block'),
+    ).toHaveLength(4)
+    expect(
+      runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'pass'),
+    ).toHaveLength(1)
 
     // 第一个需求完成后释放研发位，第二个需求自动领取并完成分析、验证与提交。
     expect(runtime.intakeQueuedRequirement()).toBe(second)
@@ -284,7 +299,9 @@ describe('requirement pipeline gate', () => {
     for (const reqId of [first, second]) {
       expect(runtime.repo.planApproval(reqId, 1)).toBeNull()
       expect(
-        runtime.repo.requestsFor(reqId).every((request) => request.action === 'analyze' || request.action === 'advance'),
+        runtime.repo
+          .requestsFor(reqId)
+          .every((request) => request.action === 'analyze' || request.action === 'advance'),
       ).toBe(true)
     }
   })

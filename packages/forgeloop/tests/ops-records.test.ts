@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
-import { OPS_ATTEMPT_INTERRUPTED, OPS_AWAITING_DECISION, OPS_RECOVERING, OPS_UNRESOLVED } from '../src/domain/ops.js'
+import {
+  OPS_ATTEMPT_INTERRUPTED,
+  OPS_AWAITING_DECISION,
+  OPS_RECOVERING,
+  OPS_UNRESOLVED,
+} from '../src/domain/ops.js'
 
 const PROJECT = 'forgeloop'
 const NOW = '2026-10-29T10:00:00.000Z'
@@ -92,7 +97,12 @@ describe('ops event records', () => {
     event('ops-2')
     repository.linkOpsFixRequirement('ops-1', 'req-fix-1', NOW)
     expect(repository.opsEvent('ops-1')?.fixRequirementId).toBe('req-fix-1')
-    expect(repository.listOpsEvents(PROJECT).map((item) => item.eventId).sort()).toEqual(['ops-1', 'ops-2'])
+    expect(
+      repository
+        .listOpsEvents(PROJECT)
+        .map((item) => item.eventId)
+        .sort(),
+    ).toEqual(['ops-1', 'ops-2'])
     expect(() => repository.linkOpsFixRequirement('ops-1', 'req-fix-2', NOW)).toThrow('已经关联')
   })
 })

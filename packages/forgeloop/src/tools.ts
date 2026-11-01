@@ -30,7 +30,11 @@ interface ToolDefinitionLike {
 function textBlocks(value: unknown): unknown[] {
   const payload = value as { text?: unknown; ok?: unknown; data?: unknown }
   const head = typeof payload?.text === 'string' ? payload.text : JSON.stringify(value)
-  const structured = JSON.stringify({ ok: payload?.ok ?? null, data: payload?.data ?? null }, null, 2)
+  const structured = JSON.stringify(
+    { ok: payload?.ok ?? null, data: payload?.data ?? null },
+    null,
+    2,
+  )
   return [{ type: 'text', text: `${head}\n\n\`\`\`json\n${structured}\n\`\`\`` }]
 }
 
@@ -61,7 +65,11 @@ function defineTool(input: {
     async execute(rawArgs) {
       const args = (typeof rawArgs === 'object' && rawArgs !== null ? rawArgs : {}) as AnyRecord
       const result = await input.run(args)
-      return { ok: result.ok, text: result.text, ...(result.data === undefined ? {} : { data: result.data }) }
+      return {
+        ok: result.ok,
+        text: result.text,
+        ...(result.data === undefined ? {} : { data: result.data }),
+      }
     },
   }
 }
@@ -71,7 +79,10 @@ function stringArg(args: AnyRecord, key: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-export function buildTools(runtime: ForgeLoopRuntime, config: ForgeLoopConfig): ToolDefinitionLike[] {
+export function buildTools(
+  runtime: ForgeLoopRuntime,
+  config: ForgeLoopConfig,
+): ToolDefinitionLike[] {
   return [
     defineTool({
       name: 'forgeloop_status',
@@ -79,7 +90,9 @@ export function buildTools(runtime: ForgeLoopRuntime, config: ForgeLoopConfig): 
         'Read ForgeLoop requirements and their status. Optionally pass req_id for one requirement. Read-only.',
       parameters: {
         type: 'object',
-        properties: { req_id: { type: 'string', description: 'Exact requirement id, e.g. req-20261022...' } },
+        properties: {
+          req_id: { type: 'string', description: 'Exact requirement id, e.g. req-20261022...' },
+        },
         additionalProperties: false,
       },
       async run(args) {
@@ -205,8 +218,14 @@ export function buildTools(runtime: ForgeLoopRuntime, config: ForgeLoopConfig): 
       parameters: {
         type: 'object',
         properties: {
-          text: { type: 'string', description: 'Full requirement text with scope and acceptance expectations' },
-          client_key: { type: 'string', description: 'Optional idempotency key for retrying the same submission' },
+          text: {
+            type: 'string',
+            description: 'Full requirement text with scope and acceptance expectations',
+          },
+          client_key: {
+            type: 'string',
+            description: 'Optional idempotency key for retrying the same submission',
+          },
         },
         required: ['text'],
         additionalProperties: false,

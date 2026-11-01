@@ -89,7 +89,9 @@ export class SqliteRequirementQueueStore implements RequirementQueueStore {
   }
 
   remove(requirementId: string): boolean {
-    const result = this.db.handle.prepare('DELETE FROM requirement_queue WHERE req_id = ?').run(requirementId)
+    const result = this.db.handle
+      .prepare('DELETE FROM requirement_queue WHERE req_id = ?')
+      .run(requirementId)
     return Number(result.changes ?? 0) > 0
   }
 }

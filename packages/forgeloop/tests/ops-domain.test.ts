@@ -23,8 +23,20 @@ const CATALOG: OpsCatalog = {
     { id: 'db', kind: 'database', label: '业务库' },
   ],
   checks: [
-    { id: 'web-health', resourceId: 'web', command: ['node', '-e', 'process.exit(0)'], timeoutSeconds: 20, severity: 'major' },
-    { id: 'db-ping', resourceId: 'db', command: ['node', '-e', 'process.exit(0)'], timeoutSeconds: 20, severity: 'critical' },
+    {
+      id: 'web-health',
+      resourceId: 'web',
+      command: ['node', '-e', 'process.exit(0)'],
+      timeoutSeconds: 20,
+      severity: 'major',
+    },
+    {
+      id: 'db-ping',
+      resourceId: 'db',
+      command: ['node', '-e', 'process.exit(0)'],
+      timeoutSeconds: 20,
+      severity: 'critical',
+    },
   ],
   actions: [
     {
@@ -249,7 +261,11 @@ describe('action authorization', () => {
 
   it('keeps every other case with the owner', () => {
     expect(
-      authorizeOpsAction({ event, action: webAction, diagnosis: diagnosis({ decisionRequired: true }) }).auto,
+      authorizeOpsAction({
+        event,
+        action: webAction,
+        diagnosis: diagnosis({ decisionRequired: true }),
+      }).auto,
     ).toBe(false)
     expect(
       authorizeOpsAction({
@@ -356,12 +372,22 @@ describe('ops interruption report', () => {
     ).toThrow(/20/)
     expect(() =>
       parseOpsInterruptionReport(
-        JSON.stringify({ summary: 'x'.repeat(501), root_cause: 'y', evidence: ['z'], next_step: 'w' }),
+        JSON.stringify({
+          summary: 'x'.repeat(501),
+          root_cause: 'y',
+          evidence: ['z'],
+          next_step: 'w',
+        }),
       ),
     ).toThrow(/500/)
     expect(() =>
       parseOpsInterruptionReport(
-        JSON.stringify({ summary: 'x', root_cause: 'y', evidence: ['z'], next_step: 'w'.repeat(2001) }),
+        JSON.stringify({
+          summary: 'x',
+          root_cause: 'y',
+          evidence: ['z'],
+          next_step: 'w'.repeat(2001),
+        }),
       ),
     ).toThrow(/2000/)
   })

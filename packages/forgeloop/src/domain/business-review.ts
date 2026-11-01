@@ -87,8 +87,12 @@ export function parseBusinessReview(raw: string): BusinessReview {
   }
   if (!Array.isArray(data.scenarios)) throw new MalformedError('业务终审必须给出 scenarios 数组')
   if (!Array.isArray(data.acceptance)) throw new MalformedError('业务终审必须给出 acceptance 数组')
-  const scenarios = data.scenarios.map((item, index) => itemOf(item, 'scenario', `scenarios[${index}]`))
-  const acceptance = data.acceptance.map((item, index) => itemOf(item, 'criterion', `acceptance[${index}]`))
+  const scenarios = data.scenarios.map((item, index) =>
+    itemOf(item, 'scenario', `scenarios[${index}]`),
+  )
+  const acceptance = data.acceptance.map((item, index) =>
+    itemOf(item, 'criterion', `acceptance[${index}]`),
+  )
   return {
     verdict,
     summary: nonEmpty(data.summary, 'summary'),
@@ -114,7 +118,9 @@ function checkItem(
     issues.push(`${what}没有关联验证命令：${text}`)
     return issues
   }
-  const referenced = item.commands.map((label) => runs.get(label)).filter((run): run is BusinessReviewCommandRun => run !== undefined)
+  const referenced = item.commands
+    .map((label) => runs.get(label))
+    .filter((run): run is BusinessReviewCommandRun => run !== undefined)
   if (referenced.length !== item.commands.length) {
     const unreported = item.commands.filter((label) => !runs.has(label))
     issues.push(`${what}引用了未执行的验证命令：${unreported.join('、')}`)
@@ -138,7 +144,9 @@ export function validateBusinessReview(input: {
 }): string[] {
   const issues: string[] = []
   if (input.review.verdict !== 'pass') {
-    issues.push(`业务终审结论为 ${input.review.verdict}：${input.review.blocking.join('；') || input.review.summary}`)
+    issues.push(
+      `业务终审结论为 ${input.review.verdict}：${input.review.blocking.join('；') || input.review.summary}`,
+    )
     return issues
   }
   const runs = new Map(input.runs.map((run) => [run.label, run]))

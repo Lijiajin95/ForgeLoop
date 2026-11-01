@@ -46,7 +46,9 @@ interface Layer {
 }
 
 function layerOf(file: string, layers: readonly Layer[]): Layer | undefined {
-  const candidates = layers.filter((layer) => file === layer.path || file.startsWith(`${layer.path}/`))
+  const candidates = layers.filter(
+    (layer) => file === layer.path || file.startsWith(`${layer.path}/`),
+  )
   candidates.sort((left, right) => right.path.length - left.path.length)
   return candidates[0]
 }
@@ -64,13 +66,21 @@ function localImport(fromFile: string, specifier: string): string | null {
 }
 
 function importSpecifiers(source: string): string[] {
-  const staticImports = [...source.matchAll(/(?:from|import)\s+['"](\.[^'"]+)['"]/g)].map((match) => match[1]!)
-  const dynamicImports = [...source.matchAll(/import\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g)].map((match) => match[1]!)
-  const reExports = [...source.matchAll(/export\s+(?:\*|\{[^}]*\})\s+from\s+['"](\.[^'"]+)['"]/g)].map((match) => match[1]!)
+  const staticImports = [...source.matchAll(/(?:from|import)\s+['"](\.[^'"]+)['"]/g)].map(
+    (match) => match[1]!,
+  )
+  const dynamicImports = [...source.matchAll(/import\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g)].map(
+    (match) => match[1]!,
+  )
+  const reExports = [
+    ...source.matchAll(/export\s+(?:\*|\{[^}]*\})\s+from\s+['"](\.[^'"]+)['"]/g),
+  ].map((match) => match[1]!)
   return [...new Set([...staticImports, ...dynamicImports, ...reExports])]
 }
 
-function checkLayers(contract: any): { sourceRoot: string; layers: Layer[]; sourceFiles: string[] } | null {
+function checkLayers(
+  contract: any,
+): { sourceRoot: string; layers: Layer[]; sourceFiles: string[] } | null {
   const packagePath = contract?.runtime?.package
   if (typeof packagePath !== 'string' || !packagePath) {
     fail('runtime.package 缺失')
@@ -101,13 +111,17 @@ function checkLayers(contract: any): { sourceRoot: string; layers: Layer[]; sour
     if (paths.has(raw.path)) fail(`分层路径重复：${raw.path}`)
     names.add(raw.name)
     paths.add(raw.path)
-    if (!Array.isArray(raw.may_import) || raw.may_import.some((item: unknown) => typeof item !== 'string')) {
+    if (
+      !Array.isArray(raw.may_import) ||
+      raw.may_import.some((item: unknown) => typeof item !== 'string')
+    ) {
       fail(`分层 ${raw.name} 的 may_import 必须是字符串数组`)
       continue
     }
     const absolute = join(ROOT, raw.path)
     if (!existsSync(absolute)) fail(`分层路径不存在：${raw.path}`)
-    if (!inside(join(ROOT, sourceRoot), absolute)) fail(`分层路径必须位于 ${sourceRoot} 内：${raw.path}`)
+    if (!inside(join(ROOT, sourceRoot), absolute))
+      fail(`分层路径必须位于 ${sourceRoot} 内：${raw.path}`)
     layers.push({ name: raw.name, path: raw.path, may_import: raw.may_import })
   }
   for (const layer of layers) {
@@ -120,7 +134,12 @@ function checkLayers(contract: any): { sourceRoot: string; layers: Layer[]; sour
   return { sourceRoot, layers, sourceFiles }
 }
 
-function checkDependencies(contract: any, sourceRoot: string, layers: Layer[], sourceFiles: string[]): void {
+function checkDependencies(
+  contract: any,
+  sourceRoot: string,
+  layers: Layer[],
+  sourceFiles: string[],
+): void {
   const graph = new Map<string, string[]>()
   const used = new Set<string>()
   for (const file of sourceFiles) {
@@ -196,13 +215,17 @@ function checkPersistence(contract: any): void {
     return
   }
   for (const key of ['engine', 'driver', 'database'] as const) {
-    if (typeof persistence[key] !== 'string' || !persistence[key]) fail(`persistence.${key} 必须是非空字符串`)
+    if (typeof persistence[key] !== 'string' || !persistence[key])
+      fail(`persistence.${key} 必须是非空字符串`)
   }
   const dbSource = readFileSync(join(ROOT, 'packages/forgeloop/src/records/db.ts'), 'utf8')
   if (typeof persistence.driver === 'string' && !dbSource.includes(`'${persistence.driver}'`)) {
     fail(`db.ts 未使用 persistence.driver：${persistence.driver}`)
   }
-  if (typeof persistence.database === 'string' && !persistence.database.includes('records.sqlite')) {
+  if (
+    typeof persistence.database === 'string' &&
+    !persistence.database.includes('records.sqlite')
+  ) {
     fail('persistence.database 必须指向 records.sqlite')
   }
   const configSource = readFileSync(join(ROOT, 'packages/forgeloop/src/config.ts'), 'utf8')
@@ -225,7 +248,8 @@ function checkModelSurface(contract: any): void {
     if (!name.startsWith(prefix)) fail(`模型工具 ${name} 未使用命名前缀 ${prefix}`)
   }
   if (!source.includes('tools.register')) fail('tools.ts 未调用 tools.register')
-  const mutation = /\.(approvePlan|accept|requestOperation|retryTask|replanTask|cancel|stop)\s*\(/.exec(source)
+  const mutation =
+    /\.(approvePlan|accept|requestOperation|retryTask|replanTask|cancel|stop)\s*\(/.exec(source)
   if (mutation) fail(`模型工具不得调用决定入口：${mutation[1]}`)
 }
 
@@ -262,7 +286,11 @@ function checkUiSurface(contract: any): void {
   for (const [label, needle] of expected) {
     if (!client.includes(needle)) fail(`client.js 与 ui_surface 不一致：缺少${label} ${needle}`)
   }
-  for (const surface of ['conversation.view', 'conversation.chat.node', 'conversation.chat.turnTail']) {
+  for (const surface of [
+    'conversation.view',
+    'conversation.chat.node',
+    'conversation.chat.turnTail',
+  ]) {
     if (!client.includes(`'${surface}'`)) fail(`client.js 未注册会话表面 ${surface}`)
   }
 
@@ -273,7 +301,8 @@ function checkUiSurface(contract: any): void {
   }
   const iconPath = join(ROOT, 'packages/forgeloop/icon.svg')
   if (!existsSync(iconPath)) fail('缺少插件图标 icon.svg')
-  else if (!readFileSync(iconPath, 'utf8').trimStart().startsWith('<svg')) fail('icon.svg 不是 SVG 文档')
+  else if (!readFileSync(iconPath, 'utf8').trimStart().startsWith('<svg'))
+    fail('icon.svg 不是 SVG 文档')
   for (const locale of ['zh', 'en']) {
     const localePath = join(ROOT, 'packages/forgeloop', `locale/${locale}.json`)
     if (!existsSync(localePath)) {
@@ -282,7 +311,10 @@ function checkUiSurface(contract: any): void {
     }
     try {
       const parsed = JSON.parse(readFileSync(localePath, 'utf8'))
-      if (typeof parsed?.meta?.title !== 'string' || typeof parsed?.meta?.description !== 'string') {
+      if (
+        typeof parsed?.meta?.title !== 'string' ||
+        typeof parsed?.meta?.description !== 'string'
+      ) {
         fail(`locale/${locale}.json 缺少 meta.title/description`)
       }
     } catch (error) {
@@ -323,14 +355,19 @@ function checkSessionSurface(contract: any): void {
     fail('session_surface 缺失')
     return
   }
-  if (typeof session.preset_id !== 'string' || !session.preset_id) fail('session_surface.preset_id 缺失')
-  if (typeof session.interception !== 'string' || !session.interception) fail('session_surface.interception 缺失')
+  if (typeof session.preset_id !== 'string' || !session.preset_id)
+    fail('session_surface.preset_id 缺失')
+  if (typeof session.interception !== 'string' || !session.interception)
+    fail('session_surface.interception 缺失')
 
   const intake = readFileSync(join(ROOT, 'packages/forgeloop/src/session/intake.ts'), 'utf8')
   const surface = readFileSync(join(ROOT, 'packages/forgeloop/src/session/index.ts'), 'utf8')
   const eventsSource = readFileSync(join(ROOT, 'packages/forgeloop/src/session/events.ts'), 'utf8')
   const client = readFileSync(join(ROOT, 'packages/forgeloop/client.js'), 'utf8')
-  if (typeof session.preset_id === 'string' && !intake.includes(`FORGELOOP_PRESET_ID = '${session.preset_id}'`)) {
+  if (
+    typeof session.preset_id === 'string' &&
+    !intake.includes(`FORGELOOP_PRESET_ID = '${session.preset_id}'`)
+  ) {
     fail(`session_surface.preset_id 与 intake.ts 不一致：${session.preset_id}`)
   }
   if (typeof session.interception === 'string' && !surface.includes(`'${session.interception}'`)) {
@@ -338,12 +375,18 @@ function checkSessionSurface(contract: any): void {
   }
   if (!intake.includes(`role === 'user'`)) fail("intake.ts 必须只处理 role === 'user' 的人类输入")
 
-  const events = [...new Set([...eventsSource.matchAll(/'(plugin:forgeloop\/[^']+)'/g)].map((match) => match[1]!))]
+  const events = [
+    ...new Set(
+      [...eventsSource.matchAll(/'(plugin:forgeloop\/[^']+)'/g)].map((match) => match[1]!),
+    ),
+  ]
   if (events.length === 0) fail('session/events.ts 没有发现会话事件')
   for (const event of events) {
     if (!client.includes(`'${event}'`)) fail(`client.js 未注册会话事件 ${event}`)
   }
-  const clientEvents = [...new Set([...client.matchAll(/'(plugin:forgeloop\/[^']+)'/g)].map((match) => match[1]!))]
+  const clientEvents = [
+    ...new Set([...client.matchAll(/'(plugin:forgeloop\/[^']+)'/g)].map((match) => match[1]!)),
+  ]
   for (const event of clientEvents) {
     if (!events.includes(event)) fail(`client.js 注册了 events.ts 未声明的事件 ${event}`)
   }
@@ -356,7 +399,8 @@ function checkNoPython(): void {
     'package.json',
     'Makefile',
   ].filter((file) => existsSync(join(ROOT, file)))
-  const pattern = /['"`]python[0-9.]*['"`]|\bpython3?\s+-m\b|\buv\s+run\b|\.venv\/bin\/python|forgeloop\.cli/i
+  const pattern =
+    /['"`]python[0-9.]*['"`]|\bpython3?\s+-m\b|\buv\s+run\b|\.venv\/bin\/python|forgeloop\.cli/i
   for (const file of files) {
     const text = readFileSync(join(ROOT, file), 'utf8')
     if (pattern.test(text)) fail(`活动文件仍引用 Python/旧虚拟环境：${file}`)
@@ -395,5 +439,7 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`[contracts] FAIL ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('[contracts] OK：分层、依赖、循环、退役路径、工具、UI 与会话边界一致；活动代码未引用 Python')
+  console.log(
+    '[contracts] OK：分层、依赖、循环、退役路径、工具、UI 与会话边界一致；活动代码未引用 Python',
+  )
 }

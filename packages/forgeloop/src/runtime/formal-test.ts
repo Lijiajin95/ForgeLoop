@@ -71,8 +71,12 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
       env: { ...process.env },
       signal: request.signal,
     })
-    handle.stdout?.on('data', (chunk: Buffer) => collect(Buffer.from(chunk)))
-    handle.stderr?.on('data', (chunk: Buffer) => collect(Buffer.from(chunk)))
+    handle.stdout?.on('data', (chunk: Buffer) => {
+      collect(Buffer.from(chunk))
+    })
+    handle.stderr?.on('data', (chunk: Buffer) => {
+      collect(Buffer.from(chunk))
+    })
     const timer = setTimeout(() => {
       timedOut = true
       handle.terminate()
@@ -95,8 +99,12 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout?.on('data', (chunk: Buffer) => collect(Buffer.from(chunk)))
-    child.stderr?.on('data', (chunk: Buffer) => collect(Buffer.from(chunk)))
+    child.stdout?.on('data', (chunk: Buffer) => {
+      collect(Buffer.from(chunk))
+    })
+    child.stderr?.on('data', (chunk: Buffer) => {
+      collect(Buffer.from(chunk))
+    })
     const timer = setTimeout(() => {
       timedOut = true
       child.kill('SIGTERM')
@@ -108,8 +116,12 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
     }
     request.signal?.addEventListener('abort', onAbort, { once: true })
     exitCode = await new Promise<number | null>((resolve) => {
-      child.once('exit', (code) => resolve(code))
-      child.once('error', () => resolve(null))
+      child.once('exit', (code) => {
+        resolve(code)
+      })
+      child.once('error', () => {
+        resolve(null)
+      })
     }).finally(() => {
       clearTimeout(timer)
       request.signal?.removeEventListener('abort', onAbort)

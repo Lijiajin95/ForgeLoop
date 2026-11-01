@@ -99,8 +99,12 @@ describe('candidate export and controlled integration', () => {
       evidenceDir: evidence(),
       timeoutMs: 30_000,
     }
-    expect(integrateCandidate({ ...base, candidateDiffPath: join(project, 'missing.diff') }).detail).toContain('缺失')
-    expect(integrateCandidate({ ...base, expectedDiffSha256: '0'.repeat(64) }).detail).toContain('摘要不一致')
+    expect(
+      integrateCandidate({ ...base, candidateDiffPath: join(project, 'missing.diff') }).detail,
+    ).toContain('缺失')
+    expect(integrateCandidate({ ...base, expectedDiffSha256: '0'.repeat(64) }).detail).toContain(
+      '摘要不一致',
+    )
     writeFileSync(join(project, 'README.md'), 'dirty\n')
     expect(integrateCandidate(base).detail).toContain('未提交改动')
     git(project, ['checkout', '--', 'README.md'])
@@ -131,7 +135,6 @@ describe('candidate export and controlled integration', () => {
     expect(git(project, ['status', '--porcelain'])).toBe('')
   })
 
-
   it('reports an empty candidate and a patch that cannot be applied', () => {
     const project = repo()
     const { record } = candidate(project)
@@ -146,12 +149,20 @@ describe('candidate export and controlled integration', () => {
     const empty = join(evidence(), 'empty.diff')
     writeFileSync(empty, '')
     expect(
-      integrateCandidate({ ...base, candidateDiffPath: empty, expectedDiffSha256: sha256OfText('') }).detail,
+      integrateCandidate({
+        ...base,
+        candidateDiffPath: empty,
+        expectedDiffSha256: sha256OfText(''),
+      }).detail,
     ).toContain('没有产生可提交的文件改动')
     const broken = join(evidence(), 'broken.diff')
     writeFileSync(broken, 'not a patch\n')
     expect(
-      integrateCandidate({ ...base, candidateDiffPath: broken, expectedDiffSha256: sha256OfText('not a patch\n') }).detail,
+      integrateCandidate({
+        ...base,
+        candidateDiffPath: broken,
+        expectedDiffSha256: sha256OfText('not a patch\n'),
+      }).detail,
     ).toContain('无法应用')
   })
 
@@ -207,7 +218,9 @@ describe('candidate export and controlled integration', () => {
     expect(result.files).toEqual(['docs/a.md'])
     expect(result.commitSha).toHaveLength(40)
     expect(git(project, ['status', '--porcelain'])).toBe('')
-    expect(git(project, ['show', '--name-only', '--pretty=format:', result.commitSha])).toBe('docs/a.md')
+    expect(git(project, ['show', '--name-only', '--pretty=format:', result.commitSha])).toBe(
+      'docs/a.md',
+    )
     expect(result.checkLogPath).toContain('commit-check.log')
     expect(result.checkSha256).toHaveLength(64)
   })
@@ -292,11 +305,7 @@ describe('candidate export and controlled integration', () => {
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
       expectedDiffSha256: record.diffSha256,
-      checkCommand: [
-        'node',
-        '-e',
-        "require('node:fs').accessSync('node_modules/marker')",
-      ],
+      checkCommand: ['node', '-e', "require('node:fs').accessSync('node_modules/marker')"],
       commitMessage: 'feat: test',
       evidenceDir: evidence(),
       timeoutMs: 30_000,
@@ -345,5 +354,4 @@ describe('candidate export and controlled integration', () => {
     expect(result.detail).toContain('另一个 ForgeLoop 提交正在进行')
     rmSync(join(project, '.git/forgeloop-commit.lock'), { recursive: true, force: true })
   })
-
 })

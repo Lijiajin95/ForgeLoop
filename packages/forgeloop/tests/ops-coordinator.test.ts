@@ -144,7 +144,9 @@ describe('coordinator ops wiring', () => {
     coordinator.start()
     const event = runtime.repo.opsEvent('ops-interrupted')
     expect(event?.state).toBe(OPS_UNRESOLVED)
-    expect(runtime.repo.opsActionAttempts('ops-interrupted')[0]?.state).toBe(OPS_ATTEMPT_INTERRUPTED)
+    expect(runtime.repo.opsActionAttempts('ops-interrupted')[0]?.state).toBe(
+      OPS_ATTEMPT_INTERRUPTED,
+    )
 
     await waitFor(() =>
       runtime.repo

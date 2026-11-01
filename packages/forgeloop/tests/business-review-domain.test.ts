@@ -53,9 +53,9 @@ describe('business review material parsing', () => {
   it('rejects non-object, unknown verdict and contradictory blocking', () => {
     expect(() => parseBusinessReview('[]')).toThrow('必须是 JSON 对象')
     expect(() => parseBusinessReview(review({ verdict: 'ok' }))).toThrow('结论必须是 pass 或 block')
-    expect(() =>
-      parseBusinessReview(review({ verdict: 'pass', blocking: ['有问题'] })),
-    ).toThrow('blocking 必须为空')
+    expect(() => parseBusinessReview(review({ verdict: 'pass', blocking: ['有问题'] }))).toThrow(
+      'blocking 必须为空',
+    )
     expect(() => parseBusinessReview(review({ verdict: 'block', blocking: [] }))).toThrow(
       '至少一条阻断原因',
     )
@@ -90,9 +90,7 @@ describe('business review material parsing', () => {
   })
 
   it('accepts block verdicts with at least one blocking reason', () => {
-    const parsed = parseBusinessReview(
-      review({ verdict: 'block', blocking: ['关键场景未复现'] }),
-    )
+    const parsed = parseBusinessReview(review({ verdict: 'block', blocking: ['关键场景未复现'] }))
     expect(parsed.verdict).toBe('block')
     expect(parsed.blocking).toEqual(['关键场景未复现'])
   })

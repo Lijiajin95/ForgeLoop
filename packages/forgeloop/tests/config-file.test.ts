@@ -31,7 +31,11 @@ describe('external config file', () => {
       JSON.stringify({ project: 'forgeloop', autoAdvance: true, pollSeconds: 2 }),
       'utf8',
     )
-    expect(loadConfigFile(path)).toEqual({ project: 'forgeloop', autoAdvance: true, pollSeconds: 2 })
+    expect(loadConfigFile(path)).toEqual({
+      project: 'forgeloop',
+      autoAdvance: true,
+      pollSeconds: 2,
+    })
   })
 
   it('fails loudly on malformed JSON or non-objects', () => {
@@ -46,9 +50,9 @@ describe('external config file', () => {
   it('fails instead of silently falling back to a default records root', () => {
     expect(() => loadConfigOrThrow({}, join(dir, 'missing.json'))).toThrow('ForgeLoop 配置缺失')
     // 宿主已显式给出关键路径时以宿主为准（测试场景），不再读取本机文件。
-    expect(
-      loadConfigOrThrow({ projectPath: '/tmp/project' }, join(dir, 'missing.json')),
-    ).toEqual({ projectPath: '/tmp/project' })
+    expect(loadConfigOrThrow({ projectPath: '/tmp/project' }, join(dir, 'missing.json'))).toEqual({
+      projectPath: '/tmp/project',
+    })
   })
 
   it('lets the external file supply config when the mount has none', () => {

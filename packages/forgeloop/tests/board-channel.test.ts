@@ -226,7 +226,9 @@ describe('web board host wiring', () => {
     start(host)
     const route = host.routes[0]!
 
-    const found = await route.fetch(post(JSON.stringify({ endpoint: 'detail', reqId: 'req-detail-1' })))
+    const found = await route.fetch(
+      post(JSON.stringify({ endpoint: 'detail', reqId: 'req-detail-1' })),
+    )
     expect(found.status).toBe(200)
     const foundBody = (await found.json()) as {
       ok: boolean
@@ -237,7 +239,9 @@ describe('web board host wiring', () => {
     expect(foundBody.value.status).toBe('draft')
     expect(foundBody.value.analysis).toBeNull()
 
-    const badTask = await route.fetch(post(JSON.stringify({ endpoint: 'task', reqId: 'req-detail-1' })))
+    const badTask = await route.fetch(
+      post(JSON.stringify({ endpoint: 'task', reqId: 'req-detail-1' })),
+    )
     expect(badTask.status).toBe(400)
     const missingTask = await route.fetch(
       post(JSON.stringify({ endpoint: 'task', reqId: 'req-detail-1', taskId: 'a' })),
@@ -247,7 +251,9 @@ describe('web board host wiring', () => {
     const missingId = await route.fetch(post(JSON.stringify({ endpoint: 'detail' })))
     expect(missingId.status).toBe(400)
 
-    const unknown = await route.fetch(post(JSON.stringify({ endpoint: 'detail', reqId: 'req-nope' })))
+    const unknown = await route.fetch(
+      post(JSON.stringify({ endpoint: 'detail', reqId: 'req-nope' })),
+    )
     expect(unknown.status).toBe(404)
 
     await host.cleanup()
@@ -256,7 +262,9 @@ describe('web board host wiring', () => {
   it('approves a plan and queues an explicit advance from the browser route', async () => {
     const reqId = 'req-approve-1'
     seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository = new Repository(database)
     repository.recordTaskPlan({
       taskPlanId: `plan-${reqId}-1`,
@@ -308,7 +316,9 @@ describe('web board host wiring', () => {
     expect(approvedBody.value.authorizationSource).toContain('plan-approval:req-approve-1:v1:')
     expect(approvedBody.value.tasks).toEqual(['a', 'b'])
 
-    const advanced = await route.fetch(post(JSON.stringify({ endpoint: 'advance', reqId, sessionId: 'session-a' })))
+    const advanced = await route.fetch(
+      post(JSON.stringify({ endpoint: 'advance', reqId, sessionId: 'session-a' })),
+    )
     expect(advanced.status).toBe(200)
     const advancedBody = (await advanced.json()) as { ok: boolean; value: { requestId: string } }
     expect(advancedBody.ok).toBe(true)
@@ -321,7 +331,9 @@ describe('web board host wiring', () => {
     const verifyReq = 'req-verify-decision'
     seedRequirement(planReq)
     seedRequirement(verifyReq)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository = new Repository(database)
     repository.recordTaskPlan({
       taskPlanId: `plan-${verifyReq}-1`,
@@ -441,7 +453,9 @@ describe('web board host wiring', () => {
     const badAdvance = await route.fetch(post(JSON.stringify({ endpoint: 'advance' })))
     expect(badAdvance.status).toBe(400)
 
-    const denied = await route.fetch(post(JSON.stringify({ endpoint: 'advance', reqId: 'req-advance-denied' })))
+    const denied = await route.fetch(
+      post(JSON.stringify({ endpoint: 'advance', reqId: 'req-advance-denied' })),
+    )
     expect(denied.status).toBe(409)
     const deniedBody = (await denied.json()) as { error: { code: string } }
     expect(deniedBody.error.code).toBe('admission_required')
@@ -457,7 +471,9 @@ describe('web board host wiring', () => {
 
     const badAccept = await route.fetch(post(JSON.stringify({ endpoint: 'accept' })))
     expect(badAccept.status).toBe(400)
-    const missingAccept = await route.fetch(post(JSON.stringify({ endpoint: 'accept', reqId: 'req-stop-1' })))
+    const missingAccept = await route.fetch(
+      post(JSON.stringify({ endpoint: 'accept', reqId: 'req-stop-1' })),
+    )
     expect(missingAccept.status).toBe(409)
 
     const badStop = await route.fetch(post(JSON.stringify({ endpoint: 'stop' })))
@@ -488,7 +504,9 @@ describe('web board host wiring', () => {
     const body = (await cancelled.json()) as { ok: boolean }
     expect(body.ok).toBe(true)
 
-    const detail = await route.fetch(post(JSON.stringify({ endpoint: 'detail', reqId: 'req-cancel-1' })))
+    const detail = await route.fetch(
+      post(JSON.stringify({ endpoint: 'detail', reqId: 'req-cancel-1' })),
+    )
     const detailBody = (await detail.json()) as { value: { status: string } }
     expect(detailBody.value.status).toBe('cancelled')
     host.cleanup()
@@ -497,7 +515,9 @@ describe('web board host wiring', () => {
   it('serves search, bounded limits and a rich requirement detail for the workbench', async () => {
     const reqId = 'req-ui-detail'
     seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository = new Repository(database)
     repository.recordTaskPlan({
       taskPlanId: `plan-${reqId}-1`,
@@ -558,7 +578,9 @@ describe('web board host wiring', () => {
     expect(matchedBody.value.requirements.map((item) => item.reqId)).toEqual([reqId])
     expect(matchedBody.value.requirements[0]!.actions).toEqual(['cancel'])
 
-    const none = await route.fetch(post(JSON.stringify({ endpoint: 'board', query: '没有任何匹配' })))
+    const none = await route.fetch(
+      post(JSON.stringify({ endpoint: 'board', query: '没有任何匹配' })),
+    )
     const noneBody = (await none.json()) as { value: { requirements: unknown[] } }
     expect(noneBody.value.requirements).toEqual([])
 
@@ -593,7 +615,9 @@ describe('web board host wiring', () => {
   it('retries a failed task without a recovery confirmation', async () => {
     const reqId = 'req-retry-1'
     seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository = new Repository(database)
     repository.recordTaskPlan({
       taskPlanId: `plan-${reqId}-1`,
@@ -658,7 +682,15 @@ describe('web board host wiring', () => {
     expect(malformed.status).toBe(400)
 
     const retried = await route.fetch(
-      post(JSON.stringify({ endpoint: 'retry', reqId, planVersion: 1, taskId: 'a', sessionId: 'session-retry' })),
+      post(
+        JSON.stringify({
+          endpoint: 'retry',
+          reqId,
+          planVersion: 1,
+          taskId: 'a',
+          sessionId: 'session-retry',
+        }),
+      ),
     )
     const rawBody = await retried.clone().text()
     if (retried.status !== 200) throw new Error(`status ${retried.status}: ${rawBody}`)
@@ -667,7 +699,9 @@ describe('web board host wiring', () => {
     expect(retriedBody.value.requestId).toMatch(/^rq-/)
 
     const detail = await route.fetch(post(JSON.stringify({ endpoint: 'detail', reqId })))
-    const detailBody = (await detail.json()) as { value: { pendingRequests: Array<{ action: string }> } }
+    const detailBody = (await detail.json()) as {
+      value: { pendingRequests: Array<{ action: string }> }
+    }
     expect(detailBody.value.pendingRequests.map((request) => request.action)).toEqual(['advance'])
     host.cleanup()
   })
@@ -675,7 +709,9 @@ describe('web board host wiring', () => {
   it('keeps an approved task package frozen and no longer exposes replan', async () => {
     const reqId = 'req-frozen-1'
     seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository = new Repository(database)
     repository.recordTaskPlan({
       taskPlanId: `plan-${reqId}-1`,
@@ -753,7 +789,9 @@ describe('web board host wiring', () => {
       ),
     )
     expect(permitted.status).toBe(200)
-    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database2 = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository2 = new Repository(database2)
     const request = repository2
       .requestsFor(reqId)
@@ -766,7 +804,9 @@ describe('web board host wiring', () => {
   it('serves the task public execution process with real session and evidence identities', async () => {
     const reqId = 'req-execution-1'
     seedRequirement(reqId)
-    const database = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository = new Repository(database)
     repository.recordTaskPlan({
       taskPlanId: `plan-${reqId}-1`,
@@ -826,30 +866,72 @@ describe('web board host wiring', () => {
     writeFileSync(
       join(taskDir, 'dev.jsonl'),
       [
-        JSON.stringify({ type: 'user/message', seq: 1, time: 1000, data: { content: [{ type: 'text', text: '任务输入' }] } }),
+        JSON.stringify({
+          type: 'user/message',
+          seq: 1,
+          time: 1000,
+          data: { content: [{ type: 'text', text: '任务输入' }] },
+        }),
         JSON.stringify({
           type: 'assistant/message',
           seq: 2,
           time: 2000,
-          data: { message: { content: [{ type: 'reasoning', text: '隐藏推理' }, { type: 'text', text: '公开消息' }] } },
+          data: {
+            message: {
+              content: [
+                { type: 'reasoning', text: '隐藏推理' },
+                { type: 'text', text: '公开消息' },
+              ],
+            },
+          },
         }),
-        JSON.stringify({ type: 'tool/call', seq: 3, time: 2100, data: { callId: 'call-1', name: 'bash', arguments: '{}' } }),
-        JSON.stringify({ type: 'tool/result', seq: 4, time: 2200, data: { toolCallId: 'call-1', message: { content: [{ type: 'text', text: 'ok' }], isError: false } } }),
+        JSON.stringify({
+          type: 'tool/call',
+          seq: 3,
+          time: 2100,
+          data: { callId: 'call-1', name: 'bash', arguments: '{}' },
+        }),
+        JSON.stringify({
+          type: 'tool/result',
+          seq: 4,
+          time: 2200,
+          data: {
+            toolCallId: 'call-1',
+            message: { content: [{ type: 'text', text: 'ok' }], isError: false },
+          },
+        }),
         JSON.stringify({ type: 'step/start', seq: 5, time: 2300, data: {} }),
-        JSON.stringify({ type: 'session-log-deepseek/delivery-accepted', seq: 6, time: 2400, data: { sessionId: 'session-dev-real' } }),
+        JSON.stringify({
+          type: 'session-log-deepseek/delivery-accepted',
+          seq: 6,
+          time: 2400,
+          data: { sessionId: 'session-dev-real' },
+        }),
       ].join('\n'),
     )
     writeFileSync(
       join(taskDir, 'formal-test.log'),
       'command: "npm" "run" "check"\nstarted: 2026-10-29T00:00:03.000Z\nduration_ms: 1000\ntimed_out: false\naborted: false\nexit_code: 0\n',
     )
-    writeFileSync(join(taskDir, 'review.json'), JSON.stringify({ verdict: 'pass', summary: '通过' }))
+    writeFileSync(
+      join(taskDir, 'review.json'),
+      JSON.stringify({ verdict: 'pass', summary: '通过' }),
+    )
 
     const host = fakeHost()
     start(host)
     const route = host.routes[0]!
     const response = await route.fetch(
-      post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'a', planVersion: 1, offset: 0, limit: 1 })),
+      post(
+        JSON.stringify({
+          endpoint: 'execution',
+          reqId,
+          taskId: 'a',
+          planVersion: 1,
+          offset: 0,
+          limit: 1,
+        }),
+      ),
     )
     expect(response.status).toBe(200)
     const payload = (await response.json()) as {
@@ -864,17 +946,25 @@ describe('web board host wiring', () => {
         review: { verdict: string }
       }
     }
-    expect(payload.value.session).toMatchObject({ dev: 'session-dev-real', review: 'session-review-real' })
+    expect(payload.value.session).toMatchObject({
+      dev: 'session-dev-real',
+      review: 'session-review-real',
+    })
     expect(payload.value.total).toBe(3)
     expect(payload.value.truncated).toBe(true)
     expect(payload.value.stepCount).toBe(1)
     expect(payload.value.events).toHaveLength(1)
     expect(JSON.stringify(payload)).not.toContain('隐藏推理')
-    expect(payload.value.attempts[0]).toMatchObject({ sessionId: 'session-dev-real', available: true })
+    expect(payload.value.attempts[0]).toMatchObject({
+      sessionId: 'session-dev-real',
+      available: true,
+    })
     expect(payload.value.test).toMatchObject({ exitCode: 0, available: true })
     expect(payload.value.review.verdict).toBe('pass')
 
-    const database2 = Database.open(join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'))
+    const database2 = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
     const repository2 = new Repository(database2)
     repository2.recordFailureRound(reqId, {
       roundId: 'a-old',
@@ -883,13 +973,25 @@ describe('web board host wiring', () => {
       occurredAt: '2026-10-29T00:00:07.000Z',
     })
     repository2.close()
-    const history = await route.fetch(post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'a', planVersion: 1 })))
-    const historyBody = (await history.json()) as { value: { attempts: Array<{ available: boolean; reason?: string }> } }
+    const history = await route.fetch(
+      post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'a', planVersion: 1 })),
+    )
+    const historyBody = (await history.json()) as {
+      value: { attempts: Array<{ available: boolean; reason?: string }> }
+    }
     expect(historyBody.value.attempts).toHaveLength(2)
     expect(historyBody.value.attempts[1]).toMatchObject({ available: false })
 
-    const empty = await route.fetch(post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'b', planVersion: 1 })))
-    const emptyBody = (await empty.json()) as { value: { total: number; attempts: Array<{ available: boolean; reason: string }>; reason: string } }
+    const empty = await route.fetch(
+      post(JSON.stringify({ endpoint: 'execution', reqId, taskId: 'b', planVersion: 1 })),
+    )
+    const emptyBody = (await empty.json()) as {
+      value: {
+        total: number
+        attempts: Array<{ available: boolean; reason: string }>
+        reason: string
+      }
+    }
     expect(empty.status).toBe(200)
     expect(emptyBody.value.total).toBe(0)
     expect(emptyBody.value.attempts[0]).toMatchObject({ available: false })

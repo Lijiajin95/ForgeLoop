@@ -91,7 +91,9 @@ describe('system admission', () => {
     expect(
       decideAdmission(facts({ analysisVersion: 1, analysisRequirementVersion: null }), POLICY),
     ).toMatchObject({ admit: false, code: 'analysis_stale' })
-    expect(decideAdmission(facts({ analysisVersion: null, analysisRequirementVersion: null }), POLICY)).toMatchObject({
+    expect(
+      decideAdmission(facts({ analysisVersion: null, analysisRequirementVersion: null }), POLICY),
+    ).toMatchObject({
       admit: false,
       code: 'analysis_required',
     })

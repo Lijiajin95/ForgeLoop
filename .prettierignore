@@ -1,0 +1,8 @@
+node_modules
+.cache
+packages/forgeloop/lib
+packages/forgeloop/dist
+packages/forgeloop/coverage
+**/*.json
+**/*.yml
+**/*.yaml

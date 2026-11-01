@@ -86,7 +86,12 @@ const PLAN_REVIEW = JSON.stringify({
   findings: [],
   summary: '任务包可进入实现',
   verification_plan: [
-    { scenario: SCENARIO, acceptance_criterion: CRITERION, method: '在独立候选上执行验证命令', required: true },
+    {
+      scenario: SCENARIO,
+      acceptance_criterion: CRITERION,
+      method: '在独立候选上执行验证命令',
+      required: true,
+    },
   ],
 })
 
@@ -98,12 +103,14 @@ const VERIFICATION_REPORT = JSON.stringify({
   scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
 })
 
-function businessReview(options: {
-  verdict?: 'pass' | 'block'
-  scenario?: string
-  evidence?: string
-  omitAcceptance?: boolean
-} = {}): string {
+function businessReview(
+  options: {
+    verdict?: 'pass' | 'block'
+    scenario?: string
+    evidence?: string
+    omitAcceptance?: boolean
+  } = {},
+): string {
   const verdict = options.verdict ?? 'pass'
   return JSON.stringify({
     verdict,
@@ -131,17 +138,21 @@ function businessReview(options: {
   })
 }
 
-function fakeRunner(options: {
-  review?: () => string
-  reviewStatus?: AgentRunResult['status']
-  reviewText?: string
-  verificationCommand?: readonly string[]
-} = {}): AgentLike {
+function fakeRunner(
+  options: {
+    review?: () => string
+    reviewStatus?: AgentRunResult['status']
+    reviewText?: string
+    verificationCommand?: readonly string[]
+  } = {},
+): AgentLike {
   return {
     async run(request) {
       if (request.role === 'product') return result(request, ANALYSIS)
-      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) return result(request, PLAN)
-      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, PLAN_REVIEW)
+      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
+        return result(request, PLAN)
+      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
+        return result(request, PLAN_REVIEW)
       if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
@@ -151,7 +162,11 @@ function fakeRunner(options: {
             commands: [
               {
                 label: 'smoke',
-                argv: options.verificationCommand ?? ['node', '-e', `console.log('${SMOKE_OUTPUT}')`],
+                argv: options.verificationCommand ?? [
+                  'node',
+                  '-e',
+                  `console.log('${SMOKE_OUTPUT}')`,
+                ],
               },
             ],
           }),
@@ -166,9 +181,15 @@ function fakeRunner(options: {
         return result(request, options.reviewText ?? options.review?.() ?? businessReview())
       }
       if (request.role === 'verify' && request.prompt.includes('独立审查')) {
-        return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
+        return result(
+          request,
+          JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }),
+        )
       }
-      const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+      const allowed =
+        /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/
+          .exec(request.prompt)?.[1]
+          ?.split('、')[0] ?? 'docs/out.md'
       mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
       writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
       return result(request, 'done')
@@ -203,12 +224,17 @@ async function runQueued(action: 'analyze' | 'plan' | 'advance' | 'verify', reqI
   return outcome
 }
 
-async function runPipeline(): Promise<{ reqId: string; advance: Awaited<ReturnType<typeof runQueued>> }> {
+async function runPipeline(): Promise<{
+  reqId: string
+  advance: Awaited<ReturnType<typeof runQueued>>
+}> {
   const submitted = runtime.submit({ text: '实现两个文档改动', by: 'owner', source: 'test' })
   const reqId = (submitted.data as { reqId: string }).reqId
   expect((await runQueued('analyze', reqId)).state).toBe('done')
   expect((await runQueued('plan', reqId)).state).toBe('done')
-  expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' }).ok).toBe(true)
+  expect(
+    runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' }).ok,
+  ).toBe(true)
   return { reqId, advance: await runQueued('advance', reqId) }
 }
 
@@ -252,7 +278,9 @@ describe('business final review', () => {
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('业务终审阻断')
     expect(runtime.repo.businessReview(reqId, 1)?.verdict).toBe('block')
-    expect(runtime.repo.failureRounds(reqId).some((round) => round.stage === 'business_review')).toBe(true)
+    expect(
+      runtime.repo.failureRounds(reqId).some((round) => round.stage === 'business_review'),
+    ).toBe(true)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
     expect(runtime.accept({ reqId, by: 'owner', source: 'test' })).toMatchObject({
       ok: false,
@@ -270,7 +298,8 @@ describe('business final review', () => {
   })
 
   it('finds evidence printed before the tail of a long verification output', async () => {
-    const evidence = 'EVIDENCE issue-create: internal issue attempt=1 linked=req environment=snapshot logs=2'
+    const evidence =
+      'EVIDENCE issue-create: internal issue attempt=1 linked=req environment=snapshot logs=2'
     const noise = 'noise-'.repeat(1400)
     runtime.close()
     runtime = makeRuntime(
@@ -292,7 +321,9 @@ describe('business final review', () => {
 
   it('does not accept evidence that cannot be checked against the verification output', async () => {
     runtime.close()
-    runtime = makeRuntime(fakeRunner({ review: () => businessReview({ evidence: '所有场景人工确认无问题' }) }))
+    runtime = makeRuntime(
+      fakeRunner({ review: () => businessReview({ evidence: '所有场景人工确认无问题' }) }),
+    )
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('证据无法在验证输出中核对')

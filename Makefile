@@ -21,6 +21,8 @@ help:
 	@echo "make package               构建本地候选安装包与摘要"
 	@echo "make contracts             架构契约校验"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
+	@echo "make lint                  ESLint（类型感知，src；tests/scripts 无类型规则）"
+	@echo "make format                检查 Prettier 格式（make format-write 写入）"
 	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts）"
 	@echo "make mutation              未接入：显式失败，不冒充通过"
 
@@ -38,7 +40,7 @@ test:
 
 check: check-static test
 
-check-static: typecheck contracts
+check-static: typecheck lint contracts
 
 contracts: architecture-contract-check
 
@@ -73,7 +75,10 @@ audit:
 security: audit
 
 format:
-	@echo "format: NOT CONFIGURED（尚未选定 TypeScript 格式化器；不冒充分已格式化）" >&2
-	@exit 1
+	$(NPM) run format:check
 
-lint: typecheck contracts
+format-write:
+	$(NPM) exec -- prettier --write "packages/forgeloop/{src,tests}/**/*.ts" "scripts/ts/**/*.ts"
+
+lint:
+	$(NPM) run lint

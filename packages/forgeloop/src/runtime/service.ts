@@ -5,14 +5,43 @@
 
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { hostname } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import { businessReviewDir, candidatesDir, devWorkspaceDir, evidenceDir, integrationDir, planReviewDir, projectDir, recordsPath, reviewDir, sessionsDir, verificationDir, workspaceDir } from '../config.js'
+import {
+  businessReviewDir,
+  candidatesDir,
+  devWorkspaceDir,
+  evidenceDir,
+  integrationDir,
+  planReviewDir,
+  projectDir,
+  recordsPath,
+  reviewDir,
+  sessionsDir,
+  verificationDir,
+  workspaceDir,
+} from '../config.js'
 import { PLUGIN_VERSION } from './version.js'
 import { Database } from '../records/db.js'
-import { Repository, type BusinessReviewRecord, type CodeCandidateRecord, type PlanReviewRecord, type RequirementCommitRecord, type ServiceRequestRecord, type VerificationRecord } from '../records/repository.js'
+import {
+  Repository,
+  type BusinessReviewRecord,
+  type CodeCandidateRecord,
+  type RequirementCommitRecord,
+  type ServiceRequestRecord,
+  type VerificationRecord,
+} from '../records/repository.js'
 import { RuleViolationError } from '../domain/errors.js'
 import {
   parseAnalysisDraft,
@@ -31,12 +60,32 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import { GrantLedger, FAILURE_BUSINESS_REVIEW, FAILURE_FORMAL_TEST, FAILURE_PLANNING, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import {
+  GrantLedger,
+  FAILURE_BUSINESS_REVIEW,
+  FAILURE_FORMAL_TEST,
+  FAILURE_PLANNING,
+  FAILURE_VERIFICATION,
+  MAX_ROUNDS_PER_GRANT,
+} from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
 import { formatCommitMessage } from '../domain/commit-message.js'
 import { retryDecision } from '../domain/retry-policy.js'
-import { ACCEPTED, ACTION_VERIFY, APPROVED, AWAITING_CLARIFICATION, CANCELLED, COMMITTED, DEVELOPING, EXECUTING, PLAN_PROPOSED, SPECIFIED, VERIFYING, isTerminal } from '../domain/status.js'
+import {
+  ACCEPTED,
+  ACTION_VERIFY,
+  APPROVED,
+  AWAITING_CLARIFICATION,
+  CANCELLED,
+  COMMITTED,
+  DEVELOPING,
+  EXECUTING,
+  PLAN_PROPOSED,
+  SPECIFIED,
+  VERIFYING,
+  isTerminal,
+} from '../domain/status.js'
 import { AGENT_DEV, AGENT_PRODUCT, AGENT_VERIFY } from '../domain/agents.js'
 import { decideAdmission, type AdmissionDecision } from '../domain/admission.js'
 import {
@@ -46,7 +95,11 @@ import {
   TASK_RUN_FAILED,
   TASK_RUN_RUNNING,
 } from '../domain/status.js'
-import { parseBusinessReview, validateBusinessReview, type BusinessReview } from '../domain/business-review.js'
+import {
+  parseBusinessReview,
+  validateBusinessReview,
+  type BusinessReview,
+} from '../domain/business-review.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import { buildTaskFailureAdvice } from '../domain/failure-advice.js'
 import { requirementEvidence } from '../domain/requirement-evidence.js'
@@ -82,8 +135,13 @@ import {
   type RequirementIssue,
   type RequirementIssueEvidence,
 } from '../domain/issue.js'
-import { AgentRunner, type AgentOpenRequest, type AgentRunResult, type AgentSession } from './agent-runner.js'
-import { candidateIdentity, exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
+import { AgentRunner, type AgentOpenRequest, type AgentSession } from './agent-runner.js'
+import {
+  candidateIdentity,
+  exportCandidate,
+  integrateCandidate,
+  type CandidateFile,
+} from './integration.js'
 import { OpsRuntime } from './ops.js'
 import {
   buildProjectFacts,
@@ -93,8 +151,25 @@ import {
   type StatusBoardView,
 } from './board.js'
 import { runFormalTest } from './formal-test.js'
-import { analysisPrompt, businessReviewPrompt, devPlanningPrompt, devPrompt, parseReviewVerdict, planReviewPrompt, reviewPrompt, requirementContext, verificationPrompt } from './prompts.js'
-import { captureCandidate, git, headCommit, prepareSnapshotWorkspace, runCommand, requireGit } from './workspace.js'
+import {
+  analysisPrompt,
+  businessReviewPrompt,
+  devPlanningPrompt,
+  devPrompt,
+  parseReviewVerdict,
+  planReviewPrompt,
+  reviewPrompt,
+  requirementContext,
+  verificationPrompt,
+} from './prompts.js'
+import {
+  captureCandidate,
+  git,
+  headCommit,
+  prepareSnapshotWorkspace,
+  runCommand,
+  requireGit,
+} from './workspace.js'
 import { parseTaskExecution } from './task-execution.js'
 
 export interface OperationResult {
@@ -143,7 +218,10 @@ function summarizeActivity(events: readonly Record<string, unknown>[]): string {
       return `正在调用工具 ${name}`
     }
     if (event.type === 'tool/result') return '工具返回结果'
-    if (event.type === 'step/start') return `执行步骤 ${String(data?.step ?? '')}`.trim()
+    if (event.type === 'step/start') {
+      const step = typeof data?.step === 'number' ? String(data.step) : ''
+      return `执行步骤 ${step}`.trim()
+    }
     if (event.type === 'assistant/message') return '模型回复并继续'
     if (event.type === 'turn/start') return '回合开始'
     if (event.type === 'turn/end') return '回合结束'
@@ -154,9 +232,15 @@ function summarizeActivity(events: readonly Record<string, unknown>[]): string {
 function readActivity(
   path: string,
   limit: number,
-): { items: Array<{ type: string; at: string; summary: string }>; total: number; truncated: boolean } {
+): {
+  items: Array<{ type: string; at: string; summary: string }>
+  total: number
+  truncated: boolean
+} {
   if (!existsSync(path)) return { items: [], total: 0, truncated: false }
-  const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line.trim() !== '')
+  const lines = readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
   const selected = lines.slice(-limit)
   const result: Array<{ type: string; at: string; summary: string }> = []
   for (const line of selected) {
@@ -168,7 +252,10 @@ function readActivity(
       let summary = type
       if (type === 'tool/call') {
         const name = typeof data.name === 'string' ? data.name : '工具'
-        const args = typeof data.arguments === 'string' ? data.arguments.replace(/\s+/g, ' ').slice(0, 240) : ''
+        const args =
+          typeof data.arguments === 'string'
+            ? data.arguments.replace(/\s+/g, ' ').slice(0, 240)
+            : ''
         summary = `调用 ${name}${args ? `: ${args}` : ''}`
       } else if (type === 'tool/result') {
         summary = '工具返回结果'
@@ -176,7 +263,10 @@ function readActivity(
         const message = data.message as Record<string, unknown> | undefined
         const content = Array.isArray(message?.content) ? message.content : []
         const text = content
-          .filter((block): block is Record<string, unknown> => typeof block === 'object' && block !== null)
+          .filter(
+            (block): block is Record<string, unknown> =>
+              typeof block === 'object' && block !== null,
+          )
           .filter((block) => block.type === 'text' && typeof block.text === 'string')
           .map((block) => String(block.text))
           .join(' ')
@@ -184,7 +274,7 @@ function readActivity(
           .slice(0, 300)
         summary = text ? `模型回复: ${text}` : '模型回复'
       } else if (type === 'step/start') {
-        summary = `步骤 ${String(data.step ?? '')}`.trim()
+        summary = `步骤 ${typeof data.step === 'number' ? data.step : ''}`.trim()
       } else if (type === 'turn/start' || type === 'turn/end') {
         summary = type === 'turn/start' ? '回合开始' : '回合结束'
       }
@@ -259,12 +349,16 @@ function workspaceChanges(workspace: string): string[] {
 }
 
 /** 记录验证材料清单与摘要，使报告能绑定实际存在的材料。 */
-function verificationMaterials(dir: string): Array<{ path: string; sha256: string; bytes: number }> {
+function verificationMaterials(
+  dir: string,
+): Array<{ path: string; sha256: string; bytes: number }> {
   const root = join(dir, 'workspace', 'verification')
   if (!existsSync(root)) return []
   const files: Array<{ path: string; sha256: string; bytes: number }> = []
   const walk = (relative: string): void => {
-    for (const entry of readdirSync(relative ? join(root, relative) : root, { withFileTypes: true })) {
+    for (const entry of readdirSync(relative ? join(root, relative) : root, {
+      withFileTypes: true,
+    })) {
       const path = relative ? `${relative}/${entry.name}` : entry.name
       if (entry.isDirectory()) {
         walk(path)
@@ -272,7 +366,11 @@ function verificationMaterials(dir: string): Array<{ path: string; sha256: strin
       }
       if (!entry.isFile()) continue
       const bytes = readFileSync(join(root, path))
-      files.push({ path: `verification/${path}`, sha256: sha256OfBytes(bytes), bytes: bytes.length })
+      files.push({
+        path: `verification/${path}`,
+        sha256: sha256OfBytes(bytes),
+        bytes: bytes.length,
+      })
     }
   }
   walk('')
@@ -429,7 +527,9 @@ export class ForgeLoopRuntime {
   submit(input: { text: string; by: string; source: string; clientKey?: string }): OperationResult {
     const text = input.text.trim()
     if (!text) return fail('empty_text', '需求原文不能为空')
-    const reqId = `req-${this.now().replace(/[-:TZ.]/g, '').slice(0, 14)}-${randomUUID().slice(0, 6)}`
+    const reqId = `req-${this.now()
+      .replace(/[-:TZ.]/g, '')
+      .slice(0, 14)}-${randomUUID().slice(0, 6)}`
     const { requirement, created } = this.repo.submit({
       reqId,
       project: this.config.project,
@@ -439,8 +539,11 @@ export class ForgeLoopRuntime {
       clientKey: input.clientKey ?? '',
       now: this.now(),
     })
-    const trusted = this.config.autonomy.enabled &&
-      this.config.autonomy.trustedSources.some((prefix) => prefix.length > 0 && input.source.startsWith(prefix))
+    const trusted =
+      this.config.autonomy.enabled &&
+      this.config.autonomy.trustedSources.some(
+        (prefix) => prefix.length > 0 && input.source.startsWith(prefix),
+      )
     let handoff = ''
     if (created && trusted) {
       // 可信需求直接入队；研发空闲时立即领取，忙时排队等待，不阻塞本次提交。
@@ -520,9 +623,16 @@ export class ForgeLoopRuntime {
     analysis?: RequirementAnalysis
   }> {
     const answer = input.answer.trim()
-    if (!answer) return { ok: false, code: 'empty_answer', message: '澄清回答不能为空', reqId: input.reqId }
+    if (!answer)
+      return { ok: false, code: 'empty_answer', message: '澄清回答不能为空', reqId: input.reqId }
     const requirement = this.repo.getRequirement(input.reqId)
-    if (!requirement) return { ok: false, code: 'not_found', message: `未找到需求 ${input.reqId}`, reqId: input.reqId }
+    if (!requirement)
+      return {
+        ok: false,
+        code: 'not_found',
+        message: `未找到需求 ${input.reqId}`,
+        reqId: input.reqId,
+      }
     if (requirement.status !== AWAITING_CLARIFICATION) {
       return {
         ok: false,
@@ -532,7 +642,11 @@ export class ForgeLoopRuntime {
       }
     }
     const analysis = this.repo.latestAnalysis(input.reqId)
-    if (!analysis || analysis.requirementVersion !== requirement.versions.length || analysis.clarifications.length === 0) {
+    if (
+      !analysis ||
+      analysis.requirementVersion !== requirement.versions.length ||
+      analysis.clarifications.length === 0
+    ) {
       return {
         ok: false,
         code: 'no_clarification',
@@ -541,7 +655,13 @@ export class ForgeLoopRuntime {
       }
     }
     const latest = requirement.versions[requirement.versions.length - 1]
-    if (!latest) return { ok: false, code: 'not_found', message: `需求 ${input.reqId} 没有可修订版本`, reqId: input.reqId }
+    if (!latest)
+      return {
+        ok: false,
+        code: 'not_found',
+        message: `需求 ${input.reqId} 没有可修订版本`,
+        reqId: input.reqId,
+      }
     const text = `${latest.text}
 
 澄清回答（针对分析 v${analysis.analysisVersion}）：
@@ -653,13 +773,17 @@ ${answer}`
   taskDetail(reqId: string, taskId: string, planVersion?: number): OperationResult {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
-    const plan = planVersion === undefined
-      ? this.repo.latestTaskPlan(reqId)
-      : this.repo.taskPlan(reqId, planVersion)
+    const plan =
+      planVersion === undefined
+        ? this.repo.latestTaskPlan(reqId)
+        : this.repo.taskPlan(reqId, planVersion)
     if (!plan) return fail('plan_missing', `需求 ${reqId} 没有任务包`)
     const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
     if (!task) return fail('task_missing', `任务包内没有任务 ${taskId}`)
-    const run = this.repo.taskRuns(reqId, plan.planVersion).find((candidate) => candidate.taskId === taskId) ?? null
+    const run =
+      this.repo
+        .taskRuns(reqId, plan.planVersion)
+        .find((candidate) => candidate.taskId === taskId) ?? null
     const artifact = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
     const evidence = this.repo.evidence(reqId, plan.planVersion, taskId)
     const taskDir = evidenceDir(this.config, reqId, plan.planVersion, taskId)
@@ -685,8 +809,7 @@ ${answer}`
     const activeRequests = requests.filter(
       (request) => request.state === 'pending' || request.state === 'claimed',
     ).length
-    const waitingForInput =
-      run?.state === TASK_RUN_RUNNING && /ask_user_question/i.test(run.reason)
+    const waitingForInput = run?.state === TASK_RUN_RUNNING && /ask_user_question/i.test(run.reason)
     const stopRequested = Boolean(this.repo.activeStop(requirement.reqId))
     return ok(`任务 ${taskId} 详情`, {
       reqId,
@@ -752,21 +875,38 @@ ${answer}`
   }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    const plan = input.planVersion === undefined
-      ? this.repo.latestTaskPlan(input.reqId)
-      : this.repo.taskPlan(input.reqId, input.planVersion)
+    const plan =
+      input.planVersion === undefined
+        ? this.repo.latestTaskPlan(input.reqId)
+        : this.repo.taskPlan(input.reqId, input.planVersion)
     if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
     const task = plan.tasks.find((candidate) => candidate.taskId === input.taskId)
     if (!task) return fail('task_missing', `任务包内没有任务 ${input.taskId}`)
-    const run = this.repo.taskRuns(input.reqId, plan.planVersion).find((candidate) => candidate.taskId === input.taskId) ?? null
+    const run =
+      this.repo
+        .taskRuns(input.reqId, plan.planVersion)
+        .find((candidate) => candidate.taskId === input.taskId) ?? null
     const artifact = this.repo.taskArtifact(input.reqId, plan.planVersion, input.taskId)
     const evidence = this.repo.evidence(input.reqId, plan.planVersion, input.taskId)
     const taskDir = evidenceDir(this.config, input.reqId, plan.planVersion, input.taskId)
     const devPath = join(taskDir, 'dev.jsonl')
     const hasDev = existsSync(devPath)
     const page = hasDev
-      ? parseTaskExecution(readFileSync(devPath, 'utf8'), { offset: input.offset, limit: input.limit })
-      : { events: [], total: 0, offset: input.offset ?? 0, limit: input.limit ?? 100, truncated: false, stepCount: 0, startedAt: '', lastActivity: '', sessionIds: [] }
+      ? parseTaskExecution(readFileSync(devPath, 'utf8'), {
+          offset: input.offset,
+          limit: input.limit,
+        })
+      : {
+          events: [],
+          total: 0,
+          offset: input.offset ?? 0,
+          limit: input.limit ?? 100,
+          truncated: false,
+          stepCount: 0,
+          startedAt: '',
+          lastActivity: '',
+          sessionIds: [],
+        }
     const reviewPath = join(taskDir, 'review.json')
     const review = readJson(reviewPath)
     const testLogPath = join(taskDir, 'formal-test.log')
@@ -775,7 +915,9 @@ ${answer}`
     const testHeader = parseFormalTestHeader(testLog)
     const sessionId = evidence?.devSession || page.sessionIds[0] || ''
     const reviewSession = evidence?.reviewSession || ''
-    const rounds = this.repo.failureRounds(input.reqId).filter((round) => taskIdOfFailureRound(plan, round.roundId) === task.taskId)
+    const rounds = this.repo
+      .failureRounds(input.reqId)
+      .filter((round) => taskIdOfFailureRound(plan, round.roundId) === task.taskId)
     const attempts = [
       {
         attemptId: sessionId ? `session:${sessionId}` : 'recent-recording',
@@ -875,7 +1017,10 @@ ${answer}`
           available: review !== null,
           sessionId: reviewSession,
           recordedAt: evidence?.recordedAt ?? '',
-          verdict: review && typeof (review as Record<string, unknown>).verdict === 'string' ? (review as Record<string, unknown>).verdict : '',
+          verdict:
+            review && typeof (review as Record<string, unknown>).verdict === 'string'
+              ? (review as Record<string, unknown>).verdict
+              : '',
           path: reviewPath,
         },
         {
@@ -998,21 +1143,29 @@ ${answer}`
       requestedAt: now,
     })
     this.repo.dismissPendingFor(input.reqId, `停止请求（${input.by}）`, now)
-    this.repo.setStatus(input.reqId, 'blocked', `停止请求：${input.reason || '未说明'}（${input.by}）`)
+    this.repo.setStatus(
+      input.reqId,
+      'blocked',
+      `停止请求：${input.reason || '未说明'}（${input.by}）`,
+    )
     this.settleStopIfQuiet(input.reqId)
     const settled = this.repo.stop(input.reqId)?.settledAt || ''
-    return ok(
-      `已请求停止需求 ${input.reqId}；待执行请求已撤销，在途 Agent 会被取消`,
-      { settled: Boolean(settled), settledAt: settled },
-    )
+    return ok(`已请求停止需求 ${input.reqId}；待执行请求已撤销，在途 Agent 会被取消`, {
+      settled: Boolean(settled),
+      settledAt: settled,
+    })
   }
 
   /** 没有在途请求/运行任务时，把停止请求收口为“实际停稳”；不自动恢复。 */
   settleStopIfQuiet(reqId: string): void {
     if (!this.repo.activeStop(reqId)) return
-    if (this.repo.requestsFor(reqId).some((request) => ['pending', 'claimed'].includes(request.state))) return
+    if (
+      this.repo.requestsFor(reqId).some((request) => ['pending', 'claimed'].includes(request.state))
+    )
+      return
     const plan = this.repo.latestTaskPlan(reqId)
-    if (plan && this.repo.taskRuns(reqId, plan.planVersion).some((run) => run.state === 'running')) return
+    if (plan && this.repo.taskRuns(reqId, plan.planVersion).some((run) => run.state === 'running'))
+      return
     this.repo.markStopSettled(reqId, this.now())
   }
 
@@ -1059,7 +1212,9 @@ ${answer}`
     if (input.action === 'advance' || input.action === ACTION_VERIFY) {
       const latestPlan = this.repo.latestTaskPlan(input.reqId)
       const admission = this.currentAdmission(input.reqId)
-      const legacyApproval = latestPlan ? this.repo.planApproval(input.reqId, latestPlan.planVersion) : null
+      const legacyApproval = latestPlan
+        ? this.repo.planApproval(input.reqId, latestPlan.planVersion)
+        : null
       if (!admission && !legacyApproval) {
         return fail(
           'admission_required',
@@ -1188,11 +1343,14 @@ ${answer}`
       status: requirement.status,
       blockedReason: requirement.blockedReason,
       remainingRounds: this.remainingFailureRounds(reqId),
-      activeRequest: requests.some((request) => request.state === 'pending' || request.state === 'claimed'),
+      activeRequest: requests.some(
+        (request) => request.state === 'pending' || request.state === 'claimed',
+      ),
       runningTasks: runs.filter((run) => run.state === TASK_RUN_RUNNING).length,
       awaitingInputTasks: runs.filter((run) => run.state === TASK_RUN_AWAITING_USER).length,
       planApproved:
-        plan !== null && authorizePlan(plan, this.repo.planApproval(reqId, plan.planVersion)).status === 'approved',
+        plan !== null &&
+        authorizePlan(plan, this.repo.planApproval(reqId, plan.planVersion)).status === 'approved',
       delivered,
       total: plan?.tasks.length ?? 0,
     })
@@ -1217,9 +1375,13 @@ ${answer}`
       const taskDir = evidence
         ? dirname(evidence.candidatePath)
         : evidenceDir(this.config, input.reqId, input.plan.planVersion, task.taskId)
-      const attempt = this.repo.archivedArtifacts(input.reqId, input.plan.planVersion, task.taskId).length + 1
+      const attempt =
+        this.repo.archivedArtifacts(input.reqId, input.plan.planVersion, task.taskId).length + 1
       const archiveRoot = join(dirname(taskDir), `${task.taskId}.history`)
-      const archivedPath = join(archiveRoot, `attempt-${attempt}-${artifact.candidateSha256.slice(0, 12) || 'empty'}`)
+      const archivedPath = join(
+        archiveRoot,
+        `attempt-${attempt}-${artifact.candidateSha256.slice(0, 12) || 'empty'}`,
+      )
       if (existsSync(taskDir)) {
         mkdirSync(archiveRoot, { recursive: true })
         cpSync(taskDir, archivedPath, { recursive: true })
@@ -1256,7 +1418,11 @@ ${answer}`
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, code: 'not_found', message: `未找到需求 ${reqId}` }
     if (isTerminal(requirement.status)) {
-      return { ok: false, code: 'terminal', message: `需求 ${reqId} 已处于终态 ${requirement.status}` }
+      return {
+        ok: false,
+        code: 'terminal',
+        message: `需求 ${reqId} 已处于终态 ${requirement.status}`,
+      }
     }
     const plan = this.repo.latestTaskPlan(reqId)
     if (!plan) return { ok: false, code: 'plan_missing', message: `需求 ${reqId} 尚无任务包` }
@@ -1276,19 +1442,33 @@ ${answer}`
     }
     const authorization = authorizePlan(plan, this.repo.planApproval(reqId, plan.planVersion))
     if (authorization.status !== 'approved') {
-      return { ok: false, code: 'plan_not_approved', message: `${authorization.reason}；任务包尚未获得批准` }
+      return {
+        ok: false,
+        code: 'plan_not_approved',
+        message: `${authorization.reason}；任务包尚未获得批准`,
+      }
     }
     const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
     if (!task) return { ok: false, code: 'task_missing', message: `任务包内没有任务 ${taskId}` }
     if (this.repo.taskArtifact(reqId, plan.planVersion, taskId)) {
-      return { ok: false, code: 'already_delivered', message: `任务 ${taskId} 已有交付产物，不能重试` }
+      return {
+        ok: false,
+        code: 'already_delivered',
+        message: `任务 ${taskId} 已有交付产物，不能重试`,
+      }
     }
-    const run = this.repo.taskRuns(reqId, plan.planVersion).find((candidate) => candidate.taskId === taskId)
+    const run = this.repo
+      .taskRuns(reqId, plan.planVersion)
+      .find((candidate) => candidate.taskId === taskId)
     if (!run) {
       return { ok: false, code: 'not_failed', message: `任务 ${taskId} 尚未运行，不能重试` }
     }
     if (![TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(run.state)) {
-      return { ok: false, code: 'not_failed', message: `任务 ${taskId} 当前状态是 ${run.state}，不是失败状态` }
+      return {
+        ok: false,
+        code: 'not_failed',
+        message: `任务 ${taskId} 当前状态是 ${run.state}，不是失败状态`,
+      }
     }
     const active = this.repo
       .requestsFor(reqId)
@@ -1330,7 +1510,9 @@ ${answer}`
    * 系统准入：按真实来源、所有者、授权策略与当前需求说明判定。
    * 结果单独写 requirement_admissions；不写 plan approval，也不伪造 by=owner。
    */
-  private admitRequirement(reqId: string): { ok: true; admitted: boolean; decision: AdmissionDecision } | { ok: false; message: string } {
+  private admitRequirement(
+    reqId: string,
+  ): { ok: true; admitted: boolean; decision: AdmissionDecision } | { ok: false; message: string } {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, message: `未找到需求 ${reqId}` }
     const analysis = this.repo.latestAnalysis(reqId)
@@ -1397,7 +1579,9 @@ ${answer}`
               (this.remainingFailureRounds(requirement.reqId) > 0 ||
                 this.issues.latestOpen(requirement.reqId) !== null)
             : this.retryDecisionFor(requirement.reqId).allowed
-          : ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(requirement.status)
+          : ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(
+              requirement.status,
+            )
       if (!allowed) continue
       try {
         this.repo.recordRequest({
@@ -1458,10 +1642,16 @@ ${answer}`
     }
   }
 
-  approvePlan(input: { reqId: string; planVersion: number; by: string; source: string }): OperationResult {
+  approvePlan(input: {
+    reqId: string
+    planVersion: number
+    by: string
+    source: string
+  }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    if (isTerminal(requirement.status)) return fail('terminal', `需求已处于终态 ${requirement.status}`)
+    if (isTerminal(requirement.status))
+      return fail('terminal', `需求已处于终态 ${requirement.status}`)
     const plan = this.repo.taskPlan(input.reqId, input.planVersion)
     if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包 v${input.planVersion}`)
     // 存储的旧任务包可能早于当前硬性规则；批准前按现行规则再校验一次，
@@ -1469,7 +1659,10 @@ ${answer}`
     try {
       validateTaskPlan(plan)
     } catch (error) {
-      return fail('plan_invalid', `任务包 v${plan.planVersion} 不满足当前硬性规则：${(error as Error).message}`)
+      return fail(
+        'plan_invalid',
+        `任务包 v${plan.planVersion} 不满足当前硬性规则：${(error as Error).message}`,
+      )
     }
     const boundary = [
       ...languageViolations(plan),
@@ -1512,10 +1705,7 @@ ${answer}`
       return fail('plan_review_invalid', '实现前评审证据文件缺失或摘要不一致；不能批准')
     }
     if (review.verdict !== 'pass') {
-      return fail(
-        'plan_review_blocked',
-        `实现前评审阻断：${planReviewBlocking(review.reportJson)}`,
-      )
+      return fail('plan_review_blocked', `实现前评审阻断：${planReviewBlocking(review.reportJson)}`)
     }
     const approval = {
       requirementId: input.reqId,
@@ -1530,7 +1720,10 @@ ${answer}`
     this.repo.setStatus(input.reqId, APPROVED)
     return ok(
       `已记录需求 ${input.reqId} 的任务包 v${input.planVersion} 批准（依据需求 v${plan.requirementVersion}）`,
-      { authorizationSource: authorizationSourceOf(approval), tasks: plan.tasks.map((task) => task.taskId) },
+      {
+        authorizationSource: authorizationSourceOf(approval),
+        tasks: plan.tasks.map((task) => task.taskId),
+      },
     )
   }
 
@@ -1538,7 +1731,9 @@ ${answer}`
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     const count = this.repo.appendGrant(input.reqId, input.by, this.now())
-    return ok(`已为需求 ${input.reqId} 追加第 ${count} 次失败轮次授权（累计不清零）`, { grants: count })
+    return ok(`已为需求 ${input.reqId} 追加第 ${count} 次失败轮次授权（累计不清零）`, {
+      grants: count,
+    })
   }
 
   /**
@@ -1592,15 +1787,30 @@ ${answer}`
     for (const plan of [...plans].reverse()) {
       const candidate = this.repo.latestCodeCandidate(reqId, plan.planVersion)
       if (!candidate) continue
-      const verification = this.repo.verificationForCandidate(reqId, plan.planVersion, candidate.candidateSha256)
-      const review = this.repo.businessReviewForCandidate(reqId, plan.planVersion, candidate.candidateSha256)
-      const commit = this.repo.commitForCandidate(reqId, plan.planVersion, candidate.candidateSha256)
+      const verification = this.repo.verificationForCandidate(
+        reqId,
+        plan.planVersion,
+        candidate.candidateSha256,
+      )
+      const review = this.repo.businessReviewForCandidate(
+        reqId,
+        plan.planVersion,
+        candidate.candidateSha256,
+      )
+      const commit = this.repo.commitForCandidate(
+        reqId,
+        plan.planVersion,
+        candidate.candidateSha256,
+      )
       return { plan, candidate, verification, review, commit }
     }
     return null
   }
 
-  private buildMaterialFailure(code: string, message: string): { ok: false; code: string; message: string } {
+  private buildMaterialFailure(
+    code: string,
+    message: string,
+  ): { ok: false; code: string; message: string } {
     return { ok: false, code, message }
   }
 
@@ -1616,22 +1826,31 @@ ${answer}`
     commit: RequirementCommitRecord | null
     candidate: CodeCandidateRecord | null
     requireCommit: boolean
-  }): { ok: true; diffPath: string; protectedFiles: string[]; workspaceSha256: string } | { ok: false; code: string; message: string } {
+  }):
+    | { ok: true; diffPath: string; protectedFiles: string[]; workspaceSha256: string }
+    | { ok: false; code: string; message: string } {
     const { verification, review, candidate, commit, plan } = input
     if (!existsSync(verification.reportPath)) {
       return this.buildMaterialFailure('verification_invalid', '独立验证报告文件缺失；不能构建')
     }
     const reportText = readFileSync(verification.reportPath, 'utf8')
     if (sha256OfText(reportText) !== verification.reportSha256) {
-      return this.buildMaterialFailure('verification_invalid', '独立验证报告摘要与登记不一致；不能构建')
+      return this.buildMaterialFailure(
+        'verification_invalid',
+        '独立验证报告摘要与登记不一致；不能构建',
+      )
     }
     let canonical: Record<string, unknown>
     try {
       canonical = JSON.parse(reportText) as Record<string, unknown>
     } catch {
-      return this.buildMaterialFailure('verification_invalid', '独立验证报告不是可解析 JSON；不能构建')
+      return this.buildMaterialFailure(
+        'verification_invalid',
+        '独立验证报告不是可解析 JSON；不能构建',
+      )
     }
-    const canonicalCandidate = typeof canonical.candidateSha256 === 'string' ? canonical.candidateSha256 : ''
+    const canonicalCandidate =
+      typeof canonical.candidateSha256 === 'string' ? canonical.candidateSha256 : ''
     if (
       canonical.reqId !== input.reqId ||
       canonical.planVersion !== plan.planVersion ||
@@ -1640,7 +1859,10 @@ ${answer}`
       canonical.workspaceSha256 !== verification.workspaceSha256 ||
       canonical.verdict !== 'pass'
     ) {
-      return this.buildMaterialFailure('verification_invalid', '独立验证报告的候选、需求、方案或工作区身份不一致；不能构建')
+      return this.buildMaterialFailure(
+        'verification_invalid',
+        '独立验证报告的候选、需求、方案或工作区身份不一致；不能构建',
+      )
     }
 
     if (!existsSync(review.reportPath)) {
@@ -1648,13 +1870,19 @@ ${answer}`
     }
     const reviewText = readFileSync(review.reportPath, 'utf8')
     if (sha256OfText(reviewText) !== review.reportSha256) {
-      return this.buildMaterialFailure('business_review_invalid', '业务验收报告摘要与登记不一致；不能构建')
+      return this.buildMaterialFailure(
+        'business_review_invalid',
+        '业务验收报告摘要与登记不一致；不能构建',
+      )
     }
     let reviewCanonical: Record<string, unknown>
     try {
       reviewCanonical = JSON.parse(reviewText) as Record<string, unknown>
     } catch {
-      return this.buildMaterialFailure('business_review_invalid', '业务验收报告不是可解析 JSON；不能构建')
+      return this.buildMaterialFailure(
+        'business_review_invalid',
+        '业务验收报告不是可解析 JSON；不能构建',
+      )
     }
     if (
       reviewCanonical.reqId !== input.reqId ||
@@ -1664,7 +1892,10 @@ ${answer}`
       reviewCanonical.verificationSha256 !== verification.reportSha256 ||
       reviewCanonical.verdict !== 'pass'
     ) {
-      return this.buildMaterialFailure('business_review_invalid', '业务验收报告与验证/候选身份不一致；不能构建')
+      return this.buildMaterialFailure(
+        'business_review_invalid',
+        '业务验收报告与验证/候选身份不一致；不能构建',
+      )
     }
 
     let diffPath = ''
@@ -1674,11 +1905,17 @@ ${answer}`
         ? candidate.diffPath
         : join(verification.evidenceDir, 'candidate.diff')
       if (!existsSync(diffPath)) {
-        return this.buildMaterialFailure('candidate_content_mismatch', '候选 diff 文件缺失；不能构建')
+        return this.buildMaterialFailure(
+          'candidate_content_mismatch',
+          '候选 diff 文件缺失；不能构建',
+        )
       }
       const diffText = readFileSync(diffPath, 'utf8')
       if (sha256OfText(diffText) !== candidate.diffSha256) {
-        return this.buildMaterialFailure('candidate_content_mismatch', '候选 diff 摘要与登记不一致；不能构建')
+        return this.buildMaterialFailure(
+          'candidate_content_mismatch',
+          '候选 diff 摘要与登记不一致；不能构建',
+        )
       }
       const recomputed = candidateIdentity({
         reqId: candidate.requirementId,
@@ -1689,7 +1926,10 @@ ${answer}`
         diffSha256: candidate.diffSha256,
       })
       if (recomputed !== candidate.candidateSha256 || candidate.planVersion !== plan.planVersion) {
-        return this.buildMaterialFailure('candidate_identity_mismatch', '候选身份与需求/方案绑定不一致；不能构建')
+        return this.buildMaterialFailure(
+          'candidate_identity_mismatch',
+          '候选身份与需求/方案绑定不一致；不能构建',
+        )
       }
       diffNames = [...diffText.matchAll(/^\+\+\+ b\/([^\n]+)$/gm)].map((match) => match[1]!)
     }
@@ -1703,33 +1943,62 @@ ${answer}`
         commit.planVersion !== plan.planVersion ||
         commit.candidateSha256 !== verification.candidateSha256
       ) {
-        return this.buildMaterialFailure('commit_identity_mismatch', '受控提交与当前候选/需求/方案不一致；不能构建')
+        return this.buildMaterialFailure(
+          'commit_identity_mismatch',
+          '受控提交与当前候选/需求/方案不一致；不能构建',
+        )
       }
-      const commitExists = runCommand('git', ['cat-file', '-e', `${commit.commitSha}^{commit}`], this.config.projectPath, 30_000)
+      const commitExists = runCommand(
+        'git',
+        ['cat-file', '-e', `${commit.commitSha}^{commit}`],
+        this.config.projectPath,
+        30_000,
+      )
       if (commitExists.code !== 0) {
-        return this.buildMaterialFailure('commit_identity_mismatch', `受控提交 ${commit.commitSha.slice(0, 12)} 在真实项目中不存在；不能构建`)
+        return this.buildMaterialFailure(
+          'commit_identity_mismatch',
+          `受控提交 ${commit.commitSha.slice(0, 12)} 在真实项目中不存在；不能构建`,
+        )
       }
-      const commitFiles = requireGit(this.config.projectPath, ['diff-tree', '--no-commit-id', '--name-only', '-r', commit.commitSha])
+      const commitFiles = requireGit(this.config.projectPath, [
+        'diff-tree',
+        '--no-commit-id',
+        '--name-only',
+        '-r',
+        commit.commitSha,
+      ])
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)
         .sort()
       const expectedFiles = [...commit.files].sort()
       if (JSON.stringify(commitFiles) !== JSON.stringify(expectedFiles)) {
-        return this.buildMaterialFailure('commit_identity_mismatch', '受控提交的实际文件与登记文件不一致；不能构建')
+        return this.buildMaterialFailure(
+          'commit_identity_mismatch',
+          '受控提交的实际文件与登记文件不一致；不能构建',
+        )
       }
       if (candidate && JSON.stringify(expectedFiles) !== JSON.stringify([...diffNames].sort())) {
-        return this.buildMaterialFailure('commit_identity_mismatch', '受控提交文件与候选 diff 文件不一致；不能构建')
+        return this.buildMaterialFailure(
+          'commit_identity_mismatch',
+          '受控提交文件与候选 diff 文件不一致；不能构建',
+        )
       }
     }
 
     const source = join(verification.evidenceDir, 'workspace')
     if (!existsSync(source)) {
-      return this.buildMaterialFailure('verification_workspace_missing', `独立验证工作区不存在：${source}`)
+      return this.buildMaterialFailure(
+        'verification_workspace_missing',
+        `独立验证工作区不存在：${source}`,
+      )
     }
     const tree = requireGit(source, ['rev-parse', 'HEAD^{tree}']).trim()
     if (tree !== verification.workspaceSha256) {
-      return this.buildMaterialFailure('verification_workspace_invalid', '独立验证工作区的 HEAD 树与验证记录不一致；不能构建')
+      return this.buildMaterialFailure(
+        'verification_workspace_invalid',
+        '独立验证工作区的 HEAD 树与验证记录不一致；不能构建',
+      )
     }
     const status = requireGit(source, ['status', '--porcelain=v1', '--untracked-files=all'])
     const outside = status
@@ -1748,15 +2017,22 @@ ${answer}`
     if (candidate) {
       const applied = git(source, ['diff', `${candidate.snapshotCommit}..HEAD`, '--binary'])
       if (applied.code !== 0 || sha256OfText(applied.stdout) !== candidate.diffSha256) {
-        return this.buildMaterialFailure('candidate_content_mismatch', '验证工作区的候选内容与候选 diff 不一致；不能构建')
+        return this.buildMaterialFailure(
+          'candidate_content_mismatch',
+          '验证工作区的候选内容与候选 diff 不一致；不能构建',
+        )
       }
     } else {
-      const recordedContent = (canonical.candidateIntegrity as { candidateContentSha256?: unknown } | undefined)
-        ?.candidateContentSha256
+      const recordedContent = (
+        canonical.candidateIntegrity as { candidateContentSha256?: unknown } | undefined
+      )?.candidateContentSha256
       if (typeof recordedContent === 'string') {
         const actual = requireGit(source, ['diff', 'HEAD', '--binary'])
         if (sha256OfText(actual) !== recordedContent) {
-          return this.buildMaterialFailure('candidate_content_mismatch', '验证工作区的受保护内容与验证记录不一致；不能构建')
+          return this.buildMaterialFailure(
+            'candidate_content_mismatch',
+            '验证工作区的受保护内容与验证记录不一致；不能构建',
+          )
         }
       }
     }
@@ -1802,7 +2078,11 @@ ${answer}`
    * 新链路构建：依据系统准入、固定候选、独立验证、业务验收和本地提交，
    * 不再要求旧任务包批准或所有者整体验收。
    */
-  private buildAdmittedCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
+  private buildAdmittedCandidate(input: {
+    reqId: string
+    by: string
+    version?: string
+  }): OperationResult {
     const delivery = this.admittedDelivery(input.reqId)
     if (!delivery) return fail('candidate_missing', `需求 ${input.reqId} 没有可构建的新链路候选`)
     const { plan, candidate, verification, review, commit } = delivery
@@ -1817,7 +2097,10 @@ ${answer}`
       this.config.candidatePackageCommand.length === 0 ||
       !this.config.candidateArtifactPath
     ) {
-      return fail('candidate_not_configured', '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath')
+      return fail(
+        'candidate_not_configured',
+        '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath',
+      )
     }
     if (input.version !== undefined && !/^\d+\.\d+\.\d+$/.test(input.version)) {
       return fail('version_invalid', `候选版本必须是 x.y.z，实际 ${JSON.stringify(input.version)}`)
@@ -1851,13 +2134,18 @@ ${answer}`
     }
     if (input.version !== undefined) {
       const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
-      if (!existsSync(packageJsonPath)) return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+      if (!existsSync(packageJsonPath))
+        return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<
+        string,
+        unknown
+      >
       packageJson.version = input.version
       writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
     }
     const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
-    if (!existsSync(packageJsonPath)) return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
+    if (!existsSync(packageJsonPath))
+      return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
@@ -1868,11 +2156,21 @@ ${answer}`
       ['build', this.config.candidateBuildCommand],
       ['package', this.config.candidatePackageCommand],
     ] as const) {
-      const result = runCommand(command[0]!, command.slice(1), dir, this.config.formalTestTimeoutSeconds * 1000)
-      log.push(`=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`)
+      const result = runCommand(
+        command[0]!,
+        command.slice(1),
+        dir,
+        this.config.formalTestTimeoutSeconds * 1000,
+      )
+      log.push(
+        `=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`,
+      )
       if (result.code !== 0) {
         writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
-        return fail('candidate_build_failed', `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`)
+        return fail(
+          'candidate_build_failed',
+          `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`,
+        )
       }
       const changed = this.protectedFilesChanged(dir, protectedBefore, buildIgnore)
       if (changed.length > 0) {
@@ -1885,7 +2183,8 @@ ${answer}`
     }
     writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
     const artifactPath = join(dir, this.config.candidateArtifactPath)
-    if (!existsSync(artifactPath)) return fail('artifact_missing', `打包完成但没有找到产物清单 ${artifactPath}`)
+    if (!existsSync(artifactPath))
+      return fail('artifact_missing', `打包完成但没有找到产物清单 ${artifactPath}`)
     const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as {
       sha256?: string
       tarball?: string
@@ -1894,12 +2193,20 @@ ${answer}`
       builtAt?: string
       version?: string
     }
-    if (!artifact.sha256 || !artifact.tarball) return fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`)
+    if (!artifact.sha256 || !artifact.tarball)
+      return fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`)
     if (artifact.version && artifact.version !== packageVersion) {
-      return fail('artifact_version_mismatch', `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`)
+      return fail(
+        'artifact_version_mismatch',
+        `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`,
+      )
     }
     const artifactSha = sha256OfBytes(readFileSync(artifact.tarball))
-    if (artifactSha !== artifact.sha256) return fail('artifact_mismatch', `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${artifactSha}`)
+    if (artifactSha !== artifact.sha256)
+      return fail(
+        'artifact_mismatch',
+        `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${artifactSha}`,
+      )
     const buildDir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'build')
     mkdirSync(buildDir, { recursive: true })
     const recordPath = join(buildDir, 'candidate-build.json')
@@ -1954,16 +2261,24 @@ ${answer}`
     if (!authorized.ok) return authorized.result
     const plan = authorized.value.plan
     const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
-    const missing = plan.tasks.filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
+    const missing = plan.tasks.filter(
+      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+    )
     if (missing.length > 0) {
-      return fail('not_delivered', `仍有任务未交付，不能打包：${missing.map((task) => task.taskId).join('、')}`)
+      return fail(
+        'not_delivered',
+        `仍有任务未交付，不能打包：${missing.map((task) => task.taskId).join('、')}`,
+      )
     }
     if (
       this.config.candidateBuildCommand.length === 0 ||
       this.config.candidatePackageCommand.length === 0 ||
       !this.config.candidateArtifactPath
     ) {
-      return fail('candidate_not_configured', '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath')
+      return fail(
+        'candidate_not_configured',
+        '未配置 candidateBuildCommand / candidatePackageCommand / candidateArtifactPath',
+      )
     }
     if (input.version !== undefined && !/^\d+\.\d+\.\d+$/.test(input.version)) {
       return fail('version_invalid', `候选版本必须是 x.y.z，实际 ${JSON.stringify(input.version)}`)
@@ -1975,11 +2290,17 @@ ${answer}`
     const identity = this.candidateIdentity(plan, artifacts)
     const verification = this.repo.verificationForCandidate(input.reqId, plan.planVersion, identity)
     if (!verification || verification.verdict !== 'pass') {
-      return fail('verification_required', `候选 ${identity.slice(0, 16)}… 没有通过的独立验证；不能构建可发布候选`)
+      return fail(
+        'verification_required',
+        `候选 ${identity.slice(0, 16)}… 没有通过的独立验证；不能构建可发布候选`,
+      )
     }
     const review = this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
     if (!review || review.verdict !== 'pass') {
-      return fail('business_review_required', `候选 ${identity.slice(0, 16)}… 没有通过的业务终审；不能构建可发布候选`)
+      return fail(
+        'business_review_required',
+        `候选 ${identity.slice(0, 16)}… 没有通过的业务终审；不能构建可发布候选`,
+      )
     }
     const materials = this.validateBuildMaterials({
       reqId: input.reqId,
@@ -2002,12 +2323,16 @@ ${answer}`
       if (!existsSync(packageJsonPath)) {
         return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
       }
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<
+        string,
+        unknown
+      >
       packageJson.version = input.version
       writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
     }
     const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
-    if (!existsSync(packageJsonPath)) return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
+    if (!existsSync(packageJsonPath))
+      return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) return fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`)
@@ -2021,10 +2346,15 @@ ${answer}`
     ] as const) {
       if (command.length === 0) continue
       const result = runCommand(command[0]!, command.slice(1), dir, timeout)
-      log.push(`=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`)
+      log.push(
+        `=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`,
+      )
       if (result.code !== 0) {
         writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
-        return fail('candidate_build_failed', `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`)
+        return fail(
+          'candidate_build_failed',
+          `候选包 ${label} 失败（退出码 ${result.code}）；日志 ${join(dir, 'candidate-build.log')}`,
+        )
       }
       const changed = this.protectedFilesChanged(dir, protectedBefore, buildIgnore)
       if (changed.length > 0) {
@@ -2052,11 +2382,17 @@ ${answer}`
       return fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`)
     }
     if (artifact.version && artifact.version !== packageVersion) {
-      return fail('artifact_version_mismatch', `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`)
+      return fail(
+        'artifact_version_mismatch',
+        `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`,
+      )
     }
     const candidateSha = sha256OfBytes(readFileSync(artifact.tarball))
     if (candidateSha !== artifact.sha256) {
-      return fail('artifact_mismatch', `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${candidateSha}`)
+      return fail(
+        'artifact_mismatch',
+        `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${candidateSha}`,
+      )
     }
     const buildDir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'build')
     mkdirSync(buildDir, { recursive: true })
@@ -2101,16 +2437,19 @@ ${answer}`
       builtAt: record.builtAt,
       evidenceDir: dir,
     })
-    return ok(`已从已验证候选构建安装包 ${packageVersion}（sha256 ${candidateSha.slice(0, 16)}…）`, {
-      sha256: candidateSha,
-      tarball: artifact.tarball,
-      files: artifact.files ?? [],
-      evidenceDir: dir,
-      packageVersion,
-      candidateSha256: identity,
-      verificationSha256: verification.reportSha256,
-      recordPath,
-    })
+    return ok(
+      `已从已验证候选构建安装包 ${packageVersion}（sha256 ${candidateSha.slice(0, 16)}…）`,
+      {
+        sha256: candidateSha,
+        tarball: artifact.tarball,
+        files: artifact.files ?? [],
+        evidenceDir: dir,
+        packageVersion,
+        candidateSha256: identity,
+        verificationSha256: verification.reportSha256,
+        recordPath,
+      },
+    )
   }
 
   /**
@@ -2126,11 +2465,15 @@ ${answer}`
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     if (!/^[a-z0-9][a-z0-9_-]*$/.test(input.targetProfile)) {
-      return fail('profile_invalid', `目标 profile 只能是安全的 profile 名，实际 ${JSON.stringify(input.targetProfile)}`)
+      return fail(
+        'profile_invalid',
+        `目标 profile 只能是安全的 profile 名，实际 ${JSON.stringify(input.targetProfile)}`,
+      )
     }
     const admitted = Boolean(this.currentAdmission(input.reqId))
     const delivery = admitted ? this.admittedDelivery(input.reqId) : null
-    if (admitted && !delivery) return fail('candidate_missing', `需求 ${input.reqId} 没有新链路候选`)
+    if (admitted && !delivery)
+      return fail('candidate_missing', `需求 ${input.reqId} 没有新链路候选`)
     const plan = admitted ? delivery!.plan : this.repo.latestTaskPlan(input.reqId)
     if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
     let identity = ''
@@ -2138,7 +2481,9 @@ ${answer}`
       identity = delivery!.candidate!.candidateSha256
     } else {
       const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
-      const missing = plan.tasks.filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
+      const missing = plan.tasks.filter(
+        (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+      )
       if (missing.length > 0) return fail('not_delivered', `仍有任务未交付，不能做上线核对`)
       identity = this.candidateIdentity(plan, artifacts)
     }
@@ -2152,7 +2497,8 @@ ${answer}`
     }
     const profileDir = join(this.config.dshProfilesRoot, input.targetProfile)
     const installedRoot = join(profileDir, 'node_modules', 'forgeloop-dsh')
-    if (!existsSync(profileDir)) return fail('profile_missing', `目标 profile 不存在：${profileDir}`)
+    if (!existsSync(profileDir))
+      return fail('profile_missing', `目标 profile 不存在：${profileDir}`)
     if (!existsSync(installedRoot)) {
       return fail('not_installed', `目标 profile 尚未安装 forgeloop-dsh：${installedRoot}`)
     }
@@ -2208,7 +2554,11 @@ ${answer}`
         fileIssues.push(`内容不一致 ${file}`)
       }
     }
-    check('installed_files', filesOk, filesOk ? `${build.files.length} 个文件与包内容一致` : fileIssues.join('；'))
+    check(
+      'installed_files',
+      filesOk,
+      filesOk ? `${build.files.length} 个文件与包内容一致` : fileIssues.join('；'),
+    )
 
     check(
       'running_version',
@@ -2240,7 +2590,9 @@ ${answer}`
           alive = false
         }
         const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))
-        const serviceHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/runtime/service.js')))
+        const serviceHash = sha256OfBytes(
+          readFileSync(join(installedRoot, 'lib/runtime/service.js')),
+        )
         check(
           'running_identity',
           identity.kind === 'forgeloop-runtime-identity' &&
@@ -2248,7 +2600,7 @@ ${answer}`
             alive &&
             identity.indexSha256 === indexHash &&
             identity.serviceSha256 === serviceHash,
-          `运行身份 pid=${pid || '未知'}，入口摘要 ${String(identity.indexSha256 ?? '')}，服务摘要 ${String(identity.serviceSha256 ?? '')}`,
+          `运行身份 pid=${pid || '未知'}，入口摘要 ${typeof identity.indexSha256 === 'string' ? identity.indexSha256 : ''}，服务摘要 ${typeof identity.serviceSha256 === 'string' ? identity.serviceSha256 : ''}`,
         )
       } catch {
         check('running_identity', false, '运行身份文件无法解析')
@@ -2262,9 +2614,11 @@ ${answer}`
         : join(delivery!.verification!.evidenceDir, 'candidate.diff')
       : ''
     const expectedSources = admitted
-      ? [...readFileSync(candidateDiffPath, 'utf8').matchAll(/^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm)].map(
-          (match) => match[1]!,
-        )
+      ? [
+          ...readFileSync(candidateDiffPath, 'utf8').matchAll(
+            /^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm,
+          ),
+        ].map((match) => match[1]!)
       : plan.tasks.flatMap((task) => task.files)
     const expectedModules = expectedSources
       .filter((file) => file.startsWith('packages/forgeloop/src/') && file.endsWith('.ts'))
@@ -2293,7 +2647,9 @@ ${answer}`
       : this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
     const businessOk = admitted
       ? review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256
-      : Boolean(acceptance.accepted_at) && review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256
+      : Boolean(acceptance.accepted_at) &&
+        review?.verdict === 'pass' &&
+        review.verificationSha256 === build.verificationSha256
     check(
       'business_records',
       businessOk,
@@ -2302,7 +2658,11 @@ ${answer}`
         : `验收 ${acceptance.accepted_at || '缺失'}；业务终审 ${review?.verdict ?? '缺失'}`,
     )
 
-    const dir = join(candidatesDir(this.config, input.reqId, plan.planVersion), 'deployment', input.targetProfile)
+    const dir = join(
+      candidatesDir(this.config, input.reqId, plan.planVersion),
+      'deployment',
+      input.targetProfile,
+    )
     mkdirSync(dir, { recursive: true })
     const state = checks.every((entry) => entry.ok) ? 'verified' : 'failed'
     const report = {
@@ -2338,21 +2698,34 @@ ${answer}`
       recordedAt: this.now(),
     })
     if (state !== 'verified') {
-      const failed = checks.filter((entry) => !entry.ok).map((entry) => `${entry.id}：${entry.detail}`)
-      return fail('deployment_check_failed', `上线核对未通过：${failed.join('；')}；证据 ${reportPath}`)
+      const failed = checks
+        .filter((entry) => !entry.ok)
+        .map((entry) => `${entry.id}：${entry.detail}`)
+      return fail(
+        'deployment_check_failed',
+        `上线核对未通过：${failed.join('；')}；证据 ${reportPath}`,
+      )
     }
-    return ok(`上线核对通过：运行版本 ${PLUGIN_VERSION}，候选 ${identity.slice(0, 16)}…，profile ${input.targetProfile}`, {
-      state,
-      reportPath,
-      runtimeVersion: PLUGIN_VERSION,
-      packageVersion: build.packageVersion,
-      candidateSha256: identity,
-      artifactSha256: build.artifactSha256,
-      checks,
-    })
+    return ok(
+      `上线核对通过：运行版本 ${PLUGIN_VERSION}，候选 ${identity.slice(0, 16)}…，profile ${input.targetProfile}`,
+      {
+        state,
+        reportPath,
+        runtimeVersion: PLUGIN_VERSION,
+        packageVersion: build.packageVersion,
+        candidateSha256: identity,
+        artifactSha256: build.artifactSha256,
+        checks,
+      },
+    )
   }
 
-  accept(input: { reqId: string; by: string; source: string; artifactSha256?: string }): OperationResult {
+  accept(input: {
+    reqId: string
+    by: string
+    source: string
+    artifactSha256?: string
+  }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     const latestPlan = this.repo.latestTaskPlan(input.reqId)
@@ -2370,7 +2743,10 @@ ${answer}`
       (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
     )
     if (missing.length > 0) {
-      return fail('not_delivered', `仍有任务未交付：${missing.map((task) => task.taskId).join('、')}`)
+      return fail(
+        'not_delivered',
+        `仍有任务未交付：${missing.map((task) => task.taskId).join('、')}`,
+      )
     }
     const verification = this.repo.verification(input.reqId, latestPlan.planVersion)
     if (!verification) {
@@ -2416,7 +2792,10 @@ ${answer}`
       businessReview.verificationSha256 !== verification.reportSha256 ||
       businessReview.requirementVersion !== requirement.versions.length
     ) {
-      return fail('business_review_stale', '业务终审绑定的验证或需求版本与当前材料不一致；必须重新终审')
+      return fail(
+        'business_review_stale',
+        '业务终审绑定的验证或需求版本与当前材料不一致；必须重新终审',
+      )
     }
     if (!this.businessReviewMaterialValid(businessReview)) {
       return fail('business_review_invalid', '业务终审报告文件缺失或摘要不一致；不能验收')
@@ -2436,12 +2815,21 @@ ${answer}`
         )
       }
       if (candidate.sha256 !== input.artifactSha256) {
-        return fail('artifact_mismatch', '给出的产物摘要与候选包记录不一致；原验收不能绑定另一个产物')
+        return fail(
+          'artifact_mismatch',
+          '给出的产物摘要与候选包记录不一致；原验收不能绑定另一个产物',
+        )
       }
     }
     let binding
     try {
-      binding = this.buildAcceptanceBinding(latestPlan, artifacts, verification, businessReview, input.artifactSha256)
+      binding = this.buildAcceptanceBinding(
+        latestPlan,
+        artifacts,
+        verification,
+        businessReview,
+        input.artifactSha256,
+      )
     } catch (error) {
       return fail('material_invalid', (error as Error).message)
     }
@@ -2473,7 +2861,9 @@ ${answer}`
     })
     return {
       candidateSha256: this.candidateIdentity(plan, artifacts),
-      testEvidenceSha256: sha256OfText(ordered.map((artifact) => artifact.testEvidenceSha256).join(':')),
+      testEvidenceSha256: sha256OfText(
+        ordered.map((artifact) => artifact.testEvidenceSha256).join(':'),
+      ),
       reviewSha256: sha256OfText(ordered.map((artifact) => artifact.reviewSha256).join(':')),
       verificationSha256: verification.reportSha256,
       verificationCandidateSha256: verification.candidateSha256,
@@ -2565,8 +2955,12 @@ ${answer}`
     const latestAnalysis = this.repo.latestAnalysis(requirement.reqId)
     const plans = this.repo.taskPlans(requirement.reqId)
     const latestPlan = plans[plans.length - 1]
-    const approval = latestPlan ? this.repo.planApproval(requirement.reqId, latestPlan.planVersion) : null
-    const artifacts = latestPlan ? this.repo.taskArtifacts(requirement.reqId, latestPlan.planVersion) : []
+    const approval = latestPlan
+      ? this.repo.planApproval(requirement.reqId, latestPlan.planVersion)
+      : null
+    const artifacts = latestPlan
+      ? this.repo.taskArtifacts(requirement.reqId, latestPlan.planVersion)
+      : []
     const runs = latestPlan ? this.repo.taskRuns(requirement.reqId, latestPlan.planVersion) : []
     const recordedFailures = this.repo.failureRounds(requirement.reqId)
     const grants = this.repo.grantCount(requirement.reqId)
@@ -2589,10 +2983,18 @@ ${answer}`
         createdAt: plan.createdAt,
       })),
       approval: approval
-        ? { planVersion: approval.planVersion, approvedBy: approval.approvedBy, approvedAt: approval.approvedAt }
+        ? {
+            planVersion: approval.planVersion,
+            approvedBy: approval.approvedBy,
+            approvedAt: approval.approvedAt,
+          }
         : null,
-      planReview: latestPlan ? this.planReviewView(requirement.reqId, latestPlan.planVersion) : null,
-      verification: latestPlan ? this.verificationView(requirement.reqId, latestPlan, artifacts) : null,
+      planReview: latestPlan
+        ? this.planReviewView(requirement.reqId, latestPlan.planVersion)
+        : null,
+      verification: latestPlan
+        ? this.verificationView(requirement.reqId, latestPlan, artifacts)
+        : null,
       candidate: latestPlan ? this.repo.candidate(requirement.reqId, latestPlan.planVersion) : null,
       delivered: artifacts.map((artifact) => artifact.taskId),
       runs: runs.map((run) => ({ taskId: run.taskId, state: run.state, reason: run.reason })),
@@ -2671,10 +3073,7 @@ ${answer}`
           prompt: request.prompt,
           permission: 'workspace-write',
           timeoutMs: this.config.agent.timeoutSeconds * 1000,
-          transcriptPath: join(
-            sessionsDir(this.config),
-            `${reqId}-impact-${randomUUID()}.jsonl`,
-          ),
+          transcriptPath: join(sessionsDir(this.config), `${reqId}-impact-${randomUUID()}.jsonl`),
           tools: 'none',
         })
         return {
@@ -2804,13 +3203,15 @@ ${answer}`
           }
         : null,
       acceptanceRecord: this.repo.acceptance(reqId),
-      businessReview: plan ? this.repo.businessReviewForCandidate(
-        reqId,
-        plan.planVersion,
-        plan.tasks.every((task) => delivered.has(task.taskId))
-          ? this.candidateIdentity(plan, artifacts)
-          : '',
-      ) : null,
+      businessReview: plan
+        ? this.repo.businessReviewForCandidate(
+            reqId,
+            plan.planVersion,
+            plan.tasks.every((task) => delivered.has(task.taskId))
+              ? this.candidateIdentity(plan, artifacts)
+              : '',
+          )
+        : null,
       candidateBuild: plan ? this.repo.candidateBuild(reqId, plan.planVersion) : null,
       deployment: plan ? this.repo.deployment(reqId, plan.planVersion) : null,
       archivedDeliveries: plan
@@ -2978,8 +3379,11 @@ ${answer}`
         detail: `分析 v${analysis.analysisVersion} 完成，有 ${analysis.clarifications.length} 条待澄清；等待人工回答后修订需求`,
       }
     }
-    const trusted = this.config.autonomy.enabled &&
-      this.config.autonomy.trustedSources.some((prefix) => prefix.length > 0 && requirement.source.startsWith(prefix))
+    const trusted =
+      this.config.autonomy.enabled &&
+      this.config.autonomy.trustedSources.some(
+        (prefix) => prefix.length > 0 && requirement.source.startsWith(prefix),
+      )
     if (!trusted) {
       return {
         state: 'done',
@@ -3011,7 +3415,11 @@ ${answer}`
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
     // 入队时未批准、执行时已批准：仍必须拒绝，避免旧请求悄悄覆盖已冻结的任务包。
     const latestPlan = this.repo.latestTaskPlan(reqId)
-    if (latestPlan && this.repo.planApproval(reqId, latestPlan.planVersion) && !permittedPlanChange) {
+    if (
+      latestPlan &&
+      this.repo.planApproval(reqId, latestPlan.planVersion) &&
+      !permittedPlanChange
+    ) {
       return {
         state: 'failed',
         detail: `任务包 v${latestPlan.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
@@ -3070,7 +3478,10 @@ ${answer}`
       ]
       if (violations.length > 0) {
         lastError = `任务包越过 TypeScript 语言/工程边界：${violations
-          .map((violation) => `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`)
+          .map(
+            (violation) =>
+              `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`,
+          )
           .join('；')}`
         feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。不得使用 Python、旧 .venv 或旧 forgeloop CLI；请只修改 TypeScript 工程并给出 npm/node 测试命令。重新输出完整 JSON。`
         continue
@@ -3114,10 +3525,7 @@ ${answer}`
     analysis: RequirementAnalysis,
     plan: TaskPlan,
     signal: AbortSignal,
-  ): Promise<
-    | { state: 'done'; review: PlanReview }
-    | { state: 'failed'; detail: string }
-  > {
+  ): Promise<{ state: 'done'; review: PlanReview } | { state: 'failed'; detail: string }> {
     let feedback = ''
     let lastMalformed = ''
     let review: PlanReview | null = null
@@ -3181,7 +3589,9 @@ ${answer}`
     const reportPath = join(dir, 'plan-review.json')
     // 摘要必须绑定“已落库的任务包”：内存对象与恢复对象的字段顺序不同，
     // 若按内存对象计算，批准时重新加载后再核对会永远判为过期。
-    const planSha256 = sha256OfText(JSON.stringify(this.repo.taskPlan(requirement.reqId, plan.planVersion) ?? plan))
+    const planSha256 = sha256OfText(
+      JSON.stringify(this.repo.taskPlan(requirement.reqId, plan.planVersion) ?? plan),
+    )
     const report = {
       kind: 'plan-review',
       reqId: requirement.reqId,
@@ -3224,7 +3634,12 @@ ${answer}`
     planReviewSha256: string
     blocking: readonly string[]
   }): string {
-    const dir = verificationDir(this.config, input.reqId, input.plan.planVersion, input.candidateSha256)
+    const dir = verificationDir(
+      this.config,
+      input.reqId,
+      input.plan.planVersion,
+      input.candidateSha256,
+    )
     mkdirSync(dir, { recursive: true })
     const report = {
       kind: 'verification',
@@ -3304,7 +3719,10 @@ ${answer}`
     }
     const reviewRecord = this.repo.planReview(reqId, plan.planVersion)
     if (!reviewRecord) {
-      return { state: 'failed', detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立验证` }
+      return {
+        state: 'failed',
+        detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立验证`,
+      }
     }
     if (reviewRecord.verdict !== 'pass') {
       return {
@@ -3336,8 +3754,14 @@ ${answer}`
       }
     }
 
-    this.repo.ensureBudget(reqId, plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0))
-    const budget = new ExecutionBudget(this.repo.budget(reqId).limitSeconds, this.repo.budget(reqId).consumedSeconds)
+    this.repo.ensureBudget(
+      reqId,
+      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
+    )
+    const budget = new ExecutionBudget(
+      this.repo.budget(reqId).limitSeconds,
+      this.repo.budget(reqId).consumedSeconds,
+    )
     if (!budget.canStartAction()) {
       this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
       return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
@@ -3358,7 +3782,12 @@ ${answer}`
       if (!evidence) {
         return { state: 'failed', detail: `任务 ${task.taskId} 缺少交付证据；不能验证` }
       }
-      const applied = this.applyDiffFile(workspace, evidence.candidatePath, task.taskId, task.taskId)
+      const applied = this.applyDiffFile(
+        workspace,
+        evidence.candidatePath,
+        task.taskId,
+        task.taskId,
+      )
       if (!applied.ok) {
         const blocking = [`任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}`]
         const reportPath = this.recordPreflightBlock({
@@ -3421,7 +3850,8 @@ ${answer}`
           snapshot,
           tasks: plan.tasks.map((task) => ({
             taskId: task.taskId,
-            candidateSha256: artifacts.find((artifact) => artifact.taskId === task.taskId)?.candidateSha256 ?? '',
+            candidateSha256:
+              artifacts.find((artifact) => artifact.taskId === task.taskId)?.candidateSha256 ?? '',
           })),
           at: this.now(),
         },
@@ -3467,7 +3897,11 @@ ${answer}`
     const commandsPath = join(workspace, 'verification/commands.json')
     const reportPathInWorkspace = join(workspace, 'verification/report.json')
     if (!existsSync(commandsPath) || !existsSync(reportPathInWorkspace)) {
-      this.repo.setStatus(reqId, 'blocked', '独立验证未产出 verification/commands.json 与 verification/report.json')
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        '独立验证未产出 verification/commands.json 与 verification/report.json',
+      )
       return { state: 'failed', detail: '独立验证未产出命令清单或逐场景报告；需重新验证' }
     }
     let commands: VerificationCommand[]
@@ -3477,7 +3911,10 @@ ${answer}`
       report = parseVerificationReport(readFileSync(reportPathInWorkspace, 'utf8'))
     } catch (error) {
       this.repo.setStatus(reqId, 'blocked', `独立验证材料畸形：${(error as Error).message}`)
-      return { state: 'failed', detail: `独立验证材料畸形（fail-closed）：${(error as Error).message}` }
+      return {
+        state: 'failed',
+        detail: `独立验证材料畸形（fail-closed）：${(error as Error).message}`,
+      }
     }
 
     const changed = workspaceChanges(workspace)
@@ -3486,7 +3923,9 @@ ${answer}`
       this.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
       return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
     }
-    const outsideVerification = changed.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
+    const outsideVerification = changed.filter(
+      (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
+    )
     if (outsideVerification.length > 0) {
       this.repo.setStatus(
         reqId,
@@ -3512,7 +3951,8 @@ ${answer}`
     }> = []
     const failedCommands: string[] = []
     for (const [index, command] of commands.entries()) {
-      const label = command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
+      const label =
+        command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
       const test = await this.formalTest({
         ctx: this.ctx,
         cwd: workspace,
@@ -3542,7 +3982,9 @@ ${answer}`
       if (test.timedOut) {
         failedCommands.push(`${command.label} 超时`)
       } else if (test.exitCode !== 0) {
-        failedCommands.push(`${command.label} 退出码 ${test.exitCode === null ? 'null' : test.exitCode}`)
+        failedCommands.push(
+          `${command.label} 退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
+        )
       }
     }
 
@@ -3564,7 +4006,11 @@ ${answer}`
     const materials = verificationMaterials(dir)
 
     const coverageIssues = validateVerificationCoverage(planReview.verificationPlan, report)
-    const evidenceIssues = validateScenarioEvidence(planReview.verificationPlan, report, commandRuns)
+    const evidenceIssues = validateScenarioEvidence(
+      planReview.verificationPlan,
+      report,
+      commandRuns,
+    )
     const anyScenarioFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
     const verdict: 'pass' | 'block' =
       report.verdict === 'pass' &&
@@ -3682,7 +4128,10 @@ ${answer}`
   }
 
   /** 业务终审报告文件与摘要是否仍一致。 */
-  private businessReviewMaterialValid(record: { reportPath: string; reportSha256: string }): boolean {
+  private businessReviewMaterialValid(record: {
+    reportPath: string
+    reportSha256: string
+  }): boolean {
     return (
       existsSync(record.reportPath) &&
       sha256OfText(readFileSync(record.reportPath, 'utf8')) === record.reportSha256
@@ -3705,7 +4154,9 @@ ${answer}`
     if (!analysis) return { state: 'failed', detail: `需求 ${reqId} 尚无分析结论；不能做业务终审` }
     const plan = authorized.value.plan
     const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
-    const missing = plan.tasks.filter((task) => !artifacts.some((artifact) => artifact.taskId === task.taskId))
+    const missing = plan.tasks.filter(
+      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+    )
     if (missing.length > 0) {
       return {
         state: 'failed',
@@ -3731,7 +4182,10 @@ ${answer}`
           detail: `候选 ${candidateSha256.slice(0, 16)}… 的业务终审已阻断；需修复后产生新候选`,
         }
       }
-      if (existing.verificationSha256 === verification.reportSha256 && this.businessReviewMaterialValid(existing)) {
+      if (
+        existing.verificationSha256 === verification.reportSha256 &&
+        this.businessReviewMaterialValid(existing)
+      ) {
         return { state: 'done', detail: '业务终审已通过；等待验收' }
       }
       return {
@@ -3741,10 +4195,18 @@ ${answer}`
     }
 
     // 终审证据只取独立验证实际执行的命令输出；报告文件缺失或摘要不符即 fail-closed。
-    const facts: Array<{ label: string; argv: readonly string[]; exitCode: number | null; logTail: string }> = []
+    const facts: Array<{
+      label: string
+      argv: readonly string[]
+      exitCode: number | null
+      logTail: string
+    }> = []
     let canonical: Record<string, unknown> = {}
     try {
-      canonical = JSON.parse(readFileSync(verification.reportPath, 'utf8')) as Record<string, unknown>
+      canonical = JSON.parse(readFileSync(verification.reportPath, 'utf8')) as Record<
+        string,
+        unknown
+      >
     } catch {
       return { state: 'failed', detail: '独立验证报告无法解析；不能做业务终审' }
     }
@@ -3809,7 +4271,10 @@ ${answer}`
       review = parseBusinessReview(run.text)
     } catch (error) {
       this.repo.setStatus(reqId, 'blocked', `业务终审材料畸形：${(error as Error).message}`)
-      return { state: 'failed', detail: `业务终审材料畸形（fail-closed）：${(error as Error).message}` }
+      return {
+        state: 'failed',
+        detail: `业务终审材料畸形（fail-closed）：${(error as Error).message}`,
+      }
     }
     const issues = validateBusinessReview({
       scenarios: analysis.scenarios,
@@ -3817,7 +4282,8 @@ ${answer}`
       review,
       runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
     })
-    const verdict: 'pass' | 'block' = review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
+    const verdict: 'pass' | 'block' =
+      review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
     const blocking = verdict === 'block' ? (issues.length > 0 ? issues : review.blocking) : []
     const report = {
       kind: 'business-review',
@@ -3903,10 +4369,7 @@ ${answer}`
     if (authorization.status !== 'approved') {
       return {
         ok: false,
-        result: fail(
-          'plan_not_approved',
-          `${authorization.reason}；任务包尚未获得批准`,
-        ),
+        result: fail('plan_not_approved', `${authorization.reason}；任务包尚未获得批准`),
       }
     }
     return { ok: true, value: { plan } }
@@ -4006,7 +4469,12 @@ ${answer}`
       if (!evidence || !existsSync(evidence.candidatePath)) {
         return { ok: false, reason: `任务 ${task.taskId} 缺交付证据，不能恢复现场` }
       }
-      const applied = this.applyDiffFile(workspace, evidence.candidatePath, task.taskId, task.taskId)
+      const applied = this.applyDiffFile(
+        workspace,
+        evidence.candidatePath,
+        task.taskId,
+        task.taskId,
+      )
       if (!applied.ok) {
         return { ok: false, reason: `恢复任务 ${task.taskId} 的 diff 失败：${applied.detail}` }
       }
@@ -4070,14 +4538,21 @@ ${answer}`
       ]
       if (violations.length > 0) {
         lastError = `任务包越过 TypeScript 语言/工程边界：${violations
-          .map((violation) => `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`)
+          .map(
+            (violation) =>
+              `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`,
+          )
           .join('；')}`
         feedback = `\n\n上一次输出的任务包越过授权边界：${lastError}。请缩小到当前项目与已登记依赖。`
         continue
       }
       const authorized = this.authorizedPlan(plan, input.authorizationSource)
       this.repo.recordTaskPlan(authorized)
-      this.repo.setStatus(input.reqId, DEVELOPING, '系统准入通过，研发 Agent 已形成技术方案与任务拆解')
+      this.repo.setStatus(
+        input.reqId,
+        DEVELOPING,
+        '系统准入通过，研发 Agent 已形成技术方案与任务拆解',
+      )
       return { ok: true, plan: authorized }
     }
     return { ok: false, code: 'plan_failed', reason: lastError || '任务包生成失败' }
@@ -4105,12 +4580,13 @@ ${answer}`
       }
       this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_RUNNING, '研发 Agent 工作中', 0)
       const result = await input.session.send({
-        prompt: devPrompt({
-          requirement: input.requirement,
-          plan: input.plan,
-          task: input.task,
-          workdir: input.workspace,
-        }) + feedback,
+        prompt:
+          devPrompt({
+            requirement: input.requirement,
+            plan: input.plan,
+            task: input.task,
+            workdir: input.workspace,
+          }) + feedback,
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(taskDir, `dev-a${attempt}.jsonl`),
         signal: input.signal,
@@ -4136,7 +4612,14 @@ ${answer}`
       }
       const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
       if (status.code !== 0 || status.stdout.trim() === '') {
-        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_FAILED, '研发回合没有产生任何文件改动', 0)
+        this.recordRun(
+          input.reqId,
+          input.plan,
+          input.task,
+          TASK_RUN_FAILED,
+          '研发回合没有产生任何文件改动',
+          0,
+        )
         feedback = '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
         continue
       }
@@ -4172,7 +4655,14 @@ ${answer}`
         diffPath: join(taskDir, 'candidate.diff'),
       })
       if (capture.changedFiles.length === 0) {
-        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_FAILED, '研发回合没有产生任何文件改动', 0)
+        this.recordRun(
+          input.reqId,
+          input.plan,
+          input.task,
+          TASK_RUN_FAILED,
+          '研发回合没有产生任何文件改动',
+          0,
+        )
         feedback = '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
         continue
       }
@@ -4231,7 +4721,12 @@ ${answer}`
     const dir = candidatesDir(this.config, reqId, planVersion)
     const marker = join(dir, 'fault-injection.json')
     if (existsSync(marker)) return
-    const spec = JSON.parse(raw) as { file?: unknown; append?: unknown; replaceFrom?: unknown; replaceTo?: unknown }
+    const spec = JSON.parse(raw) as {
+      file?: unknown
+      append?: unknown
+      replaceFrom?: unknown
+      replaceTo?: unknown
+    }
     if (typeof spec.file !== 'string' || spec.file.trim() === '') {
       throw new RuleViolationError('FORGELOOP_FAULT_INJECT 需要 file')
     }
@@ -4282,7 +4777,8 @@ ${answer}`
       runCommand('git', ['add', '-A'], input.workspace)
       runCommand('git', ['commit', '-qm', 'forgeloop: candidate checkpoint'], input.workspace)
     }
-    const candidateVersion = this.repo.codeCandidates(input.reqId, input.plan.planVersion).length + 1
+    const candidateVersion =
+      this.repo.codeCandidates(input.reqId, input.plan.planVersion).length + 1
     const outputPath = join(
       candidatesDir(this.config, input.reqId, input.plan.planVersion),
       `candidate-${candidateVersion}.diff`,
@@ -4320,7 +4816,12 @@ ${answer}`
     blocking: string[]
     verification: VerificationRecord | null
   }> {
-    const dir = verificationDir(this.config, input.reqId, input.plan.planVersion, input.candidate.candidateSha256)
+    const dir = verificationDir(
+      this.config,
+      input.reqId,
+      input.plan.planVersion,
+      input.candidate.candidateSha256,
+    )
     const workspace = join(dir, 'workspace')
     mkdirSync(dir, { recursive: true })
     rmSync(workspace, { recursive: true, force: true })
@@ -4490,7 +4991,8 @@ ${answer}`
       }> = []
       const failedCommands: string[] = []
       for (const [index, command] of commands.entries()) {
-        const label = command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
+        const label =
+          command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
         const test = await this.formalTest({
           ctx: this.ctx,
           cwd: workspace,
@@ -4519,13 +5021,17 @@ ${answer}`
           }
         }
         if (test.timedOut) failedCommands.push(`${command.label} 超时`)
-        else if (test.exitCode !== 0) failedCommands.push(`${command.label} 退出码 ${test.exitCode}`)
+        else if (test.exitCode !== 0)
+          failedCommands.push(`${command.label} 退出码 ${test.exitCode}`)
       }
       const integrity: string[] = []
       const afterHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
       if (afterHead !== workspaceHead) integrity.push('验证命令改变了候选提交')
-      const afterChanges = workspaceChanges(workspace).filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
-      if (afterChanges.length > 0) integrity.push(`验证命令修改了候选文件：${afterChanges.join('、')}`)
+      const afterChanges = workspaceChanges(workspace).filter(
+        (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
+      )
+      if (afterChanges.length > 0)
+        integrity.push(`验证命令修改了候选文件：${afterChanges.join('、')}`)
       const coverage = validateVerificationCoverage(baseline.verificationPlan, report)
       const evidence = validateScenarioEvidence(baseline.verificationPlan, report, runs)
       const anyFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
@@ -4561,7 +5067,11 @@ ${answer}`
         blocking,
         scenarios: report.scenarios,
         commands: runs.map(({ output: _output, ...rest }) => rest),
-        candidateIntegrity: { head: afterHead, changes: afterChanges, allowedPaths: [VERIFICATION_MATERIAL_DIR] },
+        candidateIntegrity: {
+          head: afterHead,
+          changes: afterChanges,
+          allowedPaths: [VERIFICATION_MATERIAL_DIR],
+        },
         sessionId: run.sessionId,
         at: this.now(),
       }
@@ -4656,8 +5166,10 @@ ${answer}`
         review,
         runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
       })
-      const businessVerdict: 'pass' | 'block' = review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
-      const businessBlocking = businessVerdict === 'block' ? (issues.length > 0 ? issues : review.blocking) : []
+      const businessVerdict: 'pass' | 'block' =
+        review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
+      const businessBlocking =
+        businessVerdict === 'block' ? (issues.length > 0 ? issues : review.blocking) : []
       const businessReport = {
         kind: 'business-review',
         reqId: input.reqId,
@@ -4755,7 +5267,10 @@ ${answer}`
       committedAt: this.now(),
     })
     writeFileSync(
-      join(integrationDir(this.config, input.reqId, input.candidate.candidateSha256), 'commit.json'),
+      join(
+        integrationDir(this.config, input.reqId, input.candidate.candidateSha256),
+        'commit.json',
+      ),
       `${JSON.stringify(
         {
           reqId: input.reqId,
@@ -4900,7 +5415,12 @@ ${answer}`
     round: number
   }): Promise<{ ok: true } | { ok: false; reason: string }> {
     const reportDir = join(
-      verificationDir(this.config, input.reqId, input.plan.planVersion, input.candidate.candidateSha256),
+      verificationDir(
+        this.config,
+        input.reqId,
+        input.plan.planVersion,
+        input.candidate.candidateSha256,
+      ),
       'repair',
     )
     mkdirSync(reportDir, { recursive: true })
@@ -4922,7 +5442,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         signal: input.signal,
       })
       if (result.status === 'aborted' || result.status === 'timeout') {
-        return { ok: false, reason: `修复回合${result.status === 'aborted' ? '被停止' : '超时'}：${result.reason}` }
+        return {
+          ok: false,
+          reason: `修复回合${result.status === 'aborted' ? '被停止' : '超时'}：${result.reason}`,
+        }
       }
       if (result.status !== 'completed') continue
       const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
@@ -4930,7 +5453,11 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         continue
       }
       runCommand('git', ['add', '-A'], input.workspace)
-      runCommand('git', ['commit', '-qm', `forgeloop: repair round ${input.round}`], input.workspace)
+      runCommand(
+        'git',
+        ['commit', '-qm', `forgeloop: repair round ${input.round}`],
+        input.workspace,
+      )
       return { ok: true }
     }
     return { ok: false, reason: '修复回合没有产生可用改动' }
@@ -4946,7 +5473,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
   ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
-    if (isTerminal(requirement.status)) return { state: 'failed', detail: `需求已处于终态 ${requirement.status}` }
+    if (isTerminal(requirement.status))
+      return { state: 'failed', detail: `需求已处于终态 ${requirement.status}` }
     const admission = this.currentAdmission(reqId)
     if (!admission) return { state: 'failed', detail: '需求没有系统准入，不能自动研发' }
     const analysis = this.repo.latestAnalysis(reqId)
@@ -4993,10 +5521,18 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       tools: 'default',
     })
     try {
-      this.repo.ensureBudget(reqId, plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0))
+      this.repo.ensureBudget(
+        reqId,
+        plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
+      )
       this.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一工作区实现并自验')
       if (workspaceInfo.fresh) {
-        const restored = this.restoreDeliveredArtifacts(reqId, plan, workspace, workspaceInfo.baselineCommit)
+        const restored = this.restoreDeliveredArtifacts(
+          reqId,
+          plan,
+          workspace,
+          workspaceInfo.baselineCommit,
+        )
         if (!restored.ok) {
           this.repo.setStatus(reqId, 'blocked', restored.reason)
           return { state: 'failed', detail: restored.reason }
@@ -5058,7 +5594,11 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         snapshotCommit: workspaceInfo.snapshotCommit,
       })
       for (let round = 1; ; round += 1) {
-        this.repo.setStatus(reqId, VERIFYING, `验证 Agent 正在验证候选 v${candidate.candidateVersion}`)
+        this.repo.setStatus(
+          reqId,
+          VERIFYING,
+          `验证 Agent 正在验证候选 v${candidate.candidateVersion}`,
+        )
         const verification = await this.verifyCandidate({
           reqId,
           requirement,
@@ -5200,8 +5740,14 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     const authorizationSource = authorizationSourceOf(approval)
     const baseline = headCommit(this.config.projectPath)
 
-    this.repo.ensureBudget(reqId, plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0))
-    const budget = new ExecutionBudget(this.repo.budget(reqId).limitSeconds, this.repo.budget(reqId).consumedSeconds)
+    this.repo.ensureBudget(
+      reqId,
+      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
+    )
+    const budget = new ExecutionBudget(
+      this.repo.budget(reqId).limitSeconds,
+      this.repo.budget(reqId).consumedSeconds,
+    )
     if (!budget.canStartAction()) {
       this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
       return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
@@ -5213,8 +5759,15 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     for (;;) {
       for (const taskId of executionOrder(plan)) {
         if (signal.aborted) {
-          this.repo.setStatus(reqId, 'blocked', '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建')
-          return { state: 'failed', detail: '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建；可重新执行' }
+          this.repo.setStatus(
+            reqId,
+            'blocked',
+            '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建',
+          )
+          return {
+            state: 'failed',
+            detail: '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建；可重新执行',
+          }
         }
         const existing = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
         if (existing) {
@@ -5304,7 +5857,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
   }> {
     const { requirement, plan, taskId, baseline, authorizationSource, signal, requestId } = input
     const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
-    if (!task) return { state: 'blocked', reason: `任务包内没有任务 ${taskId}`, requirementStatus: 'blocked' }
+    if (!task)
+      return {
+        state: 'blocked',
+        reason: `任务包内没有任务 ${taskId}`,
+        requirementStatus: 'blocked',
+      }
     const taskDir = evidenceDir(this.config, requirement.reqId, plan.planVersion, taskId)
     const worktree = workspaceDir(this.config, requirement.reqId, plan.planVersion, taskId)
     mkdirSync(taskDir, { recursive: true })
@@ -5316,7 +5874,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     // 失败轮次 ID 绑定本次推进请求：跨请求重试时 attempt 从 1 重新开始，
     // 不能因为与上一次请求的 a1 同名而被当成重复计数。
     const roundIdFor = (attemptNumber: number): string => `${taskId}-${requestId}-a${attemptNumber}`
-    const ledger = new GrantLedger(this.repo.grantCount(requirement.reqId), this.repo.failureRounds(requirement.reqId))
+    const ledger = new GrantLedger(
+      this.repo.grantCount(requirement.reqId),
+      this.repo.failureRounds(requirement.reqId),
+    )
     while (attempt < this.config.maxTaskAttempts) {
       attempt += 1
       if (signal.aborted) {
@@ -5553,7 +6114,14 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         diffPath: join(taskDir, 'candidate.diff'),
       })
       if (capture.changedFiles.length === 0) {
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_FAILED, '开发回合没有产生任何文件改动', 0)
+        this.recordRun(
+          requirement.reqId,
+          plan,
+          task,
+          TASK_RUN_FAILED,
+          '开发回合没有产生任何文件改动',
+          0,
+        )
         feedback = '\n\n上一次实现没有产生任何文件改动。请真正修改允许清单内的文件。'
         continue
       }
@@ -5594,7 +6162,14 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       try {
         verdict = parseReviewVerdict(reviewRun.text)
       } catch (error) {
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, `审查结果畸形：${(error as Error).message}`, 0)
+        this.recordRun(
+          requirement.reqId,
+          plan,
+          task,
+          TASK_RUN_BLOCKED,
+          `审查结果畸形：${(error as Error).message}`,
+          0,
+        )
         return {
           state: 'blocked',
           reason: `审查结果畸形（fail-closed）：${(error as Error).message}`,
@@ -5721,14 +6296,18 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
    * 只在任务最近一次运行确为失败/阻塞/待决定时返回；交付或运行中不产生反馈。
    */
   private previousTaskFailure(reqId: string, planVersion: number, taskId: string): string {
-    const run = this.repo.taskRuns(reqId, planVersion).find((candidate) => candidate.taskId === taskId)
+    const run = this.repo
+      .taskRuns(reqId, planVersion)
+      .find((candidate) => candidate.taskId === taskId)
     if (!run || ![TASK_RUN_FAILED, TASK_RUN_BLOCKED, TASK_RUN_AWAITING_USER].includes(run.state)) {
       return ''
     }
     const parts = [`上一次任务运行（${run.state}）：${run.reason || '未记录原因'}`]
     const rounds = this.repo.failureRounds(reqId).slice(-2)
     if (rounds.length > 0) {
-      parts.push(`已记录失败轮次：${rounds.map((round) => `${round.roundId} ${round.summary}`).join('；')}`)
+      parts.push(
+        `已记录失败轮次：${rounds.map((round) => `${round.roundId} ${round.summary}`).join('；')}`,
+      )
     }
     const logPath = join(evidenceDir(this.config, reqId, planVersion, taskId), 'formal-test.log')
     if (existsSync(logPath)) {

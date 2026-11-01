@@ -188,7 +188,13 @@ describe('service requests', () => {
 
 describe('actions and budgets', () => {
   it('marks unclosed started actions interrupted without deleting them', () => {
-    repository.startAction({ actionId: 'act-1', taskId: 't', node: 'dev', role: 'developer', now: 'now' })
+    repository.startAction({
+      actionId: 'act-1',
+      taskId: 't',
+      node: 'dev',
+      role: 'developer',
+      now: 'now',
+    })
     expect(repository.startedActions('t')).toHaveLength(1)
     expect(repository.markStartedActionsInterrupted('restart')).toBe(1)
     expect(repository.action('act-1')?.state).toBe('interrupted')

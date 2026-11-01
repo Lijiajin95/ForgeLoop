@@ -22,7 +22,9 @@ describe('runtime identity', () => {
     expect(identity?.pid).toBe(process.pid)
     expect(identity?.indexSha256).toHaveLength(64)
     expect(identity?.serviceSha256).toHaveLength(64)
-    const saved = JSON.parse(readFileSync(join(root, 'runtime-identity.json'), 'utf8')) as { pid: number }
+    const saved = JSON.parse(readFileSync(join(root, 'runtime-identity.json'), 'utf8')) as {
+      pid: number
+    }
     expect(saved.pid).toBe(process.pid)
     expect(writeRuntimeIdentity('not-a-valid-url')).toBeNull()
   })

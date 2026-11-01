@@ -22,7 +22,9 @@ describe('ops configuration', () => {
           enabled: true,
           intervalSeconds: 120,
           resources: [{ id: 'web', kind: 'app', label: '天工页面' }],
-          checks: [{ id: 'web-health', resourceId: 'web', command: ['node', '-e', 'process.exit(0)'] }],
+          checks: [
+            { id: 'web-health', resourceId: 'web', command: ['node', '-e', 'process.exit(0)'] },
+          ],
           actions: [
             {
               id: 'restart-web',

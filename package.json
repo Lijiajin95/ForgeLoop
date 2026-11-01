@@ -12,13 +12,19 @@
     "build": "npm run build --workspace forgeloop-dsh",
     "typecheck": "npm run typecheck --workspace forgeloop-dsh",
     "test": "npm run test --workspace forgeloop-dsh",
-    "check": "npm run check --workspace forgeloop-dsh"
+    "check": "npm run check --workspace forgeloop-dsh",
+    "lint": "eslint packages/forgeloop/src packages/forgeloop/tests scripts/ts",
+    "format:check": "prettier --check \"packages/forgeloop/{src,tests}/**/*.ts\" \"scripts/ts/**/*.ts\""
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.15.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^10.14.0",
+    "prettier": "^3.9.10",
     "smol-toml": "^1.9.1",
     "typescript": "^5.9.2",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^3.2.4"
   }
 }

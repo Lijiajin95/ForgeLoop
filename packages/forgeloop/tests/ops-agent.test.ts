@@ -22,7 +22,11 @@ let dir = ''
 let repository: Repository
 let clock = new Date('2026-10-29T10:00:00.000Z')
 
-function result(request: AgentRunRequest, text: string, status: AgentRunResult['status'] = 'completed'): AgentRunResult {
+function result(
+  request: AgentRunRequest,
+  text: string,
+  status: AgentRunResult['status'] = 'completed',
+): AgentRunResult {
   return {
     status,
     text,
@@ -34,7 +38,9 @@ function result(request: AgentRunRequest, text: string, status: AgentRunResult['
   }
 }
 
-function fakeRunner(text: string | ((prompt: string) => string)): AgentLike & { prompts: string[] } {
+function fakeRunner(
+  text: string | ((prompt: string) => string),
+): AgentLike & { prompts: string[] } {
   const prompts: string[] = []
   return {
     prompts,
@@ -45,12 +51,14 @@ function fakeRunner(text: string | ((prompt: string) => string)): AgentLike & { 
   }
 }
 
-function diagnosisText(input: {
-  impact?: string
-  action?: { actionId: string; params: Record<string, string> } | null
-  decisionRequired?: boolean
-  fixRequired?: boolean
-} = {}): string {
+function diagnosisText(
+  input: {
+    impact?: string
+    action?: { actionId: string; params: Record<string, string> } | null
+    decisionRequired?: boolean
+    fixRequired?: boolean
+  } = {},
+): string {
   return JSON.stringify({
     impact: input.impact ?? '用户无法打开天工页面',
     facts: ['健康检查退出码 1', '错误信息包含 ECONNREFUSED'],
@@ -67,15 +75,17 @@ function diagnosisText(input: {
   })
 }
 
-function opsRaw(overrides: {
-  enabled?: boolean
-  intervalSeconds?: number
-  checkCommand?: string[]
-  actionCommand?: string[]
-  actionAuto?: boolean
-  actionParams?: Array<{ name: string; values: string[] }>
-  extraActions?: RawConfig['ops'] extends { actions?: infer T } ? T : never
-} = {}): RawConfig {
+function opsRaw(
+  overrides: {
+    enabled?: boolean
+    intervalSeconds?: number
+    checkCommand?: string[]
+    actionCommand?: string[]
+    actionAuto?: boolean
+    actionParams?: Array<{ name: string; values: string[] }>
+    extraActions?: RawConfig['ops'] extends { actions?: infer T } ? T : never
+  } = {},
+): RawConfig {
   return {
     project: PROJECT,
     ops: {
@@ -235,13 +245,13 @@ describe('ops diagnosis and authorized recovery', () => {
     expect(recovered.state).toBe(OPS_RECOVERED)
     expect(recovered.humanInvolved).toBe(true)
     expect(ops.stats().humanInvolved).toBe(1)
-    expect(ops.detail(event.eventId)?.attempts[0]?.authorizationSource).toBe('owner:owner:test:owner')
+    expect(ops.detail(event.eventId)?.attempts[0]?.authorizationSource).toBe(
+      'owner:owner:test:owner',
+    )
   })
 
   it('does not execute a proposed action that is not in the registered catalog', async () => {
-    const runner = fakeRunner(
-      diagnosisText({ action: { actionId: 'shell-anything', params: {} } }),
-    )
+    const runner = fakeRunner(diagnosisText({ action: { actionId: 'shell-anything', params: {} } }))
     const { ops } = makeOps(opsRaw(), runner)
     writeFileSync(join(dir, 'down'), '1')
 
@@ -256,10 +266,7 @@ describe('ops diagnosis and authorized recovery', () => {
 describe('ops failure handling', () => {
   it('marks an unresolved event and files one linked fix requirement', async () => {
     const runner = fakeRunner(diagnosisText({ fixRequired: true }))
-    const { ops } = makeOps(
-      opsRaw({ actionCommand: ['node', '-e', 'process.exit(2)'] }),
-      runner,
-    )
+    const { ops } = makeOps(opsRaw({ actionCommand: ['node', '-e', 'process.exit(2)'] }), runner)
     writeFileSync(join(dir, 'down'), '1')
 
     await ops.tick()
@@ -276,7 +283,9 @@ describe('ops failure handling', () => {
     // 再跑一轮不会重复生成需求。
     clock = new Date(clock.getTime() + 61_000)
     await ops.tick()
-    expect(ops.list().filter((item) => item.fixRequirementId === event.fixRequirementId)).toHaveLength(1)
+    expect(
+      ops.list().filter((item) => item.fixRequirementId === event.fixRequirementId),
+    ).toHaveLength(1)
   })
 
   it('records a timed-out action as failed and closes the event as unresolved without replay', async () => {
@@ -285,7 +294,13 @@ describe('ops failure handling', () => {
     const raw = opsRaw({ actionCommand: ['node', '-e', 'setTimeout(() => {}, 60000)'] })
     const config = resolveConfig(raw, dir)
     const fast = new OpsRuntime({
-      config: { ...config, ops: { ...config.ops, actions: config.ops.actions.map((action) => ({ ...action, timeoutSeconds: 1 })) } },
+      config: {
+        ...config,
+        ops: {
+          ...config.ops,
+          actions: config.ops.actions.map((action) => ({ ...action, timeoutSeconds: 1 })),
+        },
+      },
       repo: repository,
       runner,
       now: () => clock,
@@ -383,7 +398,9 @@ describe('ops failure handling', () => {
 
     await ops.tick()
     const detail = ops.detail('ops-interrupted')!
-    expect(ops.list().find((item) => item.eventId === 'ops-interrupted')?.state).toBe(OPS_UNRESOLVED)
+    expect(ops.list().find((item) => item.eventId === 'ops-interrupted')?.state).toBe(
+      OPS_UNRESOLVED,
+    )
     expect(detail.attempts[0]?.state).toBe(OPS_ATTEMPT_INTERRUPTED)
     const kinds = detail.observations.map((item) => item.kind)
     expect(kinds).toContain('interruption')

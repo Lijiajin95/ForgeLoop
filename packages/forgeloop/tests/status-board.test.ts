@@ -78,7 +78,8 @@ function plan(reqId: string, planVersion = 1, requirementVersion = 1): TaskPlan 
   }
 }
 
-function deliver(reqId: string, taskId: string, planVersion = 1): void {  repository.recordTaskArtifact({
+function deliver(reqId: string, taskId: string, planVersion = 1): void {
+  repository.recordTaskArtifact({
     requirementId: reqId,
     planVersion,
     taskId,
@@ -111,11 +112,7 @@ function board(options?: number | { limit?: number; query?: string }) {
 }
 
 /** 计划评审是批准的硬门禁：看板只在评审通过时提供“批准”。 */
-function seedPlanReview(
-  reqId: string,
-  planVersion = 1,
-  verdict: 'pass' | 'block' = 'pass',
-): void {
+function seedPlanReview(reqId: string, planVersion = 1, verdict: 'pass' | 'block' = 'pass'): void {
   const stored = repository.taskPlan(reqId, planVersion)!
   const planSha256 = sha256OfText(JSON.stringify(stored))
   const review = {
@@ -157,9 +154,15 @@ function seedPlanReview(
 }
 
 /** 独立验证绑定固定候选；新鲜度决定看板是否还提供“独立验证”。 */
-function seedVerification(reqId: string, planVersion = 1, verdict: 'pass' | 'block' = 'pass'): string {
+function seedVerification(
+  reqId: string,
+  planVersion = 1,
+  verdict: 'pass' | 'block' = 'pass',
+): string {
   const plan = repository.taskPlan(reqId, planVersion)!
-  const artifacts = plan.tasks.map((task) => repository.taskArtifact(reqId, planVersion, task.taskId)!)
+  const artifacts = plan.tasks.map((task) =>
+    repository.taskArtifact(reqId, planVersion, task.taskId)!,
+  )
   const candidateSha256 = candidateIdentityOf({
     planVersion,
     requirementVersion: plan.requirementVersion,
@@ -178,7 +181,14 @@ function seedVerification(reqId: string, planVersion = 1, verdict: 'pass' | 'blo
     summary: verdict === 'pass' ? '候选通过独立验证' : '候选未通过独立验证',
     findings: [],
     blocking: verdict === 'pass' ? [] : ['必过场景未通过'],
-    scenarios: [{ scenario: '场景', status: verdict === 'pass' ? 'pass' : 'fail', evidence: '正式测试', commands: ['smoke'] }],
+    scenarios: [
+      {
+        scenario: '场景',
+        status: verdict === 'pass' ? 'pass' : 'fail',
+        evidence: '正式测试',
+        commands: ['smoke'],
+      },
+    ],
     commands: [],
     sessionId: 'session-verification',
     at: NOW,
@@ -208,7 +218,14 @@ describe('status board', () => {
     const view = board()
     expect(view.project).toBe(PROJECT)
     expect(view.generatedAt).toBe(NOW)
-    expect(view.summary).toEqual({ requirements: 0, active: 0, tasks: 0, delivered: 0, issues: 0, blocking: 0 })
+    expect(view.summary).toEqual({
+      requirements: 0,
+      active: 0,
+      tasks: 0,
+      delivered: 0,
+      issues: 0,
+      blocking: 0,
+    })
     expect(view.requirements).toEqual([])
     expect(view.tasks).toEqual([])
     expect(view.issues).toEqual([])
@@ -585,7 +602,11 @@ describe('status board', () => {
       occurredAt: '2026-10-23T09:00:00.000Z',
     })
     const view = board()
-    expect(view.issues.map((issue) => issue.severity)).toEqual(['blocking', 'blocking', 'attention'])
+    expect(view.issues.map((issue) => issue.severity)).toEqual([
+      'blocking',
+      'blocking',
+      'attention',
+    ])
     expect(view.issues[2]!.kind).toBe('failure_round')
   })
 
@@ -765,7 +786,10 @@ describe('status board', () => {
     const deployView = board().requirements.find((item) => item.reqId === buildReq)!
     expect(deployView.actions).toContain('deploy')
     expect(deployView.actions).not.toContain('build')
-    expect(deployView.candidate).toMatchObject({ packageVersion: '0.1.0', artifactSha256: 'artifact' })
+    expect(deployView.candidate).toMatchObject({
+      packageVersion: '0.1.0',
+      artifactSha256: 'artifact',
+    })
 
     repository.recordDeployment({
       reqId: buildReq,
@@ -807,7 +831,9 @@ describe('status board', () => {
     })
     const failedView = board().requirements.find((item) => item.reqId === buildReq)!
     expect(failedView.deployment?.state).toBe('failed')
-    expect(failedView.deployment?.failedChecks).toEqual(['installed_files：内容不一致 lib/index.js'])
+    expect(failedView.deployment?.failedChecks).toEqual([
+      'installed_files：内容不一致 lib/index.js',
+    ])
     expect(failedView.actions).toContain('deploy')
   })
 
@@ -885,7 +911,13 @@ describe('status board', () => {
     submit('req-a', '共同关键词 一')
     submit('req-b', '共同关键词 二')
     submit('req-c', '共同关键词 三')
-    const view = buildStatusBoard({ repository, project: PROJECT, now: NOW, limit: 2, query: '共同关键词' })
+    const view = buildStatusBoard({
+      repository,
+      project: PROJECT,
+      now: NOW,
+      limit: 2,
+      query: '共同关键词',
+    })
     expect(view.limit).toBe(2)
     expect(view.truncated).toBe(true)
     expect(view.summary.requirements).toBe(3)

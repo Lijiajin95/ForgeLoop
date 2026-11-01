@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildImpactFacts,
-  type ImpactInput,
-} from '../src/domain/impact.js'
-import type { Requirement, RequirementAnalysis, RequirementVersion } from '../src/domain/requirement.js'
+import { buildImpactFacts, type ImpactInput } from '../src/domain/impact.js'
+import type {
+  Requirement,
+  RequirementAnalysis,
+  RequirementVersion,
+} from '../src/domain/requirement.js'
 import type { PlannedTask, TaskPlan, TaskPlanApproval } from '../src/domain/task-plan.js'
 import type { TaskArtifact } from '../src/domain/work.js'
 import * as impact from '../src/domain/impact.js'
@@ -80,7 +81,11 @@ function approval(planVersion: number): TaskPlanApproval {
   }
 }
 
-function artifact(planVersion: number, taskId: string, overrides: Partial<TaskArtifact> = {}): TaskArtifact {
+function artifact(
+  planVersion: number,
+  taskId: string,
+  overrides: Partial<TaskArtifact> = {},
+): TaskArtifact {
   return {
     requirementId: 'req-impact-1',
     planVersion,
@@ -99,7 +104,10 @@ function artifact(planVersion: number, taskId: string, overrides: Partial<TaskAr
 describe('impact facts: requirement revision is stale', () => {
   it('marks analyses, plans, approvals and deliveries based on an older requirement version as stale', () => {
     const facts = buildImpactFacts({
-      requirement: requirement([version(1, 'dsh-command:submit'), version(2, 'dsh-command:revise')]),
+      requirement: requirement([
+        version(1, 'dsh-command:submit'),
+        version(2, 'dsh-command:revise'),
+      ]),
       analyses: [analysis(1, 1)],
       plans: [plan(1, 1, [task('a'), task('b', ['a'])])],
       approvals: [approval(1)],
@@ -109,8 +117,20 @@ describe('impact facts: requirement revision is stale', () => {
     expect(facts.kind).toBe('facts')
     expect(facts.latestRequirementVersion).toBe(2)
     expect(facts.requirementVersions).toEqual([
-      { version: 1, createdAt: T0, revisedBy: 'owner', source: 'dsh-command:submit', latest: false },
-      { version: 2, createdAt: T1, revisedBy: 'owner-revise', source: 'dsh-command:revise', latest: true },
+      {
+        version: 1,
+        createdAt: T0,
+        revisedBy: 'owner',
+        source: 'dsh-command:submit',
+        latest: false,
+      },
+      {
+        version: 2,
+        createdAt: T1,
+        revisedBy: 'owner-revise',
+        source: 'dsh-command:revise',
+        latest: true,
+      },
     ])
 
     expect(facts.analyses[0]).toMatchObject({
@@ -229,7 +249,9 @@ describe('impact facts: requirement is still valid', () => {
       stale: false,
       pending: false,
     })
-    expect(facts.plans[0]?.tasks.every((item) => item.delivered && item.state === 'current')).toBe(true)
+    expect(facts.plans[0]?.tasks.every((item) => item.delivered && item.state === 'current')).toBe(
+      true,
+    )
     expect(facts.deliveries.every((item) => item.state === 'current')).toBe(true)
     expect(facts.requests[0]?.state).toBe('current')
   })
@@ -336,7 +358,9 @@ describe('impact facts: read-only surface', () => {
     const exports = Object.keys(impact)
     expect(exports).toContain('buildImpactFacts')
     for (const name of exports) {
-      expect(name).not.toMatch(/^(approve|advance|accept|submit|revise|cancel|stop|grant|recover|record|write)/i)
+      expect(name).not.toMatch(
+        /^(approve|advance|accept|submit|revise|cancel|stop|grant|recover|record|write)/i,
+      )
     }
     const input: ImpactInput = { requirement: requirement([version(1)]) }
     expect(() => buildImpactFacts(input)).not.toThrow()

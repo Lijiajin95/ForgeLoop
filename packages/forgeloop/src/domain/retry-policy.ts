@@ -26,12 +26,7 @@ export interface RetryDecision {
 const RETRYABLE_STATUSES = new Set(['approved', 'executing', 'blocked'])
 
 /** 这些阻塞原因不是“再来一次”能解决的，必须先处理授权或工时。 */
-const HARD_BLOCK_PATTERNS: readonly RegExp[] = [
-  /额度已用尽/,
-  /工时已用尽/,
-  /需要追加授权/,
-  /终态/,
-]
+const HARD_BLOCK_PATTERNS: readonly RegExp[] = [/额度已用尽/, /工时已用尽/, /需要追加授权/, /终态/]
 
 export function retryDecision(facts: RetryFacts): RetryDecision {
   if (facts.status === 'accepted' || facts.status === 'rejected' || facts.status === 'cancelled') {

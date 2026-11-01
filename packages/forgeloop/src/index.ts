@@ -19,7 +19,29 @@ export const name = 'forgeloop'
 
 /** Web 客户端读取看板事实的认证 HTTP 路径；只在有浏览器连接服务的 profile 中注册。 */
 export const BOARD_HTTP_PATH = '/api/forgeloop/board'
-const BOARD_ENDPOINTS = ['board', 'detail', 'session', 'task', 'execution', 'plan', 'approve', 'advance', 'verify', 'requeue', 'build', 'deploy', 'retry', 'accept', 'stop', 'cancel', 'ops', 'ops-detail', 'ops-decide', 'ops-close', 'ops-request-fix']
+const BOARD_ENDPOINTS = [
+  'board',
+  'detail',
+  'session',
+  'task',
+  'execution',
+  'plan',
+  'approve',
+  'advance',
+  'verify',
+  'requeue',
+  'build',
+  'deploy',
+  'retry',
+  'accept',
+  'stop',
+  'cancel',
+  'ops',
+  'ops-detail',
+  'ops-decide',
+  'ops-close',
+  'ops-request-fix',
+]
 
 interface BoardFailure {
   readonly code: string
@@ -27,7 +49,9 @@ interface BoardFailure {
   readonly details: Record<string, unknown>
 }
 
-type BoardOutcome = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: BoardFailure }
+type BoardOutcome =
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly error: BoardFailure }
 
 function boardFailure(code: string, message: string): { ok: false; error: BoardFailure } {
   return { ok: false, error: { code, message, details: {} } }
@@ -55,7 +79,8 @@ function registerBoardRoute(
   config: ReturnType<typeof resolveConfig>,
   coordinator: Coordinator,
 ): void {
-  const injectServices = ctx.inject as ((dependencies: string[], callback: (scope: AnyRecord) => void) => unknown) | undefined
+  const injectServices = ctx.inject as
+    ((dependencies: string[], callback: (scope: AnyRecord) => void) => unknown) | undefined
   if (typeof injectServices !== 'function') return
   injectServices(['connection'], (scope) => {
     const services = scope as {
@@ -102,12 +127,16 @@ function registerBoardRoute(
           } | null
           const endpoint = body?.endpoint
           if (!BOARD_ENDPOINTS.includes(String(endpoint))) {
-            return boardResponse(boardFailure('not_found', `未知的看板端点 ${String(endpoint)}`), 404)
+            return boardResponse(
+              boardFailure('not_found', `未知的看板端点 ${String(endpoint)}`),
+              404,
+            )
           }
           try {
             if (endpoint === 'detail') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              if (!reqId) return boardResponse(boardFailure('bad_request', '缺少需求身份 reqId'), 400)
+              if (!reqId)
+                return boardResponse(boardFailure('bad_request', '缺少需求身份 reqId'), 400)
               const result = runtime.requirementDetail(reqId)
               if (!result.ok) return boardResponse(boardFailure(result.code, result.message), 404)
               return boardResponse({ ok: true, value: result.data })
@@ -115,17 +144,27 @@ function registerBoardRoute(
             if (endpoint === 'task') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
               const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : ''
-              const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : undefined
+              const planVersion =
+                typeof body?.planVersion === 'number' ? body.planVersion : undefined
               if (!reqId || !taskId) {
-                return boardResponse(boardFailure('bad_request', '任务详情需要 reqId 与 taskId'), 400)
+                return boardResponse(
+                  boardFailure('bad_request', '任务详情需要 reqId 与 taskId'),
+                  400,
+                )
               }
               const result = runtime.taskDetail(reqId, taskId, planVersion)
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 404)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 404,
+              )
             }
             if (endpoint === 'execution') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
               const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : ''
-              const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : undefined
+              const planVersion =
+                typeof body?.planVersion === 'number' ? body.planVersion : undefined
               const offset = typeof body?.offset === 'number' ? body.offset : 0
               const limit = typeof body?.limit === 'number' ? body.limit : 100
               if (
@@ -138,19 +177,35 @@ function registerBoardRoute(
                 limit > 200 ||
                 (planVersion !== undefined && (!Number.isInteger(planVersion) || planVersion < 1))
               ) {
-                return boardResponse(boardFailure('bad_request', '执行过程需要 reqId、taskId 与合法分页参数'), 400)
+                return boardResponse(
+                  boardFailure('bad_request', '执行过程需要 reqId、taskId 与合法分页参数'),
+                  400,
+                )
               }
-              const result = runtime.taskExecution({ reqId, taskId, ...(planVersion ? { planVersion } : {}), offset, limit })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 404)
+              const result = runtime.taskExecution({
+                reqId,
+                taskId,
+                ...(planVersion ? { planVersion } : {}),
+                offset,
+                limit,
+              })
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 404,
+              )
             }
             if (endpoint === 'session') {
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-              if (!sessionId) return boardResponse(boardFailure('bad_request', '缺少会话身份 sessionId'), 400)
+              if (!sessionId)
+                return boardResponse(boardFailure('bad_request', '缺少会话身份 sessionId'), 400)
               return boardResponse({ ok: true, value: runtime.sessionSummary(sessionId) })
             }
             if (endpoint === 'plan') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              if (!reqId) return boardResponse(boardFailure('bad_request', '重新生成任务包需要 reqId'), 400)
+              if (!reqId)
+                return boardResponse(boardFailure('bad_request', '重新生成任务包需要 reqId'), 400)
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
               const result = runtime.requestOperation({
@@ -161,13 +216,22 @@ function registerBoardRoute(
                 ...(body?.confirmPlanChange === true ? { confirmPlanChange: true } : {}),
                 ...(reason ? { reason } : {}),
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'approve') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
+              const planVersion =
+                typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
               if (!reqId || !Number.isInteger(planVersion) || planVersion < 1) {
-                return boardResponse(boardFailure('bad_request', '批准需要 reqId 与正整数 planVersion'), 400)
+                return boardResponse(
+                  boardFailure('bad_request', '批准需要 reqId 与正整数 planVersion'),
+                  400,
+                )
               }
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const result = runtime.approvePlan({
@@ -176,7 +240,12 @@ function registerBoardRoute(
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}:plan-v${planVersion}`,
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'advance') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
@@ -188,11 +257,17 @@ function registerBoardRoute(
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}:advance`,
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'verify') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              if (!reqId) return boardResponse(boardFailure('bad_request', '独立验证需要 reqId'), 400)
+              if (!reqId)
+                return boardResponse(boardFailure('bad_request', '独立验证需要 reqId'), 400)
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const result = runtime.requestOperation({
                 reqId,
@@ -200,11 +275,17 @@ function registerBoardRoute(
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}:verify`,
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'requeue') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              if (!reqId) return boardResponse(boardFailure('bad_request', '重新执行需要 reqId'), 400)
+              if (!reqId)
+                return boardResponse(boardFailure('bad_request', '重新执行需要 reqId'), 400)
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const result = runtime.requeue({
                 reqId,
@@ -212,28 +293,41 @@ function registerBoardRoute(
                 source: `web-decision:${sessionId || 'unknown-session'}`,
               })
               return boardResponse(
-                result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
                 result.ok ? 200 : 409,
               )
             }
             if (endpoint === 'build') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-              if (!reqId) return boardResponse(boardFailure('bad_request', '构建候选需要 reqId'), 400)
+              if (!reqId)
+                return boardResponse(boardFailure('bad_request', '构建候选需要 reqId'), 400)
               const version =
-                typeof body?.version === 'string' && body.version.trim() ? body.version.trim() : undefined
+                typeof body?.version === 'string' && body.version.trim()
+                  ? body.version.trim()
+                  : undefined
               const result = runtime.buildCandidate({
                 reqId,
                 by: config.owner,
                 ...(version ? { version } : {}),
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'deploy') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
               const targetProfile =
                 typeof body?.targetProfile === 'string' ? body.targetProfile.trim() : ''
               if (!reqId || !targetProfile) {
-                return boardResponse(boardFailure('bad_request', '上线核对需要 reqId 与 targetProfile'), 400)
+                return boardResponse(
+                  boardFailure('bad_request', '上线核对需要 reqId 与 targetProfile'),
+                  400,
+                )
               }
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const result = runtime.verifyDeployment({
@@ -242,14 +336,23 @@ function registerBoardRoute(
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}:deploy`,
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'retry') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
               const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : ''
-              const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
+              const planVersion =
+                typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
               if (!reqId || !taskId || !Number.isInteger(planVersion) || planVersion < 1) {
-                return boardResponse(boardFailure('bad_request', '重试需要 reqId、taskId 与正整数 planVersion'), 400)
+                return boardResponse(
+                  boardFailure('bad_request', '重试需要 reqId、taskId 与正整数 planVersion'),
+                  400,
+                )
               }
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const result = runtime.retryTask({
@@ -259,7 +362,12 @@ function registerBoardRoute(
                 by: config.owner,
                 source: `web-decision:${sessionId || 'unknown-session'}`,
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'accept') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
@@ -275,7 +383,12 @@ function registerBoardRoute(
                 source: `web-decision:${sessionId || 'unknown-session'}:accept`,
                 ...(artifactSha256 ? { artifactSha256 } : {}),
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'cancel') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
@@ -288,12 +401,16 @@ function registerBoardRoute(
                 by: config.owner,
                 reason: reason || `Web 取消请求（${sessionId || 'unknown-session'}）`,
               })
-              return boardResponse(result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message), result.ok ? 200 : 409)
+              return boardResponse(
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
+                result.ok ? 200 : 409,
+              )
             }
             if (endpoint === 'stop') {
               const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
               if (!reqId) return boardResponse(boardFailure('bad_request', '停止需要 reqId'), 400)
-              const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
               const aborted = coordinator.abortRequirement(reqId)
               const result = runtime.stop({
@@ -302,7 +419,9 @@ function registerBoardRoute(
                 reason: reason || 'Web 停止请求',
               })
               return boardResponse(
-                result.ok ? { ok: true, value: { ...(result.data as object | undefined), aborted } } : boardFailure(result.code, result.message),
+                result.ok
+                  ? { ok: true, value: { ...(result.data as object | undefined), aborted } }
+                  : boardFailure(result.code, result.message),
                 result.ok ? 200 : 409,
               )
             }
@@ -312,18 +431,25 @@ function registerBoardRoute(
             }
             if (endpoint === 'ops-detail') {
               const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
-              if (!eventId) return boardResponse(boardFailure('bad_request', '缺少运维事件 eventId'), 400)
+              if (!eventId)
+                return boardResponse(boardFailure('bad_request', '缺少运维事件 eventId'), 400)
               const result = runtime.opsStatus(eventId)
               return boardResponse(
-                result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
                 result.ok ? 200 : 404,
               )
             }
             if (endpoint === 'ops-decide') {
               const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
-              const decision = body?.decision === 'approve' || body?.decision === 'decline' ? body.decision : ''
+              const decision =
+                body?.decision === 'approve' || body?.decision === 'decline' ? body.decision : ''
               if (!eventId || !decision) {
-                return boardResponse(boardFailure('bad_request', '处置决定需要 eventId 与 approve/decline'), 400)
+                return boardResponse(
+                  boardFailure('bad_request', '处置决定需要 eventId 与 approve/decline'),
+                  400,
+                )
               }
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
@@ -335,13 +461,16 @@ function registerBoardRoute(
                 ...(reason ? { reason } : {}),
               })
               return boardResponse(
-                result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
                 result.ok ? 200 : 409,
               )
             }
             if (endpoint === 'ops-close') {
               const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
-              if (!eventId) return boardResponse(boardFailure('bad_request', '关闭事件需要 eventId'), 400)
+              if (!eventId)
+                return boardResponse(boardFailure('bad_request', '关闭事件需要 eventId'), 400)
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
               const result = runtime.opsClose({
@@ -350,13 +479,16 @@ function registerBoardRoute(
                 reason: reason || `Web 关闭（${sessionId || 'unknown-session'}）`,
               })
               return boardResponse(
-                result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
                 result.ok ? 200 : 409,
               )
             }
             if (endpoint === 'ops-request-fix') {
               const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
-              if (!eventId) return boardResponse(boardFailure('bad_request', '生成修复需求需要 eventId'), 400)
+              if (!eventId)
+                return boardResponse(boardFailure('bad_request', '生成修复需求需要 eventId'), 400)
               const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
               const result = runtime.opsRequestFix({
                 eventId,
@@ -364,7 +496,9 @@ function registerBoardRoute(
                 source: `web-decision:${sessionId || 'unknown-session'}:ops-fix`,
               })
               return boardResponse(
-                result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+                result.ok
+                  ? { ok: true, value: result.data }
+                  : boardFailure(result.code, result.message),
                 result.ok ? 200 : 409,
               )
             }
@@ -389,7 +523,10 @@ function registerBoardRoute(
             }
             return boardResponse({ ok: true, value: runtime.statusBoard(limit, query) })
           } catch (error) {
-            return boardResponse(boardFailure('internal', `看板读取失败：${(error as Error).message}`), 500)
+            return boardResponse(
+              boardFailure('internal', `看板读取失败：${(error as Error).message}`),
+              500,
+            )
           }
         },
       })

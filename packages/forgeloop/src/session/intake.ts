@@ -56,9 +56,7 @@ export interface PreStepPayloadLike {
   readonly signal?: AbortSignal
 }
 
-export type PreStepDecision =
-  | { kind: 'reject' }
-  | { kind: 'enter'; messages: readonly unknown[] }
+export type PreStepDecision = { kind: 'reject' } | { kind: 'enter'; messages: readonly unknown[] }
 
 export type PreStepNext = () => Promise<PreStepDecision>
 
@@ -209,7 +207,15 @@ export class SessionIntake {
       })
       return
     }
-    await this.submitOne({ session, sessionId, messageId, text, turn: input.turn, signal: input.signal, at })
+    await this.submitOne({
+      session,
+      sessionId,
+      messageId,
+      text,
+      turn: input.turn,
+      signal: input.signal,
+      at,
+    })
   }
 
   private async submitOne(input: {
@@ -232,16 +238,34 @@ export class SessionIntake {
         clientKey: source,
       })
     } catch (error) {
-      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, '', `需求受理异常：${(error as Error).message}`, at)
+      this.appendError(
+        session,
+        `forgeloop:error:${sessionId}:${messageId}`,
+        '',
+        `需求受理异常：${(error as Error).message}`,
+        at,
+      )
       return
     }
     if (!submitted.ok) {
-      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, '', submitted.message, at)
+      this.appendError(
+        session,
+        `forgeloop:error:${sessionId}:${messageId}`,
+        '',
+        submitted.message,
+        at,
+      )
       return
     }
     const reqId = this.reqIdOf(submitted.data)
     if (!reqId) {
-      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, '', '需求已写入但没有返回身份', at)
+      this.appendError(
+        session,
+        `forgeloop:error:${sessionId}:${messageId}`,
+        '',
+        '需求已写入但没有返回身份',
+        at,
+      )
       return
     }
 
@@ -255,13 +279,24 @@ export class SessionIntake {
       status: 'accepted',
       at,
     }
-    appendSessionEvent(session, FORGELOOP_INTAKE_EVENT, intake as unknown as Record<string, unknown>, this.log)
+    appendSessionEvent(
+      session,
+      FORGELOOP_INTAKE_EVENT,
+      intake as unknown as Record<string, unknown>,
+      this.log,
+    )
 
     let outcome: Awaited<ReturnType<ForgeLoopRuntime['analyzeRequirement']>>
     try {
       outcome = await this.runtime.analyzeRequirement(reqId, input.signal)
     } catch (error) {
-      this.appendError(session, `forgeloop:error:${reqId}`, reqId, `需求分析异常：${(error as Error).message}`, at)
+      this.appendError(
+        session,
+        `forgeloop:error:${reqId}`,
+        reqId,
+        `需求分析异常：${(error as Error).message}`,
+        at,
+      )
       return
     }
     if (!outcome.ok || !outcome.analysis) {
@@ -284,7 +319,7 @@ export class SessionIntake {
     reqId: string
     at: string
   }): Promise<void> {
-    const { session, sessionId, messageId, text, turn, at, reqId } = input
+    const { session, sessionId, messageId, text, at, reqId } = input
     const source = `dsh-session:${sessionId}:${messageId}`
     let outcome: Awaited<ReturnType<ForgeLoopRuntime['answerClarifications']>>
     try {
@@ -296,7 +331,13 @@ export class SessionIntake {
         signal: input.signal,
       })
     } catch (error) {
-      this.appendError(session, `forgeloop:error:${reqId}`, reqId, `澄清回答异常：${(error as Error).message}`, at)
+      this.appendError(
+        session,
+        `forgeloop:error:${reqId}`,
+        reqId,
+        `澄清回答异常：${(error as Error).message}`,
+        at,
+      )
       return
     }
     if (!outcome.ok || !outcome.analysis) {
@@ -310,13 +351,17 @@ export class SessionIntake {
       answer: text,
       at,
     }
-    appendSessionEvent(session, FORGELOOP_ANSWER_EVENT, answer as unknown as Record<string, unknown>, this.log)
+    appendSessionEvent(
+      session,
+      FORGELOOP_ANSWER_EVENT,
+      answer as unknown as Record<string, unknown>,
+      this.log,
+    )
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
     // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
     // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
-
 
   private appendClarificationIfNeeded(
     session: SessionViewLike | undefined,
@@ -333,7 +378,12 @@ export class SessionIntake {
       questions: analysis.clarifications,
       at,
     }
-    appendSessionEvent(session, FORGELOOP_CLARIFICATION_EVENT, data as unknown as Record<string, unknown>, this.log)
+    appendSessionEvent(
+      session,
+      FORGELOOP_CLARIFICATION_EVENT,
+      data as unknown as Record<string, unknown>,
+      this.log,
+    )
   }
 
   private appendAnalysis(
@@ -353,7 +403,12 @@ export class SessionIntake {
       clarifications: analysis.clarifications,
       at,
     }
-    appendSessionEvent(session, FORGELOOP_ANALYSIS_EVENT, data as unknown as Record<string, unknown>, this.log)
+    appendSessionEvent(
+      session,
+      FORGELOOP_ANALYSIS_EVENT,
+      data as unknown as Record<string, unknown>,
+      this.log,
+    )
   }
 
   private appendError(
@@ -364,7 +419,12 @@ export class SessionIntake {
     at: string,
   ): void {
     const data: ErrorEventData = { eventId, reqId, message, at }
-    appendSessionEvent(session, FORGELOOP_ERROR_EVENT, data as unknown as Record<string, unknown>, this.log)
+    appendSessionEvent(
+      session,
+      FORGELOOP_ERROR_EVENT,
+      data as unknown as Record<string, unknown>,
+      this.log,
+    )
   }
 
   private reqIdOf(view: unknown): string {

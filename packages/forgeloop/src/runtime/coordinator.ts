@@ -185,7 +185,9 @@ export class Coordinator {
     this.runtime.autoAdvanceRequests(new Date().toISOString())
   }
 
-  private async execute(request: NonNullable<ReturnType<ForgeLoopRuntime['repo']['request']>>): Promise<void> {
+  private async execute(
+    request: NonNullable<ReturnType<ForgeLoopRuntime['repo']['request']>>,
+  ): Promise<void> {
     const controller = new AbortController()
     this.inflight.set(request.requestId, controller)
     const actionId = `act-${request.requestId}`
@@ -231,13 +233,11 @@ export class Coordinator {
 
   /** 供查询展示：动作与请求的对应关系。 */
   describeActions(reqId: string): unknown[] {
-    return this.runtime.repo
-      .requestsFor(reqId)
-      .map((request) => ({
-        request: request.requestId,
-        action: request.action,
-        state: request.state,
-        record: this.runtime.repo.action(`act-${request.requestId}`),
-      }))
+    return this.runtime.repo.requestsFor(reqId).map((request) => ({
+      request: request.requestId,
+      action: request.action,
+      state: request.state,
+      record: this.runtime.repo.action(`act-${request.requestId}`),
+    }))
   }
 }

@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
-import type { AgentOpenRequest, AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import type {
+  AgentOpenRequest,
+  AgentRunRequest,
+  AgentRunResult,
+} from '../src/runtime/agent-runner.js'
 import { COMMITTED } from '../src/domain/status.js'
 
 const SCENARIO = '需求功能可用'
@@ -96,25 +100,27 @@ const BUSINESS_REVIEW = JSON.stringify({
   acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
-function fakeRunner(options: {
-  failFirstVerification?: boolean
-  verifyMode?: 'malformed' | 'outside' | 'business-malformed'
-  repairNoChange?: boolean
-  devTimeout?: boolean
-  devAborted?: boolean
-  badPlanFirst?: boolean
-  languageViolationFirst?: boolean
-  verifyError?: boolean
-  verifyAborted?: boolean
-  businessError?: boolean
-  planTimeout?: boolean
-  planError?: boolean
-  planAborted?: boolean
-  repairTimeout?: boolean
-  devNoChange?: boolean
-  businessIncomplete?: boolean
-  businessBlock?: boolean
-} = {}): AgentLike {
+function fakeRunner(
+  options: {
+    failFirstVerification?: boolean
+    verifyMode?: 'malformed' | 'outside' | 'business-malformed'
+    repairNoChange?: boolean
+    devTimeout?: boolean
+    devAborted?: boolean
+    badPlanFirst?: boolean
+    languageViolationFirst?: boolean
+    verifyError?: boolean
+    verifyAborted?: boolean
+    businessError?: boolean
+    planTimeout?: boolean
+    planError?: boolean
+    planAborted?: boolean
+    repairTimeout?: boolean
+    devNoChange?: boolean
+    businessIncomplete?: boolean
+    businessBlock?: boolean
+  } = {},
+): AgentLike {
   let verifications = 0
   let plans = 0
   const session = (request: AgentOpenRequest) => ({
@@ -229,8 +235,13 @@ function fakeRunner(options: {
       if (request.role === 'verify' && turn.prompt.includes('独立验证 Agent')) {
         if (options.verifyAborted) {
           return {
-            status: 'aborted', text: '', sessionId: 'verify-aborted', reason: 'verify aborted',
-            transcriptPath: turn.transcriptPath, durationMs: 1, toolCalls: [],
+            status: 'aborted',
+            text: '',
+            sessionId: 'verify-aborted',
+            reason: 'verify aborted',
+            transcriptPath: turn.transcriptPath,
+            durationMs: 1,
+            toolCalls: [],
           }
         }
         if (options.verifyError) {
@@ -253,7 +264,11 @@ function fakeRunner(options: {
             commands: [
               {
                 label: 'smoke',
-                argv: ['node', '-e', fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`],
+                argv: [
+                  'node',
+                  '-e',
+                  fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`,
+                ],
               },
             ],
           }),
@@ -262,7 +277,10 @@ function fakeRunner(options: {
           mkdirSync(join(request.cwd, 'docs'), { recursive: true })
           writeFileSync(join(request.cwd, 'docs/outside.md'), 'outside\n')
         }
-        const report = options.verifyMode === 'malformed' ? 'not json' : verificationReport(fail ? 'block' : 'pass')
+        const report =
+          options.verifyMode === 'malformed'
+            ? 'not json'
+            : verificationReport(fail ? 'block' : 'pass')
         writeFileSync(join(request.cwd, 'verification/report.json'), report)
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, report)
       }
@@ -286,8 +304,12 @@ function fakeRunner(options: {
               summary: '业务不通过',
               findings: [],
               blocking: ['业务结果不符合预期'],
-              scenarios: [{ scenario: SCENARIO, status: 'fail', evidence: SMOKE, commands: ['smoke'] }],
-              acceptance: [{ criterion: CRITERION, status: 'fail', evidence: SMOKE, commands: ['smoke'] }],
+              scenarios: [
+                { scenario: SCENARIO, status: 'fail', evidence: SMOKE, commands: ['smoke'] },
+              ],
+              acceptance: [
+                { criterion: CRITERION, status: 'fail', evidence: SMOKE, commands: ['smoke'] },
+              ],
             }),
           )
         }
@@ -319,20 +341,35 @@ function fakeRunner(options: {
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         if (options.planAborted) {
           return {
-            status: 'aborted', text: '', sessionId: 'plan-aborted', reason: 'plan aborted',
-            transcriptPath: request.transcriptPath, durationMs: 1, toolCalls: [],
+            status: 'aborted',
+            text: '',
+            sessionId: 'plan-aborted',
+            reason: 'plan aborted',
+            transcriptPath: request.transcriptPath,
+            durationMs: 1,
+            toolCalls: [],
           }
         }
         if (options.planError) {
           return {
-            status: 'error', text: '', sessionId: 'plan-error', reason: 'plan model error',
-            transcriptPath: request.transcriptPath, durationMs: 1, toolCalls: [],
+            status: 'error',
+            text: '',
+            sessionId: 'plan-error',
+            reason: 'plan model error',
+            transcriptPath: request.transcriptPath,
+            durationMs: 1,
+            toolCalls: [],
           }
         }
         if (options.planTimeout) {
           return {
-            status: 'timeout', text: '', sessionId: 'plan-timeout', reason: 'plan timeout',
-            transcriptPath: request.transcriptPath, durationMs: 1, toolCalls: [],
+            status: 'timeout',
+            text: '',
+            sessionId: 'plan-timeout',
+            reason: 'plan timeout',
+            transcriptPath: request.transcriptPath,
+            durationMs: 1,
+            toolCalls: [],
           }
         }
         plans += 1
@@ -340,13 +377,29 @@ function fakeRunner(options: {
           return result(request, JSON.stringify({ tasks: [{ task_id: 'a' }] }))
         }
         if (options.languageViolationFirst && plans === 1) {
-          return result(request, JSON.stringify({
-            technical_solution: { summary: '方案', approach: ['步骤'], risks: [] },
-            tasks: [
-              { task_id: 'a', goal: '实现 A', files: ['src/forgeloop/app.py'], acceptance: CRITERION, test_command: ['node', '-e', 'process.exit(0)'] },
-              { task_id: 'b', goal: '实现 B', files: ['docs/b.md'], acceptance: CRITERION, test_command: ['node', '-e', 'process.exit(0)'], depends_on: ['a'] },
-            ],
-          }))
+          return result(
+            request,
+            JSON.stringify({
+              technical_solution: { summary: '方案', approach: ['步骤'], risks: [] },
+              tasks: [
+                {
+                  task_id: 'a',
+                  goal: '实现 A',
+                  files: ['src/forgeloop/app.py'],
+                  acceptance: CRITERION,
+                  test_command: ['node', '-e', 'process.exit(0)'],
+                },
+                {
+                  task_id: 'b',
+                  goal: '实现 B',
+                  files: ['docs/b.md'],
+                  acceptance: CRITERION,
+                  test_command: ['node', '-e', 'process.exit(0)'],
+                  depends_on: ['a'],
+                },
+              ],
+            }),
+          )
         }
         return result(request, PLAN)
       }
@@ -389,7 +442,12 @@ async function runNext(reqId: string, action: string) {
   expect(claimed!.reqId).toBe(reqId)
   expect(claimed!.action).toBe(action)
   const outcome = await runtime.executeRequest(claimed!, new AbortController().signal)
-  runtime.repo.resolveRequest(claimed!.requestId, outcome.state, outcome.detail, new Date().toISOString())
+  runtime.repo.resolveRequest(
+    claimed!.requestId,
+    outcome.state,
+    outcome.detail,
+    new Date().toISOString(),
+  )
   return outcome
 }
 
@@ -425,7 +483,10 @@ describe('continuous four-Agent flow', () => {
     expect(advance.state, advance.detail).toBe('done')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
-    expect(runtime.repo.taskArtifacts(reqId, 1).map((artifact) => artifact.taskId)).toEqual(['a', 'b'])
+    expect(runtime.repo.taskArtifacts(reqId, 1).map((artifact) => artifact.taskId)).toEqual([
+      'a',
+      'b',
+    ])
 
     const commit = runtime.repo.latestCommit(reqId)
     expect(commit).not.toBeNull()
@@ -551,12 +612,15 @@ describe('continuous four-Agent flow', () => {
     const base = fakeRunner()
     const asking: AgentLike = {
       async run(request) {
-        return result(request, JSON.stringify({
-          goal: '需要澄清',
-          scenarios: [SCENARIO],
-          acceptance_criteria: [CRITERION],
-          clarifications: ['目标用户是谁？'],
-        }))
+        return result(
+          request,
+          JSON.stringify({
+            goal: '需要澄清',
+            scenarios: [SCENARIO],
+            acceptance_criteria: [CRITERION],
+            clarifications: ['目标用户是谁？'],
+          }),
+        )
       },
       async open(request) {
         return base.open!(request)
@@ -680,8 +744,14 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
-    expect(git(project, ['show', '--name-only', '--pretty=format:', runtime.repo.latestCommit(reqId)!.commitSha]))
-      .toContain('continued.txt')
+    expect(
+      git(project, [
+        'show',
+        '--name-only',
+        '--pretty=format:',
+        runtime.repo.latestCommit(reqId)!.commitSha,
+      ]),
+    ).toContain('continued.txt')
   })
 
   it('rebuilds the development workspace when its metadata is damaged', async () => {
@@ -696,7 +766,15 @@ describe('continuous four-Agent flow', () => {
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    const meta = join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev-meta.json')
+    const meta = join(
+      project,
+      '.forgeloop',
+      'projects',
+      'demo',
+      'workspaces',
+      reqId,
+      'dev-meta.json',
+    )
     writeFileSync(meta, '{bad json')
     runtime.close()
     runtime = makeRuntime(fakeRunner())
@@ -719,7 +797,12 @@ describe('continuous four-Agent flow', () => {
     const controller = new AbortController()
     controller.abort()
     const outcome = await runtime.executeRequest(claimed, controller.signal)
-    runtime.repo.resolveRequest(claimed.requestId, outcome.state, outcome.detail, new Date().toISOString())
+    runtime.repo.resolveRequest(
+      claimed.requestId,
+      outcome.state,
+      outcome.detail,
+      new Date().toISOString(),
+    )
     expect(outcome.state).toBe('failed')
     expect(outcome.detail).toContain('停止请求')
     expect(runtime.repo.taskRuns(reqId, 1).every((run) => run.state !== 'running')).toBe(true)
@@ -772,7 +855,9 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
     const plan = runtime.repo.latestTaskPlan(reqId)!
-    expect(plan.tasks.flatMap((task) => task.files).some((file) => file.endsWith('.py'))).toBe(false)
+    expect(plan.tasks.flatMap((task) => task.files).some((file) => file.endsWith('.py'))).toBe(
+      false,
+    )
   })
 
   it('blocks when the planning turn times out', async () => {
@@ -867,7 +952,14 @@ describe('continuous four-Agent flow', () => {
     })
     const reqId = (submitted.data as { reqId: string }).reqId
     await runNext(reqId, 'analyze')
-    expect(runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'dsh-session:sess-fault:msg-1' }).ok).toBe(true)
+    expect(
+      runtime.requestOperation({
+        reqId,
+        action: 'advance',
+        by: 'owner',
+        source: 'dsh-session:sess-fault:msg-1',
+      }).ok,
+    ).toBe(true)
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
   })
 
@@ -958,7 +1050,10 @@ describe('continuous four-Agent flow', () => {
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev', '.git'), { recursive: true, force: true })
+    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev', '.git'), {
+      recursive: true,
+      force: true,
+    })
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
@@ -978,8 +1073,19 @@ describe('continuous four-Agent flow', () => {
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    const meta = join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev-meta.json')
-    writeFileSync(meta, JSON.stringify({ requirementVersion: 1, baselineCommit: null, snapshotCommit: 'x' }))
+    const meta = join(
+      project,
+      '.forgeloop',
+      'projects',
+      'demo',
+      'workspaces',
+      reqId,
+      'dev-meta.json',
+    )
+    writeFileSync(
+      meta,
+      JSON.stringify({ requirementVersion: 1, baselineCommit: null, snapshotCommit: 'x' }),
+    )
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
@@ -1000,7 +1106,10 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
     expect(runtime.repo.taskArtifacts(reqId, 1)).toHaveLength(2)
-    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev'), { recursive: true, force: true })
+    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev'), {
+      recursive: true,
+      force: true,
+    })
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
@@ -1021,8 +1130,19 @@ describe('continuous four-Agent flow', () => {
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    const meta = join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev-meta.json')
-    writeFileSync(meta, JSON.stringify({ requirementVersion: 99, baselineCommit: 'x', snapshotCommit: 'y' }))
+    const meta = join(
+      project,
+      '.forgeloop',
+      'projects',
+      'demo',
+      'workspaces',
+      reqId,
+      'dev-meta.json',
+    )
+    writeFileSync(
+      meta,
+      JSON.stringify({ requirementVersion: 99, baselineCommit: 'x', snapshotCommit: 'y' }),
+    )
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
@@ -1078,7 +1198,12 @@ describe('continuous four-Agent flow', () => {
     expect(runtime.repo.activeStop(reqId)?.settledAt).toBeTruthy()
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
     expect(runtime.retryDecisionFor(reqId).allowed).toBe(false)
-    const resumed = runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'test-explicit-resume' })
+    const resumed = runtime.requestOperation({
+      reqId,
+      action: 'advance',
+      by: 'owner',
+      source: 'test-explicit-resume',
+    })
     expect(resumed.ok, resumed.message).toBe(true)
     expect(runtime.repo.stop(reqId)?.resumedAt).toBeTruthy()
   })
@@ -1103,44 +1228,103 @@ describe('continuous four-Agent flow', () => {
   })
 
   it('records, settles, resumes and re-records a stop without losing audit fields', async () => {
-    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-fault:msg-1',
+    })
     const reqId = (submitted.data as { reqId: string }).reqId
     runtime.stop({ reqId, by: 'owner', reason: '' })
     expect(runtime.repo.stop(reqId)?.reason).toBe('未说明')
     runtime.repo.markStopSettled(reqId, runtime.now())
     expect(runtime.repo.stop(reqId)?.settledAt).not.toBe('')
-    runtime.repo.resumeStop({ requirementId: reqId, resumedBy: 'owner', reason: '恢复', resumedAt: runtime.now() })
+    runtime.repo.resumeStop({
+      requirementId: reqId,
+      resumedBy: 'owner',
+      reason: '恢复',
+      resumedAt: runtime.now(),
+    })
     expect(runtime.repo.activeStop(reqId)).toBeNull()
-    runtime.repo.resumeStop({ requirementId: reqId, resumedBy: 'owner', reason: '重复恢复', resumedAt: runtime.now() })
+    runtime.repo.resumeStop({
+      requirementId: reqId,
+      resumedBy: 'owner',
+      reason: '重复恢复',
+      resumedAt: runtime.now(),
+    })
     runtime.repo.markStopSettled(reqId, runtime.now())
-    runtime.repo.recordStop({ requirementId: reqId, requestedBy: 'owner', reason: '再次停止', requestedAt: runtime.now() })
+    runtime.repo.recordStop({
+      requirementId: reqId,
+      requestedBy: 'owner',
+      reason: '再次停止',
+      requestedAt: runtime.now(),
+    })
     expect(runtime.repo.activeStop(reqId)?.resumedAt).toBe('')
     expect(runtime.repo.activeStop(reqId)?.settledAt).toBe('')
   })
 
   it('refuses stop on missing or terminal requirements and ignores active requests when scanning', async () => {
-    expect(runtime.stop({ reqId: 'req-missing', by: 'owner', reason: 'x' })).toMatchObject({ ok: false, code: 'not_found' })
-    const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
+    expect(runtime.stop({ reqId: 'req-missing', by: 'owner', reason: 'x' })).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    })
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-fault:msg-1',
+    })
     const reqId = (submitted.data as { reqId: string }).reqId
     expect(runtime.cancel({ reqId, by: 'owner', reason: 'test' }).ok).toBe(true)
-    expect(runtime.stop({ reqId, by: 'owner', reason: 'x' })).toMatchObject({ ok: false, code: 'terminal' })
+    expect(runtime.stop({ reqId, by: 'owner', reason: 'x' })).toMatchObject({
+      ok: false,
+      code: 'terminal',
+    })
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
-    const other = runtime.submit({ text: '另一个需求', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
+    const other = runtime.submit({
+      text: '另一个需求',
+      by: 'owner',
+      source: 'dsh-session:sess-fault:msg-1',
+    })
     const otherId = (other.data as { reqId: string }).reqId
-    runtime.requestOperation({ reqId: otherId, action: 'analyze', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
+    runtime.requestOperation({
+      reqId: otherId,
+      action: 'analyze',
+      by: 'owner',
+      source: 'dsh-session:sess-fault:msg-1',
+    })
     expect(runtime.autoAdvanceRequests()).not.toContain(otherId)
   })
 
   it('returns deterministic retry and build errors for missing requirements', () => {
     expect(runtime.retryDecisionFor('req-missing')).toMatchObject({ allowed: false })
-    expect(runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({ ok: false, code: 'not_found' })
-    expect(runtime.verifyDeployment({ reqId: 'req-missing', targetProfile: 'x', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })).toMatchObject({
+    expect(runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'not_found',
     })
-    const submitted = runtime.submit({ text: '一个需求', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
+    expect(
+      runtime.verifyDeployment({
+        reqId: 'req-missing',
+        targetProfile: 'x',
+        by: 'owner',
+        source: 'dsh-session:sess-fault:msg-1',
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    })
+    const submitted = runtime.submit({
+      text: '一个需求',
+      by: 'owner',
+      source: 'dsh-session:sess-fault:msg-1',
+    })
     const reqId = (submitted.data as { reqId: string }).reqId
-    expect(runtime.verifyDeployment({ reqId, targetProfile: 'Bad!', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })).toMatchObject({
+    expect(
+      runtime.verifyDeployment({
+        reqId,
+        targetProfile: 'Bad!',
+        by: 'owner',
+        source: 'dsh-session:sess-fault:msg-1',
+      }),
+    ).toMatchObject({
       ok: false,
       code: 'profile_invalid',
     })
@@ -1149,10 +1333,17 @@ describe('continuous four-Agent flow', () => {
   })
 
   it('injects an explicitly requested fault once and records its evidence', async () => {
-    process.env.FORGELOOP_FAULT_INJECT = JSON.stringify({ file: 'README.md', append: '\nfault-injected\n' })
+    process.env.FORGELOOP_FAULT_INJECT = JSON.stringify({
+      file: 'README.md',
+      append: '\nfault-injected\n',
+    })
     try {
       runtime = makeRuntime(fakeRunner())
-      const submitted = runtime.submit({ text: '实现一个可验证的小功能', by: 'owner', source: 'dsh-session:sess-fault:msg-1' })
+      const submitted = runtime.submit({
+        text: '实现一个可验证的小功能',
+        by: 'owner',
+        source: 'dsh-session:sess-fault:msg-1',
+      })
       const reqId = (submitted.data as { reqId: string }).reqId
       await runNext(reqId, 'analyze')
       runtime.autoAdvanceRequests()
@@ -1223,11 +1414,16 @@ describe('continuous four-Agent flow', () => {
       expect((await runNext(reqId, 'advance')).state).toBe('done')
       const candidate = runtime.repo.codeCandidates(reqId, 1)[0]!
       expect(candidate.diffPath).toBeTruthy()
-      const marker = join(project, '.forgeloop/projects/demo/candidates', reqId, 'v1', 'fault-injection.json')
+      const marker = join(
+        project,
+        '.forgeloop/projects/demo/candidates',
+        reqId,
+        'v1',
+        'fault-injection.json',
+      )
       expect(existsSync(marker)).toBe(true)
     } finally {
       delete process.env.FORGELOOP_FAULT_INJECT
     }
   })
-
 })

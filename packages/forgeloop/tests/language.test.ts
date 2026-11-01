@@ -31,25 +31,38 @@ function plan(testCommand: string[], files: string[]) {
 
 describe('TypeScript language boundary', () => {
   it('accepts a TypeScript-only plan', () => {
-    const candidate = plan(['npm', 'run', 'check', '--workspace', 'forgeloop-dsh'], ['packages/forgeloop/src/index.ts'])
+    const candidate = plan(
+      ['npm', 'run', 'check', '--workspace', 'forgeloop-dsh'],
+      ['packages/forgeloop/src/index.ts'],
+    )
     expect(languageViolations(candidate)).toEqual([])
     expect(outsideActiveSource(candidate)).toEqual([])
   })
 
   it('rejects Python interpreters and the old virtualenv in test commands', () => {
-    const candidate = plan(['.venv/bin/python', '-m', 'forgeloop'], ['packages/forgeloop/src/index.ts'])
+    const candidate = plan(
+      ['.venv/bin/python', '-m', 'forgeloop'],
+      ['packages/forgeloop/src/index.ts'],
+    )
     const violations = languageViolations(candidate)
     expect(violations.some((violation) => violation.field === 'test_command')).toBe(true)
   })
 
   it('rejects the legacy forgeloop CLI as a test command', () => {
-    const candidate = plan(['forgeloop', 'requirement', 'status'], ['packages/forgeloop/src/index.ts'])
-    expect(languageViolations(candidate).some((violation) => /旧 forgeloop/.test(violation.reason))).toBe(true)
+    const candidate = plan(
+      ['forgeloop', 'requirement', 'status'],
+      ['packages/forgeloop/src/index.ts'],
+    )
+    expect(
+      languageViolations(candidate).some((violation) => /旧 forgeloop/.test(violation.reason)),
+    ).toBe(true)
   })
 
   it('rejects retired Python/frontend paths in the file list', () => {
     const candidate = plan(['npm', 'test'], ['src/forgeloop/domain/requirement.py'])
-    expect(languageViolations(candidate).some((violation) => violation.field === 'files')).toBe(true)
+    expect(languageViolations(candidate).some((violation) => violation.field === 'files')).toBe(
+      true,
+    )
   })
 
   it('rejects files outside the active TypeScript project', () => {

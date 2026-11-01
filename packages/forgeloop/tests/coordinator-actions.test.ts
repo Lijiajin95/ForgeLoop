@@ -206,7 +206,11 @@ describe('auto advance requests', () => {
     await coordinator.kick()
     const requests = runtime.repo.requestsFor(reqId)
     expect(requests).toHaveLength(1)
-    expect(requests[0]).toMatchObject({ action: 'advance', source: 'auto-advance', state: 'failed' })
+    expect(requests[0]).toMatchObject({
+      action: 'advance',
+      source: 'auto-advance',
+      state: 'failed',
+    })
     expect(executed).toEqual([requests[0]!.requestId])
     const actions = coordinator.describeActions(reqId) as Array<{
       request: string

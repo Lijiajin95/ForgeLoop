@@ -8,7 +8,6 @@ import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { RuleViolationError } from './domain/errors.js'
 import {
-  OPS_SEVERITIES,
   validateOpsCatalog,
   type OpsAction,
   type OpsActionParam,
@@ -134,18 +133,22 @@ export function defaultConfigPath(): string {
   return join(homedir(), '.forgeloop', 'config.json')
 }
 
-export function loadConfigFile(path = process.env.FORGELOOP_CONFIG?.trim() || defaultConfigPath()): RawConfig {
+export function loadConfigFile(
+  path = process.env.FORGELOOP_CONFIG?.trim() || defaultConfigPath(),
+): RawConfig {
   if (!existsSync(path)) return {}
   let parsed: unknown
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
   } catch (error) {
-    throw new RuleViolationError(`ForgeLoop 配置文件不是合法 JSON：${path}：${(error as Error).message}`)
+    throw new RuleViolationError(
+      `ForgeLoop 配置文件不是合法 JSON：${path}：${(error as Error).message}`,
+    )
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new RuleViolationError(`ForgeLoop 配置文件必须是 JSON 对象：${path}`)
   }
-  return parsed as RawConfig
+  return parsed
 }
 
 /** 合并顺序：宿主装载参数做底，独立配置文件覆盖；缺文件时保持原样。 */
@@ -157,7 +160,10 @@ export function mergeConfig(base: RawConfig, file: RawConfig): RawConfig {
  * 装载业务配置：优先独立文件。两者都没有关键值时报错，而不是静默回落到
  * “当前目录/.forgeloop”——静默回落会让插件连到另一个记录库，造成假死或分叉。
  */
-export function loadConfigOrThrow(base: RawConfig = {}, path = process.env.FORGELOOP_CONFIG?.trim() || defaultConfigPath()): RawConfig {
+export function loadConfigOrThrow(
+  base: RawConfig = {},
+  path = process.env.FORGELOOP_CONFIG?.trim() || defaultConfigPath(),
+): RawConfig {
   // 装载参数已经给出关键路径（测试或显式宿主配置）时以它为准；
   // 只有宿主没有配置时才读取独立文件，避免测试被本机配置污染。
   if (base.recordsRoot || base.projectPath) return base
@@ -223,12 +229,20 @@ function objectList(value: unknown, field: string): Array<Record<string, unknown
  * 所有者可以在配置文件中关闭或收紧来源前缀。
  */
 function parseAutonomyConfig(raw: RawAutonomyConfig | undefined): AutonomyConfig {
-  const source = (raw ?? {}) as RawAutonomyConfig
-  const trustedSources = stringList(source.trustedSources, 'autonomy.trustedSources', ['dsh-session:'])
+  const source = raw ?? {}
+  const trustedSources = stringList(source.trustedSources, 'autonomy.trustedSources', [
+    'dsh-session:',
+  ])
   if (trustedSources.length === 0) {
-    throw new RuleViolationError('配置 autonomy.trustedSources 不能为空；关闭准入请用 enabled=false')
+    throw new RuleViolationError(
+      '配置 autonomy.trustedSources 不能为空；关闭准入请用 enabled=false',
+    )
   }
-  const commitCheckCommand = stringList(source.commitCheckCommand, 'autonomy.commitCheckCommand', [])
+  const commitCheckCommand = stringList(
+    source.commitCheckCommand,
+    'autonomy.commitCheckCommand',
+    [],
+  )
   return {
     enabled: booleanValue(source.enabled, 'autonomy.enabled', true),
     allowCodeCommit: booleanValue(source.allowCodeCommit, 'autonomy.allowCodeCommit', true),
@@ -242,16 +256,23 @@ function parseAutonomyConfig(raw: RawAutonomyConfig | undefined): AutonomyConfig
  * 不在运行期猜测或放宽；未启用的目录也做同样的静态校验。
  */
 function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {
-  const source = (raw ?? {}) as RawOpsConfig
+  const source = raw ?? {}
   const enabled = booleanValue(source.enabled, 'ops.enabled', false)
   const intervalSeconds = positiveNumber(source.intervalSeconds, 'ops.intervalSeconds', 300)
   if (intervalSeconds < 30) throw new RuleViolationError('配置 ops.intervalSeconds 不能小于 30 秒')
 
-  const resources: OpsResource[] = objectList(source.resources, 'ops.resources').map((item, index) => ({
-    id: requiredText(item.id, `ops.resources[${index}].id`),
-    kind: (typeof item.kind === 'string' && item.kind.trim() ? item.kind.trim() : 'other') as OpsResourceKind,
-    label: typeof item.label === 'string' && item.label.trim() ? item.label.trim() : requiredText(item.id, `ops.resources[${index}].id`),
-  }))
+  const resources: OpsResource[] = objectList(source.resources, 'ops.resources').map(
+    (item, index) => ({
+      id: requiredText(item.id, `ops.resources[${index}].id`),
+      kind: (typeof item.kind === 'string' && item.kind.trim()
+        ? item.kind.trim()
+        : 'other') as OpsResourceKind,
+      label:
+        typeof item.label === 'string' && item.label.trim()
+          ? item.label.trim()
+          : requiredText(item.id, `ops.resources[${index}].id`),
+    }),
+  )
 
   const checks: OpsCheck[] = objectList(source.checks, 'ops.checks').map((item, index) => ({
     id: requiredText(item.id, `ops.checks[${index}].id`),
@@ -295,7 +316,11 @@ function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {
       resourceId,
       command: stringList(item.command, `ops.actions[${index}].command`, []),
       params,
-      timeoutSeconds: positiveNumber(item.timeoutSeconds, `ops.actions[${index}].timeoutSeconds`, 60),
+      timeoutSeconds: positiveNumber(
+        item.timeoutSeconds,
+        `ops.actions[${index}].timeoutSeconds`,
+        60,
+      ),
       auto: booleanValue(item.auto, `ops.actions[${index}].auto`, false),
       verifyCheckId,
     }
@@ -318,7 +343,9 @@ function expandHome(value: string): string {
 export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopConfig {
   const project = raw.project?.trim() || 'forgeloop'
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(project)) {
-    throw new RuleViolationError(`配置 project 只能是安全的项目名，实际 ${JSON.stringify(raw.project)}`)
+    throw new RuleViolationError(
+      `配置 project 只能是安全的项目名，实际 ${JSON.stringify(raw.project)}`,
+    )
   }
   const projectPath = resolve(cwd, expandHome(raw.projectPath?.trim() || '.'))
   // Desktop 和 Web 的启动目录可能不同；项目数据始终相对已选项目定位。
@@ -349,7 +376,10 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),
     candidateArtifactPath: raw.candidateArtifactPath?.trim() || '',
-    dshProfilesRoot: resolve(projectPath, expandHome(raw.dshProfilesRoot?.trim() || join(homedir(), '.dsh', 'profiles'))),
+    dshProfilesRoot: resolve(
+      projectPath,
+      expandHome(raw.dshProfilesRoot?.trim() || join(homedir(), '.dsh', 'profiles')),
+    ),
     autonomy: parseAutonomyConfig(raw.autonomy),
     ops: parseOpsConfig(raw.ops),
   }
@@ -373,7 +403,12 @@ export function evidenceDir(
   return join(projectDir(config), 'evidence', reqId, `v${planVersion}`, taskId)
 }
 
-export function workspaceDir(config: ForgeLoopConfig, reqId: string, planVersion: number, taskId: string): string {
+export function workspaceDir(
+  config: ForgeLoopConfig,
+  reqId: string,
+  planVersion: number,
+  taskId: string,
+): string {
   return join(projectDir(config), 'workspaces', reqId, `v${planVersion}`, taskId)
 }
 
@@ -383,11 +418,20 @@ export function devWorkspaceDir(config: ForgeLoopConfig, reqId: string): string 
 }
 
 /** 提交检查与整合证据目录；每次提交尝试独立一份，旧记录不覆盖。 */
-export function integrationDir(config: ForgeLoopConfig, reqId: string, candidateSha256: string): string {
+export function integrationDir(
+  config: ForgeLoopConfig,
+  reqId: string,
+  candidateSha256: string,
+): string {
   return join(projectDir(config), 'integrations', reqId, candidateSha256.slice(0, 16))
 }
 
-export function reviewDir(config: ForgeLoopConfig, reqId: string, planVersion: number, taskId: string): string {
+export function reviewDir(
+  config: ForgeLoopConfig,
+  reqId: string,
+  planVersion: number,
+  taskId: string,
+): string {
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, taskId)
 }
 
@@ -403,11 +447,21 @@ export function verificationDir(
   planVersion: number,
   candidateSha256: string,
 ): string {
-  return join(projectDir(config), 'verifications', reqId, `v${planVersion}`, candidateSha256.slice(0, 16))
+  return join(
+    projectDir(config),
+    'verifications',
+    reqId,
+    `v${planVersion}`,
+    candidateSha256.slice(0, 16),
+  )
 }
 
 /** 业务终审目录：按任务包版本保存，报告绑定当前候选身份。 */
-export function businessReviewDir(config: ForgeLoopConfig, reqId: string, planVersion: number): string {
+export function businessReviewDir(
+  config: ForgeLoopConfig,
+  reqId: string,
+  planVersion: number,
+): string {
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, 'business')
 }
 

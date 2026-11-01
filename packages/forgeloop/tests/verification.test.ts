@@ -106,7 +106,12 @@ function planReviewOf(verdict: 'pass' | 'block'): string {
     findings: [],
     summary: verdict === 'pass' ? '任务包可进入实现' : '任务包阻断',
     verification_plan: [
-      { scenario: SCENARIO, acceptance_criterion: CRITERION, method: '在独立候选上执行正式测试', required: true },
+      {
+        scenario: SCENARIO,
+        acceptance_criterion: CRITERION,
+        method: '在独立候选上执行正式测试',
+        required: true,
+      },
     ],
   })
 }
@@ -114,13 +119,15 @@ function planReviewOf(verdict: 'pass' | 'block'): string {
 const SMOKE_OUTPUT = 'smoke ok: verified'
 const DEFAULT_SMOKE_ARGV = ['node', '-e', `console.log('${SMOKE_OUTPUT}')`]
 
-function verificationReportOf(options: {
-  verdict?: 'pass' | 'block'
-  scenario?: string
-  status?: 'pass' | 'fail' | 'not_verified'
-  evidence?: string
-  commands?: readonly string[]
-} = {}): string {
+function verificationReportOf(
+  options: {
+    verdict?: 'pass' | 'block'
+    scenario?: string
+    status?: 'pass' | 'fail' | 'not_verified'
+    evidence?: string
+    commands?: readonly string[]
+  } = {},
+): string {
   return JSON.stringify({
     verdict: options.verdict ?? 'pass',
     summary: '候选通过独立验证',
@@ -137,10 +144,7 @@ function verificationReportOf(options: {
   })
 }
 
-function commandsOf(
-  argv: readonly string[] = DEFAULT_SMOKE_ARGV,
-  label = 'smoke',
-): string {
+function commandsOf(argv: readonly string[] = DEFAULT_SMOKE_ARGV, label = 'smoke'): string {
   return JSON.stringify({ commands: [{ label, argv }] })
 }
 
@@ -150,26 +154,38 @@ interface VerifyOptions {
   outside?: string
 }
 
-function fakeRunner(options: {
-  onVerify?: (request: AgentRunRequest, workspaceOptions: VerifyOptions) => void
-  verifyPlan?: (attempt: number) => string
-  workspace?: VerifyOptions
-} = {}): AgentLike {
+function fakeRunner(
+  options: {
+    onVerify?: (request: AgentRunRequest, workspaceOptions: VerifyOptions) => void
+    verifyPlan?: (attempt: number) => string
+    workspace?: VerifyOptions
+  } = {},
+): AgentLike {
   let reviewAttempt = 0
   return {
     async run(request) {
       if (request.role === 'product') return result(request, ANALYSIS)
-      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) return result(request, PLAN)
+      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
+        return result(request, PLAN)
       if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) {
         reviewAttempt += 1
-        return result(request, options.verifyPlan ? options.verifyPlan(reviewAttempt) : planReviewOf('pass'))
+        return result(
+          request,
+          options.verifyPlan ? options.verifyPlan(reviewAttempt) : planReviewOf('pass'),
+        )
       }
       if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
         const workspaceOptions = options.workspace ?? {}
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
-        writeFileSync(join(verification, 'commands.json'), workspaceOptions.commands ?? commandsOf())
-        writeFileSync(join(verification, 'report.json'), workspaceOptions.report ?? verificationReportOf())
+        writeFileSync(
+          join(verification, 'commands.json'),
+          workspaceOptions.commands ?? commandsOf(),
+        )
+        writeFileSync(
+          join(verification, 'report.json'),
+          workspaceOptions.report ?? verificationReportOf(),
+        )
         if (workspaceOptions.outside) {
           mkdirSync(join(request.cwd, 'docs'), { recursive: true })
           writeFileSync(join(request.cwd, workspaceOptions.outside), '越界改动\n')
@@ -185,15 +201,25 @@ function fakeRunner(options: {
             summary: '业务终审通过',
             findings: [],
             blocking: [],
-            scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
-            acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
+            scenarios: [
+              { scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] },
+            ],
+            acceptance: [
+              { criterion: CRITERION, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] },
+            ],
           }),
         )
       }
       if (request.role === 'verify' && request.prompt.includes('独立审查')) {
-        return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
+        return result(
+          request,
+          JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }),
+        )
       }
-      const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+      const allowed =
+        /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/
+          .exec(request.prompt)?.[1]
+          ?.split('、')[0] ?? 'docs/out.md'
       mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
       writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
       return result(request, 'done')
@@ -263,7 +289,11 @@ function seedPlan(reqId: string, planVersion = 1, requirementVersion = 1): TaskP
   return runtime.repo.taskPlan(reqId, planVersion)!
 }
 
-function seedPlanReview(reqId: string, planVersion = 1, verdict: 'pass' | 'block' = 'pass'): string {
+function seedPlanReview(
+  reqId: string,
+  planVersion = 1,
+  verdict: 'pass' | 'block' = 'pass',
+): string {
   const stored = runtime.repo.taskPlan(reqId, planVersion)!
   const planSha256 = sha256OfText(JSON.stringify(stored))
   const review = {
@@ -277,7 +307,12 @@ function seedPlanReview(reqId: string, planVersion = 1, verdict: 'pass' | 'block
     findings: [],
     summary: verdict === 'pass' ? '任务包可进入实现' : '任务包阻断',
     verification_plan: [
-      { scenario: SCENARIO, acceptance_criterion: CRITERION, method: '在独立候选上执行正式测试', required: true },
+      {
+        scenario: SCENARIO,
+        acceptance_criterion: CRITERION,
+        method: '在独立候选上执行正式测试',
+        required: true,
+      },
     ],
     sessionId: 'session-plan-review',
     at: '2026-10-29T00:00:02.000Z',
@@ -326,12 +361,20 @@ function approve(reqId: string, planVersion = 1): void {
   })
 }
 
-async function runPipeline(): Promise<{ reqId: string; advance: Awaited<ReturnType<typeof runQueued>> }> {
+async function runPipeline(): Promise<{
+  reqId: string
+  advance: Awaited<ReturnType<typeof runQueued>>
+}> {
   const submitted = runtime.submit({ text: '实现两个文档改动', by: 'owner', source: 'test' })
   const reqId = (submitted.data as { reqId: string }).reqId
   expect((await runQueued('analyze', reqId)).state).toBe('done')
   expect((await runQueued('plan', reqId)).state).toBe('done')
-  const approval = runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
+  const approval = runtime.approvePlan({
+    reqId,
+    planVersion: 1,
+    by: 'owner',
+    source: 'dsh-command',
+  })
   expect(approval.ok, approval.message).toBe(true)
   return { reqId, advance: await runQueued('advance', reqId) }
 }
@@ -371,7 +414,12 @@ describe('verification materials', () => {
           findings: [],
           summary: '通过',
           verification_plan: [
-            { scenario: SCENARIO, acceptance_criterion: CRITERION, method: '执行', required: false },
+            {
+              scenario: SCENARIO,
+              acceptance_criterion: CRITERION,
+              method: '执行',
+              required: false,
+            },
           ],
         }),
       ),
@@ -383,11 +431,19 @@ describe('verification materials', () => {
     ).toThrow(/必须给出验证计划/)
     expect(() =>
       parsePlanReview(
-        JSON.stringify({ verdict: 'pass', blocking: ['有阻断'], findings: [], summary: '通过', verification_plan: [] }),
+        JSON.stringify({
+          verdict: 'pass',
+          blocking: ['有阻断'],
+          findings: [],
+          summary: '通过',
+          verification_plan: [],
+        }),
       ),
     ).toThrow(/blocking 必须为空/)
     expect(() =>
-      parsePlanReview(JSON.stringify({ verdict: 'block', blocking: [], findings: [], summary: '阻断' })),
+      parsePlanReview(
+        JSON.stringify({ verdict: 'block', blocking: [], findings: [], summary: '阻断' }),
+      ),
     ).toThrow(/至少一条阻断原因/)
   })
 
@@ -395,7 +451,9 @@ describe('verification materials', () => {
     expect(parseVerificationCommands(commandsOf())).toEqual([
       { label: 'smoke', argv: DEFAULT_SMOKE_ARGV },
     ])
-    expect(() => parseVerificationCommands(JSON.stringify({ commands: [] }))).toThrow(/至少一条命令/)
+    expect(() => parseVerificationCommands(JSON.stringify({ commands: [] }))).toThrow(
+      /至少一条命令/,
+    )
     expect(() =>
       parseVerificationCommands(
         JSON.stringify({
@@ -406,7 +464,9 @@ describe('verification materials', () => {
         }),
       ),
     ).toThrow(/label 不能重复/)
-    expect(() => parseVerificationCommands(JSON.stringify({ commands: [{ label: '', argv: ['node'] }] }))).toThrow()
+    expect(() =>
+      parseVerificationCommands(JSON.stringify({ commands: [{ label: '', argv: ['node'] }] })),
+    ).toThrow()
   })
 
   it('rejects structurally invalid materials instead of guessing', () => {
@@ -417,7 +477,13 @@ describe('verification materials', () => {
     ).toThrow(/summary/)
     expect(() =>
       parsePlanReview(
-        JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: '通过', verification_plan: 'nope' }),
+        JSON.stringify({
+          verdict: 'pass',
+          blocking: [],
+          findings: [],
+          summary: '通过',
+          verification_plan: 'nope',
+        }),
       ),
     ).toThrow(/必须是数组/)
     expect(() =>
@@ -428,7 +494,12 @@ describe('verification materials', () => {
           findings: [],
           summary: '通过',
           verification_plan: [
-            { scenario: SCENARIO, acceptance_criterion: CRITERION, method: '执行', required: 'yes' },
+            {
+              scenario: SCENARIO,
+              acceptance_criterion: CRITERION,
+              method: '执行',
+              required: 'yes',
+            },
           ],
         }),
       ),
@@ -442,25 +513,41 @@ describe('verification materials', () => {
           summary: '通过',
           verification_plan: [
             { scenario: SCENARIO, acceptance_criterion: CRITERION, method: '执行', required: true },
-            { scenario: SCENARIO, acceptance_criterion: CRITERION, method: '再次执行', required: true },
+            {
+              scenario: SCENARIO,
+              acceptance_criterion: CRITERION,
+              method: '再次执行',
+              required: true,
+            },
           ],
         }),
       ),
     ).toThrow(/不能重复/)
     expect(() =>
       parsePlanReview(
-        JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: '通过', verification_plan: [] }),
+        JSON.stringify({
+          verdict: 'pass',
+          blocking: [],
+          findings: [],
+          summary: '通过',
+          verification_plan: [],
+        }),
       ),
     ).toThrow(/验证计划不能为空/)
 
-    expect(() => parseVerificationCommands(JSON.stringify({ commands: 'nope' }))).toThrow(/至少一条命令/)
+    expect(() => parseVerificationCommands(JSON.stringify({ commands: 'nope' }))).toThrow(
+      /至少一条命令/,
+    )
     expect(() =>
       parseVerificationCommands(JSON.stringify({ commands: [{ label: 'smoke', argv: [] }] })),
     ).toThrow(/argv/)
     expect(() =>
       parseVerificationCommands(
         JSON.stringify({
-          commands: Array.from({ length: 11 }, (_, index) => ({ label: `c${index}`, argv: ['node'] })),
+          commands: Array.from({ length: 11 }, (_, index) => ({
+            label: `c${index}`,
+            argv: ['node'],
+          })),
         }),
       ),
     ).toThrow(/最多 10 条/)
@@ -468,12 +555,24 @@ describe('verification materials', () => {
     expect(() => parseVerificationReport('not json')).toThrow(/可解析/)
     expect(() =>
       parseVerificationReport(
-        JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: '通过', scenarios: 'nope' }),
+        JSON.stringify({
+          verdict: 'pass',
+          blocking: [],
+          findings: [],
+          summary: '通过',
+          scenarios: 'nope',
+        }),
       ),
     ).toThrow(/scenarios 数组/)
     expect(() =>
       parseVerificationReport(
-        JSON.stringify({ verdict: 'block', blocking: [], findings: [], summary: '阻断', scenarios: [] }),
+        JSON.stringify({
+          verdict: 'block',
+          blocking: [],
+          findings: [],
+          summary: '阻断',
+          scenarios: [],
+        }),
       ),
     ).toThrow(/至少一条阻断原因/)
     expect(() =>
@@ -486,7 +585,15 @@ describe('verification materials', () => {
   it('rejects malformed or self-contradicting verification reports', () => {
     expect(parseVerificationReport(verificationReportOf()).verdict).toBe('pass')
     expect(() =>
-      parseVerificationReport(JSON.stringify({ verdict: 'pass', blocking: ['矛盾'], findings: [], summary: '通过', scenarios: [] })),
+      parseVerificationReport(
+        JSON.stringify({
+          verdict: 'pass',
+          blocking: ['矛盾'],
+          findings: [],
+          summary: '通过',
+          scenarios: [],
+        }),
+      ),
     ).toThrow(/blocking 必须为空/)
     expect(() =>
       parseVerificationReport(
@@ -514,27 +621,40 @@ describe('verification materials', () => {
 
   it('requires every required scenario to pass with evidence', () => {
     const plan = parsePlanReview(planReviewOf('pass')).verificationPlan
-    expect(validateVerificationCoverage(plan, parseVerificationReport(verificationReportOf()))).toEqual([])
     expect(
-      validateVerificationCoverage(plan, parseVerificationReport(verificationReportOf({ scenario: '其他场景' }))),
+      validateVerificationCoverage(plan, parseVerificationReport(verificationReportOf())),
+    ).toEqual([])
+    expect(
+      validateVerificationCoverage(
+        plan,
+        parseVerificationReport(verificationReportOf({ scenario: '其他场景' })),
+      ),
     ).toContain(`缺少必过场景的验证结果：${SCENARIO}`)
     expect(
-      validateVerificationCoverage(plan, parseVerificationReport(verificationReportOf({ status: 'fail' })))[0],
+      validateVerificationCoverage(
+        plan,
+        parseVerificationReport(verificationReportOf({ status: 'fail' })),
+      )[0],
     ).toContain('必过场景未通过')
     expect(
-      validateVerificationCoverage(plan, parseVerificationReport(verificationReportOf({ evidence: '' }))),
+      validateVerificationCoverage(
+        plan,
+        parseVerificationReport(verificationReportOf({ evidence: '' })),
+      ),
     ).toContain(`必过场景缺少证据：${SCENARIO}`)
   })
 
   it('requires the verification plan to cover every analysis scenario and criterion', () => {
     const review = parsePlanReview(planReviewOf('pass'))
-    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review)).toEqual([])
-    expect(validatePlanCoverage({ scenarios: ['其他场景'], acceptanceCriteria: [CRITERION] }, review)).toEqual([
-      '验证计划缺少业务场景：其他场景',
-    ])
-    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: ['其他标准'] }, review)).toEqual([
-      '验证计划缺少验收标准：其他标准',
-    ])
+    expect(
+      validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review),
+    ).toEqual([])
+    expect(
+      validatePlanCoverage({ scenarios: ['其他场景'], acceptanceCriteria: [CRITERION] }, review),
+    ).toEqual(['验证计划缺少业务场景：其他场景'])
+    expect(
+      validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: ['其他标准'] }, review),
+    ).toEqual(['验证计划缺少验收标准：其他标准'])
   })
 })
 
@@ -555,13 +675,17 @@ describe('pre-implementation review gate', () => {
     })
     seedPlan(reqId)
 
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_review_required',
     })
 
     seedPlanReview(reqId, 1, 'block')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_review_blocked',
     })
@@ -580,7 +704,9 @@ describe('pre-implementation review gate', () => {
       reviewedAt: '2026-10-29T00:00:02.000Z',
     })
     writeFileSync(join(dir, 'stale-review.json'), planReviewOf('pass'), 'utf8')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_review_stale',
     })
@@ -599,13 +725,17 @@ describe('pre-implementation review gate', () => {
       sessionId: 'session-missing',
       reviewedAt: '2026-10-29T00:00:02.000Z',
     })
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_review_invalid',
     })
 
     seedPlanReview(reqId, 1, 'pass')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(
+      true,
+    )
   })
 
   it('refuses to approve a stored plan that violates current task rules', () => {
@@ -673,7 +803,9 @@ describe('pre-implementation review gate', () => {
         '2026-10-29T00:00:01.000Z',
       )
     seedPlanReview(reqId, 1, 'pass')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_invalid',
     })
@@ -716,7 +848,9 @@ describe('pre-implementation review gate', () => {
     // 修正后的评审才落库；任务包本身不需要因为评审措辞重生成。
     expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
     expect(runtime.repo.planReview(reqId, 1)?.verdict).toBe('pass')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(
+      true,
+    )
   })
 
   it('records a blocking review after coverage stays missing and sends it back to planning', async () => {
@@ -754,7 +888,9 @@ describe('pre-implementation review gate', () => {
     const review = runtime.repo.planReview(reqId, latest.planVersion)!
     expect(review.verdict).toBe('block')
     expect(review.reportJson).toContain(`验证计划缺少业务场景：${SCENARIO}`)
-    expect(runtime.approvePlan({ reqId, planVersion: latest.planVersion, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: latest.planVersion, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_review_blocked',
     })
@@ -765,7 +901,8 @@ describe('pre-implementation review gate', () => {
     const base = fakeRunner()
     const failing: AgentLike = {
       async run(request) {
-        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, '', 'error')
+        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
+          return result(request, '', 'error')
         return base.run(request)
       },
     }
@@ -778,7 +915,9 @@ describe('pre-implementation review gate', () => {
     expect(failedReview.detail).toContain('实现前评审未取得可用结论')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
     expect(runtime.repo.planReview(reqId, 1)).toBeNull()
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_review_required',
     })
@@ -787,7 +926,8 @@ describe('pre-implementation review gate', () => {
     runtime.close()
     const malformed: AgentLike = {
       async run(request) {
-        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, 'not json')
+        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
+          return result(request, 'not json')
         return base.run(request)
       },
     }
@@ -797,7 +937,9 @@ describe('pre-implementation review gate', () => {
     expect(malformedReview.detail).toContain('实现前评审结果畸形')
     expect(runtime.repo.taskPlans(reqId)).toHaveLength(2)
     expect(runtime.repo.planReview(reqId, 2)).toBeNull()
-    expect(runtime.approvePlan({ reqId, planVersion: 2, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 2, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_review_required',
     })
@@ -850,7 +992,12 @@ describe('pre-implementation review gate', () => {
       verification: { verdict: string; summary: string; blocking: unknown[]; fresh: boolean }
     }
     expect(view.planReview).toMatchObject({ verdict: 'pass', summary: '', verificationPlan: [] })
-    expect(view.verification).toMatchObject({ verdict: 'pass', summary: '', blocking: [], fresh: false })
+    expect(view.verification).toMatchObject({
+      verdict: 'pass',
+      summary: '',
+      blocking: [],
+      fresh: false,
+    })
   })
 
   it('treats a malformed review as a retriable planning failure instead of ending the loop', async () => {
@@ -891,7 +1038,9 @@ describe('pre-implementation review gate', () => {
     // 畸形评审没有写成可批准的结论：重试后取得的合法评审才落库。
     expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
     expect(runtime.repo.planReview(reqId, 1)?.verdict).toBe('pass')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(
+      true,
+    )
   })
 
   it('stops after repeated malformed reviews and keeps the failure visible', async () => {
@@ -899,7 +1048,8 @@ describe('pre-implementation review gate', () => {
     runtime = makeRuntime({
       ...fakeRunner(),
       async run(request) {
-        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, 'not json at all')
+        if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
+          return result(request, 'not json at all')
         return fakeRunner().run(request)
       },
     } as AgentLike)
@@ -932,7 +1082,9 @@ describe('pre-implementation review gate', () => {
     expect(runtime.repo.planReview(reqId, 1)?.verdict).toBe('block')
     expect(runtime.repo.planReview(reqId, 2)?.verdict).toBe('pass')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
-    expect(runtime.approvePlan({ reqId, planVersion: 2, by: 'owner', source: 'test' }).ok).toBe(true)
+    expect(runtime.approvePlan({ reqId, planVersion: 2, by: 'owner', source: 'test' }).ok).toBe(
+      true,
+    )
   })
 })
 
@@ -954,9 +1106,9 @@ describe('coverage acceptance of wording variance', () => {
         ],
       }),
     )
-    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review)).toEqual(
-      [],
-    )
+    expect(
+      validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review),
+    ).toEqual([])
   })
 
   it('still blocks a plan entry that paraphrases instead of referencing the analysis text', () => {
@@ -976,10 +1128,9 @@ describe('coverage acceptance of wording variance', () => {
         ],
       }),
     )
-    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review)).toEqual([
-      `验证计划缺少业务场景：${SCENARIO}`,
-      `验证计划缺少验收标准：${CRITERION}`,
-    ])
+    expect(
+      validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review),
+    ).toEqual([`验证计划缺少业务场景：${SCENARIO}`, `验证计划缺少验收标准：${CRITERION}`])
   })
 
   it('matches references after collapsing whitespace differences', () => {
@@ -999,9 +1150,9 @@ describe('coverage acceptance of wording variance', () => {
         ],
       }),
     )
-    expect(validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review)).toEqual(
-      [],
-    )
+    expect(
+      validatePlanCoverage({ scenarios: [SCENARIO], acceptanceCriteria: [CRITERION] }, review),
+    ).toEqual([])
   })
 })
 
@@ -1027,7 +1178,12 @@ describe('independent verification gate', () => {
 
     deliver(reqId, 'a')
     deliver(reqId, 'b')
-    const queued = runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' })
+    const queued = runtime.requestOperation({
+      reqId,
+      action: 'verify',
+      by: 'owner',
+      source: 'test',
+    })
     expect(queued.ok, queued.message).toBe(true)
     expect((queued.data as { action: string }).action).toBe('verify')
   })
@@ -1051,7 +1207,9 @@ describe('independent verification gate', () => {
     expect(verification.candidateSha256).toBe(identity)
     expect(verification.requirementVersion).toBe(1)
     expect(verification.reportPath).toContain(identity.slice(0, 16))
-    expect(sha256OfText(readFileSync(verification.reportPath, 'utf8'))).toBe(verification.reportSha256)
+    expect(sha256OfText(readFileSync(verification.reportPath, 'utf8'))).toBe(
+      verification.reportSha256,
+    )
     const report = parseVerificationReport(verification.reportJson)
     expect(report.verdict).toBe('pass')
     expect(report.scenarios[0]).toMatchObject({ scenario: SCENARIO, status: 'pass' })
@@ -1082,7 +1240,8 @@ describe('independent verification gate', () => {
     const base = fakeRunner()
     const failing: AgentLike = {
       async run(request) {
-        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) return result(request, '', 'error')
+        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent'))
+          return result(request, '', 'error')
         return base.run(request)
       },
     }
@@ -1129,7 +1288,9 @@ describe('independent verification gate', () => {
     expect(advance.detail).toContain('验证命令失败')
     const plan = runtime.repo.latestTaskPlan(reqId)!
     expect(runtime.repo.verification(reqId, plan.planVersion)?.verdict).toBe('block')
-    expect(runtime.repo.failureRounds(reqId).some((round) => round.stage === 'verification')).toBe(true)
+    expect(runtime.repo.failureRounds(reqId).some((round) => round.stage === 'verification')).toBe(
+      true,
+    )
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
     expect(runtime.accept({ reqId, by: 'owner', source: 'test' })).toMatchObject({
       ok: false,
@@ -1139,7 +1300,9 @@ describe('independent verification gate', () => {
 
   it('blocks when the required scenario lacks evidence even if every command passed', async () => {
     runtime.close()
-    runtime = makeRuntime(fakeRunner({ workspace: { report: verificationReportOf({ evidence: '' }) } }))
+    runtime = makeRuntime(
+      fakeRunner({ workspace: { report: verificationReportOf({ evidence: '' }) } }),
+    )
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain(`必过场景缺少证据：${SCENARIO}`)
@@ -1196,7 +1359,9 @@ describe('independent verification gate', () => {
 
   it('blocks a report that cites a verification command that was never executed', async () => {
     runtime.close()
-    runtime = makeRuntime(fakeRunner({ workspace: { report: verificationReportOf({ commands: ['never-run'] }) } }))
+    runtime = makeRuntime(
+      fakeRunner({ workspace: { report: verificationReportOf({ commands: ['never-run'] }) } }),
+    )
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('引用了未执行的验证命令：never-run')
@@ -1283,7 +1448,10 @@ const EXTRA_SCENARIO = '异常输入被拒绝'
 const EXTRA_CRITERION = '错误输出包含原因'
 
 /** 验证 Agent 只拿需求原文与分析；不接触任务包、候选或实现代码。 */
-function requirementForVerificationPlan(): { requirement: Requirement; analysis: RequirementAnalysis } {
+function requirementForVerificationPlan(): {
+  requirement: Requirement
+  analysis: RequirementAnalysis
+} {
   return {
     requirement: {
       reqId: 'req-verification-agent-1',
@@ -1387,7 +1555,11 @@ function makeVerificationAgent(
 function verificationArtifact(): VerificationArtifact {
   // 执行阶段要求产物工作区真实存在；测试替身仍使用真实目录，避免在错误位置执行命令。
   mkdirSync(join(dir, 'artifact'), { recursive: true })
-  return { requirementVersion: 1, candidateSha256: 'a'.repeat(64), workspace: join(dir, 'artifact') }
+  return {
+    requirementVersion: 1,
+    candidateSha256: 'a'.repeat(64),
+    workspace: join(dir, 'artifact'),
+  }
 }
 
 const VERIFY_PLAN_TRANSCRIPT = () => join(dir, 'sessions', 'verify-plan.jsonl')
@@ -1469,14 +1641,18 @@ describe('requirement-derived verification plan', () => {
     }
     duplicate.scenarios[0]!.checks[0]!.label = 'same-label'
     duplicate.scenarios[1]!.checks[0]!.label = 'same-label'
-    expect(() => parseRequirementVerificationPlan(JSON.stringify(duplicate))).toThrow('label 不能重复')
+    expect(() => parseRequirementVerificationPlan(JSON.stringify(duplicate))).toThrow(
+      'label 不能重复',
+    )
 
     const optionalOnly = JSON.parse(requirementVerificationPlanOf()) as {
       scenarios: Array<Record<string, unknown>>
     }
     optionalOnly.scenarios[0]!.required = false
     optionalOnly.scenarios[1]!.required = false
-    expect(() => parseRequirementVerificationPlan(JSON.stringify(optionalOnly))).toThrow('至少要有一个必过场景')
+    expect(() => parseRequirementVerificationPlan(JSON.stringify(optionalOnly))).toThrow(
+      '至少要有一个必过场景',
+    )
   })
 })
 
@@ -1569,7 +1745,11 @@ describe('verification result execution', () => {
       plan: parseRequirementVerificationPlan(requirementVerificationPlanOf()),
       artifact: verificationArtifact(),
       checks: [],
-      environment: { platform: 'test-platform', nodeVersion: 'v-test', startedAt: '2026-10-31T01:00:00.000Z' },
+      environment: {
+        platform: 'test-platform',
+        nodeVersion: 'v-test',
+        startedAt: '2026-10-31T01:00:00.000Z',
+      },
       finishedAt: '2026-10-31T01:00:00.000Z',
     })
     expect(result.verdict).toBe('failed')

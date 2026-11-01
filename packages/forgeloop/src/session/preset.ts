@@ -5,7 +5,11 @@
  * ForgeLoop 需求受理与需求 Agent 分析，不调用模型聊天。
  */
 
-import { FORGELOOP_PRESET_DESCRIPTION, FORGELOOP_PRESET_ID, FORGELOOP_PRESET_NAME } from './intake.js'
+import {
+  FORGELOOP_PRESET_DESCRIPTION,
+  FORGELOOP_PRESET_ID,
+  FORGELOOP_PRESET_NAME,
+} from './intake.js'
 
 type AnyRecord = Record<string, unknown>
 
@@ -36,7 +40,9 @@ function serviceOf(ctx: AnyRecord, name: string): unknown {
 /** 读取宿主 preset 注册表；headless profile 没有该服务时返回 undefined。 */
 export function presetRegistryOf(ctx: AnyRecord): AgentPresetRegistryLike | undefined {
   const registry = serviceOf(ctx, 'agentPresets') as Partial<AgentPresetRegistryLike> | undefined
-  return typeof registry?.register === 'function' ? (registry as AgentPresetRegistryLike) : undefined
+  return typeof registry?.register === 'function'
+    ? (registry as AgentPresetRegistryLike)
+    : undefined
 }
 
 /**
@@ -48,7 +54,8 @@ export async function registerForgeLoopPreset(
   log: (message: string) => void = () => undefined,
 ): Promise<PresetRegistration> {
   const registry = presetRegistryOf(ctx)
-  if (!registry) return { ok: false, reason: '宿主没有 agentPresets 服务；ForgeLoop 业务会话 preset 未注册' }
+  if (!registry)
+    return { ok: false, reason: '宿主没有 agentPresets 服务；ForgeLoop 业务会话 preset 未注册' }
   try {
     const dispose = await registry.register({
       id: FORGELOOP_PRESET_ID,

@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
-import type { AgentOpenRequest, AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import type {
+  AgentOpenRequest,
+  AgentRunRequest,
+  AgentRunResult,
+} from '../src/runtime/agent-runner.js'
 import { COMMITTED } from '../src/domain/status.js'
 import { Database } from '../src/records/db.js'
 import { IssueStore } from '../src/records/issues.js'
@@ -97,7 +101,9 @@ const BUSINESS_REVIEW = JSON.stringify({
  * 前 N 次独立验证判阻断，之后通过；研发修复回合写真实文件改动。
  * 验证命令由运行时实际重跑：阻断时退出码 1，通过时输出 SMOKE。
  */
-function fakeRunner(options: { failVerifications?: number; repairNoChange?: boolean } = {}): AgentLike {
+function fakeRunner(
+  options: { failVerifications?: number; repairNoChange?: boolean } = {},
+): AgentLike {
   let verificationRuns = 0
   const session = (request: AgentOpenRequest) => ({
     sessionId: `session-fl-${request.role}-test`,
@@ -203,7 +209,12 @@ async function runNext(reqId: string, action: 'analyze' | 'advance') {
   expect(claimed!.reqId).toBe(reqId)
   expect(claimed!.action).toBe(action)
   const outcome = await runtime.executeRequest(claimed!, new AbortController().signal)
-  runtime.repo.resolveRequest(claimed!.requestId, outcome.state, outcome.detail, new Date().toISOString())
+  runtime.repo.resolveRequest(
+    claimed!.requestId,
+    outcome.state,
+    outcome.detail,
+    new Date().toISOString(),
+  )
   return outcome
 }
 
@@ -257,7 +268,11 @@ describe('verification failure issue loop', () => {
     // 证据包含验证命令、退出码、日志路径、环境与状态。
     expect(issue.evidence.blocking).toContain('验证命令退出码 1')
     expect(issue.evidence.commands).toHaveLength(1)
-    expect(issue.evidence.commands[0]).toMatchObject({ label: 'smoke', exitCode: 1, timedOut: false })
+    expect(issue.evidence.commands[0]).toMatchObject({
+      label: 'smoke',
+      exitCode: 1,
+      timedOut: false,
+    })
     expect(issue.evidence.commands[0]?.logPath).not.toBe('')
     expect(existsSync(issue.evidence.commands[0]!.logPath)).toBe(true)
     expect(issue.evidence.logs).toContain(issue.evidence.commands[0]!.logPath)
@@ -274,14 +289,22 @@ describe('verification failure issue loop', () => {
       candidateSha256: issue.candidateSha256,
     })
     expect(issue.evidence.environment.devWorkspace).toContain(reqId)
-    expect(issue.evidence.state).toMatchObject({ attempt: 1, stage: 'verification', verificationVerdict: 'block' })
+    expect(issue.evidence.state).toMatchObject({
+      attempt: 1,
+      stage: 'verification',
+      verificationVerdict: 'block',
+    })
 
     // 验证历史累积；问题单与验证结果都能反查需求。
     const verifications = runtime.repo.verificationsFor(reqId)
     expect(verifications.map((verification) => verification.verdict)).toEqual(['block', 'pass'])
     expect(runtime.issues.get(issue.issueId)?.requirementId).toBe(reqId)
-    expect(runtime.repo.verificationForCandidate(reqId, 1, issue.candidateSha256)?.requirementId).toBe(reqId)
-    expect(runtime.repo.failureRounds(reqId).some((round) => round.stage === 'verification')).toBe(true)
+    expect(
+      runtime.repo.verificationForCandidate(reqId, 1, issue.candidateSha256)?.requirementId,
+    ).toBe(reqId)
+    expect(runtime.repo.failureRounds(reqId).some((round) => round.stage === 'verification')).toBe(
+      true,
+    )
   })
 
   it('keeps retrying beyond the failure quota and accumulates attempts and verification history', async () => {
@@ -300,7 +323,9 @@ describe('verification failure issue loop', () => {
     // 失败额度已用尽，但未收口问题单让需求继续排队，而不是停在 blocked。
     expect(runtime.autoAdvanceRequests()).toContain(reqId)
     expect(
-      runtime.repo.pendingRequests('demo').some((request) => request.reqId === reqId && request.action === 'advance'),
+      runtime.repo
+        .pendingRequests('demo')
+        .some((request) => request.reqId === reqId && request.action === 'advance'),
     ).toBe(true)
 
     const second = await runNext(reqId, 'advance')
@@ -319,7 +344,9 @@ describe('verification failure issue loop', () => {
       expect(issue.verificationSha256).not.toBe('')
       expect(issue.candidateSha256).not.toBe('')
       expect(
-        runtime.repo.verificationsFor(reqId).some((verification) => verification.reportSha256 === issue.verificationSha256),
+        runtime.repo
+          .verificationsFor(reqId)
+          .some((verification) => verification.reportSha256 === issue.verificationSha256),
       ).toBe(true)
     }
   })
@@ -425,17 +452,23 @@ describe('internal issue model and store', () => {
   it('validates issue fields and computes the next attempt without resetting history', () => {
     const built = buildRequirementIssue(validIssue())
     expect(built).toMatchObject({ issueId: 'issue-1', attempt: 1, status: ISSUE_OPEN })
-    expect(buildRequirementIssue(validIssue({ issueId: ' issue-trimmed ' })).issueId).toBe('issue-trimmed')
+    expect(buildRequirementIssue(validIssue({ issueId: ' issue-trimmed ' })).issueId).toBe(
+      'issue-trimmed',
+    )
 
     expect(() => buildRequirementIssue(validIssue({ attempt: 0 }))).toThrow('attempt 必须是正整数')
-    expect(() => buildRequirementIssue(validIssue({ attempt: 1.5 }))).toThrow('attempt 必须是正整数')
-    expect(() => buildRequirementIssue(validIssue({ status: 'bad' as never }))).toThrow('问题单状态未知')
-    expect(() => buildRequirementIssue(validIssue({ stage: 'bad' as never }))).toThrow('问题单阶段未知')
+    expect(() => buildRequirementIssue(validIssue({ attempt: 1.5 }))).toThrow(
+      'attempt 必须是正整数',
+    )
+    expect(() => buildRequirementIssue(validIssue({ status: 'bad' as never }))).toThrow(
+      '问题单状态未知',
+    )
+    expect(() => buildRequirementIssue(validIssue({ stage: 'bad' as never }))).toThrow(
+      '问题单阶段未知',
+    )
     expect(() => buildRequirementIssue(validIssue({ issueId: '  ' }))).toThrow('issueId 不能为空')
     expect(() =>
-      buildRequirementIssue(
-        validIssue({ evidence: { ...issueEvidenceFor(1), blocking: ['  '] } }),
-      ),
+      buildRequirementIssue(validIssue({ evidence: { ...issueEvidenceFor(1), blocking: ['  '] } })),
     ).toThrow('阻断项必须是非空字符串数组')
 
     expect(nextIssueAttempt([])).toBe(1)
@@ -459,7 +492,9 @@ describe('internal issue model and store', () => {
       expect(store.issuesFor('req-1').map((issue) => issue.attempt)).toEqual([1, 2])
       expect(store.latestOpen('req-1')?.issueId).toBe('issue-2')
 
-      expect(store.updateStatus(first.issueId, ISSUE_FIXED, '2026-10-31T00:01:00.000Z', '已修复')).toBe(true)
+      expect(
+        store.updateStatus(first.issueId, ISSUE_FIXED, '2026-10-31T00:01:00.000Z', '已修复'),
+      ).toBe(true)
       expect(store.get(first.issueId)).toMatchObject({
         status: ISSUE_FIXED,
         summary: '已修复',
@@ -472,7 +507,10 @@ describe('internal issue model and store', () => {
       expect(store.resolveOpen('req-1', '2026-10-31T00:03:00.000Z')).toBe(2)
       expect(store.issuesFor('req-1')).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ status: ISSUE_RESOLVED, resolvedAt: '2026-10-31T00:03:00.000Z' }),
+          expect.objectContaining({
+            status: ISSUE_RESOLVED,
+            resolvedAt: '2026-10-31T00:03:00.000Z',
+          }),
         ]),
       )
       expect(store.latestOpen('req-1')).toBeNull()
@@ -491,7 +529,20 @@ describe('internal issue model and store', () => {
              verification_sha256, candidate_sha256, created_at, updated_at, resolved_at)
            VALUES (?, ?, CAST(? AS BLOB), ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`,
         )
-        .run('issue-raw', 'req-1', 'demo', '2', 'verification', 'open', 'raw', '{}', '', '', 'now', 'now')
+        .run(
+          'issue-raw',
+          'req-1',
+          'demo',
+          '2',
+          'verification',
+          'open',
+          'raw',
+          '{}',
+          '',
+          '',
+          'now',
+          'now',
+        )
       const store = new IssueStore(db)
       const issue = store.get('issue-raw')
       expect(issue?.attempt).toBe(2)
@@ -511,7 +562,20 @@ describe('internal issue model and store', () => {
              verification_sha256, candidate_sha256, created_at, updated_at, resolved_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`,
         )
-        .run('issue-bad', 'req-1', 'demo', 1, 'verification', 'open', 'summary', 'not-json', '', '', 'now', 'now')
+        .run(
+          'issue-bad',
+          'req-1',
+          'demo',
+          1,
+          'verification',
+          'open',
+          'summary',
+          'not-json',
+          '',
+          '',
+          'now',
+          'now',
+        )
       const store = new IssueStore(db)
       expect(() => store.get('issue-bad')).toThrow('证据不是可解析 JSON')
     } finally {

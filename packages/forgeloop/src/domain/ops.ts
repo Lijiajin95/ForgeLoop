@@ -107,7 +107,9 @@ const PLACEHOLDER = /\{([a-zA-Z0-9_-]+)\}/g
 
 function assertId(value: string, what: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value)) {
-    throw new RuleViolationError(`${what}只能使用字母、数字、下划线和连字符：${JSON.stringify(value)}`)
+    throw new RuleViolationError(
+      `${what}只能使用字母、数字、下划线和连字符：${JSON.stringify(value)}`,
+    )
   }
 }
 
@@ -167,7 +169,9 @@ export function validateOpsCatalog(catalog: OpsCatalog): void {
 
     const verify = checks.get(action.verifyCheckId)
     if (!verify) {
-      throw new RuleViolationError(`动作 ${action.id} 的恢复校验检查未登记：${action.verifyCheckId}`)
+      throw new RuleViolationError(
+        `动作 ${action.id} 的恢复校验检查未登记：${action.verifyCheckId}`,
+      )
     }
     if (verify.resourceId !== action.resourceId) {
       throw new RuleViolationError(
@@ -187,7 +191,9 @@ export function validateOpsCatalog(catalog: OpsCatalog): void {
       }
       for (const value of param.values) {
         if (typeof value !== 'string' || value.length === 0) {
-          throw new RuleViolationError(`动作 ${action.id} 的参数 ${param.name} 允许值必须是非空字符串`)
+          throw new RuleViolationError(
+            `动作 ${action.id} 的参数 ${param.name} 允许值必须是非空字符串`,
+          )
         }
       }
       if (new Set(param.values).size !== param.values.length) {
@@ -256,12 +262,18 @@ export function opsSignatureOf(input: {
   readonly exitCode: number
   readonly output: string
 }): string {
-  const digest = createHash('sha256').update(normalizedLine(input.output), 'utf8').digest('hex').slice(0, 12)
+  const digest = createHash('sha256')
+    .update(normalizedLine(input.output), 'utf8')
+    .digest('hex')
+    .slice(0, 12)
   return `${input.resourceId}/${input.checkId}/${input.exitCode}/${digest}`
 }
 
 /** 恢复复核只认程序退出码；超时即使退出码为 0 也不算通过。 */
-export function recoveryPassed(input: { readonly code: number; readonly timedOut: boolean }): boolean {
+export function recoveryPassed(input: {
+  readonly code: number
+  readonly timedOut: boolean
+}): boolean {
   return input.code === 0 && !input.timedOut
 }
 
@@ -293,7 +305,8 @@ export interface OpsDiagnosis {
 }
 
 function nonEmptyString(value: unknown, what: string): string {
-  if (typeof value !== 'string' || !value.trim()) throw new MalformedError(`${what}必须是非空字符串`)
+  if (typeof value !== 'string' || !value.trim())
+    throw new MalformedError(`${what}必须是非空字符串`)
   return value.trim()
 }
 
@@ -318,20 +331,22 @@ export function parseOpsDiagnosis(text: string): OpsDiagnosis {
   if (data.hypotheses !== undefined && !Array.isArray(data.hypotheses)) {
     throw new MalformedError('运维诊断的推断必须是数组')
   }
-  const hypotheses: OpsHypothesis[] = (data.hypotheses ?? []).map((item: unknown, index: number) => {
-    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
-      throw new MalformedError(`运维诊断的推断[${index}]必须是对象`)
-    }
-    const hypothesis = item as Record<string, unknown>
-    const confidence = hypothesis.confidence
-    if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
-      throw new MalformedError(`运维诊断的推断[${index}]置信度必须是 low/medium/high`)
-    }
-    return {
-      statement: nonEmptyString(hypothesis.statement, `运维诊断的推断[${index}]`),
-      confidence,
-    }
-  })
+  const hypotheses: OpsHypothesis[] = (data.hypotheses ?? []).map(
+    (item: unknown, index: number) => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        throw new MalformedError(`运维诊断的推断[${index}]必须是对象`)
+      }
+      const hypothesis = item as Record<string, unknown>
+      const confidence = hypothesis.confidence
+      if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
+        throw new MalformedError(`运维诊断的推断[${index}]置信度必须是 low/medium/high`)
+      }
+      return {
+        statement: nonEmptyString(hypothesis.statement, `运维诊断的推断[${index}]`),
+        confidence,
+      }
+    },
+  )
 
   let proposedAction: OpsProposedAction | null = null
   const rawAction = data.proposed_action
@@ -356,7 +371,8 @@ export function parseOpsDiagnosis(text: string): OpsDiagnosis {
     throw new MalformedError('运维诊断缺少 decision_required 布尔值')
   }
   const fixRequired = data.fix_required === undefined ? false : data.fix_required
-  if (typeof fixRequired !== 'boolean') throw new MalformedError('运维诊断的 fix_required 必须是布尔值')
+  if (typeof fixRequired !== 'boolean')
+    throw new MalformedError('运维诊断的 fix_required 必须是布尔值')
 
   return {
     impact,
@@ -396,12 +412,20 @@ export interface OpsAuthorization {
  * 模型不能把未登记或未授权的动作变成自动执行。
  */
 export function authorizeOpsAction(input: {
-  readonly event: { readonly resourceId: string; readonly severity: OpsSeverity; readonly state: string }
+  readonly event: {
+    readonly resourceId: string
+    readonly severity: OpsSeverity
+    readonly state: string
+  }
   readonly action: OpsAction
   readonly diagnosis: OpsDiagnosis
 }): OpsAuthorization {
   if (input.action.resourceId !== input.event.resourceId) {
-    return { auto: false, source: '', reason: `动作 ${input.action.id} 不属于事件资源 ${input.event.resourceId}` }
+    return {
+      auto: false,
+      source: '',
+      reason: `动作 ${input.action.id} 不属于事件资源 ${input.event.resourceId}`,
+    }
   }
   if (input.diagnosis.proposedAction?.actionId !== input.action.id) {
     return { auto: false, source: '', reason: '诊断提出的动作与待执行动作不一致' }
@@ -457,11 +481,19 @@ export function parseOpsInterruptionReport(text: string): OpsInterruptionReport 
   }
   return {
     summary: boundedString(data.summary, '运维中断根因报告的结论', INTERRUPTION_LIMITS.summary),
-    rootCause: boundedString(data.root_cause, '运维中断根因报告的根因', INTERRUPTION_LIMITS.rootCause),
+    rootCause: boundedString(
+      data.root_cause,
+      '运维中断根因报告的根因',
+      INTERRUPTION_LIMITS.rootCause,
+    ),
     evidence: evidence.map((item, index) =>
       boundedString(item, `运维中断根因报告的事实[${index}]`, INTERRUPTION_LIMITS.evidenceItem),
     ),
-    nextStep: boundedString(data.next_step, '运维中断根因报告的下一步', INTERRUPTION_LIMITS.nextStep),
+    nextStep: boundedString(
+      data.next_step,
+      '运维中断根因报告的下一步',
+      INTERRUPTION_LIMITS.nextStep,
+    ),
   }
 }
 
@@ -514,6 +546,8 @@ export function opsStats(events: readonly OpsEventStat[]): OpsStats {
     closed: events.filter((event) => event.state === OPS_CLOSED).length,
     fixRequirements: events.filter((event) => Boolean(event.fixRequirementId)).length,
     averageRecoverySeconds:
-      durations.length === 0 ? null : durations.reduce((sum, value) => sum + value, 0) / durations.length,
+      durations.length === 0
+        ? null
+        : durations.reduce((sum, value) => sum + value, 0) / durations.length,
   }
 }

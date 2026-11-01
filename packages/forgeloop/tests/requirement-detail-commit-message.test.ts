@@ -156,7 +156,13 @@ interface DetailData {
   artifacts: unknown[]
   failureRoundDetails: unknown[]
   pendingRequests: unknown[]
-  progress: { total: number; delivered: number; failed: number; running: number; awaitingInput: number }
+  progress: {
+    total: number
+    delivered: number
+    failed: number
+    running: number
+    awaitingInput: number
+  }
   acceptanceRecord: null
   planReview: null
   verification: null
@@ -231,7 +237,10 @@ function expectReadOnlyEvidence(block: VNode): void {
 beforeAll(async () => {
   ;(globalThis as { window?: unknown }).window = {
     __ModuleLoader__: {
-      load(options: { id: string; factory: (require: (name: string) => unknown) => ClientExports }) {
+      load(options: {
+        id: string
+        factory: (require: (name: string) => unknown) => ClientExports
+      }) {
         exportsValue = options.factory((name) => {
           if (name === 'react') return fakeReact
           throw new Error(`client.js 只允许 require('react')，收到 ${name}`)
@@ -330,7 +339,11 @@ describe('requirement detail commit message view', () => {
       })
       expect(submitted.ok, submitted.message).toBe(true)
       const reqId = (submitted.data as { reqId: string }).reqId
-      const record = (candidateSha256: string, commitMessage: string, committedAt: string): void => {
+      const record = (
+        candidateSha256: string,
+        commitMessage: string,
+        committedAt: string,
+      ): void => {
         runtime.repo.recordCommit({
           requirementId: reqId,
           planVersion: 1,
@@ -348,9 +361,9 @@ describe('requirement detail commit message view', () => {
       record('candidate-assembled-empty', '', '2026-10-31T01:00:00.000Z')
       const emptyResult = runtime.requirementDetail(reqId)
       expect(emptyResult.ok, emptyResult.message).toBe(true)
-      expect(
-        (emptyResult.data as { commit: { commitMessage: string } }).commit.commitMessage,
-      ).toBe('无提交信息')
+      expect((emptyResult.data as { commit: { commitMessage: string } }).commit.commitMessage).toBe(
+        '无提交信息',
+      )
       const emptyBlock = commitBlock(emptyResult.data as unknown as DetailData)
       expect(textOf(emptyBlock)).toContain('提交信息: 无提交信息')
       expect(textOf(emptyBlock)).not.toContain('—')

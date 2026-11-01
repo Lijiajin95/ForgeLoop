@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { Coordinator } from '../src/runtime/coordinator.js'
-import { resolveConfig, workspaceDir } from '../src/config.js'
+import { resolveConfig } from '../src/config.js'
 import { sha256OfText } from '../src/domain/delivery.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 
@@ -28,7 +28,11 @@ function makeProject(): string {
   return project
 }
 
-function result(request: AgentRunRequest, text: string, status: AgentRunResult['status'] = 'completed'): AgentRunResult {
+function result(
+  request: AgentRunRequest,
+  text: string,
+  status: AgentRunResult['status'] = 'completed',
+): AgentRunResult {
   mkdirSync(dirname(request.transcriptPath), { recursive: true })
   writeFileSync(request.transcriptPath, '{}\n', 'utf8')
   return {
@@ -139,13 +143,18 @@ function fakeRunner(
         overrides.onPlan?.(request, request.prompt)
         return result(request, PLAN)
       }
-      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) return result(request, PLAN_REVIEW)
+      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
+        return result(request, PLAN_REVIEW)
       if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
         writeFileSync(
           join(verification, 'commands.json'),
-          JSON.stringify({ commands: [{ label: 'smoke', argv: ['node', '-e', "console.log('smoke ok: verified')"] }] }),
+          JSON.stringify({
+            commands: [
+              { label: 'smoke', argv: ['node', '-e', "console.log('smoke ok: verified')"] },
+            ],
+          }),
         )
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
         return result(request, VERIFICATION_REPORT)
@@ -159,18 +168,34 @@ function fakeRunner(
             findings: [],
             blocking: [],
             scenarios: [
-              { scenario: '任务按依赖完成', status: 'pass', evidence: VERIFY_OUTPUT, commands: ['smoke'] },
+              {
+                scenario: '任务按依赖完成',
+                status: 'pass',
+                evidence: VERIFY_OUTPUT,
+                commands: ['smoke'],
+              },
             ],
             acceptance: [
-              { criterion: '两个任务交付且测试通过', status: 'pass', evidence: VERIFY_OUTPUT, commands: ['smoke'] },
+              {
+                criterion: '两个任务交付且测试通过',
+                status: 'pass',
+                evidence: VERIFY_OUTPUT,
+                commands: ['smoke'],
+              },
             ],
           }),
         )
       }
       if (request.role === 'verify' && request.prompt.includes('独立审查')) {
-        return result(request, JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }))
+        return result(
+          request,
+          JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }),
+        )
       }
-      const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+      const allowed =
+        /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/
+          .exec(request.prompt)?.[1]
+          ?.split('、')[0] ?? 'docs/out.md'
       const taskId = /当前任务：(.+)/.exec(request.prompt)?.[1]?.trim() ?? ''
       if (taskId === 'b' && !existsSync(join(request.cwd, 'docs/a.md'))) {
         throw new Error('依赖任务 a 的产物没有进入任务 b 的工作副本')
@@ -242,7 +267,12 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     expect(plan.planVersion).toBe(1)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
 
-    const approval = runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
+    const approval = runtime.approvePlan({
+      reqId,
+      planVersion: 1,
+      by: 'owner',
+      source: 'dsh-command',
+    })
     expect(approval.ok, approval.message).toBe(true)
     expect(runtime.repo.planApproval(reqId, 1)?.approvedBy).toBe('owner')
 
@@ -313,7 +343,8 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     const baseRunner = fakeRunner()
     const verificationRunner: AgentLike = {
       async run(request) {
-        if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) return result(request, VERIFICATION_PLAN)
+        if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
+          return result(request, VERIFICATION_PLAN)
         return baseRunner.run(request)
       },
     }
@@ -336,7 +367,9 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     const artifacts = runtime.repo.taskArtifacts(reqId, 1)
     expect(artifacts.map((artifact) => artifact.taskId)).toEqual(['a', 'verify'])
     const verifyArtifact = artifacts.find((artifact) => artifact.taskId === 'verify')!
-    expect(verifyArtifact.candidateSha256).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+    expect(verifyArtifact.candidateSha256).toBe(
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    )
     const evidence = runtime.repo.evidence(reqId, 1, 'verify')!
     expect(readFileSync(evidence.candidatePath, 'utf8')).toBe('')
     expect(readFileSync(evidence.reviewPath, 'utf8')).toContain('verification')
@@ -419,17 +452,32 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     await runQueued('analyze', reqId)
     await runQueued('plan', reqId)
 
-    const beforeApproval = runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'test' })
+    const beforeApproval = runtime.requestOperation({
+      reqId,
+      action: 'advance',
+      by: 'owner',
+      source: 'test',
+    })
     expect(beforeApproval.ok).toBe(false)
     expect(beforeApproval.code).toBe('admission_required')
 
     runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
     runtime.revise({ reqId, text: '第二版', by: 'owner', source: 'test' })
-    const afterRevise = runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 'test' })
+    const afterRevise = runtime.requestOperation({
+      reqId,
+      action: 'advance',
+      by: 'owner',
+      source: 'test',
+    })
     expect(afterRevise.ok).toBe(false)
     expect(afterRevise.code).toBe('stale_requirement')
 
-    const staleApproval = runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
+    const staleApproval = runtime.approvePlan({
+      reqId,
+      planVersion: 1,
+      by: 'owner',
+      source: 'dsh-command',
+    })
     expect(staleApproval.ok).toBe(false)
     expect(staleApproval.code).toBe('stale_requirement')
   })
@@ -466,7 +514,12 @@ describe('durable coordinator behaviour', () => {
   it('closes claimed requests as failed on restart and leaves them retryable', async () => {
     const submitted = runtime.submit({ text: '重启核对', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
-    const queued = runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
+    const queued = runtime.requestOperation({
+      reqId,
+      action: 'analyze',
+      by: 'owner',
+      source: 'test',
+    })
     const requestId = (queued.data as { requestId: string }).requestId
     runtime.repo.claimNextRequest('previous-host', new Date().toISOString())
 
@@ -493,11 +546,9 @@ describe('durable coordinator behaviour', () => {
       run(request) {
         seen = request.role
         return new Promise((resolve) => {
-          request.signal?.addEventListener(
-            'abort',
-            () => resolve(result(request, '', 'aborted')),
-            { once: true },
-          )
+          request.signal?.addEventListener('abort', () => resolve(result(request, '', 'aborted')), {
+            once: true,
+          })
         })
       },
     }
@@ -505,7 +556,12 @@ describe('durable coordinator behaviour', () => {
     runtime = makeRuntime(hanging)
     const submitted = runtime.submit({ text: '停止在途', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
-    const queued = runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
+    const queued = runtime.requestOperation({
+      reqId,
+      action: 'analyze',
+      by: 'owner',
+      source: 'test',
+    })
     const requestId = (queued.data as { requestId: string }).requestId
     const coordinator = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false })
     coordinator.start()
@@ -535,7 +591,7 @@ describe('durable coordinator behaviour', () => {
     expect(second.snapshot().running).toBe(false)
     // 第二个宿主不得把第一个宿主的 pending 标为 unknown 或领取它。
     expect(secondRuntime.repo.pendingRequests()).toHaveLength(1)
-    expect(secondRuntime.repo.request((runtime.repo.pendingRequests()[0]!).requestId)?.state).toBe(
+    expect(secondRuntime.repo.request(runtime.repo.pendingRequests()[0]!.requestId)?.state).toBe(
       'pending',
     )
 
@@ -551,11 +607,12 @@ describe('durable coordinator behaviour', () => {
     const submitted = runtime.submit({ text: '残留锁', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
     runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
-    const { mkdirSync, writeFileSync } = require('node:fs') as typeof import('node:fs')
-    const { join } = require('node:path') as typeof import('node:path')
     const lockDir = join(dir, '.forgeloop/projects/testproj/host.lock')
     mkdirSync(lockDir, { recursive: true })
-    writeFileSync(join(lockDir, 'owner.json'), JSON.stringify({ owner: 'dead', pid: 999999, acquiredAt: 'x' }))
+    writeFileSync(
+      join(lockDir, 'owner.json'),
+      JSON.stringify({ owner: 'dead', pid: 999999, acquiredAt: 'x' }),
+    )
     const coordinator = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false })
     coordinator.start()
     expect(coordinator.snapshot().lock.acquired).toBe(true)
@@ -678,7 +735,10 @@ describe('task retry', () => {
     const runner = fakeRunner({
       onDev: (request) => {
         prompts.push(request.prompt)
-        const allowed = /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/.exec(request.prompt)?.[1]?.split('、')[0] ?? 'docs/out.md'
+        const allowed =
+          /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/
+            .exec(request.prompt)?.[1]
+            ?.split('、')[0] ?? 'docs/out.md'
         mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
         writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
       },
@@ -733,18 +793,40 @@ describe('task retry', () => {
     expect(failedValue.retry.allowed).toBe(true)
 
     failing = false
-    const retry = runtime.retryTask({ reqId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
+    const retry = runtime.retryTask({
+      reqId,
+      planVersion: 1,
+      taskId: 'a',
+      by: 'owner',
+      source: 'test-retry',
+    })
     expect(retry.ok, retry.message).toBe(true)
     const pending = runtime.repo.requestsFor(reqId).find((request) => request.state === 'pending')
-    if (!pending) console.log('DEBUG first=', first, 'requests=', runtime.repo.requestsFor(reqId), 'runs=', runtime.repo.taskRuns(reqId, 1))
+    if (!pending)
+      console.log(
+        'DEBUG first=',
+        first,
+        'requests=',
+        runtime.repo.requestsFor(reqId),
+        'runs=',
+        runtime.repo.taskRuns(reqId, 1),
+      )
     expect(pending?.action).toBe('advance')
     expect(pending?.source).toContain('retry:a')
 
     const claimed = runtime.repo.claimNextRequest('tester', new Date().toISOString())!
     const outcome = await runtime.executeRequest(claimed, new AbortController().signal)
-    runtime.repo.resolveRequest(claimed.requestId, outcome.state, outcome.detail, new Date().toISOString())
+    runtime.repo.resolveRequest(
+      claimed.requestId,
+      outcome.state,
+      outcome.detail,
+      new Date().toISOString(),
+    )
     expect(outcome.state).toBe('done')
-    expect(runtime.repo.taskArtifacts(reqId, 1).map((artifact) => artifact.taskId)).toEqual(['a', 'b'])
+    expect(runtime.repo.taskArtifacts(reqId, 1).map((artifact) => artifact.taskId)).toEqual([
+      'a',
+      'b',
+    ])
     // 重试不清零既有失败轮次与证据。
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(2)
     // 新一次实现拿到上一次失败原因与正式测试日志尾部，而不是从零开始。
@@ -769,11 +851,23 @@ describe('task retry', () => {
     expect(withRounds.failureRoundDetails[0]?.taskId).toBe('a')
 
     // 任务详情的调试证据：活动/日志截断、审查结论与证据身份都要如实返回。
-    const taskDir = join(runtime.config.recordsRoot, 'projects', 'testproj', 'evidence', reqId, 'v1', 'a')
+    const taskDir = join(
+      runtime.config.recordsRoot,
+      'projects',
+      'testproj',
+      'evidence',
+      reqId,
+      'v1',
+      'a',
+    )
     writeFileSync(
       join(taskDir, 'dev.jsonl'),
       Array.from({ length: 130 }, (_, index) =>
-        JSON.stringify({ type: 'step/start', time: 1_700_000_000_000 + index, data: { step: index } }),
+        JSON.stringify({
+          type: 'step/start',
+          time: 1_700_000_000_000 + index,
+          data: { step: index },
+        }),
       ).join('\n') + '\n',
     )
     writeFileSync(join(taskDir, 'formal-test.log'), 'x'.repeat(5_000))
@@ -816,7 +910,13 @@ describe('task retry', () => {
     })
     runtime.repo.setStatus(reqId, 'blocked', '任务 a 失败')
 
-    const retried = runtime.retryTask({ reqId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
+    const retried = runtime.retryTask({
+      reqId,
+      planVersion: 1,
+      taskId: 'a',
+      by: 'owner',
+      source: 'test-retry',
+    })
     expect(retried.ok, retried.message).toBe(true)
     expect(runtime.repo.pendingRequests()).toHaveLength(1)
   })
@@ -850,7 +950,9 @@ describe('task retry', () => {
     expect(outcome.state).toBe('done')
     // 1 条旧请求的失败 + 新请求的 2 次尝试；attempt 序号相同也不能被当成重复轮次。
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(3)
-    expect(runtime.repo.failureRounds(reqId).filter((round) => round.roundId === 'a-a1')).toHaveLength(1)
+    expect(
+      runtime.repo.failureRounds(reqId).filter((round) => round.roundId === 'a-a1'),
+    ).toHaveLength(1)
   })
 
   it('refuses retries that would bypass approval, budget, terminals, delivered tasks or task order', () => {
@@ -866,12 +968,24 @@ describe('task retry', () => {
     runtime.repo.recordTaskPlan({ ...RETRY_PLAN, requirementId: reqId })
     seedFailedRun(reqId, 'a')
 
-    const unapproved = runtime.retryTask({ reqId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
+    const unapproved = runtime.retryTask({
+      reqId,
+      planVersion: 1,
+      taskId: 'a',
+      by: 'owner',
+      source: 'test-retry',
+    })
     expect(unapproved.code).toBe('plan_not_approved')
 
     recordApproval(reqId)
     runtime.repo.setStatus(reqId, 'accepted')
-    const terminal = runtime.retryTask({ reqId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
+    const terminal = runtime.retryTask({
+      reqId,
+      planVersion: 1,
+      taskId: 'a',
+      by: 'owner',
+      source: 'test-retry',
+    })
     expect(terminal.code).toBe('terminal')
 
     const exhaustedId = 'req-retry-exhausted'
@@ -969,21 +1083,38 @@ describe('task retry', () => {
     expect(missingTask.code).toBe('task_missing')
 
     expect(
-      runtime.retryTask({ reqId: 'req-retry-nope', planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' })
-        .code,
+      runtime.retryTask({
+        reqId: 'req-retry-nope',
+        planVersion: 1,
+        taskId: 'a',
+        by: 'owner',
+        source: 'test-retry',
+      }).code,
     ).toBe('not_found')
 
     const noRunId = 'req-retry-no-run'
     seedApprovedPlan(noRunId)
     expect(
-      runtime.retryTask({ reqId: noRunId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' }).code,
+      runtime.retryTask({
+        reqId: noRunId,
+        planVersion: 1,
+        taskId: 'a',
+        by: 'owner',
+        source: 'test-retry',
+      }).code,
     ).toBe('not_failed')
 
     const stalePlanId = 'req-retry-stale-plan'
     seedApprovedPlan(stalePlanId)
     seedFailedRun(stalePlanId, 'a')
     expect(
-      runtime.retryTask({ reqId: stalePlanId, planVersion: 2, taskId: 'a', by: 'owner', source: 'test-retry' }).code,
+      runtime.retryTask({
+        reqId: stalePlanId,
+        planVersion: 2,
+        taskId: 'a',
+        by: 'owner',
+        source: 'test-retry',
+      }).code,
     ).toBe('stale_plan')
 
     const staleRequirementId = 'req-retry-stale-requirement'
@@ -1014,11 +1145,16 @@ describe('task retry', () => {
       now: '2026-10-29T00:00:08.000Z',
     })
     expect(
-      runtime.retryTask({ reqId: busyId, planVersion: 1, taskId: 'a', by: 'owner', source: 'test-retry' }).code,
+      runtime.retryTask({
+        reqId: busyId,
+        planVersion: 1,
+        taskId: 'a',
+        by: 'owner',
+        source: 'test-retry',
+      }).code,
     ).toBe('busy')
   })
 })
-
 
 describe('execution scope, plan freeze and repair loop', () => {
   async function prepared(reqText: string): Promise<string> {
@@ -1026,7 +1162,9 @@ describe('execution scope, plan freeze and repair loop', () => {
     const reqId = (submitted.data as { reqId: string }).reqId
     expect((await runQueued('analyze', reqId)).state).toBe('done')
     expect((await runQueued('plan', reqId)).state).toBe('done')
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(
+      true,
+    )
     return reqId
   }
 
@@ -1055,10 +1193,17 @@ describe('execution scope, plan freeze and repair loop', () => {
     const reqId = (submitted.data as { reqId: string }).reqId
     await runQueued('analyze', reqId)
     await runQueued('plan', reqId)
-    const queued = runtime.requestOperation({ reqId, action: 'plan', by: 'owner', source: 'test:preapproval' })
+    const queued = runtime.requestOperation({
+      reqId,
+      action: 'plan',
+      by: 'owner',
+      source: 'test:preapproval',
+    })
     expect(queued.ok).toBe(true)
     const requestId = (queued.data as { requestId: string }).requestId
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(true)
+    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }).ok).toBe(
+      true,
+    )
 
     const claimed = runtime.repo.claimNextRequest('tester', new Date().toISOString())!
     expect(claimed.requestId).toBe(requestId)
@@ -1144,7 +1289,8 @@ describe('execution scope, plan freeze and repair loop', () => {
     const base = fakeRunner()
     const runner: AgentLike = {
       async run(request) {
-        if (request.role === 'dev' && request.prompt.includes('当前任务：')) throw new Error('spawn failed')
+        if (request.role === 'dev' && request.prompt.includes('当前任务：'))
+          throw new Error('spawn failed')
         return base.run(request)
       },
     }
@@ -1210,7 +1356,11 @@ describe('execution scope, plan freeze and repair loop', () => {
               commands: [
                 {
                   label: 'smoke',
-                  argv: ['node', '-e', verifyCalls === 1 ? 'process.exit(1)' : "console.log('smoke ok: verified')"],
+                  argv: [
+                    'node',
+                    '-e',
+                    verifyCalls === 1 ? 'process.exit(1)' : "console.log('smoke ok: verified')",
+                  ],
                 },
               ],
             }),
@@ -1238,7 +1388,6 @@ describe('execution scope, plan freeze and repair loop', () => {
     expect(runtime.repo.taskRuns(reqId, 1).every((run) => run.state === 'delivered')).toBe(true)
   })
 })
-
 
 describe('requeue after a failure', () => {
   it('requeues once, keeps the plan version and reports refusal reasons', async () => {

@@ -16,7 +16,12 @@ import type { Requirement } from '../domain/requirement.js'
 import { authorizePlan, type TaskPlan } from '../domain/task-plan.js'
 import { candidateIdentityOf } from '../domain/delivery.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
-import { parsePlanReview, parseVerificationReport, type PlanReview, type VerificationReport } from '../domain/verification.js'
+import {
+  parsePlanReview,
+  parseVerificationReport,
+  type PlanReview,
+  type VerificationReport,
+} from '../domain/verification.js'
 import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
@@ -322,7 +327,12 @@ function haystackOf(input: {
     parts.push(version.text, version.revisedBy, version.source)
   }
   if (analysis) {
-    parts.push(analysis.goal, ...analysis.scenarios, ...analysis.acceptanceCriteria, ...analysis.clarifications)
+    parts.push(
+      analysis.goal,
+      ...analysis.scenarios,
+      ...analysis.acceptanceCriteria,
+      ...analysis.clarifications,
+    )
   }
   if (plan) {
     parts.push(plan.taskPlanId, `v${plan.planVersion}`)
@@ -379,7 +389,10 @@ function haystackOf(input: {
 export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView {
   const { repository, project } = input
   const now = input.now ?? new Date().toISOString()
-  const limit = Math.min(BOARD_MAX_LIMIT, Math.max(1, Math.trunc(input.limit ?? BOARD_DEFAULT_LIMIT)))
+  const limit = Math.min(
+    BOARD_MAX_LIMIT,
+    Math.max(1, Math.trunc(input.limit ?? BOARD_DEFAULT_LIMIT)),
+  )
   const query = (input.query ?? '').trim().slice(0, 200)
   const all = repository.listRequirements(project)
 
@@ -391,8 +404,8 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
     const plan = repository.latestTaskPlan(requirement.reqId)
     // 精确批准优先；只有旧版本批准时仍判为 stale，不能驱动当前任务包。
     const approvalRecord = plan
-      ? repository.planApproval(requirement.reqId, plan.planVersion) ??
-        repository.latestPlanApproval(requirement.reqId)
+      ? (repository.planApproval(requirement.reqId, plan.planVersion) ??
+        repository.latestPlanApproval(requirement.reqId))
       : null
     const authorization = plan ? authorizePlan(plan, approvalRecord) : null
     const artifacts = plan ? repository.taskArtifacts(requirement.reqId, plan.planVersion) : []
@@ -416,7 +429,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         return null
       }
     })()
-    const verificationRecord = plan ? repository.verification(requirement.reqId, plan.planVersion) : null
+    const verificationRecord = plan
+      ? repository.verification(requirement.reqId, plan.planVersion)
+      : null
     const verificationReport: VerificationReport | null = (() => {
       if (!verificationRecord) return null
       try {
@@ -427,7 +442,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
     })()
     const currentCandidateSha256 = (() => {
       if (!plan || artifacts.length !== plan.tasks.length) return ''
-      const ordered = plan.tasks.map((task) => artifacts.find((artifact) => artifact.taskId === task.taskId))
+      const ordered = plan.tasks.map((task) =>
+        artifacts.find((artifact) => artifact.taskId === task.taskId),
+      )
       if (ordered.some((artifact) => !artifact)) return ''
       return candidateIdentityOf({
         planVersion: plan.planVersion,
@@ -469,7 +486,10 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
         }
       : null
 
-    const businessReviewRecord = repository.businessReview(requirement.reqId, plan?.planVersion ?? 0)
+    const businessReviewRecord = repository.businessReview(
+      requirement.reqId,
+      plan?.planVersion ?? 0,
+    )
     const businessReviewView: BoardBusinessReviewView | null = businessReviewRecord
       ? {
           verdict: businessReviewRecord.verdict,
@@ -480,7 +500,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
             businessReviewRecord.verificationSha256 === verificationRecord.reportSha256,
           summary: (() => {
             try {
-              return (JSON.parse(businessReviewRecord.reportJson) as { summary?: string }).summary ?? ''
+              return (
+                (JSON.parse(businessReviewRecord.reportJson) as { summary?: string }).summary ?? ''
+              )
             } catch {
               return ''
             }
@@ -507,7 +529,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
           verificationSha256: buildRecord.verificationSha256,
         }
       : null
-    const deploymentRecord = plan ? repository.deployment(requirement.reqId, plan.planVersion) : null
+    const deploymentRecord = plan
+      ? repository.deployment(requirement.reqId, plan.planVersion)
+      : null
     const deploymentView: BoardDeploymentView | null = deploymentRecord
       ? {
           state: deploymentRecord.state,
@@ -517,8 +541,11 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
           artifactSha256: deploymentRecord.artifactSha256,
           recordedAt: deploymentRecord.recordedAt,
           failedChecks: deploymentRecord.checks
-            .filter((check): check is { id: string; ok: boolean; detail: string } => typeof check === 'object' && check !== null)
-            .filter((check) => check.ok === false)
+            .filter(
+              (check): check is { id: string; ok: boolean; detail: string } =>
+                typeof check === 'object' && check !== null,
+            )
+            .filter((check) => !check.ok)
             .map((check) => `${check.id}：${check.detail}`),
         }
       : null
@@ -707,16 +734,17 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
           kind: ISSUE_BLOCKED,
           severity: 'blocking',
           title: requirement.blockedReason || '需求已阻塞，未记录原因',
-          detail:
-            stopRequested
-              ? '停止请求已记录；在核对工作副本、Git 与证据前，不能认定已经停稳'
-              : '阻塞状态会按重新执行规则重排；额度用尽或需要处置时等待人工决定',
+          detail: stopRequested
+            ? '停止请求已记录；在核对工作副本、Git 与证据前，不能认定已经停稳'
+            : '阻塞状态会按重新执行规则重排；额度用尽或需要处置时等待人工决定',
           createdAt: updatedAt,
         })
       }
 
       const latestRound = rounds[rounds.length - 1]
-      const latestRoundTaskId = latestRound ? taskIdOfFailureRound(plan, latestRound.roundId) : undefined
+      const latestRoundTaskId = latestRound
+        ? taskIdOfFailureRound(plan, latestRound.roundId)
+        : undefined
       // 已交付任务的旧失败轮次是历史证据，不再作为待处理问题占据首屏。
       if (latestRound && !(latestRoundTaskId && delivered.has(latestRoundTaskId))) {
         const taskId = latestRoundTaskId
@@ -808,9 +836,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
   }
 
   const needle = query.toLowerCase()
-  const matched = needle
-    ? chunks.filter((chunk) => chunk.haystack.includes(needle))
-    : chunks
+  const matched = needle ? chunks.filter((chunk) => chunk.haystack.includes(needle)) : chunks
   const limited = matched.slice(0, limit)
   const requirements = limited.map((chunk) => chunk.view)
   const tasks = limited.flatMap((chunk) => chunk.tasks)

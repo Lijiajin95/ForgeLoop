@@ -15,7 +15,13 @@ export interface CommandResult {
   readonly stderr: string
 }
 
-export function runCommand(command: string, args: readonly string[], cwd: string, timeoutMs = 120_000, extraEnv: NodeJS.ProcessEnv = {}): CommandResult {
+export function runCommand(
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  timeoutMs = 120_000,
+  extraEnv: NodeJS.ProcessEnv = {},
+): CommandResult {
   try {
     const stdout = execFileSync(command, [...args], {
       cwd,
@@ -42,7 +48,9 @@ export function git(cwd: string, args: readonly string[]): CommandResult {
 export function requireGit(cwd: string, args: readonly string[]): string {
   const result = git(cwd, args)
   if (result.code !== 0) {
-    throw new RuleViolationError(`git ${args.join(' ')} 失败：${result.stderr.trim() || result.stdout.trim()}`)
+    throw new RuleViolationError(
+      `git ${args.join(' ')} 失败：${result.stderr.trim() || result.stdout.trim()}`,
+    )
   }
   return result.stdout.trim()
 }
@@ -60,7 +68,12 @@ export interface SnapshotResult {
 
 function listSnapshotFiles(projectPath: string): string[] {
   const tracked = requireGit(projectPath, ['ls-files', '-z']).split('\0')
-  const untracked = requireGit(projectPath, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0')
+  const untracked = requireGit(projectPath, [
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '-z',
+  ]).split('\0')
   return [...new Set([...tracked, ...untracked].filter(Boolean))].sort()
 }
 

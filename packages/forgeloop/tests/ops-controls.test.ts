@@ -61,11 +61,13 @@ function runnerOf(
   }
 }
 
-function diagnosisText(input: {
-  actionId?: string | null
-  params?: Record<string, string>
-  fixRequired?: boolean
-} = {}): string {
+function diagnosisText(
+  input: {
+    actionId?: string | null
+    params?: Record<string, string>
+    fixRequired?: boolean
+  } = {},
+): string {
   return JSON.stringify({
     impact: '用户无法打开天工页面',
     facts: ['健康检查退出码 1'],
@@ -80,14 +82,16 @@ function diagnosisText(input: {
   })
 }
 
-function raw(options: {
-  checks?: RawOpsCheck[]
-  actions?: RawOpsAction[]
-  checkCommand?: string[]
-  actionCommand?: string[]
-  params?: Array<{ name: string; values: string[] }>
-  auto?: boolean
-} = {}): RawConfig {
+function raw(
+  options: {
+    checks?: RawOpsCheck[]
+    actions?: RawOpsAction[]
+    checkCommand?: string[]
+    actionCommand?: string[]
+    params?: Array<{ name: string; values: string[] }>
+    auto?: boolean
+  } = {},
+): RawConfig {
   const params = options.params
   const defaultAction: RawOpsAction = {
     id: 'restart-web',
@@ -111,46 +115,45 @@ function raw(options: {
         { id: 'web', kind: 'app', label: '天工页面' },
         { id: 'db', kind: 'database', label: '业务库' },
       ],
-      checks:
-        options.checks ??
-        [
-          {
-            id: 'web-health',
-            resourceId: 'web',
-            command: options.checkCommand ?? [
-              'node',
-              '-e',
-              "process.exit(require('node:fs').existsSync('down') ? 1 : 0)",
-            ],
-            timeoutSeconds: 10,
-            severity: 'major',
-          },
-          {
-            id: 'db-health',
-            resourceId: 'db',
-            command: ['node', '-e', 'process.exit(0)'],
-            timeoutSeconds: 10,
-            severity: 'minor',
-          },
-        ],
-      actions:
-        options.actions ??
-        [
-          defaultAction,
-          {
-            id: 'restart-db',
-            resourceId: 'db',
-            command: ['node', '-e', 'process.exit(0)'],
-            timeoutSeconds: 10,
-            auto: true,
-            verifyCheckId: 'db-health',
-          },
-        ],
+      checks: options.checks ?? [
+        {
+          id: 'web-health',
+          resourceId: 'web',
+          command: options.checkCommand ?? [
+            'node',
+            '-e',
+            "process.exit(require('node:fs').existsSync('down') ? 1 : 0)",
+          ],
+          timeoutSeconds: 10,
+          severity: 'major',
+        },
+        {
+          id: 'db-health',
+          resourceId: 'db',
+          command: ['node', '-e', 'process.exit(0)'],
+          timeoutSeconds: 10,
+          severity: 'minor',
+        },
+      ],
+      actions: options.actions ?? [
+        defaultAction,
+        {
+          id: 'restart-db',
+          resourceId: 'db',
+          command: ['node', '-e', 'process.exit(0)'],
+          timeoutSeconds: 10,
+          auto: true,
+          verifyCheckId: 'db-health',
+        },
+      ],
     },
   }
 }
 
-function makeOps(rawConfig: RawConfig, runner: AgentLike): { ops: OpsRuntime; config: ForgeLoopConfig } {
+function makeOps(
+  rawConfig: RawConfig,
+  runner: AgentLike,
+): { ops: OpsRuntime; config: ForgeLoopConfig } {
   const config = resolveConfig(rawConfig, dir)
   return {
     config,
@@ -158,12 +161,14 @@ function makeOps(rawConfig: RawConfig, runner: AgentLike): { ops: OpsRuntime; co
   }
 }
 
-function seedEvent(input: {
-  state?: string
-  checkId?: string
-  diagnosisJson?: string
-  eventId?: string
-} = {}): string {
+function seedEvent(
+  input: {
+    state?: string
+    checkId?: string
+    diagnosisJson?: string
+    eventId?: string
+  } = {},
+): string {
   seeded += 1
   const eventId = input.eventId ?? `ops-seed-${seeded}`
   const at = clock.toISOString()
@@ -229,9 +234,9 @@ describe('ops owner decisions', () => {
     const runner = runnerOf(() => diagnosisText())
     const { ops } = makeOps(raw(), runner)
 
-    expect(ops.decide({ eventId: 'ops-missing', decision: 'approve', by: 'owner', source: 'test' }).code).toBe(
-      'not_found',
-    )
+    expect(
+      ops.decide({ eventId: 'ops-missing', decision: 'approve', by: 'owner', source: 'test' }).code,
+    ).toBe('not_found')
 
     const recovered = seedEvent({ state: OPS_RECOVERED })
     expect(
@@ -249,7 +254,12 @@ describe('ops owner decisions', () => {
       diagnosisJson: diagnosisText(),
     })
     expect(
-      withoutActions.decide({ eventId: missingAction, decision: 'approve', by: 'owner', source: 'test' }).code,
+      withoutActions.decide({
+        eventId: missingAction,
+        decision: 'approve',
+        by: 'owner',
+        source: 'test',
+      }).code,
     ).toBe('action_missing')
   })
 
@@ -287,7 +297,9 @@ describe('ops owner decisions', () => {
     expect(closed.ok).toBe(true)
     expect(ops.list().find((event) => event.eventId === resolved)?.state).toBe(OPS_CLOSED)
     expect(ops.stats().closed).toBe(1)
-    expect(ops.close({ eventId: resolved, by: 'owner', reason: '再次关闭' }).code).toBe('already_closed')
+    expect(ops.close({ eventId: resolved, by: 'owner', reason: '再次关闭' }).code).toBe(
+      'already_closed',
+    )
 
     const running = seedEvent({ state: OPS_RECOVERING })
     repository.recordOpsActionAttempt({
@@ -309,11 +321,17 @@ describe('ops owner decisions', () => {
     await ops.tick()
     const event = ops.list().find((item) => item.state === OPS_RECOVERED)!
 
-    expect(ops.requestFix({ eventId: 'ops-missing', by: 'owner', source: 'test' }).code).toBe('not_found')
+    expect(ops.requestFix({ eventId: 'ops-missing', by: 'owner', source: 'test' }).code).toBe(
+      'not_found',
+    )
     const unreadable = seedEvent({ state: OPS_CLOSED })
-    expect(ops.requestFix({ eventId: unreadable, by: 'owner', source: 'test' }).code).toBe('no_diagnosis')
+    expect(ops.requestFix({ eventId: unreadable, by: 'owner', source: 'test' }).code).toBe(
+      'no_diagnosis',
+    )
     const diagnosed = seedEvent({ state: OPS_CLOSED, diagnosisJson: diagnosisText() })
-    expect(ops.requestFix({ eventId: diagnosed, by: 'owner', source: 'test' }).code).toBe('state_conflict')
+    expect(ops.requestFix({ eventId: diagnosed, by: 'owner', source: 'test' }).code).toBe(
+      'state_conflict',
+    )
 
     const first = ops.requestFix({ eventId: event.eventId, by: 'owner', source: 'test:owner' })
     expect(first.ok).toBe(true)
@@ -338,7 +356,9 @@ describe('ops diagnosis boundaries', () => {
     await ops.tick()
     const eventId = ops.list()[0]!.eventId
     expect(ops.list()[0]?.state).toBe(OPS_OPEN)
-    expect(ops.detail(eventId)?.observations.some((item) => item.kind === 'diagnosis_error')).toBe(true)
+    expect(ops.detail(eventId)?.observations.some((item) => item.kind === 'diagnosis_error')).toBe(
+      true,
+    )
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       clock = new Date(clock.getTime() + 61_000)
@@ -359,7 +379,9 @@ describe('ops diagnosis boundaries', () => {
     const event = ops.list()[0]!
     expect(event.state).toBe(OPS_OPEN)
     expect(event.diagnosis).toBeNull()
-    expect(ops.detail(event.eventId)?.observations.some((item) => item.kind === 'diagnosis_error')).toBe(true)
+    expect(
+      ops.detail(event.eventId)?.observations.some((item) => item.kind === 'diagnosis_error'),
+    ).toBe(true)
   })
 
   it('keeps an action proposed for another resource with the owner', async () => {
@@ -433,7 +455,9 @@ describe('ops command and recovery boundaries', () => {
 
     await ops.tick()
     const event = ops.list()[0]!
-    const observation = ops.detail(event.eventId)!.observations.find((item) => item.kind === 'check')!
+    const observation = ops
+      .detail(event.eventId)!
+      .observations.find((item) => item.kind === 'check')!
     expect(observation.detailJson).toContain('out-line')
     expect(observation.detailJson).toContain('[stderr]')
     expect(observation.detailJson).toContain('err-line')
@@ -458,7 +482,12 @@ describe('ops command and recovery boundaries', () => {
     expect(cancelled.code).toBe(130)
 
     const controller = new AbortController()
-    const running = runOpsCommand(['node', '-e', 'setTimeout(() => {}, 60000)'], dir, 5_000, controller.signal)
+    const running = runOpsCommand(
+      ['node', '-e', 'setTimeout(() => {}, 60000)'],
+      dir,
+      5_000,
+      controller.signal,
+    )
     controller.abort()
     expect((await running).aborted).toBe(true)
   })

@@ -40,13 +40,17 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-function submit(reqId = 'req-1'): string {
+function submit(): string {
   const result = runtime.submit({ text: '生命周期测试', by: 'owner', source: 'test' })
   expect(result.ok, result.message).toBe(true)
   return (result.data as { reqId: string }).reqId
 }
 
-function plan(reqId: string, planVersion = 1, testCommand: string[] = ['node', '-e', 'process.exit(0)']): TaskPlan {
+function plan(
+  reqId: string,
+  planVersion = 1,
+  testCommand: string[] = ['node', '-e', 'process.exit(0)'],
+): TaskPlan {
   return {
     taskPlanId: `plan-${reqId}-${planVersion}`,
     requirementId: reqId,
@@ -113,7 +117,9 @@ function deliver(reqId: string, taskId: string, planVersion = 1): void {
 /** 验收必须绑定当前候选的独立验证结论；这里写入可核对的通过证据。 */
 function verify(reqId: string, planVersion = 1): string {
   const plan = runtime.repo.taskPlan(reqId, planVersion)!
-  const artifacts = plan.tasks.map((task) => runtime.repo.taskArtifact(reqId, planVersion, task.taskId)!)
+  const artifacts = plan.tasks.map((task) =>
+    runtime.repo.taskArtifact(reqId, planVersion, task.taskId)!,
+  )
   const candidateSha256 = candidateIdentityOf({
     planVersion,
     requirementVersion: plan.requirementVersion,
@@ -132,13 +138,22 @@ function verify(reqId: string, planVersion = 1): string {
     summary: '候选通过独立验证',
     findings: [],
     blocking: [],
-    scenarios: [{ scenario: '场景', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] }],
+    scenarios: [
+      { scenario: '场景', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] },
+    ],
     commands: [],
     sessionId: 'session-verification',
     at: '2026-10-23T00:00:04.000Z',
   }
   const reportJson = `${JSON.stringify(report, null, 2)}\n`
-  const reportPath = join(dir, 'verifications', reqId, `v${planVersion}`, candidateSha256.slice(0, 16), 'verification.json')
+  const reportPath = join(
+    dir,
+    'verifications',
+    reqId,
+    `v${planVersion}`,
+    candidateSha256.slice(0, 16),
+    'verification.json',
+  )
   mkdirSync(join(reportPath, '..'), { recursive: true })
   writeFileSync(reportPath, reportJson, 'utf8')
   runtime.repo.recordVerification({
@@ -166,13 +181,24 @@ function verify(reqId: string, planVersion = 1): string {
     summary: '业务终审通过',
     findings: [],
     blocking: [],
-    scenarios: [{ scenario: '场景', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] }],
-    acceptance: [{ criterion: '验收', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] }],
+    scenarios: [
+      { scenario: '场景', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] },
+    ],
+    acceptance: [
+      { criterion: '验收', status: 'pass', evidence: '正式测试退出码 0', commands: ['smoke'] },
+    ],
     sessionId: 'session-business-review',
     at: '2026-10-23T00:00:05.000Z',
   }
   const reviewJson = `${JSON.stringify(review, null, 2)}\n`
-  const reviewPath = join(dir, 'reviews', reqId, `v${planVersion}`, 'business', 'business-review.json')
+  const reviewPath = join(
+    dir,
+    'reviews',
+    reqId,
+    `v${planVersion}`,
+    'business',
+    'business-review.json',
+  )
   mkdirSync(join(reviewPath, '..'), { recursive: true })
   writeFileSync(reviewPath, reviewJson, 'utf8')
   runtime.repo.recordBusinessReview({
@@ -198,7 +224,9 @@ describe('requirement lifecycle commands', () => {
     expect(revised.ok).toBe(true)
     expect((revised.data as { versions: unknown[] }).versions).toHaveLength(2)
 
-    expect(runtime.revise({ reqId: 'req-missing', text: 'x', by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.revise({ reqId: 'req-missing', text: 'x', by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'not_found',
     })
@@ -215,9 +243,14 @@ describe('requirement lifecycle commands', () => {
     runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
     const cancelled = runtime.cancel({ reqId, by: 'owner', reason: '方向变了' })
     expect(cancelled.ok).toBe(true)
-    expect(runtime.repo.requestsFor(reqId).every((request) => request.state === 'dismissed')).toBe(true)
+    expect(runtime.repo.requestsFor(reqId).every((request) => request.state === 'dismissed')).toBe(
+      true,
+    )
     expect(runtime.repo.cancellation(reqId)?.reason).toBe('方向变了')
-    expect(runtime.cancel({ reqId, by: 'owner', reason: 'again' })).toMatchObject({ ok: false, code: 'terminal' })
+    expect(runtime.cancel({ reqId, by: 'owner', reason: 'again' })).toMatchObject({
+      ok: false,
+      code: 'terminal',
+    })
     expect(runtime.cancel({ reqId: 'req-missing', by: 'owner', reason: 'x' })).toMatchObject({
       ok: false,
       code: 'not_found',
@@ -243,19 +276,31 @@ describe('requirement lifecycle commands', () => {
     const granted = runtime.grant({ reqId, by: 'owner' })
     expect(granted.ok).toBe(true)
     expect(granted.data).toEqual({ grants: 2 })
-    expect(runtime.grant({ reqId: 'req-missing', by: 'owner' })).toMatchObject({ ok: false, code: 'not_found' })
+    expect(runtime.grant({ reqId: 'req-missing', by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    })
   })
 })
 
 describe('operation requests', () => {
   it('rejects unknown and terminal requirements', () => {
-    expect(runtime.requestOperation({ reqId: 'req-missing', action: 'analyze', by: 'owner', source: 't' })).toMatchObject({
+    expect(
+      runtime.requestOperation({
+        reqId: 'req-missing',
+        action: 'analyze',
+        by: 'owner',
+        source: 't',
+      }),
+    ).toMatchObject({
       ok: false,
       code: 'not_found',
     })
     const reqId = submit()
     runtime.repo.setStatus(reqId, 'accepted')
-    expect(runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 't' })).toMatchObject({
+    expect(
+      runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 't' }),
+    ).toMatchObject({
       ok: false,
       code: 'terminal',
     })
@@ -263,7 +308,9 @@ describe('operation requests', () => {
 
   it('requires an analysis before planning', () => {
     const reqId = submit()
-    expect(runtime.requestOperation({ reqId, action: 'plan', by: 'owner', source: 't' })).toMatchObject({
+    expect(
+      runtime.requestOperation({ reqId, action: 'plan', by: 'owner', source: 't' }),
+    ).toMatchObject({
       ok: false,
       code: 'analysis_missing',
     })
@@ -287,19 +334,28 @@ describe('operation requests', () => {
       clarifications: [],
       createdAt: '2026-10-23T00:00:02.000Z',
     })
-    const conflicting = runtime.requestOperation({ reqId, action: 'plan', by: 'owner', source: 't' })
+    const conflicting = runtime.requestOperation({
+      reqId,
+      action: 'plan',
+      by: 'owner',
+      source: 't',
+    })
     expect(conflicting.ok).toBe(false)
     expect(conflicting.message).toContain('不能同时排队')
   })
 
   it('requires system admission or a legacy approval before advancing', () => {
     const reqId = submit()
-    expect(runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 't' })).toMatchObject({
+    expect(
+      runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 't' }),
+    ).toMatchObject({
       ok: false,
       code: 'admission_required',
     })
     seedPlan(reqId)
-    expect(runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 't' })).toMatchObject({
+    expect(
+      runtime.requestOperation({ reqId, action: 'advance', by: 'owner', source: 't' }),
+    ).toMatchObject({
       ok: false,
       code: 'admission_required',
     })
@@ -314,7 +370,10 @@ describe('plan, evidence and request queries', () => {
 
     seedPlan(reqId)
     approve(reqId)
-    const view = runtime.showPlan(reqId).data as { plan: { planVersion: number }; authorization: { status: string } }
+    const view = runtime.showPlan(reqId).data as {
+      plan: { planVersion: number }
+      authorization: { status: string }
+    }
     expect(view.plan.planVersion).toBe(1)
     expect(view.authorization.status).toBe('approved')
     seedPlan(reqId, 2)
@@ -342,7 +401,9 @@ describe('plan, evidence and request queries', () => {
     runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 't' })
     expect((runtime.listRequests(reqId).data as { requests: unknown[] }).requests).toHaveLength(1)
     expect((runtime.listRequests().data as { requests: unknown[] }).requests).toHaveLength(1)
-    expect((runtime.listRequests('req-missing').data as { requests: unknown[] }).requests).toHaveLength(0)
+    expect(
+      (runtime.listRequests('req-missing').data as { requests: unknown[] }).requests,
+    ).toHaveLength(0)
   })
 })
 
@@ -372,11 +433,20 @@ describe('recovery and candidate preconditions', () => {
       code: 'not_found',
     })
     const reqId = submit()
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({ ok: false, code: 'plan_missing' })
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'plan_missing',
+    })
     seedPlan(reqId)
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({ ok: false, code: 'plan_not_approved' })
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'plan_not_approved',
+    })
     approve(reqId)
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({ ok: false, code: 'not_delivered' })
+    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      ok: false,
+      code: 'not_delivered',
+    })
     deliver(reqId, 't1')
     deliver(reqId, 't2')
     expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
@@ -397,7 +467,9 @@ describe('recovery and candidate preconditions', () => {
       candidateArtifactPath: 'dist/artifact.json',
     })
     try {
-      expect(configured.buildCandidate({ reqId, by: 'owner', version: 'not-a-version' })).toMatchObject({
+      expect(
+        configured.buildCandidate({ reqId, by: 'owner', version: 'not-a-version' }),
+      ).toMatchObject({
         ok: false,
         code: 'version_invalid',
       })
@@ -414,13 +486,25 @@ describe('acceptance rules', () => {
       code: 'not_found',
     })
     const reqId = submit()
-    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({ ok: false, code: 'plan_missing' })
+    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({
+      ok: false,
+      code: 'plan_missing',
+    })
     seedPlan(reqId)
-    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({ ok: false, code: 'plan_not_approved' })
+    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({
+      ok: false,
+      code: 'plan_not_approved',
+    })
     approve(reqId)
-    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({ ok: false, code: 'not_delivered' })
+    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({
+      ok: false,
+      code: 'not_delivered',
+    })
     deliver(reqId, 't1')
-    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({ ok: false, code: 'not_delivered' })
+    expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({
+      ok: false,
+      code: 'not_delivered',
+    })
     deliver(reqId, 't2')
     expect(runtime.accept({ reqId, by: 'owner', source: 't' })).toMatchObject({
       ok: false,
@@ -468,7 +552,9 @@ describe('acceptance rules', () => {
       ok: false,
       code: 'artifact_required',
     })
-    expect(runtime.accept({ reqId, by: 'owner', source: 't', artifactSha256: 'b'.repeat(64) })).toMatchObject({
+    expect(
+      runtime.accept({ reqId, by: 'owner', source: 't', artifactSha256: 'b'.repeat(64) }),
+    ).toMatchObject({
       ok: false,
       code: 'artifact_mismatch',
     })
@@ -507,7 +593,9 @@ describe('execution guards and directory summary', () => {
       reqId,
       requestId: 'rq-terminal',
     }
-    expect((await runtime.executeRequest(request, new AbortController().signal)).state).toBe('failed')
+    expect((await runtime.executeRequest(request, new AbortController().signal)).state).toBe(
+      'failed',
+    )
   })
 
   it('summarizes the records layout and the resolved agent selection', () => {
@@ -536,13 +624,17 @@ describe('approval boundaries', () => {
 
   it('rejects an approval for a missing plan or stale requirement version', () => {
     const reqId = submit()
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'plan_missing',
     })
     seedPlan(reqId)
     runtime.revise({ reqId, text: '修订后重新规划', by: 'owner', source: 'test' })
-    expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toMatchObject({
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({
       ok: false,
       code: 'stale_requirement',
     })

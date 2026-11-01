@@ -72,8 +72,7 @@ export interface ImpactInferenceSection {
 }
 
 export type ImpactSection<F extends ImpactFactsLike> =
-  | ImpactFactsSection<F>
-  | ImpactInferenceSection
+  ImpactFactsSection<F> | ImpactInferenceSection
 
 export interface ImpactExplainResult<F extends ImpactFactsLike> {
   readonly kind: 'impact-explain'

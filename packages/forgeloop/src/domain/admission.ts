@@ -69,7 +69,12 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
     trustedSource,
     codeCommitAllowed: policy.enabled && policy.allowCodeCommit && trustedSource,
   }
-  const block = (code: string, reason: string): AdmissionDecision => ({ admit: false, code, reason, basis })
+  const block = (code: string, reason: string): AdmissionDecision => ({
+    admit: false,
+    code,
+    reason,
+    basis,
+  })
 
   if (TERMINAL.has(facts.requirementStatus)) {
     return block('terminal', `需求已处于终态 ${facts.requirementStatus}`)

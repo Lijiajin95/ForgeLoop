@@ -84,8 +84,14 @@ describe('retired implementation admission', () => {
   })
 
   it('rejects a source import cycle', () => {
-    addFileContent('packages/forgeloop/src/domain/cycle-a.ts', "import { b } from './cycle-b.js'\nexport const a = b\n")
-    addFileContent('packages/forgeloop/src/domain/cycle-b.ts', "import { a } from './cycle-a.js'\nexport const b = a\n")
+    addFileContent(
+      'packages/forgeloop/src/domain/cycle-a.ts',
+      "import { b } from './cycle-b.js'\nexport const a = b\n",
+    )
+    addFileContent(
+      'packages/forgeloop/src/domain/cycle-b.ts',
+      "import { a } from './cycle-a.js'\nexport const b = a\n",
+    )
     const result = check()
     expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('循环依赖')
@@ -117,7 +123,10 @@ describe('retired implementation admission', () => {
 
   it('rejects a session event that the client does not register', () => {
     const events = join(fixture, 'packages/forgeloop/src/session/events.ts')
-    writeFileSync(events, `${readFileSync(events, 'utf8')}\nexport const EXTRA = 'plugin:forgeloop/extra'\n`)
+    writeFileSync(
+      events,
+      `${readFileSync(events, 'utf8')}\nexport const EXTRA = 'plugin:forgeloop/extra'\n`,
+    )
     const result = check()
     expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('plugin:forgeloop/extra')

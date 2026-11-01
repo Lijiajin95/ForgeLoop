@@ -51,7 +51,10 @@ export interface RequirementQueueStore {
 }
 
 /** 按提出时间升序、入队序号升序比较；这是队列唯一的排序口径。 */
-export function compareQueueEntries(left: RequirementQueueEntry, right: RequirementQueueEntry): number {
+export function compareQueueEntries(
+  left: RequirementQueueEntry,
+  right: RequirementQueueEntry,
+): number {
   if (left.enqueuedAt !== right.enqueuedAt) return left.enqueuedAt < right.enqueuedAt ? -1 : 1
   return left.sequence - right.sequence
 }

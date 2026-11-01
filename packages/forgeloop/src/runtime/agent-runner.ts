@@ -144,8 +144,7 @@ export class AgentRunner {
       return { provider: this.agent.provider, model: this.agent.model }
     }
     const service = serviceOf(this.ctx, 'agentDefaultModel') as
-      | { currentSelection(): { provider?: string; model?: string } }
-      | undefined
+      { currentSelection(): { provider?: string; model?: string } } | undefined
     const selection = service?.currentSelection()
     if (!selection?.provider || !selection.model) {
       throw new Error(
@@ -162,26 +161,29 @@ export class AgentRunner {
   async open(request: AgentOpenRequest): Promise<AgentSession> {
     const selection = this.resolveSelection()
     const sessionId = `session-fl-${request.role}-${randomUUID()}`
-    const agents = this.ctx.agents as { create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }> }
+    const agents = this.ctx.agents as {
+      create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }>
+    }
     const tools = serviceOf(this.ctx, 'tools') as
-      | { schemas(scope?: unknown): Array<{ name?: string }> }
-      | undefined
+      { schemas(scope?: unknown): Array<{ name?: string }> } | undefined
     const presetId = request.tools === 'none' ? undefined : 'standard'
     const setup =
       request.tools === 'none' && tools
         ? (agentCtx: AnyRecord) => {
-            const names = tools.schemas().map((schema) => schema.name).filter((name): name is string => Boolean(name))
+            const names = tools
+              .schemas()
+              .map((schema) => schema.name)
+              .filter((name): name is string => Boolean(name))
             const scoped = serviceOf(agentCtx, 'tools') as
-              | { restrict(filter: { deny: string[] }): () => void }
-              | undefined
+              { restrict(filter: { deny: string[] }): () => void } | undefined
             if (names.length > 0) scoped?.restrict({ deny: names })
           }
         : presetId
           ? async (agentCtx: AnyRecord) => {
               const registry = serviceOf(this.ctx, 'agentPresets') as
-                | { mount(context: AnyRecord, id: string): Promise<unknown> }
-                | undefined
-              if (!registry?.mount) throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
+                { mount(context: AnyRecord, id: string): Promise<unknown> } | undefined
+              if (!registry?.mount)
+                throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
               await registry.mount(agentCtx, presetId)
             }
           : undefined
@@ -192,8 +194,7 @@ export class AgentRunner {
       ...(setup ? { setup } : {}),
     })
     const presets = serviceOf(this.ctx, 'permissionPresets') as
-      | { set(session: unknown, preset: string): void }
-      | undefined
+      { set(session: unknown, preset: string): void } | undefined
     presets?.set(handle.agent.session, request.permission)
 
     let dead = false
@@ -328,28 +329,31 @@ export class AgentRunner {
     const started = Date.now()
     const selection = this.resolveSelection()
     const sessionId = `session-fl-${request.role}-${randomUUID()}`
-    const agents = this.ctx.agents as { create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }> }
+    const agents = this.ctx.agents as {
+      create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }>
+    }
     const tools = serviceOf(this.ctx, 'tools') as
-      | { schemas(scope?: unknown): Array<{ name?: string }> }
-      | undefined
+      { schemas(scope?: unknown): Array<{ name?: string }> } | undefined
     // 编程式 Agent 默认不组合会话 preset，也就没有 shell/fs 等编码工具。
     // 开发与审查角色必须显式挂载 standard preset；只做推理的角色继续显式禁用全部工具。
     const presetId = request.tools === 'none' ? undefined : 'standard'
     const setup =
       request.tools === 'none' && tools
         ? (agentCtx: AnyRecord) => {
-            const names = tools.schemas().map((schema) => schema.name).filter((name): name is string => Boolean(name))
+            const names = tools
+              .schemas()
+              .map((schema) => schema.name)
+              .filter((name): name is string => Boolean(name))
             const scoped = serviceOf(agentCtx, 'tools') as
-              | { restrict(filter: { deny: string[] }): () => void }
-              | undefined
+              { restrict(filter: { deny: string[] }): () => void } | undefined
             if (names.length > 0) scoped?.restrict({ deny: names })
           }
         : presetId
           ? async (agentCtx: AnyRecord) => {
               const registry = serviceOf(this.ctx, 'agentPresets') as
-                | { mount(context: AnyRecord, id: string): Promise<unknown> }
-                | undefined
-              if (!registry?.mount) throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
+                { mount(context: AnyRecord, id: string): Promise<unknown> } | undefined
+              if (!registry?.mount)
+                throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
               await registry.mount(agentCtx, presetId)
             }
           : undefined
@@ -360,8 +364,7 @@ export class AgentRunner {
       ...(setup ? { setup } : {}),
     })
     const sessions = serviceOf(this.ctx, 'permissionPresets') as
-      | { set(session: unknown, preset: string): void }
-      | undefined
+      { set(session: unknown, preset: string): void } | undefined
     sessions?.set(handle.agent.session, request.permission)
 
     let aborted = false

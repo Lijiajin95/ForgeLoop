@@ -333,8 +333,7 @@ export class Repository {
 
   getRequirement(reqId: string): Requirement | null {
     const row = this.db.handle.prepare('SELECT * FROM requirements WHERE req_id = ?').get(reqId) as
-      | Row
-      | undefined
+      Row | undefined
     if (!row) return null
     const versions = this.versions(reqId)
     const requirement: Requirement = {
@@ -561,9 +560,7 @@ export class Repository {
 
   taskPlan(reqId: string, planVersion: number): TaskPlan | null {
     const row = this.db.handle
-      .prepare(
-        'SELECT * FROM requirement_task_plans WHERE req_id = ? AND plan_version = ?',
-      )
+      .prepare('SELECT * FROM requirement_task_plans WHERE req_id = ? AND plan_version = ?')
       .get(reqId, planVersion) as Row | undefined
     if (!row) return null
     return planFromPayload(JSON.parse(text(row, 'plan')) as unknown, {
@@ -612,9 +609,7 @@ export class Repository {
 
   planApproval(reqId: string, planVersion: number): TaskPlanApproval | null {
     const row = this.db.handle
-      .prepare(
-        'SELECT * FROM requirement_plan_approvals WHERE req_id = ? AND plan_version = ?',
-      )
+      .prepare('SELECT * FROM requirement_plan_approvals WHERE req_id = ? AND plan_version = ?')
       .get(reqId, planVersion) as Row | undefined
     if (!row) return null
     return {
@@ -751,7 +746,9 @@ export class Repository {
 
   markStopSettled(reqId: string, now: string): void {
     this.db.handle
-      .prepare("UPDATE requirement_stops SET settled_at = ? WHERE req_id = ? AND settled_at = '' AND resumed_at = ''")
+      .prepare(
+        "UPDATE requirement_stops SET settled_at = ? WHERE req_id = ? AND settled_at = '' AND resumed_at = ''",
+      )
       .run(now, reqId)
   }
 
@@ -808,7 +805,11 @@ export class Repository {
     return rows.length > 0 ? rows[rows.length - 1]! : null
   }
 
-  codeCandidate(reqId: string, planVersion: number, candidateSha256: string): CodeCandidateRecord | null {
+  codeCandidate(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): CodeCandidateRecord | null {
     const row = this.db.handle
       .prepare(
         `SELECT * FROM requirement_code_candidates
@@ -874,7 +875,9 @@ export class Repository {
 
   latestCommit(reqId: string): RequirementCommitRecord | null {
     const row = this.db.handle
-      .prepare('SELECT * FROM requirement_commits WHERE req_id = ? ORDER BY committed_at DESC LIMIT 1')
+      .prepare(
+        'SELECT * FROM requirement_commits WHERE req_id = ? ORDER BY committed_at DESC LIMIT 1',
+      )
       .get(reqId) as Row | undefined
     return row ? commitFromRow(row) : null
   }
@@ -1226,10 +1229,7 @@ export class Repository {
       .prepare(
         "UPDATE requirement_task_runs SET state = 'blocked', reason = ?, updated_at = ? WHERE state = 'running'",
       )
-      .run(
-        `宿主中断：任务未交付，一次性工作副本会在下次执行时重建（${now}）；可重新执行`,
-        now,
-      )
+      .run(`宿主中断：任务未交付，一次性工作副本会在下次执行时重建（${now}）；可重新执行`, now)
     return Number(result.changes)
   }
 
@@ -1284,7 +1284,13 @@ export class Repository {
     reqId: string,
     planVersion: number,
     taskId: string,
-  ): Array<{ attempt: number; candidateSha256: string; archivedAt: string; archivedPath: string; reason: string }> {
+  ): Array<{
+    attempt: number
+    candidateSha256: string
+    archivedAt: string
+    archivedPath: string
+    reason: string
+  }> {
     const rows = this.db.handle
       .prepare(
         `SELECT * FROM requirement_task_artifact_history
@@ -1303,10 +1309,14 @@ export class Repository {
   /** 重新研发：清掉“已交付”标记，让 advance 按原批准任务包重新执行。 */
   clearTaskDelivery(reqId: string, planVersion: number, taskId: string): void {
     this.db.handle
-      .prepare('DELETE FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? AND task_id = ?')
+      .prepare(
+        'DELETE FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? AND task_id = ?',
+      )
       .run(reqId, planVersion, taskId)
     this.db.handle
-      .prepare('DELETE FROM requirement_task_evidence WHERE req_id = ? AND plan_version = ? AND task_id = ?')
+      .prepare(
+        'DELETE FROM requirement_task_evidence WHERE req_id = ? AND plan_version = ? AND task_id = ?',
+      )
       .run(reqId, planVersion, taskId)
   }
 
@@ -1365,7 +1375,10 @@ export class Repository {
       .prepare('SELECT * FROM requirement_budget WHERE req_id = ?')
       .get(reqId) as Row | undefined
     if (!row) return { limitSeconds: 7200, consumedSeconds: 0 }
-    return { limitSeconds: num(row, 'limit_seconds'), consumedSeconds: num(row, 'consumed_seconds') }
+    return {
+      limitSeconds: num(row, 'limit_seconds'),
+      consumedSeconds: num(row, 'consumed_seconds'),
+    }
   }
 
   chargeBudget(reqId: string, seconds: number): void {
@@ -1465,7 +1478,9 @@ export class Repository {
             )
             .all(project)
         : this.db.handle
-            .prepare("SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') ORDER BY created_at")
+            .prepare(
+              "SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') ORDER BY created_at",
+            )
             .all()
     ) as Row[]
     return rows.map(requestFromRow)
@@ -1482,7 +1497,9 @@ export class Repository {
               )
               .get(project)
           : this.db.handle
-              .prepare("SELECT request_id FROM service_requests WHERE state = 'pending' ORDER BY created_at LIMIT 1")
+              .prepare(
+                "SELECT request_id FROM service_requests WHERE state = 'pending' ORDER BY created_at LIMIT 1",
+              )
               .get()
       ) as Row | undefined
       if (!candidate) return null
@@ -1636,7 +1653,10 @@ export class Repository {
       )
   }
 
-  candidate(reqId: string, planVersion: number): {
+  candidate(
+    reqId: string,
+    planVersion: number,
+  ): {
     reqId: string
     planVersion: number
     sha256: string
@@ -1703,7 +1723,10 @@ export class Repository {
       )
   }
 
-  candidateBuild(reqId: string, planVersion: number): {
+  candidateBuild(
+    reqId: string,
+    planVersion: number,
+  ): {
     reqId: string
     planVersion: number
     candidateSha256: string
@@ -1784,7 +1807,10 @@ export class Repository {
       )
   }
 
-  deployment(reqId: string, planVersion: number): {
+  deployment(
+    reqId: string,
+    planVersion: number,
+  ): {
     reqId: string
     planVersion: number
     candidateSha256: string
@@ -1870,9 +1896,9 @@ export class Repository {
   }
 
   opsEvent(eventId: string): OpsEventRecord | null {
-    const row = this.db.handle.prepare('SELECT * FROM ops_events WHERE event_id = ?').get(eventId) as
-      | Row
-      | undefined
+    const row = this.db.handle
+      .prepare('SELECT * FROM ops_events WHERE event_id = ?')
+      .get(eventId) as Row | undefined
     return row ? opsEventFromRow(row) : null
   }
 
@@ -1962,7 +1988,15 @@ export class Repository {
           `INSERT INTO ops_observations (event_id, seq, at, kind, summary, detail_json, evidence_path)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(input.eventId, next, input.at, input.kind, input.summary, input.detailJson ?? '', input.evidencePath ?? '')
+        .run(
+          input.eventId,
+          next,
+          input.at,
+          input.kind,
+          input.summary,
+          input.detailJson ?? '',
+          input.evidencePath ?? '',
+        )
       return next
     })
     return {
@@ -2039,19 +2073,30 @@ export class Repository {
             SET state = ?, detail = ?, exit_code = ?, finished_at = ?, evidence_path = ?
           WHERE action_id = ?`,
       )
-      .run(patch.state, patch.detail, patch.exitCode, patch.finishedAt, patch.evidencePath ?? '', actionId)
+      .run(
+        patch.state,
+        patch.detail,
+        patch.exitCode,
+        patch.finishedAt,
+        patch.evidencePath ?? '',
+        actionId,
+      )
   }
 
   opsActionAttempts(eventId: string): OpsActionAttemptRecord[] {
     const rows = this.db.handle
-      .prepare('SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at, action_id')
+      .prepare(
+        'SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at, action_id',
+      )
       .all(eventId) as Row[]
     return rows.map(opsActionAttemptFromRow)
   }
 
   latestOpsActionAttempt(eventId: string): OpsActionAttemptRecord | null {
     const row = this.db.handle
-      .prepare('SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at DESC, action_id DESC LIMIT 1')
+      .prepare(
+        'SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at DESC, action_id DESC LIMIT 1',
+      )
       .get(eventId) as Row | undefined
     return row ? opsActionAttemptFromRow(row) : null
   }
@@ -2121,8 +2166,7 @@ export class Repository {
 
   getMeta(key: string): string | null {
     const row = this.db.handle.prepare('SELECT value FROM runtime_meta WHERE key = ?').get(key) as
-      | Row
-      | undefined
+      Row | undefined
     return row ? text(row, 'value') : null
   }
 }
@@ -2312,17 +2356,18 @@ function planFromPayload(
   const data = payload as Record<string, unknown>
   const rawTasks = Array.isArray(data.tasks) ? data.tasks : []
   const rawSolution = data.technical_solution
-  const technicalSolution = rawSolution && typeof rawSolution === 'object'
-    ? {
-        summary: String((rawSolution as Record<string, unknown>).summary ?? ''),
-        approach: stringArray((rawSolution as Record<string, unknown>).approach),
-        risks: stringArray((rawSolution as Record<string, unknown>).risks),
-      }
-    : undefined
+  const technicalSolution =
+    rawSolution && typeof rawSolution === 'object'
+      ? {
+          summary: textValue((rawSolution as Record<string, unknown>).summary),
+          approach: stringArray((rawSolution as Record<string, unknown>).approach),
+          risks: stringArray((rawSolution as Record<string, unknown>).risks),
+        }
+      : undefined
   return {
     taskPlanId: context.taskPlanId,
     requirementId: context.requirementId,
-    project: String(data.project ?? ''),
+    project: textValue(data.project),
     planVersion: context.planVersion,
     requirementVersion: Number(data.requirement_version ?? 1),
     ...(technicalSolution === undefined ? {} : { technicalSolution }),
@@ -2331,21 +2376,25 @@ function planFromPayload(
       const task = raw as Record<string, unknown>
       const limits = (task.limits ?? {}) as Record<string, unknown>
       return {
-        taskId: String(task.task_id ?? ''),
-        goal: String(task.goal ?? ''),
+        taskId: textValue(task.task_id),
+        goal: textValue(task.goal),
         files: stringArray(task.files),
-        acceptance: String(task.acceptance ?? ''),
+        acceptance: textValue(task.acceptance),
         testCommand: stringArray(task.test_command),
         dependsOn: stringArray(task.depends_on),
         limits: {
           limitSeconds: Number(limits.limit_seconds ?? 7200),
           maxFailureRounds: Number(limits.max_failure_rounds ?? 3),
         },
-        authorizationSource: String(task.authorization_source ?? ''),
+        authorizationSource: textValue(task.authorization_source),
         ...(task.verification === true ? { verification: true } : {}),
       }
     }),
   }
+}
+
+function textValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
 function stringArray(value: unknown): string[] {

@@ -53,7 +53,9 @@ describe('task plan rules', () => {
   })
 
   it('rejects a plan without any dependency', () => {
-    const payload = { tasks: [planPayload().tasks[0], { ...planPayload().tasks[1], depends_on: [] }] }
+    const payload = {
+      tasks: [planPayload().tasks[0], { ...planPayload().tasks[1], depends_on: [] }],
+    }
     expect(() => parseTaskPlanDraft(payload, context)).toThrow(/依赖/)
   })
 
@@ -104,8 +106,12 @@ describe('task plan rules', () => {
     }
     expect(authorizePlan(plan, approval).status).toBe('approved')
     const bound = bindAuthorization(plan, approval)
-    expect(bound.tasks.every((task) => task.authorizationSource === 'plan-approval:req-1:v1:owner')).toBe(true)
-    expect(() => bindAuthorization(plan, { ...approval, planVersion: 2 })).toThrow(RuleViolationError)
+    expect(
+      bound.tasks.every((task) => task.authorizationSource === 'plan-approval:req-1:v1:owner'),
+    ).toBe(true)
+    expect(() => bindAuthorization(plan, { ...approval, planVersion: 2 })).toThrow(
+      RuleViolationError,
+    )
   })
 })
 

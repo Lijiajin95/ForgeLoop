@@ -21,7 +21,10 @@ describe('configuration defaults', () => {
   })
 
   it('resolves the project path and records root against the selected project', () => {
-    const config = resolveConfig({ project: 'proj-1', projectPath: 'sub', recordsRoot: 'records' }, cwd)
+    const config = resolveConfig(
+      { project: 'proj-1', projectPath: 'sub', recordsRoot: 'records' },
+      cwd,
+    )
     expect(config.projectPath).toBe('/tmp/config-fixture/sub')
     expect(config.recordsRoot).toBe('/tmp/config-fixture/sub/records')
   })
@@ -45,14 +48,20 @@ describe('configuration defaults', () => {
 
 describe('configuration validation', () => {
   it('rejects unsafe project names', () => {
-    expect(() => resolveConfig({ project: 'Bad Name' }, cwd)).toThrow('配置 project 只能是安全的项目名')
+    expect(() => resolveConfig({ project: 'Bad Name' }, cwd)).toThrow(
+      '配置 project 只能是安全的项目名',
+    )
     expect(() => resolveConfig({ project: '/etc' }, cwd)).toThrow('配置 project 只能是安全的项目名')
   })
 
   it('rejects a non-positive or non-numeric poll interval', () => {
     expect(() => resolveConfig({ pollSeconds: 0 }, cwd)).toThrow('配置 pollSeconds 必须是正数')
-    expect(() => resolveConfig({ pollSeconds: '5' as never }, cwd)).toThrow('配置 pollSeconds 必须是正数')
-    expect(() => resolveConfig({ pollSeconds: Number.NaN }, cwd)).toThrow('配置 pollSeconds 必须是正数')
+    expect(() => resolveConfig({ pollSeconds: '5' as never }, cwd)).toThrow(
+      '配置 pollSeconds 必须是正数',
+    )
+    expect(() => resolveConfig({ pollSeconds: Number.NaN }, cwd)).toThrow(
+      '配置 pollSeconds 必须是正数',
+    )
     expect(() => resolveConfig({ pollSeconds: 0.5 }, cwd)).toThrow('配置 pollSeconds 不能小于 1 秒')
   })
 
@@ -66,8 +75,12 @@ describe('configuration validation', () => {
   })
 
   it('rejects non-integer task attempt budgets', () => {
-    expect(() => resolveConfig({ maxTaskAttempts: 0 }, cwd)).toThrow('配置 maxTaskAttempts 必须是正整数')
-    expect(() => resolveConfig({ maxTaskAttempts: 1.5 }, cwd)).toThrow('配置 maxTaskAttempts 必须是正整数')
+    expect(() => resolveConfig({ maxTaskAttempts: 0 }, cwd)).toThrow(
+      '配置 maxTaskAttempts 必须是正整数',
+    )
+    expect(() => resolveConfig({ maxTaskAttempts: 1.5 }, cwd)).toThrow(
+      '配置 maxTaskAttempts 必须是正整数',
+    )
   })
 
   it('rejects command lists that are not non-empty strings', () => {

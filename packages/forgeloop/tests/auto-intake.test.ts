@@ -6,7 +6,11 @@ import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { Coordinator } from '../src/runtime/coordinator.js'
 import { resolveConfig } from '../src/config.js'
-import type { AgentOpenRequest, AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import type {
+  AgentOpenRequest,
+  AgentRunRequest,
+  AgentRunResult,
+} from '../src/runtime/agent-runner.js'
 import { COMMITTED, SPECIFIED } from '../src/domain/status.js'
 
 const SCENARIO = '需求功能可用'
@@ -106,10 +110,15 @@ function fakeRunner(): AgentLike {
         mkdirSync(join(request.cwd, 'verification'), { recursive: true })
         writeFileSync(
           join(request.cwd, 'verification/commands.json'),
-          JSON.stringify({ commands: [{ label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE}')`] }] }),
+          JSON.stringify({
+            commands: [{ label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE}')`] }],
+          }),
         )
         writeFileSync(join(request.cwd, 'verification/report.json'), VERIFICATION_REPORT)
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, VERIFICATION_REPORT)
+        return result(
+          { role: request.role, transcriptPath: turn.transcriptPath },
+          VERIFICATION_REPORT,
+        )
       }
       if (request.role === 'verify' && turn.prompt.includes('业务验收')) {
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, BUSINESS_REVIEW)
@@ -132,7 +141,10 @@ function fakeRunner(): AgentLike {
   }
 }
 
-function makeRuntime(runner: AgentLike = fakeRunner(), options: { autoAdvance?: boolean } = {}): ForgeLoopRuntime {
+function makeRuntime(
+  runner: AgentLike = fakeRunner(),
+  options: { autoAdvance?: boolean } = {},
+): ForgeLoopRuntime {
   const config = resolveConfig(
     {
       project: 'demo',
@@ -175,7 +187,12 @@ async function runNext(reqId: string, action: 'analyze' | 'advance') {
   expect(claimed!.reqId).toBe(reqId)
   expect(claimed!.action).toBe(action)
   const outcome = await runtime.executeRequest(claimed!, new AbortController().signal)
-  runtime.repo.resolveRequest(claimed!.requestId, outcome.state, outcome.detail, new Date().toISOString())
+  runtime.repo.resolveRequest(
+    claimed!.requestId,
+    outcome.state,
+    outcome.detail,
+    new Date().toISOString(),
+  )
   return outcome
 }
 
@@ -197,7 +214,9 @@ describe('requirement queue intake', () => {
     // 入队即被领取，且只排了一条分析请求；没有规划、批准或验证的人工请求。
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(reqId)
     expect(runtime.requirementQueue.pending()).toEqual([])
-    expect(runtime.repo.pendingRequests('demo').map((request) => request.action)).toEqual(['analyze'])
+    expect(runtime.repo.pendingRequests('demo').map((request) => request.action)).toEqual([
+      'analyze',
+    ])
 
     const analysis = await runNext(reqId, 'analyze')
     expect(analysis.state, analysis.detail).toBe('done')
@@ -229,10 +248,15 @@ describe('requirement queue intake', () => {
     const third = submit('第三个需求')
 
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(first)
-    expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([second, third])
+    expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([
+      second,
+      third,
+    ])
     // 研发忙时只保留队首的分析请求，后两个不并发启动。
     expect(runtime.repo.pendingRequests('demo').map((request) => request.reqId)).toEqual([first])
-    expect(runtime.repo.pendingRequests('demo').some((request) => request.reqId === second)).toBe(false)
+    expect(runtime.repo.pendingRequests('demo').some((request) => request.reqId === second)).toBe(
+      false,
+    )
 
     const analyzedFirst = await runNext(first, 'analyze')
     expect(analyzedFirst.state, analyzedFirst.detail).toBe('done')
@@ -240,7 +264,10 @@ describe('requirement queue intake', () => {
     // 队首仍在研发位，即使当前没有在途请求也不提前领取第二个需求。
     expect(runtime.intakeQueuedRequirement()).toBeNull()
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(first)
-    expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([second, third])
+    expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([
+      second,
+      third,
+    ])
 
     const advancedFirst = await runNext(first, 'advance')
     expect(advancedFirst.state, advancedFirst.detail).toBe('done')
@@ -265,7 +292,9 @@ describe('requirement queue intake', () => {
     // 三个需求都只经过分析与推进，没有任何人工批准节点。
     for (const reqId of [first, second, third]) {
       expect(runtime.repo.planApproval(reqId, 1)).toBeNull()
-      expect(runtime.repo.requestsFor(reqId).every((request) => request.action !== 'plan')).toBe(true)
+      expect(runtime.repo.requestsFor(reqId).every((request) => request.action !== 'plan')).toBe(
+        true,
+      )
     }
   })
 

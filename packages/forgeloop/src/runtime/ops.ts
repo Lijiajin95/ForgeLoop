@@ -117,10 +117,22 @@ export function runOpsCommand(
 ): Promise<OpsCommandResult> {
   const executable = argv[0]
   if (!executable) {
-    return Promise.resolve({ code: 127, timedOut: false, aborted: false, stdout: '', stderr: '空命令' })
+    return Promise.resolve({
+      code: 127,
+      timedOut: false,
+      aborted: false,
+      stdout: '',
+      stderr: '空命令',
+    })
   }
   if (signal?.aborted) {
-    return Promise.resolve({ code: 130, timedOut: false, aborted: true, stdout: '', stderr: '已取消' })
+    return Promise.resolve({
+      code: 130,
+      timedOut: false,
+      aborted: true,
+      stdout: '',
+      stderr: '已取消',
+    })
   }
   return new Promise<OpsCommandResult>((resolve) => {
     let stdout = ''
@@ -146,10 +158,13 @@ export function runOpsCommand(
         stderr: extra ? `${stderr}${stderr ? '\n' : ''}${extra}` : stderr,
       })
     }
-    const timer = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGKILL')
-    }, Math.max(1, timeoutMs))
+    const timer = setTimeout(
+      () => {
+        timedOut = true
+        child.kill('SIGKILL')
+      },
+      Math.max(1, timeoutMs),
+    )
     timer.unref?.()
     const onAbort = (): void => {
       aborted = true
@@ -162,8 +177,12 @@ export function runOpsCommand(
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr = appendOutput(stderr, chunk)
     })
-    child.on('error', (error) => finish(127, error.message))
-    child.on('close', (code) => finish(typeof code === 'number' ? code : 1))
+    child.on('error', (error) => {
+      finish(127, error.message)
+    })
+    child.on('close', (code) => {
+      finish(typeof code === 'number' ? code : 1)
+    })
   })
 }
 
@@ -241,7 +260,10 @@ function observationOutput(observation: OpsObservationRecord | undefined): strin
 }
 
 function eventStamp(now: Date): string {
-  return now.toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
+  return now
+    .toISOString()
+    .replace(/[-:TZ.]/g, '')
+    .slice(0, 14)
 }
 
 export class OpsRuntime {
@@ -478,7 +500,8 @@ export class OpsRuntime {
         openedAt: now,
         updatedAt: now,
       })
-    const seq = this.repo.opsObservations(event.eventId).filter((item) => item.kind === 'check').length + 1
+    const seq =
+      this.repo.opsObservations(event.eventId).filter((item) => item.kind === 'check').length + 1
     const evidencePath = this.writeEvidence(
       event.eventId,
       `check-${seq}.log`,
@@ -561,7 +584,10 @@ export class OpsRuntime {
           params: action.params.map((param) => ({ name: param.name, values: param.values })),
         })),
     })
-    const transcriptPath = join(opsDir(this.config, event.eventId), `diagnosis-${attempts + 1}.jsonl`)
+    const transcriptPath = join(
+      opsDir(this.config, event.eventId),
+      `diagnosis-${attempts + 1}.jsonl`,
+    )
     const result = await this.runner.run({
       role: 'ops',
       cwd: this.config.projectPath,
@@ -649,7 +675,10 @@ export class OpsRuntime {
     })
 
     if (!action || !proposed) {
-      this.repo.updateOpsEvent(event.eventId, { state: OPS_AWAITING_DECISION, updatedAt: this.isoNow() })
+      this.repo.updateOpsEvent(event.eventId, {
+        state: OPS_AWAITING_DECISION,
+        updatedAt: this.isoNow(),
+      })
       this.repo.appendOpsObservation({
         eventId: event.eventId,
         at: this.isoNow(),
@@ -718,7 +747,10 @@ export class OpsRuntime {
     const proposed = diagnosis?.proposedAction
     const action = proposed ? this.action(proposed.actionId) : undefined
     if (!diagnosis || !proposed || !action) {
-      this.repo.updateOpsEvent(event.eventId, { state: OPS_AWAITING_DECISION, updatedAt: this.isoNow() })
+      this.repo.updateOpsEvent(event.eventId, {
+        state: OPS_AWAITING_DECISION,
+        updatedAt: this.isoNow(),
+      })
       this.repo.appendOpsObservation({
         eventId: event.eventId,
         at: this.isoNow(),
@@ -764,7 +796,10 @@ export class OpsRuntime {
     try {
       argv = actionArgv(action, proposed.params)
     } catch (error) {
-      this.repo.updateOpsEvent(event.eventId, { state: OPS_AWAITING_DECISION, updatedAt: this.isoNow() })
+      this.repo.updateOpsEvent(event.eventId, {
+        state: OPS_AWAITING_DECISION,
+        updatedAt: this.isoNow(),
+      })
       this.repo.appendOpsObservation({
         eventId: event.eventId,
         at: this.isoNow(),
@@ -900,7 +935,11 @@ export class OpsRuntime {
       summary: passed
         ? `恢复复核通过：${check.id} 退出码 0`
         : `恢复复核未通过：${check.id} 退出码 ${result.code}${result.timedOut ? '（超时）' : ''}`,
-      detailJson: JSON.stringify({ checkId: check.id, exitCode: result.code, timedOut: result.timedOut }),
+      detailJson: JSON.stringify({
+        checkId: check.id,
+        exitCode: result.code,
+        timedOut: result.timedOut,
+      }),
       evidencePath,
     })
     if (passed) {
@@ -923,7 +962,10 @@ export class OpsRuntime {
   ): Promise<'recovered' | 'unresolved' | 'not_started'> {
     const attempt = this.repo.latestOpsActionAttempt(event.eventId)
     if (!attempt) {
-      this.repo.updateOpsEvent(event.eventId, { state: OPS_AWAITING_DECISION, updatedAt: this.isoNow() })
+      this.repo.updateOpsEvent(event.eventId, {
+        state: OPS_AWAITING_DECISION,
+        updatedAt: this.isoNow(),
+      })
       this.repo.appendOpsObservation({
         eventId: event.eventId,
         at: this.isoNow(),
@@ -1036,9 +1078,7 @@ export class OpsRuntime {
             label: event.resourceId,
           },
           checkId: event.checkId,
-          observations: observations
-            .slice(-5)
-            .map((item) => `${item.kind}：${item.summary}`),
+          observations: observations.slice(-5).map((item) => `${item.kind}：${item.summary}`),
           attempt: {
             actionId: attempt.actionDefId,
             params,
@@ -1184,7 +1224,10 @@ export class OpsRuntime {
     const event = this.repo.opsEvent(input.eventId)
     if (!event) return fail('not_found', `未找到运维事件 ${input.eventId}`)
     if (event.state !== OPS_AWAITING_DECISION) {
-      return fail('not_awaiting_decision', `事件 ${input.eventId} 当前状态 ${event.state}，没有待决定处置`)
+      return fail(
+        'not_awaiting_decision',
+        `事件 ${input.eventId} 当前状态 ${event.state}，没有待决定处置`,
+      )
     }
     const diagnosis = this.readDiagnosis(event)
     const proposed = diagnosis?.proposedAction

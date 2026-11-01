@@ -185,7 +185,12 @@ describe('review verdict parsing', () => {
     const verdict = parseReviewVerdict(
       JSON.stringify({ verdict: 'pass', blocking: [], findings: ['可读性'], summary: ' 通过 ' }),
     )
-    expect(verdict).toEqual({ verdict: 'pass', blocking: [], findings: ['可读性'], summary: '通过' })
+    expect(verdict).toEqual({
+      verdict: 'pass',
+      blocking: [],
+      findings: ['可读性'],
+      summary: '通过',
+    })
   })
 
   it('accepts a block verdict with blocking reasons and defaults missing lists', () => {
@@ -208,7 +213,9 @@ describe('review verdict parsing', () => {
   })
 
   it('rejects an unknown verdict', () => {
-    expect(() => parseReviewVerdict(JSON.stringify({ verdict: 'maybe' }))).toThrow('审查结论必须是 pass 或 block')
+    expect(() => parseReviewVerdict(JSON.stringify({ verdict: 'maybe' }))).toThrow(
+      '审查结论必须是 pass 或 block',
+    )
     expect(() => parseReviewVerdict(JSON.stringify({}))).toThrow('审查结论必须是 pass 或 block')
   })
 

@@ -102,7 +102,8 @@ export function validateTask(task: PlannedTask): void {
   } else {
     validateFiles(task.files)
   }
-  if (task.testCommand.length === 0) throw new RuleViolationError('任务必须给出可执行的正式测试命令')
+  if (task.testCommand.length === 0)
+    throw new RuleViolationError('任务必须给出可执行的正式测试命令')
   for (const argument of task.testCommand) requireNonEmpty(argument, 'test_command')
   if (task.dependsOn.includes(task.taskId)) {
     throw new RuleViolationError(`任务不能依赖自身: ${task.taskId}`)
@@ -155,7 +156,8 @@ export function validateTaskPlan(plan: TaskPlan): void {
   if (plan.requirementVersion < 1) throw new RuleViolationError('任务包必须绑定一个需求版本')
   if (plan.tasks.length === 0) throw new RuleViolationError('任务包至少要有一个任务')
   const ids = plan.tasks.map((task) => task.taskId)
-  if (new Set(ids).size !== ids.length) throw new RuleViolationError('同一任务包内 task_id 必须唯一')
+  if (new Set(ids).size !== ids.length)
+    throw new RuleViolationError('同一任务包内 task_id 必须唯一')
   const known = new Set(ids)
   for (const task of plan.tasks) {
     validateTask(task)
@@ -263,13 +265,19 @@ function parseTechnicalSolution(value: unknown): TechnicalSolution {
 
 export function parseTaskPlanDraft(
   raw: unknown,
-  context: { requirementId: string; project: string; planVersion: number; requirementVersion: number; now: string },
+  context: {
+    requirementId: string
+    project: string
+    planVersion: number
+    requirementVersion: number
+    now: string
+  },
 ): TaskPlan {
   let payload = raw
   if (typeof payload === 'string') {
     payload = (() => {
-      const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(payload as string)
-      const body = fenced?.[1] ?? (payload as string)
+      const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(payload)
+      const body = fenced?.[1] ?? payload
       try {
         return JSON.parse(body) as unknown
       } catch (error) {
@@ -309,9 +317,10 @@ export function parseTaskPlanDraft(
       ...(task.verification === true ? { verification: true } : {}),
     } satisfies PlannedTask
   })
-  const solution = data.technical_solution === undefined
-    ? undefined
-    : parseTechnicalSolution(data.technical_solution)
+  const solution =
+    data.technical_solution === undefined
+      ? undefined
+      : parseTechnicalSolution(data.technical_solution)
   const plan: TaskPlan = {
     taskPlanId: `plan-${context.requirementId}-${context.planVersion}`,
     requirementId: context.requirementId,

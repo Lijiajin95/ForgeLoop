@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  COMMIT_MESSAGE_FALLBACK,
-  formatCommitMessage,
-} from '../src/domain/commit-message.js'
+import { COMMIT_MESSAGE_FALLBACK, formatCommitMessage } from '../src/domain/commit-message.js'
 
 /**
  * 受控提交信息的只读展示格式化：

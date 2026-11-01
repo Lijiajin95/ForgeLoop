@@ -50,7 +50,10 @@ function main(): number {
     ['pack', '--json', '--cache', cache, '--pack-destination', join(packageDir, 'dist')],
     { cwd: packageDir, encoding: 'utf8' },
   )
-  const parsed = JSON.parse(output) as Array<{ filename: string; files: Array<{ path: string; size: number }> }>
+  const parsed = JSON.parse(output) as Array<{
+    filename: string
+    files: Array<{ path: string; size: number }>
+  }>
   const packed = parsed[0]
   if (!packed) throw new Error('npm pack 没有返回产物信息')
   const tarball = join(packageDir, 'dist', packed.filename)
@@ -71,7 +74,11 @@ function main(): number {
     gitStatus: git(packageDir, ['status', '--porcelain']),
     builtAt: new Date().toISOString(),
   }
-  writeFileSync(join(packageDir, 'dist', 'artifact.json'), `${JSON.stringify(artifact, null, 2)}\n`, 'utf8')
+  writeFileSync(
+    join(packageDir, 'dist', 'artifact.json'),
+    `${JSON.stringify(artifact, null, 2)}\n`,
+    'utf8',
+  )
   if (!existsSync(tarball)) throw new Error(`打包产物不存在：${tarball}`)
   console.log(JSON.stringify(artifact, null, 2))
   return 0

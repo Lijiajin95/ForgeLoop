@@ -12,7 +12,10 @@ interface ToolDefinition {
   description: string
   parameters: Record<string, unknown>
   output: { render(args: unknown, value: unknown): unknown[]; schema: Record<string, unknown> }
-  execute(args: unknown, exec: Record<string, unknown>): Promise<{ ok: boolean; text: string; data?: unknown }>
+  execute(
+    args: unknown,
+    exec: Record<string, unknown>,
+  ): Promise<{ ok: boolean; text: string; data?: unknown }>
 }
 
 let dir = ''
@@ -104,7 +107,10 @@ describe('read-only tool surface', () => {
       'forgeloop_ops',
       'forgeloop_submit_requirement',
     ])
-    const rendered = tool('forgeloop_status').output.render({}, { ok: true, text: '标题', data: { a: 1 } })
+    const rendered = tool('forgeloop_status').output.render(
+      {},
+      { ok: true, text: '标题', data: { a: 1 } },
+    )
     expect(rendered).toHaveLength(1)
     const block = rendered[0] as { type: string; text: string }
     expect(block.type).toBe('text')
@@ -123,7 +129,12 @@ describe('read-only tool surface', () => {
   })
 
   it('requires req_id for the per-requirement readers', async () => {
-    for (const name of ['forgeloop_show_requirement', 'forgeloop_show_plan', 'forgeloop_evidence', 'forgeloop_impact']) {
+    for (const name of [
+      'forgeloop_show_requirement',
+      'forgeloop_show_plan',
+      'forgeloop_evidence',
+      'forgeloop_impact',
+    ]) {
       const result = await call(name, {})
       expect(result.ok, name).toBe(false)
       expect(result.text).toContain('req_id is required')
@@ -185,9 +196,15 @@ describe('requirement intake tool', () => {
   })
 
   it('reuses a client key for the same text and rejects a different one', async () => {
-    const first = await call('forgeloop_submit_requirement', { text: '幂等需求', client_key: 'k-1' })
+    const first = await call('forgeloop_submit_requirement', {
+      text: '幂等需求',
+      client_key: 'k-1',
+    })
     expect(first.ok).toBe(true)
-    const again = await call('forgeloop_submit_requirement', { text: '幂等需求', client_key: 'k-1' })
+    const again = await call('forgeloop_submit_requirement', {
+      text: '幂等需求',
+      client_key: 'k-1',
+    })
     expect(again.ok).toBe(true)
     expect(again.text).toContain('未重复创建')
     await expect(
