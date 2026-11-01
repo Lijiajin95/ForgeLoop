@@ -179,7 +179,7 @@ import {
   verifyInstalledFiles,
 } from './deployment-inspect.js'
 import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
-import { buildRequirementView } from './requirement-views.js'
+import { buildRequirementView, deliveryProgress } from './requirement-views.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -242,6 +242,15 @@ function candidateDiffPathOf(delivery: AdmittedDelivery): string {
   return existsSync(candidate.diffPath)
     ? candidate.diffPath
     : join(delivery.verification!.evidenceDir, 'candidate.diff')
+}
+
+function describeViolation(violation: {
+  taskId: string
+  field: string
+  value: string
+  reason: string
+}): string {
+  return `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`
 }
 
 export class ForgeLoopRuntime {
@@ -2764,28 +2773,7 @@ ${answer}`
     const artifacts = plan ? this.repo.taskArtifacts(reqId, plan.planVersion) : []
     const runs = plan ? this.repo.taskRuns(reqId, plan.planVersion) : []
     const delivered = new Set(artifacts.map((artifact) => artifact.taskId))
-    const runByTask = new Map(runs.map((run) => [run.taskId, run]))
-    const progress = {
-      total: plan?.tasks.length ?? 0,
-      delivered: 0,
-      failed: 0,
-      awaitingUser: 0,
-      awaitingInput: 0,
-      blocked: 0,
-      running: 0,
-      pending: 0,
-    }
-    for (const task of plan?.tasks ?? []) {
-      const run = runByTask.get(task.taskId)
-      if (delivered.has(task.taskId)) progress.delivered += 1
-      else if (run?.state === TASK_RUN_RUNNING && /ask_user_question/i.test(run.reason)) {
-        progress.awaitingInput += 1
-      } else if (run?.state === TASK_RUN_RUNNING) progress.running += 1
-      else if (run?.state === TASK_RUN_FAILED) progress.failed += 1
-      else if (run?.state === TASK_RUN_BLOCKED) progress.blocked += 1
-      else if (run?.state === TASK_RUN_AWAITING_USER) progress.awaitingUser += 1
-      else progress.pending += 1
-    }
+    const progress = deliveryProgress(plan, delivered, runs)
     const requests = this.repo.requestsFor(reqId)
     const evidence = requirementEvidence({
       admissions: this.repo.admissionsFor(reqId),
@@ -3006,13 +2994,20 @@ ${answer}`
     }
   }
 
-  private async executeDevPlanning(
+  private planningInputs(
     reqId: string,
-    signal: AbortSignal,
-    permittedPlanChange = false,
-  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    permittedPlanChange: boolean,
+  ):
+    | {
+        ok: true
+        requirement: Requirement
+        analysis: RequirementAnalysis
+      }
+    | { ok: false; outcome: { state: 'failed'; detail: string } } {
     const requirement = this.repo.getRequirement(reqId)
-    if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
+    if (!requirement) {
+      return { ok: false, outcome: { state: 'failed', detail: `未找到需求 ${reqId}` } }
+    }
     // 入队时未批准、执行时已批准：仍必须拒绝，避免旧请求悄悄覆盖已冻结的任务包。
     const latestPlan = this.repo.latestTaskPlan(reqId)
     if (
@@ -3021,21 +3016,43 @@ ${answer}`
       !permittedPlanChange
     ) {
       return {
-        state: 'failed',
-        detail: `任务包 v${latestPlan.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `任务包 v${latestPlan.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
+        },
       }
     }
     const analysis = this.repo.latestAnalysis(reqId)
-    if (!analysis) return { state: 'failed', detail: '尚无分析结论，不能规划' }
+    if (!analysis) {
+      return { ok: false, outcome: { state: 'failed', detail: '尚无分析结论，不能规划' } }
+    }
     if (analysis.requirementVersion !== requirement.versions.length) {
       return {
-        state: 'failed',
-        detail: `最新分析依据需求 v${analysis.requirementVersion}，当前是 v${requirement.versions.length}；请重新分析`,
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `最新分析依据需求 v${analysis.requirementVersion}，当前是 v${requirement.versions.length}；请重新分析`,
+        },
       }
     }
     if (analysis.clarifications.length > 0) {
-      return { state: 'failed', detail: '分析仍有待澄清项；回答后修订需求并重新分析' }
+      return {
+        ok: false,
+        outcome: { state: 'failed', detail: '分析仍有待澄清项；回答后修订需求并重新分析' },
+      }
     }
+    return { ok: true, requirement, analysis }
+  }
+
+  private async executeDevPlanning(
+    reqId: string,
+    signal: AbortSignal,
+    permittedPlanChange = false,
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const inputs = this.planningInputs(reqId, permittedPlanChange)
+    if (!inputs.ok) return inputs.outcome
+    const { requirement, analysis } = inputs
     let feedback = ''
     let lastError = ''
     let lastPlan: TaskPlan | undefined
@@ -3070,18 +3087,14 @@ ${answer}`
         feedback = `\n\n上一次输出的任务包被程序拒绝：${errorMessage(error)}。请修正后重新输出完整 JSON。`
         continue
       }
-      const packages = this.existingPackages()
       const violations = [
         ...languageViolations(plan),
         ...outsideActiveSource(plan),
-        ...unknownPackages(plan, packages),
+        ...unknownPackages(plan, this.existingPackages()),
       ]
       if (violations.length > 0) {
         lastError = `任务包越过 TypeScript 语言/工程边界：${violations
-          .map(
-            (violation) =>
-              `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`,
-          )
+          .map(describeViolation)
           .join('；')}`
         feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。不得使用 Python、旧 .venv 或旧 forgeloop CLI；请只修改 TypeScript 工程并给出 npm/node 测试命令。重新输出完整 JSON。`
         continue

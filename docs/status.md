@@ -3051,3 +3051,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   mutation 97.80。
 - 下一批同样整块移出：`requirementDetail`（复杂度 27）与执行段
   `executeDevPlanning` / `executeVerification` / `executeBusinessReview`。
+
+### 47.24 需求进度与规划入口拆分（Goal Round 21）
+
+- `deliveryProgress` / `classifyRun` 移到 `requirement-views.ts`，`requirementDetail`
+  复杂度 27 → 15 以下，豁免清零。
+- `executeDevPlanning` 抽出 `planningInputs`（需求/冻结/分析/澄清四类前置），
+  语句 49 → 40，复杂度 16 → 15 以下，两条豁免清零。
+- suppressions 26 → **23**；service tokens 66,127 → **66,113**。
+- `make check` 607 项通过，coverage 91.07/96.91/84.99，mutation 97.80。
+- 剩余大函数只有 `executeVerification`（420 行 / 142 语句 / 复杂度 49）与
+  `executeBusinessReview`（73 语句 / 复杂度 40）；下一轮按阶段整块迁出。

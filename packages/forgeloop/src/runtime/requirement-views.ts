@@ -9,6 +9,12 @@ import {
 } from '../domain/verification.js'
 import { taskIdOfFailureRound } from './board.js'
 import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import {
+  TASK_RUN_AWAITING_USER,
+  TASK_RUN_BLOCKED,
+  TASK_RUN_FAILED,
+  TASK_RUN_RUNNING,
+} from '../domain/status.js'
 
 export function planReviewView(repo: Repository, reqId: string, planVersion: number): unknown {
   const record = repo.planReview(reqId, planVersion)
@@ -154,4 +160,54 @@ export function buildRequirementView(
       .filter((request) => ['pending', 'claimed'].includes(request.state))
       .map(requestView),
   }
+}
+
+export interface DeliveryProgress {
+  total: number
+  delivered: number
+  failed: number
+  awaitingUser: number
+  awaitingInput: number
+  blocked: number
+  running: number
+  pending: number
+}
+
+export function deliveryProgress(
+  plan: TaskPlan | null,
+  delivered: ReadonlySet<string>,
+  runs: ReturnType<Repository['taskRuns']>,
+): DeliveryProgress {
+  const runByTask = new Map(runs.map((run) => [run.taskId, run]))
+  const progress: DeliveryProgress = {
+    total: plan?.tasks.length ?? 0,
+    delivered: 0,
+    failed: 0,
+    awaitingUser: 0,
+    awaitingInput: 0,
+    blocked: 0,
+    running: 0,
+    pending: 0,
+  }
+  for (const task of plan?.tasks ?? []) {
+    const run = runByTask.get(task.taskId)
+    if (delivered.has(task.taskId)) {
+      progress.delivered += 1
+      continue
+    }
+    progress[classifyRun(run?.state, run?.reason ?? '')] += 1
+  }
+  return progress
+}
+
+function classifyRun(
+  state: string | undefined,
+  reason: string,
+): keyof Omit<DeliveryProgress, 'total' | 'delivered'> {
+  if (state === TASK_RUN_RUNNING && /ask_user_question/i.test(reason)) return 'awaitingInput'
+  if (state === TASK_RUN_RUNNING) return 'running'
+  if (state === TASK_RUN_FAILED) return 'failed'
+  if (state === TASK_RUN_BLOCKED) return 'blocked'
+  if (state === TASK_RUN_AWAITING_USER) return 'awaitingUser'
+  return 'pending'
 }
