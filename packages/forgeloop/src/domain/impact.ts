@@ -252,60 +252,13 @@ function planTaskKey(planVersion: number, taskId: string): string {
   return `${planVersion}:${taskId}`
 }
 
-/**
- * 汇总一条需求的修订影响事实。纯函数，不写任何记录。
- *
- * “从未规划”仍返回完整事实结构：分析/任务包/批准/交付为空数组，
- * 并在顶层 pendingReasons 与 coverage 中标出缺口。
- */
-export function buildImpactFacts(input: ImpactInput): ImpactFacts {
-  const { requirement } = input
-  const latest = latestVersion(requirement)
-  const latestRequirementVersion = latest.version
-
-  const analyses = [...(input.analyses ?? [])].sort(
-    (left, right) => left.analysisVersion - right.analysisVersion,
-  )
-  const plans = [...(input.plans ?? [])].sort((left, right) => left.planVersion - right.planVersion)
-  const approvals = [...(input.approvals ?? [])].sort(
-    (left, right) => left.planVersion - right.planVersion,
-  )
-  const deliveries = [...(input.deliveries ?? [])].sort((left, right) => {
-    if (left.planVersion !== right.planVersion) return left.planVersion - right.planVersion
-    return left.taskId.localeCompare(right.taskId)
-  })
-  const requests = [...(input.requests ?? [])].sort((left, right) => {
-    const leftAt = left.createdAt ?? ''
-    const rightAt = right.createdAt ?? ''
-    if (leftAt !== rightAt) return leftAt.localeCompare(rightAt)
-    return left.requestId.localeCompare(right.requestId)
-  })
-
-  const latestAnalysis = analyses.at(-1)
-  const latestPlan = plans.at(-1)
-  const planByVersion = new Map(plans.map((plan) => [plan.planVersion, plan]))
-  const deliveryByKey = new Map(
-    deliveries.map((delivery) => [planTaskKey(delivery.planVersion, delivery.taskId), delivery]),
-  )
-  const currentPlanApproval = latestPlan
-    ? approvals.find((approval) => approval.planVersion === latestPlan.planVersion)
-    : undefined
-
-  const requirementVersions: RequirementVersionFact[] = requirement.versions.map((version) => ({
-    version: version.version,
-    createdAt: version.createdAt,
-    revisedBy: version.revisedBy,
-    source: version.source,
-    latest: version.version === latestRequirementVersion,
-  }))
-
-  const mismatchReason = (): ImpactReason =>
-    reason(
-      'analysis_plan_requirement_mismatch',
-      `最新分析 v${latestAnalysis?.analysisVersion ?? '?'} 依据需求 v${latestAnalysis?.requirementVersion ?? '?'}，最新任务包 v${latestPlan?.planVersion ?? '?'} 依据需求 v${latestPlan?.requirementVersion ?? '?'}；版本不一致，需核对`,
-    )
-
-  const analysisFacts: AnalysisImpactFact[] = analyses.map((analysis, index) => {
+function buildAnalysisFacts(
+  analyses: readonly RequirementAnalysis[],
+  latestRequirementVersion: number,
+  latestPlan: TaskPlan | undefined,
+  mismatchReason: () => ImpactReason,
+): AnalysisImpactFact[] {
+  return analyses.map((analysis, index) => {
     const isLatest = index === analyses.length - 1
     const staleReasons: ImpactReason[] = []
     const pendingReasons: ImpactReason[] = []
@@ -345,8 +298,25 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
       ...makeCheck(staleReasons, pendingReasons),
     }
   })
+}
 
-  const planFacts: PlanImpactFact[] = plans.map((plan, index) => {
+interface PlanFactsContext {
+  readonly latestRequirementVersion: number
+  readonly latestAnalysis: RequirementAnalysis | undefined
+  readonly currentPlanApproval: TaskPlanApproval | undefined
+  readonly deliveryByKey: Map<string, TaskArtifact>
+  readonly mismatchReason: () => ImpactReason
+}
+
+function buildPlanFacts(plans: readonly TaskPlan[], context: PlanFactsContext): PlanImpactFact[] {
+  const {
+    latestRequirementVersion,
+    latestAnalysis,
+    currentPlanApproval,
+    deliveryByKey,
+    mismatchReason,
+  } = context
+  return plans.map((plan, index) => {
     const isLatest = index === plans.length - 1
     const staleReasons: ImpactReason[] = []
     const pendingReasons: ImpactReason[] = []
@@ -442,18 +412,31 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
       ...makeCheck(staleReasons, pendingReasons),
     }
   })
+}
 
-  const approvalFacts: ApprovalImpactFact[] = approvals.map((approval, index) => {
+interface ApprovalFactsContext {
+  readonly planByVersion: Map<number, TaskPlan>
+  readonly latestPlan: TaskPlan | undefined
+  readonly latestRequirementVersion: number
+  readonly reqId: string
+}
+
+function buildApprovalFacts(
+  approvals: readonly TaskPlanApproval[],
+  context: ApprovalFactsContext,
+): ApprovalImpactFact[] {
+  const { planByVersion, latestPlan, latestRequirementVersion, reqId } = context
+  return approvals.map((approval, index) => {
     const isCurrent = index === approvals.length - 1
     const plan = planByVersion.get(approval.planVersion)
     const staleReasons: ImpactReason[] = []
     const pendingReasons: ImpactReason[] = []
 
-    if (approval.requirementId !== requirement.reqId) {
+    if (approval.requirementId !== reqId) {
       pendingReasons.push(
         reason(
           'approval_requirement_mismatch',
-          `批准绑定需求 ${approval.requirementId}，当前查询需求 ${requirement.reqId}；记录不一致，需核对`,
+          `批准绑定需求 ${approval.requirementId}，当前查询需求 ${reqId}；记录不一致，需核对`,
         ),
       )
     }
@@ -501,8 +484,14 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
       ...makeCheck(staleReasons, pendingReasons),
     }
   })
+}
 
-  const deliveryFacts: DeliveryImpactFact[] = deliveries.map((artifact) => {
+function buildDeliveryFacts(
+  deliveries: readonly TaskArtifact[],
+  planByVersion: Map<number, TaskPlan>,
+  latestRequirementVersion: number,
+): DeliveryImpactFact[] {
+  return deliveries.map((artifact) => {
     const plan = planByVersion.get(artifact.planVersion)
     const task = plan?.tasks.find((candidate) => candidate.taskId === artifact.taskId)
     const staleReasons: ImpactReason[] = []
@@ -549,20 +538,19 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
       ...makeCheck(staleReasons, pendingReasons),
     }
   })
+}
 
-  const requestFacts: RequestImpactFact[] = requests.map((request) => {
-    const pendingReasons: ImpactReason[] = []
-    return {
-      requestId: request.requestId,
-      action: request.action,
-      requestState: request.state,
-      planVersion: request.planVersion,
-      createdAt: request.createdAt ?? '',
-      ...makeCheck([], pendingReasons),
-    }
-  })
+interface GapFactsContext {
+  readonly analyses: readonly RequirementAnalysis[]
+  readonly plans: readonly TaskPlan[]
+  readonly approvals: readonly TaskPlanApproval[]
+  readonly latestPlan: TaskPlan | undefined
+  readonly currentPlanApproval: TaskPlanApproval | undefined
+  readonly deliveryByKey: Map<string, TaskArtifact>
+}
 
-  // 顶层缺口：没有分析/任务包/批准，或最新任务包尚未交付齐全。
+function buildGapReasons(context: GapFactsContext): ImpactReason[] {
+  const { analyses, plans, approvals, latestPlan, currentPlanApproval, deliveryByKey } = context
   const gapReasons: ImpactReason[] = []
   if (analyses.length === 0) {
     gapReasons.push(reason('requirement_analysis_missing', '该需求尚无任何分析版本；需核对'))
@@ -595,6 +583,107 @@ export function buildImpactFacts(input: ImpactInput): ImpactFacts {
       )
     }
   }
+  return gapReasons
+}
+
+/**
+ * 汇总一条需求的修订影响事实。纯函数，不写任何记录。
+ *
+ * “从未规划”仍返回完整事实结构：分析/任务包/批准/交付为空数组，
+ * 并在顶层 pendingReasons 与 coverage 中标出缺口。
+ */
+export function buildImpactFacts(input: ImpactInput): ImpactFacts {
+  const { requirement } = input
+  const latest = latestVersion(requirement)
+  const latestRequirementVersion = latest.version
+
+  const analyses = [...(input.analyses ?? [])].sort(
+    (left, right) => left.analysisVersion - right.analysisVersion,
+  )
+  const plans = [...(input.plans ?? [])].sort((left, right) => left.planVersion - right.planVersion)
+  const approvals = [...(input.approvals ?? [])].sort(
+    (left, right) => left.planVersion - right.planVersion,
+  )
+  const deliveries = [...(input.deliveries ?? [])].sort((left, right) => {
+    if (left.planVersion !== right.planVersion) return left.planVersion - right.planVersion
+    return left.taskId.localeCompare(right.taskId)
+  })
+  const requests = [...(input.requests ?? [])].sort((left, right) => {
+    const leftAt = left.createdAt ?? ''
+    const rightAt = right.createdAt ?? ''
+    if (leftAt !== rightAt) return leftAt.localeCompare(rightAt)
+    return left.requestId.localeCompare(right.requestId)
+  })
+
+  const latestAnalysis = analyses.at(-1)
+  const latestPlan = plans.at(-1)
+  const planByVersion = new Map(plans.map((plan) => [plan.planVersion, plan]))
+  const deliveryByKey = new Map(
+    deliveries.map((delivery) => [planTaskKey(delivery.planVersion, delivery.taskId), delivery]),
+  )
+  const currentPlanApproval = latestPlan
+    ? approvals.find((approval) => approval.planVersion === latestPlan.planVersion)
+    : undefined
+
+  const requirementVersions: RequirementVersionFact[] = requirement.versions.map((version) => ({
+    version: version.version,
+    createdAt: version.createdAt,
+    revisedBy: version.revisedBy,
+    source: version.source,
+    latest: version.version === latestRequirementVersion,
+  }))
+
+  const mismatchReason = (): ImpactReason =>
+    reason(
+      'analysis_plan_requirement_mismatch',
+      `最新分析 v${latestAnalysis?.analysisVersion ?? '?'} 依据需求 v${latestAnalysis?.requirementVersion ?? '?'}，最新任务包 v${latestPlan?.planVersion ?? '?'} 依据需求 v${latestPlan?.requirementVersion ?? '?'}；版本不一致，需核对`,
+    )
+
+  const analysisFacts = buildAnalysisFacts(
+    analyses,
+    latestRequirementVersion,
+    latestPlan,
+    mismatchReason,
+  )
+
+  const planFacts = buildPlanFacts(plans, {
+    latestRequirementVersion,
+    latestAnalysis,
+    currentPlanApproval,
+    deliveryByKey,
+    mismatchReason,
+  })
+
+  const approvalFacts = buildApprovalFacts(approvals, {
+    planByVersion,
+    latestPlan,
+    latestRequirementVersion,
+    reqId: requirement.reqId,
+  })
+
+  const deliveryFacts = buildDeliveryFacts(deliveries, planByVersion, latestRequirementVersion)
+
+  const requestFacts: RequestImpactFact[] = requests.map((request) => {
+    const pendingReasons: ImpactReason[] = []
+    return {
+      requestId: request.requestId,
+      action: request.action,
+      requestState: request.state,
+      planVersion: request.planVersion,
+      createdAt: request.createdAt ?? '',
+      ...makeCheck([], pendingReasons),
+    }
+  })
+
+  const gapReasons = buildGapReasons({
+    analyses,
+    plans,
+    approvals,
+    latestPlan,
+    currentPlanApproval,
+    deliveryByKey,
+  })
+
   const itemFacts: ImpactCheck[] = [
     ...analysisFacts,
     ...planFacts,
