@@ -3013,3 +3013,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - service.ts 因新增私有方法增至 6,042 行，tokens 67,145 → 68,351；基线同步到 68,351。
   同文件拆分已到收益边界，下一批必须把验收/上线核对整体移入独立模块，才能同时降低行数与 token。
 - `make check` 607 项通过，coverage 91.10/97.02/84.93，mutation 97.80。
+
+### 47.21 运行身份与模块核对移出（Goal Round 17）
+
+- `inspectRuntimeIdentity`、`inspectRequirementModules`、`processAlive` 移到
+  `deployment-inspect.ts`；service 只保留调用与候选 diff 路径解析。
+- service.ts **6,042 → 5,987 行**；tokens 68,351 → **67,569**，基线收紧。
+- suppressions 26（未新增）；`make check` 607 项通过，coverage 91.10/97.02/84.94，
+  mutation 97.80。
+- 剩余函数级豁免集中在 `requirementDetail`、`executeDevPlanning`、`executeVerification`、
+  `executeBusinessReview` 与少数构建/交付方法；下一轮继续按阶段拆，随后处理文件行数。

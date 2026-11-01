@@ -172,7 +172,12 @@ import {
   sessionRequirementView,
   type SessionRequirementView,
 } from './execution-views.js'
-import { readInstalledVersion, verifyInstalledFiles } from './deployment-inspect.js'
+import {
+  inspectRequirementModules,
+  inspectRuntimeIdentity,
+  readInstalledVersion,
+  verifyInstalledFiles,
+} from './deployment-inspect.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -229,16 +234,6 @@ import {
 } from './service-helpers.js'
 
 type AdmittedDelivery = NonNullable<ReturnType<ForgeLoopRuntime['admittedDelivery']>>
-
-function processAlive(pid: number): boolean {
-  if (pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
 
 function candidateDiffPathOf(delivery: AdmittedDelivery): string {
   const candidate = delivery.candidate!
@@ -2265,64 +2260,6 @@ ${answer}`
     return this.candidateIdentity(plan, artifacts)
   }
 
-  private inspectRuntimeIdentity(
-    installedRoot: string,
-    build: { readonly packageVersion: string },
-  ): { id: string; ok: boolean; detail: string } | null {
-    const identityPath = join(installedRoot, 'runtime-identity.json')
-    if (!existsSync(identityPath)) return null
-    try {
-      const identity = JSON.parse(readFileSync(identityPath, 'utf8')) as {
-        kind?: unknown
-        version?: unknown
-        pid?: unknown
-        startedAt?: unknown
-        indexSha256?: unknown
-        serviceSha256?: unknown
-      }
-      const pid = typeof identity.pid === 'number' ? identity.pid : 0
-      const alive = processAlive(pid)
-      const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))
-      const serviceHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/runtime/service.js')))
-      return {
-        id: 'running_identity',
-        ok:
-          identity.kind === 'forgeloop-runtime-identity' &&
-          identity.version === build.packageVersion &&
-          alive &&
-          identity.indexSha256 === indexHash &&
-          identity.serviceSha256 === serviceHash,
-        detail: `运行身份 pid=${pid || '未知'}，入口摘要 ${typeof identity.indexSha256 === 'string' ? identity.indexSha256 : ''}，服务摘要 ${typeof identity.serviceSha256 === 'string' ? identity.serviceSha256 : ''}`,
-      }
-    } catch {
-      return { id: 'running_identity', ok: false, detail: '运行身份文件无法解析' }
-    }
-  }
-
-  private inspectRequirementModules(
-    admitted: boolean,
-    delivery: AdmittedDelivery | null,
-    plan: TaskPlan,
-    installedRoot: string,
-  ): { ok: boolean; detail: string } {
-    // 新链路按候选 diff 的实际源码文件核对；旧链路仍按任务包声明核对。
-    const candidateDiffPath = admitted ? candidateDiffPathOf(delivery!) : ''
-    const expectedSources = admitted
-      ? [
-          ...readFileSync(candidateDiffPath, 'utf8').matchAll(
-            /^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm,
-          ),
-        ].map((match) => match[1]!)
-      : plan.tasks.flatMap((task) => task.files)
-    const expectedModules = [...new Set(expectedSources)]
-      .filter((file) => file.startsWith('packages/forgeloop/src/') && file.endsWith('.ts'))
-      .map((file) => file.replace('packages/forgeloop/src/', 'lib/').replace(/\.ts$/, '.js'))
-    const absentModules = expectedModules.filter((file) => !existsSync(join(installedRoot, file)))
-    return absentModules.length === 0
-      ? { ok: true, detail: `本次需求的 ${expectedModules.length} 个源码模块已随安装包加载` }
-      : { ok: false, detail: `安装包缺少本次需求的模块：${absentModules.join('、')}` }
-  }
-
   private inspectBusinessRecords(context: {
     reqId: string
     admitted: boolean
@@ -2382,9 +2319,14 @@ ${answer}`
 
     // 包自述文件由插件装载时写入：进程存活且入口/服务摘要与安装内容一致，
     // 才能把“同版本”区分为“同一构建实例”。旧包没有该文件时不伪造该检查。
-    const identityCheck = this.inspectRuntimeIdentity(installedRoot, build)
+    const identityCheck = inspectRuntimeIdentity(installedRoot, build)
     if (identityCheck) check(identityCheck.id, identityCheck.ok, identityCheck.detail)
-    const modulesCheck = this.inspectRequirementModules(admitted, delivery, plan, installedRoot)
+    const modulesCheck = inspectRequirementModules(
+      admitted,
+      admitted ? candidateDiffPathOf(delivery!) : '',
+      plan,
+      installedRoot,
+    )
     check('requirement_modules', modulesCheck.ok, modulesCheck.detail)
 
     let boardOk = false
