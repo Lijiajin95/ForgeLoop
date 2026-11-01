@@ -3001,3 +3001,15 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - `make check` 607 项通过，coverage 91.09/96.98/84.87，mutation 97.80。
 - 下一轮：把 `verifyDeployment` 的目标解析（准入/交付/计划/候选/验收）、运行身份、
   业务记录三段移出，清零该函数的两条豁免。
+
+### 47.20 上线核对与验收拆分（Goal Round 16）
+
+- `verifyDeployment` 拆出 `resolveDeploymentTarget`、`deploymentIdentity`、
+  `inspectRuntimeIdentity`、`inspectRequirementModules`、`inspectBusinessRecords`；
+  语句 99 → 40 以内、复杂度 61 → 15 以内，两条豁免清零。
+- `accept` 拆出 `acceptanceInputs` 与 `businessReviewGuard`；`buildAcceptanceBinding`
+  改为单对象参数，max-params 清零。
+- suppressions 31 → **26**；连续清零 5 条豁免。
+- service.ts 因新增私有方法增至 6,042 行，tokens 67,145 → 68,351；基线同步到 68,351。
+  同文件拆分已到收益边界，下一批必须把验收/上线核对整体移入独立模块，才能同时降低行数与 token。
+- `make check` 607 项通过，coverage 91.10/97.02/84.93，mutation 97.80。

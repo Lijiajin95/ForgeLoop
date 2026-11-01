@@ -230,6 +230,23 @@ import {
 
 type AdmittedDelivery = NonNullable<ReturnType<ForgeLoopRuntime['admittedDelivery']>>
 
+function processAlive(pid: number): boolean {
+  if (pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function candidateDiffPathOf(delivery: AdmittedDelivery): string {
+  const candidate = delivery.candidate!
+  return existsSync(candidate.diffPath)
+    ? candidate.diffPath
+    : join(delivery.verification!.evidenceDir, 'candidate.diff')
+}
+
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
   readonly repo: Repository
@@ -2139,56 +2156,213 @@ ${answer}`
    * 上线核对：安装由外部受控机制完成，本方法只核对“装进去的、正在跑的”是否就是
    * 被验证并验收的那份候选；任一不一致都保留失败记录，不把安装回执当交付完成。
    */
+  private resolveDeploymentTarget(input: { reqId: string; targetProfile: string }):
+    | {
+        ok: true
+        admitted: boolean
+        delivery: AdmittedDelivery | null
+        plan: TaskPlan
+        identity: string
+        build: NonNullable<ReturnType<Repository['candidateBuild']>>
+        profileDir: string
+        installedRoot: string
+        checks: Array<{ id: string; ok: boolean; detail: string }>
+        check: (id: string, ok: boolean, detail: string) => void
+      }
+    | { ok: false; result: OperationResult } {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) {
+      return { ok: false, result: fail('not_found', `未找到需求 ${input.reqId}`) }
+    }
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(input.targetProfile)) {
+      return {
+        ok: false,
+        result: fail(
+          'profile_invalid',
+          `目标 profile 只能是安全的 profile 名，实际 ${JSON.stringify(input.targetProfile)}`,
+        ),
+      }
+    }
+    const admitted = Boolean(this.currentAdmission(input.reqId))
+    const delivery = admitted ? this.admittedDelivery(input.reqId) : null
+    if (admitted && !delivery) {
+      return {
+        ok: false,
+        result: fail('candidate_missing', `需求 ${input.reqId} 没有新链路候选`),
+      }
+    }
+    const plan = admitted ? delivery!.plan : this.repo.latestTaskPlan(input.reqId)
+    if (!plan) {
+      return { ok: false, result: fail('plan_missing', `需求 ${input.reqId} 没有任务包`) }
+    }
+    const identity = this.deploymentIdentity(input.reqId, admitted, delivery, plan)
+    if (typeof identity !== 'string') return identity
+    const build = this.repo.candidateBuild(input.reqId, plan.planVersion)
+    if (!build) {
+      return {
+        ok: false,
+        result: fail('candidate_missing', `需求 ${input.reqId} 尚未构建可安装候选`),
+      }
+    }
+    if (build.candidateSha256 !== identity) {
+      return {
+        ok: false,
+        result: fail(
+          'candidate_stale',
+          '候选包绑定的候选身份与当前交付材料不一致；需重新验证并构建',
+        ),
+      }
+    }
+    if (!admitted && !this.repo.acceptance(input.reqId).accepted_at) {
+      return {
+        ok: false,
+        result: fail('acceptance_required', '需求尚未通过整体验收；不能做上线核对'),
+      }
+    }
+    const profileDir = join(this.config.dshProfilesRoot, input.targetProfile)
+    const installedRoot = join(profileDir, 'node_modules', 'forgeloop-dsh')
+    if (!existsSync(profileDir)) {
+      return { ok: false, result: fail('profile_missing', `目标 profile 不存在：${profileDir}`) }
+    }
+    if (!existsSync(installedRoot)) {
+      return {
+        ok: false,
+        result: fail('not_installed', `目标 profile 尚未安装 forgeloop-dsh：${installedRoot}`),
+      }
+    }
+    const checks: Array<{ id: string; ok: boolean; detail: string }> = []
+    const check = (id: string, ok: boolean, detail: string): void => {
+      checks.push({ id, ok, detail })
+    }
+    return {
+      ok: true,
+      admitted,
+      delivery,
+      plan,
+      identity,
+      build,
+      profileDir,
+      installedRoot,
+      checks,
+      check,
+    }
+  }
+
+  private deploymentIdentity(
+    reqId: string,
+    admitted: boolean,
+    delivery: AdmittedDelivery | null,
+    plan: TaskPlan,
+  ): string | { ok: false; result: OperationResult } {
+    if (admitted) return delivery!.candidate!.candidateSha256
+    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
+    const missing = plan.tasks.filter(
+      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+    )
+    if (missing.length > 0) {
+      return { ok: false, result: fail('not_delivered', '仍有任务未交付，不能做上线核对') }
+    }
+    return this.candidateIdentity(plan, artifacts)
+  }
+
+  private inspectRuntimeIdentity(
+    installedRoot: string,
+    build: { readonly packageVersion: string },
+  ): { id: string; ok: boolean; detail: string } | null {
+    const identityPath = join(installedRoot, 'runtime-identity.json')
+    if (!existsSync(identityPath)) return null
+    try {
+      const identity = JSON.parse(readFileSync(identityPath, 'utf8')) as {
+        kind?: unknown
+        version?: unknown
+        pid?: unknown
+        startedAt?: unknown
+        indexSha256?: unknown
+        serviceSha256?: unknown
+      }
+      const pid = typeof identity.pid === 'number' ? identity.pid : 0
+      const alive = processAlive(pid)
+      const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))
+      const serviceHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/runtime/service.js')))
+      return {
+        id: 'running_identity',
+        ok:
+          identity.kind === 'forgeloop-runtime-identity' &&
+          identity.version === build.packageVersion &&
+          alive &&
+          identity.indexSha256 === indexHash &&
+          identity.serviceSha256 === serviceHash,
+        detail: `运行身份 pid=${pid || '未知'}，入口摘要 ${typeof identity.indexSha256 === 'string' ? identity.indexSha256 : ''}，服务摘要 ${typeof identity.serviceSha256 === 'string' ? identity.serviceSha256 : ''}`,
+      }
+    } catch {
+      return { id: 'running_identity', ok: false, detail: '运行身份文件无法解析' }
+    }
+  }
+
+  private inspectRequirementModules(
+    admitted: boolean,
+    delivery: AdmittedDelivery | null,
+    plan: TaskPlan,
+    installedRoot: string,
+  ): { ok: boolean; detail: string } {
+    // 新链路按候选 diff 的实际源码文件核对；旧链路仍按任务包声明核对。
+    const candidateDiffPath = admitted ? candidateDiffPathOf(delivery!) : ''
+    const expectedSources = admitted
+      ? [
+          ...readFileSync(candidateDiffPath, 'utf8').matchAll(
+            /^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm,
+          ),
+        ].map((match) => match[1]!)
+      : plan.tasks.flatMap((task) => task.files)
+    const expectedModules = [...new Set(expectedSources)]
+      .filter((file) => file.startsWith('packages/forgeloop/src/') && file.endsWith('.ts'))
+      .map((file) => file.replace('packages/forgeloop/src/', 'lib/').replace(/\.ts$/, '.js'))
+    const absentModules = expectedModules.filter((file) => !existsSync(join(installedRoot, file)))
+    return absentModules.length === 0
+      ? { ok: true, detail: `本次需求的 ${expectedModules.length} 个源码模块已随安装包加载` }
+      : { ok: false, detail: `安装包缺少本次需求的模块：${absentModules.join('、')}` }
+  }
+
+  private inspectBusinessRecords(context: {
+    reqId: string
+    admitted: boolean
+    delivery: AdmittedDelivery | null
+    plan: TaskPlan
+    identity: string
+    build: { readonly verificationSha256: string }
+  }): { ok: boolean; detail: string } {
+    const { reqId, admitted, delivery, plan, identity, build } = context
+    const acceptance = this.repo.acceptance(reqId)
+    if (admitted) {
+      const review = delivery!.review
+      return {
+        ok: review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256,
+        detail: `系统准入；业务验收 ${review?.verdict ?? '缺失'}；提交 ${
+          this.repo.commitForCandidate(reqId, plan.planVersion, identity)?.commitSha.slice(0, 12) ??
+          '缺失'
+        }`,
+      }
+    }
+    const review = this.repo.businessReviewForCandidate(reqId, plan.planVersion, identity)
+    return {
+      ok:
+        Boolean(acceptance.accepted_at) &&
+        review?.verdict === 'pass' &&
+        review.verificationSha256 === build.verificationSha256,
+      detail: `验收 ${acceptance.accepted_at || '缺失'}；业务终审 ${review?.verdict ?? '缺失'}`,
+    }
+  }
+
   verifyDeployment(input: {
     reqId: string
     targetProfile: string
     by: string
     source: string
   }): OperationResult {
-    const requirement = this.repo.getRequirement(input.reqId)
-    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    if (!/^[a-z0-9][a-z0-9_-]*$/.test(input.targetProfile)) {
-      return fail(
-        'profile_invalid',
-        `目标 profile 只能是安全的 profile 名，实际 ${JSON.stringify(input.targetProfile)}`,
-      )
-    }
-    const admitted = Boolean(this.currentAdmission(input.reqId))
-    const delivery = admitted ? this.admittedDelivery(input.reqId) : null
-    if (admitted && !delivery)
-      return fail('candidate_missing', `需求 ${input.reqId} 没有新链路候选`)
-    const plan = admitted ? delivery!.plan : this.repo.latestTaskPlan(input.reqId)
-    if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
-    let identity = ''
-    if (admitted) {
-      identity = delivery!.candidate!.candidateSha256
-    } else {
-      const artifacts = this.repo.taskArtifacts(input.reqId, plan.planVersion)
-      const missing = plan.tasks.filter(
-        (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
-      )
-      if (missing.length > 0) return fail('not_delivered', `仍有任务未交付，不能做上线核对`)
-      identity = this.candidateIdentity(plan, artifacts)
-    }
-    const build = this.repo.candidateBuild(input.reqId, plan.planVersion)
-    if (!build) return fail('candidate_missing', `需求 ${input.reqId} 尚未构建可安装候选`)
-    if (build.candidateSha256 !== identity) {
-      return fail('candidate_stale', '候选包绑定的候选身份与当前交付材料不一致；需重新验证并构建')
-    }
-    if (!admitted && !this.repo.acceptance(input.reqId).accepted_at) {
-      return fail('acceptance_required', '需求尚未通过整体验收；不能做上线核对')
-    }
-    const profileDir = join(this.config.dshProfilesRoot, input.targetProfile)
-    const installedRoot = join(profileDir, 'node_modules', 'forgeloop-dsh')
-    if (!existsSync(profileDir))
-      return fail('profile_missing', `目标 profile 不存在：${profileDir}`)
-    if (!existsSync(installedRoot)) {
-      return fail('not_installed', `目标 profile 尚未安装 forgeloop-dsh：${installedRoot}`)
-    }
-    const checks: Array<{ id: string; ok: boolean; detail: string }> = []
-    const check = (id: string, ok: boolean, detail: string): void => {
-      checks.push({ id, ok, detail })
-    }
+    const target = this.resolveDeploymentTarget(input)
+    if (!target.ok) return target.result
+    const { admitted, delivery, plan, identity, build, profileDir, installedRoot, checks, check } =
+      target
 
     const installedVersion = readInstalledVersion(installedRoot)
     check(
@@ -2208,69 +2382,10 @@ ${answer}`
 
     // 包自述文件由插件装载时写入：进程存活且入口/服务摘要与安装内容一致，
     // 才能把“同版本”区分为“同一构建实例”。旧包没有该文件时不伪造该检查。
-    const identityPath = join(installedRoot, 'runtime-identity.json')
-    if (existsSync(identityPath)) {
-      try {
-        const identity = JSON.parse(readFileSync(identityPath, 'utf8')) as {
-          kind?: unknown
-          version?: unknown
-          pid?: unknown
-          startedAt?: unknown
-          indexSha256?: unknown
-          serviceSha256?: unknown
-        }
-        const pid = typeof identity.pid === 'number' ? identity.pid : 0
-        let alive = false
-        try {
-          if (pid > 0) {
-            process.kill(pid, 0)
-            alive = true
-          }
-        } catch {
-          alive = false
-        }
-        const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))
-        const serviceHash = sha256OfBytes(
-          readFileSync(join(installedRoot, 'lib/runtime/service.js')),
-        )
-        check(
-          'running_identity',
-          identity.kind === 'forgeloop-runtime-identity' &&
-            identity.version === build.packageVersion &&
-            alive &&
-            identity.indexSha256 === indexHash &&
-            identity.serviceSha256 === serviceHash,
-          `运行身份 pid=${pid || '未知'}，入口摘要 ${typeof identity.indexSha256 === 'string' ? identity.indexSha256 : ''}，服务摘要 ${typeof identity.serviceSha256 === 'string' ? identity.serviceSha256 : ''}`,
-        )
-      } catch {
-        check('running_identity', false, '运行身份文件无法解析')
-      }
-    }
-
-    // 新链路按候选 diff 的实际源码文件核对；旧链路仍按任务包声明核对。
-    const candidateDiffPath = admitted
-      ? existsSync(delivery!.candidate!.diffPath)
-        ? delivery!.candidate!.diffPath
-        : join(delivery!.verification!.evidenceDir, 'candidate.diff')
-      : ''
-    const expectedSources = admitted
-      ? [
-          ...readFileSync(candidateDiffPath, 'utf8').matchAll(
-            /^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm,
-          ),
-        ].map((match) => match[1]!)
-      : plan.tasks.flatMap((task) => task.files)
-    const expectedModules = expectedSources
-      .filter((file) => file.startsWith('packages/forgeloop/src/') && file.endsWith('.ts'))
-      .map((file) => file.replace('packages/forgeloop/src/', 'lib/').replace(/\.ts$/, '.js'))
-    const absentModules = expectedModules.filter((file) => !existsSync(join(installedRoot, file)))
-    check(
-      'requirement_modules',
-      absentModules.length === 0,
-      absentModules.length === 0
-        ? `本次需求的 ${new Set(expectedModules).size} 个源码模块已随安装包加载`
-        : `安装包缺少本次需求的模块：${absentModules.join('、')}`,
-    )
+    const identityCheck = this.inspectRuntimeIdentity(installedRoot, build)
+    if (identityCheck) check(identityCheck.id, identityCheck.ok, identityCheck.detail)
+    const modulesCheck = this.inspectRequirementModules(admitted, delivery, plan, installedRoot)
+    check('requirement_modules', modulesCheck.ok, modulesCheck.detail)
 
     let boardOk = false
     try {
@@ -2281,22 +2396,15 @@ ${answer}`
     }
     check('key_entry', boardOk, boardOk ? '看板与记录查询可用' : '看板与记录查询不可用')
 
-    const acceptance = this.repo.acceptance(input.reqId)
-    const review = admitted
-      ? delivery!.review
-      : this.repo.businessReviewForCandidate(input.reqId, plan.planVersion, identity)
-    const businessOk = admitted
-      ? review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256
-      : Boolean(acceptance.accepted_at) &&
-        review?.verdict === 'pass' &&
-        review.verificationSha256 === build.verificationSha256
-    check(
-      'business_records',
-      businessOk,
-      admitted
-        ? `系统准入；业务验收 ${review?.verdict ?? '缺失'}；提交 ${this.repo.commitForCandidate(input.reqId, plan.planVersion, identity)?.commitSha.slice(0, 12) ?? '缺失'}`
-        : `验收 ${acceptance.accepted_at || '缺失'}；业务终审 ${review?.verdict ?? '缺失'}`,
-    )
+    const businessCheck = this.inspectBusinessRecords({
+      reqId: input.reqId,
+      admitted,
+      delivery,
+      plan,
+      identity,
+      build,
+    })
+    check('business_records', businessCheck.ok, businessCheck.detail)
 
     const dir = join(
       candidatesDir(this.config, input.reqId, plan.planVersion),
@@ -2360,6 +2468,128 @@ ${answer}`
     )
   }
 
+  private businessReviewGuard(review: BusinessReviewRecord): OperationResult | null {
+    if (!this.businessReviewMaterialValid(review)) {
+      return fail('business_review_invalid', '业务终审报告文件缺失或摘要不一致；不能验收')
+    }
+    if (review.verdict === 'pass') return null
+    return fail(
+      'business_review_blocked',
+      `业务终审未通过：${verificationBlocking(review.reportJson)}`,
+    )
+  }
+
+  private acceptanceInputs(
+    reqId: string,
+    requirement: Requirement,
+  ):
+    | {
+        ok: true
+        latestPlan: TaskPlan
+        artifacts: ReturnType<Repository['taskArtifacts']>
+        identity: string
+        verification: VerificationRecord
+        businessReview: BusinessReviewRecord
+      }
+    | { ok: false; result: OperationResult } {
+    const latestPlan = this.repo.latestTaskPlan(reqId)
+    if (!latestPlan) return { ok: false, result: fail('plan_missing', `需求 ${reqId} 没有任务包`) }
+    const approval = this.repo.planApproval(reqId, latestPlan.planVersion)
+    const authorization = authorizePlan(latestPlan, approval)
+    if (authorization.status !== 'approved') {
+      return { ok: false, result: fail('plan_not_approved', authorization.reason) }
+    }
+    if (latestPlan.requirementVersion !== requirement.versions.length) {
+      return {
+        ok: false,
+        result: fail('stale_requirement', '任务包所依据的需求版本已过期；需要重新规划并批准'),
+      }
+    }
+    const artifacts = this.repo.taskArtifacts(reqId, latestPlan.planVersion)
+    const missing = latestPlan.tasks.filter(
+      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+    )
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        result: fail(
+          'not_delivered',
+          `仍有任务未交付：${missing.map((task) => task.taskId).join('、')}`,
+        ),
+      }
+    }
+    const verification = this.repo.verification(reqId, latestPlan.planVersion)
+    if (!verification) {
+      return {
+        ok: false,
+        result: fail(
+          'verification_required',
+          `需求 ${reqId} 尚未完成验证 Agent 的独立验证；不能验收`,
+        ),
+      }
+    }
+    const identity = this.candidateIdentity(latestPlan, artifacts)
+    if (
+      verification.candidateSha256 !== identity ||
+      verification.requirementVersion !== requirement.versions.length
+    ) {
+      return {
+        ok: false,
+        result: fail(
+          'verification_stale',
+          '独立验证结论绑定的候选或需求版本与当前材料不一致；必须对当前候选重新验证后再验收',
+        ),
+      }
+    }
+    if (
+      !existsSync(verification.reportPath) ||
+      sha256OfText(readFileSync(verification.reportPath, 'utf8')) !== verification.reportSha256
+    ) {
+      return {
+        ok: false,
+        result: fail('verification_invalid', '独立验证报告文件缺失或摘要不一致；不能验收'),
+      }
+    }
+    if (verification.verdict !== 'pass') {
+      return {
+        ok: false,
+        result: fail(
+          'verification_blocked',
+          `独立验证未通过：${verificationBlocking(verification.reportJson)}`,
+        ),
+      }
+    }
+    const businessReview = this.repo.businessReviewForCandidate(
+      reqId,
+      latestPlan.planVersion,
+      identity,
+    )
+    if (!businessReview) {
+      return {
+        ok: false,
+        result: fail(
+          'business_review_required',
+          `需求 ${reqId} 尚未完成需求 Agent 的业务终审；不能验收`,
+        ),
+      }
+    }
+    if (
+      businessReview.verificationSha256 !== verification.reportSha256 ||
+      businessReview.requirementVersion !== requirement.versions.length
+    ) {
+      return {
+        ok: false,
+        result: fail(
+          'business_review_stale',
+          '业务终审绑定的验证或需求版本与当前材料不一致；必须重新终审',
+        ),
+      }
+    }
+    const reviewBlocked = this.businessReviewGuard(businessReview)
+    if (reviewBlocked) return { ok: false, result: reviewBlocked }
+    return { ok: true, latestPlan, artifacts, identity, verification, businessReview }
+  }
+
   accept(input: {
     reqId: string
     by: string
@@ -2368,84 +2598,9 @@ ${answer}`
   }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
-    const latestPlan = this.repo.latestTaskPlan(input.reqId)
-    if (!latestPlan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包`)
-    const approval = this.repo.planApproval(input.reqId, latestPlan.planVersion)
-    const authorization = authorizePlan(latestPlan, approval)
-    if (authorization.status !== 'approved') {
-      return fail('plan_not_approved', authorization.reason)
-    }
-    if (latestPlan.requirementVersion !== requirement.versions.length) {
-      return fail('stale_requirement', '任务包所依据的需求版本已过期；需要重新规划并批准')
-    }
-    const artifacts = this.repo.taskArtifacts(input.reqId, latestPlan.planVersion)
-    const missing = latestPlan.tasks.filter(
-      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
-    )
-    if (missing.length > 0) {
-      return fail(
-        'not_delivered',
-        `仍有任务未交付：${missing.map((task) => task.taskId).join('、')}`,
-      )
-    }
-    const verification = this.repo.verification(input.reqId, latestPlan.planVersion)
-    if (!verification) {
-      return fail(
-        'verification_required',
-        `需求 ${input.reqId} 尚未完成验证 Agent 的独立验证；不能验收`,
-      )
-    }
-    const identity = this.candidateIdentity(latestPlan, artifacts)
-    if (
-      verification.candidateSha256 !== identity ||
-      verification.requirementVersion !== requirement.versions.length
-    ) {
-      return fail(
-        'verification_stale',
-        '独立验证结论绑定的候选或需求版本与当前材料不一致；必须对当前候选重新验证后再验收',
-      )
-    }
-    if (
-      !existsSync(verification.reportPath) ||
-      sha256OfText(readFileSync(verification.reportPath, 'utf8')) !== verification.reportSha256
-    ) {
-      return fail('verification_invalid', '独立验证报告文件缺失或摘要不一致；不能验收')
-    }
-    if (verification.verdict !== 'pass') {
-      return fail(
-        'verification_blocked',
-        `独立验证未通过：${verificationBlocking(verification.reportJson)}`,
-      )
-    }
-    const businessReview = this.repo.businessReviewForCandidate(
-      input.reqId,
-      latestPlan.planVersion,
-      identity,
-    )
-    if (!businessReview) {
-      return fail(
-        'business_review_required',
-        `需求 ${input.reqId} 尚未完成需求 Agent 的业务终审；不能验收`,
-      )
-    }
-    if (
-      businessReview.verificationSha256 !== verification.reportSha256 ||
-      businessReview.requirementVersion !== requirement.versions.length
-    ) {
-      return fail(
-        'business_review_stale',
-        '业务终审绑定的验证或需求版本与当前材料不一致；必须重新终审',
-      )
-    }
-    if (!this.businessReviewMaterialValid(businessReview)) {
-      return fail('business_review_invalid', '业务终审报告文件缺失或摘要不一致；不能验收')
-    }
-    if (businessReview.verdict !== 'pass') {
-      return fail(
-        'business_review_blocked',
-        `业务终审未通过：${verificationBlocking(businessReview.reportJson)}`,
-      )
-    }
+    const inputs = this.acceptanceInputs(input.reqId, requirement)
+    if (!inputs.ok) return inputs.result
+    const { latestPlan, artifacts, verification, businessReview } = inputs
     const candidate = this.repo.candidate(input.reqId, latestPlan.planVersion)
     if (candidate) {
       if (!input.artifactSha256) {
@@ -2463,13 +2618,13 @@ ${answer}`
     }
     let binding
     try {
-      binding = this.buildAcceptanceBinding(
-        latestPlan,
+      binding = this.buildAcceptanceBinding({
+        plan: latestPlan,
         artifacts,
         verification,
         businessReview,
-        input.artifactSha256,
-      )
+        artifactSha256: input.artifactSha256,
+      })
     } catch (error) {
       return fail('material_invalid', errorMessage(error))
     }
@@ -2487,13 +2642,14 @@ ${answer}`
     })
   }
 
-  private buildAcceptanceBinding(
-    plan: TaskPlan,
-    artifacts: ReturnType<Repository['taskArtifacts']>,
-    verification: VerificationRecord,
-    businessReview: ReturnType<Repository['businessReviewForCandidate']> & object,
-    artifactSha256?: string,
-  ) {
+  private buildAcceptanceBinding(input: {
+    plan: TaskPlan
+    artifacts: ReturnType<Repository['taskArtifacts']>
+    verification: VerificationRecord
+    businessReview: ReturnType<Repository['businessReviewForCandidate']> & object
+    artifactSha256?: string | undefined
+  }) {
+    const { plan, artifacts, verification, businessReview, artifactSha256 } = input
     const ordered = plan.tasks.map((task) => {
       const artifact = artifacts.find((candidate) => candidate.taskId === task.taskId)
       if (!artifact) throw new RuleViolationError(`任务 ${task.taskId} 缺少交付产物`)
