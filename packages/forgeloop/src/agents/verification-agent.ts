@@ -11,7 +11,7 @@
 
 import { existsSync } from 'node:fs'
 import { AGENT_VERIFY } from '../domain/agents.js'
-import { MalformedError, RuleViolationError } from '../domain/errors.js'
+import { MalformedError, RuleViolationError, errorMessage } from '../domain/errors.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import {
   judgeVerificationResult,
@@ -206,7 +206,7 @@ export class VerificationAgent {
         } catch (error) {
           execution = {
             exitCode: null,
-            output: `验证命令执行异常：${(error as Error).message}`,
+            output: `验证命令执行异常：${errorMessage(error)}`,
             timedOut: false,
             aborted: false,
             durationMs: 0,

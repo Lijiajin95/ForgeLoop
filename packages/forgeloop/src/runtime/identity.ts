@@ -3,6 +3,7 @@
  * 供上线核对区分“同版本但不同构建”，不把安装回执当作运行证据。
  */
 import { createHash } from 'node:crypto'
+import { errorMessage } from '../domain/errors.js'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,7 +43,7 @@ export function writeRuntimeIdentity(moduleUrl: string): RuntimeIdentity | null 
     )
     return identity
   } catch (error) {
-    console.warn(`[forgeloop] 无法写入运行身份：${(error as Error).message}`)
+    console.warn(`[forgeloop] 无法写入运行身份：${errorMessage(error)}`)
     return null
   }
 }

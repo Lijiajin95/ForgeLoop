@@ -6,7 +6,7 @@
  * - 分析结果必须是结构化对象；有待澄清项时等待回答，不进入实现。
  */
 
-import { MalformedError, RuleViolationError } from './errors.js'
+import { MalformedError, RuleViolationError, errorMessage } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
 
 export interface RequirementVersion {
@@ -112,7 +112,7 @@ export function parseJsonLoose(text: string, what: string): unknown {
   try {
     return JSON.parse(body) as unknown
   } catch (error) {
-    throw new MalformedError(`${what}不是可解析的 JSON：${(error as Error).message}`)
+    throw new MalformedError(`${what}不是可解析的 JSON：${errorMessage(error)}`)
   }
 }
 

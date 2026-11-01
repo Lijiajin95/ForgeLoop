@@ -15,6 +15,7 @@ export const FORGELOOP_PLAN_EVENT = 'plugin:forgeloop/plan'
 export const FORGELOOP_ERROR_EVENT = 'plugin:forgeloop/error'
 
 import { createRequire } from 'node:module'
+import { errorMessage } from '../domain/errors.js'
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
@@ -133,7 +134,7 @@ export function appendSessionEvent(
     append.call(session, type, data)
     return true
   } catch (error) {
-    log(`写入会话事件 ${type} 失败：${(error as Error).message}`)
+    log(`写入会话事件 ${type} 失败：${errorMessage(error)}`)
     return false
   }
 }

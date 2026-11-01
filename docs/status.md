@@ -2816,3 +2816,37 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 | 浏览器 E2E、`verify-plugin` 自动门禁 | 仅发布工作流手动/自托管触发 |
 | 分支保护 | 需仓库设置启用 |
 | `no-non-null-assertion` / `no-unnecessary-condition` | 仍为显式豁免（35 / 29） |
+
+## 47. P2 续：board 路由拆分与错误消息收敛（2026-11-01）
+
+### 47.1 board 路由拆分
+
+- `src/index.ts` 从约 600 行降到 **115 行**：只保留插件接缝（inject/注册/工具/协调器）。
+- 新增 `src/runtime/board-route.ts`：请求体解析、端点 allowlist、读/写/运维/默认查询四组处理器；
+  每个端点独立函数，`createBoardFetch` 只做分发与异常收口。
+- 契约脚本改为在 `board-route.ts` 校验 `BOARD_ENDPOINTS` 与分支一致性；
+  对应的架构契约测试同步改为修改该文件。
+- 新增 `tests/board-route.test.ts`（7 项）：覆盖无效 JSON、未知端点、缺字段、分页/limit 校验、
+  各组成功分派、运维端点与内部异常；`board-route.ts` 行覆盖 99.5%、分支 84.6%。
+
+### 47.2 错误消息去掉 54 处 `as Error`
+
+- 新增 `errorMessage(error: unknown)`：`Error` 取 message，其他值 `String(error)`；先写测试再实现。
+- 17 个文件把 `(error as Error).message` 替换为 `errorMessage(error)`；
+  源码类型断言从 **219 → 165**，断言基线同步降到 165。
+
+### 47.3 结果
+
+- `make check`：58 个文件、**607 项**通过。
+- `make coverage`：行/语句 **90.85%**、函数 **96.77%**、分支 **84.23%**，关键文件门槛通过。
+- `make lint` / `make format` / `make contracts` / `make budget` / `make assertions`：通过。
+
+### 47.4 剩余
+
+| 项 | 现状 |
+| --- | --- |
+| board 路由复杂度 | 4 处 complexity/max-statements 进入 suppressions；下一步拆每端点校验 |
+| `service.ts` | 6,229 行，仍 >2,000 |
+| 其余超长函数 | `buildStatusBoard`、`buildImpactFacts` 等仍 >300 行 |
+| DB row schema / `as` <20 | 未开始；断言 165 |
+| E2E / 分支保护 | 未完成 |

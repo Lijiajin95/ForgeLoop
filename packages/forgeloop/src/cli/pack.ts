@@ -5,6 +5,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { errorMessage } from '../domain/errors.js'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -87,6 +88,6 @@ function main(): number {
 try {
   process.exitCode = main()
 } catch (error) {
-  console.error(`[forgeloop-pack] ${(error as Error).message}`)
+  console.error(`[forgeloop-pack] ${errorMessage(error)}`)
   process.exitCode = 1
 }

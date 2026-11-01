@@ -11,6 +11,8 @@ import {
   FORGELOOP_PRESET_NAME,
 } from './intake.js'
 
+import { errorMessage } from '../domain/errors.js'
+
 type AnyRecord = Record<string, unknown>
 
 export interface AgentPresetDefinitionLike {
@@ -65,7 +67,7 @@ export async function registerForgeLoopPreset(
     })
     return { ok: true, reason: '', dispose }
   } catch (error) {
-    const reason = (error as Error).message
+    const reason = errorMessage(error)
     log(`注册 ForgeLoop 业务会话 preset 失败：${reason}`)
     return { ok: false, reason }
   }

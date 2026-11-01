@@ -4,6 +4,7 @@
  */
 
 import type { ForgeLoopConfig } from '../config.js'
+import { errorMessage } from '../domain/errors.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
 import {
   SessionIntake,
@@ -73,7 +74,7 @@ export function installSessionSurface(
     })
     .catch((error: unknown) => ({
       ok: false,
-      reason: `preset 注册异常：${(error as Error).message}`,
+      reason: `preset 注册异常：${errorMessage(error)}`,
     }))
 
   return {

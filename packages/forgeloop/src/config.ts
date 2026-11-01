@@ -4,6 +4,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { errorMessage } from './domain/errors.js'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { RuleViolationError } from './domain/errors.js'
@@ -141,9 +142,7 @@ export function loadConfigFile(
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
   } catch (error) {
-    throw new RuleViolationError(
-      `ForgeLoop 配置文件不是合法 JSON：${path}：${(error as Error).message}`,
-    )
+    throw new RuleViolationError(`ForgeLoop 配置文件不是合法 JSON：${path}：${errorMessage(error)}`)
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new RuleViolationError(`ForgeLoop 配置文件必须是 JSON 对象：${path}`)

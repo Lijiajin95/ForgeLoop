@@ -99,14 +99,14 @@ describe('retired implementation admission', () => {
   })
 
   it('rejects an endpoint added to the server allowlist without a dispatch branch', () => {
-    const index = join(fixture, 'packages/forgeloop/src/index.ts')
-    const source = readFileSync(index, 'utf8')
+    const route = join(fixture, 'packages/forgeloop/src/runtime/board-route.ts')
+    const source = readFileSync(route, 'utf8')
     const patched = source.replace(
       /const BOARD_ENDPOINTS = \[([^\]]*)\]/,
       (_match, body: string) => `const BOARD_ENDPOINTS = [${body}, 'fake']`,
     )
     expect(patched).not.toBe(source)
-    writeFileSync(index, patched)
+    writeFileSync(route, patched)
     const result = check()
     expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('fake')

@@ -36,3 +36,8 @@ export class GrantExhaustedError extends ForgeLoopError {
     super('grant_exhausted', message)
   }
 }
+
+/** 把 unknown 异常转成可读消息；非 Error 不再依赖断言读取 undefined message。 */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}

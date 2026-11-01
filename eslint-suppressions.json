@@ -33,17 +33,6 @@
       "count": 1
     }
   },
-  "packages/forgeloop/src/index.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 4
-    },
-    "max-statements": {
-      "count": 1
-    }
-  },
   "packages/forgeloop/src/records/repository.ts": {
     "max-lines": {
       "count": 1
@@ -55,6 +44,14 @@
     },
     "max-statements": {
       "count": 2
+    }
+  },
+  "packages/forgeloop/src/runtime/board-route.ts": {
+    "complexity": {
+      "count": 3
+    },
+    "max-statements": {
+      "count": 1
     }
   },
   "packages/forgeloop/src/runtime/board.ts": {

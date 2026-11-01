@@ -7,6 +7,7 @@
  */
 
 import type { ForgeLoopConfig } from '../config.js'
+import { errorMessage } from '../domain/errors.js'
 import type { RequirementAnalysis } from '../domain/requirement.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
 import {
@@ -151,7 +152,7 @@ export class SessionIntake {
           session,
           `forgeloop:error:${payload.turn ?? 0}:${index}`,
           '',
-          `需求受理异常：${(error as Error).message}`,
+          `需求受理异常：${errorMessage(error)}`,
           this.now().toISOString(),
         )
       }
@@ -242,7 +243,7 @@ export class SessionIntake {
         session,
         `forgeloop:error:${sessionId}:${messageId}`,
         '',
-        `需求受理异常：${(error as Error).message}`,
+        `需求受理异常：${errorMessage(error)}`,
         at,
       )
       return
@@ -294,7 +295,7 @@ export class SessionIntake {
         session,
         `forgeloop:error:${reqId}`,
         reqId,
-        `需求分析异常：${(error as Error).message}`,
+        `需求分析异常：${errorMessage(error)}`,
         at,
       )
       return
@@ -335,7 +336,7 @@ export class SessionIntake {
         session,
         `forgeloop:error:${reqId}`,
         reqId,
-        `澄清回答异常：${(error as Error).message}`,
+        `澄清回答异常：${errorMessage(error)}`,
         at,
       )
       return

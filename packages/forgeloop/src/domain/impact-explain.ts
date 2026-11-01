@@ -10,6 +10,7 @@
  */
 
 import { AGENT_PRODUCT, type AgentIdentity } from './agents.js'
+import { errorMessage } from './errors.js'
 
 /** 只需要识别事实快照的身份；其余字段原样透传，避免领域模块互相复制结构。 */
 export interface ImpactFactsLike {
@@ -143,7 +144,7 @@ async function runInference(
       label: INFERENCE_LABEL,
       status: 'error',
       text: '',
-      reason: `确定性事实无法序列化：${(error as Error).message}；未调用模型。`,
+      reason: `确定性事实无法序列化：${errorMessage(error)}；未调用模型。`,
       sessionId: null,
       toolCalls: [],
       disclaimer: INFERENCE_DISCLAIMER,
@@ -163,7 +164,7 @@ async function runInference(
       label: INFERENCE_LABEL,
       status: 'error',
       text: '',
-      reason: `推断 Agent 调用失败：${(error as Error).message}；事实区不受影响。`,
+      reason: `推断 Agent 调用失败：${errorMessage(error)}；事实区不受影响。`,
       sessionId: null,
       toolCalls: [],
       disclaimer: INFERENCE_DISCLAIMER,

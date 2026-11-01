@@ -6,7 +6,7 @@
  * - 批准绑定需求身份与任务包版本；旧版本批准不能驱动新任务包，授权来源只由真实批准写入。
  */
 
-import { MalformedError, NotFoundError, RuleViolationError } from './errors.js'
+import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
 
 export const DEFAULT_TASK_LIMIT_SECONDS = 7200
 export const DEFAULT_MAX_FAILURE_ROUNDS = 3
@@ -292,7 +292,7 @@ export function parseTaskPlanDraft(
             // 落到统一的畸形错误。
           }
         }
-        throw new MalformedError(`任务包不是可解析的 JSON：${(error as Error).message}`)
+        throw new MalformedError(`任务包不是可解析的 JSON：${errorMessage(error)}`)
       }
     })()
   }

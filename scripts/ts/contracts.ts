@@ -333,12 +333,13 @@ function checkUiSurface(contract: any): void {
   }
 
   const entry = readFileSync(join(ROOT, 'packages/forgeloop/src/index.ts'), 'utf8')
+  const route = readFileSync(join(ROOT, 'packages/forgeloop/src/runtime/board-route.ts'), 'utf8')
   if (!entry.includes(`BOARD_HTTP_PATH = '${ui.data_path}'`)) {
     fail('index.ts 的看板路径与 ui_surface.data_path 不一致')
   }
-  const arrayMatch = /const BOARD_ENDPOINTS\s*=\s*\[([\s\S]*?)\]/.exec(entry)
+  const arrayMatch = /const BOARD_ENDPOINTS\s*=\s*\[([\s\S]*?)\]/.exec(route)
   if (!arrayMatch) {
-    fail('index.ts 未声明 BOARD_ENDPOINTS')
+    fail('board-route.ts 未声明 BOARD_ENDPOINTS')
     return
   }
   const endpoints = [...arrayMatch[1]!.matchAll(/'([^']+)'/g)].map((match) => match[1]!)
@@ -348,13 +349,13 @@ function checkUiSurface(contract: any): void {
   for (const endpoint of endpoints) {
     if (!/^[a-z][a-z0-9_-]*$/.test(endpoint)) fail(`BOARD_ENDPOINTS 端点名不合法：${endpoint}`)
   }
-  const branches = [...entry.matchAll(/endpoint === '([^']+)'/g)].map((match) => match[1]!)
+  const branches = [...route.matchAll(/endpoint === '([^']+)'/g)].map((match) => match[1]!)
   for (const branch of branches) {
-    if (!endpoints.includes(branch)) fail(`index.ts 处理了未声明的端点：${branch}`)
+    if (!endpoints.includes(branch)) fail(`board-route.ts 处理了未声明的端点：${branch}`)
   }
   for (const endpoint of endpoints) {
     if (endpoint !== 'board' && !branches.includes(endpoint)) {
-      fail(`BOARD_ENDPOINTS 声明了 ${endpoint}，但 index.ts 没有对应分支（board 为默认分支）`)
+      fail(`BOARD_ENDPOINTS 声明了 ${endpoint}，但 board-route.ts 没有对应分支（board 为默认分支）`)
     }
   }
 }

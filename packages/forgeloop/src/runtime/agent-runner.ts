@@ -7,6 +7,7 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { errorMessage } from '../domain/errors.js'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AgentConfig } from '../config.js'
@@ -252,7 +253,7 @@ export class AgentRunner {
           })
           await handle.agent.whenIdle()
         } catch (error) {
-          whenIdleError = (error as Error).message
+          whenIdleError = errorMessage(error)
         } finally {
           clearTimeout(timer)
           clearInterval(activityTimer)
@@ -406,7 +407,7 @@ export class AgentRunner {
       })
       await handle.agent.whenIdle()
     } catch (error) {
-      whenIdleError = (error as Error).message
+      whenIdleError = errorMessage(error)
     } finally {
       clearTimeout(timer)
       clearInterval(activityTimer)

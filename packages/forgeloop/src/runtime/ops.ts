@@ -14,6 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { errorMessage } from '../domain/errors.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -387,7 +388,7 @@ export class OpsRuntime {
           this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
           failed += 1
         } catch (error) {
-          errors.push(`检查 ${check.id} 失败：${(error as Error).message}`)
+          errors.push(`检查 ${check.id} 失败：${errorMessage(error)}`)
         }
       }
 
@@ -431,7 +432,7 @@ export class OpsRuntime {
               }
             }
           } catch (error) {
-            errors.push(`事件 ${event.eventId} 处理失败：${(error as Error).message}`)
+            errors.push(`事件 ${event.eventId} 处理失败：${errorMessage(error)}`)
           }
         }
         if (!progressed) break
@@ -444,7 +445,7 @@ export class OpsRuntime {
         try {
           await this.reportInterruption(event)
         } catch (error) {
-          errors.push(`事件 ${event.eventId} 中断根因上报失败：${(error as Error).message}`)
+          errors.push(`事件 ${event.eventId} 中断根因上报失败：${errorMessage(error)}`)
         }
       }
 
@@ -456,7 +457,7 @@ export class OpsRuntime {
         try {
           this.ensureFixRequirement(event, diagnosis)
         } catch (error) {
-          errors.push(`事件 ${event.eventId} 生成修复需求失败：${(error as Error).message}`)
+          errors.push(`事件 ${event.eventId} 生成修复需求失败：${errorMessage(error)}`)
         }
       }
     } finally {
@@ -617,7 +618,7 @@ export class OpsRuntime {
         eventId: event.eventId,
         at: this.isoNow(),
         kind: 'diagnosis_error',
-        summary: `诊断结果畸形：${(error as Error).message}`,
+        summary: `诊断结果畸形：${errorMessage(error)}`,
       })
       this.repo.updateOpsEvent(event.eventId, { updatedAt: this.isoNow() })
       return true
@@ -635,7 +636,7 @@ export class OpsRuntime {
         try {
           actionArgv(action, proposed.params)
         } catch (error) {
-          invalid = (error as Error).message
+          invalid = errorMessage(error)
         }
       }
     }
@@ -804,7 +805,7 @@ export class OpsRuntime {
         eventId: event.eventId,
         at: this.isoNow(),
         kind: 'decision_required',
-        summary: (error as Error).message,
+        summary: errorMessage(error),
       })
       return 'not_started'
     }
@@ -1099,7 +1100,7 @@ export class OpsRuntime {
         eventId: event.eventId,
         at: this.isoNow(),
         kind: 'interruption_error',
-        summary: `中断根因分析异常：${(error as Error).message}；保留上述事实`,
+        summary: `中断根因分析异常：${errorMessage(error)}；保留上述事实`,
       })
       return
     }
@@ -1120,7 +1121,7 @@ export class OpsRuntime {
         eventId: event.eventId,
         at: this.isoNow(),
         kind: 'interruption_error',
-        summary: `中断根因报告不可用：${(error as Error).message}；保留上述事实`,
+        summary: `中断根因报告不可用：${errorMessage(error)}；保留上述事实`,
       })
       return
     }
@@ -1237,7 +1238,7 @@ export class OpsRuntime {
     try {
       actionArgv(action, proposed.params)
     } catch (error) {
-      return fail('invalid_params', (error as Error).message)
+      return fail('invalid_params', errorMessage(error))
     }
     const now = this.isoNow()
     const reason = input.reason?.trim() || ''

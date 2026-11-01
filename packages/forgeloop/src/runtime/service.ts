@@ -42,7 +42,7 @@ import {
   type ServiceRequestRecord,
   type VerificationRecord,
 } from '../records/repository.js'
-import { RuleViolationError } from '../domain/errors.js'
+import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import {
   parseAnalysisDraft,
   statusForAnalysis,
@@ -1090,7 +1090,7 @@ ${answer}`
         requestView(request),
       )
     } catch (error) {
-      return fail((error as RuleViolationError).code ?? 'rule_violation', (error as Error).message)
+      return fail((error as RuleViolationError).code ?? 'rule_violation', errorMessage(error))
     }
   }
 
@@ -1475,7 +1475,7 @@ ${answer}`
     } catch (error) {
       return fail(
         'plan_invalid',
-        `任务包 v${plan.planVersion} 不满足当前硬性规则：${(error as Error).message}`,
+        `任务包 v${plan.planVersion} 不满足当前硬性规则：${errorMessage(error)}`,
       )
     }
     const boundary = [
@@ -2645,7 +2645,7 @@ ${answer}`
         input.artifactSha256,
       )
     } catch (error) {
-      return fail('material_invalid', (error as Error).message)
+      return fail('material_invalid', errorMessage(error))
     }
     const fingerprint = sha256OfText(JSON.stringify(binding))
     this.repo.recordAcceptance({
@@ -3167,8 +3167,8 @@ ${answer}`
     try {
       draft = parseAnalysisDraft(result.text)
     } catch (error) {
-      this.repo.setStatus(reqId, 'blocked', `分析结果畸形：${(error as Error).message}`)
-      return { state: 'failed', detail: (error as Error).message }
+      this.repo.setStatus(reqId, 'blocked', `分析结果畸形：${errorMessage(error)}`)
+      return { state: 'failed', detail: errorMessage(error) }
     }
     const analysis: RequirementAnalysis & { reqId: string } = {
       reqId,
@@ -3280,8 +3280,8 @@ ${answer}`
           now: this.now(),
         })
       } catch (error) {
-        lastError = `任务包不合规：${(error as Error).message}`
-        feedback = `\n\n上一次输出的任务包被程序拒绝：${(error as Error).message}。请修正后重新输出完整 JSON。`
+        lastError = `任务包不合规：${errorMessage(error)}`
+        feedback = `\n\n上一次输出的任务包被程序拒绝：${errorMessage(error)}。请修正后重新输出完整 JSON。`
         continue
       }
       const packages = this.existingPackages()
@@ -3374,7 +3374,7 @@ ${answer}`
       } catch (error) {
         // 评审材料畸形属于可修正的评审输出问题：带着明确的 JSON 结构要求重试一次，
         // 仍失败则 fail-closed，不伪造通过，也不占用研发重新规划的次数。
-        lastMalformed = (error as Error).message
+        lastMalformed = errorMessage(error)
         feedback = `\n\n上一次输出无法解析：${lastMalformed}。请重新只输出一个完整 JSON 对象，字段与上面要求一致，scenarios 不得重复。`
         continue
       }
@@ -3548,7 +3548,7 @@ ${answer}`
     try {
       planReview = parsePlanReview(reviewRecord.reportJson)
     } catch (error) {
-      return { state: 'failed', detail: `实现前评审证据畸形：${(error as Error).message}` }
+      return { state: 'failed', detail: `实现前评审证据畸形：${errorMessage(error)}` }
     }
     const candidateSha256 = this.candidateIdentity(plan, artifacts)
     const existing = this.repo.verificationForCandidate(reqId, plan.planVersion, candidateSha256)
@@ -3724,10 +3724,10 @@ ${answer}`
       commands = parseVerificationCommands(readFileSync(commandsPath, 'utf8'))
       report = parseVerificationReport(readFileSync(reportPathInWorkspace, 'utf8'))
     } catch (error) {
-      this.repo.setStatus(reqId, 'blocked', `独立验证材料畸形：${(error as Error).message}`)
+      this.repo.setStatus(reqId, 'blocked', `独立验证材料畸形：${errorMessage(error)}`)
       return {
         state: 'failed',
-        detail: `独立验证材料畸形（fail-closed）：${(error as Error).message}`,
+        detail: `独立验证材料畸形（fail-closed）：${errorMessage(error)}`,
       }
     }
 
@@ -4084,10 +4084,10 @@ ${answer}`
     try {
       review = parseBusinessReview(run.text)
     } catch (error) {
-      this.repo.setStatus(reqId, 'blocked', `业务终审材料畸形：${(error as Error).message}`)
+      this.repo.setStatus(reqId, 'blocked', `业务终审材料畸形：${errorMessage(error)}`)
       return {
         state: 'failed',
-        detail: `业务终审材料畸形（fail-closed）：${(error as Error).message}`,
+        detail: `业务终审材料畸形（fail-closed）：${errorMessage(error)}`,
       }
     }
     const issues = validateBusinessReview({
@@ -4340,7 +4340,7 @@ ${answer}`
           now: this.now(),
         })
       } catch (error) {
-        lastError = `任务包不合规：${(error as Error).message}`
+        lastError = `任务包不合规：${errorMessage(error)}`
         feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。不要输出 <｜｜DSML｜｜> 或工具调用标记；请只输出完整 JSON 文本。`
         continue
       }
@@ -4768,8 +4768,8 @@ ${answer}`
       } catch (error) {
         return {
           state: 'block',
-          detail: `验证材料畸形：${(error as Error).message}`,
-          blocking: [`验证材料畸形：${(error as Error).message}`],
+          detail: `验证材料畸形：${errorMessage(error)}`,
+          blocking: [`验证材料畸形：${errorMessage(error)}`],
           verification: null,
         }
       }
@@ -4964,13 +4964,13 @@ ${answer}`
         this.repo.recordFailureRound(input.reqId, {
           roundId: `business-review-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-${randomUUID()}`,
           stage: FAILURE_BUSINESS_REVIEW,
-          summary: `业务验收材料畸形：${(error as Error).message}`.slice(0, 1000),
+          summary: `业务验收材料畸形：${errorMessage(error)}`.slice(0, 1000),
           occurredAt: this.now(),
         })
         return {
           state: 'block',
-          detail: `业务验收材料畸形：${(error as Error).message}`,
-          blocking: [`业务验收材料畸形：${(error as Error).message}`],
+          detail: `业务验收材料畸形：${errorMessage(error)}`,
+          blocking: [`业务验收材料畸形：${errorMessage(error)}`],
           verification,
         }
       }
@@ -5607,7 +5607,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         } catch (error) {
           // 未预期异常也必须写出终态：否则运行记录会停在 running，看板无法区分
           // “还在跑”和“已经崩溃”。已落产物说明交付实际完成，不能改判失败。
-          const reason = `任务执行异常：${(error as Error).message}；任务未交付，可重新执行`
+          const reason = `任务执行异常：${errorMessage(error)}；任务未交付，可重新执行`
           const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
           const artifact = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
           if (artifact && task) {
@@ -5981,12 +5981,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           plan,
           task,
           TASK_RUN_BLOCKED,
-          `审查结果畸形：${(error as Error).message}`,
+          `审查结果畸形：${errorMessage(error)}`,
           0,
         )
         return {
           state: 'blocked',
-          reason: `审查结果畸形（fail-closed）：${(error as Error).message}`,
+          reason: `审查结果畸形（fail-closed）：${errorMessage(error)}`,
           requirementStatus: 'blocked',
         }
       }

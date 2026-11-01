@@ -3,7 +3,7 @@
  * 读取失败按畸形拒绝，不返回半份证据。
  */
 
-import { MalformedError } from '../domain/errors.js'
+import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { Database } from './db.js'
 import {
   ISSUE_FIXED,
@@ -33,7 +33,7 @@ function issueFromRow(row: Row): RequirementIssue {
     evidence = JSON.parse(text(row, 'evidence_json')) as RequirementIssueEvidence
   } catch (error) {
     throw new MalformedError(
-      `问题单 ${text(row, 'issue_id')} 的证据不是可解析 JSON：${(error as Error).message}`,
+      `问题单 ${text(row, 'issue_id')} 的证据不是可解析 JSON：${errorMessage(error)}`,
     )
   }
   return {

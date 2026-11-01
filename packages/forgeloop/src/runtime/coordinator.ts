@@ -10,6 +10,7 @@
  */
 
 import { hostname } from 'node:os'
+import { errorMessage } from '../domain/errors.js'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './service.js'
 import { projectDir } from '../config.js'
@@ -155,7 +156,7 @@ export class Coordinator {
         }
       })
       .catch((error: unknown) => {
-        this.lastError = `运维巡检异常：${(error as Error).message}`
+        this.lastError = `运维巡检异常：${errorMessage(error)}`
         console.error(`[forgeloop] ${this.lastError}`)
       })
       .finally(() => {
@@ -176,7 +177,7 @@ export class Coordinator {
       }
       this.lastTickAt = new Date().toISOString()
     } catch (error) {
-      this.lastError = (error as Error).message
+      this.lastError = errorMessage(error)
     }
   }
 
@@ -209,7 +210,7 @@ export class Coordinator {
       this.runtime.settleStopIfQuiet(request.reqId)
     } catch (error) {
       const finishedAt = new Date().toISOString()
-      const detail = `执行异常：${(error as Error).message}；按失败收口，可重新执行`
+      const detail = `执行异常：${errorMessage(error)}；按失败收口，可重新执行`
       this.lastError = detail
       this.runtime.repo.finishAction(actionId, 'failed', detail, finishedAt)
       this.runtime.repo.resolveRequest(request.requestId, 'failed', detail, finishedAt)
