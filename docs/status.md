@@ -2850,3 +2850,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 | 其余超长函数 | `buildStatusBoard`、`buildImpactFacts` 等仍 >300 行 |
 | DB row schema / `as` <20 | 未开始；断言 165 |
 | E2E / 分支保护 | 未完成 |
+
+### 47.5 board 端点处理器拆分（2026-11-01 续）
+
+- `handleRead` / `handleWrite` / `handleOps` 的每个 endpoint 分支抽成独立函数，
+  分发器只保留 `if (endpoint === 'x') return handleX(...)`；board-route 的
+  complexity / max-statements 豁免清零。
+- suppressions 总数 72 → **69**；`make check` 58 文件 607 项通过，
+  coverage 90.88/96.87/84.30，mutation 97.78，budget/assertions 通过。
+- 下一步：`buildStatusBoard`（464 行）与 `buildImpactFacts`（368 行）拆分。
