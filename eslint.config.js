@@ -50,6 +50,16 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       'max-depth': ['error', 7],
+      // 规模预算：按 1M 上下文推导（文件 2,000 行 / 25k tokens；函数 300 行 / 4k tokens）。
+      // 不跳过注释：注释同样占用上下文预算。存量违规由 eslint-suppressions.json 冻结。
+      'max-lines': ['error', { max: 2000, skipBlankLines: true }],
+      'max-lines-per-function': [
+        'error',
+        { max: 300, skipBlankLines: true, IIFEs: true },
+      ],
+      'max-statements': ['error', 40],
+      complexity: ['error', 15],
+      'max-params': ['error', 4],
     },
   },
   {

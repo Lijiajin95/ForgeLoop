@@ -1,0 +1,122 @@
+{
+  "packages/forgeloop/src/config.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/domain/admission.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/domain/failure-advice.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/domain/impact.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/domain/ops.ts": {
+    "complexity": {
+      "count": 2
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/index.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 4
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/records/repository.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/runtime/agent-runner.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 2
+    }
+  },
+  "packages/forgeloop/src/runtime/board.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/runtime/integration.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/runtime/ops.ts": {
+    "complexity": {
+      "count": 4
+    },
+    "max-statements": {
+      "count": 4
+    }
+  },
+  "packages/forgeloop/src/runtime/service.ts": {
+    "complexity": {
+      "count": 17
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 3
+    },
+    "max-params": {
+      "count": 2
+    },
+    "max-statements": {
+      "count": 13
+    }
+  },
+  "packages/forgeloop/src/runtime/task-execution.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/runtime/workspace.ts": {
+    "max-params": {
+      "count": 1
+    }
+  },
+  "packages/forgeloop/src/session/intake.ts": {
+    "max-params": {
+      "count": 1
+    }
+  }
+}

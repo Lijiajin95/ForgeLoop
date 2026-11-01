@@ -150,6 +150,16 @@ function checkDependencies(
     }
     used.add(layer.name)
     const text = readFileSync(join(ROOT, file), 'utf8')
+    if (layer.name === 'domain') {
+      const banned = [
+        ...text.matchAll(
+          /(?:from\s+|import\s*\(\s*)['"](node:(?:fs|net|http|https|child_process|dgram|tls|os)(?:\/[^'"]*)?)['"]/g,
+        ),
+      ]
+      if (banned.length > 0) {
+        fail(`${file}（domain）不得依赖宿主副作用模块 ${banned[0]![1]}`)
+      }
+    }
     const dependencies: string[] = []
     for (const specifier of importSpecifiers(text)) {
       const target = localImport(file, specifier)

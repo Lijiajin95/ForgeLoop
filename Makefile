@@ -9,7 +9,7 @@ PKG := packages/forgeloop
 NODE := node
 CONTRACTS := $(NODE) scripts/ts/contracts.ts
 
-.PHONY: setup build typecheck test check check-static lint format contracts \
+.PHONY: setup build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
 	precommit verify-plugin package \
 	coverage mutation audit security help
@@ -22,6 +22,8 @@ help:
 	@echo "make build                 编译到 packages/forgeloop/lib"
 	@echo "make package               构建本地候选安装包与摘要"
 	@echo "make contracts             架构契约校验"
+	@echo "make budget                Agent 上下文 token 预算（文件 25k）"
+	@echo "make assertions            类型断言预算（只减不增）"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
 	@echo "make lint                  ESLint（类型感知，src；tests/scripts 无类型规则）"
 	@echo "make format                检查 Prettier 格式（make format-write 写入）"
@@ -50,7 +52,13 @@ check: check-static test
 
 check-fast: check-static test-fast
 
-check-static: typecheck lint contracts
+check-static: typecheck lint contracts budget assertions
+
+budget:
+	$(NODE) scripts/ts/token-budget.ts
+
+assertions:
+	$(NODE) scripts/ts/assertion-budget.ts
 
 contracts: architecture-contract-check
 
@@ -62,6 +70,9 @@ architecture-contract-check:
 
 precommit:
 	$(MAKE) check
+
+sbom:
+	$(NODE) scripts/ts/sbom.ts && mkdir -p packages/forgeloop/dist && cp dist/sbom.cdx.json packages/forgeloop/dist/
 
 package: build
 	$(NPM) run candidate --workspace forgeloop-dsh
