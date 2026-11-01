@@ -68,6 +68,23 @@ function boardFailure(code: string, message: string): { ok: false; error: BoardF
   return { ok: false, error: { code, message, details: {} } }
 }
 
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function textOrUndefined(value: unknown): string | undefined {
+  const parsed = text(value)
+  return parsed === '' ? undefined : parsed
+}
+
+function integerAtLeast(value: number, min: number): boolean {
+  return Number.isInteger(value) && value >= min
+}
+
+function validPageSize(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 200
+}
+
 function boardResponse(body: BoardOutcome, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -77,7 +94,7 @@ function boardResponse(body: BoardOutcome, status = 200): Response {
 
 function handleDetail(body: BoardBody | null, context: BoardContext): Response {
   const { runtime } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '缺少需求身份 reqId'), 400)
   const result = runtime.requirementDetail(reqId)
   if (!result.ok) return boardResponse(boardFailure(result.code, result.message), 404)
@@ -85,8 +102,8 @@ function handleDetail(body: BoardBody | null, context: BoardContext): Response {
 }
 function handleTask(body: BoardBody | null, context: BoardContext): Response {
   const { runtime } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-  const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : ''
+  const reqId = text(body?.reqId)
+  const taskId = text(body?.taskId)
   const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : undefined
   if (!reqId || !taskId) {
     return boardResponse(boardFailure('bad_request', '任务详情需要 reqId 与 taskId'), 400)
@@ -97,43 +114,50 @@ function handleTask(body: BoardBody | null, context: BoardContext): Response {
     result.ok ? 200 : 404,
   )
 }
-function handleExecution(body: BoardBody | null, context: BoardContext): Response {
-  const { runtime } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-  const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : ''
+function readExecutionInput(body: BoardBody | null): {
+  reqId: string
+  taskId: string
+  planVersion: number | undefined
+  offset: number
+  limit: number
+} | null {
+  const reqId = text(body?.reqId)
+  const taskId = text(body?.taskId)
   const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : undefined
   const offset = typeof body?.offset === 'number' ? body.offset : 0
   const limit = typeof body?.limit === 'number' ? body.limit : 100
-  if (
-    !reqId ||
-    !taskId ||
-    !Number.isInteger(offset) ||
-    offset < 0 ||
-    !Number.isInteger(limit) ||
-    limit < 1 ||
-    limit > 200 ||
-    (planVersion !== undefined && (!Number.isInteger(planVersion) || planVersion < 1))
-  ) {
+  if (!reqId || !taskId) return null
+  if (!integerAtLeast(offset, 0)) return null
+  if (!validPageSize(limit)) return null
+  if (planVersion !== undefined && !integerAtLeast(planVersion, 1)) return null
+  return { reqId, taskId, planVersion, offset, limit }
+}
+
+function handleExecution(body: BoardBody | null, context: BoardContext): Response {
+  const { runtime } = context
+  const input = readExecutionInput(body)
+  if (!input) {
     return boardResponse(
       boardFailure('bad_request', '执行过程需要 reqId、taskId 与合法分页参数'),
       400,
     )
   }
   const result = runtime.taskExecution({
-    reqId,
-    taskId,
-    ...(planVersion ? { planVersion } : {}),
-    offset,
-    limit,
+    reqId: input.reqId,
+    taskId: input.taskId,
+    ...(input.planVersion ? { planVersion: input.planVersion } : {}),
+    offset: input.offset,
+    limit: input.limit,
   })
   return boardResponse(
     result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
     result.ok ? 200 : 404,
   )
 }
+
 function handleSession(body: BoardBody | null, context: BoardContext): Response {
   const { runtime } = context
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   if (!sessionId) return boardResponse(boardFailure('bad_request', '缺少会话身份 sessionId'), 400)
   return boardResponse({ ok: true, value: runtime.sessionSummary(sessionId) })
 }
@@ -156,10 +180,10 @@ function handleRead(
 
 function handlePlan(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '重新生成任务包需要 reqId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-  const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+  const sessionId = text(body?.sessionId)
+  const reason = text(body?.reason)
   const result = runtime.requestOperation({
     reqId,
     action: 'plan',
@@ -175,12 +199,12 @@ function handlePlan(body: BoardBody | null, context: BoardContext): Response {
 }
 function handleApprove(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
   if (!reqId || !Number.isInteger(planVersion) || planVersion < 1) {
     return boardResponse(boardFailure('bad_request', '批准需要 reqId 与正整数 planVersion'), 400)
   }
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   const result = runtime.approvePlan({
     reqId,
     planVersion,
@@ -194,9 +218,9 @@ function handleApprove(body: BoardBody | null, context: BoardContext): Response 
 }
 function handleAdvance(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '推进需要 reqId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   const result = runtime.requestOperation({
     reqId,
     action: 'advance',
@@ -210,9 +234,9 @@ function handleAdvance(body: BoardBody | null, context: BoardContext): Response 
 }
 function handleVerify(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '独立验证需要 reqId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   const result = runtime.requestOperation({
     reqId,
     action: 'verify',
@@ -226,9 +250,9 @@ function handleVerify(body: BoardBody | null, context: BoardContext): Response {
 }
 function handleRequeue(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '重新执行需要 reqId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   const result = runtime.requeue({
     reqId,
     by: config.owner,
@@ -241,10 +265,9 @@ function handleRequeue(body: BoardBody | null, context: BoardContext): Response 
 }
 function handleBuild(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '构建候选需要 reqId'), 400)
-  const version =
-    typeof body?.version === 'string' && body.version.trim() ? body.version.trim() : undefined
+  const version = textOrUndefined(body?.version)
   const result = runtime.buildCandidate({
     reqId,
     by: config.owner,
@@ -257,12 +280,12 @@ function handleBuild(body: BoardBody | null, context: BoardContext): Response {
 }
 function handleDeploy(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-  const targetProfile = typeof body?.targetProfile === 'string' ? body.targetProfile.trim() : ''
+  const reqId = text(body?.reqId)
+  const targetProfile = text(body?.targetProfile)
   if (!reqId || !targetProfile) {
     return boardResponse(boardFailure('bad_request', '上线核对需要 reqId 与 targetProfile'), 400)
   }
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   const result = runtime.verifyDeployment({
     reqId,
     targetProfile,
@@ -274,22 +297,32 @@ function handleDeploy(body: BoardBody | null, context: BoardContext): Response {
     result.ok ? 200 : 409,
   )
 }
+function readRetryInput(body: BoardBody | null): {
+  reqId: string
+  taskId: string
+  planVersion: number
+} | null {
+  const reqId = text(body?.reqId)
+  const taskId = text(body?.taskId)
+  const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
+  if (!reqId || !taskId || !Number.isInteger(planVersion) || planVersion < 1) return null
+  return { reqId, taskId, planVersion }
+}
+
 function handleRetry(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
-  const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : ''
-  const planVersion = typeof body?.planVersion === 'number' ? body.planVersion : Number.NaN
-  if (!reqId || !taskId || !Number.isInteger(planVersion) || planVersion < 1) {
+  const input = readRetryInput(body)
+  if (!input) {
     return boardResponse(
       boardFailure('bad_request', '重试需要 reqId、taskId 与正整数 planVersion'),
       400,
     )
   }
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   const result = runtime.retryTask({
-    reqId,
-    planVersion,
-    taskId,
+    reqId: input.reqId,
+    planVersion: input.planVersion,
+    taskId: input.taskId,
     by: config.owner,
     source: `web-decision:${sessionId || 'unknown-session'}`,
   })
@@ -298,15 +331,13 @@ function handleRetry(body: BoardBody | null, context: BoardContext): Response {
     result.ok ? 200 : 409,
   )
 }
+
 function handleAccept(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '验收需要 reqId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-  const artifactSha256 =
-    typeof body?.artifactSha256 === 'string' && body.artifactSha256.trim()
-      ? body.artifactSha256.trim()
-      : undefined
+  const sessionId = text(body?.sessionId)
+  const artifactSha256 = textOrUndefined(body?.artifactSha256)
   const result = runtime.accept({
     reqId,
     by: config.owner,
@@ -320,10 +351,10 @@ function handleAccept(body: BoardBody | null, context: BoardContext): Response {
 }
 function handleCancel(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config, coordinator } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '取消需要 reqId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-  const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+  const sessionId = text(body?.sessionId)
+  const reason = text(body?.reason)
   coordinator.abortRequirement(reqId)
   const result = runtime.cancel({
     reqId,
@@ -337,9 +368,9 @@ function handleCancel(body: BoardBody | null, context: BoardContext): Response {
 }
 function handleStop(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config, coordinator } = context
-  const reqId = typeof body?.reqId === 'string' ? body.reqId.trim() : ''
+  const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '停止需要 reqId'), 400)
-  const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+  const reason = text(body?.reason)
   const aborted = coordinator.abortRequirement(reqId)
   const result = runtime.stop({
     reqId,
@@ -391,7 +422,7 @@ function handleOpsOverview(_body: BoardBody | null, context: BoardContext): Resp
 }
 function handleOpsDetail(body: BoardBody | null, context: BoardContext): Response {
   const { runtime } = context
-  const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
+  const eventId = text(body?.eventId)
   if (!eventId) return boardResponse(boardFailure('bad_request', '缺少运维事件 eventId'), 400)
   const result = runtime.opsStatus(eventId)
   return boardResponse(
@@ -399,18 +430,22 @@ function handleOpsDetail(body: BoardBody | null, context: BoardContext): Respons
     result.ok ? 200 : 404,
   )
 }
+function readOpsDecision(body: BoardBody | null): 'approve' | 'decline' | null {
+  return body?.decision === 'approve' || body?.decision === 'decline' ? body.decision : null
+}
+
 function handleOpsDecide(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
-  const decision = body?.decision === 'approve' || body?.decision === 'decline' ? body.decision : ''
+  const eventId = text(body?.eventId)
+  const decision = readOpsDecision(body)
   if (!eventId || !decision) {
     return boardResponse(
       boardFailure('bad_request', '处置决定需要 eventId 与 approve/decline'),
       400,
     )
   }
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-  const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+  const sessionId = text(body?.sessionId)
+  const reason = text(body?.reason)
   const result = runtime.opsDecide({
     eventId,
     decision,
@@ -425,10 +460,10 @@ function handleOpsDecide(body: BoardBody | null, context: BoardContext): Respons
 }
 function handleOpsClose(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
+  const eventId = text(body?.eventId)
   if (!eventId) return boardResponse(boardFailure('bad_request', '关闭事件需要 eventId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
-  const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+  const sessionId = text(body?.sessionId)
+  const reason = text(body?.reason)
   const result = runtime.opsClose({
     eventId,
     by: config.owner,
@@ -441,9 +476,9 @@ function handleOpsClose(body: BoardBody | null, context: BoardContext): Response
 }
 function handleOpsRequestFix(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
-  const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : ''
+  const eventId = text(body?.eventId)
   if (!eventId) return boardResponse(boardFailure('bad_request', '生成修复需求需要 eventId'), 400)
-  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+  const sessionId = text(body?.sessionId)
   const result = runtime.opsRequestFix({
     eventId,
     by: config.owner,
