@@ -3136,3 +3136,11 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 90.95/96.96/84.85，mutation 97.80。
 - `executeVerification` 仍是唯一函数级豁免（83 语句 > 40）；下一轮按计划把命令执行
   与记录段**整体移入模块**，避免在 service 内继续增行。
+
+### 49. 断言预算收紧到 163（Goal Round 29）
+
+- 实际源码 `as` 断言 163 处，低于原基线 165；`scripts/ts/assertion-budget.ts`
+  的 `BASELINE` 收紧为 **163**，保持只降不升。
+- 距目标（<20）仍有 **143 处**差距；DB 行 schema 尚未落地，下一步必须先建行类型，
+  再按表替换 `as`，不能靠批量删除断言。
+- 未改业务代码；`make assertions` 通过。
