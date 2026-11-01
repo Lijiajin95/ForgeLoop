@@ -12,14 +12,6 @@
       "count": 2
     }
   },
-  "packages/forgeloop/src/runtime/integration.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "max-statements": {
-      "count": 1
-    }
-  },
   "packages/forgeloop/src/runtime/service.ts": {
     "complexity": {
       "count": 17

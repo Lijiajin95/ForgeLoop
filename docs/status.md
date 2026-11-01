@@ -2901,3 +2901,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   coverage 91.15/97.22/84.61，mutation 97.80。
 - 下一步：`integrateCandidate`、`agent-runner` 的 send/run、`service.ts` 的
   taskExecution/requestOperation 与文件拆分。
+
+### 47.10 integrateCandidate 拆分（Goal Round 6）
+
+- 失败返回收敛为 `failure(detail, extra)`；前置校验拆出 `readCandidateDiff` 与 `preflightProject`。
+- 提交检查工作树拆出 `applyAndCheck`（应用 diff、复用 node_modules、运行检查、写日志）。
+- 提交前复核拆出 `recheckBeforeCommit`；主函数只保留加锁、检查、暂存、提交与回滚。
+- 两处豁免清零，suppressions 46 → **44**；`make check` 607 项通过，
+  coverage 91.13/97.24/84.64，mutation 97.80。
+- 下一步：`agent-runner` 的 `send`/`run`，随后 `service.ts` 的四个方法与文件拆分。

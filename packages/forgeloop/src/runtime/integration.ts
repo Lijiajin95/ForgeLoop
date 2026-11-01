@@ -121,6 +121,134 @@ function worktreeRemove(projectPath: string, path: string): void {
  * 在临时工作树上应用候选并执行检查，通过后才在真实项目上暂存同一 diff 并提交。
  * 真实项目必须干净且 HEAD 与候选基线一致；否则阻断，不做自动合并或清理。
  */
+function failure(detail: string, extra: Partial<IntegrationResult> = {}): IntegrationResult {
+  return {
+    ok: false,
+    checkPassed: false,
+    commitSha: '',
+    files: [],
+    checkLogPath: '',
+    checkSha256: '',
+    ...extra,
+    detail,
+  }
+}
+
+function readCandidateDiff(input: {
+  readonly candidateDiffPath: string
+  readonly expectedDiffSha256: string
+}): string | IntegrationResult {
+  if (!existsSync(input.candidateDiffPath)) return failure('候选 diff 文件缺失')
+  const diff = readFileSync(input.candidateDiffPath, 'utf8')
+  if (!diff.trim()) return failure('候选没有产生可提交的文件改动', { checkPassed: true })
+  if (sha256OfText(diff) !== input.expectedDiffSha256) {
+    return failure('候选 diff 摘要不一致')
+  }
+  return diff
+}
+
+function preflightProject(input: {
+  readonly projectPath: string
+  readonly candidateBaseline: string
+}): IntegrationResult | null {
+  const status = git(input.projectPath, ['status', '--porcelain=v1', '--untracked-files=all'])
+  if (status.code !== 0 || status.stdout.trim()) {
+    return failure('真实项目工作树有未提交改动；不能把本次需求与其他改动混入同一提交')
+  }
+  const head = requireGit(input.projectPath, ['rev-parse', 'HEAD']).trim()
+  if (head !== input.candidateBaseline) {
+    return failure(
+      `真实项目 HEAD 已从候选基线 ${input.candidateBaseline.slice(0, 12)} 变为 ${head.slice(0, 12)}；需重新研发`,
+    )
+  }
+  return null
+}
+
+function recheckBeforeCommit(
+  input: { readonly projectPath: string; readonly candidateBaseline: string },
+  checkPath: string,
+  checkOutput: string,
+): IntegrationResult | null {
+  const status = git(input.projectPath, ['status', '--porcelain=v1', '--untracked-files=all'])
+  const head = requireGit(input.projectPath, ['rev-parse', 'HEAD']).trim()
+  const index = git(input.projectPath, ['diff', '--cached', '--name-only'])
+  const changed =
+    status.code !== 0 ||
+    Boolean(status.stdout.trim()) ||
+    index.code !== 0 ||
+    Boolean(index.stdout.trim()) ||
+    head !== input.candidateBaseline
+  if (!changed) return null
+  writeFileSync(
+    checkPath,
+    `${checkOutput}\n提交前复核失败：工作树/暂存区/HEAD 在检查期间发生变化。\n`,
+    'utf8',
+  )
+  return failure('检查期间项目工作树、暂存区或 HEAD 发生变化；保留双方现场，未提交', {
+    checkPassed: true,
+    checkLogPath: checkPath,
+    checkSha256: sha256OfText(readFileSync(checkPath, 'utf8')),
+  })
+}
+
+function applyAndCheck(
+  input: {
+    readonly projectPath: string
+    readonly candidateDiffPath: string
+    readonly candidateBaseline: string
+    readonly checkCommand: readonly string[]
+    readonly timeoutMs: number
+  },
+  worktree: string,
+  checkPath: string,
+): { ok: true; checkOutput: string; checkSha256: string } | IntegrationResult {
+  worktreeAdd(input.projectPath, worktree, input.candidateBaseline)
+  // 提交检查工作树没有 node_modules（被忽略、不随 git 进入候选）；复用主项目的
+  // 已安装依赖，才能运行 tsc/vitest 等真实检查，而不是把缺依赖误判为候选失败。
+  const sharedModules = join(input.projectPath, 'node_modules')
+  if (existsSync(sharedModules) && !existsSync(join(worktree, 'node_modules'))) {
+    try {
+      symlinkSync(sharedModules, join(worktree, 'node_modules'), 'dir')
+    } catch {
+      // 权限或平台不支持时保留原检查结果；检查命令会给出明确失败。
+    }
+  }
+  const applied = runCommand(
+    'git',
+    ['apply', '--binary', input.candidateDiffPath],
+    worktree,
+    60_000,
+  )
+  if (applied.code !== 0) {
+    const detail = `候选 diff 无法应用到提交检查工作树：${applied.stderr.trim() || applied.stdout.trim()}`
+    writeFileSync(checkPath, `${detail}\n`, 'utf8')
+    return failure(detail, {
+      checkLogPath: checkPath,
+      checkSha256: sha256OfText(readFileSync(checkPath, 'utf8')),
+    })
+  }
+  let checkPassed = true
+  let checkDetail = '未配置提交检查命令'
+  let checkOutput = ''
+  if (input.checkCommand.length > 0) {
+    const check = runCommand(
+      input.checkCommand[0]!,
+      input.checkCommand.slice(1),
+      worktree,
+      input.timeoutMs,
+    )
+    checkPassed = check.code === 0
+    checkDetail = `提交检查退出码 ${check.code}`
+    checkOutput = `${JSON.stringify(input.checkCommand)}\nexit_code: ${check.code}\n${check.stdout}\n${check.stderr}\n`
+  } else {
+    checkOutput = '未配置提交检查命令；以独立验证结果为质量依据。\n'
+  }
+  writeFileSync(checkPath, checkOutput, 'utf8')
+  const checkSha256 = sha256OfText(checkOutput)
+  if (!checkPassed) return failure(checkDetail, { checkLogPath: checkPath, checkSha256 })
+  return { ok: true, checkOutput, checkSha256 }
+}
+
 export function integrateCandidate(input: {
   readonly projectPath: string
   readonly candidateDiffPath: string
@@ -131,175 +259,29 @@ export function integrateCandidate(input: {
   readonly evidenceDir: string
   readonly timeoutMs: number
 }): IntegrationResult {
-  if (!existsSync(input.candidateDiffPath)) {
-    return {
-      ok: false,
-      checkPassed: false,
-      commitSha: '',
-      files: [],
-      checkLogPath: '',
-      checkSha256: '',
-      detail: '候选 diff 文件缺失',
-    }
-  }
-  const diff = readFileSync(input.candidateDiffPath, 'utf8')
-  if (!diff.trim()) {
-    return {
-      ok: false,
-      checkPassed: true,
-      commitSha: '',
-      files: [],
-      checkLogPath: '',
-      checkSha256: '',
-      detail: '候选没有产生可提交的文件改动',
-    }
-  }
-  if (sha256OfText(diff) !== input.expectedDiffSha256) {
-    return {
-      ok: false,
-      checkPassed: false,
-      commitSha: '',
-      files: [],
-      checkLogPath: '',
-      checkSha256: '',
-      detail: '候选 diff 摘要不一致',
-    }
-  }
+  const diff = readCandidateDiff(input)
+  if (typeof diff !== 'string') return diff
   const lockPath = join(input.projectPath, '.git', 'forgeloop-commit.lock')
   try {
     mkdirSync(lockPath)
   } catch {
-    return {
-      ok: false,
-      checkPassed: false,
-      commitSha: '',
-      files: [],
-      checkLogPath: '',
-      checkSha256: '',
-      detail: '另一个 ForgeLoop 提交正在进行；保留双方现场，等待锁释放',
-    }
+    return failure('另一个 ForgeLoop 提交正在进行；保留双方现场，等待锁释放')
   }
   try {
-    const status = git(input.projectPath, ['status', '--porcelain=v1', '--untracked-files=all'])
-    if (status.code !== 0 || status.stdout.trim()) {
-      return {
-        ok: false,
-        checkPassed: false,
-        commitSha: '',
-        files: [],
-        checkLogPath: '',
-        checkSha256: '',
-        detail: '真实项目工作树有未提交改动；不能把本次需求与其他改动混入同一提交',
-      }
-    }
-    const head = requireGit(input.projectPath, ['rev-parse', 'HEAD']).trim()
-    if (head !== input.candidateBaseline) {
-      return {
-        ok: false,
-        checkPassed: false,
-        commitSha: '',
-        files: [],
-        checkLogPath: '',
-        checkSha256: '',
-        detail: `真实项目 HEAD 已从候选基线 ${input.candidateBaseline.slice(0, 12)} 变为 ${head.slice(0, 12)}；需重新研发`,
-      }
-    }
+    const preflight = preflightProject(input)
+    if (preflight) return preflight
 
     mkdirSync(input.evidenceDir, { recursive: true })
     const checkPath = join(input.evidenceDir, 'commit-check.log')
     const worktree = join(input.evidenceDir, 'check-worktree')
     try {
-      worktreeAdd(input.projectPath, worktree, input.candidateBaseline)
-      // 提交检查工作树没有 node_modules（被忽略、不随 git 进入候选）；复用主项目的
-      // 已安装依赖，才能运行 tsc/vitest 等真实检查，而不是把缺依赖误判为候选失败。
-      const sharedModules = join(input.projectPath, 'node_modules')
-      if (existsSync(sharedModules) && !existsSync(join(worktree, 'node_modules'))) {
-        try {
-          symlinkSync(sharedModules, join(worktree, 'node_modules'), 'dir')
-        } catch {
-          // 权限或平台不支持时保留原检查结果；检查命令会给出明确失败。
-        }
-      }
-      const applied = runCommand(
-        'git',
-        ['apply', '--binary', input.candidateDiffPath],
-        worktree,
-        60_000,
-      )
-      if (applied.code !== 0) {
-        const detail = `候选 diff 无法应用到提交检查工作树：${applied.stderr.trim() || applied.stdout.trim()}`
-        writeFileSync(checkPath, `${detail}\n`, 'utf8')
-        return {
-          ok: false,
-          checkPassed: false,
-          commitSha: '',
-          files: [],
-          checkLogPath: checkPath,
-          checkSha256: sha256OfText(readFileSync(checkPath, 'utf8')),
-          detail,
-        }
-      }
-      let checkPassed = true
-      let checkDetail = '未配置提交检查命令'
-      let checkOutput = ''
-      if (input.checkCommand.length > 0) {
-        const check = runCommand(
-          input.checkCommand[0]!,
-          input.checkCommand.slice(1),
-          worktree,
-          input.timeoutMs,
-        )
-        checkPassed = check.code === 0
-        checkDetail = `提交检查退出码 ${check.code}`
-        checkOutput = `${JSON.stringify(input.checkCommand)}\nexit_code: ${check.code}\n${check.stdout}\n${check.stderr}\n`
-      } else {
-        checkOutput = '未配置提交检查命令；以独立验证结果为质量依据。\n'
-      }
-      writeFileSync(checkPath, checkOutput, 'utf8')
-      const checkSha256 = sha256OfText(checkOutput)
-      if (!checkPassed) {
-        return {
-          ok: false,
-          checkPassed: false,
-          commitSha: '',
-          files: [],
-          checkLogPath: checkPath,
-          checkSha256,
-          detail: checkDetail,
-        }
-      }
-
+      const checked = applyAndCheck(input, worktree, checkPath)
+      if (!('checkOutput' in checked)) return checked
+      const { checkOutput, checkSha256 } = checked
       // 检查期间不持有真实项目 index 的写锁之外的保护；提交前重新核对 HEAD、
       // 工作树与暂存区。任何他人在途改动都阻断，绝不 reset/clean 或覆盖。
-      const afterStatus = git(input.projectPath, [
-        'status',
-        '--porcelain=v1',
-        '--untracked-files=all',
-      ])
-      const afterHead = requireGit(input.projectPath, ['rev-parse', 'HEAD']).trim()
-      const afterIndex = git(input.projectPath, ['diff', '--cached', '--name-only'])
-      if (
-        afterStatus.code !== 0 ||
-        afterStatus.stdout.trim() ||
-        afterIndex.code !== 0 ||
-        afterIndex.stdout.trim() ||
-        afterHead !== input.candidateBaseline
-      ) {
-        writeFileSync(
-          checkPath,
-          `${checkOutput}\n提交前复核失败：工作树/暂存区/HEAD 在检查期间发生变化。\n`,
-          'utf8',
-        )
-        return {
-          ok: false,
-          checkPassed: true,
-          commitSha: '',
-          files: [],
-          checkLogPath: checkPath,
-          checkSha256: sha256OfText(readFileSync(checkPath, 'utf8')),
-          detail: '检查期间项目工作树、暂存区或 HEAD 发生变化；保留双方现场，未提交',
-        }
-      }
+      const recheck = recheckBeforeCommit(input, checkPath, checkOutput)
+      if (recheck) return recheck
       const checkApply = runCommand(
         'git',
         ['apply', '--check', '--binary', input.candidateDiffPath],
