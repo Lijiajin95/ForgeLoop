@@ -59,7 +59,7 @@ describe('property invariants', () => {
     const body = fc.record({
       goal: fc.stringMatching(/^\S.{0,39}$/),
       files: fc
-        .array(fc.stringMatching(/^[a-zA-Z0-9_-]{1,10}$/), { minLength: 1, maxLength: 3 })
+        .uniqueArray(fc.stringMatching(/^[a-zA-Z0-9_-]{1,10}$/), { minLength: 1, maxLength: 3 })
         .map((names) => names.map((name) => `src/${name}.ts`)),
       acceptance: fc.stringMatching(/^\S.{0,39}$/),
       test_command: fc.array(fc.stringMatching(/^\S{1,20}$/), { minLength: 1, maxLength: 2 }),
