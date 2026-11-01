@@ -2889,3 +2889,15 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
   budget/assertions/format 通过。
 - 下一步：`ops.ts` 的 tick/diagnoseEvent/executeEvent/reportInterruption、`integrateCandidate`、
   `agent-runner` 的 send/run。
+
+### 47.9 ops 运行时拆分（Goal Round 5）
+
+- `tick` 拆为 `runChecks`、`advanceEvents`、`advanceEvent`、`applyOutcome`/`countOutcome`、
+  `reportInterruptions`、`ensureFixRequirements`，状态放入 `TickState`。
+- `diagnoseEvent` 拆出 `diagnosisBlocked`/`escalateDiagnosis`/`diagnosisPromptFor`/`recordDiagnosisError`。
+- `executeEvent` 拆出 `resolveOpsAction`/`authorizationFor`/`argvFor`。
+- `reportInterruption` 抽出 `interruptionReported`/`attemptParams`/`attemptArgv`/`evidenceTail`。
+- ops 的 8 处豁免清零，suppressions 54 → **46**；`make check` 607 项通过，
+  coverage 91.15/97.22/84.61，mutation 97.80。
+- 下一步：`integrateCandidate`、`agent-runner` 的 send/run、`service.ts` 的
+  taskExecution/requestOperation 与文件拆分。

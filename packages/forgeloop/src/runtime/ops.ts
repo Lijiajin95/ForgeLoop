@@ -267,6 +267,100 @@ function eventStamp(now: Date): string {
     .slice(0, 14)
 }
 
+interface TickState {
+  checked: number
+  failed: number
+  diagnosed: number
+  executed: number
+  recovered: number
+  unresolved: number
+  errors: string[]
+}
+
+const EMPTY_TICK: OpsTickResult = {
+  skipped: true,
+  checked: 0,
+  failed: 0,
+  diagnosed: 0,
+  executed: 0,
+  recovered: 0,
+  unresolved: 0,
+  errors: [],
+}
+
+function emptyTickState(): TickState {
+  return {
+    checked: 0,
+    failed: 0,
+    diagnosed: 0,
+    executed: 0,
+    recovered: 0,
+    unresolved: 0,
+    errors: [],
+  }
+}
+
+type OpsExecutionOutcome = 'not_started' | 'recovered' | 'unresolved'
+
+function invalidActionReason(
+  event: OpsEventRecord,
+  diagnosis: OpsDiagnosis,
+  lookup: (id: string) => OpsAction | undefined,
+): string {
+  const proposed = diagnosis.proposedAction
+  if (!proposed) return ''
+  const action = lookup(proposed.actionId)
+  if (!action) return `诊断提出的动作 ${proposed.actionId} 未登记`
+  if (action.resourceId !== event.resourceId) {
+    return `动作 ${action.id} 不属于事件资源 ${event.resourceId}`
+  }
+  try {
+    actionArgv(action, proposed.params)
+    return ''
+  } catch (error) {
+    return errorMessage(error)
+  }
+}
+
+function interruptionReported(observations: ReturnType<Repository['opsObservations']>): boolean {
+  return observations.some(
+    (item) => item.kind === 'interruption_report' || item.kind === 'interruption_error',
+  )
+}
+
+function attemptParams(raw: string): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(raw || '{}')
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, string>
+    }
+    return {}
+  } catch {
+    return {}
+  }
+}
+
+function attemptArgv(
+  action: OpsAction | undefined,
+  params: Readonly<Record<string, string>>,
+): readonly string[] {
+  if (!action) return []
+  try {
+    return actionArgv(action, params)
+  } catch {
+    return []
+  }
+}
+
+function evidenceTail(path: string | undefined): string {
+  if (!path || !existsSync(path)) return ''
+  try {
+    return readFileSync(path, 'utf8').slice(-4000)
+  } catch {
+    return ''
+  }
+}
+
 export class OpsRuntime {
   private readonly config: ForgeLoopConfig
   private readonly repo: Repository
@@ -348,130 +442,281 @@ export class OpsRuntime {
    * 单个检查或事件失败不会中断其他事件；错误只在返回值和日志中出现，不伪造成功。
    */
   async tick(signal?: AbortSignal): Promise<OpsTickResult> {
-    const empty: OpsTickResult = {
-      skipped: true,
-      checked: 0,
-      failed: 0,
-      diagnosed: 0,
-      executed: 0,
-      recovered: 0,
-      unresolved: 0,
-      errors: [],
-    }
-    if (!this.enabled) return empty
-    if (this.ticking) return { ...empty, errors: ['上一轮巡检尚未结束，本次跳过'] }
+    if (!this.enabled) return { ...EMPTY_TICK, skipped: true }
+    if (this.ticking) return { ...EMPTY_TICK, errors: ['上一轮巡检尚未结束，本次跳过'] }
     this.ticking = true
-    const errors: string[] = []
-    let checked = 0
-    let failed = 0
-    let diagnosed = 0
-    let executed = 0
-    let recovered = 0
-    let unresolved = 0
+    const state = emptyTickState()
     try {
-      for (const check of this.config.ops.checks) {
-        if (signal?.aborted) break
-        if (!this.checkDue(check)) continue
-        try {
-          const result = await runOpsCommand(
-            check.command,
-            this.config.projectPath,
-            check.timeoutSeconds * 1000,
-            signal,
-          )
-          checked += 1
-          if (result.code === 0 && !result.timedOut && !result.aborted) {
-            this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
-            continue
-          }
-          this.recordFailure(check, result)
-          this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
-          failed += 1
-        } catch (error) {
-          errors.push(`检查 ${check.id} 失败：${errorMessage(error)}`)
-        }
-      }
-
-      // 事件在一个 Tick 内最多推进三轮：诊断 → 处置 → 复核。
-      // 同一事件在一次 Tick 内只尝试一次诊断，避免模型失败时立刻重试三次。
-      const diagnosedThisTick = new Set<string>()
-      for (let pass = 0; pass < 3; pass += 1) {
-        let progressed = false
-        for (const event of this.activeEvents()) {
-          if (signal?.aborted) break
-          try {
-            if (event.state === OPS_OPEN) {
-              if (diagnosedThisTick.has(event.eventId)) continue
-              diagnosedThisTick.add(event.eventId)
-              if (await this.diagnoseEvent(event, signal)) {
-                diagnosed += 1
-                progressed = true
-              }
-            } else if (event.state === OPS_DIAGNOSED) {
-              const outcome = await this.executeEvent(event, signal)
-              if (outcome !== 'not_started') {
-                executed += 1
-                progressed = true
-                if (outcome === 'recovered') recovered += 1
-                if (outcome === 'unresolved') unresolved += 1
-              }
-            } else if (event.state === OPS_AWAITING_DECISION && event.decision === 'approved') {
-              const outcome = await this.executeEvent(event, signal)
-              if (outcome !== 'not_started') {
-                executed += 1
-                progressed = true
-                if (outcome === 'recovered') recovered += 1
-                if (outcome === 'unresolved') unresolved += 1
-              }
-            } else if (event.state === OPS_RECOVERING) {
-              const outcome = await this.verifyEvent(event)
-              if (outcome !== 'not_started') {
-                progressed = true
-                if (outcome === 'recovered') recovered += 1
-                if (outcome === 'unresolved') unresolved += 1
-              }
-            }
-          } catch (error) {
-            errors.push(`事件 ${event.eventId} 处理失败：${errorMessage(error)}`)
-          }
-        }
-        if (!progressed) break
-      }
-
-      // 中断的处置动作没有结果记录：由运维 Agent 分析根因并上报；不重放动作。
-      for (const event of this.repo.listOpsEvents(this.config.project)) {
-        if (signal?.aborted) break
-        if (!isOpsActive(event.state)) continue
-        try {
-          await this.reportInterruption(event)
-        } catch (error) {
-          errors.push(`事件 ${event.eventId} 中断根因上报失败：${errorMessage(error)}`)
-        }
-      }
-
-      // 已恢复但需要永久修复的事件，生成一次关联修复需求；不重复创建。
-      for (const event of this.repo.listOpsEvents(this.config.project)) {
-        if (![OPS_RECOVERED, OPS_UNRESOLVED].includes(event.state)) continue
-        const diagnosis = this.readDiagnosis(event)
-        if (!diagnosis?.fixRequired || event.fixRequirementId) continue
-        try {
-          this.ensureFixRequirement(event, diagnosis)
-        } catch (error) {
-          errors.push(`事件 ${event.eventId} 生成修复需求失败：${errorMessage(error)}`)
-        }
-      }
+      await this.runChecks(state, signal)
+      await this.advanceEvents(state, signal)
+      await this.reportInterruptions(state, signal)
+      this.ensureFixRequirements(state)
     } finally {
       this.ticking = false
     }
-    return {
-      skipped: false,
-      checked,
-      failed,
-      diagnosed,
-      executed,
-      recovered,
-      unresolved,
-      errors,
+    return { skipped: false, ...state }
+  }
+
+  private async runChecks(state: TickState, signal?: AbortSignal): Promise<void> {
+    for (const check of this.config.ops.checks) {
+      if (signal?.aborted) break
+      if (!this.checkDue(check)) continue
+      try {
+        const result = await runOpsCommand(
+          check.command,
+          this.config.projectPath,
+          check.timeoutSeconds * 1000,
+          signal,
+        )
+        state.checked += 1
+        if (result.code !== 0 || result.timedOut || result.aborted) {
+          this.recordFailure(check, result)
+          state.failed += 1
+        }
+        this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
+      } catch (error) {
+        state.errors.push(`检查 ${check.id} 失败：${errorMessage(error)}`)
+      }
+    }
+  }
+
+  private async advanceEvents(state: TickState, signal?: AbortSignal): Promise<void> {
+    // 事件在一个 Tick 内最多推进三轮：诊断 → 处置 → 复核。
+    // 同一事件在一次 Tick 内只尝试一次诊断，避免模型失败时立刻重试三次。
+    const diagnosedThisTick = new Set<string>()
+    for (let pass = 0; pass < 3; pass += 1) {
+      let progressed = false
+      for (const event of this.activeEvents()) {
+        if (signal?.aborted) break
+        try {
+          if (await this.advanceEvent(event, diagnosedThisTick, state, signal)) progressed = true
+        } catch (error) {
+          state.errors.push(`事件 ${event.eventId} 处理失败：${errorMessage(error)}`)
+        }
+      }
+      if (!progressed) break
+    }
+  }
+
+  private async advanceEvent(
+    event: OpsEventRecord,
+    diagnosedThisTick: Set<string>,
+    state: TickState,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (event.state === OPS_OPEN) {
+      if (diagnosedThisTick.has(event.eventId)) return false
+      diagnosedThisTick.add(event.eventId)
+      if (!(await this.diagnoseEvent(event, signal))) return false
+      state.diagnosed += 1
+      return true
+    }
+    if (event.state === OPS_DIAGNOSED) {
+      const outcome = await this.executeEvent(event, signal)
+      return this.applyOutcome(outcome, state)
+    }
+    if (event.state === OPS_AWAITING_DECISION && event.decision === 'approved') {
+      const outcome = await this.executeEvent(event, signal)
+      return this.applyOutcome(outcome, state)
+    }
+    if (event.state === OPS_RECOVERING) {
+      const outcome = await this.verifyEvent(event)
+      this.countOutcome(outcome, state)
+      return outcome !== 'not_started'
+    }
+    return false
+  }
+
+  private applyOutcome(outcome: OpsExecutionOutcome, state: TickState): boolean {
+    if (outcome === 'not_started') return false
+    state.executed += 1
+    this.countOutcome(outcome, state)
+    return true
+  }
+
+  private countOutcome(outcome: OpsExecutionOutcome, state: TickState): void {
+    if (outcome === 'recovered') state.recovered += 1
+    if (outcome === 'unresolved') state.unresolved += 1
+  }
+
+  private async reportInterruptions(state: TickState, signal?: AbortSignal): Promise<void> {
+    for (const event of this.repo.listOpsEvents(this.config.project)) {
+      if (signal?.aborted) break
+      if (!isOpsActive(event.state)) continue
+      try {
+        await this.reportInterruption(event)
+      } catch (error) {
+        state.errors.push(`事件 ${event.eventId} 中断根因上报失败：${errorMessage(error)}`)
+      }
+    }
+  }
+
+  private ensureFixRequirements(state: TickState): void {
+    for (const event of this.repo.listOpsEvents(this.config.project)) {
+      if (![OPS_RECOVERED, OPS_UNRESOLVED].includes(event.state)) continue
+      const diagnosis = this.readDiagnosis(event)
+      if (!diagnosis?.fixRequired || event.fixRequirementId) continue
+      try {
+        this.ensureFixRequirement(event, diagnosis)
+      } catch (error) {
+        state.errors.push(`事件 ${event.eventId} 生成修复需求失败：${errorMessage(error)}`)
+      }
+    }
+  }
+
+  private diagnosisBlocked(event: OpsEventRecord, attempts: number, now: string): boolean {
+    if (attempts >= MAX_DIAGNOSIS_ATTEMPTS) {
+      this.escalateDiagnosis(
+        event,
+        now,
+        '自动诊断多次未完成，需要人工判断',
+        `自动诊断连续 ${attempts} 次未完成，等待人工判断`,
+      )
+      return true
+    }
+    const check = this.check(event.checkId)
+    const resource = this.resource(event.resourceId)
+    if (!check || !resource) {
+      this.escalateDiagnosis(
+        event,
+        now,
+        '登记目录已变化，无法继续自动诊断',
+        '事件的检查或资源已不在登记目录中，等待人工处理',
+      )
+      return true
+    }
+    return false
+  }
+
+  private escalateDiagnosis(
+    event: OpsEventRecord,
+    now: string,
+    impact: string,
+    summary: string,
+  ): void {
+    this.repo.updateOpsEvent(event.eventId, {
+      state: OPS_AWAITING_DECISION,
+      impact: event.impact || impact,
+      updatedAt: now,
+    })
+    this.repo.appendOpsObservation({
+      eventId: event.eventId,
+      at: now,
+      kind: 'decision_required',
+      summary,
+    })
+  }
+
+  private diagnosisPromptFor(
+    event: OpsEventRecord,
+    check: OpsCheck,
+    resource: OpsResource,
+    observations: ReturnType<Repository['opsObservations']>,
+  ): string {
+    const latestCheck = [...observations].reverse().find((item) => item.kind === 'check')
+    return opsDiagnosisPrompt({
+      eventId: event.eventId,
+      title: event.title,
+      severity: event.severity,
+      openedAt: event.openedAt,
+      resource,
+      checkId: check.id,
+      observations: observations
+        .filter((item) => item.kind === 'check')
+        .slice(-5)
+        .map((item) => `${item.at} ${item.summary}`),
+      output: observationOutput(latestCheck),
+      actions: this.config.ops.actions
+        .filter((action) => action.resourceId === event.resourceId)
+        .map((action) => ({
+          id: action.id,
+          params: action.params.map((param) => ({ name: param.name, values: param.values })),
+        })),
+    })
+  }
+
+  private recordDiagnosisError(event: OpsEventRecord, summary: string): void {
+    this.repo.appendOpsObservation({
+      eventId: event.eventId,
+      at: this.isoNow(),
+      kind: 'diagnosis_error',
+      summary,
+    })
+    this.repo.updateOpsEvent(event.eventId, { updatedAt: this.isoNow() })
+  }
+
+  private resolveOpsAction(event: OpsEventRecord): {
+    diagnosis: OpsDiagnosis
+    proposed: NonNullable<OpsDiagnosis['proposedAction']>
+    action: OpsAction
+  } | null {
+    const diagnosis = this.readDiagnosis(event)
+    const proposed = diagnosis?.proposedAction
+    const action = proposed ? this.action(proposed.actionId) : undefined
+    if (diagnosis && proposed && action) return { diagnosis, proposed, action }
+    this.repo.updateOpsEvent(event.eventId, {
+      state: OPS_AWAITING_DECISION,
+      updatedAt: this.isoNow(),
+    })
+    this.repo.appendOpsObservation({
+      eventId: event.eventId,
+      at: this.isoNow(),
+      kind: 'decision_required',
+      summary: '诊断提出的动作已不在登记目录中，等待人工处理',
+    })
+    return null
+  }
+
+  private authorizationFor(
+    event: OpsEventRecord,
+    action: OpsAction,
+    diagnosis: OpsDiagnosis,
+  ): string | null {
+    if (event.decision === 'auto') {
+      const authorization = authorizeOpsAction({
+        event: { resourceId: event.resourceId, severity: event.severity, state: event.state },
+        action,
+        diagnosis,
+      })
+      if (authorization.auto) return authorization.source
+      this.repo.updateOpsEvent(event.eventId, {
+        state: OPS_AWAITING_DECISION,
+        decision: '',
+        updatedAt: this.isoNow(),
+      })
+      this.repo.appendOpsObservation({
+        eventId: event.eventId,
+        at: this.isoNow(),
+        kind: 'decision_required',
+        summary: `自动授权已不成立：${authorization.reason}`,
+      })
+      return null
+    }
+    if (event.decision === 'approved' && event.decisionBy) {
+      return `owner:${event.decisionBy}:${event.decisionSource || 'missing-source'}`
+    }
+    return null
+  }
+
+  private argvFor(
+    event: OpsEventRecord,
+    action: OpsAction,
+    params: Readonly<Record<string, string>>,
+  ): string[] | null {
+    try {
+      return actionArgv(action, params)
+    } catch (error) {
+      this.repo.updateOpsEvent(event.eventId, {
+        state: OPS_AWAITING_DECISION,
+        updatedAt: this.isoNow(),
+      })
+      this.repo.appendOpsObservation({
+        eventId: event.eventId,
+        at: this.isoNow(),
+        kind: 'decision_required',
+        summary: errorMessage(error),
+      })
+      return null
     }
   }
 
@@ -533,58 +778,12 @@ export class OpsRuntime {
     const attempts = observations.filter(
       (item) => item.kind === 'diagnosis' || item.kind === 'diagnosis_error',
     ).length
-    if (attempts >= MAX_DIAGNOSIS_ATTEMPTS) {
-      this.repo.updateOpsEvent(event.eventId, {
-        state: OPS_AWAITING_DECISION,
-        impact: event.impact || '自动诊断多次未完成，需要人工判断',
-        updatedAt: now,
-      })
-      this.repo.appendOpsObservation({
-        eventId: event.eventId,
-        at: now,
-        kind: 'decision_required',
-        summary: `自动诊断连续 ${attempts} 次未完成，等待人工判断`,
-      })
-      return true
-    }
-
+    if (this.diagnosisBlocked(event, attempts, now)) return true
     const check = this.check(event.checkId)
     const resource = this.resource(event.resourceId)
-    if (!check || !resource) {
-      this.repo.updateOpsEvent(event.eventId, {
-        state: OPS_AWAITING_DECISION,
-        impact: event.impact || '登记目录已变化，无法继续自动诊断',
-        updatedAt: now,
-      })
-      this.repo.appendOpsObservation({
-        eventId: event.eventId,
-        at: now,
-        kind: 'decision_required',
-        summary: '事件的检查或资源已不在登记目录中，等待人工处理',
-      })
-      return true
-    }
+    if (!check || !resource) return true
 
-    const latestCheck = [...observations].reverse().find((item) => item.kind === 'check')
-    const prompt = opsDiagnosisPrompt({
-      eventId: event.eventId,
-      title: event.title,
-      severity: event.severity,
-      openedAt: event.openedAt,
-      resource,
-      checkId: check.id,
-      observations: observations
-        .filter((item) => item.kind === 'check')
-        .slice(-5)
-        .map((item) => `${item.at} ${item.summary}`),
-      output: observationOutput(latestCheck),
-      actions: this.config.ops.actions
-        .filter((action) => action.resourceId === event.resourceId)
-        .map((action) => ({
-          id: action.id,
-          params: action.params.map((param) => ({ name: param.name, values: param.values })),
-        })),
-    })
+    const prompt = this.diagnosisPromptFor(event, check, resource, observations)
     const transcriptPath = join(
       opsDir(this.config, event.eventId),
       `diagnosis-${attempts + 1}.jsonl`,
@@ -600,13 +799,7 @@ export class OpsRuntime {
       tools: 'none',
     })
     if (result.status !== 'completed') {
-      this.repo.appendOpsObservation({
-        eventId: event.eventId,
-        at: this.isoNow(),
-        kind: 'diagnosis_error',
-        summary: `诊断未完成：${result.reason || result.status}`,
-      })
-      this.repo.updateOpsEvent(event.eventId, { updatedAt: this.isoNow() })
+      this.recordDiagnosisError(event, `诊断未完成：${result.reason || result.status}`)
       return true
     }
 
@@ -614,32 +807,13 @@ export class OpsRuntime {
     try {
       diagnosis = parseOpsDiagnosis(result.text)
     } catch (error) {
-      this.repo.appendOpsObservation({
-        eventId: event.eventId,
-        at: this.isoNow(),
-        kind: 'diagnosis_error',
-        summary: `诊断结果畸形：${errorMessage(error)}`,
-      })
-      this.repo.updateOpsEvent(event.eventId, { updatedAt: this.isoNow() })
+      this.recordDiagnosisError(event, `诊断结果畸形：${errorMessage(error)}`)
       return true
     }
 
-    let invalid = ''
+    const invalid = invalidActionReason(event, diagnosis, (id) => this.action(id))
     const proposed = diagnosis.proposedAction
     const action = proposed ? this.action(proposed.actionId) : undefined
-    if (proposed && !action) {
-      invalid = `诊断提出的动作 ${proposed.actionId} 未登记`
-    } else if (proposed && action) {
-      if (action.resourceId !== event.resourceId) {
-        invalid = `动作 ${action.id} 不属于事件资源 ${event.resourceId}`
-      } else {
-        try {
-          actionArgv(action, proposed.params)
-        } catch (error) {
-          invalid = errorMessage(error)
-        }
-      }
-    }
     const diagnosisPath = this.writeEvidence(
       event.eventId,
       `diagnosis-${attempts + 1}.json`,
@@ -744,71 +918,17 @@ export class OpsRuntime {
     event: OpsEventRecord,
     signal?: AbortSignal,
   ): Promise<'recovered' | 'unresolved' | 'not_started'> {
-    const diagnosis = this.readDiagnosis(event)
-    const proposed = diagnosis?.proposedAction
-    const action = proposed ? this.action(proposed.actionId) : undefined
-    if (!diagnosis || !proposed || !action) {
-      this.repo.updateOpsEvent(event.eventId, {
-        state: OPS_AWAITING_DECISION,
-        updatedAt: this.isoNow(),
-      })
-      this.repo.appendOpsObservation({
-        eventId: event.eventId,
-        at: this.isoNow(),
-        kind: 'decision_required',
-        summary: '诊断提出的动作已不在登记目录中，等待人工处理',
-      })
-      return 'not_started'
-    }
+    const resolved = this.resolveOpsAction(event)
+    if (!resolved) return 'not_started'
+    const { diagnosis, proposed, action } = resolved
     if (this.repo.opsActionAttempts(event.eventId).length > 0) {
       // 首版每个事件只执行一次处置动作；失败或中断都不自动重放。
       return 'not_started'
     }
-
-    let authorizationSource = ''
-    if (event.decision === 'auto') {
-      const authorization = authorizeOpsAction({
-        event: { resourceId: event.resourceId, severity: event.severity, state: event.state },
-        action,
-        diagnosis,
-      })
-      if (!authorization.auto) {
-        this.repo.updateOpsEvent(event.eventId, {
-          state: OPS_AWAITING_DECISION,
-          decision: '',
-          updatedAt: this.isoNow(),
-        })
-        this.repo.appendOpsObservation({
-          eventId: event.eventId,
-          at: this.isoNow(),
-          kind: 'decision_required',
-          summary: `自动授权已不成立：${authorization.reason}`,
-        })
-        return 'not_started'
-      }
-      authorizationSource = authorization.source
-    } else if (event.decision === 'approved' && event.decisionBy) {
-      authorizationSource = `owner:${event.decisionBy}:${event.decisionSource || 'missing-source'}`
-    } else {
-      return 'not_started'
-    }
-
-    let argv: string[]
-    try {
-      argv = actionArgv(action, proposed.params)
-    } catch (error) {
-      this.repo.updateOpsEvent(event.eventId, {
-        state: OPS_AWAITING_DECISION,
-        updatedAt: this.isoNow(),
-      })
-      this.repo.appendOpsObservation({
-        eventId: event.eventId,
-        at: this.isoNow(),
-        kind: 'decision_required',
-        summary: errorMessage(error),
-      })
-      return 'not_started'
-    }
+    const authorizationSource = this.authorizationFor(event, action, diagnosis)
+    if (authorizationSource === null) return 'not_started'
+    const argv = this.argvFor(event, action, proposed.params)
+    if (!argv) return 'not_started'
 
     const attemptId = `opa-${randomUUID()}`
     const attemptIndex = this.repo.opsActionAttempts(event.eventId).length + 1
@@ -1007,33 +1127,14 @@ export class OpsRuntime {
    */
   private async reportInterruption(event: OpsEventRecord): Promise<void> {
     const observations = this.repo.opsObservations(event.eventId)
-    if (
-      observations.some(
-        (item) => item.kind === 'interruption_report' || item.kind === 'interruption_error',
-      )
-    ) {
-      return
-    }
+    if (interruptionReported(observations)) return
     const attempt = this.repo
       .opsActionAttempts(event.eventId)
       .find((item) => item.state === OPS_ATTEMPT_INTERRUPTED)
     if (!attempt) return
     const action = this.action(attempt.actionDefId)
-    let params: Record<string, string> = {}
-    try {
-      const parsed: unknown = JSON.parse(attempt.paramsJson || '{}')
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        params = parsed as Record<string, string>
-      }
-    } catch {
-      params = {}
-    }
-    let argv: readonly string[] = []
-    try {
-      if (action) argv = actionArgv(action, params)
-    } catch {
-      argv = []
-    }
+    const params = attemptParams(attempt.paramsJson)
+    const argv = attemptArgv(action, params)
     const factSummary = `处置动作 ${attempt.actionDefId} 被宿主中断，没有退出码；按未解决收口，不自动重放`
     if (!observations.some((item) => item.kind === 'interruption')) {
       this.repo.appendOpsObservation({
@@ -1054,14 +1155,7 @@ export class OpsRuntime {
       })
     }
 
-    let logTail = ''
-    try {
-      if (attempt.evidencePath && existsSync(attempt.evidencePath)) {
-        logTail = readFileSync(attempt.evidencePath, 'utf8').slice(-4000)
-      }
-    } catch {
-      logTail = ''
-    }
+    const logTail = evidenceTail(attempt.evidencePath)
     const evidenceDir = opsDir(this.config, event.eventId)
     let result: AgentRunResult
     try {

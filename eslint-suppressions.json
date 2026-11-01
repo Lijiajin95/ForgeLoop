@@ -20,14 +20,6 @@
       "count": 1
     }
   },
-  "packages/forgeloop/src/runtime/ops.ts": {
-    "complexity": {
-      "count": 4
-    },
-    "max-statements": {
-      "count": 4
-    }
-  },
   "packages/forgeloop/src/runtime/service.ts": {
     "complexity": {
       "count": 17
