@@ -2930,3 +2930,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - service.ts 因同文件拆分新增约 93 tokens，token 基线从 69,843 调到 69,936（仍远低于拆分前 71,887）。
 - `make check` 607 项通过，coverage 91.04/96.86/84.66。
 - 下一步：`taskExecution`、`requestOperation`、`validateBuildMaterials`、`buildAdmittedCandidate`。
+
+### 47.13 构建材料核验抽出模块（Goal Round 9）
+
+- 新增 `src/runtime/build-materials.ts`：`BuildMaterialValidator` 负责验证报告、业务终审、
+  候选身份、受控提交、验证工作区与受保护文件五段核验；service.ts 只保留委托方法。
+- `validateBuildMaterials` 的 72 语句/45 复杂度豁免清零；service.ts **6,229 → 6,014 行**，
+  tokens **70,547 → 67,444**，token 基线同步收紧到 67,444。
+- `make check` 607 项通过，coverage 91.12/96.90/84.71，mutation 97.80。
+- 下一步：`buildCandidate`（77 语句）、`buildAdmittedCandidate`（64/40）、
+  `taskExecution`（40）、`requestOperation`（33），继续向 2,000 行目标拆分。
