@@ -2910,3 +2910,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 两处豁免清零，suppressions 46 → **44**；`make check` 607 项通过，
   coverage 91.13/97.24/84.64，mutation 97.80。
 - 下一步：`agent-runner` 的 `send`/`run`，随后 `service.ts` 的四个方法与文件拆分。
+
+### 47.11 agent-runner 拆分（Goal Round 7）
+
+- `send` 抽出 `startTurnWatch`/`flushActivity`/`writeTranscript`/`closedSessionResult`，
+  回合看护与结果组装不再混在方法里。
+- `run` 抽出 `RunResultBase`/`runResult`/`runOutcome`，重复的五段结果构造收敛为一处；
+  超时文案保持原样。
+- agent-runner 的 3 处豁免清零，suppressions 44 → **41**；`make check` 607 项通过，
+  coverage 91.04/96.84/84.65，mutation 保持通过。
+- 下一步：`service.ts` 的 `taskExecution`、`requestOperation`、`autoAdvanceRequests`、
+  `validateBuildMaterials`，随后文件拆分与 DB schema。

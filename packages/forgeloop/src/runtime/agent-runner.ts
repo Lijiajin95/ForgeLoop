@@ -130,6 +130,82 @@ function toolCallsOf(events: readonly AnyRecord[]): string[] {
   return names
 }
 
+function closedSessionResult(sessionId: string, transcriptPath: string): AgentRunResult {
+  return {
+    status: 'error',
+    text: '',
+    sessionId,
+    reason: '会话已结束，不能继续投递回合',
+    transcriptPath,
+    durationMs: 0,
+    toolCalls: [],
+  }
+}
+
+function writeTranscriptFile(path: string, events: readonly AnyRecord[]): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf8')
+}
+
+function writeTranscript(
+  view: SessionHandle,
+  turn: AgentTurnRequest,
+): ReturnType<AgentView['session']['ownEvents']> {
+  const events = view.agent.session.ownEvents()
+  writeTranscriptFile(turn.transcriptPath, events)
+  return events
+}
+
+interface RunResultBase {
+  readonly text: string
+  readonly sessionId: string
+  readonly transcriptPath: string
+  readonly durationMs: number
+  readonly toolCalls: AgentRunResult['toolCalls']
+}
+
+function runResult(
+  status: AgentRunResult['status'],
+  reason: string,
+  base: RunResultBase,
+): AgentRunResult {
+  return { status, reason, ...base }
+}
+
+function runOutcome(input: {
+  readonly timedOut: boolean
+  readonly aborted: boolean
+  readonly whenIdleError: string
+  readonly turn: ReturnType<typeof extractTurnEnd>
+  readonly text: string
+  readonly timeoutMs: number
+}): { status: AgentRunResult['status']; reason: string } {
+  if (input.timedOut) {
+    return {
+      status: 'timeout',
+      reason: `Agent 回合超过 ${Math.round(input.timeoutMs / 1000)} 秒上限，已取消`,
+    }
+  }
+  if (input.aborted) {
+    return { status: 'aborted', reason: 'Agent 回合因停止请求被取消；回合未正常完成' }
+  }
+  if (input.whenIdleError) {
+    return { status: 'error', reason: `Agent 回合失败：${input.whenIdleError}` }
+  }
+  if (input.turn.kind !== 'completed') {
+    return {
+      status: input.turn.kind === 'aborted' ? 'aborted' : 'error',
+      reason: `Agent 回合未正常完成：${input.turn.kind || '未给出结束原因'}${input.turn.detail ? `（${input.turn.detail}）` : ''}`,
+    }
+  }
+  if (!input.text) {
+    return { status: 'error', reason: 'Agent 回合完成但没有产出可用文本' }
+  }
+  return { status: 'completed', reason: '' }
+}
+
+type SessionHandle = { agent: AgentView; dispose(): Promise<void> }
+
 export class AgentRunner {
   private readonly ctx: AnyRecord
   private readonly agent: AgentConfig
@@ -200,48 +276,49 @@ export class AgentRunner {
 
     let dead = false
     let disposed = false
+    const startTurnWatch = (
+      view: SessionHandle,
+      turn: AgentTurnRequest,
+    ): { isTimedOut: () => boolean; isAborted: () => boolean; stop: () => void } => {
+      let aborted = false
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        view.agent.cancel({ kind: 'user' })
+      }, turn.timeoutMs)
+      timer.unref?.()
+      const onAbort = (): void => {
+        aborted = true
+        view.agent.cancel({ kind: 'user' })
+      }
+      turn.signal?.addEventListener('abort', onAbort, { once: true })
+      return {
+        isTimedOut: () => timedOut,
+        isAborted: () => aborted,
+        stop: () => {
+          clearTimeout(timer)
+          turn.signal?.removeEventListener('abort', onAbort)
+        },
+      }
+    }
+    const flushActivity = (view: SessionHandle, turn: AgentTurnRequest): void => {
+      try {
+        const events = view.agent.session.ownEvents()
+        writeTranscriptFile(turn.transcriptPath, events)
+        turn.onActivity?.(events)
+      } catch {
+        // 活动快照是观测数据；写入失败不能中断 Agent 回合。
+      }
+    }
     return {
       sessionId,
       async send(turn: AgentTurnRequest): Promise<AgentRunResult> {
         const started = Date.now()
-        if (dead) {
-          return {
-            status: 'error',
-            text: '',
-            sessionId,
-            reason: '会话已结束，不能继续投递回合',
-            transcriptPath: turn.transcriptPath,
-            durationMs: 0,
-            toolCalls: [],
-          }
-        }
-        let aborted = false
-        let timedOut = false
-        const timer = setTimeout(() => {
-          timedOut = true
-          handle.agent.cancel({ kind: 'user' })
-        }, turn.timeoutMs)
-        timer.unref?.()
-        const onAbort = () => {
-          aborted = true
-          handle.agent.cancel({ kind: 'user' })
-        }
-        turn.signal?.addEventListener('abort', onAbort, { once: true })
-        mkdirSync(dirname(turn.transcriptPath), { recursive: true })
-        const flush = (): void => {
-          try {
-            const events = handle.agent.session.ownEvents()
-            writeFileSync(
-              turn.transcriptPath,
-              `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-              'utf8',
-            )
-            turn.onActivity?.(events)
-          } catch {
-            // 活动快照是观测数据；写入失败不能中断 Agent 回合。
-          }
-        }
-        const activityTimer = setInterval(flush, 1_500)
+        if (dead) return closedSessionResult(sessionId, turn.transcriptPath)
+        const watch = startTurnWatch(handle, turn)
+        const activityTimer = setInterval(() => {
+          flushActivity(handle, turn)
+        }, 1_500)
         activityTimer.unref?.()
         let whenIdleError = ''
         try {
@@ -255,27 +332,18 @@ export class AgentRunner {
         } catch (error) {
           whenIdleError = errorMessage(error)
         } finally {
-          clearTimeout(timer)
+          watch.stop()
           clearInterval(activityTimer)
-          turn.signal?.removeEventListener('abort', onAbort)
         }
-        const events = handle.agent.session.ownEvents()
-        mkdirSync(dirname(turn.transcriptPath), { recursive: true })
-        writeFileSync(
-          turn.transcriptPath,
-          `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-          'utf8',
-        )
-        const text = extractAssistantText(events)
-        const durationMs = Date.now() - started
+        const events = writeTranscript(handle, turn)
         const base = {
-          text,
+          text: extractAssistantText(events),
           sessionId,
           transcriptPath: turn.transcriptPath,
-          durationMs,
+          durationMs: Date.now() - started,
           toolCalls: toolCallsOf(events),
         }
-        if (timedOut) {
+        if (watch.isTimedOut()) {
           dead = true
           return {
             ...base,
@@ -283,7 +351,7 @@ export class AgentRunner {
             reason: `Agent 回合超过 ${Math.round(turn.timeoutMs / 1000)} 秒上限，已取消`,
           }
         }
-        if (aborted) {
+        if (watch.isAborted()) {
           dead = true
           return {
             ...base,
@@ -304,7 +372,7 @@ export class AgentRunner {
             reason: `Agent 回合未正常完成：${end.kind || '未给出结束原因'}${end.detail ? `（${end.detail}）` : ''}`,
           }
         }
-        if (!text) {
+        if (!base.text) {
           return { ...base, status: 'error', reason: 'Agent 回合完成但没有产出可用文本' }
         }
         return { ...base, status: 'completed', reason: '' }
@@ -425,72 +493,22 @@ export class AgentRunner {
 
     await handle.dispose().catch(() => undefined)
 
-    const turn = extractTurnEnd(events)
     const text = extractAssistantText(events)
-    const durationMs = Date.now() - started
-    if (timedOut) {
-      return {
-        status: 'timeout',
-        text,
-        sessionId,
-        reason: `Agent 回合超过 ${Math.round(request.timeoutMs / 1000)} 秒上限，已取消`,
-        transcriptPath,
-        durationMs,
-        toolCalls: toolCallsOf(events),
-      }
-    }
-    if (aborted) {
-      return {
-        status: 'aborted',
-        text,
-        sessionId,
-        reason: 'Agent 回合因停止请求被取消；回合未正常完成',
-        transcriptPath,
-        durationMs,
-        toolCalls: toolCallsOf(events),
-      }
-    }
-    if (whenIdleError) {
-      return {
-        status: 'error',
-        text,
-        sessionId,
-        reason: `Agent 回合失败：${whenIdleError}`,
-        transcriptPath,
-        durationMs,
-        toolCalls: toolCallsOf(events),
-      }
-    }
-    if (turn.kind !== 'completed') {
-      return {
-        status: turn.kind === 'aborted' ? 'aborted' : 'error',
-        text,
-        sessionId,
-        reason: `Agent 回合未正常完成：${turn.kind || '未给出结束原因'}${turn.detail ? `（${turn.detail}）` : ''}`,
-        transcriptPath,
-        durationMs,
-        toolCalls: toolCallsOf(events),
-      }
-    }
-    if (!text) {
-      return {
-        status: 'error',
-        text: '',
-        sessionId,
-        reason: 'Agent 回合完成但没有产出可用文本',
-        transcriptPath,
-        durationMs,
-        toolCalls: toolCallsOf(events),
-      }
-    }
-    return {
-      status: 'completed',
+    const base: RunResultBase = {
       text,
       sessionId,
-      reason: '',
       transcriptPath,
-      durationMs,
+      durationMs: Date.now() - started,
       toolCalls: toolCallsOf(events),
     }
+    const outcome = runOutcome({
+      timedOut,
+      aborted,
+      whenIdleError,
+      turn: extractTurnEnd(events),
+      text,
+      timeoutMs: request.timeoutMs,
+    })
+    return runResult(outcome.status, outcome.reason, base)
   }
 }
