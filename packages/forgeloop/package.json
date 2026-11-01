@@ -40,7 +40,10 @@
     "test": "vitest run",
     "check": "tsc -p tsconfig.json --noEmit && vitest run",
     "candidate": "npm run build && node lib/cli/pack.js",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "test:fast": "vitest run --config vitest.fast.config.ts",
+    "test:slow": "vitest run tests/candidate-build.test.ts tests/continuous-flow.test.ts tests/verification.test.ts tests/service.test.ts tests/issue-retry-loop.test.ts tests/business-review.test.ts tests/auto-intake.test.ts tests/integration.test.ts tests/ops-controls.test.ts tests/requirement-gate.test.ts tests/ops-agent.test.ts tests/architecture-contract.test.ts",
+    "mutation": "stryker run"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

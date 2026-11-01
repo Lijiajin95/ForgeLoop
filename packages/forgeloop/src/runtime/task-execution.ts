@@ -91,7 +91,7 @@ type DraftEvent = ExecutionEvent
  */
 export function parseTaskExecution(
   source: string,
-  options: { offset?: number; limit?: number } = {},
+  options: { offset?: number | undefined; limit?: number | undefined } = {},
 ): ExecutionPage {
   const offset = Math.max(0, Math.trunc(options.offset ?? 0))
   const limit = Math.min(200, Math.max(1, Math.trunc(options.limit ?? 100)))

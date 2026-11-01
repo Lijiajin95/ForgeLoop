@@ -110,8 +110,8 @@ const PROMPT_HEADER = [
 /**
  * 将事实快照交给无工具 Agent 生成推断文本。纯读：不写记录、不改事实。
  */
-async function runInference<F extends ImpactFactsLike>(
-  facts: F,
+async function runInference(
+  facts: ImpactFactsLike,
   options: ImpactExplainOptions,
 ): Promise<ImpactInferenceSection> {
   const agent = options.agent

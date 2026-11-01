@@ -154,7 +154,7 @@ export class Coordinator {
           console.error(`[forgeloop] 运维巡检错误：${this.lastError}`)
         }
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         this.lastError = `运维巡检异常：${(error as Error).message}`
         console.error(`[forgeloop] ${this.lastError}`)
       })

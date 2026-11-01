@@ -18,9 +18,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/vitest-runner": "^10.1.1",
     "@types/node": "^22.15.0",
     "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^10.14.0",
+    "fast-check": "^4.10.2",
     "prettier": "^3.9.10",
     "smol-toml": "^1.9.1",
     "typescript": "^5.9.2",

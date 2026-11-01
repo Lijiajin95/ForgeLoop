@@ -613,14 +613,14 @@ export class ForgeLoopRuntime {
     answer: string
     by: string
     source: string
-    signal?: AbortSignal
+    signal?: AbortSignal | undefined
   }): Promise<{
     ok: boolean
     code: string
     message: string
     reqId: string
-    requirementVersion?: number
-    analysis?: RequirementAnalysis
+    requirementVersion?: number | undefined
+    analysis?: RequirementAnalysis | undefined
   }> {
     const answer = input.answer.trim()
     if (!answer)
@@ -700,8 +700,8 @@ ${answer}`
     ok: boolean
     code: string
     message: string
-    plan?: TaskPlan
-    analysis?: RequirementAnalysis
+    plan?: TaskPlan | undefined
+    analysis?: RequirementAnalysis | undefined
   }> {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, code: 'not_found', message: `未找到需求 ${reqId}` }
@@ -870,8 +870,8 @@ ${answer}`
     reqId: string
     taskId: string
     planVersion?: number
-    offset?: number
-    limit?: number
+    offset?: number | undefined
+    limit?: number | undefined
   }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
@@ -4410,7 +4410,7 @@ ${answer}`
     if (existsSync(metaPath)) {
       try {
         const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as {
-          requirementVersion?: number
+          requirementVersion?: number | undefined
           baselineCommit?: string
           snapshotCommit?: string
         }

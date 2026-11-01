@@ -1947,7 +1947,7 @@ export class Repository {
     const values: unknown[] = []
     for (const [key, value] of Object.entries(patch) as Array<[keyof OpsEventPatch, unknown]>) {
       const column = columns[key]
-      if (!column) throw new RuleViolationError(`运维事件不支持更新字段 ${String(key)}`)
+      if (!column) throw new RuleViolationError(`运维事件不支持更新字段 ${key}`)
       if (value === undefined) continue
       assignments.push(`${column} = ?`)
       values.push(typeof value === 'boolean' ? (value ? 1 : 0) : value)

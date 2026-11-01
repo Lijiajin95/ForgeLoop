@@ -222,12 +222,12 @@ export interface BuildStatusBoardInput {
   readonly project: string
   /** 生成时间；测试传入固定值以保持结果确定。 */
   readonly now?: string
-  readonly limit?: number
+  readonly limit?: number | undefined
   /**
    * 搜索词。匹配范围：需求身份/状态/原文与版本、分析结论、最新任务包与任务字段、
    * 任务运行原因、失败轮次、请求说明与看板问题文字；不读取 Agent 日志文件。
    */
-  readonly query?: string
+  readonly query?: string | undefined
 }
 
 /**
@@ -236,7 +236,7 @@ export interface BuildStatusBoardInput {
  */
 export function boardTaskState(input: {
   readonly delivered: boolean
-  readonly run?: { readonly state: string; readonly reason: string }
+  readonly run?: { readonly state: string; readonly reason: string } | undefined
 }): BoardTaskState {
   if (input.delivered) return BOARD_TASK_DELIVERED
   const run = input.run

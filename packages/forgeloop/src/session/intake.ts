@@ -53,7 +53,7 @@ export interface PreStepPayloadLike {
   readonly agent?: AgentViewLike
   readonly messages?: readonly unknown[]
   readonly turn?: number
-  readonly signal?: AbortSignal
+  readonly signal?: AbortSignal | undefined
 }
 
 export type PreStepDecision = { kind: 'reject' } | { kind: 'enter'; messages: readonly unknown[] }
@@ -66,7 +66,7 @@ export interface SessionIntakeOptions {
   readonly log?: SessionEventLogger
   readonly now?: () => Date
   /** 读取会话当前生效的 preset；缺省或返回 undefined 时回退到 session header。 */
-  readonly presetOf?: (agent: AgentViewLike) => string | undefined
+  readonly presetOf?: ((agent: AgentViewLike) => string | undefined) | undefined
 }
 
 /**
@@ -115,7 +115,7 @@ export class SessionIntake {
   private readonly config: ForgeLoopConfig
   private readonly log: SessionEventLogger
   private readonly now: () => Date
-  private readonly presetOf?: (agent: AgentViewLike) => string | undefined
+  private readonly presetOf: ((agent: AgentViewLike) => string | undefined) | undefined
   private readonly processed = new Set<string>()
 
   constructor(options: SessionIntakeOptions) {
@@ -164,7 +164,7 @@ export class SessionIntake {
     message: UserMessageLike
     index: number
     turn: number
-    signal?: AbortSignal
+    signal?: AbortSignal | undefined
   }): Promise<void> {
     const session = input.session
     const sessionId = typeof session?.id === 'string' && session.id ? session.id : 'unknown-session'
@@ -224,7 +224,7 @@ export class SessionIntake {
     messageId: string
     text: string
     turn: number
-    signal?: AbortSignal
+    signal?: AbortSignal | undefined
     at: string
   }): Promise<void> {
     const { session, sessionId, messageId, text, turn, at } = input
@@ -315,7 +315,7 @@ export class SessionIntake {
     messageId: string
     text: string
     turn: number
-    signal?: AbortSignal
+    signal?: AbortSignal | undefined
     reqId: string
     at: string
   }): Promise<void> {

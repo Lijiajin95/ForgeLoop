@@ -22,7 +22,7 @@ export default tseslint.config(
   js.configs.recommended,
   {
     files: ['packages/forgeloop/src/**/*.ts'],
-    extends: [...tseslint.configs.recommendedTypeChecked],
+    extends: [...tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: {
         project: ['./packages/forgeloop/tsconfig.json'],
@@ -35,6 +35,14 @@ export default tseslint.config(
       '@typescript-eslint/await-thenable': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/restrict-template-expressions': [
+        'error',
+        { allowNumber: true, allowBoolean: true, allowNullish: true, allowRegExp: true },
+      ],
+      // 两条规则暂列 ratchet：断言集中在已校验的 Map/数组取值，条件判断多为宿主/JSON
+      // 防御式校验；逐条收敛前先显式关闭，避免用 disable 注释刷绿。
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-unnecessary-condition': 'off',
       '@typescript-eslint/require-await': 'off',
       'no-useless-assignment': 'off',
       '@typescript-eslint/no-unused-vars': [

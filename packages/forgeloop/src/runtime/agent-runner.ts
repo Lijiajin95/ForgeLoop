@@ -21,7 +21,7 @@ export interface AgentRunRequest {
   readonly permission: 'workspace-write' | 'danger-full-access'
   readonly timeoutMs: number
   readonly transcriptPath: string
-  readonly signal?: AbortSignal
+  readonly signal?: AbortSignal | undefined
   /** 'none' 用于只做推理的阶段：不给 Agent 任何工具，避免无界探索。 */
   readonly tools?: 'none' | 'default'
   /** 运行中周期性回报当前事件快照，供任务心跳与详情页使用。 */
@@ -39,7 +39,7 @@ export interface AgentTurnRequest {
   readonly prompt: string
   readonly timeoutMs: number
   readonly transcriptPath: string
-  readonly signal?: AbortSignal
+  readonly signal?: AbortSignal | undefined
   readonly onActivity?: (events: readonly AnyRecord[]) => void
 }
 

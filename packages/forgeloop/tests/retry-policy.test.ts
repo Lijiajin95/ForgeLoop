@@ -60,3 +60,63 @@ describe('retry decision', () => {
     ).toBe(true)
   })
 })
+
+describe('retry decision reasons (mutation-kill)', () => {
+  it('names each terminal status verbatim', () => {
+    for (const status of ['accepted', 'rejected', 'cancelled']) {
+      expect(retryDecision({ ...OK, status })).toEqual({
+        allowed: false,
+        reason: `需求已处于终态 ${status}`,
+      })
+    }
+  })
+
+  it('names each non-retryable status verbatim', () => {
+    for (const status of ['draft', 'plan_proposed', 'analyzing']) {
+      expect(retryDecision({ ...OK, status })).toEqual({
+        allowed: false,
+        reason: `需求状态 ${status} 不能重新执行`,
+      })
+    }
+  })
+
+  it('reports every blocking fact with the exact reason', () => {
+    expect(retryDecision({ ...OK, planApproved: false })).toEqual({
+      allowed: false,
+      reason: '任务包尚未批准',
+    })
+    expect(retryDecision({ ...OK, total: 0 })).toEqual({
+      allowed: false,
+      reason: '任务包没有任务',
+    })
+    expect(retryDecision({ ...OK, delivered: 2 })).toEqual({
+      allowed: false,
+      reason: '任务已全部交付，下一步是独立验证',
+    })
+    expect(retryDecision({ ...OK, activeRequest: true })).toEqual({
+      allowed: false,
+      reason: '已有在途请求，等待收口',
+    })
+    expect(retryDecision({ ...OK, runningTasks: 1 })).toEqual({
+      allowed: false,
+      reason: '仍有任务在运行',
+    })
+    expect(retryDecision({ ...OK, awaitingInputTasks: 1 })).toEqual({
+      allowed: false,
+      reason: '仍有任务在等待人工回答',
+    })
+    expect(retryDecision({ ...OK, remainingRounds: 0 })).toEqual({
+      allowed: false,
+      reason: '失败轮次额度已用尽；需要追加授权',
+    })
+  })
+
+  it('treats each hard block as requiring a human decision', () => {
+    for (const text of ['额度已用尽', '工时已用尽', '需要追加授权', '终态']) {
+      expect(retryDecision({ ...OK, blockedReason: `前置：${text}` })).toEqual({
+        allowed: false,
+        reason: `当前阻塞需要人工处置：前置：${text}`,
+      })
+    }
+  })
+})
