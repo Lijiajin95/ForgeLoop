@@ -180,7 +180,7 @@ import {
 } from './deployment-inspect.js'
 import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
-import { reviewFacts } from './review-facts.js'
+import { blockingOf, reviewFacts, runStatusLabel } from './review-facts.js'
 import { parseVerificationMaterials } from './verification-materials.js'
 import {
   BuildMaterialValidator,
@@ -253,21 +253,6 @@ function describeViolation(violation: {
   reason: string
 }): string {
   return `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`
-}
-
-function runStatusLabel(status: string): string {
-  if (status === 'aborted') return '被停止'
-  if (status === 'timeout') return '超时'
-  return '未完成'
-}
-
-function blockingOf(
-  verdict: 'pass' | 'block',
-  issues: readonly string[],
-  blocking: readonly string[],
-): readonly string[] {
-  if (verdict !== 'block') return []
-  return issues.length > 0 ? issues : blocking
 }
 
 export class ForgeLoopRuntime {

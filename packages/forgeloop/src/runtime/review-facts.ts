@@ -67,3 +67,18 @@ export function reviewFacts(reportPath: string):
   }
   return { ok: true, facts }
 }
+
+export function runStatusLabel(status: string): string {
+  if (status === 'aborted') return '被停止'
+  if (status === 'timeout') return '超时'
+  return '未完成'
+}
+
+export function blockingOf(
+  verdict: 'pass' | 'block',
+  issues: readonly string[],
+  blocking: readonly string[],
+): readonly string[] {
+  if (verdict !== 'block') return []
+  return issues.length > 0 ? issues : blocking
+}

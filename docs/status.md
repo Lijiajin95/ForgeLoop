@@ -3127,3 +3127,12 @@ suppressions 20、service.ts 5,986 行。
 - service.ts 5,986 → **5,971 行**；tokens 66,954 → **66,752**，基线收紧。
 - `make check` 607 项通过，coverage 90.95/96.96/84.87，mutation 97.80。
 - 下一步按计划移出 `runVerificationCommands`，再处理记录段，目标 ≤40 语句。
+
+### 47.30 状态文案与阻断项移出（Goal Round 28）
+
+- 尝试把命令执行整段抽成私有方法时，文件 token 超出预算且未清零任何豁免，已回退；
+  改为把纯函数 `runStatusLabel`、`blockingOf` 移到 `review-facts.ts`。
+- service tokens 66,752 → **66,652**，基线收紧；suppressions 维持 20。
+- `make check` 607 项通过，coverage 90.95/96.96/84.85，mutation 97.80。
+- `executeVerification` 仍是唯一函数级豁免（83 语句 > 40）；下一轮按计划把命令执行
+  与记录段**整体移入模块**，避免在 service 内继续增行。
