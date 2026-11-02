@@ -274,12 +274,7 @@ export class SessionIntake {
       status: 'accepted',
       at,
     }
-    appendSessionEvent(
-      session,
-      FORGELOOP_INTAKE_EVENT,
-      intake as unknown as Record<string, unknown>,
-      this.log,
-    )
+    appendSessionEvent(session, FORGELOOP_INTAKE_EVENT, intake, this.log)
 
     let outcome: Awaited<ReturnType<ForgeLoopRuntime['analyzeRequirement']>>
     try {
@@ -350,12 +345,7 @@ export class SessionIntake {
       answer: text,
       at,
     }
-    appendSessionEvent(
-      session,
-      FORGELOOP_ANSWER_EVENT,
-      answer as unknown as Record<string, unknown>,
-      this.log,
-    )
+    appendSessionEvent(session, FORGELOOP_ANSWER_EVENT, answer, this.log)
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
     // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
@@ -377,12 +367,7 @@ export class SessionIntake {
       questions: analysis.clarifications,
       at,
     }
-    appendSessionEvent(
-      session,
-      FORGELOOP_CLARIFICATION_EVENT,
-      data as unknown as Record<string, unknown>,
-      this.log,
-    )
+    appendSessionEvent(session, FORGELOOP_CLARIFICATION_EVENT, data, this.log)
   }
 
   private appendAnalysis(
@@ -402,12 +387,7 @@ export class SessionIntake {
       clarifications: analysis.clarifications,
       at,
     }
-    appendSessionEvent(
-      session,
-      FORGELOOP_ANALYSIS_EVENT,
-      data as unknown as Record<string, unknown>,
-      this.log,
-    )
+    appendSessionEvent(session, FORGELOOP_ANALYSIS_EVENT, data, this.log)
   }
 
   private appendError(
@@ -417,12 +397,7 @@ export class SessionIntake {
   ): void {
     const { reqId, message, at } = detail
     const data: ErrorEventData = { eventId, reqId, message, at }
-    appendSessionEvent(
-      session,
-      FORGELOOP_ERROR_EVENT,
-      data as unknown as Record<string, unknown>,
-      this.log,
-    )
+    appendSessionEvent(session, FORGELOOP_ERROR_EVENT, data, this.log)
   }
 
   private reqIdOf(view: unknown): string {

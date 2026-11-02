@@ -118,12 +118,13 @@ export interface ErrorEventData {
 export function appendSessionEvent(
   session: unknown,
   type: string,
-  data: Record<string, unknown>,
+  data: object,
   log: SessionEventLogger = () => undefined,
 ): boolean {
   try {
+    const record = data as Record<string, unknown>
     if (appendRecord) {
-      appendRecord(session, type, data)
+      appendRecord(session, type, record)
       return true
     }
     const append = (session as Partial<AppendableSession> | undefined)?.append
@@ -131,7 +132,7 @@ export function appendSessionEvent(
       log(`会话没有 append 能力，未写入 ${type}`)
       return false
     }
-    append.call(session, type, data)
+    append.call(session, type, record)
     return true
   } catch (error) {
     log(`写入会话事件 ${type} 失败：${errorMessage(error)}`)

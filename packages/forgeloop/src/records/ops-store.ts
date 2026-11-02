@@ -72,7 +72,7 @@ export class OpsStore {
     openedAt: string
     updatedAt: string
   }): OpsEventRecord {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO ops_events
            (event_id, project, resource_id, check_id, signature, severity, state, title, impact, opened_at, updated_at)
@@ -97,29 +97,27 @@ export class OpsStore {
   }
 
   opsEvent(eventId: string): OpsEventRecord | null {
-    const row = this.db.handle
-      .prepare('SELECT * FROM ops_events WHERE event_id = ?')
-      .get(eventId) as Row | undefined
+    const row = this.db.prepare('SELECT * FROM ops_events WHERE event_id = ?').get(eventId)
     return row ? opsEventFromRow(row) : null
   }
 
   /** 同一项目内按失败签名查找仍在处理中的事件；终态事件不吸收新告警。 */
   findActiveOpsEvent(project: string, signature: string): OpsEventRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM ops_events
           WHERE project = ? AND signature = ?
             AND state IN ('open', 'diagnosed', 'awaiting_decision', 'recovering', 'unresolved')
           ORDER BY opened_at DESC LIMIT 1`,
       )
-      .get(project, signature) as Row | undefined
+      .get(project, signature)
     return row ? opsEventFromRow(row) : null
   }
 
   listOpsEvents(project: string, limit = 200): OpsEventRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM ops_events WHERE project = ? ORDER BY opened_at DESC LIMIT ?')
-      .all(project, limit) as Row[]
+      .all(project, limit)
     return rows.map(opsEventFromRow)
   }
 
@@ -154,7 +152,7 @@ export class OpsStore {
       values.push(typeof value === 'boolean' ? (value ? 1 : 0) : value)
     }
     if (assignments.length === 0) throw new RuleViolationError('运维事件更新至少需要一个字段')
-    this.db.handle
+    this.db
       .prepare(`UPDATE ops_events SET ${assignments.join(', ')} WHERE event_id = ?`)
       .run(...(values as Array<string | number>), eventId)
     const record = this.opsEvent(eventId)
@@ -182,7 +180,7 @@ export class OpsStore {
     const seq = this.db.transaction(() => {
       const row = this.db.handle
         .prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM ops_observations WHERE event_id = ?')
-        .get(input.eventId) as Row | undefined
+        .get(input.eventId)
       const next = (row ? num(row, 'seq') : 0) + 1
       this.db.handle
         .prepare(
@@ -212,9 +210,9 @@ export class OpsStore {
   }
 
   opsObservations(eventId: string): OpsObservationRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM ops_observations WHERE event_id = ? ORDER BY seq')
-      .all(eventId) as Row[]
+      .all(eventId)
     return rows.map((row) => ({
       eventId: text(row, 'event_id'),
       seq: num(row, 'seq'),
@@ -238,7 +236,7 @@ export class OpsStore {
     startedAt: string
     evidencePath?: string
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO ops_action_attempts
            (action_id, event_id, action_def_id, params_json, state, authorization_source, detail, exit_code, started_at, evidence_path)
@@ -268,7 +266,7 @@ export class OpsStore {
       evidencePath?: string
     },
   ): void {
-    this.db.handle
+    this.db
       .prepare(
         `UPDATE ops_action_attempts
             SET state = ?, detail = ?, exit_code = ?, finished_at = ?, evidence_path = ?
@@ -285,20 +283,20 @@ export class OpsStore {
   }
 
   opsActionAttempts(eventId: string): OpsActionAttemptRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         'SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at, action_id',
       )
-      .all(eventId) as Row[]
+      .all(eventId)
     return rows.map(opsActionAttemptFromRow)
   }
 
   latestOpsActionAttempt(eventId: string): OpsActionAttemptRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         'SELECT * FROM ops_action_attempts WHERE event_id = ? ORDER BY started_at DESC, action_id DESC LIMIT 1',
       )
-      .get(eventId) as Row | undefined
+      .get(eventId)
     return row ? opsActionAttemptFromRow(row) : null
   }
 
@@ -308,9 +306,9 @@ export class OpsStore {
    * 由运维 Agent 分析根因后上报；不自动重放动作。
    */
   markRunningOpsActionsInterrupted(now: string): Array<{ actionId: string; eventId: string }> {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare("SELECT * FROM ops_action_attempts WHERE state = 'running' ORDER BY started_at")
-      .all() as Row[]
+      .all()
     const marked: Array<{ actionId: string; eventId: string }> = []
     for (const row of rows) {
       const actionId = text(row, 'action_id')

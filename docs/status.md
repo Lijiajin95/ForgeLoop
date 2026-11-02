@@ -3380,3 +3380,13 @@ suppressions 20、service.ts 5,986 行。
   service 1,969 / repository 1,837 行，suppressions `{}`。
 - 剩余：`as` 109 → <20；`no-non-null-assertion` 32 处、`no-unnecessary-condition` 25 处
   仍全局关闭；E2E/verify-plugin 门禁未接入。
+
+### 72. 运维存储与会话事件去掉断言（新目标 Round 22）
+
+- `ops-store` 改用类型化 `this.db.prepare`，去掉 `as Row | undefined` / `as Row[]`（-8）。
+- `appendSessionEvent` 的 `data` 参数放宽为 `object`，内部一次性收窄为记录；
+  intake 的 4 处 `as unknown as Record<string, unknown>` 直接传原对象（-9）。
+- `as` 断言 **109 → 92**，基线收紧到 92。
+- `make check` 607 项通过，coverage 91.14/96.91/85.03，mutation 97.80。
+- 剩余：`as` 92 → <20；`no-non-null-assertion` 32 处、`no-unnecessary-condition` 25 处
+  仍全局关闭；E2E/verify-plugin 门禁未接入。
