@@ -1,0 +1,10 @@
+#!/bin/sh
+# ForgeLoop 提交前基础检查：类型、lint（含断言规则）、架构契约、token/断言预算、格式。
+# 不做完整测试与覆盖/变异（那些在 make check / CI 中跑），保证提交延迟可控。
+set -e
+cd "$(git rev-parse --show-toplevel)"
+echo "[pre-commit] make check-static"
+make check-static
+echo "[pre-commit] make format"
+make format
+echo "[pre-commit] OK"

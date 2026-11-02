@@ -32,3 +32,17 @@
 - 新增边界例外须说明依据并由审查确认，不得把业务代码挪进边界目录规避规则；
   `scripts/ts/assertion-budget.ts` 会拒绝业务文件出现 `as`。
 - 验证：`make assertions` 与 `packages/forgeloop/tests/assertion-policy.test.ts`。
+
+## 提交前检查（pre-commit）
+
+仓库内置 `.githooks/pre-commit`：提交前运行 `make check-static`（类型、lint、架构契约、
+token/断言预算）与 `make format`，失败即阻止提交。新克隆执行一次安装：
+
+```bash
+make hooks      # 等价于 git config core.hooksPath .githooks
+# 或 make setup（安装依赖并装 hook）
+```
+
+- 不做完整测试、覆盖率与变异测试（这些在 `make check` 与 CI 中）；
+- hook 只影响本机克隆，`core.hooksPath` 不随仓库分发；
+- 紧急绕过需显式 `git commit --no-verify`，不应成为常态。

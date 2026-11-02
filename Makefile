@@ -9,12 +9,13 @@ PKG := packages/forgeloop
 NODE := node
 CONTRACTS := $(NODE) scripts/ts/contracts.ts
 
-.PHONY: setup build typecheck test check check-static lint format contracts budget assertions sbom \
+.PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
 	precommit verify-plugin package \
 	coverage mutation audit security help
 
 help:
+	@echo "make hooks                 安装 pre-commit（check-static + format）"
 	@echo "make check                 类型检查 + 架构契约 + 行为测试"
 	@echo "make test                  全部 TypeScript 行为测试（vitest，forks）"
 	@echo "make test-fast             快速用例（不含候选构建/完整流水线/验证/契约夹具）"
@@ -30,8 +31,14 @@ help:
 	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts）"
 	@echo "make mutation              Stryker 变异测试（domain 关键模块，慢；全量 CI 使用）"
 
-setup:
+setup: hooks
 	$(NPM) install --cache $(CURDIR)/.cache/npm --no-audit --no-fund
+
+# 安装仓库内 pre-commit（检查类型/lint/契约/预算/格式），新克隆执行一次即可。
+hooks:
+	git config core.hooksPath .githooks
+	chmod +x .githooks/pre-commit
+	@echo "core.hooksPath=.githooks" 
 
 build:
 	$(NPM) run build --workspace forgeloop-dsh

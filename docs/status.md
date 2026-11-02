@@ -3766,3 +3766,16 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - 说明：密钥只存在于用户 shell 环境，未写入仓库或日志；临时补丁文件在 `/tmp`。
 - 日志中另有既有提示（与本次验证无关）：记录根被另一个宿主持有、forgeloop profile 无
   `agentPresets` 服务；均未影响工具调用结果。
+
+### 107. 仓库内 pre-commit（新目标 Round 25）
+
+- 新增 `.githooks/pre-commit`：提交前跑 `make check-static`（typecheck/lint/contracts/
+  budget/assertions）+ `make format`，失败即阻断；耗时约 9 秒。
+- `Makefile` 新增 `make hooks`（`git config core.hooksPath .githooks`），`make setup` 自动安装。
+- 红绿验证：
+  - 提交含 `{} as any` 的探针文件 → hook 以 `consistent-type-assertions`/`no-explicit-any`
+    失败并阻止提交，HEAD 未变化；
+  - 删除探针后 hook 通过。
+- 说明：hook 只在本机克隆生效（`core.hooksPath` 不入库），新克隆需 `make hooks`/`make setup`；
+  完整测试、覆盖与变异仍在 `make check`/CI。
+- `CONTRIBUTING.md` 增加安装与绕过说明。
