@@ -1,3 +1,4 @@
+import { asRecord } from '../domain/json.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join, resolve, sep } from 'node:path'
@@ -48,6 +49,25 @@ import {
   type RequirementIssueEvidence,
 } from '../domain/issue.js'
 import { parseVerificationReport } from '../domain/verification.js'
+
+function commandEvidence(raw: unknown): IssueCommandEvidence | null {
+  const item = asRecord(raw)
+  if (!item) return null
+  const label = typeof item.label === 'string' ? item.label : ''
+  if (!label) return null
+  return {
+    label,
+    argv: Array.isArray(item.argv)
+      ? item.argv.filter((value): value is string => typeof value === 'string')
+      : [],
+    exitCode: typeof item.exitCode === 'number' ? item.exitCode : null,
+    timedOut: item.timedOut === true,
+    aborted: item.aborted === true,
+    logPath: typeof item.logPath === 'string' ? item.logPath : '',
+    logSha256: typeof item.logSha256 === 'string' ? item.logSha256 : '',
+    durationMs: typeof item.durationMs === 'number' ? item.durationMs : 0,
+  }
+}
 
 export interface AdvancePipelineDeps {
   config: ForgeLoopConfig
@@ -324,26 +344,12 @@ export class AdvancePipeline {
       return []
     }
     if (typeof data !== 'object' || data === null) return []
-    const commands = (data as { commands?: unknown }).commands
+    const commands = asRecord(data)?.commands
     if (!Array.isArray(commands)) return []
     const collected: IssueCommandEvidence[] = []
     for (const raw of commands) {
-      if (typeof raw !== 'object' || raw === null) continue
-      const item = raw as Record<string, unknown>
-      const label = typeof item.label === 'string' ? item.label : ''
-      if (!label) continue
-      collected.push({
-        label,
-        argv: Array.isArray(item.argv)
-          ? item.argv.filter((value): value is string => typeof value === 'string')
-          : [],
-        exitCode: typeof item.exitCode === 'number' ? item.exitCode : null,
-        timedOut: item.timedOut === true,
-        aborted: item.aborted === true,
-        logPath: typeof item.logPath === 'string' ? item.logPath : '',
-        logSha256: typeof item.logSha256 === 'string' ? item.logSha256 : '',
-        durationMs: typeof item.durationMs === 'number' ? item.durationMs : 0,
-      })
+      const command = commandEvidence(raw)
+      if (command) collected.push(command)
     }
     return collected
   }

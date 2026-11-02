@@ -3462,3 +3462,13 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.14/96.85/84.90，mutation 97.80。
 - 剩余：`as` 76；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 80. 推进流水线命令证据解析（新目标 Round 30）
+
+- `advance-pipeline` 的验证命令证据改为 `asRecord` 守卫，并抽出 `commandEvidence(raw)`
+  降低 `issueCommands` 复杂度（17 → 15 以内）。
+- service.ts 同批的 3 处断言改动因 token 预算超 7 个 token 已回退，未混入本提交。
+- `as` 断言 **76 → 74**（本批净 -2），基线 74。
+- `make check` 607 项通过，coverage 91.14/96.85/84.89，mutation 97.80。
+- 剩余：`as` 74；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。
