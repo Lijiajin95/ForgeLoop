@@ -3237,3 +3237,13 @@ suppressions 20、service.ts 5,986 行。
   下一批必须把这些助手整体移入 `legacy-verification.ts`，回收行数与 token。
 - `make check` 607 项通过，coverage 91.17/96.98/84.88，mutation 97.80。
 - 剩余：`deliverTask`（3 条）与两个文件行数上限。
+
+### 59. 旧链路验证整体移出（新目标 Round 9）
+
+- 新增 `src/runtime/legacy-verification.ts`：`LegacyVerification` 承载 `verifyCandidate`
+  及工作区准备、业务终审发送/记录、命令执行、验证记录五个助手，依赖通过
+  `LegacyVerificationDeps` 注入。
+- service.ts **6,391 → 5,942 行**；tokens **69,865 → 63,774**，token 基线同步**下调**。
+- suppressions 维持 5；`make check` 607 项通过，coverage 91.19/97.00/84.90，
+  mutation 97.80。
+- 剩余：`deliverTask`（422/131/36）与两个文件行数上限。
