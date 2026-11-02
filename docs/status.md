@@ -3714,3 +3714,13 @@ suppressions 20、service.ts 5,986 行。
 - 本机实测：`[e2e-board] OK：看板路由返回 project=forgeloop-e2e（HTTP 200）`；
   `make e2e` 两条均通过。
 - `make check` 59 文件 611 项；coverage 91.18/84.36/96.77；mutation 97.80。
+
+### 103. 会话模块与看板入参断言收敛（新目标 Round 21）
+
+- `session/events`：动态导入结果先收窄为 unknown，再用类型谓词 `isAppendRecord` 判定，
+  去掉 `as { appendPluginRecord? }`。
+- `runtime/board-route`：`BoardBody` 改为 `Record<string, unknown>` 类型别名，
+  请求体用 `asRecord(payload) ?? null`，去掉 `payload as BoardBody | null`。
+- 边界断言 **26 → 24**，基线 24。
+- 先跑 auto-intake/board-route 12 项通过；`make check` 59 文件 611 项、
+  coverage 91.16/84.30/96.67、mutation 97.80。

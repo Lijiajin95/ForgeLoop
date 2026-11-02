@@ -21,16 +21,21 @@ import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 type AppendRecord = (session: unknown, type: string, data: unknown) => unknown
+function isAppendRecord(value: unknown): value is AppendRecord {
+  return typeof value === 'function'
+}
+
 let appendRecord: AppendRecord | undefined
 try {
   // 从 DSH 自己的入口解析包，避免把宿主内部包写进插件依赖；测试环境找不到时
   // 回退到 session.append，仅用于不持久化 DSH 日志的假会话。
   const entry = process.argv[1] ? realpathSync(process.argv[1]) : ''
   const requireFromDsh = createRequire(entry)
-  const sessionModule = (await import(
+  const sessionModule: unknown = await import(
     pathToFileURL(requireFromDsh.resolve('@deepseek-ai/dsh-session')).href
-  )) as { appendPluginRecord?: AppendRecord }
-  appendRecord = sessionModule.appendPluginRecord
+  )
+  const candidate = asRecord(sessionModule)?.appendPluginRecord
+  appendRecord = isAppendRecord(candidate) ? candidate : undefined
 } catch {
   appendRecord = undefined
 }

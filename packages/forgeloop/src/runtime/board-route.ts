@@ -29,25 +29,7 @@ const BOARD_ENDPOINTS = [
   'ops-request-fix',
 ]
 
-interface BoardBody {
-  endpoint?: unknown
-  reqId?: unknown
-  sessionId?: unknown
-  planVersion?: unknown
-  taskId?: unknown
-  artifactSha256?: unknown
-  targetProfile?: unknown
-  version?: unknown
-  eventId?: unknown
-  decision?: unknown
-  reason?: unknown
-  confirmRecovery?: unknown
-  confirmPlanChange?: unknown
-  files?: unknown
-  query?: unknown
-  limit?: unknown
-  offset?: unknown
-}
+type BoardBody = Record<string, unknown>
 
 interface BoardContext {
   readonly runtime: ForgeLoopRuntime
@@ -545,7 +527,7 @@ export function createBoardFetch(
     } catch {
       return boardResponse(boardFailure('bad_request', '请求体不是 JSON'), 400)
     }
-    const body = payload as BoardBody | null
+    const body: BoardBody | null = asRecord(payload) ?? null
     const endpoint = body?.endpoint
     if (!BOARD_ENDPOINTS.includes(String(endpoint))) {
       return boardResponse(boardFailure('not_found', `未知的看板端点 ${String(endpoint)}`), 404)
