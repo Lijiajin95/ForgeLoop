@@ -4167,20 +4167,21 @@ orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工�
 | 文件 | 改动 |
 | --- | --- |
 | `src/runtime/execution-dev.ts` | 超时/停止时采集 diff，写入 `evidence/.../checkpoint-aN.diff` 与 `.json`；开发回合上限改为 `clamp(task.limit_seconds, agent.timeoutSeconds, agent.maxTurnSeconds)` |
-| `src/config.ts` | 新增 `agent.maxTurnSeconds`（默认 7200），作为长任务硬上限 |
+| `src/config.ts` | 新增 `agent.maxTurnSeconds`（默认 7200）与 `agent.idleTimeoutSeconds`（默认 300） |
+| `src/runtime/agent-runner.ts` | 新增无进展看门狗：连续 300 秒没有新事件就取消回合，reason 标明“没有新进展”；一次回合与会话回合都生效 |
 | `src/runtime/prompts.ts` | 评审允许当前项目内清单外文件（测试/架构文档），只拦截跨项目、伪造或削弱测试、关键缺失；计划提示词要求把测试与架构文档写入 `files` |
 | 测试 | 超时后 checkpoint 存在且包含改动；`maxTurnSeconds` 解析；两处提示词断言 |
 
 ### 46.3 验证
 
-- `make check`：61 个测试文件、637 项通过
+- `make check`：61 个测试文件、639 项通过
 - `make check-fast`：49 个文件、415 项通过
 - `make contracts`、`make lint`、`make format`：通过
 - 本次改动在独立 worktree（`fix/interrupted-turn-recovery`）完成，未触碰主工作树中其他会话的在途改动
 
 ### 46.4 仍未完成
 
-- 回合内“无进展超时”尚未实现；模型流停顿仍会消耗任务工时，只是不再被 1800 秒总上限提前截断。
 - 工时耗尽仍无追加授权/延长入口；当前需求需要人工延长或拆分。
+- 无进展看门狗只覆盖“完全没有新事件”；如果模型持续输出但长期不收敛，仍会占用任务工时。
 - 历史事件里的工作副本仍可能被下一次执行覆盖；修复只对之后的中断生效。
 - 补记：`service.ts` 在需求队列重构后已降到约 1,983 行；§45.4 的 5,836 行是重构前数字，拆分事项应重新评估。
