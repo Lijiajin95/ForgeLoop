@@ -56,25 +56,35 @@ const ANALYSIS = JSON.stringify({
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
-  tasks: [
-    {
-      task_id: 'a',
-      goal: '实现功能 A',
-      files: ['docs/a.md'],
-      acceptance: CRITERION,
-      test_command: ['node', '-e', 'process.exit(0)'],
-    },
-    {
-      task_id: 'b',
-      goal: '实现功能 B',
-      files: ['docs/b.md'],
-      depends_on: ['a'],
-      acceptance: CRITERION,
-      test_command: ['node', '-e', 'process.exit(0)'],
-    },
-  ],
-})
+/** 自验门禁用：只有第二次研发回合写入 docs/ready 才通过，用来证明自验失败在同一会话修。 */
+const GATED_TEST_COMMAND = [
+  'node',
+  '-e',
+  "process.exit(require('fs').existsSync('docs/ready') ? 0 : 1)",
+]
+
+function planText(gated = false): string {
+  const first = gated ? GATED_TEST_COMMAND : ['node', '-e', 'process.exit(0)']
+  return JSON.stringify({
+    tasks: [
+      {
+        task_id: 'a',
+        goal: '实现功能 A',
+        files: ['docs/a.md'],
+        acceptance: CRITERION,
+        test_command: first,
+      },
+      {
+        task_id: 'b',
+        goal: '实现功能 B',
+        files: ['docs/b.md'],
+        depends_on: ['a'],
+        acceptance: CRITERION,
+        test_command: ['node', '-e', 'process.exit(0)'],
+      },
+    ],
+  })
+}
 
 function verificationReport(verdict: 'pass' | 'block'): string {
   return JSON.stringify({
@@ -123,14 +133,20 @@ function fakeRunner(
     businessBlock?: boolean
     orchestratorSessionId?: () => string | null
     resumeFails?: boolean
+    selfTestGate?: boolean
   } = {},
 ): AgentLike {
   let verifications = 0
   let plans = 0
+  let devAttempts = 0
   const closed: string[] = []
+  const roleTrace: string[] = []
+  const devPrompts: string[] = []
+  const devWorkspaces: string[] = []
   const session = (request: AgentOpenRequest) => ({
     sessionId: `session-fl-${request.role}-test`,
     async send(turn: { prompt: string; transcriptPath: string }): Promise<AgentRunResult> {
+      roleTrace.push(request.role)
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
         if (options.planAborted) {
           return {
@@ -197,7 +213,10 @@ function fakeRunner(
             }),
           )
         }
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, PLAN)
+        return result(
+          { role: request.role, transcriptPath: turn.transcriptPath },
+          planText(options.selfTestGate === true),
+        )
       }
       if (request.role === 'dev' && turn.prompt.includes('当前任务：')) {
         if (options.devAborted) {
@@ -226,8 +245,14 @@ function fakeRunner(
           return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'no change')
         }
         const taskId = /当前任务：(.+)/.exec(turn.prompt)?.[1]?.trim() ?? 'a'
+        devAttempts += 1
+        devPrompts.push(turn.prompt)
+        devWorkspaces.push(request.cwd)
         mkdirSync(join(request.cwd, 'docs'), { recursive: true })
         writeFileSync(join(request.cwd, `docs/${taskId}.md`), `content ${Date.now()}\n`)
+        if (options.selfTestGate === true && devAttempts >= 2) {
+          writeFileSync(join(request.cwd, 'docs/ready'), 'ready\n')
+        }
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'done')
       }
       if (request.role === 'dev' && turn.prompt.includes('发现缺陷')) {
@@ -428,7 +453,7 @@ function fakeRunner(
             }),
           )
         }
-        return result(request, PLAN)
+        return result(request, planText(options.selfTestGate === true))
       }
       throw new Error(`unexpected single-turn role ${request.role}`)
     },
@@ -445,6 +470,9 @@ function fakeRunner(
       })
     },
     closedRoles: closed,
+    roleTrace,
+    devPrompts,
+    devWorkspaces,
   }
 }
 
@@ -1560,6 +1588,34 @@ describe('development session routing failures', () => {
     expect(sessionId.startsWith('session-fl-dev-')).toBe(true)
     // 旧会话记录与现场保留，只把需求改派到新会话。
     expect(runtime.repo.devSession('session-broken')).not.toBeNull()
+  })
+
+  it('keeps self-verification inside the development session', async () => {
+    const gated = fakeRunner({ selfTestGate: true })
+    runtime.close()
+    runtime = makeRuntime(gated)
+
+    const submitted = runtime.submit({
+      text: '研发会话自己跑测试并修到通过',
+      by: 'owner',
+      source: 'dsh-session:sess-self:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+
+    expect(advance.state, advance.detail).toBe('done')
+    // 自验失败的日志回到同一个研发会话继续修，不换工作区、不新开会话。
+    expect(gated.devPrompts.some((prompt) => prompt.includes('研发自验未通过'))).toBe(true)
+    expect(new Set(gated.devWorkspaces)).toEqual(new Set([boundWorkspace(reqId)]))
+    expect(gated.devWorkspaces.length).toBeGreaterThan(1)
+    // 修复发生在独立验证之前：第一次 verify 在第二次 dev 之后。
+    const firstDev = gated.roleTrace.indexOf('dev')
+    const secondDev = gated.roleTrace.indexOf('dev', firstDev + 1)
+    expect(secondDev).toBeGreaterThan(firstDev)
+    expect(gated.roleTrace.indexOf('verify')).toBeGreaterThan(secondDev)
+    expect(gated.closedRoles).not.toContain('dev')
   })
 
   it('recovers with a new session when the host cannot restore the bound one', async () => {
