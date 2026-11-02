@@ -1,3 +1,4 @@
+import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -273,9 +274,7 @@ export class BuildMaterialValidator {
       }
       return null
     }
-    const recordedContent = (
-      canonical.candidateIntegrity as { candidateContentSha256?: unknown } | undefined
-    )?.candidateContentSha256
+    const recordedContent = asRecord(canonical.candidateIntegrity)?.candidateContentSha256
     if (typeof recordedContent !== 'string') return null
     const actual = requireGit(source, ['diff', 'HEAD', '--binary'])
     if (sha256OfText(actual) === recordedContent) return null

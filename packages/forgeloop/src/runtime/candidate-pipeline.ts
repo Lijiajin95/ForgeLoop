@@ -365,36 +365,35 @@ export class CandidatePipeline {
         result: fail('artifact_missing', `打包完成但没有找到产物清单 ${artifactPath}`),
       }
     }
-    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as {
-      sha256?: string
-      tarball?: string
-      files?: string[]
-      gitHead?: string
-      builtAt?: string
-      version?: string
-    }
-    if (!artifact.sha256 || !artifact.tarball) {
+    const artifact = parseJsonObject(readFileSync(artifactPath, 'utf8'))
+    const artifactSha256 = typeof artifact.sha256 === 'string' ? artifact.sha256 : ''
+    const artifactTarball = typeof artifact.tarball === 'string' ? artifact.tarball : ''
+    const artifactVersion = typeof artifact.version === 'string' ? artifact.version : ''
+    const artifactFiles = Array.isArray(artifact.files)
+      ? artifact.files.filter((file): file is string => typeof file === 'string')
+      : []
+    if (!artifactSha256 || !artifactTarball) {
       return {
         ok: false,
         result: fail('artifact_malformed', `产物清单缺少 sha256/tarball：${artifactPath}`),
       }
     }
-    if (artifact.version && artifact.version !== packageVersion) {
+    if (artifactVersion && artifactVersion !== packageVersion) {
       return {
         ok: false,
         result: fail(
           'artifact_version_mismatch',
-          `产物版本 ${artifact.version} 与包清单 ${packageVersion} 不一致`,
+          `产物版本 ${artifactVersion} 与包清单 ${packageVersion} 不一致`,
         ),
       }
     }
-    const artifactSha = sha256OfBytes(readFileSync(artifact.tarball))
-    if (artifactSha !== artifact.sha256) {
+    const artifactSha = sha256OfBytes(readFileSync(artifactTarball))
+    if (artifactSha !== artifactSha256) {
       return {
         ok: false,
         result: fail(
           'artifact_mismatch',
-          `产物摘要与清单不一致：清单 ${artifact.sha256}，实际 ${artifactSha}`,
+          `产物摘要与清单不一致：清单 ${artifactSha256}，实际 ${artifactSha}`,
         ),
       }
     }
@@ -402,10 +401,10 @@ export class CandidatePipeline {
       ok: true,
       value: {
         artifactSha,
-        tarball: artifact.tarball,
-        files: artifact.files ?? [],
-        gitHead: artifact.gitHead ?? '',
-        builtAt: artifact.builtAt ?? '',
+        tarball: artifactTarball,
+        files: artifactFiles,
+        gitHead: typeof artifact.gitHead === 'string' ? artifact.gitHead : '',
+        builtAt: typeof artifact.builtAt === 'string' ? artifact.builtAt : '',
       },
     }
   }

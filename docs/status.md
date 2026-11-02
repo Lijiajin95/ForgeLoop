@@ -3601,3 +3601,15 @@ suppressions 20、service.ts 5,986 行。
 - 下一步：把上述 4 处业务断言清零，并在 `assertion-budget.ts` 中加入边界白名单，
   使“业务代码 0 处”成为机器门禁。
 - `make check` 607 项通过；coverage 91.19/84.40/96.88；mutation 97.80。
+
+### 92. 业务代码零 as，边界白名单门禁（新目标 Round 10）
+
+- 去掉最后 4 处业务 `as`：advance-pipeline 故障注入、build-materials 候选完整性、
+  ops 动作参数、candidate-pipeline 产物清单，全部改为 `parseJsonObject`/`asRecord` + 字段守卫。
+- `assertion-budget.ts` 新增边界白名单（15 个文件：host API、SQLite、config、npm/子进程输出、
+  HTTP/工具入参），规则：
+  - **业务文件出现任何 `as` 直接失败**；
+  - 边界文件仅允许白名单内的历史断言，总数 ratchet 到 **34**。
+- 当前：**业务 0 处；边界 34 处（白名单 15 文件）**，与所有者口径一致。
+- `make check` 607 项通过；coverage 91.19/84.38/96.88；mutation 97.80。
+- 剩余：E2E 套件 / `make e2e`、verify-plugin 自动门禁、分支保护未落实项。

@@ -13,6 +13,7 @@
  * - 正常巡检通过不产生事件，也不进入人工介入统计的分母。
  */
 
+import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
 import { errorMessage } from '../domain/errors.js'
@@ -332,10 +333,14 @@ function interruptionReported(observations: ReturnType<Repository['opsObservatio
 function attemptParams(raw: string): Record<string, string> {
   try {
     const parsed: unknown = JSON.parse(raw || '{}')
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, string>
-    }
-    return {}
+    const record = asRecord(parsed)
+    if (!record) return {}
+    return Object.fromEntries(
+      Object.entries(record).map(([key, value]) => [
+        key,
+        typeof value === 'string' ? value : String(value),
+      ]),
+    )
   } catch {
     return {}
   }

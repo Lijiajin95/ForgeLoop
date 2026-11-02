@@ -1,3 +1,4 @@
+import { parseJsonObject } from '../domain/json.js'
 import { asRecord } from '../domain/json.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
@@ -103,12 +104,7 @@ export class AdvancePipeline {
     const dir = candidatesDir(this.deps.config, reqId, planVersion)
     const marker = join(dir, 'fault-injection.json')
     if (existsSync(marker)) return
-    const spec = JSON.parse(raw) as {
-      file?: unknown
-      append?: unknown
-      replaceFrom?: unknown
-      replaceTo?: unknown
-    }
+    const spec = parseJsonObject(raw)
     if (typeof spec.file !== 'string' || spec.file.trim() === '') {
       throw new RuleViolationError('FORGELOOP_FAULT_INJECT 需要 file')
     }

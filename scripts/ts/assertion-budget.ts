@@ -9,7 +9,29 @@ import { join, relative, sep } from 'node:path'
 
 const ROOT = process.cwd()
 const SOURCE = join(ROOT, 'packages/forgeloop/src')
-const BASELINE = 38
+const BASELINE = 34
+
+/**
+ * 接口边界白名单：宿主 API、SQLite、配置文件、npm/子进程输出、HTTP/工具入参。
+ * 只有这些文件允许出现 `as`；业务代码必须为 0。
+ */
+const BOUNDARY_FILES = new Set([
+  'packages/forgeloop/src/domain/json.ts',
+  'packages/forgeloop/src/records/db.ts',
+  'packages/forgeloop/src/records/repository.ts',
+  'packages/forgeloop/src/records/ops-store.ts',
+  'packages/forgeloop/src/records/issues.ts',
+  'packages/forgeloop/src/config.ts',
+  'packages/forgeloop/src/index.ts',
+  'packages/forgeloop/src/tools.ts',
+  'packages/forgeloop/src/cli/pack.ts',
+  'packages/forgeloop/src/runtime/agent-runner.ts',
+  'packages/forgeloop/src/runtime/formal-test.ts',
+  'packages/forgeloop/src/runtime/board-route.ts',
+  'packages/forgeloop/src/session/events.ts',
+  'packages/forgeloop/src/session/index.ts',
+  'packages/forgeloop/src/session/preset.ts',
+])
 function countAs(file: string): number {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
   let count = 0
@@ -40,8 +62,19 @@ const rows = filesUnder(SOURCE)
   .sort((left, right) => right.count - left.count)
 
 const total = rows.reduce((sum, row) => sum + row.count, 0)
+const businessRows = rows.filter((row) => !BOUNDARY_FILES.has(row.path))
+const business = businessRows.reduce((sum, row) => sum + row.count, 0)
+const boundary = total - business
 const top = rows.slice(0, 5).map((row) => `${row.path} ${row.count}`)
-console.log(`[assertions] ${total} 处（baseline ${BASELINE}）；最多：${top.join('，')}`)
+console.log(
+  `[assertions] 业务 ${business} 处；边界 ${boundary} 处（白名单 ${BOUNDARY_FILES.size} 文件）；合计 ${total}（baseline ${BASELINE}）；最多：${top.join('，')}`,
+)
+if (business > 0) {
+  console.error(
+    `[assertions] 业务代码不允许 as：${businessRows.map((row) => `${row.path} ${row.count}`).join('，')}`,
+  )
+  process.exit(1)
+}
 if (total > BASELINE) {
   console.error(`[assertions] 断言数超过 baseline：新增断言请改为 schema 解析或显式收窄`)
   process.exit(1)
