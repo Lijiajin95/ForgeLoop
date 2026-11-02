@@ -118,10 +118,18 @@ DSH 宿主（唯一常驻产品）
 成功结论另写 `requirement_analyses`，同样带这些元数据。失败不会覆盖历史结论，也不清零 attempt。
 
 产品 Agent 以 `workspace-write` 权限运行，但工具面由 `domain/analysis.ts` 的白名单固定：
-`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`web_search`、`web_fetch`；
-宿主登记的其他工具（shell、文件编辑等）一律 deny，也不挂 standard 编码 preset。文档工具只接受
-项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件），读上限 64 KiB、
-写上限 128 KiB，所以“禁止修改代码”由工具面确定性保证，而不是只靠提示词。
+`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`forgeloop_web_search`、
+`forgeloop_web_fetch`；宿主登记的其他工具（shell、文件编辑等）一律 deny，也不挂 standard 编码
+preset。文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件），
+读上限 64 KiB、写上限 128 KiB，所以“禁止修改代码”由工具面确定性保证，而不是只靠提示词。
+两个联网工具调用 DeepSeek Search & Fetch（`api.deepseek.com/v1/tools/search|fetch`，密钥取自
+宿主环境变量 `DEEPSEEK_API_KEY`），30 秒超时、抓取正文截断 20k 字符，失败按状态码映射成原因。
+
+分析结果可以带 `business_context: { changed, document }`：`changed=true` 时必须给出整份 Markdown，
+`changed=false` 时 `document` 必须为空；缺字段按未变化处理。`executeAnalysis` 在解析成功后由
+**程序**调用 `writeProjectDoc` 写 `docs/forgeloop/business-context.md`，写失败按分析失败处理
+（记 `analysis_failed`、不落分析结论），因此“识别到新背景就必须同步文档”是确定性规则，
+不依赖模型遵守提示词；`forgeloop_write_project_doc` 对同一路径直接拒绝，运行时是唯一写入方。
 
 分析失败时需求进入 `analysis_failed` 并保留失败原因；协调器每拍扫描一次，对没有在途请求、
 没有主动停止且该版本 `auto` 尝试不足 3 次的失败需求排一次 `analyze`（来源
@@ -130,8 +138,9 @@ DSH 宿主（唯一常驻产品）
 
 ### 4.2 运行时内部操作
 
-模型工具只读查询、受理需求或写项目内 Markdown 文档：`forgeloop_submit_requirement` 先落库，
-返回稳定需求身份与版本 1；`forgeloop_write_project_doc` 只写项目内 `.md`，不能写代码；
+模型工具只读查询、受理需求、写项目内 Markdown 文档或联网检索：`forgeloop_submit_requirement`
+先落库，返回稳定需求身份与版本 1；`forgeloop_write_project_doc` 只写项目内 `.md`，不能写代码，
+也不能写由运行时维护的业务背景文档；`forgeloop_web_search`/`forgeloop_web_fetch` 只读检索；
 其余工具只读查询。`/fl` 人类命令表面已删除。普通需求的推进由系统准入与协调器自动完成，
 不再需要 Web 任务包卡片上的批准、推进、独立验证或验收动作；这些旧端点只保留历史兼容。
 例外取舍仍没有完整入口，不能由工具或参数伪造。
