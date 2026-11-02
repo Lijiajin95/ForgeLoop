@@ -28,7 +28,7 @@ const LABELS: Readonly<Record<AgentIdentity, string>> = {
 }
 
 export function isAgentIdentity(value: string): value is AgentIdentity {
-  return (AGENT_IDENTITIES as readonly string[]).includes(value)
+  return AGENT_IDENTITIES.some((identity) => identity === value)
 }
 
 export function agentLabel(identity: AgentIdentity): string {

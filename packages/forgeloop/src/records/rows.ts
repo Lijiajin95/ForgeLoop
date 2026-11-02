@@ -4,6 +4,23 @@ import type { OpsSeverity } from '../domain/ops.js'
 import { OPS_SEVERITIES } from '../domain/ops.js'
 import { ISSUE_STAGES, ISSUE_STATUSES, type IssueStage, type IssueStatus } from '../domain/issue.js'
 import { RuleViolationError } from '../domain/errors.js'
+import {
+  FAILURE_BUSINESS_REVIEW,
+  FAILURE_FORMAL_TEST,
+  FAILURE_INTERRUPTED,
+  FAILURE_PLANNING,
+  FAILURE_USER_ACCEPTANCE,
+  FAILURE_VERIFICATION,
+  type FailureStage,
+} from '../domain/counting.js'
+import {
+  TASK_RUN_AWAITING_USER,
+  TASK_RUN_BLOCKED,
+  TASK_RUN_DELIVERED,
+  TASK_RUN_FAILED,
+  TASK_RUN_RUNNING,
+  type TaskRunState,
+} from '../domain/status.js'
 
 export type Row = Record<string, unknown>
 
@@ -24,6 +41,31 @@ export function issueStageOf(row: Row): IssueStage {
 
 export function issueStatusOf(row: Row): IssueStatus {
   return oneOf(text(row, 'status'), ISSUE_STATUSES, '问题单 status')
+}
+
+const FAILURE_STAGES: readonly FailureStage[] = [
+  FAILURE_FORMAL_TEST,
+  FAILURE_PLANNING,
+  FAILURE_INTERRUPTED,
+  FAILURE_VERIFICATION,
+  FAILURE_BUSINESS_REVIEW,
+  FAILURE_USER_ACCEPTANCE,
+]
+
+const TASK_RUN_STATES: readonly TaskRunState[] = [
+  TASK_RUN_RUNNING,
+  TASK_RUN_DELIVERED,
+  TASK_RUN_AWAITING_USER,
+  TASK_RUN_FAILED,
+  TASK_RUN_BLOCKED,
+]
+
+export function failureStageOf(row: Row): FailureStage {
+  return oneOf(text(row, 'stage'), FAILURE_STAGES, '失败轮次 stage')
+}
+
+export function taskRunStateOf(row: Row): TaskRunState {
+  return oneOf(text(row, 'state'), TASK_RUN_STATES, '任务运行 state')
 }
 
 export function opsSeverityOf(row: Row): OpsSeverity {

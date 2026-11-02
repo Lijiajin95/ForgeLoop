@@ -110,7 +110,7 @@ export function parseJsonLoose(text: string, what: string): unknown {
   const end = candidate.lastIndexOf('}')
   const body = start >= 0 && end > start ? candidate.slice(start, end + 1) : candidate
   try {
-    return JSON.parse(body) as unknown
+    return JSON.parse(body)
   } catch (error) {
     throw new MalformedError(`${what}不是可解析的 JSON：${errorMessage(error)}`)
   }

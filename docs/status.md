@@ -3554,3 +3554,12 @@ suppressions 20、service.ts 5,986 行。
 - `execution-views` 去掉 `?? null` 避免复杂度升到 16。
 - `as` 断言 **71 → 64**，基线 64。
 - `make check` 607 项通过；coverage 91.15/84.50/96.87；mutation 97.80。
+
+### 87. 行枚举解析器覆盖任务状态与失败阶段（新目标 Round 4）
+
+- `rows.ts` 新增 `taskRunStateOf` / `failureStageOf`（复用 `oneOf` 校验），
+  repository 不再 `as TaskRunState` / `as FailureRound['stage']`。
+- `agents.ts` 的 `AGENT_IDENTITIES as readonly string[]` 改为 `some(identity === value)`。
+- `requirement.ts` 去掉 `JSON.parse(...) as unknown` 多余断言。
+- `as` 断言 **64 → 60**，基线 60。
+- `make check` 607 项通过；coverage 91.16/84.52/96.88；mutation 97.80。

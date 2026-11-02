@@ -15,7 +15,6 @@ import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
 import type { FailureRound } from '../domain/counting.js'
 import type { TaskArtifact, TaskRun } from '../domain/work.js'
-import type { TaskRunState } from '../domain/status.js'
 import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
 import { OpsStore } from './ops-store.js'
@@ -33,7 +32,15 @@ import type {
   RequirementCommitRecord,
 } from './rows.js'
 
-import { businessReviewRow, num, text, verificationRow, type Row } from './rows.js'
+import {
+  businessReviewRow,
+  failureStageOf,
+  num,
+  taskRunStateOf,
+  text,
+  verificationRow,
+  type Row,
+} from './rows.js'
 
 export type {
   RequirementEvidence,
@@ -878,7 +885,7 @@ export class Repository extends OpsStore {
       requirementId: text(row, 'req_id'),
       planVersion: num(row, 'plan_version'),
       taskId: text(row, 'task_id'),
-      state: text(row, 'state') as TaskRunState,
+      state: taskRunStateOf(row),
       reason: text(row, 'reason'),
       executedSeconds: num(row, 'executed_seconds'),
       updatedAt: text(row, 'updated_at'),
@@ -1101,7 +1108,7 @@ export class Repository extends OpsStore {
       .all(reqId)
     return rows.map((row) => ({
       roundId: text(row, 'round_id'),
-      stage: text(row, 'stage') as FailureRound['stage'],
+      stage: failureStageOf(row),
       summary: text(row, 'summary'),
       occurredAt: text(row, 'occurred_at'),
     }))
