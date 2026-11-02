@@ -129,7 +129,7 @@ export function executionOrder(plan: Pick<TaskPlan, 'tasks'>): string[] {
   const remaining = new Map(plan.tasks.map((task) => [task.taskId, new Set(task.dependsOn)]))
   while (remaining.size > 0) {
     const ready = plan.tasks
-      .filter((task) => remaining.has(task.taskId) && remaining.get(task.taskId)!.size === 0)
+      .filter((task) => remaining.has(task.taskId) && (remaining.get(task.taskId)?.size ?? 0) === 0)
       .map((task) => task.taskId)
     if (ready.length === 0) throw new RuleViolationError('任务包依赖存在环，无法形成执行顺序')
     for (const taskId of ready) {

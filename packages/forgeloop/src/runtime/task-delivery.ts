@@ -579,7 +579,7 @@ export class TaskDelivery {
     writeFileSync(join(taskDir, 'baseline.json'), `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8')
     if (this.deps.config.worktreePrepareCommand.length > 0) {
       const prepare = runCommand(
-        this.deps.config.worktreePrepareCommand[0]!,
+        this.deps.config.worktreePrepareCommand[0] ?? '',
         this.deps.config.worktreePrepareCommand.slice(1),
         worktree,
         this.deps.config.formalTestTimeoutSeconds * 1000,

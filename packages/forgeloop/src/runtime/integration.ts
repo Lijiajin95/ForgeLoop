@@ -232,7 +232,7 @@ function applyAndCheck(
   let checkOutput = ''
   if (input.checkCommand.length > 0) {
     const check = runCommand(
-      input.checkCommand[0]!,
+      input.checkCommand[0] ?? '',
       input.checkCommand.slice(1),
       worktree,
       input.timeoutMs,

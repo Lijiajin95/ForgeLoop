@@ -304,7 +304,7 @@ export class Repository extends OpsStore {
 
   latestAnalysis(reqId: string): RequirementAnalysis | null {
     const all = this.analyses(reqId)
-    return all.length > 0 ? all[all.length - 1]! : null
+    return all.at(-1) ?? null
   }
 
   // ---------------------------------------------------------------- 任务包
@@ -361,7 +361,7 @@ export class Repository extends OpsStore {
 
   latestTaskPlan(reqId: string): TaskPlan | null {
     const plans = this.taskPlans(reqId)
-    return plans.length > 0 ? plans[plans.length - 1]! : null
+    return plans.at(-1) ?? null
   }
 
   recordPlanApproval(approval: TaskPlanApproval): void {
@@ -477,7 +477,8 @@ export class Repository extends OpsStore {
                 ORDER BY created_at DESC, admission_id DESC LIMIT 1`,
             )
             .all(reqId, requirementVersion)
-    return rows.length > 0 ? admissionFromRow(rows[0]!) : null
+    const row = rows[0]
+    return row ? admissionFromRow(row) : null
   }
 
   // ---------------------------------------------------------------- 主动停止
@@ -503,7 +504,9 @@ export class Repository extends OpsStore {
            resumed_at = ''`,
       )
       .run(input.requirementId, input.requestedBy, input.reason, input.requestedAt)
-    return this.stop(input.requirementId)!
+    const stopped = this.stop(input.requirementId)
+    if (!stopped) throw new RuleViolationError(`需求 ${input.requirementId} 停止后无法读回`)
+    return stopped
   }
 
   stop(reqId: string): StopRecord | null {
@@ -574,7 +577,7 @@ export class Repository extends OpsStore {
 
   latestCodeCandidate(reqId: string, planVersion: number): CodeCandidateRecord | null {
     const rows = this.codeCandidates(reqId, planVersion)
-    return rows.length > 0 ? rows[rows.length - 1]! : null
+    return rows.at(-1) ?? null
   }
 
   codeCandidate(

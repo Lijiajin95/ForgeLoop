@@ -301,7 +301,7 @@ function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {
       typeof item.verifyCheckId === 'string' && item.verifyCheckId.trim()
         ? item.verifyCheckId.trim()
         : candidates.length === 1
-          ? candidates[0]!.id
+          ? (candidates[0]?.id ?? '')
           : ''
     if (!verifyCheckId) {
       throw new RuleViolationError(

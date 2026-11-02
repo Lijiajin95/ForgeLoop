@@ -41,7 +41,7 @@ export default tseslint.config(
       ],
       // 两条规则暂列 ratchet：断言集中在已校验的 Map/数组取值，条件判断多为宿主/JSON
       // 防御式校验；逐条收敛前先显式关闭，避免用 disable 注释刷绿。
-      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-unnecessary-condition': 'off',
       '@typescript-eslint/require-await': 'off',
       'no-useless-assignment': 'off',

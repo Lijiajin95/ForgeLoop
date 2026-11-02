@@ -910,19 +910,60 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     }
   }
 
+  private advanceInputs(reqId: string):
+    | {
+        ok: true
+        requirement: Requirement
+        plan: TaskPlan
+        authorizationSource: string
+        baseline: string
+      }
+    | { ok: false; detail: string } {
+    const authorized = this.authorizedPlanOf(reqId)
+    if (!authorized.ok) return authorized
+    const requirement = this.deps.repo.getRequirement(reqId)
+    if (!requirement) return { ok: false, detail: `未找到需求 ${reqId}` }
+    const context = this.advanceContext(reqId, authorized.plan)
+    if (!context.ok) return context
+    return {
+      ok: true,
+      requirement,
+      plan: authorized.plan,
+      authorizationSource: context.authorizationSource,
+      baseline: context.baseline,
+    }
+  }
+
+  private authorizedPlanOf(
+    reqId: string,
+  ): { ok: true; plan: TaskPlan } | { ok: false; detail: string } {
+    const authorized = this.deps.requireAuthorizedPlan(reqId)
+    return authorized.ok
+      ? { ok: true, plan: authorized.value.plan }
+      : { ok: false, detail: authorized.result.message }
+  }
+
+  private advanceContext(
+    reqId: string,
+    plan: TaskPlan,
+  ): { ok: true; authorizationSource: string; baseline: string } | { ok: false; detail: string } {
+    const approval = this.deps.repo.planApproval(reqId, plan.planVersion)
+    if (!approval) return { ok: false, detail: `需求 ${reqId} 缺少计划批准记录` }
+    return {
+      ok: true,
+      authorizationSource: authorizationSourceOf(approval),
+      baseline: headCommit(this.deps.config.projectPath),
+    }
+  }
+
   async executeAdvance(
     reqId: string,
     signal: AbortSignal,
     requestId: string,
   ): Promise<{ state: 'done' | 'failed'; detail: string }> {
-    const authorized = this.deps.requireAuthorizedPlan(reqId)
-    if (!authorized.ok) return { state: 'failed', detail: authorized.result.message }
-    const requirement = this.deps.repo.getRequirement(reqId)
-    if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
-    const plan = authorized.value.plan
-    const approval = this.deps.repo.planApproval(reqId, plan.planVersion)!
-    const authorizationSource = authorizationSourceOf(approval)
-    const baseline = headCommit(this.deps.config.projectPath)
+    const inputs = this.advanceInputs(reqId)
+    if (!inputs.ok) return { state: 'failed', detail: inputs.detail }
+    const { requirement, plan, authorizationSource, baseline } = inputs
 
     const budgetOutcome = this.advanceBudgetGuard(reqId, plan)
     if (budgetOutcome) return budgetOutcome

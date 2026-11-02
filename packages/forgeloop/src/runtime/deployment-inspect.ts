@@ -98,7 +98,7 @@ export function inspectRequirementModules(
         ...readFileSync(candidateDiffPath, 'utf8').matchAll(
           /^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm,
         ),
-      ].map((match) => match[1]!)
+      ].map((match) => match[1] ?? '')
     : plan.tasks.flatMap((task) => task.files)
   const expectedModules = [...new Set(expectedSources)]
     .filter((file) => file.startsWith('packages/forgeloop/src/') && file.endsWith('.ts'))

@@ -757,7 +757,7 @@ function buildTaskViews(context: {
     const failureAdvice = taskAdvice(state, run, task.files, remainingRounds)
     tasks.push({
       reqId: requirement.reqId,
-      planVersion: plan!.planVersion,
+      planVersion: plan?.planVersion ?? 0,
       taskId: task.taskId,
       goal: task.goal,
       state,
@@ -904,12 +904,13 @@ function candidateSha256Of(
   const ordered = plan.tasks.map((task) =>
     artifacts.find((artifact) => artifact.taskId === task.taskId),
   )
-  if (ordered.some((artifact) => !artifact)) return ''
+  const first = ordered[0]
+  if (!first) return ''
   return candidateIdentityOf({
     planVersion: plan.planVersion,
     requirementVersion: plan.requirementVersion,
-    baselineCommit: ordered[0]!.baselineCommit,
-    candidateHashes: ordered.map((artifact) => artifact!.candidateSha256),
+    baselineCommit: first.baselineCommit,
+    candidateHashes: ordered.map((artifact) => artifact?.candidateSha256 ?? ''),
   })
 }
 

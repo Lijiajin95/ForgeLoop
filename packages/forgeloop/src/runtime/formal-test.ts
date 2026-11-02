@@ -36,31 +36,19 @@ interface SubprocessLike {
   terminate(): void
 }
 
-export async function runFormalTest(request: TestRunRequest): Promise<TestRunResult> {
-  const started = Date.now()
-  const collected: Buffer[] = []
-  let captured = 0
+interface ProcessOutcome {
+  exitCode: number | null
+  timedOut: boolean
+  aborted: boolean
+}
+
+async function runProcess(
+  request: TestRunRequest,
+  subprocess: { spawn(spec: Record<string, unknown>): SubprocessLike } | undefined,
+  collect: (chunk: Buffer) => void,
+): Promise<ProcessOutcome> {
   let timedOut = false
   let aborted = false
-
-  const collect = (chunk: Buffer) => {
-    if (captured >= MAX_CAPTURE_BYTES) return
-    const room = MAX_CAPTURE_BYTES - captured
-    const slice = chunk.length > room ? chunk.subarray(0, room) : chunk
-    collected.push(slice)
-    captured += slice.length
-  }
-
-  const subprocess = (
-    typeof request.ctx?.get === 'function'
-      ? (request.ctx.get as (key: string) => unknown)('subprocess')
-      : request.ctx?.subprocess
-  ) as
-    | {
-        spawn(spec: Record<string, unknown>): SubprocessLike
-      }
-    | undefined
-
   let exitCode: number | null = null
   if (subprocess) {
     const handle = subprocess.spawn({
@@ -94,7 +82,7 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
       request.signal?.removeEventListener('abort', onAbort)
     }
   } else {
-    const child = spawn(request.argv[0]!, request.argv.slice(1), {
+    const child = spawn(request.argv[0] ?? '', request.argv.slice(1), {
       cwd: request.cwd,
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -128,6 +116,34 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
     })
   }
 
+  return { exitCode, timedOut, aborted }
+}
+
+export async function runFormalTest(request: TestRunRequest): Promise<TestRunResult> {
+  const started = Date.now()
+  const collected: Buffer[] = []
+  let captured = 0
+
+  const collect = (chunk: Buffer) => {
+    if (captured >= MAX_CAPTURE_BYTES) return
+    const room = MAX_CAPTURE_BYTES - captured
+    const slice = chunk.length > room ? chunk.subarray(0, room) : chunk
+    collected.push(slice)
+    captured += slice.length
+  }
+
+  const subprocess = (
+    typeof request.ctx?.get === 'function'
+      ? (request.ctx.get as (key: string) => unknown)('subprocess')
+      : request.ctx?.subprocess
+  ) as
+    | {
+        spawn(spec: Record<string, unknown>): SubprocessLike
+      }
+    | undefined
+
+  const outcome = await runProcess(request, subprocess, collect)
+  const { exitCode, timedOut, aborted } = outcome
   const durationMs = Date.now() - started
   const output = Buffer.concat(collected).toString('utf8')
   const log = [

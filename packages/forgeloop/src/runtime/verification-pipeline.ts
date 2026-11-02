@@ -260,7 +260,7 @@ export class VerificationPipeline {
     runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
     if (this.deps.config.worktreePrepareCommand.length > 0) {
       const prepare = runCommand(
-        this.deps.config.worktreePrepareCommand[0]!,
+        this.deps.config.worktreePrepareCommand[0] ?? '',
         this.deps.config.worktreePrepareCommand.slice(1),
         workspace,
         this.deps.config.formalTestTimeoutSeconds * 1000,

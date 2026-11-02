@@ -724,7 +724,7 @@ ${answer}`
     if (input.confirmPlanChange !== true) {
       return fail(
         'plan_frozen',
-        `需求 ${input.reqId} 的任务包 v${latestPlan!.planVersion} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
+        `需求 ${input.reqId} 的任务包 v${latestPlan?.planVersion ?? 0} 已批准并冻结；修改任务包需要所有者显式许可并说明原因`,
       )
     }
     if (!input.reason?.trim()) {

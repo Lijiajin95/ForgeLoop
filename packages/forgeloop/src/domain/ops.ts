@@ -234,7 +234,7 @@ function validateActionPlaceholders(action: OpsAction, declared: Set<string>): v
   const used = new Set<string>()
   for (const token of action.command) {
     for (const match of token.matchAll(PLACEHOLDER)) {
-      const name = match[1]!
+      const name = match[1] ?? ''
       if (!declared.has(name)) {
         throw new RuleViolationError(`动作 ${action.id} 的命令引用了未声明的参数 {${name}}`)
       }

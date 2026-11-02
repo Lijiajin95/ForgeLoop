@@ -203,7 +203,7 @@ export class SessionIntake {
         text,
         turn: input.turn,
         signal: input.signal,
-        reqId: pending[0]!.reqId,
+        reqId: pending[0]?.reqId ?? '',
         at,
       })
       return

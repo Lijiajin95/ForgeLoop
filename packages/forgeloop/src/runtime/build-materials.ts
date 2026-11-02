@@ -167,7 +167,7 @@ export class BuildMaterialValidator {
           '候选身份与需求/方案绑定不一致；不能构建',
         )
       }
-      diffNames = [...diffText.matchAll(/^\+\+\+ b\/([^\n]+)$/gm)].map((match) => match[1]!)
+      diffNames = [...diffText.matchAll(/^\+\+\+ b\/([^\n]+)$/gm)].map((match) => match[1] ?? '')
     }
     return { ok: true, value: { diffPath, diffNames } }
   }

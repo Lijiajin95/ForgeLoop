@@ -3516,3 +3516,18 @@ suppressions 20、service.ts 5,986 行。
 4. 最后补 Playwright E2E 与 `make e2e`，把 E2E、verify-plugin 加入 GitHub 必需检查。
 
 每批仍按“单文件测试先行 → 全量 make check/coverage/mutation/budget/assertions → 提交”执行。
+
+### 84. 启用 no-non-null-assertion，32 处清零（新目标 Round 1）
+
+- `eslint.config.js` 把 `@typescript-eslint/no-non-null-assertion` 由 `off` 改为 `error`。
+- 32 处 `!` 全部替换为显式守卫/可选链：
+  - candidate-pipeline：候选 diff 路径、构建命令、准入计划改为判空与 `??`；
+  - repository：`at(-1) ?? null`、准入行守卫、停止后读回判空；
+  - board/service/helpers/build-materials：计划版本、候选哈希、行项、diff 名称；
+  - config/language/ops/task-plan：候选 id、模块名、占位符参数、依赖计数；
+  - advance-pipeline：计划批准缺失返回 failed；
+  - formal-test/integration/legacy/task-delivery/verification/intake：argv/命令首项与待处理请求判空。
+- 两处复杂度因加守卫升到 16，抽出 `advanceInputs`/`authorizedPlanOf`/`runProcess` 后回到 ≤15。
+- `make check` 607 项通过；coverage 91.14/84.58/96.87；mutation 97.80。
+- 发现：`property-invariants` 的 fast-check 用例在随机种子 `61697261` 下失败一次，重跑与后续全量均通过；
+  记录为潜在 flaky/属性反例，待单独复现，不与本批混淆。

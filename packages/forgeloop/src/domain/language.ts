@@ -105,7 +105,7 @@ export function unknownPackages(plan: TaskPlan, existing: readonly string[]): La
   for (const task of plan.tasks) {
     for (const file of task.files) {
       const match = /^packages\/([^/]+)\//.exec(file)
-      if (match && !known.has(match[1]!)) {
+      if (match && !known.has(match[1] ?? '')) {
         violations.push({
           taskId: task.taskId,
           field: 'files',

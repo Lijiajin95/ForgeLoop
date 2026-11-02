@@ -140,7 +140,7 @@ export function workspaceChanges(workspace: string): string[] {
   const entries = result.stdout.split('\0')
   const paths: string[] = []
   for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index]!
+    const entry = entries[index]
     if (!entry) continue
     const status = entry.slice(0, 2)
     const path = entry.slice(3)

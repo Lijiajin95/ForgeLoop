@@ -54,10 +54,11 @@ export interface CandidatePipelineDeps {
 }
 
 function candidateDiffPathOf(delivery: AdmittedDelivery): string {
-  const candidate = delivery.candidate!
-  return existsSync(candidate.diffPath)
-    ? candidate.diffPath
-    : join(delivery.verification!.evidenceDir, 'candidate.diff')
+  const candidate = delivery.candidate
+  if (!candidate) return ''
+  if (existsSync(candidate.diffPath)) return candidate.diffPath
+  const verification = delivery.verification
+  return verification ? join(verification.evidenceDir, 'candidate.diff') : ''
 }
 
 export class CandidatePipeline {
@@ -300,9 +301,16 @@ export class CandidatePipeline {
       ['build', this.deps.config.candidateBuildCommand],
       ['package', this.deps.config.candidatePackageCommand],
     ] as const) {
+      const [executable, ...args] = command
+      if (!executable) {
+        return {
+          ok: false,
+          result: fail('candidate_command_missing', `${label} 命令为空`),
+        }
+      }
       const result = runCommand(
-        command[0]!,
-        command.slice(1),
+        executable,
+        args,
         dir,
         this.deps.config.formalTestTimeoutSeconds * 1000,
       )
@@ -492,9 +500,11 @@ export class CandidatePipeline {
     const log: string[] = []
     for (const { label, command } of commands) {
       if (command.length === 0) continue
+      const [executable, ...args] = command
+      if (!executable) continue
       const result = runCommand(
-        command[0]!,
-        command.slice(1),
+        executable,
+        args,
         dir,
         this.deps.config.formalTestTimeoutSeconds * 1000,
       )
@@ -698,7 +708,7 @@ export class CandidatePipeline {
         result: fail('candidate_missing', `需求 ${input.reqId} 没有新链路候选`),
       }
     }
-    const plan = admitted ? delivery!.plan : this.deps.repo.latestTaskPlan(input.reqId)
+    const plan = delivery ? delivery.plan : this.deps.repo.latestTaskPlan(input.reqId)
     if (!plan) {
       return { ok: false, result: fail('plan_missing', `需求 ${input.reqId} 没有任务包`) }
     }
@@ -761,7 +771,7 @@ export class CandidatePipeline {
     delivery: AdmittedDelivery | null,
     plan: TaskPlan,
   ): string | { ok: false; result: OperationResult } {
-    if (admitted) return delivery!.candidate!.candidateSha256
+    if (admitted && delivery?.candidate) return delivery.candidate.candidateSha256
     const artifacts = this.deps.repo.taskArtifacts(reqId, plan.planVersion)
     const missing = plan.tasks.filter(
       (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
@@ -783,7 +793,7 @@ export class CandidatePipeline {
     const { reqId, admitted, delivery, plan, identity, build } = context
     const acceptance = this.deps.repo.acceptance(reqId)
     if (admitted) {
-      const review = delivery!.review
+      const review = delivery?.review
       return {
         ok: review?.verdict === 'pass' && review.verificationSha256 === build.verificationSha256,
         detail: `系统准入；业务验收 ${review?.verdict ?? '缺失'}；提交 ${
@@ -836,7 +846,7 @@ export class CandidatePipeline {
     if (identityCheck) check(identityCheck.id, identityCheck.ok, identityCheck.detail)
     const modulesCheck = inspectRequirementModules(
       admitted,
-      admitted ? candidateDiffPathOf(delivery!) : '',
+      admitted && delivery ? candidateDiffPathOf(delivery) : '',
       plan,
       installedRoot,
     )
