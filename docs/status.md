@@ -3441,3 +3441,13 @@ suppressions 20、service.ts 5,986 行。
 - 改为判断 `node.type.getText() === 'const'`；真实断言数 **95 → 84**，基线校正为 84。
 - `make check` 607 项通过；service 1,969 / repository 1,837 行，suppressions `{}`。
 - 剩余：真实 `as` 84 → <20；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭。
+
+### 78. 宿主服务访问器替换断言（新目标 Round 28）
+
+- `agent-runner` 新增 5 个具体访问器（tools/restrict/presetRegistry/permission/defaultModel），
+  内部用 `asRecord` + `typeof === 'function'` 收窄，调用点不再逐个 `as {...} | undefined`。
+- 泛型 `serviceOf<T>` 方案因 `no-unnecessary-type-parameters` 被否决（需新增豁免），改用具体访问器。
+- `as` 断言 **84 → 79**，基线收紧到 79。
+- `make check` 607 项通过，coverage 91.13/96.84/84.90，mutation 97.80。
+- 剩余：`as` 79；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。
