@@ -12,12 +12,23 @@ describe('configuration defaults', () => {
     expect(config.owner).toBe('local-owner')
     expect(config.pollSeconds).toBe(5)
     expect(config.autoAdvance).toBe(false)
-    expect(config.agent).toEqual({ provider: '', model: '', timeoutSeconds: 1800 })
+    expect(config.agent).toEqual({
+      provider: '',
+      model: '',
+      timeoutSeconds: 1800,
+      maxTurnSeconds: 7200,
+    })
     expect(config.formalTestTimeoutSeconds).toBe(1800)
     expect(config.maxTaskAttempts).toBe(3)
     expect(config.candidateArtifactPath).toBe('')
     expect(config.projectPath).toBe('/tmp/config-fixture')
     expect(config.recordsRoot).toBe('/tmp/config-fixture/.forgeloop')
+  })
+
+  it('accepts an explicit long-task turn cap', () => {
+    const config = resolveConfig({ agent: { timeoutSeconds: 600, maxTurnSeconds: 10800 } }, cwd)
+    expect(config.agent.timeoutSeconds).toBe(600)
+    expect(config.agent.maxTurnSeconds).toBe(10800)
   })
 
   it('resolves the project path and records root against the selected project', () => {

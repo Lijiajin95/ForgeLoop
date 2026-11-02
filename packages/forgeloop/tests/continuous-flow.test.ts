@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
-import { resolveConfig } from '../src/config.js'
+import { evidenceDir, resolveConfig } from '../src/config.js'
 import type {
   AgentOpenRequest,
   AgentResumeRequest,
@@ -1006,6 +1006,26 @@ describe('continuous four-Agent flow', () => {
     expect(outcome.state).toBe('failed')
     expect(outcome.detail).toContain('停止请求')
     expect(runtime.repo.taskRuns(reqId, 1).every((run) => run.state !== 'running')).toBe(true)
+  })
+
+  it('saves an undelivered diff when the development turn times out', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ devTimeoutAfterEdit: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-13b:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    const taskDir = evidenceDir(runtime.config, reqId, 1, 'a')
+    const diffPath = join(taskDir, 'checkpoint-a1.diff')
+    expect(existsSync(diffPath)).toBe(true)
+    expect(readFileSync(diffPath, 'utf8')).toContain('docs/a.md')
+    expect(existsSync(join(taskDir, 'checkpoint-a1.json'))).toBe(true)
   })
 
   it('blocks when the verification model itself fails', async () => {

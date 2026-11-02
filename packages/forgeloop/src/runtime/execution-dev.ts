@@ -258,12 +258,105 @@ export class ExecutionDev {
     return '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
   }
 
+  /**
+   * 任务包的 limit_seconds 是任务的工时预算，回合上限不能比它更短；
+   * 同时受 agent.maxTurnSeconds 硬上限约束，避免改配置后无限拉长。
+   */
+  private devTurnTimeoutMs(task: PlannedTask): number {
+    const floor = this.deps.config.agent.timeoutSeconds
+    const cap = this.deps.config.agent.maxTurnSeconds
+    const planned = task.limits.limitSeconds
+    return Math.min(Math.max(planned, floor), cap) * 1000
+  }
+
+  /**
+   * 中断时先把尚未交付的改动落成检查点：工作副本会在下一次执行时重建，
+   * 不保存 diff 的话，几十分钟的修改会直接丢失。
+   */
+  private saveCheckpoint(input: {
+    reqId: string
+    plan: TaskPlan
+    task: PlannedTask
+    workspace: string
+    attempt: number
+    status: 'aborted' | 'timeout' | 'stopped'
+    detail: string
+  }): string {
+    const taskDir = evidenceDir(
+      this.deps.config,
+      input.reqId,
+      input.plan.planVersion,
+      input.task.taskId,
+    )
+    mkdirSync(taskDir, { recursive: true })
+    try {
+      const capture = captureCandidate({
+        worktreePath: input.workspace,
+        diffPath: join(taskDir, `checkpoint-a${input.attempt}.diff`),
+      })
+      if (capture.changedFiles.length === 0) return ''
+      writeFileSync(
+        join(taskDir, `checkpoint-a${input.attempt}.json`),
+        `${JSON.stringify(
+          {
+            at: this.deps.now(),
+            taskId: input.task.taskId,
+            attempt: input.attempt,
+            status: input.status,
+            detail: input.detail,
+            changedFiles: capture.changedFiles,
+            diffSha256: capture.diffSha256,
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+      return capture.diffPath
+    } catch {
+      // 检查点是尽力保存；采集失败不能覆盖原始中断原因。
+      return ''
+    }
+  }
+
+  private taskStopped(
+    input: {
+      reqId: string
+      plan: TaskPlan
+      task: PlannedTask
+      workspace: string
+    },
+    attempt: number,
+  ): { state: 'blocked'; reason: string } {
+    const checkpoint = this.saveCheckpoint({
+      ...input,
+      attempt,
+      status: 'stopped',
+      detail: '停止请求',
+    })
+    const suffix = checkpoint ? `，未交付改动已保存到 ${checkpoint}` : ''
+    const reason = `停止请求：任务未交付，研发现场保留${suffix}，可继续执行`
+    this.deps.recordRun(input.reqId, input.plan, input.task, {
+      state: TASK_RUN_BLOCKED,
+      reason,
+    })
+    return { state: 'blocked', reason }
+  }
+
   private taskAborted(
-    input: { reqId: string; plan: TaskPlan; task: PlannedTask },
+    input: {
+      reqId: string
+      plan: TaskPlan
+      task: PlannedTask
+      workspace: string
+      attempt: number
+    },
     status: 'aborted' | 'timeout',
     detail: string,
   ): { state: 'blocked'; reason: string } {
-    const reason = `研发回合${status === 'aborted' ? '被停止' : '超时'}：${detail}；现场保留，可继续修复`
+    const checkpoint = this.saveCheckpoint({ ...input, status, detail })
+    const suffix = checkpoint ? `，未交付改动已保存到 ${checkpoint}` : ''
+    const reason = `研发回合${status === 'aborted' ? '被停止' : '超时'}：${detail}；现场保留${suffix}，可继续修复`
     this.deps.recordRun(input.reqId, input.plan, input.task, {
       state: TASK_RUN_BLOCKED,
       reason: reason,
@@ -288,6 +381,7 @@ export class ExecutionDev {
       input.task.taskId,
     )
     mkdirSync(taskDir, { recursive: true })
+    const turnTimeoutMs = this.devTurnTimeoutMs(input.task)
     let feedback = this.deps.previousTaskFailure(
       input.reqId,
       input.plan.planVersion,
@@ -295,12 +389,7 @@ export class ExecutionDev {
     )
     for (let attempt = 1; attempt <= this.deps.config.maxTaskAttempts; attempt += 1) {
       if (input.signal.aborted) {
-        const reason = '停止请求：任务未交付，研发现场保留，可继续执行'
-        this.deps.recordRun(input.reqId, input.plan, input.task, {
-          state: TASK_RUN_BLOCKED,
-          reason: reason,
-        })
-        return { state: 'blocked', reason }
+        return this.taskStopped(input, attempt)
       }
       this.deps.recordRun(input.reqId, input.plan, input.task, {
         state: TASK_RUN_RUNNING,
@@ -314,7 +403,7 @@ export class ExecutionDev {
             task: input.task,
             workdir: input.workspace,
           }) + feedback,
-        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        timeoutMs: turnTimeoutMs,
         transcriptPath: join(taskDir, `dev-a${attempt}.jsonl`),
         signal: input.signal,
         onActivity: (events: readonly Record<string, unknown>[]) => {
@@ -328,7 +417,17 @@ export class ExecutionDev {
         },
       })
       if (result.status === 'aborted' || result.status === 'timeout') {
-        return this.taskAborted(input, result.status, result.reason)
+        return this.taskAborted(
+          {
+            reqId: input.reqId,
+            plan: input.plan,
+            task: input.task,
+            workspace: input.workspace,
+            attempt,
+          },
+          result.status,
+          result.reason,
+        )
       }
       if (result.status !== 'completed') {
         this.deps.recordRun(input.reqId, input.plan, input.task, {

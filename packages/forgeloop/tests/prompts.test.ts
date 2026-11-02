@@ -174,6 +174,8 @@ describe('prompt builders', () => {
     expect(text).toContain('不改变需求列表的默认排序')
     expect(text).toContain('筛选后只显示匹配项')
     expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准')
+    expect(text).toContain('packages/forgeloop/tests/')
+    expect(text).toContain('把 docs/architecture.md 写进 files')
   })
 
   it('describes task limits, dependencies and the workspace', () => {
@@ -199,6 +201,8 @@ describe('prompt builders', () => {
     expect(text).toContain('（无）')
     expect(text).toContain('（空 diff）')
     expect(text).toContain('/tmp/diff.patch')
+    expect(text).toContain('允许修改计划文件清单之外的文件')
+    expect(text).toContain('不要仅因文件不在清单内判 block')
   })
 })
 
