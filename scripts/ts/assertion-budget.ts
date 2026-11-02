@@ -4,12 +4,22 @@
  * 统计排除 `as const`（不改变类型安全性）。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
+import ts from 'typescript'
 import { join, relative, sep } from 'node:path'
 
 const ROOT = process.cwd()
 const SOURCE = join(ROOT, 'packages/forgeloop/src')
-const BASELINE = 58
-const PATTERN = /\bas\s+(?!const\b)[A-Za-z_(]/g
+const BASELINE = 95
+function countAs(file: string): number {
+  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
+  let count = 0
+  const visit = (node: ts.Node): void => {
+    if (ts.isAsExpression(node) && !node.getText(source).startsWith('as const')) count += 1
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return count
+}
 
 function filesUnder(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -21,10 +31,9 @@ function filesUnder(dir: string): string[] {
 const rows = filesUnder(SOURCE)
   .filter((file) => file.endsWith('.ts'))
   .map((absolute) => {
-    const text = readFileSync(absolute, 'utf8')
     return {
       path: relative(ROOT, absolute).split(sep).join('/'),
-      count: (text.match(PATTERN) ?? []).length,
+      count: countAs(absolute),
     }
   })
   .filter((row) => row.count > 0)

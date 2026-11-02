@@ -3422,3 +3422,14 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.15/96.91/84.92，mutation 97.80。
 - 剩余：`as` 58；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 76. 断言预算改用 AST 统计（新目标 Round 26）
+
+- 原 `assertion-budget.ts` 用正则 `\bas\s+` 统计，会漏掉跨行 `as`、误计注释/字符串中的 “as”；
+  实测 AST（TypeScript `AsExpression`，排除 `as const`）为 **95 处**，此前显示 58 处是低估。
+- 改为 `ts.createSourceFile` + AST 遍历统计，基线按实测校正为 **95**（此前各轮“下降”数字基于低估口径，
+  实际收敛幅度小于记录；本批如实披露）。
+- 分布：agent-runner 11、impact-explain 6、index 5、domain/ops 4、service 4、其余零散。
+- `make check` 607 项通过；service 1,969 / repository 1,837 行，suppressions `{}`。
+- 剩余：真实 `as` 95 → <20；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。
