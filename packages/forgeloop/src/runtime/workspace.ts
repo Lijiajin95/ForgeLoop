@@ -15,13 +15,19 @@ export interface CommandResult {
   readonly stderr: string
 }
 
+export interface RunCommandOptions {
+  timeoutMs?: number
+  env?: NodeJS.ProcessEnv
+}
+
 export function runCommand(
   command: string,
   args: readonly string[],
   cwd: string,
-  timeoutMs = 120_000,
-  extraEnv: NodeJS.ProcessEnv = {},
+  options: number | RunCommandOptions = 120_000,
 ): CommandResult {
+  const timeoutMs = typeof options === 'number' ? options : (options.timeoutMs ?? 120_000)
+  const extraEnv = typeof options === 'number' ? {} : (options.env ?? {})
   try {
     const stdout = execFileSync(command, [...args], {
       cwd,

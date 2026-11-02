@@ -3208,3 +3208,12 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.13/96.96/84.93，mutation 97.80。
 - 剩余：`verifyCandidate`（423/104/41）、`deliverTask`（443/131/36）、
   max-params 3 处、文件行数 2 处。
+
+### 56. runCommand 参数收敛（新目标 Round 6）
+
+- `runCommand` 的 `timeoutMs` / `extraEnv` 合并为第 4 个参数
+  `number | { timeoutMs, env }`；44 处既有调用无需改动，唯一带 env 的调用改为对象。
+- max-params 豁免清零，suppressions 11 → **10**。
+- `make check` 607 项通过，coverage 91.12/96.96/84.89，mutation 97.80。
+- 下一批：`recordRun`（6 参）与 `appendError`（5 参）改为对象参数，然后处理
+  `verifyCandidate`/`deliverTask` 两个大方法。

@@ -339,13 +339,10 @@ export function integrateCandidate(input: {
       const commitEnv = existsSync(join(input.projectPath, '.pre-commit-config.yaml'))
         ? {}
         : { PRE_COMMIT_ALLOW_NO_CONFIG: '1' }
-      const commit = runCommand(
-        'git',
-        ['commit', '-m', input.commitMessage],
-        input.projectPath,
-        60_000,
-        commitEnv,
-      )
+      const commit = runCommand('git', ['commit', '-m', input.commitMessage], input.projectPath, {
+        timeoutMs: 60_000,
+        env: commitEnv,
+      })
       if (commit.code !== 0) {
         runCommand('git', ['reset'], input.projectPath, 30_000)
         runCommand(

@@ -21,11 +21,6 @@
       "count": 2
     }
   },
-  "packages/forgeloop/src/runtime/workspace.ts": {
-    "max-params": {
-      "count": 1
-    }
-  },
   "packages/forgeloop/src/session/intake.ts": {
     "max-params": {
       "count": 1
