@@ -1,7 +1,2 @@
 {
-  "packages/forgeloop/src/runtime/service.ts": {
-    "max-lines": {
-      "count": 1
-    }
-  }
 }

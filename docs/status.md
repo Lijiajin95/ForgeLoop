@@ -3335,3 +3335,15 @@ suppressions 20、service.ts 5,986 行。
 - suppressions 维持 1；`make check` 607 项通过，coverage 91.13/96.86/84.99，
   mutation 97.80。
 - 剩余：service 2,866 → ≤2,000（还差 866）；`as` 163 → <20；E2E/verify-plugin 门禁。
+
+### 68. 推进流水线移出，ESLint 豁免清零、service 达标（新目标 Round 18）
+
+- 新增 `src/runtime/advance-pipeline.ts`：`AdvancePipeline` 承载候选修复、问题单、
+  连续推进与单步推进（`injectCandidateFault` … `executeAdvance`，约 880 行），依赖注入
+  repo/config/now/issues/executionDev/verificationPipeline/legacyVerification/
+  deliverTask/openAgent/currentAdmission/requireAuthorizedPlan/remainingFailureRounds。
+- service.ts **2,866 → 1,969 行（≤2,000）**；repository.ts 1,837 行；tokens 21,931。
+- **`eslint-suppressions.json` 已为空 `{}`**：全部 ESLint 规模/复杂度/参数豁免清零。
+- `make check` 607 项通过，coverage 91.15/96.89/85.03，mutation 97.80。
+- 剩余：`as` 163 → <20（DB 行 schema 继续扩大）；E2E/verify-plugin 门禁；
+  `no-non-null-assertion`/`no-unnecessary-condition` 两条全局关闭规则尚未启用。
