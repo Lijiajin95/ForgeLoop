@@ -52,12 +52,16 @@ export function installSessionSurface(
   })
 
   const disposers: Array<() => void> = []
-  const on = ctx.on as ((event: string, listener: Listener) => unknown) | undefined
+  const on = (ctx as { on?: (event: string, listener: Listener) => unknown }).on
   if (typeof on === 'function') {
-    const dispose = on.call(ctx, 'agent/pre-step', (payload, next) =>
-      intake.handlePreStep(payload, next),
-    )
-    if (typeof dispose === 'function') disposers.push(dispose as () => void)
+    const dispose: unknown = Reflect.apply(on, ctx, [
+      'agent/pre-step',
+      (payload: PreStepPayloadLike, next: PreStepNext) => intake.handlePreStep(payload, next),
+    ])
+    if (typeof dispose === 'function')
+      disposers.push(() => {
+        Reflect.apply(dispose, ctx, [])
+      })
   } else {
     log('宿主没有 ctx.on，无法安装 agent/pre-step 输入接管')
   }

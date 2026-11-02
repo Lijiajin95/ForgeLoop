@@ -3,6 +3,7 @@
  * 模型声称“测试通过”不能替代这里的退出码和日志摘要。
  */
 
+import { asRecord } from '../domain/json.js'
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -34,6 +35,19 @@ interface SubprocessLike {
   stderr?: NodeJS.ReadableStream
   done: Promise<{ exitCode: number | null }>
   terminate(): void
+}
+
+function hostSubprocess(
+  ctx: unknown,
+): { spawn(spec: Record<string, unknown>): SubprocessLike } | undefined {
+  const record = asRecord(ctx)
+  const get = record?.get
+  const value: unknown =
+    typeof get === 'function' ? Reflect.apply(get, ctx, ['subprocess']) : record?.subprocess
+  const service = asRecord(value)
+  const spawn = service?.spawn
+  if (typeof spawn !== 'function') return undefined
+  return { spawn: (spec) => Reflect.apply(spawn, service, [spec]) as SubprocessLike }
 }
 
 interface ProcessOutcome {
@@ -132,15 +146,7 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
     captured += slice.length
   }
 
-  const subprocess = (
-    typeof request.ctx?.get === 'function'
-      ? (request.ctx.get as (key: string) => unknown)('subprocess')
-      : request.ctx?.subprocess
-  ) as
-    | {
-        spawn(spec: Record<string, unknown>): SubprocessLike
-      }
-    | undefined
+  const subprocess = hostSubprocess(request.ctx)
 
   const outcome = await runProcess(request, subprocess, collect)
   const { exitCode, timedOut, aborted } = outcome

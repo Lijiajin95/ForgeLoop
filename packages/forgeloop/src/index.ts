@@ -16,6 +16,16 @@ import { writeRuntimeIdentity } from './runtime/identity.js'
 
 type AnyRecord = Record<string, unknown>
 
+interface HostSurface {
+  inject?: (dependencies: readonly string[], callback: (scope: AnyRecord) => void) => unknown
+  tools?: { register(definition: unknown): () => void }
+  effect?: (callback: () => unknown) => unknown
+}
+
+function hostSurface(ctx: AnyRecord): HostSurface {
+  return ctx
+}
+
 export const name = 'forgeloop'
 
 /** Web 客户端读取看板事实的认证 HTTP 路径；只在有浏览器连接服务的 profile 中注册。 */
@@ -36,8 +46,7 @@ function registerBoardRoute(
   config: ReturnType<typeof resolveConfig>,
   coordinator: Coordinator,
 ): void {
-  const injectServices = ctx.inject as
-    ((dependencies: string[], callback: (scope: AnyRecord) => void) => unknown) | undefined
+  const injectServices = hostSurface(ctx).inject
   if (typeof injectServices !== 'function') return
   injectServices(['connection'], (scope) => {
     const services = scope as {
@@ -81,10 +90,12 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
     pollSeconds: config.pollSeconds,
     autoAdvance: config.autoAdvance,
   })
-  const tools = ctx.tools as { register(definition: unknown): () => void }
+  const tools = hostSurface(ctx).tools
+  if (!tools) throw new Error('宿主缺少 tools 服务，无法注册 ForgeLoop 工具')
   const disposers = registerTools(tools, buildTools(runtime, config))
 
-  const effect = ctx.effect as (callback: () => unknown) => unknown
+  const effect = hostSurface(ctx).effect
+  if (typeof effect !== 'function') throw new Error('宿主缺少 effect 服务，无法启动协调器')
   effect(() => {
     coordinator.start()
     // ForgeLoop 业务会话：注册 preset 并接管该 preset 会话的人类输入。

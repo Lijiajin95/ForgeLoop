@@ -3724,3 +3724,13 @@ suppressions 20、service.ts 5,986 行。
 - 边界断言 **26 → 24**，基线 24。
 - 先跑 auto-intake/board-route 12 项通过；`make check` 59 文件 611 项、
   coverage 91.16/84.30/96.67、mutation 97.80。
+
+### 104. 断言总数降到 19（<20）（新目标 Round 22）
+
+- `index.ts` 新增 `HostSurface` 类型与 `hostSurface(ctx)`（无断言的结构收窄），
+  去掉 inject/tools/effect 3 处断言；缺失服务时给出明确错误。
+- `formal-test` 新增 `hostSubprocess(ctx)` 访问器，去掉 ctx.get/subprocess 2 处断言。
+- `session/index` 的 `ctx.on` 改为单一类型化读取，dispose 用 `unknown` + 函数判定，
+  去掉 2 处断言。
+- 边界断言 **24 → 19**（业务 0），基线 19；**字面目标 `as < 20` 达成**。
+- `make check` 59 文件 611 项；coverage 91.17/84.32/96.68；mutation 97.80。
