@@ -228,7 +228,7 @@ export class ForgeLoopRuntime {
       },
       formalTest: this.formalTest,
       openAgent: (request) => this.openAgent(request),
-      verificationBaseline: (analysis) => this.verificationBaseline(analysis),
+      runner: (request) => this.runner.run(request),
     })
     this.advancePipeline = new AdvancePipeline({
       config: this.config,

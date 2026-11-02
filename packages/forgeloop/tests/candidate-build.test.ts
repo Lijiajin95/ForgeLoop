@@ -149,6 +149,25 @@ const VERIFICATION_REPORT = JSON.stringify({
   scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
 })
 
+/** 需求说明派生的验证方案；命令由运行时在固定候选上实际执行。 */
+const VERIFICATION_PLAN = JSON.stringify({
+  scenarios: [
+    {
+      scenario: SCENARIO,
+      acceptance_criterion: CRITERION,
+      method: '运行冒烟命令并核对输出',
+      required: true,
+      checks: [
+        {
+          label: 'smoke',
+          argv: ['node', '-e', `console.log('${SMOKE_OUTPUT}')`],
+          expected_output: SMOKE_OUTPUT,
+        },
+      ],
+    },
+  ],
+})
+
 const BUSINESS_REVIEW = JSON.stringify({
   verdict: 'pass',
   summary: '业务终审通过',
@@ -168,6 +187,11 @@ function fakeRunner(): AgentLike {
         return result(request, PLAN)
       if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
         return result(request, PLAN_REVIEW)
+      // 连续研发：验证方案阶段只读需求说明，命令由运行时在固定候选上执行。
+      if (request.role === 'verify' && request.prompt.includes('验证方案')) {
+        return result(request, VERIFICATION_PLAN)
+      }
+      // 历史请求路径：验证会话仍需在 verification/ 下产出命令与报告。
       if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
