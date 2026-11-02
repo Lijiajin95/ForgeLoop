@@ -3269,3 +3269,13 @@ suppressions 20、service.ts 5,986 行。
   只剩 service.ts 文件行数一条。
 - `make check` 607 项通过，coverage 91.06/97.05/84.86，mutation 97.80。
 - 剩余：service.ts 5,353 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
+
+### 62. 任务视图与返回类型拆分（新目标 Round 12）
+
+- 新增 `src/runtime/task-views.ts`：`TaskViews` 承载 `sessionSummary`、`taskDetail`、
+  `taskExecution`，依赖 repo/config/now/失败额度/重试资格注入。
+- 新增 `src/runtime/operation-result.ts`：`OperationResult`、`ok`、`fail` 独立，
+  service 与视图模块共用。
+- service.ts **5,525 → 5,307 行**（按 git diff 净减 218 行）；suppressions 维持 1。
+- `make check` 607 项通过，coverage 91.08/97.07/84.90，mutation 97.80。
+- 剩余：service 5,307 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
