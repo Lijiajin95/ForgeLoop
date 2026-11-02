@@ -5500,6 +5500,123 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     }
   }
 
+  private advanceBudgetGuard(
+    reqId: string,
+    plan: TaskPlan,
+  ): { state: 'failed'; detail: string } | null {
+    this.repo.ensureBudget(
+      reqId,
+      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
+    )
+    const budget = new ExecutionBudget(
+      this.repo.budget(reqId).limitSeconds,
+      this.repo.budget(reqId).consumedSeconds,
+    )
+    if (budget.canStartAction()) return null
+    this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
+    return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
+  }
+
+  private async deliverTaskSafely(input: {
+    reqId: string
+    requirement: Requirement
+    plan: TaskPlan
+    taskId: string
+    baseline: string
+    authorizationSource: string
+    signal: AbortSignal
+    requestId: string
+  }): Promise<
+    | { ok: true; outcome: Awaited<ReturnType<ForgeLoopRuntime['deliverTask']>> }
+    | { ok: false; detail: string }
+  > {
+    const { reqId, requirement, plan, taskId, baseline, authorizationSource, signal, requestId } =
+      input
+    let outcome: Awaited<ReturnType<ForgeLoopRuntime['deliverTask']>>
+    try {
+      outcome = await this.deliverTask({
+        requirement,
+        plan,
+        taskId,
+        baseline,
+        authorizationSource,
+        signal,
+        requestId,
+      })
+    } catch (error) {
+      // 未预期异常也必须写出终态：否则运行记录会停在 running，看板无法区分
+      // “还在跑”和“已经崩溃”。已落产物说明交付实际完成，不能改判失败。
+      const reason = `任务执行异常：${errorMessage(error)}；任务未交付，可重新执行`
+      const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
+      const artifact = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
+      if (artifact && task) {
+        this.recordRun(reqId, plan, task, TASK_RUN_DELIVERED, '', 0)
+        outcome = { state: 'delivered', reason: '', requirementStatus: EXECUTING }
+      } else if (task) {
+        this.recordRun(reqId, plan, task, TASK_RUN_FAILED, reason, 0)
+        this.repo.setStatus(reqId, 'blocked', reason)
+        return { ok: false, detail: reason }
+      } else {
+        this.repo.setStatus(reqId, 'blocked', reason)
+        return { ok: false, detail: reason }
+      }
+    }
+    return { ok: true, outcome }
+  }
+
+  private existingArtifactGuard(
+    reqId: string,
+    plan: TaskPlan,
+    taskId: string,
+    authorizationSource: string,
+  ): { ok: true } | { ok: false; detail: string } | null {
+    const existing = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
+    if (!existing) return null
+    if (existing.authorizationSource === authorizationSource) return { ok: true }
+    return {
+      ok: false,
+      detail: `任务 ${taskId} 的既有交付绑定的是 ${existing.authorizationSource || '未知授权'}，与当前批准不一致；需人工核对`,
+    }
+  }
+
+  private advanceStopOutcome(
+    reqId: string,
+    signal: AbortSignal,
+  ): { state: 'failed'; detail: string } | null {
+    if (!signal.aborted) return null
+    this.repo.setStatus(
+      reqId,
+      'blocked',
+      '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建',
+    )
+    return {
+      state: 'failed',
+      detail: '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建；可重新执行',
+    }
+  }
+
+  private undeliveredOutcome(
+    reqId: string,
+    requestId: string,
+    taskId: string,
+    outcome: Awaited<ReturnType<ForgeLoopRuntime['deliverTask']>>,
+  ): { state: 'done' | 'failed'; detail: string } {
+    // 中断/超时也计一轮失败：否则 autoAdvance 会无穷重试同一条 30 分钟上限的任务。
+    if (outcome.interrupted) {
+      this.repo.recordFailureRound(reqId, {
+        roundId: `interrupted-${requestId}-${taskId}`,
+        stage: 'interrupted',
+        summary: outcome.reason.slice(0, 200),
+        occurredAt: this.now(),
+      })
+    }
+    this.repo.setStatus(reqId, outcome.requirementStatus, outcome.reason)
+    return {
+      state: outcome.state === 'awaiting_user' ? 'done' : 'failed',
+      detail: outcome.reason,
+    }
+  }
+
   private async executeAdvance(
     reqId: string,
     signal: AbortSignal,
@@ -5514,90 +5631,35 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     const authorizationSource = authorizationSourceOf(approval)
     const baseline = headCommit(this.config.projectPath)
 
-    this.repo.ensureBudget(
-      reqId,
-      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
-    )
-    const budget = new ExecutionBudget(
-      this.repo.budget(reqId).limitSeconds,
-      this.repo.budget(reqId).consumedSeconds,
-    )
-    if (!budget.canStartAction()) {
-      this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
-      return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
-    }
+    const budgetOutcome = this.advanceBudgetGuard(reqId, plan)
+    if (budgetOutcome) return budgetOutcome
     this.repo.setStatus(reqId, EXECUTING)
 
     // 任务包冻结：验证阻断时把问题交回同一任务包的执行角色修复，然后重新验证；
     // 修复额度由失败轮次控制，用尽后停在 blocked，不再自动循环。
     for (;;) {
       for (const taskId of executionOrder(plan)) {
-        if (signal.aborted) {
-          this.repo.setStatus(
-            reqId,
-            'blocked',
-            '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建',
-          )
-          return {
-            state: 'failed',
-            detail: '收到停止请求：任务未交付，一次性工作副本会在下次执行时重建；可重新执行',
-          }
+        const stopped = this.advanceStopOutcome(reqId, signal)
+        if (stopped) return stopped
+        const existing = this.existingArtifactGuard(reqId, plan, taskId, authorizationSource)
+        if (existing && !existing.ok) {
+          return { state: 'failed', detail: existing.detail }
         }
-        const existing = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
-        if (existing) {
-          if (existing.authorizationSource !== authorizationSource) {
-            return {
-              state: 'failed',
-              detail: `任务 ${taskId} 的既有交付绑定的是 ${existing.authorizationSource || '未知授权'}，与当前批准不一致；需人工核对`,
-            }
-          }
-          continue
-        }
-        let outcome
-        try {
-          outcome = await this.deliverTask({
-            requirement,
-            plan,
-            taskId,
-            baseline,
-            authorizationSource,
-            signal,
-            requestId,
-          })
-        } catch (error) {
-          // 未预期异常也必须写出终态：否则运行记录会停在 running，看板无法区分
-          // “还在跑”和“已经崩溃”。已落产物说明交付实际完成，不能改判失败。
-          const reason = `任务执行异常：${errorMessage(error)}；任务未交付，可重新执行`
-          const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
-          const artifact = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
-          if (artifact && task) {
-            this.recordRun(reqId, plan, task, TASK_RUN_DELIVERED, '', 0)
-            outcome = { state: 'delivered' as const, reason: '', requirementStatus: EXECUTING }
-          } else if (task) {
-            this.recordRun(reqId, plan, task, TASK_RUN_FAILED, reason, 0)
-            this.repo.setStatus(reqId, 'blocked', reason)
-            return { state: 'failed', detail: reason }
-          } else {
-            this.repo.setStatus(reqId, 'blocked', reason)
-            return { state: 'failed', detail: reason }
-          }
-        }
+        if (existing?.ok) continue
+        const delivered = await this.deliverTaskSafely({
+          reqId,
+          requirement,
+          plan,
+          taskId,
+          baseline,
+          authorizationSource,
+          signal,
+          requestId,
+        })
+        if (!delivered.ok) return { state: 'failed', detail: delivered.detail }
+        const outcome = delivered.outcome
         if (outcome.state !== 'delivered') {
-          // 中断/超时也计一轮失败：否则 autoAdvance 会无穷重试同一条 30 分钟上限的任务。
-          // 由执行结果明确标记 interrupted，不再依赖原因文本匹配。
-          if (outcome.interrupted) {
-            this.repo.recordFailureRound(reqId, {
-              roundId: `interrupted-${requestId}-${taskId}`,
-              stage: 'interrupted',
-              summary: outcome.reason.slice(0, 200),
-              occurredAt: this.now(),
-            })
-          }
-          this.repo.setStatus(reqId, outcome.requirementStatus, outcome.reason)
-          return {
-            state: outcome.state === 'awaiting_user' ? 'done' : 'failed',
-            detail: outcome.reason,
-          }
+          return this.undeliveredOutcome(reqId, requestId, taskId, outcome)
         }
       }
       const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)

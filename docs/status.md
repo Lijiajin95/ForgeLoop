@@ -3189,3 +3189,12 @@ suppressions 20、service.ts 5,986 行。
 - suppressions 16 → **15**；service tokens 66,772 → 66,958（助手签名）。
 - `make check` 607 项通过，coverage 91.08/96.92/84.98，mutation 97.80。
 - 下一批：`executeAdvance`（49/19）与 `executeContinuousAdvance`（88/31）。
+
+### 54. 推进执行拆分（新目标 Round 4）
+
+- `executeAdvance` 拆出 `advanceBudgetGuard`、`existingArtifactGuard`、`advanceStopOutcome`、
+  `deliverTaskSafely`、`undeliveredOutcome`；语句 49 → 40 以内、复杂度 19 → 15 以内。
+- suppressions 15 → **13**；service tokens 66,958 → 67,419（助手签名），基线同步。
+- `make check` 607 项通过，coverage 91.14/96.94/84.88，mutation 97.80。
+- 下一批：`executeContinuousAdvance`（88/31），按“前置检查 / 规划 / 任务循环 / 问题单修复 /
+  验证循环”五段拆。
