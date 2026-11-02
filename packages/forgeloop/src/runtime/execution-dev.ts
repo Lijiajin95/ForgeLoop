@@ -264,7 +264,7 @@ export class ExecutionDev {
    */
   private devTurnTimeoutMs(task: PlannedTask): number {
     const floor = this.deps.config.agent.timeoutSeconds
-    const cap = this.deps.config.agent.maxTurnSeconds
+    const cap = this.deps.config.agent.maxTurnSeconds ?? 7200
     const planned = task.limits.limitSeconds
     return Math.min(Math.max(planned, floor), cap) * 1000
   }

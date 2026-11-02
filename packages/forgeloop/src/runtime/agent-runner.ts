@@ -22,6 +22,8 @@ export interface AgentRunRequest {
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'
   readonly timeoutMs: number
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds。 */
+  readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
   /** 'none' 用于只做推理的阶段：不给 Agent 任何工具，避免无界探索。 */
@@ -57,6 +59,8 @@ export interface AgentResumeRequest {
 export interface AgentTurnRequest {
   readonly prompt: string
   readonly timeoutMs: number
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds。 */
+  readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
   readonly onActivity?: (events: readonly AnyRecord[]) => void
@@ -303,16 +307,20 @@ function runResult(
 
 function runOutcome(input: {
   readonly timedOut: boolean
+  readonly idleTimedOut: boolean
+  readonly idleMs: number
   readonly aborted: boolean
   readonly whenIdleError: string
   readonly turn: ReturnType<typeof extractTurnEnd>
   readonly text: string
   readonly timeoutMs: number
 }): { status: AgentRunResult['status']; reason: string } {
-  if (input.timedOut) {
+  if (input.timedOut || input.idleTimedOut) {
     return {
       status: 'timeout',
-      reason: `Agent 回合超过 ${Math.round(input.timeoutMs / 1000)} 秒上限，已取消`,
+      reason: input.idleTimedOut
+        ? `Agent 回合连续 ${Math.round(input.idleMs / 1000)} 秒没有新进展，已取消`
+        : `Agent 回合超过 ${Math.round(input.timeoutMs / 1000)} 秒上限，已取消`,
     }
   }
   if (input.aborted) {
@@ -340,6 +348,37 @@ interface AgentService {
   create(options: AnyRecord): Promise<SessionHandle>
   /** 宿主恢复接口；返回空句柄按宿主缺陷处理，不当作恢复成功。 */
   resume?(options: AnyRecord): Promise<SessionHandle | undefined>
+}
+
+/** 连续无新事件时取消回合；事件计数变化会重置计时。 */
+function idleWatch(
+  idleMs: number,
+  cancel: () => void,
+): { touch: (eventCount: number) => void; stop: () => void; timedOut: () => boolean } {
+  let timer: NodeJS.Timeout | undefined
+  let timedOut = false
+  let lastCount = -1
+  const arm = (): void => {
+    if (idleMs <= 0) return
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timedOut = true
+      cancel()
+    }, idleMs)
+    timer.unref()
+  }
+  arm()
+  return {
+    touch: (eventCount: number) => {
+      if (eventCount === lastCount) return
+      lastCount = eventCount
+      arm()
+    },
+    stop: () => {
+      if (timer) clearTimeout(timer)
+    },
+    timedOut: () => timedOut,
+  }
 }
 
 export class AgentRunner {
@@ -494,9 +533,30 @@ export class AgentRunner {
     let disposed = false
     const startTurnWatch = (
       turn: AgentTurnRequest,
-    ): { isTimedOut: () => boolean; isAborted: () => boolean; stop: () => void } => {
+    ): {
+      isTimedOut: () => boolean
+      isIdleTimedOut: () => boolean
+      isAborted: () => boolean
+      idleMs: number
+      touch: (eventCount: number) => void
+      stop: () => void
+    } => {
       let aborted = false
       let timedOut = false
+      const idleMs = turn.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 300) * 1000
+      let idleTimedOut = false
+      let idleTimer: NodeJS.Timeout | undefined
+      let lastEventCount = -1
+      const armIdle = (): void => {
+        if (idleMs <= 0) return
+        if (idleTimer) clearTimeout(idleTimer)
+        idleTimer = setTimeout(() => {
+          idleTimedOut = true
+          handle.agent.cancel({ kind: 'user' })
+        }, idleMs)
+        idleTimer.unref()
+      }
+      armIdle()
       const timer = setTimeout(() => {
         timedOut = true
         handle.agent.cancel({ kind: 'user' })
@@ -509,16 +569,28 @@ export class AgentRunner {
       turn.signal?.addEventListener('abort', onAbort, { once: true })
       return {
         isTimedOut: () => timedOut,
+        isIdleTimedOut: () => idleTimedOut,
         isAborted: () => aborted,
+        idleMs,
+        touch: (eventCount: number) => {
+          if (eventCount === lastEventCount) return
+          lastEventCount = eventCount
+          armIdle()
+        },
         stop: () => {
           clearTimeout(timer)
+          if (idleTimer) clearTimeout(idleTimer)
           turn.signal?.removeEventListener('abort', onAbort)
         },
       }
     }
-    const flushActivity = (turn: AgentTurnRequest): void => {
+    const flushActivity = (
+      turn: AgentTurnRequest,
+      watch: ReturnType<typeof startTurnWatch>,
+    ): void => {
       try {
         const events = handle.agent.session.ownEvents()
+        watch.touch(events.length)
         writeTranscriptFile(turn.transcriptPath, events)
         turn.onActivity?.(events)
       } catch {
@@ -532,7 +604,7 @@ export class AgentRunner {
         if (dead) return closedSessionResult(sessionId, turn.transcriptPath)
         const watch = startTurnWatch(turn)
         const activityTimer = setInterval(() => {
-          flushActivity(turn)
+          flushActivity(turn, watch)
         }, 1_500)
         activityTimer.unref()
         let whenIdleError = ''
@@ -558,12 +630,14 @@ export class AgentRunner {
           durationMs: Date.now() - started,
           toolCalls: toolCallsOf(events),
         }
-        if (watch.isTimedOut()) {
+        if (watch.isTimedOut() || watch.isIdleTimedOut()) {
           dead = true
           return {
             ...base,
             status: 'timeout',
-            reason: `Agent 回合超过 ${Math.round(turn.timeoutMs / 1000)} 秒上限，已取消`,
+            reason: watch.isIdleTimedOut()
+              ? `Agent 回合连续 ${Math.round(watch.idleMs / 1000)} 秒没有新进展，已取消`
+              : `Agent 回合超过 ${Math.round(turn.timeoutMs / 1000)} 秒上限，已取消`,
           }
         }
         if (watch.isAborted()) {
@@ -645,6 +719,10 @@ export class AgentRunner {
 
     let aborted = false
     let timedOut = false
+    const idleMs = request.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 300) * 1000
+    const idle = idleWatch(idleMs, () => {
+      handle.agent.cancel({ kind: 'user' })
+    })
     const timer = setTimeout(() => {
       timedOut = true
       handle.agent.cancel({ kind: 'user' })
@@ -660,6 +738,7 @@ export class AgentRunner {
     const flushActivity = (): void => {
       try {
         const events = handle.agent.session.ownEvents()
+        idle.touch(events.length)
         writeFileSync(
           request.transcriptPath,
           `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -685,6 +764,7 @@ export class AgentRunner {
       whenIdleError = errorMessage(error)
     } finally {
       clearTimeout(timer)
+      idle.stop()
       clearInterval(activityTimer)
       request.signal?.removeEventListener('abort', onAbort)
     }
@@ -710,6 +790,8 @@ export class AgentRunner {
     }
     const outcome = runOutcome({
       timedOut,
+      idleTimedOut: idle.timedOut(),
+      idleMs,
       aborted,
       whenIdleError,
       turn: extractTurnEnd(events),

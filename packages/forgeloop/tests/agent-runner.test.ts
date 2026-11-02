@@ -111,6 +111,39 @@ describe('AgentRunner result extraction', () => {
     expect(readFileSync(result.transcriptPath, 'utf8')).toContain('assistant/message')
   })
 
+  it('cancels a turn that makes no progress for the idle limit', async () => {
+    const { ctx } = fakeContext({ events: [], behavior: 'hang' })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: '', model: '', timeoutSeconds: 60, idleTimeoutSeconds: 1 },
+    })
+    const result = await runner.run(request())
+    expect(result.status).toBe('timeout')
+    expect(result.reason).toContain('没有新进展')
+    expect(result.reason).toContain('1 秒')
+  })
+
+  it('cancels a session turn that makes no progress', async () => {
+    const { ctx } = fakeContext({ events: [], behavior: 'hang' })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: '', model: '', timeoutSeconds: 60, idleTimeoutSeconds: 1 },
+    })
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-agent-'))
+    const session = await runner.open({
+      role: 'dev',
+      cwd: dir,
+      permission: 'workspace-write',
+    })
+    const result = await session.send({
+      prompt: 'p',
+      timeoutMs: 5_000,
+      transcriptPath: join(dir, 'session.jsonl'),
+    })
+    expect(result.status).toBe('timeout')
+    expect(result.reason).toContain('没有新进展')
+  })
+
   it('maps a provider error to error with its message', async () => {
     const { ctx } = fakeContext({
       events: [

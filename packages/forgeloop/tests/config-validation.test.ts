@@ -17,6 +17,7 @@ describe('configuration defaults', () => {
       model: '',
       timeoutSeconds: 1800,
       maxTurnSeconds: 7200,
+      idleTimeoutSeconds: 300,
     })
     expect(config.formalTestTimeoutSeconds).toBe(1800)
     expect(config.maxTaskAttempts).toBe(3)
@@ -29,6 +30,7 @@ describe('configuration defaults', () => {
     const config = resolveConfig({ agent: { timeoutSeconds: 600, maxTurnSeconds: 10800 } }, cwd)
     expect(config.agent.timeoutSeconds).toBe(600)
     expect(config.agent.maxTurnSeconds).toBe(10800)
+    expect(config.agent.idleTimeoutSeconds).toBe(300)
   })
 
   it('resolves the project path and records root against the selected project', () => {

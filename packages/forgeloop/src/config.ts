@@ -31,7 +31,9 @@ export interface AgentConfig {
   /** 单个 Agent 回合的默认上限。 */
   readonly timeoutSeconds: number
   /** 长任务的硬上限；任务包 limit_seconds 只能在此范围内放宽。 */
-  readonly maxTurnSeconds: number
+  readonly maxTurnSeconds?: number
+  /** 回合连续无新进展的上限；超时取消，避免模型流停顿拖满整个回合。 */
+  readonly idleTimeoutSeconds?: number
 }
 
 export interface OpsMonitorProcess {
@@ -701,6 +703,11 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
       model: agentModel,
       timeoutSeconds: positiveNumber(raw.agent?.timeoutSeconds, 'agent.timeoutSeconds', 1800),
       maxTurnSeconds: positiveNumber(raw.agent?.maxTurnSeconds, 'agent.maxTurnSeconds', 7200),
+      idleTimeoutSeconds: positiveNumber(
+        raw.agent?.idleTimeoutSeconds,
+        'agent.idleTimeoutSeconds',
+        300,
+      ),
     },
     formalTestTimeoutSeconds: positiveNumber(
       raw.formalTestTimeoutSeconds,
