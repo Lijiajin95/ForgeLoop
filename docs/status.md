@@ -3324,3 +3324,14 @@ suppressions 20、service.ts 5,986 行。
 - suppressions 维持 1；`make check` 607 项通过，coverage 91.11/96.83/84.98，
   mutation 97.80。
 - 剩余：service 3,205 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
+
+### 67. 研发循环整体移出（新目标 Round 17）
+
+- 新增 `src/runtime/execution-dev.ts`：`ExecutionDev` 承载 `ensureDevWorkspace`、
+  `restoreDeliveredArtifacts`、`planInSession`、`developTaskInSession` 与任务交付记录，
+  依赖注入 config/repo/now/recordRun/runner/previousTaskFailure/formalTest/
+  existingPackages/ctx/authorizedPlan/applyDiffFile。
+- service.ts **3,205 → 2,866 行**；tokens **35,113 → 31,251**，基线下调。
+- suppressions 维持 1；`make check` 607 项通过，coverage 91.13/96.86/84.99，
+  mutation 97.80。
+- 剩余：service 2,866 → ≤2,000（还差 866）；`as` 163 → <20；E2E/verify-plugin 门禁。
