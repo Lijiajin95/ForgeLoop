@@ -180,8 +180,10 @@ import {
 } from './deployment-inspect.js'
 import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
+import { verificationIntegrity, verificationVerdict } from './verification-outcome.js'
 import { blockingOf, reviewFacts, runStatusLabel } from './review-facts.js'
 import { parseVerificationMaterials } from './verification-materials.js'
+import { runVerificationCommands, type VerificationCommandRun } from './execution-commands.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -3569,185 +3571,43 @@ ${answer}`
     }
   }
 
-  private async executeVerification(
-    reqId: string,
-    signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
-    const inputs = this.verificationInputs(reqId)
-    if (!inputs.ok) return inputs.outcome
-    const { requirement, analysis, plan, artifacts, reviewRecord, planReview, candidateSha256 } =
-      inputs
-    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
-    if (existingOutcome) return existingOutcome
-    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
-    if (budgetOutcome) return budgetOutcome
-    const prepared = this.prepareVerificationWorkspace(reqId, plan, reviewRecord, candidateSha256)
-    if (!prepared.ok) return prepared.outcome
-    const { dir, workspace, diffs, baseline, snapshot } = prepared
-    const finalized = this.finalizeVerificationWorkspace({
-      reqId,
-      plan,
-      dir,
-      workspace,
-      diffs,
-      candidateSha256,
-      baseline,
-      snapshot,
-      artifacts,
-    })
-    if (!finalized.ok) return finalized.outcome
-    const { workspaceSha256, workspaceHead, candidateDiff } = finalized
-    const started = Date.now()
-    const run = await this.runner.run({
-      role: AGENT_VERIFY,
-      cwd: workspace,
-      prompt: verificationPrompt({
-        requirement,
-        analysis,
-        plan,
-        planReview,
-        candidateSha256,
-        workspaceSha256,
-        workspacePath: workspace,
-        diff: candidateDiff,
-      }),
-      permission: 'workspace-write',
-      timeoutMs: this.config.agent.timeoutSeconds * 1000,
-      transcriptPath: join(dir, 'verify.jsonl'),
-      signal,
-      tools: 'default',
-    })
-    this.charge(reqId, started)
-    if (run.status !== 'completed') {
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        `独立验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
-      )
-      return {
-        state: 'failed',
-        detail: `独立验证未取得可用结论：${run.reason}`,
-      }
-    }
-
-    const parsed = parseVerificationMaterials(workspace)
-    if (!parsed.ok) {
-      this.repo.setStatus(reqId, 'blocked', parsed.detail)
-      return { state: 'failed', detail: parsed.detail }
-    }
-    const { commands, report } = parsed
-    const changed = workspaceChanges(workspace)
-    const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
-    if (currentHead !== workspaceHead) {
-      this.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
-      return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
-    }
-    const outsideVerification = changed.filter(
-      (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
-    )
-    if (outsideVerification.length > 0) {
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        `独立验证修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
-      )
-      return {
-        state: 'failed',
-        detail: `独立验证越出独立验证目录（fail-closed）：${outsideVerification.join('、')}`,
-      }
-    }
-
-    const commandRuns: Array<{
-      label: string
-      argv: readonly string[]
-      exitCode: number | null
-      timedOut: boolean
-      aborted: boolean
-      logPath: string
-      logSha256: string
-      durationMs: number
-      output: string
-    }> = []
-    const failedCommands: string[] = []
-    for (const [index, command] of commands.entries()) {
-      const label =
-        command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
-      const test = await this.formalTest({
-        ctx: this.ctx,
-        cwd: workspace,
-        argv: command.argv,
-        timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
-        logPath: join(dir, `verification-${index + 1}-${label}.log`),
-        signal,
-      })
-      commandRuns.push({
-        label: command.label,
-        argv: command.argv,
-        exitCode: test.exitCode,
-        timedOut: test.timedOut,
-        aborted: test.aborted,
-        logPath: test.logPath,
-        logSha256: test.logSha256,
-        durationMs: test.durationMs,
-        output: test.output,
-      })
-      if (test.aborted) {
-        this.repo.setStatus(reqId, 'blocked', '独立验证命令被停止；验证工作区可丢弃，可重新验证')
-        return {
-          state: 'failed',
-          detail: '独立验证命令被停止：验证工作区可丢弃，候选未被判定失败；可重新验证',
-        }
-      }
-      if (test.timedOut) {
-        failedCommands.push(`${command.label} 超时`)
-      } else if (test.exitCode !== 0) {
-        failedCommands.push(
-          `${command.label} 退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
-        )
-      }
-    }
-
-    // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
-    // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
-    const integrityIssues: string[] = []
-    const afterHead = requireGit(workspace, ['rev-parse', 'HEAD'])
-    if (afterHead !== workspaceHead) {
-      integrityIssues.push(
-        `验证期间候选提交发生变化：${workspaceHead.slice(0, 12)} → ${afterHead.slice(0, 12)}`,
-      )
-    }
-    const afterChanges = workspaceChanges(workspace)
-    const outsideAfter = afterChanges.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
-    if (outsideAfter.length > 0) {
-      integrityIssues.push(`验证命令修改了固定候选：${outsideAfter.join('、')}`)
-    }
-    const candidateContentSha256 = sha256OfText(requireGit(workspace, ['diff', 'HEAD', '--binary']))
-    const materials = verificationMaterials(dir)
-
+  private async completeVerification(input: {
+    reqId: string
+    signal: AbortSignal
+    plan: TaskPlan
+    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
+    planReview: PlanReview
+    candidateSha256: string
+    workspaceSha256: string
+    run: Awaited<ReturnType<AgentRunner['run']>>
+    report: VerificationReport
+    commandRuns: VerificationCommandRun[]
+    failedCommands: readonly string[]
+    integrityIssues: readonly string[]
+    dir: string
+    workspace: string
+    afterHead: string
+    afterChanges: readonly string[]
+    candidateContentSha256: string
+    materials: ReturnType<typeof verificationMaterials>
+  }): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
+    const { reqId, signal, plan, reviewRecord, planReview, candidateSha256 } = input
+    const { workspaceSha256, run, report } = input
+    const { commandRuns, failedCommands, integrityIssues, dir, afterHead, afterChanges } = input
+    const { candidateContentSha256, materials } = input
     const coverageIssues = validateVerificationCoverage(planReview.verificationPlan, report)
     const evidenceIssues = validateScenarioEvidence(
       planReview.verificationPlan,
       report,
       commandRuns,
     )
-    const anyScenarioFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
-    const verdict: 'pass' | 'block' =
-      report.verdict === 'pass' &&
-      failedCommands.length === 0 &&
-      coverageIssues.length === 0 &&
-      evidenceIssues.length === 0 &&
-      integrityIssues.length === 0 &&
-      !anyScenarioFailed
-        ? 'pass'
-        : 'block'
-    const blocking = [
-      ...report.blocking,
-      ...integrityIssues,
-      ...evidenceIssues,
-      ...(anyScenarioFailed ? ['报告存在未通过的验证场景'] : []),
-      ...failedCommands.map((failure) => `验证命令失败：${failure}`),
-      ...coverageIssues,
-    ]
+    const { verdict, blocking } = verificationVerdict({
+      report,
+      failedCommands,
+      coverageIssues,
+      evidenceIssues,
+      integrityIssues,
+    })
     const canonical = {
       kind: 'verification',
       reqId,
@@ -3844,6 +3704,177 @@ ${answer}`
       state: 'done',
       detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证（${report.scenarios.length} 个场景，${commandRuns.length} 条命令）；${businessReview.detail}`,
     }
+  }
+
+  private async runVerificationAgent(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    plan: TaskPlan
+    planReview: PlanReview
+    candidateSha256: string
+    workspaceSha256: string
+    workspace: string
+    dir: string
+    candidateDiff: string
+    signal: AbortSignal
+  }): Promise<
+    | { ok: true; run: Awaited<ReturnType<AgentRunner['run']>> }
+    | { ok: false; outcome: { state: 'failed'; detail: string } }
+  > {
+    const { reqId, requirement, analysis, plan, planReview, candidateSha256 } = input
+    const { workspaceSha256, workspace, dir, candidateDiff, signal } = input
+    const started = Date.now()
+    const run = await this.runner.run({
+      role: AGENT_VERIFY,
+      cwd: workspace,
+      prompt: verificationPrompt({
+        requirement,
+        analysis,
+        plan,
+        planReview,
+        candidateSha256,
+        workspaceSha256,
+        workspacePath: workspace,
+        diff: candidateDiff,
+      }),
+      permission: 'workspace-write',
+      timeoutMs: this.config.agent.timeoutSeconds * 1000,
+      transcriptPath: join(dir, 'verify.jsonl'),
+      signal,
+      tools: 'default',
+    })
+    this.charge(reqId, started)
+    if (run.status !== 'completed') {
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `独立验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
+      )
+      return {
+        ok: false,
+        outcome: { state: 'failed', detail: `独立验证未取得可用结论：${run.reason}` },
+      }
+    }
+    return { ok: true, run }
+  }
+
+  private async executeVerification(
+    reqId: string,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
+    const inputs = this.verificationInputs(reqId)
+    if (!inputs.ok) return inputs.outcome
+    const { requirement, analysis, plan, artifacts, reviewRecord, planReview, candidateSha256 } =
+      inputs
+    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
+    if (existingOutcome) return existingOutcome
+    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
+    if (budgetOutcome) return budgetOutcome
+    const prepared = this.prepareVerificationWorkspace(reqId, plan, reviewRecord, candidateSha256)
+    if (!prepared.ok) return prepared.outcome
+    const { dir, workspace, diffs, baseline, snapshot } = prepared
+    const finalized = this.finalizeVerificationWorkspace({
+      reqId,
+      plan,
+      dir,
+      workspace,
+      diffs,
+      candidateSha256,
+      baseline,
+      snapshot,
+      artifacts,
+    })
+    if (!finalized.ok) return finalized.outcome
+    const { workspaceSha256, workspaceHead, candidateDiff } = finalized
+    const agent = await this.runVerificationAgent({
+      reqId,
+      requirement,
+      analysis,
+      plan,
+      planReview,
+      candidateSha256,
+      workspaceSha256,
+      workspace,
+      dir,
+      candidateDiff,
+      signal,
+    })
+    if (!agent.ok) return agent.outcome
+    const run = agent.run
+    const parsed = parseVerificationMaterials(workspace)
+    if (!parsed.ok) {
+      this.repo.setStatus(reqId, 'blocked', parsed.detail)
+      return { state: 'failed', detail: parsed.detail }
+    }
+    const { commands, report } = parsed
+    const changed = workspaceChanges(workspace)
+    const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+    if (currentHead !== workspaceHead) {
+      this.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
+      return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
+    }
+    const outsideVerification = changed.filter(
+      (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
+    )
+    if (outsideVerification.length > 0) {
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `独立验证修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
+      )
+      return {
+        state: 'failed',
+        detail: `独立验证越出独立验证目录（fail-closed）：${outsideVerification.join('、')}`,
+      }
+    }
+
+    const ran = await runVerificationCommands({
+      reqId,
+      dir,
+      commands,
+      run: async (argv, logPath) =>
+        this.formalTest({
+          ctx: this.ctx,
+          cwd: workspace,
+          argv,
+          timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
+          logPath,
+          signal,
+        }),
+      setBlocked: (message) => {
+        this.repo.setStatus(reqId, 'blocked', message)
+      },
+    })
+    if (!ran.ok) return { state: 'failed', detail: ran.detail }
+    const { commandRuns, failedCommands } = ran
+    // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
+    // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
+    const integrity = verificationIntegrity(workspace, workspaceHead)
+    if (!integrity.ok) return { state: 'failed', detail: integrity.detail }
+    const { integrityIssues, afterHead, afterChanges, candidateContentSha256 } = integrity
+    const materials = verificationMaterials(dir)
+
+    return this.completeVerification({
+      reqId,
+      signal,
+      plan,
+      reviewRecord,
+      planReview,
+      candidateSha256,
+      workspaceSha256,
+      run,
+      report,
+      commandRuns,
+      failedCommands,
+      integrityIssues,
+      dir,
+      workspace,
+      afterHead,
+      afterChanges,
+      candidateContentSha256,
+      materials,
+    })
   }
 
   /** 业务终审报告文件与摘要是否仍一致。 */

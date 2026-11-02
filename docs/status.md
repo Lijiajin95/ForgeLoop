@@ -3171,3 +3171,13 @@ suppressions 20、service.ts 5,986 行。
 - 71 语句/复杂度 65 的豁免清零，suppressions 20 → **18**。
 - `make check` 607 项通过，coverage 90.99/97.01/84.97，mutation 97.80。
 - 下一批：`executeVerification`（83/35）与 `developTaskInSession`（48）。
+
+### 52. 独立验证执行拆分完成（新目标 Round 2）
+
+- `executeVerification` 拆出 `runVerificationAgent`、`completeVerification`，
+  命令执行移到 `execution-commands.ts`，判定与完整性复核移到 `verification-outcome.ts`。
+- 83 语句 / 复杂度 35 的豁免清零，suppressions 18 → **16**。
+- service tokens 66,652 → **66,772**（新增助手签名）；下一批文件拆分时统一回收。
+- `make check` 607 项通过，coverage 91.02/96.91/84.97，mutation 97.80。
+- 下一批：`developTaskInSession`（48 语句）、`executeAdvance`（49/19）、
+  `executeContinuousAdvance`（88/31）；再处理 `verifyCandidate`/`deliverTask` 两个大方法。
