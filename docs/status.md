@@ -3691,3 +3691,12 @@ suppressions 20、service.ts 5,986 行。
 - 边界断言 **28 → 26**，基线 26。
 - `make check` 59 文件 611 项通过；coverage 91.18/84.35/96.77；mutation 97.80。
 - 说明：pack CLI 无独立单测文件，验证依赖 `make check` 的类型/lint 与全量用例。
+
+### 101. verify-plugin 本地实测与外部阻塞（新目标 Round 19）
+
+- 实际运行 `make verify-plugin`：profile `.cache/forgeloop/dsh-home/profiles/forgeloop` 安装的是
+  `forgeloop-dsh@0.2.0`；真实模型调用失败：
+  `MISSING_CREDENTIAL: llm-pi-ai ... QWEN_TOKEN_PLAN_CN_API_KEY is not set`。
+- 结论：`verify-plugin` 门禁**需要在环境中提供模型凭据**，本会话没有该凭据，无法验证；
+  CI 中同样需要 secrets，且 E2E job 需要 push 触发才能验证。
+- 未修改任何代码；记录失败原文，避免把“未验证”写成“通过”。
