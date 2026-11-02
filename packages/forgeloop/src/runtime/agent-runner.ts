@@ -26,6 +26,8 @@ export interface AgentRunRequest {
   readonly signal?: AbortSignal | undefined
   /** 'none' 用于只做推理的阶段：不给 Agent 任何工具，避免无界探索。 */
   readonly tools?: 'none' | 'default'
+  /** 只暴露列出的工具；与 tools 一起使用时不会挂载标准编码 preset。 */
+  readonly allowTools?: readonly string[]
   /** 运行中周期性回报当前事件快照，供任务心跳与详情页使用。 */
   readonly onActivity?: (events: readonly AnyRecord[]) => void
 }
@@ -35,6 +37,8 @@ export interface AgentOpenRequest {
   readonly cwd: string
   readonly permission: 'workspace-write' | 'danger-full-access'
   readonly tools?: 'none' | 'default'
+  /** 只暴露列出的工具；与 tools 一起使用时不会挂载标准编码 preset。 */
+  readonly allowTools?: readonly string[]
   /** 程序指定会话身份；研发会话必须可跨请求恢复，不能每轮随机。 */
   readonly sessionId?: string
 }
@@ -44,6 +48,8 @@ export interface AgentResumeRequest {
   readonly sessionId: string
   readonly permission: 'workspace-write' | 'danger-full-access'
   readonly tools?: 'none' | 'default'
+  /** 只暴露列出的工具；与 tools 一起使用时不会挂载标准编码 preset。 */
+  readonly allowTools?: readonly string[]
   /** 会话原工作目录；仅用于宿主不支持从会话记录推断目录时的提示。 */
   readonly cwd?: string
 }
@@ -121,6 +127,21 @@ function restrictService(ctx: AnyRecord): RestrictService | undefined {
   const restrict = service?.restrict
   if (typeof restrict !== 'function') return undefined
   return { restrict: (filter) => Reflect.apply(restrict, service, [filter]) as () => void }
+}
+
+/** 按白名单收紧工具：列出的保留，其余全部 deny；不传白名单时等同全部 deny。 */
+function restrictToolNames(
+  agentCtx: AnyRecord,
+  tools: ToolsService,
+  allowed?: readonly string[],
+): void {
+  const names = tools
+    .schemas()
+    .map((schema) => schema.name)
+    .filter((name): name is string => Boolean(name))
+  const deny = allowed ? names.filter((name) => !allowed.includes(name)) : names
+  if (deny.length === 0) return
+  restrictService(agentCtx)?.restrict({ deny })
 }
 
 function presetRegistry(ctx: AnyRecord): PresetRegistry | undefined {
@@ -309,19 +330,20 @@ export class AgentRunner {
     return { provider: selection.provider, model: selection.model }
   }
 
-  private setupFor(
-    tools: 'none' | 'default' | undefined,
-  ): ((agentCtx: AnyRecord) => unknown) | undefined {
-    const toolService = toolsService(this.ctx)
-    const presetId = tools === 'none' ? undefined : 'standard'
-    if (tools === 'none' && toolService) {
+  private setupFor(request: {
+    tools?: 'none' | 'default'
+    allowTools?: readonly string[] | undefined
+  }): ((agentCtx: AnyRecord) => unknown) | undefined {
+    const tools = toolsService(this.ctx)
+    const presetId = request.tools === 'none' || request.allowTools ? undefined : 'standard'
+    if (request.allowTools) {
       return (agentCtx: AnyRecord) => {
-        const names = toolService
-          .schemas()
-          .map((schema) => schema.name)
-          .filter((name): name is string => Boolean(name))
-        const scoped = restrictService(agentCtx)
-        if (names.length > 0) scoped?.restrict({ deny: names })
+        if (tools) restrictToolNames(agentCtx, tools, request.allowTools)
+      }
+    }
+    if (request.tools === 'none' && tools) {
+      return (agentCtx: AnyRecord) => {
+        restrictToolNames(agentCtx, tools)
       }
     }
     if (!presetId) return undefined
@@ -342,13 +364,11 @@ export class AgentRunner {
     const selection = this.resolveSelection()
     const sessionId = request.sessionId ?? `session-fl-${request.role}-${randomUUID()}`
     const agents = this.agentService()
-    const setup = this.setupFor(request.tools)
+    const presetId = request.tools === 'none' || request.allowTools ? undefined : 'standard'
+    const setup = this.setupFor(request)
     const handle = await agents.create({
       sessionId,
-      meta: {
-        cwd: request.cwd,
-        ...(request.tools === 'none' ? {} : { agentPreset: 'standard' }),
-      },
+      meta: { cwd: request.cwd, ...(presetId ? { agentPreset: presetId } : {}) },
       agentOptions: { provider: selection.provider, model: selection.model },
       ...(setup ? { setup } : {}),
     })
@@ -367,7 +387,7 @@ export class AgentRunner {
     if (typeof agents.resume !== 'function') {
       throw new Error('宿主不支持恢复持久会话（agents.resume）；不能假装恢复研发会话')
     }
-    const setup = this.setupFor(request.tools)
+    const setup = this.setupFor(request)
     let handle: SessionHandle | undefined
     try {
       handle = await this.withResumeDeadline(
@@ -558,16 +578,14 @@ export class AgentRunner {
     const tools = toolsService(this.ctx)
     // 编程式 Agent 默认不组合会话 preset，也就没有 shell/fs 等编码工具。
     // 开发与审查角色必须显式挂载 standard preset；只做推理的角色继续显式禁用全部工具。
-    const presetId = request.tools === 'none' ? undefined : 'standard'
-    const setup =
-      request.tools === 'none' && tools
+    const presetId = request.tools === 'none' || request.allowTools ? undefined : 'standard'
+    const setup = request.allowTools
+      ? (agentCtx: AnyRecord) => {
+          if (tools) restrictToolNames(agentCtx, tools, request.allowTools)
+        }
+      : request.tools === 'none' && tools
         ? (agentCtx: AnyRecord) => {
-            const names = tools
-              .schemas()
-              .map((schema) => schema.name)
-              .filter((name): name is string => Boolean(name))
-            const scoped = restrictService(agentCtx)
-            if (names.length > 0) scoped?.restrict({ deny: names })
+            restrictToolNames(agentCtx, tools)
           }
         : presetId
           ? async (agentCtx: AnyRecord) => {

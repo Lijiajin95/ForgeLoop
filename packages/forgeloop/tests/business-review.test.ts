@@ -8,7 +8,7 @@ import { resolveConfig } from '../src/config.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 
 /**
- * 业务终审：由需求 Agent 在新会话里按原始需求复核关键业务场景与实际结果，
+ * 业务终审：由验证 Agent 在新会话里按原始需求复核关键业务场景与实际结果，
  * 不能只读验证报告；系统判定、模型建议与所有者验收分别记录。
  */
 

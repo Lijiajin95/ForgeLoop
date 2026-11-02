@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -95,8 +95,8 @@ function plan(reqId: string): TaskPlan {
   }
 }
 
-describe('read-only tool surface', () => {
-  it('exposes exactly the eight documented tools with renderable output', () => {
+describe('tool surface', () => {
+  it('exposes exactly the twelve documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -105,6 +105,10 @@ describe('read-only tool surface', () => {
       'forgeloop_requests',
       'forgeloop_impact',
       'forgeloop_ops',
+      'forgeloop_read_project_doc',
+      'forgeloop_write_project_doc',
+      'forgeloop_web_search',
+      'forgeloop_web_fetch',
       'forgeloop_submit_requirement',
     ])
     const rendered = tool('forgeloop_status').output.render(
@@ -164,6 +168,59 @@ describe('read-only tool surface', () => {
     expect(facts.ok).toBe(true)
     expect(facts.text).toContain('影响摘要')
     expect((await call('forgeloop_impact', { req_id: 'req-missing' })).ok).toBe(false)
+  })
+
+  it('reads and writes project Markdown documents, and nothing else', async () => {
+    const written = await call('forgeloop_write_project_doc', {
+      path: 'docs/forgeloop/notes.md',
+      content: '# 业务背景\n\n行业：本地生活服务\n',
+    })
+    expect(written.ok, written.text).toBe(true)
+    const read = await call('forgeloop_read_project_doc', {
+      path: 'docs/forgeloop/notes.md',
+    })
+    expect(read.ok, read.text).toBe(true)
+    expect(read.data).toMatchObject({
+      path: 'docs/forgeloop/notes.md',
+      truncated: false,
+    })
+    expect((read.data as { content: string }).content).toContain('本地生活服务')
+
+    // 业务背景文档只由运行时按分析结果写，工具入口一律拒绝。
+    const refused = await call('forgeloop_write_project_doc', {
+      path: './docs/forgeloop/business-context.md',
+      content: '# 业务背景\n\n行业：本地生活服务\n',
+    })
+    expect(refused.ok).toBe(false)
+    expect(refused.text).toContain('由程序在分析结束时同步')
+    expect(refused.text).toContain('business_context')
+    // 大小写不敏感的文件系统上，换个写法也不能绕过。
+    expect(
+      (
+        await call('forgeloop_write_project_doc', {
+          path: 'docs/forgeloop/BUSINESS-CONTEXT.MD',
+          content: 'x',
+        })
+      ).ok,
+    ).toBe(false)
+
+    expect((await call('forgeloop_read_project_doc', {})).text).toContain('path is required')
+    expect((await call('forgeloop_read_project_doc', { path: 'docs/missing.md' })).ok).toBe(false)
+    expect((await call('forgeloop_read_project_doc', { path: '../outside.md' })).text).toContain(
+      '超出项目目录',
+    )
+    expect(
+      (await call('forgeloop_write_project_doc', { path: 'src/index.ts', content: 'x' })).text,
+    ).toContain('只允许读写 Markdown')
+    expect(
+      (await call('forgeloop_write_project_doc', { path: 'docs/a.md', content: '内容' })).ok,
+    ).toBe(true)
+    expect((await call('forgeloop_write_project_doc', { path: 'docs/b.md' })).text).toContain(
+      'content is required',
+    )
+    expect(
+      (await call('forgeloop_write_project_doc', { path: '/etc/a.md', content: 'x' })).ok,
+    ).toBe(false)
   })
 })
 
@@ -226,7 +283,71 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(8)
-    expect(disposers).toHaveLength(8)
+    expect(registered).toHaveLength(12)
+    expect(disposers).toHaveLength(12)
+  })
+
+  it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {
+    const saved = process.env.DEEPSEEK_API_KEY
+    delete process.env.DEEPSEEK_API_KEY
+    try {
+      const search = await call('forgeloop_web_search', { query: '本地生活服务' })
+      expect(search.ok).toBe(false)
+      expect(search.text).toContain('DEEPSEEK_API_KEY')
+      expect(search.text).toContain('不写入 DSH 配置或环境')
+      expect(search.text).toContain('未发出任何网络请求')
+      const fetch = await call('forgeloop_web_fetch', { url: 'https://example.com/a' })
+      expect(fetch.ok).toBe(false)
+      expect(fetch.text).toContain('DEEPSEEK_API_KEY')
+      // 工具描述本身也说明密钥来源与只读口径，模型可以据此向用户解释。
+      expect(tool('forgeloop_web_search').description).toContain('DEEPSEEK_API_KEY')
+      expect(tool('forgeloop_web_search').description).toContain('never written into DSH')
+      expect(tool('forgeloop_web_fetch').description).toContain('DEEPSEEK_API_KEY')
+      expect(process.env.DEEPSEEK_API_KEY).toBeUndefined()
+    } finally {
+      if (saved !== undefined) process.env.DEEPSEEK_API_KEY = saved
+    }
+    expect((await call('forgeloop_web_search', {})).text).toContain('query is required')
+    expect((await call('forgeloop_web_fetch', {})).text).toContain('url is required')
+  })
+
+  it('states the key requirement on successful calls and keeps the key out of the result', async () => {
+    const savedKey = process.env.DEEPSEEK_API_KEY
+    const savedBase = process.env.FORGELOOP_WEB_BASE_URL
+    process.env.DEEPSEEK_API_KEY = 'tool-test-key'
+    process.env.FORGELOOP_WEB_BASE_URL = 'http://127.0.0.1:9'
+    const answer = {
+      results: [
+        {
+          title: '门店结算',
+          url: 'https://example.com/settle',
+          snippet: '摘要',
+          summary: '较长摘要',
+          site_name: '示例',
+          date: '2026-06-01T00:00:00+00:00',
+          authority: 3,
+        },
+      ],
+    }
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(answer),
+    }))
+    try {
+      const search = await call('forgeloop_web_search', { query: '门店结算', count: 1 })
+      expect(search.ok, search.text).toBe(true)
+      expect(search.text).toContain('联网说明')
+      expect(search.text).toContain('DEEPSEEK_API_KEY')
+      expect(search.text).not.toContain('tool-test-key')
+      expect(JSON.stringify(search.data)).not.toContain('tool-test-key')
+      expect(process.env.DEEPSEEK_API_KEY).toBe('tool-test-key')
+    } finally {
+      vi.unstubAllGlobals()
+      if (savedKey === undefined) delete process.env.DEEPSEEK_API_KEY
+      else process.env.DEEPSEEK_API_KEY = savedKey
+      if (savedBase === undefined) delete process.env.FORGELOOP_WEB_BASE_URL
+      else process.env.FORGELOOP_WEB_BASE_URL = savedBase
+    }
   })
 })

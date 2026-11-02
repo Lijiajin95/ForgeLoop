@@ -90,6 +90,31 @@ const BUSINESS_REVIEW = JSON.stringify({
   acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
+/** 需求说明派生的验证方案：阻断时命令退出码 1，通过时输出 SMOKE。 */
+function verificationPlan(fail: boolean): string {
+  return JSON.stringify({
+    scenarios: [
+      {
+        scenario: SCENARIO,
+        acceptance_criterion: CRITERION,
+        method: '运行冒烟命令并核对输出',
+        required: true,
+        checks: [
+          {
+            label: 'smoke',
+            argv: [
+              'node',
+              '-e',
+              fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`,
+            ],
+            expected_output: fail ? 'broken' : SMOKE,
+          },
+        ],
+      },
+    ],
+  })
+}
+
 /** 前 N 次独立验证判阻断，之后通过；研发修复回合写真实改动。 */
 function gateRunner(options: { failVerifications: number }): AgentLike {
   let verificationRuns = 0
@@ -109,42 +134,6 @@ function gateRunner(options: { failVerifications: number }): AgentLike {
         writeFileSync(join(request.cwd, 'docs/a.md'), `fixed ${verificationRuns} ${Date.now()}\n`)
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'fixed')
       }
-      if (request.role === 'verify' && turn.prompt.includes('独立验证 Agent')) {
-        verificationRuns += 1
-        const fail = verificationRuns <= options.failVerifications
-        mkdirSync(join(request.cwd, 'verification'), { recursive: true })
-        writeFileSync(
-          join(request.cwd, 'verification/commands.json'),
-          JSON.stringify({
-            commands: [
-              {
-                label: 'smoke',
-                argv: [
-                  'node',
-                  '-e',
-                  fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`,
-                ],
-              },
-            ],
-          }),
-        )
-        const report = JSON.stringify({
-          verdict: fail ? 'block' : 'pass',
-          summary: fail ? '候选未满足需求' : '候选满足需求',
-          findings: [],
-          blocking: fail ? ['功能未实现', '验证命令退出码 1'] : [],
-          scenarios: [
-            {
-              scenario: SCENARIO,
-              status: fail ? 'fail' : 'pass',
-              evidence: fail ? 'broken' : SMOKE,
-              commands: ['smoke'],
-            },
-          ],
-        })
-        writeFileSync(join(request.cwd, 'verification/report.json'), report)
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, report)
-      }
       if (request.role === 'verify' && turn.prompt.includes('业务验收')) {
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, BUSINESS_REVIEW)
       }
@@ -157,6 +146,12 @@ function gateRunner(options: { failVerifications: number }): AgentLike {
       if (request.role === 'product') return result(request, ANALYSIS)
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         return result(request, PLAN)
+      }
+      // 验证方案只读需求说明；实际命令由运行时在固定候选上执行。
+      if (request.role === 'verify') {
+        verificationRuns += 1
+        const fail = verificationRuns <= options.failVerifications
+        return result(request, verificationPlan(fail))
       }
       throw new Error(`unexpected single-turn role ${request.role}`)
     },

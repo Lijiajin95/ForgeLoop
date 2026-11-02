@@ -2,7 +2,7 @@
  * ForgeLoop 业务会话的 DSH agent preset。
  *
  * 该 preset 不挂普通助手工具；用户输入由 `agent/pre-step` 接管后直接进入
- * ForgeLoop 需求受理与需求 Agent 分析，不调用模型聊天。
+ * ForgeLoop 需求受理与产品 Agent 分析，不调用模型聊天。
  */
 
 import {

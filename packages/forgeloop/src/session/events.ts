@@ -64,8 +64,14 @@ export interface AnalysisEventData {
   readonly requirementVersion: number
   readonly goal: string
   readonly scenarios: readonly string[]
+  readonly businessRules: readonly string[]
+  readonly exceptions: readonly string[]
+  readonly nonGoals: readonly string[]
   readonly acceptanceCriteria: readonly string[]
   readonly clarifications: readonly string[]
+  readonly model: string
+  readonly promptVersion: string
+  readonly toolCalls: readonly string[]
   readonly at: string
 }
 

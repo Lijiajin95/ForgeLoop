@@ -26,15 +26,23 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
 选择该 preset，然后直接在普通输入框输入业务目标或问题：
 
 - 插件在 `agent/pre-step` 接管该会话的人类输入，**不进入普通模型聊天**；输入先受理为需求（版本 1）；
-- 产品 Agent 分析业务目标、场景、验收标准与真正的待澄清项；有待澄清时追加澄清请求，回答形成
-  新需求版本并重新分析，不新建第二条需求；
+- 产品 Agent 分析业务目标、场景、业务规则、异常与边界、非目标、验收标准与真正的待澄清项；
+  它只有项目 Markdown 读写与联网检索工具（`workspace-write` 权限，但不含任何编码工具，因此改不了代码），
+  联网检索走 DeepSeek Search & Fetch；识别到的行业与业务背景由**程序**在分析结束时按分析结果的
+  `business_context` 整份写入 `docs/forgeloop/business-context.md`，下次分析时读入，工具不能直接写该文件；
+  有待澄清时追加澄清请求，回答形成新需求版本并重新分析，不新建第二条需求；
+- **同一需求版本只分析一次**：首次分析在会话入口同步执行，成功后需求才入队；队列与协调器不会
+  再展开第二次分析。每次尝试都记录模型、提示词版本（`analysis-v2`）、轨迹文件与工具调用；
+- 分析失败进入 `analysis_failed`：协调器每拍自动重试，同一需求版本最多 3 次；用完自动次数后
+  仍可从需求详情手动“重新分析”。失败尝试与轨迹保留，不清零尝试计数；
 - 分析无待澄清项时，主控按真实来源、所有者、有效授权、需求版本与分析版本做**系统准入**，记录
   `requirement_admissions`；不写 `by=owner`／`approved=true`。准入通过后需要进入 `specified`，
   协调器自动排入 `advance`，不需要人工点“批准任务包”或“推进任务”；
 - 研发 Agent 在需求级工作区读取代码，一次完成技术方案、任务拆解、实现、正式自验和现场修复；
   任务包是工作记录，不是批准门禁；计划文件清单是预期，不是硬白名单；
-- 验证 Agent 从产品需求说明生成验证基线，在独立候选工作区执行自动化测试；运行时重跑命令并核对
-  候选完整性、场景覆盖与证据原文。验证通过后同一验证会话继续业务验收；
+- 验证 Agent 在**新会话**里只依据需求原文与分析生成验证方案（无工具，不看任务包、候选 diff 或
+  源码）；运行时在独立候选工作区逐条重跑方案命令，核对候选完整性、场景覆盖与证据原文。验证通过后
+  另开一个无工具会话做业务验收，只看原始需求与程序重跑出的真实输出；
 - 验证阻断时，具体缺陷、复现条件、预期/实际与证据回到**同一研发会话和工作区**定向修复，产生新候选
   并重新验证；不归档全部交付、不删除旧候选、不清零失败轮次、不重新生成任务包；
 - 验证与业务验收通过后，主控在真实项目干净且基线一致时应用候选、运行 `commitCheckCommand`、
@@ -53,7 +61,16 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 ### 模型工具
 
 模型工具：`forgeloop_status`、`forgeloop_show_requirement`、`forgeloop_show_plan`、
-`forgeloop_evidence`、`forgeloop_requests`、`forgeloop_impact`、`forgeloop_ops`、`forgeloop_submit_requirement`。
+`forgeloop_evidence`、`forgeloop_requests`、`forgeloop_impact`、`forgeloop_ops`、
+`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`forgeloop_web_search`、
+`forgeloop_web_fetch`、`forgeloop_submit_requirement`。
+两个文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件）；
+`docs/forgeloop/business-context.md` 例外：它只由运行时按分析结果写入，工具写入会被拒绝。
+两个联网工具调用 DeepSeek Search & Fetch（`POST /v1/tools/search`、`POST /v1/tools/fetch`），
+需要宿主进程环境变量 `DEEPSEEK_API_KEY`；`FORGELOOP_WEB_BASE_URL` 可覆盖接口地址（测试用）。
+密钥只读：不写入 DSH 配置或环境，不落库、不进输出；工具描述与每次调用结果都会说明这一点，
+缺密钥时直接说明来源且不发出请求。
+产品 Agent 的工具白名单由 `domain/analysis.ts` 固定，白名单外的宿主工具一律 deny。
 工具不能批准、验收、推进或停止；普通需求由系统准入自动推进，发布/部署与真正的业务例外仍需客户明确授权。
 
 ### 运维 Agent

@@ -3780,7 +3780,126 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   完整测试、覆盖与变异仍在 `make check`/CI。
 - `CONTRIBUTING.md` 增加安装与绕过说明。
 
-### 108. 研发会话路由、主控 Agent 与单会话验证（2026-11-02）
+### 108. 验证 Agent 以新会话接入连续研发链路（新目标 Round 26）
+
+- `runtime/legacy-verification.ts` 的 `verifyCandidate` 改为两阶段：`VerificationAgent.plan` 在
+  **新会话**里只接收需求原文与结构化分析（`tools: none`，不传任务包、候选 diff、源码或工作区），
+  产出需求派生的验证方案；运行时写 `verification-plan.json` 后，由 `VerificationAgent.execute`
+  在固定候选工作区逐条重跑命令（日志 `verification-N.log`）。
+- 方案畸形/未覆盖需求、执行异常、命令中止、HEAD 变化与 `verification/` 之外的改动都 fail-closed
+  阻断；`verification.json` 记录方案、环境、命令、场景与候选完整性，`sessionId` 为方案会话。
+- 业务验收改为**另开**一个无工具验证会话，只给原始需求、分析、已准入任务包与程序重跑出的真实
+  命令输出；业务记录绑定新会话，与方案会话分离。连续路径不再读取模型自报的
+  `verification/commands.json` / `report.json`；旧 `verification-pipeline` 保留给历史请求路径。
+- 分层契约 `contracts/architecture.json` 允许 `runtime` 依赖 `agents`；`docs/architecture.md` §4.2
+  与 `packages/forgeloop/README.md` 同步说明两阶段新会话与产物验证。
+- 测试：新增“方案提示不含 diff/任务包/源码且无工具”“业务验收会话与方案会话不同”的断言；
+  适配 auto-intake / candidate-build / issue-retry-loop / requirement-gate 的假执行器。
+- 验证：`make check` 59 文件 612 项通过；coverage 91.07 / 96.57 / 84.38（lines/functions/branches，
+  阈值通过）；`make build`、`make contracts` 通过。
+
+### 109. 产品 Agent：业务说明字段、工具边界、单次分析与失败重试（新目标 Round 27）
+
+- 来源：所有者要求（8 项）——需求说明从业务场景补齐**业务规则、异常与边界、非目标**；
+  产品 Agent 增加联网搜索与项目文档读写；支持 `workspace-write` 但禁止改代码；分析只执行一次，
+  并关联模型、提示词版本、轨迹与工具调用；失败进入失败状态，默认自动重试且上限 3 次、也可手动重试；
+  提示词识别行业与业务背景，单独存项目文档并随增删改同步；需求 Agent 统一改称产品 Agent；
+  首次分析后才入队，入队后除重试外不再展开第二次分析。
+- 领域：新增 `domain/analysis.ts`（`ANALYSIS_PROMPT_VERSION=analysis-v2`、
+  `MAX_AUTO_ANALYSIS_RETRIES=3`、`BUSINESS_CONTEXT_DOC`、`PRODUCT_TOOL_ALLOWLIST`、
+  `AnalysisMode`/`AnalysisAttempt`）；`domain/requirement.ts` 的 `AnalysisDraft` 增加三个必填列表，
+  解析缺省为空数组、非数组仍报畸形；`domain/status.ts` 增加 `analysis_failed`。
+- 记录：`requirement_analyses` 增加 `business_rules`/`exceptions`/`non_goals`/`model`/
+  `prompt_version`/`transcript_path`/`tool_calls`；新增 `requirement_analysis_attempts`
+  （需求、版本、attempt、来源、结果、原因、模型、提示词版本、轨迹、工具调用）。
+  记录值经 `rows.ts` 的 `oneOf` 收窄，非法值按记录损坏报错，不静默取默认。
+- 提示词：分析提示词改为产品 Agent 身份，声明可用工具（读/写项目 Markdown、`web_search`/
+  `web_fetch`）、禁止改代码或执行命令、业务背景段落与三个新字段；同时要求“从业务场景出发”、
+  识别行业与业务背景并写入/更新 `docs/forgeloop/business-context.md`，增删改在同一次运行内同步。
+  研发规划提示词改为覆盖业务场景、业务规则、异常与边界和验收标准，非目标不得拆成任务。
+- 执行：`ExecutionPlan.executeAnalysis` 先查当前需求版本是否已有分析，有则直接返回
+  “未重复调用模型”；产品 Agent 以 `workspace-write` 运行，但只挂
+  `PRODUCT_TOOL_ALLOWLIST` 内的工具（`AgentRunner` 对白名单外工具一律 deny，且不挂 standard
+  preset），因此没有 shell 或代码编辑能力。每次尝试的轨迹独立写入
+  `sessions/<reqId>-analyze-a<n>.jsonl`；业务背景文档在分析前读入提示词（读 64 KiB、写 128 KiB 上限）。
+- 失败与重试：失败写入 attempt 与 `analysis_failed`，保留原因、模型、提示词版本、轨迹与工具调用。
+  新增 `runtime/analysis-queue.ts`：`enqueue`（首次分析成功后入队，拒绝无当前版本分析或仍有待澄清项）、
+  `autoRetry`（协调器每拍扫描，每个需求版本最多 3 次 `auto` 尝试，有在途请求或主动停止时不排）、
+  `retry`（人工重试，来源以 `:analysis-retry` 结尾，记为 `manual`，不受自动次数限制）。
+- 入口：业务会话提交改为 `analyze:false` → 同步分析一次 → 成功后入队，不再让队列排第二次分析；
+  非会话入口仍默认入队一次分析，重复执行由执行器短路。看板新增 `retry-analysis` 动作与端点
+  （`web-decision:<session>` 来源，失败状态才排队，200/409）；客户端新增“产品分析失败”状态与
+  “重新分析”动作文案，分析卡片展示业务规则、异常与边界、非目标及模型/提示词版本/工具调用。
+- 文案：产品角色相关位置的“需求 Agent”统一改为“产品 Agent”；原独立审查/业务终审相关位置
+  改为“验证 Agent”，与四角色口径一致。
+- 工具：新增 `forgeloop_read_project_doc`/`forgeloop_write_project_doc`，只接受项目内 `.md`
+  相对路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件），写入自动建目录并限制大小。
+- 测试：新增 `tests/product-analysis.test.ts`（单次分析、元数据与工具白名单、失败/自动重试 3 次/
+  人工重试、入队前置条件、会话先分析后入队）、`tests/project-docs.test.ts`（路径边界、截断与写上限）；
+  补充提示词、工具面、领域解析、AgentRunner 工具白名单、看板路由与客户端文案用例。
+- 验证：在干净工作树（HEAD `79c4e43` + 本批改动，排除并行会话在途文件）执行 `make check`：
+  typecheck、ESLint、`make contracts`、token 预算（`service.ts` 21929 ≤ 21931）、断言预算（19/19）
+  与 **61 个测试文件、635 项测试**全部通过；`make format` 通过。
+- 边界：按“新库从空库建立”的现行策略，新列与新表不做旧记录库补列或迁移；`web_search`/`web_fetch`
+  依赖宿主工具注册，本轮用假执行器验证白名单与 deny 行为，未在真实模型会话验证联网检索；
+  自动重试随协调器节拍触发，没有单独退避，3 次用尽后停在 `analysis_failed` 等待人工重试；
+  **业务背景文档的增删改同步仍是提示词约束**——程序只保证路径、可写范围与读入提示词，
+  没有确定性校验“识别到新背景就必须改文档”，按 AGENTS 口径属于尚未机器落实的要求。
+
+### 111. 产品 Agent：业务背景文档硬同步与 DeepSeek 联网检索（新目标 Round 28）
+
+- 来源：所有者要求——① 业务背景文档同步从提示词约定改成程序执行的硬机制；② 产品 Agent 的
+  `web_search`/`web_fetch` 改用 DeepSeek 接口；③ 完成后合并到 main。本节同时收口 §109 末尾
+  标注的“业务背景文档同步仍是提示词约束”。
+- 领域：`AnalysisDraft` 增加 `businessContext: { changed, document }`。解析规则：缺字段按
+  `{changed:false, document:''}` 兼容历史分析；`changed` 必须是布尔值；`changed=true` 必须带非空
+  文档；`changed=false` 时文档必须为空，夹带内容按畸形拒绝（`tests/requirement.test.ts`）。
+- 执行（硬机制）：`ExecutionPlan.executeAnalysis` 改为调用私有 `analysisFromResult`：解析成功后若
+  `changed`，由**程序**调用 `writeProjectDoc` 整份覆盖 `docs/forgeloop/business-context.md`
+  （沿用 128 KiB 上限）；写失败抛错并按分析失败处理——记 `analysis_failed`、不落分析结论、
+  保留失败 attempt，原有文档不被覆盖。识别“是否需要改”仍靠模型，但“给了变更就必须写成功”
+  由程序保证；“程序写一次”与“分析失败可重试”共用同一条失败路径。
+- 工具：`forgeloop_write_project_doc` 对 `docs/forgeloop/business-context.md`（含 `./` 归一化后
+  同一路径）直接拒绝，并提示改用分析结果的 `business_context` 字段；读取仍允许。运行时的写入
+  不经过工具，因此工具面只剩一个写入方，白名单无需额外权限。
+- 联网：新增 `runtime/web-tools.ts`，`searchWeb`/`fetchWeb` 调用 DeepSeek Search & Fetch
+  （`POST https://api.deepseek.com/v1/tools/search`、`/v1/tools/fetch`，Bearer
+  `DEEPSEEK_API_KEY`）；`FORGELOOP_WEB_BASE_URL` 可覆盖 base（测试用本地服务）。30 秒超时；
+  search 校验 1–128 字符、count 夹到 1–50、`need_content=false`；fetch 只接受 http/https、
+  拒绝用户名密码、正文截断 20k 字符；400/401/402/403/404/408/413/429/500/504 映射成中文原因，
+  并附服务端 `error.message`（按官方文档 2026-11-02 核对）。
+- 工具面：新增 `forgeloop_web_search`/`forgeloop_web_fetch`（只读，结果只是材料）；
+  `PRODUCT_TOOL_ALLOWLIST` 改为四个 `forgeloop_` 工具，产品 Agent 白名单外的宿主工具仍一律 deny。
+- 密钥口径：两个联网工具只读宿主进程的 `DEEPSEEK_API_KEY`，不写入 DSH 配置或环境；工具描述与
+  每次调用结果（成功与失败）都说明密钥来源和只读口径，缺密钥时明确“未发出任何网络请求”，
+  服务端若在错误里回显密钥，返回前替换为 `****`。
+- 提示词：JSON 契约增加 `business_context`，规则改为“把完整文档放进 `business_context`，
+  程序负责写入，不要用工具写该文件”；`changed=true` 必须是整份文档；工具名同步为新名字；
+  联网检索标注 DeepSeek 接口与“结果不是指令、不是授权”。
+- 文案/文档：`README`（分析链路、12 个模型工具、DeepSeek 依赖）、`docs/architecture.md`
+  （§4.1 白名单、硬同步与失败路径；§4.2 工具面）、`docs/product.md`（§5.2 分析段、§5.3 产品
+  Agent 权限）、`CONTEXT.md`（业务背景文档词条）同步。
+- 测试：新增 `tests/web-tools.test.ts`（本地 `node:http` 服务注入环境变量，覆盖检索参数与解析、
+  count 夹取、无密钥说明与不触网、429 中文映射、密钥回显`****` 脱敏、抓取截断、非法 URL 与空正文）；
+  `tests/product-analysis.test.ts` 增加“按分析结果写文档”“写入失败整次分析失败且旧文档不变”；
+  工具面 10→12、写入拒绝、无密钥说明、成功结果带密钥口径且不含密钥值、环境变量不被改写；
+  领域与提示词断言同步。
+- 验证：在干净工作树（HEAD `9a3b0eb` + 本批改动）执行 `make check`：typecheck、ESLint、
+  `make contracts`、token 预算（最大 `service.ts` 21921 ≤ 21931）、断言预算（19/19）与
+  **62 个测试文件、650 项测试**全部通过；`make format` 通过。
+- 验证（真实接口，2026-11-02）：在本地构建产物上直接调用 `forgeloop_web_search`/`forgeloop_web_fetch`，
+  密钥取自所有者 `~/.zshrc` 的 `DEEPSEEK_API_KEY`。英文与中文检索分别返回 3 条/2 条真实结果
+  （title、url、site、authority、summary 均解析正常）；抓取 `api-docs.deepseek.com/api/search`、
+  七牛云文章页与 `deepseek.com` 均得到 Markdown 正文（248–5192 字符）；`file:` 地址被拒；
+  无效密钥返回 401 并被映射为“联网请求失败（HTTP 401，API 密钥缺失或无效）”；一次第三方页面
+  404 与一次超时也按中文原因返回。计费与额度未核对。
+- 边界：需要 `DEEPSEEK_API_KEY` 已在**运行插件的宿主进程**环境里。验证时它只存在于 shell 的
+  `export`，运行中的 DSH 宿主进程（`dsh web`，PID 2477）环境里没有该变量，因此宿主内调用会返回
+  “未配置 DEEPSEEK_API_KEY”；要让插件真正联网，需从带该变量的 shell 或 launchd/LaunchAgent
+  环境启动宿主。
+  旧记录的 business context 不受影响（缺字段按未变化）；同步只覆盖整份文档，不做增量合并，
+  模型漏判“需要更新”仍不会被程序发现。
+### 112. 研发会话常驻与主控 Agent 路由（2026-11-02）
 
 - **研发会话常驻，工作区随会话**：新增 `dev_sessions`、`requirement_dev_sessions`、
   `dev_session_summaries` 三张表；研发工作区从 `workspaces/<req>/dev/` 改为
@@ -3799,8 +3918,8 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   释放为空闲，保留绑定与总结。旧 `plan`／`approve` 请求、实现前评审与批准行仅作历史兼容保留，
   正常自动链路不再有独立规划步骤；旧显式批准路径仍用任务级工作区，不在会话复用范围内。
 - **问题单环境**：问题单的 `environment.devWorkspace` 改记研发会话工作区，不再写按需求 ID 的旧路径。
-- **验证会话**：连续链路沿用既有实现（新开验证会话、验完即 `close()`）；验证单会话的进一步改造
-  由另一分支（`feat/verification-new-session`）负责，本分支不改该部分，任务级验证流水线保持原状。
+- **验证链路**：候选独立验证由 §108 的两阶段验证实现负责（方案会话与业务验收会话分离）；
+  本分支不改 `legacy-verification.ts` 与 `verification-pipeline.ts`，只保证研发会话自验留在研发会话内。
 - **宿主恢复**：本进程内复用 live 会话句柄；宿主重启后经 `agents.resume` 恢复，宿主不支持时明确失败，
   不新建同名会话冒充恢复。
 - 文档同步：`docs/architecture.md`、`docs/product.md`、`docs/status.md`、`CONTEXT.md`、
@@ -3812,10 +3931,10 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   只能靠候选清单校验兜底；旧 `executeAdvance`（显式批准）仍是任务级工作区；断言 fake runner 必须显式
   处理 `role=orchestrator`，否则会落到默认写文件分支。
 
-### 109. 主控路由与宿主恢复的异常处理（2026-11-02）
+### 113. 主控路由与宿主恢复的异常处理（2026-11-02）
 
-- **验证单会话移出本分支**：`verification-pipeline.ts` 回退到改动前实现，恢复 `runner` 依赖；
-  验证会话改造由 `feat/verification-new-session` 负责，避免两处重复改动同时落地。
+- **验证链路不在本分支**：`verification-pipeline.ts` 与 `legacy-verification.ts` 保持 main 的实现，
+  本分支只叠加研发会话与主控路由，避免两处重复改动同时落地。
 - **主控路由的异常路径**：候选清单最多 20 个会话、每个会话最近总结截断到 400 字；调用前后各查一次
   停止请求（等待模型期间被停止时不采用结果）；畸形的路由 JSON、非字符串或空 `session_id`、不存在的
   会话 ID、未完成/超时/报错的回合都回退为新建会话，并把原因写进需求详情；没有候选时直接新建，
@@ -3833,10 +3952,15 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   分支 84.36%（`repository.ts` 分支 87.62%）；`make budget` service.ts 21,785（基线下调）、
   `make assertions` 18。
 
-### 110. 研发自验保留在研发会话内（2026-11-02）
+### 114. 研发自验保留在研发会话内（2026-11-02）
 
 - 研发会话的每个任务仍在自己的会话与工作区运行该任务的测试命令：失败把日志追加回同一会话继续修，
   通过才记录交付；不另开会话做自验，也不换工作区。
 - 新增回归用例：测试命令首次失败、第二次通过时，断言修复发生在同一工作区、同一研发会话，
   且独立验证（若存在）排在这次修复之后；研发会话结束时不被 `close()`。
-- 说明：候选的独立验证会话改造仍由 `feat/verification-new-session` 负责，本分支只保证自验不外移。
+- 说明：候选的独立验证实现见 §108；本分支只保证自验留在研发会话内，验证链路不改动。
+- **合并 main**：与 §108–§111（两阶段验证、产品分析单次化与失败重试、业务背景文档与联网检索）合并。
+  `agent-runner.ts` 同时保留显式 `sessionId`／`agents.resume` 与 main 的 `allowTools` 工具白名单；
+  `repository.ts` 拆出 `records/dev-session-store.ts`（`Repository extends DevSessionStore extends OpsStore`），
+  避免单文件超过 2000 行。合并后 `make check` 63 个文件、673 项通过，`make coverage` 行 91.57%、
+  函数 96.51%、分支 84.39%（`repository.ts` 分支 87.36%）。

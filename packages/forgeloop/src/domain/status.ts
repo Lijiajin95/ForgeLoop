@@ -1,6 +1,7 @@
 /** 需求与任务生命周期词表：状态字面量只在这里定义，不在实现里各写一份。 */
 
 export const DRAFT = 'draft'
+export const ANALYSIS_FAILED = 'analysis_failed'
 export const AWAITING_CLARIFICATION = 'awaiting_clarification'
 export const BLOCKED = 'blocked'
 export const SPECIFIED = 'specified'

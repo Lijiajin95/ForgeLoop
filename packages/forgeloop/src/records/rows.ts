@@ -29,7 +29,8 @@ export function text(row: Row, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-function oneOf<T extends string>(value: string, allowed: readonly T[], label: string): T {
+/** 把记录里的字符串收窄到已知取值；非法值按记录损坏报错，不静默取默认。 */
+export function oneOf<T extends string>(value: string, allowed: readonly T[], label: string): T {
   const found = allowed.find((item) => item === value)
   if (found === undefined) throw new RuleViolationError(`记录损坏：${label} 取值非法（${value}）`)
   return found

@@ -201,6 +201,32 @@ describe('AgentRunner tool composition', () => {
     expect(denied).toEqual([['bash', 'fs']])
   })
 
+  it('keeps only the allowlisted tools for the product Agent without the coding preset', async () => {
+    const mounted: string[] = []
+    const denied: string[][] = []
+    const { ctx } = fakeContext({
+      events: [event('turn/end', { reason: { kind: 'completed' } })],
+      onMount: (id) => mounted.push(id),
+      onDeny: (names) => denied.push(names),
+    })
+    const runner = new AgentRunner({
+      ctx: ctx as never,
+      agent: { provider: 'p', model: 'm', timeoutSeconds: 60 },
+    })
+
+    await runner.run(
+      request({
+        role: 'product',
+        permission: 'workspace-write',
+        tools: 'default',
+        allowTools: ['forgeloop_read_project_doc', 'forgeloop_web_search'],
+      }),
+    )
+    // 宿主只登记了 bash/fs：两者不在白名单，必须被确定性禁用，也不能挂标准编码 preset。
+    expect(mounted).toEqual([])
+    expect(denied).toEqual([['bash', 'fs']])
+  })
+
   it('reports a host without agentPresets.mount when a coding role needs tools', async () => {
     const { ctx } = fakeContext({
       events: [event('turn/end', { reason: { kind: 'completed' } })],

@@ -1043,7 +1043,7 @@ export class CandidatePipeline {
         ok: false,
         result: fail(
           'business_review_required',
-          `需求 ${reqId} 尚未完成需求 Agent 的业务终审；不能验收`,
+          `需求 ${reqId} 尚未完成验证 Agent 的业务终审；不能验收`,
         ),
       }
     }

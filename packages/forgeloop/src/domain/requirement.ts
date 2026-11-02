@@ -56,16 +56,38 @@ export interface RequirementAnalysis {
   readonly requirementVersion: number
   readonly goal: string
   readonly scenarios: readonly string[]
+  /** 业务规则：哪些业务约束必须成立。 */
+  readonly businessRules?: readonly string[]
+  /** 异常与边界：异常路径、边界条件与不可用状态。 */
+  readonly exceptions?: readonly string[]
+  /** 非目标：本需求明确不做的范围。 */
+  readonly nonGoals?: readonly string[]
   readonly acceptanceCriteria: readonly string[]
   readonly clarifications: readonly string[]
+  /** 产生该结论的模型与提示词版本；历史记录可能为空。 */
+  readonly model?: string
+  readonly promptVersion?: string
+  /** 该次分析的 Agent 轨迹文件。 */
+  readonly transcriptPath?: string
+  readonly toolCalls?: readonly string[]
   readonly createdAt: string
+}
+
+/** 业务背景文档的同步指令：changed=false 表示没变化，document 必须为空。 */
+export interface BusinessContextDraft {
+  readonly changed: boolean
+  readonly document: string
 }
 
 export interface AnalysisDraft {
   readonly goal: string
   readonly scenarios: readonly string[]
+  readonly businessRules: readonly string[]
+  readonly exceptions: readonly string[]
+  readonly nonGoals: readonly string[]
   readonly acceptanceCriteria: readonly string[]
   readonly clarifications: readonly string[]
+  readonly businessContext: BusinessContextDraft
 }
 
 function stringList(value: unknown, field: string): string[] {
@@ -78,6 +100,42 @@ function stringList(value: unknown, field: string): string[] {
     items.push(item.trim())
   }
   return items
+}
+
+/** 缺字段按空数组处理；字段存在但不是字符串数组时交给 stringList 报畸形。 */
+function listField(data: Record<string, unknown>, key: string): readonly string[] {
+  return stringList(data[key] ?? [], key)
+}
+
+/**
+ * 业务背景同步指令：缺字段视为“没有变化”，兼容历史分析；
+ * changed=true 必须带完整文档，changed=false 不许夹带内容，避免程序写半截文档。
+ */
+function businessContextField(data: Record<string, unknown>): BusinessContextDraft {
+  const raw = data.business_context
+  if (raw === undefined || raw === null) return { changed: false, document: '' }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new MalformedError('分析字段 business_context 必须是对象')
+  }
+  const record = asRecord(raw) ?? {}
+  if (typeof record.changed !== 'boolean') {
+    throw new MalformedError('分析字段 business_context.changed 必须是布尔值')
+  }
+  const document = record.document
+  if (document !== undefined && typeof document !== 'string') {
+    throw new MalformedError('分析字段 business_context.document 必须是字符串')
+  }
+  const text = typeof document === 'string' ? document : ''
+  if (record.changed) {
+    if (!text.trim()) {
+      throw new MalformedError('business_context.changed 为 true 时必须给出完整的业务背景文档')
+    }
+    return { changed: true, document: text }
+  }
+  if (text.trim()) {
+    throw new MalformedError('business_context.changed 为 false 时 document 必须为空')
+  }
+  return { changed: false, document: '' }
 }
 
 /**
@@ -95,13 +153,27 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   const data = asRecord(payload) ?? {}
   const goal = typeof data.goal === 'string' ? data.goal.trim() : ''
   if (!goal) throw new MalformedError('分析缺少非空目标')
-  const scenarios = stringList(data.scenarios ?? [], 'scenarios')
-  const acceptanceCriteria = stringList(data.acceptance_criteria ?? [], 'acceptance_criteria')
-  const clarifications = stringList(data.clarifications ?? [], 'clarifications')
+  const scenarios = listField(data, 'scenarios')
+  // 业务规则、异常与边界、非目标允许为空（历史分析没有这些字段），但给定时必须是字符串数组。
+  const businessRules = listField(data, 'business_rules')
+  const exceptions = listField(data, 'exceptions')
+  const nonGoals = listField(data, 'non_goals')
+  const acceptanceCriteria = listField(data, 'acceptance_criteria')
+  const clarifications = listField(data, 'clarifications')
+  const businessContext = businessContextField(data)
   if (clarifications.length === 0 && (scenarios.length === 0 || acceptanceCriteria.length === 0)) {
     throw new MalformedError('没有待澄清项时必须给出业务场景与验收标准')
   }
-  return { goal, scenarios, acceptanceCriteria, clarifications }
+  return {
+    goal,
+    scenarios,
+    businessRules,
+    exceptions,
+    nonGoals,
+    acceptanceCriteria,
+    clarifications,
+    businessContext,
+  }
 }
 
 export function parseJsonLoose(text: string, what: string): unknown {

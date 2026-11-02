@@ -1,16 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
-import type { PlanReview, VerificationCommand, VerificationReport } from '../domain/verification.js'
-import {
-  parseVerificationCommands,
-  parseVerificationReport,
-  validateScenarioEvidence,
-  validateVerificationCoverage,
+import type {
+  VerificationCheckRun,
+  VerificationPlan,
+  VerificationResult,
 } from '../domain/verification.js'
 import {
   parseBusinessReview,
@@ -22,11 +20,15 @@ import { errorMessage } from '../domain/errors.js'
 import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { AGENT_VERIFY } from '../domain/agents.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
+import {
+  VerificationAgent,
+  type VerificationPlannerRequest,
+  type VerificationPlannerResult,
+} from '../agents/verification-agent.js'
 import type { AgentOpenRequest, AgentSession } from './agent-runner.js'
 import type { CandidateFile } from './integration.js'
-import type { VerificationCommandRun } from './execution-commands.js'
 import type { runFormalTest } from './formal-test.js'
-import { businessReviewPrompt, verificationPrompt } from './prompts.js'
+import { businessReviewPrompt } from './prompts.js'
 import {
   VERIFICATION_MATERIAL_DIR,
   businessReviewEvidenceWindow,
@@ -42,7 +44,10 @@ export interface LegacyVerificationDeps {
   charge: (reqId: string, started: number) => void
   formalTest: typeof runFormalTest
   openAgent: (request: AgentOpenRequest) => Promise<AgentSession>
-  verificationBaseline: (analysis: RequirementAnalysis) => PlanReview
+  /** 验证方案阶段的新会话执行器；不传候选、代码或任务包，只投需求说明。 */
+  runner: (
+    request: VerificationPlannerRequest,
+  ) => Promise<VerificationPlannerResult & { readonly sessionId?: string }>
 }
 
 export interface LegacyVerifyInput {
@@ -102,7 +107,7 @@ export class LegacyVerification {
         }
       }
   > {
-    // 同一验证会话继续做业务验收；证据只取程序实际重跑的命令输出。
+    // 业务验收使用新开的无工具会话；证据只取程序实际重跑的命令输出。
     const { runs, session, dir, verification } = input
     const facts = runs.map((item) => ({
       label: item.label,
@@ -252,102 +257,20 @@ export class LegacyVerification {
     }
   }
 
-  private async runLegacyVerificationCommands(input: {
-    reqId: string
-    dir: string
-    workspace: string
-    workspaceHead: string
-    commands: readonly VerificationCommand[]
-    signal: AbortSignal
-  }): Promise<
-    | {
-        ok: true
-        runs: VerificationCommandRun[]
-        failedCommands: string[]
-        integrity: string[]
-        afterHead: string
-        afterChanges: string[]
-      }
-    | {
-        ok: false
-        result: { state: 'block'; detail: string; blocking: string[]; verification: null }
-      }
-  > {
-    const { dir, workspace, workspaceHead, commands } = input
-    const runs: Array<{
-      label: string
-      argv: readonly string[]
-      exitCode: number | null
-      timedOut: boolean
-      aborted: boolean
-      logPath: string
-      logSha256: string
-      durationMs: number
-      output: string
-    }> = []
-    const failedCommands: string[] = []
-    for (const [index, command] of commands.entries()) {
-      const label =
-        command.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || `command-${index + 1}`
-      const test = await this.deps.formalTest({
-        ctx: this.deps.ctx,
-        cwd: workspace,
-        argv: command.argv,
-        timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
-        logPath: join(dir, `verification-${index + 1}-${label}.log`),
-        signal: input.signal,
-      })
-      runs.push({
-        label: command.label,
-        argv: command.argv,
-        exitCode: test.exitCode,
-        timedOut: test.timedOut,
-        aborted: test.aborted,
-        logPath: test.logPath,
-        logSha256: test.logSha256,
-        durationMs: test.durationMs,
-        output: test.output,
-      })
-      if (test.aborted) {
-        return {
-          ok: false,
-          result: {
-            state: 'block',
-            detail: '独立验证命令被停止；验证工作区可丢弃，可重新验证',
-            blocking: ['独立验证命令被停止'],
-            verification: null,
-          },
-        }
-      }
-      if (test.timedOut) failedCommands.push(`${command.label} 超时`)
-      else if (test.exitCode !== 0) failedCommands.push(`${command.label} 退出码 ${test.exitCode}`)
-    }
-    const integrity: string[] = []
-    const afterHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
-    if (afterHead !== workspaceHead) integrity.push('验证命令改变了候选提交')
-    const afterChanges = workspaceChanges(workspace).filter(
-      (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
-    )
-    if (afterChanges.length > 0)
-      integrity.push(`验证命令修改了候选文件：${afterChanges.join('、')}`)
-    return { ok: true, runs, failedCommands, integrity, afterHead, afterChanges }
-  }
-
-  private recordLegacyVerification(input: {
+  private recordAgentVerification(input: {
     reqId: string
     plan: TaskPlan
     candidate: CandidateFile
     dir: string
     workspaceSha256: string
-    baseline: PlanReview
-    reportPath: string
-    report: VerificationReport
-    runs: VerificationCommandRun[]
-    failedCommands: readonly string[]
-    integrity: readonly string[]
+    verificationPlan: VerificationPlan
+    result: VerificationResult
+    checks: readonly VerificationCheckRun[]
+    checkLogs: readonly { readonly path: string; readonly sha256: string }[]
+    integrityIssues: readonly string[]
     afterHead: string
     afterChanges: readonly string[]
-    run: Awaited<ReturnType<AgentSession['send']>>
+    sessionId: string
   }):
     | { ok: true; verification: VerificationRecord }
     | {
@@ -359,29 +282,26 @@ export class LegacyVerification {
           verification: VerificationRecord
         }
       } {
-    const { dir, workspaceSha256, baseline } = input
-    const { reportPath, report, runs, failedCommands, integrity, afterHead, afterChanges, run } =
-      input
-    const coverage = validateVerificationCoverage(baseline.verificationPlan, report)
-    const evidence = validateScenarioEvidence(baseline.verificationPlan, report, runs)
-    const anyFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
+    const { dir, workspaceSha256, result, integrityIssues, afterHead, afterChanges } = input
+    const scenarios = result.scenarios.map((scenario) => ({
+      scenario: scenario.scenario,
+      status: scenario.status,
+      evidence: scenario.evidence,
+      commands: scenario.checks.map((check) => check.label),
+    }))
+    const blocking = [...result.failures, ...integrityIssues]
     const verdict: 'pass' | 'block' =
-      report.verdict === 'pass' &&
-      failedCommands.length === 0 &&
-      coverage.length === 0 &&
-      evidence.length === 0 &&
-      integrity.length === 0 &&
-      !anyFailed
-        ? 'pass'
-        : 'block'
-    const blocking = [
-      ...report.blocking,
-      ...integrity,
-      ...evidence,
-      ...(anyFailed ? ['报告存在未通过的验证场景'] : []),
-      ...failedCommands.map((failure) => `验证命令失败：${failure}`),
-      ...coverage,
-    ]
+      result.verdict === 'passed' && integrityIssues.length === 0 ? 'pass' : 'block'
+    const commands = input.checks.map((check, index) => ({
+      label: check.label,
+      argv: check.argv,
+      exitCode: check.exitCode,
+      timedOut: check.timedOut,
+      aborted: check.aborted,
+      durationMs: check.durationMs,
+      logPath: input.checkLogs[index]?.path ?? '',
+      logSha256: input.checkLogs[index]?.sha256 ?? '',
+    }))
     const canonical = {
       kind: 'verification',
       reqId: input.reqId,
@@ -391,18 +311,20 @@ export class LegacyVerification {
       candidateVersion: input.candidate.candidateVersion,
       snapshotCommit: input.candidate.snapshotCommit,
       workspaceSha256,
+      verificationPlan: input.verificationPlan,
+      environment: result.environment,
       verdict,
-      summary: report.summary,
-      findings: report.findings,
+      summary: result.summary,
+      findings: [],
       blocking,
-      scenarios: report.scenarios,
-      commands: runs.map(({ output: _output, ...rest }) => rest),
+      scenarios,
+      commands,
       candidateIntegrity: {
         head: afterHead,
         changes: afterChanges,
         allowedPaths: [VERIFICATION_MATERIAL_DIR],
       },
-      sessionId: run.sessionId,
+      sessionId: input.sessionId,
       at: this.deps.now(),
     }
     const reportJson = `${JSON.stringify(canonical, null, 2)}\n`
@@ -419,7 +341,7 @@ export class LegacyVerification {
       reportPath: verificationPath,
       reportSha256: sha256OfText(reportJson),
       evidenceDir: dir,
-      sessionId: run.sessionId,
+      sessionId: input.sessionId,
       verifiedAt: this.deps.now(),
     }
     this.deps.repo.recordVerification(verification)
@@ -427,14 +349,14 @@ export class LegacyVerification {
       this.deps.repo.recordFailureRound(input.reqId, {
         roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}`,
         stage: FAILURE_VERIFICATION,
-        summary: `独立验证阻断：${blocking.join('；') || report.summary}`.slice(0, 1000),
+        summary: `独立验证阻断：${blocking.join('；') || result.summary}`.slice(0, 1000),
         occurredAt: this.deps.now(),
       })
       return {
         ok: false,
         result: {
           state: 'block',
-          detail: `独立验证阻断：${blocking.join('；') || report.summary}；证据 ${reportPath}`,
+          detail: `独立验证阻断：${blocking.join('；') || result.summary}；证据 ${verificationPath}`,
           blocking,
           verification,
         },
@@ -455,7 +377,6 @@ export class LegacyVerification {
         workspace: string
         workspaceSha256: string
         workspaceHead: string
-        diffForPrompt: string
       }
     | {
         ok: false
@@ -534,9 +455,6 @@ export class LegacyVerification {
     const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}']).trim()
     const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
     const diff = readFileSync(input.candidate.diffPath, 'utf8')
-    // 候选 diff 可能很大，且测试数据中的 `dsh-session:` 字样会被 DSH 当作会话引用
-    // 解析并拒绝整轮。提示词只给摘要和工作区位置，验证 Agent 直接读取已应用的候选。
-    const diffForPrompt = `候选 diff 共 ${diff.length} 字节，已固定到工作区；请在 ${workspace} 内读取实际文件与 diff，不在提示词中展开。`
     writeFileSync(join(dir, 'candidate.diff'), diff, 'utf8')
     writeFileSync(
       join(dir, 'candidate.json'),
@@ -557,7 +475,7 @@ export class LegacyVerification {
       )}\n`,
       'utf8',
     )
-    return { ok: true, dir, workspace, workspaceSha256, workspaceHead, diffForPrompt }
+    return { ok: true, dir, workspace, workspaceSha256, workspaceHead }
   }
 
   async verifyCandidate(input: {
@@ -576,117 +494,133 @@ export class LegacyVerification {
   }> {
     const prepared = this.prepareLegacyVerificationWorkspace(input)
     if (!prepared.ok) return prepared.result
-    const { dir, workspace, workspaceSha256, workspaceHead, diffForPrompt } = prepared
-    const baseline = this.deps.verificationBaseline(input.analysis)
-    const session = await this.deps.openAgent({
+    const { dir, workspace, workspaceSha256, workspaceHead } = prepared
+    const logs: Array<{ path: string; sha256: string }> = []
+    let planSessionId = ''
+    const agent = new VerificationAgent({
+      runner: {
+        run: async (request) => {
+          const outcome = await this.deps.runner(request)
+          planSessionId = outcome.sessionId ?? ''
+          return outcome
+        },
+      },
+      executeCheck: async ({ cwd, argv, timeoutMs, signal }) => {
+        const index = logs.length + 1
+        const test = await this.deps.formalTest({
+          ctx: this.deps.ctx,
+          cwd,
+          argv,
+          timeoutMs,
+          logPath: join(dir, `verification-${index}.log`),
+          ...(signal ? { signal } : {}),
+        })
+        logs.push({ path: test.logPath, sha256: test.logSha256 })
+        return {
+          exitCode: test.exitCode,
+          output: test.output,
+          timedOut: test.timedOut,
+          aborted: test.aborted,
+          durationMs: test.durationMs,
+        }
+      },
+      projectPath: this.deps.config.projectPath,
+      timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+    })
+
+    // 方案阶段只读取需求原文与分析，不接触任务包、候选 diff、源码或工作区。
+    const planStarted = Date.now()
+    let plan: VerificationPlan
+    try {
+      plan = await agent.plan({
+        requirement: input.requirement,
+        analysis: input.analysis,
+        transcriptPath: join(dir, 'verify-plan.jsonl'),
+        signal: input.signal,
+      })
+    } catch (error) {
+      const detail = `验证方案未取得可用结果：${errorMessage(error)}`
+      return { state: 'block', detail, blocking: [detail], verification: null }
+    } finally {
+      this.deps.charge(input.reqId, planStarted)
+    }
+    writeFileSync(join(dir, 'verification-plan.json'), `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
+
+    // 执行阶段由程序在固定候选上逐条重跑命令，模型不再看得到候选内容。
+    let result: VerificationResult
+    try {
+      result = await agent.execute({
+        plan,
+        artifact: {
+          requirementVersion: input.plan.requirementVersion,
+          candidateSha256: input.candidate.candidateSha256,
+          workspace,
+        },
+        signal: input.signal,
+      })
+    } catch (error) {
+      const detail = `验证方案执行未取得结果：${errorMessage(error)}`
+      return { state: 'block', detail, blocking: [detail], verification: null }
+    }
+    if (result.checks.some((check) => check.aborted)) {
+      return {
+        state: 'block',
+        detail: '独立验证命令被停止；验证工作区可丢弃，可重新验证',
+        blocking: ['独立验证命令被停止'],
+        verification: null,
+      }
+    }
+    const afterHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+    if (afterHead !== workspaceHead) {
+      return {
+        state: 'block',
+        detail: '验证期间候选提交发生变化',
+        blocking: ['验证期间候选提交发生变化'],
+        verification: null,
+      }
+    }
+    const afterChanges = workspaceChanges(workspace)
+    const outside = afterChanges.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
+    const integrityIssues =
+      outside.length > 0 ? [`验证命令修改了固定候选：${outside.join('、')}`] : []
+    const recorded = this.recordAgentVerification({
+      reqId: input.reqId,
+      plan: input.plan,
+      candidate: input.candidate,
+      dir,
+      workspaceSha256,
+      verificationPlan: plan,
+      result,
+      checks: result.checks,
+      checkLogs: logs,
+      integrityIssues,
+      afterHead,
+      afterChanges,
+      sessionId: planSessionId,
+    })
+    if (!recorded.ok) return recorded.result
+    const verification = recorded.verification
+    const runs = result.checks.map((check, index) => ({
+      ...check,
+      logPath: logs[index]?.path ?? '',
+      logSha256: logs[index]?.sha256 ?? '',
+    }))
+
+    // 业务验收新开一个无工具会话：只给需求、任务验收与程序重跑出的命令输出。
+    const reviewSession = await this.deps.openAgent({
       role: AGENT_VERIFY,
-      cwd: workspace,
+      cwd: dir,
       permission: 'workspace-write',
-      tools: 'default',
+      tools: 'none',
     })
     try {
-      const started = Date.now()
-      const run = await session.send({
-        prompt: verificationPrompt({
-          requirement: input.requirement,
-          analysis: input.analysis,
-          plan: input.plan,
-          planReview: baseline,
-          candidateSha256: input.candidate.candidateSha256,
-          workspaceSha256,
-          workspacePath: workspace,
-          diff: diffForPrompt,
-        }),
-        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
-        transcriptPath: join(dir, 'verify.jsonl'),
-        signal: input.signal,
-      })
-      this.deps.charge(input.reqId, started)
-      if (run.status !== 'completed') {
-        return {
-          state: 'block',
-          detail: `验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
-          blocking: [run.reason],
-          verification: null,
-        }
-      }
-      const commandsPath = join(workspace, 'verification/commands.json')
-      const reportPath = join(workspace, 'verification/report.json')
-      if (!existsSync(commandsPath) || !existsSync(reportPath)) {
-        return {
-          state: 'block',
-          detail: '验证 Agent 未产出 commands.json 与 report.json',
-          blocking: ['验证材料缺失'],
-          verification: null,
-        }
-      }
-      let commands: VerificationCommand[]
-      let report: VerificationReport
-      try {
-        commands = parseVerificationCommands(readFileSync(commandsPath, 'utf8'))
-        report = parseVerificationReport(readFileSync(reportPath, 'utf8'))
-      } catch (error) {
-        return {
-          state: 'block',
-          detail: `验证材料畸形：${errorMessage(error)}`,
-          blocking: [`验证材料畸形：${errorMessage(error)}`],
-          verification: null,
-        }
-      }
-      const changed = workspaceChanges(workspace)
-      const currentHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
-      if (currentHead !== workspaceHead) {
-        return {
-          state: 'block',
-          detail: '验证期间候选提交发生变化',
-          blocking: ['验证期间候选提交发生变化'],
-          verification: null,
-        }
-      }
-      const outside = changed.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
-      if (outside.length > 0) {
-        return {
-          state: 'block',
-          detail: `验证修改了 verification/ 之外的文件：${outside.join('、')}`,
-          blocking: [`验证修改了候选文件：${outside.join('、')}`],
-          verification: null,
-        }
-      }
-      const executed = await this.runLegacyVerificationCommands({
-        reqId: input.reqId,
-        dir,
-        workspace,
-        workspaceHead,
-        commands,
-        signal: input.signal,
-      })
-      if (!executed.ok) return executed.result
-      const { runs, failedCommands, integrity, afterHead, afterChanges } = executed
-      const recorded = this.recordLegacyVerification({
-        reqId: input.reqId,
-        plan: input.plan,
-        candidate: input.candidate,
-        dir,
-        workspaceSha256,
-        baseline,
-        reportPath,
-        report,
-        runs,
-        failedCommands,
-        integrity,
-        afterHead,
-        afterChanges,
-        run,
-      })
-      if (!recorded.ok) return recorded.result
-      const verification = recorded.verification
       const business = await this.runLegacyBusinessReview({
         reqId: input.reqId,
         requirement: input.requirement,
         analysis: input.analysis,
         plan: input.plan,
         candidate: input.candidate,
-        session,
+        session: reviewSession,
         dir,
         signal: input.signal,
         runs,
@@ -708,7 +642,7 @@ export class LegacyVerification {
         runs,
       })
     } finally {
-      await session.close()
+      await reviewSession.close()
     }
   }
 }

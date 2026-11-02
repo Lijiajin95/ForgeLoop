@@ -35,6 +35,12 @@ function setup(overrides: Record<string, unknown> = {}) {
       calls.push({ method: 'requeue', input })
       return { ok: true, data: {} }
     },
+    analysisQueue: {
+      retry: (input: unknown) => {
+        calls.push({ method: 'retryAnalysis', input })
+        return { ok: true, data: {} }
+      },
+    },
     buildCandidate: (input: unknown) => {
       calls.push({ method: 'buildCandidate', input })
       return { ok: true, data: {} }
@@ -147,6 +153,7 @@ describe('board route', () => {
       { endpoint: 'advance', reqId: 'r1' },
       { endpoint: 'verify', reqId: 'r1' },
       { endpoint: 'requeue', reqId: 'r1' },
+      { endpoint: 'retry-analysis', reqId: 'r1', sessionId: 's1' },
       { endpoint: 'build', reqId: 'r1' },
       { endpoint: 'deploy', reqId: 'r1', targetProfile: 'p1' },
       { endpoint: 'retry', reqId: 'r1', taskId: 't1', planVersion: 1 },
@@ -159,6 +166,11 @@ describe('board route', () => {
     }
     expect(aborted()).toBe(2)
     expect(calls.some((call) => call.method === 'approvePlan')).toBe(true)
+    expect(calls.find((call) => call.method === 'retryAnalysis')?.input).toMatchObject({
+      reqId: 'r1',
+      by: 'owner',
+      source: 'web-decision:s1',
+    })
     expect(calls.some((call) => call.method === 'verifyDeployment')).toBe(true)
   })
 
@@ -170,6 +182,7 @@ describe('board route', () => {
       { endpoint: 'advance' },
       { endpoint: 'verify' },
       { endpoint: 'requeue' },
+      { endpoint: 'retry-analysis' },
       { endpoint: 'build' },
       { endpoint: 'deploy', reqId: 'r1' },
       { endpoint: 'retry', reqId: 'r1', taskId: 't1' },

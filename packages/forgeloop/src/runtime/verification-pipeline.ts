@@ -716,7 +716,7 @@ export class VerificationPipeline {
   }
 
   /**
-   * 业务终审：需求 Agent 在新会话里按原始需求复核业务场景与验收标准。
+   * 业务终审：验证 Agent 在新会话里按原始需求复核业务场景与验收标准。
    * 证据必须来自独立验证实际执行的命令输出，不能只复述验证报告。
    */
   private businessReviewInputs(reqId: string):

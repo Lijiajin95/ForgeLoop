@@ -75,12 +75,23 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const VERIFICATION_REPORT = JSON.stringify({
-  verdict: 'pass',
-  summary: '候选满足需求',
-  findings: [],
-  blocking: [],
-  scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+/** 需求说明派生的验证方案；命令由运行时在固定候选上实际执行。 */
+const VERIFICATION_PLAN = JSON.stringify({
+  scenarios: [
+    {
+      scenario: SCENARIO,
+      acceptance_criterion: CRITERION,
+      method: '运行冒烟命令并核对输出',
+      required: true,
+      checks: [
+        {
+          label: 'smoke',
+          argv: ['node', '-e', `console.log('${SMOKE}')`],
+          expected_output: SMOKE,
+        },
+      ],
+    },
+  ],
 })
 
 const BUSINESS_REVIEW = JSON.stringify({
@@ -106,20 +117,6 @@ function fakeRunner(): AgentLike {
         writeFileSync(join(request.cwd, `docs/${taskId}.md`), `content ${Date.now()}\n`)
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'done')
       }
-      if (request.role === 'verify' && turn.prompt.includes('独立验证 Agent')) {
-        mkdirSync(join(request.cwd, 'verification'), { recursive: true })
-        writeFileSync(
-          join(request.cwd, 'verification/commands.json'),
-          JSON.stringify({
-            commands: [{ label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE}')`] }],
-          }),
-        )
-        writeFileSync(join(request.cwd, 'verification/report.json'), VERIFICATION_REPORT)
-        return result(
-          { role: request.role, transcriptPath: turn.transcriptPath },
-          VERIFICATION_REPORT,
-        )
-      }
       if (request.role === 'verify' && turn.prompt.includes('业务验收')) {
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, BUSINESS_REVIEW)
       }
@@ -133,6 +130,8 @@ function fakeRunner(): AgentLike {
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         return result(request, PLAN)
       }
+      // 验证方案阶段只读需求说明，不接触候选代码或任务包。
+      if (request.role === 'verify') return result(request, VERIFICATION_PLAN)
       throw new Error(`unexpected single-turn role ${request.role}`)
     },
     async open(request: AgentOpenRequest) {

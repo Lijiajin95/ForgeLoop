@@ -212,6 +212,15 @@ describe('client conversation view', () => {
     expect(dicts!.en['view.label']).toBe('Forge')
   })
 
+  it('labels a failed product analysis and the retry action in both locales', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts!.zh['status.analysis_failed']).toBe('产品分析失败')
+    expect(dicts!.en['status.analysis_failed']).toBe('Product analysis failed')
+    expect(dicts!.zh['action.retryAnalysis']).toBe('重新分析')
+    expect(dicts!.en['action.retryAnalysis']).toBe('Retry analysis')
+    expect(dicts!.zh['action.retryAnalysisQueued']).toBe('已受理重新分析')
+  })
+
   it('ships failure-reason, solution and retry labels for failed task cards', () => {
     const dicts = dictionaries.get('forgeloop-board')
     expect(dicts!.zh['task.failureReason']).toBe('失败原因')

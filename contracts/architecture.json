@@ -35,6 +35,7 @@
       "path": "packages/forgeloop/src/runtime",
       "may_import": [
         "domain",
+        "agents",
         "records",
         "config"
       ]

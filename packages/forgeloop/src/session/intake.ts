@@ -2,7 +2,7 @@
  * ForgeLoop 业务会话的输入接管。
  *
  * 在 DSH 的 `agent/pre-step` waterfall 中，只处理 agentPreset=forgeloop 的
- * 非子 Agent 会话：把人类输入交给需求受理与需求 Agent 分析，然后 reject 普通
+ * 非子 Agent 会话：把人类输入交给需求受理与产品 Agent 分析，然后 reject 普通
  * 模型步骤。用户看到的是自定义会话事件，不是普通聊天回复。
  */
 
@@ -31,7 +31,7 @@ type AnyRecord = Record<string, unknown>
 export const FORGELOOP_PRESET_ID = 'forgeloop'
 export const FORGELOOP_PRESET_NAME = 'ForgeLoop 业务会话'
 export const FORGELOOP_PRESET_DESCRIPTION =
-  '描述业务目标或问题；ForgeLoop 会把它拆解为需求并交给需求 Agent 分析，不进入普通聊天。'
+  '描述业务目标或问题；ForgeLoop 会把它拆解为需求并交给产品 Agent 分析，不进入普通聊天。'
 
 export interface SessionViewLike {
   readonly id?: string
@@ -238,6 +238,8 @@ export class SessionIntake {
         by: this.config.owner,
         source,
         clientKey: source,
+        // 业务会话先同步执行首次分析，成功后入队；不让队列再排第二次分析。
+        analyze: false,
       })
     } catch (error) {
       this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, {
@@ -298,6 +300,7 @@ export class SessionIntake {
     }
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
+    this.enqueueIfReady(reqId, outcome.analysis)
     // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
     // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
@@ -349,8 +352,16 @@ export class SessionIntake {
     appendSessionEvent(session, FORGELOOP_ANSWER_EVENT, answer, this.log)
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
+    this.enqueueIfReady(reqId, outcome.analysis)
     // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
     // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
+  }
+
+  /** 首次产品分析完成后入队；有待澄清项时等回答后的分析再入队。 */
+  private enqueueIfReady(reqId: string, analysis: RequirementAnalysis): void {
+    if (analysis.clarifications.length > 0) return
+    const outcome = this.runtime.analysisQueue.enqueue(reqId)
+    if (!outcome.ok) this.log(`[forgeloop] 需求 ${reqId} 入队失败：${outcome.message}`)
   }
 
   private appendClarificationIfNeeded(
@@ -384,8 +395,14 @@ export class SessionIntake {
       requirementVersion: analysis.requirementVersion,
       goal: analysis.goal,
       scenarios: analysis.scenarios,
+      businessRules: analysis.businessRules ?? [],
+      exceptions: analysis.exceptions ?? [],
+      nonGoals: analysis.nonGoals ?? [],
       acceptanceCriteria: analysis.acceptanceCriteria,
       clarifications: analysis.clarifications,
+      model: analysis.model ?? '',
+      promptVersion: analysis.promptVersion ?? '',
+      toolCalls: analysis.toolCalls ?? [],
       at,
     }
     appendSessionEvent(session, FORGELOOP_ANALYSIS_EVENT, data, this.log)

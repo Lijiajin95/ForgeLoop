@@ -97,6 +97,31 @@ const BUSINESS_REVIEW = JSON.stringify({
   acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
+/** 需求说明派生的验证方案：阻断时命令退出码 1，通过时输出 SMOKE。 */
+function verificationPlan(fail: boolean): string {
+  return JSON.stringify({
+    scenarios: [
+      {
+        scenario: SCENARIO,
+        acceptance_criterion: CRITERION,
+        method: '运行冒烟命令并核对输出',
+        required: true,
+        checks: [
+          {
+            label: 'smoke',
+            argv: [
+              'node',
+              '-e',
+              fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`,
+            ],
+            expected_output: fail ? 'broken' : SMOKE,
+          },
+        ],
+      },
+    ],
+  })
+}
+
 /**
  * 前 N 次独立验证判阻断，之后通过；研发修复回合写真实文件改动。
  * 验证命令由运行时实际重跑：阻断时退出码 1，通过时输出 SMOKE。
@@ -124,42 +149,6 @@ function fakeRunner(
         writeFileSync(join(request.cwd, 'docs/a.md'), `fixed ${verificationRuns} ${Date.now()}\n`)
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'fixed')
       }
-      if (request.role === 'verify' && turn.prompt.includes('独立验证 Agent')) {
-        verificationRuns += 1
-        const fail = verificationRuns <= (options.failVerifications ?? 0)
-        mkdirSync(join(request.cwd, 'verification'), { recursive: true })
-        writeFileSync(
-          join(request.cwd, 'verification/commands.json'),
-          JSON.stringify({
-            commands: [
-              {
-                label: 'smoke',
-                argv: [
-                  'node',
-                  '-e',
-                  fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`,
-                ],
-              },
-            ],
-          }),
-        )
-        const report = JSON.stringify({
-          verdict: fail ? 'block' : 'pass',
-          summary: fail ? '候选未满足需求' : '候选满足需求',
-          findings: [],
-          blocking: fail ? ['功能未实现', '验证命令退出码 1'] : [],
-          scenarios: [
-            {
-              scenario: SCENARIO,
-              status: fail ? 'fail' : 'pass',
-              evidence: fail ? 'broken' : SMOKE,
-              commands: ['smoke'],
-            },
-          ],
-        })
-        writeFileSync(join(request.cwd, 'verification/report.json'), report)
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, report)
-      }
       if (request.role === 'verify' && turn.prompt.includes('业务验收')) {
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, BUSINESS_REVIEW)
       }
@@ -172,6 +161,12 @@ function fakeRunner(
       if (request.role === 'product') return result(request, ANALYSIS)
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         return result(request, PLAN)
+      }
+      // 验证方案只读需求说明；实际命令由运行时在固定候选上执行。
+      if (request.role === 'verify') {
+        verificationRuns += 1
+        const fail = verificationRuns <= (options.failVerifications ?? 0)
+        return result(request, verificationPlan(fail))
       }
       throw new Error(`unexpected single-turn role ${request.role}`)
     },
@@ -266,7 +261,7 @@ describe('verification failure issue loop', () => {
     expect(issue.candidateSha256).toMatch(/^[0-9a-f]{64}$/)
 
     // 证据包含验证命令、退出码、日志路径、环境与状态。
-    expect(issue.evidence.blocking).toContain('验证命令退出码 1')
+    expect(issue.evidence.blocking).toContain('验证命令失败：smoke（退出码 1）')
     expect(issue.evidence.commands).toHaveLength(1)
     expect(issue.evidence.commands[0]).toMatchObject({
       label: 'smoke',
@@ -385,7 +380,7 @@ describe('verification failure issue loop', () => {
     const issues = runtime.issues.issuesFor(reqId)
     expect(issues).toHaveLength(1)
     expect(issues[0]?.status).toBe('open')
-    expect(issues[0]?.evidence.blocking).toContain('验证命令退出码 1')
+    expect(issues[0]?.evidence.blocking).toContain('验证命令失败：smoke（退出码 1）')
     expect(runtime.autoAdvanceRequests()).toContain(reqId)
     expect(runtime.issues.latestOpen(reqId)?.issueId).toBe(issues[0]?.issueId)
   })
