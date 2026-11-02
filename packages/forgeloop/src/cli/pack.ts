@@ -4,6 +4,7 @@
  * 输出 JSON 到 stdout，并写 `<packageDir>/dist/artifact.json`，供安装与回查。
  */
 
+import { asRecord, parseJsonArray, parseJsonObject } from '../domain/json.js'
 import { execFileSync } from 'node:child_process'
 import { errorMessage } from '../domain/errors.js'
 import { createHash } from 'node:crypto'
@@ -51,22 +52,20 @@ function main(): number {
     ['pack', '--json', '--cache', cache, '--pack-destination', join(packageDir, 'dist')],
     { cwd: packageDir, encoding: 'utf8' },
   )
-  const parsed = JSON.parse(output) as Array<{
-    filename: string
-    files: Array<{ path: string; size: number }>
-  }>
-  const packed = parsed[0]
-  if (!packed) throw new Error('npm pack 没有返回产物信息')
-  const tarball = join(packageDir, 'dist', packed.filename)
+  const parsed = parseJsonArray(output)
+  const packed = asRecord(parsed[0])
+  const packedFilename = typeof packed?.filename === 'string' ? packed.filename : ''
+  if (!packedFilename) throw new Error('npm pack 没有返回产物信息')
+  const tarball = join(packageDir, 'dist', packedFilename)
   const bytes = statSync(tarball).size
   const sha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex')
-  const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
-    name: string
-    version: string
-  }
+  const packageJson = parseJsonObject(readFileSync(join(packageDir, 'package.json'), 'utf8'))
+  const packageName = typeof packageJson.name === 'string' ? packageJson.name : ''
+  const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
+  if (!packageName || !packageVersion) throw new Error('package.json 缺少 name/version')
   const artifact: Artifact = {
-    name: packageJson.name,
-    version: packageJson.version,
+    name: packageName,
+    version: packageVersion,
     tarball,
     sha256,
     bytes,

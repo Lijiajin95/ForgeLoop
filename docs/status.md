@@ -3682,3 +3682,12 @@ suppressions 20、service.ts 5,986 行。
 - 边界断言 **29 → 28**，基线 28。
 - ops 相关用例 29 项先行通过；`make check` 59 文件 611 项、coverage 91.19/84.36/96.88、
   mutation 97.80。
+
+### 100. 打包 CLI 断言收敛（新目标 Round 18）
+
+- `domain/json.ts` 新增 `parseJsonArray`（非数组返回空数组）；
+- `cli/pack.ts` 的 npm pack 输出与 package.json 改用 `parseJsonArray` / `parseJsonObject`
+  + 字段守卫，去掉 2 处形状断言。
+- 边界断言 **28 → 26**，基线 26。
+- `make check` 59 文件 611 项通过；coverage 91.18/84.35/96.77；mutation 97.80。
+- 说明：pack CLI 无独立单测文件，验证依赖 `make check` 的类型/lint 与全量用例。
