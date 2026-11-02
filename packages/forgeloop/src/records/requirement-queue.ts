@@ -40,10 +40,10 @@ export class SqliteRequirementQueueStore implements RequirementQueueStore {
 
   append(entry: NewQueueEntry): RequirementQueueEntry {
     return this.db.transaction(() => {
-      const row = this.db.handle
+      const row = this.db
         .prepare('SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM requirement_queue')
-        .get() as Row
-      const sequence = Number(row.next ?? 1)
+        .get()
+      const sequence = Number(row?.next ?? 1)
       this.db.handle
         .prepare(
           `INSERT INTO requirement_queue (req_id, project, enqueued_at, sequence, state, claimed_at)
@@ -55,16 +55,16 @@ export class SqliteRequirementQueueStore implements RequirementQueueStore {
   }
 
   find(requirementId: string): RequirementQueueEntry | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT * FROM requirement_queue WHERE req_id = ?')
-      .get(requirementId) as Row | undefined
+      .get(requirementId)
     return row ? entryFromRow(row) : null
   }
 
   list(): readonly RequirementQueueEntry[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM requirement_queue ORDER BY enqueued_at ASC, sequence ASC')
-      .all() as Row[]
+      .all()
     return rows.map(entryFromRow)
   }
 
@@ -79,7 +79,7 @@ export class SqliteRequirementQueueStore implements RequirementQueueStore {
           `SELECT * FROM requirement_queue WHERE state = 'queued'
            ORDER BY enqueued_at ASC, sequence ASC LIMIT 1`,
         )
-        .get() as Row | undefined
+        .get()
       if (!row) return null
       this.db.handle
         .prepare("UPDATE requirement_queue SET state = 'claimed', claimed_at = ? WHERE req_id = ?")
@@ -89,9 +89,9 @@ export class SqliteRequirementQueueStore implements RequirementQueueStore {
   }
 
   remove(requirementId: string): boolean {
-    const result = this.db.handle
+    const result = this.db
       .prepare('DELETE FROM requirement_queue WHERE req_id = ?')
       .run(requirementId)
-    return Number(result.changes ?? 0) > 0
+    return result.changes > 0
   }
 }

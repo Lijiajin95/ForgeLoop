@@ -3390,3 +3390,13 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.14/96.91/85.03，mutation 97.80。
 - 剩余：`as` 92 → <20；`no-non-null-assertion` 32 处、`no-unnecessary-condition` 25 处
   仍全局关闭；E2E/verify-plugin 门禁未接入。
+
+### 73. 问题单与队列改用类型化语句（新目标 Round 23）
+
+- `issues.ts`、`requirement-queue.ts` 的 `this.db.handle.prepare(...).get/all` 改用
+  `this.db.prepare`，去掉 7 处 `as Row | undefined` / `as Row[]`。
+- 队列取号改为 `row?.next` 守卫；两处 `Number(result.changes)` 冗余转换删除。
+- `as` 断言 **92 → 85**，基线收紧到 85。
+- `make check` 607 项通过，coverage 91.14/96.91/85.05，mutation 97.80。
+- 剩余：`as` 85（agent-runner 18 最大）；`no-non-null-assertion` 32、
+  `no-unnecessary-condition` 25 仍全局关闭；E2E/verify-plugin 门禁未接入。

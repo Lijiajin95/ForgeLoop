@@ -62,7 +62,7 @@ export class IssueStore {
 
   /** 追加问题单；同一身份重复写入保持幂等，不覆盖既有证据。 */
   record(issue: RequirementIssue): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_issues
           (issue_id, req_id, project, attempt, stage, status, summary, evidence_json,
@@ -88,29 +88,27 @@ export class IssueStore {
   }
 
   get(issueId: string): RequirementIssue | null {
-    const row = this.db.handle
-      .prepare('SELECT * FROM requirement_issues WHERE issue_id = ?')
-      .get(issueId) as Row | undefined
+    const row = this.db.prepare('SELECT * FROM requirement_issues WHERE issue_id = ?').get(issueId)
     return row ? issueFromRow(row) : null
   }
 
   /** 一个需求的全部问题单，按 attempt 升序；历史不删除。 */
   issuesFor(reqId: string): RequirementIssue[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM requirement_issues WHERE req_id = ? ORDER BY attempt, created_at')
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map(issueFromRow)
   }
 
   /** 仍未收口的问题单：open 或已修复待验证。 */
   latestOpen(reqId: string): RequirementIssue | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_issues
          WHERE req_id = ? AND status IN (?, ?)
          ORDER BY attempt DESC LIMIT 1`,
       )
-      .get(reqId, ISSUE_OPEN, ISSUE_FIXED) as Row | undefined
+      .get(reqId, ISSUE_OPEN, ISSUE_FIXED)
     return row ? issueFromRow(row) : null
   }
 
@@ -125,18 +123,18 @@ export class IssueStore {
               'UPDATE requirement_issues SET status = ?, updated_at = ?, summary = ? WHERE issue_id = ?',
             )
             .run(status, now, summary, issueId)
-    return Number(result.changes) > 0
+    return result.changes > 0
   }
 
   /** 验证通过后收口该需求全部未解决问题单；返回收口数量。 */
   resolveOpen(reqId: string, now: string): number {
-    const result = this.db.handle
+    const result = this.db
       .prepare(
         `UPDATE requirement_issues
          SET status = ?, resolved_at = ?, updated_at = ?
          WHERE req_id = ? AND status IN (?, ?)`,
       )
       .run(ISSUE_RESOLVED, now, now, reqId, ISSUE_OPEN, ISSUE_FIXED)
-    return Number(result.changes)
+    return result.changes
   }
 }
