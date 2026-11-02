@@ -35,7 +35,7 @@ export interface PresetRegistration {
 
 function serviceOf(ctx: AnyRecord, name: string): unknown {
   const getter = ctx.get
-  if (typeof getter === 'function') return (getter as (key: string) => unknown).call(ctx, name)
+  if (typeof getter === 'function') return Reflect.apply(getter, ctx, [name])
   return ctx[name]
 }
 

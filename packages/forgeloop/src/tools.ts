@@ -4,6 +4,7 @@
  * 模型不能通过工具参数自证 owner 或 approved。
  */
 
+import { asRecord } from './domain/json.js'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './runtime/service.js'
 import type { ForgeLoopConfig } from './config.js'
@@ -28,13 +29,9 @@ interface ToolDefinitionLike {
 }
 
 function textBlocks(value: unknown): unknown[] {
-  const payload = value as { text?: unknown; ok?: unknown; data?: unknown }
+  const payload = asRecord(value) ?? {}
   const head = typeof payload.text === 'string' ? payload.text : JSON.stringify(value)
-  const structured = JSON.stringify(
-    { ok: payload.ok ?? null, data: payload.data ?? null },
-    null,
-    2,
-  )
+  const structured = JSON.stringify({ ok: payload.ok ?? null, data: payload.data ?? null }, null, 2)
   return [{ type: 'text', text: `${head}\n\n\`\`\`json\n${structured}\n\`\`\`` }]
 }
 
@@ -63,7 +60,7 @@ function defineTool(input: {
     },
     // 工具永远不因模型自述而改变授权；只读与受理都不消耗授权额度。
     async execute(rawArgs) {
-      const args = (typeof rawArgs === 'object' && rawArgs !== null ? rawArgs : {}) as AnyRecord
+      const args = asRecord(rawArgs) ?? {}
       const result = await input.run(args)
       return {
         ok: result.ok,

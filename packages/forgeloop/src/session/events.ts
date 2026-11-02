@@ -128,12 +128,12 @@ export function appendSessionEvent(
       appendRecord(session, type, record)
       return true
     }
-    const append = (session as Partial<AppendableSession> | undefined)?.append
+    const append = asRecord(session)?.append
     if (typeof append !== 'function') {
       log(`会话没有 append 能力，未写入 ${type}`)
       return false
     }
-    append.call(session, type, record)
+    Reflect.apply(append, session, [type, record])
     return true
   } catch (error) {
     log(`写入会话事件 ${type} 失败：${errorMessage(error)}`)

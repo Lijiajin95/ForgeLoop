@@ -3647,3 +3647,12 @@ suppressions 20、service.ts 5,986 行。
 - 存量：业务 0 处、边界 34 处（白名单 15 文件，ratchet 34），由
   `scripts/ts/assertion-budget.ts` 与 ESLint 双重约束。
 - `make check` 59 文件 611 项通过；coverage 91.19/84.38/96.88；mutation 97.80。
+
+### 96. 边界断言收敛 34 → 30（新目标 Round 14）
+
+- `session/preset` getter 改用 `Reflect.apply`；
+- `session/events` 的 session 访问改用 `asRecord` + `Reflect.apply`；
+- `tools` 的文本块与参数改用 `asRecord`。
+- `session/index` 的 `ctx.on` 改动因 `Reflect.apply` 触发 `no-unsafe-*` 已回退，保留原受控断言。
+- `as` 断言：业务 0、边界 **34 → 30**（白名单 15 文件不变），基线 30。
+- `make check` 59 文件 611 项通过；coverage 91.19/84.37/96.88；mutation 97.80。
