@@ -6,16 +6,16 @@
   },
   "packages/forgeloop/src/runtime/service.ts": {
     "complexity": {
-      "count": 2
+      "count": 1
     },
     "max-lines": {
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 2
+      "count": 1
     },
     "max-statements": {
-      "count": 2
+      "count": 1
     }
   }
 }

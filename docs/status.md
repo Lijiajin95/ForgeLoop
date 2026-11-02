@@ -3226,3 +3226,14 @@ suppressions 20、service.ts 5,986 行。
 - 两处 max-params 豁免清零，suppressions 10 → **8**。
 - `make check` 607 项通过，coverage 91.19/96.96/84.91，mutation 97.80。
 - 剩余：`verifyCandidate`、`deliverTask` 各 3 条，以及两个文件行数上限。
+
+### 58. 旧链路独立验证拆分（新目标 Round 8）
+
+- `verifyCandidate`（423 行/104 语句/41 复杂度）拆出
+  `prepareLegacyVerificationWorkspace`、`runLegacyBusinessReview`、
+  `recordLegacyBusinessReview`、`runLegacyVerificationCommands`、`recordLegacyVerification`。
+- 三条豁免清零，suppressions 8 → **5**。
+- service 因助手暂留文件内增至 6,391 行、tokens 68,308 → **69,865**（基线同步）；
+  下一批必须把这些助手整体移入 `legacy-verification.ts`，回收行数与 token。
+- `make check` 607 项通过，coverage 91.17/96.98/84.88，mutation 97.80。
+- 剩余：`deliverTask`（3 条）与两个文件行数上限。
