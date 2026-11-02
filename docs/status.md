@@ -3258,3 +3258,14 @@ suppressions 20、service.ts 5,986 行。
   （service.ts 5,353、repository.ts 2,247）。
 - `make check` 607 项通过，coverage 91.06/97.05/84.88，mutation 97.80。
 - 剩余：两个文件拆到 ≤2,000 行；DB 行 schema / `as` 163 → <20；E2E 与 verify-plugin 门禁。
+
+### 61. 记录层行类型与 Ops 存储拆分（新目标 Round 11）
+
+- 新增 `src/records/rows.ts`：记录接口与行映射集中到独立模块，repository 通过
+  `export type` 保持既有导入路径不变（DB 行 schema 第一步）。
+- 新增 `src/records/ops-store.ts`：`OpsStore` 基类承载 Ops 事件/观察/动作方法与行映射，
+  `Repository extends OpsStore`，调用方 API 不变。
+- repository.ts **2,247 → 1,837 行**（≤2,000）；suppressions **2 → 1**，
+  只剩 service.ts 文件行数一条。
+- `make check` 607 项通过，coverage 91.06/97.05/84.86，mutation 97.80。
+- 剩余：service.ts 5,353 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
