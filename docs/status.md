@@ -3367,3 +3367,16 @@ suppressions 20、service.ts 5,986 行。
 - 断言总数仍为 **159**（本轮未改变计数；剩余大头是 repository 62 处）。
 - `make check` 607 项通过；service 1,969 / repository 1,837 行，suppressions `{}`。
 - 下一轮集中处理 repository 的 62 处 `as`：按表建立行解析函数，逐步替换。
+
+### 71. 数据库准备语句类型化，去掉 50 处行断言（新目标 Round 21）
+
+- `Database.prepare` 新增类型化包装：`get` 返回 `Row | undefined`、`all` 返回 `Row[]`、
+  `run` 返回 `{ changes; lastInsertRowid }`；参数类型收窄为 `SqlParam`。
+- repository 全部 `this.db.handle.prepare(...).get(...) as Row | undefined` /
+  `as Row[]` 改为 `this.db.prepare(...)`，不再逐查询断言。
+- `as` 断言 **159 → 109**（-50），`assertion-budget.ts` 基线收紧到 109。
+- 同步清理 `Number(result.changes)` 等冗余转换与多余断言。
+- `make check` 607 项通过，coverage 91.15/96.91/85.03，mutation 97.80；
+  service 1,969 / repository 1,837 行，suppressions `{}`。
+- 剩余：`as` 109 → <20；`no-non-null-assertion` 32 处、`no-unnecessary-condition` 25 处
+  仍全局关闭；E2E/verify-plugin 门禁未接入。

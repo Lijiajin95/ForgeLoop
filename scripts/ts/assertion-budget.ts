@@ -8,7 +8,7 @@ import { join, relative, sep } from 'node:path'
 
 const ROOT = process.cwd()
 const SOURCE = join(ROOT, 'packages/forgeloop/src')
-const BASELINE = 159
+const BASELINE = 109
 const PATTERN = /\bas\s+(?!const\b)[A-Za-z_(]/g
 
 function filesUnder(dir: string): string[] {

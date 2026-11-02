@@ -101,15 +101,14 @@ export class Repository extends OpsStore {
   }
 
   requirementByClientKey(clientKey: string): Requirement | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT req_id FROM requirements WHERE client_key = ? ORDER BY created_at LIMIT 1')
-      .get(clientKey) as Row | undefined
+      .get(clientKey)
     return row ? this.getRequirement(text(row, 'req_id')) : null
   }
 
   getRequirement(reqId: string): Requirement | null {
-    const row = this.db.handle.prepare('SELECT * FROM requirements WHERE req_id = ?').get(reqId) as
-      Row | undefined
+    const row = this.db.prepare('SELECT * FROM requirements WHERE req_id = ?').get(reqId)
     if (!row) return null
     const versions = this.versions(reqId)
     const requirement: Requirement = {
@@ -126,9 +125,9 @@ export class Repository extends OpsStore {
   }
 
   versions(reqId: string): RequirementVersion[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM requirement_versions WHERE req_id = ? ORDER BY version')
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map((row) => ({
       version: num(row, 'version'),
       text: text(row, 'text'),
@@ -139,9 +138,9 @@ export class Repository extends OpsStore {
   }
 
   latestVersionNumber(reqId: string): number {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT MAX(version) AS version FROM requirement_versions WHERE req_id = ?')
-      .get(reqId) as Row | undefined
+      .get(reqId)
     return row ? num(row, 'version') : 0
   }
 
@@ -174,20 +173,18 @@ export class Repository extends OpsStore {
   }
 
   listRequirements(project?: string): Requirement[] {
-    const rows = (
-      project
-        ? this.db.handle
-            .prepare('SELECT req_id FROM requirements WHERE project = ? ORDER BY created_at DESC')
-            .all(project)
-        : this.db.handle.prepare('SELECT req_id FROM requirements ORDER BY created_at DESC').all()
-    ) as Row[]
+    const rows = project
+      ? this.db.handle
+          .prepare('SELECT req_id FROM requirements WHERE project = ? ORDER BY created_at DESC')
+          .all(project)
+      : this.db.prepare('SELECT req_id FROM requirements ORDER BY created_at DESC').all()
     return rows
       .map((row) => this.getRequirement(text(row, 'req_id')))
       .filter((requirement): requirement is Requirement => requirement !== null)
   }
 
   setStatus(reqId: string, status: string, reason = ''): void {
-    const result = this.db.handle
+    const result = this.db
       .prepare('UPDATE requirements SET status = ?, blocked_reason = ? WHERE req_id = ?')
       .run(status, reason, reqId)
     if (result.changes === 0) throw new RuleViolationError(`未找到需求 ${reqId}`)
@@ -200,7 +197,7 @@ export class Repository extends OpsStore {
     fingerprint: string
     now: string
   }): void {
-    const result = this.db.handle
+    const result = this.db
       .prepare(
         `UPDATE requirements SET status = 'accepted', accepted_at = ?, accepted_by = ?,
            acceptance_source = ?, acceptance_fingerprint = ?
@@ -211,11 +208,11 @@ export class Repository extends OpsStore {
   }
 
   acceptance(reqId: string): Record<string, string> {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         'SELECT accepted_at, accepted_by, acceptance_source, acceptance_fingerprint FROM requirements WHERE req_id = ?',
       )
-      .get(reqId) as Row | undefined
+      .get(reqId)
     if (!row) return {}
     return {
       accepted_at: text(row, 'accepted_at'),
@@ -247,9 +244,9 @@ export class Repository extends OpsStore {
   }
 
   cancellation(reqId: string): { cancelledBy: string; reason: string; cancelledAt: string } | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT * FROM requirement_cancellations WHERE req_id = ?')
-      .get(reqId) as Row | undefined
+      .get(reqId)
     if (!row) return null
     return {
       cancelledBy: text(row, 'cancelled_by'),
@@ -261,9 +258,9 @@ export class Repository extends OpsStore {
   // ---------------------------------------------------------------- 分析
 
   nextAnalysisVersion(reqId: string): number {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT MAX(analysis_version) AS version FROM requirement_analyses WHERE req_id = ?')
-      .get(reqId) as Row | undefined
+      .get(reqId)
     return (row ? num(row, 'version') : 0) + 1
   }
 
@@ -271,7 +268,7 @@ export class Repository extends OpsStore {
     const requirement = this.getRequirement(analysis.reqId)
     if (!requirement) throw new RuleViolationError(`未找到需求 ${analysis.reqId}`)
     validateAnalysis(analysis, requirement.versions.length)
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_analyses
           (req_id, analysis_version, requirement_version, goal, scenarios, acceptance_criteria, clarifications, created_at)
@@ -290,9 +287,9 @@ export class Repository extends OpsStore {
   }
 
   analyses(reqId: string): RequirementAnalysis[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM requirement_analyses WHERE req_id = ? ORDER BY analysis_version')
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map((row) => ({
       analysisVersion: num(row, 'analysis_version'),
       requirementVersion: num(row, 'requirement_version'),
@@ -312,15 +309,15 @@ export class Repository extends OpsStore {
   // ---------------------------------------------------------------- 任务包
 
   nextPlanVersion(reqId: string): number {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT MAX(plan_version) AS version FROM requirement_task_plans WHERE req_id = ?')
-      .get(reqId) as Row | undefined
+      .get(reqId)
     return (row ? num(row, 'version') : 0) + 1
   }
 
   recordTaskPlan(plan: TaskPlan): void {
     validateTaskPlan(plan)
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_task_plans (req_id, plan_version, task_plan_id, plan, created_at)
          VALUES (?, ?, ?, ?, ?)`,
@@ -335,9 +332,9 @@ export class Repository extends OpsStore {
   }
 
   taskPlan(reqId: string, planVersion: number): TaskPlan | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT * FROM requirement_task_plans WHERE req_id = ? AND plan_version = ?')
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     if (!row) return null
     return planFromPayload(JSON.parse(text(row, 'plan')) as unknown, {
       requirementId: reqId,
@@ -348,9 +345,9 @@ export class Repository extends OpsStore {
   }
 
   taskPlans(reqId: string): TaskPlan[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM requirement_task_plans WHERE req_id = ? ORDER BY plan_version')
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map((row) =>
       planFromPayload(JSON.parse(text(row, 'plan')) as unknown, {
         requirementId: reqId,
@@ -367,7 +364,7 @@ export class Repository extends OpsStore {
   }
 
   recordPlanApproval(approval: TaskPlanApproval): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_plan_approvals (req_id, plan_version, approved_by, source, approved_at)
          VALUES (?, ?, ?, ?, ?)
@@ -384,9 +381,9 @@ export class Repository extends OpsStore {
   }
 
   planApproval(reqId: string, planVersion: number): TaskPlanApproval | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT * FROM requirement_plan_approvals WHERE req_id = ? AND plan_version = ?')
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     if (!row) return null
     return {
       requirementId: text(row, 'req_id'),
@@ -398,11 +395,11 @@ export class Repository extends OpsStore {
   }
 
   latestPlanApproval(reqId: string): TaskPlanApproval | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         'SELECT * FROM requirement_plan_approvals WHERE req_id = ? ORDER BY plan_version DESC LIMIT 1',
       )
-      .get(reqId) as Row | undefined
+      .get(reqId)
     if (!row) return null
     return {
       requirementId: text(row, 'req_id'),
@@ -423,7 +420,7 @@ export class Repository extends OpsStore {
     createdAt: string
   }): AdmissionRecord {
     const admissionId = `adm-${randomUUID()}`
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_admissions
           (admission_id, req_id, requirement_version, decision, code, reason, basis_json, policy_version, decided_by, created_at)
@@ -456,29 +453,29 @@ export class Repository extends OpsStore {
   }
 
   admissionsFor(reqId: string): AdmissionRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at, admission_id',
       )
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map(admissionFromRow)
   }
 
   latestAdmission(reqId: string, requirementVersion?: number): AdmissionRecord | null {
     const rows =
       requirementVersion === undefined
-        ? (this.db.handle
+        ? this.db.handle
             .prepare(
               'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at DESC, admission_id DESC LIMIT 1',
             )
-            .all(reqId) as Row[])
-        : (this.db.handle
+            .all(reqId)
+        : this.db.handle
             .prepare(
               `SELECT * FROM requirement_admissions
                 WHERE req_id = ? AND requirement_version = ?
                 ORDER BY created_at DESC, admission_id DESC LIMIT 1`,
             )
-            .all(reqId, requirementVersion) as Row[])
+            .all(reqId, requirementVersion)
     return rows.length > 0 ? admissionFromRow(rows[0]!) : null
   }
 
@@ -490,7 +487,7 @@ export class Repository extends OpsStore {
     reason: string
     requestedAt: string
   }): StopRecord {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_stops
           (req_id, requested_by, reason, requested_at, settled_at, resumed_by, resume_reason, resumed_at)
@@ -509,9 +506,7 @@ export class Repository extends OpsStore {
   }
 
   stop(reqId: string): StopRecord | null {
-    const row = this.db.handle
-      .prepare('SELECT * FROM requirement_stops WHERE req_id = ?')
-      .get(reqId) as Row | undefined
+    const row = this.db.prepare('SELECT * FROM requirement_stops WHERE req_id = ?').get(reqId)
     return row ? stopFromRow(row) : null
   }
 
@@ -521,7 +516,7 @@ export class Repository extends OpsStore {
   }
 
   markStopSettled(reqId: string, now: string): void {
-    this.db.handle
+    this.db
       .prepare(
         "UPDATE requirement_stops SET settled_at = ? WHERE req_id = ? AND settled_at = '' AND resumed_at = ''",
       )
@@ -534,7 +529,7 @@ export class Repository extends OpsStore {
     reason: string
     resumedAt: string
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `UPDATE requirement_stops SET resumed_by = ?, resume_reason = ?, resumed_at = ?
           WHERE req_id = ? AND resumed_at = ''`,
@@ -545,7 +540,7 @@ export class Repository extends OpsStore {
   // ---------------------------------------------------------------- 代码候选与提交
 
   recordCodeCandidate(input: CodeCandidateRecord): CodeCandidateRecord {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_code_candidates
           (req_id, plan_version, candidate_version, candidate_sha256, requirement_version,
@@ -568,11 +563,11 @@ export class Repository extends OpsStore {
   }
 
   codeCandidates(reqId: string, planVersion: number): CodeCandidateRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         'SELECT * FROM requirement_code_candidates WHERE req_id = ? AND plan_version = ? ORDER BY candidate_version',
       )
-      .all(reqId, planVersion) as Row[]
+      .all(reqId, planVersion)
     return rows.map(codeCandidateFromRow)
   }
 
@@ -586,18 +581,18 @@ export class Repository extends OpsStore {
     planVersion: number,
     candidateSha256: string,
   ): CodeCandidateRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_code_candidates
           WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?
           ORDER BY candidate_version DESC LIMIT 1`,
       )
-      .get(reqId, planVersion, candidateSha256) as Row | undefined
+      .get(reqId, planVersion, candidateSha256)
     return row ? codeCandidateFromRow(row) : null
   }
 
   recordCommit(input: RequirementCommitRecord): RequirementCommitRecord {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_commits
           (req_id, plan_version, candidate_sha256, commit_sha, commit_message, check_command_json,
@@ -632,36 +627,36 @@ export class Repository extends OpsStore {
     planVersion: number,
     candidateSha256: string,
   ): RequirementCommitRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         'SELECT * FROM requirement_commits WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?',
       )
-      .get(reqId, planVersion, candidateSha256) as Row | undefined
+      .get(reqId, planVersion, candidateSha256)
     return row ? commitFromRow(row) : null
   }
 
   commitsFor(reqId: string): RequirementCommitRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         'SELECT * FROM requirement_commits WHERE req_id = ? ORDER BY committed_at, candidate_sha256',
       )
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map(commitFromRow)
   }
 
   latestCommit(reqId: string): RequirementCommitRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         'SELECT * FROM requirement_commits WHERE req_id = ? ORDER BY committed_at DESC LIMIT 1',
       )
-      .get(reqId) as Row | undefined
+      .get(reqId)
     return row ? commitFromRow(row) : null
   }
 
   // ---------------------------------------------------------------- 验证 Agent
 
   recordPlanReview(review: PlanReviewRecord): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_plan_reviews
           (req_id, plan_version, requirement_version, plan_sha256, verdict, report_json,
@@ -689,9 +684,9 @@ export class Repository extends OpsStore {
   }
 
   planReview(reqId: string, planVersion: number): PlanReviewRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT * FROM requirement_plan_reviews WHERE req_id = ? AND plan_version = ?')
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     if (!row) return null
     return {
       requirementId: text(row, 'req_id'),
@@ -708,7 +703,7 @@ export class Repository extends OpsStore {
   }
 
   recordVerification(verification: VerificationRecord): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_verifications
           (req_id, plan_version, candidate_sha256, requirement_version, workspace_sha256,
@@ -738,13 +733,13 @@ export class Repository extends OpsStore {
   }
 
   verification(reqId: string, planVersion: number): VerificationRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_verifications
          WHERE req_id = ? AND plan_version = ?
          ORDER BY verified_at DESC LIMIT 1`,
       )
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     return row ? verificationRow(row) : null
   }
 
@@ -753,29 +748,29 @@ export class Repository extends OpsStore {
     planVersion: number,
     candidateSha256: string,
   ): VerificationRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_verifications
          WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?`,
       )
-      .get(reqId, planVersion, candidateSha256) as Row | undefined
+      .get(reqId, planVersion, candidateSha256)
     return row ? verificationRow(row) : null
   }
 
   /** 一个需求按时间累积的全部独立验证结果；用于问题单与重试历史反查。 */
   verificationsFor(reqId: string): VerificationRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         `SELECT * FROM requirement_verifications
          WHERE req_id = ?
          ORDER BY verified_at, candidate_sha256`,
       )
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map(verificationRow)
   }
 
   recordBusinessReview(review: BusinessReviewRecord): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_business_reviews
           (req_id, plan_version, candidate_sha256, requirement_version, verification_sha256,
@@ -804,13 +799,13 @@ export class Repository extends OpsStore {
   }
 
   businessReview(reqId: string, planVersion: number): BusinessReviewRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_business_reviews
          WHERE req_id = ? AND plan_version = ?
          ORDER BY reviewed_at DESC LIMIT 1`,
       )
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     return row ? businessReviewRow(row) : null
   }
 
@@ -819,19 +814,19 @@ export class Repository extends OpsStore {
     planVersion: number,
     candidateSha256: string,
   ): BusinessReviewRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_business_reviews
          WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?`,
       )
-      .get(reqId, planVersion, candidateSha256) as Row | undefined
+      .get(reqId, planVersion, candidateSha256)
     return row ? businessReviewRow(row) : null
   }
 
   // ---------------------------------------------------------------- 任务运行与产物
 
   recordTaskRun(run: TaskRun): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_task_runs
           (req_id, plan_version, task_id, state, reason, executed_seconds, updated_at)
@@ -860,7 +855,7 @@ export class Repository extends OpsStore {
     reason: string
     updatedAt: string
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `UPDATE requirement_task_runs
          SET state = 'running', reason = ?, updated_at = ?
@@ -870,11 +865,11 @@ export class Repository extends OpsStore {
   }
 
   taskRuns(reqId: string, planVersion: number): TaskRun[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         'SELECT * FROM requirement_task_runs WHERE req_id = ? AND plan_version = ? ORDER BY task_id',
       )
-      .all(reqId, planVersion) as Row[]
+      .all(reqId, planVersion)
     return rows.map((row) => ({
       requirementId: text(row, 'req_id'),
       planVersion: num(row, 'plan_version'),
@@ -887,7 +882,7 @@ export class Repository extends OpsStore {
   }
 
   recordTaskArtifact(artifact: TaskArtifact): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_task_artifacts
           (req_id, plan_version, task_id, candidate_sha256, test_evidence_sha256, review_sha256,
@@ -915,11 +910,11 @@ export class Repository extends OpsStore {
   }
 
   taskArtifact(reqId: string, planVersion: number, taskId: string): TaskArtifact | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         'SELECT * FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? AND task_id = ?',
       )
-      .get(reqId, planVersion, taskId) as Row | undefined
+      .get(reqId, planVersion, taskId)
     if (!row) return null
     return {
       requirementId: text(row, 'req_id'),
@@ -936,18 +931,18 @@ export class Repository extends OpsStore {
   }
 
   taskArtifacts(reqId: string, planVersion: number): TaskArtifact[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         'SELECT task_id FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? ORDER BY task_id',
       )
-      .all(reqId, planVersion) as Row[]
+      .all(reqId, planVersion)
     return rows
       .map((row) => this.taskArtifact(reqId, planVersion, text(row, 'task_id')))
       .filter((artifact): artifact is TaskArtifact => artifact !== null)
   }
 
   recordEvidence(evidence: RequirementEvidence): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_task_evidence
           (req_id, plan_version, task_id, baseline_commit, workspace_path, candidate_path,
@@ -975,11 +970,11 @@ export class Repository extends OpsStore {
   }
 
   evidence(reqId: string, planVersion: number, taskId: string): RequirementEvidence | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         'SELECT * FROM requirement_task_evidence WHERE req_id = ? AND plan_version = ? AND task_id = ?',
       )
-      .get(reqId, planVersion, taskId) as Row | undefined
+      .get(reqId, planVersion, taskId)
     if (!row) return null
     return {
       requirementId: text(row, 'req_id'),
@@ -1001,12 +996,12 @@ export class Repository extends OpsStore {
    * 执行者已不在，任务未交付；一次性工作副本会在下次执行时重建。
    */
   markRunningTaskRunsInterrupted(now: string): number {
-    const result = this.db.handle
+    const result = this.db
       .prepare(
         "UPDATE requirement_task_runs SET state = 'blocked', reason = ?, updated_at = ? WHERE state = 'running'",
       )
       .run(`宿主中断：任务未交付，一次性工作副本会在下次执行时重建（${now}）；可重新执行`, now)
-    return Number(result.changes)
+    return result.changes
   }
 
   // ---------------------------------------------------------------- 失败轮次与授权
@@ -1022,7 +1017,7 @@ export class Repository extends OpsStore {
     archivedPath: string
     reason: string
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_task_artifact_history
           (req_id, plan_version, task_id, attempt, candidate_sha256, test_evidence_sha256,
@@ -1067,12 +1062,12 @@ export class Repository extends OpsStore {
     archivedPath: string
     reason: string
   }> {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare(
         `SELECT * FROM requirement_task_artifact_history
          WHERE req_id = ? AND plan_version = ? AND task_id = ? ORDER BY attempt`,
       )
-      .all(reqId, planVersion, taskId) as Row[]
+      .all(reqId, planVersion, taskId)
     return rows.map((row) => ({
       attempt: num(row, 'attempt'),
       candidateSha256: text(row, 'candidate_sha256'),
@@ -1084,12 +1079,12 @@ export class Repository extends OpsStore {
 
   /** 重新研发：清掉“已交付”标记，让 advance 按原批准任务包重新执行。 */
   clearTaskDelivery(reqId: string, planVersion: number, taskId: string): void {
-    this.db.handle
+    this.db
       .prepare(
         'DELETE FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? AND task_id = ?',
       )
       .run(reqId, planVersion, taskId)
-    this.db.handle
+    this.db
       .prepare(
         'DELETE FROM requirement_task_evidence WHERE req_id = ? AND plan_version = ? AND task_id = ?',
       )
@@ -1097,9 +1092,9 @@ export class Repository extends OpsStore {
   }
 
   failureRounds(reqId: string): FailureRound[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM requirement_failure_rounds WHERE req_id = ? ORDER BY occurred_at')
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map((row) => ({
       roundId: text(row, 'round_id'),
       stage: text(row, 'stage') as FailureRound['stage'],
@@ -1109,7 +1104,7 @@ export class Repository extends OpsStore {
   }
 
   recordFailureRound(reqId: string, round: FailureRound): boolean {
-    const result = this.db.handle
+    const result = this.db
       .prepare(
         `INSERT OR IGNORE INTO requirement_failure_rounds (req_id, round_id, stage, summary, occurred_at)
          VALUES (?, ?, ?, ?, ?)`,
@@ -1119,15 +1114,15 @@ export class Repository extends OpsStore {
   }
 
   grantCount(reqId: string): number {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT COUNT(*) AS count FROM requirement_grants WHERE req_id = ?')
-      .get(reqId) as Row | undefined
+      .get(reqId)
     return 1 + (row ? num(row, 'count') : 0)
   }
 
   appendGrant(reqId: string, grantedBy: string, now: string): number {
     const current = this.grantCount(reqId)
-    this.db.handle
+    this.db
       .prepare(
         'INSERT INTO requirement_grants (req_id, grant_index, granted_at, granted_by) VALUES (?, ?, ?, ?)',
       )
@@ -1138,7 +1133,7 @@ export class Repository extends OpsStore {
   // ---------------------------------------------------------------- 工时
 
   ensureBudget(reqId: string, limitSeconds: number): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_budget (req_id, limit_seconds, consumed_seconds)
          VALUES (?, ?, 0) ON CONFLICT(req_id) DO NOTHING`,
@@ -1147,9 +1142,7 @@ export class Repository extends OpsStore {
   }
 
   budget(reqId: string): { limitSeconds: number; consumedSeconds: number } {
-    const row = this.db.handle
-      .prepare('SELECT * FROM requirement_budget WHERE req_id = ?')
-      .get(reqId) as Row | undefined
+    const row = this.db.prepare('SELECT * FROM requirement_budget WHERE req_id = ?').get(reqId)
     if (!row) return { limitSeconds: 7200, consumedSeconds: 0 }
     return {
       limitSeconds: num(row, 'limit_seconds'),
@@ -1158,7 +1151,7 @@ export class Repository extends OpsStore {
   }
 
   chargeBudget(reqId: string, seconds: number): void {
-    this.db.handle
+    this.db
       .prepare(
         'UPDATE requirement_budget SET consumed_seconds = consumed_seconds + ? WHERE req_id = ?',
       )
@@ -1183,7 +1176,7 @@ export class Repository extends OpsStore {
         .prepare(
           "SELECT * FROM service_requests WHERE req_id = ? AND state IN ('pending','claimed') ORDER BY created_at DESC LIMIT 1",
         )
-        .get(input.reqId) as Row | undefined
+        .get(input.reqId)
       if (active) {
         const existingAction = text(active, 'action')
         if (existingAction !== input.action) {
@@ -1216,68 +1209,62 @@ export class Repository extends OpsStore {
   }
 
   request(requestId: string): ServiceRequestRecord | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT * FROM service_requests WHERE request_id = ?')
-      .get(requestId) as Row | undefined
+      .get(requestId)
     return row ? requestFromRow(row) : null
   }
 
   requestsFor(reqId: string): ServiceRequestRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare('SELECT * FROM service_requests WHERE req_id = ? ORDER BY created_at DESC')
-      .all(reqId) as Row[]
+      .all(reqId)
     return rows.map(requestFromRow)
   }
 
   pendingRequests(project?: string): ServiceRequestRecord[] {
-    const rows = (
-      project
-        ? this.db.handle
-            .prepare(
-              "SELECT * FROM service_requests WHERE state = 'pending' AND project = ? ORDER BY created_at",
-            )
-            .all(project)
-        : this.db.handle
-            .prepare("SELECT * FROM service_requests WHERE state = 'pending' ORDER BY created_at")
-            .all()
-    ) as Row[]
+    const rows = project
+      ? this.db.handle
+          .prepare(
+            "SELECT * FROM service_requests WHERE state = 'pending' AND project = ? ORDER BY created_at",
+          )
+          .all(project)
+      : this.db.handle
+          .prepare("SELECT * FROM service_requests WHERE state = 'pending' ORDER BY created_at")
+          .all()
     return rows.map(requestFromRow)
   }
 
   /** 未收口的请求（pending 或 claimed）；自动领取用它判断研发是否空闲。 */
   activeRequests(project?: string): ServiceRequestRecord[] {
-    const rows = (
-      project
-        ? this.db.handle
-            .prepare(
-              "SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') AND project = ? ORDER BY created_at",
-            )
-            .all(project)
-        : this.db.handle
-            .prepare(
-              "SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') ORDER BY created_at",
-            )
-            .all()
-    ) as Row[]
+    const rows = project
+      ? this.db.handle
+          .prepare(
+            "SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') AND project = ? ORDER BY created_at",
+          )
+          .all(project)
+      : this.db.handle
+          .prepare(
+            "SELECT * FROM service_requests WHERE state IN ('pending', 'claimed') ORDER BY created_at",
+          )
+          .all()
     return rows.map(requestFromRow)
   }
 
   /** 原子领取一条待执行请求；返回 null 表示没有可领取工作。 */
   claimNextRequest(owner: string, now: string, project?: string): ServiceRequestRecord | null {
     return this.db.transaction(() => {
-      const candidate = (
-        project
-          ? this.db.handle
-              .prepare(
-                "SELECT request_id FROM service_requests WHERE state = 'pending' AND project = ? ORDER BY created_at LIMIT 1",
-              )
-              .get(project)
-          : this.db.handle
-              .prepare(
-                "SELECT request_id FROM service_requests WHERE state = 'pending' ORDER BY created_at LIMIT 1",
-              )
-              .get()
-      ) as Row | undefined
+      const candidate = project
+        ? this.db.handle
+            .prepare(
+              "SELECT request_id FROM service_requests WHERE state = 'pending' AND project = ? ORDER BY created_at LIMIT 1",
+            )
+            .get(project)
+        : this.db.handle
+            .prepare(
+              "SELECT request_id FROM service_requests WHERE state = 'pending' ORDER BY created_at LIMIT 1",
+            )
+            .get()
       if (!candidate) return null
       const requestId = text(candidate, 'request_id')
       const result = this.db.handle
@@ -1292,7 +1279,7 @@ export class Repository extends OpsStore {
   }
 
   resolveRequest(requestId: string, state: string, detail: string, now: string): void {
-    this.db.handle
+    this.db
       .prepare(
         'UPDATE service_requests SET state = ?, detail = ?, resolved_at = ? WHERE request_id = ?',
       )
@@ -1308,7 +1295,7 @@ export class Repository extends OpsStore {
     return this.db.transaction(() => {
       const rows = this.db.handle
         .prepare("SELECT * FROM service_requests WHERE state = 'claimed'")
-        .all() as Row[]
+        .all()
       if (rows.length === 0) return []
       this.db.handle
         .prepare(
@@ -1321,21 +1308,21 @@ export class Repository extends OpsStore {
 
   /** 旧库里的 unknown 收口为 failed：保留原因，不当作成功或失败证据。 */
   migrateLegacyUnknown(now: string): number {
-    const result = this.db.handle
+    const result = this.db
       .prepare(
         "UPDATE service_requests SET state = 'failed', detail = detail || ?, resolved_at = COALESCE(resolved_at, ?) WHERE state = 'unknown'",
       )
       .run(`（旧 unknown 已收口为 failed：${now}）`, now)
-    return Number(result.changes)
+    return result.changes
   }
 
   dismissPendingFor(reqId: string, detail: string, now: string): number {
-    const result = this.db.handle
+    const result = this.db
       .prepare(
         "UPDATE service_requests SET state = 'dismissed', detail = ?, resolved_at = ? WHERE req_id = ? AND state = 'pending'",
       )
       .run(detail, now, reqId)
-    return Number(result.changes)
+    return result.changes
   }
 
   // ---------------------------------------------------------------- 动作身份
@@ -1349,7 +1336,7 @@ export class Repository extends OpsStore {
     now: string
     pid?: number | null
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO actions (action_id, task_id, node, role, state, started_at, detail, pid, heartbeat_at)
          VALUES (?, ?, ?, ?, 'started', ?, ?, ?, ?)`,
@@ -1367,33 +1354,31 @@ export class Repository extends OpsStore {
   }
 
   finishAction(actionId: string, state: string, detail: string, now: string): void {
-    this.db.handle
+    this.db
       .prepare('UPDATE actions SET state = ?, detail = ?, finished_at = ? WHERE action_id = ?')
       .run(state, detail, now, actionId)
   }
 
   action(actionId: string): ActionRecord | null {
-    const row = this.db.handle
-      .prepare('SELECT * FROM actions WHERE action_id = ?')
-      .get(actionId) as Row | undefined
+    const row = this.db.prepare('SELECT * FROM actions WHERE action_id = ?').get(actionId)
     return row ? actionFromRow(row) : null
   }
 
   startedActions(taskId: string): ActionRecord[] {
-    const rows = this.db.handle
+    const rows = this.db
       .prepare("SELECT * FROM actions WHERE task_id = ? AND state = 'started' ORDER BY started_at")
-      .all(taskId) as Row[]
+      .all(taskId)
     return rows.map(actionFromRow)
   }
 
   /** 启动时把未收口的 started 动作标为 interrupted；不删除证据。 */
   markStartedActionsInterrupted(now: string): number {
-    const result = this.db.handle
+    const result = this.db
       .prepare(
         "UPDATE actions SET state = 'interrupted', finished_at = ?, detail = detail || ? WHERE state = 'started'",
       )
       .run(now, `\n宿主重启：动作结果未收口，已标记 interrupted（${now}）`)
-    return Number(result.changes)
+    return result.changes
   }
 
   // ---------------------------------------------------------------- 候选包
@@ -1408,7 +1393,7 @@ export class Repository extends OpsStore {
     builtAt: string
     evidenceDir: string
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_candidates
           (req_id, plan_version, sha256, tarball, files_json, git_head, built_at, evidence_dir)
@@ -1442,9 +1427,9 @@ export class Repository extends OpsStore {
     builtAt: string
     evidenceDir: string
   } | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare('SELECT * FROM requirement_candidates WHERE req_id = ? AND plan_version = ?')
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     if (!row) return null
     return {
       reqId: text(row, 'req_id'),
@@ -1471,7 +1456,7 @@ export class Repository extends OpsStore {
     builtAt: string
     evidenceDir: string
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_candidate_builds
           (req_id, plan_version, candidate_sha256, verification_sha256, package_version,
@@ -1515,12 +1500,12 @@ export class Repository extends OpsStore {
     builtAt: string
     evidenceDir: string
   } | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_candidate_builds
          WHERE req_id = ? AND plan_version = ? ORDER BY built_at DESC LIMIT 1`,
       )
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     if (!row) return null
     return {
       reqId: text(row, 'req_id'),
@@ -1552,7 +1537,7 @@ export class Repository extends OpsStore {
     source: string
     recordedAt: string
   }): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO requirement_deployments
           (req_id, plan_version, candidate_sha256, package_version, target_profile,
@@ -1601,12 +1586,12 @@ export class Repository extends OpsStore {
     source: string
     recordedAt: string
   } | null {
-    const row = this.db.handle
+    const row = this.db
       .prepare(
         `SELECT * FROM requirement_deployments
          WHERE req_id = ? AND plan_version = ? ORDER BY recorded_at DESC LIMIT 1`,
       )
-      .get(reqId, planVersion) as Row | undefined
+      .get(reqId, planVersion)
     if (!row) return null
     let checks: unknown[] = []
     try {
@@ -1635,7 +1620,7 @@ export class Repository extends OpsStore {
   // ---------------------------------------------------------------- 运维事件
 
   setMeta(key: string, value: string, now = isoNow()): void {
-    this.db.handle
+    this.db
       .prepare(
         `INSERT INTO runtime_meta (key, value, updated_at) VALUES (?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
@@ -1644,8 +1629,7 @@ export class Repository extends OpsStore {
   }
 
   getMeta(key: string): string | null {
-    const row = this.db.handle.prepare('SELECT value FROM runtime_meta WHERE key = ?').get(key) as
-      Row | undefined
+    const row = this.db.prepare('SELECT value FROM runtime_meta WHERE key = ?').get(key)
     return row ? text(row, 'value') : null
   }
 }

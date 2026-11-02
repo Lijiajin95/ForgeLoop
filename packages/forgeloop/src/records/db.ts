@@ -418,10 +418,14 @@ CREATE TABLE IF NOT EXISTS ops_action_attempts (
 CREATE INDEX IF NOT EXISTS ops_action_attempts_by_event ON ops_action_attempts (event_id, started_at);
 `
 
+type SqlParam = string | number | bigint | Uint8Array | null
+
 export interface OpenOptions {
   /** true 时打开已有库且不创建新库，也不执行任何写入。 */
   readonly readOnly?: boolean
 }
+
+import type { Row } from './rows.js'
 
 export class Database {
   readonly handle: DatabaseSync
@@ -442,6 +446,23 @@ export class Database {
       handle.exec(SCHEMA)
     }
     return new Database(handle, path)
+  }
+
+  prepare(sql: string): {
+    get: (...params: readonly SqlParam[]) => Row | undefined
+    all: (...params: readonly SqlParam[]) => Row[]
+    run: (...params: readonly SqlParam[]) => { changes: number; lastInsertRowid: number | bigint }
+  } {
+    const statement = this.handle.prepare(sql)
+    return {
+      get: (...params) => statement.get(...params),
+      all: (...params) => statement.all(...params),
+      run: (...params) =>
+        statement.run(...params) as {
+          changes: number
+          lastInsertRowid: number | bigint
+        },
+    }
   }
 
   close(): void {
