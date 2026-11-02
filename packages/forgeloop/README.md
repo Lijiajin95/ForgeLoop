@@ -61,8 +61,10 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 
 模型工具：`forgeloop_status`、`forgeloop_show_requirement`、`forgeloop_show_plan`、
 `forgeloop_evidence`、`forgeloop_requests`、`forgeloop_impact`、`forgeloop_ops`、
-`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`forgeloop_web_search`、
-`forgeloop_web_fetch`、`forgeloop_submit_requirement`。
+`forgeloop_run_verification_check`、`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、
+`forgeloop_web_search`、`forgeloop_web_fetch`、`forgeloop_submit_requirement`。
+`forgeloop_run_verification_check` 只对验证会话开放：它按当前候选验证方案里的 label 执行命令，
+运行时记录退出码、超时、中止、日志与候选完整性，不接受任意命令，也不是通用命令执行器。
 两个文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件）；
 `docs/forgeloop/business-context.md` 例外：它只由运行时按分析结果写入，工具写入会被拒绝。
 两个联网工具调用 DeepSeek Search & Fetch（`POST /v1/tools/search`、`POST /v1/tools/fetch`），

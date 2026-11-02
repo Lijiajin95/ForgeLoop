@@ -66,6 +66,45 @@ export interface AgentRunResult {
   readonly toolCalls: readonly string[]
 }
 
+/** 宿主执行器没有多轮会话能力时，用单轮运行拼一个同构会话；关闭后拒绝继续投递。 */
+export function sessionFromRunner(
+  runner: { run(request: AgentRunRequest): Promise<AgentRunResult> },
+  request: AgentOpenRequest,
+): AgentSession {
+  const sessionId = `session-fl-${request.role}-fallback`
+  let closed = false
+  return {
+    sessionId,
+    async send(turn) {
+      if (closed) {
+        return {
+          status: 'error',
+          text: '',
+          sessionId,
+          reason: '会话已关闭',
+          transcriptPath: turn.transcriptPath,
+          durationMs: 0,
+          toolCalls: [],
+        }
+      }
+      return runner.run({
+        role: request.role,
+        cwd: request.cwd,
+        prompt: turn.prompt,
+        permission: request.permission,
+        timeoutMs: turn.timeoutMs,
+        transcriptPath: turn.transcriptPath,
+        ...(turn.signal ? { signal: turn.signal } : {}),
+        ...(request.tools ? { tools: request.tools } : {}),
+        ...(turn.onActivity ? { onActivity: turn.onActivity } : {}),
+      })
+    },
+    async close() {
+      closed = true
+    },
+  }
+}
+
 export interface AgentRunnerOptions {
   readonly ctx: AnyRecord
   readonly agent: AgentConfig

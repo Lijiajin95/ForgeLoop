@@ -14,6 +14,8 @@ import { COMMITTED } from '../src/domain/status.js'
 
 const SCENARIO = '需求功能可用'
 const CRITERION = '命令输出证明功能可用'
+const RULE = '金额必须包含税费'
+const EDGE = '输入为空时给出明确错误'
 const SMOKE = 'verified ok'
 
 let project = ''
@@ -50,6 +52,8 @@ function result(request: { role: string; transcriptPath?: string }, text: string
 const ANALYSIS = JSON.stringify({
   goal: '实现一个可验证的小功能',
   scenarios: [SCENARIO],
+  business_rules: [RULE],
+  exceptions: [EDGE],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
@@ -81,34 +85,56 @@ const BUSINESS_REVIEW = JSON.stringify({
   blocking: [],
   scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
   acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+  business_rules: [{ rule: RULE, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+  exceptions: [{ exception: EDGE, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
-/** 需求说明派生的验证方案；运行时负责实际执行命令并判定。 */
+/** 需求说明派生的验证方案；同一个验证会话通过工具执行命令。 */
 function verificationPlan(fail = false, outside = false): string {
+  const repaired =
+    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
   const argv = outside
     ? [
         'node',
         '-e',
         "const fs=require('node:fs');fs.mkdirSync('docs',{recursive:true});fs.writeFileSync('docs/outside.md','outside');",
       ]
-    : ['node', '-e', fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`]
+    : ['node', '-e', fail ? repaired : `console.log('${SMOKE}')`]
   return JSON.stringify({
     scenarios: [
       {
         scenario: SCENARIO,
         acceptance_criterion: CRITERION,
-        method: '运行冒烟命令并核对输出',
+        method: `运行冒烟命令并核对输出；业务规则：${RULE}；异常与边界：${EDGE}`,
         required: true,
         checks: [
           {
             label: 'smoke',
             argv,
-            ...(outside ? {} : { expected_output: fail ? 'broken' : SMOKE }),
+            ...(outside ? {} : { expected_output: SMOKE }),
           },
         ],
       },
     ],
   })
+}
+
+async function executePlanThroughTool(sessionId: string, prompt: string): Promise<AgentRunResult> {
+  const reqId = /需求身份：(\S+)/.exec(prompt)?.[1] ?? ''
+  const labels = [...prompt.matchAll(/- label: (.+)/g)].map((match) => match[1]!.trim())
+  for (const label of labels) {
+    const outcome = await runtime.runVerificationCheck(reqId, label)
+    if (!outcome.ok) throw new Error(outcome.text)
+  }
+  return {
+    status: 'completed',
+    text: JSON.stringify({ executed: labels, summary: 'executed' }),
+    sessionId,
+    reason: '',
+    transcriptPath: '',
+    durationMs: 1,
+    toolCalls: ['forgeloop_run_verification_check'],
+  }
 }
 
 function fakeRunner(
@@ -123,6 +149,7 @@ function fakeRunner(
     languageViolationFirst?: boolean
     verifyError?: boolean
     verifyAborted?: boolean
+    skipExecution?: boolean
     businessError?: boolean
     planTimeout?: boolean
     planError?: boolean
@@ -138,6 +165,37 @@ function fakeRunner(
   const session = (request: AgentOpenRequest) => ({
     sessionId: `session-fl-${request.role}-test`,
     async send(turn: { prompt: string; transcriptPath: string }): Promise<AgentRunResult> {
+      const reply = (
+        text: string,
+        status: AgentRunResult['status'] = 'completed',
+        reason = '',
+      ): AgentRunResult => ({
+        status,
+        text,
+        sessionId: `session-fl-${request.role}-test`,
+        reason,
+        transcriptPath: turn.transcriptPath,
+        durationMs: 1,
+        toolCalls: [],
+      })
+      if (request.role === 'verify' && turn.prompt.includes('现在只依据需求说明')) {
+        if (options.verifyError) return reply('', 'error', 'model unavailable')
+        if (options.verifyAborted) return reply('', 'aborted', 'verify aborted')
+        verifications += 1
+        return reply(
+          options.verifyMode === 'malformed'
+            ? 'not json'
+            : verificationPlan(
+                options.failFirstVerification === true && verifications === 1,
+                options.verifyMode === 'outside',
+              ),
+        )
+      }
+      if (request.role === 'verify' && turn.prompt.includes('你必须使用工具')) {
+        // 模型声称已执行但没调用工具时，运行时不能把自述当证据。
+        if (options.skipExecution) return reply(JSON.stringify({ executed: ['smoke'] }))
+        return executePlanThroughTool(`session-fl-${request.role}-test`, turn.prompt)
+      }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
         if (options.planError) {
           return {
@@ -259,20 +317,9 @@ function fakeRunner(
         return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'fixed')
       }
       if (request.role === 'verify' && turn.prompt.includes('业务验收')) {
-        if (options.businessError) {
-          return {
-            status: 'error',
-            text: '',
-            sessionId: 'business-error',
-            reason: 'business model unavailable',
-            transcriptPath: turn.transcriptPath,
-            durationMs: 1,
-            toolCalls: [],
-          }
-        }
+        if (options.businessError) return reply('', 'error', 'business model unavailable')
         if (options.businessBlock) {
-          return result(
-            { role: request.role, transcriptPath: turn.transcriptPath },
+          return reply(
             JSON.stringify({
               verdict: 'block',
               summary: '业务不通过',
@@ -288,8 +335,7 @@ function fakeRunner(
           )
         }
         if (options.businessIncomplete) {
-          return result(
-            { role: request.role, transcriptPath: turn.transcriptPath },
+          return reply(
             JSON.stringify({
               verdict: 'pass',
               summary: '看起来通过',
@@ -300,12 +346,9 @@ function fakeRunner(
             }),
           )
         }
-        return result(
-          { role: request.role, transcriptPath: turn.transcriptPath },
-          options.verifyMode === 'business-malformed' ? 'not json' : BUSINESS_REVIEW,
-        )
+        return reply(options.verifyMode === 'business-malformed' ? 'not json' : BUSINESS_REVIEW)
       }
-      return result({ role: request.role, transcriptPath: turn.transcriptPath }, '')
+      return reply('')
     },
     async close() {},
   })
@@ -376,38 +419,6 @@ function fakeRunner(
           )
         }
         return result(request, PLAN)
-      }
-      if (request.role === 'verify') {
-        if (options.verifyAborted) {
-          return {
-            status: 'aborted',
-            text: '',
-            sessionId: 'verify-aborted',
-            reason: 'verify aborted',
-            transcriptPath: request.transcriptPath,
-            durationMs: 1,
-            toolCalls: [],
-          }
-        }
-        if (options.verifyError) {
-          return {
-            status: 'error',
-            text: '',
-            sessionId: 'verify-error',
-            reason: 'model unavailable',
-            transcriptPath: request.transcriptPath,
-            durationMs: 1,
-            toolCalls: [],
-          }
-        }
-        const fail = options.failFirstVerification === true && verifications === 0
-        verifications += 1
-        return result(
-          request,
-          options.verifyMode === 'malformed'
-            ? 'not json'
-            : verificationPlan(fail, options.verifyMode === 'outside'),
-        )
       }
       throw new Error(`unexpected single-turn role ${request.role}`)
     },
@@ -504,23 +515,23 @@ describe('continuous four-Agent flow', () => {
     expect(git(project, ['status', '--porcelain'])).toBe('')
   })
 
-  it('derives verification from the requirement in a new session and reviews only product output', async () => {
-    const planRequests: AgentRunRequest[] = []
-    const reviewTurns: Array<{ prompt: string; sessionId: string }> = []
+  it('plans, executes and reviews in one verification session without leaking the candidate', async () => {
+    const openRequests: AgentOpenRequest[] = []
+    const turns: Array<{ prompt: string; sessionId: string }> = []
     const base = fakeRunner()
     const spying: AgentLike = {
       async run(request) {
-        if (request.role === 'verify') planRequests.push(request)
         return base.run(request)
       },
       async open(request) {
+        if (request.role === 'verify') openRequests.push(request)
         const session = await base.open!(request)
         if (request.role !== 'verify') return session
         return {
           sessionId: session.sessionId,
           async send(turn) {
-            reviewTurns.push({ prompt: turn.prompt, sessionId: session.sessionId })
-            // 真实会话把本轮结果归属到自己的会话；测试替身显式对齐，便于区分方案与验收会话。
+            turns.push({ prompt: turn.prompt, sessionId: session.sessionId })
+            // 真实会话把本轮结果归属到自己的会话；测试替身显式对齐。
             const outcome = await session.send(turn)
             return { ...outcome, sessionId: session.sessionId }
           },
@@ -544,26 +555,44 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
 
-    // 方案阶段在新会话里只读需求说明：无工具、无候选 diff、无任务包、无源码工作区。
-    expect(planRequests).toHaveLength(1)
-    const planRequest = planRequests[0]!
-    expect(planRequest.tools).toBe('none')
-    expect(planRequest.cwd).toBe(project)
-    expect(planRequest.prompt).toContain(SCENARIO)
-    expect(planRequest.prompt).toContain(CRITERION)
-    expect(planRequest.prompt).not.toMatch(/diff --git|docs\/a\.md|技术方案|任务拆解/)
+    // 方案阶段在同一个验证会话里只读需求说明与已准入任务目标：
+    // 不用标准编码 preset，只暴露执行验证方案命令的工具。
+    expect(openRequests).toHaveLength(1)
+    const openRequest = openRequests[0]!
+    expect(openRequest.tools).toBeUndefined()
+    expect(openRequest.allowTools).toEqual(['forgeloop_run_verification_check'])
+    expect(openRequest.cwd).toBe(project)
 
-    // 业务验收另开会话，只看程序重跑出的命令输出，不看代码或 diff。
-    expect(reviewTurns).toHaveLength(1)
-    expect(reviewTurns[0]!.prompt).toContain(SMOKE)
-    expect(reviewTurns[0]!.prompt).not.toContain('diff --git')
-    expect(reviewTurns[0]!.prompt).not.toContain('content')
+    expect(turns).toHaveLength(3)
+    const planTurn = turns[0]!
+    expect(planTurn.prompt).toContain(SCENARIO)
+    expect(planTurn.prompt).toContain(CRITERION)
+    expect(planTurn.prompt).toContain(RULE)
+    expect(planTurn.prompt).toContain(EDGE)
+    expect(planTurn.prompt).toContain('实现功能 A')
+    expect(planTurn.prompt).not.toMatch(/diff --git|candidate\.diff|docs\/a\.md/)
+
+    // 执行与业务验收复用方案会话：执行提示词只列方案命令，业务验收只看工具真实输出。
+    const executionTurn = turns[1]!
+    expect(executionTurn.prompt).toContain('forgeloop_run_verification_check')
+    expect(executionTurn.prompt).toContain('label: smoke')
+    const reviewTurn = turns[2]!
+    expect(reviewTurn.prompt).toContain('业务验收')
+    expect(reviewTurn.prompt).toContain(SMOKE)
+    expect(reviewTurn.prompt).toContain(RULE)
+    expect(reviewTurn.prompt).toContain(EDGE)
+    expect(reviewTurn.prompt).not.toContain('diff --git')
+    expect(reviewTurn.prompt).not.toContain('content ')
+    expect(new Set(turns.map((turn) => turn.sessionId))).toEqual(
+      new Set(['session-fl-verify-test']),
+    )
 
     const verification = runtime.repo.verification(reqId, 1)!
     const business = runtime.repo.businessReview(reqId, 1)!
-    expect(verification.sessionId).toBe('session-fake-verify')
-    expect(business.sessionId).toBe('session-fl-verify-test')
-    expect(verification.sessionId).not.toBe(business.sessionId)
+    expect(verification.sessionId).toBe('session-fl-verify-test')
+    expect(business.sessionId).toBe(verification.sessionId)
+    expect(business.reportJson).toContain(RULE)
+    expect(business.reportJson).toContain(EDGE)
 
     const report = JSON.parse(readFileSync(verification.reportPath, 'utf8')) as {
       verificationPlan: { scenarios: Array<{ checks: Array<{ label: string }> }> }
@@ -656,12 +685,29 @@ describe('continuous four-Agent flow', () => {
     const base = fakeRunner()
     const silent: AgentLike = {
       async run(request) {
-        // 验证方案阶段拿不到可解析的方案：程序按畸形方案阻断，而不是先执行再猜。
-        if (request.role === 'verify') return result(request, '{}')
         return base.run(request)
       },
       async open(request) {
-        return base.open!(request)
+        const session = await base.open!(request)
+        if (request.role !== 'verify') return session
+        return {
+          sessionId: session.sessionId,
+          async send(turn) {
+            // 验证方案阶段拿不到可解析的方案：程序按畸形方案阻断，而不是先执行再猜。
+            return {
+              status: 'completed',
+              text: '{}',
+              sessionId: session.sessionId,
+              reason: '',
+              transcriptPath: turn.transcriptPath,
+              durationMs: 1,
+              toolCalls: [],
+            }
+          },
+          async close() {
+            await session.close()
+          },
+        }
       },
     }
     runtime.close()
@@ -895,6 +941,24 @@ describe('continuous four-Agent flow', () => {
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('model unavailable')
     expect(runtime.repo.failureRounds(reqId).length).toBeGreaterThan(0)
+  })
+
+  it('blocks when the verification session never runs the planned commands through the tool', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ skipExecution: true }))
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-15b:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('验证 Agent 没有通过工具执行方案中的命令：smoke')
+    expect(runtime.repo.verificationsFor(reqId)).toEqual([])
+    expect(runtime.issues.issuesFor(reqId)).toEqual([])
   })
 
   it('blocks when the business acceptance model fails', async () => {

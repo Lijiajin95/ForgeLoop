@@ -180,45 +180,82 @@ const BUSINESS_REVIEW = JSON.stringify({
 })
 
 function fakeRunner(): AgentLike {
+  const run = async (request: AgentRunRequest): Promise<AgentRunResult> => {
+    if (request.role === 'product') return result(request, ANALYSIS)
+    if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
+      return result(request, PLAN)
+    if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
+      return result(request, PLAN_REVIEW)
+    // 连续研发：验证方案阶段只读需求说明，命令由运行时在固定候选上执行。
+    if (request.role === 'verify' && request.prompt.includes('现在只依据需求说明')) {
+      return result(request, VERIFICATION_PLAN)
+    }
+    if (request.role === 'verify' && request.prompt.includes('现在做业务验收'))
+      return result(request, BUSINESS_REVIEW)
+    // 历史请求路径：验证会话仍需在 verification/ 下产出命令与报告。
+    if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
+      const verification = join(request.cwd, 'verification')
+      mkdirSync(verification, { recursive: true })
+      writeFileSync(
+        join(verification, 'commands.json'),
+        JSON.stringify({
+          commands: [{ label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE_OUTPUT}')`] }],
+        }),
+      )
+      writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+      return result(request, VERIFICATION_REPORT)
+    }
+    if (request.role === 'verify' && request.prompt.includes('独立审查')) {
+      return result(
+        request,
+        JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }),
+      )
+    }
+    const allowed =
+      /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/
+        .exec(request.prompt)?.[1]
+        ?.split('、')[0] ?? 'docs/out.md'
+    mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
+    writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
+    return result(request, 'done')
+  }
   return {
-    async run(request) {
-      if (request.role === 'product') return result(request, ANALYSIS)
-      if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
-        return result(request, PLAN)
-      if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
-        return result(request, PLAN_REVIEW)
-      // 连续研发：验证方案阶段只读需求说明，命令由运行时在固定候选上执行。
-      if (request.role === 'verify' && request.prompt.includes('验证方案')) {
-        return result(request, VERIFICATION_PLAN)
+    run,
+    async open(request) {
+      return {
+        sessionId: `session-fake-${request.role}`,
+        async send(turn) {
+          // 验证会话在产物交付后通过工具逐条执行方案命令，程序按退出码判定。
+          if (request.role === 'verify' && turn.prompt.includes('你必须使用工具')) {
+            const reqId = /需求身份：(\S+)/.exec(turn.prompt)?.[1] ?? ''
+            const labels = [...turn.prompt.matchAll(/- label: (.+)/g)].map((match) =>
+              match[1]!.trim(),
+            )
+            for (const label of labels) {
+              const outcome = await runtime.runVerificationCheck(reqId, label)
+              if (!outcome.ok) throw new Error(outcome.text)
+            }
+            return result(
+              {
+                role: request.role,
+                cwd: request.cwd,
+                prompt: turn.prompt,
+                permission: request.permission,
+                timeoutMs: turn.timeoutMs,
+                transcriptPath: turn.transcriptPath,
+              },
+              JSON.stringify({ executed: labels, summary: 'executed' }),
+            )
+          }
+          return run({
+            ...request,
+            prompt: turn.prompt,
+            timeoutMs: turn.timeoutMs,
+            transcriptPath: turn.transcriptPath,
+          })
+        },
+        async close() {},
       }
-      // 历史请求路径：验证会话仍需在 verification/ 下产出命令与报告。
-      if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
-        const verification = join(request.cwd, 'verification')
-        mkdirSync(verification, { recursive: true })
-        writeFileSync(
-          join(verification, 'commands.json'),
-          JSON.stringify({
-            commands: [{ label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE_OUTPUT}')`] }],
-          }),
-        )
-        writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
-        return result(request, VERIFICATION_REPORT)
-      }
-      if (request.role === 'verify' && request.prompt.includes('业务验收'))
-        return result(request, BUSINESS_REVIEW)
-      if (request.role === 'verify' && request.prompt.includes('独立审查')) {
-        return result(
-          request,
-          JSON.stringify({ verdict: 'pass', blocking: [], findings: [], summary: 'ok' }),
-        )
-      }
-      const allowed =
-        /计划中列出的预期文件（仅供参考，不是禁止修改其他文件）：(.+)/
-          .exec(request.prompt)?.[1]
-          ?.split('、')[0] ?? 'docs/out.md'
-      mkdirSync(join(request.cwd, allowed, '..'), { recursive: true })
-      writeFileSync(join(request.cwd, allowed), `content ${Date.now()}\n`)
-      return result(request, 'done')
     },
   }
 }
@@ -342,7 +379,8 @@ async function admittedRequirement(): Promise<string> {
   })
   const reqId = (submitted.data as { reqId: string }).reqId
   expect((await runQueued('analyze', reqId)).state).toBe('done')
-  expect((await runQueued('advance', reqId)).state).toBe('done')
+  const advance = await runQueued('advance', reqId)
+  expect(advance.state, advance.detail).toBe('done')
   expect(runtime.repo.getRequirement(reqId)?.status).toBe('committed')
   return reqId
 }

@@ -97,8 +97,10 @@ const BUSINESS_REVIEW = JSON.stringify({
   acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
-/** 需求说明派生的验证方案：阻断时命令退出码 1，通过时输出 SMOKE。 */
+/** 需求说明派生的验证方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
 function verificationPlan(fail: boolean): string {
+  const repaired =
+    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
   return JSON.stringify({
     scenarios: [
       {
@@ -109,12 +111,8 @@ function verificationPlan(fail: boolean): string {
         checks: [
           {
             label: 'smoke',
-            argv: [
-              'node',
-              '-e',
-              fail ? "console.log('broken');process.exit(1)" : `console.log('${SMOKE}')`,
-            ],
-            expected_output: fail ? 'broken' : SMOKE,
+            argv: ['node', '-e', fail ? repaired : `console.log('${SMOKE}')`],
+            expected_output: SMOKE,
           },
         ],
       },
@@ -123,34 +121,58 @@ function verificationPlan(fail: boolean): string {
 }
 
 /**
- * 前 N 次独立验证判阻断，之后通过；研发修复回合写真实文件改动。
- * 验证命令由运行时实际重跑：阻断时退出码 1，通过时输出 SMOKE。
+ * 前 N 次验证执行判阻断，之后通过；研发修复回合写真实文件改动。
+ * 同一个验证会话通过工具执行方案命令，程序按退出码判定。
  */
 function fakeRunner(
   options: { failVerifications?: number; repairNoChange?: boolean } = {},
 ): AgentLike {
-  let verificationRuns = 0
+  const failUntil = options.failVerifications ?? 0
+  let executions = 0
   const session = (request: AgentOpenRequest) => ({
     sessionId: `session-fl-${request.role}-test`,
     async send(turn: { prompt: string; transcriptPath: string }): Promise<AgentRunResult> {
+      const reply = (text: string): AgentRunResult => ({
+        status: 'completed',
+        text,
+        sessionId: `session-fl-${request.role}-test`,
+        reason: '',
+        transcriptPath: turn.transcriptPath,
+        durationMs: 1,
+        toolCalls: [],
+      })
+      if (request.role === 'verify' && turn.prompt.includes('现在只依据需求说明')) {
+        return reply(verificationPlan(executions < failUntil))
+      }
+      if (request.role === 'verify' && turn.prompt.includes('你必须使用工具')) {
+        const reqId = /需求身份：(\S+)/.exec(turn.prompt)?.[1] ?? ''
+        const labels = [...turn.prompt.matchAll(/- label: (.+)/g)].map((match) => match[1]!.trim())
+        for (const label of labels) {
+          const outcome = await runtime.runVerificationCheck(reqId, label)
+          if (!outcome.ok) throw new Error(outcome.text)
+          executions += 1
+        }
+        return reply(JSON.stringify({ executed: labels, summary: 'executed' }))
+      }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, PLAN)
+        return reply(PLAN)
       }
       if (request.role === 'dev' && turn.prompt.includes('当前任务：')) {
         const taskId = /当前任务：(.+)/.exec(turn.prompt)?.[1]?.trim() ?? 'a'
         mkdirSync(join(request.cwd, 'docs'), { recursive: true })
         writeFileSync(join(request.cwd, `docs/${taskId}.md`), `content ${Date.now()}\n`)
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'done')
+        return reply('done')
       }
       if (request.role === 'dev' && turn.prompt.includes('发现缺陷')) {
-        if (options.repairNoChange) {
-          return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'no change')
-        }
-        writeFileSync(join(request.cwd, 'docs/a.md'), `fixed ${verificationRuns} ${Date.now()}\n`)
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'fixed')
+        if (options.repairNoChange) return reply('no change')
+        // 验证次数没有达到目标前，修复回合只产生“仍在失败”的候选；达到后才真正修好。
+        const content =
+          executions >= failUntil ? `fixed ${Date.now()}\n` : `repair ${executions} ${Date.now()}\n`
+        writeFileSync(join(request.cwd, 'docs/a.md'), content)
+        return reply('fixed')
       }
       if (request.role === 'verify' && turn.prompt.includes('业务验收')) {
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, BUSINESS_REVIEW)
+        return reply(BUSINESS_REVIEW)
       }
       throw new Error(`unexpected role ${request.role}`)
     },
@@ -161,12 +183,6 @@ function fakeRunner(
       if (request.role === 'product') return result(request, ANALYSIS)
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         return result(request, PLAN)
-      }
-      // 验证方案只读需求说明；实际命令由运行时在固定候选上执行。
-      if (request.role === 'verify') {
-        verificationRuns += 1
-        const fail = verificationRuns <= (options.failVerifications ?? 0)
-        return result(request, verificationPlan(fail))
       }
       throw new Error(`unexpected single-turn role ${request.role}`)
     },

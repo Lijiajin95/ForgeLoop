@@ -852,6 +852,8 @@ export class VerificationPipeline {
     const issues = validateBusinessReview({
       scenarios: analysis.scenarios,
       acceptanceCriteria: analysis.acceptanceCriteria,
+      businessRules: analysis.businessRules,
+      exceptions: analysis.exceptions,
       review,
       runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
     })
@@ -871,6 +873,8 @@ export class VerificationPipeline {
       blocking,
       scenarios: review.scenarios,
       acceptance: review.acceptance,
+      businessRules: review.businessRules,
+      exceptions: review.exceptions,
       sessionId: run.sessionId,
       at: this.deps.now(),
     }

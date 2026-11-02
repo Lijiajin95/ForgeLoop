@@ -4008,3 +4008,61 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   POST 正文不含事件明细，外部服务只能看到存活与状态摘要；真实 `~/.forgeloop/config.json` 已加入 `ops` 段（一个 `host` 资源、
   一个 `host-http` 检查、监控 300 秒、提供方 `["builtin"]`、无动作与 webhook、心跳留空，
   备份 `config.json.bak-20261102T150052Z`）；宿主 PID 2477 未重启，重载插件后才生效。
+
+### 113. 验证会话：同一会话完成方案、工具执行与业务验收（新目标 Round 29）
+
+- 来源：所有者对本轮连续验证链路提出三点：① 验证会话本身要**通过工具**逐条执行验证方案，
+  不再由运行时另开无工具会话代跑；② 方案与业务验收必须是**同一个会话**，验证会话输入要含原始
+  需求各版本、分析目标/场景与已准入任务包的任务目标；③ 分析里的业务规则与异常边界都要纳入
+  方案和业务验收，非目标只作背景。
+- 方案（研发前）：`agents/verification-agent.ts` 改为会话驱动——`VerificationAgent` 只保留
+  `plan`，构造时注入 `VerificationSession{ sessionId, send }`。`runtime/legacy-verification.ts`
+  的 `openVerification` 在**研发开始前**打开验证会话（`role=verify`、`cwd` 为真实项目目录、
+  `workspace-write`、`allowTools` 只挂 `forgeloop_run_verification_check`，不传 `tools` 所以
+  不挂标准编码 preset），投递方案提示词，落 `verifications/<req>/v<plan>/plan/verify-plan.jsonl`
+  与 `verification-plan.json`；失败即 fail-closed（block、`verification: null`），会话关闭。
+  方案提示词只给需求原文全部版本、分析的目标/业务场景/业务规则/异常与边界/非目标（背景）/验收
+  标准，以及已准入任务包的任务目标（`taskId：goal`）；逐字覆盖每条场景、规则、异常边界与验收
+  标准，缺任一项由 `validateRequirementVerificationPlan` 拒绝。非目标不是验收项。
+- 执行（交付后）：新增 `runtime/verification-checks.ts`。`VerificationCheckRegistry` 按需求登记
+  当前候选的执行上下文（工作区、HEAD、方案、信号、超时），工具入口只接受方案里已登记的 label：
+  其他会话、方案外命令一律拒绝，同一 label 幂等返回上一次真实结果；执行前后核对 HEAD，命令结束
+  再核对 `verification/` 之外的改动，越界记为完整性问题。退出码、超时、中止、耗时、日志路径与
+  `logSha256` 全部由程序记录，文本回给模型时保留输出开头与末尾两段。`prompts.ts` 新增
+  `verificationExecutionPrompt`，把场景、验收标准、必过标记、label 与 argv 交给同一会话，要求
+  逐条调用工具、不得跳过/合并/改写。
+- 判定：`verifyCandidate` 在同一个会话里投递执行轮，结束后固定快照并释放上下文。方案中任一
+  label 没有真实执行记录 → `验证 Agent 没有通过工具执行方案中的命令：…`（`verification: null`，
+  `verification-prep` 失败轮，不建研发问题单）；上下文丢失、执行轮未完成或命令被中止同样返回
+  `verification: null`。只有工具记录的命令全部满足预期、必过场景覆盖完整、候选未被改动才生成
+  `passed` 的 `VerificationRecord`；命令失败或完整性告警计 `stage=verification` 的阻断并走问题单
+  修复。工具记录直接作为 `commands`（含 `logPath`/`logSha256`），不再由运行时重跑。
+- 业务验收（同一会话）：验证通过后，同一个 `session` 继续投递 `businessReviewPrompt`（新增可选的
+  验证方案上下文），报告新增 `business_rules` 与 `exceptions` 数组；`validateBusinessReview` 逐项
+  校验业务场景、验收标准、业务规则、异常边界——缺失项、未通过、无关联命令、证据无法在执行输出中
+  核对都阻断。验证报告与业务报告共用同一个 `sessionId`，可从两侧反查。
+- 接线：`advance-pipeline.ts` 在方案生成成功后进入研发，`finally` 关闭验证会话；研发会话的生命
+  周期收进 `developAndVerifyContinuous`。`service.ts` 持有 `VerificationCheckRegistry` 并暴露
+  `runVerificationCheck`；`tools.ts` 新增第 13 个工具（参数 `req_id`、`label`）。为守住 token
+  预算，把“只实现 run 的假执行器回退会话”移入 `runtime/agent-runner.ts` 的
+  `sessionFromRunner`（`service.ts` 21921 → 21845 tokens）。
+- 提示词/领域：`businessReviewPrompt` 增加目标、业务规则、异常边界、非目标背景与验证方案；
+  `verificationPlanPrompt` 增加任务目标；`business-review.ts` 与 `verification.ts` 的解析/校验
+  兼容新字段（旧报告缺字段按空数组）。
+- 文档：`docs/architecture.md` §3/§4.2 改为“研发前同一验证会话生成方案 → 交付后同一会话经工具
+  执行 → 同一会话业务验收”，记录工具名、方案目录与 fail-closed 行为；`packages/forgeloop/README.md`
+  工具清单加入 `forgeloop_run_verification_check` 及其边界。
+- 测试：`continuous-flow`（同一 sessionId 完成方案/执行/业务验收；执行轮不调用工具即阻断、
+  不建问题单）、`issue-retry-loop`、`requirement-gate`、`auto-intake`、`candidate-build` 的假会话
+  改为“方案 → 经 `runtime.runVerificationCheck` 逐条执行 → 业务验收”；`verification.test.ts`
+  重写为方案会话与 `VerificationCheckRegistry` 用例（退出码、超时、中止、异常、幂等、方案外
+  label、上下文释放、HEAD 变化与候选外写入）；`business-review-domain.test.ts` 增加业务规则/
+  异常边界覆盖与阻断；`tools.test.ts` 工具面 12 → 13 且新增无上下文拒绝。
+- 验证：在干净工作树（HEAD `0dbe239` + 本批改动）执行 `make check`：typecheck、ESLint、
+  `make contracts`、token 预算（最大 `service.ts` 21845 ≤ 21931）、断言预算（0/19，baseline 19）
+  与 **67 个测试文件、701 项测试**全部通过；`make format`、`make build` 通过。
+- 边界：执行上下文保存在进程内存，宿主重启或会话中断不会自动恢复，执行轮会以
+  `verification: null` 阻断并等下一次推进重新生成方案；工具只对当前需求生效，同一需求并发验证
+  被拒绝。显式 `plan`/`approve` 的旧验证链路仍保留独立方案/业务验收会话，本批只改连续推进路径，
+  但它的解析与校验已兼容业务规则/异常边界。命令仍在宿主进程内以子进程执行，不是 OS 隔离；
+  本批只用确定性假执行器验证，未重跑真实模型会话。

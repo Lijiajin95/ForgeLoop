@@ -27,6 +27,10 @@ export interface BusinessReview {
   readonly blocking: readonly string[]
   readonly scenarios: readonly BusinessReviewItem[]
   readonly acceptance: readonly BusinessReviewItem[]
+  /** 逐条业务规则的实际结果；旧报告缺少该字段时按空数组兼容。 */
+  readonly businessRules: readonly BusinessReviewItem[]
+  /** 逐条异常与边界的实际结果；旧报告缺少该字段时按空数组兼容。 */
+  readonly exceptions: readonly BusinessReviewItem[]
 }
 
 export interface BusinessReviewCommandRun {
@@ -63,7 +67,11 @@ function statusOf(value: unknown, field: string): BusinessReviewStatus {
   return value
 }
 
-function itemOf(value: unknown, key: 'scenario' | 'criterion', what: string): BusinessReviewItem {
+function itemOf(
+  value: unknown,
+  key: 'scenario' | 'criterion' | 'rule' | 'exception',
+  what: string,
+): BusinessReviewItem {
   const data = asRecord(value, what)
   return {
     text: nonEmpty(data[key], `${what}.${key}`),
@@ -71,6 +79,16 @@ function itemOf(value: unknown, key: 'scenario' | 'criterion', what: string): Bu
     evidence: typeof data.evidence === 'string' ? data.evidence.trim() : '',
     commands: stringList(data.commands, `${what}.commands`, true),
   }
+}
+
+function itemList(
+  value: unknown,
+  key: 'scenario' | 'criterion' | 'rule' | 'exception',
+  field: string,
+): BusinessReviewItem[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new MalformedError(`${field} 必须是数组`)
+  return value.map((item, index) => itemOf(item, key, `${field}[${index}]`))
 }
 
 export function parseBusinessReview(raw: string): BusinessReview {
@@ -88,12 +106,10 @@ export function parseBusinessReview(raw: string): BusinessReview {
   }
   if (!Array.isArray(data.scenarios)) throw new MalformedError('业务终审必须给出 scenarios 数组')
   if (!Array.isArray(data.acceptance)) throw new MalformedError('业务终审必须给出 acceptance 数组')
-  const scenarios = data.scenarios.map((item, index) =>
-    itemOf(item, 'scenario', `scenarios[${index}]`),
-  )
-  const acceptance = data.acceptance.map((item, index) =>
-    itemOf(item, 'criterion', `acceptance[${index}]`),
-  )
+  const scenarios = itemList(data.scenarios, 'scenario', 'scenarios')
+  const acceptance = itemList(data.acceptance, 'criterion', 'acceptance')
+  const businessRules = itemList(data.business_rules, 'rule', 'business_rules')
+  const exceptions = itemList(data.exceptions, 'exception', 'exceptions')
   return {
     verdict,
     summary: nonEmpty(data.summary, 'summary'),
@@ -101,6 +117,8 @@ export function parseBusinessReview(raw: string): BusinessReview {
     blocking,
     scenarios,
     acceptance,
+    businessRules,
+    exceptions,
   }
 }
 
@@ -134,12 +152,14 @@ function checkItem(
 }
 
 /**
- * 终审必须逐项覆盖分析中的业务场景与验收标准，且证据来自独立验证的真实命令输出。
- * 缺项即使模型自报通过也阻断。
+ * 终审必须逐项覆盖分析中的业务场景、验收标准、业务规则与异常边界，
+ * 且证据来自独立验证的真实命令输出。缺项即使模型自报通过也阻断。
  */
 export function validateBusinessReview(input: {
   scenarios: readonly string[]
   acceptanceCriteria: readonly string[]
+  businessRules?: readonly string[] | undefined
+  exceptions?: readonly string[] | undefined
   review: BusinessReview
   runs: readonly BusinessReviewCommandRun[]
 }): string[] {
@@ -151,21 +171,39 @@ export function validateBusinessReview(input: {
     return issues
   }
   const runs = new Map(input.runs.map((run) => [run.label, run]))
-  for (const scenario of input.scenarios) {
-    const item = input.review.scenarios.find((candidate) => candidate.text === scenario)
-    if (!item) {
-      issues.push(`业务终审缺少业务场景：${scenario}`)
-      continue
+  const checkAll = (
+    texts: readonly string[],
+    items: readonly BusinessReviewItem[],
+    what: string,
+    missing: string,
+  ): void => {
+    for (const text of texts) {
+      const item = items.find((candidate) => candidate.text === text)
+      if (!item) {
+        issues.push(`${missing}：${text}`)
+        continue
+      }
+      issues.push(...checkItem(item, runs, what, text))
     }
-    issues.push(...checkItem(item, runs, '业务终审业务场景', scenario))
   }
-  for (const criterion of input.acceptanceCriteria) {
-    const item = input.review.acceptance.find((candidate) => candidate.text === criterion)
-    if (!item) {
-      issues.push(`业务终审缺少验收标准：${criterion}`)
-      continue
-    }
-    issues.push(...checkItem(item, runs, '业务终审验收标准', criterion))
-  }
+  checkAll(input.scenarios, input.review.scenarios, '业务终审业务场景', '业务终审缺少业务场景')
+  checkAll(
+    input.acceptanceCriteria,
+    input.review.acceptance,
+    '业务终审验收标准',
+    '业务终审缺少验收标准',
+  )
+  checkAll(
+    input.businessRules ?? [],
+    input.review.businessRules,
+    '业务终审业务规则',
+    '业务终审缺少业务规则',
+  )
+  checkAll(
+    input.exceptions ?? [],
+    input.review.exceptions,
+    '业务终审异常与边界',
+    '业务终审缺少异常与边界',
+  )
   return issues
 }
