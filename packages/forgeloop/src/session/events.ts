@@ -14,6 +14,7 @@ export const FORGELOOP_ANSWER_EVENT = 'plugin:forgeloop/clarification-answer'
 export const FORGELOOP_PLAN_EVENT = 'plugin:forgeloop/plan'
 export const FORGELOOP_ERROR_EVENT = 'plugin:forgeloop/error'
 
+import { asRecord } from '../domain/json.js'
 import { createRequire } from 'node:module'
 import { errorMessage } from '../domain/errors.js'
 import { realpathSync } from 'node:fs'
@@ -122,7 +123,7 @@ export function appendSessionEvent(
   log: SessionEventLogger = () => undefined,
 ): boolean {
   try {
-    const record = data as Record<string, unknown>
+    const record = asRecord(data) ?? {}
     if (appendRecord) {
       appendRecord(session, type, record)
       return true

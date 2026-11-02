@@ -3545,3 +3545,12 @@ suppressions 20、service.ts 5,986 行。
   - domain/ops 的参数对象改用 `asRecord` 一次收窄。
 - 两条断言规则均已 `error` 且 0 违规。
 - `make check` 607 项通过；coverage 91.15/84.63/96.87；mutation 97.80。
+
+### 86. 对象收窄改用 asRecord（新目标 Round 3）
+
+- `review-facts`、`prompts`、`failure-advice`、`events`、`execution-views`、`service`
+  共 8 处 `x as Record<string, unknown>` 改为 `asRecord(x)`，去掉断言。
+- `failure-advice` 的 blocking 先取局部变量并显式标注，消除隐式 any。
+- `execution-views` 去掉 `?? null` 避免复杂度升到 16。
+- `as` 断言 **71 → 64**，基线 64。
+- `make check` 607 项通过；coverage 91.15/84.50/96.87；mutation 97.80。

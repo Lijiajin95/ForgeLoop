@@ -4,6 +4,8 @@
  * 证据不足时如实说明，不编造修复方案，也不把重试当成绕过规则的入口。
  */
 
+import { asRecord } from './json.js'
+
 export interface TaskFailureAdvice {
   /** 依据证据得到的失败原因摘要。 */
   readonly cause: string
@@ -60,9 +62,10 @@ function outOfScopeFiles(reason: string): string[] {
 /** 独立审查的阻断项；畸形记录不当作通过。 */
 function reviewBlocking(review: unknown): string[] {
   if (typeof review !== 'object' || review === null) return []
-  const record = review as Record<string, unknown>
-  if (record.verdict !== 'block' || !Array.isArray(record.blocking)) return []
-  return unique(record.blocking.filter((item): item is string => typeof item === 'string'))
+  const record = asRecord(review) ?? {}
+  const blocking = Array.isArray(record.blocking) ? record.blocking : []
+  if (record.verdict !== 'block') return []
+  return unique(blocking.filter((item: unknown): item is string => typeof item === 'string'))
 }
 
 /**

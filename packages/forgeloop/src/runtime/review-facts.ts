@@ -1,3 +1,4 @@
+import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { sha256OfText } from '../domain/delivery.js'
@@ -11,7 +12,7 @@ function verificationFact(raw: unknown):
   | { ok: false; detail: string }
   | null {
   if (typeof raw !== 'object' || raw === null) return null
-  const command = raw as Record<string, unknown>
+  const command = asRecord(raw) ?? {}
   const label = typeof command.label === 'string' ? command.label : ''
   const logPath = typeof command.logPath === 'string' ? command.logPath : ''
   if (!label || !logPath) return null

@@ -3,6 +3,7 @@
  * 提示词只提供事实与边界；通过/失败由程序判定，模型自评不构成验收。
  */
 
+import { asRecord } from '../domain/json.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import type { PlanReview } from '../domain/verification.js'
@@ -480,7 +481,7 @@ export function parseReviewVerdict(raw: string): ReviewVerdict {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new MalformedError('审查结果必须是 JSON 对象')
   }
-  const data = parsed as Record<string, unknown>
+  const data = asRecord(parsed) ?? {}
   const verdict = data.verdict
   if (verdict !== 'pass' && verdict !== 'block') {
     throw new MalformedError(`审查结论必须是 pass 或 block，实际 ${JSON.stringify(verdict)}`)

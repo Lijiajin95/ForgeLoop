@@ -3,6 +3,7 @@
  * 命令与工具都是本类的薄包装；这里不依赖任何交互界面。
  */
 
+import { asRecord } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
 import {
   cpSync,
@@ -866,7 +867,7 @@ ${answer}`
     })
     if (!queued.ok) return queued
     return ok(`已受理任务 ${input.taskId} 的重试：${queued.message}`, {
-      ...(queued.data as Record<string, unknown>),
+      ...(asRecord(queued.data) ?? {}),
       taskId: input.taskId,
     })
   }
@@ -1538,7 +1539,7 @@ ${answer}`
   requirementDetail(reqId: string): OperationResult {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
-    const view = this.requirementView(requirement) as Record<string, unknown>
+    const view = asRecord(this.requirementView(requirement)) ?? {}
     const plan = this.repo.latestTaskPlan(reqId)
     const artifacts = plan ? this.repo.taskArtifacts(reqId, plan.planVersion) : []
     const runs = plan ? this.repo.taskRuns(reqId, plan.planVersion) : []

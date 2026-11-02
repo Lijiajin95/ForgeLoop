@@ -1,3 +1,4 @@
+import { asRecord } from '../domain/json.js'
 import { readFileSync } from 'node:fs'
 import type { Repository } from '../records/repository.js'
 import type { TaskPlan } from '../domain/task-plan.js'
@@ -112,7 +113,7 @@ export function buildExecutionStages(input: {
 }): Array<Record<string, unknown>> {
   const { run, artifact, page, sessionId, review, reviewSession, evidence } = input
   const { reviewPath, testLog, testLogPath, testHeader } = input
-  const reviewRecord = review as Record<string, unknown> | null
+  const reviewRecord = asRecord(review)
   return [
     {
       id: 'dev',
