@@ -5,6 +5,7 @@
  * 当前没有人类 slash 命令表面；新方案的客户决定入口尚未实现。
  */
 
+import { asRecord } from './domain/json.js'
 import { loadConfigOrThrow, resolveConfig, type RawConfig } from './config.js'
 import { buildTools, registerTools } from './tools.js'
 import { Coordinator } from './runtime/coordinator.js'
@@ -94,7 +95,7 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
     })
     // Web 看板路由可选：无浏览器连接的 profile（headless）保持只有工具。
     registerBoardRoute(ctx, runtime, config, coordinator)
-    const summary = runtime.directorySummary() as AnyRecord
+    const summary = asRecord(runtime.directorySummary()) ?? {}
     // 启动信息只写宿主日志，不作为业务状态或验收证据。
     console.log(
       `[forgeloop] 已加载 records=${String(summary.database)} project=${config.project} path=${config.projectPath} owner=${coordinator.owner}`,

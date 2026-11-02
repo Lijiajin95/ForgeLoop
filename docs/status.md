@@ -3481,3 +3481,11 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.14/96.86/84.88，mutation 97.80。
 - 剩余：`as` 72；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 82. 启动摘要改用 asRecord（新目标 Round 32）
+
+- `index.ts` 的 `runtime.directorySummary() as AnyRecord` 改为 `asRecord(...) ?? {}`。
+- `as` 断言 **72 → 71**，基线 71。
+- `make check` 607 项通过，coverage 91.14/96.86/84.87，mutation 97.80。
+- 剩余：`as` 71；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。
