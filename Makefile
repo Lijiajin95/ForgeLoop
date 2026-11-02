@@ -84,6 +84,7 @@ verify-plugin:
 # 宿主装载 E2E（不依赖模型）：构建 → 隔离 profile 安装 → dump-config/plugin list 校验。
 e2e:
 	$(NODE) scripts/ts/e2e.ts
+	$(NODE) scripts/ts/e2e-board.ts
 
 coverage:
 	$(NPM) run coverage --workspace forgeloop-dsh

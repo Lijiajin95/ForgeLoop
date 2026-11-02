@@ -3687,7 +3687,7 @@ suppressions 20、service.ts 5,986 行。
 
 - `domain/json.ts` 新增 `parseJsonArray`（非数组返回空数组）；
 - `cli/pack.ts` 的 npm pack 输出与 package.json 改用 `parseJsonArray` / `parseJsonObject`
-  + 字段守卫，去掉 2 处形状断言。
+  - 字段守卫，去掉 2 处形状断言。
 - 边界断言 **28 → 26**，基线 26。
 - `make check` 59 文件 611 项通过；coverage 91.18/84.35/96.77；mutation 97.80。
 - 说明：pack CLI 无独立单测文件，验证依赖 `make check` 的类型/lint 与全量用例。
@@ -3700,3 +3700,17 @@ suppressions 20、service.ts 5,986 行。
 - 结论：`verify-plugin` 门禁**需要在环境中提供模型凭据**，本会话没有该凭据，无法验证；
   CI 中同样需要 secrets，且 E2E job 需要 push 触发才能验证。
 - 未修改任何代码；记录失败原文，避免把“未验证”写成“通过”。
+
+### 102. 看板路由 Playwright E2E（新目标 Round 20）
+
+- 新增 `scripts/ts/e2e-board.ts`（Playwright `request`，不依赖模型）：
+  隔离 `DSH_HOME` 初始化 web profile → 安装插件 → 启动 `dsh web` →
+  用 token 换取会话 cookie → `POST /api/forgeloop/board`，校验 HTTP 200、
+  `project` 与 `summary`。
+- 关键点：使用临时 `FORGELOOP_CONFIG`（projectPath/recordsRoot 指向临时目录），
+  **不读写生产记录**；进程与临时目录在 finally 中清理。
+- `Makefile` 的 `e2e` 目标改为：宿主装载 E2E + 看板路由 E2E。
+- 新增 devDependency `playwright-core@1.49.1`（使用本机 Chrome，不下浏览器）。
+- 本机实测：`[e2e-board] OK：看板路由返回 project=forgeloop-e2e（HTTP 200）`；
+  `make e2e` 两条均通过。
+- `make check` 59 文件 611 项；coverage 91.18/84.36/96.77；mutation 97.80。

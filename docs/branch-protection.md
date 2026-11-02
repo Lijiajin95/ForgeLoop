@@ -120,8 +120,12 @@ gh api -X DELETE repos/Lijiajin95/ForgeLoop/branches/main/protection   # 回滚 
 - 已有 `make e2e`：`scripts/ts/e2e.ts` 构建插件 → 临时 `DSH_HOME` + 独立 profile 安装 →
   校验 `--dump-config`（forgeloop-dsh 层、会话 preset）与 `plugin list`；
   不依赖模型，**仅覆盖装载/组合层**。
+- `make e2e` 含两条：① 宿主装载校验（隔离 profile 安装 + dump-config/plugin list）；
+  ② Playwright 看板路由（隔离配置启动 `dsh web`，token→cookie 后 POST
+  `/api/forgeloop/board` 校验 200/project/summary），不读写生产记录。
 - 已加入 `quality.yml` 的 `e2e` job：CI 安装与本地一致的 `@deepseek-ai/dsh@0.2.1-rc.4`
   后执行 `make e2e`；**尚未在 GitHub runner 实跑验证**，首次运行通过前不声称 CI 已覆盖。
+- 按所有者要求，本轮改为**本地 CI/本地验证**，不推送到 GitHub。
 - 该 job 尚未加入 `main` 的必需检查（需所有者确认后再改保护设置）。
 - 没有浏览器/Playwright E2E；看板与 Web 接缝仍由 `tests/board-route.test.ts`、
   `tests/architecture-contract.test.ts` 等集成测试覆盖。
