@@ -115,11 +115,24 @@ describe('prompt builders', () => {
     expect(text).toContain('给看板加过滤，并保留状态')
   })
 
-  it('states the tool-less analysis rules and JSON contract', () => {
-    const text = analysisPrompt(requirement, projectFacts)
-    expect(text).toContain('没有可用工具')
+  it('states the product Agent tools, business background rule and JSON contract', () => {
+    const text = analysisPrompt(requirement, projectFacts, '行业：本地生活服务')
+    expect(text).toContain('你是 ForgeLoop 的产品 Agent')
+    expect(text).toContain('forgeloop_read_project_doc')
+    expect(text).toContain('forgeloop_write_project_doc')
+    expect(text).toContain('web_search')
+    expect(text).toContain('禁止修改代码')
+    expect(text).toContain('docs/forgeloop/business-context.md')
+    expect(text).toContain('行业：本地生活服务')
+    expect(text).toContain('"business_rules"')
+    expect(text).toContain('"exceptions"')
+    expect(text).toContain('"non_goals"')
     expect(text).toContain('"clarifications"')
     expect(text).toContain('不要拆解研发任务')
+  })
+
+  it('tells the product Agent when no business background document exists yet', () => {
+    expect(analysisPrompt(requirement, projectFacts)).toContain('（尚无业务背景文档）')
   })
 
   it('renders current requirements and tasks with times, statuses and approvals as background facts', () => {
@@ -142,6 +155,9 @@ describe('prompt builders', () => {
       requirementVersion: 2,
       goal: '看板可过滤',
       scenarios: ['按状态筛选需求与任务'],
+      businessRules: ['只有登录用户可以看到需求列表'],
+      exceptions: ['筛选参数非法时回退到全部需求'],
+      nonGoals: ['不改变需求列表的默认排序'],
       acceptanceCriteria: ['筛选后只显示匹配项'],
       clarifications: [],
       createdAt: '2026-10-23T00:06:00.000Z',
@@ -150,8 +166,11 @@ describe('prompt builders', () => {
     expect(text).toContain('需求分析由产品 Agent 完成')
     expect(text).toContain('看板可过滤')
     expect(text).toContain('按状态筛选需求与任务')
+    expect(text).toContain('只有登录用户可以看到需求列表')
+    expect(text).toContain('筛选参数非法时回退到全部需求')
+    expect(text).toContain('不改变需求列表的默认排序')
     expect(text).toContain('筛选后只显示匹配项')
-    expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景与验收标准')
+    expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准')
   })
 
   it('describes task limits, dependencies and the workspace', () => {

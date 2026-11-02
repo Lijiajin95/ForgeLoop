@@ -77,4 +77,43 @@ describe('analysis payload parsing', () => {
   it('rejects non-string list entries', () => {
     expect(() => parseAnalysisDraft({ goal: 'g', clarifications: [3] })).toThrow(MalformedError)
   })
+
+  it('reads business rules, exceptions and non-goals from the business scenarios', () => {
+    const analysis = parseAnalysisDraft({
+      goal: 'g',
+      scenarios: ['门店按状态筛选订单'],
+      business_rules: ['只有店长可以批量取消'],
+      exceptions: ['支付回调延迟时订单保持待确认'],
+      non_goals: ['不改造支付渠道'],
+      acceptance_criteria: ['a'],
+      clarifications: [],
+    })
+    expect(analysis.businessRules).toEqual(['只有店长可以批量取消'])
+    expect(analysis.exceptions).toEqual(['支付回调延迟时订单保持待确认'])
+    expect(analysis.nonGoals).toEqual(['不改造支付渠道'])
+  })
+
+  it('defaults the new business fields for analyses written before them', () => {
+    const analysis = parseAnalysisDraft({
+      goal: 'g',
+      scenarios: ['s'],
+      acceptance_criteria: ['a'],
+      clarifications: [],
+    })
+    expect(analysis.businessRules).toEqual([])
+    expect(analysis.exceptions).toEqual([])
+    expect(analysis.nonGoals).toEqual([])
+  })
+
+  it('rejects malformed business rule fields instead of dropping them', () => {
+    expect(() =>
+      parseAnalysisDraft({
+        goal: 'g',
+        scenarios: ['s'],
+        acceptance_criteria: ['a'],
+        clarifications: [],
+        business_rules: 'only one',
+      }),
+    ).toThrow(MalformedError)
+  })
 })

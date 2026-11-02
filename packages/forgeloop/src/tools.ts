@@ -8,6 +8,7 @@ import { asRecord } from './domain/json.js'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './runtime/service.js'
 import type { ForgeLoopConfig } from './config.js'
+import { readProjectDoc, writeProjectDoc } from './runtime/project-docs.js'
 
 type AnyRecord = Record<string, unknown>
 
@@ -206,6 +207,58 @@ export function buildTools(
         const eventId = stringArg(args, 'event_id')
         const outcome = runtime.opsStatus(eventId)
         return { ok: outcome.ok, text: outcome.message, data: outcome.data }
+      },
+    }),
+    defineTool({
+      name: 'forgeloop_read_project_doc',
+      description:
+        'Read one Markdown document inside the current project. Only .md files inside the project are allowed; code and files outside the project are rejected. Used by the product Agent to review existing docs and business context.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Project-relative path ending with .md' },
+        },
+        required: ['path'],
+        additionalProperties: false,
+      },
+      async run(args) {
+        const path = stringArg(args, 'path')
+        if (!path) return { ok: false, text: 'path is required' }
+        const outcome = readProjectDoc(config.projectPath, path)
+        if (!outcome.ok) return { ok: false, text: outcome.reason }
+        return {
+          ok: true,
+          text: outcome.truncated
+            ? `已读取 ${outcome.path}（超过上限，内容已截断）`
+            : `已读取 ${outcome.path}`,
+          data: outcome,
+        }
+      },
+    }),
+    defineTool({
+      name: 'forgeloop_write_project_doc',
+      description:
+        'Create or overwrite one Markdown document inside the current project. Only .md files inside the project are allowed; code is rejected. Used by the product Agent to record industry and business background and other project docs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Project-relative path ending with .md' },
+          content: { type: 'string', description: 'Full Markdown content to write' },
+        },
+        required: ['path', 'content'],
+        additionalProperties: false,
+      },
+      async run(args) {
+        const path = stringArg(args, 'path')
+        if (!path) return { ok: false, text: 'path is required' }
+        if (typeof args.content !== 'string') return { ok: false, text: 'content is required' }
+        const outcome = writeProjectDoc(config.projectPath, path, args.content)
+        if (!outcome.ok) return { ok: false, text: outcome.reason }
+        return {
+          ok: true,
+          text: `已写入 ${outcome.path}（${outcome.bytes} 字节）`,
+          data: outcome,
+        }
       },
     }),
     defineTool({

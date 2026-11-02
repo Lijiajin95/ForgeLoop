@@ -95,8 +95,8 @@ function plan(reqId: string): TaskPlan {
   }
 }
 
-describe('read-only tool surface', () => {
-  it('exposes exactly the eight documented tools with renderable output', () => {
+describe('tool surface', () => {
+  it('exposes exactly the ten documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -105,6 +105,8 @@ describe('read-only tool surface', () => {
       'forgeloop_requests',
       'forgeloop_impact',
       'forgeloop_ops',
+      'forgeloop_read_project_doc',
+      'forgeloop_write_project_doc',
       'forgeloop_submit_requirement',
     ])
     const rendered = tool('forgeloop_status').output.render(
@@ -164,6 +166,41 @@ describe('read-only tool surface', () => {
     expect(facts.ok).toBe(true)
     expect(facts.text).toContain('影响摘要')
     expect((await call('forgeloop_impact', { req_id: 'req-missing' })).ok).toBe(false)
+  })
+
+  it('reads and writes project Markdown documents, and nothing else', async () => {
+    const written = await call('forgeloop_write_project_doc', {
+      path: 'docs/forgeloop/business-context.md',
+      content: '# 业务背景\n\n行业：本地生活服务\n',
+    })
+    expect(written.ok, written.text).toBe(true)
+    const read = await call('forgeloop_read_project_doc', {
+      path: 'docs/forgeloop/business-context.md',
+    })
+    expect(read.ok, read.text).toBe(true)
+    expect(read.data).toMatchObject({
+      path: 'docs/forgeloop/business-context.md',
+      truncated: false,
+    })
+    expect((read.data as { content: string }).content).toContain('本地生活服务')
+
+    expect((await call('forgeloop_read_project_doc', {})).text).toContain('path is required')
+    expect((await call('forgeloop_read_project_doc', { path: 'docs/missing.md' })).ok).toBe(false)
+    expect((await call('forgeloop_read_project_doc', { path: '../outside.md' })).text).toContain(
+      '超出项目目录',
+    )
+    expect(
+      (await call('forgeloop_write_project_doc', { path: 'src/index.ts', content: 'x' })).text,
+    ).toContain('只允许读写 Markdown')
+    expect(
+      (await call('forgeloop_write_project_doc', { path: 'docs/a.md', content: '内容' })).ok,
+    ).toBe(true)
+    expect((await call('forgeloop_write_project_doc', { path: 'docs/b.md' })).text).toContain(
+      'content is required',
+    )
+    expect(
+      (await call('forgeloop_write_project_doc', { path: '/etc/a.md', content: 'x' })).ok,
+    ).toBe(false)
   })
 })
 
@@ -226,7 +263,7 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(8)
-    expect(disposers).toHaveLength(8)
+    expect(registered).toHaveLength(10)
+    expect(disposers).toHaveLength(10)
   })
 })

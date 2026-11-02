@@ -16,6 +16,7 @@ const BOARD_ENDPOINTS = [
   'advance',
   'verify',
   'requeue',
+  'retry-analysis',
   'build',
   'deploy',
   'retry',
@@ -246,6 +247,21 @@ function handleRequeue(body: BoardBody | null, context: BoardContext): Response 
     result.ok ? 200 : 409,
   )
 }
+function handleRetryAnalysis(body: BoardBody | null, context: BoardContext): Response {
+  const { runtime, config } = context
+  const reqId = text(body?.reqId)
+  if (!reqId) return boardResponse(boardFailure('bad_request', '重新分析需要 reqId'), 400)
+  const sessionId = text(body?.sessionId)
+  const result = runtime.analysisQueue.retry({
+    reqId,
+    by: config.owner,
+    source: `web-decision:${sessionId || 'unknown-session'}`,
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : 409,
+  )
+}
 function handleBuild(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
@@ -382,6 +398,8 @@ function handleWrite(
   if (endpoint === 'verify') return handleVerify(body, context)
 
   if (endpoint === 'requeue') return handleRequeue(body, context)
+
+  if (endpoint === 'retry-analysis') return handleRetryAnalysis(body, context)
 
   if (endpoint === 'build') return handleBuild(body, context)
 

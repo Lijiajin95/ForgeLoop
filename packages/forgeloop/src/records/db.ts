@@ -41,8 +41,29 @@ CREATE TABLE IF NOT EXISTS requirement_analyses (
     scenarios TEXT NOT NULL,
     acceptance_criteria TEXT NOT NULL,
     clarifications TEXT NOT NULL,
+    business_rules TEXT NOT NULL DEFAULT '[]',
+    exceptions TEXT NOT NULL DEFAULT '[]',
+    non_goals TEXT NOT NULL DEFAULT '[]',
+    model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL DEFAULT '',
+    transcript_path TEXT NOT NULL DEFAULT '',
+    tool_calls TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
+);
+CREATE TABLE IF NOT EXISTS requirement_analysis_attempts (
+    req_id TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL DEFAULT '',
+    transcript_path TEXT NOT NULL DEFAULT '',
+    tool_calls TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, requirement_version, attempt)
 );
 CREATE TABLE IF NOT EXISTS requirement_task_plans (
     req_id TEXT NOT NULL,

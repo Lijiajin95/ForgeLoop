@@ -11,6 +11,7 @@ import { isoNow } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
 import type { Requirement, RequirementAnalysis, RequirementVersion } from '../domain/requirement.js'
 import { validateAnalysis, validateRequirement } from '../domain/requirement.js'
+import type { AnalysisAttempt, AnalysisMode, AnalysisOutcome } from '../domain/analysis.js'
 import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
 import type { FailureRound } from '../domain/counting.js'
@@ -36,11 +37,15 @@ import {
   businessReviewRow,
   failureStageOf,
   num,
+  oneOf,
   taskRunStateOf,
   text,
   verificationRow,
   type Row,
 } from './rows.js'
+
+const ANALYSIS_KINDS: readonly AnalysisMode[] = ['initial', 'auto', 'manual']
+const ANALYSIS_OUTCOMES: readonly AnalysisOutcome[] = ['done', 'failed']
 
 export type {
   RequirementEvidence,
@@ -279,8 +284,10 @@ export class Repository extends OpsStore {
     this.db
       .prepare(
         `INSERT INTO requirement_analyses
-          (req_id, analysis_version, requirement_version, goal, scenarios, acceptance_criteria, clarifications, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          (req_id, analysis_version, requirement_version, goal, scenarios, acceptance_criteria,
+           clarifications, business_rules, exceptions, non_goals, model, prompt_version,
+           transcript_path, tool_calls, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         analysis.reqId,
@@ -290,6 +297,13 @@ export class Repository extends OpsStore {
         JSON.stringify(analysis.scenarios),
         JSON.stringify(analysis.acceptanceCriteria),
         JSON.stringify(analysis.clarifications),
+        JSON.stringify(analysis.businessRules ?? []),
+        JSON.stringify(analysis.exceptions ?? []),
+        JSON.stringify(analysis.nonGoals ?? []),
+        analysis.model ?? '',
+        analysis.promptVersion ?? '',
+        analysis.transcriptPath ?? '',
+        JSON.stringify(analysis.toolCalls ?? []),
         analysis.createdAt,
       )
   }
@@ -303,8 +317,15 @@ export class Repository extends OpsStore {
       requirementVersion: num(row, 'requirement_version'),
       goal: text(row, 'goal'),
       scenarios: parseStringList(text(row, 'scenarios')),
+      businessRules: parseStringList(text(row, 'business_rules')),
+      exceptions: parseStringList(text(row, 'exceptions')),
+      nonGoals: parseStringList(text(row, 'non_goals')),
       acceptanceCriteria: parseStringList(text(row, 'acceptance_criteria')),
       clarifications: parseStringList(text(row, 'clarifications')),
+      model: text(row, 'model'),
+      promptVersion: text(row, 'prompt_version'),
+      transcriptPath: text(row, 'transcript_path'),
+      toolCalls: parseStringList(text(row, 'tool_calls')),
       createdAt: text(row, 'created_at'),
     }))
   }
@@ -312,6 +333,58 @@ export class Repository extends OpsStore {
   latestAnalysis(reqId: string): RequirementAnalysis | null {
     const all = this.analyses(reqId)
     return all.at(-1) ?? null
+  }
+
+  /** 记录一次分析尝试；失败尝试同样保留模型、提示词版本、轨迹与工具调用。 */
+  recordAnalysisAttempt(attempt: AnalysisAttempt): void {
+    this.db
+      .prepare(
+        `INSERT INTO requirement_analysis_attempts
+          (req_id, requirement_version, attempt, kind, outcome, detail, model, prompt_version,
+           transcript_path, tool_calls, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        attempt.reqId,
+        attempt.requirementVersion,
+        attempt.attempt,
+        attempt.kind,
+        attempt.outcome,
+        attempt.detail,
+        attempt.model,
+        attempt.promptVersion,
+        attempt.transcriptPath,
+        JSON.stringify(attempt.toolCalls),
+        attempt.createdAt,
+      )
+  }
+
+  analysisAttempts(reqId: string, requirementVersion?: number): AnalysisAttempt[] {
+    const rows =
+      requirementVersion === undefined
+        ? this.db
+            .prepare(
+              'SELECT * FROM requirement_analysis_attempts WHERE req_id = ? ORDER BY requirement_version, attempt',
+            )
+            .all(reqId)
+        : this.db
+            .prepare(
+              'SELECT * FROM requirement_analysis_attempts WHERE req_id = ? AND requirement_version = ? ORDER BY attempt',
+            )
+            .all(reqId, requirementVersion)
+    return rows.map((row) => ({
+      reqId: text(row, 'req_id'),
+      requirementVersion: num(row, 'requirement_version'),
+      attempt: num(row, 'attempt'),
+      kind: oneOf(text(row, 'kind'), ANALYSIS_KINDS, '分析尝试 kind'),
+      outcome: oneOf(text(row, 'outcome'), ANALYSIS_OUTCOMES, '分析尝试 outcome'),
+      detail: text(row, 'detail'),
+      model: text(row, 'model'),
+      promptVersion: text(row, 'prompt_version'),
+      transcriptPath: text(row, 'transcript_path'),
+      toolCalls: parseStringList(text(row, 'tool_calls')),
+      createdAt: text(row, 'created_at'),
+    }))
   }
 
   // ---------------------------------------------------------------- 任务包

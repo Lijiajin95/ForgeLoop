@@ -31,6 +31,7 @@ import {
   ACTION_PLAN,
   ACTION_ADVANCE,
   ACTION_VERIFY,
+  ANALYSIS_FAILED,
   APPROVED,
   EXECUTING,
   REQUEST_FAILED,
@@ -83,6 +84,7 @@ export type BoardRequirementAction =
   | 'approve'
   | 'advance'
   | 'verify'
+  | 'retry-analysis'
   | 'recover'
   | 'diagnose'
   | 'requeue'
@@ -296,6 +298,11 @@ export function taskIdOfFailureRound(plan: TaskPlan | null, roundId: string): st
 
 const SEVERITY_RANK: Record<BoardIssueSeverity, number> = { blocking: 0, attention: 1 }
 
+/** 分析里的可选列表字段；历史记录可能没有这些列。 */
+function analysisList(values: readonly string[] | undefined): readonly string[] {
+  return values ?? []
+}
+
 interface RequirementChunk {
   readonly requirement: Requirement
   readonly view: BoardRequirementView
@@ -331,6 +338,9 @@ function haystackOf(input: {
     parts.push(
       analysis.goal,
       ...analysis.scenarios,
+      ...analysisList(analysis.businessRules),
+      ...analysisList(analysis.exceptions),
+      ...analysisList(analysis.nonGoals),
       ...analysis.acceptanceCriteria,
       ...analysis.clarifications,
     )
@@ -437,7 +447,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
   }
 }
 
-/** 需求 Agent 一次最多读取的活动需求条数；避免把整个项目历史塞进提示词。 */
+/** 产品 Agent 一次最多读取的活动需求条数；避免把整个项目历史塞进提示词。 */
 export const PROJECT_FACTS_DEFAULT_LIMIT = 10
 /** 单个需求在提示词中最多列出的任务数；超出时只报任务总数。 */
 export const PROJECT_FACTS_MAX_TASKS = 8
@@ -470,7 +480,7 @@ export interface ProjectRequirementFact {
   readonly tasks: readonly ProjectTaskFact[]
 }
 
-/** 需求 Agent 分析时读取的项目事实：活动需求、任务、时间与状态；历史只计数。 */
+/** 产品 Agent 分析时读取的项目事实：活动需求、任务、时间与状态；历史只计数。 */
 export interface ProjectFacts {
   readonly project: string
   readonly generatedAt: string
@@ -501,7 +511,7 @@ function clampLimit(value: number | undefined, fallback: number): number {
 }
 
 /**
- * 生成需求 Agent 读取的项目事实：只读记录、不写行，也不读取 Agent 日志。
+ * 生成产品 Agent 读取的项目事实：只读记录、不写行，也不读取 Agent 日志。
  * 活动需求按最新版本时间倒序；当前需求固定第一条。已结束需求只给数量，
  * 避免把历史候选和结论混进分析提示词。
  */
@@ -818,6 +828,9 @@ function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
   const { progress, retry } = context
   const actions: BoardRequirementAction[] = []
   applyPlanAction(actions, context)
+  if (context.requirement.status === ANALYSIS_FAILED && !context.activeRequest) {
+    actions.push('retry-analysis')
+  }
   if (canAdvance(context)) actions.push('advance')
   if (retry.allowed) actions.push('requeue')
   if (canVerify(context)) actions.push('verify')

@@ -115,6 +115,8 @@ export interface RuntimeOptions {
 
 import { planReviewBlocking } from './service-helpers.js'
 
+import { AnalysisQueue, analysisModeOf } from './analysis-queue.js'
+
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
   readonly repo: Repository
@@ -122,6 +124,7 @@ export class ForgeLoopRuntime {
   readonly ops: OpsRuntime
   /** 需求队列：只在研发空闲时领取队首需求，同一时间最多一个在研。 */
   readonly requirementQueue: RequirementQueue
+  readonly analysisQueue: AnalysisQueue
   /** 验证失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
   readonly issues: IssueStore
   private readonly advancePipeline: AdvancePipeline
@@ -146,6 +149,14 @@ export class ForgeLoopRuntime {
       new SqliteRequirementQueueStore(this.repo.db),
       () => this.clock(),
     )
+    this.analysisQueue = new AnalysisQueue({
+      config: this.config,
+      repo: this.repo,
+      queue: this.requirementQueue,
+      now: () => this.now(),
+      requestOperation: (input) => this.requestOperation(input),
+      intakeQueuedRequirement: () => this.intakeQueuedRequirement(),
+    })
     this.issues = new IssueStore(this.repo.db)
     this.runner = options.runner ?? new AgentRunner({ ctx: options.ctx, agent: this.config.agent })
     this.ops = new OpsRuntime({
@@ -356,7 +367,14 @@ export class ForgeLoopRuntime {
 
   // 受理与修订
 
-  submit(input: { text: string; by: string; source: string; clientKey?: string }): OperationResult {
+  submit(input: {
+    text: string
+    by: string
+    source: string
+    clientKey?: string
+    /** 是否把首次分析排进队列；业务会话先同步分析一次，因此传 false。 */
+    analyze?: boolean
+  }): OperationResult {
     const text = input.text.trim()
     if (!text) return fail('empty_text', '需求原文不能为空')
     const reqId = `req-${this.now()
@@ -371,22 +389,12 @@ export class ForgeLoopRuntime {
       clientKey: input.clientKey ?? '',
       now: this.now(),
     })
-    const trusted =
-      this.config.autonomy.enabled &&
-      this.config.autonomy.trustedSources.some(
-        (prefix) => prefix.length > 0 && input.source.startsWith(prefix),
-      )
-    let handoff = ''
-    if (created && trusted) {
-      // 可信需求直接入队；研发空闲时立即领取，忙时排队等待，不阻塞本次提交。
-      this.requirementQueue.enqueue({
-        requirementId: requirement.reqId,
-        project: this.config.project,
-        enqueuedAt: requirement.versions[0]?.createdAt ?? this.now(),
-      })
-      const started = this.intakeQueuedRequirement() === requirement.reqId
-      handoff = started ? '；已入队并开始自动分析' : '；已入队，等待研发任务空闲'
-    }
+    // 首次分析只入队一次；已有分析则不再调用模型。
+    const handoff = this.analysisQueue.accepted(requirement, {
+      created,
+      source: input.source,
+      analyze: input.analyze ?? true,
+    })
     return ok(
       created
         ? `已受理需求 ${requirement.reqId}（版本 1）${handoff}`
@@ -437,7 +445,7 @@ export class ForgeLoopRuntime {
   }
 
   /**
-   * 回答一个待澄清需求：追加需求版本（保留原文与历史），再让需求 Agent 重新分析。
+   * 回答一个待澄清需求：追加需求版本（保留原文与历史），再让产品 Agent 重新分析。
    * 只有会话输入接管或未来可信入口调用；模型工具不能调用。
    */
   async answerClarifications(input: {
@@ -522,7 +530,7 @@ ${answer}`
   }
 
   /**
-   * 研发 Agent 的技术方案与任务拆解入口：需求 Agent 只产出分析结论，任务由研发 Agent
+   * 研发 Agent 的技术方案与任务拆解入口：产品 Agent 只产出分析结论，任务由研发 Agent
    * 依据分析全文（目标、场景、验收标准）拆解；校验任务包并落库。规划不等于批准或执行。
    */
   async planDevTasks(
@@ -1657,7 +1665,11 @@ ${answer}`
       return { state: 'failed', detail: `需求已处于终态 ${requirement.status}` }
     }
     if (request.action === 'analyze') {
-      return this.executionPlan.executeAnalysis(request.reqId, signal)
+      return this.executionPlan.executeAnalysis(
+        request.reqId,
+        signal,
+        analysisModeOf(request.source),
+      )
     }
     if (request.action === 'plan') {
       return this.executionPlan.executeDevPlanning(
