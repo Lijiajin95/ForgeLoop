@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -9,6 +10,15 @@ import { Repository } from '../src/records/repository.js'
 import { monitorSignatureOf, parseMonitorReport } from '../src/domain/monitor.js'
 import { OPS_PROVIDER_VERSION } from '../src/domain/ops-provider.js'
 import { collectMonitorSnapshot } from '../src/runtime/monitor.js'
+
+const psAvailable = (() => {
+  try {
+    execFileSync('ps', ['-axo', 'pid='], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
 
 let dir = ''
 let repository: Repository
@@ -170,77 +180,80 @@ async function listen(
 }
 
 describe('monitor snapshot collection', () => {
-  it('collects host metrics, process aggregates, latency and registered sources', async () => {
-    const url = await listen((_request, response) => {
-      response.writeHead(200)
-      response.end('ok')
-    })
-    writeFileSync(join(dir, 'app.log'), 'INFO start\nERROR boom\nWARN slow\nERROR again\n')
-    writeFileSync(
-      join(dir, 'alerts.json'),
-      JSON.stringify([
+  it.skipIf(!psAvailable)(
+    'collects host metrics, process aggregates, latency and registered sources',
+    async () => {
+      const url = await listen((_request, response) => {
+        response.writeHead(200)
+        response.end('ok')
+      })
+      writeFileSync(join(dir, 'app.log'), 'INFO start\nERROR boom\nWARN slow\nERROR again\n')
+      writeFileSync(
+        join(dir, 'alerts.json'),
+        JSON.stringify([
+          {
+            severity: 'critical',
+            summary: '磁盘已满',
+            resourceId: 'web',
+            at: '2026-11-02T09:00:00Z',
+          },
+          { severity: 'unknown', summary: '队列积压' },
+        ]),
+      )
+      const config = collectorConfig(
         {
-          severity: 'critical',
-          summary: '磁盘已满',
-          resourceId: 'web',
-          at: '2026-11-02T09:00:00Z',
+          processes: [{ id: 'node', resourceId: 'web', match: 'node' }],
+          latency: [{ id: 'web-health-url', resourceId: 'web', url, timeoutSeconds: 2 }],
+          logs: [{ id: 'app', resourceId: 'web', path: 'app.log', errorPattern: 'ERROR' }],
+          alertFiles: [{ id: 'external', path: 'alerts.json' }],
         },
-        { severity: 'unknown', summary: '队列积压' },
-      ]),
-    )
-    const config = collectorConfig(
-      {
-        processes: [{ id: 'node', resourceId: 'web', match: 'node' }],
-        latency: [{ id: 'web-health-url', resourceId: 'web', url, timeoutSeconds: 2 }],
-        logs: [{ id: 'app', resourceId: 'web', path: 'app.log', errorPattern: 'ERROR' }],
-        alertFiles: [{ id: 'external', path: 'alerts.json' }],
-      },
-      {
-        resources: [{ id: 'web', kind: 'app', label: '天工页面' }],
-        checks: [
-          { id: 'web-health', resourceId: 'web', command: ['node', '-e', 'process.exit(0)'] },
-        ],
-      },
-    )
-    repository.setMeta(
-      'ops_check_last:web-health',
-      JSON.stringify({
-        at: clock.toISOString(),
-        code: 1,
-        timedOut: false,
-        aborted: false,
-        output: 'boom',
-      }),
-    )
-    repository.createOpsEvent({
-      eventId: 'ops-existing',
-      project: config.project,
-      resourceId: 'web',
-      checkId: 'web-health',
-      signature: 'web/web-health/1/x',
-      severity: 'major',
-      state: 'open',
-      title: '已有事件',
-      openedAt: clock.toISOString(),
-      updatedAt: clock.toISOString(),
-    })
+        {
+          resources: [{ id: 'web', kind: 'app', label: '天工页面' }],
+          checks: [
+            { id: 'web-health', resourceId: 'web', command: ['node', '-e', 'process.exit(0)'] },
+          ],
+        },
+      )
+      repository.setMeta(
+        'ops_check_last:web-health',
+        JSON.stringify({
+          at: clock.toISOString(),
+          code: 1,
+          timedOut: false,
+          aborted: false,
+          output: 'boom',
+        }),
+      )
+      repository.createOpsEvent({
+        eventId: 'ops-existing',
+        project: config.project,
+        resourceId: 'web',
+        checkId: 'web-health',
+        signature: 'web/web-health/1/x',
+        severity: 'major',
+        state: 'open',
+        title: '已有事件',
+        openedAt: clock.toISOString(),
+        updatedAt: clock.toISOString(),
+      })
 
-    const snapshot = await collectMonitorSnapshot({ config, repo: repository, now: clock })
-    expect(snapshot.at).toBe(clock.toISOString())
-    expect(snapshot.host.cpuPercent).toBeGreaterThanOrEqual(0)
-    expect(snapshot.host.memoryUsedPercent).toBeGreaterThan(0)
-    expect(snapshot.processes[0]?.count).toBeGreaterThan(0)
-    expect(snapshot.latency[0]?.ok).toBe(true)
-    expect(snapshot.latency[0]?.status).toBe(200)
-    expect(snapshot.logs[0]?.matches).toBe(2)
-    expect(snapshot.logs[0]?.samples).toHaveLength(2)
-    expect(snapshot.logs[0]?.tail).toContain('ERROR again')
-    expect(snapshot.alerts).toHaveLength(2)
-    expect(snapshot.alerts[1]?.severity).toBe('major')
-    expect(snapshot.checks[0]?.output).toBe('boom')
-    expect(snapshot.events.map((event) => event.eventId)).toEqual(['ops-existing'])
-    expect(snapshot.errors).toEqual([])
-  })
+      const snapshot = await collectMonitorSnapshot({ config, repo: repository, now: clock })
+      expect(snapshot.at).toBe(clock.toISOString())
+      expect(snapshot.host.cpuPercent).toBeGreaterThanOrEqual(0)
+      expect(snapshot.host.memoryUsedPercent).toBeGreaterThan(0)
+      expect(snapshot.processes[0]?.count).toBeGreaterThan(0)
+      expect(snapshot.latency[0]?.ok).toBe(true)
+      expect(snapshot.latency[0]?.status).toBe(200)
+      expect(snapshot.logs[0]?.matches).toBe(2)
+      expect(snapshot.logs[0]?.samples).toHaveLength(2)
+      expect(snapshot.logs[0]?.tail).toContain('ERROR again')
+      expect(snapshot.alerts).toHaveLength(2)
+      expect(snapshot.alerts[1]?.severity).toBe('major')
+      expect(snapshot.checks[0]?.output).toBe('boom')
+      expect(snapshot.events.map((event) => event.eventId)).toEqual(['ops-existing'])
+      expect(snapshot.errors).toEqual([])
+    },
+  )
 
   it('records unreachable latency, missing logs and malformed alert files without throwing', async () => {
     writeFileSync(join(dir, 'broken.json'), 'not-json')

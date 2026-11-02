@@ -221,28 +221,33 @@ function readProcessTable(
   signal?: AbortSignal,
 ): Promise<{ rows: ProcessRow[]; error: string }> {
   return new Promise((resolveTable) => {
-    execFile(
-      'ps',
-      ['-axo', 'pid=,pcpu=,rss=,comm='],
-      {
-        cwd,
-        timeout: PS_TIMEOUT_MS,
-        maxBuffer: 4 * 1024 * 1024,
-        env: { ...process.env, LC_ALL: 'C' },
-        ...(signal ? { signal } : {}),
-      },
-      (error, stdout) => {
-        if (error) {
-          resolveTable({ rows: [], error: bounded(error.message) })
-          return
-        }
-        const rows = stdout
-          .split('\n')
-          .map((line) => parseProcessLine(line))
-          .filter((row): row is ProcessRow => row !== null)
-        resolveTable({ rows, error: '' })
-      },
-    )
+    try {
+      execFile(
+        'ps',
+        ['-axo', 'pid=,pcpu=,rss=,comm='],
+        {
+          cwd,
+          timeout: PS_TIMEOUT_MS,
+          maxBuffer: 4 * 1024 * 1024,
+          env: { ...process.env, LC_ALL: 'C' },
+          ...(signal ? { signal } : {}),
+        },
+        (error, stdout) => {
+          if (error) {
+            resolveTable({ rows: [], error: bounded(error.message) })
+            return
+          }
+          const rows = stdout
+            .split('\n')
+            .map((line) => parseProcessLine(line))
+            .filter((row): row is ProcessRow => row !== null)
+          resolveTable({ rows, error: '' })
+        },
+      )
+    } catch (error) {
+      // 受限环境可能直接禁止 spawn（EPERM）；监控降级为无进程表，而不是中断整次采集。
+      resolveTable({ rows: [], error: bounded(errorMessage(error)) })
+    }
   })
 }
 
