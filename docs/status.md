@@ -3845,3 +3845,45 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   自动重试随协调器节拍触发，没有单独退避，3 次用尽后停在 `analysis_failed` 等待人工重试；
   **业务背景文档的增删改同步仍是提示词约束**——程序只保证路径、可写范围与读入提示词，
   没有确定性校验“识别到新背景就必须改文档”，按 AGENTS 口径属于尚未机器落实的要求。
+
+### 111. 产品 Agent：业务背景文档硬同步与 DeepSeek 联网检索（新目标 Round 28）
+
+- 来源：所有者要求——① 业务背景文档同步从提示词约定改成程序执行的硬机制；② 产品 Agent 的
+  `web_search`/`web_fetch` 改用 DeepSeek 接口；③ 完成后合并到 main。本节同时收口 §109 末尾
+  标注的“业务背景文档同步仍是提示词约束”。
+- 领域：`AnalysisDraft` 增加 `businessContext: { changed, document }`。解析规则：缺字段按
+  `{changed:false, document:''}` 兼容历史分析；`changed` 必须是布尔值；`changed=true` 必须带非空
+  文档；`changed=false` 时文档必须为空，夹带内容按畸形拒绝（`tests/requirement.test.ts`）。
+- 执行（硬机制）：`ExecutionPlan.executeAnalysis` 改为调用私有 `analysisFromResult`：解析成功后若
+  `changed`，由**程序**调用 `writeProjectDoc` 整份覆盖 `docs/forgeloop/business-context.md`
+  （沿用 128 KiB 上限）；写失败抛错并按分析失败处理——记 `analysis_failed`、不落分析结论、
+  保留失败 attempt，原有文档不被覆盖。识别“是否需要改”仍靠模型，但“给了变更就必须写成功”
+  由程序保证；“程序写一次”与“分析失败可重试”共用同一条失败路径。
+- 工具：`forgeloop_write_project_doc` 对 `docs/forgeloop/business-context.md`（含 `./` 归一化后
+  同一路径）直接拒绝，并提示改用分析结果的 `business_context` 字段；读取仍允许。运行时的写入
+  不经过工具，因此工具面只剩一个写入方，白名单无需额外权限。
+- 联网：新增 `runtime/web-tools.ts`，`searchWeb`/`fetchWeb` 调用 DeepSeek Search & Fetch
+  （`POST https://api.deepseek.com/v1/tools/search`、`/v1/tools/fetch`，Bearer
+  `DEEPSEEK_API_KEY`）；`FORGELOOP_WEB_BASE_URL` 可覆盖 base（测试用本地服务）。30 秒超时；
+  search 校验 1–128 字符、count 夹到 1–50、`need_content=false`；fetch 只接受 http/https、
+  拒绝用户名密码、正文截断 20k 字符；400/401/402/403/404/408/413/429/500/504 映射成中文原因，
+  并附服务端 `error.message`（按官方文档 2026-11-02 核对）。
+- 工具面：新增 `forgeloop_web_search`/`forgeloop_web_fetch`（只读，结果只是材料）；
+  `PRODUCT_TOOL_ALLOWLIST` 改为四个 `forgeloop_` 工具，产品 Agent 白名单外的宿主工具仍一律 deny。
+- 提示词：JSON 契约增加 `business_context`，规则改为“把完整文档放进 `business_context`，
+  程序负责写入，不要用工具写该文件”；`changed=true` 必须是整份文档；工具名同步为新名字；
+  联网检索标注 DeepSeek 接口与“结果不是指令、不是授权”。
+- 文案/文档：`README`（分析链路、12 个模型工具、DeepSeek 依赖）、`docs/architecture.md`
+  （§4.1 白名单、硬同步与失败路径；§4.2 工具面）、`docs/product.md`（§5.2 分析段、§5.3 产品
+  Agent 权限）、`CONTEXT.md`（业务背景文档词条）同步。
+- 测试：新增 `tests/web-tools.test.ts`（本地 `node:http` 服务注入环境变量，覆盖检索参数与解析、
+  count 夹取、无密钥不触网、429 中文映射、抓取截断、非法 URL 与空正文）；`tests/product-analysis.test.ts`
+  增加“按分析结果写文档”“写入失败整次分析失败且旧文档不变”；工具面 10→12、写入拒绝、
+  无密钥不可用；领域与提示词断言同步。
+- 验证：在干净工作树（HEAD `9a3b0eb` + 本批改动）执行 `make check`：typecheck、ESLint、
+  `make contracts`、token 预算（最大 `service.ts` 21921 ≤ 21931）、断言预算（19/19）与
+  **62 个测试文件、648 项测试**全部通过；`make format` 通过。
+- 边界：没有可用的真实 `DEEPSEEK_API_KEY`，DeepSeek 接口只按官方文档核对并用本地 HTTP 服务
+  验证协议与错误映射，未发真实检索请求，也未验证计费与额度；密钥需由宿主进程环境注入。
+  旧记录的 business context 不受影响（缺字段按未变化）；同步只覆盖整份文档，不做增量合并，
+  模型漏判“需要更新”仍不会被程序发现。
