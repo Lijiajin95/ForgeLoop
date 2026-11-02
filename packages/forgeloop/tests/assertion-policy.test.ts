@@ -16,11 +16,10 @@ function lintFile(path: string): { status: number | null; output: string } {
 }
 
 function printConfig(path: string): Record<string, unknown> {
-  const result = spawnSync(
-    join(ROOT, 'node_modules/.bin/eslint'),
-    ['--print-config', path],
-    { cwd: ROOT, encoding: 'utf8' },
-  )
+  const result = spawnSync(join(ROOT, 'node_modules/.bin/eslint'), ['--print-config', path], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  })
   return JSON.parse(result.stdout).rules as Record<string, unknown>
 }
 

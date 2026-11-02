@@ -6,18 +6,18 @@
 
 ## 当前快照（2026-10-30）
 
-| 项目 | 最近有依据的状态 | 回查 |
-| --- | --- | --- |
-| 新产品方案 | 产品、技术与验证决定已合并；种子范围、首条真实需求及 M2 参数仍待明确 | [统一方案 §14](product.md#14-实施边界与待决项) |
-| 活动实现 | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、研发拆解、实现前评审、批准、推进、独立验证与验收均已接入；2026-10-30 进一步收紧为“执行角色全工作区 + 已批准任务包冻结 + 验证阻断自动回研发修复”，退役最小重新规划与手工重新研发入口；天工页显示业务终审/候选/部署并提供构建、核对上线、重新执行动作；编辑/草稿删除/问题补充/等待回答仍无入口；完整真实候选安装与上线核对尚未在正式需求上跑通 | [架构](architecture.md)、§15–§37 |
-| 架构契约 | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤 | §30 |
-| 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查 | §13、[ADR 0009](adr/0009-remove-retired-implementation.md) |
-| 最近安装记录 | 2026-10-30 `forgeloop-dsh@0.1.6` tarball（177,096 字节，SHA-256 `0ebbfa37…`）已通过 `plugin_manager` 安装到正式 `web` profile 并热重载（3080 进程 PID 82207 未重启；新 owner `MacAir.local:2477:c0ce681f` 起于 `2026-10-30T01:28:42Z`），`last_recovery` 记录 `interruptedRuns: 1`；安装记录不等于交付完成 | §36 |
-| 最近工程检查 | 2026-10-30 `make check` 通过，41 个测试文件、433 项测试；`make coverage` 通过（行/语句 92.14%、函数 96.90%、分支 84.09%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变） | §39 |
-| 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行 | §16–§28、§33、§36 |
-| 运维 Agent | 2026-10-29 首版：登记资源/检查/少量恢复动作，事件归并与未知收口，无工具诊断，目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求；只读工具与认证端点、天工“运维”视图；尚无真实线上事件验证 | §35、[运维设计](ops-agent.md) |
-| 关键缺口 | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维无真实线上事件；需求编辑、草稿删除、问题补充与等待回答无服务端入口 | §4.1、§21–§37 |
-| 覆盖率 | 2026-10-29 行／语句 92.31%、函数 96.36%、分支 84.27%，门槛通过 | §35；历史测量及勘误见 §34、§33、§32、§31、§30、§29、§28、§27、§26、§25、§23、§22、§21、§19、§18、§15、§14、§13、§3.4、§2.2 |
+| 项目         | 最近有依据的状态                                                                                                                                                                                                                                                                                                                                                                                | 回查                                                                                                                       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 新产品方案   | 产品、技术与验证决定已合并；种子范围、首条真实需求及 M2 参数仍待明确                                                                                                                                                                                                                                                                                                                            | [统一方案 §14](product.md#14-实施边界与待决项)                                                                             |
+| 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、研发拆解、实现前评审、批准、推进、独立验证与验收均已接入；2026-10-30 进一步收紧为“执行角色全工作区 + 已批准任务包冻结 + 验证阻断自动回研发修复”，退役最小重新规划与手工重新研发入口；天工页显示业务终审/候选/部署并提供构建、核对上线、重新执行动作；编辑/草稿删除/问题补充/等待回答仍无入口；完整真实候选安装与上线核对尚未在正式需求上跑通 | [架构](architecture.md)、§15–§37                                                                                           |
+| 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                    | §30                                                                                                                        |
+| 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                       | §13、[ADR 0009](adr/0009-remove-retired-implementation.md)                                                                 |
+| 最近安装记录 | 2026-10-30 `forgeloop-dsh@0.1.6` tarball（177,096 字节，SHA-256 `0ebbfa37…`）已通过 `plugin_manager` 安装到正式 `web` profile 并热重载（3080 进程 PID 82207 未重启；新 owner `MacAir.local:2477:c0ce681f` 起于 `2026-10-30T01:28:42Z`），`last_recovery` 记录 `interruptedRuns: 1`；安装记录不等于交付完成                                                                                      | §36                                                                                                                        |
+| 最近工程检查 | 2026-10-30 `make check` 通过，41 个测试文件、433 项测试；`make coverage` 通过（行/语句 92.14%、函数 96.90%、分支 84.09%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变）                                                                                                                                                                                        | §39                                                                                                                        |
+| 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行                                                                                                           | §16–§28、§33、§36                                                                                                          |
+| 运维 Agent   | 2026-10-29 首版：登记资源/检查/少量恢复动作，事件归并与未知收口，无工具诊断，目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求；只读工具与认证端点、天工“运维”视图；尚无真实线上事件验证                                                                                                                                                                         | §35、[运维设计](ops-agent.md)                                                                                              |
+| 关键缺口     | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维无真实线上事件；需求编辑、草稿删除、问题补充与等待回答无服务端入口                                                           | §4.1、§21–§37                                                                                                              |
+| 覆盖率       | 2026-10-29 行／语句 92.31%、函数 96.36%、分支 84.27%，门槛通过                                                                                                                                                                                                                                                                                                                                  | §35；历史测量及勘误见 §34、§33、§32、§31、§30、§29、§28、§27、§26、§25、§23、§22、§21、§19、§18、§15、§14、§13、§3.4、§2.2 |
 
 产品版本以 Git tag 为准；历史记录中的包名、构建标识与摘要用于追溯，不单独作为运行版本证明。
 以下章节保留原编号和锚点，历史批次按当时环境理解；没有再次执行的检查不刷新为本次结果。
@@ -55,10 +55,10 @@
 迁移把领域、存储、运行时与检查工具接入 TypeScript／DSH；具体文件与检查见交付报告 §3、§7。
 2026-10-28 核对原始日志后，对此前重复文档中的数字和引用作如下勘误：
 
-| 原表述 | 核对结果与正确来源 |
-| --- | --- |
-| 本批覆盖率 92.16%／85.1% | 属于后续 §3.4 的记录；迁移批次 `final-check-and-coverage.log` 第 80 行为行／语句 80.28%、分支 71.23%、函数 82.43% |
-| `clean-make-check.log` 支持 97 项测试 | 该日志实际为 84 项；97 项的依据是 `final-check-and-coverage.log` 第 39–40 行与第 71–72 行 |
+| 原表述                                | 核对结果与正确来源                                                                                                |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 本批覆盖率 92.16%／85.1%              | 属于后续 §3.4 的记录；迁移批次 `final-check-and-coverage.log` 第 80 行为行／语句 80.28%、分支 71.23%、函数 82.43% |
+| `clean-make-check.log` 支持 97 项测试 | 该日志实际为 84 项；97 项的依据是 `final-check-and-coverage.log` 第 39–40 行与第 71–72 行                         |
 
 日志均位于 `.cache/forgeloop/evidence-20261022/`；其中 UTC 执行时间为 2026-10-22T16:38，
 即 Asia/Shanghai 的 2026-10-23 00:38，属于 10 月 22 日开始的迁移批次。
@@ -102,7 +102,7 @@
   批准、失败轮次与待处理请求。
   - 不使用 `ctx.connection.rpc.handle()`：DSH 0.2.1-rc.2 实测它以 Connection 插件自身的上下文
     作为注册 owner，该上下文没有注入 `webServer`，注册时抛 `cannot get property "webServer"
-    without inject`。Fetch 路由走同一 Connection 认证层（Host/Origin 检查 + 浏览器凭据准入，
+without inject`。Fetch 路由走同一 Connection 认证层（Host/Origin 检查 + 浏览器凭据准入，
     仅 owner 可读），且不依赖调用方的 webServer 注入。
 - 新增 `client.js`（`dsh.client` 模块）：注册 `conversation.view` 的 `forgeloop` 视图，
   `order: 20`（对话 0、轨迹 10 之后），中文标签「天工」、英文标签「Forge」；三列只读卡片，每 15 秒自动刷新，只用
@@ -190,26 +190,26 @@
 
 以下能力结论来自所指批次；未单独重验的历史安装、宿主和 CI 状态不视为本次现场测量。
 
-| 能力 | 状态 |
-| --- | --- |
-| 插件安装、组合与真实模型工具调用 | 已验证（隔离 DSH_HOME、V0 tarball） |
-| 会话区「天工」页 | 已实现并有装配/注册测试；当前构建已装入 desktop profile，宿主路由在隔离 Web 宿主与桌面页面均验证通过（见 §3.3）。输入框工作流选择器已于 2026-10-26 按所有者要求移除（见 §9） |
-| 需求提交/修订、分析、规划、批准、推进、查询、验收 | 运行时保留并有真实链路证据；`/fl` 删除后无客户决定入口，批准/推进/验收路径当前不可达；需求级停止和限额入口缺口见 §4.1 |
-| 持久请求、去重、重启收口、动作 interrupted | 已实现；真实重启场景见 §2.3/§2.5，§44 删除全部 unknown 状态 |
-| 单消费者锁（同一记录根只允许一个协调器） | 已实现并有并发测试；修复基线起安装。此前的双宿主事件暴露了缺口，见 §2.5 |
-| 依赖任务产物交接 | 已实现（上游已交付 diff 先进入下游副本并在新基线提交），有行为测试；修复基线起安装 |
-| 独立审查、正式测试、证据绑定 | 已实现并有真实日志 |
-| 候选包构建、安装与恢复入口 | 已实现；V0 已验证，V1 见 §2.4 |
-| 专用 profile 安装 | **已执行**：`~/.dsh/profiles/forgeloop`（headless 模板）安装 V1 tarball，真实模型调用 `forgeloop_status` 成功；启动需提供 `QWEN_TOKEN_PLAN_CN_API_KEY` 或在 Models 页登记 |
-| 桌面 profile（`~/.dsh/profiles/desktop`） | **2026-10-26 已重装**移除选择器后的构建：`plugin_manager` 安装候选 tarball（`application: applied`），宿主重载后客户端槽位即时生效；记录根配置仍在 `cordis.patch.yml`。应用独占管理该 profile，CLI 拒绝直接启动/转储 |
-| 常驻宿主中断开客户端后继续推进 | **未单独执行**：协调器行为有单测与真实命令链路；验证宿主是无头的一次性进程，不等同浏览器长连 |
-| GitHub Actions | 工作流已改为 Node/TypeScript（quality/nightly）；随同步提交推送到 origin，**未在 GitHub 执行**，本地只验证了同一组 `make` 命令 |
-| 容器/OS 级审查隔离 | 未接入；当前是独立会话＋无工具＋固定 diff |
-| 多用户、远程访问、邮件/IM、自动发布/部署 | 尚未形成当前完整能力；新首版发布与运维范围见统一方案，不沿用旧“不做部署”边界 |
-| 覆盖率 | 已接入；最近实际测量见 §13，2026-10-23 历史测量见 §3.4。有效门槛以 `vitest.config.ts` 为准 |
-| 变异、格式化 | 未接入；目标显式失败 |
-| 依赖审计 | 已配置；本机受限缓存下未验证，CI 网络环境执行 |
-| DSH 跨版本兼容 | 未验证；本机仅 0.2.1-rc.2 |
+| 能力                                              | 状态                                                                                                                                                                                                                 |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 插件安装、组合与真实模型工具调用                  | 已验证（隔离 DSH_HOME、V0 tarball）                                                                                                                                                                                  |
+| 会话区「天工」页                                  | 已实现并有装配/注册测试；当前构建已装入 desktop profile，宿主路由在隔离 Web 宿主与桌面页面均验证通过（见 §3.3）。输入框工作流选择器已于 2026-10-26 按所有者要求移除（见 §9）                                         |
+| 需求提交/修订、分析、规划、批准、推进、查询、验收 | 运行时保留并有真实链路证据；`/fl` 删除后无客户决定入口，批准/推进/验收路径当前不可达；需求级停止和限额入口缺口见 §4.1                                                                                                |
+| 持久请求、去重、重启收口、动作 interrupted        | 已实现；真实重启场景见 §2.3/§2.5，§44 删除全部 unknown 状态                                                                                                                                                          |
+| 单消费者锁（同一记录根只允许一个协调器）          | 已实现并有并发测试；修复基线起安装。此前的双宿主事件暴露了缺口，见 §2.5                                                                                                                                              |
+| 依赖任务产物交接                                  | 已实现（上游已交付 diff 先进入下游副本并在新基线提交），有行为测试；修复基线起安装                                                                                                                                   |
+| 独立审查、正式测试、证据绑定                      | 已实现并有真实日志                                                                                                                                                                                                   |
+| 候选包构建、安装与恢复入口                        | 已实现；V0 已验证，V1 见 §2.4                                                                                                                                                                                        |
+| 专用 profile 安装                                 | **已执行**：`~/.dsh/profiles/forgeloop`（headless 模板）安装 V1 tarball，真实模型调用 `forgeloop_status` 成功；启动需提供 `QWEN_TOKEN_PLAN_CN_API_KEY` 或在 Models 页登记                                            |
+| 桌面 profile（`~/.dsh/profiles/desktop`）         | **2026-10-26 已重装**移除选择器后的构建：`plugin_manager` 安装候选 tarball（`application: applied`），宿主重载后客户端槽位即时生效；记录根配置仍在 `cordis.patch.yml`。应用独占管理该 profile，CLI 拒绝直接启动/转储 |
+| 常驻宿主中断开客户端后继续推进                    | **未单独执行**：协调器行为有单测与真实命令链路；验证宿主是无头的一次性进程，不等同浏览器长连                                                                                                                         |
+| GitHub Actions                                    | 工作流已改为 Node/TypeScript（quality/nightly）；随同步提交推送到 origin，**未在 GitHub 执行**，本地只验证了同一组 `make` 命令                                                                                       |
+| 容器/OS 级审查隔离                                | 未接入；当前是独立会话＋无工具＋固定 diff                                                                                                                                                                            |
+| 多用户、远程访问、邮件/IM、自动发布/部署          | 尚未形成当前完整能力；新首版发布与运维范围见统一方案，不沿用旧“不做部署”边界                                                                                                                                         |
+| 覆盖率                                            | 已接入；最近实际测量见 §13，2026-10-23 历史测量见 §3.4。有效门槛以 `vitest.config.ts` 为准                                                                                                                           |
+| 变异、格式化                                      | 未接入；目标显式失败                                                                                                                                                                                                 |
+| 依赖审计                                          | 已配置；本机受限缓存下未验证，CI 网络环境执行                                                                                                                                                                        |
+| DSH 跨版本兼容                                    | 未验证；本机仅 0.2.1-rc.2                                                                                                                                                                                            |
 
 ### 4.1 当前实现缺口（2026-10-28 整理）
 
@@ -217,14 +217,14 @@
 2026-10-28 删除 `/fl` 后，原先经命令触发的缺口改为“无客户入口”；运行时内部操作保留，
 领域函数与实际动作接线仍需分别判断，不能据此声明所有硬约束均已落实。
 
-| 位置 | 已知缺口与影响 |
-| --- | --- |
+| 位置                                                                                                                       | 已知缺口与影响                                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 客户入口、[服务](../packages/forgeloop/src/runtime/service.ts)、[协调器](../packages/forgeloop/src/runtime/coordinator.ts) | 当前没有客户决定入口；stop／cancel 的运行时操作能更新状态并撤销 pending，但在途 AbortController 只接协调器整体 stop，需求级停止未接通。成功文案不能证明 Agent 已停稳；在途修订的停止边界同样需验证 |
-| 服务与[工时规则](../packages/forgeloop/src/domain/limits.ts) | 推进开始检查工时，后续动作／尝试未逐一复检；领域存在 extend，但无公开工时延长命令。不能声明逐动作工时已强制 |
-| 服务与[失败计数](../packages/forgeloop/src/domain/counting.ts) | 失败额度在记录失败、循环分支、advance 入口与 retryTask 检查（2026-10-29 补齐推进准入）；回合 ID 已绑定推进请求与尝试序号，跨请求重试不再吞轮次；追加授权入口与额度用尽后的继续路径仍未实现 |
-| 服务与[Agent 执行器](../packages/forgeloop/src/runtime/agent-runner.ts) | 实现请求 `danger-full-access`，独立副本与事后 diff 检查未形成副本外写入的预防性限制；ADR 中“工作区写权限”不能当作实际约束证据 |
-| 失败计数与入口 | 有 `user_acceptance` 失败类型，但当前无公开的用户验收失败反馈入口，尚未形成完整累计路径 |
-| [服务验收入口](../packages/forgeloop/src/runtime/service.ts)与[记录层](../packages/forgeloop/src/records/repository.ts) | 当前允许未构建候选包时按任务材料验收；验收成功不证明已经打包、安装或上线。历史 diff 对变化后源码重放曾需外部合并，见 §2 与交付记录 |
+| 服务与[工时规则](../packages/forgeloop/src/domain/limits.ts)                                                               | 推进开始检查工时，后续动作／尝试未逐一复检；领域存在 extend，但无公开工时延长命令。不能声明逐动作工时已强制                                                                                        |
+| 服务与[失败计数](../packages/forgeloop/src/domain/counting.ts)                                                             | 失败额度在记录失败、循环分支、advance 入口与 retryTask 检查（2026-10-29 补齐推进准入）；回合 ID 已绑定推进请求与尝试序号，跨请求重试不再吞轮次；追加授权入口与额度用尽后的继续路径仍未实现         |
+| 服务与[Agent 执行器](../packages/forgeloop/src/runtime/agent-runner.ts)                                                    | 实现请求 `danger-full-access`，独立副本与事后 diff 检查未形成副本外写入的预防性限制；ADR 中“工作区写权限”不能当作实际约束证据                                                                      |
+| 失败计数与入口                                                                                                             | 有 `user_acceptance` 失败类型，但当前无公开的用户验收失败反馈入口，尚未形成完整累计路径                                                                                                            |
+| [服务验收入口](../packages/forgeloop/src/runtime/service.ts)与[记录层](../packages/forgeloop/src/records/repository.ts)    | 当前允许未构建候选包时按任务材料验收；验收成功不证明已经打包、安装或上线。历史 diff 对变化后源码重放曾需外部合并，见 §2 与交付记录                                                                 |
 
 其他保留限制：当前任务包要求至少两个任务且有依赖；运行时不自动核验外部副作用，
 中断任务按未交付收口，运维中断动作由 Agent 上报根因但不重放。费用计量、脱敏与材料保留策略、
@@ -475,16 +475,16 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
 `.cache/forgeloop/code-cleanup/2026-10-28-gKhr06/plan.md`、`scope.json` 与 `before/`。
 产品文件范围为 `legacy/` 的 368 个退役文件及另列的 26 个文件；实际为删除 371 个、修改 21 个、新增 2 个，未扩大产品文件范围。
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `legacy/`、`scripts/install_local_service.sh` | 删除退役 Python 核心、独立网页／服务、邮件、固定启动器、旧配置、工作流、测试与失效 systemd 接入入口 |
-| `src/domain/approval.ts` | 删除无活动调用的内存批准簿；实际任务包授权仍由 `task-plan.ts`、运行时和记录层承担 |
-| `src/domain/delivery.ts`、`work.ts` | 删除孤立的绑定、阶段路由和产物草稿校验，保留被使用的摘要计算与任务运行／产物类型 |
-| `src/domain/requirement.ts`、`task-plan.ts`、`status.ts`、`src/runtime/coordinator.ts` | 删除无活动调用的重复辅助函数、状态集合与导出；保留实际执行规则 |
-| `src/runtime/workspace.ts` | 删除仅测试使用的 worktree 和改动探测 API；快照文件选择使用 Git 跟踪／忽略规则，保留未提交修改，移除按 `legacy` 名称漏拷文件的特判 |
-| `tests/domain`、`requirement`、`task-plan-rules`、`workspace`、`formal-test`、`work-formal` | 删除退役 API 的专用用例，候选采集改测实际快照路径；重复的正式测试文件合并，保留成功文字不能覆盖失败退出码、超时日志等反例 |
-| `scripts/ts/contracts.ts`、`contracts/architecture.json`、新增 `tests/architecture-contract.test.ts` | 同步模块清单，登记退役路径并拒绝重新引入，覆盖合法插件、旧目录／安装脚本和旧检查的组合绕过场景 |
-| Makefile 注释、AGENTS、根 README、文档索引、当前架构、ADR 0008 后续说明、新增 ADR 0009、本状态记录 | 同步当前实现、清理边界和历史回查；旧批次事实保留 |
+| 范围                                                                                                 | 目的与实际处置                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `legacy/`、`scripts/install_local_service.sh`                                                        | 删除退役 Python 核心、独立网页／服务、邮件、固定启动器、旧配置、工作流、测试与失效 systemd 接入入口                               |
+| `src/domain/approval.ts`                                                                             | 删除无活动调用的内存批准簿；实际任务包授权仍由 `task-plan.ts`、运行时和记录层承担                                                 |
+| `src/domain/delivery.ts`、`work.ts`                                                                  | 删除孤立的绑定、阶段路由和产物草稿校验，保留被使用的摘要计算与任务运行／产物类型                                                  |
+| `src/domain/requirement.ts`、`task-plan.ts`、`status.ts`、`src/runtime/coordinator.ts`               | 删除无活动调用的重复辅助函数、状态集合与导出；保留实际执行规则                                                                    |
+| `src/runtime/workspace.ts`                                                                           | 删除仅测试使用的 worktree 和改动探测 API；快照文件选择使用 Git 跟踪／忽略规则，保留未提交修改，移除按 `legacy` 名称漏拷文件的特判 |
+| `tests/domain`、`requirement`、`task-plan-rules`、`workspace`、`formal-test`、`work-formal`          | 删除退役 API 的专用用例，候选采集改测实际快照路径；重复的正式测试文件合并，保留成功文字不能覆盖失败退出码、超时日志等反例         |
+| `scripts/ts/contracts.ts`、`contracts/architecture.json`、新增 `tests/architecture-contract.test.ts` | 同步模块清单，登记退役路径并拒绝重新引入，覆盖合法插件、旧目录／安装脚本和旧检查的组合绕过场景                                    |
+| Makefile 注释、AGENTS、根 README、文档索引、当前架构、ADR 0008 后续说明、新增 ADR 0009、本状态记录   | 同步当前实现、清理边界和历史回查；旧批次事实保留                                                                                  |
 
 表内 `src/`、`tests/` 均位于 `packages/forgeloop/`。未新增通用框架或抽象。
 本批删除的已跟踪文件开始前均与 `b344b5a08407f0f94ab5d3ca90887ecf17a24e7f` 一致，按原路径从 Git 回查。
@@ -522,17 +522,17 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
 
 ### 14.1 计划范围与实际改动
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `packages/forgeloop/src/commands.ts`、`src/index.ts` | 删除 `/fl` 命令表面及其注册；插件不再注入 `ctx.commands` |
-| `tests/command-surface.test.ts`、`tests/status-command-output.test.ts`、`tests/impact-command.test.ts`、`tests/board-channel.test.ts` | 删除命令专用用例，影响摘要测试改走运行时与 `forgeloop_impact`；假宿主不再提供命令服务 |
-| `contracts/cli-contract.json`、`scripts/ts/contracts.ts`、`Makefile` | 删除 CLI 契约、子命令校验、`--cli` 模式与 `make cli-contract`；架构契约只保留模块、依赖、表与工具 |
-| `packages/forgeloop/client.js`、`tests/client-view.test.ts` | 删除复制 `/fl` 命令的按钮、状态与文案；页面保持只读，不暗示命令入口 |
-| `packages/forgeloop/src/runtime/service.ts`、`board.ts`、`prompts.ts` | 删除运行提示与页面文案中的 `/fl` 指令；保留的运行时流水线不再宣称有人类入口 |
-| `packages/forgeloop/src/records/db.ts`、`repository.ts`、`status.ts`、`config.ts` | 删除旧库补列、旧库兼容注释与相关表述；新库从空库按当前结构建立 |
-| `scripts/ts/commit-policy.ts`、`config/commit-policy.template.toml`、`config/workday-calendars/`、`.githooks/` | 删除本机提交时间策略、配置模板、年历与钩子 |
-| `Makefile`、`.github/workflows/quality.yml`、`CONTRIBUTING.md`、`AGENTS.md`、`scripts/ts/verify-plugin.ts` | 删除提交策略目标、CI 作业、操作说明与命令探针；`make check` 只做类型、架构契约与行为测试 |
-| `docs/adr/0002-*`、新增 `docs/adr/0010-*`、`docs/README.md`、`docs/product.md`、`docs/architecture.md`、`docs/deployment.md`、`CONTEXT.md`、根与插件 README、本记录 | 记录删除决定、当前事实、替代入口缺口与历史回查方式 |
+| 范围                                                                                                                                                                | 目的与实际处置                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `packages/forgeloop/src/commands.ts`、`src/index.ts`                                                                                                                | 删除 `/fl` 命令表面及其注册；插件不再注入 `ctx.commands`                                          |
+| `tests/command-surface.test.ts`、`tests/status-command-output.test.ts`、`tests/impact-command.test.ts`、`tests/board-channel.test.ts`                               | 删除命令专用用例，影响摘要测试改走运行时与 `forgeloop_impact`；假宿主不再提供命令服务             |
+| `contracts/cli-contract.json`、`scripts/ts/contracts.ts`、`Makefile`                                                                                                | 删除 CLI 契约、子命令校验、`--cli` 模式与 `make cli-contract`；架构契约只保留模块、依赖、表与工具 |
+| `packages/forgeloop/client.js`、`tests/client-view.test.ts`                                                                                                         | 删除复制 `/fl` 命令的按钮、状态与文案；页面保持只读，不暗示命令入口                               |
+| `packages/forgeloop/src/runtime/service.ts`、`board.ts`、`prompts.ts`                                                                                               | 删除运行提示与页面文案中的 `/fl` 指令；保留的运行时流水线不再宣称有人类入口                       |
+| `packages/forgeloop/src/records/db.ts`、`repository.ts`、`status.ts`、`config.ts`                                                                                   | 删除旧库补列、旧库兼容注释与相关表述；新库从空库按当前结构建立                                    |
+| `scripts/ts/commit-policy.ts`、`config/commit-policy.template.toml`、`config/workday-calendars/`、`.githooks/`                                                      | 删除本机提交时间策略、配置模板、年历与钩子                                                        |
+| `Makefile`、`.github/workflows/quality.yml`、`CONTRIBUTING.md`、`AGENTS.md`、`scripts/ts/verify-plugin.ts`                                                          | 删除提交策略目标、CI 作业、操作说明与命令探针；`make check` 只做类型、架构契约与行为测试          |
+| `docs/adr/0002-*`、新增 `docs/adr/0010-*`、`docs/README.md`、`docs/product.md`、`docs/architecture.md`、`docs/deployment.md`、`CONTEXT.md`、根与插件 README、本记录 | 记录删除决定、当前事实、替代入口缺口与历史回查方式                                                |
 
 本机 `core.hooksPath` 已取消，`.cache/forgeloop/commit-policy.toml` 已移除；仓库不再包含提交时间判定代码。
 删除的命令、契约与策略文件可按原路径从 Git 历史回查。未清理业务数据库、证据、候选包、DSH 配置或凭据。
@@ -569,15 +569,15 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
 
 ### 15.1 计划范围与实际改动
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `src/session/intake.ts` | 在 `agent/pre-step` 中识别 `agentPreset=forgeloop` 的非子 Agent 会话；只处理真实人类消息，按 `sessionId + messageId` 幂等提交需求，调用需求 Agent 分析后追加会话事件并 reject 普通模型步骤 |
-| `src/session/events.ts`、`src/session/index.ts` | 定义 `forgeloop/intake`、`forgeloop/analysis`、`forgeloop/error` 自定义会话事件；安装输入接管监听器，统一释放 |
-| `src/session/preset.ts` | 注册 `forgeloop` agent preset（显示名“ForgeLoop 业务会话”，空插件组合）；宿主没有 `agentPresets` 时不注册并保留原因 |
-| `src/runtime/service.ts` | 新增 `analyzeRequirement`：复用需求分析链路，已有同版本分析时不重复调用模型；失败或终态显式返回 |
-| `client.js` | 注册三个自定义 Chat 节点定义与 keyed 渲染器；展示原始输入、需求身份、需求 Agent 的目标/场景/验收/待澄清结果与失败原因 |
-| `tests/session-intake.test.ts`、`tests/client-view.test.ts`、`contracts/architecture.json`、`scripts/ts/contracts.ts` | 增加输入接管、幂等、普通会话不拦截、失败事件、preset 注册、节点折叠测试；登记 `session_surface` 并由契约检查 preset、事件、节点与实现一致 |
-| 架构说明、插件 README、本记录 | 说明业务会话入口、真实宿主未验证和当前边界 |
+| 范围                                                                                                                  | 目的与实际处置                                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/session/intake.ts`                                                                                               | 在 `agent/pre-step` 中识别 `agentPreset=forgeloop` 的非子 Agent 会话；只处理真实人类消息，按 `sessionId + messageId` 幂等提交需求，调用需求 Agent 分析后追加会话事件并 reject 普通模型步骤 |
+| `src/session/events.ts`、`src/session/index.ts`                                                                       | 定义 `forgeloop/intake`、`forgeloop/analysis`、`forgeloop/error` 自定义会话事件；安装输入接管监听器，统一释放                                                                              |
+| `src/session/preset.ts`                                                                                               | 注册 `forgeloop` agent preset（显示名“ForgeLoop 业务会话”，空插件组合）；宿主没有 `agentPresets` 时不注册并保留原因                                                                        |
+| `src/runtime/service.ts`                                                                                              | 新增 `analyzeRequirement`：复用需求分析链路，已有同版本分析时不重复调用模型；失败或终态显式返回                                                                                            |
+| `client.js`                                                                                                           | 注册三个自定义 Chat 节点定义与 keyed 渲染器；展示原始输入、需求身份、需求 Agent 的目标/场景/验收/待澄清结果与失败原因                                                                      |
+| `tests/session-intake.test.ts`、`tests/client-view.test.ts`、`contracts/architecture.json`、`scripts/ts/contracts.ts` | 增加输入接管、幂等、普通会话不拦截、失败事件、preset 注册、节点折叠测试；登记 `session_surface` 并由契约检查 preset、事件、节点与实现一致                                                  |
+| 架构说明、插件 README、本记录                                                                                         | 说明业务会话入口、真实宿主未验证和当前边界                                                                                                                                                 |
 
 没有新增 `/fl` 命令、客户决定入口、旧库兼容或新的通用框架。输入接管只在 host 半实现；
 没有改 DSH 源码。
@@ -664,17 +664,17 @@ preset 组合，header 仅作回退；重新安装候选包后在 3090 实例复
 
 ### 17.1 环境边界
 
-| 项 | 正式环境 | 测试环境 |
-| --- | --- | --- |
-| DSH_HOME | `~/.dsh` | `~/.dsh-forgeloop-test` |
-| profile | `web` | `forgeloop-test` |
-| Web 端口 | 3080（运行进程 pid 82207） | 3091（试验后已停止） |
-| ForgeLoop 记录根 | `~/Library/Application Support/ForgeLoop/production` | `~/.dsh-forgeloop-test/forgeloop` |
-| 项目名 | `forgeloop` | `forgeloop-test` |
-| 项目路径 | `/Users/lijiajin/Project/ForgeLoop` | `/Users/lijiajin/Project/ForgeLoop/.cache/forgeloop/test-workspace`（git worktree） |
-| DSH sessions/storages | `~/.dsh/sessions`、`~/.dsh/storages` | `~/.dsh-forgeloop-test/sessions`、`storages` |
-| 凭据 | `~/.dsh/.credentials.yaml` | `~/.dsh-forgeloop-test/.credentials.yaml`（权限 600 的本机副本） |
-| 配置 | `~/.dsh/profiles/web/cordis.patch.yml` | `~/.dsh-forgeloop-test/profiles/forgeloop-test/cordis.patch.yml` |
+| 项                    | 正式环境                                             | 测试环境                                                                            |
+| --------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| DSH_HOME              | `~/.dsh`                                             | `~/.dsh-forgeloop-test`                                                             |
+| profile               | `web`                                                | `forgeloop-test`                                                                    |
+| Web 端口              | 3080（运行进程 pid 82207）                           | 3091（试验后已停止）                                                                |
+| ForgeLoop 记录根      | `~/Library/Application Support/ForgeLoop/production` | `~/.dsh-forgeloop-test/forgeloop`                                                   |
+| 项目名                | `forgeloop`                                          | `forgeloop-test`                                                                    |
+| 项目路径              | `/Users/lijiajin/Project/ForgeLoop`                  | `/Users/lijiajin/Project/ForgeLoop/.cache/forgeloop/test-workspace`（git worktree） |
+| DSH sessions/storages | `~/.dsh/sessions`、`~/.dsh/storages`                 | `~/.dsh-forgeloop-test/sessions`、`storages`                                        |
+| 凭据                  | `~/.dsh/.credentials.yaml`                           | `~/.dsh-forgeloop-test/.credentials.yaml`（权限 600 的本机副本）                    |
+| 配置                  | `~/.dsh/profiles/web/cordis.patch.yml`               | `~/.dsh-forgeloop-test/profiles/forgeloop-test/cordis.patch.yml`                    |
 
 两套 DSH_HOME、profile、记录根、会话存储、凭据文件与工作副本均独立；测试启动命令：
 
@@ -714,14 +714,14 @@ DSH_HOME="$HOME/.dsh-forgeloop-test" \
 
 ### 18.1 实现
 
-| 范围 | 改动 |
-| --- | --- |
-| `src/runtime/service.ts` | 新增 `pendingClarifications(sessionId)`、`answerClarifications(...)` 与 `sessionSummary(sessionId)`；回答追加需求版本、调用需求 Agent 重新分析；摘要按会话 source 过滤 |
-| `src/session/intake.ts` | 会话存在唯一待澄清需求时，下一条人类输入作为澄清回答而不是新需求；多待澄清项时拒绝猜测；追加 `forgeloop/clarification-answer`、`forgeloop/analysis`，必要时再次推送 `forgeloop/clarification-request` |
-| `src/session/events.ts` | 新增 `forgeloop/clarification-request` 与 `forgeloop/clarification-answer` 事件及载荷 |
-| `src/index.ts` | `/api/forgeloop/board` 增加 `session` 端点，按会话返回已拆解需求与待澄清项 |
-| `client.js` | 注册澄清请求/回答 Chat 节点；注册 `conversation.chat.turnTail` 需求摘要，按 **需要澄清 | 不需要澄清** 两列展示，等待澄清在左且在前 |
-| 测试、契约、架构、插件说明 | 新增澄清回答、版本绑定、多待澄清拒绝、会话摘要、UI 注册测试；更新 `session_surface` 与文档 |
+| 范围                       | 改动                                                                                                                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/service.ts`   | 新增 `pendingClarifications(sessionId)`、`answerClarifications(...)` 与 `sessionSummary(sessionId)`；回答追加需求版本、调用需求 Agent 重新分析；摘要按会话 source 过滤                                |
+| `src/session/intake.ts`    | 会话存在唯一待澄清需求时，下一条人类输入作为澄清回答而不是新需求；多待澄清项时拒绝猜测；追加 `forgeloop/clarification-answer`、`forgeloop/analysis`，必要时再次推送 `forgeloop/clarification-request` |
+| `src/session/events.ts`    | 新增 `forgeloop/clarification-request` 与 `forgeloop/clarification-answer` 事件及载荷                                                                                                                 |
+| `src/index.ts`             | `/api/forgeloop/board` 增加 `session` 端点，按会话返回已拆解需求与待澄清项                                                                                                                            |
+| `client.js`                | 注册澄清请求/回答 Chat 节点；注册 `conversation.chat.turnTail` 需求摘要，按 **需要澄清                                                                                                                | 不需要澄清** 两列展示，等待澄清在左且在前 |
+| 测试、契约、架构、插件说明 | 新增澄清回答、版本绑定、多待澄清拒绝、会话摘要、UI 注册测试；更新 `session_surface` 与文档                                                                                                            |
 
 回答不会新建需求：需求 Agent 把澄清回答追加为需求新版本（保留原文与历史），重新分析后
 需求可离开 `awaiting_clarification`。
@@ -737,7 +737,7 @@ DSH_HOME="$HOME/.dsh-forgeloop-test" \
   会话末尾摘要显示 `需要澄清 0`、`不需要澄清 1`。
 - 会话 `session-eebc8fcb-2185-4a8d-b43a-5089302c9820` 的事件顺序包含
   `forgeloop/intake → forgeloop/analysis → forgeloop/clarification-request →
-   forgeloop/clarification-answer → forgeloop/analysis`，两轮均为 `turn/end(blocked)`，
+ forgeloop/clarification-answer → forgeloop/analysis`，两轮均为 `turn/end(blocked)`，
   无普通 assistant 回复。
 - 截图：`~/.dsh-forgeloop-test/forgeloop/clarification-loop.png`。
 
@@ -758,15 +758,15 @@ DSH_HOME="$HOME/.dsh-forgeloop-test" \
 
 ### 19.1 实现
 
-| 范围 | 改动 |
-| --- | --- |
-| `src/domain/task-plan.ts` | 任务包增加可选 `technicalSolution`（摘要、实施步骤、风险）；校验空摘要、空步骤与重复项 |
-| `src/runtime/prompts.ts` | 规划提示词要求研发 Agent 同时输出 `technical_solution` 与 `tasks`，任务包仍须依赖、文件、验收和测试命令 |
-| `src/runtime/service.ts` | 新增 `planRequirement(reqId)` 包装 `executePlanning`；规划成功写任务包并置 `plan_proposed`，规划仍不等于批准或执行 |
-| `src/session/intake.ts` | 需求分析无待澄清项时自动调用研发 Agent；追加 `forgeloop/plan`，规划失败追加 `forgeloop/error` |
-| `src/session/events.ts` | 新增 `forgeloop/plan` 事件，带技术方案与任务清单 |
-| `client.js` | 新增“研发 Agent 任务包”Chat 节点，展示技术方案、实施步骤、风险、任务、文件和依赖 |
-| 测试、契约、架构、插件说明 | 技术方案解析/拒绝、自动规划、事件顺序、节点注册与契约同步 |
+| 范围                       | 改动                                                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/domain/task-plan.ts`  | 任务包增加可选 `technicalSolution`（摘要、实施步骤、风险）；校验空摘要、空步骤与重复项                             |
+| `src/runtime/prompts.ts`   | 规划提示词要求研发 Agent 同时输出 `technical_solution` 与 `tasks`，任务包仍须依赖、文件、验收和测试命令            |
+| `src/runtime/service.ts`   | 新增 `planRequirement(reqId)` 包装 `executePlanning`；规划成功写任务包并置 `plan_proposed`，规划仍不等于批准或执行 |
+| `src/session/intake.ts`    | 需求分析无待澄清项时自动调用研发 Agent；追加 `forgeloop/plan`，规划失败追加 `forgeloop/error`                      |
+| `src/session/events.ts`    | 新增 `forgeloop/plan` 事件，带技术方案与任务清单                                                                   |
+| `client.js`                | 新增“研发 Agent 任务包”Chat 节点，展示技术方案、实施步骤、风险、任务、文件和依赖                                   |
+| 测试、契约、架构、插件说明 | 技术方案解析/拒绝、自动规划、事件顺序、节点注册与契约同步                                                          |
 
 历史任务包没有技术方案仍可读取；新规划提示词要求提供技术方案。
 
@@ -843,14 +843,14 @@ DSH_HOME="$HOME/.dsh-forgeloop-test" \
 
 ### 21.1 实现
 
-| 范围 | 改动 |
-| --- | --- |
-| `src/index.ts` | 认证 Fetch 路由新增 `approve` 与 `advance`；批准/推进的 `by` 使用插件配置的本机 owner，模型工具不能调用 |
-| `client.js` | 任务包卡片增加“批准任务包”“推进任务”按钮；显示批准状态、已交付数量、推进受理与错误；批准/推进后 3 秒轮询详情 |
-| `src/runtime/service.ts` | `sessionSummary` 增加 planVersion、approved、delivered、taskCount，供会话末尾显示进度 |
-| `src/runtime/agent-runner.ts` | 编程式 dev/review Agent 显式挂载 `standard` preset，取得 shell/fs 等编码工具；只推理角色继续禁用全部工具 |
-| `src/runtime/prompts.ts` | 规划要求每个任务在 files 中产生实际改动，禁止无改动的“纯验证任务” |
-| 测试、契约、架构、插件说明 | 增加批准/推进路由、非法动作拒绝、Agent preset 组合与任务进度测试 |
+| 范围                          | 改动                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `src/index.ts`                | 认证 Fetch 路由新增 `approve` 与 `advance`；批准/推进的 `by` 使用插件配置的本机 owner，模型工具不能调用      |
+| `client.js`                   | 任务包卡片增加“批准任务包”“推进任务”按钮；显示批准状态、已交付数量、推进受理与错误；批准/推进后 3 秒轮询详情 |
+| `src/runtime/service.ts`      | `sessionSummary` 增加 planVersion、approved、delivered、taskCount，供会话末尾显示进度                        |
+| `src/runtime/agent-runner.ts` | 编程式 dev/review Agent 显式挂载 `standard` preset，取得 shell/fs 等编码工具；只推理角色继续禁用全部工具     |
+| `src/runtime/prompts.ts`      | 规划要求每个任务在 files 中产生实际改动，禁止无改动的“纯验证任务”                                            |
+| 测试、契约、架构、插件说明    | 增加批准/推进路由、非法动作拒绝、Agent preset 组合与任务进度测试                                             |
 
 批准写入绑定需求版本与任务包版本的批准行，授权来源为
 `plan-approval:<reqId>:v<planVersion>:<owner>`；推进只排队 `advance` 请求，由协调器领取后逐任务执行，
@@ -1107,15 +1107,15 @@ DSH_HOME="$HOME/.dsh-forgeloop-test" \
 
 ### 27.1 计划范围与实际改动
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `src/domain/failure-advice.ts` | 纯函数：从任务运行原因、正式测试日志尾部与审查结论归纳失败原因、可执行下一步和涉及文件；覆盖契约未登记、文件越界、审查阻断、无改动、停止/超时、测试失败、额度用尽与原因缺失 |
-| `src/runtime/board.ts` | 任务视图新增 `failureReason` 与 `failureAdvice`；失败/阻塞/待决定任务卡可直接显示原因与首条建议 |
-| `src/runtime/service.ts` | 新增 `retryTask`/`retryEligibility`；任务详情返回失败轮次、建议与重试准入；重试时把上一次失败原因和测试日志尾部带回开发提示词；推进入口共用失败额度准入；失败轮次 ID 绑定推进请求，跨请求重试不吞轮次 |
-| `src/index.ts` | 新增认证 `retry` 端点；请求体增加 `confirmRecovery`，其余端点不变 |
-| `client.js` | 失败任务卡显示原因与首条解决方案；任务详情显示失败原因、完整建议、失败轮次与测试日志；新增重试按钮，unknown 请求采用“第一次提示核对、第二次确认重试”两步 |
-| `tests/failure-advice.test.ts`、`tests/status-board.test.ts`、`tests/service.test.ts`、`tests/board-channel.test.ts`、`tests/client-view.test.ts` | 覆盖建议分类、看板字段、重试准入两侧、额度不清零、失败上下文回灌、unknown 二次确认、路由校验与中英文标签 |
-| `contracts/architecture.json`、`scripts/ts/contracts.ts`、架构说明、插件 README、`CONTEXT.md`、本记录 | 登记新模块与 `retry` 端点，说明重试边界与术语 |
+| 范围                                                                                                                                              | 目的与实际处置                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/failure-advice.ts`                                                                                                                    | 纯函数：从任务运行原因、正式测试日志尾部与审查结论归纳失败原因、可执行下一步和涉及文件；覆盖契约未登记、文件越界、审查阻断、无改动、停止/超时、测试失败、额度用尽与原因缺失                           |
+| `src/runtime/board.ts`                                                                                                                            | 任务视图新增 `failureReason` 与 `failureAdvice`；失败/阻塞/待决定任务卡可直接显示原因与首条建议                                                                                                       |
+| `src/runtime/service.ts`                                                                                                                          | 新增 `retryTask`/`retryEligibility`；任务详情返回失败轮次、建议与重试准入；重试时把上一次失败原因和测试日志尾部带回开发提示词；推进入口共用失败额度准入；失败轮次 ID 绑定推进请求，跨请求重试不吞轮次 |
+| `src/index.ts`                                                                                                                                    | 新增认证 `retry` 端点；请求体增加 `confirmRecovery`，其余端点不变                                                                                                                                     |
+| `client.js`                                                                                                                                       | 失败任务卡显示原因与首条解决方案；任务详情显示失败原因、完整建议、失败轮次与测试日志；新增重试按钮，unknown 请求采用“第一次提示核对、第二次确认重试”两步                                              |
+| `tests/failure-advice.test.ts`、`tests/status-board.test.ts`、`tests/service.test.ts`、`tests/board-channel.test.ts`、`tests/client-view.test.ts` | 覆盖建议分类、看板字段、重试准入两侧、额度不清零、失败上下文回灌、unknown 二次确认、路由校验与中英文标签                                                                                              |
+| `contracts/architecture.json`、`scripts/ts/contracts.ts`、架构说明、插件 README、`CONTEXT.md`、本记录                                             | 登记新模块与 `retry` 端点，说明重试边界与术语                                                                                                                                                         |
 
 没有新增持久化表、任务包版本、重新规划或扩范围入口，也没有修改模型工具；重试不是新的批准路径。
 
@@ -1184,14 +1184,14 @@ ForgeLoop 受理需求，不计为插件自主执行成果。
 
 ### 28.1 计划范围与实际改动
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `src/runtime/board.ts` | `board` 支持 `query`/`limit`；新增 `awaiting_input`、`resultUnknown`、`stopRequested`、服务端 `actions`（approve/advance/stop/cancel，无 accept）、任务/请求/失败轮次搜索事实与 `taskIdOfFailureRound`；运行中或等待输入时不重复提供 `advance`；已交付任务不标“结果未知” |
-| `src/runtime/service.ts` | `readActivity` 返回 `total/truncated`；任务详情增加活动总数、日志字节数/尾部/截断、审查路径、unknown/active request、等待输入与结果未知；新增 `requirementDetail`（原文版本、分析、任务包正文、交付进度、产物摘要、验收记录、失败轮次与请求） |
-| `src/index.ts` | `board` 端点校验 `query` 字符串与 `limit` 1..100；`detail` 改走 `requirementDetail`；其余端点与认证不变 |
-| `client.js` | 重写天工页：总览/需求/任务/问题四视图、搜索（300ms 防抖）、刷新/自动刷新、筛选、空与无结果与读取失败状态；需求详情、任务详情抽屉、失败原因/建议/重试/停止/取消/批准/推进；响应式单列与 390px 窄屏；不提供验收 |
-| `tests/status-board.test.ts`、`tests/service.test.ts`、`tests/board-channel.test.ts`、`tests/failure-advice.test.ts` | 覆盖搜索范围与截断、运行/等待/停止/unknown 事实、服务端动作准入、失败轮次与任务关联、任务详情证据字段、需求详情、路由参数校验、旧审查结论不得解释新测试失败 |
-| `contracts/architecture.json`、架构说明、插件 README、`CONTEXT.md`、本记录 | 登记工作台视图、搜索范围、详情字段、证据截断与状态边界；未新增模块、持久化表、端点或模型工具 |
+| 范围                                                                                                                 | 目的与实际处置                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/runtime/board.ts`                                                                                               | `board` 支持 `query`/`limit`；新增 `awaiting_input`、`resultUnknown`、`stopRequested`、服务端 `actions`（approve/advance/stop/cancel，无 accept）、任务/请求/失败轮次搜索事实与 `taskIdOfFailureRound`；运行中或等待输入时不重复提供 `advance`；已交付任务不标“结果未知” |
+| `src/runtime/service.ts`                                                                                             | `readActivity` 返回 `total/truncated`；任务详情增加活动总数、日志字节数/尾部/截断、审查路径、unknown/active request、等待输入与结果未知；新增 `requirementDetail`（原文版本、分析、任务包正文、交付进度、产物摘要、验收记录、失败轮次与请求）                            |
+| `src/index.ts`                                                                                                       | `board` 端点校验 `query` 字符串与 `limit` 1..100；`detail` 改走 `requirementDetail`；其余端点与认证不变                                                                                                                                                                  |
+| `client.js`                                                                                                          | 重写天工页：总览/需求/任务/问题四视图、搜索（300ms 防抖）、刷新/自动刷新、筛选、空与无结果与读取失败状态；需求详情、任务详情抽屉、失败原因/建议/重试/停止/取消/批准/推进；响应式单列与 390px 窄屏；不提供验收                                                            |
+| `tests/status-board.test.ts`、`tests/service.test.ts`、`tests/board-channel.test.ts`、`tests/failure-advice.test.ts` | 覆盖搜索范围与截断、运行/等待/停止/unknown 事实、服务端动作准入、失败轮次与任务关联、任务详情证据字段、需求详情、路由参数校验、旧审查结论不得解释新测试失败                                                                                                              |
+| `contracts/architecture.json`、架构说明、插件 README、`CONTEXT.md`、本记录                                           | 登记工作台视图、搜索范围、详情字段、证据截断与状态边界；未新增模块、持久化表、端点或模型工具                                                                                                                                                                             |
 
 没有改变批准/验收/失败额度/unknown 的服务端准入，也没有新增 Agent 权限、前端业务状态或第二条数据源。
 
@@ -1329,14 +1329,14 @@ ForgeLoop 旧实现用 `session.append('forgeloop/…')` 写入自定义会话�
 
 ### 29.2 实现范围
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `src/runtime/service.ts` | 新增 `replanTask` 与 `normalizeReplanFiles`：只基于当前最新且已批准的任务包，为失败/阻塞/待决定的**非验证任务**补充允许文件，生成新的待批准版本；不自动批准、不改需求原文、不新建任务、不清零失败轮次；unknown 需确认后关闭；验证任务、已交付、非失败任务、在途请求、运行中任务与越界路径均拒绝 |
-| `src/runtime/board.ts` | 需求级 `actions` 新增 `replan`：仅当当前计划已批准、存在失败的非验证任务、无运行/等待输入/在途请求时提供；验证任务失败不提供；终态不提供 |
-| `src/index.ts` | 认证 `replan` 端点：校验 `reqId`、正整数 `planVersion`、1..20 个补充文件；`confirmRecovery` 显式确认 unknown；端点仍走浏览器认证，模型工具没有入口 |
-| `client.js` | 需求卡新增“重新规划”：提示输入补充文件（默认 `contracts/architecture.json`）；存在 unknown 时先确认已核对现场；成功后显示新版本号并提示等待批准；批准仍由现有“批准任务包”按钮完成 |
-| `tests/service.test.ts`、`tests/status-board.test.ts`、`tests/board-channel.test.ts` | 覆盖 v2 生成、文件只加到目标失败任务、旧批准保留而新批准缺失、unknown 二次确认、verify-only 不出现入口、错误路径（越界文件、no_change、not_failed、already_delivered、plan_not_approved、busy、plan_missing）与路由参数校验 |
-| `contracts/architecture.json`、架构说明、插件 README、`CONTEXT.md`、本记录 | 登记 `replan` 端点、动作与边界；未新增持久化表、模块、模型工具或自动批准路径 |
+| 范围                                                                                 | 目的与实际处置                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/service.ts`                                                             | 新增 `replanTask` 与 `normalizeReplanFiles`：只基于当前最新且已批准的任务包，为失败/阻塞/待决定的**非验证任务**补充允许文件，生成新的待批准版本；不自动批准、不改需求原文、不新建任务、不清零失败轮次；unknown 需确认后关闭；验证任务、已交付、非失败任务、在途请求、运行中任务与越界路径均拒绝 |
+| `src/runtime/board.ts`                                                               | 需求级 `actions` 新增 `replan`：仅当当前计划已批准、存在失败的非验证任务、无运行/等待输入/在途请求时提供；验证任务失败不提供；终态不提供                                                                                                                                                        |
+| `src/index.ts`                                                                       | 认证 `replan` 端点：校验 `reqId`、正整数 `planVersion`、1..20 个补充文件；`confirmRecovery` 显式确认 unknown；端点仍走浏览器认证，模型工具没有入口                                                                                                                                              |
+| `client.js`                                                                          | 需求卡新增“重新规划”：提示输入补充文件（默认 `contracts/architecture.json`）；存在 unknown 时先确认已核对现场；成功后显示新版本号并提示等待批准；批准仍由现有“批准任务包”按钮完成                                                                                                               |
+| `tests/service.test.ts`、`tests/status-board.test.ts`、`tests/board-channel.test.ts` | 覆盖 v2 生成、文件只加到目标失败任务、旧批准保留而新批准缺失、unknown 二次确认、verify-only 不出现入口、错误路径（越界文件、no_change、not_failed、already_delivered、plan_not_approved、busy、plan_missing）与路由参数校验                                                                     |
+| `contracts/architecture.json`、架构说明、插件 README、`CONTEXT.md`、本记录           | 登记 `replan` 端点、动作与边界；未新增持久化表、模块、模型工具或自动批准路径                                                                                                                                                                                                                    |
 
 ### 29.3 规则与边界
 
@@ -1408,19 +1408,19 @@ ForgeLoop 旧实现用 `session.append('forgeloop/…')` 写入自定义会话�
 
 `contracts/architecture.json` 升至 `schema_version: 3`，保留并强化规则，删除重复事实：
 
-| 字段 | 处置 |
-| --- | --- |
-| `layers` | 保留；校验名称/路径唯一、路径在 `src` 内、每个源码文件能判定分层、每层有文件、依赖方向合法 |
-| `runtime.package` | 保留；用于定位 `src`，不再重复语言/宿主/`python_runtime` 描述 |
-| `modules` | 删除；全部 `.ts` 从文件系统自动发现 |
-| `persistence` | 保留 `engine`/`driver`/`database`；删除 `tables` 与 `durable_artifacts` 重复清单；检查 driver 与 `db.ts`、路径与 `config.ts` 一致 |
-| `model_surface` | 只保留 `prefix`；工具名从 `tools.ts` 自动发现，校验前缀/唯一性/`tools.register`，并拒绝调用批准、验收、推进、重试、重新规划等决定方法 |
-| `ui_surface` | 保留槽位、视图身份、排序、数据路径；删除 `client_bundle`、`data_endpoints`、标签、只读标志与长说明；端点从 `BOARD_ENDPOINTS` 自动发现，校验每个非默认端点都有分发分支、无重复/非法名 |
-| `retired_paths` | 由对象改为字符串数组；只保留可验证的仓库路径 |
-| `session_surface` | 只保留 `preset_id` 与 `interception`；事件从 `events.ts` 自动发现，校验 client 注册且无孤儿事件 |
-| `external_seams`、`verification`、`product` | 删除；外部边界与命令入口由 `docs/architecture.md`、`Makefile` 维护，不再伪装成契约 |
-| `--update-architecture` | 删除；模块/工具/端点无需生成回写 |
-| `Makefile` | `make architecture-contract` 与 `architecture-contract-check` 都只执行检查；`make contracts` 仍为统一入口 |
+| 字段                                        | 处置                                                                                                                                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `layers`                                    | 保留；校验名称/路径唯一、路径在 `src` 内、每个源码文件能判定分层、每层有文件、依赖方向合法                                                                                           |
+| `runtime.package`                           | 保留；用于定位 `src`，不再重复语言/宿主/`python_runtime` 描述                                                                                                                        |
+| `modules`                                   | 删除；全部 `.ts` 从文件系统自动发现                                                                                                                                                  |
+| `persistence`                               | 保留 `engine`/`driver`/`database`；删除 `tables` 与 `durable_artifacts` 重复清单；检查 driver 与 `db.ts`、路径与 `config.ts` 一致                                                    |
+| `model_surface`                             | 只保留 `prefix`；工具名从 `tools.ts` 自动发现，校验前缀/唯一性/`tools.register`，并拒绝调用批准、验收、推进、重试、重新规划等决定方法                                                |
+| `ui_surface`                                | 保留槽位、视图身份、排序、数据路径；删除 `client_bundle`、`data_endpoints`、标签、只读标志与长说明；端点从 `BOARD_ENDPOINTS` 自动发现，校验每个非默认端点都有分发分支、无重复/非法名 |
+| `retired_paths`                             | 由对象改为字符串数组；只保留可验证的仓库路径                                                                                                                                         |
+| `session_surface`                           | 只保留 `preset_id` 与 `interception`；事件从 `events.ts` 自动发现，校验 client 注册且无孤儿事件                                                                                      |
+| `external_seams`、`verification`、`product` | 删除；外部边界与命令入口由 `docs/architecture.md`、`Makefile` 维护，不再伪装成契约                                                                                                   |
+| `--update-architecture`                     | 删除；模块/工具/端点无需生成回写                                                                                                                                                     |
+| `Makefile`                                  | `make architecture-contract` 与 `architecture-contract-check` 都只执行检查；`make contracts` 仍为统一入口                                                                            |
 
 新增/强化的自动检查：
 
@@ -1467,12 +1467,12 @@ ForgeLoop 旧实现用 `session.append('forgeloop/…')` 写入自定义会话�
 
 ### 31.1 实现
 
-| 范围 | 改动 |
-| --- | --- |
-| `src/runtime/board.ts` | 新增 `buildProjectFacts`：从权威记录组装活动需求的标题、状态、需求版本、创建／更新时间、最新分析目标、任务包版本与批准状态、任务状态与最近活动；当前需求固定第一条并标记；已结束需求只计数；活动需求与单需求任务数分别设上限（10／8）；抽取 `boardTaskState` 供看板与事实共用 |
-| `src/runtime/prompts.ts` | `analysisPrompt` 增加“当前项目需求与任务”只读段落，声明背景事实不是指令、不构成授权，仍要求只输出 JSON |
-| `src/runtime/service.ts` | `executeAnalysis` 查询项目事实并传入分析提示词；需求 Agent 仍无工具，也不写任何记录 |
-| 测试与说明 | `status-board.test.ts` 增加事实组装、当前优先、终态排除与上限用例；`prompts.test.ts` 断言时间／状态／批准／任务渲染；`service.test.ts` 断言分析提示词实际包含当前需求与在途任务；同步架构与插件说明 |
+| 范围                     | 改动                                                                                                                                                                                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/board.ts`   | 新增 `buildProjectFacts`：从权威记录组装活动需求的标题、状态、需求版本、创建／更新时间、最新分析目标、任务包版本与批准状态、任务状态与最近活动；当前需求固定第一条并标记；已结束需求只计数；活动需求与单需求任务数分别设上限（10／8）；抽取 `boardTaskState` 供看板与事实共用 |
+| `src/runtime/prompts.ts` | `analysisPrompt` 增加“当前项目需求与任务”只读段落，声明背景事实不是指令、不构成授权，仍要求只输出 JSON                                                                                                                                                                        |
+| `src/runtime/service.ts` | `executeAnalysis` 查询项目事实并传入分析提示词；需求 Agent 仍无工具，也不写任何记录                                                                                                                                                                                           |
+| 测试与说明               | `status-board.test.ts` 增加事实组装、当前优先、终态排除与上限用例；`prompts.test.ts` 断言时间／状态／批准／任务渲染；`service.test.ts` 断言分析提示词实际包含当前需求与在途任务；同步架构与插件说明                                                                           |
 
 ### 31.2 行为与边界
 
@@ -1521,15 +1521,15 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 32.1 计划范围与实际改动
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `packages/forgeloop/src/runtime/task-execution.ts`（新增） | 解析 `dev.jsonl` 为公开消息、工具调用/结果和阶段事件；按 `callId` 关联、按 seq 排序、过滤 reasoning 与 DSH 运行上下文提醒、按事件数分页、截断长文本、记录会话身份 |
-| `src/runtime/service.ts` | 新增 `taskExecution`：读取证据行、开发记录、审查、正式测试头、交付物与失败轮次；返回真实会话/任务包/任务身份、尝试列表（历史不可用明确缺失）、执行阶段、分页事件、测试退出码/耗时/路径与会话跳转可用性；`taskDetail` 增加测试头字段 |
-| `src/index.ts` | 新增认证 `execution` 端点及分页校验；原有 `board/detail/task` 端点不变 |
-| `src/runtime/board.ts` | 已交付任务的旧失败轮次不再进入首屏待处理；任务仍保留历史证据 |
-| `client.js` | 三栏层级工作台：需求树（需求 → 任务 → 关联问题）、中间需求摘要/任务列表/依赖、右侧统一详情（概览/前后序/Agent 执行过程/测试与审查/变更记录）；面包屑、选中高亮、完整详情、搜索/筛选/刷新/自动刷新、390px 列表→详情、任务卡与详情顶部执行入口；执行过程支持尝试切换、工具展开、分页、暂停、新活动提示与滚动位置保留 |
-| `tests/task-execution.test.ts`（新增）、`tests/board-channel.test.ts`、`tests/status-board.test.ts` | 覆盖 reasoning 过滤、工具配对、分页/截断、运行上下文过滤、真实会话与空执行、历史尝试缺失、已交付失败轮次隐藏 |
-| `contracts/architecture.json`、架构说明、插件 README、本记录 | `execution` 作为认证端点自动纳入契约；工作台/执行过程边界写入文档；未新增持久化表或模型工具 |
+| 范围                                                                                                | 目的与实际处置                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/forgeloop/src/runtime/task-execution.ts`（新增）                                          | 解析 `dev.jsonl` 为公开消息、工具调用/结果和阶段事件；按 `callId` 关联、按 seq 排序、过滤 reasoning 与 DSH 运行上下文提醒、按事件数分页、截断长文本、记录会话身份                                                                                                                                                  |
+| `src/runtime/service.ts`                                                                            | 新增 `taskExecution`：读取证据行、开发记录、审查、正式测试头、交付物与失败轮次；返回真实会话/任务包/任务身份、尝试列表（历史不可用明确缺失）、执行阶段、分页事件、测试退出码/耗时/路径与会话跳转可用性；`taskDetail` 增加测试头字段                                                                                |
+| `src/index.ts`                                                                                      | 新增认证 `execution` 端点及分页校验；原有 `board/detail/task` 端点不变                                                                                                                                                                                                                                             |
+| `src/runtime/board.ts`                                                                              | 已交付任务的旧失败轮次不再进入首屏待处理；任务仍保留历史证据                                                                                                                                                                                                                                                       |
+| `client.js`                                                                                         | 三栏层级工作台：需求树（需求 → 任务 → 关联问题）、中间需求摘要/任务列表/依赖、右侧统一详情（概览/前后序/Agent 执行过程/测试与审查/变更记录）；面包屑、选中高亮、完整详情、搜索/筛选/刷新/自动刷新、390px 列表→详情、任务卡与详情顶部执行入口；执行过程支持尝试切换、工具展开、分页、暂停、新活动提示与滚动位置保留 |
+| `tests/task-execution.test.ts`（新增）、`tests/board-channel.test.ts`、`tests/status-board.test.ts` | 覆盖 reasoning 过滤、工具配对、分页/截断、运行上下文过滤、真实会话与空执行、历史尝试缺失、已交付失败轮次隐藏                                                                                                                                                                                                       |
+| `contracts/architecture.json`、架构说明、插件 README、本记录                                        | `execution` 作为认证端点自动纳入契约；工作台/执行过程边界写入文档；未新增持久化表或模型工具                                                                                                                                                                                                                        |
 
 没有修改正式业务记录、DSH 模型配置或凭据；没有创建 commit。
 正式安装与热重载在所有者本轮明确授权后完成（见 §32.3）；测试环境使用 `forgeloop-test` 与测试记录根。
@@ -1597,18 +1597,18 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 33.1 计划范围与实际改动
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `src/domain/verification.ts`（新增） | 实现前评审、验证命令、逐场景报告的结构化解析与必过场景覆盖校验；模型自述不能直接作为通过 |
-| `src/domain/delivery.ts` | 新增 `candidateIdentityOf`：候选身份由任务包版本、需求版本、基线与各任务候选摘要决定 |
-| `src/domain/counting.ts`、`src/domain/status.ts` | 新增 `verification` 失败阶段与 `verify` 动作 |
-| `src/config.ts` | 新增 `reviews/<req>/v<plan>/plan` 与 `verifications/<req>/v<plan>/<candidate>` 目录 |
-| `src/records/db.ts`、`src/records/repository.ts` | 新增 `requirement_plan_reviews` 与 `requirement_verifications` 表；评审按任务包版本、验证按候选摘要保存结论、报告与证据摘要 |
-| `src/runtime/prompts.ts`、`src/runtime/agent-runner.ts` | 新增 `verify-plan`（无工具）与 `verify`（workspace-write）角色提示词；要求报告场景文本与验证计划一致 |
-| `src/runtime/service.ts` | 规划后自动做实现前评审，阻断时带原因重试；批准强制要求当前任务包的通过评审；全部任务交付后自动独立验证（也可 `verify` 请求触发）；命令由运行时重跑，只按退出码、超时与覆盖判定；验收绑定当前候选与验证报告摘要 |
-| `src/runtime/board.ts`、`src/index.ts` | 看板新增 `plan`/`verify` 动作、评审与验证视图、新鲜度；认证端点新增 `plan`、`verify` |
-| `client.js`、`locale` | 任务包卡片只在评审通过时提供批准；全部交付后提供独立验证，只有 fresh pass 才提供验收；需求卡/详情显示评审与验证状态、阻断原因与场景摘要 |
-| `tests/verification.test.ts`（新增）及既有测试 | 覆盖计划评审/命令/报告解析与覆盖规则、批准门禁、规划阻断重试、验证通过/命令失败/缺证据/越界/缺材料/代理失败、候选过期与报告篡改、请求门禁、看板动作与路由 |
+| 范围                                                    | 目的与实际处置                                                                                                                                                                                                 |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/verification.ts`（新增）                    | 实现前评审、验证命令、逐场景报告的结构化解析与必过场景覆盖校验；模型自述不能直接作为通过                                                                                                                       |
+| `src/domain/delivery.ts`                                | 新增 `candidateIdentityOf`：候选身份由任务包版本、需求版本、基线与各任务候选摘要决定                                                                                                                           |
+| `src/domain/counting.ts`、`src/domain/status.ts`        | 新增 `verification` 失败阶段与 `verify` 动作                                                                                                                                                                   |
+| `src/config.ts`                                         | 新增 `reviews/<req>/v<plan>/plan` 与 `verifications/<req>/v<plan>/<candidate>` 目录                                                                                                                            |
+| `src/records/db.ts`、`src/records/repository.ts`        | 新增 `requirement_plan_reviews` 与 `requirement_verifications` 表；评审按任务包版本、验证按候选摘要保存结论、报告与证据摘要                                                                                    |
+| `src/runtime/prompts.ts`、`src/runtime/agent-runner.ts` | 新增 `verify-plan`（无工具）与 `verify`（workspace-write）角色提示词；要求报告场景文本与验证计划一致                                                                                                           |
+| `src/runtime/service.ts`                                | 规划后自动做实现前评审，阻断时带原因重试；批准强制要求当前任务包的通过评审；全部任务交付后自动独立验证（也可 `verify` 请求触发）；命令由运行时重跑，只按退出码、超时与覆盖判定；验收绑定当前候选与验证报告摘要 |
+| `src/runtime/board.ts`、`src/index.ts`                  | 看板新增 `plan`/`verify` 动作、评审与验证视图、新鲜度；认证端点新增 `plan`、`verify`                                                                                                                           |
+| `client.js`、`locale`                                   | 任务包卡片只在评审通过时提供批准；全部交付后提供独立验证，只有 fresh pass 才提供验收；需求卡/详情显示评审与验证状态、阻断原因与场景摘要                                                                        |
+| `tests/verification.test.ts`（新增）及既有测试          | 覆盖计划评审/命令/报告解析与覆盖规则、批准门禁、规划阻断重试、验证通过/命令失败/缺证据/越界/缺材料/代理失败、候选过期与报告篡改、请求门禁、看板动作与路由                                                      |
 
 没有新增模型工具；批准、验证与验收仍只能经认证动作或服务端内部调用。没有创建 commit，
 没有安装或热重载正式 profile，也没有修改正式业务数据、模型配置或凭据。
@@ -1657,13 +1657,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 34.1 实现
 
-| 范围 | 改动 |
-| --- | --- |
+| 范围                     | 改动                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/runtime/prompts.ts` | 规划提示词改为 `devPlanningPrompt`：身份明确为“研发 Agent，负责技术方案与研发任务拆解”，声明需求分析由需求 Agent 完成、不得改写；输入从“分析目标”扩大为分析全文（目标、业务场景、验收标准）；新增“任务拆解必须覆盖每条业务场景与验收标准”的硬性规则。需求分析提示词补一条边界：只做需求分析，不拆研发任务、不给出实现步骤或文件清单 |
-| `src/runtime/service.ts` | `planRequirement` 更名为 `planDevTasks`，私有方法改为 `executeDevPlanning`；拆解提示词传入完整分析对象，不再只传 `analysis.goal` |
-| `src/session/intake.ts` | 交接调用改为 `planDevTasks`；错误文案改为“研发 Agent 任务拆解异常” |
-| `client.js` | 会话卡片文案：“需求 Agent 拆解结果”改为“需求 Agent 分析结果”，“等待需求 Agent 拆解”改为“等待需求 Agent 分析”；中英文同步 |
-| 测试与说明 | `prompts.test.ts` 断言研发 Agent 身份、分析全文进入提示词与覆盖规则；`service.test.ts` 断言端到端拆解提示词包含场景与验收标准；同步架构与插件说明 |
+| `src/runtime/service.ts` | `planRequirement` 更名为 `planDevTasks`，私有方法改为 `executeDevPlanning`；拆解提示词传入完整分析对象，不再只传 `analysis.goal`                                                                                                                                                                                                    |
+| `src/session/intake.ts`  | 交接调用改为 `planDevTasks`；错误文案改为“研发 Agent 任务拆解异常”                                                                                                                                                                                                                                                                  |
+| `client.js`              | 会话卡片文案：“需求 Agent 拆解结果”改为“需求 Agent 分析结果”，“等待需求 Agent 拆解”改为“等待需求 Agent 分析”；中英文同步                                                                                                                                                                                                            |
+| 测试与说明               | `prompts.test.ts` 断言研发 Agent 身份、分析全文进入提示词与覆盖规则；`service.test.ts` 断言端到端拆解提示词包含场景与验收标准；同步架构与插件说明                                                                                                                                                                                   |
 
 ### 34.2 行为与边界
 
@@ -1695,17 +1695,17 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 35.1 实现
 
-| 范围 | 改动 |
-| --- | --- |
-| `src/domain/ops.ts`（新增） | 严重度（`critical`/`major`/`minor`）与资源类型；目录校验（唯一身份、资源引用、同资源恢复检查、argv 数组、枚举参数、占位符与声明一致）；`actionArgv` 只替换已声明且合法的参数；事件签名；诊断 JSON 解析与序列化；自动授权判定；恢复判定；事件统计 |
-| `src/config.ts` | `ops` 装载期校验与默认值：默认关闭，周期默认 300 秒、最小 30 秒，超时默认 60 秒，严重度默认 `major`，单检查资源可推断恢复检查；新增 `opsDir` |
-| `src/records/db.ts`、`src/records/repository.ts` | 新增 `ops_events`、`ops_observations`、`ops_action_attempts` 三张表与对应读写方法；动作先写 `running` 意图再写结果；`markRunningOpsActionsUnknown` 在宿主启动时把上次未收口动作标为未知 |
-| `src/runtime/ops.ts`（新增） | 巡检调度、事件归并、诊断、授权执行、恢复复核、关联修复需求与所有者动作；动作与检查通过 `spawn` 执行、不经 Shell，输出上限 256 KiB，超时 SIGKILL，中止或超时记 `unknown`；每个事件每次 Tick 最多诊断一次，状态机每 Tick 最多推进三轮 |
-| `src/runtime/prompts.ts`、`src/runtime/agent-runner.ts` | 新增 `ops` 角色与诊断提示词：只提供检查输出与登记动作目录，要求事实与推断分离，不提供 argv 或工具 |
-| `src/runtime/service.ts`、`src/runtime/coordinator.ts` | 运维服务方法与所有者入口；协调器在启用且持有单消费者锁时按 `pollSeconds` 唤醒巡检，独立 in-flight 保护 |
-| `src/tools.ts`、`src/index.ts` | 只读工具 `forgeloop_ops`；认证端点 `ops`、`ops-detail`、`ops-decide`、`ops-confirm-unknown`、`ops-close`、`ops-request-fix` |
-| `client.js` | 天工“运维”视图：统计、事件列表与详情、影响、事实/推断、处置尝试、观测与证据路径、批准/拒绝/核对未知/关闭/生成修复需求；中英文词典 |
-| 测试与文档 | 新增 6 个运维测试文件并更新工具测试；新增运维设计文档，同步架构、术语、插件说明与本记录 |
+| 范围                                                    | 改动                                                                                                                                                                                                                                             |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/domain/ops.ts`（新增）                             | 严重度（`critical`/`major`/`minor`）与资源类型；目录校验（唯一身份、资源引用、同资源恢复检查、argv 数组、枚举参数、占位符与声明一致）；`actionArgv` 只替换已声明且合法的参数；事件签名；诊断 JSON 解析与序列化；自动授权判定；恢复判定；事件统计 |
+| `src/config.ts`                                         | `ops` 装载期校验与默认值：默认关闭，周期默认 300 秒、最小 30 秒，超时默认 60 秒，严重度默认 `major`，单检查资源可推断恢复检查；新增 `opsDir`                                                                                                     |
+| `src/records/db.ts`、`src/records/repository.ts`        | 新增 `ops_events`、`ops_observations`、`ops_action_attempts` 三张表与对应读写方法；动作先写 `running` 意图再写结果；`markRunningOpsActionsUnknown` 在宿主启动时把上次未收口动作标为未知                                                          |
+| `src/runtime/ops.ts`（新增）                            | 巡检调度、事件归并、诊断、授权执行、恢复复核、关联修复需求与所有者动作；动作与检查通过 `spawn` 执行、不经 Shell，输出上限 256 KiB，超时 SIGKILL，中止或超时记 `unknown`；每个事件每次 Tick 最多诊断一次，状态机每 Tick 最多推进三轮              |
+| `src/runtime/prompts.ts`、`src/runtime/agent-runner.ts` | 新增 `ops` 角色与诊断提示词：只提供检查输出与登记动作目录，要求事实与推断分离，不提供 argv 或工具                                                                                                                                                |
+| `src/runtime/service.ts`、`src/runtime/coordinator.ts`  | 运维服务方法与所有者入口；协调器在启用且持有单消费者锁时按 `pollSeconds` 唤醒巡检，独立 in-flight 保护                                                                                                                                           |
+| `src/tools.ts`、`src/index.ts`                          | 只读工具 `forgeloop_ops`；认证端点 `ops`、`ops-detail`、`ops-decide`、`ops-confirm-unknown`、`ops-close`、`ops-request-fix`                                                                                                                      |
+| `client.js`                                             | 天工“运维”视图：统计、事件列表与详情、影响、事实/推断、处置尝试、观测与证据路径、批准/拒绝/核对未知/关闭/生成修复需求；中英文词典                                                                                                                |
+| 测试与文档                                              | 新增 6 个运维测试文件并更新工具测试；新增运维设计文档，同步架构、术语、插件说明与本记录                                                                                                                                                          |
 
 ### 35.2 行为与安全语义
 
@@ -1760,17 +1760,17 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 36.1 计划范围与实际改动
 
-| 范围 | 目的与实际处置 |
-| --- | --- |
-| `src/domain/verification.ts` | 场景证据必须引用本次实际执行的命令 label，且证据是命令输出原文；校验引用身份、所属执行、退出码与材料完整性 |
-| `src/runtime/service.ts` | 验证前后核对 HEAD、受保护内容与 `verification/` 材料；验证命令改动候选即阻断；记录 `candidateIntegrity` 与材料摘要 |
-| `src/records/db.ts`、`src/records/repository.ts` | 新增产物历史、业务终审、候选构建、部署记录表；任务运行中断收口方法 |
-| `src/domain/business-review.ts`（新增） | 业务终审结构化解析与覆盖校验：逐项覆盖分析场景/验收标准，证据须能在验证命令输出中核对 |
-| `src/runtime/service.ts`（交接） | 验证阻断后 `rework` 归档旧候选并重新研发；独立验证后自动业务终审；验收新增业务终审与 unknown 门禁；候选包只从已通过验证的工作区构建；新增上线核对 |
+| 范围                                                | 目的与实际处置                                                                                                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/verification.ts`                        | 场景证据必须引用本次实际执行的命令 label，且证据是命令输出原文；校验引用身份、所属执行、退出码与材料完整性                                                  |
+| `src/runtime/service.ts`                            | 验证前后核对 HEAD、受保护内容与 `verification/` 材料；验证命令改动候选即阻断；记录 `candidateIntegrity` 与材料摘要                                          |
+| `src/records/db.ts`、`src/records/repository.ts`    | 新增产物历史、业务终审、候选构建、部署记录表；任务运行中断收口方法                                                                                          |
+| `src/domain/business-review.ts`（新增）             | 业务终审结构化解析与覆盖校验：逐项覆盖分析场景/验收标准，证据须能在验证命令输出中核对                                                                       |
+| `src/runtime/service.ts`（交接）                    | 验证阻断后 `rework` 归档旧候选并重新研发；独立验证后自动业务终审；验收新增业务终审与 unknown 门禁；候选包只从已通过验证的工作区构建；新增上线核对           |
 | `src/runtime/board.ts`、`src/index.ts`、`client.js` | 需求详情显示业务终审/候选/部署；新增 `rework`、`recover`、`build`、`deploy` 认证动作与“核对未知”入口；已批准但缺评审/规则不合规的任务包提供“重新生成任务包” |
-| `src/domain/task-plan.ts`、`src/runtime/prompts.ts` | 正式测试命令引用的测试文件必须列入同一任务允许文件；规划与评审提示词同步逐字引用与测试文件规则 |
-| `src/runtime/coordinator.ts` | 宿主启动把残留 `running` 任务运行标为 blocked（中断未收口），不自动重放 |
-| 版本与安装 | 0.1.0→0.1.6 连续安装到正式 `web` profile；每个版本均有 tarball 摘要，见 §36.5 |
+| `src/domain/task-plan.ts`、`src/runtime/prompts.ts` | 正式测试命令引用的测试文件必须列入同一任务允许文件；规划与评审提示词同步逐字引用与测试文件规则                                                              |
+| `src/runtime/coordinator.ts`                        | 宿主启动把残留 `running` 任务运行标为 blocked（中断未收口），不自动重放                                                                                     |
+| 版本与安装                                          | 0.1.0→0.1.6 连续安装到正式 `web` profile；每个版本均有 tarball 摘要，见 §36.5                                                                               |
 
 ### 36.2 验证可信度缺陷：先失败后通过
 
@@ -1873,15 +1873,15 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 37.1 实现
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/runtime/workspace.ts` | `captureCandidate` 的 `allowedFiles` 改为可选；省略时不再计算越界文件，仍返回全部改动与 diff |
-| `src/runtime/prompts.ts` | 开发提示词改为“工作副本全部文件 + 默认代码工具”，`files` 降为计划说明；删除“只能改清单”约束 |
-| `src/domain/task-plan.ts` | 退役“test_command 引用的测试文件必须在 files 内”规则；执行已不再受文件清单限制，保留该规则会误拒合法任务包 |
-| `src/runtime/service.ts` | 移除交付时的越界阻断；`executeAdvance` 增加修复循环：验证阻断→归档旧产物→回研发→重新验证，任务包版本不变；`requestOperation('plan')` 与 `executeDevPlanning` 双处校验任务包冻结；新增 `reopenDeliveredTasks`；删除 `replanTask`、`rework` 与 `normalizeReplanFiles` |
-| `src/runtime/board.ts` | 动作收敛为 `plan/approve/advance/verify/recover/build/deploy/stop/cancel`；已批准任务包不再出现 `plan`；删除 `replan`、`rework` |
-| `src/index.ts`、`client.js` | 删除 `replan`/`rework` 端点与按钮；`plan` 端点透传 `confirmPlanChange` 与 `reason` |
-| 测试 | 新增“执行可改计划外文件”“批准后计划冻结（含入队后批准的竞态）”“验证阻断自动回研发且版本不变”；退役越界拒绝、replan、rework 用例 |
+| 文件                        | 改动                                                                                                                                                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/workspace.ts`  | `captureCandidate` 的 `allowedFiles` 改为可选；省略时不再计算越界文件，仍返回全部改动与 diff                                                                                                                                                                        |
+| `src/runtime/prompts.ts`    | 开发提示词改为“工作副本全部文件 + 默认代码工具”，`files` 降为计划说明；删除“只能改清单”约束                                                                                                                                                                         |
+| `src/domain/task-plan.ts`   | 退役“test_command 引用的测试文件必须在 files 内”规则；执行已不再受文件清单限制，保留该规则会误拒合法任务包                                                                                                                                                          |
+| `src/runtime/service.ts`    | 移除交付时的越界阻断；`executeAdvance` 增加修复循环：验证阻断→归档旧产物→回研发→重新验证，任务包版本不变；`requestOperation('plan')` 与 `executeDevPlanning` 双处校验任务包冻结；新增 `reopenDeliveredTasks`；删除 `replanTask`、`rework` 与 `normalizeReplanFiles` |
+| `src/runtime/board.ts`      | 动作收敛为 `plan/approve/advance/verify/recover/build/deploy/stop/cancel`；已批准任务包不再出现 `plan`；删除 `replan`、`rework`                                                                                                                                     |
+| `src/index.ts`、`client.js` | 删除 `replan`/`rework` 端点与按钮；`plan` 端点透传 `confirmPlanChange` 与 `reason`                                                                                                                                                                                  |
+| 测试                        | 新增“执行可改计划外文件”“批准后计划冻结（含入队后批准的竞态）”“验证阻断自动回研发且版本不变”；退役越界拒绝、replan、rework 用例                                                                                                                                     |
 
 ### 37.2 行为与边界
 
@@ -1913,12 +1913,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 38.1 实现
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/runtime/service.ts` | 研发执行请求的权限从 `danger-full-access` 改为 `workspace-write`；越界写入由宿主沙箱拒绝，候选采集逻辑不变 |
+| 文件                     | 改动                                                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `src/runtime/service.ts` | 研发执行请求的权限从 `danger-full-access` 改为 `workspace-write`；越界写入由宿主沙箱拒绝，候选采集逻辑不变                     |
 | `src/runtime/prompts.ts` | 开发提示词明确“具体实现需要时只允许改动当前项目的文件，不允许改动其他项目的文件”；增加“未经任务要求与所有者许可不得改动版本号” |
-| `AGENTS.md` | 版本号变更规则：只在用户明确要求时变更，不得为安装/重装/修复/发布自行递增或回退 |
-| `docs/architecture.md` | 执行范围补充 `workspace-write`、当前项目边界与版本号约束 |
+| `AGENTS.md`              | 版本号变更规则：只在用户明确要求时变更，不得为安装/重装/修复/发布自行递增或回退                                                |
+| `docs/architecture.md`   | 执行范围补充 `workspace-write`、当前项目边界与版本号约束                                                                       |
 
 ### 38.2 验证
 
@@ -1946,16 +1946,16 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 39.1 实现
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/domain/diagnosis.ts` | 新增：`parseUnknownDiagnosis`（`root_cause`/`solution` 各 ≤100 个字符，超长/缺字段/空串拒绝）、`replaySafe`（按工作副本是否有非基线提交判定）、`renderUnknownFacts` |
-| `src/records/db.ts` | 新表 `requirement_unknown_diagnoses`：根因、方案、重放安全性、事实 JSON、报告路径与摘要、会话、关闭条数 |
-| `src/records/repository.ts` | `recordUnknownDiagnosis`、`unknownDiagnoses`、`latestUnknownDiagnosis` |
-| `src/runtime/service.ts` | `diagnoseUnknown()`：采集现场事实 → `diagnosis` 角色（无工具）→ 校验材料 → 程序判定重放安全 → 安全才关闭 unknown；`collectUnknownFacts()` |
-| `src/runtime/prompts.ts` | `unknownDiagnosisPrompt`：只给程序采集的事实，明确 100 字符上限与“不要空话” |
-| `src/runtime/agent-runner.ts` | 新增 `diagnosis` 角色 |
-| `src/runtime/board.ts` | 动作 `recover` → `diagnose`；新增 `diagnosis` 视图（根因/方案/安全性/关闭条数） |
-| `src/index.ts`、`client.js` | 新端点 `diagnose`；按钮改为「分析根因」，移除确认弹窗；详情显示诊断结果 |
+| 文件                          | 改动                                                                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/diagnosis.ts`     | 新增：`parseUnknownDiagnosis`（`root_cause`/`solution` 各 ≤100 个字符，超长/缺字段/空串拒绝）、`replaySafe`（按工作副本是否有非基线提交判定）、`renderUnknownFacts` |
+| `src/records/db.ts`           | 新表 `requirement_unknown_diagnoses`：根因、方案、重放安全性、事实 JSON、报告路径与摘要、会话、关闭条数                                                             |
+| `src/records/repository.ts`   | `recordUnknownDiagnosis`、`unknownDiagnoses`、`latestUnknownDiagnosis`                                                                                              |
+| `src/runtime/service.ts`      | `diagnoseUnknown()`：采集现场事实 → `diagnosis` 角色（无工具）→ 校验材料 → 程序判定重放安全 → 安全才关闭 unknown；`collectUnknownFacts()`                           |
+| `src/runtime/prompts.ts`      | `unknownDiagnosisPrompt`：只给程序采集的事实，明确 100 字符上限与“不要空话”                                                                                         |
+| `src/runtime/agent-runner.ts` | 新增 `diagnosis` 角色                                                                                                                                               |
+| `src/runtime/board.ts`        | 动作 `recover` → `diagnose`；新增 `diagnosis` 视图（根因/方案/安全性/关闭条数）                                                                                     |
+| `src/index.ts`、`client.js`   | 新端点 `diagnose`；按钮改为「分析根因」，移除确认弹窗；详情显示诊断结果                                                                                             |
 
 ### 39.2 判定权仍在程序
 
@@ -1986,12 +1986,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 40.1 诊断上限：字节 → 字符
 
-| 文件 | 改动 |
-| --- | --- |
+| 文件                      | 改动                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/domain/diagnosis.ts` | `DIAGNOSIS_TEXT_MAX_BYTES` → `DIAGNOSIS_TEXT_MAX_CHARS`；`byteLength` → `charLength`（按 Unicode 码点计数），报错文案改为“超过 100 个字符” |
-| `src/runtime/prompts.ts` | 提示词说明按字符计、汉字算 1 个字符 |
-| `src/runtime/service.ts` | 传参与报告字段改为 `charLimit` |
-| 测试 | 改为 100 字符边界；新增中英文混排与 emoji（代理对算 1 个字符）用例 |
+| `src/runtime/prompts.ts`  | 提示词说明按字符计、汉字算 1 个字符                                                                                                        |
+| `src/runtime/service.ts`  | 传参与报告字段改为 `charLimit`                                                                                                             |
+| 测试                      | 改为 100 字符边界；新增中英文混排与 emoji（代理对算 1 个字符）用例                                                                         |
 
 效果：100 个汉字现在可以通过（此前只有 33 个），中英文同一标准。
 
@@ -2041,11 +2041,11 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 41.2 修复
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/runtime/service.ts` | 开发回合超时/停止、审查回合未完成、验证任务超时/停止时，先写 `blocked` 运行记录（含具体原因）再返回 unknown |
-| `src/runtime/board.ts` | `resultUnknown` 只对“已开始但未收口”的任务为真：`running`、`blocked`、等待输入、等待人工；待执行任务不再误标 |
-| 测试 | 新增开发超时收口、按任务范围标记两项行为测试；沿用既有“等待输入仍算未知”用例 |
+| 文件                     | 改动                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `src/runtime/service.ts` | 开发回合超时/停止、审查回合未完成、验证任务超时/停止时，先写 `blocked` 运行记录（含具体原因）再返回 unknown  |
+| `src/runtime/board.ts`   | `resultUnknown` 只对“已开始但未收口”的任务为真：`running`、`blocked`、等待输入、等待人工；待执行任务不再误标 |
+| 测试                     | 新增开发超时收口、按任务范围标记两项行为测试；沿用既有“等待输入仍算未知”用例                                 |
 
 ### 41.3 验证
 
@@ -2073,12 +2073,12 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 42.1 实现
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/config.ts` | 新增 `defaultConfigPath`（`~/.forgeloop/config.json`，`FORGELOOP_CONFIG` 可覆盖）、`loadConfigFile`、`mergeConfig`、`loadConfigOrThrow`；文件缺失且无关键装载参数时装载失败，不静默回落 |
-| `src/index.ts` | `apply` 用 `loadConfigOrThrow(rawConfig)` 合并：宿主装载参数做底，独立文件覆盖 |
-| `tests/config-file.test.ts` | 覆盖缺失、合法、非法 JSON/非对象、覆盖顺序、拒绝静默回落 |
-| `~/.dsh/profiles/web/cordis.patch.yml` | 删除 ForgeLoop 的 `config:` 块，只留 `- id: forgeloop` 与说明；业务配置移入 `~/.forgeloop/config.json`（含 `autoAdvance: true`） |
+| 文件                                   | 改动                                                                                                                                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/config.ts`                        | 新增 `defaultConfigPath`（`~/.forgeloop/config.json`，`FORGELOOP_CONFIG` 可覆盖）、`loadConfigFile`、`mergeConfig`、`loadConfigOrThrow`；文件缺失且无关键装载参数时装载失败，不静默回落 |
+| `src/index.ts`                         | `apply` 用 `loadConfigOrThrow(rawConfig)` 合并：宿主装载参数做底，独立文件覆盖                                                                                                          |
+| `tests/config-file.test.ts`            | 覆盖缺失、合法、非法 JSON/非对象、覆盖顺序、拒绝静默回落                                                                                                                                |
+| `~/.dsh/profiles/web/cordis.patch.yml` | 删除 ForgeLoop 的 `config:` 块，只留 `- id: forgeloop` 与说明；业务配置移入 `~/.forgeloop/config.json`（含 `autoAdvance: true`）                                                        |
 
 ### 42.2 迁移中发现的问题
 
@@ -2123,16 +2123,16 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 43.2 改法
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/domain/status.ts` | 删除 `REQUEST_UNKNOWN`；请求状态收敛为 `pending → claimed → done / failed / dismissed` |
-| `src/records/repository.ts` | `markClaimedUnknown` → `failClaimedOnRestart`（claimed 判 failed）；新增 `migrateLegacyUnknown` 把旧库 unknown 迁成 failed，保留原 detail |
-| `src/runtime/service.ts` | 新增 `recoverInterrupted`：迁移旧 unknown、收口 claimed、删除该任务包的一次性工作副本，并把需求标为“可重新执行”；删除 `recover`/`diagnoseUnknown`/诊断事实采集；`retryTask` 不再要求 recovery 确认；`accept` 不再因 unknown 拒绝 |
-| `src/runtime/coordinator.ts` | 启动时调用 `recoverInterrupted`，`last_recovery` 记录中断请求、迁移数与丢弃的工作副本；执行异常按 failed 落库 |
-| `src/runtime/service.ts`（补充） | `executeRequest` 在请求层把内部 `unknown` 统一收敛为 `failed`（附“按失败收口，可重新执行”），中断/超时不再写进请求状态 |
-| 删除 | `src/domain/diagnosis.ts`、未知诊断提示词、`diagnosis` Agent 角色、`requirement_unknown_diagnoses` 表、`diagnose`/`recover` 端点、看板 `diagnosis` 视图、客户端诊断按钮与“结果未知”标记 |
-| 看板 | 任务不再有 `resultUnknown`；请求失败作为 attention 问题展示；`requeue`/`autoAdvance` 负责重新执行 |
-| 测试 | 删除诊断与 unknown 用例；改写重启收口、重试、requeue、impact 与看板用例为 failed 语义 |
+| 文件                             | 改动                                                                                                                                                                                                                             |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/status.ts`           | 删除 `REQUEST_UNKNOWN`；请求状态收敛为 `pending → claimed → done / failed / dismissed`                                                                                                                                           |
+| `src/records/repository.ts`      | `markClaimedUnknown` → `failClaimedOnRestart`（claimed 判 failed）；新增 `migrateLegacyUnknown` 把旧库 unknown 迁成 failed，保留原 detail                                                                                        |
+| `src/runtime/service.ts`         | 新增 `recoverInterrupted`：迁移旧 unknown、收口 claimed、删除该任务包的一次性工作副本，并把需求标为“可重新执行”；删除 `recover`/`diagnoseUnknown`/诊断事实采集；`retryTask` 不再要求 recovery 确认；`accept` 不再因 unknown 拒绝 |
+| `src/runtime/coordinator.ts`     | 启动时调用 `recoverInterrupted`，`last_recovery` 记录中断请求、迁移数与丢弃的工作副本；执行异常按 failed 落库                                                                                                                    |
+| `src/runtime/service.ts`（补充） | `executeRequest` 在请求层把内部 `unknown` 统一收敛为 `failed`（附“按失败收口，可重新执行”），中断/超时不再写进请求状态                                                                                                           |
+| 删除                             | `src/domain/diagnosis.ts`、未知诊断提示词、`diagnosis` Agent 角色、`requirement_unknown_diagnoses` 表、`diagnose`/`recover` 端点、看板 `diagnosis` 视图、客户端诊断按钮与“结果未知”标记                                          |
+| 看板                             | 任务不再有 `resultUnknown`；请求失败作为 attention 问题展示；`requeue`/`autoAdvance` 负责重新执行                                                                                                                                |
+| 测试                             | 删除诊断与 unknown 用例；改写重启收口、重试、requeue、impact 与看板用例为 failed 语义                                                                                                                                            |
 
 ### 43.3 语义变化
 
@@ -2197,16 +2197,16 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 44.2 改法
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/runtime/service.ts` | 删除任务执行返回值中的 `unknown`：分析/规划/评审/验证/业务终审/推进/交付的停止、超时、中断统一收敛为 `failed` 或 `blocked`，并写明“任务未交付、一次性副本可丢弃、可重新执行”；补齐交付阶段正式测试被停止/超时时缺失的终态运行记录，未预期异常也写失败终态；失败轮次由执行结果显式的 `interrupted` 标记计一轮 |
-| `src/runtime/agent-runner.ts`、`src/records/repository.ts` | 中断原因改为确定表述；启动时仍为 `running` 的任务运行收口为 `blocked`，说明副本会在下次执行时重建，不再要求“核对后重试” |
-| `src/domain/ops.ts` | 删除 `OPS_UNKNOWN` 与事件结果未知统计；新增动作尝试状态 `running/succeeded/failed/interrupted`、活动事件集合与中断根因报告结构/解析（有长度上限、至少一条事实） |
-| `src/runtime/ops.ts` | 超时/中止记 `failed`（没有退出码，事件转 `unresolved`；超时后再用登记检查判定实际状态）；宿主中断记 `interrupted` 并转 `unresolved`；新增 `interruption` 事实观测与一次性的运维 Agent 根因报告（`interruption_report`，失败记 `interruption_error`，不重试、不改变状态、不授权重放）；删除 `confirmUnknown` 与关闭前的人工核对门禁 |
-| `src/records/repository.ts`、`src/records/db.ts` | `markRunningOpsActionsUnknown` → `markRunningOpsActionsInterrupted`；新增旧库运维 `unknown` 迁移（事件→`unresolved`、动作→`interrupted`）；删除 `result_unknown` 字段与写入 |
-| `src/runtime/prompts.ts` | 新增中断根因上报提示词：只给已记录动作、参数、授权来源、日志尾部与观测摘要，要求区分事实与可能、给出人工下一步，禁止自动执行与猜测副作用 |
-| `src/index.ts`、`client.js` | 删除 `ops-confirm-unknown` 端点、`confirmUnknown`/`confirmRecovery` 参数与页面按钮；删除未知请求/未知事件标签、死代码与两步确认；失败请求明确显示为“请求失败待处理”；运维处置记录新增尝试状态标签 |
-| 测试 | 新增/改写中断收口、旧 unknown 迁移、超时转未解决、根因报告解析与只上报一次、关闭不再需要核对、看板/词典无未知标签等行为测试 |
+| 文件                                                       | 改动                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/service.ts`                                   | 删除任务执行返回值中的 `unknown`：分析/规划/评审/验证/业务终审/推进/交付的停止、超时、中断统一收敛为 `failed` 或 `blocked`，并写明“任务未交付、一次性副本可丢弃、可重新执行”；补齐交付阶段正式测试被停止/超时时缺失的终态运行记录，未预期异常也写失败终态；失败轮次由执行结果显式的 `interrupted` 标记计一轮                       |
+| `src/runtime/agent-runner.ts`、`src/records/repository.ts` | 中断原因改为确定表述；启动时仍为 `running` 的任务运行收口为 `blocked`，说明副本会在下次执行时重建，不再要求“核对后重试”                                                                                                                                                                                                            |
+| `src/domain/ops.ts`                                        | 删除 `OPS_UNKNOWN` 与事件结果未知统计；新增动作尝试状态 `running/succeeded/failed/interrupted`、活动事件集合与中断根因报告结构/解析（有长度上限、至少一条事实）                                                                                                                                                                    |
+| `src/runtime/ops.ts`                                       | 超时/中止记 `failed`（没有退出码，事件转 `unresolved`；超时后再用登记检查判定实际状态）；宿主中断记 `interrupted` 并转 `unresolved`；新增 `interruption` 事实观测与一次性的运维 Agent 根因报告（`interruption_report`，失败记 `interruption_error`，不重试、不改变状态、不授权重放）；删除 `confirmUnknown` 与关闭前的人工核对门禁 |
+| `src/records/repository.ts`、`src/records/db.ts`           | `markRunningOpsActionsUnknown` → `markRunningOpsActionsInterrupted`；新增旧库运维 `unknown` 迁移（事件→`unresolved`、动作→`interrupted`）；删除 `result_unknown` 字段与写入                                                                                                                                                        |
+| `src/runtime/prompts.ts`                                   | 新增中断根因上报提示词：只给已记录动作、参数、授权来源、日志尾部与观测摘要，要求区分事实与可能、给出人工下一步，禁止自动执行与猜测副作用                                                                                                                                                                                           |
+| `src/index.ts`、`client.js`                                | 删除 `ops-confirm-unknown` 端点、`confirmUnknown`/`confirmRecovery` 参数与页面按钮；删除未知请求/未知事件标签、死代码与两步确认；失败请求明确显示为“请求失败待处理”；运维处置记录新增尝试状态标签                                                                                                                                  |
+| 测试                                                       | 新增/改写中断收口、旧 unknown 迁移、超时转未解决、根因报告解析与只上报一次、关闭不再需要核对、看板/词典无未知标签等行为测试                                                                                                                                                                                                        |
 
 ### 44.3 收敛后的状态
 
@@ -2298,21 +2298,21 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 46.2 主要改动
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/domain/agents.ts` | 新增唯一四身份词表与阶段常量；任何新子角色都会被类型和契约测试挡回 |
-| `src/domain/admission.ts` | 新增确定性系统准入：可信来源、所有者、项目、需求版本、分析版本、澄清项；输出绑定依据与是否允许代码提交 |
-| `src/domain/status.ts` | 新增 `specified`、`developing`、`verifying`、`committed`；`committed` 为终态 |
-| `src/config.ts` | 新增 `autonomy.enabled/allowCodeCommit/trustedSources/commitCheckCommand`；新增需求级研发工作区与提交证据目录 |
-| `src/records/db.ts`、`repository.ts` | 新增 `requirement_admissions`、`requirement_code_candidates`、`requirement_commits`；准入与人类批准、候选与候选包、提交与临时快照分开记录 |
-| `src/runtime/agent-runner.ts` | 角色收敛为四身份；新增可复用的 `open/send/close` 连续会话，同一研发过程不再每轮新建 Agent |
-| `src/runtime/integration.ts` | 新增候选导出与受控提交：真实项目干净/基线一致检查、临时工作树检查、只暂存本候选、记录提交与检查日志 |
-| `src/runtime/service.ts` | 新增产品→准入→研发→验证→定向修复→提交的连续推进；准入后自动排队；验证与业务验收同一会话；修复保留现场和旧候选；提交只包含本需求 |
-| `src/runtime/coordinator.ts` | 自动推进判定统一委托 `autoAdvanceRequests`；覆盖已准入的 `specified/developing/verifying`，不再只服务旧 `approved/executing` |
-| `src/runtime/prompts.ts` | 提示词改为四身份；研发方案允许只读工具；验证基线由需求说明生成；业务验收由验证 Agent 完成 |
-| `client.js` | 新增四个状态的中英文标签与色调；历史批准/验收入口保留给旧记录 |
-| `tests/admission.test.ts`、`tests/continuous-flow.test.ts` | 新增准入正反例、四身份、可信需求自动分析→准入→研发→验证→提交、定向修复保留成果、脏项目阻断提交等行为测试 |
-| 其他测试 | 角色断言改为四身份；旧批准/验收路径保留为历史兼容测试；协调器自动推进期望同步 |
+| 文件                                                       | 改动                                                                                                                                      |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/agents.ts`                                     | 新增唯一四身份词表与阶段常量；任何新子角色都会被类型和契约测试挡回                                                                        |
+| `src/domain/admission.ts`                                  | 新增确定性系统准入：可信来源、所有者、项目、需求版本、分析版本、澄清项；输出绑定依据与是否允许代码提交                                    |
+| `src/domain/status.ts`                                     | 新增 `specified`、`developing`、`verifying`、`committed`；`committed` 为终态                                                              |
+| `src/config.ts`                                            | 新增 `autonomy.enabled/allowCodeCommit/trustedSources/commitCheckCommand`；新增需求级研发工作区与提交证据目录                             |
+| `src/records/db.ts`、`repository.ts`                       | 新增 `requirement_admissions`、`requirement_code_candidates`、`requirement_commits`；准入与人类批准、候选与候选包、提交与临时快照分开记录 |
+| `src/runtime/agent-runner.ts`                              | 角色收敛为四身份；新增可复用的 `open/send/close` 连续会话，同一研发过程不再每轮新建 Agent                                                 |
+| `src/runtime/integration.ts`                               | 新增候选导出与受控提交：真实项目干净/基线一致检查、临时工作树检查、只暂存本候选、记录提交与检查日志                                       |
+| `src/runtime/service.ts`                                   | 新增产品→准入→研发→验证→定向修复→提交的连续推进；准入后自动排队；验证与业务验收同一会话；修复保留现场和旧候选；提交只包含本需求           |
+| `src/runtime/coordinator.ts`                               | 自动推进判定统一委托 `autoAdvanceRequests`；覆盖已准入的 `specified/developing/verifying`，不再只服务旧 `approved/executing`              |
+| `src/runtime/prompts.ts`                                   | 提示词改为四身份；研发方案允许只读工具；验证基线由需求说明生成；业务验收由验证 Agent 完成                                                 |
+| `client.js`                                                | 新增四个状态的中英文标签与色调；历史批准/验收入口保留给旧记录                                                                             |
+| `tests/admission.test.ts`、`tests/continuous-flow.test.ts` | 新增准入正反例、四身份、可信需求自动分析→准入→研发→验证→提交、定向修复保留成果、脏项目阻断提交等行为测试                                  |
+| 其他测试                                                   | 角色断言改为四身份；旧批准/验收路径保留为历史兼容测试；协调器自动推进期望同步                                                             |
 
 ### 46.3 正常路径与人工节点
 
@@ -2484,7 +2484,6 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 未 push、未打 tag、未改版本号；未触碰生产旧需求 `req-20261030134652-e934a6`，未改模型路由/凭据。
 - 一次真实运行中把 recordsRoot 放在项目 `.cache` 下，导致研发工作区落在真实 Git 根内、宿主允许
   直接改写真实项目；本轮改用项目外记录根后复现为干净候选。生产记录根在项目外。
-
 
 ## 50. 隔离故障注入的真实定向修复与正式部署（2026-10-31）
 
@@ -2683,15 +2682,15 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 44.1 已落地
 
-| 项 | 内容 |
-| --- | --- |
-| ESLint | ESLint 9 flat config；`src` 用 typescript-eslint 类型感知 `recommendedTypeChecked`，启用 `no-floating-promises`、`no-misused-promises`、`await-thenable`、`switch-exhaustiveness-check`、`no-explicit-any`、`max-depth(7)`；`tests`/`scripts` 用无类型 `recommended`，避免为测试再建 program |
-| Prettier | 统一格式；`make format` 只检查，`make format-write` 写入；`.prettierignore` 排除 JSON/YAML/生成物 |
-| TypeScript | 新增 `noUnusedLocals`、`noUnusedParameters`、`noImplicitReturns`、`useUnknownInCatchVariables`、`allowUnreachableCode: false`、`allowUnusedLabels: false` |
-| 测试池 | vitest 从 threads 改为 forks：threads 池下 spawn 子进程的用例会卡住 worker RPC，实测单文件 22 分钟、全量多处 20 秒超时；forks 后 54 个文件、585 项正常完成 |
-| 覆盖率 | 关键文件单独门槛：`service.ts` 85/78/92、`coordinator.ts` 90/83/99、`repository.ts` 97/86/98、`verification.ts` 94/88/99、`admission.ts` 与 `retry-policy.ts` 100/100/100（行/分支/函数） |
-| CI | `quality.yml` 增加 `make format`；`make check` = typecheck + lint + contracts + tests |
-| 代码清理 | 修复 lint 暴露的未使用导入/变量、`require()` 导入、索引签名取值；格式化一次性应用到 `src`/`tests`/`scripts` |
+| 项         | 内容                                                                                                                                                                                                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ESLint     | ESLint 9 flat config；`src` 用 typescript-eslint 类型感知 `recommendedTypeChecked`，启用 `no-floating-promises`、`no-misused-promises`、`await-thenable`、`switch-exhaustiveness-check`、`no-explicit-any`、`max-depth(7)`；`tests`/`scripts` 用无类型 `recommended`，避免为测试再建 program |
+| Prettier   | 统一格式；`make format` 只检查，`make format-write` 写入；`.prettierignore` 排除 JSON/YAML/生成物                                                                                                                                                                                            |
+| TypeScript | 新增 `noUnusedLocals`、`noUnusedParameters`、`noImplicitReturns`、`useUnknownInCatchVariables`、`allowUnreachableCode: false`、`allowUnusedLabels: false`                                                                                                                                    |
+| 测试池     | vitest 从 threads 改为 forks：threads 池下 spawn 子进程的用例会卡住 worker RPC，实测单文件 22 分钟、全量多处 20 秒超时；forks 后 54 个文件、585 项正常完成                                                                                                                                   |
+| 覆盖率     | 关键文件单独门槛：`service.ts` 85/78/92、`coordinator.ts` 90/83/99、`repository.ts` 97/86/98、`verification.ts` 94/88/99、`admission.ts` 与 `retry-policy.ts` 100/100/100（行/分支/函数）                                                                                                    |
+| CI         | `quality.yml` 增加 `make format`；`make check` = typecheck + lint + contracts + tests                                                                                                                                                                                                        |
+| 代码清理   | 修复 lint 暴露的未使用导入/变量、`require()` 导入、索引签名取值；格式化一次性应用到 `src`/`tests`/`scripts`                                                                                                                                                                                  |
 
 ### 44.2 结果
 
@@ -2701,16 +2700,16 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 44.3 ratchet（暂缓项，配置中有显式说明）
 
-| 项 | 现状 | 原因 |
-| --- | --- | --- |
-| `strictTypeChecked` 全量 | 未启用 | 剩余 `no-non-null-assertion` 35 处、`no-unnecessary-condition` 29 处，多为宿主/JSON 防御式检查；逐条判断后再开，避免用 disable 注释刷绿 |
-| `no-useless-assignment` | 关闭 | 9 处为 `try/catch` 前初始化；先记录，不与正确性门禁混在一起 |
-| `require-await` | 关闭 | 宿主接口本身是 async 形状，方法体不一定 await |
-| `exactOptionalPropertyTypes` | 未开 | 需要逐模块处理“缺省 vs undefined”语义 |
-| `noPropertyAccessFromIndexSignature` | 未开 | 会引入 300+ 处索引访问改写，收益低于成本 |
-| 变异测试 / 性质测试 / 故障注入 | 未接入 | 需要独立批次与运行时预算 |
-| `service.ts` 拆分 | 未做 | 5,836 行，需按 analyze/plan/execute/verify/release/recover 独立重构 |
-| DB 行 schema | 未做 | 当前仍靠 `as` 收窄；与 219 处断言的收敛一起做 |
+| 项                                   | 现状   | 原因                                                                                                                                    |
+| ------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `strictTypeChecked` 全量             | 未启用 | 剩余 `no-non-null-assertion` 35 处、`no-unnecessary-condition` 29 处，多为宿主/JSON 防御式检查；逐条判断后再开，避免用 disable 注释刷绿 |
+| `no-useless-assignment`              | 关闭   | 9 处为 `try/catch` 前初始化；先记录，不与正确性门禁混在一起                                                                             |
+| `require-await`                      | 关闭   | 宿主接口本身是 async 形状，方法体不一定 await                                                                                           |
+| `exactOptionalPropertyTypes`         | 未开   | 需要逐模块处理“缺省 vs undefined”语义                                                                                                   |
+| `noPropertyAccessFromIndexSignature` | 未开   | 会引入 300+ 处索引访问改写，收益低于成本                                                                                                |
+| 变异测试 / 性质测试 / 故障注入       | 未接入 | 需要独立批次与运行时预算                                                                                                                |
+| `service.ts` 拆分                    | 未做   | 5,836 行，需按 analyze/plan/execute/verify/release/recover 独立重构                                                                     |
+| DB 行 schema                         | 未做   | 当前仍靠 `as` 收窄；与 219 处断言的收敛一起做                                                                                           |
 
 ### 44.4 取舍
 
@@ -2725,11 +2724,11 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 按单文件实测耗时把测试拆成两层，避免每个 PR 都跑候选构建与完整流水线：
 
-| 层 | 内容 | 入口 |
-| --- | --- | --- |
-| 快速 | 42 个文件、364 项；不含候选构建、完整四 Agent 流水线、独立验证、契约夹具 | `make check-fast`（typecheck + lint + contracts + fast tests），`quality.yml` 每次 push/PR |
-| 全量 | 55 个文件、597 项；包含慢用例（约 45s 墙钟） | `make check`，`nightly.yml` 每日 |
-| 覆盖率 / 变异 | 全量测试 + Stryker | `nightly.yml` 的 `make coverage`、`make mutation` |
+| 层            | 内容                                                                     | 入口                                                                                       |
+| ------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| 快速          | 42 个文件、364 项；不含候选构建、完整四 Agent 流水线、独立验证、契约夹具 | `make check-fast`（typecheck + lint + contracts + fast tests），`quality.yml` 每次 push/PR |
+| 全量          | 55 个文件、597 项；包含慢用例（约 45s 墙钟）                             | `make check`，`nightly.yml` 每日                                                           |
+| 覆盖率 / 变异 | 全量测试 + Stryker                                                       | `nightly.yml` 的 `make coverage`、`make mutation`                                          |
 
 慢用例清单维护在 `vitest.fast.config.ts` 的 `SLOW_TEST_FILES`；新增慢用例时同步加入。
 快速层的目标是把 PR 反馈压到 1 分钟内，不是用超时或跳过来“通过”。
@@ -2757,13 +2756,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 45.4 仍未完成
 
-| 项 | 原因 |
-| --- | --- |
-| `service.ts` 拆分（5,836 行） | 需要按 analyze/plan/execute/verify/release/recover 独立重构并重跑全部行为测试，不能与门禁接入同批 |
-| DB 行 schema 化 | 与 219 处断言收敛一起做；当前仍靠 `as` 收窄 |
-| 故障注入（claim/agent/material 崩溃点） | 需要子进程夹具与稳定时钟；现有恢复测试用“模拟 claimed”覆盖语义 |
-| 浏览器 E2E / `verify-plugin` 发布门禁 | 需要模型凭据与固定 profile，不在公共 CI；仍按发布清单人工执行 |
-| `no-non-null-assertion` / `no-unnecessary-condition` 清零 | 逐条判断防御式校验与真实风险，避免用 disable 注释刷绿 |
+| 项                                                        | 原因                                                                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `service.ts` 拆分（5,836 行）                             | 需要按 analyze/plan/execute/verify/release/recover 独立重构并重跑全部行为测试，不能与门禁接入同批 |
+| DB 行 schema 化                                           | 与 219 处断言收敛一起做；当前仍靠 `as` 收窄                                                       |
+| 故障注入（claim/agent/material 崩溃点）                   | 需要子进程夹具与稳定时钟；现有恢复测试用“模拟 claimed”覆盖语义                                    |
+| 浏览器 E2E / `verify-plugin` 发布门禁                     | 需要模型凭据与固定 profile，不在公共 CI；仍按发布清单人工执行                                     |
+| `no-non-null-assertion` / `no-unnecessary-condition` 清零 | 逐条判断防御式校验与真实风险，避免用 disable 注释刷绿                                             |
 
 这些项已写入 ratchet，不计入“已完成”。
 
@@ -2771,14 +2770,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 46.1 P2：规模预算与契约
 
-| 项 | 结果 |
-| --- | --- |
-| 行数规则 | `max-lines` 2,000（`skipBlankLines`，注释计入）、`max-lines-per-function` 300、`max-statements` 40、`complexity` 15、`max-params` 4 |
-| 存量冻结 | ESLint 10 bulk suppressions：15 个文件、72 处；新增违规立即失败，`─prune-suppressions` 只能减少 |
-| Token 预算 | `scripts/ts/token-budget.ts`：文件上限 25,000 tokens；存量 `service.ts` 基线 69,843（只减不增）；`make budget` 纳入 `check-static` |
-| 类型断言预算 | `scripts/ts/assertion-budget.ts`：218 处基线（排除 `as const`），只减不增；`make assertions` 纳入 `check-static` |
-| Domain 纯度 | 契约脚本禁止 `src/domain` 导入 `node:fs/net/http/child_process/os` 等宿主副作用模块 |
-| `service.ts` 第一段拆分 | 纯辅助函数抽到 `src/runtime/service-helpers.ts`（208 行）；`service.ts` 6,416 → 6,229 行，tokens 71,887 → 69,843 |
+| 项                      | 结果                                                                                                                                |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 行数规则                | `max-lines` 2,000（`skipBlankLines`，注释计入）、`max-lines-per-function` 300、`max-statements` 40、`complexity` 15、`max-params` 4 |
+| 存量冻结                | ESLint 10 bulk suppressions：15 个文件、72 处；新增违规立即失败，`─prune-suppressions` 只能减少                                     |
+| Token 预算              | `scripts/ts/token-budget.ts`：文件上限 25,000 tokens；存量 `service.ts` 基线 69,843（只减不增）；`make budget` 纳入 `check-static`  |
+| 类型断言预算            | `scripts/ts/assertion-budget.ts`：218 处基线（排除 `as const`），只减不增；`make assertions` 纳入 `check-static`                    |
+| Domain 纯度             | 契约脚本禁止 `src/domain` 导入 `node:fs/net/http/child_process/os` 等宿主副作用模块                                                 |
+| `service.ts` 第一段拆分 | 纯辅助函数抽到 `src/runtime/service-helpers.ts`（208 行）；`service.ts` 6,416 → 6,229 行，tokens 71,887 → 69,843                    |
 
 说明：`service.ts` 仍 6,229 行、9 个函数超过 300 行，距 2,000 行目标尚远；本批只完成“可安全抽出的纯函数”第一段，
 后续按 analyze/plan/execute/verify/release/recover 继续拆。
@@ -2808,14 +2807,14 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 46.5 仍未完成
 
-| 项 | 现状 |
-| --- | --- |
-| `service.ts` 2,000 行目标 | 6,229 行；已完成纯辅助模块拆分 |
-| 9 个超长函数（368–464 行） | 仍由 suppressions 冻结 |
-| DB row schema、`as` < 20 | 未开始；断言基线 218 |
-| 浏览器 E2E、`verify-plugin` 自动门禁 | 仅发布工作流手动/自托管触发 |
-| 分支保护 | 需仓库设置启用 |
-| `no-non-null-assertion` / `no-unnecessary-condition` | 仍为显式豁免（35 / 29） |
+| 项                                                   | 现状                           |
+| ---------------------------------------------------- | ------------------------------ |
+| `service.ts` 2,000 行目标                            | 6,229 行；已完成纯辅助模块拆分 |
+| 9 个超长函数（368–464 行）                           | 仍由 suppressions 冻结         |
+| DB row schema、`as` < 20                             | 未开始；断言基线 218           |
+| 浏览器 E2E、`verify-plugin` 自动门禁                 | 仅发布工作流手动/自托管触发    |
+| 分支保护                                             | 需仓库设置启用                 |
+| `no-non-null-assertion` / `no-unnecessary-condition` | 仍为显式豁免（35 / 29）        |
 
 ## 47. P2 续：board 路由拆分与错误消息收敛（2026-11-01）
 
@@ -2843,13 +2842,13 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 47.4 剩余
 
-| 项 | 现状 |
-| --- | --- |
-| board 路由复杂度 | 4 处 complexity/max-statements 进入 suppressions；下一步拆每端点校验 |
-| `service.ts` | 6,229 行，仍 >2,000 |
-| 其余超长函数 | `buildStatusBoard`、`buildImpactFacts` 等仍 >300 行 |
-| DB row schema / `as` <20 | 未开始；断言 165 |
-| E2E / 分支保护 | 未完成 |
+| 项                       | 现状                                                                 |
+| ------------------------ | -------------------------------------------------------------------- |
+| board 路由复杂度         | 4 处 complexity/max-statements 进入 suppressions；下一步拆每端点校验 |
+| `service.ts`             | 6,229 行，仍 >2,000                                                  |
+| 其余超长函数             | `buildStatusBoard`、`buildImpactFacts` 等仍 >300 行                  |
+| DB row schema / `as` <20 | 未开始；断言 165                                                     |
+| E2E / 分支保护           | 未完成                                                               |
 
 ### 47.5 board 端点处理器拆分（2026-11-01 续）
 
@@ -3150,6 +3149,7 @@ suppressions 20、service.ts 5,986 行。
 本轮为当前目标轮次上限；目标**未完成**，不标记 complete。已交付与剩余如下。
 
 已交付：
+
 - 函数级豁免从 72 条 suppressions 降到 **20 条**；`executeVerification` 仅剩
   `max-statements`（83 > 40），行数/复杂度已达标。
 - 拆出模块：`build-materials`、`deployment-inspect`、`acceptance-binding`、
@@ -3159,6 +3159,7 @@ suppressions 20、service.ts 5,986 行。
 - 分支保护与 E2E 现状写入 `docs/branch-protection.md`，未落实项已标注。
 
 未完成（下一目标必须继续）：
+
 1. `executeVerification` max-statements 清零（命令执行与记录段整体移出模块）。
 2. service.ts 6,126 行 → ≤2,000；repository.ts 2,403 行 → ≤2,000。
 3. DB 行 schema 落地；`as` 断言 163 → <20（先建行类型，再按表替换）。
@@ -3494,19 +3495,19 @@ suppressions 20、service.ts 5,986 行。
 
 截至本轮（HEAD 前的最近一次全量门槛均通过）：
 
-| 项目 | 当前 | 目标 | 状态 |
-| --- | --- | --- | --- |
-| ESLint 规模/复杂度/参数豁免 | `eslint-suppressions.json` 为空 `{}` | 清零 | 完成 |
-| service.ts 行数 | 1,969 | ≤2,000 | 完成 |
-| repository.ts 行数 | 1,837 | ≤2,000 | 完成 |
-| 单函数行数 | 全部 ≤300（拆分后自然满足） | ≤300 | 完成 |
-| `as` 断言（AST 口径） | 71 | <20 | 未完成 |
-| `no-non-null-assertion` | 32 处，规则全局关闭 | 启用并清零 | 未完成 |
-| `no-unnecessary-condition` | 25 处，规则全局关闭 | 启用并清零 | 未完成 |
-| DB 行 schema | 枚举解析器（stage/status/severity）+ 记录接口 | 全表覆盖 | 部分 |
-| E2E 门禁 | 无 Playwright 套件、无 `make e2e` | 接入 CI | 未完成 |
-| verify-plugin 自动门禁 | 手动 `make verify-plugin` | CI 必需检查 | 未完成 |
-| 分支保护 | 档位 1 已开启（quality/security，strict，禁强推/删除） | 档位 1 | 完成 |
+| 项目                        | 当前                                                   | 目标        | 状态   |
+| --------------------------- | ------------------------------------------------------ | ----------- | ------ |
+| ESLint 规模/复杂度/参数豁免 | `eslint-suppressions.json` 为空 `{}`                   | 清零        | 完成   |
+| service.ts 行数             | 1,969                                                  | ≤2,000      | 完成   |
+| repository.ts 行数          | 1,837                                                  | ≤2,000      | 完成   |
+| 单函数行数                  | 全部 ≤300（拆分后自然满足）                            | ≤300        | 完成   |
+| `as` 断言（AST 口径）       | 71                                                     | <20         | 未完成 |
+| `no-non-null-assertion`     | 32 处，规则全局关闭                                    | 启用并清零  | 未完成 |
+| `no-unnecessary-condition`  | 25 处，规则全局关闭                                    | 启用并清零  | 未完成 |
+| DB 行 schema                | 枚举解析器（stage/status/severity）+ 记录接口          | 全表覆盖    | 部分   |
+| E2E 门禁                    | 无 Playwright 套件、无 `make e2e`                      | 接入 CI     | 未完成 |
+| verify-plugin 自动门禁      | 手动 `make verify-plugin`                              | CI 必需检查 | 未完成 |
+| 分支保护                    | 档位 1 已开启（quality/security，strict，禁强推/删除） | 档位 1      | 完成   |
 
 后续接手建议（按收益排序）：
 
@@ -3656,3 +3657,12 @@ suppressions 20、service.ts 5,986 行。
 - `session/index` 的 `ctx.on` 改动因 `Reflect.apply` 触发 `no-unsafe-*` 已回退，保留原受控断言。
 - `as` 断言：业务 0、边界 **34 → 30**（白名单 15 文件不变），基线 30。
 - `make check` 59 文件 611 项通过；coverage 91.19/84.37/96.88；mutation 97.80。
+
+### 97. E2E 接入 CI workflow（新目标 Round 15）
+
+- `.github/workflows/quality.yml` 新增 `e2e` job：checkout + npm ci →
+  `npm install -g @deepseek-ai/dsh@0.2.1-rc.4` → `make e2e`；不依赖模型凭据。
+- 确认 DSH 的 npm 分发名与版本：`@deepseek-ai/dsh`，本地宿主为 `0.2.1-rc.4`，registry 最新 `0.2.1-rc.5`。
+- 该 job **尚未在 GitHub runner 实跑**，也未加入必需检查；文档如实标注。
+- 顺手修复 `assertion-policy.test.ts` 的 Prettier 格式（上一批遗漏）。
+- 本地 `make e2e` 通过；`make check` 59 文件 611 项通过；`make format` 通过。

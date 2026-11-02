@@ -6,14 +6,14 @@
 
 ## 已落实：仓库内可执行门禁
 
-| 门禁 | 触发 | 命令 | 失败即阻断 |
-| --- | --- | --- | --- |
-| 快速质量 | PR / push 到 `main` | `.github/workflows/quality.yml` → `make check-fast` | 是 |
-| 格式 | PR / push | `make format`（Prettier 检查） | 是 |
-| 全量质量 | 每日定时 + 手动 | `.github/workflows/nightly.yml` → `make check` + `make coverage` + `make mutation` | 是（nightly） |
-| 发布 | 手动 | `.github/workflows/release.yml` → `make check`、`coverage`、`sbom`、`package` | 是（release） |
-| 产权 | 任意改动 | `.github/CODEOWNERS` 指定所有者审阅 | 依赖 GitHub 设置 |
-| 契约 | 本地/CI | `make contracts`（分层、依赖、端点、文档链接） | 是 |
+| 门禁     | 触发                | 命令                                                                               | 失败即阻断       |
+| -------- | ------------------- | ---------------------------------------------------------------------------------- | ---------------- |
+| 快速质量 | PR / push 到 `main` | `.github/workflows/quality.yml` → `make check-fast`                                | 是               |
+| 格式     | PR / push           | `make format`（Prettier 检查）                                                     | 是               |
+| 全量质量 | 每日定时 + 手动     | `.github/workflows/nightly.yml` → `make check` + `make coverage` + `make mutation` | 是（nightly）    |
+| 发布     | 手动                | `.github/workflows/release.yml` → `make check`、`coverage`、`sbom`、`package`      | 是（release）    |
+| 产权     | 任意改动            | `.github/CODEOWNERS` 指定所有者审阅                                                | 依赖 GitHub 设置 |
+| 契约     | 本地/CI             | `make contracts`（分层、依赖、端点、文档链接）                                     | 是               |
 
 真实宿主验收（`make verify-plugin`）需要模型凭据与自托管 runner，当前只在
 `release.yml` 中以 `vars.ENABLE_REAL_HOST` 开关控制，**默认不执行**，因此不能算作
@@ -23,14 +23,14 @@ PR 的强制门禁。
 
 `main` 已通过 REST API 配置分支保护，实际值如下（`gh api` 可查）：
 
-| 配置 | 值 | 说明 |
-| --- | --- | --- |
-| Required status checks | `quality`、`security` | 来自 `quality.yml` 的两个 job |
-| Require branches to be up to date | 开启（`strict: true`） | PR 合并前必须先同步 `main` |
-| Allow force pushes | 关闭 | 禁止强推覆盖历史 |
-| Allow deletions | 关闭 | 禁止删除 `main` |
-| Required pull request reviews | 关闭 | 个人账号无法自我 approve，避免锁死 |
-| Enforce admins | 关闭 | 保留个人紧急处置能力 |
+| 配置                              | 值                     | 说明                               |
+| --------------------------------- | ---------------------- | ---------------------------------- |
+| Required status checks            | `quality`、`security`  | 来自 `quality.yml` 的两个 job      |
+| Require branches to be up to date | 开启（`strict: true`） | PR 合并前必须先同步 `main`         |
+| Allow force pushes                | 关闭                   | 禁止强推覆盖历史                   |
+| Allow deletions                   | 关闭                   | 禁止删除 `main`                    |
+| Required pull request reviews     | 关闭                   | 个人账号无法自我 approve，避免锁死 |
+| Enforce admins                    | 关闭                   | 保留个人紧急处置能力               |
 
 配置命令（等价，可重放）：
 
@@ -120,7 +120,9 @@ gh api -X DELETE repos/Lijiajin95/ForgeLoop/branches/main/protection   # 回滚 
 - 已有 `make e2e`：`scripts/ts/e2e.ts` 构建插件 → 临时 `DSH_HOME` + 独立 profile 安装 →
   校验 `--dump-config`（forgeloop-dsh 层、会话 preset）与 `plugin list`；
   不依赖模型，**仅覆盖装载/组合层**。
-- 尚未接入 CI：GitHub runner 需要先安装 `dsh`，接入前不声称 CI 已运行 E2E。
+- 已加入 `quality.yml` 的 `e2e` job：CI 安装与本地一致的 `@deepseek-ai/dsh@0.2.1-rc.4`
+  后执行 `make e2e`；**尚未在 GitHub runner 实跑验证**，首次运行通过前不声称 CI 已覆盖。
+- 该 job 尚未加入 `main` 的必需检查（需所有者确认后再改保护设置）。
 - 没有浏览器/Playwright E2E；看板与 Web 接缝仍由 `tests/board-route.test.ts`、
   `tests/architecture-contract.test.ts` 等集成测试覆盖。
 - 真实模型工具链由 `make verify-plugin` 覆盖（release workflow），需要模型凭据。
