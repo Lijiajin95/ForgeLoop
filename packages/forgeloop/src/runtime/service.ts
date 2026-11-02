@@ -839,7 +839,7 @@ ${answer}`
         requestView(request),
       )
     } catch (error) {
-      return fail((error as RuleViolationError).code ?? 'rule_violation', errorMessage(error))
+      return fail((error as RuleViolationError).code, errorMessage(error))
     }
   }
 
@@ -1619,7 +1619,7 @@ ${answer}`
       planVersion: plan.planVersion,
       evidence,
       acceptance: this.repo.acceptance(reqId),
-      candidate: plan ? this.repo.candidate(reqId, plan.planVersion) : null,
+      candidate: this.repo.candidate(reqId, plan.planVersion),
     })
   }
 

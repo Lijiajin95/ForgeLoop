@@ -81,7 +81,7 @@ export function isForgeLoopSession(
 ): boolean {
   if (!agent) return false
   const header = agent.session?.header
-  if (typeof header !== 'object' || header === null) return false
+  if (!header) return false
   if (header.origin === 'subagent') return false
   if (typeof header.parentSession === 'string' && header.parentSession !== '') return false
   const current = presetOf?.(agent)

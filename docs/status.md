@@ -3531,3 +3531,17 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过；coverage 91.14/84.58/96.87；mutation 97.80。
 - 发现：`property-invariants` 的 fast-check 用例在随机种子 `61697261` 下失败一次，重跑与后续全量均通过；
   记录为潜在 flaky/属性反例，待单独复现，不与本批混淆。
+
+### 85. 启用 no-unnecessary-condition，24 处清零（新目标 Round 2）
+
+- `eslint.config.js` 把 `@typescript-eslint/no-unnecessary-condition` 由 `off` 改为 `error`。
+- 24 处修复：
+  - `timer.unref?.()` → `timer.unref()`（formal-test/agent-runner/coordinator/ops）；
+  - `child.stdout?.on/stderr?.on` → 直接调用（stdio 已固定 pipe）；
+  - tools 的 `payload?.` 改为非空访问；
+  - service 去掉 `code ?? 'rule_violation'` 与计划三元；
+  - requirement-evidence 去掉 `commitMessage ?? ''`；
+  - intake 头部判断改为 `if (!header)`；
+  - domain/ops 的参数对象改用 `asRecord` 一次收窄。
+- 两条断言规则均已 `error` 且 0 违规。
+- `make check` 607 项通过；coverage 91.15/84.63/96.87；mutation 97.80。

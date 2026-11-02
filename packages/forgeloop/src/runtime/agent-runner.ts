@@ -335,7 +335,7 @@ export class AgentRunner {
         timedOut = true
         view.agent.cancel({ kind: 'user' })
       }, turn.timeoutMs)
-      timer.unref?.()
+      timer.unref()
       const onAbort = (): void => {
         aborted = true
         view.agent.cancel({ kind: 'user' })
@@ -368,7 +368,7 @@ export class AgentRunner {
         const activityTimer = setInterval(() => {
           flushActivity(handle, turn)
         }, 1_500)
-        activityTimer.unref?.()
+        activityTimer.unref()
         let whenIdleError = ''
         try {
           handle.agent.followup({
@@ -436,7 +436,7 @@ export class AgentRunner {
           handle.dispose().catch(() => undefined),
           new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, 5_000)
-            timer.unref?.()
+            timer.unref()
           }),
         ])
       },
@@ -487,7 +487,7 @@ export class AgentRunner {
       timedOut = true
       handle.agent.cancel({ kind: 'user' })
     }, request.timeoutMs)
-    timer.unref?.()
+    timer.unref()
     const onAbort = () => {
       aborted = true
       handle.agent.cancel({ kind: 'user' })
@@ -509,7 +509,7 @@ export class AgentRunner {
       }
     }
     const activityTimer = setInterval(flushActivity, 1_500)
-    activityTimer.unref?.()
+    activityTimer.unref()
     let whenIdleError = ''
     try {
       handle.agent.followup({

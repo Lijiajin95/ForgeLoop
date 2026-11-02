@@ -166,16 +166,16 @@ export function runOpsCommand(
       },
       Math.max(1, timeoutMs),
     )
-    timer.unref?.()
+    timer.unref()
     const onAbort = (): void => {
       aborted = true
       child.kill('SIGKILL')
     }
     signal?.addEventListener('abort', onAbort, { once: true })
-    child.stdout?.on('data', (chunk: Buffer) => {
+    child.stdout.on('data', (chunk: Buffer) => {
       stdout = appendOutput(stdout, chunk)
     })
-    child.stderr?.on('data', (chunk: Buffer) => {
+    child.stderr.on('data', (chunk: Buffer) => {
       stderr = appendOutput(stderr, chunk)
     })
     child.on('error', (error) => {

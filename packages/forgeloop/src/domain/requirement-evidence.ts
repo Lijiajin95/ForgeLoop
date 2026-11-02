@@ -79,7 +79,7 @@ export function requirementEvidence(input: {
     commit: commit
       ? {
           commitSha: commit.commitSha,
-          commitMessage: commit.commitMessage ?? '',
+          commitMessage: commit.commitMessage,
           files: [...commit.files],
           committedAt: commit.committedAt,
         }

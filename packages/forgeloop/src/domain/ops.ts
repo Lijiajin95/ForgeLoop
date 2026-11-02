@@ -372,12 +372,9 @@ function parseProposedAction(value: unknown): OpsProposedAction | null {
   }
   const action = asRecord(value) ?? {}
   const actionId = nonEmptyString(action.action_id, '运维诊断的 proposed_action.action_id')
-  const rawParams = action.params ?? {}
-  if (typeof rawParams !== 'object' || rawParams === null || Array.isArray(rawParams)) {
-    throw new MalformedError('运维诊断的 proposed_action.params 必须是对象')
-  }
+  const rawParams = asRecord(action.params) ?? {}
   const params: Record<string, string> = {}
-  for (const [name, param] of Object.entries(asRecord(rawParams) ?? {})) {
+  for (const [name, param] of Object.entries(rawParams)) {
     params[name] = nonEmptyString(param, `运维诊断的 proposed_action.params.${name}`)
   }
   return { actionId, params }

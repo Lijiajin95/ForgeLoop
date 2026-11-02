@@ -109,14 +109,14 @@ export class Coordinator {
     this.timer = setInterval(() => {
       void this.kick()
     }, this.pollSeconds * 1000)
-    this.timer.unref?.()
+    this.timer.unref()
     if (this.runtime.ops.enabled) {
       this.opsTimer = setInterval(() => void this.kickOps(), this.pollSeconds * 1000)
-      this.opsTimer.unref?.()
-      setTimeout(() => void this.kickOps(), 80).unref?.()
+      this.opsTimer.unref()
+      setTimeout(() => void this.kickOps(), 80).unref()
     }
     // 启动扫描：先核对/恢复，再立即消费 pending。
-    setTimeout(() => void this.kick(), 50).unref?.()
+    setTimeout(() => void this.kick(), 50).unref()
   }
 
   async stop(): Promise<void> {

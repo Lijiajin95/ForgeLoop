@@ -29,9 +29,9 @@ interface ToolDefinitionLike {
 
 function textBlocks(value: unknown): unknown[] {
   const payload = value as { text?: unknown; ok?: unknown; data?: unknown }
-  const head = typeof payload?.text === 'string' ? payload.text : JSON.stringify(value)
+  const head = typeof payload.text === 'string' ? payload.text : JSON.stringify(value)
   const structured = JSON.stringify(
-    { ok: payload?.ok ?? null, data: payload?.data ?? null },
+    { ok: payload.ok ?? null, data: payload.data ?? null },
     null,
     2,
   )

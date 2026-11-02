@@ -69,7 +69,7 @@ async function runProcess(
       timedOut = true
       handle.terminate()
     }, request.timeoutMs)
-    timer.unref?.()
+    timer.unref()
     const onAbort = () => {
       aborted = true
       handle.terminate()
@@ -87,17 +87,17 @@ async function runProcess(
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout?.on('data', (chunk: Buffer) => {
+    child.stdout.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))
     })
-    child.stderr?.on('data', (chunk: Buffer) => {
+    child.stderr.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))
     })
     const timer = setTimeout(() => {
       timedOut = true
       child.kill('SIGTERM')
     }, request.timeoutMs)
-    timer.unref?.()
+    timer.unref()
     const onAbort = () => {
       aborted = true
       child.kill('SIGTERM')
