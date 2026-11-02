@@ -14,6 +14,8 @@ const ROOT = resolve(import.meta.dirname, '../..')
 const DSH_HOME = resolve(process.env.FORGELOOP_DSH_HOME ?? join(ROOT, '.cache/forgeloop/dsh-home'))
 const PROFILE = process.env.FORGELOOP_PROFILE ?? 'forgeloop'
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
+const PATCH = process.env.FORGELOOP_DSH_PATCH?.trim()
+const patchArgs = PATCH ? ['--patch', PATCH] : []
 const failures: string[] = []
 
 function dsh(args: string[], input?: string): { code: number; stdout: string; stderr: string } {
@@ -69,7 +71,7 @@ function checkProfile(): void {
     `[verify-plugin] profile=${profileDir} package=forgeloop-dsh@${packageJson.version ?? '?'} kind=${kind}`,
   )
 
-  const dump = dsh(['--profile', PROFILE, '--dump-config'])
+  const dump = dsh(['--profile', PROFILE, ...patchArgs, '--dump-config'])
   if (dump.code !== 0) failures.push(`--dump-config 失败：${dump.stderr.trim()}`)
   else if (!dump.stdout.includes('forgeloop-dsh'))
     failures.push('--dump-config 未出现 forgeloop-dsh 层')
@@ -79,6 +81,7 @@ function checkToolLoop(): void {
   const result = dsh([
     '--profile',
     PROFILE,
+    ...patchArgs,
     '--json',
     'Call the forgeloop_status tool with empty arguments, then answer with the tool ok flag.',
   ])

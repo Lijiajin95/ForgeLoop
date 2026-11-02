@@ -3734,3 +3734,16 @@ suppressions 20、service.ts 5,986 行。
   去掉 2 处断言。
 - 边界断言 **24 → 19**（业务 0），基线 19；**字面目标 `as < 20` 达成**。
 - `make check` 59 文件 611 项；coverage 91.17/84.32/96.68；mutation 97.80。
+
+### 105. verify-plugin 支持模型补丁与 DeepSeek 路由（新目标 Round 23）
+
+- `scripts/ts/verify-plugin.ts` 新增 `FORGELOOP_DSH_PATCH` 环境变量：存在时给
+  `--dump-config` 与工具调用都追加 `--patch <file>`，便于在不改 profile 的情况下切换模型。
+- 使用 `--patch` 将 `agent-default-model` 与 forgeloop `agent` 覆盖为
+  `deepseek-official` / `deepseek-flash`，`--dump-config` 已确认覆盖生效。
+- 但本机 DSH 凭据服务中缺少 `DEEPSEEK_API_KEY`，实际调用仍失败：
+  `MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"`。
+  在 `~/.dsh` 写 profile 被沙箱拒绝；未复制凭据文件到仓库。
+- 结论：verify-plugin 仍需在启动环境 `export DEEPSEEK_API_KEY=…`（或通过 DSH Models 页写入）
+  后才能实跑；不会把未运行写成通过。
+- `make check` 59 文件 611 项通过（含脚本改动）。
