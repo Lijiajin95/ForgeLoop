@@ -73,6 +73,10 @@ function atOf(value: unknown): string {
   return new Date(time).toISOString()
 }
 
+function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0
+}
+
 interface CallState {
   readonly callId: string
   readonly seq: number
@@ -83,141 +87,194 @@ interface CallState {
   result?: { output: string; isError: boolean; time: number }
 }
 
-type DraftEvent = ExecutionEvent
+type ToolResultState = { output: string; isError: boolean; time: number; seq: number }
 
-/**
- * 解析一轮或多轮 dev.jsonl。offset/limit 只作用于最终公开事件数组。
- * 无法解析的行被忽略；调用/结果缺少对端时保留可见记录，不伪造另一方。
- */
-export function parseTaskExecution(
-  source: string,
-  options: { offset?: number | undefined; limit?: number | undefined } = {},
-): ExecutionPage {
-  const offset = Math.max(0, Math.trunc(options.offset ?? 0))
-  const limit = Math.min(200, Math.max(1, Math.trunc(options.limit ?? 100)))
-  const drafts: DraftEvent[] = []
-  const calls = new Map<string, CallState>()
-  const results = new Map<string, { output: string; isError: boolean; time: number; seq: number }>()
-  const sessionIds = new Set<string>()
-  let stepCount = 0
-  let firstTime = Number.POSITIVE_INFINITY
-  let lastTime = 0
+interface ParseState {
+  drafts: ExecutionEvent[]
+  readonly calls: Map<string, CallState>
+  readonly results: Map<string, ToolResultState>
+  readonly sessionIds: Set<string>
+  stepCount: number
+  firstTime: number
+  lastTime: number
+}
 
-  for (const line of source.split('\n')) {
-    if (!line.trim()) continue
-    let event: JsonRecord
-    try {
-      event = JSON.parse(line) as JsonRecord
-    } catch {
-      continue
-    }
-    const type = typeof event.type === 'string' ? event.type : ''
-    const seq = typeof event.seq === 'number' ? event.seq : Number(event.seq)
-    const time = typeof event.time === 'number' ? event.time : Number(event.time)
-    if (Number.isFinite(time) && time > 0) {
-      firstTime = Math.min(firstTime, time)
-      lastTime = Math.max(lastTime, time)
-    }
-    const data = asRecord(event.data)
-    if (typeof event.sessionId === 'string') sessionIds.add(event.sessionId)
-    if (typeof data?.sessionId === 'string') sessionIds.add(data.sessionId)
-
-    if (type === 'step/start') {
-      stepCount += 1
-      continue
-    }
-    if (type === 'assistant/message') {
-      const message = asRecord(data?.message)
-      const text = textOfContent(message?.content)
-      if (text) {
-        const clipped = clip(text)
-        drafts.push({
-          id: `message:${seq}`,
-          seq: Number.isFinite(seq) ? seq : 0,
-          at: atOf(time),
-          kind: 'message',
-          role: 'assistant',
-          title: '公开消息',
-          text: clipped.text,
-          textTruncated: clipped.truncated,
-        })
-      }
-      continue
-    }
-    if (type === 'user/message') {
-      const text = textOfContent(data?.content)
-      // DSH 在回合中追加的运行上下文/提醒不是业务公开消息，避免淹没任务输入与工具调用。
-      if (
-        /^<system-reminder>|^Current runtime context\.|^Time sampled while preparing turn/.test(
-          text.trim(),
-        )
-      )
-        continue
-      if (text) {
-        const clipped = clip(text)
-        drafts.push({
-          id: `user:${seq}`,
-          seq: Number.isFinite(seq) ? seq : 0,
-          at: atOf(time),
-          kind: 'message',
-          role: 'user',
-          title: '任务输入',
-          text: clipped.text,
-          textTruncated: clipped.truncated,
-        })
-      }
-      continue
-    }
-    if (type === 'tool/call') {
-      const callId = typeof data?.callId === 'string' ? data.callId : ''
-      const name = typeof data?.name === 'string' ? data.name : 'tool'
-      const input =
-        typeof data?.arguments === 'string' ? data.arguments : JSON.stringify(data?.arguments ?? '')
-      if (!callId) continue
-      const clipped = clip(input)
-      calls.set(callId, {
-        callId,
-        seq: Number.isFinite(seq) ? seq : 0,
-        time: Number.isFinite(time) ? time : 0,
-        name,
-        input: clipped.text,
-        inputTruncated: clipped.truncated,
-      })
-      continue
-    }
-    if (type === 'tool/result') {
-      const callId = typeof data?.toolCallId === 'string' ? data.toolCallId : ''
-      const message = asRecord(data?.message)
-      const output = textOfContent(message?.content)
-      if (!callId) continue
-      results.set(callId, {
-        output,
-        isError: message?.isError === true,
-        time: Number.isFinite(time) ? time : 0,
-        seq: Number.isFinite(seq) ? seq : 0,
-      })
-      continue
-    }
-    if (type === 'turn/start' || type === 'turn/end' || type === 'workspace/changes') {
-      drafts.push({
-        id: `phase:${type}:${seq}`,
-        seq: Number.isFinite(seq) ? seq : 0,
-        at: atOf(time),
-        kind: 'phase',
-        role: 'phase',
-        title:
-          type === 'turn/start' ? '回合开始' : type === 'turn/end' ? '回合结束' : '工作副本变更',
-        text: '',
-        textTruncated: false,
-      })
-    }
+function emptyState(): ParseState {
+  return {
+    drafts: [],
+    calls: new Map(),
+    results: new Map(),
+    sessionIds: new Set(),
+    stepCount: 0,
+    firstTime: Number.POSITIVE_INFINITY,
+    lastTime: 0,
   }
+}
 
-  for (const call of calls.values()) {
-    const result = results.get(call.callId)
+function messageEvent(input: {
+  prefix: string
+  role: 'assistant' | 'user'
+  title: string
+  text: string
+  seq: number
+  time: number
+}): ExecutionEvent {
+  const { prefix, role, title, text, seq, time } = input
+  const clipped = clip(text)
+  return {
+    id: `${prefix}:${seq}`,
+    seq: finiteOrZero(seq),
+    at: atOf(time),
+    kind: 'message',
+    role,
+    title,
+    text: clipped.text,
+    textTruncated: clipped.truncated,
+  }
+}
+
+function phaseEvent(type: string, seq: number, time: number): ExecutionEvent {
+  const title =
+    type === 'turn/start' ? '回合开始' : type === 'turn/end' ? '回合结束' : '工作副本变更'
+  return {
+    id: `phase:${type}:${seq}`,
+    seq: finiteOrZero(seq),
+    at: atOf(time),
+    kind: 'phase',
+    role: 'phase',
+    title,
+    text: '',
+    textTruncated: false,
+  }
+}
+
+function consumeAssistant(
+  data: JsonRecord | undefined,
+  seq: number,
+  time: number,
+  state: ParseState,
+): void {
+  const message = asRecord(data?.message)
+  const text = textOfContent(message?.content)
+  if (text)
+    state.drafts.push(
+      messageEvent({ prefix: 'message', role: 'assistant', title: '公开消息', text, seq, time }),
+    )
+}
+
+function consumeUser(
+  data: JsonRecord | undefined,
+  seq: number,
+  time: number,
+  state: ParseState,
+): void {
+  const text = textOfContent(data?.content)
+  // DSH 在回合中追加的运行上下文/提醒不是业务公开消息，避免淹没任务输入与工具调用。
+  if (
+    /^<system-reminder>|^Current runtime context\.|^Time sampled while preparing turn/.test(
+      text.trim(),
+    )
+  ) {
+    return
+  }
+  if (text)
+    state.drafts.push(
+      messageEvent({ prefix: 'user', role: 'user', title: '任务输入', text, seq, time }),
+    )
+}
+
+function consumeToolCall(
+  data: JsonRecord | undefined,
+  seq: number,
+  time: number,
+  state: ParseState,
+): void {
+  const callId = typeof data?.callId === 'string' ? data.callId : ''
+  if (!callId) return
+  const name = typeof data?.name === 'string' ? data.name : 'tool'
+  const input =
+    typeof data?.arguments === 'string' ? data.arguments : JSON.stringify(data?.arguments ?? '')
+  const clipped = clip(input)
+  state.calls.set(callId, {
+    callId,
+    seq: finiteOrZero(seq),
+    time: finiteOrZero(time),
+    name,
+    input: clipped.text,
+    inputTruncated: clipped.truncated,
+  })
+}
+
+function consumeToolResult(
+  data: JsonRecord | undefined,
+  seq: number,
+  time: number,
+  state: ParseState,
+): void {
+  const callId = typeof data?.toolCallId === 'string' ? data.toolCallId : ''
+  if (!callId) return
+  const message = asRecord(data?.message)
+  state.results.set(callId, {
+    output: textOfContent(message?.content),
+    isError: message?.isError === true,
+    time: finiteOrZero(time),
+    seq: finiteOrZero(seq),
+  })
+}
+
+function noteEvent(
+  event: JsonRecord,
+  data: JsonRecord | undefined,
+  time: number,
+  state: ParseState,
+): void {
+  if (Number.isFinite(time) && time > 0) {
+    state.firstTime = Math.min(state.firstTime, time)
+    state.lastTime = Math.max(state.lastTime, time)
+  }
+  if (typeof event.sessionId === 'string') state.sessionIds.add(event.sessionId)
+  if (typeof data?.sessionId === 'string') state.sessionIds.add(data.sessionId)
+}
+
+function consumeEvent(event: JsonRecord, state: ParseState): void {
+  const type = typeof event.type === 'string' ? event.type : ''
+  const seq = typeof event.seq === 'number' ? event.seq : Number(event.seq)
+  const time = typeof event.time === 'number' ? event.time : Number(event.time)
+  const data = asRecord(event.data)
+  noteEvent(event, data, time, state)
+
+  switch (type) {
+    case 'step/start':
+      state.stepCount += 1
+      return
+    case 'assistant/message':
+      consumeAssistant(data, seq, time, state)
+      return
+    case 'user/message':
+      consumeUser(data, seq, time, state)
+      return
+    case 'tool/call':
+      consumeToolCall(data, seq, time, state)
+      return
+    case 'tool/result':
+      consumeToolResult(data, seq, time, state)
+      return
+    case 'turn/start':
+    case 'turn/end':
+    case 'workspace/changes':
+      state.drafts.push(phaseEvent(type, seq, time))
+      return
+    default:
+      return
+  }
+}
+
+function appendToolEvents(state: ParseState): void {
+  for (const call of state.calls.values()) {
+    const result = state.results.get(call.callId)
     const output = clip(result?.output ?? '')
     const isError = result?.isError ?? false
-    drafts.push({
+    state.drafts.push({
       id: `tool:${call.callId}`,
       seq: call.seq,
       at: atOf(call.time),
@@ -238,10 +295,10 @@ export function parseTaskExecution(
       },
     })
   }
-  for (const [callId, result] of results) {
-    if (calls.has(callId)) continue
+  for (const [callId, result] of state.results) {
+    if (state.calls.has(callId)) continue
     const output = clip(result.output)
-    drafts.push({
+    state.drafts.push({
       id: `tool-result:${callId}`,
       seq: result.seq,
       at: atOf(result.time),
@@ -262,19 +319,46 @@ export function parseTaskExecution(
       },
     })
   }
+}
 
-  drafts.sort((left, right) => left.seq - right.seq || left.id.localeCompare(right.id))
-  const total = drafts.length
-  const page = drafts.slice(offset, offset + limit)
+function toPage(state: ParseState, offset: number, limit: number): ExecutionPage {
+  state.drafts.sort((left, right) => left.seq - right.seq || left.id.localeCompare(right.id))
+  const total = state.drafts.length
+  const page = state.drafts.slice(offset, offset + limit)
   return {
     events: page,
     total,
     offset,
     limit,
     truncated: offset + page.length < total,
-    stepCount,
-    startedAt: Number.isFinite(firstTime) ? new Date(firstTime).toISOString() : '',
-    lastActivity: lastTime > 0 ? new Date(lastTime).toISOString() : '',
-    sessionIds: [...sessionIds],
+    stepCount: state.stepCount,
+    startedAt: Number.isFinite(state.firstTime) ? new Date(state.firstTime).toISOString() : '',
+    lastActivity: state.lastTime > 0 ? new Date(state.lastTime).toISOString() : '',
+    sessionIds: [...state.sessionIds],
   }
+}
+
+/**
+ * 解析一轮或多轮 dev.jsonl。offset/limit 只作用于最终公开事件数组。
+ * 无法解析的行被忽略；调用/结果缺少对端时保留可见记录，不伪造另一方。
+ */
+export function parseTaskExecution(
+  source: string,
+  options: { offset?: number | undefined; limit?: number | undefined } = {},
+): ExecutionPage {
+  const offset = Math.max(0, Math.trunc(options.offset ?? 0))
+  const limit = Math.min(200, Math.max(1, Math.trunc(options.limit ?? 100)))
+  const state = emptyState()
+  for (const line of source.split('\n')) {
+    if (!line.trim()) continue
+    let event: JsonRecord
+    try {
+      event = JSON.parse(line) as JsonRecord
+    } catch {
+      continue
+    }
+    consumeEvent(event, state)
+  }
+  appendToolEvents(state)
+  return toPage(state, offset, limit)
 }

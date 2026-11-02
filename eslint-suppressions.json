@@ -21,14 +21,6 @@
       "count": 6
     }
   },
-  "packages/forgeloop/src/runtime/task-execution.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "max-statements": {
-      "count": 1
-    }
-  },
   "packages/forgeloop/src/runtime/workspace.ts": {
     "max-params": {
       "count": 1

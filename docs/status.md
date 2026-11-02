@@ -3163,3 +3163,11 @@ suppressions 20、service.ts 5,986 行。
 2. service.ts 6,126 行 → ≤2,000；repository.ts 2,403 行 → ≤2,000。
 3. DB 行 schema 落地；`as` 断言 163 → <20（先建行类型，再按表替换）。
 4. E2E 套件与 `make e2e` 门禁、GitHub 分支保护设置。
+
+### 51. 执行记录解析拆分（新目标 Round 1）
+
+- `parseTaskExecution` 拆为 `consumeEvent` 分发、`consumeAssistant/User/ToolCall/ToolResult`、
+  `phaseEvent`、`appendToolEvents`、`toPage` 与 `noteEvent`；主函数只保留分页与循环。
+- 71 语句/复杂度 65 的豁免清零，suppressions 20 → **18**。
+- `make check` 607 项通过，coverage 90.99/97.01/84.97，mutation 97.80。
+- 下一批：`executeVerification`（83/35）与 `developTaskInSession`（48）。
