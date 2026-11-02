@@ -3779,3 +3779,67 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - 说明：hook 只在本机克隆生效（`core.hooksPath` 不入库），新克隆需 `make hooks`/`make setup`；
   完整测试、覆盖与变异仍在 `make check`/CI。
 - `CONTRIBUTING.md` 增加安装与绕过说明。
+
+### 108. 验证 Agent 以新会话接入连续研发链路（新目标 Round 26）
+
+- `runtime/legacy-verification.ts` 的 `verifyCandidate` 改为两阶段：`VerificationAgent.plan` 在
+  **新会话**里只接收需求原文与结构化分析（`tools: none`，不传任务包、候选 diff、源码或工作区），
+  产出需求派生的验证方案；运行时写 `verification-plan.json` 后，由 `VerificationAgent.execute`
+  在固定候选工作区逐条重跑命令（日志 `verification-N.log`）。
+- 方案畸形/未覆盖需求、执行异常、命令中止、HEAD 变化与 `verification/` 之外的改动都 fail-closed
+  阻断；`verification.json` 记录方案、环境、命令、场景与候选完整性，`sessionId` 为方案会话。
+- 业务验收改为**另开**一个无工具验证会话，只给原始需求、分析、已准入任务包与程序重跑出的真实
+  命令输出；业务记录绑定新会话，与方案会话分离。连续路径不再读取模型自报的
+  `verification/commands.json` / `report.json`；旧 `verification-pipeline` 保留给历史请求路径。
+- 分层契约 `contracts/architecture.json` 允许 `runtime` 依赖 `agents`；`docs/architecture.md` §4.2
+  与 `packages/forgeloop/README.md` 同步说明两阶段新会话与产物验证。
+- 测试：新增“方案提示不含 diff/任务包/源码且无工具”“业务验收会话与方案会话不同”的断言；
+  适配 auto-intake / candidate-build / issue-retry-loop / requirement-gate 的假执行器。
+- 验证：`make check` 59 文件 612 项通过；coverage 91.07 / 96.57 / 84.38（lines/functions/branches，
+  阈值通过）；`make build`、`make contracts` 通过。
+
+### 109. 产品 Agent：业务说明字段、工具边界、单次分析与失败重试（新目标 Round 27）
+
+- 来源：所有者要求（8 项）——需求说明从业务场景补齐**业务规则、异常与边界、非目标**；
+  产品 Agent 增加联网搜索与项目文档读写；支持 `workspace-write` 但禁止改代码；分析只执行一次，
+  并关联模型、提示词版本、轨迹与工具调用；失败进入失败状态，默认自动重试且上限 3 次、也可手动重试；
+  提示词识别行业与业务背景，单独存项目文档并随增删改同步；需求 Agent 统一改称产品 Agent；
+  首次分析后才入队，入队后除重试外不再展开第二次分析。
+- 领域：新增 `domain/analysis.ts`（`ANALYSIS_PROMPT_VERSION=analysis-v2`、
+  `MAX_AUTO_ANALYSIS_RETRIES=3`、`BUSINESS_CONTEXT_DOC`、`PRODUCT_TOOL_ALLOWLIST`、
+  `AnalysisMode`/`AnalysisAttempt`）；`domain/requirement.ts` 的 `AnalysisDraft` 增加三个必填列表，
+  解析缺省为空数组、非数组仍报畸形；`domain/status.ts` 增加 `analysis_failed`。
+- 记录：`requirement_analyses` 增加 `business_rules`/`exceptions`/`non_goals`/`model`/
+  `prompt_version`/`transcript_path`/`tool_calls`；新增 `requirement_analysis_attempts`
+  （需求、版本、attempt、来源、结果、原因、模型、提示词版本、轨迹、工具调用）。
+  记录值经 `rows.ts` 的 `oneOf` 收窄，非法值按记录损坏报错，不静默取默认。
+- 提示词：分析提示词改为产品 Agent 身份，声明可用工具（读/写项目 Markdown、`web_search`/
+  `web_fetch`）、禁止改代码或执行命令、业务背景段落与三个新字段；同时要求“从业务场景出发”、
+  识别行业与业务背景并写入/更新 `docs/forgeloop/business-context.md`，增删改在同一次运行内同步。
+  研发规划提示词改为覆盖业务场景、业务规则、异常与边界和验收标准，非目标不得拆成任务。
+- 执行：`ExecutionPlan.executeAnalysis` 先查当前需求版本是否已有分析，有则直接返回
+  “未重复调用模型”；产品 Agent 以 `workspace-write` 运行，但只挂
+  `PRODUCT_TOOL_ALLOWLIST` 内的工具（`AgentRunner` 对白名单外工具一律 deny，且不挂 standard
+  preset），因此没有 shell 或代码编辑能力。每次尝试的轨迹独立写入
+  `sessions/<reqId>-analyze-a<n>.jsonl`；业务背景文档在分析前读入提示词（读 64 KiB、写 128 KiB 上限）。
+- 失败与重试：失败写入 attempt 与 `analysis_failed`，保留原因、模型、提示词版本、轨迹与工具调用。
+  新增 `runtime/analysis-queue.ts`：`enqueue`（首次分析成功后入队，拒绝无当前版本分析或仍有待澄清项）、
+  `autoRetry`（协调器每拍扫描，每个需求版本最多 3 次 `auto` 尝试，有在途请求或主动停止时不排）、
+  `retry`（人工重试，来源以 `:analysis-retry` 结尾，记为 `manual`，不受自动次数限制）。
+- 入口：业务会话提交改为 `analyze:false` → 同步分析一次 → 成功后入队，不再让队列排第二次分析；
+  非会话入口仍默认入队一次分析，重复执行由执行器短路。看板新增 `retry-analysis` 动作与端点
+  （`web-decision:<session>` 来源，失败状态才排队，200/409）；客户端新增“产品分析失败”状态与
+  “重新分析”动作文案，分析卡片展示业务规则、异常与边界、非目标及模型/提示词版本/工具调用。
+- 文案：产品角色相关位置的“需求 Agent”统一改为“产品 Agent”；原独立审查/业务终审相关位置
+  改为“验证 Agent”，与四角色口径一致。
+- 工具：新增 `forgeloop_read_project_doc`/`forgeloop_write_project_doc`，只接受项目内 `.md`
+  相对路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件），写入自动建目录并限制大小。
+- 测试：新增 `tests/product-analysis.test.ts`（单次分析、元数据与工具白名单、失败/自动重试 3 次/
+  人工重试、入队前置条件、会话先分析后入队）、`tests/project-docs.test.ts`（路径边界、截断与写上限）；
+  补充提示词、工具面、领域解析、AgentRunner 工具白名单、看板路由与客户端文案用例。
+- 验证：在干净工作树（HEAD `79c4e43` + 本批改动，排除并行会话在途文件）执行 `make check`：
+  typecheck、ESLint、`make contracts`、token 预算（`service.ts` 21929 ≤ 21931）、断言预算（19/19）
+  与 **61 个测试文件、635 项测试**全部通过；`make format` 通过。
+- 边界：按“新库从空库建立”的现行策略，新列与新表不做旧记录库补列或迁移；`web_search`/`web_fetch`
+  依赖宿主工具注册，本轮用假执行器验证白名单与 deny 行为，未在真实模型会话验证联网检索；
+  自动重试随协调器节拍触发，没有单独退避，3 次用尽后停在 `analysis_failed` 等待人工重试。

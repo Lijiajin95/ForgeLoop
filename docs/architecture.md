@@ -21,8 +21,8 @@ ForgeLoop 的产品价值是复杂软件项目中的目标、约束、研发、�
 构建与测试时使用受控子进程；不得借此启动旧 Python 核心。
 
 当前插件没有人类 slash 命令表面。需求入口是 **ForgeLoop 业务会话**：用户选择 `forgeloop`
-agent preset 后，在普通输入框输入；插件在 `agent/pre-step` 接管人类输入，交给需求 Agent
-拆解为结构化需求。任务包批准、推进、验收与停止通过浏览器认证动作实现；例外取舍与追加授权仍没有完整入口，
+agent preset 后，在普通输入框输入；插件在 `agent/pre-step` 接管人类输入，交给产品 Agent
+澄清为结构化需求说明。任务包批准、推进、验收与停止通过浏览器认证动作实现；例外取舍与追加授权仍没有完整入口，
 已批准任务包默认冻结（修改需所有者显式许可并说明原因），
 不能用工具参数或文档声明代替。
 
@@ -40,7 +40,8 @@ DSH 宿主（唯一常驻产品）
 │   ├── tools.ts    模型只读工具 + 需求受理（不能批准、推进或验收）
 │   └── client.js   Web 会话区「天工」页 + ForgeLoop 受理/分析自定义 Chat 节点
 ├── DSH Agent（宿主内独立会话）
-│   ├── 分析 / 规划 / 审查：无工具，纯推理，结果按 JSON 校验
+│   ├── 产品分析：仅项目 Markdown 读写与联网检索工具，结果按 JSON 校验
+│   ├── 规划 / 审查：无工具，纯推理，结果按 JSON 校验
 │   ├── 运维诊断：无工具，只读检查输出，提出已登记动作
 │   └── 实现：有工具，在独立快照副本中工作
 └── 项目现场：git 仓库、SQLite、证据、候选包
@@ -84,16 +85,18 @@ DSH 宿主（唯一常驻产品）
    `session.header.agentPreset` 仅作回退），排除 `origin=subagent` 或带父会话的子 Agent；
    只处理 `message.source.kind === 'user'` 的消息。
 4. 对每条人类消息：用 `sessionId + messageId` 作为幂等键提交需求（版本 1），追加
-   `plugin:forgeloop/intake` 会话事件，然后调用运行时 `analyzeRequirement`，由需求 Agent 输出
-   目标、业务场景、验收标准与待澄清项；分析提示词同时携带程序查询的当前项目活动需求与任务
+   `plugin:forgeloop/intake` 会话事件，然后调用运行时 `analyzeRequirement`，由产品 Agent 输出
+   目标、业务场景、业务规则、异常与边界、非目标、验收标准与待澄清项；分析提示词同时携带
+   `docs/forgeloop/business-context.md` 的行业与业务背景，以及程序查询的当前项目活动需求与任务
    （标题、状态、创建／更新时间、任务包版本与批准状态、任务状态与最近活动），已结束需求只给数量，
    这些内容只是背景事实，不构成授权；成功追加 `plugin:forgeloop/analysis`，失败追加
    `plugin:forgeloop/error`。有待澄清项时再追加 `plugin:forgeloop/clarification-request`。
 5. 同一会话存在待澄清需求时，下一条人类消息按澄清回答处理：追加需求版本并重新分析，
    追加 `plugin:forgeloop/clarification-answer`、`plugin:forgeloop/analysis`，必要时再次推送
    `plugin:forgeloop/clarification-request`；不会新建第二条需求。
-6. 分析无待澄清项时，把需求分析全文（目标、业务场景、验收标准）交给研发 Agent 做技术方案与
-   任务拆解，追加 `plugin:forgeloop/plan`；需求 Agent 只出分析结论，不拆研发任务。
+6. 分析无待澄清项时，需求才入队；协调器在研发空闲时把分析全文（目标、业务场景、业务规则、
+   异常与边界、非目标、验收标准）交给研发 Agent 做技术方案与任务拆解，追加
+   `plugin:forgeloop/plan`；产品 Agent 只出分析结论，不拆研发任务。
    规划失败追加 `plugin:forgeloop/error`。任务包落库后由验证 Agent 做实现前评审（无工具、只读），
    输出通过/阻断、阻断项与验证计划；阻断时把原因交回研发 Agent 重新拆解（最多 3 次），
    最终仍阻断则保留 `plan_proposed` 与评审记录，不能批准。规划成功把需求置为 `plan_proposed`，
@@ -107,10 +110,29 @@ DSH 宿主（唯一常驻产品）
 `forgeloop` preset 组合为空（没有普通工具）；已在 DSH 0.2.1-rc.4 的真实 Web 会话验证
 `agent/pre-step` 接管、澄清回答与规划链路。
 
+**产品分析只执行一次。** `ExecutionPlan.executeAnalysis` 先看当前需求版本是否已有分析：
+有就返回“未重复调用模型”，不再产生第二次模型调用；因此会话入口的同步分析、入队请求和
+协调器的推进都不会叠加成两次分析。每次真正执行的分析尝试写入 `requirement_analysis_attempts`：
+需求 ID、需求版本、attempt 序号、来源（`initial`/`auto`/`manual`）、结果、原因、模型、
+提示词版本（`analysis-v2`）、轨迹文件（`sessions/<reqId>-analyze-a<n>.jsonl`）与工具调用；
+成功结论另写 `requirement_analyses`，同样带这些元数据。失败不会覆盖历史结论，也不清零 attempt。
+
+产品 Agent 以 `workspace-write` 权限运行，但工具面由 `domain/analysis.ts` 的白名单固定：
+`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`web_search`、`web_fetch`；
+宿主登记的其他工具（shell、文件编辑等）一律 deny，也不挂 standard 编码 preset。文档工具只接受
+项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件），读上限 64 KiB、
+写上限 128 KiB，所以“禁止修改代码”由工具面确定性保证，而不是只靠提示词。
+
+分析失败时需求进入 `analysis_failed` 并保留失败原因；协调器每拍扫描一次，对没有在途请求、
+没有主动停止且该版本 `auto` 尝试不足 3 次的失败需求排一次 `analyze`（来源
+`system:analysis-retry`）。自动次数用完后仍可由看板“重新分析”排一次人工重试（来源以
+`:analysis-retry` 结尾，记为 `manual`），不受 3 次上限约束。
+
 ### 4.2 运行时内部操作
 
-模型工具仍只读查询或受理需求：`forgeloop_submit_requirement` 先落库，返回稳定需求身份与
-版本 1；其余工具只读查询。`/fl` 人类命令表面已删除。普通需求的推进由系统准入与协调器自动完成，
+模型工具只读查询、受理需求或写项目内 Markdown 文档：`forgeloop_submit_requirement` 先落库，
+返回稳定需求身份与版本 1；`forgeloop_write_project_doc` 只写项目内 `.md`，不能写代码；
+其余工具只读查询。`/fl` 人类命令表面已删除。普通需求的推进由系统准入与协调器自动完成，
 不再需要 Web 任务包卡片上的批准、推进、独立验证或验收动作；这些旧端点只保留历史兼容。
 例外取舍仍没有完整入口，不能由工具或参数伪造。
 
@@ -139,18 +161,21 @@ DSH 宿主（唯一常驻产品）
    - 研发自验失败留在现场继续修，不形成正式失败轮；任务尝试超限、停止或超时才阻塞。
    - 全部任务完成后导出相对快照基线的需求级候选 diff，绑定需求版本、任务包版本、基线与 diff 摘要，
      写入 `requirement_code_candidates`；同一需求多版候选、旧报告与失败轮次保留。
-   - 验证 Agent 从研发工作区按固定快照建立**独立验证工作区**，应用候选 diff，只能写 `verification/`；
-     运行时拒绝 `verification/` 之外的改动、HEAD 变化或命令修改候选，并重新执行命令，只按退出码、
-     超时、必过场景覆盖与证据原文判定。验证场景由产品需求说明的场景与验收标准生成，不再依赖
-     实现前评审记录。阻断计入 `stage=verification` 的失败轮次。
-   - `agents/verification-agent.ts` 提供两阶段验证 Agent：`plan` 只读取需求原文与结构化分析，
-     产出含场景、验收标准、命令与预期输出的方案；`execute` 接收研发产物工作区后实际执行命令，
-     归一出含退出码、输出、环境快照与 `passed`/`failed` 的 `VerificationResult`。只有全部命令
-     退出码为 0、未超时/中止且输出满足预期才判通过；模型自述不构成证据。
-   - 验证通过后，同一验证会话继续按原始需求做业务验收；结论绑定候选、验证摘要与需求版本，阻断计入
-     `stage=business_review`。原独立审查与业务终审合并到验证 Agent，不再由产品 Agent 另开会话终审。
-     终审证据只取程序重跑的命令输出，并同时保留输出开头与末尾两段（中间可省略）；模型引用的原文
-     必须能在该证据窗口中核对，只截尾部会把开头打印的前置证据误判为不可核对。
+   - 运行时从研发工作区按固定快照建立**独立验证工作区**，应用候选 diff，只能写 `verification/`；
+     拒绝 `verification/` 之外的改动、HEAD 变化或命令修改候选，并重新执行命令，只按退出码、超时、
+     必过场景覆盖与证据原文判定。验证场景由产品需求说明的场景与验收标准生成，不再依赖实现前评审记录。
+     阻断计入 `stage=verification` 的失败轮次。
+   - `agents/verification-agent.ts` 提供两阶段验证 Agent，`runtime/legacy-verification.ts` 负责接线：
+     方案阶段为验证 Agent **新开一个无工具会话**（`tools: none`），只投需求原文与结构化分析，不传
+     任务包、候选 diff、源码或工作区，产出含场景、验收标准、命令与预期输出的方案；执行阶段由程序
+     在固定候选工作区逐条重跑命令，模型不再接触候选内容，归一出含退出码、输出、环境快照与
+     `passed`/`failed` 的 `VerificationResult`。只有全部命令退出码为 0、未超时/中止且输出满足预期
+     才判通过；模型自述不构成证据。
+   - 验证通过后，**另开一个**无工具验证会话按原始需求做业务验收（与方案会话不同）；结论绑定候选、
+     验证摘要与需求版本，阻断计入 `stage=business_review`。原独立审查与业务终审合并到验证 Agent，
+     不再由产品 Agent 另开会话终审。终审证据只取程序重跑的命令输出，并同时保留输出开头与末尾两段
+     （中间可省略）；模型引用的原文必须能在该证据窗口中核对，只截尾部会把开头打印的前置证据误判
+     为不可核对。
    - 验证阻断时创建关联需求 ID 的 ForgeLoop 内建问题单：固化本次验证的命令、退出码、日志路径、
      运行环境与状态。同一推进请求内先按问题单在**同一研发会话与工作区**定向修复并重新验证；
      单个请求最多尝试 3 次验证，仍失败则收口为 `blocked`，由协调器依据未收口问题单自动排队
@@ -241,7 +266,7 @@ DSH 宿主（唯一常驻产品）
 
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`。
-- 表：需求与版本、分析、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
+- 表：需求与版本、分析、分析尝试、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立验证、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、持久请求、动作身份、运行元信息，以及运维事件、运维观测与运维动作 attempt；
   权威 Schema 在 `records/db.ts`，契约只固定 SQLite 驱动、数据库路径与单库边界，不复制表清单。
@@ -253,6 +278,7 @@ DSH 宿主（唯一常驻产品）
   候选包在 `candidates/<req>/v<plan>/`；独立验证按候选身份保存在
   `verifications/<req>/v<plan>/<candidate 前 16 位>/`（`candidate.json`、`candidate.diff`、命令日志、
   `verification.json`、`business-review.json`）；提交检查在 `integrations/<req>/<candidate 前 16 位>/`；
+  产品分析每次尝试的 Agent 轨迹在 `sessions/<reqId>-analyze-a<n>.jsonl`（不覆盖历史尝试）；
   运维证据在 `ops/<事件>/`。
 
 ## 6. 持久工作、去重与恢复
@@ -265,7 +291,9 @@ DSH 宿主（唯一常驻产品）
   协调器在分析完成后由 `autoAdvanceRequests` 排入 `advance`，不要求人工点击推进。
 - 需求队列：`requirement_queue` 按提出时间升序、同一时间按入队序号排序；领取是单条原子操作，
   已有在研需求时不领取，终态需求被跳过。队列占用在需求进入终态、`blocked`、待澄清或没有自动
-  推进时收口，后续需求才可领取；入队本身不等待当前研发完成。
+  推进时收口，后续需求才可领取；入队本身不等待当前研发完成。首次分析成功后需求才入队：
+  会话入口先同步分析再入队，非会话入口在提交时排一次分析，执行器保证不会展开第二次分析；
+  `analysis_failed` 不进入自动推进候选，只由协调器的自动重试与看板的人工重试处理。
 - 验证失败回流：独立验证判定阻断时写入 `requirement_issues`，包含需求 ID、attempt、阶段、状态、
   阻断项、命令与日志、环境、验证报告摘要与候选身份。未收口问题单让需求继续占用研发位；协调器
   自动排队下一次修复与验证，跨请求重试不设轮次上限，验证结果与问题单都按需求 ID 可反查。
@@ -290,10 +318,11 @@ DSH 宿主（唯一常驻产品）
 
 - **业务会话入口**：只有 `agentPreset=forgeloop` 的非子 Agent 会话中、来源为真实人类
   （`source.kind === 'user'`）的消息才受理；会话身份、消息身份与原始文本落库后可回查。
-  输入接管只创建需求、回答待澄清项并调用需求 Agent；批准与推进走任务包卡片的认证动作，
+  输入接管只创建需求、回答待澄清项并调用产品 Agent；批准与推进走任务包卡片的认证动作，
   不来自聊天文本或模型工具。
   澄清回答与 `reqId + requirementVersion + analysisVersion` 对应；多待澄清项或其他会话不得猜测。
-- **模型工具**：只读查询与需求受理。工具不能提交 `by=owner` 或 `approved=true`，也不能触发
+- **模型工具**：只读查询、需求受理与项目 Markdown 文档写入（不含代码）。工具不能提交
+  `by=owner` 或 `approved=true`，也不能触发
   推进或验收。`forgeloop_impact` 默认不调用模型；显式 `explain=true` 的推断与事实分区，
   推断不能作为批准、推进或验收依据。
 - **客户决定入口**：普通需求由系统准入自动推进；浏览器认证动作保留停止、取消、追加授权、发布/
