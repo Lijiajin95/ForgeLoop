@@ -5,11 +5,11 @@
 
 import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { Database } from './db.js'
+import { issueStageOf, issueStatusOf } from './rows.js'
 import {
   ISSUE_FIXED,
   ISSUE_OPEN,
   ISSUE_RESOLVED,
-  type IssueStage,
   type IssueStatus,
   type RequirementIssue,
   type RequirementIssueEvidence,
@@ -41,8 +41,8 @@ function issueFromRow(row: Row): RequirementIssue {
     requirementId: text(row, 'req_id'),
     project: text(row, 'project'),
     attempt: num(row, 'attempt'),
-    stage: text(row, 'stage') as IssueStage,
-    status: text(row, 'status') as IssueStatus,
+    stage: issueStageOf(row),
+    status: issueStatusOf(row),
     summary: text(row, 'summary'),
     evidence,
     verificationSha256: text(row, 'verification_sha256'),

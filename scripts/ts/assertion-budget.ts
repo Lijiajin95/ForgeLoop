@@ -9,7 +9,7 @@ import { join, relative, sep } from 'node:path'
 
 const ROOT = process.cwd()
 const SOURCE = join(ROOT, 'packages/forgeloop/src')
-const BASELINE = 79
+const BASELINE = 76
 function countAs(file: string): number {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
   let count = 0

@@ -1,12 +1,33 @@
 import type { AdmissionBasis } from '../domain/admission.js'
 import type { Requirement } from '../domain/requirement.js'
 import type { OpsSeverity } from '../domain/ops.js'
+import { OPS_SEVERITIES } from '../domain/ops.js'
+import { ISSUE_STAGES, ISSUE_STATUSES, type IssueStage, type IssueStatus } from '../domain/issue.js'
+import { RuleViolationError } from '../domain/errors.js'
 
 export type Row = Record<string, unknown>
 
 export function text(row: Row, key: string): string {
   const value = row[key]
   return typeof value === 'string' ? value : ''
+}
+
+function oneOf<T extends string>(value: string, allowed: readonly T[], label: string): T {
+  const found = allowed.find((item) => item === value)
+  if (found === undefined) throw new RuleViolationError(`记录损坏：${label} 取值非法（${value}）`)
+  return found
+}
+
+export function issueStageOf(row: Row): IssueStage {
+  return oneOf(text(row, 'stage'), ISSUE_STAGES, '问题单 stage')
+}
+
+export function issueStatusOf(row: Row): IssueStatus {
+  return oneOf(text(row, 'status'), ISSUE_STATUSES, '问题单 status')
+}
+
+export function opsSeverityOf(row: Row): OpsSeverity {
+  return oneOf(text(row, 'severity'), OPS_SEVERITIES, '运维事件 severity')
 }
 
 export function num(row: Row, key: string): number {

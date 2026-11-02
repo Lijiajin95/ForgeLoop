@@ -1,12 +1,12 @@
 import type { Database } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
-import type { OpsSeverity } from '../domain/ops.js'
 import {
   num,
   text,
   type OpsActionAttemptRecord,
   type OpsEventPatch,
   type OpsEventRecord,
+  opsSeverityOf,
   type OpsObservationRecord,
   type Row,
 } from './rows.js'
@@ -18,7 +18,7 @@ function opsEventFromRow(row: Row): OpsEventRecord {
     resourceId: text(row, 'resource_id'),
     checkId: text(row, 'check_id'),
     signature: text(row, 'signature'),
-    severity: text(row, 'severity') as OpsSeverity,
+    severity: opsSeverityOf(row),
     state: text(row, 'state'),
     title: text(row, 'title'),
     impact: text(row, 'impact'),

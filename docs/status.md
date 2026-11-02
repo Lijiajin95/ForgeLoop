@@ -3451,3 +3451,14 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.13/96.84/84.90，mutation 97.80。
 - 剩余：`as` 79；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 79. 行枚举解析器（新目标 Round 29）
+
+- `records/rows.ts` 新增 `issueStageOf` / `issueStatusOf` / `opsSeverityOf`：
+  用 `oneOf` 校验取值，非法值抛 `RuleViolationError`，不再 `as IssueStage/IssueStatus/OpsSeverity`。
+- issues.ts、ops-store.ts 改用解析器；先跑 issue-retry-loop（10 项）与 ops-agent（8 项）测试，
+  再跑全量门槛。
+- `as` 断言 **79 → 76**，基线收紧到 76。
+- `make check` 607 项通过，coverage 91.14/96.85/84.90，mutation 97.80。
+- 剩余：`as` 76；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。
