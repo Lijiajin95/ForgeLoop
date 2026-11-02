@@ -269,7 +269,7 @@ export function actionArgv(action: OpsAction, params: Readonly<Record<string, st
     }
   }
   return action.command.map((token) =>
-    token.replace(PLACEHOLDER, (_match, name: string) => params[name] as string),
+    token.replace(PLACEHOLDER, (_match, name: string) => params[name] ?? ''),
   )
 }
 

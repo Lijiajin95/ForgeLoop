@@ -3587,3 +3587,17 @@ suppressions 20、service.ts 5,986 行。
 - 字段仍按 `typeof` 收窄，行为不变；deployment/ops 相关用例先行通过。
 - `as` 断言 **53 → 48**，基线 48。
 - `make check` 607 项通过；coverage 91.17/84.50/96.88；mutation 97.80。
+
+### 91. 领域层收窄统一到 json 助手（新目标 Round 9）
+
+- 按所有者口径：**业务代码零 `as`，仅接口边界层保留受控例外**。
+- `requirement`/`verification`/`business-review`/`task-plan` 的本地收窄改为委托
+  `domain/json` 的 `asRecord`，移除 3 处返回断言。
+- `issue` 去掉 `evidence.blocking as unknown`；`ops` 参数改用 `?? ''`。
+- `task-plan` 的 JSON.parse 改为 `const parsed: unknown = …` 赋值收窄，去掉 2 处 `as unknown`。
+- `as` 断言 **48 → 38**，基线 38。
+- 分类：业务代码仅剩 4 处（advance-pipeline / build-materials / candidate-pipeline / ops），
+  其余 34 处集中在接口边界（host/api、DB、config、npm 输出、HTTP/工具入参）。
+- 下一步：把上述 4 处业务断言清零，并在 `assertion-budget.ts` 中加入边界白名单，
+  使“业务代码 0 处”成为机器门禁。
+- `make check` 607 项通过；coverage 91.19/84.40/96.88；mutation 97.80。

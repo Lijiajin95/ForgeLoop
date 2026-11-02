@@ -6,6 +6,7 @@
  * 运行时只接受可解析的结构，并由程序实际执行命令。
  */
 
+import { asRecord as recordOf } from './json.js'
 import { MalformedError } from './errors.js'
 import { parseJsonLoose } from './requirement.js'
 
@@ -50,7 +51,7 @@ function asRecord(value: unknown, what: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new MalformedError(`${what}必须是 JSON 对象`)
   }
-  return value as Record<string, unknown>
+  return recordOf(value) ?? {}
 }
 
 function nonEmpty(value: unknown, field: string): string {

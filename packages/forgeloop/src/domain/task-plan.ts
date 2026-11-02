@@ -6,6 +6,7 @@
  * - 批准绑定需求身份与任务包版本；旧版本批准不能驱动新任务包，授权来源只由真实批准写入。
  */
 
+import { asRecord as recordOf } from './json.js'
 import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
 
 export const DEFAULT_TASK_LIMIT_SECONDS = 7200
@@ -233,10 +234,9 @@ export function bindAuthorization(plan: TaskPlan, approval: TaskPlanApproval): T
 }
 
 function asRecord(value: unknown, field: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new MalformedError(`任务包字段 ${field} 必须是对象`)
-  }
-  return value as Record<string, unknown>
+  const record = recordOf(value)
+  if (!record) throw new MalformedError(`任务包字段 ${field} 必须是对象`)
+  return record
 }
 
 function limitsFrom(value: unknown): TaskLimits {
@@ -279,7 +279,8 @@ export function parseTaskPlanDraft(
       const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(payload)
       const body = fenced?.[1] ?? payload
       try {
-        return JSON.parse(body) as unknown
+        const parsed: unknown = JSON.parse(body)
+        return parsed
       } catch (error) {
         // 模型偶尔把 JSON 包在工具调用标记或说明文字里；只接受唯一一段完整对象，
         // 不猜测多个候选，也不放宽任务包校验。
@@ -287,7 +288,8 @@ export function parseTaskPlanDraft(
         const end = body.lastIndexOf('}')
         if (start >= 0 && end > start) {
           try {
-            return JSON.parse(body.slice(start, end + 1)) as unknown
+            const parsed: unknown = JSON.parse(body.slice(start, end + 1))
+            return parsed
           } catch {
             // 落到统一的畸形错误。
           }

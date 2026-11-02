@@ -6,6 +6,7 @@
  * “通过”不构成通过，所有者验收仍由真实决定入口单独记录。
  */
 
+import { asRecord as recordOf } from './json.js'
 import { MalformedError } from './errors.js'
 import { parseJsonLoose } from './requirement.js'
 import { matchesCommandOutput } from './verification.js'
@@ -37,7 +38,7 @@ function asRecord(value: unknown, what: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new MalformedError(`${what}必须是 JSON 对象`)
   }
-  return value as Record<string, unknown>
+  return recordOf(value) ?? {}
 }
 
 function nonEmpty(value: unknown, field: string): string {

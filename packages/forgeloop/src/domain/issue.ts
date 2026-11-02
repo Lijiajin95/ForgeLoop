@@ -103,7 +103,7 @@ export function buildRequirementIssue(input: NewRequirementIssue): RequirementIs
   if (!ISSUE_STAGES.includes(input.stage)) {
     throw new RuleViolationError(`问题单阶段未知：${input.stage}`)
   }
-  const blocking = input.evidence.blocking as unknown
+  const blocking = input.evidence.blocking
   if (
     !Array.isArray(blocking) ||
     blocking.some((item: unknown) => typeof item !== 'string' || !item.trim())

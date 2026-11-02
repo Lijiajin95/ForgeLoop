@@ -6,6 +6,7 @@
  * - 分析结果必须是结构化对象；有待澄清项时等待回答，不进入实现。
  */
 
+import { asRecord } from './json.js'
 import { MalformedError, RuleViolationError, errorMessage } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
 
@@ -91,7 +92,7 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new MalformedError('分析结果必须是 JSON 对象')
   }
-  const data = payload as Record<string, unknown>
+  const data = asRecord(payload) ?? {}
   const goal = typeof data.goal === 'string' ? data.goal.trim() : ''
   if (!goal) throw new MalformedError('分析缺少非空目标')
   const scenarios = stringList(data.scenarios ?? [], 'scenarios')

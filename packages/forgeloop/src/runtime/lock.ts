@@ -6,6 +6,7 @@
  * 不得修改别人的在途请求状态。
  */
 
+import { parseJsonObject } from '../domain/json.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -28,7 +29,13 @@ function readHolder(lockDir: string): { record: LockRecord | null; raw: string }
   if (!existsSync(file)) return { record: null, raw: '' }
   try {
     const raw = readFileSync(file, 'utf8')
-    return { record: JSON.parse(raw) as LockRecord, raw }
+    const data = parseJsonObject(raw)
+    const record: LockRecord = {
+      owner: typeof data.owner === 'string' ? data.owner : '',
+      pid: typeof data.pid === 'number' ? data.pid : 0,
+      acquiredAt: typeof data.acquiredAt === 'string' ? data.acquiredAt : '',
+    }
+    return { record, raw }
   } catch {
     return { record: null, raw: '' }
   }

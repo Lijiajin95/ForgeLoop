@@ -11,6 +11,7 @@
  * - 搜索只扫描权威记录中的文字事实，不读取日志内容，也不虚构结果。
  */
 
+import { parseJsonObject } from '../domain/json.js'
 import type { Repository } from '../records/repository.js'
 import type { Requirement } from '../domain/requirement.js'
 import { authorizePlan, type TaskPlan } from '../domain/task-plan.js'
@@ -1004,7 +1005,7 @@ function buildBusinessReviewView(
   let summary = ''
   let blocking: string[] = []
   try {
-    const parsed = JSON.parse(record.reportJson) as { summary?: unknown; blocking?: unknown }
+    const parsed = parseJsonObject(record.reportJson)
     summary = typeof parsed.summary === 'string' ? parsed.summary : ''
     blocking = Array.isArray(parsed.blocking) ? parsed.blocking.map(String) : []
   } catch {
