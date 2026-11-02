@@ -18,7 +18,7 @@
       "count": 1
     },
     "max-statements": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/forgeloop/src/runtime/workspace.ts": {

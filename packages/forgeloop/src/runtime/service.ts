@@ -4301,6 +4301,80 @@ ${answer}`
   }
 
   /** 在同一个研发会话与工作区里完成一个任务；自验失败留在现场继续修，不重建副本。 */
+  private recordDeliveredTask(input: {
+    reqId: string
+    plan: TaskPlan
+    task: PlannedTask
+    workspace: string
+    sessionId: string
+    authorizationSource: string
+    capture: ReturnType<typeof captureCandidate>
+    test: Awaited<ReturnType<typeof runFormalTest>>
+    taskDir: string
+  }): void {
+    const reviewNote = {
+      kind: 'self-check',
+      taskId: input.task.taskId,
+      verdict: 'pass',
+      detail: '研发 Agent 自验通过；独立验证由验证 Agent 在固定候选上完成。',
+      testLog: input.test.logPath,
+      at: this.now(),
+    }
+    const reviewPath = join(input.taskDir, 'review.json')
+    writeFileSync(reviewPath, `${JSON.stringify(reviewNote, null, 2)}\n`, 'utf8')
+    this.repo.recordTaskArtifact({
+      requirementId: input.reqId,
+      planVersion: input.plan.planVersion,
+      taskId: input.task.taskId,
+      candidateSha256: input.capture.diffSha256,
+      testEvidenceSha256: input.test.logSha256,
+      reviewSha256: sha256OfText(JSON.stringify(reviewNote)),
+      acceptance: input.task.acceptance,
+      authorizationSource: input.authorizationSource,
+      recordedAt: this.now(),
+      baselineCommit: headCommit(this.config.projectPath),
+    })
+    this.repo.recordEvidence({
+      requirementId: input.reqId,
+      planVersion: input.plan.planVersion,
+      taskId: input.task.taskId,
+      baselineCommit: headCommit(this.config.projectPath),
+      workspacePath: input.workspace,
+      candidatePath: input.capture.diffPath,
+      testLogPath: input.test.logPath,
+      reviewPath,
+      devSession: input.sessionId,
+      reviewSession: '',
+      recordedAt: this.now(),
+    })
+  }
+
+  private taskNoChangeFeedback(input: {
+    reqId: string
+    plan: TaskPlan
+    task: PlannedTask
+  }): string {
+    this.recordRun(
+      input.reqId,
+      input.plan,
+      input.task,
+      TASK_RUN_FAILED,
+      '研发回合没有产生任何文件改动',
+      0,
+    )
+    return '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
+  }
+
+  private taskAborted(
+    input: { reqId: string; plan: TaskPlan; task: PlannedTask },
+    status: 'aborted' | 'timeout',
+    detail: string,
+  ): { state: 'blocked'; reason: string } {
+    const reason = `研发回合${status === 'aborted' ? '被停止' : '超时'}：${detail}；现场保留，可继续修复`
+    this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+    return { state: 'blocked', reason }
+  }
+
   private async developTaskInSession(input: {
     reqId: string
     requirement: Requirement
@@ -4343,9 +4417,7 @@ ${answer}`
         },
       })
       if (result.status === 'aborted' || result.status === 'timeout') {
-        const reason = `研发回合${result.status === 'aborted' ? '被停止' : '超时'}：${result.reason}；现场保留，可继续修复`
-        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
-        return { state: 'blocked', reason }
+        return this.taskAborted(input, result.status, result.reason)
       }
       if (result.status !== 'completed') {
         this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_FAILED, result.reason, 0)
@@ -4354,15 +4426,7 @@ ${answer}`
       }
       const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
       if (status.code !== 0 || status.stdout.trim() === '') {
-        this.recordRun(
-          input.reqId,
-          input.plan,
-          input.task,
-          TASK_RUN_FAILED,
-          '研发回合没有产生任何文件改动',
-          0,
-        )
-        feedback = '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
+        feedback = this.taskNoChangeFeedback(input)
         continue
       }
       const test = await this.formalTest({
@@ -4397,52 +4461,20 @@ ${answer}`
         diffPath: join(taskDir, 'candidate.diff'),
       })
       if (capture.changedFiles.length === 0) {
-        this.recordRun(
-          input.reqId,
-          input.plan,
-          input.task,
-          TASK_RUN_FAILED,
-          '研发回合没有产生任何文件改动',
-          0,
-        )
-        feedback = '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
+        feedback = this.taskNoChangeFeedback(input)
         continue
       }
       runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)
-      const reviewNote = {
-        kind: 'self-check',
-        taskId: input.task.taskId,
-        verdict: 'pass',
-        detail: '研发 Agent 自验通过；独立验证由验证 Agent 在固定候选上完成。',
-        testLog: test.logPath,
-        at: this.now(),
-      }
-      const reviewPath = join(taskDir, 'review.json')
-      writeFileSync(reviewPath, `${JSON.stringify(reviewNote, null, 2)}\n`, 'utf8')
-      this.repo.recordTaskArtifact({
-        requirementId: input.reqId,
-        planVersion: input.plan.planVersion,
-        taskId: input.task.taskId,
-        candidateSha256: capture.diffSha256,
-        testEvidenceSha256: test.logSha256,
-        reviewSha256: sha256OfText(JSON.stringify(reviewNote)),
-        acceptance: input.task.acceptance,
+      this.recordDeliveredTask({
+        reqId: input.reqId,
+        plan: input.plan,
+        task: input.task,
+        workspace: input.workspace,
+        sessionId: input.session.sessionId,
         authorizationSource: input.authorizationSource,
-        recordedAt: this.now(),
-        baselineCommit: headCommit(this.config.projectPath),
-      })
-      this.repo.recordEvidence({
-        requirementId: input.reqId,
-        planVersion: input.plan.planVersion,
-        taskId: input.task.taskId,
-        baselineCommit: headCommit(this.config.projectPath),
-        workspacePath: input.workspace,
-        candidatePath: capture.diffPath,
-        testLogPath: test.logPath,
-        reviewPath,
-        devSession: input.session.sessionId,
-        reviewSession: '',
-        recordedAt: this.now(),
+        capture,
+        test,
+        taskDir,
       })
       this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_DELIVERED, '', 0)
       return { state: 'delivered', reason: '' }

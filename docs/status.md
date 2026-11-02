@@ -3181,3 +3181,11 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.02/96.91/84.97，mutation 97.80。
 - 下一批：`developTaskInSession`（48 语句）、`executeAdvance`（49/19）、
   `executeContinuousAdvance`（88/31）；再处理 `verifyCandidate`/`deliverTask` 两个大方法。
+
+### 53. 研发任务会话拆分（新目标 Round 3）
+
+- `developTaskInSession` 拆出 `recordDeliveredTask`、`taskNoChangeFeedback`、`taskAborted`；
+  语句 48 → 40 以内，豁免清零。
+- suppressions 16 → **15**；service tokens 66,772 → 66,958（助手签名）。
+- `make check` 607 项通过，coverage 91.08/96.92/84.98，mutation 97.80。
+- 下一批：`executeAdvance`（49/19）与 `executeContinuousAdvance`（88/31）。
