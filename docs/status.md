@@ -3613,3 +3613,14 @@ suppressions 20、service.ts 5,986 行。
 - 当前：**业务 0 处；边界 34 处（白名单 15 文件）**，与所有者口径一致。
 - `make check` 607 项通过；coverage 91.19/84.38/96.88；mutation 97.80。
 - 剩余：E2E 套件 / `make e2e`、verify-plugin 自动门禁、分支保护未落实项。
+
+### 93. 宿主装载 E2E 与 make e2e（新目标 Round 11）
+
+- 新增 `scripts/ts/e2e.ts`：构建插件 → 临时 `DSH_HOME` + 独立 profile 安装当前源码包 →
+  校验 `--dump-config` 出现 forgeloop-dsh 层与会话 preset → `plugin list` 包含
+  `forgeloop-dsh@`；全程不依赖模型凭据，临时目录用后即删。
+- `Makefile` 新增 `make e2e`。
+- 本机实测通过：`[e2e] OK：隔离 profile 安装、DSH 装载与组合校验通过`。
+- 说明：这是**装载/组合层** E2E；真实模型工具链仍由 `make verify-plugin`（release workflow）覆盖。
+- `make check` 607 项通过（含 scripts/ts 的 lint/typecheck）。
+- 未接入 CI：GitHub runner 上 dsh 是否可用未验证，接入前需先在 CI 安装 DSH；不把本地通过当 CI 已通过。
