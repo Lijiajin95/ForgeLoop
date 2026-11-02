@@ -6,6 +6,7 @@
  * 动作只能来自预先登记的目录；模型不能自行创造命令或参数。
  */
 
+import { asRecord } from './json.js'
 import { createHash } from 'node:crypto'
 import { MalformedError, RuleViolationError } from './errors.js'
 import { parseJsonLoose } from './requirement.js'
@@ -352,7 +353,7 @@ function parseHypotheses(value: unknown): OpsHypothesis[] {
     if (typeof item !== 'object' || item === null || Array.isArray(item)) {
       throw new MalformedError(`运维诊断的推断[${index}]必须是对象`)
     }
-    const hypothesis = item as Record<string, unknown>
+    const hypothesis = asRecord(item) ?? {}
     const confidence = hypothesis.confidence
     if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
       throw new MalformedError(`运维诊断的推断[${index}]置信度必须是 low/medium/high`)
@@ -369,14 +370,14 @@ function parseProposedAction(value: unknown): OpsProposedAction | null {
   if (typeof value !== 'object' || Array.isArray(value)) {
     throw new MalformedError('运维诊断的 proposed_action 必须是对象或 null')
   }
-  const action = value as Record<string, unknown>
+  const action = asRecord(value) ?? {}
   const actionId = nonEmptyString(action.action_id, '运维诊断的 proposed_action.action_id')
   const rawParams = action.params ?? {}
   if (typeof rawParams !== 'object' || rawParams === null || Array.isArray(rawParams)) {
     throw new MalformedError('运维诊断的 proposed_action.params 必须是对象')
   }
   const params: Record<string, string> = {}
-  for (const [name, param] of Object.entries(rawParams as Record<string, unknown>)) {
+  for (const [name, param] of Object.entries(asRecord(rawParams) ?? {})) {
     params[name] = nonEmptyString(param, `运维诊断的 proposed_action.params.${name}`)
   }
   return { actionId, params }
@@ -391,7 +392,7 @@ export function parseOpsDiagnosis(text: string): OpsDiagnosis {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new MalformedError('运维诊断必须是 JSON 对象')
   }
-  const data = payload as Record<string, unknown>
+  const data = asRecord(payload) ?? {}
   const impact = nonEmptyString(data.impact, '运维诊断的业务影响')
   const facts = stringArray(data.facts, '运维诊断的事实')
   if (data.hypotheses !== undefined && !Array.isArray(data.hypotheses)) {
@@ -505,7 +506,7 @@ export function parseOpsInterruptionReport(text: string): OpsInterruptionReport 
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new MalformedError('运维中断根因报告必须是 JSON 对象')
   }
-  const data = payload as Record<string, unknown>
+  const data = asRecord(payload) ?? {}
   const evidence = stringArray(data.evidence, '运维中断根因报告的事实')
   if (evidence.length === 0) throw new MalformedError('运维中断根因报告至少需要一条事实')
   if (evidence.length > INTERRUPTION_LIMITS.evidenceItems) {

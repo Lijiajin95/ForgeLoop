@@ -3400,3 +3400,15 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.14/96.91/85.05，mutation 97.80。
 - 剩余：`as` 85（agent-runner 18 最大）；`no-non-null-assertion` 32、
   `no-unnecessary-condition` 25 仍全局关闭；E2E/verify-plugin 门禁未接入。
+
+### 74. asRecord 守卫替换类型断言（新目标 Round 24）
+
+- `domain/json.ts` 新增 `asRecord(value)`：对象返回记录，数组/标量/null 返回 undefined。
+- `agent-runner` 事件数据的 6 处 `as AnyRecord` 改为 `asRecord`；`getter` 改用 `Reflect.apply`。
+- `domain/ops` 的 5 处 `as Record<string, unknown>` 改为 `asRecord(...) ?? {}`。
+- `config` 去掉 `JSON.parse as unknown`、`value as string[]`（改用类型谓词 every）、
+  `item as Record`（改用 asRecord）。
+- `as` 断言 **85 → 71**，基线收紧到 71。
+- `make check` 607 项通过，coverage 91.15/96.91/84.95，mutation **98.35**。
+- 剩余：`as` 71；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。

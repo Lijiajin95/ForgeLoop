@@ -3,6 +3,7 @@
  * 非法值在插件装载时失败（fail loudly），不静默回落。
  */
 
+import { asRecord } from './domain/json.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { errorMessage } from './domain/errors.js'
 import { join, resolve } from 'node:path'
@@ -140,7 +141,7 @@ export function loadConfigFile(
   if (!existsSync(path)) return {}
   let parsed: unknown
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
   } catch (error) {
     throw new RuleViolationError(`ForgeLoop 配置文件不是合法 JSON：${path}：${errorMessage(error)}`)
   }
@@ -193,10 +194,13 @@ function positiveInteger(value: unknown, field: string, fallback: number): numbe
 
 function stringList(value: unknown, field: string, fallback: readonly string[]): readonly string[] {
   if (value === undefined) return fallback
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item): item is string => typeof item === 'string' && item.trim() !== '')
+  ) {
     throw new RuleViolationError(`配置 ${field} 必须是字符串数组`)
   }
-  return value as string[]
+  return value
 }
 
 function booleanValue(value: unknown, field: string, fallback: boolean): boolean {
@@ -219,7 +223,7 @@ function objectList(value: unknown, field: string): Array<Record<string, unknown
     if (typeof item !== 'object' || item === null || Array.isArray(item)) {
       throw new RuleViolationError(`配置 ${field}[${index}] 必须是对象`)
     }
-    return item as Record<string, unknown>
+    return asRecord(item) ?? {}
   })
 }
 

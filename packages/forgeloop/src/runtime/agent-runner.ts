@@ -6,6 +6,7 @@
  * 模型、工具、权限与会话生命周期都由宿主提供；本模块只负责投递、等待、取消与取证。
  */
 
+import { asRecord } from '../domain/json.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { errorMessage } from '../domain/errors.js'
 import { dirname } from 'node:path'
@@ -80,7 +81,7 @@ interface SessionView {
 
 function serviceOf(ctx: AnyRecord, name: string): unknown {
   const getter = ctx.get
-  if (typeof getter === 'function') return (getter as (key: string) => unknown).call(ctx, name)
+  if (typeof getter === 'function') return Reflect.apply(getter, ctx, [name])
   return ctx[name]
 }
 
@@ -98,8 +99,8 @@ function extractAssistantText(events: readonly AnyRecord[]): string {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (!event || event.type !== 'assistant/message') continue
-    const data = event.data as AnyRecord | undefined
-    const message = data?.message as AnyRecord | undefined
+    const data = asRecord(event.data)
+    const message = asRecord(data?.message)
     const text = textOfContent(message?.content)
     if (text) return text
   }
@@ -110,10 +111,10 @@ function extractTurnEnd(events: readonly AnyRecord[]): { kind: string; detail: s
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (!event || event.type !== 'turn/end') continue
-    const data = event.data as AnyRecord | undefined
-    const reason = data?.reason as AnyRecord | undefined
+    const data = asRecord(event.data)
+    const reason = asRecord(data?.reason)
     const kind = typeof reason?.kind === 'string' ? reason.kind : ''
-    const error = reason?.error as AnyRecord | undefined
+    const error = asRecord(reason?.error)
     const message = typeof error?.message === 'string' ? error.message : ''
     return { kind, detail: message }
   }
@@ -124,7 +125,7 @@ function toolCallsOf(events: readonly AnyRecord[]): string[] {
   const names: string[] = []
   for (const event of events) {
     if (event.type !== 'tool/call') continue
-    const data = event.data as AnyRecord | undefined
+    const data = asRecord(event.data)
     if (typeof data?.name === 'string') names.push(data.name)
   }
   return names
