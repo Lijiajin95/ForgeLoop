@@ -1,0 +1,33 @@
+{
+  "ops": {
+    "enabled": true,
+    "intervalSeconds": 300,
+    "resources": [{ "id": "host", "kind": "host", "label": "ForgeLoop 宿主" }],
+    "checks": [
+      {
+        "id": "host-http",
+        "resourceId": "host",
+        "severity": "major",
+        "timeoutSeconds": 10,
+        "command": [
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3080/').then(() => process.exit(0)).catch(() => process.exit(1))"
+        ]
+      }
+    ],
+    "actions": [],
+    "monitor": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "logLines": 80,
+      "providers": ["builtin"],
+      "processes": [],
+      "latency": [],
+      "logs": [],
+      "alertFiles": [],
+      "heartbeat": { "url": "", "method": "GET", "timeoutSeconds": 5 }
+    },
+    "alerts": { "webhook": "", "timeoutSeconds": 10 }
+  }
+}

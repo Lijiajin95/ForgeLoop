@@ -750,6 +750,32 @@ window.__ModuleLoader__.load({
       'ops.done': '已受理；等待协调器处理',
       'ops.fixCreated': '已关联修复需求 {req}',
       'ops.fixPending': '修复需求处理中',
+      'ops.monitor': '主动监控',
+      'ops.monitor.idle': '等待首轮扫描',
+      'ops.monitor.never': '尚未扫描',
+      'ops.monitor.last': '最近扫描 {time}',
+      'ops.monitor.disabled': '主动监控未启用；只按登记检查产生事件。',
+      'ops.monitor.healthy': '正常',
+      'ops.monitor.degraded': '有问题',
+      'ops.monitor.critical': '严重',
+      'ops.monitor.error': '扫描失败',
+      'ops.monitor.cpu': 'CPU {value}%',
+      'ops.monitor.memory': '内存 {value}%',
+      'ops.monitor.load': '负载 {value}',
+      'ops.monitor.issues': '问题 {count}',
+      'ops.monitor.sources': '进程 {processes} · 延迟 {latency} · 日志 {logs} · 告警 {alerts} · 检查 {checks}',
+      'ops.monitor.providers': '提供方 {ids}',
+      'ops.monitor.heartbeat': '心跳 {state}',
+      'ops.monitor.heartbeatOk': '已上报 {time}',
+      'ops.monitor.heartbeatFail': '上报失败',
+      'ops.monitor.heartbeatNever': '未配置',
+      'ops.monitor.heartbeatPending': '等待上报',
+      'ops.alert': '外部告警',
+      'ops.alert.on': '已配置',
+      'ops.alert.off': '未配置',
+      'ops.obs.monitor': '主动监控',
+      'ops.obs.alert': '告警已发送',
+      'ops.obs.alert_error': '告警失败',
       'wb.stopHelp': '停止请求会撤销待执行请求；完成前不能认定已经停稳。',
     }
 
@@ -1093,6 +1119,32 @@ window.__ModuleLoader__.load({
       'ops.done': 'Accepted; waiting for the coordinator',
       'ops.fixCreated': 'Linked fix requirement {req}',
       'ops.fixPending': 'Fix requirement in progress',
+      'ops.monitor': 'Active monitoring',
+      'ops.monitor.idle': 'Awaiting first scan',
+      'ops.monitor.never': 'Not scanned yet',
+      'ops.monitor.last': 'Last scan {time}',
+      'ops.monitor.disabled': 'Active monitoring is off; only registered checks open events.',
+      'ops.monitor.healthy': 'Healthy',
+      'ops.monitor.degraded': 'Degraded',
+      'ops.monitor.critical': 'Critical',
+      'ops.monitor.error': 'Scan failed',
+      'ops.monitor.cpu': 'CPU {value}%',
+      'ops.monitor.memory': 'Memory {value}%',
+      'ops.monitor.load': 'Load {value}',
+      'ops.monitor.issues': 'Issues {count}',
+      'ops.monitor.sources': 'Processes {processes} · Latency {latency} · Logs {logs} · Alerts {alerts} · Checks {checks}',
+      'ops.monitor.providers': 'Providers {ids}',
+      'ops.monitor.heartbeat': 'Heartbeat {state}',
+      'ops.monitor.heartbeatOk': 'sent {time}',
+      'ops.monitor.heartbeatFail': 'failed',
+      'ops.monitor.heartbeatNever': 'off',
+      'ops.monitor.heartbeatPending': 'waiting',
+      'ops.alert': 'External alerts',
+      'ops.alert.on': 'configured',
+      'ops.alert.off': 'not configured',
+      'ops.obs.monitor': 'Active monitoring',
+      'ops.obs.alert': 'Alert sent',
+      'ops.obs.alert_error': 'Alert failed',
       'wb.stopHelp': 'A stop request dismisses pending requests; it does not prove the task has stopped.',
     }
 
@@ -3223,6 +3275,12 @@ window.__ModuleLoader__.load({
 .flb-ops-stat{border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;background:var(--dsw-alias-bg-layer-1)}
 .flb-ops-stat-value{font-size:18px;font-weight:600;line-height:22px}
 .flb-ops-stat-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-ops-monitor{border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;margin:0 0 12px;background:var(--dsw-alias-bg-layer-1)}
+.flb-ops-monitor[data-status=critical],.flb-ops-monitor[data-status=error]{border-color:var(--dsw-alias-state-error-primary)}
+.flb-ops-monitor[data-status=degraded]{border-color:var(--dsw-alias-state-warn-primary)}
+.flb-ops-monitor-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.flb-ops-monitor-metrics{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:12px;color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.flb-ops-monitor-summary{font-size:12px;margin-top:6px;overflow-wrap:anywhere}
 .flb-ops-grid{display:grid;grid-template-columns:minmax(260px,360px) minmax(0,1fr);gap:12px;align-items:start}
 .flb-ops-list{display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow:auto;padding-right:2px}
 .flb-ops-card{display:block;width:100%;text-align:left;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:10px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;font:inherit;color:inherit}
@@ -5357,6 +5415,7 @@ window.__ModuleLoader__.load({
       closed: 'idle',
     }
     const OPS_SEVERITY_TONE = { critical: 'error', major: 'warn', minor: 'idle' }
+    const OPS_MONITOR_TONE = { healthy: 'success', degraded: 'warn', critical: 'error', error: 'error', idle: 'idle' }
 
     /** 运维视图：只读事实 + 所有者动作（批准/拒绝/关闭/生成修复需求）。 */
     function OpsPane(props) {
@@ -5519,6 +5578,80 @@ window.__ModuleLoader__.load({
           event.humanInvolved ? h('div', { className: 'flb-ops-note' }, `${t('ops.humanNote')}：${value.event ? value.event.humanReason : ''}`) : null,
         )
       }
+      const monitor = summary.monitor || null
+      const monitorStatus = monitor && monitor.enabled ? monitor.status || 'idle' : 'idle'
+      const monitorStatusKey = 'ops.monitor.' + monitorStatus
+      const monitorStatusLabel = t(monitorStatusKey) === monitorStatusKey ? monitorStatus : t(monitorStatusKey)
+      const monitorHost = (monitor && monitor.host) || {}
+      const monitorSources = (monitor && monitor.sources) || {}
+      const monitorHeartbeat = (monitor && monitor.heartbeat) || {}
+      const heartbeatState = !monitorHeartbeat.configured
+        ? t('ops.monitor.heartbeatNever')
+        : monitorHeartbeat.at
+          ? monitorHeartbeat.ok
+            ? t('ops.monitor.heartbeatOk', { time: formatMoment(monitorHeartbeat.at) })
+            : t('ops.monitor.heartbeatFail')
+          : t('ops.monitor.heartbeatPending')
+      const monitorBar = !monitor
+        ? null
+        : !monitor.enabled
+          ? h(
+              'div',
+              { className: 'flb-ops-monitor', 'data-status': 'idle' },
+              h(Chip, { tone: 'idle' }, t('ops.monitor')),
+              h('span', { className: 'flb-muted' }, t('ops.monitor.disabled')),
+            )
+          : h(
+              'div',
+              { className: 'flb-ops-monitor', 'data-status': monitorStatus },
+              h(
+                'div',
+                { className: 'flb-ops-monitor-head' },
+                h(Chip, { tone: OPS_MONITOR_TONE[monitorStatus] || 'idle' }, t('ops.monitor')),
+                h('strong', null, monitorStatusLabel),
+                h(
+                  'span',
+                  { className: 'flb-muted' },
+                  monitor.lastScanAt
+                    ? t('ops.monitor.last', { time: formatMoment(monitor.lastScanAt) })
+                    : t('ops.monitor.never'),
+                ),
+                h(
+                  'span',
+                  { className: 'flb-muted' },
+                  `${t('ops.alert')}：${summary.alerts && summary.alerts.webhook ? t('ops.alert.on') : t('ops.alert.off')}`,
+                ),
+              ),
+              h(
+                'div',
+                { className: 'flb-ops-monitor-metrics' },
+                h('span', null, t('ops.monitor.cpu', { value: monitorHost.cpuPercent || 0 })),
+                h('span', null, t('ops.monitor.memory', { value: monitorHost.memoryUsedPercent || 0 })),
+                h('span', null, t('ops.monitor.load', { value: monitorHost.load1 || 0 })),
+                h('span', null, t('ops.monitor.issues', { count: monitor.issues || 0 })),
+                h(
+                  'span',
+                  null,
+                  t('ops.monitor.sources', {
+                    processes: monitorSources.processes || 0,
+                    latency: monitorSources.latency || 0,
+                    logs: monitorSources.logs || 0,
+                    alerts: monitorSources.alerts || 0,
+                    checks: monitorSources.checks || 0,
+                  }),
+                ),
+                h(
+                  'span',
+                  null,
+                  t('ops.monitor.providers', {
+                    ids: (monitor.providers || []).join(', ') || '—',
+                  }),
+                ),
+                h('span', null, t('ops.monitor.heartbeat', { state: heartbeatState })),
+              ),
+              monitor.summary ? h('div', { className: 'flb-ops-monitor-summary' }, monitor.summary) : null,
+              monitor.error ? h('div', { className: 'flb-error' }, monitor.error) : null,
+            )
       return h(
         'main',
         { className: 'flb-main-pane' },
@@ -5555,6 +5688,7 @@ window.__ModuleLoader__.load({
           stat(t('ops.unresolved'), stats.unresolved || 0),
           stat(t('ops.human'), stats.humanInvolved || 0),
         ),
+        monitorBar,
         events.length === 0
           ? h(
               'div',
