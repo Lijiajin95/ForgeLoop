@@ -1,3 +1,4 @@
+import { asRecord as jsonRecord } from '../domain/json.js'
 /**
  * 任务执行过程读取：把 AgentRunner 落盘的 dev.jsonl 解析成可公开的会话事件。
  *
@@ -45,9 +46,7 @@ export interface ExecutionPage {
 const MAX_TEXT = 8000
 
 function asRecord(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : undefined
+  return jsonRecord(value)
 }
 
 function textOfContent(content: unknown): string {
@@ -351,12 +350,13 @@ export function parseTaskExecution(
   const state = emptyState()
   for (const line of source.split('\n')) {
     if (!line.trim()) continue
-    let event: JsonRecord
+    let event: JsonRecord | undefined
     try {
-      event = JSON.parse(line) as JsonRecord
+      event = jsonRecord(JSON.parse(line))
     } catch {
       continue
     }
+    if (!event) continue
     consumeEvent(event, state)
   }
   appendToolEvents(state)

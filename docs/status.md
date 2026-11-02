@@ -3572,3 +3572,10 @@ suppressions 20、service.ts 5,986 行。
 - 为满足 token 预算，把 service 两处分隔注释缩短（功能无关）。
 - `as` 断言 **60 → 55**，基线 55。
 - `make check` 607 项通过；coverage 91.16/84.49/96.88；mutation 97.80。
+
+### 89. 事件解析复用 asRecord（新目标 Round 6）
+
+- `task-execution` 的本地 asRecord 改为复用 `domain/json`，JSON 行解析不再 `as JsonRecord`。
+- `preset` 的 getter 调用改用 `Reflect.apply`，去掉函数类型断言。
+- `as` 断言 **55 → 53**，基线 53。
+- `make check` 607 项通过；coverage 91.17/84.50/96.88；mutation 97.80。
