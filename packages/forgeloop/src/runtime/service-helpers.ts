@@ -1,3 +1,4 @@
+import { parseJsonObject } from '../domain/json.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { RuleViolationError } from '../domain/errors.js'
@@ -56,7 +57,7 @@ function summarizeEvent(type: string, data: Record<string, unknown>): string {
 
 function activityItem(line: string): { type: string; at: string; summary: string } | null {
   try {
-    const event = JSON.parse(line) as Record<string, unknown>
+    const event = parseJsonObject(line)
     const type = typeof event.type === 'string' ? event.type : 'event'
     const data = (event.data ?? {}) as Record<string, unknown>
     const at = typeof event.time === 'number' ? new Date(event.time).toISOString() : ''

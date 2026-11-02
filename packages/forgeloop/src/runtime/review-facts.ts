@@ -1,3 +1,4 @@
+import { parseJsonObject } from '../domain/json.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { sha256OfText } from '../domain/delivery.js'
 import { businessReviewEvidenceWindow } from './service-helpers.js'
@@ -45,7 +46,7 @@ export function reviewFacts(reportPath: string):
   | { ok: false; detail: string } {
   let canonical: Record<string, unknown> = {}
   try {
-    canonical = JSON.parse(readFileSync(reportPath, 'utf8')) as Record<string, unknown>
+    canonical = parseJsonObject(readFileSync(reportPath, 'utf8'))
   } catch {
     return { ok: false, detail: '独立验证报告无法解析；不能做业务终审' }
   }

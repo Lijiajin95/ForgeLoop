@@ -3347,3 +3347,15 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.15/96.89/85.03，mutation 97.80。
 - 剩余：`as` 163 → <20（DB 行 schema 继续扩大）；E2E/verify-plugin 门禁；
   `no-non-null-assertion`/`no-unnecessary-condition` 两条全局关闭规则尚未启用。
+
+### 69. JSON 对象解析替换 4 处断言（新目标 Round 19）
+
+- 新增 `src/domain/json.ts`：`parseJsonObject` 统一“解析 JSON 并收窄为对象”，
+  非对象返回空对象，调用方按缺失字段处理。
+- `review-facts`、`build-materials`（2 处）、`candidate-pipeline`、`service-helpers`
+  的 `JSON.parse(...) as Record<string, unknown>` 改为 `parseJsonObject(...)`。
+- `as` 断言 **163 → 159**，`assertion-budget.ts` 基线同步收紧到 159。
+- service 1,969 行、repository 1,837 行、suppressions `{}` 保持不变。
+- `make check` 607 项通过，coverage 91.15/96.89/85.02，mutation 97.80。
+- 剩余：`as` 159 → <20；`no-non-null-assertion`（32 处）与
+  `no-unnecessary-condition`（25 处）仍全局关闭；E2E/verify-plugin 门禁未接入。

@@ -1,0 +1,7 @@
+/** 把 JSON 文本解析成对象；非对象（数组、标量、null）返回空对象，调用方按缺失字段处理。 */
+export function parseJsonObject(text: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(text)
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}

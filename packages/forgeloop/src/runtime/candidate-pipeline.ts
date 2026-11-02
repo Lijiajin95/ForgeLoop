@@ -1,3 +1,4 @@
+import { parseJsonObject } from '../domain/json.js'
 import {
   cpSync,
   existsSync,
@@ -240,7 +241,7 @@ export class CandidatePipeline {
     if (!existsSync(packageJsonPath)) {
       return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
     }
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+    const packageJson = parseJsonObject(readFileSync(packageJsonPath, 'utf8'))
     packageJson.version = version
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
     return null

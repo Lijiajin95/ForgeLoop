@@ -1,3 +1,4 @@
+import { parseJsonObject } from '../domain/json.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
@@ -85,7 +86,7 @@ export class BuildMaterialValidator {
     }
     let canonical: Record<string, unknown>
     try {
-      canonical = JSON.parse(reportText) as Record<string, unknown>
+      canonical = parseJsonObject(reportText)
     } catch {
       return this.failure('verification_invalid', '独立验证报告不是可解析 JSON；不能构建')
     }
@@ -118,7 +119,7 @@ export class BuildMaterialValidator {
     }
     let reviewCanonical: Record<string, unknown>
     try {
-      reviewCanonical = JSON.parse(reviewText) as Record<string, unknown>
+      reviewCanonical = parseJsonObject(reviewText)
     } catch {
       return this.failure('business_review_invalid', '业务验收报告不是可解析 JSON；不能构建')
     }
