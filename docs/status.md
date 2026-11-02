@@ -3747,3 +3747,22 @@ suppressions 20、service.ts 5,986 行。
 - 结论：verify-plugin 仍需在启动环境 `export DEEPSEEK_API_KEY=…`（或通过 DSH Models 页写入）
   后才能实跑；不会把未运行写成通过。
 - `make check` 59 文件 611 项通过（含脚本改动）。
+
+### 106. verify-plugin 真实模型验证通过（新目标 Round 24）
+
+- 用户在 `~/.zshrc` 写入 `DEEPSEEK_API_KEY` 后，通过交互式 zsh 注入环境变量执行：
+
+```bash
+zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
+  FORGELOOP_DSH_PATCH=/tmp/verify-model.patch.yml make verify-plugin'
+```
+
+- 结果（原文摘录）：
+  - `[llm-deepseek-api-key] model listing from https://api.deepseek.com/models loaded 2 model(s)`
+  - `[verify-plugin] tool-loop final="The tool returned ok: true ... 3 requirements ..."`
+  - `[verify-plugin] OK：profile 安装、组合层与真实模型工具链可用`
+- 模型路由：`deepseek-official` / `deepseek-flash`（由 `--patch` 覆盖）；
+  profile 内插件为当前仓库（`forgeloop-dsh@0.0.2`，link）。
+- 说明：密钥只存在于用户 shell 环境，未写入仓库或日志；临时补丁文件在 `/tmp`。
+- 日志中另有既有提示（与本次验证无关）：记录根被另一个宿主持有、forgeloop profile 无
+  `agentPresets` 服务；均未影响工具调用结果。
