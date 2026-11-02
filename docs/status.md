@@ -3247,3 +3247,14 @@ suppressions 20、service.ts 5,986 行。
 - suppressions 维持 5；`make check` 607 项通过，coverage 91.19/97.00/84.90，
   mutation 97.80。
 - 剩余：`deliverTask`（422/131/36）与两个文件行数上限。
+
+### 60. 交付流水线整体移出，函数级豁免清零（新目标 Round 10）
+
+- `deliverTask` 拆为 `stepDevelopment`、`runIndependentReview`、`finishDeliveredTask`、
+  `prepareDeliveryAttempt`、`runVerificationTask`，随后整体移入
+  `src/runtime/task-delivery.ts`（`TaskDelivery` + 依赖注入）。
+- service.ts **5,942 → 5,353 行**；tokens **63,774 → 58,743**，基线下调。
+- **函数级 ESLint 豁免全部清零**：suppressions 8 → **2**，只剩两条文件行数上限
+  （service.ts 5,353、repository.ts 2,247）。
+- `make check` 607 项通过，coverage 91.06/97.05/84.88，mutation 97.80。
+- 剩余：两个文件拆到 ≤2,000 行；DB 行 schema / `as` 163 → <20；E2E 与 verify-plugin 门禁。
