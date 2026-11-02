@@ -3313,3 +3313,14 @@ suppressions 20、service.ts 5,986 行。
 - 未提交半成品；`tsc`、ESLint、budget、make check 均维持通过。
 - 下一轮建议：先只迁 `executeAnalysis` + `planningInputs` + `executeDevPlanning`（约 250 行）
   到 `execution-plan.ts`，编译通过后再迁研发循环；避免一次性搬 1,100 行。
+
+### 66. 规划段整体移出（新目标 Round 16）
+
+- 新增 `src/runtime/execution-plan.ts`：`ExecutionPlan` 承载 `executeAnalysis`、
+  `planningInputs`、`executeDevPlanning`，依赖注入
+  config/repo/now/charge/runner/existingPackages/reviewPlan/admitRequirement。
+- service.ts **3,433 → 3,205 行**；tokens **37,538 → 35,113**，基线下调。
+- 修正 `runner as never` 造成的断言计数回归，`make assertions` 保持 163。
+- suppressions 维持 1；`make check` 607 项通过，coverage 91.11/96.83/84.98，
+  mutation 97.80。
+- 剩余：service 3,205 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
