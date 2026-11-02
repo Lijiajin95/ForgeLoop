@@ -342,6 +342,54 @@ describe('orchestrator session routing', () => {
     expect(choice).toMatchObject({ sessionId: null, reason: '没有合适的会话', source: 'model' })
   })
 
+  it('offers the other candidates as fallbacks for the chosen session', async () => {
+    withSession('session-a')
+    withSession('session-b')
+    const choice = await orchestrator(
+      runResult(JSON.stringify({ session_id: 'session-b', reason: '同属会话模块' })),
+    ).choose({ requirement, analysis, signal: new AbortController().signal })
+
+    expect(choice.alternatives).toContain('session-a')
+    expect(choice.alternatives).not.toContain('session-b')
+  })
+
+  it('caps the candidate list and the summary length it feeds the model', async () => {
+    for (let index = 0; index < 25; index += 1) {
+      withSession(`session-${index}`)
+    }
+    repository.recordDevSessionSummary({
+      sessionId: 'session-0',
+      reqId: 'req-old',
+      summary: 'x'.repeat(5_000),
+      summarySha256: 'sha-old',
+      summaryPath: '/tmp/old.md',
+      now: NOW,
+    })
+    let prompt = ''
+    const choice = await orchestrator(async (request) => {
+      prompt = request.prompt
+      return runResult(JSON.stringify({ session_id: 'session-1', reason: '最近的会话' }))()
+    }).choose({ requirement, analysis, signal: new AbortController().signal })
+
+    expect(choice.sessionId).toBe('session-1')
+    expect(choice.alternatives).toHaveLength(19)
+    expect(prompt.match(/- 会话 /g)?.length).toBe(20)
+    expect(prompt.length).toBeLessThan(20_000)
+  })
+
+  it('drops the routing result when the request was stopped while the model ran', async () => {
+    withSession('session-a')
+    const controller = new AbortController()
+    const choice = await orchestrator(async () => {
+      controller.abort()
+      return runResult(JSON.stringify({ session_id: 'session-a', reason: '复用' }))()
+    }).choose({ requirement, analysis, signal: controller.signal })
+
+    expect(choice.sessionId).toBeNull()
+    expect(choice.reason).toContain('停止请求')
+    expect(choice.alternatives).toEqual([])
+  })
+
   it('falls back when the model fails, times out or the request is already stopped', async () => {
     withSession('session-a')
     const failed = await orchestrator(runResult('', 'error')).choose({

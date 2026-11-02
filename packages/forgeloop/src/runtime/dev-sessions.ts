@@ -17,6 +17,7 @@ import { AGENT_DEV } from '../domain/agents.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import type { Repository } from '../records/repository.js'
+import type { RequirementDevSessionRecord } from '../records/rows.js'
 import type { AgentOpenRequest, AgentResumeRequest, AgentSession } from './agent-runner.js'
 import type { ExecutionDev } from './execution-dev.js'
 import { devSessionSummaryPrompt } from './prompts.js'
@@ -50,6 +51,18 @@ export type AcquireDevSessionResult =
       detail: string
     }
 
+export interface AcquireRequest {
+  readonly reqId: string
+  readonly requirementVersion: number
+  readonly selectedSessionId: string | null
+  readonly selectionReason: string
+  readonly selectedBy: string
+  readonly requestId: string
+  readonly signal: AbortSignal
+  /** 选中会话确认不可用时改派新会话（更新绑定）；仅在调用方明确要求恢复时开启。 */
+  readonly allowRebind?: boolean
+}
+
 export interface FinishDevSessionResult {
   readonly summary: string
   readonly summaryPath: string
@@ -67,19 +80,32 @@ export class DevSessionRegistry {
     return this.live.get(sessionId)
   }
 
+  /**
+   * 取本进程内的会话句柄；宿主重启后从持久会话恢复。
+   * 恢复失败（宿主不支持、超时、会话已不存在、句柄不可用）一律显式报错，
+   * 不新建同名会话冒充恢复：调用方据此把需求改派到新会话，旧会话与工作区保留。
+   */
   private async sessionFor(sessionId: string, workspace: string): Promise<AgentSession> {
     const existing = this.live.get(sessionId)
     if (existing) return existing
     if (!this.deps.resumeAgent) {
-      throw new Error('宿主不支持恢复研发会话；不能新建同名会话冒充恢复')
+      throw new Error('宿主不支持恢复研发会话（agents.resume）；不能新建同名会话冒充恢复')
     }
-    const resumed = await this.deps.resumeAgent({
-      role: AGENT_DEV,
-      sessionId,
-      permission: 'workspace-write',
-      tools: 'default',
-      cwd: workspace,
-    })
+    let resumed: AgentSession | undefined
+    try {
+      resumed = await this.deps.resumeAgent({
+        role: AGENT_DEV,
+        sessionId,
+        permission: 'workspace-write',
+        tools: 'default',
+        cwd: workspace,
+      })
+    } catch (error) {
+      throw new Error(
+        `研发会话 ${sessionId} 无法从宿主恢复：${errorMessage(error)}；记录与工作区保留，不冒充恢复`,
+        { cause: error },
+      )
+    }
     this.live.set(sessionId, resumed)
     return resumed
   }
@@ -88,42 +114,64 @@ export class DevSessionRegistry {
    * 取得需求要使用的研发会话：已有绑定优先；否则采用主控 Agent 的选择；
    * 选不中、非法或没有会话时新建。会话忙时不占用，返回等待。
    */
-  async acquire(input: {
-    reqId: string
-    requirementVersion: number
-    selectedSessionId: string | null
-    selectionReason: string
-    selectedBy: string
-    requestId: string
-    signal: AbortSignal
-  }): Promise<AcquireDevSessionResult> {
+  async acquire(input: AcquireRequest): Promise<AcquireDevSessionResult> {
     const binding = this.deps.repo.requirementDevSession(input.reqId, input.requirementVersion)
-    let selectedSessionId = binding?.sessionId ?? input.selectedSessionId
+    const selectedSessionId = (binding?.sessionId ?? input.selectedSessionId) || null
     const selectedBy = binding?.selectedBy ?? input.selectedBy
     const reason = binding?.reason ?? input.selectionReason
-    if (selectedSessionId === '') selectedSessionId = null
+    if (!selectedSessionId) return this.createFresh({ ...input, selectedBy, reason })
+    return this.acquireSelected({
+      ...input,
+      binding,
+      sessionId: selectedSessionId,
+      selectedBy,
+      reason,
+    })
+  }
 
-    if (selectedSessionId) {
-      const record = this.deps.repo.devSession(selectedSessionId)
-      if (record) {
-        return this.acquireExisting({
-          ...input,
-          sessionId: selectedSessionId,
-          workspace: record.workspace,
-          selectedBy,
-          reason,
-        })
-      }
-      if (binding) {
+  /** 已有会话（绑定或主控选中）：占用、重建或改派；忙则原样交给调用方等待。 */
+  private async acquireSelected(
+    input: AcquireRequest & {
+      binding: RequirementDevSessionRecord | null
+      sessionId: string
+      selectedBy: string
+      reason: string
+    },
+  ): Promise<AcquireDevSessionResult> {
+    const record = this.deps.repo.devSession(input.sessionId)
+    const recover = input.allowRebind === true
+    if (!record) {
+      if (input.binding && !recover) {
         return {
           ok: false,
           state: 'unavailable',
-          sessionId: selectedSessionId,
-          detail: `需求绑定的研发会话 ${selectedSessionId} 不存在；不能静默换会话`,
+          sessionId: input.sessionId,
+          detail: `需求绑定的研发会话 ${input.sessionId} 不存在；不能静默换会话`,
         }
       }
+      if (input.binding) return this.rebindAfterFailure(input, '会话记录缺失')
+      return this.createFresh({ ...input, selectedBy: input.selectedBy, reason: input.reason })
     }
-    return this.createFresh({ ...input, selectedBy, reason })
+    const acquired = await this.acquireExisting({
+      ...input,
+      workspace: record.workspace,
+      reason: input.reason,
+    })
+    if (acquired.ok || acquired.state === 'busy' || !recover) return acquired
+    return this.rebindAfterFailure(input, acquired.detail)
+  }
+
+  /** 原会话不可用时改派新会话；旧会话记录与工作区不删除，只更新需求绑定。 */
+  private async rebindAfterFailure(
+    input: { reqId: string; requirementVersion: number; requestId: string; signal: AbortSignal },
+    detail: string,
+  ): Promise<AcquireDevSessionResult> {
+    const reason = `原研发会话不可用（${clipDetail(detail)}），改派新会话`
+    return this.createFresh({
+      ...input,
+      selectedBy: 'recovery',
+      reason: reason.length > 500 ? reason.slice(0, 500) : reason,
+    })
   }
 
   private async acquireExisting(input: {
@@ -325,6 +373,12 @@ export class DevSessionRegistry {
   release(input: { sessionId: string }): void {
     this.deps.repo.releaseDevSession(input.sessionId, this.deps.now())
   }
+}
+
+/** 不可用原因进入绑定说明时压成一行，避免把多行报错塞进记录。 */
+function clipDetail(detail: string): string {
+  const flattened = detail.trim().replace(/\s+/g, ' ')
+  return flattened.length > 200 ? `${flattened.slice(0, 200)}…` : flattened
 }
 
 function fallbackSummary(requirement: Requirement, plan: TaskPlan | null, outcome: string): string {

@@ -25,14 +25,15 @@ import { FAILURE_PLANNING, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import type { Repository } from '../records/repository.js'
 import type { IssueStore } from '../records/issues.js'
+import type { RequirementDevSessionRecord } from '../records/rows.js'
 import type { AgentSession } from './agent-runner.js'
 import type { ExecutionDev } from './execution-dev.js'
 import type { VerificationPipeline } from './verification-pipeline.js'
 import type { LegacyVerification } from './legacy-verification.js'
 import type { OperationResult } from './operation-result.js'
 import { requirementTitle } from './board.js'
-import type { DevSessionRegistry } from './dev-sessions.js'
-import type { SessionOrchestrator } from './orchestrator.js'
+import type { AcquireDevSessionResult, DevSessionRegistry } from './dev-sessions.js'
+import type { OrchestratorChoice, SessionOrchestrator } from './orchestrator.js'
 import { PLUGIN_VERSION } from './version.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
@@ -835,23 +836,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     const { requirement, analysis, admission } = inputs
     const authorizationSource = `system-admission:${admission.admissionId}`
     const requirementVersion = requirement.versions.length
-    const bound = this.deps.repo.requirementDevSession(reqId, requirementVersion)
-    let selectedSessionId: string | null = bound?.sessionId ?? null
-    let selectionReason = bound?.reason ?? ''
-    let selectedBy = bound?.selectedBy ?? 'requirement-binding'
-    if (!bound) {
-      const choice = await this.deps.orchestrator.choose({ requirement, analysis, signal })
-      selectedSessionId = choice.sessionId
-      selectionReason = choice.reason
-      selectedBy = choice.source === 'model' ? 'orchestrator' : 'orchestrator:new'
-    }
-    const acquired = await this.deps.devSessions.acquire({
+    const acquired = await this.resolveDevSession({
       reqId,
+      requirement,
+      analysis,
       requirementVersion,
-      selectedSessionId,
-      selectionReason,
-      selectedBy,
-      requestId: requestId || `advance-${randomUUID()}`,
+      requestKey: requestId || `advance-${randomUUID()}`,
       signal,
     })
     if (!acquired.ok) {
@@ -898,6 +888,75 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         outcome,
       })
     }
+  }
+
+  /** 绑定优先、否则采用主控结果；两种来源各自记录是谁选的与理由。 */
+  private routingSelection(
+    bound: RequirementDevSessionRecord | null,
+    choice: OrchestratorChoice | null,
+  ): { selectedSessionId: string | null; selectionReason: string; selectedBy: string } {
+    if (choice) {
+      const source = choice.source === 'model' ? 'orchestrator' : 'orchestrator:new'
+      return {
+        selectedSessionId: choice.sessionId,
+        selectionReason: choice.reason,
+        selectedBy: source,
+      }
+    }
+    return {
+      selectedSessionId: bound?.sessionId ?? null,
+      selectionReason: bound?.reason ?? '',
+      selectedBy: bound?.selectedBy ?? 'requirement-binding',
+    }
+  }
+
+  /**
+   * 取得需求要用的研发会话：已有绑定直接复用；否则由主控 Agent 选择。
+   * 主控选中的会话在真正占用时失效（工作区被删、宿主恢复失败等）时，按主控给的备选
+   * 顺序再试，全部不可用才改派新会话并更新绑定；会话忙仍按等待处理，不换会话。
+   */
+  private async resolveDevSession(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    requirementVersion: number
+    requestKey: string
+    signal: AbortSignal
+  }): Promise<AcquireDevSessionResult> {
+    const { reqId, requirement, analysis, requirementVersion, requestKey, signal } = input
+    const bound = this.deps.repo.requirementDevSession(reqId, requirementVersion)
+    const choice =
+      bound === null
+        ? await this.deps.orchestrator.choose({
+            requirement,
+            analysis,
+            signal,
+          })
+        : null
+    const selection = this.routingSelection(bound, choice)
+    const acquire = (
+      sessionId: string | null,
+      overrides: { reason?: string; allowRebind?: boolean } = {},
+    ) =>
+      this.deps.devSessions.acquire({
+        reqId,
+        requirementVersion,
+        ...selection,
+        selectedSessionId: sessionId,
+        selectionReason: overrides.reason ?? selection.selectionReason,
+        requestId: requestKey,
+        signal,
+        allowRebind: overrides.allowRebind === true,
+      })
+    const first = await acquire(selection.selectedSessionId)
+    if (first.ok || first.state === 'busy') return first
+    for (const alternative of choice?.alternatives ?? []) {
+      const retried = await acquire(alternative, {
+        reason: `${selection.selectionReason}；选中的会话不可用（${first.detail}），改用备选会话`,
+      })
+      if (retried.ok || retried.state === 'busy') return retried
+    }
+    return acquire(null, { allowRebind: true })
   }
 
   private advanceBudgetGuard(

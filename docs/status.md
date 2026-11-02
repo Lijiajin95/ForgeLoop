@@ -3798,8 +3798,9 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   绑定会话空闲时重新排队 `advance`，不并发插队、不判失败；宿主重启时 `resetBusyDevSessions` 把遗留 busy
   释放为空闲，保留绑定与总结。旧 `plan`／`approve` 请求、实现前评审与批准行仅作历史兼容保留，
   正常自动链路不再有独立规划步骤；旧显式批准路径仍用任务级工作区，不在会话复用范围内。
-- **验证会话一次性**：独立验证与新开的验证会话一一对应，业务验收复用同一会话，结束即 `close()`；
-  只有研发会话长期保留。问题单环境改为记录会话工作区。
+- **问题单环境**：问题单的 `environment.devWorkspace` 改记研发会话工作区，不再写按需求 ID 的旧路径。
+- **验证会话**：连续链路沿用既有实现（新开验证会话、验完即 `close()`）；验证单会话的进一步改造
+  由另一分支（`feat/verification-new-session`）负责，本分支不改该部分，任务级验证流水线保持原状。
 - **宿主恢复**：本进程内复用 live 会话句柄；宿主重启后经 `agents.resume` 恢复，宿主不支持时明确失败，
   不新建同名会话冒充恢复。
 - 文档同步：`docs/architecture.md`、`docs/product.md`、`docs/status.md`、`CONTEXT.md`、
@@ -3810,3 +3811,24 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - **未完成／风险**：真实宿主的 `agents.resume` 尚未在正式 profile 实测；主控路由质量依赖模型与总结质量，
   只能靠候选清单校验兜底；旧 `executeAdvance`（显式批准）仍是任务级工作区；断言 fake runner 必须显式
   处理 `role=orchestrator`，否则会落到默认写文件分支。
+
+### 109. 主控路由与宿主恢复的异常处理（2026-11-02）
+
+- **验证单会话移出本分支**：`verification-pipeline.ts` 回退到改动前实现，恢复 `runner` 依赖；
+  验证会话改造由 `feat/verification-new-session` 负责，避免两处重复改动同时落地。
+- **主控路由的异常路径**：候选清单最多 20 个会话、每个会话最近总结截断到 400 字；调用前后各查一次
+  停止请求（等待模型期间被停止时不采用结果）；畸形的路由 JSON、非字符串或空 `session_id`、不存在的
+  会话 ID、未完成/超时/报错的回合都回退为新建会话，并把原因写进需求详情；没有候选时直接新建，
+  不调用模型。`OrchestratorChoice` 额外返回 `alternatives`（除选中会话外的候选），供占用失败时降级。
+- **占用失败降级**：主控选中的会话在真正占用时失效（工作区被删、有未提交现场、宿主无法恢复）时，
+  按 `alternatives` 顺序继续尝试；全部不可用才改派新会话并更新 `requirement_dev_sessions` 绑定，
+  旧会话记录与工作区保留。会话忙仍按等待处理，不换会话。
+- **`agents.resume` 异常处理**：恢复等待有上限（默认 60 秒，`AgentRunnerOptions.resumeTimeoutMs`
+  可覆盖）；宿主缺 `agents.resume`、恢复超时、宿主报错、返回空句柄或残缺句柄都转成明确错误
+  （带 cause），不新建同名会话冒充恢复；超时后晚到的句柄会被 dispose，晚到的拒绝不会变成未处理异常。
+  恢复失败后需求改派新会话并更新绑定，旧会话与工作区不删除。
+- **测试**：新增主控备选、候选上限与摘要截断、调用后被停止、恢复失败后降级、备选会话降级、
+  全部不可用改派、宿主恢复报错/超时/空句柄等用例。
+- **结果**：`make check` 60 个文件、633 项通过；`make coverage` 行/语句 91.33%、函数 96.47%、
+  分支 84.36%（`repository.ts` 分支 87.62%）；`make budget` service.ts 21,785（基线下调）、
+  `make assertions` 18。

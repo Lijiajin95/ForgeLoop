@@ -241,3 +241,53 @@ describe('AgentRunner live activity', () => {
     expect(snapshots[0]).toBeGreaterThan(0)
   })
 })
+
+describe('AgentRunner resume failures', () => {
+  function runnerWith(agents: Record<string, unknown>, resumeTimeoutMs?: number) {
+    return new AgentRunner({
+      ctx: { agents } as never,
+      agent: { provider: 'p', model: 'm', timeoutSeconds: 5 },
+      ...(resumeTimeoutMs === undefined ? {} : { resumeTimeoutMs }),
+    })
+  }
+
+  function resumeRequest() {
+    return {
+      role: 'dev' as const,
+      sessionId: 'session-fl-dev-x',
+      permission: 'workspace-write' as const,
+      tools: 'none' as const,
+      cwd: '/tmp/workspace',
+    }
+  }
+
+  it('refuses to fake a recovery when the host has no resume API', async () => {
+    const runner = runnerWith({ create: async () => undefined })
+    await expect(runner.resume(resumeRequest())).rejects.toThrow('agents.resume')
+  })
+
+  it('reports the host error instead of pretending the session came back', async () => {
+    const runner = runnerWith({
+      create: async () => undefined,
+      resume: async () => {
+        throw new Error('session not found on host')
+      },
+    })
+    await expect(runner.resume(resumeRequest())).rejects.toThrow(
+      '恢复研发会话 session-fl-dev-x 失败：session not found on host',
+    )
+  })
+
+  it('stops waiting when the host never answers', async () => {
+    const runner = runnerWith(
+      { create: async () => undefined, resume: () => new Promise(() => undefined) },
+      20,
+    )
+    await expect(runner.resume(resumeRequest())).rejects.toThrow('没有恢复会话 session-fl-dev-x')
+  })
+
+  it('rejects an empty handle instead of wrapping it as a live session', async () => {
+    const runner = runnerWith({ create: async () => undefined, resume: async () => undefined })
+    await expect(runner.resume(resumeRequest())).rejects.toThrow('返回空句柄')
+  })
+})

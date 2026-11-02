@@ -122,6 +122,7 @@ function fakeRunner(
     businessIncomplete?: boolean
     businessBlock?: boolean
     orchestratorSessionId?: () => string | null
+    resumeFails?: boolean
   } = {},
 ): AgentLike {
   let verifications = 0
@@ -435,6 +436,7 @@ function fakeRunner(
       return session(request)
     },
     async resume(request: AgentResumeRequest) {
+      if (options.resumeFails) throw new Error('session not found on host')
       return session({
         role: request.role,
         cwd: request.cwd ?? '',
@@ -1491,5 +1493,108 @@ describe('continuous four-Agent flow', () => {
     } finally {
       delete process.env.FORGELOOP_FAULT_INJECT
     }
+  })
+})
+
+/** 造一个“既有研发会话”的工作区：真实 Git 仓库，可按需留下未提交现场。 */
+function seedDevSession(sessionId: string, options: { dirty?: boolean } = {}): string {
+  // 放在被忽略的 .forgeloop/ 下：夹具自身的 Git 仓库不能把真实项目工作树弄脏。
+  const workspace = join(project, '.forgeloop/seeded-sessions', sessionId)
+  mkdirSync(workspace, { recursive: true })
+  git(workspace, ['init', '-q'])
+  git(workspace, ['config', 'user.email', 'test@example.com'])
+  git(workspace, ['config', 'user.name', 'Test'])
+  writeFileSync(join(workspace, 'README.md'), 'session fixture\n')
+  git(workspace, ['add', '-A'])
+  git(workspace, ['commit', '-qm', 'session base'])
+  if (options.dirty) writeFileSync(join(workspace, 'leftover.txt'), 'uncommitted\n')
+  runtime.repo.upsertDevSession({
+    sessionId,
+    project: 'demo',
+    workspace,
+    now: new Date().toISOString(),
+  })
+  return workspace
+}
+
+describe('development session routing failures', () => {
+  it('falls back to another candidate when the chosen session cannot be reused', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ orchestratorSessionId: () => 'session-dirty' }))
+    seedDevSession('session-clean')
+    seedDevSession('session-dirty', { dirty: true })
+
+    const submitted = runtime.submit({
+      text: '在可用研发会话里实现功能',
+      by: 'owner',
+      source: 'dsh-session:sess-fallback:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+
+    expect(advance.state, advance.detail).toBe('done')
+    expect(boundSessionId(reqId)).toBe('session-clean')
+  })
+
+  it('opens a new session when no candidate can be reused', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ orchestratorSessionId: () => 'session-broken' }))
+    seedDevSession('session-broken', { dirty: true })
+
+    const submitted = runtime.submit({
+      text: '所有候选都不可用时新建会话',
+      by: 'owner',
+      source: 'dsh-session:sess-new:msg-1',
+    })
+    expect(submitted.ok, submitted.message).toBe(true)
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+
+    expect(advance.state, advance.detail).toBe('done')
+    const sessionId = boundSessionId(reqId)
+    expect(sessionId).not.toBe('session-broken')
+    expect(sessionId.startsWith('session-fl-dev-')).toBe(true)
+    // 旧会话记录与现场保留，只把需求改派到新会话。
+    expect(runtime.repo.devSession('session-broken')).not.toBeNull()
+  })
+
+  it('recovers with a new session when the host cannot restore the bound one', async () => {
+    const first = runtime.submit({
+      text: '第一个需求占用研发会话',
+      by: 'owner',
+      source: 'dsh-session:sess-resume-1:msg-1',
+    })
+    const firstReq = (first.data as { reqId: string }).reqId
+    await runNext(firstReq, 'analyze')
+    runtime.autoAdvanceRequests()
+    expect((await runNext(firstReq, 'advance')).state).toBe('done')
+    const firstSession = boundSessionId(firstReq)
+    const firstWorkspace = boundWorkspace(firstReq)
+
+    // 宿主重启：进程内没有句柄，agents.resume 又失败。
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({ orchestratorSessionId: () => firstSession, resumeFails: true }),
+    )
+    const second = runtime.submit({
+      text: '宿主无法恢复旧会话时继续新需求',
+      by: 'owner',
+      source: 'dsh-session:sess-resume-2:msg-1',
+    })
+    const secondReq = (second.data as { reqId: string }).reqId
+    await runNext(secondReq, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(secondReq, 'advance')
+
+    expect(advance.state, advance.detail).toBe('done')
+    const rebound = boundSessionId(secondReq)
+    expect(rebound).not.toBe(firstSession)
+    // 旧会话记录与工作区不删除，只换绑定。
+    expect(runtime.repo.devSession(firstSession)?.workspace).toBe(firstWorkspace)
+    expect(existsSync(firstWorkspace)).toBe(true)
   })
 })

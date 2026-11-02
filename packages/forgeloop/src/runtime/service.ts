@@ -92,11 +92,7 @@ import { fail, ok, type OperationResult } from './operation-result.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
 import { BuildMaterialValidator } from './build-materials.js'
 
-/**
- * 单个推进请求内最多尝试的验证次数。验证失败会建问题单并定向修复；
- * 达到上限后请求收口为 blocked，由协调器依据未收口问题单自动排队下一次修复与验证。
- * 跨请求的重试没有轮次上限，attempt 与验证历史持续累积。
- */
+/** 可注入的 Agent 执行器：真实插件用 AgentRunner，测试可替换为确定性假执行器。 */
 export interface AgentLike {
   run(request: Parameters<AgentRunner['run']>[0]): ReturnType<AgentRunner['run']>
   open?(request: AgentOpenRequest): Promise<AgentSession>
@@ -179,6 +175,7 @@ export class ForgeLoopRuntime {
       charge: (reqId, started) => {
         this.charge(reqId, started)
       },
+      runner: this.runner,
       formalTest: this.formalTest,
       ctx: this.ctx,
       openAgent: (request) => this.openAgent(request),

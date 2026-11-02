@@ -76,7 +76,11 @@ export interface AgentRunResult {
 export interface AgentRunnerOptions {
   readonly ctx: AnyRecord
   readonly agent: AgentConfig
+  /** 恢复持久会话的等待上限：宿主卡住时不能让需求永远停在 claimed。 */
+  readonly resumeTimeoutMs?: number
 }
+
+const DEFAULT_RESUME_TIMEOUT_MS = 60_000
 
 interface AgentView {
   readonly id: string
@@ -274,16 +278,20 @@ type SessionHandle = { agent: AgentView; dispose(): Promise<void> }
 /** 宿主的 Agent 服务视图：create 必然存在，resume 因宿主版本不同而可能缺省。 */
 interface AgentService {
   create(options: AnyRecord): Promise<SessionHandle>
-  resume?(options: AnyRecord): Promise<SessionHandle>
+  /** 宿主恢复接口；返回空句柄按宿主缺陷处理，不当作恢复成功。 */
+  resume?(options: AnyRecord): Promise<SessionHandle | undefined>
 }
 
 export class AgentRunner {
   private readonly ctx: AnyRecord
   private readonly agent: AgentConfig
 
+  private readonly resumeTimeoutMs: number
+
   constructor(options: AgentRunnerOptions) {
     this.ctx = options.ctx
     this.agent = options.agent
+    this.resumeTimeoutMs = options.resumeTimeoutMs ?? DEFAULT_RESUME_TIMEOUT_MS
   }
 
   /** 解析实际使用的 provider/model：配置显式给出优先，否则用宿主默认选择。 */
@@ -360,14 +368,62 @@ export class AgentRunner {
       throw new Error('宿主不支持恢复持久会话（agents.resume）；不能假装恢复研发会话')
     }
     const setup = this.setupFor(request.tools)
-    const handle = await agents.resume({
-      resumeSessionId: request.sessionId,
-      agentOptions: { provider: selection.provider, model: selection.model },
-      ...(setup ? { setup } : {}),
-    })
+    let handle: SessionHandle | undefined
+    try {
+      handle = await this.withResumeDeadline(
+        agents.resume({
+          resumeSessionId: request.sessionId,
+          agentOptions: { provider: selection.provider, model: selection.model },
+          ...(setup ? { setup } : {}),
+        }),
+        request.sessionId,
+      )
+    } catch (error) {
+      throw new Error(`恢复研发会话 ${request.sessionId} 失败：${errorMessage(error)}`, {
+        cause: error,
+      })
+    }
+    if (!handle) {
+      throw new Error(`宿主恢复了研发会话 ${request.sessionId} 但返回空句柄；拒绝继续`)
+    }
     const presets = permissionService(this.ctx)
-    presets?.set(handle.agent.session, request.permission)
+    try {
+      presets?.set(handle.agent.session, request.permission)
+    } catch (error) {
+      throw new Error(
+        `宿主恢复了研发会话 ${request.sessionId} 但句柄不可用：${errorMessage(error)}；拒绝继续`,
+        { cause: error },
+      )
+    }
     return this.wrapSession(handle, request.sessionId)
+  }
+
+  /** 恢复可能因为宿主内部等待而挂起；超时报错交回调用方，不静默降级为新会话。 */
+  private async withResumeDeadline(
+    pending: Promise<SessionHandle | undefined>,
+    sessionId: string,
+  ): Promise<SessionHandle | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true
+        reject(new Error(`宿主在 ${this.resumeTimeoutMs}ms 内没有恢复会话 ${sessionId}`))
+      }, this.resumeTimeoutMs)
+      timer.unref()
+    })
+    // 超时后宿主仍可能返回或拒绝：晚到的句柄立刻释放，晚到的拒绝不变成未处理异常。
+    void pending.then(
+      (handle) => {
+        if (timedOut && handle) void handle.dispose().catch(() => undefined)
+      },
+      () => undefined,
+    )
+    try {
+      return await Promise.race([pending, timeout])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   private agentService(): AgentService {
