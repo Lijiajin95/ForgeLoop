@@ -3883,7 +3883,15 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - 验证：在干净工作树（HEAD `9a3b0eb` + 本批改动）执行 `make check`：typecheck、ESLint、
   `make contracts`、token 预算（最大 `service.ts` 21921 ≤ 21931）、断言预算（19/19）与
   **62 个测试文件、648 项测试**全部通过；`make format` 通过。
-- 边界：没有可用的真实 `DEEPSEEK_API_KEY`，DeepSeek 接口只按官方文档核对并用本地 HTTP 服务
-  验证协议与错误映射，未发真实检索请求，也未验证计费与额度；密钥需由宿主进程环境注入。
+- 验证（真实接口，2026-11-02）：在本地构建产物上直接调用 `forgeloop_web_search`/`forgeloop_web_fetch`，
+  密钥取自所有者 `~/.zshrc` 的 `DEEPSEEK_API_KEY`。英文与中文检索分别返回 3 条/2 条真实结果
+  （title、url、site、authority、summary 均解析正常）；抓取 `api-docs.deepseek.com/api/search`、
+  七牛云文章页与 `deepseek.com` 均得到 Markdown 正文（248–5192 字符）；`file:` 地址被拒；
+  无效密钥返回 401 并被映射为“联网请求失败（HTTP 401，API 密钥缺失或无效）”；一次第三方页面
+  404 与一次超时也按中文原因返回。计费与额度未核对。
+- 边界：需要 `DEEPSEEK_API_KEY` 已在**运行插件的宿主进程**环境里。验证时它只存在于 shell 的
+  `export`，运行中的 DSH 宿主进程（`dsh web`，PID 2477）环境里没有该变量，因此宿主内调用会返回
+  “未配置 DEEPSEEK_API_KEY”；要让插件真正联网，需从带该变量的 shell 或 launchd/LaunchAgent
+  环境启动宿主。
   旧记录的 business context 不受影响（缺字段按未变化）；同步只覆盖整份文档，不做增量合并，
   模型漏判“需要更新”仍不会被程序发现。
