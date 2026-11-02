@@ -4148,3 +4148,39 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - **合并后验证**：`make check` 68 个文件、726 项通过；`make coverage` 行／语句 91.99%、函数 96.66%、
   分支 84.60%（`repository.ts` 分支 87.36%）；`make format`、`make budget`（最大 `service.ts` 21,682）、
   `make assertions` 18（基线 18）、`make contracts` 通过。
+
+## 46. 长任务中断收口与回合上限对齐（2026-11-02）
+
+orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工程问题；本批只修这两类，不改变业务规则。
+
+### 46.1 问题
+
+- 开发回合上限固定为 `agent.timeoutSeconds`（1800），而任务包 `limit_seconds` 是 7200；
+  任务包允许的工时与执行器实际给的回合上限不一致。
+- 超时/停止时只把任务标为 blocked，不采集 workspace diff；下一次执行会重建工作副本，
+  未交付的修改直接丢失（现场一次留下 843 行未提交改动与两个新文件）。
+- 实现前评审把“文件不在计划清单”当作 block；研发提示词却明确说明清单只是预期，
+  测试与架构文档的同步修改被误判为越界。
+
+### 46.2 修复
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/runtime/execution-dev.ts` | 超时/停止时采集 diff，写入 `evidence/.../checkpoint-aN.diff` 与 `.json`；开发回合上限改为 `clamp(task.limit_seconds, agent.timeoutSeconds, agent.maxTurnSeconds)` |
+| `src/config.ts` | 新增 `agent.maxTurnSeconds`（默认 7200），作为长任务硬上限 |
+| `src/runtime/prompts.ts` | 评审允许当前项目内清单外文件（测试/架构文档），只拦截跨项目、伪造或削弱测试、关键缺失；计划提示词要求把测试与架构文档写入 `files` |
+| 测试 | 超时后 checkpoint 存在且包含改动；`maxTurnSeconds` 解析；两处提示词断言 |
+
+### 46.3 验证
+
+- `make check`：61 个测试文件、637 项通过
+- `make check-fast`：49 个文件、415 项通过
+- `make contracts`、`make lint`、`make format`：通过
+- 本次改动在独立 worktree（`fix/interrupted-turn-recovery`）完成，未触碰主工作树中其他会话的在途改动
+
+### 46.4 仍未完成
+
+- 回合内“无进展超时”尚未实现；模型流停顿仍会消耗任务工时，只是不再被 1800 秒总上限提前截断。
+- 工时耗尽仍无追加授权/延长入口；当前需求需要人工延长或拆分。
+- 历史事件里的工作副本仍可能被下一次执行覆盖；修复只对之后的中断生效。
+- 补记：`service.ts` 在需求队列重构后已降到约 1,983 行；§45.4 的 5,836 行是重构前数字，拆分事项应重新评估。
