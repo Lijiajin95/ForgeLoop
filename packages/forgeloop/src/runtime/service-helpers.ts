@@ -1,3 +1,4 @@
+import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -10,7 +11,7 @@ export function summarizeActivity(events: readonly Record<string, unknown>[]): s
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (!event || typeof event.type !== 'string') continue
-    const data = event.data as Record<string, unknown> | undefined
+    const data = asRecord(event.data)
     if (event.type === 'tool/call') {
       const name = typeof data?.name === 'string' ? data.name : '工具'
       return `正在调用工具 ${name}`
@@ -36,7 +37,7 @@ function summarizeEvent(type: string, data: Record<string, unknown>): string {
   }
   if (type === 'tool/result') return '工具返回结果'
   if (type === 'assistant/message') {
-    const message = data.message as Record<string, unknown> | undefined
+    const message = asRecord(data.message)
     const content = Array.isArray(message?.content) ? message.content : []
     const text = content
       .filter(
@@ -59,7 +60,7 @@ function activityItem(line: string): { type: string; at: string; summary: string
   try {
     const event = parseJsonObject(line)
     const type = typeof event.type === 'string' ? event.type : 'event'
-    const data = (event.data ?? {}) as Record<string, unknown>
+    const data = asRecord(event.data) ?? {}
     const at = typeof event.time === 'number' ? new Date(event.time).toISOString() : ''
     return { type, at, summary: summarizeEvent(type, data) }
   } catch {
@@ -90,7 +91,7 @@ export function readActivity(
 export function readJson(path: string): unknown {
   if (!existsSync(path)) return null
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as unknown
+    return JSON.parse(readFileSync(path, 'utf8'))
   } catch {
     return null
   }

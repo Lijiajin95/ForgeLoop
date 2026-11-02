@@ -3412,3 +3412,13 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.15/96.91/84.95，mutation **98.35**。
 - 剩余：`as` 71；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 75. 记录与事件辅助继续去断言（新目标 Round 25）
+
+- `repository`：计划负载/技术方案/任务字段改用 `asRecord` 守卫；`parseStringList` 改用
+  类型谓词 `every`；两处 `JSON.parse(...) as unknown` 去掉多余断言。
+- `service-helpers`：活动事件 `data`、消息 `message` 改用 `asRecord`；`readJson as unknown` 去掉。
+- `as` 断言 **71 → 58**，基线收紧到 58。
+- `make check` 607 项通过，coverage 91.15/96.91/84.92，mutation 97.80。
+- 剩余：`as` 58；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。

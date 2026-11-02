@@ -5,6 +5,7 @@
  * 只读写当前实现建立的权威表；不读取或修补旧业务库。
  */
 
+import { asRecord } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
 import { isoNow } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
@@ -336,7 +337,7 @@ export class Repository extends OpsStore {
       .prepare('SELECT * FROM requirement_task_plans WHERE req_id = ? AND plan_version = ?')
       .get(reqId, planVersion)
     if (!row) return null
-    return planFromPayload(JSON.parse(text(row, 'plan')) as unknown, {
+    return planFromPayload(JSON.parse(text(row, 'plan')), {
       requirementId: reqId,
       taskPlanId: text(row, 'task_plan_id'),
       planVersion,
@@ -349,7 +350,7 @@ export class Repository extends OpsStore {
       .prepare('SELECT * FROM requirement_task_plans WHERE req_id = ? ORDER BY plan_version')
       .all(reqId)
     return rows.map((row) =>
-      planFromPayload(JSON.parse(text(row, 'plan')) as unknown, {
+      planFromPayload(JSON.parse(text(row, 'plan')), {
         requirementId: reqId,
         taskPlanId: text(row, 'task_plan_id'),
         planVersion: num(row, 'plan_version'),
@@ -1729,10 +1730,10 @@ function commitFromRow(row: Row): RequirementCommitRecord {
 
 function parseStringList(raw: string): string[] {
   const data: unknown = JSON.parse(raw)
-  if (!Array.isArray(data) || data.some((item) => typeof item !== 'string')) {
+  if (!Array.isArray(data) || !data.every((item): item is string => typeof item === 'string')) {
     throw new RuleViolationError('记录损坏：期望字符串数组')
   }
-  return data as string[]
+  return data
 }
 
 function planToPayload(plan: TaskPlan): unknown {
@@ -1771,17 +1772,17 @@ function planFromPayload(
   payload: unknown,
   context: { requirementId: string; taskPlanId: string; planVersion: number; createdAt: string },
 ): TaskPlan {
-  const data = payload as Record<string, unknown>
+  const data = asRecord(payload) ?? {}
   const rawTasks = Array.isArray(data.tasks) ? data.tasks : []
-  const rawSolution = data.technical_solution
+  const rawSolution = asRecord(data.technical_solution)
   const technicalSolution =
-    rawSolution && typeof rawSolution === 'object'
-      ? {
-          summary: textValue((rawSolution as Record<string, unknown>).summary),
-          approach: stringArray((rawSolution as Record<string, unknown>).approach),
-          risks: stringArray((rawSolution as Record<string, unknown>).risks),
+    rawSolution === undefined
+      ? undefined
+      : {
+          summary: textValue(rawSolution.summary),
+          approach: stringArray(rawSolution.approach),
+          risks: stringArray(rawSolution.risks),
         }
-      : undefined
   return {
     taskPlanId: context.taskPlanId,
     requirementId: context.requirementId,
@@ -1791,8 +1792,8 @@ function planFromPayload(
     ...(technicalSolution === undefined ? {} : { technicalSolution }),
     createdAt: context.createdAt,
     tasks: rawTasks.map((raw) => {
-      const task = raw as Record<string, unknown>
-      const limits = (task.limits ?? {}) as Record<string, unknown>
+      const task = asRecord(raw) ?? {}
+      const limits = asRecord(task.limits) ?? {}
       return {
         taskId: textValue(task.task_id),
         goal: textValue(task.goal),
