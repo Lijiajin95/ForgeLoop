@@ -3489,3 +3489,30 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.14/96.86/84.87，mutation 97.80。
 - 剩余：`as` 71；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 83. 新目标进度汇总与交接（Round 33）
+
+截至本轮（HEAD 前的最近一次全量门槛均通过）：
+
+| 项目 | 当前 | 目标 | 状态 |
+| --- | --- | --- | --- |
+| ESLint 规模/复杂度/参数豁免 | `eslint-suppressions.json` 为空 `{}` | 清零 | 完成 |
+| service.ts 行数 | 1,969 | ≤2,000 | 完成 |
+| repository.ts 行数 | 1,837 | ≤2,000 | 完成 |
+| 单函数行数 | 全部 ≤300（拆分后自然满足） | ≤300 | 完成 |
+| `as` 断言（AST 口径） | 71 | <20 | 未完成 |
+| `no-non-null-assertion` | 32 处，规则全局关闭 | 启用并清零 | 未完成 |
+| `no-unnecessary-condition` | 25 处，规则全局关闭 | 启用并清零 | 未完成 |
+| DB 行 schema | 枚举解析器（stage/status/severity）+ 记录接口 | 全表覆盖 | 部分 |
+| E2E 门禁 | 无 Playwright 套件、无 `make e2e` | 接入 CI | 未完成 |
+| verify-plugin 自动门禁 | 手动 `make verify-plugin` | CI 必需检查 | 未完成 |
+| 分支保护 | 档位 1 已开启（quality/security，strict，禁强推/删除） | 档位 1 | 完成 |
+
+后续接手建议（按收益排序）：
+
+1. 先启用 `no-non-null-assertion`（32 处），每文件单独替换为显式守卫并跑该文件测试；
+2. 再启用 `no-unnecessary-condition`（25 处），按其报告删除冗余判断；
+3. 继续 `as` 收敛：agent-runner 6、index 4、task-plan/repository/service/preset/intake/events/advance 各 3；
+4. 最后补 Playwright E2E 与 `make e2e`，把 E2E、verify-plugin 加入 GitHub 必需检查。
+
+每批仍按“单文件测试先行 → 全量 make check/coverage/mutation/budget/assertions → 提交”执行。
