@@ -18,7 +18,6 @@ import { hostname } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import {
-  businessReviewDir,
   candidatesDir,
   devWorkspaceDir,
   evidenceDir,
@@ -56,12 +55,7 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import {
-  FAILURE_BUSINESS_REVIEW,
-  FAILURE_PLANNING,
-  FAILURE_VERIFICATION,
-  MAX_ROUNDS_PER_GRANT,
-} from '../domain/counting.js'
+import { FAILURE_PLANNING, FAILURE_VERIFICATION, MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfBytes, sha256OfText } from '../domain/delivery.js'
 import { formatCommitMessage } from '../domain/commit-message.js'
@@ -89,21 +83,13 @@ import {
   TASK_RUN_FAILED,
   TASK_RUN_RUNNING,
 } from '../domain/status.js'
-import {
-  parseBusinessReview,
-  validateBusinessReview,
-  type BusinessReview,
-} from '../domain/business-review.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import { requirementEvidence } from '../domain/requirement-evidence.js'
 import {
   parsePlanReview,
   parseVerificationReport,
   validatePlanCoverage,
-  validateScenarioEvidence,
-  validateVerificationCoverage,
   type PlanReview,
-  type VerificationReport,
 } from '../domain/verification.js'
 import type { TaskRun } from '../domain/work.js'
 import { buildImpactFacts, type ImpactRequest } from '../domain/impact.js'
@@ -138,12 +124,10 @@ import {
 import { runFormalTest } from './formal-test.js'
 import {
   analysisPrompt,
-  businessReviewPrompt,
   devPlanningPrompt,
   devPrompt,
   planReviewPrompt,
   requirementContext,
-  verificationPrompt,
 } from './prompts.js'
 import {
   captureCandidate,
@@ -164,12 +148,9 @@ import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptanc
 import { LegacyVerification, type LegacyVerifyInput } from './legacy-verification.js'
 import { TaskDelivery, type DeliverInput, type DeliverOutcome } from './task-delivery.js'
 import { TaskViews } from './task-views.js'
+import { VerificationPipeline } from './verification-pipeline.js'
 import { fail, ok, type OperationResult } from './operation-result.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
-import { verificationIntegrity, verificationVerdict } from './verification-outcome.js'
-import { blockingOf, reviewFacts, runStatusLabel } from './review-facts.js'
-import { parseVerificationMaterials } from './verification-materials.js'
-import { runVerificationCommands, type VerificationCommandRun } from './execution-commands.js'
 import {
   BuildMaterialValidator,
   type BuildMaterialsInput,
@@ -197,14 +178,7 @@ export interface RuntimeOptions {
   readonly formalTest?: typeof runFormalTest
 }
 
-import {
-  planReviewBlocking,
-  summarizeActivity,
-  VERIFICATION_MATERIAL_DIR,
-  verificationBlocking,
-  verificationMaterials,
-  workspaceChanges,
-} from './service-helpers.js'
+import { planReviewBlocking, summarizeActivity, verificationBlocking } from './service-helpers.js'
 
 type AdmittedDelivery = NonNullable<ReturnType<ForgeLoopRuntime['admittedDelivery']>>
 
@@ -233,6 +207,7 @@ export class ForgeLoopRuntime {
   readonly requirementQueue: RequirementQueue
   /** 验证失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
   readonly issues: IssueStore
+  private readonly verificationPipeline: VerificationPipeline
   private readonly taskViews: TaskViews
   private readonly taskDelivery: TaskDelivery
   private readonly legacyVerification: LegacyVerification
@@ -260,6 +235,25 @@ export class ForgeLoopRuntime {
     })
     this.formalTest = options.formalTest ?? runFormalTest
     this.buildMaterials = new BuildMaterialValidator(this.config.projectPath)
+    this.verificationPipeline = new VerificationPipeline({
+      config: this.config,
+      repo: this.repo,
+      now: () => this.now(),
+      charge: (reqId, started) => {
+        this.charge(reqId, started)
+      },
+      runner: this.runner,
+      formalTest: this.formalTest,
+      ctx: this.ctx,
+      openAgent: (request) => this.openAgent(request),
+      candidateIdentity: (plan, artifacts) => this.candidateIdentity(plan, artifacts),
+      requireAuthorizedPlan: (reqId) => this.requireAuthorizedPlan(reqId),
+      applyDiffFile: (dir, diffPath, label, suffix) =>
+        this.applyDiffFile(dir, diffPath, label, suffix),
+      reopenDeliveredTasks: (input) => this.reopenDeliveredTasks(input),
+      verificationBaseline: (analysis) => this.verificationBaseline(analysis),
+      remainingFailureRounds: (reqId) => this.remainingFailureRounds(reqId),
+    })
     this.taskViews = new TaskViews({
       config: this.config,
       repo: this.repo,
@@ -2239,6 +2233,16 @@ ${answer}`
     )
   }
 
+  private businessReviewMaterialValid(record: {
+    reportPath: string
+    reportSha256: string
+  }): boolean {
+    return (
+      existsSync(record.reportPath) &&
+      sha256OfText(readFileSync(record.reportPath, 'utf8')) === record.reportSha256
+    )
+  }
+
   private acceptanceInputs(
     reqId: string,
     requirement: Requirement,
@@ -2702,7 +2706,10 @@ ${answer}`
       )
     }
     if (request.action === ACTION_VERIFY) {
-      const verification = await this.executeVerification(request.reqId, signal)
+      const verification = await this.verificationPipeline.executeVerification(
+        request.reqId,
+        signal,
+      )
       if (verification.state === 'repair') {
         return this.currentAdmission(request.reqId)
           ? this.executeContinuousAdvance(request.reqId, signal)
@@ -3047,852 +3054,6 @@ ${answer}`
    * 候选在验证开始前就无法组装（例如交付 diff 与当前基线冲突）：
    * 如实记录一次阻断验证与失败轮次，让“回到研发修复”有据可依。
    */
-  private recordPreflightBlock(input: {
-    reqId: string
-    plan: TaskPlan
-    candidateSha256: string
-    planReviewSha256: string
-    blocking: readonly string[]
-  }): string {
-    const dir = verificationDir(
-      this.config,
-      input.reqId,
-      input.plan.planVersion,
-      input.candidateSha256,
-    )
-    mkdirSync(dir, { recursive: true })
-    const report = {
-      kind: 'verification',
-      reqId: input.reqId,
-      planVersion: input.plan.planVersion,
-      requirementVersion: input.plan.requirementVersion,
-      candidateSha256: input.candidateSha256,
-      workspaceSha256: '',
-      planReviewSha256: input.planReviewSha256,
-      verdict: 'block',
-      summary: '候选无法在当前基线组装，未执行验证命令',
-      findings: [],
-      blocking: [...input.blocking],
-      scenarios: [],
-      commands: [],
-      candidateIntegrity: null,
-      materials: [],
-      sessionId: '',
-      at: this.now(),
-    }
-    const reportJson = `${JSON.stringify(report, null, 2)}\n`
-    const reportPath = join(dir, 'verification.json')
-    writeFileSync(reportPath, reportJson, 'utf8')
-    this.repo.recordVerification({
-      requirementId: input.reqId,
-      planVersion: input.plan.planVersion,
-      candidateSha256: input.candidateSha256,
-      requirementVersion: input.plan.requirementVersion,
-      workspaceSha256: '',
-      verdict: 'block',
-      reportJson,
-      reportPath,
-      reportSha256: sha256OfText(reportJson),
-      evidenceDir: dir,
-      sessionId: '',
-      verifiedAt: this.now(),
-    })
-    this.repo.recordFailureRound(input.reqId, {
-      roundId: `verification-${input.plan.planVersion}-${input.candidateSha256.slice(0, 12)}-preflight`,
-      stage: FAILURE_VERIFICATION,
-      summary: `独立验证无法组装候选：${input.blocking.join('；')}`.slice(0, 1000),
-      occurredAt: this.now(),
-    })
-    this.repo.setStatus(
-      input.reqId,
-      'blocked',
-      `独立验证无法组装候选（候选 ${input.candidateSha256.slice(0, 16)}…）：${input.blocking.join('；')}`,
-    )
-    return reportPath
-  }
-
-  /**
-   * 独立验证：把已交付任务的全部 diff 应用成固定候选，交给验证 Agent 在独立目录
-   * 编写验证测试并产出命令清单与逐场景报告；程序随后实际执行命令并只看退出码、
-   * 日志与必过场景覆盖，模型自述不构成通过。
-   */
-  private existingVerificationOutcome(
-    reqId: string,
-    plan: TaskPlan,
-    candidateSha256: string,
-  ): { state: 'done' | 'failed'; detail: string } | null {
-    const existing = this.repo.verificationForCandidate(reqId, plan.planVersion, candidateSha256)
-    if (!existing) return null
-    if (existing.verdict === 'block') {
-      return {
-        state: 'failed',
-        detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立验证已阻断：${verificationBlocking(existing.reportJson)}；需修复后产生新候选再验证`,
-      }
-    }
-    if (!this.verificationMaterialValid(existing)) {
-      return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；需重新验证' }
-    }
-    return {
-      state: 'done',
-      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证；等待验收`,
-    }
-  }
-
-  private verificationBudgetGuard(
-    reqId: string,
-    plan: TaskPlan,
-  ): { state: 'failed'; detail: string } | null {
-    this.repo.ensureBudget(
-      reqId,
-      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
-    )
-    const budget = new ExecutionBudget(
-      this.repo.budget(reqId).limitSeconds,
-      this.repo.budget(reqId).consumedSeconds,
-    )
-    if (budget.canStartAction()) return null
-    this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
-    return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
-  }
-
-  private prepareVerificationWorkspace(
-    reqId: string,
-    plan: TaskPlan,
-    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>,
-    candidateSha256: string,
-  ):
-    | {
-        ok: true
-        dir: string
-        workspace: string
-        diffs: string[]
-        baseline: string
-        snapshot: ReturnType<typeof prepareSnapshotWorkspace>
-      }
-    | { ok: false; outcome: { state: 'failed'; detail: string } } {
-    const dir = verificationDir(this.config, reqId, plan.planVersion, candidateSha256)
-    const workspace = join(dir, 'workspace')
-    mkdirSync(dir, { recursive: true })
-    const baseline = headCommit(this.config.projectPath)
-    const snapshot = prepareSnapshotWorkspace({
-      projectPath: this.config.projectPath,
-      workspacePath: workspace,
-      baselineCommit: baseline,
-    })
-    const diffs: string[] = []
-    for (const task of plan.tasks) {
-      const evidence = this.repo.evidence(reqId, plan.planVersion, task.taskId)
-      if (!evidence) {
-        return {
-          ok: false,
-          outcome: { state: 'failed', detail: `任务 ${task.taskId} 缺少交付证据；不能验证` },
-        }
-      }
-      const applied = this.applyDiffFile(
-        workspace,
-        evidence.candidatePath,
-        task.taskId,
-        task.taskId,
-      )
-      if (!applied.ok) {
-        const blocking = [`任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}`]
-        const reportPath = this.recordPreflightBlock({
-          reqId,
-          plan,
-          candidateSha256,
-          planReviewSha256: reviewRecord.reportSha256,
-          blocking,
-        })
-        return {
-          ok: false,
-          outcome: {
-            state: 'failed',
-            detail: `任务 ${task.taskId} 的候选 diff 无法应用到验证副本：${applied.detail}；证据 ${reportPath}；需修复后产生新候选再验证`,
-          },
-        }
-      }
-      const diff = readFileSync(evidence.candidatePath, 'utf8')
-      if (diff.trim()) diffs.push(diff)
-    }
-    return { ok: true, dir, workspace, diffs, baseline, snapshot }
-  }
-
-  private finalizeVerificationWorkspace(input: {
-    reqId: string
-    plan: TaskPlan
-    dir: string
-    workspace: string
-    diffs: readonly string[]
-    candidateSha256: string
-    baseline: string
-    snapshot: ReturnType<typeof prepareSnapshotWorkspace>
-    artifacts: ReturnType<Repository['taskArtifacts']>
-  }):
-    | { ok: true; workspaceSha256: string; workspaceHead: string; candidateDiff: string }
-    | { ok: false; outcome: { state: 'failed'; detail: string } } {
-    const { reqId, plan, dir, workspace, diffs, candidateSha256, baseline, snapshot, artifacts } =
-      input
-    runCommand('git', ['add', '-A'], workspace)
-    runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
-    if (this.config.worktreePrepareCommand.length > 0) {
-      const prepare = runCommand(
-        this.config.worktreePrepareCommand[0]!,
-        this.config.worktreePrepareCommand.slice(1),
-        workspace,
-        this.config.formalTestTimeoutSeconds * 1000,
-      )
-      writeFileSync(
-        join(dir, 'workspace-prepare.log'),
-        `${JSON.stringify(this.config.worktreePrepareCommand)}\nexit_code: ${prepare.code}\n${prepare.stdout}\n${prepare.stderr}\n`,
-        'utf8',
-      )
-      if (prepare.code !== 0) {
-        this.repo.setStatus(
-          reqId,
-          'blocked',
-          `验证工作副本准备命令失败（退出码 ${prepare.code}）；这是环境问题，候选未被判定失败`,
-        )
-        return {
-          ok: false,
-          outcome: {
-            state: 'failed',
-            detail: `验证工作副本准备命令失败（退出码 ${prepare.code}）；需修复依赖或环境后重新验证`,
-          },
-        }
-      }
-      runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
-      runCommand('git', ['clean', '-fd'], workspace)
-    }
-    const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}'])
-    const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD'])
-    const candidateDiff = diffs.join('\n')
-    writeFileSync(join(dir, 'candidate.diff'), candidateDiff, 'utf8')
-    writeFileSync(
-      join(dir, 'candidate.json'),
-      `${JSON.stringify(
-        {
-          reqId,
-          planVersion: plan.planVersion,
-          requirementVersion: plan.requirementVersion,
-          candidateSha256,
-          workspaceSha256,
-          baselineCommit: baseline,
-          snapshot,
-          tasks: plan.tasks.map((task) => ({
-            taskId: task.taskId,
-            candidateSha256:
-              artifacts.find((artifact) => artifact.taskId === task.taskId)?.candidateSha256 ?? '',
-          })),
-          at: this.now(),
-        },
-        null,
-        2,
-      )}\n`,
-      'utf8',
-    )
-    return { ok: true, workspaceSha256, workspaceHead, candidateDiff }
-  }
-
-  private verificationInputs(reqId: string):
-    | {
-        ok: true
-        requirement: Requirement
-        analysis: RequirementAnalysis
-        plan: TaskPlan
-        artifacts: ReturnType<Repository['taskArtifacts']>
-        reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
-        planReview: PlanReview
-        candidateSha256: string
-      }
-    | { ok: false; outcome: { state: 'failed'; detail: string } } {
-    const authorized = this.requireAuthorizedPlan(reqId)
-    if (!authorized.ok) {
-      return { ok: false, outcome: { state: 'failed', detail: authorized.result.message } }
-    }
-    const requirement = this.repo.getRequirement(reqId)
-    if (!requirement) {
-      return { ok: false, outcome: { state: 'failed', detail: `未找到需求 ${reqId}` } }
-    }
-    const analysis = this.repo.latestAnalysis(reqId)
-    if (!analysis) {
-      return {
-        ok: false,
-        outcome: { state: 'failed', detail: `需求 ${reqId} 尚无分析结论；不能验证` },
-      }
-    }
-    const plan = authorized.value.plan
-    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
-    const missing = plan.tasks.filter(
-      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
-    )
-    if (missing.length > 0) {
-      return {
-        ok: false,
-        outcome: {
-          state: 'failed',
-          detail: `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
-        },
-      }
-    }
-    const reviewRecord = this.repo.planReview(reqId, plan.planVersion)
-    if (!reviewRecord) {
-      return {
-        ok: false,
-        outcome: {
-          state: 'failed',
-          detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立验证`,
-        },
-      }
-    }
-    if (reviewRecord.verdict !== 'pass') {
-      return {
-        ok: false,
-        outcome: {
-          state: 'failed',
-          detail: `任务包 v${plan.planVersion} 的实现前评审未通过：${planReviewBlocking(reviewRecord.reportJson)}`,
-        },
-      }
-    }
-    let planReview: PlanReview
-    try {
-      planReview = parsePlanReview(reviewRecord.reportJson)
-    } catch (error) {
-      return {
-        ok: false,
-        outcome: { state: 'failed', detail: `实现前评审证据畸形：${errorMessage(error)}` },
-      }
-    }
-    return {
-      ok: true,
-      requirement,
-      analysis,
-      plan,
-      artifacts,
-      reviewRecord,
-      planReview,
-      candidateSha256: this.candidateIdentity(plan, artifacts),
-    }
-  }
-
-  private async completeVerification(input: {
-    reqId: string
-    signal: AbortSignal
-    plan: TaskPlan
-    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
-    planReview: PlanReview
-    candidateSha256: string
-    workspaceSha256: string
-    run: Awaited<ReturnType<AgentRunner['run']>>
-    report: VerificationReport
-    commandRuns: VerificationCommandRun[]
-    failedCommands: readonly string[]
-    integrityIssues: readonly string[]
-    dir: string
-    workspace: string
-    afterHead: string
-    afterChanges: readonly string[]
-    candidateContentSha256: string
-    materials: ReturnType<typeof verificationMaterials>
-  }): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
-    const { reqId, signal, plan, reviewRecord, planReview, candidateSha256 } = input
-    const { workspaceSha256, run, report } = input
-    const { commandRuns, failedCommands, integrityIssues, dir, afterHead, afterChanges } = input
-    const { candidateContentSha256, materials } = input
-    const coverageIssues = validateVerificationCoverage(planReview.verificationPlan, report)
-    const evidenceIssues = validateScenarioEvidence(
-      planReview.verificationPlan,
-      report,
-      commandRuns,
-    )
-    const { verdict, blocking } = verificationVerdict({
-      report,
-      failedCommands,
-      coverageIssues,
-      evidenceIssues,
-      integrityIssues,
-    })
-    const canonical = {
-      kind: 'verification',
-      reqId,
-      planVersion: plan.planVersion,
-      requirementVersion: plan.requirementVersion,
-      candidateSha256,
-      workspaceSha256,
-      planReviewSha256: reviewRecord.reportSha256,
-      verdict,
-      summary: report.summary,
-      findings: report.findings,
-      blocking,
-      scenarios: report.scenarios,
-      commands: commandRuns.map(({ output: _output, ...rest }) => rest),
-      candidateIntegrity: {
-        head: afterHead,
-        candidateContentSha256,
-        changes: afterChanges,
-        allowedPaths: [VERIFICATION_MATERIAL_DIR],
-        ignoredBuildOutputsExcluded: true,
-      },
-      materials,
-      sessionId: run.sessionId,
-      at: this.now(),
-    }
-    const reportJson = `${JSON.stringify(canonical, null, 2)}\n`
-    const reportPath = join(dir, 'verification.json')
-    writeFileSync(reportPath, reportJson, 'utf8')
-    this.repo.recordVerification({
-      requirementId: reqId,
-      planVersion: plan.planVersion,
-      candidateSha256,
-      requirementVersion: plan.requirementVersion,
-      workspaceSha256,
-      verdict,
-      reportJson,
-      reportPath,
-      reportSha256: sha256OfText(reportJson),
-      evidenceDir: dir,
-      sessionId: run.sessionId,
-      verifiedAt: this.now(),
-    })
-
-    if (verdict === 'block') {
-      const roundId = `verification-${plan.planVersion}-${candidateSha256.slice(0, 12)}`
-      const recorded = this.repo.recordFailureRound(reqId, {
-        roundId,
-        stage: FAILURE_VERIFICATION,
-        summary: `独立验证阻断：${blocking.join('；') || report.summary}`.slice(0, 1000),
-        occurredAt: this.now(),
-      })
-      const budgetLeft = this.remainingFailureRounds(reqId)
-      const blockingText = blocking.join('；') || report.summary
-      const rounds = this.repo.failureRounds(reqId).length
-      // 任务包冻结：验证提出的问题交回研发执行角色修复，不重新规划。
-      // 修复额度用尽时停在 blocked，等待追加授权或所有者决定。
-      if (budgetLeft > 0) {
-        const repairReason = `独立验证阻断，返回研发修复：${blockingText}`.slice(0, 900)
-        const reopened = this.reopenDeliveredTasks({
-          reqId,
-          plan,
-          identity: candidateSha256,
-          reason: repairReason,
-        })
-        if (reopened.length > 0) {
-          this.repo.setStatus(
-            reqId,
-            'blocked',
-            `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blockingText}；已返回研发修复（失败轮次 ${rounds}，剩余 ${budgetLeft}）`,
-          )
-          return {
-            state: 'repair',
-            detail: `独立验证阻断：${blockingText}；已返回研发修复，任务包 v${plan.planVersion} 不变；证据 ${reportPath}`,
-          }
-        }
-      }
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blockingText}${
-          recorded ? `；失败轮次 ${rounds}` : ''
-        }${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}`,
-      )
-      return {
-        state: 'failed',
-        detail: `独立验证阻断：${blockingText}；证据 ${reportPath}`,
-      }
-    }
-
-    const businessReview = await this.executeBusinessReview(reqId, signal)
-    if (businessReview.state !== 'done') return businessReview
-    this.repo.setStatus(reqId, EXECUTING)
-    return {
-      state: 'done',
-      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证（${report.scenarios.length} 个场景，${commandRuns.length} 条命令）；${businessReview.detail}`,
-    }
-  }
-
-  private async runVerificationAgent(input: {
-    reqId: string
-    requirement: Requirement
-    analysis: RequirementAnalysis
-    plan: TaskPlan
-    planReview: PlanReview
-    candidateSha256: string
-    workspaceSha256: string
-    workspace: string
-    dir: string
-    candidateDiff: string
-    signal: AbortSignal
-  }): Promise<
-    | { ok: true; run: Awaited<ReturnType<AgentRunner['run']>> }
-    | { ok: false; outcome: { state: 'failed'; detail: string } }
-  > {
-    const { reqId, requirement, analysis, plan, planReview, candidateSha256 } = input
-    const { workspaceSha256, workspace, dir, candidateDiff, signal } = input
-    const started = Date.now()
-    const run = await this.runner.run({
-      role: AGENT_VERIFY,
-      cwd: workspace,
-      prompt: verificationPrompt({
-        requirement,
-        analysis,
-        plan,
-        planReview,
-        candidateSha256,
-        workspaceSha256,
-        workspacePath: workspace,
-        diff: candidateDiff,
-      }),
-      permission: 'workspace-write',
-      timeoutMs: this.config.agent.timeoutSeconds * 1000,
-      transcriptPath: join(dir, 'verify.jsonl'),
-      signal,
-      tools: 'default',
-    })
-    this.charge(reqId, started)
-    if (run.status !== 'completed') {
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        `独立验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
-      )
-      return {
-        ok: false,
-        outcome: { state: 'failed', detail: `独立验证未取得可用结论：${run.reason}` },
-      }
-    }
-    return { ok: true, run }
-  }
-
-  private async executeVerification(
-    reqId: string,
-    signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
-    const inputs = this.verificationInputs(reqId)
-    if (!inputs.ok) return inputs.outcome
-    const { requirement, analysis, plan, artifacts, reviewRecord, planReview, candidateSha256 } =
-      inputs
-    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
-    if (existingOutcome) return existingOutcome
-    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
-    if (budgetOutcome) return budgetOutcome
-    const prepared = this.prepareVerificationWorkspace(reqId, plan, reviewRecord, candidateSha256)
-    if (!prepared.ok) return prepared.outcome
-    const { dir, workspace, diffs, baseline, snapshot } = prepared
-    const finalized = this.finalizeVerificationWorkspace({
-      reqId,
-      plan,
-      dir,
-      workspace,
-      diffs,
-      candidateSha256,
-      baseline,
-      snapshot,
-      artifacts,
-    })
-    if (!finalized.ok) return finalized.outcome
-    const { workspaceSha256, workspaceHead, candidateDiff } = finalized
-    const agent = await this.runVerificationAgent({
-      reqId,
-      requirement,
-      analysis,
-      plan,
-      planReview,
-      candidateSha256,
-      workspaceSha256,
-      workspace,
-      dir,
-      candidateDiff,
-      signal,
-    })
-    if (!agent.ok) return agent.outcome
-    const run = agent.run
-    const parsed = parseVerificationMaterials(workspace)
-    if (!parsed.ok) {
-      this.repo.setStatus(reqId, 'blocked', parsed.detail)
-      return { state: 'failed', detail: parsed.detail }
-    }
-    const { commands, report } = parsed
-    const changed = workspaceChanges(workspace)
-    const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
-    if (currentHead !== workspaceHead) {
-      this.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
-      return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
-    }
-    const outsideVerification = changed.filter(
-      (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
-    )
-    if (outsideVerification.length > 0) {
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        `独立验证修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
-      )
-      return {
-        state: 'failed',
-        detail: `独立验证越出独立验证目录（fail-closed）：${outsideVerification.join('、')}`,
-      }
-    }
-
-    const ran = await runVerificationCommands({
-      reqId,
-      dir,
-      commands,
-      run: async (argv, logPath) =>
-        this.formalTest({
-          ctx: this.ctx,
-          cwd: workspace,
-          argv,
-          timeoutMs: this.config.formalTestTimeoutSeconds * 1000,
-          logPath,
-          signal,
-        }),
-      setBlocked: (message) => {
-        this.repo.setStatus(reqId, 'blocked', message)
-      },
-    })
-    if (!ran.ok) return { state: 'failed', detail: ran.detail }
-    const { commandRuns, failedCommands } = ran
-    // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
-    // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
-    const integrity = verificationIntegrity(workspace, workspaceHead)
-    if (!integrity.ok) return { state: 'failed', detail: integrity.detail }
-    const { integrityIssues, afterHead, afterChanges, candidateContentSha256 } = integrity
-    const materials = verificationMaterials(dir)
-
-    return this.completeVerification({
-      reqId,
-      signal,
-      plan,
-      reviewRecord,
-      planReview,
-      candidateSha256,
-      workspaceSha256,
-      run,
-      report,
-      commandRuns,
-      failedCommands,
-      integrityIssues,
-      dir,
-      workspace,
-      afterHead,
-      afterChanges,
-      candidateContentSha256,
-      materials,
-    })
-  }
-
-  /** 业务终审报告文件与摘要是否仍一致。 */
-  private businessReviewMaterialValid(record: {
-    reportPath: string
-    reportSha256: string
-  }): boolean {
-    return (
-      existsSync(record.reportPath) &&
-      sha256OfText(readFileSync(record.reportPath, 'utf8')) === record.reportSha256
-    )
-  }
-
-  /**
-   * 业务终审：需求 Agent 在新会话里按原始需求复核业务场景与验收标准。
-   * 证据必须来自独立验证实际执行的命令输出，不能只复述验证报告。
-   */
-  private businessReviewInputs(reqId: string):
-    | {
-        ok: true
-        requirement: Requirement
-        analysis: RequirementAnalysis
-        plan: TaskPlan
-        verification: VerificationRecord
-        candidateSha256: string
-      }
-    | { ok: false; detail: string } {
-    const authorized = this.requireAuthorizedPlan(reqId)
-    if (!authorized.ok) return { ok: false, detail: authorized.result.message }
-    const requirement = this.repo.getRequirement(reqId)
-    if (!requirement) return { ok: false, detail: `未找到需求 ${reqId}` }
-    const analysis = this.repo.latestAnalysis(reqId)
-    if (!analysis) {
-      return { ok: false, detail: `需求 ${reqId} 尚无分析结论；不能做业务终审` }
-    }
-    const plan = authorized.value.plan
-    const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
-    const missing = plan.tasks.filter(
-      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
-    )
-    if (missing.length > 0) {
-      return {
-        ok: false,
-        detail: `仍有任务未交付，不能做业务终审：${missing.map((task) => task.taskId).join('、')}`,
-      }
-    }
-    const verification = this.repo.verification(reqId, plan.planVersion)
-    if (!verification || verification.verdict !== 'pass') {
-      return { ok: false, detail: '独立验证未通过；不能做业务终审' }
-    }
-    const candidateSha256 = this.candidateIdentity(plan, artifacts)
-    if (verification.candidateSha256 !== candidateSha256) {
-      return {
-        ok: false,
-        detail: '独立验证绑定的候选与当前材料不一致；需重新验证后再终审',
-      }
-    }
-    if (!this.verificationMaterialValid(verification)) {
-      return { ok: false, detail: '独立验证报告文件缺失或摘要不一致；不能做业务终审' }
-    }
-    return { ok: true, requirement, analysis, plan, verification, candidateSha256 }
-  }
-
-  private existingReviewOutcome(
-    reqId: string,
-    plan: TaskPlan,
-    candidateSha256: string,
-    verification: VerificationRecord,
-  ): { state: 'done' | 'failed'; detail: string } | null {
-    const existing = this.repo.businessReviewForCandidate(reqId, plan.planVersion, candidateSha256)
-    if (!existing) return null
-    if (existing.verdict === 'block') {
-      return {
-        state: 'failed',
-        detail: `候选 ${candidateSha256.slice(0, 16)}… 的业务终审已阻断；需修复后产生新候选`,
-      }
-    }
-    if (
-      existing.verificationSha256 === verification.reportSha256 &&
-      this.businessReviewMaterialValid(existing)
-    ) {
-      return { state: 'done', detail: '业务终审已通过；等待验收' }
-    }
-    return {
-      state: 'failed',
-      detail: '业务终审报告缺失、摘要不一致或未绑定当前独立验证；需重新终审',
-    }
-  }
-
-  private async executeBusinessReview(
-    reqId: string,
-    signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
-    const inputs = this.businessReviewInputs(reqId)
-    if (!inputs.ok) return { state: 'failed', detail: inputs.detail }
-    const { requirement, analysis, plan, verification, candidateSha256 } = inputs
-    const existing = this.existingReviewOutcome(reqId, plan, candidateSha256, verification)
-    if (existing) return existing
-    const factsResult = reviewFacts(verification.reportPath)
-    if (!factsResult.ok) return { state: 'failed', detail: factsResult.detail }
-    const facts = factsResult.facts
-
-    const dir = businessReviewDir(this.config, reqId, plan.planVersion)
-    mkdirSync(dir, { recursive: true })
-    const started = Date.now()
-    const run = await this.runner.run({
-      role: AGENT_VERIFY,
-      cwd: dir,
-      prompt: businessReviewPrompt({
-        requirement,
-        analysis,
-        plan,
-        candidateSha256,
-        commands: facts,
-      }),
-      permission: 'workspace-write',
-      timeoutMs: this.config.agent.timeoutSeconds * 1000,
-      transcriptPath: join(dir, 'business-review.jsonl'),
-      signal,
-      tools: 'none',
-    })
-    this.charge(reqId, started)
-    if (run.status !== 'completed') {
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        `业务终审 Agent ${runStatusLabel(run.status)}：${run.reason}`,
-      )
-      return {
-        state: 'failed',
-        detail: `业务终审未取得结论：${run.reason}`,
-      }
-    }
-    let review: BusinessReview
-    try {
-      review = parseBusinessReview(run.text)
-    } catch (error) {
-      this.repo.setStatus(reqId, 'blocked', `业务终审材料畸形：${errorMessage(error)}`)
-      return {
-        state: 'failed',
-        detail: `业务终审材料畸形（fail-closed）：${errorMessage(error)}`,
-      }
-    }
-    const issues = validateBusinessReview({
-      scenarios: analysis.scenarios,
-      acceptanceCriteria: analysis.acceptanceCriteria,
-      review,
-      runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
-    })
-    const verdict: 'pass' | 'block' =
-      review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
-    const blocking = blockingOf(verdict, issues, review.blocking)
-    const report = {
-      kind: 'business-review',
-      reqId,
-      planVersion: plan.planVersion,
-      requirementVersion: plan.requirementVersion,
-      candidateSha256,
-      verificationSha256: verification.reportSha256,
-      verdict,
-      summary: review.summary,
-      findings: review.findings,
-      blocking,
-      scenarios: review.scenarios,
-      acceptance: review.acceptance,
-      sessionId: run.sessionId,
-      at: this.now(),
-    }
-    const reportJson = `${JSON.stringify(report, null, 2)}\n`
-    const reportPath = join(dir, 'business-review.json')
-    writeFileSync(reportPath, reportJson, 'utf8')
-    this.repo.recordBusinessReview({
-      requirementId: reqId,
-      planVersion: plan.planVersion,
-      candidateSha256,
-      requirementVersion: plan.requirementVersion,
-      verificationSha256: verification.reportSha256,
-      verdict,
-      reportJson,
-      reportPath,
-      reportSha256: sha256OfText(reportJson),
-      sessionId: run.sessionId,
-      reviewedAt: this.now(),
-    })
-    if (verdict === 'block') {
-      this.repo.recordFailureRound(reqId, {
-        roundId: `business-review-${plan.planVersion}-${candidateSha256.slice(0, 12)}`,
-        stage: FAILURE_BUSINESS_REVIEW,
-        summary: `业务终审阻断：${blocking.join('；') || review.summary}`.slice(0, 1000),
-        occurredAt: this.now(),
-      })
-      this.repo.setStatus(
-        reqId,
-        'blocked',
-        `业务终审阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blocking.join('；') || review.summary}`,
-      )
-      return {
-        state: 'failed',
-        detail: `业务终审阻断：${blocking.join('；') || review.summary}；证据 ${reportPath}`,
-      }
-    }
-    this.repo.setStatus(reqId, EXECUTING)
-    return {
-      state: 'done',
-      detail: `业务终审通过（候选 ${candidateSha256.slice(0, 16)}…，${review.scenarios.length} 个业务场景）`,
-    }
-  }
-
-  private verificationMaterialValid(record: VerificationRecord): boolean {
-    return (
-      existsSync(record.reportPath) &&
-      sha256OfText(readFileSync(record.reportPath, 'utf8')) === record.reportSha256
-    )
-  }
-
   private requireAuthorizedPlan(
     reqId: string,
   ): { ok: true; value: { plan: TaskPlan } } | { ok: false; result: OperationResult } {
@@ -5169,7 +4330,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         }
       }
       const artifacts = this.repo.taskArtifacts(reqId, plan.planVersion)
-      const verification = await this.executeVerification(reqId, signal)
+      const verification = await this.verificationPipeline.executeVerification(reqId, signal)
       if (verification.state === 'repair') continue
       if (verification.state !== 'done') {
         return { state: 'failed', detail: verification.detail }

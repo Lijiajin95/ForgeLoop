@@ -3279,3 +3279,15 @@ suppressions 20、service.ts 5,986 行。
 - service.ts **5,525 → 5,307 行**（按 git diff 净减 218 行）；suppressions 维持 1。
 - `make check` 607 项通过，coverage 91.08/97.07/84.90，mutation 97.80。
 - 剩余：service 5,307 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
+
+### 63. 验证流水线整体移出（新目标 Round 13）
+
+- 新增 `src/runtime/verification-pipeline.ts`：`VerificationPipeline` 承载
+  `executeVerification`、`executeBusinessReview`、预检阻断、验证预算/输入/工作区/收尾、
+  业务终审与材料校验共 13 个方法（依赖注入 repo/config/now/charge/runner/formalTest/
+  openAgent/candidateIdentity/requireAuthorizedPlan/verificationBaseline/
+  remainingFailureRounds/applyDiffFile/reopenDeliveredTasks）。
+- service.ts **5,307 → 4,468 行**；tokens **58,743 → 48,089**，基线下调。
+- suppressions 维持 1（只剩 service 文件行数）；`make check` 607 项通过，
+  coverage 91.08/96.77/84.92，mutation 97.80。
+- 剩余：service 4,468 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
