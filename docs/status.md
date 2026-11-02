@@ -3303,3 +3303,13 @@ suppressions 20、service.ts 5,986 行。
 - suppressions 维持 1（仅 service 文件行数）；`make check` 607 项通过，
   coverage 91.11/96.81/84.96，mutation 97.80。
 - 剩余：service 3,433 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
+
+### 65. 研发执行段迁移尝试（新目标 Round 15，已回退）
+
+- 尝试把 `executeAnalysis` / `executeDevPlanning` / `reviewPlan` / `developTaskInSession` /
+  `repairCandidate` 等（约 1,100 行）整体迁到 `execution-dev.ts`。
+- 迁移依赖面过大（runner/agent/issue 类型、admitRequirement 返回结构、prompts 名称不一致），
+  在剩余上下文内无法保证一次编译通过；已**完整回退**，工作树回到 `84f3989`。
+- 未提交半成品；`tsc`、ESLint、budget、make check 均维持通过。
+- 下一轮建议：先只迁 `executeAnalysis` + `planningInputs` + `executeDevPlanning`（约 250 行）
+  到 `execution-plan.ts`，编译通过后再迁研发循环；避免一次性搬 1,100 行。
