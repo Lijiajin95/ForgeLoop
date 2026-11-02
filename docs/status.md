@@ -3579,3 +3579,11 @@ suppressions 20、service.ts 5,986 行。
 - `preset` 的 getter 调用改用 `Reflect.apply`，去掉函数类型断言。
 - `as` 断言 **55 → 53**，基线 53。
 - `make check` 607 项通过；coverage 91.17/84.50/96.88；mutation 97.80。
+
+### 90. JSON 负载改用 parseJsonObject（新目标 Round 8）
+
+- `version`、`deployment-inspect`（2 处）、`execution-dev`、`ops` 的 JSON 读取改为
+  `parseJsonObject`，去掉 5 处 `as { …?: unknown }` 形状断言。
+- 字段仍按 `typeof` 收窄，行为不变；deployment/ops 相关用例先行通过。
+- `as` 断言 **53 → 48**，基线 48。
+- `make check` 607 项通过；coverage 91.17/84.50/96.88；mutation 97.80。

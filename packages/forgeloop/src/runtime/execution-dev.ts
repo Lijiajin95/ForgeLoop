@@ -1,3 +1,4 @@
+import { parseJsonObject } from '../domain/json.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
@@ -66,11 +67,7 @@ export class ExecutionDev {
     const metaPath = join(projectDir(this.deps.config), 'workspaces', reqId, 'dev-meta.json')
     if (existsSync(metaPath)) {
       try {
-        const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as {
-          requirementVersion?: number | undefined
-          baselineCommit?: string
-          snapshotCommit?: string
-        }
+        const meta = parseJsonObject(readFileSync(metaPath, 'utf8'))
         if (
           meta.requirementVersion === requirementVersion &&
           typeof meta.baselineCommit === 'string' &&

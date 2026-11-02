@@ -1,3 +1,4 @@
+import { parseJsonObject } from '../domain/json.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -6,9 +7,7 @@ import type { TaskPlan } from '../domain/task-plan.js'
 
 export function readInstalledVersion(installedRoot: string): string {
   try {
-    const installed = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8')) as {
-      version?: unknown
-    }
+    const installed = parseJsonObject(readFileSync(join(installedRoot, 'package.json'), 'utf8'))
     return typeof installed.version === 'string' ? installed.version : ''
   } catch {
     return ''
@@ -59,14 +58,7 @@ export function inspectRuntimeIdentity(
   const identityPath = join(installedRoot, 'runtime-identity.json')
   if (!existsSync(identityPath)) return null
   try {
-    const identity = JSON.parse(readFileSync(identityPath, 'utf8')) as {
-      kind?: unknown
-      version?: unknown
-      pid?: unknown
-      startedAt?: unknown
-      indexSha256?: unknown
-      serviceSha256?: unknown
-    }
+    const identity = parseJsonObject(readFileSync(identityPath, 'utf8'))
     const pid = typeof identity.pid === 'number' ? identity.pid : 0
     const alive = processAlive(pid)
     const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))

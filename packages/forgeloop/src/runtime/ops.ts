@@ -13,6 +13,7 @@
  * - 正常巡检通过不产生事件，也不进入人工介入统计的分母。
  */
 
+import { parseJsonObject } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
 import { errorMessage } from '../domain/errors.js'
 import { spawn } from 'node:child_process'
@@ -252,7 +253,7 @@ function logOf(argv: readonly string[], result: OpsCommandResult): string {
 function observationOutput(observation: OpsObservationRecord | undefined): string {
   if (!observation) return '（没有检查输出）'
   try {
-    const data = JSON.parse(observation.detailJson) as { output?: unknown }
+    const data = parseJsonObject(observation.detailJson)
     if (typeof data.output === 'string' && data.output.trim()) return data.output
   } catch {
     // 旧记录或损坏字段回退到摘要。
