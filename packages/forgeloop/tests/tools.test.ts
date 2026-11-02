@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -287,20 +287,67 @@ describe('requirement intake tool', () => {
     expect(disposers).toHaveLength(12)
   })
 
-  it('reports the web tools as unavailable without a DeepSeek key', async () => {
+  it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {
     const saved = process.env.DEEPSEEK_API_KEY
     delete process.env.DEEPSEEK_API_KEY
     try {
       const search = await call('forgeloop_web_search', { query: '本地生活服务' })
       expect(search.ok).toBe(false)
       expect(search.text).toContain('DEEPSEEK_API_KEY')
+      expect(search.text).toContain('不写入 DSH 配置或环境')
+      expect(search.text).toContain('未发出任何网络请求')
       const fetch = await call('forgeloop_web_fetch', { url: 'https://example.com/a' })
       expect(fetch.ok).toBe(false)
       expect(fetch.text).toContain('DEEPSEEK_API_KEY')
+      // 工具描述本身也说明密钥来源与只读口径，模型可以据此向用户解释。
+      expect(tool('forgeloop_web_search').description).toContain('DEEPSEEK_API_KEY')
+      expect(tool('forgeloop_web_search').description).toContain('never written into DSH')
+      expect(tool('forgeloop_web_fetch').description).toContain('DEEPSEEK_API_KEY')
+      expect(process.env.DEEPSEEK_API_KEY).toBeUndefined()
     } finally {
       if (saved !== undefined) process.env.DEEPSEEK_API_KEY = saved
     }
     expect((await call('forgeloop_web_search', {})).text).toContain('query is required')
     expect((await call('forgeloop_web_fetch', {})).text).toContain('url is required')
+  })
+
+  it('states the key requirement on successful calls and keeps the key out of the result', async () => {
+    const savedKey = process.env.DEEPSEEK_API_KEY
+    const savedBase = process.env.FORGELOOP_WEB_BASE_URL
+    process.env.DEEPSEEK_API_KEY = 'tool-test-key'
+    process.env.FORGELOOP_WEB_BASE_URL = 'http://127.0.0.1:9'
+    const answer = {
+      results: [
+        {
+          title: '门店结算',
+          url: 'https://example.com/settle',
+          snippet: '摘要',
+          summary: '较长摘要',
+          site_name: '示例',
+          date: '2026-06-01T00:00:00+00:00',
+          authority: 3,
+        },
+      ],
+    }
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(answer),
+    }))
+    try {
+      const search = await call('forgeloop_web_search', { query: '门店结算', count: 1 })
+      expect(search.ok, search.text).toBe(true)
+      expect(search.text).toContain('联网说明')
+      expect(search.text).toContain('DEEPSEEK_API_KEY')
+      expect(search.text).not.toContain('tool-test-key')
+      expect(JSON.stringify(search.data)).not.toContain('tool-test-key')
+      expect(process.env.DEEPSEEK_API_KEY).toBe('tool-test-key')
+    } finally {
+      vi.unstubAllGlobals()
+      if (savedKey === undefined) delete process.env.DEEPSEEK_API_KEY
+      else process.env.DEEPSEEK_API_KEY = savedKey
+      if (savedBase === undefined) delete process.env.FORGELOOP_WEB_BASE_URL
+      else process.env.FORGELOOP_WEB_BASE_URL = savedBase
+    }
   })
 })

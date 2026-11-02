@@ -124,6 +124,8 @@ preset。文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越�
 读上限 64 KiB、写上限 128 KiB，所以“禁止修改代码”由工具面确定性保证，而不是只靠提示词。
 两个联网工具调用 DeepSeek Search & Fetch（`api.deepseek.com/v1/tools/search|fetch`，密钥取自
 宿主环境变量 `DEEPSEEK_API_KEY`），30 秒超时、抓取正文截断 20k 字符，失败按状态码映射成原因。
+密钥只读：不写入 DSH 配置或环境，不落库、不进输出；缺密钥时工具直接说明来源且不发出请求，
+服务端若在错误里回显密钥，返回前替换为 `****`。
 
 分析结果可以带 `business_context: { changed, document }`：`changed=true` 时必须给出整份 Markdown，
 `changed=false` 时 `document` 必须为空；缺字段按未变化处理。`executeAnalysis` 在解析成功后由

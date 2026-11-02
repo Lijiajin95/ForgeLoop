@@ -67,6 +67,8 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 `docs/forgeloop/business-context.md` 例外：它只由运行时按分析结果写入，工具写入会被拒绝。
 两个联网工具调用 DeepSeek Search & Fetch（`POST /v1/tools/search`、`POST /v1/tools/fetch`），
 需要宿主进程环境变量 `DEEPSEEK_API_KEY`；`FORGELOOP_WEB_BASE_URL` 可覆盖接口地址（测试用）。
+密钥只读：不写入 DSH 配置或环境，不落库、不进输出；工具描述与每次调用结果都会说明这一点，
+缺密钥时直接说明来源且不发出请求。
 产品 Agent 的工具白名单由 `domain/analysis.ts` 固定，白名单外的宿主工具一律 deny。
 工具不能批准、验收、推进或停止；普通需求由系统准入自动推进，发布/部署与真正的业务例外仍需客户明确授权。
 

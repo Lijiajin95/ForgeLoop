@@ -3,7 +3,8 @@
  * （`POST /v1/tools/search`、`POST /v1/tools/fetch`）。
  *
  * 取舍：
- * - 密钥只从环境变量 `DEEPSEEK_API_KEY` 读取，不落库、不进提示词、不出现在工具输出里；
+ * - 密钥只从宿主进程的环境变量 `DEEPSEEK_API_KEY` 读取，不写入 DSH 配置或环境，
+ *   不落库、不进提示词、不出现在工具输出里；
  * - `FORGELOOP_WEB_BASE_URL` 可覆盖 base URL，测试用本地 HTTP 服务，不触网；
  * - 工具是只读的：检索结果只是材料，改状态仍由程序与人类入口决定；
  * - 错误按 HTTP 状态码映射成中文原因，调用方据此决定是否重试。
@@ -11,6 +12,15 @@
 
 import { asRecord } from '../domain/json.js'
 import { errorMessage } from '../domain/errors.js'
+
+/**
+ * 密钥口径：工具描述与每次调用结果共用这一句，避免各处说法漂移。
+ * 只说明“密钥从哪来、我们怎么处理”，不包含任何密钥内容。
+ */
+export const WEB_KEY_NOTE =
+  '联网说明：使用宿主进程环境变量 DEEPSEEK_API_KEY 访问 DeepSeek；密钥只读，不写入 DSH 配置或环境。'
+
+const MISSING_KEY_REASON = `${WEB_KEY_NOTE}当前宿主进程没有该变量，本次未发出任何网络请求；请由宿主在启动时提供该变量。`
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 const REQUEST_TIMEOUT_MS = 30_000
@@ -80,12 +90,17 @@ function providerMessage(payload: unknown): string {
   return error ? stringField(error, 'message').trim() : ''
 }
 
+/** 服务端可能把密钥原样回显到错误里；返回前替换掉，保证密钥不进入工具输出。 */
+function redactSecret(text: string, secret: string): string {
+  return secret && text.includes(secret) ? text.split(secret).join('****') : text
+}
+
 async function postJson(
   path: string,
   body: Readonly<Record<string, unknown>>,
 ): Promise<WebResponse<unknown>> {
   const key = process.env.DEEPSEEK_API_KEY?.trim()
-  if (!key) return { ok: false, reason: '未配置 DEEPSEEK_API_KEY，联网检索不可用' }
+  if (!key) return { ok: false, reason: MISSING_KEY_REASON }
   let response: Response
   try {
     response = await fetch(`${baseUrl()}${path}`, {
@@ -106,7 +121,7 @@ async function postJson(
   }
   if (!response.ok) {
     const label = STATUS_REASONS[response.status] ?? '请求失败'
-    const detail = providerMessage(payload)
+    const detail = redactSecret(providerMessage(payload), key)
     return {
       ok: false,
       reason: `联网请求失败（HTTP ${response.status}，${label}）${detail ? `：${detail}` : ''}`,

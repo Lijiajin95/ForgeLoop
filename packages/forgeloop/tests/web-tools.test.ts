@@ -63,12 +63,17 @@ beforeEach(() => {
 })
 
 describe('DeepSeek web search', () => {
-  it('needs a DeepSeek key and never calls the API without one', async () => {
+  it('explains the key requirement and never calls the API without one', async () => {
     delete process.env.DEEPSEEK_API_KEY
     const outcome = await searchWeb('本地生活服务')
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.reason).toContain('DEEPSEEK_API_KEY')
+    if (!outcome.ok) {
+      expect(outcome.reason).toContain('DEEPSEEK_API_KEY')
+      expect(outcome.reason).toContain('不写入 DSH 配置或环境')
+      expect(outcome.reason).toContain('未发出任何网络请求')
+    }
     expect(calls).toHaveLength(0)
+    expect(process.env.DEEPSEEK_API_KEY).toBeUndefined()
   })
 
   it('posts the query to the search endpoint and parses ranked results', async () => {
@@ -111,6 +116,9 @@ describe('DeepSeek web search', () => {
     expect(calls[0]!.path).toBe('/v1/tools/search')
     expect(calls[0]!.authorization).toBe('Bearer test-key')
     expect(calls[0]!.body).toEqual({ query: '门店结算', count: 5, need_content: false })
+    // 密钥只出现在请求头里：结果不带密钥，环境也不被改写。
+    expect(JSON.stringify(outcome.data)).not.toContain('test-key')
+    expect(process.env.DEEPSEEK_API_KEY).toBe('test-key')
   })
 
   it('clamps the result count and rejects empty or over-long queries before calling', async () => {
@@ -137,6 +145,17 @@ describe('DeepSeek web search', () => {
       expect(outcome.reason).toContain('HTTP 429')
       expect(outcome.reason).toContain('频率限制')
       expect(outcome.reason).toContain('Rate limit exceeded')
+    }
+  })
+
+  it('redacts the key if the provider echoes it in an error message', async () => {
+    handler = (_call, response) =>
+      respond(response, 401, { error: { message: 'invalid key: test-key' } })
+    const outcome = await searchWeb('门店结算')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) {
+      expect(outcome.reason).toContain('****')
+      expect(outcome.reason).not.toContain('test-key')
     }
   })
 })
