@@ -19,3 +19,16 @@
 
 提交或交付说明按 [AGENTS.md](AGENTS.md#提交与交付)列出计划范围、实际改动、验证结果、
 未完成项和“发现但不碰”；具体工程检查与证据要求以 Makefile、vitest 配置和契约为准。
+
+## 类型断言（`as`）
+
+- 普通业务代码默认禁止 `as`（ESLint `consistent-type-assertions: never`）；优先用类型收窄、
+  `satisfies`、显式标注或 `unknown` + 校验。
+- `as const` 允许；`as any`、`as unknown as T`、尖括号断言、无理由的 `@ts-ignore` 一律禁止。
+- 仅下列接口边界文件允许 `as`，且 `no-explicit-any` / `no-unsafe-*` 仍然生效：
+  `domain/json.ts`、`records/{db,repository,ops-store,issues}.ts`、`config.ts`、
+  `index.ts`、`tools.ts`、`cli/pack.ts`、`runtime/{agent-runner,formal-test,board-route}.ts`、
+  `session/{events,index,preset}.ts`。
+- 新增边界例外须说明依据并由审查确认，不得把业务代码挪进边界目录规避规则；
+  `scripts/ts/assertion-budget.ts` 会拒绝业务文件出现 `as`。
+- 验证：`make assertions` 与 `packages/forgeloop/tests/assertion-policy.test.ts`。

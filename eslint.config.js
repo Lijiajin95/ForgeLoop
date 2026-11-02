@@ -41,6 +41,11 @@ export default tseslint.config(
       ],
       // 两条规则暂列 ratchet：断言集中在已校验的 Map/数组取值，条件判断多为宿主/JSON
       // 防御式校验；逐条收敛前先显式关闭，避免用 disable 注释刷绿。
+      // 普通业务代码默认禁止类型断言；受控边界在下方 overrides 中单独放行。
+      '@typescript-eslint/consistent-type-assertions': [
+        'error',
+        { assertionStyle: 'never' },
+      ],
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-unnecessary-condition': 'error',
       '@typescript-eslint/require-await': 'off',
@@ -60,6 +65,33 @@ export default tseslint.config(
       'max-statements': ['error', 40],
       complexity: ['error', 15],
       'max-params': ['error', 4],
+    },
+  },
+  {
+    // 受控边界：宿主 API、SQLite、配置、npm/子进程输出、HTTP/工具入参。
+    // 仅放宽“必须用 as”这一项；no-explicit-any / no-unsafe-* 等仍按 strictTypeChecked 生效。
+    files: [
+      'packages/forgeloop/src/domain/json.ts',
+      'packages/forgeloop/src/records/db.ts',
+      'packages/forgeloop/src/records/repository.ts',
+      'packages/forgeloop/src/records/ops-store.ts',
+      'packages/forgeloop/src/records/issues.ts',
+      'packages/forgeloop/src/config.ts',
+      'packages/forgeloop/src/index.ts',
+      'packages/forgeloop/src/tools.ts',
+      'packages/forgeloop/src/cli/pack.ts',
+      'packages/forgeloop/src/runtime/agent-runner.ts',
+      'packages/forgeloop/src/runtime/formal-test.ts',
+      'packages/forgeloop/src/runtime/board-route.ts',
+      'packages/forgeloop/src/session/events.ts',
+      'packages/forgeloop/src/session/index.ts',
+      'packages/forgeloop/src/session/preset.ts',
+    ],
+    rules: {
+      '@typescript-eslint/consistent-type-assertions': [
+        'error',
+        { assertionStyle: 'as' },
+      ],
     },
   },
   {

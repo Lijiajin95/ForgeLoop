@@ -3634,3 +3634,16 @@ suppressions 20、service.ts 5,986 行。
   - E2E 现状更新为“部分落实”：`make e2e` 已存在（装载层、无模型），未接入 CI；
     真实模型链路由 `make verify-plugin` 覆盖。
 - 验证：文档链接检查 15 文件 0 缺失；`make contracts` OK。
+
+### 95. 类型断言治理：默认禁止 + 受控例外（新目标 Round 13）
+
+- ESLint 新增 `@typescript-eslint/consistent-type-assertions`：
+  普通业务代码 `assertionStyle: "never"`；15 个接口边界文件覆盖为 `"as"`，
+  但 `no-explicit-any` / `no-unsafe-*` 继续生效。
+- `as const` 允许；`as any`、双重断言、尖括号断言、`@ts-ignore` 均被拦截。
+- 新增 `tests/assertion-policy.test.ts`（4 项）：业务断言被拒、`as const` 通过、
+  边界配置仍限制 `any`、普通文件为 `never`。
+- `CONTRIBUTING.md` 增加简短“类型断言”规范（原则、允许场景、边界清单、验证命令）。
+- 存量：业务 0 处、边界 34 处（白名单 15 文件，ratchet 34），由
+  `scripts/ts/assertion-budget.ts` 与 ESLint 双重约束。
+- `make check` 59 文件 611 项通过；coverage 91.19/84.38/96.88；mutation 97.80。
