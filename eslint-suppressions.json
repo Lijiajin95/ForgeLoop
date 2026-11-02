@@ -14,16 +14,8 @@
     "max-lines-per-function": {
       "count": 2
     },
-    "max-params": {
-      "count": 1
-    },
     "max-statements": {
       "count": 2
-    }
-  },
-  "packages/forgeloop/src/session/intake.ts": {
-    "max-params": {
-      "count": 1
     }
   }
 }

@@ -3217,3 +3217,12 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.12/96.96/84.89，mutation 97.80。
 - 下一批：`recordRun`（6 参）与 `appendError`（5 参）改为对象参数，然后处理
   `verifyCandidate`/`deliverTask` 两个大方法。
+
+### 57. recordRun 与 appendError 参数收敛（新目标 Round 7）
+
+- `recordRun` 的 `state/reason/executedSeconds` 合并为 `outcome` 对象；`executedSeconds`
+  全部调用都是 0，改为内部固定 0，27 处调用一次性迁移。
+- `appendError` 的 `reqId/message/at` 合并为 `detail` 对象，11 处调用迁移。
+- 两处 max-params 豁免清零，suppressions 10 → **8**。
+- `make check` 607 项通过，coverage 91.19/96.96/84.91，mutation 97.80。
+- 剩余：`verifyCandidate`、`deliverTask` 各 3 条，以及两个文件行数上限。

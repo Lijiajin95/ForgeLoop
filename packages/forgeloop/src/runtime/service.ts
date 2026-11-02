@@ -1173,14 +1173,10 @@ ${answer}`
         reason: input.reason,
       })
       this.repo.clearTaskDelivery(input.reqId, input.plan.planVersion, task.taskId)
-      this.recordRun(
-        input.reqId,
-        input.plan,
-        task,
-        TASK_RUN_BLOCKED,
-        `${input.reason}（旧候选 ${artifact.candidateSha256.slice(0, 12)}… 与材料已归档）`,
-        0,
-      )
+      this.recordRun(input.reqId, input.plan, task, {
+        state: TASK_RUN_BLOCKED,
+        reason: `${input.reason}（旧候选 ${artifact.candidateSha256.slice(0, 12)}… 与材料已归档）`,
+      })
       archived.push({ taskId: task.taskId, attempt, archivedPath })
     }
     return archived
@@ -4354,14 +4350,10 @@ ${answer}`
     plan: TaskPlan
     task: PlannedTask
   }): string {
-    this.recordRun(
-      input.reqId,
-      input.plan,
-      input.task,
-      TASK_RUN_FAILED,
-      '研发回合没有产生任何文件改动',
-      0,
-    )
+    this.recordRun(input.reqId, input.plan, input.task, {
+      state: TASK_RUN_FAILED,
+      reason: '研发回合没有产生任何文件改动',
+    })
     return '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
   }
 
@@ -4371,7 +4363,7 @@ ${answer}`
     detail: string,
   ): { state: 'blocked'; reason: string } {
     const reason = `研发回合${status === 'aborted' ? '被停止' : '超时'}：${detail}；现场保留，可继续修复`
-    this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+    this.recordRun(input.reqId, input.plan, input.task, { state: TASK_RUN_BLOCKED, reason: reason })
     return { state: 'blocked', reason }
   }
 
@@ -4391,10 +4383,16 @@ ${answer}`
     for (let attempt = 1; attempt <= this.config.maxTaskAttempts; attempt += 1) {
       if (input.signal.aborted) {
         const reason = '停止请求：任务未交付，研发现场保留，可继续执行'
-        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+        this.recordRun(input.reqId, input.plan, input.task, {
+          state: TASK_RUN_BLOCKED,
+          reason: reason,
+        })
         return { state: 'blocked', reason }
       }
-      this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_RUNNING, '研发 Agent 工作中', 0)
+      this.recordRun(input.reqId, input.plan, input.task, {
+        state: TASK_RUN_RUNNING,
+        reason: '研发 Agent 工作中',
+      })
       const result = await input.session.send({
         prompt:
           devPrompt({
@@ -4420,7 +4418,10 @@ ${answer}`
         return this.taskAborted(input, result.status, result.reason)
       }
       if (result.status !== 'completed') {
-        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_FAILED, result.reason, 0)
+        this.recordRun(input.reqId, input.plan, input.task, {
+          state: TASK_RUN_FAILED,
+          reason: result.reason,
+        })
         feedback = `\n\n上一次研发回合未完成：${result.reason}。请继续完成同一个任务。`
         continue
       }
@@ -4441,18 +4442,17 @@ ${answer}`
         const reason = test.aborted
           ? '研发自验被停止：现场保留，可继续执行'
           : `研发自验超时（${this.config.formalTestTimeoutSeconds} 秒）：现场保留，可继续修复`
-        this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+        this.recordRun(input.reqId, input.plan, input.task, {
+          state: TASK_RUN_BLOCKED,
+          reason: reason,
+        })
         return { state: 'blocked', reason }
       }
       if (test.exitCode !== 0) {
-        this.recordRun(
-          input.reqId,
-          input.plan,
-          input.task,
-          TASK_RUN_FAILED,
-          `研发自验退出码 ${test.exitCode}，日志 ${test.logPath}`,
-          0,
-        )
+        this.recordRun(input.reqId, input.plan, input.task, {
+          state: TASK_RUN_FAILED,
+          reason: `研发自验退出码 ${test.exitCode}，日志 ${test.logPath}`,
+        })
         feedback = `\n\n研发自验未通过（退出码 ${test.exitCode}）。日志：${test.logPath}\n${test.output.slice(-4000)}\n请在同一工作区修复后继续。`
         continue
       }
@@ -4476,11 +4476,11 @@ ${answer}`
         test,
         taskDir,
       })
-      this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_DELIVERED, '', 0)
+      this.recordRun(input.reqId, input.plan, input.task, { state: TASK_RUN_DELIVERED, reason: '' })
       return { state: 'delivered', reason: '' }
     }
     const reason = `任务 ${input.task.taskId} 已尝试 ${this.config.maxTaskAttempts} 次仍未通过自验；现场保留，等待修复或授权`
-    this.recordRun(input.reqId, input.plan, input.task, TASK_RUN_BLOCKED, reason, 0)
+    this.recordRun(input.reqId, input.plan, input.task, { state: TASK_RUN_BLOCKED, reason: reason })
     return { state: 'blocked', reason }
   }
 
@@ -5665,10 +5665,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
       const artifact = this.repo.taskArtifact(reqId, plan.planVersion, taskId)
       if (artifact && task) {
-        this.recordRun(reqId, plan, task, TASK_RUN_DELIVERED, '', 0)
+        this.recordRun(reqId, plan, task, { state: TASK_RUN_DELIVERED, reason: '' })
         outcome = { state: 'delivered', reason: '', requirementStatus: EXECUTING }
       } else if (task) {
-        this.recordRun(reqId, plan, task, TASK_RUN_FAILED, reason, 0)
+        this.recordRun(reqId, plan, task, { state: TASK_RUN_FAILED, reason: reason })
         this.repo.setStatus(reqId, 'blocked', reason)
         return { ok: false, detail: reason }
       } else {
@@ -5905,14 +5905,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         runCommand('git', ['clean', '-fd'], worktree)
       }
 
-      this.recordRun(
-        requirement.reqId,
-        plan,
-        task,
-        TASK_RUN_RUNNING,
-        task.verification === true ? '启动验证任务' : '启动开发 Agent',
-        0,
-      )
+      this.recordRun(requirement.reqId, plan, task, {
+        state: TASK_RUN_RUNNING,
+        reason: task.verification === true ? '启动验证任务' : '启动开发 Agent',
+      })
       if (task.verification === true) {
         const verificationStarted = Date.now()
         const test = await this.formalTest({
@@ -5926,7 +5922,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         this.charge(requirement.reqId, verificationStarted)
         if (test.aborted) {
           const reason = '验证任务被停止：任务未交付，一次性工作副本可丢弃；可重新执行'
-          this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
+          this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_BLOCKED, reason: reason })
           return {
             state: 'blocked',
             reason,
@@ -5936,7 +5932,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         }
         if (test.timedOut) {
           const reason = `验证任务超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止：任务未交付，可重新执行`
-          this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
+          this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_BLOCKED, reason: reason })
           return {
             state: 'blocked',
             reason,
@@ -5960,14 +5956,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
               occurredAt: this.now(),
             })
           }
-          this.recordRun(
-            requirement.reqId,
-            plan,
-            task,
-            TASK_RUN_FAILED,
-            `验证任务正式测试失败（退出码 ${test.exitCode}），日志 ${test.logPath}`,
-            0,
-          )
+          this.recordRun(requirement.reqId, plan, task, {
+            state: TASK_RUN_FAILED,
+            reason: `验证任务正式测试失败（退出码 ${test.exitCode}），日志 ${test.logPath}`,
+          })
           if (!ledger.canRecordFailure) {
             return {
               state: 'awaiting_user',
@@ -6017,7 +6009,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           reviewSession: '',
           recordedAt: this.now(),
         })
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_DELIVERED, '', 0)
+        this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_DELIVERED, reason: '' })
         rmSync(worktree, { recursive: true, force: true })
         return { state: 'delivered', reason: '', requirementStatus: EXECUTING }
       }
@@ -6049,11 +6041,14 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         }：任务未交付，一次性工作副本可丢弃；可重新执行`
         // 运行记录必须收口为 blocked：否则任务会永远显示“执行中”，
         // 心跳也停在中断那一刻，看板无法区分“还在跑”和“已经中断”。
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
+        this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_BLOCKED, reason: reason })
         return { state: 'blocked', reason, requirementStatus: 'blocked', interrupted: true }
       }
       if (dev.status !== 'completed') {
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_FAILED, dev.reason, 0)
+        this.recordRun(requirement.reqId, plan, task, {
+          state: TASK_RUN_FAILED,
+          reason: dev.reason,
+        })
         feedback = `\n\n上一次实现回合失败：${dev.reason}。请重新完成。`
         continue
       }
@@ -6065,14 +6060,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         diffPath: join(taskDir, 'candidate.diff'),
       })
       if (capture.changedFiles.length === 0) {
-        this.recordRun(
-          requirement.reqId,
-          plan,
-          task,
-          TASK_RUN_FAILED,
-          '开发回合没有产生任何文件改动',
-          0,
-        )
+        this.recordRun(requirement.reqId, plan, task, {
+          state: TASK_RUN_FAILED,
+          reason: '开发回合没有产生任何文件改动',
+        })
         feedback = '\n\n上一次实现没有产生任何文件改动。请真正修改允许清单内的文件。'
         continue
       }
@@ -6101,7 +6092,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       this.charge(requirement.reqId, reviewStarted)
       if (reviewRun.status !== 'completed') {
         const reason = `独立审查未取得可用结论：${reviewRun.reason}`
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
+        this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_BLOCKED, reason: reason })
         return {
           state: 'blocked',
           reason,
@@ -6113,14 +6104,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       try {
         verdict = parseReviewVerdict(reviewRun.text)
       } catch (error) {
-        this.recordRun(
-          requirement.reqId,
-          plan,
-          task,
-          TASK_RUN_BLOCKED,
-          `审查结果畸形：${errorMessage(error)}`,
-          0,
-        )
+        this.recordRun(requirement.reqId, plan, task, {
+          state: TASK_RUN_BLOCKED,
+          reason: `审查结果畸形：${errorMessage(error)}`,
+        })
         return {
           state: 'blocked',
           reason: `审查结果畸形（fail-closed）：${errorMessage(error)}`,
@@ -6130,14 +6117,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       const reviewPath = join(taskDir, 'review.json')
       writeFileSync(reviewPath, `${JSON.stringify(verdict, null, 2)}\n`, 'utf8')
       if (verdict.verdict === 'block') {
-        this.recordRun(
-          requirement.reqId,
-          plan,
-          task,
-          TASK_RUN_FAILED,
-          `独立审查阻断：${verdict.blocking.join('；')}`,
-          0,
-        )
+        this.recordRun(requirement.reqId, plan, task, {
+          state: TASK_RUN_FAILED,
+          reason: `独立审查阻断：${verdict.blocking.join('；')}`,
+        })
         feedback = `\n\n上一次独立审查阻断，必须修复：\n- ${verdict.blocking.join('\n- ')}`
         continue
       }
@@ -6154,7 +6137,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       this.charge(requirement.reqId, testStarted)
       if (test.aborted) {
         const reason = '正式测试被停止：任务未交付，一次性工作副本可丢弃；可重新执行'
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
+        this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_BLOCKED, reason: reason })
         return {
           state: 'blocked',
           reason,
@@ -6164,7 +6147,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       }
       if (test.timedOut) {
         const reason = `正式测试超过 ${this.config.formalTestTimeoutSeconds} 秒上限并被终止：任务未交付，可重新执行`
-        this.recordRun(requirement.reqId, plan, task, TASK_RUN_BLOCKED, reason, 0)
+        this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_BLOCKED, reason: reason })
         return {
           state: 'blocked',
           reason,
@@ -6187,14 +6170,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
             occurredAt: this.now(),
           })
         }
-        this.recordRun(
-          requirement.reqId,
-          plan,
-          task,
-          TASK_RUN_FAILED,
-          `正式测试失败（退出码 ${test.exitCode}），日志 ${test.logPath}`,
-          0,
-        )
+        this.recordRun(requirement.reqId, plan, task, {
+          state: TASK_RUN_FAILED,
+          reason: `正式测试失败（退出码 ${test.exitCode}），日志 ${test.logPath}`,
+        })
         if (!ledger.canRecordFailure) {
           return {
             state: 'awaiting_user',
@@ -6231,7 +6210,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         reviewSession: reviewRun.sessionId,
         recordedAt: this.now(),
       })
-      this.recordRun(requirement.reqId, plan, task, TASK_RUN_DELIVERED, '', 0)
+      this.recordRun(requirement.reqId, plan, task, { state: TASK_RUN_DELIVERED, reason: '' })
       rmSync(worktree, { recursive: true, force: true })
       return { state: 'delivered', reason: '', requirementStatus: EXECUTING }
     }
@@ -6272,22 +6251,24 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     reqId: string,
     plan: TaskPlan,
     task: PlannedTask,
-    state:
-      | typeof TASK_RUN_RUNNING
-      | typeof TASK_RUN_DELIVERED
-      | typeof TASK_RUN_FAILED
-      | typeof TASK_RUN_BLOCKED
-      | typeof TASK_RUN_AWAITING_USER,
-    reason: string,
-    executedSeconds: number,
+    outcome: {
+      state:
+        | typeof TASK_RUN_RUNNING
+        | typeof TASK_RUN_DELIVERED
+        | typeof TASK_RUN_FAILED
+        | typeof TASK_RUN_BLOCKED
+        | typeof TASK_RUN_AWAITING_USER
+      reason: string
+    },
   ): void {
+    const { state, reason } = outcome
     this.repo.recordTaskRun({
       requirementId: reqId,
       planVersion: plan.planVersion,
       taskId: task.taskId,
       state,
       reason,
-      executedSeconds,
+      executedSeconds: 0,
       updatedAt: this.now(),
     })
   }

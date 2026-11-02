@@ -148,13 +148,11 @@ export class SessionIntake {
           signal: payload.signal,
         })
       } catch (error) {
-        this.appendError(
-          session,
-          `forgeloop:error:${payload.turn ?? 0}:${index}`,
-          '',
-          `需求受理异常：${errorMessage(error)}`,
-          this.now().toISOString(),
-        )
+        this.appendError(session, `forgeloop:error:${payload.turn ?? 0}:${index}`, {
+          reqId: '',
+          message: `需求受理异常：${errorMessage(error)}`,
+          at: this.now().toISOString(),
+        })
       }
     }
     return { kind: 'reject' }
@@ -180,19 +178,21 @@ export class SessionIntake {
     const text = messageText(input.message)
     const at = this.now().toISOString()
     if (!text) {
-      this.appendError(session, `forgeloop:error:${dedupeKey}`, '', '输入没有可受理的文本内容', at)
+      this.appendError(session, `forgeloop:error:${dedupeKey}`, {
+        reqId: '',
+        message: '输入没有可受理的文本内容',
+        at: at,
+      })
       return
     }
 
     const pending = this.runtime.pendingClarifications(sessionId)
     if (pending.length > 1) {
-      this.appendError(
-        session,
-        `forgeloop:error:${dedupeKey}`,
-        '',
-        `本会话有 ${pending.length} 条需求等待澄清；请先只保留一个待回答需求或明确指定需求身份`,
-        at,
-      )
+      this.appendError(session, `forgeloop:error:${dedupeKey}`, {
+        reqId: '',
+        message: `本会话有 ${pending.length} 条需求等待澄清；请先只保留一个待回答需求或明确指定需求身份`,
+        at: at,
+      })
       return
     }
     if (pending.length === 1) {
@@ -239,34 +239,28 @@ export class SessionIntake {
         clientKey: source,
       })
     } catch (error) {
-      this.appendError(
-        session,
-        `forgeloop:error:${sessionId}:${messageId}`,
-        '',
-        `需求受理异常：${errorMessage(error)}`,
-        at,
-      )
+      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, {
+        reqId: '',
+        message: `需求受理异常：${errorMessage(error)}`,
+        at: at,
+      })
       return
     }
     if (!submitted.ok) {
-      this.appendError(
-        session,
-        `forgeloop:error:${sessionId}:${messageId}`,
-        '',
-        submitted.message,
-        at,
-      )
+      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, {
+        reqId: '',
+        message: submitted.message,
+        at: at,
+      })
       return
     }
     const reqId = this.reqIdOf(submitted.data)
     if (!reqId) {
-      this.appendError(
-        session,
-        `forgeloop:error:${sessionId}:${messageId}`,
-        '',
-        '需求已写入但没有返回身份',
-        at,
-      )
+      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, {
+        reqId: '',
+        message: '需求已写入但没有返回身份',
+        at: at,
+      })
       return
     }
 
@@ -291,17 +285,19 @@ export class SessionIntake {
     try {
       outcome = await this.runtime.analyzeRequirement(reqId, input.signal)
     } catch (error) {
-      this.appendError(
-        session,
-        `forgeloop:error:${reqId}`,
-        reqId,
-        `需求分析异常：${errorMessage(error)}`,
-        at,
-      )
+      this.appendError(session, `forgeloop:error:${reqId}`, {
+        reqId: reqId,
+        message: `需求分析异常：${errorMessage(error)}`,
+        at: at,
+      })
       return
     }
     if (!outcome.ok || !outcome.analysis) {
-      this.appendError(session, `forgeloop:error:${reqId}`, reqId, outcome.message, at)
+      this.appendError(session, `forgeloop:error:${reqId}`, {
+        reqId: reqId,
+        message: outcome.message,
+        at: at,
+      })
       return
     }
     this.appendAnalysis(session, reqId, outcome.analysis, at)
@@ -332,17 +328,19 @@ export class SessionIntake {
         signal: input.signal,
       })
     } catch (error) {
-      this.appendError(
-        session,
-        `forgeloop:error:${reqId}`,
-        reqId,
-        `澄清回答异常：${errorMessage(error)}`,
-        at,
-      )
+      this.appendError(session, `forgeloop:error:${reqId}`, {
+        reqId: reqId,
+        message: `澄清回答异常：${errorMessage(error)}`,
+        at: at,
+      })
       return
     }
     if (!outcome.ok || !outcome.analysis) {
-      this.appendError(session, `forgeloop:error:${reqId}`, reqId, outcome.message, at)
+      this.appendError(session, `forgeloop:error:${reqId}`, {
+        reqId: reqId,
+        message: outcome.message,
+        at: at,
+      })
       return
     }
     const answer: AnswerEventData = {
@@ -415,10 +413,9 @@ export class SessionIntake {
   private appendError(
     session: SessionViewLike | undefined,
     eventId: string,
-    reqId: string,
-    message: string,
-    at: string,
+    detail: { reqId: string; message: string; at: string },
   ): void {
+    const { reqId, message, at } = detail
     const data: ErrorEventData = { eventId, reqId, message, at }
     appendSessionEvent(
       session,
