@@ -3472,3 +3472,12 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.14/96.85/84.89，mutation 97.80。
 - 剩余：`as` 74；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 81. 宿主锁错误码守卫（新目标 Round 31）
+
+- `runtime/lock.ts` 新增 `errorCode(error)`：用 `'code' in error` 收窄，替代两处
+  `error as NodeJS.ErrnoException`。
+- `as` 断言 **74 → 72**，基线 72；lock.test.ts（5 项）先行通过。
+- `make check` 607 项通过，coverage 91.14/96.86/84.88，mutation 97.80。
+- 剩余：`as` 72；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
+  E2E/verify-plugin 门禁未接入。

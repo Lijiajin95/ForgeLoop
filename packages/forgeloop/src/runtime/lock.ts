@@ -40,8 +40,17 @@ function processAlive(pid: number): boolean {
     process.kill(pid, 0)
     return true
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
+    return errorCode(error) === 'EPERM'
   }
+}
+
+function errorCode(error: unknown): string {
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string'
+    ? error.code
+    : ''
 }
 
 export function acquireHostLock(lockRoot: string, owner: string): HostLock {
@@ -53,7 +62,7 @@ export function acquireHostLock(lockRoot: string, owner: string): HostLock {
       writeFileSync(join(lockDir, 'owner.json'), `${JSON.stringify(record)}\n`, 'utf8')
       return true
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if (errorCode(error) !== 'EEXIST') throw error
       return false
     }
   }
