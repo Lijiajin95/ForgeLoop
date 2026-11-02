@@ -3291,3 +3291,15 @@ suppressions 20、service.ts 5,986 行。
 - suppressions 维持 1（只剩 service 文件行数）；`make check` 607 项通过，
   coverage 91.08/96.77/84.92，mutation 97.80。
 - 剩余：service 4,468 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
+
+### 64. 构建与上线核对整体移出（新目标 Round 14）
+
+- 新增 `src/runtime/candidate-pipeline.ts`：`CandidatePipeline` 承载构建候选（新旧链路）、
+  产物读取、上线核对、验收与验收绑定、候选身份等 22 个方法，依赖注入
+  config/repo/now/validateBuildMaterials/requireAuthorizedPlan/currentAdmission/
+  candidateIdentity/statusBoard。
+- service.ts **4,468 → 3,433 行**；tokens **48,089 → 37,538**，基线下调。
+- 修正导入别名造成的断言计数回归，`make assertions` 保持 163。
+- suppressions 维持 1（仅 service 文件行数）；`make check` 607 项通过，
+  coverage 91.11/96.81/84.96，mutation 97.80。
+- 剩余：service 3,433 → ≤2,000；`as` 163 → <20；E2E/verify-plugin 门禁。
