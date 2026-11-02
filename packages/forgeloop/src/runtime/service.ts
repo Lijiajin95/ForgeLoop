@@ -5241,53 +5241,314 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
    * 连续研发：系统准入后由同一个推进请求完成方案、实现、自验、独立验证、
    * 定向修复和受控提交；例外（越界、额度用尽、提交检查失败）才停下等待决定。
    */
-  private async executeContinuousAdvance(
-    reqId: string,
-    signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+  private continuousInputs(reqId: string):
+    | {
+        ok: true
+        requirement: Requirement
+        analysis: RequirementAnalysis
+        admission: NonNullable<ReturnType<ForgeLoopRuntime['currentAdmission']>>
+      }
+    | { ok: false; outcome: { state: 'failed'; detail: string } } {
     const requirement = this.repo.getRequirement(reqId)
-    if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
-    if (isTerminal(requirement.status))
-      return { state: 'failed', detail: `需求已处于终态 ${requirement.status}` }
+    if (!requirement) {
+      return { ok: false, outcome: { state: 'failed', detail: `未找到需求 ${reqId}` } }
+    }
+    if (isTerminal(requirement.status)) {
+      return {
+        ok: false,
+        outcome: { state: 'failed', detail: `需求已处于终态 ${requirement.status}` },
+      }
+    }
     const admission = this.currentAdmission(reqId)
-    if (!admission) return { state: 'failed', detail: '需求没有系统准入，不能自动研发' }
+    if (!admission) {
+      return { ok: false, outcome: { state: 'failed', detail: '需求没有系统准入，不能自动研发' } }
+    }
     const analysis = this.repo.latestAnalysis(reqId)
     if (!analysis || analysis.requirementVersion !== requirement.versions.length) {
       this.repo.setStatus(reqId, 'blocked', '需求说明缺失或已过期；需要产品 Agent 重新澄清')
-      return { state: 'failed', detail: '需求说明缺失或已过期' }
+      return { ok: false, outcome: { state: 'failed', detail: '需求说明缺失或已过期' } }
     }
     const budget = this.repo.budget(reqId)
     if (budget.limitSeconds <= budget.consumedSeconds) {
       this.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需要显式延长或拆分需求')
-      return { state: 'failed', detail: '执行工时已用尽' }
+      return { ok: false, outcome: { state: 'failed', detail: '执行工时已用尽' } }
     }
-    const authorizationSource = `system-admission:${admission.admissionId}`
-    const workspaceInfo = this.ensureDevWorkspace(reqId, requirement.versions.length)
-    const workspace = workspaceInfo.workspace
-    let plan = this.repo.latestTaskPlan(reqId)
-    if (!plan || plan.requirementVersion !== requirement.versions.length) {
-      const planned = await this.planInSession({
+    return { ok: true, requirement, analysis, admission }
+  }
+
+  private async ensureContinuousPlan(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    workspace: string
+    authorizationSource: string
+    signal: AbortSignal
+  }): Promise<
+    { ok: true; plan: TaskPlan } | { ok: false; outcome: { state: 'failed'; detail: string } }
+  > {
+    const { reqId, requirement, analysis, workspace, authorizationSource, signal } = input
+    const existing = this.repo.latestTaskPlan(reqId)
+    if (existing && existing.requirementVersion === requirement.versions.length) {
+      return { ok: true, plan: existing }
+    }
+    const planned = await this.planInSession({
+      reqId,
+      requirement,
+      analysis,
+      workspace,
+      authorizationSource,
+      signal,
+    })
+    if (planned.ok) return { ok: true, plan: planned.plan }
+    // 方案格式/模型异常已在研发会话内重试；仍失败时计一轮并停在 blocked，
+    // 不自动整轮重放，避免同样的畸形输出无限循环。
+    this.repo.recordFailureRound(reqId, {
+      roundId: `planning-${randomUUID()}`,
+      stage: FAILURE_PLANNING,
+      summary: `技术方案未形成：${planned.reason}`.slice(0, 1000),
+      occurredAt: this.now(),
+    })
+    this.repo.setStatus(reqId, 'blocked', `技术方案未形成：${planned.reason}`)
+    return {
+      ok: false,
+      outcome: { state: 'failed', detail: `技术方案未形成：${planned.reason}` },
+    }
+  }
+
+  private async developContinuousTasks(input: {
+    reqId: string
+    requirement: Requirement
+    plan: TaskPlan
+    workspace: string
+    session: AgentSession
+    authorizationSource: string
+    signal: AbortSignal
+  }): Promise<{ ok: true } | { ok: false; detail: string }> {
+    const { reqId, requirement, plan, workspace, session, authorizationSource, signal } = input
+    for (const taskId of executionOrder(plan)) {
+      const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
+      if (!task) continue
+      if (this.repo.taskArtifact(reqId, plan.planVersion, taskId)) continue
+      const outcome = await this.developTaskInSession({
         reqId,
         requirement,
-        analysis,
+        plan,
+        task,
         workspace,
+        session,
         authorizationSource,
         signal,
       })
-      if (!planned.ok) {
-        // 方案格式/模型异常已在研发会话内重试；仍失败时计一轮并停在 blocked，
-        // 不自动整轮重放，避免同样的畸形输出无限循环。
+      if (outcome.state !== 'delivered') {
+        this.repo.setStatus(reqId, 'blocked', outcome.reason)
+        return { ok: false, detail: outcome.reason }
+      }
+    }
+    return { ok: true }
+  }
+
+  private async repairOpenIssue(input: {
+    reqId: string
+    requirement: Requirement
+    plan: TaskPlan
+    workspace: string
+    session: AgentSession
+    signal: AbortSignal
+  }): Promise<{ ok: true } | { ok: false; detail: string }> {
+    const { reqId, requirement, plan, workspace, session, signal } = input
+    const openIssue = this.issues.latestOpen(reqId)
+    if (!openIssue) return { ok: true }
+    this.repo.setStatus(
+      reqId,
+      DEVELOPING,
+      `按问题单 ${openIssue.issueId}（attempt ${openIssue.attempt}）定向修复`,
+    )
+    const repaired = await this.repairCandidate({
+      reqId,
+      requirement,
+      plan,
+      workspace,
+      session,
+      blocking: openIssue.evidence.blocking,
+      candidate: { candidateSha256: openIssue.candidateSha256 },
+      signal,
+      round: openIssue.attempt,
+    })
+    if (!repaired.ok) {
+      this.repo.setStatus(
+        reqId,
+        'blocked',
+        `定向修复未完成：${repaired.reason}；问题单 ${openIssue.issueId} 保留在研发队列`,
+      )
+      return { ok: false, detail: `定向修复未完成：${repaired.reason}` }
+    }
+    this.issues.updateStatus(openIssue.issueId, ISSUE_FIXED, this.now())
+    return { ok: true }
+  }
+
+  private async verifyContinuousCandidate(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    plan: TaskPlan
+    candidate: ReturnType<ForgeLoopRuntime['finalizeCandidate']>
+    workspace: string
+    workspaceInfo: ReturnType<ForgeLoopRuntime['ensureDevWorkspace']>
+    session: AgentSession
+    signal: AbortSignal
+  }): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const { reqId, requirement, analysis, plan, workspace, workspaceInfo, session, signal } = input
+    let candidate = input.candidate
+    for (let round = 1; ; round += 1) {
+      this.repo.setStatus(
+        reqId,
+        VERIFYING,
+        `验证 Agent 正在验证候选 v${candidate.candidateVersion}`,
+      )
+      const verification = await this.verifyCandidate({
+        reqId,
+        requirement,
+        analysis,
+        plan,
+        candidate,
+        devWorkspace: workspace,
+        signal,
+      })
+      if (verification.verification === null && verification.state === 'block') {
+        // 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。
         this.repo.recordFailureRound(reqId, {
-          roundId: `planning-${randomUUID()}`,
-          stage: FAILURE_PLANNING,
-          summary: `技术方案未形成：${planned.reason}`.slice(0, 1000),
+          roundId: `verification-prep-${randomUUID()}`,
+          stage: FAILURE_VERIFICATION,
+          summary: verification.detail.slice(0, 1000),
           occurredAt: this.now(),
         })
-        this.repo.setStatus(reqId, 'blocked', `技术方案未形成：${planned.reason}`)
-        return { state: 'failed', detail: `技术方案未形成：${planned.reason}` }
+        this.repo.setStatus(reqId, 'blocked', verification.detail)
+        return { state: 'failed', detail: verification.detail }
       }
-      plan = planned.plan
+      if (verification.state === 'pass') {
+        this.issues.resolveOpen(reqId, this.now())
+        const commit = await this.commitCandidate({
+          reqId,
+          plan,
+          candidate,
+          requirementTitle: requirementTitle(requirement),
+        })
+        if (!commit.ok) {
+          this.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+          return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
+        }
+        this.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
+        return {
+          state: 'done',
+          detail: `需求 ${reqId} 已完成研发、独立验证与提交：${commit.commitSha.slice(0, 12)}`,
+        }
+      }
+      const recorded = verification.verification
+      if (recorded && recorded.verdict === 'block') {
+        // 验证执行后判定失败：建内建问题单并定向修复；跨请求重试没有轮次上限。
+        const issue = this.recordVerificationIssue({
+          reqId,
+          requirement,
+          plan,
+          candidate,
+          verification: recorded,
+          blocking: verification.blocking,
+        })
+        if (round >= VERIFICATION_ATTEMPTS_PER_REQUEST) {
+          const blocking = verification.blocking.join('；') || verification.detail
+          this.repo.setStatus(
+            reqId,
+            'blocked',
+            `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
+          )
+          return {
+            state: 'failed',
+            detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
+          }
+        }
+        const repaired = await this.repairCandidate({
+          reqId,
+          requirement,
+          plan,
+          workspace,
+          session,
+          blocking: verification.blocking,
+          candidate,
+          signal,
+          round,
+        })
+        if (!repaired.ok) {
+          this.repo.setStatus(
+            reqId,
+            'blocked',
+            `定向修复未完成：${repaired.reason}；问题单 ${issue.issueId} 保留在研发队列`,
+          )
+          return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
+        }
+        this.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.now())
+        candidate = this.finalizeCandidate({
+          reqId,
+          plan,
+          workspace,
+          baselineCommit: workspaceInfo.baselineCommit,
+          snapshotCommit: workspaceInfo.snapshotCommit,
+        })
+        continue
+      }
+      // 业务验收阻断（独立验证本身已通过）仍受失败额度约束。
+      if (this.remainingFailureRounds(reqId) === 0) {
+        this.repo.setStatus(
+          reqId,
+          'blocked',
+          `验证未通过且失败额度已用尽：${verification.blocking.join('；') || verification.detail}`,
+        )
+        return { state: 'failed', detail: `验证未通过且失败额度已用尽：${verification.detail}` }
+      }
+      const repaired = await this.repairCandidate({
+        reqId,
+        requirement,
+        plan,
+        workspace,
+        session,
+        blocking: verification.blocking,
+        candidate,
+        signal,
+        round,
+      })
+      if (!repaired.ok) {
+        this.repo.setStatus(reqId, 'blocked', `定向修复未完成：${repaired.reason}`)
+        return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
+      }
+      candidate = this.finalizeCandidate({
+        reqId,
+        plan,
+        workspace,
+        baselineCommit: workspaceInfo.baselineCommit,
+        snapshotCommit: workspaceInfo.snapshotCommit,
+      })
     }
+  }
+
+  private async executeContinuousAdvance(
+    reqId: string,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const inputs = this.continuousInputs(reqId)
+    if (!inputs.ok) return inputs.outcome
+    const { requirement, analysis, admission } = inputs
+    const authorizationSource = `system-admission:${admission.admissionId}`
+    const workspaceInfo = this.ensureDevWorkspace(reqId, requirement.versions.length)
+    const workspace = workspaceInfo.workspace
+    const planned = await this.ensureContinuousPlan({
+      reqId,
+      requirement,
+      analysis,
+      workspace,
+      authorizationSource,
+      signal,
+    })
+    if (!planned.ok) return planned.outcome
+    const plan = planned.plan
     const session = await this.openAgent({
       role: AGENT_DEV,
       cwd: workspace,
@@ -5312,189 +5573,43 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           return { state: 'failed', detail: restored.reason }
         }
       }
-      for (const taskId of executionOrder(plan)) {
-        const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
-        if (!task) continue
-        if (this.repo.taskArtifact(reqId, plan.planVersion, taskId)) continue
-        const outcome = await this.developTaskInSession({
-          reqId,
-          requirement,
-          plan,
-          task,
-          workspace,
-          session,
-          authorizationSource,
-          signal,
-        })
-        if (outcome.state !== 'delivered') {
-          this.repo.setStatus(reqId, 'blocked', outcome.reason)
-          return { state: 'failed', detail: outcome.reason }
-        }
-      }
-      // 上一次请求留下了未收口问题单：先按问题单修复，再进入验证。
-      const openIssue = this.issues.latestOpen(reqId)
-      if (openIssue) {
-        this.repo.setStatus(
-          reqId,
-          DEVELOPING,
-          `按问题单 ${openIssue.issueId}（attempt ${openIssue.attempt}）定向修复`,
-        )
-        const repaired = await this.repairCandidate({
-          reqId,
-          requirement,
-          plan,
-          workspace,
-          session,
-          blocking: openIssue.evidence.blocking,
-          candidate: { candidateSha256: openIssue.candidateSha256 },
-          signal,
-          round: openIssue.attempt,
-        })
-        if (!repaired.ok) {
-          this.repo.setStatus(
-            reqId,
-            'blocked',
-            `定向修复未完成：${repaired.reason}；问题单 ${openIssue.issueId} 保留在研发队列`,
-          )
-          return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
-        }
-        this.issues.updateStatus(openIssue.issueId, ISSUE_FIXED, this.now())
-      }
-      let candidate = this.finalizeCandidate({
+      const developed = await this.developContinuousTasks({
+        reqId,
+        requirement,
+        plan,
+        workspace,
+        session,
+        authorizationSource,
+        signal,
+      })
+      if (!developed.ok) return { state: 'failed', detail: developed.detail }
+      const repairedIssue = await this.repairOpenIssue({
+        reqId,
+        requirement,
+        plan,
+        workspace,
+        session,
+        signal,
+      })
+      if (!repairedIssue.ok) return { state: 'failed', detail: repairedIssue.detail }
+      const candidate = this.finalizeCandidate({
         reqId,
         plan,
         workspace,
         baselineCommit: workspaceInfo.baselineCommit,
         snapshotCommit: workspaceInfo.snapshotCommit,
       })
-      for (let round = 1; ; round += 1) {
-        this.repo.setStatus(
-          reqId,
-          VERIFYING,
-          `验证 Agent 正在验证候选 v${candidate.candidateVersion}`,
-        )
-        const verification = await this.verifyCandidate({
-          reqId,
-          requirement,
-          analysis,
-          plan,
-          candidate,
-          devWorkspace: workspace,
-          signal,
-        })
-        if (verification.verification === null && verification.state === 'block') {
-          // 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。
-          this.repo.recordFailureRound(reqId, {
-            roundId: `verification-prep-${randomUUID()}`,
-            stage: FAILURE_VERIFICATION,
-            summary: verification.detail.slice(0, 1000),
-            occurredAt: this.now(),
-          })
-          this.repo.setStatus(reqId, 'blocked', verification.detail)
-          return { state: 'failed', detail: verification.detail }
-        }
-        if (verification.state === 'pass') {
-          this.issues.resolveOpen(reqId, this.now())
-          const commit = await this.commitCandidate({
-            reqId,
-            plan,
-            candidate,
-            requirementTitle: requirementTitle(requirement),
-          })
-          if (!commit.ok) {
-            this.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
-            return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
-          }
-          this.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
-          return {
-            state: 'done',
-            detail: `需求 ${reqId} 已完成研发、独立验证与提交：${commit.commitSha.slice(0, 12)}`,
-          }
-        }
-        const recorded = verification.verification
-        if (recorded && recorded.verdict === 'block') {
-          // 验证执行后判定失败：建内建问题单并定向修复；跨请求重试没有轮次上限。
-          const issue = this.recordVerificationIssue({
-            reqId,
-            requirement,
-            plan,
-            candidate,
-            verification: recorded,
-            blocking: verification.blocking,
-          })
-          if (round >= VERIFICATION_ATTEMPTS_PER_REQUEST) {
-            const blocking = verification.blocking.join('；') || verification.detail
-            this.repo.setStatus(
-              reqId,
-              'blocked',
-              `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
-            )
-            return {
-              state: 'failed',
-              detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
-            }
-          }
-          const repaired = await this.repairCandidate({
-            reqId,
-            requirement,
-            plan,
-            workspace,
-            session,
-            blocking: verification.blocking,
-            candidate,
-            signal,
-            round,
-          })
-          if (!repaired.ok) {
-            this.repo.setStatus(
-              reqId,
-              'blocked',
-              `定向修复未完成：${repaired.reason}；问题单 ${issue.issueId} 保留在研发队列`,
-            )
-            return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
-          }
-          this.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.now())
-          candidate = this.finalizeCandidate({
-            reqId,
-            plan,
-            workspace,
-            baselineCommit: workspaceInfo.baselineCommit,
-            snapshotCommit: workspaceInfo.snapshotCommit,
-          })
-          continue
-        }
-        // 业务验收阻断（独立验证本身已通过）仍受失败额度约束。
-        if (this.remainingFailureRounds(reqId) === 0) {
-          this.repo.setStatus(
-            reqId,
-            'blocked',
-            `验证未通过且失败额度已用尽：${verification.blocking.join('；') || verification.detail}`,
-          )
-          return { state: 'failed', detail: `验证未通过且失败额度已用尽：${verification.detail}` }
-        }
-        const repaired = await this.repairCandidate({
-          reqId,
-          requirement,
-          plan,
-          workspace,
-          session,
-          blocking: verification.blocking,
-          candidate,
-          signal,
-          round,
-        })
-        if (!repaired.ok) {
-          this.repo.setStatus(reqId, 'blocked', `定向修复未完成：${repaired.reason}`)
-          return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
-        }
-        candidate = this.finalizeCandidate({
-          reqId,
-          plan,
-          workspace,
-          baselineCommit: workspaceInfo.baselineCommit,
-          snapshotCommit: workspaceInfo.snapshotCommit,
-        })
-      }
+      return await this.verifyContinuousCandidate({
+        reqId,
+        requirement,
+        analysis,
+        plan,
+        candidate,
+        workspace,
+        workspaceInfo,
+        session,
+        signal,
+      })
     } finally {
       await session.close()
     }

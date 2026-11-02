@@ -3198,3 +3198,13 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.14/96.94/84.88，mutation 97.80。
 - 下一批：`executeContinuousAdvance`（88/31），按“前置检查 / 规划 / 任务循环 / 问题单修复 /
   验证循环”五段拆。
+
+### 55. 连续推进拆分（新目标 Round 5）
+
+- `executeContinuousAdvance` 拆出 `continuousInputs`、`ensureContinuousPlan`、
+  `developContinuousTasks`、`repairOpenIssue` 与 `verifyContinuousCandidate`；
+  语句 88 → 40 以内、复杂度 31 → 15 以内，验证循环独立成方法。
+- suppressions 13 → **11**；service tokens 67,419 → 68,235（助手签名），基线同步。
+- `make check` 607 项通过，coverage 91.13/96.96/84.93，mutation 97.80。
+- 剩余：`verifyCandidate`（423/104/41）、`deliverTask`（443/131/36）、
+  max-params 3 处、文件行数 2 处。
