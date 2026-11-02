@@ -1,3 +1,4 @@
+import { asRecord } from '../domain/json.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
 import { BOARD_MAX_LIMIT } from './board.js'
@@ -379,7 +380,7 @@ function handleStop(body: BoardBody | null, context: BoardContext): Response {
   })
   return boardResponse(
     result.ok
-      ? { ok: true, value: { ...(result.data as object | undefined), aborted } }
+      ? { ok: true, value: { ...(asRecord(result.data) ?? {}), aborted } }
       : boardFailure(result.code, result.message),
     result.ok ? 200 : 409,
   )

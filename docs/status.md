@@ -3666,3 +3666,9 @@ suppressions 20、service.ts 5,986 行。
 - 该 job **尚未在 GitHub runner 实跑**，也未加入必需检查；文档如实标注。
 - 顺手修复 `assertion-policy.test.ts` 的 Prettier 格式（上一批遗漏）。
 - 本地 `make e2e` 通过；`make check` 59 文件 611 项通过；`make format` 通过。
+
+### 98. 看板路由断言收敛（新目标 Round 16）
+
+- `board-route` 的停止响应数据改用 `asRecord(result.data) ?? {}`，去掉 `as object | undefined`。
+- `as` 断言：业务 0、边界 **30 → 29**，基线 29。
+- `make check` 59 文件 611 项通过；coverage 91.19/84.35/96.88；mutation 97.80。
