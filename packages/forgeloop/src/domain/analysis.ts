@@ -14,12 +14,15 @@ export const MAX_AUTO_ANALYSIS_RETRIES = 3
 /** 行业与业务背景的项目文档路径（相对项目根目录）。 */
 export const BUSINESS_CONTEXT_DOC = 'docs/forgeloop/business-context.md'
 
-/** 产品 Agent 可用的工具白名单；此外不挂载任何编码工具。 */
+/**
+ * 产品 Agent 可用的工具白名单；此外不挂载任何编码工具。
+ * 联网工具走 DeepSeek Search & Fetch（`runtime/web-tools.ts`），不在本地起浏览器或抓取器。
+ */
 export const PRODUCT_TOOL_ALLOWLIST: readonly string[] = [
   'forgeloop_read_project_doc',
   'forgeloop_write_project_doc',
-  'web_search',
-  'web_fetch',
+  'forgeloop_web_search',
+  'forgeloop_web_fetch',
 ]
 
 /** 一次分析尝试的来源：首次、自动重试或人工重试。 */

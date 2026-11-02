@@ -219,7 +219,7 @@ describe('AgentRunner tool composition', () => {
         role: 'product',
         permission: 'workspace-write',
         tools: 'default',
-        allowTools: ['forgeloop_read_project_doc', 'web_search'],
+        allowTools: ['forgeloop_read_project_doc', 'forgeloop_web_search'],
       }),
     )
     // 宿主只登记了 bash/fs：两者不在白名单，必须被确定性禁用，也不能挂标准编码 preset。

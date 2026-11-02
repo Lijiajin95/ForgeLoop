@@ -96,7 +96,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('tool surface', () => {
-  it('exposes exactly the ten documented tools with renderable output', () => {
+  it('exposes exactly the twelve documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -107,6 +107,8 @@ describe('tool surface', () => {
       'forgeloop_ops',
       'forgeloop_read_project_doc',
       'forgeloop_write_project_doc',
+      'forgeloop_web_search',
+      'forgeloop_web_fetch',
       'forgeloop_submit_requirement',
     ])
     const rendered = tool('forgeloop_status').output.render(
@@ -170,19 +172,37 @@ describe('tool surface', () => {
 
   it('reads and writes project Markdown documents, and nothing else', async () => {
     const written = await call('forgeloop_write_project_doc', {
-      path: 'docs/forgeloop/business-context.md',
+      path: 'docs/forgeloop/notes.md',
       content: '# 业务背景\n\n行业：本地生活服务\n',
     })
     expect(written.ok, written.text).toBe(true)
     const read = await call('forgeloop_read_project_doc', {
-      path: 'docs/forgeloop/business-context.md',
+      path: 'docs/forgeloop/notes.md',
     })
     expect(read.ok, read.text).toBe(true)
     expect(read.data).toMatchObject({
-      path: 'docs/forgeloop/business-context.md',
+      path: 'docs/forgeloop/notes.md',
       truncated: false,
     })
     expect((read.data as { content: string }).content).toContain('本地生活服务')
+
+    // 业务背景文档只由运行时按分析结果写，工具入口一律拒绝。
+    const refused = await call('forgeloop_write_project_doc', {
+      path: './docs/forgeloop/business-context.md',
+      content: '# 业务背景\n\n行业：本地生活服务\n',
+    })
+    expect(refused.ok).toBe(false)
+    expect(refused.text).toContain('由程序在分析结束时同步')
+    expect(refused.text).toContain('business_context')
+    // 大小写不敏感的文件系统上，换个写法也不能绕过。
+    expect(
+      (
+        await call('forgeloop_write_project_doc', {
+          path: 'docs/forgeloop/BUSINESS-CONTEXT.MD',
+          content: 'x',
+        })
+      ).ok,
+    ).toBe(false)
 
     expect((await call('forgeloop_read_project_doc', {})).text).toContain('path is required')
     expect((await call('forgeloop_read_project_doc', { path: 'docs/missing.md' })).ok).toBe(false)
@@ -263,7 +283,24 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(10)
-    expect(disposers).toHaveLength(10)
+    expect(registered).toHaveLength(12)
+    expect(disposers).toHaveLength(12)
+  })
+
+  it('reports the web tools as unavailable without a DeepSeek key', async () => {
+    const saved = process.env.DEEPSEEK_API_KEY
+    delete process.env.DEEPSEEK_API_KEY
+    try {
+      const search = await call('forgeloop_web_search', { query: '本地生活服务' })
+      expect(search.ok).toBe(false)
+      expect(search.text).toContain('DEEPSEEK_API_KEY')
+      const fetch = await call('forgeloop_web_fetch', { url: 'https://example.com/a' })
+      expect(fetch.ok).toBe(false)
+      expect(fetch.text).toContain('DEEPSEEK_API_KEY')
+    } finally {
+      if (saved !== undefined) process.env.DEEPSEEK_API_KEY = saved
+    }
+    expect((await call('forgeloop_web_search', {})).text).toContain('query is required')
+    expect((await call('forgeloop_web_fetch', {})).text).toContain('url is required')
   })
 })

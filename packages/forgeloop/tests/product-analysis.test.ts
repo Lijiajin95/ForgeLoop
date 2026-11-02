@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
@@ -33,6 +33,22 @@ const CLARIFY = JSON.stringify({
   acceptance_criteria: ['筛选后只显示匹配状态的订单'],
   clarifications: ['退款是否需要店长二次确认？'],
 })
+
+const NEW_BUSINESS =
+  '# 业务背景\n\n行业：本地生活服务；业务目标：门店订单处理。\n\n## 更新记录\n\n- 2026-11-02：补充门店结算术语。\n'
+
+function analysisWithBusiness(document: string): string {
+  return JSON.stringify({
+    goal: '门店按状态处理订单',
+    scenarios: ['店长在订单列表按状态筛选'],
+    business_rules: ['只有店长可以批量取消订单'],
+    exceptions: ['支付回调延迟时订单保持待确认'],
+    non_goals: ['不改造支付渠道'],
+    acceptance_criteria: ['筛选后只显示匹配状态的订单'],
+    clarifications: [],
+    business_context: { changed: true, document },
+  })
+}
 
 interface Script {
   status: 'completed' | 'error'
@@ -107,7 +123,7 @@ beforeEach(() => {
   writeFileSync(join(project, BUSINESS_CONTEXT_DOC), BUSINESS)
   requests = []
   next = script(ANALYSIS, {
-    toolCalls: ['web_search', 'forgeloop_write_project_doc'],
+    toolCalls: ['forgeloop_web_search', 'forgeloop_write_project_doc'],
   })
   runtime = makeRuntime()
 })
@@ -154,7 +170,7 @@ describe('product analysis run', () => {
       nonGoals: ['不改造支付渠道'],
       model: 'fake-model',
       promptVersion: ANALYSIS_PROMPT_VERSION,
-      toolCalls: ['web_search', 'forgeloop_write_project_doc'],
+      toolCalls: ['forgeloop_web_search', 'forgeloop_write_project_doc'],
     })
     expect(analysis.transcriptPath).toContain(`${reqId}-analyze-a1.jsonl`)
 
@@ -166,8 +182,31 @@ describe('product analysis run', () => {
       model: 'fake-model',
       promptVersion: ANALYSIS_PROMPT_VERSION,
       transcriptPath: analysis.transcriptPath,
-      toolCalls: ['web_search', 'forgeloop_write_project_doc'],
+      toolCalls: ['forgeloop_web_search', 'forgeloop_write_project_doc'],
     })
+  })
+
+  it('writes the business context document from the analysis result, not from a tool call', async () => {
+    next = script(analysisWithBusiness(NEW_BUSINESS))
+    const reqId = submit()
+    const outcome = await runtime.analyzeRequirement(reqId)
+    expect(outcome.ok, outcome.message).toBe(true)
+    expect(readFileSync(join(project, BUSINESS_CONTEXT_DOC), 'utf8')).toBe(NEW_BUSINESS)
+    expect(runtime.repo.latestAnalysis(reqId)).not.toBeNull()
+  })
+
+  it('fails the analysis when the business context document cannot be written', async () => {
+    // 超过 128 KiB 上限：写入失败必须让整次分析失败，而不是悄悄保留旧文档。
+    next = script(analysisWithBusiness(`# 业务背景\n\n${'x'.repeat(128 * 1024)}`))
+    const reqId = submit()
+    const outcome = await runtime.analyzeRequirement(reqId)
+    expect(outcome.ok).toBe(false)
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe(ANALYSIS_FAILED)
+    expect(runtime.repo.latestAnalysis(reqId)).toBeNull()
+    const [attempt] = runtime.repo.analysisAttempts(reqId)
+    expect(attempt).toMatchObject({ kind: 'initial', outcome: 'failed' })
+    expect(attempt!.detail).toContain('业务背景文档同步失败')
+    expect(readFileSync(join(project, BUSINESS_CONTEXT_DOC), 'utf8')).toBe(BUSINESS)
   })
 
   it('does not queue a second analysis for a requirement that already has one', async () => {
@@ -354,7 +393,7 @@ describe('session intake analysis', () => {
       nonGoals: ['不改造支付渠道'],
       model: 'fake-model',
       promptVersion: ANALYSIS_PROMPT_VERSION,
-      toolCalls: ['web_search', 'forgeloop_write_project_doc'],
+      toolCalls: ['forgeloop_web_search', 'forgeloop_write_project_doc'],
     })
     const reqId = String(analysisEvent?.data.reqId)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe(SPECIFIED)

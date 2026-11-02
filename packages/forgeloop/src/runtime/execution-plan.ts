@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { sessionsDir } from '../config.js'
-import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
+import type { AnalysisDraft, Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import { parseAnalysisDraft, statusForAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 import { parseTaskPlanDraft } from '../domain/task-plan.js'
@@ -13,9 +13,9 @@ import {
   PRODUCT_TOOL_ALLOWLIST,
   type AnalysisMode,
 } from '../domain/analysis.js'
-import { readProjectDoc } from './project-docs.js'
+import { readProjectDoc, writeProjectDoc } from './project-docs.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
-import { errorMessage } from '../domain/errors.js'
+import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { PlanReview } from '../domain/verification.js'
 import type { Repository } from '../records/repository.js'
 import type { AgentRunner } from './agent-runner.js'
@@ -109,9 +109,9 @@ export class ExecutionPlan {
     }
     let draft
     try {
-      draft = parseAnalysisDraft(result.text)
+      draft = this.analysisFromResult(result.text)
     } catch (error) {
-      return this.failAnalysis(recorded, `分析结果畸形：${errorMessage(error)}`)
+      return this.failAnalysis(recorded, errorMessage(error))
     }
     const analysis: RequirementAnalysis & { reqId: string } = {
       reqId,
@@ -169,6 +169,30 @@ export class ExecutionPlan {
       state: 'done',
       detail: `分析 v${analysis.analysisVersion} 完成；系统准入通过，等待协调器自动排入研发`,
     }
+  }
+
+  /**
+   * 解析模型返回的分析结果；业务背景有变化时由程序写文档。
+   * 解析畸形或写入失败都抛错，由调用方统一记成一次失败尝试。
+   */
+  private analysisFromResult(text: string): AnalysisDraft {
+    let draft: AnalysisDraft
+    try {
+      draft = parseAnalysisDraft(text)
+    } catch (error) {
+      throw new MalformedError(`分析结果畸形：${errorMessage(error)}`)
+    }
+    if (draft.businessContext.changed) {
+      const written = writeProjectDoc(
+        this.deps.config.projectPath,
+        BUSINESS_CONTEXT_DOC,
+        draft.businessContext.document,
+      )
+      if (!written.ok) {
+        throw new MalformedError(`业务背景文档同步失败：${written.reason}`)
+      }
+    }
+    return draft
   }
 
   /** 失败尝试同样落库并进入失败状态；自动/人工重试由主控另行排队。 */
