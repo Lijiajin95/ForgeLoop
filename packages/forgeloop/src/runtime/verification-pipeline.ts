@@ -22,7 +22,7 @@ import { errorMessage } from '../domain/errors.js'
 import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
-import type { AgentOpenRequest, AgentRunner, AgentSession } from './agent-runner.js'
+import type { AgentOpenRequest, AgentSession } from './agent-runner.js'
 import type { runFormalTest } from './formal-test.js'
 import { businessReviewPrompt, verificationPrompt } from './prompts.js'
 import {
@@ -40,7 +40,6 @@ export interface VerificationPipelineDeps {
   repo: Repository
   now: () => string
   charge: (reqId: string, started: number) => void
-  runner: { run: AgentRunner['run'] }
   formalTest: typeof runFormalTest
   ctx: NonNullable<Parameters<typeof runFormalTest>[0]['ctx']>
   openAgent: (request: AgentOpenRequest) => Promise<AgentSession>
@@ -406,7 +405,7 @@ export class VerificationPipeline {
     planReview: PlanReview
     candidateSha256: string
     workspaceSha256: string
-    run: Awaited<ReturnType<AgentRunner['run']>>
+    run: Awaited<ReturnType<AgentSession['send']>>
     report: VerificationReport
     commandRuns: VerificationCommandRun[]
     failedCommands: readonly string[]
@@ -417,6 +416,7 @@ export class VerificationPipeline {
     afterChanges: readonly string[]
     candidateContentSha256: string
     materials: ReturnType<typeof verificationMaterials>
+    session: AgentSession
   }): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
     const { reqId, signal, plan, reviewRecord, planReview, candidateSha256 } = input
     const { workspaceSha256, run, report } = input
@@ -524,7 +524,7 @@ export class VerificationPipeline {
       }
     }
 
-    const businessReview = await this.executeBusinessReview(reqId, signal)
+    const businessReview = await this.executeBusinessReview(reqId, signal, input.session)
     if (businessReview.state !== 'done') return businessReview
     this.deps.repo.setStatus(reqId, EXECUTING)
     return {
@@ -533,7 +533,11 @@ export class VerificationPipeline {
     }
   }
 
-  private async runVerificationAgent(input: {
+  /**
+   * 验证 Agent 新开一个会话：先独立验证，再在同一会话里做业务验收。
+   * 会话不跨需求复用；验证结束即关闭，候选与材料另行固定。
+   */
+  private async openVerificationSession(input: {
     reqId: string
     requirement: Requirement
     analysis: RequirementAnalysis
@@ -546,15 +550,31 @@ export class VerificationPipeline {
     candidateDiff: string
     signal: AbortSignal
   }): Promise<
-    | { ok: true; run: Awaited<ReturnType<AgentRunner['run']>> }
+    | { ok: true; session: AgentSession; run: Awaited<ReturnType<AgentSession['send']>> }
     | { ok: false; outcome: { state: 'failed'; detail: string } }
   > {
     const { reqId, requirement, analysis, plan, planReview, candidateSha256 } = input
     const { workspaceSha256, workspace, dir, candidateDiff, signal } = input
+    let session: AgentSession
+    try {
+      session = await this.deps.openAgent({
+        role: AGENT_VERIFY,
+        cwd: workspace,
+        permission: 'workspace-write',
+        tools: 'default',
+      })
+    } catch (error) {
+      this.deps.repo.setStatus(reqId, 'blocked', `无法新开验证会话：${errorMessage(error)}`)
+      return {
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `无法新开验证会话：${errorMessage(error)}`,
+        },
+      }
+    }
     const started = Date.now()
-    const run = await this.deps.runner.run({
-      role: AGENT_VERIFY,
-      cwd: workspace,
+    const run = await session.send({
       prompt: verificationPrompt({
         requirement,
         analysis,
@@ -565,14 +585,13 @@ export class VerificationPipeline {
         workspacePath: workspace,
         diff: candidateDiff,
       }),
-      permission: 'workspace-write',
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
       transcriptPath: join(dir, 'verify.jsonl'),
       signal,
-      tools: 'default',
     })
     this.deps.charge(reqId, started)
     if (run.status !== 'completed') {
+      await session.close()
       this.deps.repo.setStatus(
         reqId,
         'blocked',
@@ -583,7 +602,7 @@ export class VerificationPipeline {
         outcome: { state: 'failed', detail: `独立验证未取得可用结论：${run.reason}` },
       }
     }
-    return { ok: true, run }
+    return { ok: true, session, run }
   }
 
   async executeVerification(
@@ -614,7 +633,7 @@ export class VerificationPipeline {
     })
     if (!finalized.ok) return finalized.outcome
     const { workspaceSha256, workspaceHead, candidateDiff } = finalized
-    const agent = await this.runVerificationAgent({
+    const agent = await this.openVerificationSession({
       reqId,
       requirement,
       analysis,
@@ -628,80 +647,89 @@ export class VerificationPipeline {
       signal,
     })
     if (!agent.ok) return agent.outcome
-    const run = agent.run
-    const parsed = parseVerificationMaterials(workspace)
-    if (!parsed.ok) {
-      this.deps.repo.setStatus(reqId, 'blocked', parsed.detail)
-      return { state: 'failed', detail: parsed.detail }
-    }
-    const { commands, report } = parsed
-    const changed = workspaceChanges(workspace)
-    const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
-    if (currentHead !== workspaceHead) {
-      this.deps.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
-      return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
-    }
-    const outsideVerification = changed.filter(
-      (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
-    )
-    if (outsideVerification.length > 0) {
-      this.deps.repo.setStatus(
-        reqId,
-        'blocked',
-        `独立验证修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
-      )
-      return {
-        state: 'failed',
-        detail: `独立验证越出独立验证目录（fail-closed）：${outsideVerification.join('、')}`,
+    try {
+      const run = agent.run
+      const parsed = parseVerificationMaterials(workspace)
+      if (!parsed.ok) {
+        this.deps.repo.setStatus(reqId, 'blocked', parsed.detail)
+        return { state: 'failed', detail: parsed.detail }
       }
+      const { commands, report } = parsed
+      const changed = workspaceChanges(workspace)
+      const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+      if (currentHead !== workspaceHead) {
+        this.deps.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
+        return {
+          state: 'failed',
+          detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证',
+        }
+      }
+      const outsideVerification = changed.filter(
+        (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
+      )
+      if (outsideVerification.length > 0) {
+        this.deps.repo.setStatus(
+          reqId,
+          'blocked',
+          `独立验证修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
+        )
+        return {
+          state: 'failed',
+          detail: `独立验证越出独立验证目录（fail-closed）：${outsideVerification.join('、')}`,
+        }
+      }
+
+      const ran = await runVerificationCommands({
+        reqId,
+        dir,
+        commands,
+        run: async (argv, logPath) =>
+          this.deps.formalTest({
+            ctx: this.deps.ctx,
+            cwd: workspace,
+            argv,
+            timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
+            logPath,
+            signal,
+          }),
+        setBlocked: (message) => {
+          this.deps.repo.setStatus(reqId, 'blocked', message)
+        },
+      })
+      if (!ran.ok) return { state: 'failed', detail: ran.detail }
+      const { commandRuns, failedCommands } = ran
+      // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
+      // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
+      const integrity = verificationIntegrity(workspace, workspaceHead)
+      if (!integrity.ok) return { state: 'failed', detail: integrity.detail }
+      const { integrityIssues, afterHead, afterChanges, candidateContentSha256 } = integrity
+      const materials = verificationMaterials(dir)
+
+      return await this.completeVerification({
+        reqId,
+        signal,
+        plan,
+        reviewRecord,
+        planReview,
+        candidateSha256,
+        workspaceSha256,
+        run,
+        report,
+        commandRuns,
+        failedCommands,
+        integrityIssues,
+        dir,
+        workspace,
+        afterHead,
+        afterChanges,
+        candidateContentSha256,
+        materials,
+        session: agent.session,
+      })
+    } finally {
+      // 独立验证与业务验收共用这一个新会话；结束后关闭，不跨需求复用。
+      await agent.session.close()
     }
-
-    const ran = await runVerificationCommands({
-      reqId,
-      dir,
-      commands,
-      run: async (argv, logPath) =>
-        this.deps.formalTest({
-          ctx: this.deps.ctx,
-          cwd: workspace,
-          argv,
-          timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
-          logPath,
-          signal,
-        }),
-      setBlocked: (message) => {
-        this.deps.repo.setStatus(reqId, 'blocked', message)
-      },
-    })
-    if (!ran.ok) return { state: 'failed', detail: ran.detail }
-    const { commandRuns, failedCommands } = ran
-    // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
-    // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
-    const integrity = verificationIntegrity(workspace, workspaceHead)
-    if (!integrity.ok) return { state: 'failed', detail: integrity.detail }
-    const { integrityIssues, afterHead, afterChanges, candidateContentSha256 } = integrity
-    const materials = verificationMaterials(dir)
-
-    return this.completeVerification({
-      reqId,
-      signal,
-      plan,
-      reviewRecord,
-      planReview,
-      candidateSha256,
-      workspaceSha256,
-      run,
-      report,
-      commandRuns,
-      failedCommands,
-      integrityIssues,
-      dir,
-      workspace,
-      afterHead,
-      afterChanges,
-      candidateContentSha256,
-      materials,
-    })
   }
 
   /** 业务终审报告文件与摘要是否仍一致。 */
@@ -798,6 +826,7 @@ export class VerificationPipeline {
   async executeBusinessReview(
     reqId: string,
     signal: AbortSignal,
+    providedSession?: AgentSession,
   ): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const inputs = this.businessReviewInputs(reqId)
     if (!inputs.ok) return { state: 'failed', detail: inputs.detail }
@@ -810,107 +839,117 @@ export class VerificationPipeline {
 
     const dir = businessReviewDir(this.deps.config, reqId, plan.planVersion)
     mkdirSync(dir, { recursive: true })
-    const started = Date.now()
-    const run = await this.deps.runner.run({
-      role: AGENT_VERIFY,
-      cwd: dir,
-      prompt: businessReviewPrompt({
-        requirement,
-        analysis,
-        plan,
-        candidateSha256,
-        commands: facts,
-      }),
-      permission: 'workspace-write',
-      timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
-      transcriptPath: join(dir, 'business-review.jsonl'),
-      signal,
-      tools: 'none',
-    })
-    this.deps.charge(reqId, started)
-    if (run.status !== 'completed') {
-      this.deps.repo.setStatus(
-        reqId,
-        'blocked',
-        `业务终审 Agent ${runStatusLabel(run.status)}：${run.reason}`,
-      )
-      return {
-        state: 'failed',
-        detail: `业务终审未取得结论：${run.reason}`,
-      }
-    }
-    let review: BusinessReview
+    // 独立验证传入自己的新会话，业务验收在同一会话里继续；单独调用时新开一个。
+    const session =
+      providedSession ??
+      (await this.deps.openAgent({
+        role: AGENT_VERIFY,
+        cwd: dir,
+        permission: 'workspace-write',
+        tools: 'none',
+      }))
+    const ownsSession = providedSession === undefined
     try {
-      review = parseBusinessReview(run.text)
-    } catch (error) {
-      this.deps.repo.setStatus(reqId, 'blocked', `业务终审材料畸形：${errorMessage(error)}`)
-      return {
-        state: 'failed',
-        detail: `业务终审材料畸形（fail-closed）：${errorMessage(error)}`,
-      }
-    }
-    const issues = validateBusinessReview({
-      scenarios: analysis.scenarios,
-      acceptanceCriteria: analysis.acceptanceCriteria,
-      review,
-      runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
-    })
-    const verdict: 'pass' | 'block' =
-      review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
-    const blocking = blockingOf(verdict, issues, review.blocking)
-    const report = {
-      kind: 'business-review',
-      reqId,
-      planVersion: plan.planVersion,
-      requirementVersion: plan.requirementVersion,
-      candidateSha256,
-      verificationSha256: verification.reportSha256,
-      verdict,
-      summary: review.summary,
-      findings: review.findings,
-      blocking,
-      scenarios: review.scenarios,
-      acceptance: review.acceptance,
-      sessionId: run.sessionId,
-      at: this.deps.now(),
-    }
-    const reportJson = `${JSON.stringify(report, null, 2)}\n`
-    const reportPath = join(dir, 'business-review.json')
-    writeFileSync(reportPath, reportJson, 'utf8')
-    this.deps.repo.recordBusinessReview({
-      requirementId: reqId,
-      planVersion: plan.planVersion,
-      candidateSha256,
-      requirementVersion: plan.requirementVersion,
-      verificationSha256: verification.reportSha256,
-      verdict,
-      reportJson,
-      reportPath,
-      reportSha256: sha256OfText(reportJson),
-      sessionId: run.sessionId,
-      reviewedAt: this.deps.now(),
-    })
-    if (verdict === 'block') {
-      this.deps.repo.recordFailureRound(reqId, {
-        roundId: `business-review-${plan.planVersion}-${candidateSha256.slice(0, 12)}`,
-        stage: FAILURE_BUSINESS_REVIEW,
-        summary: `业务终审阻断：${blocking.join('；') || review.summary}`.slice(0, 1000),
-        occurredAt: this.deps.now(),
+      const started = Date.now()
+      const run = await session.send({
+        prompt: businessReviewPrompt({
+          requirement,
+          analysis,
+          plan,
+          candidateSha256,
+          commands: facts,
+        }),
+        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(dir, 'business-review.jsonl'),
+        signal,
       })
-      this.deps.repo.setStatus(
-        reqId,
-        'blocked',
-        `业务终审阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blocking.join('；') || review.summary}`,
-      )
-      return {
-        state: 'failed',
-        detail: `业务终审阻断：${blocking.join('；') || review.summary}；证据 ${reportPath}`,
+      this.deps.charge(reqId, started)
+      if (run.status !== 'completed') {
+        this.deps.repo.setStatus(
+          reqId,
+          'blocked',
+          `业务终审 Agent ${runStatusLabel(run.status)}：${run.reason}`,
+        )
+        return {
+          state: 'failed',
+          detail: `业务终审未取得结论：${run.reason}`,
+        }
       }
-    }
-    this.deps.repo.setStatus(reqId, EXECUTING)
-    return {
-      state: 'done',
-      detail: `业务终审通过（候选 ${candidateSha256.slice(0, 16)}…，${review.scenarios.length} 个业务场景）`,
+      let review: BusinessReview
+      try {
+        review = parseBusinessReview(run.text)
+      } catch (error) {
+        this.deps.repo.setStatus(reqId, 'blocked', `业务终审材料畸形：${errorMessage(error)}`)
+        return {
+          state: 'failed',
+          detail: `业务终审材料畸形（fail-closed）：${errorMessage(error)}`,
+        }
+      }
+      const issues = validateBusinessReview({
+        scenarios: analysis.scenarios,
+        acceptanceCriteria: analysis.acceptanceCriteria,
+        review,
+        runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
+      })
+      const verdict: 'pass' | 'block' =
+        review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'
+      const blocking = blockingOf(verdict, issues, review.blocking)
+      const report = {
+        kind: 'business-review',
+        reqId,
+        planVersion: plan.planVersion,
+        requirementVersion: plan.requirementVersion,
+        candidateSha256,
+        verificationSha256: verification.reportSha256,
+        verdict,
+        summary: review.summary,
+        findings: review.findings,
+        blocking,
+        scenarios: review.scenarios,
+        acceptance: review.acceptance,
+        sessionId: run.sessionId,
+        at: this.deps.now(),
+      }
+      const reportJson = `${JSON.stringify(report, null, 2)}\n`
+      const reportPath = join(dir, 'business-review.json')
+      writeFileSync(reportPath, reportJson, 'utf8')
+      this.deps.repo.recordBusinessReview({
+        requirementId: reqId,
+        planVersion: plan.planVersion,
+        candidateSha256,
+        requirementVersion: plan.requirementVersion,
+        verificationSha256: verification.reportSha256,
+        verdict,
+        reportJson,
+        reportPath,
+        reportSha256: sha256OfText(reportJson),
+        sessionId: run.sessionId,
+        reviewedAt: this.deps.now(),
+      })
+      if (verdict === 'block') {
+        this.deps.repo.recordFailureRound(reqId, {
+          roundId: `business-review-${plan.planVersion}-${candidateSha256.slice(0, 12)}`,
+          stage: FAILURE_BUSINESS_REVIEW,
+          summary: `业务终审阻断：${blocking.join('；') || review.summary}`.slice(0, 1000),
+          occurredAt: this.deps.now(),
+        })
+        this.deps.repo.setStatus(
+          reqId,
+          'blocked',
+          `业务终审阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blocking.join('；') || review.summary}`,
+        )
+        return {
+          state: 'failed',
+          detail: `业务终审阻断：${blocking.join('；') || review.summary}；证据 ${reportPath}`,
+        }
+      }
+      this.deps.repo.setStatus(reqId, EXECUTING)
+      return {
+        state: 'done',
+        detail: `业务终审通过（候选 ${candidateSha256.slice(0, 16)}…，${review.scenarios.length} 个业务场景）`,
+      }
+    } finally {
+      if (ownsSession) await session.close()
     }
   }
 

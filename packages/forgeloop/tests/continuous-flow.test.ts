@@ -7,6 +7,7 @@ import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import type {
   AgentOpenRequest,
+  AgentResumeRequest,
   AgentRunRequest,
   AgentRunResult,
 } from '../src/runtime/agent-runner.js'
@@ -18,6 +19,7 @@ const SMOKE = 'verified ok'
 
 let project = ''
 let runtime: ForgeLoopRuntime
+let runner: ReturnType<typeof fakeRunner>
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -119,14 +121,27 @@ function fakeRunner(
     devNoChange?: boolean
     businessIncomplete?: boolean
     businessBlock?: boolean
+    orchestratorSessionId?: () => string | null
   } = {},
 ): AgentLike {
   let verifications = 0
   let plans = 0
+  const closed: string[] = []
   const session = (request: AgentOpenRequest) => ({
     sessionId: `session-fl-${request.role}-test`,
     async send(turn: { prompt: string; transcriptPath: string }): Promise<AgentRunResult> {
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
+        if (options.planAborted) {
+          return {
+            status: 'aborted',
+            text: '',
+            sessionId: 'plan-aborted',
+            reason: 'plan aborted',
+            transcriptPath: turn.transcriptPath,
+            durationMs: 1,
+            toolCalls: [],
+          }
+        }
         if (options.planError) {
           return {
             status: 'error',
@@ -333,10 +348,21 @@ function fakeRunner(
       }
       return result({ role: request.role, transcriptPath: turn.transcriptPath }, '')
     },
-    async close() {},
+    async close() {
+      closed.push(request.role)
+    },
   })
   return {
     async run(request: AgentRunRequest) {
+      if (request.role === 'orchestrator') {
+        return result(
+          request,
+          JSON.stringify({
+            session_id: options.orchestratorSessionId?.() ?? null,
+            reason: 'test route',
+          }),
+        )
+      }
       if (request.role === 'product') return result(request, ANALYSIS)
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         if (options.planAborted) {
@@ -408,7 +434,28 @@ function fakeRunner(
     async open(request: AgentOpenRequest) {
       return session(request)
     },
+    async resume(request: AgentResumeRequest) {
+      return session({
+        role: request.role,
+        cwd: request.cwd ?? '',
+        permission: request.permission,
+        ...(request.tools ? { tools: request.tools } : {}),
+      })
+    },
+    closedRoles: closed,
   }
+}
+
+function boundWorkspace(reqId: string, requirementVersion = 1): string {
+  const binding = runtime.repo.requirementDevSession(reqId, requirementVersion)
+  if (!binding) throw new Error(`需求 ${reqId} 没有研发会话绑定`)
+  return binding.workspace
+}
+
+function boundSessionId(reqId: string, requirementVersion = 1): string {
+  const binding = runtime.repo.requirementDevSession(reqId, requirementVersion)
+  if (!binding) throw new Error(`需求 ${reqId} 没有研发会话绑定`)
+  return binding.sessionId
 }
 
 function makeRuntime(
@@ -455,7 +502,8 @@ beforeEach(() => {
   // 故障注入只由用例显式开启，避免宿主进程的外部环境变量污染临时夹具。
   delete process.env.FORGELOOP_FAULT_INJECT
   project = makeProject()
-  runtime = makeRuntime(fakeRunner())
+  runner = fakeRunner()
+  runtime = makeRuntime(runner)
 })
 
 afterEach(() => {
@@ -496,6 +544,13 @@ describe('continuous four-Agent flow', () => {
       .filter(Boolean)
     expect(committed.sort()).toEqual(['docs/a.md', 'docs/b.md'])
     expect(git(project, ['status', '--porcelain'])).toBe('')
+
+    // 研发会话不因需求结束而销毁，只回到空闲并留下与会话 ID 关联的总结；验证会话验完即关。
+    expect(runner.closedRoles).not.toContain('dev')
+    expect(runner.closedRoles).toContain('verify')
+    const sessionId = boundSessionId(reqId)
+    expect(runtime.repo.devSession(sessionId)?.state).toBe('idle')
+    expect(runtime.repo.latestDevSessionSummary(sessionId)?.reqId).toBe(reqId)
   })
 
   it('keeps delivered work and repairs only the verified defect before a new candidate is committed', async () => {
@@ -737,13 +792,15 @@ describe('continuous four-Agent flow', () => {
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    const workspace = join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev')
+    const sessionId = boundSessionId(reqId)
+    const workspace = boundWorkspace(reqId)
     writeFileSync(join(workspace, 'continued.txt'), 'continued\n')
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
+    expect(boundSessionId(reqId)).toBe(sessionId)
     expect(
       git(project, [
         'show',
@@ -754,9 +811,9 @@ describe('continuous four-Agent flow', () => {
     ).toContain('continued.txt')
   })
 
-  it('rebuilds the development workspace when its metadata is damaged', async () => {
+  it('writes a session summary bound to the session and requirement', async () => {
     runtime.close()
-    runtime = makeRuntime(fakeRunner({ devTimeout: true }))
+    runtime = makeRuntime(fakeRunner())
     const submitted = runtime.submit({
       text: '实现一个可验证的小功能',
       by: 'owner',
@@ -765,23 +822,18 @@ describe('continuous four-Agent flow', () => {
     const reqId = (submitted.data as { reqId: string }).reqId
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
-    expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    const meta = join(
-      project,
-      '.forgeloop',
-      'projects',
-      'demo',
-      'workspaces',
-      reqId,
-      'dev-meta.json',
-    )
-    writeFileSync(meta, '{bad json')
-    runtime.close()
-    runtime = makeRuntime(fakeRunner())
-    runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
-    expect(runtime.repo.getRequirement(reqId)?.status).toBe('committed')
+    const sessionId = boundSessionId(reqId)
+    const summaries = runtime.repo.devSessionSummaries(sessionId)
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]?.reqId).toBe(reqId)
+    expect(summaries[0]?.summaryPath).toContain(sessionId)
+    expect(existsSync(summaries[0]!.summaryPath)).toBe(true)
+    expect(runtime.repo.devSession(sessionId)).toMatchObject({
+      state: 'idle',
+      lastReqId: reqId,
+    })
   })
 
   it('records a stopped development turn without leaving the task running', async () => {
@@ -1050,47 +1102,62 @@ describe('continuous four-Agent flow', () => {
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev', '.git'), {
-      recursive: true,
-      force: true,
-    })
+    const sessionId = boundSessionId(reqId)
+    rmSync(join(boundWorkspace(reqId), '.git'), { recursive: true, force: true })
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
+    expect(boundSessionId(reqId)).toBe(sessionId)
   })
 
-  it('rebuilds a workspace whose metadata has no usable baseline', async () => {
-    runtime.close()
-    runtime = makeRuntime(fakeRunner({ devTimeout: true }))
-    const submitted = runtime.submit({
-      text: '实现一个可验证的小功能',
-      by: 'owner',
-      source: 'dsh-session:sess-29:msg-1',
-    })
-    const reqId = (submitted.data as { reqId: string }).reqId
-    await runNext(reqId, 'analyze')
-    runtime.autoAdvanceRequests()
-    expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    const meta = join(
-      project,
-      '.forgeloop',
-      'projects',
-      'demo',
-      'workspaces',
-      reqId,
-      'dev-meta.json',
-    )
-    writeFileSync(
-      meta,
-      JSON.stringify({ requirementVersion: 1, baselineCommit: null, snapshotCommit: 'x' }),
-    )
+  it('waits for a busy development session instead of starting another', async () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner())
+    const first = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-29a:msg-1',
+    })
+    const firstId = (first.data as { reqId: string }).reqId
+    await runNext(firstId, 'analyze')
     runtime.autoAdvanceRequests()
-    const advance = await runNext(reqId, 'advance')
+    expect((await runNext(firstId, 'advance')).state).toBe('done')
+    const sessionId = boundSessionId(firstId)
+    const workspace = boundWorkspace(firstId)
+
+    const second = runtime.submit({
+      text: '继续完善同一个功能',
+      by: 'owner',
+      source: 'dsh-session:sess-29b:msg-1',
+    })
+    const secondId = (second.data as { reqId: string }).reqId
+    await runNext(secondId, 'analyze')
+    const now = new Date().toISOString()
+    runtime.repo.bindRequirementDevSession({
+      reqId: secondId,
+      requirementVersion: 1,
+      sessionId,
+      workspace,
+      selectedBy: 'test',
+      reason: '等待忙碌会话',
+      now,
+    })
+    expect(runtime.repo.leaseDevSession(sessionId, 'other-request', now)).toBe(true)
+
+    runtime.autoAdvanceRequests()
+    const waiting = await runNext(secondId, 'advance')
+    expect(waiting.state).toBe('done')
+    expect(waiting.detail).toContain('等待')
+    expect(runtime.repo.getRequirement(secondId)?.status).toBe('awaiting_dev_session')
+    expect(runtime.autoAdvanceRequests()).not.toContain(secondId)
+
+    runtime.repo.releaseDevSession(sessionId, new Date().toISOString())
+    expect(runtime.autoAdvanceRequests()).toContain(secondId)
+    const advance = await runNext(secondId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
+    expect(boundSessionId(secondId)).toBe(sessionId)
   })
 
   it('restores delivered task diffs into a fresh workspace before continuing', async () => {
@@ -1106,48 +1173,47 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
     expect(runtime.repo.taskArtifacts(reqId, 1)).toHaveLength(2)
-    rmSync(join(project, '.forgeloop', 'projects', 'demo', 'workspaces', reqId, 'dev'), {
-      recursive: true,
-      force: true,
-    })
+    const sessionId = boundSessionId(reqId)
+    rmSync(boundWorkspace(reqId), { recursive: true, force: true })
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('committed')
+    expect(boundSessionId(reqId)).toBe(sessionId)
   })
 
-  it('rebuilds a workspace recorded for another requirement version', async () => {
+  it('routes a new requirement into the development session chosen by the orchestrator', async () => {
+    let routed = ''
     runtime.close()
-    runtime = makeRuntime(fakeRunner({ devTimeout: true }))
-    const submitted = runtime.submit({
+    runtime = makeRuntime(fakeRunner({ orchestratorSessionId: () => routed || null }))
+    const first = runtime.submit({
       text: '实现一个可验证的小功能',
       by: 'owner',
-      source: 'dsh-session:sess-31:msg-1',
+      source: 'dsh-session:sess-31a:msg-1',
     })
-    const reqId = (submitted.data as { reqId: string }).reqId
-    await runNext(reqId, 'analyze')
+    const firstId = (first.data as { reqId: string }).reqId
+    await runNext(firstId, 'analyze')
     runtime.autoAdvanceRequests()
-    expect((await runNext(reqId, 'advance')).state).toBe('failed')
-    const meta = join(
-      project,
-      '.forgeloop',
-      'projects',
-      'demo',
-      'workspaces',
-      reqId,
-      'dev-meta.json',
-    )
-    writeFileSync(
-      meta,
-      JSON.stringify({ requirementVersion: 99, baselineCommit: 'x', snapshotCommit: 'y' }),
-    )
-    runtime.close()
-    runtime = makeRuntime(fakeRunner())
+    expect((await runNext(firstId, 'advance')).state).toBe('done')
+    const sessionId = boundSessionId(firstId)
+    const workspace = boundWorkspace(firstId)
+    routed = sessionId
+
+    const second = runtime.submit({
+      text: '在同一个功能上增加一个验收点',
+      by: 'owner',
+      source: 'dsh-session:sess-31b:msg-1',
+    })
+    const secondId = (second.data as { reqId: string }).reqId
+    await runNext(secondId, 'analyze')
     runtime.autoAdvanceRequests()
-    const advance = await runNext(reqId, 'advance')
+    const advance = await runNext(secondId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
+    expect(boundSessionId(secondId)).toBe(sessionId)
+    expect(boundWorkspace(secondId)).toBe(workspace)
+    expect(runtime.repo.requirementDevSession(secondId, 1)?.selectedBy).toBe('orchestrator')
   })
 
   it('blocks before development when the execution budget is exhausted', async () => {

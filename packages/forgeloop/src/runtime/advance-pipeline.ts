@@ -5,11 +5,12 @@ import { hostname } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopConfig } from '../config.js'
-import { candidatesDir, devWorkspaceDir, integrationDir, verificationDir } from '../config.js'
+import { candidatesDir, integrationDir, verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import { authorizationSourceOf, executionOrder } from '../domain/task-plan.js'
 import {
+  AWAITING_DEV_SESSION,
   COMMITTED,
   DEVELOPING,
   EXECUTING,
@@ -24,13 +25,14 @@ import { FAILURE_PLANNING, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import type { Repository } from '../records/repository.js'
 import type { IssueStore } from '../records/issues.js'
-import type { AgentOpenRequest, AgentSession } from './agent-runner.js'
+import type { AgentSession } from './agent-runner.js'
 import type { ExecutionDev } from './execution-dev.js'
 import type { VerificationPipeline } from './verification-pipeline.js'
 import type { LegacyVerification } from './legacy-verification.js'
 import type { OperationResult } from './operation-result.js'
 import { requirementTitle } from './board.js'
-import { AGENT_DEV } from '../domain/agents.js'
+import type { DevSessionRegistry } from './dev-sessions.js'
+import type { SessionOrchestrator } from './orchestrator.js'
 import { PLUGIN_VERSION } from './version.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
@@ -85,7 +87,8 @@ export interface AdvancePipelineDeps {
   verificationPipeline: VerificationPipeline
   legacyVerification: LegacyVerification
   deliverTask: (input: DeliverInput) => Promise<DeliverOutcome>
-  openAgent: (request: AgentOpenRequest) => Promise<AgentSession>
+  devSessions: DevSessionRegistry
+  orchestrator: SessionOrchestrator
   currentAdmission: (reqId: string) => ReturnType<Repository['latestAdmission']>
   requireAuthorizedPlan: (
     reqId: string,
@@ -264,6 +267,7 @@ export class AdvancePipeline {
     candidate: CandidateFile
     verification: VerificationRecord
     blocking: readonly string[]
+    devWorkspace: string
   }): RequirementIssue {
     const attempt = nextIssueAttempt(this.deps.issues.issuesFor(input.reqId))
     const now = this.deps.now()
@@ -295,7 +299,7 @@ export class AdvancePipeline {
       verificationReportPath: input.verification.reportPath,
       verificationReportSha256: input.verification.reportSha256,
       verificationEvidenceDir: input.verification.evidenceDir,
-      devWorkspace: devWorkspaceDir(this.deps.config, input.reqId),
+      devWorkspace: input.devWorkspace,
     }
     const evidence: RequirementIssueEvidence = {
       blocking,
@@ -454,22 +458,22 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     reqId: string
     requirement: Requirement
     analysis: RequirementAnalysis
-    workspace: string
+    session: AgentSession
     authorizationSource: string
     signal: AbortSignal
   }): Promise<
     { ok: true; plan: TaskPlan } | { ok: false; outcome: { state: 'failed'; detail: string } }
   > {
-    const { reqId, requirement, analysis, workspace, authorizationSource, signal } = input
+    const { reqId, requirement, analysis, session, authorizationSource, signal } = input
     const existing = this.deps.repo.latestTaskPlan(reqId)
     if (existing && existing.requirementVersion === requirement.versions.length) {
       return { ok: true, plan: existing }
     }
-    const planned = await this.deps.executionDev.planInSession({
+    const planned = await this.deps.executionDev.planInDevSession({
       reqId,
       requirement,
       analysis,
-      workspace,
+      session,
       authorizationSource,
       signal,
     })
@@ -567,7 +571,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     plan: TaskPlan
     candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
     workspace: string
-    workspaceInfo: ReturnType<ExecutionDev['ensureDevWorkspace']>
+    workspaceInfo: {
+      workspace: string
+      baselineCommit: string
+      snapshotCommit: string
+      fresh: boolean
+    }
     session: AgentSession
     signal: AbortSignal
   }): Promise<{ state: 'done' | 'failed'; detail: string }> {
@@ -627,6 +636,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           candidate,
           verification: recorded,
           blocking: verification.blocking,
+          devWorkspace: workspace,
         })
         if (round >= VERIFICATION_ATTEMPTS_PER_REQUEST) {
           const blocking = verification.blocking.join('；') || verification.detail
@@ -703,92 +713,190 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     }
   }
 
-  async executeContinuousAdvance(
-    reqId: string,
-    signal: AbortSignal,
-  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
-    const inputs = this.continuousInputs(reqId)
-    if (!inputs.ok) return inputs.outcome
-    const { requirement, analysis, admission } = inputs
-    const authorizationSource = `system-admission:${admission.admissionId}`
-    const workspaceInfo = this.deps.executionDev.ensureDevWorkspace(
-      reqId,
-      requirement.versions.length,
-    )
+  /** 需求结束只释放会话并写总结；研发会话本身不 dispose，现场与上下文保留。 */
+  private async finishDevSession(input: {
+    reqId: string
+    requirementVersion: number
+    sessionId: string
+    session: AgentSession
+    requirement: Requirement
+    plan: TaskPlan | null
+    outcome: string
+  }): Promise<void> {
+    try {
+      await this.deps.devSessions.finish(input)
+    } catch {
+      // 总结写入失败也必须释放占用；否则需求会永远停在等待会话空闲。
+      this.deps.repo.releaseDevSession(input.sessionId, this.deps.now())
+      this.deps.repo.releaseRequirementDevSession(
+        input.reqId,
+        input.requirementVersion,
+        this.deps.now(),
+      )
+    }
+  }
+
+  private async developInDevSession(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    authorizationSource: string
+    workspaceInfo: {
+      workspace: string
+      baselineCommit: string
+      snapshotCommit: string
+      fresh: boolean
+    }
+    session: AgentSession
+    planRef: { plan: TaskPlan | null }
+    signal: AbortSignal
+  }): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const { reqId, requirement, analysis, workspaceInfo, session, authorizationSource, signal } =
+      input
     const workspace = workspaceInfo.workspace
     const planned = await this.ensureContinuousPlan({
       reqId,
       requirement,
       analysis,
-      workspace,
+      session,
       authorizationSource,
       signal,
     })
     if (!planned.ok) return planned.outcome
     const plan = planned.plan
-    const session = await this.deps.openAgent({
-      role: AGENT_DEV,
-      cwd: workspace,
-      permission: 'workspace-write',
-      tools: 'default',
-    })
-    try {
-      this.deps.repo.ensureBudget(
+    input.planRef.plan = plan
+    this.deps.repo.ensureBudget(
+      reqId,
+      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
+    )
+    this.deps.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验')
+    if (workspaceInfo.fresh) {
+      const restored = this.deps.executionDev.restoreDeliveredArtifacts(
         reqId,
-        plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
+        plan,
+        workspace,
+        workspaceInfo.baselineCommit,
       )
-      this.deps.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一工作区实现并自验')
-      if (workspaceInfo.fresh) {
-        const restored = this.deps.executionDev.restoreDeliveredArtifacts(
-          reqId,
-          plan,
-          workspace,
-          workspaceInfo.baselineCommit,
-        )
-        if (!restored.ok) {
-          this.deps.repo.setStatus(reqId, 'blocked', restored.reason)
-          return { state: 'failed', detail: restored.reason }
-        }
+      if (!restored.ok) {
+        this.deps.repo.setStatus(reqId, 'blocked', restored.reason)
+        return { state: 'failed', detail: restored.reason }
       }
-      const developed = await this.developContinuousTasks({
-        reqId,
-        requirement,
-        plan,
-        workspace,
-        session,
-        authorizationSource,
-        signal,
-      })
-      if (!developed.ok) return { state: 'failed', detail: developed.detail }
-      const repairedIssue = await this.repairOpenIssue({
-        reqId,
-        requirement,
-        plan,
-        workspace,
-        session,
-        signal,
-      })
-      if (!repairedIssue.ok) return { state: 'failed', detail: repairedIssue.detail }
-      const candidate = this.finalizeCandidate({
-        reqId,
-        plan,
-        workspace,
-        baselineCommit: workspaceInfo.baselineCommit,
-        snapshotCommit: workspaceInfo.snapshotCommit,
-      })
-      return await this.verifyContinuousCandidate({
+    }
+    const developed = await this.developContinuousTasks({
+      reqId,
+      requirement,
+      plan,
+      workspace,
+      session,
+      authorizationSource,
+      signal,
+    })
+    if (!developed.ok) return { state: 'failed', detail: developed.detail }
+    const repairedIssue = await this.repairOpenIssue({
+      reqId,
+      requirement,
+      plan,
+      workspace,
+      session,
+      signal,
+    })
+    if (!repairedIssue.ok) return { state: 'failed', detail: repairedIssue.detail }
+    const candidate = this.finalizeCandidate({
+      reqId,
+      plan,
+      workspace,
+      baselineCommit: workspaceInfo.baselineCommit,
+      snapshotCommit: workspaceInfo.snapshotCommit,
+    })
+    return await this.verifyContinuousCandidate({
+      reqId,
+      requirement,
+      analysis,
+      plan,
+      candidate,
+      workspace,
+      workspaceInfo,
+      session,
+      signal,
+    })
+  }
+
+  /**
+   * 连续研发：先由主控 Agent 选择或新建研发会话，再在同一会话里完成方案、实现、
+   * 自验、独立验证、定向修复和受控提交；会话忙时需求排队等待，不算失败。
+   */
+  async executeContinuousAdvance(
+    reqId: string,
+    signal: AbortSignal,
+    requestId = '',
+  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const inputs = this.continuousInputs(reqId)
+    if (!inputs.ok) return inputs.outcome
+    const { requirement, analysis, admission } = inputs
+    const authorizationSource = `system-admission:${admission.admissionId}`
+    const requirementVersion = requirement.versions.length
+    const bound = this.deps.repo.requirementDevSession(reqId, requirementVersion)
+    let selectedSessionId: string | null = bound?.sessionId ?? null
+    let selectionReason = bound?.reason ?? ''
+    let selectedBy = bound?.selectedBy ?? 'requirement-binding'
+    if (!bound) {
+      const choice = await this.deps.orchestrator.choose({ requirement, analysis, signal })
+      selectedSessionId = choice.sessionId
+      selectionReason = choice.reason
+      selectedBy = choice.source === 'model' ? 'orchestrator' : 'orchestrator:new'
+    }
+    const acquired = await this.deps.devSessions.acquire({
+      reqId,
+      requirementVersion,
+      selectedSessionId,
+      selectionReason,
+      selectedBy,
+      requestId: requestId || `advance-${randomUUID()}`,
+      signal,
+    })
+    if (!acquired.ok) {
+      if (acquired.state === 'busy') {
+        this.deps.repo.setStatus(reqId, AWAITING_DEV_SESSION, acquired.detail)
+        return { state: 'done', detail: acquired.detail }
+      }
+      const detail = `研发会话不可用：${acquired.detail}`
+      this.deps.repo.setStatus(reqId, 'blocked', detail)
+      return { state: 'failed', detail }
+    }
+    const workspaceInfo = {
+      workspace: acquired.workspace,
+      baselineCommit: acquired.baselineCommit,
+      snapshotCommit: acquired.snapshotCommit,
+      fresh: acquired.fresh,
+    }
+    const planRef: { plan: TaskPlan | null } = { plan: null }
+    let outcome = '研发请求未正常结束'
+    try {
+      const result = await this.developInDevSession({
         reqId,
         requirement,
         analysis,
-        plan,
-        candidate,
-        workspace,
+        authorizationSource,
         workspaceInfo,
-        session,
+        session: acquired.session,
+        planRef,
         signal,
       })
+      outcome = result.detail
+      return result
+    } catch (error) {
+      outcome = `研发请求异常：${errorMessage(error)}`
+      throw error
     } finally {
-      await session.close()
+      await this.finishDevSession({
+        reqId,
+        requirementVersion,
+        sessionId: acquired.sessionId,
+        session: acquired.session,
+        requirement,
+        plan: planRef.plan,
+        outcome,
+      })
     }
   }
 

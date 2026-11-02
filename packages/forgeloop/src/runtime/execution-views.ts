@@ -1,6 +1,6 @@
 import { asRecord } from '../domain/json.js'
 import { readFileSync } from 'node:fs'
-import type { Repository } from '../records/repository.js'
+import type { Repository, ServiceRequestRecord } from '../records/repository.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 import { TASK_RUN_DELIVERED } from '../domain/status.js'
 import { parseTaskExecution } from './task-execution.js'
@@ -198,6 +198,23 @@ export interface SessionRequirementView {
 
 function fallback<T>(value: T | null | undefined, otherwise: T): T {
   return value ?? otherwise
+}
+
+export function requestView(request: ServiceRequestRecord): Record<string, unknown> {
+  return {
+    requestId: request.requestId,
+    reqId: request.reqId,
+    action: request.action,
+    state: request.state,
+    planVersion: request.planVersion,
+    requestedBy: request.requestedBy,
+    source: request.source,
+    createdAt: request.createdAt,
+    detail: request.detail,
+    owner: request.owner,
+    claimedAt: request.claimedAt,
+    attempts: request.attempts,
+  }
 }
 
 export function requestSource(input: {

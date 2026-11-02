@@ -35,6 +35,17 @@ export interface AgentOpenRequest {
   readonly cwd: string
   readonly permission: 'workspace-write' | 'danger-full-access'
   readonly tools?: 'none' | 'default'
+  /** 程序指定会话身份；研发会话必须可跨请求恢复，不能每轮随机。 */
+  readonly sessionId?: string
+}
+
+export interface AgentResumeRequest {
+  readonly role: AgentIdentity
+  readonly sessionId: string
+  readonly permission: 'workspace-write' | 'danger-full-access'
+  readonly tools?: 'none' | 'default'
+  /** 会话原工作目录；仅用于宿主不支持从会话记录推断目录时的提示。 */
+  readonly cwd?: string
 }
 
 export interface AgentTurnRequest {
@@ -260,6 +271,12 @@ function runOutcome(input: {
 
 type SessionHandle = { agent: AgentView; dispose(): Promise<void> }
 
+/** 宿主的 Agent 服务视图：create 必然存在，resume 因宿主版本不同而可能缺省。 */
+interface AgentService {
+  create(options: AnyRecord): Promise<SessionHandle>
+  resume?(options: AnyRecord): Promise<SessionHandle>
+}
+
 export class AgentRunner {
   private readonly ctx: AnyRecord
   private readonly agent: AgentConfig
@@ -284,61 +301,95 @@ export class AgentRunner {
     return { provider: selection.provider, model: selection.model }
   }
 
+  private setupFor(
+    tools: 'none' | 'default' | undefined,
+  ): ((agentCtx: AnyRecord) => unknown) | undefined {
+    const toolService = toolsService(this.ctx)
+    const presetId = tools === 'none' ? undefined : 'standard'
+    if (tools === 'none' && toolService) {
+      return (agentCtx: AnyRecord) => {
+        const names = toolService
+          .schemas()
+          .map((schema) => schema.name)
+          .filter((name): name is string => Boolean(name))
+        const scoped = restrictService(agentCtx)
+        if (names.length > 0) scoped?.restrict({ deny: names })
+      }
+    }
+    if (!presetId) return undefined
+    return async (agentCtx: AnyRecord) => {
+      const registry = presetRegistry(this.ctx)
+      if (!registry?.mount) {
+        throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
+      }
+      await registry.mount(agentCtx, presetId)
+    }
+  }
+
   /**
    * 打开一段连续会话：不再每轮新建 Agent，供同一需求的技术方案、实现、自验、
    * 修复或验证阶段复用上下文与工作目录。宿主重启后会话不存在，依据持久证据恢复。
    */
   async open(request: AgentOpenRequest): Promise<AgentSession> {
     const selection = this.resolveSelection()
-    const sessionId = `session-fl-${request.role}-${randomUUID()}`
-    const agents = this.ctx.agents as {
-      create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }>
-    }
-    const tools = toolsService(this.ctx)
-    const presetId = request.tools === 'none' ? undefined : 'standard'
-    const setup =
-      request.tools === 'none' && tools
-        ? (agentCtx: AnyRecord) => {
-            const names = tools
-              .schemas()
-              .map((schema) => schema.name)
-              .filter((name): name is string => Boolean(name))
-            const scoped = restrictService(agentCtx)
-            if (names.length > 0) scoped?.restrict({ deny: names })
-          }
-        : presetId
-          ? async (agentCtx: AnyRecord) => {
-              const registry = presetRegistry(this.ctx)
-              if (!registry?.mount)
-                throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
-              await registry.mount(agentCtx, presetId)
-            }
-          : undefined
+    const sessionId = request.sessionId ?? `session-fl-${request.role}-${randomUUID()}`
+    const agents = this.agentService()
+    const setup = this.setupFor(request.tools)
     const handle = await agents.create({
       sessionId,
-      meta: { cwd: request.cwd, ...(presetId ? { agentPreset: presetId } : {}) },
+      meta: {
+        cwd: request.cwd,
+        ...(request.tools === 'none' ? {} : { agentPreset: 'standard' }),
+      },
       agentOptions: { provider: selection.provider, model: selection.model },
       ...(setup ? { setup } : {}),
     })
     const presets = permissionService(this.ctx)
     presets?.set(handle.agent.session, request.permission)
+    return this.wrapSession(handle, sessionId)
+  }
 
+  /**
+   * 从宿主持久化的会话恢复研发 Agent：宿主重启后内存里没有 handle，但会话与工作目录
+   * 仍然存在。宿主不支持恢复时明确失败，不假装恢复成新会话。
+   */
+  async resume(request: AgentResumeRequest): Promise<AgentSession> {
+    const selection = this.resolveSelection()
+    const agents = this.agentService()
+    if (typeof agents.resume !== 'function') {
+      throw new Error('宿主不支持恢复持久会话（agents.resume）；不能假装恢复研发会话')
+    }
+    const setup = this.setupFor(request.tools)
+    const handle = await agents.resume({
+      resumeSessionId: request.sessionId,
+      agentOptions: { provider: selection.provider, model: selection.model },
+      ...(setup ? { setup } : {}),
+    })
+    const presets = permissionService(this.ctx)
+    presets?.set(handle.agent.session, request.permission)
+    return this.wrapSession(handle, request.sessionId)
+  }
+
+  private agentService(): AgentService {
+    return this.ctx.agents as AgentService
+  }
+
+  private wrapSession(handle: SessionHandle, sessionId: string): AgentSession {
     let dead = false
     let disposed = false
     const startTurnWatch = (
-      view: SessionHandle,
       turn: AgentTurnRequest,
     ): { isTimedOut: () => boolean; isAborted: () => boolean; stop: () => void } => {
       let aborted = false
       let timedOut = false
       const timer = setTimeout(() => {
         timedOut = true
-        view.agent.cancel({ kind: 'user' })
+        handle.agent.cancel({ kind: 'user' })
       }, turn.timeoutMs)
       timer.unref()
       const onAbort = (): void => {
         aborted = true
-        view.agent.cancel({ kind: 'user' })
+        handle.agent.cancel({ kind: 'user' })
       }
       turn.signal?.addEventListener('abort', onAbort, { once: true })
       return {
@@ -350,9 +401,9 @@ export class AgentRunner {
         },
       }
     }
-    const flushActivity = (view: SessionHandle, turn: AgentTurnRequest): void => {
+    const flushActivity = (turn: AgentTurnRequest): void => {
       try {
-        const events = view.agent.session.ownEvents()
+        const events = handle.agent.session.ownEvents()
         writeTranscriptFile(turn.transcriptPath, events)
         turn.onActivity?.(events)
       } catch {
@@ -364,9 +415,9 @@ export class AgentRunner {
       async send(turn: AgentTurnRequest): Promise<AgentRunResult> {
         const started = Date.now()
         if (dead) return closedSessionResult(sessionId, turn.transcriptPath)
-        const watch = startTurnWatch(handle, turn)
+        const watch = startTurnWatch(turn)
         const activityTimer = setInterval(() => {
-          flushActivity(handle, turn)
+          flushActivity(turn)
         }, 1_500)
         activityTimer.unref()
         let whenIdleError = ''
@@ -447,9 +498,7 @@ export class AgentRunner {
     const started = Date.now()
     const selection = this.resolveSelection()
     const sessionId = `session-fl-${request.role}-${randomUUID()}`
-    const agents = this.ctx.agents as {
-      create(options: AnyRecord): Promise<{ agent: AgentView; dispose(): Promise<void> }>
-    }
+    const agents = this.agentService()
     const tools = toolsService(this.ctx)
     // 编程式 Agent 默认不组合会话 preset，也就没有 shell/fs 等编码工具。
     // 开发与审查角色必须显式挂载 standard preset；只做推理的角色继续显式禁用全部工具。

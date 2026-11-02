@@ -9,10 +9,22 @@ export const APPROVED = 'approved'
 export const DEVELOPING = 'developing'
 export const EXECUTING = 'executing'
 export const VERIFYING = 'verifying'
+/** 已选定研发会话但会话忙：需求保留在队列里等待会话空闲，不算失败。 */
+export const AWAITING_DEV_SESSION = 'awaiting_dev_session'
 export const COMMITTED = 'committed'
 export const ACCEPTED = 'accepted'
 export const REJECTED = 'rejected'
 export const CANCELLED = 'cancelled'
+
+/** 需要自动推进或继续占用研发位的非终态；等待会话空闲也在此列。 */
+export const AUTO_ADVANCE_STATUSES: ReadonlySet<string> = new Set([
+  SPECIFIED,
+  DEVELOPING,
+  VERIFYING,
+  APPROVED,
+  EXECUTING,
+  AWAITING_DEV_SESSION,
+])
 
 /** 终态不回退，也不能再排队分析、规划、推进或修订。 */
 export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([

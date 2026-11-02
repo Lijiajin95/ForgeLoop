@@ -213,8 +213,20 @@ ${input.logTail || '（没有日志）'}
 - 只输出 JSON。`
 }
 
-export function devPlanningPrompt(requirement: Requirement, analysis: RequirementAnalysis): string {
-  return `你是 ForgeLoop 的研发 Agent，负责技术方案与研发任务拆解。需求分析由产品 Agent 完成；你不能改写分析结论，也不得把分析之外的范围塞进任务。你的输出会被程序校验并落库。本回合不挂载工具；不要尝试读取、修改或调用工具。最终必须只输出 JSON 文本，不要输出 <｜｜DSML｜｜>、工具调用标记、代码围栏或解释。
+/**
+ * 技术方案与任务拆解提示词。研发会话内规划时允许只读查看代码；
+ * 旧规划入口没有工具，避免模型把工具调用标记当成最终文本。
+ */
+export function devPlanningPrompt(
+  requirement: Requirement,
+  analysis: RequirementAnalysis,
+  input: { tools?: 'none' | 'read' } = {},
+): string {
+  const toolRule =
+    input.tools === 'read'
+      ? '本回合在研发会话内进行：你可以使用只读工具查看当前工作副本，但不得修改任何文件；最终必须只输出 JSON 文本。'
+      : '本回合不挂载工具；不要尝试读取、修改或调用工具。最终必须只输出 JSON 文本。'
+  return `你是 ForgeLoop 的研发 Agent，负责技术方案与研发任务拆解。需求分析由产品 Agent 完成；你不能改写分析结论，也不得把分析之外的范围塞进任务。你的输出会被程序校验并落库。${toolRule}不要输出 <｜｜DSML｜｜>、工具调用标记、代码围栏或解释。
 
 ${requirementContext(requirement)}
 
@@ -421,6 +433,87 @@ ${requirementContext(requirement)}
 6. 完成后用简短文本报告：改了什么、跑了什么命令、结果如何、还有什么风险。`
 }
 
+/** 主控 Agent 的候选研发会话：只给身份、现场与最近总结，不给源码或工具。 */
+export interface DevSessionCandidate {
+  readonly sessionId: string
+  readonly workspace: string
+  readonly state: string
+  readonly lastReqId: string
+  readonly updatedAt: string
+  readonly summary: string
+}
+
+/**
+ * 主控 Agent 提示词：为新需求选择最合适的既有研发会话；选不中或没有合适会话时
+ * 返回 null，由程序新建。主控只做路由，不写代码、不做业务判断。
+ */
+export function orchestratorPrompt(input: {
+  requirement: Requirement
+  analysis: RequirementAnalysis
+  sessions: readonly DevSessionCandidate[]
+}): string {
+  const sessions =
+    input.sessions.length === 0
+      ? '（当前没有已存在的研发会话）'
+      : input.sessions
+          .map(
+            (session) =>
+              `- 会话 ${session.sessionId}｜状态 ${session.state}｜工作区 ${session.workspace}｜最近需求 ${session.lastReqId || '无'}｜更新 ${session.updatedAt}\n  最近总结：${session.summary || '（还没有总结）'}`,
+          )
+          .join('\n')
+  return `你是 ForgeLoop 的主控 Agent，只负责把新需求路由到最合适的研发会话。你没有可用工具：不要读取或修改任何文件，也不要调用工具。你的输出会被程序解析；路由由程序执行，你不能批准、验收或提交。
+
+新需求：
+${requirementContext(input.requirement)}
+
+${analysisContext(input.analysis)}
+
+已存在的研发会话（每个会话有固定工作区与历史上下文；状态 busy 表示当前被占用）：
+${sessions}
+
+请判断新需求是否与某个既有会话的上下文、工作区或技术领域充分相关，能直接在该会话里继续研发；只输出一个 JSON 对象：
+{
+  "session_id": "选中的会话 ID；没有合适会话时填 null",
+  "reason": "一句话说明选择或新建的理由"
+}
+
+规则：
+- 只能选择上面列出的会话 ID；不能编造 ID。
+- 只有新需求与既有会话的现场、上下文或领域确实相关时才复用；不确定时返回 null，由程序新建会话。
+- 不要因为“想省事”而复用无关会话；也不要把同一个需求拆到多个会话。
+- 状态 busy 的会话可以被选中，但需求会等待该会话空闲后再执行；是否值得等待由你按相关性判断。
+- 只输出 JSON。`
+}
+
+/** 研发会话结束时的总结：把本次会话内容与需求绑定，供下次路由回查。 */
+export function devSessionSummaryPrompt(input: {
+  requirement: Requirement
+  plan: TaskPlan | null
+  outcome: string
+}): string {
+  const tasks =
+    input.plan === null
+      ? '（本次没有形成任务包）'
+      : input.plan.tasks
+          .map((task) => `- ${task.taskId}：${task.goal}｜验收：${task.acceptance}`)
+          .join('\n')
+  return `你是 ForgeLoop 的研发 Agent，本次研发会话即将结束。请总结这次会话与当前需求，供下一次路由判断是否复用本会话。本轮不要调用任何工具。
+
+${requirementContext(input.requirement)}
+
+任务包：
+${tasks}
+
+本次结局：${input.outcome}
+
+请输出一段简洁的中文总结，覆盖：
+1. 这次需求做了什么、改了哪些区域；
+2. 实际执行过的验证与结果；
+3. 遗留问题、未完成项或下一步建议；
+4. 本会话适合继续承接哪类需求。
+不要输出 JSON，不要复述完整 diff，不要虚构未执行的结果。`
+}
+
 export function reviewPrompt(input: {
   requirement: Requirement
   plan: TaskPlan
@@ -528,7 +621,7 @@ export function businessReviewPrompt(input: {
         `### ${command.label}\nargv: ${JSON.stringify(command.argv)}\nexit_code: ${command.exitCode === null ? 'null' : command.exitCode}\n输出摘录（开头与末尾，中间可能省略）：\n${command.logTail || '（无输出）'}`,
     )
     .join('\n\n')
-  return `你是 ForgeLoop 的验证 Agent，现在做业务验收（独立验证与业务验收由同一身份完成）。你没有工具：只能依据下面的事实判断，不要臆造未提供的运行结果。
+  return `你是 ForgeLoop 的验证 Agent，现在做业务验收（独立验证与业务验收由同一个新开的验证会话完成）。本轮不要调用任何工具：只能依据下面的事实判断，不要臆造未提供的运行结果。
 
 ${requirementContext(input.requirement)}
 

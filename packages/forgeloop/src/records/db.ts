@@ -206,6 +206,51 @@ CREATE TABLE IF NOT EXISTS requirement_task_evidence (
     recorded_at TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version, task_id)
 );
+-- 研发会话：一个需求绑定一个研发会话与一份工作区；会话不随需求结束销毁。
+CREATE TABLE IF NOT EXISTS dev_sessions (
+    session_id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    workspace TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'idle',
+    summary TEXT NOT NULL DEFAULT '',
+    summary_sha256 TEXT NOT NULL DEFAULT '',
+    summary_path TEXT NOT NULL DEFAULT '',
+    last_req_id TEXT NOT NULL DEFAULT '',
+    lease_request_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS dev_sessions_by_project ON dev_sessions(project, state, updated_at);
+
+-- 需求与研发会话的绑定：同一需求版本重复推进时沿用同一会话与工作区。
+CREATE TABLE IF NOT EXISTS requirement_dev_sessions (
+    req_id TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    workspace TEXT NOT NULL,
+    baseline_commit TEXT NOT NULL DEFAULT '',
+    snapshot_commit TEXT NOT NULL DEFAULT '',
+    selected_by TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    assigned_at TEXT NOT NULL,
+    released_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (req_id, requirement_version)
+);
+CREATE INDEX IF NOT EXISTS requirement_dev_sessions_by_session
+    ON requirement_dev_sessions(session_id, assigned_at);
+
+-- 研发会话结束时的总结：绑定会话 ID 与需求，保留可回查文本。
+CREATE TABLE IF NOT EXISTS dev_session_summaries (
+    session_id TEXT NOT NULL,
+    req_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    summary_sha256 TEXT NOT NULL,
+    summary_path TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, req_id)
+);
+CREATE INDEX IF NOT EXISTS dev_session_summaries_by_req ON dev_session_summaries(req_id, created_at);
+
 CREATE TABLE IF NOT EXISTS requirement_failure_rounds (
     req_id TEXT NOT NULL,
     round_id TEXT NOT NULL,

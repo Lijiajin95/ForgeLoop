@@ -288,7 +288,9 @@ describe('verification failure issue loop', () => {
       planVersion: 1,
       candidateSha256: issue.candidateSha256,
     })
-    expect(issue.evidence.environment.devWorkspace).toContain(reqId)
+    expect(issue.evidence.environment.devWorkspace).toBe(
+      runtime.repo.requirementDevSession(reqId, 1)?.workspace,
+    )
     expect(issue.evidence.state).toMatchObject({
       attempt: 1,
       stage: 'verification',

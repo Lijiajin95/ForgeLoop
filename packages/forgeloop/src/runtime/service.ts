@@ -16,14 +16,7 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import {
-  evidenceDir,
-  planReviewDir,
-  projectDir,
-  recordsPath,
-  sessionsDir,
-  workspaceDir,
-} from '../config.js'
+import { evidenceDir, planReviewDir, recordsPath, sessionsDir, workspaceDir } from '../config.js'
 import { Database } from '../records/db.js'
 import { Repository, type ServiceRequestRecord } from '../records/repository.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
@@ -46,11 +39,10 @@ import {
   ACTION_VERIFY,
   APPROVED,
   AWAITING_CLARIFICATION,
+  AWAITING_DEV_SESSION,
+  AUTO_ADVANCE_STATUSES,
   CANCELLED,
-  DEVELOPING,
-  EXECUTING,
   SPECIFIED,
-  VERIFYING,
   isTerminal,
 } from '../domain/status.js'
 import { AGENT_PRODUCT, AGENT_VERIFY } from '../domain/agents.js'
@@ -75,13 +67,19 @@ import {
 import { RequirementQueue } from '../domain/requirement-queue.js'
 import { SqliteRequirementQueueStore } from '../records/requirement-queue.js'
 import { IssueStore } from '../records/issues.js'
-import { AgentRunner, type AgentOpenRequest, type AgentSession } from './agent-runner.js'
+import {
+  AgentRunner,
+  type AgentOpenRequest,
+  type AgentResumeRequest,
+  type AgentSession,
+} from './agent-runner.js'
+import { SessionRouting } from './session-routing.js'
 import { OpsRuntime } from './ops.js'
 import { buildStatusBoard, requirementTitle, type StatusBoardView } from './board.js'
 import { runFormalTest } from './formal-test.js'
 import { planReviewPrompt, requirementContext } from './prompts.js'
 import { runCommand } from './workspace.js'
-import { requestSource } from './execution-views.js'
+import { requestSource, requestView } from './execution-views.js'
 import { LegacyVerification } from './legacy-verification.js'
 import { TaskDelivery, type DeliverInput, type DeliverOutcome } from './task-delivery.js'
 import { TaskViews } from './task-views.js'
@@ -102,6 +100,7 @@ import { BuildMaterialValidator } from './build-materials.js'
 export interface AgentLike {
   run(request: Parameters<AgentRunner['run']>[0]): ReturnType<AgentRunner['run']>
   open?(request: AgentOpenRequest): Promise<AgentSession>
+  resume?(request: AgentResumeRequest): Promise<AgentSession>
 }
 
 export interface RuntimeOptions {
@@ -113,7 +112,7 @@ export interface RuntimeOptions {
   readonly formalTest?: typeof runFormalTest
 }
 
-import { planReviewBlocking } from './service-helpers.js'
+import { directorySummaryOf, planReviewBlocking } from './service-helpers.js'
 
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
@@ -132,6 +131,7 @@ export class ForgeLoopRuntime {
   private readonly taskViews: TaskViews
   private readonly taskDelivery: TaskDelivery
   private readonly legacyVerification: LegacyVerification
+  private readonly sessionRouting: SessionRouting
   private readonly buildMaterials: BuildMaterialValidator
   private readonly formalTest: typeof runFormalTest
   private readonly ctx: Record<string, unknown>
@@ -163,7 +163,6 @@ export class ForgeLoopRuntime {
       recordRun: (reqId, plan, task, outcome) => {
         this.recordRun(reqId, plan, task, outcome)
       },
-      runner: this.runner,
       previousTaskFailure: (reqId, planVersion, taskId) =>
         this.previousTaskFailure(reqId, planVersion, taskId),
       formalTest: this.formalTest,
@@ -180,7 +179,6 @@ export class ForgeLoopRuntime {
       charge: (reqId, started) => {
         this.charge(reqId, started)
       },
-      runner: this.runner,
       formalTest: this.formalTest,
       ctx: this.ctx,
       openAgent: (request) => this.openAgent(request),
@@ -230,6 +228,14 @@ export class ForgeLoopRuntime {
       openAgent: (request) => this.openAgent(request),
       verificationBaseline: (analysis) => this.verificationBaseline(analysis),
     })
+    this.sessionRouting = new SessionRouting({
+      config: this.config,
+      repo: this.repo,
+      now: () => this.now(),
+      runner: this.runner,
+      openAgent: (request) => this.openAgent(request),
+      executionDev: this.executionDev,
+    })
     this.advancePipeline = new AdvancePipeline({
       config: this.config,
       repo: this.repo,
@@ -242,7 +248,8 @@ export class ForgeLoopRuntime {
       verificationPipeline: this.verificationPipeline,
       legacyVerification: this.legacyVerification,
       deliverTask: (input) => this.deliverTask(input),
-      openAgent: (request) => this.openAgent(request),
+      devSessions: this.sessionRouting.devSessions,
+      orchestrator: this.sessionRouting.orchestrator,
       currentAdmission: (reqId) => this.currentAdmission(reqId),
       requireAuthorizedPlan: (reqId) => this.requireAuthorizedPlan(reqId),
       remainingFailureRounds: (reqId) => this.remainingFailureRounds(reqId),
@@ -330,7 +337,7 @@ export class ForgeLoopRuntime {
     // 没有自动推进时，分析收口即让出研发位；后续执行仍可由显式请求驱动。
     if (!this.config.autoAdvance) return false
     if (requirement.status === SPECIFIED) return this.currentAdmission(requirement.reqId) !== null
-    return [DEVELOPING, VERIFYING, APPROVED, EXECUTING].includes(requirement.status)
+    return AUTO_ADVANCE_STATUSES.has(requirement.status)
   }
 
   /** 让领取到的需求进入分析；当前版本已有分析时不重复调用分析 Agent。 */
@@ -1122,6 +1129,12 @@ ${answer}`
     const queued: string[] = []
     for (const requirement of this.repo.listRequirements(this.config.project)) {
       if (!this.autoQueueCandidate(requirement)) continue
+      if (
+        requirement.status === AWAITING_DEV_SESSION &&
+        !this.sessionRouting.idleForRequirement(requirement.reqId, requirement.versions.length)
+      ) {
+        continue
+      }
       const admission = this.currentAdmission(requirement.reqId)
       const plan = this.repo.latestTaskPlan(requirement.reqId)
       const approval = plan ? this.repo.planApproval(requirement.reqId, plan.planVersion) : null
@@ -1148,9 +1161,7 @@ ${answer}`
     plan: TaskPlan | null,
   ): boolean {
     if (requirement.status !== 'blocked') {
-      return ['specified', 'developing', 'verifying', 'approved', 'executing'].includes(
-        requirement.status,
-      )
+      return AUTO_ADVANCE_STATUSES.has(requirement.status)
     }
     if (!admission) return this.retryDecisionFor(requirement.reqId).allowed
     return (
@@ -1673,7 +1684,7 @@ ${answer}`
       )
       if (verification.state === 'repair') {
         return this.currentAdmission(request.reqId)
-          ? this.advancePipeline.executeContinuousAdvance(request.reqId, signal)
+          ? this.advancePipeline.executeContinuousAdvance(request.reqId, signal, request.requestId)
           : this.advancePipeline.executeAdvance(request.reqId, signal, request.requestId)
       }
       return verification.state === 'done'
@@ -1681,7 +1692,7 @@ ${answer}`
         : { state: verification.state, detail: verification.detail }
     }
     return this.currentAdmission(request.reqId)
-      ? this.advancePipeline.executeContinuousAdvance(request.reqId, signal)
+      ? this.advancePipeline.executeContinuousAdvance(request.reqId, signal, request.requestId)
       : this.advancePipeline.executeAdvance(request.reqId, signal, request.requestId)
   }
 
@@ -1937,35 +1948,9 @@ ${answer}`
   }
 
   directorySummary(): unknown {
-    return {
-      recordsRoot: this.config.recordsRoot,
-      projectDir: projectDir(this.config),
-      database: recordsPath(this.config),
-      projectPath: this.config.projectPath,
-      agent:
-        this.runner instanceof AgentRunner
-          ? this.runner.resolveSelection()
-          : { provider: this.config.agent.provider, model: this.config.agent.model },
-      autoAdvance: this.config.autoAdvance,
-    }
+    return directorySummaryOf(this.config, this.runner)
   }
 }
 
-export function requestView(request: ServiceRequestRecord): Record<string, unknown> {
-  return {
-    requestId: request.requestId,
-    reqId: request.reqId,
-    action: request.action,
-    state: request.state,
-    planVersion: request.planVersion,
-    requestedBy: request.requestedBy,
-    source: request.source,
-    createdAt: request.createdAt,
-    detail: request.detail,
-    owner: request.owner,
-    claimedAt: request.claimedAt,
-    attempts: request.attempts,
-  }
-}
-
+export { requestView }
 export { ACCEPTED, CANCELLED, requirementContext, APPROVED }

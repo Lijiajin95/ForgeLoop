@@ -30,9 +30,15 @@ function facts(overrides: Partial<AdmissionFacts> = {}): AdmissionFacts {
   }
 }
 
-describe('four Agent identities', () => {
-  it('exposes exactly product, dev, verify and ops', () => {
-    expect([...AGENT_IDENTITIES].sort()).toEqual(['dev', 'ops', 'product', 'verify'])
+describe('five Agent identities', () => {
+  it('exposes exactly product, orchestrator, dev, verify and ops', () => {
+    expect([...AGENT_IDENTITIES].sort()).toEqual([
+      'dev',
+      'ops',
+      'orchestrator',
+      'product',
+      'verify',
+    ])
   })
 
   it('keeps committed as a terminal status', () => {

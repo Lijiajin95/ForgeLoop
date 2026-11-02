@@ -166,6 +166,43 @@ export interface BusinessReviewRecord {
   readonly reviewedAt: string
 }
 
+/** 研发会话的权威记录：会话不随需求结束删除，忙闲与最近总结落在这里。 */
+export interface DevSessionRecord {
+  readonly sessionId: string
+  readonly project: string
+  readonly workspace: string
+  readonly state: string
+  readonly summary: string
+  readonly summarySha256: string
+  readonly summaryPath: string
+  readonly lastReqId: string
+  readonly leaseRequestId: string
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export interface RequirementDevSessionRecord {
+  readonly reqId: string
+  readonly requirementVersion: number
+  readonly sessionId: string
+  readonly workspace: string
+  readonly baselineCommit: string
+  readonly snapshotCommit: string
+  readonly selectedBy: string
+  readonly reason: string
+  readonly assignedAt: string
+  readonly releasedAt: string
+}
+
+export interface DevSessionSummaryRecord {
+  readonly sessionId: string
+  readonly reqId: string
+  readonly summary: string
+  readonly summarySha256: string
+  readonly summaryPath: string
+  readonly createdAt: string
+}
+
 export interface ServiceRequestRecord {
   readonly requestId: string
   readonly reqId: string

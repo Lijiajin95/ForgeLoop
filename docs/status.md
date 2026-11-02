@@ -3779,3 +3779,34 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - 说明：hook 只在本机克隆生效（`core.hooksPath` 不入库），新克隆需 `make hooks`/`make setup`；
   完整测试、覆盖与变异仍在 `make check`/CI。
 - `CONTRIBUTING.md` 增加安装与绕过说明。
+
+### 108. 研发会话路由、主控 Agent 与单会话验证（2026-11-02）
+
+- **研发会话常驻，工作区随会话**：新增 `dev_sessions`、`requirement_dev_sessions`、
+  `dev_session_summaries` 三张表；研发工作区从 `workspaces/<req>/dev/` 改为
+  `workspaces/dev-sessions/<session>/`，轨迹在 `sessions/dev-sessions/<session>/`。
+  一个需求绑定一个研发会话，复用会话就在同一工作区继续；工作区缺失、Git 元数据损坏或基线为空时
+  按当前项目 HEAD 重建并更新绑定。研发会话不调用 `close()`，只把忙闲置回 `idle`。
+- **会话总结与会话 ID 关联**：一轮研发结束时在同一会话发一轮总结提示词，产出“本次会话内容＋需求内容”
+  并写入 `dev_session_summaries`（摘要、SHA-256、文件路径），同时更新会话的最近总结；模型失败或空文本时
+  用需求＋任务包＋结局的兜底总结，不静默丢记录。
+- **删除 `plan` 身份，新增主控 Agent**：身份由四种变为五种（`product`、`orchestrator`、`dev`、`verify`、`ops`）。
+  `SessionOrchestrator` 只读需求、分析与候选会话清单（会话 ID、工作区、忙闲、最近总结、最后需求），
+  无工具、只输出 `{session_id, reason}`；只接受清单内的会话 ID，畸形结果、模型异常、stop 一律回退新建。
+  候选清单为空时直接新建，不调用模型。
+- **忙则排队等待**：新状态 `awaiting_dev_session`。选中的会话忙时需求停在该状态并释放占用，协调器只在
+  绑定会话空闲时重新排队 `advance`，不并发插队、不判失败；宿主重启时 `resetBusyDevSessions` 把遗留 busy
+  释放为空闲，保留绑定与总结。旧 `plan`／`approve` 请求、实现前评审与批准行仅作历史兼容保留，
+  正常自动链路不再有独立规划步骤；旧显式批准路径仍用任务级工作区，不在会话复用范围内。
+- **验证会话一次性**：独立验证与新开的验证会话一一对应，业务验收复用同一会话，结束即 `close()`；
+  只有研发会话长期保留。问题单环境改为记录会话工作区。
+- **宿主恢复**：本进程内复用 live 会话句柄；宿主重启后经 `agents.resume` 恢复，宿主不支持时明确失败，
+  不新建同名会话冒充恢复。
+- 文档同步：`docs/architecture.md`、`docs/product.md`、`docs/status.md`、`CONTEXT.md`、
+  `README.md`／`README.zh-CN.md`、`packages/forgeloop/README.md` 改为五种身份与会话化工作区。
+- **结果**：`make check` 60 个文件、623 项通过；`make coverage` 行/语句 90.95%、函数 96.34%、
+  分支 84.31%（`repository.ts` 分支 87.62%）；`make budget` service.ts 21,843（基线下调）、
+  `make assertions` 18（基线下调）。
+- **未完成／风险**：真实宿主的 `agents.resume` 尚未在正式 profile 实测；主控路由质量依赖模型与总结质量，
+  只能靠候选清单校验兜底；旧 `executeAdvance`（显式批准）仍是任务级工作区；断言 fake runner 必须显式
+  处理 `role=orchestrator`，否则会落到默认写文件分支。

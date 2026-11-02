@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { RuleViolationError } from '../domain/errors.js'
 import { parsePlanReview, parseVerificationReport } from '../domain/verification.js'
 import { sha256OfBytes } from '../domain/delivery.js'
+import { projectDir, recordsPath, type ForgeLoopConfig } from '../config.js'
+import { AgentRunner } from './agent-runner.js'
 import { git } from './workspace.js'
 
 export function summarizeActivity(events: readonly Record<string, unknown>[]): string {
@@ -206,5 +208,20 @@ export function parseFormalTestHeader(text: string): {
     timedOut: boolOrNull('timed_out'),
     aborted: boolOrNull('aborted'),
     exitCode: numberOrNull('exit_code'),
+  }
+}
+
+/** 目录摘要：暴露记录根、项目目录与当前 Agent 选择，供状态页与自检使用。 */
+export function directorySummaryOf(config: ForgeLoopConfig, runner: unknown): unknown {
+  return {
+    recordsRoot: config.recordsRoot,
+    projectDir: projectDir(config),
+    database: recordsPath(config),
+    projectPath: config.projectPath,
+    agent:
+      runner instanceof AgentRunner
+        ? runner.resolveSelection()
+        : { provider: config.agent.provider, model: config.agent.model },
+    autoAdvance: config.autoAdvance,
   }
 }

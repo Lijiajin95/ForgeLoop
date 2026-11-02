@@ -9,7 +9,7 @@ import { join, relative, sep } from 'node:path'
 
 const ROOT = process.cwd()
 const SOURCE = join(ROOT, 'packages/forgeloop/src')
-const BASELINE = 19
+const BASELINE = 18
 
 /**
  * 接口边界白名单：宿主 API、SQLite、配置文件、npm/子进程输出、HTTP/工具入参。

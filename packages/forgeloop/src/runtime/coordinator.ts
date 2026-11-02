@@ -90,6 +90,8 @@ export class Coordinator {
     const interruptedOps = this.runtime.repo.markRunningOpsActionsInterrupted(now)
     // 任务运行也可能停在 running：标记为阻塞，等待重新执行。
     const interruptedRuns = this.runtime.repo.markRunningTaskRunsInterrupted(now)
+    // 本进程没有任何在途研发会话：把上次遗留的 busy 释放为空闲，绑定与总结保留。
+    const releasedDevSessions = this.runtime.repo.resetBusyDevSessions(now)
     this.runtime.repo.setMeta('host_owner', this.owner, now)
     this.runtime.repo.setMeta(
       'last_recovery',
@@ -102,6 +104,7 @@ export class Coordinator {
         migratedOpsUnknown,
         interruptedOps,
         interruptedRuns,
+        releasedDevSessions,
       }),
       now,
     )

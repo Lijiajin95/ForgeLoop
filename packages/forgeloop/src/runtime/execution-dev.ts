@@ -1,12 +1,10 @@
-import { parseJsonObject } from '../domain/json.js'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import { devWorkspaceDir, evidenceDir, projectDir, sessionsDir } from '../config.js'
+import { evidenceDir, sessionsDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import { executionOrder, parseTaskPlanDraft } from '../domain/task-plan.js'
-import { AGENT_DEV } from '../domain/agents.js'
 import {
   DEVELOPING,
   TASK_RUN_BLOCKED,
@@ -18,7 +16,7 @@ import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import type { Repository } from '../records/repository.js'
-import type { AgentRunner, AgentSession } from './agent-runner.js'
+import type { AgentSession } from './agent-runner.js'
 import { devPlanningPrompt, devPrompt } from './prompts.js'
 import { summarizeActivity } from './service-helpers.js'
 import {
@@ -42,7 +40,6 @@ export interface ExecutionDevDeps {
     task: PlannedTask,
     outcome: { state: TaskRunState; reason: string },
   ) => void
-  runner: { run: AgentRunner['run'] }
   previousTaskFailure: (reqId: string, planVersion: number, taskId: string) => string
   formalTest: typeof runFormalTest
   existingPackages: () => string[]
@@ -59,33 +56,15 @@ export interface ExecutionDevDeps {
 export class ExecutionDev {
   constructor(private readonly deps: ExecutionDevDeps) {}
 
-  ensureDevWorkspace(
-    reqId: string,
-    requirementVersion: number,
-  ): { workspace: string; baselineCommit: string; snapshotCommit: string; fresh: boolean } {
-    const workspace = devWorkspaceDir(this.deps.config, reqId)
-    const metaPath = join(projectDir(this.deps.config), 'workspaces', reqId, 'dev-meta.json')
-    if (existsSync(metaPath)) {
-      try {
-        const meta = parseJsonObject(readFileSync(metaPath, 'utf8'))
-        if (
-          meta.requirementVersion === requirementVersion &&
-          typeof meta.baselineCommit === 'string' &&
-          typeof meta.snapshotCommit === 'string' &&
-          existsSync(join(workspace, '.git'))
-        ) {
-          return {
-            workspace,
-            baselineCommit: meta.baselineCommit,
-            snapshotCommit: meta.snapshotCommit,
-            fresh: false,
-          }
-        }
-      } catch {
-        // 元数据损坏时重建，不把半截现场当成可复用基线。
-      }
-    }
-    rmSync(workspace, { recursive: true, force: true })
+  /**
+   * 按当前项目基线准备研发会话的固定工作区；路径随会话保留，内容整体刷新。
+   * 旧文件全部丢弃，避免把上一个需求的工作副本当成新需求的基线。
+   */
+  prepareDevWorkspace(workspace: string): {
+    workspace: string
+    baselineCommit: string
+    snapshotCommit: string
+  } {
     const baselineCommit = headCommit(this.deps.config.projectPath)
     prepareSnapshotWorkspace({
       projectPath: this.deps.config.projectPath,
@@ -93,12 +72,18 @@ export class ExecutionDev {
       baselineCommit,
     })
     const snapshotCommit = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
-    writeFileSync(
-      metaPath,
-      `${JSON.stringify({ requirementVersion, baselineCommit, snapshotCommit, createdAt: this.deps.now() }, null, 2)}\n`,
-      'utf8',
-    )
-    return { workspace, baselineCommit, snapshotCommit, fresh: true }
+    return { workspace, baselineCommit, snapshotCommit }
+  }
+
+  /** 复用会话前核对现场：路径存在、Git 工作副本干净，才能安全刷新到新基线。 */
+  workspaceStatus(workspace: string): { exists: boolean; clean: boolean; head: string } {
+    if (!existsSync(join(workspace, '.git'))) return { exists: false, clean: false, head: '' }
+    const status = git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+    return {
+      exists: true,
+      clean: status.code === 0 && status.stdout.trim() === '',
+      head: requireGit(workspace, ['rev-parse', 'HEAD']).trim(),
+    }
   }
 
   /** 重启后把已交付任务的增量 diff 依次恢复到同一个研发工作区。 */
@@ -138,32 +123,29 @@ export class ExecutionDev {
     return { ok: true }
   }
 
-  /** 在研发会话中完成技术方案与任务拆解；技术方案是工作记录，不是批准门禁。 */
-  async planInSession(input: {
+  /**
+   * 在研发会话第一回合完成技术方案与任务拆解：不再单独起规划角色，
+   * 规划结果仍由程序校验并落库；技术方案是工作记录，不是批准门禁。
+   */
+  async planInDevSession(input: {
     reqId: string
     requirement: Requirement
     analysis: RequirementAnalysis
-    workspace: string
+    session: AgentSession
     authorizationSource: string
     signal: AbortSignal
   }): Promise<{ ok: true; plan: TaskPlan } | { ok: false; code: string; reason: string }> {
     let feedback = ''
     let lastError = ''
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      // 方案回合不挂载工具：模型在“可调用工具”的会话里容易把 DSML/工具调用
-      // 当成最终文本，导致任务包不是 JSON。方案是工作记录，实现回合再读代码。
-      const result = await this.deps.runner.run({
-        role: AGENT_DEV,
-        cwd: input.workspace,
-        prompt: devPlanningPrompt(input.requirement, input.analysis) + feedback,
-        permission: 'workspace-write',
+      const result = await input.session.send({
+        prompt: devPlanningPrompt(input.requirement, input.analysis, { tools: 'read' }) + feedback,
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(
           sessionsDir(this.deps.config),
           `${input.reqId}-plan-a${attempt}.jsonl`,
         ),
         signal: input.signal,
-        tools: 'none',
       })
       if (result.status === 'aborted' || result.status === 'timeout') {
         return { ok: false, code: 'interrupted', reason: result.reason }

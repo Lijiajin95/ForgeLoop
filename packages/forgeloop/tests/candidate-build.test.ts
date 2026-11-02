@@ -163,6 +163,10 @@ const BUSINESS_REVIEW = JSON.stringify({
 function fakeRunner(): AgentLike {
   return {
     async run(request) {
+      // 主控只做会话路由；测试里显式选择新建，避免落到默认的文件写入分支。
+      if (request.role === 'orchestrator') {
+        return result(request, JSON.stringify({ session_id: null, reason: 'test new session' }))
+      }
       if (request.role === 'product') return result(request, ANALYSIS)
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
         return result(request, PLAN)

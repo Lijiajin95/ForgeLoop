@@ -424,6 +424,16 @@ export function devWorkspaceDir(config: ForgeLoopConfig, reqId: string): string 
   return join(projectDir(config), 'workspaces', reqId, 'dev')
 }
 
+/** 研发会话的固定工作区：路径随会话保留，内容按新需求基线刷新。 */
+export function devSessionWorkspaceDir(config: ForgeLoopConfig, sessionId: string): string {
+  return join(projectDir(config), 'workspaces', 'dev-sessions', sessionId)
+}
+
+/** 研发会话总结与阶段轨迹目录；总结文件随会话 ID 与需求 ID 绑定。 */
+export function devSessionDir(config: ForgeLoopConfig, sessionId: string): string {
+  return join(sessionsDir(config), 'dev-sessions', sessionId)
+}
+
 /** 提交检查与整合证据目录；每次提交尝试独立一份，旧记录不覆盖。 */
 export function integrationDir(
   config: ForgeLoopConfig,
