@@ -9,12 +9,12 @@ import { join, relative, sep } from 'node:path'
 
 const ROOT = process.cwd()
 const SOURCE = join(ROOT, 'packages/forgeloop/src')
-const BASELINE = 95
+const BASELINE = 84
 function countAs(file: string): number {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
   let count = 0
   const visit = (node: ts.Node): void => {
-    if (ts.isAsExpression(node) && !node.getText(source).startsWith('as const')) count += 1
+    if (ts.isAsExpression(node) && node.type.getText(source) !== 'const') count += 1
     ts.forEachChild(node, visit)
   }
   visit(source)

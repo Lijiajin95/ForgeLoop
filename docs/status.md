@@ -3433,3 +3433,11 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过；service 1,969 / repository 1,837 行，suppressions `{}`。
 - 剩余：真实 `as` 95 → <20；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭；
   E2E/verify-plugin 门禁未接入。
+
+### 77. 修正 `as const` 误计（新目标 Round 27）
+
+- AST 统计先前用 `getText().startsWith('as const')` 排除，但字面量表达式（如
+  `'确定性事实' as const`）文本以表达式开头，未被排除，导致 11 处 `as const` 误计。
+- 改为判断 `node.type.getText() === 'const'`；真实断言数 **95 → 84**，基线校正为 84。
+- `make check` 607 项通过；service 1,969 / repository 1,837 行，suppressions `{}`。
+- 剩余：真实 `as` 84 → <20；`no-non-null-assertion` 32、`no-unnecessary-condition` 25 仍全局关闭。
