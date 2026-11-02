@@ -1168,6 +1168,37 @@ describe('execution scope, plan freeze and repair loop', () => {
     return reqId
   }
 
+  it('counts independent review blocks as failure rounds and stops at the quota', async () => {
+    const base = fakeRunner()
+    const blocking: AgentLike = {
+      async run(request) {
+        if (request.role === 'verify' && request.prompt.includes('独立审查')) {
+          return result(
+            request,
+            JSON.stringify({
+              verdict: 'block',
+              blocking: ['实现未覆盖验收标准'],
+              findings: [],
+              summary: 'block',
+            }),
+          )
+        }
+        return base.run(request)
+      },
+    }
+    runtime.close()
+    runtime = makeRuntime(blocking)
+    const reqId = await prepared('审查阻断计轮')
+    const outcome = await runQueued('advance', reqId)
+    expect(outcome.state).toBe('done')
+    expect(outcome.detail).toContain('已尝试 2 次')
+    const rounds = runtime.repo
+      .failureRounds(reqId)
+      .filter((round) => round.stage === 'implementation_review')
+    expect(rounds).toHaveLength(2)
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+  })
+
   it('lets the execution role modify any file in the workspace, not only the planned list', async () => {
     const base = fakeRunner()
     const runner: AgentLike = {

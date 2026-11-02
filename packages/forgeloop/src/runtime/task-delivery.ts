@@ -4,7 +4,11 @@ import type { ForgeLoopConfig } from '../config.js'
 import { evidenceDir, reviewDir, workspaceDir } from '../config.js'
 import type { Requirement } from '../domain/requirement.js'
 import { ancestorTaskIds, type PlannedTask, type TaskPlan } from '../domain/task-plan.js'
-import { FAILURE_FORMAL_TEST, GrantLedger } from '../domain/counting.js'
+import {
+  FAILURE_FORMAL_TEST,
+  FAILURE_IMPLEMENTATION_REVIEW,
+  GrantLedger,
+} from '../domain/counting.js'
 import { AGENT_VERIFY } from '../domain/agents.js'
 import type { TaskRunState } from '../domain/status.js'
 import {
@@ -170,6 +174,9 @@ export class TaskDelivery {
         signal,
         capture,
         feedback,
+        ledger,
+        attempt,
+        roundIdFor,
       })
       if ('continue' in reviewed) {
         feedback = reviewed.feedback
@@ -303,6 +310,9 @@ export class TaskDelivery {
     signal: AbortSignal
     capture: ReturnType<typeof captureCandidate>
     feedback: string
+    ledger: GrantLedger
+    attempt: number
+    roundIdFor: (attempt: number) => string
   }): Promise<
     | { continue: true; feedback: string }
     | {
@@ -315,7 +325,7 @@ export class TaskDelivery {
       }
     | { ok: true; reviewPath: string; reviewSession: string }
   > {
-    const { requirement, plan, task, taskDir, signal, capture } = input
+    const { requirement, plan, task, taskDir, signal, capture, ledger, attempt, roundIdFor } = input
     let feedback = input.feedback
     // 独立审查：新会话、只读提示词、独立目录，只针对固定候选 diff。
     const reviewWorkspace = reviewDir(
@@ -378,10 +388,34 @@ export class TaskDelivery {
     const reviewPath = join(taskDir, 'review.json')
     writeFileSync(reviewPath, `${JSON.stringify(verdict, null, 2)}\n`, 'utf8')
     if (verdict.verdict === 'block') {
+      const summary = `独立审查阻断：${verdict.blocking.join('；')}`
+      const recorded = ledger.recordFailure({
+        roundId: roundIdFor(attempt),
+        stage: FAILURE_IMPLEMENTATION_REVIEW,
+        summary,
+        occurredAt: this.deps.now(),
+      })
+      if (recorded.recorded) {
+        this.deps.repo.recordFailureRound(requirement.reqId, {
+          roundId: roundIdFor(attempt),
+          stage: FAILURE_IMPLEMENTATION_REVIEW,
+          summary,
+          occurredAt: this.deps.now(),
+        })
+      }
       this.deps.recordRun(requirement.reqId, plan, task, {
         state: TASK_RUN_FAILED,
-        reason: `独立审查阻断：${verdict.blocking.join('；')}`,
+        reason: summary,
       })
+      if (!ledger.canRecordFailure) {
+        return {
+          result: {
+            state: 'awaiting_user',
+            reason: `独立审查阻断且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * 3}）；等待追加授权或停止`,
+            requirementStatus: 'blocked',
+          },
+        }
+      }
       feedback = `\n\n上一次独立审查阻断，必须修复：\n- ${verdict.blocking.join('\n- ')}`
       return { continue: true, feedback }
     }
