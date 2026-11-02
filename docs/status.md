@@ -3672,3 +3672,13 @@ suppressions 20、service.ts 5,986 行。
 - `board-route` 的停止响应数据改用 `asRecord(result.data) ?? {}`，去掉 `as object | undefined`。
 - `as` 断言：业务 0、边界 **30 → 29**，基线 29。
 - `make check` 59 文件 611 项通过；coverage 91.19/84.35/96.88；mutation 97.80。
+
+### 99. 运维事件更新断言收敛（新目标 Round 17）
+
+- `ops-store.updateOpsEvent`：列白名单改为 `Record<string, string>`，参数数组改为 `SqlParam[]`，
+  去掉 `Object.entries as ...` 与 `values as Array<string|number>` 两处断言；
+  因 `Object.entries` 的 `any` 推断保留 1 处显式元组标注。
+- `db.ts` 导出 `SqlParam` 供记录层复用。
+- 边界断言 **29 → 28**，基线 28。
+- ops 相关用例 29 项先行通过；`make check` 59 文件 611 项、coverage 91.19/84.36/96.88、
+  mutation 97.80。

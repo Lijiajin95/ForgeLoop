@@ -418,7 +418,7 @@ CREATE TABLE IF NOT EXISTS ops_action_attempts (
 CREATE INDEX IF NOT EXISTS ops_action_attempts_by_event ON ops_action_attempts (event_id, started_at);
 `
 
-type SqlParam = string | number | bigint | Uint8Array | null
+export type SqlParam = string | number | bigint | Uint8Array | null
 
 export interface OpenOptions {
   /** true 时打开已有库且不创建新库，也不执行任何写入。 */

@@ -1,4 +1,4 @@
-import type { Database } from './db.js'
+import type { Database, SqlParam } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
 import {
   num,
@@ -123,7 +123,7 @@ export class OpsStore {
 
   /** 按白名单列更新事件；未知字段直接拒绝，避免把任意键拼进 SQL。 */
   updateOpsEvent(eventId: string, patch: OpsEventPatch): OpsEventRecord {
-    const columns: Record<keyof OpsEventPatch, string> = {
+    const columns: Record<string, string> = {
       state: 'state',
       title: 'title',
       impact: 'impact',
@@ -143,8 +143,10 @@ export class OpsStore {
       updatedAt: 'updated_at',
     }
     const assignments: string[] = []
-    const values: unknown[] = []
-    for (const [key, value] of Object.entries(patch) as Array<[keyof OpsEventPatch, unknown]>) {
+    const values: SqlParam[] = []
+    for (const [key, value] of Object.entries(patch) as Array<
+      [string, string | boolean | undefined]
+    >) {
       const column = columns[key]
       if (!column) throw new RuleViolationError(`运维事件不支持更新字段 ${key}`)
       if (value === undefined) continue
@@ -154,7 +156,7 @@ export class OpsStore {
     if (assignments.length === 0) throw new RuleViolationError('运维事件更新至少需要一个字段')
     this.db
       .prepare(`UPDATE ops_events SET ${assignments.join(', ')} WHERE event_id = ?`)
-      .run(...(values as Array<string | number>), eventId)
+      .run(...values, eventId)
     const record = this.opsEvent(eventId)
     if (!record) throw new RuleViolationError(`未找到运维事件 ${eventId}`)
     return record
