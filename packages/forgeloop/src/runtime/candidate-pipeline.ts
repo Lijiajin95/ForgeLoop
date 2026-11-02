@@ -285,7 +285,7 @@ export class CandidatePipeline {
         result: fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`),
       }
     }
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
+    const packageJson = parseJsonObject(readFileSync(packageJsonPath, 'utf8'))
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) {
       return {
@@ -648,7 +648,7 @@ export class CandidatePipeline {
         result: fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`),
       }
     }
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
+    const packageJson = parseJsonObject(readFileSync(packageJsonPath, 'utf8'))
     const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
     if (!packageVersion) {
       return {

@@ -3359,3 +3359,11 @@ suppressions 20、service.ts 5,986 行。
 - `make check` 607 项通过，coverage 91.15/96.89/85.02，mutation 97.80。
 - 剩余：`as` 159 → <20；`no-non-null-assertion`（32 处）与
   `no-unnecessary-condition`（25 处）仍全局关闭；E2E/verify-plugin 门禁未接入。
+
+### 70. package.json 读取改用 parseJsonObject（新目标 Round 20）
+
+- `candidate-pipeline` 两处 `JSON.parse(...) as { version?: unknown }` 改为
+  `parseJsonObject(...)`，版本字段按 `typeof === 'string'` 收窄。
+- 断言总数仍为 **159**（本轮未改变计数；剩余大头是 repository 62 处）。
+- `make check` 607 项通过；service 1,969 / repository 1,837 行，suppressions `{}`。
+- 下一轮集中处理 repository 的 62 处 `as`：按表建立行解析函数，逐步替换。
