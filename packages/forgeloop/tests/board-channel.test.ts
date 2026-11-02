@@ -1007,3 +1007,52 @@ describe('web board host wiring', () => {
     host.cleanup()
   })
 })
+
+describe('owner authorization routes', () => {
+  function withRepository<T>(fn: (repository: Repository) => T): T {
+    const database = Database.open(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'records.sqlite'),
+    )
+    const repository = new Repository(database)
+    try {
+      return fn(repository)
+    } finally {
+      repository.close()
+    }
+  }
+
+  it('extends the work budget and clears the exhaustion block', async () => {
+    const host = fakeHost()
+    start(host)
+    seedRequirement('req-extend-route')
+    withRepository((repository) => {
+      repository.ensureBudget('req-extend-route', 7200)
+      repository.setStatus('req-extend-route', 'blocked', '执行工时已用尽；需显式延长或拆分任务')
+    })
+    const response = await host.routes[0]!.fetch(
+      post(JSON.stringify({ endpoint: 'extend-budget', reqId: 'req-extend-route', seconds: 3600 })),
+    )
+    expect(response.status).toBe(200)
+    withRepository((repository) => {
+      expect(repository.budget('req-extend-route').limitSeconds).toBe(10800)
+      expect(repository.getRequirement('req-extend-route')?.status).toBe('approved')
+    })
+  })
+
+  it('grants three more failure rounds to a blocked requirement', async () => {
+    const host = fakeHost()
+    start(host)
+    seedRequirement('req-grant-route')
+    withRepository((repository) => {
+      repository.setStatus('req-grant-route', 'blocked', '失败轮次额度已用尽；需要追加授权')
+    })
+    const response = await host.routes[0]!.fetch(
+      post(JSON.stringify({ endpoint: 'grant-rounds', reqId: 'req-grant-route' })),
+    )
+    expect(response.status).toBe(200)
+    withRepository((repository) => {
+      expect(repository.grantCount('req-grant-route')).toBe(2)
+      expect(repository.getRequirement('req-grant-route')?.status).toBe('approved')
+    })
+  })
+})
