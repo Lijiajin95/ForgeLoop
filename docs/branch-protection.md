@@ -58,7 +58,8 @@ gh api --method PUT repos/Lijiajin95/ForgeLoop/branches/main/protection --input 
 
 ## 未落实：更严格的分支策略
 
-以下项**尚未开启**，个人开发默认不做；需要时再逐项加：
+以下项**尚未开启**，个人开发默认不做；2026-11-02 所有者确认**只补文档与可回放命令，不改仓库设置**。
+需要时按下方命令逐项应用（先 `gh auth status` 确认账号为仓库管理员）：
 
 1. `main` 要求 PR（Required approvals = 0，避免自我 approve 锁死）；
 2. Require review from Code Owners（单人仓库无意义）；
@@ -68,16 +69,61 @@ gh api --method PUT repos/Lijiajin95/ForgeLoop/branches/main/protection --input 
 6. 全部分支禁删除（保护多机在途分支）；
 7. 分支保护不区分机器：同一账号的每台机器权限相同，审计靠独立 SSH key，不靠规则。
 
-## E2E 门禁现状（未落实）
+### 可回放命令（未执行）
 
-当前没有 Playwright/E2E 套件，也没有 `make e2e` 目标；看板与 Web 接缝的验证仍由
-`tests/board-route.test.ts`、`tests/architecture-contract.test.ts` 等集成测试覆盖。
-在补齐真实浏览器 E2E 之前：
+要求 `main` 必须走 PR（0 个批准，避免单人仓库自我锁死）：
 
-- 不新增“E2E 已通过”的声明；
-- 若后续引入 Playwright，新增 `make e2e` 并在 `quality.yml` 中作为独立 job，
-  再把该 job 加入 `main` 的必需检查；
-- E2E 失败与单元测试失败同等阻断合并。
+```bash
+gh api -X PUT repos/Lijiajin95/ForgeLoop/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": { "strict": true, "contexts": ["quality", "security"] },
+  "enforce_admins": false,
+  "required_pull_request_reviews": { "required_approving_review_count": 0 },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+```
+
+影响：开启后直接 `git push origin main` 会被拒绝，必须建分支 → PR → 合并；
+现有本地提交策略（小型多次提交）需改为按分支推送。
+
+限制 `v*` tag 的创建/移动/删除（GitHub 推荐用 ruleset）：
+
+```bash
+gh api -X POST repos/Lijiajin95/ForgeLoop/rulesets --input - <<'JSON'
+{
+  "name": "protect-release-tags",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
+  "rules": [{ "type": "creation" }, { "type": "update" }, { "type": "deletion" }]
+}
+JSON
+```
+
+影响：release workflow 若用默认 `GITHUB_TOKEN` 创建 tag，需要在 ruleset 的
+`bypass_actors` 中加入该 workflow 对应的集成（或由管理员手动打 tag）；
+应用前先跑一次 release 验证，避免发布被拦。
+
+查看与回滚：
+
+```bash
+gh api repos/Lijiajin95/ForgeLoop/branches/main/protection
+gh api repos/Lijiajin95/ForgeLoop/rulesets
+gh api -X DELETE repos/Lijiajin95/ForgeLoop/branches/main/protection   # 回滚 PR 规则
+```
+
+## E2E 门禁现状（部分落实）
+
+- 已有 `make e2e`：`scripts/ts/e2e.ts` 构建插件 → 临时 `DSH_HOME` + 独立 profile 安装 →
+  校验 `--dump-config`（forgeloop-dsh 层、会话 preset）与 `plugin list`；
+  不依赖模型，**仅覆盖装载/组合层**。
+- 尚未接入 CI：GitHub runner 需要先安装 `dsh`，接入前不声称 CI 已运行 E2E。
+- 没有浏览器/Playwright E2E；看板与 Web 接缝仍由 `tests/board-route.test.ts`、
+  `tests/architecture-contract.test.ts` 等集成测试覆盖。
+- 真实模型工具链由 `make verify-plugin` 覆盖（release workflow），需要模型凭据。
 
 ## 维护
 

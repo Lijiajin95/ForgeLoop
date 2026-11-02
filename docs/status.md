@@ -3624,3 +3624,13 @@ suppressions 20、service.ts 5,986 行。
 - 说明：这是**装载/组合层** E2E；真实模型工具链仍由 `make verify-plugin`（release workflow）覆盖。
 - `make check` 607 项通过（含 scripts/ts 的 lint/typecheck）。
 - 未接入 CI：GitHub runner 上 dsh 是否可用未验证，接入前需先在 CI 安装 DSH；不把本地通过当 CI 已通过。
+
+### 94. 分支保护文档补齐（新目标 Round 12）
+
+- 所有者确认：**只补文档与可回放命令，不改仓库设置**（当前仍是档位 1）。
+- `docs/branch-protection.md` 新增：
+  - `main` 必须走 PR 的可回放 `gh api PUT .../protection` JSON 与影响说明；
+  - `v*` tag 保护的 ruleset `gh api POST .../rulesets` JSON、发布前验证要求与回滚命令；
+  - E2E 现状更新为“部分落实”：`make e2e` 已存在（装载层、无模型），未接入 CI；
+    真实模型链路由 `make verify-plugin` 覆盖。
+- 验证：文档链接检查 15 文件 0 缺失；`make contracts` OK。
