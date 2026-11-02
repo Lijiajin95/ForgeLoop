@@ -45,6 +45,9 @@ window.__ModuleLoader__.load({
       'action.requeueHelp': '任务失败后重新排队一次执行；任务包不变、失败额度照常累计。',
       'action.requeued': '已重新排队执行',
       'action.requeueBlocked': '暂不能重新执行',
+      'action.retryAnalysis': '重新分析',
+      'action.retryAnalysisHelp': '产品分析失败后重新排队一次分析；不改需求版本，失败记录保留。',
+      'action.retryAnalysisQueued': '已受理重新分析',
       'action.build': '构建安装包',
       'action.buildHelp': '只从已通过验证的候选工作区构建安装包；验收后才能构建。',
       'action.built': '候选包已构建',
@@ -68,6 +71,7 @@ window.__ModuleLoader__.load({
       'summary.issues': '问题 {count}',
       'summary.blocking': '阻断 {count}',
       'status.draft': '草稿',
+      'status.analysis_failed': '产品分析失败',
       'status.awaiting_clarification': '待澄清',
       'status.blocked': '阻塞',
       'status.specified': '已澄清',
@@ -150,13 +154,17 @@ window.__ModuleLoader__.load({
       'node.intake.title': '已进入 ForgeLoop 流程',
       'node.intake.text': '原始输入',
       'node.intake.req': '需求 {reqId}',
-      'node.intake.status': '已受理，等待需求 Agent 分析',
-      'node.analysis.title': '需求 Agent 分析结果',
+      'node.intake.status': '已受理，等待产品 Agent 分析',
+      'node.analysis.title': '产品 Agent 分析结果',
       'node.analysis.version': '分析 v{analysisVersion} · 需求 v{requirementVersion}',
       'node.analysis.goal': '目标',
       'node.analysis.scenarios': '业务场景',
+      'node.analysis.rules': '业务规则',
+      'node.analysis.exceptions': '异常与边界',
+      'node.analysis.nonGoals': '非目标',
       'node.analysis.acceptance': '验收标准',
       'node.analysis.clarifications': '待澄清',
+      'node.analysis.meta': '模型 {model} · 提示词 {promptVersion}',
       'node.error.title': 'ForgeLoop 受理失败',
       'node.error.req': '需求 {reqId}',
       'node.clarification.title': '需求等待澄清',
@@ -232,6 +240,9 @@ window.__ModuleLoader__.load({
       'action.requeueHelp': 'Queue one more execution after a failure; the plan stays the same and failure rounds still count.',
       'action.requeued': 'Re-execution queued',
       'action.requeueBlocked': 'Cannot re-run yet',
+      'action.retryAnalysis': 'Retry analysis',
+      'action.retryAnalysisHelp': 'Queue one more product analysis after a failure; the requirement version stays the same and failure records are kept.',
+      'action.retryAnalysisQueued': 'Analysis retry queued',
       'action.build': 'Build installable candidate',
       'action.buildHelp': 'Build only from the verified candidate workspace; acceptance is required first.',
       'action.built': 'Candidate package built',
@@ -255,6 +266,7 @@ window.__ModuleLoader__.load({
       'summary.issues': 'Issues {count}',
       'summary.blocking': 'Blocking {count}',
       'status.draft': 'Draft',
+      'status.analysis_failed': 'Product analysis failed',
       'status.awaiting_clarification': 'Awaiting answers',
       'status.blocked': 'Blocked',
       'status.specified': 'Specified',
@@ -342,8 +354,12 @@ window.__ModuleLoader__.load({
       'node.analysis.version': 'Analysis v{analysisVersion} · requirement v{requirementVersion}',
       'node.analysis.goal': 'Goal',
       'node.analysis.scenarios': 'Scenarios',
+      'node.analysis.rules': 'Business rules',
+      'node.analysis.exceptions': 'Exceptions and boundaries',
+      'node.analysis.nonGoals': 'Non-goals',
       'node.analysis.acceptance': 'Acceptance criteria',
       'node.analysis.clarifications': 'Clarifications',
+      'node.analysis.meta': 'Model {model} · prompt {promptVersion}',
       'node.error.title': 'ForgeLoop intake failed',
       'node.error.req': 'Requirement {reqId}',
       'node.clarification.title': 'Requirement awaiting clarification',
@@ -445,6 +461,11 @@ window.__ModuleLoader__.load({
       'detail.history': '查看版本历史（{count} 个旧版本）',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': '分析结果',
+      'detail.rules': '业务规则',
+      'detail.exceptions': '异常与边界',
+      'detail.nonGoals': '非目标',
+      'detail.analysisMeta': '模型与提示词',
+      'detail.toolCalls': '分析工具调用',
       'detail.scenarios': '业务场景',
       'detail.technicalSolution': '技术方案',
       'detail.approach': '实施步骤',
@@ -783,6 +804,11 @@ window.__ModuleLoader__.load({
       'detail.history': 'Version history ({count} older versions)',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': 'Analysis',
+      'detail.rules': 'Business rules',
+      'detail.exceptions': 'Exceptions and boundaries',
+      'detail.nonGoals': 'Non-goals',
+      'detail.analysisMeta': 'Model and prompt',
+      'detail.toolCalls': 'Analysis tool calls',
       'detail.scenarios': 'Scenarios',
       'detail.technicalSolution': 'Technical solution',
       'detail.approach': 'Approach',
@@ -1075,6 +1101,7 @@ window.__ModuleLoader__.load({
 
     const REQUIREMENT_TONES = {
       draft: 'idle',
+      analysis_failed: 'error',
       awaiting_clarification: 'warn',
       blocked: 'error',
       specified: 'info',
@@ -1211,8 +1238,21 @@ window.__ModuleLoader__.load({
         h('div', { className: 'flb-flow-label' }, t('node.analysis.goal')),
         h('div', { className: 'flb-flow-text' }, data.goal || ''),
         listItems(t, t('node.analysis.scenarios'), data.scenarios, 'scenarios'),
+        listItems(t, t('node.analysis.rules'), data.businessRules, 'business-rules'),
+        listItems(t, t('node.analysis.exceptions'), data.exceptions, 'exceptions'),
+        listItems(t, t('node.analysis.nonGoals'), data.nonGoals, 'non-goals'),
         listItems(t, t('node.analysis.acceptance'), data.acceptanceCriteria, 'acceptance'),
         listItems(t, t('node.analysis.clarifications'), data.clarifications, 'clarifications'),
+        data.model || data.promptVersion
+          ? h(
+              'div',
+              { className: 'flb-flow-note' },
+              t('node.analysis.meta', {
+                model: data.model || '—',
+                promptVersion: data.promptVersion || '—',
+              }),
+            )
+          : null,
       )
     }
 
@@ -1794,6 +1834,7 @@ window.__ModuleLoader__.load({
         advance: t('action.advance'),
         verify: t('action.verify'),
         requeue: t('action.requeue'),
+        'retry-analysis': t('action.retryAnalysis'),
         build: t('action.build'),
         deploy: t('action.deploy'),
         stop: t('action.stop'),
@@ -1803,6 +1844,7 @@ window.__ModuleLoader__.load({
         plan: t('action.planHelp'),
         verify: t('action.verifyHelp'),
         requeue: t('action.requeueHelp'),
+        'retry-analysis': t('action.retryAnalysisHelp'),
         build: t('action.buildHelp'),
         deploy: t('action.deployHelp'),
         stop: t('action.stopHelp'),
@@ -2023,6 +2065,30 @@ window.__ModuleLoader__.load({
                 h(Kv, { key: 'goal', label: t('detail.goal') }, analysis.goal),
                 h('div', { className: 'flb-label', key: 'scenarios' }, t('detail.scenarios')),
                 h(BulletList, { key: 'scenario-list', items: analysis.scenarios }),
+                analysis.businessRules && analysis.businessRules.length > 0
+                  ? h(
+                      'div',
+                      { key: 'rules' },
+                      h('div', { className: 'flb-label' }, t('detail.rules')),
+                      h(BulletList, { items: analysis.businessRules }),
+                    )
+                  : null,
+                analysis.exceptions && analysis.exceptions.length > 0
+                  ? h(
+                      'div',
+                      { key: 'exceptions' },
+                      h('div', { className: 'flb-label' }, t('detail.exceptions')),
+                      h(BulletList, { items: analysis.exceptions }),
+                    )
+                  : null,
+                analysis.nonGoals && analysis.nonGoals.length > 0
+                  ? h(
+                      'div',
+                      { key: 'non-goals' },
+                      h('div', { className: 'flb-label' }, t('detail.nonGoals')),
+                      h(BulletList, { items: analysis.nonGoals }),
+                    )
+                  : null,
                 h('div', { className: 'flb-label', key: 'acceptance' }, t('detail.acceptance')),
                 h(BulletList, { key: 'acceptance-list', items: analysis.acceptanceCriteria }),
                 analysis.clarifications.length > 0
@@ -2032,6 +2098,20 @@ window.__ModuleLoader__.load({
                       h('div', { className: 'flb-label' }, t('detail.clarifications')),
                       h(BulletList, { items: analysis.clarifications }),
                       h('div', { className: 'flb-muted' }, t('detail.clarificationHint')),
+                    )
+                  : null,
+                analysis.model || analysis.promptVersion
+                  ? h(
+                      'div',
+                      { className: 'flb-muted', key: 'meta' },
+                      `${t('detail.analysisMeta')}：${analysis.model || '—'} · ${analysis.promptVersion || '—'}`,
+                    )
+                  : null,
+                analysis.toolCalls && analysis.toolCalls.length > 0
+                  ? h(
+                      'div',
+                      { className: 'flb-muted', key: 'tool-calls' },
+                      `${t('detail.toolCalls')}：${analysis.toolCalls.join('、')}`,
                     )
                   : null,
               ]
@@ -3270,6 +3350,8 @@ window.__ModuleLoader__.load({
                         ? 'verified'
                           : endpoint === 'requeue'
                             ? 'requeued'
+                            : endpoint === 'retry-analysis'
+                              ? 'retryAnalysisQueued'
                             : endpoint === 'build'
                               ? 'built'
                             : endpoint === 'deploy'
@@ -5731,7 +5813,7 @@ window.__ModuleLoader__.load({
           ...(endpoint === 'stop' ? { reason: t('action.stopReason') } : {}),
         })
           .then(() => {
-            const key = endpoint === 'approve' ? 'approved' : endpoint === 'advance' ? 'advanced' : endpoint === 'plan' ? 'planned' : endpoint === 'verify' ? 'verified' : endpoint === 'stop' ? 'stopped' : 'cancelled'
+            const key = endpoint === 'approve' ? 'approved' : endpoint === 'advance' ? 'advanced' : endpoint === 'plan' ? 'planned' : endpoint === 'verify' ? 'verified' : endpoint === 'retry-analysis' ? 'retryAnalysisQueued' : endpoint === 'stop' ? 'stopped' : 'cancelled'
             setAction({ busy: '', message: t(`action.${key}`) })
             load()
             setDetailNonce((value) => value + 1)
