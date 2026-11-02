@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime } from '../src/runtime/service.js'
+import { extendWorkBudget } from '../src/runtime/budget.js'
 import { resolveConfig, type ForgeLoopConfig } from '../src/config.js'
 import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
@@ -637,6 +638,47 @@ describe('approval boundaries', () => {
     ).toMatchObject({
       ok: false,
       code: 'stale_requirement',
+    })
+  })
+})
+
+describe('work budget extension', () => {
+  it('raises the limit without clearing consumption and unblocks work-hours exhaustion', () => {
+    const reqId = submit()
+    runtime.repo.ensureBudget(reqId, 7200)
+    runtime.repo.chargeBudget(reqId, 7300)
+    runtime.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
+    const result = extendWorkBudget(runtime.repo, {
+      reqId,
+      seconds: 3600,
+      by: 'owner',
+      source: 'test',
+    })
+    expect(result.ok, result.message).toBe(true)
+    const budget = runtime.repo.budget(reqId)
+    expect(budget.limitSeconds).toBe(7200 + 3600)
+    expect(budget.consumedSeconds).toBe(7300)
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('approved')
+    expect(runtime.repo.getRequirement(reqId)?.blockedReason).not.toContain('工时已用尽')
+  })
+
+  it('refuses invalid durations and terminal requirements', () => {
+    const reqId = submit()
+    expect(
+      extendWorkBudget(runtime.repo, { reqId, seconds: 30, by: 'owner', source: 'test' }),
+    ).toMatchObject({
+      ok: false,
+      code: 'bad_seconds',
+    })
+    expect(
+      extendWorkBudget(runtime.repo, { reqId, seconds: 90000, by: 'owner', source: 'test' }),
+    ).toMatchObject({ ok: false, code: 'bad_seconds' })
+    runtime.repo.setStatus(reqId, 'accepted')
+    expect(
+      extendWorkBudget(runtime.repo, { reqId, seconds: 3600, by: 'owner', source: 'test' }),
+    ).toMatchObject({
+      ok: false,
+      code: 'terminal',
     })
   })
 })

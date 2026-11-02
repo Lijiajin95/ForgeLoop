@@ -45,6 +45,10 @@ window.__ModuleLoader__.load({
       'action.requeueHelp': '任务失败后重新排队一次执行；任务包不变、失败额度照常累计。',
       'action.requeued': '已重新排队执行',
       'action.requeueBlocked': '暂不能重新执行',
+      'action.extendBudget': '延长工时',
+      'action.extendBudgetHelp': '延长该需求的执行工时；只加上限、不清零已消耗，延长后可重新执行。',
+      'action.extendBudgetPrompt': '延长多少小时？（0.5–24）',
+      'action.extendedBudget': '已延长工时',
       'action.retryAnalysis': '重新分析',
       'action.retryAnalysisHelp': '产品分析失败后重新排队一次分析；不改需求版本，失败记录保留。',
       'action.retryAnalysisQueued': '已受理重新分析',
@@ -241,6 +245,10 @@ window.__ModuleLoader__.load({
       'action.requeueHelp': 'Queue one more execution after a failure; the plan stays the same and failure rounds still count.',
       'action.requeued': 'Re-execution queued',
       'action.requeueBlocked': 'Cannot re-run yet',
+      'action.extendBudget': 'Extend budget',
+      'action.extendBudgetHelp': 'Extend this requirement’s work budget; consumed time is preserved and it can be re-run afterwards.',
+      'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24)',
+      'action.extendedBudget': 'Budget extended',
       'action.retryAnalysis': 'Retry analysis',
       'action.retryAnalysisHelp': 'Queue one more product analysis after a failure; the requirement version stays the same and failure records are kept.',
       'action.retryAnalysisQueued': 'Analysis retry queued',
@@ -1889,6 +1897,7 @@ window.__ModuleLoader__.load({
         advance: t('action.advance'),
         verify: t('action.verify'),
         requeue: t('action.requeue'),
+        'extend-budget': t('action.extendBudget'),
         'retry-analysis': t('action.retryAnalysis'),
         build: t('action.build'),
         deploy: t('action.deploy'),
@@ -1899,6 +1908,7 @@ window.__ModuleLoader__.load({
         plan: t('action.planHelp'),
         verify: t('action.verifyHelp'),
         requeue: t('action.requeueHelp'),
+        'extend-budget': t('action.extendBudgetHelp'),
         'retry-analysis': t('action.retryAnalysisHelp'),
         build: t('action.buildHelp'),
         deploy: t('action.deployHelp'),
@@ -3379,6 +3389,16 @@ window.__ModuleLoader__.load({
             if (!confirmed) return
           }
           const extra = {}
+          if (endpoint === 'extend-budget') {
+            const raw =
+              typeof window === 'undefined' || typeof window.prompt !== 'function'
+                ? ''
+                : window.prompt(t('action.extendBudgetPrompt'), '1')
+            if (raw === null) return
+            const hours = Number(raw)
+            if (!Number.isFinite(hours) || hours < 0.5 || hours > 24) return
+            extra.seconds = Math.round(hours * 3600)
+          }
           if (endpoint === 'build') extra.planVersion = requirement.planVersion
           if (endpoint === 'deploy') {
             const raw =
@@ -3411,6 +3431,8 @@ window.__ModuleLoader__.load({
                         ? 'verified'
                           : endpoint === 'requeue'
                             ? 'requeued'
+                            : endpoint === 'extend-budget'
+                              ? 'extendedBudget'
                             : endpoint === 'retry-analysis'
                               ? 'retryAnalysisQueued'
                             : endpoint === 'build'

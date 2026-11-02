@@ -1020,3 +1020,12 @@ describe('project facts for the requirement Agent', () => {
     expect(facts.requirements[0]!.reqId).toBe(ids[11])
   })
 })
+
+describe('work budget board action', () => {
+  it('offers extension when the requirement is blocked by exhausted work hours', () => {
+    const reqId = submit('req-hours')
+    repository.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.actions).toContain('extend-budget')
+  })
+})

@@ -4,6 +4,7 @@ import { errorMessage } from '../domain/errors.js'
 import { BOARD_MAX_LIMIT } from './board.js'
 import type { Coordinator } from './coordinator.js'
 import type { ForgeLoopRuntime } from './service.js'
+import { extendWorkBudget } from './budget.js'
 
 const BOARD_ENDPOINTS = [
   'board',
@@ -16,6 +17,7 @@ const BOARD_ENDPOINTS = [
   'advance',
   'verify',
   'requeue',
+  'extend-budget',
   'retry-analysis',
   'build',
   'deploy',
@@ -232,6 +234,24 @@ function handleVerify(body: BoardBody | null, context: BoardContext): Response {
     result.ok ? 200 : 409,
   )
 }
+function handleExtendBudget(body: BoardBody | null, context: BoardContext): Response {
+  const { runtime, config } = context
+  const reqId = text(body?.reqId)
+  if (!reqId) return boardResponse(boardFailure('bad_request', '延长工时需要 reqId'), 400)
+  const seconds = Number(body?.seconds)
+  const sessionId = text(body?.sessionId)
+  const result = extendWorkBudget(runtime.repo, {
+    reqId,
+    seconds,
+    by: config.owner,
+    source: `web-decision:${sessionId || 'unknown-session'}:extend-budget`,
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : 409,
+  )
+}
+
 function handleRequeue(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
@@ -398,6 +418,8 @@ function handleWrite(
   if (endpoint === 'verify') return handleVerify(body, context)
 
   if (endpoint === 'requeue') return handleRequeue(body, context)
+
+  if (endpoint === 'extend-budget') return handleExtendBudget(body, context)
 
   if (endpoint === 'retry-analysis') return handleRetryAnalysis(body, context)
 

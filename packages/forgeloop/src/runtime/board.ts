@@ -88,6 +88,7 @@ export type BoardRequirementAction =
   | 'recover'
   | 'diagnose'
   | 'requeue'
+  | 'extend-budget'
   | 'build'
   | 'deploy'
   | 'stop'
@@ -833,6 +834,9 @@ function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
   }
   if (canAdvance(context)) actions.push('advance')
   if (retry.allowed) actions.push('requeue')
+  if (context.requirement.blockedReason.includes('工时已用尽')) {
+    actions.push('extend-budget')
+  }
   if (canVerify(context)) actions.push('verify')
   if (context.activeRequest || progress.running > 0 || progress.awaitingInput > 0) {
     actions.push('stop')

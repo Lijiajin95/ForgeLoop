@@ -1242,6 +1242,14 @@ export class Repository extends DevSessionStore {
       .run(Math.max(0, seconds), reqId)
   }
 
+  /** 所有者延长工时：只加总上限，不清零已消耗，避免用延长掩盖历史消耗。 */
+  extendBudget(reqId: string, seconds: number): number {
+    this.db
+      .prepare('UPDATE requirement_budget SET limit_seconds = limit_seconds + ? WHERE req_id = ?')
+      .run(Math.max(0, seconds), reqId)
+    return this.budget(reqId).limitSeconds
+  }
+
   // ---------------------------------------------------------------- 操作请求
 
   /** 受理前落库：同需求同动作的待执行请求复用，不同动作拒绝，已有在跑请求拒绝。 */
