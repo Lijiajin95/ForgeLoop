@@ -6,6 +6,7 @@
  * 模型步骤。用户看到的是自定义会话事件，不是普通聊天回复。
  */
 
+import { asRecord } from '../domain/json.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
 import type { RequirementAnalysis } from '../domain/requirement.js'
@@ -101,8 +102,8 @@ function textOfContent(content: unknown): string {
 
 export function humanMessages(messages: readonly unknown[]): UserMessageLike[] {
   return messages.filter((message): message is UserMessageLike => {
-    const record = message as AnyRecord | undefined
-    return record?.role === 'user' && (record.source as AnyRecord | undefined)?.kind === 'user'
+    const record = asRecord(message)
+    return record?.role === 'user' && asRecord(record.source)?.kind === 'user'
   })
 }
 
@@ -401,7 +402,7 @@ export class SessionIntake {
   }
 
   private reqIdOf(view: unknown): string {
-    const data = view as AnyRecord | undefined
+    const data = asRecord(view)
     const reqId = data?.reqId
     return typeof reqId === 'string' ? reqId : ''
   }

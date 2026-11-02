@@ -280,7 +280,7 @@ export class ForgeLoopRuntime {
     return this.clock().toISOString()
   }
 
-  // ------------------------------------------------------------ 需求队列
+  // 需求队列
 
   /**
    * 研发空闲时领取队首需求并排入分析；研发忙、已有在研需求或队列为空时返回 null。
@@ -354,7 +354,7 @@ export class ForgeLoopRuntime {
     }
   }
 
-  // ------------------------------------------------------------ 受理与修订
+  // 受理与修订
 
   submit(input: { text: string; by: string; source: string; clientKey?: string }): OperationResult {
     const text = input.text.trim()
@@ -840,7 +840,8 @@ ${answer}`
         requestView(request),
       )
     } catch (error) {
-      return fail((error as RuleViolationError).code, errorMessage(error))
+      const code = error instanceof RuleViolationError ? error.code : 'rule_violation'
+      return fail(code, errorMessage(error))
     }
   }
 

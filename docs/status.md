@@ -3563,3 +3563,12 @@ suppressions 20、service.ts 5,986 行。
 - `requirement.ts` 去掉 `JSON.parse(...) as unknown` 多余断言。
 - `as` 断言 **64 → 60**，基线 60。
 - `make check` 607 项通过；coverage 91.16/84.52/96.88；mutation 97.80。
+
+### 88. 错误对象与消息守卫（新目标 Round 5）
+
+- `service` 的 `error as RuleViolationError` 改为 `instanceof` 判断；
+- `workspace` 的错误摘要改用 `asRecord(error)`，stderr 回退显式判型；
+- `intake` 的消息/来源/视图改用 `asRecord`。
+- 为满足 token 预算，把 service 两处分隔注释缩短（功能无关）。
+- `as` 断言 **60 → 55**，基线 55。
+- `make check` 607 项通过；coverage 91.16/84.49/96.88；mutation 97.80。

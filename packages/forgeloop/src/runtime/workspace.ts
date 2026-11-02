@@ -3,6 +3,7 @@
  * 交付候选 = 暂存后的二进制 diff（含未跟踪文件），并核对改动是否在批准的文件清单内。
  */
 
+import { asRecord } from '../domain/json.js'
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -38,11 +39,16 @@ export function runCommand(
     })
     return { code: 0, stdout, stderr: '' }
   } catch (error) {
-    const failure = error as { status?: number; stdout?: string; stderr?: string; message?: string }
+    const failure = asRecord(error) ?? {}
     return {
       code: typeof failure.status === 'number' ? failure.status : 1,
       stdout: typeof failure.stdout === 'string' ? failure.stdout : '',
-      stderr: typeof failure.stderr === 'string' ? failure.stderr : (failure.message ?? ''),
+      stderr:
+        typeof failure.stderr === 'string'
+          ? failure.stderr
+          : typeof failure.message === 'string'
+            ? failure.message
+            : '',
     }
   }
 }
