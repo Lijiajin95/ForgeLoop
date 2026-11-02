@@ -1029,3 +1029,12 @@ describe('work budget board action', () => {
     expect(requirement.actions).toContain('extend-budget')
   })
 })
+
+describe('failure round board action', () => {
+  it('offers a grant when the failure quota is exhausted', () => {
+    const reqId = submit('req-rounds')
+    repository.setStatus(reqId, 'blocked', '失败轮次额度已用尽；需要追加授权')
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.actions).toContain('grant-rounds')
+  })
+})

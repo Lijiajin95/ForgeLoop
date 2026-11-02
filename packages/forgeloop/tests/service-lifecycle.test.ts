@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime } from '../src/runtime/service.js'
 import { extendWorkBudget } from '../src/runtime/budget.js'
+import { grantFailureRounds } from '../src/runtime/grants.js'
 import { resolveConfig, type ForgeLoopConfig } from '../src/config.js'
 import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
@@ -677,6 +678,37 @@ describe('work budget extension', () => {
     expect(
       extendWorkBudget(runtime.repo, { reqId, seconds: 3600, by: 'owner', source: 'test' }),
     ).toMatchObject({
+      ok: false,
+      code: 'terminal',
+    })
+  })
+})
+
+describe('failure round grants', () => {
+  it('adds three rounds for a blocked requirement without clearing history', () => {
+    const reqId = submit()
+    const before = runtime.repo.grantCount(reqId)
+    runtime.repo.setStatus(reqId, 'blocked', '失败轮次额度已用尽；需要追加授权')
+    const result = grantFailureRounds(runtime.repo, {
+      reqId,
+      by: 'owner',
+      source: 'test',
+      now: '2026-11-02T00:00:00.000Z',
+    })
+    expect(result.ok, result.message).toBe(true)
+    expect(runtime.repo.grantCount(reqId)).toBe(before + 1)
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('approved')
+    expect(runtime.repo.getRequirement(reqId)?.blockedReason).toContain('追加授权')
+  })
+
+  it('refuses grants while the requirement is not blocked or is terminal', () => {
+    const reqId = submit()
+    expect(grantFailureRounds(runtime.repo, { reqId, by: 'owner', source: 'test' })).toMatchObject({
+      ok: false,
+      code: 'not_blocked',
+    })
+    runtime.repo.setStatus(reqId, 'accepted')
+    expect(grantFailureRounds(runtime.repo, { reqId, by: 'owner', source: 'test' })).toMatchObject({
       ok: false,
       code: 'terminal',
     })

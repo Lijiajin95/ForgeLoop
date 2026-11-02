@@ -49,6 +49,9 @@ window.__ModuleLoader__.load({
       'action.extendBudgetHelp': '延长该需求的执行工时；只加上限、不清零已消耗，延长后可重新执行。',
       'action.extendBudgetPrompt': '延长多少小时？（0.5–24）',
       'action.extendedBudget': '已延长工时',
+      'action.grantRounds': '追加授权',
+      'action.grantRoundsHelp': '失败轮次额度用尽后追加 3 轮；累计失败保留，不清零。',
+      'action.grantedRounds': '已追加授权',
       'action.retryAnalysis': '重新分析',
       'action.retryAnalysisHelp': '产品分析失败后重新排队一次分析；不改需求版本，失败记录保留。',
       'action.retryAnalysisQueued': '已受理重新分析',
@@ -249,6 +252,9 @@ window.__ModuleLoader__.load({
       'action.extendBudgetHelp': 'Extend this requirement’s work budget; consumed time is preserved and it can be re-run afterwards.',
       'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24)',
       'action.extendedBudget': 'Budget extended',
+      'action.grantRounds': 'Grant more rounds',
+      'action.grantRoundsHelp': 'Grant 3 more failure rounds after the quota is exhausted; history is preserved.',
+      'action.grantedRounds': 'Failure rounds granted',
       'action.retryAnalysis': 'Retry analysis',
       'action.retryAnalysisHelp': 'Queue one more product analysis after a failure; the requirement version stays the same and failure records are kept.',
       'action.retryAnalysisQueued': 'Analysis retry queued',
@@ -1898,6 +1904,7 @@ window.__ModuleLoader__.load({
         verify: t('action.verify'),
         requeue: t('action.requeue'),
         'extend-budget': t('action.extendBudget'),
+        'grant-rounds': t('action.grantRounds'),
         'retry-analysis': t('action.retryAnalysis'),
         build: t('action.build'),
         deploy: t('action.deploy'),
@@ -1909,6 +1916,7 @@ window.__ModuleLoader__.load({
         verify: t('action.verifyHelp'),
         requeue: t('action.requeueHelp'),
         'extend-budget': t('action.extendBudgetHelp'),
+        'grant-rounds': t('action.grantRoundsHelp'),
         'retry-analysis': t('action.retryAnalysisHelp'),
         build: t('action.buildHelp'),
         deploy: t('action.deployHelp'),
@@ -3433,6 +3441,8 @@ window.__ModuleLoader__.load({
                             ? 'requeued'
                             : endpoint === 'extend-budget'
                               ? 'extendedBudget'
+                            : endpoint === 'grant-rounds'
+                              ? 'grantedRounds'
                             : endpoint === 'retry-analysis'
                               ? 'retryAnalysisQueued'
                             : endpoint === 'build'

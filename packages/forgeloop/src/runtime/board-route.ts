@@ -5,6 +5,7 @@ import { BOARD_MAX_LIMIT } from './board.js'
 import type { Coordinator } from './coordinator.js'
 import type { ForgeLoopRuntime } from './service.js'
 import { extendWorkBudget } from './budget.js'
+import { grantFailureRounds } from './grants.js'
 
 const BOARD_ENDPOINTS = [
   'board',
@@ -18,6 +19,7 @@ const BOARD_ENDPOINTS = [
   'verify',
   'requeue',
   'extend-budget',
+  'grant-rounds',
   'retry-analysis',
   'build',
   'deploy',
@@ -234,6 +236,22 @@ function handleVerify(body: BoardBody | null, context: BoardContext): Response {
     result.ok ? 200 : 409,
   )
 }
+function handleGrantRounds(body: BoardBody | null, context: BoardContext): Response {
+  const { runtime, config } = context
+  const reqId = text(body?.reqId)
+  if (!reqId) return boardResponse(boardFailure('bad_request', '追加授权需要 reqId'), 400)
+  const sessionId = text(body?.sessionId)
+  const result = grantFailureRounds(runtime.repo, {
+    reqId,
+    by: config.owner,
+    source: `web-decision:${sessionId || 'unknown-session'}:grant-rounds`,
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : 409,
+  )
+}
+
 function handleExtendBudget(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
@@ -420,6 +438,8 @@ function handleWrite(
   if (endpoint === 'requeue') return handleRequeue(body, context)
 
   if (endpoint === 'extend-budget') return handleExtendBudget(body, context)
+
+  if (endpoint === 'grant-rounds') return handleGrantRounds(body, context)
 
   if (endpoint === 'retry-analysis') return handleRetryAnalysis(body, context)
 

@@ -89,6 +89,7 @@ export type BoardRequirementAction =
   | 'diagnose'
   | 'requeue'
   | 'extend-budget'
+  | 'grant-rounds'
   | 'build'
   | 'deploy'
   | 'stop'
@@ -836,6 +837,12 @@ function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
   if (retry.allowed) actions.push('requeue')
   if (context.requirement.blockedReason.includes('工时已用尽')) {
     actions.push('extend-budget')
+  }
+  if (
+    context.requirement.blockedReason.includes('额度已用尽') ||
+    context.requirement.blockedReason.includes('需要追加授权')
+  ) {
+    actions.push('grant-rounds')
   }
   if (canVerify(context)) actions.push('verify')
   if (context.activeRequest || progress.running > 0 || progress.awaitingInput > 0) {
