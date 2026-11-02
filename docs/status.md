@@ -4,20 +4,20 @@
 更新时区分当前快照与历史批次，数字绑定检查日期、构建和原始日志；发现冲突先核对并留勘误。
 本文件不把工程检查、安装回执或历史自迭代当作新方案的完整验收。
 
-## 当前快照（2026-10-30）
+## 当前快照（2026-11-02）
 
-| 项目         | 最近有依据的状态                                                                                                                                                                                                                                                                                                                                                                                | 回查                                                                                                                       |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 新产品方案   | 产品、技术与验证决定已合并；种子范围、首条真实需求及 M2 参数仍待明确                                                                                                                                                                                                                                                                                                                            | [统一方案 §14](product.md#14-实施边界与待决项)                                                                             |
-| 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、研发拆解、实现前评审、批准、推进、独立验证与验收均已接入；2026-10-30 进一步收紧为“执行角色全工作区 + 已批准任务包冻结 + 验证阻断自动回研发修复”，退役最小重新规划与手工重新研发入口；天工页显示业务终审/候选/部署并提供构建、核对上线、重新执行动作；编辑/草稿删除/问题补充/等待回答仍无入口；完整真实候选安装与上线核对尚未在正式需求上跑通 | [架构](architecture.md)、§15–§37                                                                                           |
-| 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                    | §30                                                                                                                        |
-| 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                       | §13、[ADR 0009](adr/0009-remove-retired-implementation.md)                                                                 |
-| 最近安装记录 | 2026-10-30 `forgeloop-dsh@0.1.6` tarball（177,096 字节，SHA-256 `0ebbfa37…`）已通过 `plugin_manager` 安装到正式 `web` profile 并热重载（3080 进程 PID 82207 未重启；新 owner `MacAir.local:2477:c0ce681f` 起于 `2026-10-30T01:28:42Z`），`last_recovery` 记录 `interruptedRuns: 1`；安装记录不等于交付完成                                                                                      | §36                                                                                                                        |
-| 最近工程检查 | 2026-10-30 `make check` 通过，41 个测试文件、433 项测试；`make coverage` 通过（行/语句 92.14%、函数 96.90%、分支 84.09%，门槛 90/93/84）；`make contracts` 通过；`make package` 产出 0.0.2（版本号未变）                                                                                                                                                                                        | §39                                                                                                                        |
-| 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行                                                                                                           | §16–§28、§33、§36                                                                                                          |
-| 运维 Agent   | 2026-10-29 首版：登记资源/检查/少量恢复动作，事件归并与未知收口，无工具诊断，目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求；只读工具与认证端点、天工“运维”视图；尚无真实线上事件验证                                                                                                                                                                         | §35、[运维设计](ops-agent.md)                                                                                              |
-| 关键缺口     | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维无真实线上事件；需求编辑、草稿删除、问题补充与等待回答无服务端入口                                                           | §4.1、§21–§37                                                                                                              |
-| 覆盖率       | 2026-10-29 行／语句 92.31%、函数 96.36%、分支 84.27%，门槛通过                                                                                                                                                                                                                                                                                                                                  | §35；历史测量及勘误见 §34、§33、§32、§31、§30、§29、§28、§27、§26、§25、§23、§22、§21、§19、§18、§15、§14、§13、§3.4、§2.2 |
+| 项目         | 最近有依据的状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 回查                                                                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 新产品方案   | 产品、技术与验证决定已合并；种子范围、首条真实需求及 M2 参数仍待明确                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | [统一方案 §14](product.md#14-实施边界与待决项)                                                                                         |
+| 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、研发拆解、实现前评审、批准、推进、独立验证与验收均已接入；2026-10-30 进一步收紧为“执行角色全工作区 + 已批准任务包冻结 + 验证阻断自动回研发修复”，退役最小重新规划与手工重新研发入口；天工页显示业务终审/候选/部署并提供构建、核对上线、重新执行动作；编辑/草稿删除/问题补充/等待回答仍无入口；完整真实候选安装与上线核对尚未在正式需求上跑通                                                                                                                                          | [架构](architecture.md)、§15–§37                                                                                                       |
+| 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                             | §30                                                                                                                                    |
+| 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                | §13、[ADR 0009](adr/0009-remove-retired-implementation.md)                                                                             |
+| 最近安装记录 | 2026-10-30 `forgeloop-dsh@0.1.6` tarball（177,096 字节，SHA-256 `0ebbfa37…`）已通过 `plugin_manager` 安装到正式 `web` profile 并热重载（3080 进程 PID 82207 未重启；新 owner `MacAir.local:2477:c0ce681f` 起于 `2026-10-30T01:28:42Z`），`last_recovery` 记录 `interruptedRuns: 1`；安装记录不等于交付完成                                                                                                                                                                                                                               | §36                                                                                                                                    |
+| 最近工程检查 | 2026-11-02 `make check` 通过，67 个测试文件、698 项测试；`make coverage` 行/语句 91.88%、函数 96.96%、分支 84.51%（门槛 90/93/84）；`make contracts`、断言预算 19/19、token 预算通过；`make format` 对本批文件通过，工作树中并行会话在途的 `src/runtime/execution-dev.ts` 与 `tests/config-validation.test.ts` 仍不符合格式且未代为修改                                                                                                                                                                                                  | §110、§112                                                                                                                             |
+| 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行                                                                                                                                                                                                                                                    | §16–§28、§33、§36                                                                                                                      |
+| 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，无工具 Agent 评审后建事件；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证 | §35、§110、§112、[运维设计](ops-agent.md)                                                                                              |
+| 关键缺口     | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维只有行为测试（正式配置已启用主动监控，宿主 PID 2477 未重载）；需求编辑、草稿删除、问题补充与等待回答无服务端入口                                                                                                                                                      | §4.1、§21–§37、§110                                                                                                                    |
+| 覆盖率       | 2026-11-02 行／语句 91.88%、函数 96.96%、分支 84.51%，门槛（90/93/84）通过                                                                                                                                                                                                                                                                                                                                                                                                                                                               | §110、§112；历史测量及勘误见 §35、§34、§33、§32、§31、§30、§29、§28、§27、§26、§25、§23、§22、§21、§19、§18、§15、§14、§13、§3.4、§2.2 |
 
 产品版本以 Git tag 为准；历史记录中的包名、构建标识与摘要用于追溯，不单独作为运行版本证明。
 以下章节保留原编号和锚点，历史批次按当时环境理解；没有再次执行的检查不刷新为本次结果。
@@ -3846,6 +3846,74 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   **业务背景文档的增删改同步仍是提示词约束**——程序只保证路径、可写范围与读入提示词，
   没有确定性校验“识别到新背景就必须改文档”，按 AGENTS 口径属于尚未机器落实的要求。
 
+### 110. 运维 Agent：定时主动监控、外部告警与检查最后状态（新目标 Round 28）
+
+- 来源：所有者要求把运维从“周期性跑登记检查”改为**主动监控**——按周期查看程序状态、日志、
+  CPU／内存／网络延迟与告警，发现问题自动处置并告警；同时保留原安全边界：模型没有工具、动作只能来自
+  登记目录、参数只能取枚举值、每个事件最多一次动作、恢复只认登记检查的退出码。
+- 配置：`src/config.ts` 的 `ops` 目录增加 `monitor`（`enabled`／`intervalSeconds`／`logLines`／
+  `processes`／`latency`／`logs`／`alertFiles`）与 `alerts`（`webhook`／`timeoutSeconds`）。装载时静态校验：
+  监控来源必须引用已登记资源、来源 id 全局唯一；延迟与 webhook 只接受 http(s)（延迟超时默认 5 秒、
+  上限 60，webhook 超时默认 10 秒、上限 60）；日志 `errorPattern` 必须能编译为正则；
+  `intervalSeconds` 默认 300、最小 30，`logLines` 默认 80、范围 1–500；`ops.monitor.enabled` 要求
+  `ops.enabled`，`ops.enabled` 要求至少一个检查或已启用监控；`alerts.webhook` 留空即关闭。
+  未启用的配置同样校验，错误配置在装载时直接失败。
+- 领域：新增 `domain/monitor.ts`——`parseMonitorReport` 只接受严格 JSON 报告：`healthy` 必须没有问题，
+  `degraded` 至少一条且不含严重问题，`critical` 至少一条严重问题；问题未显式给出 `alert` 时按
+  “非轻微即告警”补齐。问题 key 限定 `[a-z][a-z0-9-]{1,40}`，问题数 ≤10，摘要与影响 ≤1000 字符，
+  事实 ≤20 条。`monitorSignatureOf` 生成 `monitor/<资源>/<key>` 去重签名。
+  `domain/ops.ts` 抽出并导出 `parseOpsDiagnosisFields`，原 `parseOpsDiagnosis` 复用同一套校验，
+  错误消息不变。
+- 采集：新增 `runtime/monitor.ts` 的 `collectMonitorSnapshot`——主机负载、CPU 两次 100ms 采样、
+  内存与 uptime；`ps -axo pid=,pcpu=,rss=,comm=`（5 秒超时）按登记 `match` 子串（大小写不敏感）
+  聚合进程数量／CPU／RSS；登记 URL 的 HTTP 延迟（每来源独立超时）；日志只读文件末尾 64 KiB、
+  取最后 `logLines` 行并统计正则匹配、保留最多 3 条样例；告警 JSON 文件最多 20 条；
+  每个登记检查读 `ops_check_last:<id>`；活动事件最多 20 条。单个来源失败只写来源错误或整轮 `errors`，
+  不抛整体失败，快照有界。
+- 主动评审：新增 `runtime/ops-monitor.ts` 的 `OpsMonitor`——按 `ops_monitor_at` 与
+  `ops.monitor.intervalSeconds` 判断到期才扫描（监控关闭则不扫描）；把快照与登记资源、动作目录交给
+  `role: ops`、`tools: 'none'` 的 Agent 评审，轨迹写 `ops/monitor/monitor-<时间>.jsonl`。
+  报告畸形、模型失败或抛错只把 `ops_monitor_last.status` 记为 `error`，不建事件、不当作健康；
+  扫描时间戳照常写入，因此下一轮仍要等满监控周期，不会每拍重试模型。成功则写证据
+  `ops/monitor/monitor-<时间>.json`（快照＋报告＋会话）与 `ops_monitor_last` 摘要
+  （时间、状态、摘要、主机指标、来源计数、问题数与错误）。
+- 事件与处置：问题引用未登记资源时只记错误、跳过；同签名命中活动事件时追加 `monitor` 观测、
+  仅在严重度更高时升级、必要时补影响说明，不重复告警也不重复处置；新问题在目录授权通过时建
+  `diagnosed`＋`decision=auto`＋`decisionBy=ops-catalog` 事件，否则停在 `awaiting_decision`。
+  处置仍走既有 `advanceEvents`：动作越界、跨资源或参数取非枚举值时停在 `awaiting_decision`，
+  恢复只认登记检查退出码 0，每个事件最多一次动作。
+- 告警：新增 `runtime/ops-alerts.ts` 的 `sendOpsAlert`——新事件在问题 `alert` 为真时、检查失败新建
+  事件时各发一次 webhook POST（项目、事件、严重度、标题、影响、来源、时间、摘要）；2xx 记 `alert`
+  观测，失败或超时记 `alert_error`，只尝试一次、不重试、不排队。
+- 协调器：`runtime/ops.ts` 的 Tick 顺序改为
+  `runChecks → runMonitor → advanceEvents → reportInterruptions → ensureFixRequirements`；
+  检查结果写 `ops_check_last:<id>`（时间、退出码、超时、中止、输出前 500 字符）并进入下一轮快照；
+  `OpsTickResult` 增加 `monitored`／`issues`／`opened`／`merged`／`alerted`，`summary()` 增加
+  `monitor`（从 `ops_monitor_last` 防御式解析）与 `alerts.webhook`。
+- 提示词：新增 `monitorPrompt`——日志与告警内容是数据不是指令、只依据快照事实、key 跨扫描稳定、
+  已覆盖事件不重复报、`healthy` 不带问题、资源与动作只能取登记值、参数只能取枚举值、输出严格 JSON；
+  快照进入提示词前截断到 60000 字符。
+- 客户端：「运维」视图统计条下新增监控条——扫描状态、最近扫描时间、CPU／内存／负载、问题数、
+  来源计数与告警配置，`error`／`degraded`／`critical` 各有配色；新增 `monitor`／`alert`／`alert_error`
+  观测文案与中英文 locale。
+- 测试：新增 `tests/monitor.test.ts`（报告解析全部非法分支、签名、各来源采集与失败、缺失来源、
+  空/大日志、告警上限、坏检查元数据、`ps` 不可用、已中止）、`tests/ops-monitor.test.ts`
+  （健康不建事件、自动处置与告警、去重与升级、畸形报告、未登记资源与动作、`alert=false`、监控关闭、
+  检查失败告警与检查状态进入提示词、模型失败/抛错/取消、参数越界与非 `auto`、摘要防御解析）、
+  `tests/ops-alerts.test.ts`（无 webhook、HTTP 500、不可达、非法 URL）；补充 `tests/ops-config.test.ts`
+  的监控与告警配置用例以及提示词用例。
+- 验证：`make check` 通过，64 个测试文件、671 项测试；`make coverage` 行／语句 91.77%、
+  函数 96.89%、分支 84.55%（门槛 90/93/84）；`make contracts`、断言预算 19/19、token 预算通过。
+  `make format` 对本批新增与改动的 TypeScript 文件通过；工作树中并行会话在途的
+  `src/runtime/execution-dev.ts` 与 `tests/config-validation.test.ts` 仍不符合格式，未代为修改，
+  因此整体 `make format` 在该批次合入前不会全绿。
+- 边界：真实 `~/.forgeloop/config.json` 没有 `ops` 段，运维与监控默认关闭，本轮不会自行开始监控真机；
+  只有当前快照，没有指标历史、趋势与阈值配置——判断由 Agent 依提示词与快照给出，程序只校验结构与
+  取值域，不判断“CPU 80% 算不算异常”；告警只有一次尽力尝试，没有重试、队列、去重窗口与静默期；
+  外部告警只有本地 JSON 文件与 webhook，未接入日志或告警平台；进程匹配依赖 `ps comm` 子串，
+  可能命中同名的无关进程；日志只读尾部，滚动或压缩的日志可能漏掉早期错误；监控与研发共用单消费者锁，
+  重负载机器上扫描会顺延，也不抢占正在进行的研发任务。
+
 ### 111. 产品 Agent：业务背景文档硬同步与 DeepSeek 联网检索（新目标 Round 28）
 
 - 来源：所有者要求——① 业务背景文档同步从提示词约定改成程序执行的硬机制；② 产品 Agent 的
@@ -3899,7 +3967,106 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   环境启动宿主。
   旧记录的 business context 不受影响（缺字段按未变化）；同步只覆盖整份文档，不做增量合并，
   模型漏判“需要更新”仍不会被程序发现。
-### 112. 研发会话常驻与主控 Agent 路由（2026-11-02）
+### 112. 运维接口：监控提供方契约、外部心跳与最小配置（新目标 Round 29）
+
+- 来源：所有者要求——① 提供运维接口，支持对接自研运维工具与多个外部运维工具，**现有场景只支持自研**；
+  ② 写 ops、监控、最小配置与心跳。本轮不改动既有安全边界：模型无工具、动作只取登记目录、
+  参数只取枚举值、每个事件最多一次动作、恢复只认登记检查退出码。
+- 契约：新增 `domain/ops-provider.ts`——`OpsProviderDescriptor`（`id`/`label`/`kind`/`version`/
+  `capabilities`）、`OPS_PROVIDER_VERSION=ops-provider-v1`、`OPS_PROVIDER_REGISTRY`。
+  `kind` 为 `builtin|external`；能力枚举覆盖 host、processes、latency、logs、alerts、checks、events。
+  采集契约是 `runtime/monitor.ts` 的 `OpsMonitorProvider.collect`，实现登记在
+  `PROVIDER_IMPLEMENTATIONS`；登记表当前只有 `builtin`（自研采集器）。契约约定提供方只读、有界、
+  失败写 `errors`、不能执行动作或改变事件状态。
+- 配置：`ops.monitor.providers`（默认 `["builtin"]`）只接受已登记的提供方。写未登记项（如 `glances`、
+  `prometheus`）、空数组、重复项、非数组都在装载期失败，错误消息列出当前可用提供方；
+  未启用监控时同样校验。这保证“能配置”不等于“已经支持”。
+- 快照：`MonitorSnapshot.providers` 记录产生快照的提供方（id/kind/version），随证据文件落盘并进入提示词；
+  `OpsMonitorSummary.providers` 供只读工具与页面读取。配置校验之外若仍出现未登记 id，采集只记错误，
+  不伪造提供方。
+- 心跳：新增 `runtime/ops-heartbeat.ts`——`sendOpsHeartbeat` 按 `ops.monitor.heartbeat`
+  （`url`/`method`/`timeoutSeconds`，默认关闭、`GET`、5 秒、上限 30）在每轮扫描后上报一次；
+  POST 正文含 `project`/`at`/`status`/`issues`。2xx 记成功，失败只进入本轮错误；结果写
+  `ops_heartbeat_last` 并进入监控摘要。宿主已中止时不上报，避免把主动停机谎报成存活。
+- 协调器：`OpsMonitor.scan` 拆成 `runScan`（扫描与 `ops_monitor_at` 时间戳）与 `beat`（心跳），
+  心跳失败不改变扫描结论；`recordScan` 写入 `providers`，`recordFailure` 写空提供方列表。
+- 客户端：监控条新增“提供方”和“心跳”两项（未配置 / 等待上报 / 已上报时间 / 上报失败），中英文文案同步。
+- 最小配置：新增 `packages/forgeloop/config.example.json`——一个 `host` 资源、一个 `node -e` 的 HTTP 检查、
+  只含主机指标与检查状态的监控、`actions: []`、无 webhook、心跳留空。测试直接装载该文件，模板本身可用；
+  装载它只会产生检查与扫描记录，不会执行任何处置。
+- 测试：新增 `tests/ops-provider.test.ts`（登记表、未知提供方）、`tests/ops-heartbeat.test.ts`
+  （GET/POST 成功、非 2xx、不可达、超时）；补充 `tests/ops-config.test.ts`（providers 与 heartbeat 校验、
+  示例配置装载）、`tests/monitor.test.ts`（快照提供方，含中止路径）、`tests/ops-monitor.test.ts`
+  （每轮一次心跳、摘要字段、失败不改变结论、关闭与中止不上报）。
+- 验证：`make check` 通过，67 个测试文件、698 项测试；`make coverage` 行／语句 91.88%、函数 96.96%、
+  分支 84.51%（门槛 90/93/84）；`make contracts`、断言预算 19/19、token 预算通过。`make format` 对本批
+  文件通过；并行会话在途的 `src/runtime/execution-dev.ts` 与 `tests/config-validation.test.ts` 仍未格式化，
+  未代为修改，故整体 `make format` 在该批次合入前不会全绿。
+- 边界：**当前仍只有自研采集器**——外部工具（Glances/Netdata/Prometheus/Uptime Kuma 等）写入配置会装载失败，
+  接入需要先登记提供方并实现同一只读契约；心跳只有一次尽力上报，没有重试、去抖与失败补偿；
+  POST 正文不含事件明细，外部服务只能看到存活与状态摘要；真实 `~/.forgeloop/config.json` 已加入 `ops` 段（一个 `host` 资源、
+  一个 `host-http` 检查、监控 300 秒、提供方 `["builtin"]`、无动作与 webhook、心跳留空，
+  备份 `config.json.bak-20261102T150052Z`）；宿主 PID 2477 未重启，重载插件后才生效。
+
+### 113. 验证会话：同一会话完成方案、工具执行与业务验收（新目标 Round 29）
+
+- 来源：所有者对本轮连续验证链路提出三点：① 验证会话本身要**通过工具**逐条执行验证方案，
+  不再由运行时另开无工具会话代跑；② 方案与业务验收必须是**同一个会话**，验证会话输入要含原始
+  需求各版本、分析目标/场景与已准入任务包的任务目标；③ 分析里的业务规则与异常边界都要纳入
+  方案和业务验收，非目标只作背景。
+- 方案（研发前）：`agents/verification-agent.ts` 改为会话驱动——`VerificationAgent` 只保留
+  `plan`，构造时注入 `VerificationSession{ sessionId, send }`。`runtime/legacy-verification.ts`
+  的 `openVerification` 在**研发开始前**打开验证会话（`role=verify`、`cwd` 为真实项目目录、
+  `workspace-write`、`allowTools` 只挂 `forgeloop_run_verification_check`，不传 `tools` 所以
+  不挂标准编码 preset），投递方案提示词，落 `verifications/<req>/v<plan>/plan/verify-plan.jsonl`
+  与 `verification-plan.json`；失败即 fail-closed（block、`verification: null`），会话关闭。
+  方案提示词只给需求原文全部版本、分析的目标/业务场景/业务规则/异常与边界/非目标（背景）/验收
+  标准，以及已准入任务包的任务目标（`taskId：goal`）；逐字覆盖每条场景、规则、异常边界与验收
+  标准，缺任一项由 `validateRequirementVerificationPlan` 拒绝。非目标不是验收项。
+- 执行（交付后）：新增 `runtime/verification-checks.ts`。`VerificationCheckRegistry` 按需求登记
+  当前候选的执行上下文（工作区、HEAD、方案、信号、超时），工具入口只接受方案里已登记的 label：
+  其他会话、方案外命令一律拒绝，同一 label 幂等返回上一次真实结果；执行前后核对 HEAD，命令结束
+  再核对 `verification/` 之外的改动，越界记为完整性问题。退出码、超时、中止、耗时、日志路径与
+  `logSha256` 全部由程序记录，文本回给模型时保留输出开头与末尾两段。`prompts.ts` 新增
+  `verificationExecutionPrompt`，把场景、验收标准、必过标记、label 与 argv 交给同一会话，要求
+  逐条调用工具、不得跳过/合并/改写。
+- 判定：`verifyCandidate` 在同一个会话里投递执行轮，结束后固定快照并释放上下文。方案中任一
+  label 没有真实执行记录 → `验证 Agent 没有通过工具执行方案中的命令：…`（`verification: null`，
+  `verification-prep` 失败轮，不建研发问题单）；上下文丢失、执行轮未完成或命令被中止同样返回
+  `verification: null`。只有工具记录的命令全部满足预期、必过场景覆盖完整、候选未被改动才生成
+  `passed` 的 `VerificationRecord`；命令失败或完整性告警计 `stage=verification` 的阻断并走问题单
+  修复。工具记录直接作为 `commands`（含 `logPath`/`logSha256`），不再由运行时重跑。
+- 业务验收（同一会话）：验证通过后，同一个 `session` 继续投递 `businessReviewPrompt`（新增可选的
+  验证方案上下文），报告新增 `business_rules` 与 `exceptions` 数组；`validateBusinessReview` 逐项
+  校验业务场景、验收标准、业务规则、异常边界——缺失项、未通过、无关联命令、证据无法在执行输出中
+  核对都阻断。验证报告与业务报告共用同一个 `sessionId`，可从两侧反查。
+- 接线：`advance-pipeline.ts` 在方案生成成功后进入研发，`finally` 关闭验证会话；研发会话的生命
+  周期收进 `developAndVerifyContinuous`。`service.ts` 持有 `VerificationCheckRegistry` 并暴露
+  `runVerificationCheck`；`tools.ts` 新增第 13 个工具（参数 `req_id`、`label`）。为守住 token
+  预算，把“只实现 run 的假执行器回退会话”移入 `runtime/agent-runner.ts` 的
+  `sessionFromRunner`（`service.ts` 21921 → 21845 tokens）。
+- 提示词/领域：`businessReviewPrompt` 增加目标、业务规则、异常边界、非目标背景与验证方案；
+  `verificationPlanPrompt` 增加任务目标；`business-review.ts` 与 `verification.ts` 的解析/校验
+  兼容新字段（旧报告缺字段按空数组）。
+- 文档：`docs/architecture.md` §3/§4.2 改为“研发前同一验证会话生成方案 → 交付后同一会话经工具
+  执行 → 同一会话业务验收”，记录工具名、方案目录与 fail-closed 行为；`packages/forgeloop/README.md`
+  工具清单加入 `forgeloop_run_verification_check` 及其边界。
+- 测试：`continuous-flow`（同一 sessionId 完成方案/执行/业务验收；执行轮不调用工具即阻断、
+  不建问题单）、`issue-retry-loop`、`requirement-gate`、`auto-intake`、`candidate-build` 的假会话
+  改为“方案 → 经 `runtime.runVerificationCheck` 逐条执行 → 业务验收”；`verification.test.ts`
+  重写为方案会话与 `VerificationCheckRegistry` 用例（退出码、超时、中止、异常、幂等、方案外
+  label、上下文释放、HEAD 变化与候选外写入）；`business-review-domain.test.ts` 增加业务规则/
+  异常边界覆盖与阻断；`tools.test.ts` 工具面 12 → 13 且新增无上下文拒绝。
+- 验证：在干净工作树（HEAD `0dbe239` + 本批改动）执行 `make check`：typecheck、ESLint、
+  `make contracts`、token 预算（最大 `service.ts` 21845 ≤ 21931）、断言预算（0/19，baseline 19）
+  与 **67 个测试文件、701 项测试**全部通过；`make format`、`make build` 通过。
+- 边界：执行上下文保存在进程内存，宿主重启或会话中断不会自动恢复，执行轮会以
+  `verification: null` 阻断并等下一次推进重新生成方案；工具只对当前需求生效，同一需求并发验证
+  被拒绝。显式 `plan`/`approve` 的旧验证链路仍保留独立方案/业务验收会话，本批只改连续推进路径，
+  但它的解析与校验已兼容业务规则/异常边界。命令仍在宿主进程内以子进程执行，不是 OS 隔离；
+  本批只用确定性假执行器验证，未重跑真实模型会话。
+
+### 114. 研发会话常驻与主控 Agent 路由（2026-11-02）
 
 - **研发会话常驻，工作区随会话**：新增 `dev_sessions`、`requirement_dev_sessions`、
   `dev_session_summaries` 三张表；研发工作区从 `workspaces/<req>/dev/` 改为
@@ -3918,7 +4085,7 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   释放为空闲，保留绑定与总结。旧 `plan`／`approve` 请求、实现前评审与批准行仅作历史兼容保留，
   正常自动链路不再有独立规划步骤；旧显式批准路径仍用任务级工作区，不在会话复用范围内。
 - **问题单环境**：问题单的 `environment.devWorkspace` 改记研发会话工作区，不再写按需求 ID 的旧路径。
-- **验证链路**：候选独立验证由 §108 的两阶段验证实现负责（方案会话与业务验收会话分离）；
+- **验证链路**：候选独立验证沿用 §113 的同一验证会话（研发前生成方案、交付后经工具执行并做业务验收）；
   本分支不改 `legacy-verification.ts` 与 `verification-pipeline.ts`，只保证研发会话自验留在研发会话内。
 - **宿主恢复**：本进程内复用 live 会话句柄；宿主重启后经 `agents.resume` 恢复，宿主不支持时明确失败，
   不新建同名会话冒充恢复。
@@ -3931,7 +4098,7 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   只能靠候选清单校验兜底；旧 `executeAdvance`（显式批准）仍是任务级工作区；断言 fake runner 必须显式
   处理 `role=orchestrator`，否则会落到默认写文件分支。
 
-### 113. 主控路由与宿主恢复的异常处理（2026-11-02）
+### 115. 主控路由与宿主恢复的异常处理（2026-11-02）
 
 - **验证链路不在本分支**：`verification-pipeline.ts` 与 `legacy-verification.ts` 保持 main 的实现，
   本分支只叠加研发会话与主控路由，避免两处重复改动同时落地。
@@ -3952,15 +4119,32 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   分支 84.36%（`repository.ts` 分支 87.62%）；`make budget` service.ts 21,785（基线下调）、
   `make assertions` 18。
 
-### 114. 研发自验保留在研发会话内（2026-11-02）
+### 116. 研发自验保留在研发会话内（2026-11-02）
 
 - 研发会话的每个任务仍在自己的会话与工作区运行该任务的测试命令：失败把日志追加回同一会话继续修，
   通过才记录交付；不另开会话做自验，也不换工作区。
 - 新增回归用例：测试命令首次失败、第二次通过时，断言修复发生在同一工作区、同一研发会话，
-  且独立验证（若存在）排在这次修复之后；研发会话结束时不被 `close()`。
-- 说明：候选的独立验证实现见 §108；本分支只保证自验留在研发会话内，验证链路不改动。
+  验证会话在所有研发回合之后才执行与验收；研发会话结束时不被 `close()`。
+- 说明：候选的独立验证实现见 §113；本分支只保证自验留在研发会话内，验证链路不改动。
 - **合并 main**：与 §108–§111（两阶段验证、产品分析单次化与失败重试、业务背景文档与联网检索）合并。
   `agent-runner.ts` 同时保留显式 `sessionId`／`agents.resume` 与 main 的 `allowTools` 工具白名单；
   `repository.ts` 拆出 `records/dev-session-store.ts`（`Repository extends DevSessionStore extends OpsStore`），
   避免单文件超过 2000 行。合并后 `make check` 63 个文件、673 项通过，`make coverage` 行 91.57%、
   函数 96.51%、分支 84.39%（`repository.ts` 分支 87.36%）。
+- **合并 main（第二次，§112–§113）**：并入运维提供方／外部心跳与“验证会话经工具执行方案并做业务验收”。
+  冲突处理以本分支的会话化链路为主：`developInDevSession` 负责“选会话 → 会话内规划 → 研发前新开验证会话”，
+  再交给新的 `developUnderVerification` 在同一次研发里实现、修复、采集候选并做验证；验证会话在 `finally`
+  关闭，研发会话仍不关闭（main 的 `developAndVerifyContinuous` 因此在合并中收进这两个方法）。
+  `prompts.ts` 保留 main 的监控提示词与带只读工具的 `devPlanningPrompt`，业务验收按 main 的口径
+  （依据验证方案与工具实际执行的命令）；`service.ts` 同时保留 `SessionRouting` 与 `VerificationCheckRegistry`；
+  测试假执行器同时提供 `sessionFromRunner` 回退与 `open` 的工具执行回合。本分支章节顺延为 §114–§116。
+- **自验回归用例调整**：验证会话改为研发前打开，`keeps self-verification inside the development session`
+  不再断言“verify 回合在第二次 dev 之后”，改为断言研发回合复用同一工作区与同一会话、最后一次验证回合
+  在所有研发回合之后、验证会话关闭而研发会话不关闭。
+- **补齐 main 的覆盖率门槛**：main@`8bdba32` 自身的 `make coverage` 已在 `src/domain/verification.ts`
+  低于门限（行 91.64／分支 84.88，门槛 94／88）。本次在 `tests/verification.test.ts` 增加
+  `judgeVerificationResult` 的超时、输出缺少预期证据、缺执行记录、命令中止、未知退出码与空场景用例，
+  该文件回到 96.49／89.94；门槛未下调。
+- **合并后验证**：`make check` 68 个文件、726 项通过；`make coverage` 行／语句 91.99%、函数 96.66%、
+  分支 84.60%（`repository.ts` 分支 87.36%）；`make format`、`make budget`（最大 `service.ts` 21,682）、
+  `make assertions` 18（基线 18）、`make contracts` 通过。

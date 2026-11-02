@@ -12,6 +12,8 @@ import {
 
 const SCENARIO = '客户提交需求后自动分析'
 const CRITERION = '分析结果写入需求记录'
+const RULE = '只有店长可以批量取消订单'
+const EDGE = '支付回调延迟时订单保持待确认'
 const OUTPUT = 'analysis stored: req-1'
 
 function review(overrides: Record<string, unknown> = {}): string {
@@ -177,6 +179,68 @@ describe('business review coverage validation', () => {
         runs,
       })[0],
     ).toContain('引用了未执行的验证命令')
+  })
+
+  it('requires business rules and exception boundaries to be verified item by item', () => {
+    const covered = parseBusinessReview(
+      review({
+        business_rules: [{ rule: RULE, status: 'pass', evidence: OUTPUT, commands: ['smoke'] }],
+        exceptions: [{ exception: EDGE, status: 'pass', evidence: OUTPUT, commands: ['smoke'] }],
+      }),
+    )
+    expect(
+      validateBusinessReview({
+        scenarios: [SCENARIO],
+        acceptanceCriteria: [CRITERION],
+        businessRules: [RULE],
+        exceptions: [EDGE],
+        review: covered,
+        runs,
+      }),
+    ).toEqual([])
+
+    const issues = validateBusinessReview({
+      scenarios: [SCENARIO],
+      acceptanceCriteria: [CRITERION],
+      businessRules: [RULE],
+      exceptions: [EDGE],
+      review: base,
+      runs,
+    })
+    expect(issues).toContain(`业务终审缺少业务规则：${RULE}`)
+    expect(issues).toContain(`业务终审缺少异常与边界：${EDGE}`)
+  })
+
+  it('blocks business rules that failed or cite no executed command', () => {
+    const noCommand = parseBusinessReview(
+      review({
+        business_rules: [{ rule: RULE, status: 'pass', evidence: OUTPUT, commands: [] }],
+      }),
+    )
+    expect(
+      validateBusinessReview({
+        scenarios: [SCENARIO],
+        acceptanceCriteria: [CRITERION],
+        businessRules: [RULE],
+        review: noCommand,
+        runs,
+      })[0],
+    ).toContain('业务终审业务规则没有关联验证命令')
+
+    const failed = parseBusinessReview(
+      review({
+        exceptions: [{ exception: EDGE, status: 'fail', evidence: OUTPUT, commands: ['smoke'] }],
+      }),
+    )
+    expect(
+      validateBusinessReview({
+        scenarios: [SCENARIO],
+        acceptanceCriteria: [CRITERION],
+        exceptions: [EDGE],
+        review: failed,
+        runs,
+      })[0],
+    ).toContain('业务终审异常与边界未通过')
   })
 
   it('blocks evidence that cannot be found in the cited command output', () => {

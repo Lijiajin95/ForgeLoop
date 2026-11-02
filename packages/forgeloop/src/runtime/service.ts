@@ -69,11 +69,13 @@ import { SqliteRequirementQueueStore } from '../records/requirement-queue.js'
 import { IssueStore } from '../records/issues.js'
 import {
   AgentRunner,
+  sessionFromRunner,
   type AgentOpenRequest,
   type AgentResumeRequest,
   type AgentSession,
 } from './agent-runner.js'
 import { SessionRouting } from './session-routing.js'
+import { VerificationCheckRegistry, type VerificationCheckOutcome } from './verification-checks.js'
 import { OpsRuntime } from './ops.js'
 import { buildStatusBoard, requirementTitle, type StatusBoardView } from './board.js'
 import { runFormalTest } from './formal-test.js'
@@ -131,6 +133,7 @@ export class ForgeLoopRuntime {
   private readonly taskDelivery: TaskDelivery
   private readonly legacyVerification: LegacyVerification
   private readonly sessionRouting: SessionRouting
+  private readonly verificationChecks: VerificationCheckRegistry
   private readonly buildMaterials: BuildMaterialValidator
   private readonly formalTest: typeof runFormalTest
   private readonly ctx: Record<string, unknown>
@@ -162,6 +165,11 @@ export class ForgeLoopRuntime {
       now: () => this.clock(),
     })
     this.formalTest = options.formalTest ?? runFormalTest
+    this.verificationChecks = new VerificationCheckRegistry({
+      ctx: this.ctx,
+      formalTest: this.formalTest,
+      now: () => this.now(),
+    })
     this.buildMaterials = new BuildMaterialValidator(this.config.projectPath)
     this.executionDev = new ExecutionDev({
       config: this.config,
@@ -227,14 +235,12 @@ export class ForgeLoopRuntime {
     this.legacyVerification = new LegacyVerification({
       config: this.config,
       repo: this.repo,
-      ctx: this.ctx,
       now: () => this.now(),
       charge: (reqId, started) => {
         this.charge(reqId, started)
       },
-      formalTest: this.formalTest,
       openAgent: (request) => this.openAgent(request),
-      runner: (request) => this.runner.run(request),
+      checks: this.verificationChecks,
     })
     this.sessionRouting = new SessionRouting({
       config: this.config,
@@ -1193,43 +1199,20 @@ ${answer}`
   }
 
   /**
+   * 验证会话的工具入口：只执行当前候选验证方案中已登记的 label；
+   * 其他会话或方案外的命令一律拒绝，模型不能借此执行任意命令。
+   */
+  runVerificationCheck(reqId: string, label: string): Promise<VerificationCheckOutcome> {
+    return this.verificationChecks.run(reqId, label)
+  }
+
+  /**
    * 打开连续 Agent 会话；测试可注入只实现 run 的假执行器，
    * 此时退化为每轮独立执行（业务状态与证据仍由主控收口）。
    */
   private async openAgent(request: AgentOpenRequest): Promise<AgentSession> {
     if (typeof this.runner.open === 'function') return this.runner.open(request)
-    const runner = this.runner
-    let closed = false
-    return {
-      sessionId: `session-fl-${request.role}-fallback`,
-      async send(turn) {
-        if (closed) {
-          return {
-            status: 'error',
-            text: '',
-            sessionId: `session-fl-${request.role}-fallback`,
-            reason: '会话已关闭',
-            transcriptPath: turn.transcriptPath,
-            durationMs: 0,
-            toolCalls: [],
-          }
-        }
-        return runner.run({
-          role: request.role,
-          cwd: request.cwd,
-          prompt: turn.prompt,
-          permission: request.permission,
-          timeoutMs: turn.timeoutMs,
-          transcriptPath: turn.transcriptPath,
-          ...(turn.signal ? { signal: turn.signal } : {}),
-          ...(request.tools ? { tools: request.tools } : {}),
-          ...(turn.onActivity ? { onActivity: turn.onActivity } : {}),
-        })
-      },
-      async close() {
-        closed = true
-      },
-    }
+    return sessionFromRunner(this.runner, request)
   }
 
   approvePlan(input: {

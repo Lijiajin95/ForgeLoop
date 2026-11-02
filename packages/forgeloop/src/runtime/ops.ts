@@ -57,6 +57,8 @@ import {
   type OpsStats,
 } from '../domain/ops.js'
 import type { AgentRunRequest, AgentRunResult } from './agent-runner.js'
+import { sendOpsAlert } from './ops-alerts.js'
+import { OpsMonitor, type OpsMonitorSummary } from './ops-monitor.js'
 import { opsDiagnosisPrompt, opsInterruptionPrompt } from './prompts.js'
 
 export interface OpsRunner {
@@ -193,6 +195,11 @@ export interface OpsTickResult {
   readonly skipped: boolean
   readonly checked: number
   readonly failed: number
+  readonly monitored: boolean
+  readonly issues: number
+  readonly opened: number
+  readonly merged: number
+  readonly alerted: number
   readonly diagnosed: number
   readonly executed: number
   readonly recovered: number
@@ -272,6 +279,11 @@ function eventStamp(now: Date): string {
 interface TickState {
   checked: number
   failed: number
+  monitored: boolean
+  issues: number
+  opened: number
+  merged: number
+  alerted: number
   diagnosed: number
   executed: number
   recovered: number
@@ -283,6 +295,11 @@ const EMPTY_TICK: OpsTickResult = {
   skipped: true,
   checked: 0,
   failed: 0,
+  monitored: false,
+  issues: 0,
+  opened: 0,
+  merged: 0,
+  alerted: 0,
   diagnosed: 0,
   executed: 0,
   recovered: 0,
@@ -294,6 +311,11 @@ function emptyTickState(): TickState {
   return {
     checked: 0,
     failed: 0,
+    monitored: false,
+    issues: 0,
+    opened: 0,
+    merged: 0,
+    alerted: 0,
     diagnosed: 0,
     executed: 0,
     recovered: 0,
@@ -372,6 +394,7 @@ export class OpsRuntime {
   private readonly repo: Repository
   private readonly runner: OpsRunner
   private readonly clock: () => Date
+  private readonly monitor: OpsMonitor
   private ticking = false
 
   constructor(options: OpsRuntimeOptions) {
@@ -379,6 +402,12 @@ export class OpsRuntime {
     this.repo = options.repo
     this.runner = options.runner
     this.clock = options.now
+    this.monitor = new OpsMonitor({
+      config: options.config,
+      repo: options.repo,
+      runner: options.runner,
+      now: options.now,
+    })
   }
 
   get enabled(): boolean {
@@ -444,7 +473,7 @@ export class OpsRuntime {
   }
 
   /**
-   * 一次巡检：到期检查 → 失败归并/建事件 → 诊断 → 授权内处置 → 恢复复核 → 修复需求。
+   * 一次巡检：到期检查 → 主动监控 → 失败归并/建事件 → 诊断 → 授权内处置 → 恢复复核 → 修复需求。
    * 单个检查或事件失败不会中断其他事件；错误只在返回值和日志中出现，不伪造成功。
    */
   async tick(signal?: AbortSignal): Promise<OpsTickResult> {
@@ -454,6 +483,7 @@ export class OpsRuntime {
     const state = emptyTickState()
     try {
       await this.runChecks(state, signal)
+      await this.runMonitor(state, signal)
       await this.advanceEvents(state, signal)
       await this.reportInterruptions(state, signal)
       this.ensureFixRequirements(state)
@@ -476,13 +506,78 @@ export class OpsRuntime {
         )
         state.checked += 1
         if (result.code !== 0 || result.timedOut || result.aborted) {
-          this.recordFailure(check, result)
+          const failure = this.recordFailure(check, result)
           state.failed += 1
+          if (failure.created) {
+            await this.alertCheckFailure({ event: failure.event, check, result }, state, signal)
+          }
         }
         this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
+        this.repo.setMeta(
+          `ops_check_last:${check.id}`,
+          JSON.stringify({
+            at: this.isoNow(),
+            code: result.code,
+            timedOut: result.timedOut,
+            aborted: result.aborted,
+            output: outputOf(result).slice(0, 500),
+          }),
+        )
       } catch (error) {
         state.errors.push(`检查 ${check.id} 失败：${errorMessage(error)}`)
       }
+    }
+  }
+
+  private async alertCheckFailure(
+    input: {
+      readonly event: OpsEventRecord
+      readonly check: OpsCheck
+      readonly result: OpsCommandResult
+    },
+    state: TickState,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const { event, check, result } = input
+    const alert = await sendOpsAlert({
+      config: this.config,
+      repo: this.repo,
+      now: this.now(),
+      eventId: event.eventId,
+      severity: event.severity,
+      title: event.title,
+      impact: event.impact,
+      source: `check:${check.id}`,
+      summary: `检查 ${check.id} 失败：退出码 ${result.code}${result.timedOut ? '（超时）' : ''}${result.aborted ? '（中止）' : ''}`,
+      ...(signal ? { signal } : {}),
+    })
+    if (alert.sent) state.alerted += 1
+    if (alert.error) state.errors.push(alert.error)
+  }
+
+  private monitorDue(): boolean {
+    if (!this.config.ops.monitor.enabled) return false
+    const raw = this.repo.getMeta('ops_monitor_at')
+    if (!raw) return true
+    const last = Date.parse(raw)
+    if (!Number.isFinite(last)) return true
+    return this.now().getTime() - last >= this.config.ops.monitor.intervalSeconds * 1000
+  }
+
+  /** 主动监控到点才采集与评审；扫描失败不产生事件，也不伪装成健康。 */
+  private async runMonitor(state: TickState, signal?: AbortSignal): Promise<void> {
+    if (!this.monitorDue()) return
+    try {
+      const outcome = await this.monitor.scan(signal)
+      if (!outcome.scanned) return
+      state.monitored = true
+      state.issues += outcome.issues
+      state.opened += outcome.opened
+      state.merged += outcome.merged
+      state.alerted += outcome.alerted
+      state.errors.push(...outcome.errors)
+    } catch (error) {
+      state.errors.push(`主动监控失败：${errorMessage(error)}`)
     }
   }
 
@@ -726,7 +821,10 @@ export class OpsRuntime {
     }
   }
 
-  private recordFailure(check: OpsCheck, result: OpsCommandResult): void {
+  private recordFailure(
+    check: OpsCheck,
+    result: OpsCommandResult,
+  ): { event: OpsEventRecord; created: boolean } {
     const now = this.isoNow()
     const resource = this.resource(check.resourceId)
     const label = resource?.label ?? check.resourceId
@@ -738,6 +836,7 @@ export class OpsRuntime {
       output,
     })
     const active = this.repo.findActiveOpsEvent(this.config.project, signature)
+    const created = active === null
     const event =
       active ??
       this.repo.createOpsEvent({
@@ -774,6 +873,7 @@ export class OpsRuntime {
       evidencePath,
     })
     this.repo.updateOpsEvent(event.eventId, { updatedAt: now })
+    return { event, created }
   }
 
   // ------------------------------------------------------------ 诊断
@@ -1492,6 +1592,8 @@ export class OpsRuntime {
     resources: number
     checks: number
     actions: number
+    monitor: OpsMonitorSummary
+    alerts: { webhook: boolean }
     stats: OpsStats
   } {
     return {
@@ -1500,6 +1602,8 @@ export class OpsRuntime {
       resources: this.config.ops.resources.length,
       checks: this.config.ops.checks.length,
       actions: this.config.ops.actions.length,
+      monitor: this.monitor.summary(),
+      alerts: { webhook: this.config.ops.alerts.webhook !== '' },
       stats: this.stats(),
     }
   }

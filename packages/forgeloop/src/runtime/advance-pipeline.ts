@@ -29,7 +29,11 @@ import type { RequirementDevSessionRecord } from '../records/rows.js'
 import type { AgentSession } from './agent-runner.js'
 import type { ExecutionDev } from './execution-dev.js'
 import type { VerificationPipeline } from './verification-pipeline.js'
-import type { LegacyVerification } from './legacy-verification.js'
+import type {
+  LegacyVerification,
+  LegacyVerificationSession,
+  LegacyVerifyInput,
+} from './legacy-verification.js'
 import type { OperationResult } from './operation-result.js'
 import { requirementTitle } from './board.js'
 import type { AcquireDevSessionResult, DevSessionRegistry } from './dev-sessions.js'
@@ -38,7 +42,6 @@ import { PLUGIN_VERSION } from './version.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { exportCandidate, integrateCandidate, type CandidateFile } from './integration.js'
 import { git, headCommit, runCommand } from './workspace.js'
-import type { LegacyVerifyInput } from './legacy-verification.js'
 import type { DeliverInput, DeliverOutcome } from './task-delivery.js'
 import type { VerificationRecord } from '../records/repository.js'
 import {
@@ -579,9 +582,20 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       fresh: boolean
     }
     session: AgentSession
+    verification: LegacyVerificationSession
     signal: AbortSignal
   }): Promise<{ state: 'done' | 'failed'; detail: string }> {
-    const { reqId, requirement, analysis, plan, workspace, workspaceInfo, session, signal } = input
+    const {
+      reqId,
+      requirement,
+      analysis,
+      plan,
+      workspace,
+      workspaceInfo,
+      session,
+      verification: verificationSession,
+      signal,
+    } = input
     let candidate = input.candidate
     for (let round = 1; ; round += 1) {
       this.deps.repo.setStatus(
@@ -597,6 +611,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         candidate,
         devWorkspace: workspace,
         signal,
+        verification: verificationSession,
       })
       if (verification.verification === null && verification.state === 'block') {
         // 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。
@@ -754,7 +769,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
   }): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const { reqId, requirement, analysis, workspaceInfo, session, authorizationSource, signal } =
       input
-    const workspace = workspaceInfo.workspace
     const planned = await this.ensureContinuousPlan({
       reqId,
       requirement,
@@ -770,6 +784,64 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       reqId,
       plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
     )
+    // 验证 Agent 在研发开始前新开会话并生成方案；产物交付后由同一会话执行与验收。
+    const opened = await this.deps.legacyVerification.openVerification({
+      reqId,
+      requirement,
+      analysis,
+      plan,
+      signal,
+    })
+    if (!opened.ok) {
+      this.deps.repo.recordFailureRound(reqId, {
+        roundId: `verification-plan-${randomUUID()}`,
+        stage: FAILURE_VERIFICATION,
+        summary: opened.result.detail.slice(0, 1000),
+        occurredAt: this.deps.now(),
+      })
+      this.deps.repo.setStatus(reqId, 'blocked', opened.result.detail)
+      return { state: 'failed', detail: opened.result.detail }
+    }
+    try {
+      return await this.developUnderVerification({
+        reqId,
+        requirement,
+        analysis,
+        plan,
+        authorizationSource,
+        workspaceInfo,
+        session,
+        verification: opened.value,
+        signal,
+      })
+    } finally {
+      // 验证会话只服务本次推进请求；研发会话保留，不在这里关闭。
+      await opened.value.close()
+    }
+  }
+
+  /** 在已选定的研发会话里实现、修复与采集候选，再把验证会话交给独立验证与业务验收。 */
+  private async developUnderVerification(input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    plan: TaskPlan
+    authorizationSource: string
+    workspaceInfo: {
+      workspace: string
+      baselineCommit: string
+      snapshotCommit: string
+      fresh: boolean
+    }
+    session: AgentSession
+    verification: LegacyVerificationSession
+    signal: AbortSignal
+  }): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const { reqId, requirement, analysis, plan, workspaceInfo, session, authorizationSource } =
+      input
+    const { verification } = input
+    const { signal } = input
+    const workspace = workspaceInfo.workspace
     this.deps.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验')
     if (workspaceInfo.fresh) {
       const restored = this.deps.executionDev.restoreDeliveredArtifacts(
@@ -818,6 +890,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       workspace,
       workspaceInfo,
       session,
+      verification,
       signal,
     })
   }

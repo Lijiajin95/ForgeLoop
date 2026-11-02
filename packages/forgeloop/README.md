@@ -62,8 +62,10 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 
 模型工具：`forgeloop_status`、`forgeloop_show_requirement`、`forgeloop_show_plan`、
 `forgeloop_evidence`、`forgeloop_requests`、`forgeloop_impact`、`forgeloop_ops`、
-`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`forgeloop_web_search`、
-`forgeloop_web_fetch`、`forgeloop_submit_requirement`。
+`forgeloop_run_verification_check`、`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、
+`forgeloop_web_search`、`forgeloop_web_fetch`、`forgeloop_submit_requirement`。
+`forgeloop_run_verification_check` 只对验证会话开放：它按当前候选验证方案里的 label 执行命令，
+运行时记录退出码、超时、中止、日志与候选完整性，不接受任意命令，也不是通用命令执行器。
 两个文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件）；
 `docs/forgeloop/business-context.md` 例外：它只由运行时按分析结果写入，工具写入会被拒绝。
 两个联网工具调用 DeepSeek Search & Fetch（`POST /v1/tools/search`、`POST /v1/tools/fetch`），
@@ -75,37 +77,74 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 
 ### 运维 Agent
 
-在 profile 配置中登记资源、只读检查与处置动作后，协调器按 `ops.intervalSeconds` 巡检：
+在 `~/.forgeloop/config.json`（`FORGELOOP_CONFIG` 可覆盖）登记资源、只读检查、处置动作与主动监控来源后，
+协调器按 `ops.intervalSeconds` 运行检查、按 `ops.monitor.intervalSeconds` 评审运行快照：
 
-```yaml
-ops:
-  enabled: true
-  intervalSeconds: 300
-  resources:
-    - { id: web, kind: app, label: 天工页面 }
-  checks:
-    - id: web-health
-      resourceId: web
-      command: ["node", "-e", "process.exit(0)"]
-      severity: major
-  actions:
-    - id: restart-web
-      resourceId: web
-      command: ["node", "scripts/restart-web.mjs", "{mode}"]
-      params: [{ name: mode, values: [graceful, force] }]
-      auto: true
+```json
+{
+  "ops": {
+    "enabled": true,
+    "intervalSeconds": 300,
+    "resources": [{ "id": "web", "kind": "app", "label": "天工页面" }],
+    "checks": [
+      {
+        "id": "web-health",
+        "resourceId": "web",
+        "command": ["node", "-e", "process.exit(0)"],
+        "severity": "major"
+      }
+    ],
+    "actions": [
+      {
+        "id": "restart-web",
+        "resourceId": "web",
+        "command": ["node", "scripts/restart-web.mjs", "{mode}"],
+        "params": [{ "name": "mode", "values": ["graceful", "force"] }],
+        "auto": true
+      }
+    ],
+    "monitor": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "providers": ["builtin"],
+      "processes": [{ "id": "web", "resourceId": "web", "match": "restart-web.mjs" }],
+      "latency": [
+        { "id": "web-url", "resourceId": "web", "url": "http://127.0.0.1:3080/health" }
+      ],
+      "logs": [
+        { "id": "web-log", "resourceId": "web", "path": "logs/web.log", "errorPattern": "ERROR" }
+      ],
+      "alertFiles": [{ "id": "local", "path": "runtime/alerts.json" }],
+      "heartbeat": { "url": "", "method": "GET", "timeoutSeconds": 5 }
+    },
+    "alerts": { "webhook": "https://example.com/forgeloop/alerts" }
+  }
+}
 ```
 
-- 检查失败按签名归并为运维事件；模型只做无工具诊断，提出目录内动作；参数只能取枚举值。
+最小可用配置见 [`config.example.json`](config.example.json)：一个资源、一个 HTTP 检查、只含主机指标与
+检查状态的监控，没有监控来源、动作、webhook 与心跳，装载它不会执行任何处置。
+
+- 主动监控每轮采集主机负载/CPU/内存、`ps` 进程聚合、HTTP 延迟、日志尾部、外部告警、检查最后状态与活动事件，
+  交给无工具运维 Agent 评审；报告畸形只记错误，不建事件、不当作健康。
+- 快照记录产生它的**提供方**（`providers`，当前只有自研的 `builtin`）。描述符与登记表在
+  `src/domain/ops-provider.ts`，采集契约 `OpsMonitorProvider.collect` 在 `src/runtime/monitor.ts`；
+  未登记的提供方在装载时失败，外部工具（Glances、Prometheus 等）接入前不能写进配置。
+- `heartbeat.url` 非空时每轮扫描后向外部死信服务上报一次（GET/POST，一次尽力、不重试），
+  结果进入监控摘要；主机整体停摆由外部报警，不靠自研采集器自证。
+- 检查失败按签名归并为运维事件；监控问题按 `monitor/<资源>/<key>` 归并。模型只做无工具诊断/评审，
+  提出目录内动作；参数只能取枚举值，未登记资源或动作不会被执行。
 - `auto: true` 的动作可在目录授权内自动执行；其他动作停在天工「运维」视图等待所有者批准。
 - 处置后运行恢复检查，只按退出码判定恢复；动作超时或中止记失败、事件按未解决收口；
   宿主中断的动作记 `interrupted`，事件同样按未解决收口，并由运维 Agent 分析根因上报，不自动重放。
+- 新事件按配置向 webhook 发送一次尽力告警，结果作为观测留档；归并到已有事件不重复告警。
 - 未恢复或诊断要求永久修复时创建关联修复需求并排队分析；恢复与修复分别收口。
-- 只读工具 `forgeloop_ops` 可查事件、诊断、处置与统计。完整边界与限制见
+- 只读工具 `forgeloop_ops` 可查事件、诊断、处置、监控摘要与统计。完整边界与限制见
   [运维 Agent](../../docs/ops-agent.md)。
 
 Web 工作台：DSH Web 会话区「天工」页（与「对话」「轨迹」并列），提供 **层级工作台 / 全部任务 /
-需要处理** 入口。左侧需求树按需求 → 任务 → 关联问题展开；中间是当前需求的目标、状态、版本、
+需要处理 / 运维** 入口。运维页顶部显示主动监控状态、最近扫描、CPU/内存/负载、来源计数与告警配置；
+左侧需求树按需求 → 任务 → 关联问题展开；中间是当前需求的目标、状态、版本、
 交付进度、待处理事项和任务/依赖切换；右侧是需求、任务或问题详情，分为概览、前后序、Agent 执行过程、
 测试与审查、变更记录，支持面包屑、选中高亮、完整详情和窄屏逐级进入。任务卡与详情顶部均可直接打开
 该任务的执行过程。顶部搜索覆盖

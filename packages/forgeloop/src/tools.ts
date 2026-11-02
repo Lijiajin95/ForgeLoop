@@ -11,6 +11,7 @@ import type { ForgeLoopConfig } from './config.js'
 import { readProjectDoc, resolveProjectDoc, writeProjectDoc } from './runtime/project-docs.js'
 import { fetchWeb, searchWeb, WEB_KEY_NOTE } from './runtime/web-tools.js'
 import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
+import { VERIFICATION_CHECK_TOOL } from './runtime/verification-checks.js'
 
 type AnyRecord = Record<string, unknown>
 
@@ -77,6 +78,38 @@ function defineTool(input: {
 function stringArg(args: AnyRecord, key: string): string | undefined {
   const value = args[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function verificationCheckTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
+  return defineTool({
+    name: VERIFICATION_CHECK_TOOL,
+    description:
+      'Execute one pre-planned verification command in the fixed candidate workspace. Only the verification session has an active verification context; only labels listed in the current verification plan are accepted and every result is recorded by the runtime. Not a general command runner.',
+    parameters: {
+      type: 'object',
+      properties: {
+        req_id: { type: 'string', description: 'Exact requirement id under verification' },
+        label: {
+          type: 'string',
+          description: 'Command label from the current verification plan',
+        },
+      },
+      required: ['req_id', 'label'],
+      additionalProperties: false,
+    },
+    async run(args) {
+      const reqId = stringArg(args, 'req_id')
+      if (!reqId) return { ok: false, text: 'req_id is required' }
+      const label = stringArg(args, 'label')
+      if (!label) return { ok: false, text: 'label is required' }
+      const outcome = await runtime.runVerificationCheck(reqId, label)
+      return {
+        ok: outcome.ok,
+        text: outcome.text,
+        ...(outcome.data === undefined ? {} : { data: outcome.data }),
+      }
+    },
+  })
 }
 
 export function buildTools(
@@ -211,6 +244,7 @@ export function buildTools(
         return { ok: outcome.ok, text: outcome.message, data: outcome.data }
       },
     }),
+    verificationCheckTool(runtime),
     defineTool({
       name: 'forgeloop_read_project_doc',
       description:

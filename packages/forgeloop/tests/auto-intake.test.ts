@@ -108,17 +108,38 @@ function fakeRunner(): AgentLike {
   const session = (request: AgentOpenRequest) => ({
     sessionId: `session-fl-${request.role}-test`,
     async send(turn: { prompt: string; transcriptPath: string }): Promise<AgentRunResult> {
+      const reply = (text: string): AgentRunResult => ({
+        status: 'completed',
+        text,
+        sessionId: `session-fl-${request.role}-test`,
+        reason: '',
+        transcriptPath: turn.transcriptPath,
+        durationMs: 1,
+        toolCalls: [],
+      })
+      if (request.role === 'verify' && turn.prompt.includes('现在只依据需求说明')) {
+        return reply(VERIFICATION_PLAN)
+      }
+      if (request.role === 'verify' && turn.prompt.includes('你必须使用工具')) {
+        const reqId = /需求身份：(\S+)/.exec(turn.prompt)?.[1] ?? ''
+        const labels = [...turn.prompt.matchAll(/- label: (.+)/g)].map((match) => match[1]!.trim())
+        for (const label of labels) {
+          const outcome = await runtime.runVerificationCheck(reqId, label)
+          if (!outcome.ok) throw new Error(outcome.text)
+        }
+        return reply(JSON.stringify({ executed: labels, summary: 'executed' }))
+      }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, PLAN)
+        return reply(PLAN)
       }
       if (request.role === 'dev' && turn.prompt.includes('当前任务：')) {
         const taskId = /当前任务：(.+)/.exec(turn.prompt)?.[1]?.trim() ?? 'a'
         mkdirSync(join(request.cwd, 'docs'), { recursive: true })
         writeFileSync(join(request.cwd, `docs/${taskId}.md`), `content ${Date.now()}\n`)
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'done')
+        return reply('done')
       }
       if (request.role === 'verify' && turn.prompt.includes('业务验收')) {
-        return result({ role: request.role, transcriptPath: turn.transcriptPath }, BUSINESS_REVIEW)
+        return reply(BUSINESS_REVIEW)
       }
       throw new Error(`unexpected role ${request.role}`)
     },
@@ -130,8 +151,6 @@ function fakeRunner(): AgentLike {
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         return result(request, PLAN)
       }
-      // 验证方案阶段只读需求说明，不接触候选代码或任务包。
-      if (request.role === 'verify') return result(request, VERIFICATION_PLAN)
       throw new Error(`unexpected single-turn role ${request.role}`)
     },
     async open(request: AgentOpenRequest) {

@@ -19,10 +19,74 @@ import {
   type OpsResourceKind,
   type OpsSeverity,
 } from './domain/ops.js'
+import {
+  DEFAULT_OPS_PROVIDER_IDS,
+  describeOpsProviders,
+  findOpsProvider,
+} from './domain/ops-provider.js'
 
 export interface AgentConfig {
   readonly provider: string
   readonly model: string
+  /** 单个 Agent 回合的默认上限。 */
+  readonly timeoutSeconds: number
+}
+
+export interface OpsMonitorProcess {
+  readonly id: string
+  /** 进程归属的登记资源；监控问题只能落在已登记资源上。 */
+  readonly resourceId: string
+  /** `ps` 命令行中的子串匹配，大小写不敏感。 */
+  readonly match: string
+}
+
+export interface OpsMonitorLatency {
+  readonly id: string
+  readonly resourceId: string
+  readonly url: string
+  readonly timeoutSeconds: number
+}
+
+export interface OpsMonitorLog {
+  readonly id: string
+  readonly resourceId: string
+  /** 项目内相对路径或绝对路径；只读取尾部固定字节数。 */
+  readonly path: string
+  /** 逐行匹配的错误正则；匹配数进入监控快照。 */
+  readonly errorPattern: string
+}
+
+export interface OpsMonitorAlertFile {
+  readonly id: string
+  /** JSON 数组文件：每条告警包含 severity、summary、at、resourceId。 */
+  readonly path: string
+}
+
+/** 外部心跳：每轮扫描后上报一次“仍然活着”，供死信服务判断监控是否停摆。 */
+export interface OpsMonitorHeartbeat {
+  /** 为空表示不上报。 */
+  readonly url: string
+  readonly method: 'GET' | 'POST'
+  readonly timeoutSeconds: number
+}
+
+/** 主动监控：定时采集主机、进程、延迟、日志与告警，交给运维 Agent 评审。 */
+export interface OpsMonitorConfig {
+  readonly enabled: boolean
+  readonly intervalSeconds: number
+  readonly logLines: number
+  /** 产生快照的提供方；当前只登记自研采集器，外部工具接入前不允许配置。 */
+  readonly providers: readonly string[]
+  readonly processes: readonly OpsMonitorProcess[]
+  readonly latency: readonly OpsMonitorLatency[]
+  readonly logs: readonly OpsMonitorLog[]
+  readonly alertFiles: readonly OpsMonitorAlertFile[]
+  readonly heartbeat: OpsMonitorHeartbeat
+}
+
+/** 外部告警：只发送到所有者登记的 webhook；为空表示不发。 */
+export interface OpsAlertConfig {
+  readonly webhook: string
   readonly timeoutSeconds: number
 }
 
@@ -30,6 +94,8 @@ export interface OpsConfig extends OpsCatalog {
   readonly enabled: boolean
   /** 巡检周期；到期的检查在协调器持有单消费者锁时运行。 */
   readonly intervalSeconds: number
+  readonly monitor: OpsMonitorConfig
+  readonly alerts: OpsAlertConfig
 }
 
 export interface RawOpsResource {
@@ -61,12 +127,62 @@ export interface RawOpsAction {
   verifyCheckId?: string
 }
 
+export interface RawOpsMonitorProcess {
+  id?: string
+  resourceId?: string
+  match?: string
+}
+
+export interface RawOpsMonitorLatency {
+  id?: string
+  resourceId?: string
+  url?: string
+  timeoutSeconds?: number
+}
+
+export interface RawOpsMonitorLog {
+  id?: string
+  resourceId?: string
+  path?: string
+  errorPattern?: string
+}
+
+export interface RawOpsMonitorAlertFile {
+  id?: string
+  path?: string
+}
+
+export interface RawOpsMonitorHeartbeat {
+  url?: string
+  method?: string
+  timeoutSeconds?: number
+}
+
+export interface RawOpsMonitorConfig {
+  enabled?: boolean
+  intervalSeconds?: number
+  logLines?: number
+  providers?: string[]
+  processes?: RawOpsMonitorProcess[]
+  latency?: RawOpsMonitorLatency[]
+  logs?: RawOpsMonitorLog[]
+  alertFiles?: RawOpsMonitorAlertFile[]
+  heartbeat?: RawOpsMonitorHeartbeat
+}
+
+export interface RawOpsAlertConfig {
+  webhook?: string
+  timeoutSeconds?: number
+}
+
 export interface RawOpsConfig {
   enabled?: boolean
   intervalSeconds?: number
   resources?: RawOpsResource[]
   checks?: RawOpsCheck[]
   actions?: RawOpsAction[]
+  monitor?: RawOpsMonitorConfig
+  alerts?: RawOpsAlertConfig
 }
 
 export interface AutonomyConfig {
@@ -254,6 +370,209 @@ function parseAutonomyConfig(raw: RawAutonomyConfig | undefined): AutonomyConfig
   }
 }
 
+function assertHttpUrl(value: string, field: string): void {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new RuleViolationError(`配置 ${field} 必须是合法的 http(s) URL`)
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new RuleViolationError(`配置 ${field} 只接受 http(s) URL`)
+  }
+}
+
+function monitorId(seen: Set<string>, value: unknown, field: string): string {
+  const id = requiredText(value, field)
+  if (seen.has(id)) throw new RuleViolationError(`配置 ${field} 重复：${id}`)
+  seen.add(id)
+  return id
+}
+
+function knownResource(ids: ReadonlySet<string>, value: unknown, field: string): string {
+  const resourceId = requiredText(value, field)
+  if (!ids.has(resourceId)) {
+    throw new RuleViolationError(`配置 ${field} 引用了未登记的资源：${resourceId}`)
+  }
+  return resourceId
+}
+
+function parseMonitorProcesses(
+  items: RawOpsMonitorProcess[] | undefined,
+  ids: ReadonlySet<string>,
+  seen: Set<string>,
+): OpsMonitorProcess[] {
+  return objectList(items, 'ops.monitor.processes').map((item, index) => {
+    const field = `ops.monitor.processes[${index}]`
+    const match = requiredText(item.match, `${field}.match`)
+    if (match.length > 200) {
+      throw new RuleViolationError(`配置 ${field}.match 超过 200 字符上限`)
+    }
+    return {
+      id: monitorId(seen, item.id, `${field}.id`),
+      resourceId: knownResource(ids, item.resourceId, `${field}.resourceId`),
+      match,
+    }
+  })
+}
+
+function parseMonitorLatency(
+  items: RawOpsMonitorLatency[] | undefined,
+  ids: ReadonlySet<string>,
+  seen: Set<string>,
+): OpsMonitorLatency[] {
+  return objectList(items, 'ops.monitor.latency').map((item, index) => {
+    const field = `ops.monitor.latency[${index}]`
+    const url = requiredText(item.url, `${field}.url`)
+    assertHttpUrl(url, `${field}.url`)
+    const timeoutSeconds = positiveNumber(item.timeoutSeconds, `${field}.timeoutSeconds`, 5)
+    if (timeoutSeconds > 60) {
+      throw new RuleViolationError(`配置 ${field}.timeoutSeconds 不能大于 60 秒`)
+    }
+    return {
+      id: monitorId(seen, item.id, `${field}.id`),
+      resourceId: knownResource(ids, item.resourceId, `${field}.resourceId`),
+      url,
+      timeoutSeconds,
+    }
+  })
+}
+
+function parseMonitorLogs(
+  items: RawOpsMonitorLog[] | undefined,
+  ids: ReadonlySet<string>,
+  seen: Set<string>,
+): OpsMonitorLog[] {
+  return objectList(items, 'ops.monitor.logs').map((item, index) => {
+    const field = `ops.monitor.logs[${index}]`
+    const errorPattern = requiredText(item.errorPattern, `${field}.errorPattern`)
+    try {
+      new RegExp(errorPattern)
+    } catch (error) {
+      throw new RuleViolationError(
+        `配置 ${field}.errorPattern 不是合法正则：${errorMessage(error)}`,
+      )
+    }
+    return {
+      id: monitorId(seen, item.id, `${field}.id`),
+      resourceId: knownResource(ids, item.resourceId, `${field}.resourceId`),
+      path: requiredText(item.path, `${field}.path`),
+      errorPattern,
+    }
+  })
+}
+
+function parseMonitorAlertFiles(
+  items: RawOpsMonitorAlertFile[] | undefined,
+  seen: Set<string>,
+): OpsMonitorAlertFile[] {
+  return objectList(items, 'ops.monitor.alertFiles').map((item, index) => {
+    const field = `ops.monitor.alertFiles[${index}]`
+    return {
+      id: monitorId(seen, item.id, `${field}.id`),
+      path: requiredText(item.path, `${field}.path`),
+    }
+  })
+}
+
+/**
+ * 监控提供方：默认只用自研采集器。写了未登记的提供方（例如未来的 Glances）
+ * 在装载时失败，避免运行时静默忽略——“支持对接”不等于“已经支持”。
+ */
+function parseMonitorProviders(value: unknown): string[] {
+  if (value === undefined) return [...DEFAULT_OPS_PROVIDER_IDS]
+  if (!Array.isArray(value)) {
+    throw new RuleViolationError('配置 ops.monitor.providers 必须是字符串数组')
+  }
+  if (value.length === 0) {
+    throw new RuleViolationError('配置 ops.monitor.providers 至少需要一个监控提供方')
+  }
+  const seen = new Set<string>()
+  return value.map((item, index) => {
+    const field = `ops.monitor.providers[${index}]`
+    const id = requiredText(item, field)
+    if (seen.has(id)) throw new RuleViolationError(`配置 ${field} 重复：${id}`)
+    seen.add(id)
+    if (!findOpsProvider(id)) {
+      throw new RuleViolationError(
+        `配置 ${field} 引用了未登记的监控提供方：${id}（当前只登记 ${describeOpsProviders()}）`,
+      )
+    }
+    return id
+  })
+}
+
+const HEARTBEAT_METHODS = ['GET', 'POST'] as const
+
+function parseMonitorHeartbeat(raw: RawOpsMonitorHeartbeat | undefined): OpsMonitorHeartbeat {
+  const source = raw ?? {}
+  if (source.url !== undefined && typeof source.url !== 'string') {
+    throw new RuleViolationError('配置 ops.monitor.heartbeat.url 必须是字符串')
+  }
+  const url = typeof source.url === 'string' ? source.url.trim() : ''
+  if (url) assertHttpUrl(url, 'ops.monitor.heartbeat.url')
+  const rawMethod = typeof source.method === 'string' ? source.method.trim().toUpperCase() : ''
+  const method = rawMethod === '' ? 'GET' : rawMethod
+  if (method !== 'GET' && method !== 'POST') {
+    throw new RuleViolationError(
+      `配置 ops.monitor.heartbeat.method 只能是 ${HEARTBEAT_METHODS.join(' 或 ')}`,
+    )
+  }
+  const timeoutSeconds = positiveNumber(
+    source.timeoutSeconds,
+    'ops.monitor.heartbeat.timeoutSeconds',
+    5,
+  )
+  if (timeoutSeconds > 30) {
+    throw new RuleViolationError('配置 ops.monitor.heartbeat.timeoutSeconds 不能大于 30 秒')
+  }
+  return { url, method, timeoutSeconds }
+}
+
+/**
+ * 主动监控目录：采集来源必须指向已登记资源，身份唯一，URL/正则在装载期校验。
+ * 默认关闭；启用后由运维巡检按自己的周期运行，不与检查周期绑定。
+ */
+function parseMonitorConfig(
+  raw: RawOpsMonitorConfig | undefined,
+  resources: readonly OpsResource[],
+): OpsMonitorConfig {
+  const source = raw ?? {}
+  const intervalSeconds = positiveNumber(source.intervalSeconds, 'ops.monitor.intervalSeconds', 300)
+  if (intervalSeconds < 30) {
+    throw new RuleViolationError('配置 ops.monitor.intervalSeconds 不能小于 30 秒')
+  }
+  const logLines = positiveInteger(source.logLines, 'ops.monitor.logLines', 80)
+  if (logLines > 500) throw new RuleViolationError('配置 ops.monitor.logLines 不能大于 500')
+  const ids = new Set(resources.map((resource) => resource.id))
+  const seen = new Set<string>()
+  return {
+    enabled: booleanValue(source.enabled, 'ops.monitor.enabled', false),
+    intervalSeconds,
+    logLines,
+    providers: parseMonitorProviders(source.providers),
+    processes: parseMonitorProcesses(source.processes, ids, seen),
+    latency: parseMonitorLatency(source.latency, ids, seen),
+    logs: parseMonitorLogs(source.logs, ids, seen),
+    alertFiles: parseMonitorAlertFiles(source.alertFiles, seen),
+    heartbeat: parseMonitorHeartbeat(source.heartbeat),
+  }
+}
+
+function parseAlertConfig(raw: RawOpsAlertConfig | undefined): OpsAlertConfig {
+  const source = raw ?? {}
+  if (source.webhook !== undefined && typeof source.webhook !== 'string') {
+    throw new RuleViolationError('配置 ops.alerts.webhook 必须是字符串')
+  }
+  const webhook = typeof source.webhook === 'string' ? source.webhook.trim() : ''
+  if (webhook) assertHttpUrl(webhook, 'ops.alerts.webhook')
+  const timeoutSeconds = positiveNumber(source.timeoutSeconds, 'ops.alerts.timeoutSeconds', 10)
+  if (timeoutSeconds > 60) {
+    throw new RuleViolationError('配置 ops.alerts.timeoutSeconds 不能大于 60 秒')
+  }
+  return { webhook, timeoutSeconds }
+}
+
 /**
  * 运维目录：资源、只读检查与登记动作。目录非法时装载失败，
  * 不在运行期猜测或放宽；未启用的目录也做同样的静态校验。
@@ -331,10 +650,17 @@ function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {
 
   const catalog: OpsCatalog = { resources, checks, actions }
   validateOpsCatalog(catalog)
-  if (enabled && checks.length === 0) {
-    throw new RuleViolationError('配置 ops 启用时至少要登记一个检查；否则不会产生任何运维事件')
+  const monitor = parseMonitorConfig(source.monitor, resources)
+  const alerts = parseAlertConfig(source.alerts)
+  if (monitor.enabled && !enabled) {
+    throw new RuleViolationError('配置 ops.monitor 启用时需要同时启用 ops')
   }
-  return { enabled, intervalSeconds, ...catalog }
+  if (enabled && checks.length === 0 && !monitor.enabled) {
+    throw new RuleViolationError(
+      '配置 ops 启用时至少要登记一个检查，或启用 ops.monitor 主动监控；否则不会产生任何运维事件',
+    )
+  }
+  return { enabled, intervalSeconds, ...catalog, monitor, alerts }
 }
 
 function expandHome(value: string): string {
@@ -455,6 +781,15 @@ export function reviewDir(
 /** 实现前评审的固定目录；每个任务包版本一份。 */
 export function planReviewDir(config: ForgeLoopConfig, reqId: string, planVersion: number): string {
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, 'plan')
+}
+
+/** 验证方案目录：候选生成前按任务包版本固定，供同一验证会话设计与复用。 */
+export function verificationPlanDir(
+  config: ForgeLoopConfig,
+  reqId: string,
+  planVersion: number,
+): string {
+  return join(projectDir(config), 'verifications', reqId, `v${planVersion}`, 'plan')
 }
 
 /** 独立验证目录：按候选身份隔离，保留旧候选的验证证据。 */

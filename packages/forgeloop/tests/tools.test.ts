@@ -96,7 +96,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('tool surface', () => {
-  it('exposes exactly the twelve documented tools with renderable output', () => {
+  it('exposes exactly the thirteen documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -105,6 +105,7 @@ describe('tool surface', () => {
       'forgeloop_requests',
       'forgeloop_impact',
       'forgeloop_ops',
+      'forgeloop_run_verification_check',
       'forgeloop_read_project_doc',
       'forgeloop_write_project_doc',
       'forgeloop_web_search',
@@ -283,8 +284,8 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(12)
-    expect(disposers).toHaveLength(12)
+    expect(registered).toHaveLength(13)
+    expect(disposers).toHaveLength(13)
   })
 
   it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {
@@ -349,5 +350,20 @@ describe('requirement intake tool', () => {
       if (savedBase === undefined) delete process.env.FORGELOOP_WEB_BASE_URL
       else process.env.FORGELOOP_WEB_BASE_URL = savedBase
     }
+  })
+
+  it('runs verification checks only for the active requirement context', async () => {
+    expect((await call('forgeloop_run_verification_check', {})).text).toContain(
+      'req_id is required',
+    )
+    expect((await call('forgeloop_run_verification_check', { req_id: 'req-1' })).text).toContain(
+      'label is required',
+    )
+    const outcome = await call('forgeloop_run_verification_check', {
+      req_id: 'req-1',
+      label: 'unit',
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.text).toContain('没有正在进行的验证')
   })
 })

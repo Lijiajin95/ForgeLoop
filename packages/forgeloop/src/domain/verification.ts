@@ -387,21 +387,40 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
   return { scenarios }
 }
 
-/** 验证方案必须逐字覆盖需求说明中的全部业务场景与验收标准。 */
+/** 方案某个场景是否以原文引用了这条需求说明；允许补充可检查细节与空白归一化。 */
+function planReferences(plan: VerificationPlan, source: string): boolean {
+  return plan.scenarios.some((item) =>
+    referencesText(`${item.scenario}\n${item.acceptanceCriterion}\n${item.method}`, source),
+  )
+}
+
+/**
+ * 验证方案必须逐字覆盖需求说明中的全部业务场景、业务规则、异常与边界和验收标准。
+ * 非目标只作背景，不参与正向验收。
+ */
 export function validateRequirementVerificationPlan(
   analysis: {
     readonly scenarios: readonly string[]
     readonly acceptanceCriteria: readonly string[]
+    readonly businessRules?: readonly string[] | undefined
+    readonly exceptions?: readonly string[] | undefined
   },
   plan: VerificationPlan,
 ): string[] {
-  return validatePlanCoverage(analysis, {
+  const issues = validatePlanCoverage(analysis, {
     verdict: 'pass',
     blocking: [],
     findings: [],
     summary: '',
     verificationPlan: plan.scenarios,
   })
+  for (const rule of analysis.businessRules ?? []) {
+    if (!planReferences(plan, rule)) issues.push(`验证方案缺少业务规则：${rule}`)
+  }
+  for (const item of analysis.exceptions ?? []) {
+    if (!planReferences(plan, item)) issues.push(`验证方案缺少异常与边界：${item}`)
+  }
+  return issues
 }
 
 // ---------------------------------------------------------------- 验证执行结果

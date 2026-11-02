@@ -381,15 +381,10 @@ function parseProposedAction(value: unknown): OpsProposedAction | null {
 }
 
 /**
- * 解析运维 Agent 的诊断 JSON。结构畸形直接失败，不把部分字段当成结论。
- * 这里不校验动作是否登记；调用方必须再用目录校验动作与参数。
+ * 从已解析的 JSON 对象读出诊断字段。主动监控报告里的每个问题复用同一结构，
+ * 避免诊断与监控各有一套字段名与容错规则。
  */
-export function parseOpsDiagnosis(text: string): OpsDiagnosis {
-  const payload = parseJsonLoose(text, '运维诊断')
-  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
-    throw new MalformedError('运维诊断必须是 JSON 对象')
-  }
-  const data = asRecord(payload) ?? {}
+export function parseOpsDiagnosisFields(data: Record<string, unknown>): OpsDiagnosis {
   const impact = nonEmptyString(data.impact, '运维诊断的业务影响')
   const facts = stringArray(data.facts, '运维诊断的事实')
   if (data.hypotheses !== undefined && !Array.isArray(data.hypotheses)) {
@@ -413,6 +408,18 @@ export function parseOpsDiagnosis(text: string): OpsDiagnosis {
     fixRequired,
     summary: nonEmptyString(data.summary, '运维诊断的摘要'),
   }
+}
+
+/**
+ * 解析运维 Agent 的诊断 JSON。结构畸形直接失败，不把部分字段当成结论。
+ * 这里不校验动作是否登记；调用方必须再用目录校验动作与参数。
+ */
+export function parseOpsDiagnosis(text: string): OpsDiagnosis {
+  const payload = parseJsonLoose(text, '运维诊断')
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new MalformedError('运维诊断必须是 JSON 对象')
+  }
+  return parseOpsDiagnosisFields(asRecord(payload) ?? {})
 }
 
 /** 以模型输入格式保存诊断：读回时复用同一解析器，避免两套字段名。 */
