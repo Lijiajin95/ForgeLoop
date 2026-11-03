@@ -4305,8 +4305,8 @@ orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工�
 
 ### 117.4 验证
 
-- `make check`：合并最新 main 后 69 个测试文件、757 项通过（含 typecheck、lint、contracts、token/断言预算）。
-- `make coverage`：行／语句 92.49%、分支 84.48%、函数 96.67%，门槛（90/93/84）通过。
+- `make check`：合并最新 main 后 70 个测试文件、760 项通过（含 typecheck、lint、contracts、token/断言预算）。
+- `make coverage`：行／语句 92.53%、分支 84.51%、函数 96.67%，门槛（90/93/84）通过。
 - `make format`、`make budget`、`make assertions`（18/18）、`make contracts`、`make lint`：通过。
 
 ### 117.5 未完成与风险

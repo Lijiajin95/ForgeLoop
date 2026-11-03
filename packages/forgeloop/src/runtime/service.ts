@@ -76,10 +76,10 @@ import {
 import { SessionRouting } from './session-routing.js'
 import { VerificationCheckRegistry, type VerificationCheckOutcome } from './verification-checks.js'
 import { OpsRuntime } from './ops.js'
+import { applyDiffFile } from './diff-apply.js'
 import { buildStatusBoard, requirementTitle, type StatusBoardView } from './board.js'
 import { runFormalTest } from './formal-test.js'
 import { planReviewPrompt, requirementContext } from './prompts.js'
-import { runCommand } from './workspace.js'
 import { requestSource, requestView } from './execution-views.js'
 import { LegacyVerification } from './legacy-verification.js'
 import { TaskDelivery, type DeliverInput, type DeliverOutcome } from './task-delivery.js'
@@ -183,8 +183,7 @@ export class ForgeLoopRuntime {
       existingPackages: () => this.existingPackages(),
       ctx: this.ctx,
       authorizedPlan: (plan, source) => this.authorizedPlan(plan, source),
-      applyDiffFile: (dir, diffPath, label, suffix) =>
-        this.applyDiffFile(dir, diffPath, label, suffix),
+      applyDiffFile,
     })
     this.verificationPipeline = new VerificationPipeline({
       config: this.config,
@@ -199,8 +198,7 @@ export class ForgeLoopRuntime {
       openAgent: (request) => this.openAgent(request),
       candidateIdentity: (plan, artifacts) => this.candidateIdentity(plan, artifacts),
       requireAuthorizedPlan: (reqId) => this.requireAuthorizedPlan(reqId),
-      applyDiffFile: (dir, diffPath, label, suffix) =>
-        this.applyDiffFile(dir, diffPath, label, suffix),
+      applyDiffFile,
       reopenDeliveredTasks: (input) => this.reopenDeliveredTasks(input),
       verificationBaseline: (analysis) => this.verificationBaseline(analysis),
       remainingFailureRounds: (reqId) => this.remainingFailureRounds(reqId),
@@ -228,8 +226,7 @@ export class ForgeLoopRuntime {
       },
       previousTaskFailure: (reqId, planVersion, taskId) =>
         this.previousTaskFailure(reqId, planVersion, taskId),
-      applyDiffFile: (dir, diffPath, label, suffix) =>
-        this.applyDiffFile(dir, diffPath, label, suffix),
+      applyDiffFile,
     })
     this.legacyVerification = new LegacyVerification({
       config: this.config,
@@ -1906,30 +1903,6 @@ ${answer}`
   }
 
   /** 应用一个候选 diff：先 git apply，失败后用受控 fuzz；不修改证据原文。 */
-  private applyDiffFile(
-    dir: string,
-    diffPath: string,
-    label: string,
-    suffix: string,
-  ): { ok: boolean; detail: string } {
-    const rawDiff = readFileSync(diffPath, 'utf8')
-    if (rawDiff.trim() === '') return { ok: true, detail: '' }
-    const normalized = rawDiff.endsWith('\n') ? rawDiff : `${rawDiff}\n`
-    const applyPath = join(dir, `.apply-${suffix}-${label}.diff`)
-    writeFileSync(applyPath, normalized, 'utf8')
-    let applied = runCommand('git', ['apply', '--whitespace=nowarn', applyPath], dir, 120_000)
-    if (applied.code !== 0) {
-      applied = runCommand(
-        'patch',
-        ['-p1', '--forward', '--fuzz=3', '--no-backup-if-mismatch', '-i', applyPath],
-        dir,
-        120_000,
-      )
-    }
-    if (applied.code === 0) rmSync(applyPath, { force: true })
-    return { ok: applied.code === 0, detail: applied.stderr.trim() || applied.stdout.trim() }
-  }
-
   private existingPackages(): string[] {
     try {
       return readdirSync(join(this.config.projectPath, 'packages'), { withFileTypes: true })
