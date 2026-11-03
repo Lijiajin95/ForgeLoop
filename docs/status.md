@@ -4513,3 +4513,55 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 - 完整变异测试尚未随快照运行；`reliability-report-fast` 只记录 `not_run`。
 - 隔离库没有运行记录，真实事件下钻未验证；缺失/损坏快照只有运行时测试，没有页面留档。
 - 夜间 CI 定时生成快照未接入，仍需手动执行命令。
+
+## 53. 评测门禁改造：逐文件覆盖率、全模块变异与真实宿主 E2E（2026-11-03）
+
+### 53.1 覆盖率逐文件
+
+- `packages/forgeloop/vitest.config.ts` 的 `include` 覆盖 `src/**/*.ts`，移除 `src/cli/**` 与
+  `src/index.ts` 豁免并开启 `perFile`；全局门槛行/语句 90、函数 93、分支 84，另保留六个关键文件门槛。
+- 新增 21 个 `tests/coverage-*.test.ts`，补强 15 个既有测试文件；`src/cli/pack.ts` 导出 `main` 并加执行守卫。
+- `scripts/ts/reliability-report.ts` 按 perFile 逐文件对照默认门槛与关键文件门槛。
+- 2026-11-03 实测 `make coverage`：94 个测试文件、1140 项测试全部通过；92 个源文件逐文件达标；
+  行/语句 97.84%、函数 98.94%、分支 90.28%（`coverage-summary.json` 已刷新）。
+  注意：`tests/monitor.test.ts` 的进程采集用例依赖 `ps`；workspace-write 沙箱下 `ps` 返回 EPERM，
+  该用例会跳过并令 `monitor.ts` 分支覆盖降到 77.55%，需在允许进程访问的环境运行。
+
+### 53.2 变异分片与合并
+
+- `packages/forgeloop/stryker.config.json`：`mutate=["src/**/*.ts"]`、incremental、thresholds 95/85/80。
+- `scripts/ts/mutation-shard.ts` 分 8 个模块分片 + `all`（domain 27、records 8、runtime-execution 17、
+  runtime-verification 11、runtime-ops 20、session 5、config-agents 2、entry 2），并校验每个源码恰好属于一个分片。
+- 分片运行时生成 `reports/stryker-shard-<shard>.json`，把 `thresholds.break` 设为 0，只产报告；
+  全局判定由 `scripts/ts/mutation-merge.ts` 读取 `stryker.config.json` 的 break 完成，并要求 92 个源码
+  全部出现且不重复。`src/domain/work.ts` 只有类型声明、没有变异点，Stryker 不写空文件，合并时显式按
+  0 个变异登记；其他缺失仍失败。
+- 2026-11-03 全量实测（HEAD，增量重跑）：21242 个计分变异，killed 11931、survived 5193、timeout 25、
+  noCoverage 4093，总分 56.28%，低于 break 80；合并门禁按设计失败。分片分数：
+  domain 69.77、records 67.93、runtime-execution 55.08、runtime-verification 40.36、
+  runtime-ops 51.44、session 63.28、config-agents 64.63、entry 87.01。
+  未下调门槛，也未把分片分数当通过依据。
+- 真实报告合并校验：91 个实际含变异的文件 + `work.ts` 空文件 = 92，分数与 Stryker 56.28% 一致，
+  退出码 1；100% 合成报告退出码 0，证明通过/失败两侧都可用。
+- entry 分片用强化后的入口/打包用例实测 87.01%，`make mutation-shard SHARD=entry` 退出码 0。
+
+### 53.3 真实宿主 E2E
+
+- `scripts/ts/verify-e2e.ts` + `make verify-e2e`：隔离 `DSH_HOME`，安装候选 tarball 到 web/headless
+  profile，启动 `dsh web`，真实模型调用 `forgeloop_submit_requirement`，轮询到 committed，
+  校验受控提交含 `docs/e2e-proof.md`，再由模型读取 `forgeloop_show_requirement`/`forgeloop_evidence`；
+  缺 `DEEPSEEK_API_KEY` 或候选 tarball 直接失败，默认 15 分钟超时。
+- 本机无 `DEEPSEEK_API_KEY`：只实测缺凭据失败关闭（退出码 1）与 TypeScript 检查，真实模型主路径未跑通。
+- `.github/workflows/nightly.yml` 接入 8 分片矩阵 + mutation-gate；`release.yml` 的 real-host 下载候选包后
+  执行 `make verify-e2e`。两条 CI 均未在 GitHub runner 实跑；分支保护未改。
+
+### 53.4 未完成与合并状态
+
+- 已实测：`make check`（94 文件、1139 通过 + 1 跳过；放行进程访问时 1140 全通过）、`make coverage`
+  （92 文件逐文件达标）、`make format`、`make lint`、`make check-static`、`make reliability-report-fast`
+  （8/8，变异 not_run）、`mutation-shard --list`（92）、合并报告成功/失败路径、verify-e2e 缺 key 失败关闭。
+- 未验证：真实 DSH + 真实模型 + 实际工具 E2E（无凭据）、nightly/release 的真实 CI 运行。
+- 全量变异 56.28% < 80：夜间 `mutation-gate` 会失败；是否调整门槛或补测试需所有者决定。
+- 合并：主树已从 `fd19ce1` 前进到 `ea70d8c`（含并行真实模型 E2E 等 15 个提交），本分支不是主树的
+  快进后继，`make worktree-merge` 无法快进；未强推、未 reset 主树，分支与工作树保留待所有者决定。
+
