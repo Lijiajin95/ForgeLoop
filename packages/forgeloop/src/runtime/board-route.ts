@@ -24,6 +24,13 @@ const BOARD_ENDPOINTS = [
   'retry-analysis',
   'build',
   'deploy',
+  'deployments',
+  'deployment',
+  'deployment-intent',
+  'deployment-approve',
+  'deployment-reject',
+  'deployment-verify',
+  'deployment-rollback',
   'retry',
   'accept',
   'stop',
@@ -167,7 +174,127 @@ function handleRead(
 
   if (endpoint === 'reliability') return handleReliability(body, context)
 
+  if (endpoint === 'deployments') return handleDeployments(body, context)
+
+  if (endpoint === 'deployment') return handleDeployment(body, context)
+
   return null
+}
+
+/** 部署动作的 HTTP 状态：缺参 400、非所有者 403、不存在 404、状态冲突 409。 */
+function deploymentStatus(code: string): number {
+  if (code === 'forbidden') return 403
+  if (code === 'not_found') return 404
+  if (code === 'bad_request') return 400
+  return 409
+}
+
+function handleDeployments(body: BoardBody | null, context: BoardContext): Response {
+  let limit = 20
+  if (body?.limit !== undefined) {
+    if (
+      typeof body.limit !== 'number' ||
+      !Number.isInteger(body.limit) ||
+      body.limit < 1 ||
+      body.limit > BOARD_MAX_LIMIT
+    ) {
+      return boardResponse(
+        boardFailure('bad_request', `limit 必须是 1..${BOARD_MAX_LIMIT} 的整数`),
+        400,
+      )
+    }
+    limit = body.limit
+  }
+  return boardResponse({ ok: true, value: context.runtime.deploymentService.rollouts(limit) })
+}
+
+function handleDeployment(body: BoardBody | null, context: BoardContext): Response {
+  const intentId = text(body?.intentId)
+  if (!intentId) return boardResponse(boardFailure('bad_request', '部署详情需要 intentId'), 400)
+  const value = context.runtime.deploymentService.rollout(intentId)
+  if (!value) return boardResponse(boardFailure('not_found', `未找到部署 ${intentId}`), 404)
+  return boardResponse({ ok: true, value })
+}
+
+async function handleDeploymentIntent(
+  body: BoardBody | null,
+  context: BoardContext,
+): Promise<Response> {
+  const targetId = text(body?.targetId)
+  if (!targetId) return boardResponse(boardFailure('bad_request', '部署提议需要 targetId'), 400)
+  const sessionId = text(body?.sessionId)
+  const result = await context.runtime.deploymentService.request({
+    targetId,
+    by: context.config.owner,
+    source: `web-decision:${sessionId || 'unknown-session'}:deployment-intent`,
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : deploymentStatus(result.code),
+  )
+}
+
+async function handleDeploymentApprove(
+  body: BoardBody | null,
+  context: BoardContext,
+): Promise<Response> {
+  const intentId = text(body?.intentId)
+  if (!intentId) return boardResponse(boardFailure('bad_request', '批准部署需要 intentId'), 400)
+  const result = await context.runtime.deploymentService.approve({
+    intentId,
+    by: context.config.owner,
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : deploymentStatus(result.code),
+  )
+}
+
+function handleDeploymentReject(body: BoardBody | null, context: BoardContext): Response {
+  const intentId = text(body?.intentId)
+  if (!intentId) return boardResponse(boardFailure('bad_request', '拒绝部署需要 intentId'), 400)
+  const result = context.runtime.deploymentService.reject({
+    intentId,
+    by: context.config.owner,
+    reason: text(body?.reason),
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : deploymentStatus(result.code),
+  )
+}
+
+async function handleDeploymentVerify(
+  body: BoardBody | null,
+  context: BoardContext,
+): Promise<Response> {
+  const intentId = text(body?.intentId)
+  if (!intentId) return boardResponse(boardFailure('bad_request', '核对部署需要 intentId'), 400)
+  const result = await context.runtime.deploymentService.verify({
+    intentId,
+    by: context.config.owner,
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : deploymentStatus(result.code),
+  )
+}
+
+async function handleDeploymentRollback(
+  body: BoardBody | null,
+  context: BoardContext,
+): Promise<Response> {
+  const intentId = text(body?.intentId)
+  if (!intentId) return boardResponse(boardFailure('bad_request', '回退部署需要 intentId'), 400)
+  const result = await context.runtime.deploymentService.rollback({
+    intentId,
+    by: context.config.owner,
+    reason: text(body?.reason),
+  })
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : deploymentStatus(result.code),
+  )
 }
 
 function handleReliability(body: BoardBody | null, context: BoardContext): Response {
@@ -438,6 +565,25 @@ function handleWrite(
   body: BoardBody | null,
   endpoint: unknown,
   context: BoardContext,
+): Response | Promise<Response> | null {
+  // 部署执行/回退与“上线核对”分开命名，避免把装好之后的核对当成部署动作。
+  if (endpoint === 'deployment-intent') return handleDeploymentIntent(body, context)
+
+  if (endpoint === 'deployment-approve') return handleDeploymentApprove(body, context)
+
+  if (endpoint === 'deployment-reject') return handleDeploymentReject(body, context)
+
+  if (endpoint === 'deployment-verify') return handleDeploymentVerify(body, context)
+
+  if (endpoint === 'deployment-rollback') return handleDeploymentRollback(body, context)
+
+  return handleLegacyWrite(body, endpoint, context)
+}
+
+function handleLegacyWrite(
+  body: BoardBody | null,
+  endpoint: unknown,
+  context: BoardContext,
 ): Response | null {
   if (endpoint === 'plan') return handlePlan(body, context)
 
@@ -606,12 +752,12 @@ export function createBoardFetch(
     }
     const context: BoardContext = { runtime, config, coordinator }
     try {
-      return (
+      const handled =
         handleRead(body, endpoint, context) ??
         handleWrite(body, endpoint, context) ??
         handleOps(body, endpoint, context) ??
         handleBoardQuery(body, runtime)
-      )
+      return handled instanceof Promise ? await handled : handled
     } catch (error) {
       return boardResponse(boardFailure('internal', `看板读取失败：${errorMessage(error)}`), 500)
     }

@@ -651,7 +651,13 @@ describe('deployment contract details', () => {
       'data-rollback',
       'logs',
     ])
-    expect(DEPLOYMENT_OPERATIONS).toEqual(['preflight', 'apply', 'status', 'rollback'])
+    expect(DEPLOYMENT_OPERATIONS).toEqual([
+      'preflight',
+      'apply',
+      'status',
+      'rollback',
+      'data-rollback',
+    ])
     for (const terminal of ['preflight_failed', 'rejected', 'rolled_back'] as const) {
       expect(canTransition(terminal, 'bogus' as never)).toBe(false)
       expect(canTransition(terminal, terminal)).toBe(false)

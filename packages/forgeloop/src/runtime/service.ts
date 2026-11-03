@@ -91,6 +91,9 @@ import { ExecutionPlan } from './execution-plan.js'
 import { ExecutionDev } from './execution-dev.js'
 import { AdvancePipeline } from './advance-pipeline.js'
 import { fail, ok, type OperationResult } from './operation-result.js'
+import { Deployments } from './deployments.js'
+import { candidateDeploymentGate } from './deployment-gate.js'
+import { DeploymentService } from './deployment-service.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
 import { BuildMaterialValidator } from './build-materials.js'
 
@@ -122,6 +125,9 @@ export class ForgeLoopRuntime {
   /** 需求队列：只在研发空闲时领取队首需求，同一时间最多一个在研。 */
   readonly requirementQueue: RequirementQueue
   readonly analysisQueue: AnalysisQueue
+  /** 部署协调器：intent/审批/apply/status/回退；模型工具只能只读查询。 */
+  readonly deployments: Deployments
+  readonly deploymentService: DeploymentService
   /** 验证失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
   readonly issues: IssueStore
   private readonly advancePipeline: AdvancePipeline
@@ -144,6 +150,17 @@ export class ForgeLoopRuntime {
     this.config = options.config
     this.clock = options.now ?? (() => new Date())
     this.repo = new Repository(Database.open(recordsPath(this.config)))
+    this.deployments = new Deployments({
+      config: this.config,
+      store: this.repo.deploymentStore,
+      gate: candidateDeploymentGate(this.repo),
+      now: () => this.now(),
+    })
+    this.deploymentService = new DeploymentService({
+      config: this.config,
+      repo: this.repo,
+      deployments: this.deployments,
+    })
     this.requirementQueue = new RequirementQueue(
       new SqliteRequirementQueueStore(this.repo.db),
       () => this.clock(),

@@ -24,7 +24,13 @@ export const DEPLOYMENT_CAPABILITIES = [
 export type DeploymentCapability = (typeof DEPLOYMENT_CAPABILITIES)[number]
 
 /** 主控实际会调用的工具操作；`logs` 只声明能力，不进入状态机。 */
-export const DEPLOYMENT_OPERATIONS = ['preflight', 'apply', 'status', 'rollback'] as const
+export const DEPLOYMENT_OPERATIONS = [
+  'preflight',
+  'apply',
+  'status',
+  'rollback',
+  'data-rollback',
+] as const
 export type DeploymentOperation = (typeof DEPLOYMENT_OPERATIONS)[number]
 
 export const DEPLOYMENT_STATES = [

@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { asRecord } from '../domain/json.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -30,6 +31,7 @@ import {
   type DeploymentToolPlan,
   type DeploymentToolRun,
 } from './deployment-tools.js'
+import { sendDeploymentAlert } from './deployment-alerts.js'
 import type { DeploymentGate } from './deployment-gate.js'
 
 export interface DeploymentsDeps {
@@ -38,7 +40,7 @@ export interface DeploymentsDeps {
   readonly gate: DeploymentGate
   readonly now?: () => string
   readonly runTool?: typeof runDeploymentTool
-  readonly alert: (
+  readonly alert?: (
     url: string,
     body: Record<string, unknown>,
     timeoutSeconds: number,
@@ -69,12 +71,12 @@ function fail(code: string, message: string): DeploymentOutcome {
 export class Deployments {
   private readonly now: () => string
   private readonly runTool: typeof runDeploymentTool
-  private readonly alert: DeploymentsDeps['alert']
+  private readonly alert: NonNullable<DeploymentsDeps['alert']>
 
   constructor(private readonly deps: DeploymentsDeps) {
     this.now = deps.now ?? (() => new Date().toISOString())
     this.runTool = deps.runTool ?? runDeploymentTool
-    this.alert = deps.alert
+    this.alert = deps.alert ?? sendDeploymentAlert
   }
 
   targets(): readonly DeploymentTargetConfig[] {
@@ -149,6 +151,21 @@ export class Deployments {
       this.transition(intent, 'preflight_failed')
       return fail('preflight_failed', preflight.message)
     }
+    if (hasData(target) && !preflight.result.restorePoint) {
+      const message = '目标声明了卷或数据库迁移，但 preflight 没有给出 restorePoint，拒绝部署'
+      this.transition(intent, 'preflight_failed')
+      this.recordAttempt({
+        intent,
+        op: 'preflight',
+        state: 'preflight_failed',
+        exitCode: 0,
+        resultJson: '',
+        detail: message,
+        toolSha256: '',
+        evidencePath: dir,
+      })
+      return fail('preflight_failed', message)
+    }
     if (target.approval === 'auto') {
       this.transition(intent, 'ready')
       return this.apply(intent, tool, input.artifact, { params: target.params, data: target.data })
@@ -211,17 +228,134 @@ export class Deployments {
     })
     if (!observed.ok) {
       this.transition(intent, 'verify_failed')
-      await this.alertFailure(intent, observed.message)
+      this.alertFailure(intent, observed.message)
       return fail('verify_failed', observed.message)
     }
     if (observed.result.version !== intent.artifactVersion) {
       this.transition(intent, 'verify_failed')
       const message = `实际运行版本 ${observed.result.version || '未知'} 与制品 ${intent.artifactVersion} 不一致`
-      await this.alertFailure(intent, message)
+      this.alertFailure(intent, message)
       return fail('verify_failed', message)
     }
     this.transition(intent, 'verified')
     return ok(`部署 ${intentId} 已核对：版本 ${intent.artifactVersion}`)
+  }
+
+  /**
+   * 回退：从 applied_pending_verify/verified/verify_failed/failed 进入 rolling_back，
+   * 先按 target 声明的数据范围调用 data-rollback，再调用 rollback，最后用 status 复核。
+   * 回退成功只表示工具执行且状态观测通过，不把“退出码 0”当成数据已恢复。
+   */
+  async rollback(intentId: string, reason: string): Promise<DeploymentOutcome> {
+    const intent = this.requireIntent(intentId)
+    if ('code' in intent) return intent
+    const rollbackFrom: readonly DeploymentAttemptState[] = [
+      'applied_pending_verify',
+      'verified',
+      'verify_failed',
+      'failed',
+    ]
+    if (!rollbackFrom.includes(intent.state)) {
+      return fail('invalid_state', `部署 ${intentId} 当前状态 ${intent.state} 不能回退`)
+    }
+    const target = this.deps.config.deployments.targets.find((item) => item.id === intent.targetId)
+    const tool = target
+      ? this.deps.config.deployments.tools.find((item) => item.id === target.toolId)
+      : undefined
+    if (!target || !tool) return fail('not_found', '部署目标或工具已不在配置中')
+
+    const restorePoint = this.restorePointOf(intent.intentId)
+    const data = target.data
+    if (hasData(target) && !tool.capabilities.includes('data-rollback')) {
+      return fail(
+        'capability_missing',
+        `目标声明了数据范围，但工具 ${tool.id} 没有 data-rollback 能力`,
+      )
+    }
+    if (hasData(target) && !restorePoint) {
+      const message = `部署 ${intentId} 没有可用的 restorePoint，拒绝回退`
+      this.transition(intent, 'rolling_back')
+      this.transition(intent, 'failed')
+      this.alertFailure(intent, message)
+      return fail('restore_point_missing', message)
+    }
+
+    this.transition(intent, 'rolling_back')
+    const artifact = this.artifactOf(intent)
+    const previous = {
+      sha256: intent.artifactSha256,
+      path: intent.artifactPath,
+      restorePoint,
+    }
+    if (hasData(target)) {
+      const dataRollback = await this.runOperation({
+        intent,
+        tool,
+        op: 'data-rollback',
+        artifact,
+        params: target.params,
+        data,
+        previous,
+      })
+      if (!dataRollback.ok) {
+        this.transition(intent, 'failed')
+        this.alertFailure(intent, dataRollback.message)
+        return fail('data_rollback_failed', dataRollback.message)
+      }
+    }
+    const rolled = await this.runOperation({
+      intent,
+      tool,
+      op: 'rollback',
+      artifact,
+      params: target.params,
+      data,
+      previous,
+    })
+    if (!rolled.ok) {
+      this.transition(intent, 'failed')
+      this.alertFailure(intent, rolled.message)
+      return fail('rollback_failed', rolled.message)
+    }
+    const observed = await this.runOperation({
+      intent,
+      tool,
+      op: 'status',
+      artifact,
+      params: target.params,
+      data,
+      previous,
+    })
+    if (!observed.ok) {
+      this.transition(intent, 'failed')
+      const message = `回退后状态核对失败：${observed.message}`
+      this.alertFailure(intent, message)
+      return fail('rollback_verify_failed', message)
+    }
+    this.transition(intent, 'rolled_back')
+    return ok(`部署 ${intentId} 已回退：${reason || '未说明原因'}`, {
+      intentId,
+      state: intent.state,
+      restorePoint,
+    })
+  }
+
+  private restorePointOf(intentId: string): string {
+    const attempts = this.deps.store.deploymentAttempts(intentId)
+    for (const attempt of [...attempts].reverse()) {
+      if (attempt.op !== 'preflight' || attempt.state !== 'ready') continue
+      try {
+        const raw = asRecord(JSON.parse(attempt.resultJson))
+        if (!raw) continue
+        const stdout = raw.stdout
+        if (typeof stdout !== 'string') continue
+        const parsed = parseDeploymentToolResult(stdout)
+        if (parsed.restorePoint) return parsed.restorePoint
+      } catch {
+        continue
+      }
+    }
+    return ''
   }
 
   private async apply(
@@ -260,6 +394,7 @@ export class Deployments {
     artifact: DeploymentArtifact
     params: Readonly<Record<string, string>>
     data: { readonly volumes: readonly string[]; readonly migrations: readonly string[] }
+    previous?: DeploymentToolPlan['previous']
   }): Promise<{ ok: boolean; message: string; result: DeploymentToolResult }> {
     const { intent, tool, op, artifact, params, data } = input
     const dir = this.evidenceDir(intent.intentId)
@@ -268,7 +403,7 @@ export class Deployments {
       intentId: intent.intentId,
       op,
       artifact,
-      previous: null,
+      previous: input.previous ?? null,
       params,
       device: { id: 'local', transport: 'local' },
       data,
@@ -361,10 +496,10 @@ export class Deployments {
     }
   }
 
-  private async alertFailure(intent: DeploymentIntentRecord, message: string): Promise<void> {
+  private alertFailure(intent: DeploymentIntentRecord, message: string): void {
     const webhook = this.deps.config.deployments.alerts.webhook
     if (!webhook) return
-    await this.alert(
+    void this.alert(
       webhook,
       {
         kind: 'deployment',
@@ -376,7 +511,7 @@ export class Deployments {
         at: this.now(),
       },
       this.deps.config.deployments.alerts.timeoutSeconds,
-    )
+    ).catch(() => undefined)
   }
 
   private transition(intent: DeploymentIntentRecord, to: DeploymentAttemptState): void {
@@ -430,6 +565,12 @@ export class Deployments {
   private evidenceDir(intentId: string): string {
     return join(projectDir(this.deps.config), 'deployments', intentId)
   }
+}
+
+function hasData(target: {
+  readonly data: { readonly volumes: readonly string[]; readonly migrations: readonly string[] }
+}): boolean {
+  return target.data.volumes.length > 0 || target.data.migrations.length > 0
 }
 
 function emptyResult(): DeploymentToolResult {
