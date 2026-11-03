@@ -15,11 +15,11 @@
 | 里程碑、场景、自主程度统计与证据 | [§11–§13](product.md#11-里程碑与验收路径细化稿) |
 | 待实施事项与 DSH 接缝依据 | [§14–§15](product.md#14-实施边界与待决项) |
 
-## 待评审方案
+## 专题方案
 
 | 方案 | 内容 |
 | --- | --- |
-| [reliability-dashboard.md](reliability-dashboard.md) | 天工「代码可靠性」看板草案：页面结构、指标口径、数据来源与实施范围；未实现，待确认 |
+| [reliability-dashboard.md](reliability-dashboard.md) | 天工「代码可靠性」看板：页面结构、指标口径、质量快照生成、只读端点与实施记录；P1 已实现，P2 未做 |
 
 ## 当前实现与工程操作
 

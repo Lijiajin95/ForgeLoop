@@ -273,7 +273,7 @@ label，与工具白名单外的一切命令无关；其余工具只读查询。
 ### 4.3 天工层级工作台（Web 只读事实 + 客户动作）
 
 - 入口仍是 `conversation.view` 的 `forgeloop` 视图（标签「天工」/Forge）。页面提供
-  **层级工作台 / 全部任务 / 需要处理 / 运维** 入口；左侧需求树按需求 → 任务 → 关联问题展开，
+  **层级工作台 / 全部任务 / 需要处理 / 可靠性 / 运维** 入口；左侧需求树按需求 → 任务 → 关联问题展开，
   中间显示当前需求的目标、状态、版本、交付进度、待处理事项与任务列表/依赖切换，右侧为统一详情。
 - 详情分 **概览 / 前后序 / Agent 执行过程 / 测试与审查 / 变更记录**；支持面包屑、选中高亮、
   展开完整详情，窄屏按列表 → 详情逐级进入并返回。搜索、筛选、选中对象、详情分区与执行尝试在切换时保留。
@@ -295,6 +295,12 @@ label，与工具白名单外的一切命令无关；其余工具只读查询。
   下方为事件列表、严重度与状态、业务影响、诊断事实与推断、处置记录与证据路径；
   动作只有批准/拒绝处置、关闭与生成修复需求。服务端校验事件状态、动作目录与参数，
   页面不执行命令，也不另存业务状态。
+- **可靠性**视图读取只读 `reliability` 端点，分两层：质量快照（门禁、测试、覆盖率、关键文件、变异与预算）
+  来自显式执行 `make reliability-report` 写入的 `reports/reliability/latest.json`；交付可靠性（验证、首轮、
+  业务终审、上线、失败轮次、运维恢复与 MTTR、候选构建与最近事件）来自 SQLite 追加型记录。
+  快照固定路径、按 mtime 缓存，绑定生成时的 Git 提交；缺失、损坏、过期（HEAD 不一致、工作树脏或超过 7 天）
+  分别显示，不把未采集或未运行算成通过。页面请求不执行任何检查；窗口只接受 `7d/30d/90d/all`（默认 `all`），
+  任务运行只显示当前状态，不回放历史趋势。下钻先切回 `hierarchy` 再复用需求/任务详情。
 - 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`stopRequested` 表示存在未恢复的
   主动停止记录，不等于已经停稳。两者都不等于任务已经停稳或结果已经收口；中断的运维动作以 `interrupted` 记录，
   根因报告作为观测与证据展示，不是新的业务状态。
@@ -417,7 +423,7 @@ label，与工具白名单外的一切命令无关；其余工具只读查询。
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
   `plan`、`approve`、`advance`、`verify`、`requeue`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
-  以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`；
+  以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`，和只读 `reliability`；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
   并注册 ForgeLoop Chat 节点（含技术方案/任务包）与 `conversation.chat.turnTail` 需求摘要，
