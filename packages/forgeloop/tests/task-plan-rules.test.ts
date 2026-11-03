@@ -183,21 +183,21 @@ describe('task plan parsing and validation', () => {
     expect(() =>
       parseTaskPlanDraft(
         rawPlan([
-          rawTask('a', { limits: { limit_seconds: 0 } }),
+          rawTask('a', { limits: { limit_seconds: -1 } }),
           rawTask('b', { depends_on: ['a'] }),
         ]),
         context,
       ),
-    ).toThrow('执行限额必须为正数')
+    ).toThrow('limit_seconds 必须是非负数字')
     expect(() =>
       parseTaskPlanDraft(
         rawPlan([
-          rawTask('a', { limits: { max_failure_rounds: 0 } }),
+          rawTask('a', { limits: { max_failure_rounds: -1 } }),
           rawTask('b', { depends_on: ['a'] }),
         ]),
         context,
       ),
-    ).toThrow('失败轮次上限必须为正整数')
+    ).toThrow('max_failure_rounds 必须是非负整数')
     expect(() =>
       parseTaskPlanDraft(
         rawPlan([
@@ -206,7 +206,7 @@ describe('task plan parsing and validation', () => {
         ]),
         context,
       ),
-    ).toThrow('limit_seconds 必须是数字')
+    ).toThrow('limit_seconds 必须是非负数字')
   })
 
   it('requires actionable plans with at least two tasks and one dependency', () => {

@@ -1227,7 +1227,7 @@ export class Repository extends DevSessionStore {
 
   budget(reqId: string): { limitSeconds: number; consumedSeconds: number } {
     const row = this.db.prepare('SELECT * FROM requirement_budget WHERE req_id = ?').get(reqId)
-    if (!row) return { limitSeconds: 7200, consumedSeconds: 0 }
+    if (!row) return { limitSeconds: 0, consumedSeconds: 0 }
     return {
       limitSeconds: num(row, 'limit_seconds'),
       consumedSeconds: num(row, 'consumed_seconds'),
@@ -1895,8 +1895,8 @@ function planFromPayload(
         testCommand: stringArray(task.test_command),
         dependsOn: stringArray(task.depends_on),
         limits: {
-          limitSeconds: Number(limits.limit_seconds ?? 7200),
-          maxFailureRounds: Number(limits.max_failure_rounds ?? 3),
+          limitSeconds: Number(limits.limit_seconds ?? 0),
+          maxFailureRounds: Number(limits.max_failure_rounds ?? 0),
         },
         authorizationSource: textValue(task.authorization_source),
         ...(task.verification === true ? { verification: true } : {}),

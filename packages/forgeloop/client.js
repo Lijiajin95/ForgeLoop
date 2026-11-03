@@ -50,7 +50,7 @@ window.__ModuleLoader__.load({
       'action.extendBudgetPrompt': '延长多少小时？（0.5–24）',
       'action.extendedBudget': '已延长工时',
       'action.grantRounds': '追加授权',
-      'action.grantRoundsHelp': '失败轮次额度用尽后追加 3 轮；累计失败保留，不清零。',
+      'action.grantRoundsHelp': '失败轮次额度用尽后追加一份授权；累计失败保留，不清零。',
       'action.grantedRounds': '已追加授权',
       'action.retryAnalysis': '重新分析',
       'action.retryAnalysisHelp': '产品分析失败后重新排队一次分析；不改需求版本，失败记录保留。',
@@ -138,6 +138,7 @@ window.__ModuleLoader__.load({
       'requirement.verificationBlocked': '验证阻断',
       'requirement.verificationStale': '验证过期',
       'requirement.failureRounds': '失败轮次 {count}（剩余 {remaining}）',
+      'requirement.failureRoundsUnlimited': '失败轮次 {count}（额度不限）',
       'requirement.expand': '展开详情',
       'requirement.collapse': '收起详情',
       'task.meta': '{reqId} · 任务包 v{plan}',
@@ -253,7 +254,7 @@ window.__ModuleLoader__.load({
       'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24)',
       'action.extendedBudget': 'Budget extended',
       'action.grantRounds': 'Grant more rounds',
-      'action.grantRoundsHelp': 'Grant 3 more failure rounds after the quota is exhausted; history is preserved.',
+      'action.grantRoundsHelp': 'Grant one more failure-round allowance after the quota is exhausted; history is preserved.',
       'action.grantedRounds': 'Failure rounds granted',
       'action.retryAnalysis': 'Retry analysis',
       'action.retryAnalysisHelp': 'Queue one more product analysis after a failure; the requirement version stays the same and failure records are kept.',
@@ -341,6 +342,7 @@ window.__ModuleLoader__.load({
       'requirement.verificationBlocked': 'Verification blocked',
       'requirement.verificationStale': 'Verification stale',
       'requirement.failureRounds': '{count} failure rounds ({remaining} left)',
+      'requirement.failureRoundsUnlimited': '{count} failure rounds (unlimited quota)',
       'requirement.expand': 'Show details',
       'requirement.collapse': 'Hide details',
       'task.meta': '{reqId} · plan v{plan}',
@@ -1997,10 +1999,16 @@ window.__ModuleLoader__.load({
             ? h(
                 'span',
                 null,
-                t('requirement.failureRounds', {
-                  count: requirement.failureRounds,
-                  remaining: requirement.remainingRounds,
-                }),
+                t(
+                  requirement.remainingRounds === null ||
+                    requirement.remainingRounds === undefined
+                    ? 'requirement.failureRoundsUnlimited'
+                    : 'requirement.failureRounds',
+                  {
+                    count: requirement.failureRounds,
+                    remaining: requirement.remainingRounds,
+                  },
+                ),
               )
             : null,
           requirement.clarifications > 0
@@ -3621,7 +3629,9 @@ window.__ModuleLoader__.load({
           requirement &&
             !TERMINAL[requirement.status] &&
             requirement.approval === 'approved' &&
-            requirement.remainingRounds > 0 &&
+            (requirement.remainingRounds === null ||
+              requirement.remainingRounds === undefined ||
+              requirement.remainingRounds > 0) &&
             isFailureState(task.state),
         )
       }

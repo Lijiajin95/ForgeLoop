@@ -239,6 +239,9 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      // 这些用例验证“阻断后重试到额度用尽”，因此显式恢复有限的失败轮次与验证次数。
+      failureRoundsPerGrant: 3,
+      maxVerificationAttempts: 3,
     },
     dir,
   )

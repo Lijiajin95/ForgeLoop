@@ -203,6 +203,9 @@ function makeRuntime(runner: AgentLike = fakeRunner()): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      // 默认不限失败轮次；这些用例按“每份授权 3 轮”验证重试与额度用尽。
+      failureRoundsPerGrant: 3,
+      maxVerificationAttempts: 3,
       autonomy: {
         enabled: true,
         allowCodeCommit: true,

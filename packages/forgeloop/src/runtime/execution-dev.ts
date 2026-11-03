@@ -12,6 +12,7 @@ import {
   TASK_RUN_FAILED,
   TASK_RUN_RUNNING,
 } from '../domain/status.js'
+import { attemptAllowed } from '../domain/limits.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
@@ -260,13 +261,15 @@ export class ExecutionDev {
 
   /**
    * 任务包的 limit_seconds 是任务的工时预算，回合上限不能比它更短；
-   * 同时受 agent.maxTurnSeconds 硬上限约束，避免改配置后无限拉长。
+   * 同时受 agent.maxTurnSeconds 硬上限约束。三者都为 0（默认）时不设回合超时。
    */
   private devTurnTimeoutMs(task: PlannedTask): number {
     const floor = this.deps.config.agent.timeoutSeconds
-    const cap = this.deps.config.agent.maxTurnSeconds ?? 7200
+    const cap = this.deps.config.agent.maxTurnSeconds ?? 0
     const planned = task.limits.limitSeconds
-    return Math.min(Math.max(planned, floor), cap) * 1000
+    const lower = Math.max(planned, floor)
+    if (lower <= 0) return cap > 0 ? cap * 1000 : 0
+    return (cap > 0 ? Math.min(lower, cap) : lower) * 1000
   }
 
   /**
@@ -387,7 +390,7 @@ export class ExecutionDev {
       input.plan.planVersion,
       input.task.taskId,
     )
-    for (let attempt = 1; attempt <= this.deps.config.maxTaskAttempts; attempt += 1) {
+    for (let attempt = 1; attemptAllowed(attempt, this.deps.config.maxTaskAttempts); attempt += 1) {
       if (input.signal.aborted) {
         return this.taskStopped(input, attempt)
       }

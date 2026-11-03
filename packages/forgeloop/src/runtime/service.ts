@@ -30,7 +30,6 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { candidateIdentityOf, sha256OfText } from '../domain/delivery.js'
 import { formatCommitMessage } from '../domain/commit-message.js'
 import { retryDecision } from '../domain/retry-policy.js'
@@ -1078,8 +1077,10 @@ ${answer}`
   }
 
   private remainingFailureRounds(reqId: string): number {
+    const perGrant = this.config.failureRoundsPerGrant
+    if (perGrant <= 0) return Number.POSITIVE_INFINITY
     const used = this.repo.failureRounds(reqId).length
-    return Math.max(0, this.repo.grantCount(reqId) * MAX_ROUNDS_PER_GRANT - used)
+    return Math.max(0, this.repo.grantCount(reqId) * perGrant - used)
   }
 
   /**
@@ -1395,6 +1396,7 @@ ${answer}`
       candidateIdentityOf: this.candidateIdentity.bind(this),
       requestView,
       requirement,
+      remainingFailureRounds: this.remainingFailureRounds.bind(this),
     })
   }
 
@@ -1488,7 +1490,13 @@ ${answer}`
    * @param query 搜索词；匹配范围见 runtime/board.ts。
    */
   statusBoard(limit?: number, query?: string): StatusBoardView {
-    return buildStatusBoard({ repository: this.repo, project: this.config.project, limit, query })
+    return buildStatusBoard({
+      repository: this.repo,
+      project: this.config.project,
+      limit,
+      query,
+      remainingFailureRounds: this.remainingFailureRounds.bind(this),
+    })
   }
 
   // ------------------------------------------------------------ 运维

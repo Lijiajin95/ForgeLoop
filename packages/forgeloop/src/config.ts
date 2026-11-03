@@ -28,11 +28,11 @@ import {
 export interface AgentConfig {
   readonly provider: string
   readonly model: string
-  /** 单个 Agent 回合的默认上限。 */
+  /** 单个 Agent 回合的上限；0 表示不限。 */
   readonly timeoutSeconds: number
-  /** 长任务的硬上限；任务包 limit_seconds 只能在此范围内放宽。 */
+  /** 长任务的硬上限；任务包 limit_seconds 只能在此范围内放宽；0 表示不限。 */
   readonly maxTurnSeconds?: number
-  /** 回合连续无新进展的上限；超时取消，避免模型流停顿拖满整个回合。 */
+  /** 回合连续无新进展的上限；超时取消；0 表示不启用看门狗。 */
   readonly idleTimeoutSeconds?: number
 }
 
@@ -215,8 +215,14 @@ export interface ForgeLoopConfig {
   readonly pollSeconds: number
   readonly autoAdvance: boolean
   readonly agent: AgentConfig
+  /** 正式测试命令的超时；0 表示不限。 */
   readonly formalTestTimeoutSeconds: number
+  /** 同一任务的研发尝试次数；0 表示不限。 */
   readonly maxTaskAttempts: number
+  /** 每次授权可用的失败轮次；0 表示不限（仍逐轮记录）。 */
+  readonly failureRoundsPerGrant: number
+  /** 单次推进内的验证重试次数；0 表示不限。 */
+  readonly maxVerificationAttempts: number
   readonly worktreePrepareCommand: readonly string[]
   readonly candidateBuildCommand: readonly string[]
   readonly candidatePackageCommand: readonly string[]
@@ -237,6 +243,8 @@ export interface RawConfig {
   agent?: Partial<AgentConfig>
   formalTestTimeoutSeconds?: number
   maxTaskAttempts?: number
+  failureRoundsPerGrant?: number
+  maxVerificationAttempts?: number
   worktreePrepareCommand?: string[]
   candidateBuildCommand?: string[]
   candidatePackageCommand?: string[]
@@ -308,6 +316,27 @@ function positiveInteger(value: unknown, field: string, fallback: number): numbe
   if (value === undefined) return fallback
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new RuleViolationError(`配置 ${field} 必须是正整数，实际 ${JSON.stringify(value)}`)
+  }
+  return value
+}
+
+/** 执行限制类配置：0 表示不限，负值与非数字仍然拒绝。 */
+function limitNumber(value: unknown, field: string, fallback: number): number {
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new RuleViolationError(
+      `配置 ${field} 必须是非负数（0 表示不限），实际 ${JSON.stringify(value)}`,
+    )
+  }
+  return value
+}
+
+function limitInteger(value: unknown, field: string, fallback: number): number {
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new RuleViolationError(
+      `配置 ${field} 必须是非负整数（0 表示不限），实际 ${JSON.stringify(value)}`,
+    )
   }
   return value
 }
@@ -701,20 +730,22 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     agent: {
       provider: agentProvider,
       model: agentModel,
-      timeoutSeconds: positiveNumber(raw.agent?.timeoutSeconds, 'agent.timeoutSeconds', 1800),
-      maxTurnSeconds: positiveNumber(raw.agent?.maxTurnSeconds, 'agent.maxTurnSeconds', 7200),
-      idleTimeoutSeconds: positiveNumber(
-        raw.agent?.idleTimeoutSeconds,
-        'agent.idleTimeoutSeconds',
-        300,
-      ),
+      timeoutSeconds: limitNumber(raw.agent?.timeoutSeconds, 'agent.timeoutSeconds', 0),
+      maxTurnSeconds: limitNumber(raw.agent?.maxTurnSeconds, 'agent.maxTurnSeconds', 0),
+      idleTimeoutSeconds: limitNumber(raw.agent?.idleTimeoutSeconds, 'agent.idleTimeoutSeconds', 0),
     },
-    formalTestTimeoutSeconds: positiveNumber(
+    formalTestTimeoutSeconds: limitNumber(
       raw.formalTestTimeoutSeconds,
       'formalTestTimeoutSeconds',
-      1800,
+      0,
     ),
-    maxTaskAttempts: positiveInteger(raw.maxTaskAttempts, 'maxTaskAttempts', 3),
+    maxTaskAttempts: limitInteger(raw.maxTaskAttempts, 'maxTaskAttempts', 0),
+    failureRoundsPerGrant: limitInteger(raw.failureRoundsPerGrant, 'failureRoundsPerGrant', 0),
+    maxVerificationAttempts: limitInteger(
+      raw.maxVerificationAttempts,
+      'maxVerificationAttempts',
+      0,
+    ),
     worktreePrepareCommand: stringList(raw.worktreePrepareCommand, 'worktreePrepareCommand', []),
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),

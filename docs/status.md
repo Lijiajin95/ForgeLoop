@@ -4269,3 +4269,49 @@ orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工�
   要求 main 干净且分支可快进；合并后自动移除 worktree、删除已合并分支。
 - 新增 `scripts/ts/worktree-merge.ts` 与 Makefile 目标；脚本拒绝未提交改动、
   非 main 工作树、不可快进分支，并保留未合并分支。
+
+## 50. 默认取消任务执行限制（2026-11-03）
+
+所有者要求默认不施加任务执行限制，但保留次数统计与配置项。统一约定 **`0 = 不限`**，所有相关默认值
+改为 `0`；需要限制时把对应配置设为 `> 0`，原有阻断语义不变。
+
+### 50.1 默认值
+
+| 配置项 | 旧默认 | 新默认 | 说明 |
+| --- | --- | --- | --- |
+| `agent.timeoutSeconds` | 1800 | 0 | 不建回合定时器，只记录时长 |
+| `agent.maxTurnSeconds` | 7200 | 0 | 不设长任务硬上限 |
+| `agent.idleTimeoutSeconds` | 300 | 0 | 不启用无进展看门狗 |
+| `formalTestTimeoutSeconds` | 1800 | 0 | 正式测试命令不限时 |
+| `maxTaskAttempts` | 3 | 0 | 任务尝试次数不限 |
+| `failureRoundsPerGrant` | 3 | 0 | 每份授权的失败轮次不限，仍逐轮记录 |
+| `maxVerificationAttempts` | 3 | 0 | 单次推进内的验证重试不限 |
+| 任务包 `limit_seconds` / `max_failure_rounds` | 1800 / 3 | 0 | 单任务工时与失败轮次不限 |
+
+### 50.2 保留的统计与显式动作
+
+- 失败轮次、工时消耗、任务运行、验证与问题单历史照常写入，不因限额关闭而减少或清零。
+- 看板与需求视图在额度不限时显示“不限”（`grantQuota.remaining = null`），不再显示伪造的剩余轮数。
+- 追加授权、延长工时入口保留；工时已经不限时延长返回“当前不限工时，无需延长”。
+- 停止请求仍然有效；不限额时持续失败的推进不会自行停止，这是本批明确接受的运行时风险。
+
+### 50.3 改动范围
+
+- `src/config.ts`：默认值与解析允许 `0`；新增 `failureRoundsPerGrant`、`maxVerificationAttempts`。
+- `src/domain/limits.ts`、`counting.ts`、`task-plan.ts`：`0` 语义、尝试次数与授权额度判定。
+- `src/runtime/*`：回合超时、看门狗、工时守卫、尝试循环、验证重试、失败轮次与看板视图按 `0` 不限处理。
+- 测试：新增 `tests/unlimited-execution.test.ts`（默认不限、统计保留、显式限额仍生效）；
+  原先依赖有限额度的用例显式配置限额，保持原测试意图。
+
+### 50.4 验证
+
+- `make check`：69 个测试文件、753 项通过（含 typecheck、lint、contracts、token/断言预算）。
+- `make coverage`：行／语句 92.49%、分支 84.48%、函数 96.67%，门槛（90/93/84）通过。
+- `make format`、`make budget`、`make assertions`（18/18）、`make contracts`、`make lint`：通过。
+
+### 50.5 未完成与风险
+
+- 默认不限额意味着真实的持续失败（如验证永久阻断）会一直重试，只能靠停止请求或收紧配置中断；
+  生产使用前应结合成本与噪声决定是否显式配置限额。
+- 未在真实宿主上跑完长任务与持续失败场景；本批验证为测试与静态门禁。
+- 真实部署沿用历史安装记录，本批不含重新安装或上线核对。

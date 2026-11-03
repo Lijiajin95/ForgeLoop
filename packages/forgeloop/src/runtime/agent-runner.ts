@@ -21,8 +21,9 @@ export interface AgentRunRequest {
   readonly cwd: string
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'
-  readonly timeoutMs: number
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds。 */
+  /** 单回合上限；缺省或 0 表示不限。 */
+  readonly timeoutMs?: number | undefined
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；0 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
@@ -58,8 +59,9 @@ export interface AgentResumeRequest {
 
 export interface AgentTurnRequest {
   readonly prompt: string
-  readonly timeoutMs: number
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds。 */
+  /** 单回合上限；缺省或 0 表示不限。 */
+  readonly timeoutMs?: number | undefined
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；0 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
@@ -350,6 +352,19 @@ interface AgentService {
   resume?(options: AnyRecord): Promise<SessionHandle | undefined>
 }
 
+/** 单回合上限：缺省视为不限（0）。 */
+function requestedTimeoutMs(request: { timeoutMs?: number | undefined }): number {
+  return request.timeoutMs ?? 0
+}
+
+/** 单回合超时定时器：0 表示不限，不建定时器。 */
+function armTurnTimeout(timeoutMs: number, fire: () => void): NodeJS.Timeout | undefined {
+  if (timeoutMs <= 0) return undefined
+  const timer = setTimeout(fire, timeoutMs)
+  timer.unref()
+  return timer
+}
+
 /** 连续无新事件时取消回合；事件计数变化会重置计时。 */
 function idleWatch(
   idleMs: number,
@@ -543,7 +558,8 @@ export class AgentRunner {
     } => {
       let aborted = false
       let timedOut = false
-      const idleMs = turn.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 300) * 1000
+      const idleMs = turn.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 0) * 1000
+      const timeoutMs = turn.timeoutMs ?? 0
       let idleTimedOut = false
       let idleTimer: NodeJS.Timeout | undefined
       let lastEventCount = -1
@@ -557,11 +573,11 @@ export class AgentRunner {
         idleTimer.unref()
       }
       armIdle()
-      const timer = setTimeout(() => {
+      // 0 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
+      const timer = armTurnTimeout(timeoutMs, () => {
         timedOut = true
         handle.agent.cancel({ kind: 'user' })
-      }, turn.timeoutMs)
-      timer.unref()
+      })
       const onAbort = (): void => {
         aborted = true
         handle.agent.cancel({ kind: 'user' })
@@ -578,7 +594,7 @@ export class AgentRunner {
           armIdle()
         },
         stop: () => {
-          clearTimeout(timer)
+          if (timer) clearTimeout(timer)
           if (idleTimer) clearTimeout(idleTimer)
           turn.signal?.removeEventListener('abort', onAbort)
         },
@@ -637,7 +653,7 @@ export class AgentRunner {
             status: 'timeout',
             reason: watch.isIdleTimedOut()
               ? `Agent 回合连续 ${Math.round(watch.idleMs / 1000)} 秒没有新进展，已取消`
-              : `Agent 回合超过 ${Math.round(turn.timeoutMs / 1000)} 秒上限，已取消`,
+              : `Agent 回合超过 ${Math.round((turn.timeoutMs ?? 0) / 1000)} 秒上限，已取消`,
           }
         }
         if (watch.isAborted()) {
@@ -719,15 +735,16 @@ export class AgentRunner {
 
     let aborted = false
     let timedOut = false
-    const idleMs = request.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 300) * 1000
+    const idleMs = request.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 0) * 1000
     const idle = idleWatch(idleMs, () => {
       handle.agent.cancel({ kind: 'user' })
     })
-    const timer = setTimeout(() => {
+    const timeoutMs = requestedTimeoutMs(request)
+    // 0 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
+    const timer = armTurnTimeout(timeoutMs, () => {
       timedOut = true
       handle.agent.cancel({ kind: 'user' })
-    }, request.timeoutMs)
-    timer.unref()
+    })
     const onAbort = () => {
       aborted = true
       handle.agent.cancel({ kind: 'user' })
@@ -751,6 +768,12 @@ export class AgentRunner {
     }
     const activityTimer = setInterval(flushActivity, 1_500)
     activityTimer.unref()
+    const cleanup = (): void => {
+      if (timer) clearTimeout(timer)
+      idle.stop()
+      clearInterval(activityTimer)
+      request.signal?.removeEventListener('abort', onAbort)
+    }
     let whenIdleError = ''
     try {
       handle.agent.followup({
@@ -763,10 +786,7 @@ export class AgentRunner {
     } catch (error) {
       whenIdleError = errorMessage(error)
     } finally {
-      clearTimeout(timer)
-      idle.stop()
-      clearInterval(activityTimer)
-      request.signal?.removeEventListener('abort', onAbort)
+      cleanup()
     }
 
     const events = handle.agent.session.ownEvents()
@@ -796,7 +816,7 @@ export class AgentRunner {
       whenIdleError,
       turn: extractTurnEnd(events),
       text,
-      timeoutMs: request.timeoutMs,
+      timeoutMs,
     })
     return runResult(outcome.status, outcome.reason, base)
   }

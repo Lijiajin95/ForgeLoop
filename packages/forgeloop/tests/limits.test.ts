@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_LIMIT_SECONDS, ExecutionBudget } from '../src/domain/limits.js'
 
 describe('execution budget', () => {
-  it('rejects a non-positive or non-finite limit', () => {
-    expect(() => new ExecutionBudget(0)).toThrow('执行限额必须为正数')
-    expect(() => new ExecutionBudget(-5)).toThrow('执行限额必须为正数')
-    expect(() => new ExecutionBudget(Number.NaN)).toThrow('执行限额必须为正数')
-    expect(() => new ExecutionBudget(Number.POSITIVE_INFINITY)).toThrow('执行限额必须为正数')
+  it('treats 0 as unlimited and rejects negative or non-finite limits', () => {
+    const unlimited = new ExecutionBudget(0)
+    expect(unlimited.unlimited).toBe(true)
+    expect(unlimited.exhausted).toBe(false)
+    expect(unlimited.remainingSeconds).toBe(Number.POSITIVE_INFINITY)
+    expect(() => new ExecutionBudget(-5)).toThrow('执行限额不能为负数')
+    expect(() => new ExecutionBudget(Number.NaN)).toThrow('执行限额不能为负数')
+    expect(() => new ExecutionBudget(Number.POSITIVE_INFINITY)).toThrow('执行限额不能为负数')
   })
 
   it('rejects negative or non-finite prior consumption', () => {

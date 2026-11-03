@@ -519,6 +519,9 @@ function makeRuntime(
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      // 这里的用例覆盖“限制生效时如何阻断”；默认不限的行为由 unlimited-execution.test.ts 覆盖。
+      maxVerificationAttempts: 3,
+      failureRoundsPerGrant: 3,
       autonomy: {
         enabled: true,
         allowCodeCommit: autonomy.allowCodeCommit ?? true,
@@ -1410,7 +1413,9 @@ describe('continuous four-Agent flow', () => {
     })
     const reqId = (submitted.data as { reqId: string }).reqId
     await runNext(reqId, 'analyze')
-    runtime.repo.ensureBudget(reqId, 0)
+    // 默认限额为 0（不限），这里显式设一个已经用尽的 1 秒限额来验证阻断。
+    runtime.repo.ensureBudget(reqId, 1)
+    runtime.repo.chargeBudget(reqId, 1)
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')

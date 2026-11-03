@@ -223,6 +223,8 @@ function makeRuntime(
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      // 默认不限失败轮次；下面有用例验证额度用尽后重试被拒绝。
+      failureRoundsPerGrant: 3,
     },
     dir,
   )

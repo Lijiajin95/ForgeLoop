@@ -20,7 +20,7 @@ import {
   isTerminal,
   type TaskRunState,
 } from '../domain/status.js'
-import { ExecutionBudget } from '../domain/limits.js'
+import { attemptAllowed, ExecutionBudget } from '../domain/limits.js'
 import { FAILURE_PLANNING, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import type { Repository } from '../records/repository.js'
@@ -99,8 +99,6 @@ export interface AdvancePipelineDeps {
   ) => { ok: true; value: { plan: TaskPlan } } | { ok: false; result: OperationResult }
   remainingFailureRounds: (reqId: string) => number
 }
-
-const VERIFICATION_ATTEMPTS_PER_REQUEST = 3
 
 export class AdvancePipeline {
   constructor(private readonly deps: AdvancePipelineDeps) {}
@@ -389,7 +387,7 @@ export class AdvancePipeline {
 ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给出具体阻断项'}
 
 请在同一工作区定位并修复，完成后用简短文本说明改了什么、如何验证。不要执行 git commit/push，程序会采集并固定新候选。`
-    for (let attempt = 1; attempt <= this.deps.config.maxTaskAttempts; attempt += 1) {
+    for (let attempt = 1; attemptAllowed(attempt, this.deps.config.maxTaskAttempts); attempt += 1) {
       if (input.signal.aborted) return { ok: false, reason: '停止请求：修复未完成，现场保留' }
       const result = await input.session.send({
         prompt,
@@ -451,7 +449,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       return { ok: false, outcome: { state: 'failed', detail: '需求说明缺失或已过期' } }
     }
     const budget = this.deps.repo.budget(reqId)
-    if (budget.limitSeconds <= budget.consumedSeconds) {
+    if (budget.limitSeconds > 0 && budget.limitSeconds <= budget.consumedSeconds) {
       this.deps.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需要显式延长或拆分需求')
       return { ok: false, outcome: { state: 'failed', detail: '执行工时已用尽' } }
     }
@@ -654,7 +652,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           blocking: verification.blocking,
           devWorkspace: workspace,
         })
-        if (round >= VERIFICATION_ATTEMPTS_PER_REQUEST) {
+        const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
+        if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
           const blocking = verification.blocking.join('；') || verification.detail
           this.deps.repo.setStatus(
             reqId,

@@ -9,8 +9,10 @@
 import { asRecord as recordOf } from './json.js'
 import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
 
-export const DEFAULT_TASK_LIMIT_SECONDS = 7200
-export const DEFAULT_MAX_FAILURE_ROUNDS = 3
+/** 任务工时预算的默认值：0 表示不限，仍记录实际消耗。 */
+export const DEFAULT_TASK_LIMIT_SECONDS = 0
+/** 任务失败轮次的默认值：0 表示不限，仍逐轮记录。 */
+export const DEFAULT_MAX_FAILURE_ROUNDS = 0
 
 export interface TaskLimits {
   readonly limitSeconds: number
@@ -116,11 +118,11 @@ export function validateTask(task: PlannedTask): void {
     throw new RuleViolationError('任务依赖不能包含重复项')
   }
   for (const dependency of task.dependsOn) requireNonEmpty(dependency, 'depends_on')
-  if (!Number.isFinite(task.limits.limitSeconds) || task.limits.limitSeconds <= 0) {
-    throw new RuleViolationError('任务执行限额必须为正数')
+  if (!Number.isFinite(task.limits.limitSeconds) || task.limits.limitSeconds < 0) {
+    throw new RuleViolationError('任务执行限额必须是非负数（0 表示不限）')
   }
-  if (!Number.isInteger(task.limits.maxFailureRounds) || task.limits.maxFailureRounds < 1) {
-    throw new RuleViolationError('任务失败轮次上限必须为正整数')
+  if (!Number.isInteger(task.limits.maxFailureRounds) || task.limits.maxFailureRounds < 0) {
+    throw new RuleViolationError('任务失败轮次上限必须是非负整数（0 表示不限）')
   }
 }
 
@@ -243,12 +245,16 @@ function limitsFrom(value: unknown): TaskLimits {
   if (value === undefined || value === null) return DEFAULT_TASK_LIMITS
   const data = asRecord(value, 'limits')
   const limitSeconds = data.limit_seconds ?? DEFAULT_TASK_LIMIT_SECONDS
-  if (typeof limitSeconds !== 'number' || !Number.isFinite(limitSeconds)) {
-    throw new MalformedError('任务包字段 limits.limit_seconds 必须是数字')
+  if (typeof limitSeconds !== 'number' || !Number.isFinite(limitSeconds) || limitSeconds < 0) {
+    throw new MalformedError('任务包字段 limits.limit_seconds 必须是非负数字（0 表示不限）')
   }
   const maxFailureRounds = data.max_failure_rounds ?? DEFAULT_MAX_FAILURE_ROUNDS
-  if (typeof maxFailureRounds !== 'number' || !Number.isInteger(maxFailureRounds)) {
-    throw new MalformedError('任务包字段 limits.max_failure_rounds 必须是整数')
+  if (
+    typeof maxFailureRounds !== 'number' ||
+    !Number.isInteger(maxFailureRounds) ||
+    maxFailureRounds < 0
+  ) {
+    throw new MalformedError('任务包字段 limits.max_failure_rounds 必须是非负整数（0 表示不限）')
   }
   return { limitSeconds, maxFailureRounds }
 }

@@ -79,11 +79,15 @@ async function runProcess(
     handle.stderr?.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))
     })
-    const timer = setTimeout(() => {
-      timedOut = true
-      handle.terminate()
-    }, request.timeoutMs)
-    timer.unref()
+    // 0 表示不限：不建超时定时器，避免 setTimeout(..., 0) 立即终止命令。
+    const timer =
+      request.timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true
+            handle.terminate()
+          }, request.timeoutMs)
+        : undefined
+    timer?.unref()
     const onAbort = () => {
       aborted = true
       handle.terminate()
@@ -92,7 +96,7 @@ async function runProcess(
     try {
       exitCode = (await handle.done).exitCode
     } finally {
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
       request.signal?.removeEventListener('abort', onAbort)
     }
   } else {
@@ -107,11 +111,15 @@ async function runProcess(
     child.stderr.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))
     })
-    const timer = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGTERM')
-    }, request.timeoutMs)
-    timer.unref()
+    // 0 表示不限：不建超时定时器，避免 setTimeout(..., 0) 立即终止命令。
+    const timer =
+      request.timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true
+            child.kill('SIGTERM')
+          }, request.timeoutMs)
+        : undefined
+    timer?.unref()
     const onAbort = () => {
       aborted = true
       child.kill('SIGTERM')
@@ -125,7 +133,7 @@ async function runProcess(
         resolve(null)
       })
     }).finally(() => {
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
       request.signal?.removeEventListener('abort', onAbort)
     })
   }

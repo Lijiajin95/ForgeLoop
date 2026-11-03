@@ -15,12 +15,14 @@ describe('configuration defaults', () => {
     expect(config.agent).toEqual({
       provider: '',
       model: '',
-      timeoutSeconds: 1800,
-      maxTurnSeconds: 7200,
-      idleTimeoutSeconds: 300,
+      timeoutSeconds: 0,
+      maxTurnSeconds: 0,
+      idleTimeoutSeconds: 0,
     })
-    expect(config.formalTestTimeoutSeconds).toBe(1800)
-    expect(config.maxTaskAttempts).toBe(3)
+    expect(config.formalTestTimeoutSeconds).toBe(0)
+    expect(config.maxTaskAttempts).toBe(0)
+    expect(config.failureRoundsPerGrant).toBe(0)
+    expect(config.maxVerificationAttempts).toBe(0)
     expect(config.candidateArtifactPath).toBe('')
     expect(config.projectPath).toBe('/tmp/config-fixture')
     expect(config.recordsRoot).toBe('/tmp/config-fixture/.forgeloop')
@@ -30,7 +32,7 @@ describe('configuration defaults', () => {
     const config = resolveConfig({ agent: { timeoutSeconds: 600, maxTurnSeconds: 10800 } }, cwd)
     expect(config.agent.timeoutSeconds).toBe(600)
     expect(config.agent.maxTurnSeconds).toBe(10800)
-    expect(config.agent.idleTimeoutSeconds).toBe(300)
+    expect(config.agent.idleTimeoutSeconds).toBe(0)
   })
 
   it('resolves the project path and records root against the selected project', () => {
@@ -78,22 +80,35 @@ describe('configuration validation', () => {
     expect(() => resolveConfig({ pollSeconds: 0.5 }, cwd)).toThrow('配置 pollSeconds 不能小于 1 秒')
   })
 
-  it('rejects a non-positive agent timeout', () => {
+  it('rejects negative agent timeouts but accepts 0 as unlimited', () => {
     expect(() => resolveConfig({ agent: { timeoutSeconds: -1 } }, cwd)).toThrow(
-      '配置 agent.timeoutSeconds 必须是正数',
+      '配置 agent.timeoutSeconds 必须是非负数',
     )
-    expect(() => resolveConfig({ formalTestTimeoutSeconds: 0 }, cwd)).toThrow(
-      '配置 formalTestTimeoutSeconds 必须是正数',
+    expect(() => resolveConfig({ formalTestTimeoutSeconds: -1 }, cwd)).toThrow(
+      '配置 formalTestTimeoutSeconds 必须是非负数',
     )
+    expect(resolveConfig({ formalTestTimeoutSeconds: 0 }, cwd).formalTestTimeoutSeconds).toBe(0)
   })
 
-  it('rejects non-integer task attempt budgets', () => {
-    expect(() => resolveConfig({ maxTaskAttempts: 0 }, cwd)).toThrow(
-      '配置 maxTaskAttempts 必须是正整数',
+  it('rejects negative task attempt budgets but accepts 0 as unlimited', () => {
+    expect(() => resolveConfig({ maxTaskAttempts: -1 }, cwd)).toThrow(
+      '配置 maxTaskAttempts 必须是非负整数',
     )
     expect(() => resolveConfig({ maxTaskAttempts: 1.5 }, cwd)).toThrow(
-      '配置 maxTaskAttempts 必须是正整数',
+      '配置 maxTaskAttempts 必须是非负整数',
     )
+    expect(resolveConfig({ maxTaskAttempts: 0 }, cwd).maxTaskAttempts).toBe(0)
+  })
+
+  it('rejects negative failure quotas but accepts 0 as unlimited', () => {
+    expect(() => resolveConfig({ failureRoundsPerGrant: -1 }, cwd)).toThrow(
+      '配置 failureRoundsPerGrant 必须是非负整数',
+    )
+    expect(resolveConfig({ failureRoundsPerGrant: 0 }, cwd).failureRoundsPerGrant).toBe(0)
+    expect(() => resolveConfig({ maxVerificationAttempts: -1 }, cwd)).toThrow(
+      '配置 maxVerificationAttempts 必须是非负整数',
+    )
+    expect(resolveConfig({ maxVerificationAttempts: 0 }, cwd).maxVerificationAttempts).toBe(0)
   })
 
   it('rejects command lists that are not non-empty strings', () => {

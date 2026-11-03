@@ -32,6 +32,14 @@ export function extendWorkBudget(repo: Repository, input: WorkBudgetExtension): 
     return { ok: false, code: 'bad_seconds', message: '延长工时必须是 60 到 86400 秒' }
   }
   const before = repo.budget(input.reqId)
+  if (before.limitSeconds <= 0) {
+    return {
+      ok: true,
+      code: 'ok',
+      message: '当前不限工时，无需延长',
+      data: { limitSeconds: 0, consumedSeconds: before.consumedSeconds, extendedSeconds: 0 },
+    }
+  }
   const limitSeconds = repo.extendBudget(input.reqId, seconds)
   if (requirement.blockedReason.includes('工时已用尽')) {
     repo.setStatus(input.reqId, APPROVED, `所有者延长工时 ${seconds} 秒，可重新执行`)

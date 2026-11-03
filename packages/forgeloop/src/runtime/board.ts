@@ -155,7 +155,8 @@ export interface BoardRequirementView {
   readonly clarifications: number
   readonly failureRounds: number
   readonly grants: number
-  readonly remainingRounds: number
+  /** 剩余失败轮次；`null` 表示不限。 */
+  readonly remainingRounds: number | null
   /** 服务端按当前记录判定可用的需求级动作；页面只展示，不自行放行。 */
   readonly actions: readonly BoardRequirementAction[]
   /** 需求处于“停止请求”阻塞原因下；不等于已经停稳。 */
@@ -233,6 +234,8 @@ export interface BuildStatusBoardInput {
    * 任务运行原因、失败轮次、请求说明与看板问题文字；不读取 Agent 日志文件。
    */
   readonly query?: string | undefined
+  /** 剩余失败轮次的判定（0 表示已用尽）；缺省按历史额度公式计算。 */
+  readonly remainingFailureRounds?: ((reqId: string) => number) | undefined
 }
 
 /**
@@ -411,7 +414,9 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
 
   const chunks: RequirementChunk[] = []
 
-  for (const requirement of all) chunks.push(buildRequirementChunk(repository, requirement))
+  for (const requirement of all) {
+    chunks.push(buildRequirementChunk(repository, requirement, input.remainingFailureRounds))
+  }
 
   const needle = query.toLowerCase()
   const matched = needle ? chunks.filter((chunk) => chunk.haystack.includes(needle)) : chunks
@@ -663,7 +668,9 @@ function failureIssue(context: IssueContext): BoardIssueView[] {
       detail:
         remainingRounds === 0
           ? `失败轮次 ${rounds.length} 已用尽自动处理额度；等待追加授权或人工决定`
-          : `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds}；额度未尽时按规则自动重试`,
+          : Number.isFinite(remainingRounds)
+            ? `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds}；额度未尽时按规则自动重试`
+            : `失败轮次 ${rounds.length}，额度不限；按规则持续自动重试`,
       createdAt: latestRound.occurredAt,
     },
   ]
@@ -1083,9 +1090,20 @@ function buildDeploymentView(
   }
 }
 
+function remainingRoundsOf(
+  reqId: string,
+  grants: number,
+  used: number,
+  resolve?: (reqId: string) => number,
+): number {
+  if (resolve) return resolve(reqId)
+  return Math.max(0, grants * MAX_ROUNDS_PER_GRANT - used)
+}
+
 function collectRequirementFacts(
   repository: Repository,
   requirement: Requirement,
+  remainingFailureRounds?: (reqId: string) => number,
 ): {
   terminal: boolean
   latestAnalysis: ReturnType<Repository['latestAnalysis']>
@@ -1130,7 +1148,12 @@ function collectRequirementFacts(
   const runByTask = new Map(runs.map((run) => [run.taskId, run]))
   const rounds = repository.failureRounds(requirement.reqId)
   const grants = repository.grantCount(requirement.reqId)
-  const remainingRounds = Math.max(0, grants * MAX_ROUNDS_PER_GRANT - rounds.length)
+  const remainingRounds = remainingRoundsOf(
+    requirement.reqId,
+    grants,
+    rounds.length,
+    remainingFailureRounds,
+  )
   const requests = repository.requestsFor(requirement.reqId)
   const activeRequest = requests.some(
     (request) => request.state === 'pending' || request.state === 'claimed',
@@ -1206,7 +1229,11 @@ function collectRequirementFacts(
   }
 }
 
-function buildRequirementChunk(repository: Repository, requirement: Requirement): RequirementChunk {
+function buildRequirementChunk(
+  repository: Repository,
+  requirement: Requirement,
+  remainingFailureRounds?: (reqId: string) => number,
+): RequirementChunk {
   const {
     terminal,
     latestAnalysis,
@@ -1228,7 +1255,7 @@ function buildRequirementChunk(repository: Repository, requirement: Requirement)
     businessReviewView,
     candidateView,
     deploymentView,
-  } = collectRequirementFacts(repository, requirement)
+  } = collectRequirementFacts(repository, requirement, remainingFailureRounds)
 
   const { tasks: requirementTasks, progress } = buildTaskViews({
     requirement,
@@ -1284,7 +1311,7 @@ function buildRequirementChunk(repository: Repository, requirement: Requirement)
     clarifications: latestAnalysis?.clarifications.length ?? 0,
     failureRounds: rounds.length,
     grants,
-    remainingRounds,
+    remainingRounds: Number.isFinite(remainingRounds) ? remainingRounds : null,
     actions,
     stopRequested,
     activeRequest,
