@@ -42,9 +42,11 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       # 宿主装载 E2E：安装与本地运行版本一致的 DSH，再在隔离 profile 中装载插件。
+      # DSH 的 `dsh plugin` 会把安装转发给 profile 目录里的 pnpm；runner 默认只有 npm，
+      # 缺 pnpm 时 e2e 直接失败（dsh: pnpm was not found）。pnpm 版本与本机一致。
       # 不依赖模型凭据；真实模型链路仍由 make verify-plugin（release workflow）覆盖。
-      - run: npm install -g @deepseek-ai/dsh@0.2.1-rc.4
-      - run: dsh --version
+      - run: npm install -g @deepseek-ai/dsh@0.2.1-rc.5 pnpm@12.16.1
+      - run: dsh --version && pnpm --version
       - run: make e2e
 
   security:
