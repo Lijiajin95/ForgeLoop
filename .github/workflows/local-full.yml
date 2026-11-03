@@ -1,0 +1,30 @@
+name: Local full check
+
+# 推送后在本机 self-hosted runner 上跑全量检查：类型、lint、契约、预算与全部行为测试。
+# 只监听 push，fork 的 pull_request 不会落到本机；本机 runner 使用专用标签
+# forgeloop-local，部署作业仍用 forgeloop-deploy，互不串用。
+# 直接用本机 Node（仓库要求 >=22.5），不下载工具链，避免自托管机的额外网络依赖。
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-full-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full:
+    runs-on: [self-hosted, linux, forgeloop-local]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: node --version && npm --version
+      - run: npm ci --no-audit --no-fund
+      # 全量门禁：make check = 静态检查（类型/lint/契约/预算/断言）+ 全部行为测试。
+      - run: make check
