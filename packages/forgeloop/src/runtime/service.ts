@@ -1075,7 +1075,7 @@ ${answer}`
 
   private remainingFailureRounds(reqId: string): number {
     const perGrant = this.config.failureRoundsPerGrant
-    if (perGrant <= 0) return Number.POSITIVE_INFINITY
+    if (perGrant < 0) return Number.POSITIVE_INFINITY
     const used = this.repo.failureRounds(reqId).length
     return Math.max(0, this.repo.grantCount(reqId) * perGrant - used)
   }

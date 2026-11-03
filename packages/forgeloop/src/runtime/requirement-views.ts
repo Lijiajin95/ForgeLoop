@@ -104,7 +104,7 @@ export function buildRequirementView(
       artifacts: ReturnType<Repository['taskArtifacts']>,
     ) => string
     requestView: (request: ServiceRequestRecord) => Record<string, unknown>
-    /** 剩余失败轮次；不限时返回非有限值，由视图显示为“不限”。缺省按历史额度公式计算。 */
+    /** 剩余失败轮次；不限时返回非有限值，由视图显示为“MAX”。缺省按历史额度公式计算。 */
     remainingFailureRounds?: ((reqId: string) => number) | undefined
   },
 ): unknown {

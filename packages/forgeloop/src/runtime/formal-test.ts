@@ -79,7 +79,7 @@ async function runProcess(
     handle.stderr?.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))
     })
-    // 0 表示不限：不建超时定时器，避免 setTimeout(..., 0) 立即终止命令。
+    // -1 表示不限：不建超时定时器，避免 setTimeout(..., 0) 立即终止命令。
     const timer =
       request.timeoutMs > 0
         ? setTimeout(() => {
@@ -111,7 +111,7 @@ async function runProcess(
     child.stderr.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))
     })
-    // 0 表示不限：不建超时定时器，避免 setTimeout(..., 0) 立即终止命令。
+    // -1 表示不限：不建超时定时器，避免 setTimeout(..., 0) 立即终止命令。
     const timer =
       request.timeoutMs > 0
         ? setTimeout(() => {

@@ -155,7 +155,7 @@ export interface BoardRequirementView {
   readonly clarifications: number
   readonly failureRounds: number
   readonly grants: number
-  /** 剩余失败轮次；`null` 表示不限。 */
+  /** 剩余失败轮次；`null` 表示不限（页面显示 MAX）。 */
   readonly remainingRounds: number | null
   /** 服务端按当前记录判定可用的需求级动作；页面只展示，不自行放行。 */
   readonly actions: readonly BoardRequirementAction[]
@@ -670,7 +670,7 @@ function failureIssue(context: IssueContext): BoardIssueView[] {
           ? `失败轮次 ${rounds.length} 已用尽自动处理额度；等待追加授权或人工决定`
           : Number.isFinite(remainingRounds)
             ? `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds}；额度未尽时按规则自动重试`
-            : `失败轮次 ${rounds.length}，额度不限；按规则持续自动重试`,
+            : `失败轮次 ${rounds.length}，额度 MAX；按规则持续自动重试`,
       createdAt: latestRound.occurredAt,
     },
   ]

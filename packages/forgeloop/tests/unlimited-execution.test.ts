@@ -6,10 +6,12 @@ import { ForgeLoopRuntime } from '../src/runtime/service.js'
 import { resolveConfig, type RawConfig } from '../src/config.js'
 import { GrantLedger, type FailureRound } from '../src/domain/counting.js'
 import { ExecutionBudget, attemptAllowed, unlimitedLimit } from '../src/domain/limits.js'
+import { planLimitSeconds, type PlannedTask } from '../src/domain/task-plan.js'
 import { extendWorkBudget } from '../src/runtime/budget.js'
+import { turnTimeoutSeconds } from '../src/runtime/execution-dev.js'
 
 /**
- * 默认不施加任务执行限制：回合超时、看门狗、工时、尝试次数、失败轮次与验证重试都为 0（不限）。
+ * 默认不施加任务执行限制：回合超时、看门狗、工时、尝试次数、失败轮次与验证重试都为 -1（不限，页面显示 MAX）。
  * 限额配置仍然保留，> 0 时按原语义生效；失败轮次、工时等统计照常累计。
  */
 
@@ -31,7 +33,7 @@ const RETRY_PLAN = {
       acceptance: 'a 完成',
       testCommand: ['node', '-e', 'process.exit(0)'],
       dependsOn: [],
-      limits: { limitSeconds: 0, maxFailureRounds: 0 },
+      limits: { limitSeconds: -1, maxFailureRounds: -1 },
       authorizationSource: '',
     },
     {
@@ -41,7 +43,7 @@ const RETRY_PLAN = {
       acceptance: 'b 完成',
       testCommand: ['node', '-e', 'process.exit(0)'],
       dependsOn: ['a'],
-      limits: { limitSeconds: 0, maxFailureRounds: 0 },
+      limits: { limitSeconds: -1, maxFailureRounds: -1 },
       authorizationSource: '',
     },
   ],
@@ -111,31 +113,55 @@ afterEach(() => {
 })
 
 describe('default execution limits', () => {
-  it('parses every execution limit as 0 (unlimited) by default', () => {
+  it('parses every execution limit as -1 (unlimited) by default', () => {
     const config = resolveConfig(
       { project: 'testproj', projectPath: dir, recordsRoot: join(dir, '.forgeloop') },
       dir,
     )
-    expect(config.agent.timeoutSeconds).toBe(0)
-    expect(config.agent.maxTurnSeconds).toBe(0)
-    expect(config.agent.idleTimeoutSeconds).toBe(0)
-    expect(config.formalTestTimeoutSeconds).toBe(0)
-    expect(config.maxTaskAttempts).toBe(0)
-    expect(config.failureRoundsPerGrant).toBe(0)
-    expect(config.maxVerificationAttempts).toBe(0)
+    expect(config.agent.timeoutSeconds).toBe(-1)
+    expect(config.agent.maxTurnSeconds).toBe(-1)
+    expect(config.agent.idleTimeoutSeconds).toBe(-1)
+    expect(config.formalTestTimeoutSeconds).toBe(-1)
+    expect(config.maxTaskAttempts).toBe(-1)
+    expect(config.failureRoundsPerGrant).toBe(-1)
+    expect(config.maxVerificationAttempts).toBe(-1)
   })
 
-  it('keeps the limit helpers honest about 0 meaning unlimited', () => {
-    expect(unlimitedLimit(0)).toBe(true)
-    expect(attemptAllowed(999, 0)).toBe(true)
+  it('keeps the limit helpers honest about -1 meaning unlimited', () => {
+    expect(unlimitedLimit(-1)).toBe(true)
+    expect(unlimitedLimit(0)).toBe(false)
+    expect(attemptAllowed(999, -1)).toBe(true)
+    expect(attemptAllowed(1, 0)).toBe(false)
     expect(attemptAllowed(2, 2)).toBe(true)
     expect(attemptAllowed(3, 2)).toBe(false)
+  })
+
+  it('makes a requirement budget unlimited when any task is unlimited', () => {
+    const tasks = RETRY_PLAN.tasks.map((task) => ({
+      ...task,
+      limits: { ...task.limits, limitSeconds: 10 },
+    })) as PlannedTask[]
+    expect(planLimitSeconds(tasks)).toBe(20)
+    expect(
+      planLimitSeconds([
+        tasks[0]!,
+        { ...tasks[1]!, limits: { ...tasks[1]!.limits, limitSeconds: -1 } },
+      ]),
+    ).toBe(-1)
+  })
+
+  it('keeps an unlimited dev turn from becoming an immediate timeout', () => {
+    // 三者都为 -1 时必须返回 -1（不建定时器）；历史上这里返回 0 会让每个研发回合立即超时。
+    expect(turnTimeoutSeconds(-1, -1)).toBe(-1)
+    expect(turnTimeoutSeconds(-1, 3600)).toBe(3600)
+    expect(turnTimeoutSeconds(1200, -1)).toBe(1200)
+    expect(turnTimeoutSeconds(7200, 3600)).toBe(3600)
   })
 })
 
 describe('unlimited grant ledger', () => {
   it('records every failure round without an exhausted quota', () => {
-    const ledger = new GrantLedger(1, [], 0)
+    const ledger = new GrantLedger(1, [], -1)
     for (let index = 1; index <= 12; index += 1) {
       expect(ledger.recordFailure(failureRound(index)).recorded).toBe(true)
     }
@@ -143,7 +169,7 @@ describe('unlimited grant ledger', () => {
     expect(ledger.remainingInCurrentGrant).toBe(Number.POSITIVE_INFINITY)
     expect(ledger.canRecordFailure).toBe(true)
     expect(ledger.awaitingGrantDecision).toBe(false)
-    expect(ledger.roundsPerGrant).toBe(0)
+    expect(ledger.roundsPerGrant).toBe(-1)
   })
 
   it('still enforces an explicit per-grant quota', () => {
@@ -157,14 +183,14 @@ describe('unlimited grant ledger', () => {
 
 describe('unlimited execution budget', () => {
   it('never exhausts and never blocks starting a new action', () => {
-    const budget = new ExecutionBudget(0)
+    const budget = new ExecutionBudget(-1)
     budget.charge(86_400)
     expect(budget.unlimited).toBe(true)
     expect(budget.exhausted).toBe(false)
     expect(budget.canStartAction()).toBe(true)
     expect(budget.remainingSeconds).toBe(Number.POSITIVE_INFINITY)
     expect(budget.consumedSeconds).toBe(86_400)
-    expect(() => budget.extend(0)).not.toThrow()
+    expect(() => budget.extend(-1)).not.toThrow()
   })
 
   it('keeps an explicit budget meaningful', () => {
@@ -209,7 +235,7 @@ describe('runtime defaults', () => {
 
     const board = runtime.statusBoard()
     expect(board.requirements[0]?.remainingRounds).toBeNull()
-    expect(board.issues[0]?.detail).toContain('额度不限')
+    expect(board.issues[0]?.detail).toContain('额度 MAX')
   })
 
   it('still enforces a configured failure-round quota', () => {
@@ -238,10 +264,10 @@ describe('runtime defaults', () => {
   it('keeps charging and reporting work time while the budget stays unlimited', () => {
     const reqId = 'req-unlimited-budget'
     seedFailedTask(reqId)
-    runtime.repo.ensureBudget(reqId, 0)
+    runtime.repo.ensureBudget(reqId, -1)
     runtime.repo.chargeBudget(reqId, 5400)
 
-    expect(runtime.repo.budget(reqId)).toEqual({ limitSeconds: 0, consumedSeconds: 5400 })
+    expect(runtime.repo.budget(reqId)).toEqual({ limitSeconds: -1, consumedSeconds: 5400 })
     const extended = extendWorkBudget(runtime.repo, {
       reqId,
       seconds: 3600,
@@ -250,8 +276,8 @@ describe('runtime defaults', () => {
     })
     expect(extended).toMatchObject({
       ok: true,
-      message: '当前不限工时，无需延长',
-      data: { limitSeconds: 0, consumedSeconds: 5400, extendedSeconds: 0 },
+      message: '当前为 MAX 工时，无需延长',
+      data: { limitSeconds: -1, consumedSeconds: 5400, extendedSeconds: 0 },
     })
   })
 })

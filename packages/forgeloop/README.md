@@ -60,25 +60,25 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
 如果宿主没有 `agentPresets` 服务（例如 headless profile），preset 不会注册，输入接管也不会生效。
 preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会话保持不变。
 
-### 执行限制默认关闭
+### 执行限制默认 MAX
 
-所有执行限额统一约定 `0 = 不限`，默认全部为 `0`：不设回合超时、不启用无进展看门狗、不卡任务工时、
-不限制任务尝试次数、失败轮次与单请求验证重试次数。失败轮次、工时消耗、任务运行与验证历史仍照常
-记录和展示；停止请求仍然有效。
+所有执行限额统一约定 `-1 = 不限（页面显示 MAX）`，默认全部为 `-1`：不设回合超时、不启用无进展
+看门狗、不卡任务工时、不限制任务尝试次数、失败轮次与单请求验证重试次数。失败轮次、工时消耗、
+任务运行与验证历史仍照常记录和展示；停止请求仍然有效。
 
 | 配置项 | 默认 | 作用 |
 | --- | --- | --- |
-| `agent.timeoutSeconds` | `0` | 单个 Agent 回合的基础超时；`0` 不设定时器 |
-| `agent.maxTurnSeconds` | `0` | 长任务回合硬上限；`0` 不封顶 |
-| `agent.idleTimeoutSeconds` | `0` | 无进展看门狗；`0` 不启用 |
-| `formalTestTimeoutSeconds` | `0` | 正式测试命令超时；`0` 不限 |
-| `maxTaskAttempts` | `0` | 同一任务的研发尝试次数；`0` 不限 |
-| `failureRoundsPerGrant` | `0` | 每份授权的失败轮次额度；`0` 不限，仍逐轮记录 |
-| `maxVerificationAttempts` | `0` | 单次推进内的验证重试次数；`0` 不限 |
-| 任务包 `limit_seconds` / `max_failure_rounds` | `0` | 单任务工时与失败轮次；`0` 不限 |
+| `agent.timeoutSeconds` | `-1` | 单个 Agent 回合的基础超时；`-1` 不设定时器 |
+| `agent.maxTurnSeconds` | `-1` | 长任务回合硬上限；`-1` 不封顶 |
+| `agent.idleTimeoutSeconds` | `-1` | 无进展看门狗；`-1` 不启用 |
+| `formalTestTimeoutSeconds` | `-1` | 正式测试命令超时；`-1` 不限 |
+| `maxTaskAttempts` | `-1` | 同一任务的研发尝试次数；`-1` 不限 |
+| `failureRoundsPerGrant` | `-1` | 每份授权的失败轮次额度；`-1` 不限，仍逐轮记录 |
+| `maxVerificationAttempts` | `-1` | 单次推进内的验证重试次数；`-1` 不限 |
+| 任务包 `limit_seconds` / `max_failure_rounds` | `-1` | 单任务工时与失败轮次；`-1` 不限 |
 
-要恢复限制，把对应项设为 `> 0` 即可，语义与之前一致。不限额时持续失败的推进不会自行停止，
-需要所有者发出停止请求或显式收紧配置；所有统计与历史记录不会因限额关闭而减少。
+恢复限制只需把对应项设为正数，语义与之前一致。不限额时持续失败的推进不会自行停止，需要所有者
+发出停止请求或显式收紧配置；所有统计与历史记录不会因限额关闭而减少。
 
 ### 模型工具
 

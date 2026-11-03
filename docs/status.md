@@ -4401,3 +4401,68 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 测试：3 条相同失败折叠为 1 条并带计数；不同 detail 保持 2 条。
 
 验证：`make check` 70 个测试文件、773 项通过、1 项环境跳过。
+
+## 119. 执行限额改为 -1 = MAX（2026-11-03）
+
+所有者要求把“不限”的取值从 `0` 改成 `-1`、页面显示 **MAX**，恢复限制只把配置写成正数。
+本节取代 §117 的 `0 = 不限` 口径；统计、追加授权、停止请求与显式限额的阻断语义不变。
+
+### 119.1 取值与默认值
+
+| 配置项 | §117 | 现在 |
+| --- | --- | --- |
+| `agent.timeoutSeconds` | 0 | -1 |
+| `agent.maxTurnSeconds` | 0 | -1 |
+| `agent.idleTimeoutSeconds` | 0 | -1 |
+| `formalTestTimeoutSeconds` | 0 | -1 |
+| `maxTaskAttempts` | 0 | -1 |
+| `failureRoundsPerGrant` | 0 | -1 |
+| `maxVerificationAttempts` | 0 | -1 |
+| 任务包 `limit_seconds` / `max_failure_rounds` | 0 | -1 |
+
+- 只有 `-1` 与正数合法：`0`、其他负数、非整数（整数项）、非数字一律拒绝，
+  文案写明“必须为 -1 或正数／正整数（-1 表示不限）”。
+- 恢复限制只需把对应配置改成 `> 0`，语义与 §117 之前的有限额一致。
+- 需求工时新增 `planLimitSeconds` 聚合：任一任务 `-1` 则整体 `-1`，否则累加任务限额；
+  三处 `ensureBudget` 统一走它，避免多个 `-1` 相加得到 `-2` 触发限额校验。
+
+### 119.2 页面显示
+
+- 需求卡：`失败轮次 N（额度 MAX）`（会话语言包中英文同步）。
+- 看板问题：`失败轮次 N，额度 MAX；按规则持续自动重试`。
+- 需求视图：`grantQuota.remaining = null`，由客户端渲染为 MAX。
+- 工时已经不限时，延长入口返回“当前为 MAX 工时，无需延长”。
+
+### 119.3 回合超时的坑
+
+回合定时器改成“只有正数才建定时器”，`-1` 不建；研发回合上限抽成
+`turnTimeoutSeconds(lower, cap)`，不限时返回 `-1`。早期实现在这里返回 `0`，
+配合“只跳过负数”的定时器会让每个研发回合立即超时；测试
+`keeps an unlimited dev turn from becoming an immediate timeout` 固定该行为。
+
+### 119.4 改动范围
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/domain/limits.ts` | `-1` 判定、`ExecutionBudget` 构造与 `extend` 校验、不限时剩余额度为 `Infinity` |
+| `src/config.ts` | 默认值 `-1`；`limitNumber` / `limitInteger` 只接受 `-1` 或正数 |
+| `src/domain/counting.ts` | 每份授权的失败轮次上限允许 `-1`，`0` 与其他负数拒绝 |
+| `src/domain/task-plan.ts` | 任务限额校验与解析、新增 `planLimitSeconds` |
+| `src/runtime/*` | 回合定时器、看门狗、工时守卫、研发回合上限、验证重试、看板与视图文案 |
+| `src/records/repository.ts` | 无预算记录和任务包缺省按 `-1` |
+| `client.js` | 需求卡 `额度 MAX`（中英文） |
+| 测试 | `config-validation`、`limits`、`task-plan-rules`、`unlimited-execution`、`formal-test` |
+| 文档 | `README.md`、`docs/architecture.md`、`docs/product.md`、`CONTEXT.md` |
+
+### 119.5 验证
+
+- `make check`：70 个测试文件、777 项通过（含 typecheck、lint、契约、token/断言预算）。
+- `make coverage`：行／语句 92.59%、分支 84.68%、函数 96.68%，门槛（90/84/93）通过。
+- `make budget`：`service.ts` 21,411（基线 21,931）；`make assertions` 18/18；
+  `make contracts`、`make lint`、`make format` 通过。
+
+### 119.6 未完成与风险
+
+- 默认 `-1` 等于永不因额度停下：真实的持续失败只能靠停止请求或把配置改成正数中断。
+- 未在真实宿主跑长任务与持续失败场景；本批验证是测试与静态门禁。
+- 产品分析的自动重试（`MAX_AUTO_ANALYSIS_RETRIES = 3`）不属于这批执行限额，未改。

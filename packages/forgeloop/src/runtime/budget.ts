@@ -32,12 +32,16 @@ export function extendWorkBudget(repo: Repository, input: WorkBudgetExtension): 
     return { ok: false, code: 'bad_seconds', message: '延长工时必须是 60 到 86400 秒' }
   }
   const before = repo.budget(input.reqId)
-  if (before.limitSeconds <= 0) {
+  if (before.limitSeconds < 0) {
     return {
       ok: true,
       code: 'ok',
-      message: '当前不限工时，无需延长',
-      data: { limitSeconds: 0, consumedSeconds: before.consumedSeconds, extendedSeconds: 0 },
+      message: '当前为 MAX 工时，无需延长',
+      data: {
+        limitSeconds: before.limitSeconds,
+        consumedSeconds: before.consumedSeconds,
+        extendedSeconds: 0,
+      },
     }
   }
   const limitSeconds = repo.extendBudget(input.reqId, seconds)

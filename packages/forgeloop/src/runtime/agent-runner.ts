@@ -21,9 +21,9 @@ export interface AgentRunRequest {
   readonly cwd: string
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'
-  /** 单回合上限；缺省或 0 表示不限。 */
+  /** 单回合上限；缺省或 -1 表示不限。 */
   readonly timeoutMs?: number | undefined
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；0 表示不启用。 */
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；-1 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
@@ -59,9 +59,9 @@ export interface AgentResumeRequest {
 
 export interface AgentTurnRequest {
   readonly prompt: string
-  /** 单回合上限；缺省或 0 表示不限。 */
+  /** 单回合上限；缺省或 -1 表示不限。 */
   readonly timeoutMs?: number | undefined
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；0 表示不启用。 */
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；-1 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
@@ -352,12 +352,12 @@ interface AgentService {
   resume?(options: AnyRecord): Promise<SessionHandle | undefined>
 }
 
-/** 单回合上限：缺省视为不限（0）。 */
+/** 单回合上限：缺省视为不限（-1）。 */
 function requestedTimeoutMs(request: { timeoutMs?: number | undefined }): number {
-  return request.timeoutMs ?? 0
+  return request.timeoutMs ?? -1
 }
 
-/** 单回合超时定时器：0 表示不限，不建定时器。 */
+/** 单回合超时定时器：只有正数才建定时器，-1（不限）与非法 0 都不限时。 */
 function armTurnTimeout(timeoutMs: number, fire: () => void): NodeJS.Timeout | undefined {
   if (timeoutMs <= 0) return undefined
   const timer = setTimeout(fire, timeoutMs)
@@ -558,8 +558,8 @@ export class AgentRunner {
     } => {
       let aborted = false
       let timedOut = false
-      const idleMs = turn.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 0) * 1000
-      const timeoutMs = turn.timeoutMs ?? 0
+      const idleMs = turn.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? -1) * 1000
+      const timeoutMs = turn.timeoutMs ?? -1
       let idleTimedOut = false
       let idleTimer: NodeJS.Timeout | undefined
       let lastEventCount = -1
@@ -573,7 +573,7 @@ export class AgentRunner {
         idleTimer.unref()
       }
       armIdle()
-      // 0 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
+      // -1 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
       const timer = armTurnTimeout(timeoutMs, () => {
         timedOut = true
         handle.agent.cancel({ kind: 'user' })
@@ -653,7 +653,7 @@ export class AgentRunner {
             status: 'timeout',
             reason: watch.isIdleTimedOut()
               ? `Agent 回合连续 ${Math.round(watch.idleMs / 1000)} 秒没有新进展，已取消`
-              : `Agent 回合超过 ${Math.round((turn.timeoutMs ?? 0) / 1000)} 秒上限，已取消`,
+              : `Agent 回合超过 ${Math.round((turn.timeoutMs ?? -1) / 1000)} 秒上限，已取消`,
           }
         }
         if (watch.isAborted()) {
@@ -735,12 +735,12 @@ export class AgentRunner {
 
     let aborted = false
     let timedOut = false
-    const idleMs = request.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 0) * 1000
+    const idleMs = request.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? -1) * 1000
     const idle = idleWatch(idleMs, () => {
       handle.agent.cancel({ kind: 'user' })
     })
     const timeoutMs = requestedTimeoutMs(request)
-    // 0 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
+    // -1 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
     const timer = armTurnTimeout(timeoutMs, () => {
       timedOut = true
       handle.agent.cancel({ kind: 'user' })

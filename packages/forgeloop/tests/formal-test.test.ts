@@ -73,11 +73,11 @@ describe('formal test runner without a subprocess service', () => {
     expect(result.exitCode).toBeNull()
   })
 
-  it('treats timeoutMs 0 as unlimited and lets the command finish', async () => {
+  it('treats timeoutMs -1 as unlimited and lets the command finish', async () => {
     const result = await runFormalTest({
       cwd: dir,
       argv: ['node', '-e', 'setTimeout(() => console.log("done"), 100)'],
-      timeoutMs: 0,
+      timeoutMs: -1,
       logPath: logPath('unlimited'),
     })
     expect(result.exitCode).toBe(0)
@@ -166,13 +166,13 @@ describe('formal test runner through the subprocess service', () => {
     expect(fake.terminated()).toBe(true)
   })
 
-  it('does not terminate a service-backed command when timeoutMs is 0', async () => {
+  it('does not terminate a service-backed command when timeoutMs is -1', async () => {
     const fake = fakeSubprocess()
     const run = runFormalTest({
       ctx: fake.ctx,
       cwd: dir,
       argv: ['node', '-e', 'process.exit(0)'],
-      timeoutMs: 0,
+      timeoutMs: -1,
       logPath: logPath('service-unlimited'),
     })
     fake.finish(0)

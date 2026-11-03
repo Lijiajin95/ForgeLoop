@@ -28,11 +28,11 @@ import {
 export interface AgentConfig {
   readonly provider: string
   readonly model: string
-  /** 单个 Agent 回合的上限；0 表示不限。 */
+  /** 单个 Agent 回合的上限；-1 表示不限（页面显示 MAX）。 */
   readonly timeoutSeconds: number
-  /** 长任务的硬上限；任务包 limit_seconds 只能在此范围内放宽；0 表示不限。 */
+  /** 长任务的硬上限；任务包 limit_seconds 只能在此范围内放宽；-1 表示不限。 */
   readonly maxTurnSeconds?: number
-  /** 回合连续无新进展的上限；超时取消；0 表示不启用看门狗。 */
+  /** 回合连续无新进展的上限；超时取消；-1 表示不启用看门狗。 */
   readonly idleTimeoutSeconds?: number
 }
 
@@ -215,13 +215,13 @@ export interface ForgeLoopConfig {
   readonly pollSeconds: number
   readonly autoAdvance: boolean
   readonly agent: AgentConfig
-  /** 正式测试命令的超时；0 表示不限。 */
+  /** 正式测试命令的超时；-1 表示不限。 */
   readonly formalTestTimeoutSeconds: number
-  /** 同一任务的研发尝试次数；0 表示不限。 */
+  /** 同一任务的研发尝试次数；-1 表示不限。 */
   readonly maxTaskAttempts: number
-  /** 每次授权可用的失败轮次；0 表示不限（仍逐轮记录）。 */
+  /** 每次授权可用的失败轮次；-1 表示不限（仍逐轮记录）。 */
   readonly failureRoundsPerGrant: number
-  /** 单次推进内的验证重试次数；0 表示不限。 */
+  /** 单次推进内的验证重试次数；-1 表示不限。 */
   readonly maxVerificationAttempts: number
   readonly worktreePrepareCommand: readonly string[]
   readonly candidateBuildCommand: readonly string[]
@@ -320,12 +320,12 @@ function positiveInteger(value: unknown, field: string, fallback: number): numbe
   return value
 }
 
-/** 执行限制类配置：0 表示不限，负值与非数字仍然拒绝。 */
+/** 执行限制类配置：-1 表示不限，其他负值、0 与非数字拒绝。 */
 function limitNumber(value: unknown, field: string, fallback: number): number {
   if (value === undefined) return fallback
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || (value !== -1 && value <= 0)) {
     throw new RuleViolationError(
-      `配置 ${field} 必须是非负数（0 表示不限），实际 ${JSON.stringify(value)}`,
+      `配置 ${field} 必须为 -1 或正数（-1 表示不限），实际 ${JSON.stringify(value)}`,
     )
   }
   return value
@@ -333,9 +333,9 @@ function limitNumber(value: unknown, field: string, fallback: number): number {
 
 function limitInteger(value: unknown, field: string, fallback: number): number {
   if (value === undefined) return fallback
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || (value !== -1 && value <= 0)) {
     throw new RuleViolationError(
-      `配置 ${field} 必须是非负整数（0 表示不限），实际 ${JSON.stringify(value)}`,
+      `配置 ${field} 必须为 -1 或正整数（-1 表示不限），实际 ${JSON.stringify(value)}`,
     )
   }
   return value
@@ -730,21 +730,25 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     agent: {
       provider: agentProvider,
       model: agentModel,
-      timeoutSeconds: limitNumber(raw.agent?.timeoutSeconds, 'agent.timeoutSeconds', 0),
-      maxTurnSeconds: limitNumber(raw.agent?.maxTurnSeconds, 'agent.maxTurnSeconds', 0),
-      idleTimeoutSeconds: limitNumber(raw.agent?.idleTimeoutSeconds, 'agent.idleTimeoutSeconds', 0),
+      timeoutSeconds: limitNumber(raw.agent?.timeoutSeconds, 'agent.timeoutSeconds', -1),
+      maxTurnSeconds: limitNumber(raw.agent?.maxTurnSeconds, 'agent.maxTurnSeconds', -1),
+      idleTimeoutSeconds: limitNumber(
+        raw.agent?.idleTimeoutSeconds,
+        'agent.idleTimeoutSeconds',
+        -1,
+      ),
     },
     formalTestTimeoutSeconds: limitNumber(
       raw.formalTestTimeoutSeconds,
       'formalTestTimeoutSeconds',
-      0,
+      -1,
     ),
-    maxTaskAttempts: limitInteger(raw.maxTaskAttempts, 'maxTaskAttempts', 0),
-    failureRoundsPerGrant: limitInteger(raw.failureRoundsPerGrant, 'failureRoundsPerGrant', 0),
+    maxTaskAttempts: limitInteger(raw.maxTaskAttempts, 'maxTaskAttempts', -1),
+    failureRoundsPerGrant: limitInteger(raw.failureRoundsPerGrant, 'failureRoundsPerGrant', -1),
     maxVerificationAttempts: limitInteger(
       raw.maxVerificationAttempts,
       'maxVerificationAttempts',
-      0,
+      -1,
     ),
     worktreePrepareCommand: stringList(raw.worktreePrepareCommand, 'worktreePrepareCommand', []),
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),

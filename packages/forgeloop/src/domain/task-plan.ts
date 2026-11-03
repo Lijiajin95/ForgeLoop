@@ -9,10 +9,10 @@
 import { asRecord as recordOf } from './json.js'
 import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
 
-/** 任务工时预算的默认值：0 表示不限，仍记录实际消耗。 */
-export const DEFAULT_TASK_LIMIT_SECONDS = 0
-/** 任务失败轮次的默认值：0 表示不限，仍逐轮记录。 */
-export const DEFAULT_MAX_FAILURE_ROUNDS = 0
+/** 任务工时预算的默认值：-1 表示不限，仍记录实际消耗。 */
+export const DEFAULT_TASK_LIMIT_SECONDS = -1
+/** 任务失败轮次的默认值：-1 表示不限，仍逐轮记录。 */
+export const DEFAULT_MAX_FAILURE_ROUNDS = -1
 
 export interface TaskLimits {
   readonly limitSeconds: number
@@ -41,6 +41,12 @@ export interface TechnicalSolution {
   readonly summary: string
   readonly approach: readonly string[]
   readonly risks: readonly string[]
+}
+
+/** 需求级工时：任一任务不限（-1）则整体不限，否则累加任务限额。 */
+export function planLimitSeconds(tasks: readonly PlannedTask[]): number {
+  if (tasks.some((task) => task.limits.limitSeconds < 0)) return -1
+  return tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0)
 }
 
 export interface TaskPlan {
@@ -118,11 +124,17 @@ export function validateTask(task: PlannedTask): void {
     throw new RuleViolationError('任务依赖不能包含重复项')
   }
   for (const dependency of task.dependsOn) requireNonEmpty(dependency, 'depends_on')
-  if (!Number.isFinite(task.limits.limitSeconds) || task.limits.limitSeconds < 0) {
-    throw new RuleViolationError('任务执行限额必须是非负数（0 表示不限）')
+  if (
+    !Number.isFinite(task.limits.limitSeconds) ||
+    (task.limits.limitSeconds !== -1 && task.limits.limitSeconds <= 0)
+  ) {
+    throw new RuleViolationError('任务执行限额必须为 -1 或正数（-1 表示不限）')
   }
-  if (!Number.isInteger(task.limits.maxFailureRounds) || task.limits.maxFailureRounds < 0) {
-    throw new RuleViolationError('任务失败轮次上限必须是非负整数（0 表示不限）')
+  if (
+    !Number.isInteger(task.limits.maxFailureRounds) ||
+    (task.limits.maxFailureRounds !== -1 && task.limits.maxFailureRounds <= 0)
+  ) {
+    throw new RuleViolationError('任务失败轮次上限必须为 -1 或正整数（-1 表示不限）')
   }
 }
 
@@ -245,16 +257,22 @@ function limitsFrom(value: unknown): TaskLimits {
   if (value === undefined || value === null) return DEFAULT_TASK_LIMITS
   const data = asRecord(value, 'limits')
   const limitSeconds = data.limit_seconds ?? DEFAULT_TASK_LIMIT_SECONDS
-  if (typeof limitSeconds !== 'number' || !Number.isFinite(limitSeconds) || limitSeconds < 0) {
-    throw new MalformedError('任务包字段 limits.limit_seconds 必须是非负数字（0 表示不限）')
+  if (
+    typeof limitSeconds !== 'number' ||
+    !Number.isFinite(limitSeconds) ||
+    (limitSeconds !== -1 && limitSeconds <= 0)
+  ) {
+    throw new MalformedError('任务包字段 limits.limit_seconds 必须为 -1 或正数（-1 表示不限）')
   }
   const maxFailureRounds = data.max_failure_rounds ?? DEFAULT_MAX_FAILURE_ROUNDS
   if (
     typeof maxFailureRounds !== 'number' ||
     !Number.isInteger(maxFailureRounds) ||
-    maxFailureRounds < 0
+    (maxFailureRounds !== -1 && maxFailureRounds <= 0)
   ) {
-    throw new MalformedError('任务包字段 limits.max_failure_rounds 必须是非负整数（0 表示不限）')
+    throw new MalformedError(
+      '任务包字段 limits.max_failure_rounds 必须为 -1 或正整数（-1 表示不限）',
+    )
   }
   return { limitSeconds, maxFailureRounds }
 }

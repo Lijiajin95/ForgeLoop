@@ -31,6 +31,16 @@ import {
 import type { TaskRunState } from '../domain/status.js'
 import { runFormalTest } from './formal-test.js'
 
+/**
+ * 研发回合上限（秒）：`lower` 是任务工时与 agent 回合上限的较大者，`cap` 是长任务硬上限。
+ * 两者都可能是 -1（不限）：只有 `lower` 不限时才退化到 `cap`，都无限制时返回 -1，
+ * 调用方据此不建定时器；0 不是合法的“不限”取值，不能让它变成立即超时。
+ */
+export function turnTimeoutSeconds(lower: number, cap: number): number {
+  if (lower <= 0) return cap > 0 ? cap : -1
+  return cap > 0 ? Math.min(lower, cap) : lower
+}
+
 export interface ExecutionDevDeps {
   config: ForgeLoopConfig
   repo: Repository
@@ -261,15 +271,13 @@ export class ExecutionDev {
 
   /**
    * 任务包的 limit_seconds 是任务的工时预算，回合上限不能比它更短；
-   * 同时受 agent.maxTurnSeconds 硬上限约束。三者都为 0（默认）时不设回合超时。
+   * 同时受 agent.maxTurnSeconds 硬上限约束。三者都为 -1（默认）时不设回合超时。
    */
   private devTurnTimeoutMs(task: PlannedTask): number {
     const floor = this.deps.config.agent.timeoutSeconds
-    const cap = this.deps.config.agent.maxTurnSeconds ?? 0
+    const cap = this.deps.config.agent.maxTurnSeconds ?? -1
     const planned = task.limits.limitSeconds
-    const lower = Math.max(planned, floor)
-    if (lower <= 0) return cap > 0 ? cap * 1000 : 0
-    return (cap > 0 ? Math.min(lower, cap) : lower) * 1000
+    return turnTimeoutSeconds(Math.max(planned, floor), cap) * 1000
   }
 
   /**

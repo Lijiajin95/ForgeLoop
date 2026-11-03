@@ -4,6 +4,7 @@ import type { ForgeLoopConfig } from '../config.js'
 import { businessReviewDir, verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
+import { planLimitSeconds } from '../domain/task-plan.js'
 import type { PlanReview, VerificationReport } from '../domain/verification.js'
 import { validateScenarioEvidence, validateVerificationCoverage } from '../domain/verification.js'
 import {
@@ -166,10 +167,7 @@ export class VerificationPipeline {
     reqId: string,
     plan: TaskPlan,
   ): { state: 'failed'; detail: string } | null {
-    this.deps.repo.ensureBudget(
-      reqId,
-      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
-    )
+    this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
     const budget = new ExecutionBudget(
       this.deps.repo.budget(reqId).limitSeconds,
       this.deps.repo.budget(reqId).consumedSeconds,

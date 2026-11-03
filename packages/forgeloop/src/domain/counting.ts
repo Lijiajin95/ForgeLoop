@@ -2,7 +2,7 @@
  * 失败轮次与追加授权（迁移自旧 `domain/counting.py`）：
  * - 正式转测后，测试或验收失败计一个失败轮次；转测前失败不计。
  * - 同一轮重复反馈不重复加数（round_id 幂等）。
- * - 失败轮次默认不限：逐轮记录，但默认不因次数停止自动推进。
+ * - 失败轮次默认 -1（不限）：逐轮记录，但默认不因次数停止自动推进。
  * - 显式配置每次授权的轮次上限（> 0）时，额度用尽才等待追加授权。
  */
 
@@ -54,8 +54,8 @@ export class GrantLedger {
     roundsPerGrant = MAX_ROUNDS_PER_GRANT,
   ) {
     if (grants < 1) throw new RuleViolationError('至少需要一次初始授权')
-    if (!Number.isInteger(roundsPerGrant) || roundsPerGrant < 0) {
-      throw new RuleViolationError('每次授权的失败轮次上限必须是非负整数（0 表示不限）')
+    if (roundsPerGrant !== -1 && (!Number.isInteger(roundsPerGrant) || roundsPerGrant <= 0)) {
+      throw new RuleViolationError('每次授权的失败轮次上限必须为 -1 或正整数（-1 表示不限）')
     }
     if (!unlimitedLimit(roundsPerGrant) && rounds.length > grants * roundsPerGrant) {
       throw new RuleViolationError('已记录的失败轮次超过授权额度')
