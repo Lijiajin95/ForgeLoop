@@ -4954,18 +4954,18 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 ### 131.2 闭环证据（最终复跑）
 
-证据目录：`reports/m0-loop-e2e/2026-11-03T17-26-40-630Z/`（`reports/` 不入库），
+证据目录：`reports/m0-loop-e2e/2026-11-03T17-29-47-342Z/`（`reports/` 不入库），
 含 `summary.json`、`config.snapshot.json`、`s1-rollout.json`、`s2-event.json`、`s3-rollout.json`。
 
-- S1：`req-20261103172640-5db7ea`，受控提交 `1779c60ab3e9`，制品摘要
-  `f81d033f432871706ed60cdd9bce0447b117abfaf3a4b03978087947dbab46c8`，
-  部署 `dep-cda30127-4e68-4aed-a75b-4bca6077f99c`（preflight → apply → status 核对通过）。
-- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103172641-a7a5aa`，诊断给出 `restart-web`，
+- S1：`req-20261103172947-0860ef`，受控提交 `bc9e6439e166`，制品摘要
+  `32541c669351368434d049152681cc4822b44e266dae7ef2daede7c023ee07b9`，
+  部署 `dep-0a619f76-cb3e-410e-b9f6-162920a24586`（preflight → apply → status 核对通过）。
+- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103172948-c448d1`，诊断给出 `restart-web`，
   自动恢复后检查复核 `recovered`；恢复进程 pid 与故障前不同。
-- S3：同一事件 `fix_required` 生成 `req-20261103172641-2fa5df`（source=`ops:ops-20261103172641-a7a5aa`），
-  研发/独立验证/受控提交 `a858fa15090e` 后重新构建，部署 `dep-6314027f-14f0-4518-be4a-08e31b1058c9` 核对通过。
-- M0-7：停止实测 `req-20261103172642-b2de5f`：停止后不再排队、状态 `blocked`、无法领取推进；
-  显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103172642-0bfb68`：
+- S3：同一事件 `fix_required` 生成 `req-20261103172948-5dc0e4`（source=`ops:ops-20261103172948-c448d1`），
+  研发/独立验证/受控提交 `f939128ddec9` 后重新构建，部署 `dep-aa01fd1c-e222-4a66-a1ab-f50f4ccc2e8f` 核对通过。
+- M0-7：停止实测 `req-20261103172948-efef90`：停止后不再排队、状态 `blocked`、无法领取推进；
+  显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103172949-6e8e47`：
   `maxVerificationAttempts=1` 让验证失败停住并置 `blocked`、无受控提交、blockedReason 留有问题单。
   注意：问题单仍开放时协调器会再次排 advance（既有跨请求重试语义），本项只证明单次执行上限生效。
 - 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
