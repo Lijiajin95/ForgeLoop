@@ -86,7 +86,9 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 停止/取消、人工请求与多版本修订；研发自主成功要求验证通过且完成受控提交，运维自主成功要求
 自动恢复/关闭且未记录人工介入。需求或事件为零时显示“无样本”，不把空样本算成 0% 或 100%。
 原始分子、分母在 `/api/forgeloop/board` 的 `autonomy` 字段中返回，可从需求、请求、授权、工时延长
-与运维事件回查。真实模型闭环可用 `make real-model-e2e` 验证（opt-in，会产生模型费用）。
+与运维事件回查。真实模型闭环可用 `make real-model-e2e` 验证（opt-in，会产生模型费用）：
+脚本先构建插件，再在隔离 DSH_HOME 中安装 web 与 headless 两个派生 profile；隔离环境不会带上
+默认 profile 的凭据，运行前需在启动环境导出所用模型的密钥（默认 DeepSeek 为 `DEEPSEEK_API_KEY`）。
 
 ### 运维 Agent
 

@@ -8,7 +8,7 @@
  * 默认跳过；`make real-model-e2e` 或 `FORGELOOP_REAL_MODEL=1` 才运行。
  * 需要当前默认 DSH profile 已配置可用的模型凭据；脚本不改动生产记录与正式 profile。
  */
-import { spawn, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -17,6 +17,8 @@ import { DatabaseSync } from 'node:sqlite'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_REAL_MODEL_PROFILE ?? 'forgeloop-real-model'
+const WEB_PROFILE = `${PROFILE}-web`
+const HEADLESS_PROFILE = `${PROFILE}-headless`
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
 const PROJECT = 'forgeloop-real-model'
 const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_TIMEOUT_MS ?? 1_800_000)
@@ -204,6 +206,11 @@ async function main(): Promise<void> {
   const recordsRoot = join(workspace, 'records')
   const configPath = join(workspace, 'forgeloop.json')
   const dbPath = join(recordsRoot, 'projects', PROJECT, 'records.sqlite')
+  execFileSync('npm', ['run', 'build', '--workspace', 'forgeloop-dsh'], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: process.env,
+  })
   mkdirSync(home, { recursive: true })
   mkdirSync(recordsRoot, { recursive: true })
   initProject(projectDir)
@@ -227,10 +234,15 @@ async function main(): Promise<void> {
   const env = { ...process.env, DSH_HOME: home, FORGELOOP_CONFIG: configPath }
   let child: ReturnType<typeof spawn> | undefined
   try {
-    dshSync(['--profile', PROFILE, '--from-default-profile', 'web', '--dump-config'], env)
-    dshSync(['plugin', '--profile', PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
+    dshSync(['--profile', WEB_PROFILE, '--from-default-profile', 'web', '--dump-config'], env)
+    dshSync(
+      ['--profile', HEADLESS_PROFILE, '--from-default-profile', 'headless', '--dump-config'],
+      env,
+    )
+    dshSync(['plugin', '--profile', WEB_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
+    dshSync(['plugin', '--profile', HEADLESS_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
     const port = await freePort()
-    child = spawn(DSH, ['--profile', PROFILE, '--port', String(port), '--no-open'], {
+    child = spawn(DSH, ['--profile', WEB_PROFILE, '--port', String(port), '--no-open'], {
       cwd: ROOT,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -242,8 +254,7 @@ async function main(): Promise<void> {
       DSH,
       [
         '--profile',
-        PROFILE,
-        'headless',
+        HEADLESS_PROFILE,
         '--json',
         `只调用一次工具 forgeloop_submit_requirement 提交下面的需求原文；不要修改任何文件，也不要调用其他工具。\n\n${REQUIREMENT}`,
       ],

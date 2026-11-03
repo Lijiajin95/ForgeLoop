@@ -103,7 +103,7 @@ e2e:
 	$(NODE) scripts/ts/e2e-board.ts
 
 # 真实模型闭环 E2E（opt-in）：提交 → 准入 → 研发 → 独立验证 → 受控提交。
-# 需要默认 DSH profile 已配置模型凭据；会产生模型费用。
+# 需要默认 DSH profile 的模型选择，并在启动环境导出对应密钥（如 DEEPSEEK_API_KEY）。
 real-model-e2e:
 	FORGELOOP_REAL_MODEL=1 $(NODE) scripts/ts/real-model-e2e.ts
 

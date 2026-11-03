@@ -4296,9 +4296,10 @@ orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工�
 - 研发→运行：研发 Agent 没有部署/发布工具，任务拆解与执行提示词都禁止部署、发布、安装到正式
   profile 或修改正式环境；部署只走人工认证端点，按独立授权执行。
 - 研发→验证的真实模型闭环新增 `scripts/ts/real-model-e2e.ts` 与 `make real-model-e2e`
-  （`FORGELOOP_REAL_MODEL=1` opt-in）：隔离 DSH_HOME/临时 Git 项目，真实模型提交需求，轮询权威库
-  直到准入、任务包、验证通过与受控提交；断言来源、提交且无部署记录。本批未运行该目标，需默认
-  profile 的模型凭据并会产生费用。
+  （`FORGELOOP_REAL_MODEL=1` opt-in）：先构建插件，在隔离 DSH_HOME 安装 web/headless 两个派生
+  profile 与临时 Git 项目，真实模型提交需求，轮询权威库直到准入、任务包、验证通过与受控提交；
+  断言来源、提交且无部署记录。本批已执行该目标，因启动环境未导出模型密钥（`DEEPSEEK_API_KEY`
+  为空）被 DSH 拒绝，未跑通；脚本现已先构建并明确要求启动环境提供密钥。
 
 ### 50.3 自主率
 
@@ -4315,5 +4316,6 @@ orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工�
 - `make check` 通过：69 个测试文件、778 项通过；新增 `tests/autonomy.test.ts` 覆盖纯函数与记录口径，
   并补充看板 MAX、来源、真实模型提示词边界与工具面断言。
 - `make contracts`、`make lint`、`make format`、token 预算、断言预算 18/18 通过。
-- 未验证：`make real-model-e2e` 尚未在本机凭据下运行；正式实例未重载本批代码，真实需求闭环仍待
-  在正式环境跑通。
+- 未验证：`make real-model-e2e` 已执行到构建、隔离 profile、插件装载与 headless 鉴权；启动环境没有
+  有效 `DEEPSEEK_API_KEY`，DeepSeek 返回 401，真实模型闭环未跑通。正式实例未重载本批代码，真实
+  需求闭环仍待在正式环境跑通。
