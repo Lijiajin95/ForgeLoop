@@ -19,6 +19,8 @@ window.__ModuleLoader__.load({
     const NS = 'forgeloop-board'
     const BOARD_PATH = '/api/forgeloop/board'
     const TERMINAL = { accepted: true, rejected: true, cancelled: true }
+    /** 工作台视图顺序：可靠性位于「需要处理」与「运维」之间。 */
+    const WORKBENCH_VIEWS = ['hierarchy', 'tasks', 'issues', 'reliability', 'ops']
 
     const zh = {
       'view.label': '天工',
@@ -456,6 +458,7 @@ window.__ModuleLoader__.load({
       'nav.requirements': '需求',
       'nav.tasks': '任务',
       'nav.issues': '问题',
+      'nav.reliability': '可靠性',
       'nav.ops': '运维',
       'nav.label': '工作台视图',
       'search.placeholder': '搜索需求、任务、问题…',
@@ -822,6 +825,134 @@ window.__ModuleLoader__.load({
       'ops.obs.monitor': '主动监控',
       'ops.obs.alert': '告警已发送',
       'ops.obs.alert_error': '告警失败',
+      'reliability.title': '代码可靠性',
+      'reliability.loading': '正在读取可靠性数据…',
+      'reliability.error': '可靠性数据读取失败',
+      'reliability.retry': '重试',
+      'reliability.window.label': '时间窗口',
+      'reliability.window.7d': '7 天',
+      'reliability.window.30d': '30 天',
+      'reliability.window.90d': '90 天',
+      'reliability.window.all': '全部',
+      'reliability.window.range': '窗口 {from} 至 {to}',
+      'reliability.window.allRange': '全部记录，截至 {to}',
+      'reliability.snapshot.fresh': '快照有效',
+      'reliability.snapshot.stale': '快照过期',
+      'reliability.snapshot.missing': '未采集',
+      'reliability.snapshot.invalid': '快照不可用',
+      'reliability.snapshot.meta': '{branch}@{commit} · 快照 {time}',
+      'reliability.snapshot.behind': '落后当前 HEAD {count} 个提交',
+      'reliability.snapshot.dirty': '包含未提交改动',
+      'reliability.snapshot.missingHint':
+        '运行 make reliability-report 生成质量快照；生成前门禁与覆盖率显示为未采集。',
+      'reliability.snapshot.invalidHint':
+        '快照损坏或格式不符；修正后重新生成，页面不渲染半份数据。',
+      'reliability.snapshot.path': '快照路径',
+      'reliability.warnings': '提醒',
+      'reliability.kpi.gates': '门禁通过',
+      'reliability.kpi.tests': '测试通过',
+      'reliability.kpi.lines': '行覆盖',
+      'reliability.kpi.mutation': '变异得分',
+      'reliability.kpi.verification': '验证通过',
+      'reliability.kpi.deployment': '上线核对',
+      'reliability.value.none': '—（无样本）',
+      'reliability.value.notRun': '未运行',
+      'reliability.value.notCollected': '未采集',
+      'reliability.value.unavailable': '不可用',
+      'reliability.sample': 'n={count}',
+      'reliability.smallSample': '样本少于 5，趋势仅供参考',
+      'reliability.tests.summary':
+        '{passed} 通过 · {failed} 失败 · {skipped} 跳过 · {files} 个文件',
+      'reliability.gates.title': '质量门禁',
+      'reliability.gates.summary': '通过 {pass} · 失败 {fail} · 跳过 {skipped} · 未运行 {notRun}',
+      'reliability.gates.empty': '没有门禁记录。',
+      'reliability.gates.status': '状态',
+      'reliability.gates.gate': '门禁',
+      'reliability.gates.measured': '实测',
+      'reliability.gates.threshold': '门槛',
+      'reliability.gates.duration': '耗时',
+      'reliability.gates.at': '最近执行',
+      'reliability.gates.details': '详情',
+      'reliability.gates.command': '命令',
+      'reliability.gates.evidence': '证据路径',
+      'reliability.gates.staleTag': '过期',
+      'reliability.status.pass': '通过',
+      'reliability.status.fail': '失败',
+      'reliability.status.skipped': '跳过',
+      'reliability.status.not_run': '未运行',
+      'reliability.unit.errors': '错误',
+      'reliability.unit.warnings': '警告',
+      'reliability.unit.files': '个文件',
+      'reliability.coverage.title': '覆盖率',
+      'reliability.coverage.lines': '行',
+      'reliability.coverage.statements': '语句',
+      'reliability.coverage.functions': '函数',
+      'reliability.coverage.branches': '分支',
+      'reliability.coverage.threshold': '门槛 {value}%',
+      'reliability.coverage.key': '关键文件 {passed}/{total} 达标',
+      'reliability.coverage.keyTitle': '关键文件覆盖率',
+      'reliability.coverage.expand': '展开关键文件明细',
+      'reliability.coverage.notCollected': '覆盖率未采集。',
+      'reliability.coverage.file': '文件',
+      'reliability.coverage.recorded': '有记录',
+      'reliability.coverage.absent': '缺少记录',
+      'reliability.budget.title': '预算与抑制',
+      'reliability.budget.assertions': '断言 {current}/{baseline}',
+      'reliability.budget.tokens': 'Token 超限文件 {over} · 最大 {max}',
+      'reliability.budget.suppressions': 'ESLint 抑制 {count} 条',
+      'reliability.runtime.title': '交付可靠性',
+      'reliability.runtime.all': '全部记录',
+      'reliability.runtime.range': '记录窗口 {from} 至 {to}',
+      'reliability.runtime.verification': '独立验证',
+      'reliability.runtime.firstPass': '首轮验证',
+      'reliability.runtime.businessReview': '业务终审',
+      'reliability.runtime.deployment': '上线核对',
+      'reliability.runtime.failureRounds': '失败轮次',
+      'reliability.runtime.perRequirement': '每需求 {value} 次',
+      'reliability.runtime.stages': '失败阶段分布',
+      'reliability.runtime.tasks': '任务当前状态',
+      'reliability.runtime.tasksSummary':
+        '已交付 {delivered}/{total} · 失败 {failed} · 阻塞 {blocked} · 待决定 {awaitingUser} · 执行中 {running}',
+      'reliability.runtime.tasksNote': '任务运行只表示当前状态，不用于回放历史趋势。',
+      'reliability.runtime.ops': '运维恢复',
+      'reliability.runtime.opsSummary': '恢复 {recovered}/{closed} · 未解决 {unresolved}',
+      'reliability.runtime.mttr': 'MTTR 中位数',
+      'reliability.runtime.mttrMissing': '—（无恢复样本）',
+      'reliability.runtime.candidateBuilds': '候选构建数',
+      'reliability.runtime.deploymentFailures': '上线失败检查项',
+      'reliability.runtime.noDeploymentFailures': '窗口内没有失败的上线检查。',
+      'reliability.runtime.noSamples': '当前窗口没有交付可靠性记录。',
+      'reliability.runtime.ratesNote': '率按记录计；首轮验证按需求计。',
+      'reliability.trend.title': '最近 8 周趋势',
+      'reliability.trend.summary':
+        '8 周内验证通过 {pass}、阻断 {block}、失败轮次 {rounds}、上线通过 {verified}、上线失败 {failed}。',
+      'reliability.trend.week': '周',
+      'reliability.trend.verificationPass': '验证通过',
+      'reliability.trend.verificationBlock': '验证阻断',
+      'reliability.trend.failureRounds': '失败轮次',
+      'reliability.trend.deploymentsVerified': '上线通过',
+      'reliability.trend.deploymentsFailed': '上线失败',
+      'reliability.trend.table': '展开数据表',
+      'reliability.trend.noSamples': '最近 8 周没有验证、失败轮次或上线记录。',
+      'reliability.events.title': '最近可靠性事件',
+      'reliability.events.empty': '当前窗口没有阻断或失败事件。',
+      'reliability.events.open': '打开需求 {reqId}',
+      'reliability.events.verification': '独立验证阻断',
+      'reliability.events.deployment': '上线核对失败',
+      'reliability.events.ops': '运维事件',
+      'reliability.events.unknownReq': '未关联需求',
+      'reliability.stage.planning': '计划',
+      'reliability.stage.implementation_review': '实现评审',
+      'reliability.stage.formal_test': '正式测试',
+      'reliability.stage.interrupted': '中断',
+      'reliability.stage.verification': '独立验证',
+      'reliability.stage.business_review': '业务终审',
+      'reliability.stage.user_acceptance': '用户验收',
+      'reliability.duration.seconds': '{value} 秒',
+      'reliability.duration.minutes': '{value} 分钟',
+      'reliability.duration.hours': '{value} 小时',
+      'reliability.footnote':
+        '口径：未采集或未运行不算通过；样本少于 5 标注“样本不足”；所有时间按本地时区显示。',
       'wb.stopHelp': '停止请求会撤销待执行请求；完成前不能认定已经停稳。',
     }
 
@@ -830,6 +961,7 @@ window.__ModuleLoader__.load({
       'nav.requirements': 'Requirements',
       'nav.tasks': 'Tasks',
       'nav.issues': 'Issues',
+      'nav.reliability': 'Reliability',
       'nav.ops': 'Ops',
       'nav.label': 'Workbench views',
       'search.placeholder': 'Search requirements, tasks, issues…',
@@ -1222,6 +1354,137 @@ window.__ModuleLoader__.load({
       'ops.obs.monitor': 'Active monitoring',
       'ops.obs.alert': 'Alert sent',
       'ops.obs.alert_error': 'Alert failed',
+      'reliability.title': 'Code reliability',
+      'reliability.loading': 'Reading reliability data…',
+      'reliability.error': 'Failed to read reliability data',
+      'reliability.retry': 'Retry',
+      'reliability.window.label': 'Time window',
+      'reliability.window.7d': '7 days',
+      'reliability.window.30d': '30 days',
+      'reliability.window.90d': '90 days',
+      'reliability.window.all': 'All',
+      'reliability.window.range': 'Window {from} to {to}',
+      'reliability.window.allRange': 'All records through {to}',
+      'reliability.snapshot.fresh': 'Fresh snapshot',
+      'reliability.snapshot.stale': 'Stale snapshot',
+      'reliability.snapshot.missing': 'Not collected',
+      'reliability.snapshot.invalid': 'Snapshot unavailable',
+      'reliability.snapshot.meta': '{branch}@{commit} · snapshot {time}',
+      'reliability.snapshot.behind': '{count} commits behind HEAD',
+      'reliability.snapshot.dirty': 'Includes uncommitted changes',
+      'reliability.snapshot.missingHint':
+        'Run make reliability-report to generate a quality snapshot; gates and coverage show as not collected until then.',
+      'reliability.snapshot.invalidHint':
+        'The snapshot is corrupt or malformed; fix and regenerate it. Partial data is not rendered.',
+      'reliability.snapshot.path': 'Snapshot path',
+      'reliability.warnings': 'Warnings',
+      'reliability.kpi.gates': 'Gates passed',
+      'reliability.kpi.tests': 'Tests passed',
+      'reliability.kpi.lines': 'Line coverage',
+      'reliability.kpi.mutation': 'Mutation score',
+      'reliability.kpi.verification': 'Verification pass',
+      'reliability.kpi.deployment': 'Deployment checks',
+      'reliability.value.none': '— (no samples)',
+      'reliability.value.notRun': 'Not run',
+      'reliability.value.notCollected': 'Not collected',
+      'reliability.value.unavailable': 'Unavailable',
+      'reliability.sample': 'n={count}',
+      'reliability.smallSample': 'Fewer than 5 samples; trend is indicative only',
+      'reliability.tests.summary':
+        '{passed} passed · {failed} failed · {skipped} skipped · {files} files',
+      'reliability.gates.title': 'Quality gates',
+      'reliability.gates.summary':
+        'Passed {pass} · failed {fail} · skipped {skipped} · not run {notRun}',
+      'reliability.gates.empty': 'No gates recorded.',
+      'reliability.gates.status': 'Status',
+      'reliability.gates.gate': 'Gate',
+      'reliability.gates.measured': 'Measured',
+      'reliability.gates.threshold': 'Threshold',
+      'reliability.gates.duration': 'Duration',
+      'reliability.gates.at': 'Last run',
+      'reliability.gates.details': 'Details',
+      'reliability.gates.command': 'Command',
+      'reliability.gates.evidence': 'Evidence path',
+      'reliability.gates.staleTag': 'Stale',
+      'reliability.status.pass': 'Pass',
+      'reliability.status.fail': 'Fail',
+      'reliability.status.skipped': 'Skipped',
+      'reliability.status.not_run': 'Not run',
+      'reliability.unit.errors': 'errors',
+      'reliability.unit.warnings': 'warnings',
+      'reliability.unit.files': 'files',
+      'reliability.coverage.title': 'Coverage',
+      'reliability.coverage.lines': 'Lines',
+      'reliability.coverage.statements': 'Statements',
+      'reliability.coverage.functions': 'Functions',
+      'reliability.coverage.branches': 'Branches',
+      'reliability.coverage.threshold': 'Threshold {value}%',
+      'reliability.coverage.key': 'Key files {passed}/{total} passing',
+      'reliability.coverage.keyTitle': 'Key file coverage',
+      'reliability.coverage.expand': 'Expand key file details',
+      'reliability.coverage.notCollected': 'Coverage was not collected.',
+      'reliability.coverage.file': 'File',
+      'reliability.coverage.recorded': 'Recorded',
+      'reliability.coverage.absent': 'Missing record',
+      'reliability.budget.title': 'Budgets and suppressions',
+      'reliability.budget.assertions': 'Assertions {current}/{baseline}',
+      'reliability.budget.tokens': 'Token over-limit files {over} · max {max}',
+      'reliability.budget.suppressions': 'ESLint suppressions {count}',
+      'reliability.runtime.title': 'Delivery reliability',
+      'reliability.runtime.all': 'All records',
+      'reliability.runtime.range': 'Record window {from} to {to}',
+      'reliability.runtime.verification': 'Independent verification',
+      'reliability.runtime.firstPass': 'First-pass verification',
+      'reliability.runtime.businessReview': 'Business review',
+      'reliability.runtime.deployment': 'Deployment checks',
+      'reliability.runtime.failureRounds': 'Failure rounds',
+      'reliability.runtime.perRequirement': '{value} per requirement',
+      'reliability.runtime.stages': 'Failure stages',
+      'reliability.runtime.tasks': 'Task status (current)',
+      'reliability.runtime.tasksSummary':
+        'Delivered {delivered}/{total} · failed {failed} · blocked {blocked} · awaiting decision {awaitingUser} · running {running}',
+      'reliability.runtime.tasksNote':
+        'Task runs show current status only; they cannot replay historical trends.',
+      'reliability.runtime.ops': 'Ops recovery',
+      'reliability.runtime.opsSummary': 'Recovered {recovered}/{closed} · unresolved {unresolved}',
+      'reliability.runtime.mttr': 'Median MTTR',
+      'reliability.runtime.mttrMissing': '— (no recovery samples)',
+      'reliability.runtime.candidateBuilds': 'Candidate builds',
+      'reliability.runtime.deploymentFailures': 'Failed deployment checks',
+      'reliability.runtime.noDeploymentFailures': 'No failed deployment checks in this window.',
+      'reliability.runtime.noSamples': 'No delivery reliability records in this window.',
+      'reliability.runtime.ratesNote':
+        'Rates count records; first-pass verification counts requirements.',
+      'reliability.trend.title': 'Last 8 weeks',
+      'reliability.trend.summary':
+        'In 8 weeks: verification passed {pass}, blocked {block}, failure rounds {rounds}, deployments verified {verified}, failed {failed}.',
+      'reliability.trend.week': 'Week',
+      'reliability.trend.verificationPass': 'Verification pass',
+      'reliability.trend.verificationBlock': 'Verification block',
+      'reliability.trend.failureRounds': 'Failure rounds',
+      'reliability.trend.deploymentsVerified': 'Deployments verified',
+      'reliability.trend.deploymentsFailed': 'Deployments failed',
+      'reliability.trend.table': 'Expand data table',
+      'reliability.trend.noSamples': 'No verification, failure-round, or deployment records in 8 weeks.',
+      'reliability.events.title': 'Recent reliability events',
+      'reliability.events.empty': 'No blocking or failed events in this window.',
+      'reliability.events.open': 'Open requirement {reqId}',
+      'reliability.events.verification': 'Independent verification blocked',
+      'reliability.events.deployment': 'Deployment check failed',
+      'reliability.events.ops': 'Ops event',
+      'reliability.events.unknownReq': 'No linked requirement',
+      'reliability.stage.planning': 'Planning',
+      'reliability.stage.implementation_review': 'Implementation review',
+      'reliability.stage.formal_test': 'Formal test',
+      'reliability.stage.interrupted': 'Interrupted',
+      'reliability.stage.verification': 'Verification',
+      'reliability.stage.business_review': 'Business review',
+      'reliability.stage.user_acceptance': 'User acceptance',
+      'reliability.duration.seconds': '{value}s',
+      'reliability.duration.minutes': '{value} min',
+      'reliability.duration.hours': '{value} h',
+      'reliability.footnote':
+        'Not collected or not run is never a pass; fewer than 5 samples is marked as a small sample; times use the local time zone.',
       'wb.stopHelp':
         'A stop request dismisses pending requests; it does not prove the task has stopped.',
     }
@@ -3879,6 +4142,102 @@ window.__ModuleLoader__.load({
 .flb-ops-obs:first-of-type{border-top:none}
 @media (max-width:820px){.flb-ops-grid{grid-template-columns:minmax(0,1fr)}.flb-ops-list{max-height:40vh}}
 `
+
+    const RELIABILITY_CSS = `
+.flb-rel-pane{display:flex;flex-direction:column;gap:12px;max-height:none;overflow:visible}
+.flb-rel-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.flb-rel-head-title{font-size:15px;font-weight:600}
+.flb-rel-meta{font-size:11px;color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.flb-rel-window-range{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-rel-window{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+.flb-rel-window-label{font-size:11px;color:var(--dsw-alias-label-secondary);margin-right:2px}
+.flb-rel-window button{border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;padding:1px 9px;font:inherit;font-size:11px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);cursor:pointer}
+.flb-rel-window button[aria-pressed=true]{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2)}
+.flb-rel-warnings{border:.5px solid var(--dsw-alias-state-warning-primary);border-radius:7px;padding:7px 10px;background:var(--dsw-alias-bg-layer-1);font-size:12px;color:var(--dsw-alias-state-warning-primary)}
+.flb-rel-warnings ul{margin:3px 0 0;padding-left:18px}
+.flb-rel-warnings li{overflow-wrap:anywhere}
+.flb-rel-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.flb-rel-kpi{border:.5px solid var(--dsw-alias-border-l1);border-radius:7px;padding:8px 10px;background:var(--dsw-alias-bg-layer-1);min-width:0}
+.flb-rel-kpi[data-tone=error]{border-color:var(--dsw-alias-state-error-primary)}
+.flb-rel-kpi[data-tone=warn]{border-color:var(--dsw-alias-state-warning-primary)}
+.flb-rel-kpi-value{font-size:18px;font-weight:600;line-height:23px;overflow-wrap:anywhere}
+.flb-rel-kpi-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-rel-kpi-note{font-size:10px;line-height:15px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.flb-rel-section{border:.5px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);padding:10px 11px;min-width:0}
+.flb-rel-section-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin-bottom:8px}
+.flb-rel-section-title{font-size:12px;font-weight:600}
+.flb-rel-section-meta{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.flb-rel-table{width:100%;border-collapse:collapse;font-size:11px;line-height:16px}
+.flb-rel-table th{text-align:left;font-weight:600;color:var(--dsw-alias-label-secondary);border-bottom:.5px solid var(--dsw-alias-border-l2);padding:5px 6px;white-space:nowrap}
+.flb-rel-table td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:5px 6px;vertical-align:top;overflow-wrap:anywhere}
+.flb-rel-table tr:last-child td{border-bottom:0}
+.flb-rel-table details summary{cursor:pointer;color:var(--dsw-alias-brand-primary);font-size:10px;white-space:nowrap}
+.flb-rel-gate-detail{display:flex;flex-direction:column;gap:3px;margin-top:5px;max-width:420px}
+.flb-rel-status{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.flb-rel-empty{padding:8px 10px;border:.5px dashed var(--dsw-alias-border-l1);border-radius:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-rel-error{border:.5px solid var(--dsw-alias-state-error-primary);border-radius:6px;padding:7px 9px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary);font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.flb-rel-bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px}
+.flb-rel-bar-row{display:flex;flex-direction:column;gap:3px;min-width:0}
+.flb-rel-bar-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:11px}
+.flb-rel-bar-value{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary)}
+.flb-rel-bar{height:7px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.flb-rel-bar-fill{height:100%;border-radius:999px;background:var(--dsw-alias-brand-primary)}
+.flb-rel-bar-fill[data-tone=success]{background:var(--dsw-alias-state-success-primary)}
+.flb-rel-bar-fill[data-tone=warn]{background:var(--dsw-alias-state-warning-primary)}
+.flb-rel-bar-fill[data-tone=error]{background:var(--dsw-alias-state-error-primary)}
+.flb-rel-bar[data-empty=true]{opacity:.5}
+.flb-rel-key{margin-top:10px}
+.flb-rel-key summary{cursor:pointer;font-size:11px;color:var(--dsw-alias-brand-primary)}
+.flb-rel-budgets{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.flb-rel-rates{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.flb-rel-rate{border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;padding:7px 9px;background:var(--dsw-alias-bg-base);min-width:0}
+.flb-rel-rate[data-tone=error]{border-color:var(--dsw-alias-state-error-primary)}
+.flb-rel-rate[data-tone=warn]{border-color:var(--dsw-alias-state-warning-primary)}
+.flb-rel-rate-value{font-size:16px;font-weight:600;line-height:21px}
+.flb-rel-rate-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-rel-rate-note{font-size:10px;color:var(--dsw-alias-label-secondary)}
+.flb-rel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.flb-rel-block{border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;padding:8px 9px;background:var(--dsw-alias-bg-base);min-width:0}
+.flb-rel-block-title{font-size:11px;font-weight:600;margin-bottom:5px}
+.flb-rel-big{font-size:18px;font-weight:600;line-height:23px}
+.flb-rel-stages{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.flb-rel-stage{display:grid;grid-template-columns:minmax(92px,auto) minmax(0,1fr) 26px;gap:6px;align-items:center;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.flb-rel-stage-bar{height:5px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.flb-rel-stage-fill{height:100%;border-radius:999px;background:var(--dsw-alias-state-warning-primary)}
+.flb-rel-stage-count{text-align:right;font-variant-numeric:tabular-nums}
+.flb-rel-note{font-size:10px;line-height:15px;color:var(--dsw-alias-label-secondary);margin-top:6px}
+.flb-rel-chart{width:100%;height:auto;display:block}
+.flb-rel-chart text{fill:var(--dsw-alias-label-secondary);font-size:9px}
+.flb-rel-chart .flb-rel-chart-grid{stroke:var(--dsw-alias-border-l1);stroke-width:.5}
+.flb-rel-chart rect[data-tone=success]{fill:var(--dsw-alias-state-success-primary)}
+.flb-rel-chart rect[data-tone=error]{fill:var(--dsw-alias-state-error-primary)}
+.flb-rel-chart rect[data-tone=warn]{fill:var(--dsw-alias-state-warning-primary)}
+.flb-rel-chart rect[data-tone=brand]{fill:var(--dsw-alias-brand-primary)}
+.flb-rel-chart rect[data-tone=info]{fill:var(--dsw-alias-state-info-primary)}
+.flb-rel-legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.flb-rel-legend span{display:inline-flex;align-items:center;gap:4px}
+.flb-rel-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--dsw-alias-brand-primary)}
+.flb-rel-legend i[data-tone=success]{background:var(--dsw-alias-state-success-primary)}
+.flb-rel-legend i[data-tone=error]{background:var(--dsw-alias-state-error-primary)}
+.flb-rel-legend i[data-tone=warn]{background:var(--dsw-alias-state-warning-primary)}
+.flb-rel-legend i[data-tone=brand]{background:var(--dsw-alias-brand-primary)}
+.flb-rel-legend i[data-tone=info]{background:var(--dsw-alias-state-info-primary)}
+.flb-rel-trend-table{margin-top:6px}
+.flb-rel-trend-table summary{cursor:pointer;font-size:11px;color:var(--dsw-alias-brand-primary)}
+.flb-rel-events{display:flex;flex-direction:column;gap:6px}
+.flb-rel-event{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:6px 0;border-top:.5px solid var(--dsw-alias-border-l1)}
+.flb-rel-event:first-child{border-top:0;padding-top:0}
+.flb-rel-event-time{font-size:10px;color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.flb-rel-event-title{font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.flb-rel-event-detail{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.flb-rel-event button{border:0;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-size:11px;cursor:pointer;padding:0}
+.flb-rel-event button:hover{text-decoration:underline}
+.flb-rel-footnote{font-size:10px;line-height:15px;color:var(--dsw-alias-label-secondary);border-top:.5px solid var(--dsw-alias-border-l1);padding-top:8px}
+@media (max-width:1100px){.flb-rel-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.flb-rel-rates{grid-template-columns:repeat(2,minmax(0,1fr))}.flb-rel-grid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:820px){.flb-rel-bars{grid-template-columns:minmax(0,1fr)}.flb-rel-table{display:block;overflow-x:auto}}
+@media (max-width:480px){.flb-rel-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+`
+
     /** 注册页面；组件只在会话视图槽展开时渲染。 */
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'forgeloop: dictionaries')
@@ -6314,6 +6673,1071 @@ window.__ModuleLoader__.load({
         idle: 'idle',
       }
 
+      const GATE_TONES = {
+        pass: 'success',
+        fail: 'error',
+        skipped: 'warn',
+        not_run: 'idle',
+      }
+
+      const RELIABILITY_WINDOW_KEYS = ['7d', '30d', '90d', 'all']
+
+      function reliabilityPercent(value) {
+        return typeof value === 'number' && Number.isFinite(value)
+          ? `${Math.round(value * 10) / 10}%`
+          : null
+      }
+
+      function reliabilityUnit(t, gate, value) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+        if (!gate.unit) return String(value)
+        const key = 'reliability.unit.' + gate.unit
+        const label = t(key)
+        return `${value} ${label === key ? gate.unit : label}`
+      }
+
+      function reliabilityDuration(value) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+        if (value < 1000) return `${Math.round(value)}ms`
+        if (value < 60000) return `${Math.round(value / 100) / 10}s`
+        return `${Math.round((value / 60000) * 10) / 10}m`
+      }
+
+      function reliabilitySeconds(t, value) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+          return t('reliability.runtime.mttrMissing')
+        }
+        if (value < 60) return t('reliability.duration.seconds', { value: Math.round(value) })
+        if (value < 3600) {
+          return t('reliability.duration.minutes', { value: Math.round(value / 60) })
+        }
+        return t('reliability.duration.hours', { value: Math.round((value / 3600) * 10) / 10 })
+      }
+
+      function reliabilityWeek(value) {
+        const date = new Date(value)
+        if (Number.isNaN(date.getTime())) return value
+        return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(
+          2,
+          '0',
+        )}`
+      }
+
+      function reliabilityRateTone(rate, threshold) {
+        if (!rate || typeof rate.rate !== 'number') return 'idle'
+        if (rate.rate >= threshold) return 'success'
+        return rate.rate >= threshold - 10 ? 'warn' : 'error'
+      }
+
+      function ReliabilityKpi(props) {
+        return h(
+          'div',
+          { className: 'flb-rel-kpi', 'data-tone': props.tone || 'idle' },
+          h('div', { className: 'flb-rel-kpi-value' }, props.value),
+          h('div', { className: 'flb-rel-kpi-label' }, props.label),
+          props.note ? h('div', { className: 'flb-rel-kpi-note' }, props.note) : null,
+        )
+      }
+
+      function ReliabilityBar(props) {
+        const value =
+          typeof props.value === 'number' && Number.isFinite(props.value) ? props.value : null
+        const width = value === null ? 0 : Math.max(0, Math.min(100, value))
+        return h(
+          'div',
+          {
+            className: 'flb-rel-bar',
+            role: 'progressbar',
+            'aria-label': props.label,
+            'aria-valuemin': 0,
+            'aria-valuemax': 100,
+            'aria-valuenow': value === null ? undefined : width,
+            'data-empty': value === null ? 'true' : 'false',
+          },
+          h('div', {
+            className: 'flb-rel-bar-fill',
+            'data-tone': props.tone || 'brand',
+            style: { width: `${width}%` },
+          }),
+        )
+      }
+
+      /** 8 周趋势：内联 SVG 柱状图 + 可展开数据表，不依赖颜色单独表达状态。 */
+      function ReliabilityTrend(props) {
+        const t = props.t
+        const rows = Array.isArray(props.rows) ? props.rows : []
+        const series = [
+          {
+            key: 'verificationPass',
+            label: t('reliability.trend.verificationPass'),
+            tone: 'success',
+          },
+          {
+            key: 'verificationBlock',
+            label: t('reliability.trend.verificationBlock'),
+            tone: 'error',
+          },
+          { key: 'failureRounds', label: t('reliability.trend.failureRounds'), tone: 'warn' },
+          {
+            key: 'deploymentsVerified',
+            label: t('reliability.trend.deploymentsVerified'),
+            tone: 'brand',
+          },
+          {
+            key: 'deploymentsFailed',
+            label: t('reliability.trend.deploymentsFailed'),
+            tone: 'error',
+          },
+        ]
+        const total = (key) => rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0)
+        const summary = t('reliability.trend.summary', {
+          pass: total('verificationPass'),
+          block: total('verificationBlock'),
+          rounds: total('failureRounds'),
+          verified: total('deploymentsVerified'),
+          failed: total('deploymentsFailed'),
+        })
+        const hasSamples = series.some((item) => total(item.key) > 0)
+        if (rows.length === 0 || !hasSamples) {
+          return h('div', { className: 'flb-rel-empty' }, t('reliability.trend.noSamples'))
+        }
+        const width = 680
+        const height = 170
+        const left = 26
+        const right = 6
+        const top = 10
+        const bottom = 26
+        const plotWidth = width - left - right
+        const plotHeight = height - top - bottom
+        const group = plotWidth / rows.length
+        const barWidth = Math.max(3, Math.min(9, (group - 8) / series.length))
+        const max = Math.max(
+          2,
+          ...rows.flatMap((row) => series.map((item) => Number(row[item.key]) || 0)),
+        )
+        const ticks = [0, 0.5, 1].map((ratio) => ({
+          ratio,
+          value: Math.round(max * ratio),
+          y: top + plotHeight - ratio * plotHeight,
+        }))
+        return h(
+          'div',
+          null,
+          h(
+            'svg',
+            {
+              className: 'flb-rel-chart',
+              viewBox: `0 0 ${width} ${height}`,
+              role: 'img',
+              'aria-label': summary,
+              preserveAspectRatio: 'none',
+            },
+            ticks.map((tick) =>
+              h(
+                'g',
+                { key: `tick-${tick.ratio}` },
+                h('line', {
+                  className: 'flb-rel-chart-grid',
+                  x1: left,
+                  x2: width - right,
+                  y1: tick.y,
+                  y2: tick.y,
+                }),
+                h('text', { x: 0, y: tick.y + 3 }, String(tick.value)),
+              ),
+            ),
+            rows.map((row, index) => {
+              const groupStart =
+                left +
+                group * index +
+                group / 2 -
+                (series.length * barWidth + (series.length - 1) * 2) / 2
+              return h(
+                'g',
+                { key: row.weekStart },
+                series.map((item, seriesIndex) => {
+                  const value = Number(row[item.key]) || 0
+                  const barHeight = (value / max) * plotHeight
+                  return h('rect', {
+                    key: item.key,
+                    x: groupStart + seriesIndex * (barWidth + 2),
+                    y: top + plotHeight - barHeight,
+                    width: barWidth,
+                    height: barHeight,
+                    rx: 1,
+                    'data-tone': item.tone,
+                  })
+                }),
+                h(
+                  'text',
+                  {
+                    x: left + group * index + group / 2,
+                    y: height - 8,
+                    textAnchor: 'middle',
+                  },
+                  reliabilityWeek(row.weekStart),
+                ),
+              )
+            }),
+          ),
+          h(
+            'div',
+            { className: 'flb-rel-legend' },
+            series.map((item) =>
+              h('span', { key: item.key }, h('i', { 'data-tone': item.tone }), item.label),
+            ),
+          ),
+          h(
+            'details',
+            { className: 'flb-rel-trend-table' },
+            h('summary', null, t('reliability.trend.table')),
+            h(
+              'table',
+              { className: 'flb-rel-table' },
+              h(
+                'thead',
+                null,
+                h(
+                  'tr',
+                  null,
+                  h('th', null, t('reliability.trend.week')),
+                  series.map((item) => h('th', { key: item.key }, item.label)),
+                ),
+              ),
+              h(
+                'tbody',
+                null,
+                rows.map((row) =>
+                  h(
+                    'tr',
+                    { key: row.weekStart },
+                    h('td', null, reliabilityWeek(row.weekStart)),
+                    series.map((item) =>
+                      h('td', { key: item.key }, String(Number(row[item.key]) || 0)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+      }
+
+      /** 代码可靠性视图：质量快照 + 只读运行记录；没有快照时局部降级，不清空整页。 */
+      function ReliabilityPane(props) {
+        const t = props.t
+        const report = props.data
+        if (!report) {
+          return h(
+            'main',
+            { className: 'flb-main-pane flb-rel-pane' },
+            props.error
+              ? h(
+                  'div',
+                  { className: 'flb-rel-error' },
+                  t('reliability.error'),
+                  '：',
+                  props.error,
+                  props.onRetry
+                    ? h(
+                        'button',
+                        { type: 'button', className: 'flb-card-action', onClick: props.onRetry },
+                        t('reliability.retry'),
+                      )
+                    : null,
+                )
+              : h('div', { className: 'flb-empty' }, t('reliability.loading')),
+          )
+        }
+        const snapshot = report.snapshot || {}
+        const runtime = report.runtime || {}
+        const availability = snapshot.availability || 'missing'
+        const gates = Array.isArray(snapshot.gates) ? snapshot.gates : []
+        const tests = snapshot.tests || null
+        const coverage = snapshot.coverage || null
+        const keyCoverage = snapshot.keyCoverage || null
+        const mutation = snapshot.mutation || null
+        const budgets = snapshot.budgets || null
+        const snapshotMissing = availability === 'missing'
+        const snapshotInvalid = availability === 'invalid'
+        const snapshotStale = availability === 'stale'
+        const unavailableValue = snapshotInvalid
+          ? t('reliability.value.unavailable')
+          : t('reliability.value.notCollected')
+
+        const gateCounts = { pass: 0, fail: 0, skipped: 0, not_run: 0 }
+        for (const gate of gates) {
+          if (Object.hasOwn(gateCounts, gate.status)) gateCounts[gate.status] += 1
+        }
+        const gateDenominator = gateCounts.pass + gateCounts.fail
+        const gateSummaryText = t('reliability.gates.summary', {
+          pass: gateCounts.pass,
+          fail: gateCounts.fail,
+          skipped: gateCounts.skipped,
+          notRun: gateCounts.not_run,
+        })
+        const gateValue =
+          snapshotMissing || snapshotInvalid
+            ? unavailableValue
+            : gateDenominator === 0
+              ? t('reliability.value.none')
+              : `${gateCounts.pass}/${gateDenominator}`
+        const gateTone =
+          snapshotMissing || snapshotInvalid
+            ? 'idle'
+            : gateCounts.fail > 0
+              ? 'error'
+              : gateCounts.pass + gateCounts.fail + gateCounts.skipped + gateCounts.not_run ===
+                  gateCounts.pass
+                ? 'success'
+                : 'warn'
+
+        const testValue = tests
+          ? tests.passed === null || tests.passed === undefined
+            ? '—'
+            : String(tests.passed)
+          : unavailableValue
+        const testNote = tests
+          ? t('reliability.tests.summary', {
+              passed: tests.passed === null ? '—' : tests.passed,
+              failed: tests.failed === null ? '—' : tests.failed,
+              skipped: tests.skipped === null ? '—' : tests.skipped,
+              files: tests.files === null ? '—' : tests.files,
+            })
+          : ''
+        const testTone = tests ? ((tests.failed || 0) > 0 ? 'error' : 'success') : 'idle'
+
+        const lineValue = coverage ? reliabilityPercent(coverage.lines) : null
+        const lineThreshold = coverage ? coverage.thresholds.lines : 0
+        const lineTone =
+          lineValue === null ? 'idle' : (coverage.lines ?? 0) >= lineThreshold ? 'success' : 'warn'
+        const mutationValue = mutation
+          ? mutation.score === null
+            ? t('reliability.value.none')
+            : `${mutation.score}%`
+          : snapshotMissing || snapshotInvalid
+            ? unavailableValue
+            : t('reliability.value.notRun')
+        const mutationTone = mutation
+          ? mutation.score === null
+            ? 'idle'
+            : mutation.score >= mutation.thresholds.break
+              ? 'success'
+              : mutation.score >= mutation.thresholds.low
+                ? 'warn'
+                : 'error'
+          : 'idle'
+
+        const verification = runtime.verification || { pass: 0, total: 0, rate: null }
+        const firstPass = runtime.firstPassVerification || { pass: 0, total: 0, rate: null }
+        const businessReview = runtime.businessReview || { pass: 0, total: 0, rate: null }
+        const deployment = runtime.deployment || { pass: 0, total: 0, rate: null }
+        const failureRounds = runtime.failureRounds || {
+          total: 0,
+          requirements: 0,
+          perRequirement: null,
+          byStage: {},
+        }
+        const tasks = runtime.tasks || {
+          total: 0,
+          delivered: 0,
+          failed: 0,
+          blocked: 0,
+          awaitingUser: 0,
+          running: 0,
+        }
+        const ops = runtime.ops || {
+          opened: 0,
+          closed: 0,
+          recovered: 0,
+          unresolved: 0,
+          mttrSeconds: null,
+        }
+        const events = Array.isArray(runtime.recentEvents) ? runtime.recentEvents : []
+        const deploymentFailures = Array.isArray(runtime.deploymentFailures)
+          ? runtime.deploymentFailures
+          : []
+        const trend = Array.isArray(runtime.trend) ? runtime.trend : []
+        const rates = [verification, firstPass, businessReview, deployment]
+        const hasSamples = rates.some((rate) => (rate.total || 0) > 0)
+        const warnings = Array.isArray(report.warnings) ? [...new Set(report.warnings)] : []
+        const ratesNote = t('reliability.runtime.ratesNote')
+        const smallSample = rates.some((rate) => (rate.total || 0) > 0 && (rate.total || 0) < 5)
+
+        const rateCard = (label, rate, threshold) => {
+          const value =
+            typeof rate.rate === 'number' ? `${rate.rate}%` : t('reliability.value.none')
+          const note =
+            (rate.total || 0) > 0 ? t('reliability.sample', { count: rate.total }) : ratesNote
+          return h(
+            'div',
+            { className: 'flb-rel-rate', 'data-tone': reliabilityRateTone(rate, threshold) },
+            h('div', { className: 'flb-rel-rate-value' }, value),
+            h('div', { className: 'flb-rel-rate-label' }, label),
+            h('div', { className: 'flb-rel-rate-note' }, note),
+          )
+        }
+
+        const stages = failureRounds.byStage || {}
+        const stageNames = [
+          'planning',
+          'implementation_review',
+          'formal_test',
+          'interrupted',
+          'verification',
+          'business_review',
+          'user_acceptance',
+        ]
+        const maxStage = Math.max(1, ...stageNames.map((name) => Number(stages[name]) || 0))
+        const recoveryRate =
+          (ops.closed || 0) > 0 ? Math.round(((ops.recovered || 0) / ops.closed) * 1000) / 10 : null
+
+        const snapshotMeta =
+          snapshot.branch || snapshot.commit
+            ? t('reliability.snapshot.meta', {
+                branch: snapshot.branch || '—',
+                commit: shortSha(snapshot.commit),
+                time: formatMoment(snapshot.generatedAt),
+              })
+            : ''
+        const windowText =
+          report.window && report.window.from
+            ? t('reliability.window.range', {
+                from: formatMoment(report.window.from),
+                to: formatMoment(report.window.to),
+              })
+            : t('reliability.window.allRange', {
+                to: formatMoment(report.window && report.window.to),
+              })
+
+        const coverageRows = coverage
+          ? [
+              ['lines', coverage.lines, coverage.thresholds.lines],
+              ['statements', coverage.statements, coverage.thresholds.statements],
+              ['functions', coverage.functions, coverage.thresholds.functions],
+              ['branches', coverage.branches, coverage.thresholds.branches],
+            ]
+          : []
+
+        return h(
+          'main',
+          { className: 'flb-main-pane flb-rel-pane' },
+          props.error
+            ? h(
+                'div',
+                { className: 'flb-rel-error' },
+                t('reliability.error'),
+                '：',
+                props.error,
+                props.onRetry
+                  ? h(
+                      'button',
+                      { type: 'button', className: 'flb-card-action', onClick: props.onRetry },
+                      t('reliability.retry'),
+                    )
+                  : null,
+              )
+            : null,
+          h(
+            'div',
+            { className: 'flb-rel-head' },
+            h('span', { className: 'flb-rel-head-title' }, t('reliability.title')),
+            h(
+              Chip,
+              {
+                tone: snapshotStale
+                  ? 'warn'
+                  : snapshotMissing || snapshotInvalid
+                    ? 'idle'
+                    : 'success',
+              },
+              t(
+                snapshotStale
+                  ? 'reliability.snapshot.stale'
+                  : snapshotMissing
+                    ? 'reliability.snapshot.missing'
+                    : snapshotInvalid
+                      ? 'reliability.snapshot.invalid'
+                      : 'reliability.snapshot.fresh',
+              ),
+            ),
+            snapshotMeta ? h('span', { className: 'flb-rel-meta' }, snapshotMeta) : null,
+            snapshot.behindCommits !== null && snapshot.behindCommits > 0
+              ? h(
+                  Chip,
+                  { tone: 'warn' },
+                  t('reliability.snapshot.behind', { count: snapshot.behindCommits }),
+                )
+              : null,
+            snapshot.dirty ? h(Chip, { tone: 'warn' }, t('reliability.snapshot.dirty')) : null,
+            h('span', { className: 'flb-rel-window-range' }, windowText),
+          ),
+          warnings.length > 0
+            ? h(
+                'div',
+                { className: 'flb-rel-warnings', role: 'status' },
+                h('strong', null, t('reliability.warnings')),
+                h(
+                  'ul',
+                  null,
+                  warnings.slice(0, 8).map((warning) => h('li', { key: warning }, warning)),
+                ),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'flb-rel-kpis' },
+            h(ReliabilityKpi, {
+              label: t('reliability.kpi.gates'),
+              value: gateValue,
+              note: gates.length > 0 ? gateSummaryText : '',
+              tone: gateTone,
+            }),
+            h(ReliabilityKpi, {
+              label: t('reliability.kpi.tests'),
+              value: testValue,
+              note: testNote,
+              tone: testTone,
+            }),
+            h(ReliabilityKpi, {
+              label: t('reliability.kpi.lines'),
+              value: lineValue === null ? unavailableValue : lineValue,
+              note: coverage
+                ? t('reliability.coverage.threshold', { value: lineThreshold })
+                : t('reliability.value.notCollected'),
+              tone: lineTone,
+            }),
+            h(ReliabilityKpi, {
+              label: t('reliability.kpi.mutation'),
+              value: mutationValue,
+              note: mutation ? `break ${mutation.thresholds.break}` : t('reliability.value.notRun'),
+              tone: mutationTone,
+            }),
+            h(ReliabilityKpi, {
+              label: t('reliability.kpi.verification'),
+              value:
+                typeof verification.rate === 'number'
+                  ? `${verification.rate}%`
+                  : t('reliability.value.none'),
+              note:
+                (verification.total || 0) > 0
+                  ? t('reliability.sample', { count: verification.total })
+                  : ratesNote,
+              tone: reliabilityRateTone(verification, 90),
+            }),
+            h(ReliabilityKpi, {
+              label: t('reliability.kpi.deployment'),
+              value:
+                typeof deployment.rate === 'number'
+                  ? `${deployment.rate}%`
+                  : t('reliability.value.none'),
+              note:
+                (deployment.total || 0) > 0
+                  ? t('reliability.sample', { count: deployment.total })
+                  : ratesNote,
+              tone: reliabilityRateTone(deployment, 100),
+            }),
+          ),
+          h(
+            'section',
+            { className: 'flb-rel-section' },
+            h(
+              'div',
+              { className: 'flb-rel-section-head' },
+              h('span', { className: 'flb-rel-section-title' }, t('reliability.gates.title')),
+              gates.length > 0
+                ? h('span', { className: 'flb-rel-section-meta' }, gateSummaryText)
+                : null,
+              snapshotStale ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag')) : null,
+            ),
+            snapshotMissing
+              ? h(
+                  'div',
+                  { className: 'flb-rel-empty' },
+                  t('reliability.snapshot.missing'),
+                  '：',
+                  t('reliability.snapshot.missingHint'),
+                )
+              : snapshotInvalid
+                ? h(
+                    'div',
+                    { className: 'flb-rel-error' },
+                    t('reliability.snapshot.invalidHint'),
+                    snapshot.error ? ` ${snapshot.error}` : '',
+                  )
+                : gates.length === 0
+                  ? h('div', { className: 'flb-rel-empty' }, t('reliability.gates.empty'))
+                  : h(
+                      'table',
+                      { className: 'flb-rel-table' },
+                      h(
+                        'thead',
+                        null,
+                        h(
+                          'tr',
+                          null,
+                          h('th', null, t('reliability.gates.status')),
+                          h('th', null, t('reliability.gates.gate')),
+                          h('th', null, t('reliability.gates.measured')),
+                          h('th', null, t('reliability.gates.threshold')),
+                          h('th', null, t('reliability.gates.duration')),
+                          h('th', null, t('reliability.gates.at')),
+                          h('th', null, t('reliability.gates.details')),
+                        ),
+                      ),
+                      h(
+                        'tbody',
+                        null,
+                        gates.map((gate) =>
+                          h(
+                            'tr',
+                            { key: gate.id },
+                            h(
+                              'td',
+                              null,
+                              h(
+                                'div',
+                                { className: 'flb-rel-status' },
+                                h(
+                                  Chip,
+                                  { tone: GATE_TONES[gate.status] || 'idle' },
+                                  t(`reliability.status.${gate.status}`),
+                                ),
+                                snapshotStale
+                                  ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag'))
+                                  : null,
+                              ),
+                            ),
+                            h('td', null, gate.label || gate.id),
+                            h('td', null, reliabilityUnit(t, gate, gate.measured)),
+                            h('td', null, reliabilityUnit(t, gate, gate.threshold)),
+                            h('td', null, reliabilityDuration(gate.durationMs)),
+                            h('td', null, formatMoment(gate.at)),
+                            h(
+                              'td',
+                              null,
+                              h(
+                                'details',
+                                { className: 'flb-rel-gate-detail' },
+                                h('summary', null, t('reliability.gates.details')),
+                                h(
+                                  'div',
+                                  null,
+                                  h(
+                                    Kv,
+                                    { label: t('reliability.gates.command') },
+                                    gate.command || '—',
+                                  ),
+                                  h(
+                                    Kv,
+                                    { label: t('reliability.gates.evidence') },
+                                    snapshot.path || '—',
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+          ),
+          h(
+            'section',
+            { className: 'flb-rel-section' },
+            h(
+              'div',
+              { className: 'flb-rel-section-head' },
+              h('span', { className: 'flb-rel-section-title' }, t('reliability.coverage.title')),
+              coverage
+                ? h(
+                    'span',
+                    { className: 'flb-rel-section-meta' },
+                    t('reliability.coverage.key', {
+                      passed: keyCoverage ? keyCoverage.passed : '—',
+                      total: keyCoverage ? keyCoverage.total : '—',
+                    }),
+                  )
+                : null,
+            ),
+            !coverage
+              ? h(
+                  'div',
+                  { className: 'flb-rel-empty' },
+                  snapshotMissing || snapshotInvalid
+                    ? `${unavailableValue}：${t('reliability.snapshot.missingHint')}`
+                    : t('reliability.coverage.notCollected'),
+                )
+              : h(
+                  'div',
+                  null,
+                  h(
+                    'div',
+                    { className: 'flb-rel-bars' },
+                    coverageRows.map(([key, value, threshold]) =>
+                      h(
+                        'div',
+                        { className: 'flb-rel-bar-row', key },
+                        h(
+                          'div',
+                          { className: 'flb-rel-bar-head' },
+                          h('span', null, t(`reliability.coverage.${key}`)),
+                          h(
+                            'span',
+                            { className: 'flb-rel-bar-value' },
+                            `${value === null ? '—' : reliabilityPercent(value)} · ${t(
+                              'reliability.coverage.threshold',
+                              { value: threshold },
+                            )}`,
+                          ),
+                        ),
+                        h(ReliabilityBar, {
+                          label: t(`reliability.coverage.${key}`),
+                          value,
+                          tone: value === null ? 'brand' : value >= threshold ? 'success' : 'warn',
+                        }),
+                      ),
+                    ),
+                  ),
+                  keyCoverage
+                    ? h(
+                        'details',
+                        { className: 'flb-rel-key' },
+                        h(
+                          'summary',
+                          null,
+                          `${t('reliability.coverage.keyTitle')}：${t('reliability.coverage.key', {
+                            passed: keyCoverage.passed,
+                            total: keyCoverage.total,
+                          })}`,
+                        ),
+                        h(
+                          'table',
+                          { className: 'flb-rel-table' },
+                          h(
+                            'thead',
+                            null,
+                            h(
+                              'tr',
+                              null,
+                              h('th', null, t('reliability.coverage.file')),
+                              h('th', null, t('reliability.coverage.lines')),
+                              h('th', null, t('reliability.coverage.functions')),
+                              h('th', null, t('reliability.coverage.branches')),
+                              h('th', null, t('reliability.gates.status')),
+                            ),
+                          ),
+                          h(
+                            'tbody',
+                            null,
+                            keyCoverage.files.map((file) =>
+                              h(
+                                'tr',
+                                { key: file.path },
+                                h('td', null, file.path),
+                                h(
+                                  'td',
+                                  null,
+                                  `${file.lines === null ? '—' : reliabilityPercent(file.lines)} / ≥${
+                                    file.thresholds.lines
+                                  }%`,
+                                ),
+                                h(
+                                  'td',
+                                  null,
+                                  `${file.functions === null ? '—' : reliabilityPercent(file.functions)} / ≥${
+                                    file.thresholds.functions
+                                  }%`,
+                                ),
+                                h(
+                                  'td',
+                                  null,
+                                  `${file.branches === null ? '—' : reliabilityPercent(file.branches)} / ≥${
+                                    file.thresholds.branches
+                                  }%`,
+                                ),
+                                h(
+                                  'td',
+                                  null,
+                                  h(
+                                    Chip,
+                                    {
+                                      tone: file.passed
+                                        ? 'success'
+                                        : file.present
+                                          ? 'error'
+                                          : 'idle',
+                                    },
+                                    t(
+                                      file.present
+                                        ? 'reliability.coverage.recorded'
+                                        : 'reliability.coverage.absent',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : null,
+                  budgets || snapshot.suppressions
+                    ? h(
+                        'div',
+                        { className: 'flb-rel-budgets' },
+                        budgets
+                          ? h(
+                              Chip,
+                              {
+                                tone:
+                                  budgets.assertions.current <= budgets.assertions.baseline
+                                    ? 'success'
+                                    : 'error',
+                              },
+                              t('reliability.budget.assertions', {
+                                current: budgets.assertions.current,
+                                baseline: budgets.assertions.baseline,
+                              }),
+                            )
+                          : null,
+                        budgets
+                          ? h(
+                              Chip,
+                              { tone: budgets.tokens.overLimit === 0 ? 'success' : 'error' },
+                              t('reliability.budget.tokens', {
+                                over: budgets.tokens.overLimit,
+                                max: budgets.tokens.maxFile
+                                  ? `${budgets.tokens.maxFile} · ${budgets.tokens.maxTokens ?? '—'}`
+                                  : '—',
+                              }),
+                            )
+                          : null,
+                        h(
+                          Chip,
+                          { tone: 'idle' },
+                          t('reliability.budget.suppressions', {
+                            count: snapshot.suppressions || 0,
+                          }),
+                        ),
+                      )
+                    : null,
+                ),
+          ),
+          h(
+            'section',
+            { className: 'flb-rel-section' },
+            h(
+              'div',
+              { className: 'flb-rel-section-head' },
+              h('span', { className: 'flb-rel-section-title' }, t('reliability.runtime.title')),
+              h('span', { className: 'flb-rel-section-meta' }, windowText),
+              smallSample ? h(Chip, { tone: 'warn' }, t('reliability.smallSample')) : null,
+            ),
+            !hasSamples
+              ? h('div', { className: 'flb-rel-empty' }, t('reliability.runtime.noSamples'))
+              : null,
+            h(
+              'div',
+              { className: 'flb-rel-rates' },
+              rateCard(t('reliability.runtime.verification'), verification, 90),
+              rateCard(t('reliability.runtime.firstPass'), firstPass, 80),
+              rateCard(t('reliability.runtime.businessReview'), businessReview, 100),
+              rateCard(t('reliability.runtime.deployment'), deployment, 100),
+            ),
+            h(
+              'div',
+              { className: 'flb-rel-note' },
+              `${t('reliability.runtime.ratesNote')} ${t('reliability.runtime.tasksNote')}`,
+            ),
+            h(
+              'div',
+              { className: 'flb-rel-grid', style: { marginTop: '10px' } },
+              h(
+                'div',
+                { className: 'flb-rel-block' },
+                h(
+                  'div',
+                  { className: 'flb-rel-block-title' },
+                  t('reliability.runtime.failureRounds'),
+                ),
+                h('div', { className: 'flb-rel-big' }, String(failureRounds.total || 0)),
+                h(
+                  'div',
+                  { className: 'flb-rel-rate-note' },
+                  failureRounds.perRequirement === null
+                    ? t('reliability.value.none')
+                    : t('reliability.runtime.perRequirement', {
+                        value: failureRounds.perRequirement,
+                      }),
+                ),
+                h(
+                  'div',
+                  { className: 'flb-rel-stages' },
+                  stageNames.map((name) => {
+                    const count = Number(stages[name]) || 0
+                    return h(
+                      'div',
+                      { className: 'flb-rel-stage', key: name },
+                      h('span', null, t(`reliability.stage.${name}`)),
+                      h(
+                        'span',
+                        { className: 'flb-rel-stage-bar' },
+                        h('span', {
+                          className: 'flb-rel-stage-fill',
+                          style: { width: `${(count / maxStage) * 100}%` },
+                        }),
+                      ),
+                      h('span', { className: 'flb-rel-stage-count' }, String(count)),
+                    )
+                  }),
+                ),
+              ),
+              h(
+                'div',
+                { className: 'flb-rel-block' },
+                h('div', { className: 'flb-rel-block-title' }, t('reliability.runtime.tasks')),
+                h(
+                  'div',
+                  { className: 'flb-rel-big' },
+                  `${tasks.delivered || 0}/${tasks.total || 0}`,
+                ),
+                h(
+                  'div',
+                  { className: 'flb-rel-rate-note' },
+                  t('reliability.runtime.tasksSummary', {
+                    delivered: tasks.delivered || 0,
+                    total: tasks.total || 0,
+                    failed: tasks.failed || 0,
+                    blocked: tasks.blocked || 0,
+                    awaitingUser: tasks.awaitingUser || 0,
+                    running: tasks.running || 0,
+                  }),
+                ),
+              ),
+              h(
+                'div',
+                { className: 'flb-rel-block' },
+                h('div', { className: 'flb-rel-block-title' }, t('reliability.runtime.ops')),
+                h(
+                  'div',
+                  { className: 'flb-rel-big' },
+                  recoveryRate === null ? '—' : `${recoveryRate}%`,
+                ),
+                h(
+                  'div',
+                  { className: 'flb-rel-rate-note' },
+                  t('reliability.runtime.opsSummary', {
+                    recovered: ops.recovered || 0,
+                    closed: ops.closed || 0,
+                    unresolved: ops.unresolved || 0,
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'flb-rel-note' },
+                  `${t('reliability.runtime.mttr')}：${reliabilitySeconds(t, ops.mttrSeconds)}`,
+                ),
+              ),
+              h(
+                'div',
+                { className: 'flb-rel-block' },
+                h(
+                  'div',
+                  { className: 'flb-rel-block-title' },
+                  t('reliability.runtime.candidateBuilds'),
+                ),
+                h('div', { className: 'flb-rel-big' }, String(runtime.candidateBuilds || 0)),
+                h('div', { className: 'flb-rel-rate-note' }, windowText),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'flb-rel-block', style: { marginTop: '10px' } },
+              h(
+                'div',
+                { className: 'flb-rel-block-title' },
+                t('reliability.runtime.deploymentFailures'),
+              ),
+              deploymentFailures.length === 0
+                ? h(
+                    'div',
+                    { className: 'flb-rel-rate-note' },
+                    t('reliability.runtime.noDeploymentFailures'),
+                  )
+                : h(
+                    'div',
+                    { className: 'flb-rel-budgets' },
+                    deploymentFailures.map((failure) =>
+                      h(
+                        Chip,
+                        { key: failure.checkId, tone: 'warn' },
+                        `${failure.checkId} × ${failure.count}`,
+                      ),
+                    ),
+                  ),
+            ),
+          ),
+          h(
+            'section',
+            { className: 'flb-rel-section' },
+            h(
+              'div',
+              { className: 'flb-rel-section-head' },
+              h('span', { className: 'flb-rel-section-title' }, t('reliability.trend.title')),
+            ),
+            h(ReliabilityTrend, { t, rows: trend }),
+          ),
+          h(
+            'section',
+            { className: 'flb-rel-section' },
+            h(
+              'div',
+              { className: 'flb-rel-section-head' },
+              h('span', { className: 'flb-rel-section-title' }, t('reliability.events.title')),
+            ),
+            events.length === 0
+              ? h('div', { className: 'flb-rel-empty' }, t('reliability.events.empty'))
+              : h(
+                  'div',
+                  { className: 'flb-rel-events' },
+                  events.map((event) =>
+                    h(
+                      'div',
+                      {
+                        className: 'flb-rel-event',
+                        key: `${event.kind}:${event.at}:${event.title}`,
+                      },
+                      h(
+                        Chip,
+                        { tone: event.kind === 'ops' ? 'warn' : 'error' },
+                        t(`reliability.events.${event.kind}`),
+                      ),
+                      h('span', { className: 'flb-rel-event-time' }, formatMoment(event.at)),
+                      h('span', { className: 'flb-rel-event-title' }, event.title),
+                      event.detail
+                        ? h('span', { className: 'flb-rel-event-detail' }, event.detail)
+                        : null,
+                      event.reqId && props.onOpenRequirement
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              onClick: () => props.onOpenRequirement(event.reqId),
+                            },
+                            t('reliability.events.open', { reqId: event.reqId }),
+                          )
+                        : h(
+                            'span',
+                            { className: 'flb-rel-event-detail' },
+                            t('reliability.events.unknownReq'),
+                          ),
+                    ),
+                  ),
+                ),
+          ),
+          h('div', { className: 'flb-rel-footnote' }, t('reliability.footnote')),
+        )
+      }
+
       /** 运维视图：只读事实 + 所有者动作（批准/拒绝/关闭/生成修复需求）。 */
       function OpsPane(props) {
         const t = props.t
@@ -6749,6 +8173,13 @@ window.__ModuleLoader__.load({
         const [opsFilter, setOpsFilter] = React.useState('active')
         const [opsBusy, setOpsBusy] = React.useState({ eventId: '', message: '' })
         const [opsNonce, setOpsNonce] = React.useState(0)
+        const [reliabilityWindow, setReliabilityWindow] = React.useState('all')
+        const [reliability, setReliability] = React.useState({
+          phase: 'idle',
+          data: null,
+          error: '',
+        })
+        const [reliabilityNonce, setReliabilityNonce] = React.useState(0)
         const inflight = React.useRef(null)
         const reqInflight = React.useRef(null)
         const taskInflight = React.useRef(null)
@@ -6962,6 +8393,32 @@ window.__ModuleLoader__.load({
           }
         }, [view, opsSelected, opsNonce])
 
+        React.useEffect(() => {
+          if (view !== 'reliability') return undefined
+          let alive = true
+          const loadReliability = () => {
+            read('reliability', { window: reliabilityWindow }, undefined)
+              .then((value) => {
+                if (!alive) return
+                setReliability({ phase: 'ready', data: value, error: '' })
+              })
+              .catch((error) => {
+                if (!alive) return
+                setReliability((previous) => ({
+                  phase: 'error',
+                  data: previous.data,
+                  error: error.message || String(error),
+                }))
+              })
+          }
+          loadReliability()
+          const timer = auto ? setInterval(loadReliability, 30000) : null
+          return () => {
+            alive = false
+            if (timer) clearInterval(timer)
+          }
+        }, [view, auto, reliabilityWindow, reliabilityNonce])
+
         const openRequirement = (reqId) => {
           setSelection({ kind: 'requirement', reqId, taskId: '', issueId: '' })
           setExpanded(reqId)
@@ -7108,12 +8565,14 @@ window.__ModuleLoader__.load({
           return items
         })()
 
-        const allViews = [
-          ['hierarchy', t('wb.hierarchy')],
-          ['tasks', t('wb.allTasks')],
-          ['issues', t('wb.attention')],
-          ['ops', t('nav.ops')],
-        ]
+        const viewLabels = {
+          hierarchy: t('wb.hierarchy'),
+          tasks: t('wb.allTasks'),
+          issues: t('wb.attention'),
+          reliability: t('nav.reliability'),
+          ops: t('nav.ops'),
+        }
+        const allViews = WORKBENCH_VIEWS.map((key) => [key, viewLabels[key]])
         const body = () => {
           if (!board) {
             return state.error
@@ -7132,6 +8591,18 @@ window.__ModuleLoader__.load({
               onSelect: setOpsSelected,
               onFilter: setOpsFilter,
               onAction: runOpsAction,
+            })
+          }
+          if (view === 'reliability') {
+            return h(ReliabilityPane, {
+              t,
+              data: reliability.data,
+              error: reliability.error,
+              onRetry: () => setReliabilityNonce((value) => value + 1),
+              onOpenRequirement: (reqId) => {
+                setView('hierarchy')
+                openRequirement(reqId)
+              },
             })
           }
           if (requirements.length === 0) {
@@ -7280,6 +8751,7 @@ window.__ModuleLoader__.load({
           { className: 'flb-root' },
           h('style', null, BOARD_CSS),
           h('style', null, OPS_CSS),
+          h('style', null, RELIABILITY_CSS),
           h(
             'header',
             { className: 'flb-head' },
@@ -7302,36 +8774,43 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'flb-head-tools' },
-              h(
-                'label',
-                { className: 'flb-search' },
-                h('span', { className: 'flb-search-icon' }, '⌕'),
-                h('input', {
-                  type: 'search',
-                  value: query,
-                  placeholder: t('search.placeholder'),
-                  'aria-label': t('search.label'),
-                  onChange: (event) => setQuery(event.target.value),
-                }),
-                query
-                  ? h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'flb-search-clear',
-                        onClick: () => setQuery(''),
-                        'aria-label': t('search.clear'),
-                      },
-                      '×',
-                    )
-                  : null,
-              ),
+              view === 'reliability'
+                ? null
+                : h(
+                    'label',
+                    { className: 'flb-search' },
+                    h('span', { className: 'flb-search-icon' }, '⌕'),
+                    h('input', {
+                      type: 'search',
+                      value: query,
+                      placeholder: t('search.placeholder'),
+                      'aria-label': t('search.label'),
+                      onChange: (event) => setQuery(event.target.value),
+                    }),
+                    query
+                      ? h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'flb-search-clear',
+                            onClick: () => setQuery(''),
+                            'aria-label': t('search.clear'),
+                          },
+                          '×',
+                        )
+                      : null,
+                  ),
               h(
                 'button',
                 {
                   type: 'button',
                   className: 'flb-refresh',
-                  onClick: load,
+                  onClick: () => {
+                    load()
+                    if (view === 'reliability') {
+                      setReliabilityNonce((value) => value + 1)
+                    }
+                  },
                   disabled: state.phase === 'loading' || state.phase === 'refreshing',
                 },
                 state.phase === 'refreshing' ? t('page.refreshing') : t('page.refresh'),
@@ -7373,11 +8852,21 @@ window.__ModuleLoader__.load({
                       ? allTasks.length
                       : key === 'issues'
                         ? attention.length
-                        : key === 'ops'
-                          ? ops.data && ops.data.summary && ops.data.summary.stats
-                            ? ops.data.summary.stats.active
-                            : 0
-                          : requirements.length,
+                        : key === 'reliability'
+                          ? reliability.data &&
+                            reliability.data.snapshot &&
+                            ['fresh', 'stale'].includes(reliability.data.snapshot.availability)
+                            ? String(
+                                reliability.data.snapshot.gates.filter(
+                                  (gate) => gate.status !== 'pass',
+                                ).length,
+                              )
+                            : '—'
+                          : key === 'ops'
+                            ? ops.data && ops.data.summary && ops.data.summary.stats
+                              ? ops.data.summary.stats.active
+                              : 0
+                            : requirements.length,
                   ),
                 ),
               ),
@@ -7395,7 +8884,7 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'flb-search-meta' },
-              query
+              query && view !== 'reliability'
                 ? h(
                     'span',
                     null,
@@ -7428,7 +8917,30 @@ window.__ModuleLoader__.load({
                     ),
                   )
                 : null,
-              h('span', null, t('overview.searchScope')),
+              view === 'reliability'
+                ? h(
+                    'div',
+                    {
+                      className: 'flb-rel-window',
+                      role: 'group',
+                      'aria-label': t('reliability.window.label'),
+                    },
+                    h('span', { className: 'flb-rel-window-label' }, t('reliability.window.label')),
+                    RELIABILITY_WINDOW_KEYS.map((key) =>
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          key,
+                          'aria-pressed': reliabilityWindow === key,
+                          onClick: () => setReliabilityWindow(key),
+                        },
+                        t(`reliability.window.${key}`),
+                      ),
+                    ),
+                    h('span', { className: 'flb-muted' }, t('reliability.footnote')),
+                  )
+                : h('span', null, t('overview.searchScope')),
             ),
           ),
           h(
@@ -7510,6 +9022,7 @@ window.__ModuleLoader__.load({
       apply,
       // 无浏览器视图测试的只读入口；宿主只消费 name/inject/apply。
       __components: { RequirementDetail },
+      __views: WORKBENCH_VIEWS,
       __actions: { body: actionRequest, successKey: actionSuccessKey },
     }
   },
