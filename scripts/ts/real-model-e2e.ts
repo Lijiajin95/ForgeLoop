@@ -29,6 +29,8 @@ const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_TIMEOUT_MS ?? 1_800_0
 const HEADLESS_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_SUBMIT_TIMEOUT_MS ?? 600_000)
 /** blocked 的宽限期：默认可自动重排，持续阻塞超过该时长才判失败。 */
 const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_MODEL_BLOCKED_GRACE_MS ?? 240_000)
+/** 单回合上限：真实模型规划/实现可能超过 10 分钟，默认放宽到 30 分钟。 */
+const TURN_TIMEOUT_SECONDS = Number(process.env.FORGELOOP_REAL_MODEL_TURN_TIMEOUT_SECONDS ?? 1800)
 
 const REQUIREMENT = [
   '在 docs/real-model-e2e.md 中写入一行 real model e2e ok。',
@@ -247,7 +249,7 @@ async function main(): Promise<void> {
       pollSeconds: 1,
       autoAdvance: true,
       owner: 'real-model-e2e',
-      agent: { timeoutSeconds: 600, maxTurnSeconds: 600 },
+      agent: { timeoutSeconds: TURN_TIMEOUT_SECONDS, maxTurnSeconds: TURN_TIMEOUT_SECONDS },
       formalTestTimeoutSeconds: 120,
       failureRoundsPerGrant: -1,
       maxVerificationAttempts: -1,
