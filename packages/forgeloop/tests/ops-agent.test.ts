@@ -288,6 +288,27 @@ describe('ops failure handling', () => {
     ).toHaveLength(1)
   })
 
+  it('files a fix requirement for an awaiting-decision event when a permanent fix is required', async () => {
+    const runner = fakeRunner(
+      diagnosisText({ action: { actionId: 'shell-anything', params: {} }, fixRequired: true }),
+    )
+    const { ops } = makeOps(opsRaw(), runner)
+    writeFileSync(join(dir, 'down'), '1')
+
+    await ops.tick()
+    const event = ops.list()[0]!
+    expect(event.state).toBe(OPS_AWAITING_DECISION)
+    expect(event.fixRequirementId).not.toBe('')
+
+    const requirement = repository.getRequirement(event.fixRequirementId)!
+    expect(requirement.source).toBe(`ops:${event.eventId}`)
+    expect(requirement.submittedBy).toBe('ops-agent')
+    const requests = repository.requestsFor(requirement.reqId)
+    expect(requests.map((request) => [request.action, request.source])).toEqual([
+      ['analyze', `ops:${event.eventId}`],
+    ])
+  })
+
   it('records a timed-out action as failed and closes the event as unresolved without replay', async () => {
     const runner = fakeRunner(diagnosisText())
     // 把动作超时缩到 1 秒，避免测试等待。

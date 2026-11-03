@@ -653,7 +653,7 @@ export class OpsRuntime {
 
   private ensureFixRequirements(state: TickState): void {
     for (const event of this.repo.listOpsEvents(this.config.project)) {
-      if (![OPS_RECOVERED, OPS_UNRESOLVED].includes(event.state)) continue
+      if (![OPS_RECOVERED, OPS_UNRESOLVED, OPS_AWAITING_DECISION].includes(event.state)) continue
       const diagnosis = this.readDiagnosis(event)
       if (!diagnosis?.fixRequired || event.fixRequirementId) continue
       try {
@@ -1344,7 +1344,7 @@ export class OpsRuntime {
 
   private ensureFixIfNeeded(event: OpsEventRecord, diagnosis: OpsDiagnosis | null): void {
     if (!diagnosis?.fixRequired || event.fixRequirementId) return
-    if (![OPS_RECOVERED, OPS_UNRESOLVED].includes(event.state)) return
+    if (![OPS_RECOVERED, OPS_UNRESOLVED, OPS_AWAITING_DECISION].includes(event.state)) return
     this.ensureFixRequirement(event, diagnosis)
   }
 
