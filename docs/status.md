@@ -4951,21 +4951,22 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   目标全部隔离；脚本化 Agent 驱动研发、验证与诊断，Git、构建、python 部署工具、运维检查/恢复命令
   均真实执行。覆盖 S1/S2/S3 与三条负例（非所有者批准、模型工具面无部署入口、越界文件被拒）。
 
-### 131.2 闭环证据（最近一次运行）
+### 131.2 闭环证据（最终复跑）
 
-证据目录：`reports/m0-loop-e2e/2026-11-03T17-16-22-518Z/`（`reports/` 不入库）。
+证据目录：`reports/m0-loop-e2e/2026-11-03T17-23-17-954Z/`（`reports/` 不入库），
+含 `summary.json`、`config.snapshot.json`、`s1-rollout.json`、`s2-event.json`、`s3-rollout.json`。
 
-- S1：`req-20261103171622-eb585f`，受控提交 `6a70c1651a69`，制品摘要
-  `b333fd2012d45f43b553726f4595317c4c7eef42e64d9b184b33a49f63028e3b`，
-  部署 `dep-7f7cc121-8ca1-4e60-bb9c-982a3b476bb0`（preflight → apply → status 核对通过）。
-- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103171623-35997f`，诊断给出 `restart-web`，
+- S1：`req-20261103172318-a8afb2`，受控提交 `715903048725`，制品摘要
+  `e4a2fc0d2894aef2706200b8ffbfffb0e6972d427b077d254282a94f30092fa3`，
+  部署 `dep-69908627-4dce-4927-820c-09d2df6c6dae`（preflight → apply → status 核对通过）。
+- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103172318-db4206`，诊断给出 `restart-web`，
   自动恢复后检查复核 `recovered`；恢复进程 pid 与故障前不同。
-- S3：同一事件 `fix_required` 生成 `req-20261103171623-fa4a7c`（source=`ops:ops-20261103171623-35997f`），
-  研发/独立验证/受控提交 `35b3df81cf1c` 后重新构建，部署 `dep-3c873cc7-5447-4550-863e-06e2ba0338c8` 核对通过。
+- S3：同一事件 `fix_required` 生成 `req-20261103172319-98189e`（source=`ops:ops-20261103172318-db4206`），
+  研发/独立验证/受控提交 `c630e14f48e7` 后重新构建，部署 `dep-059d694f-1e8c-4b04-816c-918597cd64cc` 核对通过。
 - 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
   无 deploy/approve/rollback 入口；`../escape.txt` 任务包被 `parseTaskPlanDraft` 拒绝。
-- 配置快照：`config.snapshot.json`；部署 intent/attempt：`s1-rollout.json`、`s3-rollout.json`；
-  运维事件与观测：`s2-event.json`。
+- 门禁（main）：`make check` 114 文件/1312 项；`make coverage` 行 97.81%、函数 99.41%、
+  分支 90.96%（逐文件门槛通过）；contracts/lint/format/budget/assertions 均通过。
 
 ### 131.3 M0 自检（截至本次记录）
 
@@ -4993,4 +4994,4 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   不能据此宣称真实模型闭环。
 - 证据保留期（压缩/磁盘上限）、看板部署页面、`auto` 部署的人工可见审批入口未实现（P1）。
 - 部署 `verifyTimeoutSeconds` 已接入协调器巡检：`applied_pending_verify` 超时标记 `verify_failed`
-  并告警（不自动回退）。
+  并告警（不自动回退）；由 `coordinator.runOnce` 每轮调用。
