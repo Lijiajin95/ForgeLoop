@@ -31,7 +31,9 @@
   从当前 `HEAD` 创建（`feat/…`、`fix/…`、`chore/…`）；依赖复用主工作树的 `node_modules`，
   不复制记录、缓存或构建产物。
 - 在 worktree 内按本文提交规范提交并运行检查；完成后由主工作树合并（优先 `--ff-only`），
-  不在主工作树重复编辑同一改动。
+  不在主工作树重复编辑同一改动。合并统一用 `make worktree-merge BRANCH=<branch>`：
+  脚本要求 main 干净、分支可快进；合并后自动移除 worktree 并删除已合并分支，
+  不保留已合入 main 的冗余分支。
 - 不删除、不复用他人的 worktree 与分支；清理自己的 worktree 用 `git worktree remove`，
   保留分支与提交供审阅。
 

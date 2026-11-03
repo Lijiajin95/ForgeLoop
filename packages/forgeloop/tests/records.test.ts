@@ -7,11 +7,13 @@ import { Repository } from '../src/records/repository.js'
 import { RuleViolationError } from '../src/domain/errors.js'
 
 let dir = ''
+let database: Database
 let repository: Repository
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'forgeloop-records-'))
-  repository = new Repository(Database.open(join(dir, 'records.sqlite')))
+  database = Database.open(join(dir, 'records.sqlite'))
+  repository = new Repository(database)
 })
 
 afterEach(() => {
@@ -76,6 +78,29 @@ describe('requirement records', () => {
     })
     expect(repository.latestAnalysis('req-1')?.goal).toBe('g')
     expect(repository.nextAnalysisVersion('req-1')).toBe(2)
+  })
+
+  it('treats empty legacy JSON list columns as empty arrays', () => {
+    submit()
+    repository.recordAnalysis({
+      reqId: 'req-1',
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: 'g',
+      scenarios: ['s'],
+      acceptanceCriteria: ['a'],
+      clarifications: [],
+      createdAt: 'now',
+    })
+    database.handle
+      .prepare(
+        "UPDATE requirement_analyses SET scenarios = '', acceptance_criteria = '', clarifications = ''",
+      )
+      .run()
+    const analysis = repository.latestAnalysis('req-1')!
+    expect(analysis.scenarios).toEqual([])
+    expect(analysis.acceptanceCriteria).toEqual([])
+    expect(analysis.clarifications).toEqual([])
   })
 
   it('resets status to draft on revision but keeps plan and approval history', () => {

@@ -1820,6 +1820,8 @@ function commitFromRow(row: Row): RequirementCommitRecord {
 }
 
 function parseStringList(raw: string): string[] {
+  // 旧库可能缺列或被清空；空字符串表示“没有条目”，不是损坏。
+  if (raw.trim() === '') return []
   const data: unknown = JSON.parse(raw)
   if (!Array.isArray(data) || !data.every((item): item is string => typeof item === 'string')) {
     throw new RuleViolationError('记录损坏：期望字符串数组')

@@ -4244,3 +4244,28 @@ orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工�
 - v9 任务包“全程无需人工触发”与批准规则的冲突仍需任务包修订或所有者决定。
 - 历史工作副本的 843 行改动不会被自动恢复。
 - 无进展看门狗只覆盖“无新事件”；模型持续输出但不收敛仍会占用工时。
+
+## 49. 看板空 JSON 修复与 worktree 合并规则（2026-11-03）
+
+### 49.1 看板读取失败
+
+现象：天工页整体显示“看板读取失败：Unexpected end of JSON input”，所有需求都不可见。
+
+根因：`requirement_analyses` 的 `scenarios`、`acceptance_criteria`、`clarifications` 在旧库或缺列时为空字符串；
+`parseStringList` 直接 `JSON.parse('')` 抛错，导致 `statusBoard` 整体失败。该异常被路由捕获后以
+“看板读取失败”返回，页面因此看不到任何需求。
+
+修复：`parseStringList` 把空字符串视为空数组（缺列/清空是“没有条目”，不是记录损坏）；
+非法 JSON 仍按损坏抛出。用生产库副本验证：修复前 `statusBoard` 抛错，修复后正常返回 3 条需求。
+
+回归测试：
+
+- `records.test.ts`：空 `scenarios/acceptance_criteria/clarifications` 解析为空数组；
+- `status-board.test.ts`：旧库空列时看板仍能渲染该需求。
+
+### 49.2 worktree 合并规则
+
+- `AGENTS.md` 增加：合并统一用 `make worktree-merge BRANCH=<branch>`，
+  要求 main 干净且分支可快进；合并后自动移除 worktree、删除已合并分支。
+- 新增 `scripts/ts/worktree-merge.ts` 与 Makefile 目标；脚本拒绝未提交改动、
+  非 main 工作树、不可快进分支，并保留未合并分支。

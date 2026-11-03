@@ -21,11 +21,13 @@ const PROJECT = 'forgeloop'
 const NOW = '2026-10-23T10:00:00.000Z'
 
 let dir = ''
+let database: Database
 let repository: Repository
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'forgeloop-board-'))
-  repository = new Repository(Database.open(join(dir, 'records.sqlite')))
+  database = Database.open(join(dir, 'records.sqlite'))
+  repository = new Repository(database)
 })
 
 afterEach(() => {
@@ -105,6 +107,18 @@ function analyze(reqId: string, clarifications: string[], analysisVersion = 1): 
     createdAt: '2026-10-23T00:00:02.000Z',
   })
 }
+
+it('keeps rendering when legacy analysis list columns are empty', () => {
+  const reqId = submit('req-empty-json')
+  analyze(reqId, [])
+  database.handle
+    .prepare(
+      "UPDATE requirement_analyses SET scenarios = '', acceptance_criteria = '', clarifications = ''",
+    )
+    .run()
+  const view = board()
+  expect(view.requirements.find((item) => item.reqId === reqId)).toBeTruthy()
+})
 
 function board(options?: number | { limit?: number; query?: string }) {
   const normalized = typeof options === 'number' ? { limit: options } : (options ?? {})

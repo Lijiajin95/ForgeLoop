@@ -23,6 +23,7 @@ help:
 	@echo "make build                 编译到 packages/forgeloop/lib"
 	@echo "make package               构建本地候选安装包与摘要"
 	@echo "make contracts             架构契约校验"
+	@echo "make worktree-merge BRANCH=... 快进合并并清理 worktree/分支"
 	@echo "make budget                Agent 上下文 token 预算（文件 25k）"
 	@echo "make assertions            类型断言预算（只减不增）"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
@@ -74,6 +75,12 @@ architecture-contract:
 
 architecture-contract-check:
 	$(CONTRACTS)
+
+# 合并 worktree 分支并自动移除 worktree、删除已合并分支。
+# 要求 main 干净、分支可由 main 快进。
+worktree-merge:
+	@test -n "$(BRANCH)" || (echo "用法：make worktree-merge BRANCH=<branch>" >&2; exit 1)
+	$(NODE) scripts/ts/worktree-merge.ts $(BRANCH)
 
 precommit:
 	$(MAKE) check
