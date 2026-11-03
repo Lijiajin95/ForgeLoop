@@ -27,9 +27,12 @@ const PROJECT = 'forgeloop-real-model'
 const PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
 const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_TIMEOUT_MS ?? 1_800_000)
 const HEADLESS_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_SUBMIT_TIMEOUT_MS ?? 600_000)
+/** blocked 的宽限期：默认可自动重排，持续阻塞超过该时长才判失败。 */
+const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_MODEL_BLOCKED_GRACE_MS ?? 240_000)
 
 const REQUIREMENT = [
   '在 docs/real-model-e2e.md 中写入一行 real model e2e ok。',
+  '非目标：不要新增测试文件，也不要修改 docs/real-model-e2e.md 以外的任何文件。',
   '验收标准：docs/real-model-e2e.md 存在，且内容包含 real model e2e ok。',
   "测试命令：node -e \"const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok'))process.exit(1)\"",
 ].join('\n')
@@ -131,6 +134,8 @@ async function poll(
 }> {
   const deadline = Date.now() + TIMEOUT_MS
   let lastLine = ''
+  /** 首次进入 blocked 的时间；离开 blocked 即清零。 */
+  let blockedSince: number | null = null
   while (Date.now() < deadline) {
     if (!existsSync(dbPath)) {
       await sleep(5_000)
@@ -186,12 +191,17 @@ async function poll(
         if (requirement.status === 'committed' || requirement.status === 'accepted') {
           return { requirement, summary }
         }
-        if (
-          requirement.status === 'blocked' ||
-          requirement.status === 'cancelled' ||
-          requirement.status === 'rejected'
-        ) {
+        if (requirement.status === 'cancelled' || requirement.status === 'rejected') {
           throw new Error(`需求停在 ${requirement.status}：${line}`)
+        }
+        // blocked 不是终态：默认 MAX 限额下协调器会自动重排。只有持续阻塞超过宽限期才判失败。
+        if (requirement.status === 'blocked') {
+          blockedSince ??= Date.now()
+          if (Date.now() - blockedSince > BLOCKED_GRACE_MS) {
+            throw new Error(`需求持续阻塞超过 ${BLOCKED_GRACE_MS / 1000} 秒：${line}`)
+          }
+        } else {
+          blockedSince = null
         }
       }
     } finally {
@@ -315,13 +325,27 @@ async function main(): Promise<void> {
       `[real-model-e2e] 记录：${dbPath}；项目：${projectDir}（默认在脚本结束时删除，FORGELOOP_REAL_MODEL_KEEP=1 保留）`,
     )
   } finally {
-    child?.kill('SIGTERM')
+    if (child) await stopChild(child)
     if (process.env.FORGELOOP_REAL_MODEL_KEEP === '1') {
       console.log(`[real-model-e2e] 保留现场：DSH_HOME=${home}；项目=${projectDir}；记录=${dbPath}`)
     } else {
       rmSync(workspace, { recursive: true, force: true })
     }
   }
+}
+
+/** 关闭隔离 web 进程：先 SIGTERM，5 秒内没退出就 SIGKILL，避免脚本卡在子进程回收上。 */
+async function stopChild(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null) return
+  child.kill('SIGTERM')
+  await Promise.race([
+    new Promise<void>((done) => child.once('exit', () => done())),
+    new Promise<void>((done) => {
+      setTimeout(done, 5_000).unref()
+    }),
+  ])
+  if (child.exitCode === null) child.kill('SIGKILL')
+  child.unref()
 }
 
 main().catch((error: unknown) => {

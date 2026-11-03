@@ -1650,18 +1650,23 @@ function taskPlanForVerification(): TaskPlan {
 function makeVerificationAgent(
   options: {
     planText?: string
+    /** 按调用顺序返回的方案文本；用完后回落到 planText 或默认方案。 */
+    planTexts?: string[]
     planStatus?: VerificationSessionResult['status']
   } = {},
 ): { agent: VerificationAgent; turns: VerificationSessionTurn[] } {
   const turns: VerificationSessionTurn[] = []
+  let call = 0
   const agent = new VerificationAgent({
     session: {
       sessionId: 'session-verify-plan',
       async send(turn) {
         turns.push(turn)
+        const scripted = options.planTexts?.[call]
+        call += 1
         return {
           status: options.planStatus ?? 'completed',
-          text: options.planText ?? requirementVerificationPlanOf(),
+          text: scripted ?? options.planText ?? requirementVerificationPlanOf(),
           reason: '模型未完成',
         }
       },
@@ -1727,6 +1732,30 @@ describe('requirement-derived verification plan', () => {
         transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
       }),
     ).rejects.toThrow('验证方案未覆盖需求说明')
+  })
+
+  it('repairs a plan that misses an analysis item by retrying with the missing text', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const harness = makeVerificationAgent({
+      planTexts: [
+        requirementVerificationPlanOf({ skipExtraScenario: true }),
+        requirementVerificationPlanOf(),
+      ],
+    })
+
+    const plan = await harness.agent.plan({
+      requirement,
+      analysis,
+      plan: taskPlanForVerification(),
+      transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+    })
+
+    expect(harness.turns).toHaveLength(2)
+    // 第二次投递必须带上缺失原文，模型才能逐字补抄。
+    expect(harness.turns[1]!.prompt).toContain('上一次方案未通过覆盖校验')
+    expect(harness.turns[1]!.prompt).toContain(EXTRA_CRITERION)
+    expect(harness.turns[1]!.transcriptPath).toContain('-a2.jsonl')
+    expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
   })
 
   it('refuses a plan that misses a business rule or an exception boundary', async () => {

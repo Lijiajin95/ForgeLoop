@@ -114,6 +114,9 @@ export class VerificationAgent {
   private readonly session: VerificationSession
   private readonly timeoutMs: number
 
+  /** 方案修复重试：模型漏抄需求原文时，把缺失条目反馈回去再要一次；仍不合格则 fail-closed。 */
+  static readonly MAX_PLAN_ATTEMPTS = 2
+
   constructor(options: VerificationAgentOptions) {
     this.session = options.session
     this.timeoutMs = options.timeoutMs
@@ -134,20 +137,28 @@ export class VerificationAgent {
     readonly transcriptPath: string
     readonly signal?: AbortSignal
   }): Promise<VerificationPlan> {
-    const run = await this.session.send({
-      prompt: verificationPlanPrompt(input),
-      timeoutMs: this.timeoutMs,
-      transcriptPath: input.transcriptPath,
-      ...(input.signal ? { signal: input.signal } : {}),
-    })
-    if (run.status !== 'completed') {
-      throw new MalformedError(`验证方案生成未完成（${run.status}）：${run.reason}`)
+    let feedback = ''
+    let lastIssues: string[] = []
+    for (let attempt = 1; attempt <= VerificationAgent.MAX_PLAN_ATTEMPTS; attempt += 1) {
+      const transcriptPath =
+        attempt === 1
+          ? input.transcriptPath
+          : input.transcriptPath.replace(/\.jsonl$/, `-a${attempt}.jsonl`)
+      const run = await this.session.send({
+        prompt: verificationPlanPrompt(input) + feedback,
+        timeoutMs: this.timeoutMs,
+        transcriptPath,
+        ...(input.signal ? { signal: input.signal } : {}),
+      })
+      if (run.status !== 'completed') {
+        throw new MalformedError(`验证方案生成未完成（${run.status}）：${run.reason}`)
+      }
+      const plan = parseRequirementVerificationPlan(run.text)
+      const issues = validateRequirementVerificationPlan(input.analysis, plan)
+      if (issues.length === 0) return plan
+      lastIssues = issues
+      feedback = `\n\n上一次方案未通过覆盖校验，缺少以下需求说明原文（必须逐字写进对应场景的 scenario、acceptance_criterion 或 method，可附带补充说明）：\n${issues.map((issue) => `- ${issue}`).join('\n')}\n请补全后重新输出完整 JSON。`
     }
-    const plan = parseRequirementVerificationPlan(run.text)
-    const issues = validateRequirementVerificationPlan(input.analysis, plan)
-    if (issues.length > 0) {
-      throw new MalformedError(`验证方案未覆盖需求说明：${issues.join('；')}`)
-    }
-    return plan
+    throw new MalformedError(`验证方案未覆盖需求说明：${lastIssues.join('；')}`)
   }
 }
