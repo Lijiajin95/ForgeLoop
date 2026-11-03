@@ -28,6 +28,7 @@
 | [status.md](status.md)                             | 当前能力、已知缺口、实际检查与安装记录；事实唯一入口                                     |
 | [branch-protection.md](branch-protection.md)       | 分支保护、必需检查与 E2E 门禁的已落实/未落实状态                                         |
 | [architecture.md](architecture.md)                 | 当前模块、持久化与外部接缝，对应源码和架构契约                                           |
+| [reliability.md](reliability.md)                   | 进阶可靠性门禁：清单、属性测试与 seed 复现、状态机覆盖、稳定性、增量变异与报告口径       |
 | [ops-agent.md](ops-agent.md)                       | 运维 Agent：登记目录、检查与定时主动监控、事件、诊断、授权处置、恢复复核、外部告警与限制 |
 | [CONTEXT.md](../CONTEXT.md)                        | 当前代码的领域术语；与新方案差异有明确说明                                               |
 | [插件 README](../packages/forgeloop/README.md)     | 当前插件入口与最小使用说明                                                               |

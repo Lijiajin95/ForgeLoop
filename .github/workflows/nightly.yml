@@ -37,6 +37,40 @@ jobs:
           path: packages/forgeloop/coverage/
           retention-days: 14
 
+  reliability-advanced:
+    # 夜间进阶门禁：更大属性次数、更多稳定性轮次；变异仍由下方全量分片矩阵覆盖。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: make coverage
+      - name: Advanced reliability gate (nightly intensity)
+        run: make reliability-advanced
+        env:
+          FORGELOOP_BASE: ${{ github.event.before }}
+          FORGELOOP_PROPERTY_RUNS: "1000"
+          FORGELOOP_STABILITY_ROUNDS: "5"
+          # 用运行编号作 seed：失败信息会打印 seed，可原样复现；每日覆盖不同样本。
+          FORGELOOP_PROPERTY_SEED: ${{ github.run_number }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: nightly-reliability-advanced
+          path: |
+            reports/reliability-advanced.json
+            reports/stability.json
+            reports/mutation-incremental.json
+          if-no-files-found: warn
+          retention-days: 14
+
   mutation:
     runs-on: ubuntu-24.04
     timeout-minutes: 120

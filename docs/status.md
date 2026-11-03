@@ -4851,3 +4851,78 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   `stryker.config.json` 判定，未调整 `break`、`low`、`high`。
   §53.4 已记录全量变异实测 56.28% < break 80、需要所有者决定“补测试或调整门槛”；
   本次重跑会给出合并后 HEAD 的真实分数，gate 仍可能按设计失败，不属本批修复范围。
+
+## 130. 进阶代码可靠性门禁（2026-11-03）
+
+- 现场：基线 `fc404720469f7df8201b92e84de1f70148fc61c9`；分支 `feat/reliability-advance`，
+  worktree `.cache/worktrees/reliability-advance`；`node_modules` 符号链接复用主树，未执行
+  `npm install`。完成后 rebase 到当时 main 的 `0e77d13`（main 在本批期间前进 4 个提交：自托管 CI、
+  e2e/pnpm 与依赖审计修复、变异分片可执行文件路径、nightly 分片记录）。
+- 范围与改动：
+  - 清单 `contracts/reliability.json`：15 个核心模块、16 条关键不变量、4 个状态机、
+    12 个 P0 场景、7 个稳定性测试文件、受控变异范围与 15 条等价变异豁免；不重复
+    `contracts/architecture.json` 的依赖规则。
+  - 脚本：`scripts/ts/reliability-registry.ts`、`reliability-lib.ts`、`reliability-tests.ts`、
+    `stability.ts`、`mutation-incremental.ts`、`reliability-report-advanced.ts`。
+  - 测试：`tests/property-invariants.test.ts`（修复生成器并加 seed 支持）、
+    `property-invariants-advanced.test.ts`（13 项不变量属性）、`state-machines.test.ts`、
+    `p0-scenarios.test.ts`、`reliability-contract-details.test.ts`、共享 `property-support.ts`
+    与 `contract-support.ts`。
+  - 入口：`make reliability-registry`（接入 `check-static`）、`make stability`、
+    `make mutation-incremental`、`make reliability-advanced`；报告写入已忽略的 `reports/`。
+  - 配置：`vitest.mutation.config.ts`（变异执行器排除依赖宿主 `ps` 的 monitor 用例；
+    monitor 仍在正常测试/覆盖率中运行），`stryker.config.json` 只切 `vitest.configFile`，
+    `thresholds.break` 保持 80。
+  - CI：`quality.yml` 新增 PR 进阶作业（增量变异），`nightly.yml` 新增更大强度的进阶作业；
+    release 的 real-host E2E 未改动，原有 quality/security 检查未降低。
+  - 修复：`Database.close()` 幂等（重复关闭不再抛 `database is not open`），先红后绿。
+- 已知 flaky 定位（seed 61697261）：原失败反例为任务包 `test_command: ["l","l"]`；
+  `parseTaskPlanDraft` 按领域规则拒绝重复命令，属于**测试生成器假设错误**，不是
+  round-trip 缺陷。证据与固定 seed 复现命令见
+  [reliability.md](reliability.md#3-属性测试与已知-flaky-修复)；修复为 `fc.uniqueArray`，
+  实现与断言未改；同 seed 已通过。
+- 实际执行（本机，2026-11-03/04 Asia/Shanghai）：
+  - `make reliability-registry`：OK（8 门禁 / 15 模块 / 16 不变量 / 4 状态机 / 12 场景 /
+    7 稳定性文件 / 6 受控变异文件 / 32 项检查）。注入缺测试文件、属性文件未登记、
+    终态出边与下调 break 四类缺陷均以 exit 1 拒绝（红/绿证据）。
+  - 属性：16/16 通过，seed 20261103，每项至少 200 次；seed 61697261 回归通过。
+  - 状态机：部署 169 对穷举（合法 19/19、非法 150/150、终态 3×13）；需求
+    34/48 条声明边由入口逐条驱动 + 4 个终态/冻结态 × 7 个操作全部拒绝；任务运行
+    25/25 结果对；ops 7 状态 × 3 入口 + 中断恢复。
+  - P0 场景：12/12 通过。
+  - 稳定性：7 个文件 × 3 轮 = 21 次独立运行，0 失败、0 环境错误；seed 61697261 回归 PASS。
+  - 受控变异：703 个变异体，有效得分 **97.58%**（killed 680 + timeout 6；survived 15、
+    noCoverage 2）；17 个不可杀变异按清单豁免（文件+行+mutator+理由），关键不变量存活 0；
+    存活/豁免清单写入 `reports/mutation-incremental.json`。
+  - 覆盖率：`make coverage` 重跑通过；总计 行 97.93%、函数 99.39%、分支 91.13%，逐文件
+    90/95/85 全部通过。首次运行 `advance-pipeline.ts` 分支 84.93% 抖动失败，重跑通过；
+    该文件本批未改，属既有抖动。
+  - 门禁红/绿：临时把 `isTerminal` 改为恒 false 后 `make reliability-advanced` 以状态机
+    用例失败返回 FAIL；还原后通过（报告写入 `reports/reliability-advanced.json`）。
+  - 真实模型 E2E：本机用 `~/.bashrc` 的 `QWEN_TOKEN_PLAN_CN_API_KEY` /
+    `QWEN_TOKEN_PLAN_CN_MODEL_ID`，通过 `FORGELOOP_REAL_MODEL_PATCH` 路由到
+    `qwen-token-plan-cn / deepseek-v4.1-flash-1017` 运行 `make real-model-e2e`，exit 0；
+    需求 `req-20261103161211-54a955` 完成准入、规划、研发、独立验证与受控提交
+    （commit `cfa0faa9fcd8`，验证 2 次、最终 verdict pass）；过程中经历 blocked 与定向
+    修复回合，说明重试与恢复链路按预期工作。
+- 未完成/受限：
+  - 全量 92 个源文件的变异仍为既有 56.28% < 80；本批未下调 break、未排除业务源码，
+    nightly 全量分片仍会按事实变红，等待所有者决定补测试或批准基线。
+  - `make verify-plugin` / `make verify-e2e` 未单独运行：前者需要已存在的隔离 profile，
+    后者按 `DEEPSEEK_API_KEY` 读凭据且需要候选 tarball；本次真实模型闭环已由
+    `make real-model-e2e` 独立覆盖，不把未运行项写成通过。
+  - CI 只修改了 workflow，未在托管/自托管 runner 上实际执行。
+  - 需求状态机 48 条声明边中 14 条（分析失败/待澄清/准入/规划/批准后执行/验证/提交等）
+    需要完整 Agent 流水线，未逐边断言，已在清单标 `tested: false` 并由既有
+    continuous-flow/verification/requirement-gate 用例在流程级覆盖；报告如实显示 34/48。
+  - 部署回退（`rolling_back/rolled_back`）只有域状态机，无运行时执行入口；
+    `rejected` 需求状态无写入入口。两项均登记为发现项，未擅自补业务逻辑。
+- 发现但不碰：
+  - `ForgeLoopRuntime.grant` 只追加授权、不校验终态/阻塞态，也不迁移到 approved；
+    工具与工作台实际使用 `runtime/grants.ts` 的 `grantFailureRounds`（有守卫）。未改动。
+  - `tests/monitor.test.ts` 的宿主进程采集在 Stryker worker 沙箱里返回空表；变异配置
+    排除该用例，正常测试与覆盖率仍运行。
+  - 他人未跟踪文件与部署方案文档未改动；全量变异债务与 `advance-pipeline` 覆盖率抖动
+    为既有问题。
+- 回归：`Database.close()` 幂等（红：重复 close 抛错；绿：`tests/p0-scenarios.test.ts`）；
+  property 生成器（红：seed 61697261 反例；绿：同 seed 与 3 轮稳定性通过）。

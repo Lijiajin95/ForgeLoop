@@ -31,6 +31,36 @@ jobs:
       - run: make check-fast
       - run: make format
 
+  reliability-advanced:
+    # PR 快速进阶门禁：清单/稳定性/属性/状态机/场景/回归 + 增量变异（不做全量变异）。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # 需要 base 与 head 的提交历史来计算 git diff 的增量变异范围。
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Advanced reliability gate
+        run: make reliability-advanced
+        env:
+          FORGELOOP_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: reliability-advanced
+          path: |
+            reports/reliability-advanced.json
+            reports/stability.json
+            reports/mutation-incremental.json
+          if-no-files-found: warn
+          retention-days: 14
+
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

@@ -501,3 +501,35 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   `make mutation-merge` 校验每个源码文件都进入报告；格式化使用 Prettier（`make format`）。
   依赖审计已配置为 `make audit`，实际执行与验证情况见状态记录。
 - DSH 仍是 developer preview；升级可能改变接缝，需按版本重新验证。
+
+## 11. 进阶可靠性门禁（2026-11-03）
+
+在不改变业务分层与外部接缝的前提下，新增一组机器可执行、可阻断的可靠性入口。
+详细口径见[进阶代码可靠性门禁](reliability.md)。
+
+- 清单：`contracts/reliability.json` 登记核心模块、关键不变量、状态机迁移、P0 场景、
+  稳定性测试与受控变异范围；不重复 `contracts/architecture.json` 的分层/依赖规则。
+  `scripts/ts/reliability-registry.ts` 校验结构、文件存在、门禁或 N/A 理由、属性测试
+  `min_runs >= 200`、状态机终态闭包与 Stryker break 一致，并接入 `make check-static`。
+- 测试：`tests/property-invariants*.test.ts`（fast-check，失败打印 seed 与 shrink 反例）、
+  `tests/state-machines.test.ts`（部署穷举、需求终态/合法边、任务运行结果、ops 入口）、
+  `tests/p0-scenarios.test.ts`（null/越界/超时/重试耗尽/DB 失败/资源释放/状态冲突/幂等/中断）。
+  共享参数在 `tests/property-support.ts`，清单加载在 `tests/contract-support.ts`。
+- 执行器：`scripts/ts/reliability-lib.ts` 串行跑 vitest 并解析 JSON；
+  `scripts/ts/reliability-tests.ts` 按清单分组运行属性/状态机/场景；
+  `scripts/ts/stability.ts` 对登记测试串行独立运行 3 次并区分 FAIL/ERROR；
+  `scripts/ts/mutation-incremental.ts` 只变异 `git diff BASE` 影响源码及其直接依赖
+  （或清单受控范围），有效得分必须 ≥80，关键文件不允许存活变异；
+  `scripts/ts/reliability-report-advanced.ts` 汇总为 `reports/reliability-advanced.json`
+  与控制台 Markdown，ERROR/缺失报告不算 PASS。
+- 变异执行器使用 `packages/forgeloop/vitest.mutation.config.ts`：与快速配置相同，另排除
+  依赖宿主 `ps` 进程表的 `tests/monitor.test.ts`（Stryker 沙箱内假失败）；该用例仍在
+  正常测试与覆盖率中运行，不排除业务源码、不下调 break。
+- 报告落在已忽略的 `reports/`：`reliability-advanced.json`、`stability.json`、
+  `mutation-incremental.json`；均带 base/head SHA、时间戳、分母与范围。
+- CI：PR/push 的 `quality.yml` 运行 `make reliability-advanced`（增量变异，不做全量）；
+  nightly 以更大属性次数、更多稳定性轮次运行同一入口，并保留全量覆盖率与 8 分片变异；
+  release 保持 real-host E2E。
+- 持久化表、外部工具契约与运行时状态机没有新增或改名；本批只新增测试、门禁脚本、
+  报告入口与一处幂等资源释放修复（`Database.close()`，回归测试先红后绿）。
+
