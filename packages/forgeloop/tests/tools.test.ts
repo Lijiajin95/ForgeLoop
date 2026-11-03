@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildTools, registerTools } from '../src/tools.js'
@@ -98,7 +98,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('tool surface', () => {
-  it('exposes exactly the thirteen documented tools with renderable output', () => {
+  it('exposes exactly the fifteen documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -107,6 +107,8 @@ describe('tool surface', () => {
       'forgeloop_requests',
       'forgeloop_impact',
       'forgeloop_ops',
+      'forgeloop_ops_artifact',
+      'forgeloop_ops_logs',
       'forgeloop_run_verification_check',
       'forgeloop_read_project_doc',
       'forgeloop_write_project_doc',
@@ -242,6 +244,62 @@ describe('requirement intake tool', () => {
     expect((await call('forgeloop_ops', { event_id: 'ops-missing' })).ok).toBe(false)
   })
 
+  it('reads registered artifact state and log tails, and rejects unknown ids', async () => {
+    mkdirSync(join(dir, 'logs'), { recursive: true })
+    writeFileSync(join(dir, 'logs', 'host.log'), 'INFO ready\nERROR boom\nERROR again\n', 'utf8')
+    const opsConfig = resolveConfig(
+      {
+        projectPath: dir,
+        recordsRoot: join(dir, '.forgeloop'),
+        dshProfilesRoot: join(dir, 'profiles'),
+        ops: {
+          enabled: true,
+          monitor: { enabled: true },
+          artifacts: [{ id: 'host', profile: 'web', logs: [{ id: 'run', path: 'logs/host.log' }] }],
+        },
+      },
+      dir,
+    )
+    const local = buildTools(runtime, opsConfig) as ToolDefinition[]
+    const exec = (name: string, args: unknown) => {
+      const found = local.find((definition) => definition.name === name)
+      if (!found) throw new Error(`missing tool ${name}`)
+      return found.execute(args, {})
+    }
+    const state = await exec('forgeloop_ops_artifact', { artifact_id: 'host' })
+    expect(state.ok).toBe(true)
+    expect(state.data).toMatchObject({ artifactId: 'host', profile: 'web' })
+    expect((state.data as { runtime: { packagePresent: boolean } }).runtime.packagePresent).toBe(
+      false,
+    )
+    expect(await exec('forgeloop_ops_artifact', { artifact_id: 'nope' })).toMatchObject({
+      ok: false,
+      text: '未登记研发制品：nope',
+    })
+    expect(await exec('forgeloop_ops_artifact', {})).toMatchObject({
+      ok: false,
+      text: 'artifact_id is required',
+    })
+
+    const logs = await exec('forgeloop_ops_logs', {
+      artifact_id: 'host',
+      log_id: 'run',
+      contains: 'error',
+    })
+    expect(logs.ok).toBe(true)
+    expect(logs.data).toMatchObject({ matchedLines: 2, totalLines: 3 })
+    expect(
+      await exec('forgeloop_ops_logs', { artifact_id: 'host', log_id: 'run', lines: '2' }),
+    ).toMatchObject({ ok: false, text: 'lines must be an integer between 1 and 500' })
+    expect(await exec('forgeloop_ops_logs', { artifact_id: 'host' })).toMatchObject({
+      ok: false,
+      text: 'log_id is required',
+    })
+    expect(
+      await exec('forgeloop_ops_logs', { artifact_id: 'host', log_id: 'missing' }),
+    ).toMatchObject({ ok: false, text: '制品 host 没有登记日志：missing' })
+  })
+
   it('requires text and records the tool identity, never the caller claims', async () => {
     const missing = await call('forgeloop_submit_requirement', {})
     expect(missing.ok).toBe(false)
@@ -293,8 +351,8 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(13)
-    expect(disposers).toHaveLength(13)
+    expect(registered).toHaveLength(15)
+    expect(disposers).toHaveLength(15)
   })
 
   it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {

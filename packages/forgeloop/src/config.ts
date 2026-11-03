@@ -94,12 +94,35 @@ export interface OpsAlertConfig {
   readonly timeoutSeconds: number
 }
 
+/** 研发制品的一条运行日志：装载期登记路径，运维工具只读尾部。 */
+export interface OpsArtifactLog {
+  readonly id: string
+  /** 绝对路径或项目内相对路径；`~` 在装载期展开。 */
+  readonly path: string
+  /** 可选错误正则；配置后运行状态里统计匹配行数，不配置为 null。 */
+  readonly errorPattern: string
+}
+
+/**
+ * 研发制品：部署进某个 DSH profile 的产物。
+ * profile 为空表示只登记日志、不读运行身份；两者至少要有一个。
+ */
+export interface OpsArtifact {
+  readonly id: string
+  readonly label: string
+  /** 已部署产物所在 profile 的目录名；空字符串表示不关联运行实例。 */
+  readonly profile: string
+  readonly logs: readonly OpsArtifactLog[]
+}
+
 export interface OpsConfig extends OpsCatalog {
   readonly enabled: boolean
   /** 巡检周期；到期的检查在协调器持有单消费者锁时运行。 */
   readonly intervalSeconds: number
   readonly monitor: OpsMonitorConfig
   readonly alerts: OpsAlertConfig
+  /** 运维可按需读取的研发制品；工具只能读取这里登记的内容。 */
+  readonly artifacts: readonly OpsArtifact[]
 }
 
 export interface RawOpsResource {
@@ -179,6 +202,19 @@ export interface RawOpsAlertConfig {
   timeoutSeconds?: number
 }
 
+export interface RawOpsArtifactLog {
+  id?: string
+  path?: string
+  errorPattern?: string
+}
+
+export interface RawOpsArtifact {
+  id?: string
+  label?: string
+  profile?: string
+  logs?: RawOpsArtifactLog[]
+}
+
 export interface RawOpsConfig {
   enabled?: boolean
   intervalSeconds?: number
@@ -187,6 +223,7 @@ export interface RawOpsConfig {
   actions?: RawOpsAction[]
   monitor?: RawOpsMonitorConfig
   alerts?: RawOpsAlertConfig
+  artifacts?: RawOpsArtifact[]
 }
 
 export interface AutonomyConfig {
@@ -614,6 +651,65 @@ function parseAlertConfig(raw: RawOpsAlertConfig | undefined): OpsAlertConfig {
   return { webhook, timeoutSeconds }
 }
 
+/** profile 目录名必须是一段：拒绝 `.`、`..` 与路径分隔符，避免读到 profile 根之外。 */
+const PROFILE_SEGMENT = /^[A-Za-z0-9._-]+$/
+const MAX_ARTIFACTS = 20
+const MAX_ARTIFACT_LOGS = 20
+
+/**
+ * 研发制品目录：每条日志一个登记路径，运维工具只能读取这里列出的文件。
+ * profile 只接受单个目录名；路径支持 `~` 展开，其余相对路径按项目根解析。
+ */
+function parseArtifacts(items: RawOpsArtifact[] | undefined): OpsArtifact[] {
+  const list = objectList(items, 'ops.artifacts')
+  if (list.length > MAX_ARTIFACTS) {
+    throw new RuleViolationError(`配置 ops.artifacts 不能超过 ${MAX_ARTIFACTS} 个`)
+  }
+  const seen = new Set<string>()
+  return list.map((item, index) => {
+    const field = `ops.artifacts[${index}]`
+    const id = requiredText(item.id, `${field}.id`)
+    if (seen.has(id)) throw new RuleViolationError(`配置 ${field}.id 重复：${id}`)
+    seen.add(id)
+    const profile = typeof item.profile === 'string' ? item.profile.trim() : ''
+    if (profile && (profile === '.' || profile === '..' || !PROFILE_SEGMENT.test(profile))) {
+      throw new RuleViolationError(`配置 ${field}.profile 只能是单个 profile 目录名：${profile}`)
+    }
+    const logList = objectList(item.logs, `${field}.logs`)
+    if (logList.length > MAX_ARTIFACT_LOGS) {
+      throw new RuleViolationError(`配置 ${field}.logs 不能超过 ${MAX_ARTIFACT_LOGS} 条`)
+    }
+    const logSeen = new Set<string>()
+    const logs = logList.map((entry, logIndex) => {
+      const logField = `${field}.logs[${logIndex}]`
+      const logId = requiredText(entry.id, `${logField}.id`)
+      if (logSeen.has(logId)) throw new RuleViolationError(`配置 ${logField}.id 重复：${logId}`)
+      logSeen.add(logId)
+      const path = expandHome(requiredText(entry.path, `${logField}.path`))
+      const errorPattern = typeof entry.errorPattern === 'string' ? entry.errorPattern.trim() : ''
+      if (errorPattern) {
+        try {
+          new RegExp(errorPattern)
+        } catch (error) {
+          throw new RuleViolationError(
+            `配置 ${logField}.errorPattern 不是合法正则：${errorMessage(error)}`,
+          )
+        }
+      }
+      return { id: logId, path, errorPattern }
+    })
+    if (!profile && logs.length === 0) {
+      throw new RuleViolationError(`配置 ${field} 至少要登记一个 profile 或一条日志`)
+    }
+    return {
+      id,
+      label: typeof item.label === 'string' && item.label.trim() ? item.label.trim() : id,
+      profile,
+      logs,
+    }
+  })
+}
+
 /**
  * 运维目录：资源、只读检查与登记动作。目录非法时装载失败，
  * 不在运行期猜测或放宽；未启用的目录也做同样的静态校验。
@@ -693,6 +789,7 @@ function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {
   validateOpsCatalog(catalog)
   const monitor = parseMonitorConfig(source.monitor, resources)
   const alerts = parseAlertConfig(source.alerts)
+  const artifacts = parseArtifacts(source.artifacts)
   if (monitor.enabled && !enabled) {
     throw new RuleViolationError('配置 ops.monitor 启用时需要同时启用 ops')
   }
@@ -701,7 +798,7 @@ function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {
       '配置 ops 启用时至少要登记一个检查，或启用 ops.monitor 主动监控；否则不会产生任何运维事件',
     )
   }
-  return { enabled, intervalSeconds, ...catalog, monitor, alerts }
+  return { enabled, intervalSeconds, ...catalog, monitor, alerts, artifacts }
 }
 
 function expandHome(value: string): string {

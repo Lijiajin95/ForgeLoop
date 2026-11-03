@@ -12,6 +12,7 @@ import { readProjectDoc, resolveProjectDoc, writeProjectDoc } from './runtime/pr
 import { fetchWeb, searchWeb, WEB_KEY_NOTE } from './runtime/web-tools.js'
 import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
 import { VERIFICATION_CHECK_TOOL } from './runtime/verification-checks.js'
+import { readArtifactLog, readArtifactState } from './runtime/ops-artifacts.js'
 
 type AnyRecord = Record<string, unknown>
 
@@ -110,6 +111,87 @@ function verificationCheckTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
       }
     },
   })
+}
+
+/** 运维只读工具：只能读配置登记的制品状态与日志尾部，不接受任意路径。 */
+function opsArtifactTools(config: ForgeLoopConfig): ToolDefinitionLike[] {
+  return [
+    defineTool({
+      name: 'forgeloop_ops_artifact',
+      description:
+        'Read the runtime state of one artifact registered under ops.artifacts: installed version, running identity (pid, startedAt), whether the process is alive, whether the identity still matches the installed files, and per-log size, mtime and error-line count. Read-only; only registered artifacts, never an arbitrary path.',
+      parameters: {
+        type: 'object',
+        properties: {
+          artifact_id: {
+            type: 'string',
+            description: 'Artifact id registered under ops.artifacts',
+          },
+        },
+        required: ['artifact_id'],
+        additionalProperties: false,
+      },
+      async run(args) {
+        const artifactId = stringArg(args, 'artifact_id')
+        if (!artifactId) return { ok: false, text: 'artifact_id is required' }
+        const outcome = readArtifactState(config, artifactId)
+        return outcome.ok
+          ? { ok: true, text: `研发制品 ${artifactId} 的运行状态`, data: outcome.data }
+          : { ok: false, text: outcome.reason }
+      },
+    }),
+    defineTool({
+      name: 'forgeloop_ops_logs',
+      description:
+        'Read the tail of one log file registered under ops.artifacts. Only registered logs; bounded lines and bytes. Optional contains is a case-insensitive literal filter, not a regex.',
+      parameters: {
+        type: 'object',
+        properties: {
+          artifact_id: {
+            type: 'string',
+            description: 'Artifact id registered under ops.artifacts',
+          },
+          log_id: { type: 'string', description: 'Log id registered on that artifact' },
+          lines: {
+            type: 'number',
+            description: 'How many tail lines to return after filtering, 1-500; defaults to 80',
+          },
+          contains: {
+            type: 'string',
+            description: 'Case-insensitive literal substring filter; at most 120 characters',
+          },
+        },
+        required: ['artifact_id', 'log_id'],
+        additionalProperties: false,
+      },
+      async run(args) {
+        const artifactId = stringArg(args, 'artifact_id')
+        if (!artifactId) return { ok: false, text: 'artifact_id is required' }
+        const logId = stringArg(args, 'log_id')
+        if (!logId) return { ok: false, text: 'log_id is required' }
+        if (args.lines !== undefined && typeof args.lines !== 'number') {
+          return { ok: false, text: 'lines must be an integer between 1 and 500' }
+        }
+        const query: {
+          artifactId: string
+          logId: string
+          lines?: number
+          contains?: string
+        } = { artifactId, logId }
+        if (typeof args.lines === 'number') query.lines = args.lines
+        const contains = stringArg(args, 'contains')
+        if (contains) query.contains = contains
+        const outcome = readArtifactLog(config, query)
+        return outcome.ok
+          ? {
+              ok: true,
+              text: `研发制品 ${artifactId} 的日志 ${logId}：尾部 ${outcome.data.totalLines} 行，命中 ${outcome.data.matchedLines} 行`,
+              data: outcome.data,
+            }
+          : { ok: false, text: outcome.reason }
+      },
+    }),
+  ]
 }
 
 export function buildTools(
@@ -244,6 +326,7 @@ export function buildTools(
         return { ok: outcome.ok, text: outcome.message, data: outcome.data }
       },
     }),
+    ...opsArtifactTools(config),
     verificationCheckTool(runtime),
     defineTool({
       name: 'forgeloop_read_project_doc',

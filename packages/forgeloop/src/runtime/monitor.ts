@@ -8,10 +8,11 @@
  */
 
 import { execFile } from 'node:child_process'
-import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { cpus, freemem, loadavg, totalmem, uptime } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
 import { asRecord } from '../domain/json.js'
+import { readLogTail } from './log-tail.js'
 import { errorMessage } from '../domain/errors.js'
 import { isOpsActive, type OpsSeverity } from '../domain/ops.js'
 import { BUILTIN_OPS_PROVIDER_ID, findOpsProvider } from '../domain/ops-provider.js'
@@ -342,29 +343,6 @@ async function collectLatency(
 
 // ---------------------------------------------------------------- 日志
 
-function readTail(path: string, maxBytes: number): string[] {
-  const fd = openSync(path, 'r')
-  try {
-    const size = fstatSync(fd).size
-    const start = Math.max(0, size - maxBytes)
-    const length = size - start
-    if (length <= 0) return []
-    const buffer = Buffer.alloc(length)
-    let read = 0
-    while (read < length) {
-      const chunk = readSync(fd, buffer, read, length - read, start + read)
-      if (chunk <= 0) break
-      read += chunk
-    }
-    const lines = buffer.subarray(0, read).toString('utf8').split('\n')
-    // 从文件中间开始读时，第一行可能被截断，丢弃而不是当成完整日志行。
-    if (start > 0) lines.shift()
-    return lines
-  } finally {
-    closeSync(fd)
-  }
-}
-
 function logFacts(
   config: ForgeLoopConfig,
   source: OpsMonitorLog,
@@ -373,7 +351,7 @@ function logFacts(
   const path = projectPathOf(config, source.path)
   try {
     const pattern = new RegExp(source.errorPattern)
-    const lines = readTail(path, MAX_LOG_BYTES)
+    const lines = readLogTail(path, MAX_LOG_BYTES)
     const tail = lines
       .filter((line) => line.length > 0)
       .slice(-config.ops.monitor.logLines)

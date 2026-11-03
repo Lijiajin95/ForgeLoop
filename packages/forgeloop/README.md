@@ -70,16 +70,16 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 看门狗、不卡任务工时、不限制任务尝试次数、失败轮次与单请求验证重试次数。失败轮次、工时消耗、
 任务运行与验证历史仍照常记录和展示；停止请求仍然有效。
 
-| 配置项 | 默认 | 作用 |
-| --- | --- | --- |
-| `agent.timeoutSeconds` | `-1` | 单个 Agent 回合的基础超时；`-1` 不设定时器 |
-| `agent.maxTurnSeconds` | `-1` | 长任务回合硬上限；`-1` 不封顶 |
-| `agent.idleTimeoutSeconds` | `-1` | 无进展看门狗；`-1` 不启用 |
-| `formalTestTimeoutSeconds` | `-1` | 正式测试命令超时；`-1` 不限 |
-| `maxTaskAttempts` | `-1` | 同一任务的研发尝试次数；`-1` 不限 |
-| `failureRoundsPerGrant` | `-1` | 每份授权的失败轮次额度；`-1` 不限，仍逐轮记录 |
-| `maxVerificationAttempts` | `-1` | 单次推进内的验证重试次数；`-1` 不限 |
-| 任务包 `limit_seconds` / `max_failure_rounds` | `-1` | 单任务工时与失败轮次；`-1` 不限 |
+| 配置项                                        | 默认 | 作用                                          |
+| --------------------------------------------- | ---- | --------------------------------------------- |
+| `agent.timeoutSeconds`                        | `-1` | 单个 Agent 回合的基础超时；`-1` 不设定时器    |
+| `agent.maxTurnSeconds`                        | `-1` | 长任务回合硬上限；`-1` 不封顶                 |
+| `agent.idleTimeoutSeconds`                    | `-1` | 无进展看门狗；`-1` 不启用                     |
+| `formalTestTimeoutSeconds`                    | `-1` | 正式测试命令超时；`-1` 不限                   |
+| `maxTaskAttempts`                             | `-1` | 同一任务的研发尝试次数；`-1` 不限             |
+| `failureRoundsPerGrant`                       | `-1` | 每份授权的失败轮次额度；`-1` 不限，仍逐轮记录 |
+| `maxVerificationAttempts`                     | `-1` | 单次推进内的验证重试次数；`-1` 不限           |
+| 任务包 `limit_seconds` / `max_failure_rounds` | `-1` | 单任务工时与失败轮次；`-1` 不限               |
 
 恢复限制只需把对应项设为正数，语义与之前一致。不限额时持续失败的推进不会自行停止，需要所有者
 发出停止请求或显式收紧配置；所有统计与历史记录不会因限额关闭而减少。
@@ -88,10 +88,13 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 
 模型工具：`forgeloop_status`、`forgeloop_show_requirement`、`forgeloop_show_plan`、
 `forgeloop_evidence`、`forgeloop_requests`、`forgeloop_impact`、`forgeloop_ops`、
-`forgeloop_run_verification_check`、`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、
-`forgeloop_web_search`、`forgeloop_web_fetch`、`forgeloop_submit_requirement`。
+`forgeloop_ops_artifact`、`forgeloop_ops_logs`、`forgeloop_run_verification_check`、
+`forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`forgeloop_web_search`、
+`forgeloop_web_fetch`、`forgeloop_submit_requirement`。
 `forgeloop_run_verification_check` 只对验证会话开放：它按当前候选验证方案里的 label 执行命令，
 运行时记录退出码、超时、中止、日志与候选完整性，不接受任意命令，也不是通用命令执行器。
+`forgeloop_ops_artifact`/`forgeloop_ops_logs` 只对运维会话开放：只读 `ops.artifacts` 登记的制品运行状态
+（安装版本、pid、存活、身份摘要、日志大小与错误行数）与日志尾部，不接受任意路径。
 两个文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件）；
 `docs/forgeloop/business-context.md` 例外：它只由运行时按分析结果写入，工具写入会被拒绝。
 两个联网工具调用 DeepSeek Search & Fetch（`POST /v1/tools/search`、`POST /v1/tools/fetch`），
@@ -145,9 +148,7 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
       "intervalSeconds": 300,
       "providers": ["builtin"],
       "processes": [{ "id": "web", "resourceId": "web", "match": "restart-web.mjs" }],
-      "latency": [
-        { "id": "web-url", "resourceId": "web", "url": "http://127.0.0.1:3080/health" }
-      ],
+      "latency": [{ "id": "web-url", "resourceId": "web", "url": "http://127.0.0.1:3080/health" }],
       "logs": [
         { "id": "web-log", "resourceId": "web", "path": "logs/web.log", "errorPattern": "ERROR" }
       ],
@@ -163,14 +164,15 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 检查状态的监控，没有监控来源、动作、webhook 与心跳，装载它不会执行任何处置。
 
 - 主动监控每轮采集主机负载/CPU/内存、`ps` 进程聚合、HTTP 延迟、日志尾部、外部告警、检查最后状态与活动事件，
-  交给无工具运维 Agent 评审；报告畸形只记错误，不建事件、不当作健康。
+  交给运维 Agent 评审；报告畸形只记错误，不建事件、不当作健康。
 - 快照记录产生它的**提供方**（`providers`，当前只有自研的 `builtin`）。描述符与登记表在
   `src/domain/ops-provider.ts`，采集契约 `OpsMonitorProvider.collect` 在 `src/runtime/monitor.ts`；
   未登记的提供方在装载时失败，外部工具（Glances、Prometheus 等）接入前不能写进配置。
 - `heartbeat.url` 非空时每轮扫描后向外部死信服务上报一次（GET/POST，一次尽力、不重试），
   结果进入监控摘要；主机整体停摆由外部报警，不靠自研采集器自证。
-- 检查失败按签名归并为运维事件；监控问题按 `monitor/<资源>/<key>` 归并。模型只做无工具诊断/评审，
-  提出目录内动作；参数只能取枚举值，未登记资源或动作不会被执行。
+- 检查失败按签名归并为运维事件；监控问题按 `monitor/<资源>/<key>` 归并。模型只做只读诊断/评审
+  （另可读 `ops.artifacts` 登记的制品状态与日志尾部），提出目录内动作；参数只能取枚举值，
+  未登记资源或动作不会被执行。
 - `auto: true` 的动作可在目录授权内自动执行；其他动作停在天工「运维」视图等待所有者批准。
 - 处置后运行恢复检查，只按退出码判定恢复；动作超时或中止记失败、事件按未解决收口；
   宿主中断的动作记 `interrupted`，事件同样按未解决收口，并由运维 Agent 分析根因上报，不自动重放。
