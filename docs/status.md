@@ -4737,3 +4737,23 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   行／语句 97.87%、分支 90.61%、函数 99.38%（逐文件门槛通过）。
 - 未完成：部署协调器（intent、审批、apply/status/rollback、超时与告警）、只读工具 `forgeloop_deployments`、
   审批与回退端点/页面、证据压缩与磁盘上限、运维诊断的 `proposed_deployment` 接线。
+
+## 125. 插件运行日志默认落盘（2026-11-03）
+
+- 新增 `src/runtime/log.ts`：`createPluginLogger(config)` 同时写宿主 console 与
+  `<recordsRoot>/projects/<project>/logs/plugin.log`；写盘失败只吞掉文件写入，不影响业务输出。
+- 接入点：`index.ts`（preset 注册、启动摘要）、`coordinator.ts`（锁/巡检/异常）、
+  `session/index.ts`（默认拦截日志）。
+- 新增 `tests/log.test.ts`（2 项）：固定时间戳校验 INFO/WARN/ERROR 行；日志目录不可创建时不抛错。
+- `e2e-board.ts` 增加断言：启动后必须生成运行日志且包含 `已加载 records=`；
+  实测输出 `[e2e-board] 运行日志已落盘：…/logs/plugin.log`。
+- 生产默认路径：`~/Library/Application Support/ForgeLoop/production/projects/forgeloop/logs/plugin.log`
+  （由 `~/.forgeloop/config.json` 的 `recordsRoot` 决定）。
+- `docs/architecture.md` 记录该现场产物；未引入日志库、轮转或级别配置。
+- 验证边界（如实）：
+  - `make check-static`、`make format`、log/session 聚焦用例通过；
+  - 全量 `make check` 在本机并行负载下出现 2 个重型用例 20s 超时，串行重跑
+    `verification/candidate-build/continuous-flow` 共 131 项全部通过；`property-invariants`
+    仍存在既有随机种子偶发失败（单独重跑 3 项通过）；
+  - `make coverage` 在 `src/runtime/monitor.ts` 分支 84.69% < 85% 失败，该文件本批未改动，
+    属既有问题，不由日志改动引入。

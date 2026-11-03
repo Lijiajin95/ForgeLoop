@@ -5,7 +5,7 @@
  * POST /api/forgeloop/board，校验返回项目与摘要结构。
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -86,6 +86,11 @@ try {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const tokenUrl = await waitForToken(child, 90_000)
+  const pluginLog = join(workspace, 'records', 'projects', PROJECT, 'logs', 'plugin.log')
+  if (!existsSync(pluginLog)) throw new Error(`未生成运行日志：${pluginLog}`)
+  const logText = readFileSync(pluginLog, 'utf8')
+  if (!logText.includes('已加载 records=')) throw new Error('运行日志缺少启动记录')
+  console.log(`[e2e-board] 运行日志已落盘：${pluginLog}`)
   const context = await request.newContext({ baseURL: `http://127.0.0.1:${port}` })
   try {
     const auth = await context.get(tokenUrl.replace(`http://127.0.0.1:${port}`, ''))

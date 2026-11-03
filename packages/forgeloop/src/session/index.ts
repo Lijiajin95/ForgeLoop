@@ -6,6 +6,7 @@
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
+import { createPluginLogger } from '../runtime/log.js'
 import {
   SessionIntake,
   type PreStepDecision,
@@ -36,10 +37,11 @@ export function installSessionSurface(
   ctx: AnyRecord,
   options: SessionSurfaceOptions,
 ): SessionSurface {
+  const logger = createPluginLogger(options.config)
   const log =
     options.log ??
     ((message: string) => {
-      console.warn(`[forgeloop] ${message}`)
+      logger.warn(`[forgeloop] ${message}`)
     })
   const registry = presetRegistryOf(ctx)
   const intake = new SessionIntake({

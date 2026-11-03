@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './service.js'
 import { projectDir } from '../config.js'
 import { acquireHostLock, type HostLock } from './lock.js'
+import { createPluginLogger, type PluginLogger } from './log.js'
 
 export interface CoordinatorOptions {
   readonly runtime: ForgeLoopRuntime
@@ -36,6 +37,7 @@ export class Coordinator {
   private readonly pollSeconds: number
   private readonly autoAdvance: boolean
   readonly owner: string
+  private readonly logger: PluginLogger
   private timer: NodeJS.Timeout | undefined
   private opsTimer: NodeJS.Timeout | undefined
   private opsCurrent: Promise<void> | undefined
@@ -49,6 +51,7 @@ export class Coordinator {
 
   constructor(options: CoordinatorOptions) {
     this.runtime = options.runtime
+    this.logger = createPluginLogger(options.runtime.config)
     this.pollSeconds = options.pollSeconds
     this.autoAdvance = options.autoAdvance
     this.owner = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
@@ -77,7 +80,7 @@ export class Coordinator {
       // 只读宿主：不领取、不修改别人的在途请求。
       this.stopped = true
       this.lastError = `单消费者锁未取得：${lock.reason}（${lock.holder}）`
-      console.error(`[forgeloop] ${this.lastError}`)
+      this.logger.error(`[forgeloop] ${this.lastError}`)
       return
     }
     this.stopped = false
@@ -155,12 +158,12 @@ export class Coordinator {
       .then((outcome) => {
         if (outcome.errors.length > 0) {
           this.lastError = outcome.errors.join('；')
-          console.error(`[forgeloop] 运维巡检错误：${this.lastError}`)
+          this.logger.error(`[forgeloop] 运维巡检错误：${this.lastError}`)
         }
       })
       .catch((error: unknown) => {
         this.lastError = `运维巡检异常：${errorMessage(error)}`
-        console.error(`[forgeloop] ${this.lastError}`)
+        this.logger.error(`[forgeloop] ${this.lastError}`)
       })
       .finally(() => {
         this.opsCurrent = undefined

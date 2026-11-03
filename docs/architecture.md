@@ -350,7 +350,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 ## 5. 持久化
 
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
-- 位置：`<recordsRoot>/projects/<project>/records.sqlite`。
+- 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件运行日志固定写入
+  `<recordsRoot>/projects/<project>/logs/plugin.log`（同时保留宿主 console 输出）。
 - 表：需求与版本、分析、分析尝试、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立验证、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、

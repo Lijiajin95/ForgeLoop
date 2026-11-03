@@ -5,6 +5,7 @@
  * 当前没有人类 slash 命令表面；新方案的客户决定入口尚未实现。
  */
 
+import { createPluginLogger } from './runtime/log.js'
 import { asRecord } from './domain/json.js'
 import { loadConfigOrThrow, resolveConfig, type RawConfig } from './config.js'
 import { buildTools, registerTools } from './tools.js'
@@ -84,6 +85,7 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
   writeRuntimeIdentity(import.meta.url)
   // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
   const config = resolveConfig(loadConfigOrThrow(rawConfig))
+  const logger = createPluginLogger(config)
   const runtime = new ForgeLoopRuntime({ ctx, config })
   const coordinator = new Coordinator({
     runtime,
@@ -101,14 +103,14 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
     // ForgeLoop 业务会话：注册 preset 并接管该 preset 会话的人类输入。
     const sessionSurface = installSessionSurface(ctx, { runtime, config })
     void sessionSurface.ready.then((result) => {
-      if (result.ok) console.log('[forgeloop] 已注册业务会话 preset forgeloop')
-      else console.warn(`[forgeloop] ${result.reason}`)
+      if (result.ok) logger.info('[forgeloop] 已注册业务会话 preset forgeloop')
+      else logger.warn(`[forgeloop] ${result.reason}`)
     })
     // Web 看板路由可选：无浏览器连接的 profile（headless）保持只有工具。
     registerBoardRoute(ctx, runtime, config, coordinator)
     const summary = asRecord(runtime.directorySummary()) ?? {}
     // 启动信息只写宿主日志，不作为业务状态或验收证据。
-    console.log(
+    logger.info(
       `[forgeloop] 已加载 records=${String(summary.database)} project=${config.project} path=${config.projectPath} owner=${coordinator.owner}`,
     )
     return async () => {
