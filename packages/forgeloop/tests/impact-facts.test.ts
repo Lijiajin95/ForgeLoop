@@ -353,6 +353,107 @@ describe('impact facts: inconsistent versions and requests need review', () => {
   })
 })
 
+describe('impact facts: inconsistent and incomplete records', () => {
+  it('marks an analysis that claims a requirement version ahead of the record', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      analyses: [analysis(1, 3)],
+    })
+    expect(facts.analyses[0]?.pendingReasons.map((item) => item.code)).toContain(
+      'analysis_requirement_ahead',
+    )
+  })
+
+  it('marks a plan that claims a requirement version ahead of the record', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      analyses: [analysis(1, 1)],
+      plans: [plan(1, 3, [task('a')])],
+    })
+    expect(facts.plans[0]?.pendingReasons.map((item) => item.code)).toContain(
+      'plan_requirement_ahead',
+    )
+  })
+
+  it('marks the latest plan as pending when no analysis supports it', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      plans: [plan(1, 1, [task('a')])],
+    })
+    expect(facts.plans[0]?.pendingReasons.map((item) => item.code)).toContain(
+      'analysis_missing_for_plan',
+    )
+  })
+
+  it('marks an approval bound to another requirement and to an ahead plan', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      analyses: [analysis(1, 1)],
+      plans: [plan(1, 2, [task('a')])],
+      approvals: [{ ...approval(1), requirementId: 'req-other' }],
+    })
+    expect(facts.approvals[0]?.pendingReasons.map((item) => item.code)).toEqual(
+      expect.arrayContaining(['approval_requirement_mismatch', 'approval_requirement_ahead']),
+    )
+  })
+
+  it('marks a delivery whose plan version is missing', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      deliveries: [artifact(2, 'a')],
+    })
+    expect(facts.deliveries[0]?.pendingReasons.map((item) => item.code)).toContain(
+      'delivery_plan_missing',
+    )
+  })
+
+  it('marks a delivery whose task is missing from its plan', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      plans: [plan(1, 1, [task('a')])],
+      deliveries: [artifact(1, 'missing')],
+    })
+    expect(facts.deliveries[0]?.pendingReasons.map((item) => item.code)).toContain(
+      'delivery_task_missing',
+    )
+  })
+
+  it('lists every missing delivery material field', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      plans: [plan(1, 1, [task('a')])],
+      deliveries: [
+        artifact(1, 'a', {
+          candidateSha256: '',
+          testEvidenceSha256: '',
+          reviewSha256: '',
+          authorizationSource: '   ',
+        }),
+      ],
+    })
+    const reason = facts.deliveries[0]?.pendingReasons.find(
+      (item) => item.code === 'delivery_material_incomplete',
+    )
+    expect(reason?.message).toContain('候选 diff 摘要')
+    expect(reason?.message).toContain('正式测试证据摘要')
+    expect(reason?.message).toContain('独立审查结论摘要')
+    expect(reason?.message).toContain('任务级授权来源')
+  })
+
+  it('sorts requests by createdAt and requestId, treating a missing time as empty', () => {
+    const facts = buildImpactFacts({
+      requirement: requirement([version(1)]),
+      requests: [
+        { requestId: 'b', action: 'advance', state: 'pending', planVersion: 1, createdAt: T1 },
+        { requestId: 'a', action: 'advance', state: 'pending', planVersion: 1, createdAt: T1 },
+        { requestId: 'c', action: 'advance', state: 'done', planVersion: 1 },
+      ],
+    })
+    expect(facts.requests.map((item) => item.requestId)).toEqual(['c', 'a', 'b'])
+    expect(facts.requests[0]?.createdAt).toBe('')
+  })
+})
+
 describe('impact facts: read-only surface', () => {
   it('only exposes the fact builder and no approve/advance/accept mutation entry points', () => {
     const exports = Object.keys(impact)

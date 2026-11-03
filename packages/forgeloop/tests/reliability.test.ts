@@ -305,6 +305,32 @@ describe('weekly trend', () => {
   })
 })
 
+describe('failure stage coverage', () => {
+  it('counts every failure stage and ignores an unknown stage', () => {
+    const facts = [
+      'planning',
+      'implementation_review',
+      'formal_test',
+      'interrupted',
+      'verification',
+      'business_review',
+      'user_acceptance',
+    ].map((stage) => ({ reqId: 'a', stage, occurredAt: '2026-11-01T00:00:00.000Z' }))
+    facts.push({ reqId: 'a', stage: 'unknown' as never, occurredAt: '2026-11-01T00:00:00.000Z' })
+    const summary = failureSummary(facts as never)
+    expect(summary.total).toBe(8)
+    expect(summary.byStage).toMatchObject({
+      planning: 1,
+      implementation_review: 1,
+      formal_test: 1,
+      interrupted: 1,
+      verification: 1,
+      business_review: 1,
+      user_acceptance: 1,
+    })
+  })
+})
+
 describe('snapshot freshness', () => {
   it('is stale on head mismatch, dirty tree, old age or unknown head', () => {
     expect(snapshotStaleness(snapshot() as never, 'abc123', NOW).stale).toBe(false)
@@ -323,6 +349,19 @@ describe('snapshot freshness', () => {
     )
     const old = snapshot({ generatedAt: '2026-10-01T00:00:00.000Z' })
     expect(snapshotStaleness(old as never, 'abc123', NOW).reasons).toContain('快照已超过 7 天')
+  })
+})
+
+describe('snapshot freshness invalid timestamps', () => {
+  it('marks an unparseable generatedAt as stale', () => {
+    const result = snapshotStaleness(
+      snapshot({ generatedAt: 'not-a-date' }) as never,
+      'abc123',
+      NOW,
+    )
+    expect(result.stale).toBe(true)
+    expect(result.ageSeconds).toBeNull()
+    expect(result.reasons).toContain('快照生成时间无效')
   })
 })
 
@@ -351,6 +390,31 @@ describe('key coverage', () => {
   })
 })
 
+describe('key coverage gaps', () => {
+  it('reports a missing key file and null metrics as not passed', () => {
+    const summary = keyCoverage([])
+    expect(summary.total).toBeGreaterThan(0)
+    expect(summary.passed).toBe(0)
+    expect(summary.files[0]?.present).toBe(false)
+    expect(summary.files[0]?.lines).toBeNull()
+  })
+
+  it('reports a file with null metrics as not passed', () => {
+    const [path, thresholds] = Object.entries(KEY_COVERAGE_THRESHOLDS)[0]!
+    const summary = keyCoverage([
+      {
+        path: `packages/forgeloop/${path}`,
+        lines: null,
+        statements: null,
+        functions: thresholds.functions,
+        branches: thresholds.branches,
+      },
+    ])
+    expect(summary.files[0]?.present).toBe(true)
+    expect(summary.passed).toBe(0)
+  })
+})
+
 describe('snapshot parsing', () => {
   it('parses a complete snapshot and preserves null measurements', () => {
     const parsed = parseReliabilitySnapshot(snapshot())
@@ -362,6 +426,44 @@ describe('snapshot parsing', () => {
       ],
     })
     expect(parseReliabilitySnapshot(missing).gates[0]?.measured).toBeNull()
+  })
+
+  it('rejects empty strings and non-finite numbers in snapshot fields', () => {
+    expect(() => parseReliabilitySnapshot(snapshot({ project: '' }))).toThrow(
+      '可靠性快照字段 project 必须是非空字符串',
+    )
+    expect(() =>
+      parseReliabilitySnapshot(
+        snapshot({ tests: { ...(snapshot().tests as object), total: Number.POSITIVE_INFINITY } }),
+      ),
+    ).toThrow('必须是有限数字')
+    expect(() => parseReliabilitySnapshot(snapshot({ coverage: 'none' }))).toThrow(
+      'coverage 必须是对象',
+    )
+  })
+
+  it('rejects oversized coverage, gates and artifacts lists', () => {
+    const gates = Array.from({ length: 51 }, (_, index) => ({
+      ...((snapshot().gates as unknown[])[0] as object),
+      id: `gate-${index}`,
+    }))
+    expect(() => parseReliabilitySnapshot(snapshot({ gates }))).toThrow('门禁数超过')
+    const files = Array.from({ length: 201 }, (_, index) => ({
+      path: `src/${index}.ts`,
+      lines: 1,
+      statements: 1,
+      functions: 1,
+      branches: 1,
+    }))
+    expect(() =>
+      parseReliabilitySnapshot(
+        snapshot({ coverage: { ...(snapshot().coverage as object), files } }),
+      ),
+    ).toThrow('coverage.files 超过')
+    const artifacts = Object.fromEntries(
+      Array.from({ length: 21 }, (_, index) => [`a${index}`, 'x']),
+    )
+    expect(() => parseReliabilitySnapshot(snapshot({ artifacts }))).toThrow('artifacts 超过 20 项')
   })
 
   it('rejects an invalid gate status, empty gates and percentages outside 0..100', () => {

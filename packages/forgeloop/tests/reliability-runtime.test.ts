@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
-import { ReliabilityDashboard } from '../src/runtime/reliability.js'
+import { ReliabilityDashboard, reliabilityReport } from '../src/runtime/reliability.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
 
 const PROJECT = 'forgeloop'
@@ -264,6 +265,79 @@ describe('reliability dashboard', () => {
     expect(report.runtime.recentEvents.map((event) => event.kind)).toContain('verification')
     expect(report.runtime.recentEvents.map((event) => event.kind)).toContain('deployment')
     expect(report.runtime.recentEvents.map((event) => event.kind)).toContain('ops')
+  })
+
+  it('reuses the head and snapshot caches across reports', () => {
+    const instance = dashboard({ snapshot: snapshot() })
+    const first = instance.report('30d')
+    const second = instance.report('30d')
+    expect(first.snapshot.availability).toBe('fresh')
+    expect(second.snapshot.commit).toBe('abc123')
+    expect(second.runtime.verification.total).toBe(0)
+  })
+
+  it('counts commits behind the snapshot using the real project history', () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir })
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir })
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    execFileSync('git', ['add', '-A'], { cwd: dir })
+    execFileSync('git', ['commit', '-qm', 'first'], { cwd: dir })
+    const first = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
+    writeFileSync(join(dir, 'a.txt'), 'b\n')
+    execFileSync('git', ['commit', '-qam', 'second'], { cwd: dir })
+    const path = join(dir, 'reports', 'reliability', 'latest.json')
+    mkdirSync(join(dir, 'reports', 'reliability'), { recursive: true })
+    writeFileSync(
+      path,
+      JSON.stringify(snapshot({ git: { head: first, branch: 'main', dirty: false } })),
+    )
+    const instance = new ReliabilityDashboard({
+      repository,
+      project: PROJECT,
+      projectPath: dir,
+      now: () => NOW,
+    })
+    expect(instance.report('30d').snapshot.behindCommits).toBe(1)
+
+    writeFileSync(
+      path,
+      JSON.stringify(snapshot({ git: { head: 'deadbeef', branch: 'main', dirty: false } })),
+    )
+    const unknown = new ReliabilityDashboard({
+      repository,
+      project: PROJECT,
+      projectPath: dir,
+      now: () => NOW,
+    })
+    expect(unknown.report('30d').snapshot.behindCommits).toBeNull()
+  })
+
+  it('rejects an oversized snapshot and reuses one dashboard per repository', () => {
+    const path = join(dir, 'reports', 'reliability', 'latest.json')
+    mkdirSync(join(dir, 'reports', 'reliability'), { recursive: true })
+    writeFileSync(path, 'x'.repeat(5 * 1024 * 1024))
+    const instance = new ReliabilityDashboard({
+      repository,
+      project: PROJECT,
+      projectPath: dir,
+      now: () => NOW,
+      currentHead: () => 'abc123',
+    })
+    const report = instance.report('30d')
+    expect(report.snapshot.availability).toBe('invalid')
+    expect(report.snapshot.error).toContain('超过')
+
+    const config = {
+      project: PROJECT,
+      projectPath: dir,
+      agent: { provider: 'fake', model: 'fake' },
+      autoAdvance: false,
+    } as never
+    const first = reliabilityReport(repository, config, () => NOW, '30d')
+    const second = reliabilityReport(repository, config, () => NOW, '30d')
+    expect(first.project).toBe(PROJECT)
+    expect(second.generatedAt).toBe(NOW.toISOString())
   })
 
   it('returns null rates when the selected window has no records', () => {

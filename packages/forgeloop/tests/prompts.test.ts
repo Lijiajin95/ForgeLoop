@@ -3,6 +3,9 @@ import {
   analysisPrompt,
   devPlanningPrompt,
   devPrompt,
+  monitorPrompt,
+  opsDiagnosisPrompt,
+  orchestratorPrompt,
   parseReviewVerdict,
   requirementContext,
   reviewPrompt,
@@ -284,5 +287,88 @@ describe('review verdict parsing', () => {
     expect(() => parseReviewVerdict(JSON.stringify({ verdict: 'block', blocking: [] }))).toThrow(
       'block 时必须给出至少一条阻断原因',
     )
+  })
+})
+
+describe('ops and monitor prompts', () => {
+  const event = {
+    eventId: 'ops-1',
+    title: '页面不可用',
+    severity: 'major',
+    openedAt: '2026-11-01T00:00:00.000Z',
+    resource: { id: 'web', kind: 'app', label: '天工页面' },
+    checkId: 'web-health',
+    observations: ['退出码 1'],
+    output: 'boom',
+  }
+
+  it('states when a resource has no registered actions', () => {
+    const prompt = opsDiagnosisPrompt({ ...event, actions: [] })
+    expect(prompt).toContain('该资源没有登记任何处置动作')
+  })
+
+  it('renders action parameters and the no-parameter fallback', () => {
+    const prompt = opsDiagnosisPrompt({
+      ...event,
+      actions: [
+        { id: 'restart-web', params: [{ name: 'mode', values: ['graceful', 'force'] }] },
+        { id: 'reload-web', params: [] },
+      ],
+    })
+    expect(prompt).toContain('mode ∈ [graceful, force]')
+    expect(prompt).toContain('reload-web（无参数）')
+  })
+
+  it('renders empty resource and action catalogues for the monitor prompt', () => {
+    const prompt = monitorPrompt({
+      snapshot: { at: '2026-11-01T00:00:00.000Z' } as never,
+      resources: [],
+      actions: [],
+    })
+    expect(prompt).toContain('没有登记资源')
+    expect(prompt).toContain('没有登记处置动作')
+  })
+
+  it('truncates an oversized monitor snapshot and renders action parameters', () => {
+    const prompt = monitorPrompt({
+      snapshot: { at: '2026-11-01T00:00:00.000Z', padding: 'x'.repeat(70_000) } as never,
+      resources: [{ id: 'web', kind: 'app', label: '天工页面' }],
+      actions: [
+        { id: 'restart-web', resourceId: 'web', params: [{ name: 'mode', values: ['graceful'] }] },
+        { id: 'reload-web', resourceId: 'web', params: [] },
+      ],
+    })
+    expect(prompt).toContain('快照已截断')
+    expect(prompt).toContain('- web（天工页面，类型 app）')
+    expect(prompt).toContain('mode ∈ [graceful]')
+    expect(prompt).toContain('reload-web（资源 web；无参数）')
+  })
+
+  it('renders the empty session list and session candidates for the orchestrator', () => {
+    const analysis = {
+      goal: '目标',
+      scenarios: [],
+      acceptanceCriteria: [],
+      clarifications: [],
+    }
+    const empty = orchestratorPrompt({ requirement, analysis: analysis as never, sessions: [] })
+    expect(empty).toContain('当前没有已存在的研发会话')
+    const sessions = orchestratorPrompt({
+      requirement,
+      analysis: analysis as never,
+      sessions: [
+        {
+          sessionId: 's-1',
+          state: 'idle',
+          workspace: '/tmp/work',
+          lastReqId: '',
+          updatedAt: '2026-11-01T00:00:00.000Z',
+          summary: '',
+        },
+      ],
+    })
+    expect(sessions).toContain('会话 s-1')
+    expect(sessions).toContain('最近需求 无')
+    expect(sessions).toContain('还没有总结')
   })
 })

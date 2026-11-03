@@ -23,6 +23,7 @@ import type { TaskPlan } from '../src/domain/task-plan.js'
 import type { Requirement, RequirementAnalysis } from '../src/domain/requirement.js'
 import {
   VerificationAgent,
+  verificationPlanPrompt,
   type VerificationSessionResult,
   type VerificationSessionTurn,
 } from '../src/agents/verification-agent.js'
@@ -2006,5 +2007,34 @@ describe('verification check registry', () => {
     expect(outcome.text).toContain('docs/leak.txt')
     const snapshot = writing.registry.snapshot(writing.reqId, writing.handle.token)
     expect(snapshot?.integrityIssues.join('；')).toContain('docs/leak.txt')
+  })
+})
+
+describe('verification agent session facts', () => {
+  it('exposes the planning session id', () => {
+    const { agent } = makeVerificationAgent()
+    expect(agent.sessionId).toBe('session-verify-plan')
+  })
+
+  it('renders missing optional analysis lists as empty placeholders', () => {
+    const prompt = verificationPlanPrompt({
+      requirement: {
+        reqId: 'req-1',
+        project: 'forgeloop',
+        versions: [{ version: 1, text: '需求', createdAt: '2026-11-01T00:00:00.000Z' }],
+      } as never,
+      analysis: {
+        analysisVersion: 1,
+        requirementVersion: 1,
+        goal: '目标',
+        scenarios: ['场景'],
+        acceptanceCriteria: ['标准'],
+        clarifications: [],
+      } as never,
+      plan: { planVersion: 1, tasks: [] } as never,
+    })
+    expect(prompt).toContain('（没有额外业务规则）')
+    expect(prompt).toContain('（没有额外异常或边界）')
+    expect(prompt).toContain('（未声明非目标）')
   })
 })

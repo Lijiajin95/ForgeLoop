@@ -243,6 +243,163 @@ describe('ops diagnosis parsing', () => {
   })
 })
 
+describe('ops catalog rejection paths', () => {
+  const resource = CATALOG.resources[0]!
+  const check = CATALOG.checks[0]!
+  const action = CATALOG.actions[0]!
+
+  function catalog(overrides: Partial<OpsCatalog>): OpsCatalog {
+    return { ...CATALOG, ...overrides }
+  }
+
+  it('rejects identifiers that are not path-safe', () => {
+    expect(() =>
+      validateOpsCatalog(catalog({ resources: [{ ...resource, id: 'bad id' }] })),
+    ).toThrow('资源身份只能使用字母、数字、下划线和连字符')
+    expect(() =>
+      validateOpsCatalog(
+        catalog({ checks: [{ ...check, id: 'bad/id' }], resources: [resource], actions: [] }),
+      ),
+    ).toThrow('检查身份只能使用字母、数字、下划线和连字符')
+    expect(() => validateOpsCatalog(catalog({ actions: [{ ...action, id: 'bad id' }] }))).toThrow(
+      '动作身份只能使用字母、数字、下划线和连字符',
+    )
+    expect(() =>
+      validateOpsCatalog(
+        catalog({ actions: [{ ...action, params: [{ name: 'bad name', values: ['a'] }] }] }),
+      ),
+    ).toThrow('参数名只能使用字母、数字、下划线和连字符')
+  })
+
+  it('rejects unsupported resource kinds and check severities', () => {
+    expect(() =>
+      validateOpsCatalog(catalog({ resources: [{ ...resource, kind: 'service' as never }] })),
+    ).toThrow('类型不受支持')
+    expect(() =>
+      validateOpsCatalog(
+        catalog({
+          checks: [{ ...check, severity: 'blocker' as never }],
+          resources: [resource],
+          actions: [],
+        }),
+      ),
+    ).toThrow('严重度不受支持')
+  })
+
+  it('rejects empty argv entries and non-positive timeouts', () => {
+    expect(() =>
+      validateOpsCatalog(
+        catalog({
+          checks: [{ ...check, command: [''] }],
+          resources: [resource],
+          actions: [],
+        }),
+      ),
+    ).toThrow('命令参数必须是非空字符串')
+    expect(() =>
+      validateOpsCatalog(
+        catalog({
+          checks: [{ ...check, timeoutSeconds: 0 }],
+          resources: [resource],
+          actions: [],
+        }),
+      ),
+    ).toThrow('必须是正数')
+    expect(() => validateOpsCatalog(catalog({ actions: [{ ...action, command: [] }] }))).toThrow(
+      '命令不能为空',
+    )
+  })
+
+  it('rejects actions that reference an unknown resource', () => {
+    expect(() =>
+      validateOpsCatalog(catalog({ actions: [{ ...action, resourceId: 'ghost' }] })),
+    ).toThrow('引用了未登记的资源：ghost')
+    expect(() =>
+      validateOpsCatalog(
+        catalog({
+          checks: [{ ...check, resourceId: 'ghost' }],
+          resources: [resource],
+          actions: [],
+        }),
+      ),
+    ).toThrow('检查 web-health 引用了未登记的资源：ghost')
+  })
+
+  it('rejects empty or duplicated parameter allowed values', () => {
+    expect(() =>
+      validateOpsCatalog(
+        catalog({ actions: [{ ...action, params: [{ name: 'mode', values: [''] }] }] }),
+      ),
+    ).toThrow('允许值必须是非空字符串')
+    expect(() =>
+      validateOpsCatalog(
+        catalog({ actions: [{ ...action, params: [{ name: 'mode', values: ['a', 'a'] }] }] }),
+      ),
+    ).toThrow('存在重复的允许值')
+    expect(() =>
+      validateOpsCatalog(
+        catalog({ actions: [{ ...action, params: [{ name: 'mode', values: [] }] }] }),
+      ),
+    ).toThrow('缺少允许值')
+  })
+})
+
+describe('ops diagnosis rejection paths', () => {
+  function payload(overrides: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+      impact: '影响',
+      facts: [],
+      hypotheses: [],
+      proposed_action: null,
+      decision_required: false,
+      fix_required: false,
+      summary: '摘要',
+      ...overrides,
+    })
+  }
+
+  it('rejects hypotheses that are not an array of objects', () => {
+    expect(() => parseOpsDiagnosis(payload({ hypotheses: 'none' }))).toThrow(
+      '运维诊断的推断必须是数组',
+    )
+    expect(() => parseOpsDiagnosis(payload({ hypotheses: ['x'] }))).toThrow(
+      '运维诊断的推断[0]必须是对象',
+    )
+  })
+
+  it('rejects a proposed action that is not an object', () => {
+    expect(() => parseOpsDiagnosis(payload({ proposed_action: 'restart' }))).toThrow(
+      'proposed_action 必须是对象或 null',
+    )
+  })
+
+  it('rejects a top-level JSON array or scalar', () => {
+    expect(() => parseOpsDiagnosis('[]')).toThrow('运维诊断必须是 JSON 对象')
+    expect(() => parseOpsDiagnosis('"text"')).toThrow('运维诊断必须是 JSON 对象')
+  })
+
+  it('rejects invalid facts, decision and fix flags', () => {
+    expect(() => parseOpsDiagnosis(payload({ facts: 'none' }))).toThrow('运维诊断的事实必须是数组')
+    expect(() => parseOpsDiagnosis(payload({ decision_required: 'no' }))).toThrow(
+      '缺少 decision_required 布尔值',
+    )
+    expect(() => parseOpsDiagnosis(payload({ fix_required: 'no' }))).toThrow(
+      'fix_required 必须是布尔值',
+    )
+  })
+
+  it('rejects a proposed action whose id or params are empty', () => {
+    expect(() =>
+      parseOpsDiagnosis(payload({ proposed_action: { action_id: '', params: {} } })),
+    ).toThrow('proposed_action.action_id必须是非空字符串')
+    expect(() =>
+      parseOpsDiagnosis(
+        payload({ proposed_action: { action_id: 'restart-web', params: { mode: '' } } }),
+      ),
+    ).toThrow('proposed_action.params.mode必须是非空字符串')
+  })
+})
+
 describe('action authorization', () => {
   const webAction: OpsAction = CATALOG.actions[0]!
   const event = {

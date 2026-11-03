@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -114,5 +122,38 @@ describe('snapshot workspaces', () => {
     expect(capture.diff).toContain('diff --git')
     expect(capture.diffSha256).toMatch(/^[0-9a-f]{64}$/)
     expect(readFileSync(capture.diffPath, 'utf8')).toBe(capture.diff)
+  })
+})
+
+describe('workspace edge cases', () => {
+  it('accepts a timeout/env options object and the default form', () => {
+    const withOptions = runCommand(
+      'node',
+      ['-e', 'process.stdout.write(process.env.FORGELOOP_TEST_ENV ?? "")'],
+      dir,
+      {
+        timeoutMs: 5000,
+        env: { FORGELOOP_TEST_ENV: 'ok' },
+      },
+    )
+    expect(withOptions).toMatchObject({ code: 0, stdout: 'ok', stderr: '' })
+    const defaultTimeout = runCommand('node', ['-e', 'process.exit(0)'], dir, {})
+    expect(defaultTimeout.code).toBe(0)
+  })
+
+  it('skips tracked links that are broken or point at directories', () => {
+    symlinkSync('missing-target', join(project, 'broken-link'))
+    symlinkSync('docs', join(project, 'dir-link'))
+    commitAll(project, 'links')
+    const workspace = join(dir, 'snapshot-links')
+    const result = prepareSnapshotWorkspace({
+      projectPath: project,
+      workspacePath: workspace,
+      baselineCommit: headCommit(project),
+    })
+    expect(result.fileCount).toBeGreaterThan(0)
+    expect(existsSync(join(workspace, 'README.md'))).toBe(true)
+    expect(existsSync(join(workspace, 'broken-link'))).toBe(false)
+    expect(existsSync(join(workspace, 'dir-link'))).toBe(false)
   })
 })

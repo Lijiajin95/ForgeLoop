@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildTools, registerTools } from '../src/tools.js'
@@ -365,5 +365,110 @@ describe('requirement intake tool', () => {
     })
     expect(outcome.ok).toBe(false)
     expect(outcome.text).toContain('没有正在进行的验证')
+  })
+})
+
+describe('tool surface edge cases', () => {
+  it('renders a non-object value and a value without text', () => {
+    const rendered = tool('forgeloop_status').output.render({}, null) as Array<{
+      text: string
+    }>
+    expect(rendered[0]?.text).toContain('null')
+    const withoutText = tool('forgeloop_status').output.render(
+      {},
+      { ok: true, data: { a: 1 } },
+    ) as Array<{ text: string }>
+    expect(withoutText[0]?.text).toContain('"a": 1')
+  })
+
+  it('reads one requirement and one plan version through the tool surface', async () => {
+    const reqId = submitRequirement()
+    const single = await call('forgeloop_show_requirement', { req_id: reqId })
+    expect(single.ok, single.text).toBe(true)
+    expect(single.text).toContain(reqId)
+    const plan = await call('forgeloop_show_plan', { req_id: reqId, plan_version: 1 })
+    expect(plan.ok).toBe(false)
+    expect(plan.text).toContain('没有对应任务包')
+  })
+
+  it('reports a truncated project document', async () => {
+    writeFileSync(join(config.projectPath, 'big.md'), `${'x'.repeat(70_000)}\n`, 'utf8')
+    const outcome = await call('forgeloop_read_project_doc', { path: 'big.md' })
+    expect(outcome.ok, outcome.text).toBe(true)
+    expect(outcome.text).toContain('超过上限，内容已截断')
+  })
+
+  it('accepts a verification outcome without a data field', async () => {
+    const fakeTools = buildTools(
+      { runVerificationCheck: async () => ({ ok: true, text: 'checked' }) } as never,
+      config,
+    ) as ToolDefinition[]
+    const definition = fakeTools.find(
+      (candidate) => candidate.name === 'forgeloop_run_verification_check',
+    )
+    const outcome = await definition?.execute({ req_id: 'req-1', label: 'unit' }, {})
+    expect(outcome).toEqual({ ok: true, text: 'checked' })
+  })
+
+  it('formats search fallbacks and fetches pages with and without a title', async () => {
+    const savedKey = process.env.DEEPSEEK_API_KEY
+    const savedBase = process.env.FORGELOOP_WEB_BASE_URL
+    process.env.DEEPSEEK_API_KEY = 'tool-test-key'
+    process.env.FORGELOOP_WEB_BASE_URL = 'http://127.0.0.1:9'
+    const responses = [
+      { results: [{ url: 'https://example.com/a', snippet: '片段摘要' }] },
+      { results: [{ url: 'https://example.com/b', title: '有标题' }] },
+      { content: 'hello', title: '页面标题' },
+      { content: 'hello' },
+      { content: `${'z'.repeat(25_000)}`, title: '' },
+    ]
+    let index = 0
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(responses[index++] ?? {}),
+    }))
+    try {
+      const fallbackTitle = await call('forgeloop_web_search', { query: 'q' })
+      expect(fallbackTitle.text).toContain('（无标题）')
+      expect(fallbackTitle.text).toContain('片段摘要')
+      const fallbackSummary = await call('forgeloop_web_search', { query: 'q' })
+      expect(fallbackSummary.text).toContain('（无摘要）')
+      const page = await call('forgeloop_web_fetch', { url: 'https://example.com/a' })
+      expect(page.text).toContain('已读取 https://example.com/a（页面标题）')
+      const untitled = await call('forgeloop_web_fetch', { url: 'https://example.com/b' })
+      expect(untitled.text).toContain('已读取 https://example.com/b\n')
+      const long = await call('forgeloop_web_fetch', { url: 'https://example.com/c' })
+      expect(long.text).toContain('内容超过 20000 字符已截断')
+    } finally {
+      vi.unstubAllGlobals()
+      if (savedKey === undefined) delete process.env.DEEPSEEK_API_KEY
+      else process.env.DEEPSEEK_API_KEY = savedKey
+      if (savedBase === undefined) delete process.env.FORGELOOP_WEB_BASE_URL
+      else process.env.FORGELOOP_WEB_BASE_URL = savedBase
+    }
+  })
+
+  it('reports a failed page fetch without a page payload', async () => {
+    const savedKey = process.env.DEEPSEEK_API_KEY
+    const savedBase = process.env.FORGELOOP_WEB_BASE_URL
+    process.env.DEEPSEEK_API_KEY = 'tool-test-key'
+    process.env.FORGELOOP_WEB_BASE_URL = 'http://127.0.0.1:9'
+    vi.stubGlobal('fetch', async () => ({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ error: { message: 'server down' } }),
+    }))
+    try {
+      const outcome = await call('forgeloop_web_fetch', { url: 'https://example.com/a' })
+      expect(outcome.ok).toBe(false)
+      expect(outcome.text).toContain('HTTP 500')
+    } finally {
+      vi.unstubAllGlobals()
+      if (savedKey === undefined) delete process.env.DEEPSEEK_API_KEY
+      else process.env.DEEPSEEK_API_KEY = savedKey
+      if (savedBase === undefined) delete process.env.FORGELOOP_WEB_BASE_URL
+      else process.env.FORGELOOP_WEB_BASE_URL = savedBase
+    }
   })
 })

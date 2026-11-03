@@ -211,3 +211,80 @@ describe('task execution parser', () => {
     expect(page.events[0]?.tool?.status).toBe('failed')
   })
 })
+
+describe('task execution malformed and fallback fields', () => {
+  it('accepts string sequence/time and object arguments, with fallback tool names', () => {
+    const page = parseTaskExecution(
+      [
+        line({
+          type: 'tool/call',
+          seq: '1',
+          time: '1000',
+          data: { callId: 'c-1', arguments: { command: 'pwd' } },
+        }),
+        line({
+          type: 'tool/result',
+          seq: '2',
+          time: '2000',
+          data: { toolCallId: 'c-1', message: { content: [], isError: true } },
+        }),
+      ].join(''),
+    )
+    expect(page.events[0]?.tool).toMatchObject({
+      name: 'tool',
+      input: '{"command":"pwd"}',
+      status: 'failed',
+      isError: true,
+    })
+    expect(page.startedAt).toBe(new Date(1000).toISOString())
+    expect(page.lastActivity).toBe(new Date(2000).toISOString())
+  })
+
+  it('ignores calls and results without identities', () => {
+    const page = parseTaskExecution(
+      [
+        line({ type: 'tool/call', seq: 1, time: 1000, data: { name: 'bash' } }),
+        line({ type: 'tool/result', seq: 2, time: 2000, data: { message: {} } }),
+        line({ type: 'custom', seq: 3, time: 3000, data: { sessionId: 'data-session' } }),
+      ].join(''),
+    )
+    expect(page.total).toBe(0)
+    expect(page.sessionIds).toEqual(['data-session'])
+  })
+
+  it('records session ids from the event and data envelope', () => {
+    const page = parseTaskExecution(
+      [
+        line({
+          type: 'turn/start',
+          seq: 1,
+          time: 1000,
+          sessionId: 'top-session',
+          data: { sessionId: 'data-session' },
+        }),
+      ].join(''),
+    )
+    expect(page.sessionIds).toEqual(['top-session', 'data-session'])
+  })
+
+  it('keeps empty timestamps when no event has a usable time', () => {
+    const page = parseTaskExecution(
+      [
+        line({ type: 'turn/start', seq: 1, time: 0, data: {} }),
+        line({ type: 'turn/end', seq: 2, time: 'not-a-time', data: {} }),
+      ].join(''),
+    )
+    expect(page.startedAt).toBe('')
+    expect(page.lastActivity).toBe('')
+  })
+
+  it('sorts events with the same sequence by identity', () => {
+    const page = parseTaskExecution(
+      [
+        line({ type: 'tool/result', seq: 5, time: 1000, data: { toolCallId: 'z' } }),
+        line({ type: 'tool/result', seq: 5, time: 1000, data: { toolCallId: 'a' } }),
+      ].join(''),
+    )
+    expect(page.events.map((event) => event.id)).toEqual(['tool-result:a', 'tool-result:z'])
+  })
+})

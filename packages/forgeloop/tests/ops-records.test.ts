@@ -170,3 +170,49 @@ describe('ops action attempts', () => {
     expect(repository.opsEvent('ops-1')?.state).toBe(OPS_UNRESOLVED)
   })
 })
+
+describe('ops store defensive paths', () => {
+  it('rejects unknown patch fields, empty patches and missing events', () => {
+    event()
+    expect(() => repository.updateOpsEvent('ops-1', { unknown: 'x' } as never)).toThrow(
+      '运维事件不支持更新字段 unknown',
+    )
+    expect(() => repository.updateOpsEvent('ops-1', { state: undefined })).toThrow(
+      '运维事件更新至少需要一个字段',
+    )
+    expect(() => repository.updateOpsEvent('ops-missing', { state: 'closed' })).toThrow(
+      '未找到运维事件 ops-missing',
+    )
+  })
+
+  it('rejects linking a fix requirement to a missing event', () => {
+    expect(() => repository.linkOpsFixRequirement('ops-missing', 'req-fix', NOW)).toThrow(
+      '未找到运维事件 ops-missing',
+    )
+  })
+
+  it('appends the first observation even when the event row is absent', () => {
+    repository.appendOpsObservation({ eventId: 'ops-ghost', at: NOW, kind: 'check', summary: 'x' })
+    expect(repository.opsObservations('ops-ghost')[0]?.seq).toBe(1)
+  })
+
+  it('finishes an action attempt without an evidence path', () => {
+    event()
+    repository.recordOpsActionAttempt({
+      actionId: 'act-2',
+      eventId: 'ops-1',
+      actionDefId: 'restart-web',
+      paramsJson: '{}',
+      state: 'running',
+      authorizationSource: 'owner:test',
+      startedAt: NOW,
+    })
+    repository.finishOpsActionAttempt('act-2', {
+      state: 'succeeded',
+      detail: 'ok',
+      exitCode: 0,
+      finishedAt: NOW,
+    })
+    expect(repository.opsActionAttempts('ops-1')[0]?.evidencePath).toBe('')
+  })
+})

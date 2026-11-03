@@ -43,8 +43,9 @@ function listFiles(root: string, relative = ''): string[] {
   return files.sort()
 }
 
-function main(): number {
-  const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+export function main(
+  packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
+): number {
   const cache = resolve(packageDir, '../../.cache/npm-cache')
   mkdirSync(join(packageDir, 'dist'), { recursive: true })
   const output = execFileSync(
@@ -84,9 +85,11 @@ function main(): number {
   return 0
 }
 
-try {
-  process.exitCode = main()
-} catch (error) {
-  console.error(`[forgeloop-pack] ${errorMessage(error)}`)
-  process.exitCode = 1
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    process.exitCode = main()
+  } catch (error) {
+    console.error(`[forgeloop-pack] ${errorMessage(error)}`)
+    process.exitCode = 1
+  }
 }

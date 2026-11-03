@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -353,6 +353,46 @@ describe('monitor snapshot collection', () => {
     })
     expect(snapshot.errors).toEqual(['采集已取消'])
     expect(snapshot.logs).toEqual([])
+  })
+
+  it('uses a caller signal for latency and ignores a body that cannot be cancelled', async () => {
+    const fetchMock = vi.fn(async (_url: string, init: { signal?: AbortSignal }) => {
+      expect(init.signal).toBeDefined()
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          cancel() {
+            throw new Error('cancel failed')
+          },
+        }),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const config = collectorConfig(
+        {
+          latency: [
+            {
+              id: 'web-health-url',
+              resourceId: 'web',
+              url: 'http://example.test/health',
+              timeoutSeconds: 1,
+            },
+          ],
+        },
+        { resources: [{ id: 'web', kind: 'app', label: '天工页面' }] },
+      )
+      const snapshot = await collectMonitorSnapshot({
+        config,
+        repo: repository,
+        now: clock,
+        signal: new AbortController().signal,
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(snapshot.latency[0]).toMatchObject({ ok: true, status: 200 })
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('records which monitoring provider produced the snapshot', async () => {

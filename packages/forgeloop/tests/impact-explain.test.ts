@@ -249,6 +249,33 @@ describe('impact explanation with --explain', () => {
   })
 })
 
+describe('impact explanation serialization and empty responses', () => {
+  it('reports unserialisable facts without calling the Agent', async () => {
+    const circular: Record<string, unknown> = { ...facts(), reqId: 'req-circular' }
+    circular.self = circular
+    const recorder = recordingAgent({ status: 'completed', text: 'unused' })
+
+    const result = await explainImpactFacts(circular as never, {
+      explain: true,
+      agent: recorder.agent,
+    })
+
+    expect(recorder.calls).toHaveLength(0)
+    expect(result.inference?.status).toBe('error')
+    expect(result.inference?.reason).toContain('确定性事实无法序列化')
+    expect(result.sections.map((section) => section.kind)).toEqual(['facts', 'inference'])
+  })
+
+  it('rejects a completed response without usable text', async () => {
+    const recorder = recordingAgent({ status: 'completed', text: '   ', sessionId: 's' })
+
+    const result = await explainImpactFacts(facts(), { explain: true, agent: recorder.agent })
+
+    expect(result.inference?.status).toBe('error')
+    expect(result.inference?.reason).toContain('未产出可用文本')
+  })
+})
+
 describe('impact explanation module is read-only', () => {
   it('exposes no approve, advance, accept or record operation', () => {
     const exported = Object.keys(impactExplainModule)

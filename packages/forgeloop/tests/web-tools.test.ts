@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fetchWeb, searchWeb } from '../src/runtime/web-tools.js'
@@ -195,5 +195,73 @@ describe('DeepSeek web fetch', () => {
     const empty = await fetchWeb('https://example.com/empty')
     expect(empty.ok).toBe(false)
     if (!empty.ok) expect(empty.reason).toContain('没有可读正文')
+  })
+})
+
+describe('web tool transport failures', () => {
+  it('reports network failures and non-JSON bodies without throwing', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('network down')
+    })
+    try {
+      const failed = await searchWeb('门店结算')
+      expect(failed.ok).toBe(false)
+      if (!failed.ok) expect(failed.reason).toContain('联网请求失败：network down')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      text: async () => {
+        throw new Error('read failed')
+      },
+    }))
+    try {
+      const empty = await searchWeb('门店结算')
+      expect(empty.ok).toBe(false)
+      if (!empty.ok) expect(empty.reason).toBe('联网接口返回的不是 JSON')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports an HTTP failure without a provider message', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: false,
+      status: 502,
+      text: async () => '',
+    }))
+    try {
+      const outcome = await fetchWeb('https://example.com/a')
+      expect(outcome.ok).toBe(false)
+      if (!outcome.ok) expect(outcome.reason).toBe('联网请求失败（HTTP 502，请求失败）')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('skips malformed search results and normalises the count', async () => {
+    handler = (_call, response) =>
+      respond(response, 200, {
+        results: [null, 'text', { title: '缺少地址' }, { url: 'https://example.com/ok' }],
+      })
+    const outcome = await searchWeb('门店结算', Number.NaN)
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.data.results).toHaveLength(1)
+    expect(calls[0]?.body.count).toBe(10)
+    await searchWeb('门店结算', 0)
+    expect(calls[1]?.body.count).toBe(1)
+  })
+
+  it('rejects over-long and malformed page URLs before calling the API', async () => {
+    const tooLong = await fetchWeb(`https://example.com/${'x'.repeat(9000)}`)
+    expect(tooLong.ok).toBe(false)
+    if (!tooLong.ok) expect(tooLong.reason).toContain('不能超过 8192')
+    const malformed = await fetchWeb('not a url')
+    expect(malformed.ok).toBe(false)
+    if (!malformed.ok) expect(malformed.reason).toContain('不是合法 URL')
+    expect(calls).toHaveLength(0)
   })
 })

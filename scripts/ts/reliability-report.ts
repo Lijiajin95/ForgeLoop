@@ -238,10 +238,18 @@ function coveragePasses(coverage: CoverageSummary | null): boolean {
   const keyThresholds = config.test?.coverage?.thresholds
   const configured = record(keyThresholds)
   if (!configured) return true
+  const defaults = {
+    lines: num(configured.lines, 90),
+    functions: num(configured.functions, 93),
+    branches: num(configured.branches, 84),
+  }
+  const overrides = new Map<string, typeof defaults>()
   for (const [path, expectedValue] of Object.entries(configured)) {
     if (path === 'lines' || path === 'statements' || path === 'functions' || path === 'branches') {
       continue
     }
+    // perFile 之类的开关是布尔值，不是按文件门槛，跳过。
+    if (typeof expectedValue !== 'object' || expectedValue === null) continue
     const expected = record(expectedValue)
     const file = coverage.files.find(
       (item) => item.path.endsWith(`/${path}`) || item.path.endsWith(path),
@@ -256,6 +264,27 @@ function coveragePasses(coverage: CoverageSummary | null): boolean {
       file.functions < num(expected.functions)
     ) {
       return false
+    }
+    overrides.set(file.path, {
+      lines: num(expected.lines, defaults.lines),
+      functions: num(expected.functions, defaults.functions),
+      branches: num(expected.branches, defaults.branches),
+    })
+  }
+  // 配置开启 perFile 时，每个源文件都要达到默认门槛，快照必须与真实门禁一致。
+  if (configured.perFile === true) {
+    for (const file of coverage.files) {
+      const expected = overrides.get(file.path) ?? defaults
+      if (
+        file.lines === null ||
+        file.functions === null ||
+        file.branches === null ||
+        file.lines < expected.lines ||
+        file.functions < expected.functions ||
+        file.branches < expected.branches
+      ) {
+        return false
+      }
     }
   }
   return true

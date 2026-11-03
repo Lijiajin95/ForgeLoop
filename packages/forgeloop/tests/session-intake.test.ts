@@ -806,3 +806,110 @@ describe('clarification guard paths', () => {
     runtime.close()
   })
 })
+
+describe('ForgeLoop session intake failure paths', () => {
+  function plainSession(): {
+    header: Record<string, unknown>
+    events: Array<{ type: string; data: Record<string, unknown> }>
+    append(type: string, data: Record<string, unknown>): void
+  } {
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    return {
+      header: { agentPreset: 'forgeloop' },
+      events,
+      append(type, data) {
+        events.push({ type, data })
+      },
+    }
+  }
+
+  it('reports a lookup failure instead of letting the pre-step hook throw', async () => {
+    const intake = new SessionIntake({
+      runtime: {
+        pendingClarifications: () => {
+          throw new Error('lookup failed')
+        },
+      } as never,
+      config: { owner: 'owner' } as never,
+    })
+    const session = plainSession()
+    const decision = await intake.handlePreStep(
+      { agent: { session }, messages: [human('m-lookup', '内容')], turn: 2 },
+      async () => ({ kind: 'enter' as const, messages: [] }),
+    )
+    expect(decision).toEqual({ kind: 'reject' })
+    expect(session.events[0]?.data.message).toContain('需求受理异常：lookup failed')
+  })
+
+  it('falls back to unknown-session and a deterministic message id', async () => {
+    const intake = new SessionIntake({
+      runtime: {
+        pendingClarifications: () => [],
+        submit: () => ({ ok: false, message: 'rejected' }),
+      } as never,
+      config: { owner: 'owner' } as never,
+    })
+    const session = plainSession()
+    await intake.handlePreStep(
+      { agent: { session }, messages: [human('', '内容')], turn: 7 },
+      async () => ({ kind: 'enter' as const, messages: [] }),
+    )
+    expect(session.events[0]?.data.message).toBe('rejected')
+  })
+
+  it('reports a rejected submit without creating a requirement', async () => {
+    const intake = new SessionIntake({
+      runtime: {
+        pendingClarifications: () => [],
+        submit: () => ({ ok: false, message: 'duplicate client key' }),
+      } as never,
+      config: { owner: 'owner' } as never,
+    })
+    const session = plainSession()
+    await intake.handlePreStep(
+      { agent: { session }, messages: [human('m-rejected', '内容')] },
+      async () => ({ kind: 'enter' as const, messages: [] }),
+    )
+    expect(session.events[0]?.data.message).toBe('duplicate client key')
+  })
+
+  it('reports a thrown clarification answer', async () => {
+    const intake = new SessionIntake({
+      runtime: {
+        pendingClarifications: () => [{ reqId: 'req-1' }],
+        answerClarifications: async () => {
+          throw new Error('answer failed')
+        },
+      } as never,
+      config: { owner: 'owner' } as never,
+    })
+    const session = plainSession()
+    await intake.handlePreStep(
+      { agent: { session }, messages: [human('m-answer', '回答')] },
+      async () => ({ kind: 'enter' as const, messages: [] }),
+    )
+    expect(session.events[0]?.data).toMatchObject({
+      reqId: 'req-1',
+      message: '澄清回答异常：answer failed',
+    })
+  })
+
+  it('reports a rejected clarification answer and a missing requirement id', async () => {
+    const intake = new SessionIntake({
+      runtime: {
+        pendingClarifications: () => [{ reqId: '' }],
+        answerClarifications: async () => ({ ok: false, message: 'no pending clarification' }),
+      } as never,
+      config: { owner: 'owner' } as never,
+    })
+    const session = plainSession()
+    await intake.handlePreStep(
+      { agent: { session }, messages: [human('m-answer-2', '回答')] },
+      async () => ({ kind: 'enter' as const, messages: [] }),
+    )
+    expect(session.events[0]?.data).toMatchObject({
+      reqId: '',
+      message: 'no pending clarification',
+    })
+  })
+})

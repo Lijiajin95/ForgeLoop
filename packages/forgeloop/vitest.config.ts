@@ -12,15 +12,19 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary'],
       include: ['src/**/*.ts'],
-      exclude: ['src/cli/**', 'src/index.ts'],
-      // 2026-10-23 扩充测试后实测：行/语句 92.16、函数 95.45、分支 85.12。
-      // 门槛取略低于实测的整数，阻断回退；历史目标（行/语句 90、分支 85）已达到。
+      // 入口装配与打包 CLI 同样纳入逐文件门槛；不再排除任何源码。
+      // 默认排除项会把 formal-test.ts 当成测试文件；这里只保留真正的构建/依赖目录。
+      exclude: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/*.d.ts'],
+      // 所有被统计源码逐文件检查，不再只靠全局平均或少数关键文件豁免。
+      // 任何一个文件低于任一项门槛都会失败；新增源码自动纳入。
       thresholds: {
         lines: 90,
         functions: 93,
         branches: 84,
         statements: 90,
-        // 关键路径单独设门槛，避免被低风险文件平均掉。
+        // 所有源码逐文件检查；新增文件自动纳入，不再只靠全局平均。
+        perFile: true,
+        // 可靠性看板仍引用这六个关键文件的门槛；它们不替代上面的全量逐文件门槛。
         'src/runtime/service.ts': { lines: 85, branches: 78, functions: 92 },
         'src/runtime/coordinator.ts': { lines: 90, branches: 83, functions: 99 },
         'src/records/repository.ts': { lines: 97, branches: 86, functions: 98 },

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -71,6 +71,56 @@ describe('host lock', () => {
     const lock = acquireHostLock(dir, 'owner-a')
     expect(lock.acquired).toBe(true)
     lock.release()
+  })
+
+  it('treats a non-positive holder pid as a stale lock', () => {
+    mkdirSync(lockDir())
+    writeFileSync(
+      join(lockDir(), 'owner.json'),
+      `${JSON.stringify({ owner: 'dead-owner', pid: 0, acquiredAt: '2026-10-23T00:00:00.000Z' })}\n`,
+      'utf8',
+    )
+    const lock = acquireHostLock(dir, 'owner-a')
+    expect(lock.acquired).toBe(true)
+    lock.release()
+  })
+
+  it('treats a permission error as a live holder instead of stealing the lock', () => {
+    mkdirSync(lockDir())
+    writeFileSync(
+      join(lockDir(), 'owner.json'),
+      `${JSON.stringify({ owner: 'other', pid: 4242, acquiredAt: '2026-10-23T00:00:00.000Z' })}\n`,
+      'utf8',
+    )
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('denied'), { code: 'EPERM' })
+    })
+    try {
+      const lock = acquireHostLock(dir, 'owner-a')
+      expect(lock.acquired).toBe(false)
+      expect(lock.reason).toContain('另一个宿主正在消费同一记录根')
+    } finally {
+      kill.mockRestore()
+    }
+  })
+
+  it('treats an unknown kill error as a dead holder', () => {
+    mkdirSync(lockDir())
+    writeFileSync(
+      join(lockDir(), 'owner.json'),
+      `${JSON.stringify({ owner: 'other', pid: 4242, acquiredAt: '2026-10-23T00:00:00.000Z' })}\n`,
+      'utf8',
+    )
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('boom')
+    })
+    try {
+      const lock = acquireHostLock(dir, 'owner-a')
+      expect(lock.acquired).toBe(true)
+      lock.release()
+    } finally {
+      kill.mockRestore()
+    }
   })
 
   it('does not delete a lock another live owner replaced before release', () => {
