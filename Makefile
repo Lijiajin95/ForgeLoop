@@ -106,7 +106,8 @@ e2e:
 	$(NODE) scripts/ts/e2e-board.ts
 
 # 真实模型闭环 E2E（opt-in）：提交 → 准入 → 研发 → 独立验证 → 受控提交。
-# 需要默认 DSH profile 的模型选择，并在启动环境导出对应密钥（如 DEEPSEEK_API_KEY）。
+# 需要启动环境导出模型密钥；派生 profile 默认用官方模板模型，设置
+# FORGELOOP_REAL_MODEL_PATCH=<patch.yml> 可改走其它 provider（如 Qwen Token Plan）。
 real-model-e2e:
 	FORGELOOP_REAL_MODEL=1 $(NODE) scripts/ts/real-model-e2e.ts
 

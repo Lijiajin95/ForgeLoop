@@ -6,7 +6,9 @@
  * 轮询权威 SQLite，直到需求完成准入、研发、独立验证与受控提交。
  *
  * 默认跳过；`make real-model-e2e` 或 `FORGELOOP_REAL_MODEL=1` 才运行。
- * 需要当前默认 DSH profile 已配置可用的模型凭据；脚本不改动生产记录与正式 profile。
+ * 派生 profile 默认沿用官方模板的模型；把 `FORGELOOP_REAL_MODEL_PATCH` 指向一个
+ * loader patch 文件，即可改用启动环境里有凭据的 provider（例如 Qwen Token Plan）。
+ * 需要启动环境提供对应密钥；脚本不改动生产记录与正式 profile。
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -21,6 +23,8 @@ const WEB_PROFILE = `${PROFILE}-web`
 const HEADLESS_PROFILE = `${PROFILE}-headless`
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
 const PROJECT = 'forgeloop-real-model'
+/** 可选 loader patch：叠加在派生 profile 之后，只影响隔离实例的模型路由。 */
+const PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
 const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_TIMEOUT_MS ?? 1_800_000)
 const HEADLESS_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_SUBMIT_TIMEOUT_MS ?? 600_000)
 
@@ -58,6 +62,11 @@ function dshSync(args: string[], env: NodeJS.ProcessEnv): void {
   if (result.status !== 0) {
     throw new Error(`dsh ${args.join(' ')} 失败：${result.stderr || result.stdout}`)
   }
+}
+
+/** 给一次启动拼上 profile 与可选的覆盖层；`--patch` 放在 `--profile` 之后、app 参数之前。 */
+function launchArgs(profile: string, appArgs: string[]): string[] {
+  return ['--profile', profile, ...(PATCH ? ['--patch', PATCH] : []), ...appArgs]
 }
 
 function waitForToken(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<string> {
@@ -200,6 +209,9 @@ async function main(): Promise<void> {
     )
     return
   }
+  if (PATCH !== undefined && !existsSync(PATCH)) {
+    throw new Error(`FORGELOOP_REAL_MODEL_PATCH 指向的文件不存在：${PATCH}`)
+  }
   const workspace = mkdtempSync(join(tmpdir(), 'forgeloop-real-model-'))
   const home = join(workspace, 'dsh-home')
   const projectDir = join(workspace, 'project')
@@ -242,7 +254,7 @@ async function main(): Promise<void> {
     dshSync(['plugin', '--profile', WEB_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
     dshSync(['plugin', '--profile', HEADLESS_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
     const port = await freePort()
-    child = spawn(DSH, ['--profile', WEB_PROFILE, '--port', String(port), '--no-open'], {
+    child = spawn(DSH, launchArgs(WEB_PROFILE, ['--port', String(port), '--no-open']), {
       cwd: ROOT,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -252,12 +264,10 @@ async function main(): Promise<void> {
     const startedAt = new Date().toISOString()
     const submitted = spawnSync(
       DSH,
-      [
-        '--profile',
-        HEADLESS_PROFILE,
+      launchArgs(HEADLESS_PROFILE, [
         '--json',
         `只调用一次工具 forgeloop_submit_requirement 提交下面的需求原文；不要修改任何文件，也不要调用其他工具。\n\n${REQUIREMENT}`,
-      ],
+      ]),
       {
         cwd: ROOT,
         env,
