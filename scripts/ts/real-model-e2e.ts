@@ -39,6 +39,7 @@ interface RequirementRow {
   readonly status: string
   readonly source: string
   readonly submitted_by: string
+  readonly blocked_reason: string
 }
 
 interface CountRow {
@@ -139,7 +140,7 @@ async function poll(
     try {
       const requirement = queryOne<RequirementRow>(
         db,
-        'SELECT req_id, status, source, submitted_by FROM requirements ORDER BY created_at DESC LIMIT 1',
+        'SELECT req_id, status, source, submitted_by, blocked_reason FROM requirements ORDER BY created_at DESC LIMIT 1',
       )
       if (requirement) {
         const verification = queryOne<{ verdict: string }>(
@@ -175,6 +176,7 @@ async function poll(
             [requirement.req_id],
           ),
           verdict: verification?.verdict ?? null,
+          blockedReason: requirement.blocked_reason || '',
         }
         const line = JSON.stringify(summary)
         if (line !== lastLine) {
@@ -310,11 +312,15 @@ async function main(): Promise<void> {
 
     console.log(`[real-model-e2e] OK：${requirement.req_id} 完成准入、研发、验证与受控提交`)
     console.log(
-      `[real-model-e2e] 记录：${dbPath}；项目：${projectDir}（临时目录会在脚本结束时删除）`,
+      `[real-model-e2e] 记录：${dbPath}；项目：${projectDir}（默认在脚本结束时删除，FORGELOOP_REAL_MODEL_KEEP=1 保留）`,
     )
   } finally {
     child?.kill('SIGTERM')
-    rmSync(workspace, { recursive: true, force: true })
+    if (process.env.FORGELOOP_REAL_MODEL_KEEP === '1') {
+      console.log(`[real-model-e2e] 保留现场：DSH_HOME=${home}；项目=${projectDir}；记录=${dbPath}`)
+    } else {
+      rmSync(workspace, { recursive: true, force: true })
+    }
   }
 }
 
