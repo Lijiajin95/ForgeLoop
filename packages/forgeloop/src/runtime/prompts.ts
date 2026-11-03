@@ -391,6 +391,7 @@ ${analysisContext(analysis)}
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
 - 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
 - 禁止把 Python 解释器、旧 .venv、旧 forgeloop CLI、src/forgeloop/、tests/（旧 Python 测试）、frontend/src/ 写进 files 或 test_command；
+- 任务不得包含部署、发布、安装到正式 profile 或修改正式环境/生产数据的步骤；这些只能由所有者在受控入口显式执行；
 - 正式测试命令必须是 TypeScript 工程可执行的真实 argv，例如 ["npm","run","check","--workspace","forgeloop-dsh"]；
 - 只输出 JSON。`
 }
@@ -559,7 +560,8 @@ ${requirementContext(requirement)}
 3. 不要改动版本号（如 package.json 的 version），除非任务明确要求并已获得所有者许可。
 4. 实现后用上面的正式测试命令自测；失败要修到通过或如实说明。
 5. 不要伪造测试结果，不要修改测试以绕过检查，除非任务本身要求。
-6. 完成后用简短文本报告：改了什么、跑了什么命令、结果如何、还有什么风险。`
+6. 不得部署、发布、安装到任何正式 profile、修改正式环境或生产数据；部署与发布只能由所有者在受控入口显式执行。
+7. 完成后用简短文本报告：改了什么、跑了什么命令、结果如何、还有什么风险。`
 }
 
 /** 主控 Agent 的候选研发会话：只给身份、现场与最近总结，不给源码或工具。 */

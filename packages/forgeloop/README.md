@@ -15,8 +15,12 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
 
 随后在该 profile 的 `cordis.patch.yml` 里覆盖 `forgeloop` 行的 `recordsRoot`、`project`、
 `projectPath`、`agent.provider/model`、可选的 `autonomy` 与 `ops` 目录。记录根布局：
-`<recordsRoot>/projects/<project>/records.sqlite`。`autonomy` 默认对 `dsh-session:` 可信来源启用系统准入，
-`allowCodeCommit=true`，`commitCheckCommand=[]`；发布/部署仍需独立授权。
+`<recordsRoot>/projects/<project>/records.sqlite`。`autonomy` 默认启用系统准入并放开来源
+（`allowAnySource=true`、`requireOwner=false`）：任何非空来源都可进入，来源与提交者完整记录；
+需要收紧时显式设置 `allowAnySource=false` 并维护 `trustedSources`。`allowCodeCommit=true`，
+`commitCheckCommand=[]`；发布/部署仍需独立授权，研发 Agent 没有部署工具。
+限额统一用 `-1` 表示不限（界面显示 MAX），正数恢复原行为；任务工时、需求工时、任务尝试、
+失败轮次与验证次数默认不限，规划/评审/分析/诊断的格式重试仍有正数上限。
 
 ## 入口
 
@@ -42,7 +46,7 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
   任务包是工作记录，不是批准门禁；计划文件清单是预期，不是硬白名单；
 - 验证 Agent 在**新会话**里只依据需求原文与分析生成验证方案（无工具，不看任务包、候选 diff 或
   源码）；运行时在独立候选工作区逐条重跑方案命令，核对候选完整性、场景覆盖与证据原文。验证通过后
-  另开一个无工具会话做业务验收，只看原始需求与程序重跑出的真实输出；
+  在**同一个验证会话**继续做业务验收，只看原始需求、方案与程序重跑出的真实输出；
 - 验证阻断时，具体缺陷、复现条件、预期/实际与证据回到**同一研发会话和工作区**定向修复，产生新候选
   并重新验证；不归档全部交付、不删除旧候选、不清零失败轮次、不重新生成任务包；
 - 验证与业务验收通过后，主控在真实项目干净且基线一致时应用候选、运行 `commitCheckCommand`、
@@ -74,6 +78,15 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 缺密钥时直接说明来源且不发出请求。
 产品 Agent 的工具白名单由 `domain/analysis.ts` 固定，白名单外的宿主工具一律 deny。
 工具不能批准、验收、推进或停止；普通需求由系统准入自动推进，发布/部署与真正的业务例外仍需客户明确授权。
+研发 Agent 只有 `workspace-write` 与普通代码工具，没有构建、发布或部署工具；研发自验通过不等于可部署。
+
+### 自主率
+
+天工总览按权威记录显示研发与运维的自主率：人工介入率与自主成功率。介入包括追加授权、延长工时、
+停止/取消、人工请求与多版本修订；研发自主成功要求验证通过且完成受控提交，运维自主成功要求
+自动恢复/关闭且未记录人工介入。需求或事件为零时显示“无样本”，不把空样本算成 0% 或 100%。
+原始分子、分母在 `/api/forgeloop/board` 的 `autonomy` 字段中返回，可从需求、请求、授权、工时延长
+与运维事件回查。真实模型闭环可用 `make real-model-e2e` 验证（opt-in，会产生模型费用）。
 
 ### 运维 Agent
 

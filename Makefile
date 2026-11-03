@@ -26,6 +26,8 @@ help:
 	@echo "make worktree-merge BRANCH=... 快进合并并清理 worktree/分支"
 	@echo "make budget                Agent 上下文 token 预算（文件 25k）"
 	@echo "make assertions            类型断言预算（只减不增）"
+	@echo "make e2e                   宿主装载 E2E（不依赖模型）"
+	@echo "make real-model-e2e        真实模型闭环 E2E（opt-in，会产生模型费用）"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
 	@echo "make lint                  ESLint（类型感知，src；tests/scripts 无类型规则）"
 	@echo "make format                检查 Prettier 格式（make format-write 写入）"
@@ -99,6 +101,11 @@ verify-plugin:
 e2e:
 	$(NODE) scripts/ts/e2e.ts
 	$(NODE) scripts/ts/e2e-board.ts
+
+# 真实模型闭环 E2E（opt-in）：提交 → 准入 → 研发 → 独立验证 → 受控提交。
+# 需要默认 DSH profile 已配置模型凭据；会产生模型费用。
+real-model-e2e:
+	FORGELOOP_REAL_MODEL=1 $(NODE) scripts/ts/real-model-e2e.ts
 
 coverage:
 	$(NPM) run coverage --workspace forgeloop-dsh
