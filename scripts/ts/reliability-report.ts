@@ -337,8 +337,14 @@ function gitText(args: readonly string[]): string {
   return result.ok ? result.stdout.trim() : ''
 }
 
+function gitStatusLines(): string[] {
+  const result = run('git', ['status', '--porcelain'], ROOT, 10_000)
+  return result.ok ? result.stdout.split('\n').filter(Boolean) : []
+}
+
 function dirtyStatus(): boolean {
-  const lines = gitText(['status', '--porcelain']).split('\n').filter(Boolean)
+  // 不能用 gitText：它去掉首尾空白时会把 porcelain 首行开头的空格也删掉，路径随之错位。
+  const lines = gitStatusLines()
   return lines.some((line) => {
     const path = line.slice(3).trim()
     return !(
