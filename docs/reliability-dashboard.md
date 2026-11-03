@@ -49,8 +49,8 @@
 │ 通过   ESLint      0 errors    0         —        11-03 09:10     .cache/...    │
 │ 未运行 变异测试    —           ≥80       —        —               reports/...   │
 ├ 覆盖率                                                                         ┤
-│ 行 91.9%   █████████░ 90    分支 84.6% ████████░░ 84                          │
-│ 函数 96.7% █████████░ 93    关键文件 6/6 达标                                  │
+│ 行 91.9%   █████████░ 90    分支 86.2% ████████░░ 85                          │
+│ 函数 96.7% █████████░ 95    关键文件 6/6 达标                                  │
 │ [展开关键文件覆盖率明细]                                                       │
 ├ 交付可靠性（全部记录，按记录样本）                                             ┤
 │ 独立验证 92%（n=25）  首轮验证 80%（n=20）  业务终审 100%（n=8）              │
@@ -91,8 +91,8 @@
 | G5 | 架构契约 | `make contracts` 违规数 | 门禁矩阵 | `0` | `gate:contracts` | 是 |
 | G6 | 行为测试 | `passed ÷ (total - skipped)`；同时显示 total、failed、skipped、文件数、耗时 | KPI、门禁矩阵 | failed `0` | `tests` | 是 |
 | G7 | 行/语句覆盖率 | `covered ÷ total` | 覆盖率进度条 | 行 ≥ `90%` | `coverage.total.lines` | 是 |
-| G8 | 函数覆盖率 | `covered ÷ total` | 覆盖率进度条 | ≥ `93%` | `coverage.total.functions` | 是 |
-| G9 | 分支覆盖率 | `covered ÷ total` | 覆盖率进度条 | ≥ `84%` | `coverage.total.branches` | 是 |
+| G8 | 函数覆盖率 | `covered ÷ total` | 覆盖率进度条 | ≥ `95%` | `coverage.total.functions` | 是 |
+| G9 | 分支覆盖率 | `covered ÷ total` | 覆盖率进度条 | ≥ `85%` | `coverage.total.branches` | 是 |
 | G10 | 关键文件覆盖率 | 6 个关键文件中，行/分支/函数三项都达到各自门槛的数量 | 覆盖率明细 | `6/6` | `coverage.files[]` + `vitest.config.ts` | 是 |
 | G11 | 变异测试得分 | 按 Stryker 报告口径：`(Killed + Timeout) ÷ (Killed + Timeout + Survived + NoCoverage)`；分母为 0 视为未采集 | KPI、门禁矩阵 | break `80`、low `85`、high `95` | `reports/mutation.json` | 是 |
 | G12 | 断言预算 | 当前 `as` 断言数 ÷ 基线；`当前 ≤ 基线` 为通过 | 门禁矩阵 | 只降不升 | `budget.assertions` | 是 |
@@ -199,8 +199,8 @@
     "lines": 91.99,
     "statements": 91.99,
     "functions": 96.66,
-    "branches": 84.6,
-    "thresholds": { "lines": 90, "functions": 93, "branches": 84, "statements": 90 },
+    "branches": 86.2,
+    "thresholds": { "lines": 90, "functions": 95, "branches": 85, "statements": 90 },
     "files": []
   },
   "mutation": {

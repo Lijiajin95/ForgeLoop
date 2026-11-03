@@ -4519,11 +4519,13 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 ### 53.1 覆盖率逐文件
 
 - `packages/forgeloop/vitest.config.ts` 的 `include` 覆盖 `src/**/*.ts`，移除 `src/cli/**` 与
-  `src/index.ts` 豁免并开启 `perFile`；全局门槛行/语句 90、函数 93、分支 84，另保留六个关键文件门槛。
+  `src/index.ts` 豁免并开启 `perFile`；全局门槛行/语句 90、函数 95、分支 85，另保留六个关键文件门槛。
 - 新增 21 个 `tests/coverage-*.test.ts`，补强 15 个既有测试文件；`src/cli/pack.ts` 导出 `main` 并加执行守卫。
 - `scripts/ts/reliability-report.ts` 按 perFile 逐文件对照默认门槛与关键文件门槛。
-- 2026-11-03 实测 `make coverage`：94 个测试文件、1140 项测试全部通过；92 个源文件逐文件达标；
-  行/语句 97.84%、函数 98.94%、分支 90.28%（`coverage-summary.json` 已刷新）。
+- 2026-11-03 实测 `make coverage`：96 个测试文件、1149 项测试全部通过；92 个源文件逐文件达标；
+  行/语句 97.93%、函数 99.35%、分支 90.49%（`coverage-summary.json` 已刷新）。
+- 同日把函数门槛 93→95、分支门槛 84→85；新增/补强 analysis-queue、execution-dev、coordinator、
+  monitor、service、requirement-queue 的薄弱分支用例，全部文件仍逐文件达标。
   注意：`tests/monitor.test.ts` 的进程采集用例依赖 `ps`；workspace-write 沙箱下 `ps` 返回 EPERM，
   该用例会跳过并令 `monitor.ts` 分支覆盖降到 77.55%，需在允许进程访问的环境运行。
 
@@ -4557,14 +4559,16 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 
 ### 53.4 未完成与合并状态
 
-- 已实测：`make check`（94 文件、1139 通过 + 1 跳过；放行进程访问时 1140 全通过）、`make coverage`
-  （92 文件逐文件达标）、`make format`、`make lint`、`make check-static`、`make reliability-report-fast`
-  （8/8，变异 not_run）、`mutation-shard --list`（92）、合并报告成功/失败路径、verify-e2e 缺 key 失败关闭。
+- 已实测：`make check`（96 文件、1148 通过 + 1 跳过；放行进程访问时 1149 全通过）、`make coverage`
+  （92 文件逐文件达标，行/语句 97.93%、函数 99.35%、分支 90.49%）、`make format`、`make lint`、
+  `make check-static`、`make reliability-report-fast`（8/8，变异 not_run）、`mutation-shard --list`（92）、
+  合并报告成功/失败路径、verify-e2e 缺 key 失败关闭。
 - 变异开关（2026-11-03 补）：`make check` 默认不运行变异；`make check MUTATION=1`（或机器上
   `export FORGELOOP_MUTATION=1`）在全量用例后追加 `make mutation`；`make check-fast` 与
   `make precommit` 永不追加。快速场景与全量场景因此共用同一套检查入口。
 - 未验证：真实 DSH + 真实模型 + 实际工具 E2E（无凭据）、nightly/release 的真实 CI 运行。
-- 全量变异 56.28% < 80：夜间 `mutation-gate` 会失败；是否调整门槛或补测试需所有者决定。
-- 合并：主树已从 `fd19ce1` 前进到 `ea70d8c`（含并行真实模型 E2E 等 15 个提交），本分支不是主树的
+- 全量变异 56.28% < 80：该分数是新增覆盖率用例之前测得，新增用例后未重跑全量变异；
+  夜间 `mutation-gate` 会失败，是否调整门槛或补测试需所有者决定。
+- 合并：主树已从 `fd19ce1` 前进到 `58ed2c9`（含并行真实模型 E2E 等 16 个提交），本分支不是主树的
   快进后继，`make worktree-merge` 无法快进；未强推、未 reset 主树，分支与工作树保留待所有者决定。
 
