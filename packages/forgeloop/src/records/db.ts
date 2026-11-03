@@ -136,6 +136,17 @@ CREATE TABLE IF NOT EXISTS requirement_budget (
     limit_seconds REAL NOT NULL,
     consumed_seconds REAL NOT NULL
 );
+-- 工时延长审计：人工延长或改为不限都要留痕，供自主率统计回查。
+CREATE TABLE IF NOT EXISTS requirement_budget_extensions (
+    req_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    seconds REAL NOT NULL,
+    extended_by TEXT NOT NULL,
+    source TEXT NOT NULL,
+    extended_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, seq)
+);
+
 CREATE TABLE IF NOT EXISTS requirement_cancellations (
     req_id TEXT PRIMARY KEY,
     cancelled_by TEXT NOT NULL,

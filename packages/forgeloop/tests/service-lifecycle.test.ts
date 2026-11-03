@@ -24,6 +24,8 @@ function makeRuntime(overrides: Partial<ForgeLoopConfig> = {}): ForgeLoopRuntime
         agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
         formalTestTimeoutSeconds: 30,
         maxTaskAttempts: 2,
+        // 这些用例验证显式请求恢复，保持仅信任显式来源。
+        autonomy: { allowAnySource: false },
         failureRoundsPerGrant: 3,
         maxVerificationAttempts: 3,
       },

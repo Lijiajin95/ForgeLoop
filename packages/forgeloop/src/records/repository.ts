@@ -31,6 +31,7 @@ import type {
   StopRecord,
   CodeCandidateRecord,
   RequirementCommitRecord,
+  BudgetExtensionRecord,
 } from './rows.js'
 
 import {
@@ -63,6 +64,7 @@ export type {
   StopRecord,
   CodeCandidateRecord,
   RequirementCommitRecord,
+  BudgetExtensionRecord,
 } from './rows.js'
 
 export class Repository extends DevSessionStore {
@@ -1262,6 +1264,44 @@ export class Repository extends DevSessionStore {
       )
       .run(Math.max(0, seconds), reqId)
     return this.budget(reqId).limitSeconds
+  }
+
+  /** 工时延长审计：每次人工延长或改为不限都追加一行，供自主率统计回查。 */
+  recordBudgetExtension(input: {
+    reqId: string
+    seconds: number
+    extendedBy: string
+    source: string
+    extendedAt: string
+  }): void {
+    this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq
+           FROM requirement_budget_extensions WHERE req_id = ?`,
+        )
+        .get(input.reqId)
+      const seq = row ? num(row, 'next_seq') : 1
+      this.db
+        .prepare(
+          `INSERT INTO requirement_budget_extensions
+            (req_id, seq, seconds, extended_by, source, extended_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(input.reqId, seq, input.seconds, input.extendedBy, input.source, input.extendedAt)
+    })
+  }
+
+  budgetExtensions(reqId: string): BudgetExtensionRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM requirement_budget_extensions WHERE req_id = ? ORDER BY seq')
+      .all(reqId)
+    return rows.map((row) => ({
+      seconds: num(row, 'seconds'),
+      extendedBy: text(row, 'extended_by'),
+      source: text(row, 'source'),
+      extendedAt: text(row, 'extended_at'),
+    }))
   }
 
   // ---------------------------------------------------------------- 操作请求

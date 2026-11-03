@@ -26,6 +26,8 @@ import {
 import { MAX_ROUNDS_PER_GRANT, roundsRemaining } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
+import type { AutonomyStats } from '../domain/autonomy.js'
+import { buildAutonomyStats } from './autonomy-stats.js'
 import {
   ACTION_ANALYZE,
   ACTION_PLAN,
@@ -223,6 +225,8 @@ export interface StatusBoardView {
   readonly requirements: readonly BoardRequirementView[]
   readonly tasks: readonly BoardTaskView[]
   readonly issues: readonly BoardIssueView[]
+  /** 自主率统计：只按权威记录计算，无样本时比率为 null。 */
+  readonly autonomy: AutonomyStats
 }
 
 export interface BuildStatusBoardInput {
@@ -238,6 +242,8 @@ export interface BuildStatusBoardInput {
   readonly query?: string | undefined
   /** 每次授权的失败轮次；-1 表示不限，缺省保持历史 3 轮口径。 */
   readonly roundsPerGrant?: number
+  /** 所有者标识：用于把所有者直接发起的动作计为人工介入。 */
+  readonly owner?: string
 }
 
 /**
@@ -454,6 +460,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
     requirements,
     tasks,
     issues: sortedIssues,
+    autonomy: buildAutonomyStats(repository, project, input.owner ?? ''),
   }
 }
 

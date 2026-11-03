@@ -275,6 +275,8 @@ function makeRuntime(): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      // 这些用例验证旧的门禁顺序，不让系统准入把来源 test 直接放行。
+      autonomy: { allowAnySource: false },
       failureRoundsPerGrant: 3,
       maxVerificationAttempts: 3,
       candidateBuildCommand: ['node', 'pack.mjs', 'build'],
@@ -1303,7 +1305,8 @@ describe('candidate build and deployment checks', () => {
       ok: false,
       code: 'business_review_required',
     })
-  })
+    // 该用例串行跑十余次完整流水线，5 秒默认上限在慢机上不稳定。
+  }, 15_000)
 
   it('fails admitted deployment when the installed version or business evidence is wrong', async () => {
     const reqId = await admittedRequirement()

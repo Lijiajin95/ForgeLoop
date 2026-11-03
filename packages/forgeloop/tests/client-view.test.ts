@@ -239,6 +239,14 @@ describe('client conversation view', () => {
     expect(dicts!.en['task.retry']).toBe('Retry task')
   })
 
+  it('ships autonomy rate labels and the no-sample fallback in both locales', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts!.zh['overview.autonomyTitle']).toBe('自主率统计')
+    expect(dicts!.en['overview.autonomyTitle']).toBe('Autonomy rates')
+    expect(dicts!.zh['overview.autonomy.noSample']).toBe('无样本')
+    expect(dicts!.en['overview.autonomy.devSuccess']).toBe('Dev autonomous success')
+  })
+
   it('has no unknown-state labels left in either locale', () => {
     const dicts = dictionaries.get('forgeloop-board')
     const removed = [

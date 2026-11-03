@@ -10,6 +10,8 @@ export interface WorkBudgetExtension {
   readonly seconds: number
   readonly by: string
   readonly source: string
+  /** 审计时间；缺省取当前时间，测试传入固定值。 */
+  readonly now?: string
 }
 
 export interface WorkBudgetResult {
@@ -38,6 +40,13 @@ export function extendWorkBudget(repo: Repository, input: WorkBudgetExtension): 
   }
   const before = repo.budget(input.reqId)
   const limitSeconds = repo.extendBudget(input.reqId, seconds)
+  repo.recordBudgetExtension({
+    reqId: input.reqId,
+    seconds: unlimited ? -1 : seconds,
+    extendedBy: input.by,
+    source: input.source,
+    extendedAt: input.now ?? new Date().toISOString(),
+  })
   if (requirement.blockedReason.includes('工时已用尽')) {
     repo.setStatus(
       input.reqId,

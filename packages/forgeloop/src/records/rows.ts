@@ -25,6 +25,14 @@ import {
 
 export type Row = Record<string, unknown>
 
+/** 一次工时延长的审计记录；`seconds = -1` 表示改为不限。 */
+export interface BudgetExtensionRecord {
+  readonly seconds: number
+  readonly extendedBy: string
+  readonly source: string
+  readonly extendedAt: string
+}
+
 export function text(row: Row, key: string): string {
   const value = row[key]
   return typeof value === 'string' ? value : ''

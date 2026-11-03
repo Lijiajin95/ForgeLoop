@@ -891,8 +891,7 @@ ${answer}`
 
   /**
    * 需求级重新执行：失败停在 blocked 后，不再要求人工逐个任务重试。
-   * 与 retryTask 共用同一份判定（额度、在途请求、批准、终态），
-   * 只排队一次 advance；不新建任务包、不清零失败轮次。
+   * 与 retryTask 共用判定；只排队一次 advance，不新建任务包、不清零失败轮次。
    */
   requeue(input: { reqId: string; by: string; source: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
@@ -1496,6 +1495,7 @@ ${answer}`
       limit,
       query,
       roundsPerGrant: this.config.failureRoundsPerGrant,
+      owner: this.config.owner,
     })
   }
 
