@@ -31,6 +31,21 @@ import {
 import type { TaskRunState } from '../domain/status.js'
 import { runFormalTest } from './formal-test.js'
 
+/** 只读任务：显式验证任务，或计划里不声明任何文件；它本来就不应该产生文件改动。 */
+function isReadOnlyTask(task: PlannedTask): boolean {
+  return task.verification === true || task.files.length === 0
+}
+
+/**
+ * 研发回合结束后是否按“没有改动”重试。
+ * 只读任务的空改动不是失败信号；但 git 查询失败本身仍算失败，不能拿空结果当真。
+ */
+function needsNoChangeRetry(task: PlannedTask, status: { code: number; stdout: string }): boolean {
+  if (status.code !== 0) return true
+  if (status.stdout.trim() !== '') return false
+  return !isReadOnlyTask(task)
+}
+
 /**
  * 研发回合上限（秒）：`lower` 是任务工时与 agent 回合上限的较大者，`cap` 是长任务硬上限。
  * 两者都可能是 -1（不限）：只有 `lower` 不限时才退化到 `cap`，都无限制时返回 -1，
@@ -449,7 +464,9 @@ export class ExecutionDev {
         continue
       }
       const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
-      if (status.code !== 0 || status.stdout.trim() === '') {
+      // 只读任务本来就不改文件：空改动不是失败信号，直接进入正式测试；
+      // 否则在 maxTaskAttempts = -1 下这种任务会永远重试，把模型调用堆到任意大。
+      if (needsNoChangeRetry(input.task, status)) {
         feedback = this.taskNoChangeFeedback(input)
         continue
       }
@@ -483,11 +500,19 @@ export class ExecutionDev {
         worktreePath: input.workspace,
         diffPath: join(taskDir, 'candidate.diff'),
       })
+      // 有改动就按任务提交；只读任务没有改动可提交，不制造空提交，直接按正式测试结果交付。
       if (capture.changedFiles.length === 0) {
-        feedback = this.taskNoChangeFeedback(input)
-        continue
+        if (!isReadOnlyTask(input.task)) {
+          feedback = this.taskNoChangeFeedback(input)
+          continue
+        }
+      } else {
+        runCommand(
+          'git',
+          ['commit', '-qm', `forgeloop: task ${input.task.taskId}`],
+          input.workspace,
+        )
       }
-      runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)
       this.recordDeliveredTask({
         reqId: input.reqId,
         plan: input.plan,

@@ -4633,3 +4633,28 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 - 未完成与风险：工具只能读登记文件，没有按时间或正则检索历史日志、不跟随轮转；读不到没有落到文件的
   输出（宿主 stdout 现在直接写终端）。运行状态依赖产物写入的 `runtime-identity.json` 与固定包名
   `forgeloop-dsh`，其他产物形态不支持。本机正式配置尚未登记 `ops.artifacts`，宿主 PID 2477 未重载。
+
+## 123. 只读任务不再因为“没有改动”无限重试（2026-11-03）
+
+真实模型闭环（Qwen Token Plan 的 `deepseek-v4.1-flash-1017`）里复现：模型把需求拆成
+“实现任务 + 核对任务”，核对任务在计划里是 `verification: true`、`files: []`，执行时却走研发
+回合；回合按设计不改任何文件，运行时把空改动判为失败并重试。默认 `maxTaskAttempts = -1`
+（MAX）时这会无限重试——一次运行在 15 分钟内堆了 108 个研发轨迹与 108 份候选快照，
+需求一直停在 `developing`。
+
+### 123.1 规则
+
+- `runtime/execution-dev.ts` 引入只读任务判定：计划里 `verification === true` 或 `files` 为空。
+- 回合结束后 `git status` 为空不再一律算失败：只读任务直接进入正式测试，按测试结果交付，
+  不制造空提交；`git status` 本身失败仍按失败重试，不拿空结果当真。
+- 非只读任务的空改动行为不变，仍按 `maxTaskAttempts` 重试。
+- 候选采集后发现无改动时同样只对非只读任务重试；只读任务以稳定空 diff 交付，
+  与验证任务在另一条链路里的空 diff 语义一致。
+
+### 123.2 验证
+
+- 新增用例 `dev-scenario-unlimited.test.ts`「delivers a read-only verification task even when the
+  turn changes no file」：只读任务只跑一个回合即交付，需求走到 `committed`。
+- `make check`：76 个测试文件、843 项通过；`make format`、`make contracts`、断言预算 18/18、
+  token 预算通过。
+- 未验证：正式实例未重载本批代码；真实模型 E2E 未在修复后重跑。

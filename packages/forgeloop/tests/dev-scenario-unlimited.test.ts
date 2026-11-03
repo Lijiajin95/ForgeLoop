@@ -60,6 +60,29 @@ const PLAN = JSON.stringify({
   ],
 })
 
+/** 第二个任务只做核对：显式验证任务、不声明文件，回合里不会有任何改动。 */
+const READ_ONLY_PLAN = JSON.stringify({
+  technical_solution: { summary: '最小实现', approach: ['写文档', '跑测试'], risks: [] },
+  tasks: [
+    {
+      task_id: 'a',
+      goal: '实现功能 A',
+      files: ['docs/a.md'],
+      acceptance: CRITERION,
+      test_command: SLOW_TEST,
+    },
+    {
+      task_id: 'b',
+      goal: '核对 A 的产物',
+      files: [],
+      verification: true,
+      depends_on: ['a'],
+      acceptance: CRITERION,
+      test_command: ['node', '-e', 'process.exit(0)'],
+    },
+  ],
+})
+
 const VERIFICATION_PLAN = JSON.stringify({
   scenarios: [
     {
@@ -102,7 +125,12 @@ interface DevTurn {
 }
 
 /** 脚本化宿主：研发回合按固定延迟产出事件与文件改动，取消时立即收口。 */
-function devHost(options: { planDelayMs: number; turnDelayMs: number; noChangeAttempts: number }) {
+function devHost(options: {
+  planDelayMs: number
+  turnDelayMs: number
+  noChangeAttempts: number
+  plan?: string
+}) {
   const turns: DevTurn[] = []
   let taskAttempts = 0
   const ctx = {
@@ -148,11 +176,13 @@ function devHost(options: { planDelayMs: number; turnDelayMs: number; noChangeAt
                 if (plan) {
                   events.push(
                     event('assistant/message', {
-                      message: { content: [{ type: 'text', text: PLAN }] },
+                      message: { content: [{ type: 'text', text: options.plan ?? PLAN }] },
                     }),
                   )
                 } else if (!summary) {
-                  const changed = attempt > options.noChangeAttempts
+                  // 只读任务按类型不改文件，模拟真实模型“只核对、不落盘”的回合。
+                  const readOnlyTask = prompt.includes('类型：验证任务')
+                  const changed = !readOnlyTask && attempt > options.noChangeAttempts
                   if (changed) {
                     mkdirSync(join(cwd, 'docs'), { recursive: true })
                     writeFileSync(join(cwd, `docs/${taskId}.md`), `content ${attempt}\n`)
@@ -379,6 +409,33 @@ describe('development scenario under MAX limits', () => {
       // 看板把不限显示为 MAX。
       expect(runtime.statusBoard().requirements[0]?.remainingRounds).toBeNull()
       expect(runtime.repo.failureRounds(reqId)).toHaveLength(0)
+    },
+  )
+
+  it(
+    'delivers a read-only verification task even when the turn changes no file',
+    { timeout: 60_000 },
+    async () => {
+      const host = devHost({
+        planDelayMs: 50,
+        turnDelayMs: 50,
+        noChangeAttempts: 0,
+        plan: READ_ONLY_PLAN,
+      })
+      runtime = makeRuntime(host)
+      const reqId = await submitAndAnalyze()
+
+      const advance = await runNext(reqId, 'advance')
+      expect(advance.state, advance.detail).toBe('done')
+      expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
+
+      // 只读任务空改动直接交付：只跑一个回合，不按尝试次数无限重试。
+      const readOnlyTurns = host.turns.filter((turn) => turn.kind === 'task' && turn.taskId === 'b')
+      expect(readOnlyTurns).toHaveLength(1)
+      expect(runtime.repo.taskRuns(reqId, 1).map((run) => [run.taskId, run.state])).toEqual([
+        ['a', 'delivered'],
+        ['b', 'delivered'],
+      ])
     },
   )
 
