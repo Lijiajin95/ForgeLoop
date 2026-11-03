@@ -4915,8 +4915,9 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   - 需求状态机 48 条声明边中 14 条（分析失败/待澄清/准入/规划/批准后执行/验证/提交等）
     需要完整 Agent 流水线，未逐边断言，已在清单标 `tested: false` 并由既有
     continuous-flow/verification/requirement-gate 用例在流程级覆盖；报告如实显示 34/48。
-  - 部署回退（`rolling_back/rolled_back`）只有域状态机，无运行时执行入口；
-    `rejected` 需求状态无写入入口。两项均登记为发现项，未擅自补业务逻辑。
+  - 部署回退（`rolling_back/rolled_back`）在本批记录时只有域状态机；运行时入口已由
+    本文件 §131 的 `Deployments.rollback`、看板端点与测试补齐，本批未改该代码、不重复计入。
+    `rejected` 需求状态仍无写入入口，保留为发现项。
 - 发现但不碰：
   - `ForgeLoopRuntime.grant` 只追加授权、不校验终态/阻塞态，也不迁移到 approved；
     工具与工作台实际使用 `runtime/grants.ts` 的 `grantFailureRounds`（有守卫）。未改动。
