@@ -4856,8 +4856,8 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 - 现场：基线 `fc404720469f7df8201b92e84de1f70148fc61c9`；分支 `feat/reliability-advance`，
   worktree `.cache/worktrees/reliability-advance`；`node_modules` 符号链接复用主树，未执行
-  `npm install`。完成后 rebase 到当时 main 的 `0e77d13`（main 在本批期间前进 4 个提交：自托管 CI、
-  e2e/pnpm 与依赖审计修复、变异分片可执行文件路径、nightly 分片记录）。
+  `npm install`。完成后 rebase 到当时 main 的 `df4c28f`（main 在本批期间前进 5 个提交：自托管 CI、
+  e2e/pnpm 与依赖审计修复、变异分片可执行文件路径、nightly 分片记录与变异分数边界）。
 - 范围与改动：
   - 清单 `contracts/reliability.json`：15 个核心模块、16 条关键不变量、4 个状态机、
     12 个 P0 场景、7 个稳定性测试文件、受控变异范围与 15 条等价变异豁免；不重复
