@@ -4757,3 +4757,18 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
     仍存在既有随机种子偶发失败（单独重跑 3 项通过）；
   - `make coverage` 在 `src/runtime/monitor.ts` 分支 84.69% < 85% 失败，该文件本批未改动，
     属既有问题，不由日志改动引入。
+
+## 126. 部署协调器与只读视图（2026-11-03）
+
+- 本批实现：`runtime/deployments.ts` 的 intent → 门禁 → preflight → 审批/auto → apply → status 核对；
+  `runtime/deployment-gate.ts` 校验候选摘要、独立验证、业务终审与验收；只读工具 `forgeloop_rollouts`
+  （列表/详情，不含部署、批准或回退参数；模型工具名避开 deploy 动作词）。
+- 状态与证据：intent/attempt 落库，plan 写入 `<recordsRoot>/projects/<project>/deployments/<intentId>/`；
+  工具调用失败、超时、畸形输出、状态版本不一致都按失败收口；`verify_failed` 通过注入的告警函数上报
+  （内置 webhook 发送尚未接线）。
+- 本批未包含：回退（rollback 方法与 `data-rollback` 执行）、内置 webhook 发送、审批/回退端点与页面、
+  证据压缩与磁盘上限、运维诊断 `proposed_deployment` 接线；`auto` 目前只在配置层校验，执行仍需协调器入口。
+- 测试：新增 `tests/deployment-gate.test.ts`、`tests/deployment-run.test.ts` 与工具面断言；
+  `make check` 104 个测试文件、1224 项；`make coverage` 97.84/90.61/99.39。
+- 说明：`src/runtime/advance-pipeline.ts` 的分支覆盖率在多次运行间于 84.93%/85% 抖动，
+  两次失败一次通过，与本批代码无关；门槛最终按通过结果记录。

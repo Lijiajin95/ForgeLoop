@@ -143,9 +143,9 @@ export interface DeploymentIntentRecord {
   readonly artifactVersion: string
   readonly source: string
   readonly approval: 'owner' | 'auto'
-  readonly state: DeploymentAttemptState
+  state: DeploymentAttemptState
   readonly createdAt: string
-  readonly updatedAt: string
+  updatedAt: string
 }
 
 /** 一次工具调用：op、退出码、结果 JSON 与证据路径。 */

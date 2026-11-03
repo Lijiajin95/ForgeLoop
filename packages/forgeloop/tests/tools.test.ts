@@ -98,7 +98,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('tool surface', () => {
-  it('exposes exactly the fifteen documented tools with renderable output', () => {
+  it('exposes exactly the sixteen documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -109,6 +109,7 @@ describe('tool surface', () => {
       'forgeloop_ops',
       'forgeloop_ops_artifact',
       'forgeloop_ops_logs',
+      'forgeloop_rollouts',
       'forgeloop_run_verification_check',
       'forgeloop_read_project_doc',
       'forgeloop_write_project_doc',
@@ -300,6 +301,16 @@ describe('requirement intake tool', () => {
     ).toMatchObject({ ok: false, text: '制品 host 没有登记日志：missing' })
   })
 
+  it('reads deployment targets and intents without exposing deploy actions', async () => {
+    const list = await call('forgeloop_rollouts', {})
+    expect(list.ok).toBe(true)
+    expect(list.data).toMatchObject({ targets: [], intents: [] })
+    expect(await call('forgeloop_rollouts', { intent_id: 'missing' })).toMatchObject({
+      ok: false,
+      text: '未找到部署 missing',
+    })
+  })
+
   it('requires text and records the tool identity, never the caller claims', async () => {
     const missing = await call('forgeloop_submit_requirement', {})
     expect(missing.ok).toBe(false)
@@ -351,8 +362,8 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(15)
-    expect(disposers).toHaveLength(15)
+    expect(registered).toHaveLength(16)
+    expect(disposers).toHaveLength(16)
   })
 
   it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {

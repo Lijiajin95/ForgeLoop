@@ -194,6 +194,49 @@ function opsArtifactTools(config: ForgeLoopConfig): ToolDefinitionLike[] {
   ]
 }
 
+/** 只读部署视图：目标与 rollout 记录；没有部署、批准或回退入口。 */
+function rolloutTool(runtime: ForgeLoopRuntime, config: ForgeLoopConfig): ToolDefinitionLike {
+  return defineTool({
+    name: 'forgeloop_rollouts',
+    description:
+      'Read registered rollout targets and rollouts (deployment intents and their attempts). Pass intent_id for one rollout. Read-only: it never deploys, approves, rejects or rolls back.',
+    parameters: {
+      type: 'object',
+      properties: {
+        intent_id: { type: 'string', description: 'Exact deployment intent id' },
+      },
+      additionalProperties: false,
+    },
+    async run(args) {
+      const intentId = stringArg(args, 'intent_id')
+      const store = runtime.repo.deploymentStore
+      if (intentId) {
+        const intent = store.deploymentIntent(intentId)
+        if (!intent) return { ok: false, text: `未找到部署 ${intentId}` }
+        return {
+          ok: true,
+          text: `部署 ${intentId}：${intent.state}`,
+          data: { intent, attempts: store.deploymentAttempts(intentId) },
+        }
+      }
+      return {
+        ok: true,
+        text: '部署目标与最近部署',
+        data: {
+          targets: config.deployments.targets.map((target) => ({
+            id: target.id,
+            toolId: target.toolId,
+            requirementId: target.requirementId,
+            approval: target.approval,
+            params: target.params,
+          })),
+          intents: store.deploymentIntents(20),
+        },
+      }
+    },
+  })
+}
+
 export function buildTools(
   runtime: ForgeLoopRuntime,
   config: ForgeLoopConfig,
@@ -327,6 +370,7 @@ export function buildTools(
       },
     }),
     ...opsArtifactTools(config),
+    rolloutTool(runtime, config),
     verificationCheckTool(runtime),
     defineTool({
       name: 'forgeloop_read_project_doc',

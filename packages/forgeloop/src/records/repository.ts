@@ -1594,6 +1594,41 @@ export class Repository extends DevSessionStore {
       )
   }
 
+  latestCandidateBuild(reqId: string): {
+    reqId: string
+    planVersion: number
+    candidateSha256: string
+    verificationSha256: string
+    packageVersion: string
+    artifactSha256: string
+    tarball: string
+    files: string[]
+    gitHead: string
+    builtAt: string
+    evidenceDir: string
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM requirement_candidate_builds
+         WHERE req_id = ? ORDER BY built_at DESC LIMIT 1`,
+      )
+      .get(reqId)
+    if (!row) return null
+    return {
+      reqId: text(row, 'req_id'),
+      planVersion: num(row, 'plan_version'),
+      candidateSha256: text(row, 'candidate_sha256'),
+      verificationSha256: text(row, 'verification_sha256'),
+      packageVersion: text(row, 'package_version'),
+      artifactSha256: text(row, 'artifact_sha256'),
+      tarball: text(row, 'tarball'),
+      files: parseStringList(text(row, 'files_json')),
+      gitHead: text(row, 'git_head'),
+      builtAt: text(row, 'built_at'),
+      evidenceDir: text(row, 'evidence_dir'),
+    }
+  }
+
   candidate(
     reqId: string,
     planVersion: number,

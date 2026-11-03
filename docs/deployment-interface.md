@@ -1,8 +1,8 @@
 # 部署接口设计（需求方案，待评审）
 
-状态：**方案草案；所有者已确认 §10 的五项决定（2026-11-03）。** P0 第一批已实现：
-`deployments` 配置与校验、状态机与工具结果解析、部署记录表、工具调用底座；
-协调器、审批入口、只读工具与证据保留期尚未实现。
+状态：**方案草案；所有者已确认 §10 的五项决定（2026-11-03）。** P0 已实现：配置与校验、
+状态机与工具结果解析、记录表、工具调用底座、协调器（preflight/审批/auto/apply/status）、
+只读工具 `forgeloop_rollouts`；回退、内置 webhook、审批端点/页面与证据保留期尚未实现。
 相关：[产品方案 §8.2 发布与数据迁移](product.md#82-发布与数据迁移)、[安装与升级](deployment.md)、
 [运维 Agent](ops-agent.md)、[架构](architecture.md)。
 
@@ -191,7 +191,7 @@ interface DeploymentToolDescriptor {
   进行中的 intent 证据永不清理；清理动作写记录，可在页面回查。
 - 页面：部署目标列表（当前/上一版本、工具、审批方式）、进行中 intent、每设备状态、证据入口、
   批准/回退；运维视图只展示与事件关联的部署。
-- 模型只读工具：`forgeloop_deployments`（列表/详情，只读，不含执行参数）。
+- 模型只读工具：`forgeloop_rollouts`（列表/详情，只读，不含执行参数）。
 
 ## 8. 验收标准
 
@@ -237,7 +237,7 @@ interface DeploymentToolDescriptor {
 - `packages/forgeloop/src/runtime/deployment-maintenance.ts`：证据压缩、保留期与磁盘上限清理。
 - `packages/forgeloop/src/records/deployment-store.ts`：表结构、intent/attempt、工具摘要与变更记录。
 - `packages/forgeloop/src/config.ts`：`deployments` 配置与装载期校验。
-- `packages/forgeloop/src/tools.ts`：只读 `forgeloop_deployments`；运维提案仍走诊断 JSON，不给执行工具。
+- `packages/forgeloop/src/tools.ts`：只读 `forgeloop_rollouts`；运维提案仍走诊断 JSON，不给执行工具。
 - `packages/forgeloop/src/runtime/{ops.ts,ops-monitor.ts,prompts.ts}`：诊断 `proposed_deployment` 与门禁。
 - `packages/forgeloop/src/runtime/board-route.ts`、`client.js`：目标列表、批准/回退与证据。
 - 测试：`tests/deployment-config.test.ts`、`tests/deployment-tools.test.ts`、
