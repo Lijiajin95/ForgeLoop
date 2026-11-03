@@ -225,6 +225,8 @@ function makeRuntime(
       maxTaskAttempts: 2,
       // 默认不限失败轮次；下面有用例验证额度用尽后重试被拒绝。
       failureRoundsPerGrant: 3,
+      // 这些用例走未准入的单会话推进；放开来源会切到准入后的连续推进。
+      autonomy: { allowAnySource: false },
     },
     dir,
   )

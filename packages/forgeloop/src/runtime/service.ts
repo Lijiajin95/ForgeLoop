@@ -1494,6 +1494,7 @@ ${answer}`
       limit,
       query,
       remainingFailureRounds: this.remainingFailureRounds.bind(this),
+      owner: this.config.owner,
     })
   }
 

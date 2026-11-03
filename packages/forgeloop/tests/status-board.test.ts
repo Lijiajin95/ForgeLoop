@@ -305,6 +305,34 @@ describe('status board', () => {
     expect(issue?.detail).toContain(String(MAX_ROUNDS_PER_GRANT - 1))
   })
 
+  it('shows MAX instead of a negative remaining budget when rounds are unlimited', () => {
+    const reqId = submit('req-unlimited')
+    repository.recordFailureRound(reqId, {
+      roundId: 'round-unlimited',
+      stage: 'formal_test',
+      summary: '正式测试退出码 1',
+      occurredAt: NOW,
+    })
+    const view = buildStatusBoard({
+      repository,
+      project: PROJECT,
+      now: NOW,
+      remainingFailureRounds: () => Number.POSITIVE_INFINITY,
+    })
+    const requirement = view.requirements[0]!
+    expect(requirement.remainingRounds).toBeNull()
+    const issue = view.issues.find((candidate) => candidate.kind === 'failure_round')
+    expect(issue?.severity).toBe('attention')
+    expect(issue?.detail).toContain('额度 MAX')
+  })
+
+  it('records the requirement source and submitter for audit', () => {
+    const reqId = submit('req-source')
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.source).toBe('test')
+    expect(requirement.submittedBy).toBe('owner')
+  })
+
   it('blocks once the automatic failure-round budget is exhausted', () => {
     const reqId = submit('req-1')
     for (let index = 0; index < MAX_ROUNDS_PER_GRANT; index += 1) {

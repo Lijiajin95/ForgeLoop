@@ -196,6 +196,10 @@ export interface AutonomyConfig {
   readonly allowCodeCommit: boolean
   /** 可信人类入口来源前缀。 */
   readonly trustedSources: readonly string[]
+  /** 放开来源限制：任何非空来源都可以进入系统准入；来源仍完整记录在案。 */
+  readonly allowAnySource: boolean
+  /** 是否要求提交者与配置所有者一致；false 时运维/工具提交也可进入。 */
+  readonly requireOwner: boolean
   /** 提交前在真实项目中执行的检查 argv；为空表示不做额外提交检查。 */
   readonly commitCheckCommand: readonly string[]
 }
@@ -204,6 +208,8 @@ export interface RawAutonomyConfig {
   enabled?: boolean
   allowCodeCommit?: boolean
   trustedSources?: string[]
+  allowAnySource?: boolean
+  requireOwner?: boolean
   commitCheckCommand?: string[]
 }
 
@@ -399,6 +405,8 @@ function parseAutonomyConfig(raw: RawAutonomyConfig | undefined): AutonomyConfig
     enabled: booleanValue(source.enabled, 'autonomy.enabled', true),
     allowCodeCommit: booleanValue(source.allowCodeCommit, 'autonomy.allowCodeCommit', true),
     trustedSources,
+    allowAnySource: booleanValue(source.allowAnySource, 'autonomy.allowAnySource', true),
+    requireOwner: booleanValue(source.requireOwner, 'autonomy.requireOwner', false),
     commitCheckCommand,
   }
 }

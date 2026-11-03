@@ -24,6 +24,8 @@ function makeRuntime(): ForgeLoopRuntime {
       maxTaskAttempts: 2,
       // 默认不限失败轮次；这里显式给每份授权 3 轮，保留额度用尽的判定语义。
       failureRoundsPerGrant: 3,
+      // 这些用例验证未准入需求的排队与推进；放开来源会改变准入结论。
+      autonomy: { allowAnySource: false },
     },
     dir,
   )

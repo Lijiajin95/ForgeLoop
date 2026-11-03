@@ -207,6 +207,10 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      // 这些用例验证旧的显式推进/验证门禁，保持仅信任显式来源。
+      autonomy: { allowAnySource: false },
+      failureRoundsPerGrant: 3,
+      maxVerificationAttempts: 3,
     },
     dir,
   )

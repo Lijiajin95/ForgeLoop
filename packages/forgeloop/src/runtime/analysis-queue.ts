@@ -7,12 +7,16 @@
  */
 
 import type { ForgeLoopConfig } from '../config.js'
-import { MAX_AUTO_ANALYSIS_RETRIES, type AnalysisMode } from '../domain/analysis.js'
+import { sourceTrusted } from '../domain/admission.js'
+import type { AnalysisMode } from '../domain/analysis.js'
 import type { Requirement } from '../domain/requirement.js'
 import type { RequirementQueue } from '../domain/requirement-queue.js'
 import { ANALYSIS_FAILED, isTerminal } from '../domain/status.js'
 import type { Repository } from '../records/repository.js'
 import { fail, ok, type OperationResult } from './operation-result.js'
+
+/** 同一需求版本自动重试分析的次数上限；格式与输入类失败不自动无限重试。 */
+const MAX_AUTO_ANALYSIS_RETRIES = 3
 
 /** 自动重试分析的请求来源标识；手动重试以 `:analysis-retry` 结尾。 */
 export const ANALYSIS_RETRY_SOURCE = 'system:analysis-retry'
@@ -50,10 +54,7 @@ export class AnalysisQueue {
     input: { created: boolean; source: string; analyze: boolean },
   ): string {
     const trusted =
-      this.deps.config.autonomy.enabled &&
-      this.deps.config.autonomy.trustedSources.some(
-        (prefix) => prefix.length > 0 && input.source.startsWith(prefix),
-      )
+      this.deps.config.autonomy.enabled && sourceTrusted(input.source, this.deps.config.autonomy)
     if (!input.created || !trusted || !input.analyze) return ''
     this.deps.queue.enqueue({
       requirementId: requirement.reqId,

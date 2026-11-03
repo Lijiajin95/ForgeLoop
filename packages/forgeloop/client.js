@@ -49,7 +49,7 @@ window.__ModuleLoader__.load({
       'action.requeueBlocked': '暂不能重新执行',
       'action.extendBudget': '延长工时',
       'action.extendBudgetHelp': '延长该需求的执行工时；只加上限、不清零已消耗，延长后可重新执行。',
-      'action.extendBudgetPrompt': '延长多少小时？（0.5–24）',
+      'action.extendBudgetPrompt': '延长多少小时？（0.5–24；输入 MAX 表示不限）',
       'action.extendedBudget': '已延长工时',
       'action.grantRounds': '追加授权',
       'action.grantRoundsHelp': '失败轮次额度用尽后追加一份授权；累计失败保留，不清零。',
@@ -262,7 +262,7 @@ window.__ModuleLoader__.load({
       'action.extendBudget': 'Extend budget',
       'action.extendBudgetHelp':
         'Extend this requirement’s work budget; consumed time is preserved and it can be re-run afterwards.',
-      'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24)',
+      'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24; type MAX for unlimited)',
       'action.extendedBudget': 'Budget extended',
       'action.grantRounds': 'Grant more rounds',
       'action.grantRoundsHelp':
@@ -583,6 +583,15 @@ window.__ModuleLoader__.load({
       'overview.stat.delivered': '已交付',
       'overview.stat.issues': '问题',
       'overview.stat.blocking': '阻断',
+      'overview.autonomyTitle': '自主率统计',
+      'overview.autonomy.devInvolvement': '研发人工介入率',
+      'overview.autonomy.devSuccess': '研发自主成功率',
+      'overview.autonomy.opsInvolvement': '运维人工介入率',
+      'overview.autonomy.opsSuccess': '运维自主恢复率',
+      'overview.autonomy.sample': '{numerator}/{denominator}',
+      'overview.autonomy.noSample': '无样本',
+      'overview.autonomyHint':
+        '人工介入包括追加授权、延长工时、停止/取消、人工请求与多版本修订；自主成功率只统计验证通过且受控提交的需求。',
       'overview.runningTitle': '当前执行与等待输入',
       'overview.runningEmpty': '当前没有执行中或等待输入的任务。',
       'overview.attentionTitle': '需要处理',
@@ -1095,6 +1104,15 @@ window.__ModuleLoader__.load({
       'overview.stat.delivered': 'Delivered',
       'overview.stat.issues': 'Issues',
       'overview.stat.blocking': 'Blocking',
+      'overview.autonomyTitle': 'Autonomy rates',
+      'overview.autonomy.devInvolvement': 'Dev human involvement',
+      'overview.autonomy.devSuccess': 'Dev autonomous success',
+      'overview.autonomy.opsInvolvement': 'Ops human involvement',
+      'overview.autonomy.opsSuccess': 'Ops autonomous recovery',
+      'overview.autonomy.sample': '{numerator}/{denominator}',
+      'overview.autonomy.noSample': 'No samples',
+      'overview.autonomyHint':
+        'Human involvement counts extra grants, budget extensions, stop/cancel, human requests and revised versions; autonomous success counts verified requirements that reached a controlled commit.',
       'overview.runningTitle': 'Running and waiting for input',
       'overview.runningEmpty': 'No running or waiting-for-input tasks.',
       'overview.attentionTitle': 'Needs attention',
@@ -2122,7 +2140,12 @@ window.__ModuleLoader__.load({
             ? ''
             : window.prompt(t('action.extendBudgetPrompt'), '1')
         if (raw === null) return null
-        const hours = Number(raw)
+        const value = String(raw).trim()
+        if (value.toUpperCase() === 'MAX' || value === '-1') {
+          body.seconds = -1
+          return body
+        }
+        const hours = Number(value)
         if (!Number.isFinite(hours) || hours < 0.5 || hours > 24) return null
         body.seconds = Math.round(hours * 3600)
       }
@@ -3660,6 +3683,16 @@ window.__ModuleLoader__.load({
         (task) => task.state === 'running' || task.state === 'awaiting_input',
       )
       const attention = issues.slice(0, 4)
+      const autonomy = board.autonomy || {
+        requirements: { involvementRate: null, autonomousSuccessRate: null },
+        ops: { involvementRate: null, autonomousSuccessRate: null },
+      }
+      const autonomyCells = [
+        ['overview.autonomy.devInvolvement', autonomy.requirements.involvementRate],
+        ['overview.autonomy.devSuccess', autonomy.requirements.autonomousSuccessRate],
+        ['overview.autonomy.opsInvolvement', autonomy.ops.involvementRate],
+        ['overview.autonomy.opsSuccess', autonomy.ops.autonomousSuccessRate],
+      ]
       const counts = {
         approvals: issues.filter((issue) => issue.kind === 'approval').length,
         failures: issues.filter((issue) => issue.kind === 'failure_round').length,
@@ -3751,6 +3784,40 @@ window.__ModuleLoader__.load({
             h('span', { className: 'flb-stat-value' }, String(board.summary.blocking)),
             h('span', { className: 'flb-stat-label' }, t('overview.stat.blocking')),
           ),
+        ),
+        h(
+          'section',
+          { className: 'flb-panel' },
+          h('div', { className: 'flb-panel-title' }, t('overview.autonomyTitle')),
+          h(
+            'div',
+            { className: 'flb-autonomy-grid' },
+            autonomyCells.map(([label, sample]) =>
+              h(
+                'div',
+                { className: 'flb-autonomy-cell', key: label },
+                h(
+                  'span',
+                  { className: 'flb-stat-value' },
+                  sample && sample.rate !== null
+                    ? `${Math.round(sample.rate * 100)}%`
+                    : t('overview.autonomy.noSample'),
+                ),
+                h('span', { className: 'flb-stat-label' }, t(label)),
+                h(
+                  'span',
+                  { className: 'flb-card-meta' },
+                  sample
+                    ? t('overview.autonomy.sample', {
+                        numerator: sample.numerator,
+                        denominator: sample.denominator,
+                      })
+                    : '',
+                ),
+              ),
+            ),
+          ),
+          h('div', { className: 'flb-muted' }, t('overview.autonomyHint')),
         ),
         h(
           'div',
@@ -3938,6 +4005,8 @@ window.__ModuleLoader__.load({
 .flb-stat[data-tone=error]{border-color:var(--dsw-alias-state-error-primary)}
 .flb-stat-value{font-size:19px;font-weight:600;line-height:24px}
 .flb-stat-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-autonomy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:8px}
+.flb-autonomy-cell{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border:.5px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-2)}
 .flb-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
 .flb-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);padding:10px;min-width:0}
 .flb-panel-title{font-size:12px;font-weight:600;margin-bottom:7px}

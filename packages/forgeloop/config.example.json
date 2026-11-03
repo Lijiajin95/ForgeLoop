@@ -1,4 +1,16 @@
 {
+  "autonomy": {
+    "enabled": true,
+    "allowCodeCommit": true,
+    "allowAnySource": true,
+    "requireOwner": false,
+    "trustedSources": ["dsh-session:"],
+    "commitCheckCommand": []
+  },
+  "agent": { "timeoutSeconds": -1 },
+  "maxTaskAttempts": -1,
+  "failureRoundsPerGrant": -1,
+  "maxVerificationAttempts": -1,
   "ops": {
     "enabled": true,
     "intervalSeconds": 300,

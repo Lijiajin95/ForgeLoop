@@ -21,7 +21,10 @@ import type { Repository } from '../records/repository.js'
 import type { AgentRunner } from './agent-runner.js'
 import { analysisPrompt, devPlanningPrompt } from './prompts.js'
 import { buildProjectFacts } from './board.js'
-import type { AdmissionDecision } from '../domain/admission.js'
+import { sourceTrusted, type AdmissionDecision } from '../domain/admission.js'
+
+/** 研发拆解的格式重试上限：畸形输出重试有限次，不随执行限额放开。 */
+const MAX_PLANNING_ATTEMPTS = 3
 
 function describeViolation(violation: {
   taskId: string
@@ -147,13 +150,11 @@ export class ExecutionPlan {
     }
     const trusted =
       this.deps.config.autonomy.enabled &&
-      this.deps.config.autonomy.trustedSources.some(
-        (prefix) => prefix.length > 0 && requirement.source.startsWith(prefix),
-      )
+      sourceTrusted(requirement.source, this.deps.config.autonomy)
     if (!trusted) {
       return {
         state: 'done',
-        detail: `分析 v${analysis.analysisVersion} 完成；需求来源不在系统准入范围，等待所有者决定`,
+        detail: `分析 v${analysis.analysisVersion} 完成；需求来源 ${requirement.source || '（空）'} 不在系统准入范围，等待所有者决定`,
       }
     }
     const admission = this.deps.admitRequirement(reqId)
@@ -282,7 +283,7 @@ export class ExecutionPlan {
     let feedback = ''
     let lastError = ''
     let lastPlan: TaskPlan | undefined
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= MAX_PLANNING_ATTEMPTS; attempt += 1) {
       const transcript = join(sessionsDir(this.deps.config), `${reqId}-plan-a${attempt}.jsonl`)
       const started = Date.now()
       const result = await this.deps.runner.run({

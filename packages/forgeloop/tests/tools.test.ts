@@ -45,6 +45,8 @@ beforeEach(() => {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      failureRoundsPerGrant: 3,
+      maxVerificationAttempts: 3,
     },
     dir,
   )
@@ -121,6 +123,13 @@ describe('tool surface', () => {
     expect(block.type).toBe('text')
     expect(block.text).toContain('标题')
     expect(block.text).toContain('"a": 1')
+  })
+
+  it('never exposes deployment or human decisions as model tools', () => {
+    const forbidden = /deploy|deployment|publish|release|approve|cancel|grant|budget_extend/i
+    expect(
+      tools.map((definition) => definition.name).filter((name) => forbidden.test(name)),
+    ).toEqual([])
   })
 
   it('lists requirements and reads one by id', async () => {

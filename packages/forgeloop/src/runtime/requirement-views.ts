@@ -123,6 +123,9 @@ export function buildRequirementView(
     project: requirement.project,
     status: requirement.status,
     blockedReason: requirement.blockedReason,
+    source: requirement.source,
+    submittedBy: requirement.submittedBy,
+    createdAt: requirement.versions[0]?.createdAt ?? '',
     versions: requirement.versions.map((version) => ({
       version: version.version,
       text: version.text,

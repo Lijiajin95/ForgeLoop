@@ -285,6 +285,14 @@ describe('client conversation view', () => {
     expect(dicts!.en['task.retry']).toBe('Retry task')
   })
 
+  it('ships autonomy rate labels and the no-sample fallback in both locales', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts!.zh['overview.autonomyTitle']).toBe('自主率统计')
+    expect(dicts!.en['overview.autonomyTitle']).toBe('Autonomy rates')
+    expect(dicts!.zh['overview.autonomy.noSample']).toBe('无样本')
+    expect(dicts!.en['overview.autonomy.devSuccess']).toBe('Dev autonomous success')
+  })
+
   it('has no unknown-state labels left in either locale', () => {
     const dicts = dictionaries.get('forgeloop-board')
     const removed = [
@@ -321,6 +329,21 @@ describe('client action request', () => {
       reqId: 'req-1',
       sessionId: 'session-1',
       seconds: 7200,
+    })
+  })
+
+  it('sends -1 for an unlimited budget when the user types MAX', () => {
+    withPrompt('MAX')
+    expect(actions().body(t, requirement, 'extend-budget', 's')).toEqual({
+      reqId: 'req-1',
+      sessionId: 's',
+      seconds: -1,
+    })
+    withPrompt('-1')
+    expect(actions().body(t, requirement, 'extend-budget', 's')).toEqual({
+      reqId: 'req-1',
+      sessionId: 's',
+      seconds: -1,
     })
   })
 

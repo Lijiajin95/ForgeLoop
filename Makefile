@@ -35,6 +35,8 @@ help:
 	@echo "make worktree-merge BRANCH=... 快进合并并清理 worktree/分支"
 	@echo "make budget                Agent 上下文 token 预算（文件 25k）"
 	@echo "make assertions            类型断言预算（只减不增）"
+	@echo "make e2e                   宿主装载 E2E（不依赖模型）"
+	@echo "make real-model-e2e        真实模型闭环 E2E（opt-in，会产生模型费用）"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
 	@echo "make verify-e2e            候选包安装到隔离宿主后跑真实模型端到端主路径（需模型凭据）"
 	@echo "make lint                  ESLint（类型感知，src；tests/scripts 无类型规则）"
@@ -122,6 +124,12 @@ verify-e2e:
 e2e:
 	$(NODE) scripts/ts/e2e.ts
 	$(NODE) scripts/ts/e2e-board.ts
+
+# 真实模型闭环 E2E（opt-in）：提交 → 准入 → 研发 → 独立验证 → 受控提交。
+# 需要启动环境导出模型密钥；派生 profile 默认用官方模板模型，设置
+# FORGELOOP_REAL_MODEL_PATCH=<patch.yml> 可改走其它 provider（如 Qwen Token Plan）。
+real-model-e2e:
+	FORGELOOP_REAL_MODEL=1 $(NODE) scripts/ts/real-model-e2e.ts
 
 coverage:
 	$(NPM) run coverage --workspace forgeloop-dsh

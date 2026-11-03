@@ -184,6 +184,7 @@ describe('prompt builders', () => {
     expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准')
     expect(text).toContain('packages/forgeloop/tests/')
     expect(text).toContain('把 docs/architecture.md 写进 files')
+    expect(text).toContain('任务不得包含部署、发布、安装到正式 profile')
   })
 
   it('tells the development Agent to fix a problem instead of rebuilding a feature', () => {
@@ -211,6 +212,8 @@ describe('prompt builders', () => {
     expect(text).toContain('执行范围是当前工作副本内的全部文件')
     expect(text).toContain('只允许改动当前项目的文件')
     expect(text).toContain('不允许改动其他项目的文件')
+    expect(text).toContain('不得部署、发布、安装到任何正式 profile')
+    expect(text).toContain('部署与发布只能由所有者在受控入口显式执行')
     expect(text).toContain('依赖任务：无')
     expect(text).toContain('工作目录：/tmp/ws')
   })

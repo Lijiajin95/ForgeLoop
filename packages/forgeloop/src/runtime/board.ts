@@ -26,6 +26,8 @@ import {
 import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
+import type { AutonomyStats } from '../domain/autonomy.js'
+import { buildAutonomyStats } from './autonomy-stats.js'
 import {
   ACTION_ANALYZE,
   ACTION_PLAN,
@@ -143,6 +145,9 @@ export interface BoardRequirementView {
   readonly title: string
   readonly status: string
   readonly version: number
+  /** 需求来源与提交者：来源放开后仍保留可审计的身份。 */
+  readonly source: string
+  readonly submittedBy: string
   readonly planVersion: number | null
   readonly approval: 'approved' | 'missing' | 'stale' | 'none'
   readonly planReview: BoardPlanReviewView | null
@@ -221,6 +226,8 @@ export interface StatusBoardView {
   readonly requirements: readonly BoardRequirementView[]
   readonly tasks: readonly BoardTaskView[]
   readonly issues: readonly BoardIssueView[]
+  /** 自主率统计：只按权威记录计算，无样本时比率为 null。 */
+  readonly autonomy: AutonomyStats
 }
 
 export interface BuildStatusBoardInput {
@@ -236,6 +243,8 @@ export interface BuildStatusBoardInput {
   readonly query?: string | undefined
   /** 剩余失败轮次的判定（0 表示已用尽）；缺省按历史额度公式计算。 */
   readonly remainingFailureRounds?: ((reqId: string) => number) | undefined
+  /** 所有者标识：用于把所有者直接发起的动作计为人工介入。 */
+  readonly owner?: string
 }
 
 /**
@@ -451,6 +460,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
     requirements,
     tasks,
     issues: sortedIssues,
+    autonomy: buildAutonomyStats(repository, project, input.owner ?? ''),
   }
 }
 
@@ -886,7 +896,7 @@ function canAdvance(context: ActionContext): boolean {
     authorization?.status === 'approved' &&
     (requirement.status === APPROVED || requirement.status === EXECUTING) &&
     progress.delivered < progress.total &&
-    remainingRounds > 0 &&
+    remainingRounds !== 0 &&
     progress.running === 0 &&
     progress.awaitingInput === 0 &&
     !context.activeRequest
@@ -900,7 +910,7 @@ function canVerify(context: ActionContext): boolean {
     (requirement.status === APPROVED || requirement.status === EXECUTING) &&
     progress.total > 0 &&
     progress.delivered === progress.total &&
-    remainingRounds > 0 &&
+    remainingRounds !== 0 &&
     context.planReviewView?.verdict === 'pass' &&
     progress.running === 0 &&
     progress.awaitingInput === 0 &&
@@ -1311,6 +1321,8 @@ function buildRequirementChunk(
     version: requirement.versions.length,
     planVersion: plan?.planVersion ?? null,
     approval: authorization?.status ?? 'none',
+    source: requirement.source,
+    submittedBy: requirement.submittedBy,
     planReview: planReviewView,
     verification: verificationView,
     businessReview: businessReviewView,

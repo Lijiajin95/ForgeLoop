@@ -12,8 +12,8 @@
 | 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、研发拆解、实现前评审、批准、推进、独立验证与验收均已接入；2026-10-30 进一步收紧为“执行角色全工作区 + 已批准任务包冻结 + 验证阻断自动回研发修复”，退役最小重新规划与手工重新研发入口；天工页显示业务终审/候选/部署并提供构建、核对上线、重新执行动作；编辑/草稿删除/问题补充/等待回答仍无入口；完整真实候选安装与上线核对尚未在正式需求上跑通                                                                                                                                          | [架构](architecture.md)、§15–§37                                                                                                       |
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                             | §30                                                                                                                                    |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                | §13、[ADR 0009](adr/0009-remove-retired-implementation.md)                                                                             |
-| 最近安装记录 | 2026-11-03 `forgeloop-dsh@0.0.2` tarball（288,474 字节，SHA-256 `ee92f71a…`，含看板空 JSON、延长工时请求体、上游 diff 幂等与重复问题合并）已安装到正式 `web` profile 并热重载（PID 82207 未重启；owner `MacAir.local:2477:5bc23405` 起于 `2026-11-03T06:18:45Z`），`last_recovery` 无中断请求；安装记录不等于交付完成                                                                                                                                                                                                                               | §36                                                                                                                                    |
-| 最近工程检查 | 2026-11-03 `make check` 通过，70 个测试文件、772 项通过；`make contracts`、`make lint`、`make format`、断言预算 18/18、token 预算通过；覆盖率未在本批重跑                                                                                                                                                                                                  | §117、§118                                                                                                                             |
+| 最近安装记录 | 2026-11-03 `forgeloop-dsh@0.0.2` tarball（309,672 字节，SHA-256 `ea9ecce3…`，含可靠性视图）已安装到正式 `web` profile 并热重载（PID 82207 未重启；owner `MacAir.local:2477:f6d9a59d` 起于 `2026-11-03T07:28:29Z`），`last_recovery` 无中断请求；安装记录不等于交付完成                                                                                                                                                                                                                               | §36                                                                                                                                    |
+| 最近工程检查 | 2026-11-03 `make check` 通过，75 个测试文件、831 项通过；`make contracts`、`make lint`、`make format`、断言预算 18/18、token 预算通过；覆盖率 92.70/96.69/84.55 通过                                                                                                                                                                                                  | §119、§121                                                                                                                             |
 | 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行                                                                                                                                                                                                                                                    | §16–§28、§33、§36                                                                                                                      |
 | 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，无工具 Agent 评审后建事件；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证 | §35、§110、§112、[运维设计](ops-agent.md)                                                                                              |
 | 关键缺口     | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维只有行为测试（正式配置已启用主动监控，宿主 PID 2477 未重载）；需求编辑、草稿删除、问题补充与等待回答无服务端入口                                                                                                                                                      | §4.1、§21–§37、§110                                                                                                                    |
@@ -4514,6 +4514,99 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 - 隔离库没有运行记录，真实事件下钻未验证；缺失/损坏快照只有运行时测试，没有页面留档。
 - 夜间 CI 定时生成快照未接入，仍需手动执行命令。
 
+## 120. 研发场景验证：MAX 限额下的真实回合与提交检查（2026-11-03）
+
+用真实 `AgentRunner`（真实定时器、真实 Git 工作区、真实正式测试进程）加脚本化的产品、验证与业务
+回合，跑一遍研发场景，核对 §119 的 `-1 = MAX` 在研发链路上成立。
+
+### 120.1 场景与结果
+
+- 默认限额（全部 `-1`）：产品分析 → 系统准入 → 研发会话出方案 → 任务 a 前 3 次“没有改动”仍继续、
+  第 4 次交付 → 任务 b 交付 → 每次 0.6 秒的正式测试跑完 → 独立验证 → 业务验收 → 受控提交成功；
+  研发回合耗时都在自己的延迟之上（200/300 毫秒），没有被回合定时器取消；
+  需求进入 `committed`，看板 `remainingRounds = null`（页面显示 MAX），失败轮次为空。
+- 恢复限额：`agent.timeoutSeconds = 1` 时，2 秒的研发回合在 1 秒被取消，任务记为 blocked，
+  原因含“研发回合超时 / 上限”，需求没有提交；`maxTaskAttempts = 1` 不再重试。
+
+### 120.2 验证中发现的缺陷
+
+`runCommand` 直接把超时值交给 `execFileSync({ timeout })`。受控提交的提交检查复用
+`formalTestTimeoutSeconds * 1000`，默认 `-1` 时 Node 拒绝负超时，检查以退出码 1 失败——
+表现为“默认 MAX 下受控提交永远失败”，既有单元测试没有覆盖这条路径。
+
+修复：`runCommand` 只在超时为正数时设置 `timeout`，与正式测试进程的处理一致；
+`tests/workspace.test.ts` 固定 `-1000`／`0` 都不建定时器。
+
+### 120.3 测试
+
+- 新增 `tests/dev-scenario-unlimited.test.ts`：真实 `AgentRunner` 加脚本化宿主，覆盖默认 MAX 下
+  从研发到提交的完整链路，以及正数限额恢复后的超时阻断。
+
+### 120.4 验证
+
+- `make check`：74 个测试文件、805 项通过。
+- `make check-static`：typecheck、lint、契约、token 预算（`service.ts` 21,477）、断言预算 18/18；
+  `make format` 通过。
+
+### 120.5 未完成
+
+- 宿主与模型是脚本化的，验证的是运行时链路与定时器语义，不是真实模型的判断质量；
+  真实模型下的研发质量仍需在宿主环境复测。
+
+## 121. 全链路闭环放开与自主率统计（2026-11-03）
+
+本批在独立 worktree `feat/loop-closure` 完成，合并 main 的 §119（`-1 = MAX`）与可靠性看板之后，
+补齐闭环其余会中断流程的限制，并加上人工介入率统计。限额取值仍按 §119：`-1` 为不限、页面显示 MAX，
+正数恢复原行为；本批没有再改限额语义。
+
+### 121.1 来源与链路
+
+- 系统准入新增 `allowAnySource`（默认 true）与 `requireOwner`（默认 false）：空来源永不可信，
+  非空来源都可进入，来源与提交者继续完整落库；收紧时显式配置 `allowAnySource=false` 并维护
+  `trustedSources`。产品受理、产品分析与运维提交共用这一判定（`domain/admission.ts` 的
+  `sourceTrusted`），不再各自比较来源前缀。
+- 运维事件在 `awaiting_decision` 状态也可生成修复需求，来源 `ops:<event>`、提交者 `ops-agent`，
+  经产品分析后转研发；此前该状态只等人工决定，闭环在运维侧断开。
+- 研发→运行：研发 Agent 没有部署/发布工具，任务拆解与执行提示词都禁止部署、发布、安装到正式
+  profile 或修改正式环境；部署只走人工认证端点，按独立授权执行。
+- 研发→验证的真实模型闭环新增 `scripts/ts/real-model-e2e.ts` 与 `make real-model-e2e`
+  （`FORGELOOP_REAL_MODEL=1` opt-in）：先构建插件，在隔离 DSH_HOME 安装 `web`／`headless`
+  两个派生 profile 与临时 Git 项目，真实模型提交需求，轮询权威库直到准入、任务包、验证通过与
+  受控提交，并断言来源、提交记录与零部署记录。
+
+### 121.2 自主率
+
+- 新增 `domain/autonomy.ts` 与 `runtime/autonomy-stats.ts`：研发以需求为分母，人工介入取多版本、
+  追加授权、工时延长、停止/取消与人工请求；自主成功要求 `committed`/`accepted`、验证通过且无
+  人工介入。运维以 `ops_events` 为分母，`human_involved` 计介入，`recovered`/`closed` 且无人工
+  介入计自主成功。
+- 看板 `StatusBoardView.autonomy` 返回分子、分母与比率；无样本时 `rate=null`，页面显示“无样本”。
+  总览新增研发/运维介入率与自主成功率四项，中英文文案同步。
+- 工时延长写 `requirement_budget_extensions` 审计表（`extend_budget` 支持 `-1` 改为不限），
+  自主率可从需求、请求、授权、工时延长与运维事件回查。
+- 看板延长工时输入支持 `MAX` 或 `-1`，直接改为不限；有限时长仍限制在 0.5–24 小时。
+
+### 121.3 测试口径变化
+
+- 默认放开来源后，主控会把准入通过的需求交给连续推进（新验证管线）。原先验证单会话旧路径的用例
+  在配置里显式写 `autonomy: { allowAnySource: false }`，保留“未准入 → 单会话开发 + 旧验证”的
+  覆盖；放开后走连续推进的路径由 `continuous-flow.test.ts` 等用例覆盖。
+- 看板“额度不限”改为断言 `remainingRounds === null`（页面 MAX），与 §119 的视图口径一致。
+
+### 121.4 验证
+
+- `make check`：75 个测试文件、831 项通过（含 typecheck、lint、契约、token/断言预算）。
+- `make coverage`：行／语句 92.70%、函数 96.69%、分支 84.55%，门槛（90/93/84）通过。
+- `make check-static`：token 预算最大 `service.ts` 21,486；断言预算 18/18；`make format` 通过。
+- 未验证：`make real-model-e2e` 已执行到构建、隔离 profile、插件装载与 headless 鉴权；启动环境没有
+  有效 `DEEPSEEK_API_KEY`，DeepSeek 返回 401，真实模型闭环未跑通。正式实例未重载本批代码。
+
+### 121.5 未完成与风险
+
+- 默认放开来源意味着任何非空来源都能进准入并触发研发与代码提交（提交仍需授权），
+  生产使用前应确认 `allowAnySource` 与 `ops` 入口是否符合预期。
+- 自主率只统计已有记录，未接入模型判断质量；真实模型下的研发/验证质量仍需在宿主环境复测。
+
 ## 53. 评测门禁改造：逐文件覆盖率、全模块变异与真实宿主 E2E（2026-11-03）
 
 ### 53.1 覆盖率逐文件
@@ -4522,8 +4615,8 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   `src/index.ts` 豁免并开启 `perFile`；全局门槛行/语句 90、函数 95、分支 85，另保留六个关键文件门槛。
 - 新增 21 个 `tests/coverage-*.test.ts`，补强 15 个既有测试文件；`src/cli/pack.ts` 导出 `main` 并加执行守卫。
 - `scripts/ts/reliability-report.ts` 按 perFile 逐文件对照默认门槛与关键文件门槛。
-- 2026-11-03 实测 `make coverage`：96 个测试文件、1149 项测试全部通过；92 个源文件逐文件达标；
-  行/语句 97.93%、函数 99.35%、分支 90.49%（`coverage-summary.json` 已刷新）。
+- 2026-11-03 合并 main 后实测 `make coverage`：98 个测试文件、1180 项测试全部通过；94 个源文件
+  逐文件达标；行/语句 97.94%、函数 99.35%、分支 90.63%（`coverage-summary.json` 已刷新）。
 - 同日把函数门槛 93→95、分支门槛 84→85；新增/补强 analysis-queue、execution-dev、coordinator、
   monitor、service、requirement-queue 的薄弱分支用例，全部文件仍逐文件达标。
   注意：`tests/monitor.test.ts` 的进程采集用例依赖 `ps`；workspace-write 沙箱下 `ps` 返回 EPERM，
@@ -4532,14 +4625,16 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 ### 53.2 变异分片与合并
 
 - `packages/forgeloop/stryker.config.json`：`mutate=["src/**/*.ts"]`、incremental、thresholds 95/85/80。
-- `scripts/ts/mutation-shard.ts` 分 8 个模块分片 + `all`（domain 27、records 8、runtime-execution 17、
-  runtime-verification 11、runtime-ops 20、session 5、config-agents 2、entry 2），并校验每个源码恰好属于一个分片。
+- `scripts/ts/mutation-shard.ts` 分 8 个模块分片 + `all`（合并 main 后：domain 28、records 8、
+  runtime-execution 18、runtime-verification 11、runtime-ops 20、session 5、config-agents 2、entry 2，共 94），
+  并校验每个源码恰好属于一个分片。
 - 分片运行时生成 `reports/stryker-shard-<shard>.json`，把 `thresholds.break` 设为 0，只产报告；
-  全局判定由 `scripts/ts/mutation-merge.ts` 读取 `stryker.config.json` 的 break 完成，并要求 92 个源码
-  全部出现且不重复。`src/domain/work.ts` 只有类型声明、没有变异点，Stryker 不写空文件，合并时显式按
+  全局判定由 `scripts/ts/mutation-merge.ts` 读取 `stryker.config.json` 的 break 完成，并要求全部源码
+  出现且不重复。`src/domain/work.ts` 只有类型声明、没有变异点，Stryker 不写空文件，合并时显式按
   0 个变异登记；其他缺失仍失败。
-- 2026-11-03 全量实测（HEAD，增量重跑）：21242 个计分变异，killed 11931、survived 5193、timeout 25、
-  noCoverage 4093，总分 56.28%，低于 break 80；合并门禁按设计失败。分片分数：
+- 2026-11-03 全量实测（**合并 main 前**，92 个文件，增量重跑）：21242 个计分变异，killed 11931、
+  survived 5193、timeout 25、noCoverage 4093，总分 56.28%，低于 break 80；合并门禁按设计失败。
+  合并 main 后为 94 个文件，未重跑全量变异，56.28% 不代表合并后的 HEAD。分片分数：
   domain 69.77、records 67.93、runtime-execution 55.08、runtime-verification 40.36、
   runtime-ops 51.44、session 63.28、config-agents 64.63、entry 87.01。
   未下调门槛，也未把分片分数当通过依据。
@@ -4559,8 +4654,8 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 
 ### 53.4 未完成与合并状态
 
-- 已实测：`make check`（96 文件、1148 通过 + 1 跳过；放行进程访问时 1149 全通过）、`make coverage`
-  （92 文件逐文件达标，行/语句 97.93%、函数 99.35%、分支 90.49%）、`make format`、`make lint`、
+- 已实测：`make check`（98 文件、1179 通过 + 1 跳过；放行进程访问时 1180 全通过）、`make coverage`
+  （94 文件逐文件达标，行/语句 97.94%、函数 99.35%、分支 90.63%）、`make format`、`make lint`、
   `make check-static`、`make reliability-report-fast`（8/8，变异 not_run）、`mutation-shard --list`（92）、
   合并报告成功/失败路径、verify-e2e 缺 key 失败关闭。
 - 变异开关（2026-11-03 补）：`make check` 默认不运行变异；`make check MUTATION=1`（或机器上
@@ -4569,6 +4664,5 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 - 未验证：真实 DSH + 真实模型 + 实际工具 E2E（无凭据）、nightly/release 的真实 CI 运行。
 - 全量变异 56.28% < 80：该分数是新增覆盖率用例之前测得，新增用例后未重跑全量变异；
   夜间 `mutation-gate` 会失败，是否调整门槛或补测试需所有者决定。
-- 合并：主树已从 `fd19ce1` 前进到 `58ed2c9`（含并行真实模型 E2E 等 16 个提交），本分支不是主树的
-  快进后继，`make worktree-merge` 无法快进；未强推、未 reset 主树，分支与工作树保留待所有者决定。
-
+- 合并：主树 `58ed2c9`（含并行真实模型 E2E 等 16 个提交）已合入本分支；仅 `docs/status.md`
+  冲突，保留 §120/121 与本 §53。合并后重跑覆盖率与测试通过，准备以快进方式合并到 main。

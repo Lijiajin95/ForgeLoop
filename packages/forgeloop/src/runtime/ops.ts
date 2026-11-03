@@ -95,6 +95,8 @@ export interface OpsCommandResult {
   readonly stderr: string
 }
 
+/** 自动诊断的格式重试上限：连续失败等于无法自动判断，转人工。 */
+const MAX_DIAGNOSIS_ATTEMPTS = 3
 const MAX_OUTPUT_BYTES = 256 * 1024
 const TRUNCATED_MARK = '\n…（输出已截断）'
 
@@ -237,8 +239,6 @@ export interface OpsEventDetail {
   readonly check: OpsCheck | null
   readonly actions: readonly OpsAction[]
 }
-
-const MAX_DIAGNOSIS_ATTEMPTS = 3
 
 function outputOf(result: OpsCommandResult): string {
   const parts: string[] = []
@@ -654,7 +654,7 @@ export class OpsRuntime {
 
   private ensureFixRequirements(state: TickState): void {
     for (const event of this.repo.listOpsEvents(this.config.project)) {
-      if (![OPS_RECOVERED, OPS_UNRESOLVED].includes(event.state)) continue
+      if (![OPS_RECOVERED, OPS_UNRESOLVED, OPS_AWAITING_DECISION].includes(event.state)) continue
       const diagnosis = this.readDiagnosis(event)
       if (!diagnosis?.fixRequired || event.fixRequirementId) continue
       try {
@@ -1345,7 +1345,7 @@ export class OpsRuntime {
 
   private ensureFixIfNeeded(event: OpsEventRecord, diagnosis: OpsDiagnosis | null): void {
     if (!diagnosis?.fixRequired || event.fixRequirementId) return
-    if (![OPS_RECOVERED, OPS_UNRESOLVED].includes(event.state)) return
+    if (![OPS_RECOVERED, OPS_UNRESOLVED, OPS_AWAITING_DECISION].includes(event.state)) return
     this.ensureFixRequirement(event, diagnosis)
   }
 

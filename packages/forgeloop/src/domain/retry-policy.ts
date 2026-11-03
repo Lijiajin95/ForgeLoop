@@ -8,7 +8,7 @@
 export interface RetryFacts {
   readonly status: string
   readonly blockedReason: string
-  /** 当前授权下剩余失败轮次；0 表示必须先追加授权。 */
+  /** 当前授权下剩余失败轮次；0 表示必须先追加授权，-1 表示不限。 */
   readonly remainingRounds: number
   readonly activeRequest: boolean
   readonly runningTasks: number
@@ -27,6 +27,13 @@ const RETRYABLE_STATUSES = new Set(['approved', 'executing', 'blocked'])
 
 /** 这些阻塞原因不是“再来一次”能解决的，必须先处理授权或工时。 */
 const HARD_BLOCK_PATTERNS: readonly RegExp[] = [/额度已用尽/, /工时已用尽/, /需要追加授权/, /终态/]
+
+function hardBlockedBy(facts: RetryFacts): string | null {
+  for (const pattern of HARD_BLOCK_PATTERNS) {
+    if (pattern.test(facts.blockedReason)) return facts.blockedReason
+  }
+  return null
+}
 
 export function retryDecision(facts: RetryFacts): RetryDecision {
   if (facts.status === 'accepted' || facts.status === 'rejected' || facts.status === 'cancelled') {
@@ -48,10 +55,9 @@ export function retryDecision(facts: RetryFacts): RetryDecision {
   if (facts.remainingRounds === 0) {
     return { allowed: false, reason: '失败轮次额度已用尽；需要追加授权' }
   }
-  for (const pattern of HARD_BLOCK_PATTERNS) {
-    if (pattern.test(facts.blockedReason)) {
-      return { allowed: false, reason: `当前阻塞需要人工处置：${facts.blockedReason}` }
-    }
+  const blocked = hardBlockedBy(facts)
+  if (blocked !== null) {
+    return { allowed: false, reason: `当前阻塞需要人工处置：${blocked}` }
   }
   return { allowed: true, reason: '' }
 }
