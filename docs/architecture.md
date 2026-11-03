@@ -246,8 +246,17 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    看板/记录入口与业务验收/提交记录，并读取插件装载时写入的 `runtime-identity.json`，
    校验存活 PID 与安装入口/服务摘要一致，写入 `deployments`。发布授权缺失只阻断安装与上线，
    不回退已完成研发、验证和本地提交。
+   部署执行与上面的“上线核对”分开：`deployment-intent` 经门禁与 preflight 后按 target 的
+   `approval` 进入 `awaiting_approval` 或自动 apply；`deployment-approve/-reject/-verify/-rollback`
+   只由认证看板以 `config.owner` 调用，`DeploymentService` 仍复核所有者身份。回退先按 target
+   声明的卷/迁移执行 `data-rollback`，再执行 `rollback`，最后用 `status` 复核；回退失败与
+   `verify_failed` 向配置的 webhook 尽力发送告警（有界超时、最多一次重试、不阻塞）。
+   运维诊断只能输出 `proposed_deployment: { target_id }`，由主控校验已登记 target 与事件资源后
+   走同一部署门禁；模型工具面没有部署、批准或回退参数，只有只读 `forgeloop_rollouts`。
 9. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`submit`、`analyze`、`advance`、`retry`、
-   `requeue`、`stop`、`cancel` 以及历史兼容的 `plan/approve/verify/build/deploy/accept` 组成写动作端点。
+   `requeue`、`stop`、`cancel`、`deployment-intent/-approve/-reject/-verify/-rollback`
+   以及历史兼容的 `plan/approve/verify/build/deploy/accept` 组成写动作端点。准入需求的验收是所有者
+   对交付物的显式记录，不再要求旧任务包批准；验收身份绑定最近一次代码候选，部署门禁再绑定制品摘要。
    普通需求展示 `specified/developing/verifying/committed` 与准入、候选、提交证据（含提交信息）；历史
    `plan_proposed/approved` 卡片保留给旧记录，不作为新需求的常规批准入口。停止会记录请求时间、人和原因，
    撤销待执行请求并置阻塞；实际停稳时间单独记录。扫描、重启和重复唤醒不会自动恢复，只有显式

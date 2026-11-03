@@ -4,17 +4,27 @@
     "allowCodeCommit": true,
     "allowAnySource": true,
     "requireOwner": false,
-    "trustedSources": ["dsh-session:"],
+    "trustedSources": [
+      "dsh-session:"
+    ],
     "commitCheckCommand": []
   },
-  "agent": { "timeoutSeconds": -1 },
+  "agent": {
+    "timeoutSeconds": -1
+  },
   "maxTaskAttempts": -1,
   "failureRoundsPerGrant": -1,
   "maxVerificationAttempts": -1,
   "ops": {
     "enabled": true,
     "intervalSeconds": 300,
-    "resources": [{ "id": "host", "kind": "host", "label": "ForgeLoop 宿主" }],
+    "resources": [
+      {
+        "id": "host",
+        "kind": "host",
+        "label": "ForgeLoop 宿主"
+      }
+    ],
     "checks": [
       {
         "id": "host-http",
@@ -33,13 +43,37 @@
       "enabled": true,
       "intervalSeconds": 300,
       "logLines": 80,
-      "providers": ["builtin"],
+      "providers": [
+        "builtin"
+      ],
       "processes": [],
       "latency": [],
       "logs": [],
       "alertFiles": [],
-      "heartbeat": { "url": "", "method": "GET", "timeoutSeconds": 5 }
+      "heartbeat": {
+        "url": "",
+        "method": "GET",
+        "timeoutSeconds": 5
+      }
     },
-    "alerts": { "webhook": "", "timeoutSeconds": 10 }
+    "alerts": {
+      "webhook": "",
+      "timeoutSeconds": 10
+    }
+  },
+  "deployments": {
+    "enabled": false,
+    "verifyTimeoutSeconds": 600,
+    "alerts": {
+      "webhook": "",
+      "timeoutSeconds": 10
+    },
+    "retention": {
+      "days": 120,
+      "compressEveryDays": 30,
+      "maxBytes": 10737418240
+    },
+    "tools": [],
+    "targets": []
   }
 }

@@ -4926,3 +4926,69 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
     为既有问题。
 - 回归：`Database.close()` 幂等（红：重复 close 抛错；绿：`tests/p0-scenarios.test.ts`）；
   property 生成器（红：seed 61697261 反例；绿：同 seed 与 3 轮稳定性通过）。
+## 131. M0 收口与全链路闭环（2026-11-04）
+
+### 131.1 实现
+
+- **部署协调器接线**：`runtime/deployment-service.ts` 新增 `DeploymentService`，提供
+  `rollouts/rollout/request/approve/reject/verify/rollback`；`service.ts` 持有实例，
+  `ops.ts` 通过对象注入复用同一入口。看板新增端点 `deployments`、`deployment`、
+  `deployment-intent`、`deployment-approve`、`deployment-reject`、`deployment-verify`、
+  `deployment-rollback`，与旧 `deploy`（上线核对）分开；缺参 400、非所有者 403、不存在 404、
+  状态冲突 409。owner 复核在 `runtime/deployment-access.ts`，模型工具面仍只有只读 `forgeloop_rollouts`。
+- **回退与告警**：`Deployments.rollback` 从已应用/已验证/失败状态进入回退：声明卷或迁移的目标
+  先执行 `data-rollback`、再 `rollback`，最后用 `status` 复核；preflight 没有 `restorePoint` 时拒绝 apply。
+  新增 `runtime/deployment-alerts.ts`：`AbortController` 有界超时、最多一次重试、不抛错、
+  调用点不阻塞；`verify_failed`、回退失败与数据回退失败都尽力告警。
+- **运维接线**：`OpsDiagnosis` 增加可选 `proposed_deployment{target_id}`；主控校验部署启用、
+  target 已登记、`target.params.resource` 与事件资源一致后，以 `source=ops:<eventId>` 提议部署，
+  结果写 `deployment/deployment_rejected` 观测。`DeploymentService.request` 按 source 幂等，
+  同一事件在未终态前不会重复建 intent；approval 仍按 target 配置（owner 或 auto）。
+- **准入需求验收**：`accept` 对当前准入需求不再要求旧任务包批准（验收是所有者对交付物的显式记录），
+  身份绑定最近一次代码候选；部署门禁继续绑定制品摘要与验证/业务终审。旧链路行为不变。
+- **闭环 E2E**：`scripts/ts/m0-loop-e2e.ts` + `make m0-loop-e2e`（依赖 `build`）。临时项目/记录根/受控
+  目标全部隔离；脚本化 Agent 驱动研发、验证与诊断，Git、构建、python 部署工具、运维检查/恢复命令
+  均真实执行。覆盖 S1/S2/S3 与三条负例（非所有者批准、模型工具面无部署入口、越界文件被拒）。
+
+### 131.2 闭环证据（最近一次运行）
+
+证据目录：`reports/m0-loop-e2e/2026-11-03T17-16-22-518Z/`（`reports/` 不入库）。
+
+- S1：`req-20261103171622-eb585f`，受控提交 `6a70c1651a69`，制品摘要
+  `b333fd2012d45f43b553726f4595317c4c7eef42e64d9b184b33a49f63028e3b`，
+  部署 `dep-7f7cc121-8ca1-4e60-bb9c-982a3b476bb0`（preflight → apply → status 核对通过）。
+- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103171623-35997f`，诊断给出 `restart-web`，
+  自动恢复后检查复核 `recovered`；恢复进程 pid 与故障前不同。
+- S3：同一事件 `fix_required` 生成 `req-20261103171623-fa4a7c`（source=`ops:ops-20261103171623-35997f`），
+  研发/独立验证/受控提交 `35b3df81cf1c` 后重新构建，部署 `dep-3c873cc7-5447-4550-863e-06e2ba0338c8` 核对通过。
+- 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
+  无 deploy/approve/rollback 入口；`../escape.txt` 任务包被 `parseTaskPlanDraft` 拒绝。
+- 配置快照：`config.snapshot.json`；部署 intent/attempt：`s1-rollout.json`、`s3-rollout.json`；
+  运维事件与观测：`s2-event.json`。
+
+### 131.3 M0 自检（截至本次记录）
+
+| 编号 | 结论 | 证据与说明 |
+| --- | --- | --- |
+| M0-1 | 部分 | 隔离 `recordsRoot`/临时项目/受控 target 的配置快照在证据目录；停止与限额机制已有测试，但本轮未在生产实例做新的停止实测。 |
+| M0-2 | 未达成 | 本轮 E2E 的需求是脚本化输入，不是真实自身需求；真实模型 leg 未运行。 |
+| M0-3 | 部分 | S1 的研发→验证→提交→构建→部署→核对在隔离环境真实跑通；研发/验证 Agent 是脚本替身，真实模型 leg 未跑。 |
+| M0-4 | 达成 | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。 |
+| M0-5 | 部分 | 本节“外部投入”仅记录本次 DSH Agent 会话；模型与费用口径未采集（未知）。 |
+| M0-6 | 部分 | intent/attempt/rollout 详情与运维事件可回查；证据目录在 `reports/`（被忽略），未接入页面证据入口；失败轮次字段沿用既有记录。 |
+| M0-7 | 部分 | 停止/额度既有行为测试通过；“本机实测”未在本轮重新执行，只引用既有 §49 与测试。 |
+
+### 131.4 外部投入（M0-5，如实标注）
+
+- 本次实现与验证由本 DSH 会话的 Agent 完成；会话模型在过程中切换过
+  `command-goat/deepseek/deepseek-v4.1-flash` 与 `qwen-token-plan-cn/deepseek-v4.1-flash-1017`，
+  实际计费口径与 token 数未采集（写“未知”）。大致墙钟时间约 2 小时（23:40–01:16）。
+- 未使用真实模型凭据（`~/.bashrc` 中 QWEN 变量存在但本轮未调用）；未产生模型费用。
+- 未 push、未打 tag、未改版本号；未触碰正式 web profile、生产记录根或真实服务。
+
+### 131.5 已知边界与未完成
+
+- `FORGELOOP_M0_LOOP_REAL_MODEL=1` 的真实模型 leg 尚未实现；S1 的模型/验证/诊断角色是脚本替身，
+  不能据此宣称真实模型闭环。
+- 证据保留期（压缩/磁盘上限）、看板部署页面、`auto` 部署的人工可见审批入口未实现（P1）。
+- 部署 `verifyTimeoutSeconds` 的自动超时判定仍未接线；失败只在显式 `verify` 时收口。

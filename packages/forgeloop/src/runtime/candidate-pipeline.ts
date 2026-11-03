@@ -953,46 +953,16 @@ export class CandidatePipeline {
     )
   }
 
-  private acceptanceInputs(
+  /** 验收时复核独立验证与业务终审；任何材料漂移都阻断，不降级为警告。 */
+  private acceptanceReview(
     reqId: string,
+    plan: TaskPlan,
     requirement: Requirement,
+    identity: string,
   ):
-    | {
-        ok: true
-        latestPlan: TaskPlan
-        artifacts: ReturnType<Repository['taskArtifacts']>
-        identity: string
-        verification: VerificationRecord
-        businessReview: BusinessReviewRecord
-      }
+    | { ok: true; verification: VerificationRecord; businessReview: BusinessReviewRecord }
     | { ok: false; result: OperationResult } {
-    const latestPlan = this.deps.repo.latestTaskPlan(reqId)
-    if (!latestPlan) return { ok: false, result: fail('plan_missing', `需求 ${reqId} 没有任务包`) }
-    const approval = this.deps.repo.planApproval(reqId, latestPlan.planVersion)
-    const authorization = authorizePlan(latestPlan, approval)
-    if (authorization.status !== 'approved') {
-      return { ok: false, result: fail('plan_not_approved', authorization.reason) }
-    }
-    if (latestPlan.requirementVersion !== requirement.versions.length) {
-      return {
-        ok: false,
-        result: fail('stale_requirement', '任务包所依据的需求版本已过期；需要重新规划并批准'),
-      }
-    }
-    const artifacts = this.deps.repo.taskArtifacts(reqId, latestPlan.planVersion)
-    const missing = latestPlan.tasks.filter(
-      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
-    )
-    if (missing.length > 0) {
-      return {
-        ok: false,
-        result: fail(
-          'not_delivered',
-          `仍有任务未交付：${missing.map((task) => task.taskId).join('、')}`,
-        ),
-      }
-    }
-    const verification = this.deps.repo.verification(reqId, latestPlan.planVersion)
+    const verification = this.deps.repo.verification(reqId, plan.planVersion)
     if (!verification) {
       return {
         ok: false,
@@ -1002,7 +972,6 @@ export class CandidatePipeline {
         ),
       }
     }
-    const identity = this.deps.candidateIdentity(latestPlan, artifacts)
     if (
       verification.candidateSha256 !== identity ||
       verification.requirementVersion !== requirement.versions.length
@@ -1035,7 +1004,7 @@ export class CandidatePipeline {
     }
     const businessReview = this.deps.repo.businessReviewForCandidate(
       reqId,
-      latestPlan.planVersion,
+      plan.planVersion,
       identity,
     )
     if (!businessReview) {
@@ -1061,6 +1030,81 @@ export class CandidatePipeline {
     }
     const reviewBlocked = this.businessReviewGuard(businessReview)
     if (reviewBlocked) return { ok: false, result: reviewBlocked }
+    return { ok: true, verification, businessReview }
+  }
+
+  /**
+   * 验收身份：准入链路绑定最近一次代码候选（diff）；旧链路绑定任务产物聚合身份。
+   * 两种身份都来自真实记录，不能互相替代，也不允许缺记录时放宽。
+   */
+  private acceptanceIdentity(
+    reqId: string,
+    plan: TaskPlan,
+    artifacts: ReturnType<Repository['taskArtifacts']>,
+    admitted: boolean,
+  ): { ok: true; identity: string } | { ok: false; result: OperationResult } {
+    const aggregate = this.deps.candidateIdentity(plan, artifacts)
+    if (!admitted) return { ok: true, identity: aggregate }
+    const latestCode = this.deps.repo.latestCodeCandidate(reqId, plan.planVersion)
+    if (!latestCode) {
+      return {
+        ok: false,
+        result: fail('candidate_missing', `需求 ${reqId} 还没有候选 diff；不能验收`),
+      }
+    }
+    return { ok: true, identity: latestCode.candidateSha256 }
+  }
+
+  private acceptanceInputs(
+    reqId: string,
+    requirement: Requirement,
+  ):
+    | {
+        ok: true
+        latestPlan: TaskPlan
+        artifacts: ReturnType<Repository['taskArtifacts']>
+        identity: string
+        verification: VerificationRecord
+        businessReview: BusinessReviewRecord
+      }
+    | { ok: false; result: OperationResult } {
+    const latestPlan = this.deps.repo.latestTaskPlan(reqId)
+    if (!latestPlan) return { ok: false, result: fail('plan_missing', `需求 ${reqId} 没有任务包`) }
+    const approval = this.deps.repo.planApproval(reqId, latestPlan.planVersion)
+    // 新链路以系统准入作为研发/验证/提交授权；验收是所有者对交付物的显式决定，
+    // 不再要求旧的任务包批准。没有当前准入时才回退到旧批准校验。
+    const admitted = this.deps.currentAdmission(reqId) !== null
+    if (!admitted) {
+      const authorization = authorizePlan(latestPlan, approval)
+      if (authorization.status !== 'approved') {
+        return { ok: false, result: fail('plan_not_approved', authorization.reason) }
+      }
+    }
+    if (latestPlan.requirementVersion !== requirement.versions.length) {
+      return {
+        ok: false,
+        result: fail('stale_requirement', '任务包所依据的需求版本已过期；需要重新规划并批准'),
+      }
+    }
+    const artifacts = this.deps.repo.taskArtifacts(reqId, latestPlan.planVersion)
+    const missing = latestPlan.tasks.filter(
+      (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
+    )
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        result: fail(
+          'not_delivered',
+          `仍有任务未交付：${missing.map((task) => task.taskId).join('、')}`,
+        ),
+      }
+    }
+    const resolved = this.acceptanceIdentity(reqId, latestPlan, artifacts, admitted)
+    if (!resolved.ok) return { ok: false, result: resolved.result }
+    const identity = resolved.identity
+    const reviewed = this.acceptanceReview(reqId, latestPlan, requirement, identity)
+    if (!reviewed.ok) return { ok: false, result: reviewed.result }
+    const { verification, businessReview } = reviewed
     return { ok: true, latestPlan, artifacts, identity, verification, businessReview }
   }
 

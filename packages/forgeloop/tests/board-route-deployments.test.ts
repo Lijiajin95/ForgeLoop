@@ -32,6 +32,9 @@ function setup(overrides: Record<string, unknown> = {}) {
       if (input.intentId === 'conflict') {
         return { ok: false, code: 'invalid_state', message: '状态不能批准' }
       }
+      if (input.intentId === 'bad-request') {
+        return { ok: false, code: 'bad_request', message: '参数不完整' }
+      }
       return { ok: true, code: 'ok', message: 'approved', data: {} }
     },
     reject: (input: unknown) => {
@@ -75,8 +78,11 @@ describe('deployment board endpoints', () => {
 
   it('returns 400 for a bad limit and 404 for unreadable details', async () => {
     const { fetch } = setup()
+    expect((await fetch(post({ endpoint: 'deployments' }))).status).toBe(200)
     expect((await fetch(post({ endpoint: 'deployments', limit: 0 }))).status).toBe(400)
+    expect((await fetch(post({ endpoint: 'deployments', limit: '5' }))).status).toBe(400)
     expect((await fetch(post({ endpoint: 'deployment' }))).status).toBe(400)
+    expect((await fetch(post({ endpoint: 'deployment', intentId: 'dep-1' }))).status).toBe(200)
     expect((await fetch(post({ endpoint: 'deployment', intentId: 'missing' }))).status).toBe(404)
   })
 
@@ -103,12 +109,39 @@ describe('deployment board endpoints', () => {
     ).toBe(409)
   })
 
+  it('maps a coordinator bad_request to 400', async () => {
+    const { fetch } = setup()
+    expect(
+      (await fetch(post({ endpoint: 'deployment-approve', intentId: 'bad-request' }))).status,
+    ).toBe(400)
+  })
+
   it('maps an owner refusal to 403', async () => {
     const { fetch } = setup()
     const response = await fetch(post({ endpoint: 'deployment-approve', intentId: 'forbidden' }))
     expect(response.status).toBe(403)
     const payload = (await response.json()) as { error: { code: string } }
     expect(payload.error.code).toBe('forbidden')
+  })
+
+  it('rejects a request without a session id but keeps a source', async () => {
+    const { fetch, calls } = setup()
+    await fetch(post({ endpoint: 'deployment-intent', targetId: 'target' }))
+    expect(calls[0]?.input).toMatchObject({
+      source: 'web-decision:unknown-session:deployment-intent',
+    })
+  })
+
+  it('returns 400 for every deployment action without an intent id', async () => {
+    const { fetch } = setup()
+    for (const endpoint of [
+      'deployment-approve',
+      'deployment-reject',
+      'deployment-verify',
+      'deployment-rollback',
+    ]) {
+      expect((await fetch(post({ endpoint }))).status).toBe(400)
+    }
   })
 
   it('supports reject, verify and rollback endpoints', async () => {

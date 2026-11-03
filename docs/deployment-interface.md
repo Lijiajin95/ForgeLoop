@@ -2,7 +2,9 @@
 
 状态：**方案草案；所有者已确认 §10 的五项决定（2026-11-03）。** P0 已实现：配置与校验、
 状态机与工具结果解析、记录表、工具调用底座、协调器（preflight/审批/auto/apply/status）、
-只读工具 `forgeloop_rollouts`；回退、内置 webhook、审批端点/页面与证据保留期尚未实现。
+只读工具 `forgeloop_rollouts`、`DeploymentService` 运行时门面与看板动作端点、
+回退（含 `data-rollback`）与内置 webhook 告警；页面只读展示与证据保留期尚未实现。
+真实模型与真实外部工具（k8s/容器）集成未验证。
 相关：[产品方案 §8.2 发布与数据迁移](product.md#82-发布与数据迁移)、[安装与升级](deployment.md)、
 [运维 Agent](ops-agent.md)、[架构](architecture.md)。
 

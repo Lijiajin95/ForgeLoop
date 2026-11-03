@@ -595,6 +595,11 @@ describe('continuous four-Agent flow', () => {
     expect(committed.sort()).toEqual(['docs/a.md', 'docs/b.md'])
     expect(git(project, ['status', '--porcelain'])).toBe('')
 
+    // 准入需求不需要任务包批准；所有者在交付后显式验收，部署门禁依赖这条记录。
+    const accepted = runtime.accept({ reqId, by: 'owner', source: 'test:accept' })
+    expect(accepted.ok, accepted.message).toBe(true)
+    expect(runtime.repo.acceptance(reqId).accepted_at).not.toBe('')
+
     // 研发会话不因需求结束而销毁，只回到空闲并留下与会话 ID 关联的总结；验证会话验完即关。
     expect(runner.closedRoles).not.toContain('dev')
     expect(runner.closedRoles).toContain('verify')

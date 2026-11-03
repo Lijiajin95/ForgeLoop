@@ -134,7 +134,11 @@ function opsRaw(
 function makeOps(
   raw: RawConfig,
   runner: AgentLike,
-  proposeDeployment?: ConstructorParameters<typeof OpsRuntime>[0]['proposeDeployment'],
+  proposeDeployment?: (input: {
+    eventId: string
+    targetId: string
+    source: string
+  }) => Promise<{ ok: boolean; code: string; message: string; data?: unknown }>,
 ): { ops: OpsRuntime; config: ForgeLoopConfig } {
   const config = resolveConfig(raw, dir)
   return {
@@ -144,7 +148,14 @@ function makeOps(
       repo: repository,
       runner,
       now: () => clock,
-      ...(proposeDeployment ? { proposeDeployment } : {}),
+      ...(proposeDeployment
+        ? {
+            deploymentService: {
+              request: (input: { targetId: string; by: string; source: string }) =>
+                proposeDeployment({ eventId: '', ...input }),
+            },
+          }
+        : {}),
     }),
   }
 }

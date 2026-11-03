@@ -410,6 +410,9 @@ function checkSessionSurface(contract: any): void {
 const PYTHON_TOOL_REFERENCE_FILES = new Set([
   'packages/forgeloop/src/domain/deployment.ts',
   'packages/forgeloop/src/runtime/deployment-tools.ts',
+  // M0 闭环 E2E 在临时目录登记一个外部 python 部署工具（与 deployment-tools 的 kind 一致），
+  // 不是把 Python 实现带回活动代码。
+  'scripts/ts/m0-loop-e2e.ts',
 ])
 
 function checkNoPython(): void {

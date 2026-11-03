@@ -17,7 +17,7 @@ MUTATION_ENABLED := $(filter 1,$(MUTATION))
 
 .PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
-	precommit verify-plugin verify-e2e package \
+	precommit verify-plugin verify-e2e package m0-loop-e2e \
 	coverage mutation mutation-shard mutation-merge mutation-incremental audit security help \
 	reliability-report reliability-report-fast reliability-registry stability reliability-advanced
 
@@ -39,6 +39,7 @@ help:
 	@echo "make real-model-e2e        真实模型闭环 E2E（opt-in，会产生模型费用）"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
 	@echo "make verify-e2e            候选包安装到隔离宿主后跑真实模型端到端主路径（需模型凭据）"
+	@echo "make m0-loop-e2e           M0 全链路脚本化闭环（真实 Git/构建/部署工具/运维命令，无模型）"
 	@echo "make lint                  ESLint（类型感知，src；tests/scripts 无类型规则）"
 	@echo "make format                检查 Prettier 格式（make format-write 写入）"
 	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts，逐文件检查）"
@@ -137,6 +138,11 @@ e2e:
 # FORGELOOP_REAL_MODEL_PATCH=<patch.yml> 可改走其它 provider（如 Qwen Token Plan）。
 real-model-e2e:
 	FORGELOOP_REAL_MODEL=1 $(NODE) scripts/ts/real-model-e2e.ts
+
+# M0 全链路闭环：脚本化 Agent + 真实 Git/构建部署工具/运维检查与恢复。
+# 依赖编译后的 lib；不使用模型，真实模型 leg 由 FORGELOOP_M0_LOOP_REAL_MODEL 另行验证。
+m0-loop-e2e: build
+	$(NODE) scripts/ts/m0-loop-e2e.ts
 
 coverage:
 	$(NPM) run coverage --workspace forgeloop-dsh

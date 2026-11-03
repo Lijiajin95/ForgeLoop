@@ -87,4 +87,28 @@ describe('deployment alerts', () => {
     const result = await sendDeploymentAlert('https://127.0.0.1:1/unreachable', {}, 1, okFetch())
     expect(result.ok).toBe(true)
   })
+
+  it('uses the global fetch when no implementation is injected', async () => {
+    const original = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      calls.push(String(url))
+      return { ok: true, status: 200 }
+    }) as typeof fetch
+    try {
+      const result = await sendDeploymentAlert('https://example.com/default', { at: 'now' }, 1)
+      expect(result).toEqual({ ok: true, error: '' })
+      expect(calls).toEqual(['https://example.com/default'])
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('falls back to a readable failure when the thrown value is empty', async () => {
+    const fetchImpl = (async () => {
+      throw ''
+    }) as unknown as AlertFetch
+    const result = await sendDeploymentAlert('https://example.com/hook', {}, 1, fetchImpl)
+    expect(result).toEqual({ ok: false, error: '告警发送失败' })
+  })
 })

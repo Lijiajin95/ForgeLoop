@@ -73,11 +73,9 @@ export interface OpsRuntimeOptions {
   readonly runner: OpsRunner
   readonly now: () => Date
   /** 运维诊断只提议 target id；部署执行由主控完成，模型没有执行入口。 */
-  readonly proposeDeployment?: (input: {
-    eventId: string
-    targetId: string
-    source: string
-  }) => Promise<OpsResult>
+  readonly deploymentService?: {
+    request(input: { targetId: string; by: string; source: string }): Promise<OpsResult>
+  }
 }
 
 export interface OpsResult {
@@ -402,7 +400,7 @@ export class OpsRuntime {
   private readonly repo: Repository
   private readonly runner: OpsRunner
   private readonly clock: () => Date
-  private readonly proposeDeployment: OpsRuntimeOptions['proposeDeployment']
+  private readonly deploymentService: OpsRuntimeOptions['deploymentService']
   private readonly monitor: OpsMonitor
   private ticking = false
 
@@ -411,7 +409,7 @@ export class OpsRuntime {
     this.repo = options.repo
     this.runner = options.runner
     this.clock = options.now
-    this.proposeDeployment = options.proposeDeployment
+    this.deploymentService = options.deploymentService
     this.monitor = new OpsMonitor({
       config: options.config,
       repo: options.repo,
@@ -712,13 +710,13 @@ export class OpsRuntime {
       )
       return
     }
-    if (!this.proposeDeployment) {
+    if (!this.deploymentService) {
       reject('运行环境没有接入部署协调器')
       return
     }
-    const result = await this.proposeDeployment({
-      eventId: event.eventId,
+    const result = await this.deploymentService.request({
       targetId: target.id,
+      by: 'ops-agent',
       source,
     })
     this.repo.appendOpsObservation({
