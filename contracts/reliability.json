@@ -1,0 +1,1488 @@
+{
+  "schema_version": 1,
+  "project": "ForgeLoop",
+  "description": "ForgeLoop 进阶可靠性清单：核心模块、关键不变量、状态机、P0 场景、稳定性与受控变异范围。只登记比 architecture.json 更细的可靠性语义，不重复分层/依赖规则。修改本文件必须与对应测试同一 PR 显式审阅。",
+  "gates": {
+    "registry": {
+      "command": "node scripts/ts/reliability-registry.ts",
+      "description": "校验本清单结构、文件存在、门禁/NA、状态机闭包与变异门槛。"
+    },
+    "property": {
+      "command": "node scripts/ts/reliability-properties.ts",
+      "description": "运行登记的全部 fast-check 属性测试，每项至少 200 次，失败打印 seed。"
+    },
+    "state-machine": {
+      "command": "node scripts/ts/reliability-tests.ts state-machine",
+      "description": "串行运行状态机测试：合法边、非法边、终态、中断恢复与持久化一致。"
+    },
+    "scenarios": {
+      "command": "node scripts/ts/reliability-tests.ts scenarios",
+      "description": "运行登记的 P0 边界与异常场景测试。"
+    },
+    "stability": {
+      "command": "make stability",
+      "description": "关键测试串行独立运行 3 次，区分测试失败与环境错误。"
+    },
+    "incremental-mutation": {
+      "command": "node scripts/ts/mutation-incremental.ts",
+      "description": "对 git diff 影响的源码及其直接依赖做 Stryker 增量变异；受控范围门槛 80%。"
+    },
+    "coverage": {
+      "command": "make coverage",
+      "description": "逐文件覆盖率 行>=90 / 函数>=95 / 分支>=85。"
+    },
+    "check-static": {
+      "command": "make check-static",
+      "description": "类型检查、ESLint、架构契约、预算与本清单校验。"
+    }
+  },
+  "modules": [
+    {
+      "id": "domain-status",
+      "path": "packages/forgeloop/src/domain/status.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts",
+        "packages/forgeloop/tests/reliability-contract-details.test.ts"
+      ]
+    },
+    {
+      "id": "domain-requirement",
+      "path": "packages/forgeloop/src/domain/requirement.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ]
+    },
+    {
+      "id": "domain-task-plan",
+      "path": "packages/forgeloop/src/domain/task-plan.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/property-invariants.test.ts",
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "packages/forgeloop/tests/reliability-contract-details.test.ts"
+      ]
+    },
+    {
+      "id": "domain-retry-policy",
+      "path": "packages/forgeloop/src/domain/retry-policy.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/property-invariants.test.ts",
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ]
+    },
+    {
+      "id": "domain-deployment",
+      "path": "packages/forgeloop/src/domain/deployment.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts",
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "packages/forgeloop/tests/reliability-contract-details.test.ts"
+      ]
+    },
+    {
+      "id": "domain-delivery",
+      "path": "packages/forgeloop/src/domain/delivery.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "packages/forgeloop/tests/reliability-contract-details.test.ts"
+      ]
+    },
+    {
+      "id": "domain-ops",
+      "path": "packages/forgeloop/src/domain/ops.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "packages/forgeloop/tests/state-machines.test.ts"
+      ]
+    },
+    {
+      "id": "records-repository",
+      "path": "packages/forgeloop/src/records/repository.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts",
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ]
+    },
+    {
+      "id": "records-db",
+      "path": "packages/forgeloop/src/records/db.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ]
+    },
+    {
+      "id": "records-ops-store",
+      "path": "packages/forgeloop/src/records/ops-store.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts"
+      ]
+    },
+    {
+      "id": "records-deployment-store",
+      "path": "packages/forgeloop/src/records/deployment-store.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts"
+      ]
+    },
+    {
+      "id": "runtime-acceptance-binding",
+      "path": "packages/forgeloop/src/runtime/acceptance-binding.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "packages/forgeloop/tests/reliability-contract-details.test.ts"
+      ]
+    },
+    {
+      "id": "runtime-deployments",
+      "path": "packages/forgeloop/src/runtime/deployments.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts",
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ]
+    },
+    {
+      "id": "runtime-ops",
+      "path": "packages/forgeloop/src/runtime/ops.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts"
+      ]
+    },
+    {
+      "id": "runtime-service",
+      "path": "packages/forgeloop/src/runtime/service.ts",
+      "critical": true,
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts",
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "retry-clear-facts",
+      "title": "重试只在全部阻塞事实清零时放行",
+      "statement": "retryDecision 返回 allowed=true 时，需求处于可重试状态、计划已批准、仍有未交付任务、无在途请求/运行任务/等待人工任务、剩余轮次>0，且阻塞原因不含硬阻塞词。",
+      "modules": [
+        "domain-retry-policy"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants.test.ts",
+        "title": "only allows retry when every blocking fact is clear",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "retry-deterministic",
+      "title": "同一事实的重试判定确定且可重复",
+      "statement": "对同一组 RetryFacts，retryDecision 的多次调用结果完全一致，不依赖时间、随机数或外部状态。",
+      "modules": [
+        "domain-retry-policy"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants.test.ts",
+        "title": "is deterministic for the same facts",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "retry-rounds-exhausted",
+      "title": "失败轮次耗尽后绝不自动放行",
+      "statement": "remainingRounds=0 时 retryDecision.allowed 必须为 false，且原因包含追加授权提示；不受其它事实组合影响。",
+      "modules": [
+        "domain-retry-policy"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "never allows retry once failure rounds are exhausted",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "retry-terminal-lock",
+      "title": "终态需求不允许重试",
+      "statement": "accepted/rejected/cancelled 状态下 retryDecision.allowed 必须为 false，原因指明终态。",
+      "modules": [
+        "domain-retry-policy",
+        "domain-status"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "never allows retry from a terminal requirement state",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "requirement-version-contiguity",
+      "title": "需求版本从 1 起连续且只追加",
+      "statement": "validateRequirement 接受任意长度、连续编号、原文非空且绑定项目的版本序列；任何跳号、空原文、空身份都被拒绝。",
+      "modules": [
+        "domain-requirement"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "keeps requirement versions contiguous and append-only",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "analysis-json-roundtrip",
+      "title": "分析载荷 JSON 往返不丢字段、不放宽校验",
+      "statement": "对 parseAnalysisDraft 接受且无待澄清项的载荷，JSON.stringify → parseAnalysisDraft 得到完全相同的结构化结果；问题类输入不得携带待澄清项。",
+      "modules": [
+        "domain-requirement"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "round-trips an analysis payload through JSON",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "plan-task-identity-roundtrip",
+      "title": "任务包序列化往返保留 task identity",
+      "statement": "对任意合法的任务包草稿，parseTaskPlanDraft 解析后的 taskId 序列与输入一致，task_id 不因序列化、裁剪或重新排序而丢失。",
+      "modules": [
+        "domain-task-plan"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants.test.ts",
+        "title": "round-trips a serialized plan without losing task identity",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "plan-file-path-safety",
+      "title": "任务文件清单不得越出项目根",
+      "statement": "parseTaskPlanDraft 拒绝绝对路径、`..` 越界段、空文件清单与重复项；连续分隔符按段归一化，任何被接受的文件清单都留在项目根内。",
+      "modules": [
+        "domain-task-plan"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "keeps task plan file paths inside the project root",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "plan-execution-order",
+      "title": "执行顺序是尊重依赖的完整排列",
+      "statement": "executionOrder 返回每个任务恰好一次，且任一任务出现在其全部依赖之后；有环时必须抛错而不是返回部分顺序。",
+      "modules": [
+        "domain-task-plan"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "returns a dependency-respecting execution order",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "plan-limit-aggregation",
+      "title": "需求级工时只在全部任务有上限时求和",
+      "statement": "planLimitSeconds 对含任一 -1（不限）的任务返回 -1，否则返回各任务限额之和。",
+      "modules": [
+        "domain-task-plan"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "aggregates plan limits as unlimited or the exact sum",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P1"
+    },
+    {
+      "id": "deployment-terminal-closure",
+      "title": "部署状态机终态无出边",
+      "statement": "canTransition 对任何终态（preflight_failed/rejected/rolled_back）作为起点均返回 false；对未声明边返回 false，且判定确定。",
+      "modules": [
+        "domain-deployment"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "never leaves a terminal deployment state",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "state-machine",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "deployment-tool-result-bounds",
+      "title": "部署工具输出严格解析且有界",
+      "statement": "parseDeploymentToolResult 只接受带布尔 ok 与非空 state 的 JSON 对象；detail≤2000、steps≤50、单 step≤300、version≤120；缺失/畸形字段抛 MalformedError，不猜测成功。",
+      "modules": [
+        "domain-deployment"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "bounds deployment tool results and never guesses success",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "ops-signature-stable",
+      "title": "运维失败签名对同一观测稳定",
+      "statement": "opsSignatureOf 只由项目、资源、检查与归一化失败文本决定；相同输入得到相同签名，不同资源得到不同签名。",
+      "modules": [
+        "domain-ops"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "keeps ops signatures stable for identical observations",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P1"
+    },
+    {
+      "id": "ops-action-argv-closed",
+      "title": "运维动作参数只接受登记目录内的值",
+      "statement": "actionArgv 对目录外的参数名或取值抛 RuleViolationError；对目录内的参数按声明顺序替换，不执行任意命令。",
+      "modules": [
+        "domain-ops"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "rejects ops action parameters outside the catalog",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "candidate-identity-binding",
+      "title": "候选身份随任一材料变化",
+      "statement": "candidateIdentityOf 对 planVersion、requirementVersion、baselineCommit、candidateHashes 任一变化产生不同摘要；相同输入确定相同摘要。",
+      "modules": [
+        "domain-delivery"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "changes candidate identity whenever a material changes",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    },
+    {
+      "id": "acceptance-binding-deterministic",
+      "title": "验收材料绑定对相同材料确定",
+      "statement": "buildAcceptanceBinding 对相同 plan/artifacts/verification/businessReview 生成完全相同的绑定；缺少任一任务产物时抛错而不是跳过。",
+      "modules": [
+        "runtime-acceptance-binding"
+      ],
+      "tests": [
+        "packages/forgeloop/tests/property-invariants-advanced.test.ts"
+      ],
+      "property_test": {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "title": "keeps acceptance binding deterministic for identical materials",
+        "min_runs": 200
+      },
+      "gates": [
+        "property",
+        "incremental-mutation"
+      ],
+      "risk": "P0"
+    }
+  ],
+  "state_machines": [
+    {
+      "id": "deployment-attempt",
+      "title": "部署 attempt 状态机",
+      "module": "packages/forgeloop/src/domain/deployment.ts",
+      "enforcement": "canTransition 是唯一迁移判定；Deployments.transition 在写库前校验，成功后持久化 state 与 updatedAt。",
+      "initial": "draft",
+      "states": [
+        "draft",
+        "preflight_failed",
+        "awaiting_approval",
+        "rejected",
+        "ready",
+        "applying",
+        "applied_pending_verify",
+        "verifying",
+        "verified",
+        "failed",
+        "verify_failed",
+        "rolling_back",
+        "rolled_back"
+      ],
+      "terminal": [
+        "preflight_failed",
+        "rejected",
+        "rolled_back"
+      ],
+      "frozen": [],
+      "transition_rule": "explicit",
+      "transitions": [
+        {
+          "from": "draft",
+          "to": "preflight_failed",
+          "via": "request：门禁或预检失败",
+          "tested": true
+        },
+        {
+          "from": "draft",
+          "to": "awaiting_approval",
+          "via": "request：预检通过且需人工批准",
+          "tested": true
+        },
+        {
+          "from": "draft",
+          "to": "ready",
+          "via": "request：预检通过且自动批准",
+          "tested": true
+        },
+        {
+          "from": "awaiting_approval",
+          "to": "rejected",
+          "via": "reject",
+          "tested": true
+        },
+        {
+          "from": "awaiting_approval",
+          "to": "ready",
+          "via": "approve",
+          "tested": true
+        },
+        {
+          "from": "ready",
+          "to": "applying",
+          "via": "apply",
+          "tested": true
+        },
+        {
+          "from": "applying",
+          "to": "applied_pending_verify",
+          "via": "apply：工具成功",
+          "tested": true
+        },
+        {
+          "from": "applying",
+          "to": "failed",
+          "via": "apply：工具失败/超时/输出畸形",
+          "tested": true
+        },
+        {
+          "from": "applied_pending_verify",
+          "to": "verifying",
+          "via": "verify",
+          "tested": true
+        },
+        {
+          "from": "applied_pending_verify",
+          "to": "verify_failed",
+          "via": "verify：观察失败（当前实现先进入 verifying 再判定）",
+          "tested": true
+        },
+        {
+          "from": "applied_pending_verify",
+          "to": "rolling_back",
+          "via": "回滚入口（域表声明）",
+          "tested": true
+        },
+        {
+          "from": "verifying",
+          "to": "verified",
+          "via": "verify：版本一致",
+          "tested": true
+        },
+        {
+          "from": "verifying",
+          "to": "verify_failed",
+          "via": "verify：工具失败或版本不一致",
+          "tested": true
+        },
+        {
+          "from": "verifying",
+          "to": "failed",
+          "via": "verify：工具调用失败（域表声明）",
+          "tested": true
+        },
+        {
+          "from": "verified",
+          "to": "rolling_back",
+          "via": "回滚入口（域表声明）",
+          "tested": true
+        },
+        {
+          "from": "verify_failed",
+          "to": "rolling_back",
+          "via": "回滚入口（域表声明）",
+          "tested": true
+        },
+        {
+          "from": "failed",
+          "to": "rolling_back",
+          "via": "回滚入口（域表声明）",
+          "tested": true
+        },
+        {
+          "from": "rolling_back",
+          "to": "rolled_back",
+          "via": "回滚结束",
+          "tested": true
+        },
+        {
+          "from": "rolling_back",
+          "to": "failed",
+          "via": "回滚失败",
+          "tested": true
+        }
+      ],
+      "runtime_gaps": [
+        {
+          "states": [
+            "rolling_back",
+            "rolled_back"
+          ],
+          "reason": "部署运行时尚未提供 rollback 执行入口；状态机与 canTransition 已声明并由状态机测试覆盖，运行时可达性等所有者确认后再接。"
+        }
+      ],
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts"
+      ],
+      "gates": [
+        "state-machine",
+        "incremental-mutation"
+      ]
+    },
+    {
+      "id": "requirement-status",
+      "title": "需求状态与守卫",
+      "module": "packages/forgeloop/src/domain/status.ts",
+      "enforcement": "状态词表与终态集合在 domain/status.ts；写入入口在 service/execution-plan/advance-pipeline/grants/budget，入口先查 isTerminal，终态拒绝分析/规划/推进/修订/取消/停止；committed 冻结但允许最终验收落 accepted。",
+      "initial": "draft",
+      "states": [
+        "draft",
+        "analysis_failed",
+        "awaiting_clarification",
+        "blocked",
+        "specified",
+        "plan_proposed",
+        "approved",
+        "developing",
+        "executing",
+        "verifying",
+        "awaiting_dev_session",
+        "committed",
+        "accepted",
+        "rejected",
+        "cancelled"
+      ],
+      "terminal": [
+        "accepted",
+        "rejected",
+        "cancelled"
+      ],
+      "frozen": [
+        "committed"
+      ],
+      "frozen_exceptions": [
+        "accepted"
+      ],
+      "transition_rule": "explicit",
+      "transitions": [
+        {
+          "from": "draft",
+          "to": "draft",
+          "via": "revise：追加版本后状态回到 draft",
+          "tested": true
+        },
+        {
+          "from": "analysis_failed",
+          "to": "draft",
+          "via": "revise：追加版本后状态回到 draft",
+          "tested": true
+        },
+        {
+          "from": "awaiting_clarification",
+          "to": "draft",
+          "via": "revise/分析完成",
+          "tested": true
+        },
+        {
+          "from": "blocked",
+          "to": "draft",
+          "via": "revise：追加版本后状态回到 draft",
+          "tested": true
+        },
+        {
+          "from": "specified",
+          "to": "draft",
+          "via": "revise",
+          "tested": true
+        },
+        {
+          "from": "plan_proposed",
+          "to": "draft",
+          "via": "revise",
+          "tested": true
+        },
+        {
+          "from": "approved",
+          "to": "draft",
+          "via": "revise",
+          "tested": true
+        },
+        {
+          "from": "developing",
+          "to": "draft",
+          "via": "revise",
+          "tested": true
+        },
+        {
+          "from": "executing",
+          "to": "draft",
+          "via": "revise",
+          "tested": true
+        },
+        {
+          "from": "verifying",
+          "to": "draft",
+          "via": "revise",
+          "tested": true
+        },
+        {
+          "from": "awaiting_dev_session",
+          "to": "draft",
+          "via": "revise",
+          "tested": true
+        },
+        {
+          "from": "draft",
+          "to": "analysis_failed",
+          "via": "产品分析失败",
+          "tested": false
+        },
+        {
+          "from": "draft",
+          "to": "awaiting_clarification",
+          "via": "分析产有待澄清项",
+          "tested": false
+        },
+        {
+          "from": "draft",
+          "to": "specified",
+          "via": "系统准入通过",
+          "tested": false
+        },
+        {
+          "from": "specified",
+          "to": "plan_proposed",
+          "via": "任务包形成",
+          "tested": false
+        },
+        {
+          "from": "plan_proposed",
+          "to": "approved",
+          "via": "所有者批准任务包",
+          "tested": false
+        },
+        {
+          "from": "blocked",
+          "to": "approved",
+          "via": "追加授权/延长工时后重新可执行",
+          "tested": true
+        },
+        {
+          "from": "approved",
+          "to": "executing",
+          "via": "advance：领取执行请求",
+          "tested": false
+        },
+        {
+          "from": "executing",
+          "to": "developing",
+          "via": "advance：研发会话开始",
+          "tested": false
+        },
+        {
+          "from": "approved",
+          "to": "developing",
+          "via": "advance：直接进入研发",
+          "tested": false
+        },
+        {
+          "from": "approved",
+          "to": "awaiting_dev_session",
+          "via": "advance：研发会话忙",
+          "tested": false
+        },
+        {
+          "from": "awaiting_dev_session",
+          "to": "developing",
+          "via": "advance：会话空闲后继续",
+          "tested": false
+        },
+        {
+          "from": "developing",
+          "to": "verifying",
+          "via": "advance：候选形成后独立验证",
+          "tested": false
+        },
+        {
+          "from": "verifying",
+          "to": "developing",
+          "via": "定向修复问题单",
+          "tested": false
+        },
+        {
+          "from": "verifying",
+          "to": "committed",
+          "via": "受控提交完成",
+          "tested": false
+        },
+        {
+          "from": "committed",
+          "to": "accepted",
+          "via": "accept：最终验收（冻结态唯一例外）",
+          "tested": false
+        },
+        {
+          "from": "draft",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "analysis_failed",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "awaiting_clarification",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "blocked",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "specified",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "plan_proposed",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "approved",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "developing",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "executing",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "verifying",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "awaiting_dev_session",
+          "to": "cancelled",
+          "via": "cancel",
+          "tested": true
+        },
+        {
+          "from": "draft",
+          "to": "blocked",
+          "via": "stop/准入失败/计划失败/工时用尽",
+          "tested": true
+        },
+        {
+          "from": "analysis_failed",
+          "to": "blocked",
+          "via": "stop",
+          "tested": true
+        },
+        {
+          "from": "awaiting_clarification",
+          "to": "blocked",
+          "via": "stop",
+          "tested": true
+        },
+        {
+          "from": "blocked",
+          "to": "blocked",
+          "via": "stop：重复停止请求",
+          "tested": true
+        },
+        {
+          "from": "specified",
+          "to": "blocked",
+          "via": "stop/计划失败",
+          "tested": true
+        },
+        {
+          "from": "plan_proposed",
+          "to": "blocked",
+          "via": "stop/批准前失败",
+          "tested": true
+        },
+        {
+          "from": "approved",
+          "to": "blocked",
+          "via": "stop/执行失败/工时用尽",
+          "tested": true
+        },
+        {
+          "from": "developing",
+          "to": "blocked",
+          "via": "stop/任务失败/工时用尽",
+          "tested": true
+        },
+        {
+          "from": "executing",
+          "to": "blocked",
+          "via": "stop/任务失败",
+          "tested": true
+        },
+        {
+          "from": "verifying",
+          "to": "blocked",
+          "via": "stop/验证失败/提交失败",
+          "tested": true
+        },
+        {
+          "from": "awaiting_dev_session",
+          "to": "blocked",
+          "via": "stop/会话不可用",
+          "tested": true
+        }
+      ],
+      "unreachable": [
+        {
+          "state": "rejected",
+          "reason": "status.ts 与 admission/retry-policy 的终态集合声明了 rejected，但当前运行时没有任何入口写入该状态；登记为发现项，不擅自补业务入口。"
+        }
+      ],
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts",
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "gates": [
+        "state-machine",
+        "scenarios"
+      ]
+    },
+    {
+      "id": "task-run",
+      "title": "任务运行结果",
+      "module": "packages/forgeloop/src/records/repository.ts",
+      "enforcement": "TaskRunState 是编译期联合类型；Repository.recordTaskRun 以 (req,plan,task) 为键 upsert，重试会覆盖上一次结果；heartbeatTaskRun 只把已有行刷新为 running。没有单调顺序，状态是每次尝试的事实记录。",
+      "initial": "running",
+      "states": [
+        "running",
+        "delivered",
+        "awaiting_user",
+        "failed",
+        "blocked"
+      ],
+      "terminal": [],
+      "frozen": [],
+      "transition_rule": "complete",
+      "transitions": [],
+      "runtime_gaps": [],
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts"
+      ],
+      "gates": [
+        "state-machine",
+        "scenarios"
+      ]
+    },
+    {
+      "id": "ops-event",
+      "title": "运维事件状态",
+      "module": "packages/forgeloop/src/domain/ops.ts",
+      "enforcement": "事件状态由 OpsRuntime 入口守卫：decide 只接受 awaiting_decision，close 拒绝已关闭与动作运行中，requestFix 只接受 recovered/unresolved/awaiting_decision；OpsStore.updateOpsEvent 本身只做列白名单，不做状态机校验。",
+      "initial": "open",
+      "states": [
+        "open",
+        "diagnosed",
+        "awaiting_decision",
+        "recovering",
+        "recovered",
+        "unresolved",
+        "closed"
+      ],
+      "terminal": [
+        "closed"
+      ],
+      "frozen": [
+        "recovered"
+      ],
+      "frozen_exceptions": [
+        "closed"
+      ],
+      "transition_rule": "explicit",
+      "transitions": [
+        {
+          "from": "open",
+          "to": "diagnosed",
+          "via": "诊断完成且目录自动授权",
+          "tested": false
+        },
+        {
+          "from": "open",
+          "to": "awaiting_decision",
+          "via": "诊断缺少动作/参数非法/需人工决定",
+          "tested": false
+        },
+        {
+          "from": "open",
+          "to": "recovering",
+          "via": "自动授权后执行处置",
+          "tested": false
+        },
+        {
+          "from": "open",
+          "to": "unresolved",
+          "via": "处置失败/超时/中断",
+          "tested": true
+        },
+        {
+          "from": "open",
+          "to": "closed",
+          "via": "close：人工关闭",
+          "tested": true
+        },
+        {
+          "from": "diagnosed",
+          "to": "recovering",
+          "via": "执行已授权处置",
+          "tested": false
+        },
+        {
+          "from": "diagnosed",
+          "to": "closed",
+          "via": "close",
+          "tested": true
+        },
+        {
+          "from": "awaiting_decision",
+          "to": "recovering",
+          "via": "decide approve 后协调器执行",
+          "tested": false
+        },
+        {
+          "from": "awaiting_decision",
+          "to": "unresolved",
+          "via": "decide decline",
+          "tested": true
+        },
+        {
+          "from": "awaiting_decision",
+          "to": "closed",
+          "via": "close",
+          "tested": true
+        },
+        {
+          "from": "recovering",
+          "to": "recovered",
+          "via": "处置成功且复核通过",
+          "tested": false
+        },
+        {
+          "from": "recovering",
+          "to": "unresolved",
+          "via": "处置失败/复核未通过",
+          "tested": false
+        },
+        {
+          "from": "recovering",
+          "to": "awaiting_decision",
+          "via": "处置完成后仍需人工决定",
+          "tested": false
+        },
+        {
+          "from": "recovering",
+          "to": "closed",
+          "via": "close：无在途动作",
+          "tested": true
+        },
+        {
+          "from": "recovered",
+          "to": "closed",
+          "via": "close",
+          "tested": true
+        },
+        {
+          "from": "unresolved",
+          "to": "closed",
+          "via": "close",
+          "tested": true
+        }
+      ],
+      "unreachable": [],
+      "tests": [
+        "packages/forgeloop/tests/state-machines.test.ts"
+      ],
+      "gates": [
+        "state-machine",
+        "scenarios"
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "null-empty-inputs",
+      "title": "null/空集合/空字符串 fail-closed",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "null and empty inputs fail closed"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "out-of-range",
+      "title": "越界数字、版本与限额被拒绝",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "out-of-range numbers and versions are rejected"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "invalid-parameters",
+      "title": "非法参数与畸形载荷 fail-closed",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "invalid parameters and malformed payloads fail closed"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "timeout-and-tool-failure",
+      "title": "超时与工具失败被记录且不产生成功状态",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "timeout and tool failure are recorded without success"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "retry-exhausted",
+      "title": "重试耗尽阻断重新执行",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "exhausted failure rounds block retry"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "db-failure",
+      "title": "数据库失败显式抛出且不留半条记录",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "database failure surfaces and leaves no partial row"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "resource-release-failure",
+      "title": "资源释放失败可重复收口",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "resource release is idempotent and failures do not corrupt state"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "state-conflict",
+      "title": "状态冲突被拒绝且不产生未定义状态",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "state conflicts are rejected without undefined states"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "duplicate-request",
+      "title": "重复请求幂等",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "duplicate requests are idempotent"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "interruption-cancel",
+      "title": "中断与取消显式收口",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "interruption and cancellation settle explicitly"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "empty-collections",
+      "title": "领域要求非空集合时拒绝空集合",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "empty collections are rejected where the domain requires content"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    },
+    {
+      "id": "unexpected-exceptions",
+      "title": "异常路径不产生未定义状态",
+      "risk": "P0",
+      "tests": [
+        "packages/forgeloop/tests/p0-scenarios.test.ts"
+      ],
+      "test_titles": [
+        "unexpected exceptions do not leave undefined states"
+      ],
+      "gates": [
+        "scenarios"
+      ]
+    }
+  ],
+  "stability": {
+    "rounds": 3,
+    "seed": 20261103,
+    "tests": [
+      {
+        "file": "packages/forgeloop/tests/property-invariants.test.ts",
+        "reason": "已知 flaky（seed 61697261）的回归保护，必须连续稳定。"
+      },
+      {
+        "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
+        "reason": "新登记不变量的属性测试，固定 seed 下重复运行。"
+      },
+      {
+        "file": "packages/forgeloop/tests/state-machines.test.ts",
+        "reason": "状态机矩阵与持久化一致性。"
+      },
+      {
+        "file": "packages/forgeloop/tests/p0-scenarios.test.ts",
+        "reason": "P0 边界与异常场景。"
+      },
+      {
+        "file": "packages/forgeloop/tests/retry-policy.test.ts",
+        "reason": "重试上限与硬阻塞（高频关键判定）。"
+      },
+      {
+        "file": "packages/forgeloop/tests/task-plan-rules.test.ts",
+        "reason": "任务包/依赖/文件边界（高频关键判定）。"
+      },
+      {
+        "file": "packages/forgeloop/tests/reliability-contract-details.test.ts",
+        "reason": "领域词表、限额、错误消息与验收绑定细节的稳定断言。"
+      }
+    ]
+  },
+  "mutation": {
+    "break": 80,
+    "controlled_scope": [
+      "packages/forgeloop/src/domain/retry-policy.ts",
+      "packages/forgeloop/src/domain/status.ts",
+      "packages/forgeloop/src/domain/task-plan.ts",
+      "packages/forgeloop/src/domain/deployment.ts",
+      "packages/forgeloop/src/domain/delivery.ts",
+      "packages/forgeloop/src/runtime/acceptance-binding.ts"
+    ],
+    "critical_files": [
+      "packages/forgeloop/src/domain/retry-policy.ts",
+      "packages/forgeloop/src/domain/status.ts",
+      "packages/forgeloop/src/domain/task-plan.ts",
+      "packages/forgeloop/src/domain/deployment.ts"
+    ],
+    "equivalent_mutants": [
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 147,
+        "mutator": "OptionalChaining",
+        "reason": "remaining 的键与 tasks 同源，filter 内 get 必然有值；去掉 ?. 对可达输入语义相同。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 261,
+        "mutator": "ConditionalExpression",
+        "reason": "去掉 typeof 检查后 Number.isFinite 对非 number 仍返回 false，拒绝结果不变。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 269,
+        "mutator": "ConditionalExpression",
+        "reason": "去掉 typeof 检查后 Number.isInteger 对非 number 仍返回 false，拒绝结果不变。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 285,
+        "mutator": "BooleanLiteral",
+        "reason": "解析阶段放宽 allowEmpty 只影响中间对象；validateTaskPlan 会再次以 false 校验 approach，空数组仍被拒绝。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 313,
+        "mutator": "ConditionalExpression",
+        "reason": "边界判断只在 JSON.parse 失败后的兜底分支；变化后要么跳过、要么仍解析失败，最终都是同一 MalformedError，没有新的成功路径。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 313,
+        "mutator": "LogicalOperator",
+        "reason": "&& 改 || 只改变兜底分支是否尝试切片；所有可达输入的切片仍不是合法 JSON，结果同为 MalformedError。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 313,
+        "mutator": "EqualityOperator",
+        "reason": "start/end 的边界等价性变化只影响失败兜底的分支选择，最终抛同一错误，不产生成功解析。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 313,
+        "mutator": "EqualityOperator",
+        "reason": "end 的 >= 与 > 只在 start==end（单括号）时不同；该输入切片仍无法解析，结果同为 MalformedError。"
+      },
+      {
+        "file": "packages/forgeloop/src/runtime/acceptance-binding.ts",
+        "line": 34,
+        "mutator": "OptionalChaining",
+        "reason": "artifacts 为空时前面的缺失产物检查已抛错，ordered[0] 在可达路径上必然存在；去掉 ?. 语义不变。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/deployment.ts",
+        "line": 49,
+        "mutator": "ArrayDeclaration",
+        "reason": "preflight_failed 的出边列表被替换为非法状态名；canTransition 的入参受 DeploymentAttemptState 类型约束，合法状态集合内行为不变。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/deployment.ts",
+        "line": 51,
+        "mutator": "ArrayDeclaration",
+        "reason": "rejected 的出边列表被替换为非法状态名；只对类型系统禁止的调用可观察，合法状态内等价。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/deployment.ts",
+        "line": 60,
+        "mutator": "ArrayDeclaration",
+        "reason": "rolled_back 的出边列表被替换为非法状态名；只对类型系统禁止的调用可观察，合法状态内等价。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/deployment.ts",
+        "line": 98,
+        "mutator": "StringLiteral",
+        "reason": "非 Error 抛出的兜底消息；JSON.parse 只抛 SyntaxError（Error），该分支不可达。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/delivery.ts",
+        "line": 6,
+        "mutator": "StringLiteral",
+        "reason": "update(text, '') 在 Node 中等价于 utf8（已实测同一摘要），对字符串输入无行为差异。"
+      },
+      {
+        "file": "packages/forgeloop/src/runtime/acceptance-binding.ts",
+        "line": 34,
+        "mutator": "StringLiteral",
+        "reason": "ordered[0] 缺失时前面的产物检查已抛错，?? '' 兜底在可达路径上不可达。"
+      }
+    ],
+    "note": "全量 92 源文件变异仍低于 80（2026-11 实测 56.28%）；本清单只声明今晚的受控范围，不改 stryker break，不排除业务源码。"
+  }
+}

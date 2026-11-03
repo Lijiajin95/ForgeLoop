@@ -18,8 +18,8 @@ MUTATION_ENABLED := $(filter 1,$(MUTATION))
 .PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
 	precommit verify-plugin verify-e2e package \
-	coverage mutation mutation-shard mutation-merge audit security help \
-	reliability-report reliability-report-fast
+	coverage mutation mutation-shard mutation-merge mutation-incremental audit security help \
+	reliability-report reliability-report-fast reliability-registry stability reliability-advanced
 
 help:
 	@echo "make hooks                 安装 pre-commit（check-static + format）"
@@ -47,6 +47,10 @@ help:
 	@echo "make mutation-merge        合并分片报告，校验全部源码都已被变异"
 	@echo "make reliability-report    运行全部门禁并生成代码可靠性快照（含变异，慢）"
 	@echo "make reliability-report-fast 同上但跳过变异测试，快照记录 not_run"
+	@echo "make reliability-registry  校验 contracts/reliability.json（已接入 check-static）"
+	@echo "make stability             登记的关键测试串行独立运行 3 次"
+	@echo "make mutation-incremental [SCOPE=incremental|controlled] [BASE=<ref>] 增量/受控变异（break 80）"
+	@echo "make reliability-advanced [SCOPE=...] 进阶门禁：清单+稳定性+属性+状态机+场景+回归+增量变异+报告"
 
 setup: hooks
 	$(NPM) install --cache $(CURDIR)/.cache/npm --no-audit --no-fund
@@ -80,7 +84,10 @@ endif
 
 check-fast: check-static test-fast
 
-check-static: typecheck lint contracts budget assertions
+check-static: typecheck lint contracts budget assertions reliability-registry
+
+reliability-registry:
+	$(NODE) scripts/ts/reliability-registry.ts
 
 budget:
 	$(NODE) scripts/ts/token-budget.ts
@@ -140,6 +147,16 @@ reliability-report:
 
 reliability-report-fast:
 	$(NODE) scripts/ts/reliability-report.ts --fast
+
+# 进阶可靠性门禁：任意一项 ERROR/FAIL 都返回非零；N/A 必须带理由并如实展示。
+stability:
+	$(NODE) scripts/ts/stability.ts
+
+mutation-incremental:
+	$(NODE) scripts/ts/mutation-incremental.ts $(if $(SCOPE),--scope $(SCOPE),) $(if $(BASE),--base $(BASE),)
+
+reliability-advanced:
+	$(NODE) scripts/ts/reliability-report-advanced.ts $(if $(SCOPE),--scope $(SCOPE),)
 
 # 变异测试覆盖 src 下所有源码；CI 用 mutation-shard 分模块并行，再 mutation-merge 汇总。
 # 任一源码未进入报告、报告损坏或分数低于 break 门槛都失败。

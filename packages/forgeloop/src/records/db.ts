@@ -564,6 +564,8 @@ import type { Row } from './rows.js'
 export class Database {
   readonly handle: DatabaseSync
   readonly path: string
+  /** 释放是幂等的：重复关闭不再抛错，但关闭后的读写仍然失败。 */
+  private closed = false
 
   private constructor(handle: DatabaseSync, path: string) {
     this.handle = handle
@@ -600,6 +602,8 @@ export class Database {
   }
 
   close(): void {
+    if (this.closed) return
+    this.closed = true
     this.handle.close()
   }
 
