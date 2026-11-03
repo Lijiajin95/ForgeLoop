@@ -242,6 +242,28 @@ export class Deployments {
   }
 
   /**
+   * 核对超时：applied_pending_verify 超过 verifyTimeoutSeconds 仍未核对时标记 verify_failed
+   * 并告警。只是收口与告警，不自动回退；回退仍是所有者动作。
+   */
+  expireStale(now = this.now()): number {
+    if (!this.deps.config.deployments.enabled) return 0
+    const limitMs = this.deps.config.deployments.verifyTimeoutSeconds * 1000
+    let expired = 0
+    for (const intent of this.deps.store.deploymentIntents(200)) {
+      if (intent.state !== 'applied_pending_verify') continue
+      const age = Date.parse(now) - Date.parse(intent.updatedAt)
+      if (!Number.isFinite(age) || age < limitMs) continue
+      this.transition(intent, 'verify_failed')
+      this.alertFailure(
+        intent,
+        `部署 ${intent.intentId} 超过 ${this.deps.config.deployments.verifyTimeoutSeconds} 秒未完成核对`,
+      )
+      expired += 1
+    }
+    return expired
+  }
+
+  /**
    * 回退：从 applied_pending_verify/verified/verify_failed/failed 进入 rolling_back，
    * 先按 target 声明的数据范围调用 data-rollback，再调用 rollback，最后用 status 复核。
    * 回退成功只表示工具执行且状态观测通过，不把“退出码 0”当成数据已恢复。

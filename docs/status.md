@@ -4992,4 +4992,5 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 - `FORGELOOP_M0_LOOP_REAL_MODEL=1` 的真实模型 leg 尚未实现；S1 的模型/验证/诊断角色是脚本替身，
   不能据此宣称真实模型闭环。
 - 证据保留期（压缩/磁盘上限）、看板部署页面、`auto` 部署的人工可见审批入口未实现（P1）。
-- 部署 `verifyTimeoutSeconds` 的自动超时判定仍未接线；失败只在显式 `verify` 时收口。
+- 部署 `verifyTimeoutSeconds` 已接入协调器巡检：`applied_pending_verify` 超时标记 `verify_failed`
+  并告警（不自动回退）。

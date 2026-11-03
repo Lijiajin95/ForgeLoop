@@ -68,12 +68,12 @@ function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
   }
 }
 
-function build(overrides: { gate?: DeploymentGate } = {}): Deployments {
+function build(overrides: { gate?: DeploymentGate; now?: () => string } = {}): Deployments {
   return new Deployments({
     config,
     store: repo.deploymentStore,
     gate: overrides.gate ?? (() => ({ ok: true, reason: '' })),
-    now: () => '2026-11-03T10:00:00.000Z',
+    now: overrides.now ?? (() => '2026-11-03T10:00:00.000Z'),
     alert: async (url, body) => {
       alerts.push({ url, body })
       return { ok: true, error: '' }
@@ -398,5 +398,61 @@ describe('deployment coordinator', () => {
     expect(
       await enabled.request({ targetId: 'nope', artifact: ARTIFACT, source: 'owner' }),
     ).toMatchObject({ code: 'not_found' })
+  })
+})
+
+describe('deployment verify timeout', () => {
+  it('expires only applied-pending-verify deployments past the configured window', async () => {
+    let now = '2026-11-03T10:00:00.000Z'
+    const deployments = build({ now: () => now })
+    const requested = await deployments.request({
+      targetId: 'owner',
+      artifact: ARTIFACT,
+      source: 'owner',
+    })
+    const intentId = (requested.data as { intentId: string }).intentId
+    await deployments.approve(intentId)
+    expect(deployments.detail(intentId)?.intent.state).toBe('applied_pending_verify')
+
+    expect(deployments.expireStale()).toBe(0)
+    expect(deployments.detail(intentId)?.intent.state).toBe('applied_pending_verify')
+
+    now = '2026-11-03T10:10:00.001Z'
+    expect(deployments.expireStale()).toBe(1)
+    expect(deployments.detail(intentId)?.intent.state).toBe('verify_failed')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]?.body.message).toContain('未完成核对')
+  })
+
+  it('does nothing when deployments are disabled or already verified', async () => {
+    let now = '2026-11-03T10:00:00.000Z'
+    const deployments = build({ now: () => now })
+    const requested = await deployments.request({
+      targetId: 'owner',
+      artifact: ARTIFACT,
+      source: 'owner',
+    })
+    const intentId = (requested.data as { intentId: string }).intentId
+    await deployments.approve(intentId)
+    await deployments.verify(intentId)
+    now = '2026-11-03T12:00:00.000Z'
+    expect(deployments.expireStale()).toBe(0)
+    expect(deployments.detail(intentId)?.intent.state).toBe('verified')
+
+    const disabled = new Deployments({
+      config: resolveConfig(
+        {
+          project: 'testproj',
+          projectPath: dir,
+          recordsRoot: join(dir, '.forgeloop'),
+          deployments: { enabled: false } as never,
+        },
+        dir,
+      ),
+      store: repo.deploymentStore,
+      gate: () => ({ ok: true, reason: '' }),
+      alert: async () => ({ ok: true, error: '' }),
+    })
+    expect(disabled.expireStale()).toBe(0)
   })
 })
