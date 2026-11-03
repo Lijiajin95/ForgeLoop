@@ -232,13 +232,16 @@ window.__ModuleLoader__.load({
       'page.loading': 'Reading records…',
       'page.retry': 'Retry',
       'page.empty': 'No requirements yet.',
-      'page.footer': 'Interactive board: admitted requirements advance automatically; stop, cancel, retry, build and deploy remain explicit actions.',
+      'page.footer':
+        'Interactive board: admitted requirements advance automatically; stop, cancel, retry, build and deploy remain explicit actions.',
       'action.approve': 'Approve task package',
       'action.advance': 'Advance tasks',
       'action.plan': 'Regenerate task package',
-      'action.planHelp': 'Regenerate the task package when the pre-implementation review is missing or blocking; the new package still needs review and approval.',
+      'action.planHelp':
+        'Regenerate the task package when the pre-implementation review is missing or blocking; the new package still needs review and approval.',
       'action.verify': 'Independent verification',
-      'action.verifyHelp': 'Run the verification plan against the fixed candidate after every task is delivered; acceptance requires a passing result.',
+      'action.verifyHelp':
+        'Run the verification plan against the fixed candidate after every task is delivered; acceptance requires a passing result.',
       'action.cancel': 'Cancel requirement',
       'action.busy': 'Working…',
       'action.approved': 'Task package approved',
@@ -246,24 +249,30 @@ window.__ModuleLoader__.load({
       'action.planned': 'Regeneration request accepted',
       'action.verified': 'Verification request accepted',
       'action.requeue': 'Re-run',
-      'action.requeueHelp': 'Queue one more execution after a failure; the plan stays the same and failure rounds still count.',
+      'action.requeueHelp':
+        'Queue one more execution after a failure; the plan stays the same and failure rounds still count.',
       'action.requeued': 'Re-execution queued',
       'action.requeueBlocked': 'Cannot re-run yet',
       'action.extendBudget': 'Extend budget',
-      'action.extendBudgetHelp': 'Extend this requirement’s work budget; consumed time is preserved and it can be re-run afterwards.',
+      'action.extendBudgetHelp':
+        'Extend this requirement’s work budget; consumed time is preserved and it can be re-run afterwards.',
       'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24)',
       'action.extendedBudget': 'Budget extended',
       'action.grantRounds': 'Grant more rounds',
-      'action.grantRoundsHelp': 'Grant one more failure-round allowance after the quota is exhausted; history is preserved.',
+      'action.grantRoundsHelp':
+        'Grant one more failure-round allowance after the quota is exhausted; history is preserved.',
       'action.grantedRounds': 'Failure rounds granted',
       'action.retryAnalysis': 'Retry analysis',
-      'action.retryAnalysisHelp': 'Queue one more product analysis after a failure; the requirement version stays the same and failure records are kept.',
+      'action.retryAnalysisHelp':
+        'Queue one more product analysis after a failure; the requirement version stays the same and failure records are kept.',
       'action.retryAnalysisQueued': 'Analysis retry queued',
       'action.build': 'Build installable candidate',
-      'action.buildHelp': 'Build only from the verified candidate workspace; acceptance is required first.',
+      'action.buildHelp':
+        'Build only from the verified candidate workspace; acceptance is required first.',
       'action.built': 'Candidate package built',
       'action.deploy': 'Check deployment',
-      'action.deployHelp': 'After installation, check installed files, running version, requirement modules and business records.',
+      'action.deployHelp':
+        'After installation, check installed files, running version, requirement modules and business records.',
       'action.deployPrompt': 'Target DSH profile name (for example web):',
       'action.deployed': 'Deployment checks passed',
       'action.cancelled': 'Requirement cancelled',
@@ -318,7 +327,8 @@ window.__ModuleLoader__.load({
       'task.retry': 'Retry task',
       'task.retrying': 'Queuing…',
       'task.retryQueued': 'Retry request accepted; waiting for the host.',
-      'task.retryHelp': 'A retry queues one more advance; failure rounds, evidence and approval are kept.',
+      'task.retryHelp':
+        'A retry queues one more advance; failure rounds, evidence and approval are kept.',
       'task.failureRounds': 'Failure rounds',
       'issue.clarification': 'Clarification',
       'issue.blocked': 'Blocked',
@@ -360,7 +370,8 @@ window.__ModuleLoader__.load({
       'detail.tasks': 'Task status',
       'detail.approval': 'Approval',
       'detail.approvedBy': '{by} approved plan v{plan} at {at}',
-      'detail.notApproved': 'The plan is not approved (or the approval is stale); it cannot advance',
+      'detail.notApproved':
+        'The plan is not approved (or the approval is stale); it cannot advance',
       'detail.failures': 'Failure rounds',
       'detail.requests': 'Pending requests',
       'detail.noRequests': 'No pending requests',
@@ -412,17 +423,21 @@ window.__ModuleLoader__.load({
       'node.plan.accepted': 'Accepted',
       'node.plan.stopped': 'Stop requested',
       'node.plan.candidate': 'Candidate artifact SHA-256',
-      'node.plan.candidateHint': 'A candidate package exists; acceptance must bind its artifact digest',
+      'node.plan.candidateHint':
+        'A candidate package exists; acceptance must bind its artifact digest',
       'node.plan.review': 'Pre-implementation review',
-      'node.plan.reviewMissing': 'No pre-implementation review yet; approval is blocked and the package must be regenerated.',
+      'node.plan.reviewMissing':
+        'No pre-implementation review yet; approval is blocked and the package must be regenerated.',
       'node.plan.reviewBlocked': 'Review blocked',
       'node.plan.reviewPassed': 'Review passed; approval is allowed.',
       'node.plan.regenerate': 'Regenerate task package',
       'node.plan.planRequested': 'Regeneration request accepted',
       'node.plan.verificationState': 'Independent verification',
-      'node.plan.verificationMissing': 'Every task is delivered but no independent verification exists yet.',
+      'node.plan.verificationMissing':
+        'Every task is delivered but no independent verification exists yet.',
       'node.plan.verificationBlocked': 'Verification blocked',
-      'node.plan.verificationStale': 'The verification result is not bound to the current candidate; verify again.',
+      'node.plan.verificationStale':
+        'The verification result is not bound to the current candidate; verify again.',
       'node.plan.verificationPassed': 'Verification passed; acceptance is allowed.',
       'node.plan.verify': 'Independent verification',
       'node.plan.verifyQueued': 'Verification request accepted',
@@ -456,7 +471,8 @@ window.__ModuleLoader__.load({
       'task.openRequirement': '查看需求',
       'task.heartbeatStale': '心跳超过 60 秒，可能已停滞；需核对现场',
       'task.heartbeatNote': '最后活动/心跳只证明观测时间，不是任务正常推进或已完成的证明。',
-      'task.waitingInputBanner': '最近活动显示 Agent 可能在等待人工输入（ask_user_question）；需要人工回答，不能把心跳当作推进。',
+      'task.waitingInputBanner':
+        '最近活动显示 Agent 可能在等待人工输入（ask_user_question）；需要人工回答，不能把心跳当作推进。',
       'task.stopBanner': '已记录停止请求；请求停止不等于已经停稳，仍可能有未收口动作。',
       'task.activityMeta': '仅显示最近 {shown} 条，共 {total} 条活动记录。',
       'task.testLogMeta': '路径：{path} · {bytes} 字节',
@@ -467,7 +483,8 @@ window.__ModuleLoader__.load({
       'task.reviewFindings': '发现',
       'task.reviewBlocking': '阻断项',
       'task.reviewNone': '尚无独立审查结论（可能未执行、失败或证据未落盘）。',
-      'task.reviewNote': '这是最近一次落盘的审查记录；不一定是当前失败的直接原因，请结合失败原因与日志判断。',
+      'task.reviewNote':
+        '这是最近一次落盘的审查记录；不一定是当前失败的直接原因，请结合失败原因与日志判断。',
       'task.evidence': '证据身份',
       'task.artifact': '交付产物',
       'task.artifactMissing': '尚无交付产物；任务可能未交付或证据未落盘。',
@@ -510,7 +527,8 @@ window.__ModuleLoader__.load({
       'detail.decision.admit': '准入通过',
       'detail.decision.block': '拒绝准入',
       'detail.delivery': '交付进度与验收依据',
-      'detail.progressNote': '已交付 {delivered}/{total} · 失败 {failed} · 执行中 {running} · 等待输入 {awaitingInput}',
+      'detail.progressNote':
+        '已交付 {delivered}/{total} · 失败 {failed} · 执行中 {running} · 等待输入 {awaitingInput}',
       'detail.artifacts': '交付物与证据身份',
       'detail.noArtifacts': '尚无交付产物。',
       'detail.artifactTask': '任务 {taskId}',
@@ -572,7 +590,8 @@ window.__ModuleLoader__.load({
       'overview.boundaryAccept': '天工页不提供验收；验收仍在任务包会话完成。',
       'overview.boundaryClarification': '待澄清回答仍在 ForgeLoop 业务会话输入；本页只读展示问题。',
       'overview.boundaryGrant': '追加授权与重新规划尚无页面入口；额度用尽时重试会被明确拒绝。',
-      'overview.searchScope': '搜索范围：需求身份/状态/原文与版本、分析结论、任务目标/文件/验收标准、运行原因、失败轮次、请求说明与问题文字；最多显示 50 条。',
+      'overview.searchScope':
+        '搜索范围：需求身份/状态/原文与版本、分析结论、任务目标/文件/验收标准、运行原因、失败轮次、请求说明与问题文字；最多显示 50 条。',
       'overview.next.approvals': '{count} 个任务包待批准',
       'overview.next.failures': '{count} 个失败任务待查看证据/重试',
       'overview.next.requestFailures': '{count} 条请求失败待处理',
@@ -781,7 +800,8 @@ window.__ModuleLoader__.load({
       'ops.monitor.memory': '内存 {value}%',
       'ops.monitor.load': '负载 {value}',
       'ops.monitor.issues': '问题 {count}',
-      'ops.monitor.sources': '进程 {processes} · 延迟 {latency} · 日志 {logs} · 告警 {alerts} · 检查 {checks}',
+      'ops.monitor.sources':
+        '进程 {processes} · 延迟 {latency} · 日志 {logs} · 告警 {alerts} · 检查 {checks}',
       'ops.monitor.providers': '提供方 {ids}',
       'ops.monitor.heartbeat': '心跳 {state}',
       'ops.monitor.heartbeatOk': '已上报 {time}',
@@ -824,22 +844,29 @@ window.__ModuleLoader__.load({
       'task.openDetail': 'View execution',
       'task.openRequirement': 'View requirement',
       'task.heartbeatStale': 'Heartbeat older than 60s; may be stalled, verify on site',
-      'task.heartbeatNote': 'Last activity/heartbeat only proves observation time, not progress or completion.',
-      'task.waitingInputBanner': 'Recent activity indicates the Agent may be waiting for input (ask_user_question); a heartbeat is not progress.',
-      'task.stopBanner': 'A stop request is recorded; a stop request is not proof that work has actually stopped.',
+      'task.heartbeatNote':
+        'Last activity/heartbeat only proves observation time, not progress or completion.',
+      'task.waitingInputBanner':
+        'Recent activity indicates the Agent may be waiting for input (ask_user_question); a heartbeat is not progress.',
+      'task.stopBanner':
+        'A stop request is recorded; a stop request is not proof that work has actually stopped.',
       'task.activityMeta': 'Showing the latest {shown} of {total} activity records.',
       'task.testLogMeta': 'Path: {path} · {bytes} bytes',
-      'task.testLogTruncated': 'Log truncated: only the last 4000 characters are shown; open the path above for the full log.',
+      'task.testLogTruncated':
+        'Log truncated: only the last 4000 characters are shown; open the path above for the full log.',
       'task.review': 'Independent review',
       'task.reviewVerdict': 'Verdict',
       'task.reviewSummary': 'Summary',
       'task.reviewFindings': 'Findings',
       'task.reviewBlocking': 'Blocking',
-      'task.reviewNone': 'No independent review conclusion (not run, failed, or evidence not on disk).',
-      'task.reviewNote': 'This is the latest review persisted on disk; it may not be the direct cause of the current failure.',
+      'task.reviewNone':
+        'No independent review conclusion (not run, failed, or evidence not on disk).',
+      'task.reviewNote':
+        'This is the latest review persisted on disk; it may not be the direct cause of the current failure.',
       'task.evidence': 'Evidence identity',
       'task.artifact': 'Delivery artifact',
-      'task.artifactMissing': 'No delivery artifact yet; the task may be undelivered or evidence not on disk.',
+      'task.artifactMissing':
+        'No delivery artifact yet; the task may be undelivered or evidence not on disk.',
       'task.evidenceMissing': 'No evidence paths recorded.',
       'task.retryNotAllowed': 'Retry not available: {reason}',
       'hint.paths': 'Evidence paths and sessions',
@@ -879,7 +906,8 @@ window.__ModuleLoader__.load({
       'detail.decision.admit': 'Admitted',
       'detail.decision.block': 'Blocked',
       'detail.delivery': 'Delivery progress and acceptance basis',
-      'detail.progressNote': 'Delivered {delivered}/{total} · failed {failed} · running {running} · waiting input {awaitingInput}',
+      'detail.progressNote':
+        'Delivered {delivered}/{total} · failed {failed} · running {running} · waiting input {awaitingInput}',
       'detail.artifacts': 'Artifacts and evidence identity',
       'detail.noArtifacts': 'No delivery artifacts yet.',
       'detail.artifactTask': 'Task {taskId}',
@@ -891,7 +919,8 @@ window.__ModuleLoader__.load({
       'detail.baseline': 'Baseline',
       'detail.acceptanceRecord': 'Acceptance record',
       'detail.acceptedMeta': '{by} · {time} · {source}',
-      'detail.notAccepted': 'Not accepted; acceptance still happens in the task-package conversation.',
+      'detail.notAccepted':
+        'Not accepted; acceptance still happens in the task-package conversation.',
       'detail.candidatePackage': 'Candidate package',
       'detail.planReview': 'Pre-implementation review',
       'detail.noPlanReview': 'No pre-implementation review yet; approval is blocked.',
@@ -903,14 +932,17 @@ window.__ModuleLoader__.load({
       'detail.verdict.block': 'block',
       'detail.blocking': 'Blocking reasons',
       'detail.scenarios': 'Verification scenarios',
-      'detail.clarificationHint': 'Answer in the ForgeLoop business conversation; this page has no answer entry.',
+      'detail.clarificationHint':
+        'Answer in the ForgeLoop business conversation; this page has no answer entry.',
       'wb.release': 'Release and runtime',
       'wb.businessReview': 'Business review',
       'wb.candidate': 'Candidate package',
       'wb.deployment': 'Deployment check',
       'action.stop': 'Request stop',
-      'action.stopHelp': 'A stop request dismisses pending requests; it does not prove the task has stopped.',
-      'action.stopConfirm': 'Request stop for this requirement? Pending requests are dismissed and the result still needs verification.',
+      'action.stopHelp':
+        'A stop request dismisses pending requests; it does not prove the task has stopped.',
+      'action.stopConfirm':
+        'Request stop for this requirement? Pending requests are dismissed and the result still needs verification.',
       'action.stopReason': 'Stop requested from the Forge workbench',
       'action.cancelReason': 'Cancelled from the Forge workbench',
       'action.stopped': 'Stop requested; verify the result',
@@ -932,23 +964,35 @@ window.__ModuleLoader__.load({
       'overview.featuresTitle': 'Workbench capabilities and boundaries',
       'overview.feature.nav': 'Unified navigation: overview / requirements / tasks / issues',
       'overview.feature.search': 'Search requirements, analysis, tasks, failures and request text',
-      'overview.feature.detail': 'Requirement text/versions, task package, delivery progress and acceptance basis',
-      'overview.feature.debug': 'Execution state, heartbeat, logs, review conclusions and evidence identity',
-      'overview.feature.actions': 'Approve, advance, retry, request stop and cancel; acceptance stays in the task-package conversation',
-      'overview.boundaryHeartbeat': 'Heartbeat/last activity is not proof of progress; stale heartbeats are marked as possibly stalled.',
-      'overview.boundarySource': 'Facts come from SQLite and registered evidence; the page keeps no separate business state.',
-      'overview.boundaryStop': 'A stop request is not proof of a stopped task; undelivered work closes as failed and can be re-executed.',
-      'overview.boundaryAccept': 'The Forge page does not provide acceptance; acceptance stays in the task-package conversation.',
-      'overview.boundaryClarification': 'Clarification answers still go through the ForgeLoop business conversation; this page only lists the questions.',
-      'overview.boundaryGrant': 'Extra grants and re-planning have no page entry yet; retry is explicitly rejected when the budget is exhausted.',
-      'overview.searchScope': 'Search scope: requirement id/status/text/versions, analysis, task goals/files/acceptance, run reasons, failure rounds, request text and issue text; at most 50 results.',
+      'overview.feature.detail':
+        'Requirement text/versions, task package, delivery progress and acceptance basis',
+      'overview.feature.debug':
+        'Execution state, heartbeat, logs, review conclusions and evidence identity',
+      'overview.feature.actions':
+        'Approve, advance, retry, request stop and cancel; acceptance stays in the task-package conversation',
+      'overview.boundaryHeartbeat':
+        'Heartbeat/last activity is not proof of progress; stale heartbeats are marked as possibly stalled.',
+      'overview.boundarySource':
+        'Facts come from SQLite and registered evidence; the page keeps no separate business state.',
+      'overview.boundaryStop':
+        'A stop request is not proof of a stopped task; undelivered work closes as failed and can be re-executed.',
+      'overview.boundaryAccept':
+        'The Forge page does not provide acceptance; acceptance stays in the task-package conversation.',
+      'overview.boundaryClarification':
+        'Clarification answers still go through the ForgeLoop business conversation; this page only lists the questions.',
+      'overview.boundaryGrant':
+        'Extra grants and re-planning have no page entry yet; retry is explicitly rejected when the budget is exhausted.',
+      'overview.searchScope':
+        'Search scope: requirement id/status/text/versions, analysis, task goals/files/acceptance, run reasons, failure rounds, request text and issue text; at most 50 results.',
       'overview.next.approvals': '{count} task packages waiting for approval',
       'overview.next.failures': '{count} failed tasks to inspect/retry',
       'overview.next.requestFailures': '{count} failed requests to handle',
       'overview.next.clarifications': '{count} clarifications to answer',
       'overview.next.running': '{count} tasks running or waiting for input',
-      'overview.next.none': 'No blocking items; continue tracking tasks or submit a new requirement.',
-      'overview.next.submit': 'No requirements yet; submit the first one in a ForgeLoop business conversation.',
+      'overview.next.none':
+        'No blocking items; continue tracking tasks or submit a new requirement.',
+      'overview.next.submit':
+        'No requirements yet; submit the first one in a ForgeLoop business conversation.',
       'common.yes': 'Yes',
       'common.no': 'No',
       'filter.task.all': 'All',
@@ -1032,7 +1076,8 @@ window.__ModuleLoader__.load({
       'wb.toolFailed': 'Failed',
       'wb.toolCompleted': 'Completed',
       'wb.phase': 'Phase event',
-      'wb.attemptUnavailable': 'This historical attempt only has a summary; no separate execution record was retained',
+      'wb.attemptUnavailable':
+        'This historical attempt only has a summary; no separate execution record was retained',
       'wb.history': 'Historical attempts',
       'wb.sessionUnavailable': 'No session identity recorded',
       'wb.noAttempt': 'No attempt to switch',
@@ -1066,7 +1111,8 @@ window.__ModuleLoader__.load({
       'wb.awaitingUser': 'Awaiting decision',
       'wb.awaitingInput': 'Waiting for answer',
       'wb.executionTotal': '{count} public events',
-      'wb.attemptNote': 'Only public text, tool calls and results are shown; hidden reasoning is excluded.',
+      'wb.attemptNote':
+        'Only public text, tool calls and results are shown; hidden reasoning is excluded.',
       'wb.loading': 'Loading…',
       'wb.error': 'Read failed',
       'wb.breadcrumb': 'Path',
@@ -1077,7 +1123,8 @@ window.__ModuleLoader__.load({
       'wb.noIssues': 'No pending items',
       'wb.planPending': 'Awaiting approval',
       'ops.title': 'Operations events',
-      'ops.subtitle': 'Registered resources, read-only diagnosis, authorized recovery and verification',
+      'ops.subtitle':
+        'Registered resources, read-only diagnosis, authorized recovery and verification',
       'ops.all': 'All',
       'ops.active': 'In progress',
       'ops.total': 'Events',
@@ -1106,7 +1153,8 @@ window.__ModuleLoader__.load({
       'ops.facts': 'Facts',
       'ops.hypotheses': 'Hypotheses',
       'ops.proposed': 'Proposed action',
-      'ops.noAction': 'No registered action is available; handle it manually or file a fix requirement.',
+      'ops.noAction':
+        'No registered action is available; handle it manually or file a fix requirement.',
       'ops.attempts': 'Recovery attempts',
       'ops.noAttempts': 'No recovery action executed',
       'ops.attempt.running': 'Running',
@@ -1131,9 +1179,11 @@ window.__ModuleLoader__.load({
       'ops.decline': 'Decline action',
       'ops.close': 'Close event',
       'ops.requestFix': 'File fix requirement',
-      'ops.approveConfirm': 'The coordinator will execute the registered action; the page will not run it directly. Approve?',
+      'ops.approveConfirm':
+        'The coordinator will execute the registered action; the page will not run it directly. Approve?',
       'ops.declineConfirm': 'The event stays unresolved and no action runs. Decline?',
-      'ops.closeConfirm': 'Closing keeps the evidence and ends the event; it does not undo actions already taken. Close?',
+      'ops.closeConfirm':
+        'Closing keeps the evidence and ends the event; it does not undo actions already taken. Close?',
       'ops.done': 'Accepted; waiting for the coordinator',
       'ops.fixCreated': 'Linked fix requirement {req}',
       'ops.fixPending': 'Fix requirement in progress',
@@ -1150,7 +1200,8 @@ window.__ModuleLoader__.load({
       'ops.monitor.memory': 'Memory {value}%',
       'ops.monitor.load': 'Load {value}',
       'ops.monitor.issues': 'Issues {count}',
-      'ops.monitor.sources': 'Processes {processes} · Latency {latency} · Logs {logs} · Alerts {alerts} · Checks {checks}',
+      'ops.monitor.sources':
+        'Processes {processes} · Latency {latency} · Logs {logs} · Alerts {alerts} · Checks {checks}',
       'ops.monitor.providers': 'Providers {ids}',
       'ops.monitor.heartbeat': 'Heartbeat {state}',
       'ops.monitor.heartbeatOk': 'sent {time}',
@@ -1163,7 +1214,8 @@ window.__ModuleLoader__.load({
       'ops.obs.monitor': 'Active monitoring',
       'ops.obs.alert': 'Alert sent',
       'ops.obs.alert_error': 'Alert failed',
-      'wb.stopHelp': 'A stop request dismisses pending requests; it does not prove the task has stopped.',
+      'wb.stopHelp':
+        'A stop request dismisses pending requests; it does not prove the task has stopped.',
     }
 
     Object.assign(zh, workbenchZh)
@@ -1260,7 +1312,11 @@ window.__ModuleLoader__.load({
         'div',
         { key },
         h('div', { className: 'flb-flow-label' }, title),
-        h('ul', { className: 'flb-flow-list' }, items.map((item, index) => h('li', { key: `${key}-${index}` }, String(item)))),
+        h(
+          'ul',
+          { className: 'flb-flow-list' },
+          items.map((item, index) => h('li', { key: `${key}-${index}` }, String(item))),
+        ),
       )
     }
 
@@ -1275,7 +1331,9 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-head' },
           h('span', { className: 'flb-flow-title' }, t('node.intake.title')),
-          data.reqId ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId })) : null,
+          data.reqId
+            ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId }))
+            : null,
         ),
         h('div', { className: 'flb-flow-label' }, t('node.intake.text')),
         h('div', { className: 'flb-flow-text' }, data.text || ''),
@@ -1294,7 +1352,9 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-head' },
           h('span', { className: 'flb-flow-title' }, t('node.analysis.title')),
-          data.reqId ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId })) : null,
+          data.reqId
+            ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId }))
+            : null,
           data.analysisVersion
             ? h(
                 'span',
@@ -1338,7 +1398,9 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-head' },
           h('span', { className: 'flb-flow-title' }, t('node.error.title')),
-          data.reqId ? h('span', { className: 'flb-flow-meta' }, t('node.error.req', { reqId: data.reqId })) : null,
+          data.reqId
+            ? h('span', { className: 'flb-flow-meta' }, t('node.error.req', { reqId: data.reqId }))
+            : null,
         ),
         h('div', { className: 'flb-flow-text' }, data.message || ''),
       )
@@ -1355,7 +1417,9 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-head' },
           h('span', { className: 'flb-flow-title' }, t('node.clarification.title')),
-          data.reqId ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId })) : null,
+          data.reqId
+            ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId }))
+            : null,
         ),
         listItems(t, t('node.clarification.questions'), data.questions, 'questions'),
       )
@@ -1372,9 +1436,15 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-head' },
           h('span', { className: 'flb-flow-title' }, t('node.answer.title')),
-          data.reqId ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId })) : null,
+          data.reqId
+            ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId }))
+            : null,
           data.requirementVersion
-            ? h('span', { className: 'flb-flow-meta' }, t('node.answer.version', { version: data.requirementVersion }))
+            ? h(
+                'span',
+                { className: 'flb-flow-meta' },
+                t('node.answer.version', { version: data.requirementVersion }),
+              )
             : null,
         ),
         h('div', { className: 'flb-flow-text' }, data.answer || ''),
@@ -1425,10 +1495,13 @@ window.__ModuleLoader__.load({
       const delivered = detail && Array.isArray(detail.delivered) ? detail.delivered.length : 0
       const accepted = Boolean(detail && detail.status === 'accepted')
       const allDelivered = tasks.length > 0 && delivered >= tasks.length
-      const running = detail && (detail.status === 'executing' || detail.status === 'approved') && !accepted
+      const running =
+        detail && (detail.status === 'executing' || detail.status === 'approved') && !accepted
       const review = detail && detail.planReview ? detail.planReview : null
       const verification = detail && detail.verification ? detail.verification : null
-      const verificationPassed = Boolean(verification && verification.verdict === 'pass' && verification.fresh)
+      const verificationPassed = Boolean(
+        verification && verification.verdict === 'pass' && verification.fresh,
+      )
 
       React.useEffect(() => {
         if (!running) return undefined
@@ -1466,7 +1539,9 @@ window.__ModuleLoader__.load({
                       ? t('node.plan.verifyQueued')
                       : endpoint === 'stop'
                         ? t('node.plan.stopped')
-                        : t('node.plan.advanceAccepted', { requestId: value && value.requestId ? value.requestId : '' }),
+                        : t('node.plan.advanceAccepted', {
+                            requestId: value && value.requestId ? value.requestId : '',
+                          }),
             )
             return readDetail(() => true)
           })
@@ -1482,7 +1557,9 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-head' },
           h('span', { className: 'flb-flow-title' }, t('node.plan.title')),
-          data.reqId ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId })) : null,
+          data.reqId
+            ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId }))
+            : null,
           h(
             'span',
             { className: 'flb-flow-meta' },
@@ -1521,10 +1598,18 @@ window.__ModuleLoader__.load({
                       task.verification ? ` · ${t('node.plan.verification')}` : '',
                     ),
                     Array.isArray(task.files) && task.files.length
-                      ? h('div', { className: 'flb-flow-meta' }, `${t('node.plan.files')}: ${task.files.join(', ')}`)
+                      ? h(
+                          'div',
+                          { className: 'flb-flow-meta' },
+                          `${t('node.plan.files')}: ${task.files.join(', ')}`,
+                        )
                       : null,
                     Array.isArray(task.dependsOn) && task.dependsOn.length
-                      ? h('div', { className: 'flb-flow-meta' }, `${t('node.plan.depends')}: ${task.dependsOn.join(', ')}`)
+                      ? h(
+                          'div',
+                          { className: 'flb-flow-meta' },
+                          `${t('node.plan.depends')}: ${task.dependsOn.join(', ')}`,
+                        )
                       : null,
                   ),
                 ),
@@ -1535,9 +1620,7 @@ window.__ModuleLoader__.load({
           ? h(
               'div',
               { className: 'flb-flow-section' },
-              review
-                ? h('div', { className: 'flb-flow-label' }, t('node.plan.review'))
-                : null,
+              review ? h('div', { className: 'flb-flow-label' }, t('node.plan.review')) : null,
               review
                 ? h(
                     'div',
@@ -1555,15 +1638,21 @@ window.__ModuleLoader__.load({
                     { className: 'flb-flow-text' },
                     [
                       t(`detail.verdict.${verification.verdict}`),
-                      verification.fresh ? t('detail.verificationFresh') : t('detail.verificationStale'),
+                      verification.fresh
+                        ? t('detail.verificationFresh')
+                        : t('detail.verificationStale'),
                       verification.summary || '—',
                     ].join(' · '),
                   )
                 : h('div', { className: 'flb-flow-meta' }, t('node.plan.verificationMissing')),
-              verification && Array.isArray(verification.blocking) && verification.blocking.length > 0
+              verification &&
+                Array.isArray(verification.blocking) &&
+                verification.blocking.length > 0
                 ? listItems(t, t('detail.blocking'), verification.blocking, 'verification-blocking')
                 : null,
-              verification && Array.isArray(verification.scenarios) && verification.scenarios.length > 0
+              verification &&
+                Array.isArray(verification.scenarios) &&
+                verification.scenarios.length > 0
                 ? h(
                     'div',
                     { className: 'flb-flow-meta' },
@@ -1593,12 +1682,21 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-actions' },
           detail
-            ? h('span', { className: 'flb-flow-meta' }, t('node.plan.progress', { delivered, total: tasks.length }))
+            ? h(
+                'span',
+                { className: 'flb-flow-meta' },
+                t('node.plan.progress', { delivered, total: tasks.length }),
+              )
             : null,
           approved && !accepted
             ? h(
                 'button',
-                { type: 'button', className: 'flb-flow-action', disabled: Boolean(busy), onClick: () => act('stop') },
+                {
+                  type: 'button',
+                  className: 'flb-flow-action',
+                  disabled: Boolean(busy),
+                  onClick: () => act('stop'),
+                },
                 busy === 'stop' ? t('node.plan.busy') : t('node.plan.stop'),
               )
             : null,
@@ -1624,7 +1722,10 @@ window.__ModuleLoader__.load({
         component: ErrorNodeView,
       },
       {
-        definition: flowNodeDefinition('forgeloop-clarification', 'plugin:forgeloop/clarification-request'),
+        definition: flowNodeDefinition(
+          'forgeloop-clarification',
+          'plugin:forgeloop/clarification-request',
+        ),
         key: 'forgeloop-clarification',
         component: ClarificationNodeView,
       },
@@ -1652,7 +1753,11 @@ window.__ModuleLoader__.load({
       return h(
         Chip,
         { tone: review.verdict === 'pass' ? 'success' : 'error' },
-        t(review.verdict === 'pass' ? 'requirement.planReviewPassed' : 'requirement.planReviewBlocked'),
+        t(
+          review.verdict === 'pass'
+            ? 'requirement.planReviewPassed'
+            : 'requirement.planReviewBlocked',
+        ),
       )
     }
 
@@ -1713,6 +1818,58 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * 统一的动作请求体：卡片与工作台共用，避免两处入口漂移。
+     * 返回 null 表示用户取消或输入非法，调用方不得发请求。
+     */
+    function actionRequest(t, requirement, endpoint, sessionId) {
+      const body = { reqId: requirement.reqId, sessionId }
+      if (endpoint === 'approve') body.planVersion = requirement.planVersion
+      if (endpoint === 'cancel') body.reason = t('action.cancelReason')
+      if (endpoint === 'stop') body.reason = t('action.stopReason')
+      if (endpoint === 'build') body.planVersion = requirement.planVersion
+      if (endpoint === 'deploy') {
+        const raw =
+          typeof window === 'undefined' || typeof window.prompt !== 'function'
+            ? ''
+            : window.prompt(t('action.deployPrompt'), 'web')
+        if (raw === null) return null
+        const targetProfile = String(raw).trim()
+        if (!targetProfile) return null
+        body.targetProfile = targetProfile
+      }
+      if (endpoint === 'extend-budget') {
+        const raw =
+          typeof window === 'undefined' || typeof window.prompt !== 'function'
+            ? ''
+            : window.prompt(t('action.extendBudgetPrompt'), '1')
+        if (raw === null) return null
+        const hours = Number(raw)
+        if (!Number.isFinite(hours) || hours < 0.5 || hours > 24) return null
+        body.seconds = Math.round(hours * 3600)
+      }
+      return body
+    }
+
+    /** 动作成功后的提示 key；未知动作回退为取消文案。 */
+    function actionSuccessKey(endpoint) {
+      const keys = {
+        approve: 'approved',
+        advance: 'advanced',
+        plan: 'planned',
+        verify: 'verified',
+        requeue: 'requeued',
+        'extend-budget': 'extendedBudget',
+        'grant-rounds': 'grantedRounds',
+        'retry-analysis': 'retryAnalysisQueued',
+        build: 'built',
+        deploy: 'deployed',
+        stop: 'stopped',
+        cancel: 'cancelled',
+      }
+      return keys[endpoint] || 'cancelled'
+    }
+
     const TAIL_CSS = `
 .flb-tail{margin:12px 0 4px;padding:10px 12px;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary)}
 .flb-tail-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px}
@@ -1735,7 +1892,8 @@ window.__ModuleLoader__.load({
 
     function RequirementsTail(props) {
       const t = props.t
-      const preset = typeof props.useProjection === 'function' ? props.useProjection('agentPreset') : undefined
+      const preset =
+        typeof props.useProjection === 'function' ? props.useProjection('agentPreset') : undefined
       const [state, setState] = React.useState({ phase: 'idle', data: null })
       React.useEffect(() => {
         if (preset !== 'forgeloop' || !props.sessionId) return undefined
@@ -1760,8 +1918,12 @@ window.__ModuleLoader__.load({
       if (preset !== 'forgeloop') return null
       const requirements = (state.data && state.data.requirements) || []
       if (requirements.length === 0) return null
-      const needs = requirements.filter((item) => Array.isArray(item.clarifications) && item.clarifications.length > 0)
-      const clear = requirements.filter((item) => !Array.isArray(item.clarifications) || item.clarifications.length === 0)
+      const needs = requirements.filter(
+        (item) => Array.isArray(item.clarifications) && item.clarifications.length > 0,
+      )
+      const clear = requirements.filter(
+        (item) => !Array.isArray(item.clarifications) || item.clarifications.length === 0,
+      )
 
       const card = (item, index) =>
         h(
@@ -1772,10 +1934,26 @@ window.__ModuleLoader__.load({
             { className: 'flb-tail-card-head' },
             h('span', { className: 'flb-tail-card-title' }, item.title || item.reqId),
             h('span', { className: 'flb-tail-card-meta' }, item.reqId),
-            h('span', { className: 'flb-tail-card-meta' }, t('tail.version', { version: item.version })),
-            h('span', { className: 'flb-tail-card-meta' }, item.status === 'accepted' ? statusLabel(t, item.status) : item.approved ? t('tail.approved') : statusLabel(t, item.status)),
+            h(
+              'span',
+              { className: 'flb-tail-card-meta' },
+              t('tail.version', { version: item.version }),
+            ),
+            h(
+              'span',
+              { className: 'flb-tail-card-meta' },
+              item.status === 'accepted'
+                ? statusLabel(t, item.status)
+                : item.approved
+                  ? t('tail.approved')
+                  : statusLabel(t, item.status),
+            ),
             item.taskCount
-              ? h('span', { className: 'flb-tail-card-meta' }, t('tail.progress', { delivered: item.delivered || 0, total: item.taskCount }))
+              ? h(
+                  'span',
+                  { className: 'flb-tail-card-meta' },
+                  t('tail.progress', { delivered: item.delivered || 0, total: item.taskCount }),
+                )
               : null,
           ),
           item.goal ? h('div', { className: 'flb-tail-card-goal' }, item.goal) : null,
@@ -1800,7 +1978,9 @@ window.__ModuleLoader__.load({
             h('span', null, title),
             h('span', { className: 'flb-tail-count' }, String(items.length)),
           ),
-          items.length === 0 ? h('div', { className: 'flb-tail-empty' }, t('tail.empty')) : items.map(card),
+          items.length === 0
+            ? h('div', { className: 'flb-tail-empty' }, t('tail.empty'))
+            : items.map(card),
         )
 
       return h(
@@ -1854,7 +2034,11 @@ window.__ModuleLoader__.load({
     function Banner(props) {
       return h(
         'div',
-        { className: 'flb-banner', 'data-tone': props.tone || 'info', role: props.role || 'status' },
+        {
+          className: 'flb-banner',
+          'data-tone': props.tone || 'info',
+          role: props.role || 'status',
+        },
         props.children,
       )
     }
@@ -1887,7 +2071,11 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'flb-kv' },
         h('span', { className: 'flb-kv-label' }, props.label),
-        h('span', { className: 'flb-kv-value' }, props.children === undefined ? '—' : props.children),
+        h(
+          'span',
+          { className: 'flb-kv-value' },
+          props.children === undefined ? '—' : props.children,
+        ),
       )
     }
 
@@ -1968,11 +2156,23 @@ window.__ModuleLoader__.load({
           title: open ? t('requirement.collapse') : t('requirement.expand'),
           onClick: () => props.onToggle(requirement.reqId),
         },
-        h(Chip, { tone: REQUIREMENT_TONES[requirement.status] || 'idle' }, statusLabel(t, requirement.status)),
-        h('span', { className: 'flb-card-meta' }, t('requirement.version', { version: requirement.version })),
+        h(
+          Chip,
+          { tone: REQUIREMENT_TONES[requirement.status] || 'idle' },
+          statusLabel(t, requirement.status),
+        ),
+        h(
+          'span',
+          { className: 'flb-card-meta' },
+          t('requirement.version', { version: requirement.version }),
+        ),
         requirement.planVersion === null
           ? h('span', { className: 'flb-card-meta' }, t('requirement.noPlan'))
-          : h('span', { className: 'flb-card-meta' }, t('requirement.plan', { plan: requirement.planVersion })),
+          : h(
+              'span',
+              { className: 'flb-card-meta' },
+              t('requirement.plan', { plan: requirement.planVersion }),
+            ),
         requirement.planVersion === null || !requirement.planReview
           ? null
           : planReviewChip(t, requirement.planReview),
@@ -1981,7 +2181,9 @@ window.__ModuleLoader__.load({
           : progress.total > 0 && progress.delivered === progress.total
             ? verificationChip(t, null)
             : null,
-        requirement.stopRequested ? h(Chip, { tone: 'warn' }, t('requirement.stopRequested')) : null,
+        requirement.stopRequested
+          ? h(Chip, { tone: 'warn' }, t('requirement.stopRequested'))
+          : null,
         h('span', { className: 'flb-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
       )
 
@@ -2012,7 +2214,11 @@ window.__ModuleLoader__.load({
               )
             : null,
           requirement.clarifications > 0
-            ? h('span', null, t('requirement.clarifications', { count: requirement.clarifications }))
+            ? h(
+                'span',
+                null,
+                t('requirement.clarifications', { count: requirement.clarifications }),
+              )
             : null,
         ),
         progress.total > 0
@@ -2027,7 +2233,9 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'flb-card-meta' },
               t('requirement.progress', progress),
-              failedTasks.length > 0 ? ` · ${t('requirement.failedTasks', { count: failedTasks.length })}` : '',
+              failedTasks.length > 0
+                ? ` · ${t('requirement.failedTasks', { count: failedTasks.length })}`
+                : '',
             )
           : null,
         runningTask
@@ -2055,7 +2263,9 @@ window.__ModuleLoader__.load({
               onAction: (endpoint) => props.onAction(requirement, endpoint),
             })
           : null,
-        props.actionMessage ? h('div', { className: 'flb-card-action-message' }, props.actionMessage) : null,
+        props.actionMessage
+          ? h('div', { className: 'flb-card-action-message' }, props.actionMessage)
+          : null,
         open ? h(RequirementDetail, props) : null,
       )
     }
@@ -2065,17 +2275,29 @@ window.__ModuleLoader__.load({
       const detail = props.detail
 
       if (detail.phase === 'loading') {
-        return h('div', { className: 'flb-detail' }, h('div', { className: 'flb-empty' }, t('detail.loading')))
+        return h(
+          'div',
+          { className: 'flb-detail' },
+          h('div', { className: 'flb-empty' }, t('detail.loading')),
+        )
       }
       if (detail.phase === 'error') {
         return h(
           'div',
           { className: 'flb-detail' },
-          h('div', { className: 'flb-error-inline', role: 'alert' }, detail.error || t('detail.error')),
+          h(
+            'div',
+            { className: 'flb-error-inline', role: 'alert' },
+            detail.error || t('detail.error'),
+          ),
         )
       }
       if (detail.phase !== 'ready' || !detail.data) {
-        return h('div', { className: 'flb-detail' }, h('div', { className: 'flb-empty' }, t('detail.loading')))
+        return h(
+          'div',
+          { className: 'flb-detail' },
+          h('div', { className: 'flb-empty' }, t('detail.loading')),
+        )
       }
 
       const data = detail.data
@@ -2223,7 +2445,11 @@ window.__ModuleLoader__.load({
                   : null,
                 ...planTasks.map((task) => {
                   const boardTask = boardTaskById.get(task.taskId)
-                  const state = boardTask ? boardTask.state : artifactByTask.has(task.taskId) ? 'delivered' : 'pending'
+                  const state = boardTask
+                    ? boardTask.state
+                    : artifactByTask.has(task.taskId)
+                      ? 'delivered'
+                      : 'pending'
                   return h(
                     'div',
                     { className: 'flb-plan-task', key: task.taskId },
@@ -2240,7 +2466,14 @@ window.__ModuleLoader__.load({
                           className: 'flb-link-button',
                           onClick: (event) => {
                             event.stopPropagation()
-                            props.onOpenTask(boardTask || { reqId: data.reqId, planVersion: plan.planVersion, taskId: task.taskId, goal: task.goal })
+                            props.onOpenTask(
+                              boardTask || {
+                                reqId: data.reqId,
+                                planVersion: plan.planVersion,
+                                taskId: task.taskId,
+                                goal: task.goal,
+                              },
+                            )
                           },
                         },
                         t('detail.openTask'),
@@ -2254,7 +2487,11 @@ window.__ModuleLoader__.load({
                         'detail.files',
                       )}: ${task.files.join('、') || '—'}`,
                     ),
-                    h('div', { className: 'flb-muted' }, `${t('task.acceptance')}: ${task.acceptance}`),
+                    h(
+                      'div',
+                      { className: 'flb-muted' },
+                      `${t('task.acceptance')}: ${task.acceptance}`,
+                    ),
                   )
                 }),
               ]
@@ -2276,33 +2513,55 @@ window.__ModuleLoader__.load({
                 )
               : h('div', { className: 'flb-muted', key: 'no-review' }, t('detail.noPlanReview')),
             review && Array.isArray(review.blocking) && review.blocking.length > 0
-              ? h('div', { className: 'flb-label', key: 'review-blocking-label' }, t('detail.blocking'))
+              ? h(
+                  'div',
+                  { className: 'flb-label', key: 'review-blocking-label' },
+                  t('detail.blocking'),
+                )
               : null,
             review && Array.isArray(review.blocking) && review.blocking.length > 0
               ? h(BulletList, { key: 'review-blocking', items: review.blocking })
               : null,
-            h('div', { className: 'flb-label', key: 'verification-label' }, t('detail.verification')),
+            h(
+              'div',
+              { className: 'flb-label', key: 'verification-label' },
+              t('detail.verification'),
+            ),
             verification
               ? h(
                   'div',
                   { className: 'flb-text', key: 'verification-summary' },
                   [
                     t(`detail.verdict.${verification.verdict}`),
-                    verification.fresh ? t('detail.verificationFresh') : t('detail.verificationStale'),
+                    verification.fresh
+                      ? t('detail.verificationFresh')
+                      : t('detail.verificationStale'),
                     verification.summary || '—',
                   ].join(' · '),
                 )
-              : h('div', { className: 'flb-muted', key: 'no-verification' }, t('detail.noVerification')),
+              : h(
+                  'div',
+                  { className: 'flb-muted', key: 'no-verification' },
+                  t('detail.noVerification'),
+                ),
             verification && Array.isArray(verification.blocking) && verification.blocking.length > 0
-              ? h('div', { className: 'flb-label', key: 'verification-blocking-label' }, t('detail.blocking'))
+              ? h(
+                  'div',
+                  { className: 'flb-label', key: 'verification-blocking-label' },
+                  t('detail.blocking'),
+                )
               : null,
             verification && Array.isArray(verification.blocking) && verification.blocking.length > 0
               ? h(BulletList, { key: 'verification-blocking', items: verification.blocking })
               : null,
-            verification && Array.isArray(verification.scenarios) && verification.scenarios.length > 0
+            verification &&
+            Array.isArray(verification.scenarios) &&
+            verification.scenarios.length > 0
               ? h('div', { className: 'flb-label', key: 'scenarios-label' }, t('detail.scenarios'))
               : null,
-            verification && Array.isArray(verification.scenarios) && verification.scenarios.length > 0
+            verification &&
+            Array.isArray(verification.scenarios) &&
+            verification.scenarios.length > 0
               ? h(
                   'div',
                   { key: 'scenarios' },
@@ -2310,8 +2569,14 @@ window.__ModuleLoader__.load({
                     h(
                       'div',
                       { className: 'flb-evidence', key: scenario.scenario },
-                      h('div', { className: 'flb-text' }, `${scenario.scenario} · ${scenario.status}`),
-                      scenario.evidence ? h('div', { className: 'flb-card-meta' }, scenario.evidence) : null,
+                      h(
+                        'div',
+                        { className: 'flb-text' },
+                        `${scenario.scenario} · ${scenario.status}`,
+                      ),
+                      scenario.evidence
+                        ? h('div', { className: 'flb-card-meta' }, scenario.evidence)
+                        : null,
                     ),
                   ),
                 )
@@ -2325,7 +2590,11 @@ window.__ModuleLoader__.load({
           children: [
             h(
               'div',
-              { className: 'flb-evidence', key: 'admission-evidence', 'data-evidence': 'admission' },
+              {
+                className: 'flb-evidence',
+                key: 'admission-evidence',
+                'data-evidence': 'admission',
+              },
               h('div', { className: 'flb-label' }, t('detail.admission')),
               admission
                 ? h(
@@ -2337,8 +2606,16 @@ window.__ModuleLoader__.load({
                       admissionDecision,
                     ),
                     h(Kv, { label: t('detail.admissionCode'), key: 'code' }, admission.code || '—'),
-                    h(Kv, { label: t('detail.admissionReason'), key: 'reason' }, admission.reason || '—'),
-                    h(Kv, { label: t('detail.admissionAt'), key: 'at' }, formatMoment(admission.createdAt)),
+                    h(
+                      Kv,
+                      { label: t('detail.admissionReason'), key: 'reason' },
+                      admission.reason || '—',
+                    ),
+                    h(
+                      Kv,
+                      { label: t('detail.admissionAt'), key: 'at' },
+                      formatMoment(admission.createdAt),
+                    ),
                   )
                 : h(
                     'div',
@@ -2369,7 +2646,9 @@ window.__ModuleLoader__.load({
                       'div',
                       { className: 'flb-card-meta', key: 'files' },
                       `${t('detail.commitFiles')}: ${
-                        Array.isArray(commit.files) && commit.files.length > 0 ? commit.files.join('、') : '—'
+                        Array.isArray(commit.files) && commit.files.length > 0
+                          ? commit.files.join('、')
+                          : '—'
                       }`,
                     ),
                     h(
@@ -2414,7 +2693,11 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { className: 'flb-evidence', key: artifact.taskId },
-                    h('div', { className: 'flb-text' }, t('detail.artifactTask', { taskId: artifact.taskId })),
+                    h(
+                      'div',
+                      { className: 'flb-text' },
+                      t('detail.artifactTask', { taskId: artifact.taskId }),
+                    ),
                     h(
                       'div',
                       { className: 'flb-card-meta' },
@@ -2436,7 +2719,11 @@ window.__ModuleLoader__.load({
                   ),
                 ),
             acceptance.accepted_at
-              ? h('div', { className: 'flb-label', key: 'acceptance-label' }, t('detail.acceptanceRecord'))
+              ? h(
+                  'div',
+                  { className: 'flb-label', key: 'acceptance-label' },
+                  t('detail.acceptanceRecord'),
+                )
               : null,
             acceptance.accepted_at
               ? h(
@@ -2552,10 +2839,26 @@ window.__ModuleLoader__.load({
         { className: 'flb-task-meta' },
         h(Kv, { label: t('task.goalTitle') }, task.goal || '—'),
         h(Kv, { label: t('task.acceptance') }, task.acceptance || '—'),
-        h(Kv, { label: t('task.dependsOn') }, task.dependsOn && task.dependsOn.length ? task.dependsOn.join('、') : '—'),
-        h(Kv, { label: t('task.files') }, task.files && task.files.length ? task.files.join('、') : '—'),
-        h(Kv, { label: t('task.testCommand') }, task.testCommand && task.testCommand.length ? task.testCommand.join(' ') : '—'),
-        h(Kv, { label: t('task.verification') }, task.verification ? t('common.yes') : t('common.no')),
+        h(
+          Kv,
+          { label: t('task.dependsOn') },
+          task.dependsOn && task.dependsOn.length ? task.dependsOn.join('、') : '—',
+        ),
+        h(
+          Kv,
+          { label: t('task.files') },
+          task.files && task.files.length ? task.files.join('、') : '—',
+        ),
+        h(
+          Kv,
+          { label: t('task.testCommand') },
+          task.testCommand && task.testCommand.length ? task.testCommand.join(' ') : '—',
+        ),
+        h(
+          Kv,
+          { label: t('task.verification') },
+          task.verification ? t('common.yes') : t('common.no'),
+        ),
       )
     }
 
@@ -2563,10 +2866,13 @@ window.__ModuleLoader__.load({
       const t = props.t
       const task = props.task
       const failed = isFailureState(task.state)
-      const advice = task.failureAdvice && Array.isArray(task.failureAdvice.actions) ? task.failureAdvice : null
+      const advice =
+        task.failureAdvice && Array.isArray(task.failureAdvice.actions) ? task.failureAdvice : null
       const key = `${task.reqId}:${task.planVersion}:${task.taskId}`
       const retry = props.retry && props.retry.key === key ? props.retry : null
-      const stale = heartbeatStale(task.lastActivity) && (task.state === 'running' || task.state === 'awaiting_input')
+      const stale =
+        heartbeatStale(task.lastActivity) &&
+        (task.state === 'running' || task.state === 'awaiting_input')
       return h(
         'article',
         { className: 'flb-card', key },
@@ -2579,11 +2885,23 @@ window.__ModuleLoader__.load({
             onClick: () => props.onOpen(task),
           },
           h(Chip, { tone: TASK_TONES[task.state] || 'idle' }, t(`task.${task.state}`)),
-          h('span', { className: 'flb-card-meta' }, t('task.meta', { reqId: task.reqId, plan: task.planVersion })),
+          h(
+            'span',
+            { className: 'flb-card-meta' },
+            t('task.meta', { reqId: task.reqId, plan: task.planVersion }),
+          ),
         ),
-        h('div', { className: 'flb-card-title', title: task.goal }, t('task.goal', { taskId: task.taskId, goal: task.goal })),
+        h(
+          'div',
+          { className: 'flb-card-title', title: task.goal },
+          t('task.goal', { taskId: task.taskId, goal: task.goal }),
+        ),
         task.dependsOn && task.dependsOn.length > 0
-          ? h('div', { className: 'flb-card-meta' }, `${t('task.dependsOn')}: ${task.dependsOn.join('、')}`)
+          ? h(
+              'div',
+              { className: 'flb-card-meta' },
+              `${t('task.dependsOn')}: ${task.dependsOn.join('、')}`,
+            )
           : null,
         task.lastActivity
           ? h(
@@ -2593,16 +2911,26 @@ window.__ModuleLoader__.load({
               stale ? ` · ${t('task.heartbeatStale')}` : '',
             )
           : null,
-        failed && task.failureReason ? h('div', { className: 'flb-card-failure' }, task.failureReason) : null,
+        failed && task.failureReason
+          ? h('div', { className: 'flb-card-failure' }, task.failureReason)
+          : null,
         failed && advice && advice.actions.length > 0
-          ? h('div', { className: 'flb-card-advice' }, `${t('task.solution')}：${advice.actions[0]}`)
+          ? h(
+              'div',
+              { className: 'flb-card-advice' },
+              `${t('task.solution')}：${advice.actions[0]}`,
+            )
           : null,
         h(
           'div',
           { className: 'flb-card-actions' },
           h(
             'button',
-            { type: 'button', className: 'flb-link-button', onClick: () => props.onOpenRequirement(task.reqId) },
+            {
+              type: 'button',
+              className: 'flb-link-button',
+              onClick: () => props.onOpenRequirement(task.reqId),
+            },
             t('task.openRequirement'),
           ),
           failed && props.canRetry
@@ -2618,13 +2946,13 @@ window.__ModuleLoader__.load({
                     props.onRetry(task)
                   },
                 },
-                retry && retry.busy
-                  ? t('task.retrying')
-                  : t('task.retry'),
+                retry && retry.busy ? t('task.retrying') : t('task.retry'),
               )
             : null,
         ),
-        retry && retry.message ? h('div', { className: 'flb-card-action-message' }, retry.message) : null,
+        retry && retry.message
+          ? h('div', { className: 'flb-card-action-message' }, retry.message)
+          : null,
       )
     }
 
@@ -2640,7 +2968,15 @@ window.__ModuleLoader__.load({
         { className: 'flb-task-overlay', role: 'presentation', onClick: props.onClose },
         h(
           'aside',
-          { className: 'flb-task-panel', role: 'dialog', 'aria-label': t('task.detail'), key: props.task ? `${props.task.reqId}:${props.task.planVersion}:${props.task.taskId}` : 'task', onClick: (event) => event.stopPropagation() },
+          {
+            className: 'flb-task-panel',
+            role: 'dialog',
+            'aria-label': t('task.detail'),
+            key: props.task
+              ? `${props.task.reqId}:${props.task.planVersion}:${props.task.taskId}`
+              : 'task',
+            onClick: (event) => event.stopPropagation(),
+          },
           h(
             'div',
             { className: 'flb-task-head' },
@@ -2649,15 +2985,27 @@ window.__ModuleLoader__.load({
               null,
               h('div', { className: 'flb-task-title' }, t('task.detail')),
               props.task
-                ? h('div', { className: 'flb-card-meta' }, `${props.task.taskId} · ${props.task.reqId} · v${props.task.planVersion}`)
+                ? h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `${props.task.taskId} · ${props.task.reqId} · v${props.task.planVersion}`,
+                  )
                 : null,
             ),
-            h('button', { type: 'button', className: 'flb-task-close', onClick: close }, t('task.close')),
+            h(
+              'button',
+              { type: 'button', className: 'flb-task-close', onClick: close },
+              t('task.close'),
+            ),
           ),
           state.phase === 'loading'
             ? h('div', { className: 'flb-empty' }, t('page.loading'))
             : state.phase === 'error'
-              ? h('div', { className: 'flb-error-inline', role: 'alert' }, state.error || t('page.retry'))
+              ? h(
+                  'div',
+                  { className: 'flb-error-inline', role: 'alert' },
+                  state.error || t('page.retry'),
+                )
               : state.data
                 ? h(TaskDetailBody, {
                     t,
@@ -2683,9 +3031,7 @@ window.__ModuleLoader__.load({
       const failed = run && isFailureState(run.state)
       const retry = props.retry || null
       const stale =
-        run &&
-        (run.state === 'running' || data.waitingForInput) &&
-        heartbeatStale(run.updatedAt)
+        run && (run.state === 'running' || data.waitingForInput) && heartbeatStale(run.updatedAt)
       const review = data.review || null
       const artifact = data.artifact || null
       const evidence = data.evidence || null
@@ -2698,12 +3044,29 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'flb-card-meta' },
-            h(Chip, { tone: TASK_TONES[data.waitingForInput ? 'awaiting_input' : run ? run.state : 'pending'] || 'idle' }, t(data.waitingForInput ? 'task.awaiting_input' : `task.${run ? run.state : 'pending'}`)),
-            h('span', null, t('task.lastActivity', { time: run && run.updatedAt ? formatTime(run.updatedAt) : '—' })),
+            h(
+              Chip,
+              {
+                tone:
+                  TASK_TONES[
+                    data.waitingForInput ? 'awaiting_input' : run ? run.state : 'pending'
+                  ] || 'idle',
+              },
+              t(
+                data.waitingForInput
+                  ? 'task.awaiting_input'
+                  : `task.${run ? run.state : 'pending'}`,
+              ),
+            ),
+            h(
+              'span',
+              null,
+              t('task.lastActivity', {
+                time: run && run.updatedAt ? formatTime(run.updatedAt) : '—',
+              }),
+            ),
           ),
-          data.waitingForInput
-            ? h(Banner, { tone: 'warn' }, t('task.waitingInputBanner'))
-            : null,
+          data.waitingForInput ? h(Banner, { tone: 'warn' }, t('task.waitingInputBanner')) : null,
           data.requirement && data.requirement.stopRequested
             ? h(Banner, { tone: 'warn' }, t('task.stopBanner'))
             : null,
@@ -2734,7 +3097,11 @@ window.__ModuleLoader__.load({
                 (advice.actions || []).map((action, index) => h('li', { key: index }, action)),
               ),
               Array.isArray(advice.scope) && advice.scope.length > 0
-                ? h('div', { className: 'flb-muted', key: 'scope' }, `${t('task.files')}: ${advice.scope.join('、')}`)
+                ? h(
+                    'div',
+                    { className: 'flb-muted', key: 'scope' },
+                    `${t('task.files')}: ${advice.scope.join('、')}`,
+                  )
                 : null,
             ],
           }),
@@ -2748,7 +3115,11 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'flb-list-item', key: round.roundId },
-                h('div', { className: 'flb-card-meta' }, `${round.stage} · ${formatMoment(round.occurredAt)}`),
+                h(
+                  'div',
+                  { className: 'flb-card-meta' },
+                  `${round.stage} · ${formatMoment(round.occurredAt)}`,
+                ),
                 h('div', { className: 'flb-text' }, round.summary || ''),
               ),
             ),
@@ -2761,10 +3132,14 @@ window.__ModuleLoader__.load({
           Section({
             title: t('task.testLog'),
             children: [
-              h('div', { className: 'flb-muted', key: 'meta' }, t('task.testLogMeta', {
-                path: data.testLogPath || '—',
-                bytes: data.testLogBytes || 0,
-              })),
+              h(
+                'div',
+                { className: 'flb-muted', key: 'meta' },
+                t('task.testLogMeta', {
+                  path: data.testLogPath || '—',
+                  bytes: data.testLogBytes || 0,
+                }),
+              ),
               data.testLogTruncated
                 ? h('div', { className: 'flb-muted', key: 'truncated' }, t('task.testLogTruncated'))
                 : null,
@@ -2781,9 +3156,17 @@ window.__ModuleLoader__.load({
             ? [
                 h(Kv, { key: 'verdict', label: t('task.reviewVerdict') }, review.verdict || '—'),
                 h(Kv, { key: 'summary', label: t('task.reviewSummary') }, review.summary || '—'),
-                h('div', { className: 'flb-label', key: 'findings-label' }, t('task.reviewFindings')),
+                h(
+                  'div',
+                  { className: 'flb-label', key: 'findings-label' },
+                  t('task.reviewFindings'),
+                ),
                 h(BulletList, { key: 'findings', items: review.findings || [] }),
-                h('div', { className: 'flb-label', key: 'blocking-label' }, t('task.reviewBlocking')),
+                h(
+                  'div',
+                  { className: 'flb-label', key: 'blocking-label' },
+                  t('task.reviewBlocking'),
+                ),
                 h(BulletList, { key: 'blocking', items: review.blocking || [] }),
                 h('div', { className: 'flb-muted', key: 'note' }, t('task.reviewNote')),
               ]
@@ -2800,12 +3183,36 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'flb-evidence', key: 'artifact' },
                   h('div', { className: 'flb-label' }, t('task.artifact')),
-                  h('div', { className: 'flb-card-meta' }, `${t('detail.candidate')}: ${artifact.candidateSha256}`),
-                  h('div', { className: 'flb-card-meta' }, `${t('detail.testEvidence')}: ${artifact.testEvidenceSha256}`),
-                  h('div', { className: 'flb-card-meta' }, `${t('detail.reviewEvidence')}: ${artifact.reviewSha256}`),
-                  h('div', { className: 'flb-card-meta' }, `${t('detail.authorization')}: ${artifact.authorizationSource || '—'}`),
-                  h('div', { className: 'flb-card-meta' }, `${t('detail.baseline')}: ${artifact.baselineCommit}`),
-                  h('div', { className: 'flb-card-meta' }, `${t('detail.recordedAt')}: ${formatMoment(artifact.recordedAt)}`),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `${t('detail.candidate')}: ${artifact.candidateSha256}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `${t('detail.testEvidence')}: ${artifact.testEvidenceSha256}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `${t('detail.reviewEvidence')}: ${artifact.reviewSha256}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `${t('detail.authorization')}: ${artifact.authorizationSource || '—'}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `${t('detail.baseline')}: ${artifact.baselineCommit}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `${t('detail.recordedAt')}: ${formatMoment(artifact.recordedAt)}`,
+                  ),
                 )
               : h('div', { className: 'flb-muted', key: 'no-artifact' }, t('task.artifactMissing')),
             evidence
@@ -2813,11 +3220,27 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'flb-evidence', key: 'evidence' },
                   h('div', { className: 'flb-label' }, t('hint.paths')),
-                  h('div', { className: 'flb-card-meta' }, `workspace: ${evidence.workspacePath || '—'}`),
-                  h('div', { className: 'flb-card-meta' }, `candidate: ${evidence.candidatePath || '—'}`),
-                  h('div', { className: 'flb-card-meta' }, `test log: ${evidence.testLogPath || '—'}`),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `workspace: ${evidence.workspacePath || '—'}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `candidate: ${evidence.candidatePath || '—'}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `test log: ${evidence.testLogPath || '—'}`,
+                  ),
                   h('div', { className: 'flb-card-meta' }, `review: ${evidence.reviewPath || '—'}`),
-                  h('div', { className: 'flb-card-meta' }, `sessions: ${evidence.devSession || '—'} / ${evidence.reviewSession || '—'}`),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `sessions: ${evidence.devSession || '—'} / ${evidence.reviewSession || '—'}`,
+                  ),
                 )
               : h('div', { className: 'flb-muted', key: 'no-evidence' }, t('task.evidenceMissing')),
           ],
@@ -2829,7 +3252,14 @@ window.__ModuleLoader__.load({
           title: t('task.activity'),
           children: [
             data.activityTruncated
-              ? h('div', { className: 'flb-muted', key: 'meta' }, t('task.activityMeta', { shown: activity.length, total: data.activityTotal || activity.length }))
+              ? h(
+                  'div',
+                  { className: 'flb-muted', key: 'meta' },
+                  t('task.activityMeta', {
+                    shown: activity.length,
+                    total: data.activityTotal || activity.length,
+                  }),
+                )
               : null,
             activity.length === 0
               ? h('div', { className: 'flb-muted', key: 'none' }, t('task.noActivity'))
@@ -2840,7 +3270,11 @@ window.__ModuleLoader__.load({
                     h(
                       'div',
                       { className: 'flb-task-activity-item', key: `${item.type}:${index}` },
-                      h('div', { className: 'flb-task-activity-time' }, `${item.at ? formatMoment(item.at) : ''} · ${item.type}`),
+                      h(
+                        'div',
+                        { className: 'flb-task-activity-time' },
+                        `${item.at ? formatMoment(item.at) : ''} · ${item.type}`,
+                      ),
                       h('div', null, item.summary || ''),
                     ),
                   ),
@@ -2863,13 +3297,15 @@ window.__ModuleLoader__.load({
                   title: t('task.retryHelp'),
                   onClick: () => props.onRetry(props.task),
                 },
-                retry && retry.busy
-                  ? t('task.retrying')
-                  : t('task.retry'),
+                retry && retry.busy ? t('task.retrying') : t('task.retry'),
               )
             : null,
           data.retry && !data.retry.allowed && data.retry.reason
-            ? h('span', { className: 'flb-muted' }, t('task.retryNotAllowed', { reason: data.retry.reason }))
+            ? h(
+                'span',
+                { className: 'flb-muted' },
+                t('task.retryNotAllowed', { reason: data.retry.reason }),
+              )
             : null,
           props.onOpenRequirement && props.task
             ? h(
@@ -2904,17 +3340,31 @@ window.__ModuleLoader__.load({
             title: issue.taskId ? t('issue.openTask') : t('issue.openRequirement'),
             onClick: target,
           },
-          h(Chip, { tone: ISSUE_TONES[issue.severity] || 'warn' }, t(`issue.severity.${issue.severity}`)),
+          h(
+            Chip,
+            { tone: ISSUE_TONES[issue.severity] || 'warn' },
+            t(`issue.severity.${issue.severity}`),
+          ),
           h(Chip, { tone: 'idle' }, t(`issue.${issue.kind}`)),
           h('span', { className: 'flb-card-meta' }, issue.reqId),
-          issue.taskId ? h('span', { className: 'flb-card-meta' }, t('issue.taskMeta', { taskId: issue.taskId })) : null,
+          issue.taskId
+            ? h(
+                'span',
+                { className: 'flb-card-meta' },
+                t('issue.taskMeta', { taskId: issue.taskId }),
+              )
+            : null,
         ),
         h('div', { className: 'flb-card-title', title: issue.title }, issue.title),
         issue.detail ? h('div', { className: 'flb-card-meta' }, issue.detail) : null,
         h(
           'div',
           { className: 'flb-card-actions' },
-          h('button', { type: 'button', className: 'flb-link-button', onClick: target }, issue.taskId ? t('issue.openTask') : t('issue.openRequirement')),
+          h(
+            'button',
+            { type: 'button', className: 'flb-link-button', onClick: target },
+            issue.taskId ? t('issue.openTask') : t('issue.openRequirement'),
+          ),
         ),
       )
     }
@@ -2923,7 +3373,9 @@ window.__ModuleLoader__.load({
       const t = props.t
       const { board, tasks, issues } = props
       const requirements = board.requirements || []
-      const running = tasks.filter((task) => task.state === 'running' || task.state === 'awaiting_input')
+      const running = tasks.filter(
+        (task) => task.state === 'running' || task.state === 'awaiting_input',
+      )
       const attention = issues.slice(0, 4)
       const counts = {
         approvals: issues.filter((issue) => issue.kind === 'approval').length,
@@ -2933,11 +3385,36 @@ window.__ModuleLoader__.load({
         running: running.length,
       }
       const next = []
-      if (counts.approvals > 0) next.push({ key: 'approvals', text: t('overview.next.approvals', { count: counts.approvals }), view: 'requirements' })
-      if (counts.failures > 0) next.push({ key: 'failures', text: t('overview.next.failures', { count: counts.failures }), view: 'tasks' })
-      if (counts.requestFailures > 0) next.push({ key: 'requestFailures', text: t('overview.next.requestFailures', { count: counts.requestFailures }), view: 'issues' })
-      if (counts.clarifications > 0) next.push({ key: 'clarifications', text: t('overview.next.clarifications', { count: counts.clarifications }), view: 'requirements' })
-      if (counts.running > 0) next.push({ key: 'running', text: t('overview.next.running', { count: counts.running }), view: 'tasks' })
+      if (counts.approvals > 0)
+        next.push({
+          key: 'approvals',
+          text: t('overview.next.approvals', { count: counts.approvals }),
+          view: 'requirements',
+        })
+      if (counts.failures > 0)
+        next.push({
+          key: 'failures',
+          text: t('overview.next.failures', { count: counts.failures }),
+          view: 'tasks',
+        })
+      if (counts.requestFailures > 0)
+        next.push({
+          key: 'requestFailures',
+          text: t('overview.next.requestFailures', { count: counts.requestFailures }),
+          view: 'issues',
+        })
+      if (counts.clarifications > 0)
+        next.push({
+          key: 'clarifications',
+          text: t('overview.next.clarifications', { count: counts.clarifications }),
+          view: 'requirements',
+        })
+      if (counts.running > 0)
+        next.push({
+          key: 'running',
+          text: t('overview.next.running', { count: counts.running }),
+          view: 'tasks',
+        })
       if (next.length === 0) {
         next.push({
           key: 'none',
@@ -2952,12 +3429,45 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'flb-stat-grid' },
-          h('div', { className: 'flb-stat' }, h('span', { className: 'flb-stat-value' }, String(board.summary.requirements)), h('span', { className: 'flb-stat-label' }, t('overview.stat.requirements'))),
-          h('div', { className: 'flb-stat' }, h('span', { className: 'flb-stat-value' }, String(board.summary.active)), h('span', { className: 'flb-stat-label' }, t('overview.stat.active'))),
-          h('div', { className: 'flb-stat' }, h('span', { className: 'flb-stat-value' }, String(board.summary.tasks)), h('span', { className: 'flb-stat-label' }, t('overview.stat.tasks'))),
-          h('div', { className: 'flb-stat' }, h('span', { className: 'flb-stat-value' }, String(board.summary.delivered)), h('span', { className: 'flb-stat-label' }, t('overview.stat.delivered'))),
-          h('div', { className: 'flb-stat' }, h('span', { className: 'flb-stat-value' }, String(board.summary.issues)), h('span', { className: 'flb-stat-label' }, t('overview.stat.issues'))),
-          h('div', { className: 'flb-stat', 'data-tone': board.summary.blocking > 0 ? 'error' : undefined }, h('span', { className: 'flb-stat-value' }, String(board.summary.blocking)), h('span', { className: 'flb-stat-label' }, t('overview.stat.blocking'))),
+          h(
+            'div',
+            { className: 'flb-stat' },
+            h('span', { className: 'flb-stat-value' }, String(board.summary.requirements)),
+            h('span', { className: 'flb-stat-label' }, t('overview.stat.requirements')),
+          ),
+          h(
+            'div',
+            { className: 'flb-stat' },
+            h('span', { className: 'flb-stat-value' }, String(board.summary.active)),
+            h('span', { className: 'flb-stat-label' }, t('overview.stat.active')),
+          ),
+          h(
+            'div',
+            { className: 'flb-stat' },
+            h('span', { className: 'flb-stat-value' }, String(board.summary.tasks)),
+            h('span', { className: 'flb-stat-label' }, t('overview.stat.tasks')),
+          ),
+          h(
+            'div',
+            { className: 'flb-stat' },
+            h('span', { className: 'flb-stat-value' }, String(board.summary.delivered)),
+            h('span', { className: 'flb-stat-label' }, t('overview.stat.delivered')),
+          ),
+          h(
+            'div',
+            { className: 'flb-stat' },
+            h('span', { className: 'flb-stat-value' }, String(board.summary.issues)),
+            h('span', { className: 'flb-stat-label' }, t('overview.stat.issues')),
+          ),
+          h(
+            'div',
+            {
+              className: 'flb-stat',
+              'data-tone': board.summary.blocking > 0 ? 'error' : undefined,
+            },
+            h('span', { className: 'flb-stat-value' }, String(board.summary.blocking)),
+            h('span', { className: 'flb-stat-label' }, t('overview.stat.blocking')),
+          ),
         ),
         h(
           'div',
@@ -2983,10 +3493,20 @@ window.__ModuleLoader__.load({
                     h(
                       'div',
                       { className: 'flb-card-meta' },
-                      t('task.lastActivity', { time: task.lastActivity ? formatTime(task.lastActivity) : '—' }),
+                      t('task.lastActivity', {
+                        time: task.lastActivity ? formatTime(task.lastActivity) : '—',
+                      }),
                       heartbeatStale(task.lastActivity) ? ` · ${t('task.heartbeatStale')}` : '',
                     ),
-                    h('button', { type: 'button', className: 'flb-link-button', onClick: () => props.onOpenTask(task) }, t('task.openDetail')),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-link-button',
+                        onClick: () => props.onOpenTask(task),
+                      },
+                      t('task.openDetail'),
+                    ),
                   ),
                 ),
             h('div', { className: 'flb-muted' }, t('overview.boundaryHeartbeat')),
@@ -3004,7 +3524,11 @@ window.__ModuleLoader__.load({
                     h(
                       'div',
                       { className: 'flb-list-head' },
-                      h(Chip, { tone: ISSUE_TONES[issue.severity] || 'warn' }, t(`issue.severity.${issue.severity}`)),
+                      h(
+                        Chip,
+                        { tone: ISSUE_TONES[issue.severity] || 'warn' },
+                        t(`issue.severity.${issue.severity}`),
+                      ),
                       h(Chip, { tone: 'idle' }, t(`issue.${issue.kind}`)),
                       h('span', { className: 'flb-card-meta' }, issue.reqId),
                     ),
@@ -3012,7 +3536,11 @@ window.__ModuleLoader__.load({
                     issue.detail ? h('div', { className: 'flb-muted' }, issue.detail) : null,
                     h(
                       'button',
-                      { type: 'button', className: 'flb-link-button', onClick: () => props.onOpenIssue(issue) },
+                      {
+                        type: 'button',
+                        className: 'flb-link-button',
+                        onClick: () => props.onOpenIssue(issue),
+                      },
                       issue.taskId ? t('issue.openTask') : t('issue.openRequirement'),
                     ),
                   ),
@@ -3020,7 +3548,11 @@ window.__ModuleLoader__.load({
             issues.length > attention.length
               ? h(
                   'button',
-                  { type: 'button', className: 'flb-link-button', onClick: () => props.onNavigate('issues') },
+                  {
+                    type: 'button',
+                    className: 'flb-link-button',
+                    onClick: () => props.onNavigate('issues'),
+                  },
                   t('overview.attentionMore', { count: issues.length }),
                 )
               : null,
@@ -3333,69 +3865,3129 @@ window.__ModuleLoader__.load({
       const t = ctx.locale.bind(NS)
       const read = createReader(t)
 
-    function LegacyBoardView(props) {
-      const [state, setState] = React.useState({ phase: 'loading', board: null, error: '' })
-      const [view, setView] = React.useState('overview')
-      const [query, setQuery] = React.useState('')
-      const [appliedQuery, setAppliedQuery] = React.useState('')
-      const [filter, setFilter] = React.useState('all')
-      const [taskFilter, setTaskFilter] = React.useState('all')
-      const [issueFilter, setIssueFilter] = React.useState('all')
-      const [openReq, setOpenReq] = React.useState('')
-      const [detail, setDetail] = React.useState({ phase: 'idle', reqId: '', data: null, error: '' })
-      const [action, setAction] = React.useState({ reqId: '', busy: '', message: '' })
-      const [detailNonce, setDetailNonce] = React.useState(0)
-      const [taskOpen, setTaskOpen] = React.useState(null)
-      const [taskNonce, setTaskNonce] = React.useState(0)
-      const [taskDetail, setTaskDetail] = React.useState({ phase: 'idle', data: null, error: '' })
-      const [retry, setRetry] = React.useState({ key: '', busy: false, message: '' })
-      const inflight = React.useRef(null)
-      const detailInflight = React.useRef(null)
-
-      const load = React.useCallback(() => {
-        if (inflight.current) inflight.current.abort()
-        const controller = typeof AbortController === 'function' ? new AbortController() : null
-        inflight.current = controller
-        setState((previous) => ({
-          phase: previous.board ? 'refreshing' : 'loading',
-          board: previous.board,
+      function LegacyBoardView(props) {
+        const [state, setState] = React.useState({ phase: 'loading', board: null, error: '' })
+        const [view, setView] = React.useState('overview')
+        const [query, setQuery] = React.useState('')
+        const [appliedQuery, setAppliedQuery] = React.useState('')
+        const [filter, setFilter] = React.useState('all')
+        const [taskFilter, setTaskFilter] = React.useState('all')
+        const [issueFilter, setIssueFilter] = React.useState('all')
+        const [openReq, setOpenReq] = React.useState('')
+        const [detail, setDetail] = React.useState({
+          phase: 'idle',
+          reqId: '',
+          data: null,
           error: '',
-        }))
-        read(
-          'board',
-          { query: appliedQuery, limit: 50 },
-          controller ? controller.signal : undefined,
-        )
-          .then((board) => {
-            if (controller && controller.signal.aborted) return
-            setState({ phase: 'ready', board, error: '' })
-          })
-          .catch((error) => {
-            if (controller && controller.signal.aborted) return
-            setState((previous) => ({
-              phase: previous.board ? 'ready' : 'error',
-              board: previous.board,
-              error: (error && error.message) || String(error),
-            }))
-          })
-      }, [appliedQuery])
+        })
+        const [action, setAction] = React.useState({ reqId: '', busy: '', message: '' })
+        const [detailNonce, setDetailNonce] = React.useState(0)
+        const [taskOpen, setTaskOpen] = React.useState(null)
+        const [taskNonce, setTaskNonce] = React.useState(0)
+        const [taskDetail, setTaskDetail] = React.useState({ phase: 'idle', data: null, error: '' })
+        const [retry, setRetry] = React.useState({ key: '', busy: false, message: '' })
+        const inflight = React.useRef(null)
+        const detailInflight = React.useRef(null)
 
-      React.useEffect(() => {
-        const timer = setTimeout(() => setAppliedQuery(query.trim()), 300)
-        return () => clearTimeout(timer)
-      }, [query])
-
-      React.useEffect(() => {
-        load()
-        const timer = setInterval(load, 15000)
-        return () => {
-          clearInterval(timer)
+        const load = React.useCallback(() => {
           if (inflight.current) inflight.current.abort()
-        }
-      }, [load])
+          const controller = typeof AbortController === 'function' ? new AbortController() : null
+          inflight.current = controller
+          setState((previous) => ({
+            phase: previous.board ? 'refreshing' : 'loading',
+            board: previous.board,
+            error: '',
+          }))
+          read(
+            'board',
+            { query: appliedQuery, limit: 50 },
+            controller ? controller.signal : undefined,
+          )
+            .then((board) => {
+              if (controller && controller.signal.aborted) return
+              setState({ phase: 'ready', board, error: '' })
+            })
+            .catch((error) => {
+              if (controller && controller.signal.aborted) return
+              setState((previous) => ({
+                phase: previous.board ? 'ready' : 'error',
+                board: previous.board,
+                error: (error && error.message) || String(error),
+              }))
+            })
+        }, [appliedQuery])
 
-      const runAction = React.useCallback(
-        (requirement, endpoint) => {
+        React.useEffect(() => {
+          const timer = setTimeout(() => setAppliedQuery(query.trim()), 300)
+          return () => clearTimeout(timer)
+        }, [query])
+
+        React.useEffect(() => {
+          load()
+          const timer = setInterval(load, 15000)
+          return () => {
+            clearInterval(timer)
+            if (inflight.current) inflight.current.abort()
+          }
+        }, [load])
+
+        const runAction = React.useCallback(
+          (requirement, endpoint) => {
+            if (action.busy) return
+            if (endpoint === 'stop') {
+              const confirmed =
+                typeof window === 'undefined' || typeof window.confirm !== 'function'
+                  ? true
+                  : window.confirm(t('action.stopConfirm'))
+              if (!confirmed) return
+            }
+            const body = actionRequest(t, requirement, endpoint, props.sessionId)
+            if (!body) return
+            setAction({ reqId: requirement.reqId, busy: endpoint, message: '' })
+            read(endpoint, body)
+              .then(() => {
+                const key = actionSuccessKey(endpoint)
+                setAction({ reqId: requirement.reqId, busy: '', message: t(`action.${key}`) })
+                load()
+                setDetailNonce((value) => value + 1)
+              })
+              .catch((error) => {
+                setAction({
+                  reqId: requirement.reqId,
+                  busy: '',
+                  message: (error && error.message) || String(error),
+                })
+              })
+          },
+          [action.busy, load, props.sessionId, read, t],
+        )
+
+        const retryTask = React.useCallback(
+          (task) => {
+            const key = `${task.reqId}:${task.planVersion}:${task.taskId}`
+            if (retry.busy && retry.key === key) return
+            setRetry({ key, busy: true, message: '' })
+            read('retry', {
+              reqId: task.reqId,
+              planVersion: task.planVersion,
+              taskId: task.taskId,
+              sessionId: props.sessionId,
+            })
+              .then(() => {
+                setRetry({ key, busy: false, message: t('task.retryQueued') })
+                load()
+                setDetailNonce((value) => value + 1)
+                setTaskNonce((value) => value + 1)
+              })
+              .catch((error) => {
+                setRetry({
+                  key,
+                  busy: false,
+                  message: (error && error.message) || String(error),
+                })
+              })
+          },
+          [retry, load, props.sessionId, read, t],
+        )
+
+        React.useEffect(() => {
+          if (!openReq) {
+            setDetail({ phase: 'idle', reqId: '', data: null, error: '' })
+            return undefined
+          }
+          if (detailInflight.current) detailInflight.current.abort()
+          const controller = typeof AbortController === 'function' ? new AbortController() : null
+          detailInflight.current = controller
+          setDetail({ phase: 'loading', reqId: openReq, data: null, error: '' })
+          read('detail', { reqId: openReq }, controller ? controller.signal : undefined)
+            .then((data) => {
+              if (controller && controller.signal.aborted) return
+              setDetail({ phase: 'ready', reqId: openReq, data, error: '' })
+            })
+            .catch((error) => {
+              if (controller && controller.signal.aborted) return
+              if (controller) controller.abort()
+              setDetail((previous) => ({
+                phase: 'error',
+                reqId: openReq,
+                data: previous.data,
+                error: (error && error.message) || String(error),
+              }))
+            })
+          return () => {
+            if (controller) controller.abort()
+          }
+        }, [openReq, detailNonce, read])
+
+        const openTask = React.useCallback((task) => {
+          setTaskOpen(task)
+          setView('tasks')
+        }, [])
+
+        const openRequirement = React.useCallback((reqId) => {
+          setTaskOpen(null)
+          setView('requirements')
+          setFilter('all')
+          setOpenReq(reqId)
+        }, [])
+
+        const openIssue = React.useCallback(
+          (issue) => {
+            if (issue.taskId) {
+              const task = (state.board ? state.board.tasks : []).find(
+                (candidate) => candidate.reqId === issue.reqId && candidate.taskId === issue.taskId,
+              )
+              if (task) {
+                openTask(task)
+                return
+              }
+            }
+            openRequirement(issue.reqId)
+          },
+          [openRequirement, openTask, state.board],
+        )
+
+        React.useEffect(() => {
+          if (!taskOpen) {
+            setTaskDetail({ phase: 'idle', data: null, error: '' })
+            return undefined
+          }
+          let active = true
+          let controller = typeof AbortController === 'function' ? new AbortController() : null
+          const loadTask = () => {
+            read(
+              'task',
+              { reqId: taskOpen.reqId, planVersion: taskOpen.planVersion, taskId: taskOpen.taskId },
+              controller ? controller.signal : undefined,
+            )
+              .then((data) => {
+                if (active) setTaskDetail({ phase: 'ready', data, error: '' })
+              })
+              .catch((error) => {
+                if (active)
+                  setTaskDetail({
+                    phase: 'error',
+                    data: null,
+                    error: (error && error.message) || String(error),
+                  })
+              })
+          }
+          loadTask()
+          const timer = setInterval(loadTask, 2000)
+          return () => {
+            active = false
+            clearInterval(timer)
+            if (controller) controller.abort()
+          }
+        }, [taskOpen, taskNonce])
+
+        const board = state.board
+        const requirements = board ? board.requirements : []
+        const allTasks = board ? board.tasks : []
+        const allIssues = board ? board.issues : []
+        const requirementById = new Map(
+          requirements.map((requirement) => [requirement.reqId, requirement]),
+        )
+
+        const visible = requirements.filter((requirement) => {
+          if (filter === 'active') return !TERMINAL[requirement.status]
+          if (filter === 'accepted') return requirement.status === 'accepted'
+          return true
+        })
+        const tasks = allTasks.sort((left, right) => {
+          const order = {
+            awaiting_input: 0,
+            running: 1,
+            failed: 2,
+            blocked: 3,
+            awaiting_user: 4,
+            pending: 5,
+            delivered: 6,
+          }
+          const byState = (order[left.state] ?? 9) - (order[right.state] ?? 9)
+          if (byState !== 0) return byState
+          return `${left.reqId}:${left.taskId}`.localeCompare(`${right.reqId}:${right.taskId}`)
+        })
+        const filteredTasks =
+          taskFilter === 'all' ? tasks : tasks.filter((task) => task.state === taskFilter)
+        const issues = allIssues
+        const filteredIssues =
+          issueFilter === 'all' ? issues : issues.filter((issue) => issue.severity === issueFilter)
+        const busy = state.phase === 'loading' || state.phase === 'refreshing'
+        const queryActive = Boolean(board && board.query)
+        const noResults = Boolean(board && queryActive && board.requirements.length === 0)
+        const canRetryTask = (task) => {
+          const requirement = requirementById.get(task.reqId)
+          return Boolean(
+            requirement &&
+            !TERMINAL[requirement.status] &&
+            requirement.approval === 'approved' &&
+            (requirement.remainingRounds === null ||
+              requirement.remainingRounds === undefined ||
+              requirement.remainingRounds > 0) &&
+            isFailureState(task.state),
+          )
+        }
+        const counts = {
+          requirements: requirements.length,
+          tasks: tasks.length,
+          issues: issues.length,
+        }
+
+        const tabs = [
+          { key: 'overview', label: t('nav.overview'), count: board ? board.summary.active : 0 },
+          { key: 'requirements', label: t('nav.requirements'), count: counts.requirements },
+          { key: 'tasks', label: t('nav.tasks'), count: counts.tasks },
+          { key: 'issues', label: t('nav.issues'), count: counts.issues },
+        ]
+
+        return h(
+          'section',
+          { className: 'flb-root', 'data-dsh-plugin': 'forgeloop', 'aria-label': t('page.title') },
+          h('style', null, BOARD_CSS),
+          h(
+            'header',
+            { className: 'flb-head' },
+            h(
+              'div',
+              { className: 'flb-head-main' },
+              h('span', { className: 'flb-title' }, t('page.title')),
+              board
+                ? h(
+                    'span',
+                    { className: 'flb-sub', 'aria-live': 'polite' },
+                    t('page.subtitle', {
+                      project: board.project,
+                      time: formatTime(board.generatedAt),
+                    }),
+                    ` · ${t('page.source')}`,
+                  )
+                : null,
+            ),
+            h(
+              'div',
+              { className: 'flb-head-tools' },
+              h(
+                'label',
+                { className: 'flb-search' },
+                h('span', { className: 'flb-search-icon', 'aria-hidden': 'true' }, '⌕'),
+                h('input', {
+                  type: 'search',
+                  value: query,
+                  placeholder: t('search.placeholder'),
+                  'aria-label': t('search.label'),
+                  title: t('overview.searchScope'),
+                  onChange: (event) => setQuery(event.target.value),
+                }),
+                query
+                  ? h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-search-clear',
+                        onClick: () => setQuery(''),
+                        title: t('search.clear'),
+                      },
+                      '×',
+                    )
+                  : null,
+              ),
+              h(
+                'button',
+                { type: 'button', className: 'flb-refresh', onClick: load, disabled: busy },
+                busy ? t('page.refreshing') : t('page.refresh'),
+              ),
+            ),
+            h(
+              'nav',
+              { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
+              tabs.map((tab) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    key: tab.key,
+                    role: 'tab',
+                    className: 'flb-tab',
+                    'aria-selected': view === tab.key,
+                    onClick: () => setView(tab.key),
+                  },
+                  tab.label,
+                  h('span', { className: 'flb-tab-count' }, String(tab.count)),
+                ),
+              ),
+            ),
+            board && queryActive
+              ? h(
+                  'div',
+                  { className: 'flb-search-meta' },
+                  t('search.results', {
+                    query: board.query,
+                    count: board.summary.requirements,
+                    truncated: board.truncated ? t('search.truncated', { limit: board.limit }) : '',
+                  }),
+                  h('span', { className: 'flb-muted' }, t('overview.searchScope')),
+                )
+              : null,
+          ),
+          h(
+            'div',
+            { className: 'flb-body' },
+            state.error
+              ? h(
+                  'div',
+                  { className: 'flb-error', role: 'alert' },
+                  h('span', null, state.error),
+                  h(
+                    'button',
+                    { type: 'button', className: 'flb-refresh', onClick: load },
+                    t('page.retry'),
+                  ),
+                )
+              : null,
+            !board && state.phase === 'loading'
+              ? h('div', { className: 'flb-empty' }, t('page.loading'))
+              : null,
+            board && noResults
+              ? h(
+                  'div',
+                  { className: 'flb-empty flb-empty-large' },
+                  h('div', null, t('search.noResults', { query: board.query })),
+                  h('div', { className: 'flb-muted' }, t('overview.searchScope')),
+                  h(
+                    'button',
+                    { type: 'button', className: 'flb-refresh', onClick: () => setQuery('') },
+                    t('search.clear'),
+                  ),
+                )
+              : null,
+            board && !noResults && board.summary.requirements === 0 && !queryActive
+              ? h(
+                  'div',
+                  { className: 'flb-empty flb-empty-large' },
+                  h('div', null, t('page.empty')),
+                  h('div', { className: 'flb-muted' }, t('overview.next.submit')),
+                  h(BulletList, {
+                    items: [
+                      t('overview.feature.nav'),
+                      t('overview.feature.search'),
+                      t('overview.feature.detail'),
+                      t('overview.feature.debug'),
+                      t('overview.feature.actions'),
+                    ],
+                  }),
+                  h('div', { className: 'flb-muted' }, t('overview.boundarySource')),
+                  h('div', { className: 'flb-muted' }, t('overview.boundaryHeartbeat')),
+                  h('div', { className: 'flb-muted' }, t('overview.boundaryStop')),
+                  h('div', { className: 'flb-muted' }, t('overview.boundaryAccept')),
+                  h('div', { className: 'flb-muted' }, t('overview.boundaryClarification')),
+                  h('div', { className: 'flb-muted' }, t('overview.boundaryGrant')),
+                )
+              : null,
+            board && !noResults && board.summary.requirements > 0
+              ? view === 'overview'
+                ? h(Overview, {
+                    t,
+                    board,
+                    tasks: allTasks,
+                    issues: allIssues,
+                    onOpenTask: openTask,
+                    onOpenIssue: openIssue,
+                    onNavigate: setView,
+                  })
+                : view === 'requirements'
+                  ? h(
+                      'div',
+                      null,
+                      h(
+                        'div',
+                        { className: 'flb-toolbar' },
+                        ['all', 'active', 'accepted'].map((key) =>
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              key,
+                              className: 'flb-filter',
+                              'aria-pressed': filter === key,
+                              onClick: () => setFilter(key),
+                            },
+                            t(`filter.${key}`),
+                          ),
+                        ),
+                        h('span', { className: 'flb-muted' }, t('overview.searchScope')),
+                      ),
+                      visible.length === 0
+                        ? h('div', { className: 'flb-empty' }, t('empty.requirements'))
+                        : h(
+                            'div',
+                            { className: 'flb-col-grid' },
+                            visible.map((requirement) =>
+                              h(RequirementCard, {
+                                t,
+                                key: requirement.reqId,
+                                requirement,
+                                open: openReq === requirement.reqId,
+                                detail:
+                                  detail.reqId === requirement.reqId
+                                    ? detail
+                                    : { phase: 'loading', data: null, error: '' },
+                                tasks: allTasks.filter((task) => task.reqId === requirement.reqId),
+                                onToggle: (reqId) =>
+                                  setOpenReq((previous) => (previous === reqId ? '' : reqId)),
+                                onAction: runAction,
+                                onOpenTask: openTask,
+                                busy: action.reqId === requirement.reqId ? action.busy : '',
+                                actionMessage:
+                                  action.reqId === requirement.reqId ? action.message : '',
+                              }),
+                            ),
+                          ),
+                    )
+                  : view === 'tasks'
+                    ? h(
+                        'div',
+                        null,
+                        h(
+                          'div',
+                          { className: 'flb-toolbar' },
+                          [
+                            'all',
+                            'running',
+                            'awaiting_input',
+                            'failed',
+                            'blocked',
+                            'awaiting_user',
+                            'delivered',
+                            'pending',
+                          ].map((key) =>
+                            h(
+                              'button',
+                              {
+                                type: 'button',
+                                key,
+                                className: 'flb-filter',
+                                'aria-pressed': taskFilter === key,
+                                onClick: () => setTaskFilter(key),
+                              },
+                              t(`filter.task.${key}`),
+                            ),
+                          ),
+                        ),
+                        filteredTasks.length === 0
+                          ? h('div', { className: 'flb-empty' }, t('empty.tasks'))
+                          : h(
+                              'div',
+                              { className: 'flb-col-grid' },
+                              filteredTasks.map((task) =>
+                                h(TaskCard, {
+                                  t,
+                                  key: `${task.reqId}:${task.planVersion}:${task.taskId}`,
+                                  task,
+                                  onOpen: openTask,
+                                  onOpenRequirement: openRequirement,
+                                  canRetry: canRetryTask(task),
+                                  retry,
+                                  onRetry: retryTask,
+                                }),
+                              ),
+                            ),
+                      )
+                    : h(
+                        'div',
+                        null,
+                        h(
+                          'div',
+                          { className: 'flb-toolbar' },
+                          ['all', 'blocking', 'attention'].map((key) =>
+                            h(
+                              'button',
+                              {
+                                type: 'button',
+                                key,
+                                className: 'flb-filter',
+                                'aria-pressed': issueFilter === key,
+                                onClick: () => setIssueFilter(key),
+                              },
+                              t(`filter.issue.${key}`),
+                            ),
+                          ),
+                        ),
+                        filteredIssues.length === 0
+                          ? h('div', { className: 'flb-empty' }, t('empty.issues'))
+                          : h(
+                              'div',
+                              { className: 'flb-col-grid' },
+                              filteredIssues.map((issue) =>
+                                h(IssueCard, { t, key: issue.issueId, issue, onOpen: openIssue }),
+                              ),
+                            ),
+                      )
+              : null,
+          ),
+          taskOpen
+            ? h(TaskDetailPanel, {
+                t,
+                task: taskOpen,
+                state: taskDetail,
+                retry:
+                  retry.key === `${taskOpen.reqId}:${taskOpen.planVersion}:${taskOpen.taskId}`
+                    ? retry
+                    : null,
+                onRetry: retryTask,
+                onOpenRequirement: openRequirement,
+                onClose: () => setTaskOpen(null),
+              })
+            : null,
+          board
+            ? h(
+                'div',
+                { className: 'flb-footer' },
+                t('page.footer'),
+                ' ',
+                t('overview.boundarySource'),
+              )
+            : null,
+          h('div', { className: 'flb-bottom-spacer', 'aria-hidden': 'true' }),
+        )
+      }
+
+      function wbStateLabel(t, state) {
+        const key = {
+          running: 'task.running',
+          failed: 'task.failed',
+          blocked: 'task.blocked',
+          awaiting_input: 'task.awaiting_input',
+          awaiting_user: 'task.awaiting_user',
+          delivered: 'task.delivered',
+          pending: 'task.pending',
+        }[state]
+        return key ? t(key) : statusLabel(t, state)
+      }
+
+      function wbStateTone(state) {
+        return TASK_TONES[state] || 'idle'
+      }
+
+      function wbIssueFor(issues, task) {
+        return issues.find((issue) => issue.reqId === task.reqId && issue.taskId === task.taskId)
+      }
+
+      function wbTasksOf(tasks, requirement) {
+        return tasks.filter(
+          (task) =>
+            task.reqId === requirement.reqId && task.planVersion === requirement.planVersion,
+        )
+      }
+
+      function wbPredecessors(tasks, task) {
+        return task.dependsOn
+          .map((taskId) => tasks.find((candidate) => candidate.taskId === taskId))
+          .filter(Boolean)
+      }
+
+      function wbSuccessors(tasks, task) {
+        return tasks.filter((candidate) => candidate.dependsOn.includes(task.taskId))
+      }
+
+      function wbCopy(text, t, notify) {
+        if (!text) return
+        if (
+          typeof navigator !== 'undefined' &&
+          navigator.clipboard &&
+          typeof navigator.clipboard.writeText === 'function'
+        ) {
+          navigator.clipboard.writeText(text).then(
+            () => notify(t('wb.copied')),
+            () => notify(t('wb.copyFailed') + ': ' + text),
+          )
+        } else {
+          notify(t('wb.copyFailed') + ': ' + text)
+        }
+      }
+
+      function WorkbenchTree(props) {
+        const t = props.t
+        const selected = props.selected
+        const requirements = props.requirements
+        const tasks = props.tasks
+        const issues = props.issues
+        return h(
+          'aside',
+          { className: 'flb-tree-pane', 'aria-label': t('wb.tree') },
+          h(
+            'div',
+            { className: 'flb-wb-head' },
+            h('span', { className: 'flb-wb-title' }, t('wb.tree')),
+            h(
+              'span',
+              { className: 'flb-wb-sub' },
+              t('wb.reqCount', { count: requirements.length }),
+            ),
+          ),
+          requirements.length === 0
+            ? h('div', { className: 'flb-tree-empty' }, t('wb.noMatch'))
+            : requirements.map((requirement) => {
+                const reqTasks = wbTasksOf(tasks, requirement)
+                const reqIssues = issues.filter((issue) => issue.reqId === requirement.reqId)
+                const open = props.expanded === requirement.reqId
+                const selectedReq =
+                  selected.reqId === requirement.reqId && !selected.taskId && !selected.issueId
+                return h(
+                  'div',
+                  { className: 'flb-tree-group', key: requirement.reqId },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'flb-tree-node',
+                      'aria-current': selectedReq ? 'true' : undefined,
+                      onClick: () => props.onOpenRequirement(requirement.reqId),
+                    },
+                    h('span', { className: 'flb-tree-kind' }, open ? '▾' : '▸'),
+                    h(
+                      'span',
+                      { className: 'flb-tree-text' },
+                      h('span', { className: 'flb-tree-kind' }, requirement.reqId),
+                      h('br'),
+                      requirement.title,
+                    ),
+                    reqIssues.length > 0
+                      ? h('span', { className: 'flb-tree-count' }, String(reqIssues.length))
+                      : null,
+                  ),
+                  open
+                    ? h(
+                        'div',
+                        null,
+                        reqTasks.map((task) => {
+                          const taskIssue = wbIssueFor(issues, task)
+                          const selectedTask = selected.taskId === task.taskId
+                          return h(
+                            'div',
+                            { key: task.taskId },
+                            h(
+                              'button',
+                              {
+                                type: 'button',
+                                className: 'flb-tree-node flb-tree-child',
+                                'aria-current': selectedTask ? 'true' : undefined,
+                                onClick: () =>
+                                  props.onOpenTask(requirement.reqId, task.taskId, 'overview'),
+                              },
+                              h(
+                                Chip,
+                                { tone: wbStateTone(task.state) },
+                                wbStateLabel(t, task.state),
+                              ),
+                              h(
+                                'span',
+                                { className: 'flb-tree-text' },
+                                task.taskId + ' · ' + task.goal,
+                              ),
+                            ),
+                            taskIssue
+                              ? h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    className: 'flb-tree-node flb-tree-grandchild',
+                                    'aria-current':
+                                      selected.issueId === taskIssue.issueId ? 'true' : undefined,
+                                    onClick: () => props.onOpenIssue(taskIssue),
+                                  },
+                                  h('span', { className: 'flb-tree-kind' }, '↳'),
+                                  h('span', { className: 'flb-tree-text' }, taskIssue.title),
+                                )
+                              : null,
+                          )
+                        }),
+                        reqIssues
+                          .filter((issue) => !issue.taskId)
+                          .map((issue) =>
+                            h(
+                              'button',
+                              {
+                                type: 'button',
+                                key: issue.issueId,
+                                className: 'flb-tree-node flb-tree-child',
+                                'aria-current':
+                                  selected.issueId === issue.issueId ? 'true' : undefined,
+                                onClick: () => props.onOpenIssue(issue),
+                              },
+                              h(
+                                Chip,
+                                { tone: ISSUE_TONES[issue.severity] || 'warn' },
+                                t(`issue.severity.${issue.severity}`),
+                              ),
+                              h('span', { className: 'flb-tree-text' }, issue.title),
+                            ),
+                          ),
+                      )
+                    : null,
+                )
+              }),
+        )
+      }
+
+      function TaskRow(props) {
+        const t = props.t
+        const task = props.task
+        const tasks = props.tasks
+        const issue = props.issue
+        const predecessors = wbPredecessors(tasks, task)
+        const successors = wbSuccessors(tasks, task)
+        return h(
+          'article',
+          { className: 'flb-hier-card', 'data-selected': props.selected ? 'true' : undefined },
+          h(
+            'div',
+            { className: 'flb-hier-card-head' },
+            h('span', { className: 'flb-tree-kind' }, task.taskId),
+            h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-hier-card-title',
+                onClick: () => props.onOpenTask(task.reqId, task.taskId, 'overview'),
+              },
+              task.goal,
+            ),
+          ),
+          h(
+            'div',
+            { className: 'flb-hier-card-meta' },
+            task.lastActivity
+              ? t('wb.lastActivity') + ': ' + formatMoment(task.lastActivity)
+              : t('wb.pendingState'),
+          ),
+          h(
+            'div',
+            { className: 'flb-hier-card-meta' },
+            h('span', null, t('wb.predecessors') + ':'),
+            predecessors.length > 0
+              ? predecessors.map((predecessor) =>
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      key: predecessor.taskId,
+                      className: 'flb-link-button',
+                      onClick: () => props.onOpenTask(task.reqId, predecessor.taskId, 'relations'),
+                    },
+                    predecessor.taskId + ' · ' + wbStateLabel(t, predecessor.state),
+                  ),
+                )
+              : h('span', null, t('wb.noPredecessors')),
+            successors.length > 0
+              ? h(
+                  'span',
+                  null,
+                  t('wb.successors') + ': ' + successors.map((next) => next.taskId).join('、'),
+                )
+              : null,
+          ),
+          task.failureReason
+            ? h('div', { className: 'flb-card-failure' }, task.failureReason)
+            : null,
+          issue
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-hier-issue',
+                  onClick: () => props.onOpenIssue(issue),
+                },
+                '⚠ ' + issue.title,
+              )
+            : null,
+          h(
+            'div',
+            { className: 'flb-hier-card-actions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-card-action',
+                onClick: () => props.onOpenTask(task.reqId, task.taskId, 'activity'),
+              },
+              t('wb.openExecution'),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-link-button',
+                onClick: () => props.onOpenTask(task.reqId, task.taskId, 'overview'),
+              },
+              t('wb.openTask'),
+            ),
+          ),
+        )
+      }
+
+      function RelationsPanel(props) {
+        const t = props.t
+        const requirement = props.requirement
+        const tasks = props.tasks
+        const current = props.current || null
+        const node = (task, isCurrent = false) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'flb-rel-node',
+              'data-current': isCurrent ? 'true' : undefined,
+              onClick: () => props.onOpenTask(requirement.reqId, task.taskId, 'relations'),
+            },
+            h(
+              'span',
+              { className: 'flb-hier-card-head' },
+              h('span', { className: 'flb-tree-kind' }, task.taskId),
+              h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
+            ),
+            h('div', { className: 'flb-task-text' }, task.goal),
+            h(
+              'div',
+              { className: 'flb-wb-sub' },
+              wbPredecessors(tasks, task).length === 0
+                ? t('wb.noPredecessors')
+                : wbPredecessors(tasks, task).some(
+                      (predecessor) => predecessor.state !== 'delivered',
+                    )
+                  ? t('wb.wait', {
+                      tasks: wbPredecessors(tasks, task)
+                        .filter((predecessor) => predecessor.state !== 'delivered')
+                        .map((predecessor) => predecessor.taskId)
+                        .join('、'),
+                    })
+                  : t('wb.dependencyReady'),
+            ),
+          )
+        if (current) {
+          const before = wbPredecessors(tasks, current)
+          const after = wbSuccessors(tasks, current)
+          return h(
+            'div',
+            { className: 'flb-relations' },
+            h('div', { className: 'flb-rel-label' }, t('wb.predecessors')),
+            before.length > 0
+              ? before.map((task) =>
+                  h(
+                    'div',
+                    { className: 'flb-rel-edge', key: task.taskId },
+                    node(task),
+                    h('span', { className: 'flb-rel-arrow' }, '→'),
+                    node(current, true),
+                  ),
+                )
+              : h('div', { className: 'flb-wb-sub' }, t('wb.noPredecessors')),
+            h('div', { className: 'flb-rel-label' }, t('wb.successors')),
+            after.length > 0
+              ? after.map((task) =>
+                  h(
+                    'div',
+                    { className: 'flb-rel-edge', key: task.taskId },
+                    node(current, true),
+                    h('span', { className: 'flb-rel-arrow' }, '→'),
+                    node(task),
+                  ),
+                )
+              : h('div', { className: 'flb-wb-sub' }, t('wb.noSuccessors')),
+          )
+        }
+        const edges = []
+        for (const task of tasks) {
+          for (const predecessorId of task.dependsOn) {
+            const predecessor = tasks.find((candidate) => candidate.taskId === predecessorId)
+            if (predecessor) edges.push({ predecessor, task })
+          }
+        }
+        return h(
+          'div',
+          { className: 'flb-relations' },
+          h(
+            'div',
+            { className: 'flb-wb-sub' },
+            t('wb.dependencies') + ' · ' + tasks.length + ' / ' + edges.length,
+          ),
+          edges.length > 0
+            ? edges.map(({ predecessor, task }) =>
+                h(
+                  'div',
+                  { className: 'flb-rel-edge', key: predecessor.taskId + ':' + task.taskId },
+                  node(predecessor),
+                  h('span', { className: 'flb-rel-arrow' }, '→'),
+                  node(task),
+                ),
+              )
+            : h('div', { className: 'flb-wb-sub' }, t('wb.noPredecessors')),
+          tasks
+            .filter((task) => task.dependsOn.length === 0 && wbSuccessors(tasks, task).length === 0)
+            .map((task) => h('div', { key: task.taskId }, node(task))),
+        )
+      }
+
+      function CenterPane(props) {
+        const t = props.t
+        const requirement = props.requirement
+        if (!requirement) {
+          return h(
+            'main',
+            { className: 'flb-main-pane' },
+            h('div', { className: 'flb-side-empty' }, t('wb.noSelection')),
+          )
+        }
+        const tasks = props.tasks
+        const issues = props.issues
+        const completed = tasks.filter((task) => task.state === 'delivered').length
+        const ratio = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
+        return h(
+          'main',
+          { className: 'flb-main-pane' },
+          h(
+            'div',
+            { className: 'flb-wb-head' },
+            h('span', { className: 'flb-tree-kind' }, requirement.reqId),
+            h(
+              Chip,
+              { tone: REQUIREMENT_TONES[requirement.status] || 'idle' },
+              statusLabel(t, requirement.status),
+            ),
+            requirement.approval === 'approved'
+              ? h(Chip, { tone: 'success' }, t('wb.approved'))
+              : requirement.approval === 'stale'
+                ? h(Chip, { tone: 'warn' }, t('wb.stale'))
+                : h(Chip, { tone: 'warn' }, t('requirement.approvalMissing')),
+            requirement.planVersion ? planReviewChip(t, requirement.planReview) : null,
+            requirement.verification
+              ? verificationChip(t, requirement.verification)
+              : tasks.length > 0 && completed === tasks.length
+                ? verificationChip(t, null)
+                : null,
+          ),
+          h('h2', { className: 'flb-hier-title' }, requirement.title),
+          h(
+            'div',
+            { className: 'flb-hier-meta' },
+            h('span', null, t('wb.version', { version: requirement.version })),
+            requirement.planVersion
+              ? h('span', null, t('wb.plan', { plan: requirement.planVersion }))
+              : null,
+            h('span', null, t('wb.taskCount', { count: tasks.length })),
+            h('span', null, t('wb.issueCount', { count: issues.length })),
+          ),
+          h(
+            'div',
+            { className: 'flb-hier-progress' },
+            h('div', { className: 'flb-progress' }, h('span', { style: { width: ratio + '%' } })),
+            h(
+              'div',
+              { className: 'flb-wb-sub' },
+              t('wb.progress', { delivered: completed, total: tasks.length }),
+            ),
+          ),
+          props.actionMessage
+            ? h(
+                'div',
+                { className: 'flb-card-action-message', role: 'status' },
+                props.actionMessage,
+              )
+            : null,
+          h(ActionButtons, {
+            t,
+            actions: requirement.actions,
+            busy: props.busy,
+            onAction: (action) => props.onAction(requirement, action),
+          }),
+          issues.length > 0
+            ? h(
+                'div',
+                { className: 'flb-banner', 'data-tone': 'warn', style: { marginTop: '7px' } },
+                h('div', { className: 'flb-label' }, t('wb.attention')),
+                issues.slice(0, 4).map((issue) =>
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      key: issue.issueId,
+                      className: 'flb-link-button',
+                      onClick: () => props.onOpenIssue(issue),
+                    },
+                    issue.title,
+                  ),
+                ),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'flb-hier-tabs', role: 'tablist' },
+            [
+              ['list', t('wb.taskList')],
+              ['relations', t('wb.dependencies')],
+            ].map(([key, label]) =>
+              h(
+                'button',
+                {
+                  type: 'button',
+                  key,
+                  className: 'flb-hier-tab',
+                  role: 'tab',
+                  'aria-selected': props.workMode === key,
+                  onClick: () => props.onWorkMode(key),
+                },
+                label,
+              ),
+            ),
+          ),
+          props.workMode === 'relations'
+            ? h(RelationsPanel, { t, requirement, tasks, onOpenTask: props.onOpenTask })
+            : tasks.length > 0
+              ? tasks.map((task) =>
+                  h(TaskRow, {
+                    t,
+                    key: task.taskId,
+                    task,
+                    tasks,
+                    issue: wbIssueFor(issues, task),
+                    selected: props.selectedTaskId === task.taskId,
+                    onOpenTask: props.onOpenTask,
+                    onOpenIssue: props.onOpenIssue,
+                  }),
+                )
+              : h('div', { className: 'flb-side-empty' }, t('wb.noExecutionHint')),
+        )
+      }
+
+      function TaskOverview(props) {
+        const t = props.t
+        const task = props.task
+        const detail = props.detail
+        if (detail.phase === 'loading' || detail.phase === 'idle') {
+          return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
+        }
+        if (detail.phase === 'error') {
+          return h(
+            'div',
+            { className: 'flb-error-inline', role: 'alert' },
+            detail.error || t('wb.error'),
+          )
+        }
+        const data = detail.data || {}
+        const run = data.run || null
+        const advice = data.advice || null
+        const retry = data.retry || null
+        const stale =
+          run && (run.state === 'running' || data.waitingForInput) && heartbeatStale(run.updatedAt)
+        return h(
+          'div',
+          null,
+          h(
+            'div',
+            { className: 'flb-hier-card-head' },
+            h('span', { className: 'flb-tree-kind' }, task.taskId),
+            h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
+            stale ? h(Chip, { tone: 'warn' }, t('task.heartbeatStale')) : null,
+          ),
+          data.waitingForInput
+            ? h(
+                'div',
+                { className: 'flb-banner', 'data-tone': 'warn', style: { marginTop: '6px' } },
+                t('task.waitingInputBanner'),
+              )
+            : null,
+          data.requirement && data.requirement.stopRequested
+            ? h(
+                'div',
+                { className: 'flb-banner', 'data-tone': 'warn', style: { marginTop: '6px' } },
+                t('task.stopBanner'),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'flb-section', style: { marginTop: '8px' } },
+            h('div', { className: 'flb-label' }, t('wb.taskGoal')),
+            h('div', { className: 'flb-task-text' }, task.goal),
+            h(Kv, { label: t('wb.acceptance') }, task.acceptance || '—'),
+            h(Kv, { label: t('task.testCommand') }, (task.testCommand || []).join(' ')),
+            h(
+              Kv,
+              { label: t('wb.files') },
+              (task.files || []).length ? (task.files || []).join('、') : '—',
+            ),
+            h(
+              Kv,
+              { label: t('wb.dependsOn') },
+              (task.dependsOn || []).length
+                ? (task.dependsOn || []).join('、')
+                : t('wb.noPredecessors'),
+            ),
+            task.verification ? h(Kv, { label: t('task.verification') }, t('common.yes')) : null,
+          ),
+          run
+            ? h(
+                'div',
+                { className: 'flb-section' },
+                h('div', { className: 'flb-label' }, t('task.lastActivity')),
+                h('div', { className: 'flb-task-text' }, run.reason || wbStateLabel(t, run.state)),
+                h('div', { className: 'flb-wb-sub' }, formatMoment(run.updatedAt)),
+              )
+            : null,
+          advice
+            ? h(
+                'div',
+                { className: 'flb-section' },
+                h('div', { className: 'flb-label' }, t('task.failureReason')),
+                h('div', { className: 'flb-task-text' }, advice.cause || '—'),
+                h('div', { className: 'flb-label' }, t('task.failureAction')),
+                h(BulletList, { items: advice.actions || [] }),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'flb-hier-actions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-card-action',
+                onClick: () => props.onOpenExecution(task, 'activity'),
+              },
+              t('wb.openExecution'),
+            ),
+            retry && retry.allowed
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-card-action',
+                    disabled: Boolean(props.retry && props.retry.busy),
+                    onClick: () => props.onRetry(task),
+                  },
+                  props.retry && props.retry.busy ? t('task.retrying') : t('task.retry'),
+                )
+              : retry && retry.reason
+                ? h(
+                    'span',
+                    { className: 'flb-muted' },
+                    t('task.retryNotAllowed', { reason: retry.reason }),
+                  )
+                : null,
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-link-button',
+                onClick: () => props.onOpenRequirement(task.reqId),
+              },
+              t('wb.openRequirement'),
+            ),
+          ),
+          props.retry && props.retry.message
+            ? h('div', { className: 'flb-card-action-message' }, props.retry.message)
+            : null,
+        )
+      }
+
+      function IssueOverview(props) {
+        const t = props.t
+        const issue = props.issue
+        if (!issue) return h('div', { className: 'flb-side-empty' }, t('wb.noSelection'))
+        const task = props.task
+        return h(
+          'div',
+          null,
+          h(
+            'div',
+            { className: 'flb-hier-card-head' },
+            h(
+              Chip,
+              { tone: ISSUE_TONES[issue.severity] || 'warn' },
+              t(`issue.severity.${issue.severity}`),
+            ),
+            h(Chip, { tone: 'idle' }, t(`issue.${issue.kind}`)),
+            h('span', { className: 'flb-tree-kind' }, issue.issueId),
+          ),
+          h('div', { className: 'flb-hier-title' }, issue.title),
+          h('div', { className: 'flb-task-text' }, issue.detail || '—'),
+          h(
+            'div',
+            { className: 'flb-section', style: { marginTop: '8px' } },
+            h('div', { className: 'flb-label' }, t('wb.related')),
+            task
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-link-button',
+                    onClick: () => props.onOpenTask(issue.reqId, task.taskId, 'overview'),
+                  },
+                  t('wb.openTask') + ' ' + task.taskId,
+                )
+              : h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-link-button',
+                    onClick: () => props.onOpenRequirement(issue.reqId),
+                  },
+                  t('wb.openRequirement') + ' ' + issue.reqId,
+                ),
+          ),
+          task
+            ? h(
+                'div',
+                { className: 'flb-hier-actions' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-card-action',
+                    onClick: () => props.onOpenTask(issue.reqId, task.taskId, 'activity'),
+                  },
+                  t('wb.openExecution'),
+                ),
+              )
+            : null,
+          h('div', { className: 'flb-wb-sub', style: { marginTop: '8px' } }, t('wb.attemptNote')),
+        )
+      }
+
+      function TestsPanel(props) {
+        const t = props.t
+        const detail = props.detail
+        const [message, setMessage] = React.useState('')
+        if (!detail || detail.phase === 'loading' || detail.phase === 'idle') {
+          return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
+        }
+        if (detail.phase === 'error') {
+          return h(
+            'div',
+            { className: 'flb-error-inline', role: 'alert' },
+            detail.error || t('wb.error'),
+          )
+        }
+        const data = detail.data || {}
+        const review = data.review
+        const evidence = data.evidence
+        const artifact = data.artifact
+        return h(
+          'div',
+          { className: 'flb-section' },
+          h(
+            'div',
+            { className: 'flb-hier-card-head' },
+            h('span', { className: 'flb-label' }, t('wb.tests')),
+            data.testLogTail ? h(Chip, { tone: 'brand' }, t('task.testLog')) : null,
+          ),
+          data.testLogPath ? h(Kv, { label: t('wb.path') }, data.testLogPath) : null,
+          h(
+            Kv,
+            { label: t('task.testCommand') },
+            (data.task && data.task.testCommand ? data.task.testCommand : []).join(' '),
+          ),
+          data.testLogBytes !== undefined
+            ? h(Kv, { label: t('wb.size') }, String(data.testLogBytes) + ' B')
+            : null,
+          data.testExitCode !== undefined && data.testExitCode !== null
+            ? h(Kv, { label: t('wb.exitCode') }, String(data.testExitCode))
+            : null,
+          data.testDurationMs !== undefined && data.testDurationMs !== null
+            ? h(Kv, { label: t('wb.duration') }, String(data.testDurationMs) + ' ms')
+            : null,
+          data.testStartedAt
+            ? h(Kv, { label: t('wb.started') }, formatMoment(data.testStartedAt))
+            : null,
+          message ? h('div', { className: 'flb-card-action-message' }, message) : null,
+          data.testLogPath
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-copy',
+                  onClick: () => wbCopy(data.testLogPath, t, setMessage),
+                },
+                t('wb.copy') + ' · ' + t('task.testLog'),
+              )
+            : null,
+          data.testLogTail
+            ? h(
+                'details',
+                { className: 'flb-details', open: false },
+                h('summary', null, t('task.testLog')),
+                data.testLogTruncated
+                  ? h('div', { className: 'flb-wb-sub' }, t('task.testLogTruncated'))
+                  : null,
+                h('pre', { className: 'flb-exec-pre' }, data.testLogTail),
+              )
+            : h('div', { className: 'flb-wb-sub' }, t('task.noTestLog')),
+          h(
+            'div',
+            { className: 'flb-section', style: { marginTop: '10px' } },
+            h('div', { className: 'flb-label' }, t('task.review')),
+            review
+              ? h(
+                  'div',
+                  null,
+                  h(Kv, { label: t('task.reviewVerdict') }, review.verdict || '—'),
+                  h(Kv, { label: t('task.reviewSummary') }, review.summary || '—'),
+                  h('div', { className: 'flb-label' }, t('task.reviewFindings')),
+                  h(BulletList, { items: review.findings || [] }),
+                  h('div', { className: 'flb-label' }, t('task.reviewBlocking')),
+                  h(BulletList, { items: review.blocking || [] }),
+                  h('div', { className: 'flb-wb-sub' }, t('task.reviewNote')),
+                )
+              : h('div', { className: 'flb-wb-sub' }, t('task.reviewNone')),
+          ),
+          h(
+            'div',
+            { className: 'flb-section', style: { marginTop: '10px' } },
+            h('div', { className: 'flb-label' }, t('task.evidence')),
+            artifact
+              ? h(
+                  'div',
+                  { className: 'flb-evidence' },
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'candidate: ' + artifact.candidateSha256,
+                  ),
+                  h('div', { className: 'flb-card-meta' }, 'test: ' + artifact.testEvidenceSha256),
+                  h('div', { className: 'flb-card-meta' }, 'review: ' + artifact.reviewSha256),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'authorization: ' + (artifact.authorizationSource || '—'),
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'baseline: ' + (artifact.baselineCommit || '—'),
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    t('detail.recordedAt') + ': ' + formatMoment(artifact.recordedAt),
+                  ),
+                )
+              : h('div', { className: 'flb-wb-sub' }, t('task.artifactMissing')),
+            evidence
+              ? h(
+                  'div',
+                  { className: 'flb-evidence', style: { marginTop: '6px' } },
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'workspace: ' + (evidence.workspacePath || '—'),
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'candidate: ' + (evidence.candidatePath || '—'),
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'test log: ' + (evidence.testLogPath || '—'),
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'review: ' + (evidence.reviewPath || '—'),
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'sessions: ' +
+                      (evidence.devSession || '—') +
+                      ' / ' +
+                      (evidence.reviewSession || '—'),
+                  ),
+                )
+              : h('div', { className: 'flb-wb-sub' }, t('task.evidenceMissing')),
+          ),
+        )
+      }
+
+      function ExecutionProcess(props) {
+        const t = props.t
+        const read = props.read
+        const task = props.task
+        const [state, setState] = React.useState({ phase: 'idle', data: null, error: '' })
+        const [attemptId, setAttemptId] = React.useState('')
+        const [paused, setPaused] = React.useState(false)
+        const [incoming, setIncoming] = React.useState(null)
+        const [message, setMessage] = React.useState('')
+        const inflight = React.useRef(false)
+        const dataRef = React.useRef(null)
+        const scrollRef = React.useRef(null)
+        const scrollTop = React.useRef(0)
+
+        React.useEffect(() => {
+          dataRef.current = state.data
+        }, [state.data])
+
+        const load = React.useCallback(
+          (offset, limit, replace) => {
+            if (!task || inflight.current) return
+            inflight.current = true
+            if (replace)
+              setState((previous) => ({
+                phase: previous.data ? 'refreshing' : 'loading',
+                data: previous.data,
+                error: '',
+              }))
+            read('execution', {
+              reqId: task.reqId,
+              planVersion: task.planVersion,
+              taskId: task.taskId,
+              offset,
+              limit,
+            })
+              .then((data) => {
+                inflight.current = false
+                if (replace) {
+                  if (scrollRef.current) scrollTop.current = scrollRef.current.scrollTop
+                  setState({ phase: 'ready', data, error: '' })
+                  setAttemptId(data.attempts && data.attempts[0] ? data.attempts[0].attemptId : '')
+                } else {
+                  setState((previous) => ({
+                    phase: 'ready',
+                    data: previous.data
+                      ? {
+                          ...previous.data,
+                          events: [...(previous.data.events || []), ...(data.events || [])],
+                          offset: 0,
+                          limit: (previous.data.limit || 0) + (data.limit || 0),
+                          truncated: data.truncated,
+                          total: data.total,
+                        }
+                      : data,
+                    error: '',
+                  }))
+                }
+              })
+              .catch((error) => {
+                inflight.current = false
+                setState((previous) => ({
+                  phase: 'error',
+                  data: previous.data,
+                  error: error.message || String(error),
+                }))
+              })
+          },
+          [read, task && task.reqId, task && task.taskId, task && task.planVersion],
+        )
+
+        React.useEffect(() => {
+          if (!task) return
+          setState({ phase: 'loading', data: null, error: '' })
+          setAttemptId('')
+          setIncoming(null)
+          setPaused(false)
+          load(0, 100, true)
+        }, [task && task.reqId, task && task.taskId, task && task.planVersion])
+
+        React.useEffect(() => {
+          const data = state.data
+          if (!data || !data.attempts || !data.attempts[0] || paused || !props.active) return
+          if (attemptId && data.attempts[0].attemptId !== attemptId) return
+          if (!data.attempts[0].available) return
+          const timer = setInterval(() => {
+            if (inflight.current) return
+            const current = dataRef.current
+            if (!current) return
+            read('execution', {
+              reqId: task.reqId,
+              planVersion: task.planVersion,
+              taskId: task.taskId,
+              offset: 0,
+              limit: Math.max(100, (current.events || []).length),
+            })
+              .then((next) => {
+                if (next.total > current.total) setIncoming(next)
+                else {
+                  setState((previous) =>
+                    previous.data
+                      ? {
+                          phase: 'ready',
+                          data: {
+                            ...previous.data,
+                            stages: next.stages,
+                            run: next.run,
+                            lastActivity: next.lastActivity,
+                          },
+                          error: '',
+                        }
+                      : previous,
+                  )
+                }
+              })
+              .catch(() => {})
+          }, 4000)
+          return () => clearInterval(timer)
+        }, [paused, state.data && state.data.total, attemptId, props.active, task && task.taskId])
+
+        const data = state.data
+        if (state.phase === 'loading' && !data)
+          return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
+        if (state.phase === 'error' && !data)
+          return h('div', { className: 'flb-error-inline', role: 'alert' }, state.error)
+        if (!data) return h('div', { className: 'flb-side-empty' }, t('wb.noExecution'))
+        const attempts = data.attempts || []
+        const currentAttempt = attempts[0] || null
+        const historical =
+          attemptId && currentAttempt && currentAttempt.attemptId !== attemptId
+            ? attempts.find((attempt) => attempt.attemptId === attemptId)
+            : null
+        const showEvents = !historical && currentAttempt && currentAttempt.available
+        const events = data.events || []
+        const stages = data.stages || []
+        const test = data.test || {}
+        const session = data.session || {}
+        return h(
+          'div',
+          { className: 'flb-exec' },
+          h(
+            'div',
+            { className: 'flb-exec-toolbar' },
+            h('span', { className: 'flb-wb-title' }, t('wb.execution')),
+            h(
+              'span',
+              { className: 'flb-wb-sub' },
+              t('wb.executionTotal', { count: data.total || 0 }),
+            ),
+            h('div', { className: 'flb-wb-spacer' }),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-filter',
+                onClick: () => setPaused((value) => !value),
+              },
+              paused ? t('wb.resume') : t('wb.pause'),
+            ),
+            h(
+              'button',
+              { type: 'button', className: 'flb-filter', onClick: () => load(0, 100, true) },
+              t('page.refresh'),
+            ),
+          ),
+          incoming
+            ? h(
+                'div',
+                { className: 'flb-exec-notice' },
+                t('wb.newEvents') + ' · ' + t('wb.executionTotal', { count: incoming.total }),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-link-button',
+                    onClick: () => {
+                      setState({ phase: 'ready', data: incoming, error: '' })
+                      setIncoming(null)
+                      requestAnimationFrame(() => {
+                        if (scrollRef.current) scrollRef.current.scrollTop = scrollTop.current
+                      })
+                    },
+                  },
+                  t('page.refresh'),
+                ),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'flb-exec-identity' },
+            h(
+              Kv,
+              { label: t('wb.requirement') },
+              data.reqId + ' · v' + (data.requirement ? data.requirement.version : '?'),
+            ),
+            h(Kv, { label: t('wb.planLabel') }, t('wb.plan', { plan: data.planVersion })),
+            h(Kv, { label: t('wb.task') }, task.taskId + ' / v' + task.planVersion),
+            h(Kv, { label: t('wb.attempt') }, attemptId || t('wb.missing')),
+            h(Kv, { label: t('wb.session') }, session.dev || t('wb.sessionUnavailable')),
+            h(Kv, { label: t('wb.started') }, formatMoment(data.startedAt)),
+            h(Kv, { label: t('wb.lastActivity') }, formatMoment(data.lastActivity)),
+          ),
+          h(
+            'div',
+            { className: 'flb-exec-attempt' },
+            h('span', { className: 'flb-wb-sub' }, t('wb.attempt')),
+            h(
+              'select',
+              {
+                value: attemptId,
+                'aria-label': t('wb.attempt'),
+                onChange: (event) => setAttemptId(event.target.value),
+              },
+              attempts.map((attempt) =>
+                h(
+                  'option',
+                  { key: attempt.attemptId, value: attempt.attemptId },
+                  attempt.label + (attempt.available ? '' : ' · ' + t('wb.missing')),
+                ),
+              ),
+            ),
+            session.dev
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-copy',
+                    onClick: () => wbCopy(session.dev, t, setMessage),
+                  },
+                  t('wb.copy'),
+                )
+              : null,
+            h('span', { className: 'flb-wb-sub' }, t('wb.attemptNote')),
+          ),
+          message ? h('div', { className: 'flb-card-action-message' }, message) : null,
+          h(
+            'div',
+            { className: 'flb-exec-stages' },
+            stages.map((stage) =>
+              h(
+                'div',
+                { className: 'flb-exec-stage', key: stage.id },
+                h('div', { className: 'flb-exec-stage-title' }, stage.label),
+                h(
+                  'div',
+                  { className: 'flb-exec-stage-text' },
+                  stage.id === 'dev'
+                    ? (stage.state || '—') +
+                        (stage.total ? ' · ' + t('wb.executionTotal', { count: stage.total }) : '')
+                    : stage.id === 'review'
+                      ? (stage.available ? stage.verdict || '—' : t('wb.missing')) +
+                        (stage.sessionId ? ' · ' + stage.sessionId : '')
+                      : stage.id === 'formal_test'
+                        ? stage.available
+                          ? t('wb.exitCode') +
+                            ': ' +
+                            (stage.exitCode === null ? '—' : stage.exitCode) +
+                            (stage.durationMs !== null ? ' · ' + stage.durationMs + 'ms' : '')
+                          : t('wb.missing')
+                        : stage.delivered
+                          ? t('wb.deliveredState') + ' · ' + formatMoment(stage.recordedAt)
+                          : t('wb.missing'),
+                ),
+              ),
+            ),
+          ),
+          historical
+            ? h('div', { className: 'flb-exec-empty' }, t('wb.attemptUnavailable'))
+            : showEvents
+              ? h(
+                  'div',
+                  {
+                    className: 'flb-exec-timeline',
+                    ref: scrollRef,
+                    onScroll: (event) => {
+                      scrollTop.current = event.currentTarget.scrollTop
+                    },
+                  },
+                  h(
+                    'div',
+                    { className: 'flb-wb-sub' },
+                    t('wb.steps', { count: data.stepCount || 0 }),
+                  ),
+                  events.map((event) =>
+                    h(
+                      'div',
+                      { className: 'flb-exec-event', key: event.id, 'data-kind': event.kind },
+                      h(
+                        'div',
+                        { className: 'flb-exec-event-head' },
+                        h(
+                          'span',
+                          { className: 'flb-exec-event-title' },
+                          event.kind === 'tool'
+                            ? t('wb.tool') + ' · ' + event.tool.name
+                            : event.kind === 'phase'
+                              ? event.title
+                              : event.role === 'user'
+                                ? t('wb.taskInput')
+                                : t('wb.publicMessage'),
+                        ),
+                        h('time', { className: 'flb-exec-event-time' }, formatMoment(event.at)),
+                      ),
+                      event.kind === 'tool' && event.tool
+                        ? h(
+                            'div',
+                            null,
+                            h(
+                              'div',
+                              {
+                                className: 'flb-exec-tool-status',
+                                'data-error': event.tool.isError ? 'true' : undefined,
+                              },
+                              event.tool.status === 'completed'
+                                ? t('wb.toolCompleted')
+                                : event.tool.status === 'failed'
+                                  ? t('wb.toolFailed')
+                                  : t('wb.toolPending'),
+                            ),
+                            h(
+                              'details',
+                              null,
+                              h('summary', null, t('wb.toolInput')),
+                              h('pre', { className: 'flb-exec-pre' }, event.tool.input || '—'),
+                            ),
+                            h(
+                              'details',
+                              null,
+                              h('summary', null, t('wb.toolOutput')),
+                              h('pre', { className: 'flb-exec-pre' }, event.tool.output || '—'),
+                            ),
+                            event.tool.outputTruncated
+                              ? h('div', { className: 'flb-wb-sub' }, t('wb.truncated'))
+                              : null,
+                          )
+                        : event.text
+                          ? event.role === 'user' || event.text.length > 500
+                            ? h(
+                                'details',
+                                null,
+                                h('summary', null, event.text.slice(0, 80)),
+                                h('pre', { className: 'flb-exec-event-text' }, event.text),
+                                event.textTruncated
+                                  ? h('div', { className: 'flb-wb-sub' }, t('wb.truncated'))
+                                  : null,
+                              )
+                            : h('pre', { className: 'flb-exec-event-text' }, event.text)
+                          : null,
+                    ),
+                  ),
+                  data.truncated
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'flb-card-action',
+                          onClick: () => load(events.length, 100, false),
+                        },
+                        t('wb.loadMore') + ' · ' + t('wb.executionTotal', { count: data.total }),
+                      )
+                    : null,
+                )
+              : h(
+                  'div',
+                  { className: 'flb-exec-empty' },
+                  t('wb.noExecution') +
+                    ' ' +
+                    (currentAttempt && currentAttempt.reason ? currentAttempt.reason : ''),
+                ),
+          h(
+            'div',
+            { className: 'flb-hier-actions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-link-button',
+                onClick: () => wbCopy(data.reviewPath || '', t, setMessage),
+              },
+              t('wb.copy') + ' · ' + t('task.review'),
+            ),
+            test.path
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-link-button',
+                    onClick: () => wbCopy(test.path, t, setMessage),
+                  },
+                  t('wb.copy') + ' · ' + t('task.testLog'),
+                )
+              : null,
+            h('span', { className: 'flb-wb-sub' }, t('task.reviewNote')),
+          ),
+        )
+      }
+
+      function RequirementActivity(props) {
+        const t = props.t
+        return h(
+          'div',
+          { className: 'flb-section' },
+          props.tasks.length === 0
+            ? h('div', { className: 'flb-side-empty' }, t('wb.noExecution'))
+            : props.tasks.map((task) =>
+                h(
+                  'div',
+                  { className: 'flb-list-item', key: task.taskId },
+                  h(
+                    'div',
+                    { className: 'flb-hier-card-head' },
+                    h('span', { className: 'flb-tree-kind' }, task.taskId),
+                    h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
+                    h('span', { className: 'flb-wb-sub' }, formatMoment(task.lastActivity)),
+                  ),
+                  h('div', { className: 'flb-task-text' }, task.goal),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'flb-link-button',
+                      onClick: () => props.onOpenTask(task.reqId, task.taskId, 'activity'),
+                    },
+                    t('wb.openExecution'),
+                  ),
+                ),
+              ),
+        )
+      }
+
+      function VersionPanel(props) {
+        const t = props.t
+        const requirement = props.requirement
+        const detail = props.reqDetail
+        const task = props.task
+        return h(
+          'div',
+          { className: 'flb-section' },
+          requirement
+            ? h(
+                'div',
+                null,
+                h('div', { className: 'flb-label' }, t('wb.versionHistory')),
+                detail && detail.data && Array.isArray(detail.data.versions)
+                  ? detail.data.versions.map((version) =>
+                      h(
+                        'div',
+                        { className: 'flb-subsection', key: version.version },
+                        h(
+                          'div',
+                          { className: 'flb-label' },
+                          'v' + version.version + ' · ' + formatMoment(version.createdAt),
+                        ),
+                        h('div', { className: 'flb-task-text' }, version.text),
+                      ),
+                    )
+                  : h('div', { className: 'flb-wb-sub' }, t('wb.loading')),
+                h(
+                  Kv,
+                  { label: t('wb.approval') },
+                  requirement.approval === 'approved'
+                    ? t('wb.approved')
+                    : requirement.approval === 'stale'
+                      ? t('wb.stale')
+                      : t('requirement.approvalMissing'),
+                ),
+                h(
+                  Kv,
+                  { label: t('wb.planReview') },
+                  requirement.planReview
+                    ? `${t(`detail.verdict.${requirement.planReview.verdict}`)} · ${requirement.planReview.summary || '—'}`
+                    : t('requirement.planReviewMissing'),
+                ),
+                h(
+                  Kv,
+                  { label: t('wb.verification') },
+                  requirement.verification
+                    ? [
+                        t(`detail.verdict.${requirement.verification.verdict}`),
+                        requirement.verification.fresh
+                          ? t('detail.verificationFresh')
+                          : t('detail.verificationStale'),
+                        requirement.verification.summary || '—',
+                      ].join(' · ')
+                    : t('requirement.verificationMissing'),
+                ),
+                h(
+                  Kv,
+                  { label: t('wb.businessReview') },
+                  requirement.businessReview
+                    ? [
+                        t(`detail.verdict.${requirement.businessReview.verdict}`),
+                        requirement.businessReview.fresh
+                          ? t('detail.verificationFresh')
+                          : t('detail.verificationStale'),
+                        requirement.businessReview.summary || '—',
+                      ].join(' · ')
+                    : t('wb.missing'),
+                ),
+                h(
+                  Kv,
+                  { label: t('wb.candidate') },
+                  requirement.candidate
+                    ? [
+                        'v' + requirement.candidate.packageVersion,
+                        String(requirement.candidate.artifactSha256 || '').slice(0, 16) + '…',
+                        formatMoment(requirement.candidate.builtAt),
+                      ].join(' · ')
+                    : t('wb.missing'),
+                ),
+                h(
+                  Kv,
+                  { label: t('wb.deployment') },
+                  requirement.deployment
+                    ? [
+                        requirement.deployment.state,
+                        requirement.deployment.targetProfile,
+                        'v' + requirement.deployment.runtimeVersion,
+                        ...[].concat(requirement.deployment.failedChecks || []).slice(0, 2),
+                      ].join(' · ')
+                    : t('wb.missing'),
+                ),
+              )
+            : null,
+          task && props.taskDetail && props.taskDetail.data
+            ? h(
+                'div',
+                { className: 'flb-section' },
+                h('div', { className: 'flb-label' }, t('wb.failureRounds')),
+                props.taskDetail.data.failureRounds.length === 0
+                  ? h('div', { className: 'flb-wb-sub' }, t('wb.missing'))
+                  : props.taskDetail.data.failureRounds.map((round) =>
+                      h(
+                        'div',
+                        { className: 'flb-list-item', key: round.roundId },
+                        h(
+                          'div',
+                          { className: 'flb-wb-sub' },
+                          round.stage + ' · ' + formatMoment(round.occurredAt),
+                        ),
+                        h('div', { className: 'flb-task-text' }, round.summary),
+                      ),
+                    ),
+              )
+            : null,
+          props.issue ? h('div', { className: 'flb-wb-sub' }, t('wb.attemptNote')) : null,
+        )
+      }
+
+      function RequirementTests(props) {
+        const t = props.t
+        const detail = props.reqDetail
+        if (!detail || detail.phase !== 'ready' || !detail.data) {
+          return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
+        }
+        const data = detail.data
+        const artifacts = Array.isArray(data.artifacts) ? data.artifacts : []
+        return h(
+          'div',
+          { className: 'flb-section' },
+          h('div', { className: 'flb-label' }, t('task.evidence')),
+          artifacts.length === 0
+            ? h('div', { className: 'flb-wb-sub' }, t('detail.noArtifacts'))
+            : artifacts.map((artifact) =>
+                h(
+                  'div',
+                  { className: 'flb-evidence', key: artifact.taskId },
+                  h('div', { className: 'flb-label' }, artifact.taskId),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    'candidate: ' + artifact.candidateSha256,
+                  ),
+                  h('div', { className: 'flb-card-meta' }, 'test: ' + artifact.testEvidenceSha256),
+                  h('div', { className: 'flb-card-meta' }, 'review: ' + artifact.reviewSha256),
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    t('detail.recordedAt') + ': ' + formatMoment(artifact.recordedAt),
+                  ),
+                ),
+              ),
+          data.acceptanceRecord && data.acceptanceRecord.accepted_at
+            ? h(
+                'div',
+                { className: 'flb-section', style: { marginTop: '10px' } },
+                h('div', { className: 'flb-label' }, t('detail.acceptanceRecord')),
+                h(
+                  'div',
+                  { className: 'flb-task-text' },
+                  t('detail.acceptedMeta', {
+                    by: data.acceptanceRecord.accepted_by,
+                    time: formatMoment(data.acceptanceRecord.accepted_at),
+                    source: data.acceptanceRecord.acceptance_source || '—',
+                  }),
+                ),
+              )
+            : null,
+        )
+      }
+
+      function DetailPane(props) {
+        const t = props.t
+        const selection = props.selection
+        const requirement = props.requirement
+        const selectionKind = selection.kind || 'requirement'
+        const task = selectionKind === 'task' ? props.task : null
+        const issueTask = selectionKind === 'issue' ? props.task : null
+        const issue = selectionKind === 'issue' ? props.issue : null
+        if (!requirement) {
+          return h(
+            'aside',
+            { className: 'flb-side' },
+            h('div', { className: 'flb-side-empty' }, t('wb.noSelection')),
+          )
+        }
+        const kind = selectionKind
+        const tabs = [
+          ['overview', t('wb.overview')],
+          ['relations', t('wb.relations')],
+          ['activity', t('wb.activity')],
+          ['tests', t('wb.tests')],
+          ['changes', t('wb.changes')],
+        ]
+        const title = task ? task.goal : issue ? issue.title : requirement.title
+        const state = task ? task.state : issue ? issue.kind : requirement.status
+        const executionTask = task || issueTask
+        const stateChip = task
+          ? h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state))
+          : issue
+            ? h(
+                Chip,
+                { tone: ISSUE_TONES[issue.severity] || 'warn' },
+                t(`issue.severity.${issue.severity}`),
+              )
+            : h(
+                Chip,
+                { tone: REQUIREMENT_TONES[requirement.status] || 'idle' },
+                statusLabel(t, requirement.status),
+              )
+        return h(
+          'aside',
+          { className: 'flb-side', 'aria-label': t(`wb.${kind}`) },
+          h(
+            'div',
+            { className: 'flb-side-head' },
+            h(
+              'div',
+              { className: 'flb-breadcrumb' },
+              h(
+                'button',
+                { type: 'button', onClick: () => props.onOpenRequirement(requirement.reqId) },
+                requirement.reqId,
+              ),
+              task ? h('span', null, '›') : null,
+              task
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => props.onOpenTask(task.reqId, task.taskId, 'overview'),
+                    },
+                    task.taskId,
+                  )
+                : null,
+              issue ? h('span', null, '› ' + issue.issueId) : null,
+            ),
+            h(
+              'div',
+              { className: 'flb-hier-actions' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-side-close flb-mobile-back',
+                  onClick: props.onBack,
+                },
+                t('wb.back'),
+              ),
+              h(
+                'button',
+                { type: 'button', className: 'flb-side-close', onClick: props.onToggleFull },
+                props.fullDetail ? t('wb.backWorkbench') : t('wb.full'),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'flb-hier-card-head' },
+            h('span', { className: 'flb-tree-kind' }, t(`wb.${kind}`)),
+            stateChip,
+            h(
+              'span',
+              { className: 'flb-tree-kind' },
+              kind === 'requirement' ? requirement.reqId : task ? task.taskId : issue.issueId,
+            ),
+          ),
+          h('h2', { className: 'flb-hier-title' }, title),
+          props.actionMessage
+            ? h(
+                'div',
+                { className: 'flb-card-action-message', role: 'status' },
+                props.actionMessage,
+              )
+            : null,
+          kind === 'requirement'
+            ? h(ActionButtons, {
+                t,
+                actions: requirement.actions,
+                busy: props.busy,
+                onAction: (action) => props.onAction(requirement, action),
+              })
+            : kind === 'task'
+              ? h(
+                  'div',
+                  { className: 'flb-hier-actions' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'flb-card-action',
+                      onClick: () => props.onOpenTask(task.reqId, task.taskId, 'activity'),
+                    },
+                    t('wb.openExecution'),
+                  ),
+                  props.taskDetail &&
+                    props.taskDetail.data &&
+                    props.taskDetail.data.retry &&
+                    props.taskDetail.data.retry.allowed
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'flb-card-action',
+                          disabled: Boolean(props.retry && props.retry.busy),
+                          onClick: () => props.onRetry(task),
+                        },
+                        props.retry && props.retry.busy ? t('task.retrying') : t('task.retry'),
+                      )
+                    : null,
+                )
+              : h(
+                  'div',
+                  { className: 'flb-hier-actions' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'flb-card-action',
+                      onClick: () => props.onOpenRequirement(issue.reqId),
+                    },
+                    t('wb.openRequirement'),
+                  ),
+                  issueTask
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'flb-card-action',
+                          onClick: () =>
+                            props.onOpenTask(issueTask.reqId, issueTask.taskId, 'activity'),
+                        },
+                        t('wb.openExecution'),
+                      )
+                    : null,
+                ),
+          h(
+            'div',
+            { className: 'flb-side-tabs', role: 'tablist' },
+            tabs.map(([key, label]) =>
+              h(
+                'button',
+                {
+                  type: 'button',
+                  key,
+                  role: 'tab',
+                  className: 'flb-side-tab',
+                  'aria-selected': props.tab === key,
+                  onClick: () => props.onTab(key),
+                },
+                label,
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'flb-side-body' },
+            h(
+              'div',
+              { className: props.tab === 'activity' ? 'flb-exec-slot' : 'flb-hidden' },
+              executionTask
+                ? h(ExecutionProcess, {
+                    t,
+                    read: props.read,
+                    task: executionTask,
+                    active: props.tab === 'activity',
+                  })
+                : null,
+            ),
+            props.tab === 'activity'
+              ? executionTask
+                ? null
+                : h(RequirementActivity, { t, tasks: props.tasks, onOpenTask: props.onOpenTask })
+              : props.tab === 'overview'
+                ? kind === 'requirement'
+                  ? h(RequirementDetail, { t, detail: props.reqDetail, tasks: props.tasks })
+                  : kind === 'task'
+                    ? h(TaskOverview, {
+                        t,
+                        task,
+                        detail: props.taskDetail,
+                        retry: props.retry,
+                        onRetry: props.onRetry,
+                        onOpenExecution: props.onOpenTask,
+                        onOpenRequirement: props.onOpenRequirement,
+                      })
+                    : h(IssueOverview, {
+                        t,
+                        issue,
+                        task: issueTask,
+                        onOpenTask: props.onOpenTask,
+                        onOpenRequirement: props.onOpenRequirement,
+                      })
+                : props.tab === 'relations'
+                  ? h(RelationsPanel, {
+                      t,
+                      requirement,
+                      tasks: props.tasks,
+                      current: task || issueTask || null,
+                      onOpenTask: props.onOpenTask,
+                    })
+                  : props.tab === 'activity'
+                    ? task
+                      ? h(ExecutionProcess, {
+                          t,
+                          read: props.read,
+                          task,
+                          active: props.active,
+                        })
+                      : kind === 'issue' && issueTask
+                        ? h(ExecutionProcess, {
+                            t,
+                            read: props.read,
+                            task: issueTask,
+                            active: props.active,
+                          })
+                        : h(RequirementActivity, {
+                            t,
+                            tasks: props.tasks,
+                            onOpenTask: props.onOpenTask,
+                          })
+                    : props.tab === 'tests'
+                      ? task
+                        ? h(TestsPanel, { t, detail: props.taskDetail })
+                        : kind === 'issue' && issueTask
+                          ? h(TestsPanel, { t, detail: props.taskDetail })
+                          : h(RequirementTests, { t, reqDetail: props.reqDetail })
+                      : h(VersionPanel, {
+                          t,
+                          requirement,
+                          reqDetail: props.reqDetail,
+                          task,
+                          taskDetail: props.taskDetail,
+                          issue,
+                        }),
+          ),
+        )
+      }
+
+      function AllTasksPane(props) {
+        const t = props.t
+        return h(
+          'main',
+          { className: 'flb-main-pane' },
+          h('h2', { className: 'flb-hier-title' }, t('wb.allTasks')),
+          h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
+          props.requirements.length === 0
+            ? h('div', { className: 'flb-side-empty' }, t('wb.noMatch'))
+            : props.requirements.map((requirement) => {
+                const tasks = wbTasksOf(props.tasks, requirement)
+                return h(
+                  'section',
+                  { key: requirement.reqId, style: { marginTop: '10px' } },
+                  h(
+                    'div',
+                    { className: 'flb-wb-head' },
+                    h('span', { className: 'flb-tree-kind' }, requirement.reqId),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-link-button',
+                        onClick: () => props.onOpenRequirement(requirement.reqId),
+                      },
+                      requirement.title,
+                    ),
+                  ),
+                  tasks.length > 0
+                    ? tasks.map((task) =>
+                        h(TaskRow, {
+                          t,
+                          key: task.taskId,
+                          task,
+                          tasks,
+                          issue: wbIssueFor(props.issues, task),
+                          selected: props.selectedTaskId === task.taskId,
+                          onOpenTask: props.onOpenTask,
+                          onOpenIssue: props.onOpenIssue,
+                        }),
+                      )
+                    : h('div', { className: 'flb-wb-sub' }, t('wb.noExecutionHint')),
+                )
+              }),
+        )
+      }
+
+      function IssuesPane(props) {
+        const t = props.t
+        return h(
+          'main',
+          { className: 'flb-main-pane' },
+          h('h2', { className: 'flb-hier-title' }, t('wb.attention')),
+          h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
+          props.items.length === 0
+            ? h('div', { className: 'flb-side-empty' }, t('wb.noIssues'))
+            : props.items.map((item) =>
+                h(
+                  'article',
+                  { className: 'flb-hier-card', key: item.key },
+                  h(
+                    'div',
+                    { className: 'flb-hier-card-head' },
+                    h(
+                      'span',
+                      { className: 'flb-tree-kind' },
+                      item.reqId + (item.taskId ? ' › ' + item.taskId : ''),
+                    ),
+                    h(Chip, { tone: item.tone || 'warn' }, item.kindLabel),
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'flb-hier-card-title',
+                      onClick: () => props.onOpen(item),
+                    },
+                    item.title,
+                  ),
+                  item.detail ? h('div', { className: 'flb-wb-sub' }, item.detail) : null,
+                  h(
+                    'div',
+                    { className: 'flb-hier-card-actions' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-card-action',
+                        onClick: () => props.onOpen(item),
+                      },
+                      item.taskId ? t('wb.openTask') : t('wb.openRequirement'),
+                    ),
+                  ),
+                ),
+              ),
+        )
+      }
+
+      const OPS_STATE_TONE = {
+        open: 'warn',
+        diagnosed: 'warn',
+        awaiting_decision: 'warn',
+        recovering: 'warn',
+        recovered: 'success',
+        unresolved: 'error',
+        closed: 'idle',
+      }
+      const OPS_SEVERITY_TONE = { critical: 'error', major: 'warn', minor: 'idle' }
+      const OPS_MONITOR_TONE = {
+        healthy: 'success',
+        degraded: 'warn',
+        critical: 'error',
+        error: 'error',
+        idle: 'idle',
+      }
+
+      /** 运维视图：只读事实 + 所有者动作（批准/拒绝/关闭/生成修复需求）。 */
+      function OpsPane(props) {
+        const t = props.t
+        const data = props.data
+        if (!data) {
+          return h(
+            'main',
+            { className: 'flb-main-pane' },
+            h(
+              'div',
+              { className: props.error ? 'flb-error' : 'flb-empty' },
+              props.error || t('ops.loading'),
+            ),
+          )
+        }
+        const summary = data.summary || {}
+        const stats = summary.stats || {}
+        const events = data.events || []
+        const active = events.filter((event) => !['recovered', 'closed'].includes(event.state))
+        const visible = props.filter === 'active' ? active : events
+        const selected =
+          events.find((event) => event.eventId === props.selectedId) ||
+          visible[0] ||
+          events[0] ||
+          null
+        const detail =
+          props.detail && props.detail.eventId === (selected && selected.eventId)
+            ? props.detail
+            : null
+        const stateLabel = (state) => {
+          const key = 'ops.state.' + state
+          const value = t(key)
+          return value === key ? state : value
+        }
+        const labeled = (prefix, value) => {
+          const key = prefix + value
+          const text = t(key)
+          return text === key ? value : text
+        }
+        const stat = (label, value) =>
+          h(
+            'div',
+            { className: 'flb-ops-stat', key: label },
+            h('div', { className: 'flb-ops-stat-value' }, String(value)),
+            h('div', { className: 'flb-ops-stat-label' }, label),
+          )
+        const busy =
+          props.busy && props.busy.eventId === (selected && selected.eventId)
+            ? props.busy.message
+            : ''
+        const actionButton = (event, label, endpoint, extra) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'flb-card-action',
+              key: endpoint + label,
+              disabled: Boolean(props.busy && props.busy.eventId),
+              onClick: () => props.onAction(event, endpoint, extra || {}),
+            },
+            label,
+          )
+        const actionRow = (event) => {
+          const items = []
+          if (event.state === 'awaiting_decision') {
+            items.push(actionButton(event, t('ops.approve'), 'ops-decide', { decision: 'approve' }))
+            items.push(actionButton(event, t('ops.decline'), 'ops-decide', { decision: 'decline' }))
+          }
+          if (event.state !== 'closed') {
+            items.push(actionButton(event, t('ops.close'), 'ops-close', {}))
+          }
+          if (
+            !event.fixRequirementId &&
+            detail &&
+            detail.data &&
+            detail.data.diagnosis &&
+            ['recovered', 'unresolved'].includes(event.state)
+          ) {
+            items.push(actionButton(event, t('ops.requestFix'), 'ops-request-fix', {}))
+          }
+          return items.length === 0 ? null : h('div', { className: 'flb-ops-actions' }, items)
+        }
+        const detailBody = (event) => {
+          if (!detail) return h('div', { className: 'flb-empty' }, t('ops.loading'))
+          if (detail.error) return h('div', { className: 'flb-error' }, detail.error)
+          const value = detail.data || {}
+          const diagnosis = value.diagnosis || event.diagnosis || null
+          const attempts = value.attempts || []
+          const observations = value.observations || []
+          const resource = value.resource || {}
+          const proposed = diagnosis && diagnosis.proposedAction
+          return h(
+            'section',
+            { className: 'flb-ops-detail-pane' },
+            h(
+              'div',
+              { className: 'flb-ops-detail-head' },
+              h(
+                Chip,
+                { tone: OPS_SEVERITY_TONE[event.severity] || 'idle' },
+                t('ops.severity.' + event.severity),
+              ),
+              h(Chip, { tone: OPS_STATE_TONE[event.state] || 'idle' }, stateLabel(event.state)),
+              h('strong', null, event.title),
+            ),
+            h(Kv, { label: t('ops.resource') }, resource.label || event.resourceLabel),
+            h(Kv, { label: t('ops.check') }, event.checkId),
+            h(Kv, { label: t('ops.opened') }, formatMoment(event.openedAt)),
+            h(Kv, { label: t('ops.updated') }, formatMoment(event.updatedAt)),
+            event.recoveredAt
+              ? h(Kv, { label: t('ops.recoveredAt') }, formatMoment(event.recoveredAt))
+              : null,
+            event.fixRequirementId ? h(Kv, { label: t('ops.fix') }, event.fixRequirementId) : null,
+            h(
+              Section,
+              { title: t('ops.impact') },
+              h('div', null, event.impact || t('ops.noImpact')),
+            ),
+            diagnosis
+              ? h(
+                  Section,
+                  { title: t('ops.proposed') },
+                  h(
+                    'div',
+                    null,
+                    proposed
+                      ? proposed.actionId + ' ' + JSON.stringify(proposed.params || {})
+                      : t('ops.noAction'),
+                  ),
+                  h('div', { className: 'flb-muted' }, diagnosis.summary || ''),
+                )
+              : null,
+            diagnosis && diagnosis.facts && diagnosis.facts.length > 0
+              ? h(
+                  Section,
+                  { title: t('ops.facts') },
+                  h(BulletList, { items: diagnosis.facts, empty: '—' }),
+                )
+              : null,
+            diagnosis && diagnosis.hypotheses && diagnosis.hypotheses.length > 0
+              ? h(
+                  Section,
+                  { title: t('ops.hypotheses') },
+                  h(BulletList, {
+                    items: diagnosis.hypotheses.map(
+                      (item) => `${item.statement}（${item.confidence}）`,
+                    ),
+                    empty: '—',
+                  }),
+                )
+              : null,
+            h(
+              Section,
+              { title: t('ops.attempts') },
+              attempts.length === 0
+                ? h('div', { className: 'flb-muted' }, t('ops.noAttempts'))
+                : attempts.map((attempt) =>
+                    h(
+                      'div',
+                      { className: 'flb-ops-obs', key: attempt.actionId },
+                      h(
+                        'div',
+                        null,
+                        `${attempt.actionDefId} · ${labeled('ops.attempt.', attempt.state)}${
+                          attempt.exitCode === null
+                            ? ''
+                            : ' · ' + t('ops.exit') + ' ' + attempt.exitCode
+                        }`,
+                      ),
+                      h('div', { className: 'flb-ops-evidence' }, attempt.authorizationSource),
+                      attempt.detail
+                        ? h('div', { className: 'flb-ops-note' }, attempt.detail)
+                        : null,
+                      attempt.evidencePath
+                        ? h('div', { className: 'flb-ops-evidence' }, attempt.evidencePath)
+                        : null,
+                    ),
+                  ),
+            ),
+            h(
+              Section,
+              { title: t('ops.observations') },
+              observations.length === 0
+                ? h('div', { className: 'flb-muted' }, '—')
+                : observations.map((item) =>
+                    h(
+                      'div',
+                      { className: 'flb-ops-obs', key: String(item.seq) },
+                      h(
+                        'div',
+                        null,
+                        `${formatMoment(item.at)} · ${labeled('ops.obs.', item.kind)}`,
+                      ),
+                      h('div', null, item.summary),
+                      item.evidencePath
+                        ? h('div', { className: 'flb-ops-evidence' }, item.evidencePath)
+                        : null,
+                    ),
+                  ),
+            ),
+            actionRow(event),
+            busy ? h('div', { className: 'flb-ops-note' }, busy) : null,
+            event.humanInvolved
+              ? h(
+                  'div',
+                  { className: 'flb-ops-note' },
+                  `${t('ops.humanNote')}：${value.event ? value.event.humanReason : ''}`,
+                )
+              : null,
+          )
+        }
+        const monitor = summary.monitor || null
+        const monitorStatus = monitor && monitor.enabled ? monitor.status || 'idle' : 'idle'
+        const monitorStatusKey = 'ops.monitor.' + monitorStatus
+        const monitorStatusLabel =
+          t(monitorStatusKey) === monitorStatusKey ? monitorStatus : t(monitorStatusKey)
+        const monitorHost = (monitor && monitor.host) || {}
+        const monitorSources = (monitor && monitor.sources) || {}
+        const monitorHeartbeat = (monitor && monitor.heartbeat) || {}
+        const heartbeatState = !monitorHeartbeat.configured
+          ? t('ops.monitor.heartbeatNever')
+          : monitorHeartbeat.at
+            ? monitorHeartbeat.ok
+              ? t('ops.monitor.heartbeatOk', { time: formatMoment(monitorHeartbeat.at) })
+              : t('ops.monitor.heartbeatFail')
+            : t('ops.monitor.heartbeatPending')
+        const monitorBar = !monitor
+          ? null
+          : !monitor.enabled
+            ? h(
+                'div',
+                { className: 'flb-ops-monitor', 'data-status': 'idle' },
+                h(Chip, { tone: 'idle' }, t('ops.monitor')),
+                h('span', { className: 'flb-muted' }, t('ops.monitor.disabled')),
+              )
+            : h(
+                'div',
+                { className: 'flb-ops-monitor', 'data-status': monitorStatus },
+                h(
+                  'div',
+                  { className: 'flb-ops-monitor-head' },
+                  h(Chip, { tone: OPS_MONITOR_TONE[monitorStatus] || 'idle' }, t('ops.monitor')),
+                  h('strong', null, monitorStatusLabel),
+                  h(
+                    'span',
+                    { className: 'flb-muted' },
+                    monitor.lastScanAt
+                      ? t('ops.monitor.last', { time: formatMoment(monitor.lastScanAt) })
+                      : t('ops.monitor.never'),
+                  ),
+                  h(
+                    'span',
+                    { className: 'flb-muted' },
+                    `${t('ops.alert')}：${summary.alerts && summary.alerts.webhook ? t('ops.alert.on') : t('ops.alert.off')}`,
+                  ),
+                ),
+                h(
+                  'div',
+                  { className: 'flb-ops-monitor-metrics' },
+                  h('span', null, t('ops.monitor.cpu', { value: monitorHost.cpuPercent || 0 })),
+                  h(
+                    'span',
+                    null,
+                    t('ops.monitor.memory', { value: monitorHost.memoryUsedPercent || 0 }),
+                  ),
+                  h('span', null, t('ops.monitor.load', { value: monitorHost.load1 || 0 })),
+                  h('span', null, t('ops.monitor.issues', { count: monitor.issues || 0 })),
+                  h(
+                    'span',
+                    null,
+                    t('ops.monitor.sources', {
+                      processes: monitorSources.processes || 0,
+                      latency: monitorSources.latency || 0,
+                      logs: monitorSources.logs || 0,
+                      alerts: monitorSources.alerts || 0,
+                      checks: monitorSources.checks || 0,
+                    }),
+                  ),
+                  h(
+                    'span',
+                    null,
+                    t('ops.monitor.providers', {
+                      ids: (monitor.providers || []).join(', ') || '—',
+                    }),
+                  ),
+                  h('span', null, t('ops.monitor.heartbeat', { state: heartbeatState })),
+                ),
+                monitor.summary
+                  ? h('div', { className: 'flb-ops-monitor-summary' }, monitor.summary)
+                  : null,
+                monitor.error ? h('div', { className: 'flb-error' }, monitor.error) : null,
+              )
+        return h(
+          'main',
+          { className: 'flb-main-pane' },
+          h(
+            'div',
+            { className: 'flb-ops-head' },
+            h('h2', { className: 'flb-hier-title' }, t('ops.title')),
+            h('div', { className: 'flb-wb-sub' }, t('ops.subtitle')),
+            h(
+              'div',
+              { className: 'flb-toolbar' },
+              ['all', 'active'].map((key) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    key,
+                    className: 'flb-filter',
+                    'aria-pressed': props.filter === key,
+                    onClick: () => props.onFilter(key),
+                  },
+                  t('ops.' + key),
+                ),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'flb-ops-stats' },
+            stat(t('ops.total'), stats.total || 0),
+            stat(t('ops.active'), stats.active || 0),
+            stat(t('ops.awaiting'), stats.awaitingDecision || 0),
+            stat(t('ops.recovered'), stats.recovered || 0),
+            stat(t('ops.unresolved'), stats.unresolved || 0),
+            stat(t('ops.human'), stats.humanInvolved || 0),
+          ),
+          monitorBar,
+          events.length === 0
+            ? h(
+                'div',
+                { className: 'flb-empty flb-empty-large' },
+                h('div', null, t('ops.empty')),
+                h('div', { className: 'flb-muted' }, t('ops.emptyHint')),
+              )
+            : visible.length === 0
+              ? h('div', { className: 'flb-empty' }, t('ops.noEvents'))
+              : h(
+                  'div',
+                  { className: 'flb-ops-grid' },
+                  h(
+                    'div',
+                    { className: 'flb-ops-list' },
+                    visible.map((event) =>
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          key: event.eventId,
+                          className: 'flb-ops-card',
+                          'data-selected': String(selected && selected.eventId === event.eventId),
+                          onClick: () => props.onSelect(event.eventId),
+                        },
+                        h(
+                          'div',
+                          { className: 'flb-ops-card-head' },
+                          h(
+                            Chip,
+                            { tone: OPS_SEVERITY_TONE[event.severity] || 'idle' },
+                            t('ops.severity.' + event.severity),
+                          ),
+                          h(
+                            Chip,
+                            { tone: OPS_STATE_TONE[event.state] || 'idle' },
+                            stateLabel(event.state),
+                          ),
+                        ),
+                        h('div', { className: 'flb-ops-card-title' }, event.title),
+                        h(
+                          'div',
+                          { className: 'flb-ops-card-impact' },
+                          event.impact || event.lastObservation || '',
+                        ),
+                        h(
+                          'div',
+                          { className: 'flb-ops-card-meta' },
+                          `${event.resourceLabel} · ${formatMoment(event.updatedAt)}`,
+                        ),
+                      ),
+                    ),
+                  ),
+                  selected
+                    ? detailBody(selected)
+                    : h('div', { className: 'flb-empty' }, t('ops.empty')),
+                ),
+        )
+      }
+
+      function BoardView(props) {
+        const [state, setState] = React.useState({ phase: 'loading', board: null, error: '' })
+        const [query, setQuery] = React.useState('')
+        const [appliedQuery, setAppliedQuery] = React.useState('')
+        const [view, setView] = React.useState('hierarchy')
+        const [filter, setFilter] = React.useState('all')
+        const [workMode, setWorkMode] = React.useState('list')
+        const [treeOpen, setTreeOpen] = React.useState(true)
+        const [expanded, setExpanded] = React.useState('')
+        const [selection, setSelection] = React.useState({
+          kind: 'requirement',
+          reqId: '',
+          taskId: '',
+          issueId: '',
+        })
+        const [tab, setTab] = React.useState('overview')
+        const [mobileDetail, setMobileDetail] = React.useState(false)
+        const [fullDetail, setFullDetail] = React.useState(false)
+        const [auto, setAuto] = React.useState(true)
+        const [action, setAction] = React.useState({ busy: '', message: '' })
+        const [retry, setRetry] = React.useState({ key: '', busy: false, message: '' })
+        const [reqDetail, setReqDetail] = React.useState({
+          phase: 'idle',
+          reqId: '',
+          data: null,
+          error: '',
+        })
+        const [taskDetail, setTaskDetail] = React.useState({
+          phase: 'idle',
+          key: '',
+          data: null,
+          error: '',
+        })
+        const [detailNonce, setDetailNonce] = React.useState(0)
+        const [taskNonce, setTaskNonce] = React.useState(0)
+        const [ops, setOps] = React.useState({ phase: 'idle', data: null, error: '' })
+        const [opsSelected, setOpsSelected] = React.useState('')
+        const [opsDetail, setOpsDetail] = React.useState({
+          phase: 'idle',
+          eventId: '',
+          data: null,
+          error: '',
+        })
+        const [opsFilter, setOpsFilter] = React.useState('active')
+        const [opsBusy, setOpsBusy] = React.useState({ eventId: '', message: '' })
+        const [opsNonce, setOpsNonce] = React.useState(0)
+        const inflight = React.useRef(null)
+        const reqInflight = React.useRef(null)
+        const taskInflight = React.useRef(null)
+
+        const load = React.useCallback(() => {
+          if (inflight.current) inflight.current.abort()
+          const controller = typeof AbortController === 'function' ? new AbortController() : null
+          inflight.current = controller
+          setState((previous) => ({
+            phase: previous.board ? 'refreshing' : 'loading',
+            board: previous.board,
+            error: '',
+          }))
+          read(
+            'board',
+            { query: appliedQuery, limit: 100 },
+            controller ? controller.signal : undefined,
+          )
+            .then((board) => {
+              if (controller && controller.signal.aborted) return
+              setState({ phase: 'ready', board, error: '' })
+            })
+            .catch((error) => {
+              if (controller && controller.signal.aborted) return
+              setState((previous) => ({
+                phase: 'error',
+                board: previous.board,
+                error: error.message || String(error),
+              }))
+            })
+        }, [appliedQuery])
+
+        React.useEffect(() => {
+          const timer = setTimeout(() => setAppliedQuery(query.trim()), 300)
+          return () => clearTimeout(timer)
+        }, [query])
+
+        React.useEffect(() => {
+          load()
+        }, [load])
+
+        React.useEffect(() => {
+          if (!auto) return
+          const timer = setInterval(load, 15000)
+          return () => clearInterval(timer)
+        }, [auto, load])
+
+        const board = state.board
+        const requirements = board ? board.requirements || [] : []
+        const allTasks = board ? board.tasks || [] : []
+        const allIssues = board ? board.issues || [] : []
+        const visible = requirements.filter((requirement) => {
+          if (filter === 'active')
+            return !TERMINAL[requirement.status] && requirement.status !== 'draft'
+          if (filter === 'attention') {
+            return (
+              ['plan_proposed', 'blocked', 'executing'].includes(requirement.status) ||
+              allIssues.some((issue) => issue.reqId === requirement.reqId)
+            )
+          }
+          if (filter === 'draft') return requirement.status === 'draft'
+          return true
+        })
+        const requirementIssues = (reqId) => allIssues.filter((issue) => issue.reqId === reqId)
+        const selectedRequirement =
+          requirements.find((requirement) => requirement.reqId === selection.reqId) || null
+        const selectedTasks = selectedRequirement ? wbTasksOf(allTasks, selectedRequirement) : []
+        const selectedTask = selection.taskId
+          ? allTasks.find(
+              (task) => task.taskId === selection.taskId && task.reqId === selection.reqId,
+            ) || null
+          : null
+        const selectedIssue = selection.issueId
+          ? allIssues.find((issue) => issue.issueId === selection.issueId) || null
+          : null
+        const activeTask =
+          selectedTask ||
+          (selectedIssue && selectedIssue.taskId
+            ? allTasks.find(
+                (task) =>
+                  task.taskId === selectedIssue.taskId && task.reqId === selectedIssue.reqId,
+              ) || null
+            : null)
+        const activeRequirement =
+          selectedRequirement ||
+          (activeTask
+            ? requirements.find((requirement) => requirement.reqId === activeTask.reqId) || null
+            : null)
+
+        React.useEffect(() => {
+          if (selection.reqId || requirements.length === 0) return
+          setSelection({
+            kind: 'requirement',
+            reqId: requirements[0].reqId,
+            taskId: '',
+            issueId: '',
+          })
+          setExpanded(requirements[0].reqId)
+        }, [selection.reqId, requirements.length])
+
+        React.useEffect(() => {
+          if (!activeRequirement) return
+          if (reqDetail.reqId === activeRequirement.reqId && reqDetail.phase === 'ready') return
+          if (reqInflight.current) reqInflight.current.abort()
+          const controller = typeof AbortController === 'function' ? new AbortController() : null
+          reqInflight.current = controller
+          setReqDetail({ phase: 'loading', reqId: activeRequirement.reqId, data: null, error: '' })
+          read(
+            'detail',
+            { reqId: activeRequirement.reqId },
+            controller ? controller.signal : undefined,
+          )
+            .then((data) =>
+              setReqDetail({ phase: 'ready', reqId: activeRequirement.reqId, data, error: '' }),
+            )
+            .catch((error) => {
+              if (controller && controller.signal.aborted) return
+              setReqDetail({
+                phase: 'error',
+                reqId: activeRequirement.reqId,
+                data: null,
+                error: error.message || String(error),
+              })
+            })
+        }, [activeRequirement && activeRequirement.reqId, detailNonce])
+
+        React.useEffect(() => {
+          const task = activeTask
+          if (!task) {
+            setTaskDetail({ phase: 'idle', key: '', data: null, error: '' })
+            return
+          }
+          const key = task.reqId + ':' + task.planVersion + ':' + task.taskId
+          if (taskDetail.key === key && taskDetail.phase === 'ready') return
+          if (taskInflight.current) taskInflight.current.abort()
+          const controller = typeof AbortController === 'function' ? new AbortController() : null
+          taskInflight.current = controller
+          setTaskDetail({ phase: 'loading', key, data: null, error: '' })
+          read(
+            'task',
+            { reqId: task.reqId, taskId: task.taskId, planVersion: task.planVersion },
+            controller ? controller.signal : undefined,
+          )
+            .then((data) => setTaskDetail({ phase: 'ready', key, data, error: '' }))
+            .catch((error) => {
+              if (controller && controller.signal.aborted) return
+              setTaskDetail({
+                phase: 'error',
+                key,
+                data: null,
+                error: error.message || String(error),
+              })
+            })
+        }, [
+          activeTask && activeTask.reqId,
+          activeTask && activeTask.taskId,
+          activeTask && activeTask.planVersion,
+          taskNonce,
+        ])
+
+        React.useEffect(() => {
+          if (view !== 'ops') return undefined
+          let alive = true
+          const loadOps = () => {
+            read('ops', {}, undefined)
+              .then((value) => {
+                if (!alive) return
+                setOps({ phase: 'ready', data: value, error: '' })
+                setOpsSelected(
+                  (current) =>
+                    current || (value.events && value.events[0] ? value.events[0].eventId : ''),
+                )
+              })
+              .catch((error) => {
+                if (!alive) return
+                setOps((previous) => ({
+                  phase: 'error',
+                  data: previous.data,
+                  error: error.message || String(error),
+                }))
+              })
+          }
+          loadOps()
+          const timer = auto ? setInterval(loadOps, 15000) : null
+          return () => {
+            alive = false
+            if (timer) clearInterval(timer)
+          }
+        }, [view, auto, opsNonce])
+
+        React.useEffect(() => {
+          if (view !== 'ops' || !opsSelected) return undefined
+          let alive = true
+          setOpsDetail({ phase: 'loading', eventId: opsSelected, data: null, error: '' })
+          read('ops-detail', { eventId: opsSelected }, undefined)
+            .then((value) => {
+              if (alive)
+                setOpsDetail({ phase: 'ready', eventId: opsSelected, data: value, error: '' })
+            })
+            .catch((error) => {
+              if (alive)
+                setOpsDetail({
+                  phase: 'error',
+                  eventId: opsSelected,
+                  data: null,
+                  error: error.message || String(error),
+                })
+            })
+          return () => {
+            alive = false
+          }
+        }, [view, opsSelected, opsNonce])
+
+        const openRequirement = (reqId) => {
+          setSelection({ kind: 'requirement', reqId, taskId: '', issueId: '' })
+          setExpanded(reqId)
+          setTab('overview')
+          const narrow = typeof window !== 'undefined' && window.innerWidth <= 820
+          setMobileDetail(!narrow)
+          if (narrow) {
+            setTreeOpen(false)
+            scrollWorkbench()
+          }
+          setFullDetail(false)
+        }
+        const openTask = (reqId, taskId, nextTab) => {
+          setSelection({ kind: 'task', reqId, taskId, issueId: '' })
+          setExpanded(reqId)
+          setTab(nextTab || 'overview')
+          setMobileDetail(true)
+          setFullDetail(false)
+          if (typeof window !== 'undefined' && window.innerWidth <= 820) scrollWorkbench()
+        }
+        const openIssue = (issue) => {
+          setSelection({
+            kind: 'issue',
+            reqId: issue.reqId,
+            taskId: issue.taskId || '',
+            issueId: issue.issueId,
+          })
+          setExpanded(issue.reqId)
+          setTab('overview')
+          setMobileDetail(true)
+          setFullDetail(false)
+          if (typeof window !== 'undefined' && window.innerWidth <= 820) scrollWorkbench()
+        }
+
+        const scrollWorkbench = () => {
+          if (typeof document === 'undefined') return
+          requestAnimationFrame(() => {
+            const node =
+              document.querySelector('.flb-workbench[data-mobile-detail="true"] .flb-side') ||
+              document.querySelector('.flb-workbench')
+            if (node && typeof node.scrollIntoView === 'function')
+              node.scrollIntoView({ block: 'start' })
+          })
+        }
+
+        const runAction = (requirement, endpoint) => {
           if (action.busy) return
           if (endpoint === 'stop') {
             const confirmed =
@@ -3404,80 +6996,50 @@ window.__ModuleLoader__.load({
                 : window.confirm(t('action.stopConfirm'))
             if (!confirmed) return
           }
-          const extra = {}
-          if (endpoint === 'extend-budget') {
-            const raw =
-              typeof window === 'undefined' || typeof window.prompt !== 'function'
-                ? ''
-                : window.prompt(t('action.extendBudgetPrompt'), '1')
-            if (raw === null) return
-            const hours = Number(raw)
-            if (!Number.isFinite(hours) || hours < 0.5 || hours > 24) return
-            extra.seconds = Math.round(hours * 3600)
-          }
-          if (endpoint === 'build') extra.planVersion = requirement.planVersion
-          if (endpoint === 'deploy') {
-            const raw =
-              typeof window === 'undefined' || typeof window.prompt !== 'function'
-                ? ''
-                : window.prompt(t('action.deployPrompt'), 'web')
-            if (raw === null) return
-            const targetProfile = String(raw).trim()
-            if (!targetProfile) return
-            extra.targetProfile = targetProfile
-          }
-          setAction({ reqId: requirement.reqId, busy: endpoint, message: '' })
-          read(endpoint === 'stop' ? 'stop' : endpoint, {
-            reqId: requirement.reqId,
-            sessionId: props.sessionId,
-            ...(endpoint === 'approve' ? { planVersion: requirement.planVersion } : {}),
-            ...(endpoint === 'cancel' ? { reason: t('action.cancelReason') } : {}),
-            ...(endpoint === 'stop' ? { reason: t('action.stopReason') } : {}),
-            ...extra,
-          })
+          const body = actionRequest(t, requirement, endpoint, props.sessionId)
+          if (!body) return
+          setAction({ busy: endpoint, message: '' })
+          read(endpoint, body)
             .then(() => {
-              const key =
-                endpoint === 'approve'
-                  ? 'approved'
-                  : endpoint === 'advance'
-                    ? 'advanced'
-                    : endpoint === 'plan'
-                      ? 'planned'
-                      : endpoint === 'verify'
-                        ? 'verified'
-                          : endpoint === 'requeue'
-                            ? 'requeued'
-                            : endpoint === 'extend-budget'
-                              ? 'extendedBudget'
-                            : endpoint === 'grant-rounds'
-                              ? 'grantedRounds'
-                            : endpoint === 'retry-analysis'
-                              ? 'retryAnalysisQueued'
-                            : endpoint === 'build'
-                              ? 'built'
-                            : endpoint === 'deploy'
-                              ? 'deployed'
-                              : endpoint === 'stop'
-                                ? 'stopped'
-                                : 'cancelled'
-              setAction({ reqId: requirement.reqId, busy: '', message: t(`action.${key}`) })
+              const key = actionSuccessKey(endpoint)
+              setAction({ busy: '', message: t(`action.${key}`) })
               load()
               setDetailNonce((value) => value + 1)
             })
-            .catch((error) => {
-              setAction({
-                reqId: requirement.reqId,
-                busy: '',
-                message: (error && error.message) || String(error),
-              })
-            })
-        },
-        [action.busy, load, props.sessionId, read, t],
-      )
+            .catch((error) => setAction({ busy: '', message: error.message || String(error) }))
+        }
 
-      const retryTask = React.useCallback(
-        (task) => {
-          const key = `${task.reqId}:${task.planVersion}:${task.taskId}`
+        const runOpsAction = (event, endpoint, extra) => {
+          if (opsBusy.eventId) return
+          const confirmKey =
+            endpoint === 'ops-decide'
+              ? extra.decision === 'approve'
+                ? 'ops.approveConfirm'
+                : 'ops.declineConfirm'
+              : endpoint === 'ops-close'
+                ? 'ops.closeConfirm'
+                : ''
+          if (confirmKey) {
+            const confirmed =
+              typeof window === 'undefined' || typeof window.confirm !== 'function'
+                ? false
+                : window.confirm(t(confirmKey))
+            if (!confirmed) return
+          }
+          setOpsBusy({ eventId: event.eventId, message: '' })
+          const body = { eventId: event.eventId, sessionId: props.sessionId, ...extra }
+          read(endpoint, body)
+            .then(() => {
+              setOpsBusy({ eventId: event.eventId, message: t('ops.done') })
+              setOpsNonce((value) => value + 1)
+            })
+            .catch((error) =>
+              setOpsBusy({ eventId: event.eventId, message: error.message || String(error) }),
+            )
+        }
+
+        const retryTask = (task) => {
+          const key = task.reqId + ':' + task.planVersion + ':' + task.taskId
           if (retry.busy && retry.key === key) return
           setRetry({ key, busy: true, message: '' })
           read('retry', {
@@ -3493,2781 +7055,400 @@ window.__ModuleLoader__.load({
               setTaskNonce((value) => value + 1)
             })
             .catch((error) => {
-              setRetry({
-                key,
-                busy: false,
-                message: (error && error.message) || String(error),
-              })
+              setRetry({ key, busy: false, message: error.message || String(error) })
             })
-        },
-        [retry, load, props.sessionId, read, t],
-      )
-
-      React.useEffect(() => {
-        if (!openReq) {
-          setDetail({ phase: 'idle', reqId: '', data: null, error: '' })
-          return undefined
         }
-        if (detailInflight.current) detailInflight.current.abort()
-        const controller = typeof AbortController === 'function' ? new AbortController() : null
-        detailInflight.current = controller
-        setDetail({ phase: 'loading', reqId: openReq, data: null, error: '' })
-        read('detail', { reqId: openReq }, controller ? controller.signal : undefined)
-          .then((data) => {
-            if (controller && controller.signal.aborted) return
-            setDetail({ phase: 'ready', reqId: openReq, data, error: '' })
-          })
-          .catch((error) => {
-            if (controller && controller.signal.aborted) return
-            if (controller) controller.abort()
-            setDetail((previous) => ({
-              phase: 'error',
-              reqId: openReq,
-              data: previous.data,
-              error: (error && error.message) || String(error),
-            }))
-          })
-        return () => {
-          if (controller) controller.abort()
-        }
-      }, [openReq, detailNonce, read])
 
-      const openTask = React.useCallback((task) => {
-        setTaskOpen(task)
-        setView('tasks')
-      }, [])
-
-      const openRequirement = React.useCallback((reqId) => {
-        setTaskOpen(null)
-        setView('requirements')
-        setFilter('all')
-        setOpenReq(reqId)
-      }, [])
-
-      const openIssue = React.useCallback(
-        (issue) => {
-          if (issue.taskId) {
-            const task = (state.board ? state.board.tasks : []).find(
-              (candidate) => candidate.reqId === issue.reqId && candidate.taskId === issue.taskId,
+        const attention = (() => {
+          const items = []
+          const seen = new Set()
+          for (const requirement of requirements) {
+            const reqIssues = requirementIssues(requirement.reqId).filter((issue) =>
+              ['blocking', 'attention'].includes(issue.severity),
             )
-            if (task) {
-              openTask(task)
-              return
+            for (const issue of reqIssues) {
+              const key = issue.taskId
+                ? requirement.reqId + ':task:' + issue.taskId
+                : requirement.reqId + ':req:' + issue.issueId
+              if (seen.has(key)) continue
+              seen.add(key)
+              items.push({
+                key: 'issue:' + issue.issueId,
+                reqId: requirement.reqId,
+                taskId: issue.taskId || '',
+                kind: 'issue',
+                kindLabel: t(`issue.${issue.kind}`),
+                title: issue.title,
+                detail: issue.detail || '',
+                tone: ISSUE_TONES[issue.severity] || 'warn',
+                issue,
+              })
             }
           }
-          openRequirement(issue.reqId)
-        },
-        [openRequirement, openTask, state.board],
-      )
+          return items
+        })()
 
-      React.useEffect(() => {
-        if (!taskOpen) {
-          setTaskDetail({ phase: 'idle', data: null, error: '' })
-          return undefined
-        }
-        let active = true
-        let controller = typeof AbortController === 'function' ? new AbortController() : null
-        const loadTask = () => {
-          read(
-            'task',
-            { reqId: taskOpen.reqId, planVersion: taskOpen.planVersion, taskId: taskOpen.taskId },
-            controller ? controller.signal : undefined,
-          )
-            .then((data) => {
-              if (active) setTaskDetail({ phase: 'ready', data, error: '' })
-            })
-            .catch((error) => {
-              if (active) setTaskDetail({ phase: 'error', data: null, error: (error && error.message) || String(error) })
-            })
-        }
-        loadTask()
-        const timer = setInterval(loadTask, 2000)
-        return () => {
-          active = false
-          clearInterval(timer)
-          if (controller) controller.abort()
-        }
-      }, [taskOpen, taskNonce])
-
-      const board = state.board
-      const requirements = board ? board.requirements : []
-      const allTasks = board ? board.tasks : []
-      const allIssues = board ? board.issues : []
-      const requirementById = new Map(requirements.map((requirement) => [requirement.reqId, requirement]))
-
-      const visible = requirements.filter((requirement) => {
-        if (filter === 'active') return !TERMINAL[requirement.status]
-        if (filter === 'accepted') return requirement.status === 'accepted'
-        return true
-      })
-      const tasks = allTasks
-        .sort((left, right) => {
-          const order = {
-            awaiting_input: 0,
-            running: 1,
-            failed: 2,
-            blocked: 3,
-            awaiting_user: 4,
-            pending: 5,
-            delivered: 6,
+        const allViews = [
+          ['hierarchy', t('wb.hierarchy')],
+          ['tasks', t('wb.allTasks')],
+          ['issues', t('wb.attention')],
+          ['ops', t('nav.ops')],
+        ]
+        const body = () => {
+          if (!board) {
+            return state.error
+              ? h('div', { className: 'flb-error', role: 'alert' }, state.error)
+              : h('div', { className: 'flb-empty' }, t('wb.loading'))
           }
-          const byState = (order[left.state] ?? 9) - (order[right.state] ?? 9)
-          if (byState !== 0) return byState
-          return `${left.reqId}:${left.taskId}`.localeCompare(`${right.reqId}:${right.taskId}`)
-        })
-      const filteredTasks =
-        taskFilter === 'all' ? tasks : tasks.filter((task) => task.state === taskFilter)
-      const issues = allIssues
-      const filteredIssues =
-        issueFilter === 'all' ? issues : issues.filter((issue) => issue.severity === issueFilter)
-      const busy = state.phase === 'loading' || state.phase === 'refreshing'
-      const queryActive = Boolean(board && board.query)
-      const noResults = Boolean(board && queryActive && board.requirements.length === 0)
-      const canRetryTask = (task) => {
-        const requirement = requirementById.get(task.reqId)
-        return Boolean(
-          requirement &&
-            !TERMINAL[requirement.status] &&
-            requirement.approval === 'approved' &&
-            (requirement.remainingRounds === null ||
-              requirement.remainingRounds === undefined ||
-              requirement.remainingRounds > 0) &&
-            isFailureState(task.state),
-        )
-      }
-      const counts = {
-        requirements: requirements.length,
-        tasks: tasks.length,
-        issues: issues.length,
-      }
-
-      const tabs = [
-        { key: 'overview', label: t('nav.overview'), count: board ? board.summary.active : 0 },
-        { key: 'requirements', label: t('nav.requirements'), count: counts.requirements },
-        { key: 'tasks', label: t('nav.tasks'), count: counts.tasks },
-        { key: 'issues', label: t('nav.issues'), count: counts.issues },
-      ]
-
-      return h(
-        'section',
-        { className: 'flb-root', 'data-dsh-plugin': 'forgeloop', 'aria-label': t('page.title') },
-        h('style', null, BOARD_CSS),
-        h(
-          'header',
-          { className: 'flb-head' },
-          h(
-            'div',
-            { className: 'flb-head-main' },
-            h('span', { className: 'flb-title' }, t('page.title')),
-            board
-              ? h(
-                  'span',
-                  { className: 'flb-sub', 'aria-live': 'polite' },
-                  t('page.subtitle', { project: board.project, time: formatTime(board.generatedAt) }),
-                  ` · ${t('page.source')}`,
-                )
-              : null,
-          ),
-          h(
-            'div',
-            { className: 'flb-head-tools' },
-            h(
-              'label',
-              { className: 'flb-search' },
-              h('span', { className: 'flb-search-icon', 'aria-hidden': 'true' }, '⌕'),
-              h('input', {
-                type: 'search',
-                value: query,
-                placeholder: t('search.placeholder'),
-                'aria-label': t('search.label'),
-                title: t('overview.searchScope'),
-                onChange: (event) => setQuery(event.target.value),
-              }),
-              query
-                ? h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'flb-search-clear',
-                      onClick: () => setQuery(''),
-                      title: t('search.clear'),
-                    },
-                    '×',
-                  )
-                : null,
-            ),
-            h(
-              'button',
-              { type: 'button', className: 'flb-refresh', onClick: load, disabled: busy },
-              busy ? t('page.refreshing') : t('page.refresh'),
-            ),
-          ),
-          h(
-            'nav',
-            { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
-            tabs.map((tab) =>
+          if (view === 'ops') {
+            return h(OpsPane, {
+              t,
+              data: ops.data,
+              error: ops.error,
+              detail: opsDetail,
+              selectedId: opsSelected,
+              filter: opsFilter,
+              busy: opsBusy,
+              onSelect: setOpsSelected,
+              onFilter: setOpsFilter,
+              onAction: runOpsAction,
+            })
+          }
+          if (requirements.length === 0) {
+            if (board.query) {
+              return h(
+                'div',
+                { className: 'flb-empty flb-empty-large' },
+                h('div', null, t('wb.noMatch')),
+                h('div', { className: 'flb-muted' }, t('search.noResults', { query: board.query })),
+                h(
+                  'button',
+                  { type: 'button', className: 'flb-card-action', onClick: () => setQuery('') },
+                  t('search.clear'),
+                ),
+              )
+            }
+            return h(
+              'div',
+              { className: 'flb-empty flb-empty-large' },
+              h('div', null, t('page.empty')),
+              h('div', { className: 'flb-muted' }, t('overview.next.submit')),
+            )
+          }
+          if (visible.length === 0 && view !== 'issues') {
+            return h(
+              'div',
+              { className: 'flb-empty flb-empty-large' },
+              h('div', null, t('wb.noMatch')),
               h(
                 'button',
                 {
                   type: 'button',
-                  key: tab.key,
-                  role: 'tab',
-                  className: 'flb-tab',
-                  'aria-selected': view === tab.key,
-                  onClick: () => setView(tab.key),
+                  className: 'flb-card-action',
+                  onClick: () => {
+                    setQuery('')
+                    setFilter('all')
+                  },
                 },
-                tab.label,
-                h('span', { className: 'flb-tab-count' }, String(tab.count)),
+                t('wb.clear'),
               ),
-            ),
-          ),
-          board && queryActive
-            ? h(
-                'div',
-                { className: 'flb-search-meta' },
-                t('search.results', {
-                  query: board.query,
-                  count: board.summary.requirements,
-                  truncated: board.truncated ? t('search.truncated', { limit: board.limit }) : '',
-                }),
-                h('span', { className: 'flb-muted' }, t('overview.searchScope')),
-              )
-            : null,
-        ),
-        h(
-          'div',
-          { className: 'flb-body' },
-          state.error
-            ? h(
-                'div',
-                { className: 'flb-error', role: 'alert' },
-                h('span', null, state.error),
-                h('button', { type: 'button', className: 'flb-refresh', onClick: load }, t('page.retry')),
-              )
-            : null,
-          !board && state.phase === 'loading' ? h('div', { className: 'flb-empty' }, t('page.loading')) : null,
-          board && noResults
-            ? h(
-                'div',
-                { className: 'flb-empty flb-empty-large' },
-                h('div', null, t('search.noResults', { query: board.query })),
-                h('div', { className: 'flb-muted' }, t('overview.searchScope')),
-                h(
-                  'button',
-                  { type: 'button', className: 'flb-refresh', onClick: () => setQuery('') },
-                  t('search.clear'),
-                ),
-              )
-            : null,
-          board && !noResults && board.summary.requirements === 0 && !queryActive
-            ? h(
-                'div',
-                { className: 'flb-empty flb-empty-large' },
-                h('div', null, t('page.empty')),
-                h('div', { className: 'flb-muted' }, t('overview.next.submit')),
-                h(BulletList, {
-                  items: [
-                    t('overview.feature.nav'),
-                    t('overview.feature.search'),
-                    t('overview.feature.detail'),
-                    t('overview.feature.debug'),
-                    t('overview.feature.actions'),
-                  ],
-                }),
-                h('div', { className: 'flb-muted' }, t('overview.boundarySource')),
-                h('div', { className: 'flb-muted' }, t('overview.boundaryHeartbeat')),
-                h('div', { className: 'flb-muted' }, t('overview.boundaryStop')),
-                h('div', { className: 'flb-muted' }, t('overview.boundaryAccept')),
-                h('div', { className: 'flb-muted' }, t('overview.boundaryClarification')),
-                h('div', { className: 'flb-muted' }, t('overview.boundaryGrant')),
-              )
-            : null,
-          board && !noResults && board.summary.requirements > 0
-            ? view === 'overview'
-              ? h(Overview, {
+            )
+          }
+          return h(
+            'div',
+            {
+              className: 'flb-workbench',
+              'data-mobile-detail': String(mobileDetail),
+              'data-full': String(fullDetail),
+              'data-tree-open': String(treeOpen),
+            },
+            treeOpen
+              ? h(WorkbenchTree, {
                   t,
-                  board,
+                  requirements: visible,
                   tasks: allTasks,
                   issues: allIssues,
+                  selected: selection,
+                  expanded,
+                  onOpenRequirement: openRequirement,
                   onOpenTask: openTask,
                   onOpenIssue: openIssue,
-                  onNavigate: setView,
                 })
-              : view === 'requirements'
+              : null,
+            fullDetail
+              ? null
+              : view === 'hierarchy'
+                ? h(CenterPane, {
+                    t,
+                    requirement: activeRequirement || visible[0] || null,
+                    tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
+                    issues: activeRequirement ? requirementIssues(activeRequirement.reqId) : [],
+                    workMode,
+                    onWorkMode: setWorkMode,
+                    selectedTaskId: selection.taskId,
+                    busy: action.busy,
+                    actionMessage: action.message,
+                    onAction: runAction,
+                    onOpenTask: openTask,
+                    onOpenIssue: openIssue,
+                  })
+                : view === 'tasks'
+                  ? h(AllTasksPane, {
+                      t,
+                      requirements: visible,
+                      tasks: allTasks,
+                      issues: allIssues,
+                      selectedTaskId: selection.taskId,
+                      onOpenRequirement: openRequirement,
+                      onOpenTask: openTask,
+                      onOpenIssue: openIssue,
+                    })
+                  : h(IssuesPane, {
+                      t,
+                      items: attention.filter((item) =>
+                        visible.some((requirement) => requirement.reqId === item.reqId),
+                      ),
+                      onOpen: (item) =>
+                        item.issue ? openIssue(item.issue) : openRequirement(item.reqId),
+                    }),
+            h(DetailPane, {
+              t,
+              read,
+              selection: {
+                ...selection,
+                kind: selectedTask ? 'task' : selectedIssue ? 'issue' : 'requirement',
+                reqId:
+                  (activeRequirement || selectedRequirement || visible[0] || {}).reqId ||
+                  selection.reqId,
+              },
+              requirement: activeRequirement || visible[0] || null,
+              task:
+                selectedTask ||
+                (selectedIssue && selectedIssue.taskId
+                  ? allTasks.find(
+                      (task) =>
+                        task.taskId === selectedIssue.taskId && task.reqId === selectedIssue.reqId,
+                    ) || null
+                  : null),
+              issue: selectedIssue,
+              tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
+              reqDetail,
+              taskDetail,
+              tab,
+              fullDetail,
+              active: tab === 'activity',
+              busy: action.busy,
+              actionMessage: action.message,
+              retry,
+              onOpenRequirement: openRequirement,
+              onOpenTask: openTask,
+              onOpenIssue: openIssue,
+              onTab: setTab,
+              onAction: runAction,
+              onRetry: retryTask,
+              onBack: () => {
+                setMobileDetail(false)
+                setFullDetail(false)
+              },
+              onToggleFull: () => setFullDetail((value) => !value),
+            }),
+          )
+        }
+
+        return h(
+          'section',
+          { className: 'flb-root' },
+          h('style', null, BOARD_CSS),
+          h('style', null, OPS_CSS),
+          h(
+            'header',
+            { className: 'flb-head' },
+            h(
+              'div',
+              { className: 'flb-head-main' },
+              h('span', { className: 'flb-title' }, t('view.label')),
+              h(
+                'span',
+                { className: 'flb-sub' },
+                board
+                  ? t('page.subtitle', {
+                      project: board.project,
+                      time: formatMoment(board.generatedAt),
+                    })
+                  : t('page.loading'),
+              ),
+              h('span', { className: 'flb-sub' }, t('page.source')),
+            ),
+            h(
+              'div',
+              { className: 'flb-head-tools' },
+              h(
+                'label',
+                { className: 'flb-search' },
+                h('span', { className: 'flb-search-icon' }, '⌕'),
+                h('input', {
+                  type: 'search',
+                  value: query,
+                  placeholder: t('search.placeholder'),
+                  'aria-label': t('search.label'),
+                  onChange: (event) => setQuery(event.target.value),
+                }),
+                query
+                  ? h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-search-clear',
+                        onClick: () => setQuery(''),
+                        'aria-label': t('search.clear'),
+                      },
+                      '×',
+                    )
+                  : null,
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-refresh',
+                  onClick: load,
+                  disabled: state.phase === 'loading' || state.phase === 'refreshing',
+                },
+                state.phase === 'refreshing' ? t('page.refreshing') : t('page.refresh'),
+              ),
+              h(
+                'label',
+                { className: 'flb-muted' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: auto,
+                  onChange: (event) => setAuto(event.target.checked),
+                }),
+                ' ' + t('wb.auto'),
+              ),
+            ),
+            h(
+              'nav',
+              { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
+              allViews.map(([key, label]) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    key,
+                    role: 'tab',
+                    className: 'flb-tab',
+                    'aria-selected': view === key,
+                    onClick: () => {
+                      setView(key)
+                      setMobileDetail(false)
+                      setFullDetail(false)
+                    },
+                  },
+                  label,
+                  h(
+                    'span',
+                    { className: 'flb-tab-count' },
+                    key === 'tasks'
+                      ? allTasks.length
+                      : key === 'issues'
+                        ? attention.length
+                        : key === 'ops'
+                          ? ops.data && ops.data.summary && ops.data.summary.stats
+                            ? ops.data.summary.stats.active
+                            : 0
+                          : requirements.length,
+                  ),
+                ),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-tab',
+                  onClick: () => setTreeOpen((value) => !value),
+                  title: t('wb.treeToggle'),
+                },
+                t('wb.tree'),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'flb-search-meta' },
+              query
+                ? h(
+                    'span',
+                    null,
+                    t('search.results', {
+                      query,
+                      count: requirements.length,
+                      truncated:
+                        board && board.truncated
+                          ? t('search.truncated', { limit: board.limit || 50 })
+                          : '',
+                    }),
+                  )
+                : null,
+              view === 'hierarchy'
                 ? h(
                     'div',
-                    null,
-                    h(
-                      'div',
-                      { className: 'flb-toolbar' },
-                      ['all', 'active', 'accepted'].map((key) =>
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            key,
-                            className: 'flb-filter',
-                            'aria-pressed': filter === key,
-                            onClick: () => setFilter(key),
-                          },
-                          t(`filter.${key}`),
-                        ),
+                    { className: 'flb-toolbar' },
+                    ['all', 'active', 'attention', 'draft'].map((key) =>
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          key,
+                          className: 'flb-filter',
+                          'aria-pressed': filter === key,
+                          onClick: () => setFilter(key),
+                        },
+                        t(`filter.requirement.${key}`),
                       ),
-                      h('span', { className: 'flb-muted' }, t('overview.searchScope')),
                     ),
-                    visible.length === 0
-                      ? h('div', { className: 'flb-empty' }, t('empty.requirements'))
-                      : h(
-                          'div',
-                          { className: 'flb-col-grid' },
-                          visible.map((requirement) =>
-                            h(RequirementCard, {
-                              t,
-                              key: requirement.reqId,
-                              requirement,
-                              open: openReq === requirement.reqId,
-                              detail:
-                                detail.reqId === requirement.reqId
-                                  ? detail
-                                  : { phase: 'loading', data: null, error: '' },
-                              tasks: allTasks.filter((task) => task.reqId === requirement.reqId),
-                              onToggle: (reqId) => setOpenReq((previous) => (previous === reqId ? '' : reqId)),
-                              onAction: runAction,
-                              onOpenTask: openTask,
-                              busy: action.reqId === requirement.reqId ? action.busy : '',
-                              actionMessage: action.reqId === requirement.reqId ? action.message : '',
-                            }),
-                          ),
-                        ),
                   )
-                : view === 'tasks'
-                  ? h(
-                      'div',
-                      null,
-                      h(
-                        'div',
-                        { className: 'flb-toolbar' },
-                        ['all', 'running', 'awaiting_input', 'failed', 'blocked', 'awaiting_user', 'delivered', 'pending'].map(
-                          (key) =>
-                            h(
-                              'button',
-                              {
-                                type: 'button',
-                                key,
-                                className: 'flb-filter',
-                                'aria-pressed': taskFilter === key,
-                                onClick: () => setTaskFilter(key),
-                              },
-                              t(`filter.task.${key}`),
-                            ),
-                        ),
-                      ),
-                      filteredTasks.length === 0
-                        ? h('div', { className: 'flb-empty' }, t('empty.tasks'))
-                        : h(
-                            'div',
-                            { className: 'flb-col-grid' },
-                            filteredTasks.map((task) =>
-                              h(TaskCard, {
-                                t,
-                                key: `${task.reqId}:${task.planVersion}:${task.taskId}`,
-                                task,
-                                onOpen: openTask,
-                                onOpenRequirement: openRequirement,
-                                canRetry: canRetryTask(task),
-                                retry,
-                                onRetry: retryTask,
-                              }),
-                            ),
-                          ),
-                    )
-                  : h(
-                      'div',
-                      null,
-                      h(
-                        'div',
-                        { className: 'flb-toolbar' },
-                        ['all', 'blocking', 'attention'].map((key) =>
-                          h(
-                            'button',
-                            {
-                              type: 'button',
-                              key,
-                              className: 'flb-filter',
-                              'aria-pressed': issueFilter === key,
-                              onClick: () => setIssueFilter(key),
-                            },
-                            t(`filter.issue.${key}`),
-                          ),
-                        ),
-                      ),
-                      filteredIssues.length === 0
-                        ? h('div', { className: 'flb-empty' }, t('empty.issues'))
-                        : h(
-                            'div',
-                            { className: 'flb-col-grid' },
-                            filteredIssues.map((issue) =>
-                              h(IssueCard, { t, key: issue.issueId, issue, onOpen: openIssue }),
-                            ),
-                          ),
-                    )
-            : null,
-        ),
-          taskOpen
-            ? h(TaskDetailPanel, {
-                t,
-                task: taskOpen,
-                state: taskDetail,
-                retry:
-                  retry.key === `${taskOpen.reqId}:${taskOpen.planVersion}:${taskOpen.taskId}` ? retry : null,
-                onRetry: retryTask,
-                onOpenRequirement: openRequirement,
-                onClose: () => setTaskOpen(null),
-              })
-            : null,
-        board
-          ? h(
+                : null,
+              h('span', null, t('overview.searchScope')),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'flb-body' },
+            state.error && board
+              ? h(
+                  'div',
+                  { className: 'flb-error', role: 'alert' },
+                  state.error,
+                  h(
+                    'button',
+                    { type: 'button', className: 'flb-card-action', onClick: load },
+                    t('page.retry'),
+                  ),
+                )
+              : null,
+            body(),
+            h(
               'div',
               { className: 'flb-footer' },
               t('page.footer'),
               ' ',
               t('overview.boundarySource'),
-            )
-          : null,
-        h('div', { className: 'flb-bottom-spacer', 'aria-hidden': 'true' }),
-      )
-    }
-
-    function wbStateLabel(t, state) {
-      const key = {
-        running: 'task.running',
-        failed: 'task.failed',
-        blocked: 'task.blocked',
-        awaiting_input: 'task.awaiting_input',
-        awaiting_user: 'task.awaiting_user',
-        delivered: 'task.delivered',
-        pending: 'task.pending',
-      }[state]
-      return key ? t(key) : statusLabel(t, state)
-    }
-
-    function wbStateTone(state) {
-      return TASK_TONES[state] || 'idle'
-    }
-
-    function wbIssueFor(issues, task) {
-      return issues.find((issue) => issue.reqId === task.reqId && issue.taskId === task.taskId)
-    }
-
-    function wbTasksOf(tasks, requirement) {
-      return tasks.filter(
-        (task) => task.reqId === requirement.reqId && task.planVersion === requirement.planVersion,
-      )
-    }
-
-    function wbPredecessors(tasks, task) {
-      return task.dependsOn
-        .map((taskId) => tasks.find((candidate) => candidate.taskId === taskId))
-        .filter(Boolean)
-    }
-
-    function wbSuccessors(tasks, task) {
-      return tasks.filter((candidate) => candidate.dependsOn.includes(task.taskId))
-    }
-
-    function wbCopy(text, t, notify) {
-      if (!text) return
-      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        navigator.clipboard.writeText(text).then(
-          () => notify(t('wb.copied')),
-          () => notify(t('wb.copyFailed') + ': ' + text),
-        )
-      } else {
-        notify(t('wb.copyFailed') + ': ' + text)
-      }
-    }
-
-    function WorkbenchTree(props) {
-      const t = props.t
-      const selected = props.selected
-      const requirements = props.requirements
-      const tasks = props.tasks
-      const issues = props.issues
-      return h(
-        'aside',
-        { className: 'flb-tree-pane', 'aria-label': t('wb.tree') },
-        h(
-          'div',
-          { className: 'flb-wb-head' },
-          h('span', { className: 'flb-wb-title' }, t('wb.tree')),
-          h('span', { className: 'flb-wb-sub' }, t('wb.reqCount', { count: requirements.length })),
-        ),
-        requirements.length === 0
-          ? h('div', { className: 'flb-tree-empty' }, t('wb.noMatch'))
-          : requirements.map((requirement) => {
-              const reqTasks = wbTasksOf(tasks, requirement)
-              const reqIssues = issues.filter((issue) => issue.reqId === requirement.reqId)
-              const open = props.expanded === requirement.reqId
-              const selectedReq =
-                selected.reqId === requirement.reqId && !selected.taskId && !selected.issueId
-              return h(
-                'div',
-                { className: 'flb-tree-group', key: requirement.reqId },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'flb-tree-node',
-                    'aria-current': selectedReq ? 'true' : undefined,
-                    onClick: () => props.onOpenRequirement(requirement.reqId),
-                  },
-                  h('span', { className: 'flb-tree-kind' }, open ? '▾' : '▸'),
-                  h(
-                    'span',
-                    { className: 'flb-tree-text' },
-                    h('span', { className: 'flb-tree-kind' }, requirement.reqId),
-                    h('br'),
-                    requirement.title,
-                  ),
-                  reqIssues.length > 0 ? h('span', { className: 'flb-tree-count' }, String(reqIssues.length)) : null,
-                ),
-                open
-                  ? h(
-                      'div',
-                      null,
-                      reqTasks.map((task) => {
-                        const taskIssue = wbIssueFor(issues, task)
-                        const selectedTask = selected.taskId === task.taskId
-                        return h(
-                          'div',
-                          { key: task.taskId },
-                          h(
-                            'button',
-                            {
-                              type: 'button',
-                              className: 'flb-tree-node flb-tree-child',
-                              'aria-current': selectedTask ? 'true' : undefined,
-                              onClick: () => props.onOpenTask(requirement.reqId, task.taskId, 'overview'),
-                            },
-                            h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
-                            h('span', { className: 'flb-tree-text' }, task.taskId + ' · ' + task.goal),
-                          ),
-                          taskIssue
-                            ? h(
-                                'button',
-                                {
-                                  type: 'button',
-                                  className: 'flb-tree-node flb-tree-grandchild',
-                                  'aria-current': selected.issueId === taskIssue.issueId ? 'true' : undefined,
-                                  onClick: () => props.onOpenIssue(taskIssue),
-                                },
-                                h('span', { className: 'flb-tree-kind' }, '↳'),
-                                h('span', { className: 'flb-tree-text' }, taskIssue.title),
-                              )
-                            : null,
-                        )
-                      }),
-                      reqIssues
-                        .filter((issue) => !issue.taskId)
-                        .map((issue) =>
-                          h(
-                            'button',
-                            {
-                              type: 'button',
-                              key: issue.issueId,
-                              className: 'flb-tree-node flb-tree-child',
-                              'aria-current': selected.issueId === issue.issueId ? 'true' : undefined,
-                              onClick: () => props.onOpenIssue(issue),
-                            },
-                            h(Chip, { tone: ISSUE_TONES[issue.severity] || 'warn' }, t(`issue.severity.${issue.severity}`)),
-                            h('span', { className: 'flb-tree-text' }, issue.title),
-                          ),
-                        ),
-                    )
-                  : null,
-              )
-            }),
-      )
-    }
-
-    function TaskRow(props) {
-      const t = props.t
-      const task = props.task
-      const tasks = props.tasks
-      const issue = props.issue
-      const predecessors = wbPredecessors(tasks, task)
-      const successors = wbSuccessors(tasks, task)
-      return h(
-        'article',
-        { className: 'flb-hier-card', 'data-selected': props.selected ? 'true' : undefined },
-        h(
-          'div',
-          { className: 'flb-hier-card-head' },
-          h('span', { className: 'flb-tree-kind' }, task.taskId),
-          h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'flb-hier-card-title',
-              onClick: () => props.onOpenTask(task.reqId, task.taskId, 'overview'),
-            },
-            task.goal,
-          ),
-        ),
-        h('div', { className: 'flb-hier-card-meta' }, task.lastActivity ? t('wb.lastActivity') + ': ' + formatMoment(task.lastActivity) : t('wb.pendingState')),
-        h(
-          'div',
-          { className: 'flb-hier-card-meta' },
-          h('span', null, t('wb.predecessors') + ':'),
-          predecessors.length > 0
-            ? predecessors.map((predecessor) =>
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    key: predecessor.taskId,
-                    className: 'flb-link-button',
-                    onClick: () => props.onOpenTask(task.reqId, predecessor.taskId, 'relations'),
-                  },
-                  predecessor.taskId + ' · ' + wbStateLabel(t, predecessor.state),
-                ),
-              )
-            : h('span', null, t('wb.noPredecessors')),
-          successors.length > 0 ? h('span', null, t('wb.successors') + ': ' + successors.map((next) => next.taskId).join('、')) : null,
-        ),
-        task.failureReason
-          ? h('div', { className: 'flb-card-failure' }, task.failureReason)
-          : null,
-        issue
-          ? h(
-              'button',
-              {
-                type: 'button',
-                className: 'flb-hier-issue',
-                onClick: () => props.onOpenIssue(issue),
-              },
-              '⚠ ' + issue.title,
-            )
-          : null,
-        h(
-          'div',
-          { className: 'flb-hier-card-actions' },
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'flb-card-action',
-              onClick: () => props.onOpenTask(task.reqId, task.taskId, 'activity'),
-            },
-            t('wb.openExecution'),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'flb-link-button',
-              onClick: () => props.onOpenTask(task.reqId, task.taskId, 'overview'),
-            },
-            t('wb.openTask'),
-          ),
-        ),
-      )
-    }
-
-    function RelationsPanel(props) {
-      const t = props.t
-      const requirement = props.requirement
-      const tasks = props.tasks
-      const current = props.current || null
-      const node = (task, isCurrent = false) =>
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'flb-rel-node',
-            'data-current': isCurrent ? 'true' : undefined,
-            onClick: () => props.onOpenTask(requirement.reqId, task.taskId, 'relations'),
-          },
-          h(
-            'span',
-            { className: 'flb-hier-card-head' },
-            h('span', { className: 'flb-tree-kind' }, task.taskId),
-            h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
-          ),
-          h('div', { className: 'flb-task-text' }, task.goal),
-          h(
-            'div',
-            { className: 'flb-wb-sub' },
-            wbPredecessors(tasks, task).length === 0
-              ? t('wb.noPredecessors')
-              : wbPredecessors(tasks, task).some((predecessor) => predecessor.state !== 'delivered')
-                ? t('wb.wait', {
-                    tasks: wbPredecessors(tasks, task)
-                      .filter((predecessor) => predecessor.state !== 'delivered')
-                      .map((predecessor) => predecessor.taskId)
-                      .join('、'),
-                  })
-                : t('wb.dependencyReady'),
-          ),
-        )
-      if (current) {
-        const before = wbPredecessors(tasks, current)
-        const after = wbSuccessors(tasks, current)
-        return h(
-          'div',
-          { className: 'flb-relations' },
-          h('div', { className: 'flb-rel-label' }, t('wb.predecessors')),
-          before.length > 0
-            ? before.map((task) => h('div', { className: 'flb-rel-edge', key: task.taskId }, node(task), h('span', { className: 'flb-rel-arrow' }, '→'), node(current, true)))
-            : h('div', { className: 'flb-wb-sub' }, t('wb.noPredecessors')),
-          h('div', { className: 'flb-rel-label' }, t('wb.successors')),
-          after.length > 0
-            ? after.map((task) => h('div', { className: 'flb-rel-edge', key: task.taskId }, node(current, true), h('span', { className: 'flb-rel-arrow' }, '→'), node(task)))
-            : h('div', { className: 'flb-wb-sub' }, t('wb.noSuccessors')),
-        )
-      }
-      const edges = []
-      for (const task of tasks) {
-        for (const predecessorId of task.dependsOn) {
-          const predecessor = tasks.find((candidate) => candidate.taskId === predecessorId)
-          if (predecessor) edges.push({ predecessor, task })
-        }
-      }
-      return h(
-        'div',
-        { className: 'flb-relations' },
-        h(
-          'div',
-          { className: 'flb-wb-sub' },
-          t('wb.dependencies') + ' · ' + tasks.length + ' / ' + edges.length,
-        ),
-        edges.length > 0
-          ? edges.map(({ predecessor, task }) =>
-              h(
-                'div',
-                { className: 'flb-rel-edge', key: predecessor.taskId + ':' + task.taskId },
-                node(predecessor),
-                h('span', { className: 'flb-rel-arrow' }, '→'),
-                node(task),
-              ),
-            )
-          : h('div', { className: 'flb-wb-sub' }, t('wb.noPredecessors')),
-        tasks
-          .filter((task) => task.dependsOn.length === 0 && wbSuccessors(tasks, task).length === 0)
-          .map((task) => h('div', { key: task.taskId }, node(task))),
-      )
-    }
-
-    function CenterPane(props) {
-      const t = props.t
-      const requirement = props.requirement
-      if (!requirement) {
-        return h('main', { className: 'flb-main-pane' }, h('div', { className: 'flb-side-empty' }, t('wb.noSelection')))
-      }
-      const tasks = props.tasks
-      const issues = props.issues
-      const completed = tasks.filter((task) => task.state === 'delivered').length
-      const ratio = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
-      return h(
-        'main',
-        { className: 'flb-main-pane' },
-        h(
-          'div',
-          { className: 'flb-wb-head' },
-          h('span', { className: 'flb-tree-kind' }, requirement.reqId),
-          h(Chip, { tone: REQUIREMENT_TONES[requirement.status] || 'idle' }, statusLabel(t, requirement.status)),
-          requirement.approval === 'approved'
-            ? h(Chip, { tone: 'success' }, t('wb.approved'))
-            : requirement.approval === 'stale'
-              ? h(Chip, { tone: 'warn' }, t('wb.stale'))
-              : h(Chip, { tone: 'warn' }, t('requirement.approvalMissing')),
-          requirement.planVersion ? planReviewChip(t, requirement.planReview) : null,
-          requirement.verification
-            ? verificationChip(t, requirement.verification)
-            : tasks.length > 0 && completed === tasks.length
-              ? verificationChip(t, null)
-              : null,
-        ),
-        h('h2', { className: 'flb-hier-title' }, requirement.title),
-        h(
-          'div',
-          { className: 'flb-hier-meta' },
-          h('span', null, t('wb.version', { version: requirement.version })),
-          requirement.planVersion ? h('span', null, t('wb.plan', { plan: requirement.planVersion })) : null,
-          h('span', null, t('wb.taskCount', { count: tasks.length })),
-          h('span', null, t('wb.issueCount', { count: issues.length })),
-        ),
-        h(
-          'div',
-          { className: 'flb-hier-progress' },
-          h('div', { className: 'flb-progress' }, h('span', { style: { width: ratio + '%' } })),
-          h('div', { className: 'flb-wb-sub' }, t('wb.progress', { delivered: completed, total: tasks.length })),
-        ),
-        props.actionMessage
-          ? h('div', { className: 'flb-card-action-message', role: 'status' }, props.actionMessage)
-          : null,
-        h(ActionButtons, {
-          t,
-          actions: requirement.actions,
-          busy: props.busy,
-          onAction: (action) => props.onAction(requirement, action),
-        }),
-        issues.length > 0
-          ? h(
-              'div',
-              { className: 'flb-banner', 'data-tone': 'warn', style: { marginTop: '7px' } },
-              h('div', { className: 'flb-label' }, t('wb.attention')),
-              issues.slice(0, 4).map((issue) =>
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    key: issue.issueId,
-                    className: 'flb-link-button',
-                    onClick: () => props.onOpenIssue(issue),
-                  },
-                  issue.title,
-                ),
-              ),
-            )
-          : null,
-        h(
-          'div',
-          { className: 'flb-hier-tabs', role: 'tablist' },
-          [['list', t('wb.taskList')], ['relations', t('wb.dependencies')]].map(([key, label]) =>
-            h(
-              'button',
-              {
-                type: 'button',
-                key,
-                className: 'flb-hier-tab',
-                role: 'tab',
-                'aria-selected': props.workMode === key,
-                onClick: () => props.onWorkMode(key),
-              },
-              label,
             ),
+            h('div', { className: 'flb-bottom-spacer', 'aria-hidden': 'true' }),
           ),
-        ),
-        props.workMode === 'relations'
-          ? h(RelationsPanel, { t, requirement, tasks, onOpenTask: props.onOpenTask })
-          : tasks.length > 0
-            ? tasks.map((task) =>
-                h(TaskRow, {
-                  t,
-                  key: task.taskId,
-                  task,
-                  tasks,
-                  issue: wbIssueFor(issues, task),
-                  selected: props.selectedTaskId === task.taskId,
-                  onOpenTask: props.onOpenTask,
-                  onOpenIssue: props.onOpenIssue,
-                }),
-              )
-            : h('div', { className: 'flb-side-empty' }, t('wb.noExecutionHint')),
-      )
-    }
-
-    function TaskOverview(props) {
-      const t = props.t
-      const task = props.task
-      const detail = props.detail
-      if (detail.phase === 'loading' || detail.phase === 'idle') {
-        return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
-      }
-      if (detail.phase === 'error') {
-        return h('div', { className: 'flb-error-inline', role: 'alert' }, detail.error || t('wb.error'))
-      }
-      const data = detail.data || {}
-      const run = data.run || null
-      const advice = data.advice || null
-      const retry = data.retry || null
-      const stale =
-        run && (run.state === 'running' || data.waitingForInput) && heartbeatStale(run.updatedAt)
-      return h(
-        'div',
-        null,
-        h(
-          'div',
-          { className: 'flb-hier-card-head' },
-          h('span', { className: 'flb-tree-kind' }, task.taskId),
-          h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
-          stale ? h(Chip, { tone: 'warn' }, t('task.heartbeatStale')) : null,
-        ),
-        data.waitingForInput
-          ? h('div', { className: 'flb-banner', 'data-tone': 'warn', style: { marginTop: '6px' } }, t('task.waitingInputBanner'))
-          : null,
-        data.requirement && data.requirement.stopRequested
-          ? h('div', { className: 'flb-banner', 'data-tone': 'warn', style: { marginTop: '6px' } }, t('task.stopBanner'))
-          : null,
-        h(
-          'div',
-          { className: 'flb-section', style: { marginTop: '8px' } },
-          h('div', { className: 'flb-label' }, t('wb.taskGoal')),
-          h('div', { className: 'flb-task-text' }, task.goal),
-          h(Kv, { label: t('wb.acceptance') }, task.acceptance || '—'),
-          h(Kv, { label: t('task.testCommand') }, (task.testCommand || []).join(' ')),
-          h(Kv, { label: t('wb.files') }, (task.files || []).length ? (task.files || []).join('、') : '—'),
-          h(Kv, { label: t('wb.dependsOn') }, (task.dependsOn || []).length ? (task.dependsOn || []).join('、') : t('wb.noPredecessors')),
-          task.verification ? h(Kv, { label: t('task.verification') }, t('common.yes')) : null,
-        ),
-        run
-          ? h(
-              'div',
-              { className: 'flb-section' },
-              h('div', { className: 'flb-label' }, t('task.lastActivity')),
-              h('div', { className: 'flb-task-text' }, run.reason || wbStateLabel(t, run.state)),
-              h('div', { className: 'flb-wb-sub' }, formatMoment(run.updatedAt)),
-            )
-          : null,
-        advice
-          ? h(
-              'div',
-              { className: 'flb-section' },
-              h('div', { className: 'flb-label' }, t('task.failureReason')),
-              h('div', { className: 'flb-task-text' }, advice.cause || '—'),
-              h('div', { className: 'flb-label' }, t('task.failureAction')),
-              h(BulletList, { items: advice.actions || [] }),
-            )
-          : null,
-        h(
-          'div',
-          { className: 'flb-hier-actions' },
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'flb-card-action',
-              onClick: () => props.onOpenExecution(task, 'activity'),
-            },
-            t('wb.openExecution'),
-          ),
-          retry && retry.allowed
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-card-action',
-                  disabled: Boolean(props.retry && props.retry.busy),
-                  onClick: () => props.onRetry(task),
-                },
-                props.retry && props.retry.busy
-                  ? t('task.retrying')
-                  : t('task.retry'),
-              )
-            : retry && retry.reason
-              ? h('span', { className: 'flb-muted' }, t('task.retryNotAllowed', { reason: retry.reason }))
-              : null,
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'flb-link-button',
-              onClick: () => props.onOpenRequirement(task.reqId),
-            },
-            t('wb.openRequirement'),
-          ),
-        ),
-        props.retry && props.retry.message
-          ? h('div', { className: 'flb-card-action-message' }, props.retry.message)
-          : null,
-      )
-    }
-
-    function IssueOverview(props) {
-      const t = props.t
-      const issue = props.issue
-      if (!issue) return h('div', { className: 'flb-side-empty' }, t('wb.noSelection'))
-      const task = props.task
-      return h(
-        'div',
-        null,
-        h(
-          'div',
-          { className: 'flb-hier-card-head' },
-          h(Chip, { tone: ISSUE_TONES[issue.severity] || 'warn' }, t(`issue.severity.${issue.severity}`)),
-          h(Chip, { tone: 'idle' }, t(`issue.${issue.kind}`)),
-          h('span', { className: 'flb-tree-kind' }, issue.issueId),
-        ),
-        h('div', { className: 'flb-hier-title' }, issue.title),
-        h('div', { className: 'flb-task-text' }, issue.detail || '—'),
-        h(
-          'div',
-          { className: 'flb-section', style: { marginTop: '8px' } },
-          h('div', { className: 'flb-label' }, t('wb.related')),
-          task
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-link-button',
-                  onClick: () => props.onOpenTask(issue.reqId, task.taskId, 'overview'),
-                },
-                t('wb.openTask') + ' ' + task.taskId,
-              )
-            : h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-link-button',
-                  onClick: () => props.onOpenRequirement(issue.reqId),
-                },
-                t('wb.openRequirement') + ' ' + issue.reqId,
-              ),
-        ),
-        task
-          ? h(
-              'div',
-              { className: 'flb-hier-actions' },
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-card-action',
-                  onClick: () => props.onOpenTask(issue.reqId, task.taskId, 'activity'),
-                },
-                t('wb.openExecution'),
-              ),
-            )
-          : null,
-        h(
-          'div',
-          { className: 'flb-wb-sub', style: { marginTop: '8px' } },
-          t('wb.attemptNote'),
-        ),
-      )
-    }
-
-    function TestsPanel(props) {
-      const t = props.t
-      const detail = props.detail
-      const [message, setMessage] = React.useState('')
-      if (!detail || detail.phase === 'loading' || detail.phase === 'idle') {
-        return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
-      }
-      if (detail.phase === 'error') {
-        return h('div', { className: 'flb-error-inline', role: 'alert' }, detail.error || t('wb.error'))
-      }
-      const data = detail.data || {}
-      const review = data.review
-      const evidence = data.evidence
-      const artifact = data.artifact
-      return h(
-        'div',
-        { className: 'flb-section' },
-        h(
-          'div',
-          { className: 'flb-hier-card-head' },
-          h('span', { className: 'flb-label' }, t('wb.tests')),
-          data.testLogTail ? h(Chip, { tone: 'brand' }, t('task.testLog')) : null,
-        ),
-        data.testLogPath
-          ? h(Kv, { label: t('wb.path') }, data.testLogPath)
-          : null,
-        h(Kv, { label: t('task.testCommand') }, (data.task && data.task.testCommand ? data.task.testCommand : []).join(' ')),
-        data.testLogBytes !== undefined ? h(Kv, { label: t('wb.size') }, String(data.testLogBytes) + ' B') : null,
-        data.testExitCode !== undefined && data.testExitCode !== null
-          ? h(Kv, { label: t('wb.exitCode') }, String(data.testExitCode))
-          : null,
-        data.testDurationMs !== undefined && data.testDurationMs !== null
-          ? h(Kv, { label: t('wb.duration') }, String(data.testDurationMs) + ' ms')
-          : null,
-        data.testStartedAt ? h(Kv, { label: t('wb.started') }, formatMoment(data.testStartedAt)) : null,
-        message ? h('div', { className: 'flb-card-action-message' }, message) : null,
-        data.testLogPath
-          ? h(
-              'button',
-              {
-                type: 'button',
-                className: 'flb-copy',
-                onClick: () => wbCopy(data.testLogPath, t, setMessage),
-              },
-              t('wb.copy') + ' · ' + t('task.testLog'),
-            )
-          : null,
-        data.testLogTail
-          ? h(
-              'details',
-              { className: 'flb-details', open: false },
-              h('summary', null, t('task.testLog')),
-              data.testLogTruncated ? h('div', { className: 'flb-wb-sub' }, t('task.testLogTruncated')) : null,
-              h('pre', { className: 'flb-exec-pre' }, data.testLogTail),
-            )
-          : h('div', { className: 'flb-wb-sub' }, t('task.noTestLog')),
-        h(
-          'div',
-          { className: 'flb-section', style: { marginTop: '10px' } },
-          h('div', { className: 'flb-label' }, t('task.review')),
-          review
-            ? h(
-                'div',
-                null,
-                h(Kv, { label: t('task.reviewVerdict') }, review.verdict || '—'),
-                h(Kv, { label: t('task.reviewSummary') }, review.summary || '—'),
-                h('div', { className: 'flb-label' }, t('task.reviewFindings')),
-                h(BulletList, { items: review.findings || [] }),
-                h('div', { className: 'flb-label' }, t('task.reviewBlocking')),
-                h(BulletList, { items: review.blocking || [] }),
-                h('div', { className: 'flb-wb-sub' }, t('task.reviewNote')),
-              )
-            : h('div', { className: 'flb-wb-sub' }, t('task.reviewNone')),
-        ),
-        h(
-          'div',
-          { className: 'flb-section', style: { marginTop: '10px' } },
-          h('div', { className: 'flb-label' }, t('task.evidence')),
-          artifact
-            ? h(
-                'div',
-                { className: 'flb-evidence' },
-                h('div', { className: 'flb-card-meta' }, 'candidate: ' + artifact.candidateSha256),
-                h('div', { className: 'flb-card-meta' }, 'test: ' + artifact.testEvidenceSha256),
-                h('div', { className: 'flb-card-meta' }, 'review: ' + artifact.reviewSha256),
-                h('div', { className: 'flb-card-meta' }, 'authorization: ' + (artifact.authorizationSource || '—')),
-                h('div', { className: 'flb-card-meta' }, 'baseline: ' + (artifact.baselineCommit || '—')),
-                h('div', { className: 'flb-card-meta' }, t('detail.recordedAt') + ': ' + formatMoment(artifact.recordedAt)),
-              )
-            : h('div', { className: 'flb-wb-sub' }, t('task.artifactMissing')),
-          evidence
-            ? h(
-                'div',
-                { className: 'flb-evidence', style: { marginTop: '6px' } },
-                h('div', { className: 'flb-card-meta' }, 'workspace: ' + (evidence.workspacePath || '—')),
-                h('div', { className: 'flb-card-meta' }, 'candidate: ' + (evidence.candidatePath || '—')),
-                h('div', { className: 'flb-card-meta' }, 'test log: ' + (evidence.testLogPath || '—')),
-                h('div', { className: 'flb-card-meta' }, 'review: ' + (evidence.reviewPath || '—')),
-                h('div', { className: 'flb-card-meta' }, 'sessions: ' + (evidence.devSession || '—') + ' / ' + (evidence.reviewSession || '—')),
-              )
-            : h('div', { className: 'flb-wb-sub' }, t('task.evidenceMissing')),
-        ),
-      )
-    }
-
-    function ExecutionProcess(props) {
-      const t = props.t
-      const read = props.read
-      const task = props.task
-      const [state, setState] = React.useState({ phase: 'idle', data: null, error: '' })
-      const [attemptId, setAttemptId] = React.useState('')
-      const [paused, setPaused] = React.useState(false)
-      const [incoming, setIncoming] = React.useState(null)
-      const [message, setMessage] = React.useState('')
-      const inflight = React.useRef(false)
-      const dataRef = React.useRef(null)
-      const scrollRef = React.useRef(null)
-      const scrollTop = React.useRef(0)
-
-      React.useEffect(() => {
-        dataRef.current = state.data
-      }, [state.data])
-
-      const load = React.useCallback(
-        (offset, limit, replace) => {
-          if (!task || inflight.current) return
-          inflight.current = true
-          if (replace) setState((previous) => ({ phase: previous.data ? 'refreshing' : 'loading', data: previous.data, error: '' }))
-          read('execution', {
-            reqId: task.reqId,
-            planVersion: task.planVersion,
-            taskId: task.taskId,
-            offset,
-            limit,
-          })
-            .then((data) => {
-              inflight.current = false
-              if (replace) {
-                if (scrollRef.current) scrollTop.current = scrollRef.current.scrollTop
-                setState({ phase: 'ready', data, error: '' })
-                setAttemptId(data.attempts && data.attempts[0] ? data.attempts[0].attemptId : '')
-              } else {
-                setState((previous) => ({
-                  phase: 'ready',
-                  data: previous.data
-                    ? {
-                        ...previous.data,
-                        events: [...(previous.data.events || []), ...(data.events || [])],
-                        offset: 0,
-                        limit: (previous.data.limit || 0) + (data.limit || 0),
-                        truncated: data.truncated,
-                        total: data.total,
-                      }
-                    : data,
-                  error: '',
-                }))
-              }
-            })
-            .catch((error) => {
-              inflight.current = false
-              setState((previous) => ({ phase: 'error', data: previous.data, error: error.message || String(error) }))
-            })
-        },
-        [read, task && task.reqId, task && task.taskId, task && task.planVersion],
-      )
-
-      React.useEffect(() => {
-        if (!task) return
-        setState({ phase: 'loading', data: null, error: '' })
-        setAttemptId('')
-        setIncoming(null)
-        setPaused(false)
-        load(0, 100, true)
-      }, [task && task.reqId, task && task.taskId, task && task.planVersion])
-
-      React.useEffect(() => {
-        const data = state.data
-        if (!data || !data.attempts || !data.attempts[0] || paused || !props.active) return
-        if (attemptId && data.attempts[0].attemptId !== attemptId) return
-        if (!data.attempts[0].available) return
-        const timer = setInterval(() => {
-          if (inflight.current) return
-          const current = dataRef.current
-          if (!current) return
-          read('execution', {
-            reqId: task.reqId,
-            planVersion: task.planVersion,
-            taskId: task.taskId,
-            offset: 0,
-            limit: Math.max(100, (current.events || []).length),
-          })
-            .then((next) => {
-              if (next.total > current.total) setIncoming(next)
-              else {
-                setState((previous) => previous.data ? { phase: 'ready', data: { ...previous.data, stages: next.stages, run: next.run, lastActivity: next.lastActivity }, error: '' } : previous)
-              }
-            })
-            .catch(() => {})
-        }, 4000)
-        return () => clearInterval(timer)
-      }, [paused, state.data && state.data.total, attemptId, props.active, task && task.taskId])
-
-      const data = state.data
-      if (state.phase === 'loading' && !data) return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
-      if (state.phase === 'error' && !data) return h('div', { className: 'flb-error-inline', role: 'alert' }, state.error)
-      if (!data) return h('div', { className: 'flb-side-empty' }, t('wb.noExecution'))
-      const attempts = data.attempts || []
-      const currentAttempt = attempts[0] || null
-      const historical = attemptId && currentAttempt && currentAttempt.attemptId !== attemptId
-        ? attempts.find((attempt) => attempt.attemptId === attemptId)
-        : null
-      const showEvents = !historical && currentAttempt && currentAttempt.available
-      const events = data.events || []
-      const stages = data.stages || []
-      const test = data.test || {}
-      const session = data.session || {}
-      return h(
-        'div',
-        { className: 'flb-exec' },
-        h(
-          'div',
-          { className: 'flb-exec-toolbar' },
-          h('span', { className: 'flb-wb-title' }, t('wb.execution')),
-          h('span', { className: 'flb-wb-sub' }, t('wb.executionTotal', { count: data.total || 0 })),
-          h('div', { className: 'flb-wb-spacer' }),
-          h(
-            'button',
-            { type: 'button', className: 'flb-filter', onClick: () => setPaused((value) => !value) },
-            paused ? t('wb.resume') : t('wb.pause'),
-          ),
-          h(
-            'button',
-            { type: 'button', className: 'flb-filter', onClick: () => load(0, 100, true) },
-            t('page.refresh'),
-          ),
-        ),
-        incoming
-          ? h(
-              'div',
-              { className: 'flb-exec-notice' },
-              t('wb.newEvents') + ' · ' + t('wb.executionTotal', { count: incoming.total }),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-link-button',
-                  onClick: () => {
-                    setState({ phase: 'ready', data: incoming, error: '' })
-                    setIncoming(null)
-                    requestAnimationFrame(() => {
-                      if (scrollRef.current) scrollRef.current.scrollTop = scrollTop.current
-                    })
-                  },
-                },
-                t('page.refresh'),
-              ),
-            )
-          : null,
-        h(
-          'div',
-          { className: 'flb-exec-identity' },
-          h(Kv, { label: t('wb.requirement') }, data.reqId + ' · v' + (data.requirement ? data.requirement.version : '?')),
-          h(Kv, { label: t('wb.planLabel') }, t('wb.plan', { plan: data.planVersion })),
-          h(Kv, { label: t('wb.task') }, task.taskId + ' / v' + task.planVersion),
-          h(Kv, { label: t('wb.attempt') }, attemptId || t('wb.missing')),
-          h(Kv, { label: t('wb.session') }, session.dev || t('wb.sessionUnavailable')),
-          h(Kv, { label: t('wb.started') }, formatMoment(data.startedAt)),
-          h(Kv, { label: t('wb.lastActivity') }, formatMoment(data.lastActivity)),
-        ),
-        h(
-          'div',
-          { className: 'flb-exec-attempt' },
-          h('span', { className: 'flb-wb-sub' }, t('wb.attempt')),
-          h(
-            'select',
-            {
-              value: attemptId,
-              'aria-label': t('wb.attempt'),
-              onChange: (event) => setAttemptId(event.target.value),
-            },
-            attempts.map((attempt) =>
-              h(
-                'option',
-                { key: attempt.attemptId, value: attempt.attemptId },
-                attempt.label + (attempt.available ? '' : ' · ' + t('wb.missing')),
-              ),
-            ),
-          ),
-          session.dev
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-copy',
-                  onClick: () => wbCopy(session.dev, t, setMessage),
-                },
-                t('wb.copy'),
-              )
-            : null,
-          h('span', { className: 'flb-wb-sub' }, t('wb.attemptNote')),
-        ),
-        message ? h('div', { className: 'flb-card-action-message' }, message) : null,
-        h(
-          'div',
-          { className: 'flb-exec-stages' },
-          stages.map((stage) =>
-            h(
-              'div',
-              { className: 'flb-exec-stage', key: stage.id },
-              h('div', { className: 'flb-exec-stage-title' }, stage.label),
-              h(
-                'div',
-                { className: 'flb-exec-stage-text' },
-                stage.id === 'dev'
-                  ? (stage.state || '—') + (stage.total ? ' · ' + t('wb.executionTotal', { count: stage.total }) : '')
-                  : stage.id === 'review'
-                    ? (stage.available ? (stage.verdict || '—') : t('wb.missing')) + (stage.sessionId ? ' · ' + stage.sessionId : '')
-                    : stage.id === 'formal_test'
-                      ? stage.available
-                        ? t('wb.exitCode') + ': ' + (stage.exitCode === null ? '—' : stage.exitCode) + (stage.durationMs !== null ? ' · ' + stage.durationMs + 'ms' : '')
-                        : t('wb.missing')
-                      : stage.delivered
-                        ? t('wb.deliveredState') + ' · ' + formatMoment(stage.recordedAt)
-                        : t('wb.missing'),
-              ),
-            ),
-          ),
-        ),
-        historical
-          ? h('div', { className: 'flb-exec-empty' }, t('wb.attemptUnavailable'))
-          : showEvents
-            ? h(
-                'div',
-                { className: 'flb-exec-timeline', ref: scrollRef, onScroll: (event) => { scrollTop.current = event.currentTarget.scrollTop } },
-                h('div', { className: 'flb-wb-sub' }, t('wb.steps', { count: data.stepCount || 0 })),
-                events.map((event) =>
-                  h(
-                    'div',
-                    { className: 'flb-exec-event', key: event.id, 'data-kind': event.kind },
-                    h(
-                      'div',
-                      { className: 'flb-exec-event-head' },
-                      h(
-                        'span',
-                        { className: 'flb-exec-event-title' },
-                        event.kind === 'tool'
-                          ? t('wb.tool') + ' · ' + event.tool.name
-                          : event.kind === 'phase'
-                            ? event.title
-                            : event.role === 'user'
-                              ? t('wb.taskInput')
-                              : t('wb.publicMessage'),
-                      ),
-                      h('time', { className: 'flb-exec-event-time' }, formatMoment(event.at)),
-                    ),
-                    event.kind === 'tool' && event.tool
-                      ? h(
-                          'div',
-                          null,
-                          h(
-                            'div',
-                            { className: 'flb-exec-tool-status', 'data-error': event.tool.isError ? 'true' : undefined },
-                            event.tool.status === 'completed'
-                              ? t('wb.toolCompleted')
-                              : event.tool.status === 'failed'
-                                ? t('wb.toolFailed')
-                                : t('wb.toolPending'),
-                          ),
-                          h(
-                            'details',
-                            null,
-                            h('summary', null, t('wb.toolInput')),
-                            h('pre', { className: 'flb-exec-pre' }, event.tool.input || '—'),
-                          ),
-                          h(
-                            'details',
-                            null,
-                            h('summary', null, t('wb.toolOutput')),
-                            h('pre', { className: 'flb-exec-pre' }, event.tool.output || '—'),
-                          ),
-                          event.tool.outputTruncated ? h('div', { className: 'flb-wb-sub' }, t('wb.truncated')) : null,
-                        )
-                      : event.text
-                        ? event.role === 'user' || event.text.length > 500
-                          ? h(
-                              'details',
-                              null,
-                              h('summary', null, event.text.slice(0, 80)),
-                              h('pre', { className: 'flb-exec-event-text' }, event.text),
-                              event.textTruncated ? h('div', { className: 'flb-wb-sub' }, t('wb.truncated')) : null,
-                            )
-                          : h('pre', { className: 'flb-exec-event-text' }, event.text)
-                        : null,
-                  ),
-                ),
-                data.truncated
-                  ? h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'flb-card-action',
-                        onClick: () => load(events.length, 100, false),
-                      },
-                      t('wb.loadMore') + ' · ' + t('wb.executionTotal', { count: data.total }),
-                    )
-                  : null,
-              )
-            : h(
-                'div',
-                { className: 'flb-exec-empty' },
-                t('wb.noExecution') + ' ' + (currentAttempt && currentAttempt.reason ? currentAttempt.reason : ''),
-              ),
-        h(
-          'div',
-          { className: 'flb-hier-actions' },
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'flb-link-button',
-              onClick: () => wbCopy(data.reviewPath || '', t, setMessage),
-            },
-            t('wb.copy') + ' · ' + t('task.review'),
-          ),
-          test.path
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-link-button',
-                  onClick: () => wbCopy(test.path, t, setMessage),
-                },
-                t('wb.copy') + ' · ' + t('task.testLog'),
-              )
-            : null,
-          h('span', { className: 'flb-wb-sub' }, t('task.reviewNote')),
-        ),
-      )
-    }
-
-    function RequirementActivity(props) {
-      const t = props.t
-      return h(
-        'div',
-        { className: 'flb-section' },
-        props.tasks.length === 0
-          ? h('div', { className: 'flb-side-empty' }, t('wb.noExecution'))
-          : props.tasks.map((task) =>
-              h(
-                'div',
-                { className: 'flb-list-item', key: task.taskId },
-                h(
-                  'div',
-                  { className: 'flb-hier-card-head' },
-                  h('span', { className: 'flb-tree-kind' }, task.taskId),
-                  h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state)),
-                  h('span', { className: 'flb-wb-sub' }, formatMoment(task.lastActivity)),
-                ),
-                h('div', { className: 'flb-task-text' }, task.goal),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'flb-link-button',
-                    onClick: () => props.onOpenTask(task.reqId, task.taskId, 'activity'),
-                  },
-                  t('wb.openExecution'),
-                ),
-              ),
-            ),
-      )
-    }
-
-    function VersionPanel(props) {
-      const t = props.t
-      const requirement = props.requirement
-      const detail = props.reqDetail
-      const task = props.task
-      return h(
-        'div',
-        { className: 'flb-section' },
-        requirement
-          ? h(
-              'div',
-              null,
-              h('div', { className: 'flb-label' }, t('wb.versionHistory')),
-              detail && detail.data && Array.isArray(detail.data.versions)
-                ? detail.data.versions.map((version) =>
-                    h(
-                      'div',
-                      { className: 'flb-subsection', key: version.version },
-                      h('div', { className: 'flb-label' }, 'v' + version.version + ' · ' + formatMoment(version.createdAt)),
-                      h('div', { className: 'flb-task-text' }, version.text),
-                    ),
-                  )
-                : h('div', { className: 'flb-wb-sub' }, t('wb.loading')),
-              h(Kv, { label: t('wb.approval') }, requirement.approval === 'approved' ? t('wb.approved') : requirement.approval === 'stale' ? t('wb.stale') : t('requirement.approvalMissing')),
-              h(
-                Kv,
-                { label: t('wb.planReview') },
-                requirement.planReview
-                  ? `${t(`detail.verdict.${requirement.planReview.verdict}`)} · ${requirement.planReview.summary || '—'}`
-                  : t('requirement.planReviewMissing'),
-              ),
-              h(
-                Kv,
-                { label: t('wb.verification') },
-                requirement.verification
-                  ? [
-                      t(`detail.verdict.${requirement.verification.verdict}`),
-                      requirement.verification.fresh
-                        ? t('detail.verificationFresh')
-                        : t('detail.verificationStale'),
-                      requirement.verification.summary || '—',
-                    ].join(' · ')
-                  : t('requirement.verificationMissing'),
-              ),
-              h(
-                Kv,
-                { label: t('wb.businessReview') },
-                requirement.businessReview
-                  ? [
-                      t(`detail.verdict.${requirement.businessReview.verdict}`),
-                      requirement.businessReview.fresh ? t('detail.verificationFresh') : t('detail.verificationStale'),
-                      requirement.businessReview.summary || '—',
-                    ].join(' · ')
-                  : t('wb.missing'),
-              ),
-              h(
-                Kv,
-                { label: t('wb.candidate') },
-                requirement.candidate
-                  ? [
-                      'v' + requirement.candidate.packageVersion,
-                      String(requirement.candidate.artifactSha256 || '').slice(0, 16) + '…',
-                      formatMoment(requirement.candidate.builtAt),
-                    ].join(' · ')
-                  : t('wb.missing'),
-              ),
-              h(
-                Kv,
-                { label: t('wb.deployment') },
-                requirement.deployment
-                  ? [
-                      requirement.deployment.state,
-                      requirement.deployment.targetProfile,
-                      'v' + requirement.deployment.runtimeVersion,
-                      ...[].concat(requirement.deployment.failedChecks || []).slice(0, 2),
-                    ].join(' · ')
-                  : t('wb.missing'),
-              ),
-            )
-          : null,
-        task && props.taskDetail && props.taskDetail.data
-          ? h(
-              'div',
-              { className: 'flb-section' },
-              h('div', { className: 'flb-label' }, t('wb.failureRounds')),
-              props.taskDetail.data.failureRounds.length === 0
-                ? h('div', { className: 'flb-wb-sub' }, t('wb.missing'))
-                : props.taskDetail.data.failureRounds.map((round) =>
-                    h(
-                      'div',
-                      { className: 'flb-list-item', key: round.roundId },
-                      h('div', { className: 'flb-wb-sub' }, round.stage + ' · ' + formatMoment(round.occurredAt)),
-                      h('div', { className: 'flb-task-text' }, round.summary),
-                    ),
-                  ),
-            )
-          : null,
-        props.issue
-          ? h('div', { className: 'flb-wb-sub' }, t('wb.attemptNote'))
-          : null,
-      )
-    }
-
-    function RequirementTests(props) {
-      const t = props.t
-      const detail = props.reqDetail
-      if (!detail || detail.phase !== 'ready' || !detail.data) {
-        return h('div', { className: 'flb-side-empty' }, t('wb.loading'))
-      }
-      const data = detail.data
-      const artifacts = Array.isArray(data.artifacts) ? data.artifacts : []
-      return h(
-        'div',
-        { className: 'flb-section' },
-        h('div', { className: 'flb-label' }, t('task.evidence')),
-        artifacts.length === 0
-          ? h('div', { className: 'flb-wb-sub' }, t('detail.noArtifacts'))
-          : artifacts.map((artifact) =>
-              h(
-                'div',
-                { className: 'flb-evidence', key: artifact.taskId },
-                h('div', { className: 'flb-label' }, artifact.taskId),
-                h('div', { className: 'flb-card-meta' }, 'candidate: ' + artifact.candidateSha256),
-                h('div', { className: 'flb-card-meta' }, 'test: ' + artifact.testEvidenceSha256),
-                h('div', { className: 'flb-card-meta' }, 'review: ' + artifact.reviewSha256),
-                h('div', { className: 'flb-card-meta' }, t('detail.recordedAt') + ': ' + formatMoment(artifact.recordedAt)),
-              ),
-            ),
-        data.acceptanceRecord && data.acceptanceRecord.accepted_at
-          ? h(
-              'div',
-              { className: 'flb-section', style: { marginTop: '10px' } },
-              h('div', { className: 'flb-label' }, t('detail.acceptanceRecord')),
-              h('div', { className: 'flb-task-text' }, t('detail.acceptedMeta', { by: data.acceptanceRecord.accepted_by, time: formatMoment(data.acceptanceRecord.accepted_at), source: data.acceptanceRecord.acceptance_source || '—' })),
-            )
-          : null,
-      )
-    }
-
-    function DetailPane(props) {
-      const t = props.t
-      const selection = props.selection
-      const requirement = props.requirement
-      const selectionKind = selection.kind || 'requirement'
-      const task = selectionKind === 'task' ? props.task : null
-      const issueTask = selectionKind === 'issue' ? props.task : null
-      const issue = selectionKind === 'issue' ? props.issue : null
-      if (!requirement) {
-        return h('aside', { className: 'flb-side' }, h('div', { className: 'flb-side-empty' }, t('wb.noSelection')))
-      }
-      const kind = selectionKind
-      const tabs = [
-        ['overview', t('wb.overview')],
-        ['relations', t('wb.relations')],
-        ['activity', t('wb.activity')],
-        ['tests', t('wb.tests')],
-        ['changes', t('wb.changes')],
-      ]
-      const title = task ? task.goal : issue ? issue.title : requirement.title
-      const state = task ? task.state : issue ? issue.kind : requirement.status
-      const executionTask = task || issueTask
-      const stateChip = task
-        ? h(Chip, { tone: wbStateTone(task.state) }, wbStateLabel(t, task.state))
-        : issue
-          ? h(Chip, { tone: ISSUE_TONES[issue.severity] || 'warn' }, t(`issue.severity.${issue.severity}`))
-          : h(Chip, { tone: REQUIREMENT_TONES[requirement.status] || 'idle' }, statusLabel(t, requirement.status))
-      return h(
-        'aside',
-        { className: 'flb-side', 'aria-label': t(`wb.${kind}`) },
-        h(
-          'div',
-          { className: 'flb-side-head' },
-          h(
-            'div',
-            { className: 'flb-breadcrumb' },
-            h(
-              'button',
-              { type: 'button', onClick: () => props.onOpenRequirement(requirement.reqId) },
-              requirement.reqId,
-            ),
-            task ? h('span', null, '›') : null,
-            task
-              ? h('button', { type: 'button', onClick: () => props.onOpenTask(task.reqId, task.taskId, 'overview') }, task.taskId)
-              : null,
-            issue ? h('span', null, '› ' + issue.issueId) : null,
-          ),
-          h(
-            'div',
-            { className: 'flb-hier-actions' },
-            h(
-              'button',
-              { type: 'button', className: 'flb-side-close flb-mobile-back', onClick: props.onBack },
-              t('wb.back'),
-            ),
-            h(
-              'button',
-              { type: 'button', className: 'flb-side-close', onClick: props.onToggleFull },
-              props.fullDetail ? t('wb.backWorkbench') : t('wb.full'),
-            ),
-          ),
-        ),
-        h('div', { className: 'flb-hier-card-head' }, h('span', { className: 'flb-tree-kind' }, t(`wb.${kind}`)), stateChip, h('span', { className: 'flb-tree-kind' }, kind === 'requirement' ? requirement.reqId : task ? task.taskId : issue.issueId)),
-        h('h2', { className: 'flb-hier-title' }, title),
-        props.actionMessage ? h('div', { className: 'flb-card-action-message', role: 'status' }, props.actionMessage) : null,
-        kind === 'requirement'
-          ? h(ActionButtons, {
-              t,
-              actions: requirement.actions,
-              busy: props.busy,
-              onAction: (action) => props.onAction(requirement, action),
-            })
-          : kind === 'task'
-            ? h(
-                'div',
-                { className: 'flb-hier-actions' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'flb-card-action',
-                    onClick: () => props.onOpenTask(task.reqId, task.taskId, 'activity'),
-                  },
-                  t('wb.openExecution'),
-                ),
-                props.taskDetail && props.taskDetail.data && props.taskDetail.data.retry && props.taskDetail.data.retry.allowed
-                  ? h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'flb-card-action',
-                        disabled: Boolean(props.retry && props.retry.busy),
-                        onClick: () => props.onRetry(task),
-                      },
-                      props.retry && props.retry.busy ? t('task.retrying') : t('task.retry'),
-                    )
-                  : null,
-              )
-            : h(
-                'div',
-                { className: 'flb-hier-actions' },
-                h(
-                  'button',
-                  { type: 'button', className: 'flb-card-action', onClick: () => props.onOpenRequirement(issue.reqId) },
-                  t('wb.openRequirement'),
-                ),
-                issueTask
-                  ? h(
-                      'button',
-                      { type: 'button', className: 'flb-card-action', onClick: () => props.onOpenTask(issueTask.reqId, issueTask.taskId, 'activity') },
-                      t('wb.openExecution'),
-                    )
-                  : null,
-              ),
-        h(
-          'div',
-          { className: 'flb-side-tabs', role: 'tablist' },
-          tabs.map(([key, label]) =>
-            h(
-              'button',
-              {
-                type: 'button',
-                key,
-                role: 'tab',
-                className: 'flb-side-tab',
-                'aria-selected': props.tab === key,
-                onClick: () => props.onTab(key),
-              },
-              label,
-            ),
-          ),
-        ),
-        h(
-          'div',
-          { className: 'flb-side-body' },
-          h(
-            'div',
-            { className: props.tab === 'activity' ? 'flb-exec-slot' : 'flb-hidden' },
-            executionTask
-              ? h(ExecutionProcess, {
-                  t,
-                  read: props.read,
-                  task: executionTask,
-                  active: props.tab === 'activity',
-                })
-              : null,
-          ),
-          props.tab === 'activity'
-            ? executionTask
-              ? null
-              : h(RequirementActivity, { t, tasks: props.tasks, onOpenTask: props.onOpenTask })
-            :
-          props.tab === 'overview'
-            ? kind === 'requirement'
-              ? h(RequirementDetail, { t, detail: props.reqDetail, tasks: props.tasks })
-              : kind === 'task'
-                ? h(TaskOverview, {
-                    t,
-                    task,
-                    detail: props.taskDetail,
-                    retry: props.retry,
-                    onRetry: props.onRetry,
-                    onOpenExecution: props.onOpenTask,
-                    onOpenRequirement: props.onOpenRequirement,
-                  })
-                : h(IssueOverview, {
-                    t,
-                    issue,
-                    task: issueTask,
-                    onOpenTask: props.onOpenTask,
-                    onOpenRequirement: props.onOpenRequirement,
-                  })
-            : props.tab === 'relations'
-              ? h(RelationsPanel, {
-                  t,
-                  requirement,
-                  tasks: props.tasks,
-                  current: task || issueTask || null,
-                  onOpenTask: props.onOpenTask,
-                })
-              : props.tab === 'activity'
-                ? task
-                  ? h(ExecutionProcess, {
-                      t,
-                      read: props.read,
-                      task,
-                      active: props.active,
-                    })
-                  : kind === 'issue' && issueTask
-                    ? h(ExecutionProcess, { t, read: props.read, task: issueTask, active: props.active })
-                    : h(RequirementActivity, { t, tasks: props.tasks, onOpenTask: props.onOpenTask })
-                : props.tab === 'tests'
-                  ? task
-                    ? h(TestsPanel, { t, detail: props.taskDetail })
-                    : kind === 'issue' && issueTask
-                      ? h(TestsPanel, { t, detail: props.taskDetail })
-                      : h(RequirementTests, { t, reqDetail: props.reqDetail })
-                  : h(VersionPanel, {
-                      t,
-                      requirement,
-                      reqDetail: props.reqDetail,
-                      task,
-                      taskDetail: props.taskDetail,
-                      issue,
-                    }),
-        ),
-      )
-    }
-
-    function AllTasksPane(props) {
-      const t = props.t
-      return h(
-        'main',
-        { className: 'flb-main-pane' },
-        h('h2', { className: 'flb-hier-title' }, t('wb.allTasks')),
-        h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
-        props.requirements.length === 0
-          ? h('div', { className: 'flb-side-empty' }, t('wb.noMatch'))
-          : props.requirements.map((requirement) => {
-              const tasks = wbTasksOf(props.tasks, requirement)
-              return h(
-                'section',
-                { key: requirement.reqId, style: { marginTop: '10px' } },
-                h(
-                  'div',
-                  { className: 'flb-wb-head' },
-                  h('span', { className: 'flb-tree-kind' }, requirement.reqId),
-                  h(
-                    'button',
-                    { type: 'button', className: 'flb-link-button', onClick: () => props.onOpenRequirement(requirement.reqId) },
-                    requirement.title,
-                  ),
-                ),
-                tasks.length > 0
-                  ? tasks.map((task) =>
-                      h(TaskRow, {
-                        t,
-                        key: task.taskId,
-                        task,
-                        tasks,
-                        issue: wbIssueFor(props.issues, task),
-                        selected: props.selectedTaskId === task.taskId,
-                        onOpenTask: props.onOpenTask,
-                        onOpenIssue: props.onOpenIssue,
-                      }),
-                    )
-                  : h('div', { className: 'flb-wb-sub' }, t('wb.noExecutionHint')),
-              )
-            }),
-      )
-    }
-
-    function IssuesPane(props) {
-      const t = props.t
-      return h(
-        'main',
-        { className: 'flb-main-pane' },
-        h('h2', { className: 'flb-hier-title' }, t('wb.attention')),
-        h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
-        props.items.length === 0
-          ? h('div', { className: 'flb-side-empty' }, t('wb.noIssues'))
-          : props.items.map((item) =>
-              h(
-                'article',
-                { className: 'flb-hier-card', key: item.key },
-                h(
-                  'div',
-                  { className: 'flb-hier-card-head' },
-                  h('span', { className: 'flb-tree-kind' }, item.reqId + (item.taskId ? ' › ' + item.taskId : '')),
-                  h(Chip, { tone: item.tone || 'warn' }, item.kindLabel),
-                ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'flb-hier-card-title',
-                    onClick: () => props.onOpen(item),
-                  },
-                  item.title,
-                ),
-                item.detail ? h('div', { className: 'flb-wb-sub' }, item.detail) : null,
-                h(
-                  'div',
-                  { className: 'flb-hier-card-actions' },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'flb-card-action',
-                      onClick: () => props.onOpen(item),
-                    },
-                    item.taskId ? t('wb.openTask') : t('wb.openRequirement'),
-                  ),
-                ),
-              ),
-            ),
-      )
-    }
-
-    const OPS_STATE_TONE = {
-      open: 'warn',
-      diagnosed: 'warn',
-      awaiting_decision: 'warn',
-      recovering: 'warn',
-      recovered: 'success',
-      unresolved: 'error',
-      closed: 'idle',
-    }
-    const OPS_SEVERITY_TONE = { critical: 'error', major: 'warn', minor: 'idle' }
-    const OPS_MONITOR_TONE = { healthy: 'success', degraded: 'warn', critical: 'error', error: 'error', idle: 'idle' }
-
-    /** 运维视图：只读事实 + 所有者动作（批准/拒绝/关闭/生成修复需求）。 */
-    function OpsPane(props) {
-      const t = props.t
-      const data = props.data
-      if (!data) {
-        return h(
-          'main',
-          { className: 'flb-main-pane' },
-          h('div', { className: props.error ? 'flb-error' : 'flb-empty' }, props.error || t('ops.loading')),
-        )
-      }
-      const summary = data.summary || {}
-      const stats = summary.stats || {}
-      const events = data.events || []
-      const active = events.filter((event) => !['recovered', 'closed'].includes(event.state))
-      const visible = props.filter === 'active' ? active : events
-      const selected = events.find((event) => event.eventId === props.selectedId) || visible[0] || events[0] || null
-      const detail = props.detail && props.detail.eventId === (selected && selected.eventId) ? props.detail : null
-      const stateLabel = (state) => {
-        const key = 'ops.state.' + state
-        const value = t(key)
-        return value === key ? state : value
-      }
-      const labeled = (prefix, value) => {
-        const key = prefix + value
-        const text = t(key)
-        return text === key ? value : text
-      }
-      const stat = (label, value) =>
-        h(
-          'div',
-          { className: 'flb-ops-stat', key: label },
-          h('div', { className: 'flb-ops-stat-value' }, String(value)),
-          h('div', { className: 'flb-ops-stat-label' }, label),
-        )
-      const busy = props.busy && props.busy.eventId === (selected && selected.eventId) ? props.busy.message : ''
-      const actionButton = (event, label, endpoint, extra) =>
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'flb-card-action',
-            key: endpoint + label,
-            disabled: Boolean(props.busy && props.busy.eventId),
-            onClick: () => props.onAction(event, endpoint, extra || {}),
-          },
-          label,
-        )
-      const actionRow = (event) => {
-        const items = []
-        if (event.state === 'awaiting_decision') {
-          items.push(actionButton(event, t('ops.approve'), 'ops-decide', { decision: 'approve' }))
-          items.push(actionButton(event, t('ops.decline'), 'ops-decide', { decision: 'decline' }))
-        }
-        if (event.state !== 'closed') {
-          items.push(actionButton(event, t('ops.close'), 'ops-close', {}))
-        }
-        if (
-          !event.fixRequirementId &&
-          detail &&
-          detail.data &&
-          detail.data.diagnosis &&
-          ['recovered', 'unresolved'].includes(event.state)
-        ) {
-          items.push(actionButton(event, t('ops.requestFix'), 'ops-request-fix', {}))
-        }
-        return items.length === 0 ? null : h('div', { className: 'flb-ops-actions' }, items)
-      }
-      const detailBody = (event) => {
-        if (!detail) return h('div', { className: 'flb-empty' }, t('ops.loading'))
-        if (detail.error) return h('div', { className: 'flb-error' }, detail.error)
-        const value = detail.data || {}
-        const diagnosis = value.diagnosis || event.diagnosis || null
-        const attempts = value.attempts || []
-        const observations = value.observations || []
-        const resource = value.resource || {}
-        const proposed = diagnosis && diagnosis.proposedAction
-        return h(
-          'section',
-          { className: 'flb-ops-detail-pane' },
-          h(
-            'div',
-            { className: 'flb-ops-detail-head' },
-            h(Chip, { tone: OPS_SEVERITY_TONE[event.severity] || 'idle' }, t('ops.severity.' + event.severity)),
-            h(Chip, { tone: OPS_STATE_TONE[event.state] || 'idle' }, stateLabel(event.state)),
-            h('strong', null, event.title),
-          ),
-          h(Kv, { label: t('ops.resource') }, resource.label || event.resourceLabel),
-          h(Kv, { label: t('ops.check') }, event.checkId),
-          h(Kv, { label: t('ops.opened') }, formatMoment(event.openedAt)),
-          h(Kv, { label: t('ops.updated') }, formatMoment(event.updatedAt)),
-          event.recoveredAt ? h(Kv, { label: t('ops.recoveredAt') }, formatMoment(event.recoveredAt)) : null,
-          event.fixRequirementId ? h(Kv, { label: t('ops.fix') }, event.fixRequirementId) : null,
-          h(Section, { title: t('ops.impact') }, h('div', null, event.impact || t('ops.noImpact'))),
-          diagnosis
-            ? h(
-                Section,
-                { title: t('ops.proposed') },
-                h(
-                  'div',
-                  null,
-                  proposed ? proposed.actionId + ' ' + JSON.stringify(proposed.params || {}) : t('ops.noAction'),
-                ),
-                h('div', { className: 'flb-muted' }, diagnosis.summary || ''),
-              )
-            : null,
-          diagnosis && diagnosis.facts && diagnosis.facts.length > 0
-            ? h(Section, { title: t('ops.facts') }, h(BulletList, { items: diagnosis.facts, empty: '—' }))
-            : null,
-          diagnosis && diagnosis.hypotheses && diagnosis.hypotheses.length > 0
-            ? h(
-                Section,
-                { title: t('ops.hypotheses') },
-                h(BulletList, {
-                  items: diagnosis.hypotheses.map((item) => `${item.statement}（${item.confidence}）`),
-                  empty: '—',
-                }),
-              )
-            : null,
-          h(
-            Section,
-            { title: t('ops.attempts') },
-            attempts.length === 0
-              ? h('div', { className: 'flb-muted' }, t('ops.noAttempts'))
-              : attempts.map((attempt) =>
-                  h(
-                    'div',
-                    { className: 'flb-ops-obs', key: attempt.actionId },
-                    h(
-                      'div',
-                      null,
-                      `${attempt.actionDefId} · ${labeled('ops.attempt.', attempt.state)}${
-                        attempt.exitCode === null ? '' : ' · ' + t('ops.exit') + ' ' + attempt.exitCode
-                      }`,
-                    ),
-                    h('div', { className: 'flb-ops-evidence' }, attempt.authorizationSource),
-                    attempt.detail ? h('div', { className: 'flb-ops-note' }, attempt.detail) : null,
-                    attempt.evidencePath ? h('div', { className: 'flb-ops-evidence' }, attempt.evidencePath) : null,
-                  ),
-                ),
-          ),
-          h(
-            Section,
-            { title: t('ops.observations') },
-            observations.length === 0
-              ? h('div', { className: 'flb-muted' }, '—')
-              : observations.map((item) =>
-                  h(
-                    'div',
-                    { className: 'flb-ops-obs', key: String(item.seq) },
-                    h('div', null, `${formatMoment(item.at)} · ${labeled('ops.obs.', item.kind)}`),
-                    h('div', null, item.summary),
-                    item.evidencePath ? h('div', { className: 'flb-ops-evidence' }, item.evidencePath) : null,
-                  ),
-                ),
-          ),
-          actionRow(event),
-          busy ? h('div', { className: 'flb-ops-note' }, busy) : null,
-          event.humanInvolved ? h('div', { className: 'flb-ops-note' }, `${t('ops.humanNote')}：${value.event ? value.event.humanReason : ''}`) : null,
-        )
-      }
-      const monitor = summary.monitor || null
-      const monitorStatus = monitor && monitor.enabled ? monitor.status || 'idle' : 'idle'
-      const monitorStatusKey = 'ops.monitor.' + monitorStatus
-      const monitorStatusLabel = t(monitorStatusKey) === monitorStatusKey ? monitorStatus : t(monitorStatusKey)
-      const monitorHost = (monitor && monitor.host) || {}
-      const monitorSources = (monitor && monitor.sources) || {}
-      const monitorHeartbeat = (monitor && monitor.heartbeat) || {}
-      const heartbeatState = !monitorHeartbeat.configured
-        ? t('ops.monitor.heartbeatNever')
-        : monitorHeartbeat.at
-          ? monitorHeartbeat.ok
-            ? t('ops.monitor.heartbeatOk', { time: formatMoment(monitorHeartbeat.at) })
-            : t('ops.monitor.heartbeatFail')
-          : t('ops.monitor.heartbeatPending')
-      const monitorBar = !monitor
-        ? null
-        : !monitor.enabled
-          ? h(
-              'div',
-              { className: 'flb-ops-monitor', 'data-status': 'idle' },
-              h(Chip, { tone: 'idle' }, t('ops.monitor')),
-              h('span', { className: 'flb-muted' }, t('ops.monitor.disabled')),
-            )
-          : h(
-              'div',
-              { className: 'flb-ops-monitor', 'data-status': monitorStatus },
-              h(
-                'div',
-                { className: 'flb-ops-monitor-head' },
-                h(Chip, { tone: OPS_MONITOR_TONE[monitorStatus] || 'idle' }, t('ops.monitor')),
-                h('strong', null, monitorStatusLabel),
-                h(
-                  'span',
-                  { className: 'flb-muted' },
-                  monitor.lastScanAt
-                    ? t('ops.monitor.last', { time: formatMoment(monitor.lastScanAt) })
-                    : t('ops.monitor.never'),
-                ),
-                h(
-                  'span',
-                  { className: 'flb-muted' },
-                  `${t('ops.alert')}：${summary.alerts && summary.alerts.webhook ? t('ops.alert.on') : t('ops.alert.off')}`,
-                ),
-              ),
-              h(
-                'div',
-                { className: 'flb-ops-monitor-metrics' },
-                h('span', null, t('ops.monitor.cpu', { value: monitorHost.cpuPercent || 0 })),
-                h('span', null, t('ops.monitor.memory', { value: monitorHost.memoryUsedPercent || 0 })),
-                h('span', null, t('ops.monitor.load', { value: monitorHost.load1 || 0 })),
-                h('span', null, t('ops.monitor.issues', { count: monitor.issues || 0 })),
-                h(
-                  'span',
-                  null,
-                  t('ops.monitor.sources', {
-                    processes: monitorSources.processes || 0,
-                    latency: monitorSources.latency || 0,
-                    logs: monitorSources.logs || 0,
-                    alerts: monitorSources.alerts || 0,
-                    checks: monitorSources.checks || 0,
-                  }),
-                ),
-                h(
-                  'span',
-                  null,
-                  t('ops.monitor.providers', {
-                    ids: (monitor.providers || []).join(', ') || '—',
-                  }),
-                ),
-                h('span', null, t('ops.monitor.heartbeat', { state: heartbeatState })),
-              ),
-              monitor.summary ? h('div', { className: 'flb-ops-monitor-summary' }, monitor.summary) : null,
-              monitor.error ? h('div', { className: 'flb-error' }, monitor.error) : null,
-            )
-      return h(
-        'main',
-        { className: 'flb-main-pane' },
-        h(
-          'div',
-          { className: 'flb-ops-head' },
-          h('h2', { className: 'flb-hier-title' }, t('ops.title')),
-          h('div', { className: 'flb-wb-sub' }, t('ops.subtitle')),
-          h(
-            'div',
-            { className: 'flb-toolbar' },
-            ['all', 'active'].map((key) =>
-              h(
-                'button',
-                {
-                  type: 'button',
-                  key,
-                  className: 'flb-filter',
-                  'aria-pressed': props.filter === key,
-                  onClick: () => props.onFilter(key),
-                },
-                t('ops.' + key),
-              ),
-            ),
-          ),
-        ),
-        h(
-          'div',
-          { className: 'flb-ops-stats' },
-          stat(t('ops.total'), stats.total || 0),
-          stat(t('ops.active'), stats.active || 0),
-          stat(t('ops.awaiting'), stats.awaitingDecision || 0),
-          stat(t('ops.recovered'), stats.recovered || 0),
-          stat(t('ops.unresolved'), stats.unresolved || 0),
-          stat(t('ops.human'), stats.humanInvolved || 0),
-        ),
-        monitorBar,
-        events.length === 0
-          ? h(
-              'div',
-              { className: 'flb-empty flb-empty-large' },
-              h('div', null, t('ops.empty')),
-              h('div', { className: 'flb-muted' }, t('ops.emptyHint')),
-            )
-          : visible.length === 0
-            ? h('div', { className: 'flb-empty' }, t('ops.noEvents'))
-            : h(
-                'div',
-                { className: 'flb-ops-grid' },
-                h(
-                  'div',
-                  { className: 'flb-ops-list' },
-                  visible.map((event) =>
-                    h(
-                      'button',
-                      {
-                        type: 'button',
-                        key: event.eventId,
-                        className: 'flb-ops-card',
-                        'data-selected': String(selected && selected.eventId === event.eventId),
-                        onClick: () => props.onSelect(event.eventId),
-                      },
-                      h(
-                        'div',
-                        { className: 'flb-ops-card-head' },
-                        h(Chip, { tone: OPS_SEVERITY_TONE[event.severity] || 'idle' }, t('ops.severity.' + event.severity)),
-                        h(Chip, { tone: OPS_STATE_TONE[event.state] || 'idle' }, stateLabel(event.state)),
-                      ),
-                      h('div', { className: 'flb-ops-card-title' }, event.title),
-                      h('div', { className: 'flb-ops-card-impact' }, event.impact || event.lastObservation || ''),
-                      h('div', { className: 'flb-ops-card-meta' }, `${event.resourceLabel} · ${formatMoment(event.updatedAt)}`),
-                    ),
-                  ),
-                ),
-                selected ? detailBody(selected) : h('div', { className: 'flb-empty' }, t('ops.empty')),
-              ),
-      )
-    }
-
-    function BoardView(props) {
-      const [state, setState] = React.useState({ phase: 'loading', board: null, error: '' })
-      const [query, setQuery] = React.useState('')
-      const [appliedQuery, setAppliedQuery] = React.useState('')
-      const [view, setView] = React.useState('hierarchy')
-      const [filter, setFilter] = React.useState('all')
-      const [workMode, setWorkMode] = React.useState('list')
-      const [treeOpen, setTreeOpen] = React.useState(true)
-      const [expanded, setExpanded] = React.useState('')
-      const [selection, setSelection] = React.useState({ kind: 'requirement', reqId: '', taskId: '', issueId: '' })
-      const [tab, setTab] = React.useState('overview')
-      const [mobileDetail, setMobileDetail] = React.useState(false)
-      const [fullDetail, setFullDetail] = React.useState(false)
-      const [auto, setAuto] = React.useState(true)
-      const [action, setAction] = React.useState({ busy: '', message: '' })
-      const [retry, setRetry] = React.useState({ key: '', busy: false, message: '' })
-      const [reqDetail, setReqDetail] = React.useState({ phase: 'idle', reqId: '', data: null, error: '' })
-      const [taskDetail, setTaskDetail] = React.useState({ phase: 'idle', key: '', data: null, error: '' })
-      const [detailNonce, setDetailNonce] = React.useState(0)
-      const [taskNonce, setTaskNonce] = React.useState(0)
-      const [ops, setOps] = React.useState({ phase: 'idle', data: null, error: '' })
-      const [opsSelected, setOpsSelected] = React.useState('')
-      const [opsDetail, setOpsDetail] = React.useState({ phase: 'idle', eventId: '', data: null, error: '' })
-      const [opsFilter, setOpsFilter] = React.useState('active')
-      const [opsBusy, setOpsBusy] = React.useState({ eventId: '', message: '' })
-      const [opsNonce, setOpsNonce] = React.useState(0)
-      const inflight = React.useRef(null)
-      const reqInflight = React.useRef(null)
-      const taskInflight = React.useRef(null)
-
-      const load = React.useCallback(() => {
-        if (inflight.current) inflight.current.abort()
-        const controller = typeof AbortController === 'function' ? new AbortController() : null
-        inflight.current = controller
-        setState((previous) => ({
-          phase: previous.board ? 'refreshing' : 'loading',
-          board: previous.board,
-          error: '',
-        }))
-        read('board', { query: appliedQuery, limit: 100 }, controller ? controller.signal : undefined)
-          .then((board) => {
-            if (controller && controller.signal.aborted) return
-            setState({ phase: 'ready', board, error: '' })
-          })
-          .catch((error) => {
-            if (controller && controller.signal.aborted) return
-            setState((previous) => ({ phase: 'error', board: previous.board, error: error.message || String(error) }))
-          })
-      }, [appliedQuery])
-
-      React.useEffect(() => {
-        const timer = setTimeout(() => setAppliedQuery(query.trim()), 300)
-        return () => clearTimeout(timer)
-      }, [query])
-
-      React.useEffect(() => {
-        load()
-      }, [load])
-
-      React.useEffect(() => {
-        if (!auto) return
-        const timer = setInterval(load, 15000)
-        return () => clearInterval(timer)
-      }, [auto, load])
-
-      const board = state.board
-      const requirements = board ? board.requirements || [] : []
-      const allTasks = board ? board.tasks || [] : []
-      const allIssues = board ? board.issues || [] : []
-      const visible = requirements.filter((requirement) => {
-        if (filter === 'active') return !TERMINAL[requirement.status] && requirement.status !== 'draft'
-        if (filter === 'attention') {
-          return ['plan_proposed', 'blocked', 'executing'].includes(requirement.status) || allIssues.some((issue) => issue.reqId === requirement.reqId)
-        }
-        if (filter === 'draft') return requirement.status === 'draft'
-        return true
-      })
-      const requirementIssues = (reqId) => allIssues.filter((issue) => issue.reqId === reqId)
-      const selectedRequirement = requirements.find((requirement) => requirement.reqId === selection.reqId) || null
-      const selectedTasks = selectedRequirement ? wbTasksOf(allTasks, selectedRequirement) : []
-      const selectedTask = selection.taskId ? allTasks.find((task) => task.taskId === selection.taskId && task.reqId === selection.reqId) || null : null
-      const selectedIssue = selection.issueId ? allIssues.find((issue) => issue.issueId === selection.issueId) || null : null
-      const activeTask = selectedTask || (selectedIssue && selectedIssue.taskId ? allTasks.find((task) => task.taskId === selectedIssue.taskId && task.reqId === selectedIssue.reqId) || null : null)
-      const activeRequirement = selectedRequirement || (activeTask ? requirements.find((requirement) => requirement.reqId === activeTask.reqId) || null : null)
-
-      React.useEffect(() => {
-        if (selection.reqId || requirements.length === 0) return
-        setSelection({ kind: 'requirement', reqId: requirements[0].reqId, taskId: '', issueId: '' })
-        setExpanded(requirements[0].reqId)
-      }, [selection.reqId, requirements.length])
-
-      React.useEffect(() => {
-        if (!activeRequirement) return
-        if (reqDetail.reqId === activeRequirement.reqId && reqDetail.phase === 'ready') return
-        if (reqInflight.current) reqInflight.current.abort()
-        const controller = typeof AbortController === 'function' ? new AbortController() : null
-        reqInflight.current = controller
-        setReqDetail({ phase: 'loading', reqId: activeRequirement.reqId, data: null, error: '' })
-        read('detail', { reqId: activeRequirement.reqId }, controller ? controller.signal : undefined)
-          .then((data) => setReqDetail({ phase: 'ready', reqId: activeRequirement.reqId, data, error: '' }))
-          .catch((error) => {
-            if (controller && controller.signal.aborted) return
-            setReqDetail({ phase: 'error', reqId: activeRequirement.reqId, data: null, error: error.message || String(error) })
-          })
-      }, [activeRequirement && activeRequirement.reqId, detailNonce])
-
-      React.useEffect(() => {
-        const task = activeTask
-        if (!task) {
-          setTaskDetail({ phase: 'idle', key: '', data: null, error: '' })
-          return
-        }
-        const key = task.reqId + ':' + task.planVersion + ':' + task.taskId
-        if (taskDetail.key === key && taskDetail.phase === 'ready') return
-        if (taskInflight.current) taskInflight.current.abort()
-        const controller = typeof AbortController === 'function' ? new AbortController() : null
-        taskInflight.current = controller
-        setTaskDetail({ phase: 'loading', key, data: null, error: '' })
-        read('task', { reqId: task.reqId, taskId: task.taskId, planVersion: task.planVersion }, controller ? controller.signal : undefined)
-          .then((data) => setTaskDetail({ phase: 'ready', key, data, error: '' }))
-          .catch((error) => {
-            if (controller && controller.signal.aborted) return
-            setTaskDetail({ phase: 'error', key, data: null, error: error.message || String(error) })
-          })
-      }, [activeTask && activeTask.reqId, activeTask && activeTask.taskId, activeTask && activeTask.planVersion, taskNonce])
-
-      React.useEffect(() => {
-        if (view !== 'ops') return undefined
-        let alive = true
-        const loadOps = () => {
-          read('ops', {}, undefined)
-            .then((value) => {
-              if (!alive) return
-              setOps({ phase: 'ready', data: value, error: '' })
-              setOpsSelected((current) => current || (value.events && value.events[0] ? value.events[0].eventId : ''))
-            })
-            .catch((error) => {
-              if (!alive) return
-              setOps((previous) => ({ phase: 'error', data: previous.data, error: error.message || String(error) }))
-            })
-        }
-        loadOps()
-        const timer = auto ? setInterval(loadOps, 15000) : null
-        return () => {
-          alive = false
-          if (timer) clearInterval(timer)
-        }
-      }, [view, auto, opsNonce])
-
-      React.useEffect(() => {
-        if (view !== 'ops' || !opsSelected) return undefined
-        let alive = true
-        setOpsDetail({ phase: 'loading', eventId: opsSelected, data: null, error: '' })
-        read('ops-detail', { eventId: opsSelected }, undefined)
-          .then((value) => {
-            if (alive) setOpsDetail({ phase: 'ready', eventId: opsSelected, data: value, error: '' })
-          })
-          .catch((error) => {
-            if (alive) setOpsDetail({ phase: 'error', eventId: opsSelected, data: null, error: error.message || String(error) })
-          })
-        return () => {
-          alive = false
-        }
-      }, [view, opsSelected, opsNonce])
-
-      const openRequirement = (reqId) => {
-        setSelection({ kind: 'requirement', reqId, taskId: '', issueId: '' })
-        setExpanded(reqId)
-        setTab('overview')
-        const narrow = typeof window !== 'undefined' && window.innerWidth <= 820
-        setMobileDetail(!narrow)
-        if (narrow) { setTreeOpen(false); scrollWorkbench() }
-        setFullDetail(false)
-      }
-      const openTask = (reqId, taskId, nextTab) => {
-        setSelection({ kind: 'task', reqId, taskId, issueId: '' })
-        setExpanded(reqId)
-        setTab(nextTab || 'overview')
-        setMobileDetail(true)
-        setFullDetail(false)
-        if (typeof window !== 'undefined' && window.innerWidth <= 820) scrollWorkbench()
-      }
-      const openIssue = (issue) => {
-        setSelection({ kind: 'issue', reqId: issue.reqId, taskId: issue.taskId || '', issueId: issue.issueId })
-        setExpanded(issue.reqId)
-        setTab('overview')
-        setMobileDetail(true)
-        setFullDetail(false)
-        if (typeof window !== 'undefined' && window.innerWidth <= 820) scrollWorkbench()
-      }
-
-      const scrollWorkbench = () => {
-        if (typeof document === 'undefined') return
-        requestAnimationFrame(() => {
-          const node =
-            document.querySelector('.flb-workbench[data-mobile-detail="true"] .flb-side') ||
-            document.querySelector('.flb-workbench')
-          if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'start' })
-        })
-      }
-
-      const runAction = (requirement, endpoint) => {
-        if (action.busy) return
-        if (endpoint === 'stop') {
-          const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function' ? true : window.confirm(t('action.stopConfirm'))
-          if (!confirmed) return
-        }
-        setAction({ busy: endpoint, message: '' })
-        read(endpoint, {
-          reqId: requirement.reqId,
-          sessionId: props.sessionId,
-          ...(endpoint === 'approve' ? { planVersion: requirement.planVersion } : {}),
-          ...(endpoint === 'cancel' ? { reason: t('action.cancelReason') } : {}),
-          ...(endpoint === 'stop' ? { reason: t('action.stopReason') } : {}),
-        })
-          .then(() => {
-            const key = endpoint === 'approve' ? 'approved' : endpoint === 'advance' ? 'advanced' : endpoint === 'plan' ? 'planned' : endpoint === 'verify' ? 'verified' : endpoint === 'retry-analysis' ? 'retryAnalysisQueued' : endpoint === 'stop' ? 'stopped' : 'cancelled'
-            setAction({ busy: '', message: t(`action.${key}`) })
-            load()
-            setDetailNonce((value) => value + 1)
-          })
-          .catch((error) => setAction({ busy: '', message: error.message || String(error) }))
-      }
-
-      const runOpsAction = (event, endpoint, extra) => {
-        if (opsBusy.eventId) return
-        const confirmKey =
-          endpoint === 'ops-decide'
-            ? extra.decision === 'approve'
-              ? 'ops.approveConfirm'
-              : 'ops.declineConfirm'
-            : endpoint === 'ops-close'
-              ? 'ops.closeConfirm'
-              : ''
-        if (confirmKey) {
-          const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function' ? false : window.confirm(t(confirmKey))
-          if (!confirmed) return
-        }
-        setOpsBusy({ eventId: event.eventId, message: '' })
-        const body = { eventId: event.eventId, sessionId: props.sessionId, ...extra }
-        read(endpoint, body)
-          .then(() => {
-            setOpsBusy({ eventId: event.eventId, message: t('ops.done') })
-            setOpsNonce((value) => value + 1)
-          })
-          .catch((error) => setOpsBusy({ eventId: event.eventId, message: error.message || String(error) }))
-      }
-
-      const retryTask = (task) => {
-        const key = task.reqId + ':' + task.planVersion + ':' + task.taskId
-        if (retry.busy && retry.key === key) return
-        setRetry({ key, busy: true, message: '' })
-        read('retry', { reqId: task.reqId, planVersion: task.planVersion, taskId: task.taskId, sessionId: props.sessionId })
-          .then(() => {
-            setRetry({ key, busy: false, message: t('task.retryQueued') })
-            load()
-            setDetailNonce((value) => value + 1)
-            setTaskNonce((value) => value + 1)
-          })
-          .catch((error) => {
-            setRetry({ key, busy: false, message: error.message || String(error) })
-          })
-      }
-
-      const attention = (() => {
-        const items = []
-        const seen = new Set()
-        for (const requirement of requirements) {
-          const reqIssues = requirementIssues(requirement.reqId).filter((issue) => ['blocking', 'attention'].includes(issue.severity))
-          for (const issue of reqIssues) {
-            const key = issue.taskId ? requirement.reqId + ':task:' + issue.taskId : requirement.reqId + ':req:' + issue.issueId
-            if (seen.has(key)) continue
-            seen.add(key)
-            items.push({ key: 'issue:' + issue.issueId, reqId: requirement.reqId, taskId: issue.taskId || '', kind: 'issue', kindLabel: t(`issue.${issue.kind}`), title: issue.title, detail: issue.detail || '', tone: ISSUE_TONES[issue.severity] || 'warn', issue })
-          }
-        }
-        return items
-      })()
-
-      const allViews = [
-        ['hierarchy', t('wb.hierarchy')],
-        ['tasks', t('wb.allTasks')],
-        ['issues', t('wb.attention')],
-        ['ops', t('nav.ops')],
-      ]
-      const body = () => {
-        if (!board) {
-          return state.error ? h('div', { className: 'flb-error', role: 'alert' }, state.error) : h('div', { className: 'flb-empty' }, t('wb.loading'))
-        }
-        if (view === 'ops') {
-          return h(OpsPane, {
-            t,
-            data: ops.data,
-            error: ops.error,
-            detail: opsDetail,
-            selectedId: opsSelected,
-            filter: opsFilter,
-            busy: opsBusy,
-            onSelect: setOpsSelected,
-            onFilter: setOpsFilter,
-            onAction: runOpsAction,
-          })
-        }
-        if (requirements.length === 0) {
-          if (board.query) {
-            return h(
-              'div',
-              { className: 'flb-empty flb-empty-large' },
-              h('div', null, t('wb.noMatch')),
-              h('div', { className: 'flb-muted' }, t('search.noResults', { query: board.query })),
-              h('button', { type: 'button', className: 'flb-card-action', onClick: () => setQuery('') }, t('search.clear')),
-            )
-          }
-          return h('div', { className: 'flb-empty flb-empty-large' }, h('div', null, t('page.empty')), h('div', { className: 'flb-muted' }, t('overview.next.submit')))
-        }
-        if (visible.length === 0 && view !== 'issues') {
-          return h('div', { className: 'flb-empty flb-empty-large' }, h('div', null, t('wb.noMatch')), h('button', { type: 'button', className: 'flb-card-action', onClick: () => { setQuery(''); setFilter('all') } }, t('wb.clear')))
-        }
-        return h(
-          'div',
-          { className: 'flb-workbench', 'data-mobile-detail': String(mobileDetail), 'data-full': String(fullDetail), 'data-tree-open': String(treeOpen) },
-          treeOpen ? h(WorkbenchTree, {
-            t,
-            requirements: visible,
-            tasks: allTasks,
-            issues: allIssues,
-            selected: selection,
-            expanded,
-            onOpenRequirement: openRequirement,
-            onOpenTask: openTask,
-            onOpenIssue: openIssue,
-          }) : null,
-          fullDetail
-            ? null
-            : view === 'hierarchy'
-              ? h(CenterPane, {
-                  t,
-                  requirement: activeRequirement || visible[0] || null,
-                  tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
-                  issues: activeRequirement ? requirementIssues(activeRequirement.reqId) : [],
-                  workMode,
-                  onWorkMode: setWorkMode,
-                  selectedTaskId: selection.taskId,
-                  busy: action.busy,
-                  actionMessage: action.message,
-                  onAction: runAction,
-                  onOpenTask: openTask,
-                  onOpenIssue: openIssue,
-                })
-              : view === 'tasks'
-                ? h(AllTasksPane, {
-                    t,
-                    requirements: visible,
-                    tasks: allTasks,
-                    issues: allIssues,
-                    selectedTaskId: selection.taskId,
-                    onOpenRequirement: openRequirement,
-                    onOpenTask: openTask,
-                    onOpenIssue: openIssue,
-                  })
-                : h(IssuesPane, {
-                    t,
-                    items: attention.filter((item) => visible.some((requirement) => requirement.reqId === item.reqId)),
-                    onOpen: (item) => item.issue ? openIssue(item.issue) : openRequirement(item.reqId),
-                  }),
-          h(DetailPane, {
-            t,
-            read,
-            selection: {
-              ...selection,
-              kind: selectedTask ? 'task' : selectedIssue ? 'issue' : 'requirement',
-              reqId: (activeRequirement || selectedRequirement || visible[0] || {}).reqId || selection.reqId,
-            },
-            requirement: activeRequirement || visible[0] || null,
-            task: selectedTask || (selectedIssue && selectedIssue.taskId ? allTasks.find((task) => task.taskId === selectedIssue.taskId && task.reqId === selectedIssue.reqId) || null : null),
-            issue: selectedIssue,
-            tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
-            reqDetail,
-            taskDetail,
-            tab,
-            fullDetail,
-            active: tab === 'activity',
-            busy: action.busy,
-            actionMessage: action.message,
-            retry,
-            onOpenRequirement: openRequirement,
-            onOpenTask: openTask,
-            onOpenIssue: openIssue,
-            onTab: setTab,
-            onAction: runAction,
-            onRetry: retryTask,
-            onBack: () => { setMobileDetail(false); setFullDetail(false) },
-            onToggleFull: () => setFullDetail((value) => !value),
-          }),
         )
       }
 
-      return h(
-        'section',
-        { className: 'flb-root' },
-        h('style', null, BOARD_CSS),
-        h('style', null, OPS_CSS),
-        h(
-          'header',
-          { className: 'flb-head' },
-          h(
-            'div',
-            { className: 'flb-head-main' },
-            h('span', { className: 'flb-title' }, t('view.label')),
-            h('span', { className: 'flb-sub' }, board ? t('page.subtitle', { project: board.project, time: formatMoment(board.generatedAt) }) : t('page.loading')),
-            h('span', { className: 'flb-sub' }, t('page.source')),
-          ),
-          h(
-            'div',
-            { className: 'flb-head-tools' },
-            h(
-              'label',
-              { className: 'flb-search' },
-              h('span', { className: 'flb-search-icon' }, '⌕'),
-              h('input', {
-                type: 'search',
-                value: query,
-                placeholder: t('search.placeholder'),
-                'aria-label': t('search.label'),
-                onChange: (event) => setQuery(event.target.value),
-              }),
-              query ? h('button', { type: 'button', className: 'flb-search-clear', onClick: () => setQuery(''), 'aria-label': t('search.clear') }, '×') : null,
-            ),
-            h('button', { type: 'button', className: 'flb-refresh', onClick: load, disabled: state.phase === 'loading' || state.phase === 'refreshing' }, state.phase === 'refreshing' ? t('page.refreshing') : t('page.refresh')),
-            h('label', { className: 'flb-muted' }, h('input', { type: 'checkbox', checked: auto, onChange: (event) => setAuto(event.target.checked) }), ' ' + t('wb.auto')),
-          ),
-          h(
-            'nav',
-            { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
-            allViews.map(([key, label]) =>
-              h(
-                'button',
-                {
-                  type: 'button',
-                  key,
-                  role: 'tab',
-                  className: 'flb-tab',
-                  'aria-selected': view === key,
-                  onClick: () => { setView(key); setMobileDetail(false); setFullDetail(false) },
-                },
-                label,
-                h(
-                  'span',
-                  { className: 'flb-tab-count' },
-                  key === 'tasks'
-                    ? allTasks.length
-                    : key === 'issues'
-                      ? attention.length
-                      : key === 'ops'
-                        ? (ops.data && ops.data.summary && ops.data.summary.stats ? ops.data.summary.stats.active : 0)
-                        : requirements.length,
-                ),
-              ),
-            ),
-            h('button', { type: 'button', className: 'flb-tab', onClick: () => setTreeOpen((value) => !value), title: t('wb.treeToggle') }, t('wb.tree')),
-          ),
-          h(
-            'div',
-            { className: 'flb-search-meta' },
-            query ? h('span', null, t('search.results', { query, count: requirements.length, truncated: board && board.truncated ? t('search.truncated', { limit: board.limit || 50 }) : '' })) : null,
-            view === 'hierarchy'
-              ? h(
-                  'div',
-                  { className: 'flb-toolbar' },
-                  ['all', 'active', 'attention', 'draft'].map((key) =>
-                    h('button', { type: 'button', key, className: 'flb-filter', 'aria-pressed': filter === key, onClick: () => setFilter(key) }, t(`filter.requirement.${key}`)),
-                  ),
-                )
-              : null,
-            h('span', null, t('overview.searchScope')),
-          ),
-        ),
-        h(
-          'div',
-          { className: 'flb-body' },
-          state.error && board ? h('div', { className: 'flb-error', role: 'alert' }, state.error, h('button', { type: 'button', className: 'flb-card-action', onClick: load }, t('page.retry'))) : null,
-          body(),
-          h('div', { className: 'flb-footer' }, t('page.footer'), ' ', t('overview.boundarySource')),
-          h('div', { className: 'flb-bottom-spacer', 'aria-hidden': 'true' }),
-        ),
-      )
-    }
-
-
-      if (ctx.uiConversation && ctx.uiConversation.events && typeof ctx.uiConversation.events.register === 'function') {
+      if (
+        ctx.uiConversation &&
+        ctx.uiConversation.events &&
+        typeof ctx.uiConversation.events.register === 'function'
+      ) {
         for (const node of FLOW_NODES) {
-          ctx.effect(() => ctx.uiConversation.events.register(node.definition), `forgeloop: ${node.key}`)
+          ctx.effect(
+            () => ctx.uiConversation.events.register(node.definition),
+            `forgeloop: ${node.key}`,
+          )
           ctx.slots.inject('conversation.chat.node', () =>
             ctx.slots.register(
               { name: 'conversation.chat.node', key: node.key, locale: NS },
@@ -6279,7 +7460,12 @@ window.__ModuleLoader__.load({
 
       ctx.slots.inject('conversation.chat.turnTail', () =>
         ctx.slots.register(
-          { name: 'conversation.chat.turnTail', id: 'forgeloop-requirements', order: 80, locale: NS },
+          {
+            name: 'conversation.chat.turnTail',
+            id: 'forgeloop-requirements',
+            order: 80,
+            locale: NS,
+          },
           RequirementsTail,
         ),
       )
@@ -6304,6 +7490,7 @@ window.__ModuleLoader__.load({
       apply,
       // 无浏览器视图测试的只读入口；宿主只消费 name/inject/apply。
       __components: { RequirementDetail },
+      __actions: { body: actionRequest, successKey: actionSuccessKey },
     }
   },
 })

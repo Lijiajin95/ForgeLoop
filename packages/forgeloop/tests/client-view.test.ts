@@ -13,6 +13,15 @@ interface Registered {
     name?: string
     inject: string[]
     apply: (ctx: unknown) => void
+    __actions?: {
+      body: (
+        t: (key: string) => string,
+        requirement: { reqId: string; planVersion?: number | null },
+        endpoint: string,
+        sessionId: string,
+      ) => Record<string, unknown> | null
+      successKey: (endpoint: string) => string
+    }
   }
 }
 
@@ -248,5 +257,52 @@ describe('client conversation view', () => {
       expect(dicts!.zh[key], key).toBeUndefined()
       expect(dicts!.en[key], key).toBeUndefined()
     }
+  })
+})
+
+describe('client action request', () => {
+  const t = (key: string) => key
+  const requirement = { reqId: 'req-1', planVersion: 3 }
+  const actions = () => registered.exports.__actions!
+
+  function withPrompt(value: string | null): void {
+    ;(globalThis as { window: { prompt?: () => string | null } }).window.prompt = () => value
+  }
+
+  it('converts hours to seconds for extend-budget instead of sending hours', () => {
+    withPrompt('2')
+    expect(actions().body(t, requirement, 'extend-budget', 'session-1')).toEqual({
+      reqId: 'req-1',
+      sessionId: 'session-1',
+      seconds: 7200,
+    })
+  })
+
+  it('cancels extend-budget on null or out-of-range input', () => {
+    withPrompt(null)
+    expect(actions().body(t, requirement, 'extend-budget', 's')).toBeNull()
+    withPrompt('25')
+    expect(actions().body(t, requirement, 'extend-budget', 's')).toBeNull()
+    withPrompt('abc')
+    expect(actions().body(t, requirement, 'extend-budget', 's')).toBeNull()
+  })
+
+  it('builds grant and deploy bodies without leaking prompt values', () => {
+    expect(actions().body(t, requirement, 'grant-rounds', 's')).toEqual({
+      reqId: 'req-1',
+      sessionId: 's',
+    })
+    withPrompt('web')
+    expect(actions().body(t, requirement, 'deploy', 's')).toEqual({
+      reqId: 'req-1',
+      sessionId: 's',
+      targetProfile: 'web',
+    })
+  })
+
+  it('maps action endpoints to their success keys', () => {
+    expect(actions().successKey('extend-budget')).toBe('extendedBudget')
+    expect(actions().successKey('grant-rounds')).toBe('grantedRounds')
+    expect(actions().successKey('unknown')).toBe('cancelled')
   })
 })
