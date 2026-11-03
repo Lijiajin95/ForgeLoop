@@ -218,8 +218,8 @@ function parseCoverage(since: number): CoverageSummary | null {
       thresholds: {
         lines: num(thresholdsRow.lines, 90),
         statements: num(thresholdsRow.statements, 90),
-        functions: num(thresholdsRow.functions, 93),
-        branches: num(thresholdsRow.branches, 84),
+        functions: num(thresholdsRow.functions, 95),
+        branches: num(thresholdsRow.branches, 85),
       },
       files: files.slice(0, 200),
     }
@@ -240,8 +240,8 @@ function coveragePasses(coverage: CoverageSummary | null): boolean {
   if (!configured) return true
   const defaults = {
     lines: num(configured.lines, 90),
-    functions: num(configured.functions, 93),
-    branches: num(configured.branches, 84),
+    functions: num(configured.functions, 95),
+    branches: num(configured.branches, 85),
   }
   const overrides = new Map<string, typeof defaults>()
   for (const [path, expectedValue] of Object.entries(configured)) {

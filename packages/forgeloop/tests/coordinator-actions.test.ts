@@ -132,6 +132,24 @@ describe('coordinator lifecycle', () => {
     expect(existsSync(join(projectDir(runtime.config), 'host.lock'))).toBe(false)
   })
 
+  it('keeps the first start idempotent instead of reacquiring or resetting recovery', async () => {
+    const coordinator = makeCoordinator(false)
+    coordinator.start()
+    const first = coordinator.snapshot()
+    coordinator.start()
+    expect(coordinator.snapshot()).toEqual(first)
+    expect(runtime.repo.getMeta('last_recovery')).not.toBeNull()
+    await coordinator.stop()
+  })
+
+  it('does not run an ops tick when ops is disabled', async () => {
+    const coordinator = makeCoordinator(false)
+    await expect(coordinator.kickOps()).resolves.toBeUndefined()
+    coordinator.start()
+    await expect(coordinator.kickOps()).resolves.toBeUndefined()
+    await coordinator.stop()
+  })
+
   it('stays read-only when another live coordinator owns the lock', async () => {
     const first = makeCoordinator(false)
     first.start()

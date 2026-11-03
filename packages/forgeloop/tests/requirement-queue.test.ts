@@ -115,6 +115,28 @@ describe('requirement queue (memory)', () => {
     expect(queue.pending()).toEqual([])
   })
 
+  it('uses the current clock and accepts Date instances when no explicit time is supplied', () => {
+    const live = new RequirementQueue(new MemoryRequirementQueueStore())
+    const before = Date.now()
+    const entry = live.enqueue({ requirementId: 'req-now', project: 'forgeloop' })
+    const after = Date.now()
+    const enqueued = Date.parse(entry.enqueuedAt)
+    expect(enqueued).toBeGreaterThanOrEqual(before)
+    expect(enqueued).toBeLessThanOrEqual(after)
+    const claimed = live.claimNext()
+    expect(claimed?.requirementId).toBe('req-now')
+    expect(Date.parse(claimed!.claimedAt)).toBeGreaterThanOrEqual(enqueued)
+
+    const datedQueue = new RequirementQueue(new MemoryRequirementQueueStore())
+    const explicit = new Date('2026-10-31T08:00:00.000Z')
+    const dated = datedQueue.enqueue({
+      requirementId: 'req-date',
+      project: 'forgeloop',
+      enqueuedAt: explicit,
+    })
+    expect(dated.enqueuedAt).toBe(explicit.toISOString())
+  })
+
   it('refuses to complete an unknown or still-queued requirement', () => {
     const queue = new RequirementQueue(new MemoryRequirementQueueStore(), FIXED_NOW)
     enqueue(queue, 'req-a', '2026-10-31T08:00:00.000Z')

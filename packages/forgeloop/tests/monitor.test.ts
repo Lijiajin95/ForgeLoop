@@ -323,6 +323,33 @@ describe('monitor snapshot collection', () => {
     expect(snapshot.errors.some((error) => error.includes('最后状态不可读'))).toBe(true)
   })
 
+  it('skips malformed alert entries and truncates oversized summaries', async () => {
+    writeFileSync(
+      join(dir, 'entries.json'),
+      JSON.stringify([
+        null,
+        42,
+        {},
+        { summary: 42 },
+        { summary: '   ' },
+        { summary: '长'.repeat(1000) },
+      ]),
+    )
+    const config = collectorConfig({ alertFiles: [{ id: 'entries', path: 'entries.json' }] })
+
+    const snapshot = await collectMonitorSnapshot({ config, repo: repository, now: clock })
+    expect(snapshot.alerts).toHaveLength(1)
+    expect(snapshot.alerts[0]).toMatchObject({
+      source: 'entries',
+      severity: 'major',
+      at: '',
+      resourceId: '',
+    })
+    expect(snapshot.alerts[0]?.summary).toHaveLength(301)
+    expect(snapshot.alerts[0]?.summary.endsWith('…')).toBe(true)
+    expect(snapshot.alertFiles[0]).toMatchObject({ id: 'entries', count: 1, error: '' })
+  })
+
   it('records a process collection error when ps cannot run', async () => {
     const config = collectorConfig(
       { processes: [{ id: 'node', resourceId: 'web', match: 'node' }] },

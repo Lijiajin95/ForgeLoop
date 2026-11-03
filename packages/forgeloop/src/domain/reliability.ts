@@ -461,8 +461,8 @@ export interface ReliabilityCoverage extends CoveragePercentages {
 
 /** 与 `vitest.config.ts` 的关键文件门槛同步；测试会核对两边，避免页面另写一套门槛。 */
 export const KEY_COVERAGE_THRESHOLDS = {
-  'src/runtime/service.ts': { lines: 85, functions: 92, branches: 78 },
-  'src/runtime/coordinator.ts': { lines: 90, functions: 99, branches: 83 },
+  'src/runtime/service.ts': { lines: 90, functions: 95, branches: 85 },
+  'src/runtime/coordinator.ts': { lines: 90, functions: 99, branches: 85 },
   'src/records/repository.ts': { lines: 97, functions: 98, branches: 86 },
   'src/domain/verification.ts': { lines: 94, functions: 99, branches: 88 },
   'src/domain/admission.ts': { lines: 100, functions: 100, branches: 100 },

@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
-import { ANALYSIS_FAILED, AWAITING_CLARIFICATION, SPECIFIED } from '../src/domain/status.js'
+import {
+  ANALYSIS_FAILED,
+  AWAITING_CLARIFICATION,
+  CANCELLED,
+  SPECIFIED,
+} from '../src/domain/status.js'
 import {
   ANALYSIS_PROMPT_VERSION,
   BUSINESS_CONTEXT_DOC,
@@ -357,6 +362,20 @@ describe('product analysis failure and retry', () => {
 })
 
 describe('requirement enqueue after the first analysis', () => {
+  it('refuses a missing or terminal requirement without queuing anything', () => {
+    expect(runtime.analysisQueue.enqueue('req-missing')).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    })
+    const reqId = submit()
+    runtime.repo.setStatus(reqId, CANCELLED, '测试取消')
+    expect(runtime.analysisQueue.enqueue(reqId)).toMatchObject({ ok: false, code: 'terminal' })
+    expect(
+      runtime.analysisQueue.retry({ reqId, by: 'owner', source: 'web-decision:sess-1' }),
+    ).toMatchObject({ ok: false, code: 'terminal' })
+    expect(runtime.repo.pendingRequests('demo')).toEqual([])
+  })
+
   it('refuses to enqueue without a current analysis or with open clarifications', async () => {
     const reqId = submit()
     expect(runtime.analysisQueue.enqueue(reqId).code).toBe('analysis_missing')
