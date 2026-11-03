@@ -13,7 +13,7 @@
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                             | §30                                                                                                                                    |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                | §13、[ADR 0009](adr/0009-remove-retired-implementation.md)                                                                             |
 | 最近安装记录 | 2026-11-03 `forgeloop-dsh@0.0.2` tarball（284,321 字节，SHA-256 `aa33c110…`，含看板空 JSON、延长工时请求体与上游 diff 幂等修复）已安装到正式 `web` profile 并热重载（PID 82207 未重启；owner `MacAir.local:2477:bd54c43b` 起于 `2026-11-03T03:38:50Z`），`last_recovery` 无中断请求；安装记录不等于交付完成                                                                                                                                                                                                                               | §36                                                                                                                                    |
-| 最近工程检查 | 2026-11-03 `make check` 通过，68 个测试文件、738 项通过、1 项按环境跳过；`make contracts`、`make lint`、`make format`、断言预算 18/18、token 预算通过；覆盖率未在本批重跑                                                                                                                                                                                                  | §110、§112                                                                                                                             |
+| 最近工程检查 | 2026-11-03 `make check` 通过，70 个测试文件、772 项通过；`make contracts`、`make lint`、`make format`、断言预算 18/18、token 预算通过；覆盖率未在本批重跑                                                                                                                                                                                                  | §117、§118                                                                                                                             |
 | 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行                                                                                                                                                                                                                                                    | §16–§28、§33、§36                                                                                                                      |
 | 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，无工具 Agent 评审后建事件；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证 | §35、§110、§112、[运维设计](ops-agent.md)                                                                                              |
 | 关键缺口     | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维只有行为测试（正式配置已启用主动监控，宿主 PID 2477 未重载）；需求编辑、草稿删除、问题补充与等待回答无服务端入口                                                                                                                                                      | §4.1、§21–§37、§110                                                                                                                    |
@@ -4340,3 +4340,49 @@ Ignoring previously applied (or reversed) patch.
 测试：文本 diff 重复应用、新文件 diff 重复应用、真实冲突仍失败。
 
 验证：`make check` 69 个测试文件、747 项通过、1 项环境跳过。
+
+## 118. 输入分诊：需求与问题分流（2026-11-03）
+
+### 118.1 行为
+
+- 产品 Agent 分析前先判定输入是**需求**还是**问题**，结论写入分析载荷的 `input_kind`
+  （`requirement`／`problem`），缺省按需求；未知取值按畸形失败，不猜类型。
+- 分诊结果旁置存放在 `requirement_analysis_input_kinds`，不改 `requirement_analyses` 表结构；
+  已有库按 `CREATE TABLE IF NOT EXISTS` 建立，缺行按需求处理，历史分析行为不变。
+- 需求：沿用原有分析（目标、业务场景、业务规则、异常与边界、非目标、验收标准、待澄清项）。
+- 问题：只给现象与可检查的修复判据（`acceptance_criteria` 至少一条，`scenarios` 可空），
+  `clarifications` 必须为空。解析与落库都拒绝“问题 + 待澄清项”，所以问题不会停在
+  `awaiting_clarification`，而是与分析通过的需求一样经系统准入进入 `specified`，由协调器直接排给研发。
+- 研发与实现前评审按 `input_kind=problem` 换口径：任务按“复现定位根因 → 最小修复 → 按修复判据验证”
+  拆解，不要求补齐新增功能场景。
+- 会话分析事件 `plugin:forgeloop/analysis` 带 `inputKind`；天工需求详情与会话分析卡片展示「需求 / 问题」。
+- 分析提示词版本升为 `analysis-v3`。
+
+### 118.2 涉及文件
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/domain/requirement.ts` | `InputKind`、`input_kind` 解析与落库约束、`inputKindOf` |
+| `src/domain/analysis.ts` | 提示词版本 `analysis-v3` |
+| `src/records/db.ts`、`src/records/repository.ts` | 旁置表、事务写入与读取回填 |
+| `src/runtime/execution-plan.ts` | 分析记录写入 `inputKind` |
+| `src/runtime/prompts.ts` | 分诊规则、问题上下文标签、研发与评审口径 |
+| `src/session/events.ts`、`src/session/intake.ts` | 分析事件携带 `inputKind` |
+| `client.js` | 分析卡片与需求详情展示输入类型 |
+| `tests/*` | 解析、仓储 round-trip、运行时问题分流、提示词、事件与语言包 |
+| `README.md`、`docs/architecture.md`、`docs/product.md`、`CONTEXT.md` | 分诊、问题口径与术语 |
+
+### 118.3 验证
+
+- `make check`：70 个测试文件、772 项通过。
+- `make check-static`：typecheck、ESLint 与契约检查通过；token 预算 service.ts 21,354
+  （基线 21,931），断言预算 18/18；`make format` 通过。
+- 新增测试：分诊缺省／合法／未知取值、问题缺修复判据与带澄清被拒、仓储 round-trip 与旧记录缺省、
+  问题分析落库后直接入研发队列、问题带澄清在运行时报分析失败、研发提示词问题口径、语言包标签。
+
+### 118.4 未完成
+
+- 未用真实模型验证分诊判断质量：目前只在提示词与确定性校验上约束，稳定性需真实输入复测。
+- 问题复用需求的状态机、队列与看板栏目，页面仍称“需求”；问题与需求共享同一串行研发额度。
+- 模型把问题误判为需求时仍会走澄清流程；没有人工改判入口，需要修订输入后重新分析。
+
