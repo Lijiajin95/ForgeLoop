@@ -216,28 +216,25 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const VERIFICATION_PLAN = JSON.stringify({
-  scenarios: [
-    {
-      scenario: '文档存在且可读',
-      acceptance_criterion: 'docs/a.txt 与 docs/b.txt 存在',
-      method:
-        '运行检查命令并核对输出；业务规则：文档内容由研发任务产出；异常与边界：文件缺失时验证失败',
-      required: true,
-      checks: [
-        {
-          label: 'smoke',
-          argv: [
-            'node',
-            '-e',
-            "const fs=require('node:fs');if(fs.existsSync('docs/a.txt')&&fs.existsSync('docs/b.txt')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)",
-          ],
-          expected_output: 'verified ok',
-        },
-      ],
-    },
-  ],
-})
+let verificationFails = false
+
+function verificationPlan(): string {
+  const check = verificationFails
+    ? "const fs=require('node:fs');console.log('broken');process.exit(1)"
+    : "const fs=require('node:fs');if(fs.existsSync('docs/a.txt')&&fs.existsSync('docs/b.txt')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
+  return JSON.stringify({
+    scenarios: [
+      {
+        scenario: '文档存在且可读',
+        acceptance_criterion: 'docs/a.txt 与 docs/b.txt 存在',
+        method:
+          '运行检查命令并核对输出；业务规则：文档内容由研发任务产出；异常与边界：文件缺失时验证失败',
+        required: true,
+        checks: [{ label: 'smoke', argv: ['node', '-e', check], expected_output: 'verified ok' }],
+      },
+    ],
+  })
+}
 
 const BUSINESS_REVIEW = JSON.stringify({
   verdict: 'pass',
@@ -318,7 +315,7 @@ function fakeRunner(options: RunnerOptions): unknown {
         return reply('fixed')
       }
       if (request.role === 'verify' && turn.prompt.includes('现在只依据需求说明')) {
-        return reply(VERIFICATION_PLAN)
+        return reply(verificationPlan())
       }
       if (request.role === 'verify' && turn.prompt.includes('你必须使用工具')) {
         const reqId = /需求身份：(\S+)/.exec(turn.prompt)?.[1] ?? ''
@@ -376,6 +373,7 @@ function configFor(
   recordsRoot: string,
   requirementId: string,
   root: string,
+  limits: { maxVerificationAttempts?: number } = {},
 ): unknown {
   return resolveConfig(
     {
@@ -388,6 +386,9 @@ function configFor(
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
       failureRoundsPerGrant: 3,
+      ...(limits.maxVerificationAttempts === undefined
+        ? {}
+        : { maxVerificationAttempts: limits.maxVerificationAttempts }),
       autonomy: {
         enabled: true,
         // ops: 前缀只为运维修复需求显式放开；普通来源仍走 dsh-session。
@@ -643,6 +644,83 @@ async function main(): Promise<void> {
     check(fixDeployed.version === fixBuilt!.packageVersion, 'S3 目标运行版本与修复制品不一致')
     console.log(`[m0-loop] S3 完成：fixReq=${fixReqId} deploy=${fixIntent}`)
 
+    // ---------------- M0-7 停止：真实请求阻止推进，显式恢复后才继续 ----------------
+    const stopSubmit = runtime.submit({
+      text: 'M0-7 停止测试：文档更新（用于验证停止与显式恢复）',
+      by: 'owner',
+      source: 'dsh-session:m0-loop:stop-leg',
+    })
+    check(stopSubmit.ok, `停止测试需求提交失败：${stopSubmit.message}`)
+    const stopReqId = (stopSubmit.data as { reqId: string }).reqId
+    const stopAnalyze = await runNext(stopReqId, 'analyze')
+    check((stopAnalyze as { state?: string } | null)?.state === 'done', '停止测试需求分析未完成')
+    check(runtime.autoAdvanceRequests().includes(stopReqId), '停止前没有自动排队')
+    const stopResult = runtime.stop({
+      reqId: stopReqId,
+      by: 'owner',
+      reason: 'M0-7 停止请求实测',
+    })
+    check(stopResult.ok, `停止请求失败：${stopResult.message}`)
+    check(runtime.repo.activeStop(stopReqId), '停止请求没有落库')
+    check(!runtime.autoAdvanceRequests().includes(stopReqId), '停止后仍被自动排队')
+    check(
+      runtime.repo.claimNextRequest('m0-script', new Date().toISOString()) === null,
+      '停止后仍能领到推进请求',
+    )
+    const stopped = runtime.repo.getRequirement(stopReqId)
+    check(stopped?.status === 'blocked', `停止后状态不是 blocked：${stopped?.status}`)
+    const resumed = runtime.requestOperation({
+      reqId: stopReqId,
+      action: 'advance',
+      by: 'owner',
+      source: 'm0-loop:resume',
+      reason: 'M0-7 显式恢复实测',
+    })
+    check(resumed.ok, `显式恢复失败：${resumed.message}`)
+    const stopAdvance = await runNext(stopReqId, 'advance')
+    check((stopAdvance as { state?: string } | null)?.state === 'done', '恢复后推进未完成')
+    check(
+      runtime.repo.getRequirement(stopReqId)?.status === 'committed',
+      '恢复后需求未回到 committed',
+    )
+    console.log(`[m0-loop] M0-7 完成：停止阻止推进，显式恢复后 ${stopReqId} committed`)
+
+    // 正数限额：maxVerificationAttempts=1 时，验证失败必须停住而不是无限重试。
+    runtime.close()
+    runtime = null
+    verificationFails = true
+    runtime = makeRuntime(
+      configFor(project, recordsRoot, reqId, root, { maxVerificationAttempts: 1 }),
+    )
+    const limitSubmit = runtime.submit({
+      text: 'M0-7 限额测试：验证必然失败，用于确认正数次数上限会停住',
+      by: 'owner',
+      source: 'dsh-session:m0-loop:limit-leg',
+    })
+    check(limitSubmit.ok, `限额测试需求提交失败：${limitSubmit.message}`)
+    const limitReqId = (limitSubmit.data as { reqId: string }).reqId
+    const limitAnalyze = await runNext(limitReqId, 'analyze')
+    check((limitAnalyze as { state?: string } | null)?.state === 'done', '限额测试需求分析未完成')
+    runtime.autoAdvanceRequests()
+    const limitAdvance = await runNext(limitReqId, 'advance')
+    check((limitAdvance as { state?: string } | null)?.state === 'failed', '验证失败没有被限额停住')
+    check(
+      runtime.repo.getRequirement(limitReqId)?.status === 'blocked',
+      '限额用尽后需求状态不是 blocked',
+    )
+    check(runtime.repo.latestCommit(limitReqId) === null, '限额测试不应产生受控提交')
+    // 问题单仍开放时协调器会再排 advance（这是既有的跨请求重试语义）；
+    // 本轮只证明正数上限让当前执行停下并置 blocked，不宣称跨请求总次数封顶。
+    check(
+      (runtime.repo.getRequirement(limitReqId)?.blockedReason ?? '').includes('问题单'),
+      '限额用尽后没有留下问题单说明',
+    )
+    verificationFails = false
+    runtime.close()
+    runtime = null
+    runtime = makeRuntime(configFor(project, recordsRoot, reqId, root))
+    console.log(`[m0-loop] M0-7 限额完成：${limitReqId} 在 1 次验证上限后 blocked`)
+
     // ---------------- M0-4 负例：模型工具面与越界文件 ----------------
     const toolsSource = readFileSync(join(ROOT, 'packages/forgeloop/src/tools.ts'), 'utf8')
     check(
@@ -697,6 +775,13 @@ async function main(): Promise<void> {
     summary.s3Rollout = runtime.deploymentService.rollout(fixIntent)
     summary.legs = {
       s1: { reqId, commitSha, artifact: built!.artifactSha256, intentId },
+      m07: {
+        reqId: stopReqId,
+        stopped: 'blocked',
+        resumed: 'committed',
+        limitReqId,
+        limit: 'maxVerificationAttempts=1 -> blocked',
+      },
       s2: { eventId, state: event?.state, recoveredPid },
       s3: { fixReqId, fixCommit: fixCommit?.commitSha ?? '', fixIntent },
       negatives: {

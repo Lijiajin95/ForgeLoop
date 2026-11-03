@@ -4927,6 +4927,7 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
     为既有问题。
 - 回归：`Database.close()` 幂等（红：重复 close 抛错；绿：`tests/p0-scenarios.test.ts`）；
   property 生成器（红：seed 61697261 反例；绿：同 seed 与 3 轮稳定性通过）。
+
 ## 131. M0 收口与全链路闭环（2026-11-04）
 
 ### 131.1 实现
@@ -4953,16 +4954,20 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 ### 131.2 闭环证据（最终复跑）
 
-证据目录：`reports/m0-loop-e2e/2026-11-03T17-23-17-954Z/`（`reports/` 不入库），
+证据目录：`reports/m0-loop-e2e/2026-11-03T17-26-40-630Z/`（`reports/` 不入库），
 含 `summary.json`、`config.snapshot.json`、`s1-rollout.json`、`s2-event.json`、`s3-rollout.json`。
 
-- S1：`req-20261103172318-a8afb2`，受控提交 `715903048725`，制品摘要
-  `e4a2fc0d2894aef2706200b8ffbfffb0e6972d427b077d254282a94f30092fa3`，
-  部署 `dep-69908627-4dce-4927-820c-09d2df6c6dae`（preflight → apply → status 核对通过）。
-- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103172318-db4206`，诊断给出 `restart-web`，
+- S1：`req-20261103172640-5db7ea`，受控提交 `1779c60ab3e9`，制品摘要
+  `f81d033f432871706ed60cdd9bce0447b117abfaf3a4b03978087947dbab46c8`，
+  部署 `dep-cda30127-4e68-4aed-a75b-4bca6077f99c`（preflight → apply → status 核对通过）。
+- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103172641-a7a5aa`，诊断给出 `restart-web`，
   自动恢复后检查复核 `recovered`；恢复进程 pid 与故障前不同。
-- S3：同一事件 `fix_required` 生成 `req-20261103172319-98189e`（source=`ops:ops-20261103172318-db4206`），
-  研发/独立验证/受控提交 `c630e14f48e7` 后重新构建，部署 `dep-059d694f-1e8c-4b04-816c-918597cd64cc` 核对通过。
+- S3：同一事件 `fix_required` 生成 `req-20261103172641-2fa5df`（source=`ops:ops-20261103172641-a7a5aa`），
+  研发/独立验证/受控提交 `a858fa15090e` 后重新构建，部署 `dep-6314027f-14f0-4518-be4a-08e31b1058c9` 核对通过。
+- M0-7：停止实测 `req-20261103172642-b2de5f`：停止后不再排队、状态 `blocked`、无法领取推进；
+  显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103172642-0bfb68`：
+  `maxVerificationAttempts=1` 让验证失败停住并置 `blocked`、无受控提交、blockedReason 留有问题单。
+  注意：问题单仍开放时协调器会再次排 advance（既有跨请求重试语义），本项只证明单次执行上限生效。
 - 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
   无 deploy/approve/rollback 入口；`../escape.txt` 任务包被 `parseTaskPlanDraft` 拒绝。
 - 门禁（main）：`make check` 114 文件/1312 项；`make coverage` 行 97.81%、函数 99.41%、
@@ -4970,15 +4975,15 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 ### 131.3 M0 自检（截至本次记录）
 
-| 编号 | 结论 | 证据与说明 |
-| --- | --- | --- |
-| M0-1 | 部分 | 隔离 `recordsRoot`/临时项目/受控 target 的配置快照在证据目录；停止与限额机制已有测试，但本轮未在生产实例做新的停止实测。 |
-| M0-2 | 未达成 | 本轮 E2E 的需求是脚本化输入，不是真实自身需求；真实模型 leg 未运行。 |
-| M0-3 | 部分 | S1 的研发→验证→提交→构建→部署→核对在隔离环境真实跑通；研发/验证 Agent 是脚本替身，真实模型 leg 未跑。 |
-| M0-4 | 达成 | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。 |
-| M0-5 | 部分 | 本节“外部投入”仅记录本次 DSH Agent 会话；模型与费用口径未采集（未知）。 |
-| M0-6 | 部分 | intent/attempt/rollout 详情与运维事件可回查；证据目录在 `reports/`（被忽略），未接入页面证据入口；失败轮次字段沿用既有记录。 |
-| M0-7 | 部分 | 停止/额度既有行为测试通过；“本机实测”未在本轮重新执行，只引用既有 §49 与测试。 |
+| 编号 | 结论             | 证据与说明                                                                                                                                                                                                                        |
+| ---- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`；owner 授权、门禁与停止语义见 `docs/deployment-interface.md`/`docs/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                 |
+| M0-2 | 未达成           | 本轮 E2E 的需求是脚本化输入，不是真实自身需求；真实模型 leg 未运行。这是 M0 总体未达成的唯一硬缺口。                                                                                                                              |
+| M0-3 | 部分             | S1 的研发→验证→提交→构建→部署→核对在隔离环境真实跑通；研发/验证 Agent 是脚本替身，真实模型 leg 未跑。                                                                                                                             |
+| M0-4 | 达成             | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。                                                                                                     |
+| M0-5 | 部分             | 本节“外部投入”仅记录本次 DSH Agent 会话；模型与费用口径未采集（未知）。                                                                                                                                                           |
+| M0-6 | 达成（隔离环境） | `s1-rollout.json`/`s3-rollout.json` 含 intent 与逐次 attempt；`s2-event.json` 含修复需求关联；`forgeloop_rollouts` 与 board `deployments/deployment` 只读可查；限额失败留下 blockedReason。证据目录未接入页面入口，属展示层缺口。 |
+| M0-7 | 达成             | §131.2 的停止（blocked→显式恢复→committed）与正数限额（1 次验证上限→blocked、无提交）均为脚本化本机实测；跨请求问题单重试不受该上限约束，已在记录中写明。                                                                         |
 
 ### 131.4 外部投入（M0-5，如实标注）
 
@@ -4995,3 +5000,5 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 - 证据保留期（压缩/磁盘上限）、看板部署页面、`auto` 部署的人工可见审批入口未实现（P1）。
 - 部署 `verifyTimeoutSeconds` 已接入协调器巡检：`applied_pending_verify` 超时标记 `verify_failed`
   并告警（不自动回退）；由 `coordinator.runOnce` 每轮调用。
+- `maxVerificationAttempts` 只约束单次 advance 内的连续验证轮次；开放问题单会让协调器跨请求重试
+  （既有语义，不是总次数封顶）。M0-7 的限额证据按此口径记录。
