@@ -11,8 +11,8 @@ CONTRACTS := $(NODE) scripts/ts/contracts.ts
 
 .PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
-	precommit verify-plugin package \
-	coverage mutation audit security help \
+	precommit verify-plugin verify-e2e package \
+	coverage mutation mutation-shard mutation-merge audit security help \
 	reliability-report reliability-report-fast
 
 help:
@@ -28,10 +28,13 @@ help:
 	@echo "make budget                Agent 上下文 token 预算（文件 25k）"
 	@echo "make assertions            类型断言预算（只减不增）"
 	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
+	@echo "make verify-e2e            候选包安装到隔离宿主后跑真实模型端到端主路径（需模型凭据）"
 	@echo "make lint                  ESLint（类型感知，src；tests/scripts 无类型规则）"
 	@echo "make format                检查 Prettier 格式（make format-write 写入）"
-	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts）"
-	@echo "make mutation              Stryker 变异测试（domain 关键模块，慢；全量 CI 使用）"
+	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts，逐文件检查）"
+	@echo "make mutation              全量 Stryker 变异测试（所有源码，慢；全量 CI 用分片）"
+	@echo "make mutation-shard SHARD=... 只变异一个模块分片（domain/records/runtime-*/session/...）"
+	@echo "make mutation-merge        合并分片报告，校验全部源码都已被变异"
 	@echo "make reliability-report    运行全部门禁并生成代码可靠性快照（含变异，慢）"
 	@echo "make reliability-report-fast 同上但跳过变异测试，快照记录 not_run"
 
@@ -98,6 +101,11 @@ package: build
 verify-plugin:
 	$(NODE) scripts/ts/verify-plugin.ts
 
+# 真实宿主端到端主路径：隔离 DSH_HOME + 安装候选 tarball + 真实模型 + 实际工具。
+# 需要模型凭据；缺少凭据直接失败，不降级为跳过。
+verify-e2e:
+	$(NODE) scripts/ts/verify-e2e.ts
+
 # 宿主装载 E2E（不依赖模型）：构建 → 隔离 profile 安装 → dump-config/plugin list 校验。
 e2e:
 	$(NODE) scripts/ts/e2e.ts
@@ -113,9 +121,17 @@ reliability-report:
 reliability-report-fast:
 	$(NODE) scripts/ts/reliability-report.ts --fast
 
-# 以下两项当前没有接入对应工具；显式失败，避免被误读为“已通过”。
+# 变异测试覆盖 src 下所有源码；CI 用 mutation-shard 分模块并行，再 mutation-merge 汇总。
+# 任一源码未进入报告、报告损坏或分数低于 break 门槛都失败。
 mutation:
 	$(NPM) run mutation --workspace forgeloop-dsh
+
+mutation-shard:
+	@test -n "$(SHARD)" || (echo "用法：make mutation-shard SHARD=<domain|records|runtime-execution|runtime-verification|runtime-ops|session|config-agents|entry|all>" >&2; exit 1)
+	$(NODE) scripts/ts/mutation-shard.ts $(SHARD)
+
+mutation-merge:
+	$(NODE) scripts/ts/mutation-merge.ts $(SHARDS)
 
 # 依赖漏洞扫描：本地在受限缓存下可能无法访问审计服务；失败即失败，不标注为通过。
 audit:

@@ -474,6 +474,7 @@ label，与工具白名单外的一切命令无关；其余工具只读查询。
 - 邮件／IM、自动发布／部署和跨版本升级兼容尚未形成当前完整能力。新首版的发布与运维要求见统一方案。
 - 候选安装仍由 `plugin_manager` 等外部机制完成；安装后的正式上线核对只在行为测试中验证，未在正式需求执行。
 - 验证、研发与业务终审 Agent 仍是宿主内会话与 `workspace-write`，不是 OS 隔离。
-- 变异测试与格式化器尚未接入 TypeScript 工具链；对应 `make` 目标显式失败。
+- 变异测试已接入 Stryker：`make mutation` 覆盖 `src` 下全部源码，夜间按模块分片执行并由
+  `make mutation-merge` 校验每个源码文件都进入报告；格式化使用 Prettier（`make format`）。
   依赖审计已配置为 `make audit`，实际执行与验证情况见状态记录。
 - DSH 仍是 developer preview；升级可能改变接缝，需按版本重新验证。

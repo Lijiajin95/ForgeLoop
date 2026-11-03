@@ -10,8 +10,8 @@
 | -------- | ------------------- | ---------------------------------------------------------------------------------- | ---------------- |
 | 快速质量 | PR / push 到 `main` | `.github/workflows/quality.yml` → `make check-fast`                                | 是               |
 | 格式     | PR / push           | `make format`（Prettier 检查）                                                     | 是               |
-| 全量质量 | 每日定时 + 手动     | `.github/workflows/nightly.yml` → `make check` + `make coverage` + `make mutation` | 是（nightly）    |
-| 发布     | 手动                | `.github/workflows/release.yml` → `make check`、`coverage`、`sbom`、`package`      | 是（release）    |
+| 全量质量 | 每日定时 + 手动     | `.github/workflows/nightly.yml` → `make check` + `make coverage` + 8 个 `mutation-shard` + `mutation-merge` | 是（nightly）    |
+| 发布     | 手动                | `.github/workflows/release.yml` → `make check`、`coverage`、`sbom`、`package`；`real-host` 再跑 `verify-plugin` 与 `verify-e2e` | 是（release）    |
 | 产权     | 任意改动            | `.github/CODEOWNERS` 指定所有者审阅                                                | 依赖 GitHub 设置 |
 | 契约     | 本地/CI             | `make contracts`（分层、依赖、端点、文档链接）                                     | 是               |
 
@@ -118,18 +118,21 @@ gh api -X DELETE repos/Lijiajin95/ForgeLoop/branches/main/protection   # 回滚 
 ## E2E 门禁现状（部分落实）
 
 - 已有 `make e2e`：`scripts/ts/e2e.ts` 构建插件 → 临时 `DSH_HOME` + 独立 profile 安装 →
-  校验 `--dump-config`（forgeloop-dsh 层、会话 preset）与 `plugin list`；
-  不依赖模型，**仅覆盖装载/组合层**。
-- `make e2e` 含两条：① 宿主装载校验（隔离 profile 安装 + dump-config/plugin list）；
-  ② Playwright 看板路由（隔离配置启动 `dsh web`，token→cookie 后 POST
-  `/api/forgeloop/board` 校验 200/project/summary），不读写生产记录。
+  校验 `--dump-config`（forgeloop-dsh 层、会话 preset）与 `plugin list`；不依赖模型。
+- `make e2e` 同时跑 `scripts/ts/e2e-board.ts`：隔离配置启动 `dsh web`，token→cookie 后
+  POST `/api/forgeloop/board` 校验 200/project/summary；这是看板路由的真实宿主验证。
 - 已加入 `quality.yml` 的 `e2e` job：CI 安装与本地一致的 `@deepseek-ai/dsh@0.2.1-rc.4`
   后执行 `make e2e`；**尚未在 GitHub runner 实跑验证**，首次运行通过前不声称 CI 已覆盖。
-- 按所有者要求，本轮改为**本地 CI/本地验证**，不推送到 GitHub。
+- `make verify-e2e` 是真实模型主路径门禁：候选 tarball 安装到隔离 profile，真实模型调用
+  `forgeloop_submit_requirement`，协调器自动推进到受控提交，最后模型读取
+  `forgeloop_show_requirement`/`forgeloop_evidence`；缺少 `DEEPSEEK_API_KEY` 或 tarball
+  时直接失败，不跳过。
+- `release.yml` 的 `real-host` job（`vars.ENABLE_REAL_HOST` 开关）现在会下载候选 artifact
+  并执行 `make verify-e2e`；公共 runner 与无凭据环境不执行。
+- 本轮本地没有 `DEEPSEEK_API_KEY`，只实测了 `verify-e2e` 的失败关闭路径；真实模型端到端
+  尚未在本机验证，不能声称已经跑通。
 - 该 job 尚未加入 `main` 的必需检查（需所有者确认后再改保护设置）。
-- 没有浏览器/Playwright E2E；看板与 Web 接缝仍由 `tests/board-route.test.ts`、
-  `tests/architecture-contract.test.ts` 等集成测试覆盖。
-- 真实模型工具链由 `make verify-plugin` 覆盖（release workflow），需要模型凭据。
+- 真实模型工具链烟雾测试由 `make verify-plugin` 覆盖（release workflow），同样需要凭据。
 
 ## 维护
 

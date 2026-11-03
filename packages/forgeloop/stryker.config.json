@@ -1,8 +1,10 @@
 {
   "testRunner": "vitest",
   "vitest": { "configFile": "vitest.fast.config.ts" },
-  "mutate": ["src/domain/retry-policy.ts", "src/domain/admission.ts"],
+  "mutate": ["src/**/*.ts"],
   "coverageAnalysis": "perTest",
+  "incremental": true,
+  "incrementalFile": "reports/mutation-incremental.json",
   "reporters": ["clear-text", "progress", "json"],
   "jsonReporter": { "fileName": "reports/mutation.json" },
   "thresholds": { "high": 95, "low": 85, "break": 80 },

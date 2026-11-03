@@ -102,7 +102,23 @@ make verify-plugin
 前提是该测试 home 中已准备 profile、安装包与可用模型认证；新 home 不自动继承正式配置。
 需要手动调用同一测试实例时，用 `DSH_HOME="$FORGELOOP_DSH_HOME" dsh --profile "$FORGELOOP_PROFILE" ...`。
 `make verify-plugin` 检查安装形态、组合层并真实调用模型工具。
-这些检查覆盖宿主接缝，不能代替统一方案要求的完整业务端到端验证。
+
+真实端到端主路径由 `make verify-e2e` 覆盖：它把候选 tarball 安装到隔离 `DSH_HOME` 的
+web/headless 两个 profile，启动 web 宿主，再让真实模型通过 `forgeloop_submit_requirement`
+提交需求；协调器自动完成分析、规划、研发、独立验证与受控提交，最后同一模型通过
+`forgeloop_show_requirement` / `forgeloop_evidence` 读取最终记录。脚本会核对受控提交里确实
+包含需求要求的文件，否则失败。
+
+```sh
+make package
+export DEEPSEEK_API_KEY=…
+FORGELOOP_CANDIDATE_TARBALL="$PWD/packages/forgeloop/dist/forgeloop-dsh-<version>.tgz" \
+  make verify-e2e
+```
+
+`make verify-e2e` 缺少 `DEEPSEEK_API_KEY` 或候选 tarball 时直接失败，不跳过；默认最多等待
+15 分钟（`FORGELOOP_E2E_TIMEOUT_MS`）。这些检查覆盖宿主接缝与真实业务主路径，但仍不能
+代替统一方案要求的正式环境人工验收。
 
 ## 9. 已知限制
 

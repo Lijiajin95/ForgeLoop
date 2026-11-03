@@ -67,7 +67,7 @@ make build       # Compile the plugin
 make package     # Build a candidate tarball and artifact manifest
 ```
 
-For installation, model configuration, and profile selection, follow the [deployment guide](docs/deployment.md) and [plugin guide](packages/forgeloop/README.md). `make verify-plugin` runs a real host/model smoke test and requires a separate test DSH home with working model authentication; see the deployment guide before running it.
+For installation, model configuration, and profile selection, follow the [deployment guide](docs/deployment.md) and [plugin guide](packages/forgeloop/README.md). `make verify-plugin` runs a real host/model smoke test, and `make verify-e2e` runs the full real-model, real-tool delivery path from a candidate tarball; both require model authentication and are described in the deployment guide.
 
 ## Documentation
 
