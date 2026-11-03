@@ -118,7 +118,7 @@ DSH 宿主（唯一常驻产品）
 有就返回“未重复调用模型”，不再产生第二次模型调用；因此会话入口的同步分析、入队请求和
 协调器的推进都不会叠加成两次分析。每次真正执行的分析尝试写入 `requirement_analysis_attempts`：
 需求 ID、需求版本、attempt 序号、来源（`initial`/`auto`/`manual`）、结果、原因、模型、
-提示词版本（`analysis-v2`）、轨迹文件（`sessions/<reqId>-analyze-a<n>.jsonl`）与工具调用；
+提示词版本（`analysis-v3`）、轨迹文件（`sessions/<reqId>-analyze-a<n>.jsonl`）与工具调用；
 成功结论另写 `requirement_analyses`，同样带这些元数据。失败不会覆盖历史结论，也不清零 attempt。
 
 产品 Agent 以 `workspace-write` 权限运行，但工具面由 `domain/analysis.ts` 的白名单固定：
@@ -141,6 +141,14 @@ preset。文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越�
 没有主动停止且该版本 `auto` 尝试不足 3 次的失败需求排一次 `analyze`（来源
 `system:analysis-retry`）。自动次数用完后仍可由看板“重新分析”排一次人工重试（来源以
 `:analysis-retry` 结尾，记为 `manual`），不受 3 次上限约束。
+
+**输入分诊。** 产品 Agent 先判定输入是需求还是问题，结论写入分析的 `input_kind`
+（`requirement` / `problem`，缺省按需求），旁置存放在 `requirement_analysis_input_kinds`；
+已有分析没有该记录时按需求处理。需求继续做场景、业务规则、验收标准等分析；问题不做需求拆解，
+只给出现象与可检查的修复判据，`clarifications` 必须为空——解析与落库都会拒绝带待澄清项的问题分析，
+所以问题不会停在待澄清，而是与分析通过的需求一样经过系统准入后由协调器直接排给研发；
+研发据 `input_kind` 按“复现定位根因 → 最小修复 → 按修复判据验证”拆任务。看板的需求详情与
+会话内的分析卡片展示该类型。
 
 ### 4.2 运行时内部操作
 
