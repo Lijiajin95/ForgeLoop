@@ -4894,7 +4894,7 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   - 受控变异：703 个变异体，有效得分 **97.58%**（killed 680 + timeout 6；survived 15、
     noCoverage 2）；17 个不可杀变异按清单豁免（文件+行+mutator+理由），关键不变量存活 0；
     存活/豁免清单写入 `reports/mutation-incremental.json`。
-  - 覆盖率：`make coverage` 重跑通过；总计 行 97.93%、函数 99.39%、分支 91.13%，逐文件
+  - 覆盖率：`make coverage` 重跑通过；总计 行 97.92%、函数 99.39%、分支 91.13%，逐文件
     90/95/85 全部通过。首次运行 `advance-pipeline.ts` 分支 84.93% 抖动失败，重跑通过；
     该文件本批未改，属既有抖动。
   - 门禁红/绿：临时把 `isTerminal` 改为恒 false 后 `make reliability-advanced` 以状态机
