@@ -166,6 +166,10 @@ window.__ModuleLoader__.load({
       'node.intake.status': '已受理，等待产品 Agent 分析',
       'node.analysis.title': '产品 Agent 分析结果',
       'node.analysis.version': '分析 v{analysisVersion} · 需求 v{requirementVersion}',
+      'node.analysis.kind': '输入类型',
+      'kind.requirement': '需求',
+      'kind.problem': '问题',
+      'detail.analysisKind': '输入类型',
       'node.analysis.goal': '目标',
       'node.analysis.scenarios': '业务场景',
       'node.analysis.rules': '业务规则',
@@ -381,6 +385,10 @@ window.__ModuleLoader__.load({
       'node.intake.status': 'Accepted; the requirement agent is analyzing it',
       'node.analysis.title': 'Requirement agent analysis',
       'node.analysis.version': 'Analysis v{analysisVersion} · requirement v{requirementVersion}',
+      'node.analysis.kind': 'Input type',
+      'kind.requirement': 'Requirement',
+      'kind.problem': 'Problem',
+      'detail.analysisKind': 'Input type',
       'node.analysis.goal': 'Goal',
       'node.analysis.scenarios': 'Scenarios',
       'node.analysis.rules': 'Business rules',
@@ -1256,6 +1264,8 @@ window.__ModuleLoader__.load({
 .flb-flow[data-kind=error]{border-color:var(--dsw-alias-state-error-primary)}
 .flb-flow-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:6px}
 .flb-flow-title{font-size:12px;font-weight:600}
+.flb-flow-tag{padding:0 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}
+.flb-flow-tag[data-kind=problem]{color:var(--dsw-alias-state-warn-primary)}
 .flb-flow-meta{font-size:11px;color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .flb-flow-label{margin-top:6px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);text-transform:uppercase;letter-spacing:.04em}
 .flb-flow-text{overflow-wrap:anywhere}
@@ -1352,6 +1362,11 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-flow-head' },
           h('span', { className: 'flb-flow-title' }, t('node.analysis.title')),
+          h(
+            'span',
+            { className: 'flb-flow-tag', 'data-kind': data.inputKind || 'requirement' },
+            t(`kind.${data.inputKind || 'requirement'}`),
+          ),
           data.reqId
             ? h('span', { className: 'flb-flow-meta' }, t('node.intake.req', { reqId: data.reqId }))
             : null,
@@ -2365,6 +2380,11 @@ window.__ModuleLoader__.load({
           title: t('detail.analysis'),
           children: analysis
             ? [
+                h(
+                  Kv,
+                  { key: 'input-kind', label: t('detail.analysisKind') },
+                  t(`kind.${analysis.inputKind || 'requirement'}`),
+                ),
                 h(Kv, { key: 'goal', label: t('detail.goal') }, analysis.goal),
                 h('div', { className: 'flb-label', key: 'scenarios' }, t('detail.scenarios')),
                 h(BulletList, { key: 'scenario-list', items: analysis.scenarios }),

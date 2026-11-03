@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  inputKindOf,
   parseAnalysisDraft,
   statusForAnalysis,
   validateRequirement,
@@ -16,6 +17,62 @@ function version(n: number, text = `v${n}`): RequirementVersion {
     source: 'test',
   }
 }
+
+describe('input triage', () => {
+  it('defaults an analysis without input_kind to a requirement', () => {
+    const analysis = parseAnalysisDraft({
+      goal: 'g',
+      scenarios: ['s'],
+      acceptance_criteria: ['a'],
+      clarifications: [],
+    })
+    expect(analysis.inputKind).toBe('requirement')
+    expect(inputKindOf(analysis)).toBe('requirement')
+    expect(inputKindOf({})).toBe('requirement')
+  })
+
+  it('accepts a problem with a fix criterion and no scenarios', () => {
+    const analysis = parseAnalysisDraft({
+      input_kind: 'problem',
+      goal: '看板刷新后筛选条件丢失',
+      acceptance_criteria: ['刷新后仍按当前筛选条件展示'],
+      clarifications: [],
+    })
+    expect(analysis.inputKind).toBe('problem')
+    expect(analysis.scenarios).toEqual([])
+    // 问题不做产品侧澄清，直接进入研发；状态不是待澄清。
+    expect(statusForAnalysis(analysis)).toBe('draft')
+  })
+
+  it('rejects a problem without a fix criterion', () => {
+    expect(() =>
+      parseAnalysisDraft({ input_kind: 'problem', goal: 'g', clarifications: [] }),
+    ).toThrow(/修复判据/)
+  })
+
+  it('rejects a problem that asks for product clarification', () => {
+    expect(() =>
+      parseAnalysisDraft({
+        input_kind: 'problem',
+        goal: 'g',
+        acceptance_criteria: ['a'],
+        clarifications: ['怎么复现？'],
+      }),
+    ).toThrow(/待澄清/)
+  })
+
+  it('rejects an unknown input kind instead of guessing', () => {
+    expect(() =>
+      parseAnalysisDraft({
+        input_kind: 'bug',
+        goal: 'g',
+        scenarios: ['s'],
+        acceptance_criteria: ['a'],
+        clarifications: [],
+      }),
+    ).toThrow(/input_kind/)
+  })
+})
 
 describe('requirement identity and versions', () => {
   it('accepts contiguous versions starting at 1', () => {

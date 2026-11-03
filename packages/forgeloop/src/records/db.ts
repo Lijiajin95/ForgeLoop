@@ -65,6 +65,14 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_attempts (
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, requirement_version, attempt)
 );
+-- 输入分诊：每条分析记录判断输入是需求还是问题。旁置表而不是给 requirement_analyses
+-- 补列：已有库按 CREATE TABLE IF NOT EXISTS 建立，不做迁移或 ALTER；缺行按需求处理。
+CREATE TABLE IF NOT EXISTS requirement_analysis_input_kinds (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version)
+);
 CREATE TABLE IF NOT EXISTS requirement_task_plans (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,

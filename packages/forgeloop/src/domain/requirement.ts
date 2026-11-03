@@ -51,9 +51,21 @@ export function latestVersion(requirement: Requirement): RequirementVersion {
   return version
 }
 
+/**
+ * 输入分诊结果：需求走需求分析流程，问题直接交研发定位与修复。
+ * 历史分析没有该字段，一律按需求处理。
+ */
+export type InputKind = 'requirement' | 'problem'
+
+export const INPUT_KINDS: readonly InputKind[] = ['requirement', 'problem']
+
+export const DEFAULT_INPUT_KIND: InputKind = 'requirement'
+
 export interface RequirementAnalysis {
   readonly analysisVersion: number
   readonly requirementVersion: number
+  /** 输入分诊结论；缺省表示历史记录，按需求处理。 */
+  readonly inputKind?: InputKind
   readonly goal: string
   readonly scenarios: readonly string[]
   /** 业务规则：哪些业务约束必须成立。 */
@@ -80,6 +92,7 @@ export interface BusinessContextDraft {
 }
 
 export interface AnalysisDraft {
+  readonly inputKind: InputKind
   readonly goal: string
   readonly scenarios: readonly string[]
   readonly businessRules: readonly string[]
@@ -139,6 +152,17 @@ function businessContextField(data: Record<string, unknown>): BusinessContextDra
 }
 
 /**
+ * 输入分诊字段：缺省按需求处理，兼容历史分析；出现未知取值时按畸形失败，
+ * 不猜测输入类型。
+ */
+function inputKindField(data: Record<string, unknown>): InputKind {
+  const raw = data.input_kind
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_INPUT_KIND
+  if (raw === 'requirement' || raw === 'problem') return raw
+  throw new MalformedError('分析字段 input_kind 只能是 requirement 或 problem')
+}
+
+/**
  * 解析模型返回的分析载荷。默认容忍 ```json 围栏与前后说明，但字段本身必须合法；
  * 缺字段或类型不符按畸形失败，不静默补空值。
  */
@@ -151,6 +175,7 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
     throw new MalformedError('分析结果必须是 JSON 对象')
   }
   const data = asRecord(payload) ?? {}
+  const inputKind = inputKindField(data)
   const goal = typeof data.goal === 'string' ? data.goal.trim() : ''
   if (!goal) throw new MalformedError('分析缺少非空目标')
   const scenarios = listField(data, 'scenarios')
@@ -161,10 +186,21 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   const acceptanceCriteria = listField(data, 'acceptance_criteria')
   const clarifications = listField(data, 'clarifications')
   const businessContext = businessContextField(data)
-  if (clarifications.length === 0 && (scenarios.length === 0 || acceptanceCriteria.length === 0)) {
-    throw new MalformedError('没有待澄清项时必须给出业务场景与验收标准')
+  // 问题不做产品侧澄清：带待澄清项说明它需要需求澄清，按需求处理，不能悄悄放行。
+  if (inputKind === 'problem' && clarifications.length > 0) {
+    throw new MalformedError('问题直接交研发处理，不能带待澄清项；需要澄清时按需求处理')
+  }
+  if (clarifications.length === 0) {
+    if (inputKind === 'problem') {
+      if (acceptanceCriteria.length === 0) {
+        throw new MalformedError('问题必须给出可检查的修复判据（acceptance_criteria）')
+      }
+    } else if (scenarios.length === 0 || acceptanceCriteria.length === 0) {
+      throw new MalformedError('没有待澄清项时必须给出业务场景与验收标准')
+    }
   }
   return {
+    inputKind,
     goal,
     scenarios,
     businessRules,
@@ -194,6 +230,11 @@ export function statusForAnalysis(analysis: Pick<RequirementAnalysis, 'clarifica
   return analysis.clarifications.length > 0 ? AWAITING_CLARIFICATION : DRAFT
 }
 
+/** 读取输入分诊结果；旧分析没有该字段时按需求处理，不改变既有流程。 */
+export function inputKindOf(analysis: Pick<RequirementAnalysis, 'inputKind'>): InputKind {
+  return analysis.inputKind ?? DEFAULT_INPUT_KIND
+}
+
 export function validateAnalysis(
   analysis: RequirementAnalysis,
   requirementVersionCount: number,
@@ -204,4 +245,8 @@ export function validateAnalysis(
     throw new RuleViolationError('分析绑定的需求版本超出实际版本')
   }
   if (!analysis.goal.trim()) throw new MalformedError('分析缺少非空目标')
+  // 问题直接交研发处理：带待澄清项会让下游把它当需求等待回答，落库前就拒绝。
+  if (analysis.inputKind === 'problem' && analysis.clarifications.length > 0) {
+    throw new RuleViolationError('问题输入不能带待澄清项；需要澄清时按需求处理')
+  }
 }

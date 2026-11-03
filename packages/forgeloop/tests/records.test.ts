@@ -80,6 +80,46 @@ describe('requirement records', () => {
     expect(repository.nextAnalysisVersion('req-1')).toBe(2)
   })
 
+  it('round-trips the input kind and defaults legacy rows to a requirement', () => {
+    submit()
+    repository.recordAnalysis({
+      reqId: 'req-1',
+      analysisVersion: 1,
+      requirementVersion: 1,
+      inputKind: 'problem',
+      goal: '看板刷新后筛选条件丢失',
+      scenarios: [],
+      acceptanceCriteria: ['刷新后仍按当前筛选条件展示'],
+      clarifications: [],
+      createdAt: 'now',
+    })
+    expect(repository.latestAnalysis('req-1')?.inputKind).toBe('problem')
+
+    // 旧库没有分诊行：缺省按需求处理，不改变既有流程。
+    database.handle
+      .prepare('DELETE FROM requirement_analysis_input_kinds WHERE req_id = ?')
+      .run('req-1')
+    expect(repository.latestAnalysis('req-1')?.inputKind).toBe('requirement')
+  })
+
+  it('refuses to store a problem analysis with pending clarifications', () => {
+    submit()
+    expect(() =>
+      repository.recordAnalysis({
+        reqId: 'req-1',
+        analysisVersion: 1,
+        requirementVersion: 1,
+        inputKind: 'problem',
+        goal: 'g',
+        scenarios: [],
+        acceptanceCriteria: ['a'],
+        clarifications: ['怎么复现？'],
+        createdAt: 'now',
+      }),
+    ).toThrow(RuleViolationError)
+    expect(repository.latestAnalysis('req-1')).toBeNull()
+  })
+
   it('treats empty legacy JSON list columns as empty arrays', () => {
     submit()
     repository.recordAnalysis({

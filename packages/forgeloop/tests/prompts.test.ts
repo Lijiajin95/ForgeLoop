@@ -131,6 +131,10 @@ describe('prompt builders', () => {
     expect(text).toContain('"business_context"')
     expect(text).toContain('由程序在分析结束时按 business_context 写入')
     expect(text).toContain('"clarifications"')
+    expect(text).toContain('"input_kind"')
+    expect(text).toContain('先分诊再分析')
+    expect(text).toContain('问题不做需求拆解')
+    expect(text).toContain('直接交研发定位与修复')
     expect(text).toContain('不要拆解研发任务')
   })
 
@@ -167,6 +171,7 @@ describe('prompt builders', () => {
     })
     expect(text).toContain('你是 ForgeLoop 的研发 Agent')
     expect(text).toContain('需求分析由产品 Agent 完成')
+    expect(text).toContain('输入类型：需求')
     expect(text).toContain('看板可过滤')
     expect(text).toContain('按状态筛选需求与任务')
     expect(text).toContain('只有登录用户可以看到需求列表')
@@ -176,6 +181,24 @@ describe('prompt builders', () => {
     expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准')
     expect(text).toContain('packages/forgeloop/tests/')
     expect(text).toContain('把 docs/architecture.md 写进 files')
+  })
+
+  it('tells the development Agent to fix a problem instead of rebuilding a feature', () => {
+    const text = devPlanningPrompt(requirement, {
+      analysisVersion: 1,
+      requirementVersion: 2,
+      inputKind: 'problem',
+      goal: '看板刷新后筛选条件丢失',
+      scenarios: ['选择筛选后刷新回到全部'],
+      acceptanceCriteria: ['刷新后仍按当前筛选条件展示'],
+      clarifications: [],
+      createdAt: '2026-10-23T00:06:00.000Z',
+    })
+    expect(text).toContain('输入类型：问题')
+    expect(text).toContain('问题描述：看板刷新后筛选条件丢失')
+    expect(text).toContain('修复判据')
+    expect(text).toContain('复现并定位根因')
+    expect(text).not.toContain('输入类型：需求')
   })
 
   it('describes task limits, dependencies and the workspace', () => {

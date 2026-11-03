@@ -15,6 +15,7 @@ export const FORGELOOP_PLAN_EVENT = 'plugin:forgeloop/plan'
 export const FORGELOOP_ERROR_EVENT = 'plugin:forgeloop/error'
 
 import { asRecord } from '../domain/json.js'
+import type { InputKind } from '../domain/requirement.js'
 import { createRequire } from 'node:module'
 import { errorMessage } from '../domain/errors.js'
 import { realpathSync } from 'node:fs'
@@ -62,6 +63,8 @@ export interface AnalysisEventData {
   readonly reqId: string
   readonly analysisVersion: number
   readonly requirementVersion: number
+  /** 输入分诊：需求走需求流程，问题直接交研发处理。 */
+  readonly inputKind: InputKind
   readonly goal: string
   readonly scenarios: readonly string[]
   readonly businessRules: readonly string[]

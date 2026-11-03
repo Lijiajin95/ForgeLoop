@@ -117,6 +117,7 @@ export class ExecutionPlan {
       reqId,
       analysisVersion: this.deps.repo.nextAnalysisVersion(reqId),
       requirementVersion: version,
+      inputKind: draft.inputKind,
       goal: draft.goal,
       scenarios: draft.scenarios,
       businessRules: draft.businessRules,

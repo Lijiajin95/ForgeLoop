@@ -34,6 +34,21 @@ const CLARIFY = JSON.stringify({
   clarifications: ['退款是否需要店长二次确认？'],
 })
 
+const PROBLEM = JSON.stringify({
+  input_kind: 'problem',
+  goal: '看板刷新后筛选条件丢失',
+  scenarios: ['在需求页选择“进行中”后刷新，筛选回到“全部”'],
+  acceptance_criteria: ['刷新后仍按当前筛选条件展示'],
+  clarifications: [],
+})
+
+const PROBLEM_CLARIFY = JSON.stringify({
+  input_kind: 'problem',
+  goal: '看板刷新后筛选条件丢失',
+  acceptance_criteria: ['刷新后仍按当前筛选条件展示'],
+  clarifications: ['怎么复现？'],
+})
+
 const NEW_BUSINESS =
   '# 业务背景\n\n行业：本地生活服务；业务目标：门店订单处理。\n\n## 更新记录\n\n- 2026-11-02：补充门店结算术语。\n'
 
@@ -184,6 +199,29 @@ describe('product analysis run', () => {
       transcriptPath: analysis.transcriptPath,
       toolCalls: ['forgeloop_web_search', 'forgeloop_write_project_doc'],
     })
+  })
+
+  it('triages a problem and hands it straight to the development queue', async () => {
+    next = script(PROBLEM)
+    const reqId = submit('看板刷新后筛选条件丢失')
+    const outcome = await runtime.analyzeRequirement(reqId)
+    expect(outcome.ok, outcome.message).toBe(true)
+    expect(runtime.repo.latestAnalysis(reqId)?.inputKind).toBe('problem')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe(SPECIFIED)
+    // 问题不等待产品澄清：分析通过后直接进入研发队列。
+    const queued = runtime.analysisQueue.enqueue(reqId)
+    expect(queued.ok, queued.message).toBe(true)
+    expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(reqId)
+  })
+
+  it('fails a problem triage that asks for product clarification instead of handing it to dev', async () => {
+    next = script(PROBLEM_CLARIFY)
+    const reqId = submit('看板刷新后筛选条件丢失')
+    const outcome = await runtime.analyzeRequirement(reqId)
+    expect(outcome.ok).toBe(false)
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe(ANALYSIS_FAILED)
+    expect(runtime.repo.latestAnalysis(reqId)).toBeNull()
+    expect(runtime.repo.analysisAttempts(reqId).at(-1)?.detail).toContain('待澄清')
   })
 
   it('writes the business context document from the analysis result, not from a tool call', async () => {
@@ -388,6 +426,7 @@ describe('session intake analysis', () => {
 
     const analysisEvent = session.events.find((event) => event.type === 'plugin:forgeloop/analysis')
     expect(analysisEvent?.data).toMatchObject({
+      inputKind: 'requirement',
       businessRules: ['只有店长可以批量取消订单'],
       exceptions: ['支付回调延迟时订单保持待确认'],
       nonGoals: ['不改造支付渠道'],
@@ -401,5 +440,41 @@ describe('session intake analysis', () => {
     expect(
       runtime.repo.pendingRequests('demo').filter((request) => request.action === 'analyze'),
     ).toEqual([])
+  })
+
+  it('marks a problem input in the session event and never asks the owner to clarify', async () => {
+    next = script(PROBLEM)
+    const intake = new SessionIntake({ runtime, config: runtime.config })
+    const session = new FakeSession()
+    await intake.handlePreStep(
+      {
+        agent: { session },
+        messages: [
+          {
+            id: 'msg-2',
+            role: 'user',
+            content: [{ type: 'text', text: '看板刷新后筛选条件丢失' }],
+            source: { kind: 'user' },
+          },
+        ],
+        turn: 1,
+      },
+      async () => ({ kind: 'enter' as const, messages: [] }),
+    )
+
+    expect(session.events.map((event) => event.type)).toEqual([
+      'plugin:forgeloop/intake',
+      'plugin:forgeloop/analysis',
+    ])
+    const analysisEvent = session.events.find((event) => event.type === 'plugin:forgeloop/analysis')
+    expect(analysisEvent?.data).toMatchObject({
+      inputKind: 'problem',
+      goal: '看板刷新后筛选条件丢失',
+      acceptanceCriteria: ['刷新后仍按当前筛选条件展示'],
+      clarifications: [],
+    })
+    const reqId = String(analysisEvent?.data.reqId)
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe(SPECIFIED)
+    expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(reqId)
   })
 })

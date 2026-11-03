@@ -230,6 +230,16 @@ describe('client conversation view', () => {
     expect(dicts!.zh['action.retryAnalysisQueued']).toBe('已受理重新分析')
   })
 
+  it('labels the input triage on analysis cards and requirement details', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts!.zh['kind.requirement']).toBe('需求')
+    expect(dicts!.zh['kind.problem']).toBe('问题')
+    expect(dicts!.en['kind.requirement']).toBe('Requirement')
+    expect(dicts!.en['kind.problem']).toBe('Problem')
+    expect(dicts!.zh['detail.analysisKind']).toBe('输入类型')
+    expect(dicts!.en['detail.analysisKind']).toBe('Input type')
+  })
+
   it('ships failure-reason, solution and retry labels for failed task cards', () => {
     const dicts = dictionaries.get('forgeloop-board')
     expect(dicts!.zh['task.failureReason']).toBe('失败原因')
