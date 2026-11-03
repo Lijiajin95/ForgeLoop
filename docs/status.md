@@ -4954,7 +4954,7 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 ### 131.2 闭环证据（最终复跑）
 
-证据目录：`reports/m0-loop-e2e/2026-11-03T17-36-01-951Z/`（`reports/` 不入库），
+证据目录：`reports/m0-loop-e2e/2026-11-03T17-37-41-824Z/`（`reports/` 不入库），
 含 `summary.json`、`config.snapshot.json`、`s1-rollout.json`、`s2-event.json`、`s3-rollout.json`。
 
 - S1：`req-20261103173602-b18fa7`，受控提交 `550628e27d78`，制品摘要
@@ -4968,10 +4968,14 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103173603-4e6a1d`：
   `maxVerificationAttempts=1` 让验证失败停住并置 `blocked`、无受控提交、blockedReason 留有问题单。
   注意：问题单仍开放时协调器会再次排 advance（既有跨请求重试语义），本项只证明单次执行上限生效。
+- 受控目标与配置：临时 Git 项目 + 项目外 recordsRoot + 隔离 `DSH_HOME`（临时目录）及其
+  `profiles/m0-target`、`profiles/m0-real-target`；`FORGELOOP_CONFIG` 指向临时配置文件。
 - 真实制品 leg（`FORGELOOP_M0_REAL_ARTIFACT=1`）：只读复制生产记录后，用真实需求
-  `req-20261031080821-f940b9` 的候选制品（`f3eeee74…`，提交 `9b3b9c840a69`）走新部署接口到隔离
-  目标；非所有者批准被拒，owner 批准后 apply/status 核对通过，intent `dep-e72bc72c-cd89-44c3-b6cb-83a139a73d8a`
-  为 `verified`；证据 `real-artifact.json`。生产库只读（`VACUUM INTO`），owner 决定只写入副本。
+  `req-20261031080821-f940b9` 的候选制品（`f3eeee74…`，提交 `9b3b9c840a69`）走新部署接口，由
+  登记 python 工具解包安装到隔离 profile `m0-real-target/node_modules/forgeloop-dsh`；非所有者批准
+  被拒，owner 批准后 status 读取安装后的 `package.json` 版本并与制品一致，intent
+  `dep-5a36b451-133f-478c-babc-29854d7098fd` 为 `verified`；证据 `real-artifact.json`。
+  生产库只读（`VACUUM INTO`），owner 决定只写入副本。
 - 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
   无 deploy/approve/rollback 入口；`../escape.txt` 任务包被 `parseTaskPlanDraft` 拒绝。
 - 门禁（main）：`make check` 114 文件/1312 项；`make coverage` 行 97.81%、函数 99.41%、
@@ -4981,9 +4985,9 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 | 编号 | 结论             | 证据与说明                                                                                                                                                                                                                        |
 | ---- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`；owner 授权、门禁与停止语义见 `docs/deployment-interface.md`/`docs/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                 |
+| M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`（隔离 `DSH_HOME` 与 `FORGELOOP_CONFIG`）；owner 授权、门禁与停止语义见 `docs/deployment-interface.md`/`docs/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                 |
 | M0-2 | 达成 | 真实需求 `req-20261031080821-f940b9`（owner 经 `dsh-session:` 提交，原始输入见 `requirement_versions`）；生产库 records 为只读证据；新部署接口用该需求的真实制品在隔离副本中再次部署（见 §131.2 真实制品 leg）。 |
-| M0-3 | 达成 | 同一需求在生产完成研发→独立验证（pass）→受控提交 `9b3b9c840a69`→构建 `f3eeee74…`→部署（`requirement_deployments` `verified`，7 项检查）；新部署接口在隔离副本中使用同一制品完成 intent→门禁→owner→apply→status。生产记录见 `~/.forgeloop/production/projects/forgeloop/records.sqlite` 与 §53。 |
+| M0-3 | 达成 | 同一需求在生产完成研发→独立验证（pass）→受控提交 `9b3b9c840a69`→构建 `f3eeee74…`→部署（`requirement_deployments` `verified`，7 项检查）；新部署接口在隔离副本中使用同一制品安装到隔离 DSH profile，完成 intent→门禁→owner→apply→status。生产记录见 `~/.forgeloop/production/projects/forgeloop/records.sqlite` 与 §53。 |
 | M0-4 | 达成             | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。                                                                                                     |
 | M0-5 | 达成 | §131.4 单列会话、模型、墙钟时间与费用口径（未知）；真实模型 leg 的 401 尝试亦记录。 |
 | M0-6 | 达成（隔离环境） | `s1-rollout.json`/`s3-rollout.json` 含 intent 与逐次 attempt；`s2-event.json` 含修复需求关联；`forgeloop_rollouts` 与 board `deployments/deployment` 只读可查；限额失败留下 blockedReason。证据目录未接入页面入口，属展示层缺口。 |

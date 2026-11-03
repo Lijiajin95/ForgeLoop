@@ -162,38 +162,50 @@ function writeRealArtifactTool(recordsRoot: string): string {
   writeFileSync(
     path,
     [
-      'import json, os, shutil, sys',
+      'import json, os, shutil, sys, tarfile, tempfile',
       'args = sys.argv',
       'op = args[args.index("--op") + 1]',
       'plan = json.load(open(args[args.index("--plan") + 1]))',
       'target = plan["params"]["target"]',
+      'module = os.path.join(target, "node_modules", "forgeloop-dsh")',
       'current = os.path.join(target, "install.json")',
-      'previous = os.path.join(target, "previous.json")',
+      'previous = os.path.join(target, "previous-install")',
       'os.makedirs(target, exist_ok=True)',
       'def read(path):',
       '    try:',
       '        return json.load(open(path))',
       '    except Exception:',
       '        return None',
+      'def installed_version():',
+      '    try:',
+      '        return json.load(open(os.path.join(module, "package.json"))).get("version", "")',
+      '    except Exception:',
+      '        return ""',
       'if op == "preflight":',
       '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": "previous-1" if os.path.exists(current) else ""}))',
       'elif op == "apply":',
-      '    old = read(current)',
-      '    if old is not None:',
-      '        json.dump(old, open(previous, "w"))',
-      '    shutil.copyfile(plan["artifact"]["path"], os.path.join(target, "artifact.tgz"))',
+      '    if os.path.exists(module):',
+      '        shutil.rmtree(previous, ignore_errors=True)',
+      '        shutil.copytree(module, previous)',
+      '    shutil.rmtree(module, ignore_errors=True)',
+      '    os.makedirs(module)',
+      '    extract = tempfile.mkdtemp(dir=target)',
+      '    with tarfile.open(plan["artifact"]["path"]) as tar:',
+      '        tar.extractall(extract)',
+      '    shutil.copytree(os.path.join(extract, "package"), module, dirs_exist_ok=True)',
+      '    shutil.rmtree(extract, ignore_errors=True)',
       '    json.dump({"version": plan["artifact"]["version"], "sha256": plan["artifact"]["sha256"]}, open(current, "w"))',
-      '    print(json.dumps({"ok": True, "state": "applied", "version": plan["artifact"]["version"], "detail": "installed"}))',
+      '    print(json.dumps({"ok": True, "state": "applied", "version": installed_version(), "detail": "installed into profile"}))',
       'elif op == "status":',
       '    now = read(current) or {}',
-      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "detail": "status"}))',
+      '    print(json.dumps({"ok": True, "state": "running", "version": installed_version(), "detail": "profile status"}))',
       'elif op == "rollback":',
-      '    old = read(previous)',
-      '    if old is None:',
-      '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous install"}))',
+      '    if not os.path.isdir(previous):',
+      '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous profile"}))',
       '    else:',
-      '        json.dump(old, open(current, "w"))',
-      '        print(json.dumps({"ok": True, "state": "rolled_back", "version": old.get("version", ""), "detail": "rolled back"}))',
+      '        shutil.rmtree(module, ignore_errors=True)',
+      '        shutil.copytree(previous, module)',
+      '        print(json.dumps({"ok": True, "state": "rolled_back", "version": installed_version(), "detail": "profile rolled back"}))',
       'elif op == "data-rollback":',
       '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "no data scope"}))',
       'else:',
@@ -469,7 +481,7 @@ function configFor(
             toolId: 'm0-tool',
             requirementId,
             approval: 'owner',
-            params: { target: join(root, 'target') },
+            params: { target: join(root, 'dsh-home', 'profiles', 'm0-target') },
             rollback: { keep: 1 },
           },
         ],
@@ -577,7 +589,7 @@ async function runRealArtifactLeg(root: string): Promise<void> {
   const reqId = 'req-20261031080821-f940b9'
   const owner = 'link'
   const recordsRoot = join(root, 'real-records')
-  const targetDir = join(root, 'real-target')
+  const targetDir = join(root, 'dsh-home', 'profiles', 'm0-real-target')
   mkdirSync(join(recordsRoot, 'projects', 'forgeloop'), { recursive: true })
   mkdirSync(targetDir, { recursive: true })
   const copyPath = join(recordsRoot, 'projects', 'forgeloop', 'records.sqlite')
@@ -673,6 +685,10 @@ async function runRealArtifactLeg(root: string): Promise<void> {
 async function main(): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), 'forgeloop-m0-loop-'))
   process.env.M0_ROOT = root
+  // 受控目标放在隔离 DSH_HOME 的派生 profile 下；配置出口也隔离到临时文件。
+  process.env.DSH_HOME = join(root, 'dsh-home')
+  mkdirSync(join(process.env.DSH_HOME, 'profiles'), { recursive: true })
+  process.env.FORGELOOP_CONFIG = join(root, 'forgeloop-config.json')
   console.log(`[m0-loop] 工作目录 ${root}`)
   const project = makeProject(root)
   projectRoot = project
@@ -680,7 +696,7 @@ async function main(): Promise<void> {
 
   writeOpsScripts(root)
   writeDeploymentTool(recordsRoot)
-  mkdirSync(join(root, 'target'), { recursive: true })
+  mkdirSync(join(root, 'dsh-home', 'profiles', 'm0-target'), { recursive: true })
   process.env.M0_PID_FILE = join(root, 'ops', 'server.pid')
   process.env.M0_SERVER = join(root, 'ops', 'server.mjs')
 
@@ -735,7 +751,9 @@ async function main(): Promise<void> {
     check(approved.ok, `批准部署失败：${approved.message}`)
     const verified = await runtime.deploymentService.verify({ intentId, by: 'owner' })
     check(verified.ok, `部署核对失败：${verified.message}`)
-    const deployed = JSON.parse(readFileSync(join(root, 'target', 'current.json'), 'utf8'))
+    const deployed = JSON.parse(
+      readFileSync(join(root, 'dsh-home', 'profiles', 'm0-target', 'current.json'), 'utf8'),
+    )
     check(deployed.version === built!.packageVersion, '目标运行版本与制品版本不一致')
     console.log(
       `[m0-loop] S1 完成：commit=${commitSha.slice(0, 10)} artifact=${built!.artifactSha256.slice(0, 10)}`,
@@ -809,7 +827,9 @@ async function main(): Promise<void> {
     check(fixApproved.ok, `S3 批准部署失败：${fixApproved.message}`)
     const fixVerified = await runtime.deploymentService.verify({ intentId: fixIntent, by: 'owner' })
     check(fixVerified.ok, `S3 部署核对失败：${fixVerified.message}`)
-    const fixDeployed = JSON.parse(readFileSync(join(root, 'target', 'current.json'), 'utf8'))
+    const fixDeployed = JSON.parse(
+      readFileSync(join(root, 'dsh-home', 'profiles', 'm0-target', 'current.json'), 'utf8'),
+    )
     check(fixDeployed.version === fixBuilt!.packageVersion, 'S3 目标运行版本与修复制品不一致')
     console.log(`[m0-loop] S3 完成：fixReq=${fixReqId} deploy=${fixIntent}`)
 
@@ -974,10 +994,9 @@ async function main(): Promise<void> {
     mkdirSync(EVIDENCE_DIR, { recursive: true })
     writeFileSync(join(EVIDENCE_DIR, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
     if (summary.s1Config) {
-      writeFileSync(
-        join(EVIDENCE_DIR, 'config.snapshot.json'),
-        `${JSON.stringify(summary.s1Config, null, 2)}\n`,
-      )
+      const configText = `${JSON.stringify(summary.s1Config, null, 2)}\n`
+      writeFileSync(join(EVIDENCE_DIR, 'config.snapshot.json'), configText)
+      if (process.env.FORGELOOP_CONFIG) writeFileSync(process.env.FORGELOOP_CONFIG, configText)
     }
     if (summary.s1Rollout) {
       writeFileSync(
