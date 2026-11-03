@@ -4990,7 +4990,10 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 - 本次实现与验证由本 DSH 会话的 Agent 完成；会话模型在过程中切换过
   `command-goat/deepseek/deepseek-v4.1-flash` 与 `qwen-token-plan-cn/deepseek-v4.1-flash-1017`，
   实际计费口径与 token 数未采集（写“未知”）。大致墙钟时间约 2 小时（23:40–01:16）。
-- 未使用真实模型凭据（`~/.bashrc` 中 QWEN 变量存在但本轮未调用）；未产生模型费用。
+- 真实模型 leg 尝试：使用 `~/.bashrc` 的 `QWEN_TOKEN_PLAN_CN_API_KEY` / `QWEN_TOKEN_PLAN_CN_MODEL_ID`
+  与 `/tmp/m0-qwen-patch.yml` 运行 `make real-model-e2e`；模型调用返回
+  `401 invalid_api_key`，leg 未跑通、未产生有效模型结果。另有一次启动报“单消费者锁未取得”，
+  来自同一隔离记录根上的残留宿主。两处均按实际记录，不写成通过。
 - 未 push、未打 tag、未改版本号；未触碰正式 web profile、生产记录根或真实服务。
 
 ### 131.5 已知边界与未完成
