@@ -9,7 +9,7 @@
  * 分片只决定本次要变异哪些文件；测试仍使用 vitest.fast.config.ts。
  * 先校验所有源码都恰好属于一个 shard，避免新增文件悄悄漏出变异范围。
  */
-import { readdirSync, statSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -106,16 +106,29 @@ if (files.length === 0) {
 }
 
 console.log(`[mutation-shard] shard=${requested} files=${files.length}`)
-const args = [
-  'run',
-  '--mutate',
-  files.join(','),
-  '--incremental',
-  '--incrementalFile',
-  `reports/mutation-incremental-${requested}.json`,
-  '--reporters',
-  'clear-text,progress,json',
-]
+// 分片只负责产出报告，不按分数阻断：单个分片低分不应让 nightly 矩阵先红。
+// 全局门槛由 mutation-merge 读取 stryker.config.json 的 thresholds 统一判定。
+const reportsDir = join(PKG, 'reports')
+mkdirSync(reportsDir, { recursive: true })
+const base = JSON.parse(readFileSync(join(PKG, 'stryker.config.json'), 'utf8')) as {
+  thresholds?: Record<string, number>
+  [key: string]: unknown
+}
+const configPath = join(reportsDir, `stryker-shard-${requested}.json`)
+writeFileSync(
+  configPath,
+  `${JSON.stringify(
+    {
+      ...base,
+      mutate: files,
+      incrementalFile: `reports/mutation-incremental-${requested}.json`,
+      thresholds: { ...base.thresholds, break: 0 },
+    },
+    null,
+    2,
+  )}\n`,
+)
+const args = ['run', configPath]
 // CI 用 STRYKER_CONCURRENCY 覆盖配置里的本地并发数；非法值直接忽略，交给配置。
 if (CONCURRENCY && /^\d+$/.test(CONCURRENCY)) args.push('--concurrency', CONCURRENCY)
 const result = spawnSync(STRYKER_BIN, args, {

@@ -15,6 +15,11 @@
 | 产权     | 任意改动            | `.github/CODEOWNERS` 指定所有者审阅                                                | 依赖 GitHub 设置 |
 | 契约     | 本地/CI             | `make contracts`（分层、依赖、端点、文档链接）                                     | 是               |
 
+夜间变异由 8 个模块分片并行产出报告：分片配置在运行时生成，`thresholds.break` 固定为 0，
+单个分片分数只供参考，不会让矩阵提前失败；`mutation-gate` 合并全部报告后，按
+`packages/forgeloop/stryker.config.json` 的 `break`（当前 80）统一判定，并要求全部源码
+文件都出现且不重复。分片报告里的 `thresholds` 不参与判定。
+
 真实宿主验收（`make verify-plugin`）需要模型凭据与自托管 runner，当前只在
 `release.yml` 中以 `vars.ENABLE_REAL_HOST` 开关控制，**默认不执行**，因此不能算作
 PR 的强制门禁。

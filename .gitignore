@@ -48,5 +48,9 @@ frontend/stryker.log
 packages/*/lib/
 .runtime/
 
+# Stryker 变异测试现场产物（JSON 报告在已忽略的 reports/ 下）
+packages/forgeloop/.stryker-tmp/
+packages/forgeloop/stryker.log
+
 # 插件装载时写入的运行身份自述（本机现场，不入库）
 packages/forgeloop/runtime-identity.json

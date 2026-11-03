@@ -16,6 +16,7 @@ const PKG = join(ROOT, 'packages', 'forgeloop')
 const SRC = join(PKG, 'src')
 const SHARDS = resolve(process.argv[2] ?? join(PKG, 'reports', 'shards'))
 const OUTPUT = join(PKG, 'reports', 'mutation.json')
+const CONFIG = join(PKG, 'stryker.config.json')
 
 type AnyRecord = Record<string, unknown>
 
@@ -43,6 +44,10 @@ const expected = new Set(
     ),
 )
 
+// 纯类型文件没有变异点，Stryker 不会在 JSON 报告里写出空文件；
+// 显式登记后按 0 个变异处理，其余缺失仍视为分片漏跑（新增空文件会失败并提示登记）。
+const EMPTY_SOURCE_FILES = new Set(['src/domain/work.ts'])
+
 if (!existsSync(SHARDS)) {
   console.error(`[mutation-merge] 找不到分片报告目录：${SHARDS}`)
   process.exit(1)
@@ -58,8 +63,21 @@ if (reports.length === 0) {
   process.exit(1)
 }
 
+// 分片报告里的 thresholds 不可信（分片按 break=0 运行），唯一门槛来自仓库配置。
+let config: AnyRecord | null = null
+try {
+  config = record(JSON.parse(readFileSync(CONFIG, 'utf8')))
+} catch (error) {
+  console.error(`[mutation-merge] 无法读取 ${CONFIG}：${String(error)}`)
+  process.exit(1)
+}
+const thresholds = record(config?.thresholds)
+if (!thresholds || typeof thresholds.break !== 'number') {
+  console.error('[mutation-merge] stryker.config.json 缺少 thresholds.break')
+  process.exit(1)
+}
+
 const mergedFiles: Record<string, unknown> = {}
-let thresholds: AnyRecord = { high: 95, low: 85, break: 80 }
 let schemaVersion = ''
 
 for (const report of reports) {
@@ -76,8 +94,6 @@ for (const report of reports) {
     process.exit(1)
   }
   schemaVersion = typeof parsed.schemaVersion === 'string' ? parsed.schemaVersion : schemaVersion
-  const reportThresholds = record(parsed.thresholds)
-  if (reportThresholds) thresholds = reportThresholds
   for (const [path, value] of Object.entries(files)) {
     if (mergedFiles[path]) {
       console.error(`[mutation-merge] 源码 ${path} 在多个分片报告中重复出现`)
@@ -87,10 +103,18 @@ for (const report of reports) {
   }
 }
 
-const missing = [...expected].filter((path) => !mergedFiles[path])
+const staleEmpty = [...EMPTY_SOURCE_FILES].filter((path) => !expected.has(path))
+if (staleEmpty.length > 0) {
+  console.error(`[mutation-merge] 空变异文件已不存在，请更新 list：\n${staleEmpty.join('\n')}`)
+  process.exit(1)
+}
+const missing = [...expected].filter((path) => !mergedFiles[path] && !EMPTY_SOURCE_FILES.has(path))
 if (missing.length > 0) {
   console.error(`[mutation-merge] 以下源码没有出现在变异报告中：\n${missing.join('\n')}`)
   process.exit(1)
+}
+for (const path of EMPTY_SOURCE_FILES) {
+  if (!mergedFiles[path]) mergedFiles[path] = { mutants: [] }
 }
 
 let killed = 0
@@ -111,7 +135,7 @@ for (const value of Object.values(mergedFiles)) {
 
 const denominator = killed + survived + timeout + noCoverage
 const score = denominator === 0 ? 0 : Math.round(((killed + timeout) / denominator) * 10000) / 100
-const breakThreshold = typeof thresholds.break === 'number' ? thresholds.break : 80
+const breakThreshold = thresholds.break
 
 mkdirSync(dirname(OUTPUT), { recursive: true })
 writeFileSync(
