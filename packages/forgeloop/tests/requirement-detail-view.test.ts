@@ -346,6 +346,8 @@ describe('requirement detail evidence view', () => {
         agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
         formalTestTimeoutSeconds: 30,
         maxTaskAttempts: 2,
+        failureRoundsPerGrant: 3,
+        maxVerificationAttempts: 3,
       },
       dir,
     )
@@ -420,6 +422,8 @@ describe('requirement detail evidence view', () => {
         agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
         formalTestTimeoutSeconds: 30,
         maxTaskAttempts: 2,
+        failureRoundsPerGrant: 3,
+        maxVerificationAttempts: 3,
       },
       dir,
     )

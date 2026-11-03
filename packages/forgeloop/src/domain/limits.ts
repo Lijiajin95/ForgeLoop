@@ -83,3 +83,8 @@ export class ExecutionBudget {
     this.limit = newLimitSeconds
   }
 }
+
+/** 自动尝试次数是否还允许第 attempt 次（从 1 开始）；-1 表示不限。 */
+export function attemptAllowed(attempt: number, maxAttempts: number): boolean {
+  return isUnlimited(maxAttempts) || attempt <= maxAttempts
+}

@@ -193,6 +193,8 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
+      failureRoundsPerGrant: 3,
+      maxVerificationAttempts: 3,
       autonomy: {
         enabled: true,
         allowCodeCommit: true,

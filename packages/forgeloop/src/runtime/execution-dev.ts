@@ -13,6 +13,7 @@ import {
   TASK_RUN_RUNNING,
 } from '../domain/status.js'
 import { sha256OfText } from '../domain/delivery.js'
+import { attemptAllowed } from '../domain/limits.js'
 import { errorMessage } from '../domain/errors.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import type { Repository } from '../records/repository.js'
@@ -137,7 +138,11 @@ export class ExecutionDev {
   }): Promise<{ ok: true; plan: TaskPlan } | { ok: false; code: string; reason: string }> {
     let feedback = ''
     let lastError = ''
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (
+      let attempt = 1;
+      attemptAllowed(attempt, this.deps.config.maxPlanningAttempts);
+      attempt += 1
+    ) {
       const result = await input.session.send({
         prompt: devPlanningPrompt(input.requirement, input.analysis, { tools: 'read' }) + feedback,
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
@@ -260,13 +265,17 @@ export class ExecutionDev {
 
   /**
    * 任务包的 limit_seconds 是任务的工时预算，回合上限不能比它更短；
-   * 同时受 agent.maxTurnSeconds 硬上限约束，避免改配置后无限拉长。
+   * 同时受 agent.maxTurnSeconds 硬上限约束。任意一项为 -1（不限）时，
+   * 只保留其余正数上限；全部不限则返回 0，表示不建回合定时器。
    */
   private devTurnTimeoutMs(task: PlannedTask): number {
     const floor = this.deps.config.agent.timeoutSeconds
-    const cap = this.deps.config.agent.maxTurnSeconds ?? 7200
+    const cap = this.deps.config.agent.maxTurnSeconds ?? -1
     const planned = task.limits.limitSeconds
-    return Math.min(Math.max(planned, floor), cap) * 1000
+    const lower = Math.max(planned, floor)
+    if (lower === -1) return cap === -1 ? 0 : cap * 1000
+    if (cap === -1) return lower * 1000
+    return Math.min(lower, cap) * 1000
   }
 
   /**
@@ -387,7 +396,7 @@ export class ExecutionDev {
       input.plan.planVersion,
       input.task.taskId,
     )
-    for (let attempt = 1; attempt <= this.deps.config.maxTaskAttempts; attempt += 1) {
+    for (let attempt = 1; attemptAllowed(attempt, this.deps.config.maxTaskAttempts); attempt += 1) {
       if (input.signal.aborted) {
         return this.taskStopped(input, attempt)
       }

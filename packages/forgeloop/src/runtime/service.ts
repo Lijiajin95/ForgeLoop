@@ -30,7 +30,8 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { roundsRemaining } from '../domain/counting.js'
+import { attemptAllowed } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfText } from '../domain/delivery.js'
 import { formatCommitMessage } from '../domain/commit-message.js'
 import { retryDecision } from '../domain/retry-policy.js'
@@ -1079,7 +1080,7 @@ ${answer}`
 
   private remainingFailureRounds(reqId: string): number {
     const used = this.repo.failureRounds(reqId).length
-    return Math.max(0, this.repo.grantCount(reqId) * MAX_ROUNDS_PER_GRANT - used)
+    return roundsRemaining(this.repo.grantCount(reqId), used, this.config.failureRoundsPerGrant)
   }
 
   /**
@@ -1174,7 +1175,7 @@ ${answer}`
     if (!admission) return this.retryDecisionFor(requirement.reqId).allowed
     return (
       plan !== null &&
-      (this.remainingFailureRounds(requirement.reqId) > 0 ||
+      (this.remainingFailureRounds(requirement.reqId) !== 0 ||
         this.issues.latestOpen(requirement.reqId) !== null)
     )
   }
@@ -1395,6 +1396,7 @@ ${answer}`
       candidateIdentityOf: this.candidateIdentity.bind(this),
       requestView,
       requirement,
+      roundsPerGrant: this.config.failureRoundsPerGrant,
     })
   }
 
@@ -1488,7 +1490,13 @@ ${answer}`
    * @param query 搜索词；匹配范围见 runtime/board.ts。
    */
   statusBoard(limit?: number, query?: string): StatusBoardView {
-    return buildStatusBoard({ repository: this.repo, project: this.config.project, limit, query })
+    return buildStatusBoard({
+      repository: this.repo,
+      project: this.config.project,
+      limit,
+      query,
+      roundsPerGrant: this.config.failureRoundsPerGrant,
+    })
   }
 
   // ------------------------------------------------------------ 运维
@@ -1695,7 +1703,8 @@ ${answer}`
     let lastMalformed = ''
     let review: PlanReview | null = null
     let lastSession = ''
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const maxReview = this.config.maxReviewAttempts
+    for (let attempt = 1; attemptAllowed(attempt, maxReview); attempt += 1) {
       const started = Date.now()
       const transcript = join(
         sessionsDir(this.config),
@@ -1735,7 +1744,7 @@ ${answer}`
         const coverage = validatePlanCoverage(analysis, parsed)
         if (coverage.length > 0) {
           feedback = `\n\n上一次验证计划没有覆盖以下分析原文，请逐字引用（可附加说明，但不能改写）后重新输出：\n- ${coverage.join('\n- ')}`
-          if (attempt < 2) continue
+          if (attemptAllowed(attempt + 1, maxReview)) continue
           parsed = { ...parsed, verdict: 'block', blocking: coverage }
         }
       }
@@ -1745,7 +1754,7 @@ ${answer}`
     if (!review) {
       return {
         state: 'failed',
-        detail: `实现前评审结果畸形（fail-closed）：${lastMalformed || '连续两次未取得可用结论'}`,
+        detail: `实现前评审结果畸形（fail-closed）：${lastMalformed || '无结论'}`,
       }
     }
     const result = { sessionId: lastSession }

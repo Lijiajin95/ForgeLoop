@@ -21,6 +21,7 @@ import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { ExecutionBudget } from '../domain/limits.js'
+import { planBudgetSeconds } from '../domain/task-plan.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
 import type { AgentOpenRequest, AgentRunner, AgentSession } from './agent-runner.js'
 import type { runFormalTest } from './formal-test.js'
@@ -166,10 +167,7 @@ export class VerificationPipeline {
     reqId: string,
     plan: TaskPlan,
   ): { state: 'failed'; detail: string } | null {
-    this.deps.repo.ensureBudget(
-      reqId,
-      plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0),
-    )
+    this.deps.repo.ensureBudget(reqId, planBudgetSeconds(plan))
     const budget = new ExecutionBudget(
       this.deps.repo.budget(reqId).limitSeconds,
       this.deps.repo.budget(reqId).consumedSeconds,

@@ -23,7 +23,7 @@ import {
   type PlanReview,
   type VerificationReport,
 } from '../domain/verification.js'
-import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { MAX_ROUNDS_PER_GRANT, roundsRemaining } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
 import {
@@ -143,6 +143,9 @@ export interface BoardRequirementView {
   readonly title: string
   readonly status: string
   readonly version: number
+  /** 需求来源与提交者：来源放开后仍保留可审计的身份。 */
+  readonly source: string
+  readonly submittedBy: string
   readonly planVersion: number | null
   readonly approval: 'approved' | 'missing' | 'stale' | 'none'
   readonly planReview: BoardPlanReviewView | null
@@ -233,6 +236,8 @@ export interface BuildStatusBoardInput {
    * 任务运行原因、失败轮次、请求说明与看板问题文字；不读取 Agent 日志文件。
    */
   readonly query?: string | undefined
+  /** 每次授权的失败轮次；-1 表示不限，缺省保持历史 3 轮口径。 */
+  readonly roundsPerGrant?: number
 }
 
 /**
@@ -411,7 +416,10 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
 
   const chunks: RequirementChunk[] = []
 
-  for (const requirement of all) chunks.push(buildRequirementChunk(repository, requirement))
+  const roundsPerGrant = input.roundsPerGrant ?? MAX_ROUNDS_PER_GRANT
+  for (const requirement of all) {
+    chunks.push(buildRequirementChunk(repository, requirement, roundsPerGrant))
+  }
 
   const needle = query.toLowerCase()
   const matched = needle ? chunks.filter((chunk) => chunk.haystack.includes(needle)) : chunks
@@ -663,7 +671,7 @@ function failureIssue(context: IssueContext): BoardIssueView[] {
       detail:
         remainingRounds === 0
           ? `失败轮次 ${rounds.length} 已用尽自动处理额度；等待追加授权或人工决定`
-          : `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds}；额度未尽时按规则自动重试`,
+          : `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds === -1 ? 'MAX（不限）' : remainingRounds}；额度未尽时按规则自动重试`,
       createdAt: latestRound.occurredAt,
     },
   ]
@@ -870,7 +878,7 @@ function canAdvance(context: ActionContext): boolean {
     authorization?.status === 'approved' &&
     (requirement.status === APPROVED || requirement.status === EXECUTING) &&
     progress.delivered < progress.total &&
-    remainingRounds > 0 &&
+    remainingRounds !== 0 &&
     progress.running === 0 &&
     progress.awaitingInput === 0 &&
     !context.activeRequest
@@ -884,7 +892,7 @@ function canVerify(context: ActionContext): boolean {
     (requirement.status === APPROVED || requirement.status === EXECUTING) &&
     progress.total > 0 &&
     progress.delivered === progress.total &&
-    remainingRounds > 0 &&
+    remainingRounds !== 0 &&
     context.planReviewView?.verdict === 'pass' &&
     progress.running === 0 &&
     progress.awaitingInput === 0 &&
@@ -1086,6 +1094,7 @@ function buildDeploymentView(
 function collectRequirementFacts(
   repository: Repository,
   requirement: Requirement,
+  roundsPerGrant: number,
 ): {
   terminal: boolean
   latestAnalysis: ReturnType<Repository['latestAnalysis']>
@@ -1130,7 +1139,7 @@ function collectRequirementFacts(
   const runByTask = new Map(runs.map((run) => [run.taskId, run]))
   const rounds = repository.failureRounds(requirement.reqId)
   const grants = repository.grantCount(requirement.reqId)
-  const remainingRounds = Math.max(0, grants * MAX_ROUNDS_PER_GRANT - rounds.length)
+  const remainingRounds = roundsRemaining(grants, rounds.length, roundsPerGrant)
   const requests = repository.requestsFor(requirement.reqId)
   const activeRequest = requests.some(
     (request) => request.state === 'pending' || request.state === 'claimed',
@@ -1206,7 +1215,11 @@ function collectRequirementFacts(
   }
 }
 
-function buildRequirementChunk(repository: Repository, requirement: Requirement): RequirementChunk {
+function buildRequirementChunk(
+  repository: Repository,
+  requirement: Requirement,
+  roundsPerGrant: number,
+): RequirementChunk {
   const {
     terminal,
     latestAnalysis,
@@ -1228,7 +1241,7 @@ function buildRequirementChunk(repository: Repository, requirement: Requirement)
     businessReviewView,
     candidateView,
     deploymentView,
-  } = collectRequirementFacts(repository, requirement)
+  } = collectRequirementFacts(repository, requirement, roundsPerGrant)
 
   const { tasks: requirementTasks, progress } = buildTaskViews({
     requirement,
@@ -1275,6 +1288,8 @@ function buildRequirementChunk(repository: Repository, requirement: Requirement)
     version: requirement.versions.length,
     planVersion: plan?.planVersion ?? null,
     approval: authorization?.status ?? 'none',
+    source: requirement.source,
+    submittedBy: requirement.submittedBy,
     planReview: planReviewView,
     verification: verificationView,
     businessReview: businessReviewView,

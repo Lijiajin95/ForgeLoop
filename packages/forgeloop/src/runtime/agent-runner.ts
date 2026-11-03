@@ -351,6 +351,44 @@ interface AgentService {
 }
 
 /** 连续无新事件时取消回合；事件计数变化会重置计时。 */
+type AgentSetup = ((agentCtx: AnyRecord) => void | Promise<void>) | undefined
+
+/** 按请求组合工具限制或 preset；与回合执行分离，保持主流程可读。 */
+function setupFor(
+  request: AgentRunRequest,
+  ctx: AnyRecord,
+  presetId: string | undefined,
+): AgentSetup {
+  const tools = toolsService(ctx)
+  if (request.allowTools) {
+    return (agentCtx: AnyRecord) => {
+      if (tools) restrictToolNames(agentCtx, tools, request.allowTools)
+    }
+  }
+  if (request.tools === 'none') {
+    return tools
+      ? (agentCtx: AnyRecord) => {
+          restrictToolNames(agentCtx, tools)
+        }
+      : undefined
+  }
+  if (!presetId) return undefined
+  return async (agentCtx: AnyRecord) => {
+    const registry = presetRegistry(ctx)
+    if (!registry?.mount)
+      throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
+    await registry.mount(agentCtx, presetId)
+  }
+}
+
+/** 回合定时器：timeoutMs <= 0（-1 = 不限）时不建定时器。 */
+function startTimeout(timeoutMs: number, onTimeout: () => void): NodeJS.Timeout | undefined {
+  if (timeoutMs <= 0) return undefined
+  const timer = setTimeout(onTimeout, timeoutMs)
+  timer.unref()
+  return timer
+}
+
 function idleWatch(
   idleMs: number,
   cancel: () => void,
@@ -557,11 +595,11 @@ export class AgentRunner {
         idleTimer.unref()
       }
       armIdle()
-      const timer = setTimeout(() => {
+      // timeoutMs <= 0（-1 = 不限）时不建回合定时器；空闲看门狗仍独立生效。
+      const timer = startTimeout(turn.timeoutMs, () => {
         timedOut = true
         handle.agent.cancel({ kind: 'user' })
-      }, turn.timeoutMs)
-      timer.unref()
+      })
       const onAbort = (): void => {
         aborted = true
         handle.agent.cancel({ kind: 'user' })
@@ -578,7 +616,7 @@ export class AgentRunner {
           armIdle()
         },
         stop: () => {
-          clearTimeout(timer)
+          if (timer) clearTimeout(timer)
           if (idleTimer) clearTimeout(idleTimer)
           turn.signal?.removeEventListener('abort', onAbort)
         },
@@ -688,26 +726,10 @@ export class AgentRunner {
     const selection = this.resolveSelection()
     const sessionId = `session-fl-${request.role}-${randomUUID()}`
     const agents = this.agentService()
-    const tools = toolsService(this.ctx)
     // 编程式 Agent 默认不组合会话 preset，也就没有 shell/fs 等编码工具。
     // 开发与审查角色必须显式挂载 standard preset；只做推理的角色继续显式禁用全部工具。
     const presetId = request.tools === 'none' || request.allowTools ? undefined : 'standard'
-    const setup = request.allowTools
-      ? (agentCtx: AnyRecord) => {
-          if (tools) restrictToolNames(agentCtx, tools, request.allowTools)
-        }
-      : request.tools === 'none' && tools
-        ? (agentCtx: AnyRecord) => {
-            restrictToolNames(agentCtx, tools)
-          }
-        : presetId
-          ? async (agentCtx: AnyRecord) => {
-              const registry = presetRegistry(this.ctx)
-              if (!registry?.mount)
-                throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
-              await registry.mount(agentCtx, presetId)
-            }
-          : undefined
+    const setup = setupFor(request, this.ctx, presetId)
     const handle = await agents.create({
       sessionId,
       meta: { cwd: request.cwd, ...(presetId ? { agentPreset: presetId } : {}) },
@@ -723,11 +745,10 @@ export class AgentRunner {
     const idle = idleWatch(idleMs, () => {
       handle.agent.cancel({ kind: 'user' })
     })
-    const timer = setTimeout(() => {
+    const timer = startTimeout(request.timeoutMs, () => {
       timedOut = true
       handle.agent.cancel({ kind: 'user' })
-    }, request.timeoutMs)
-    timer.unref()
+    })
     const onAbort = () => {
       aborted = true
       handle.agent.cancel({ kind: 'user' })
@@ -763,7 +784,7 @@ export class AgentRunner {
     } catch (error) {
       whenIdleError = errorMessage(error)
     } finally {
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
       idle.stop()
       clearInterval(activityTimer)
       request.signal?.removeEventListener('abort', onAbort)

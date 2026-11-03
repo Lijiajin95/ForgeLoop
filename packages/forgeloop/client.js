@@ -47,7 +47,7 @@ window.__ModuleLoader__.load({
       'action.requeueBlocked': '暂不能重新执行',
       'action.extendBudget': '延长工时',
       'action.extendBudgetHelp': '延长该需求的执行工时；只加上限、不清零已消耗，延长后可重新执行。',
-      'action.extendBudgetPrompt': '延长多少小时？（0.5–24）',
+      'action.extendBudgetPrompt': '延长多少小时？（0.5–24；输入 MAX 表示不限）',
       'action.extendedBudget': '已延长工时',
       'action.grantRounds': '追加授权',
       'action.grantRoundsHelp': '失败轮次额度用尽后追加 3 轮；累计失败保留，不清零。',
@@ -138,6 +138,7 @@ window.__ModuleLoader__.load({
       'requirement.verificationBlocked': '验证阻断',
       'requirement.verificationStale': '验证过期',
       'requirement.failureRounds': '失败轮次 {count}（剩余 {remaining}）',
+      'requirement.source': '来源 {source}',
       'requirement.expand': '展开详情',
       'requirement.collapse': '收起详情',
       'task.meta': '{reqId} · 任务包 v{plan}',
@@ -255,7 +256,7 @@ window.__ModuleLoader__.load({
       'action.extendBudget': 'Extend budget',
       'action.extendBudgetHelp':
         'Extend this requirement’s work budget; consumed time is preserved and it can be re-run afterwards.',
-      'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24)',
+      'action.extendBudgetPrompt': 'How many hours to extend? (0.5–24; type MAX for unlimited)',
       'action.extendedBudget': 'Budget extended',
       'action.grantRounds': 'Grant more rounds',
       'action.grantRoundsHelp':
@@ -351,6 +352,7 @@ window.__ModuleLoader__.load({
       'requirement.verificationBlocked': 'Verification blocked',
       'requirement.verificationStale': 'Verification stale',
       'requirement.failureRounds': '{count} failure rounds ({remaining} left)',
+      'requirement.source': 'Source {source}',
       'requirement.expand': 'Show details',
       'requirement.collapse': 'Hide details',
       'task.meta': '{reqId} · plan v{plan}',
@@ -1842,7 +1844,12 @@ window.__ModuleLoader__.load({
             ? ''
             : window.prompt(t('action.extendBudgetPrompt'), '1')
         if (raw === null) return null
-        const hours = Number(raw)
+        const text = String(raw).trim()
+        if (text.toUpperCase() === 'MAX' || text === '-1') {
+          body.seconds = -1
+          return body
+        }
+        const hours = Number(text)
         if (!Number.isFinite(hours) || hours < 0.5 || hours > 24) return null
         body.seconds = Math.round(hours * 3600)
       }
@@ -2195,13 +2202,16 @@ window.__ModuleLoader__.load({
           { className: 'flb-card-meta' },
           h('span', null, requirement.reqId),
           h('span', null, formatMoment(requirement.updatedAt)),
-          requirement.failureRounds > 0
+          requirement.source
+            ? h('span', null, t('requirement.source', { source: requirement.source }))
+            : null,
+          requirement.failureRounds > 0 || requirement.remainingRounds < 0
             ? h(
                 'span',
                 null,
                 t('requirement.failureRounds', {
                   count: requirement.failureRounds,
-                  remaining: requirement.remainingRounds,
+                  remaining: requirement.remainingRounds < 0 ? 'MAX' : requirement.remainingRounds,
                 }),
               )
             : null,
@@ -4114,7 +4124,7 @@ window.__ModuleLoader__.load({
             requirement &&
             !TERMINAL[requirement.status] &&
             requirement.approval === 'approved' &&
-            requirement.remainingRounds > 0 &&
+            requirement.remainingRounds !== 0 &&
             isFailureState(task.state),
           )
         }

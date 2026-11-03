@@ -28,22 +28,37 @@ export function extendWorkBudget(repo: Repository, input: WorkBudgetExtension): 
     return { ok: false, code: 'terminal', message: `需求已处于终态 ${requirement.status}` }
   }
   const seconds = Math.trunc(input.seconds)
-  if (!Number.isFinite(seconds) || seconds < 60 || seconds > 86400) {
-    return { ok: false, code: 'bad_seconds', message: '延长工时必须是 60 到 86400 秒' }
+  const unlimited = seconds === -1
+  if (!unlimited && (!Number.isFinite(seconds) || seconds < 60 || seconds > 86400)) {
+    return {
+      ok: false,
+      code: 'bad_seconds',
+      message: '延长工时必须是 60 到 86400 秒，或 -1（不限）',
+    }
   }
   const before = repo.budget(input.reqId)
   const limitSeconds = repo.extendBudget(input.reqId, seconds)
   if (requirement.blockedReason.includes('工时已用尽')) {
-    repo.setStatus(input.reqId, APPROVED, `所有者延长工时 ${seconds} 秒，可重新执行`)
+    repo.setStatus(
+      input.reqId,
+      APPROVED,
+      unlimited
+        ? '所有者将工时改为不限（MAX），可重新执行'
+        : `所有者延长工时 ${seconds} 秒，可重新执行`,
+    )
   }
+  const label = (value: number): string => (value === -1 ? 'MAX（不限）' : `${value} 秒`)
   return {
     ok: true,
     code: 'ok',
-    message: `工时上限从 ${before.limitSeconds} 秒延长到 ${limitSeconds} 秒`,
+    message:
+      limitSeconds === -1 && !unlimited && before.limitSeconds === -1
+        ? '当前工时已是不限（MAX），延长不改变上限'
+        : `工时上限从 ${label(before.limitSeconds)} 延长到 ${label(limitSeconds)}`,
     data: {
       limitSeconds,
       consumedSeconds: before.consumedSeconds,
-      extendedSeconds: seconds,
+      extendedSeconds: unlimited ? 0 : seconds,
     },
   }
 }

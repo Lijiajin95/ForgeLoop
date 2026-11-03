@@ -3,6 +3,7 @@
  * 只在需求处于 blocked 时允许，避免执行中放宽额度。
  */
 import { APPROVED, isTerminal } from '../domain/status.js'
+import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import type { Repository } from '../records/repository.js'
 import type { WorkBudgetResult } from './budget.js'
 
@@ -13,7 +14,11 @@ export interface FailureRoundGrant {
   readonly now?: string
 }
 
-export function grantFailureRounds(repo: Repository, input: FailureRoundGrant): WorkBudgetResult {
+export function grantFailureRounds(
+  repo: Repository,
+  input: FailureRoundGrant,
+  roundsPerGrant = MAX_ROUNDS_PER_GRANT,
+): WorkBudgetResult {
   const requirement = repo.getRequirement(input.reqId)
   if (!requirement) {
     return { ok: false, code: 'not_found', message: `未找到需求 ${input.reqId}` }
@@ -31,11 +36,20 @@ export function grantFailureRounds(repo: Repository, input: FailureRoundGrant): 
   const before = repo.grantCount(input.reqId)
   const now = input.now ?? new Date().toISOString()
   const grantCount = repo.appendGrant(input.reqId, input.by, now)
-  repo.setStatus(input.reqId, APPROVED, `所有者追加授权 +3 轮（第 ${grantCount} 次），可重新执行`)
+  const unlimited = roundsPerGrant === -1
+  repo.setStatus(
+    input.reqId,
+    APPROVED,
+    unlimited
+      ? `当前失败轮次不限（MAX）；已记录第 ${grantCount} 次授权，可重新执行`
+      : `所有者追加授权 +${roundsPerGrant} 轮（第 ${grantCount} 次），可重新执行`,
+  )
   return {
     ok: true,
     code: 'ok',
-    message: `已追加授权：失败轮次额度增加 3 轮（授权 ${before} → ${grantCount}）`,
-    data: { grantCount, addedRounds: 3 },
+    message: unlimited
+      ? `当前失败轮次不限（MAX）；已记录第 ${grantCount} 次授权，上限不因此变化`
+      : `已追加授权：失败轮次额度增加 ${roundsPerGrant} 轮（授权 ${before} → ${grantCount}）`,
+    data: { grantCount, addedRounds: unlimited ? 0 : roundsPerGrant },
   }
 }

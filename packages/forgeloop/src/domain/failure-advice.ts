@@ -19,7 +19,7 @@ export interface TaskFailureInput {
   readonly state: string
   readonly reason: string
   readonly files: readonly string[]
-  /** 当前授权下剩余的失败轮次；0 表示必须先追加授权或重新规划。 */
+  /** 当前授权下剩余的失败轮次；0 表示必须先追加授权或重新规划，-1 表示不限。 */
   readonly remainingRounds: number
   /** 正式测试日志尾部；用于定位失败用例与契约检查原因。 */
   readonly testLogTail?: string
@@ -201,7 +201,7 @@ function adviceForMissingReason(): TaskFailureAdvice {
 
 function appendBudgetAdvice(actions: readonly string[], input: TaskFailureInput): string[] {
   const result = [...actions]
-  if (input.remainingRounds <= 0) {
+  if (input.remainingRounds === 0) {
     result.push('失败轮次额度已用尽：需要追加授权或重新规划后再重试，重试不能绕过额度。')
   }
   if (input.state === 'awaiting_user') {

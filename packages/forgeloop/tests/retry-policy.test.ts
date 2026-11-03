@@ -54,6 +54,16 @@ describe('retry decision', () => {
     expect(retryDecision({ ...OK, blockedReason: '失败轮次额度已用尽' }).allowed).toBe(false)
   })
 
+  it('treats -1 remaining rounds as unlimited', () => {
+    expect(retryDecision({ ...OK, remainingRounds: -1 }).allowed).toBe(true)
+    expect(
+      retryDecision({
+        ...OK,
+        blockedReason: '执行工时已用尽；需显式延长或拆分任务',
+      }).allowed,
+    ).toBe(false)
+  })
+
   it('ignores ordinary failure wording that mentions neither quota nor grants', () => {
     expect(
       retryDecision({ ...OK, blockedReason: '正式测试失败（退出码 1），日志 /tmp/x.log' }).allowed,

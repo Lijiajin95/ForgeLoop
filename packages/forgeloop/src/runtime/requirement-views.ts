@@ -8,7 +8,7 @@ import {
   type VerificationReport,
 } from '../domain/verification.js'
 import { taskIdOfFailureRound } from './board.js'
-import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { MAX_ROUNDS_PER_GRANT, roundsRemaining } from '../domain/counting.js'
 import {
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
@@ -91,6 +91,7 @@ export function buildRequirementView(
       artifacts: ReturnType<Repository['taskArtifacts']>,
     ) => string
     requestView: (request: ServiceRequestRecord) => Record<string, unknown>
+    roundsPerGrant?: number
   },
 ): unknown {
   const { requirement } = hooks
@@ -103,10 +104,14 @@ export function buildRequirementView(
   const runs = latestPlan ? repo.taskRuns(requirement.reqId, latestPlan.planVersion) : []
   const recordedFailures = repo.failureRounds(requirement.reqId)
   const grants = repo.grantCount(requirement.reqId)
+  const roundsPerGrant = hooks.roundsPerGrant ?? MAX_ROUNDS_PER_GRANT
   return {
     reqId: requirement.reqId,
     project: requirement.project,
     status: requirement.status,
+    source: requirement.source,
+    submittedBy: requirement.submittedBy,
+    createdAt: requirement.versions[0]?.createdAt ?? '',
     blockedReason: requirement.blockedReason,
     versions: requirement.versions.map((version) => ({
       version: version.version,
@@ -153,7 +158,7 @@ export function buildRequirementView(
     grantQuota: {
       grants,
       used: recordedFailures.length,
-      remaining: Math.max(0, grants * MAX_ROUNDS_PER_GRANT - recordedFailures.length),
+      remaining: roundsRemaining(grants, recordedFailures.length, roundsPerGrant),
     },
     pendingRequests: repo
       .requestsFor(requirement.reqId)

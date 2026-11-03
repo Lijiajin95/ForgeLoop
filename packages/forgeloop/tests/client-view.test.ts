@@ -278,6 +278,21 @@ describe('client action request', () => {
     })
   })
 
+  it('sends -1 for an unlimited budget when the user types MAX', () => {
+    withPrompt('MAX')
+    expect(actions().body(t, requirement, 'extend-budget', 's')).toEqual({
+      reqId: 'req-1',
+      sessionId: 's',
+      seconds: -1,
+    })
+    withPrompt('-1')
+    expect(actions().body(t, requirement, 'extend-budget', 's')).toEqual({
+      reqId: 'req-1',
+      sessionId: 's',
+      seconds: -1,
+    })
+  })
+
   it('cancels extend-budget on null or out-of-range input', () => {
     withPrompt(null)
     expect(actions().body(t, requirement, 'extend-budget', 's')).toBeNull()

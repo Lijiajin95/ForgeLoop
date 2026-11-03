@@ -16,6 +16,7 @@
 import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
+import { attemptAllowed } from '../domain/limits.js'
 import { errorMessage } from '../domain/errors.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -237,8 +238,6 @@ export interface OpsEventDetail {
   readonly check: OpsCheck | null
   readonly actions: readonly OpsAction[]
 }
-
-const MAX_DIAGNOSIS_ATTEMPTS = 3
 
 function outputOf(result: OpsCommandResult): string {
   const parts: string[] = []
@@ -666,7 +665,7 @@ export class OpsRuntime {
   }
 
   private diagnosisBlocked(event: OpsEventRecord, attempts: number, now: string): boolean {
-    if (attempts >= MAX_DIAGNOSIS_ATTEMPTS) {
+    if (!attemptAllowed(attempts + 1, this.config.maxDiagnosisAttempts)) {
       this.escalateDiagnosis(
         event,
         now,

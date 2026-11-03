@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
+import { attemptAllowed } from '../domain/limits.js'
 import { sessionsDir } from '../config.js'
 import type { AnalysisDraft, Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import { parseAnalysisDraft, statusForAnalysis } from '../domain/requirement.js'
@@ -281,7 +282,11 @@ export class ExecutionPlan {
     let feedback = ''
     let lastError = ''
     let lastPlan: TaskPlan | undefined
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (
+      let attempt = 1;
+      attemptAllowed(attempt, this.deps.config.maxPlanningAttempts);
+      attempt += 1
+    ) {
       const transcript = join(sessionsDir(this.deps.config), `${reqId}-plan-a${attempt}.jsonl`)
       const started = Date.now()
       const result = await this.deps.runner.run({

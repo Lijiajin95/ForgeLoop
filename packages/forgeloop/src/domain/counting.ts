@@ -106,6 +106,11 @@ export class GrantLedger {
     return this.cumulativeFailures - (this.grants - 1) * this.roundsPerGrant
   }
 
+  /** 当前累计授权对应的总轮次额度；-1 表示不限。 */
+  get grantQuota(): number {
+    return this.unlimitedRounds ? UNLIMITED : this.grants * this.roundsPerGrant
+  }
+
   get remainingInCurrentGrant(): number {
     if (this.unlimitedRounds) return Number.POSITIVE_INFINITY
     return Math.max(0, this.grants * this.roundsPerGrant - this.cumulativeFailures)

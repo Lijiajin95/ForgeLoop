@@ -7,7 +7,8 @@
  */
 
 import type { ForgeLoopConfig } from '../config.js'
-import { MAX_AUTO_ANALYSIS_RETRIES, type AnalysisMode } from '../domain/analysis.js'
+import type { AnalysisMode } from '../domain/analysis.js'
+import { attemptAllowed } from '../domain/limits.js'
 import type { Requirement } from '../domain/requirement.js'
 import type { RequirementQueue } from '../domain/requirement-queue.js'
 import { ANALYSIS_FAILED, isTerminal } from '../domain/status.js'
@@ -94,7 +95,7 @@ export class AnalysisQueue {
   }
 
   /**
-   * 产品分析失败后的自动重试排队：每个失败需求版本最多自动重试 3 次，
+   * 产品分析失败后的自动重试排队：默认不限次数（配置正数时恢复上限），
    * 有在途请求或主动停止时不排；人工重试走 retry。
    */
   autoRetry(): string[] {
@@ -107,7 +108,7 @@ export class AnalysisQueue {
         requirement.versions.length,
       )
       const auto = attempts.filter((attempt) => attempt.kind === 'auto').length
-      if (auto >= MAX_AUTO_ANALYSIS_RETRIES) continue
+      if (!attemptAllowed(auto + 1, this.deps.config.maxAnalysisAttempts)) continue
       const active = this.deps.repo
         .requestsFor(requirement.reqId)
         .some((request) => ['pending', 'claimed'].includes(request.state))

@@ -223,6 +223,14 @@ export interface ForgeLoopConfig {
   readonly failureRoundsPerGrant: number
   /** 单次推进请求内验证失败后的自动修复次数；-1 表示不限。 */
   readonly maxVerificationAttempts: number
+  /** 研发任务包生成的自动尝试次数；默认 3，-1 表示不限。 */
+  readonly maxPlanningAttempts: number
+  /** 实现前评审输出畸形/覆盖不足时的自动重试次数；默认 2，-1 表示不限。 */
+  readonly maxReviewAttempts: number
+  /** 产品分析失败后的自动重试次数；默认 3，-1 表示不限。 */
+  readonly maxAnalysisAttempts: number
+  /** 运维诊断未完成时的自动尝试次数；默认 3，-1 表示不限。 */
+  readonly maxDiagnosisAttempts: number
   readonly worktreePrepareCommand: readonly string[]
   readonly candidateBuildCommand: readonly string[]
   readonly candidatePackageCommand: readonly string[]
@@ -245,6 +253,10 @@ export interface RawConfig {
   maxTaskAttempts?: number
   failureRoundsPerGrant?: number
   maxVerificationAttempts?: number
+  maxPlanningAttempts?: number
+  maxReviewAttempts?: number
+  maxAnalysisAttempts?: number
+  maxDiagnosisAttempts?: number
   worktreePrepareCommand?: string[]
   candidateBuildCommand?: string[]
   candidatePackageCommand?: string[]
@@ -751,6 +763,10 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
       'maxVerificationAttempts',
       -1,
     ),
+    maxPlanningAttempts: limitInteger(raw.maxPlanningAttempts, 'maxPlanningAttempts', 3),
+    maxReviewAttempts: limitInteger(raw.maxReviewAttempts, 'maxReviewAttempts', 2),
+    maxAnalysisAttempts: limitInteger(raw.maxAnalysisAttempts, 'maxAnalysisAttempts', 3),
+    maxDiagnosisAttempts: limitInteger(raw.maxDiagnosisAttempts, 'maxDiagnosisAttempts', 3),
     worktreePrepareCommand: stringList(raw.worktreePrepareCommand, 'worktreePrepareCommand', []),
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),
