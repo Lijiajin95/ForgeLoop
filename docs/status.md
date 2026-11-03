@@ -4793,3 +4793,39 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   事件复核（见 Actions 记录）。
 - 未做：`pull_request` 触发、依赖缓存、作业产物上传；`cancel-in-progress` 会取消同一 ref
   的旧运行，连续推送只保留最新一次全量结果。
+
+## 128. 托管 CI 转绿：e2e 缺 pnpm 与依赖审计（2026-11-03）
+
+GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业，`quality` 作业正常。
+
+### 128.1 e2e：`dsh: pnpm was not found`
+
+- 根因：DSH 的 `dsh plugin --profile ... add` 把安装转发给 profile 目录里的 pnpm；
+  ubuntu runner 只预装 npm，作业在 `plugin add` 阶段退出码 2。
+- 处置：`quality.yml` 的 e2e 作业安装 `@deepseek-ai/dsh@0.2.1-rc.5 pnpm@12.16.1`；
+  DSH 从 rc.4 升到 rc.5，与本机/生产宿主当前版本一致（包 `engines` 允许 rc.2–rc.5）。
+- 验证：本机 `make e2e` 通过（隔离 profile 安装、装载、看板路由 HTTP 200）。
+
+### 128.2 security：`npm audit --audit-level=high`
+
+- 失败基线：1 high（glob `GHSA-5j98-mcp5-4vw2`）+ 3 critical（vitest
+  `GHSA-5xrq-8626-4rwp`、tinypool `GHSA-5gmw-xhrv-c9v3`、`GHSA-85c8-ppgw-ccpr`）。
+- 处置（不登记例外、不放宽审计门槛）：
+  - `vitest`/`@vitest/coverage-v8` 3.2.4 → 3.2.7，修掉 vitest 的 critical（3.2.6 起修复）；
+  - `overrides.tinypool` → `^2.2.0`：vitest 3.2.7 仍钉 `tinypool ^1.1.1`，而 1.x 无修复版；
+    仓库所有测试池均为 `forks`，tinypool 仅在 `new Tinypool/run/cancelPendingTasks/destroy`
+    这一层被加载，升级后 `make check` 与 Stryker 变异运行均正常；
+  - `overrides.glob` → `^10.5.0`：`test-exclude`（`@vitest/coverage-v8` 依赖）内的
+    glob 10.4.5 命中 high，10.5.0 在 `^10.3.10` 范围内修复。
+- 为什么没有升 vitest 4：4.x 改用 AST 语义统计覆盖率，逐文件门槛需要全量重定基线
+  （实测 28 个文件、33 项低于现门槛，含 coordinator 函数 99%→77% 级别变化），
+  属于单独的质量门禁迁移，不在本次 CI 修复范围内；3.2.7 是不改变统计模型的修复版。
+- 验证：`npm ci` 复现同一依赖树（vitest 3.2.7 / tinypool 2.2.0 / glob 10.5.0）；
+  `make audit` exit 0（仅剩 moderate）；`make check` 105 个测试文件、1226 项通过；
+  `make coverage` 通过且逐文件门槛未改；`make check-fast` 93 个文件、992 项通过。
+
+### 128.3 边界
+
+- 未改 `contracts/`、覆盖率门槛、变异门槛或审计等级。
+- 剩余 moderate 漏洞为 eslint/typescript-eslint 链与 qs、minimatch，均不触发
+  `--audit-level=high`；后续升级另案处理。
