@@ -4772,3 +4772,24 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   `make check` 104 个测试文件、1224 项；`make coverage` 97.84/90.61/99.39。
 - 说明：`src/runtime/advance-pipeline.ts` 的分支覆盖率在多次运行间于 84.93%/85% 抖动，
   两次失败一次通过，与本批代码无关；门槛最终按通过结果记录。
+
+## 127. 本机自托管 CI：推送后自动跑全量检查（2026-11-03）
+
+- 新增 `.github/workflows/local-full.yml`：`push` 与 `workflow_dispatch` 触发，`runs-on`
+  为 `[self-hosted, linux, forgeloop-local]`，执行 `npm ci` 与 `make check`
+  （静态检查 + 全部行为测试）；作业权限 `contents: read`，复用本机 Node，不下载工具链。
+- 复用本机既有用户级 runner 服务：`~/actions-runner`，`systemd --user` 单元 `actions-runner`
+  （`Restart=always`，`Linger=yes`），在仓库侧新增自定义标签 `forgeloop-local`，
+  保留原 `forgeloop-deploy`。部署作业与测试作业靠标签隔离。
+- 安全边界：只监听 `push`，fork 的 `pull_request` 不会落到本机；runner 以所有者账号运行，
+  能执行被推送提交里的任意代码，因此只有具备推送权限的提交才会触发。
+- 本次真实故障：runner 2.338.0 在 14:20 收到 2.338.2 更新后自动下载 228MB 包，
+  三次 900 秒超时（本机到 GitHub 下载约 250KB/s），期间 `autoUpdateInProgress` 为真，
+  runner 对收到的 job message 只记 `Skip message deletion`，作业排队约 45 分钟未执行。
+  已手动升级到 2.338.2（包摘要 `baebf204…`，与发布页一致）并在 `.runner` 设
+  `disableUpdate=true` 后重启；升级后在线版本 2.338.2，不再自动更新，后续版本需手动升级。
+- 验证：手动触发运行 `41660419611` 在本机成功，`make check` 105 个测试文件、1226 项通过
+  （vitest 34.71s，作业约 2 分钟）；同一提交的推送运行因并发组取消，另以真实 `push`
+  事件复核（见 Actions 记录）。
+- 未做：`pull_request` 触发、依赖缓存、作业产物上传；`cancel-in-progress` 会取消同一 ref
+  的旧运行，连续推送只保留最新一次全量结果。
