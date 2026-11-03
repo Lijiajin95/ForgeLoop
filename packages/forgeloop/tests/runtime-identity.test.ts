@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
@@ -27,5 +27,12 @@ describe('runtime identity', () => {
     }
     expect(saved.pid).toBe(process.pid)
     expect(writeRuntimeIdentity('not-a-valid-url')).toBeNull()
+  })
+
+  it('keeps empty hashes when the loaded entry files are absent', () => {
+    root = mkdtempSync(join(tmpdir(), 'forgeloop-identity-missing-'))
+    const identity = writeRuntimeIdentity(pathToFileURL(join(root, 'lib/index.js')).href)
+    expect(identity).toMatchObject({ indexSha256: '', serviceSha256: '' })
+    expect(existsSync(join(root, 'runtime-identity.json'))).toBe(true)
   })
 })

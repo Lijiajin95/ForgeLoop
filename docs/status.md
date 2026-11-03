@@ -4667,7 +4667,7 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   `src/index.ts` 豁免并开启 `perFile`；全局门槛行/语句 90、函数 95、分支 85，另保留六个关键文件门槛。
 - 新增 21 个 `tests/coverage-*.test.ts`，补强 15 个既有测试文件；`src/cli/pack.ts` 导出 `main` 并加执行守卫。
 - `scripts/ts/reliability-report.ts` 按 perFile 逐文件对照默认门槛与关键文件门槛。
-- 2026-11-03 合并 main 后实测 `make coverage`：99 个测试文件、1196 项测试全部通过；96 个源文件
+- 2026-11-03 合并 main 后实测 `make coverage`：99 个测试文件、1197 项测试全部通过；96 个源文件
   逐文件达标；行/语句 97.96%、函数 99.36%、分支 90.75%（`coverage-summary.json` 已刷新）。
 - 同日把函数门槛 93→95、分支门槛 84→85；新增/补强 analysis-queue、execution-dev、coordinator、
   monitor、service、requirement-queue 的薄弱分支用例，全部文件仍逐文件达标。
@@ -4706,7 +4706,7 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 
 ### 53.4 未完成与合并状态
 
-- 已实测：`make check`（99 文件、1195 通过 + 1 跳过；放行进程访问时 1196 全通过）、`make coverage`
+- 已实测：`make check`（99 文件、1196 通过 + 1 跳过；放行进程访问时 1197 全通过）、`make coverage`
   （96 文件逐文件达标，行/语句 97.96%、函数 99.36%、分支 90.75%）、`make format`、`make lint`、
   `make check-static`、`mutation-shard --list`（96）、合并报告成功/失败路径、verify-e2e 缺 key 失败关闭。
   第二次合并后 `reliability-report-fast` 因单次 10 分钟环境上限被中断，未完成 8/8 快照；各门禁已单独通过。
