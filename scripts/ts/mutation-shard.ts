@@ -9,14 +9,20 @@
  * 分片只决定本次要变异哪些文件；测试仍使用 vitest.fast.config.ts。
  * 先校验所有源码都恰好属于一个 shard，避免新增文件悄悄漏出变异范围。
  */
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PKG = join(ROOT, 'packages', 'forgeloop')
 const SRC = join(PKG, 'src')
-const STRYKER_BIN = join(PKG, 'node_modules', '.bin', 'stryker')
+// @stryker-mutator/core 是根 devDependency，npm 工作区会把它提升到仓库根；
+// 只有不提升的安装才落在包内。先找根，再回退包内。
+const STRYKER_BIN =
+  [
+    join(ROOT, 'node_modules', '.bin', 'stryker'),
+    join(PKG, 'node_modules', '.bin', 'stryker'),
+  ].find((path) => existsSync(path)) ?? join(ROOT, 'node_modules', '.bin', 'stryker')
 const CONCURRENCY = process.env.STRYKER_CONCURRENCY
 
 function filesUnder(dir: string): string[] {
