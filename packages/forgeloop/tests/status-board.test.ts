@@ -1052,3 +1052,41 @@ describe('failure round board action', () => {
     expect(requirement.actions).toContain('grant-rounds')
   })
 })
+
+describe('failed request issue dedupe', () => {
+  function failRequest(reqId: string, index: number, detail: string): void {
+    const requestId = `rq-repeat-${index}`
+    const now = `2026-10-23T00:0${index}:00.000Z`
+    repository.recordRequest({
+      requestId,
+      reqId,
+      project: PROJECT,
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now,
+    })
+    repository.resolveRequest(requestId, 'failed', detail, now)
+  }
+
+  it('collapses identical failures into one issue with a count', () => {
+    const reqId = submit('req-repeat-issues')
+    const detail = "应用上游任务 domain 的候选 diff 失败：patching file 'requirement-queue.ts'"
+    for (const index of [1, 2, 3]) failRequest(reqId, index, detail)
+
+    const issues = board().issues.filter((issue) => issue.kind === 'request')
+    expect(issues).toHaveLength(1)
+    expect(issues[0]?.title).toContain('重复 3 次')
+    expect(issues[0]?.detail).toContain('同类失败 3 次')
+  })
+
+  it('keeps failures with different details separate', () => {
+    const reqId = submit('req-distinct-issues')
+    failRequest(reqId, 4, '第一种失败')
+    failRequest(reqId, 5, '第二种失败')
+
+    const issues = board().issues.filter((issue) => issue.kind === 'request')
+    expect(issues).toHaveLength(2)
+  })
+})

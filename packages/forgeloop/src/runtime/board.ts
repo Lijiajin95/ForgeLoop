@@ -678,17 +678,26 @@ function failureIssue(context: IssueContext): BoardIssueView[] {
 
 function requestIssues(context: IssueContext): BoardIssueView[] {
   const { requirement, requests } = context
-  return requests
-    .filter((request) => request.state === REQUEST_FAILED)
-    .map((request) => ({
+  const grouped = new Map<string, { request: (typeof requests)[number]; count: number }>()
+  for (const request of requests) {
+    if (request.state !== REQUEST_FAILED) continue
+    const detail = request.detail || '请求执行失败，等待重新排队或人工处理'
+    const key = `${request.action}\n${detail}`
+    const existing = grouped.get(key)
+    grouped.set(key, { request, count: (existing?.count ?? 0) + 1 })
+  }
+  return [...grouped.values()].map(({ request, count }) => {
+    const detail = request.detail || '请求执行失败，等待重新排队或人工处理'
+    return {
       issueId: `request:${request.requestId}`,
       reqId: requirement.reqId,
       kind: ISSUE_REQUEST,
       severity: 'attention',
-      title: `${requestActionLabel(request.action)}请求失败`,
-      detail: request.detail || '请求执行失败，等待重新排队或人工处理',
+      title: `${requestActionLabel(request.action)}请求失败${count > 1 ? `（重复 ${count} 次）` : ''}`,
+      detail: count > 1 ? `${detail}；同类失败 ${count} 次，最近一次 ${request.createdAt}` : detail,
       createdAt: request.createdAt,
-    }))
+    }
+  })
 }
 
 function approvalIssues(context: IssueContext): BoardIssueView[] {
