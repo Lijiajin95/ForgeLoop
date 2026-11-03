@@ -19,6 +19,7 @@ import { OpsRuntime } from '../src/runtime/ops.js'
 import type { AgentLike } from '../src/runtime/service.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import { OPS_AWAITING_DECISION, OPS_RECOVERED } from '../src/domain/ops.js'
+import { OPS_ARTIFACT_TOOL_NAMES } from '../src/runtime/ops-artifacts.js'
 
 const PROJECT = 'forgeloop'
 let dir = ''
@@ -47,12 +48,17 @@ function result(
   }
 }
 
-function runnerOf(handler: (prompt: string) => string): AgentLike & { prompts: string[] } {
+function runnerOf(
+  handler: (prompt: string) => string,
+): AgentLike & { prompts: string[]; requests: AgentRunRequest[] } {
   const prompts: string[] = []
+  const requests: AgentRunRequest[] = []
   return {
     prompts,
+    requests,
     async run(request) {
       prompts.push(request.prompt)
+      requests.push(request)
       return result(request, handler(request.prompt))
     },
   }
@@ -241,6 +247,8 @@ describe('ops active monitoring', () => {
     expect(prompt).toContain('ERROR disk full')
     expect(prompt).toContain('磁盘使用率 98%')
     expect(prompt).toContain('restart-web')
+    expect(prompt).toContain('forgeloop_ops_logs')
+    expect(runner.requests[0]?.allowTools).toEqual([...OPS_ARTIFACT_TOOL_NAMES])
   })
 
   it('opens an event, executes the catalog-authorized action and alerts the webhook once', async () => {

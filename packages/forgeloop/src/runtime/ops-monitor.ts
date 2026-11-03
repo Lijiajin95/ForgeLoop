@@ -1,7 +1,8 @@
 /**
  * 定时主动监控：采集快照 → 运维 Agent 评审 → 新问题建事件 / 旧问题归并 → 外部告警。
  *
- * 模型没有工具，只输出报告；能否自动处置仍由目录授权在 `authorizeOpsAction` 中判定。
+ * 模型只有两个只读工具（制品状态与登记日志），不能执行命令或改文件；
+ * 能否自动处置仍由目录授权在 `authorizeOpsAction` 中判定。
  * 监控事件与检查失败事件共用同一套事件、诊断、处置与恢复记录；区别只在于事实来源
  * 是快照而不是检查退出码。
  */
@@ -31,6 +32,7 @@ import {
 import type { OpsEventRecord, OpsEventPatch, Repository } from '../records/repository.js'
 import type { AgentRunRequest, AgentRunResult } from './agent-runner.js'
 import { collectMonitorSnapshot, type MonitorSnapshot } from './monitor.js'
+import { OPS_ARTIFACT_TOOL_NAMES } from './ops-artifacts.js'
 import { sendOpsAlert } from './ops-alerts.js'
 import { sendOpsHeartbeat } from './ops-heartbeat.js'
 import { monitorPrompt } from './prompts.js'
@@ -306,7 +308,7 @@ export class OpsMonitor {
         permission: 'workspace-write',
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath,
-        tools: 'none',
+        allowTools: OPS_ARTIFACT_TOOL_NAMES,
         ...(signal ? { signal } : {}),
       })
     } catch (error) {

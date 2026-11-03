@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { resolveConfig, type RawConfig } from '../src/config.js'
 
 const cwd = '/tmp/ops-config-fixture'
@@ -25,6 +27,7 @@ describe('ops configuration', () => {
         heartbeat: { url: '', method: 'GET', timeoutSeconds: 5 },
       },
       alerts: { webhook: '', timeoutSeconds: 10 },
+      artifacts: [],
     })
   })
 
@@ -281,6 +284,120 @@ describe('ops configuration', () => {
     expect(() => resolveConfig(monitor({ heartbeat: { url: 'ftp://host/ping' } }), cwd)).toThrow(
       '只接受 http(s) URL',
     )
+  })
+
+  it('parses artifact logs with profile, path expansion and optional error pattern', () => {
+    const config = resolveConfig(
+      {
+        ops: {
+          enabled: true,
+          monitor: { enabled: true },
+          artifacts: [
+            {
+              id: 'host',
+              label: 'ForgeLoop 宿主',
+              profile: 'web',
+              logs: [
+                { id: 'run', path: '~/logs/host.log', errorPattern: 'ERROR' },
+                { id: 'plain', path: '/var/log/plain.log' },
+              ],
+            },
+          ],
+        },
+      },
+      cwd,
+    )
+    expect(config.ops.artifacts).toEqual([
+      {
+        id: 'host',
+        label: 'ForgeLoop 宿主',
+        profile: 'web',
+        logs: [
+          { id: 'run', path: join(homedir(), 'logs', 'host.log'), errorPattern: 'ERROR' },
+          { id: 'plain', path: '/var/log/plain.log', errorPattern: '' },
+        ],
+      },
+    ])
+    const minimal = resolveConfig(
+      {
+        ops: {
+          enabled: true,
+          monitor: { enabled: true },
+          artifacts: [{ id: 'logs-only', logs: [{ id: 'run', path: 'run.log' }] }],
+        },
+      },
+      cwd,
+    )
+    expect(minimal.ops.artifacts[0]).toEqual({
+      id: 'logs-only',
+      label: 'logs-only',
+      profile: '',
+      logs: [{ id: 'run', path: 'run.log', errorPattern: '' }],
+    })
+  })
+
+  it('rejects unsafe or malformed artifacts', () => {
+    const artifacts = (items: unknown[]) => ({
+      ops: { enabled: true, monitor: { enabled: true }, artifacts: items },
+    })
+    expect(() =>
+      resolveConfig(
+        artifacts([
+          { id: 'a', profile: 'web' },
+          { id: 'a', profile: 'web' },
+        ]),
+        cwd,
+      ),
+    ).toThrow('重复：a')
+    expect(() =>
+      resolveConfig(
+        artifacts([
+          {
+            id: 'a',
+            logs: [
+              { id: 'x', path: 'x.log' },
+              { id: 'x', path: 'y.log' },
+            ],
+          },
+        ]),
+        cwd,
+      ),
+    ).toThrow('logs[1].id 重复：x')
+    expect(() => resolveConfig(artifacts([{ id: 'a', profile: '../etc' }]), cwd)).toThrow(
+      '只能是单个 profile 目录名',
+    )
+    expect(() => resolveConfig(artifacts([{ id: 'a', profile: '..' }]), cwd)).toThrow(
+      '只能是单个 profile 目录名',
+    )
+    expect(() => resolveConfig(artifacts([{ id: 'a' }]), cwd)).toThrow(
+      '至少要登记一个 profile 或一条日志',
+    )
+    expect(() => resolveConfig(artifacts([{ id: 'a', logs: [{ id: 'x' }] }]), cwd)).toThrow(
+      '必须是非空字符串',
+    )
+    expect(() =>
+      resolveConfig(
+        artifacts([{ id: 'a', logs: [{ id: 'x', path: 'x.log', errorPattern: '(' }] }]),
+        cwd,
+      ),
+    ).toThrow('不是合法正则')
+    expect(() =>
+      resolveConfig(
+        artifacts(Array.from({ length: 21 }, (_, index) => ({ id: `a-${index}`, profile: 'web' }))),
+        cwd,
+      ),
+    ).toThrow('不能超过 20 个')
+    expect(() =>
+      resolveConfig(
+        artifacts([
+          {
+            id: 'a',
+            logs: Array.from({ length: 21 }, (_, index) => ({ id: `l-${index}`, path: 'x.log' })),
+          },
+        ]),
+        cwd,
+      ),
+    ).toThrow('不能超过 20 条')
   })
 
   it('ships a minimal example config that loads as-is', () => {

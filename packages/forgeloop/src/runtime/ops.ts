@@ -2,7 +2,8 @@
  * 运维 Agent 运行时：把已登记的检查、诊断、受控处置与恢复复核接成一条可审计闭环。
  *
  * 分工：
- * - 运维 Agent（模型）只读诊断，输出影响、事实、推断与一个已登记动作建议；没有工具。
+ * - 运维 Agent（模型）只读诊断，输出影响、事实、推断与一个已登记动作建议；
+ *   只有两个只读工具（制品状态与登记日志），不能执行命令、读任意路径或修改文件。
  * - 主控（本模块）执行检查与动作、校验参数、判定恢复、落库与取证；模型不能直接执行命令。
  * - 目录在装载期登记；动作只能来自目录，参数只能取允许值，恢复只认检查退出码。
  *
@@ -58,6 +59,7 @@ import {
 } from '../domain/ops.js'
 import type { AgentRunRequest, AgentRunResult } from './agent-runner.js'
 import { sendOpsAlert } from './ops-alerts.js'
+import { OPS_ARTIFACT_TOOL_NAMES } from './ops-artifacts.js'
 import { OpsMonitor, type OpsMonitorSummary } from './ops-monitor.js'
 import { opsDiagnosisPrompt, opsInterruptionPrompt } from './prompts.js'
 
@@ -902,7 +904,7 @@ export class OpsRuntime {
       timeoutMs: this.config.agent.timeoutSeconds * 1000,
       transcriptPath,
       signal,
-      tools: 'none',
+      allowTools: OPS_ARTIFACT_TOOL_NAMES,
     })
     if (result.status !== 'completed') {
       this.recordDiagnosisError(event, `诊断未完成：${result.reason || result.status}`)
@@ -1293,7 +1295,7 @@ export class OpsRuntime {
         permission: 'workspace-write',
         timeoutMs: this.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(evidenceDir, 'interruption-report.jsonl'),
-        tools: 'none',
+        allowTools: OPS_ARTIFACT_TOOL_NAMES,
       })
     } catch (error) {
       this.repo.appendOpsObservation({
