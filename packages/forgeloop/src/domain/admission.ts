@@ -12,8 +12,12 @@ export interface AdmissionPolicy {
   readonly enabled: boolean
   /** 是否允许系统准入后由主控整合并提交代码；发布/部署仍需独立授权。 */
   readonly allowCodeCommit: boolean
-  /** 可信人类入口的来源前缀；只有这些来源可以触发系统准入。 */
+  /** 可信人类入口的来源前缀；allowAnySource=false 时只有这些来源可以触发系统准入。 */
   readonly trustedSources: readonly string[]
+  /** 放开来源限制：任何非空来源都可以进入系统准入；来源仍完整记录在案。 */
+  readonly allowAnySource: boolean
+  /** 是否要求提交者与配置所有者一致；false 时运维/工具提交也可进入。 */
+  readonly requireOwner: boolean
 }
 
 export interface AdmissionFacts {
@@ -39,6 +43,8 @@ export interface AdmissionBasis {
   readonly requirementVersion: number
   readonly analysisVersion: number | null
   readonly trustedSource: boolean
+  readonly allowAnySource: boolean
+  readonly requireOwner: boolean
   readonly codeCommitAllowed: boolean
 }
 
@@ -61,12 +67,16 @@ function admittedReason(allowed: boolean): string {
     : '可信需求来源与需求说明齐备；允许研发与验证，代码提交仍需单独授权'
 }
 
-function trusted(source: string, prefixes: readonly string[]): boolean {
-  return prefixes.some((prefix) => prefix.length > 0 && source.startsWith(prefix))
+/** 来源是否被策略接受：空来源永远不可信；放开后非空来源都可信。 */
+export function sourceTrusted(source: string, policy: AdmissionPolicy): boolean {
+  const value = source.trim()
+  if (!value) return false
+  if (policy.allowAnySource) return true
+  return policy.trustedSources.some((prefix) => prefix.length > 0 && value.startsWith(prefix))
 }
 
 export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy): AdmissionDecision {
-  const trustedSource = trusted(facts.source, policy.trustedSources)
+  const trustedSource = sourceTrusted(facts.source, policy)
   const basis: AdmissionBasis = {
     policyVersion: ADMISSION_POLICY_VERSION,
     source: facts.source,
@@ -77,6 +87,8 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
     requirementVersion: facts.requirementVersion,
     analysisVersion: facts.analysisVersion,
     trustedSource,
+    allowAnySource: policy.allowAnySource,
+    requireOwner: policy.requireOwner,
     codeCommitAllowed: codeCommitAllowed(policy, trustedSource),
   }
   const block = (code: string, reason: string): AdmissionDecision => ({
@@ -96,10 +108,12 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
   if (!trustedSource) {
     return block(
       'untrusted_source',
-      `需求来源 ${facts.source || '（空）'} 不在可信人类入口内；不能由系统准入`,
+      facts.source.trim()
+        ? `需求来源 ${facts.source} 不在可信入口内；不能由系统准入`
+        : '需求来源为空；不能由系统准入',
     )
   }
-  if (facts.submittedBy !== facts.owner) {
+  if (policy.requireOwner && facts.submittedBy !== facts.owner) {
     return block(
       'owner_mismatch',
       `需求提交者 ${facts.submittedBy || '（空）'} 与配置所有者不一致；不能由系统准入`,

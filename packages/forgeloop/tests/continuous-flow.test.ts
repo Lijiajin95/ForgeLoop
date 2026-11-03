@@ -602,6 +602,28 @@ describe('continuous four-Agent flow', () => {
     expect(runtime.repo.latestDevSessionSummary(sessionId)?.reqId).toBe(reqId)
   })
 
+  it('admits an ops-sourced requirement submitted by the ops agent and records its source', async () => {
+    const submitted = runtime.submit({
+      text: '修复内存接近耗尽的根因',
+      by: 'ops-agent',
+      source: 'ops:evt-20261103-1',
+    })
+    expect(submitted.ok, submitted.message).toBe(true)
+    const reqId = (submitted.data as { reqId: string }).reqId
+
+    const analysis = await runNext(reqId, 'analyze')
+    expect(analysis.state).toBe('done')
+    expect(runtime.repo.latestAdmission(reqId)).toMatchObject({
+      decision: 'admit',
+      basis: { source: 'ops:evt-20261103-1', submittedBy: 'ops-agent' },
+    })
+    expect(runtime.autoAdvanceRequests()).toContain(reqId)
+
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state, advance.detail).toBe('done')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
+  })
+
   it('plans, executes and reviews in one verification session without leaking the candidate', async () => {
     const openRequests: AgentOpenRequest[] = []
     const turns: Array<{ prompt: string; sessionId: string }> = []

@@ -194,8 +194,12 @@ export interface AutonomyConfig {
   readonly enabled: boolean
   /** 是否允许系统准入后整合并提交代码；发布/部署另有授权。 */
   readonly allowCodeCommit: boolean
-  /** 可信人类入口来源前缀。 */
+  /** 可信人类入口来源前缀；allowAnySource=true 时仅作记录。 */
   readonly trustedSources: readonly string[]
+  /** 放开来源限制：默认任何非空来源都可进入系统准入。 */
+  readonly allowAnySource: boolean
+  /** 是否要求提交者等于配置所有者；默认 false，允许运维/工具提交进入。 */
+  readonly requireOwner: boolean
   /** 提交前在真实项目中执行的检查 argv；为空表示不做额外提交检查。 */
   readonly commitCheckCommand: readonly string[]
 }
@@ -204,6 +208,8 @@ export interface RawAutonomyConfig {
   enabled?: boolean
   allowCodeCommit?: boolean
   trustedSources?: string[]
+  allowAnySource?: boolean
+  requireOwner?: boolean
   commitCheckCommand?: string[]
 }
 
@@ -412,6 +418,8 @@ function parseAutonomyConfig(raw: RawAutonomyConfig | undefined): AutonomyConfig
     enabled: booleanValue(source.enabled, 'autonomy.enabled', true),
     allowCodeCommit: booleanValue(source.allowCodeCommit, 'autonomy.allowCodeCommit', true),
     trustedSources,
+    allowAnySource: booleanValue(source.allowAnySource, 'autonomy.allowAnySource', true),
+    requireOwner: booleanValue(source.requireOwner, 'autonomy.requireOwner', false),
     commitCheckCommand,
   }
 }

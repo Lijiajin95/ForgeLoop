@@ -22,7 +22,7 @@ import type { Repository } from '../records/repository.js'
 import type { AgentRunner } from './agent-runner.js'
 import { analysisPrompt, devPlanningPrompt } from './prompts.js'
 import { buildProjectFacts } from './board.js'
-import type { AdmissionDecision } from '../domain/admission.js'
+import { sourceTrusted, type AdmissionDecision } from '../domain/admission.js'
 
 function describeViolation(violation: {
   taskId: string
@@ -147,13 +147,11 @@ export class ExecutionPlan {
     }
     const trusted =
       this.deps.config.autonomy.enabled &&
-      this.deps.config.autonomy.trustedSources.some(
-        (prefix) => prefix.length > 0 && requirement.source.startsWith(prefix),
-      )
+      sourceTrusted(requirement.source, this.deps.config.autonomy)
     if (!trusted) {
       return {
         state: 'done',
-        detail: `分析 v${analysis.analysisVersion} 完成；需求来源不在系统准入范围，等待所有者决定`,
+        detail: `分析 v${analysis.analysisVersion} 完成；需求来源 ${requirement.source || '（空）'} 不在系统准入范围，等待所有者决定`,
       }
     }
     const admission = this.deps.admitRequirement(reqId)

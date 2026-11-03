@@ -12,6 +12,8 @@ const POLICY: AdmissionPolicy = {
   enabled: true,
   allowCodeCommit: true,
   trustedSources: ['dsh-session:'],
+  allowAnySource: false,
+  requireOwner: true,
 }
 
 function facts(overrides: Partial<AdmissionFacts> = {}): AdmissionFacts {
@@ -63,6 +65,38 @@ describe('system admission', () => {
     const decision = decideAdmission(facts(), { ...POLICY, allowCodeCommit: false })
     expect(decision.admit).toBe(true)
     expect(decision.basis.codeCommitAllowed).toBe(false)
+  })
+
+  it('admits any non-empty source and a non-owner submitter when the policy is open', () => {
+    const open: AdmissionPolicy = { ...POLICY, allowAnySource: true, requireOwner: false }
+    for (const source of ['ops:evt-1', 'dsh-tool:submit_requirement', 'cli:1']) {
+      const decision = decideAdmission(facts({ source, submittedBy: 'ops-agent' }), open)
+      expect(decision.admit, source).toBe(true)
+      expect(decision.basis).toMatchObject({
+        source,
+        submittedBy: 'ops-agent',
+        trustedSource: true,
+      })
+    }
+    expect(decideAdmission(facts({ source: '' }), open)).toMatchObject({
+      code: 'untrusted_source',
+    })
+    expect(decideAdmission(facts({ submittedBy: 'agent' }), open).admit).toBe(true)
+  })
+
+  it('can still require the owner or a trusted prefix when tightened', () => {
+    expect(decideAdmission(facts({ submittedBy: 'agent' }), POLICY)).toMatchObject({
+      code: 'owner_mismatch',
+    })
+    expect(
+      decideAdmission(facts({ source: 'ops:evt-1' }), { ...POLICY, allowAnySource: false }),
+    ).toMatchObject({ code: 'untrusted_source' })
+    expect(
+      decideAdmission(facts({ source: 'ops:evt-1', submittedBy: 'agent' }), {
+        ...POLICY,
+        allowAnySource: true,
+      }),
+    ).toMatchObject({ code: 'owner_mismatch' })
   })
 
   it('blocks non-human sources, owner mismatch, clarifications and stale analysis', () => {
@@ -152,11 +186,11 @@ describe('system admission reasons (mutation-kill)', () => {
     })
     expect(decideAdmission(facts({ source: '' }), POLICY)).toMatchObject({
       code: 'untrusted_source',
-      reason: '需求来源 （空） 不在可信人类入口内；不能由系统准入',
+      reason: '需求来源为空；不能由系统准入',
     })
     expect(decideAdmission(facts({ source: 'cli:1' }), POLICY)).toMatchObject({
       code: 'untrusted_source',
-      reason: '需求来源 cli:1 不在可信人类入口内；不能由系统准入',
+      reason: '需求来源 cli:1 不在可信入口内；不能由系统准入',
     })
   })
 

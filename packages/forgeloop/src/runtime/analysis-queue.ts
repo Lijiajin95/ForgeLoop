@@ -7,6 +7,7 @@
  */
 
 import type { ForgeLoopConfig } from '../config.js'
+import { sourceTrusted } from '../domain/admission.js'
 import type { AnalysisMode } from '../domain/analysis.js'
 import { attemptAllowed } from '../domain/limits.js'
 import type { Requirement } from '../domain/requirement.js'
@@ -51,10 +52,7 @@ export class AnalysisQueue {
     input: { created: boolean; source: string; analyze: boolean },
   ): string {
     const trusted =
-      this.deps.config.autonomy.enabled &&
-      this.deps.config.autonomy.trustedSources.some(
-        (prefix) => prefix.length > 0 && input.source.startsWith(prefix),
-      )
+      this.deps.config.autonomy.enabled && sourceTrusted(input.source, this.deps.config.autonomy)
     if (!input.created || !trusted || !input.analyze) return ''
     this.deps.queue.enqueue({
       requirementId: requirement.reqId,
