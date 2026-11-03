@@ -403,6 +403,15 @@ function checkSessionSurface(contract: any): void {
   }
 }
 
+/**
+ * 部署工具把外部解释器的名字写进登记表与调用命令（python3 只是被调用的外部程序），
+ * 这不是退役的 Python 实现回到活动代码；只放行这两个文件，其余仍按原规则检查。
+ */
+const PYTHON_TOOL_REFERENCE_FILES = new Set([
+  'packages/forgeloop/src/domain/deployment.ts',
+  'packages/forgeloop/src/runtime/deployment-tools.ts',
+])
+
 function checkNoPython(): void {
   const files = [
     ...filesUnder('packages/forgeloop/src'),
@@ -414,7 +423,9 @@ function checkNoPython(): void {
     /['"`]python[0-9.]*['"`]|\bpython3?\s+-m\b|\buv\s+run\b|\.venv\/bin\/python|forgeloop\.cli/i
   for (const file of files) {
     const text = readFileSync(join(ROOT, file), 'utf8')
-    if (pattern.test(text)) fail(`活动文件仍引用 Python/旧虚拟环境：${file}`)
+    if (pattern.test(text) && !PYTHON_TOOL_REFERENCE_FILES.has(file)) {
+      fail(`活动文件仍引用 Python/旧虚拟环境：${file}`)
+    }
   }
 }
 

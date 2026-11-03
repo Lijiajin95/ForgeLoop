@@ -501,6 +501,55 @@ CREATE TABLE IF NOT EXISTS ops_action_attempts (
     evidence_path TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ops_action_attempts_by_event ON ops_action_attempts (event_id, started_at);
+
+CREATE TABLE IF NOT EXISTS deployment_intents (
+    intent_id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    artifact_path TEXT NOT NULL,
+    artifact_version TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    approval TEXT NOT NULL DEFAULT 'owner',
+    state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS deployment_intents_by_target ON deployment_intents (target_id, created_at);
+CREATE INDEX IF NOT EXISTS deployment_intents_by_requirement ON deployment_intents (requirement_id, created_at);
+
+CREATE TABLE IF NOT EXISTS deployment_attempts (
+    intent_id TEXT NOT NULL,
+    op TEXT NOT NULL,
+    state TEXT NOT NULL,
+    exit_code INTEGER NOT NULL DEFAULT -1,
+    result_json TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    tool_sha256 TEXT NOT NULL DEFAULT '',
+    evidence_path TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS deployment_attempts_by_intent ON deployment_attempts (intent_id, started_at);
+
+CREATE TABLE IF NOT EXISTS deployment_tool_scripts (
+    tool_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS deployment_tool_changes (
+    change_id TEXT PRIMARY KEY,
+    tool_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    previous_sha256 TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    changed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS deployment_tool_changes_by_tool ON deployment_tool_changes (tool_id, changed_at);
 `
 
 export type SqlParam = string | number | bigint | Uint8Array | null

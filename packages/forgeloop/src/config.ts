@@ -4,9 +4,9 @@
  */
 
 import { asRecord } from './domain/json.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { errorMessage } from './domain/errors.js'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { RuleViolationError } from './domain/errors.js'
 import {
@@ -19,6 +19,13 @@ import {
   type OpsResourceKind,
   type OpsSeverity,
 } from './domain/ops.js'
+import {
+  DEPLOYMENT_CAPABILITIES,
+  DEPLOYMENT_TOOL_KINDS,
+  type DeploymentCapability,
+  type DeploymentDataScope,
+  type DeploymentToolKind,
+} from './domain/deployment.js'
 import {
   DEFAULT_OPS_PROVIDER_IDS,
   describeOpsProviders,
@@ -92,6 +99,50 @@ export interface OpsMonitorConfig {
 export interface OpsAlertConfig {
   readonly webhook: string
   readonly timeoutSeconds: number
+}
+
+export interface DeploymentToolConfig {
+  readonly id: string
+  readonly kind: DeploymentToolKind
+  /** 绝对路径；realpath 必须位于 toolRoot 内。 */
+  readonly path: string
+  readonly capabilities: readonly DeploymentCapability[]
+  readonly timeoutSeconds: number
+  /** 允许传给工具的环境变量名；值从宿主环境读取。 */
+  readonly env: readonly string[]
+}
+
+export interface DeploymentTargetConfig {
+  readonly id: string
+  readonly toolId: string
+  readonly requirementId: string
+  /** 目标参数（profile/namespace/unit 等）；语义由工具负责。 */
+  readonly params: Readonly<Record<string, string>>
+  readonly data: DeploymentDataScope
+  readonly approval: 'owner' | 'auto'
+  readonly rollback: { readonly keep: number }
+}
+
+export interface DeploymentRetentionConfig {
+  readonly days: number
+  readonly compressEveryDays: number
+  readonly maxBytes: number
+}
+
+export interface DeploymentAlertConfig {
+  readonly webhook: string
+  readonly timeoutSeconds: number
+}
+
+/** 部署：登记外部工具与目标；ForgeLoop 只调用工具并记录，不内置部署机制。 */
+export interface DeploymentsConfig {
+  readonly enabled: boolean
+  readonly toolRoot: string
+  readonly verifyTimeoutSeconds: number
+  readonly alerts: DeploymentAlertConfig
+  readonly retention: DeploymentRetentionConfig
+  readonly tools: readonly DeploymentToolConfig[]
+  readonly targets: readonly DeploymentTargetConfig[]
 }
 
 /** 研发制品的一条运行日志：装载期登记路径，运维工具只读尾部。 */
@@ -226,6 +277,40 @@ export interface RawOpsConfig {
   artifacts?: RawOpsArtifact[]
 }
 
+export interface RawDeploymentTool {
+  id?: string
+  kind?: string
+  path?: string
+  capabilities?: string[]
+  timeoutSeconds?: number
+  env?: string[]
+}
+
+export interface RawDeploymentData {
+  volumes?: string[]
+  migrations?: string[]
+}
+
+export interface RawDeploymentTarget {
+  id?: string
+  toolId?: string
+  requirementId?: string
+  params?: Record<string, unknown>
+  data?: RawDeploymentData
+  approval?: string
+  rollback?: { keep?: number }
+}
+
+export interface RawDeploymentsConfig {
+  enabled?: boolean
+  toolRoot?: string
+  verifyTimeoutSeconds?: number
+  alerts?: { webhook?: string; timeoutSeconds?: number }
+  retention?: { days?: number; compressEveryDays?: number; maxBytes?: number }
+  tools?: RawDeploymentTool[]
+  targets?: RawDeploymentTarget[]
+}
+
 export interface AutonomyConfig {
   /** 系统准入总开关；关闭后可信需求也只停在待处理。 */
   readonly enabled: boolean
@@ -274,6 +359,7 @@ export interface ForgeLoopConfig {
   readonly dshProfilesRoot: string
   readonly autonomy: AutonomyConfig
   readonly ops: OpsConfig
+  readonly deployments: DeploymentsConfig
 }
 
 export interface RawConfig {
@@ -295,6 +381,7 @@ export interface RawConfig {
   dshProfilesRoot?: string
   autonomy?: RawAutonomyConfig
   ops?: RawOpsConfig
+  deployments?: RawDeploymentsConfig
 }
 
 /**
@@ -651,6 +738,269 @@ function parseAlertConfig(raw: RawOpsAlertConfig | undefined): OpsAlertConfig {
   return { webhook, timeoutSeconds }
 }
 
+const MAX_DEPLOYMENT_TOOLS = 20
+const MAX_DEPLOYMENT_TARGETS = 50
+const MAX_DEPLOYMENT_PARAMS = 20
+const DEFAULT_DEPLOYMENT_MAX_BYTES = 10 * 1024 * 1024 * 1024
+const DEPLOYMENT_TOOL_TIMEOUT_LIMIT = 3600
+const DEPLOYMENT_VERIFY_TIMEOUT_LIMIT = 86_400
+const DEPLOYMENT_TOOL_KIND_BY_NAME: Record<string, DeploymentToolKind> = Object.fromEntries(
+  DEPLOYMENT_TOOL_KINDS.map((kind) => [kind, kind]),
+)
+const DEPLOYMENT_CAPABILITY_BY_NAME: Record<string, DeploymentCapability> = Object.fromEntries(
+  DEPLOYMENT_CAPABILITIES.map((capability) => [capability, capability]),
+)
+
+function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path)
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+function deploymentToolRootOf(value: unknown, deploymentRoot: string): string {
+  const text = typeof value === 'string' && value.trim() ? value.trim() : 'tools'
+  const root = resolve(deploymentRoot, expandHome(text))
+  if (!isInside(resolve(deploymentRoot), root)) {
+    throw new RuleViolationError('配置 deployments.toolRoot 必须是部署目录的子目录')
+  }
+  return root
+}
+
+function deploymentPathVerified(path: string, toolRoot: string, field: string): string {
+  if (!isAbsolute(path)) {
+    throw new RuleViolationError(`配置 ${field} 必须是绝对路径`)
+  }
+  if (!existsSync(path) || !statSync(path).isFile()) {
+    throw new RuleViolationError(`配置 ${field} 指向的脚本不存在：${path}`)
+  }
+  if (!isInside(resolve(toolRoot), resolve(path))) {
+    throw new RuleViolationError(`配置 ${field} 必须位于 deployments.toolRoot 内`)
+  }
+  let realRoot: string
+  let realFile: string
+  try {
+    realRoot = realpathSync(toolRoot)
+    realFile = realpathSync(path)
+  } catch (error) {
+    throw new RuleViolationError(`配置 ${field} 无法解析真实路径：${errorMessage(error)}`)
+  }
+  if (!isInside(realRoot, realFile)) {
+    throw new RuleViolationError(`配置 ${field} 必须位于 deployments.toolRoot 内`)
+  }
+  return realFile
+}
+
+function parseDeploymentParams(value: unknown, field: string): Record<string, string> {
+  const record = asRecord(value) ?? {}
+  const entries = Object.entries(record)
+  if (entries.length > MAX_DEPLOYMENT_PARAMS) {
+    throw new RuleViolationError(`配置 ${field} 不能超过 ${MAX_DEPLOYMENT_PARAMS} 项`)
+  }
+  const params: Record<string, string> = {}
+  for (const [key, item] of entries) {
+    if (!key.trim() || key.length > 60) {
+      throw new RuleViolationError(`配置 ${field} 的参数名必须非空且不超过 60 字符`)
+    }
+    if (typeof item !== 'string' || !item.trim() || item.length > 200) {
+      throw new RuleViolationError(`配置 ${field}.${key} 必须是 1–200 字符的字符串`)
+    }
+    params[key] = item.trim()
+  }
+  return params
+}
+
+function parseDeploymentAlerts(raw: RawDeploymentsConfig['alerts']): DeploymentAlertConfig {
+  const source = raw ?? {}
+  if (source.webhook !== undefined && typeof source.webhook !== 'string') {
+    throw new RuleViolationError('配置 deployments.alerts.webhook 必须是字符串')
+  }
+  const webhook = typeof source.webhook === 'string' ? source.webhook.trim() : ''
+  if (webhook) assertHttpUrl(webhook, 'deployments.alerts.webhook')
+  const timeoutSeconds = positiveNumber(
+    source.timeoutSeconds,
+    'deployments.alerts.timeoutSeconds',
+    10,
+  )
+  if (timeoutSeconds > 60) {
+    throw new RuleViolationError('配置 deployments.alerts.timeoutSeconds 不能大于 60 秒')
+  }
+  return { webhook, timeoutSeconds }
+}
+
+function parseDeploymentRetention(
+  raw: RawDeploymentsConfig['retention'],
+): DeploymentRetentionConfig {
+  const source = raw ?? {}
+  const days = positiveInteger(source.days, 'deployments.retention.days', 120)
+  if (days > 3650) throw new RuleViolationError('配置 deployments.retention.days 不能大于 3650 天')
+  const compressEveryDays = positiveInteger(
+    source.compressEveryDays,
+    'deployments.retention.compressEveryDays',
+    30,
+  )
+  if (compressEveryDays > days) {
+    throw new RuleViolationError('配置 deployments.retention.compressEveryDays 不能大于 days')
+  }
+  const maxBytes = positiveInteger(
+    source.maxBytes,
+    'deployments.retention.maxBytes',
+    DEFAULT_DEPLOYMENT_MAX_BYTES,
+  )
+  if (maxBytes < 1024 * 1024) {
+    throw new RuleViolationError('配置 deployments.retention.maxBytes 不能小于 1 MiB')
+  }
+  return { days, compressEveryDays, maxBytes }
+}
+
+function parseDeploymentTools(
+  items: RawDeploymentTool[] | undefined,
+  toolRoot: string,
+): DeploymentToolConfig[] {
+  const list = objectList(items, 'deployments.tools')
+  if (list.length > MAX_DEPLOYMENT_TOOLS) {
+    throw new RuleViolationError(`配置 deployments.tools 不能超过 ${MAX_DEPLOYMENT_TOOLS} 个`)
+  }
+  const seen = new Set<string>()
+  return list.map((item, index) => {
+    const field = `deployments.tools[${index}]`
+    const id = requiredText(item.id, `${field}.id`)
+    if (seen.has(id)) throw new RuleViolationError(`配置 ${field}.id 重复：${id}`)
+    seen.add(id)
+    const rawKind = requiredText(item.kind, `${field}.kind`)
+    const kind = DEPLOYMENT_TOOL_KIND_BY_NAME[rawKind]
+    if (!kind) {
+      throw new RuleViolationError(
+        `配置 ${field}.kind 只能是 ${DEPLOYMENT_TOOL_KINDS.join('、')}，实际 ${rawKind}`,
+      )
+    }
+    const path = deploymentPathVerified(
+      requiredText(item.path, `${field}.path`),
+      toolRoot,
+      `${field}.path`,
+    )
+    const rawCapabilities = stringList(item.capabilities, `${field}.capabilities`, [])
+    if (rawCapabilities.length === 0) {
+      throw new RuleViolationError(`配置 ${field}.capabilities 至少要声明 preflight 与 apply`)
+    }
+    const capabilities: DeploymentCapability[] = []
+    for (const rawCapability of rawCapabilities) {
+      const capability = DEPLOYMENT_CAPABILITY_BY_NAME[rawCapability]
+      if (!capability) {
+        throw new RuleViolationError(
+          `配置 ${field}.capabilities 含未登记能力：${rawCapability}（可用 ${DEPLOYMENT_CAPABILITIES.join('、')}）`,
+        )
+      }
+      if (capabilities.includes(capability)) {
+        throw new RuleViolationError(`配置 ${field}.capabilities 重复：${capability}`)
+      }
+      capabilities.push(capability)
+    }
+    for (const required of ['preflight', 'apply'] as const) {
+      if (!capabilities.includes(required)) {
+        throw new RuleViolationError(`配置 ${field}.capabilities 缺少 ${required}`)
+      }
+    }
+    const timeoutSeconds = positiveNumber(item.timeoutSeconds, `${field}.timeoutSeconds`, 300)
+    if (timeoutSeconds > DEPLOYMENT_TOOL_TIMEOUT_LIMIT) {
+      throw new RuleViolationError(
+        `配置 ${field}.timeoutSeconds 不能大于 ${DEPLOYMENT_TOOL_TIMEOUT_LIMIT} 秒`,
+      )
+    }
+    return {
+      id,
+      kind,
+      path,
+      capabilities,
+      timeoutSeconds,
+      env: stringList(item.env, `${field}.env`, []),
+    }
+  })
+}
+
+function parseDeploymentTargets(
+  items: RawDeploymentTarget[] | undefined,
+  tools: ReadonlyMap<string, DeploymentToolConfig>,
+  alerts: DeploymentAlertConfig,
+): DeploymentTargetConfig[] {
+  const list = objectList(items, 'deployments.targets')
+  if (list.length > MAX_DEPLOYMENT_TARGETS) {
+    throw new RuleViolationError(`配置 deployments.targets 不能超过 ${MAX_DEPLOYMENT_TARGETS} 个`)
+  }
+  const seen = new Set<string>()
+  return list.map((item, index) => {
+    const field = `deployments.targets[${index}]`
+    const id = requiredText(item.id, `${field}.id`)
+    if (seen.has(id)) throw new RuleViolationError(`配置 ${field}.id 重复：${id}`)
+    seen.add(id)
+    const toolId = requiredText(item.toolId, `${field}.toolId`)
+    const tool = tools.get(toolId)
+    if (!tool) throw new RuleViolationError(`配置 ${field}.toolId 引用了未登记的工具：${toolId}`)
+    const requirementId = requiredText(item.requirementId, `${field}.requirementId`)
+    const params = parseDeploymentParams(item.params, `${field}.params`)
+    const data = asRecord(item.data) ?? {}
+    const volumes = stringList(data.volumes, `${field}.data.volumes`, [])
+    const migrations = stringList(data.migrations, `${field}.data.migrations`, [])
+    const hasData = volumes.length > 0 || migrations.length > 0
+    if (hasData && !tool.capabilities.includes('data-rollback')) {
+      throw new RuleViolationError(
+        `配置 ${field}.data 声明了卷或迁移，但工具 ${toolId} 没有 data-rollback 能力`,
+      )
+    }
+    const approval = typeof item.approval === 'string' ? item.approval.trim() : 'owner'
+    if (approval !== 'owner' && approval !== 'auto') {
+      throw new RuleViolationError(`配置 ${field}.approval 只能是 owner 或 auto`)
+    }
+    const rollback = asRecord(item.rollback) ?? {}
+    const keep = positiveInteger(rollback.keep, `${field}.rollback.keep`, 1)
+    if (keep > 10) throw new RuleViolationError(`配置 ${field}.rollback.keep 不能大于 10`)
+    if (approval === 'auto') {
+      if (keep < 1) throw new RuleViolationError(`配置 ${field} 启用 auto 时必须保留回退产物`)
+      if (!alerts.webhook) {
+        throw new RuleViolationError(
+          `配置 ${field} 启用 auto 时必须配置 deployments.alerts.webhook（重载失败告警）`,
+        )
+      }
+    }
+    return {
+      id,
+      toolId,
+      requirementId,
+      params,
+      data: { volumes, migrations },
+      approval,
+      rollback: { keep },
+    }
+  })
+}
+
+/**
+ * 部署目录：登记外部部署工具与目标。默认关闭；工具脚本与目标在装载期校验，
+ * 非法值不会在运行期被忽略。当前版本只支持本机部署，多机配置直接失败。
+ */
+function parseDeployments(
+  raw: RawDeploymentsConfig | undefined,
+  deploymentRoot: string,
+): DeploymentsConfig {
+  const source = raw ?? {}
+  const enabled = booleanValue(source.enabled, 'deployments.enabled', false)
+  const toolRoot = deploymentToolRootOf(source.toolRoot, deploymentRoot)
+  const verifyTimeoutSeconds = positiveNumber(
+    source.verifyTimeoutSeconds,
+    'deployments.verifyTimeoutSeconds',
+    600,
+  )
+  if (verifyTimeoutSeconds < 30 || verifyTimeoutSeconds > DEPLOYMENT_VERIFY_TIMEOUT_LIMIT) {
+    throw new RuleViolationError(
+      `配置 deployments.verifyTimeoutSeconds 必须在 30–${DEPLOYMENT_VERIFY_TIMEOUT_LIMIT} 秒`,
+    )
+  }
+  const alerts = parseDeploymentAlerts(source.alerts)
+  const retention = parseDeploymentRetention(source.retention)
+  const tools = parseDeploymentTools(source.tools, toolRoot)
+  const byId = new Map(tools.map((tool) => [tool.id, tool]))
+  const targets = parseDeploymentTargets(source.targets, byId, alerts)
+  return { enabled, toolRoot, verifyTimeoutSeconds, alerts, retention, tools, targets }
+}
+
 /** profile 目录名必须是一段：拒绝 `.`、`..` 与路径分隔符，避免读到 profile 根之外。 */
 const PROFILE_SEGMENT = /^[A-Za-z0-9._-]+$/
 const MAX_ARTIFACTS = 20
@@ -825,6 +1175,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
   if (pollSeconds < 1) throw new RuleViolationError('配置 pollSeconds 不能小于 1 秒')
   const agentProvider = textOr(raw.agent?.provider, '')
   const agentModel = textOr(raw.agent?.model, '')
+  const deploymentRoot = join(recordsRoot, 'projects', project, 'deployments')
   return {
     recordsRoot,
     project,
@@ -865,6 +1216,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     ),
     autonomy: parseAutonomyConfig(raw.autonomy),
     ops: parseOpsConfig(raw.ops),
+    deployments: parseDeployments(raw.deployments, deploymentRoot),
   }
 }
 

@@ -24,6 +24,7 @@ import type { FailureRound } from '../domain/counting.js'
 import type { TaskArtifact, TaskRun } from '../domain/work.js'
 import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
+import { DeploymentStore } from './deployment-store.js'
 import { DevSessionStore } from './dev-session-store.js'
 import type {
   RequirementEvidence,
@@ -74,6 +75,8 @@ export type {
 } from './rows.js'
 
 export class Repository extends DevSessionStore {
+  readonly deploymentStore = new DeploymentStore(this.db)
+
   close(): void {
     this.db.close()
   }

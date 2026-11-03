@@ -4719,3 +4719,21 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 - 合并：主树 `3655bb8`（`fd19ce1` 后 19 个提交）已合入本分支；冲突为 `docs/status.md`（保留
   §120–§123 与本 §53）和 `tests/tools.test.ts` 的导入。合并后 `make check`、`make coverage` 通过，
   准备以快进方式合并到 main。
+
+## 124. 部署接口第一批：配置、领域契约、记录与工具调用（2026-11-03）
+
+- 来源：所有者要求部署做成独立接口，实际部署操作交给外部工具（python/k8s/shell），Agent 不直接部署；
+  并已确认工具信任根、auto 边界、当前不支持多机、容器卷与数据库迁移纳入回退、证据保留期。
+- 本批实现（P0 基础，尚未接线）：`deployments` 配置与装载期校验；`domain/deployment.ts` 状态机与
+  工具结果解析；`records/deployment-store.ts` 与四张表（intent/attempt/脚本摘要/脚本变更）；
+  `runtime/deployment-tools.ts` 固定 argv 调用、环境白名单、超时、64 KiB 输出上限与脚本摘要同步。
+- 边界：工具只能引用已登记 id；脚本必须位于部署目录 `deployments/tools` 或其子目录，脚本变更留痕不阻断；
+  `auto` 目标要求回退位与告警 webhook；声明卷/迁移要求 `data-rollback`；当前只支持本机，未引入多机设备配置。
+- 契约：`make contracts` 的“活动代码不得引用 Python”对 `domain/deployment.ts` 与
+  `runtime/deployment-tools.ts` 做了窄豁免——部署工具把外部解释器名写进登记表与调用命令，
+  不是退役的 Python 实现回到活动代码。
+- 测试：新增 `tests/deployment-config.test.ts`、`tests/deployment-domain.test.ts`、
+  `tests/deployment-tools.test.ts`（14 项）；`make check` 102 个测试文件、1211 项；`make coverage`
+  行／语句 97.87%、分支 90.61%、函数 99.38%（逐文件门槛通过）。
+- 未完成：部署协调器（intent、审批、apply/status/rollback、超时与告警）、只读工具 `forgeloop_deployments`、
+  审批与回退端点/页面、证据压缩与磁盘上限、运维诊断的 `proposed_deployment` 接线。
