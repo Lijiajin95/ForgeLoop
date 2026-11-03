@@ -4954,23 +4954,23 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 ### 131.2 闭环证据（最终复跑）
 
-证据目录：`reports/m0-loop-e2e/2026-11-03T17-29-47-342Z/`（`reports/` 不入库），
+证据目录：`reports/m0-loop-e2e/2026-11-03T17-36-01-951Z/`（`reports/` 不入库），
 含 `summary.json`、`config.snapshot.json`、`s1-rollout.json`、`s2-event.json`、`s3-rollout.json`。
 
-- S1：`req-20261103172947-0860ef`，受控提交 `bc9e6439e166`，制品摘要
-  `32541c669351368434d049152681cc4822b44e266dae7ef2daede7c023ee07b9`，
-  部署 `dep-0a619f76-cb3e-410e-b9f6-162920a24586`（preflight → apply → status 核对通过）。
-- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103172948-c448d1`，诊断给出 `restart-web`，
+- S1：`req-20261103173602-b18fa7`，受控提交 `550628e27d78`，制品摘要
+  `91c722c4dd9cf3388839b876d96dedb7a6233339b56f464c032df3c0d54e4570`，
+  部署 `dep-5ae865da-8657-4c23-ac3f-3503d221b49c`（preflight → apply → status 核对通过）。
+- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103173602-fe7cd6`，诊断给出 `restart-web`，
   自动恢复后检查复核 `recovered`；恢复进程 pid 与故障前不同。
-- S3：同一事件 `fix_required` 生成 `req-20261103172948-5dc0e4`（source=`ops:ops-20261103172948-c448d1`），
-  研发/独立验证/受控提交 `f939128ddec9` 后重新构建，部署 `dep-aa01fd1c-e222-4a66-a1ab-f50f4ccc2e8f` 核对通过。
-- M0-7：停止实测 `req-20261103172948-efef90`：停止后不再排队、状态 `blocked`、无法领取推进；
-  显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103172949-6e8e47`：
+- S3：同一事件 `fix_required` 生成 `req-20261103173603-399096`（source=`ops:ops-20261103173602-fe7cd6`），
+  研发/独立验证/受控提交 `4ea8010afa6e` 后重新构建，部署 `dep-50d45ba9-a49b-4f31-99f6-96b00941ada6` 核对通过。
+- M0-7：停止实测 `req-20261103173603-bb54c5`：停止后不再排队、状态 `blocked`、无法领取推进；
+  显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103173603-4e6a1d`：
   `maxVerificationAttempts=1` 让验证失败停住并置 `blocked`、无受控提交、blockedReason 留有问题单。
   注意：问题单仍开放时协调器会再次排 advance（既有跨请求重试语义），本项只证明单次执行上限生效。
 - 真实制品 leg（`FORGELOOP_M0_REAL_ARTIFACT=1`）：只读复制生产记录后，用真实需求
   `req-20261031080821-f940b9` 的候选制品（`f3eeee74…`，提交 `9b3b9c840a69`）走新部署接口到隔离
-  目标；非所有者批准被拒，owner 批准后 apply/status 核对通过，intent `dep-974476e6-5501-460d-a8ec-652111401ad8`
+  目标；非所有者批准被拒，owner 批准后 apply/status 核对通过，intent `dep-e72bc72c-cd89-44c3-b6cb-83a139a73d8a`
   为 `verified`；证据 `real-artifact.json`。生产库只读（`VACUUM INTO`），owner 决定只写入副本。
 - 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
   无 deploy/approve/rollback 入口；`../escape.txt` 任务包被 `parseTaskPlanDraft` 拒绝。
