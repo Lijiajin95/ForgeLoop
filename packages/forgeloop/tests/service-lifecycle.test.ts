@@ -705,6 +705,20 @@ describe('failure round grants', () => {
     expect(runtime.repo.getRequirement(reqId)?.blockedReason).toContain('追加授权')
   })
 
+  it('records an unlimited grant with the current clock and rejects a missing requirement', () => {
+    expect(
+      grantFailureRounds(runtime.repo, { reqId: 'req-missing', by: 'owner', source: 'test' }),
+    ).toMatchObject({ ok: false, code: 'not_found' })
+
+    const reqId = submit()
+    runtime.repo.setStatus(reqId, 'blocked', '失败轮次额度已用尽；需要追加授权')
+    const unlimited = grantFailureRounds(runtime.repo, { reqId, by: 'owner', source: 'test' }, -1)
+    expect(unlimited).toMatchObject({ ok: true, data: { addedRounds: 0 } })
+    expect(unlimited.message).toContain('MAX')
+    expect(runtime.repo.getRequirement(reqId)?.blockedReason).toContain('不限')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('approved')
+  })
+
   it('refuses grants while the requirement is not blocked or is terminal', () => {
     const reqId = submit()
     expect(grantFailureRounds(runtime.repo, { reqId, by: 'owner', source: 'test' })).toMatchObject({
