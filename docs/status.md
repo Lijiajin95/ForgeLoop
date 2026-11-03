@@ -4954,18 +4954,18 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 ### 131.2 闭环证据（最终复跑）
 
-证据目录：`reports/m0-loop-e2e/2026-11-03T17-37-41-824Z/`（`reports/` 不入库），
+证据目录：`reports/m0-loop-e2e/2026-11-03T17-39-20-008Z/`（`reports/` 不入库），
 含 `summary.json`、`config.snapshot.json`、`s1-rollout.json`、`s2-event.json`、`s3-rollout.json`。
 
-- S1：`req-20261103173602-b18fa7`，受控提交 `550628e27d78`，制品摘要
-  `91c722c4dd9cf3388839b876d96dedb7a6233339b56f464c032df3c0d54e4570`，
-  部署 `dep-5ae865da-8657-4c23-ac3f-3503d221b49c`（preflight → apply → status 核对通过）。
-- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103173602-fe7cd6`，诊断给出 `restart-web`，
+- S1：`req-20261103173920-a4bad1`，受控提交 `19e8afd9d817`，制品摘要
+  `1128a777c55a5b0e4e2a91d0fe1295b9099d1bdb3fff482be924d3ff90b16cd8`，
+  部署 `dep-c9795d81-b802-49d8-a2b5-137315f9ecaa`（preflight → apply → status 核对通过）。
+- S2：真实目标进程被 `SIGKILL`，巡检产生 `ops-20261103173921-400fd1`，诊断给出 `restart-web`，
   自动恢复后检查复核 `recovered`；恢复进程 pid 与故障前不同。
-- S3：同一事件 `fix_required` 生成 `req-20261103173603-399096`（source=`ops:ops-20261103173602-fe7cd6`），
-  研发/独立验证/受控提交 `4ea8010afa6e` 后重新构建，部署 `dep-50d45ba9-a49b-4f31-99f6-96b00941ada6` 核对通过。
-- M0-7：停止实测 `req-20261103173603-bb54c5`：停止后不再排队、状态 `blocked`、无法领取推进；
-  显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103173603-4e6a1d`：
+- S3：同一事件 `fix_required` 生成 `req-20261103173921-dcfe1d`（source=`ops:ops-20261103173921-400fd1`），
+  研发/独立验证/受控提交 `3e8658724da2` 后重新构建，部署 `dep-af58e772-3d07-45ad-b4c4-8981133baa16` 核对通过。
+- M0-7：停止实测 `req-20261103173921-5abfd1`：停止后不再排队、状态 `blocked`、无法领取推进；
+  显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103173921-1ca4fa`：
   `maxVerificationAttempts=1` 让验证失败停住并置 `blocked`、无受控提交、blockedReason 留有问题单。
   注意：问题单仍开放时协调器会再次排 advance（既有跨请求重试语义），本项只证明单次执行上限生效。
 - 受控目标与配置：临时 Git 项目 + 项目外 recordsRoot + 隔离 `DSH_HOME`（临时目录）及其
@@ -4974,7 +4974,7 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   `req-20261031080821-f940b9` 的候选制品（`f3eeee74…`，提交 `9b3b9c840a69`）走新部署接口，由
   登记 python 工具解包安装到隔离 profile `m0-real-target/node_modules/forgeloop-dsh`；非所有者批准
   被拒，owner 批准后 status 读取安装后的 `package.json` 版本并与制品一致，intent
-  `dep-5a36b451-133f-478c-babc-29854d7098fd` 为 `verified`；证据 `real-artifact.json`。
+  `dep-4ba84386-030e-45e4-9a6d-4a28971e24f9` 为 `verified`；证据 `real-artifact.json`。
   生产库只读（`VACUUM INTO`），owner 决定只写入副本。
 - 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
   无 deploy/approve/rollback 入口；`../escape.txt` 任务包被 `parseTaskPlanDraft` 拒绝。
