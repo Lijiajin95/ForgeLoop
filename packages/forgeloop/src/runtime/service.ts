@@ -78,6 +78,7 @@ import { VerificationCheckRegistry, type VerificationCheckOutcome } from './veri
 import { OpsRuntime } from './ops.js'
 import { applyDiffFile } from './diff-apply.js'
 import { buildStatusBoard, requirementTitle, type StatusBoardView } from './board.js'
+import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
 import { runFormalTest } from './formal-test.js'
 import { planReviewPrompt, requirementContext } from './prompts.js'
 import { requestSource, requestView } from './execution-views.js'
@@ -1494,6 +1495,11 @@ ${answer}`
       query,
       remainingFailureRounds: this.remainingFailureRounds.bind(this),
     })
+  }
+
+  /** 只读可靠性聚合。 */
+  reliability(window: ReliabilityWindow) {
+    return reliabilityReport(this.repo, this.config, this.clock, window)
   }
 
   // ------------------------------------------------------------ 运维

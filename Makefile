@@ -12,7 +12,8 @@ CONTRACTS := $(NODE) scripts/ts/contracts.ts
 .PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
 	precommit verify-plugin package \
-	coverage mutation audit security help
+	coverage mutation audit security help \
+	reliability-report reliability-report-fast
 
 help:
 	@echo "make hooks                 安装 pre-commit（check-static + format）"
@@ -31,6 +32,8 @@ help:
 	@echo "make format                检查 Prettier 格式（make format-write 写入）"
 	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts）"
 	@echo "make mutation              Stryker 变异测试（domain 关键模块，慢；全量 CI 使用）"
+	@echo "make reliability-report    运行全部门禁并生成代码可靠性快照（含变异，慢）"
+	@echo "make reliability-report-fast 同上但跳过变异测试，快照记录 not_run"
 
 setup: hooks
 	$(NPM) install --cache $(CURDIR)/.cache/npm --no-audit --no-fund
@@ -102,6 +105,13 @@ e2e:
 
 coverage:
 	$(NPM) run coverage --workspace forgeloop-dsh
+
+# 质量快照只由显式命令生成；页面请求不执行检查。
+reliability-report:
+	$(NODE) scripts/ts/reliability-report.ts
+
+reliability-report-fast:
+	$(NODE) scripts/ts/reliability-report.ts --fast
 
 # 以下两项当前没有接入对应工具；显式失败，避免被误读为“已通过”。
 mutation:
