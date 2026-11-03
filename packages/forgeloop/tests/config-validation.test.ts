@@ -15,12 +15,14 @@ describe('configuration defaults', () => {
     expect(config.agent).toEqual({
       provider: '',
       model: '',
-      timeoutSeconds: 1800,
-      maxTurnSeconds: 7200,
+      timeoutSeconds: -1,
+      maxTurnSeconds: -1,
       idleTimeoutSeconds: 300,
     })
-    expect(config.formalTestTimeoutSeconds).toBe(1800)
-    expect(config.maxTaskAttempts).toBe(3)
+    expect(config.formalTestTimeoutSeconds).toBe(-1)
+    expect(config.maxTaskAttempts).toBe(-1)
+    expect(config.failureRoundsPerGrant).toBe(-1)
+    expect(config.maxVerificationAttempts).toBe(-1)
     expect(config.candidateArtifactPath).toBe('')
     expect(config.projectPath).toBe('/tmp/config-fixture')
     expect(config.recordsRoot).toBe('/tmp/config-fixture/.forgeloop')
@@ -78,21 +80,31 @@ describe('configuration validation', () => {
     expect(() => resolveConfig({ pollSeconds: 0.5 }, cwd)).toThrow('配置 pollSeconds 不能小于 1 秒')
   })
 
-  it('rejects a non-positive agent timeout', () => {
-    expect(() => resolveConfig({ agent: { timeoutSeconds: -1 } }, cwd)).toThrow(
-      '配置 agent.timeoutSeconds 必须是正数',
+  it('accepts -1 as unlimited and rejects zero or other negatives', () => {
+    expect(resolveConfig({ agent: { timeoutSeconds: -1 } }, cwd).agent.timeoutSeconds).toBe(-1)
+    expect(() => resolveConfig({ agent: { timeoutSeconds: 0 } }, cwd)).toThrow(
+      '配置 agent.timeoutSeconds 必须是正数或 -1（不限）',
+    )
+    expect(() => resolveConfig({ agent: { timeoutSeconds: -2 } }, cwd)).toThrow(
+      '配置 agent.timeoutSeconds 必须是正数或 -1（不限）',
     )
     expect(() => resolveConfig({ formalTestTimeoutSeconds: 0 }, cwd)).toThrow(
-      '配置 formalTestTimeoutSeconds 必须是正数',
+      '配置 formalTestTimeoutSeconds 必须是正数或 -1（不限）',
     )
   })
 
-  it('rejects non-integer task attempt budgets', () => {
+  it('rejects zero or invalid task attempt and round budgets', () => {
     expect(() => resolveConfig({ maxTaskAttempts: 0 }, cwd)).toThrow(
-      '配置 maxTaskAttempts 必须是正整数',
+      '配置 maxTaskAttempts 必须是正整数或 -1（不限）',
     )
     expect(() => resolveConfig({ maxTaskAttempts: 1.5 }, cwd)).toThrow(
-      '配置 maxTaskAttempts 必须是正整数',
+      '配置 maxTaskAttempts 必须是正整数或 -1（不限）',
+    )
+    expect(() => resolveConfig({ failureRoundsPerGrant: 0 }, cwd)).toThrow(
+      '配置 failureRoundsPerGrant 必须是正整数或 -1（不限）',
+    )
+    expect(() => resolveConfig({ maxVerificationAttempts: -3 }, cwd)).toThrow(
+      '配置 maxVerificationAttempts 必须是正整数或 -1（不限）',
     )
   })
 

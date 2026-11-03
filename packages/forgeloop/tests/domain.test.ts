@@ -143,6 +143,22 @@ describe('failure rounds and grants', () => {
       /超过/,
     )
   })
+
+  it('keeps recording failures without waiting for a grant when rounds are unlimited', () => {
+    const ledger = new GrantLedger(1, [], -1)
+    for (let index = 0; index < 10; index += 1) {
+      expect(ledger.recordFailure(round(`u${index}`)).recorded).toBe(true)
+    }
+    expect(ledger.cumulativeFailures).toBe(10)
+    expect(ledger.remainingInCurrentGrant).toBe(Number.POSITIVE_INFINITY)
+    expect(ledger.canRecordFailure).toBe(true)
+    expect(ledger.awaitingGrantDecision).toBe(false)
+  })
+
+  it('rejects zero or other negative rounds per grant', () => {
+    expect(() => new GrantLedger(1, [], 0)).toThrow(/正整数或 -1/)
+    expect(() => new GrantLedger(1, [], -2)).toThrow(/正整数或 -1/)
+  })
 })
 
 describe('execution budget', () => {

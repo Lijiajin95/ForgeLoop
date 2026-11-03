@@ -1227,7 +1227,8 @@ export class Repository extends DevSessionStore {
 
   budget(reqId: string): { limitSeconds: number; consumedSeconds: number } {
     const row = this.db.prepare('SELECT * FROM requirement_budget WHERE req_id = ?').get(reqId)
-    if (!row) return { limitSeconds: 7200, consumedSeconds: 0 }
+    // 没有记录按统一约定视为不限；正数预算只在显式配置或历史记录中存在。
+    if (!row) return { limitSeconds: -1, consumedSeconds: 0 }
     return {
       limitSeconds: num(row, 'limit_seconds'),
       consumedSeconds: num(row, 'consumed_seconds'),
@@ -1242,10 +1243,23 @@ export class Repository extends DevSessionStore {
       .run(Math.max(0, seconds), reqId)
   }
 
-  /** 所有者延长工时：只加总上限，不清零已消耗，避免用延长掩盖历史消耗。 */
+  /**
+   * 所有者延长工时：只加总上限，不清零已消耗，避免用延长掩盖历史消耗。
+   * `seconds = -1` 表示改为不限；已经不限的记录保持 -1。
+   */
   extendBudget(reqId: string, seconds: number): number {
+    if (seconds === -1) {
+      this.db
+        .prepare('UPDATE requirement_budget SET limit_seconds = -1 WHERE req_id = ?')
+        .run(reqId)
+      return this.budget(reqId).limitSeconds
+    }
     this.db
-      .prepare('UPDATE requirement_budget SET limit_seconds = limit_seconds + ? WHERE req_id = ?')
+      .prepare(
+        `UPDATE requirement_budget
+         SET limit_seconds = CASE WHEN limit_seconds = -1 THEN -1 ELSE limit_seconds + ? END
+         WHERE req_id = ?`,
+      )
       .run(Math.max(0, seconds), reqId)
     return this.budget(reqId).limitSeconds
   }
@@ -1895,8 +1909,8 @@ function planFromPayload(
         testCommand: stringArray(task.test_command),
         dependsOn: stringArray(task.depends_on),
         limits: {
-          limitSeconds: Number(limits.limit_seconds ?? 7200),
-          maxFailureRounds: Number(limits.max_failure_rounds ?? 3),
+          limitSeconds: Number(limits.limit_seconds ?? -1),
+          maxFailureRounds: Number(limits.max_failure_rounds ?? -1),
         },
         authorizationSource: textValue(task.authorization_source),
         ...(task.verification === true ? { verification: true } : {}),

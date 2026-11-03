@@ -8,9 +8,10 @@
 
 import { asRecord as recordOf } from './json.js'
 import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
+import { isLimitSeconds, isUnlimited, UNLIMITED } from './limits.js'
 
-export const DEFAULT_TASK_LIMIT_SECONDS = 7200
-export const DEFAULT_MAX_FAILURE_ROUNDS = 3
+export const DEFAULT_TASK_LIMIT_SECONDS = UNLIMITED
+export const DEFAULT_MAX_FAILURE_ROUNDS = UNLIMITED
 
 export interface TaskLimits {
   readonly limitSeconds: number
@@ -116,11 +117,15 @@ export function validateTask(task: PlannedTask): void {
     throw new RuleViolationError('任务依赖不能包含重复项')
   }
   for (const dependency of task.dependsOn) requireNonEmpty(dependency, 'depends_on')
-  if (!Number.isFinite(task.limits.limitSeconds) || task.limits.limitSeconds <= 0) {
-    throw new RuleViolationError('任务执行限额必须为正数')
+  if (!isLimitSeconds(task.limits.limitSeconds)) {
+    throw new RuleViolationError('任务执行限额必须为正数或 -1（不限）')
   }
-  if (!Number.isInteger(task.limits.maxFailureRounds) || task.limits.maxFailureRounds < 1) {
-    throw new RuleViolationError('任务失败轮次上限必须为正整数')
+  const maxFailureRounds = task.limits.maxFailureRounds
+  if (
+    !Number.isInteger(maxFailureRounds) ||
+    (!isUnlimited(maxFailureRounds) && maxFailureRounds < 1)
+  ) {
+    throw new RuleViolationError('任务失败轮次上限必须为正整数或 -1（不限）')
   }
 }
 
@@ -246,9 +251,16 @@ function limitsFrom(value: unknown): TaskLimits {
   if (typeof limitSeconds !== 'number' || !Number.isFinite(limitSeconds)) {
     throw new MalformedError('任务包字段 limits.limit_seconds 必须是数字')
   }
+  if (!isLimitSeconds(limitSeconds)) {
+    throw new MalformedError('任务包字段 limits.limit_seconds 必须是正数或 -1（不限）')
+  }
   const maxFailureRounds = data.max_failure_rounds ?? DEFAULT_MAX_FAILURE_ROUNDS
-  if (typeof maxFailureRounds !== 'number' || !Number.isInteger(maxFailureRounds)) {
-    throw new MalformedError('任务包字段 limits.max_failure_rounds 必须是整数')
+  if (
+    typeof maxFailureRounds !== 'number' ||
+    !Number.isInteger(maxFailureRounds) ||
+    (!isUnlimited(maxFailureRounds) && maxFailureRounds < 1)
+  ) {
+    throw new MalformedError('任务包字段 limits.max_failure_rounds 必须是正整数或 -1（不限）')
   }
   return { limitSeconds, maxFailureRounds }
 }
@@ -359,4 +371,13 @@ export function ancestorTaskIds(plan: TaskPlan, taskId: string): string[] {
   }
   visit(target.taskId)
   return executionOrder(plan).filter((id) => seen.has(id))
+}
+
+/**
+ * 需求级工时：任一任务不限（-1）即整个需求不限；全为正数时取任务上限之和。
+ * 任务包默认不限，只有显式配置正数时才恢复“总预算”语义。
+ */
+export function planBudgetSeconds(plan: Pick<TaskPlan, 'tasks'>): number {
+  if (plan.tasks.some((task) => isUnlimited(task.limits.limitSeconds))) return UNLIMITED
+  return plan.tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0)
 }
