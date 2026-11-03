@@ -4829,3 +4829,23 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 - 未改 `contracts/`、覆盖率门槛、变异门槛或审计等级。
 - 剩余 moderate 漏洞为 eslint/typescript-eslint 链与 qs、minimatch，均不触发
   `--audit-level=high`；后续升级另案处理。
+
+## 129. nightly 变异分片全部失败：Stryker 可执行文件路径（2026-11-03）
+
+- 现象：手动触发 nightly（运行 `41670140029`）后，`coverage` 作业成功，8 个
+  `mutation (…)` 分片全部失败；日志为
+  `spawnSync .../packages/forgeloop/node_modules/.bin/stryker ENOENT`。
+- 根因：`@stryker-mutator/core` 是仓库根 devDependency，npm 工作区把它提升到
+  `<repo>/node_modules/.bin`；`scripts/ts/mutation-shard.ts` 只查包内
+  `packages/forgeloop/node_modules/.bin`，在 `npm ci` 布局下不存在。
+  该 nightly 变异矩阵在 11-03 的评测门禁改造中加入，此前没有在 GitHub runner
+  上真实运行过，因此首次触发才暴露。
+- 修复：`mutation-shard.ts` 先解析根 `node_modules/.bin/stryker`，再回退包内路径
+  （提交 `e14a7ff`）；不改变分片划分、变异配置与门槛。
+- 验证：
+  - 本机 `make mutation-shard SHARD=entry` 实际启动 Stryker 并产出报告
+    （87.01 分，`break=0`，exit 0）；
+  - nightly 重跑 `41671530759`：`coverage` 成功，`mutation (entry)`、
+    `mutation (session)` 已成功，其余分片与 `mutation-gate` 仍在运行（记录时）。
+- 边界：本次只修可执行文件解析；分片分数与合并门槛仍按
+  `stryker.config.json` 判定，未调整 `break`、`low`、`high`。
