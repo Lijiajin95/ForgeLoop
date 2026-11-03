@@ -156,8 +156,8 @@ describe('failure rounds and grants', () => {
   })
 
   it('rejects zero or other negative rounds per grant', () => {
-    expect(() => new GrantLedger(1, [], 0)).toThrow(/正整数或 -1/)
-    expect(() => new GrantLedger(1, [], -2)).toThrow(/正整数或 -1/)
+    expect(() => new GrantLedger(1, [], 0)).toThrow(/-1 或正整数/)
+    expect(() => new GrantLedger(1, [], -2)).toThrow(/-1 或正整数/)
   })
 })
 

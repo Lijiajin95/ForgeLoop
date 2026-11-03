@@ -9,12 +9,14 @@
 import type { ForgeLoopConfig } from '../config.js'
 import { sourceTrusted } from '../domain/admission.js'
 import type { AnalysisMode } from '../domain/analysis.js'
-import { attemptAllowed } from '../domain/limits.js'
 import type { Requirement } from '../domain/requirement.js'
 import type { RequirementQueue } from '../domain/requirement-queue.js'
 import { ANALYSIS_FAILED, isTerminal } from '../domain/status.js'
 import type { Repository } from '../records/repository.js'
 import { fail, ok, type OperationResult } from './operation-result.js'
+
+/** 同一需求版本自动重试分析的次数上限；格式与输入类失败不自动无限重试。 */
+const MAX_AUTO_ANALYSIS_RETRIES = 3
 
 /** 自动重试分析的请求来源标识；手动重试以 `:analysis-retry` 结尾。 */
 export const ANALYSIS_RETRY_SOURCE = 'system:analysis-retry'
@@ -93,7 +95,7 @@ export class AnalysisQueue {
   }
 
   /**
-   * 产品分析失败后的自动重试排队：默认不限次数（配置正数时恢复上限），
+   * 产品分析失败后的自动重试排队：每个失败需求版本最多自动重试 3 次，
    * 有在途请求或主动停止时不排；人工重试走 retry。
    */
   autoRetry(): string[] {
@@ -106,7 +108,7 @@ export class AnalysisQueue {
         requirement.versions.length,
       )
       const auto = attempts.filter((attempt) => attempt.kind === 'auto').length
-      if (!attemptAllowed(auto + 1, this.deps.config.maxAnalysisAttempts)) continue
+      if (auto >= MAX_AUTO_ANALYSIS_RETRIES) continue
       const active = this.deps.repo
         .requestsFor(requirement.reqId)
         .some((request) => ['pending', 'claimed'].includes(request.state))

@@ -239,10 +239,11 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
-      // 准入放开后来源 test 会自动进入连续研发；这些用例只验证旧的独立验证门禁。
-      autonomy: { allowAnySource: false },
+      // 这些用例验证“阻断后重试到额度用尽”，因此显式恢复有限的失败轮次与验证次数。
       failureRoundsPerGrant: 3,
       maxVerificationAttempts: 3,
+      // 这些用例走未准入的旧验证路径；放开来源会切到准入后的连续推进。
+      autonomy: { allowAnySource: false },
     },
     dir,
   )

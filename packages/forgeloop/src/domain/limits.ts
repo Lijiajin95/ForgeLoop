@@ -1,23 +1,22 @@
 /**
  * 执行时间限额（迁移自旧 `domain/limits.py`）：
- * 默认不限；用户等待不计入，只累计真实执行段；正数限额超限时停止启动新动作。
- * 统一约定：`-1` 表示不限，正数恢复原有限额行为。
+ * 默认 -1（不限）；用户等待不计入，只累计真实执行段；限额 > 0 时超限停止启动新动作，
+ * 新的失败授权不自动延长工时，延长必须显式决定。
  */
 
 import { RuleViolationError } from './errors.js'
 
-/** 统一的“不限”哨兵值；配置、任务包与记录层共用。 */
-export const UNLIMITED = -1
+/** -1 表示不限；保留常量是为了让“MAX”在配置与记录里只有一个口径。 */
+export const DEFAULT_LIMIT_SECONDS = -1
 
-export const DEFAULT_LIMIT_SECONDS = UNLIMITED
-
-export function isUnlimited(value: number): boolean {
-  return value === UNLIMITED
+/** 限额是否为“不限”（-1，页面显示为 MAX）。 */
+export function unlimitedLimit(limitSeconds: number): boolean {
+  return limitSeconds < 0
 }
 
-/** 限额只接受 -1（不限）或正数；0 与负数（除 -1）都不是合法限额。 */
-export function isLimitSeconds(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && (value === UNLIMITED || value > 0)
+/** 尝试次数是否还在允许范围内：上限 -1 表示不限。 */
+export function attemptAllowed(attempt: number, maxAttempts: number): boolean {
+  return maxAttempts < 0 || attempt <= maxAttempts
 }
 
 export class ExecutionBudget {
@@ -25,8 +24,8 @@ export class ExecutionBudget {
   private consumed: number
 
   constructor(limitSeconds: number, consumedSeconds = 0) {
-    if (!isLimitSeconds(limitSeconds)) {
-      throw new RuleViolationError('执行限额必须为正数或 -1（不限）')
+    if (!Number.isFinite(limitSeconds) || (limitSeconds !== -1 && limitSeconds <= 0)) {
+      throw new RuleViolationError('执行限额必须是 -1 或正数（-1 表示不限）')
     }
     if (!Number.isFinite(consumedSeconds) || consumedSeconds < 0) {
       throw new RuleViolationError('已消耗时间不能为负')
@@ -44,18 +43,20 @@ export class ExecutionBudget {
   }
 
   get unlimited(): boolean {
-    return isUnlimited(this.limit)
+    return unlimitedLimit(this.limit)
   }
 
   get remainingSeconds(): number {
-    return this.unlimited ? Number.POSITIVE_INFINITY : Math.max(0, this.limit - this.consumed)
+    if (this.unlimited) return Number.POSITIVE_INFINITY
+    return Math.max(0, this.limit - this.consumed)
   }
 
+  /** 不限时永远不算用尽；限额 > 0 时消耗达到限额才算用尽。 */
   get exhausted(): boolean {
     return !this.unlimited && this.consumed >= this.limit
   }
 
-  /** 超限后停止启动新动作；已开始的动作自然完成并保存结果。不限时永远可以开始。 */
+  /** 超限后停止启动新动作；已开始的动作自然完成并保存结果。 */
   canStartAction(): boolean {
     return !this.exhausted
   }
@@ -67,24 +68,16 @@ export class ExecutionBudget {
     this.consumed += seconds
   }
 
-  /** 超时后的显式决定：延长限额；消耗不清零。不限本身就是上限，延长不改变结果。 */
+  /** 显式延长限额；消耗不清零。不限（-1）时延长没有意义，直接忽略。 */
   extend(newLimitSeconds: number): void {
-    if (this.unlimited) return
-    if (!isLimitSeconds(newLimitSeconds)) {
-      throw new RuleViolationError('延长后的限额必须为正数或 -1（不限）')
-    }
-    if (isUnlimited(newLimitSeconds)) {
-      this.limit = UNLIMITED
-      return
-    }
-    if (newLimitSeconds <= this.consumed) {
-      throw new RuleViolationError('延长后的限额必须大于已经消耗的时间')
+    if (newLimitSeconds === -1) return
+    if (
+      !Number.isFinite(newLimitSeconds) ||
+      newLimitSeconds <= 0 ||
+      newLimitSeconds <= this.consumed
+    ) {
+      throw new RuleViolationError('延长后的限额必须大于已经消耗的时间且大于 0')
     }
     this.limit = newLimitSeconds
   }
-}
-
-/** 自动尝试次数是否还允许第 attempt 次（从 1 开始）；-1 表示不限。 */
-export function attemptAllowed(attempt: number, maxAttempts: number): boolean {
-  return isUnlimited(maxAttempts) || attempt <= maxAttempts
 }

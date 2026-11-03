@@ -22,10 +22,10 @@ function makeRuntime(): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
-      // 这些用例验证显式请求与旧门禁，保持仅信任显式来源。
-      autonomy: { allowAnySource: false },
+      // 默认不限失败轮次；这里显式给每份授权 3 轮，保留额度用尽的判定语义。
       failureRoundsPerGrant: 3,
-      maxVerificationAttempts: 3,
+      // 这些用例验证未准入需求的排队与推进；放开来源会改变准入结论。
+      autonomy: { allowAnySource: false },
     },
     dir,
   )

@@ -2,14 +2,14 @@
  * 失败轮次与追加授权（迁移自旧 `domain/counting.py`）：
  * - 正式转测后，测试或验收失败计一个失败轮次；转测前失败不计。
  * - 同一轮重复反馈不重复加数（round_id 幂等）。
- * - 正数额度时每次授权最多三个失败轮次；追加授权 +3，累计不清零。
- * - 额度用尽后停止自动推进，等待追加授权或其他决定。
- * - 统一约定：`roundsPerGrant = -1` 表示不限轮次；统计照常累计，不再因额度停止。
+ * - 失败轮次默认 -1（不限）：逐轮记录，但默认不因次数停止自动推进。
+ * - 显式配置每次授权的轮次上限（> 0）时，额度用尽才等待追加授权。
  */
 
-import { isUnlimited, UNLIMITED } from './limits.js'
 import { GrantExhaustedError, RuleViolationError } from './errors.js'
+import { unlimitedLimit } from './limits.js'
 
+/** 显式配置每次授权轮次上限时的默认值。 */
 export const MAX_ROUNDS_PER_GRANT = 3
 
 export const FAILURE_FORMAL_TEST = 'formal_test'
@@ -42,32 +42,11 @@ export interface RecordOutcome {
   readonly cumulativeFailures: number
 }
 
-/** 剩余失败轮次：不限时返回 -1，正数额度时返回非负数。 */
-export function roundsRemaining(
-  grants: number,
-  failures: number,
-  roundsPerGrant = MAX_ROUNDS_PER_GRANT,
-): number {
-  if (isUnlimited(roundsPerGrant)) return UNLIMITED
-  return Math.max(0, grants * roundsPerGrant - failures)
-}
-
-/** 是否还能再记录一次失败；0 = 必须先追加授权，-1 = 不限。 */
-export function canRetryWithRounds(remaining: number): boolean {
-  return remaining !== 0
-}
-
-function assertRoundsPerGrant(value: number): void {
-  if (!Number.isInteger(value) || (value !== UNLIMITED && value < 1)) {
-    throw new RuleViolationError('每次授权的失败轮次额度必须是正整数或 -1（不限）')
-  }
-}
-
 export class GrantLedger {
   private grants: number
   private rounds: FailureRound[]
   private readonly seen: Set<string>
-  private readonly roundsPerGrant: number
+  private readonly perGrant: number
 
   constructor(
     grants = 1,
@@ -75,14 +54,24 @@ export class GrantLedger {
     roundsPerGrant = MAX_ROUNDS_PER_GRANT,
   ) {
     if (grants < 1) throw new RuleViolationError('至少需要一次初始授权')
-    assertRoundsPerGrant(roundsPerGrant)
-    if (!isUnlimited(roundsPerGrant) && rounds.length > grants * roundsPerGrant) {
+    if (roundsPerGrant !== -1 && (!Number.isInteger(roundsPerGrant) || roundsPerGrant <= 0)) {
+      throw new RuleViolationError('每次授权的失败轮次上限必须为 -1 或正整数（-1 表示不限）')
+    }
+    if (!unlimitedLimit(roundsPerGrant) && rounds.length > grants * roundsPerGrant) {
       throw new RuleViolationError('已记录的失败轮次超过授权额度')
     }
     this.grants = grants
     this.rounds = [...rounds]
     this.seen = new Set(rounds.map((round) => round.roundId))
-    this.roundsPerGrant = roundsPerGrant
+    this.perGrant = roundsPerGrant
+  }
+
+  get roundsPerGrant(): number {
+    return this.perGrant
+  }
+
+  get unlimited(): boolean {
+    return unlimitedLimit(this.perGrant)
   }
 
   get grantCount(): number {
@@ -97,32 +86,23 @@ export class GrantLedger {
     return this.rounds
   }
 
-  get unlimitedRounds(): boolean {
-    return isUnlimited(this.roundsPerGrant)
-  }
-
   get consumedInCurrentGrant(): number {
-    if (this.unlimitedRounds) return this.cumulativeFailures
-    return this.cumulativeFailures - (this.grants - 1) * this.roundsPerGrant
-  }
-
-  /** 当前累计授权对应的总轮次额度；-1 表示不限。 */
-  get grantQuota(): number {
-    return this.unlimitedRounds ? UNLIMITED : this.grants * this.roundsPerGrant
+    if (this.unlimited) return this.cumulativeFailures
+    return this.cumulativeFailures - (this.grants - 1) * this.perGrant
   }
 
   get remainingInCurrentGrant(): number {
-    if (this.unlimitedRounds) return Number.POSITIVE_INFINITY
-    return Math.max(0, this.grants * this.roundsPerGrant - this.cumulativeFailures)
+    if (this.unlimited) return Number.POSITIVE_INFINITY
+    return Math.max(0, this.grants * this.perGrant - this.cumulativeFailures)
   }
 
   get canRecordFailure(): boolean {
-    return this.unlimitedRounds || this.remainingInCurrentGrant > 0
+    return this.remainingInCurrentGrant > 0
   }
 
-  /** 额度用尽：自动推进停止，等待追加授权或停止决定。不限时不等待。 */
+  /** 额度用尽：自动推进停止，等待追加授权或停止决定；不限时永不触发。 */
   get awaitingGrantDecision(): boolean {
-    return !this.unlimitedRounds && this.remainingInCurrentGrant === 0
+    return this.remainingInCurrentGrant === 0
   }
 
   recordFailure(round: FailureRound): RecordOutcome {
@@ -130,14 +110,16 @@ export class GrantLedger {
       return { recorded: false, cumulativeFailures: this.cumulativeFailures }
     }
     if (!this.canRecordFailure) {
-      throw new GrantExhaustedError('本次授权的失败轮次已用尽；追加授权后才能继续记录')
+      throw new GrantExhaustedError(
+        `本次授权的 ${this.perGrant} 个失败轮次已用尽；追加授权后才能继续记录`,
+      )
     }
     this.rounds = [...this.rounds, round]
     this.seen.add(round.roundId)
     return { recorded: true, cumulativeFailures: this.cumulativeFailures }
   }
 
-  /** 明确追加一次授权：额度 +3（正数额度），累计失败与历史保留，不清零。 */
+  /** 明确追加一次授权：额度按每份配置增加，累计失败与历史保留，不清零。 */
   appendGrant(): void {
     this.grants += 1
   }

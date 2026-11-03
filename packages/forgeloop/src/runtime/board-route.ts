@@ -1,6 +1,7 @@
 import { asRecord } from '../domain/json.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
+import { parseReliabilityWindow } from '../domain/reliability.js'
 import { BOARD_MAX_LIMIT } from './board.js'
 import type { Coordinator } from './coordinator.js'
 import type { ForgeLoopRuntime } from './service.js'
@@ -27,6 +28,7 @@ const BOARD_ENDPOINTS = [
   'accept',
   'stop',
   'cancel',
+  'reliability',
   'ops',
   'ops-detail',
   'ops-decide',
@@ -163,7 +165,17 @@ function handleRead(
 
   if (endpoint === 'session') return handleSession(body, context)
 
+  if (endpoint === 'reliability') return handleReliability(body, context)
+
   return null
+}
+
+function handleReliability(body: BoardBody | null, context: BoardContext): Response {
+  const window = parseReliabilityWindow(body?.window)
+  if (!window) {
+    return boardResponse(boardFailure('bad_request', '可靠性窗口只能是 7d、30d、90d 或 all'), 400)
+  }
+  return boardResponse({ ok: true, value: context.runtime.reliability(window) })
 }
 
 function handlePlan(body: BoardBody | null, context: BoardContext): Response {

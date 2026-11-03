@@ -10,7 +10,13 @@ import { randomUUID } from 'node:crypto'
 import { isoNow } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
 import type { Requirement, RequirementAnalysis, RequirementVersion } from '../domain/requirement.js'
-import { validateAnalysis, validateRequirement } from '../domain/requirement.js'
+import {
+  DEFAULT_INPUT_KIND,
+  INPUT_KINDS,
+  inputKindOf,
+  validateAnalysis,
+  validateRequirement,
+} from '../domain/requirement.js'
 import type { AnalysisAttempt, AnalysisMode, AnalysisOutcome } from '../domain/analysis.js'
 import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
@@ -283,53 +289,79 @@ export class Repository extends DevSessionStore {
     const requirement = this.getRequirement(analysis.reqId)
     if (!requirement) throw new RuleViolationError(`未找到需求 ${analysis.reqId}`)
     validateAnalysis(analysis, requirement.versions.length)
-    this.db
-      .prepare(
-        `INSERT INTO requirement_analyses
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO requirement_analyses
           (req_id, analysis_version, requirement_version, goal, scenarios, acceptance_criteria,
            clarifications, business_rules, exceptions, non_goals, model, prompt_version,
            transcript_path, tool_calls, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        analysis.reqId,
-        analysis.analysisVersion,
-        analysis.requirementVersion,
-        analysis.goal,
-        JSON.stringify(analysis.scenarios),
-        JSON.stringify(analysis.acceptanceCriteria),
-        JSON.stringify(analysis.clarifications),
-        JSON.stringify(analysis.businessRules ?? []),
-        JSON.stringify(analysis.exceptions ?? []),
-        JSON.stringify(analysis.nonGoals ?? []),
-        analysis.model ?? '',
-        analysis.promptVersion ?? '',
-        analysis.transcriptPath ?? '',
-        JSON.stringify(analysis.toolCalls ?? []),
-        analysis.createdAt,
-      )
+        )
+        .run(
+          analysis.reqId,
+          analysis.analysisVersion,
+          analysis.requirementVersion,
+          analysis.goal,
+          JSON.stringify(analysis.scenarios),
+          JSON.stringify(analysis.acceptanceCriteria),
+          JSON.stringify(analysis.clarifications),
+          JSON.stringify(analysis.businessRules ?? []),
+          JSON.stringify(analysis.exceptions ?? []),
+          JSON.stringify(analysis.nonGoals ?? []),
+          analysis.model ?? '',
+          analysis.promptVersion ?? '',
+          analysis.transcriptPath ?? '',
+          JSON.stringify(analysis.toolCalls ?? []),
+          analysis.createdAt,
+        )
+      // 分诊结果与分析记录同一事务写入；重复写入同一版本时以最新结论为准。
+      this.db
+        .prepare(
+          `INSERT INTO requirement_analysis_input_kinds (req_id, analysis_version, kind)
+           VALUES (?, ?, ?)
+           ON CONFLICT(req_id, analysis_version) DO UPDATE SET kind = excluded.kind`,
+        )
+        .run(analysis.reqId, analysis.analysisVersion, inputKindOf(analysis))
+    })
   }
 
   analyses(reqId: string): RequirementAnalysis[] {
     const rows = this.db
       .prepare('SELECT * FROM requirement_analyses WHERE req_id = ? ORDER BY analysis_version')
       .all(reqId)
-    return rows.map((row) => ({
-      analysisVersion: num(row, 'analysis_version'),
-      requirementVersion: num(row, 'requirement_version'),
-      goal: text(row, 'goal'),
-      scenarios: parseStringList(text(row, 'scenarios')),
-      businessRules: parseStringList(text(row, 'business_rules')),
-      exceptions: parseStringList(text(row, 'exceptions')),
-      nonGoals: parseStringList(text(row, 'non_goals')),
-      acceptanceCriteria: parseStringList(text(row, 'acceptance_criteria')),
-      clarifications: parseStringList(text(row, 'clarifications')),
-      model: text(row, 'model'),
-      promptVersion: text(row, 'prompt_version'),
-      transcriptPath: text(row, 'transcript_path'),
-      toolCalls: parseStringList(text(row, 'tool_calls')),
-      createdAt: text(row, 'created_at'),
-    }))
+    const kinds = new Map(
+      this.db
+        .prepare(
+          'SELECT analysis_version, kind FROM requirement_analysis_input_kinds WHERE req_id = ?',
+        )
+        .all(reqId)
+        .map((row) => [num(row, 'analysis_version'), text(row, 'kind')]),
+    )
+    return rows.map((row) => {
+      const analysisVersion = num(row, 'analysis_version')
+      return {
+        analysisVersion,
+        requirementVersion: num(row, 'requirement_version'),
+        inputKind: oneOf(
+          kinds.get(analysisVersion) ?? DEFAULT_INPUT_KIND,
+          INPUT_KINDS,
+          '分析输入类型',
+        ),
+        goal: text(row, 'goal'),
+        scenarios: parseStringList(text(row, 'scenarios')),
+        businessRules: parseStringList(text(row, 'business_rules')),
+        exceptions: parseStringList(text(row, 'exceptions')),
+        nonGoals: parseStringList(text(row, 'non_goals')),
+        acceptanceCriteria: parseStringList(text(row, 'acceptance_criteria')),
+        clarifications: parseStringList(text(row, 'clarifications')),
+        model: text(row, 'model'),
+        promptVersion: text(row, 'prompt_version'),
+        transcriptPath: text(row, 'transcript_path'),
+        toolCalls: parseStringList(text(row, 'tool_calls')),
+        createdAt: text(row, 'created_at'),
+      }
+    })
   }
 
   latestAnalysis(reqId: string): RequirementAnalysis | null {
@@ -1229,7 +1261,6 @@ export class Repository extends DevSessionStore {
 
   budget(reqId: string): { limitSeconds: number; consumedSeconds: number } {
     const row = this.db.prepare('SELECT * FROM requirement_budget WHERE req_id = ?').get(reqId)
-    // 没有记录按统一约定视为不限；正数预算只在显式配置或历史记录中存在。
     if (!row) return { limitSeconds: -1, consumedSeconds: 0 }
     return {
       limitSeconds: num(row, 'limit_seconds'),

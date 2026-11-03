@@ -1,4 +1,3 @@
-import { attemptAllowed } from '../domain/limits.js'
 import { join } from 'node:path'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { ForgeLoopConfig } from '../config.js'
@@ -11,6 +10,7 @@ import {
   GrantLedger,
 } from '../domain/counting.js'
 import { AGENT_VERIFY } from '../domain/agents.js'
+import { attemptAllowed } from '../domain/limits.js'
 import type { TaskRunState } from '../domain/status.js'
 import {
   EXECUTING,
@@ -49,10 +49,6 @@ export interface TaskDeliveryDeps {
     label: string,
     suffix: string,
   ) => { ok: boolean; detail: string }
-}
-
-function quotaLabel(ledger: GrantLedger): string {
-  return ledger.grantQuota === -1 ? 'MAX' : String(ledger.grantQuota)
 }
 
 export interface DeliverInput {
@@ -216,7 +212,7 @@ export class TaskDelivery {
     }
     return {
       state: 'awaiting_user',
-      reason: `任务 ${taskId} 已尝试 ${this.deps.config.maxTaskAttempts} 次仍未通过；等待人工决定`,
+      reason: `任务 ${taskId} 已尝试 ${attempt} 次仍未通过；等待人工决定`,
       requirementStatus: 'blocked',
     }
   }
@@ -417,7 +413,7 @@ export class TaskDelivery {
         return {
           result: {
             state: 'awaiting_user',
-            reason: `独立审查阻断且失败轮次额度已用尽（${ledger.cumulativeFailures}/${quotaLabel(ledger)}）；等待追加授权或停止`,
+            reason: `独立审查阻断且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * ledger.roundsPerGrant}）；等待追加授权或停止`,
             requirementStatus: 'blocked',
           },
         }
@@ -523,7 +519,7 @@ export class TaskDelivery {
         return {
           result: {
             state: 'awaiting_user',
-            reason: `正式测试失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${quotaLabel(ledger)}）；等待追加授权或停止`,
+            reason: `正式测试失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * ledger.roundsPerGrant}）；等待追加授权或停止`,
             requirementStatus: 'blocked',
           },
         }
@@ -737,7 +733,7 @@ export class TaskDelivery {
         return {
           result: {
             state: 'awaiting_user',
-            reason: `验证任务失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${quotaLabel(ledger)}）；等待追加授权或停止`,
+            reason: `验证任务失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * ledger.roundsPerGrant}）；等待追加授权或停止`,
             requirementStatus: 'blocked',
           },
         }

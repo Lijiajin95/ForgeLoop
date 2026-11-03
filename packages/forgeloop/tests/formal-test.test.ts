@@ -73,6 +73,18 @@ describe('formal test runner without a subprocess service', () => {
     expect(result.exitCode).toBeNull()
   })
 
+  it('treats timeoutMs -1 as unlimited and lets the command finish', async () => {
+    const result = await runFormalTest({
+      cwd: dir,
+      argv: ['node', '-e', 'setTimeout(() => console.log("done"), 100)'],
+      timeoutMs: -1,
+      logPath: logPath('unlimited'),
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.timedOut).toBe(false)
+    expect(result.output).toContain('done')
+  })
+
   it('terminates a test when its signal aborts', async () => {
     const controller = new AbortController()
     setTimeout(() => controller.abort(), 50)
@@ -152,6 +164,22 @@ describe('formal test runner through the subprocess service', () => {
     })
     expect(result.timedOut).toBe(true)
     expect(fake.terminated()).toBe(true)
+  })
+
+  it('does not terminate a service-backed command when timeoutMs is -1', async () => {
+    const fake = fakeSubprocess()
+    const run = runFormalTest({
+      ctx: fake.ctx,
+      cwd: dir,
+      argv: ['node', '-e', 'process.exit(0)'],
+      timeoutMs: -1,
+      logPath: logPath('service-unlimited'),
+    })
+    fake.finish(0)
+    const result = await run
+    expect(result.exitCode).toBe(0)
+    expect(result.timedOut).toBe(false)
+    expect(fake.terminated()).toBe(false)
   })
 
   it('asks the service to terminate when aborted', async () => {

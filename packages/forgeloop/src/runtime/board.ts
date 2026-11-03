@@ -23,7 +23,7 @@ import {
   type PlanReview,
   type VerificationReport,
 } from '../domain/verification.js'
-import { MAX_ROUNDS_PER_GRANT, roundsRemaining } from '../domain/counting.js'
+import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
 import type { AutonomyStats } from '../domain/autonomy.js'
@@ -160,7 +160,8 @@ export interface BoardRequirementView {
   readonly clarifications: number
   readonly failureRounds: number
   readonly grants: number
-  readonly remainingRounds: number
+  /** 剩余失败轮次；`null` 表示不限（页面显示 MAX）。 */
+  readonly remainingRounds: number | null
   /** 服务端按当前记录判定可用的需求级动作；页面只展示，不自行放行。 */
   readonly actions: readonly BoardRequirementAction[]
   /** 需求处于“停止请求”阻塞原因下；不等于已经停稳。 */
@@ -240,8 +241,8 @@ export interface BuildStatusBoardInput {
    * 任务运行原因、失败轮次、请求说明与看板问题文字；不读取 Agent 日志文件。
    */
   readonly query?: string | undefined
-  /** 每次授权的失败轮次；-1 表示不限，缺省保持历史 3 轮口径。 */
-  readonly roundsPerGrant?: number
+  /** 剩余失败轮次的判定（0 表示已用尽）；缺省按历史额度公式计算。 */
+  readonly remainingFailureRounds?: ((reqId: string) => number) | undefined
   /** 所有者标识：用于把所有者直接发起的动作计为人工介入。 */
   readonly owner?: string
 }
@@ -422,9 +423,8 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
 
   const chunks: RequirementChunk[] = []
 
-  const roundsPerGrant = input.roundsPerGrant ?? MAX_ROUNDS_PER_GRANT
   for (const requirement of all) {
-    chunks.push(buildRequirementChunk(repository, requirement, roundsPerGrant))
+    chunks.push(buildRequirementChunk(repository, requirement, input.remainingFailureRounds))
   }
 
   const needle = query.toLowerCase()
@@ -678,7 +678,9 @@ function failureIssue(context: IssueContext): BoardIssueView[] {
       detail:
         remainingRounds === 0
           ? `失败轮次 ${rounds.length} 已用尽自动处理额度；等待追加授权或人工决定`
-          : `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds === -1 ? 'MAX（不限）' : remainingRounds}；额度未尽时按规则自动重试`,
+          : Number.isFinite(remainingRounds)
+            ? `失败轮次 ${rounds.length}，额度剩余 ${remainingRounds}；额度未尽时按规则自动重试`
+            : `失败轮次 ${rounds.length}，额度 MAX；按规则持续自动重试`,
       createdAt: latestRound.occurredAt,
     },
   ]
@@ -686,17 +688,26 @@ function failureIssue(context: IssueContext): BoardIssueView[] {
 
 function requestIssues(context: IssueContext): BoardIssueView[] {
   const { requirement, requests } = context
-  return requests
-    .filter((request) => request.state === REQUEST_FAILED)
-    .map((request) => ({
+  const grouped = new Map<string, { request: (typeof requests)[number]; count: number }>()
+  for (const request of requests) {
+    if (request.state !== REQUEST_FAILED) continue
+    const detail = request.detail || '请求执行失败，等待重新排队或人工处理'
+    const key = `${request.action}\n${detail}`
+    const existing = grouped.get(key)
+    grouped.set(key, { request, count: (existing?.count ?? 0) + 1 })
+  }
+  return [...grouped.values()].map(({ request, count }) => {
+    const detail = request.detail || '请求执行失败，等待重新排队或人工处理'
+    return {
       issueId: `request:${request.requestId}`,
       reqId: requirement.reqId,
       kind: ISSUE_REQUEST,
       severity: 'attention',
-      title: `${requestActionLabel(request.action)}请求失败`,
-      detail: request.detail || '请求执行失败，等待重新排队或人工处理',
+      title: `${requestActionLabel(request.action)}请求失败${count > 1 ? `（重复 ${count} 次）` : ''}`,
+      detail: count > 1 ? `${detail}；同类失败 ${count} 次，最近一次 ${request.createdAt}` : detail,
       createdAt: request.createdAt,
-    }))
+    }
+  })
 }
 
 function approvalIssues(context: IssueContext): BoardIssueView[] {
@@ -1098,10 +1109,20 @@ function buildDeploymentView(
   }
 }
 
+function remainingRoundsOf(
+  reqId: string,
+  grants: number,
+  used: number,
+  resolve?: (reqId: string) => number,
+): number {
+  if (resolve) return resolve(reqId)
+  return Math.max(0, grants * MAX_ROUNDS_PER_GRANT - used)
+}
+
 function collectRequirementFacts(
   repository: Repository,
   requirement: Requirement,
-  roundsPerGrant: number,
+  remainingFailureRounds?: (reqId: string) => number,
 ): {
   terminal: boolean
   latestAnalysis: ReturnType<Repository['latestAnalysis']>
@@ -1146,7 +1167,12 @@ function collectRequirementFacts(
   const runByTask = new Map(runs.map((run) => [run.taskId, run]))
   const rounds = repository.failureRounds(requirement.reqId)
   const grants = repository.grantCount(requirement.reqId)
-  const remainingRounds = roundsRemaining(grants, rounds.length, roundsPerGrant)
+  const remainingRounds = remainingRoundsOf(
+    requirement.reqId,
+    grants,
+    rounds.length,
+    remainingFailureRounds,
+  )
   const requests = repository.requestsFor(requirement.reqId)
   const activeRequest = requests.some(
     (request) => request.state === 'pending' || request.state === 'claimed',
@@ -1225,7 +1251,7 @@ function collectRequirementFacts(
 function buildRequirementChunk(
   repository: Repository,
   requirement: Requirement,
-  roundsPerGrant: number,
+  remainingFailureRounds?: (reqId: string) => number,
 ): RequirementChunk {
   const {
     terminal,
@@ -1248,7 +1274,7 @@ function buildRequirementChunk(
     businessReviewView,
     candidateView,
     deploymentView,
-  } = collectRequirementFacts(repository, requirement, roundsPerGrant)
+  } = collectRequirementFacts(repository, requirement, remainingFailureRounds)
 
   const { tasks: requirementTasks, progress } = buildTaskViews({
     requirement,
@@ -1306,7 +1332,7 @@ function buildRequirementChunk(
     clarifications: latestAnalysis?.clarifications.length ?? 0,
     failureRounds: rounds.length,
     grants,
-    remainingRounds,
+    remainingRounds: Number.isFinite(remainingRounds) ? remainingRounds : null,
     actions,
     stopRequested,
     activeRequest,

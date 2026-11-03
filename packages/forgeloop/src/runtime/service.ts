@@ -30,8 +30,6 @@ import {
   type PlannedTask,
   type TaskPlan,
 } from '../domain/task-plan.js'
-import { roundsRemaining } from '../domain/counting.js'
-import { attemptAllowed } from '../domain/limits.js'
 import { candidateIdentityOf, sha256OfText } from '../domain/delivery.js'
 import { formatCommitMessage } from '../domain/commit-message.js'
 import { retryDecision } from '../domain/retry-policy.js'
@@ -78,10 +76,11 @@ import {
 import { SessionRouting } from './session-routing.js'
 import { VerificationCheckRegistry, type VerificationCheckOutcome } from './verification-checks.js'
 import { OpsRuntime } from './ops.js'
+import { applyDiffFile } from './diff-apply.js'
 import { buildStatusBoard, requirementTitle, type StatusBoardView } from './board.js'
+import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
 import { runFormalTest } from './formal-test.js'
 import { planReviewPrompt, requirementContext } from './prompts.js'
-import { runCommand } from './workspace.js'
 import { requestSource, requestView } from './execution-views.js'
 import { LegacyVerification } from './legacy-verification.js'
 import { TaskDelivery, type DeliverInput, type DeliverOutcome } from './task-delivery.js'
@@ -185,8 +184,7 @@ export class ForgeLoopRuntime {
       existingPackages: () => this.existingPackages(),
       ctx: this.ctx,
       authorizedPlan: (plan, source) => this.authorizedPlan(plan, source),
-      applyDiffFile: (dir, diffPath, label, suffix) =>
-        this.applyDiffFile(dir, diffPath, label, suffix),
+      applyDiffFile,
     })
     this.verificationPipeline = new VerificationPipeline({
       config: this.config,
@@ -201,8 +199,7 @@ export class ForgeLoopRuntime {
       openAgent: (request) => this.openAgent(request),
       candidateIdentity: (plan, artifacts) => this.candidateIdentity(plan, artifacts),
       requireAuthorizedPlan: (reqId) => this.requireAuthorizedPlan(reqId),
-      applyDiffFile: (dir, diffPath, label, suffix) =>
-        this.applyDiffFile(dir, diffPath, label, suffix),
+      applyDiffFile,
       reopenDeliveredTasks: (input) => this.reopenDeliveredTasks(input),
       verificationBaseline: (analysis) => this.verificationBaseline(analysis),
       remainingFailureRounds: (reqId) => this.remainingFailureRounds(reqId),
@@ -230,8 +227,7 @@ export class ForgeLoopRuntime {
       },
       previousTaskFailure: (reqId, planVersion, taskId) =>
         this.previousTaskFailure(reqId, planVersion, taskId),
-      applyDiffFile: (dir, diffPath, label, suffix) =>
-        this.applyDiffFile(dir, diffPath, label, suffix),
+      applyDiffFile,
     })
     this.legacyVerification = new LegacyVerification({
       config: this.config,
@@ -891,7 +887,8 @@ ${answer}`
 
   /**
    * 需求级重新执行：失败停在 blocked 后，不再要求人工逐个任务重试。
-   * 与 retryTask 共用判定；只排队一次 advance，不新建任务包、不清零失败轮次。
+   * 与 retryTask 共用同一份判定（额度、在途请求、批准、终态），
+   * 只排队一次 advance；不新建任务包、不清零失败轮次。
    */
   requeue(input: { reqId: string; by: string; source: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
@@ -1078,8 +1075,10 @@ ${answer}`
   }
 
   private remainingFailureRounds(reqId: string): number {
+    const perGrant = this.config.failureRoundsPerGrant
+    if (perGrant < 0) return Number.POSITIVE_INFINITY
     const used = this.repo.failureRounds(reqId).length
-    return roundsRemaining(this.repo.grantCount(reqId), used, this.config.failureRoundsPerGrant)
+    return Math.max(0, this.repo.grantCount(reqId) * perGrant - used)
   }
 
   /**
@@ -1174,7 +1173,7 @@ ${answer}`
     if (!admission) return this.retryDecisionFor(requirement.reqId).allowed
     return (
       plan !== null &&
-      (this.remainingFailureRounds(requirement.reqId) !== 0 ||
+      (this.remainingFailureRounds(requirement.reqId) > 0 ||
         this.issues.latestOpen(requirement.reqId) !== null)
     )
   }
@@ -1395,7 +1394,7 @@ ${answer}`
       candidateIdentityOf: this.candidateIdentity.bind(this),
       requestView,
       requirement,
-      roundsPerGrant: this.config.failureRoundsPerGrant,
+      remainingFailureRounds: this.remainingFailureRounds.bind(this),
     })
   }
 
@@ -1494,9 +1493,14 @@ ${answer}`
       project: this.config.project,
       limit,
       query,
-      roundsPerGrant: this.config.failureRoundsPerGrant,
+      remainingFailureRounds: this.remainingFailureRounds.bind(this),
       owner: this.config.owner,
     })
+  }
+
+  /** 只读可靠性聚合。 */
+  reliability(window: ReliabilityWindow) {
+    return reliabilityReport(this.repo, this.config, this.clock, window)
   }
 
   // ------------------------------------------------------------ 运维
@@ -1703,8 +1707,7 @@ ${answer}`
     let lastMalformed = ''
     let review: PlanReview | null = null
     let lastSession = ''
-    const maxReview = this.config.maxReviewAttempts
-    for (let attempt = 1; attemptAllowed(attempt, maxReview); attempt += 1) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       const started = Date.now()
       const transcript = join(
         sessionsDir(this.config),
@@ -1744,7 +1747,7 @@ ${answer}`
         const coverage = validatePlanCoverage(analysis, parsed)
         if (coverage.length > 0) {
           feedback = `\n\n上一次验证计划没有覆盖以下分析原文，请逐字引用（可附加说明，但不能改写）后重新输出：\n- ${coverage.join('\n- ')}`
-          if (attemptAllowed(attempt + 1, maxReview)) continue
+          if (attempt < 2) continue
           parsed = { ...parsed, verdict: 'block', blocking: coverage }
         }
       }
@@ -1754,7 +1757,7 @@ ${answer}`
     if (!review) {
       return {
         state: 'failed',
-        detail: `实现前评审结果畸形（fail-closed）：${lastMalformed || '无结论'}`,
+        detail: `实现前评审结果畸形（fail-closed）：${lastMalformed || '连续两次未取得可用结论'}`,
       }
     }
     const result = { sessionId: lastSession }
@@ -1907,30 +1910,6 @@ ${answer}`
   }
 
   /** 应用一个候选 diff：先 git apply，失败后用受控 fuzz；不修改证据原文。 */
-  private applyDiffFile(
-    dir: string,
-    diffPath: string,
-    label: string,
-    suffix: string,
-  ): { ok: boolean; detail: string } {
-    const rawDiff = readFileSync(diffPath, 'utf8')
-    if (rawDiff.trim() === '') return { ok: true, detail: '' }
-    const normalized = rawDiff.endsWith('\n') ? rawDiff : `${rawDiff}\n`
-    const applyPath = join(dir, `.apply-${suffix}-${label}.diff`)
-    writeFileSync(applyPath, normalized, 'utf8')
-    let applied = runCommand('git', ['apply', '--whitespace=nowarn', applyPath], dir, 120_000)
-    if (applied.code !== 0) {
-      applied = runCommand(
-        'patch',
-        ['-p1', '--forward', '--fuzz=3', '--no-backup-if-mismatch', '-i', applyPath],
-        dir,
-        120_000,
-      )
-    }
-    if (applied.code === 0) rmSync(applyPath, { force: true })
-    return { ok: applied.code === 0, detail: applied.stderr.trim() || applied.stdout.trim() }
-  }
-
   private existingPackages(): string[] {
     try {
       return readdirSync(join(this.config.projectPath, 'packages'), { withFileTypes: true })

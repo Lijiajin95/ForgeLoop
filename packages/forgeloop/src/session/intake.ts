@@ -10,6 +10,7 @@ import { asRecord } from '../domain/json.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
 import type { RequirementAnalysis } from '../domain/requirement.js'
+import { inputKindOf } from '../domain/requirement.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
 import {
   FORGELOOP_ANALYSIS_EVENT,
@@ -393,6 +394,7 @@ export class SessionIntake {
       reqId,
       analysisVersion: analysis.analysisVersion,
       requirementVersion: analysis.requirementVersion,
+      inputKind: inputKindOf(analysis),
       goal: analysis.goal,
       scenarios: analysis.scenarios,
       businessRules: analysis.businessRules ?? [],

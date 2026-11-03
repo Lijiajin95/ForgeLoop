@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   executionOrder,
   parseTaskPlanDraft,
-  planBudgetSeconds,
   validateFiles,
   validateTaskPlan,
   type PlannedTask,
@@ -180,51 +179,7 @@ describe('task plan parsing and validation', () => {
     ).toThrow('依赖不存在的任务')
   })
 
-  it('defaults limits to unlimited when the model omits them', () => {
-    const plan = parseTaskPlanDraft(
-      rawPlan([rawTask('a'), rawTask('b', { depends_on: ['a'] })]),
-      context,
-    )
-    expect(plan.tasks.map((task) => task.limits)).toEqual([
-      { limitSeconds: -1, maxFailureRounds: -1 },
-      { limitSeconds: -1, maxFailureRounds: -1 },
-    ])
-  })
-
-  it('accepts -1 as unlimited in task limits', () => {
-    const plan = parseTaskPlanDraft(
-      rawPlan([
-        rawTask('a', { limits: { limit_seconds: -1, max_failure_rounds: -1 } }),
-        rawTask('b', { depends_on: ['a'], limits: { limit_seconds: 60, max_failure_rounds: 2 } }),
-      ]),
-      context,
-    )
-    expect(plan.tasks.map((task) => task.limits)).toEqual([
-      { limitSeconds: -1, maxFailureRounds: -1 },
-      { limitSeconds: 60, maxFailureRounds: 2 },
-    ])
-  })
-
-  it('treats any unlimited task as an unlimited requirement budget', () => {
-    const plan = parseTaskPlanDraft(
-      rawPlan([
-        rawTask('a', { limits: { limit_seconds: -1, max_failure_rounds: 2 } }),
-        rawTask('b', { depends_on: ['a'], limits: { limit_seconds: 60, max_failure_rounds: 2 } }),
-      ]),
-      context,
-    )
-    expect(planBudgetSeconds(plan)).toBe(-1)
-    const bounded = parseTaskPlanDraft(
-      rawPlan([
-        rawTask('a', { limits: { limit_seconds: 60, max_failure_rounds: 2 } }),
-        rawTask('b', { depends_on: ['a'], limits: { limit_seconds: 90, max_failure_rounds: 2 } }),
-      ]),
-      context,
-    )
-    expect(planBudgetSeconds(bounded)).toBe(150)
-  })
-
-  it('rejects invalid limits', () => {
+  it('rejects limits that are zero or unexpected negative values', () => {
     expect(() =>
       parseTaskPlanDraft(
         rawPlan([
@@ -233,7 +188,16 @@ describe('task plan parsing and validation', () => {
         ]),
         context,
       ),
-    ).toThrow('limit_seconds 必须是正数或 -1（不限）')
+    ).toThrow('limit_seconds 必须为 -1 或正数')
+    expect(() =>
+      parseTaskPlanDraft(
+        rawPlan([
+          rawTask('a', { limits: { limit_seconds: -2 } }),
+          rawTask('b', { depends_on: ['a'] }),
+        ]),
+        context,
+      ),
+    ).toThrow('limit_seconds 必须为 -1 或正数')
     expect(() =>
       parseTaskPlanDraft(
         rawPlan([
@@ -242,7 +206,7 @@ describe('task plan parsing and validation', () => {
         ]),
         context,
       ),
-    ).toThrow('max_failure_rounds 必须是正整数或 -1（不限）')
+    ).toThrow('max_failure_rounds 必须为 -1 或正整数')
     expect(() =>
       parseTaskPlanDraft(
         rawPlan([
@@ -251,7 +215,18 @@ describe('task plan parsing and validation', () => {
         ]),
         context,
       ),
-    ).toThrow('limit_seconds 必须是数字')
+    ).toThrow('limit_seconds 必须为 -1 或正数')
+  })
+
+  it('accepts -1 as unlimited task limits', () => {
+    const plan = parseTaskPlanDraft(
+      rawPlan([
+        rawTask('a', { limits: { limit_seconds: -1, max_failure_rounds: -1 } }),
+        rawTask('b', { depends_on: ['a'] }),
+      ]),
+      context,
+    )
+    expect(plan.tasks[0]?.limits).toEqual({ limitSeconds: -1, maxFailureRounds: -1 })
   })
 
   it('requires actionable plans with at least two tasks and one dependency', () => {

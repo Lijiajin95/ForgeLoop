@@ -1,6 +1,6 @@
 # 天工「代码可靠性」看板方案
 
-- 状态：方案草案，待所有者确认；**尚未实现**
+- 状态：P1 已实现（2026-11-03）；P2 未做
 - 日期：2026-11-03
 - 范围：`conversation.view` 的 `forgeloop` 天工页新增「可靠性」视图；只读展示
 - 相关：[架构 §4.3](architecture.md#43-天工层级工作台web-只读事实--客户动作)、[状态 §44–§50](status.md)、[Makefile](../Makefile)、[覆盖率配置](../packages/forgeloop/vitest.config.ts)
@@ -25,7 +25,7 @@
 
 ### 2.1 入口
 
-在现有四个工作台视图基础上新增一个内部视图，建议顺序如下：
+在现有工作台视图基础上新增一个内部视图，顺序如下：
 
 ```text
 层级工作台 | 全部任务 | 需要处理 | 可靠性 | 运维
@@ -40,7 +40,7 @@
 ### 2.2 线框图
 
 ```text
-┌ 代码可靠性 ─ ForgeLoop · main@5dd2041 · 快照 2026-11-03 09:12 ─ [7天][30天][全部] [刷新] [自动] ┐
+┌ 代码可靠性 ─ ForgeLoop · main@5dd2041 · 快照 2026-11-03 09:12 ─ [7天][30天][90天][全部] [刷新] [自动] ┐
 │ ⚠ 快照落后当前 HEAD 3 个提交；变异测试未在最近一次快照运行                    │
 ├ KPI：门禁 8/9 │ 测试 737 通过 / 1 跳过 │ 行覆盖 91.9% │ 变异 97.8% │ 验证通过 92% │ 上线核对 100% ┤
 ├ 门禁矩阵                                                                       ┤
@@ -52,7 +52,7 @@
 │ 行 91.9%   █████████░ 90    分支 84.6% ████████░░ 84                          │
 │ 函数 96.7% █████████░ 93    关键文件 6/6 达标                                  │
 │ [展开关键文件覆盖率明细]                                                       │
-├ 交付可靠性（最近 30 天，按记录样本）                                           ┤
+├ 交付可靠性（全部记录，按记录样本）                                             ┤
 │ 独立验证 92%（n=25）  首轮验证 80%（n=20）  业务终审 100%（n=8）              │
 │ 上线核对 100%（n=3）  失败轮次 12（每需求 1.5）                                │
 │ 8 周趋势（通过/阻断）  [内联 SVG 柱状图 + 可展开表格]                          │
@@ -97,7 +97,7 @@
 | G11 | 变异测试得分 | 按 Stryker 报告口径：`(Killed + Timeout) ÷ (Killed + Timeout + Survived + NoCoverage)`；分母为 0 视为未采集 | KPI、门禁矩阵 | break `80`、low `85`、high `95` | `reports/mutation.json` | 是 |
 | G12 | 断言预算 | 当前 `as` 断言数 ÷ 基线；`当前 ≤ 基线` 为通过 | 门禁矩阵 | 只降不升 | `budget.assertions` | 是 |
 | G13 | Token 预算 | 超过 25k 的文件数；最大文件 token；文件上限 25k | 门禁矩阵 | 超限 `0` | `budget.tokens` | 是 |
-| G14 | ESLint 抑制条目 | `eslint-suppressions.json` 条目数 | 明细 | 只减不增 | 抑制文件 | P2 |
+| G14 | ESLint 抑制条目 | `eslint-suppressions.json` 条目数 | 预算区 | 只减不增 | 抑制文件 | 是 |
 | G15 | 依赖漏洞 | high/critical 漏洞数 | 门禁矩阵 | `0` | `npm audit` | P2 |
 | G16 | 静态扫描 | Semgrep findings 数 | 门禁矩阵 | `0` | `reports/semgrep.json` | P2 |
 | G17 | 测试稳定性 | 同一用例重复运行的失败率 | 明细 | 信息项 | 需多次运行记录 | P2 |
@@ -147,17 +147,19 @@
 
 ### 4.1 现状核对（2026-11-03）
 
-- 仓库里**没有** `reports/reliability/latest.json`；门禁矩阵所需的一次性快照尚不存在。
-- `packages/forgeloop/coverage/coverage-summary.json` 存在（2026-11-02 23:48），但文件路径指向
-  `.cache/worktrees/dev-session-routing/...`，不是当前主工作树；不能直接当作当前提交的覆盖率。
-- `packages/forgeloop/reports/mutation.json` 存在（2026-11-02 17:03），同样需要与提交绑定后才能作为当前结论。
-- `scripts/token-budget-baseline.json`、`scripts/ts/assertion-budget.ts` 的基线存在；当前值需要运行脚本，
-  不能从基线反推“当前通过”。
+- 生成器已实现：`make reliability-report` 运行全部门禁并包含变异测试；`make reliability-report-fast`
+  跳过变异并把该项记为 `not_run`。快照写入 `reports/reliability/latest.json`，历史保留最近 30 份；
+  `reports/` 已被 Git 忽略，页面只读取本机生成物。
+- 当日 `reliability-report-fast` 实测：8 项门禁通过（类型检查、ESLint、格式、契约、Token 预算、
+  断言预算、行为测试、覆盖率），变异测试未运行；770 项测试 / 71 个文件通过；行/语句 92.47%、
+  函数 96.45%、分支 84.11%；覆盖率明细 89 个文件，路径已统一为项目相对路径。
+- 覆盖率与变异产物必须晚于本次测试/变异运行；脚本按 mtime 判断新鲜度，旧产物按未采集处理。
+  覆盖率里指向项目根之外的路径会被丢弃，不混用其他工作树的结论。
+- 断言预算当前 18 处（基线 18）；最大源文件为 `runtime/service.ts` 21,747 tokens（文件上限 25,000）。
 - SQLite 已有 `requirement_verifications`、`requirement_business_reviews`、`requirement_deployments`、
   `requirement_failure_rounds`、`requirement_task_runs`、`ops_events` 等表，字段足够计算 §3.2 的指标。
 
-结论：**必须先有质量快照生成器**，否则门禁矩阵只能显示“未采集”。仅有覆盖率与变异 JSON
-不能证明类型检查、lint、格式、契约与测试通过。
+结论：门禁矩阵只能来自上述显式快照；仅有覆盖率或变异 JSON 不能证明类型检查、lint、格式、契约与测试通过。
 
 ### 4.2 快照格式
 
@@ -242,7 +244,7 @@
 
 ### 4.4 窗口与分母
 
-- 允许窗口：`7d`、`30d`、`90d`、`all`；默认 `30d`。
+- 允许窗口：`7d`、`30d`、`90d`、`all`；默认 `all`，页面与端点一致。
 - 时间边界按服务器本地时区计算，响应同时返回窗口起止的 ISO 时间；页面按本地时间显示。
 - 分母为 0 时返回 `null`，页面显示 `—（无样本）`，不显示 `0%`。
 - 验证与终审按“每条记录”计，不按需求去重；首轮验证按“需求”计。页面必须同时显示样本数 `n`，避免把
@@ -263,7 +265,7 @@
 新增一个只读端点，沿用现有认证看板路由：
 
 ```json
-{ "endpoint": "reliability", "window": "30d" }
+{ "endpoint": "reliability", "window": "all" }
 ```
 
 响应要点：
@@ -278,38 +280,58 @@
     snapshot: {
       availability: 'fresh' | 'stale' | 'missing' | 'invalid',
       path: string,
-      generatedAt: string | null,
-      commit: string | null,
-      branch: string | null,
+      generatedAt: string,
+      commit: string,
+      branch: string,
       dirty: boolean,
       behindCommits: number | null,
+      ageSeconds: number | null,
+      packageVersion: string,
       gates: GateView[],
       tests: TestsView | null,
       coverage: CoverageView | null,
+      keyCoverage: KeyCoverageView | null,
       mutation: MutationView | null,
       budgets: BudgetsView | null,
-      error: string
+      suppressions: number,
+      error: string,
+      warnings: string[]
     },
     runtime: {
       verification: RateView,
       firstPassVerification: RateView,
       businessReview: RateView,
       deployment: RateView,
-      failureRounds: { total: number, perRequirement: number | null, byStage: Record<string, number> },
-      tasks: { delivered: number, total: number, failed: number, blocked: number, awaitingUser: number },
-      ops: { closed: number, recovered: number, unresolved: number, mttrSeconds: number | null },
+      failureRounds: {
+        total: number,
+        requirements: number,
+        perRequirement: number | null,
+        byStage: Record<FailureStage, number>
+      },
+      tasks: {
+        total: number, delivered: number, failed: number,
+        blocked: number, awaitingUser: number, running: number
+      },
+      ops: {
+        opened: number, closed: number, recovered: number,
+        unresolved: number, mttrSeconds: number | null
+      },
+      candidateBuilds: number,
+      deploymentFailures: Array<{ checkId: string, count: number }>,
+      trend: WeeklyReliability[],
       recentEvents: ReliabilityEventView[]
     },
-    warnings: Array<{ code: string, message: string }>
+    warnings: string[]
   }
 }
 ```
 
 - `RateView = { pass: number, total: number, rate: number | null }`；`rate = null` 表示无样本。
 - 快照缺失是正常状态，返回 HTTP 200 与 `availability: 'missing'`；快照损坏也是 200 + `invalid` +
-  原因，便于页面局部降级。
-- 运行时聚合失败返回 HTTP 500 与 `bad_request`/`internal` 错误；页面只让“交付可靠性”区显示错误，
-  不把整个天工页清空。
+  原因，便于页面局部降级。`snapshot.warnings` 与顶层 `warnings` 都是可直接展示的字符串。
+- 快照读取或运行聚合失败返回 HTTP 500 与 `internal` 错误；页面保留已有数据并显示错误横幅，
+  不渲染伪造的空布局。
+- 顶层 `warnings` 会把过期、样本不足与无记录转成提醒；页面不自行改写数值。
 - `window` 只接受 `7d`、`30d`、`90d`、`all`；其他值返回 400。
 - 端点只加入 `BOARD_ENDPOINTS` 的只读分支（`handleRead`），不加入任何写动作。
 - 端点不执行项目命令；只读取固定路径的快照文件与 SQLite 聚合。当前 HEAD 用已有的
@@ -334,69 +356,80 @@
 
 ### 6.2 交互
 
-- **窗口切换**：只重新请求运行指标；保留门禁快照，避免整页闪烁。切换时保留旧数据并显示“刷新中”。
+- **窗口切换**：重新请求 `reliability` 端点并带上新窗口；服务端按 mtime 复用已解析的快照，
+  门禁区不闪烁。切换期间保留旧数据，窗口标注仍是旧值直到响应返回。
 - **刷新**：重新请求快照与运行指标；门禁快照按文件 mtime 判断是否需要重新解析。
 - **自动刷新**：沿用现有开关；可靠性视图激活时每 30 秒请求一次，切走后停止。
 - **下钻**：
-  - 点击失败验证/部署/失败轮次对应的需求或任务，先切回 `hierarchy` 视图，再调用现有
-    `openRequirement`/`openTask`，复用已有详情，不新建一套详情页。
+  - 点击最近事件里的需求，先切回 `hierarchy` 视图，再调用现有 `openRequirement`，复用已有详情。
+  - 失败轮次、验证记录与部署失败是窗口聚合，不伪造单条需求映射；只展示可回查的汇总。
   - 点击门禁行展开命令、门槛、耗时与证据路径；证据路径只读展示，不在浏览器里直接打开本地文件。
 - **不提供**：运行检查、重跑测试、生成快照、修复、批准、验收等按钮。页面只读。
 - **键盘与读屏**：视图切换保持 `role=tab`/`aria-selected`；表格有标题；进度条有
   `role=progressbar` 与 `aria-valuenow`；图表有文字摘要与可展开表格，不依赖颜色表达状态。
-- **窄屏**：≤820px 时 KPI 两列、门禁表改为卡片列表、趋势图横向滚动；390px 下单列，不截断关键数字。
+- **窄屏**：≤1100px 时 KPI 三列、运行率两列；≤820px 时进度条单列、门禁表横向滚动；
+  ≤480px 时 KPI 两列，保留关键数字，不隐藏样本量。
 - **文案**：中文/英文词典同时补齐；数字格式统一（百分比一位小数、计数整数、耗时转小时/分钟）。
 
 ## 7. 实施范围
 
 ### 7.1 分批
 
-| 批次 | 内容 | 交付判断 |
-| --- | --- | --- |
-| P1-1 | 质量快照生成器与 `make reliability-report` | 快照包含 G1–G13；命令失败如实记录 |
-| P1-2 | 领域计算与只读仓储聚合 | 率、首轮、MTTR、阶段分布、新鲜度有行为测试 |
-| P1-3 | `reliability` 端点 | 只读、窗口校验、缺失/损坏/过期状态 |
-| P1-4 | 客户端视图、KPI、门禁矩阵、覆盖率、运行区 | 真实页面可见，窄屏可用，无写入口 |
-| P2 | 快照历史折线、依赖漏洞、Semgrep、flaky、失败后交付率 | 另列数据源与验证方案 |
+| 批次 | 内容 | 交付判断 | 状态 |
+| --- | --- | --- | --- |
+| P1-1 | 质量快照生成器与 `make reliability-report` | 快照包含 G1–G13；命令失败如实记录 | 完成 |
+| P1-2 | 领域计算与只读仓储聚合 | 率、首轮、MTTR、阶段分布、新鲜度有行为测试 | 完成 |
+| P1-3 | `reliability` 端点 | 只读、窗口校验、缺失/损坏/过期状态 | 完成 |
+| P1-4 | 客户端视图、KPI、门禁矩阵、覆盖率、运行区 | 真实页面可见，窄屏可用，无写入口 | 完成 |
+| P2 | 快照历史折线、依赖漏洞、Semgrep、flaky、失败后交付率 | 另列数据源与验证方案 | 未做 |
 
-### 7.2 计划文件
-
-以下为**批准后**的实施范围；当前只提交本方案文档与索引。
+### 7.2 实际实施文件
 
 | 文件 | 目的 | 类型 |
 | --- | --- | --- |
-| `docs/reliability-dashboard.md` | 本方案与指标口径 | 新增 |
-| `docs/README.md` | 文档索引加入本方案（标注草案） | 修改 |
+| `docs/reliability-dashboard.md` | 本方案、指标口径与实施记录 | 新增 |
+| `docs/README.md` | 文档索引加入专题方案 | 修改 |
 | `scripts/ts/reliability-report.ts` | 运行门禁、读取覆盖率/变异/测试 JSON、生成快照与历史 | 新增 |
-| `Makefile` | 增加 `reliability-report` 目标 | 修改 |
-| `packages/forgeloop/src/domain/reliability.ts` | 纯计算：率、首轮、中位数、阶段分布、新鲜度 | 新增 |
+| `Makefile` | 增加 `reliability-report` 与 `reliability-report-fast` 目标 | 修改 |
+| `packages/forgeloop/src/domain/reliability.ts` | 纯计算：率、首轮、中位数、阶段分布、新鲜度、快照解析 | 新增 |
 | `packages/forgeloop/src/records/reliability-store.ts` | 只读 SQL 聚合，避免逐需求 N+1 | 新增 |
-| `packages/forgeloop/src/runtime/reliability.ts` | 读取快照、校验、组合运行指标 | 新增 |
-| `packages/forgeloop/src/runtime/board-route.ts` | 增加 `reliability` 只读端点 | 修改 |
+| `packages/forgeloop/src/records/dev-session-store.ts` | 继承链让运维/可靠性查询共用同一 Repository | 修改 |
+| `packages/forgeloop/src/runtime/reliability.ts` | 读取快照、校验、组合运行指标，按仓库实例缓存 | 新增 |
+| `packages/forgeloop/src/runtime/service.ts` | 暴露只读 `reliability(window)` | 修改 |
+| `packages/forgeloop/src/runtime/board-route.ts` | 增加 `reliability` 只读端点与窗口校验 | 修改 |
 | `packages/forgeloop/client.js` | 新视图、词典、KPI/矩阵/覆盖率/趋势、响应式样式 | 修改 |
 | `packages/forgeloop/tests/reliability.test.ts` | 领域与快照解析行为测试 | 新增 |
-| `packages/forgeloop/tests/status-board.test.ts` 或新路由测试 | 端点窗口、缺失/损坏/只读行为 | 修改/新增 |
-| `packages/forgeloop/tests/client-view.test.ts` | 新视图与词典注册 | 修改 |
-| `docs/architecture.md` §4.3 | 记录新视图、端点与只读边界 | 修改（实现后） |
-| `docs/status.md` | 实施批次、检查结果与未完成项 | 修改（实现后） |
-| `CONTEXT.md` | 增加“代码可靠性看板”术语，修正工作台视图清单 | 修改（实现后） |
+| `packages/forgeloop/tests/reliability-records.test.ts` | 只读聚合与窗口行为测试 | 新增 |
+| `packages/forgeloop/tests/reliability-runtime.test.ts` | 快照缺失/损坏/过期与组合视图测试 | 新增 |
+| `packages/forgeloop/tests/board-route.test.ts` | 端点窗口与分发测试 | 修改 |
+| `packages/forgeloop/tests/client-view.test.ts` | 新视图顺序与词典注册 | 修改 |
+| `docs/architecture.md` §4.3 | 新视图、端点与只读边界 | 修改 |
+| `docs/status.md` | 实施批次、检查结果与未完成项 | 修改 |
+| `CONTEXT.md` | “代码可靠性看板”术语与工作台视图清单 | 修改 |
 
-如果实现时需要修改 `vitest.config.ts` 以输出 JSON 测试报告，或给 token/断言脚本增加 `--json`，
-必须在实施说明中单列，并说明为什么不能从现有产物得到该数字；不能顺手扩大重构范围。
+没有修改 `vitest.config.ts`：测试 JSON 由命令行 `--reporter=json --outputFile` 生成；token 与断言脚本
+已有可解析的文本输出，因此不需要新增 `--json`。
 
 ### 7.3 验证
 
-- **领域测试**：零分母返回 `null`；首轮验证只取最早一条；MTTR 中位数；阶段分布；缺失/过期判定；
-  路径规范化拒绝越界文件；`not_run` 不计入通过率。
-- **快照脚本测试**：用固定 fixture 的覆盖率/变异/测试 JSON 生成快照；命令失败记录 `fail`；
-  跳过变异记录 `not_run`；`git.dirty` 标记。
-- **路由测试**：`window` 非法 400；无快照 200 + `missing`；损坏快照 200 + `invalid`；
-  运行聚合返回预期率；端点不写任何表。
-- **客户端测试**：注册新视图、词典键齐全、入口顺序、没有新增写动作。
-- **工程检查**：`make check`、`make coverage`、`make contracts`、`make format`；客户端改动后
-  运行 `make build` 与真实 3080 页面刷新检查。
-- **真实页面**：正常、无快照、过期快照、运行区失败、390px 五种状态；切换窗口不丢门禁区；
-  打开需求详情能回到层级工作台。
+实施后实测（2026-11-03，分支 `feat/reliability-dashboard`，已变基到最新 `main`）：
+
+- **目标测试**：可靠性领域 16 项、记录聚合 3 项、运行时组合 3 项、board 路由 8 项、客户端视图
+  15 项，合计 45 项通过。覆盖零分母返回 `null`、首轮验证只取最早一条、MTTR 中位数、阶段分布、
+  缺失/损坏/过期判定、路径越界拒绝、`not_run` 不计入通过率、非法窗口 400 与只读端点分发。
+- **全量检查**：`make check` 通过，73 个测试文件、802 项测试；`make build`、`make lint`、
+  `make format`、`make contracts`、`make budget`、`make assertions` 均通过。
+- **覆盖率**：`make coverage` 通过，行/语句 92.56%、函数 96.49%、分支 84.31%，共 90 个文件；
+  六个关键文件门槛与 `vitest.config.ts` 一致，领域测试防止两边漂移。
+- **快照生成**：`make reliability-report-fast` 生成 `reports/reliability/latest.json`，
+  9 项门禁中 8 项通过、变异记 `not_run`；快照记录 802 tests / 73 files、90 个覆盖率文件、
+  断言 18/18、service.ts 21,477 tokens。完整 `make reliability-report`（含变异）尚未运行。
+- **真实页面**（隔离 DSH home 与隔离记录根，Playwright）：视图标签为
+  `层级工作台 / 全部任务 / 需要处理 / 可靠性 / 运维`；默认窗口「全部」，四个窗口按钮可切换且
+  不丢门禁区；可靠性视图隐藏搜索框；6 张 KPI、9 行门禁（8 通过 + 1 未运行）、4 个覆盖率进度条、
+  趋势区与脚注按快照渲染；页面无 console/page error；390px 下无横向溢出。
+- **未验证**：隔离库没有运行记录，最近事件下钻未点开；快照缺失/损坏时的页面状态由运行时测试覆盖，
+  没有留真实页面截图；变异测试只验证了 `not_run` 分支。
 
 ### 7.4 验收标准
 
@@ -408,15 +441,17 @@
 6. `make check` 通过；新增行为测试覆盖拒绝与允许两侧；真实页面在 390px 下可用。
 7. 文档同步：架构、状态、术语与索引与实际实现一致；未完成项如实列出。
 
-## 8. 待确认
+## 8. 已确认的决定
 
-以下四项需要所有者决定；括号内为建议默认值：
+1. **导航位置与名称**：放在「需要处理」与「运维」之间，中文「可靠性」、英文 `Reliability`。
+2. **保留运行可靠性层**：保留验证、首轮验证、业务终审、上线、失败轮次与运维恢复；静态门禁不能说明交付是否可靠。
+3. **默认窗口**：`all`，并保留 `7d/30d/90d`；数据少时标注样本不足。
+4. **快照生成时机**：显式执行 `make reliability-report` 或 `make reliability-report-fast`，不在页面请求里跑检查；
+   夜间 CI 接入未做，留待 P2 另行确认。
 
-1. **导航位置与名称**：放在「需要处理」与「运维」之间，标签「可靠性」（建议）；或放在最后。
-2. **是否保留运行可靠性层**：建议保留验证/终审/上线/失败轮次/运维恢复，因为静态门禁不能说明交付是否可靠；
-   若只要代码质量，可裁掉 R1–R12。
-3. **默认窗口**：建议 `30d`，并保留「全部」；数据少时显示样本不足。
-4. **快照生成时机**：建议显式执行 `make reliability-report`，不在页面请求里跑检查；是否同时接入夜间 CI
-   作为可选产物，另行确认。
+## 9. 未完成
 
-确认后再按 §7.2 的文件范围实施；本方案本身不代表代码已实现，也不替代验收。
+- P2：快照历史折线、依赖漏洞、Semgrep、flaky、失败后交付率与跨项目汇总。
+- 变异测试只在 `make reliability-report`（非 fast）运行时采集；最近一次 fast 快照显示 `not_run`。
+- 页面不提供生成快照、重跑检查、修复、批准或验收入口；这些动作仍需显式命令或既有会话流程。
+- 真实页面验收需在部署后的 3080 端口复核；未执行前不把本页视为线上已验收。

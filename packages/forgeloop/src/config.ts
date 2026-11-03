@@ -28,11 +28,11 @@ import {
 export interface AgentConfig {
   readonly provider: string
   readonly model: string
-  /** 单个 Agent 回合的默认上限；-1 表示不限（界面显示 MAX）。 */
+  /** 单个 Agent 回合的上限；-1 表示不限（页面显示 MAX）。 */
   readonly timeoutSeconds: number
-  /** 长任务的硬上限；-1 表示不限。 */
+  /** 长任务的硬上限；任务包 limit_seconds 只能在此范围内放宽；-1 表示不限。 */
   readonly maxTurnSeconds?: number
-  /** 回合连续无新进展的上限；超时取消，避免模型流停顿拖满整个回合；-1 表示不限。 */
+  /** 回合连续无新进展的上限；超时取消；-1 表示不启用看门狗。 */
   readonly idleTimeoutSeconds?: number
 }
 
@@ -194,11 +194,11 @@ export interface AutonomyConfig {
   readonly enabled: boolean
   /** 是否允许系统准入后整合并提交代码；发布/部署另有授权。 */
   readonly allowCodeCommit: boolean
-  /** 可信人类入口来源前缀；allowAnySource=true 时仅作记录。 */
+  /** 可信人类入口来源前缀。 */
   readonly trustedSources: readonly string[]
-  /** 放开来源限制：默认任何非空来源都可进入系统准入。 */
+  /** 放开来源限制：任何非空来源都可以进入系统准入；来源仍完整记录在案。 */
   readonly allowAnySource: boolean
-  /** 是否要求提交者等于配置所有者；默认 false，允许运维/工具提交进入。 */
+  /** 是否要求提交者与配置所有者一致；false 时运维/工具提交也可进入。 */
   readonly requireOwner: boolean
   /** 提交前在真实项目中执行的检查 argv；为空表示不做额外提交检查。 */
   readonly commitCheckCommand: readonly string[]
@@ -221,22 +221,14 @@ export interface ForgeLoopConfig {
   readonly pollSeconds: number
   readonly autoAdvance: boolean
   readonly agent: AgentConfig
-  /** 正式测试超时；-1 表示不限。 */
+  /** 正式测试命令的超时；-1 表示不限。 */
   readonly formalTestTimeoutSeconds: number
-  /** 单任务自动尝试次数；-1 表示不限。 */
+  /** 同一任务的研发尝试次数；-1 表示不限。 */
   readonly maxTaskAttempts: number
-  /** 每次授权的失败轮次；-1 表示不限。 */
+  /** 每次授权可用的失败轮次；-1 表示不限（仍逐轮记录）。 */
   readonly failureRoundsPerGrant: number
-  /** 单次推进请求内验证失败后的自动修复次数；-1 表示不限。 */
+  /** 单次推进内的验证重试次数；-1 表示不限。 */
   readonly maxVerificationAttempts: number
-  /** 研发任务包生成的自动尝试次数；默认 3，-1 表示不限。 */
-  readonly maxPlanningAttempts: number
-  /** 实现前评审输出畸形/覆盖不足时的自动重试次数；默认 2，-1 表示不限。 */
-  readonly maxReviewAttempts: number
-  /** 产品分析失败后的自动重试次数；默认 3，-1 表示不限。 */
-  readonly maxAnalysisAttempts: number
-  /** 运维诊断未完成时的自动尝试次数；默认 3，-1 表示不限。 */
-  readonly maxDiagnosisAttempts: number
   readonly worktreePrepareCommand: readonly string[]
   readonly candidateBuildCommand: readonly string[]
   readonly candidatePackageCommand: readonly string[]
@@ -259,10 +251,6 @@ export interface RawConfig {
   maxTaskAttempts?: number
   failureRoundsPerGrant?: number
   maxVerificationAttempts?: number
-  maxPlanningAttempts?: number
-  maxReviewAttempts?: number
-  maxAnalysisAttempts?: number
-  maxDiagnosisAttempts?: number
   worktreePrepareCommand?: string[]
   candidateBuildCommand?: string[]
   candidatePackageCommand?: string[]
@@ -338,23 +326,22 @@ function positiveInteger(value: unknown, field: string, fallback: number): numbe
   return value
 }
 
-/** -1 = 不限；正数 = 原有限额。0 与其他负数都不是合法限额。 */
-function limitInteger(value: unknown, field: string, fallback: number): number {
+/** 执行限制类配置：-1 表示不限，其他负值、0 与非数字拒绝。 */
+function limitNumber(value: unknown, field: string, fallback: number): number {
   if (value === undefined) return fallback
-  if (typeof value !== 'number' || !Number.isInteger(value) || (value !== -1 && value < 1)) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || (value !== -1 && value <= 0)) {
     throw new RuleViolationError(
-      `配置 ${field} 必须是正整数或 -1（不限），实际 ${JSON.stringify(value)}`,
+      `配置 ${field} 必须为 -1 或正数（-1 表示不限），实际 ${JSON.stringify(value)}`,
     )
   }
   return value
 }
 
-/** 秒级限额：-1 = 不限；正数 = 原有限额。 */
-function limitNumber(value: unknown, field: string, fallback: number): number {
+function limitInteger(value: unknown, field: string, fallback: number): number {
   if (value === undefined) return fallback
-  if (typeof value !== 'number' || !Number.isFinite(value) || (value !== -1 && value <= 0)) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || (value !== -1 && value <= 0)) {
     throw new RuleViolationError(
-      `配置 ${field} 必须是正数或 -1（不限），实际 ${JSON.stringify(value)}`,
+      `配置 ${field} 必须为 -1 或正整数（-1 表示不限），实际 ${JSON.stringify(value)}`,
     )
   }
   return value
@@ -756,7 +743,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
       idleTimeoutSeconds: limitNumber(
         raw.agent?.idleTimeoutSeconds,
         'agent.idleTimeoutSeconds',
-        300,
+        -1,
       ),
     },
     formalTestTimeoutSeconds: limitNumber(
@@ -771,10 +758,6 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
       'maxVerificationAttempts',
       -1,
     ),
-    maxPlanningAttempts: limitInteger(raw.maxPlanningAttempts, 'maxPlanningAttempts', 3),
-    maxReviewAttempts: limitInteger(raw.maxReviewAttempts, 'maxReviewAttempts', 2),
-    maxAnalysisAttempts: limitInteger(raw.maxAnalysisAttempts, 'maxAnalysisAttempts', 3),
-    maxDiagnosisAttempts: limitInteger(raw.maxDiagnosisAttempts, 'maxDiagnosisAttempts', 3),
     worktreePrepareCommand: stringList(raw.worktreePrepareCommand, 'worktreePrepareCommand', []),
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),

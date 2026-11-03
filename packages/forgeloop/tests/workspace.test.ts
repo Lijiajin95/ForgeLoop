@@ -48,6 +48,19 @@ describe('command helpers', () => {
     expect(result.stdout.trim()).toBe('ok')
   })
 
+  it('treats a non-positive timeout as no timeout instead of rejecting the command', () => {
+    // 执行限额 -1 表示不限；execFileSync 收到负的 timeout 会直接报错，不能把不限变成失败。
+    for (const timeoutMs of [-1_000, 0]) {
+      const result = runCommand(
+        'node',
+        ['-e', 'setTimeout(() => process.exit(0), 150)'],
+        dir,
+        timeoutMs,
+      )
+      expect(result).toMatchObject({ code: 0, stderr: '' })
+    }
+  })
+
   it('returns the exit code and stderr for a failing command', () => {
     const result = runCommand('node', ['-e', 'process.stderr.write("bad"); process.exit(2)'], dir)
     expect(result.code).toBe(2)

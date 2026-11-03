@@ -1,6 +1,5 @@
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import { attemptAllowed } from '../domain/limits.js'
 import { sessionsDir } from '../config.js'
 import type { AnalysisDraft, Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import { parseAnalysisDraft, statusForAnalysis } from '../domain/requirement.js'
@@ -23,6 +22,9 @@ import type { AgentRunner } from './agent-runner.js'
 import { analysisPrompt, devPlanningPrompt } from './prompts.js'
 import { buildProjectFacts } from './board.js'
 import { sourceTrusted, type AdmissionDecision } from '../domain/admission.js'
+
+/** 研发拆解的格式重试上限：畸形输出重试有限次，不随执行限额放开。 */
+const MAX_PLANNING_ATTEMPTS = 3
 
 function describeViolation(violation: {
   taskId: string
@@ -118,6 +120,7 @@ export class ExecutionPlan {
       reqId,
       analysisVersion: this.deps.repo.nextAnalysisVersion(reqId),
       requirementVersion: version,
+      inputKind: draft.inputKind,
       goal: draft.goal,
       scenarios: draft.scenarios,
       businessRules: draft.businessRules,
@@ -280,11 +283,7 @@ export class ExecutionPlan {
     let feedback = ''
     let lastError = ''
     let lastPlan: TaskPlan | undefined
-    for (
-      let attempt = 1;
-      attemptAllowed(attempt, this.deps.config.maxPlanningAttempts);
-      attempt += 1
-    ) {
+    for (let attempt = 1; attempt <= MAX_PLANNING_ATTEMPTS; attempt += 1) {
       const transcript = join(sessionsDir(this.deps.config), `${reqId}-plan-a${attempt}.jsonl`)
       const started = Date.now()
       const result = await this.deps.runner.run({

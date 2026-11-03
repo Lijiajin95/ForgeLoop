@@ -16,7 +16,6 @@
 import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
-import { attemptAllowed } from '../domain/limits.js'
 import { errorMessage } from '../domain/errors.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -96,6 +95,8 @@ export interface OpsCommandResult {
   readonly stderr: string
 }
 
+/** 自动诊断的格式重试上限：连续失败等于无法自动判断，转人工。 */
+const MAX_DIAGNOSIS_ATTEMPTS = 3
 const MAX_OUTPUT_BYTES = 256 * 1024
 const TRUNCATED_MARK = '\n…（输出已截断）'
 
@@ -665,7 +666,7 @@ export class OpsRuntime {
   }
 
   private diagnosisBlocked(event: OpsEventRecord, attempts: number, now: string): boolean {
-    if (!attemptAllowed(attempts + 1, this.config.maxDiagnosisAttempts)) {
+    if (attempts >= MAX_DIAGNOSIS_ATTEMPTS) {
       this.escalateDiagnosis(
         event,
         now,

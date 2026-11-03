@@ -6,7 +6,7 @@
  */
 
 import { RuleViolationError } from '../domain/errors.js'
-import { OpsStore } from './ops-store.js'
+import { ReliabilityStore } from './reliability-store.js'
 import {
   num,
   text,
@@ -16,7 +16,7 @@ import {
   type Row,
 } from './rows.js'
 
-export class DevSessionStore extends OpsStore {
+export class DevSessionStore extends ReliabilityStore {
   // ---------------------------------------------------------------- 研发会话
 
   /** 登记或更新一个研发会话；会话记录不删除，需求结束后只改忙闲与总结。 */

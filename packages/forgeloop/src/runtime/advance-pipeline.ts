@@ -8,7 +8,7 @@ import type { ForgeLoopConfig } from '../config.js'
 import { candidatesDir, integrationDir, verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
-import { authorizationSourceOf, executionOrder, planBudgetSeconds } from '../domain/task-plan.js'
+import { authorizationSourceOf, executionOrder, planLimitSeconds } from '../domain/task-plan.js'
 import {
   AWAITING_DEV_SESSION,
   COMMITTED,
@@ -449,7 +449,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       return { ok: false, outcome: { state: 'failed', detail: '需求说明缺失或已过期' } }
     }
     const budget = this.deps.repo.budget(reqId)
-    if (budget.limitSeconds !== -1 && budget.limitSeconds <= budget.consumedSeconds) {
+    if (budget.limitSeconds > 0 && budget.limitSeconds <= budget.consumedSeconds) {
       this.deps.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需要显式延长或拆分需求')
       return { ok: false, outcome: { state: 'failed', detail: '执行工时已用尽' } }
     }
@@ -652,8 +652,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           blocking: verification.blocking,
           devWorkspace: workspace,
         })
-        const verificationLimit = this.deps.config.maxVerificationAttempts
-        if (verificationLimit !== -1 && round >= verificationLimit) {
+        const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
+        if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
           const blocking = verification.blocking.join('；') || verification.detail
           this.deps.repo.setStatus(
             reqId,
@@ -779,7 +779,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     if (!planned.ok) return planned.outcome
     const plan = planned.plan
     input.planRef.plan = plan
-    this.deps.repo.ensureBudget(reqId, planBudgetSeconds(plan))
+    this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
     // 验证 Agent 在研发开始前新开会话并生成方案；产物交付后由同一会话执行与验收。
     const opened = await this.deps.legacyVerification.openVerification({
       reqId,
@@ -1032,7 +1032,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     reqId: string,
     plan: TaskPlan,
   ): { state: 'failed'; detail: string } | null {
-    this.deps.repo.ensureBudget(reqId, planBudgetSeconds(plan))
+    this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
     const budget = new ExecutionBudget(
       this.deps.repo.budget(reqId).limitSeconds,
       this.deps.repo.budget(reqId).consumedSeconds,

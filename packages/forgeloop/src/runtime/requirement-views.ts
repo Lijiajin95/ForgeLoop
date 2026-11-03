@@ -8,7 +8,7 @@ import {
   type VerificationReport,
 } from '../domain/verification.js'
 import { taskIdOfFailureRound } from './board.js'
-import { MAX_ROUNDS_PER_GRANT, roundsRemaining } from '../domain/counting.js'
+import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import {
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
@@ -82,6 +82,19 @@ export function verificationView(
   }
 }
 
+function remainingRoundsOf(
+  reqId: string,
+  grants: number,
+  used: number,
+  hooks: { remainingFailureRounds?: ((reqId: string) => number) | undefined },
+): number | null {
+  if (hooks.remainingFailureRounds) {
+    const remaining = hooks.remainingFailureRounds(reqId)
+    return Number.isFinite(remaining) ? remaining : null
+  }
+  return Math.max(0, grants * MAX_ROUNDS_PER_GRANT - used)
+}
+
 export function buildRequirementView(
   repo: Repository,
   hooks: {
@@ -91,7 +104,8 @@ export function buildRequirementView(
       artifacts: ReturnType<Repository['taskArtifacts']>,
     ) => string
     requestView: (request: ServiceRequestRecord) => Record<string, unknown>
-    roundsPerGrant?: number
+    /** 剩余失败轮次；不限时返回非有限值，由视图显示为“MAX”。缺省按历史额度公式计算。 */
+    remainingFailureRounds?: ((reqId: string) => number) | undefined
   },
 ): unknown {
   const { requirement } = hooks
@@ -104,15 +118,14 @@ export function buildRequirementView(
   const runs = latestPlan ? repo.taskRuns(requirement.reqId, latestPlan.planVersion) : []
   const recordedFailures = repo.failureRounds(requirement.reqId)
   const grants = repo.grantCount(requirement.reqId)
-  const roundsPerGrant = hooks.roundsPerGrant ?? MAX_ROUNDS_PER_GRANT
   return {
     reqId: requirement.reqId,
     project: requirement.project,
     status: requirement.status,
+    blockedReason: requirement.blockedReason,
     source: requirement.source,
     submittedBy: requirement.submittedBy,
     createdAt: requirement.versions[0]?.createdAt ?? '',
-    blockedReason: requirement.blockedReason,
     versions: requirement.versions.map((version) => ({
       version: version.version,
       text: version.text,
@@ -158,7 +171,7 @@ export function buildRequirementView(
     grantQuota: {
       grants,
       used: recordedFailures.length,
-      remaining: roundsRemaining(grants, recordedFailures.length, roundsPerGrant),
+      remaining: remainingRoundsOf(requirement.reqId, grants, recordedFailures.length, hooks),
     },
     pendingRequests: repo
       .requestsFor(requirement.reqId)

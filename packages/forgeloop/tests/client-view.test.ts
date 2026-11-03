@@ -13,6 +13,8 @@ interface Registered {
     name?: string
     inject: string[]
     apply: (ctx: unknown) => void
+    __components?: Record<string, (props: unknown) => unknown>
+    __views?: string[]
     __actions?: {
       body: (
         t: (key: string) => string,
@@ -141,6 +143,40 @@ describe('client conversation view', () => {
     expect(typeof view!.component).toBe('function')
   })
 
+  it('places the reliability view between issues and ops', () => {
+    expect(registered.exports.__views).toEqual([
+      'hierarchy',
+      'tasks',
+      'issues',
+      'reliability',
+      'ops',
+    ])
+  })
+
+  it('ships reliability labels in both locales', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts).toBeDefined()
+    expect(dicts!.zh['nav.reliability']).toBe('可靠性')
+    expect(dicts!.en['nav.reliability']).toBe('Reliability')
+    const keys = [
+      'reliability.title',
+      'reliability.window.all',
+      'reliability.snapshot.missing',
+      'reliability.value.none',
+      'reliability.gates.title',
+      'reliability.status.not_run',
+      'reliability.coverage.title',
+      'reliability.runtime.title',
+      'reliability.trend.title',
+      'reliability.events.title',
+      'reliability.footnote',
+    ]
+    for (const key of keys) {
+      expect(dicts!.zh[key], key).toBeTruthy()
+      expect(dicts!.en[key], key).toBeTruthy()
+    }
+  })
+
   it('does not register a workflow selector in the composer tool row', () => {
     const control = registrations.find((entry) => entry.name === 'conversation.input.left')
     expect(control).toBeUndefined()
@@ -228,6 +264,16 @@ describe('client conversation view', () => {
     expect(dicts!.zh['action.retryAnalysis']).toBe('重新分析')
     expect(dicts!.en['action.retryAnalysis']).toBe('Retry analysis')
     expect(dicts!.zh['action.retryAnalysisQueued']).toBe('已受理重新分析')
+  })
+
+  it('labels the input triage on analysis cards and requirement details', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts!.zh['kind.requirement']).toBe('需求')
+    expect(dicts!.zh['kind.problem']).toBe('问题')
+    expect(dicts!.en['kind.requirement']).toBe('Requirement')
+    expect(dicts!.en['kind.problem']).toBe('Problem')
+    expect(dicts!.zh['detail.analysisKind']).toBe('输入类型')
+    expect(dicts!.en['detail.analysisKind']).toBe('Input type')
   })
 
   it('ships failure-reason, solution and retry labels for failed task cards', () => {

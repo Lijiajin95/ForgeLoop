@@ -21,8 +21,9 @@ export interface AgentRunRequest {
   readonly cwd: string
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'
-  readonly timeoutMs: number
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds。 */
+  /** 单回合上限；缺省或 -1 表示不限。 */
+  readonly timeoutMs?: number | undefined
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；-1 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
@@ -58,8 +59,9 @@ export interface AgentResumeRequest {
 
 export interface AgentTurnRequest {
   readonly prompt: string
-  readonly timeoutMs: number
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds。 */
+  /** 单回合上限；缺省或 -1 表示不限。 */
+  readonly timeoutMs?: number | undefined
+  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；-1 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
@@ -350,45 +352,20 @@ interface AgentService {
   resume?(options: AnyRecord): Promise<SessionHandle | undefined>
 }
 
-/** 连续无新事件时取消回合；事件计数变化会重置计时。 */
-type AgentSetup = ((agentCtx: AnyRecord) => void | Promise<void>) | undefined
-
-/** 按请求组合工具限制或 preset；与回合执行分离，保持主流程可读。 */
-function setupFor(
-  request: AgentRunRequest,
-  ctx: AnyRecord,
-  presetId: string | undefined,
-): AgentSetup {
-  const tools = toolsService(ctx)
-  if (request.allowTools) {
-    return (agentCtx: AnyRecord) => {
-      if (tools) restrictToolNames(agentCtx, tools, request.allowTools)
-    }
-  }
-  if (request.tools === 'none') {
-    return tools
-      ? (agentCtx: AnyRecord) => {
-          restrictToolNames(agentCtx, tools)
-        }
-      : undefined
-  }
-  if (!presetId) return undefined
-  return async (agentCtx: AnyRecord) => {
-    const registry = presetRegistry(ctx)
-    if (!registry?.mount)
-      throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
-    await registry.mount(agentCtx, presetId)
-  }
+/** 单回合上限：缺省视为不限（-1）。 */
+function requestedTimeoutMs(request: { timeoutMs?: number | undefined }): number {
+  return request.timeoutMs ?? -1
 }
 
-/** 回合定时器：timeoutMs <= 0（-1 = 不限）时不建定时器。 */
-function startTimeout(timeoutMs: number, onTimeout: () => void): NodeJS.Timeout | undefined {
+/** 单回合超时定时器：只有正数才建定时器，-1（不限）与非法 0 都不限时。 */
+function armTurnTimeout(timeoutMs: number, fire: () => void): NodeJS.Timeout | undefined {
   if (timeoutMs <= 0) return undefined
-  const timer = setTimeout(onTimeout, timeoutMs)
+  const timer = setTimeout(fire, timeoutMs)
   timer.unref()
   return timer
 }
 
+/** 连续无新事件时取消回合；事件计数变化会重置计时。 */
 function idleWatch(
   idleMs: number,
   cancel: () => void,
@@ -581,7 +558,8 @@ export class AgentRunner {
     } => {
       let aborted = false
       let timedOut = false
-      const idleMs = turn.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 300) * 1000
+      const idleMs = turn.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? -1) * 1000
+      const timeoutMs = turn.timeoutMs ?? -1
       let idleTimedOut = false
       let idleTimer: NodeJS.Timeout | undefined
       let lastEventCount = -1
@@ -595,8 +573,8 @@ export class AgentRunner {
         idleTimer.unref()
       }
       armIdle()
-      // timeoutMs <= 0（-1 = 不限）时不建回合定时器；空闲看门狗仍独立生效。
-      const timer = startTimeout(turn.timeoutMs, () => {
+      // -1 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
+      const timer = armTurnTimeout(timeoutMs, () => {
         timedOut = true
         handle.agent.cancel({ kind: 'user' })
       })
@@ -675,7 +653,7 @@ export class AgentRunner {
             status: 'timeout',
             reason: watch.isIdleTimedOut()
               ? `Agent 回合连续 ${Math.round(watch.idleMs / 1000)} 秒没有新进展，已取消`
-              : `Agent 回合超过 ${Math.round(turn.timeoutMs / 1000)} 秒上限，已取消`,
+              : `Agent 回合超过 ${Math.round((turn.timeoutMs ?? -1) / 1000)} 秒上限，已取消`,
           }
         }
         if (watch.isAborted()) {
@@ -726,10 +704,26 @@ export class AgentRunner {
     const selection = this.resolveSelection()
     const sessionId = `session-fl-${request.role}-${randomUUID()}`
     const agents = this.agentService()
+    const tools = toolsService(this.ctx)
     // 编程式 Agent 默认不组合会话 preset，也就没有 shell/fs 等编码工具。
     // 开发与审查角色必须显式挂载 standard preset；只做推理的角色继续显式禁用全部工具。
     const presetId = request.tools === 'none' || request.allowTools ? undefined : 'standard'
-    const setup = setupFor(request, this.ctx, presetId)
+    const setup = request.allowTools
+      ? (agentCtx: AnyRecord) => {
+          if (tools) restrictToolNames(agentCtx, tools, request.allowTools)
+        }
+      : request.tools === 'none' && tools
+        ? (agentCtx: AnyRecord) => {
+            restrictToolNames(agentCtx, tools)
+          }
+        : presetId
+          ? async (agentCtx: AnyRecord) => {
+              const registry = presetRegistry(this.ctx)
+              if (!registry?.mount)
+                throw new Error('宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具')
+              await registry.mount(agentCtx, presetId)
+            }
+          : undefined
     const handle = await agents.create({
       sessionId,
       meta: { cwd: request.cwd, ...(presetId ? { agentPreset: presetId } : {}) },
@@ -741,11 +735,13 @@ export class AgentRunner {
 
     let aborted = false
     let timedOut = false
-    const idleMs = request.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? 300) * 1000
+    const idleMs = request.idleTimeoutMs ?? (this.agent.idleTimeoutSeconds ?? -1) * 1000
     const idle = idleWatch(idleMs, () => {
       handle.agent.cancel({ kind: 'user' })
     })
-    const timer = startTimeout(request.timeoutMs, () => {
+    const timeoutMs = requestedTimeoutMs(request)
+    // -1 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
+    const timer = armTurnTimeout(timeoutMs, () => {
       timedOut = true
       handle.agent.cancel({ kind: 'user' })
     })
@@ -772,6 +768,12 @@ export class AgentRunner {
     }
     const activityTimer = setInterval(flushActivity, 1_500)
     activityTimer.unref()
+    const cleanup = (): void => {
+      if (timer) clearTimeout(timer)
+      idle.stop()
+      clearInterval(activityTimer)
+      request.signal?.removeEventListener('abort', onAbort)
+    }
     let whenIdleError = ''
     try {
       handle.agent.followup({
@@ -784,10 +786,7 @@ export class AgentRunner {
     } catch (error) {
       whenIdleError = errorMessage(error)
     } finally {
-      if (timer) clearTimeout(timer)
-      idle.stop()
-      clearInterval(activityTimer)
-      request.signal?.removeEventListener('abort', onAbort)
+      cleanup()
     }
 
     const events = handle.agent.session.ownEvents()
@@ -817,7 +816,7 @@ export class AgentRunner {
       whenIdleError,
       turn: extractTurnEnd(events),
       text,
-      timeoutMs: request.timeoutMs,
+      timeoutMs,
     })
     return runResult(outcome.status, outcome.reason, base)
   }

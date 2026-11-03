@@ -85,6 +85,10 @@ function setup(overrides: Record<string, unknown> = {}) {
       calls.push({ method: 'statusBoard', input: { limit, query } })
       return { requirements: [] }
     },
+    reliability: (window: string) => {
+      calls.push({ method: 'reliability', input: window })
+      return { window: { key: window } }
+    },
     ...overrides,
   } as unknown as ForgeLoopRuntime
   let aborted = 0
@@ -126,6 +130,15 @@ describe('board route', () => {
     expect((await post(fetch, { endpoint: 'board', limit: 0 })).status).toBe(400)
     expect((await post(fetch, { endpoint: 'board', limit: 101 })).status).toBe(400)
     expect((await post(fetch, { endpoint: 'board', limit: 2, query: ' x ' })).status).toBe(200)
+  })
+
+  it('dispatches the read-only reliability endpoint with a validated window', async () => {
+    const { fetch, calls } = setup()
+    expect((await post(fetch, { endpoint: 'reliability' })).status).toBe(200)
+    expect(calls.at(-1)).toEqual({ method: 'reliability', input: 'all' })
+    expect((await post(fetch, { endpoint: 'reliability', window: '7d' })).status).toBe(200)
+    expect(calls.at(-1)).toEqual({ method: 'reliability', input: '7d' })
+    expect((await post(fetch, { endpoint: 'reliability', window: '12h' })).status).toBe(400)
   })
 
   it('validates read endpoint inputs and dispatches successes', async () => {

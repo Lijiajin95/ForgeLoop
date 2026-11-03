@@ -317,13 +317,13 @@ describe('status board', () => {
       repository,
       project: PROJECT,
       now: NOW,
-      roundsPerGrant: -1,
+      remainingFailureRounds: () => Number.POSITIVE_INFINITY,
     })
     const requirement = view.requirements[0]!
-    expect(requirement.remainingRounds).toBe(-1)
+    expect(requirement.remainingRounds).toBeNull()
     const issue = view.issues.find((candidate) => candidate.kind === 'failure_round')
     expect(issue?.severity).toBe('attention')
-    expect(issue?.detail).toContain('MAX（不限）')
+    expect(issue?.detail).toContain('额度 MAX')
   })
 
   it('records the requirement source and submitter for audit', () => {
@@ -1078,5 +1078,43 @@ describe('failure round board action', () => {
     repository.setStatus(reqId, 'blocked', '失败轮次额度已用尽；需要追加授权')
     const requirement = board().requirements.find((item) => item.reqId === reqId)!
     expect(requirement.actions).toContain('grant-rounds')
+  })
+})
+
+describe('failed request issue dedupe', () => {
+  function failRequest(reqId: string, index: number, detail: string): void {
+    const requestId = `rq-repeat-${index}`
+    const now = `2026-10-23T00:0${index}:00.000Z`
+    repository.recordRequest({
+      requestId,
+      reqId,
+      project: PROJECT,
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now,
+    })
+    repository.resolveRequest(requestId, 'failed', detail, now)
+  }
+
+  it('collapses identical failures into one issue with a count', () => {
+    const reqId = submit('req-repeat-issues')
+    const detail = "应用上游任务 domain 的候选 diff 失败：patching file 'requirement-queue.ts'"
+    for (const index of [1, 2, 3]) failRequest(reqId, index, detail)
+
+    const issues = board().issues.filter((issue) => issue.kind === 'request')
+    expect(issues).toHaveLength(1)
+    expect(issues[0]?.title).toContain('重复 3 次')
+    expect(issues[0]?.detail).toContain('同类失败 3 次')
+  })
+
+  it('keeps failures with different details separate', () => {
+    const reqId = submit('req-distinct-issues')
+    failRequest(reqId, 4, '第一种失败')
+    failRequest(reqId, 5, '第二种失败')
+
+    const issues = board().issues.filter((issue) => issue.kind === 'request')
+    expect(issues).toHaveLength(2)
   })
 })

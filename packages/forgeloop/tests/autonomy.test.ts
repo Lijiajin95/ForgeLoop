@@ -193,6 +193,8 @@ describe('autonomy records', () => {
 
   it('records budget extensions and counts them as human involvement', () => {
     const reqId = submit('req-extended')
+    // 默认工时不限；这里先给一个有限上限，延长到 -1 才有审计记录。
+    repository.ensureBudget(reqId, 3600)
     const result = extendWorkBudget(repository, {
       reqId,
       seconds: -1,

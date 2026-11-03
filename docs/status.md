@@ -12,8 +12,8 @@
 | 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、研发拆解、实现前评审、批准、推进、独立验证与验收均已接入；2026-10-30 进一步收紧为“执行角色全工作区 + 已批准任务包冻结 + 验证阻断自动回研发修复”，退役最小重新规划与手工重新研发入口；天工页显示业务终审/候选/部署并提供构建、核对上线、重新执行动作；编辑/草稿删除/问题补充/等待回答仍无入口；完整真实候选安装与上线核对尚未在正式需求上跑通                                                                                                                                          | [架构](architecture.md)、§15–§37                                                                                                       |
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                             | §30                                                                                                                                    |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                | §13、[ADR 0009](adr/0009-remove-retired-implementation.md)                                                                             |
-| 最近安装记录 | 2026-11-03 `forgeloop-dsh@0.0.2` tarball（282,119 字节，SHA-256 `44ac955f…`，含看板空 JSON 修复）已安装到正式 `web` profile 并热重载（PID 82207 未重启；owner `MacAir.local:2477:20b0cd64` 起于 `2026-11-03T02:46:26Z`），`last_recovery` 无中断请求；安装记录不等于交付完成                                                                                                                                                                                                                               | §36                                                                                                                                    |
-| 最近工程检查 | 2026-11-03 `make check` 通过，69 个测试文件、778 项通过；`make contracts`、`make lint`、`make format`、断言预算 18/18、token 预算通过；覆盖率未在本批重跑                                                                                                                                                                                                  | §110、§112                                                                                                                             |
+| 最近安装记录 | 2026-11-03 `forgeloop-dsh@0.0.2` tarball（288,474 字节，SHA-256 `ee92f71a…`，含看板空 JSON、延长工时请求体、上游 diff 幂等与重复问题合并）已安装到正式 `web` profile 并热重载（PID 82207 未重启；owner `MacAir.local:2477:5bc23405` 起于 `2026-11-03T06:18:45Z`），`last_recovery` 无中断请求；安装记录不等于交付完成                                                                                                                                                                                                                               | §36                                                                                                                                    |
+| 最近工程检查 | 2026-11-03 `make check` 通过，75 个测试文件、831 项通过；`make contracts`、`make lint`、`make format`、断言预算 18/18、token 预算通过；覆盖率未在本批重跑                                                                                                                                                                                                  | §119、§121                                                                                                                             |
 | 真实业务链路 | 真实需求 `req-20261029070230-bab6bf` 已完成受理→分析→澄清→研发拆解→实现前评审→批准→真实研发→交付→越界拒绝→重新规划→再次评审/批准；未完成：独立验证、业务终审、验收、候选构建/安装/上线核对。2026-10-30 一次开发回合在宿主重启时中断，系统按 failed 收口并丢弃一次性快照，等待重新执行                                                                                                                                                                                                                                                    | §16–§28、§33、§36                                                                                                                      |
 | 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，无工具 Agent 评审后建事件；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证 | §35、§110、§112、[运维设计](ops-agent.md)                                                                                              |
 | 关键缺口     | M0 真实闭环未完成：正式需求尚缺独立验证、业务终审、验收、候选安装与上线核对；候选构建/上线核对只有行为测试，未在正式需求上执行；研发执行已是 `workspace-write`，验证/终审仍非 OS 隔离；追加授权、例外取舍仍缺失；已批准任务包修改只有端点显式许可，无 UI 入口；运维只有行为测试（正式配置已启用主动监控，宿主 PID 2477 未重载）；需求编辑、草稿删除、问题补充与等待回答无服务端入口                                                                                                                                                      | §4.1、§21–§37、§110                                                                                                                    |
@@ -4270,52 +4270,338 @@ orchestrator 任务连续三次在 1800 秒处被取消后，定位到两个工�
 - 新增 `scripts/ts/worktree-merge.ts` 与 Makefile 目标；脚本拒绝未提交改动、
   非 main 工作树、不可快进分支，并保留未合并分支。
 
-## 50. 全链路闭环放开与自主率统计（2026-11-03）
+## 117. 默认取消任务执行限制（2026-11-03）
 
-本批在独立 worktree `feat/loop-closure` 完成，未修改正式运行实例与生产记录。目标是把闭环中会直接
-中断流程的强制停止点默认放开，同时保留统计、配置项和人工入口。
+所有者要求默认不施加任务执行限制，但保留次数统计与配置项。统一约定 **`0 = 不限`**，所有相关默认值
+改为 `0`；需要限制时把对应配置设为 `> 0`，原有阻断语义不变。
 
-### 50.1 限额语义
+### 117.1 默认值
 
-- 统一约定：`-1` 表示不限，界面显示 MAX；正数恢复原行为。覆盖任务工时、需求工时、任务尝试、
-  失败轮次与追加授权、验证次数；`ExecutionBudget`、`GrantLedger`、任务包解析与看板文案同步。
-- 默认值：`agent.timeoutSeconds=-1`、`maxTurnSeconds=-1`、`formalTestTimeoutSeconds=-1`、
-  `maxTaskAttempts=-1`、`failureRoundsPerGrant=-1`、`maxVerificationAttempts=-1`。
-- 规划、实现前评审、分析、诊断的**格式重试**仍有正数上限（3/2/3/3），避免畸形输出无限循环。
-- 追加授权、延长工时、停止/取消等人工入口保留；延长到 MAX 会清除“工时已用尽”阻塞，并写入
-  `requirement_budget_extensions` 审计。
+| 配置项 | 旧默认 | 新默认 | 说明 |
+| --- | --- | --- | --- |
+| `agent.timeoutSeconds` | 1800 | 0 | 不建回合定时器，只记录时长 |
+| `agent.maxTurnSeconds` | 7200 | 0 | 不设长任务硬上限 |
+| `agent.idleTimeoutSeconds` | 300 | 0 | 不启用无进展看门狗 |
+| `formalTestTimeoutSeconds` | 1800 | 0 | 正式测试命令不限时 |
+| `maxTaskAttempts` | 3 | 0 | 任务尝试次数不限 |
+| `failureRoundsPerGrant` | 3 | 0 | 每份授权的失败轮次不限，仍逐轮记录 |
+| `maxVerificationAttempts` | 3 | 0 | 单次推进内的验证重试不限 |
+| 任务包 `limit_seconds` / `max_failure_rounds` | 1800 / 3 | 0 | 单任务工时与失败轮次不限 |
 
-### 50.2 来源与链路
+### 117.2 保留的统计与显式动作
 
-- 系统准入新增 `allowAnySource`（默认 true）与 `requireOwner`（默认 false）；空来源永不可信，
-  非空来源都可进入，来源与提交者继续落库。收紧时显式配置。
+- 失败轮次、工时消耗、任务运行、验证与问题单历史照常写入，不因限额关闭而减少或清零。
+- 看板与需求视图在额度不限时显示“不限”（`grantQuota.remaining = null`），不再显示伪造的剩余轮数。
+- 追加授权、延长工时入口保留；工时已经不限时延长返回“当前不限工时，无需延长”。
+- 停止请求仍然有效；不限额时持续失败的推进不会自行停止，这是本批明确接受的运行时风险。
+
+### 117.3 改动范围
+
+- `src/config.ts`：默认值与解析允许 `0`；新增 `failureRoundsPerGrant`、`maxVerificationAttempts`。
+- `src/domain/limits.ts`、`counting.ts`、`task-plan.ts`：`0` 语义、尝试次数与授权额度判定。
+- `src/runtime/*`：回合超时、看门狗、工时守卫、尝试循环、验证重试、失败轮次与看板视图按 `0` 不限处理。
+- 测试：新增 `tests/unlimited-execution.test.ts`（默认不限、统计保留、显式限额仍生效）；
+  原先依赖有限额度的用例显式配置限额，保持原测试意图。
+
+### 117.4 验证
+
+- `make check`：合并最新 main 后 70 个测试文件、760 项通过（含 typecheck、lint、contracts、token/断言预算）。
+- `make coverage`：行／语句 92.53%、分支 84.51%、函数 96.67%，门槛（90/93/84）通过。
+- `make format`、`make budget`、`make assertions`（18/18）、`make contracts`、`make lint`：通过。
+
+### 117.5 未完成与风险
+
+- 默认不限额意味着真实的持续失败（如验证永久阻断）会一直重试，只能靠停止请求或收紧配置中断；
+  生产使用前应结合成本与噪声决定是否显式配置限额。
+- 未在真实宿主上跑完长任务与持续失败场景；本批验证为测试与静态门禁。
+- 真实部署沿用历史安装记录，本批不含重新安装或上线核对。
+
+## 50. 上游 diff 重复应用修复（2026-11-03）
+
+现象：延长工时后重新执行，推进请求反复失败：
+
+```
+应用上游任务 domain 的候选 diff 失败：
+patching file 'packages/forgeloop/src/domain/requirement-queue.ts'
+Ignoring previously applied (or reversed) patch.
+1 out of 1 hunks ignored--saving rejects to ...requirement-queue.ts.rej
+```
+
+根因：`domain` 任务的候选改动已经随项目基线进入新工作副本（修复已合并回
+主分支），`applyDiffFile` 仍把它当新补丁应用；`git apply` 失败后回退到
+`patch --forward`，后者把“已经应用”当成拒绝并返回非零，推进因此判失败。
+
+修复：新增 `runtime/diff-apply.ts`：
+
+1. 先 `git apply --check`；
+2. 失败时用 `git apply --reverse --check` 判断是否已应用，已应用直接返回成功；
+3. 只有反向检查也失败时才回退 `patch`，真实冲突仍保持失败。
+
+测试：文本 diff 重复应用、新文件 diff 重复应用、真实冲突仍失败。
+
+验证：`make check` 69 个测试文件、747 项通过、1 项环境跳过。
+
+## 118. 输入分诊：需求与问题分流（2026-11-03）
+
+### 118.1 行为
+
+- 产品 Agent 分析前先判定输入是**需求**还是**问题**，结论写入分析载荷的 `input_kind`
+  （`requirement`／`problem`），缺省按需求；未知取值按畸形失败，不猜类型。
+- 分诊结果旁置存放在 `requirement_analysis_input_kinds`，不改 `requirement_analyses` 表结构；
+  已有库按 `CREATE TABLE IF NOT EXISTS` 建立，缺行按需求处理，历史分析行为不变。
+- 需求：沿用原有分析（目标、业务场景、业务规则、异常与边界、非目标、验收标准、待澄清项）。
+- 问题：只给现象与可检查的修复判据（`acceptance_criteria` 至少一条，`scenarios` 可空），
+  `clarifications` 必须为空。解析与落库都拒绝“问题 + 待澄清项”，所以问题不会停在
+  `awaiting_clarification`，而是与分析通过的需求一样经系统准入进入 `specified`，由协调器直接排给研发。
+- 研发与实现前评审按 `input_kind=problem` 换口径：任务按“复现定位根因 → 最小修复 → 按修复判据验证”
+  拆解，不要求补齐新增功能场景。
+- 会话分析事件 `plugin:forgeloop/analysis` 带 `inputKind`；天工需求详情与会话分析卡片展示「需求 / 问题」。
+- 分析提示词版本升为 `analysis-v3`。
+
+### 118.2 涉及文件
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/domain/requirement.ts` | `InputKind`、`input_kind` 解析与落库约束、`inputKindOf` |
+| `src/domain/analysis.ts` | 提示词版本 `analysis-v3` |
+| `src/records/db.ts`、`src/records/repository.ts` | 旁置表、事务写入与读取回填 |
+| `src/runtime/execution-plan.ts` | 分析记录写入 `inputKind` |
+| `src/runtime/prompts.ts` | 分诊规则、问题上下文标签、研发与评审口径 |
+| `src/session/events.ts`、`src/session/intake.ts` | 分析事件携带 `inputKind` |
+| `client.js` | 分析卡片与需求详情展示输入类型 |
+| `tests/*` | 解析、仓储 round-trip、运行时问题分流、提示词、事件与语言包 |
+| `README.md`、`docs/architecture.md`、`docs/product.md`、`CONTEXT.md` | 分诊、问题口径与术语 |
+
+### 118.3 验证
+
+- `make check`：70 个测试文件、772 项通过。
+- `make check-static`：typecheck、ESLint 与契约检查通过；token 预算 service.ts 21,354
+  （基线 21,931），断言预算 18/18；`make format` 通过。
+- 新增测试：分诊缺省／合法／未知取值、问题缺修复判据与带澄清被拒、仓储 round-trip 与旧记录缺省、
+  问题分析落库后直接入研发队列、问题带澄清在运行时报分析失败、研发提示词问题口径、语言包标签。
+
+### 118.4 未完成
+
+- 未用真实模型验证分诊判断质量：目前只在提示词与确定性校验上约束，稳定性需真实输入复测。
+- 问题复用需求的状态机、队列与看板栏目，页面仍称“需求”；问题与需求共享同一串行研发额度。
+- 模型把问题误判为需求时仍会走澄清流程；没有人工改判入口，需要修订输入后重新分析。
+
+
+## 51. 重复失败请求问题合并（2026-11-03）
+
+现象：“需要处理”一次列出几十条完全相同的“推进请求失败”，都指向同一段
+上游 diff 报错，页面难以阅读。
+
+根因：`requestIssues` 对每条 `failed` 请求各生成一条问题；同一错误反复重排时
+历史请求累积（生产库该需求已有 506 条 failed 请求），看板按时间排序后占满首屏。
+
+修复：按 `action + detail` 分组，只保留最近一条；标题标注“重复 N 次”，
+detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原因仍分别展示。
+
+测试：3 条相同失败折叠为 1 条并带计数；不同 detail 保持 2 条。
+
+验证：`make check` 70 个测试文件、773 项通过、1 项环境跳过。
+
+## 119. 执行限额改为 -1 = MAX（2026-11-03）
+
+所有者要求把“不限”的取值从 `0` 改成 `-1`、页面显示 **MAX**，恢复限制只把配置写成正数。
+本节取代 §117 的 `0 = 不限` 口径；统计、追加授权、停止请求与显式限额的阻断语义不变。
+
+### 119.1 取值与默认值
+
+| 配置项 | §117 | 现在 |
+| --- | --- | --- |
+| `agent.timeoutSeconds` | 0 | -1 |
+| `agent.maxTurnSeconds` | 0 | -1 |
+| `agent.idleTimeoutSeconds` | 0 | -1 |
+| `formalTestTimeoutSeconds` | 0 | -1 |
+| `maxTaskAttempts` | 0 | -1 |
+| `failureRoundsPerGrant` | 0 | -1 |
+| `maxVerificationAttempts` | 0 | -1 |
+| 任务包 `limit_seconds` / `max_failure_rounds` | 0 | -1 |
+
+- 只有 `-1` 与正数合法：`0`、其他负数、非整数（整数项）、非数字一律拒绝，
+  文案写明“必须为 -1 或正数／正整数（-1 表示不限）”。
+- 恢复限制只需把对应配置改成 `> 0`，语义与 §117 之前的有限额一致。
+- 需求工时新增 `planLimitSeconds` 聚合：任一任务 `-1` 则整体 `-1`，否则累加任务限额；
+  三处 `ensureBudget` 统一走它，避免多个 `-1` 相加得到 `-2` 触发限额校验。
+
+### 119.2 页面显示
+
+- 需求卡：`失败轮次 N（额度 MAX）`（会话语言包中英文同步）。
+- 看板问题：`失败轮次 N，额度 MAX；按规则持续自动重试`。
+- 需求视图：`grantQuota.remaining = null`，由客户端渲染为 MAX。
+- 工时已经不限时，延长入口返回“当前为 MAX 工时，无需延长”。
+
+### 119.3 回合超时的坑
+
+回合定时器改成“只有正数才建定时器”，`-1` 不建；研发回合上限抽成
+`turnTimeoutSeconds(lower, cap)`，不限时返回 `-1`。早期实现在这里返回 `0`，
+配合“只跳过负数”的定时器会让每个研发回合立即超时；测试
+`keeps an unlimited dev turn from becoming an immediate timeout` 固定该行为。
+
+### 119.4 改动范围
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/domain/limits.ts` | `-1` 判定、`ExecutionBudget` 构造与 `extend` 校验、不限时剩余额度为 `Infinity` |
+| `src/config.ts` | 默认值 `-1`；`limitNumber` / `limitInteger` 只接受 `-1` 或正数 |
+| `src/domain/counting.ts` | 每份授权的失败轮次上限允许 `-1`，`0` 与其他负数拒绝 |
+| `src/domain/task-plan.ts` | 任务限额校验与解析、新增 `planLimitSeconds` |
+| `src/runtime/*` | 回合定时器、看门狗、工时守卫、研发回合上限、验证重试、看板与视图文案 |
+| `src/records/repository.ts` | 无预算记录和任务包缺省按 `-1` |
+| `client.js` | 需求卡 `额度 MAX`（中英文） |
+| 测试 | `config-validation`、`limits`、`task-plan-rules`、`unlimited-execution`、`formal-test` |
+| 文档 | `README.md`、`docs/architecture.md`、`docs/product.md`、`CONTEXT.md` |
+
+### 119.5 验证
+
+- `make check`：70 个测试文件、777 项通过（含 typecheck、lint、契约、token/断言预算）。
+- `make coverage`：行／语句 92.59%、分支 84.68%、函数 96.68%，门槛（90/84/93）通过。
+- `make budget`：`service.ts` 21,411（基线 21,931）；`make assertions` 18/18；
+  `make contracts`、`make lint`、`make format` 通过。
+
+### 119.6 未完成与风险
+
+- 默认 `-1` 等于永不因额度停下：真实的持续失败只能靠停止请求或把配置改成正数中断。
+- 未在真实宿主跑长任务与持续失败场景；本批验证是测试与静态门禁。
+- 产品分析的自动重试（`MAX_AUTO_ANALYSIS_RETRIES = 3`）不属于这批执行限额，未改。
+## 52. 代码可靠性看板（2026-11-03）
+
+### 52.1 实施
+
+天工页在「需要处理」与「运维」之间新增「可靠性」视图，只读展示两层：
+
+- **代码可靠性快照**：9 项门禁（类型、lint、格式、契约、token 预算、断言预算、测试、覆盖率、变异）、
+  测试通过数、行/语句/函数/分支覆盖率与六个关键文件门槛、变异得分、断言与 token 预算、质量问题抑制项。
+  快照由显式 `make reliability-report`（含变异）或 `make reliability-report-fast`（跳过变异）生成到
+  `reports/reliability/latest.json`，并保留 30 份历史；页面请求只读文件，不执行任何检查。
+- **交付可靠性聚合**：独立验证、首轮验证、业务终审、上线核对、失败轮次、失败阶段、任务当前状态、
+  运维恢复与 MTTR、部署失败检查项、最近 8 周趋势与最近阻断/失败事件。窗口 `7d/30d/90d/all`，
+  默认 `all`。
+
+快照缺失、损坏、过期或工作树与快照 HEAD 不一致时页面明确标记，不把“未采集/未运行”显示为 `0` 或通过；
+运行指标只对追加型表做窗口统计，`requirement_task_runs` 只显示当前状态。Web 端点 `reliability` 只读，
+非法窗口返回 400。
+
+主要文件：
+
+| 文件 | 作用 |
+| --- | --- |
+| `src/domain/reliability.ts` | 窗口、率、首轮验证、阶段、MTTR、趋势与快照解析 |
+| `src/records/reliability-store.ts` | 只读窗口聚合；继承链 `Repository → DevSessionStore → ReliabilityStore → OpsStore` |
+| `src/runtime/reliability.ts` | 快照缓存、过期判定与 `snapshot`/`runtime` 组合视图 |
+| `src/runtime/service.ts`、`board-route.ts` | 只读 `reliability` 端点与窗口校验 |
+| `scripts/ts/reliability-report.ts`、`Makefile` | 门禁执行、快照与历史写入 |
+| `client.js` | 新视图、KPI、门禁矩阵、覆盖率、趋势、事件与响应式样式 |
+| `tests/reliability*.test.ts`、`board-route.test.ts`、`client-view.test.ts` | 领域、记录、运行时、路由与客户端测试 |
+
+### 52.2 验证
+
+- 目标测试 45 项通过（领域 16、记录 3、运行时 3、路由 8、客户端 15）。
+- 全量 `make check` 通过：73 个测试文件、802 项测试；`make build`、`make lint`、`make format`、
+  `make contracts`、`make budget`、`make assertions` 通过。
+- `make coverage` 通过：行/语句 92.56%、函数 96.49%、分支 84.31%，共 90 个文件。
+- `make reliability-report-fast` 生成快照：9 项门禁 8 通过、变异 `not_run`；802 tests / 73 files、
+  90 个覆盖率文件、断言 18/18、service.ts 21,477 tokens。
+- 隔离实例真实页面（Playwright）：视图顺序、默认「全部」、四窗口切换、搜索框隐藏、6 张 KPI、
+  9 行门禁、4 个覆盖率进度条、趋势区与脚注均按预期渲染；无 console/page error；390px 无横向溢出。
+
+### 52.3 未完成
+
+- P2 未做：快照历史折线、依赖漏洞、Semgrep、flaky、失败后交付率。
+- 完整变异测试尚未随快照运行；`reliability-report-fast` 只记录 `not_run`。
+- 隔离库没有运行记录，真实事件下钻未验证；缺失/损坏快照只有运行时测试，没有页面留档。
+- 夜间 CI 定时生成快照未接入，仍需手动执行命令。
+
+## 120. 研发场景验证：MAX 限额下的真实回合与提交检查（2026-11-03）
+
+用真实 `AgentRunner`（真实定时器、真实 Git 工作区、真实正式测试进程）加脚本化的产品、验证与业务
+回合，跑一遍研发场景，核对 §119 的 `-1 = MAX` 在研发链路上成立。
+
+### 120.1 场景与结果
+
+- 默认限额（全部 `-1`）：产品分析 → 系统准入 → 研发会话出方案 → 任务 a 前 3 次“没有改动”仍继续、
+  第 4 次交付 → 任务 b 交付 → 每次 0.6 秒的正式测试跑完 → 独立验证 → 业务验收 → 受控提交成功；
+  研发回合耗时都在自己的延迟之上（200/300 毫秒），没有被回合定时器取消；
+  需求进入 `committed`，看板 `remainingRounds = null`（页面显示 MAX），失败轮次为空。
+- 恢复限额：`agent.timeoutSeconds = 1` 时，2 秒的研发回合在 1 秒被取消，任务记为 blocked，
+  原因含“研发回合超时 / 上限”，需求没有提交；`maxTaskAttempts = 1` 不再重试。
+
+### 120.2 验证中发现的缺陷
+
+`runCommand` 直接把超时值交给 `execFileSync({ timeout })`。受控提交的提交检查复用
+`formalTestTimeoutSeconds * 1000`，默认 `-1` 时 Node 拒绝负超时，检查以退出码 1 失败——
+表现为“默认 MAX 下受控提交永远失败”，既有单元测试没有覆盖这条路径。
+
+修复：`runCommand` 只在超时为正数时设置 `timeout`，与正式测试进程的处理一致；
+`tests/workspace.test.ts` 固定 `-1000`／`0` 都不建定时器。
+
+### 120.3 测试
+
+- 新增 `tests/dev-scenario-unlimited.test.ts`：真实 `AgentRunner` 加脚本化宿主，覆盖默认 MAX 下
+  从研发到提交的完整链路，以及正数限额恢复后的超时阻断。
+
+### 120.4 验证
+
+- `make check`：74 个测试文件、805 项通过。
+- `make check-static`：typecheck、lint、契约、token 预算（`service.ts` 21,477）、断言预算 18/18；
+  `make format` 通过。
+
+### 120.5 未完成
+
+- 宿主与模型是脚本化的，验证的是运行时链路与定时器语义，不是真实模型的判断质量；
+  真实模型下的研发质量仍需在宿主环境复测。
+
+## 121. 全链路闭环放开与自主率统计（2026-11-03）
+
+本批在独立 worktree `feat/loop-closure` 完成，合并 main 的 §119（`-1 = MAX`）与可靠性看板之后，
+补齐闭环其余会中断流程的限制，并加上人工介入率统计。限额取值仍按 §119：`-1` 为不限、页面显示 MAX，
+正数恢复原行为；本批没有再改限额语义。
+
+### 121.1 来源与链路
+
+- 系统准入新增 `allowAnySource`（默认 true）与 `requireOwner`（默认 false）：空来源永不可信，
+  非空来源都可进入，来源与提交者继续完整落库；收紧时显式配置 `allowAnySource=false` 并维护
+  `trustedSources`。产品受理、产品分析与运维提交共用这一判定（`domain/admission.ts` 的
+  `sourceTrusted`），不再各自比较来源前缀。
 - 运维事件在 `awaiting_decision` 状态也可生成修复需求，来源 `ops:<event>`、提交者 `ops-agent`，
-  经产品分析后转研发。
-- 研发→验证：验证会话在研发前生成方案，产物交付后在固定候选上逐条执行真实命令并做业务验收；
-  验证失败默认不限轮次地回到研发定向修复，失败记录与问题单继续累积。
+  经产品分析后转研发；此前该状态只等人工决定，闭环在运维侧断开。
 - 研发→运行：研发 Agent 没有部署/发布工具，任务拆解与执行提示词都禁止部署、发布、安装到正式
   profile 或修改正式环境；部署只走人工认证端点，按独立授权执行。
 - 研发→验证的真实模型闭环新增 `scripts/ts/real-model-e2e.ts` 与 `make real-model-e2e`
-  （`FORGELOOP_REAL_MODEL=1` opt-in）：先构建插件，在隔离 DSH_HOME 安装 web/headless 两个派生
-  profile 与临时 Git 项目，真实模型提交需求，轮询权威库直到准入、任务包、验证通过与受控提交；
-  断言来源、提交且无部署记录。本批已执行该目标，因启动环境未导出模型密钥（`DEEPSEEK_API_KEY`
-  为空）被 DSH 拒绝，未跑通；脚本现已先构建并明确要求启动环境提供密钥。
+  （`FORGELOOP_REAL_MODEL=1` opt-in）：先构建插件，在隔离 DSH_HOME 安装 `web`／`headless`
+  两个派生 profile 与临时 Git 项目，真实模型提交需求，轮询权威库直到准入、任务包、验证通过与
+  受控提交，并断言来源、提交记录与零部署记录。
 
-### 50.3 自主率
+### 121.2 自主率
 
 - 新增 `domain/autonomy.ts` 与 `runtime/autonomy-stats.ts`：研发以需求为分母，人工介入取多版本、
-  追加授权、工时延长、停止/取消、人工请求；自主成功要求 `committed`/`accepted`、验证通过且无
-  人工介入。运维以 `ops_events` 为分母，`humanInvolved=true` 计介入，`recovered`/`closed` 且无人工
+  追加授权、工时延长、停止/取消与人工请求；自主成功要求 `committed`/`accepted`、验证通过且无
+  人工介入。运维以 `ops_events` 为分母，`human_involved` 计介入，`recovered`/`closed` 且无人工
   介入计自主成功。
 - 看板 `StatusBoardView.autonomy` 返回分子、分母与比率；无样本时 `rate=null`，页面显示“无样本”。
   总览新增研发/运维介入率与自主成功率四项，中英文文案同步。
-- 工时延长写审计表；自主率可从需求、请求、授权、工时延长与运维事件回查。
+- 工时延长写 `requirement_budget_extensions` 审计表（`extend_budget` 支持 `-1` 改为不限），
+  自主率可从需求、请求、授权、工时延长与运维事件回查。
+- 看板延长工时输入支持 `MAX` 或 `-1`，直接改为不限；有限时长仍限制在 0.5–24 小时。
 
-### 50.4 验证
+### 121.3 测试口径变化
 
-- `make check` 通过：69 个测试文件、778 项通过；新增 `tests/autonomy.test.ts` 覆盖纯函数与记录口径，
-  并补充看板 MAX、来源、真实模型提示词边界与工具面断言。
-- `make contracts`、`make lint`、`make format`、token 预算、断言预算 18/18 通过。
+- 默认放开来源后，主控会把准入通过的需求交给连续推进（新验证管线）。原先验证单会话旧路径的用例
+  在配置里显式写 `autonomy: { allowAnySource: false }`，保留“未准入 → 单会话开发 + 旧验证”的
+  覆盖；放开后走连续推进的路径由 `continuous-flow.test.ts` 等用例覆盖。
+- 看板“额度不限”改为断言 `remainingRounds === null`（页面 MAX），与 §119 的视图口径一致。
+
+### 121.4 验证
+
+- `make check`：75 个测试文件、831 项通过（含 typecheck、lint、契约、token/断言预算）。
+- `make check-static`：token 预算最大 `service.ts` 21,486；断言预算 18/18；`make format` 通过。
 - 未验证：`make real-model-e2e` 已执行到构建、隔离 profile、插件装载与 headless 鉴权；启动环境没有
-  有效 `DEEPSEEK_API_KEY`，DeepSeek 返回 401，真实模型闭环未跑通。正式实例未重载本批代码，真实
-  需求闭环仍待在正式环境跑通。
+  有效 `DEEPSEEK_API_KEY`，DeepSeek 返回 401，真实模型闭环未跑通。正式实例未重载本批代码。
+
+### 121.5 未完成与风险
+
+- 默认放开来源意味着任何非空来源都能进准入并触发研发与代码提交（提交仍需授权），
+  生产使用前应确认 `allowAnySource` 与 `ops` 入口是否符合预期。
+- 自主率只统计已有记录，未接入模型判断质量；真实模型下的研发/验证质量仍需在宿主环境复测。

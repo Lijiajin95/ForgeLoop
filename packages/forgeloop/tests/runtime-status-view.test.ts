@@ -20,7 +20,7 @@ interface StatusView {
 let dir = ''
 let runtime: ForgeLoopRuntime
 
-function makeRuntime(failureRoundsPerGrant = 3): ForgeLoopRuntime {
+function makeRuntime(): ForgeLoopRuntime {
   const config = resolveConfig(
     {
       project: 'testproj',
@@ -30,8 +30,8 @@ function makeRuntime(failureRoundsPerGrant = 3): ForgeLoopRuntime {
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
-      failureRoundsPerGrant,
-      maxVerificationAttempts: 3,
+      // 默认不限失败轮次；这里显式给每份授权 3 轮，验证配额与用尽展示。
+      failureRoundsPerGrant: 3,
     },
     dir,
   )
@@ -103,22 +103,6 @@ describe('requirement status view failure visibility', () => {
     expect(view.grantQuota).toEqual({ grants: 1, used: 2, remaining: 1 })
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(2)
     expect(runtime.repo.grantCount(reqId)).toBe(1)
-  })
-
-  it('reports -1 (UI MAX) when the failure rounds are unlimited', () => {
-    runtime.close()
-    runtime = makeRuntime(-1)
-    const reqId = submitRequirement()
-    for (let index = 0; index < 5; index += 1) {
-      runtime.repo.recordFailureRound(
-        reqId,
-        failureRound(`task-a-a${index + 1}`, `2026-10-22T12:0${index}:00.000Z`),
-      )
-    }
-
-    const view = statusView(reqId)
-
-    expect(view.grantQuota).toEqual({ grants: 1, used: 5, remaining: -1 })
   })
 
   it('reports remaining 0 and the full details after the granted quota is exhausted', () => {

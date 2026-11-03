@@ -33,8 +33,8 @@ export function runCommand(
     const stdout = execFileSync(command, [...args], {
       cwd,
       encoding: 'utf8',
-      // timeout <= 0（-1 = 不限）交给 Node 视为不设超时。
-      timeout: timeoutMs > 0 ? timeoutMs : undefined,
+      // 限额 -1（不限）与 0 都不建超时；execFileSync 拒绝负的超时值。
+      ...(timeoutMs > 0 ? { timeout: timeoutMs } : {}),
       maxBuffer: 64 * 1024 * 1024,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv },
     })
