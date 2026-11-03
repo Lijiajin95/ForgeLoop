@@ -4849,3 +4849,5 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
     `mutation (session)` 已成功，其余分片与 `mutation-gate` 仍在运行（记录时）。
 - 边界：本次只修可执行文件解析；分片分数与合并门槛仍按
   `stryker.config.json` 判定，未调整 `break`、`low`、`high`。
+  §53.4 已记录全量变异实测 56.28% < break 80、需要所有者决定“补测试或调整门槛”；
+  本次重跑会给出合并后 HEAD 的真实分数，gate 仍可能按设计失败，不属本批修复范围。
