@@ -4667,8 +4667,8 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   `src/index.ts` 豁免并开启 `perFile`；全局门槛行/语句 90、函数 95、分支 85，另保留六个关键文件门槛。
 - 新增 21 个 `tests/coverage-*.test.ts`，补强 15 个既有测试文件；`src/cli/pack.ts` 导出 `main` 并加执行守卫。
 - `scripts/ts/reliability-report.ts` 按 perFile 逐文件对照默认门槛与关键文件门槛。
-- 2026-11-03 合并 main 后实测 `make coverage`：98 个测试文件、1180 项测试全部通过；94 个源文件
-  逐文件达标；行/语句 97.94%、函数 99.35%、分支 90.63%（`coverage-summary.json` 已刷新）。
+- 2026-11-03 合并 main 后实测 `make coverage`：99 个测试文件、1196 项测试全部通过；96 个源文件
+  逐文件达标；行/语句 97.96%、函数 99.36%、分支 90.75%（`coverage-summary.json` 已刷新）。
 - 同日把函数门槛 93→95、分支门槛 84→85；新增/补强 analysis-queue、execution-dev、coordinator、
   monitor、service、requirement-queue 的薄弱分支用例，全部文件仍逐文件达标。
   注意：`tests/monitor.test.ts` 的进程采集用例依赖 `ps`；workspace-write 沙箱下 `ps` 返回 EPERM，
@@ -4678,7 +4678,7 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 
 - `packages/forgeloop/stryker.config.json`：`mutate=["src/**/*.ts"]`、incremental、thresholds 95/85/80。
 - `scripts/ts/mutation-shard.ts` 分 8 个模块分片 + `all`（合并 main 后：domain 28、records 8、
-  runtime-execution 18、runtime-verification 11、runtime-ops 20、session 5、config-agents 2、entry 2，共 94），
+  runtime-execution 19、runtime-verification 11、runtime-ops 21、session 5、config-agents 2、entry 2，共 96），
   并校验每个源码恰好属于一个分片。
 - 分片运行时生成 `reports/stryker-shard-<shard>.json`，把 `thresholds.break` 设为 0，只产报告；
   全局判定由 `scripts/ts/mutation-merge.ts` 读取 `stryker.config.json` 的 break 完成，并要求全部源码
@@ -4686,7 +4686,7 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   0 个变异登记；其他缺失仍失败。
 - 2026-11-03 全量实测（**合并 main 前**，92 个文件，增量重跑）：21242 个计分变异，killed 11931、
   survived 5193、timeout 25、noCoverage 4093，总分 56.28%，低于 break 80；合并门禁按设计失败。
-  合并 main 后为 94 个文件，未重跑全量变异，56.28% 不代表合并后的 HEAD。分片分数：
+  合并 main 后为 96 个文件，未重跑全量变异，56.28% 不代表合并后的 HEAD。分片分数：
   domain 69.77、records 67.93、runtime-execution 55.08、runtime-verification 40.36、
   runtime-ops 51.44、session 63.28、config-agents 64.63、entry 87.01。
   未下调门槛，也未把分片分数当通过依据。
@@ -4706,15 +4706,16 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 
 ### 53.4 未完成与合并状态
 
-- 已实测：`make check`（98 文件、1179 通过 + 1 跳过；放行进程访问时 1180 全通过）、`make coverage`
-  （94 文件逐文件达标，行/语句 97.94%、函数 99.35%、分支 90.63%）、`make format`、`make lint`、
-  `make check-static`、`make reliability-report-fast`（8/8，变异 not_run）、`mutation-shard --list`（92）、
-  合并报告成功/失败路径、verify-e2e 缺 key 失败关闭。
+- 已实测：`make check`（99 文件、1195 通过 + 1 跳过；放行进程访问时 1196 全通过）、`make coverage`
+  （96 文件逐文件达标，行/语句 97.96%、函数 99.36%、分支 90.75%）、`make format`、`make lint`、
+  `make check-static`、`mutation-shard --list`（96）、合并报告成功/失败路径、verify-e2e 缺 key 失败关闭。
+  第二次合并后 `reliability-report-fast` 因单次 10 分钟环境上限被中断，未完成 8/8 快照；各门禁已单独通过。
 - 变异开关（2026-11-03 补）：`make check` 默认不运行变异；`make check MUTATION=1`（或机器上
   `export FORGELOOP_MUTATION=1`）在全量用例后追加 `make mutation`；`make check-fast` 与
   `make precommit` 永不追加。快速场景与全量场景因此共用同一套检查入口。
 - 未验证：真实 DSH + 真实模型 + 实际工具 E2E（无凭据）、nightly/release 的真实 CI 运行。
 - 全量变异 56.28% < 80：该分数是新增覆盖率用例之前测得，新增用例后未重跑全量变异；
   夜间 `mutation-gate` 会失败，是否调整门槛或补测试需所有者决定。
-- 合并：主树 `58ed2c9`（含并行真实模型 E2E 等 16 个提交）已合入本分支；仅 `docs/status.md`
-  冲突，保留 §120/121 与本 §53。合并后重跑覆盖率与测试通过，准备以快进方式合并到 main。
+- 合并：主树 `3655bb8`（`fd19ce1` 后 19 个提交）已合入本分支；冲突为 `docs/status.md`（保留
+  §120–§123 与本 §53）和 `tests/tools.test.ts` 的导入。合并后 `make check`、`make coverage` 通过，
+  准备以快进方式合并到 main。
