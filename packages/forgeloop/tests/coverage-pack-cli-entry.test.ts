@@ -28,4 +28,17 @@ describe('candidate package cli entrypoint', () => {
     expect(errors.join('\n')).toContain('[forgeloop-pack]')
     expect(errors.join('\n')).toContain('npm pack 没有返回产物信息')
   })
+
+  it('does not run when imported outside the script entry', async () => {
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((message: unknown) => {
+      errors.push(String(message))
+    })
+    process.argv[1] = '/tmp/forgeloop-not-the-pack-cli.js'
+    process.exitCode = 0
+    vi.resetModules()
+    await import('../src/cli/pack.js')
+    expect(process.exitCode).toBe(0)
+    expect(errors).toEqual([])
+  })
 })

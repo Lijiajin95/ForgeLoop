@@ -7,6 +7,7 @@ import { apply, BOARD_HTTP_PATH, inject, name } from '../src/index.js'
 let root = ''
 let cleanups: Array<() => Promise<void> | void> = []
 let registrations: unknown[] = []
+let logs: string[] = []
 
 function rawConfig() {
   return {
@@ -29,11 +30,14 @@ function host(
   } = {},
 ) {
   const registered: unknown[] = []
+  let disposals = 0
+  let routeDisposals = 0
   const ctx: Record<string, unknown> = {
     tools: {
       register: () => {
         registrations.push(true)
         return () => {
+          disposals += 1
           if (options.throwOnDispose) throw new Error('dispose failed')
         }
       },
@@ -52,7 +56,10 @@ function host(
           fetch: {
             register: (route: unknown) => {
               registered.push(route)
-              return () => Promise.resolve()
+              return () => {
+                routeDisposals += 1
+                return Promise.resolve()
+              }
             },
           },
         }
@@ -67,14 +74,26 @@ function host(
       callback(scope)
     }
   }
-  return { ctx, registered }
+  return {
+    ctx,
+    registered,
+    get disposals() {
+      return disposals
+    },
+    get routeDisposals() {
+      return routeDisposals
+    },
+  }
 }
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'forgeloop-entry-'))
   cleanups = []
   registrations = []
-  vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  logs = []
+  vi.spyOn(console, 'log').mockImplementation((message: unknown) => {
+    logs.push(String(message))
+  })
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
@@ -99,12 +118,18 @@ describe('plugin entry wiring', () => {
   })
 
   it('starts the runtime, registers tools and a board route, then disposes them', async () => {
-    const { ctx, registered } = host()
-    apply(ctx, rawConfig())
+    const hosted = host()
+    apply(hosted.ctx, rawConfig())
     expect(registrations.length).toBeGreaterThan(0)
-    expect(registered).toHaveLength(1)
-    expect(registered[0]).toMatchObject({ path: '/api/forgeloop/board', methods: ['POST'] })
+    expect(hosted.registered).toHaveLength(1)
+    expect(hosted.registered[0]).toMatchObject({ path: '/api/forgeloop/board', methods: ['POST'] })
     expect(cleanups).toHaveLength(2)
+    expect(logs.join('\n')).toContain('[forgeloop] 已加载 records=')
+    // 看板 effect 在运行时 effect 内注册，先入栈；执行后必须真正注销注册。
+    const disposeRoute = cleanups[0]
+    cleanups.splice(0, 1)
+    await disposeRoute?.()
+    expect(hosted.routeDisposals).toBe(1)
   })
 
   it('starts without a connection service or a board effect', async () => {
@@ -124,10 +149,14 @@ describe('plugin entry wiring', () => {
   })
 
   it('keeps disposing the remaining tools when one cleanup fails', async () => {
-    const { ctx } = host({ throwOnDispose: true })
-    apply(ctx, rawConfig())
-    expect(cleanups).toHaveLength(2)
+    const hosted = host({ throwOnDispose: true })
+    apply(hosted.ctx, rawConfig())
+    // 运行时 effect 在外层注册，后入栈。
+    const stop = cleanups[1]
+    cleanups.splice(1, 1)
+    await stop?.()
     expect(registrations.length).toBeGreaterThan(0)
+    expect(hosted.disposals).toBe(registrations.length)
   })
 
   it('requires the tools service', () => {
