@@ -4466,3 +4466,50 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 - 默认 `-1` 等于永不因额度停下：真实的持续失败只能靠停止请求或把配置改成正数中断。
 - 未在真实宿主跑长任务与持续失败场景；本批验证是测试与静态门禁。
 - 产品分析的自动重试（`MAX_AUTO_ANALYSIS_RETRIES = 3`）不属于这批执行限额，未改。
+## 52. 代码可靠性看板（2026-11-03）
+
+### 52.1 实施
+
+天工页在「需要处理」与「运维」之间新增「可靠性」视图，只读展示两层：
+
+- **代码可靠性快照**：9 项门禁（类型、lint、格式、契约、token 预算、断言预算、测试、覆盖率、变异）、
+  测试通过数、行/语句/函数/分支覆盖率与六个关键文件门槛、变异得分、断言与 token 预算、质量问题抑制项。
+  快照由显式 `make reliability-report`（含变异）或 `make reliability-report-fast`（跳过变异）生成到
+  `reports/reliability/latest.json`，并保留 30 份历史；页面请求只读文件，不执行任何检查。
+- **交付可靠性聚合**：独立验证、首轮验证、业务终审、上线核对、失败轮次、失败阶段、任务当前状态、
+  运维恢复与 MTTR、部署失败检查项、最近 8 周趋势与最近阻断/失败事件。窗口 `7d/30d/90d/all`，
+  默认 `all`。
+
+快照缺失、损坏、过期或工作树与快照 HEAD 不一致时页面明确标记，不把“未采集/未运行”显示为 `0` 或通过；
+运行指标只对追加型表做窗口统计，`requirement_task_runs` 只显示当前状态。Web 端点 `reliability` 只读，
+非法窗口返回 400。
+
+主要文件：
+
+| 文件 | 作用 |
+| --- | --- |
+| `src/domain/reliability.ts` | 窗口、率、首轮验证、阶段、MTTR、趋势与快照解析 |
+| `src/records/reliability-store.ts` | 只读窗口聚合；继承链 `Repository → DevSessionStore → ReliabilityStore → OpsStore` |
+| `src/runtime/reliability.ts` | 快照缓存、过期判定与 `snapshot`/`runtime` 组合视图 |
+| `src/runtime/service.ts`、`board-route.ts` | 只读 `reliability` 端点与窗口校验 |
+| `scripts/ts/reliability-report.ts`、`Makefile` | 门禁执行、快照与历史写入 |
+| `client.js` | 新视图、KPI、门禁矩阵、覆盖率、趋势、事件与响应式样式 |
+| `tests/reliability*.test.ts`、`board-route.test.ts`、`client-view.test.ts` | 领域、记录、运行时、路由与客户端测试 |
+
+### 52.2 验证
+
+- 目标测试 45 项通过（领域 16、记录 3、运行时 3、路由 8、客户端 15）。
+- 全量 `make check` 通过：73 个测试文件、802 项测试；`make build`、`make lint`、`make format`、
+  `make contracts`、`make budget`、`make assertions` 通过。
+- `make coverage` 通过：行/语句 92.56%、函数 96.49%、分支 84.31%，共 90 个文件。
+- `make reliability-report-fast` 生成快照：9 项门禁 8 通过、变异 `not_run`；802 tests / 73 files、
+  90 个覆盖率文件、断言 18/18、service.ts 21,477 tokens。
+- 隔离实例真实页面（Playwright）：视图顺序、默认「全部」、四窗口切换、搜索框隐藏、6 张 KPI、
+  9 行门禁、4 个覆盖率进度条、趋势区与脚注均按预期渲染；无 console/page error；390px 无横向溢出。
+
+### 52.3 未完成
+
+- P2 未做：快照历史折线、依赖漏洞、Semgrep、flaky、失败后交付率。
+- 完整变异测试尚未随快照运行；`reliability-report-fast` 只记录 `not_run`。
+- 隔离库没有运行记录，真实事件下钻未验证；缺失/损坏快照只有运行时测试，没有页面留档。
+- 夜间 CI 定时生成快照未接入，仍需手动执行命令。
