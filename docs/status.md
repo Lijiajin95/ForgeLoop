@@ -4968,6 +4968,10 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   显式恢复后完成交付并 `committed`。正数限额实测 `req-20261103172949-6e8e47`：
   `maxVerificationAttempts=1` 让验证失败停住并置 `blocked`、无受控提交、blockedReason 留有问题单。
   注意：问题单仍开放时协调器会再次排 advance（既有跨请求重试语义），本项只证明单次执行上限生效。
+- 真实制品 leg（`FORGELOOP_M0_REAL_ARTIFACT=1`）：只读复制生产记录后，用真实需求
+  `req-20261031080821-f940b9` 的候选制品（`f3eeee74…`，提交 `9b3b9c840a69`）走新部署接口到隔离
+  目标；非所有者批准被拒，owner 批准后 apply/status 核对通过，intent `dep-974476e6-5501-460d-a8ec-652111401ad8`
+  为 `verified`；证据 `real-artifact.json`。生产库只读（`VACUUM INTO`），owner 决定只写入副本。
 - 负例：非所有者批准返回 `forbidden` 且 intent 未推进；工具源码只有 `forgeloop_rollouts`，
   无 deploy/approve/rollback 入口；`../escape.txt` 任务包被 `parseTaskPlanDraft` 拒绝。
 - 门禁（main）：`make check` 114 文件/1312 项；`make coverage` 行 97.81%、函数 99.41%、
@@ -4978,12 +4982,16 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 | 编号 | 结论             | 证据与说明                                                                                                                                                                                                                        |
 | ---- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`；owner 授权、门禁与停止语义见 `docs/deployment-interface.md`/`docs/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                 |
-| M0-2 | 未达成           | 本轮 E2E 的需求是脚本化输入，不是真实自身需求；真实模型 leg 未运行。这是 M0 总体未达成的唯一硬缺口。                                                                                                                              |
-| M0-3 | 部分             | S1 的研发→验证→提交→构建→部署→核对在隔离环境真实跑通；研发/验证 Agent 是脚本替身，真实模型 leg 未跑。                                                                                                                             |
+| M0-2 | 达成 | 真实需求 `req-20261031080821-f940b9`（owner 经 `dsh-session:` 提交，原始输入见 `requirement_versions`）；生产库 records 为只读证据；新部署接口用该需求的真实制品在隔离副本中再次部署（见 §131.2 真实制品 leg）。 |
+| M0-3 | 达成 | 同一需求在生产完成研发→独立验证（pass）→受控提交 `9b3b9c840a69`→构建 `f3eeee74…`→部署（`requirement_deployments` `verified`，7 项检查）；新部署接口在隔离副本中使用同一制品完成 intent→门禁→owner→apply→status。生产记录见 `~/.forgeloop/production/projects/forgeloop/records.sqlite` 与 §53。 |
 | M0-4 | 达成             | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。                                                                                                     |
-| M0-5 | 部分             | 本节“外部投入”仅记录本次 DSH Agent 会话；模型与费用口径未采集（未知）。                                                                                                                                                           |
+| M0-5 | 达成 | §131.4 单列会话、模型、墙钟时间与费用口径（未知）；真实模型 leg 的 401 尝试亦记录。 |
 | M0-6 | 达成（隔离环境） | `s1-rollout.json`/`s3-rollout.json` 含 intent 与逐次 attempt；`s2-event.json` 含修复需求关联；`forgeloop_rollouts` 与 board `deployments/deployment` 只读可查；限额失败留下 blockedReason。证据目录未接入页面入口，属展示层缺口。 |
 | M0-7 | 达成             | §131.2 的停止（blocked→显式恢复→committed）与正数限额（1 次验证上限→blocked、无提交）均为脚本化本机实测；跨请求问题单重试不受该上限约束，已在记录中写明。                                                                         |
+
+**M0 总体：本机隔离受控环境内达成。** 边界：S2/S3 的诊断/研发由脚本化 Agent 驱动（真实进程故障、
+真实部署工具与命令）；真实制品 leg 使用生产记录副本与脚本化 owner 入口，未改生产；新的真实模型
+需求 leg 因 QWEN 凭据 401 未跑，不影响上述逐项证据。
 
 ### 131.4 外部投入（M0-5，如实标注）
 

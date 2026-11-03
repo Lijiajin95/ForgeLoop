@@ -7,6 +7,8 @@
  *  S2 真实进程故障 → 运维巡检 → 诊断 → 授权内恢复 → 检查复核 recovered
  *  S3 同一事件 fix_required → 关联修复需求 → 研发/验证/提交 → 重新构建 → 再次部署成功
  *  M0-4 负例：非所有者批准被拒、模型工具面没有部署/批准入口、越界文件被拒
+ *  可选真实制品 leg：FORGELOOP_M0_REAL_ARTIFACT=1 时，只读复制生产记录，用真实需求
+ *  req-20261031080821-f940b9 的候选制品走新部署接口到隔离目标（生产库只读）。
  *
  * 说明：研发/验证/诊断由脚本化 Agent 替身驱动；Git、构建、部署工具、运维检查与恢复
  * 命令都是真实执行。真实模型 leg 需 `FORGELOOP_M0_LOOP_REAL_MODEL=1`，本脚本不替代它。
@@ -16,8 +18,9 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
 import { join, resolve } from 'node:path'
 import { ForgeLoopRuntime } from '../../packages/forgeloop/lib/runtime/service.js'
 import { resolveConfig } from '../../packages/forgeloop/lib/config.js'
@@ -140,6 +143,54 @@ function writeDeploymentTool(recordsRoot: string): string {
       '    old = read(previous)',
       '    if old is None:',
       '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous artifact"}))',
+      '    else:',
+      '        json.dump(old, open(current, "w"))',
+      '        print(json.dumps({"ok": True, "state": "rolled_back", "version": old.get("version", ""), "detail": "rolled back"}))',
+      'elif op == "data-rollback":',
+      '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "no data scope"}))',
+      'else:',
+      '    print(json.dumps({"ok": False, "state": "failed", "detail": "unknown op"}))',
+    ].join('\n'),
+  )
+  return path
+}
+
+function writeRealArtifactTool(recordsRoot: string): string {
+  const toolDir = join(recordsRoot, 'projects', 'forgeloop', 'deployments', 'tools')
+  mkdirSync(toolDir, { recursive: true })
+  const path = join(toolDir, 'install.py')
+  writeFileSync(
+    path,
+    [
+      'import json, os, shutil, sys',
+      'args = sys.argv',
+      'op = args[args.index("--op") + 1]',
+      'plan = json.load(open(args[args.index("--plan") + 1]))',
+      'target = plan["params"]["target"]',
+      'current = os.path.join(target, "install.json")',
+      'previous = os.path.join(target, "previous.json")',
+      'os.makedirs(target, exist_ok=True)',
+      'def read(path):',
+      '    try:',
+      '        return json.load(open(path))',
+      '    except Exception:',
+      '        return None',
+      'if op == "preflight":',
+      '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": "previous-1" if os.path.exists(current) else ""}))',
+      'elif op == "apply":',
+      '    old = read(current)',
+      '    if old is not None:',
+      '        json.dump(old, open(previous, "w"))',
+      '    shutil.copyfile(plan["artifact"]["path"], os.path.join(target, "artifact.tgz"))',
+      '    json.dump({"version": plan["artifact"]["version"], "sha256": plan["artifact"]["sha256"]}, open(current, "w"))',
+      '    print(json.dumps({"ok": True, "state": "applied", "version": plan["artifact"]["version"], "detail": "installed"}))',
+      'elif op == "status":',
+      '    now = read(current) or {}',
+      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "detail": "status"}))',
+      'elif op == "rollback":',
+      '    old = read(previous)',
+      '    if old is None:',
+      '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous install"}))',
       '    else:',
       '        json.dump(old, open(current, "w"))',
       '        print(json.dumps({"ok": True, "state": "rolled_back", "version": old.get("version", ""), "detail": "rolled back"}))',
@@ -501,6 +552,124 @@ async function deliver(
   return { config, runtime }
 }
 
+/**
+ * 真实制品 leg：从生产记录只读复制一份记录，用真实需求 req-20261031080821-f940b9 的
+ * 提交、验证、业务终审与候选制品，走新部署接口到隔离目标。生产库只读（VACUUM INTO），
+ * owner 决定只写入副本；不触碰正式 profile 与生产记录。
+ */
+async function runRealArtifactLeg(root: string): Promise<void> {
+  if (process.env.FORGELOOP_M0_REAL_ARTIFACT !== '1') {
+    summary.realArtifact = { skipped: 'FORGELOOP_M0_REAL_ARTIFACT!=1' }
+    return
+  }
+  const prodDb = join(
+    homedir(),
+    '.forgeloop',
+    'production',
+    'projects',
+    'forgeloop',
+    'records.sqlite',
+  )
+  if (!existsSync(prodDb)) {
+    summary.realArtifact = { skipped: `生产记录不存在：${prodDb}` }
+    return
+  }
+  const reqId = 'req-20261031080821-f940b9'
+  const owner = 'link'
+  const recordsRoot = join(root, 'real-records')
+  const targetDir = join(root, 'real-target')
+  mkdirSync(join(recordsRoot, 'projects', 'forgeloop'), { recursive: true })
+  mkdirSync(targetDir, { recursive: true })
+  const copyPath = join(recordsRoot, 'projects', 'forgeloop', 'records.sqlite')
+  const source = new DatabaseSync(prodDb, { readOnly: true })
+  try {
+    source.exec(`VACUUM INTO '${copyPath.replaceAll("'", "''")}'`)
+  } finally {
+    source.close()
+  }
+  const toolPath = writeRealArtifactTool(recordsRoot)
+  const config = resolveConfig(
+    {
+      project: 'forgeloop',
+      projectPath: ROOT,
+      recordsRoot,
+      owner,
+      pollSeconds: 3600,
+      agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
+      deployments: {
+        enabled: true,
+        alerts: { webhook: '', timeoutSeconds: 10 },
+        tools: [
+          {
+            id: 'm0-real-tool',
+            kind: 'python',
+            path: toolPath,
+            capabilities: ['preflight', 'apply', 'status', 'rollback', 'data-rollback'],
+            timeoutSeconds: 60,
+          },
+        ],
+        targets: [
+          {
+            id: 'm0-real-target',
+            toolId: 'm0-real-tool',
+            requirementId: reqId,
+            approval: 'owner',
+            params: { target: targetDir },
+            rollback: { keep: 1 },
+          },
+        ],
+      },
+    },
+    ROOT,
+  )
+  const local = new ForgeLoopRuntime({
+    ctx: {},
+    config,
+    runner: {
+      async run() {
+        throw new Error('真实制品 leg 不需要 Agent')
+      },
+      async open() {
+        throw new Error('真实制品 leg 不需要 Agent')
+      },
+    },
+  })
+  try {
+    const build = local.repo.latestCandidateBuild(reqId)
+    check(build !== null, '真实需求没有候选构建记录')
+    check(build?.artifactSha256.startsWith('f3eeee74') === true, '真实制品摘要与生产记录不一致')
+    const accepted = local.accept({ reqId, by: owner, source: 'm0-loop:real-artifact-accept' })
+    check(accepted.ok, `真实需求验收副本失败：${accepted.message}`)
+    const requested = await local.deploymentService.request({
+      targetId: 'm0-real-target',
+      by: owner,
+      source: 'm0-loop:real-artifact',
+    })
+    check(requested.ok, `真实制品部署提议失败：${requested.message}`)
+    const intentId = (requested.data as { intentId: string }).intentId
+    const denied = await local.deploymentService.approve({ intentId, by: 'not-owner' })
+    check(denied.ok === false && denied.code === 'forbidden', '真实制品：非所有者批准未被拒绝')
+    const approved = await local.deploymentService.approve({ intentId, by: owner })
+    check(approved.ok, `真实制品部署批准失败：${approved.message}`)
+    const verified = await local.deploymentService.verify({ intentId, by: owner })
+    check(verified.ok, `真实制品部署核对失败：${verified.message}`)
+    const installed = JSON.parse(readFileSync(join(targetDir, 'install.json'), 'utf8'))
+    check(installed.version === build!.packageVersion, '真实制品安装版本与构建记录不一致')
+    check(installed.sha256 === build!.artifactSha256, '真实制品安装摘要与构建记录不一致')
+    summary.realArtifact = {
+      reqId,
+      commitSha: local.repo.latestCommit(reqId)?.commitSha ?? '',
+      artifact: build!.artifactSha256,
+      intentId,
+      verified: true,
+      rollout: local.deploymentService.rollout(intentId),
+    }
+    console.log(`[m0-loop] 真实制品 leg 完成：${reqId} -> ${intentId}`)
+  } finally {
+    local.close()
+  }
+}
+
 async function main(): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), 'forgeloop-m0-loop-'))
   process.env.M0_ROOT = root
@@ -760,6 +929,8 @@ async function main(): Promise<void> {
     }
     check(boundaryRejected, '越界文件计划没有被拒绝')
 
+    await runRealArtifactLeg(root)
+
     summary.s1Rollout = runtime.deploymentService.rollout(intentId)
     const snapshot = configFor(project, recordsRoot, reqId, root) as {
       deployments: unknown
@@ -824,6 +995,12 @@ async function main(): Promise<void> {
       writeFileSync(
         join(EVIDENCE_DIR, 's3-rollout.json'),
         `${JSON.stringify(summary.s3Rollout, null, 2)}\n`,
+      )
+    }
+    if (summary.realArtifact) {
+      writeFileSync(
+        join(EVIDENCE_DIR, 'real-artifact.json'),
+        `${JSON.stringify(summary.realArtifact, null, 2)}\n`,
       )
     }
     if (!KEEP) rmSync(root, { recursive: true, force: true })
