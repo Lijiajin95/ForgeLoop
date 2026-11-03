@@ -49,7 +49,7 @@
     "@types/node": "^22.15.0",
     "playwright-core": "^1.49.1",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.7"
   },
   "bin": {
     "forgeloop-pack": "./lib/cli/pack.js"
