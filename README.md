@@ -62,10 +62,14 @@ Use Node.js, npm, and a DSH version compatible with the [workspace](package.json
 git clone https://github.com/Lijiajin95/ForgeLoop.git
 cd ForgeLoop
 make setup       # Install dependencies
-make check       # Type checking, architecture contracts, and behavior tests
+make check       # Full checks: type checking, contracts, all behavior tests
+make check-fast  # Quick checks; never runs mutation testing
+make check MUTATION=1  # Full checks plus full Stryker mutation (slow, opt-in)
 make build       # Compile the plugin
 make package     # Build a candidate tarball and artifact manifest
 ```
+
+`make check` does not run mutation testing by default. Set `MUTATION=1` for a one-off run, or export `FORGELOOP_MUTATION=1` on a machine that should include it in every full check; `make check-fast` and `make precommit` never run mutation. CI keeps mutation in the nightly shard matrix rather than the quick quality job.
 
 For installation, model configuration, and profile selection, follow the [deployment guide](docs/deployment.md) and [plugin guide](packages/forgeloop/README.md). `make verify-plugin` runs a real host/model smoke test, and `make verify-e2e` runs the full real-model, real-tool delivery path from a candidate tarball; both require model authentication and are described in the deployment guide.
 

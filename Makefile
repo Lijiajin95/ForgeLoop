@@ -9,6 +9,12 @@ PKG := packages/forgeloop
 NODE := node
 CONTRACTS := $(NODE) scripts/ts/contracts.ts
 
+# 变异测试是可选门禁：默认不跑，避免日常/快速检查被全量变异拖住。
+# 开启方式（任选其一）：make check MUTATION=1，或在机器上 export FORGELOOP_MUTATION=1。
+# check-fast 与 precommit 永不追加变异。
+MUTATION ?= $(FORGELOOP_MUTATION)
+MUTATION_ENABLED := $(filter 1,$(MUTATION))
+
 .PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
 	precommit verify-plugin verify-e2e package \
@@ -17,7 +23,9 @@ CONTRACTS := $(NODE) scripts/ts/contracts.ts
 
 help:
 	@echo "make hooks                 安装 pre-commit（check-static + format）"
-	@echo "make check                 类型检查 + 架构契约 + 行为测试"
+	@echo "make check                 类型检查 + 架构契约 + 全量行为测试（默认不含变异）"
+	@echo "make check MUTATION=1      全量检查后追加全量 Stryker 变异（慢，可选）"
+	@echo "make check-fast            快速检查：静态检查 + 快速用例，永不运行变异"
 	@echo "make test                  全部 TypeScript 行为测试（vitest，forks）"
 	@echo "make test-fast             快速用例（不含候选构建/完整流水线/验证/契约夹具）"
 	@echo "make test-slow             慢用例（全量 CI 使用）"
@@ -63,6 +71,10 @@ test-slow:
 	$(NPM) run test:slow --workspace forgeloop-dsh
 
 check: check-static test
+ifeq ($(MUTATION_ENABLED),1)
+	@echo "[check] MUTATION=1：追加全量变异测试（慢）"
+	$(MAKE) mutation
+endif
 
 check-fast: check-static test-fast
 
@@ -89,7 +101,7 @@ worktree-merge:
 	$(NODE) scripts/ts/worktree-merge.ts $(BRANCH)
 
 precommit:
-	$(MAKE) check
+	$(MAKE) check MUTATION=0
 
 sbom:
 	$(NODE) scripts/ts/sbom.ts && mkdir -p packages/forgeloop/dist && cp dist/sbom.cdx.json packages/forgeloop/dist/
