@@ -318,6 +318,10 @@ export interface OpsProposedAction {
   readonly params: Readonly<Record<string, string>>
 }
 
+export interface OpsProposedDeployment {
+  readonly targetId: string
+}
+
 export interface OpsDiagnosis {
   /** 面向业务用户的影响说明，不能只写技术报错。 */
   readonly impact: string
@@ -326,6 +330,8 @@ export interface OpsDiagnosis {
   /** 未证实的推断；不能当作事实或授权依据。 */
   readonly hypotheses: readonly OpsHypothesis[]
   readonly proposedAction: OpsProposedAction | null
+  /** 运维只能提议已登记的部署目标；执行由主控按 target.approval 决定，模型没有部署工具。 */
+  readonly proposedDeployment?: OpsProposedDeployment | null
   /** 模型认为需要人工决定时为 true；运行时仍按目录授权判定，模型不能自行放宽。 */
   readonly decisionRequired: boolean
   /** 即使恢复服务也需要代码修复时置 true，用于生成关联修复需求。 */
@@ -365,6 +371,16 @@ function parseHypotheses(value: unknown): OpsHypothesis[] {
   })
 }
 
+function parseProposedDeployment(value: unknown): OpsProposedDeployment | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new MalformedError('运维诊断的 proposed_deployment 必须是对象或 null')
+  }
+  const deployment = asRecord(value) ?? {}
+  const targetId = nonEmptyString(deployment.target_id, '运维诊断的 proposed_deployment.target_id')
+  return { targetId }
+}
+
 function parseProposedAction(value: unknown): OpsProposedAction | null {
   if (value === undefined || value === null) return null
   if (typeof value !== 'object' || Array.isArray(value)) {
@@ -392,6 +408,7 @@ export function parseOpsDiagnosisFields(data: Record<string, unknown>): OpsDiagn
   }
   const hypotheses = parseHypotheses(data.hypotheses)
   const proposedAction = parseProposedAction(data.proposed_action)
+  const proposedDeployment = parseProposedDeployment(data.proposed_deployment)
   if (typeof data.decision_required !== 'boolean') {
     throw new MalformedError('运维诊断缺少 decision_required 布尔值')
   }
@@ -404,6 +421,7 @@ export function parseOpsDiagnosisFields(data: Record<string, unknown>): OpsDiagn
     facts,
     hypotheses,
     proposedAction,
+    proposedDeployment,
     decisionRequired: data.decision_required,
     fixRequired,
     summary: nonEmptyString(data.summary, '运维诊断的摘要'),
@@ -430,6 +448,9 @@ export function serializeOpsDiagnosis(diagnosis: OpsDiagnosis): string {
     hypotheses: diagnosis.hypotheses,
     proposed_action: diagnosis.proposedAction
       ? { action_id: diagnosis.proposedAction.actionId, params: diagnosis.proposedAction.params }
+      : null,
+    proposed_deployment: diagnosis.proposedDeployment
+      ? { target_id: diagnosis.proposedDeployment.targetId }
       : null,
     decision_required: diagnosis.decisionRequired,
     fix_required: diagnosis.fixRequired,

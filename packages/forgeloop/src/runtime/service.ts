@@ -180,6 +180,12 @@ export class ForgeLoopRuntime {
       repo: this.repo,
       runner: this.runner,
       now: () => this.clock(),
+      proposeDeployment: (input) =>
+        this.deploymentService.request({
+          targetId: input.targetId,
+          by: 'ops-agent',
+          source: input.source,
+        }),
     })
     this.formalTest = options.formalTest ?? runFormalTest
     this.verificationChecks = new VerificationCheckRegistry({

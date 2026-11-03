@@ -121,6 +121,7 @@ export interface OpsDiagnosisPromptInput {
     readonly id: string
     readonly params: ReadonlyArray<{ readonly name: string; readonly values: readonly string[] }>
   }>
+  readonly deployments?: ReadonlyArray<{ readonly id: string; readonly requirementId: string }>
 }
 
 export function opsDiagnosisPrompt(input: OpsDiagnosisPromptInput): string {
@@ -164,6 +165,7 @@ ${actions}
   "facts": ["由检查输出或登记信息直接支持的事实"],
   "hypotheses": [{"statement": "尚未证实的推断", "confidence": "low|medium|high"}],
   "proposed_action": {"action_id": "已登记动作的 id", "params": {"参数名": "允许值"}} 或 null,
+  "proposed_deployment": {"target_id": "已登记部署目标的 id"} 或 null,
   "decision_required": true,
   "fix_required": false,
   "summary": "一句话诊断结论与建议"
@@ -173,6 +175,7 @@ ${actions}
 - facts 只写证据直接支持的内容；推断必须放进 hypotheses，不能把猜测写成事实。
 - proposed_action 只能使用上面列出的动作；参数只能取列出的允许值。没有把握、需要扩大权限或没有匹配动作时填 null，并把 decision_required 设为 true。
 - decision_required 表示是否需要所有者决定；没有把握时必须为 true，不能靠猜测放行。
+- proposed_deployment 只能从已登记的部署目标里选择（${(input.deployments ?? []).map((target) => target.id).join('、') || '当前没有可提议的目标'}）；执行由主控按授权处理，你只做提议。
 - fix_required 表示即使服务恢复也需要代码或持久修复；仅止血不等于永久修复。
 - 不要输出命令、Shell 脚本、文件修改步骤或验收结论；你只做诊断与建议。
 - 只输出 JSON。`

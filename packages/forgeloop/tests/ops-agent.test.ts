@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { resolveConfig, type ForgeLoopConfig, type RawConfig } from '../src/config.js'
@@ -57,9 +57,15 @@ function diagnosisText(
     action?: { actionId: string; params: Record<string, string> } | null
     decisionRequired?: boolean
     fixRequired?: boolean
+    deployment?: string | null
   } = {},
 ): string {
   return JSON.stringify({
+    ...(input.deployment === undefined
+      ? {}
+      : {
+          proposed_deployment: input.deployment === null ? null : { target_id: input.deployment },
+        }),
     impact: input.impact ?? '用户无法打开天工页面',
     facts: ['健康检查退出码 1', '错误信息包含 ECONNREFUSED'],
     hypotheses: [{ statement: 'Web 进程已经退出', confidence: 'medium' }],
@@ -125,7 +131,11 @@ function opsRaw(
   }
 }
 
-function makeOps(raw: RawConfig, runner: AgentLike): { ops: OpsRuntime; config: ForgeLoopConfig } {
+function makeOps(
+  raw: RawConfig,
+  runner: AgentLike,
+  proposeDeployment?: ConstructorParameters<typeof OpsRuntime>[0]['proposeDeployment'],
+): { ops: OpsRuntime; config: ForgeLoopConfig } {
   const config = resolveConfig(raw, dir)
   return {
     config,
@@ -134,6 +144,7 @@ function makeOps(raw: RawConfig, runner: AgentLike): { ops: OpsRuntime; config: 
       repo: repository,
       runner,
       now: () => clock,
+      ...(proposeDeployment ? { proposeDeployment } : {}),
     }),
   }
 }
@@ -435,5 +446,88 @@ describe('ops failure handling', () => {
     clock = new Date(clock.getTime() + 61_000)
     await ops.tick()
     expect(prompts.length).toBe(calls)
+  })
+})
+
+function deploymentRaw(overrides: { enabled?: boolean; resource?: string } = {}): RawConfig {
+  const toolDir = join(dir, '.forgeloop', 'projects', PROJECT, 'deployments', 'tools')
+  mkdirSync(toolDir, { recursive: true })
+  const toolPath = join(toolDir, 'tool.py')
+  writeFileSync(toolPath, 'print("{}")\n')
+  return {
+    ...opsRaw(),
+    deployments: {
+      enabled: overrides.enabled ?? true,
+      alerts: { webhook: 'https://example.com/deploy-hook' },
+      tools: [
+        {
+          id: 'deploy-tool',
+          kind: 'python',
+          path: toolPath,
+          capabilities: ['preflight', 'apply', 'status'],
+          timeoutSeconds: 10,
+        },
+      ],
+      targets: [
+        {
+          id: 'target',
+          toolId: 'deploy-tool',
+          requirementId: 'req-1',
+          approval: 'owner',
+          ...(overrides.resource ? { params: { resource: overrides.resource } } : {}),
+        },
+      ],
+    } as never,
+  }
+}
+
+describe('ops proposed deployment', () => {
+  it('proposes a registered target to the coordinator and records an observation', async () => {
+    const calls: Array<{ eventId: string; targetId: string; source: string }> = []
+    const { ops } = makeOps(
+      deploymentRaw(),
+      fakeRunner(diagnosisText({ action: null, decisionRequired: true, deployment: 'target' })),
+      async (input) => {
+        calls.push(input)
+        return { ok: true, code: 'ok', message: '部署 intent 等待所有者批准' }
+      },
+    )
+    writeFileSync(join(dir, 'down'), '1')
+    await ops.tick()
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.targetId).toBe('target')
+    expect(calls[0]?.source).toMatch(/^ops:/)
+    const event = ops.list()[0]!
+    const detail = ops.detail(event.eventId)!
+    expect(detail.observations.some((item) => item.kind === 'deployment')).toBe(true)
+  })
+
+  it('rejects unregistered targets, resource mismatches and disabled deployments', async () => {
+    const cases: Array<{ raw: RawConfig; deployment: string }> = [
+      { raw: deploymentRaw(), deployment: 'missing-target' },
+      { raw: deploymentRaw({ resource: 'db' }), deployment: 'target' },
+      { raw: deploymentRaw({ enabled: false }), deployment: 'target' },
+    ]
+    for (const item of cases) {
+      const calls: unknown[] = []
+      const { ops } = makeOps(
+        item.raw,
+        fakeRunner(
+          diagnosisText({ action: null, decisionRequired: true, deployment: item.deployment }),
+        ),
+        async (input) => {
+          calls.push(input)
+          return { ok: true, code: 'ok', message: '不应调用' }
+        },
+      )
+      writeFileSync(join(dir, 'down'), '1')
+      await ops.tick()
+      expect(calls).toHaveLength(0)
+      const event = ops.list()[0]!
+      const detail = ops.detail(event.eventId)!
+      expect(detail.observations.some((entry) => entry.kind === 'deployment_rejected')).toBe(true)
+      // 清理事件，避免下一轮把同一签名归并到旧事件。
+      ops.close({ eventId: event.eventId, by: 'owner', reason: 'test' })
+    }
   })
 })

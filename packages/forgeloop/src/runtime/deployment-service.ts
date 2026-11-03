@@ -44,6 +44,27 @@ export class DeploymentService {
   async request(input: { targetId: string; by: string; source: string }): Promise<OperationResult> {
     const target = this.deps.config.deployments.targets.find((item) => item.id === input.targetId)
     if (!target) return fail('not_found', `未登记部署目标：${input.targetId}`)
+    const existing = this.deps.deployments
+      .list(200)
+      .find((intent) => intent.source === input.source)
+    const openStates = [
+      'draft',
+      'awaiting_approval',
+      'ready',
+      'applying',
+      'applied_pending_verify',
+      'verifying',
+      'verified',
+      'rolling_back',
+    ]
+    if (existing && openStates.includes(existing.state)) {
+      return {
+        ok: true,
+        code: 'duplicate',
+        message: `同一来源已发起部署 ${existing.intentId}（${existing.state}）`,
+        data: { intentId: existing.intentId, state: existing.state, duplicate: true },
+      }
+    }
     const build = this.deps.repo.latestCandidateBuild(target.requirementId)
     if (!build) return fail('not_found', `目标关联需求 ${target.requirementId} 没有候选构建`)
     return this.deps.deployments.request({

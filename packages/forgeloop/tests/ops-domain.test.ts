@@ -9,6 +9,7 @@ import {
   opsSignatureOf,
   opsStats,
   parseOpsDiagnosis,
+  serializeOpsDiagnosis,
   parseOpsInterruptionReport,
   recoveryPassed,
   validateOpsCatalog,
@@ -66,6 +67,7 @@ function diagnosis(overrides: Partial<OpsDiagnosis> = {}): OpsDiagnosis {
     facts: ['健康检查退出码 1'],
     hypotheses: [{ statement: '进程已退出', confidence: 'medium' }],
     proposedAction: { actionId: 'restart-web', params: { mode: 'graceful' } },
+    proposedDeployment: null,
     decisionRequired: false,
     fixRequired: false,
     summary: '先重启进程恢复服务',
@@ -196,6 +198,48 @@ describe('ops diagnosis parsing', () => {
       }),
     )
     expect(parsed).toEqual(diagnosis({ fixRequired: true }))
+  })
+
+  it('parses a registered deployment proposal and round-trips it', () => {
+    const text = JSON.stringify({
+      impact: '用户无法打开天工页',
+      facts: [],
+      hypotheses: [],
+      proposed_action: null,
+      proposed_deployment: { target_id: 'forgeloop-web' },
+      decision_required: true,
+      fix_required: false,
+      summary: '重启后提议部署回退版本',
+    })
+    const parsed = parseOpsDiagnosis(text)
+    expect(parsed.proposedDeployment).toEqual({ targetId: 'forgeloop-web' })
+    expect(parseOpsDiagnosis(serializeOpsDiagnosis(parsed))).toEqual(parsed)
+    expect(() =>
+      parseOpsDiagnosis(
+        JSON.stringify({
+          impact: 'x',
+          facts: [],
+          hypotheses: [],
+          proposed_action: null,
+          proposed_deployment: { target_id: '' },
+          decision_required: true,
+          summary: 'x',
+        }),
+      ),
+    ).toThrow('target_id')
+    expect(() =>
+      parseOpsDiagnosis(
+        JSON.stringify({
+          impact: 'x',
+          facts: [],
+          hypotheses: [],
+          proposed_action: null,
+          proposed_deployment: 'web',
+          decision_required: true,
+          summary: 'x',
+        }),
+      ),
+    ).toThrow('proposed_deployment')
   })
 
   it('accepts no proposed action and rejects malformed structures', () => {

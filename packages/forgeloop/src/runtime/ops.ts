@@ -72,6 +72,12 @@ export interface OpsRuntimeOptions {
   readonly repo: Repository
   readonly runner: OpsRunner
   readonly now: () => Date
+  /** 运维诊断只提议 target id；部署执行由主控完成，模型没有执行入口。 */
+  readonly proposeDeployment?: (input: {
+    eventId: string
+    targetId: string
+    source: string
+  }) => Promise<OpsResult>
 }
 
 export interface OpsResult {
@@ -396,6 +402,7 @@ export class OpsRuntime {
   private readonly repo: Repository
   private readonly runner: OpsRunner
   private readonly clock: () => Date
+  private readonly proposeDeployment: OpsRuntimeOptions['proposeDeployment']
   private readonly monitor: OpsMonitor
   private ticking = false
 
@@ -404,6 +411,7 @@ export class OpsRuntime {
     this.repo = options.repo
     this.runner = options.runner
     this.clock = options.now
+    this.proposeDeployment = options.proposeDeployment
     this.monitor = new OpsMonitor({
       config: options.config,
       repo: options.repo,
@@ -667,6 +675,66 @@ export class OpsRuntime {
     }
   }
 
+  /**
+   * 运维提议部署：只接受已登记 target；资源匹配以 target.params.resource 为准（未声明则不限制）。
+   * 是否自动执行由 target.approval 决定，执行走 DeploymentService 的门禁与证据；
+   * 这里只记录一条观测，不把模型输出当成授权。
+   */
+  private async applyProposedDeployment(
+    event: OpsEventRecord,
+    diagnosis: OpsDiagnosis,
+  ): Promise<void> {
+    const proposed = diagnosis.proposedDeployment
+    if (!proposed) return
+    const source = `ops:${event.eventId}`
+    const reject = (reason: string): void => {
+      this.repo.appendOpsObservation({
+        eventId: event.eventId,
+        at: this.isoNow(),
+        kind: 'deployment_rejected',
+        summary: reason,
+        detailJson: JSON.stringify({ targetId: proposed.targetId, source }),
+      })
+    }
+    if (!this.config.deployments.enabled) {
+      reject('部署未启用，忽略诊断中的 proposed_deployment')
+      return
+    }
+    const target = this.config.deployments.targets.find((item) => item.id === proposed.targetId)
+    if (!target) {
+      reject(`运维诊断提议了未登记的部署目标：${proposed.targetId}`)
+      return
+    }
+    const resourceParam = target.params.resource
+    if (resourceParam !== undefined && resourceParam !== event.resourceId) {
+      reject(
+        `部署目标 ${target.id} 属于资源 ${resourceParam}，与事件资源 ${event.resourceId} 不匹配`,
+      )
+      return
+    }
+    if (!this.proposeDeployment) {
+      reject('运行环境没有接入部署协调器')
+      return
+    }
+    const result = await this.proposeDeployment({
+      eventId: event.eventId,
+      targetId: target.id,
+      source,
+    })
+    this.repo.appendOpsObservation({
+      eventId: event.eventId,
+      at: this.isoNow(),
+      kind: result.ok ? 'deployment' : 'deployment_failed',
+      summary: result.message,
+      detailJson: JSON.stringify({
+        targetId: target.id,
+        source,
+        code: result.code,
+        data: result.data ?? null,
+      }),
+    })
+  }
+
   private diagnosisBlocked(event: OpsEventRecord, attempts: number, now: string): boolean {
     if (attempts >= MAX_DIAGNOSIS_ATTEMPTS) {
       this.escalateDiagnosis(
@@ -735,6 +803,14 @@ export class OpsRuntime {
           id: action.id,
           params: action.params.map((param) => ({ name: param.name, values: param.values })),
         })),
+      deployments: this.config.deployments.enabled
+        ? this.config.deployments.targets
+            .filter((target) => {
+              const resource = target.params.resource
+              return resource === undefined || resource === event.resourceId
+            })
+            .map((target) => ({ id: target.id, requirementId: target.requirementId }))
+        : [],
     })
   }
 
@@ -956,6 +1032,8 @@ export class OpsRuntime {
       }),
       evidencePath: diagnosisPath,
     })
+
+    await this.applyProposedDeployment(event, diagnosis)
 
     if (!action || !proposed) {
       this.repo.updateOpsEvent(event.eventId, {
