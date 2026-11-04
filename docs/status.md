@@ -4983,15 +4983,15 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 ### 131.3 M0 自检（截至本次记录）
 
-| 编号 | 结论             | 证据与说明                                                                                                                                                                                                                        |
-| ---- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`（隔离 `DSH_HOME` 与 `FORGELOOP_CONFIG`）；owner 授权、门禁与停止语义见 `docs/deployment-interface.md`/`docs/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                 |
-| M0-2 | 达成 | 真实需求 `req-20261031080821-f940b9`（owner 经 `dsh-session:` 提交，原始输入见 `requirement_versions`）；生产库 records 为只读证据；新部署接口用该需求的真实制品在隔离副本中再次部署（见 §131.2 真实制品 leg）。 |
-| M0-3 | 达成 | 同一需求在生产完成研发→独立验证（pass）→受控提交 `9b3b9c840a69`→构建 `f3eeee74…`→部署（`requirement_deployments` `verified`，7 项检查）；新部署接口在隔离副本中使用同一制品安装到隔离 DSH profile，完成 intent→门禁→owner→apply→status。生产记录见 `~/.forgeloop/production/projects/forgeloop/records.sqlite` 与 §53。 |
-| M0-4 | 达成             | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。                                                                                                     |
-| M0-5 | 达成 | §131.4 单列会话、模型、墙钟时间与费用口径（未知）；真实模型 leg 的 401 尝试亦记录。 |
-| M0-6 | 达成（隔离环境） | `s1-rollout.json`/`s3-rollout.json` 含 intent 与逐次 attempt；`s2-event.json` 含修复需求关联；`forgeloop_rollouts` 与 board `deployments/deployment` 只读可查；限额失败留下 blockedReason。证据目录未接入页面入口，属展示层缺口。 |
-| M0-7 | 达成             | §131.2 的停止（blocked→显式恢复→committed）与正数限额（1 次验证上限→blocked、无提交）均为脚本化本机实测；跨请求问题单重试不受该上限约束，已在记录中写明。                                                                         |
+| 编号 | 结论             | 证据与说明                                                                                                                                                                                                                                                                                                              |
+| ---- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`（隔离 `DSH_HOME` 与 `FORGELOOP_CONFIG`）；owner 授权、门禁与停止语义见 `docs/deployment-interface.md`/`docs/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                                                              |
+| M0-2 | 达成             | 真实需求 `req-20261031080821-f940b9`（owner 经 `dsh-session:` 提交，原始输入见 `requirement_versions`）；生产库 records 为只读证据；新部署接口用该需求的真实制品在隔离副本中再次部署（见 §131.2 真实制品 leg）。                                                                                                        |
+| M0-3 | 达成             | 同一需求在生产完成研发→独立验证（pass）→受控提交 `9b3b9c840a69`→构建 `f3eeee74…`→部署（`requirement_deployments` `verified`，7 项检查）；新部署接口在隔离副本中使用同一制品安装到隔离 DSH profile，完成 intent→门禁→owner→apply→status。生产记录见 `~/.forgeloop/production/projects/forgeloop/records.sqlite` 与 §53。 |
+| M0-4 | 达成             | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。                                                                                                                                                                                           |
+| M0-5 | 达成             | §131.4 单列会话、模型、墙钟时间与费用口径（未知）；真实模型 leg 的 401 尝试亦记录。                                                                                                                                                                                                                                     |
+| M0-6 | 达成（隔离环境） | `s1-rollout.json`/`s3-rollout.json` 含 intent 与逐次 attempt；`s2-event.json` 含修复需求关联；`forgeloop_rollouts` 与 board `deployments/deployment` 只读可查；限额失败留下 blockedReason。证据目录未接入页面入口，属展示层缺口。                                                                                       |
+| M0-7 | 达成             | §131.2 的停止（blocked→显式恢复→committed）与正数限额（1 次验证上限→blocked、无提交）均为脚本化本机实测；跨请求问题单重试不受该上限约束，已在记录中写明。                                                                                                                                                               |
 
 **M0 总体：本机隔离受控环境内达成。** 边界：S2/S3 的诊断/研发由脚本化 Agent 驱动（真实进程故障、
 真实部署工具与命令）；真实制品 leg 使用生产记录副本与脚本化 owner 入口，未改生产；新的真实模型
@@ -5054,10 +5054,15 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
   `monitor.ts` 21.64% → **26.58%**（97/365，noCoverage 仍 149；进程采集/告警/延迟分支未覆盖）。
 - `requirement.ts` **88.26%**；问题单组 87.10%、verification 83.12%、reliability 83.36%、domain-misc 86.36%。
 
-### 132.3 未完成
+### 132.3 未完成与 CI 可行性
 
-- 全量配置下的全局得分尚未收口：还需要补 runtime 断言（service/ops/advance/execution/board-route
-  等仍低于 80%），目标 80%、当前按分片估算约 68–70%；最终必须用 14 分片合并报告验证。
+- 非 runtime 分片实测已高于 80%（domain-1 88.17%、session 82.49%、records 76.01%）；runtime 仍低：
+  verification-1 70.78%、ops-2 53.55%、service 快速配置 45.89%。全局按分片估算约 71–73%，
+  距 80% 还差约 1,500–2,000 个有效 kill，集中在 runtime 执行逻辑。
+- 全量测试配置下 runtime 分片在 2 并发时预计 execution-1 ~4h16m、verification-2 ~3h30m、
+  execution-2 ~2h09m；14 分片在 nightly 240 分钟/作业约束下不可行，需拆到 30+ 分片或改为
+  快速测试 + 大量行为断言。
+- 结论：基础设施（全量测试配置、14 分片、快照/定向测试）已落地并提升约 1,100 个 kill；
+  达到 80% 仍需数十个 runtime 行为测试文件与 CI 分片/预算调整，需所有者决定投入规模。
 - config/repository/candidate 的定向结果尚未单独复跑；`monitor.ts` 需要不依赖宿主进程表的测试。
 - 未下调 break、未排除业务源码、未把未完成写成通过。
-
