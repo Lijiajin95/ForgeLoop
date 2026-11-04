@@ -44,7 +44,7 @@ help:
 	@echo "make format                检查 Prettier 格式（make format-write 写入）"
 	@echo "make coverage              vitest 覆盖率（阈值在 vitest.config.ts，逐文件检查）"
 	@echo "make mutation              全量 Stryker 变异测试（所有源码，慢；全量 CI 用分片）"
-	@echo "make mutation-shard SHARD=... 只变异一个模块分片（domain/records/runtime-*/session/...）"
+	@echo "make mutation-shard SHARD=... 只变异一个模块分片（domain-1/records/runtime-ops-1/session/...）"
 	@echo "make mutation-merge        合并分片报告，校验全部源码都已被变异"
 	@echo "make reliability-report    运行全部门禁并生成代码可靠性快照（含变异，慢）"
 	@echo "make reliability-report-fast 同上但跳过变异测试，快照记录 not_run"

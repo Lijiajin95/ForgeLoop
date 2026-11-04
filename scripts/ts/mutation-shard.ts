@@ -6,7 +6,7 @@
  *   node scripts/ts/mutation-shard.ts domain
  *   node scripts/ts/mutation-shard.ts all
  *
- * 分片只决定本次要变异哪些文件；测试仍使用 vitest.fast.config.ts。
+ * 分片只决定本次要变异哪些文件；runtime 分片用全量测试配置，其余用快速配置（均排除 monitor）。
  * 先校验所有源码都恰好属于一个 shard，避免新增文件悄悄漏出变异范围。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
@@ -54,12 +54,43 @@ const runtimeExecution = runtime.filter(
   (file) => !runtimeVerification.includes(file) && !runtimeOps.includes(file),
 )
 
+/**
+ * 变异要跑全量测试；runtime 流水线的慢用例会让单个分片耗时过长。
+ * 按源码字节数做确定性均分，保证每个 CI 作业都能在超时内跑完；
+ * 分支名带序号，合并脚本仍按源码去重校验。
+ */
+function splitShard(files: string[], parts: number, prefix: string): Record<string, string[]> {
+  const buckets: string[][] = Array.from({ length: parts }, () => [])
+  const weights = buckets.map(() => 0)
+  const ordered = [...files].sort(
+    (left, right) =>
+      statSync(join(PKG, right)).size - statSync(join(PKG, left)).size || left.localeCompare(right),
+  )
+  for (const file of ordered) {
+    let target = 0
+    for (let index = 1; index < parts; index += 1) {
+      if (weights[index]! < weights[target]!) target = index
+    }
+    buckets[target]!.push(file)
+    weights[target]! += statSync(join(PKG, file)).size
+  }
+  const result: Record<string, string[]> = {}
+  buckets.forEach((bucket, index) => {
+    result[`${prefix}-${index + 1}`] = bucket.sort()
+  })
+  return result
+}
+
 const shards: Record<string, string[]> = {
-  domain: all.filter((file) => file.startsWith('src/domain/')),
+  ...splitShard(
+    all.filter((file) => file.startsWith('src/domain/')),
+    2,
+    'domain',
+  ),
   records: all.filter((file) => file.startsWith('src/records/')),
-  'runtime-execution': runtimeExecution,
-  'runtime-verification': runtimeVerification,
-  'runtime-ops': runtimeOps,
+  ...splitShard(runtimeExecution, 2, 'runtime-execution'),
+  ...splitShard(runtimeVerification, 2, 'runtime-verification'),
+  ...splitShard(runtimeOps, 4, 'runtime-ops'),
   session: all.filter((file) => file.startsWith('src/session/') || file === 'src/tools.ts'),
   'config-agents': all.filter((file) => file === 'src/config.ts' || file.startsWith('src/agents/')),
   entry: all.filter((file) => file === 'src/index.ts' || file.startsWith('src/cli/')),
@@ -120,12 +151,17 @@ const base = JSON.parse(readFileSync(join(PKG, 'stryker.config.json'), 'utf8')) 
   thresholds?: Record<string, number>
   [key: string]: unknown
 }
+// runtime 分片的行为断言在慢用例里，必须跑全量测试；其余分片用快速配置。
+const vitestConfig = requested.startsWith('runtime-')
+  ? 'vitest.mutation.config.ts'
+  : 'vitest.mutation-fast.config.ts'
 const configPath = join(reportsDir, `stryker-shard-${requested}.json`)
 writeFileSync(
   configPath,
   `${JSON.stringify(
     {
       ...base,
+      vitest: { configFile: vitestConfig },
       mutate: files,
       incrementalFile: `reports/mutation-incremental-${requested}.json`,
       thresholds: { ...base.thresholds, break: 0 },

@@ -73,16 +73,23 @@ jobs:
 
   mutation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # 变异使用全量测试（慢用例覆盖 runtime 流水线），单分片按源码大小切分到 14 个作业。
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         shard:
-          - domain
+          - domain-1
+          - domain-2
           - records
-          - runtime-execution
-          - runtime-verification
-          - runtime-ops
+          - runtime-execution-1
+          - runtime-execution-2
+          - runtime-verification-1
+          - runtime-verification-2
+          - runtime-ops-1
+          - runtime-ops-2
+          - runtime-ops-3
+          - runtime-ops-4
           - session
           - config-agents
           - entry
