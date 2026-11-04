@@ -217,7 +217,16 @@ export function parseJsonLoose(text: string, what: string): unknown {
   const candidate = fenced?.[1]?.trim() ?? text.trim()
   const start = candidate.indexOf('{')
   const end = candidate.lastIndexOf('}')
-  const body = start >= 0 && end > start ? candidate.slice(start, end + 1) : candidate
+  // 模型也可能只返回数组（例如验证命令清单）。数组载荷按方括号取整体，
+  // 不能套用对象的花括号切片，否则 [{...}] 会被切成单个对象而丢掉数组语义。
+  const arrayStart = candidate.indexOf('[')
+  const arrayEnd = candidate.lastIndexOf(']')
+  const body =
+    candidate.startsWith('[') && arrayStart >= 0 && arrayEnd > arrayStart
+      ? candidate.slice(arrayStart, arrayEnd + 1)
+      : start >= 0 && end > start
+        ? candidate.slice(start, end + 1)
+        : candidate
   try {
     return JSON.parse(body)
   } catch (error) {
