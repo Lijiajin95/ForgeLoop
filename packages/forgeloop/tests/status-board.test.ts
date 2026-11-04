@@ -1118,3 +1118,17 @@ describe('failed request issue dedupe', () => {
     expect(issues).toHaveLength(2)
   })
 })
+
+it('keeps a fully populated board payload stable', () => {
+  const reqId = submit('req-snapshot')
+  analyze(reqId, [])
+  repository.recordTaskPlan(plan(reqId))
+  seedPlanReview(reqId)
+  repository.recordFailureRound(reqId, {
+    roundId: 'round-snapshot',
+    stage: 'formal_test',
+    summary: '正式测试退出码 1',
+    occurredAt: NOW,
+  })
+  expect(board()).toMatchSnapshot()
+})

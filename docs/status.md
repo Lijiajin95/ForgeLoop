@@ -5040,8 +5040,18 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
   requirement +55（88.26%）；config/repository/candidate 的定向结果待复核。
 - 未下调 break、未排除业务源码；reports 目录仍不入库。
 
-### 132.2 未完成
+### 132.2 定向实测（2026-11-05，fast/全量配置按分片）
 
-- 全量配置下的全局得分尚未收口：runtime-ops 分片仍在跑（实测中段约 67%），其余分片未逐一重跑；
-  目标仍是 ≥80%，当前估算约 70%，需要继续补 runtime 断言并最终用 14 分片合并报告验证。
+- `prompts.ts` 51.42% → **83.27%**（418/494；完整提示词快照）；`tools.ts` 53.48% → **89.08%**
+  （473/531；工具 schema 快照）；`board.ts` 64% → **70.39%**（637/905；看板 payload 快照）。
+- `runtime-verification-1` 全量配置 **70.78%**（1,507/2,130）；`runtime-ops-2` 全量配置 **53.55%**
+  （1,042/1,946；其中 `ops.ts` 56.21%、`monitor.ts` 21.64%，monitor 用例仍因宿主 `ps` 被排除）。
+- `requirement.ts` **88.26%**；问题单组 87.10%、verification 83.12%、reliability 83.36%、domain-misc 86.36%。
+
+### 132.3 未完成
+
+- 全量配置下的全局得分尚未收口：还需要补 runtime 断言（service/ops/advance/execution/board-route
+  等仍低于 80%），目标 80%、当前按分片估算约 68–70%；最终必须用 14 分片合并报告验证。
+- config/repository/candidate 的定向结果尚未单独复跑；`monitor.ts` 需要不依赖宿主进程表的测试。
+- 未下调 break、未排除业务源码、未把未完成写成通过。
 

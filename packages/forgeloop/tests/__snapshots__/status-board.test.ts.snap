@@ -1,0 +1,134 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps a fully populated board payload stable 1`] = `
+{
+  "autonomy": {
+    "ops": {
+      "autonomousSuccess": 0,
+      "autonomousSuccessRate": {
+        "denominator": 0,
+        "numerator": 0,
+        "rate": null,
+      },
+      "humanInvolved": 0,
+      "involvementRate": {
+        "denominator": 0,
+        "numerator": 0,
+        "rate": null,
+      },
+      "total": 0,
+    },
+    "requirements": {
+      "autonomousSuccess": 0,
+      "autonomousSuccessRate": {
+        "denominator": 1,
+        "numerator": 0,
+        "rate": 0,
+      },
+      "humanInvolved": 0,
+      "involvementRate": {
+        "denominator": 1,
+        "numerator": 0,
+        "rate": 0,
+      },
+      "total": 1,
+    },
+  },
+  "generatedAt": "2026-10-23T10:00:00.000Z",
+  "issues": [
+    {
+      "createdAt": "2026-10-23T10:00:00.000Z",
+      "detail": "失败轮次 1，额度剩余 2；额度未尽时按规则自动重试",
+      "issueId": "failure:req-snapshot:round-snapshot",
+      "kind": "failure_round",
+      "reqId": "req-snapshot",
+      "severity": "attention",
+      "title": "正式测试退出码 1",
+    },
+  ],
+  "limit": 20,
+  "project": "forgeloop",
+  "query": "",
+  "requirements": [
+    {
+      "actions": [
+        "cancel",
+      ],
+      "activeRequest": false,
+      "approval": "missing",
+      "businessReview": null,
+      "candidate": null,
+      "clarifications": 0,
+      "deployment": null,
+      "failureRounds": 1,
+      "grants": 1,
+      "planReview": {
+        "blocking": [],
+        "reviewedAt": "2026-10-23T10:00:00.000Z",
+        "summary": "任务包可进入实现",
+        "verdict": "pass",
+      },
+      "planVersion": 1,
+      "progress": {
+        "awaitingInput": 0,
+        "awaitingUser": 0,
+        "blocked": 0,
+        "delivered": 0,
+        "failed": 0,
+        "pending": 2,
+        "running": 0,
+        "total": 2,
+      },
+      "remainingRounds": 2,
+      "reqId": "req-snapshot",
+      "retry": {
+        "allowed": false,
+        "reason": "需求状态 draft 不能重新执行",
+      },
+      "source": "test",
+      "status": "draft",
+      "stopRequested": false,
+      "submittedBy": "owner",
+      "title": "状态看板",
+      "updatedAt": "2026-10-23T00:00:00.000Z",
+      "verification": null,
+      "version": 1,
+    },
+  ],
+  "summary": {
+    "active": 1,
+    "blocking": 0,
+    "delivered": 0,
+    "issues": 1,
+    "requirements": 1,
+    "tasks": 2,
+  },
+  "tasks": [
+    {
+      "dependsOn": [],
+      "failureAdvice": null,
+      "failureReason": "",
+      "goal": "写文档",
+      "lastActivity": "",
+      "planVersion": 1,
+      "reqId": "req-snapshot",
+      "state": "pending",
+      "taskId": "t1",
+    },
+    {
+      "dependsOn": [
+        "t1",
+      ],
+      "failureAdvice": null,
+      "failureReason": "",
+      "goal": "补测试",
+      "lastActivity": "",
+      "planVersion": 1,
+      "reqId": "req-snapshot",
+      "state": "pending",
+      "taskId": "t2",
+    },
+  ],
+  "truncated": false,
+}
+`;

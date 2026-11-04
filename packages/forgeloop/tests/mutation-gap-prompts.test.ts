@@ -3,12 +3,21 @@ import type { Requirement } from '../src/domain/requirement.js'
 import type { ProjectFacts, ProjectRequirementFact } from '../src/runtime/board.js'
 import {
   analysisPrompt,
+  businessReviewPrompt,
+  devPlanningPrompt,
+  devPrompt,
+  devSessionSummaryPrompt,
   monitorPrompt,
   opsDiagnosisPrompt,
   opsInterruptionPrompt,
+  orchestratorPrompt,
   parseReviewVerdict,
+  planReviewPrompt,
   projectFactsContext,
   requirementContext,
+  reviewPrompt,
+  verificationExecutionPrompt,
+  verificationPrompt,
 } from '../src/runtime/prompts.js'
 
 function requirement(versions = 2): Requirement {
@@ -373,5 +382,139 @@ describe('prompt snapshots', () => {
         actions: [{ id: 'restart', resourceId: 'res-1', params: [] }],
       }),
     ).toMatchSnapshot('monitor')
+  })
+})
+
+describe('remaining prompt snapshots', () => {
+  const analysis = {
+    analysisVersion: 1,
+    requirementVersion: 1,
+    inputKind: 'requirement' as const,
+    goal: '目标',
+    scenarios: ['场景'],
+    businessRules: ['规则'],
+    exceptions: ['异常'],
+    nonGoals: ['非目标'],
+    acceptanceCriteria: ['标准'],
+    clarifications: [],
+    createdAt: '2026-11-04T00:00:00.000Z',
+  }
+  const task = {
+    taskId: 't1',
+    goal: '做一件事',
+    files: ['packages/forgeloop/src/a.ts'],
+    acceptance: '验收',
+    testCommand: ['npm', 'test'],
+    dependsOn: [],
+  }
+  const plan = {
+    taskPlanId: 'plan-1',
+    requirementId: 'req-1',
+    project: 'demo',
+    planVersion: 1,
+    requirementVersion: 1,
+    tasks: [task, { ...task, taskId: 't2', dependsOn: ['t1'], files: [] }],
+    technicalSolution: { summary: '方案', approach: ['步骤'], risks: [] },
+    createdAt: '2026-11-04T00:00:00.000Z',
+  }
+  const planReview = {
+    verdict: 'pass' as const,
+    blocking: [],
+    findings: ['发现'],
+    summary: '结论',
+    verificationPlan: [
+      { scenario: '场景', acceptanceCriterion: '标准', method: '方法', required: true },
+    ],
+  }
+  const verificationPlan = {
+    scenarios: [
+      {
+        scenario: '场景',
+        acceptanceCriterion: '标准',
+        method: '方法',
+        required: true,
+        checks: [{ label: 'check', argv: ['node', '-e', 'exit 0'], expectedOutput: 'ok' }],
+      },
+    ],
+  }
+
+  it('keeps planning, review, dev, orchestration and execution prompts stable', () => {
+    expect(devPlanningPrompt(requirement(1), analysis, { tools: 'read' })).toMatchSnapshot(
+      'dev-planning-read',
+    )
+    expect(devPlanningPrompt(requirement(1), analysis)).toMatchSnapshot('dev-planning-none')
+    expect(planReviewPrompt({ requirement: requirement(1), analysis, plan })).toMatchSnapshot(
+      'plan-review',
+    )
+    expect(
+      verificationPrompt({
+        requirement: requirement(1),
+        analysis,
+        plan,
+        planReview,
+        candidateSha256: 'c'.repeat(64),
+        workspaceSha256: 'w'.repeat(64),
+        workspacePath: '/tmp/ws',
+        diff: 'diff --git a/x b/x',
+      }),
+    ).toMatchSnapshot('verification')
+    expect(
+      devPrompt({ requirement: requirement(1), plan, task: task as never, workdir: '/tmp/ws' }),
+    ).toMatchSnapshot('dev')
+    expect(
+      orchestratorPrompt({ requirement: requirement(1), analysis, sessions: [] }),
+    ).toMatchSnapshot('orchestrator-empty')
+    expect(
+      orchestratorPrompt({
+        requirement: requirement(1),
+        analysis,
+        sessions: [
+          {
+            sessionId: 's1',
+            workspace: '/tmp/ws',
+            state: 'busy',
+            lastReqId: 'req-0',
+            updatedAt: '2026-11-04T00:00:00.000Z',
+            summary: '总结',
+          },
+        ],
+      }),
+    ).toMatchSnapshot('orchestrator-session')
+    expect(
+      devSessionSummaryPrompt({ requirement: requirement(1), plan: null, outcome: '完成' }),
+    ).toMatchSnapshot('dev-summary-empty')
+    expect(
+      devSessionSummaryPrompt({
+        requirement: requirement(1),
+        plan: plan as never,
+        outcome: '完成',
+      }),
+    ).toMatchSnapshot('dev-summary-plan')
+    expect(
+      reviewPrompt({
+        requirement: requirement(1),
+        plan: plan as never,
+        task: task as never,
+        diff: 'diff',
+        changedFiles: [],
+        diffPath: '/tmp/diff',
+      }),
+    ).toMatchSnapshot('review')
+    expect(
+      verificationExecutionPrompt({
+        reqId: 'req-1',
+        candidateSha256: 'c'.repeat(64),
+        plan: verificationPlan,
+      }),
+    ).toMatchSnapshot('verification-execution')
+    expect(
+      businessReviewPrompt({
+        requirement: requirement(1),
+        analysis,
+        plan: plan as never,
+        candidateSha256: 'c'.repeat(64),
+        commands: [],
+      }),
+    ).toMatchSnapshot('business-review')
   })
 })
