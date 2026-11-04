@@ -5049,6 +5049,7 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
 - `domain/task-plan.ts` 75.95% → **97.77%**（433/449）；`domain/ops.ts` 77.43% → **84.41%**（417/494）。
 - 分片实测：`session` **82.49%**（tools 89.08%）、`domain-1` **88.17%**（2,077/2,366）、
   `records` **76.01%**（1,103/1,455）；非 runtime 合计已明显高于 80%。
+- `runtime/formal-test.ts` 62.68% → **64.79%**（92/163；注入子进程覆盖超时/中止/输出捕获）。
 - `runtime/ops.ts` 56.21% → **57.06%**（670/1,183；视图快照只覆盖少量字符串）；`board-route.ts` **61.43%**；
   `monitor.ts` 21.64% → **26.58%**（97/365，noCoverage 仍 149；进程采集/告警/延迟分支未覆盖）。
 - `requirement.ts` **88.26%**；问题单组 87.10%、verification 83.12%、reliability 83.36%、domain-misc 86.36%。
