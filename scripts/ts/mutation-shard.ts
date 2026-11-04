@@ -162,6 +162,7 @@ writeFileSync(
     {
       ...base,
       vitest: { configFile: vitestConfig },
+      jsonReporter: { fileName: `reports/mutation-${requested}.json` },
       mutate: files,
       incrementalFile: `reports/mutation-incremental-${requested}.json`,
       thresholds: { ...base.thresholds, break: 0 },

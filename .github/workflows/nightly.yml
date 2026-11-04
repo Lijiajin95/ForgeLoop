@@ -106,9 +106,6 @@ jobs:
       - run: make mutation-shard SHARD=${{ matrix.shard }}
         env:
           STRYKER_CONCURRENCY: "4"
-      - name: Rename mutation report
-        if: always()
-        run: mv packages/forgeloop/reports/mutation.json packages/forgeloop/reports/mutation-${{ matrix.shard }}.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
