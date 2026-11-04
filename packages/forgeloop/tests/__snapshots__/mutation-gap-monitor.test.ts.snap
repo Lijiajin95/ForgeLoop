@@ -1,0 +1,48 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`monitor snapshot collection > keeps the snapshot shape stable without process probes 1`] = `
+{
+  "alertFiles": [],
+  "alerts": [],
+  "at": "TIME",
+  "checks": [],
+  "errors": [],
+  "events": [],
+  "host": {
+    "cpuCount": "N",
+    "cpuPercent": "N",
+    "load1": "N",
+    "load15": "N",
+    "load5": "N",
+    "memoryFreeBytes": "N",
+    "memoryTotalBytes": "N",
+    "memoryUsedPercent": "N",
+    "uptimeSeconds": "N",
+  },
+  "latency": [],
+  "logs": [
+    {
+      "error": "",
+      "id": "app-log",
+      "lines": 2,
+      "matches": 0,
+      "path": "DIR/app.log",
+      "resourceId": "web",
+      "samples": [],
+      "tail": [
+        "line one",
+        "line two",
+      ],
+    },
+  ],
+  "processes": [],
+  "project": "demo",
+  "providers": [
+    {
+      "id": "builtin",
+      "kind": "builtin",
+      "version": "ops-provider-v1",
+    },
+  ],
+}
+`;

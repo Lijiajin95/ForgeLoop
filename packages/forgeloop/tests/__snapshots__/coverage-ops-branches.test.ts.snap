@@ -1,0 +1,230 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps ops list, detail, stats and summary payloads stable 1`] = `
+[
+  {
+    "checkId": "web-health",
+    "closedAt": "",
+    "decision": "",
+    "diagnosis": null,
+    "eventId": "ops-branch-1",
+    "fixRequirementId": "",
+    "humanInvolved": false,
+    "impact": "",
+    "lastObservation": "",
+    "openedAt": "2026-11-03T10:00:00.000Z",
+    "recoveredAt": "",
+    "resourceId": "web",
+    "resourceKind": "app",
+    "resourceLabel": "页面",
+    "severity": "minor",
+    "state": "open",
+    "title": "人工事件",
+    "updatedAt": "2026-11-03T10:00:00.000Z",
+  },
+  {
+    "checkId": "web-health",
+    "closedAt": "",
+    "decision": "approved",
+    "diagnosis": {
+      "decisionRequired": false,
+      "facts": [
+        "检查退出码 1",
+      ],
+      "fixRequired": false,
+      "hypotheses": [
+        {
+          "confidence": "medium",
+          "statement": "进程退出",
+        },
+      ],
+      "impact": "页面不可用",
+      "proposedAction": {
+        "actionId": "restart-web",
+        "params": {},
+      },
+      "proposedDeployment": null,
+      "summary": "重启后复核",
+    },
+    "eventId": "ops-branch-2",
+    "fixRequirementId": "",
+    "humanInvolved": false,
+    "impact": "",
+    "lastObservation": "",
+    "openedAt": "2026-11-03T10:00:00.000Z",
+    "recoveredAt": "",
+    "resourceId": "web",
+    "resourceKind": "app",
+    "resourceLabel": "页面",
+    "severity": "critical",
+    "state": "awaiting_decision",
+    "title": "人工事件",
+    "updatedAt": "2026-11-03T10:00:00.000Z",
+  },
+]
+`;
+
+exports[`keeps ops list, detail, stats and summary payloads stable 2`] = `
+{
+  "actions": [
+    {
+      "auto": true,
+      "command": [
+        "node",
+        "-e",
+        "process.exit(0)",
+      ],
+      "id": "restart-web",
+      "params": [],
+      "resourceId": "web",
+      "timeoutSeconds": 10,
+      "verifyCheckId": "web-health",
+    },
+    {
+      "auto": false,
+      "command": [
+        "node",
+        "-e",
+        "process.exit(0)",
+      ],
+      "id": "manual-web",
+      "params": [],
+      "resourceId": "web",
+      "timeoutSeconds": 10,
+      "verifyCheckId": "web-health",
+    },
+  ],
+  "attempts": [],
+  "check": {
+    "command": [
+      "node",
+      "-e",
+      "process.exit(0)",
+    ],
+    "id": "web-health",
+    "resourceId": "web",
+    "severity": "major",
+    "timeoutSeconds": 10,
+  },
+  "diagnosis": {
+    "decisionRequired": false,
+    "facts": [
+      "检查退出码 1",
+    ],
+    "fixRequired": false,
+    "hypotheses": [
+      {
+        "confidence": "medium",
+        "statement": "进程退出",
+      },
+    ],
+    "impact": "页面不可用",
+    "proposedAction": {
+      "actionId": "restart-web",
+      "params": {},
+    },
+    "proposedDeployment": null,
+    "summary": "重启后复核",
+  },
+  "event": {
+    "checkId": "web-health",
+    "closedAt": "",
+    "decision": "approved",
+    "decisionAt": "",
+    "decisionBy": "owner",
+    "decisionSource": "cli",
+    "diagnosisJson": "{"impact":"页面不可用","facts":["检查退出码 1"],"hypotheses":[{"statement":"进程退出","confidence":"medium"}],"proposed_action":{"action_id":"restart-web","params":{}},"decision_required":false,"fix_required":false,"summary":"重启后复核"}",
+    "diagnosisPath": "",
+    "diagnosisSession": "",
+    "eventId": "ops-branch-2",
+    "fixRequirementId": "",
+    "humanInvolved": false,
+    "humanReason": "",
+    "impact": "",
+    "openedAt": "2026-11-03T10:00:00.000Z",
+    "project": "forgeloop",
+    "recoveredAt": "",
+    "resourceId": "web",
+    "severity": "critical",
+    "signature": "signature-ops-branch-2",
+    "state": "awaiting_decision",
+    "title": "人工事件",
+    "updatedAt": "2026-11-03T10:00:00.000Z",
+  },
+  "observations": [],
+  "resource": {
+    "id": "web",
+    "kind": "app",
+    "label": "页面",
+  },
+}
+`;
+
+exports[`keeps ops list, detail, stats and summary payloads stable 3`] = `
+{
+  "active": 2,
+  "averageRecoverySeconds": null,
+  "awaitingDecision": 1,
+  "closed": 0,
+  "fixRequirements": 0,
+  "humanInvolved": 0,
+  "humanRate": 0,
+  "recovered": 0,
+  "total": 2,
+  "unresolved": 0,
+}
+`;
+
+exports[`keeps ops list, detail, stats and summary payloads stable 4`] = `
+{
+  "actions": 2,
+  "alerts": {
+    "webhook": false,
+  },
+  "checks": 1,
+  "enabled": true,
+  "intervalSeconds": 60,
+  "monitor": {
+    "enabled": false,
+    "error": "",
+    "heartbeat": {
+      "at": "",
+      "configured": false,
+      "ok": false,
+    },
+    "host": {
+      "cpuPercent": 0,
+      "load1": 0,
+      "memoryUsedPercent": 0,
+    },
+    "intervalSeconds": 30,
+    "issues": 0,
+    "lastScanAt": "",
+    "providers": [
+      "builtin",
+    ],
+    "sources": {
+      "alerts": 0,
+      "checks": 0,
+      "latency": 0,
+      "logs": 0,
+      "processes": 0,
+    },
+    "status": "",
+    "summary": "",
+  },
+  "resources": 1,
+  "stats": {
+    "active": 2,
+    "averageRecoverySeconds": null,
+    "awaitingDecision": 1,
+    "closed": 0,
+    "fixRequirements": 0,
+    "humanInvolved": 0,
+    "humanRate": 0,
+    "recovered": 0,
+    "total": 2,
+    "unresolved": 0,
+  },
+}
+`;

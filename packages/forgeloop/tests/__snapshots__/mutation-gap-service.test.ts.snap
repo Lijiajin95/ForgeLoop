@@ -1,0 +1,466 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`runtime empty-state payloads > keeps a submitted requirement view stable > plan-one 1`] = `
+{
+  "code": "plan_missing",
+  "message": "需求 req-fixed 没有对应任务包",
+  "ok": false,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps a submitted requirement view stable > requests-one 1`] = `
+{
+  "code": "ok",
+  "data": {
+    "requests": [],
+  },
+  "message": "共 0 条操作请求",
+  "ok": true,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps a submitted requirement view stable > requirement-detail 1`] = `
+{
+  "code": "ok",
+  "data": {
+    "acceptanceRecord": {
+      "acceptance_fingerprint": "",
+      "acceptance_source": "",
+      "accepted_at": "",
+      "accepted_by": "",
+    },
+    "activeRequests": 0,
+    "admission": null,
+    "analysis": null,
+    "approval": null,
+    "archivedDeliveries": [],
+    "artifacts": [],
+    "blockedReason": "",
+    "businessReview": null,
+    "candidate": null,
+    "candidateBuild": null,
+    "commit": null,
+    "createdAt": "TIME",
+    "delivered": [],
+    "deployment": null,
+    "failureRoundDetails": [],
+    "failureRounds": 0,
+    "grantQuota": {
+      "grants": 1,
+      "remaining": null,
+      "used": 0,
+    },
+    "grants": 1,
+    "latestPlan": null,
+    "pendingRequests": [],
+    "planReview": null,
+    "plans": [],
+    "progress": {
+      "awaitingInput": 0,
+      "awaitingUser": 0,
+      "blocked": 0,
+      "delivered": 0,
+      "failed": 0,
+      "pending": 0,
+      "running": 0,
+      "total": 0,
+    },
+    "project": "demo",
+    "reqId": "req-fixed",
+    "runs": [],
+    "source": "test",
+    "status": "draft",
+    "stopRequested": false,
+    "submittedBy": "owner",
+    "verification": null,
+    "versions": [
+      {
+        "createdAt": "TIME",
+        "revisedBy": "owner",
+        "text": "实现登录",
+        "version": 1,
+      },
+    ],
+  },
+  "message": "需求 req-fixed 详情",
+  "ok": true,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps a submitted requirement view stable > status-one 1`] = `
+{
+  "code": "ok",
+  "data": {
+    "analysis": null,
+    "approval": null,
+    "blockedReason": "",
+    "candidate": null,
+    "createdAt": "TIME",
+    "delivered": [],
+    "failureRoundDetails": [],
+    "failureRounds": 0,
+    "grantQuota": {
+      "grants": 1,
+      "remaining": null,
+      "used": 0,
+    },
+    "grants": 1,
+    "pendingRequests": [],
+    "planReview": null,
+    "plans": [],
+    "project": "demo",
+    "reqId": "req-fixed",
+    "runs": [],
+    "source": "test",
+    "status": "draft",
+    "submittedBy": "owner",
+    "verification": null,
+    "versions": [
+      {
+        "createdAt": "TIME",
+        "revisedBy": "owner",
+        "text": "实现登录",
+        "version": 1,
+      },
+    ],
+  },
+  "message": "需求 req-fixed 状态：draft",
+  "ok": true,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps a submitted requirement view stable > submit 1`] = `
+{
+  "code": "ok",
+  "data": {
+    "analysis": null,
+    "approval": null,
+    "blockedReason": "",
+    "candidate": null,
+    "createdAt": "TIME",
+    "delivered": [],
+    "failureRoundDetails": [],
+    "failureRounds": 0,
+    "grantQuota": {
+      "grants": 1,
+      "remaining": null,
+      "used": 0,
+    },
+    "grants": 1,
+    "pendingRequests": [],
+    "planReview": null,
+    "plans": [],
+    "project": "demo",
+    "reqId": "req-fixed",
+    "runs": [],
+    "source": "test",
+    "status": "draft",
+    "submittedBy": "owner",
+    "verification": null,
+    "versions": [
+      {
+        "createdAt": "TIME",
+        "revisedBy": "owner",
+        "text": "实现登录",
+        "version": 1,
+      },
+    ],
+  },
+  "message": "已受理需求 req-fixed（版本 1）",
+  "ok": true,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > directory-empty 1`] = `
+{
+  "agent": {
+    "model": "demo",
+    "provider": "demo",
+  },
+  "autoAdvance": false,
+  "database": "/tmp/ws/.forgeloop/projects/demo/records.sqlite",
+  "projectDir": "/tmp/ws/.forgeloop/projects/demo",
+  "projectPath": "/tmp/ws",
+  "recordsRoot": "/tmp/ws/.forgeloop",
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > evidence-missing 1`] = `
+{
+  "code": "not_found",
+  "message": "未找到需求 missing",
+  "ok": false,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > ops-empty 1`] = `
+{
+  "code": "ok",
+  "data": {
+    "events": [],
+    "summary": {
+      "actions": 0,
+      "alerts": {
+        "webhook": false,
+      },
+      "checks": 0,
+      "enabled": false,
+      "intervalSeconds": 300,
+      "monitor": {
+        "enabled": false,
+        "error": "",
+        "heartbeat": {
+          "at": "",
+          "configured": false,
+          "ok": false,
+        },
+        "host": {
+          "cpuPercent": 0,
+          "load1": 0,
+          "memoryUsedPercent": 0,
+        },
+        "intervalSeconds": 300,
+        "issues": 0,
+        "lastScanAt": "",
+        "providers": [
+          "builtin",
+        ],
+        "sources": {
+          "alerts": 0,
+          "checks": 0,
+          "latency": 0,
+          "logs": 0,
+          "processes": 0,
+        },
+        "status": "",
+        "summary": "",
+      },
+      "resources": 0,
+      "stats": {
+        "active": 0,
+        "averageRecoverySeconds": null,
+        "awaitingDecision": 0,
+        "closed": 0,
+        "fixRequirements": 0,
+        "humanInvolved": 0,
+        "humanRate": 0,
+        "recovered": 0,
+        "total": 0,
+        "unresolved": 0,
+      },
+    },
+  },
+  "message": "运维事件与统计",
+  "ok": true,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > plan-missing 1`] = `
+{
+  "code": "not_found",
+  "message": "未找到需求 missing",
+  "ok": false,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > reliability-empty 1`] = `
+{
+  "generatedAt": "TIME",
+  "project": "demo",
+  "runtime": {
+    "businessReview": {
+      "pass": 0,
+      "rate": null,
+      "total": 0,
+    },
+    "candidateBuilds": 0,
+    "deployment": {
+      "pass": 0,
+      "rate": null,
+      "total": 0,
+    },
+    "deploymentFailures": [],
+    "failureRounds": {
+      "byStage": {
+        "business_review": 0,
+        "formal_test": 0,
+        "implementation_review": 0,
+        "interrupted": 0,
+        "planning": 0,
+        "user_acceptance": 0,
+        "verification": 0,
+      },
+      "perRequirement": null,
+      "requirements": 0,
+      "total": 0,
+    },
+    "firstPassVerification": {
+      "pass": 0,
+      "rate": null,
+      "total": 0,
+    },
+    "ops": {
+      "closed": 0,
+      "mttrSeconds": null,
+      "opened": 0,
+      "recovered": 0,
+      "unresolved": 0,
+    },
+    "recentEvents": [],
+    "tasks": {
+      "awaitingUser": 0,
+      "blocked": 0,
+      "delivered": 0,
+      "failed": 0,
+      "running": 0,
+      "total": 0,
+    },
+    "trend": [
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+      {
+        "deploymentsFailed": 0,
+        "deploymentsVerified": 0,
+        "failureRounds": 0,
+        "verificationBlock": 0,
+        "verificationPass": 0,
+        "weekStart": "TIME",
+      },
+    ],
+    "verification": {
+      "pass": 0,
+      "rate": null,
+      "total": 0,
+    },
+  },
+  "snapshot": {
+    "ageSeconds": null,
+    "availability": "missing",
+    "behindCommits": null,
+    "branch": "",
+    "budgets": null,
+    "commit": "",
+    "coverage": null,
+    "dirty": false,
+    "error": "",
+    "gates": [],
+    "generatedAt": "",
+    "keyCoverage": null,
+    "mutation": null,
+    "packageVersion": "",
+    "path": "/tmp/ws/reports/reliability/latest.json",
+    "suppressions": 0,
+    "tests": null,
+    "warnings": [],
+  },
+  "warnings": [
+    "未找到质量快照；运行 make reliability-report 生成。",
+    "当前窗口没有交付可靠性记录。",
+  ],
+  "window": {
+    "from": null,
+    "key": "all",
+    "to": "TIME",
+  },
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > requests-empty 1`] = `
+{
+  "code": "ok",
+  "data": {
+    "requests": [],
+  },
+  "message": "共 0 条操作请求",
+  "ok": true,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > requirement-detail-missing 1`] = `
+{
+  "code": "not_found",
+  "message": "未找到需求 missing",
+  "ok": false,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > status-empty 1`] = `
+{
+  "code": "ok",
+  "data": {
+    "requirements": [],
+  },
+  "message": "项目 demo 共 0 条需求",
+  "ok": true,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > status-missing 1`] = `
+{
+  "code": "not_found",
+  "message": "未找到需求 missing",
+  "ok": false,
+}
+`;
+
+exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > task-missing 1`] = `
+{
+  "code": "not_found",
+  "message": "未找到需求 missing",
+  "ok": false,
+}
+`;

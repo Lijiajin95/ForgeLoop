@@ -236,3 +236,15 @@ describe('board route', () => {
     expect(response.body.error.message).toContain('boom')
   })
 })
+
+it('keeps route responses and error envelopes stable', async () => {
+  const { fetch } = setup()
+  expect(await post(fetch, { endpoint: 'board' })).toMatchSnapshot('board')
+  expect(await post(fetch, { endpoint: 'nope' })).toMatchSnapshot('unknown-endpoint')
+  expect(await post(fetch, 'not-json', true)).toMatchSnapshot('invalid-json')
+  expect(await post(fetch, { endpoint: 'reliability', window: '12h' })).toMatchSnapshot(
+    'bad-window',
+  )
+  expect(await post(fetch, { endpoint: 'detail' })).toMatchSnapshot('missing-req')
+  expect(await post(fetch, { endpoint: 'board', limit: 0 })).toMatchSnapshot('bad-limit')
+})

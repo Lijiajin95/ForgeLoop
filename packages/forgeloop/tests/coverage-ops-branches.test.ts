@@ -339,3 +339,21 @@ describe('ops branch boundaries', () => {
     expect(repository.opsObservations(eventId).at(-1)?.summary).toContain('未完成')
   })
 })
+
+it('keeps ops list, detail, stats and summary payloads stable', () => {
+  const { ops } = makeOps()
+  seedEvent({ severity: 'minor' })
+  const critical = seedEvent({
+    severity: 'critical',
+    state: OPS_AWAITING_DECISION,
+    diagnosisJson: diagnosisText(),
+    decision: 'approved',
+    decisionBy: 'owner',
+    decisionSource: 'cli',
+  })
+  expect(ops.list()).toMatchSnapshot()
+  expect(ops.detail(critical)).toMatchSnapshot()
+  expect(ops.detail('missing-event')).toBeNull()
+  expect(ops.stats()).toMatchSnapshot()
+  expect(ops.summary()).toMatchSnapshot()
+})

@@ -1,0 +1,83 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps route responses and error envelopes stable > bad-limit 1`] = `
+{
+  "body": {
+    "error": {
+      "code": "bad_request",
+      "details": {},
+      "message": "limit 必须是 1..100 的整数",
+    },
+    "ok": false,
+  },
+  "status": 400,
+}
+`;
+
+exports[`keeps route responses and error envelopes stable > bad-window 1`] = `
+{
+  "body": {
+    "error": {
+      "code": "bad_request",
+      "details": {},
+      "message": "可靠性窗口只能是 7d、30d、90d 或 all",
+    },
+    "ok": false,
+  },
+  "status": 400,
+}
+`;
+
+exports[`keeps route responses and error envelopes stable > board 1`] = `
+{
+  "body": {
+    "ok": true,
+    "value": {
+      "requirements": [],
+    },
+  },
+  "status": 200,
+}
+`;
+
+exports[`keeps route responses and error envelopes stable > invalid-json 1`] = `
+{
+  "body": {
+    "error": {
+      "code": "bad_request",
+      "details": {},
+      "message": "请求体不是 JSON",
+    },
+    "ok": false,
+  },
+  "status": 400,
+}
+`;
+
+exports[`keeps route responses and error envelopes stable > missing-req 1`] = `
+{
+  "body": {
+    "error": {
+      "code": "bad_request",
+      "details": {},
+      "message": "缺少需求身份 reqId",
+    },
+    "ok": false,
+  },
+  "status": 400,
+}
+`;
+
+exports[`keeps route responses and error envelopes stable > unknown-endpoint 1`] = `
+{
+  "body": {
+    "error": {
+      "code": "not_found",
+      "details": {},
+      "message": "未知的看板端点 nope",
+    },
+    "ok": false,
+  },
+  "status": 404,
+}
+`;
