@@ -36,6 +36,8 @@ export interface BusinessReview {
 export interface BusinessReviewCommandRun {
   readonly label: string
   readonly output: string
+  /** 命令退出码；静默成功的命令没有 stdout，只能以退出码作为可核对证据。 */
+  readonly exitCode?: number | null
 }
 
 function asRecord(value: unknown, what: string): Record<string, unknown> {
@@ -122,6 +124,13 @@ export function parseBusinessReview(raw: string): BusinessReview {
   }
 }
 
+/** 静默成功命令没有 stdout；允许以验证报告里的 exit_code: 0 作为证据。 */
+function matchesExitCodeEvidence(run: BusinessReviewCommandRun, evidence: string): boolean {
+  if (run.exitCode !== 0) return false
+  const needle = evidence.replace(/\s+/g, ' ').trim().toLowerCase()
+  return needle.length >= 8 && /exit[_ ]?code\s*:\s*0/.test(needle)
+}
+
 function checkItem(
   item: BusinessReviewItem,
   runs: ReadonlyMap<string, BusinessReviewCommandRun>,
@@ -145,7 +154,13 @@ function checkItem(
     issues.push(`${what}引用了未执行的验证命令：${unreported.join('、')}`)
     return issues
   }
-  if (!referenced.some((run) => matchesCommandOutput(run.output, item.evidence))) {
+  if (
+    !referenced.some(
+      (run) =>
+        matchesCommandOutput(run.output, item.evidence) ||
+        matchesExitCodeEvidence(run, item.evidence),
+    )
+  ) {
     issues.push(`${what}证据无法在验证输出中核对：${text}`)
   }
   return issues

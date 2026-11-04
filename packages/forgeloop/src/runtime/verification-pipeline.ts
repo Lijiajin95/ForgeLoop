@@ -853,7 +853,11 @@ export class VerificationPipeline {
       businessRules: analysis.businessRules,
       exceptions: analysis.exceptions,
       review,
-      runs: facts.map((fact) => ({ label: fact.label, output: fact.logTail })),
+      runs: facts.map((fact) => ({
+        label: fact.label,
+        output: fact.logTail,
+        exitCode: fact.exitCode,
+      })),
     })
     const verdict: 'pass' | 'block' =
       review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'

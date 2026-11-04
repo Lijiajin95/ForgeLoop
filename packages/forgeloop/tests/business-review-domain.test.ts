@@ -260,4 +260,62 @@ describe('business review coverage validation', () => {
       }),
     ).toContain(`业务终审验收标准证据无法在验证输出中核对：${CRITERION}`)
   })
+
+  it('accepts exit-code evidence for silent successful commands', () => {
+    const silent = parseBusinessReview(
+      review({
+        scenarios: [
+          {
+            scenario: SCENARIO,
+            status: 'pass',
+            evidence: '（无输出）exit_code: 0',
+            commands: ['smoke'],
+          },
+        ],
+        acceptance: [
+          {
+            criterion: CRITERION,
+            status: 'pass',
+            evidence: '（无输出）exit_code: 0',
+            commands: ['silent'],
+          },
+        ],
+      }),
+    )
+    expect(
+      validateBusinessReview({
+        scenarios: [SCENARIO],
+        acceptanceCriteria: [CRITERION],
+        review: silent,
+        runs: [
+          { label: 'smoke', output: '', exitCode: 0 },
+          { label: 'silent', output: '   ', exitCode: 0 },
+        ],
+      }),
+    ).toEqual([])
+
+    const failedExit = parseBusinessReview(
+      review({
+        acceptance: [
+          {
+            criterion: CRITERION,
+            status: 'pass',
+            evidence: 'exit_code: 0',
+            commands: ['silent'],
+          },
+        ],
+      }),
+    )
+    expect(
+      validateBusinessReview({
+        scenarios: [SCENARIO],
+        acceptanceCriteria: [CRITERION],
+        review: failedExit,
+        runs: [
+          { label: 'smoke', output: `cmd\n${OUTPUT}\ndone`, exitCode: 0 },
+          { label: 'silent', output: '', exitCode: 1 },
+        ],
+      }),
+    ).toContain(`业务终审验收标准证据无法在验证输出中核对：${CRITERION}`)
+  })
 })
