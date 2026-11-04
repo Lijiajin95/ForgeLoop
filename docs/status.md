@@ -5017,3 +5017,31 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
   并告警（不自动回退）；由 `coordinator.runOnce` 每轮调用。
 - `maxVerificationAttempts` 只约束单次 advance 内的连续验证轮次；开放问题单会让协调器跨请求重试
   （既有语义，不是总次数封顶）。M0-7 的限额证据按此口径记录。
+
+## 132. 全量变异门槛：低分归因与修复批次（进行中，2026-11-05）
+
+夜间 `41742156573`（HEAD `b084c2c`）8 个分片全部成功，但 `mutation-gate` 失败：计分变异 22,861，
+killed 13,785、survived 5,892、noCoverage 3,157、timeout 27，有效得分 **60.42%**（break 仍为 80）。
+根因不是 Stryker 故障，而是变异只跑快速测试子集：runtime 流水线的断言主要在
+`candidate-build` / `continuous-flow` / `verification` / `service` 等慢用例里，排除后已覆盖代码被记成
+NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600），全量测试配置 67.04%
+（noCoverage 80，992 个变异、21 分 50 秒）。
+
+### 132.1 本批改动（分支 `feat/mutation-80`）
+
+- runtime 分片改用全量测试配置（仍排除依赖宿主 `ps` 的 `monitor` 用例）；domain/records/config/session
+  等分片用快速配置。证据：`runtime-verification-1` 全量配置 70.78%（1,507/2,130，noCoverage 124，
+  1 error，62 分钟），`entry` 87.01%。
+- 分片从 8 个按源码字节均分为 14 个（`domain-1/2`、`runtime-execution-1/2`、
+  `runtime-verification-1/2`、`runtime-ops-1..4` 等），每个分片直接写
+  `reports/mutation-<shard>.json`；nightly 超时 120→240 分钟。
+- 新增定向测试（fast/全量配置实测增量）：问题单+错误+分析 +98 kills、verification +225、
+  reliability domain +97、语言/业务终审/失败建议/影响推断 +74、prompts +60（含完整快照）、
+  requirement +55（88.26%）；config/repository/candidate 的定向结果待复核。
+- 未下调 break、未排除业务源码；reports 目录仍不入库。
+
+### 132.2 未完成
+
+- 全量配置下的全局得分尚未收口：runtime-ops 分片仍在跑（实测中段约 67%），其余分片未逐一重跑；
+  目标仍是 ≥80%，当前估算约 70%，需要继续补 runtime 断言并最终用 14 分片合并报告验证。
+
