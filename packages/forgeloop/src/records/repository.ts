@@ -9,11 +9,18 @@ import { asRecord } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
 import { isoNow } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
-import type { Requirement, RequirementAnalysis, RequirementVersion } from '../domain/requirement.js'
+import type {
+  Requirement,
+  RequirementAnalysis,
+  RequirementVersion,
+  RequirementItem,
+} from '../domain/requirement.js'
 import {
   DEFAULT_INPUT_KIND,
   INPUT_KINDS,
   inputKindOf,
+  isItemBasis,
+  isItemKind,
   validateAnalysis,
   validateRequirement,
 } from '../domain/requirement.js'
@@ -26,6 +33,11 @@ import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
 import { DeploymentStore } from './deployment-store.js'
 import { DeliveryStore } from './delivery-store.js'
+import {
+  AnomalyStore,
+  type ExecutionAnomalyInput,
+  type ExecutionAnomalyRecord,
+} from './anomaly-store.js'
 import { DevSessionStore } from './dev-session-store.js'
 import type {
   RequirementEvidence,
@@ -78,6 +90,7 @@ export type {
 export class Repository extends DevSessionStore {
   readonly deploymentStore = new DeploymentStore(this.db)
   readonly deliveryStore = new DeliveryStore(this.db)
+  readonly anomalyStore = new AnomalyStore(this.db)
 
   close(): void {
     this.db.close()
@@ -293,7 +306,10 @@ export class Repository extends DevSessionStore {
   recordAnalysis(analysis: RequirementAnalysis & { reqId: string }): void {
     const requirement = this.getRequirement(analysis.reqId)
     if (!requirement) throw new RuleViolationError(`未找到需求 ${analysis.reqId}`)
-    validateAnalysis(analysis, requirement.versions.length)
+    const latest = requirement.versions[requirement.versions.length - 1]
+    validateAnalysis(analysis, requirement.versions.length, {
+      allowProblemClarifications: latest?.source.startsWith('dev-clarification') === true,
+    })
     this.db.transaction(() => {
       this.db
         .prepare(
@@ -328,6 +344,25 @@ export class Repository extends DevSessionStore {
            ON CONFLICT(req_id, analysis_version) DO UPDATE SET kind = excluded.kind`,
         )
         .run(analysis.reqId, analysis.analysisVersion, inputKindOf(analysis))
+      const items = analysis.items ?? []
+      for (const item of items) {
+        this.db
+          .prepare(
+            `INSERT INTO requirement_analysis_items
+              (req_id, analysis_version, item_id, kind, text, basis)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(req_id, analysis_version, item_id) DO UPDATE SET
+               kind = excluded.kind, text = excluded.text, basis = excluded.basis`,
+          )
+          .run(
+            analysis.reqId,
+            analysis.analysisVersion,
+            item.itemId,
+            item.kind,
+            item.text,
+            item.basis,
+          )
+      }
     })
   }
 
@@ -343,10 +378,33 @@ export class Repository extends DevSessionStore {
         .all(reqId)
         .map((row) => [num(row, 'analysis_version'), text(row, 'kind')]),
     )
+    const itemsByVersion = new Map<number, RequirementItem[]>()
+    for (const row of this.db
+      .prepare(
+        'SELECT * FROM requirement_analysis_items WHERE req_id = ? ORDER BY analysis_version, item_id',
+      )
+      .all(reqId)) {
+      const version = num(row, 'analysis_version')
+      const list = itemsByVersion.get(version) ?? []
+      const kind = text(row, 'kind')
+      const basis = text(row, 'basis')
+      if (!isItemKind(kind) || !isItemBasis(basis)) {
+        throw new RuleViolationError(`需求分析条目 ${text(row, 'item_id')} 的 kind/basis 非法`)
+      }
+      list.push({
+        itemId: text(row, 'item_id'),
+        kind,
+        text: text(row, 'text'),
+        basis,
+      })
+      itemsByVersion.set(version, list)
+    }
     return rows.map((row) => {
       const analysisVersion = num(row, 'analysis_version')
+      const items = itemsByVersion.get(analysisVersion)
       return {
         analysisVersion,
+        ...(items === undefined ? {} : { items }),
         requirementVersion: num(row, 'requirement_version'),
         inputKind: oneOf(
           kinds.get(analysisVersion) ?? DEFAULT_INPUT_KIND,
@@ -823,6 +881,14 @@ export class Repository extends DevSessionStore {
       sessionId: text(row, 'session_id'),
       reviewedAt: text(row, 'reviewed_at'),
     }
+  }
+
+  recordExecutionAnomaly(input: ExecutionAnomalyInput): void {
+    this.anomalyStore.record(input)
+  }
+
+  executionAnomalies(requirementId: string): ExecutionAnomalyRecord[] {
+    return this.anomalyStore.list(requirementId)
   }
 
   recordVerification(verification: VerificationRecord): void {
@@ -1981,7 +2047,7 @@ function planToPayload(plan: TaskPlan): unknown {
         max_failure_rounds: task.limits.maxFailureRounds,
       },
       authorization_source: task.authorizationSource,
-      ...(task.verification === true ? { verification: true } : {}),
+      ...(task.covers === undefined ? {} : { covers: task.covers }),
     })),
   }
 }
@@ -2024,7 +2090,7 @@ function planFromPayload(
           maxFailureRounds: Number(limits.max_failure_rounds ?? -1),
         },
         authorizationSource: textValue(task.authorization_source),
-        ...(task.verification === true ? { verification: true } : {}),
+        ...(Array.isArray(task.covers) ? { covers: stringArray(task.covers) } : {}),
       }
     }),
   }

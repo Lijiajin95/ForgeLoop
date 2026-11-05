@@ -326,7 +326,17 @@ function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentF
     failureRoundsPerGrant: -1,
     maxVerificationAttempts: -1,
     maxTaskAttempts: MAX_TASK_ATTEMPTS,
-    autonomy: { enabled: true, allowAnySource: true, allowCodeCommit: true, requireOwner: false },
+    autonomy: {
+      enabled: true,
+      allowAnySource: true,
+      allowCodeCommit: true,
+      requireOwner: false,
+      commitCheckCommand: [
+        'node',
+        '-e',
+        "const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok'))process.exit(1)",
+      ],
+    },
     ...(deploy
       ? {
           candidateBuildCommand: ['node', '-e', 'process.exit(0)'],

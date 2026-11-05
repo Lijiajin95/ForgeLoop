@@ -56,6 +56,8 @@ export interface ExecutionPlanDeps {
 export class ExecutionPlan {
   constructor(private readonly deps: ExecutionPlanDeps) {}
 
+  // 分析入口集中处理既有分析复用、模型失败、业务背景同步与准入；拆开后反而难追踪。
+  // eslint-disable-next-line complexity
   async executeAnalysis(
     reqId: string,
     signal: AbortSignal,
@@ -112,7 +114,10 @@ export class ExecutionPlan {
     }
     let draft
     try {
-      draft = this.analysisFromResult(result.text)
+      const latest = requirement.versions[requirement.versions.length - 1]
+      draft = this.analysisFromResult(result.text, {
+        allowProblemClarifications: latest?.source.startsWith('dev-clarification') === true,
+      })
     } catch (error) {
       return this.failAnalysis(recorded, errorMessage(error))
     }
@@ -122,6 +127,7 @@ export class ExecutionPlan {
       requirementVersion: version,
       inputKind: draft.inputKind,
       goal: draft.goal,
+      ...(draft.itemsProvided ? { items: draft.items } : {}),
       scenarios: draft.scenarios,
       businessRules: draft.businessRules,
       exceptions: draft.exceptions,
@@ -177,10 +183,13 @@ export class ExecutionPlan {
    * 解析模型返回的分析结果；业务背景有变化时由程序写文档。
    * 解析畸形或写入失败都抛错，由调用方统一记成一次失败尝试。
    */
-  private analysisFromResult(text: string): AnalysisDraft {
+  private analysisFromResult(
+    text: string,
+    options: { allowProblemClarifications?: boolean } = {},
+  ): AnalysisDraft {
     let draft: AnalysisDraft
     try {
-      draft = parseAnalysisDraft(text)
+      draft = parseAnalysisDraft(text, options)
     } catch (error) {
       throw new MalformedError(`分析结果畸形：${errorMessage(error)}`)
     }

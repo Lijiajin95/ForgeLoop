@@ -399,35 +399,14 @@ describe('P0 boundary and failure scenarios', () => {
     expect(() => parseTaskPlanDraft(twoTaskPlan({ testCommand: [] }), PLAN_CONTEXT)).toThrow()
     expect(() =>
       parseTaskPlanDraft(
-        { plan_version: 1, requirement_version: 1, tasks: [twoTaskPlan().tasks[0]] },
-        PLAN_CONTEXT,
-      ),
-    ).toThrow()
-    expect(() =>
-      parseTaskPlanDraft(
         {
           plan_version: 1,
           requirement_version: 1,
-          tasks: [
-            { ...twoTaskPlan().tasks[0], depends_on: [] },
-            { ...twoTaskPlan().tasks[1], depends_on: [] },
-          ],
+          tasks: [{ ...twoTaskPlan().tasks[0], test_command: [] }],
         },
         PLAN_CONTEXT,
       ),
     ).toThrow()
-    expect(() =>
-      parseOpsDiagnosis(
-        JSON.stringify({
-          impact: 'x',
-          facts: [],
-          proposed_action: null,
-          decision_required: false,
-          fix_required: false,
-          summary: 's',
-        }),
-      ),
-    ).not.toThrow()
   })
 
   it('unexpected exceptions do not leave undefined states', async () => {

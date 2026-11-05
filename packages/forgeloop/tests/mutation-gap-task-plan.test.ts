@@ -5,7 +5,6 @@ import {
   bindAuthorization,
   executionOrder,
   planLimitSeconds,
-  requireActionablePlan,
   validateFiles,
   validateTask,
   validateTaskPlan,
@@ -83,11 +82,8 @@ describe('task validation', () => {
     ).not.toThrow()
   })
 
-  it('requires empty files for verification tasks', () => {
-    expect(() => validateTask(task({ verification: true }))).toThrow(
-      '验证任务不得声明准修改文件；files 必须为空',
-    )
-    expect(() => validateTask(task({ verification: true, files: [] }))).not.toThrow()
+  it('requires files for every task; verification task type is removed', () => {
+    expect(() => validateTask(task({ files: [] }))).toThrow('任务的准许修改文件清单不能为空')
   })
 
   it('rejects self dependencies, duplicates and blank dependencies', () => {
@@ -161,14 +157,9 @@ describe('plan validation and ordering', () => {
     expect(() => validateTaskPlan(plan())).not.toThrow()
   })
 
-  it('requires an actionable plan: two tasks and at least one dependency', () => {
-    expect(() => requireActionablePlan(plan({ tasks: [task()] }))).toThrow(
-      '可批准的任务包至少要包含两个任务',
-    )
-    expect(() => requireActionablePlan(plan({ tasks: [task(), task({ taskId: 't2' })] }))).toThrow(
-      '可批准的任务包至少要有一条任务依赖',
-    )
-    expect(() => requireActionablePlan(plan())).not.toThrow()
+  it('accepts a single task and tasks without dependencies', () => {
+    expect(() => validateTaskPlan(plan({ tasks: [task()] }))).not.toThrow()
+    expect(() => validateTaskPlan(plan({ tasks: [task(), task({ taskId: 't2' })] }))).not.toThrow()
   })
 })
 

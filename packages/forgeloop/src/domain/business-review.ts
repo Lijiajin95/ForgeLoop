@@ -38,6 +38,8 @@ export interface BusinessReviewCommandRun {
   readonly output: string
   /** 命令退出码；静默成功的命令没有 stdout，只能以退出码作为可核对证据。 */
   readonly exitCode?: number | null
+  /** true 表示错误对照命令，预期非零退出；缺省按旧数据只做正向证据校验。 */
+  readonly expectFailure?: boolean
 }
 
 function asRecord(value: unknown, what: string): Record<string, unknown> {
@@ -133,10 +135,14 @@ function matchesExitCodeEvidence(run: BusinessReviewCommandRun, evidence: string
 
 function checkItem(
   item: BusinessReviewItem,
-  runs: ReadonlyMap<string, BusinessReviewCommandRun>,
+  context: {
+    readonly runs: ReadonlyMap<string, BusinessReviewCommandRun>
+    readonly requireControls: boolean
+  },
   what: string,
   text: string,
 ): string[] {
+  const { runs, requireControls } = context
   const issues: string[] = []
   if (item.status !== 'pass') {
     issues.push(`${what}未通过：${text}（${item.status}）`)
@@ -154,11 +160,21 @@ function checkItem(
     issues.push(`${what}引用了未执行的验证命令：${unreported.join('、')}`)
     return issues
   }
+  if (requireControls) {
+    const positive = referenced.filter((run) => run.expectFailure !== true)
+    const negative = referenced.filter((run) => run.expectFailure === true)
+    if (positive.length === 0) issues.push(`${what}没有引用正向验证命令：${text}`)
+    if (negative.length === 0) issues.push(`${what}没有引用错误对照命令：${text}`)
+    if (negative.some((run) => run.exitCode === 0)) {
+      issues.push(`${what}引用的错误对照没有失败：${text}`)
+    }
+  }
   if (
     !referenced.some(
       (run) =>
-        matchesCommandOutput(run.output, item.evidence) ||
-        matchesExitCodeEvidence(run, item.evidence),
+        run.expectFailure !== true &&
+        (matchesCommandOutput(run.output, item.evidence) ||
+          matchesExitCodeEvidence(run, item.evidence)),
     )
   ) {
     issues.push(`${what}证据无法在验证输出中核对：${text}`)
@@ -177,6 +193,8 @@ export function validateBusinessReview(input: {
   exceptions?: readonly string[] | undefined
   review: BusinessReview
   runs: readonly BusinessReviewCommandRun[]
+  /** 默认按 runs 是否带 expectFailure 自动判断；旧验证链路显式关闭。 */
+  requireControls?: boolean
 }): string[] {
   const issues: string[] = []
   if (input.review.verdict !== 'pass') {
@@ -186,6 +204,8 @@ export function validateBusinessReview(input: {
     return issues
   }
   const runs = new Map(input.runs.map((run) => [run.label, run]))
+  const requireControls =
+    input.requireControls ?? input.runs.some((run) => run.expectFailure === true)
   const checkAll = (
     texts: readonly string[],
     items: readonly BusinessReviewItem[],
@@ -198,7 +218,7 @@ export function validateBusinessReview(input: {
         issues.push(`${missing}：${text}`)
         continue
       }
-      issues.push(...checkItem(item, runs, what, text))
+      issues.push(...checkItem(item, { runs, requireControls }, what, text))
     }
   }
   checkAll(input.scenarios, input.review.scenarios, '业务终审业务场景', '业务终审缺少业务场景')

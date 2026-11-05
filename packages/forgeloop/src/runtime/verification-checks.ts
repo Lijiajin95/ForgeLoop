@@ -147,6 +147,7 @@ export class VerificationCheckRegistry {
       const aborted: VerificationCheckRecord = {
         label,
         argv: check.argv,
+        expectFailure: check.expectFailure,
         exitCode: null,
         timedOut: false,
         aborted: true,
@@ -182,6 +183,7 @@ export class VerificationCheckRegistry {
       execution = {
         label,
         argv: check.argv,
+        expectFailure: check.expectFailure,
         exitCode: test.exitCode,
         timedOut: test.timedOut,
         aborted: test.aborted,
@@ -200,6 +202,7 @@ export class VerificationCheckRegistry {
       execution = {
         label,
         argv: check.argv,
+        expectFailure: check.expectFailure,
         exitCode: null,
         timedOut: false,
         aborted: false,

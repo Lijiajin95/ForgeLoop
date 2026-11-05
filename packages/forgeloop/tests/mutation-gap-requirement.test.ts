@@ -94,7 +94,7 @@ describe('analysis validation', () => {
     expect(() => validateAnalysis({ ...analysis, goal: '  ' }, 1)).toThrow('分析缺少非空目标')
     expect(() =>
       validateAnalysis({ ...analysis, inputKind: 'problem', clarifications: ['待澄清'] }, 1),
-    ).toThrow('问题输入不能带待澄清项；需要澄清时按需求处理')
+    ).toThrow('问题输入不能带待澄清项；需要澄清时走研发回交澄清')
     expect(() => validateAnalysis(analysis, 1)).not.toThrow()
   })
 
@@ -115,6 +115,8 @@ describe('analysis draft parsing', () => {
     expect(parseAnalysisDraft(JSON.stringify(base))).toEqual({
       inputKind: 'requirement',
       goal: '目标',
+      items: [],
+      itemsProvided: false,
       scenarios: ['场景'],
       businessRules: [],
       exceptions: [],
@@ -176,7 +178,7 @@ describe('analysis draft parsing', () => {
       parseAnalysisDraft(
         '{"input_kind":"problem","goal":"g","acceptance_criteria":["a"],"clarifications":["q"]}',
       ),
-    ).toThrow('问题直接交研发处理，不能带待澄清项；需要澄清时按需求处理')
+    ).toThrow('问题直接交研发处理，不能带待澄清项；需要澄清时走研发回交澄清')
     expect(() =>
       parseAnalysisDraft('{"input_kind":"problem","goal":"g","acceptance_criteria":[]}'),
     ).toThrow('问题必须给出可检查的修复判据（acceptance_criteria）')

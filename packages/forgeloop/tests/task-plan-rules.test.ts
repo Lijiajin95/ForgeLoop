@@ -95,34 +95,21 @@ describe('task plan parsing and validation', () => {
     ).toThrow('technical_solution.approach')
   })
 
-  it('accepts a verification task only with no writable files', () => {
-    const plan = parseTaskPlanDraft(
-      {
-        tasks: [
-          rawTask('a'),
-          {
-            ...rawTask('verify'),
-            files: [],
-            verification: true,
-            depends_on: ['a'],
-          },
-        ],
-      },
-      context,
-    )
-    expect(plan.tasks[1]!.verification).toBe(true)
-    expect(plan.tasks[1]!.files).toEqual([])
-  })
-
-  it('rejects a verification task that declares writable files', () => {
+  it('rejects the removed verification task type', () => {
     expect(() =>
       parseTaskPlanDraft(
         {
-          tasks: [rawTask('a'), { ...rawTask('verify'), verification: true, depends_on: ['a'] }],
+          tasks: [{ ...rawTask('verify'), files: [], verification: true }],
         },
         context,
       ),
-    ).toThrow('验证任务不得声明准修改文件')
+    ).toThrow('验证任务类型已删除')
+  })
+
+  it('accepts a single-task plan without dependencies', () => {
+    const plan = parseTaskPlanDraft(rawPlan([rawTask('only')]), context)
+    expect(plan.tasks).toHaveLength(1)
+    expect(plan.tasks[0]?.dependsOn).toEqual([])
   })
 
   it('refuses model-supplied authorization sources', () => {
@@ -229,11 +216,9 @@ describe('task plan parsing and validation', () => {
     expect(plan.tasks[0]?.limits).toEqual({ limitSeconds: -1, maxFailureRounds: -1 })
   })
 
-  it('requires actionable plans with at least two tasks and one dependency', () => {
-    expect(() => parseTaskPlanDraft(rawPlan([rawTask('a')]), context)).toThrow('至少要包含两个任务')
-    expect(() => parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b')]), context)).toThrow(
-      '至少要有一条任务依赖',
-    )
+  it('accepts multiple tasks without artificial dependencies', () => {
+    const plan = parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b')]), context)
+    expect(plan.tasks.map((task) => task.dependsOn)).toEqual([[], []])
   })
 
   it('rejects dependency cycles', () => {

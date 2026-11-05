@@ -86,8 +86,17 @@ const BUSINESS_REVIEW = JSON.stringify({
   summary: '业务场景通过',
   findings: [],
   blocking: [],
-  scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+  scenarios: [
+    { scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
+  acceptance: [
+    {
+      criterion: CRITERION,
+      status: 'pass',
+      evidence: SMOKE,
+      commands: ['smoke', 'smoke-negative'],
+    },
+  ],
 })
 
 /** 需求说明派生的验证方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
@@ -106,6 +115,11 @@ function verificationPlan(fail: boolean): string {
             label: 'smoke',
             argv: ['node', '-e', fail ? repaired : `console.log('${SMOKE}')`],
             expected_output: SMOKE,
+          },
+          {
+            label: 'smoke-negative',
+            argv: ['node', '-e', 'process.exit(1)'],
+            expect_failure: true,
           },
         ],
       },
@@ -141,8 +155,8 @@ function gateRunner(options: { failVerifications: number }): AgentLike {
         for (const label of labels) {
           const outcome = await runtime.runVerificationCheck(reqId, label)
           if (!outcome.ok) throw new Error(outcome.text)
-          executions += 1
         }
+        executions += 1
         return reply(JSON.stringify({ executed: labels, summary: 'executed' }))
       }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {

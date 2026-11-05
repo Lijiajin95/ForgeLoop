@@ -128,6 +128,8 @@ describe('advanced property invariants', () => {
         expect(parsed).toEqual({
           inputKind: input.input_kind,
           goal: input.goal,
+          items: [],
+          itemsProvided: false,
           scenarios: input.scenarios,
           businessRules: input.business_rules,
           exceptions: input.exceptions,

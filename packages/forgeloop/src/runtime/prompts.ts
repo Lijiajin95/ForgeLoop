@@ -78,6 +78,14 @@ ${businessContext || '（尚无业务背景文档）'}
 {
   "input_kind": "requirement 或 problem",
   "goal": "一句话目标；问题输入写一句话问题（现象与影响）",
+  "items": [
+    {
+      "item_id": "稳定短 ID，例如 scenario-1、rule-1、exception-1、acceptance-1、non-goal-1",
+      "kind": "scenario | business_rule | exception | acceptance | non_goal",
+      "text": "条目原文",
+      "basis": "customer_explicit | verified_fact | assumption | unknown"
+    }
+  ],
   "scenarios": ["需求：从业务用户视角描述的可验收场景，至少一条；问题：现象与复现要点，没有就留空数组"],
   "business_rules": ["业务规则：这条需求必须成立的业务约束；问题可只写问题本身必须成立的约束；没有就留空数组"],
   "exceptions": ["异常与边界：异常路径、边界条件与不可用状态；没有就留空数组"],
@@ -92,9 +100,10 @@ ${businessContext || '（尚无业务背景文档）'}
 
 规则：
 - 先分诊再分析：input_kind 只能是 requirement 或 problem。输入提出新的业务能力、业务规则或流程变化时是 requirement；输入描述已经发生或可观察的缺陷、报错、行为与预期不符，只需要修好时是 problem。判断不定时按 requirement，交给产品澄清。
-- 问题输入：goal 写现象与影响，scenarios 写现象与复现要点（可留空），acceptance_criteria 写修复判据（至少一条）；business_rules / exceptions / non_goals 只写问题本身必须成立的约束；clarifications 必须为空数组——问题不做产品侧澄清，程序会直接交研发定位根因并做最小修复。
+- 问题输入：goal 写现象与影响，scenarios 写现象与复现要点（可留空），acceptance_criteria 写修复判据（至少一条）；business_rules / exceptions / non_goals 只写问题本身必须成立的约束；clarifications 通常为空数组——问题默认直接交研发定位根因并做最小修复。只有最新需求版本来源为 dev-clarification（研发回交）时，才允许把无法确认的业务预期写成 clarifications。
 - 需求输入：按下面的规则做需求分析，并把需要所有者回答的问题放进 clarifications。
 - 从业务场景出发理解需求：先写清谁在什么情况下做什么、成功与失败分别意味着什么，再归纳业务规则、异常与边界、非目标。
+- 同时输出结构化的 items：每个场景、业务规则、异常与边界、验收标准、非目标各一个条目，item_id 在同一分析内唯一且稳定；kind 必须对应上面的分类；basis 必须区分 customer_explicit（客户明确要求）、verified_fact（已核实事实）、assumption（待验证假设）或 unknown。数组字段必须与 items 中对应 kind 的 text 一致，程序以 items 为权威。
 - 识别行业与业务背景：如果需求暴露了新的行业、业务目标、术语、约束或假设，把归并后的完整文档放进 business_context.document 并置 changed=true（建议小节：行业与业务背景、业务目标与术语、约束与假设、更新记录）。没有变化时 changed=false 且 document 为空字符串。问题输入通常不带来新的业务背景，确实暴露新约束时才更新。
 - 业务背景文档由程序在分析结束时按 business_context 写入 ${BUSINESS_CONTEXT_DOC}；不要用 forgeloop_write_project_doc 写这个文件。新增、修改、删除业务背景信息都必须在同一次运行内以 changed=true 给出完整文档。
 - changed=true 时 document 必须是整份文档，不是增量片段：程序会整份覆盖，缺内容等于删除。
@@ -379,22 +388,24 @@ ${analysisContext(analysis)}
       "files": ["允许修改的项目内相对路径"],
       "acceptance": "这个任务完成的可检查标准",
       "test_command": ["实际可执行的 argv"],
-      "depends_on": ["依赖的任务 id，可为空"]
+      "depends_on": ["依赖的任务 id，可为空；只表达真实前置关系"],
+      "covers": ["对应需求分析条目 ID"]
     }
   ]
 }
 
 硬性规则（程序会拒绝不合规的任务包）：
 ${inputKindOf(analysis) === 'problem' ? '- 这是问题输入：任务按“复现并定位根因 → 最小修复 → 按修复判据验证”拆解，不要把问题当新功能重写，也不要扩大到修复判据之外；\n' : ''}- 必须给出非空 technical_solution.summary 与至少一条 approach；技术方案要与任务和验收一致；
-- 任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准，并在任务目标和验收标准中能看出对应关系；不要重新定义需求范围；非目标不得被拆成任务；
-- 至少 2 个任务，且至少一条 depends_on 依赖；
-- 默认每个任务都必须在其 files 中产生至少一个实际改动；验证应优先放进任务的 test_command；
-- 若确实需要独立的验证任务，必须显式给出 verification: true 且 files: []，该任务只运行已准入测试、不得修改文件；不要把普通实现任务标成验证任务；
+- 任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准，并在任务目标、验收标准和 covers 中给出对应关系；covers 使用分析条目的稳定 ID；不要重新定义需求范围；非目标不得被拆成任务；
+- 按实际业务成果拆成一个或多个任务；不要为了凑数量制造任务；depends_on 只表达真实前置关系，没有依赖就留空数组；
+- 每个任务都必须在其 files 中产生至少一个实际改动；测试放进任务的 test_command；
 - 依赖必须存在且无环；task_id 唯一；
+- 不再支持 verification 任务类型；所有任务都是实现任务，必须产生文件改动；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
 - files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
 - 任务需要新增或修改测试时，把 packages/forgeloop/tests/ 下的对应测试文件写进 files；需要同步架构说明时，把 docs/architecture.md 写进 files；
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
+- covers 必须是分析里出现的条目 ID，且所有场景、业务规则、异常与边界、验收标准至少被一个任务覆盖；
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
 - 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
 - 禁止把 Python 解释器、旧 .venv、旧 forgeloop CLI、src/forgeloop/、tests/（旧 Python 测试）、frontend/src/ 写进 files 或 test_command；
@@ -438,7 +449,7 @@ ${(solution?.risks ?? []).map((risk) => `  - ${risk}`).join('\n') || '  - （未
 ${plan.tasks
   .map(
     (task) =>
-      `  - ${task.taskId}：${task.goal}\n    允许文件：${task.files.length > 0 ? task.files.join('、') : '（无，验证任务）'}\n    验收标准：${task.acceptance}\n    正式测试：${JSON.stringify(task.testCommand)}\n    依赖：${task.dependsOn.join('、') || '无'}${task.verification === true ? '\n    类型：验证任务（不修改文件）' : ''}`,
+      `  - ${task.taskId}：${task.goal}\n    允许文件：${task.files.join('、')}\n    验收标准：${task.acceptance}\n    正式测试：${JSON.stringify(task.testCommand)}\n    依赖：${task.dependsOn.join('、') || '无'}${task.covers && task.covers.length > 0 ? `\n    覆盖需求条目：${task.covers.join('、')}` : ''}`,
   )
   .join('\n')}`
 }
@@ -570,10 +581,26 @@ ${requirementContext(requirement)}
    程序会自行采集 diff。
 2. 计划中的文件清单只是预期说明：实现确实需要时可以改动当前项目内的其他文件。
 3. 不要改动版本号（如 package.json 的 version），除非任务明确要求并已获得所有者许可。
-4. 实现后用上面的正式测试命令自测；失败要修到通过或如实说明。
-5. 不要伪造测试结果，不要修改测试以绕过检查，除非任务本身要求。
-6. 不得部署、发布、安装到任何正式 profile、修改正式环境或生产数据；部署与发布只能由所有者在受控入口显式执行。
-7. 完成后用简短文本报告：改了什么、跑了什么命令、结果如何、还有什么风险。`
+4. 完成实现后做研发自验证：先运行上面的正式测试命令（白盒检查），再从业务用户视角补充黑盒检查；自验证失败要修到通过或如实说明，不能伪造结果。
+5. 如果这是 BUG 修复或关键业务行为，必须保留“修复前目标行为失败、修复后通过”的红灯/绿灯证据；文档或低风险改动可以按影响选择检查。
+6. 根据本次代码 diff 的实际风险，自行决定后续是否需要独立验证：低风险、证据充分时可选 self；涉及关键行为、跨模块、数据或环境变化时选 independent。你不需要描述独立验证怎么做。
+7. 如果遇到无法通过调查确认的业务预期，不要猜；在 needs_clarification 中提出具体问题，交给产品澄清。
+8. 不得部署、发布、安装到任何正式 profile、修改正式环境或生产数据；部署与发布只能由所有者在受控入口显式执行。
+9. 完成后只输出一个 JSON 对象（不要代码围栏或额外说明）：
+{
+  "mode": "independent 或 self",
+  "risk": "low 或 medium 或 high",
+  "white_box": ["实际执行的白盒检查及结果"],
+  "black_box": ["实际执行的黑盒检查及结果"],
+  "red_green": {
+    "required": true,
+    "failing_before": true,
+    "passing_after": true,
+    "evidence": "修复前失败与修复后通过的证据说明"
+  },
+  "reason": "为什么选择 independent 或 self",
+  "needs_clarification": {"question": "需要产品澄清的问题", "context": "已调查的事实与无法确认的原因"} 或 null
+}`
 }
 
 /** 主控 Agent 的候选研发会话：只给身份、现场与最近总结，不给源码或工具。 */
@@ -737,6 +764,7 @@ export function parseReviewVerdict(raw: string): ReviewVerdict {
 export interface BusinessReviewCommandFact {
   readonly label: string
   readonly argv: readonly string[]
+  readonly expectFailure?: boolean
   readonly exitCode: number | null
   readonly logTail: string
 }
@@ -753,7 +781,7 @@ function verificationPlanContext(plan: VerificationPlan): string {
 ${scenario.checks
   .map(
     (check) =>
-      `  - label: ${check.label}\n    argv: ${JSON.stringify(check.argv)}${check.expectedOutput ? `\n    预期输出: ${check.expectedOutput}` : ''}`,
+      `  - label: ${check.label}\n    argv: ${JSON.stringify(check.argv)}\n    类型: ${check.expectFailure ? '错误对照（必须失败）' : '正向检查（必须成功）'}${check.expectedOutput ? `\n    预期输出: ${check.expectedOutput}` : ''}`,
   )
   .join('\n')}`,
     )
@@ -805,13 +833,13 @@ export function businessReviewPrompt(input: {
   const tasks = input.plan.tasks
     .map(
       (task) =>
-        `- ${task.taskId}｜${task.goal}\n  验收标准：${task.acceptance}\n  允许文件：${task.files.join('、') || '（无，验证任务）'}`,
+        `- ${task.taskId}｜${task.goal}\n  验收标准：${task.acceptance}\n  允许文件：${task.files.join('、')}${task.covers && task.covers.length > 0 ? `\n  覆盖需求条目：${task.covers.join('、')}` : ''}`,
     )
     .join('\n')
   const commands = input.commands
     .map(
       (command) =>
-        `### ${command.label}\nargv: ${JSON.stringify(command.argv)}\nexit_code: ${command.exitCode === null ? 'null' : command.exitCode}\n输出摘录（开头与末尾，中间可能省略）：\n${command.logTail || '（无输出）'}`,
+        `### ${command.label}\nargv: ${JSON.stringify(command.argv)}\n类型: ${command.expectFailure ? '错误对照（必须失败）' : '正向检查（必须成功）'}\nexit_code: ${command.exitCode === null ? 'null' : command.exitCode}\n输出摘录（开头与末尾，中间可能省略）：\n${command.logTail || '（无输出）'}`,
     )
     .join('\n\n')
   const rules = input.analysis.businessRules ?? []
@@ -883,7 +911,7 @@ ${commands || '（没有可用的验证命令输出）'}
 }
 
 规则：
-- 每个业务场景、验收标准、业务规则和异常边界都必须出现，并引用实际执行的命令与可在其输出中逐字核对的证据；非目标不是验收项。
+- 每个业务场景、验收标准、业务规则和异常边界都必须出现，并同时引用至少一条正向检查（expect_failure=false）和至少一条错误对照（expect_failure=true）；错误对照必须实际以非零退出码失败。证据必须来自正向检查的输出并可在其中逐字核对；非目标不是验收项。
 - 不能只复述验证 Agent 的结论，也不能用“代码看起来正确”“测试通过”代替业务结果；缺证据就判 not_verified。
 - verdict=pass 时 blocking 必须为空；verdict=block 时至少一条 blocking。
 - 这是验证 Agent 的业务判断，不是所有者验收；不要声称或伪造所有者批准。

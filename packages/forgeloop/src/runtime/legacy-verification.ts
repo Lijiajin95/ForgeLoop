@@ -13,6 +13,10 @@ import {
   type BusinessReview,
 } from '../domain/business-review.js'
 import { sha256OfText } from '../domain/delivery.js'
+import {
+  classifyVerificationFailure,
+  type VerificationFailureKind,
+} from '../domain/failure-classification.js'
 import { errorMessage } from '../domain/errors.js'
 import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { AGENT_VERIFY } from '../domain/agents.js'
@@ -179,6 +183,7 @@ export class LegacyVerification {
     const facts = runs.map((item) => ({
       label: item.label,
       argv: item.argv,
+      expectFailure: item.expectFailure,
       exitCode: item.exitCode,
       logTail: businessReviewEvidenceWindow(item.output),
     }))
@@ -240,7 +245,12 @@ export class LegacyVerification {
       businessRules: input.analysis.businessRules,
       exceptions: input.analysis.exceptions,
       review,
-      runs: runs.map((run) => ({ label: run.label, output: run.output })),
+      runs: runs.map((run) => ({
+        label: run.label,
+        output: run.output,
+        exitCode: run.exitCode,
+        expectFailure: run.expectFailure,
+      })),
     })
     return { ok: true, facts, review, businessRun, issues }
   }
@@ -343,9 +353,10 @@ export class LegacyVerification {
           detail: string
           blocking: string[]
           verification: VerificationRecord
+          failureKind?: VerificationFailureKind
         }
       } {
-    const { dir, workspaceSha256, result, integrityIssues, afterHead, afterChanges } = input
+    const { dir, workspaceSha256, result, integrityIssues, afterHead, afterChanges, checks } = input
     const scenarios = result.scenarios.map((scenario) => ({
       scenario: scenario.scenario,
       status: scenario.status,
@@ -409,12 +420,25 @@ export class LegacyVerification {
     }
     this.deps.repo.recordVerification(verification)
     if (verdict === 'block') {
-      this.deps.repo.recordFailureRound(input.reqId, {
-        roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}`,
-        stage: FAILURE_VERIFICATION,
-        summary: `独立验证阻断：${blocking.join('；') || result.summary}`.slice(0, 1000),
-        occurredAt: this.deps.now(),
+      const classified = classifyVerificationFailure({
+        signals: checks.map((check) => ({
+          label: check.label,
+          exitCode: check.exitCode,
+          timedOut: check.timedOut,
+          aborted: check.aborted,
+          expectFailure: check.expectFailure,
+          output: check.output,
+        })),
+        failures: blocking,
       })
+      if (classified.kind === 'implementation') {
+        this.deps.repo.recordFailureRound(input.reqId, {
+          roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}`,
+          stage: FAILURE_VERIFICATION,
+          summary: `独立验证阻断：${blocking.join('；') || result.summary}`.slice(0, 1000),
+          occurredAt: this.deps.now(),
+        })
+      }
       return {
         ok: false,
         result: {
@@ -422,6 +446,7 @@ export class LegacyVerification {
           detail: `独立验证阻断：${blocking.join('；') || result.summary}；证据 ${verificationPath}`,
           blocking,
           verification,
+          failureKind: classified.kind,
         },
       }
     }
@@ -567,6 +592,7 @@ export class LegacyVerification {
     detail: string
     blocking: string[]
     verification: VerificationRecord | null
+    failureKind?: VerificationFailureKind
   }> {
     const prepared = this.prepareLegacyVerificationWorkspace(input)
     if (!prepared.ok) return prepared.result
@@ -629,7 +655,13 @@ export class LegacyVerification {
       .map((check) => check.label)
     if (missing.length > 0) {
       const detail = `验证 Agent 没有通过工具执行方案中的命令：${missing.join('、')}`
-      return { state: 'block', detail, blocking: [detail], verification: null }
+      return {
+        state: 'block',
+        detail,
+        blocking: [detail],
+        verification: null,
+        failureKind: 'test_defect',
+      }
     }
     if (recorded.runs.some((run) => run.aborted)) {
       return {

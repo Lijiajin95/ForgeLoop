@@ -330,7 +330,11 @@ try {
           enabled: true,
           allowCodeCommit: true,
           trustedSources: ['dsh-tool:', 'dsh-session:'],
-          commitCheckCommand: [],
+          commitCheckCommand: [
+            'node',
+            '-e',
+            `const fs=require('node:fs');const t=fs.readFileSync('docs/e2e-proof.md','utf8');if(!t.includes(${JSON.stringify(TOKEN)}))process.exit(1)`,
+          ],
         },
         ops: { enabled: false },
       },

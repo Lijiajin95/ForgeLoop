@@ -166,7 +166,7 @@ describe('candidate export and controlled integration', () => {
     ).toContain('无法应用')
   })
 
-  it('reports a commit hook failure and supports an empty check command', () => {
+  it('reports a commit hook failure and refuses an empty check command', () => {
     const project = repo()
     const { record } = candidate(project)
     const hook = join(project, '.git/hooks/pre-commit')
@@ -176,7 +176,7 @@ describe('candidate export and controlled integration', () => {
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
       expectedDiffSha256: record.diffSha256,
-      checkCommand: [],
+      checkCommand: ['node', '-e', 'process.exit(0)'],
       commitMessage: 'feat: test',
       evidenceDir: evidence(),
       timeoutMs: 30_000,
@@ -197,8 +197,9 @@ describe('candidate export and controlled integration', () => {
       evidenceDir: evidence(),
       timeoutMs: 30_000,
     })
-    expect(passed.ok).toBe(true)
-    expect(passed.files).toEqual(['docs/a.md'])
+    expect(passed.ok).toBe(false)
+    expect(passed.detail).toContain('未配置提交检查命令')
+    expect(git(project, ['status', '--porcelain'])).toBe('')
   })
 
   it('commits only the candidate diff after the check passes', () => {

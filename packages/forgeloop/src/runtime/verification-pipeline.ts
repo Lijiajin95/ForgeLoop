@@ -858,6 +858,7 @@ export class VerificationPipeline {
         output: fact.logTail,
         exitCode: fact.exitCode,
       })),
+      requireControls: false,
     })
     const verdict: 'pass' | 'block' =
       review.verdict === 'pass' && issues.length === 0 ? 'pass' : 'block'

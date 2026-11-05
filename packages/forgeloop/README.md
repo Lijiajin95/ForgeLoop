@@ -17,8 +17,10 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
 `projectPath`、`agent.provider/model`、可选的 `autonomy` 与 `ops` 目录。记录根布局：
 `<recordsRoot>/projects/<project>/records.sqlite`。`autonomy` 默认启用系统准入并放开来源
 （`allowAnySource=true`、`requireOwner=false`）：任何非空来源都可进入，来源与提交者完整记录；
-需要收紧时显式设置 `allowAnySource=false` 并维护 `trustedSources`。`allowCodeCommit=true`，
-`commitCheckCommand=[]`；发布/部署仍需独立授权，研发 Agent 没有部署工具。
+需要收紧时显式设置 `allowAnySource=false` 并维护 `trustedSources`。`allowCodeCommit=true`；
+`commitCheckCommand` 为空时拒绝提交并提示先配置和修复，不再把“未配置”视为通过。推荐跨平台配置
+`["npm","run","check:repo"]`（与 `make check` 步骤等价，Linux/Windows 都可用）；发布/部署仍需独立授权，
+研发 Agent 没有部署工具。
 限额统一用 `-1` 表示不限（界面显示 MAX），正数恢复原行为；任务工时、需求工时、任务尝试、
 失败轮次与验证次数默认不限，规划/评审/分析/诊断的格式重试仍有正数上限。
 
@@ -44,15 +46,21 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
 - 分析无待澄清项时，主控按真实来源、所有者、有效授权、需求版本与分析版本做**系统准入**，记录
   `requirement_admissions`；不写 `by=owner`／`approved=true`。准入通过后需要进入 `specified`，
   协调器自动排入 `advance`，不需要人工点“批准任务包”或“推进任务”；
-- 研发 Agent 在需求级工作区读取代码，一次完成技术方案、任务拆解、实现、正式自验和现场修复；
-  任务包是工作记录，不是批准门禁；计划文件清单是预期，不是硬白名单；
-- 验证 Agent 在**新会话**里只依据需求原文与分析生成验证方案（无工具，不看任务包、候选 diff 或
-  源码）；运行时在独立候选工作区逐条重跑方案命令，核对候选完整性、场景覆盖与证据原文。验证通过后
-  在**同一个验证会话**继续做业务验收，只看原始需求、方案与程序重跑出的真实输出；
-- 验证阻断时，具体缺陷、复现条件、预期/实际与证据回到**同一研发会话和工作区**定向修复，产生新候选
-  并重新验证；不归档全部交付、不删除旧候选、不清零失败轮次、不重新生成任务包；
-- 验证与业务验收通过后，主控在真实项目干净且基线一致时应用候选、运行 `commitCheckCommand`、
-  只提交本需求改动并记录提交 SHA；不 push、不打 tag、不递增版本、不混合其他在途改动；
+- 研发 Agent 在需求级工作区读取代码，一次完成技术方案、任务拆解、实现、自验证和现场修复；
+  任务包是工作记录，不是批准门禁；一个或多个任务均可，依赖只表达真实前置关系；每个任务必须用
+  `covers` 覆盖分析条目；计划文件清单是预期，不是硬白名单；
+- 研发自验证由研发 Agent 完成白盒+黑盒检查，并按代码 diff 选择 `independent` 或 `self`；
+  BUG 修复或高风险改动必须给出修复前失败、修复后通过证据；每次尝试的命令、退出码、日志与代码身份
+  独立保存；自验证 `self` 证据充分时直接进入受控提交，不打开验证 Agent；
+- 选择 `independent` 时，验证 Agent 在**新会话**里只依据需求原文与分析生成验证方案（不看任务包、
+  候选 diff 或源码）；每个必过场景必须同时有正向检查和错误对照，正向成功、对照失败才算通过；
+  运行时在独立候选工作区逐条重跑方案命令，核对候选完整性、场景覆盖与证据原文；
+- 验证阻断时先分流：环境异常、测试/验证材料缺陷、证据不足单独记录，不计入正式失败轮次，也不要求
+  研发改代码；只有实现缺陷回到**同一研发会话和工作区**定向修复，产生新候选并重新验证；不归档全部交付、
+  不删除旧候选、不清零失败轮次、不重新生成任务包；
+- 验证通过（或研发自验证 `self` 证据充分）后，主控在真实项目干净且基线一致时应用候选、运行
+  `commitCheckCommand`、只提交本需求改动并记录提交 SHA；配置为空时拒绝提交；不 push、不打 tag、
+  不递增版本、不混合其他在途改动；
 - 聊天区显示 intake／analysis／clarification／plan／error 等节点；需求状态使用
   `specified/developing/verifying/committed`，旧记录的 `plan_proposed/approved` 仍可回看；
 - 天工页只保留停止、取消、恢复、追加授权、构建候选包、发布/部署与运维处置入口；旧批准、实现前评审

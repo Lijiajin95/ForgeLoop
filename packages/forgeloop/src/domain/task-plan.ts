@@ -8,6 +8,7 @@
 
 import { asRecord as recordOf } from './json.js'
 import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
+import { analysisItems, type RequirementAnalysis } from './requirement.js'
 
 /** 任务工时预算的默认值：-1 表示不限，仍记录实际消耗。 */
 export const DEFAULT_TASK_LIMIT_SECONDS = -1
@@ -33,8 +34,8 @@ export interface PlannedTask {
   readonly dependsOn: readonly string[]
   readonly limits: TaskLimits
   readonly authorizationSource: string
-  /** 验证任务只检查既有交付，不修改文件；可没有 files，交付语义见运行时。 */
-  readonly verification?: boolean
+  /** 需求分析条目身份；用于需求条目到任务的可核查追踪。 */
+  readonly covers?: readonly string[]
 }
 
 export interface TechnicalSolution {
@@ -100,17 +101,20 @@ export function validateFiles(files: readonly string[]): void {
   }
 }
 
+function validateTaskCovers(task: PlannedTask): void {
+  if (task.covers === undefined) return
+  if (task.covers.length === 0) throw new RuleViolationError('任务的需求条目覆盖不能为空数组')
+  if (new Set(task.covers).size !== task.covers.length) {
+    throw new RuleViolationError('任务的需求条目覆盖不能包含重复项')
+  }
+  for (const itemId of task.covers) requireNonEmpty(itemId, 'covers')
+}
+
 export function validateTask(task: PlannedTask): void {
   requireNonEmpty(task.taskId, 'task_id')
   requireNonEmpty(task.goal, 'goal')
   requireNonEmpty(task.acceptance, 'acceptance')
-  if (task.verification === true) {
-    if (task.files.length > 0) {
-      throw new RuleViolationError('验证任务不得声明准修改文件；files 必须为空')
-    }
-  } else {
-    validateFiles(task.files)
-  }
+  validateFiles(task.files)
   if (task.testCommand.length === 0)
     throw new RuleViolationError('任务必须给出可执行的正式测试命令')
   for (const argument of task.testCommand) requireNonEmpty(argument, 'test_command')
@@ -124,6 +128,7 @@ export function validateTask(task: PlannedTask): void {
     throw new RuleViolationError('任务依赖不能包含重复项')
   }
   for (const dependency of task.dependsOn) requireNonEmpty(dependency, 'depends_on')
+  validateTaskCovers(task)
   if (
     !Number.isFinite(task.limits.limitSeconds) ||
     (task.limits.limitSeconds !== -1 && task.limits.limitSeconds <= 0)
@@ -185,12 +190,40 @@ export function validateTaskPlan(plan: TaskPlan): void {
   executionOrder(plan)
 }
 
-/** A03 退出条件：至少两个任务且至少一条依赖。 */
-export function requireActionablePlan(plan: TaskPlan): void {
-  if (plan.tasks.length < 2) throw new RuleViolationError('可批准的任务包至少要包含两个任务')
-  if (!plan.tasks.some((task) => task.dependsOn.length > 0)) {
-    throw new RuleViolationError('可批准的任务包至少要有一条任务依赖')
+/**
+ * 新任务包必须逐项覆盖分析条目：每个任务声明 covers，且所有非目标条目至少被一个任务覆盖。
+ * 返回可读问题列表；空数组表示通过。
+ */
+export function validateTaskPlanCoverage(analysis: RequirementAnalysis, plan: TaskPlan): string[] {
+  if (!analysis.items || analysis.items.length === 0) return []
+  const items = analysisItems(analysis)
+  const known = new Map(items.map((item) => [item.itemId, item]))
+  const issues: string[] = []
+  const covered = new Set<string>()
+  for (const task of plan.tasks) {
+    if (!task.covers || task.covers.length === 0) {
+      issues.push(`任务 ${task.taskId} 没有声明 covers 需求条目`)
+      continue
+    }
+    for (const itemId of task.covers) {
+      const item = known.get(itemId)
+      if (!item) {
+        issues.push(`任务 ${task.taskId} 覆盖了不存在的需求条目：${itemId}`)
+        continue
+      }
+      if (item.kind === 'non_goal') {
+        issues.push(`任务 ${task.taskId} 不能把非目标条目 ${itemId} 当成实现范围`)
+        continue
+      }
+      covered.add(itemId)
+    }
   }
+  for (const item of items) {
+    if (item.kind !== 'non_goal' && !covered.has(item.itemId)) {
+      issues.push(`需求条目未被任何任务覆盖：${item.itemId}（${item.text}）`)
+    }
+  }
+  return issues
 }
 
 export interface TaskPlanApproval {
@@ -331,16 +364,19 @@ export function parseTaskPlanDraft(
     if ('authorization_source' in task) {
       throw new MalformedError('任务包不得自带 authorization_source；授权来源由真实批准绑定')
     }
+    if ('verification' in task) {
+      throw new MalformedError('验证任务类型已删除；请按实际实现拆任务并给出可修改文件')
+    }
     return {
       taskId: requireNonEmpty(task.task_id ?? task.taskId, 'task_id'),
       goal: requireNonEmpty(task.goal, 'goal'),
-      files: toStringList(task.files, 'files', task.verification === true),
+      files: toStringList(task.files, 'files', false),
       acceptance: requireNonEmpty(task.acceptance, 'acceptance'),
       testCommand: toStringList(task.test_command ?? task.testCommand, 'test_command', false),
       dependsOn: toStringList(task.depends_on ?? task.dependsOn ?? [], 'depends_on', true),
       limits: limitsFrom(task.limits),
       authorizationSource: '',
-      ...(task.verification === true ? { verification: true } : {}),
+      ...(task.covers === undefined ? {} : { covers: toStringList(task.covers, 'covers', false) }),
     } satisfies PlannedTask
   })
   const solution =
@@ -358,7 +394,6 @@ export function parseTaskPlanDraft(
     createdAt: context.now,
   }
   validateTaskPlan(plan)
-  requireActionablePlan(plan)
   return plan
 }
 

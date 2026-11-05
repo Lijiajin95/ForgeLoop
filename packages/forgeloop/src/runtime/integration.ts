@@ -227,22 +227,24 @@ function applyAndCheck(
       checkSha256: sha256OfText(readFileSync(checkPath, 'utf8')),
     })
   }
-  let checkPassed = true
-  let checkDetail = '未配置提交检查命令'
-  let checkOutput = ''
-  if (input.checkCommand.length > 0) {
-    const check = runCommand(
-      input.checkCommand[0] ?? '',
-      input.checkCommand.slice(1),
-      worktree,
-      input.timeoutMs,
-    )
-    checkPassed = check.code === 0
-    checkDetail = `提交检查退出码 ${check.code}`
-    checkOutput = `${JSON.stringify(input.checkCommand)}\nexit_code: ${check.code}\n${check.stdout}\n${check.stderr}\n`
-  } else {
-    checkOutput = '未配置提交检查命令；以独立验证结果为质量依据。\n'
+  if (input.checkCommand.length === 0) {
+    const detail = '未配置提交检查命令；不能提交。请先配置 autonomy.commitCheckCommand 并修复问题'
+    const checkOutput = `${detail}\n`
+    writeFileSync(checkPath, checkOutput, 'utf8')
+    return failure(detail, {
+      checkLogPath: checkPath,
+      checkSha256: sha256OfText(checkOutput),
+    })
   }
+  const check = runCommand(
+    input.checkCommand[0] ?? '',
+    input.checkCommand.slice(1),
+    worktree,
+    input.timeoutMs,
+  )
+  const checkPassed = check.code === 0
+  const checkDetail = `提交检查退出码 ${check.code}`
+  const checkOutput = `${JSON.stringify(input.checkCommand)}\nexit_code: ${check.code}\n${check.stdout}\n${check.stderr}\n`
   writeFileSync(checkPath, checkOutput, 'utf8')
   const checkSha256 = sha256OfText(checkOutput)
   if (!checkPassed) return failure(checkDetail, { checkLogPath: checkPath, checkSha256 })

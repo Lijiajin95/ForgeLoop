@@ -638,7 +638,7 @@ describe('execution-dev task turns', () => {
       reason: `研发回合被停止：宿主停止；现场保留，未交付改动已保存到 ${checkpointDiff}，可继续修复`,
     })
     expect(aborted.calls.map((call) => call.transcriptPath)).toEqual([
-      join(checkpointDir, 'dev-a1.jsonl'),
+      expect.stringMatching(/\/attempts\/a1-\d+\/dev\.jsonl$/),
     ])
     const checkpoint = JSON.parse(readFileSync(join(checkpointDir, 'checkpoint-a1.json'), 'utf8'))
     expect(checkpoint).toMatchObject({
@@ -677,7 +677,6 @@ describe('execution-dev task turns', () => {
       formalTestTimeoutSeconds: 25,
       previousTaskFailure: () => '上次失败：缺少依赖',
     })
-    const taskDir = evidenceDir(fixture.config, REQ_ID, 1, 't1')
     let turn = 0
     const session = scriptedSession((request) => {
       turn += 1
@@ -696,8 +695,8 @@ describe('execution-dev task turns', () => {
       '上一次研发回合未完成：模型崩溃。请继续完成同一个任务。',
     )
     expect(session.calls.map((call) => call.transcriptPath)).toEqual([
-      join(taskDir, 'dev-a1.jsonl'),
-      join(taskDir, 'dev-a2.jsonl'),
+      expect.stringMatching(/\/attempts\/a1-\d+\/dev\.jsonl$/),
+      expect.stringMatching(/\/attempts\/a2-\d+\/dev\.jsonl$/),
     ])
     expect(session.calls[0]?.timeoutMs).toBe(60_000)
     expect(formalTest.calls).toHaveLength(1)
@@ -705,7 +704,7 @@ describe('execution-dev task turns', () => {
       cwd: fixture.workspace,
       argv: fixture.task.testCommand,
       timeoutMs: 25_000,
-      logPath: join(taskDir, 'formal-test.log'),
+      logPath: expect.stringMatching(/\/attempts\/a2-\d+\/formal-test\.log$/),
     })
     expect(fixture.repo.taskRuns(REQ_ID, 1)).toEqual([
       expect.objectContaining({ taskId: 't1', state: 'delivered', reason: '' }),
@@ -758,44 +757,6 @@ describe('execution-dev task turns', () => {
     expect(fixture.repo.taskRuns(REQ_ID, 1)[0]).toMatchObject({ state: 'blocked', reason })
   })
 
-  it('delivers a read-only task with no file changes without creating an empty commit', async () => {
-    const formalTest = formalTestScript([{ exitCode: 0 }])
-    const fixture = developFixture({
-      task: {
-        verification: true,
-        files: [],
-        goal: '核对既有交付',
-        acceptance: '只读检查通过',
-      },
-      formalTest,
-    })
-    const headBefore = git(fixture.workspace, ['rev-parse', 'HEAD'])
-    const session = scriptedSession((request) => completedRun(request))
-
-    const outcome = await developTask(fixture, session)
-
-    expect(outcome).toEqual({ state: 'delivered', reason: '' })
-    expect(session.calls).toHaveLength(1)
-    expect(formalTest.calls).toHaveLength(1)
-    expect(git(fixture.workspace, ['rev-parse', 'HEAD'])).toBe(headBefore)
-    expect(git(fixture.workspace, ['log', '--pretty=%s'])).toBe('base')
-    expect(git(fixture.workspace, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
-
-    const artifact = fixture.repo.taskArtifact(REQ_ID, 1, 't1')
-    const evidence = fixture.repo.evidence(REQ_ID, 1, 't1')
-    expect(artifact).not.toBeNull()
-    expect(evidence).not.toBeNull()
-    if (!artifact || !evidence) throw new Error('read-only task is missing its artifacts')
-    expect(artifact).toMatchObject({
-      acceptance: '只读检查通过',
-      authorizationSource: 'test-grant',
-    })
-    expect(artifact.candidateSha256).toMatch(/^[0-9a-f]{64}$/)
-    expect(existsSync(evidence.candidatePath)).toBe(true)
-    expect(existsSync(evidence.reviewPath)).toBe(true)
-    expect(fixture.repo.taskRuns(REQ_ID, 1)[0]).toMatchObject({ state: 'delivered' })
-  })
-
   it('feeds a failing formal test log back into the same workspace and delivers on retry', async () => {
     const formalTest = formalTestScript([
       { exitCode: 1, output: 'assertion failed: expected 1 got 2' },
@@ -818,7 +779,7 @@ describe('execution-dev task turns', () => {
       cwd: fixture.workspace,
       argv: fixture.task.testCommand,
       timeoutMs: 25_000,
-      logPath: join(evidenceDir(fixture.config, REQ_ID, 1, 't1'), 'formal-test.log'),
+      logPath: expect.stringMatching(/\/attempts\/a1-\d+\/formal-test\.log$/),
     })
     expect(session.calls).toHaveLength(2)
     expect(session.calls[1]?.prompt).toContain('研发自验未通过（退出码 1）')
@@ -910,23 +871,24 @@ describe('execution-dev task turns', () => {
 })
 
 describe('candidate integration failure branches', () => {
-  it('commits the candidate when no check command is configured and removes temporary state', () => {
+  it('refuses to commit when no check command is configured', () => {
     const project = makeProject()
     const candidate = candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
 
     const result = integrate(project.dir, candidate, evidence, [])
 
-    expect(result.ok).toBe(true)
-    expect(result.checkPassed).toBe(true)
-    expect(result.files).toEqual(['docs/a.md'])
-    expect(result.commitSha).toHaveLength(40)
-    expect(result.commitSha).toBe(git(project.dir, ['rev-parse', 'HEAD']))
-    expect(result.detail).toBe(`已提交 ${result.commitSha.slice(0, 12)}（1 个文件）`)
+    expect(result.ok).toBe(false)
+    expect(result.checkPassed).toBe(false)
+    expect(result.files).toEqual([])
+    expect(result.commitSha).toBe('')
+    expect(result.detail).toContain('未配置提交检查命令')
     const log = readFileSync(result.checkLogPath, 'utf8')
-    expect(log).toBe('未配置提交检查命令；以独立验证结果为质量依据。\n')
+    expect(log).toContain('未配置提交检查命令')
     expect(result.checkSha256).toBe(sha256OfText(log))
-    expect(git(project.dir, ['show', '--name-only', '--pretty=format:', 'HEAD'])).toBe('docs/a.md')
+    expect(git(project.dir, ['show', '--name-only', '--pretty=format:', 'HEAD'])).not.toBe(
+      'docs/a.md',
+    )
     expect(git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
     expect(existsSync(join(evidence, 'check-worktree'))).toBe(false)
     expect(existsSync(join(project.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
@@ -1018,7 +980,7 @@ describe('candidate integration failure branches', () => {
     writeFileSync(join(project.dir, 'docs/a.md'), 'other work\n')
     expect(git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
 
-    const result = integrate(project.dir, candidate, evidence, [])
+    const result = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(true)
@@ -1040,7 +1002,7 @@ describe('candidate integration failure branches', () => {
     git(project.dir, ['config', 'diff.noprefix', 'true'])
     const headBefore = git(project.dir, ['rev-parse', 'HEAD'])
 
-    const result = integrate(project.dir, candidate, evidence, [])
+    const result = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(true)
@@ -1068,7 +1030,7 @@ describe('candidate integration failure branches', () => {
     )
     const headBefore = git(project.dir, ['rev-parse', 'HEAD'])
 
-    const result = integrate(project.dir, candidate, evidence, [])
+    const result = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(true)
@@ -1099,7 +1061,11 @@ describe('candidate integration failure branches', () => {
       { mode: 0o755 },
     )
 
-    const configured = integrate(configuredDir, configuredCandidate, configuredEvidence, [])
+    const configured = integrate(configuredDir, configuredCandidate, configuredEvidence, [
+      'node',
+      '-e',
+      'process.exit(0)',
+    ])
 
     expect(configured.ok).toBe(true)
     expect(configured.checkPassed).toBe(true)
@@ -1116,7 +1082,7 @@ describe('candidate integration failure branches', () => {
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
     writeFileSync(join(project.dir, 'README.md'), 'dirty\n')
 
-    const dirty = integrate(project.dir, candidate, evidence, [])
+    const dirty = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
 
     expect(dirty).toEqual({
       ok: false,
@@ -1135,7 +1101,7 @@ describe('candidate integration failure branches', () => {
     git(project.dir, ['commit', '-qm', 'concurrent work'])
     const movedHead = git(project.dir, ['rev-parse', 'HEAD'])
 
-    const moved = integrate(project.dir, candidate, evidence, [])
+    const moved = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
 
     expect(moved).toEqual({
       ok: false,

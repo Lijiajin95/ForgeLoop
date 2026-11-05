@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_input_kinds (
     kind TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
+-- 分析条目：稳定 ID、分类与依据。旁置表，已有库按 CREATE TABLE IF NOT EXISTS 建立。
+CREATE TABLE IF NOT EXISTS requirement_analysis_items (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    item_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'unknown',
+    PRIMARY KEY (req_id, analysis_version, item_id)
+);
 CREATE TABLE IF NOT EXISTS requirement_task_plans (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,
@@ -177,6 +187,20 @@ CREATE INDEX IF NOT EXISTS requirement_queue_pending
     ON requirement_queue(state, enqueued_at, sequence);
 
 -- 内建问题单：验证未通过时自动创建，关联需求与验证报告，驱动研发修复后重新验证。
+-- 非代码缺陷的验证异常：环境/测试/证据问题单独留档，不计入正式失败轮次。
+CREATE TABLE IF NOT EXISTS requirement_execution_anomalies (
+    anomaly_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS requirement_execution_anomalies_by_req
+    ON requirement_execution_anomalies(req_id, created_at);
 CREATE TABLE IF NOT EXISTS requirement_issues (
     issue_id TEXT PRIMARY KEY,
     req_id TEXT NOT NULL,
