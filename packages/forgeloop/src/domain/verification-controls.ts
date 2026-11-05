@@ -84,11 +84,13 @@ export function validateControlCoverage(input: {
   readonly controls: readonly { readonly label: string }[]
 }): string[] {
   const controlled = new Set(input.controls.map((control) => control.label))
-  const covered = input.reportScenarios.some(
-    (result) =>
-      result.status === 'pass' &&
-      input.requiredScenarios.includes(result.scenario) &&
-      result.commands.some((label) => controlled.has(label)),
+  const passedRequired = input.reportScenarios.filter(
+    (result) => result.status === 'pass' && input.requiredScenarios.includes(result.scenario),
+  )
+  // 没有任何必过场景通过时，失败本身已经阻断；不重复把“缺少对照”当成第二类结论。
+  if (passedRequired.length === 0) return []
+  const covered = passedRequired.some((result) =>
+    result.commands.some((label) => controlled.has(label)),
   )
   if (covered) return []
   return [

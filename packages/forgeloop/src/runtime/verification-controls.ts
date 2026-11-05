@@ -70,33 +70,39 @@ function safeName(label: string): string {
 }
 
 /**
- * 复制候选到隔离副本：用 git worktree 保留 HEAD 与 Git 元数据（验证命令可能检查
- * git status/diff），再补上未跟踪的 `verification/` 材料与依赖链接。
+ * 复制候选到隔离副本：保留 Git 元数据的一份独立仓库，验证命令可检查 git status/diff，
+ * 但补丁只能落在副本内。先复制源码与验证材料，再初始化并提交基线，最后应用错误补丁。
  */
 function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): void {
   rmSync(controlDir, { recursive: true, force: true })
-  const added = runCommand(
+  mkdirSync(controlDir, { recursive: true })
+  cpSync(workspace, controlDir, {
+    recursive: true,
+    filter: (source) => {
+      const relative = source.slice(workspace.length).replace(/^[/\\]/, '')
+      const segment = relative.split(/[/\\]/)[0]
+      return segment !== 'node_modules' && segment !== '.git'
+    },
+  })
+  const initialized = runCommand('git', ['init', '-q'], controlDir, 30_000)
+  if (initialized.code !== 0) {
+    throw new Error(`无法初始化对照副本：${initialized.stderr.trim()}`)
+  }
+  runCommand('git', ['add', '-A'], controlDir, 60_000)
+  runCommand(
     'git',
-    ['worktree', 'add', '--detach', controlDir, 'HEAD'],
-    workspace,
+    [
+      '-c',
+      'user.email=forgeloop@example.invalid',
+      '-c',
+      'user.name=ForgeLoop',
+      'commit',
+      '-qm',
+      'control baseline',
+    ],
+    controlDir,
     60_000,
   )
-  if (added.code === 0) {
-    const materials = join(workspace, 'verification')
-    if (existsSync(materials)) {
-      cpSync(materials, join(controlDir, 'verification'), { recursive: true })
-    }
-  } else {
-    mkdirSync(controlDir, { recursive: true })
-    cpSync(workspace, controlDir, {
-      recursive: true,
-      filter: (source) => {
-        const relative = source.slice(workspace.length).replace(/^[/\\]/, '')
-        const segment = relative.split(/[/\\]/)[0]
-        return segment !== 'node_modules' && segment !== '.git'
-      },
-    })
-  }
   const candidates = [join(workspace, 'node_modules')]
   if (dependencyRoot) candidates.push(join(dependencyRoot, 'node_modules'))
   const modules = candidates.find((path) => existsSync(path))

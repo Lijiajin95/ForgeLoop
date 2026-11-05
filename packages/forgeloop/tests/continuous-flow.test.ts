@@ -109,15 +109,16 @@ const BUSINESS_REVIEW = structuredReviewOf({
 
 /** 需求说明派生的验证方案；同一个验证会话通过工具执行命令。 */
 function verificationPlan(fail = false, outside = false): string {
-  const repaired =
-    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)"
+  const faultCheck =
+    "const fs=require('node:fs');if(fs.existsSync('verification-fault.txt')){console.error('target rule broken: fault injected');process.exit(1)}"
+  const repaired = `${faultCheck}const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)`
   const argv = outside
     ? [
         'node',
         '-e',
-        "const fs=require('node:fs');fs.mkdirSync('docs',{recursive:true});fs.writeFileSync('docs/outside.md','outside');",
+        `${faultCheck}fs.mkdirSync('docs',{recursive:true});fs.writeFileSync('docs/outside.md','outside');`,
       ]
-    : ['node', '-e', fail ? repaired : `console.log('${SMOKE}')`]
+    : ['node', '-e', fail ? repaired : `${faultCheck}console.log('${SMOKE}')`]
   return structuredVerificationOf({
     scenarios: [
       {
@@ -144,6 +145,13 @@ async function executePlanThroughTool(sessionId: string, prompt: string): Promis
     const outcome = await runtime.runVerificationCheck(reqId, label)
     if (!outcome.ok) throw new Error(outcome.text)
   }
+  const control = await runtime.verificationTool.writeControl(reqId, {
+    label: labels[0] ?? 'smoke',
+    patch:
+      'diff --git a/verification-fault.txt b/verification-fault.txt\nnew file mode 100644\n--- /dev/null\n+++ b/verification-fault.txt\n@@ -0,0 +1 @@\n+broken\n',
+    expectedFailureOutput: 'target rule broken',
+  })
+  if (!control.ok) throw new Error(control.text)
   return {
     status: 'completed',
     text: JSON.stringify({ executed: labels, summary: 'executed' }),

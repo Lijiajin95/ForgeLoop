@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { controlAwareFormalTest, registerSmokeControl } from './control-fixture.js'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import type {
@@ -158,6 +159,7 @@ function fakeRunner(
           if (!outcome.ok) throw new Error(outcome.text)
           executions += 1
         }
+        await registerSmokeControl(runtime, reqId, labels[0] ?? 'smoke')
         return reply(JSON.stringify({ executed: labels, summary: 'executed' }))
       }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
@@ -220,7 +222,7 @@ function makeRuntime(runner: AgentLike = fakeRunner()): ForgeLoopRuntime {
     },
     project,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner })
+  return new ForgeLoopRuntime({ ctx: {}, config, runner, formalTest: controlAwareFormalTest })
 }
 
 async function runNext(reqId: string, action: 'analyze' | 'advance') {

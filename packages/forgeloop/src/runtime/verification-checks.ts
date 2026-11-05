@@ -276,8 +276,17 @@ export class VerificationCheckRegistry {
     } catch (error) {
       return { ok: false, text: `写入敏感性对照失败：${errorMessage(error)}` }
     }
+    console.error('[debug-write]', JSON.stringify({ label: check.label, argv: check.argv }))
     const selfCheck = await this.runControl(context, check, spec)
     const actual = selfCheck.result
+    console.error(
+      '[debug-self]',
+      JSON.stringify({
+        issues: selfCheck.issues,
+        exit: actual?.exitCode,
+        output: actual?.output.slice(0, 300),
+      }),
+    )
     const detail = actual
       ? `受控副本退出码 ${actual.exitCode === null ? 'null' : actual.exitCode}；输出：\n${actual.output.slice(0, 800)}`
       : '未取得执行结果'

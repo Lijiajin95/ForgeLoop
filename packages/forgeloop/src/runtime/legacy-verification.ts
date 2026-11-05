@@ -819,22 +819,18 @@ export class LegacyVerification {
       },
       finishedAt: this.deps.now(),
     })
-    // 旧验证会话只有命令工具，暂不能编写对照补丁；有对照材料时强制覆盖，
-    // 没有时如实记为“未证明敏感性”，不伪造成通过证据（见状态记录未完成项）。
-    const controlCoverageIssues =
-      controlOutcome.results.length > 0
-        ? validateControlCoverage({
-            requiredScenarios: verificationSession.plan.scenarios
-              .filter((scenario) => scenario.required)
-              .map((scenario) => scenario.scenario),
-            reportScenarios: result.scenarios.map((scenario) => ({
-              scenario: scenario.scenario,
-              status: scenario.status,
-              commands: scenario.checks.map((check) => check.label),
-            })),
-            controls: controlOutcome.results,
-          })
-        : []
+    // 验证会话可通过对照工具写补丁；没有覆盖关键必过场景时按证据不足阻断。
+    const controlCoverageIssues = validateControlCoverage({
+      requiredScenarios: verificationSession.plan.scenarios
+        .filter((scenario) => scenario.required)
+        .map((scenario) => scenario.scenario),
+      reportScenarios: result.scenarios.map((scenario) => ({
+        scenario: scenario.scenario,
+        status: scenario.status,
+        commands: scenario.checks.map((check) => check.label),
+      })),
+      controls: controlOutcome.results,
+    })
     const recordedVerification = this.recordAgentVerification({
       reqId: input.reqId,
       plan: input.plan,
