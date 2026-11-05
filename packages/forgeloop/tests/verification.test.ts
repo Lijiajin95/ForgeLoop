@@ -28,6 +28,7 @@ import {
   type VerificationSessionTurn,
 } from '../src/agents/verification-agent.js'
 import { VerificationCheckRegistry } from '../src/runtime/verification-checks.js'
+import { parseVerificationControls } from '../src/domain/verification-controls.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
 import { structuredSpecOf, structuredPlanOf, structuredReviewOf } from './spec-fixture.js'
 
@@ -1986,6 +1987,7 @@ describe('verification check registry', () => {
       planText?: string
       timeoutMs?: number
       signal?: AbortSignal
+      checksDir?: string
     } = {},
   ) {
     const plan = parseRequirementVerificationPlan(
@@ -2001,7 +2003,7 @@ describe('verification check registry', () => {
       reqId,
       candidateSha256: 'a'.repeat(64),
       workspace: dir,
-      dir: join(dir, '.forgeloop', 'checks'),
+      dir: options.checksDir ?? join(dir, '.forgeloop', 'checks'),
       head: git(dir, ['rev-parse', 'HEAD']).trim(),
       plan,
       signal: options.signal ?? new AbortController().signal,
@@ -2033,6 +2035,53 @@ describe('verification check registry', () => {
     const late = await registry.run(reqId, 'happy-path')
     expect(late.ok).toBe(false)
     expect(late.text).toContain('没有正在进行的验证')
+  })
+
+  it('registers a sensitivity control and proves the command fails on the faulty copy', async () => {
+    const readCommand =
+      "const fs=require('node:fs');if(fs.readFileSync('README.md','utf8')!=='fixture\\n'){console.error('target rule broken: expected fixture');process.exit(1)}console.log('verified ok')"
+    const planText = JSON.stringify({
+      scenarios: [
+        {
+          scenario: SCENARIO,
+          acceptance_criterion: CRITERION,
+          method: '读取真实文件',
+          required: true,
+          checks: [
+            { label: 'read', argv: ['node', '-e', readCommand], expected_output: 'verified ok' },
+          ],
+        },
+      ],
+    })
+    const { registry, reqId, handle, plan } = checkHarness({
+      planText,
+      checksDir: mkdtempSync(join(tmpdir(), 'forgeloop-controls-dir-')),
+    })
+    const written = registry.writeControl(reqId, {
+      label: 'read',
+      patch:
+        'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+      expectedFailureOutput: 'target rule broken',
+    })
+    expect(written.ok, written.text).toBe(true)
+    const controls = parseVerificationControls(
+      readFileSync(join(dir, 'verification/controls.json'), 'utf8'),
+    )
+    expect(controls.map((control) => control.label)).toEqual(['read'])
+
+    expect((await registry.run(reqId, 'read')).ok).toBe(true)
+    const outcome = await registry.executeControls(
+      reqId,
+      handle.token,
+      plan.scenarios.flatMap((scenario) => scenario.checks),
+      controls,
+    )
+    expect(outcome).not.toBeNull()
+    expect(outcome?.issues).toEqual([])
+    expect(outcome?.results[0]).toMatchObject({ applied: true, exitCode: 1 })
+    // 正式候选没有被对照修改。
+    expect(readFileSync(join(dir, 'README.md'), 'utf8')).toBe('fixture\n')
+    handle.release()
   })
 
   it('refuses labels outside the plan and a second concurrent context', async () => {

@@ -1210,12 +1210,15 @@ ${answer}`
     }
   }
 
-  /**
-   * 验证会话的工具入口：只执行当前候选验证方案中已登记的 label；
-   * 其他会话或方案外的命令一律拒绝，模型不能借此执行任意命令。
-   */
   runVerificationCheck(reqId: string, label: string): Promise<VerificationCheckOutcome> {
     return this.verificationChecks.run(reqId, label)
+  }
+
+  writeVerificationControl(
+    reqId: string,
+    input: { label: string; patch: string; expectedFailureOutput: string },
+  ): VerificationCheckOutcome {
+    return this.verificationChecks.writeControl(reqId, input)
   }
 
   /**

@@ -166,7 +166,7 @@ preset。文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越�
 模型工具只读查询、受理需求、写项目内 Markdown 文档、联网检索或执行验证方案：`forgeloop_submit_requirement`
 先落库，返回稳定需求身份与版本 1；`forgeloop_write_project_doc` 只写项目内 `.md`，不能写代码，
 也不能写由运行时维护的业务背景文档；`forgeloop_web_search`/`forgeloop_web_fetch` 只读检索；
-`forgeloop_run_verification_check` 是验证会话专用的执行入口，只接受当前候选验证方案里已登记的
+`forgeloop_run_verification_check` 与 `forgeloop_write_verification_control` 是验证会话专用入口：前者执行当前候选验证方案里已登记的
 label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`forgeloop_ops_logs` 是运维会话专用的
 只读入口，只能读 `ops.artifacts` 登记的制品状态与日志尾部；其余工具只读查询。`/fl` 人类命令表面已删除。普通需求的推进由系统准入与协调器自动完成，
 不再需要 Web 任务包卡片上的批准、推进、独立验证或验收动作；这些旧端点只保留历史兼容。
@@ -219,8 +219,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    - 研发产物交付后，运行时按固定快照建立**独立验证工作区**并应用候选 diff，只允许写 `verification/`；
      随后在**同一个验证会话**里投递执行提示词，由模型逐条调用
      `forgeloop_run_verification_check(req_id, label)`。运行时只接受当前候选验证方案中已登记的
-     label：其他会话、方案外命令、猜写的命令一律拒绝；同一 label 在一个候选上幂等，重复调用返回
-     上一次的真实结果。退出码、超时、中止、耗时、日志路径与 `logSha256` 全部由程序记录，并在执行
+     label（后者为同一 label 登记敏感性对照补丁），其他会话、方案外命令、猜写的命令一律拒绝；
+     同一 label 在一个候选上幂等，重复调用返回上一次的真实结果。退出码、超时、中止、耗时、日志路径与 `logSha256` 全部由程序记录，并在执行
      前后核对 HEAD 与 `verification/` 之外的文件变化，任何越界都记为完整性问题。
    - 执行轮结束时，方案中任一 label 没有真实执行记录、执行上下文丢失或收到停止请求，都返回
      `verification: null` 的阻断（`verification-prep` 失败轮），不建研发问题单——没有真实命令结果

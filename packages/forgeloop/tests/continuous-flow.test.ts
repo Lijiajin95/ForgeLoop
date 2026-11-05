@@ -659,7 +659,10 @@ describe('continuous four-Agent flow', () => {
     expect(openRequests).toHaveLength(1)
     const openRequest = openRequests[0]!
     expect(openRequest.tools).toBeUndefined()
-    expect(openRequest.allowTools).toEqual(['forgeloop_run_verification_check'])
+    expect(openRequest.allowTools).toEqual([
+      'forgeloop_run_verification_check',
+      'forgeloop_write_verification_control',
+    ])
     expect(openRequest.cwd).toBe(project)
 
     expect(turns).toHaveLength(3)

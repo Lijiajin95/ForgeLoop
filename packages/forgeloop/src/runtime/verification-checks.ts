@@ -7,6 +7,7 @@
  * 模型自述不能替代真实执行结果。同一 label 在一个候选上幂等，重复调用返回已有结果。
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -23,9 +24,14 @@ import {
 } from './service-helpers.js'
 import { requireGit } from './workspace.js'
 import { executeVerificationControls } from './verification-controls.js'
-import type { VerificationControlSpec } from '../domain/verification-controls.js'
+import {
+  parseVerificationControls,
+  validateControlPatch,
+  type VerificationControlSpec,
+} from '../domain/verification-controls.js'
 
 export const VERIFICATION_CHECK_TOOL = 'forgeloop_run_verification_check'
+export const VERIFICATION_CONTROL_TOOL = 'forgeloop_write_verification_control'
 
 /** 一条通过工具执行并落日志的验证命令。 */
 export interface VerificationCheckRecord extends VerificationCheckRun {
@@ -215,6 +221,63 @@ export class VerificationCheckRegistry {
       }
       context.runs.set(label, record)
       return this.outcome(record, context, false)
+    }
+  }
+
+  /**
+   * 工具入口：为一条已登记命令写入敏感性对照。
+   * 补丁只能落在 verification/controls/，且必须修改 verification/ 之外的业务文件；
+   * controls.json 由运行时合并，模型不能覆盖其他对照或写入候选源码。
+   */
+  writeControl(
+    reqId: string,
+    input: { label: string; patch: string; expectedFailureOutput: string },
+  ): VerificationCheckOutcome {
+    const context = this.contexts.get(reqId)
+    if (!context) {
+      return {
+        ok: false,
+        text: `没有正在进行的验证：${reqId}。只有验证会话可以为已登记命令写入敏感性对照。`,
+      }
+    }
+    const check = planChecks(context.activation.plan).find((item) => item.label === input.label)
+    if (!check) {
+      return {
+        ok: false,
+        text: `命令 ${input.label} 不在当前验证方案中；敏感性对照只能绑定方案里的 label。`,
+      }
+    }
+    if (input.expectedFailureOutput.trim().length < 8) {
+      return {
+        ok: false,
+        text: 'expected_failure_output 至少 8 个字符，必须能核对到目标业务规则。',
+      }
+    }
+    const issues = validateControlPatch(input.patch)
+    if (issues.length > 0) return { ok: false, text: issues.join('；') }
+    const relative = `verification/controls/${safeLabel(input.label)}.patch`
+    const patchPath = join(context.activation.workspace, relative)
+    const controlsPath = join(context.activation.workspace, 'verification/controls.json')
+    try {
+      mkdirSync(join(context.activation.workspace, 'verification/controls'), { recursive: true })
+      writeFileSync(patchPath, `${input.patch.trimEnd()}\n`, 'utf8')
+      const current = existsSync(controlsPath)
+        ? parseVerificationControls(readFileSync(controlsPath, 'utf8'))
+        : []
+      const next = current.filter((item) => item.label !== input.label)
+      next.push({
+        label: input.label,
+        patch: relative,
+        expectedFailureOutput: input.expectedFailureOutput.trim(),
+      })
+      writeFileSync(controlsPath, `${JSON.stringify({ controls: next }, null, 2)}\n`, 'utf8')
+      return {
+        ok: true,
+        text: `已写入敏感性对照 ${relative}；程序会在候选隔离副本上应用并重跑 ${input.label}。`,
+        data: { label: input.label, patch: relative },
+      }
+    } catch (error) {
+      return { ok: false, text: `写入敏感性对照失败：${errorMessage(error)}` }
     }
   }
 
