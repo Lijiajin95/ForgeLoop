@@ -78,6 +78,7 @@ forgeloop_impact <需求身份>
 profile 配置核对。安装不删除业务库和证据；新方案丢弃旧业务数据是独立的清理事项，
 不能顺带删除 DSH 配置、凭据或其他项目。
 安装目标、测试环境、实际结果和未验证项分别记录，不把测试 home 成功当作正式目标已验证。
+页面核对可用 §11 的本机浏览器凭据与 UI 冒烟。
 
 ## 7. 恢复上一已验证版本
 
@@ -148,3 +149,27 @@ DSH_HOME="$HOME/.dsh-forgeloop-test" \
 正式与测试配置应分别保存在各自 DSH_HOME 的 profile 中；不要让正式 profile 的
 `recordsRoot` 指向测试目录，也不要在测试 profile 中操作正式记录根。启动日志会打印实际
 `records` 路径，可用于核对。测试结束应关闭测试实例；正式实例的重启与切换需另行确认。
+
+## 11. 本机浏览器凭据与页面核对
+
+DSH Web 默认要求浏览器登录态，命令行直接访问会得到 401。自部署后的页面核对需要一份本机
+自动化凭据；它只用于只读检查，不授予部署、批准或推进权限。
+
+凭据来源：DSH 在 `$DSH_HOME/.credentials.yaml` 的
+`client-connection/browser-session` 记录中持久化签名密钥。`scripts/ts/web-credential.ts`
+按与浏览器登录相同的格式派生一个绑定 Host 的 Cookie，默认 7 天、最多 30 天，写入
+`.cache/web-auth/`（目录 0700、文件 0600，已被 Git 忽略）。脚本不打印密钥或 Cookie。
+
+```sh
+make web-auth WEB_URL=http://192.168.3.13:3080
+make web-smoke WEB_URL=http://192.168.3.13:3080
+```
+
+- `web-auth`：生成 Cookie，实际请求首页与 `/api/forgeloop/board`，返回 HTTP 状态和运行构建身份。
+- `web-smoke`：先用同一凭据启动无头 Chromium，进入会话的「天工」页，核对页脚运行版本，
+  截图到 `.cache/web-auth/ui-smoke-*.png`。加 `REQUIRE_SOURCE_MATCH=1` 时，已装载客户端与
+  源码不一致会直接失败，适合部署后核对。
+- 任何拿到 `session.json` 或 `cookie.txt` 的本机进程都能访问同一 Web；不要把文件复制到仓库、
+  issue 或聊天。删除文件只会移除本地副本，服务端签名密钥仍在；需要撤销全部会话时应轮换
+  DSH 的 `browser-session` 凭据并重启。
+- 这是冒烟证据：覆盖首页、看板端点、会话视图与页脚身份，不覆盖全部交互、业务动作或人工验收。

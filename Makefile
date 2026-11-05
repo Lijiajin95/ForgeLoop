@@ -17,7 +17,7 @@ MUTATION_ENABLED := $(filter 1,$(MUTATION))
 
 .PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
-	precommit verify-plugin verify-e2e package m0-loop-e2e worktree-start \
+	precommit verify-plugin verify-e2e web-auth web-smoke package m0-loop-e2e worktree-start \
 	coverage mutation mutation-shard mutation-merge mutation-incremental audit security help \
 	reliability-report reliability-report-fast reliability-registry stability reliability-advanced
 
@@ -133,6 +133,17 @@ verify-plugin:
 # 需要模型凭据；缺少凭据直接失败，不降级为跳过。
 verify-e2e:
 	$(NODE) scripts/ts/verify-e2e.ts
+
+# 本机 Web 浏览器凭据：从 DSH 持久化 browser-session 密钥派生签名 Cookie。
+# 只写 .cache/web-auth（0600），用于部署后的页面只读核对。
+WEB_URL ?= $(DSH_WEB_URL)
+
+web-auth:
+	@test -n "$(WEB_URL)" || (echo "请设置 WEB_URL，例如 make web-auth WEB_URL=http://192.168.3.13:3080" && exit 1)
+	$(NODE) scripts/ts/web-credential.ts --url "$(WEB_URL)"
+
+web-smoke: web-auth
+	$(NODE) scripts/ts/web-ui-smoke.ts $(if $(filter 1,$(REQUIRE_SOURCE_MATCH)),--require-source-match,)
 
 # 宿主装载 E2E（不依赖模型）：构建 → 隔离 profile 安装 → dump-config/plugin list 校验。
 e2e:
