@@ -528,6 +528,17 @@ CREATE TABLE IF NOT EXISTS deployment_decisions (
 );
 CREATE INDEX IF NOT EXISTS deployment_decisions_by_intent ON deployment_decisions (intent_id, decided_at);
 
+CREATE TABLE IF NOT EXISTS delivery_rechecks (
+    req_id TEXT NOT NULL,
+    intent_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, intent_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS delivery_rechecks_by_req ON delivery_rechecks (req_id, state);
+
 CREATE TABLE IF NOT EXISTS delivery_handoffs (
     req_id TEXT NOT NULL,
     candidate_sha256 TEXT NOT NULL,

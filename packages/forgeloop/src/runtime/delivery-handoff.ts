@@ -8,6 +8,7 @@
 import type { ForgeLoopConfig } from '../config.js'
 import type { DeploymentTargetConfig } from '../config.js'
 import { ACCEPTED, COMMITTED } from '../domain/status.js'
+import { errorMessage } from '../domain/errors.js'
 import { asRecord } from '../domain/json.js'
 import type { OperationResult } from './operation-result.js'
 import type { Repository } from '../records/repository.js'
@@ -78,6 +79,8 @@ export class DeliveryHandoff {
 
   async tick(): Promise<DeliveryTickResult> {
     const result = { built: 0, proposed: 0, applied: 0, verified: 0, failed: 0 }
+    // 事件复核与部署交接分开持久化：已核对完成的部署不再执行，但其复核仍可续跑。
+    await this.drainRechecks()
     for (const requirement of this.deps.repo.listRequirements(this.deps.config.project)) {
       const plan = this.deliveryPlan(requirement.reqId)
       if (!plan) continue
@@ -201,7 +204,7 @@ export class DeliveryHandoff {
     if (state === 'verified') {
       this.record({ reqId, build, target }, 'verified', `部署 ${intentId} 已核对`)
       result.verified += 1
-      await this.recheckOps(reqId, intentId)
+      await this.ensureAndDrainRechecks(reqId, intentId)
       return
     }
     this.record(
@@ -229,7 +232,7 @@ export class DeliveryHandoff {
     }
     this.record(input, 'verified', verified.message)
     result.verified += 1
-    await this.recheckOps(input.reqId, input.intentId)
+    await this.ensureAndDrainRechecks(input.reqId, input.intentId)
   }
 
   /** 手工发起但落在 auto 目标的 intent，也由协调器核对；owner 目标仍等人工。 */
@@ -247,7 +250,7 @@ export class DeliveryHandoff {
       const verified = await this.deps.deployments.verify(intent.intentId, 'system:coordinator')
       if (verified.ok) result.verified += 1
       else result.failed += 1
-      if (verified.ok) await this.recheckOps(intent.requirementId, intent.intentId)
+      if (verified.ok) await this.ensureAndDrainRechecks(intent.requirementId, intent.intentId)
     }
   }
 
@@ -266,10 +269,43 @@ export class DeliveryHandoff {
     })
   }
 
-  private async recheckOps(reqId: string, intentId: string): Promise<void> {
-    for (const event of this.deps.repo.listOpsEvents(this.deps.config.project)) {
-      if (event.fixRequirementId !== reqId) continue
-      await this.deps.ops.recheckFix(event.eventId, intentId)
+  /** 部署核对完成：为每个绑定该修复需求的事件登记一条待复核记录（幂等）。 */
+  private async ensureAndDrainRechecks(reqId: string, intentId: string): Promise<void> {
+    const eventIds = this.deps.repo
+      .listOpsEvents(this.deps.config.project)
+      .filter((event) => event.fixRequirementId === reqId)
+      .map((event) => event.eventId)
+    this.deps.repo.deliveryStore.ensureRechecks({
+      reqId,
+      intentId,
+      eventIds,
+      at: this.deps.now(),
+    })
+    await this.drainRechecks()
+  }
+
+  /**
+   * 续跑所有待复核事件：异常只记录在待办上，不抛出、不影响部署状态；
+   * 同事件同部署重复调用由 recheckFix 自身的观测去重保证幂等。
+   */
+  private async drainRechecks(): Promise<void> {
+    for (const pending of this.deps.repo.deliveryStore.allPendingRechecks()) {
+      try {
+        await this.deps.ops.recheckFix(pending.eventId, pending.intentId)
+        this.deps.repo.deliveryStore.recordRecheckOutcome({
+          ...pending,
+          state: 'done',
+          detail: '原事件复核已执行',
+          at: this.deps.now(),
+        })
+      } catch (error) {
+        this.deps.repo.deliveryStore.recordRecheckOutcome({
+          ...pending,
+          state: 'pending',
+          detail: errorMessage(error),
+          at: this.deps.now(),
+        })
+      }
     }
   }
 }

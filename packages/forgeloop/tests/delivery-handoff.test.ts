@@ -202,7 +202,10 @@ function buildStub(): ReturnType<typeof vi.fn> {
   })
 }
 
-function makeHandoff(buildCandidate: (reqId: string) => unknown): {
+function makeHandoff(
+  buildCandidate: (reqId: string) => unknown,
+  recheckImpl?: () => Promise<void>,
+): {
   handoff: DeliveryHandoff
   deployments: Deployments
   recheck: ReturnType<typeof vi.fn>
@@ -215,7 +218,7 @@ function makeHandoff(buildCandidate: (reqId: string) => unknown): {
     alert: async () => ({ ok: true, error: '' }),
   })
   const service = new DeploymentService({ config, repo, deployments })
-  const recheck = vi.fn(async () => {})
+  const recheck = vi.fn(recheckImpl ?? (async () => {}))
   const handoff = new DeliveryHandoff({
     config,
     repo,
@@ -471,5 +474,90 @@ describe('delivery handoff', () => {
     await handoff.tick()
     expect(build).toHaveBeenCalledTimes(1)
     expect(deployments.list()).toHaveLength(0)
+  })
+})
+
+/**
+ * G3：部署核对完成与原事件复核完成必须分开持久化。
+ * 复核第一次抛异常不能丢失后续推进，也不能重复部署。
+ */
+describe('delivery handoff ops recheck recovery', () => {
+  function seedEvent(): string {
+    const event = repo.createOpsEvent({
+      eventId: 'ops-g3',
+      project: 'testproj',
+      checkId: 'check-1',
+      resourceId: 'res-1',
+      signature: 'sig-g3',
+      title: 'down',
+      severity: 'major',
+      state: 'recovered',
+      openedAt: '2026-11-05T09:00:00.000Z',
+      updatedAt: '2026-11-05T09:00:00.000Z',
+    })
+    repo.updateOpsEvent(event.eventId, {
+      fixRequirementId: REQ,
+      updatedAt: '2026-11-05T09:10:00.000Z',
+    })
+    return event.eventId
+  }
+
+  it('retries a recheck that threw once without redeploying', async () => {
+    seedEvent()
+    let calls = 0
+    const recheck = async (): Promise<void> => {
+      calls += 1
+      if (calls === 1) throw new Error('临时异常')
+    }
+    const build = buildStub()
+    const { handoff, deployments } = makeHandoff(build, recheck)
+    await handoff.tick()
+    // 部署已核对，复核失败不抛出、不重复部署。
+    expect(deployments.list()).toHaveLength(1)
+    expect(deployments.list()[0]?.state).toBe('verified')
+    expect(repo.deliveryStore.pendingRechecks(REQ)).toHaveLength(1)
+
+    await handoff.tick()
+    expect(calls).toBe(2)
+    expect(repo.deliveryStore.pendingRechecks(REQ)).toHaveLength(0)
+    expect(deployments.list()).toHaveLength(1)
+  })
+
+  it('does not redeploy and does not re-run a completed recheck', async () => {
+    seedEvent()
+    const build = buildStub()
+    const { handoff, deployments, recheck } = makeHandoff(build)
+    await handoff.tick()
+    await handoff.tick()
+    await handoff.tick()
+    expect(recheck).toHaveBeenCalledTimes(1)
+    expect(build).toHaveBeenCalledTimes(1)
+    expect(deployments.list()).toHaveLength(1)
+  })
+
+  it('keeps the recheck open for every event bound to the same fix requirement', async () => {
+    seedEvent()
+    const second = repo.createOpsEvent({
+      eventId: 'ops-g3-b',
+      project: 'testproj',
+      checkId: 'check-2',
+      resourceId: 'res-2',
+      signature: 'sig-g3-b',
+      title: 'slow',
+      severity: 'minor',
+      state: 'recovered',
+      openedAt: '2026-11-05T09:00:00.000Z',
+      updatedAt: '2026-11-05T09:00:00.000Z',
+    })
+    repo.updateOpsEvent(second.eventId, {
+      fixRequirementId: REQ,
+      updatedAt: '2026-11-05T09:10:00.000Z',
+    })
+    const build = buildStub()
+    const { handoff, deployments, recheck } = makeHandoff(build)
+    await handoff.tick()
+    expect(recheck).toHaveBeenCalledTimes(2)
+    expect(repo.deliveryStore.pendingRechecks(REQ)).toHaveLength(0)
+    expect(deployments.list()).toHaveLength(1)
   })
 })
