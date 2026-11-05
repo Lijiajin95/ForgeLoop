@@ -51,7 +51,10 @@ export function verificationView(
   },
 ): unknown {
   const { reqId, plan, artifacts } = input
-  const record = repo.verification(reqId, plan.planVersion)
+  const commit = repo.latestCommit(reqId)
+  const record = commit
+    ? repo.verificationForCandidate(reqId, plan.planVersion, commit.candidateSha256)
+    : repo.verification(reqId, plan.planVersion)
   if (!record) return null
   let report: VerificationReport | null = null
   try {
@@ -60,6 +63,7 @@ export function verificationView(
     report = null
   }
   const currentIdentity = (() => {
+    if (commit?.candidateSha256) return commit.candidateSha256
     try {
       return candidateIdentityOf(plan, artifacts)
     } catch {

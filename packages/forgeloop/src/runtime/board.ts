@@ -1028,7 +1028,15 @@ function buildRecordViews(input: RecordViewsInput): {
         verifiedAt: verificationRecord.verifiedAt,
       }
     : null
-  const businessReviewRecord = repository.businessReview(requirement.reqId, plan?.planVersion ?? 0)
+  const businessReviewRecord = plan
+    ? currentCandidateSha256
+      ? repository.businessReviewForCandidate(
+          requirement.reqId,
+          plan.planVersion,
+          currentCandidateSha256,
+        )
+      : repository.businessReview(requirement.reqId, plan.planVersion)
+    : null
   return {
     planReviewView,
     verificationView,
@@ -1155,6 +1163,7 @@ function collectRequirementFacts(
   const terminal = isTerminal(requirement.status)
   const latestAnalysis = repository.latestAnalysis(requirement.reqId)
   const plan = repository.latestTaskPlan(requirement.reqId)
+  const commitRecord = repository.latestCommit(requirement.reqId)
   // 精确批准优先；只有旧版本批准时仍判为 stale，不能驱动当前任务包。
   const approvalRecord = plan
     ? (repository.planApproval(requirement.reqId, plan.planVersion) ??
@@ -1188,7 +1197,13 @@ function collectRequirementFacts(
     }
   })()
   const verificationRecord = plan
-    ? repository.verification(requirement.reqId, plan.planVersion)
+    ? commitRecord
+      ? repository.verificationForCandidate(
+          requirement.reqId,
+          plan.planVersion,
+          commitRecord.candidateSha256,
+        )
+      : repository.verification(requirement.reqId, plan.planVersion)
     : null
   const verificationReport: VerificationReport | null = (() => {
     if (!verificationRecord) return null
@@ -1198,7 +1213,8 @@ function collectRequirementFacts(
       return null
     }
   })()
-  const currentCandidateSha256 = candidateSha256Of(plan, artifacts)
+  const currentCandidateSha256 =
+    commitRecord?.candidateSha256 || candidateSha256Of(plan, artifacts)
   const verificationFresh = verificationIsFresh(
     verificationRecord,
     currentCandidateSha256,

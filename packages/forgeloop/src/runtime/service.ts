@@ -1593,9 +1593,10 @@ ${answer}`
         ? this.repo.businessReviewForCandidate(
             reqId,
             plan.planVersion,
-            plan.tasks.every((task) => delivered.has(task.taskId))
-              ? this.candidateIdentity(plan, artifacts)
-              : '',
+            this.repo.latestCommit(reqId)?.candidateSha256 ||
+              (plan.tasks.every((task) => delivered.has(task.taskId))
+                ? this.candidateIdentity(plan, artifacts)
+                : ''),
           )
         : null,
       candidateBuild: plan ? this.repo.candidateBuild(reqId, plan.planVersion) : null,

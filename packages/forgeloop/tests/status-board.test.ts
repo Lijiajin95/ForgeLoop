@@ -445,6 +445,98 @@ describe('status board', () => {
     expect(item.actions).not.toContain('verify')
   })
 
+  it('keeps verification and business review fresh for a committed requirement', () => {
+    const reqId = submit('req-committed-fresh')
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    deliver(reqId, 't1')
+    deliver(reqId, 't2')
+    repository.setStatus(reqId, 'executing')
+
+    // 提交后任务材料的当前聚合身份会变化；验证/终审绑定的是提交的候选身份。
+    const committedCandidate = 'commit-candidate'
+    const report = {
+      kind: 'verification',
+      reqId,
+      planVersion: 1,
+      requirementVersion: 1,
+      candidateSha256: committedCandidate,
+      workspaceSha256: 'tree',
+      planReviewSha256: 'plan-review',
+      verdict: 'pass',
+      summary: '候选通过独立验证',
+      findings: [],
+      blocking: [],
+      scenarios: [],
+      commands: [],
+      sessionId: 'session-verification',
+      at: NOW,
+    }
+    const reportJson = `${JSON.stringify(report, null, 2)}\n`
+    const reportPath = join(dir, `committed-verification-${reqId}.json`)
+    writeFileSync(reportPath, reportJson, 'utf8')
+    repository.recordVerification({
+      requirementId: reqId,
+      planVersion: 1,
+      candidateSha256: committedCandidate,
+      requirementVersion: 1,
+      workspaceSha256: 'tree',
+      verdict: 'pass',
+      reportJson,
+      reportPath,
+      reportSha256: sha256OfText(reportJson),
+      evidenceDir: dir,
+      sessionId: 'session-verification',
+      verifiedAt: NOW,
+    })
+    const reviewJson = `${JSON.stringify({
+      kind: 'business-review',
+      verdict: 'pass',
+      summary: '业务终审通过',
+      blocking: [],
+      scenarios: [],
+      acceptance: [],
+    })}\n`
+    const reviewPath = join(dir, `committed-review-${reqId}.json`)
+    writeFileSync(reviewPath, reviewJson, 'utf8')
+    repository.recordBusinessReview({
+      requirementId: reqId,
+      planVersion: 1,
+      candidateSha256: committedCandidate,
+      requirementVersion: 1,
+      verificationSha256: sha256OfText(reportJson),
+      verdict: 'pass',
+      reportJson: reviewJson,
+      reportPath: reviewPath,
+      reportSha256: sha256OfText(reviewJson),
+      sessionId: 'session-business',
+      reviewedAt: NOW,
+    })
+    repository.recordCommit({
+      requirementId: reqId,
+      planVersion: 1,
+      candidateSha256: committedCandidate,
+      commitSha: 'committed-sha',
+      commitMessage: '完成',
+      checkCommand: [],
+      checkLogPath: '',
+      checkSha256: '',
+      files: ['docs/a.md'],
+      committedAt: NOW,
+    })
+    repository.setStatus(reqId, 'committed', '已提交 committed-sha')
+
+    const item = board().requirements.find((requirement) => requirement.reqId === reqId)!
+    expect(item.verification).toMatchObject({ verdict: 'pass', fresh: true })
+    expect(item.businessReview).toMatchObject({ verdict: 'pass', fresh: true })
+  })
+
   it('offers requeue for a failed requirement and refuses it while work is in flight', () => {
     const reqId = submit('req-requeue')
     repository.recordTaskPlan(plan(reqId))
