@@ -240,6 +240,19 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
      下一次修复与验证。跨请求重试同样默认不设轮次上限，attempt 与验证历史持续累积，不归档全部
      任务、不清空失败轮次、不重建任务包。业务验收阻断默认按不限的失败轮次额度处理；显式配置
      `failureRoundsPerGrant > 0` 时按额度阻塞。
+   - **系统准入需求的连续验证**（`runtime/verification-pipeline.ts`）与上面同一会话的旧验证路径并存：
+     研发产物交付后按任务 diff 重建固定候选，验证 Agent 在候选工作区写
+     `verification/{commands.json,report.json,controls.json}`；程序重跑命令，并对每个必过场景在候选的
+     隔离副本上应用 `verification/controls/*.patch`（受控错误实现）重跑同一命令。对照必须在已知错误
+     实现上非零退出且输出命中目标规则证据，否则按“用例不能发现错误”阻断；补丁只能改 `verification/`
+     之外的业务文件，正式候选不被修改。没有敏感性对照的必过场景按证据不足阻断。
+   - 阻断按事实分类（`domain/verification-failure.ts`）：实现缺陷、用例错误、环境异常、证据不足、
+     需求争议、原因未明。只有实现缺陷且仍有失败额度时才回研发定向修复；其余保留阻断并给出各自处置，
+     不要求研发产生无意义 diff，也不把分类当作放行。
+   - 每次验证尝试有独立 `attemptId`、序号与 `previousAttemptId`，证据目录为
+     `verifications/<req>/v<plan>/<candidate 前 16 位>/attempt-<n>/`；`requirement_verification_attempts`
+     追加保存，`requirement_verifications` 只作为最新结果投影。同一候选只对已知非实现缺陷做有界复验
+     （最多 3 次），旧报告、日志与结论不被覆盖；新候选不能沿用旧候选通过结果。
 6. **受控提交**：验证与业务验收通过后，主控取得仓库级提交锁，核对真实项目工作树干净、HEAD 与候选
    基线一致，在临时工作树应用候选并运行 `autonomy.commitCheckCommand`；检查通过后重新核对工作树、
    暂存区与 HEAD，只暂存并提交该候选 diff，再核对暂存内容摘要。提交失败时反向应用候选并撤销本次
@@ -397,7 +410,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件运行日志固定写入
   `<recordsRoot>/projects/<project>/logs/plugin.log`（同时保留宿主 console 输出）。
 - 表：需求与版本、分析、分析尝试、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与回答、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
-  需求级代码候选、受控提交、独立验证、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
+  需求级代码候选、受控提交、独立验证（含追加式验证尝试）、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、
   `requirement_dev_sessions`、`dev_session_summaries`），以及运维事件、运维观测与运维动作 attempt；
   权威 Schema 在 `records/db.ts`，契约只固定 SQLite 驱动、数据库路径与单库边界，不复制表清单。
@@ -407,9 +420,10 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   与其父目录记录基线和需求版本，元数据不进入候选），`sessions/dev-sessions/<session>/` 保存同会话的轨迹；
   `workspaces/<req>/dev/` 只为旧显式批准链路与问题单证据保留；`evidence/<req>/v<plan>/<task>/` 保存每任务 `candidate.diff`、`formal-test.log`、
   `review.json`、`dev-a*.jsonl`；需求级候选在 `candidates/<req>/v<plan>/candidate-<n>.diff`；
-  候选包在 `candidates/<req>/v<plan>/`；独立验证按候选身份保存在
-  `verifications/<req>/v<plan>/<candidate 前 16 位>/`（`candidate.json`、`candidate.diff`、命令日志、
-  `verification.json`、`business-review.json`）；提交检查在 `integrations/<req>/<candidate 前 16 位>/`；
+  候选包在 `candidates/<req>/v<plan>/`；独立验证按候选与尝试保存在
+  `verifications/<req>/v<plan>/<candidate 前 16 位>/attempt-<n>/`（`candidate.json`、`candidate.diff`、
+  命令日志、敏感性对照副本与日志、`verification.json`、`business-review/`）；提交检查在
+  `integrations/<req>/<candidate 前 16 位>/`；
   产品分析每次尝试的 Agent 轨迹在 `sessions/<reqId>-v<需求版本>-analyze-a<n>.jsonl`（不覆盖历史尝试）；
   运维证据在 `ops/<事件>/`。
 
