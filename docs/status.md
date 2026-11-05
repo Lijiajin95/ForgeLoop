@@ -6152,3 +6152,36 @@ M1-3 要求“真实/标注注入故障 → 真实诊断 → 授权内恢复 →
 - **未完成**：修复需求的真实研发、自动部署与原事件复核关闭（本 E2E 当前关闭部署目标，
   修复需求停在 `draft`）。M1-3 仍记“部分达成”，不按通过计。
 - 上一轮误连生产记录的教训已在安装环节规避：本 E2E 全程 `FORGELOOP_CONFIG` + 隔离 `recordsRoot`。
+
+## 161. M1-3 后半段推进：宿主 preset、部署目标与修复需求（2026-11-06）
+
+### 161.1 本轮修复
+
+- **运维宿主必须从官方 web 模板派生**：裸 profile（`dsh plugin --profile X add`）没有
+  `agentPresets`，研发会话报“宿主没有 agentPresets.mount，无法为开发 Agent 组合编码工具”。
+  改为先 `--from-default-profile web --dump-config` 再装插件，研发会话可用。
+- **部署目标补齐**：`deployments.tools[0].path` 必须在 `deployments.toolRoot` 内（放到
+  `recordsRoot/projects/real-ops/deployments/tools/`）；`approval: auto` 必须配
+  `deployments.alerts.webhook`，否则装载失败。
+- E2E 增补：真实故障 → 恢复 → 修复需求 → 等待真实模型研发/提交/自动部署 → 原检查复核 → 事件关闭，
+  失败时以非零退出码收口。
+
+### 161.2 真实运行观察
+
+多次运行都能稳定复现“故障 → 诊断 → 授权内恢复 → 生成修复需求”，事件 `recovered`、
+`human_involved=0`。修复需求进入研发后：
+
+- 真实模型给出了带文件的技术方案（`repro-rootcause`、`fix-liveness`、`verify-criteria`），
+  目标文件是 `<活动插件包>/src/runtime/service-liveness.ts` 等；
+- 被工程范围守卫拒绝：`文件不在当前活动工程范围`——因为 E2E 的活动工程是只有 README 的临时仓库，
+  模型只能按它知道的 ForgeLoop 插件去规划。
+
+判定：**M1-3 仍为部分达成**。前半段稳定可复现；后半段被“临时项目没有可修复的代码库”卡住，
+属 E2E 现场设计缺口，不是门禁缺陷（范围守卫拦得对）。
+
+### 161.3 下一步
+
+- 给运维 E2E 一个**真实的小工程**（例如 `src/service.mjs` 带真实存活缺陷 + 测试），
+  让修复需求的目标文件落在工程范围内，模型能真正改代码、验证、提交、部署；
+- 部署后原检查复核通过即关闭事件，形成 M1-3 闭环；
+- 仍不得用脚本替身替代真实模型的诊断与研发。

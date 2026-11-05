@@ -64,6 +64,10 @@ async function main(): Promise<void> {
   const checkScript = join(opsDir, 'check.mjs')
   const restartScript = join(opsDir, 'restart.mjs')
   const serverLog = join(opsDir, 'server.log')
+  const targetDir = join(root, 'target')
+  const toolDir = join(recordsRoot, 'projects', 'real-ops', 'deployments', 'tools')
+  mkdirSync(toolDir, { recursive: true })
+  const installScript = join(toolDir, 'install.py')
 
   writeFileSync(
     serverScript,
@@ -106,6 +110,57 @@ async function main(): Promise<void> {
       'process.exit(1)',
     ].join('\n'),
   )
+  // 部署夹具：写入安装记录并重启真实目标进程；M1-3 只验证运维闭环，安装器真实性与 M1-2 分开记录。
+  writeFileSync(
+    installScript,
+    [
+      'import json, os, signal, subprocess, sys, time',
+      'args = sys.argv',
+      'op = args[args.index("--op") + 1]',
+      'plan = json.load(open(args[args.index("--plan") + 1]))',
+      'target = plan["params"]["target"]',
+      'current = os.path.join(target, "current.json")',
+      'pidfile = os.environ["M1_OPS_PID"]',
+      'def restart():',
+      '    try:',
+      '        pid = int(open(pidfile).read().strip())',
+      '        os.kill(pid, signal.SIGKILL)',
+      '        time.sleep(0.3)',
+      '    except Exception:',
+      '        pass',
+      '    subprocess.Popen(["node", os.environ["M1_OPS_SERVER"]], env=dict(os.environ), start_new_session=True)',
+      '    for _ in range(50):',
+      '        try:',
+      '            os.kill(int(open(pidfile).read().strip()), 0)',
+      '            return True',
+      '        except Exception:',
+      '            time.sleep(0.1)',
+      '    return False',
+      'if op == "preflight":',
+      '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": ""}))',
+      'elif op == "apply":',
+      '    os.makedirs(target, exist_ok=True)',
+      '    alive = restart()',
+      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"]}, open(current, "w"))',
+      '    print(json.dumps({"ok": alive, "state": "applied" if alive else "failed", "version": plan["artifact"]["version"], "detail": "restarted" if alive else "restart failed"}))',
+      'elif op == "status":',
+      '    now = json.load(open(current)) if os.path.exists(current) else {}',
+      '    try:',
+      '        pid = int(open(pidfile).read().strip())',
+      '        os.kill(pid, 0)',
+      '    except Exception:',
+      '        pid = 0',
+      '    print(json.dumps({"ok": pid > 0, "state": "running" if pid > 0 else "unknown", "version": now.get("version", ""), "artifactSha256": now.get("artifactSha256", ""), "runningArtifactSha256": now.get("artifactSha256", "") if pid else "", "runningPid": pid, "runningStartedAt": "", "detail": "ops fixture status"}))',
+      'elif op == "rollback":',
+      '    print(json.dumps({"ok": True, "state": "rolled_back", "version": "", "detail": "no previous artifact"}))',
+      'elif op == "data-rollback":',
+      '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "no data scope"}))',
+      'else:',
+      '    print(json.dumps({"ok": False, "state": "failed", "detail": "unknown op"}))',
+    ].join('\n'),
+  )
+  mkdirSync(targetDir, { recursive: true })
+
   const git = (args: string[]): void => {
     const done = execFileSync('git', args, { cwd: project, encoding: 'utf8' })
     void done
@@ -157,7 +212,41 @@ async function main(): Promise<void> {
             },
           ],
         },
-        deployments: { enabled: false },
+        autonomy: {
+          enabled: true,
+          allowAnySource: true,
+          allowCodeCommit: true,
+          requireOwner: false,
+        },
+        formalTestTimeoutSeconds: 120,
+        failureRoundsPerGrant: 5,
+        maxVerificationAttempts: 3,
+        maxTaskAttempts: 3,
+        agent: { timeoutSeconds: 900, maxTurnSeconds: 900 },
+        deployments: {
+          enabled: true,
+          verifyTimeoutSeconds: 120,
+          alerts: { webhook: 'http://127.0.0.1:9/unreachable', timeoutSeconds: 5 },
+          tools: [
+            {
+              id: 'ops-install',
+              kind: 'python',
+              path: installScript,
+              capabilities: ['preflight', 'apply', 'status', 'rollback'],
+              timeoutSeconds: 120,
+            },
+          ],
+          targets: [
+            {
+              id: 'ops-target',
+              toolId: 'ops-install',
+              requirementId: '',
+              autoDeliver: true,
+              approval: 'auto',
+              params: { target: targetDir },
+            },
+          ],
+        },
       },
       null,
       2,
@@ -189,19 +278,34 @@ async function main(): Promise<void> {
     .split('\n')
     .at(-1) as string
   const tarball = join(packDir, packed)
+  // 从官方 headless 模板派生 profile：研发会话需要 agentPresets 组合编码工具。
+  const [bootCommand, bootArgs] = dshCommand([
+    '--profile',
+    'm1-ops-host',
+    '--from-default-profile',
+    'web',
+    '--dump-config',
+  ])
+  execFileSync(bootCommand, bootArgs, {
+    cwd: ROOT,
+    env,
+    stdio: 'ignore',
+    timeout: 300_000,
+  })
   const [pluginCommand, pluginArgs] = dshCommand([
     'plugin',
     '--profile',
-    'm1-ops-web',
+    'm1-ops-host',
     'add',
     tarball,
   ])
   execFileSync(pluginCommand, pluginArgs, { cwd: ROOT, env, stdio: 'ignore' })
   log(`插件已安装：${tarball}`)
 
+  // 常驻宿主：让模型执行一条长时间命令撑住会话，协调器与运维定时器在此期间运行。
   const [command, args] = dshCommand([
     '--profile',
-    'm1-ops-web',
+    'm1-ops-host',
     ...(PATCH ? ['--patch', PATCH] : []),
     '--port',
     String(port),
@@ -222,6 +326,8 @@ async function main(): Promise<void> {
   let eventId = ''
   let recovered = false
   let recoveredPid = 0
+  let fixReqId = ''
+  let closed = false
   const injectedAt = new Date().toISOString()
   try {
     while (Date.now() - started < 60_000) {
@@ -257,6 +363,25 @@ async function main(): Promise<void> {
       await sleep(2_000)
     }
     if (existsSync(pidFile)) recoveredPid = Number(readFileSync(pidFile, 'utf8'))
+    // 后半段：修复需求由真实模型研发、提交、自动部署，原检查复核通过后事件关闭。
+    while (Date.now() - started < TIMEOUT_MS) {
+      const db = new DatabaseSync(dbPath, { readOnly: true })
+      try {
+        const row = db
+          .prepare(
+            'SELECT state, closed_at, fix_requirement_id FROM ops_events ORDER BY rowid DESC LIMIT 1',
+          )
+          .get() as { state?: string; closed_at?: string; fix_requirement_id?: string } | undefined
+        fixReqId = row?.fix_requirement_id ?? ''
+        if (row?.closed_at) {
+          closed = true
+          break
+        }
+      } finally {
+        db.close()
+      }
+      await sleep(3_000)
+    }
   } finally {
     try {
       process.kill(-host.pid!, 'SIGKILL')
@@ -278,6 +403,8 @@ async function main(): Promise<void> {
     recovered,
     beforePid,
     recoveredPid,
+    fixReqId,
+    closed,
     injectedAt,
     injected: 'SIGKILL 目标进程（已标注）',
   }
@@ -293,7 +420,12 @@ async function main(): Promise<void> {
     process.exitCode = 1
     return
   }
-  log('OK：真实故障 → 真实模型诊断 → 授权内恢复 → 检查通过')
+  if (!closed) {
+    log('失败：修复需求没有走完研发/部署，或原检查复核后事件未关闭')
+    process.exitCode = 1
+    return
+  }
+  log('OK：真实故障 → 真实模型诊断 → 授权内恢复 → 修复需求 → 自动部署 → 原检查复核 → 事件关闭')
 }
 
 await main()
