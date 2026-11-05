@@ -1,0 +1,33 @@
+name: Local Windows check
+
+# 推送后在本机 Windows self-hosted runner（标签 forgeloop-local）上跑静态门禁。
+# 为什么不是全量检查：行为测试与架构契约当前按 POSIX 写（/tmp 断言、路径分隔符），
+# 在 Windows 原生 Node 上会失败；全量检查仍由 local-full.yml 的 Linux runner 负责，
+# 本作业不能当作全量门槛。
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-win-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: [self-hosted, Windows, X64, forgeloop-local]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: node --version && npm --version && make --version
+      - run: npm ci --no-audit --no-fund
+      # 静态门禁中已被验证可在 Windows 原生通过的部分；架构契约因路径分隔符暂不纳入。
+      - run: make typecheck lint budget assertions reliability-registry
