@@ -5294,3 +5294,20 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
 - 本批未跑全量 `make check`；但已运行 Windows 全量行为测试 `make.cmd test`：131 个文件、
   1491 通过、1 跳过（monitor 的宿主 `ps` 用例），耗时 208.89 秒；相关 56 项、`tsc --noEmit`、
   ESLint 通过。stderr 中的 `git worktree` 警告是既有平台噪声，不影响测试结果。
+## 137. 监控采集器变异加固（2026-11-05）
+
+- 背景：§132.3 记录 `monitor.ts` 只有 26.58%；根因是变异执行器排除了依赖宿主 `ps` 的
+  `tests/monitor.test.ts`，已覆盖代码被记成 NoCoverage。
+- 改动：新增 `packages/forgeloop/tests/monitor-hermetic.test.ts`（33 用例）。用
+  `vi.mock('node:os')`、`vi.mock('node:child_process')` 与 `vi.stubGlobal('fetch')` 固定
+  主机采样、进程表与探测结果；日志/告警仍读真实临时文件，检查与活动事件来自真实记录库。
+  覆盖：CPU 窗口推进/不推进/夹取、负载与内存取整、ps 行解析与非有限值拒绝、进程表与 spawn
+  失败、探测 2xx/非 2xx/抛错/无 body/取消失败、日志尾部与样本上限、非法正则与缺失文件、
+  告警等级回退与 300 字符截断、跨文件 20 条上限、检查字段类型回退、活动事件过滤与映射、
+  提供方未登记与回退、取消快照、错误列表 20 条与 300 字符上限。
+- 实测（本机 Windows，定向 Stryker 只变异 `src/runtime/monitor.ts`，365 个变异、8 并发）：
+  **27.40% → 86.30%**（killed 100 → 315，survived 116 → 46，noCoverage 149 → 4）。
+- 未改业务源码、未调 break、未把 `monitor.test.ts` 移出变异排除；封闭用例不依赖宿主进程表，
+  可在 Stryker worker 内执行。`docs/reliability.md` §5 同步说明分工。
+- `make.cmd check`（Windows）：132 个文件、1524 通过、1 跳过（monitor 宿主 `ps` 用例）。
+- 未完成：剩余 46 个存活以等价/不可观测分支为主；runtime 其余模块仍按 §132.3 继续。

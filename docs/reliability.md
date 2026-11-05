@@ -112,6 +112,8 @@ Caused by: RuleViolationError: 任务包字段 test_command 不能包含重复�
 `tests/monitor.test.ts` 的宿主进程聚合用例（Stryker worker 沙箱里 `ps` 采集返回空表，
 初始测试假失败会让整轮变异无法开始）。该用例仍在 `make test` / `make coverage` 中运行，
 monitor 源码仍在全量变异范围内；这里只调整变异执行器的测试选择，不排除业务源码。
+`tests/monitor-hermetic.test.ts` 用 mock 固定主机/进程/探测输入，不依赖宿主进程表，
+因此能在变异 worker 里执行，承担 monitor 的变异覆盖（2026-11 实测 86.30%，见状态 §136）。
 
 ## 6. 已知不一致与未落实（发现但不碰）
 
