@@ -53,7 +53,10 @@ const REQUIREMENT = [
   '在 docs/real-model-e2e.md 中写入一行 real model e2e ok。',
   '非目标：不要新增测试文件，也不要修改 docs/real-model-e2e.md 以外的任何文件。',
   '验收标准：docs/real-model-e2e.md 存在，且内容包含 real model e2e ok。',
+  '负向行为说明：文件存在但缺少标记时，测试命令输出 missing 并以非零退出；',
+  '文件不存在或不可读时，测试命令因读取失败以非零退出（不要求输出特定文字）。',
   `测试命令：node -e "const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok')){console.log('missing');process.exit(1)}console.log('real-model-e2e-ok')"`,
+  '验证异常分支时，请用自建的临时目录复制该测试命令的行为，不要读取本仓库当前状态。',
 ].join('\n')
 
 interface RequirementRow {
