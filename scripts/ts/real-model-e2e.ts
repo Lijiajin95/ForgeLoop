@@ -290,11 +290,11 @@ function prepareDeployment(
       '    old = read(current)',
       '    if old is not None:',
       '        json.dump(old, open(previous, "w"))',
-      '    json.dump({"version": plan["artifact"]["version"], "sha256": plan["artifact"]["sha256"]}, open(current, "w"))',
+      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-05T10:00:00Z"}, open(current, "w"))',
       '    print(json.dumps({"ok": True, "state": "applied", "version": plan["artifact"]["version"], "detail": "applied"}))',
       'elif op == "status":',
       '    now = read(current) or {}',
-      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "detail": "status"}))',
+      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "artifactSha256": now.get("artifactSha256", ""), "runningArtifactSha256": now.get("runningArtifactSha256", ""), "runningPid": os.getpid(), "runningStartedAt": now.get("runningStartedAt", ""), "detail": "status"}))',
       'elif op == "rollback":',
       '    old = read(previous)',
       '    if old is None:',
@@ -334,7 +334,7 @@ function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentF
           candidateArtifactPath: 'dist/artifact.json',
           deployments: {
             enabled: true,
-            alerts: { webhook: '', timeoutSeconds: 5 },
+            alerts: { webhook: 'http://127.0.0.1:9/unreachable', timeoutSeconds: 5 },
             tools: [
               {
                 id: 'real-model-tool',
@@ -349,7 +349,8 @@ function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentF
                 id: 'real-model-target',
                 toolId: 'real-model-tool',
                 requirementId: '',
-                approval: 'owner',
+                approval: 'auto',
+                autoDeliver: true,
                 params: { target: deploy.targetDir },
                 rollback: { keep: 1 },
               },
@@ -384,46 +385,28 @@ async function deployCommitted(input: {
     },
   })
   try {
-    const built = runtime.buildCandidate({
-      reqId: input.reqId,
-      by: 'real-model-e2e',
-      source: 'real-model-e2e:build',
-    })
-    if (!built.ok) throw new Error(`候选构建失败：${built.message}`)
+    const delivery = await runtime.deliveryHandoff.tick()
+    if (delivery.built < 1) throw new Error('协调器没有自动构建候选')
     const build = runtime.repo.latestCandidateBuild(input.reqId)
     if (!build) throw new Error('候选构建记录缺失')
-    const accepted = runtime.accept({
-      reqId: input.reqId,
-      by: 'real-model-e2e',
-      source: 'real-model-e2e:accept',
-      artifactSha256: build.artifactSha256,
-    })
-    if (!accepted.ok) throw new Error(`验收失败：${accepted.message}`)
-    const requested = await runtime.deploymentService.request({
-      targetId: 'real-model-target',
-      requirementId: input.reqId,
-      by: 'real-model-e2e',
-      source: 'real-model-e2e:deploy',
-    })
-    if (!requested.ok) throw new Error(`部署提议失败：${requested.message}`)
-    const intentId = (requested.data as { intentId: string }).intentId
-    const approved = await runtime.deploymentService.approve({
-      intentId,
-      by: 'real-model-e2e',
-    })
-    if (!approved.ok) throw new Error(`部署批准失败：${approved.message}`)
-    const verified = await runtime.deploymentService.verify({
-      intentId,
-      by: 'real-model-e2e',
-    })
-    if (!verified.ok) throw new Error(`部署核对失败：${verified.message}`)
-    const installed = JSON.parse(readFileSync(join(input.deploy.targetDir, 'current.json'), 'utf8')) as {
-      version?: string
-    }
+    const intent = runtime.deployments.list().find((item) => item.requirementId === input.reqId)
+    if (!intent) throw new Error('协调器没有创建部署 intent')
+    if (intent.state !== 'verified') throw new Error(`部署未核对通过：${intent.state}`)
+    const installed = JSON.parse(
+      readFileSync(join(input.deploy.targetDir, 'current.json'), 'utf8'),
+    ) as { version?: string; artifactSha256?: string; runningArtifactSha256?: string }
     if (installed.version !== build.packageVersion) {
-      throw new Error(`目标版本 ${installed.version ?? '未知'} 与候选 ${build.packageVersion} 不一致`)
+      throw new Error(
+        `目标版本 ${installed.version ?? '未知'} 与候选 ${build.packageVersion} 不一致`,
+      )
     }
-    return { intentId, artifact: build.artifactSha256 }
+    if (installed.artifactSha256 !== build.artifactSha256) {
+      throw new Error('目标安装摘要与候选制品不一致')
+    }
+    if (installed.runningArtifactSha256 !== build.artifactSha256) {
+      throw new Error('目标运行摘要与候选制品不一致')
+    }
+    return { intentId: intent.intentId, artifact: build.artifactSha256 }
   } finally {
     runtime.close()
   }

@@ -134,11 +134,11 @@ function writeDeploymentTool(recordsRoot: string): string {
       '    old = read(current)',
       '    if old is not None:',
       '        json.dump(old, open(previous, "w"))',
-      '    json.dump({"version": plan["artifact"]["version"], "sha256": plan["artifact"]["sha256"]}, open(current, "w"))',
+      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-05T10:00:00Z"}, open(current, "w"))',
       '    print(json.dumps({"ok": True, "state": "applied", "version": plan["artifact"]["version"], "detail": "applied"}))',
       'elif op == "status":',
       '    now = read(current) or {}',
-      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "detail": "status"}))',
+      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "artifactSha256": now.get("artifactSha256", ""), "runningArtifactSha256": now.get("runningArtifactSha256", ""), "runningPid": now.get("runningPid", 0), "runningStartedAt": now.get("runningStartedAt", ""), "detail": "status"}))',
       'elif op == "rollback":',
       '    old = read(previous)',
       '    if old is None:',
@@ -194,11 +194,11 @@ function writeRealArtifactTool(recordsRoot: string): string {
       '        tar.extractall(extract)',
       '    shutil.copytree(os.path.join(extract, "package"), module, dirs_exist_ok=True)',
       '    shutil.rmtree(extract, ignore_errors=True)',
-      '    json.dump({"version": plan["artifact"]["version"], "sha256": plan["artifact"]["sha256"]}, open(current, "w"))',
+      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-05T10:00:00Z"}, open(current, "w"))',
       '    print(json.dumps({"ok": True, "state": "applied", "version": installed_version(), "detail": "installed into profile"}))',
       'elif op == "status":',
       '    now = read(current) or {}',
-      '    print(json.dumps({"ok": True, "state": "running", "version": installed_version(), "detail": "profile status"}))',
+      '    print(json.dumps({"ok": True, "state": "running", "version": installed_version(), "artifactSha256": now.get("artifactSha256", ""), "runningArtifactSha256": now.get("runningArtifactSha256", ""), "runningPid": os.getpid(), "runningStartedAt": now.get("runningStartedAt", ""), "detail": "profile status"}))',
       'elif op == "rollback":',
       '    if not os.path.isdir(previous):',
       '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous profile"}))',
@@ -479,7 +479,8 @@ function configFor(
             id: 'm0-target',
             toolId: 'm0-tool',
             requirementId: '',
-            approval: 'owner',
+            approval: 'auto',
+            autoDeliver: true,
             params: { target: join(root, 'dsh-home', 'profiles', 'm0-target') },
             rollback: { keep: 1 },
           },
@@ -667,7 +668,7 @@ async function runRealArtifactLeg(root: string): Promise<void> {
     check(verified.ok, `真实制品部署核对失败：${verified.message}`)
     const installed = JSON.parse(readFileSync(join(targetDir, 'install.json'), 'utf8'))
     check(installed.version === build!.packageVersion, '真实制品安装版本与构建记录不一致')
-    check(installed.sha256 === build!.artifactSha256, '真实制品安装摘要与构建记录不一致')
+    check(installed.artifactSha256 === build!.artifactSha256, '真实制品安装摘要与构建记录不一致')
     summary.realArtifact = {
       reqId,
       commitSha: local.repo.latestCommit(reqId)?.commitSha ?? '',
@@ -723,39 +724,22 @@ async function main(): Promise<void> {
     check(commit !== null, '没有受控提交')
     check(git(project, ['status', '--porcelain']) === '', '受控提交后工作树不干净')
     const commitSha = commit?.commitSha ?? ''
-    const build = runtime.buildCandidate({ reqId, by: 'owner', source: 'm0-loop:s1' })
-    check(build.ok, `候选构建失败：${build.message}`)
+    const delivery = await runtime.deliveryHandoff.tick()
+    check(delivery.built >= 1, '协调器没有自动构建候选')
     const built = runtime.repo.latestCandidateBuild(reqId)
     check(built !== null, '没有候选构建记录')
-    const accepted = runtime.accept({
-      reqId,
-      by: 'owner',
-      source: 'm0-loop:accept',
-    })
-    check(accepted.ok, `验收失败：${accepted.message}`)
-
-    const requested = await runtime.deploymentService.request({
-      targetId: 'm0-target',
-      requirementId: reqId,
-      by: 'owner',
-      source: 'm0-loop:s1-deploy',
-    })
-    check(requested.ok, `部署提议失败：${requested.message}`)
-    const intentId = (requested.data as { intentId: string }).intentId
-    check(
-      runtime.repo.deploymentStore.deploymentIntent(intentId)?.state === 'awaiting_approval',
-      '所有者目标应等待批准',
-    )
+    const intent = runtime.deployments.list().find((item) => item.requirementId === reqId)
+    check(intent !== undefined, '协调器没有创建部署 intent')
+    check(intent?.state === 'verified', `自动部署未核对通过：${intent?.state ?? 'missing'}`)
+    const intentId = intent?.intentId ?? ''
     const denied = await runtime.deploymentService.approve({ intentId, by: 'not-owner' })
     check(denied.ok === false && denied.code === 'forbidden', '非所有者批准没有被拒绝')
-    const approved = await runtime.deploymentService.approve({ intentId, by: 'owner' })
-    check(approved.ok, `批准部署失败：${approved.message}`)
-    const verified = await runtime.deploymentService.verify({ intentId, by: 'owner' })
-    check(verified.ok, `部署核对失败：${verified.message}`)
     const deployed = JSON.parse(
       readFileSync(join(root, 'dsh-home', 'profiles', 'm0-target', 'current.json'), 'utf8'),
     )
     check(deployed.version === built!.packageVersion, '目标运行版本与制品版本不一致')
+    check(deployed.artifactSha256 === built!.artifactSha256, '目标安装摘要与制品不一致')
+    check(deployed.runningArtifactSha256 === built!.artifactSha256, '目标运行摘要与制品不一致')
     console.log(
       `[m0-loop] S1 完成：commit=${commitSha.slice(0, 10)} artifact=${built!.artifactSha256.slice(0, 10)}`,
     )
@@ -794,42 +778,31 @@ async function main(): Promise<void> {
     if (!runtime) throw new Error('runtime missing')
     const fixCommit = runtime.repo.latestCommit(fixReqId)
     check(fixCommit !== null, 'S3 没有受控提交')
-    const fixBuild = runtime.buildCandidate({ reqId: fixReqId, by: 'owner', source: 'm0-loop:s3' })
-    check(fixBuild.ok, `S3 候选构建失败：${fixBuild.message}`)
+    const fixDelivery = await runtime.deliveryHandoff.tick()
+    check(fixDelivery.built >= 1, 'S3 协调器没有自动构建修复制品')
     const fixBuilt = runtime.repo.latestCandidateBuild(fixReqId)
     check(fixBuilt !== null, 'S3 没有候选构建记录')
+    const fixIntent = runtime.deployments.list().find((item) => item.requirementId === fixReqId)
+    check(fixIntent !== undefined, 'S3 协调器没有创建修复部署 intent')
     check(
-      runtime.repo.getRequirement(fixReqId)?.status === 'committed',
-      'S3 修复需求状态不是 committed',
+      fixIntent?.state === 'verified',
+      `S3 修复部署未核对通过：${fixIntent?.state ?? 'missing'}`,
     )
-
-    // 受控目标不绑定固定需求；S3 用同一运行时按 intent 指定修复需求，验证部署目标可复用。
-    const fixAccept = runtime.accept({
-      reqId: fixReqId,
-      by: 'owner',
-      source: 'm0-loop:accept-fix',
-    })
-    check(fixAccept.ok, `S3 验收失败：${fixAccept.message}`)
-    const fixRequested = await runtime.deploymentService.request({
-      targetId: 'm0-target',
-      requirementId: fixReqId,
-      by: 'owner',
-      source: 'm0-loop:s3-deploy',
-    })
-    check(fixRequested.ok, `S3 部署提议失败：${fixRequested.message}`)
-    const fixIntent = (fixRequested.data as { intentId: string }).intentId
-    const fixApproved = await runtime.deploymentService.approve({
-      intentId: fixIntent,
-      by: 'owner',
-    })
-    check(fixApproved.ok, `S3 批准部署失败：${fixApproved.message}`)
-    const fixVerified = await runtime.deploymentService.verify({ intentId: fixIntent, by: 'owner' })
-    check(fixVerified.ok, `S3 部署核对失败：${fixVerified.message}`)
     const fixDeployed = JSON.parse(
       readFileSync(join(root, 'dsh-home', 'profiles', 'm0-target', 'current.json'), 'utf8'),
     )
     check(fixDeployed.version === fixBuilt!.packageVersion, 'S3 目标运行版本与修复制品不一致')
-    console.log(`[m0-loop] S3 完成：fixReq=${fixReqId} deploy=${fixIntent}`)
+    check(
+      fixDeployed.artifactSha256 === fixBuilt!.artifactSha256,
+      'S3 目标安装摘要与修复制品不一致',
+    )
+    const fixedEvent = runtime.ops.detail(eventId)?.event
+    check(fixedEvent?.state === 'closed', `S3 原事件未在修复复核后关闭：${fixedEvent?.state}`)
+    const fixCheck = runtime.ops
+      .detail(eventId)
+      ?.observations.find((item) => item.kind === 'fix_check')
+    check(fixCheck !== undefined, 'S3 没有记录原检查复核')
+    console.log(`[m0-loop] S3 完成：fixReq=${fixReqId} deploy=${fixIntent?.intentId ?? ''}`)
 
     // ---------------- M0-7 停止：真实请求阻止推进，显式恢复后才继续 ----------------
     const stopSubmit = runtime.submit({
@@ -876,9 +849,7 @@ async function main(): Promise<void> {
     runtime.close()
     runtime = null
     verificationFails = true
-    runtime = makeRuntime(
-      configFor(project, recordsRoot, root, { maxVerificationAttempts: 1 }),
-    )
+    runtime = makeRuntime(configFor(project, recordsRoot, root, { maxVerificationAttempts: 1 }))
     const limitSubmit = runtime.submit({
       text: 'M0-7 限额测试：验证必然失败，用于确认正数次数上限会停住',
       by: 'owner',
@@ -961,7 +932,12 @@ async function main(): Promise<void> {
       autonomy: snapshot.autonomy,
     }
     summary.opsEvent = runtime.ops.detail(eventId)
-    summary.s3Rollout = runtime.deploymentService.rollout(fixIntent)
+    summary.opsFix = {
+      eventId,
+      state: fixedEvent?.state ?? '',
+      check: fixCheck?.summary ?? '',
+    }
+    summary.s3Rollout = runtime.deploymentService.rollout(fixIntent?.intentId ?? '')
     summary.legs = {
       s1: { reqId, commitSha, artifact: built!.artifactSha256, intentId },
       m07: {
@@ -972,7 +948,7 @@ async function main(): Promise<void> {
         limit: 'maxVerificationAttempts=1 -> blocked',
       },
       s2: { eventId, state: event?.state, recoveredPid },
-      s3: { fixReqId, fixCommit: fixCommit?.commitSha ?? '', fixIntent },
+      s3: { fixReqId, fixCommit: fixCommit?.commitSha ?? '', fixIntent: fixIntent?.intentId ?? '' },
       negatives: {
         unauthorizedApprove: 'forbidden',
         toolSurface: 'no deploy/approve',
