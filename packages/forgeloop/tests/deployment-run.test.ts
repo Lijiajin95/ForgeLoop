@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
@@ -864,5 +865,185 @@ describe('deployment interruption recovery', () => {
     const recovered = await deployments.recoverInterrupted('2026-11-05T09:00:01.000Z')
     expect(recovered).toBe(0)
     expect(deployments.detail(fresh)?.intent.state).toBe('applying')
+  })
+})
+
+/**
+ * 真实安装与运行身份：解包可运行制品、启动真实 node 进程，
+ * 核对以运行进程自己报告的介质摘要为准，而不是工具或计划里的期望值。
+ */
+describe('real installer and running identity', () => {
+  const SERVER = `import { createHash } from 'node:crypto'
+import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+const here = dirname(fileURLToPath(import.meta.url))
+const sha = createHash('sha256').update(readFileSync(join(here, 'bundle.tgz'))).digest('hex')
+const startedAt = new Date().toISOString()
+const port = Number(process.env.FORGELOOP_TEST_PORT || 0)
+createServer((req, res) => {
+  res.writeHead(req.url === '/identity' ? 200 : 404, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ version: '1.0.0', artifactSha256: sha, pid: process.pid, startedAt, message: 'ok' }))
+}).listen(port, '127.0.0.1')
+`
+  const INSTALLER = [
+    'import hashlib, json, os, shutil, signal, socket, subprocess, sys, tarfile, time, urllib.request',
+    'args = sys.argv',
+    'op = args[args.index("--op") + 1]',
+    'plan = json.load(open(args[args.index("--plan") + 1]))',
+    'target = plan["params"]["target"]',
+    'current = os.path.join(target, "current")',
+    'pidfile = os.path.join(target, "process.pid")',
+    'portfile = os.path.join(target, "port")',
+    'def sha(path):',
+    '    h = hashlib.sha256()',
+    '    h.update(open(path, "rb").read())',
+    '    return h.hexdigest()',
+    'def stop():',
+    '    try:',
+    '        pid = int(open(pidfile).read().strip())',
+    '    except Exception:',
+    '        return',
+    '    try:',
+    '        os.kill(pid, signal.SIGKILL)',
+    '        time.sleep(0.2)',
+    '    except Exception:',
+    '        pass',
+    'if op == "preflight":',
+    '    print(json.dumps({"ok": True, "state": "ready", "restorePoint": "previous-1" if os.path.isdir(current) else ""}))',
+    'elif op == "apply":',
+    '    stop()',
+    '    shutil.rmtree(current, ignore_errors=True)',
+    '    os.makedirs(current)',
+    '    with tarfile.open(plan["artifact"]["path"]) as tar:',
+    '        tar.extractall(current)',
+    '    shutil.copyfile(plan["artifact"]["path"], os.path.join(current, "bundle.tgz"))',
+    '    s = socket.socket()',
+    '    s.bind(("127.0.0.1", 0))',
+    '    port = s.getsockname()[1]',
+    '    s.close()',
+    '    env = dict(os.environ)',
+    '    env["FORGELOOP_TEST_PORT"] = str(port)',
+    '    log = open(os.path.join(target, "server.log"), "w")',
+    '    proc = subprocess.Popen(["node", os.path.join(current, "server.mjs")], cwd=current, env=env, stdout=log, stderr=log, start_new_session=True)',
+    '    open(pidfile, "w").write(str(proc.pid))',
+    '    open(portfile, "w").write(str(port))',
+    '    for _ in range(100):',
+    '        try:',
+    '            urllib.request.urlopen("http://127.0.0.1:%d/identity" % port, timeout=1)',
+    '            print(json.dumps({"ok": True, "state": "applied", "version": "1.0.0", "detail": "started"}))',
+    '            break',
+    '        except Exception:',
+    '            time.sleep(0.1)',
+    '    else:',
+    '        print(json.dumps({"ok": False, "state": "failed", "detail": "server did not start"}))',
+    'elif op == "status":',
+    '    installed = sha(os.path.join(current, "bundle.tgz"))',
+    '    port = int(open(portfile).read().strip())',
+    '    identity = json.loads(urllib.request.urlopen("http://127.0.0.1:%d/identity" % port, timeout=2).read())',
+    '    print(json.dumps({"ok": True, "state": "running", "version": identity["version"], "artifactSha256": installed, "runningArtifactSha256": identity["artifactSha256"], "runningPid": identity["pid"], "runningStartedAt": identity["startedAt"], "detail": "live identity"}))',
+  ].join('\n')
+
+  function makeArtifact(path: string, body: string): string {
+    const bundle = join(dir, `bundle-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(bundle, { recursive: true })
+    writeFileSync(join(bundle, 'server.mjs'), SERVER)
+    writeFileSync(join(bundle, 'app.mjs'), body)
+    execFileSync('tar', ['-czf', path, '-C', bundle, '.'])
+    return path
+  }
+
+  function installer(): string {
+    const path = join(
+      dir,
+      '.forgeloop',
+      'projects',
+      'testproj',
+      'deployments',
+      'tools',
+      'install.py',
+    )
+    mkdirSync(join(path, '..'), { recursive: true })
+    writeFileSync(path, INSTALLER)
+    return path
+  }
+
+  it('verifies against the live process identity and rejects a stale process', async () => {
+    const artifactPath = makeArtifact(join(dir, 'app.tgz'), 'export const marker = "v1"\n')
+    const artifact = {
+      sha256: execFileSync('sha256sum', [artifactPath], { encoding: 'utf8' }).split(' ')[0]!,
+      path: artifactPath,
+      version: '1.0.0',
+    }
+    const tool = installer()
+    const targetDir = join(dir, 'target')
+    mkdirSync(targetDir, { recursive: true })
+    config = resolveConfig(
+      {
+        project: 'testproj',
+        projectPath: dir,
+        recordsRoot: join(dir, '.forgeloop'),
+        deployments: {
+          enabled: true,
+          tools: [
+            {
+              id: 't',
+              kind: 'python',
+              path: tool,
+              capabilities: ['preflight', 'apply', 'status', 'rollback'],
+              timeoutSeconds: 60,
+            },
+          ],
+          targets: [
+            {
+              id: 'real',
+              toolId: 't',
+              requirementId: 'req-1',
+              approval: 'owner',
+              params: { target: targetDir },
+            },
+          ],
+        },
+      },
+      dir,
+    )
+    const deployments = build()
+    const requested = await deployments.request({
+      targetId: 'real',
+      artifact,
+      source: 'real-install',
+    })
+    expect(requested.ok, requested.message).toBe(true)
+    const intentId = (requested.data as { intentId: string }).intentId
+    const approved = await deployments.approve(intentId)
+    expect(approved.ok, approved.message).toBe(true)
+    const verified = await deployments.verify(intentId)
+    expect(verified.ok, verified.message).toBe(true)
+    expect(deployments.detail(intentId)?.intent.state).toBe('verified')
+
+    // 运行进程自己报告的 pid 与介质摘要，不是安装工具的自述。
+    const port = Number(readFileSync(join(targetDir, 'port'), 'utf8').trim())
+    const identity = (await (await fetch(`http://127.0.0.1:${port}/identity`)).json()) as {
+      pid: number
+      artifactSha256: string
+    }
+    const toolPid = Number(readFileSync(join(targetDir, 'process.pid'), 'utf8').trim())
+    expect(identity.pid).toBe(toolPid)
+    expect(identity.artifactSha256).toBe(artifact.sha256)
+
+    // 已安装介质被替换但进程仍在跑旧内容：核对必须失败，不能写 verified。
+    writeFileSync(join(targetDir, 'current', 'bundle.tgz'), 'tampered')
+    const second = await deployments.request({
+      targetId: 'real',
+      artifact: { ...artifact, sha256: 'f'.repeat(64) },
+      source: 'real-install-stale',
+    })
+    const secondId = (second.data as { intentId: string }).intentId
+    await deployments.approve(secondId)
+    const stale = await deployments.verify(secondId)
+    expect(stale.ok).toBe(false)
+    expect(stale.message).toMatch(/运行中制品摘要|已安装制品摘要/)
+    expect(deployments.detail(secondId)?.intent.state).toBe('verify_failed')
   })
 })
