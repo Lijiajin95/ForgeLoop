@@ -5969,12 +5969,15 @@ GET /health → ok
 
 - **M1-1：达成**。同一 tarball 摘要、profile 依赖、运行身份（版本/pid/启动时间/入口摘要）可查询，
   且版本与安装内容由 `runtime-identity.json` 绑定。
-- **必须披露的边界**：该 profile 沿用默认配置，装载时指向
-  `/home/link/.forgeloop/production/projects/forgeloop/records.sqlite`；由于生产宿主已持锁，
-  新宿主明确报告“单消费者锁未取得，本宿主不领取工作”，**没有消费或改写生产工作项**。
-  这不是隔离运行目标：种子档案若要长期保留，应为该 profile 配置独立 `recordsRoot`，
-  再重装一次并归档身份。本轮未改动生产记录、未取得生产锁。
-- 该实例为一次性 headless 进程，执行后退出；pid 与启动时间来自运行期写入的身份文件，
+- **第一次启动的边界（已纠正）**：初装时 profile 沿用默认配置，指向
+  `/home/link/.forgeloop/production/projects/forgeloop/records.sqlite`；因生产宿主已持锁，
+  新宿主报告“单消费者锁未取得，本宿主不领取工作”，没有消费或改写生产工作项。
+  随后用 `FORGELOOP_CONFIG=/tmp/m1-seed-home/config.json`（`recordsRoot=/tmp/m1-seed-home/records`）
+  重启同一 profile，装载日志为
+  `已加载 records=/tmp/m1-seed-home/records/projects/m1-seed/records.sqlite project=m1-seed`，
+  记录库与日志都在隔离目录内；身份文件更新为 pid `3366547`、
+  `startedAt 2026-11-05T17:19:46.414Z`，三处摘要与首次一致（同一 tarball）。
+- 两次启动都是一次性 headless 进程，执行后退出；pid 与启动时间来自运行期写入的身份文件，
   不是事后补写。
 
 ### 156.3 观察
