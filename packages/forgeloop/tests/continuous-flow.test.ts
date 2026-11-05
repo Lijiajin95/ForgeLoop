@@ -1638,6 +1638,9 @@ describe('continuous four-Agent flow', () => {
       process.env.FORGELOOP_FAULT_INJECT = JSON.stringify(spec)
       let reqId = ''
       try {
+        // 每个 spec 用独立运行时；先关闭上一个，否则 Windows 下 SQLite 句柄
+        // 会让 afterEach 的 rmSync 报 EPERM。
+        runtime.close()
         runtime = makeRuntime(fakeRunner())
         const submitted = runtime.submit({
           text: '实现一个可验证的小功能',

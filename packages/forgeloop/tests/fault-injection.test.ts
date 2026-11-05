@@ -88,13 +88,15 @@ describe('fault injection: hard kill after claim', () => {
         .run('2026-11-01T00:00:02.000Z', process.argv[2])
       process.kill(process.pid, 'SIGKILL')
     `
-    const signal = await new Promise<string | null>((resolve) => {
+    const exit = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
       const child = spawn(process.execPath, ['-e', script, recordsPath(config), 'rq-killed'], {
         stdio: 'ignore',
       })
-      child.on('exit', (_code, sig) => resolve(sig))
+      child.on('exit', (code, signal) => resolve({ code, signal }))
     })
-    expect(signal).toBe('SIGKILL')
+    // Windows 没有 POSIX 信号：强行结束以非零退出码报告，而不是 signal 名。
+    if (process.platform === 'win32') expect(exit.code).not.toBe(0)
+    else expect(exit.signal).toBe('SIGKILL')
     expect(runtime.repo.request('rq-killed')?.state).toBe('claimed')
     expect(existsSync(join(workspace, 'partial.ts'))).toBe(true)
 

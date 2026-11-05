@@ -318,13 +318,19 @@ describe('candidate export and controlled integration', () => {
     const project = repo()
     const { record } = candidate(project)
     const before = git(project, ['rev-parse', 'HEAD'])
-    const script = `printf 'other work\\n' > ${JSON.stringify(join(project, 'unrelated.txt'))} && git -C ${JSON.stringify(project)} add unrelated.txt`
+    const unrelated = JSON.stringify(join(project, 'unrelated.txt'))
+    // 用 Node 造“检查期间有人暂存了无关改动”，不依赖 POSIX shell。
+    const script = [
+      `const fs = require('node:fs')`,
+      `fs.writeFileSync(${unrelated}, 'other work\\n')`,
+      `require('node:child_process').execFileSync('git', ['-C', ${JSON.stringify(project)}, 'add', 'unrelated.txt'])`,
+    ].join('; ')
     const result = integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
       expectedDiffSha256: record.diffSha256,
-      checkCommand: ['sh', '-c', script],
+      checkCommand: [process.execPath, '-e', script],
       commitMessage: 'feat: test',
       evidenceDir: evidence(),
       timeoutMs: 30_000,

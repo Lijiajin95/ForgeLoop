@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   defaultConfigPath,
   evidenceDir,
@@ -69,11 +69,13 @@ describe('config file loading', () => {
 
 describe('resolveConfig', () => {
   it('applies defaults and resolves project-relative paths', () => {
-    const config = resolveConfig({ project: 'demo', projectPath: '/tmp/project' }, '/tmp')
+    const base = resolve('/tmp')
+    const projectPath = resolve(base, 'project')
+    const config = resolveConfig({ project: 'demo', projectPath }, base)
     expect(config).toMatchObject({
       project: 'demo',
-      projectPath: '/tmp/project',
-      recordsRoot: '/tmp/project/.forgeloop',
+      projectPath,
+      recordsRoot: join(projectPath, '.forgeloop'),
       owner: 'local-owner',
       pollSeconds: 5,
       autoAdvance: false,
@@ -95,10 +97,12 @@ describe('resolveConfig', () => {
       deployments: expect.any(Object),
       ops: expect.any(Object),
     })
-    expect(projectDir(config)).toBe('/tmp/project/.forgeloop/projects/demo')
-    expect(recordsPath(config)).toBe('/tmp/project/.forgeloop/projects/demo/records.sqlite')
+    expect(projectDir(config)).toBe(join(projectPath, '.forgeloop', 'projects', 'demo'))
+    expect(recordsPath(config)).toBe(
+      join(projectPath, '.forgeloop', 'projects', 'demo', 'records.sqlite'),
+    )
     expect(evidenceDir(config, 'req-1', 2, 't1')).toBe(
-      '/tmp/project/.forgeloop/projects/demo/evidence/req-1/v2/t1',
+      join(projectPath, '.forgeloop', 'projects', 'demo', 'evidence', 'req-1', 'v2', 't1'),
     )
   })
 
@@ -154,8 +158,8 @@ describe('resolveConfig', () => {
       candidateArtifactPath: ' artifact ',
     })
     expect(config).toMatchObject({
-      projectPath: expect.stringContaining('/project'),
-      recordsRoot: expect.stringContaining('/project/records'),
+      projectPath: expect.stringMatching(/[\\/]project$/),
+      recordsRoot: expect.stringMatching(/[\\/]project[\\/]records$/),
       owner: 'owner',
       pollSeconds: 1,
       autoAdvance: true,

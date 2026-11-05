@@ -733,7 +733,11 @@ describe('candidate build and deployment checks', () => {
       try {
         ;(
           runtime.config as { candidatePackageCommand: readonly string[] }
-        ).candidatePackageCommand = ['sh', '-c', "printf -- '-mutation' >> docs/a.md"]
+        ).candidatePackageCommand = [
+          process.execPath,
+          '-e',
+          "require('node:fs').appendFileSync('docs/a.md', '-mutation')",
+        ]
         expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
           ok: false,
           code: 'candidate_content_changed',
@@ -1050,9 +1054,9 @@ describe('candidate build and deployment checks', () => {
     const originalBuild = runtime.config.candidateBuildCommand
     const originalPackage = runtime.config.candidatePackageCommand
     const mutate = (file: string): string[] => [
-      'sh',
-      '-c',
-      `printf -- '-mutation' >> ${JSON.stringify(file)}`,
+      process.execPath,
+      '-e',
+      `require('node:fs').appendFileSync(${JSON.stringify(file)}, '-mutation')`,
     ]
     try {
       ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand =
@@ -1072,9 +1076,9 @@ describe('candidate build and deployment checks', () => {
       ;(runtime.config as { candidatePackageCommand: readonly string[] }).candidatePackageCommand =
         originalPackage
       ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = [
-        'sh',
-        '-c',
-        'rm -f packages/forgeloop/src.ts',
+        process.execPath,
+        '-e',
+        "require('node:fs').rmSync('packages/forgeloop/src.ts')",
       ]
       expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,

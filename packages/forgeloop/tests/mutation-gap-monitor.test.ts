@@ -24,7 +24,9 @@ function stable(value: unknown): unknown {
   if (typeof value === 'string') {
     return value
       .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, 'TIME')
-      .replace(new RegExp(dir, 'g'), 'DIR')
+      .split(dir)
+      .join('DIR')
+      .replaceAll('\\', '/')
       .replace(/\b\d+(?:\.\d+)?\b/g, 'N')
   }
   if (Array.isArray(value)) return value.map(stable)

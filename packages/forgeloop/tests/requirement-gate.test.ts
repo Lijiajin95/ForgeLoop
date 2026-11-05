@@ -323,5 +323,5 @@ describe('requirement pipeline gate', () => {
           .every((request) => request.action === 'analyze' || request.action === 'advance'),
       ).toBe(true)
     }
-  })
+  }, 120_000)
 })

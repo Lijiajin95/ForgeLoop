@@ -6,9 +6,10 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT = resolve(import.meta.dirname, '../../..')
 const SRC = resolve(ROOT, 'packages/forgeloop/src')
+const ESLINT = join(ROOT, 'node_modules/eslint/bin/eslint.js')
 
 function lintFile(path: string): { status: number | null; output: string } {
-  const result = spawnSync(join(ROOT, 'node_modules/.bin/eslint'), ['--no-ignore', path], {
+  const result = spawnSync(process.execPath, [ESLINT, '--no-ignore', path], {
     cwd: ROOT,
     encoding: 'utf8',
   })
@@ -16,7 +17,7 @@ function lintFile(path: string): { status: number | null; output: string } {
 }
 
 function printConfig(path: string): Record<string, unknown> {
-  const result = spawnSync(join(ROOT, 'node_modules/.bin/eslint'), ['--print-config', path], {
+  const result = spawnSync(process.execPath, [ESLINT, '--print-config', path], {
     cwd: ROOT,
     encoding: 'utf8',
   })

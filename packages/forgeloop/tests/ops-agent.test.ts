@@ -236,7 +236,7 @@ describe('ops diagnosis and authorized recovery', () => {
     expect(detail.attempts).toHaveLength(1)
     expect(detail.attempts[0]?.state).toBe('succeeded')
     expect(detail.attempts[0]?.authorizationSource).toBe('ops-action:auto:restart-web')
-    expect(detail.attempts[0]?.evidencePath).toContain('ops/')
+    expect(detail.attempts[0]?.evidencePath).toMatch(/[\\/]ops[\\/]/)
     expect(detail.observations.some((item) => item.kind === 'recovery')).toBe(true)
     expect(ops.stats().recovered).toBe(1)
     expect(ops.stats().humanInvolved).toBe(0)

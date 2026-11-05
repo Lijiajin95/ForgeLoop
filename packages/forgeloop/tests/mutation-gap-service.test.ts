@@ -32,7 +32,9 @@ function stable(value: unknown): unknown {
     return value
       .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, 'TIME')
       .replace(/req-\d{14}-[0-9a-f]{6}/g, 'req-fixed')
-      .replace(/\/tmp\/forgeloop-service-gap-[^/]+/g, '/tmp/ws')
+      .split(dir)
+      .join('/tmp/ws')
+      .replaceAll('\\', '/')
   }
   if (Array.isArray(value)) return value.map(stable)
   if (value && typeof value === 'object') {

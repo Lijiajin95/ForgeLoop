@@ -621,7 +621,9 @@ describe('executeVerification candidate assembly', () => {
   })
 
   it('fails the verification when the workspace prepare command fails', async () => {
-    const built = setup({ worktreePrepareCommand: ['sh', '-c', 'exit 4'] })
+    const built = setup({
+      worktreePrepareCommand: [process.execPath, '-e', 'process.exit(4)'],
+    })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
     expect(outcome).toEqual({
       state: 'failed',
@@ -632,7 +634,13 @@ describe('executeVerification candidate assembly', () => {
   })
 
   it('runs the prepare command without turning its changes into candidate content', async () => {
-    const built = setup({ worktreePrepareCommand: ['sh', '-c', 'echo prepared > .prepare-marker'] })
+    const built = setup({
+      worktreePrepareCommand: [
+        process.execPath,
+        '-e',
+        "require('node:fs').writeFileSync('.prepare-marker', 'prepared\\n')",
+      ],
+    })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
     expect(outcome.state).toBe('done')
     const identity = built.identity()

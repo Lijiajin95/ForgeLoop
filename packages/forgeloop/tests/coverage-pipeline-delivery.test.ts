@@ -613,8 +613,13 @@ describe('TaskDelivery upstream dependencies', () => {
 describe('TaskDelivery workspace preparation', () => {
   it('runs the prepare command, records its log and keeps only the implementation changes', async () => {
     let markerDuringDev: boolean | null = null
+    const prepareWrite = [
+      process.execPath,
+      '-e',
+      "require('node:fs').writeFileSync('.prepare-marker', 'prepared\\n')",
+    ]
     const built = harness({
-      worktreePrepareCommand: ['sh', '-c', 'echo prepared > .prepare-marker'],
+      worktreePrepareCommand: prepareWrite,
       onDev: (request) => {
         markerDuringDev = existsSync(join(request.cwd, '.prepare-marker'))
       },
@@ -633,10 +638,11 @@ describe('TaskDelivery workspace preparation', () => {
   })
 
   it('blocks the task when the prepare command fails', async () => {
-    const built = harness({ worktreePrepareCommand: ['sh', '-c', 'exit 3'] })
+    const prepareFailure = [process.execPath, '-e', 'process.exit(3)']
+    const built = harness({ worktreePrepareCommand: prepareFailure })
     const outcome = await deliver(built, planOf([taskOf('a')]), 'a')
     expect(outcome.state).toBe('blocked')
-    expect(outcome.reason).toBe('工作副本准备命令失败（退出码 3）：sh -c exit 3')
+    expect(outcome.reason).toBe(`工作副本准备命令失败（退出码 3）：${prepareFailure.join(' ')}`)
     expect(built.devCalls()).toBe(0)
   })
 })

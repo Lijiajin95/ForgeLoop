@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { resolveConfig } from '../src/config.js'
 
-const cwd = '/tmp/config-fixture'
+const cwd = resolve('/tmp/config-fixture')
 
 describe('configuration defaults', () => {
   it('falls back to the documented defaults', () => {
@@ -24,8 +24,8 @@ describe('configuration defaults', () => {
     expect(config.failureRoundsPerGrant).toBe(-1)
     expect(config.maxVerificationAttempts).toBe(-1)
     expect(config.candidateArtifactPath).toBe('')
-    expect(config.projectPath).toBe('/tmp/config-fixture')
-    expect(config.recordsRoot).toBe('/tmp/config-fixture/.forgeloop')
+    expect(config.projectPath).toBe(cwd)
+    expect(config.recordsRoot).toBe(join(cwd, '.forgeloop'))
   })
 
   it('accepts an explicit long-task turn cap', () => {
@@ -40,8 +40,8 @@ describe('configuration defaults', () => {
       { project: 'proj-1', projectPath: 'sub', recordsRoot: 'records' },
       cwd,
     )
-    expect(config.projectPath).toBe('/tmp/config-fixture/sub')
-    expect(config.recordsRoot).toBe('/tmp/config-fixture/sub/records')
+    expect(config.projectPath).toBe(join(cwd, 'sub'))
+    expect(config.recordsRoot).toBe(join(cwd, 'sub', 'records'))
   })
 
   it('expands a bare home and a home-prefixed path', () => {
