@@ -101,10 +101,23 @@ const BUSINESS_REVIEW = structuredReviewOf({
   summary: '业务场景通过',
   findings: [],
   blocking: [],
-  scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  business_rules: [{ rule: RULE, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  exceptions: [{ exception: EDGE, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+  scenarios: [
+    { scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
+  acceptance: [
+    {
+      criterion: CRITERION,
+      status: 'pass',
+      evidence: SMOKE,
+      commands: ['smoke', 'smoke-negative'],
+    },
+  ],
+  business_rules: [
+    { rule: RULE, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
+  exceptions: [
+    { exception: EDGE, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
 })
 
 /** 需求说明派生的验证方案；同一个验证会话通过工具执行命令。 */
@@ -131,6 +144,11 @@ function verificationPlan(fail = false, outside = false): string {
             label: 'smoke',
             argv,
             ...(outside ? {} : { expected_output: SMOKE }),
+          },
+          {
+            label: 'smoke-negative',
+            argv: ['node', '-e', 'process.exit(1)'],
+            expect_failure: true,
           },
         ],
       },
@@ -901,7 +919,7 @@ describe('continuous four-Agent flow', () => {
       runtime.autoAdvanceRequests()
       const advance = await runNext(reqId, 'advance')
       expect(advance.state).toBe('failed')
-      expect(advance.detail).toMatch(/验证方案|验证命令修改了固定候选/)
+      expect(advance.detail).toMatch(/验证方案|验证命令修改了固定候选|业务终审/)
     }
   })
 

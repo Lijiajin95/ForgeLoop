@@ -10,7 +10,6 @@ import {
   findTask,
   parseTaskPlanDraft,
   planLimitSeconds,
-  requireActionablePlan,
   validateFiles,
   validateTask,
   validateTaskPlan,
@@ -300,11 +299,7 @@ describe('task plan validation messages', () => {
     expect(() =>
       validateTask(task({ limits: { limitSeconds: 60, maxFailureRounds: 1.5 } })),
     ).toThrow('任务失败轮次上限必须为 -1 或正整数（-1 表示不限）')
-    // 验证任务可以没有 files，但不能声明准修改文件。
-    expect(() => validateTask(task({ verification: true, files: ['src/a.ts'] }))).toThrow(
-      '验证任务不得声明准修改文件；files 必须为空',
-    )
-    expect(() => validateTask(task({ verification: true, files: [] }))).not.toThrow()
+    expect(() => validateTask(task({ files: [] }))).toThrow('任务的准许修改文件清单不能为空')
   })
 
   it('validates plan-level identity, versions, task ids and dependencies', () => {
@@ -361,16 +356,6 @@ describe('task plan validation messages', () => {
         tasks: [task({ taskId: 'a', dependsOn: ['b'] }), task({ taskId: 'b', dependsOn: ['a'] })],
       }),
     ).toThrow('任务包依赖存在环，无法形成执行顺序')
-    expect(() => requireActionablePlan(plan({ tasks: [task()] }))).toThrow(
-      '可批准的任务包至少要包含两个任务',
-    )
-    expect(() =>
-      requireActionablePlan(
-        plan({
-          tasks: [task({ taskId: 'a', dependsOn: [] }), task({ taskId: 'b', dependsOn: [] })],
-        }),
-      ),
-    ).toThrow('可批准的任务包至少要有一条任务依赖')
     expect(() => findTask(plan(), 'missing')).toThrow('任务包内没有任务 missing')
   })
 
@@ -598,22 +583,7 @@ describe('task plan draft parsing details', () => {
     }
   })
 
-  it('accepts verification tasks without files and rejects non-verification tasks without files', () => {
-    const verificationDraft = {
-      tasks: [
-        {
-          task_id: 't0',
-          goal: '独立验证',
-          files: [],
-          verification: true,
-          acceptance: '结论可复核',
-          test_command: ['npm', 'test'],
-        },
-        draft().tasks[1],
-      ],
-    }
-    const verification = parseTaskPlanDraft(verificationDraft, CONTEXT)
-    expect(verification.tasks[0]).toMatchObject({ taskId: 't0', files: [], verification: true })
+  it('rejects tasks without files and the removed verification task type', () => {
     expect(() =>
       parseTaskPlanDraft(
         {

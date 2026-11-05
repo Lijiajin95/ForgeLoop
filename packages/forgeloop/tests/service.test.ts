@@ -112,27 +112,6 @@ const VERIFICATION_REPORT = JSON.stringify({
   ],
 })
 
-const VERIFICATION_PLAN = structuredPlanOf({
-  tasks: [
-    {
-      task_id: 'a',
-      goal: '写 a',
-      files: ['docs/a.md'],
-      acceptance: 'a 存在',
-      test_command: ['node', '-e', 'process.exit(0)'],
-    },
-    {
-      task_id: 'verify',
-      goal: '运行验证',
-      files: [],
-      verification: true,
-      acceptance: '正式测试通过',
-      test_command: ['node', '-e', 'process.exit(0)'],
-      depends_on: ['a'],
-    },
-  ],
-})
-
 function fakeRunner(
   overrides: {
     onDev?: (request: AgentRunRequest, content: string) => void
@@ -377,53 +356,6 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     expect(planPrompt).toContain('业务场景：')
     expect(planPrompt).toContain('任务按依赖完成')
     expect(planPrompt).toContain('两个任务交付且测试通过')
-  })
-
-  it('delivers a verification-only task without a candidate diff', async () => {
-    const submitted = runtime.submit({ text: '实现并验证', by: 'owner', source: 'test' })
-    const reqId = (submitted.data as { reqId: string }).reqId
-    await runQueued('analyze', reqId)
-
-    runtime.close()
-    const baseRunner = fakeRunner()
-    const verificationRunner: AgentLike = {
-      async run(request) {
-        if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
-          return result(request, VERIFICATION_PLAN)
-        return baseRunner.run(request)
-      },
-    }
-    runtime = makeRuntime(verificationRunner, async (request) => {
-      const control = request.cwd.includes('/controls/')
-      const output = control ? 'target rule broken' : VERIFY_OUTPUT
-      writeFileSync(request.logPath, `${output}\nexit_code: ${control ? 1 : 0}\n`)
-      return {
-        exitCode: control ? 1 : 0,
-        timedOut: false,
-        aborted: false,
-        logPath: request.logPath,
-        logSha256: sha256OfText(readFileSync(request.logPath, 'utf8')),
-        durationMs: 1,
-        output,
-      }
-    })
-    await runQueued('plan', reqId)
-    runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
-    const advanced = await runQueued('advance', reqId)
-    expect(advanced.state, advanced.detail).toBe('done')
-    const artifacts = runtime.repo.taskArtifacts(reqId, 1)
-    expect(artifacts.map((artifact) => artifact.taskId)).toEqual(['a', 'verify'])
-    const verifyArtifact = artifacts.find((artifact) => artifact.taskId === 'verify')!
-    expect(verifyArtifact.candidateSha256).toBe(
-      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    )
-    const evidence = runtime.repo.evidence(reqId, 1, 'verify')!
-    expect(readFileSync(evidence.candidatePath, 'utf8')).toBe('')
-    expect(readFileSync(evidence.reviewPath, 'utf8')).toContain('verification')
-    expect(evidence.devSession).toBe('')
-    expect(runtime.repo.getRequirement(reqId)?.status).toBe('executing')
-    const accepted = runtime.accept({ reqId, by: 'owner', source: 'dsh-command' })
-    expect(accepted.ok, accepted.message).toBe(true)
   })
 
   it('exposes task heartbeat and execution activity', async () => {

@@ -14,7 +14,8 @@
     "test": "npm run test --workspace forgeloop-dsh",
     "check": "npm run check --workspace forgeloop-dsh",
     "lint": "eslint packages/forgeloop/src packages/forgeloop/tests scripts/ts",
-    "format:check": "prettier --check \"packages/forgeloop/{src,tests}/**/*.ts\" \"scripts/ts/**/*.ts\""
+    "format:check": "prettier --check \"packages/forgeloop/{src,tests}/**/*.ts\" \"scripts/ts/**/*.ts\"",
+    "check:repo": "node scripts/ts/check-repo.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

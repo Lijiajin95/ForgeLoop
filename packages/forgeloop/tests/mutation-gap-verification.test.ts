@@ -345,7 +345,10 @@ describe('requirement verification plan', () => {
           acceptance_criterion: '标准',
           method: '方法',
           required: true,
-          checks: [{ label: 'a', argv: ['node'], expected_output: ' ok ' }],
+          checks: [
+            { label: 'a', argv: ['node'], expected_output: ' ok ' },
+            { label: 'a-negative', argv: ['node'], expect_failure: true },
+          ],
         },
       ],
     })
@@ -353,7 +356,10 @@ describe('requirement verification plan', () => {
       scenario: '场景',
       acceptanceCriterion: '标准',
       required: true,
-      checks: [{ label: 'a', argv: ['node'], expectedOutput: 'ok' }],
+      checks: [
+        { label: 'a', argv: ['node'], expectedOutput: 'ok' },
+        { label: 'a-negative', argv: ['node'], expectFailure: true },
+      ],
     })
     expect(() => parseRequirementVerificationPlan(JSON.stringify({ scenarios: [] }))).toThrow(
       '验证方案必须给出至少一个业务场景',
@@ -430,7 +436,7 @@ describe('verification judge', () => {
     })
     expect(passed).toMatchObject({
       verdict: 'passed',
-      summary: '验证通过：1 个业务场景、1 条命令均无报错',
+      summary: '验证通过：1 个业务场景、1 条命令符合正向/错误对照预期',
       failures: [],
       artifact,
       environment,

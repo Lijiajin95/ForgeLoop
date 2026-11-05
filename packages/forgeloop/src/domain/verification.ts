@@ -345,6 +345,8 @@ export interface VerificationCheckPlan {
   readonly argv: readonly string[]
   /** 期望在命令输出中逐字出现的片段；空字符串表示只看退出码。 */
   readonly expectedOutput: string
+  /** true 表示这是错误对照：必须失败；false/缺省表示正向检查：必须成功。 */
+  readonly expectFailure: boolean
 }
 
 export interface VerificationPlanScenario extends VerificationScenarioPlan {
@@ -387,10 +389,17 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
           `scenarios[${index}].checks[${checkIndex}].expected_output 必须是字符串`,
         )
       }
+      const expectFailure = check.expect_failure ?? check.expectFailure
+      if (expectFailure !== undefined && typeof expectFailure !== 'boolean') {
+        throw new MalformedError(
+          `scenarios[${index}].checks[${checkIndex}].expect_failure 必须是布尔值`,
+        )
+      }
       return {
         label,
         argv: stringList(check.argv, `scenarios[${index}].checks[${checkIndex}].argv`, false),
         expectedOutput: typeof expected === 'string' ? expected.trim() : '',
+        expectFailure: expectFailure === true,
       } satisfies VerificationCheckPlan
     })
     return {
@@ -567,6 +576,7 @@ export function validateRequirementVerificationPlan(
 export interface VerificationCheckRun {
   readonly label: string
   readonly argv: readonly string[]
+  readonly expectFailure?: boolean
   readonly exitCode: number | null
   readonly timedOut: boolean
   readonly aborted: boolean
@@ -616,6 +626,23 @@ function outputContains(output: string, expected: string): boolean {
  * 纯判定：所有必过场景与命令都实际执行、退出码为 0、未超时/中止，
  * 且命令输出包含方案要求的预期片段，才判定 passed；任何报错或问题都 failed。
  */
+function judgeCheck(check: VerificationCheckPlan, run: VerificationCheckRun): string | null {
+  if (run.aborted) return `验证命令被中止：${check.label}`
+  if (run.timedOut) return `验证命令超时：${check.label}`
+  if (check.expectFailure) {
+    if (run.exitCode === null) return `错误对照没有真实退出码，不能证明其失败：${check.label}`
+    if (run.exitCode === 0) return `错误对照预期失败但命令成功：${check.label}`
+    return null
+  }
+  if (run.exitCode !== 0) {
+    return `验证命令失败：${check.label}（退出码 ${run.exitCode === null ? 'null' : run.exitCode}）`
+  }
+  if (!outputContains(run.output, check.expectedOutput)) {
+    return `验证命令输出缺少预期片段：${check.label}（预期 ${check.expectedOutput}）`
+  }
+  return null
+}
+
 export function judgeVerificationResult(input: {
   readonly plan: VerificationPlan
   readonly artifact: VerificationArtifact
@@ -627,46 +654,20 @@ export function judgeVerificationResult(input: {
   const failures: string[] = []
   const scenarios: VerificationScenarioRun[] = []
   for (const planned of input.plan.scenarios) {
-    let failed = false
     const runs: VerificationCheckRun[] = []
-    if (planned.checks.length === 0) {
-      failures.push(`验证场景没有可执行命令：${planned.scenario}`)
-      failed = true
-    }
-    for (const check of planned.checks) {
+    const issues = planned.checks.map((check) => {
       const run = byLabel.get(check.label)
-      if (!run) {
-        failures.push(`缺少验证命令执行结果：${check.label}`)
-        failed = true
-        continue
-      }
+      if (!run) return `缺少验证命令执行结果：${check.label}`
       runs.push(run)
-      if (run.aborted) {
-        failures.push(`验证命令被中止：${check.label}`)
-        failed = true
-        continue
-      }
-      if (run.timedOut) {
-        failures.push(`验证命令超时：${check.label}`)
-        failed = true
-        continue
-      }
-      if (run.exitCode !== 0) {
-        failures.push(
-          `验证命令失败：${check.label}（退出码 ${run.exitCode === null ? 'null' : run.exitCode}）`,
-        )
-        failed = true
-        continue
-      }
-      if (!outputContains(run.output, check.expectedOutput)) {
-        failures.push(`验证命令输出缺少预期片段：${check.label}（预期 ${check.expectedOutput}）`)
-        failed = true
-      }
-    }
+      return judgeCheck(check, run)
+    })
+    if (planned.checks.length === 0) issues.push(`验证场景没有可执行命令：${planned.scenario}`)
+    const problems = issues.filter((issue): issue is string => issue !== null)
+    failures.push(...problems)
     scenarios.push({
       scenario: planned.scenario,
       acceptanceCriterion: planned.acceptanceCriterion,
-      status: failed ? 'fail' : 'pass',
+      status: problems.length > 0 ? 'fail' : 'pass',
       evidence: runs[0] ? normalizeEvidence(runs[0].output).slice(0, 200) : '',
       checks: runs,
     })
@@ -676,7 +677,7 @@ export function judgeVerificationResult(input: {
     verdict,
     summary:
       verdict === 'passed'
-        ? `验证通过：${scenarios.length} 个业务场景、${input.checks.length} 条命令均无报错`
+        ? `验证通过：${scenarios.length} 个业务场景、${input.checks.length} 条命令符合正向/错误对照预期`
         : `验证失败：${failures[0]}${failures.length > 1 ? ` 等 ${failures.length} 项问题` : ''}`,
     artifact: input.artifact,
     scenarios,

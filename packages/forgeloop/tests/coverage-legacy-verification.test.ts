@@ -288,7 +288,8 @@ describe('legacy verification failure paths', () => {
     expect(outcome.state).toBe('block')
     expect(outcome.blocking.join('；')).toContain('验证期间候选提交发生变化')
     expect(recorded).toHaveLength(1)
-    expect(failureRounds).toHaveLength(1)
+    expect(failureRounds).toHaveLength(0)
+    // 完整性问题不是实现缺陷，不计入正式失败轮次。
   })
 
   it('records a block when the verification command changed the candidate workspace', async () => {

@@ -242,8 +242,29 @@ const ANALYSIS = JSON.stringify({
   scenarios: ['文档存在且可读'],
   business_rules: ['文档内容由研发任务产出'],
   exceptions: ['文件缺失时验证失败'],
-  acceptance_criteria: ['docs/a.txt 与 docs/b.txt 存在'],
+  acceptance_criteria: [
+    {
+      id: 'AC-1',
+      point_ids: ['BP-1'],
+      given: '研发任务已交付',
+      when: '读取 docs/a.txt 与 docs/b.txt',
+      then: '两份文档存在且可读',
+    },
+  ],
   clarifications: [],
+  business_points: [
+    {
+      id: 'BP-1',
+      basis: 'user_requirement',
+      source: 'M0 需求原文',
+      actor: '业务用户',
+      trigger: '检查文档时',
+      behavior: 'docs/a.txt 与 docs/b.txt 存在且可读',
+      rules: ['文档内容由研发任务产出'],
+      exceptions: { status: 'assessed', items: ['文件缺失时验证失败'], reason: '' },
+    },
+  ],
+  assumptions: [],
 })
 
 const PLAN = JSON.stringify({
@@ -258,6 +279,7 @@ const PLAN = JSON.stringify({
       goal: '写入 M0 文档 A',
       files: ['docs/a.txt'],
       acceptance: 'docs/a.txt 存在',
+      covers: ['BP-1'],
       test_command: [
         'node',
         '-e',
@@ -270,6 +292,7 @@ const PLAN = JSON.stringify({
       files: ['docs/b.txt'],
       depends_on: ['a'],
       acceptance: 'docs/b.txt 存在',
+      covers: ['BP-1'],
       test_command: [
         'node',
         '-e',
@@ -290,10 +313,19 @@ function verificationPlan(): string {
       {
         scenario: '文档存在且可读',
         acceptance_criterion: 'docs/a.txt 与 docs/b.txt 存在',
+        point_ids: ['BP-1'],
+        acceptance_ids: ['AC-1'],
         method:
           '运行检查命令并核对输出；业务规则：文档内容由研发任务产出；异常与边界：文件缺失时验证失败',
         required: true,
-        checks: [{ label: 'smoke', argv: ['node', '-e', check], expected_output: 'verified ok' }],
+        checks: [
+          { label: 'smoke', argv: ['node', '-e', check], expected_output: 'verified ok' },
+          {
+            label: 'smoke-negative',
+            argv: ['node', '-e', 'process.exit(1)'],
+            expect_failure: true,
+          },
+        ],
       },
     ],
   })
@@ -305,14 +337,20 @@ const BUSINESS_REVIEW = JSON.stringify({
   findings: [],
   blocking: [],
   scenarios: [
-    { scenario: '文档存在且可读', status: 'pass', evidence: 'verified ok', commands: ['smoke'] },
+    {
+      scenario: '文档存在且可读',
+      status: 'pass',
+      evidence: 'verified ok',
+      commands: ['smoke', 'smoke-negative'],
+    },
   ],
   acceptance: [
     {
-      criterion: 'docs/a.txt 与 docs/b.txt 存在',
+      id: 'AC-1',
+      criterion: '两份文档存在且可读',
       status: 'pass',
       evidence: 'verified ok',
-      commands: ['smoke'],
+      commands: ['smoke', 'smoke-negative'],
     },
   ],
   business_rules: [
@@ -320,7 +358,7 @@ const BUSINESS_REVIEW = JSON.stringify({
       rule: '文档内容由研发任务产出',
       status: 'pass',
       evidence: 'verified ok',
-      commands: ['smoke'],
+      commands: ['smoke', 'smoke-negative'],
     },
   ],
   exceptions: [
@@ -328,7 +366,7 @@ const BUSINESS_REVIEW = JSON.stringify({
       exception: '文件缺失时验证失败',
       status: 'pass',
       evidence: 'verified ok',
-      commands: ['smoke'],
+      commands: ['smoke', 'smoke-negative'],
     },
   ],
 })
@@ -456,7 +494,11 @@ function configFor(
         // ops: 前缀只为运维修复需求显式放开；普通来源仍走 dsh-session。
         trustedSources: ['dsh-session:', 'ops:'],
         allowCodeCommit: true,
-        commitCheckCommand: ['node', '-e', 'process.exit(0)'],
+        commitCheckCommand: [
+          'node',
+          '-e',
+          "const fs=require('node:fs');process.exit(fs.existsSync('docs/a.txt')&&fs.existsSync('docs/b.txt')?0:1)",
+        ],
       },
       candidateBuildCommand: ['node', '-e', 'process.exit(0)'],
       candidatePackageCommand: ['node', 'scripts/package.mjs'],

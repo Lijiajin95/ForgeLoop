@@ -7,6 +7,11 @@ import { randomUUID } from 'node:crypto'
 import type { ForgeLoopConfig } from '../config.js'
 import { candidatesDir, integrationDir, verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
+import { inputKindOf } from '../domain/requirement.js'
+import {
+  selfVerificationSufficient,
+  type SelfVerificationReport,
+} from '../domain/self-verification.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import { authorizationSourceOf, executionOrder, planLimitSeconds } from '../domain/task-plan.js'
 import {
@@ -500,13 +505,19 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
   private async developContinuousTasks(input: {
     reqId: string
     requirement: Requirement
+    analysis: RequirementAnalysis
     plan: TaskPlan
     workspace: string
     session: AgentSession
     authorizationSource: string
     signal: AbortSignal
-  }): Promise<{ ok: true } | { ok: false; detail: string }> {
-    const { reqId, requirement, plan, workspace, session, authorizationSource, signal } = input
+  }): Promise<
+    | { ok: true; reports: SelfVerificationReport[] }
+    | { ok: false; detail: string; clarification?: { question: string; context: string } }
+  > {
+    const { reqId, requirement, analysis, plan, workspace, session, authorizationSource, signal } =
+      input
+    const reports: SelfVerificationReport[] = []
     for (const taskId of executionOrder(plan)) {
       const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
       if (!task) continue
@@ -519,14 +530,20 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         workspace,
         session,
         authorizationSource,
+        inputKind: inputKindOf(analysis),
         signal,
       })
+      if (outcome.selfVerification) reports.push(outcome.selfVerification)
       if (outcome.state !== 'delivered') {
         this.deps.repo.setStatus(reqId, 'blocked', outcome.reason)
-        return { ok: false, detail: outcome.reason }
+        return {
+          ok: false,
+          detail: outcome.reason,
+          ...(outcome.clarification ? { clarification: outcome.clarification } : {}),
+        }
       }
     }
-    return { ok: true }
+    return { ok: true, reports }
   }
 
   private async repairOpenIssue(input: {
@@ -697,6 +714,61 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     return {
       state: 'failed',
       detail: `验证未通过（${kind}）：${blocking}；未要求研发修改代码`,
+    }
+  }
+
+  /** 研发自验证 self 模式：按候选身份保存报告，供提交与审计复核。 */
+  private recordSelfVerification(
+    reqId: string,
+    plan: TaskPlan,
+    candidate: CandidateFile,
+    reports: readonly SelfVerificationReport[],
+  ): string {
+    const dir = candidatesDir(this.deps.config, reqId, plan.planVersion)
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, `self-verification-${candidate.candidateSha256.slice(0, 16)}.json`)
+    writeFileSync(
+      path,
+      `${JSON.stringify(
+        {
+          kind: 'dev-self-verification',
+          reqId,
+          planVersion: plan.planVersion,
+          candidateSha256: candidate.candidateSha256,
+          reports,
+          at: this.deps.now(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+    return path
+  }
+
+  /** 问题输入遇到无法确认的业务预期：追加需求版本并等待产品澄清，不冒充代码缺陷。 */
+  private async requestDevClarification(input: {
+    reqId: string
+    requirement: Requirement
+    clarification: { question: string; context: string }
+  }): Promise<{ state: 'failed'; detail: string }> {
+    const versions = input.requirement.versions
+    const latest = versions[versions.length - 1]
+    this.deps.repo.appendVersion({
+      reqId: input.reqId,
+      text: `${latest?.text ?? ''}\n\n研发澄清请求：${input.clarification.question}\n已调查事实与无法确认之处：${input.clarification.context || '未提供'}`,
+      revisedBy: 'dev',
+      source: `dev-clarification:${input.reqId}`,
+      now: this.deps.now(),
+    })
+    this.deps.repo.setStatus(
+      input.reqId,
+      'awaiting_clarification',
+      `研发请求产品澄清：${input.clarification.question}`,
+    )
+    return {
+      state: 'failed',
+      detail: `研发需要产品澄清：${input.clarification.question}；已追加需求版本，等待回答后重新分析`,
     }
   }
 
@@ -945,13 +1017,23 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     const developed = await this.developContinuousTasks({
       reqId,
       requirement,
+      analysis,
       plan,
       workspace,
       session,
       authorizationSource,
       signal,
     })
-    if (!developed.ok) return { state: 'failed', detail: developed.detail }
+    if (!developed.ok) {
+      if (developed.clarification) {
+        return await this.requestDevClarification({
+          reqId,
+          requirement,
+          clarification: developed.clarification,
+        })
+      }
+      return { state: 'failed', detail: developed.detail }
+    }
     const repairedIssue = await this.repairOpenIssue({
       reqId,
       requirement,
@@ -968,6 +1050,34 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       baselineCommit: workspaceInfo.baselineCommit,
       snapshotCommit: workspaceInfo.snapshotCommit,
     })
+    const inputKind = inputKindOf(analysis)
+    const selfMode =
+      developed.reports.length > 0 &&
+      developed.reports.every(
+        (report) => report.mode === 'self' && selfVerificationSufficient({ inputKind, report }).ok,
+      )
+    if (selfMode) {
+      const reportPath = this.recordSelfVerification(reqId, plan, candidate, developed.reports)
+      const commit = await this.commitCandidate({
+        reqId,
+        plan,
+        candidate,
+        requirementTitle: requirementTitle(requirement),
+      })
+      if (!commit.ok) {
+        this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+        return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
+      }
+      this.deps.repo.setStatus(
+        reqId,
+        COMMITTED,
+        `研发自验证通过并已提交 ${commit.commitSha.slice(0, 12)}；自验证证据 ${reportPath}`,
+      )
+      return {
+        state: 'done',
+        detail: `需求 ${reqId} 已完成研发自验证与提交：${commit.commitSha.slice(0, 12)}（研发选择 self）`,
+      }
+    }
     return await this.verifyContinuousCandidate({
       reqId,
       requirement,

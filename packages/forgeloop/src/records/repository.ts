@@ -1889,7 +1889,6 @@ function planToPayload(plan: TaskPlan): unknown {
       },
       authorization_source: task.authorizationSource,
       ...(task.covers === undefined ? {} : { covers: task.covers }),
-      ...(task.verification === true ? { verification: true } : {}),
     })),
   }
 }
@@ -1933,7 +1932,6 @@ function planFromPayload(
         },
         authorizationSource: textValue(task.authorization_source),
         ...(Array.isArray(task.covers) ? { covers: stringArray(task.covers) } : {}),
-        ...(task.verification === true ? { verification: true } : {}),
       }
     }),
   }

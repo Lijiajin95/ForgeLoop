@@ -562,9 +562,9 @@ ${analysisContext(analysis)}
 ${inputKindOf(analysis) === 'problem' ? '- 这是问题输入：任务按“复现并定位根因 → 最小修复 → 按修复判据验证”拆解，不要把问题当新功能重写，也不要扩大到修复判据之外；\n' : ''}- 必须给出非空 technical_solution.summary 与至少一条 approach；技术方案要与任务和验收一致；
 - 任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准，并在任务目标和验收标准中能看出对应关系；不要重新定义需求范围；非目标不得被拆成任务；
 - 分析有结构化业务要点时，每个任务必须用 covers 列出它覆盖的 BP 编号；所有业务要点至少被一个任务覆盖，covers 不得引用不存在的编号。任务 acceptance 要写明对应 BP/AC 的可观察结果；
-- 至少 2 个任务，且至少一条 depends_on 依赖；
-- 默认每个任务都必须在其 files 中产生至少一个实际改动；验证应优先放进任务的 test_command；
-- 若确实需要独立的验证任务，必须显式给出 verification: true 且 files: []，该任务只运行已准入测试、不得修改文件；不要把普通实现任务标成验证任务；
+- 按实际业务成果拆成一个或多个任务；不要为了凑数量制造任务；depends_on 只表达真实前置关系，没有依赖就留空数组；
+- 每个任务都必须在其 files 中产生至少一个实际改动；测试放进任务的 test_command；
+- 不再支持 verification 任务类型；所有任务都是实现任务，必须产生文件改动；
 - 依赖必须存在且无环；task_id 唯一；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
 - files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
@@ -647,7 +647,7 @@ ${(solution?.risks ?? []).map((risk) => `  - ${risk}`).join('\n') || '  - （未
 ${plan.tasks
   .map(
     (task) =>
-      `  - ${task.taskId}：${task.goal}\n    允许文件：${task.files.length > 0 ? task.files.join('、') : '（无，验证任务）'}\n    验收标准：${task.acceptance}\n    正式测试：${JSON.stringify(task.testCommand)}\n    依赖：${task.dependsOn.join('、') || '无'}${task.verification === true ? '\n    类型：验证任务（不修改文件）' : ''}`,
+      `  - ${task.taskId}：${task.goal}\n    允许文件：${task.files.join('、')}\n    验收标准：${task.acceptance}\n    正式测试：${JSON.stringify(task.testCommand)}\n    依赖：${task.dependsOn.join('、') || '无'}`,
   )
   .join('\n')}`
 }
@@ -784,10 +784,26 @@ ${requirementContext(requirement)}
    程序会自行采集 diff。
 2. 计划中的文件清单只是预期说明：实现确实需要时可以改动当前项目内的其他文件。
 3. 不要改动版本号（如 package.json 的 version），除非任务明确要求并已获得所有者许可。
-4. 实现后用上面的正式测试命令自测；失败要修到通过或如实说明。
-5. 不要伪造测试结果，不要修改测试以绕过检查，除非任务本身要求。
-6. 不得部署、发布、安装到任何正式 profile、修改正式环境或生产数据；部署与发布只能由所有者在受控入口显式执行。
-7. 完成后用简短文本报告：改了什么、跑了什么命令、结果如何、还有什么风险。`
+4. 完成实现后做研发自验证：先运行上面的正式测试命令（白盒检查），再从业务用户视角补充黑盒检查；自验证失败要修到通过或如实说明，不能伪造结果。
+5. 如果这是 BUG 修复或关键业务行为，必须保留“修复前目标行为失败、修复后通过”的红灯/绿灯证据；文档或低风险改动可以按影响选择检查。
+6. 根据本次代码 diff 的实际风险，自行决定后续是否需要独立验证：低风险、证据充分时可选 self；涉及关键行为、跨模块、数据或环境变化时选 independent。你不需要描述独立验证怎么做。
+7. 如果遇到无法通过调查确认的业务预期，不要猜；在 needs_clarification 中提出具体问题，交给产品澄清。
+8. 不得部署、发布、安装到任何正式 profile、修改正式环境或生产数据；部署与发布只能由所有者在受控入口显式执行。
+9. 完成后只输出一个 JSON 对象（不要代码围栏或额外说明）：
+{
+  "mode": "independent 或 self",
+  "risk": "low 或 medium 或 high",
+  "white_box": ["实际执行的白盒检查及结果"],
+  "black_box": ["实际执行的黑盒检查及结果"],
+  "red_green": {
+    "required": true,
+    "failing_before": true,
+    "passing_after": true,
+    "evidence": "修复前失败与修复后通过的证据说明"
+  },
+  "reason": "为什么选择 independent 或 self",
+  "needs_clarification": {"question": "需要产品澄清的问题", "context": "已调查的事实与无法确认的原因"} 或 null
+}`
 }
 
 /** 主控 Agent 的候选研发会话：只给身份、现场与最近总结，不给源码或工具。 */
@@ -1058,7 +1074,7 @@ ${requirementContext(input.requirement)}
 需求分析：
 目标：${input.analysis.goal}
 业务场景：
-${input.analysis.scenarios.map((scenario, index) => `${index + 1}. ${scenario}`).join('\n')}
+${(Array.isArray(input.analysis.scenarios) ? input.analysis.scenarios : []).map((scenario, index) => `${index + 1}. ${scenario}`).join('\n')}
 业务规则：
 ${rules.map((rule, index) => `${index + 1}. ${rule}`).join('\n') || '（没有额外业务规则）'}
 异常与边界：
@@ -1066,7 +1082,7 @@ ${exceptions.map((item, index) => `${index + 1}. ${item}`).join('\n') || '（没
 非目标（只作背景，不是验收项）：
 ${nonGoals.map((item, index) => `${index + 1}. ${item}`).join('\n') || '（未声明非目标）'}
 验收标准：
-${input.analysis.acceptanceCriteria.map((criterion, index) => `${index + 1}. ${criterion}`).join('\n')}${structured}
+${(Array.isArray(input.analysis.acceptanceCriteria) ? input.analysis.acceptanceCriteria : []).map((criterion, index) => `${index + 1}. ${criterion}`).join('\n')}${structured}
 
 已准入任务包 v${input.plan.planVersion}：
 ${tasks}

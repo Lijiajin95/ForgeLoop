@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { evidenceDir, sessionsDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import { executionOrder, parseTaskPlanDraft } from '../domain/task-plan.js'
+import { planCoverageIssues } from '../domain/spec.js'
 import {
   DEVELOPING,
   TASK_RUN_BLOCKED,
@@ -30,20 +31,18 @@ import {
 } from './workspace.js'
 import type { TaskRunState } from '../domain/status.js'
 import { runFormalTest } from './formal-test.js'
-
-/** 只读任务：显式验证任务，或计划里不声明任何文件；它本来就不应该产生文件改动。 */
-function isReadOnlyTask(task: PlannedTask): boolean {
-  return task.verification === true || task.files.length === 0
-}
+import {
+  parseSelfVerificationReport,
+  selfVerificationSufficient,
+  type SelfVerificationReport,
+} from '../domain/self-verification.js'
 
 /**
- * 研发回合结束后是否按“没有改动”重试。
- * 只读任务的空改动不是失败信号；但 git 查询失败本身仍算失败，不能拿空结果当真。
+ * 研发回合结束后是否按“没有改动”重试。每个任务都必须产生实际改动；
+ * git 查询失败本身也算失败，不能拿空结果当真。
  */
-function needsNoChangeRetry(task: PlannedTask, status: { code: number; stdout: string }): boolean {
-  if (status.code !== 0) return true
-  if (status.stdout.trim() !== '') return false
-  return !isReadOnlyTask(task)
+function needsNoChangeRetry(status: { code: number; stdout: string }): boolean {
+  return status.code !== 0 || status.stdout.trim() === ''
 }
 
 /**
@@ -195,6 +194,12 @@ export class ExecutionDev {
         feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。不要输出 <｜｜DSML｜｜> 或工具调用标记；请只输出完整 JSON 文本。`
         continue
       }
+      const coverageIssues = planCoverageIssues(input.analysis, plan)
+      if (coverageIssues.length > 0) {
+        lastError = `任务包未覆盖需求条目：${coverageIssues.map((issue) => issue.detail).join('；')}`
+        feedback = `\n\n上一次输出的任务包没有覆盖全部分析条目：${lastError}。请为每个任务补全 covers，并覆盖所有场景、业务规则、异常与边界、验收标准。`
+        continue
+      }
       const packages = this.deps.existingPackages()
       const violations = [
         ...languageViolations(plan),
@@ -221,6 +226,133 @@ export class ExecutionDev {
       return { ok: true, plan: authorized }
     }
     return { ok: false, code: 'plan_failed', reason: lastError || '任务包生成失败' }
+  }
+
+  private recordAttemptEvidence(input: {
+    attemptDir: string
+    taskDir: string
+    reqId: string
+    planVersion: number
+    taskId: string
+    attempt: number
+    command: readonly string[]
+    headBefore: string
+    headAfter: string
+    test: Awaited<ReturnType<typeof runFormalTest>>
+  }): void {
+    const record = {
+      reqId: input.reqId,
+      planVersion: input.planVersion,
+      taskId: input.taskId,
+      attempt: input.attempt,
+      command: input.command,
+      headBefore: input.headBefore,
+      headAfter: input.headAfter,
+      exitCode: input.test.exitCode,
+      timedOut: input.test.timedOut,
+      aborted: input.test.aborted,
+      durationMs: input.test.durationMs,
+      logPath: input.test.logPath,
+      logSha256: input.test.logSha256,
+      recordedAt: this.deps.now(),
+    }
+    writeFileSync(
+      join(input.attemptDir, 'attempt.json'),
+      `${JSON.stringify(record, null, 2)}\n`,
+      'utf8',
+    )
+    // 兼容旧读取路径：保留当前任务目录的日志副本；逐次历史以 attempts/ 为准。
+    writeFileSync(join(input.taskDir, 'formal-test.log'), readFileSync(input.test.logPath))
+  }
+
+  private recordAttemptCandidate(input: {
+    attemptDir: string
+    taskDir: string
+    capture: ReturnType<typeof captureCandidate>
+  }): void {
+    writeFileSync(
+      join(input.attemptDir, 'candidate.json'),
+      `${JSON.stringify(
+        {
+          changedFiles: input.capture.changedFiles,
+          diffSha256: input.capture.diffSha256,
+          diffPath: input.capture.diffPath,
+          recordedAt: this.deps.now(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+    writeFileSync(join(input.taskDir, 'candidate.diff'), readFileSync(input.capture.diffPath))
+  }
+
+  /** 保存本次尝试的自验证报告，并判断是否足以继续或需要回交澄清。 */
+  private persistSelfVerification(input: {
+    text: string
+    attemptDir: string
+    taskDir: string
+    inputKind: 'requirement' | 'problem'
+    reqId: string
+    plan: TaskPlan
+    task: PlannedTask
+  }):
+    | {
+        blocked: {
+          state: 'blocked'
+          reason: string
+          selfVerification?: SelfVerificationReport
+          clarification?: { question: string; context: string }
+        }
+      }
+    | { blocked?: undefined; selfVerification?: SelfVerificationReport } {
+    const parsed = parseSelfVerificationReport(input.text)
+    const reportPath = join(input.attemptDir, 'self-verification.json')
+    const reportJson = `${JSON.stringify(
+      parsed ?? {
+        mode: 'independent',
+        risk: 'unknown',
+        white_box: [],
+        black_box: [],
+        red_green: {
+          required: false,
+          failing_before: false,
+          passing_after: false,
+          evidence: '',
+        },
+        reason: '研发 Agent 未给出可解析的自验证 JSON；保守要求独立验证',
+      },
+      null,
+      2,
+    )}\n`
+    writeFileSync(reportPath, reportJson, 'utf8')
+    writeFileSync(join(input.taskDir, 'self-verification.json'), reportJson)
+    if (parsed?.needsClarification) {
+      return {
+        blocked: {
+          state: 'blocked',
+          reason: `研发需要产品澄清：${parsed.needsClarification.question}`,
+          selfVerification: parsed,
+          clarification: parsed.needsClarification,
+        },
+      }
+    }
+    if (parsed) {
+      const sufficient = selfVerificationSufficient({
+        inputKind: input.inputKind,
+        report: parsed,
+      })
+      if (!sufficient.ok && parsed.mode === 'self') {
+        return {
+          blocked: {
+            state: 'blocked',
+            reason: `研发自验证不足：${sufficient.reason}；请补充证据或改为 independent`,
+            selfVerification: parsed,
+          },
+        }
+      }
+    }
+    return { ...(parsed === null ? {} : { selfVerification: parsed }) }
   }
 
   /** 在同一个研发会话与工作区里完成一个任务；自验失败留在现场继续修，不重建副本。 */
@@ -390,6 +522,8 @@ export class ExecutionDev {
     return { state: 'blocked', reason }
   }
 
+  // 该方法是任务级编排入口，分支和语句较多；具体证据写入已拆到独立方法。
+  // eslint-disable-next-line complexity, max-statements
   async developTaskInSession(input: {
     reqId: string
     requirement: Requirement
@@ -398,8 +532,14 @@ export class ExecutionDev {
     workspace: string
     session: AgentSession
     authorizationSource: string
+    inputKind: 'requirement' | 'problem'
     signal: AbortSignal
-  }): Promise<{ state: 'delivered' | 'blocked'; reason: string }> {
+  }): Promise<{
+    state: 'delivered' | 'blocked'
+    reason: string
+    selfVerification?: SelfVerificationReport
+    clarification?: { question: string; context: string }
+  }> {
     const taskDir = evidenceDir(
       this.deps.config,
       input.reqId,
@@ -417,6 +557,14 @@ export class ExecutionDev {
       if (input.signal.aborted) {
         return this.taskStopped(input, attempt)
       }
+      const attemptDir = join(taskDir, 'attempts', `a${attempt}-${Date.now()}`)
+      mkdirSync(attemptDir, { recursive: true })
+      let headBefore = ''
+      try {
+        headBefore = requireGit(input.workspace, ['rev-parse', 'HEAD']).trim()
+      } catch {
+        // 证据采集失败不阻断研发回合；缺少代码身份会在 attempt.json 中如实为空。
+      }
       this.deps.recordRun(input.reqId, input.plan, input.task, {
         state: TASK_RUN_RUNNING,
         reason: '研发 Agent 工作中',
@@ -430,7 +578,7 @@ export class ExecutionDev {
             workdir: input.workspace,
           }) + feedback,
         timeoutMs: turnTimeoutMs,
-        transcriptPath: join(taskDir, `dev-a${attempt}.jsonl`),
+        transcriptPath: join(attemptDir, 'dev.jsonl'),
         signal: input.signal,
         onActivity: (events: readonly Record<string, unknown>[]) => {
           this.deps.repo.heartbeatTaskRun({
@@ -466,7 +614,7 @@ export class ExecutionDev {
       const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
       // 只读任务本来就不改文件：空改动不是失败信号，直接进入正式测试；
       // 否则在 maxTaskAttempts = -1 下这种任务会永远重试，把模型调用堆到任意大。
-      if (needsNoChangeRetry(input.task, status)) {
+      if (needsNoChangeRetry(status)) {
         feedback = this.taskNoChangeFeedback(input)
         continue
       }
@@ -475,8 +623,26 @@ export class ExecutionDev {
         cwd: input.workspace,
         argv: input.task.testCommand,
         timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
-        logPath: join(taskDir, 'formal-test.log'),
+        logPath: join(attemptDir, 'formal-test.log'),
         signal: input.signal,
+      })
+      let headAfter = ''
+      try {
+        headAfter = requireGit(input.workspace, ['rev-parse', 'HEAD']).trim()
+      } catch {
+        // 同上：非 Git 现场的测试替身不阻断自验，身份字段保持为空。
+      }
+      this.recordAttemptEvidence({
+        attemptDir,
+        taskDir,
+        reqId: input.reqId,
+        planVersion: input.plan.planVersion,
+        taskId: input.task.taskId,
+        attempt,
+        command: input.task.testCommand,
+        headBefore,
+        headAfter,
+        test,
       })
       if (test.aborted || test.timedOut) {
         const reason = test.aborted
@@ -498,21 +664,31 @@ export class ExecutionDev {
       }
       const capture = captureCandidate({
         worktreePath: input.workspace,
-        diffPath: join(taskDir, 'candidate.diff'),
+        diffPath: join(attemptDir, 'candidate.diff'),
       })
-      // 有改动就按任务提交；只读任务没有改动可提交，不制造空提交，直接按正式测试结果交付。
       if (capture.changedFiles.length === 0) {
-        if (!isReadOnlyTask(input.task)) {
-          feedback = this.taskNoChangeFeedback(input)
-          continue
-        }
-      } else {
-        runCommand(
-          'git',
-          ['commit', '-qm', `forgeloop: task ${input.task.taskId}`],
-          input.workspace,
-        )
+        feedback = this.taskNoChangeFeedback(input)
+        continue
       }
+      this.recordAttemptCandidate({ attemptDir, taskDir, capture })
+      runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)
+      const selfCheck = this.persistSelfVerification({
+        text: result.text,
+        attemptDir,
+        taskDir,
+        inputKind: input.inputKind,
+        reqId: input.reqId,
+        plan: input.plan,
+        task: input.task,
+      })
+      if (selfCheck.blocked) {
+        this.deps.recordRun(input.reqId, input.plan, input.task, {
+          state: TASK_RUN_BLOCKED,
+          reason: selfCheck.blocked.reason,
+        })
+        return selfCheck.blocked
+      }
+      const selfVerification = selfCheck.selfVerification
       this.recordDeliveredTask({
         reqId: input.reqId,
         plan: input.plan,
@@ -528,7 +704,7 @@ export class ExecutionDev {
         state: TASK_RUN_DELIVERED,
         reason: '',
       })
-      return { state: 'delivered', reason: '' }
+      return { state: 'delivered', reason: '', ...(selfVerification ? { selfVerification } : {}) }
     }
     const reason = `任务 ${input.task.taskId} 已尝试 ${this.deps.config.maxTaskAttempts} 次仍未通过自验；现场保留，等待修复或授权`
     this.deps.recordRun(input.reqId, input.plan, input.task, {

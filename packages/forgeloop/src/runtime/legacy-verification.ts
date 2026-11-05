@@ -433,6 +433,8 @@ export class LegacyVerification {
       logSha256: check.logSha256,
     }))
     const kind = classification?.kind ?? 'undetermined'
+    const failureGuidance = classification?.guidance ?? ''
+    const repairRecommended = classification?.requiresCodeChange ?? false
     const canonical = {
       kind: 'verification',
       reqId: input.reqId,
@@ -491,21 +493,26 @@ export class LegacyVerification {
     }
     this.deps.repo.recordVerification(verification)
     if (verdict === 'block') {
-      this.deps.repo.recordFailureRound(input.reqId, {
-        roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-a${input.attempt.number}`,
-        stage: FAILURE_VERIFICATION,
-        summary: `独立验证阻断（${kind}）：${blocking.join('；') || result.summary}`.slice(0, 1000),
-        occurredAt: this.deps.now(),
-      })
+      if (repairRecommended) {
+        this.deps.repo.recordFailureRound(input.reqId, {
+          roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-a${input.attempt.number}`,
+          stage: FAILURE_VERIFICATION,
+          summary: `独立验证阻断（${kind}）：${blocking.join('；') || result.summary}`.slice(
+            0,
+            1000,
+          ),
+          occurredAt: this.deps.now(),
+        })
+      }
       return {
         ok: false,
         result: {
           state: 'block',
-          detail: `独立验证阻断（${kind}）：${blocking.join('；') || result.summary}；${classification?.guidance ?? ''}；证据 ${verificationPath}`,
+          detail: `独立验证阻断（${kind}）：${blocking.join('；') || result.summary}；${failureGuidance}；证据 ${verificationPath}`,
           blocking,
           verification,
           failureKind: kind,
-          repairRecommended: classification?.requiresCodeChange === true,
+          repairRecommended,
         },
       }
     }

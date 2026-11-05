@@ -96,6 +96,11 @@ const VERIFICATION_PLAN = structuredVerificationOf({
           argv: ['node', '-e', `console.log('${SMOKE}')`],
           expected_output: SMOKE,
         },
+        {
+          label: 'smoke-negative',
+          argv: ['node', '-e', 'process.exit(1)'],
+          expect_failure: true,
+        },
       ],
     },
   ],
@@ -106,8 +111,17 @@ const BUSINESS_REVIEW = structuredReviewOf({
   summary: '业务场景通过',
   findings: [],
   blocking: [],
-  scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+  scenarios: [
+    { scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
+  acceptance: [
+    {
+      criterion: CRITERION,
+      status: 'pass',
+      evidence: SMOKE,
+      commands: ['smoke', 'smoke-negative'],
+    },
+  ],
 })
 
 /** 只走成功路径的确定性执行器：分析、规划、实现、独立验证与业务验收。 */

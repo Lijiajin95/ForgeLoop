@@ -806,7 +806,7 @@ describe('pre-implementation review gate', () => {
       clarifications: [],
       createdAt: '2026-10-29T00:00:00.000Z',
     })
-    // 直接写入不合规的任务包：验证任务声明了 files。批准入口必须按现行规则拒绝。
+    // 直接写入不合规的任务包：任务没有允许修改文件。批准入口必须按现行规则拒绝。
     runtime.repo.db.handle
       .prepare(
         'INSERT INTO requirement_task_plans (req_id, plan_version, task_plan_id, plan, created_at) VALUES (?, ?, ?, ?, ?)',
@@ -836,8 +836,7 @@ describe('pre-implementation review gate', () => {
             {
               task_id: 'b',
               goal: '验证',
-              files: ['packages/forgeloop/src/b.ts'],
-              verification: true,
+              files: [],
               acceptance: 'b 完成',
               test_command: ['node', '-e', 'process.exit(0)'],
               depends_on: ['a'],
@@ -1648,6 +1647,11 @@ function requirementVerificationPlanOf(
           argv: ['node', '-e', "console.log('verified ok')"],
           expected_output: 'verified ok',
         },
+        {
+          label: 'happy-path-negative',
+          argv: ['node', '-e', 'process.exit(1)'],
+          expect_failure: true,
+        },
       ],
     },
   ]
@@ -1662,6 +1666,11 @@ function requirementVerificationPlanOf(
           label: 'reject-path',
           argv: ['node', '-e', "console.log('rejected: bad input')"],
           expected_output: 'rejected',
+        },
+        {
+          label: 'reject-path-negative',
+          argv: ['node', '-e', 'process.exit(1)'],
+          expect_failure: true,
         },
       ],
     })
@@ -1990,9 +1999,34 @@ describe('verification check registry', () => {
       checksDir?: string
     } = {},
   ) {
-    const plan = parseRequirementVerificationPlan(
-      options.planText ?? requirementVerificationPlanOf(),
-    )
+    const raw = options.planText ?? requirementVerificationPlanOf()
+    const normalized = (() => {
+      try {
+        const data = JSON.parse(raw) as {
+          scenarios?: Array<{ required?: boolean; checks?: unknown[] }>
+        }
+        for (const scenario of data.scenarios ?? []) {
+          if (scenario.required !== true || !Array.isArray(scenario.checks)) continue
+          const hasNegative = scenario.checks.some(
+            (check) =>
+              typeof check === 'object' &&
+              check !== null &&
+              (check as { expect_failure?: boolean }).expect_failure === true,
+          )
+          if (!hasNegative) {
+            scenario.checks.push({
+              label: `control-${Math.random().toString(36).slice(2, 8)}`,
+              argv: ['node', '-e', 'process.exit(1)'],
+              expect_failure: true,
+            })
+          }
+        }
+        return JSON.stringify(data)
+      } catch {
+        return raw
+      }
+    })()
+    const plan = parseRequirementVerificationPlan(normalized)
     const registry = new VerificationCheckRegistry({
       ctx: {},
       formalTest: options.formalTest ?? runFormalTest,

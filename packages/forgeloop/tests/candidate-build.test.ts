@@ -171,6 +171,11 @@ const VERIFICATION_PLAN = structuredVerificationOf({
           argv: ['node', '-e', `console.log('${SMOKE_OUTPUT}')`],
           expected_output: SMOKE_OUTPUT,
         },
+        {
+          label: 'smoke-negative',
+          argv: ['node', '-e', 'process.exit(1)'],
+          expect_failure: true,
+        },
       ],
     },
   ],
@@ -181,9 +186,21 @@ const BUSINESS_REVIEW = structuredReviewOf({
   summary: '业务终审通过',
   findings: [],
   blocking: [],
-  scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
+  scenarios: [
+    {
+      scenario: SCENARIO,
+      status: 'pass',
+      evidence: SMOKE_OUTPUT,
+      commands: ['smoke', 'smoke-negative'],
+    },
+  ],
   acceptance: [
-    { criterion: CRITERION, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] },
+    {
+      criterion: CRITERION,
+      status: 'pass',
+      evidence: SMOKE_OUTPUT,
+      commands: ['smoke', 'smoke-negative'],
+    },
   ],
 })
 
@@ -211,7 +228,10 @@ function fakeRunner(): AgentLike {
       writeFileSync(
         join(verification, 'commands.json'),
         JSON.stringify({
-          commands: [{ label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE_OUTPUT}')`] }],
+          commands: [
+            { label: 'smoke', argv: ['node', '-e', `console.log('${SMOKE_OUTPUT}')`] },
+            { label: 'smoke-negative', argv: ['node', '-e', 'process.exit(0)'] },
+          ],
         }),
       )
       writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
@@ -302,7 +322,10 @@ function makeRuntime(): ForgeLoopRuntime {
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
       // 这些用例验证旧的门禁顺序，不让系统准入把来源 test 直接放行。
-      autonomy: { allowAnySource: false },
+      autonomy: {
+        allowAnySource: false,
+        commitCheckCommand: ['node', '-e', 'process.exit(0)'],
+      },
       failureRoundsPerGrant: 3,
       maxVerificationAttempts: 3,
       candidateBuildCommand: ['node', 'pack.mjs', 'build'],

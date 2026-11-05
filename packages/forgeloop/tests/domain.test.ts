@@ -4,7 +4,6 @@ import {
   bindAuthorization,
   executionOrder,
   parseTaskPlanDraft,
-  requireActionablePlan,
 } from '../src/domain/task-plan.js'
 import { GrantLedger } from '../src/domain/counting.js'
 import { ExecutionBudget } from '../src/domain/limits.js'
@@ -44,19 +43,21 @@ describe('task plan rules', () => {
   it('accepts an actionable plan and computes topological order', () => {
     const plan = parseTaskPlanDraft(planPayload(), context)
     expect(executionOrder(plan)).toEqual(['a', 'b'])
-    expect(() => requireActionablePlan(plan)).not.toThrow()
   })
 
-  it('rejects a single-task plan as not actionable', () => {
+  it('accepts a single-task plan without dependencies', () => {
     const payload = { tasks: [planPayload().tasks[0]] }
-    expect(() => parseTaskPlanDraft(payload, context)).toThrow(/至少/)
+    expect(parseTaskPlanDraft(payload, context).tasks).toHaveLength(1)
   })
 
-  it('rejects a plan without any dependency', () => {
+  it('accepts a multi-task plan without dependencies', () => {
     const payload = {
       tasks: [planPayload().tasks[0], { ...planPayload().tasks[1], depends_on: [] }],
     }
-    expect(() => parseTaskPlanDraft(payload, context)).toThrow(/依赖/)
+    expect(parseTaskPlanDraft(payload, context).tasks.map((task) => task.dependsOn)).toEqual([
+      [],
+      [],
+    ])
   })
 
   it('rejects unknown dependencies and cycles', () => {

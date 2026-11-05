@@ -958,7 +958,6 @@ ${answer}`
   }): Array<{ taskId: string; attempt: number; archivedPath: string }> {
     const archived: Array<{ taskId: string; attempt: number; archivedPath: string }> = []
     for (const task of input.plan.tasks) {
-      if (task.verification === true) continue
       const artifact = this.repo.taskArtifact(input.reqId, input.plan.planVersion, task.taskId)
       if (!artifact) continue
       const evidence = this.repo.evidence(input.reqId, input.plan.planVersion, task.taskId)

@@ -35,8 +35,6 @@ export interface PlannedTask {
   /** 本任务覆盖的业务要点编号（BP-x）；旧任务包没有该字段。 */
   readonly covers?: readonly string[]
   readonly authorizationSource: string
-  /** 验证任务只检查既有交付，不修改文件；可没有 files，交付语义见运行时。 */
-  readonly verification?: boolean
 }
 
 export interface TechnicalSolution {
@@ -118,13 +116,7 @@ export function validateTask(task: PlannedTask): void {
   requireNonEmpty(task.taskId, 'task_id')
   requireNonEmpty(task.goal, 'goal')
   requireNonEmpty(task.acceptance, 'acceptance')
-  if (task.verification === true) {
-    if (task.files.length > 0) {
-      throw new RuleViolationError('验证任务不得声明准修改文件；files 必须为空')
-    }
-  } else {
-    validateFiles(task.files)
-  }
+  validateFiles(task.files)
   if (task.testCommand.length === 0)
     throw new RuleViolationError('任务必须给出可执行的正式测试命令')
   for (const argument of task.testCommand) requireNonEmpty(argument, 'test_command')
@@ -198,14 +190,6 @@ export function validateTaskPlan(plan: TaskPlan): void {
     }
   }
   executionOrder(plan)
-}
-
-/** A03 退出条件：至少两个任务且至少一条依赖。 */
-export function requireActionablePlan(plan: TaskPlan): void {
-  if (plan.tasks.length < 2) throw new RuleViolationError('可批准的任务包至少要包含两个任务')
-  if (!plan.tasks.some((task) => task.dependsOn.length > 0)) {
-    throw new RuleViolationError('可批准的任务包至少要有一条任务依赖')
-  }
 }
 
 export interface TaskPlanApproval {
@@ -346,17 +330,19 @@ export function parseTaskPlanDraft(
     if ('authorization_source' in task) {
       throw new MalformedError('任务包不得自带 authorization_source；授权来源由真实批准绑定')
     }
+    if ('verification' in task) {
+      throw new MalformedError('验证任务类型已删除；请按实际实现拆任务并给出可修改文件')
+    }
     return {
       taskId: requireNonEmpty(task.task_id ?? task.taskId, 'task_id'),
       goal: requireNonEmpty(task.goal, 'goal'),
-      files: toStringList(task.files, 'files', task.verification === true),
+      files: toStringList(task.files, 'files', false),
       acceptance: requireNonEmpty(task.acceptance, 'acceptance'),
       testCommand: toStringList(task.test_command ?? task.testCommand, 'test_command', false),
       dependsOn: toStringList(task.depends_on ?? task.dependsOn ?? [], 'depends_on', true),
       limits: limitsFrom(task.limits),
       authorizationSource: '',
       ...(task.covers === undefined ? {} : { covers: toStringList(task.covers, 'covers', true) }),
-      ...(task.verification === true ? { verification: true } : {}),
     } satisfies PlannedTask
   })
   const solution =
@@ -374,7 +360,6 @@ export function parseTaskPlanDraft(
     createdAt: context.now,
   }
   validateTaskPlan(plan)
-  requireActionablePlan(plan)
   return plan
 }
 

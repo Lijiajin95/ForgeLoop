@@ -67,29 +67,6 @@ const PLAN = structuredPlanOf({
   ],
 })
 
-/** 第二个任务只做核对：显式验证任务、不声明文件，回合里不会有任何改动。 */
-const READ_ONLY_PLAN = structuredPlanOf({
-  technical_solution: { summary: '最小实现', approach: ['写文档', '跑测试'], risks: [] },
-  tasks: [
-    {
-      task_id: 'a',
-      goal: '实现功能 A',
-      files: ['docs/a.md'],
-      acceptance: CRITERION,
-      test_command: SLOW_TEST,
-    },
-    {
-      task_id: 'b',
-      goal: '核对 A 的产物',
-      files: [],
-      verification: true,
-      depends_on: ['a'],
-      acceptance: CRITERION,
-      test_command: ['node', '-e', 'process.exit(0)'],
-    },
-  ],
-})
-
 const VERIFICATION_PLAN = structuredVerificationOf({
   scenarios: [
     {
@@ -103,6 +80,11 @@ const VERIFICATION_PLAN = structuredVerificationOf({
           argv: ['node', '-e', `console.log('${SMOKE}')`],
           expected_output: SMOKE,
         },
+        {
+          label: 'smoke-negative',
+          argv: ['node', '-e', 'process.exit(1)'],
+          expect_failure: true,
+        },
       ],
     },
   ],
@@ -113,10 +95,23 @@ const BUSINESS_REVIEW = structuredReviewOf({
   summary: '业务场景通过',
   findings: [],
   blocking: [],
-  scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  business_rules: [{ rule: RULE, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
-  exceptions: [{ exception: EDGE, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+  scenarios: [
+    { scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
+  acceptance: [
+    {
+      criterion: CRITERION,
+      status: 'pass',
+      evidence: SMOKE,
+      commands: ['smoke', 'smoke-negative'],
+    },
+  ],
+  business_rules: [
+    { rule: RULE, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
+  exceptions: [
+    { exception: EDGE, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
+  ],
 })
 
 function event(type: string, data: unknown) {
@@ -422,33 +417,6 @@ describe('development scenario under MAX limits', () => {
       // 看板把不限显示为 MAX。
       expect(runtime.statusBoard().requirements[0]?.remainingRounds).toBeNull()
       expect(runtime.repo.failureRounds(reqId)).toHaveLength(0)
-    },
-  )
-
-  it(
-    'delivers a read-only verification task even when the turn changes no file',
-    { timeout: 60_000 },
-    async () => {
-      const host = devHost({
-        planDelayMs: 50,
-        turnDelayMs: 50,
-        noChangeAttempts: 0,
-        plan: READ_ONLY_PLAN,
-      })
-      runtime = makeRuntime(host)
-      const reqId = await submitAndAnalyze()
-
-      const advance = await runNext(reqId, 'advance')
-      expect(advance.state, advance.detail).toBe('done')
-      expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
-
-      // 只读任务空改动直接交付：只跑一个回合，不按尝试次数无限重试。
-      const readOnlyTurns = host.turns.filter((turn) => turn.kind === 'task' && turn.taskId === 'b')
-      expect(readOnlyTurns).toHaveLength(1)
-      expect(runtime.repo.taskRuns(reqId, 1).map((run) => [run.taskId, run.state])).toEqual([
-        ['a', 'delivered'],
-        ['b', 'delivered'],
-      ])
     },
   )
 
