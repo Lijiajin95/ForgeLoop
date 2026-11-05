@@ -41,6 +41,14 @@ exports[`keeps a fully populated board payload stable 1`] = `
       "total": 1,
     },
   },
+  "build": {
+    "clientSha256": "",
+    "serverSha256": "",
+    "sourceClientSha256": "",
+    "sourceMatches": null,
+    "startedAt": "",
+    "version": "0.0.2",
+  },
   "generatedAt": "2026-10-23T10:00:00.000Z",
   "issues": [
     {
@@ -103,7 +111,7 @@ exports[`keeps a fully populated board payload stable 1`] = `
     },
   ],
   "summary": {
-    "active": 1,
+    "active": 0,
     "blocking": 0,
     "delivered": 0,
     "issues": 1,
