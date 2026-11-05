@@ -46,6 +46,8 @@ const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_MODEL_BLOCKED_GRACE_M
 const TURN_TIMEOUT_SECONDS = Number(process.env.FORGELOOP_REAL_MODEL_TURN_TIMEOUT_SECONDS ?? 1800)
 /** E2E 的研发尝试次数：有界，避免真实模型判断异常时空转到超时；默认 3。 */
 const MAX_TASK_ATTEMPTS = Number(process.env.FORGELOOP_REAL_MODEL_MAX_TASK_ATTEMPTS ?? 3)
+/** 失败轮次上限：避免业务终审重复阻断时无限重建候选。 */
+const MAX_FAILURE_ROUNDS = Number(process.env.FORGELOOP_REAL_MODEL_MAX_FAILURE_ROUNDS ?? 5)
 
 const REQUIREMENT = [
   '在 docs/real-model-e2e.md 中写入一行 real model e2e ok。',
@@ -432,7 +434,9 @@ function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentF
     owner: 'real-model-e2e',
     agent: { timeoutSeconds: TURN_TIMEOUT_SECONDS, maxTurnSeconds: TURN_TIMEOUT_SECONDS },
     formalTestTimeoutSeconds: 120,
-    failureRoundsPerGrant: -1,
+    // 无限失败轮次会让“业务终审重复阻断同一证据缺口”变成无限重建候选；
+    // 这里给出有界额度，失败时停在 blocked 并留下原因，便于人工判断。
+    failureRoundsPerGrant: MAX_FAILURE_ROUNDS,
     maxVerificationAttempts: -1,
     maxTaskAttempts: MAX_TASK_ATTEMPTS,
     autonomy: { enabled: true, allowAnySource: true, allowCodeCommit: true, requireOwner: false },
