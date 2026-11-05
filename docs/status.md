@@ -6278,3 +6278,38 @@ M1-3 要求“真实/标注注入故障 → 真实诊断 → 授权内恢复 →
 
 - 需求状态分布 `analysis_failed 2 / blocked 6 / draft 3 / specified 4`，无提交、无部署；
 - `blocked` 原因仍集中在验证方案/任务包与工程约定，属模型输出质量问题，未放宽判定。
+
+## 166. M1 证据链交叉核对（2026-11-06）
+
+对 M1-1、M1-2 的记录做一次独立回查（只读 SQLite + 现场进程探测），字段逐项对上：
+
+### 166.1 M1-2（真实需求到运行，`/tmp/forgeloop-real-model-QyVm3V`）
+
+| 环节        | 实际值                                                                                                                                         | 核对方式                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| 需求        | `req-20261105164344-8ecef1`，来源 `dsh-tool:submit_requirement`，提交者 `agent:real-model-e2e`，状态 `committed`                               | `requirements` 表              |
+| 候选        | `2448976b4e6a1053…`                                                                                                                            | `requirement_commits`          |
+| 受控提交    | `b7ef9539d1c2c0df2e81b32a7f557f5c8f183ef6`                                                                                                     | 同上                           |
+| 制品        | 版本 `1.0.0`，`7a423a0348281d71…`                                                                                                              | `requirement_candidate_builds` |
+| 部署 intent | `dep-1cffd11e-4b65-4a53-8688-e64324e45332`，状态 `verified`，制品摘要同上                                                                      | `deployment_intents`           |
+| 部署决定    | `verify` by `system:coordinator`（无人工批准/验收）                                                                                            | `deployment_decisions`         |
+| 业务终审    | `pass`                                                                                                                                         | `requirement_business_reviews` |
+| 安装介质    | `current/bundle.tgz` sha256 = `7a423a0348281d71…`，与制品一致                                                                                  | `sha256sum`                    |
+| 运行身份    | `GET /identity` → 版本 `1.0.0`、`artifactSha256=7a423a03…`、`pid=3067459`、`startedAt=2026-11-05T16:47:45.879Z`、`message=real model e2e ok:1` | 现场 HTTP 探测                 |
+| 进程        | pid 3067459 为 `node .../real-model-target/current/server.mjs`，恢复后一直存活                                                                 | `ps`                           |
+
+结论：需求、候选、提交、制品、安装介质、运行进程六者摘要一致；部署决定来自系统而非人工。
+
+### 166.2 M1-1（种子安装，`/tmp/m1-seed-home`）
+
+| 环节         | 实际值                                                                                                    |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| tarball      | `/tmp/m1-seed/forgeloop-dsh-0.0.2.tgz`，sha256 `66fa6a597bf00e93…`                                        |
+| profile 依赖 | `forgeloop-dsh: file:/tmp/m1-seed/forgeloop-dsh-0.0.2.tgz`；bundles 含 `forgeloop-dsh`                    |
+| 运行身份     | 版本 `0.0.2`、pid `3366547`、`startedAt 2026-11-05T17:19:46.414Z`、index/service/client 三处摘要          |
+| 隔离         | `FORGELOOP_CONFIG` 指向 `/tmp/m1-seed-home/config.json`，装载日志确认记录库在 `/tmp/m1-seed-home/records` |
+
+### 166.3 结论
+
+- M1-1、M1-2 的证据可以按上表独立复算，不需要模型自述。
+- M1-3 之后（真实运维闭环的永久修复、M1-5 真实崩机、M1-6 统计复算）仍缺证据，M1 不通过。
