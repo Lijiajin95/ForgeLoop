@@ -32,6 +32,7 @@ import {
   type DeploymentToolRun,
 } from './deployment-tools.js'
 import { sendDeploymentAlert } from './deployment-alerts.js'
+import type { OperationResult } from './operation-result.js'
 import type { DeploymentGate } from './deployment-gate.js'
 
 export interface DeploymentsDeps {
@@ -172,6 +173,29 @@ export class Deployments {
       })
       return fail('preflight_failed', message)
     }
+    // 预检期间依据可能变化（停止、版本、候选、验收）；产生副作用前必须重新核对。
+    const blocked = this.revalidate(target, input.artifact, requirementId)
+    if (blocked) {
+      this.transition(intent, 'preflight_failed')
+      this.recordAttempt({
+        intent,
+        op: 'preflight',
+        state: 'preflight_failed',
+        exitCode: 0,
+        resultJson: '',
+        detail: blocked.message,
+        toolSha256: '',
+        evidencePath: dir,
+      })
+      this.deps.store.recordDeploymentDecision({
+        intentId,
+        decision: 'revalidate_failed',
+        by: 'system:coordinator',
+        at: this.now(),
+        detail: blocked.message,
+      })
+      return fail('preflight_failed', `部署门禁未通过：${blocked.message}`)
+    }
     if (target.approval === 'auto') {
       this.transition(intent, 'ready')
       return this.apply(intent, tool, input.artifact, { params: target.params, data: target.data })
@@ -195,6 +219,19 @@ export class Deployments {
       ? this.deps.config.deployments.tools.find((item) => item.id === target.toolId)
       : undefined
     if (!target || !tool) return fail('not_found', '部署目标或工具已不在配置中')
+    // 等待审批期间依据可能变化：停止、版本、候选或验收失效都必须拒绝执行。
+    // 拒绝不改变 intent 状态：显式恢复并重新满足门禁后仍可批准。
+    const blocked = this.revalidate(target, this.artifactOf(intent), intent.requirementId)
+    if (blocked) {
+      this.deps.store.recordDeploymentDecision({
+        intentId,
+        decision: 'revalidate_failed',
+        by,
+        at: this.now(),
+        detail: blocked.message,
+      })
+      return fail('gate_failed', `部署核对未通过：${blocked.message}`)
+    }
     this.transition(intent, 'ready')
     this.deps.store.recordDeploymentDecision({
       intentId,
@@ -281,6 +318,101 @@ export class Deployments {
       detail: `版本 ${result.version}，运行 pid ${result.runningPid}`,
     })
     return ok(`部署 ${intentId} 已核对：版本 ${intent.artifactVersion}`)
+  }
+
+  /** 产生副作用前的依据复核：门禁闭包包含当前版本、停止、候选、验证、终审与验收。 */
+  private revalidate(
+    target: DeploymentTargetConfig,
+    artifact: DeploymentArtifact,
+    requirementId: string,
+  ): OperationResult | null {
+    const result = this.deps.gate(target, artifact, requirementId)
+    return result.ok ? null : fail('gate_failed', result.reason)
+  }
+
+  /**
+   * 中断恢复：applying/verifying 超过核对窗口仍未收口时，先只读观测实际结果，再决定
+   * 完成、失败或保留未知；绝不重新执行 apply。
+   * 观测无法确认时保留原状态并记录一次待决定事实，避免每轮重复调用外部工具。
+   */
+  async recoverInterrupted(now = this.now()): Promise<number> {
+    if (!this.deps.config.deployments.enabled) return 0
+    const limitMs = this.deps.config.deployments.verifyTimeoutSeconds * 1000
+    let recovered = 0
+    for (const intent of this.deps.store.deploymentIntents(200)) {
+      if (!this.interrupted(intent, now, limitMs)) continue
+      if (await this.recoverOne(intent, now)) recovered += 1
+    }
+    return recovered
+  }
+
+  /** 需要恢复的中断：applying/verifying 超过窗口，且尚未留下“结果未知”决定。 */
+  private interrupted(intent: DeploymentIntentRecord, now: string, limitMs: number): boolean {
+    if (intent.state !== 'applying' && intent.state !== 'verifying') return false
+    if (this.recoveryUnknown(intent.intentId)) return false
+    const age = Date.parse(now) - Date.parse(intent.updatedAt)
+    return Number.isFinite(age) && age >= limitMs
+  }
+
+  private recoveryUnknown(intentId: string): boolean {
+    return this.deps.store
+      .deploymentDecisions(intentId)
+      .some((decision) => decision.decision === 'recovery_unknown')
+  }
+
+  private async recoverOne(intent: DeploymentIntentRecord, now: string): Promise<boolean> {
+    const target = this.deps.config.deployments.targets.find((item) => item.id === intent.targetId)
+    const tool = target
+      ? this.deps.config.deployments.tools.find((item) => item.id === target.toolId)
+      : undefined
+    if (!target || !tool) {
+      this.transition(intent, 'failed')
+      this.decide(intent.intentId, 'recovery_failed', '部署目标或工具已不在配置中', now)
+      return true
+    }
+    const observed = await this.runOperation({
+      intent,
+      tool,
+      op: 'status',
+      artifact: this.artifactOf(intent),
+      params: target.params,
+      data: target.data,
+    })
+    const mismatch = observed.ok ? verifyMismatch(observed.result, intent) : observed.message
+    if (mismatch) {
+      if (!observed.ok) {
+        // 结果未知：先记录事实并告警，保留原状态等待人工决定，不重复调用工具。
+        this.decide(intent.intentId, 'recovery_unknown', mismatch, now)
+        this.alertFailure(
+          intent,
+          `部署 ${intent.intentId} 中断后无法确认结果：${mismatch}；等待人工决定`,
+        )
+        return false
+      }
+      this.transition(intent, 'failed')
+      this.decide(intent.intentId, 'recovery_failed', mismatch, now)
+      this.alertFailure(intent, `部署 ${intent.intentId} 中断后观测不一致：${mismatch}`)
+      return true
+    }
+    const wasApplying = intent.state === 'applying'
+    this.transition(intent, wasApplying ? 'applied_pending_verify' : 'verified')
+    this.decide(
+      intent.intentId,
+      wasApplying ? 'recovery_applied' : 'verify',
+      wasApplying ? '中断后观测到制品已安装，等待核对' : '中断后观测到安装与运行摘要一致',
+      now,
+    )
+    return true
+  }
+
+  private decide(intentId: string, decision: string, detail: string, at: string): void {
+    this.deps.store.recordDeploymentDecision({
+      intentId,
+      decision,
+      by: 'system:coordinator',
+      at,
+      detail,
+    })
   }
 
   /**
@@ -473,6 +605,7 @@ export class Deployments {
       data,
       timeoutSeconds: tool.timeoutSeconds,
     }
+    mkdirSync(dir, { recursive: true })
     const planPath = join(dir, `${op}.json`)
     writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
     let run: DeploymentToolRun

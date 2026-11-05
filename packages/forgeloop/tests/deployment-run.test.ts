@@ -6,6 +6,7 @@ import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
 import { resolveConfig, type ForgeLoopConfig, type RawConfig } from '../src/config.js'
 import { Deployments } from '../src/runtime/deployments.js'
+import { candidateDeploymentGate } from '../src/runtime/deployment-gate.js'
 import type { DeploymentGate } from '../src/runtime/deployment-gate.js'
 import type { DeploymentArtifact } from '../src/domain/deployment.js'
 
@@ -64,6 +65,20 @@ function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
         },
         { id: 'unbound', toolId: 't', approval: 'owner' },
         {
+          id: 'interrupted',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'INTERRUPTED' },
+        },
+        {
+          id: 'interrupted-broken',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'BROKEN_STATUS' },
+        },
+        {
           id: 'old-running',
           toolId: 't',
           requirementId: 'req-1',
@@ -116,6 +131,9 @@ function toolScript(): string {
     'elif op == "apply":',
     '    print(json.dumps({"ok": True, "state": "applied", "detail": "apply ok"}))',
     'elif op == "status":',
+    '    if tag == "BROKEN_STATUS":',
+    '        print(json.dumps({"ok": False, "state": "failed", "detail": "status unavailable"}))',
+    '        sys.exit(0)',
     '    value = "9.9.9" if tag == "FAIL_STATUS" else version',
     '    running = "0" * 64 if tag == "OLD_RUNNING" else plan["artifact"]["sha256"]',
     '    installed = "0" * 64 if tag == "WRONG_INSTALLED" else plan["artifact"]["sha256"]',
@@ -381,6 +399,8 @@ describe('deployment coordinator', () => {
       'broken',
       'data',
       'unbound',
+      'interrupted',
+      'interrupted-broken',
       'old-running',
       'wrong-install',
       'no-identity',
@@ -528,5 +548,321 @@ describe('deployment verify timeout', () => {
         deployments.detail(intentId)?.attempts.some((attempt) => attempt.op === 'status'),
       ).toBe(true)
     }
+  })
+})
+
+/**
+ * G1：预检通过后依据变化（停止/版本/候选）必须阻止真正产生副作用。
+ * 这里使用真实 candidateDeploymentGate 与完整交付记录，覆盖 approve 前的重新核对。
+ */
+describe('deployment approval revalidation', () => {
+  const REQ = 'req-1'
+  const CANDIDATE = 'c'.repeat(64)
+
+  function seedDeliverable(): void {
+    repo.submit({
+      reqId: REQ,
+      project: 'testproj',
+      text: '交付门禁测试',
+      submittedBy: 'owner',
+      source: 'test',
+      now: '2026-11-05T09:00:00.000Z',
+    })
+    repo.recordAdmission({
+      requirementId: REQ,
+      requirementVersion: 1,
+      decision: {
+        admit: true,
+        code: 'admitted',
+        reason: 'ok',
+        basis: {
+          policyVersion: 'test',
+          source: 'test',
+          submittedBy: 'owner',
+          owner: 'owner',
+          project: 'testproj',
+          projectPath: dir,
+          requirementVersion: 1,
+          analysisVersion: 1,
+          trustedSource: true,
+          allowAnySource: false,
+          requireOwner: false,
+          codeCommitAllowed: true,
+        },
+      },
+      decidedBy: 'system:admission',
+      createdAt: '2026-11-05T09:01:00.000Z',
+    })
+    repo.recordTaskPlan({
+      taskPlanId: `plan-${REQ}-1`,
+      requirementId: REQ,
+      project: 'testproj',
+      planVersion: 1,
+      requirementVersion: 1,
+      createdAt: '2026-11-05T09:02:00.000Z',
+      tasks: [
+        {
+          taskId: 'a',
+          goal: '写文档',
+          files: ['docs/a.md'],
+          acceptance: '存在',
+          testCommand: ['true'],
+          dependsOn: [],
+          limits: { limitSeconds: -1, maxFailureRounds: -1 },
+          authorizationSource: 'system-admission:test',
+        },
+      ],
+    })
+    repo.recordCandidateBuild({
+      reqId: REQ,
+      planVersion: 1,
+      candidateSha256: CANDIDATE,
+      verificationSha256: 'v'.repeat(64),
+      packageVersion: '1.0.0',
+      artifactSha256: ARTIFACT.sha256,
+      tarball: ARTIFACT.path,
+      files: ['lib/index.js'],
+      gitHead: 'head',
+      builtAt: '2026-11-05T09:03:00.000Z',
+      evidenceDir: '/tmp/build',
+    })
+    repo.recordVerification({
+      requirementId: REQ,
+      planVersion: 1,
+      candidateSha256: CANDIDATE,
+      requirementVersion: 1,
+      workspaceSha256: 'w'.repeat(64),
+      verdict: 'pass',
+      reportJson: '{}',
+      reportPath: '/tmp/v.json',
+      reportSha256: 'r'.repeat(64),
+      evidenceDir: '/tmp/v',
+      sessionId: 's',
+      verifiedAt: '2026-11-05T09:04:00.000Z',
+    })
+    repo.recordBusinessReview({
+      requirementId: REQ,
+      planVersion: 1,
+      candidateSha256: CANDIDATE,
+      requirementVersion: 1,
+      verificationSha256: 'r'.repeat(64),
+      verdict: 'pass',
+      reportJson: '{}',
+      reportPath: '/tmp/r.json',
+      reportSha256: 's'.repeat(64),
+      sessionId: 's',
+      reviewedAt: '2026-11-05T09:05:00.000Z',
+    })
+    repo.recordCommit({
+      requirementId: REQ,
+      planVersion: 1,
+      candidateSha256: CANDIDATE,
+      commitSha: 'd'.repeat(40),
+      commitMessage: 'test',
+      checkCommand: [],
+      checkLogPath: '/tmp/c.log',
+      checkSha256: 'e'.repeat(64),
+      files: ['docs/a.md'],
+      committedAt: '2026-11-05T09:06:00.000Z',
+    })
+    repo.setStatus(REQ, 'committed')
+    repo.recordAcceptance({
+      reqId: REQ,
+      acceptedBy: 'owner',
+      source: 'test',
+      fingerprint: 'f'.repeat(64),
+      now: '2026-11-05T09:07:00.000Z',
+    })
+  }
+
+  function realGate(): Deployments {
+    return build({ gate: candidateDeploymentGate(repo) })
+  }
+
+  it('refuses to apply when the requirement was stopped after preflight', async () => {
+    seedDeliverable()
+    const deployments = realGate()
+    const requested = await deployments.request({
+      targetId: 'owner',
+      artifact: ARTIFACT,
+      source: 'owner-g1',
+    })
+    expect(requested.ok).toBe(true)
+    const intentId = (requested.data as { intentId: string }).intentId
+    expect(deployments.detail(intentId)?.intent.state).toBe('awaiting_approval')
+
+    repo.recordStop({
+      requirementId: REQ,
+      requestedBy: 'owner',
+      reason: '暂停交付',
+      requestedAt: '2026-11-05T09:10:00.000Z',
+    })
+    const approved = await deployments.approve(intentId)
+    expect(approved.ok).toBe(false)
+    expect(approved.message).toContain('停止')
+    expect(deployments.detail(intentId)?.intent.state).toBe('awaiting_approval')
+    // 预检之后没有任何 apply 副作用。
+    expect(deployments.detail(intentId)?.attempts.map((attempt) => attempt.op)).toEqual([
+      'preflight',
+    ])
+    expect(repo.activeStop(REQ)).not.toBeNull()
+  })
+
+  it('continues after an explicit resume that satisfies the gate again', async () => {
+    seedDeliverable()
+    const deployments = realGate()
+    const requested = await deployments.request({
+      targetId: 'owner',
+      artifact: ARTIFACT,
+      source: 'owner-resume',
+    })
+    const intentId = (requested.data as { intentId: string }).intentId
+    repo.recordStop({
+      requirementId: REQ,
+      requestedBy: 'owner',
+      reason: '暂停交付',
+      requestedAt: '2026-11-05T09:10:00.000Z',
+    })
+    expect((await deployments.approve(intentId)).ok).toBe(false)
+
+    repo.resumeStop({
+      requirementId: REQ,
+      resumedBy: 'owner',
+      reason: '显式恢复',
+      resumedAt: '2026-11-05T09:11:00.000Z',
+    })
+    const approved = await deployments.approve(intentId)
+    expect(approved.ok, approved.message).toBe(true)
+    expect(deployments.detail(intentId)?.intent.state).toBe('applied_pending_verify')
+  })
+
+  it('refuses to apply when the candidate or requirement version changed', async () => {
+    seedDeliverable()
+    const deployments = realGate()
+    const first = await deployments.request({
+      targetId: 'owner',
+      artifact: ARTIFACT,
+      source: 'owner-drift',
+    })
+    const intentId = (first.data as { intentId: string }).intentId
+
+    // 需求版本变化：准入/任务包绑定的版本过期，部署必须拒绝。
+    repo.appendVersion({
+      reqId: REQ,
+      text: '交付门禁测试 v2',
+      revisedBy: 'owner',
+      source: 'test',
+      now: '2026-11-05T09:20:00.000Z',
+    })
+    const afterRevise = await deployments.approve(intentId)
+    expect(afterRevise.ok).toBe(false)
+    // 修订使需求回到 draft：无论按“版本过期”还是“未受控提交”拒绝，都不能放行安装。
+    expect(afterRevise.message).toMatch(/版本|未受控提交|draft/)
+    expect(deployments.detail(intentId)?.attempts.map((attempt) => attempt.op)).toEqual([
+      'preflight',
+    ])
+  })
+
+  it('refuses to apply when a newer artifact with the same version appears', async () => {
+    seedDeliverable()
+    const deployments = realGate()
+    const requested = await deployments.request({
+      targetId: 'owner',
+      artifact: ARTIFACT,
+      source: 'owner-drift-build',
+    })
+    const intentId = (requested.data as { intentId: string }).intentId
+    repo.recordCandidateBuild({
+      reqId: REQ,
+      planVersion: 1,
+      candidateSha256: CANDIDATE,
+      verificationSha256: 'v'.repeat(64),
+      packageVersion: '1.0.0',
+      artifactSha256: 'b'.repeat(64),
+      tarball: '/tmp/b.tgz',
+      files: ['lib/index.js'],
+      gitHead: 'head',
+      builtAt: '2026-11-05T09:20:00.000Z',
+      evidenceDir: '/tmp/build2',
+    })
+    const afterBuild = await deployments.approve(intentId)
+    expect(afterBuild.ok).toBe(false)
+    expect(afterBuild.message).toMatch(/制品摘要|路径|候选构建/)
+    expect(deployments.detail(intentId)?.attempts.map((attempt) => attempt.op)).toEqual([
+      'preflight',
+    ])
+  })
+})
+
+/**
+ * G2：安装/核对中途中断后，持久记录停在 applying/verifying；
+ * 恢复必须先观测实际结果，再决定完成、失败或保留未知，不能盲目重装。
+ */
+describe('deployment interruption recovery', () => {
+  const REQ = 'req-1'
+
+  function seedIntent(state: 'applying' | 'verifying', targetId: string): string {
+    const intentId = `dep-interrupted-${state}-${targetId}`
+    repo.deploymentStore.recordDeploymentIntent({
+      intentId,
+      project: 'testproj',
+      targetId,
+      requirementId: REQ,
+      artifactSha256: ARTIFACT.sha256,
+      artifactPath: ARTIFACT.path,
+      artifactVersion: ARTIFACT.version,
+      source: 'interrupted',
+      approval: 'owner',
+      state: 'draft',
+      createdAt: '2026-11-05T09:00:00.000Z',
+      updatedAt: '2026-11-05T09:00:00.000Z',
+    })
+    repo.deploymentStore.updateDeploymentIntentState(intentId, state, '2026-11-05T09:00:00.000Z')
+    return intentId
+  }
+
+  it('observes the installed result instead of reinstalling', async () => {
+    const deployments = build()
+    const applying = seedIntent('applying', 'interrupted')
+    const verified = seedIntent('verifying', 'interrupted')
+    const recovered = await deployments.recoverInterrupted('2026-11-05T10:00:00.000Z')
+    expect(recovered).toBe(2)
+    expect(deployments.detail(applying)?.intent.state).toBe('applied_pending_verify')
+    expect(deployments.detail(verified)?.intent.state).toBe('verified')
+    // 只观测，不产生新的 apply。
+    for (const intentId of [applying, verified]) {
+      expect(
+        deployments.detail(intentId)?.attempts.filter((attempt) => attempt.op === 'apply'),
+      ).toHaveLength(0)
+    }
+  })
+
+  it('marks a mismatched installation failed and keeps unknown results open', async () => {
+    const deployments = build()
+    const mismatched = seedIntent('applying', 'broken')
+    const unknown = seedIntent('applying', 'interrupted-broken')
+    const recovered = await deployments.recoverInterrupted('2026-11-05T10:00:00.000Z')
+    expect(recovered).toBe(1)
+    expect(deployments.detail(mismatched)?.intent.state).toBe('failed')
+    // 结果无法确认：保留 applying，等待人工决定，不当作成功也不反复重装。
+    expect(deployments.detail(unknown)?.intent.state).toBe('applying')
+    expect(
+      repo.deploymentStore
+        .deploymentDecisions(unknown)
+        .some((decision) => decision.decision === 'recovery_unknown'),
+    ).toBe(true)
+
+    await deployments.recoverInterrupted('2026-11-05T10:10:00.000Z')
+    expect(
+      deployments.detail(unknown)?.attempts.filter((attempt) => attempt.op === 'status'),
+    ).toHaveLength(1)
+  })
+
+  it('leaves fresh intents alone', async () => {
+    const deployments = build()
+    const fresh = seedIntent('applying', 'interrupted')
+    const recovered = await deployments.recoverInterrupted('2026-11-05T09:00:01.000Z')
+    expect(recovered).toBe(0)
+    expect(deployments.detail(fresh)?.intent.state).toBe('applying')
   })
 })

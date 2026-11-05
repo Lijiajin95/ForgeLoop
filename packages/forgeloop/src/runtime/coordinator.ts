@@ -180,6 +180,8 @@ export class Coordinator {
       await this.runtime.deliveryHandoff.tick()
       // 安装完成但不核对会一直停在 applied_pending_verify；超时收口并告警。
       this.runtime.deployments.expireStale()
+      // 中断可能停在 applying/verifying：先观测实际结果再收口，不重新安装。
+      await this.runtime.deployments.recoverInterrupted()
       // 研发空闲时领取队首需求；忙时新需求只入队，等当前请求收口后的下一轮再启动。
       this.runtime.intakeQueuedRequirement()
       let request = this.runtime.repo.claimNextRequest(this.owner, new Date().toISOString())
