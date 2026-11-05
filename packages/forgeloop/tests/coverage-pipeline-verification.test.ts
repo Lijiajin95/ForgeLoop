@@ -8,7 +8,7 @@ import { Database } from '../src/records/db.js'
 import {
   businessReviewDir,
   resolveConfig,
-  verificationDir,
+  verificationAttemptDir,
   type ForgeLoopConfig,
 } from '../src/config.js'
 import {
@@ -332,6 +332,25 @@ function setup(options: SetupOptions = {}) {
         mkdirSync(verification, { recursive: true })
         writeFileSync(join(verification, 'commands.json'), commandsOf(), 'utf8')
         writeFileSync(join(verification, 'report.json'), verificationReportOf(), 'utf8')
+        mkdirSync(join(verification, 'controls'), { recursive: true })
+        writeFileSync(
+          join(verification, 'controls.json'),
+          JSON.stringify({
+            controls: [
+              {
+                label: LABEL,
+                patch: 'verification/controls/fault.patch',
+                expected_failure_output: 'target rule broken',
+              },
+            ],
+          }),
+          'utf8',
+        )
+        writeFileSync(
+          join(verification, 'controls', 'fault.patch'),
+          'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+          'utf8',
+        )
         return agentResult(request, verificationReportOf())
       }
       businessPrompts.push(request.prompt)
@@ -354,6 +373,13 @@ function setup(options: SetupOptions = {}) {
 
   const formalTest = async (request: TestRunRequest): Promise<TestRunResult> => {
     testCalls += 1
+    // 对照副本中的命令按已知错误实现失败；正式候选结果仍由测试给定。
+    if (request.cwd.includes('/controls/')) {
+      return testResult(request, {
+        exitCode: 1,
+        output: 'target rule broken: expected fixture, got broken',
+      })
+    }
     return options.formalTest ? options.formalTest(request, testCalls) : testResult(request)
   }
 
@@ -489,7 +515,12 @@ describe('executeVerification input gates', () => {
   it('refuses to verify a candidate that already has a blocking verification', async () => {
     const built = setup()
     const identity = built.identity()
-    const dir = verificationDir(built.config, REQ_ID, 1, identity)
+    const dir = verificationAttemptDir(built.config, {
+      reqId: REQ_ID,
+      planVersion: 1,
+      candidateSha256: identity,
+      attemptNumber: 1,
+    })
     mkdirSync(dir, { recursive: true })
     const reportPath = join(dir, 'verification.json')
     writeFileSync(reportPath, verificationReportOf({ verdict: 'block', blocking: ['缺文档'] }))
@@ -509,7 +540,7 @@ describe('executeVerification input gates', () => {
     })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
     expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('的独立验证已阻断：缺文档')
+    expect(outcome.detail).toContain('的独立验证已阻断（尝试 1，未分类）：缺文档')
     expect(outcome.detail).toContain('需修复后产生新候选再验证')
     expect(built.testCalls()).toBe(0)
   })
@@ -517,7 +548,12 @@ describe('executeVerification input gates', () => {
   it('refuses to reuse a passing verification whose report file is gone', async () => {
     const built = setup()
     const identity = built.identity()
-    const dir = verificationDir(built.config, REQ_ID, 1, identity)
+    const dir = verificationAttemptDir(built.config, {
+      reqId: REQ_ID,
+      planVersion: 1,
+      candidateSha256: identity,
+      attemptNumber: 1,
+    })
     mkdirSync(dir, { recursive: true })
     const reportPath = join(dir, 'verification.json')
     repo.recordVerification({
@@ -544,7 +580,12 @@ describe('executeVerification input gates', () => {
   it('reuses a passing verification that still matches its evidence', async () => {
     const built = setup()
     const identity = built.identity()
-    const dir = verificationDir(built.config, REQ_ID, 1, identity)
+    const dir = verificationAttemptDir(built.config, {
+      reqId: REQ_ID,
+      planVersion: 1,
+      candidateSha256: identity,
+      attemptNumber: 1,
+    })
     mkdirSync(dir, { recursive: true })
     const reportPath = join(dir, 'verification.json')
     writeFileSync(reportPath, verificationReportOf(), 'utf8')
@@ -644,7 +685,12 @@ describe('executeVerification candidate assembly', () => {
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
     expect(outcome.state).toBe('done')
     const identity = built.identity()
-    const dir = verificationDir(built.config, REQ_ID, 1, identity)
+    const dir = verificationAttemptDir(built.config, {
+      reqId: REQ_ID,
+      planVersion: 1,
+      candidateSha256: identity,
+      attemptNumber: 1,
+    })
     expect(readFileSync(join(dir, 'workspace-prepare.log'), 'utf8')).toContain('exit_code: 0')
     expect(readFileSync(join(dir, 'candidate.diff'), 'utf8')).toBe('')
     expect(JSON.parse(readFileSync(join(dir, 'candidate.json'), 'utf8')).candidateSha256).toBe(
@@ -780,7 +826,11 @@ describe('completeVerification outcomes', () => {
   it('returns a blocking candidate to development and keeps the plan version frozen', async () => {
     const built = setup({
       remainingRounds: 2,
-      formalTest: (request) => testResult(request, { exitCode: 1, output: 'broken candidate' }),
+      formalTest: (request) =>
+        testResult(request, {
+          exitCode: 1,
+          output: 'AssertionError: expected fixture, got broken candidate',
+        }),
     })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
     expect(outcome.state).toBe('repair')
@@ -796,23 +846,87 @@ describe('completeVerification outcomes', () => {
   it('stays blocked when the failure budget is spent', async () => {
     const built = setup({
       remainingRounds: 0,
-      formalTest: (request) => testResult(request, { exitCode: 1, output: 'broken candidate' }),
+      formalTest: (request) =>
+        testResult(request, {
+          exitCode: 1,
+          output: 'AssertionError: expected fixture, got broken candidate',
+        }),
     })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
     expect(outcome.state).toBe('failed')
     expect(outcome.detail).toContain(`验证命令失败：${LABEL} 退出码 1`)
     expect(outcome.detail).toContain(
-      `证据 ${join(verificationDir(built.config, REQ_ID, 1, built.identity()), 'verification.json')}`,
+      `证据 ${join(
+        verificationAttemptDir(built.config, {
+          reqId: REQ_ID,
+          planVersion: 1,
+          candidateSha256: built.identity(),
+          attemptNumber: 1,
+        }),
+        'verification.json',
+      )}`,
     )
     expect(built.reopened).toEqual([])
     expect(blockedReasonOf()).toContain('失败轮次额度已用尽')
+  })
+
+  it('keeps environment failures out of code repair and appends a same-candidate retry', async () => {
+    let mainRuns = 0
+    const built = setup({
+      formalTest: (request) => {
+        mainRuns += 1
+        if (mainRuns === 1) {
+          return testResult(request, { exitCode: null, output: 'spawn node ENOENT' })
+        }
+        return testResult(request)
+      },
+    })
+    const first = await built.pipeline.executeVerification(REQ_ID, signal)
+    expect(first.state).toBe('failed')
+    expect(first.detail).toContain('environment_error')
+    expect(built.reopened).toEqual([])
+    expect(statusOf()).toBe('blocked')
+    const candidate = built.identity()
+    const firstAttempt = repo.verificationAttemptsForCandidate(REQ_ID, 1, candidate)[0]
+    expect(firstAttempt?.failureKind).toBe('environment_error')
+
+    const second = await built.pipeline.executeVerification(REQ_ID, signal)
+    expect(second.state, second.detail).toBe('done')
+    const attempts = repo.verificationAttemptsForCandidate(REQ_ID, 1, candidate)
+    expect(attempts.map((attempt) => attempt.verdict)).toEqual(['block', 'pass'])
+    // 旧尝试的报告文件与原始证据仍然存在，没有被第二次验证覆盖。
+    expect(existsSync(firstAttempt!.reportPath)).toBe(true)
+    expect(firstAttempt!.evidenceDir).not.toBe(attempts[1]?.evidenceDir)
+  })
+
+  it('keeps test/evidence failures out of code repair', async () => {
+    const built = setup({
+      verify: (request) => {
+        const verification = join(request.cwd, 'verification')
+        mkdirSync(verification, { recursive: true })
+        writeFileSync(join(verification, 'commands.json'), commandsOf(), 'utf8')
+        writeFileSync(join(verification, 'report.json'), verificationReportOf(), 'utf8')
+        return agentResult(request, verificationReportOf())
+      },
+    })
+    const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
+    expect(outcome.state).toBe('failed')
+    expect(outcome.detail).toContain('test_error')
+    expect(built.reopened).toEqual([])
+    expect(repo.verificationAttemptsForCandidate(REQ_ID, 1, built.identity())[0]?.failureKind).toBe(
+      'test_error',
+    )
   })
 
   it('stays blocked when reopening the delivered tasks changed nothing', async () => {
     const built = setup({
       remainingRounds: 2,
       reopen: () => [],
-      formalTest: (request) => testResult(request, { exitCode: 1, output: 'broken candidate' }),
+      formalTest: (request) =>
+        testResult(request, {
+          exitCode: 1,
+          output: 'AssertionError: expected fixture, got broken candidate',
+        }),
     })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
     expect(outcome.state).toBe('failed')
@@ -831,7 +945,12 @@ describe('executeBusinessReview', () => {
     verificationSha256: string
   } {
     const identity = built.identity()
-    const dir = verificationDir(built.config, REQ_ID, 1, identity)
+    const dir = verificationAttemptDir(built.config, {
+      reqId: REQ_ID,
+      planVersion: 1,
+      candidateSha256: identity,
+      attemptNumber: 1,
+    })
     mkdirSync(dir, { recursive: true })
     const logPath = join(dir, 'verification-1-smoke.log')
     writeFileSync(logPath, OUTPUT, 'utf8')
@@ -904,7 +1023,12 @@ describe('executeBusinessReview', () => {
   it('refuses the business review when the candidate binding changed', async () => {
     const built = setup()
     const identity = built.identity()
-    const dir = verificationDir(built.config, REQ_ID, 1, identity)
+    const dir = verificationAttemptDir(built.config, {
+      reqId: REQ_ID,
+      planVersion: 1,
+      candidateSha256: identity,
+      attemptNumber: 1,
+    })
     mkdirSync(dir, { recursive: true })
     const reportPath = join(dir, 'verification.json')
     writeFileSync(reportPath, verificationReportOf(), 'utf8')
@@ -932,7 +1056,12 @@ describe('executeBusinessReview', () => {
   it('refuses the business review when the verification report file is missing', async () => {
     const built = setup()
     const identity = built.identity()
-    const dir = verificationDir(built.config, REQ_ID, 1, identity)
+    const dir = verificationAttemptDir(built.config, {
+      reqId: REQ_ID,
+      planVersion: 1,
+      candidateSha256: identity,
+      attemptNumber: 1,
+    })
     mkdirSync(dir, { recursive: true })
     repo.recordVerification({
       requirementId: REQ_ID,

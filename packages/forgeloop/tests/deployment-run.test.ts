@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -8,6 +9,8 @@ import { Repository } from '../src/records/repository.js'
 import { resolveConfig, type ForgeLoopConfig, type RawConfig } from '../src/config.js'
 import { Deployments } from '../src/runtime/deployments.js'
 import { candidateDeploymentGate } from '../src/runtime/deployment-gate.js'
+import { expectedAcceptanceFingerprints } from '../src/runtime/acceptance-binding.js'
+import { candidateIdentityOf } from '../src/domain/delivery.js'
 import type { DeploymentGate } from '../src/runtime/deployment-gate.js'
 import type { DeploymentArtifact } from '../src/domain/deployment.js'
 
@@ -18,10 +21,16 @@ let script = ''
 let config: ForgeLoopConfig
 let alerts: Array<{ url: string; body: Record<string, unknown> }> = []
 
-const ARTIFACT: DeploymentArtifact = {
-  sha256: 'a'.repeat(64),
-  path: '/tmp/a.tgz',
-  version: '1.0.0',
+let ARTIFACT: DeploymentArtifact
+
+function writeArtifact(content: string): DeploymentArtifact {
+  const path = join(dir, 'candidate.tgz')
+  writeFileSync(path, content)
+  return {
+    sha256: createHash('sha256').update(content).digest('hex'),
+    path,
+    version: '1.0.0',
+  }
 }
 
 function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
@@ -100,6 +109,20 @@ function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
           approval: 'owner',
           params: { tag: 'NO_IDENTITY' },
         },
+        {
+          id: 'stale-process',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'STALE_PROCESS' },
+        },
+        {
+          id: 'no-started-at',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'NO_STARTED_AT' },
+        },
       ],
       ...extra,
     } as never,
@@ -138,7 +161,8 @@ function toolScript(): string {
     '    value = "9.9.9" if tag == "FAIL_STATUS" else version',
     '    running = "0" * 64 if tag == "OLD_RUNNING" else plan["artifact"]["sha256"]',
     '    installed = "0" * 64 if tag == "WRONG_INSTALLED" else plan["artifact"]["sha256"]',
-    '    extra = {} if tag == "NO_IDENTITY" else {"artifactSha256": installed, "runningArtifactSha256": running, "runningPid": os.getpid(), "runningStartedAt": "2026-11-03T10:00:00Z"}',
+    '    started = {"STALE_PROCESS": "2020-01-01T00:00:00Z", "NO_STARTED_AT": ""}.get(tag, "2026-11-03T10:00:00Z")',
+    '    extra = {} if tag == "NO_IDENTITY" else {"artifactSha256": installed, "runningArtifactSha256": running, "runningPid": os.getpid(), "runningStartedAt": started}',
     '    print(json.dumps({"ok": True, "state": "running", "version": value, "detail": "status ok", **extra}))',
     'elif op == "rollback":',
     '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "rollback ok"}))',
@@ -154,6 +178,7 @@ beforeEach(() => {
   mkdirSync(toolDir, { recursive: true })
   script = join(toolDir, 'tool.py')
   writeFileSync(script, toolScript())
+  ARTIFACT = writeArtifact('candidate-content')
   config = resolveConfig(deploymentRaw(), dir)
 })
 
@@ -405,6 +430,8 @@ describe('deployment coordinator', () => {
       'old-running',
       'wrong-install',
       'no-identity',
+      'stale-process',
+      'no-started-at',
     ])
     const requested = await deployments.request({
       targetId: 'owner',
@@ -527,6 +554,26 @@ describe('deployment verify timeout', () => {
     expect(disabled.expireStale()).toBe(0)
   })
 
+  it('rejects a running process that started before the install or exposes no start time', async () => {
+    for (const [targetId, expected] of [
+      ['stale-process', '启动时间早于本次安装'],
+      ['no-started-at', '未提供运行进程启动时间'],
+    ] as const) {
+      const deployments = build()
+      const requested = await deployments.request({
+        targetId,
+        artifact: ARTIFACT,
+        source: `freshness-${targetId}`,
+      })
+      const intentId = (requested.data as { intentId: string }).intentId
+      await deployments.approve(intentId)
+      const verified = await deployments.verify(intentId)
+      expect(verified.ok).toBe(false)
+      expect(verified.message).toContain(expected)
+      expect(deployments.detail(intentId)?.intent.state).toBe('verify_failed')
+    }
+  })
+
   it('fails verification when installed or running identity does not match', async () => {
     for (const [targetId, expected] of [
       ['wrong-install', '已安装制品摘要'],
@@ -558,7 +605,12 @@ describe('deployment verify timeout', () => {
  */
 describe('deployment approval revalidation', () => {
   const REQ = 'req-1'
-  const CANDIDATE = 'c'.repeat(64)
+  const CANDIDATE = candidateIdentityOf({
+    planVersion: 1,
+    requirementVersion: 1,
+    baselineCommit: '',
+    candidateHashes: ['task-a-candidate'],
+  })
 
   function seedDeliverable(): void {
     repo.submit({
@@ -613,6 +665,17 @@ describe('deployment approval revalidation', () => {
           authorizationSource: 'system-admission:test',
         },
       ],
+    })
+    repo.recordTaskArtifact({
+      requirementId: REQ,
+      planVersion: 1,
+      taskId: 'a',
+      candidateSha256: 'task-a-candidate',
+      testEvidenceSha256: 'e'.repeat(64),
+      reviewSha256: 'r'.repeat(64),
+      acceptance: '存在',
+      authorizationSource: 'test',
+      recordedAt: '2026-11-05T09:02:30.000Z',
     })
     repo.recordCandidateBuild({
       reqId: REQ,
@@ -671,7 +734,7 @@ describe('deployment approval revalidation', () => {
       reqId: REQ,
       acceptedBy: 'owner',
       source: 'test',
-      fingerprint: 'f'.repeat(64),
+      fingerprint: expectedAcceptanceFingerprints(repo, REQ, ARTIFACT.sha256)[0] ?? '',
       now: '2026-11-05T09:07:00.000Z',
     })
   }
@@ -773,6 +836,17 @@ describe('deployment approval revalidation', () => {
       source: 'owner-drift-build',
     })
     const intentId = (requested.data as { intentId: string }).intentId
+    repo.recordTaskArtifact({
+      requirementId: REQ,
+      planVersion: 1,
+      taskId: 'a',
+      candidateSha256: 'task-a-candidate',
+      testEvidenceSha256: 'e'.repeat(64),
+      reviewSha256: 'r'.repeat(64),
+      acceptance: '存在',
+      authorizationSource: 'test',
+      recordedAt: '2026-11-05T09:02:30.000Z',
+    })
     repo.recordCandidateBuild({
       reqId: REQ,
       planVersion: 1,
@@ -1034,16 +1108,29 @@ createServer((req, res) => {
 
     // 已安装介质被替换但进程仍在跑旧内容：核对必须失败，不能写 verified。
     writeFileSync(join(targetDir, 'current', 'bundle.tgz'), 'tampered')
-    const second = await deployments.request({
+    const staleId = 'dep-stale-verify'
+    repo.deploymentStore.recordDeploymentIntent({
+      intentId: staleId,
+      project: 'testproj',
       targetId: 'real',
-      artifact: { ...artifact, sha256: 'f'.repeat(64) },
-      source: 'real-install-stale',
+      requirementId: 'req-1',
+      artifactSha256: artifact.sha256,
+      artifactPath: artifact.path,
+      artifactVersion: artifact.version,
+      source: 'stale-verify',
+      approval: 'owner',
+      state: 'draft',
+      createdAt: '2026-11-05T09:00:00.000Z',
+      updatedAt: '2026-11-05T09:00:00.000Z',
     })
-    const secondId = (second.data as { intentId: string }).intentId
-    await deployments.approve(secondId)
-    const stale = await deployments.verify(secondId)
+    repo.deploymentStore.updateDeploymentIntentState(
+      staleId,
+      'applied_pending_verify',
+      '2026-11-05T09:00:00.000Z',
+    )
+    const stale = await deployments.verify(staleId)
     expect(stale.ok).toBe(false)
     expect(stale.message).toMatch(/运行中制品摘要|已安装制品摘要/)
-    expect(deployments.detail(secondId)?.intent.state).toBe('verify_failed')
+    expect(deployments.detail(staleId)?.intent.state).toBe('verify_failed')
   })
 })

@@ -8,6 +8,13 @@ import { resolveConfig } from '../src/config.js'
 import { PLUGIN_VERSION } from '../src/runtime/version.js'
 import { sha256OfBytes, sha256OfText } from '../src/domain/delivery.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
+import { runFormalTest } from '../src/runtime/formal-test.js'
 
 /**
  * 可发布候选与上线核对：
@@ -99,14 +106,14 @@ function result(
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -126,7 +133,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const PLAN_REVIEW = JSON.stringify({
+const PLAN_REVIEW = structuredVerificationOf({
   verdict: 'pass',
   blocking: [],
   findings: [],
@@ -150,7 +157,7 @@ const VERIFICATION_REPORT = JSON.stringify({
 })
 
 /** 需求说明派生的验证方案；命令由运行时在固定候选上实际执行。 */
-const VERIFICATION_PLAN = JSON.stringify({
+const VERIFICATION_PLAN = structuredVerificationOf({
   scenarios: [
     {
       scenario: SCENARIO,
@@ -168,7 +175,7 @@ const VERIFICATION_PLAN = JSON.stringify({
   ],
 })
 
-const BUSINESS_REVIEW = JSON.stringify({
+const BUSINESS_REVIEW = structuredReviewOf({
   verdict: 'pass',
   summary: '业务终审通过',
   findings: [],
@@ -207,6 +214,23 @@ function fakeRunner(): AgentLike {
         }),
       )
       writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+      mkdirSync(join(verification, 'controls'), { recursive: true })
+      writeFileSync(
+        join(verification, 'controls.json'),
+        JSON.stringify({
+          controls: [
+            {
+              label: 'smoke',
+              patch: 'verification/controls/fault.patch',
+              expected_failure_output: 'target rule broken',
+            },
+          ],
+        }),
+      )
+      writeFileSync(
+        join(verification, 'controls', 'fault.patch'),
+        'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+      )
       return result(request, VERIFICATION_REPORT)
     }
     if (request.role === 'verify' && request.prompt.includes('独立审查')) {
@@ -286,7 +310,17 @@ function makeRuntime(): ForgeLoopRuntime {
     },
     dir,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner: fakeRunner() })
+  const formalTest: typeof runFormalTest = async (request) => {
+    if (request.cwd.includes('/controls/')) {
+      const output = 'target rule broken: expected fixture, got broken'
+      const result = await runFormalTest(request)
+      mkdirSync(dirname(request.logPath), { recursive: true })
+      writeFileSync(request.logPath, output, 'utf8')
+      return { ...result, exitCode: 1, output, logSha256: sha256OfText(output) }
+    }
+    return runFormalTest(request)
+  }
+  return new ForgeLoopRuntime({ ctx: {}, config, runner: fakeRunner(), formalTest })
 }
 
 async function runQueued(action: 'analyze' | 'plan' | 'advance' | 'verify', reqId: string) {

@@ -41,6 +41,8 @@ export class Coordinator {
   private timer: NodeJS.Timeout | undefined
   private opsTimer: NodeJS.Timeout | undefined
   private opsCurrent: Promise<void> | undefined
+  private deliveryTimer: NodeJS.Timeout | undefined
+  private deliveryCurrent: Promise<void> | undefined
   private stopped = true
   private ticking = false
   private inflight = new Map<string, AbortController>()
@@ -117,10 +119,12 @@ export class Coordinator {
     }, this.pollSeconds * 1000)
     this.timer.unref()
     if (this.runtime.ops.enabled) {
-      this.opsTimer = setInterval(() => void this.kickOps(), this.pollSeconds * 1000)
-      this.opsTimer.unref()
-      setTimeout(() => void this.kickOps(), 80).unref()
+      this.startOpsTimer()
     }
+    // 交付推进与研发领取分开：长研发任务不能在整轮 tick 里阻塞部署核对与超时收口。
+    this.deliveryTimer = setInterval(() => void this.kickDelivery(), this.pollSeconds * 1000)
+    this.deliveryTimer.unref()
+    setTimeout(() => void this.kickDelivery(), 90).unref()
     // 启动扫描：先核对/恢复，再立即消费 pending。
     setTimeout(() => void this.kick(), 50).unref()
   }
@@ -131,9 +135,12 @@ export class Coordinator {
     this.timer = undefined
     if (this.opsTimer) clearInterval(this.opsTimer)
     this.opsTimer = undefined
+    if (this.deliveryTimer) clearInterval(this.deliveryTimer)
+    this.deliveryTimer = undefined
     for (const controller of this.inflight.values()) controller.abort()
     await this.current?.catch(() => undefined)
     await this.opsCurrent?.catch(() => undefined)
+    await this.deliveryCurrent?.catch(() => undefined)
     this.lock?.release()
     this.lock = undefined
   }
@@ -171,17 +178,44 @@ export class Coordinator {
     return this.opsCurrent
   }
 
+  private startOpsTimer(): void {
+    this.opsTimer = setInterval(() => void this.kickOps(), this.pollSeconds * 1000)
+    this.opsTimer.unref()
+    setTimeout(() => void this.kickOps(), 80).unref()
+  }
+
+  /**
+   * 交付推进独立成链：自动构建/部署/核对、核对超时与中断恢复不等待研发请求收口。
+   * 幂等由交付交接的持久状态与部署状态机保证；同一时刻只跑一轮。
+   */
+  kickDelivery(): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    if (this.deliveryCurrent) return this.deliveryCurrent
+    this.deliveryCurrent = this.deliveryTick()
+      .catch((error: unknown) => {
+        this.lastError = `交付推进异常：${errorMessage(error)}`
+        this.logger.error(`[forgeloop] ${this.lastError}`)
+      })
+      .finally(() => {
+        this.deliveryCurrent = undefined
+      })
+    return this.deliveryCurrent
+  }
+
+  private async deliveryTick(): Promise<void> {
+    // 受控提交后按配置自动构建、部署并核对；失败/等待决定有持久记录。
+    await this.runtime.deliveryHandoff.tick()
+    // 安装完成但不核对会一直停在 applied_pending_verify；超时收口并告警。
+    this.runtime.deployments.expireStale()
+    // 中断可能停在 applying/verifying：先观测实际结果再收口，不重新安装。
+    await this.runtime.deployments.recoverInterrupted()
+  }
+
   private async runOnce(): Promise<void> {
     try {
       if (this.autoAdvance) this.ensureAutoAdvanceRequests()
       // 产品分析失败自动重试：有上限，且不重复排队在途请求。
       this.runtime.analysisQueue.autoRetry()
-      // 受控提交后按配置自动构建、部署并核对；失败/等待决定有持久记录。
-      await this.runtime.deliveryHandoff.tick()
-      // 安装完成但不核对会一直停在 applied_pending_verify；超时收口并告警。
-      this.runtime.deployments.expireStale()
-      // 中断可能停在 applying/verifying：先观测实际结果再收口，不重新安装。
-      await this.runtime.deployments.recoverInterrupted()
       // 研发空闲时领取队首需求；忙时新需求只入队，等当前请求收口后的下一轮再启动。
       this.runtime.intakeQueuedRequirement()
       let request = this.runtime.repo.claimNextRequest(this.owner, new Date().toISOString())

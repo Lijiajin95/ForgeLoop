@@ -90,16 +90,24 @@ DSH 宿主（唯一常驻产品）
    只处理 `message.source.kind === 'user'` 的消息。
 4. 对每条人类消息：用 `sessionId + messageId` 作为幂等键提交需求（版本 1），追加
    `plugin:forgeloop/intake` 会话事件，然后调用运行时 `analyzeRequirement`，由产品 Agent 输出
-   目标、业务场景、业务规则、异常与边界、非目标、验收标准与待澄清项；分析提示词同时携带
-   `docs/forgeloop/business-context.md` 的行业与业务背景，以及程序查询的当前项目活动需求与任务
+   目标、业务场景、业务规则、异常与边界、非目标、结构化业务要点（稳定编号 `BP-n`、依据来源、用户／触发／预期行为、
+   规则、异常边界状态）、可观察验收项（`AC-n`，`point_ids` + given/when/then）、假设（`AS-n`）、验收标准与待澄清项；
+   分析提示词同时携带
+   `docs/forgeloop/business-context.md` 的行业与业务背景、程序查询的当前项目活动需求与任务
    （标题、状态、创建／更新时间、任务包版本与批准状态、任务状态与最近活动），已结束需求只给数量，
-   这些内容只是背景事实，不构成授权；成功追加 `plugin:forgeloop/analysis`，失败追加
+   与当前原文相关的少量历史要求（含已结束需求，按词面重合度有界查询并给出命中词）、
+   上一次结构化说明与结构化澄清问答（问题编号、原文、所有者回答、解决结论）；这些内容只是背景事实，
+   不构成授权；成功追加 `plugin:forgeloop/analysis`，失败追加
    `plugin:forgeloop/error`。有待澄清项时再追加 `plugin:forgeloop/clarification-request`。
-5. 同一会话存在待澄清需求时，下一条人类消息按澄清回答处理：追加需求版本并重新分析，
+5. 消息归属由确定性入口决定，不让模型猜：会话只有一个待澄清需求时，直接回复按澄清回答处理；
+   多条待澄清时必须写“回答 <需求编号>：<回答>”指定对象；任何需要独立受理的新输入写
+   “新需求：<内容>”，即使有需求待澄清也不会并入回答。回答追加需求版本并重新分析，
    追加 `plugin:forgeloop/clarification-answer`、`plugin:forgeloop/analysis`，必要时再次推送
-   `plugin:forgeloop/clarification-request`；不会新建第二条需求。
+   `plugin:forgeloop/clarification-request`。每个问题在首次提出的分析内有稳定编号
+   `Q<分析版本>-<序号>`；重新分析必须逐项处置旧问题，未解决项由程序保留，模型不能静默丢弃。
 6. 分析无待澄清项时，需求才入队；协调器在研发空闲时把分析全文（目标、业务场景、业务规则、
-   异常与边界、非目标、验收标准）交给研发 Agent 做技术方案与任务拆解，追加
+   异常与边界、非目标、验收标准、业务要点与验收项）交给研发 Agent 做技术方案与任务拆解；任务包每个任务用
+   `covers` 列出覆盖的 `BP` 编号，未覆盖、引用不存在的要点按不合规退回重规，追加
    `plugin:forgeloop/plan`；产品 Agent 只出分析结论，不拆研发任务。
    规划失败追加 `plugin:forgeloop/error`。任务包落库后由验证 Agent 做实现前评审（无工具、只读），
    输出通过/阻断、阻断项与验证计划；阻断时把原因交回研发 Agent 重新拆解（最多 3 次），
@@ -118,8 +126,11 @@ DSH 宿主（唯一常驻产品）
 有就返回“未重复调用模型”，不再产生第二次模型调用；因此会话入口的同步分析、入队请求和
 协调器的推进都不会叠加成两次分析。每次真正执行的分析尝试写入 `requirement_analysis_attempts`：
 需求 ID、需求版本、attempt 序号、来源（`initial`/`auto`/`manual`）、结果、原因、模型、
-提示词版本（`analysis-v3`）、轨迹文件（`sessions/<reqId>-analyze-a<n>.jsonl`）与工具调用；
-成功结论另写 `requirement_analyses`，同样带这些元数据。失败不会覆盖历史结论，也不清零 attempt。
+提示词版本（`analysis-v4`）、轨迹文件（`sessions/<reqId>-v<需求版本>-analyze-a<n>.jsonl`）与工具调用；
+成功结论另写 `requirement_analyses`，同样带这些元数据。轨迹路径同时包含需求版本与 attempt，
+同一版本失败重试、不同版本首次分析都不会互相覆盖。澄清问题与回答分别写入
+`requirement_clarification_questions`、`requirement_clarification_answers`，问题状态与解决版本随分析结论
+同一事务更新；回答只追加，不覆盖历史。失败不会覆盖历史结论，也不清零 attempt。
 
 产品 Agent 以 `workspace-write` 权限运行，但工具面由 `domain/analysis.ts` 的白名单固定：
 `forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`forgeloop_web_search`、
@@ -200,9 +211,10 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
      写入 `requirement_code_candidates`；同一需求多版候选、旧报告与失败轮次保留。
    - **准入后、研发开始前**为验证 Agent 新开一个会话并保持到本次推进结束：该会话只挂
      `forgeloop_run_verification_check` 一个工具（`allowTools`），cwd 是真实项目目录。方案阶段只投
-     原始需求全部版本、分析的目标/业务场景/业务规则/异常与边界/非目标（只作背景）/验收标准，以及
-     已准入任务包的任务目标（`taskId：goal`），不传任务包实现细节、候选 diff、源码或工作区；方案
-     必须逐字覆盖场景、规则、异常边界与验收标准，缺任一项即 fail-closed，方案不入库。落盘位置
+     原始需求全部版本、分析的目标/业务场景/业务规则/异常与边界/非目标（只作背景）/验收标准与结构化业务要点，
+     以及已准入任务包的任务目标（`taskId：goal`），不传任务包实现细节、候选 diff、源码或工作区；有结构化要点时
+     方案用 `point_ids`／`acceptance_ids` 引用并覆盖每个 `BP`/`AC`，旧分析仍逐字覆盖场景与验收标准；任一缺项
+     即 fail-closed，方案不入库。落盘位置
      `<project>/verifications/<req>/v<plan>/plan/verification-plan.json`，会话轨迹同目录。
    - 研发产物交付后，运行时按固定快照建立**独立验证工作区**并应用候选 diff，只允许写 `verification/`；
      随后在**同一个验证会话**里投递执行提示词，由模型逐条调用
@@ -217,8 +229,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    - 判定只按工具记录的真实结果：只有全部方案命令退出码为 0、未超时/中止、输出满足预期、必过场景
      覆盖完整且候选未被改动才判通过；模型在文本里声称“已执行/已通过”不构成证据。
    - 验证通过后，**同一个验证会话**继续按原始需求做业务验收（方案、执行、验收同一 `sessionId`）；
-     报告同时覆盖业务场景、验收标准、业务规则与异常边界，逐项引用实际执行的命令标签与可在输出中
-     核对的原文。结论绑定候选、验证摘要与需求版本，阻断计入 `stage=business_review`。终审证据只取
+     有结构化要点时报告逐条给出 `points` 与 `acceptance` 的编号结果，旧分析仍覆盖业务场景、验收标准、
+     业务规则与异常边界；逐项引用实际执行的命令标签与可在输出中核对的原文。结论绑定候选、验证摘要与需求版本，阻断计入 `stage=business_review`。终审证据只取
      工具记录的命令输出，并同时保留开头与末尾两段（中间可省略）；只截尾部会把开头打印的前置证据
      误判为不可核对。
    - 验证阻断时创建关联需求 ID 的 ForgeLoop 内建问题单：固化本次验证的命令、退出码、日志路径、
@@ -228,6 +240,19 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
      下一次修复与验证。跨请求重试同样默认不设轮次上限，attempt 与验证历史持续累积，不归档全部
      任务、不清空失败轮次、不重建任务包。业务验收阻断默认按不限的失败轮次额度处理；显式配置
      `failureRoundsPerGrant > 0` 时按额度阻塞。
+   - **系统准入需求的连续验证**（`runtime/verification-pipeline.ts`）与上面同一会话的旧验证路径并存：
+     研发产物交付后按任务 diff 重建固定候选，验证 Agent 在候选工作区写
+     `verification/{commands.json,report.json,controls.json}`；程序重跑命令，并对每个必过场景在候选的
+     隔离副本上应用 `verification/controls/*.patch`（受控错误实现）重跑同一命令。对照必须在已知错误
+     实现上非零退出且输出命中目标规则证据，否则按“用例不能发现错误”阻断；补丁只能改 `verification/`
+     之外的业务文件，正式候选不被修改。没有敏感性对照的必过场景按证据不足阻断。
+   - 阻断按事实分类（`domain/verification-failure.ts`）：实现缺陷、用例错误、环境异常、证据不足、
+     需求争议、原因未明。只有实现缺陷且仍有失败额度时才回研发定向修复；其余保留阻断并给出各自处置，
+     不要求研发产生无意义 diff，也不把分类当作放行。
+   - 每次验证尝试有独立 `attemptId`、序号与 `previousAttemptId`，证据目录为
+     `verifications/<req>/v<plan>/<candidate 前 16 位>/attempt-<n>/`；`requirement_verification_attempts`
+     追加保存，`requirement_verifications` 只作为最新结果投影。同一候选只对已知非实现缺陷做有界复验
+     （最多 3 次），旧报告、日志与结论不被覆盖；新候选不能沿用旧候选通过结果。
 6. **受控提交**：验证与业务验收通过后，主控取得仓库级提交锁，核对真实项目工作树干净、HEAD 与候选
    基线一致，在临时工作树应用候选并运行 `autonomy.commitCheckCommand`；检查通过后重新核对工作树、
    暂存区与 HEAD，只暂存并提交该候选 diff，再核对暂存内容摘要。提交失败时反向应用候选并撤销本次
@@ -260,6 +285,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    满足门禁后仍可批准。安装或核对中途中断时，协调器先按 target 的 `status` 只读观测实际结果：
    一致则收口为已安装待核对/已核对，不一致转失败，无法确认时保留原状态并记录一次待人工决定，
    不重复调用安装工具。
+   交付推进（自动交接、核对超时收口、中断恢复）在协调器里有独立的执行链与定时器，
+   不等同一轮研发请求收口；长研发任务因此不会阻塞部署核对或 `verifyTimeoutSeconds` 超时处理。
    `deployment-approve/-reject/-verify/-rollback` 只由认证看板以 `config.owner` 调用，
    `DeploymentService` 仍复核所有者身份；部署决定（批准/核对）记录执行者，供自主率统计区分
    人工与系统动作。回退先按 target 声明的卷/迁移执行 `data-rollback`，再执行 `rollback`，
@@ -314,7 +341,11 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   分析结论、最新任务包与任务目标/文件/验收标准、任务运行原因、失败轮次、请求说明与看板问题文字；
   不读取 Agent 日志文件。`limit` 限制 1..100，客户端默认请求 50；结果被截断时页面明确提示。
 - 需求详情由 `requirementDetail` 返回：原文与版本历史、分析（目标/场景/验收标准/待澄清）、
+  `analysisHistory`（全部历次分析）、`clarificationHistory`（问题与回答）、`specChanges`
+  （本次新增/修改/移除的要点与验收、已解决/仍待澄清/新增问题）以及页面同源生成的需求说明，
   最新任务包正文（技术方案、任务、文件、依赖）、交付进度与产物摘要、验收记录、批准、失败轮次与请求。
+  页面按“目标/范围与待决定事项 → 业务要点及验收 → 规则、异常、非目标与依据 → 可展开历史”呈现，
+  不另维护独立 PRD；这些字段只读，不新增批准或推进入口。
 - 任务详情由 `taskDetail` 返回：目标、依赖、允许文件、验收标准、实际运行状态、失败原因与建议、
   失败轮次、Agent 活动（最近 120 条及总数）、正式测试日志（末尾 4000 字符、字节数、路径与截断标记）、
   独立审查结论、交付产物摘要、证据路径与会话身份。`taskExecution` 进一步返回执行阶段、公开事件、
@@ -378,8 +409,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件运行日志固定写入
   `<recordsRoot>/projects/<project>/logs/plugin.log`（同时保留宿主 console 输出）。
-- 表：需求与版本、分析、分析尝试、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
-  需求级代码候选、受控提交、独立验证、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
+- 表：需求与版本、分析、分析尝试、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与回答、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
+  需求级代码候选、受控提交、独立验证（含追加式验证尝试）、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、
   `requirement_dev_sessions`、`dev_session_summaries`），以及运维事件、运维观测与运维动作 attempt；
   权威 Schema 在 `records/db.ts`，契约只固定 SQLite 驱动、数据库路径与单库边界，不复制表清单。
@@ -389,10 +420,11 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   与其父目录记录基线和需求版本，元数据不进入候选），`sessions/dev-sessions/<session>/` 保存同会话的轨迹；
   `workspaces/<req>/dev/` 只为旧显式批准链路与问题单证据保留；`evidence/<req>/v<plan>/<task>/` 保存每任务 `candidate.diff`、`formal-test.log`、
   `review.json`、`dev-a*.jsonl`；需求级候选在 `candidates/<req>/v<plan>/candidate-<n>.diff`；
-  候选包在 `candidates/<req>/v<plan>/`；独立验证按候选身份保存在
-  `verifications/<req>/v<plan>/<candidate 前 16 位>/`（`candidate.json`、`candidate.diff`、命令日志、
-  `verification.json`、`business-review.json`）；提交检查在 `integrations/<req>/<candidate 前 16 位>/`；
-  产品分析每次尝试的 Agent 轨迹在 `sessions/<reqId>-analyze-a<n>.jsonl`（不覆盖历史尝试）；
+  候选包在 `candidates/<req>/v<plan>/`；独立验证按候选与尝试保存在
+  `verifications/<req>/v<plan>/<candidate 前 16 位>/attempt-<n>/`（`candidate.json`、`candidate.diff`、
+  命令日志、敏感性对照副本与日志、`verification.json`、`business-review/`）；提交检查在
+  `integrations/<req>/<candidate 前 16 位>/`；
+  产品分析每次尝试的 Agent 轨迹在 `sessions/<reqId>-v<需求版本>-analyze-a<n>.jsonl`（不覆盖历史尝试）；
   运维证据在 `ops/<事件>/`。
 
 ## 6. 持久工作、去重与恢复
@@ -437,7 +469,9 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   （`source.kind === 'user'`）的消息才受理；会话身份、消息身份与原始文本落库后可回查。
   输入接管只创建需求、回答待澄清项并调用产品 Agent；批准与推进走任务包卡片的认证动作，
   不来自聊天文本或模型工具。
-  澄清回答与 `reqId + requirementVersion + analysisVersion` 对应；多待澄清项或其他会话不得猜测。
+  澄清回答与稳定问题编号及 `reqId + requirementVersion + analysisVersion` 对应；直接回复只在单个
+  待澄清需求时使用，多待澄清项必须写明“回答 <reqId>：”，其他会话不得猜测。新需求入口
+  “新需求：”只是文本分诊前缀，不是可批准、推进或验收的命令表面。
 - **模型工具**：只读查询、需求受理与项目 Markdown 文档写入（不含代码）。工具不能提交
   `by=owner` 或 `approved=true`，也不能触发
   推进或验收。`forgeloop_impact` 默认不调用模型；显式 `explain=true` 的推断与事实分区，
@@ -558,4 +592,3 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   release 保持 real-host E2E。
 - 持久化表、外部工具契约与运行时状态机没有新增或改名；本批只新增测试、门禁脚本、
   报告入口与一处幂等资源释放修复（`Database.close()`，回归测试先红后绿）。
-

@@ -190,6 +190,8 @@ export class AdvancePipeline {
     detail: string
     blocking: string[]
     verification: VerificationRecord | null
+    failureKind?: string
+    repairRecommended?: boolean
   }> {
     return this.deps.legacyVerification.verifyCandidate(input)
   }
@@ -566,6 +568,138 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     return { ok: true }
   }
 
+  /** 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。 */
+  private recordVerificationPrepFailure(
+    reqId: string,
+    detail: string,
+  ): { state: 'failed'; detail: string } {
+    this.deps.repo.recordFailureRound(reqId, {
+      roundId: `verification-prep-${randomUUID()}`,
+      stage: FAILURE_VERIFICATION,
+      summary: detail.slice(0, 1000),
+      occurredAt: this.deps.now(),
+    })
+    this.deps.repo.setStatus(reqId, 'blocked', detail)
+    return { state: 'failed', detail }
+  }
+
+  /** 验证阻断后的问题单、定向修复与候选重建；只有实现缺陷会进入这里。 */
+  private async handleBlockedVerification(input: {
+    reqId: string
+    requirement: Requirement
+    plan: TaskPlan
+    workspace: string
+    workspaceInfo: {
+      workspace: string
+      baselineCommit: string
+      snapshotCommit: string
+      fresh: boolean
+    }
+    session: AgentSession
+    signal: AbortSignal
+    candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
+    round: number
+    recorded: VerificationRecord
+    verification: {
+      detail: string
+      blocking: string[]
+      verification: VerificationRecord | null
+      failureKind?: string
+      repairRecommended?: boolean
+    }
+  }): Promise<
+    | { stop: true; result: { state: 'failed'; detail: string } }
+    | { stop: false; candidate: ReturnType<AdvancePipeline['finalizeCandidate']> }
+  > {
+    const { reqId, requirement, plan, workspace, workspaceInfo, session, signal, round } = input
+    const { verification } = input
+    if (verification.repairRecommended === false) {
+      return { stop: true, result: this.verificationWithoutRepair(reqId, verification) }
+    }
+    const { recorded } = input
+    const issue = this.recordVerificationIssue({
+      reqId,
+      requirement,
+      plan,
+      candidate: input.candidate,
+      verification: recorded,
+      blocking: verification.blocking,
+      devWorkspace: workspace,
+    })
+    const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
+    if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
+      const blocking = verification.blocking.join('；') || verification.detail
+      this.deps.repo.setStatus(
+        reqId,
+        'blocked',
+        `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
+      )
+      return {
+        stop: true,
+        result: {
+          state: 'failed',
+          detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
+        },
+      }
+    }
+    const repaired = await this.repairCandidate({
+      reqId,
+      requirement,
+      plan,
+      workspace,
+      session,
+      blocking: verification.blocking,
+      candidate: input.candidate,
+      signal,
+      round,
+    })
+    if (!repaired.ok) {
+      this.deps.repo.setStatus(
+        reqId,
+        'blocked',
+        `定向修复未完成：${repaired.reason}；问题单 ${issue.issueId} 保留在研发队列`,
+      )
+      return {
+        stop: true,
+        result: { state: 'failed', detail: `定向修复未完成：${repaired.reason}` },
+      }
+    }
+    this.deps.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.deps.now())
+    return {
+      stop: false,
+      candidate: this.finalizeCandidate({
+        reqId,
+        plan,
+        workspace,
+        baselineCommit: workspaceInfo.baselineCommit,
+        snapshotCommit: workspaceInfo.snapshotCommit,
+      }),
+    }
+  }
+
+  /** 用例、环境、证据、需求争议或原因未明：保留阻断，不把问题当成实现缺陷交给研发。 */
+  private verificationWithoutRepair(
+    reqId: string,
+    verification: {
+      detail: string
+      blocking: string[]
+      verification: { verdict: 'pass' | 'block' } | null
+      failureKind?: string
+    },
+  ): { state: 'failed'; detail: string } {
+    const blocking = verification.blocking.join('；') || verification.detail
+    const kind = verification.failureKind ?? 'undetermined'
+    this.deps.repo.setStatus(
+      reqId,
+      'blocked',
+      `验证未通过（${kind}）：${blocking}；${verification.detail}`,
+    )
+    return {
+      state: 'failed',
+      detail: `验证未通过（${kind}）：${blocking}；未要求研发修改代码`,
+    }
+  }
+
   private async verifyContinuousCandidate(input: {
     reqId: string
     requirement: Requirement
@@ -612,15 +746,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         verification: verificationSession,
       })
       if (verification.verification === null && verification.state === 'block') {
-        // 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。
-        this.deps.repo.recordFailureRound(reqId, {
-          roundId: `verification-prep-${randomUUID()}`,
-          stage: FAILURE_VERIFICATION,
-          summary: verification.detail.slice(0, 1000),
-          occurredAt: this.deps.now(),
-        })
-        this.deps.repo.setStatus(reqId, 'blocked', verification.detail)
-        return { state: 'failed', detail: verification.detail }
+        return this.recordVerificationPrepFailure(reqId, verification.detail)
       }
       if (verification.state === 'pass') {
         this.deps.issues.resolveOpen(reqId, this.deps.now())
@@ -642,56 +768,21 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       }
       const recorded = verification.verification
       if (recorded && recorded.verdict === 'block') {
-        // 验证执行后判定失败：建内建问题单并定向修复；跨请求重试没有轮次上限。
-        const issue = this.recordVerificationIssue({
-          reqId,
-          requirement,
-          plan,
-          candidate,
-          verification: recorded,
-          blocking: verification.blocking,
-          devWorkspace: workspace,
-        })
-        const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
-        if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
-          const blocking = verification.blocking.join('；') || verification.detail
-          this.deps.repo.setStatus(
-            reqId,
-            'blocked',
-            `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
-          )
-          return {
-            state: 'failed',
-            detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
-          }
-        }
-        const repaired = await this.repairCandidate({
+        const handled = await this.handleBlockedVerification({
           reqId,
           requirement,
           plan,
           workspace,
+          workspaceInfo,
           session,
-          blocking: verification.blocking,
-          candidate,
           signal,
+          candidate,
           round,
+          recorded,
+          verification,
         })
-        if (!repaired.ok) {
-          this.deps.repo.setStatus(
-            reqId,
-            'blocked',
-            `定向修复未完成：${repaired.reason}；问题单 ${issue.issueId} 保留在研发队列`,
-          )
-          return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
-        }
-        this.deps.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.deps.now())
-        candidate = this.finalizeCandidate({
-          reqId,
-          plan,
-          workspace,
-          baselineCommit: workspaceInfo.baselineCommit,
-          snapshotCommit: workspaceInfo.snapshotCommit,
-        })
+        if (handled.stop) return handled.result
+        candidate = handled.candidate
         continue
       }
       // 业务验收阻断（独立验证本身已通过）仍受失败额度约束。

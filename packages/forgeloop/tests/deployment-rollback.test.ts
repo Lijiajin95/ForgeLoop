@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
@@ -15,10 +16,10 @@ let script = ''
 let config: ForgeLoopConfig
 let alerts: Array<{ body: Record<string, unknown> }> = []
 
-const ARTIFACT: DeploymentArtifact = {
-  sha256: 'a'.repeat(64),
-  path: '/tmp/a.tgz',
-  version: '1.0.0',
+function artifact(version: string, content: string): DeploymentArtifact {
+  const path = join(dir, `candidate-${version}.tgz`)
+  writeFileSync(path, content)
+  return { sha256: createHash('sha256').update(content).digest('hex'), path, version }
 }
 
 function toolScript(): string {
@@ -27,20 +28,31 @@ function toolScript(): string {
     'args = sys.argv',
     'op = args[args.index("--op") + 1]',
     'plan = json.load(open(args[args.index("--plan") + 1]))',
-    'version = plan["artifact"]["version"]',
     'tag = plan["params"].get("tag", "")',
-    'restore = "" if tag == "NO_RESTORE" else "rp-2026-11-04"',
+    'here = os.path.dirname(os.path.abspath(__file__))',
+    'state_path = os.path.join(here, "state.json")',
+    'state = json.load(open(state_path)) if os.path.exists(state_path) else {}',
+    'def save(value):',
+    '    json.dump(value, open(state_path, "w"))',
     'if op == "preflight":',
+    '    restore = "" if tag == "NO_RESTORE" else "rp-2026-11-04"',
     '    print(json.dumps({"ok": True, "state": "ready", "restorePoint": restore, "detail": "preflight ok"}))',
     'elif op == "apply":',
+    '    save({"version": plan["artifact"]["version"], "sha": plan["artifact"]["sha256"]})',
     '    print(json.dumps({"ok": True, "state": "applied", "detail": "apply ok"}))',
-    'elif op == "status":',
-    '    print(json.dumps({"ok": True, "state": "running", "version": version, "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-03T10:00:00Z", "detail": "status ok"}))',
-    'elif op == "rollback":',
-    '    failed = tag == "FAIL_ROLLBACK"',
-    '    print(json.dumps({"ok": not failed, "state": "rolled_back" if not failed else "failed", "detail": "rollback"}))',
     'elif op == "data-rollback":',
-    '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "data rollback ok"}))',
+    '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "data rollback " + plan["previous"]["restorePoint"]}))',
+    'elif op == "rollback":',
+    '    if tag == "FAIL_ROLLBACK":',
+    '        print(json.dumps({"ok": False, "state": "failed", "detail": "rollback"}))',
+    '    elif tag == "STUCK_ROLLBACK":',
+    '        print(json.dumps({"ok": True, "state": "rolled_back", "detail": "pretend rollback"}))',
+    '    else:',
+    '        save({"version": plan["previous"]["version"], "sha": plan["previous"]["sha256"]})',
+    '        print(json.dumps({"ok": True, "state": "rolled_back", "detail": "rollback"}))',
+    'elif op == "status":',
+    '    current = state or {"version": plan["artifact"]["version"], "sha": plan["artifact"]["sha256"]}',
+    '    print(json.dumps({"ok": True, "state": "running", "version": current["version"], "artifactSha256": current["sha"], "runningArtifactSha256": current["sha"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-04T00:00:00Z", "detail": "status"}))',
   ].join('\n')
 }
 
@@ -83,8 +95,14 @@ function raw(): RawConfig {
           toolId: 't',
           requirementId: 'req-1',
           approval: 'owner',
-          data: { volumes: ['web-data'], migrations: [] },
           params: { tag: 'FAIL_ROLLBACK' },
+        },
+        {
+          id: 'stuck-rollback',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'STUCK_ROLLBACK' },
         },
       ],
     } as never,
@@ -104,13 +122,36 @@ function build(): Deployments {
   })
 }
 
-async function deployed(targetId: string): Promise<{ deployments: Deployments; intentId: string }> {
-  const deployments = build()
-  const requested = await deployments.request({ targetId, artifact: ARTIFACT, source: 'owner' })
+async function deploy(
+  deployments: Deployments,
+  targetId: string,
+  value: DeploymentArtifact,
+): Promise<string> {
+  const requested = await deployments.request({
+    targetId,
+    artifact: value,
+    source: `owner-${targetId}-${value.version}`,
+  })
+  expect(requested.ok, requested.message).toBe(true)
   const intentId = (requested.data as { intentId: string }).intentId
-  await deployments.approve(intentId)
-  await deployments.verify(intentId)
-  return { deployments, intentId }
+  const approved = await deployments.approve(intentId)
+  expect(approved.ok, approved.message).toBe(true)
+  const verified = await deployments.verify(intentId)
+  expect(verified.ok, verified.message).toBe(true)
+  return intentId
+}
+
+function lastPlan(intentId: string, op: string): Record<string, unknown> {
+  const path = join(
+    dir,
+    '.forgeloop',
+    'projects',
+    'testproj',
+    'deployments',
+    intentId,
+    `${op}.json`,
+  )
+  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
 }
 
 beforeEach(() => {
@@ -135,7 +176,7 @@ describe('deployment rollback', () => {
     const deployments = build()
     const requested = await deployments.request({
       targetId: 'no-restore',
-      artifact: ARTIFACT,
+      artifact: artifact('1.0.0', 'v1'),
       source: 'owner',
     })
     expect(requested).toMatchObject({ ok: false, code: 'preflight_failed' })
@@ -144,14 +185,35 @@ describe('deployment rollback', () => {
     expect(deployments.detail(intentId)?.attempts.at(-1)?.detail).toContain('restorePoint')
   })
 
-  it('runs data-rollback, rollback and a status re-check for a data target', async () => {
-    const { deployments, intentId } = await deployed('data')
-    expect(deployments.detail(intentId)?.intent.state).toBe('verified')
+  it('rolls back to the previous verified artifact, not the current one', async () => {
+    const deployments = build()
+    const v1 = artifact('1.0.0', 'v1')
+    const v2 = artifact('2.0.0', 'v2')
+    await deploy(deployments, 'plain', v1)
+    const intentId = await deploy(deployments, 'plain', v2)
 
     const rolled = await deployments.rollback(intentId, '验证失败回退')
-    expect(rolled.ok).toBe(true)
+    expect(rolled.ok, rolled.message).toBe(true)
     const detail = deployments.detail(intentId)
     expect(detail?.intent.state).toBe('rolled_back')
+    // 工具收到的 previous 是上一已验证制品，不是本次制品。
+    const plan = lastPlan(intentId, 'rollback')
+    expect((plan.previous as { sha256: string }).sha256).toBe(v1.sha256)
+    expect(plan.artifact).toMatchObject({ sha256: v2.sha256 })
+    expect((rolled.data as { artifactSha256: string }).artifactSha256).toBe(v1.sha256)
+    expect(alerts).toHaveLength(0)
+  })
+
+  it('runs data-rollback with the previous artifact before rollback', async () => {
+    const deployments = build()
+    const v1 = artifact('1.0.0', 'data-v1')
+    const v2 = artifact('2.0.0', 'data-v2')
+    await deploy(deployments, 'data', v1)
+    const intentId = await deploy(deployments, 'data', v2)
+
+    const rolled = await deployments.rollback(intentId, '数据回退')
+    expect(rolled.ok, rolled.message).toBe(true)
+    const detail = deployments.detail(intentId)
     expect(detail?.attempts.map((attempt) => attempt.op)).toEqual([
       'preflight',
       'apply',
@@ -160,24 +222,67 @@ describe('deployment rollback', () => {
       'rollback',
       'status',
     ])
-    expect(alerts).toHaveLength(0)
+    const plan = lastPlan(intentId, 'data-rollback')
+    expect((plan.previous as { sha256: string; restorePoint: string }).sha256).toBe(v1.sha256)
+    expect((plan.previous as { restorePoint: string }).restorePoint).toBe('rp-2026-11-04')
   })
 
-  it('rolls back a non-data target without data-rollback', async () => {
-    const { deployments, intentId } = await deployed('plain')
-    const rolled = await deployments.rollback(intentId, '手动回退')
-    expect(rolled.ok).toBe(true)
+  it('refuses rollback when there is no previous verified artifact', async () => {
+    const deployments = build()
+    const intentId = await deploy(deployments, 'plain', artifact('1.0.0', 'only'))
+
+    const rolled = await deployments.rollback(intentId, '没有上一版本')
+    expect(rolled).toMatchObject({ ok: false, code: 'no_previous_artifact' })
+    expect(deployments.detail(intentId)?.intent.state).toBe('verified')
     expect(deployments.detail(intentId)?.attempts.map((attempt) => attempt.op)).toEqual([
       'preflight',
       'apply',
       'status',
-      'rollback',
-      'status',
     ])
   })
 
+  it('refuses rollback when the previous artifact is no longer retained', async () => {
+    const deployments = build()
+    const v1 = artifact('1.0.0', 'retained')
+    const v2 = artifact('2.0.0', 'current')
+    await deploy(deployments, 'plain', v1)
+    const intentId = await deploy(deployments, 'plain', v2)
+    rmSync(v1.path)
+
+    const rolled = await deployments.rollback(intentId, '制品丢失')
+    expect(rolled).toMatchObject({ ok: false, code: 'previous_artifact_missing' })
+    expect(deployments.detail(intentId)?.intent.state).toBe('verified')
+  })
+
+  it('refuses rollback when the retained artifact content changed', async () => {
+    const deployments = build()
+    const v1 = artifact('1.0.0', 'retained')
+    const v2 = artifact('2.0.0', 'current')
+    await deploy(deployments, 'plain', v1)
+    const intentId = await deploy(deployments, 'plain', v2)
+    writeFileSync(v1.path, 'tampered')
+
+    const rolled = await deployments.rollback(intentId, '制品被改')
+    expect(rolled).toMatchObject({ ok: false, code: 'previous_artifact_changed' })
+    expect(deployments.detail(intentId)?.intent.state).toBe('verified')
+  })
+
+  it('fails when the tool reports success but the target still runs the new artifact', async () => {
+    const deployments = build()
+    await deploy(deployments, 'stuck-rollback', artifact('1.0.0', 'stuck-v1'))
+    const intentId = await deploy(deployments, 'stuck-rollback', artifact('2.0.0', 'stuck-v2'))
+
+    const rolled = await deployments.rollback(intentId, '假回退')
+    expect(rolled).toMatchObject({ ok: false, code: 'rollback_verify_failed' })
+    expect(rolled.message).toContain('期望上一已验证版本 1.0.0')
+    expect(deployments.detail(intentId)?.intent.state).toBe('failed')
+    expect(alerts).toHaveLength(1)
+  })
+
   it('alerts and marks failed when the rollback tool reports an error', async () => {
-    const { deployments, intentId } = await deployed('fail-rollback')
+    const deployments = build()
+    await deploy(deployments, 'fail-rollback', artifact('1.0.0', 'fail-v1'))
+    const intentId = await deploy(deployments, 'fail-rollback', artifact('2.0.0', 'fail-v2'))
     const rolled = await deployments.rollback(intentId, '回退')
     expect(rolled).toMatchObject({ ok: false, code: 'rollback_failed' })
     expect(deployments.detail(intentId)?.intent.state).toBe('failed')
@@ -189,7 +294,7 @@ describe('deployment rollback', () => {
     const deployments = build()
     const requested = await deployments.request({
       targetId: 'plain',
-      artifact: ARTIFACT,
+      artifact: artifact('1.0.0', 'pending'),
       source: 'owner',
     })
     const intentId = (requested.data as { intentId: string }).intentId

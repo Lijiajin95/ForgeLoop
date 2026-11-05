@@ -587,7 +587,13 @@ describe('ops active monitoring', () => {
       }),
       runner,
     )
-    expect(ops.summary().monitor.heartbeat).toEqual({ configured: true, at: '', ok: false })
+    expect(ops.summary().monitor.heartbeat).toEqual({
+      configured: true,
+      at: '',
+      ok: false,
+      ageSeconds: null,
+      stale: false,
+    })
 
     const outcome = await ops.tick()
     expect(outcome.monitored).toBe(true)
@@ -624,6 +630,71 @@ describe('ops active monitoring', () => {
     const summary = ops.summary().monitor
     expect(summary.status).toBe('healthy')
     expect(summary.heartbeat.ok).toBe(false)
+  })
+
+  it('does not present a healthy status when collection is incomplete', async () => {
+    const runner = runnerOf(() => monitorText([]))
+    const { ops } = makeOps(
+      opsRaw({
+        monitor: {
+          enabled: true,
+          intervalSeconds: 60,
+          logLines: 20,
+          logs: [{ id: 'app', resourceId: 'web', path: 'missing.log', errorPattern: 'ERROR' }],
+        },
+      }),
+      runner,
+    )
+    const outcome = await ops.tick()
+    expect(outcome.monitored).toBe(true)
+    const summary = ops.summary().monitor
+    // 模型报告 healthy，但日志来源采集失败：程序不能替它背书为健康。
+    expect(summary.status).toBe('incomplete')
+    expect(summary.collection.complete).toBe(false)
+    expect(summary.collection.errors.join('；')).toContain('不可读')
+    expect(summary.error).toContain('采集不完整')
+  })
+
+  it('marks a scan and heartbeat stale after the freshness window', async () => {
+    const runner = runnerOf(() => monitorText([]))
+    const { ops } = makeOps(
+      opsRaw({
+        monitor: {
+          enabled: true,
+          intervalSeconds: 60,
+          heartbeat: { url: heartbeatUrl, method: 'POST', timeoutSeconds: 2 },
+        },
+      }),
+      runner,
+    )
+    await ops.tick()
+    expect(ops.summary().monitor.status).toBe('healthy')
+    expect(ops.summary().monitor.freshness.stale).toBe(false)
+    expect(ops.summary().monitor.heartbeat.stale).toBe(false)
+
+    // 超过两个扫描周期仍未更新：旧结论不能再当成当前健康状态。
+    clock = new Date(clock.getTime() + 125_000)
+    const summary = ops.summary().monitor
+    expect(summary.status).toBe('stale')
+    expect(summary.freshness.stale).toBe(true)
+    expect(summary.freshness.ageSeconds).toBeGreaterThanOrEqual(120)
+    expect(summary.error).toContain('已过期')
+    expect(summary.heartbeat.stale).toBe(true)
+  })
+
+  it('keeps model failures as errors even when the scan is stale', async () => {
+    const { ops } = makeOps(
+      opsRaw(),
+      runnerOf(() => monitorText([])),
+    )
+    repository.setMeta(
+      'ops_monitor_last',
+      JSON.stringify({ at: '2026-11-02T09:00:00.000Z', status: 'error', error: '模型不可用' }),
+    )
+    const summary = ops.summary().monitor
+    expect(summary.status).toBe('error')
+    expect(summary.error).toBe('模型不可用')
+    expect(summary.freshness.stale).toBe(true)
   })
 
   it('does not send a heartbeat when monitoring is disabled or the tick is aborted', async () => {

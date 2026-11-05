@@ -29,6 +29,7 @@ import {
 } from '../src/agents/verification-agent.js'
 import { VerificationCheckRegistry } from '../src/runtime/verification-checks.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
+import { structuredSpecOf, structuredPlanOf, structuredReviewOf } from './spec-fixture.js'
 
 /**
  * 验证 Agent 的门禁测试：实现前评审决定能否批准，独立验证决定能否验收。
@@ -75,14 +76,14 @@ function result(
 const SCENARIO = '任务按依赖完成'
 const CRITERION = '两个任务交付且测试通过'
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -189,6 +190,23 @@ function fakeRunner(
           join(verification, 'report.json'),
           workspaceOptions.report ?? verificationReportOf(),
         )
+        mkdirSync(join(verification, 'controls'), { recursive: true })
+        writeFileSync(
+          join(verification, 'controls.json'),
+          JSON.stringify({
+            controls: [
+              {
+                label: 'smoke',
+                patch: 'verification/controls/fault.patch',
+                expected_failure_output: 'target rule broken',
+              },
+            ],
+          }),
+        )
+        writeFileSync(
+          join(verification, 'controls', 'fault.patch'),
+          'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+        )
         if (workspaceOptions.outside) {
           mkdirSync(join(request.cwd, 'docs'), { recursive: true })
           writeFileSync(join(request.cwd, workspaceOptions.outside), '越界改动\n')
@@ -199,7 +217,7 @@ function fakeRunner(
       if (request.role === 'verify' && request.prompt.includes('业务验收')) {
         return result(
           request,
-          JSON.stringify({
+          structuredReviewOf({
             verdict: 'pass',
             summary: '业务终审通过',
             findings: [],
@@ -230,6 +248,25 @@ function fakeRunner(
   }
 }
 
+/** 对照副本中的命令按“已知错误实现”失败；正式候选仍走真实命令执行。 */
+const controlAwareFormalTest: typeof runFormalTest = async (request) => {
+  if (request.cwd.includes('/controls/')) {
+    const output = 'target rule broken: expected fixture, got broken'
+    mkdirSync(dirname(request.logPath), { recursive: true })
+    writeFileSync(request.logPath, output, 'utf8')
+    return {
+      exitCode: 1,
+      timedOut: false,
+      aborted: false,
+      logPath: request.logPath,
+      logSha256: sha256OfText(output),
+      durationMs: 1,
+      output,
+    }
+  }
+  return runFormalTest(request)
+}
+
 function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
   const config = resolveConfig(
     {
@@ -248,7 +285,7 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
     },
     dir,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner })
+  return new ForgeLoopRuntime({ ctx: {}, config, runner, formalTest: controlAwareFormalTest })
 }
 
 async function runQueued(action: 'analyze' | 'plan' | 'advance' | 'verify', reqId: string) {
@@ -1367,7 +1404,13 @@ describe('independent verification gate', () => {
     runtime.close()
     runtime = makeRuntime(
       fakeRunner({
-        workspace: { commands: commandsOf(['node', '-e', 'process.exit(1)']) },
+        workspace: {
+          commands: commandsOf([
+            'node',
+            '-e',
+            "console.error('AssertionError: expected 3 rounds, got 4'); process.exit(1)",
+          ]),
+        },
         onVerify: () => (verifyRuns += 1),
       }),
     )

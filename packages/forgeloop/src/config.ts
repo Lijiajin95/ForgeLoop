@@ -1334,6 +1334,25 @@ export function businessReviewDir(
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, 'business')
 }
 
+/**
+ * 一次验证尝试的独立证据目录：候选 + 尝试序号。
+ * 同一候选再次验证写到新目录，旧报告、日志、工作副本不被覆盖。
+ */
+export function verificationAttemptDir(
+  config: ForgeLoopConfig,
+  key: {
+    readonly reqId: string
+    readonly planVersion: number
+    readonly candidateSha256: string
+    readonly attemptNumber: number
+  },
+): string {
+  return join(
+    verificationDir(config, key.reqId, key.planVersion, key.candidateSha256),
+    `attempt-${key.attemptNumber}`,
+  )
+}
+
 export function candidatesDir(config: ForgeLoopConfig, reqId: string, planVersion: number): string {
   return join(projectDir(config), 'candidates', reqId, `v${planVersion}`)
 }

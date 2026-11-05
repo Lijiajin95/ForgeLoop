@@ -10,14 +10,11 @@ import { randomUUID } from 'node:crypto'
 import { isoNow } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
 import type { Requirement, RequirementAnalysis, RequirementVersion } from '../domain/requirement.js'
-import {
-  DEFAULT_INPUT_KIND,
-  INPUT_KINDS,
-  inputKindOf,
-  validateAnalysis,
-  validateRequirement,
-} from '../domain/requirement.js'
-import type { AnalysisAttempt, AnalysisMode, AnalysisOutcome } from '../domain/analysis.js'
+import { validateAnalysis, validateRequirement } from '../domain/requirement.js'
+import type { AnalysisAttempt, ClarificationQuestion } from '../domain/analysis.js'
+import { clarificationQuestionId } from '../domain/analysis.js'
+import { AnalysisStore } from './analysis-store.js'
+import { ClarificationStore } from './clarification-store.js'
 import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
 import type { FailureRound } from '../domain/counting.js'
@@ -27,10 +24,12 @@ import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 import { DeploymentStore } from './deployment-store.js'
 import { DeliveryStore } from './delivery-store.js'
 import { DevSessionStore } from './dev-session-store.js'
+import { VerificationStore } from './verification-store.js'
 import type {
   RequirementEvidence,
   PlanReviewRecord,
   VerificationRecord,
+  VerificationAttemptRecord,
   BusinessReviewRecord,
   ServiceRequestRecord,
   ActionRecord,
@@ -42,24 +41,13 @@ import type {
   BudgetExtensionRecord,
 } from './rows.js'
 
-import {
-  businessReviewRow,
-  failureStageOf,
-  num,
-  oneOf,
-  taskRunStateOf,
-  text,
-  verificationRow,
-  type Row,
-} from './rows.js'
-
-const ANALYSIS_KINDS: readonly AnalysisMode[] = ['initial', 'auto', 'manual']
-const ANALYSIS_OUTCOMES: readonly AnalysisOutcome[] = ['done', 'failed']
+import { businessReviewRow, failureStageOf, num, taskRunStateOf, text, type Row } from './rows.js'
 
 export type {
   RequirementEvidence,
   PlanReviewRecord,
   VerificationRecord,
+  VerificationAttemptRecord,
   BusinessReviewRecord,
   ServiceRequestRecord,
   ActionRecord,
@@ -78,6 +66,8 @@ export type {
 export class Repository extends DevSessionStore {
   readonly deploymentStore = new DeploymentStore(this.db)
   readonly deliveryStore = new DeliveryStore(this.db)
+  readonly analysisStore = new AnalysisStore(this.db)
+  readonly clarificationStore = new ClarificationStore(this.db)
 
   close(): void {
     this.db.close()
@@ -284,146 +274,83 @@ export class Repository extends DevSessionStore {
   // ---------------------------------------------------------------- 分析
 
   nextAnalysisVersion(reqId: string): number {
-    const row = this.db
-      .prepare('SELECT MAX(analysis_version) AS version FROM requirement_analyses WHERE req_id = ?')
-      .get(reqId)
-    return (row ? num(row, 'version') : 0) + 1
+    return this.analysisStore.nextVersion(reqId)
   }
 
-  recordAnalysis(analysis: RequirementAnalysis & { reqId: string }): void {
+  /**
+   * 记录一条分析结论。澄清问题与旧问题处置和结论在同一事务写入：
+   * 问题身份、解决状态与结论版本不会出现一半成功。
+   */
+  recordAnalysis(
+    analysis: RequirementAnalysis & { reqId: string },
+    clarification?: {
+      questions: readonly string[]
+      updates: ReadonlyArray<{
+        questionId: string
+        status: 'resolved' | 'open'
+        resolution: string
+      }>
+    },
+  ): void {
     const requirement = this.getRequirement(analysis.reqId)
     if (!requirement) throw new RuleViolationError(`未找到需求 ${analysis.reqId}`)
     validateAnalysis(analysis, requirement.versions.length)
-    this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO requirement_analyses
-          (req_id, analysis_version, requirement_version, goal, scenarios, acceptance_criteria,
-           clarifications, business_rules, exceptions, non_goals, model, prompt_version,
-           transcript_path, tool_calls, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          analysis.reqId,
-          analysis.analysisVersion,
-          analysis.requirementVersion,
-          analysis.goal,
-          JSON.stringify(analysis.scenarios),
-          JSON.stringify(analysis.acceptanceCriteria),
-          JSON.stringify(analysis.clarifications),
-          JSON.stringify(analysis.businessRules ?? []),
-          JSON.stringify(analysis.exceptions ?? []),
-          JSON.stringify(analysis.nonGoals ?? []),
-          analysis.model ?? '',
-          analysis.promptVersion ?? '',
-          analysis.transcriptPath ?? '',
-          JSON.stringify(analysis.toolCalls ?? []),
-          analysis.createdAt,
-        )
-      // 分诊结果与分析记录同一事务写入；重复写入同一版本时以最新结论为准。
-      this.db
-        .prepare(
-          `INSERT INTO requirement_analysis_input_kinds (req_id, analysis_version, kind)
-           VALUES (?, ?, ?)
-           ON CONFLICT(req_id, analysis_version) DO UPDATE SET kind = excluded.kind`,
-        )
-        .run(analysis.reqId, analysis.analysisVersion, inputKindOf(analysis))
-    })
+    this.analysisStore.record(analysis, clarification)
   }
 
   analyses(reqId: string): RequirementAnalysis[] {
-    const rows = this.db
-      .prepare('SELECT * FROM requirement_analyses WHERE req_id = ? ORDER BY analysis_version')
-      .all(reqId)
-    const kinds = new Map(
-      this.db
-        .prepare(
-          'SELECT analysis_version, kind FROM requirement_analysis_input_kinds WHERE req_id = ?',
-        )
-        .all(reqId)
-        .map((row) => [num(row, 'analysis_version'), text(row, 'kind')]),
-    )
-    return rows.map((row) => {
-      const analysisVersion = num(row, 'analysis_version')
-      return {
-        analysisVersion,
-        requirementVersion: num(row, 'requirement_version'),
-        inputKind: oneOf(
-          kinds.get(analysisVersion) ?? DEFAULT_INPUT_KIND,
-          INPUT_KINDS,
-          '分析输入类型',
-        ),
-        goal: text(row, 'goal'),
-        scenarios: parseStringList(text(row, 'scenarios')),
-        businessRules: parseStringList(text(row, 'business_rules')),
-        exceptions: parseStringList(text(row, 'exceptions')),
-        nonGoals: parseStringList(text(row, 'non_goals')),
-        acceptanceCriteria: parseStringList(text(row, 'acceptance_criteria')),
-        clarifications: parseStringList(text(row, 'clarifications')),
-        model: text(row, 'model'),
-        promptVersion: text(row, 'prompt_version'),
-        transcriptPath: text(row, 'transcript_path'),
-        toolCalls: parseStringList(text(row, 'tool_calls')),
-        createdAt: text(row, 'created_at'),
-      }
-    })
+    return this.analysisStore.analyses(reqId)
   }
 
   latestAnalysis(reqId: string): RequirementAnalysis | null {
-    const all = this.analyses(reqId)
-    return all.at(-1) ?? null
+    return this.analyses(reqId).at(-1) ?? null
   }
 
-  /** 记录一次分析尝试；失败尝试同样保留模型、提示词版本、轨迹与工具调用。 */
   recordAnalysisAttempt(attempt: AnalysisAttempt): void {
-    this.db
-      .prepare(
-        `INSERT INTO requirement_analysis_attempts
-          (req_id, requirement_version, attempt, kind, outcome, detail, model, prompt_version,
-           transcript_path, tool_calls, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        attempt.reqId,
-        attempt.requirementVersion,
-        attempt.attempt,
-        attempt.kind,
-        attempt.outcome,
-        attempt.detail,
-        attempt.model,
-        attempt.promptVersion,
-        attempt.transcriptPath,
-        JSON.stringify(attempt.toolCalls),
-        attempt.createdAt,
-      )
+    this.analysisStore.recordAttempt(attempt)
   }
 
   analysisAttempts(reqId: string, requirementVersion?: number): AnalysisAttempt[] {
-    const rows =
-      requirementVersion === undefined
-        ? this.db
-            .prepare(
-              'SELECT * FROM requirement_analysis_attempts WHERE req_id = ? ORDER BY requirement_version, attempt',
-            )
-            .all(reqId)
-        : this.db
-            .prepare(
-              'SELECT * FROM requirement_analysis_attempts WHERE req_id = ? AND requirement_version = ? ORDER BY attempt',
-            )
-            .all(reqId, requirementVersion)
-    return rows.map((row) => ({
-      reqId: text(row, 'req_id'),
-      requirementVersion: num(row, 'requirement_version'),
-      attempt: num(row, 'attempt'),
-      kind: oneOf(text(row, 'kind'), ANALYSIS_KINDS, '分析尝试 kind'),
-      outcome: oneOf(text(row, 'outcome'), ANALYSIS_OUTCOMES, '分析尝试 outcome'),
-      detail: text(row, 'detail'),
-      model: text(row, 'model'),
-      promptVersion: text(row, 'prompt_version'),
-      transcriptPath: text(row, 'transcript_path'),
-      toolCalls: parseStringList(text(row, 'tool_calls')),
-      createdAt: text(row, 'created_at'),
+    return this.analysisStore.attempts(reqId, requirementVersion)
+  }
+
+  // ---------------------------------------------------------------- 澄清问答
+
+  clarificationQuestions(reqId: string): ClarificationQuestion[] {
+    return this.clarificationStore.clarificationQuestions(reqId)
+  }
+
+  /**
+   * 当前仍未解决的澄清问题。历史库没有旁置问题行时，回退到最新分析里的
+   * clarifications（编号按该分析版本生成），保证旧记录仍可回答，不补造回答。
+   */
+  openClarifications(reqId: string): ClarificationQuestion[] {
+    const recorded = this.clarificationStore.clarificationQuestions(reqId)
+    if (recorded.length > 0) {
+      return recorded.filter((question) => question.status === 'open')
+    }
+    const latest = this.latestAnalysis(reqId)
+    if (!latest) return []
+    return latest.clarifications.map((question, index) => ({
+      reqId,
+      analysisVersion: latest.analysisVersion,
+      questionIndex: index + 1,
+      questionId: clarificationQuestionId(latest.analysisVersion, index),
+      text: question,
+      status: 'open' as const,
+      resolution: '',
+      resolvedAnalysisVersion: null,
+      resolvedRequirementVersion: null,
+      createdAt: latest.createdAt,
     }))
+  }
+
+  recordClarificationAnswer(answer: Parameters<ClarificationStore['recordAnswer']>[0]): void {
+    this.clarificationStore.recordAnswer(answer)
+  }
+
+  clarificationAnswers(reqId: string): ReturnType<ClarificationStore['answers']> {
+    return this.clarificationStore.answers(reqId)
   }
 
   // ---------------------------------------------------------------- 任务包
@@ -825,45 +752,38 @@ export class Repository extends DevSessionStore {
     }
   }
 
+  readonly verifications = new VerificationStore(this.db)
+
   recordVerification(verification: VerificationRecord): void {
-    this.db
-      .prepare(
-        `INSERT INTO requirement_verifications
-          (req_id, plan_version, candidate_sha256, requirement_version, workspace_sha256,
-           verdict, report_json, report_path, report_sha256, evidence_dir, session_id, verified_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(req_id, plan_version, candidate_sha256) DO UPDATE SET
-           requirement_version = excluded.requirement_version,
-           workspace_sha256 = excluded.workspace_sha256, verdict = excluded.verdict,
-           report_json = excluded.report_json, report_path = excluded.report_path,
-           report_sha256 = excluded.report_sha256, evidence_dir = excluded.evidence_dir,
-           session_id = excluded.session_id, verified_at = excluded.verified_at`,
-      )
-      .run(
-        verification.requirementId,
-        verification.planVersion,
-        verification.candidateSha256,
-        verification.requirementVersion,
-        verification.workspaceSha256,
-        verification.verdict,
-        verification.reportJson,
-        verification.reportPath,
-        verification.reportSha256,
-        verification.evidenceDir,
-        verification.sessionId,
-        verification.verifiedAt,
-      )
+    this.verifications.record(verification)
+  }
+
+  nextVerificationAttempt(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): { attemptNumber: number; previousAttemptId: string } {
+    return this.verifications.nextAttempt(reqId, planVersion, candidateSha256)
+  }
+
+  verificationAttemptsForCandidate(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): VerificationAttemptRecord[] {
+    return this.verifications.attemptsForCandidate(reqId, planVersion, candidateSha256)
+  }
+
+  verificationAttempts(reqId: string): VerificationAttemptRecord[] {
+    return this.verifications.attempts(reqId)
+  }
+
+  verificationAttempt(attemptId: string): VerificationAttemptRecord | null {
+    return this.verifications.attempt(attemptId)
   }
 
   verification(reqId: string, planVersion: number): VerificationRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM requirement_verifications
-         WHERE req_id = ? AND plan_version = ?
-         ORDER BY verified_at DESC LIMIT 1`,
-      )
-      .get(reqId, planVersion)
-    return row ? verificationRow(row) : null
+    return this.verifications.latest(reqId, planVersion)
   }
 
   verificationForCandidate(
@@ -871,25 +791,12 @@ export class Repository extends DevSessionStore {
     planVersion: number,
     candidateSha256: string,
   ): VerificationRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM requirement_verifications
-         WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?`,
-      )
-      .get(reqId, planVersion, candidateSha256)
-    return row ? verificationRow(row) : null
+    return this.verifications.forCandidate(reqId, planVersion, candidateSha256)
   }
 
   /** 一个需求按时间累积的全部独立验证结果；用于问题单与重试历史反查。 */
   verificationsFor(reqId: string): VerificationRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM requirement_verifications
-         WHERE req_id = ?
-         ORDER BY verified_at, candidate_sha256`,
-      )
-      .all(reqId)
-    return rows.map(verificationRow)
+    return this.verifications.allFor(reqId)
   }
 
   recordBusinessReview(review: BusinessReviewRecord): void {
@@ -1981,6 +1888,7 @@ function planToPayload(plan: TaskPlan): unknown {
         max_failure_rounds: task.limits.maxFailureRounds,
       },
       authorization_source: task.authorizationSource,
+      ...(task.covers === undefined ? {} : { covers: task.covers }),
       ...(task.verification === true ? { verification: true } : {}),
     })),
   }
@@ -2024,6 +1932,7 @@ function planFromPayload(
           maxFailureRounds: Number(limits.max_failure_rounds ?? -1),
         },
         authorizationSource: textValue(task.authorization_source),
+        ...(Array.isArray(task.covers) ? { covers: stringArray(task.covers) } : {}),
         ...(task.verification === true ? { verification: true } : {}),
       }
     }),

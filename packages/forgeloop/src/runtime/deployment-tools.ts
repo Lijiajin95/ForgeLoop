@@ -24,6 +24,7 @@ export interface DeploymentToolPlan {
   readonly previous: {
     readonly sha256: string
     readonly path: string
+    readonly version: string
     readonly restorePoint: string
   } | null
   readonly params: Readonly<Record<string, string>>
@@ -64,6 +65,18 @@ export function deploymentToolEnv(tool: DeploymentToolConfig): Record<string, st
 
 export function deploymentToolDigest(path: string): { sha256: string; size: number } {
   return { sha256: sha256OfBytes(readFileSync(path)), size: statSync(path).size }
+}
+
+/**
+ * 实际制品文件摘要：apply 前复核磁盘上的制品与 intent 记录一致，
+ * 避免等待批准期间制品被换掉后仍按旧记录部署。读不到时返回空串，由调用方拒绝部署。
+ */
+export function artifactFileDigest(path: string): string {
+  try {
+    return sha256OfBytes(readFileSync(path))
+  } catch {
+    return ''
+  }
 }
 
 /**

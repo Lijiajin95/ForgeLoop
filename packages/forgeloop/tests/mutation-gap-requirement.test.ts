@@ -120,7 +120,11 @@ describe('analysis draft parsing', () => {
       exceptions: [],
       nonGoals: [],
       acceptanceCriteria: ['标准'],
+      businessPoints: [],
+      acceptanceItems: [],
+      assumptions: [],
       clarifications: [],
+      clarificationUpdates: [],
       businessContext: { changed: false, document: '' },
     })
     expect(

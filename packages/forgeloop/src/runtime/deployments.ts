@@ -26,6 +26,7 @@ import {
 import type { DeploymentAttemptRecord, DeploymentIntentRecord } from '../domain/deployment.js'
 import type { DeploymentStore } from '../records/deployment-store.js'
 import {
+  artifactFileDigest,
   runDeploymentTool,
   syncDeploymentToolScript,
   type DeploymentToolPlan,
@@ -109,9 +110,9 @@ export class Deployments {
     }
     const tool = config.deployments.tools.find((item) => item.id === target.toolId)
     if (!tool) return fail('not_found', `部署目标引用了未登记工具：${target.toolId}`)
-
+    const busy = this.targetBusy(target.id)
+    if (busy) return busy
     const intentId = `dep-${randomUUID()}`
-    const at = this.now()
     const intent: DeploymentIntentRecord = {
       intentId,
       project: config.project,
@@ -123,12 +124,11 @@ export class Deployments {
       source: input.source,
       approval: target.approval,
       state: 'draft',
-      createdAt: at,
-      updatedAt: at,
+      createdAt: this.now(),
+      updatedAt: this.now(),
     }
     this.deps.store.recordDeploymentIntent(intent)
-    const dir = this.evidenceDir(intentId)
-    mkdirSync(dir, { recursive: true })
+    const dir = this.evidenceFor(intentId)
 
     const gate = this.deps.gate(target, input.artifact, requirementId)
     if (!gate.ok) {
@@ -198,7 +198,10 @@ export class Deployments {
     }
     if (target.approval === 'auto') {
       this.transition(intent, 'ready')
-      return this.apply(intent, tool, input.artifact, { params: target.params, data: target.data })
+      return this.apply(intent, tool, input.artifact, {
+        params: target.params,
+        data: target.data,
+      })
     }
     this.transition(intent, 'awaiting_approval')
     return ok(`部署 ${intentId} 已通过预检，等待所有者批准`, {
@@ -296,7 +299,7 @@ export class Deployments {
       return fail('verify_failed', observed.message)
     }
     const result = observed.result
-    const message = verifyMismatch(result, intent)
+    const message = verifyMismatch(result, intent, this.appliedAt(intentId))
     if (message) {
       this.transition(intent, 'verify_failed')
       this.deps.store.recordDeploymentDecision({
@@ -459,30 +462,19 @@ export class Deployments {
       ? this.deps.config.deployments.tools.find((item) => item.id === target.toolId)
       : undefined
     if (!target || !tool) return fail('not_found', '部署目标或工具已不在配置中')
-
-    const restorePoint = this.restorePointOf(intent.intentId)
-    const data = target.data
     if (hasData(target) && !tool.capabilities.includes('data-rollback')) {
       return fail(
         'capability_missing',
         `目标声明了数据范围，但工具 ${tool.id} 没有 data-rollback 能力`,
       )
     }
-    if (hasData(target) && !restorePoint) {
-      const message = `部署 ${intentId} 没有可用的 restorePoint，拒绝回退`
-      this.transition(intent, 'rolling_back')
-      this.transition(intent, 'failed')
-      this.alertFailure(intent, message)
-      return fail('restore_point_missing', message)
-    }
 
+    const resolved = this.rollbackTarget(intent, hasData(target))
+    if ('code' in resolved) return resolved
+    const { previous, restorePoint } = resolved
     this.transition(intent, 'rolling_back')
     const artifact = this.artifactOf(intent)
-    const previous = {
-      sha256: intent.artifactSha256,
-      path: intent.artifactPath,
-      restorePoint,
-    }
+    const data = target.data
     if (hasData(target)) {
       const dataRollback = await this.runOperation({
         intent,
@@ -528,12 +520,81 @@ export class Deployments {
       this.alertFailure(intent, message)
       return fail('rollback_verify_failed', message)
     }
+    // 工具退出 0 不代表已回到旧制品：必须按上一已验证制品核对实际状态。
+    const mismatch = rollbackMismatch(observed.result, previous)
+    if (mismatch) {
+      this.transition(intent, 'failed')
+      this.alertFailure(intent, `回退后实际状态与上一已验证制品不一致：${mismatch}`)
+      return fail('rollback_verify_failed', `回退后实际状态不符：${mismatch}`)
+    }
     this.transition(intent, 'rolled_back')
     return ok(`部署 ${intentId} 已回退：${reason || '未说明原因'}`, {
       intentId,
       state: intent.state,
       restorePoint,
+      artifactSha256: previous.sha256,
+      artifactVersion: previous.version,
     })
+  }
+
+  /**
+   * 回退目标：上一已验证制品必须仍保留且摘要可验证；没有就拒绝回退。
+   * 声明了数据范围时还要求本次 preflight 给出 restorePoint。
+   */
+  private rollbackTarget(
+    intent: DeploymentIntentRecord,
+    requiresRestorePoint: boolean,
+  ):
+    | { previous: NonNullable<DeploymentToolPlan['previous']>; restorePoint: string }
+    | DeploymentOutcome {
+    const previousIntent = this.deps.store.previousVerifiedIntent(
+      intent.targetId,
+      intent.createdAt,
+      intent.intentId,
+    )
+    if (!previousIntent) {
+      return fail(
+        'no_previous_artifact',
+        `部署 ${intent.intentId} 没有上一已验证制品；不能回退到未知状态`,
+      )
+    }
+    const retained = artifactFileDigest(previousIntent.artifactPath)
+    if (!retained) {
+      return fail(
+        'previous_artifact_missing',
+        `上一已验证制品文件不可读：${previousIntent.artifactPath}`,
+      )
+    }
+    if (retained !== previousIntent.artifactSha256) {
+      return fail(
+        'previous_artifact_changed',
+        `上一已验证制品摘要 ${retained.slice(0, 12)}… 与记录 ${previousIntent.artifactSha256.slice(0, 12)}… 不一致`,
+      )
+    }
+    const restorePoint = this.restorePointOf(intent.intentId)
+    if (requiresRestorePoint && !restorePoint) {
+      return fail(
+        'restore_point_missing',
+        `部署 ${intent.intentId} 没有可用的 restorePoint，拒绝回退`,
+      )
+    }
+    return {
+      previous: {
+        sha256: previousIntent.artifactSha256,
+        path: previousIntent.artifactPath,
+        version: previousIntent.artifactVersion,
+        restorePoint,
+      },
+      restorePoint,
+    }
+  }
+
+  /** 本次安装实际开始时间；用于判断运行进程是否在安装之后才启动。 */
+  private appliedAt(intentId: string): string {
+    const attempt = this.deps.store
+      .deploymentAttempts(intentId)
+      .find((item) => item.op === 'apply' && item.state === 'ready')
+    return attempt?.startedAt ?? ''
   }
 
   private restorePointOf(intentId: string): string {
@@ -554,6 +615,56 @@ export class Deployments {
     return ''
   }
 
+  /** 同一目标同一时刻只允许一个未收口的 intent：部署、核对与回退不能互相踩踏。 */
+  private targetBusy(targetId: string): DeploymentOutcome | null {
+    const active = this.deps.store.activeDeploymentIntentForTarget(targetId)
+    if (!active) return null
+    return fail(
+      'target_busy',
+      `部署目标 ${targetId} 有进行中的部署 ${active.intentId}（${active.state}），先完成或收口后再发起`,
+    )
+  }
+
+  /**
+   * apply 前的确定性复核：返回空串才允许继续。
+   * - 门禁按当前记录重新判定（需求版本、停止、验证、终审、提交、验收绑定）；
+   * - 同一目标不能有另一个进行中的 intent；
+   * - 磁盘上的制品摘要必须与 intent 记录一致（等待批准期间可能被换包）。
+   */
+  private revalidateBeforeApply(
+    intent: DeploymentIntentRecord,
+    target: DeploymentTargetConfig,
+    artifact: DeploymentArtifact,
+  ): string {
+    const gate = this.deps.gate(target, artifact, intent.requirementId)
+    if (!gate.ok) return `部署前复核未通过：${gate.reason}`
+    const active = this.deps.store.activeDeploymentIntentForTarget(target.id, intent.intentId)
+    if (active) {
+      return `部署目标 ${target.id} 有进行中的部署 ${active.intentId}（${active.state}），本次部署不再执行`
+    }
+    const digest = artifactFileDigest(artifact.path)
+    if (!digest) return `制品文件不可读：${artifact.path}`
+    if (digest !== intent.artifactSha256) {
+      return `制品文件摘要 ${digest.slice(0, 12)}… 与记录 ${intent.artifactSha256.slice(0, 12)}… 不一致，拒绝部署换包后的制品`
+    }
+    return ''
+  }
+
+  private decision(
+    intent: DeploymentIntentRecord,
+    decision: string,
+    by: string,
+    detail: string,
+  ): void {
+    this.deps.store.recordDeploymentDecision({
+      intentId: intent.intentId,
+      decision,
+      by,
+      at: this.now(),
+      detail,
+    })
+  }
+
   private async apply(
     intent: DeploymentIntentRecord,
     tool: DeploymentToolConfig,
@@ -563,6 +674,16 @@ export class Deployments {
       readonly data: { readonly volumes: readonly string[]; readonly migrations: readonly string[] }
     },
   ): Promise<DeploymentOutcome> {
+    const target = this.deps.config.deployments.targets.find((item) => item.id === intent.targetId)
+    // apply 前复核：门禁、目标互斥与磁盘制品摘要都必须在调用工具前重新成立。
+    const blocked = target
+      ? this.revalidateBeforeApply(intent, target, artifact)
+      : '部署目标已不在配置中'
+    if (blocked) {
+      this.transition(intent, 'preflight_failed')
+      this.decision(intent, 'gate_failed', 'system:deployment-gate', blocked)
+      return fail('preflight_failed', blocked)
+    }
     this.transition(intent, 'applying')
     const result = await this.runOperation({
       intent,
@@ -608,6 +729,8 @@ export class Deployments {
     mkdirSync(dir, { recursive: true })
     const planPath = join(dir, `${op}.json`)
     writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
+    // 真实开始/结束时间进入 attempt 证据，不用同一次 now() 顶替。
+    const startedAt = this.now()
     let run: DeploymentToolRun
     try {
       run = await this.runTool(tool, op, planPath)
@@ -622,6 +745,7 @@ export class Deployments {
         detail: message,
         toolSha256: script.sha256,
         evidencePath: dir,
+        startedAt,
       })
       return { ok: false, message, result: emptyResult() }
     }
@@ -641,6 +765,7 @@ export class Deployments {
         detail: message,
         toolSha256: run.sha256,
         evidencePath: dir,
+        startedAt,
       })
       return { ok: false, message, result: emptyResult() }
     }
@@ -655,6 +780,7 @@ export class Deployments {
         detail: message,
         toolSha256: run.sha256,
         evidencePath: dir,
+        startedAt,
       })
       return { ok: false, message, result: emptyResult() }
     }
@@ -672,6 +798,7 @@ export class Deployments {
         detail: message,
         toolSha256: run.sha256,
         evidencePath: dir,
+        startedAt,
       })
       return { ok: false, message, result: emptyResult() }
     }
@@ -685,6 +812,7 @@ export class Deployments {
       detail: parsed.detail,
       toolSha256: run.sha256,
       evidencePath: dir,
+      startedAt,
     })
     return {
       ok: parsed.ok,
@@ -729,9 +857,10 @@ export class Deployments {
     detail: string
     toolSha256: string
     evidencePath: string
+    startedAt?: string
   }): void {
     const { intent, op, state, exitCode, resultJson, detail, toolSha256, evidencePath } = input
-    const at = this.now()
+    const finishedAt = this.now()
     this.deps.store.recordDeploymentAttempt({
       intentId: intent.intentId,
       op,
@@ -741,8 +870,8 @@ export class Deployments {
       detail,
       toolSha256,
       evidencePath,
-      startedAt: at,
-      finishedAt: at,
+      startedAt: input.startedAt ?? finishedAt,
+      finishedAt,
     })
   }
 
@@ -762,6 +891,13 @@ export class Deployments {
   private evidenceDir(intentId: string): string {
     return join(projectDir(this.deps.config), 'deployments', intentId)
   }
+
+  /** 证据目录必须在第一次调用工具前存在；runOperation 也可能先于 request 被恢复路径调用。 */
+  private evidenceFor(intentId: string): string {
+    const dir = this.evidenceDir(intentId)
+    mkdirSync(dir, { recursive: true })
+    return dir
+  }
 }
 
 function hasData(target: {
@@ -773,6 +909,7 @@ function hasData(target: {
 function verifyMismatch(
   result: DeploymentToolResult,
   intent: { readonly artifactVersion: string; readonly artifactSha256: string },
+  appliedAt = '',
 ): string {
   if (result.version !== intent.artifactVersion) {
     return `实际运行版本 ${result.version || '未知'} 与制品 ${intent.artifactVersion} 不一致`
@@ -786,6 +923,37 @@ function verifyMismatch(
   }
   if (result.runningArtifactSha256 !== intent.artifactSha256) {
     return '运行中制品摘要与本次部署制品不一致（进程可能仍运行旧内容）'
+  }
+  if (result.runningPid <= 0) return '工具未提供有效运行进程 pid'
+  // 同版本新包的常见失败是“装好了但进程没重载”：运行进程必须晚于本次安装才开始。
+  if (!result.runningStartedAt) return '工具未提供运行进程启动时间，无法确认进程已加载本次制品'
+  const started = Date.parse(result.runningStartedAt)
+  if (!Number.isFinite(started)) return '工具提供的运行进程启动时间不可解析'
+  const applied = appliedAt ? Date.parse(appliedAt) : Number.NaN
+  if (Number.isFinite(applied) && started < applied - 5_000) {
+    return '运行进程启动时间早于本次安装，进程可能仍运行旧内容'
+  }
+  return ''
+}
+
+/**
+ * 回退后的实际状态必须回到上一已验证制品：版本、安装摘要与运行摘要都要匹配。
+ * 只检查工具 ok/退出码会把“没有真正回退”记成成功。
+ */
+function rollbackMismatch(
+  result: DeploymentToolResult,
+  previous: { readonly version: string; readonly sha256: string },
+): string {
+  if (result.version !== previous.version) {
+    return `实际运行版本 ${result.version || '未知'}，期望上一已验证版本 ${previous.version}`
+  }
+  if (!result.artifactSha256) return '工具未提供已安装制品摘要，无法确认回退结果'
+  if (result.artifactSha256 !== previous.sha256) {
+    return `已安装制品摘要不是上一已验证制品 ${previous.sha256.slice(0, 12)}…`
+  }
+  if (!result.runningArtifactSha256) return '工具未提供运行中制品摘要，无法确认回退后的运行内容'
+  if (result.runningArtifactSha256 !== previous.sha256) {
+    return `运行中制品摘要不是上一已验证制品 ${previous.sha256.slice(0, 12)}…`
   }
   if (result.runningPid <= 0) return '工具未提供有效运行进程 pid'
   return ''

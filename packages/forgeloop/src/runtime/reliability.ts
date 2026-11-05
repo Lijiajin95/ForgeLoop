@@ -32,6 +32,7 @@ import {
   type ReliabilityCoverage,
   type ReliabilityGate,
   type ReliabilityMutation,
+  type ReliabilityRate,
   type ReliabilitySnapshot,
   type ReliabilityTests,
   type ReliabilityWindow,
@@ -106,6 +107,19 @@ export interface ReliabilityRuntimeView {
   readonly ops: ReliabilityOpsView
   readonly candidateBuilds: number
   readonly deploymentFailures: readonly { readonly checkId: string; readonly count: number }[]
+  /**
+   * 新部署通道（deployment_intents）的完成情况，与上面的 legacy 上线核对分开统计，
+   * 两套记录不合并分母，避免漏计或重复计数。
+   */
+  readonly deploymentIntents: {
+    readonly verified: number
+    readonly failed: number
+    readonly rolledBack: number
+    readonly pending: number
+    readonly total: number
+    readonly rate: ReliabilityRate
+    readonly byState: Record<string, number>
+  }
   readonly trend: readonly {
     readonly weekStart: string
     readonly verificationPass: number
@@ -199,6 +213,7 @@ export class ReliabilityDashboard {
     const firstPassVerification = firstPassVerificationRate(verifications, range.from, range.to)
     const businessReview = reviewRate(reviews, range.from, range.to)
     const deployment = deploymentRate(deployments, range.from, range.to)
+    const deploymentIntents = this.deploymentIntentSummary(range.from, range.to)
     const ops = opsRecoverySummary(opsEvents, range.from, range.to)
     const snapshot = this.snapshotView(now)
     const runtime: ReliabilityRuntimeView = {
@@ -212,6 +227,7 @@ export class ReliabilityDashboard {
       candidateBuilds: builds.filter((fact) => withinWindow(fact.builtAt, range.from, range.to))
         .length,
       deploymentFailures: deploymentFailures(deployments, range.from, range.to),
+      deploymentIntents,
       trend: weeklyReliability({
         verifications,
         failureRounds: rounds,
@@ -371,6 +387,37 @@ export class ReliabilityDashboard {
       suppressions: snapshot.suppressions,
       error: '',
       warnings: staleness.reasons,
+    }
+  }
+
+  /** 部署通道统计：只把已收口的 intent 计入分母，进行中的单独报 pending。 */
+  private deploymentIntentSummary(
+    from: Date | null,
+    to: Date,
+  ): ReliabilityRuntimeView['deploymentIntents'] {
+    const intents = this.repository.deploymentStore
+      .deploymentIntents(500)
+      .filter(
+        (intent) => intent.project === this.project && withinWindow(intent.createdAt, from, to),
+      )
+    const byState: Record<string, number> = {}
+    for (const intent of intents) byState[intent.state] = (byState[intent.state] ?? 0) + 1
+    const verified = intents.filter((intent) => intent.state === 'verified').length
+    const failed = intents.filter(
+      (intent) => intent.state === 'failed' || intent.state === 'verify_failed',
+    ).length
+    const rolledBack = intents.filter((intent) => intent.state === 'rolled_back').length
+    const pending = intents.filter(
+      (intent) => !['verified', 'failed', 'verify_failed', 'rolled_back'].includes(intent.state),
+    ).length
+    return {
+      verified,
+      failed,
+      rolledBack,
+      pending,
+      total: verified + failed + rolledBack,
+      rate: rateOf(verified, verified + failed + rolledBack),
+      byState,
     }
   }
 

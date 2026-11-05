@@ -184,6 +184,8 @@ window.__ModuleLoader__.load({
       'node.error.req': '需求 {reqId}',
       'node.clarification.title': '需求等待澄清',
       'node.clarification.questions': '需要回答',
+      'node.clarification.hint':
+        '直接回复即按澄清回答处理；本会话有多条待澄清时用“回答 <需求编号>：<回答>”指定对象。提交独立需求请写成“新需求：<内容>”。',
       'node.answer.title': '已提交澄清回答',
       'node.answer.version': '需求 v{version}',
       'tail.title': '本会话需求',
@@ -403,6 +405,8 @@ window.__ModuleLoader__.load({
       'node.error.req': 'Requirement {reqId}',
       'node.clarification.title': 'Requirement awaiting clarification',
       'node.clarification.questions': 'Questions to answer',
+      'node.clarification.hint':
+        'Reply directly to answer. With several pending items use "回答 <reqId>: <answer>"; start a separate requirement with "新需求: <text>".',
       'node.answer.title': 'Clarification answer submitted',
       'node.answer.version': 'Requirement v{version}',
       'tail.title': 'Requirements in this session',
@@ -507,6 +511,40 @@ window.__ModuleLoader__.load({
       'detail.history': '查看版本历史（{count} 个旧版本）',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': '分析结果',
+      'detail.spec': '需求说明',
+      'detail.specScope': '范围与待决定事项',
+      'detail.specPoints': '业务要点与验收',
+      'detail.specAssumptions': '假设与依据',
+      'detail.specChanges': '本次澄清后的变化',
+      'detail.specHistory': '分析与澄清历史',
+      'detail.specFirst': '首次结构化说明。',
+      'detail.specNoChanges': '本次没有新增或修改的业务要点。',
+      'detail.specAdded': '新增',
+      'detail.specChanged': '修改',
+      'detail.specRemoved': '移除',
+      'detail.specResolved': '已解决澄清',
+      'detail.specOpen': '仍待澄清',
+      'detail.specNewQuestions': '新待澄清',
+      'detail.specAssumption': '假设',
+      'detail.specNeedsConfirm': '待确认',
+      'detail.specWorkingAssumption': '工作假设',
+      'detail.specPoint': '用户/角色',
+      'detail.specTrigger': '触发',
+      'detail.specBehavior': '预期行为',
+      'detail.specSource': '依据',
+      'detail.specExceptions': '异常与边界',
+      'detail.specAcceptance': '可观察验收',
+      'detail.answer': '回答',
+      'detail.specGiven': '前置条件',
+      'detail.specWhen': '操作',
+      'detail.specThen': '可观察结果',
+      'detail.specAnalysisRecord': '分析记录',
+      'spec.basis.user_requirement': '用户明确要求',
+      'spec.basis.project_convention': '项目约定',
+      'spec.basis.external_material': '外部资料',
+      'spec.exceptions.assessed': '已评估',
+      'spec.exceptions.not_applicable': '已评估且不适用',
+      'spec.exceptions.unanalyzed': '尚未分析',
       'detail.rules': '业务规则',
       'detail.exceptions': '异常与边界',
       'detail.nonGoals': '非目标',
@@ -816,6 +854,8 @@ window.__ModuleLoader__.load({
       'ops.monitor.degraded': '有问题',
       'ops.monitor.critical': '严重',
       'ops.monitor.error': '扫描失败',
+      'ops.monitor.incomplete': '采集不完整',
+      'ops.monitor.stale': '扫描已过期',
       'ops.monitor.cpu': 'CPU {value}%',
       'ops.monitor.memory': '内存 {value}%',
       'ops.monitor.load': '负载 {value}',
@@ -929,6 +969,9 @@ window.__ModuleLoader__.load({
       'reliability.runtime.mttrMissing': '—（无恢复样本）',
       'reliability.runtime.candidateBuilds': '候选构建数',
       'reliability.runtime.deploymentFailures': '上线失败检查项',
+      'reliability.runtime.deploymentIntents': '部署通道（intent）',
+      'reliability.runtime.deploymentIntentsNote':
+        '已核对 {verified} · 失败 {failed} · 回退 {rolledBack} · 进行中 {pending}',
       'reliability.runtime.noDeploymentFailures': '窗口内没有失败的上线检查。',
       'reliability.runtime.noSamples': '当前窗口没有交付可靠性记录。',
       'reliability.runtime.ratesNote': '率按记录计；首轮验证按需求计。',
@@ -1024,6 +1067,40 @@ window.__ModuleLoader__.load({
       'detail.history': 'Version history ({count} older versions)',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': 'Analysis',
+      'detail.spec': 'Requirement specification',
+      'detail.specScope': 'Scope and decisions needed',
+      'detail.specPoints': 'Business points and acceptance',
+      'detail.specAssumptions': 'Assumptions and basis',
+      'detail.specChanges': 'Changes after this clarification',
+      'detail.specHistory': 'Analysis and clarification history',
+      'detail.specFirst': 'First structured specification.',
+      'detail.specNoChanges': 'No business point was added or changed in this round.',
+      'detail.specAdded': 'Added',
+      'detail.specChanged': 'Changed',
+      'detail.specRemoved': 'Removed',
+      'detail.specResolved': 'Resolved clarifications',
+      'detail.specOpen': 'Still open',
+      'detail.specNewQuestions': 'New clarifications',
+      'detail.specAssumption': 'Assumption',
+      'detail.specNeedsConfirm': 'Needs confirmation',
+      'detail.specWorkingAssumption': 'Working assumption',
+      'detail.specPoint': 'Actor',
+      'detail.specTrigger': 'Trigger',
+      'detail.specBehavior': 'Expected behavior',
+      'detail.specSource': 'Basis',
+      'detail.specExceptions': 'Exceptions and boundaries',
+      'detail.specAcceptance': 'Observable acceptance',
+      'detail.answer': 'Answer',
+      'detail.specGiven': 'Given',
+      'detail.specWhen': 'When',
+      'detail.specThen': 'Then',
+      'detail.specAnalysisRecord': 'Analysis records',
+      'spec.basis.user_requirement': 'Explicit user requirement',
+      'spec.basis.project_convention': 'Project convention',
+      'spec.basis.external_material': 'External material',
+      'spec.exceptions.assessed': 'Assessed',
+      'spec.exceptions.not_applicable': 'Assessed, not applicable',
+      'spec.exceptions.unanalyzed': 'Not analyzed',
       'detail.rules': 'Business rules',
       'detail.exceptions': 'Exceptions and boundaries',
       'detail.nonGoals': 'Non-goals',
@@ -1354,6 +1431,8 @@ window.__ModuleLoader__.load({
       'ops.monitor.degraded': 'Degraded',
       'ops.monitor.critical': 'Critical',
       'ops.monitor.error': 'Scan failed',
+      'ops.monitor.incomplete': 'Collection incomplete',
+      'ops.monitor.stale': 'Scan stale',
       'ops.monitor.cpu': 'CPU {value}%',
       'ops.monitor.memory': 'Memory {value}%',
       'ops.monitor.load': 'Load {value}',
@@ -1469,6 +1548,9 @@ window.__ModuleLoader__.load({
       'reliability.runtime.mttrMissing': '— (no recovery samples)',
       'reliability.runtime.candidateBuilds': 'Candidate builds',
       'reliability.runtime.deploymentFailures': 'Failed deployment checks',
+      'reliability.runtime.deploymentIntents': 'Deployment channel (intents)',
+      'reliability.runtime.deploymentIntentsNote':
+        'Verified {verified} · failed {failed} · rolled back {rolledBack} · pending {pending}',
       'reliability.runtime.noDeploymentFailures': 'No failed deployment checks in this window.',
       'reliability.runtime.noSamples': 'No delivery reliability records in this window.',
       'reliability.runtime.ratesNote':
@@ -1483,7 +1565,8 @@ window.__ModuleLoader__.load({
       'reliability.trend.deploymentsVerified': 'Deployments verified',
       'reliability.trend.deploymentsFailed': 'Deployments failed',
       'reliability.trend.table': 'Expand data table',
-      'reliability.trend.noSamples': 'No verification, failure-round, or deployment records in 8 weeks.',
+      'reliability.trend.noSamples':
+        'No verification, failure-round, or deployment records in 8 weeks.',
       'reliability.events.title': 'Recent reliability events',
       'reliability.events.empty': 'No blocking or failed events in this window.',
       'reliability.events.open': 'Open requirement {reqId}',
@@ -1718,6 +1801,7 @@ window.__ModuleLoader__.load({
             : null,
         ),
         listItems(t, t('node.clarification.questions'), data.questions, 'questions'),
+        h('div', { className: 'flb-muted' }, t('node.clarification.hint')),
       )
     }
 
@@ -2503,8 +2587,7 @@ window.__ModuleLoader__.load({
                 'span',
                 null,
                 t(
-                  requirement.remainingRounds === null ||
-                    requirement.remainingRounds === undefined
+                  requirement.remainingRounds === null || requirement.remainingRounds === undefined
                     ? 'requirement.failureRoundsUnlimited'
                     : 'requirement.failureRounds',
                   {
@@ -2569,6 +2652,173 @@ window.__ModuleLoader__.load({
           : null,
         open ? h(RequirementDetail, props) : null,
       )
+    }
+
+    function changeList(t, label, ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return null
+      return h('div', { key: label }, h('span', { className: 'flb-label' }, `${label}：`), ids.join('、'))
+    }
+
+    function specChangeView(t, changes, hasHistory) {
+      if (!changes) return null
+      const rows = [
+        changeList(t, t('detail.specAdded'), changes.addedPoints),
+        changeList(t, t('detail.specChanged'), changes.changedPoints),
+        changeList(t, t('detail.specRemoved'), changes.removedPoints),
+        changeList(t, t('detail.specResolved'), changes.resolvedClarifications),
+        changeList(t, t('detail.specOpen'), changes.remainingClarifications),
+        changeList(t, t('detail.specNewQuestions'), changes.newClarifications),
+      ].filter(Boolean)
+      if (rows.length === 0) {
+        return hasHistory ? h('div', { className: 'flb-muted' }, t('detail.specNoChanges')) : null
+      }
+      return h('div', { className: 'flb-subsection', key: 'changes' }, ...rows)
+    }
+
+    function clarificationHistoryView(t, history) {
+      const questions = history && Array.isArray(history.questions) ? history.questions : []
+      const answers = history && Array.isArray(history.answers) ? history.answers : []
+      if (questions.length === 0) return null
+      const answerFor = (question) =>
+        answers.find(
+          (answer) =>
+            Array.isArray(answer.questionIds) && answer.questionIds.includes(question.questionId),
+        )
+      return h(
+        'details',
+        { className: 'flb-details', key: 'clarification-history' },
+        h('summary', null, t('detail.specHistory')),
+        ...questions.map((question) => {
+          const answer = answerFor(question)
+          return h(
+            'div',
+            { className: 'flb-version', key: question.questionId },
+            h(
+              'div',
+              { className: 'flb-card-meta' },
+              `${question.questionId} · ${question.status === 'resolved' ? t('detail.specResolved') : t('detail.specOpen')}`,
+            ),
+            h('div', null, question.text),
+            answer ? h('div', { className: 'flb-muted' }, `${t('detail.answer')}：${answer.answer}`) : null,
+            question.status === 'resolved' && question.resolution
+              ? h('div', { className: 'flb-muted' }, question.resolution)
+              : null,
+          )
+        }),
+      )
+    }
+
+    function pointView(t, point, acceptance) {
+      const items = acceptance.filter(
+        (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
+      )
+      const exceptionText =
+        point.exceptions && point.exceptions.status === 'assessed'
+          ? arrayOf(point.exceptions.items).join('；') || '—'
+          : point.exceptions
+            ? `${t(`spec.exceptions.${point.exceptions.status}`)}：${point.exceptions.reason || '—'}`
+            : '—'
+      return h(
+        'div',
+        { className: 'flb-subsection', key: point.id },
+        h(
+          'div',
+          { className: 'flb-label' },
+          `${point.id} · ${t(`spec.basis.${point.basis}`)}`,
+        ),
+        h('div', { className: 'flb-muted' }, `${t('detail.specSource')}：${point.source}`),
+        h('div', null, `${t('detail.specPoint')}：${point.actor}`),
+        h('div', null, `${t('detail.specTrigger')}：${point.trigger}`),
+        h('div', null, `${t('detail.specBehavior')}：${point.behavior}`),
+        arrayOf(point.rules).length > 0
+          ? h('div', null, `${t('detail.rules')}：${arrayOf(point.rules).join('；')}`)
+          : null,
+        h('div', null, `${t('detail.specExceptions')}：${exceptionText}`),
+        h(
+          'div',
+          { className: 'flb-muted' },
+          ...items.map((item) =>
+            h(
+              'div',
+              { key: item.id },
+              `${item.id}：${t('detail.specGiven')} ${item.given}；${t('detail.specWhen')} ${item.when}；${t('detail.specThen')} ${item.then}`,
+            ),
+          ),
+        ),
+      )
+    }
+
+    function requirementSpecSection(t, data, analysis) {
+      const points = analysis && Array.isArray(analysis.businessPoints) ? analysis.businessPoints : []
+      if (points.length === 0) return null
+      const acceptance = Array.isArray(analysis.acceptanceItems) ? analysis.acceptanceItems : []
+      const assumptions = Array.isArray(analysis.assumptions) ? analysis.assumptions : []
+      const history = Array.isArray(data.analysisHistory) ? data.analysisHistory : []
+      const children = [
+        h(Kv, { key: 'goal', label: t('detail.goal') }, analysis.goal),
+        h('div', { className: 'flb-label', key: 'scope-label' }, t('detail.specScope')),
+        h(
+          'div',
+          { key: 'scope' },
+          analysis.nonGoals && analysis.nonGoals.length > 0
+            ? `${t('detail.nonGoals')}：${analysis.nonGoals.join('；')}`
+            : '—',
+        ),
+        analysis.clarifications && analysis.clarifications.length > 0
+          ? h(
+              'div',
+              { className: 'flb-block-warn', key: 'open' },
+              h('div', { className: 'flb-label' }, t('detail.specOpen')),
+              h(BulletList, { items: analysis.clarifications }),
+            )
+          : null,
+        h('div', { className: 'flb-label', key: 'points-label' }, t('detail.specPoints')),
+        ...points.map((point) => pointView(t, point, acceptance)),
+        assumptions.length > 0
+          ? h(
+              'div',
+              { className: 'flb-subsection', key: 'assumptions' },
+              h('div', { className: 'flb-label' }, t('detail.specAssumptions')),
+              ...assumptions.map((item) =>
+                h(
+                  'div',
+                  { key: item.id },
+                  `${item.id} · ${item.basis} · ${item.statement} · ${item.impact} · ${item.needsConfirmation ? t('detail.specNeedsConfirm') : t('detail.specWorkingAssumption')}`,
+                ),
+              ),
+            )
+          : null,
+        h('div', { className: 'flb-label', key: 'changes-label' }, t('detail.specChanges')),
+        specChangeView(t, data.specChanges, history.length > 1),
+        clarificationHistoryView(t, data.clarificationHistory),
+        history.length > 1
+          ? h(
+              'details',
+              { className: 'flb-details', key: 'analysis-history' },
+              h('summary', null, `${t('detail.specHistory')}（${history.length}）`),
+              ...history.map((item) =>
+                h(
+                  'div',
+                  { className: 'flb-version', key: item.analysisVersion },
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `v${item.analysisVersion} · ${t('detail.specAnalysisRecord')} · ${formatMoment(item.createdAt)}`,
+                  ),
+                  h('div', null, item.goal),
+                  Array.isArray(item.businessPoints)
+                    ? h('div', { className: 'flb-muted' }, item.businessPoints.map((point) => point.id).join('、'))
+                    : null,
+                ),
+              ),
+            )
+          : null,
+      ].filter(Boolean)
+      return Section({ title: t('detail.spec'), children })
+    }
+
+    function arrayOf(value) {
+      return Array.isArray(value) ? value : []
     }
 
     function RequirementDetail(props) {
@@ -2661,9 +2911,14 @@ window.__ModuleLoader__.load({
         }),
       )
 
+      const specSection = requirementSpecSection(t, data, analysis)
+      if (specSection) sections.push(specSection)
+
       sections.push(
         Section({
-          title: t('detail.analysis'),
+          title: analysis && Array.isArray(analysis.businessPoints) && analysis.businessPoints.length > 0
+            ? t('detail.specAnalysisRecord')
+            : t('detail.analysis'),
           children: analysis
             ? [
                 h(
@@ -7126,6 +7381,12 @@ window.__ModuleLoader__.load({
         const deploymentFailures = Array.isArray(runtime.deploymentFailures)
           ? runtime.deploymentFailures
           : []
+        const deploymentIntents = runtime.deploymentIntents || {
+          verified: 0,
+          failed: 0,
+          rolledBack: 0,
+          pending: 0,
+        }
         const trend = Array.isArray(runtime.trend) ? runtime.trend : []
         const rates = [verification, firstPass, businessReview, deployment]
         const hasSamples = rates.some((rate) => (rate.total || 0) > 0)
@@ -7716,6 +7977,25 @@ window.__ModuleLoader__.load({
                 ),
                 h('div', { className: 'flb-rel-big' }, String(runtime.candidateBuilds || 0)),
                 h('div', { className: 'flb-rel-rate-note' }, windowText),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'flb-rel-block', style: { marginTop: '10px' } },
+              h(
+                'div',
+                { className: 'flb-rel-block-title' },
+                t('reliability.runtime.deploymentIntents'),
+              ),
+              h(
+                'div',
+                { className: 'flb-rel-rate-note' },
+                t('reliability.runtime.deploymentIntentsNote', {
+                  verified: deploymentIntents.verified || 0,
+                  failed: deploymentIntents.failed || 0,
+                  rolledBack: deploymentIntents.rolledBack || 0,
+                  pending: deploymentIntents.pending || 0,
+                }),
               ),
             ),
             h(

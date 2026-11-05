@@ -112,6 +112,31 @@ export function messageText(message: UserMessageLike): string {
   return textOfContent(message.content)
 }
 
+/** 显式路由：新需求、指定需求的澄清回答，或按当前待澄清状态自动判断。 */
+export type IntakeDirective =
+  | { readonly kind: 'new'; readonly text: string }
+  | { readonly kind: 'answer'; readonly reqId: string; readonly text: string }
+  | { readonly kind: 'auto'; readonly text: string }
+
+const NEW_REQUIREMENT_PREFIX = /^\s*(?:新需求|新问题|新缺陷)\s*[：:]\s*/i
+const ANSWER_TARGET_PREFIX = /^\s*(?:回答|答复|澄清)\s*(req-[A-Za-z0-9-]+)\s*[：:]\s*/i
+
+/**
+ * 只按用户写明的入口判断消息归属，不让模型猜“这是回答还是新需求”。
+ * 没有前缀时保持兼容：会话只有一个待澄清需求就按回答处理，否则由调用方报错。
+ */
+export function parseIntakeDirective(text: string): IntakeDirective {
+  const answer = ANSWER_TARGET_PREFIX.exec(text)
+  if (answer) {
+    return { kind: 'answer', reqId: answer[1] ?? '', text: text.slice(answer[0].length).trim() }
+  }
+  const next = NEW_REQUIREMENT_PREFIX.exec(text)
+  if (next) {
+    return { kind: 'new', text: text.slice(next[0].length).trim() }
+  }
+  return { kind: 'auto', text }
+}
+
 /** 业务会话的确定性输入接管器；不依赖浏览器，也不依赖命令表面。 */
 export class SessionIntake {
   private readonly runtime: ForgeLoopRuntime
@@ -183,41 +208,139 @@ export class SessionIntake {
       this.appendError(session, `forgeloop:error:${dedupeKey}`, {
         reqId: '',
         message: '输入没有可受理的文本内容',
-        at: at,
-      })
-      return
-    }
-
-    const pending = this.runtime.pendingClarifications(sessionId)
-    if (pending.length > 1) {
-      this.appendError(session, `forgeloop:error:${dedupeKey}`, {
-        reqId: '',
-        message: `本会话有 ${pending.length} 条需求等待澄清；请先只保留一个待回答需求或明确指定需求身份`,
-        at: at,
-      })
-      return
-    }
-    if (pending.length === 1) {
-      await this.answerOne({
-        session,
-        sessionId,
-        messageId,
-        text,
-        turn: input.turn,
-        signal: input.signal,
-        reqId: pending[0]?.reqId ?? '',
         at,
       })
       return
     }
+
+    const directive = parseIntakeDirective(text)
+    const pending = this.runtime.pendingClarifications(sessionId)
+    const target = { session, sessionId, messageId, turn: input.turn, signal: input.signal, at }
+    if (directive.kind === 'new') {
+      await this.submitNewDirective({ ...target, text: directive.text, dedupeKey })
+      return
+    }
+    if (directive.kind === 'answer') {
+      await this.answerDirective({ ...target, directive, pending, dedupeKey })
+      return
+    }
+    if (pending.length > 1) {
+      this.appendError(session, `forgeloop:error:${dedupeKey}`, {
+        reqId: '',
+        message: `本会话有 ${pending.length} 条需求等待澄清；请用“回答 <需求编号>：<回答>”指定对象，或写成“新需求：<内容>”提交独立需求。待回答：${pending
+          .map((item) => item.reqId)
+          .join('、')}`,
+        at,
+      })
+      return
+    }
+    const only = pending[0]
+    if (only) {
+      await this.answerToTarget({ ...target, text, reqId: only.reqId, pending: only })
+      return
+    }
+    await this.submitOne({ ...target, text })
+  }
+
+  /** 明确标记的新需求入口：即使会话里有待澄清需求也单独受理，不并入回答。 */
+  private async submitNewDirective(input: {
+    session: SessionViewLike | undefined
+    sessionId: string
+    messageId: string
+    turn: number
+    signal?: AbortSignal | undefined
+    at: string
+    text: string
+    dedupeKey: string
+  }): Promise<void> {
+    if (!input.text) {
+      this.appendError(input.session, `forgeloop:error:${input.dedupeKey}`, {
+        reqId: '',
+        message: '新需求入口后没有内容；请写成“新需求：<内容>”',
+        at: input.at,
+      })
+      return
+    }
     await this.submitOne({
-      session,
-      sessionId,
-      messageId,
-      text,
+      session: input.session,
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      text: input.text,
       turn: input.turn,
       signal: input.signal,
-      at,
+      at: input.at,
+    })
+  }
+
+  /** 明确的回答对象：只能回答本会话待澄清列表里的需求，找不到就报错，不猜测。 */
+  private async answerDirective(input: {
+    session: SessionViewLike | undefined
+    sessionId: string
+    messageId: string
+    turn: number
+    signal?: AbortSignal | undefined
+    at: string
+    dedupeKey: string
+    directive: Extract<IntakeDirective, { kind: 'answer' }>
+    pending: Awaited<ReturnType<ForgeLoopRuntime['pendingClarifications']>>
+  }): Promise<void> {
+    const target = input.pending.find((item) => item.reqId === input.directive.reqId)
+    if (!target) {
+      this.appendError(input.session, `forgeloop:error:${input.dedupeKey}`, {
+        reqId: input.directive.reqId,
+        message:
+          input.pending.length === 0
+            ? `需求 ${input.directive.reqId} 当前没有待澄清项；如需提交新需求，请写成“新需求：<内容>”`
+            : `需求 ${input.directive.reqId} 不在本会话待澄清列表中；当前待回答需求：${input.pending
+                .map((item) => item.reqId)
+                .join('、')}`,
+        at: input.at,
+      })
+      return
+    }
+    if (!input.directive.text) {
+      this.appendError(input.session, `forgeloop:error:${input.dedupeKey}`, {
+        reqId: target.reqId,
+        message: '澄清回答入口后没有内容；请写成“回答 <需求编号>：<回答>”',
+        at: input.at,
+      })
+      return
+    }
+    await this.answerToTarget({
+      session: input.session,
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      turn: input.turn,
+      signal: input.signal,
+      at: input.at,
+      text: input.directive.text,
+      reqId: target.reqId,
+      pending: target,
+    })
+  }
+
+  private async answerToTarget(input: {
+    session: SessionViewLike | undefined
+    sessionId: string
+    messageId: string
+    turn: number
+    signal?: AbortSignal | undefined
+    at: string
+    text: string
+    reqId: string
+    pending: { questionIds: readonly string[]; questions: readonly string[] }
+  }): Promise<void> {
+    await this.answerOne({
+      session: input.session,
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      text: input.text,
+      turn: input.turn,
+      signal: input.signal,
+      reqId: input.reqId,
+      questionIds: input.pending.questionIds,
+      questions: input.pending.questions,
+      at: input.at,
     })
   }
 
@@ -314,6 +437,8 @@ export class SessionIntake {
     turn: number
     signal?: AbortSignal | undefined
     reqId: string
+    questionIds: readonly string[]
+    questions: readonly string[]
     at: string
   }): Promise<void> {
     const { session, sessionId, messageId, text, at, reqId } = input
@@ -348,6 +473,8 @@ export class SessionIntake {
       reqId,
       requirementVersion: outcome.requirementVersion ?? 0,
       answer: text,
+      questionIds: input.questionIds,
+      questions: input.questions,
       at,
     }
     appendSessionEvent(session, FORGELOOP_ANSWER_EVENT, answer, this.log)
@@ -372,12 +499,15 @@ export class SessionIntake {
     at: string,
   ): void {
     if (analysis.clarifications.length === 0) return
+    const open = this.runtime.openClarifications(reqId)
     const data: ClarificationEventData = {
       eventId: `forgeloop:clarification:${reqId}:v${analysis.analysisVersion}`,
       reqId,
       requirementVersion: analysis.requirementVersion,
       analysisVersion: analysis.analysisVersion,
       questions: analysis.clarifications,
+      questionIds: open.map((question) => question.questionId),
+      hint: `直接回复按澄清回答处理；如需提交独立需求，请写成“新需求：<内容>”。本会话有多条待澄清时，用“回答 ${reqId}：<回答>”指定对象。`,
       at,
     }
     appendSessionEvent(session, FORGELOOP_CLARIFICATION_EVENT, data, this.log)

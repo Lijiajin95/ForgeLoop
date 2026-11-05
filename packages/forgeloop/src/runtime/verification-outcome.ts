@@ -9,12 +9,21 @@ export function verificationVerdict(input: {
   coverageIssues: readonly string[]
   evidenceIssues: readonly string[]
   integrityIssues: readonly string[]
+  controlIssues?: readonly string[]
 }): { verdict: 'pass' | 'block'; blocking: string[] } {
-  const { report, failedCommands, coverageIssues, evidenceIssues, integrityIssues } = input
+  const {
+    report,
+    failedCommands,
+    coverageIssues,
+    evidenceIssues,
+    integrityIssues,
+    controlIssues = [],
+  } = input
   const anyScenarioFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
   const blocking = [
     ...report.blocking,
     ...integrityIssues,
+    ...controlIssues,
     ...evidenceIssues,
     ...(anyScenarioFailed ? ['报告存在未通过的验证场景'] : []),
     ...failedCommands.map((failure) => `验证命令失败：${failure}`),
@@ -26,6 +35,7 @@ export function verificationVerdict(input: {
     coverageIssues.length === 0 &&
     evidenceIssues.length === 0 &&
     integrityIssues.length === 0 &&
+    controlIssues.length === 0 &&
     !anyScenarioFailed
   return { verdict: pass ? 'pass' : 'block', blocking }
 }

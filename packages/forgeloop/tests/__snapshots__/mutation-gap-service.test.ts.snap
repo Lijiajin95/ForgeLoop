@@ -32,6 +32,7 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "activeRequests": 0,
     "admission": null,
     "analysis": null,
+    "analysisHistory": [],
     "approval": null,
     "archivedDeliveries": [],
     "artifacts": [],
@@ -39,6 +40,10 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "businessReview": null,
     "candidate": null,
     "candidateBuild": null,
+    "clarificationHistory": {
+      "answers": [],
+      "questions": [],
+    },
     "commit": null,
     "createdAt": "TIME",
     "delivered": [],
@@ -69,6 +74,19 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "reqId": "req-fixed",
     "runs": [],
     "source": "test",
+    "specChanges": {
+      "addedAcceptance": [],
+      "addedAssumptions": [],
+      "addedPoints": [],
+      "changedAcceptance": [],
+      "changedAssumptions": [],
+      "changedPoints": [],
+      "newClarifications": [],
+      "remainingClarifications": [],
+      "removedAcceptance": [],
+      "removedPoints": [],
+      "resolvedClarifications": [],
+    },
     "status": "draft",
     "stopRequested": false,
     "submittedBy": "owner",
@@ -207,12 +225,22 @@ exports[`runtime empty-state payloads > keeps status, reliability, ops, requests
       "enabled": false,
       "intervalSeconds": 300,
       "monitor": {
+        "collection": {
+          "complete": true,
+          "errors": [],
+        },
         "enabled": false,
         "error": "",
+        "freshness": {
+          "ageSeconds": null,
+          "stale": false,
+        },
         "heartbeat": {
+          "ageSeconds": null,
           "at": "",
           "configured": false,
           "ok": false,
+          "stale": false,
         },
         "host": {
           "cpuPercent": 0,
@@ -280,6 +308,19 @@ exports[`runtime empty-state payloads > keeps status, reliability, ops, requests
       "total": 0,
     },
     "deploymentFailures": [],
+    "deploymentIntents": {
+      "byState": {},
+      "failed": 0,
+      "pending": 0,
+      "rate": {
+        "pass": 0,
+        "rate": null,
+        "total": 0,
+      },
+      "rolledBack": 0,
+      "total": 0,
+      "verified": 0,
+    },
     "failureRounds": {
       "byStage": {
         "business_review": 0,
