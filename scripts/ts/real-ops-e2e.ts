@@ -72,10 +72,10 @@ async function main(): Promise<void> {
   writeFileSync(
     serverScript,
     [
-      "import { appendFileSync, writeFileSync } from 'node:fs'",
-      'writeFileSync(process.env.M1_OPS_PID, String(process.pid))',
-      'appendFileSync(process.env.M1_OPS_LOG, `started ${process.pid} ${new Date().toISOString()}\\n`)',
-      'setInterval(() => {}, 1000)',
+      "import { appendFileSync } from 'node:fs'",
+      'appendFileSync(process.env.M1_OPS_LOG, `starting ${new Date().toISOString()}\\n`)',
+      'await import(process.env.M1_OPS_ENTRY)',
+      '',
     ].join('\n'),
   )
   writeFileSync(
@@ -85,7 +85,8 @@ async function main(): Promise<void> {
       'let pid = 0',
       'try { pid = Number(readFileSync(process.env.M1_OPS_PID, "utf8")) } catch {}',
       'if (!pid) { console.log("missing pid"); process.exit(1) }',
-      'try { process.kill(pid, 0); console.log(`alive ${pid}`); process.exit(0) } catch { console.log(`dead ${pid}`); process.exit(1) }',
+      'try { process.kill(pid, 0) } catch { console.log(`dead ${pid}`); process.exit(1) }',
+      "fetch('http://127.0.0.1:' + process.env.M1_OPS_PORT + '/health').then(async (response) => { console.log('health ' + response.status); process.exit(response.status === 200 ? 0 : 1) }).catch((error) => { console.log('health error ' + error.message); process.exit(1) })",
     ].join('\n'),
   )
   writeFileSync(
@@ -167,12 +168,84 @@ async function main(): Promise<void> {
   }
   execFileSync('git', ['init', '-q'], { cwd: project })
   writeFileSync(join(project, 'README.md'), '# real ops e2e\n')
+  // 真实小工程：服务需要心跳文件刷新，否则看门狗判定失联后退出（缺陷就在这里）。
+  mkdirSync(join(project, 'src'), { recursive: true })
+  mkdirSync(join(project, 'test'), { recursive: true })
+  mkdirSync(join(project, 'scripts'), { recursive: true })
+  writeFileSync(
+    join(project, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'real-ops-service',
+        private: true,
+        version: '1.0.0',
+        scripts: { test: 'node --test', check: 'node --test' },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  writeFileSync(
+    join(project, 'src', 'service.mjs'),
+    [
+      "import { createServer } from 'node:http'",
+      "import { writeFileSync } from 'node:fs'",
+      '',
+      'const pidFile = process.env.M1_OPS_PID',
+      'const port = Number(process.env.M1_OPS_PORT || 0)',
+      'writeFileSync(pidFile, String(process.pid))',
+      '// 心跳：每 500ms 刷新心跳文件；看门狗超过 3s 没有新心跳就退出。',
+      'setInterval(() => {',
+      '  writeFileSync(process.env.M1_OPS_HEARTBEAT, String(Date.now()))',
+      '}, 500)',
+      'const server = createServer((request, response) => {',
+      "  if (request.url === '/health') {",
+      "    response.writeHead(200, { 'content-type': 'text/plain' })",
+      "    response.end('ok')",
+      '    return',
+      '  }',
+      '  response.writeHead(404)',
+      '  response.end()',
+      '})',
+      "server.listen(port, '127.0.0.1', () => {",
+      "  process.stdout.write('listening ' + String(server.address().port) + '\\n')",
+      '})',
+      '// 真实缺陷：5 秒后未处理异常退出，重启不能解决，必须改代码。',
+      "setTimeout(() => { throw new Error('liveness watchdog expired') }, 5000)",
+      '',
+    ].join('\n'),
+  )
+  writeFileSync(
+    join(project, 'test', 'service.test.mjs'),
+    [
+      "import { test } from 'node:test'",
+      "import assert from 'node:assert/strict'",
+      '',
+      "test('service 模块可以加载', async () => {",
+      "  const module = await import('../src/service.mjs')",
+      "  assert.equal(typeof module, 'object')",
+      '})',
+      '',
+    ].join('\n'),
+  )
+  writeFileSync(
+    join(project, 'scripts', 'package.mjs'),
+    [
+      "import { createHash } from 'node:crypto'",
+      "import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'",
+      "mkdirSync('dist', { recursive: true })",
+      "const sha = createHash('sha256').update(readFileSync('src/service.mjs')).digest('hex')",
+      "writeFileSync('dist/artifact.json', JSON.stringify({ sha256: sha, tarball: process.cwd() + '/src/service.mjs', version: '1.0.0', files: ['src/service.mjs'], gitHead: '' }))",
+      '',
+    ].join('\n'),
+  )
   git(['config', 'user.email', 'real-ops-e2e@example.com'])
   git(['config', 'user.name', 'Real Ops E2E'])
   git(['add', '-A'])
   git(['commit', '-qm', 'baseline'])
 
   const port = await freePort()
+  const servicePort = await freePort()
   const configPath = join(root, 'config.json')
   writeFileSync(
     configPath,
@@ -219,6 +292,9 @@ async function main(): Promise<void> {
           requireOwner: false,
         },
         formalTestTimeoutSeconds: 120,
+        candidateBuildCommand: ['node', '-e', 'process.exit(0)'],
+        candidatePackageCommand: ['node', 'scripts/package.mjs'],
+        candidateArtifactPath: 'dist/artifact.json',
         failureRoundsPerGrant: 5,
         maxVerificationAttempts: 3,
         maxTaskAttempts: 3,
@@ -260,6 +336,9 @@ async function main(): Promise<void> {
     M1_OPS_PID: pidFile,
     M1_OPS_SERVER: serverScript,
     M1_OPS_LOG: serverLog,
+    M1_OPS_ENTRY: join(project, 'src', 'service.mjs'),
+    M1_OPS_PORT: String(servicePort),
+    M1_OPS_HEARTBEAT: join(opsDir, 'heartbeat'),
   }
   // 基线：启动真实目标进程。
   execFileSync('node', [restartScript], { env })
