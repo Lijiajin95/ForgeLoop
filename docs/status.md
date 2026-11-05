@@ -5203,3 +5203,46 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
 - 部署协调器的工作台页面、证据入口、保留期压缩未实现；验证/终审仍非 OS 隔离。
 - 需求修订/删除、多问题待澄清无公开入口；已批准任务包修改只有端点显式许可。
 - M0-5 的费用/token 口径仍为未知；正式环境是否加载最新配置未核实。
+
+## 135. Windows 开发入口与脚本适配（2026-11-05）
+
+§132.4 登记的三类 Windows 障碍（无 GNU make、contracts 路径分隔符、测试 POSIX 假设）在本批处理。
+
+### 135.1 入口与脚本
+
+- 新增根目录 `make.cmd` 与 `scripts/ts/make-windows.ts`：目标与 Makefile 同名，参数用
+  `KEY=VALUE` 传入（`MUTATION=1`、`SHARD=...`、`BRANCH=...`），`help` 列出目标、未知目标非零退出；
+  Makefile 仍是 CI/POSIX 权威入口。
+- 新增 `scripts/ts/platform.ts`：npm 优先用 Node 同目录 `npm-cli.js`；`.cmd` 经
+  `cmd.exe /d /s /c` 启动并对每个参数做 Windows 引号转义；`terminate()` 按进程树结束子进程。
+- 脚本修复：`contracts.ts` 把 `relative()` 的 `\` 归一化为 `/`；`mutation-shard.ts` 用统一启动方式
+  找到 `stryker.cmd`；`reliability-report.ts` 在 Windows 走 `make-windows.ts`；
+  `e2e.ts`、`e2e-board.ts`、`verify-plugin.ts`、`verify-e2e.ts` 的 `npm`/`dsh` 启动与 web
+  子进程结束都改用平台适配。`real-model-e2e.ts` 在 main 已有 `FORGELOOP_DSH_CLI` 与
+  `npm.cmd`/shell 处理，本批未重复修改。
+
+### 135.2 源码与测试适配
+
+- `src/index.ts`：先校验宿主 `tools`/`effect` 服务，再打开记录库；缺服务时不再留下未关闭的
+  SQLite 句柄（Windows 下会让临时目录清理报 EPERM）。
+- `src/cli/pack.ts`：Windows 用 Node 同目录 `npm-cli.js` 执行 `npm pack`。
+- `src/runtime/log-tail.ts`：拒绝非普通文件；把目录登记为日志时返回明确错误，而不是静默空日志
+  （Windows 对目录 open/fstat 成功、读出来为空）。
+- 测试：ESLint 走 Node 入口而非 `.bin` shim；POSIX 路径断言改为 `resolve`/`join`；
+  `npm pack` mock 兼容 npm-cli 形式；`sh -c` 的准备/检查命令改为 `node -e`；fault-injection
+  在 Windows 断言非零退出码而不是 SIGKILL；快照按实际临时目录替换并统一 `/`；
+  ops 证据路径用分隔符正则；continuous-flow 循环内先关闭上一个 runtime；
+  requirement-gate 全链路用例放宽到 120 秒（真实 git 与子进程，满载时会超过 20 秒默认值）。
+
+### 135.3 验证
+
+- `make.cmd check-static`：通过（typecheck、ESLint、contracts、token 预算、断言预算、可靠性注册表）。
+- `make.cmd test`：**131 个文件、1482 通过、1 跳过**（monitor 的宿主 `ps` 用例，与平台无关地
+  按可用性跳过），本机耗时约 185 秒。
+- `prettier --check`：通过。
+- `reliability-report --fast`（Windows）：门禁 7/8；补上 `pack.ts` 的 npm-cli 回退用例后，
+  覆盖率仍报 `advance-pipeline.ts` 分支 84.93%（阈值 85），其余行覆盖 97.85% 通过。
+  该项不属于 `make check` 门槛，作为平台残留记录；本批未调阈值。
+- 未执行：`verify-plugin`、`verify-e2e`、`real-model-e2e`、`m0-loop-e2e`（需要已安装 DSH／模型凭据）、
+  `mutation-shard`（慢，未在本批重跑）。CI 仍只在 Linux 跑测试；Windows 自托管 runner 是否接入
+  全量测试需所有者决定。

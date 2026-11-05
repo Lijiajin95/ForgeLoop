@@ -46,3 +46,15 @@ make hooks      # 等价于 git config core.hooksPath .githooks
 - 不做完整测试、覆盖率与变异测试（这些在 `make check` 与 CI 中）；
 - hook 只影响本机克隆，`core.hooksPath` 不随仓库分发；
 - 紧急绕过需显式 `git commit --no-verify`，不应成为常态。
+
+## Windows
+
+- Windows 默认没有 GNU make：在仓库根用 `make.cmd <target>`，目标与 Makefile 同名、命令等价，
+  例如 `make.cmd check`、`make.cmd check-static`、`make.cmd test`、
+  `make.cmd mutation-shard SHARD=runtime-ops-1`。
+- 目标参数按 `KEY=VALUE` 传入（`MUTATION=1`、`SHARD=...`、`BRANCH=...`）；`make.cmd help` 列出全部目标，
+  未知目标非零退出。
+- 脚本经 `scripts/ts/platform.ts` 启动 `npm.cmd` / `dsh.cmd`（Windows 不能直接执行 .cmd），
+  并按进程树结束子进程；测试改用 `process.execPath`、`tmpdir()` 与 `node -e`，不依赖 `/tmp`、`sh` 或
+  POSIX 信号。
+- Makefile 仍是 CI/POSIX 的权威入口；`make.cmd` 只是 Windows 入口，改动目标时两边同步。
