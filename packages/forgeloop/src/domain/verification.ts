@@ -442,8 +442,22 @@ export function validateExceptionMarkers(
       )
     }
   }
+  // 异常断言必须在临时目录自建输入：依赖候选仓库当前状态会在独立验证里失败，
+  // 也会让“缺失/失败”分支变成与环境耦合的猜测。
+  const markers = new Set(exceptions.flatMap((item) => exceptionMarkers(item)))
+  for (const scenario of plan.scenarios) {
+    for (const check of scenario.checks) {
+      if (check.expectedOutput === '') continue
+      if (![...markers].some((marker) => check.expectedOutput.includes(marker))) continue
+      if (TEMPDIR_TOKENS.test(check.argv.join(' '))) continue
+      issues.push(`验证方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：${check.label}`)
+    }
+  }
   return issues
 }
+
+/** 自建临时输入的写法；命中其一即视为自包含。 */
+const TEMPDIR_TOKENS = /mkdtemp|mkdtempSync|mktemp|tempfile|TemporaryDirectory|tmpdir\s*\(/i
 
 /** 取“输出/打印/提示”后紧跟的 ASCII 标记，或反引号/引号里的标记。 */
 function exceptionMarkers(text: string): string[] {

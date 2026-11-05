@@ -1856,6 +1856,39 @@ describe('requirement-derived verification plan', () => {
     ).toEqual([])
   })
 
+  it('requires the exception assertion command to build its own temp input', () => {
+    const analysis = {
+      scenarios: [SCENARIO],
+      acceptanceCriteria: [CRITERION],
+      exceptions: ['文件缺失时测试命令必须退出非零并输出 missing。'],
+    }
+    const repoDependent = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf()
+        .replace('"expected_output":"verified ok"', '"expected_output":"missing"')
+        .replace(
+          "console.log('verified ok')",
+          "console.log(require('node:fs').existsSync('docs/x.md') ? 'missing' : 'ok')",
+        ),
+    )
+    expect(validateRequirementVerificationPlan(analysis, repoDependent).join('；')).toContain(
+      '必须自建临时输入',
+    )
+
+    const selfContained = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf()
+        .replace('"expected_output":"verified ok"', '"expected_output":"missing"')
+        .replace(
+          "console.log('verified ok')",
+          "const d=require('node:fs').mkdtempSync(require('node:os').tmpdir()+'/m-');console.log('missing')",
+        ),
+    )
+    expect(
+      validateRequirementVerificationPlan(analysis, selfContained).filter((issue) =>
+        issue.includes('自建临时输入'),
+      ),
+    ).toEqual([])
+  })
+
   it('refuses a plan that misses a business rule or an exception boundary', async () => {
     const { requirement, analysis } = requirementForVerificationPlan()
     const missingRule = makeVerificationAgent({
