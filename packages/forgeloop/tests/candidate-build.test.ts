@@ -14,6 +14,7 @@ import {
   structuredVerificationOf,
   structuredReviewOf,
 } from './spec-fixture.js'
+import { runFormalTest } from '../src/runtime/formal-test.js'
 
 /**
  * 可发布候选与上线核对：
@@ -213,6 +214,23 @@ function fakeRunner(): AgentLike {
         }),
       )
       writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+      mkdirSync(join(verification, 'controls'), { recursive: true })
+      writeFileSync(
+        join(verification, 'controls.json'),
+        JSON.stringify({
+          controls: [
+            {
+              label: 'smoke',
+              patch: 'verification/controls/fault.patch',
+              expected_failure_output: 'target rule broken',
+            },
+          ],
+        }),
+      )
+      writeFileSync(
+        join(verification, 'controls', 'fault.patch'),
+        'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+      )
       return result(request, VERIFICATION_REPORT)
     }
     if (request.role === 'verify' && request.prompt.includes('独立审查')) {
@@ -292,7 +310,17 @@ function makeRuntime(): ForgeLoopRuntime {
     },
     dir,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner: fakeRunner() })
+  const formalTest: typeof runFormalTest = async (request) => {
+    if (request.cwd.includes('/controls/')) {
+      const output = 'target rule broken: expected fixture, got broken'
+      const result = await runFormalTest(request)
+      mkdirSync(dirname(request.logPath), { recursive: true })
+      writeFileSync(request.logPath, output, 'utf8')
+      return { ...result, exitCode: 1, output, logSha256: sha256OfText(output) }
+    }
+    return runFormalTest(request)
+  }
+  return new ForgeLoopRuntime({ ctx: {}, config, runner: fakeRunner(), formalTest })
 }
 
 async function runQueued(action: 'analyze' | 'plan' | 'advance' | 'verify', reqId: string) {

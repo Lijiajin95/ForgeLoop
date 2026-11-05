@@ -128,6 +128,39 @@ export function verificationRow(row: Row): VerificationRecord {
   }
 }
 
+export function verificationAttemptRow(row: Row): VerificationAttemptRecord {
+  const blocking = (() => {
+    try {
+      const value: unknown = JSON.parse(text(row, 'blocking_json') || '[]')
+      return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string')
+        : []
+    } catch {
+      return []
+    }
+  })()
+  return {
+    requirementId: text(row, 'req_id'),
+    planVersion: num(row, 'plan_version'),
+    candidateSha256: text(row, 'candidate_sha256'),
+    requirementVersion: num(row, 'requirement_version'),
+    workspaceSha256: text(row, 'workspace_sha256'),
+    verdict: text(row, 'verdict') === 'pass' ? 'pass' : 'block',
+    reportJson: text(row, 'report_json'),
+    reportPath: text(row, 'report_path'),
+    reportSha256: text(row, 'report_sha256'),
+    evidenceDir: text(row, 'evidence_dir'),
+    sessionId: text(row, 'session_id'),
+    verifiedAt: text(row, 'verified_at'),
+    attemptId: text(row, 'attempt_id'),
+    attemptNumber: num(row, 'attempt_number'),
+    previousAttemptId: text(row, 'previous_attempt_id'),
+    failureKind: text(row, 'failure_kind'),
+    blocking,
+    reason: text(row, 'reason'),
+  }
+}
+
 export interface RequirementEvidence {
   readonly requirementId: string
   readonly planVersion: number
@@ -168,6 +201,22 @@ export interface VerificationRecord {
   readonly evidenceDir: string
   readonly sessionId: string
   readonly verifiedAt: string
+  /** 以下是追加保存的尝试身份；旧调用方可省略，由仓库按候选自动编号。 */
+  readonly attemptId?: string
+  readonly attemptNumber?: number
+  readonly previousAttemptId?: string
+  /** 失败分类；通过时为空。 */
+  readonly failureKind?: string
+  readonly blocking?: readonly string[]
+}
+
+export interface VerificationAttemptRecord extends VerificationRecord {
+  readonly attemptId: string
+  readonly attemptNumber: number
+  readonly previousAttemptId: string
+  readonly failureKind: string
+  readonly blocking: readonly string[]
+  readonly reason: string
 }
 
 export interface BusinessReviewRecord {

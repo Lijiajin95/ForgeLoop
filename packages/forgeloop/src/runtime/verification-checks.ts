@@ -22,6 +22,8 @@ import {
   workspaceChanges,
 } from './service-helpers.js'
 import { requireGit } from './workspace.js'
+import { executeVerificationControls } from './verification-controls.js'
+import type { VerificationControlSpec } from '../domain/verification-controls.js'
 
 export const VERIFICATION_CHECK_TOOL = 'forgeloop_run_verification_check'
 
@@ -214,6 +216,46 @@ export class VerificationCheckRegistry {
       context.runs.set(label, record)
       return this.outcome(record, context, false)
     }
+  }
+
+  /**
+   * 在隔离副本上执行敏感性对照；只读当前候选，正式工作区不被修改。
+   * 未登记上下文时返回 null，由调用方按证据不足阻断。
+   */
+  async executeControls(
+    reqId: string,
+    token: string,
+    commands: readonly { label: string; argv: readonly string[] }[],
+    controls: readonly VerificationControlSpec[],
+  ): Promise<Awaited<ReturnType<typeof executeVerificationControls>> | null> {
+    const context = this.contexts.get(reqId)
+    if (!context || context.token !== token) return null
+    return executeVerificationControls({
+      workspace: context.activation.workspace,
+      dir: context.activation.dir,
+      commands,
+      controls,
+      dependencyRoot: context.activation.workspace,
+      run: async ({ argv, cwd, logPath }) => {
+        const test = await this.deps.formalTest({
+          ctx: this.deps.ctx,
+          cwd,
+          argv,
+          timeoutMs: context.activation.timeoutMs,
+          logPath,
+          signal: context.activation.signal,
+        })
+        return {
+          exitCode: test.exitCode,
+          timedOut: test.timedOut,
+          aborted: test.aborted,
+          durationMs: test.durationMs,
+          output: test.output,
+          logPath: test.logPath,
+          logSha256: test.logSha256,
+        }
+      },
+    })
   }
 
   private headOf(context: ActiveContext): string | null {

@@ -843,14 +843,19 @@ diff --git a/x b/x
   ]
 }
 
-同时写两个文件（只能放在 verification/ 目录）：
+同时写三个文件（只能放在 verification/ 目录）：
 1. \`verification/commands.json\`：程序会重新执行的命令清单，至少一条：
    {"commands":[{"label":"唯一标签","argv":["可执行程序","参数"]}]}
 2. \`verification/report.json\`：上面的报告 JSON 原文。
+3. \`verification/controls.json\`：每个必过场景至少一条被引用命令的敏感性对照：
+   {"controls":[{"label":"对应的命令 label","patch":"verification/controls/<名称>.patch","expected_failure_output":"受控错误实现下必须出现的失败原文"}]}
+   补丁是统一 diff，必须修改 \`verification/\` 之外的业务实现文件，不得只改测试/标记脚本；
+   程序会把补丁应用到候选的隔离副本、重跑同一命令，要求它按目标业务规则失败。正式候选不被修改。
 
 规则：
 - 必过场景必须实际执行并以 pass 出现在 scenarios 中；evidence 必须能在所引用命令的输出里逐字核对，模型自述或无关命令退出 0 不算证据，程序会重跑命令并用退出码判定。
 - commands 只能引用 commands.json 里的 label；引用不存在的命令、无法核对的 evidence 都会判阻断。
+- 只打印固定文字、不调用业务入口、不检查返回值/持久状态的用例不能作为通过证据；必须让测试覆盖实际业务入口，并让受控错误实现能够使它失败。
 - 验证测试和辅助脚本只能放在 \`verification/\`；验证命令也不得修改候选源码、测试或配置，否则按候选被篡改阻断。
 - 若候选未满足需求，如实判 block 并给出可复现步骤、预期、实际结果与证据。
 - verdict=pass 时 blocking 必须为空；verdict=block 时至少给出一条 blocking。

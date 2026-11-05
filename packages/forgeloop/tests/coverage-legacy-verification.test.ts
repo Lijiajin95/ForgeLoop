@@ -96,6 +96,7 @@ function buildVerification(prepareCommand: readonly string[] = []): LegacyVerifi
   const repo = {
     recordVerification: (value: unknown) => recorded.push(value),
     recordFailureRound: (value: unknown) => failureRounds.push(value),
+    nextVerificationAttempt: () => ({ attemptNumber: 1, previousAttemptId: '' }),
   }
   return new LegacyVerification({
     config,
@@ -108,6 +109,25 @@ function buildVerification(prepareCommand: readonly string[] = []): LegacyVerifi
     checks: {
       activate: () => ({ token: 'token-1', release: () => undefined }),
       snapshot: () => snapshot,
+      executeControls: async () => ({
+        results: [
+          {
+            label: 'check-1',
+            patch: 'verification/controls/fault.patch',
+            controlDir: join(root, 'control'),
+            applied: true,
+            exitCode: 1,
+            timedOut: false,
+            aborted: false,
+            durationMs: 1,
+            output: 'target rule broken',
+            logPath: join(root, 'control.log'),
+            logSha256: 'sha',
+            issue: '',
+          },
+        ],
+        issues: [],
+      }),
     } as never,
   })
 }

@@ -99,7 +99,7 @@ const BUSINESS_REVIEW = structuredReviewOf({
 /** 需求说明派生的验证方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
 function verificationPlan(fail: boolean): string {
   const repaired =
-    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
+        "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)"
   return structuredVerificationOf({
     scenarios: [
       {

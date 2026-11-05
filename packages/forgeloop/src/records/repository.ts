@@ -24,10 +24,12 @@ import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 import { DeploymentStore } from './deployment-store.js'
 import { DeliveryStore } from './delivery-store.js'
 import { DevSessionStore } from './dev-session-store.js'
+import { VerificationStore } from './verification-store.js'
 import type {
   RequirementEvidence,
   PlanReviewRecord,
   VerificationRecord,
+  VerificationAttemptRecord,
   BusinessReviewRecord,
   ServiceRequestRecord,
   ActionRecord,
@@ -45,7 +47,6 @@ import {
   num,
   taskRunStateOf,
   text,
-  verificationRow,
   type Row,
 } from './rows.js'
 
@@ -53,6 +54,7 @@ export type {
   RequirementEvidence,
   PlanReviewRecord,
   VerificationRecord,
+  VerificationAttemptRecord,
   BusinessReviewRecord,
   ServiceRequestRecord,
   ActionRecord,
@@ -757,45 +759,38 @@ export class Repository extends DevSessionStore {
     }
   }
 
+  readonly verifications = new VerificationStore(this.db)
+
   recordVerification(verification: VerificationRecord): void {
-    this.db
-      .prepare(
-        `INSERT INTO requirement_verifications
-          (req_id, plan_version, candidate_sha256, requirement_version, workspace_sha256,
-           verdict, report_json, report_path, report_sha256, evidence_dir, session_id, verified_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(req_id, plan_version, candidate_sha256) DO UPDATE SET
-           requirement_version = excluded.requirement_version,
-           workspace_sha256 = excluded.workspace_sha256, verdict = excluded.verdict,
-           report_json = excluded.report_json, report_path = excluded.report_path,
-           report_sha256 = excluded.report_sha256, evidence_dir = excluded.evidence_dir,
-           session_id = excluded.session_id, verified_at = excluded.verified_at`,
-      )
-      .run(
-        verification.requirementId,
-        verification.planVersion,
-        verification.candidateSha256,
-        verification.requirementVersion,
-        verification.workspaceSha256,
-        verification.verdict,
-        verification.reportJson,
-        verification.reportPath,
-        verification.reportSha256,
-        verification.evidenceDir,
-        verification.sessionId,
-        verification.verifiedAt,
-      )
+    this.verifications.record(verification)
+  }
+
+  nextVerificationAttempt(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): { attemptNumber: number; previousAttemptId: string } {
+    return this.verifications.nextAttempt(reqId, planVersion, candidateSha256)
+  }
+
+  verificationAttemptsForCandidate(
+    reqId: string,
+    planVersion: number,
+    candidateSha256: string,
+  ): VerificationAttemptRecord[] {
+    return this.verifications.attemptsForCandidate(reqId, planVersion, candidateSha256)
+  }
+
+  verificationAttempts(reqId: string): VerificationAttemptRecord[] {
+    return this.verifications.attempts(reqId)
+  }
+
+  verificationAttempt(attemptId: string): VerificationAttemptRecord | null {
+    return this.verifications.attempt(attemptId)
   }
 
   verification(reqId: string, planVersion: number): VerificationRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM requirement_verifications
-         WHERE req_id = ? AND plan_version = ?
-         ORDER BY verified_at DESC LIMIT 1`,
-      )
-      .get(reqId, planVersion)
-    return row ? verificationRow(row) : null
+    return this.verifications.latest(reqId, planVersion)
   }
 
   verificationForCandidate(
@@ -803,25 +798,12 @@ export class Repository extends DevSessionStore {
     planVersion: number,
     candidateSha256: string,
   ): VerificationRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM requirement_verifications
-         WHERE req_id = ? AND plan_version = ? AND candidate_sha256 = ?`,
-      )
-      .get(reqId, planVersion, candidateSha256)
-    return row ? verificationRow(row) : null
+    return this.verifications.forCandidate(reqId, planVersion, candidateSha256)
   }
 
   /** 一个需求按时间累积的全部独立验证结果；用于问题单与重试历史反查。 */
   verificationsFor(reqId: string): VerificationRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM requirement_verifications
-         WHERE req_id = ?
-         ORDER BY verified_at, candidate_sha256`,
-      )
-      .all(reqId)
-    return rows.map(verificationRow)
+    return this.verifications.allFor(reqId)
   }
 
   recordBusinessReview(review: BusinessReviewRecord): void {

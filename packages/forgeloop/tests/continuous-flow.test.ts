@@ -110,7 +110,7 @@ const BUSINESS_REVIEW = structuredReviewOf({
 /** 需求说明派生的验证方案；同一个验证会话通过工具执行命令。 */
 function verificationPlan(fail = false, outside = false): string {
   const repaired =
-    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
+    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)"
   const argv = outside
     ? [
         'node',

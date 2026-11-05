@@ -14,6 +14,7 @@ import {
   structuredVerificationOf,
   structuredReviewOf,
 } from './spec-fixture.js'
+import { runFormalTest } from '../src/runtime/formal-test.js'
 
 let dir = ''
 let runtime: ForgeLoopRuntime
@@ -163,6 +164,23 @@ function fakeRunner(
           }),
         )
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+        mkdirSync(join(verification, 'controls'), { recursive: true })
+        writeFileSync(
+          join(verification, 'controls.json'),
+          JSON.stringify({
+            controls: [
+              {
+                label: 'smoke',
+                patch: 'verification/controls/fault.patch',
+                expected_failure_output: 'target rule broken',
+              },
+            ],
+          }),
+        )
+        writeFileSync(
+          join(verification, 'controls', 'fault.patch'),
+          'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+        )
         return result(request, VERIFICATION_REPORT)
       }
       if (request.role === 'verify' && request.prompt.includes('业务验收')) {
@@ -236,7 +254,24 @@ function makeRuntime(
     },
     dir,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner, ...(formalTest ? { formalTest } : {}) })
+  const selectedFormalTest: typeof runFormalTest =
+    formalTest ??
+    (async (request) => {
+      if (request.cwd.includes('/controls/')) {
+        const output = 'target rule broken: expected fixture, got broken'
+        const result = await runFormalTest(request)
+        mkdirSync(dirname(request.logPath), { recursive: true })
+        writeFileSync(request.logPath, output, 'utf8')
+        return {
+          ...result,
+          exitCode: 1,
+          output,
+          logSha256: sha256OfText(output),
+        }
+      }
+      return runFormalTest(request)
+    })
+  return new ForgeLoopRuntime({ ctx: {}, config, runner, formalTest: selectedFormalTest })
 }
 
 async function runQueued(run: 'analyze' | 'plan' | 'advance', reqId: string) {
@@ -359,15 +394,17 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
       },
     }
     runtime = makeRuntime(verificationRunner, async (request) => {
-      writeFileSync(request.logPath, `${VERIFY_OUTPUT}\nexit_code: 0\n`)
+      const control = request.cwd.includes('/controls/')
+      const output = control ? 'target rule broken' : VERIFY_OUTPUT
+      writeFileSync(request.logPath, `${output}\nexit_code: ${control ? 1 : 0}\n`)
       return {
-        exitCode: 0,
+        exitCode: control ? 1 : 0,
         timedOut: false,
         aborted: false,
         logPath: request.logPath,
         logSha256: sha256OfText(readFileSync(request.logPath, 'utf8')),
         durationMs: 1,
-        output: VERIFY_OUTPUT,
+        output,
       }
     })
     await runQueued('plan', reqId)
@@ -754,6 +791,19 @@ describe('task retry', () => {
       },
     })
     runtime = makeRuntime(runner, async (request) => {
+      if (request.cwd.includes('/controls/')) {
+        const output = 'target rule broken: expected fixture, got broken'
+        writeFileSync(request.logPath, output)
+        return {
+          exitCode: 1,
+          timedOut: false,
+          aborted: false,
+          logPath: request.logPath,
+          logSha256: sha256OfText(output),
+          durationMs: 1,
+          output,
+        }
+      }
       if (failing) {
         writeFileSync(
           request.logPath,
@@ -832,7 +882,7 @@ describe('task retry', () => {
       outcome.detail,
       new Date().toISOString(),
     )
-    expect(outcome.state).toBe('done')
+    expect(outcome.state, outcome.detail).toBe('done')
     expect(runtime.repo.taskArtifacts(reqId, 1).map((artifact) => artifact.taskId)).toEqual([
       'a',
       'b',
@@ -1400,13 +1450,32 @@ describe('execution scope, plan freeze and repair loop', () => {
                   argv: [
                     'node',
                     '-e',
-                    verifyCalls === 1 ? 'process.exit(1)' : "console.log('smoke ok: verified')",
+                    verifyCalls === 1
+                      ? "console.error('AssertionError: expected pause after 3 rounds, got 4'); process.exit(1)"
+                      : "console.log('smoke ok: verified')",
                   ],
                 },
               ],
             }),
           )
           writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+          mkdirSync(join(verification, 'controls'), { recursive: true })
+          writeFileSync(
+            join(verification, 'controls.json'),
+            JSON.stringify({
+              controls: [
+                {
+                  label: 'smoke',
+                  patch: 'verification/controls/fault.patch',
+                  expected_failure_output: 'target rule broken',
+                },
+              ],
+            }),
+          )
+          writeFileSync(
+            join(verification, 'controls', 'fault.patch'),
+            'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+          )
           return result(request, VERIFICATION_REPORT)
         }
         return base.run(request)

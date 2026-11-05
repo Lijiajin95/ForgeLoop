@@ -151,6 +151,29 @@ CREATE TABLE IF NOT EXISTS requirement_verifications (
     verified_at TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version, candidate_sha256)
 );
+-- 每次验证尝试独立追加；requirement_verifications 只是“当前有效结果”的投影，
+-- 不能反向覆盖历史。旧库没有本表时按新表建立，不迁移旧行。
+CREATE TABLE IF NOT EXISTS requirement_verification_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    previous_attempt_id TEXT NOT NULL DEFAULT '',
+    requirement_version INTEGER NOT NULL,
+    workspace_sha256 TEXT NOT NULL DEFAULT '',
+    verdict TEXT NOT NULL,
+    failure_kind TEXT NOT NULL DEFAULT '',
+    blocking_json TEXT NOT NULL DEFAULT '[]',
+    reason TEXT NOT NULL DEFAULT '',
+    report_json TEXT NOT NULL,
+    report_path TEXT NOT NULL,
+    report_sha256 TEXT NOT NULL,
+    evidence_dir TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    verified_at TEXT NOT NULL,
+    UNIQUE (req_id, plan_version, candidate_sha256, attempt_number)
+);
 CREATE TABLE IF NOT EXISTS requirement_task_runs (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,
