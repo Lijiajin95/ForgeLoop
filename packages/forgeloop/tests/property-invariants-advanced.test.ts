@@ -134,6 +134,7 @@ describe('advanced property invariants', () => {
           nonGoals: input.non_goals,
           acceptanceCriteria: input.acceptance_criteria,
           clarifications: [],
+          clarificationUpdates: [],
           businessContext: input.business_context,
         })
         // 问题类输入不得携带待澄清项；这是载荷边界，不是可放宽的提示。

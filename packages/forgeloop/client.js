@@ -184,6 +184,8 @@ window.__ModuleLoader__.load({
       'node.error.req': '需求 {reqId}',
       'node.clarification.title': '需求等待澄清',
       'node.clarification.questions': '需要回答',
+      'node.clarification.hint':
+        '直接回复即按澄清回答处理；本会话有多条待澄清时用“回答 <需求编号>：<回答>”指定对象。提交独立需求请写成“新需求：<内容>”。',
       'node.answer.title': '已提交澄清回答',
       'node.answer.version': '需求 v{version}',
       'tail.title': '本会话需求',
@@ -403,6 +405,8 @@ window.__ModuleLoader__.load({
       'node.error.req': 'Requirement {reqId}',
       'node.clarification.title': 'Requirement awaiting clarification',
       'node.clarification.questions': 'Questions to answer',
+      'node.clarification.hint':
+        'Reply directly to answer. With several pending items use "回答 <reqId>: <answer>"; start a separate requirement with "新需求: <text>".',
       'node.answer.title': 'Clarification answer submitted',
       'node.answer.version': 'Requirement v{version}',
       'tail.title': 'Requirements in this session',
@@ -1483,7 +1487,8 @@ window.__ModuleLoader__.load({
       'reliability.trend.deploymentsVerified': 'Deployments verified',
       'reliability.trend.deploymentsFailed': 'Deployments failed',
       'reliability.trend.table': 'Expand data table',
-      'reliability.trend.noSamples': 'No verification, failure-round, or deployment records in 8 weeks.',
+      'reliability.trend.noSamples':
+        'No verification, failure-round, or deployment records in 8 weeks.',
       'reliability.events.title': 'Recent reliability events',
       'reliability.events.empty': 'No blocking or failed events in this window.',
       'reliability.events.open': 'Open requirement {reqId}',
@@ -1718,6 +1723,7 @@ window.__ModuleLoader__.load({
             : null,
         ),
         listItems(t, t('node.clarification.questions'), data.questions, 'questions'),
+        h('div', { className: 'flb-muted' }, t('node.clarification.hint')),
       )
     }
 
@@ -2503,8 +2509,7 @@ window.__ModuleLoader__.load({
                 'span',
                 null,
                 t(
-                  requirement.remainingRounds === null ||
-                    requirement.remainingRounds === undefined
+                  requirement.remainingRounds === null || requirement.remainingRounds === undefined
                     ? 'requirement.failureRoundsUnlimited'
                     : 'requirement.failureRounds',
                   {

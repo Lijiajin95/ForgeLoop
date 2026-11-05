@@ -91,13 +91,17 @@ DSH 宿主（唯一常驻产品）
 4. 对每条人类消息：用 `sessionId + messageId` 作为幂等键提交需求（版本 1），追加
    `plugin:forgeloop/intake` 会话事件，然后调用运行时 `analyzeRequirement`，由产品 Agent 输出
    目标、业务场景、业务规则、异常与边界、非目标、验收标准与待澄清项；分析提示词同时携带
-   `docs/forgeloop/business-context.md` 的行业与业务背景，以及程序查询的当前项目活动需求与任务
+   `docs/forgeloop/business-context.md` 的行业与业务背景、程序查询的当前项目活动需求与任务
    （标题、状态、创建／更新时间、任务包版本与批准状态、任务状态与最近活动），已结束需求只给数量，
-   这些内容只是背景事实，不构成授权；成功追加 `plugin:forgeloop/analysis`，失败追加
+   以及结构化澄清问答（问题编号、原文、所有者回答、解决结论）；这些内容只是背景事实，
+   不构成授权；成功追加 `plugin:forgeloop/analysis`，失败追加
    `plugin:forgeloop/error`。有待澄清项时再追加 `plugin:forgeloop/clarification-request`。
-5. 同一会话存在待澄清需求时，下一条人类消息按澄清回答处理：追加需求版本并重新分析，
+5. 消息归属由确定性入口决定，不让模型猜：会话只有一个待澄清需求时，直接回复按澄清回答处理；
+   多条待澄清时必须写“回答 <需求编号>：<回答>”指定对象；任何需要独立受理的新输入写
+   “新需求：<内容>”，即使有需求待澄清也不会并入回答。回答追加需求版本并重新分析，
    追加 `plugin:forgeloop/clarification-answer`、`plugin:forgeloop/analysis`，必要时再次推送
-   `plugin:forgeloop/clarification-request`；不会新建第二条需求。
+   `plugin:forgeloop/clarification-request`。每个问题在首次提出的分析内有稳定编号
+   `Q<分析版本>-<序号>`；重新分析必须逐项处置旧问题，未解决项由程序保留，模型不能静默丢弃。
 6. 分析无待澄清项时，需求才入队；协调器在研发空闲时把分析全文（目标、业务场景、业务规则、
    异常与边界、非目标、验收标准）交给研发 Agent 做技术方案与任务拆解，追加
    `plugin:forgeloop/plan`；产品 Agent 只出分析结论，不拆研发任务。
@@ -118,8 +122,11 @@ DSH 宿主（唯一常驻产品）
 有就返回“未重复调用模型”，不再产生第二次模型调用；因此会话入口的同步分析、入队请求和
 协调器的推进都不会叠加成两次分析。每次真正执行的分析尝试写入 `requirement_analysis_attempts`：
 需求 ID、需求版本、attempt 序号、来源（`initial`/`auto`/`manual`）、结果、原因、模型、
-提示词版本（`analysis-v3`）、轨迹文件（`sessions/<reqId>-analyze-a<n>.jsonl`）与工具调用；
-成功结论另写 `requirement_analyses`，同样带这些元数据。失败不会覆盖历史结论，也不清零 attempt。
+提示词版本（`analysis-v4`）、轨迹文件（`sessions/<reqId>-v<需求版本>-analyze-a<n>.jsonl`）与工具调用；
+成功结论另写 `requirement_analyses`，同样带这些元数据。轨迹路径同时包含需求版本与 attempt，
+同一版本失败重试、不同版本首次分析都不会互相覆盖。澄清问题与回答分别写入
+`requirement_clarification_questions`、`requirement_clarification_answers`，问题状态与解决版本随分析结论
+同一事务更新；回答只追加，不覆盖历史。失败不会覆盖历史结论，也不清零 attempt。
 
 产品 Agent 以 `workspace-write` 权限运行，但工具面由 `domain/analysis.ts` 的白名单固定：
 `forgeloop_read_project_doc`、`forgeloop_write_project_doc`、`forgeloop_web_search`、
@@ -378,7 +385,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件运行日志固定写入
   `<recordsRoot>/projects/<project>/logs/plugin.log`（同时保留宿主 console 输出）。
-- 表：需求与版本、分析、分析尝试、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
+- 表：需求与版本、分析、分析尝试、澄清问题与回答、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立验证、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、
   `requirement_dev_sessions`、`dev_session_summaries`），以及运维事件、运维观测与运维动作 attempt；
@@ -392,7 +399,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   候选包在 `candidates/<req>/v<plan>/`；独立验证按候选身份保存在
   `verifications/<req>/v<plan>/<candidate 前 16 位>/`（`candidate.json`、`candidate.diff`、命令日志、
   `verification.json`、`business-review.json`）；提交检查在 `integrations/<req>/<candidate 前 16 位>/`；
-  产品分析每次尝试的 Agent 轨迹在 `sessions/<reqId>-analyze-a<n>.jsonl`（不覆盖历史尝试）；
+  产品分析每次尝试的 Agent 轨迹在 `sessions/<reqId>-v<需求版本>-analyze-a<n>.jsonl`（不覆盖历史尝试）；
   运维证据在 `ops/<事件>/`。
 
 ## 6. 持久工作、去重与恢复
@@ -437,7 +444,9 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   （`source.kind === 'user'`）的消息才受理；会话身份、消息身份与原始文本落库后可回查。
   输入接管只创建需求、回答待澄清项并调用产品 Agent；批准与推进走任务包卡片的认证动作，
   不来自聊天文本或模型工具。
-  澄清回答与 `reqId + requirementVersion + analysisVersion` 对应；多待澄清项或其他会话不得猜测。
+  澄清回答与稳定问题编号及 `reqId + requirementVersion + analysisVersion` 对应；直接回复只在单个
+  待澄清需求时使用，多待澄清项必须写明“回答 <reqId>：”，其他会话不得猜测。新需求入口
+  “新需求：”只是文本分诊前缀，不是可批准、推进或验收的命令表面。
 - **模型工具**：只读查询、需求受理与项目 Markdown 文档写入（不含代码）。工具不能提交
   `by=owner` 或 `approved=true`，也不能触发
   推进或验收。`forgeloop_impact` 默认不调用模型；显式 `explain=true` 的推断与事实分区，

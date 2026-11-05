@@ -121,6 +121,7 @@ describe('analysis draft parsing', () => {
       nonGoals: [],
       acceptanceCriteria: ['标准'],
       clarifications: [],
+      clarificationUpdates: [],
       businessContext: { changed: false, document: '' },
     })
     expect(

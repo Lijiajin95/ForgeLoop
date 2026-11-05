@@ -88,6 +88,13 @@ export function num(row: Row, key: string): number {
   return typeof value === 'number' ? value : Number(value ?? 0)
 }
 
+/** 可空整数列：NULL 与缺失都返回 null，不把未知值当成 0。 */
+export function nullableNum(row: Row, key: string): number | null {
+  const value = row[key]
+  if (value === null || value === undefined) return null
+  return typeof value === 'number' ? value : Number(value)
+}
+
 export function businessReviewRow(row: Row): BusinessReviewRecord {
   return {
     requirementId: text(row, 'req_id'),

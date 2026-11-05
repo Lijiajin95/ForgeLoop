@@ -77,7 +77,8 @@ import { SessionRouting } from './session-routing.js'
 import { VerificationCheckRegistry, type VerificationCheckOutcome } from './verification-checks.js'
 import { OpsRuntime } from './ops.js'
 import { applyDiffFile } from './diff-apply.js'
-import { buildStatusBoard, requirementTitle, type StatusBoardView } from './board.js'
+import { buildStatusBoard, type StatusBoardView } from './board.js'
+import { pendingClarificationsOf, type PendingClarification } from './clarification-view.js'
 import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
 import { runFormalTest } from './formal-test.js'
 import { planReviewPrompt, requirementContext } from './prompts.js'
@@ -435,41 +436,17 @@ export class ForgeLoopRuntime {
    * 读取一个业务会话关联的待澄清需求。会话关系来自需求受理 source：
    * `dsh-session:<sessionId>:<messageId>`；只返回当前需求版本已有待澄清分析的需求。
    */
-  pendingClarifications(sessionId: string): Array<{
-    reqId: string
-    title: string
-    requirementVersion: number
-    analysisVersion: number
-    questions: readonly string[]
-    updatedAt: string
-  }> {
-    const prefix = `dsh-session:${sessionId}:`
-    const result: Array<{
-      reqId: string
-      title: string
-      requirementVersion: number
-      analysisVersion: number
-      questions: readonly string[]
-      updatedAt: string
-    }> = []
-    for (const requirement of this.repo.listRequirements(this.config.project)) {
-      if (!requirement.source.startsWith(prefix)) continue
-      if (requirement.status !== AWAITING_CLARIFICATION) continue
-      const analysis = this.repo.latestAnalysis(requirement.reqId)
-      if (!analysis) continue
-      if (analysis.requirementVersion !== requirement.versions.length) continue
-      if (analysis.clarifications.length === 0) continue
-      const latest = requirement.versions[requirement.versions.length - 1]
-      result.push({
-        reqId: requirement.reqId,
-        title: requirementTitle(requirement),
-        requirementVersion: requirement.versions.length,
-        analysisVersion: analysis.analysisVersion,
-        questions: analysis.clarifications,
-        updatedAt: latest?.createdAt ?? '',
-      })
-    }
-    return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  pendingClarifications(sessionId: string): PendingClarification[] {
+    return pendingClarificationsOf({
+      repository: this.repo,
+      project: this.config.project,
+      sessionId,
+    })
+  }
+
+  /** 当前仍需所有者回答的澄清问题；问题编号稳定，供提示词与展示共同引用。 */
+  openClarifications(reqId: string) {
+    return this.repo.openClarifications(reqId)
   }
 
   /**
@@ -510,10 +487,11 @@ export class ForgeLoopRuntime {
       }
     }
     const analysis = this.repo.latestAnalysis(input.reqId)
+    const open = this.repo.openClarifications(input.reqId)
     if (
       !analysis ||
       analysis.requirementVersion !== requirement.versions.length ||
-      analysis.clarifications.length === 0
+      open.length === 0
     ) {
       return {
         ok: false,
@@ -530,13 +508,26 @@ export class ForgeLoopRuntime {
         message: `需求 ${input.reqId} 没有可修订版本`,
         reqId: input.reqId,
       }
+    const questionIds = open.map((question) => question.questionId).join('、')
     const text = `${latest.text}
 
-澄清回答（针对分析 v${analysis.analysisVersion}）：
+澄清回答（针对分析 v${analysis.analysisVersion} 的问题 ${questionIds}）：
 ${answer}`
     const revised = this.revise({ reqId: input.reqId, text, by: input.by, source: input.source })
     if (!revised.ok) return { ...revised, reqId: input.reqId }
     const refreshed = this.repo.getRequirement(input.reqId)
+    const answeredVersion = refreshed?.versions.length ?? latest.version + 1
+    // 回答先落库再分析：即使分析失败或宿主中断，所有者答过的内容与对应问题仍可回查。
+    this.repo.recordClarificationAnswer({
+      reqId: input.reqId,
+      analysisVersion: analysis.analysisVersion,
+      requirementVersion: analysis.requirementVersion,
+      answeredVersion,
+      questionIds: open.map((question) => question.questionId),
+      answer,
+      source: input.source,
+      answeredAt: this.now(),
+    })
     const next = await this.analyzeRequirement(input.reqId, input.signal)
     if (!next.ok) {
       return {

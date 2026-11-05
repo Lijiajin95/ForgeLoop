@@ -39,6 +39,20 @@ const CLARIFY = JSON.stringify({
   clarifications: ['退款是否需要店长二次确认？'],
 })
 
+const ANSWERED = JSON.stringify({
+  goal: '门店按状态处理订单',
+  scenarios: ['店长在订单列表按状态筛选'],
+  acceptance_criteria: ['筛选后只显示匹配状态的订单'],
+  clarifications: [],
+  clarification_updates: [
+    {
+      question_id: 'Q1-1',
+      status: 'resolved',
+      resolution: '退款需要店长二次确认',
+    },
+  ],
+})
+
 const PROBLEM = JSON.stringify({
   input_kind: 'problem',
   goal: '看板刷新后筛选条件丢失',
@@ -192,7 +206,7 @@ describe('product analysis run', () => {
       promptVersion: ANALYSIS_PROMPT_VERSION,
       toolCalls: ['forgeloop_web_search', 'forgeloop_write_project_doc'],
     })
-    expect(analysis.transcriptPath).toContain(`${reqId}-analyze-a1.jsonl`)
+    expect(analysis.transcriptPath).toContain(`${reqId}-v1-analyze-a1.jsonl`)
 
     const [attempt] = runtime.repo.analysisAttempts(reqId)
     expect(attempt).toMatchObject({
@@ -388,12 +402,35 @@ describe('requirement enqueue after the first analysis', () => {
     expect(refused.code).toBe('clarification_required')
   })
 
+  it('keeps first-attempt transcripts separate for each requirement version', async () => {
+    next = script(CLARIFY)
+    const reqId = submit()
+    await runtime.analyzeRequirement(reqId)
+
+    next = script(ANSWERED)
+    const answered = await runtime.answerClarifications({
+      reqId,
+      answer: '退款需要店长二次确认',
+      by: 'owner',
+      source: 'dsh-session:sess-1:msg-2',
+    })
+    expect(answered.ok, answered.message).toBe(true)
+
+    const attempts = runtime.repo.analysisAttempts(reqId)
+    expect(attempts.map((attempt) => attempt.requirementVersion)).toEqual([1, 2])
+    expect(attempts.map((attempt) => attempt.attempt)).toEqual([1, 1])
+    const paths = attempts.map((attempt) => attempt.transcriptPath)
+    expect(paths[0]).toContain(`${reqId}-v1-analyze-a1.jsonl`)
+    expect(paths[1]).toContain(`${reqId}-v2-analyze-a1.jsonl`)
+    expect(new Set(paths).size).toBe(2)
+  })
+
   it('enqueues once the clarification is answered and does not queue a second analysis', async () => {
     next = script(CLARIFY)
     const reqId = submit()
     await runtime.analyzeRequirement(reqId)
 
-    next = script(ANALYSIS)
+    next = script(ANSWERED)
     const answered = await runtime.answerClarifications({
       reqId,
       answer: '退款需要店长二次确认',

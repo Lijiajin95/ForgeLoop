@@ -5487,3 +5487,38 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   data-rollback 先于 rollback 且带 restorePoint、无上一已验证制品拒绝、上一制品缺失/被改拒绝、
   工具报成功但目标仍运行新制品时 `rollback_verify_failed` 并告警、工具失败、未应用/未知 intent 拒绝。
 - 未执行：真实外部回退工具与真实数据恢复未验证；数据兼容性/不可逆迁移仍按产品规则需要人工决定。
+
+- 真实模型部署 E2E 本轮未通过：模型生成的验证方案缺少异常/边界覆盖，未产生提交，未进入
+  自动构建/部署；详见 §138.2。真实模型成功路径仍只有 §133/§134 的历史证据。
+
+## 143. 澄清上下文、消息归属与分析轨迹（2026-11-05）
+
+本批由 DSH 执行 Agent 在独立 worktree `feat/requirement-spec-quality` 实施，不通过 ForgeLoop 自身需求流程，
+不计为插件自主交付。目标是最小修复澄清上下文丢失、消息归属靠猜和分析轨迹跨版本覆盖三个问题。
+
+### 143.1 计划范围与实际改动
+
+- 新增 `requirement_clarification_questions`、`requirement_clarification_answers` 旁置表；问题在首次提出的
+  分析版本内编号 `Q<分析版本>-<序号>`，解决时写结论与解决版本，回答只追加。
+- 新增 `records/clarification-store.ts`、`records/analysis-store.ts`，把澄清与分析持久化从 `repository.ts`
+  拆出，避免单文件超出维护预算；`Repository` 仍是调用方唯一入口。
+- `ExecutionPlan.executeAnalysis` 重新分析时携带问题原文、问题编号、历次回答与已解决/未解决状态；
+  解析 `clarification_updates` 并逐项核对，遗漏未解决问题或引用未知编号按失败关闭（fail-closed），
+  未解决旧问题由程序保留，不依赖模型重抄。
+- 分析轨迹改为 `sessions/<reqId>-v<需求版本>-analyze-a<attempt>.jsonl`；同版本重试与不同版本首次分析
+  路径均唯一，不迁移或改写历史文件。
+- 业务会话增加确定性入口：单个待澄清需求可直接回复；多条待澄清必须写“回答 <需求编号>：<回答>”；
+  新输入写“新需求：<内容>”会单独受理，不并入澄清回答。事件卡片显示同一提示。
+- 同步 `docs/architecture.md` 与 `CONTEXT.md`；`client.js` 只增加提示文案，不新增决定入口。
+
+### 143.2 检查与证据
+
+- `make check` 通过：136 个测试文件、**1550 项通过**；类型、lint、架构契约、token/断言预算与可靠性清单均通过。
+- 新增 `tests/clarification-context.test.ts` 5 项：完整问答进入下一轮提示词、部分回答保留未解决项、
+  静默漏项失败关闭、待澄清期间“新需求：”不混入原需求、多待澄清时指定 `reqId` 回答且不猜测。
+- `tests/product-analysis.test.ts` 增加跨需求版本轨迹唯一性断言；原失败重试用例继续验证同版本 4 次尝试
+  的轨迹互不覆盖。
+- 未执行真实 DeepSeek 模型分析样本、真实宿主会话或安装包验证；本批只证明确定性行为与现有测试门禁。
+- 发现但不碰：旧库中既无问题行、又只有最新分析的记录，视图按最新 `clarifications` 生成编号回退，
+  不补造历史回答；多问题拆分回答仍由模型给出逐项处置，程序只保证不遗漏和编号有效，语义是否正确
+  需真实样本评审。
