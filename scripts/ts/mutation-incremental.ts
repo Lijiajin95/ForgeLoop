@@ -246,11 +246,34 @@ for (const [file, entry] of Object.entries(files)) {
 const denominator = killed + timeout + survived + noCoverage
 const score =
   denominator === 0 ? null : Math.round(((killed + timeout) / denominator) * 10_000) / 100
+// 等价变异按“文件 + mutator + 被变异源码行原文”匹配：源码行内容不变时，文件里
+// 其他位置的增删不会让豁免失效（行号仅作旧契约条目的兜底）。
+const sourceLines = new Map<string, string[]>()
+const sourceLineOf = (file: string, line: number): string => {
+  let lines = sourceLines.get(file)
+  if (!lines) {
+    const absolute = join(ROOT, file)
+    lines = existsSync(absolute) ? readFileSync(absolute, 'utf8').split('\n') : []
+    sourceLines.set(file, lines)
+  }
+  return (lines[line - 1] ?? '').trim()
+}
+const exemptionFor = (mutant: {
+  file: string
+  line: number
+  mutator: string
+}): { reason: string } | undefined => {
+  const snippet = sourceLineOf(mutant.file, mutant.line)
+  return contract.mutation.equivalent_mutants.find((item) => {
+    if (item.file !== mutant.file || item.mutator !== mutant.mutator) return false
+    if (typeof item.snippet === 'string' && item.snippet.trim()) {
+      return item.snippet.trim() === snippet
+    }
+    return item.line === mutant.line
+  })
+}
 const exempt = (mutant: { file: string; line: number; mutator: string }): boolean =>
-  contract.mutation.equivalent_mutants.some(
-    (item) =>
-      item.file === mutant.file && item.line === mutant.line && item.mutator === mutant.mutator,
-  )
+  exemptionFor(mutant) !== undefined
 const liveSurvivors = survivors.filter((mutant) => !exempt(mutant))
 const exempted = survivors.filter((mutant) => exempt(mutant))
 const critical = new Set(contract.mutation.critical_files)
@@ -283,11 +306,7 @@ const report = {
   survivors: liveSurvivors,
   exemptedSurvivors: exempted.map((mutant) => ({
     ...mutant,
-    reason:
-      contract.mutation.equivalent_mutants.find(
-        (item) =>
-          item.file === mutant.file && item.line === mutant.line && item.mutator === mutant.mutator,
-      )?.reason ?? '',
+    reason: exemptionFor(mutant)?.reason ?? '',
   })),
   output: result.ok ? '' : tail(`${result.stdout}\n${result.stderr}`, 20),
 }

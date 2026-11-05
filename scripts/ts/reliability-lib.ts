@@ -81,6 +81,8 @@ export interface Contract {
       readonly line: number
       readonly mutator: string
       readonly reason: string
+      /** 被变异源码行的原文；给出时按内容匹配，避免行号漂移让豁免失效。 */
+      readonly snippet?: string
     }>
   }
 }

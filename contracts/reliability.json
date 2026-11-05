@@ -1399,106 +1399,116 @@
     ],
     "equivalent_mutants": [
       {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 147,
+        "file": "packages/forgeloop/src/runtime/acceptance-binding.ts",
+        "line": 34,
         "mutator": "OptionalChaining",
-        "reason": "remaining 的键与 tasks 同源，filter 内 get 必然有值；去掉 ?. 对可达输入语义相同。"
+        "reason": "artifacts 为空时前面的缺失产物检查已抛错，ordered[0] 在可达路径上必然存在；去掉 ?. 语义不变。",
+        "snippet": "baselineCommit: ordered[0]?.baselineCommit ?? '',"
       },
       {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 261,
-        "mutator": "ConditionalExpression",
-        "reason": "去掉 typeof 检查后 Number.isFinite 对非 number 仍返回 false，拒绝结果不变。"
-      },
-      {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 269,
-        "mutator": "ConditionalExpression",
-        "reason": "去掉 typeof 检查后 Number.isInteger 对非 number 仍返回 false，拒绝结果不变。"
-      },
-      {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 285,
-        "mutator": "BooleanLiteral",
-        "reason": "解析阶段放宽 allowEmpty 只影响中间对象；validateTaskPlan 会再次以 false 校验 approach，空数组仍被拒绝。"
-      },
-      {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 313,
-        "mutator": "ConditionalExpression",
-        "reason": "边界判断只在 JSON.parse 失败后的兜底分支；变化后要么跳过、要么仍解析失败，最终都是同一 MalformedError，没有新的成功路径。"
-      },
-      {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 313,
-        "mutator": "LogicalOperator",
-        "reason": "&& 改 || 只改变兜底分支是否尝试切片；所有可达输入的切片仍不是合法 JSON，结果同为 MalformedError。"
-      },
-      {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 313,
-        "mutator": "EqualityOperator",
-        "reason": "start/end 的边界等价性变化只影响失败兜底的分支选择，最终抛同一错误，不产生成功解析。"
-      },
-      {
-        "file": "packages/forgeloop/src/domain/task-plan.ts",
-        "line": 313,
-        "mutator": "EqualityOperator",
-        "reason": "end 的 >= 与 > 只在 start==end（单括号）时不同；该输入切片仍无法解析，结果同为 MalformedError。"
+        "file": "packages/forgeloop/src/domain/delivery.ts",
+        "line": 6,
+        "mutator": "StringLiteral",
+        "reason": "update(text, '') 在 Node 中等价于 utf8（已实测同一摘要），对字符串输入无行为差异。",
+        "snippet": "return createHash('sha256').update(text, 'utf8').digest('hex')"
       },
       {
         "file": "packages/forgeloop/src/runtime/acceptance-binding.ts",
         "line": 34,
-        "mutator": "OptionalChaining",
-        "reason": "artifacts 为空时前面的缺失产物检查已抛错，ordered[0] 在可达路径上必然存在；去掉 ?. 语义不变。"
+        "mutator": "StringLiteral",
+        "reason": "ordered[0] 缺失时前面的产物检查已抛错，?? '' 兜底在可达路径上不可达。",
+        "snippet": "baselineCommit: ordered[0]?.baselineCommit ?? '',"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
         "line": 55,
         "mutator": "ArrayDeclaration",
+        "snippet": "preflight_failed: [],",
         "reason": "preflight_failed 的出边列表被替换为非法状态名；canTransition 的入参受 DeploymentAttemptState 类型约束，合法状态集合内行为不变。"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
         "line": 57,
         "mutator": "ArrayDeclaration",
+        "snippet": "rejected: [],",
         "reason": "rejected 的出边列表被替换为非法状态名；只对类型系统禁止的调用可观察，合法状态内等价。"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 66,
+        "line": 68,
         "mutator": "ArrayDeclaration",
+        "snippet": "rolled_back: [],",
         "reason": "rolled_back 的出边列表被替换为非法状态名；只对类型系统禁止的调用可观察，合法状态内等价。"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 104,
+        "line": 122,
         "mutator": "StringLiteral",
-        "reason": "非 Error 抛出的兜底消息；JSON.parse 只抛 SyntaxError（Error），该分支不可达。"
-      },
-      {
-        "file": "packages/forgeloop/src/domain/delivery.ts",
-        "line": 6,
-        "mutator": "StringLiteral",
-        "reason": "update(text, '') 在 Node 中等价于 utf8（已实测同一摘要），对字符串输入无行为差异。"
-      },
-      {
-        "file": "packages/forgeloop/src/runtime/acceptance-binding.ts",
-        "line": 34,
-        "mutator": "StringLiteral",
-        "reason": "ordered[0] 缺失时前面的产物检查已抛错，?? '' 兜底在可达路径上不可达。"
+        "snippet": "throw new MalformedError(`工具输出不是 JSON：${error instanceof Error ? error.message : ''}`)",
+        "reason": "非 Error 抛出的兜底消息不可达：JSON.parse 只抛 SyntaxError（属于 Error），三元恒走 error.message。"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 106,
+        "line": 108,
         "mutator": "ConditionalExpression",
+        "snippet": "return typeof value === 'number' && Number.isSafeInteger(value) ? value : 0",
         "reason": "pidOf 的 typeof 检查冗余：Number.isSafeInteger 对非 number 一律返回 false，去掉后仍返回 0，可达输入结果相同。"
       },
       {
-        "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 120,
-        "mutator": "StringLiteral",
-        "reason": "非 Error 抛出的兜底消息不可达：JSON.parse 只抛 SyntaxError（属于 Error），三元恒走 error.message。"
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 162,
+        "mutator": "OptionalChaining",
+        "reason": "remaining 的键与 tasks 同源，filter 内 get 必然有值；去掉 ?. 对可达输入语义相同。",
+        "snippet": ".filter((task) => remaining.has(task.taskId) && (remaining.get(task.taskId)?.size ?? 0) === 0)"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 276,
+        "mutator": "ConditionalExpression",
+        "reason": "去掉 typeof 检查后 Number.isFinite 对非 number 仍返回 false，拒绝结果不变。",
+        "snippet": "typeof limitSeconds !== 'number' ||"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 284,
+        "mutator": "ConditionalExpression",
+        "reason": "去掉 typeof 检查后 Number.isInteger 对非 number 仍返回 false，拒绝结果不变。",
+        "snippet": "typeof maxFailureRounds !== 'number' ||"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 300,
+        "mutator": "BooleanLiteral",
+        "reason": "解析阶段放宽 allowEmpty 只影响中间对象；validateTaskPlan 会再次以 false 校验 approach，空数组仍被拒绝。",
+        "snippet": "approach: toStringList(data.approach, 'technical_solution.approach', false),"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 328,
+        "mutator": "ConditionalExpression",
+        "reason": "边界判断只在 JSON.parse 失败后的兜底分支；变化后要么跳过、要么仍解析失败，最终都是同一 MalformedError，没有新的成功路径。",
+        "snippet": "if (start >= 0 && end > start) {"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 328,
+        "mutator": "LogicalOperator",
+        "reason": "&& 改 || 只改变兜底分支是否尝试切片；所有可达输入的切片仍不是合法 JSON，结果同为 MalformedError。",
+        "snippet": "if (start >= 0 && end > start) {"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 328,
+        "mutator": "EqualityOperator",
+        "reason": "start/end 的边界等价性变化只影响失败兜底的分支选择，最终抛同一错误，不产生成功解析。",
+        "snippet": "if (start >= 0 && end > start) {"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 328,
+        "mutator": "EqualityOperator",
+        "reason": "end 的 >= 与 > 只在 start==end（单括号）时不同；该输入切片仍无法解析，结果同为 MalformedError。",
+        "snippet": "if (start >= 0 && end > start) {"
       }
     ],
     "note": "全量 92 源文件变异仍低于 80（2026-11 实测 56.28%）；本清单只声明今晚的受控范围，不改 stryker break，不排除业务源码。"
