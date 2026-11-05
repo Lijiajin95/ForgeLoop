@@ -35,7 +35,7 @@ jobs:
     # PR 快速进阶门禁：清单/稳定性/属性/状态机/场景/回归 + 增量变异（不做全量变异）。
     # 本机/CI 实测该门禁可能需要超过 25 分钟；给足执行时间，不降低检查范围。
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -47,10 +47,13 @@ jobs:
           node-version: "26"
           cache: npm
       - run: npm ci --no-audit --no-fund
+      # 逐文件覆盖率门禁读取当前工作树生成的报告；不能让提交里的旧绝对路径污染结论。
+      - run: make coverage
       - name: Advanced reliability gate
         run: make reliability-advanced
         env:
           FORGELOOP_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          STRYKER_CONCURRENCY: "4"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

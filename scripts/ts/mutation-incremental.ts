@@ -171,7 +171,7 @@ const concurrency = process.env.STRYKER_CONCURRENCY
 const strykerArgs = ['run', configPath]
 if (concurrency && /^\d+$/.test(concurrency)) strykerArgs.push('--concurrency', concurrency)
 const started = Date.now()
-const result = run(STRYKER_BIN, strykerArgs, { cwd: PKG, timeoutMs: 30 * 60_000 })
+const result = run(STRYKER_BIN, strykerArgs, { cwd: PKG, timeoutMs: 60 * 60_000 })
 const durationMs = Date.now() - started
 const reportAbsolute = join(PKG, reportRelative)
 rmSync(configPath, { force: true })

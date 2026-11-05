@@ -759,4 +759,53 @@ describe('advance pipeline branch boundaries', () => {
       detail: 'plan not approved',
     })
   })
+
+  it('reads command evidence defensively from malformed verification reports', () => {
+    const pipeline = makePipeline()
+    expect(
+      pipeline['issueCommands'](
+        JSON.stringify({
+          commands: [
+            null,
+            {},
+            { label: 'ok' },
+            {
+              label: 'x',
+              argv: ['a', 1],
+              exitCode: 'bad',
+              timedOut: true,
+              aborted: true,
+              logPath: 1,
+              logSha256: 2,
+              durationMs: 'bad',
+            },
+          ],
+        }),
+      ),
+    ).toEqual([
+      {
+        label: 'ok',
+        argv: [],
+        exitCode: null,
+        timedOut: false,
+        aborted: false,
+        logPath: '',
+        logSha256: '',
+        durationMs: 0,
+      },
+      {
+        label: 'x',
+        argv: ['a'],
+        exitCode: null,
+        timedOut: true,
+        aborted: true,
+        logPath: '',
+        logSha256: '',
+        durationMs: 0,
+      },
+    ])
+    expect(pipeline['issueCommands']('{')).toEqual([])
+    expect(pipeline['issueCommands']('null')).toEqual([])
+    expect(pipeline['issueCommands']('{"commands":{}}')).toEqual([])
+  })
 })

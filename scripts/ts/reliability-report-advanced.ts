@@ -85,7 +85,7 @@ function runGateScript(
   args: readonly string[],
   options: { unit: string; scope: string; reportPath: string | null },
 ): Section {
-  const result = run(process.execPath, args, { cwd: ROOT, timeoutMs: 30 * 60_000 })
+  const result = run(process.execPath, args, { cwd: ROOT, timeoutMs: 60 * 60_000 })
   let status: Status = result.ok ? 'PASS' : 'FAIL'
   let numerator: number | null = null
   let denominator: number | null = null
@@ -234,7 +234,7 @@ const regression = section({
 // ---------------------------------------------------------------- 6. 稳定性
 const stabilityRun = run(process.execPath, ['scripts/ts/stability.ts'], {
   cwd: ROOT,
-  timeoutMs: 30 * 60_000,
+  timeoutMs: 60 * 60_000,
 })
 const stabilityReport = readJson<Record<string, unknown>>(join(REPORTS, 'stability.json'))
 let stabilityStatus: Status
