@@ -174,7 +174,9 @@ function parseAssumption(value: unknown, index: number): Assumption {
       `分析字段 ${field}.basis 必须是 inference 或 external_material；用户要求应写成业务要点`,
     )
   }
-  if (typeof data.needs_confirmation !== 'boolean') {
+  // 存储层按 snake_case 序列化；旧行或驼峰字段也接受，避免读回时整条分析不可读。
+  const needsConfirmation = data.needs_confirmation ?? data.needsConfirmation
+  if (typeof needsConfirmation !== 'boolean') {
     throw new MalformedError(`分析字段 ${field}.needs_confirmation 必须是布尔值`)
   }
   return {
@@ -183,7 +185,7 @@ function parseAssumption(value: unknown, index: number): Assumption {
     basis,
     source: nonEmpty(data.source, `${field}.source`),
     impact: nonEmpty(data.impact, `${field}.impact`),
-    needsConfirmation: data.needs_confirmation,
+    needsConfirmation,
   }
 }
 

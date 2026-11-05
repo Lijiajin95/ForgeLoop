@@ -563,6 +563,40 @@ describe('bounded related history', () => {
     expect(finished[0]?.terminal).toBe(true)
   })
 
+  it('reads back a stored spec that contains assumptions without losing the analysis', async () => {
+    responses = [
+      JSON.stringify(
+        specDraft({
+          assumptions: [
+            {
+              id: 'AS-1',
+              statement: '门店只有一个仓库',
+              basis: 'inference',
+              source: '需求未提多仓',
+              impact: '多仓筛选范围',
+              needs_confirmation: false,
+            },
+          ],
+          non_goals: ['不改造支付渠道'],
+        }),
+      ),
+    ]
+    const submitted = runtime.submit({
+      text: '门店按状态处理订单',
+      by: 'owner',
+      source: 'test:spec-read',
+      analyze: false,
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    expect((await runtime.analyzeRequirement(reqId)).ok).toBe(true)
+    // 读回必须与分析写入前一致；否则后续项目的每次分析都会因为读到损坏规格而失败。
+    const analysis = runtime.repo.latestAnalysis(reqId)!
+    expect(analysis.assumptions).toEqual([
+      expect.objectContaining({ id: 'AS-1', needsConfirmation: false }),
+    ])
+    expect(runtime.repo.analyses(reqId)).toHaveLength(1)
+  })
+
   it('stores the structured spec and exposes history plus changes in requirement detail', async () => {
     responses = [
       JSON.stringify(specDraft()),

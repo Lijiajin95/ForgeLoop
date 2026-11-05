@@ -123,7 +123,14 @@ export class AnalysisStore {
             when: item.when,
             then: item.then,
           })),
-          assumptions: spec.assumptions,
+          assumptions: spec.assumptions.map((item) => ({
+            id: item.id,
+            statement: item.statement,
+            basis: item.basis,
+            source: item.source,
+            impact: item.impact,
+            needs_confirmation: item.needsConfirmation,
+          })),
         }),
       )
   }
