@@ -1487,6 +1487,18 @@
         "line": 34,
         "mutator": "StringLiteral",
         "reason": "ordered[0] 缺失时前面的产物检查已抛错，?? '' 兜底在可达路径上不可达。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/deployment.ts",
+        "line": 106,
+        "mutator": "ConditionalExpression",
+        "reason": "pidOf 的 typeof 检查冗余：Number.isSafeInteger 对非 number 一律返回 false，去掉后仍返回 0，可达输入结果相同。"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/deployment.ts",
+        "line": 120,
+        "mutator": "StringLiteral",
+        "reason": "非 Error 抛出的兜底消息不可达：JSON.parse 只抛 SyntaxError（属于 Error），三元恒走 error.message。"
       }
     ],
     "note": "全量 92 源文件变异仍低于 80（2026-11 实测 56.28%）；本清单只声明今晚的受控范围，不改 stryker break，不排除业务源码。"

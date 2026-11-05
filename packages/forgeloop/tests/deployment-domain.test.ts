@@ -80,6 +80,56 @@ describe('deployment tool result', () => {
     expect(long.version.length).toBeLessThanOrEqual(121)
   })
 
+  it('reads runtime identity fields with correct types and bounds', () => {
+    const parsed = parseDeploymentToolResult(
+      JSON.stringify({
+        ok: true,
+        state: 'applied',
+        artifactSha256: 'a'.repeat(64),
+        runningArtifactSha256: 'b'.repeat(64),
+        runningPid: 4242,
+        runningStartedAt: '2026-11-05T00:00:00.000Z',
+        detail: 'ok',
+        steps: [],
+        restorePoint: '',
+      }),
+    )
+    expect(parsed.artifactSha256).toBe('a'.repeat(64))
+    expect(parsed.runningArtifactSha256).toBe('b'.repeat(64))
+    expect(parsed.runningPid).toBe(4242)
+    expect(parsed.runningStartedAt).toBe('2026-11-05T00:00:00.000Z')
+
+    // 非安全整数、非数字与超长文本都按缺省处理，不猜测运行中身份。
+    for (const runningPid of [
+      1.5,
+      Number.MAX_SAFE_INTEGER + 2,
+      '4242',
+      null,
+      Number.POSITIVE_INFINITY,
+    ]) {
+      expect(
+        parseDeploymentToolResult(JSON.stringify({ ok: true, state: 'applied', runningPid }))
+          .runningPid,
+      ).toBe(0)
+    }
+    const long = parseDeploymentToolResult(
+      JSON.stringify({
+        ok: true,
+        state: 'applied',
+        runningStartedAt: 'x'.repeat(200),
+        artifactSha256: 'y'.repeat(300),
+        runningArtifactSha256: 'z'.repeat(300),
+      }),
+    )
+    expect(long.runningStartedAt).toHaveLength(61)
+    expect(long.artifactSha256).toHaveLength(121)
+    expect(long.runningArtifactSha256).toHaveLength(121)
+    expect(
+      parseDeploymentToolResult(JSON.stringify({ ok: true, state: 'applied', runningStartedAt: 7 }))
+        .runningStartedAt,
+    ).toBe('')
+  })
+
   it('rejects empty, non-object and incomplete output', () => {
     expect(() => parseDeploymentToolResult('')).toThrow('没有输出')
     expect(() => parseDeploymentToolResult('not json')).toThrow('不是 JSON')
