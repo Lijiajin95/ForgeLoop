@@ -253,6 +253,13 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    替代系统交付判定。`autoDeliver` 目标在普通需求受控提交后由协调器自动构建、提议并（auto 时）
    apply，再由协调器执行 `status` 核对；owner 目标停在 `awaiting_approval` 等真实决定。
    `delivery_handoffs` 按需求+候选+target 持久化交接状态，重复轮询与宿主重启不重复构建/安装。
+   `delivery_rechecks` 单独记录“原事件复核”，部署核对完成与复核完成互不覆盖：复核抛异常或宿主
+   重启后仍会续跑，已完成的不会被重开。
+   门禁不只在 intent 创建时执行：preflight、等待批准与 apply 之前都会按当前记录重新核对停止、
+   需求版本、候选、验证与授权；预检后依据变化只拒绝执行，不改变 intent 状态，显式恢复并重新
+   满足门禁后仍可批准。安装或核对中途中断时，协调器先按 target 的 `status` 只读观测实际结果：
+   一致则收口为已安装待核对/已核对，不一致转失败，无法确认时保留原状态并记录一次待人工决定，
+   不重复调用安装工具。
    `deployment-approve/-reject/-verify/-rollback` 只由认证看板以 `config.owner` 调用，
    `DeploymentService` 仍复核所有者身份；部署决定（批准/核对）记录执行者，供自主率统计区分
    人工与系统动作。回退先按 target 声明的卷/迁移执行 `data-rollback`，再执行 `rollback`，

@@ -48,6 +48,7 @@ draft → preflight_failed
       → ready → applying → applied_pending_verify → verifying → verified
                           └→ failed → rolling_back → rolled_back
 applied_pending_verify ─(verifyTimeoutSeconds 内未收敛)→ verify_failed（告警，保留回退位）
+applying / verifying ─(超窗口后按 status 观测)→ 完成 / failed / 保留待人工决定
 ```
 
 `applied_pending_verify` 是必需中间态：装完到“实际运行版本符合预期”之间还要重载、等待、健康检查，
@@ -157,7 +158,7 @@ interface DeploymentToolDescriptor {
   `deployments.alerts.webhook` 非空（重载失败必须有告警去处）；声明了数据范围时工具具备 `data-rollback`。
 - `autoDeliver` 默认 false。为 true 时，协调器在普通需求受控提交后自动构建，并按 target 的
   `approval` 自动 apply 或只创建等待批准的 intent；同一需求+候选+target 只交接一次，
-  重启后按 `delivery_handoffs` 续跑。
+  重启后按 `delivery_handoffs` 续跑；原事件复核另记在 `delivery_rechecks`，失败可续跑。
 - `data.volumes`/`data.migrations` 只接受字符串数组（标识与说明），不能写命令。
 - `ops.actions[].kind=deploy` 只能引用已登记 target，不带命令与参数。
 - `env` 只允许变量名，值从宿主环境读取；配置里不写秘密。
@@ -181,6 +182,12 @@ interface DeploymentToolDescriptor {
   intent 指定的需求与候选/验证/终审一致；声明了数据范围时 `preflight` 必须给出 `restorePoint`。
   **人类验收只对 `approval: "owner"` 目标必需**；`auto` 目标由 target 配置授权，系统交付判定不能
   被验收记录替代。target 的 `requirementId` 只是默认值，不是唯一允许部署的需求。
+- **动作前复核**：门禁不只在提议时执行。preflight 之后、等待批准期间依据变化（停止、需求版本、
+  候选、验收失效）时，approve 与 apply 之前会按当前记录重新核对；拒绝只返回原因并保留 intent
+  状态，不写入恢复或批准记录，显式恢复且重新满足门禁后可继续。
+- **中断恢复**：`applying`/`verifying` 超过 `verifyTimeoutSeconds` 未收口时，先调用 `status`
+  观测实际结果；一致则推进到 `applied_pending_verify` 或 `verified`，不一致转 `failed`，
+  无法确认时保留原状态并记录一次 `recovery_unknown`，等待人工决定，不重复安装。
 - **自动交接**：`autoDeliver` 目标按上述门禁推进；auto 目标 apply 后由协调器执行 `status` 核对，
   owner 目标停在 `awaiting_approval` 等真实决定。核对失败的 intent 不重试，等待人工/新候选。
 - **运行身份**：核对比对安装摘要与运行摘要，任一与 intent 制品不符即 `verify_failed`；

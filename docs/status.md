@@ -5377,3 +5377,33 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
 - 真实模型部署 E2E 在 `reasoningEffort: high` 下通过；默认 `max` 下验证方案覆盖失败仍是
   未解决的环境/模型配置风险，不能把 high 配置写成默认能力。真实模型的运维诊断与修复再交付
   仍未验证。
+
+## 139. 交付门禁复核、中断恢复与事件复核续跑（2026-11-05）
+
+来源：所有者要求在 M0 收口前修复三个已复现缺陷，并区分 M0 种子能力与 M1 真实闭环。
+本轮只改动交付链路内部逻辑，未改模型配置、版本号或生产环境。
+
+### 139.1 三个缺陷与修复
+
+- **G1 停止后仍可批准部署**：`approve` 只在 intent 创建时执行过门禁，预检后写入停止记录仍会安装。
+  现在 preflight 之后与 `approve` 之前都按当前记录重新执行门禁（当前需求版本、系统准入、停止、
+  候选、独立验证、业务终审、受控提交、owner 目标的验收）。拒绝不改变 intent 状态、不写恢复或
+  批准记录；显式恢复并重新满足门禁后仍可批准。
+- **G2 中断停在 applying/verifying**：`expireStale` 只处理 `applied_pending_verify`。
+  新增 `recoverInterrupted`：超过 `verifyTimeoutSeconds` 后先调用 `status` 只读观测，
+  一致则推进（`applying→applied_pending_verify`、`verifying→verified`），不一致转 `failed`，
+  无法确认时保留原状态并记录一次 `recovery_unknown` 等待人工决定，不重复安装。
+- **G3 事件复核丢失**：交接先写 `verified` 再复核，复核抛异常后下一轮被跳过。
+  新增 `delivery_rechecks` 表，按需求+部署+事件记录 pending/done；每轮 tick 先续跑 pending，
+  异常只记录在待办上，不抛出、不影响部署状态、不重复部署。原问题仍存在时事件保持 `unresolved`。
+
+### 139.2 证据与边界
+
+- 测试：`tests/deployment-run.test.ts` 新增真实门禁下的停止拒绝、显式恢复后继续、版本变化拒绝、
+  同版本新制品拒绝，以及 applying/verifying 观测恢复、不一致失败、未知保留与幂等；
+  `tests/delivery-handoff.test.ts` 新增复核抛异常后续跑、重复 tick 不重复部署、多事件全部复核。
+- 修复前后：新增用例在修复前 7 项失败（`approve` 返回成功、`recoverInterrupted` 不存在、
+  `pendingRechecks` 不存在），修复后全部通过。
+- `make check` 135 文件 1555 项通过；`make coverage` 通过；`make contracts` 通过。
+- 本轮没有新增真实模型或真实部署证据；M1 的真实安装器/运行进程证明、真实模型运维闭环仍未完成，
+  见 §138.4。M0 收口基线仍限定在隔离受控环境，本次修复消除的是该基线内的停止门禁缺陷。
