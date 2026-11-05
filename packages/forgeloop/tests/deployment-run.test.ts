@@ -108,6 +108,20 @@ function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
           approval: 'owner',
           params: { tag: 'NO_IDENTITY' },
         },
+        {
+          id: 'stale-process',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'STALE_PROCESS' },
+        },
+        {
+          id: 'no-started-at',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'NO_STARTED_AT' },
+        },
       ],
       ...extra,
     } as never,
@@ -146,7 +160,8 @@ function toolScript(): string {
     '    value = "9.9.9" if tag == "FAIL_STATUS" else version',
     '    running = "0" * 64 if tag == "OLD_RUNNING" else plan["artifact"]["sha256"]',
     '    installed = "0" * 64 if tag == "WRONG_INSTALLED" else plan["artifact"]["sha256"]',
-    '    extra = {} if tag == "NO_IDENTITY" else {"artifactSha256": installed, "runningArtifactSha256": running, "runningPid": os.getpid(), "runningStartedAt": "2026-11-03T10:00:00Z"}',
+    '    started = {"STALE_PROCESS": "2020-01-01T00:00:00Z", "NO_STARTED_AT": ""}.get(tag, "2026-11-03T10:00:00Z")',
+    '    extra = {} if tag == "NO_IDENTITY" else {"artifactSha256": installed, "runningArtifactSha256": running, "runningPid": os.getpid(), "runningStartedAt": started}',
     '    print(json.dumps({"ok": True, "state": "running", "version": value, "detail": "status ok", **extra}))',
     'elif op == "rollback":',
     '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "rollback ok"}))',
@@ -414,6 +429,8 @@ describe('deployment coordinator', () => {
       'old-running',
       'wrong-install',
       'no-identity',
+      'stale-process',
+      'no-started-at',
     ])
     const requested = await deployments.request({
       targetId: 'owner',
@@ -534,6 +551,26 @@ describe('deployment verify timeout', () => {
       alert: async () => ({ ok: true, error: '' }),
     })
     expect(disabled.expireStale()).toBe(0)
+  })
+
+  it('rejects a running process that started before the install or exposes no start time', async () => {
+    for (const [targetId, expected] of [
+      ['stale-process', '启动时间早于本次安装'],
+      ['no-started-at', '未提供运行进程启动时间'],
+    ] as const) {
+      const deployments = build()
+      const requested = await deployments.request({
+        targetId,
+        artifact: ARTIFACT,
+        source: `freshness-${targetId}`,
+      })
+      const intentId = (requested.data as { intentId: string }).intentId
+      await deployments.approve(intentId)
+      const verified = await deployments.verify(intentId)
+      expect(verified.ok).toBe(false)
+      expect(verified.message).toContain(expected)
+      expect(deployments.detail(intentId)?.intent.state).toBe('verify_failed')
+    }
   })
 
   it('fails verification when installed or running identity does not match', async () => {

@@ -5463,6 +5463,8 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
 - `deployment-gate`、`deployment-run`、`deployment-rollback`、`delivery-handoff`、`state-machines`
   测试按真实制品文件与验收指纹更新夹具后通过；`contracts/reliability.json` 增加
   `ready → preflight_failed` 边。
+- `deployment-run` 另覆盖运行进程启动时间早于本次安装、或工具未提供启动时间两种情况，
+  均收口为 `verify_failed`。
 - 未执行：真实外部工具与真实 DSH profile 的部署复核仍属未验证边界（本批只改隔离夹具内的确定性判定）。
 
 ## 142. 回退到上一已验证制品并按实际状态核对（2026-11-05）
@@ -5672,6 +5674,7 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   形成独立必过项；现有 `make check`/`verify-e2e` 仍是人工选择入口。
 - 发现但不碰：`docs/architecture.md` §5 旧验证路径描述与新管线并存，本批只补新管线段落，
   未重写旧路径章节。
+
 ## 148. 部署通道与自主交付指标复算（2026-11-05）
 
 来源：批次 E“指标口径与可复算性”。
@@ -5695,4 +5698,3 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   提交/验证/重复 verified intent/部署失败/回退/未提交需求的分子分母；部署通道 30 天与全窗口
   计数，且与旧上线核对记录互不合并。
 - 未执行：真实运行指标历史采集与保留期；观察窗口与事件归并规则未确认前不承诺 M2。
-
