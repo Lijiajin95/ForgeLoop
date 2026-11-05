@@ -969,6 +969,9 @@ window.__ModuleLoader__.load({
       'reliability.runtime.mttrMissing': '—（无恢复样本）',
       'reliability.runtime.candidateBuilds': '候选构建数',
       'reliability.runtime.deploymentFailures': '上线失败检查项',
+      'reliability.runtime.deploymentIntents': '部署通道（intent）',
+      'reliability.runtime.deploymentIntentsNote':
+        '已核对 {verified} · 失败 {failed} · 回退 {rolledBack} · 进行中 {pending}',
       'reliability.runtime.noDeploymentFailures': '窗口内没有失败的上线检查。',
       'reliability.runtime.noSamples': '当前窗口没有交付可靠性记录。',
       'reliability.runtime.ratesNote': '率按记录计；首轮验证按需求计。',
@@ -1545,6 +1548,9 @@ window.__ModuleLoader__.load({
       'reliability.runtime.mttrMissing': '— (no recovery samples)',
       'reliability.runtime.candidateBuilds': 'Candidate builds',
       'reliability.runtime.deploymentFailures': 'Failed deployment checks',
+      'reliability.runtime.deploymentIntents': 'Deployment channel (intents)',
+      'reliability.runtime.deploymentIntentsNote':
+        'Verified {verified} · failed {failed} · rolled back {rolledBack} · pending {pending}',
       'reliability.runtime.noDeploymentFailures': 'No failed deployment checks in this window.',
       'reliability.runtime.noSamples': 'No delivery reliability records in this window.',
       'reliability.runtime.ratesNote':
@@ -7375,6 +7381,12 @@ window.__ModuleLoader__.load({
         const deploymentFailures = Array.isArray(runtime.deploymentFailures)
           ? runtime.deploymentFailures
           : []
+        const deploymentIntents = runtime.deploymentIntents || {
+          verified: 0,
+          failed: 0,
+          rolledBack: 0,
+          pending: 0,
+        }
         const trend = Array.isArray(runtime.trend) ? runtime.trend : []
         const rates = [verification, firstPass, businessReview, deployment]
         const hasSamples = rates.some((rate) => (rate.total || 0) > 0)
@@ -7965,6 +7977,25 @@ window.__ModuleLoader__.load({
                 ),
                 h('div', { className: 'flb-rel-big' }, String(runtime.candidateBuilds || 0)),
                 h('div', { className: 'flb-rel-rate-note' }, windowText),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'flb-rel-block', style: { marginTop: '10px' } },
+              h(
+                'div',
+                { className: 'flb-rel-block-title' },
+                t('reliability.runtime.deploymentIntents'),
+              ),
+              h(
+                'div',
+                { className: 'flb-rel-rate-note' },
+                t('reliability.runtime.deploymentIntentsNote', {
+                  verified: deploymentIntents.verified || 0,
+                  failed: deploymentIntents.failed || 0,
+                  rolledBack: deploymentIntents.rolledBack || 0,
+                  pending: deploymentIntents.pending || 0,
+                }),
               ),
             ),
             h(

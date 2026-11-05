@@ -5672,3 +5672,27 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   形成独立必过项；现有 `make check`/`verify-e2e` 仍是人工选择入口。
 - 发现但不碰：`docs/architecture.md` §5 旧验证路径描述与新管线并存，本批只补新管线段落，
   未重写旧路径章节。
+## 148. 部署通道与自主交付指标复算（2026-11-05）
+
+来源：批次 E“指标口径与可复算性”。
+
+### 147.1 实现
+
+- **自主率分别表达**：`AutonomyStats` 在原有介入率/自主成功率之外增加研发完成（`researchCompleted`）、
+  上线完成（`deploymentCompleted`）、部署失败（`deploymentFailed`）、回退（`rolledBack`）、
+  未自主交付（`notAutonomous`），以及运维已恢复/未解决计数。事实来自需求状态、提交、
+  当前候选的 verified 部署与 `deployment_intents` 状态。
+- **部署通道单独统计**：可靠性视图新增 `runtime.deploymentIntents`（`verified`/`failed`/
+  `rolledBack`/`pending`、`total`、通过率与按状态计数），只把已收口 intent 计入分母；
+  旧 `requirement_deployments` 的上线核对率保持不变，两套记录不合并分母。
+- 天工“可靠性”视图增加部署通道计数；口径仍标注为信息项。
+- 指标历史给出最小 DogFood 方案（检查成功率、延迟、错误量、采集新鲜度、恢复时长，关联
+  target/部署时间/制品摘要/事件），未设 M2 承诺。
+
+### 147.2 证据
+
+- 新增 `tests/ops-deployment-metrics.test.ts`（2 项，固定原始记录样本复算）：
+  提交/验证/重复 verified intent/部署失败/回退/未提交需求的分子分母；部署通道 30 天与全窗口
+  计数，且与旧上线核对记录互不合并。
+- 未执行：真实运行指标历史采集与保留期；观察窗口与事件归并规则未确认前不承诺 M2。
+

@@ -308,6 +308,19 @@ exports[`runtime empty-state payloads > keeps status, reliability, ops, requests
       "total": 0,
     },
     "deploymentFailures": [],
+    "deploymentIntents": {
+      "byState": {},
+      "failed": 0,
+      "pending": 0,
+      "rate": {
+        "pass": 0,
+        "rate": null,
+        "total": 0,
+      },
+      "rolledBack": 0,
+      "total": 0,
+      "verified": 0,
+    },
     "failureRounds": {
       "byStage": {
         "business_review": 0,

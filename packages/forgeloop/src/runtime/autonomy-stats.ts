@@ -31,6 +31,10 @@ function requirementFacts(
       build !== null &&
       intent.artifactSha256 === build.artifactSha256,
   )
+  const deploymentFailed = intents.some(
+    (intent) => intent.state === 'failed' || intent.state === 'verify_failed',
+  )
+  const rolledBack = intents.some((intent) => intent.state === 'rolled_back')
   const humanDeploymentInvolved = intents.some((intent) =>
     repo.deploymentStore
       .deploymentDecisions(intent.intentId)
@@ -55,6 +59,8 @@ function requirementFacts(
     verificationPassed: verification?.verdict === 'pass',
     deployed,
     humanDeploymentInvolved,
+    deploymentFailed,
+    rolledBack,
   }
 }
 
