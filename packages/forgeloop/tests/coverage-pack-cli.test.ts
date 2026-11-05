@@ -8,15 +8,32 @@ import { main } from '../src/cli/pack.js'
 const control = vi.hoisted(() => ({
   packOutput: null as string | null,
   npmArgs: [] as string[][],
+  hideNpmCli: false,
 }))
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    existsSync: (path: Parameters<typeof actual.existsSync>[0]) =>
+      control.hideNpmCli && String(path).endsWith('npm-cli.js') ? false : actual.existsSync(path),
+  }
+})
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
+  const isNpm = (file: unknown, argv: unknown): boolean =>
+    file === 'npm' || (Array.isArray(argv) && /npm-cli\.js$/.test(String(argv[0] ?? '')))
   return {
     ...actual,
     execFileSync: (...args: Parameters<typeof actual.execFileSync>) => {
-      if (args[0] === 'npm' && Array.isArray(args[1])) control.npmArgs.push([...args[1]])
-      return control.packOutput === null ? actual.execFileSync(...args) : control.packOutput
+      const [file, argv] = args
+      const npm = isNpm(file, argv)
+      if (npm && Array.isArray(argv)) {
+        control.npmArgs.push(argv.map(String).filter((value) => !/npm-cli\.js$/.test(value)))
+      }
+      if (npm && control.packOutput !== null) return control.packOutput
+      return actual.execFileSync(...args)
     },
   }
 })
@@ -44,6 +61,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'forgeloop-pack-'))
   control.packOutput = null
   control.npmArgs = []
+  control.hideNpmCli = false
   logs = []
   vi.spyOn(console, 'log').mockImplementation((message: unknown) => {
     logs.push(String(message))
@@ -89,6 +107,19 @@ describe('candidate package cli', () => {
     expect(packArgs).toContain('--cache')
     expect(packArgs[packArgs.indexOf('--cache') + 1]).toMatch(/[\\/]\.cache[\\/]npm-cache$/)
     expect(logs.join('\n')).toContain('"name": "forgeloop-test"')
+  })
+
+  it('falls back to the npm command when the bundled CLI is missing', () => {
+    const packageDir = packageFixture({})
+    control.hideNpmCli = true
+    control.packOutput = JSON.stringify([{ filename: 'forgeloop-test-1.2.3.tgz' }])
+    mkdirSync(join(packageDir, 'dist'), { recursive: true })
+    writeFileSync(join(packageDir, 'dist/forgeloop-test-1.2.3.tgz'), 'tarball', 'utf8')
+
+    expect(main(packageDir)).toBe(0)
+    const packArgs = control.npmArgs.at(-1) ?? []
+    expect(packArgs[0]).toBe('pack')
+    expect(packArgs).toContain('--cache')
   })
 
   it('rejects a pack result without a filename', () => {

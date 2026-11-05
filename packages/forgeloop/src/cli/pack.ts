@@ -48,11 +48,23 @@ export function main(
 ): number {
   const cache = resolve(packageDir, '../../.cache/npm-cache')
   mkdirSync(join(packageDir, 'dist'), { recursive: true })
-  const output = execFileSync(
-    'npm',
-    ['pack', '--json', '--cache', cache, '--pack-destination', join(packageDir, 'dist')],
-    { cwd: packageDir, encoding: 'utf8' },
-  )
+  const packArgs = [
+    'pack',
+    '--json',
+    '--cache',
+    cache,
+    '--pack-destination',
+    join(packageDir, 'dist'),
+  ]
+  // Windows 上 npm 是 npm.cmd，Node 不能直接执行；凡是 Node 自带 npm 的安装都走
+  // npm-cli.js，找不到时才回退到 PATH 里的 npm（POSIX 与非常规安装）。
+  const npmCli = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  const output = existsSync(npmCli)
+    ? execFileSync(process.execPath, [npmCli, ...packArgs], {
+        cwd: packageDir,
+        encoding: 'utf8',
+      })
+    : execFileSync('npm', packArgs, { cwd: packageDir, encoding: 'utf8' })
   const parsed = parseJsonArray(output)
   const packed = asRecord(parsed[0])
   const packedFilename = typeof packed?.filename === 'string' ? packed.filename : ''

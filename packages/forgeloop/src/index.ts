@@ -86,18 +86,19 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
   // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
   const config = resolveConfig(loadConfigOrThrow(rawConfig))
   const logger = createPluginLogger(config)
+  // 先校验宿主服务再打开记录库：缺服务时直接失败，不留下未关闭的 SQLite 句柄。
+  const tools = hostSurface(ctx).tools
+  if (!tools) throw new Error('宿主缺少 tools 服务，无法注册 ForgeLoop 工具')
+  const effect = hostSurface(ctx).effect
+  if (typeof effect !== 'function') throw new Error('宿主缺少 effect 服务，无法启动协调器')
   const runtime = new ForgeLoopRuntime({ ctx, config })
   const coordinator = new Coordinator({
     runtime,
     pollSeconds: config.pollSeconds,
     autoAdvance: config.autoAdvance,
   })
-  const tools = hostSurface(ctx).tools
-  if (!tools) throw new Error('宿主缺少 tools 服务，无法注册 ForgeLoop 工具')
   const disposers = registerTools(tools, buildTools(runtime, config))
 
-  const effect = hostSurface(ctx).effect
-  if (typeof effect !== 'function') throw new Error('宿主缺少 effect 服务，无法启动协调器')
   effect(() => {
     coordinator.start()
     // ForgeLoop 业务会话：注册 preset 并接管该 preset 会话的人类输入。
