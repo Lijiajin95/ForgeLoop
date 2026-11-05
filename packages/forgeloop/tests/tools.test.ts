@@ -98,7 +98,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('tool surface', () => {
-  it('exposes exactly the sixteen documented tools with renderable output', () => {
+  it('exposes exactly the eighteen documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -111,6 +111,8 @@ describe('tool surface', () => {
       'forgeloop_ops_logs',
       'forgeloop_rollouts',
       'forgeloop_run_verification_check',
+      'forgeloop_write_verification_control',
+      'forgeloop_write_verification_material',
       'forgeloop_read_project_doc',
       'forgeloop_write_project_doc',
       'forgeloop_web_search',
@@ -362,8 +364,8 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(16)
-    expect(disposers).toHaveLength(16)
+    expect(registered).toHaveLength(18)
+    expect(disposers).toHaveLength(18)
   })
 
   it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {
@@ -443,6 +445,38 @@ describe('requirement intake tool', () => {
     })
     expect(outcome.ok).toBe(false)
     expect(outcome.text).toContain('没有正在进行的验证')
+  })
+
+  it('writes sensitivity controls only for an active planned command', async () => {
+    expect((await call('forgeloop_write_verification_control', {})).text).toContain(
+      'req_id is required',
+    )
+    expect(
+      (
+        await call('forgeloop_write_verification_control', {
+          req_id: 'req-1',
+          label: 'unit',
+        })
+      ).text,
+    ).toContain('patch is required')
+    const outcome = await call('forgeloop_write_verification_control', {
+      req_id: 'req-1',
+      label: 'unit',
+      patch: 'diff --git a/a b/a',
+      expected_failure_output: 'target rule broken',
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.text).toContain('没有正在进行的验证')
+
+    expect(
+      (
+        await call('forgeloop_write_verification_material', {
+          req_id: 'req-1',
+          path: 'verification/x.js',
+          content: 'x',
+        })
+      ).text,
+    ).toContain('没有正在进行的验证')
   })
 })
 

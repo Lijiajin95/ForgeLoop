@@ -15,6 +15,7 @@ import {
   structuredReviewOf,
 } from './spec-fixture.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
+import { registerSmokeControl } from './control-fixture.js'
 
 /**
  * 可发布候选与上线核对：
@@ -283,6 +284,7 @@ function fakeRunner(): AgentLike {
               const outcome = await runtime.runVerificationCheck(reqId, label)
               if (!outcome.ok) throw new Error(outcome.text)
             }
+            await registerSmokeControl(runtime, reqId, labels[0] ?? 'smoke')
             return result(
               {
                 role: request.role,

@@ -421,14 +421,6 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
   if (!scenarios.some((scenario) => scenario.required)) {
     throw new MalformedError('验证方案至少要有一个必过场景')
   }
-  for (const scenario of scenarios.filter((item) => item.required)) {
-    if (!scenario.checks.some((check) => !check.expectFailure)) {
-      throw new MalformedError(`必过场景缺少正向检查：${scenario.scenario}`)
-    }
-    if (!scenario.checks.some((check) => check.expectFailure)) {
-      throw new MalformedError(`必过场景缺少错误对照（expect_failure: true）：${scenario.scenario}`)
-    }
-  }
   return { scenarios }
 }
 

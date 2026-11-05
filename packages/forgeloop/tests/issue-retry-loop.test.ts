@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { controlAwareFormalTest, registerSmokeControl } from './control-fixture.js'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import type {
@@ -99,17 +100,8 @@ const BUSINESS_REVIEW = structuredReviewOf({
   summary: '业务场景通过',
   findings: [],
   blocking: [],
-  scenarios: [
-    { scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke', 'smoke-negative'] },
-  ],
-  acceptance: [
-    {
-      criterion: CRITERION,
-      status: 'pass',
-      evidence: SMOKE,
-      commands: ['smoke', 'smoke-negative'],
-    },
-  ],
+  scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
+  acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
 /** 需求说明派生的验证方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
@@ -128,11 +120,6 @@ function verificationPlan(fail: boolean): string {
             label: 'smoke',
             argv: ['node', '-e', fail ? repaired : `console.log('${SMOKE}')`],
             expected_output: SMOKE,
-          },
-          {
-            label: 'smoke-negative',
-            argv: ['node', '-e', 'process.exit(1)'],
-            expect_failure: true,
           },
         ],
       },
@@ -170,8 +157,9 @@ function fakeRunner(
         for (const label of labels) {
           const outcome = await runtime.runVerificationCheck(reqId, label)
           if (!outcome.ok) throw new Error(outcome.text)
+          executions += 1
         }
-        executions += 1
+        await registerSmokeControl(runtime, reqId, labels[0] ?? 'smoke')
         return reply(JSON.stringify({ executed: labels, summary: 'executed' }))
       }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
@@ -234,7 +222,7 @@ function makeRuntime(runner: AgentLike = fakeRunner()): ForgeLoopRuntime {
     },
     project,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner })
+  return new ForgeLoopRuntime({ ctx: {}, config, runner, formalTest: controlAwareFormalTest })
 }
 
 async function runNext(reqId: string, action: 'analyze' | 'advance') {
@@ -301,7 +289,7 @@ describe('verification failure issue loop', () => {
 
     // 证据包含验证命令、退出码、日志路径、环境与状态。
     expect(issue.evidence.blocking).toContain('验证命令失败：smoke（退出码 1）')
-    expect(issue.evidence.commands).toHaveLength(2)
+    expect(issue.evidence.commands).toHaveLength(1)
     expect(issue.evidence.commands[0]).toMatchObject({
       label: 'smoke',
       exitCode: 1,

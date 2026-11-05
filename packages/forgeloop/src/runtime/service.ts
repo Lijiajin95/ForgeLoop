@@ -1209,12 +1209,13 @@ ${answer}`
     }
   }
 
-  /**
-   * 验证会话的工具入口：只执行当前候选验证方案中已登记的 label；
-   * 其他会话或方案外的命令一律拒绝，模型不能借此执行任意命令。
-   */
   runVerificationCheck(reqId: string, label: string): Promise<VerificationCheckOutcome> {
     return this.verificationChecks.run(reqId, label)
+  }
+
+  /** 验证会话的非命令工具面：对照与验证材料写入；上下文、路径与补丁由注册表校验。 */
+  get verificationTool(): VerificationCheckRegistry {
+    return this.verificationChecks
   }
 
   /**

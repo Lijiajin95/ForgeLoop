@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { controlAwareFormalTest, registerSmokeControl } from './control-fixture.js'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig, type RawConfig } from '../src/config.js'
 import {
@@ -254,6 +255,7 @@ function otherRoles(runtimeOf: () => ForgeLoopRuntime): AgentLike {
         const outcome = await runtimeOf().runVerificationCheck(reqId, label)
         if (!outcome.ok) throw new Error(outcome.text)
       }
+      await registerSmokeControl(runtimeOf(), reqId, labels[0] ?? 'smoke')
       return reply({ role }, JSON.stringify({ executed: labels, summary: 'executed' }), [
         'forgeloop_run_verification_check',
       ])
@@ -332,7 +334,12 @@ function makeRuntime(
     resume: (request) =>
       request.role === 'dev' ? real.resume(request) : Promise.reject(new Error('unsupported')),
   }
-  holder.current = new ForgeLoopRuntime({ ctx: {}, config, runner })
+  holder.current = new ForgeLoopRuntime({
+    ctx: {},
+    config,
+    runner,
+    formalTest: controlAwareFormalTest,
+  })
   return holder.current
 }
 

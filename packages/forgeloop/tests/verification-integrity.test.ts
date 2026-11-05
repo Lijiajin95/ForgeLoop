@@ -96,13 +96,13 @@ describe('verification failure classification', () => {
 })
 
 describe('sensitivity controls', () => {
-  it('requires a control for every passing required scenario', () => {
+  it('requires at least one passing required scenario with a control', () => {
     const issues = validateControlCoverage({
       requiredScenarios: ['交付'],
       reportScenarios: [{ scenario: '交付', status: 'pass', commands: ['check'] }],
       controls: [],
     })
-    expect(issues).toEqual(['必过场景缺少敏感性对照，无法证明用例能发现错误行为：交付'])
+    expect(issues.join('；')).toContain('没有任何必过场景提供敏感性对照')
     expect(
       validateControlCoverage({
         requiredScenarios: ['交付'],

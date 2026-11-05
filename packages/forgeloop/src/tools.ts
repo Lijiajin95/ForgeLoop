@@ -11,7 +11,11 @@ import type { ForgeLoopConfig } from './config.js'
 import { readProjectDoc, resolveProjectDoc, writeProjectDoc } from './runtime/project-docs.js'
 import { fetchWeb, searchWeb, WEB_KEY_NOTE } from './runtime/web-tools.js'
 import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
-import { VERIFICATION_CHECK_TOOL } from './runtime/verification-checks.js'
+import {
+  VERIFICATION_CHECK_TOOL,
+  VERIFICATION_CONTROL_TOOL,
+  VERIFICATION_MATERIAL_TOOL,
+} from './runtime/verification-checks.js'
 import { readArtifactLog, readArtifactState } from './runtime/ops-artifacts.js'
 
 type AnyRecord = Record<string, unknown>
@@ -79,6 +83,91 @@ function defineTool(input: {
 function stringArg(args: AnyRecord, key: string): string | undefined {
   const value = args[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function verificationControlTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
+  return defineTool({
+    name: VERIFICATION_CONTROL_TOOL,
+    description:
+      'Register the sensitivity control for one planned verification command: a unified diff that makes a known-wrong implementation, which the runtime applies to an isolated copy before rerunning the command. The patch must change business files outside verification/ and the expected failure text must point at the target rule.',
+    parameters: {
+      type: 'object',
+      properties: {
+        req_id: { type: 'string', description: 'Exact requirement id under verification' },
+        label: {
+          type: 'string',
+          description: 'Command label from the current verification plan',
+        },
+        patch: {
+          type: 'string',
+          description:
+            'Unified diff applied to an isolated copy; must modify files outside verification/',
+        },
+        expected_failure_output: {
+          type: 'string',
+          description: 'Text that must appear when the faulty copy runs the same command',
+        },
+      },
+      required: ['req_id', 'label', 'patch', 'expected_failure_output'],
+      additionalProperties: false,
+    },
+    async run(args) {
+      const reqId = stringArg(args, 'req_id')
+      if (!reqId) return { ok: false, text: 'req_id is required' }
+      const label = stringArg(args, 'label')
+      if (!label) return { ok: false, text: 'label is required' }
+      const patch = stringArg(args, 'patch')
+      if (!patch) return { ok: false, text: 'patch is required' }
+      const expected = stringArg(args, 'expected_failure_output')
+      if (!expected) return { ok: false, text: 'expected_failure_output is required' }
+      const outcome = await runtime.verificationTool.writeControl(reqId, {
+        label,
+        patch,
+        expectedFailureOutput: expected,
+      })
+      return {
+        ok: outcome.ok,
+        text: outcome.text,
+        ...(outcome.data === undefined ? {} : { data: outcome.data }),
+      }
+    },
+  })
+}
+
+function verificationMaterialTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
+  return defineTool({
+    name: VERIFICATION_MATERIAL_TOOL,
+    description:
+      'Write a verification script or helper under the fixed candidate verification/ directory. Only verification/ is writable; candidate source, tests and configuration are rejected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        req_id: { type: 'string', description: 'Exact requirement id under verification' },
+        path: {
+          type: 'string',
+          description:
+            'Workspace-relative path under verification/, e.g. verification/check_doc.js',
+        },
+        content: { type: 'string', description: 'UTF-8 file content' },
+      },
+      required: ['req_id', 'path', 'content'],
+      additionalProperties: false,
+    },
+    async run(args) {
+      const reqId = stringArg(args, 'req_id')
+      if (!reqId) return { ok: false, text: 'req_id is required' }
+      const path = stringArg(args, 'path')
+      if (!path) return { ok: false, text: 'path is required' }
+      const content = typeof args.content === 'string' ? args.content : undefined
+      if (content === undefined) return { ok: false, text: 'content is required' }
+      const outcome = runtime.verificationTool.writeMaterial(reqId, { path, content })
+      return {
+        ok: outcome.ok,
+        text: outcome.text,
+        ...(outcome.data === undefined ? {} : { data: outcome.data }),
+      }
+    },
+  })
 }
 
 function verificationCheckTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
@@ -372,6 +461,8 @@ export function buildTools(
     ...opsArtifactTools(config),
     rolloutTool(runtime, config),
     verificationCheckTool(runtime),
+    verificationControlTool(runtime),
+    verificationMaterialTool(runtime),
     defineTool({
       name: 'forgeloop_read_project_doc',
       description:

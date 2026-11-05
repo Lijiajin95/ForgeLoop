@@ -69,7 +69,10 @@ function safeName(label: string): string {
   return cleaned || 'control'
 }
 
-/** 复制候选到隔离副本，跳过 node_modules 与 .git，再按需复用依赖。 */
+/**
+ * 复制候选到隔离副本：保留 Git 元数据的一份独立仓库，验证命令可检查 git status/diff，
+ * 但补丁只能落在副本内。先复制源码与验证材料，再初始化并提交基线，最后应用错误补丁。
+ */
 function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): void {
   rmSync(controlDir, { recursive: true, force: true })
   mkdirSync(controlDir, { recursive: true })
@@ -81,6 +84,25 @@ function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: s
       return segment !== 'node_modules' && segment !== '.git'
     },
   })
+  const initialized = runCommand('git', ['init', '-q'], controlDir, 30_000)
+  if (initialized.code !== 0) {
+    throw new Error(`无法初始化对照副本：${initialized.stderr.trim()}`)
+  }
+  runCommand('git', ['add', '-A'], controlDir, 60_000)
+  runCommand(
+    'git',
+    [
+      '-c',
+      'user.email=forgeloop@example.invalid',
+      '-c',
+      'user.name=ForgeLoop',
+      'commit',
+      '-qm',
+      'control baseline',
+    ],
+    controlDir,
+    60_000,
+  )
   const candidates = [join(workspace, 'node_modules')]
   if (dependencyRoot) candidates.push(join(dependencyRoot, 'node_modules'))
   const modules = candidates.find((path) => existsSync(path))
