@@ -34,8 +34,8 @@ ForgeLoop 只声明范围、记录证据并在回退后核对。
 | `DeploymentArtifact` | 一次构建的制品：id、kind（`dsh-plugin`/`process-bundle`/`container-image`）、version、sha256、文件清单、构建来源（requirement/plan/candidate） |
 | `DeploymentTool`     | 一段登记的外部工具：id、kind（`python`/`shell`/`k8s`）、脚本路径与摘要、能力、超时、环境变量白名单                                             |
 | `DeploymentDevice`   | 部署目标设备；本版只有本机 `local`，多机留到后续版本                                                                                           |
-| `DeploymentTarget`   | 一个可部署位置：id、toolId、device、参数（profile/namespace/unit/image）、数据范围、关联 requirement、审批方式                                 |
-| `DeploymentIntent`   | 一次部署请求：target、artifact、提议来源（owner/运维事件/CLI）、幂等键                                                                         |
+| `DeploymentTarget`   | 一个可部署位置：id、toolId、device、参数（profile/namespace/unit/image）、数据范围、默认 requirement（可空）、审批方式 |
+| `DeploymentIntent`   | 一次部署请求：target、requirement、artifact、提议来源（owner/运维事件/CLI）、幂等键
 | `DeploymentAttempt`  | 一次工具调用：intent、设备、状态、退出码、结果 JSON、证据路径                                                                                  |
 
 部署工具是**唯一有部署副作用的地方**；ForgeLoop 不实现安装、不拼部署命令、不直接调 kubectl/docker。
@@ -139,11 +139,14 @@ interface DeploymentToolDescriptor {
 }
 ```
 
+示例中的 `requirementId` 是 target 的默认需求；按应用复用 target 时可省略或留空，由每次 intent 指定需求。
+
 校验规则：
 
 - 工具 id、target id 唯一；`kind` 只能是 `python`/`shell`/`k8s`；脚本存在且 realpath 位于 `toolRoot` 内。
 - `toolRoot` 省略时取部署目录下的 `tools/`；给了就必须是部署目录的子目录。
-- target 的 `toolId` 必须存在；`params` 只做结构校验（对象、字符串值、长度上限），语义由工具负责；
+- target 的 `toolId` 必须存在；`requirementId` 可选，作为该目标的默认需求；为空或省略时，
+  每次部署 intent 必须显式指定需求。`params` 只做结构校验（对象、字符串值、长度上限），语义由工具负责；
   `profile` 名仍做单段校验，拒绝 `.`、`..` 与分隔符。
 - `approval` 只能是 `owner`（默认）或 `auto`。`auto` 必须同时满足：`rollback.keep ≥ 1`、
   `deployments.alerts.webhook` 非空（重载失败必须有告警去处）；声明了数据范围时工具具备 `data-rollback`。
@@ -156,16 +159,19 @@ interface DeploymentToolDescriptor {
 
 ## 5. 授权模型（确定性代码，不靠提示词）
 
-- **所有者入口**：看板认证动作 `deployment-approve` / `deployment-rollback`（`by=config.owner`）；
+- **所有者入口**：看板认证动作 `deployment-intent` / `deployment-approve` / `deployment-rollback`
+  （`by=config.owner`）；`deployment-intent` 接受可选的 `reqId`，省略时用 target 默认需求。
   模型工具不能调用。原 `deploy` 端点保留为“上线核对”，与部署执行分开。
 - **自动执行**：`approval: "auto"` 允许用于正式 profile，但必须满足 §4 的三项条件；
   门禁仍全部校验，`auto` 只是免去逐次人工批准，不降低门槛。
 - **运维提议**：运维 Agent 在事件诊断里只能输出 `proposed_deployment: { target_id }`；主控校验
-  target 已登记、事件资源匹配、该事件未部署过，再按 `approval` 决定自动执行或等待批准。
+  target 已登记、事件资源匹配、该事件未部署过；需求取事件已关联的修复需求，否则用 target 默认需求，
+  两者都没有时拒绝并在事件观测中说明。再按 `approval` 决定自动执行或等待批准。
   提示词与工具不提供“直接部署”的参数。
 - **门禁**（全满足才允许调用 `apply`）：候选已构建且 `artifact.sha256` 等于验证与业务终审绑定的摘要；
-  独立验证通过；业务终审通过；验收有效；target 与 requirement/plan 匹配；无进行中的部署；
-  声明了数据范围时 `preflight` 必须给出 `restorePoint`。
+  独立验证通过；业务终审通过；验收有效；intent 指定的需求与候选/验证/终审/验收一致；无进行中的部署；
+  声明了数据范围时 `preflight` 必须给出 `restorePoint`。target 的 `requirementId` 只是默认值，
+  不是唯一允许部署的需求。
 - **回退**：保留 `keep` 份已验收产物；回退是一次新 intent，调用工具的 `rollback`（带 `restorePoint`），
   走同一状态机与核对。容器卷与数据库迁移按 target 声明的范围一并回退；回退后重新核对，
   不把“命令退出 0”当作数据已恢复。
@@ -181,7 +187,7 @@ interface DeploymentToolDescriptor {
 
 ## 7. 记录、证据与保留期
 
-- 两张业务表：`deployment_intents`（target、artifact、来源、审批、状态）与
+- 两张业务表：`deployment_intents`（target、requirement、artifact、来源、审批、状态）与
   `deployment_attempts`（intent、device、状态、退出码、结果 JSON、耗时、证据路径、toolSha256）。
 - 工具脚本留痕：`deployment_tool_scripts`（当前摘要）与 `deployment_tool_changes`（变更历史）。
 - 证据目录：`<recordsRoot>/projects/<project>/deployments/<intentId>/`，含 plan、

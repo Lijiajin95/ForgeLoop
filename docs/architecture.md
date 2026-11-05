@@ -247,12 +247,14 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    校验存活 PID 与安装入口/服务摘要一致，写入 `deployments`。发布授权缺失只阻断安装与上线，
    不回退已完成研发、验证和本地提交。
    部署执行与上面的“上线核对”分开：`deployment-intent` 经门禁与 preflight 后按 target 的
-   `approval` 进入 `awaiting_approval` 或自动 apply；`deployment-approve/-reject/-verify/-rollback`
+   `approval` 进入 `awaiting_approval` 或自动 apply；intent 可显式指定需求，省略时用 target 的
+   默认需求，门禁按该需求校验候选、验证、终审与验收；`deployment-approve/-reject/-verify/-rollback`
    只由认证看板以 `config.owner` 调用，`DeploymentService` 仍复核所有者身份。回退先按 target
    声明的卷/迁移执行 `data-rollback`，再执行 `rollback`，最后用 `status` 复核；回退失败与
    `verify_failed` 向配置的 webhook 尽力发送告警（有界超时、最多一次重试、不阻塞）。
-   运维诊断只能输出 `proposed_deployment: { target_id }`，由主控校验已登记 target 与事件资源后
-   走同一部署门禁；模型工具面没有部署、批准或回退参数，只有只读 `forgeloop_rollouts`。
+   运维诊断只能输出 `proposed_deployment: { target_id }`，由主控校验已登记 target 与事件资源，
+   需求取事件关联的修复需求或 target 默认需求，再走同一部署门禁；模型工具面没有部署、批准或
+   回退参数，只有只读 `forgeloop_rollouts`。
 9. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`submit`、`analyze`、`advance`、`retry`、
    `requeue`、`stop`、`cancel`、`deployment-intent/-approve/-reject/-verify/-rollback`
    以及历史兼容的 `plan/approve/verify/build/deploy/accept` 组成写动作端点。准入需求的验收是所有者
