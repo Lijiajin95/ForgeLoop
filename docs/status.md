@@ -5944,3 +5944,40 @@ GET /health → ok
   证据仍是同一份记录与同一进程，未伪造。
 - 单次成功不等于 M1 通过：M1-1（受控运行目标的种子版本与运行身份档案）、M1-3（真实模型运维
   闭环）、M1-5（真实部署中断实测）、M1-6/M1-7（统计复算与页面回查）仍未完成。
+
+## 156. M1-1 达成：种子版本安装与运行身份（2026-11-06）
+
+### 156.1 安装与身份
+
+- 制品：`npm pack` 产物 `/tmp/m1-seed/forgeloop-dsh-0.0.2.tgz`，
+  sha256 `66fa6a597bf00e936818717d56dc37967fbf94729162d82d481d950b332fc6c4`，版本 `0.0.2`。
+- 安装：`DSH_HOME=/tmp/m1-seed-home dsh plugin --profile m1-seed add <tgz>`；
+  profile 清单 `dependencies.forgeloop-dsh = file:/tmp/m1-seed/forgeloop-dsh-0.0.2.tgz`，
+  `dsh.profile.bundles = ["@deepseek-ai/dsh-base", "forgeloop-dsh"]`。
+- 启动：`DSH_HOME=/tmp/m1-seed-home dsh --profile m1-seed --patch <qwen-high> headless "只回复 ok"`，
+  插件在装载时写入 `node_modules/forgeloop-dsh/runtime-identity.json`：
+
+```json
+{"kind":"forgeloop-runtime-identity","version":"0.0.2","pid":3331603,
+ "startedAt":"2026-11-05T17:15:07.602Z","cwd":"/home/link/Project/ForgeLoop",
+ "indexSha256":"49d956e92858b33290875baeff6329fc50606d366f338940abbd7d11005cfcad",
+ "serviceSha256":"3836ae57d5caf64cc985e72edfb4697f6193ccf4a800d3e4aa6fade1d0641b1f",
+ "clientSha256":"3fa56cd0294b096d97c302c7f367f2d26d68fd72299c9595d024a37c6bf32835"}
+```
+
+### 156.2 判定与边界
+
+- **M1-1：达成**。同一 tarball 摘要、profile 依赖、运行身份（版本/pid/启动时间/入口摘要）可查询，
+  且版本与安装内容由 `runtime-identity.json` 绑定。
+- **必须披露的边界**：该 profile 沿用默认配置，装载时指向
+  `/home/link/.forgeloop/production/projects/forgeloop/records.sqlite`；由于生产宿主已持锁，
+  新宿主明确报告“单消费者锁未取得，本宿主不领取工作”，**没有消费或改写生产工作项**。
+  这不是隔离运行目标：种子档案若要长期保留，应为该 profile 配置独立 `recordsRoot`，
+  再重装一次并归档身份。本轮未改动生产记录、未取得生产锁。
+- 该实例为一次性 headless 进程，执行后退出；pid 与启动时间来自运行期写入的身份文件，
+  不是事后补写。
+
+### 156.3 观察
+
+- 全新 profile 安装种子会默认继承生产记录根，这是“安装即接触生产”的风险点；
+  建议在安装文档与 `make` 目标里要求显式 `recordsRoot`（发现但不碰，未改代码）。
