@@ -5095,3 +5095,51 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
 - 未完成：`board-route.ts` 已越过 80，但 runtime 其余模块仍按 §132.3 的缺口继续；本批未跑
   `make check`（Windows 上受上述既有失败与缺失 `make` 限制），已分别运行 typecheck、ESLint、
   token 预算、断言预算、可靠性注册表与相关 vitest/覆盖率/变异。
+
+## 133. 真实模型验证：Qwen Token Plan 跑通需求→研发→验证→提交（2026-11-05）
+
+来源：所有者在本次会话提供 QWEN Token Plan 的 API key 与模型 ID，指定作为真实验证模型。
+密钥只从启动环境读取；未写入仓库、profile 配置、证据或本记录。本批只做验证，未改产品源码、
+未改版本号、未 push/tag。
+
+### 133.1 环境与方法
+
+- 本机 Windows；Node 24.14.1；DSH 0.2.2-rc.1（`D:\Project\deepseek-harness` 的
+  `apps/cli/lib/bin.js`）。
+- 模型路由：`qwen-token-plan-cn / deepseek-v4.1-flash-1017`；loader patch 只引用
+  `QWEN_TOKEN_PLAN_CN_API_KEY` 环境变量名，不含密钥。
+- 隔离现场：临时 `DSH_HOME`（派生 `forgeloop-real-model-web` / `-headless` profile）、临时
+  Git 项目、临时 records root 与 `FORGELOOP_CONFIG`；未触碰正式 `web` profile、生产记录根或
+  3080 实例。
+- 先跑一次 headless 单回合（“只回复 OK”）确认 key/model 可用，返回 `OK`；再跑闭环。
+- 脚本：`scripts/ts/real-model-e2e.ts` 的本地副本（`.cache/real-model-e2e/`）。本机没有
+  `dsh`/`make` 在 PATH，且 Node 不能直接 spawn `.cmd`，副本只把 CLI 与 npm 调用改为
+  `process.execPath` + `apps/cli/lib/bin.js` / `npm-cli.js`；产品源码和脚本断言未改。
+- 外层 PowerShell 作业报告退出码 1，但脚本成功路径已打印 `OK`，且库内状态、提交、验证报告与
+  业务终审均成立；未在脚本输出中找到错误栈，退出码差异未定位，按实际记录保留，不据此写成
+  “进程 0 退出”。
+
+### 133.2 结果
+
+- 需求 `req-20261105080058-809fe6`；来源 `dsh-tool:submit_requirement`；提交者
+  `agent:real-model-e2e`；最终 `committed`。
+- 系统准入 1；任务包 1（2 个任务 `doc-marker`、`verify-marker` 均 `delivered`）；独立验证 1
+  （`pass`，5 个场景）；业务终审 1（`pass`，3 个场景、0 blocking）；受控提交 1；部署记录 0。
+- 候选 `dcb0d837364d0c8cd4888ece65eb89de5e732c03f02b5db49151774ed80907d3`；提交
+  `89e5d849b9e4cc4c7e6b1ea62720a2f0d4c021ce`；只新增 `docs/real-model-e2e.md`，内容为
+  `real model e2e ok`。时间段约 08:00:58–08:04:10Z（约 3 分 12 秒）。
+- 产品分析、研发拆解与实现、独立验证与业务终审均由
+  `qwen-token-plan-cn / deepseek-v4.1-flash-1017` 执行；会话记录里的 `request/context` 可回查
+  该 provider/model，未出现密钥。
+- 本机证据副本：`.cache/forgeloop/evidence-20261105-real-model/`（含 records.sqlite 快照、
+  `summary.json`、验证/终审报告、commit.json、各阶段 jsonl、模型路由摘录）。该目录不入库；
+  原始临时现场 `C:\...\forgeloop-real-model-egn9aW` 亦保留。环境变量中的密钥副本已从临时
+  DSH_HOME 删除。
+
+### 133.3 边界
+
+- 本次只覆盖“需求→产品分析→研发→独立验证→业务终审→受控提交”；不含部署、上线核对或运维
+  事件，不改变 §131.5 的 M0 边界，也不等于 `FORGELOOP_M0_LOOP_REAL_MODEL` 已实现。
+- 之前 §131.4 的 QWEN 401 是旧 key/环境问题；本次同 provider 已跑通，不代表其他模型或生产
+  profile 已验证。
+- 未采集 token/费用；未跑 `make check`（Windows 平台限制见 §132.4）。
