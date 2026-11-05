@@ -323,7 +323,7 @@ describe('web board host wiring', () => {
     const advancedBody = (await advanced.json()) as { ok: boolean; value: { requestId: string } }
     expect(advancedBody.ok).toBe(true)
     expect(advancedBody.value.requestId).toMatch(/^rq-/)
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('queues plan and verify decisions only when their preconditions hold', async () => {
@@ -429,7 +429,7 @@ describe('web board host wiring', () => {
     expect(notReady.status).toBe(409)
     const notReadyBody = (await notReady.json()) as { ok: boolean; error: { code: string } }
     expect(notReadyBody).toMatchObject({ ok: false, error: { code: 'admission_required' } })
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('rejects malformed and unauthorized decision actions', async () => {
@@ -460,7 +460,7 @@ describe('web board host wiring', () => {
     const deniedBody = (await denied.json()) as { error: { code: string } }
     expect(deniedBody.error.code).toBe('admission_required')
 
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('wires acceptance and stop actions with explicit validation', async () => {
@@ -485,7 +485,7 @@ describe('web board host wiring', () => {
     const stoppedBody = (await stopped.json()) as { ok: boolean; value: { aborted: number } }
     expect(stoppedBody.ok).toBe(true)
     expect(stoppedBody.value.aborted).toBe(0)
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('cancels a requirement from the interactive board', async () => {
@@ -509,7 +509,7 @@ describe('web board host wiring', () => {
     )
     const detailBody = (await detail.json()) as { value: { status: string } }
     expect(detailBody.value.status).toBe('cancelled')
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('serves search, bounded limits and a rich requirement detail for the workbench', async () => {
@@ -609,7 +609,7 @@ describe('web board host wiring', () => {
     // 详情页必须能看到实现前评审结论；没有独立验证时明确为空，而不是伪造“已通过”。
     expect(detailBody.value.planReview).toMatchObject({ verdict: 'pass' })
     expect(detailBody.value.verification).toBeNull()
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('retries a failed task without a recovery confirmation', async () => {
@@ -703,7 +703,7 @@ describe('web board host wiring', () => {
       value: { pendingRequests: Array<{ action: string }> }
     }
     expect(detailBody.value.pendingRequests.map((request) => request.action)).toEqual(['advance'])
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('keeps an approved task package frozen and no longer exposes replan', async () => {
@@ -798,7 +798,7 @@ describe('web board host wiring', () => {
       .find((candidate) => candidate.action === 'plan' && candidate.state === 'pending')
     expect(request?.source).toContain('plan-change:任务包遗漏关键文件')
     repository2.close()
-    host.cleanup()
+    await host.cleanup()
   })
 
   it('serves the task public execution process with real session and evidence identities', async () => {
@@ -996,15 +996,15 @@ describe('web board host wiring', () => {
     expect(emptyBody.value.total).toBe(0)
     expect(emptyBody.value.attempts[0]).toMatchObject({ available: false })
     expect(emptyBody.value.reason).toContain('没有找到')
-    host.cleanup()
+    await host.cleanup()
   })
 
-  it('stays inert in profiles without a browser Fetch registry', () => {
+  it('stays inert in profiles without a browser Fetch registry', async () => {
     const host = fakeHost({ withFetch: false })
     start(host)
     expect(host.injected()).toBe(true)
     expect(host.routes).toEqual([])
-    host.cleanup()
+    await host.cleanup()
   })
 })
 
@@ -1037,6 +1037,7 @@ describe('owner authorization routes', () => {
       expect(repository.budget('req-extend-route').limitSeconds).toBe(10800)
       expect(repository.getRequirement('req-extend-route')?.status).toBe('approved')
     })
+    await host.cleanup()
   })
 
   it('grants three more failure rounds to a blocked requirement', async () => {
@@ -1054,5 +1055,6 @@ describe('owner authorization routes', () => {
       expect(repository.grantCount('req-grant-route')).toBe(2)
       expect(repository.getRequirement('req-grant-route')?.status).toBe('approved')
     })
+    await host.cleanup()
   })
 })
