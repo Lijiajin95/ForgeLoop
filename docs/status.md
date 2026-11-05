@@ -226,7 +226,7 @@ without inject`。Fetch 路由走同一 Connection 认证层（Host/Origin 检�
 | 失败计数与入口                                                                                                             | 有 `user_acceptance` 失败类型，但当前无公开的用户验收失败反馈入口，尚未形成完整累计路径                                                                                                            |
 | [服务验收入口](../packages/forgeloop/src/runtime/service.ts)与[记录层](../packages/forgeloop/src/records/repository.ts)    | 当前允许未构建候选包时按任务材料验收；验收成功不证明已经打包、安装或上线。历史 diff 对变化后源码重放曾需外部合并，见 §2 与交付记录                                                                 |
 
-其他保留限制：当前任务包要求至少两个任务且有依赖；运行时不自动核验外部副作用，
+其他保留限制：任务包已按所有者 2026-11-05 决定取消“至少两个任务与依赖”，改为按实际成果拆分并用 `covers` 追踪需求条目；运行时不自动核验外部副作用，
 中断任务按未交付收口，运维中断动作由 Agent 上报根因但不重放。费用计量、脱敏与材料保留策略、
 指令注入／副本外访问、客户端断开长跑及部分桌面交互没有完整验收结论。
 旧稿原始证据指向的两项真实需求、数据库和 evidence 目录继续按 §2 与交付记录回查。
@@ -5422,3 +5422,36 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
 - `make check` 135 文件 1555 项通过；`make coverage` 通过；`make contracts` 通过。
 - 本轮没有新增真实模型或真实部署证据；M1 的真实安装器/运行进程证明、真实模型运维闭环仍未完成，
   见 §138.4。M0 收口基线仍限定在隔离受控环境，本次修复消除的是该基线内的停止门禁缺陷。
+
+
+## 139. 研发自验证、验证对照与失败分流（2026-11-05）
+
+来源：所有者 12 项决策。实现位于独立 worktree `feat/owner-process-decisions`，未 push/tag、未改版本号、未改生产配置。
+
+### 139.1 实际改动
+
+- 需求分析新增稳定条目 `items`（`item_id`、`kind`、`basis`）并落库 `requirement_analysis_items`；旧分析仍按数组派生兼容 ID、依据标为 unknown。任务包新增 `covers`，程序校验全部非目标条目至少被一个任务覆盖。
+- 取消任务包“至少 2 个任务、至少 1 条依赖”；单任务、无依赖方案可通过；依赖仍校验存在、无环、不依赖自身。
+- 删除自验证 verification 任务类型、空 diff 交付与只读任务分支；所有任务必须产生实际文件改动。
+- 研发 Agent 在任务回合内完成白盒+黑盒自验证，输出结构化 `mode`/`risk`/`red_green`/`needs_clarification`；BUG 修复或高风险改动强制红灯/绿灯。运行时把每次尝试的 `attempt.json`、`dev.jsonl`、`formal-test.log`、`candidate.diff` 写入 `attempts/a<n>-<timestamp>/`，不再互相覆盖。
+- 研发按代码 diff 选择 `independent` 或 `self`：`self` 且证据充分时直接受控提交并保存 `self-verification-<candidate>.json`；`independent` 时才在候选形成后打开验证会话。
+- 独立验证方案强制每个必过场景同时包含正向检查与 `expect_failure: true` 错误对照；正向成功、对照失败才通过；业务终审要求同时引用正向与对照命令。
+- 验证失败按确定性规则分流：环境异常、测试/验证材料缺陷、证据不足写入 `requirement_execution_anomalies`，单独记录且不计入正式失败轮次，不要求研发改代码；只有实现缺陷创建问题单并定向修复。
+- `commitCheckCommand` 为空时拒绝提交并提示先配置和修复；新增跨平台 `npm run check:repo`（与 `make check` 步骤等价），推荐用于 Linux/Windows 提交检查。
+- 问题输入可在研发遇到无法确认的业务预期时追加需求版本并回交产品澄清；`parseAnalysisDraft`/`validateAnalysis` 仅在 `dev-clarification:` 来源允许问题带 clarifications。
+
+### 139.2 检查与实际结果
+
+- `make check` 通过：145 个测试文件、1644 项测试；`make contracts` 通过；token/断言预算通过（断言 18/18）。
+- `make package` 通过：`forgeloop-dsh@0.0.2` 未变，tarball 351,983 字节，SHA-256 `06d6e6d9ee509bbb1befc57733337cd52736c2c0394d32abd32b18e6b534783e`。
+- `make m0-loop-e2e` 通过：S1（需求→研发自验证/独立验证→提交→构建→部署核对）、S2（运维恢复）、S3（修复回流）、停止阻止推进与显式恢复、验证上限阻塞全部通过；证据 `reports/m0-loop-e2e/2026-11-05T16-31-01-709Z/summary.json`。
+- `make real-model-e2e` 已尝试但未通过：派生 profile 报 `MISSING_CREDENTIAL: llm-deepseek`（启动环境无 `DEEPSEEK_API_KEY`），同时记录根被另一个宿主持有。该项仍是未验证，不把脚本启动当作真实模型闭环证据。
+- 未运行 `make verify-e2e`；未改生产 `~/.forgeloop/config.json`。
+
+### 139.3 边界与未完成
+
+- 真实模型研发阶段 E2E 未取得通过证据；跨平台提交检查入口 `check:repo` 已实现但未在 Windows 宿主实跑。
+- 研发 `self` 模式只以结构化自验证报告与红灯/绿灯为门禁，仍是模型判断；没有 OS 级隔离。
+- 旧显式批准链路的 verification task 测试已删除，旧记录仍只读保留。
+- `requirement_execution_anomalies` 目前只落库，看板尚未展示；无进展签名/重复次数未实现。
+- 真实生产配置是否切换为 `npm run check:repo` 仍需所有者决定。
