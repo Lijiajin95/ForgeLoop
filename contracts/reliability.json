@@ -1448,25 +1448,25 @@
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 49,
+        "line": 55,
         "mutator": "ArrayDeclaration",
         "reason": "preflight_failed 的出边列表被替换为非法状态名；canTransition 的入参受 DeploymentAttemptState 类型约束，合法状态集合内行为不变。"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 51,
+        "line": 57,
         "mutator": "ArrayDeclaration",
         "reason": "rejected 的出边列表被替换为非法状态名；只对类型系统禁止的调用可观察，合法状态内等价。"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 60,
+        "line": 66,
         "mutator": "ArrayDeclaration",
         "reason": "rolled_back 的出边列表被替换为非法状态名；只对类型系统禁止的调用可观察，合法状态内等价。"
       },
       {
         "file": "packages/forgeloop/src/domain/deployment.ts",
-        "line": 98,
+        "line": 104,
         "mutator": "StringLiteral",
         "reason": "非 Error 抛出的兜底消息；JSON.parse 只抛 SyntaxError（Error），该分支不可达。"
       },
