@@ -1039,6 +1039,8 @@ createServer((req, res) => {
     '    print(json.dumps({"ok": True, "state": "ready", "restorePoint": "previous-1" if os.path.isdir(current) else ""}))',
     'elif op == "apply":',
     '    stop()',
+    '    with open(os.path.join(target, "apply-count"), "a") as count_file:',
+    '        count_file.write("1\\n")',
     '    shutil.rmtree(current, ignore_errors=True)',
     '    os.makedirs(current)',
     '    with tarfile.open(plan["artifact"]["path"]) as tar:',
@@ -1093,6 +1095,86 @@ createServer((req, res) => {
     writeFileSync(path, INSTALLER)
     return path
   }
+
+  it('closes an interrupted apply from real status without reinstalling', async () => {
+    const artifactPath = makeArtifact(join(dir, 'interrupt.tgz'), 'export const marker = "v1"\n')
+    const artifact = {
+      sha256: execFileSync('sha256sum', [artifactPath], { encoding: 'utf8' }).split(' ')[0]!,
+      path: artifactPath,
+      version: '1.0.0',
+    }
+    const tool = installer()
+    const targetDir = join(dir, 'target-interrupt')
+    mkdirSync(targetDir, { recursive: true })
+    config = resolveConfig(
+      {
+        project: 'testproj',
+        projectPath: dir,
+        recordsRoot: join(dir, '.forgeloop'),
+        deployments: {
+          enabled: true,
+          verifyTimeoutSeconds: 60,
+          tools: [
+            {
+              id: 'ti',
+              kind: 'python',
+              path: tool,
+              capabilities: ['preflight', 'apply', 'status', 'rollback'],
+              timeoutSeconds: 60,
+            },
+          ],
+          targets: [
+            {
+              id: 'real',
+              toolId: 'ti',
+              requirementId: 'req-1',
+              approval: 'owner',
+              params: { target: targetDir },
+            },
+          ],
+        },
+      },
+      dir,
+    )
+    const deployments = build()
+    const requested = await deployments.request({ targetId: 'real', artifact, source: 'interrupt' })
+    expect(requested.ok, requested.message).toBe(true)
+    const firstId = (requested.data as { intentId: string }).intentId
+    await deployments.approve(firstId)
+    expect((await deployments.verify(firstId)).ok).toBe(true)
+
+    // 宿主崩溃时 intent 停在 applying；用一个指向同一已安装制品的新 intent 复现该状态。
+    const interruptedId = 'dep-interrupted-apply'
+    repo.deploymentStore.recordDeploymentIntent({
+      intentId: interruptedId,
+      project: 'testproj',
+      targetId: 'real',
+      requirementId: 'req-1',
+      artifactSha256: artifact.sha256,
+      artifactPath: artifact.path,
+      artifactVersion: artifact.version,
+      source: 'host-crash',
+      approval: 'owner',
+      state: 'draft',
+      createdAt: '2026-11-05T08:00:00.000Z',
+      updatedAt: '2026-11-05T08:00:00.000Z',
+    })
+    repo.deploymentStore.updateDeploymentIntentState(
+      interruptedId,
+      'applying',
+      '2026-11-05T08:00:00.000Z',
+    )
+
+    const recovered = await deployments.recoverInterrupted('2026-11-05T09:00:00.000Z')
+    expect(recovered).toBe(1)
+    expect(deployments.detail(interruptedId)?.intent.state).toBe('applied_pending_verify')
+    // 只观测、不重装：安装器的 apply 次数没有增加。
+    const applies = readFileSync(join(targetDir, 'apply-count'), 'utf8').trim().split('\n').length
+    expect(applies).toBe(1)
+    const verified = await deployments.verify(interruptedId)
+    expect(verified.ok, verified.message).toBe(true)
+    expect(applies).toBe(1)
+  })
 
   it('verifies against the live process identity and rejects a stale process', async () => {
     const artifactPath = makeArtifact(join(dir, 'app.tgz'), 'export const marker = "v1"\n')
