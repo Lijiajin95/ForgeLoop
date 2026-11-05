@@ -5069,3 +5069,29 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
   当前全局仍低于 80，nightly gate 仍红；runtime 80% 作为独立测试加固项目继续。
 - config/repository/candidate 的定向结果尚未单独复跑；`monitor.ts` 需要不依赖宿主进程表的测试。
 - 未下调 break、未排除业务源码、未把未完成写成通过。
+
+### 132.4 看板路由测试补齐与用例清理（2026-11-05）
+
+- 新增 `packages/forgeloop/tests/board-route-contracts.test.ts`（40 用例），固定 33 个端点
+  的成功信封、错误 code/message 原文、400/404/409 状态映射、分页与可靠性窗口边界、部署决定
+  映射、所有写入动作的 `by=owner` 与 `web-decision:<session>:<action>` 来源、JSON content-type
+  以及 stop 的 `aborted` 合并；规格来自 `board-route.ts` 的入口校验与 `grants`/`budget` 返回值。
+- 修复 `tests/board-channel.test.ts`：12 处 `host.cleanup()` 未 `await`、2 个授权路由用例完全
+  没有清理；Windows 下 SQLite 句柄未释放，`afterEach` 的 `rmSync` 报 EPERM，整文件 12/15 假失败。
+  补齐等待后 15/15 通过，Linux 行为不变。
+- 定向实测（本机 Windows，Stryker 只变异 `src/runtime/board-route.ts`，840 个变异、8 并发）：
+  **61.79% → 90.00%**（killed 519 → 756，survived 311 → 84，noCoverage 10 → 0）。
+  `board-route.ts` 覆盖率：语句/函数/行 100%、分支 99.52%（阈值 90/95/90/85）。
+- 剩余 84 个存活基本是等价变异：handler 内 `body` 必非空，`body?.x` → `body.x` 不可观测；
+  `text('')` 与 `typeof` 组合对该路由输出无差异；`grant-rounds` 的 source 未被
+  `grantFailureRounds` 消费，无法从路由返回或记录层观察。未为这些变异改写源码。
+- 测量配置未入库：本机全量快速套件存在既有平台失败（见下条），Stryker dry run 会整体失败，
+  故用临时 vitest 配置只跑 `board-route*.test.ts` 与 `board-channel.test.ts`；该目录的文件集合
+  与全量运行时一致，分母未变。
+- 发现但不碰（本机 HEAD 上即可复现，与本批无关）：`contracts` 在 Windows 把导入路径拼成
+  `packages\forgeloop\src\...`，与 `contracts/architecture.json` 的 `/` 键不一致而失败；
+  快速套件 19 个失败/11 个文件是 POSIX 假设（`/tmp` 路径、`sh -c`、`SIGKILL`、`spawnSync npm`
+  在 Windows 的 ENOENT、平台相关快照）。后续需单开平台适配批次，未在本批修改。
+- 未完成：`board-route.ts` 已越过 80，但 runtime 其余模块仍按 §132.3 的缺口继续；本批未跑
+  `make check`（Windows 上受上述既有失败与缺失 `make` 限制），已分别运行 typecheck、ESLint、
+  token 预算、断言预算、可靠性注册表与相关 vitest/覆盖率/变异。
