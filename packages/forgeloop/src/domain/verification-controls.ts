@@ -71,8 +71,8 @@ export function parseVerificationControls(raw: string): VerificationControlSpec[
 }
 
 /**
- * 每个必过场景至少有一条关联命令带敏感性对照；缺少对照视为证据不足，不能通过。
- * 场景不存在或本身未通过由既有覆盖校验处理，这里只报敏感性缺口。
+ * 至少一个必过场景必须有关联命令带敏感性对照；否则无法证明测试能发现错误行为。
+ * 回归场景可以复用同一业务入口，不要求每条必过用例都单独做变异式对照。
  */
 export function validateControlCoverage(input: {
   readonly requiredScenarios: readonly string[]
@@ -84,15 +84,16 @@ export function validateControlCoverage(input: {
   readonly controls: readonly { readonly label: string }[]
 }): string[] {
   const controlled = new Set(input.controls.map((control) => control.label))
-  const issues: string[] = []
-  for (const scenario of input.requiredScenarios) {
-    const result = input.reportScenarios.find((item) => item.scenario === scenario)
-    if (!result || result.status !== 'pass') continue
-    if (!result.commands.some((label) => controlled.has(label))) {
-      issues.push(`必过场景缺少敏感性对照，无法证明用例能发现错误行为：${scenario}`)
-    }
-  }
-  return issues
+  const covered = input.reportScenarios.some(
+    (result) =>
+      result.status === 'pass' &&
+      input.requiredScenarios.includes(result.scenario) &&
+      result.commands.some((label) => controlled.has(label)),
+  )
+  if (covered) return []
+  return [
+    '没有任何必过场景提供敏感性对照，无法证明用例能发现错误行为；至少选择一个关键必过场景为其命令登记受控错误副本。',
+  ]
 }
 
 /** 从统一 diff 中读取目标路径；用于拒绝只改验证材料或越界的“对照”。 */

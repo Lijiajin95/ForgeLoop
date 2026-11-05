@@ -7,7 +7,7 @@
  * 模型自述不能替代真实执行结果。同一 label 在一个候选上幂等，重复调用返回已有结果。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -282,10 +282,20 @@ export class VerificationCheckRegistry {
       ? `受控副本退出码 ${actual.exitCode === null ? 'null' : actual.exitCode}；输出：\n${actual.output.slice(0, 800)}`
       : '未取得执行结果'
     if (selfCheck.issues.length > 0) {
+      // 自检失败不能留下“看起来已登记”的对照：撤销本次写入，要求模型修正后重试。
+      try {
+        const remaining = parseVerificationControls(readFileSync(controlsPath, 'utf8')).filter(
+          (item) => item.label !== input.label,
+        )
+        writeFileSync(controlsPath, `${JSON.stringify({ controls: remaining }, null, 2)}\n`, 'utf8')
+        rmSync(patchPath, { force: true })
+      } catch {
+        // 回滚失败也按未通过处理；下一轮验证会重新读取材料。
+      }
       return {
         ok: false,
-        text: `已保存对照 ${relative}，但自检未通过：${selfCheck.issues.join('；')}。${detail}\n请修正补丁或 expected_failure_output 后重新调用本工具。`,
-        data: { label: input.label, patch: relative, issues: selfCheck.issues },
+        text: `对照自检未通过，已撤销本次对照：${selfCheck.issues.join('；')}。${detail}\n请修正补丁或 expected_failure_output 后重新调用本工具。`,
+        data: { label: input.label, issues: selfCheck.issues },
       }
     }
     return {
