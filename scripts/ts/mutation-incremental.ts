@@ -152,6 +152,11 @@ const strykerBase = JSON.parse(readFileSync(join(PKG, 'stryker.config.json'), 'u
 >
 const config = {
   ...strykerBase,
+  // 受控范围是 domain/records 的稳定文件，快速测试即可覆盖；全量测试会让 703 个变异
+  // 超过 30 分钟 CI 预算，nightly 门禁因此固定用快速配置。
+  ...(scopeArg === 'controlled'
+    ? { vitest: { configFile: 'vitest.mutation-fast.config.ts' } }
+    : {}),
   mutate,
   incremental: true,
   incrementalFile: incrementalRelative,

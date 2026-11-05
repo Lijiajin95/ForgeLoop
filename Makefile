@@ -17,7 +17,7 @@ MUTATION_ENABLED := $(filter 1,$(MUTATION))
 
 .PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
-	precommit verify-plugin verify-e2e package m0-loop-e2e \
+	precommit verify-plugin verify-e2e package m0-loop-e2e worktree-start \
 	coverage mutation mutation-shard mutation-merge mutation-incremental audit security help \
 	reliability-report reliability-report-fast reliability-registry stability reliability-advanced
 
@@ -32,6 +32,7 @@ help:
 	@echo "make build                 编译到 packages/forgeloop/lib"
 	@echo "make package               构建本地候选安装包与摘要"
 	@echo "make contracts             架构契约校验"
+	@echo "make worktree-start TASK=... [BRANCH=...] 从干净 main 创建任务 worktree"
 	@echo "make worktree-merge BRANCH=... 快进合并并清理 worktree/分支"
 	@echo "make budget                Agent 上下文 token 预算（文件 25k）"
 	@echo "make assertions            类型断言预算（只减不增）"
@@ -103,6 +104,11 @@ architecture-contract:
 
 architecture-contract-check:
 	$(CONTRACTS)
+
+# 任务开始：从干净 main 创建独立 worktree，并复用主工作树 node_modules。
+worktree-start:
+	@test -n "$(TASK)" || (echo "用法：make worktree-start TASK=<task> [BRANCH=<branch>]" >&2; exit 1)
+	$(NODE) scripts/ts/worktree-start.ts $(TASK) $(if $(BRANCH),$(BRANCH),)
 
 # 合并 worktree 分支并自动移除 worktree、删除已合并分支。
 # 要求 main 干净、分支可由 main 快进。

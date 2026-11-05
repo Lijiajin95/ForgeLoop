@@ -35,8 +35,9 @@
 
 ## 提交前检查（pre-commit）
 
-仓库内置 `.githooks/pre-commit`：提交前运行 `make check-static`（类型、lint、架构契约、
-token/断言预算）与 `make format`，失败即阻止提交。新克隆执行一次安装：
+仓库内置 `.githooks/pre-commit`：提交前先运行 worktree 硬约束（主工作树暂存代码文件即拒绝），
+再运行 `make check-static`（类型、lint、架构契约、token/断言预算）与 `make format`，失败即阻止提交。
+任务开始用 `make worktree-start TASK=<task>` 创建独立现场；纯文档改动可在主工作树提交。新克隆执行一次安装：
 
 ```bash
 make hooks      # 等价于 git config core.hooksPath .githooks

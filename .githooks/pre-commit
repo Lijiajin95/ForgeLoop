@@ -3,6 +3,8 @@
 # 不做完整测试与覆盖/变异（那些在 make check / CI 中跑），保证提交延迟可控。
 set -e
 cd "$(git rev-parse --show-toplevel)"
+echo "[pre-commit] worktree guard"
+node scripts/ts/worktree-guard.ts
 echo "[pre-commit] make check-static"
 make check-static
 echo "[pre-commit] make format"

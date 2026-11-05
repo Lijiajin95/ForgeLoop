@@ -25,8 +25,13 @@
 
 ## 工作现场与 Git worktree
 
-- **默认在独立的 Git worktree 中修改代码**，不直接编辑共享主工作树。代码包括源码、测试、脚本、
-  配置、契约与构建脚本；只读调查、运行检查与不改变代码行为的纯文档改动可直接在主工作树进行。
+- **任务开始先创建独立 worktree，再修改代码**：执行
+  `make worktree-start TASK=<task> [BRANCH=<branch>]`，在 `.cache/worktrees/<task>` 中完成修改、
+  测试与提交；不得直接在共享主工作树编辑代码。代码包括源码、测试、脚本、配置、契约、Hook 与构建脚本。
+  只读调查、运行检查与不改变代码行为的纯文档改动可直接在主工作树进行。
+- **硬约束**：`.githooks/pre-commit` 先运行 `scripts/ts/worktree-guard.ts`；主工作树暂存区只要包含
+  `packages/`、`scripts/`、`contracts/`、`.github/`、`.githooks/`、Makefile/包清单等代码文件，提交即被拒绝。
+  规则不是只写在文档里；需要代码改动时必须使用 worktree，合并由主工作树快进完成。
 - 每个可独立提交的任务使用一个 worktree 与分支，放在仓库已忽略的 `.cache/worktrees/<task>`，
   从当前 `HEAD` 创建（`feat/…`、`fix/…`、`chore/…`）；依赖复用主工作树的 `node_modules`，
   不复制记录、缓存或构建产物。
