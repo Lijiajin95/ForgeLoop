@@ -413,6 +413,8 @@ const PYTHON_TOOL_REFERENCE_FILES = new Set([
   // M0 闭环 E2E 在临时目录登记一个外部 python 部署工具（与 deployment-tools 的 kind 一致），
   // 不是把 Python 实现带回活动代码。
   'scripts/ts/m0-loop-e2e.ts',
+  // 真实模型 E2E 的部署 leg 同样登记外部 python 部署工具，理由同上。
+  'scripts/ts/real-model-e2e.ts',
 ])
 
 function checkNoPython(): void {

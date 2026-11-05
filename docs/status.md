@@ -5219,7 +5219,8 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
   找到 `stryker.cmd`；`reliability-report.ts` 在 Windows 走 `make-windows.ts`；
   `e2e.ts`、`e2e-board.ts`、`verify-plugin.ts`、`verify-e2e.ts` 的 `npm`/`dsh` 启动与 web
   子进程结束都改用平台适配。`real-model-e2e.ts` 在 main 已有 `FORGELOOP_DSH_CLI` 与
-  `npm.cmd`/shell 处理，本批未重复修改。
+  `npm.cmd`/shell 处理，本批未重复修改；其部署 leg 登记的外部 python 部署工具补进
+  `contracts.ts` 的既有放行清单（与 `m0-loop-e2e.ts` 同因）。
 
 ### 135.2 源码与测试适配
 
