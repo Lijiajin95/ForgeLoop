@@ -240,3 +240,80 @@ describe('build stamp', () => {
     expect(textOf(page)).toBe('运行版本未记录')
   })
 })
+
+describe('summary rail and quality verdict', () => {
+  it('builds a compact global summary with delivery and autonomy', () => {
+    const items = exportsValue.__rules.boardSummaryItems(t, {
+      summary: { requirements: 6, active: 0, tasks: 14, delivered: 8, issues: 0, blocking: 0 },
+      autonomy: {
+        requirements: {
+          autonomousSuccessRate: { numerator: 0, denominator: 6, rate: 0 },
+        },
+      },
+    })
+    expect(items.map((item) => item.value)).toEqual(['6', '0', '8/14', '0', '0%'])
+    expect(items[2]?.note).toBe('任务')
+    expect(items[4]?.note).toBe('0/6')
+  })
+
+  it('turns snapshot availability, gate and coverage failures into one verdict', () => {
+    const rules = exportsValue.__rules
+    expect(rules.reliabilityVerdict({ snapshot: { availability: 'missing' } })).toMatchObject({
+      tone: 'idle',
+      code: 'missing',
+    })
+    expect(
+      rules.reliabilityVerdict({
+        snapshot: {
+          availability: 'fresh',
+          gates: [{ status: 'fail' }, { status: 'pass' }],
+          tests: { failed: 2 },
+          coverage: { lines: 80, thresholds: { lines: 90 } },
+        },
+      }),
+    ).toMatchObject({
+      tone: 'error',
+      code: 'failed',
+      failedGates: 1,
+      failedTests: 2,
+      lowCoverage: 1,
+    })
+    expect(
+      rules.reliabilityVerdict({
+        snapshot: { availability: 'fresh', gates: [{ status: 'pass' }], tests: { failed: 0 } },
+      }),
+    ).toMatchObject({ tone: 'success', code: 'pass' })
+    expect(
+      rules.reliabilityVerdict({ snapshot: { availability: 'stale', gates: [] } }),
+    ).toMatchObject({ tone: 'warn', code: 'stale' })
+  })
+
+  it('marks small samples as warning instead of pass or failure', () => {
+    const rules = exportsValue.__rules
+    expect(rules.reliabilityRateTone({ rate: 100, total: 3 }, 90)).toBe('warn')
+    expect(rules.reliabilityRateTone({ rate: 100, total: 12 }, 90)).toBe('success')
+    expect(rules.reliabilityRateTone({ rate: 60, total: 12 }, 90)).toBe('error')
+    expect(rules.reliabilityRateTone(null, 90)).toBe('idle')
+  })
+
+  it('shortens requirement ids only for dense tree labels', () => {
+    expect(exportsValue.__rules.shortReqId('req-20261031091537-a0b4bc')).toBe('…a0b4bc')
+    expect(exportsValue.__rules.shortReqId('plain')).toBe('plain')
+  })
+})
+
+describe('requirement focus', () => {
+  it('summarizes the next action from status and available actions', () => {
+    const focus = exportsValue.__rules.requirementFocus
+    expect(focus(t, { status: 'committed', actions: ['deploy'] })).toMatchObject({
+      tone: 'success',
+      text: '可以核对上线',
+    })
+    expect(focus(t, { status: 'specified', actions: ['build'] })).toMatchObject({
+      tone: 'brand',
+      text: '可以构建候选安装包',
+    })
+    expect(focus(t, { status: 'blocked', actions: [] })).toMatchObject({ tone: 'error' })
+    expect(focus(t, { status: 'cancelled', actions: [] })).toBeNull()
+  })
+})
