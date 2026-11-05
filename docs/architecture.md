@@ -248,13 +248,21 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    不回退已完成研发、验证和本地提交。
    部署执行与上面的“上线核对”分开：`deployment-intent` 经门禁与 preflight 后按 target 的
    `approval` 进入 `awaiting_approval` 或自动 apply；intent 可显式指定需求，省略时用 target 的
-   默认需求，门禁按该需求校验候选、验证、终审与验收；`deployment-approve/-reject/-verify/-rollback`
-   只由认证看板以 `config.owner` 调用，`DeploymentService` 仍复核所有者身份。回退先按 target
-   声明的卷/迁移执行 `data-rollback`，再执行 `rollback`，最后用 `status` 复核；回退失败与
-   `verify_failed` 向配置的 webhook 尽力发送告警（有界超时、最多一次重试、不阻塞）。
+   默认需求，门禁按该需求校验当前版本、系统准入、候选、独立验证、业务终审与受控提交。
+   人类验收只对 `approval: "owner"` 目标必需；`auto` 目标由 target 配置授权，不能用验收记录
+   替代系统交付判定。`autoDeliver` 目标在普通需求受控提交后由协调器自动构建、提议并（auto 时）
+   apply，再由协调器执行 `status` 核对；owner 目标停在 `awaiting_approval` 等真实决定。
+   `delivery_handoffs` 按需求+候选+target 持久化交接状态，重复轮询与宿主重启不重复构建/安装。
+   `deployment-approve/-reject/-verify/-rollback` 只由认证看板以 `config.owner` 调用，
+   `DeploymentService` 仍复核所有者身份；部署决定（批准/核对）记录执行者，供自主率统计区分
+   人工与系统动作。回退先按 target 声明的卷/迁移执行 `data-rollback`，再执行 `rollback`，
+   最后用 `status` 复核；回退失败与 `verify_failed` 向配置的 webhook 尽力发送告警。
+   核对同时比对版本、安装制品摘要与运行中制品摘要；工具无法提供摘要或摘要不一致时保持
+   `verify_failed`，不把“版本相同”当作同一构建。
    运维诊断只能输出 `proposed_deployment: { target_id }`，由主控校验已登记 target 与事件资源，
-   需求取事件关联的修复需求或 target 默认需求，再走同一部署门禁；模型工具面没有部署、批准或
-   回退参数，只有只读 `forgeloop_rollouts`。
+   需求取事件关联的修复需求或 target 默认需求，再走同一部署门禁；修复需求部署核对通过后，
+   协调器回到原事件执行原检查并记录 `fix_check` 观测，通过则关闭事件，仍失败则转 `unresolved`。
+   模型工具面没有部署、批准或回退参数，只有只读 `forgeloop_rollouts`。
 9. **查询与呈现**：影响摘要、看板和会话摘要共用权威记录；`submit`、`analyze`、`advance`、`retry`、
    `requeue`、`stop`、`cancel`、`deployment-intent/-approve/-reject/-verify/-rollback`
    以及历史兼容的 `plan/approve/verify/build/deploy/accept` 组成写动作端点。准入需求的验收是所有者

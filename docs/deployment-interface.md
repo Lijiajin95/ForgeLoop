@@ -81,8 +81,12 @@ interface DeploymentToolDescriptor {
 - 数据范围：target 声明了 `data.volumes` 或 `data.migrations` 时，工具必须具备 `data-rollback`；
   `preflight` 必须在结果里返回可用的 `restorePoint`（卷快照/数据库备份标识），没有则拒绝 apply。
 - 环境变量：只有登记白名单的变量；凭据由工具自行从系统环境/密钥链读取，不进入 plan、证据与模型上下文。
-- 输出：stdout 只允许一个 JSON 对象，`{ ok, state, version, detail, steps?, restorePoint? }`；
-  超过 64 KiB 截断。退出码 0 且 `ok: true` 且 `state` 合法才算成功；畸形输出、超时、非 0 退出都按失败记录原因。
+- 输出：stdout 只允许一个 JSON 对象，`{ ok, state, version, detail, steps?, restorePoint?,
+  artifactSha256?, runningArtifactSha256?, runningPid?, runningStartedAt? }`；超过 64 KiB 截断。
+  退出码 0 且 `ok: true` 且 `state` 合法才算成功；畸形输出、超时、非 0 退出都按失败记录原因。
+- 上线核对证据：`status` 必须同时给出实际安装制品摘要 `artifactSha256` 与运行中制品摘要
+  `runningArtifactSha256`，以及运行进程 `runningPid`。缺任一项按 `verify_failed` 收口，
+  不写成 `verified`；版本号相同但摘要不同同样失败。
 - 幂等：同一 `intentId` 重复调用 `apply`，工具应返回 `state: "noop"`；ForgeLoop 也会先
   `status` 观测，已是目标摘要就不再调用。
 - 只读：`preflight`/`status`/`logs` 不得有副作用（契约要求，真实工具另做集成验证）。
@@ -127,6 +131,7 @@ interface DeploymentToolDescriptor {
         "params": { "profile": "web" },
         "data": { "volumes": [], "migrations": [] },
         "approval": "auto",
+        "autoDeliver": true,
         "rollback": { "keep": 2 }
       }
     ]
@@ -150,6 +155,9 @@ interface DeploymentToolDescriptor {
   `profile` 名仍做单段校验，拒绝 `.`、`..` 与分隔符。
 - `approval` 只能是 `owner`（默认）或 `auto`。`auto` 必须同时满足：`rollback.keep ≥ 1`、
   `deployments.alerts.webhook` 非空（重载失败必须有告警去处）；声明了数据范围时工具具备 `data-rollback`。
+- `autoDeliver` 默认 false。为 true 时，协调器在普通需求受控提交后自动构建，并按 target 的
+  `approval` 自动 apply 或只创建等待批准的 intent；同一需求+候选+target 只交接一次，
+  重启后按 `delivery_handoffs` 续跑。
 - `data.volumes`/`data.migrations` 只接受字符串数组（标识与说明），不能写命令。
 - `ops.actions[].kind=deploy` 只能引用已登记 target，不带命令与参数。
 - `env` 只允许变量名，值从宿主环境读取；配置里不写秘密。
@@ -168,10 +176,15 @@ interface DeploymentToolDescriptor {
   target 已登记、事件资源匹配、该事件未部署过；需求取事件已关联的修复需求，否则用 target 默认需求，
   两者都没有时拒绝并在事件观测中说明。再按 `approval` 决定自动执行或等待批准。
   提示词与工具不提供“直接部署”的参数。
-- **门禁**（全满足才允许调用 `apply`）：候选已构建且 `artifact.sha256` 等于验证与业务终审绑定的摘要；
-  独立验证通过；业务终审通过；验收有效；intent 指定的需求与候选/验证/终审/验收一致；无进行中的部署；
-  声明了数据范围时 `preflight` 必须给出 `restorePoint`。target 的 `requirementId` 只是默认值，
-  不是唯一允许部署的需求。
+- **门禁**（全满足才允许调用 `apply`）：需求当前版本、系统准入（有准入记录时）、未停止、已受控提交；
+  候选已构建且 `artifact.sha256` 等于验证与业务终审绑定的摘要；独立验证通过；业务终审通过；
+  intent 指定的需求与候选/验证/终审一致；声明了数据范围时 `preflight` 必须给出 `restorePoint`。
+  **人类验收只对 `approval: "owner"` 目标必需**；`auto` 目标由 target 配置授权，系统交付判定不能
+  被验收记录替代。target 的 `requirementId` 只是默认值，不是唯一允许部署的需求。
+- **自动交接**：`autoDeliver` 目标按上述门禁推进；auto 目标 apply 后由协调器执行 `status` 核对，
+  owner 目标停在 `awaiting_approval` 等真实决定。核对失败的 intent 不重试，等待人工/新候选。
+- **运行身份**：核对比对安装摘要与运行摘要，任一与 intent 制品不符即 `verify_failed`；
+  工具无法提供摘要时保持未验证。
 - **回退**：保留 `keep` 份已验收产物；回退是一次新 intent，调用工具的 `rollback`（带 `restorePoint`），
   走同一状态机与核对。容器卷与数据库迁移按 target 声明的范围一并回退；回退后重新核对，
   不把“命令退出 0”当作数据已恢复。
