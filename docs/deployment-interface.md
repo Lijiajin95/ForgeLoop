@@ -88,6 +88,9 @@ interface DeploymentToolDescriptor {
 - 上线核对证据：`status` 必须同时给出实际安装制品摘要 `artifactSha256` 与运行中制品摘要
   `runningArtifactSha256`，以及运行进程 `runningPid`。缺任一项按 `verify_failed` 收口，
   不写成 `verified`；版本号相同但摘要不同同样失败。
+  运行中摘要必须由运行进程自己提供（例如安装介质启动时缓存后经 `/identity` 返回），
+  不能把计划里的期望摘要或安装工具自身 PID 当作运行观测；安装成功但进程仍跑旧内容时
+  核对必须失败。
 - 幂等：同一 `intentId` 重复调用 `apply`，工具应返回 `state: "noop"`；ForgeLoop 也会先
   `status` 观测，已是目标摘要就不再调用。
 - 只读：`preflight`/`status`/`logs` 不得有副作用（契约要求，真实工具另做集成验证）。
