@@ -193,9 +193,11 @@ artifactSha256?, runningArtifactSha256?, runningPid?, runningStartedAt? }`；超
   不成立时收口为 `preflight_failed` 并记录决定，工具不会被调用。
 - **目标互斥**：同一 target 同一时刻只允许一个未收口 intent（`draft`…`rolling_back`）；
   并发请求返回 `target_busy`，部署、核对与回退共用该互斥。
-- **中断恢复**：`applying`/`verifying` 超过 `verifyTimeoutSeconds` 未收口时，先调用 `status`
-  观测实际结果；一致则推进到 `applied_pending_verify` 或 `verified`，不一致转 `failed`，
-  无法确认时保留原状态并记录一次 `recovery_unknown`，等待人工决定，不重复安装。
+- **中断恢复**：`applying`/`verifying`/`rolling_back` 超过 `verifyTimeoutSeconds` 未收口时，
+  先调用 `status` 观测实际结果；安装一致则推进到 `applied_pending_verify` 或 `verified`，
+  回退一致则收口为 `rolled_back`。不一致转 `failed`。无法确认时安装路径保留原状态并记录一次
+  `recovery_unknown`；回退路径为避免目标被永久占用，转 `failed` 并记录 `recovery_unknown`，
+  等待人工确认，均不重复安装或回退。
 - **自动交接**：`autoDeliver` 目标按上述门禁推进；auto 目标 apply 后由协调器执行 `status` 核对，
   owner 目标停在 `awaiting_approval` 等真实决定。核对失败的 intent 不重试，等待人工/新候选。
 - **运行身份**：核对比对安装摘要与运行摘要，任一与 intent 制品不符即 `verify_failed`；

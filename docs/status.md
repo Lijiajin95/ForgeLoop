@@ -5739,6 +5739,7 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
 - **真实模型运维闭环（S2/S3）未开始**：诊断与研发仍是脚本替身。
 - 生产 profile/安装器仍未登记；本批只在临时目标目录与真实本机进程上验证。
 - 模型推理强度仍是临时 `high` patch，未写入仓库默认配置。
+
 ## 150. 部署 attempt 证据与告警发送留痕（2026-11-05）
 
 来源：批次 C 要求的证据清单补齐。
@@ -5758,3 +5759,25 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   保留完整字段；核对失败后记录“告警已发送”。
 - 未执行：真实外部告警服务投递与真实工具 stderr 大输出；本批只覆盖隔离测试中的发送结果留痕。
 
+## 151. 中断的回退按外部事实收口（2026-11-05）
+
+来源：批次 C“重启遗留 applying、verifying、rolling_back 时先查询外部事实”。
+
+### 151.1 实现
+
+- `recoverInterrupted` 的窗口判断纳入 `rolling_back`：超过 `verifyTimeoutSeconds` 后先调用
+  `status` 观测，不重新执行回退。
+- 观测结果匹配上一已验证制品（版本/安装摘要/运行摘要/pid）时收口为 `rolled_back`，
+  记录 `recovery_rolled_back`；仍运行本次制品时转 `failed`，记录 `recovery_failed`。
+- 无法观测或找不到上一已验证制品时转 `failed` 并记录 `recovery_unknown`，释放 target，
+  避免 `rolling_back` 永久占用导致后续部署一直 `target_busy`；不盲目重放回退。
+
+### 151.2 证据
+
+- `tests/deployment-rollback.test.ts` 新增 4 项：外部已完成回退 → `rolled_back`；仍运行新制品
+  → `failed`；status 观测失败 → `failed` + `recovery_unknown` 且目标可再次请求；
+  无上一制品 → `failed` + `recovery_unknown`。
+- 修复前证据：在 `60ed175` 上同一用例 `expected +0 to be 1`（旧实现完全不处理 `rolling_back`）。
+- 同时补数据恢复失败反例：`data-rollback` 返回失败时停在 `data_rollback_failed`，
+  不再执行代码回退，并发送一次告警。
+- 未执行：真实宿主在回退中途崩溃的端到端复验；本批用持久状态与隔离工具模拟。

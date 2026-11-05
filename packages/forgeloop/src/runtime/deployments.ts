@@ -334,9 +334,9 @@ export class Deployments {
   }
 
   /**
-   * 中断恢复：applying/verifying 超过核对窗口仍未收口时，先只读观测实际结果，再决定
-   * 完成、失败或保留未知；绝不重新执行 apply。
-   * 观测无法确认时保留原状态并记录一次待决定事实，避免每轮重复调用外部工具。
+   * 中断恢复：applying/verifying/rolling_back 超过核对窗口仍未收口时，先只读观测实际结果，
+   * 再决定完成、失败或记录未知；绝不重新执行 apply 或回退。
+   * 回退中断若无法观测，释放目标并记录未知，避免目标被永久占用。
    */
   async recoverInterrupted(now = this.now()): Promise<number> {
     if (!this.deps.config.deployments.enabled) return 0
@@ -349,9 +349,15 @@ export class Deployments {
     return recovered
   }
 
-  /** 需要恢复的中断：applying/verifying 超过窗口，且尚未留下“结果未知”决定。 */
+  /** 需要恢复的中断：applying/verifying/rolling_back 超过窗口，且尚未留下“结果未知”决定。 */
   private interrupted(intent: DeploymentIntentRecord, now: string, limitMs: number): boolean {
-    if (intent.state !== 'applying' && intent.state !== 'verifying') return false
+    if (
+      intent.state !== 'applying' &&
+      intent.state !== 'verifying' &&
+      intent.state !== 'rolling_back'
+    ) {
+      return false
+    }
     if (this.recoveryUnknown(intent.intentId)) return false
     const age = Date.parse(now) - Date.parse(intent.updatedAt)
     return Number.isFinite(age) && age >= limitMs
@@ -372,6 +378,9 @@ export class Deployments {
       this.transition(intent, 'failed')
       this.decide(intent.intentId, 'recovery_failed', '部署目标或工具已不在配置中', now)
       return true
+    }
+    if (intent.state === 'rolling_back') {
+      return this.recoverRollingBack(intent, target, tool, now)
     }
     const observed = await this.runOperation({
       intent,
@@ -405,6 +414,72 @@ export class Deployments {
       wasApplying ? '中断后观测到制品已安装，等待核对' : '中断后观测到安装与运行摘要一致',
       now,
     )
+    return true
+  }
+
+  /**
+   * 回退中断：按“是否已回到上一已验证制品”收口，不重新执行回退。
+   * 观测失败或没有上一制品时转 failed 并记录未知，释放目标供人工处理。
+   */
+  private async recoverRollingBack(
+    intent: DeploymentIntentRecord,
+    target: DeploymentTargetConfig,
+    tool: DeploymentToolConfig,
+    now: string,
+  ): Promise<boolean> {
+    const previous = this.deps.store.previousVerifiedIntent(
+      intent.targetId,
+      intent.createdAt,
+      intent.intentId,
+    )
+    if (!previous) {
+      this.transition(intent, 'failed')
+      this.decide(
+        intent.intentId,
+        'recovery_unknown',
+        '回退中断且没有上一已验证制品可供核对；已释放目标，需人工确认',
+        now,
+      )
+      this.alertFailure(intent, `部署 ${intent.intentId} 回退中断且无上一已验证制品，需人工确认`)
+      return true
+    }
+    const observed = await this.runOperation({
+      intent,
+      tool,
+      op: 'status',
+      artifact: this.artifactOf(intent),
+      params: target.params,
+      data: target.data,
+    })
+    const mismatch = observed.ok
+      ? rollbackMismatch(observed.result, {
+          version: previous.artifactVersion,
+          sha256: previous.artifactSha256,
+        })
+      : observed.message
+    if (!mismatch) {
+      this.transition(intent, 'rolled_back')
+      this.decide(
+        intent.intentId,
+        'recovery_rolled_back',
+        `中断后观测到已回到上一已验证制品 ${previous.artifactSha256.slice(0, 12)}…`,
+        now,
+      )
+      return true
+    }
+    this.transition(intent, 'failed')
+    if (observed.ok) {
+      this.decide(intent.intentId, 'recovery_failed', mismatch, now)
+      this.alertFailure(intent, `回退中断后实际状态不符合上一已验证制品：${mismatch}`)
+    } else {
+      this.decide(
+        intent.intentId,
+        'recovery_unknown',
+        `回退中断且无法观测实际状态：${mismatch}；已释放目标，需人工确认`,
+        now,
+      )
+      this.alertFailure(intent, `回退中断后无法确认结果：${mismatch}；已释放目标，需人工确认`)
+    }
     return true
   }
 

@@ -41,7 +41,8 @@ function toolScript(): string {
     '    save({"version": plan["artifact"]["version"], "sha": plan["artifact"]["sha256"]})',
     '    print(json.dumps({"ok": True, "state": "applied", "detail": "apply ok"}))',
     'elif op == "data-rollback":',
-    '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "data rollback " + plan["previous"]["restorePoint"]}))',
+    '    failed = tag == "FAIL_DATA_ROLLBACK"',
+    '    print(json.dumps({"ok": not failed, "state": "failed" if failed else "rolled_back", "detail": "data rollback " + plan["previous"]["restorePoint"]}))',
     'elif op == "rollback":',
     '    if tag == "FAIL_ROLLBACK":',
     '        print(json.dumps({"ok": False, "state": "failed", "detail": "rollback"}))',
@@ -104,12 +105,20 @@ function raw(): RawConfig {
           approval: 'owner',
           params: { tag: 'STUCK_ROLLBACK' },
         },
+        {
+          id: 'fail-data',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          data: { volumes: ['web-data'], migrations: [] },
+          params: { tag: 'FAIL_DATA_ROLLBACK' },
+        },
       ],
     } as never,
   }
 }
 
-function build(): Deployments {
+function build(options: { failStatus?: boolean } = {}): Deployments {
   return new Deployments({
     config,
     store: repo.deploymentStore,
@@ -119,6 +128,13 @@ function build(): Deployments {
       alerts.push({ body })
       return { ok: true, error: '' }
     },
+    ...(options.failStatus
+      ? {
+          runTool: async () => {
+            throw new Error('status down')
+          },
+        }
+      : {}),
   })
 }
 
@@ -267,6 +283,24 @@ describe('deployment rollback', () => {
     expect(deployments.detail(intentId)?.intent.state).toBe('verified')
   })
 
+  it('stops before rollback when data recovery fails', async () => {
+    const deployments = build()
+    await deploy(deployments, 'fail-data', artifact('1.0.0', 'data-fail-v1'))
+    const intentId = await deploy(deployments, 'fail-data', artifact('2.0.0', 'data-fail-v2'))
+
+    const rolled = await deployments.rollback(intentId, '数据恢复失败')
+    expect(rolled).toMatchObject({ ok: false, code: 'data_rollback_failed' })
+    expect(deployments.detail(intentId)?.intent.state).toBe('failed')
+    // 数据恢复失败后不再执行代码回退。
+    expect(deployments.detail(intentId)?.attempts.map((attempt) => attempt.op)).toEqual([
+      'preflight',
+      'apply',
+      'status',
+      'data-rollback',
+    ])
+    expect(alerts).toHaveLength(1)
+  })
+
   it('fails when the tool reports success but the target still runs the new artifact', async () => {
     const deployments = build()
     await deploy(deployments, 'stuck-rollback', artifact('1.0.0', 'stuck-v1'))
@@ -288,6 +322,100 @@ describe('deployment rollback', () => {
     expect(deployments.detail(intentId)?.intent.state).toBe('failed')
     expect(alerts).toHaveLength(1)
     expect(alerts[0]?.body.message).toContain('rollback')
+  })
+
+  it('completes as rolled back when the interrupted target already runs the previous artifact', async () => {
+    const deployments = build()
+    const v1 = artifact('1.0.0', 'recovered-v1')
+    const v2 = artifact('2.0.0', 'recovered-v2')
+    await deploy(deployments, 'plain', v1)
+    const intentId = await deploy(deployments, 'plain', v2)
+    // 模拟宿主在回退过程中崩溃，而外部工具已经完成回退。
+    writeFileSync(
+      join(dir, '.forgeloop', 'projects', 'testproj', 'deployments', 'tools', 'state.json'),
+      JSON.stringify({ version: '1.0.0', sha: v1.sha256 }),
+    )
+    repo.deploymentStore.updateDeploymentIntentState(
+      intentId,
+      'rolling_back',
+      '2026-11-01T00:00:00.000Z',
+    )
+
+    expect(await deployments.recoverInterrupted('2026-11-04T00:00:00.000Z')).toBe(1)
+    expect(deployments.detail(intentId)?.intent.state).toBe('rolled_back')
+    expect(
+      repo.deploymentStore
+        .deploymentDecisions(intentId)
+        .some((entry) => entry.decision === 'recovery_rolled_back'),
+    ).toBe(true)
+  })
+
+  it('fails an interrupted rollback that still runs the new artifact', async () => {
+    const deployments = build()
+    const v1 = artifact('1.0.0', 'stuck-v1')
+    const v2 = artifact('2.0.0', 'stuck-v2')
+    await deploy(deployments, 'plain', v1)
+    const intentId = await deploy(deployments, 'plain', v2)
+    repo.deploymentStore.updateDeploymentIntentState(
+      intentId,
+      'rolling_back',
+      '2026-11-01T00:00:00.000Z',
+    )
+
+    expect(await deployments.recoverInterrupted('2026-11-04T00:00:00.000Z')).toBe(1)
+    expect(deployments.detail(intentId)?.intent.state).toBe('failed')
+    expect(
+      repo.deploymentStore
+        .deploymentDecisions(intentId)
+        .some((entry) => entry.decision === 'recovery_failed'),
+    ).toBe(true)
+  })
+
+  it('releases a target whose interrupted rollback cannot be observed', async () => {
+    const deployedBy = build()
+    const v1 = artifact('1.0.0', 'unknown-v1')
+    const v2 = artifact('2.0.0', 'unknown-v2')
+    await deploy(deployedBy, 'plain', v1)
+    const intentId = await deploy(deployedBy, 'plain', v2)
+    repo.deploymentStore.updateDeploymentIntentState(
+      intentId,
+      'rolling_back',
+      '2026-11-01T00:00:00.000Z',
+    )
+
+    const blind = build({ failStatus: true })
+    expect(await blind.recoverInterrupted('2026-11-04T00:00:00.000Z')).toBe(1)
+    expect(blind.detail(intentId)?.intent.state).toBe('failed')
+    expect(
+      repo.deploymentStore
+        .deploymentDecisions(intentId)
+        .some((entry) => entry.decision === 'recovery_unknown'),
+    ).toBe(true)
+    // 目标已释放，不再被 rolling_back 永久占用。
+    const next = await build().request({
+      targetId: 'plain',
+      artifact: v2,
+      source: 'after-recovery',
+    })
+    expect(next.ok, next.message).toBe(true)
+  })
+
+  it('releases a target whose interrupted rollback has no previous artifact', async () => {
+    const deployments = build()
+    const intentId = await deploy(deployments, 'plain', artifact('1.0.0', 'first-only'))
+    repo.deploymentStore.updateDeploymentIntentState(
+      intentId,
+      'rolling_back',
+      '2026-11-01T00:00:00.000Z',
+    )
+
+    expect(await deployments.recoverInterrupted('2026-11-04T00:00:00.000Z')).toBe(1)
+    expect(deployments.detail(intentId)?.intent.state).toBe('failed')
+    expect(
+      repo.deploymentStore
+        .deploymentDecisions(intentId)
+        .some((entry) => entry.decision === 'recovery_unknown'),
+    ).toBe(true)
   })
 
   it('rejects rollback before the target is applied and for unknown intents', async () => {
