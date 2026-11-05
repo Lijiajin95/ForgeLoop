@@ -31,6 +31,8 @@ function facts(overrides: Partial<RequirementAutonomyFacts> = {}): RequirementAu
     humanRequests: 0,
     committed: false,
     verificationPassed: false,
+    deployed: false,
+    humanDeploymentInvolved: false,
     ...overrides,
   }
 }
@@ -83,14 +85,25 @@ describe('autonomy domain', () => {
     expect(requirementHumanInvolved(facts(overrides))).toBe(true)
   })
 
-  it('requires a commit and a passing verification for autonomous success', () => {
+  it('requires commit, verification and a verified deployment for autonomous success', () => {
     expect(requirementAutonomousSuccess(facts({ committed: true }))).toBe(false)
     expect(requirementAutonomousSuccess(facts({ committed: true, verificationPassed: true }))).toBe(
-      true,
+      false,
     )
     expect(
-      requirementAutonomousSuccess(facts({ committed: true, verificationPassed: true, grants: 2 })),
+      requirementAutonomousSuccess(
+        facts({ committed: true, verificationPassed: true, deployed: true }),
+      ),
+    ).toBe(true)
+    expect(
+      requirementAutonomousSuccess(
+        facts({ committed: true, verificationPassed: true, deployed: true, grants: 2 }),
+      ),
     ).toBe(false)
+  })
+
+  it('counts a human deployment decision as intervention', () => {
+    expect(requirementHumanInvolved(facts({ humanDeploymentInvolved: true }))).toBe(true)
   })
 
   it('counts only recovered or closed ops events without human involvement', () => {
@@ -103,7 +116,7 @@ describe('autonomy domain', () => {
   it('computes mixed requirement and ops samples', () => {
     const stats = computeAutonomyStats(
       [
-        facts({ status: 'committed', committed: true, verificationPassed: true }),
+        facts({ status: 'committed', committed: true, verificationPassed: true, deployed: true }),
         facts({ grants: 2 }),
       ],
       [
@@ -179,6 +192,39 @@ describe('autonomy records', () => {
       committedAt: NOW,
     })
     repository.setStatus(reqId, 'committed')
+    repository.recordCandidateBuild({
+      reqId,
+      planVersion: 1,
+      candidateSha256: `candidate-${reqId}`,
+      verificationSha256: 'report',
+      packageVersion: '1.0.0',
+      artifactSha256: `artifact-${reqId}`,
+      tarball: join(dir, 'candidate.tgz'),
+      files: ['lib/index.js'],
+      gitHead: 'head',
+      builtAt: NOW,
+      evidenceDir: dir,
+    })
+    repository.deploymentStore.recordDeploymentIntent({
+      intentId: `dep-${reqId}`,
+      project: PROJECT,
+      targetId: 'auto',
+      requirementId: reqId,
+      artifactSha256: `artifact-${reqId}`,
+      artifactPath: join(dir, 'candidate.tgz'),
+      artifactVersion: '1.0.0',
+      source: 'test',
+      approval: 'auto',
+      state: 'verified',
+      createdAt: NOW,
+      updatedAt: NOW,
+    })
+    repository.deploymentStore.recordDeploymentDecision({
+      intentId: `dep-${reqId}`,
+      decision: 'verify',
+      by: 'system:coordinator',
+      at: NOW,
+    })
   }
 
   it('counts a verified committed requirement as autonomous success', () => {

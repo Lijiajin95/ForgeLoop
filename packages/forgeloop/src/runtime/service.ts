@@ -94,6 +94,7 @@ import { fail, ok, type OperationResult } from './operation-result.js'
 import { Deployments } from './deployments.js'
 import { candidateDeploymentGate } from './deployment-gate.js'
 import { DeploymentService } from './deployment-service.js'
+import { createDeliveryHandoff } from './delivery-handoff.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
 import { BuildMaterialValidator } from './build-materials.js'
 
@@ -128,6 +129,7 @@ export class ForgeLoopRuntime {
   /** 部署协调器：intent/审批/apply/status/回退；模型工具只能只读查询。 */
   readonly deployments: Deployments
   readonly deploymentService: DeploymentService
+  readonly deliveryHandoff
   /** 验证失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
   readonly issues: IssueStore
   private readonly advancePipeline: AdvancePipeline
@@ -306,6 +308,7 @@ export class ForgeLoopRuntime {
       candidateIdentity: (plan, artifacts) => this.candidateIdentity(plan, artifacts),
       statusBoard: (limit, query) => this.statusBoard(limit, query),
     })
+    this.deliveryHandoff = createDeliveryHandoff(this, () => this.now())
   }
 
   close(): void {

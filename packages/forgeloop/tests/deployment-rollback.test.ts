@@ -23,7 +23,7 @@ const ARTIFACT: DeploymentArtifact = {
 
 function toolScript(): string {
   return [
-    'import json, sys',
+    'import json, os, sys',
     'args = sys.argv',
     'op = args[args.index("--op") + 1]',
     'plan = json.load(open(args[args.index("--plan") + 1]))',
@@ -35,7 +35,7 @@ function toolScript(): string {
     'elif op == "apply":',
     '    print(json.dumps({"ok": True, "state": "applied", "detail": "apply ok"}))',
     'elif op == "status":',
-    '    print(json.dumps({"ok": True, "state": "running", "version": version, "detail": "status ok"}))',
+    '    print(json.dumps({"ok": True, "state": "running", "version": version, "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-03T10:00:00Z", "detail": "status ok"}))',
     'elif op == "rollback":',
     '    failed = tag == "FAIL_ROLLBACK"',
     '    print(json.dumps({"ok": not failed, "state": "rolled_back" if not failed else "failed", "detail": "rollback"}))',

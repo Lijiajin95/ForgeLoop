@@ -184,7 +184,7 @@ export class Deployments {
     })
   }
 
-  async approve(intentId: string): Promise<DeploymentOutcome> {
+  async approve(intentId: string, by = 'owner'): Promise<DeploymentOutcome> {
     const intent = this.requireIntent(intentId)
     if ('code' in intent) return intent
     if (intent.state !== 'awaiting_approval') {
@@ -196,23 +196,37 @@ export class Deployments {
       : undefined
     if (!target || !tool) return fail('not_found', '部署目标或工具已不在配置中')
     this.transition(intent, 'ready')
+    this.deps.store.recordDeploymentDecision({
+      intentId,
+      decision: 'approve',
+      by,
+      at: this.now(),
+      detail: 'owner 批准部署',
+    })
     return this.apply(intent, tool, this.artifactOf(intent), {
       params: target.params,
       data: target.data,
     })
   }
 
-  reject(intentId: string, reason: string): DeploymentOutcome {
+  reject(intentId: string, reason: string, by = 'owner'): DeploymentOutcome {
     const intent = this.requireIntent(intentId)
     if ('code' in intent) return intent
     if (intent.state !== 'awaiting_approval') {
       return fail('invalid_state', `部署 ${intentId} 当前状态 ${intent.state} 不能拒绝`)
     }
     this.transition(intent, 'rejected')
+    this.deps.store.recordDeploymentDecision({
+      intentId,
+      decision: 'reject',
+      by,
+      at: this.now(),
+      detail: reason || '未说明原因',
+    })
     return ok(`部署 ${intentId} 已拒绝：${reason || '未说明原因'}`)
   }
 
-  async verify(intentId: string): Promise<DeploymentOutcome> {
+  async verify(intentId: string, by = 'system:coordinator'): Promise<DeploymentOutcome> {
     const intent = this.requireIntent(intentId)
     if ('code' in intent) return intent
     if (intent.state !== 'applied_pending_verify') {
@@ -234,16 +248,38 @@ export class Deployments {
     })
     if (!observed.ok) {
       this.transition(intent, 'verify_failed')
+      this.deps.store.recordDeploymentDecision({
+        intentId,
+        decision: 'verify_failed',
+        by,
+        at: this.now(),
+        detail: observed.message,
+      })
       this.alertFailure(intent, observed.message)
       return fail('verify_failed', observed.message)
     }
-    if (observed.result.version !== intent.artifactVersion) {
+    const result = observed.result
+    const message = verifyMismatch(result, intent)
+    if (message) {
       this.transition(intent, 'verify_failed')
-      const message = `实际运行版本 ${observed.result.version || '未知'} 与制品 ${intent.artifactVersion} 不一致`
+      this.deps.store.recordDeploymentDecision({
+        intentId,
+        decision: 'verify_failed',
+        by,
+        at: this.now(),
+        detail: message,
+      })
       this.alertFailure(intent, message)
       return fail('verify_failed', message)
     }
     this.transition(intent, 'verified')
+    this.deps.store.recordDeploymentDecision({
+      intentId,
+      decision: 'verify',
+      by,
+      at: this.now(),
+      detail: `版本 ${result.version}，运行 pid ${result.runningPid}`,
+    })
     return ok(`部署 ${intentId} 已核对：版本 ${intent.artifactVersion}`)
   }
 
@@ -601,6 +637,38 @@ function hasData(target: {
   return target.data.volumes.length > 0 || target.data.migrations.length > 0
 }
 
+function verifyMismatch(
+  result: DeploymentToolResult,
+  intent: { readonly artifactVersion: string; readonly artifactSha256: string },
+): string {
+  if (result.version !== intent.artifactVersion) {
+    return `实际运行版本 ${result.version || '未知'} 与制品 ${intent.artifactVersion} 不一致`
+  }
+  if (!result.artifactSha256) return '工具未提供已安装制品摘要，无法核对实际安装内容'
+  if (result.artifactSha256 !== intent.artifactSha256) {
+    return '已安装制品摘要与本次部署制品不一致'
+  }
+  if (!result.runningArtifactSha256) {
+    return '工具未提供运行中制品摘要，无法确认进程已加载本次制品'
+  }
+  if (result.runningArtifactSha256 !== intent.artifactSha256) {
+    return '运行中制品摘要与本次部署制品不一致（进程可能仍运行旧内容）'
+  }
+  if (result.runningPid <= 0) return '工具未提供有效运行进程 pid'
+  return ''
+}
+
 function emptyResult(): DeploymentToolResult {
-  return { ok: false, state: '', version: '', detail: '', steps: [], restorePoint: '' }
+  return {
+    ok: false,
+    state: '',
+    version: '',
+    artifactSha256: '',
+    runningArtifactSha256: '',
+    runningPid: 0,
+    runningStartedAt: '',
+    detail: '',
+    steps: [],
+    restorePoint: '',
+  }
 }

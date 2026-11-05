@@ -1213,8 +1213,7 @@ function collectRequirementFacts(
       return null
     }
   })()
-  const currentCandidateSha256 =
-    commitRecord?.candidateSha256 || candidateSha256Of(plan, artifacts)
+  const currentCandidateSha256 = commitRecord?.candidateSha256 || candidateSha256Of(plan, artifacts)
   const verificationFresh = verificationIsFresh(
     verificationRecord,
     currentCandidateSha256,

@@ -519,6 +519,25 @@ CREATE TABLE IF NOT EXISTS deployment_intents (
 CREATE INDEX IF NOT EXISTS deployment_intents_by_target ON deployment_intents (target_id, created_at);
 CREATE INDEX IF NOT EXISTS deployment_intents_by_requirement ON deployment_intents (requirement_id, created_at);
 
+CREATE TABLE IF NOT EXISTS deployment_decisions (
+    intent_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    decided_by TEXT NOT NULL,
+    decided_at TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS deployment_decisions_by_intent ON deployment_decisions (intent_id, decided_at);
+
+CREATE TABLE IF NOT EXISTS delivery_handoffs (
+    req_id TEXT NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, candidate_sha256, target_id)
+);
+
 CREATE TABLE IF NOT EXISTS deployment_attempts (
     intent_id TEXT NOT NULL,
     op TEXT NOT NULL,

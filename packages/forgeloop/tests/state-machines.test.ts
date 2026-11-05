@@ -144,7 +144,16 @@ function fakeDeploymentTool(options: { failApply?: boolean } = {}) {
   return async (_tool: unknown, op: string) => {
     const payload =
       op === 'status'
-        ? { ok: true, state: 'running', version: ARTIFACT.version, detail: 'status ok' }
+        ? {
+            ok: true,
+            state: 'running',
+            version: ARTIFACT.version,
+            artifactSha256: ARTIFACT.sha256,
+            runningArtifactSha256: ARTIFACT.sha256,
+            runningPid: 1234,
+            runningStartedAt: '2026-11-05T10:00:00Z',
+            detail: 'status ok',
+          }
         : options.failApply && op === 'apply'
           ? { ok: false, state: 'failed', detail: 'apply failed' }
           : { ok: true, state: 'ok', detail: `${op} ok`, restorePoint: 'snap-1' }

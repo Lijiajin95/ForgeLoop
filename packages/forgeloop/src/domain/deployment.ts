@@ -76,6 +76,12 @@ export interface DeploymentToolResult {
   readonly ok: boolean
   readonly state: string
   readonly version: string
+  /** 实际安装的制品摘要；工具无法给出时为空，核对必须失败。 */
+  readonly artifactSha256: string
+  /** 实际运行中代码的制品摘要；用于识别“已安装新包但进程仍跑旧内容”。 */
+  readonly runningArtifactSha256: string
+  readonly runningPid: number
+  readonly runningStartedAt: string
   readonly detail: string
   readonly steps: readonly string[]
   readonly restorePoint: string
@@ -88,6 +94,16 @@ const MAX_STEP = 300
 function bounded(value: string, max: number): string {
   const text = value.trim()
   return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+function textField(record: Record<string, unknown>, key: string, max: number): string {
+  const value = record[key]
+  return typeof value === 'string' ? bounded(value, max) : ''
+}
+
+function pidOf(record: Record<string, unknown>): number {
+  const value = record.runningPid
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : 0
 }
 
 /**
@@ -118,10 +134,14 @@ export function parseDeploymentToolResult(stdout: string): DeploymentToolResult 
   return {
     ok: record.ok,
     state: bounded(record.state, 60),
-    version: typeof record.version === 'string' ? bounded(record.version, 120) : '',
-    detail: typeof record.detail === 'string' ? bounded(record.detail, MAX_DETAIL) : '',
+    version: textField(record, 'version', 120),
+    artifactSha256: textField(record, 'artifactSha256', 120),
+    runningArtifactSha256: textField(record, 'runningArtifactSha256', 120),
+    runningPid: pidOf(record),
+    runningStartedAt: textField(record, 'runningStartedAt', 60),
+    detail: textField(record, 'detail', MAX_DETAIL),
     steps,
-    restorePoint: typeof record.restorePoint === 'string' ? bounded(record.restorePoint, 300) : '',
+    restorePoint: textField(record, 'restorePoint', 300),
   }
 }
 

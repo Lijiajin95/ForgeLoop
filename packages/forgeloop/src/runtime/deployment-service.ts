@@ -91,19 +91,19 @@ export class DeploymentService {
   async approve(input: { intentId: string; by: string }): Promise<OperationResult> {
     const denied = ownerOnly(this.deps.config.owner, input.by)
     if (denied) return denied
-    return this.deps.deployments.approve(input.intentId)
+    return this.deps.deployments.approve(input.intentId, input.by)
   }
 
   reject(input: { intentId: string; by: string; reason: string }): OperationResult {
     const denied = ownerOnly(this.deps.config.owner, input.by)
     if (denied) return denied
-    return this.deps.deployments.reject(input.intentId, input.reason)
+    return this.deps.deployments.reject(input.intentId, input.reason, input.by)
   }
 
   async verify(input: { intentId: string; by: string }): Promise<OperationResult> {
     const denied = ownerOnly(this.deps.config.owner, input.by)
     if (denied) return denied
-    return this.deps.deployments.verify(input.intentId)
+    return this.deps.deployments.verify(input.intentId, input.by)
   }
 
   async rollback(input: {

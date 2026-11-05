@@ -683,6 +683,64 @@ export class OpsRuntime {
    * 是否自动执行由 target.approval 决定，执行走 DeploymentService 的门禁与证据；
    * 这里只记录一条观测，不把模型输出当成授权。
    */
+  /**
+   * 永久修复部署核对通过后，回到原事件执行原检查并留观测。
+   * 通过则关闭事件；失败则转 unresolved，等待人工判断，不重复生成修复需求。
+   */
+  async recheckFix(eventId: string, intentId: string): Promise<void> {
+    const event = this.repo.opsEvent(eventId)
+    if (!event || !event.fixRequirementId) return
+    const existing = this.repo.opsObservations(eventId).find((observation) => {
+      if (observation.kind !== 'fix_check') return false
+      try {
+        return parseJsonObject(observation.detailJson).intentId === intentId
+      } catch {
+        return false
+      }
+    })
+    if (existing) return
+    const check = this.check(event.checkId)
+    if (!check) {
+      this.repo.appendOpsObservation({
+        eventId,
+        at: this.isoNow(),
+        kind: 'fix_check',
+        summary: '修复部署已核对，但原检查已不在登记目录，无法复核',
+        detailJson: JSON.stringify({ intentId, checkId: event.checkId }),
+      })
+      this.repo.updateOpsEvent(eventId, { state: OPS_UNRESOLVED, updatedAt: this.isoNow() })
+      return
+    }
+    const result = await runOpsCommand(
+      check.command,
+      this.config.projectPath,
+      check.timeoutSeconds * 1000,
+      undefined,
+    )
+    const passed = result.code === 0 && !result.timedOut && !result.aborted
+    this.repo.appendOpsObservation({
+      eventId,
+      at: this.isoNow(),
+      kind: 'fix_check',
+      summary: passed
+        ? `修复部署 ${intentId} 后原检查通过，永久修复完成`
+        : `修复部署 ${intentId} 后原检查失败（退出码 ${result.code}）`,
+      detailJson: JSON.stringify({
+        intentId,
+        checkId: check.id,
+        code: result.code,
+        timedOut: result.timedOut,
+        aborted: result.aborted,
+        output: outputOf(result).slice(0, 500),
+      }),
+    })
+    this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
+    this.repo.updateOpsEvent(eventId, {
+      state: passed ? OPS_CLOSED : OPS_UNRESOLVED,
+      updatedAt: this.isoNow(),
+    })
+  }
+
   private async applyProposedDeployment(
     event: OpsEventRecord,
     diagnosis: OpsDiagnosis,

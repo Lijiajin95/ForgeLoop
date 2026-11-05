@@ -25,6 +25,7 @@ import type { TaskArtifact, TaskRun } from '../domain/work.js'
 import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
 import { DeploymentStore } from './deployment-store.js'
+import { DeliveryStore } from './delivery-store.js'
 import { DevSessionStore } from './dev-session-store.js'
 import type {
   RequirementEvidence,
@@ -76,6 +77,7 @@ export type {
 
 export class Repository extends DevSessionStore {
   readonly deploymentStore = new DeploymentStore(this.db)
+  readonly deliveryStore = new DeliveryStore(this.db)
 
   close(): void {
     this.db.close()

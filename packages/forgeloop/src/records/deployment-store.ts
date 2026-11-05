@@ -63,6 +63,49 @@ export class DeploymentStore {
       .map(deploymentIntentRow)
   }
 
+  recordDeploymentDecision(decision: {
+    intentId: string
+    decision: string
+    by: string
+    at: string
+    detail?: string
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO deployment_decisions (intent_id, decision, decided_by, decided_at, detail)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(decision.intentId, decision.decision, decision.by, decision.at, decision.detail ?? '')
+  }
+
+  deploymentDecisions(intentId: string): Array<{
+    intentId: string
+    decision: string
+    by: string
+    at: string
+    detail: string
+  }> {
+    return this.db
+      .prepare('SELECT * FROM deployment_decisions WHERE intent_id = ? ORDER BY decided_at, rowid')
+      .all(intentId)
+      .map((row) => ({
+        intentId: text(row, 'intent_id'),
+        decision: text(row, 'decision'),
+        by: text(row, 'decided_by'),
+        at: text(row, 'decided_at'),
+        detail: text(row, 'detail'),
+      }))
+  }
+
+  deploymentIntentsForRequirement(reqId: string, limit = 50): DeploymentIntentRecord[] {
+    return this.db
+      .prepare(
+        'SELECT * FROM deployment_intents WHERE requirement_id = ? ORDER BY created_at DESC LIMIT ?',
+      )
+      .all(reqId, limit)
+      .map(deploymentIntentRow)
+  }
+
   recordDeploymentAttempt(attempt: DeploymentAttemptRecord): void {
     this.db
       .prepare(

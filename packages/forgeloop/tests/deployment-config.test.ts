@@ -75,6 +75,7 @@ describe('deployment configuration', () => {
             params: { profile: 'web' },
             data: { volumes: ['web-data'], migrations: ['add-log-table'] },
             approval: 'auto',
+            autoDeliver: true,
             rollback: { keep: 2 },
           },
         ],
@@ -92,6 +93,7 @@ describe('deployment configuration', () => {
       params: { profile: 'web' },
       data: { volumes: ['web-data'], migrations: ['add-log-table'] },
       approval: 'auto',
+      autoDeliver: true,
       rollback: { keep: 2 },
     })
     expect(config.deployments.retention.days).toBe(90)

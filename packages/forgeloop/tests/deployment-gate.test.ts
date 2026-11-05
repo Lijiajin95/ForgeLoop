@@ -20,16 +20,31 @@ function artifact(overrides: Partial<DeploymentArtifact> = {}): DeploymentArtifa
   return { sha256: ARTIFACT, path: TARBALL, version: '1.0.0', ...overrides }
 }
 
-function target() {
+function target(approval: 'owner' | 'auto' = 'owner') {
   return {
     id: 'web',
     toolId: 't',
     requirementId: REQ,
     params: {},
     data: { volumes: [], migrations: [] },
-    approval: 'owner' as const,
+    approval,
     rollback: { keep: 1 },
   }
+}
+
+function seedCommit(): void {
+  repo.recordCommit({
+    requirementId: REQ,
+    planVersion: 1,
+    candidateSha256: CANDIDATE,
+    commitSha: 'd'.repeat(40),
+    commitMessage: '部署门禁测试',
+    checkCommand: [],
+    checkLogPath: '/tmp/check.log',
+    checkSha256: 'e'.repeat(64),
+    files: ['docs/x.md'],
+    committedAt: '2026-11-03T10:03:00.000Z',
+  })
 }
 
 function seedBuild(): void {
@@ -93,6 +108,8 @@ beforeEach(() => {
     source: 'test',
     now: '2026-11-03T09:00:00.000Z',
   })
+  repo.setStatus(REQ, 'committed', '已提交')
+  seedCommit()
 })
 
 afterEach(() => {
@@ -118,6 +135,7 @@ describe('candidate deployment gate', () => {
     expect(gate(target(), artifact()).reason).toContain('业务终审')
     seedReview('pass')
     expect(gate(target(), artifact()).reason).toBe('需求尚未验收')
+    expect(gate(target('auto'), artifact())).toEqual({ ok: true, reason: '' })
 
     repo.recordAcceptance({
       reqId: REQ,

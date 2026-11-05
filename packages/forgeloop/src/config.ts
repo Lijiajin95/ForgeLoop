@@ -121,6 +121,8 @@ export interface DeploymentTargetConfig {
   readonly params: Readonly<Record<string, string>>
   readonly data: DeploymentDataScope
   readonly approval: 'owner' | 'auto'
+  /** 新需求受控提交后由协调器自动构建并向该目标提议部署；apply 仍按 approval 决定。 */
+  readonly autoDeliver: boolean
   readonly rollback: { readonly keep: number }
 }
 
@@ -950,6 +952,7 @@ function parseDeploymentTargets(
     if (approval !== 'owner' && approval !== 'auto') {
       throw new RuleViolationError(`配置 ${field}.approval 只能是 owner 或 auto`)
     }
+    const autoDeliver = item.autoDeliver === true
     const rollback = asRecord(item.rollback) ?? {}
     const keep = positiveInteger(rollback.keep, `${field}.rollback.keep`, 1)
     if (keep > 10) throw new RuleViolationError(`配置 ${field}.rollback.keep 不能大于 10`)
@@ -968,6 +971,7 @@ function parseDeploymentTargets(
       params,
       data: { volumes, migrations },
       approval,
+      autoDeliver,
       rollback: { keep },
     }
   })

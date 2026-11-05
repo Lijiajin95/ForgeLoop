@@ -41,6 +41,10 @@ export interface RequirementAutonomyFacts {
   readonly humanRequests: number
   readonly committed: boolean
   readonly verificationPassed: boolean
+  /** 存在与最新构建制品一致的 verified 部署。 */
+  readonly deployed: boolean
+  /** 部署批准/核对由非 system 身份执行。 */
+  readonly humanDeploymentInvolved: boolean
 }
 
 export interface OpsAutonomyFacts {
@@ -64,13 +68,19 @@ export function requirementHumanInvolved(facts: RequirementAutonomyFacts): boole
     facts.budgetExtensions > 0 ||
     facts.stopped ||
     facts.cancelled ||
-    facts.humanRequests > 0
+    facts.humanRequests > 0 ||
+    facts.humanDeploymentInvolved
   )
 }
 
-/** 自主成功：已提交、验证通过，且整条链路没有人工介入。 */
+/** 自主成功：已提交、验证通过、部署核对完成，且整条链路没有人工介入。 */
 export function requirementAutonomousSuccess(facts: RequirementAutonomyFacts): boolean {
-  return facts.committed && facts.verificationPassed && !requirementHumanInvolved(facts)
+  return (
+    facts.committed &&
+    facts.verificationPassed &&
+    facts.deployed &&
+    !requirementHumanInvolved(facts)
+  )
 }
 
 export function opsAutonomousSuccess(facts: OpsAutonomyFacts): boolean {

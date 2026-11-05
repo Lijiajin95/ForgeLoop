@@ -23,6 +23,19 @@ function requirementFacts(
 ): RequirementAutonomyFacts {
   const plan = repo.latestTaskPlan(requirement.reqId)
   const verification = plan ? repo.verification(requirement.reqId, plan.planVersion) : null
+  const build = repo.latestCandidateBuild(requirement.reqId)
+  const intents = repo.deploymentStore.deploymentIntentsForRequirement(requirement.reqId, 50)
+  const deployed = intents.some(
+    (intent) =>
+      intent.state === 'verified' &&
+      build !== null &&
+      intent.artifactSha256 === build.artifactSha256,
+  )
+  const humanDeploymentInvolved = intents.some((intent) =>
+    repo.deploymentStore
+      .deploymentDecisions(intent.intentId)
+      .some((decision) => !decision.by.startsWith('system:')),
+  )
   const humanRequests = repo
     .requestsFor(requirement.reqId)
     .filter(
@@ -40,6 +53,8 @@ function requirementFacts(
     humanRequests,
     committed: requirement.status === COMMITTED && repo.latestCommit(requirement.reqId) !== null,
     verificationPassed: verification?.verdict === 'pass',
+    deployed,
+    humanDeploymentInvolved,
   }
 }
 

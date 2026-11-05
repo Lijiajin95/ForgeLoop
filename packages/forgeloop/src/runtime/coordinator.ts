@@ -176,6 +176,8 @@ export class Coordinator {
       if (this.autoAdvance) this.ensureAutoAdvanceRequests()
       // 产品分析失败自动重试：有上限，且不重复排队在途请求。
       this.runtime.analysisQueue.autoRetry()
+      // 受控提交后按配置自动构建、部署并核对；失败/等待决定有持久记录。
+      await this.runtime.deliveryHandoff.tick()
       // 安装完成但不核对会一直停在 applied_pending_verify；超时收口并告警。
       this.runtime.deployments.expireStale()
       // 研发空闲时领取队首需求；忙时新需求只入队，等当前请求收口后的下一轮再启动。

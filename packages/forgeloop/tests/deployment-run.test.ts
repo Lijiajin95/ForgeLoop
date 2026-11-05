@@ -63,6 +63,27 @@ function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
           data: { volumes: ['web-data'] },
         },
         { id: 'unbound', toolId: 't', approval: 'owner' },
+        {
+          id: 'old-running',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'OLD_RUNNING' },
+        },
+        {
+          id: 'wrong-install',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'WRONG_INSTALLED' },
+        },
+        {
+          id: 'no-identity',
+          toolId: 't',
+          requirementId: 'req-1',
+          approval: 'owner',
+          params: { tag: 'NO_IDENTITY' },
+        },
       ],
       ...extra,
     } as never,
@@ -84,7 +105,7 @@ function build(overrides: { gate?: DeploymentGate; now?: () => string } = {}): D
 
 function toolScript(): string {
   return [
-    'import json, sys',
+    'import json, os, sys',
     'args = sys.argv',
     'op = args[args.index("--op") + 1]',
     'plan = json.load(open(args[args.index("--plan") + 1]))',
@@ -96,7 +117,10 @@ function toolScript(): string {
     '    print(json.dumps({"ok": True, "state": "applied", "detail": "apply ok"}))',
     'elif op == "status":',
     '    value = "9.9.9" if tag == "FAIL_STATUS" else version',
-    '    print(json.dumps({"ok": True, "state": "running", "version": value, "detail": "status ok"}))',
+    '    running = "0" * 64 if tag == "OLD_RUNNING" else plan["artifact"]["sha256"]',
+    '    installed = "0" * 64 if tag == "WRONG_INSTALLED" else plan["artifact"]["sha256"]',
+    '    extra = {} if tag == "NO_IDENTITY" else {"artifactSha256": installed, "runningArtifactSha256": running, "runningPid": os.getpid(), "runningStartedAt": "2026-11-03T10:00:00Z"}',
+    '    print(json.dumps({"ok": True, "state": "running", "version": value, "detail": "status ok", **extra}))',
     'elif op == "rollback":',
     '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "rollback ok"}))',
   ].join('\n')
@@ -357,6 +381,9 @@ describe('deployment coordinator', () => {
       'broken',
       'data',
       'unbound',
+      'old-running',
+      'wrong-install',
+      'no-identity',
     ])
     const requested = await deployments.request({
       targetId: 'owner',
@@ -477,5 +504,29 @@ describe('deployment verify timeout', () => {
       alert: async () => ({ ok: true, error: '' }),
     })
     expect(disabled.expireStale()).toBe(0)
+  })
+
+  it('fails verification when installed or running identity does not match', async () => {
+    for (const [targetId, expected] of [
+      ['wrong-install', '已安装制品摘要'],
+      ['old-running', '运行中制品摘要'],
+      ['no-identity', '未提供'],
+    ] as const) {
+      const deployments = build()
+      const requested = await deployments.request({
+        targetId,
+        artifact: ARTIFACT,
+        source: `identity-${targetId}`,
+      })
+      const intentId = (requested.data as { intentId: string }).intentId
+      await deployments.approve(intentId)
+      const verified = await deployments.verify(intentId)
+      expect(verified.ok).toBe(false)
+      expect(verified.message).toContain(expected)
+      expect(deployments.detail(intentId)?.intent.state).toBe('verify_failed')
+      expect(
+        deployments.detail(intentId)?.attempts.some((attempt) => attempt.op === 'status'),
+      ).toBe(true)
+    }
   })
 })
