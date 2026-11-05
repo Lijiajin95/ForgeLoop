@@ -214,6 +214,62 @@ describe('coordinator lifecycle', () => {
   })
 })
 
+describe('delivery independence', () => {
+  it('advances delivery while a long dev request is still running', async () => {
+    const reqId = submit()
+    runtime.repo.recordRequest({
+      requestId: 'rq-long',
+      reqId,
+      project: 'testproj',
+      planVersion: 1,
+      action: 'advance',
+      requestedBy: 'owner',
+      source: 'test',
+      now: '2026-10-23T00:00:02.000Z',
+    })
+    let release: () => void = () => undefined
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started = false
+    runtime.executeRequest = async () => {
+      started = true
+      await blocked
+      return { state: 'failed', detail: 'stub' }
+    }
+    const calls: string[] = []
+    runtime.deliveryHandoff = {
+      tick: async () => {
+        calls.push('tick')
+        return { built: 0, proposed: 0, applied: 0, verified: 0, failed: 0 }
+      },
+    } as unknown as typeof runtime.deliveryHandoff
+    runtime.deployments = {
+      expireStale: () => {
+        calls.push('expire')
+        return 0
+      },
+      recoverInterrupted: async () => {
+        calls.push('recover')
+        return 0
+      },
+    } as unknown as typeof runtime.deployments
+
+    const coordinator = makeCoordinator(false)
+    coordinator.start()
+    const running = coordinator.kick()
+    while (!started) await new Promise((resolve) => setTimeout(resolve, 5))
+
+    // 研发请求仍在执行：交付推进照样完成核对超时与中断恢复。
+    await coordinator.kickDelivery()
+    expect(calls).toEqual(['tick', 'expire', 'recover'])
+
+    release()
+    await running
+    expect(runtime.repo.request('rq-long')?.state).toBe('failed')
+  })
+})
+
 describe('auto advance requests', () => {
   it('queues and runs an advance request for an approved, undelivered plan', async () => {
     const reqId = submit()

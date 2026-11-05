@@ -272,6 +272,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
    满足门禁后仍可批准。安装或核对中途中断时，协调器先按 target 的 `status` 只读观测实际结果：
    一致则收口为已安装待核对/已核对，不一致转失败，无法确认时保留原状态并记录一次待人工决定，
    不重复调用安装工具。
+   交付推进（自动交接、核对超时收口、中断恢复）在协调器里有独立的执行链与定时器，
+   不等同一轮研发请求收口；长研发任务因此不会阻塞部署核对或 `verifyTimeoutSeconds` 超时处理。
    `deployment-approve/-reject/-verify/-rollback` 只由认证看板以 `config.owner` 调用，
    `DeploymentService` 仍复核所有者身份；部署决定（批准/核对）记录执行者，供自主率统计区分
    人工与系统动作。回退先按 target 声明的卷/迁移执行 `data-rollback`，再执行 `rollback`，
@@ -576,4 +578,3 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   release 保持 real-host E2E。
 - 持久化表、外部工具契约与运行时状态机没有新增或改名；本批只新增测试、门禁脚本、
   报告入口与一处幂等资源释放修复（`Database.close()`，回归测试先红后绿）。
-
