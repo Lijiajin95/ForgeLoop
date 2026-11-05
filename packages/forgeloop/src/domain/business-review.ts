@@ -15,6 +15,8 @@ export type BusinessReviewStatus = 'pass' | 'fail' | 'not_verified'
 
 export interface BusinessReviewItem {
   readonly text: string
+  /** 结构化验收项的稳定编号；旧报告没有该字段。 */
+  readonly id?: string
   readonly status: BusinessReviewStatus
   readonly evidence: string
   readonly commands: readonly string[]
@@ -31,6 +33,8 @@ export interface BusinessReview {
   readonly businessRules: readonly BusinessReviewItem[]
   /** 逐条异常与边界的实际结果；旧报告缺少该字段时按空数组兼容。 */
   readonly exceptions: readonly BusinessReviewItem[]
+  /** 结构化业务要点的逐条实际结果；旧报告缺少该字段时按空数组兼容。 */
+  readonly points: readonly BusinessReviewItem[]
 }
 
 export interface BusinessReviewCommandRun {
@@ -73,12 +77,14 @@ function statusOf(value: unknown, field: string): BusinessReviewStatus {
 
 function itemOf(
   value: unknown,
-  key: 'scenario' | 'criterion' | 'rule' | 'exception',
+  key: 'scenario' | 'criterion' | 'rule' | 'exception' | 'id',
   what: string,
 ): BusinessReviewItem {
   const data = asRecord(value, what)
+  const id = typeof data.id === 'string' ? data.id.trim() : ''
   return {
     text: nonEmpty(data[key], `${what}.${key}`),
+    ...(id ? { id } : {}),
     status: statusOf(data.status, `${what}.status`),
     evidence: typeof data.evidence === 'string' ? data.evidence.trim() : '',
     commands: stringList(data.commands, `${what}.commands`, true),
@@ -87,7 +93,7 @@ function itemOf(
 
 function itemList(
   value: unknown,
-  key: 'scenario' | 'criterion' | 'rule' | 'exception',
+  key: 'scenario' | 'criterion' | 'rule' | 'exception' | 'id',
   field: string,
 ): BusinessReviewItem[] {
   if (value === undefined) return []
@@ -114,6 +120,7 @@ export function parseBusinessReview(raw: string): BusinessReview {
   const acceptance = itemList(data.acceptance, 'criterion', 'acceptance')
   const businessRules = itemList(data.business_rules, 'rule', 'business_rules')
   const exceptions = itemList(data.exceptions, 'exception', 'exceptions')
+  const points = itemList(data.points, 'id', 'points')
   return {
     verdict,
     summary: nonEmpty(data.summary, 'summary'),
@@ -123,6 +130,7 @@ export function parseBusinessReview(raw: string): BusinessReview {
     acceptance,
     businessRules,
     exceptions,
+    points,
   }
 }
 
@@ -191,6 +199,8 @@ export function validateBusinessReview(input: {
   acceptanceCriteria: readonly string[]
   businessRules?: readonly string[] | undefined
   exceptions?: readonly string[] | undefined
+  businessPoints?: readonly { readonly id: string }[] | undefined
+  acceptanceItems?: readonly { readonly id: string }[] | undefined
   review: BusinessReview
   runs: readonly BusinessReviewCommandRun[]
   /** 默认按 runs 是否带 expectFailure 自动判断；旧验证链路显式关闭。 */
@@ -221,13 +231,31 @@ export function validateBusinessReview(input: {
       issues.push(...checkItem(item, { runs, requireControls }, what, text))
     }
   }
-  checkAll(input.scenarios, input.review.scenarios, '业务终审业务场景', '业务终审缺少业务场景')
-  checkAll(
-    input.acceptanceCriteria,
-    input.review.acceptance,
-    '业务终审验收标准',
-    '业务终审缺少验收标准',
-  )
+  // 结构化规格以要点编号覆盖为准；旧报告继续按场景与验收标准原文核对。
+  if ((input.businessPoints?.length ?? 0) > 0) {
+    checkAll(
+      (input.businessPoints ?? []).map((point) => point.id),
+      input.review.points,
+      '业务终审业务要点',
+      '业务终审缺少业务要点',
+    )
+    for (const item of input.acceptanceItems ?? []) {
+      const reviewed = input.review.acceptance.find((entry) => entry.id === item.id)
+      if (!reviewed) {
+        issues.push(`业务终审缺少验收项：${item.id}`)
+        continue
+      }
+      issues.push(...checkItem(reviewed, { runs, requireControls }, '业务终审验收项', item.id))
+    }
+  } else {
+    checkAll(input.scenarios, input.review.scenarios, '业务终审业务场景', '业务终审缺少业务场景')
+    checkAll(
+      input.acceptanceCriteria,
+      input.review.acceptance,
+      '业务终审验收标准',
+      '业务终审缺少验收标准',
+    )
+  }
   checkAll(
     input.businessRules ?? [],
     input.review.businessRules,

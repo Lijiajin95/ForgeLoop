@@ -597,10 +597,7 @@ describe('advance pipeline mutation gaps', () => {
     const outcome = await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)
 
     expect(outcome).toEqual({ state: 'failed', detail: '验证方案未取得可用结果：验证 Agent 超时' })
-    expect(statuses).toEqual([
-      ['req-1', DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验'],
-      ['req-1', 'blocked', '验证方案未取得可用结果：验证 Agent 超时'],
-    ])
+    expect(statuses).toEqual([['req-1', 'blocked', '验证方案未取得可用结果：验证 Agent 超时']])
     expect(failureRounds).toHaveLength(1)
     expect(failureRounds[0]).toMatchObject({
       stage: FAILURE_VERIFICATION,
@@ -609,7 +606,7 @@ describe('advance pipeline mutation gaps', () => {
     expect(String(failureRounds[0]?.roundId)).toMatch(/^verification-plan-/)
     expect(budgetEnsured).toEqual([['req-1', 1200]])
     expect(openCalls).toBe(1)
-    expect(devCalls).toEqual(['a', 'b'])
+    expect(devCalls).toEqual([])
     expect(finished).toHaveLength(1)
   })
 
@@ -628,8 +625,8 @@ describe('advance pipeline mutation gaps', () => {
       ['req-1', 'blocked', '自验命令失败'],
     ])
     expect(devCalls).toEqual(['a', 'b'])
-    expect(openCalls).toBe(0)
-    expect(closed).toEqual([])
+    expect(openCalls).toBe(1)
+    expect(closed).toEqual(['verify-1'])
     expect(finalizeCalls).toEqual([])
     expect(verifyInputs).toEqual([])
     expect(finished).toHaveLength(1)

@@ -5,14 +5,23 @@ import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
 import { candidateDeploymentGate } from '../src/runtime/deployment-gate.js'
+import { expectedAcceptanceFingerprints } from '../src/runtime/acceptance-binding.js'
+import { candidateIdentityOf } from '../src/domain/delivery.js'
 import type { DeploymentArtifact } from '../src/domain/deployment.js'
+import type { TaskPlan } from '../src/domain/task-plan.js'
 
 let dir = ''
 let database: Database
 let repo: Repository
 
 const REQ = 'req-deploy-1'
-const CANDIDATE = 'c'.repeat(64)
+const TASK_CANDIDATE = 't1-candidate'
+const CANDIDATE = candidateIdentityOf({
+  planVersion: 1,
+  requirementVersion: 1,
+  baselineCommit: '',
+  candidateHashes: [TASK_CANDIDATE],
+})
 const ARTIFACT = 'a'.repeat(64)
 const TARBALL = '/tmp/candidate.tgz'
 
@@ -30,6 +39,41 @@ function target(approval: 'owner' | 'auto' = 'owner') {
     approval,
     rollback: { keep: 1 },
   }
+}
+
+function seedPlan(): void {
+  const plan: TaskPlan = {
+    taskPlanId: `plan-${REQ}-1`,
+    requirementId: REQ,
+    project: 'testproj',
+    planVersion: 1,
+    requirementVersion: 1,
+    tasks: [
+      {
+        taskId: 't1',
+        goal: '写文档',
+        files: ['docs/x.md'],
+        acceptance: '存在',
+        testCommand: ['true'],
+        dependsOn: [],
+        limits: { limitSeconds: -1, maxFailureRounds: -1 },
+        authorizationSource: 'system-admission:test',
+      },
+    ],
+    createdAt: '2026-11-03T09:30:00.000Z',
+  }
+  repo.recordTaskPlan(plan)
+  repo.recordTaskArtifact({
+    requirementId: REQ,
+    planVersion: 1,
+    taskId: 't1',
+    candidateSha256: TASK_CANDIDATE,
+    testEvidenceSha256: 'e'.repeat(64),
+    reviewSha256: 'r'.repeat(64),
+    acceptance: '存在',
+    authorizationSource: 'test',
+    recordedAt: '2026-11-03T09:40:00.000Z',
+  })
 }
 
 function seedCommit(): void {
@@ -109,6 +153,7 @@ beforeEach(() => {
     now: '2026-11-03T09:00:00.000Z',
   })
   repo.setStatus(REQ, 'committed', '已提交')
+  seedPlan()
   seedCommit()
 })
 
@@ -137,11 +182,12 @@ describe('candidate deployment gate', () => {
     expect(gate(target(), artifact()).reason).toBe('需求尚未验收')
     expect(gate(target('auto'), artifact())).toEqual({ ok: true, reason: '' })
 
+    const fingerprints = expectedAcceptanceFingerprints(repo, REQ, ARTIFACT)
     repo.recordAcceptance({
       reqId: REQ,
       acceptedBy: 'owner',
       source: 'test',
-      fingerprint: 'f'.repeat(64),
+      fingerprint: fingerprints[0] ?? '',
       now: '2026-11-03T10:03:00.000Z',
     })
     expect(gate(target(), artifact())).toEqual({ ok: true, reason: '' })
@@ -162,7 +208,7 @@ describe('candidate deployment gate', () => {
       reqId: REQ,
       acceptedBy: 'owner',
       source: 'test',
-      fingerprint: 'f'.repeat(64),
+      fingerprint: expectedAcceptanceFingerprints(repo, REQ, ARTIFACT)[0] ?? '',
       now: '2026-11-03T10:03:00.000Z',
     })
     const gate = candidateDeploymentGate(repo)

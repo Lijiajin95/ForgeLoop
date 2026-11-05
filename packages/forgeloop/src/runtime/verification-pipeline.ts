@@ -1,12 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
-import { businessReviewDir, verificationDir } from '../config.js'
+import { verificationAttemptDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 import { planLimitSeconds } from '../domain/task-plan.js'
 import type { PlanReview, VerificationReport } from '../domain/verification.js'
 import { validateScenarioEvidence, validateVerificationCoverage } from '../domain/verification.js'
+import { validateControlCoverage } from '../domain/verification-controls.js'
+import { classifyVerificationFailure } from '../domain/verification-failure.js'
 import {
   parseBusinessReview,
   validateBusinessReview,
@@ -32,6 +34,10 @@ import {
   workspaceChanges,
 } from './service-helpers.js'
 import { parseVerificationMaterials } from './verification-materials.js'
+import {
+  executeVerificationControls,
+  type ControlExecutionResult,
+} from './verification-controls.js'
 import { runVerificationCommands, type VerificationCommandRun } from './execution-commands.js'
 import { verificationIntegrity, verificationVerdict } from './verification-outcome.js'
 import type { OperationResult } from './operation-result.js'
@@ -66,7 +72,29 @@ export interface VerificationPipelineDeps {
 }
 
 export class VerificationPipeline {
+  /** 同一候选最多追加的验证尝试数；防止以“重跑直到通过”替代修复。 */
+  static readonly MAX_SAME_CANDIDATE_ATTEMPTS = 3
+
   constructor(private readonly deps: VerificationPipelineDeps) {}
+
+  /** 当前候选的下一次尝试身份与独立证据目录；目录不覆盖旧尝试。 */
+  private attemptOf(
+    reqId: string,
+    plan: TaskPlan,
+    candidateSha256: string,
+  ): { number: number; previousAttemptId: string; dir: string } {
+    const next = this.deps.repo.nextVerificationAttempt(reqId, plan.planVersion, candidateSha256)
+    return {
+      number: next.attemptNumber,
+      previousAttemptId: next.previousAttemptId,
+      dir: verificationAttemptDir(this.deps.config, {
+        reqId,
+        planVersion: plan.planVersion,
+        candidateSha256,
+        attemptNumber: next.attemptNumber,
+      }),
+    }
+  }
 
   private recordPreflightBlock(input: {
     reqId: string
@@ -74,28 +102,33 @@ export class VerificationPipeline {
     candidateSha256: string
     planReviewSha256: string
     blocking: readonly string[]
+    attempt: { number: number; previousAttemptId: string; dir: string }
   }): string {
-    const dir = verificationDir(
-      this.deps.config,
-      input.reqId,
-      input.plan.planVersion,
-      input.candidateSha256,
-    )
+    const dir = input.attempt.dir
     mkdirSync(dir, { recursive: true })
+    const classification = classifyVerificationFailure({
+      blocking: input.blocking,
+      commandRuns: [],
+      materialIssues: input.blocking,
+    })
     const report = {
       kind: 'verification',
       reqId: input.reqId,
       planVersion: input.plan.planVersion,
       requirementVersion: input.plan.requirementVersion,
       candidateSha256: input.candidateSha256,
+      attemptNumber: input.attempt.number,
+      previousAttemptId: input.attempt.previousAttemptId,
       workspaceSha256: '',
       planReviewSha256: input.planReviewSha256,
       verdict: 'block',
+      failureKind: classification.kind,
       summary: '候选无法在当前基线组装，未执行验证命令',
       findings: [],
-      blocking: [...input.blocking],
+      blocking: [...classification.reasons],
       scenarios: [],
       commands: [],
+      controls: [],
       candidateIntegrity: null,
       materials: [],
       sessionId: '',
@@ -111,23 +144,27 @@ export class VerificationPipeline {
       requirementVersion: input.plan.requirementVersion,
       workspaceSha256: '',
       verdict: 'block',
+      failureKind: classification.kind,
+      blocking: classification.reasons,
       reportJson,
       reportPath,
       reportSha256: sha256OfText(reportJson),
       evidenceDir: dir,
       sessionId: '',
       verifiedAt: this.deps.now(),
+      attemptNumber: input.attempt.number,
+      previousAttemptId: input.attempt.previousAttemptId,
     })
     this.deps.repo.recordFailureRound(input.reqId, {
-      roundId: `verification-${input.plan.planVersion}-${input.candidateSha256.slice(0, 12)}-preflight`,
+      roundId: `verification-${input.plan.planVersion}-${input.candidateSha256.slice(0, 12)}-a${input.attempt.number}-preflight`,
       stage: FAILURE_VERIFICATION,
-      summary: `独立验证无法组装候选：${input.blocking.join('；')}`.slice(0, 1000),
+      summary: `独立验证无法组装候选：${classification.reasons.join('；')}`.slice(0, 1000),
       occurredAt: this.deps.now(),
     })
     this.deps.repo.setStatus(
       input.reqId,
       'blocked',
-      `独立验证无法组装候选（候选 ${input.candidateSha256.slice(0, 16)}…）：${input.blocking.join('；')}`,
+      `独立验证无法组装候选（候选 ${input.candidateSha256.slice(0, 16)}…，尝试 ${input.attempt.number}）：${classification.reasons.join('；')}`,
     )
     return reportPath
   }
@@ -142,24 +179,32 @@ export class VerificationPipeline {
     plan: TaskPlan,
     candidateSha256: string,
   ): { state: 'done' | 'failed'; detail: string } | null {
-    const existing = this.deps.repo.verificationForCandidate(
+    const attempts = this.deps.repo.verificationAttemptsForCandidate(
       reqId,
       plan.planVersion,
       candidateSha256,
     )
-    if (!existing) return null
-    if (existing.verdict === 'block') {
+    const latest = attempts[attempts.length - 1]
+    if (!latest) return null
+    if (latest.verdict === 'pass') {
+      if (!this.verificationMaterialValid(latest)) {
+        return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；需重新验证' }
+      }
       return {
-        state: 'failed',
-        detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立验证已阻断：${verificationBlocking(existing.reportJson)}；需修复后产生新候选再验证`,
+        state: 'done',
+        detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证；等待验收`,
       }
     }
-    if (!this.verificationMaterialValid(existing)) {
-      return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；需重新验证' }
-    }
+    // 非实现缺陷（用例、环境、证据、争议或原因未明）允许有界复验同一候选；
+    // 每次复验仍追加新尝试、保留旧证据，并继续计入失败轮次。
+    const retryableKinds = ['environment_error', 'test_error', 'insufficient_evidence']
+    const retryable =
+      retryableKinds.includes(latest.failureKind) &&
+      attempts.length < VerificationPipeline.MAX_SAME_CANDIDATE_ATTEMPTS
+    if (retryable) return null
     return {
-      state: 'done',
-      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证；等待验收`,
+      state: 'failed',
+      detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立验证已阻断（尝试 ${latest.attemptNumber}，${latest.failureKind || '未分类'}）：${verificationBlocking(latest.reportJson)}；需修复后产生新候选再验证`,
     }
   }
 
@@ -177,12 +222,13 @@ export class VerificationPipeline {
     return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
   }
 
-  private prepareVerificationWorkspace(
-    reqId: string,
-    plan: TaskPlan,
-    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>,
-    candidateSha256: string,
-  ):
+  private prepareVerificationWorkspace(input: {
+    reqId: string
+    plan: TaskPlan
+    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
+    candidateSha256: string
+    attempt: { number: number; previousAttemptId: string; dir: string }
+  }):
     | {
         ok: true
         dir: string
@@ -192,7 +238,8 @@ export class VerificationPipeline {
         snapshot: ReturnType<typeof prepareSnapshotWorkspace>
       }
     | { ok: false; outcome: { state: 'failed'; detail: string } } {
-    const dir = verificationDir(this.deps.config, reqId, plan.planVersion, candidateSha256)
+    const { reqId, plan, reviewRecord, candidateSha256, attempt } = input
+    const dir = attempt.dir
     const workspace = join(dir, 'workspace')
     mkdirSync(dir, { recursive: true })
     const baseline = headCommit(this.deps.config.projectPath)
@@ -224,6 +271,7 @@ export class VerificationPipeline {
           candidateSha256,
           planReviewSha256: reviewRecord.reportSha256,
           blocking,
+          attempt,
         })
         return {
           ok: false,
@@ -343,6 +391,21 @@ export class VerificationPipeline {
       }
     }
     const plan = authorized.value.plan
+    if (analysis.requirementVersion !== plan.requirementVersion) {
+      return {
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `最新分析依据需求 v${analysis.requirementVersion}，任务包依据 v${plan.requirementVersion}；版本不一致，不能开始独立验证`,
+        },
+      }
+    }
+    if (analysis.clarifications.length > 0) {
+      return {
+        ok: false,
+        outcome: { state: 'failed', detail: '需求仍有待澄清项；不能开始独立验证' },
+      }
+    }
     const artifacts = this.deps.repo.taskArtifacts(reqId, plan.planVersion)
     const missing = plan.tasks.filter(
       (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
@@ -410,124 +473,237 @@ export class VerificationPipeline {
     failedCommands: readonly string[]
     integrityIssues: readonly string[]
     dir: string
-    workspace: string
     afterHead: string
     afterChanges: readonly string[]
     candidateContentSha256: string
     materials: ReturnType<typeof verificationMaterials>
+    attempt: { number: number; previousAttemptId: string; dir: string }
+    controls: readonly { label: string; patch: string; expectedFailureOutput: string }[]
+    controlRuns: readonly ControlExecutionResult[]
+    controlIssues: readonly string[]
   }): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
-    const { reqId, signal, plan, reviewRecord, planReview, candidateSha256 } = input
-    const { workspaceSha256, run, report } = input
-    const { commandRuns, failedCommands, integrityIssues, dir, afterHead, afterChanges } = input
-    const { candidateContentSha256, materials } = input
-    const coverageIssues = validateVerificationCoverage(planReview.verificationPlan, report)
-    const evidenceIssues = validateScenarioEvidence(
-      planReview.verificationPlan,
-      report,
-      commandRuns,
-    )
-    const { verdict, blocking } = verificationVerdict({
-      report,
-      failedCommands,
-      coverageIssues,
-      evidenceIssues,
-      integrityIssues,
-    })
-    const canonical = {
-      kind: 'verification',
-      reqId,
-      planVersion: plan.planVersion,
-      requirementVersion: plan.requirementVersion,
-      candidateSha256,
-      workspaceSha256,
-      planReviewSha256: reviewRecord.reportSha256,
-      verdict,
-      summary: report.summary,
-      findings: report.findings,
-      blocking,
-      scenarios: report.scenarios,
-      commands: commandRuns.map(({ output: _output, ...rest }) => rest),
-      candidateIntegrity: {
-        head: afterHead,
-        candidateContentSha256,
-        changes: afterChanges,
-        allowedPaths: [VERIFICATION_MATERIAL_DIR],
-        ignoredBuildOutputsExcluded: true,
-      },
-      materials,
-      sessionId: run.sessionId,
-      at: this.deps.now(),
-    }
+    const { verdict, blocking, classification } = this.verificationConclusion(input)
+    const canonical = this.verificationCanonical(input, { verdict, blocking, classification })
     const reportJson = `${JSON.stringify(canonical, null, 2)}\n`
-    const reportPath = join(dir, 'verification.json')
+    const reportPath = join(input.dir, 'verification.json')
     writeFileSync(reportPath, reportJson, 'utf8')
     this.deps.repo.recordVerification({
-      requirementId: reqId,
-      planVersion: plan.planVersion,
-      candidateSha256,
-      requirementVersion: plan.requirementVersion,
-      workspaceSha256,
+      requirementId: input.reqId,
+      planVersion: input.plan.planVersion,
+      candidateSha256: input.candidateSha256,
+      requirementVersion: input.plan.requirementVersion,
+      workspaceSha256: input.workspaceSha256,
       verdict,
+      failureKind: classification?.kind ?? '',
+      blocking,
       reportJson,
       reportPath,
       reportSha256: sha256OfText(reportJson),
-      evidenceDir: dir,
-      sessionId: run.sessionId,
+      evidenceDir: input.dir,
+      sessionId: input.run.sessionId,
       verifiedAt: this.deps.now(),
+      attemptNumber: input.attempt.number,
+      previousAttemptId: input.attempt.previousAttemptId,
     })
 
     if (verdict === 'block') {
-      const roundId = `verification-${plan.planVersion}-${candidateSha256.slice(0, 12)}`
-      const recorded = this.deps.repo.recordFailureRound(reqId, {
-        roundId,
-        stage: FAILURE_VERIFICATION,
-        summary: `独立验证阻断：${blocking.join('；') || report.summary}`.slice(0, 1000),
-        occurredAt: this.deps.now(),
-      })
-      const budgetLeft = this.deps.remainingFailureRounds(reqId)
-      const blockingText = blocking.join('；') || report.summary
-      const rounds = this.deps.repo.failureRounds(reqId).length
-      // 任务包冻结：验证提出的问题交回研发执行角色修复，不重新规划。
-      // 修复额度用尽时停在 blocked，等待追加授权或所有者决定。
-      if (budgetLeft > 0) {
-        const repairReason = `独立验证阻断，返回研发修复：${blockingText}`.slice(0, 900)
-        const reopened = this.deps.reopenDeliveredTasks({
-          reqId,
-          plan,
-          identity: candidateSha256,
-          reason: repairReason,
-        })
-        if (reopened.length > 0) {
-          this.deps.repo.setStatus(
-            reqId,
-            'blocked',
-            `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blockingText}；已返回研发修复（失败轮次 ${rounds}，剩余 ${budgetLeft}）`,
-          )
-          return {
-            state: 'repair',
-            detail: `独立验证阻断：${blockingText}；已返回研发修复，任务包 v${plan.planVersion} 不变；证据 ${reportPath}`,
-          }
-        }
-      }
-      this.deps.repo.setStatus(
-        reqId,
-        'blocked',
-        `独立验证阻断（候选 ${candidateSha256.slice(0, 16)}…）：${blockingText}${
-          recorded ? `；失败轮次 ${rounds}` : ''
-        }${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}`,
-      )
-      return {
-        state: 'failed',
-        detail: `独立验证阻断：${blockingText}；证据 ${reportPath}`,
-      }
+      return this.blockedVerificationOutcome({ ...input, blocking, classification, reportPath })
     }
 
-    const businessReview = await this.executeBusinessReview(reqId, signal)
+    const businessReview = await this.executeBusinessReview(input.reqId, input.signal)
     if (businessReview.state !== 'done') return businessReview
-    this.deps.repo.setStatus(reqId, EXECUTING)
+    this.deps.repo.setStatus(input.reqId, EXECUTING)
     return {
       state: 'done',
-      detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证（${report.scenarios.length} 个场景，${commandRuns.length} 条命令）；${businessReview.detail}`,
+      detail: `候选 ${input.candidateSha256.slice(0, 16)}… 已通过独立验证（${input.report.scenarios.length} 个场景，${input.commandRuns.length} 条命令）；${businessReview.detail}`,
+    }
+  }
+
+  /** 覆盖、敏感性对照与证据合并后的结论；分类只在阻断时产生。 */
+  private verificationConclusion(input: {
+    planReview: PlanReview
+    report: VerificationReport
+    commandRuns: VerificationCommandRun[]
+    failedCommands: readonly string[]
+    integrityIssues: readonly string[]
+    controls: readonly { label: string }[]
+    controlIssues: readonly string[]
+  }): {
+    verdict: 'pass' | 'block'
+    blocking: string[]
+    classification: ReturnType<typeof classifyVerificationFailure> | null
+  } {
+    const coverageIssues = validateVerificationCoverage(
+      input.planReview.verificationPlan,
+      input.report,
+    )
+    const evidenceIssues = validateScenarioEvidence(
+      input.planReview.verificationPlan,
+      input.report,
+      input.commandRuns,
+    )
+    const controlCoverageIssues = validateControlCoverage({
+      requiredScenarios: input.planReview.verificationPlan
+        .filter((scenario) => scenario.required)
+        .map((scenario) => scenario.scenario),
+      reportScenarios: input.report.scenarios,
+      controls: input.controls,
+    })
+    const controlIssues = [...controlCoverageIssues, ...input.controlIssues]
+    const { verdict, blocking } = verificationVerdict({
+      report: input.report,
+      failedCommands: input.failedCommands,
+      coverageIssues,
+      evidenceIssues,
+      integrityIssues: input.integrityIssues,
+      controlIssues,
+    })
+    const classification =
+      verdict === 'block'
+        ? classifyVerificationFailure({
+            blocking,
+            commandRuns: input.commandRuns,
+            failedScenarios: input.report.scenarios
+              .filter((scenario) => scenario.status === 'fail')
+              .map((scenario) => scenario.scenario),
+            coverageIssues,
+            evidenceIssues,
+            integrityIssues: input.integrityIssues,
+            controlIssues,
+          })
+        : null
+    return { verdict, blocking, classification }
+  }
+
+  private verificationCanonical(
+    input: {
+      reqId: string
+      plan: TaskPlan
+      reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
+      candidateSha256: string
+      workspaceSha256: string
+      run: Awaited<ReturnType<AgentRunner['run']>>
+      report: VerificationReport
+      commandRuns: VerificationCommandRun[]
+      afterHead: string
+      afterChanges: readonly string[]
+      candidateContentSha256: string
+      materials: ReturnType<typeof verificationMaterials>
+      attempt: { number: number; previousAttemptId: string }
+      controlRuns: readonly ControlExecutionResult[]
+    },
+    conclusion: {
+      verdict: 'pass' | 'block'
+      blocking: readonly string[]
+      classification: ReturnType<typeof classifyVerificationFailure> | null
+    },
+  ): Record<string, unknown> {
+    const { classification } = conclusion
+    return {
+      kind: 'verification',
+      reqId: input.reqId,
+      planVersion: input.plan.planVersion,
+      requirementVersion: input.plan.requirementVersion,
+      candidateSha256: input.candidateSha256,
+      attemptNumber: input.attempt.number,
+      previousAttemptId: input.attempt.previousAttemptId,
+      workspaceSha256: input.workspaceSha256,
+      planReviewSha256: input.reviewRecord.reportSha256,
+      verdict: conclusion.verdict,
+      ...(classification
+        ? {
+            failureKind: classification.kind,
+            failureReasons: classification.reasons,
+            failureGuidance: classification.guidance,
+          }
+        : {}),
+      summary: input.report.summary,
+      findings: input.report.findings,
+      blocking: conclusion.blocking,
+      scenarios: input.report.scenarios,
+      commands: input.commandRuns.map(({ output: _output, ...rest }) => rest),
+      controls: input.controlRuns,
+      candidateIntegrity: {
+        head: input.afterHead,
+        candidateContentSha256: input.candidateContentSha256,
+        changes: input.afterChanges,
+        allowedPaths: [VERIFICATION_MATERIAL_DIR],
+        ignoredBuildOutputsExcluded: true,
+      },
+      materials: input.materials,
+      sessionId: input.run.sessionId,
+      at: this.deps.now(),
+    }
+  }
+
+  /** 阻断总是保留；只有实现缺陷且仍有额度时才交回研发，其他分类只给处置依据。 */
+  private blockedVerificationOutcome(input: {
+    reqId: string
+    plan: TaskPlan
+    planReview: PlanReview
+    candidateSha256: string
+    commandRuns: VerificationCommandRun[]
+    report: VerificationReport
+    attempt: { number: number; previousAttemptId: string }
+    blocking: readonly string[]
+    classification: ReturnType<typeof classifyVerificationFailure> | null
+    reportPath: string
+  }): { state: 'failed' | 'repair'; detail: string } {
+    const { reqId, plan, candidateSha256, attempt, classification } = input
+    const blockingText = input.blocking.join('；') || input.report.summary
+    const kind = classification?.kind ?? 'undetermined'
+    this.deps.repo.recordFailureRound(reqId, {
+      roundId: `verification-${plan.planVersion}-${candidateSha256.slice(0, 12)}-a${attempt.number}`,
+      stage: FAILURE_VERIFICATION,
+      summary: `独立验证阻断（${kind}）：${blockingText}`.slice(0, 1000),
+      occurredAt: this.deps.now(),
+    })
+    const budgetLeft = this.deps.remainingFailureRounds(reqId)
+    const rounds = this.deps.repo.failureRounds(reqId).length
+    if (classification?.requiresCodeChange === true && budgetLeft > 0) {
+      const logs = input.commandRuns
+        .filter((command) => command.exitCode !== 0 || command.timedOut)
+        .map((command) => `${command.label}:${command.logPath}`)
+        .join('、')
+      const repairReason = [
+        `候选 ${candidateSha256.slice(0, 16)}…（尝试 ${attempt.number}）实现缺陷`,
+        `失败场景：${classification.reasons.join('；')}`,
+        `预期与用例：${input.planReview.verificationPlan
+          .filter((scenario) => scenario.required)
+          .map((scenario) => `${scenario.scenario}（${scenario.method}）`)
+          .join('；')}`,
+        `实际与证据：${blockingText}`,
+        logs ? `日志：${logs}` : '',
+      ]
+        .filter(Boolean)
+        .join('；')
+        .slice(0, 900)
+      const reopened = this.deps.reopenDeliveredTasks({
+        reqId,
+        plan,
+        identity: candidateSha256,
+        reason: repairReason,
+      })
+      if (reopened.length > 0) {
+        this.deps.repo.setStatus(
+          reqId,
+          'blocked',
+          `独立验证阻断（实现缺陷，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；已返回研发修复（失败轮次 ${rounds}，剩余 ${budgetLeft}）`,
+        )
+        return {
+          state: 'repair',
+          detail: `独立验证阻断（实现缺陷）：${blockingText}；已返回研发修复，任务包 v${plan.planVersion} 不变；证据 ${input.reportPath}`,
+        }
+      }
+    }
+    this.deps.repo.setStatus(
+      reqId,
+      'blocked',
+      `独立验证阻断（${kind}，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；失败轮次 ${rounds}${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}；${classification?.guidance ?? ''}`,
+    )
+    return {
+      state: 'failed',
+      detail: `独立验证阻断（${kind}）：${blockingText}；${classification?.guidance ?? ''}；证据 ${input.reportPath}`,
     }
   }
 
@@ -596,7 +772,14 @@ export class VerificationPipeline {
     if (existingOutcome) return existingOutcome
     const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
     if (budgetOutcome) return budgetOutcome
-    const prepared = this.prepareVerificationWorkspace(reqId, plan, reviewRecord, candidateSha256)
+    const attempt = this.attemptOf(reqId, plan, candidateSha256)
+    const prepared = this.prepareVerificationWorkspace({
+      reqId,
+      plan,
+      reviewRecord,
+      candidateSha256,
+      attempt,
+    })
     if (!prepared.ok) return prepared.outcome
     const { dir, workspace, diffs, baseline, snapshot } = prepared
     const finalized = this.finalizeVerificationWorkspace({
@@ -632,7 +815,7 @@ export class VerificationPipeline {
       this.deps.repo.setStatus(reqId, 'blocked', parsed.detail)
       return { state: 'failed', detail: parsed.detail }
     }
-    const { commands, report } = parsed
+    const { commands, report, controls } = parsed
     const changed = workspaceChanges(workspace)
     const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
     if (currentHead !== workspaceHead) {
@@ -673,6 +856,33 @@ export class VerificationPipeline {
     })
     if (!ran.ok) return { state: 'failed', detail: ran.detail }
     const { commandRuns, failedCommands } = ran
+    // 必过用例的敏感性对照：在候选隔离副本上应用受控错误补丁并重跑同一命令。
+    const controlOutcome = await executeVerificationControls({
+      workspace,
+      dir,
+      commands,
+      controls,
+      dependencyRoot: this.deps.config.projectPath,
+      run: async ({ argv, cwd, logPath }) => {
+        const test = await this.deps.formalTest({
+          ctx: this.deps.ctx,
+          cwd,
+          argv,
+          timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
+          logPath,
+          signal,
+        })
+        return {
+          exitCode: test.exitCode,
+          timedOut: test.timedOut,
+          aborted: test.aborted,
+          durationMs: test.durationMs,
+          output: test.output,
+          logPath: test.logPath,
+          logSha256: test.logSha256,
+        }
+      },
+    })
     // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
     // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
     const integrity = verificationIntegrity(workspace, workspaceHead)
@@ -694,11 +904,14 @@ export class VerificationPipeline {
       failedCommands,
       integrityIssues,
       dir,
-      workspace,
       afterHead,
       afterChanges,
       candidateContentSha256,
       materials,
+      attempt,
+      controls,
+      controlRuns: controlOutcome.results,
+      controlIssues: controlOutcome.issues,
     })
   }
 
@@ -736,6 +949,15 @@ export class VerificationPipeline {
       return { ok: false, detail: `需求 ${reqId} 尚无分析结论；不能做业务终审` }
     }
     const plan = authorized.value.plan
+    if (analysis.requirementVersion !== plan.requirementVersion) {
+      return {
+        ok: false,
+        detail: `最新分析依据需求 v${analysis.requirementVersion}，任务包依据 v${plan.requirementVersion}；版本不一致，不能做业务终审`,
+      }
+    }
+    if (analysis.clarifications.length > 0) {
+      return { ok: false, detail: '需求仍有待澄清项；不能做业务终审' }
+    }
     const artifacts = this.deps.repo.taskArtifacts(reqId, plan.planVersion)
     const missing = plan.tasks.filter(
       (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
@@ -806,7 +1028,8 @@ export class VerificationPipeline {
     if (!factsResult.ok) return { state: 'failed', detail: factsResult.detail }
     const facts = factsResult.facts
 
-    const dir = businessReviewDir(this.deps.config, reqId, plan.planVersion)
+    // 终审报告跟随本次验证尝试目录，复验不会覆盖旧结论。
+    const dir = join(verification.evidenceDir, 'business-review')
     mkdirSync(dir, { recursive: true })
     const started = Date.now()
     const run = await this.deps.runner.run({
@@ -852,6 +1075,8 @@ export class VerificationPipeline {
       acceptanceCriteria: analysis.acceptanceCriteria,
       businessRules: analysis.businessRules,
       exceptions: analysis.exceptions,
+      businessPoints: analysis.businessPoints,
+      acceptanceItems: analysis.acceptanceItems,
       review,
       runs: facts.map((fact) => ({
         label: fact.label,
@@ -878,6 +1103,7 @@ export class VerificationPipeline {
       acceptance: review.acceptance,
       businessRules: review.businessRules,
       exceptions: review.exceptions,
+      points: review.points,
       sessionId: run.sessionId,
       at: this.deps.now(),
     }

@@ -185,12 +185,22 @@ exports[`keeps ops list, detail, stats and summary payloads stable 4`] = `
   "enabled": true,
   "intervalSeconds": 60,
   "monitor": {
+    "collection": {
+      "complete": true,
+      "errors": [],
+    },
     "enabled": false,
     "error": "",
+    "freshness": {
+      "ageSeconds": null,
+      "stale": false,
+    },
     "heartbeat": {
+      "ageSeconds": null,
       "at": "",
       "configured": false,
       "ok": false,
+      "stale": false,
     },
     "host": {
       "cpuPercent": 0,

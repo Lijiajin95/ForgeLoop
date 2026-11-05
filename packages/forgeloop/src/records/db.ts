@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS requirement_analyses (
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
+-- 结构化需求说明（业务要点、验收项、假设）。旁置 JSON 表，避免给已有 analyses 表补列；
+-- 历史分析没有该行时按无结构化规格处理，不补造。
+CREATE TABLE IF NOT EXISTS requirement_analysis_specs (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    spec_json TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version)
+);
 CREATE TABLE IF NOT EXISTS requirement_analysis_attempts (
     req_id TEXT NOT NULL,
     requirement_version INTEGER NOT NULL,
@@ -73,15 +81,31 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_input_kinds (
     kind TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
--- 分析条目：稳定 ID、分类与依据。旁置表，已有库按 CREATE TABLE IF NOT EXISTS 建立。
-CREATE TABLE IF NOT EXISTS requirement_analysis_items (
+-- 澄清问题：每个问题在首次提出的分析版本内获得稳定编号（Q<分析版本>-<序号>）。
+-- 问题只追加；解决时写结论与解决版本，不删除历史。旁置表避免给已有 analyses 表补列。
+CREATE TABLE IF NOT EXISTS requirement_clarification_questions (
     req_id TEXT NOT NULL,
     analysis_version INTEGER NOT NULL,
-    item_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    text TEXT NOT NULL,
-    basis TEXT NOT NULL DEFAULT 'unknown',
-    PRIMARY KEY (req_id, analysis_version, item_id)
+    question_index INTEGER NOT NULL,
+    question_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    resolution TEXT NOT NULL DEFAULT '',
+    resolved_analysis_version INTEGER,
+    resolved_requirement_version INTEGER,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version, question_index)
+);
+-- 澄清回答：按被回答的分析版本追加回答原文与来源，不覆盖历次问答。
+CREATE TABLE IF NOT EXISTS requirement_clarification_answers (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    answered_version INTEGER NOT NULL,
+    question_ids TEXT NOT NULL DEFAULT '[]',
+    answer TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    answered_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version)
 );
 CREATE TABLE IF NOT EXISTS requirement_task_plans (
     req_id TEXT NOT NULL,
@@ -126,6 +150,29 @@ CREATE TABLE IF NOT EXISTS requirement_verifications (
     session_id TEXT NOT NULL DEFAULT '',
     verified_at TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version, candidate_sha256)
+);
+-- 每次验证尝试独立追加；requirement_verifications 只是“当前有效结果”的投影，
+-- 不能反向覆盖历史。旧库没有本表时按新表建立，不迁移旧行。
+CREATE TABLE IF NOT EXISTS requirement_verification_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    previous_attempt_id TEXT NOT NULL DEFAULT '',
+    requirement_version INTEGER NOT NULL,
+    workspace_sha256 TEXT NOT NULL DEFAULT '',
+    verdict TEXT NOT NULL,
+    failure_kind TEXT NOT NULL DEFAULT '',
+    blocking_json TEXT NOT NULL DEFAULT '[]',
+    reason TEXT NOT NULL DEFAULT '',
+    report_json TEXT NOT NULL,
+    report_path TEXT NOT NULL,
+    report_sha256 TEXT NOT NULL,
+    evidence_dir TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    verified_at TEXT NOT NULL,
+    UNIQUE (req_id, plan_version, candidate_sha256, attempt_number)
 );
 CREATE TABLE IF NOT EXISTS requirement_task_runs (
     req_id TEXT NOT NULL,
@@ -187,20 +234,6 @@ CREATE INDEX IF NOT EXISTS requirement_queue_pending
     ON requirement_queue(state, enqueued_at, sequence);
 
 -- 内建问题单：验证未通过时自动创建，关联需求与验证报告，驱动研发修复后重新验证。
--- 非代码缺陷的验证异常：环境/测试/证据问题单独留档，不计入正式失败轮次。
-CREATE TABLE IF NOT EXISTS requirement_execution_anomalies (
-    anomaly_id TEXT PRIMARY KEY,
-    req_id TEXT NOT NULL,
-    plan_version INTEGER NOT NULL,
-    candidate_sha256 TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL,
-    stage TEXT NOT NULL,
-    detail TEXT NOT NULL,
-    evidence_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS requirement_execution_anomalies_by_req
-    ON requirement_execution_anomalies(req_id, created_at);
 CREATE TABLE IF NOT EXISTS requirement_issues (
     issue_id TEXT PRIMARY KEY,
     req_id TEXT NOT NULL,

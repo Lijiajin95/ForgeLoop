@@ -15,6 +15,10 @@ export interface VerificationScenarioPlan {
   readonly acceptanceCriterion: string
   readonly method: string
   readonly required: boolean
+  /** 结构化规格下必须引用的业务要点编号；旧方案可省略。 */
+  readonly pointIds?: readonly string[]
+  /** 结构化规格下必须引用的验收项编号；旧方案可省略。 */
+  readonly acceptanceIds?: readonly string[]
 }
 
 export interface PlanReview {
@@ -69,6 +73,28 @@ function stringList(value: unknown, field: string, allowEmpty: boolean): string[
   return items
 }
 
+/** 可选引用数组：缺省为空；出现时每个元素必须是非空字符串。 */
+function optionalStringList(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return []
+  return stringList(value, field, true)
+}
+
+/** 只在方案真的给出引用时才写字段，旧方案解析结果保持原样。 */
+function refsField(
+  data: Record<string, unknown>,
+  field: string,
+): { pointIds?: string[]; acceptanceIds?: string[] } {
+  const pointIds = optionalStringList(data.point_ids ?? data.pointIds, `${field}.point_ids`)
+  const acceptanceIds = optionalStringList(
+    data.acceptance_ids ?? data.acceptanceIds,
+    `${field}.acceptance_ids`,
+  )
+  return {
+    ...(pointIds.length > 0 ? { pointIds } : {}),
+    ...(acceptanceIds.length > 0 ? { acceptanceIds } : {}),
+  }
+}
+
 function verdictOf(value: unknown, what: string): 'pass' | 'block' {
   if (value !== 'pass' && value !== 'block') {
     throw new MalformedError(`${what}结论必须是 pass 或 block，实际 ${JSON.stringify(value)}`)
@@ -96,6 +122,7 @@ function parseVerificationPlan(value: unknown, required: boolean): VerificationS
       ),
       method: nonEmpty(data.method, `verification_plan[${index}].method`),
       required: requiredFlag,
+      ...refsField(data, `verification_plan[${index}]`),
     }
   })
   if (required && plan.length === 0) {
@@ -383,6 +410,7 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
       ),
       method: nonEmpty(scenario.method, `scenarios[${index}].method`),
       required: scenario.required,
+      ...refsField(scenario, `scenarios[${index}]`),
       checks,
     } satisfies VerificationPlanScenario
   })
@@ -412,31 +440,141 @@ function planReferences(plan: VerificationPlan, source: string): boolean {
 }
 
 /**
+ * 异常与边界里点名的输出标记（“输出 missing”“打印 FAIL”）必须成为某条命令的
+ * expected_output；只写在文字说明里不算可核对证据，业务终审会因此判定证据缺失。
+ */
+export function validateExceptionMarkers(
+  exceptions: readonly string[],
+  plan: VerificationPlan,
+): string[] {
+  const issues: string[] = []
+  const outputs = plan.scenarios.flatMap((scenario) =>
+    scenario.checks.map((check) => check.expectedOutput),
+  )
+  for (const item of exceptions) {
+    for (const marker of exceptionMarkers(item)) {
+      if (outputs.some((output) => output !== '' && output.includes(marker))) continue
+      issues.push(
+        `验证方案缺少异常标记断言：${item}（需要一条命令的 expected_output 包含 ${marker}）`,
+      )
+    }
+  }
+  // 异常断言必须在临时目录自建输入：依赖候选仓库当前状态会在独立验证里失败，
+  // 也会让“缺失/失败”分支变成与环境耦合的猜测。
+  const markers = new Set(exceptions.flatMap((item) => exceptionMarkers(item)))
+  for (const scenario of plan.scenarios) {
+    for (const check of scenario.checks) {
+      if (check.expectedOutput === '') continue
+      if (![...markers].some((marker) => check.expectedOutput.includes(marker))) continue
+      if (TEMPDIR_TOKENS.test(check.argv.join(' '))) continue
+      issues.push(`验证方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：${check.label}`)
+    }
+  }
+  return issues
+}
+
+/** 自建临时输入的写法；命中其一即视为自包含。 */
+const TEMPDIR_TOKENS = /mkdtemp|mkdtempSync|mktemp|tempfile|TemporaryDirectory|tmpdir\s*\(/i
+
+/** 取“输出/打印/提示”后紧跟的 ASCII 标记，或反引号/引号里的标记。 */
+function exceptionMarkers(text: string): string[] {
+  const markers = new Set<string>()
+  for (const match of text.matchAll(/[`'"]([A-Za-z][A-Za-z0-9_-]{2,})[`'"]/g)) {
+    if (match[1]) markers.add(match[1])
+  }
+  for (const match of text.matchAll(
+    /(?:输出|打印|提示)(?:为|是|：|:)?\s*([A-Za-z][A-Za-z0-9_-]{2,})/g,
+  )) {
+    if (match[1]) markers.add(match[1])
+  }
+  return [...markers]
+}
+
+/**
  * 验证方案必须逐字覆盖需求说明中的全部业务场景、业务规则、异常与边界和验收标准。
  * 非目标只作背景，不参与正向验收。
  */
+function validateStructuredPlanRefs(
+  plan: VerificationPlan,
+  points: readonly { readonly id: string }[],
+  items: readonly { readonly id: string }[],
+): string[] {
+  const issues: string[] = []
+  const knownPoints = new Set(points.map((point) => point.id))
+  const knownItems = new Set(items.map((item) => item.id))
+  for (const scenario of plan.scenarios) {
+    for (const pointId of scenario.pointIds ?? []) {
+      if (!knownPoints.has(pointId)) issues.push(`验证方案引用了不存在的业务要点：${pointId}`)
+    }
+    for (const acceptanceId of scenario.acceptanceIds ?? []) {
+      if (!knownItems.has(acceptanceId)) {
+        issues.push(`验证方案引用了不存在的验收项：${acceptanceId}`)
+      }
+    }
+  }
+  return issues
+}
+
+function validateStructuredPlanCoverage(
+  plan: VerificationPlan,
+  points: readonly { readonly id: string }[],
+  items: readonly { readonly id: string }[],
+): string[] {
+  const issues: string[] = []
+  for (const point of points) {
+    if (
+      !plan.scenarios.some(
+        (scenario) => scenario.required && (scenario.pointIds ?? []).includes(point.id),
+      )
+    ) {
+      issues.push(`验证方案缺少必过场景覆盖业务要点：${point.id}`)
+    }
+  }
+  for (const item of items) {
+    if (
+      !plan.scenarios.some(
+        (scenario) => scenario.required && (scenario.acceptanceIds ?? []).includes(item.id),
+      )
+    ) {
+      issues.push(`验证方案缺少必过场景覆盖验收项：${item.id}`)
+    }
+  }
+  return issues
+}
+
 export function validateRequirementVerificationPlan(
   analysis: {
     readonly scenarios: readonly string[]
     readonly acceptanceCriteria: readonly string[]
     readonly businessRules?: readonly string[] | undefined
     readonly exceptions?: readonly string[] | undefined
+    readonly businessPoints?: readonly { readonly id: string }[] | undefined
+    readonly acceptanceItems?: readonly { readonly id: string }[] | undefined
   },
   plan: VerificationPlan,
 ): string[] {
-  const issues = validatePlanCoverage(analysis, {
-    verdict: 'pass',
-    blocking: [],
-    findings: [],
-    summary: '',
-    verificationPlan: plan.scenarios,
-  })
+  const points = analysis.businessPoints ?? []
+  const items = analysis.acceptanceItems ?? []
+  const issues =
+    points.length > 0
+      ? [
+          ...validateStructuredPlanRefs(plan, points, items),
+          ...validateStructuredPlanCoverage(plan, points, items),
+        ]
+      : validatePlanCoverage(analysis, {
+          verdict: 'pass',
+          blocking: [],
+          findings: [],
+          summary: '',
+          verificationPlan: plan.scenarios,
+        })
   for (const rule of analysis.businessRules ?? []) {
     if (!planReferences(plan, rule)) issues.push(`验证方案缺少业务规则：${rule}`)
   }
   for (const item of analysis.exceptions ?? []) {
     if (!planReferences(plan, item)) issues.push(`验证方案缺少异常与边界：${item}`)
   }
+  issues.push(...validateExceptionMarkers(analysis.exceptions ?? [], plan))
   return issues
 }
 
@@ -446,7 +584,7 @@ export function validateRequirementVerificationPlan(
 export interface VerificationCheckRun {
   readonly label: string
   readonly argv: readonly string[]
-  readonly expectFailure: boolean
+  readonly expectFailure?: boolean
   readonly exitCode: number | null
   readonly timedOut: boolean
   readonly aborted: boolean

@@ -12,6 +12,12 @@ import type {
   AgentRunResult,
 } from '../src/runtime/agent-runner.js'
 import { COMMITTED, SPECIFIED } from '../src/domain/status.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 const SCENARIO = '需求功能可用'
 const CRITERION = '命令输出证明功能可用'
@@ -48,14 +54,14 @@ function result(request: { role: string; transcriptPath?: string }, text: string
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现一个可验证的小功能',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -76,7 +82,7 @@ const PLAN = JSON.stringify({
 })
 
 /** 需求说明派生的验证方案；命令由运行时在固定候选上实际执行。 */
-const VERIFICATION_PLAN = JSON.stringify({
+const VERIFICATION_PLAN = structuredVerificationOf({
   scenarios: [
     {
       scenario: SCENARIO,
@@ -99,7 +105,7 @@ const VERIFICATION_PLAN = JSON.stringify({
   ],
 })
 
-const BUSINESS_REVIEW = JSON.stringify({
+const BUSINESS_REVIEW = structuredReviewOf({
   verdict: 'pass',
   summary: '业务场景通过',
   findings: [],

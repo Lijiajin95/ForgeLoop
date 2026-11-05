@@ -9,6 +9,9 @@
 import { asRecord } from './json.js'
 import { MalformedError, RuleViolationError, errorMessage } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
+import type { ClarificationUpdate } from './analysis.js'
+import type { AcceptanceCriterion, Assumption, BusinessPoint } from './spec.js'
+import { parseSpecFields } from './spec.js'
 
 export interface RequirementVersion {
   readonly version: number
@@ -61,27 +64,12 @@ export const INPUT_KINDS: readonly InputKind[] = ['requirement', 'problem']
 
 export const DEFAULT_INPUT_KIND: InputKind = 'requirement'
 
-export type RequirementItemKind =
-  'scenario' | 'business_rule' | 'exception' | 'acceptance' | 'non_goal'
-
-export type RequirementItemBasis = 'customer_explicit' | 'verified_fact' | 'assumption' | 'unknown'
-
-/** 稳定需求条目：同一分析版本内身份稳定，供任务、验证与证据逐项追踪。 */
-export interface RequirementItem {
-  readonly itemId: string
-  readonly kind: RequirementItemKind
-  readonly text: string
-  readonly basis: RequirementItemBasis
-}
-
 export interface RequirementAnalysis {
   readonly analysisVersion: number
   readonly requirementVersion: number
   /** 输入分诊结论；缺省表示历史记录，按需求处理。 */
   readonly inputKind?: InputKind
   readonly goal: string
-  /** 结构化的需求条目；历史记录可能没有，读取时按字符串数组派生兼容 ID。 */
-  readonly items?: readonly RequirementItem[]
   readonly scenarios: readonly string[]
   /** 业务规则：哪些业务约束必须成立。 */
   readonly businessRules?: readonly string[]
@@ -90,6 +78,12 @@ export interface RequirementAnalysis {
   /** 非目标：本需求明确不做的范围。 */
   readonly nonGoals?: readonly string[]
   readonly acceptanceCriteria: readonly string[]
+  /** 结构化业务要点；历史记录或问题输入可能没有。 */
+  readonly businessPoints?: readonly BusinessPoint[]
+  /** 结构化可观察验收；与 businessPoints 同批出现。 */
+  readonly acceptanceItems?: readonly AcceptanceCriterion[]
+  /** 尚未验证的推断或外部假设；不是已确认业务规则。 */
+  readonly assumptions?: readonly Assumption[]
   readonly clarifications: readonly string[]
   /** 产生该结论的模型与提示词版本；历史记录可能为空。 */
   readonly model?: string
@@ -109,135 +103,18 @@ export interface BusinessContextDraft {
 export interface AnalysisDraft {
   readonly inputKind: InputKind
   readonly goal: string
-  readonly items: readonly RequirementItem[]
-  readonly itemsProvided: boolean
   readonly scenarios: readonly string[]
   readonly businessRules: readonly string[]
   readonly exceptions: readonly string[]
   readonly nonGoals: readonly string[]
   readonly acceptanceCriteria: readonly string[]
+  readonly businessPoints: readonly BusinessPoint[]
+  readonly acceptanceItems: readonly AcceptanceCriterion[]
+  readonly assumptions: readonly Assumption[]
   readonly clarifications: readonly string[]
+  /** 本轮对上一轮未解决问题的逐项处置；首次分析为空。 */
+  readonly clarificationUpdates: readonly ClarificationUpdate[]
   readonly businessContext: BusinessContextDraft
-}
-
-const ITEM_KINDS: readonly RequirementItemKind[] = [
-  'scenario',
-  'business_rule',
-  'exception',
-  'acceptance',
-  'non_goal',
-]
-
-const ITEM_KIND_SET: ReadonlySet<string> = new Set(ITEM_KINDS)
-
-const ITEM_BASES: readonly RequirementItemBasis[] = [
-  'customer_explicit',
-  'verified_fact',
-  'assumption',
-  'unknown',
-]
-
-const ITEM_BASIS_SET: ReadonlySet<string> = new Set(ITEM_BASES)
-
-export function isItemKind(value: unknown): value is RequirementItemKind {
-  return typeof value === 'string' && ITEM_KIND_SET.has(value)
-}
-
-export function isItemBasis(value: unknown): value is RequirementItemBasis {
-  return typeof value === 'string' && ITEM_BASIS_SET.has(value)
-}
-
-const ITEM_KIND_PREFIX: Record<RequirementItemKind, string> = {
-  scenario: 'scenario',
-  business_rule: 'rule',
-  exception: 'exception',
-  acceptance: 'acceptance',
-  non_goal: 'non-goal',
-}
-
-function itemKindOf(value: unknown, field: string): RequirementItemKind {
-  if (!isItemKind(value)) {
-    throw new MalformedError(`分析条目 ${field}.kind 只能是 ${ITEM_KINDS.join('、')}`)
-  }
-  return value
-}
-
-function itemBasisOf(value: unknown, field: string): RequirementItemBasis {
-  if (value === undefined || value === null || value === '') return 'unknown'
-  if (!isItemBasis(value)) {
-    throw new MalformedError(`分析条目 ${field}.basis 只能是 ${ITEM_BASES.join('、')}`)
-  }
-  return value
-}
-
-function itemsField(data: Record<string, unknown>): RequirementItem[] {
-  const raw = data.items
-  if (raw === undefined || raw === null) return []
-  if (!Array.isArray(raw)) throw new MalformedError('分析字段 items 必须是数组')
-  const seen = new Set<string>()
-  return raw.map((entry, index) => {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      throw new MalformedError(`分析条目 items[${index}] 必须是对象`)
-    }
-    const record = asRecord(entry) ?? {}
-    const itemId = typeof record.item_id === 'string' ? record.item_id.trim() : ''
-    if (!itemId) throw new MalformedError(`分析条目 items[${index}].item_id 不能为空`)
-    if (seen.has(itemId)) throw new MalformedError(`分析条目 item_id 不能重复：${itemId}`)
-    seen.add(itemId)
-    const text = typeof record.text === 'string' ? record.text.trim() : ''
-    if (!text) throw new MalformedError(`分析条目 items[${index}].text 不能为空`)
-    return {
-      itemId,
-      kind: itemKindOf(record.kind, `items[${index}]`),
-      text,
-      basis: itemBasisOf(record.basis, `items[${index}]`),
-    }
-  })
-}
-
-/** 历史分析没有 items 时，按数组顺序派生稳定 ID；依据统一标为 unknown，不补造确认。 */
-function legacyItems(input: {
-  scenarios: readonly string[]
-  businessRules: readonly string[]
-  exceptions: readonly string[]
-  acceptanceCriteria: readonly string[]
-  nonGoals: readonly string[]
-}): RequirementItem[] {
-  const groups: Array<[RequirementItemKind, readonly string[]]> = [
-    ['scenario', input.scenarios],
-    ['business_rule', input.businessRules],
-    ['exception', input.exceptions],
-    ['acceptance', input.acceptanceCriteria],
-    ['non_goal', input.nonGoals],
-  ]
-  const items: RequirementItem[] = []
-  for (const [kind, texts] of groups) {
-    texts.forEach((text, index) => {
-      items.push({
-        itemId: `${ITEM_KIND_PREFIX[kind]}-${index + 1}`,
-        kind,
-        text,
-        basis: 'unknown',
-      })
-    })
-  }
-  return items
-}
-
-/** 读取分析条目；旧记录没有 items 时按数组派生，保证下游始终有稳定 ID。 */
-export function analysisItems(analysis: RequirementAnalysis): RequirementItem[] {
-  if (analysis.items && analysis.items.length > 0) return [...analysis.items]
-  return legacyItems({
-    scenarios: analysis.scenarios,
-    businessRules: analysis.businessRules ?? [],
-    exceptions: analysis.exceptions ?? [],
-    acceptanceCriteria: analysis.acceptanceCriteria,
-    nonGoals: analysis.nonGoals ?? [],
-  })
-}
-
-function textsOf(items: readonly RequirementItem[], kind: RequirementItemKind): string[] {
-  return items.filter((item) => item.kind === kind).map((item) => item.text)
 }
 
 function stringList(value: unknown, field: string): string[] {
@@ -299,21 +176,63 @@ function inputKindField(data: Record<string, unknown>): InputKind {
   throw new MalformedError('分析字段 input_kind 只能是 requirement 或 problem')
 }
 
-function validateClarificationRules(input: {
-  inputKind: InputKind
-  clarifications: readonly string[]
-  acceptanceCriteria: readonly string[]
-  scenarios: readonly string[]
-  allowProblemClarifications: boolean
-}): void {
-  if (
-    input.inputKind === 'problem' &&
-    input.clarifications.length > 0 &&
-    !input.allowProblemClarifications
-  ) {
-    throw new MalformedError('问题直接交研发处理，不能带待澄清项；需要澄清时走研发回交澄清')
+/**
+ * 本轮对旧问题的处置。问题身份必须指向上一轮未解决问题（程序在调用方核对）；
+ * 这里只校验结构、非空理由与重复引用，不猜测模型想解决哪个问题。
+ */
+function clarificationUpdatesField(data: Record<string, unknown>): ClarificationUpdate[] {
+  const raw = data.clarification_updates
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 clarification_updates 必须是数组')
+  const updates = raw.map((item, index) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new MalformedError(`分析字段 clarification_updates[${index}] 必须是对象`)
+    }
+    const record = asRecord(item) ?? {}
+    const questionId = typeof record.question_id === 'string' ? record.question_id.trim() : ''
+    if (!questionId) {
+      throw new MalformedError(`分析字段 clarification_updates[${index}].question_id 不能为空`)
+    }
+    const status = record.status
+    if (status !== 'resolved' && status !== 'open') {
+      throw new MalformedError(
+        `分析字段 clarification_updates[${index}].status 只能是 resolved 或 open`,
+      )
+    }
+    const resolution = typeof record.resolution === 'string' ? record.resolution.trim() : ''
+    const reason = typeof record.reason === 'string' ? record.reason.trim() : ''
+    if (status === 'resolved' && !resolution) {
+      throw new MalformedError(
+        `分析字段 clarification_updates[${index}] 标记已解决时必须给出 resolution`,
+      )
+    }
+    if (status === 'open' && !reason) {
+      throw new MalformedError(`分析字段 clarification_updates[${index}] 仍未解决时必须给出 reason`)
+    }
+    return { questionId, status, resolution, reason } satisfies ClarificationUpdate
+  })
+  const ids = updates.map((update) => update.questionId)
+  if (new Set(ids).size !== ids.length) {
+    throw new MalformedError('分析字段 clarification_updates 不能重复引用同一问题')
   }
-  if (input.clarifications.length > 0) return
+  return updates
+}
+
+/**
+ * 处理完本轮旧问题后仍有开放项时，不要求场景与验收标准已经完整；
+ * 全部开放项都已解决或本轮没有待澄清项时，才要求给出可研发可验证的完整内容。
+ */
+function assertDraftCompleteness(input: {
+  inputKind: InputKind
+  scenarios: readonly string[]
+  acceptanceCriteria: readonly string[]
+  clarifications: readonly string[]
+  clarificationUpdates: readonly ClarificationUpdate[]
+}): void {
+  const openAfter =
+    input.clarifications.length +
+    input.clarificationUpdates.filter((update) => update.status === 'open').length
+  if (openAfter > 0) return
   if (input.inputKind === 'problem') {
     if (input.acceptanceCriteria.length === 0) {
       throw new MalformedError('问题必须给出可检查的修复判据（acceptance_criteria）')
@@ -325,47 +244,11 @@ function validateClarificationRules(input: {
   }
 }
 
-function analysisFields(data: Record<string, unknown>): {
-  scenarios: readonly string[]
-  businessRules: readonly string[]
-  exceptions: readonly string[]
-  nonGoals: readonly string[]
-  acceptanceCriteria: readonly string[]
-  clarifications: readonly string[]
-  businessContext: BusinessContextDraft
-  items: readonly RequirementItem[]
-  itemsProvided: boolean
-} {
-  const scenarios = listField(data, 'scenarios')
-  const businessRules = listField(data, 'business_rules')
-  const exceptions = listField(data, 'exceptions')
-  const nonGoals = listField(data, 'non_goals')
-  const acceptanceCriteria = listField(data, 'acceptance_criteria')
-  const clarifications = listField(data, 'clarifications')
-  const businessContext = businessContextField(data)
-  const items = itemsField(data)
-  const provided = items.length > 0
-  return {
-    scenarios: provided ? textsOf(items, 'scenario') : scenarios,
-    businessRules: provided ? textsOf(items, 'business_rule') : businessRules,
-    exceptions: provided ? textsOf(items, 'exception') : exceptions,
-    nonGoals: provided ? textsOf(items, 'non_goal') : nonGoals,
-    acceptanceCriteria: provided ? textsOf(items, 'acceptance') : acceptanceCriteria,
-    clarifications,
-    businessContext,
-    items,
-    itemsProvided: provided,
-  }
-}
-
 /**
  * 解析模型返回的分析载荷。默认容忍 ```json 围栏与前后说明，但字段本身必须合法；
  * 缺字段或类型不符按畸形失败，不静默补空值。
  */
-export function parseAnalysisDraft(
-  raw: unknown,
-  options: { allowProblemClarifications?: boolean } = {},
-): AnalysisDraft {
+export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   let payload = raw
   if (typeof payload === 'string') {
     payload = parseJsonLoose(payload, '分析结果')
@@ -377,29 +260,41 @@ export function parseAnalysisDraft(
   const inputKind = inputKindField(data)
   const goal = typeof data.goal === 'string' ? data.goal.trim() : ''
   if (!goal) throw new MalformedError('分析缺少非空目标')
-  const fields = analysisFields(data)
-  const { clarifications } = fields
-  const finalScenarios = fields.scenarios
-  const finalAcceptance = fields.acceptanceCriteria
-  validateClarificationRules({
+  const scenarios = listField(data, 'scenarios')
+  // 业务规则、异常与边界、非目标允许为空（历史分析没有这些字段），但给定时必须是字符串数组。
+  const businessRules = listField(data, 'business_rules')
+  const exceptions = listField(data, 'exceptions')
+  const nonGoals = listField(data, 'non_goals')
+  const spec = parseSpecFields(data)
+  const acceptanceCriteria = spec.acceptanceCriteria
+  const clarifications = listField(data, 'clarifications')
+  const clarificationUpdates = clarificationUpdatesField(data)
+  const businessContext = businessContextField(data)
+  // 问题不做产品侧澄清：带待澄清项或旧问题处置都说明它需要需求澄清，按需求处理，不能悄悄放行。
+  if (inputKind === 'problem' && (clarifications.length > 0 || clarificationUpdates.length > 0)) {
+    throw new MalformedError('问题直接交研发处理，不能带待澄清项；需要澄清时按需求处理')
+  }
+  assertDraftCompleteness({
     inputKind,
+    scenarios,
+    acceptanceCriteria,
     clarifications,
-    acceptanceCriteria: finalAcceptance,
-    scenarios: finalScenarios,
-    allowProblemClarifications: options.allowProblemClarifications === true,
+    clarificationUpdates,
   })
   return {
     inputKind,
     goal,
-    items: fields.items,
-    itemsProvided: fields.itemsProvided,
-    scenarios: finalScenarios,
-    businessRules: fields.businessRules,
-    exceptions: fields.exceptions,
-    nonGoals: fields.nonGoals,
-    acceptanceCriteria: finalAcceptance,
+    scenarios,
+    businessRules,
+    exceptions,
+    nonGoals,
+    acceptanceCriteria,
+    businessPoints: spec.points,
+    acceptanceItems: spec.acceptance,
+    assumptions: spec.assumptions,
     clarifications,
-    businessContext: fields.businessContext,
+    clarificationUpdates,
+    businessContext,
   }
 }
 
@@ -438,7 +333,6 @@ export function inputKindOf(analysis: Pick<RequirementAnalysis, 'inputKind'>): I
 export function validateAnalysis(
   analysis: RequirementAnalysis,
   requirementVersionCount: number,
-  options: { allowProblemClarifications?: boolean } = {},
 ): void {
   if (analysis.analysisVersion < 1) throw new RuleViolationError('分析版本号必须从 1 开始')
   if (analysis.requirementVersion < 1) throw new RuleViolationError('分析必须绑定一个需求版本')
@@ -446,12 +340,8 @@ export function validateAnalysis(
     throw new RuleViolationError('分析绑定的需求版本超出实际版本')
   }
   if (!analysis.goal.trim()) throw new MalformedError('分析缺少非空目标')
-  // 问题默认直接交研发处理；研发回交澄清时才允许带待澄清项。
-  if (
-    analysis.inputKind === 'problem' &&
-    analysis.clarifications.length > 0 &&
-    options.allowProblemClarifications !== true
-  ) {
-    throw new RuleViolationError('问题输入不能带待澄清项；需要澄清时走研发回交澄清')
+  // 问题直接交研发处理：带待澄清项会让下游把它当需求等待回答，落库前就拒绝。
+  if (analysis.inputKind === 'problem' && analysis.clarifications.length > 0) {
+    throw new RuleViolationError('问题输入不能带待澄清项；需要澄清时按需求处理')
   }
 }

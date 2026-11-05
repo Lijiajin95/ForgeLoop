@@ -8,7 +8,6 @@
 
 import { asRecord as recordOf } from './json.js'
 import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
-import { analysisItems, type RequirementAnalysis } from './requirement.js'
 
 /** 任务工时预算的默认值：-1 表示不限，仍记录实际消耗。 */
 export const DEFAULT_TASK_LIMIT_SECONDS = -1
@@ -33,9 +32,9 @@ export interface PlannedTask {
   readonly testCommand: readonly string[]
   readonly dependsOn: readonly string[]
   readonly limits: TaskLimits
-  readonly authorizationSource: string
-  /** 需求分析条目身份；用于需求条目到任务的可核查追踪。 */
+  /** 本任务覆盖的业务要点编号（BP-x）；旧任务包没有该字段。 */
   readonly covers?: readonly string[]
+  readonly authorizationSource: string
 }
 
 export interface TechnicalSolution {
@@ -101,13 +100,16 @@ export function validateFiles(files: readonly string[]): void {
   }
 }
 
-function validateTaskCovers(task: PlannedTask): void {
-  if (task.covers === undefined) return
-  if (task.covers.length === 0) throw new RuleViolationError('任务的需求条目覆盖不能为空数组')
-  if (new Set(task.covers).size !== task.covers.length) {
-    throw new RuleViolationError('任务的需求条目覆盖不能包含重复项')
+function validateCovers(covers: readonly string[] | undefined): void {
+  if (covers === undefined) return
+  if (new Set(covers).size !== covers.length) {
+    throw new RuleViolationError('任务覆盖的业务要点不能重复')
   }
-  for (const itemId of task.covers) requireNonEmpty(itemId, 'covers')
+  for (const pointId of covers) {
+    if (!/^BP-\d+$/.test(pointId)) {
+      throw new RuleViolationError(`任务覆盖的业务要点编号必须形如 BP-1: ${pointId}`)
+    }
+  }
 }
 
 export function validateTask(task: PlannedTask): void {
@@ -127,8 +129,8 @@ export function validateTask(task: PlannedTask): void {
   if (new Set(task.dependsOn).size !== task.dependsOn.length) {
     throw new RuleViolationError('任务依赖不能包含重复项')
   }
+  validateCovers(task.covers)
   for (const dependency of task.dependsOn) requireNonEmpty(dependency, 'depends_on')
-  validateTaskCovers(task)
   if (
     !Number.isFinite(task.limits.limitSeconds) ||
     (task.limits.limitSeconds !== -1 && task.limits.limitSeconds <= 0)
@@ -188,42 +190,6 @@ export function validateTaskPlan(plan: TaskPlan): void {
     }
   }
   executionOrder(plan)
-}
-
-/**
- * 新任务包必须逐项覆盖分析条目：每个任务声明 covers，且所有非目标条目至少被一个任务覆盖。
- * 返回可读问题列表；空数组表示通过。
- */
-export function validateTaskPlanCoverage(analysis: RequirementAnalysis, plan: TaskPlan): string[] {
-  if (!analysis.items || analysis.items.length === 0) return []
-  const items = analysisItems(analysis)
-  const known = new Map(items.map((item) => [item.itemId, item]))
-  const issues: string[] = []
-  const covered = new Set<string>()
-  for (const task of plan.tasks) {
-    if (!task.covers || task.covers.length === 0) {
-      issues.push(`任务 ${task.taskId} 没有声明 covers 需求条目`)
-      continue
-    }
-    for (const itemId of task.covers) {
-      const item = known.get(itemId)
-      if (!item) {
-        issues.push(`任务 ${task.taskId} 覆盖了不存在的需求条目：${itemId}`)
-        continue
-      }
-      if (item.kind === 'non_goal') {
-        issues.push(`任务 ${task.taskId} 不能把非目标条目 ${itemId} 当成实现范围`)
-        continue
-      }
-      covered.add(itemId)
-    }
-  }
-  for (const item of items) {
-    if (item.kind !== 'non_goal' && !covered.has(item.itemId)) {
-      issues.push(`需求条目未被任何任务覆盖：${item.itemId}（${item.text}）`)
-    }
-  }
-  return issues
 }
 
 export interface TaskPlanApproval {
@@ -376,7 +342,7 @@ export function parseTaskPlanDraft(
       dependsOn: toStringList(task.depends_on ?? task.dependsOn ?? [], 'depends_on', true),
       limits: limitsFrom(task.limits),
       authorizationSource: '',
-      ...(task.covers === undefined ? {} : { covers: toStringList(task.covers, 'covers', false) }),
+      ...(task.covers === undefined ? {} : { covers: toStringList(task.covers, 'covers', true) }),
     } satisfies PlannedTask
   })
   const solution =

@@ -96,6 +96,7 @@ function buildVerification(prepareCommand: readonly string[] = []): LegacyVerifi
   const repo = {
     recordVerification: (value: unknown) => recorded.push(value),
     recordFailureRound: (value: unknown) => failureRounds.push(value),
+    nextVerificationAttempt: () => ({ attemptNumber: 1, previousAttemptId: '' }),
   }
   return new LegacyVerification({
     config,
@@ -108,6 +109,25 @@ function buildVerification(prepareCommand: readonly string[] = []): LegacyVerifi
     checks: {
       activate: () => ({ token: 'token-1', release: () => undefined }),
       snapshot: () => snapshot,
+      executeControls: async () => ({
+        results: [
+          {
+            label: 'check-1',
+            patch: 'verification/controls/fault.patch',
+            controlDir: join(root, 'control'),
+            applied: true,
+            exitCode: 1,
+            timedOut: false,
+            aborted: false,
+            durationMs: 1,
+            output: 'target rule broken',
+            logPath: join(root, 'control.log'),
+            logSha256: 'sha',
+            issue: '',
+          },
+        ],
+        issues: [],
+      }),
     } as never,
   })
 }
@@ -268,7 +288,8 @@ describe('legacy verification failure paths', () => {
     expect(outcome.state).toBe('block')
     expect(outcome.blocking.join('；')).toContain('验证期间候选提交发生变化')
     expect(recorded).toHaveLength(1)
-    expect(failureRounds).toHaveLength(1)
+    expect(failureRounds).toHaveLength(0)
+    // 完整性问题不是实现缺陷，不计入正式失败轮次。
   })
 
   it('records a block when the verification command changed the candidate workspace', async () => {

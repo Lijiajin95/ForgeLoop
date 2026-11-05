@@ -18,11 +18,12 @@ import {
 } from '../src/domain/analysis.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import { SessionIntake } from '../src/session/intake.js'
+import { structuredSpecOf } from './spec-fixture.js'
 
 const SOURCE = 'dsh-session:sess-1:msg-1'
 const BUSINESS = '# 业务背景\n\n行业：本地生活服务；业务目标：门店订单处理。\n'
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '门店按状态处理订单',
   scenarios: ['店长在订单列表按状态筛选'],
   business_rules: ['只有店长可以批量取消订单'],
@@ -32,11 +33,25 @@ const ANALYSIS = JSON.stringify({
   clarifications: [],
 })
 
-const CLARIFY = JSON.stringify({
+const CLARIFY = structuredSpecOf({
   goal: '门店按状态处理订单',
   scenarios: ['店长在订单列表按状态筛选'],
   acceptance_criteria: ['筛选后只显示匹配状态的订单'],
   clarifications: ['退款是否需要店长二次确认？'],
+})
+
+const ANSWERED = structuredSpecOf({
+  goal: '门店按状态处理订单',
+  scenarios: ['店长在订单列表按状态筛选'],
+  acceptance_criteria: ['筛选后只显示匹配状态的订单'],
+  clarifications: [],
+  clarification_updates: [
+    {
+      question_id: 'Q1-1',
+      status: 'resolved',
+      resolution: '退款需要店长二次确认',
+    },
+  ],
 })
 
 const PROBLEM = JSON.stringify({
@@ -58,7 +73,7 @@ const NEW_BUSINESS =
   '# 业务背景\n\n行业：本地生活服务；业务目标：门店订单处理。\n\n## 更新记录\n\n- 2026-11-02：补充门店结算术语。\n'
 
 function analysisWithBusiness(document: string): string {
-  return JSON.stringify({
+  return structuredSpecOf({
     goal: '门店按状态处理订单',
     scenarios: ['店长在订单列表按状态筛选'],
     business_rules: ['只有店长可以批量取消订单'],
@@ -192,7 +207,7 @@ describe('product analysis run', () => {
       promptVersion: ANALYSIS_PROMPT_VERSION,
       toolCalls: ['forgeloop_web_search', 'forgeloop_write_project_doc'],
     })
-    expect(analysis.transcriptPath).toContain(`${reqId}-analyze-a1.jsonl`)
+    expect(analysis.transcriptPath).toContain(`${reqId}-v1-analyze-a1.jsonl`)
 
     const [attempt] = runtime.repo.analysisAttempts(reqId)
     expect(attempt).toMatchObject({
@@ -388,12 +403,35 @@ describe('requirement enqueue after the first analysis', () => {
     expect(refused.code).toBe('clarification_required')
   })
 
+  it('keeps first-attempt transcripts separate for each requirement version', async () => {
+    next = script(CLARIFY)
+    const reqId = submit()
+    await runtime.analyzeRequirement(reqId)
+
+    next = script(ANSWERED)
+    const answered = await runtime.answerClarifications({
+      reqId,
+      answer: '退款需要店长二次确认',
+      by: 'owner',
+      source: 'dsh-session:sess-1:msg-2',
+    })
+    expect(answered.ok, answered.message).toBe(true)
+
+    const attempts = runtime.repo.analysisAttempts(reqId)
+    expect(attempts.map((attempt) => attempt.requirementVersion)).toEqual([1, 2])
+    expect(attempts.map((attempt) => attempt.attempt)).toEqual([1, 1])
+    const paths = attempts.map((attempt) => attempt.transcriptPath)
+    expect(paths[0]).toContain(`${reqId}-v1-analyze-a1.jsonl`)
+    expect(paths[1]).toContain(`${reqId}-v2-analyze-a1.jsonl`)
+    expect(new Set(paths).size).toBe(2)
+  })
+
   it('enqueues once the clarification is answered and does not queue a second analysis', async () => {
     next = script(CLARIFY)
     const reqId = submit()
     await runtime.analyzeRequirement(reqId)
 
-    next = script(ANALYSIS)
+    next = script(ANSWERED)
     const answered = await runtime.answerClarifications({
       reqId,
       answer: '退款需要店长二次确认',

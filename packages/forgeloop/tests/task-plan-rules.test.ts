@@ -98,18 +98,19 @@ describe('task plan parsing and validation', () => {
   it('rejects the removed verification task type', () => {
     expect(() =>
       parseTaskPlanDraft(
-        {
-          tasks: [{ ...rawTask('verify'), files: [], verification: true }],
-        },
+        { tasks: [{ ...rawTask('verify'), files: [], verification: true }] },
         context,
       ),
     ).toThrow('验证任务类型已删除')
   })
 
-  it('accepts a single-task plan without dependencies', () => {
-    const plan = parseTaskPlanDraft(rawPlan([rawTask('only')]), context)
-    expect(plan.tasks).toHaveLength(1)
-    expect(plan.tasks[0]?.dependsOn).toEqual([])
+  it('accepts a single task and tasks without dependencies', () => {
+    expect(parseTaskPlanDraft(rawPlan([rawTask('only')]), context).tasks).toHaveLength(1)
+    expect(
+      parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b')]), context).tasks.map(
+        (task) => task.dependsOn,
+      ),
+    ).toEqual([[], []])
   })
 
   it('refuses model-supplied authorization sources', () => {
@@ -214,11 +215,6 @@ describe('task plan parsing and validation', () => {
       context,
     )
     expect(plan.tasks[0]?.limits).toEqual({ limitSeconds: -1, maxFailureRounds: -1 })
-  })
-
-  it('accepts multiple tasks without artificial dependencies', () => {
-    const plan = parseTaskPlanDraft(rawPlan([rawTask('a'), rawTask('b')]), context)
-    expect(plan.tasks.map((task) => task.dependsOn)).toEqual([[], []])
   })
 
   it('rejects dependency cycles', () => {

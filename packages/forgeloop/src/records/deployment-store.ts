@@ -63,6 +63,47 @@ export class DeploymentStore {
       .map(deploymentIntentRow)
   }
 
+  /**
+   * 同一目标上尚未收口的部署。部署、核对与回退共用这一条互斥事实，
+   * 避免同一目标被两个 intent 同时推进。
+   */
+  activeDeploymentIntentForTarget(
+    targetId: string,
+    excludeIntentId = '',
+  ): DeploymentIntentRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM deployment_intents
+         WHERE target_id = ? AND intent_id <> ?
+           AND state IN ('draft','awaiting_approval','ready','applying',
+                         'applied_pending_verify','verifying','rolling_back')
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(targetId, excludeIntentId)
+    return row ? deploymentIntentRow(row) : null
+  }
+
+  /**
+   * 目标在给定 intent 之前最近一次核对通过的部署。回退只认这一条：
+   * previous 指向上一已验证制品，而不是本次制品。
+   */
+  previousVerifiedIntent(
+    targetId: string,
+    beforeCreatedAt: string,
+    excludeIntentId: string,
+  ): DeploymentIntentRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM deployment_intents
+         WHERE target_id = ? AND state = 'verified' AND intent_id <> ?
+           AND (created_at < ? OR (created_at = ? AND rowid <
+             (SELECT rowid FROM deployment_intents WHERE intent_id = ?)))
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(targetId, excludeIntentId, beforeCreatedAt, beforeCreatedAt, excludeIntentId)
+    return row ? deploymentIntentRow(row) : null
+  }
+
   recordDeploymentDecision(decision: {
     intentId: string
     decision: string

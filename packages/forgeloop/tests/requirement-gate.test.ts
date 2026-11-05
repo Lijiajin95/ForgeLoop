@@ -11,6 +11,12 @@ import type {
   AgentRunResult,
 } from '../src/runtime/agent-runner.js'
 import { COMMITTED } from '../src/domain/status.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 /**
  * 需求级门禁：把需求队列、自动准入、验证判定与问题单回流放在同一条真实运行链路里，
@@ -54,14 +60,14 @@ function result(request: { role: string; transcriptPath: string }, text: string)
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现一个可验证的小功能',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -81,7 +87,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const BUSINESS_REVIEW = JSON.stringify({
+const BUSINESS_REVIEW = structuredReviewOf({
   verdict: 'pass',
   summary: '业务场景通过',
   findings: [],
@@ -102,8 +108,8 @@ const BUSINESS_REVIEW = JSON.stringify({
 /** 需求说明派生的验证方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
 function verificationPlan(fail: boolean): string {
   const repaired =
-    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
-  return JSON.stringify({
+    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)"
+  return structuredVerificationOf({
     scenarios: [
       {
         scenario: SCENARIO,

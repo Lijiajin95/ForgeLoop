@@ -29,6 +29,7 @@ import {
 } from '../src/agents/verification-agent.js'
 import { VerificationCheckRegistry } from '../src/runtime/verification-checks.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
+import { structuredSpecOf, structuredPlanOf, structuredReviewOf } from './spec-fixture.js'
 
 /**
  * 验证 Agent 的门禁测试：实现前评审决定能否批准，独立验证决定能否验收。
@@ -75,14 +76,14 @@ function result(
 const SCENARIO = '任务按依赖完成'
 const CRITERION = '两个任务交付且测试通过'
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -189,6 +190,23 @@ function fakeRunner(
           join(verification, 'report.json'),
           workspaceOptions.report ?? verificationReportOf(),
         )
+        mkdirSync(join(verification, 'controls'), { recursive: true })
+        writeFileSync(
+          join(verification, 'controls.json'),
+          JSON.stringify({
+            controls: [
+              {
+                label: 'smoke',
+                patch: 'verification/controls/fault.patch',
+                expected_failure_output: 'target rule broken',
+              },
+            ],
+          }),
+        )
+        writeFileSync(
+          join(verification, 'controls', 'fault.patch'),
+          'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+        )
         if (workspaceOptions.outside) {
           mkdirSync(join(request.cwd, 'docs'), { recursive: true })
           writeFileSync(join(request.cwd, workspaceOptions.outside), '越界改动\n')
@@ -199,7 +217,7 @@ function fakeRunner(
       if (request.role === 'verify' && request.prompt.includes('业务验收')) {
         return result(
           request,
-          JSON.stringify({
+          structuredReviewOf({
             verdict: 'pass',
             summary: '业务终审通过',
             findings: [],
@@ -230,6 +248,25 @@ function fakeRunner(
   }
 }
 
+/** 对照副本中的命令按“已知错误实现”失败；正式候选仍走真实命令执行。 */
+const controlAwareFormalTest: typeof runFormalTest = async (request) => {
+  if (request.cwd.includes('/controls/')) {
+    const output = 'target rule broken: expected fixture, got broken'
+    mkdirSync(dirname(request.logPath), { recursive: true })
+    writeFileSync(request.logPath, output, 'utf8')
+    return {
+      exitCode: 1,
+      timedOut: false,
+      aborted: false,
+      logPath: request.logPath,
+      logSha256: sha256OfText(output),
+      durationMs: 1,
+      output,
+    }
+  }
+  return runFormalTest(request)
+}
+
 function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
   const config = resolveConfig(
     {
@@ -248,7 +285,7 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
     },
     dir,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner })
+  return new ForgeLoopRuntime({ ctx: {}, config, runner, formalTest: controlAwareFormalTest })
 }
 
 async function runQueued(action: 'analyze' | 'plan' | 'advance' | 'verify', reqId: string) {
@@ -1366,7 +1403,13 @@ describe('independent verification gate', () => {
     runtime.close()
     runtime = makeRuntime(
       fakeRunner({
-        workspace: { commands: commandsOf(['node', '-e', 'process.exit(1)']) },
+        workspace: {
+          commands: commandsOf([
+            'node',
+            '-e',
+            "console.error('AssertionError: expected 3 rounds, got 4'); process.exit(1)",
+          ]),
+        },
         onVerify: () => (verifyRuns += 1),
       }),
     )
@@ -1722,6 +1765,9 @@ describe('requirement-derived verification plan', () => {
     expect(prompt).toContain(EDGE_CASE)
     // 已准入任务包只提供任务目标用于核对覆盖面。
     expect(prompt).toContain('依据需求说明生成结构化验证方案')
+    // 异常断言给出可复制的自包含骨架，减少自由发挥。
+    expect(prompt).toContain('异常断言可参考这个骨架')
+    expect(prompt).toContain('mkdtempSync')
     // 方案阶段不接触候选身份、diff 或任务包字段名。
     expect(prompt).not.toContain('candidateSha256')
     expect(prompt).not.toContain('diff --git')
@@ -1766,6 +1812,93 @@ describe('requirement-derived verification plan', () => {
     expect(harness.turns[1]!.prompt).toContain(EXTRA_CRITERION)
     expect(harness.turns[1]!.transcriptPath).toContain('-a2.jsonl')
     expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
+  })
+
+  it('retries a paraphrased plan a third time and still fails closed', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const missing = requirementVerificationPlanOf({ skipRules: 'rule' })
+    const repaired = makeVerificationAgent({
+      planTexts: [missing, missing, requirementVerificationPlanOf()],
+    })
+    const plan = await repaired.agent.plan({
+      requirement,
+      analysis,
+      plan: taskPlanForVerification(),
+      transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+    })
+    // 同一处漏抄连续两次后仍允许第三次补抄，且反馈里给出要逐字复制的原文。
+    expect(repaired.turns).toHaveLength(3)
+    expect(repaired.turns[2]!.prompt).toContain('逐字复制')
+    expect(repaired.turns[2]!.prompt).toContain(BUSINESS_RULE)
+    expect(repaired.turns[2]!.transcriptPath).toContain('-a3.jsonl')
+    expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
+
+    const hopeless = makeVerificationAgent({ planTexts: [missing, missing, missing] })
+    await expect(
+      hopeless.agent.plan({
+        requirement,
+        analysis,
+        plan: taskPlanForVerification(),
+        transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+      }),
+    ).rejects.toThrow('验证方案未覆盖需求说明')
+  })
+
+  it('requires an executable assertion for the output marker named by an exception', () => {
+    const analysis = {
+      scenarios: [SCENARIO],
+      acceptanceCriteria: [CRITERION],
+      exceptions: ['文件缺失时测试命令必须退出非零并输出 missing。'],
+    }
+    const withoutMarker = parseRequirementVerificationPlan(requirementVerificationPlanOf())
+    const issues = validateRequirementVerificationPlan(analysis, withoutMarker)
+    expect(issues.join('；')).toContain('缺少异常标记断言')
+    expect(issues.join('；')).toContain('missing')
+
+    const withMarker = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf().replace(
+        '"expected_output":"verified ok"',
+        '"expected_output":"missing"',
+      ),
+    )
+    expect(
+      validateRequirementVerificationPlan(analysis, withMarker).filter((issue) =>
+        issue.includes('异常标记断言'),
+      ),
+    ).toEqual([])
+  })
+
+  it('requires the exception assertion command to build its own temp input', () => {
+    const analysis = {
+      scenarios: [SCENARIO],
+      acceptanceCriteria: [CRITERION],
+      exceptions: ['文件缺失时测试命令必须退出非零并输出 missing。'],
+    }
+    const repoDependent = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf()
+        .replace('"expected_output":"verified ok"', '"expected_output":"missing"')
+        .replace(
+          "console.log('verified ok')",
+          "console.log(require('node:fs').existsSync('docs/x.md') ? 'missing' : 'ok')",
+        ),
+    )
+    expect(validateRequirementVerificationPlan(analysis, repoDependent).join('；')).toContain(
+      '必须自建临时输入',
+    )
+
+    const selfContained = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf()
+        .replace('"expected_output":"verified ok"', '"expected_output":"missing"')
+        .replace(
+          "console.log('verified ok')",
+          "const d=require('node:fs').mkdtempSync(require('node:os').tmpdir()+'/m-');console.log('missing')",
+        ),
+    )
+    expect(
+      validateRequirementVerificationPlan(analysis, selfContained).filter((issue) =>
+        issue.includes('自建临时输入'),
+      ),
+    ).toEqual([])
   })
 
   it('refuses a plan that misses a business rule or an exception boundary', async () => {

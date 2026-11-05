@@ -1224,3 +1224,33 @@ it('keeps a fully populated board payload stable', () => {
   })
   expect(board()).toMatchSnapshot()
 })
+
+it('counts only non-draft, non-terminal requirements as active', () => {
+  const draft = submit('req-draft-active')
+  const active = submit('req-live-active')
+  database.handle
+    .prepare("UPDATE requirements SET status = 'specified' WHERE req_id = ?")
+    .run(active)
+  const done = submit('req-done-active')
+  database.handle.prepare("UPDATE requirements SET status = 'committed' WHERE req_id = ?").run(done)
+
+  const view = board()
+  expect(view.summary.requirements).toBe(3)
+  expect(view.summary.active).toBe(1)
+  expect(draft).toBe('req-draft-active')
+})
+
+it('carries the build identity into the read-only board payload', () => {
+  submit('req-build-identity')
+  const build = {
+    version: '0.0.2',
+    startedAt: '2026-11-05T00:00:00.000Z',
+    serverSha256: 'a'.repeat(64),
+    clientSha256: 'b'.repeat(64),
+    sourceClientSha256: 'c'.repeat(64),
+    sourceMatches: false,
+  }
+  const view = buildStatusBoard({ repository, project: PROJECT, now: NOW, build })
+  expect(view.build).toEqual(build)
+  expect(board().build.sourceMatches).toBeNull()
+})

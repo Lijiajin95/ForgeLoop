@@ -12,6 +12,12 @@ import type {
   AgentRunResult,
 } from '../src/runtime/agent-runner.js'
 import { COMMITTED } from '../src/domain/status.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 const SCENARIO = '需求功能可用'
 const CRITERION = '命令输出证明功能可用'
@@ -51,7 +57,7 @@ function result(request: { role: string; transcriptPath?: string }, text: string
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现一个可验证的小功能',
   scenarios: [SCENARIO],
   business_rules: [RULE],
@@ -69,7 +75,7 @@ const GATED_TEST_COMMAND = [
 
 function planText(gated = false): string {
   const first = gated ? GATED_TEST_COMMAND : ['node', '-e', 'process.exit(0)']
-  return JSON.stringify({
+  return structuredPlanOf({
     tasks: [
       {
         task_id: 'a',
@@ -90,7 +96,7 @@ function planText(gated = false): string {
   })
 }
 
-const BUSINESS_REVIEW = JSON.stringify({
+const BUSINESS_REVIEW = structuredReviewOf({
   verdict: 'pass',
   summary: '业务场景通过',
   findings: [],
@@ -117,7 +123,7 @@ const BUSINESS_REVIEW = JSON.stringify({
 /** 需求说明派生的验证方案；同一个验证会话通过工具执行命令。 */
 function verificationPlan(fail = false, outside = false): string {
   const repaired =
-    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
+    "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)"
   const argv = outside
     ? [
         'node',
@@ -125,7 +131,7 @@ function verificationPlan(fail = false, outside = false): string {
         "const fs=require('node:fs');fs.mkdirSync('docs',{recursive:true});fs.writeFileSync('docs/outside.md','outside');",
       ]
     : ['node', '-e', fail ? repaired : `console.log('${SMOKE}')`]
-  return JSON.stringify({
+  return structuredVerificationOf({
     scenarios: [
       {
         scenario: SCENARIO,
@@ -379,7 +385,7 @@ function fakeRunner(
         if (options.businessError) return reply('', 'error', 'business model unavailable')
         if (options.businessBlock) {
           return reply(
-            JSON.stringify({
+            structuredReviewOf({
               verdict: 'block',
               summary: '业务不通过',
               findings: [],
@@ -901,7 +907,7 @@ describe('continuous four-Agent flow', () => {
       runtime.autoAdvanceRequests()
       const advance = await runNext(reqId, 'advance')
       expect(advance.state).toBe('failed')
-      expect(advance.detail).toMatch(/验证方案|验证命令修改了固定候选/)
+      expect(advance.detail).toMatch(/验证方案|验证命令修改了固定候选|业务终审/)
     }
   })
 

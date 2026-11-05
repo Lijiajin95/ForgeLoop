@@ -18,6 +18,16 @@ export interface AutonomyStats {
     readonly total: number
     readonly humanInvolved: number
     readonly autonomousSuccess: number
+    /** 已受控提交（研发完成）。 */
+    readonly researchCompleted: number
+    /** 当前候选存在 verified 部署（上线完成）。 */
+    readonly deploymentCompleted: number
+    /** 出现过 failed/verify_failed 部署。 */
+    readonly deploymentFailed: number
+    /** 出现过回退。 */
+    readonly rolledBack: number
+    /** 未达到自主交付（含部署失败、回退、人工介入）。 */
+    readonly notAutonomous: number
     readonly involvementRate: RateSample
     readonly autonomousSuccessRate: RateSample
   }
@@ -25,6 +35,10 @@ export interface AutonomyStats {
     readonly total: number
     readonly humanInvolved: number
     readonly autonomousSuccess: number
+    /** 已恢复的事件。 */
+    readonly recovered: number
+    /** 仍未解决的事件。 */
+    readonly unresolved: number
     readonly involvementRate: RateSample
     readonly autonomousSuccessRate: RateSample
   }
@@ -45,6 +59,10 @@ export interface RequirementAutonomyFacts {
   readonly deployed: boolean
   /** 部署批准/核对由非 system 身份执行。 */
   readonly humanDeploymentInvolved: boolean
+  /** 出现过 failed/verify_failed 部署；旧样本未提供时按 false。 */
+  readonly deploymentFailed?: boolean
+  /** 出现过回退；旧样本未提供时按 false。 */
+  readonly rolledBack?: boolean
 }
 
 export interface OpsAutonomyFacts {
@@ -100,6 +118,11 @@ export function computeAutonomyStats(
       total: requirements.length,
       humanInvolved: humanRequirements,
       autonomousSuccess: successfulRequirements,
+      researchCompleted: requirements.filter((facts) => facts.committed).length,
+      deploymentCompleted: requirements.filter((facts) => facts.deployed).length,
+      deploymentFailed: requirements.filter((facts) => facts.deploymentFailed === true).length,
+      rolledBack: requirements.filter((facts) => facts.rolledBack === true).length,
+      notAutonomous: requirements.length - successfulRequirements,
       involvementRate: rateSample(humanRequirements, requirements.length),
       autonomousSuccessRate: rateSample(successfulRequirements, requirements.length),
     },
@@ -107,6 +130,10 @@ export function computeAutonomyStats(
       total: opsEvents.length,
       humanInvolved: humanOps,
       autonomousSuccess: successfulOps,
+      recovered: opsEvents.filter((event) => event.state === 'recovered').length,
+      unresolved: opsEvents.filter(
+        (event) => event.state !== 'recovered' && event.state !== 'closed',
+      ).length,
       involvementRate: rateSample(humanOps, opsEvents.length),
       autonomousSuccessRate: rateSample(successfulOps, opsEvents.length),
     },

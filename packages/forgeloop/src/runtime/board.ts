@@ -27,6 +27,7 @@ import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
 import type { AutonomyStats } from '../domain/autonomy.js'
+import { buildIdentity, type BuildIdentityView } from './identity.js'
 import { buildAutonomyStats } from './autonomy-stats.js'
 import {
   ACTION_ANALYZE,
@@ -35,6 +36,7 @@ import {
   ACTION_VERIFY,
   ANALYSIS_FAILED,
   APPROVED,
+  DRAFT,
   EXECUTING,
   REQUEST_FAILED,
   PLAN_PROPOSED,
@@ -210,6 +212,8 @@ export interface BoardIssueView {
 export interface StatusBoardView {
   readonly project: string
   readonly generatedAt: string
+  /** 运行版本与构建身份；宿主没有记录时字段为空，不猜测。 */
+  readonly build: BuildIdentityView
   /** 本次搜索词；空字符串表示未搜索。 */
   readonly query: string
   readonly limit: number
@@ -245,6 +249,8 @@ export interface BuildStatusBoardInput {
   readonly remainingFailureRounds?: ((reqId: string) => number) | undefined
   /** 所有者标识：用于把所有者直接发起的动作计为人工介入。 */
   readonly owner?: string
+  /** 构建身份；缺省使用空身份，页面显示“未记录”。 */
+  readonly build?: BuildIdentityView | undefined
 }
 
 /**
@@ -444,13 +450,14 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
   return {
     project,
     generatedAt: now,
+    build: input.build ?? buildIdentity(),
     query,
     limit,
     truncated: matched.length > limited.length,
     summary: {
       requirements: needle ? matched.length : all.length,
       active: (needle ? matched.map((chunk) => chunk.requirement) : all).filter(
-        (requirement) => !isTerminal(requirement.status),
+        (requirement) => !isTerminal(requirement.status) && requirement.status !== DRAFT,
       ).length,
       tasks: tasks.length,
       delivered: tasks.filter((task) => task.state === BOARD_TASK_DELIVERED).length,
@@ -468,6 +475,100 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
 export const PROJECT_FACTS_DEFAULT_LIMIT = 10
 /** 单个需求在提示词中最多列出的任务数；超出时只报任务总数。 */
 export const PROJECT_FACTS_MAX_TASKS = 8
+/** 与当前需求相关的历史记录上限：不把全量历史塞进提示词。 */
+export const PROJECT_FACTS_RELATED_LIMIT = 3
+
+const HISTORY_STOP_TERMS = new Set([
+  '需求',
+  '功能',
+  '用户',
+  '系统',
+  '支持',
+  '增加',
+  '问题',
+  '当前',
+  '业务',
+  '需要',
+  '可以',
+  '使用',
+  '进行',
+  'the',
+  'and',
+  'for',
+  'with',
+])
+
+/** 词面 token：ASCII 词 + 连续中文的二元组，仅用于有界历史检索，不做语义判断。 */
+export function historyTerms(text: string): string[] {
+  const lower = text.toLowerCase()
+  const terms = new Set<string>()
+  for (const word of lower.match(/[a-z0-9_]{2,}/g) ?? []) terms.add(word)
+  for (const run of lower.match(/[\u4e00-\u9fff]{2,}/g) ?? []) {
+    for (let index = 0; index + 2 <= run.length; index += 1) {
+      terms.add(run.slice(index, index + 2))
+    }
+  }
+  return [...terms].filter((term) => !HISTORY_STOP_TERMS.has(term))
+}
+
+export interface RelatedRequirementFact {
+  readonly reqId: string
+  readonly title: string
+  readonly status: string
+  readonly terminal: boolean
+  readonly goal: string
+  readonly version: number
+  readonly matchedTerms: readonly string[]
+  readonly updatedAt: string
+}
+
+/**
+ * 最小相关历史查询：只按当前原文与历史需求原文/分析目标的词面重合度取前几条，
+ * 包含已结束需求；返回命中词与依据，便于核对，不把全量历史放进提示词。
+ */
+export function relatedProjectHistory(input: {
+  repository: Repository
+  project: string
+  currentReqId: string
+  currentText: string
+  limit?: number
+}): RelatedRequirementFact[] {
+  const terms = historyTerms(input.currentText)
+  if (terms.length === 0) return []
+  const limit = Math.min(10, Math.max(1, Math.trunc(input.limit ?? PROJECT_FACTS_RELATED_LIMIT)))
+  const scored: RelatedRequirementFact[] = []
+  for (const requirement of input.repository.listRequirements(input.project)) {
+    if (requirement.reqId === input.currentReqId) continue
+    const analysis = input.repository.latestAnalysis(requirement.reqId)
+    const text = [
+      requirementTitle(requirement),
+      ...requirement.versions.map((version) => version.text),
+      analysis?.goal ?? '',
+      ...(analysis?.businessPoints ?? []).map((point) => point.behavior),
+    ]
+      .join('\n')
+      .toLowerCase()
+    const matched = terms.filter((term) => text.includes(term))
+    if (matched.length === 0) continue
+    scored.push({
+      reqId: requirement.reqId,
+      title: requirementTitle(requirement),
+      status: requirement.status,
+      terminal: isTerminal(requirement.status),
+      goal: analysis?.goal ?? '',
+      version: requirement.versions.length,
+      matchedTerms: matched.slice(0, 8),
+      updatedAt: updatedAtOf(requirement),
+    })
+  }
+  return scored
+    .sort(
+      (left, right) =>
+        right.matchedTerms.length - left.matchedTerms.length ||
+        right.updatedAt.localeCompare(left.updatedAt),
+    )
+    .slice(0, limit)
+}
 /** 事实读取上限的硬边界，防止调用方传入过大的值。 */
 const PROJECT_FACTS_LIMIT_CEILING = 50
 
@@ -508,6 +609,8 @@ export interface ProjectFacts {
   /** 已结束需求数量：只给计数，不展开历史。 */
   readonly terminal: number
   readonly requirements: readonly ProjectRequirementFact[]
+  /** 与当前原文相关的少量历史要求（含已结束）；不是全量历史。缺省视为没有。 */
+  readonly relatedHistory?: readonly RelatedRequirementFact[]
 }
 
 export interface BuildProjectFactsInput {
@@ -519,6 +622,8 @@ export interface BuildProjectFactsInput {
   readonly now?: string
   readonly limit?: number
   readonly taskLimit?: number
+  /** 当前需求原文；用于查询相关历史，不写入活动需求列表。 */
+  readonly currentText?: string
 }
 
 function clampLimit(value: number | undefined, fallback: number): number {
@@ -599,6 +704,14 @@ export function buildProjectFacts(input: BuildProjectFactsInput): ProjectFacts {
     notListed: Math.max(0, active.length - requirements.length),
     terminal: all.length - active.length,
     requirements,
+    relatedHistory: input.currentText
+      ? relatedProjectHistory({
+          repository,
+          project: input.project,
+          currentReqId: input.currentReqId ?? '',
+          currentText: input.currentText,
+        })
+      : [],
   }
 }
 

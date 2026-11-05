@@ -4,11 +4,8 @@ import type { ForgeLoopConfig } from '../config.js'
 import { evidenceDir, sessionsDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
-import {
-  executionOrder,
-  parseTaskPlanDraft,
-  validateTaskPlanCoverage,
-} from '../domain/task-plan.js'
+import { executionOrder, parseTaskPlanDraft } from '../domain/task-plan.js'
+import { planCoverageIssues } from '../domain/spec.js'
 import {
   DEVELOPING,
   TASK_RUN_BLOCKED,
@@ -197,9 +194,9 @@ export class ExecutionDev {
         feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。不要输出 <｜｜DSML｜｜> 或工具调用标记；请只输出完整 JSON 文本。`
         continue
       }
-      const coverageIssues = validateTaskPlanCoverage(input.analysis, plan)
+      const coverageIssues = planCoverageIssues(input.analysis, plan)
       if (coverageIssues.length > 0) {
-        lastError = `任务包未覆盖需求条目：${coverageIssues.join('；')}`
+        lastError = `任务包未覆盖需求条目：${coverageIssues.map((issue) => issue.detail).join('；')}`
         feedback = `\n\n上一次输出的任务包没有覆盖全部分析条目：${lastError}。请为每个任务补全 covers，并覆盖所有场景、业务规则、异常与边界、验收标准。`
         continue
       }

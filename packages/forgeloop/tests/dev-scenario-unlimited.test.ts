@@ -12,6 +12,12 @@ import {
   type AgentRunResult,
 } from '../src/runtime/agent-runner.js'
 import { COMMITTED } from '../src/domain/status.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 /**
  * 研发场景下的真实执行链路：产品、验证与业务回合用脚本化房间，
@@ -30,7 +36,7 @@ const SMOKE = 'verified ok'
 /** 正式测试故意慢于 0.6 秒：限额为 -1 时不应被杀掉。 */
 const SLOW_TEST = ['node', '-e', 'setTimeout(() => process.exit(0), 600)']
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现一个可验证的小功能',
   scenarios: [SCENARIO],
   business_rules: [RULE],
@@ -39,7 +45,7 @@ const ANALYSIS = JSON.stringify({
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   technical_solution: { summary: '最小实现', approach: ['写文档', '跑测试'], risks: [] },
   tasks: [
     {
@@ -60,7 +66,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const VERIFICATION_PLAN = JSON.stringify({
+const VERIFICATION_PLAN = structuredVerificationOf({
   scenarios: [
     {
       scenario: SCENARIO,
@@ -83,7 +89,7 @@ const VERIFICATION_PLAN = JSON.stringify({
   ],
 })
 
-const BUSINESS_REVIEW = JSON.stringify({
+const BUSINESS_REVIEW = structuredReviewOf({
   verdict: 'pass',
   summary: '业务场景通过',
   findings: [],

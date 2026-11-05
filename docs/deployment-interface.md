@@ -34,8 +34,8 @@ ForgeLoop 只声明范围、记录证据并在回退后核对。
 | `DeploymentArtifact` | 一次构建的制品：id、kind（`dsh-plugin`/`process-bundle`/`container-image`）、version、sha256、文件清单、构建来源（requirement/plan/candidate） |
 | `DeploymentTool`     | 一段登记的外部工具：id、kind（`python`/`shell`/`k8s`）、脚本路径与摘要、能力、超时、环境变量白名单                                             |
 | `DeploymentDevice`   | 部署目标设备；本版只有本机 `local`，多机留到后续版本                                                                                           |
-| `DeploymentTarget`   | 一个可部署位置：id、toolId、device、参数（profile/namespace/unit/image）、数据范围、默认 requirement（可空）、审批方式 |
-| `DeploymentIntent`   | 一次部署请求：target、requirement、artifact、提议来源（owner/运维事件/CLI）、幂等键
+| `DeploymentTarget`   | 一个可部署位置：id、toolId、device、参数（profile/namespace/unit/image）、数据范围、默认 requirement（可空）、审批方式                         |
+| `DeploymentIntent`   | 一次部署请求：target、requirement、artifact、提议来源（owner/运维事件/CLI）、幂等键                                                            |
 | `DeploymentAttempt`  | 一次工具调用：intent、设备、状态、退出码、结果 JSON、证据路径                                                                                  |
 
 部署工具是**唯一有部署副作用的地方**；ForgeLoop 不实现安装、不拼部署命令、不直接调 kubectl/docker。
@@ -77,17 +77,20 @@ interface DeploymentToolDescriptor {
   `kind=shell` → `/bin/sh <script> --op <op> --plan <planFile>`（`sh script`，不是 `sh -c` 字符串）；
   `kind=k8s` → 同样执行登记脚本，脚本内部调用 kubectl/helm；ForgeLoop 不直接调 kubectl。
 - `planFile`：主控写到证据目录的 JSON，含 `intentId`、`op`、`artifact{sha256,path,version}`、
-  `previous{sha256,path,restorePoint}`（回退时）、`target.params`、`device{id,transport}`、
+  `previous{sha256,path,version,restorePoint}`（回退时指向上一已验证制品）、`target.params`、`device{id,transport}`、
   `data{volumes,migrations}`、`timeoutSeconds`。
 - 数据范围：target 声明了 `data.volumes` 或 `data.migrations` 时，工具必须具备 `data-rollback`；
   `preflight` 必须在结果里返回可用的 `restorePoint`（卷快照/数据库备份标识），没有则拒绝 apply。
 - 环境变量：只有登记白名单的变量；凭据由工具自行从系统环境/密钥链读取，不进入 plan、证据与模型上下文。
 - 输出：stdout 只允许一个 JSON 对象，`{ ok, state, version, detail, steps?, restorePoint?,
-  artifactSha256?, runningArtifactSha256?, runningPid?, runningStartedAt? }`；超过 64 KiB 截断。
+artifactSha256?, runningArtifactSha256?, runningPid?, runningStartedAt? }`；超过 64 KiB 截断。
   退出码 0 且 `ok: true` 且 `state` 合法才算成功；畸形输出、超时、非 0 退出都按失败记录原因。
 - 上线核对证据：`status` 必须同时给出实际安装制品摘要 `artifactSha256` 与运行中制品摘要
   `runningArtifactSha256`，以及运行进程 `runningPid`。缺任一项按 `verify_failed` 收口，
   不写成 `verified`；版本号相同但摘要不同同样失败。
+  运行中摘要必须由运行进程自己提供（例如安装介质启动时缓存后经 `/identity` 返回），
+  不能把计划里的期望摘要或安装工具自身 PID 当作运行观测；安装成功但进程仍跑旧内容时
+  核对必须失败。
 - 幂等：同一 `intentId` 重复调用 `apply`，工具应返回 `state: "noop"`；ForgeLoop 也会先
   `status` 观测，已是目标摘要就不再调用。
 - 只读：`preflight`/`status`/`logs` 不得有副作用（契约要求，真实工具另做集成验证）。
@@ -180,21 +183,32 @@ interface DeploymentToolDescriptor {
 - **门禁**（全满足才允许调用 `apply`）：需求当前版本、系统准入（有准入记录时）、未停止、已受控提交；
   候选已构建且 `artifact.sha256` 等于验证与业务终审绑定的摘要；独立验证通过；业务终审通过；
   intent 指定的需求与候选/验证/终审一致；声明了数据范围时 `preflight` 必须给出 `restorePoint`。
-  **人类验收只对 `approval: "owner"` 目标必需**；`auto` 目标由 target 配置授权，系统交付判定不能
+  **人类验收只对 `approval: "owner"` 目标必需**，且验收材料指纹必须匹配当前候选（可含当前制品摘要）；
+  候选、任务包或需求修订后旧验收自动失效。`auto` 目标由 target 配置授权，系统交付判定不能
   被验收记录替代。target 的 `requirementId` 只是默认值，不是唯一允许部署的需求。
 - **动作前复核**：门禁不只在提议时执行。preflight 之后、等待批准期间依据变化（停止、需求版本、
-  候选、验收失效）时，approve 与 apply 之前会按当前记录重新核对；拒绝只返回原因并保留 intent
-  状态，不写入恢复或批准记录，显式恢复且重新满足门禁后可继续。
-- **中断恢复**：`applying`/`verifying` 超过 `verifyTimeoutSeconds` 未收口时，先调用 `status`
-  观测实际结果；一致则推进到 `applied_pending_verify` 或 `verified`，不一致转 `failed`，
-  无法确认时保留原状态并记录一次 `recovery_unknown`，等待人工决定，不重复安装。
+  候选、验收失效）时，approve 与 apply 之前会按当前记录重新核对；approve 拒绝只返回原因并保留
+  intent 状态，不写入恢复或批准记录，显式恢复且重新满足门禁后可继续。apply 前的最后一次复核还会
+  确认同一 target 没有其他进行中的 intent，并核对磁盘上制品文件的 SHA-256 与 intent 记录一致；
+  不成立时收口为 `preflight_failed` 并记录决定，工具不会被调用。
+- **目标互斥**：同一 target 同一时刻只允许一个未收口 intent（`draft`…`rolling_back`）；
+  并发请求返回 `target_busy`，部署、核对与回退共用该互斥。
+- **中断恢复**：`applying`/`verifying`/`rolling_back` 超过 `verifyTimeoutSeconds` 未收口时，
+  先调用 `status` 观测实际结果；安装一致则推进到 `applied_pending_verify` 或 `verified`，
+  回退一致则收口为 `rolled_back`。不一致转 `failed`。无法确认时安装路径保留原状态并记录一次
+  `recovery_unknown`；回退路径为避免目标被永久占用，转 `failed` 并记录 `recovery_unknown`，
+  等待人工确认，均不重复安装或回退。
 - **自动交接**：`autoDeliver` 目标按上述门禁推进；auto 目标 apply 后由协调器执行 `status` 核对，
   owner 目标停在 `awaiting_approval` 等真实决定。核对失败的 intent 不重试，等待人工/新候选。
 - **运行身份**：核对比对安装摘要与运行摘要，任一与 intent 制品不符即 `verify_failed`；
-  工具无法提供摘要时保持未验证。
-- **回退**：保留 `keep` 份已验收产物；回退是一次新 intent，调用工具的 `rollback`（带 `restorePoint`），
-  走同一状态机与核对。容器卷与数据库迁移按 target 声明的范围一并回退；回退后重新核对，
-  不把“命令退出 0”当作数据已恢复。
+  还要求运行进程 `runningStartedAt` 不早于本次安装时间，识别“装好了但进程仍跑旧内容”；
+  工具无法提供摘要或启动时间时保持未验证。
+- **回退**：回退目标取同一 target 在本次 intent 之前最近一次 `verified` 的部署，`plan.previous`
+  指向那份制品的 `sha256`/`path`/`version`，而不是本次制品；上一制品必须仍保留且磁盘摘要与记录一致，
+  否则拒绝回退（没有上一已验证制品、文件缺失或被改动都不执行工具）。调用 `rollback` 后必须用
+  `status` 核对版本、安装摘要、运行摘要与进程，任一不符记 `rollback_verify_failed`，不写成成功。
+  容器卷与数据库迁移按 target 声明的范围，用本次 preflight 的 `restorePoint` 一并回退；
+  回退本身是所有者动作，不把“命令退出 0”当作数据已恢复。
 - **失败告警**：`applied_pending_verify` 超过 `verifyTimeoutSeconds` 未收敛记为 `verify_failed`，
   向 `deployments.alerts.webhook` 发送一次告警（复用一次尽力发送，不重试）；回退可由所有者一键发起。
 
@@ -209,6 +223,9 @@ interface DeploymentToolDescriptor {
 
 - 两张业务表：`deployment_intents`（target、requirement、artifact、来源、审批、状态）与
   `deployment_attempts`（intent、device、状态、退出码、结果 JSON、耗时、证据路径、toolSha256）。
+  结果 JSON 保存 `exitCode`、`timedOut`、`truncated`、`durationMs`、`stdout`、`stderr`，
+  失败告警的发送结果（已发送/失败/未配置）写入 `deployment_decisions` 的 `alert` 记录，
+  不把“没发出去”静默成“发过”。
 - 工具脚本留痕：`deployment_tool_scripts`（当前摘要）与 `deployment_tool_changes`（变更历史）。
 - 证据目录：`<recordsRoot>/projects/<project>/deployments/<intentId>/`，含 plan、
   preflight/apply/status 的 stdout 尾部与 stderr 摘要（有界），不含凭据。

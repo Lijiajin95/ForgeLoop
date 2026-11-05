@@ -18,9 +18,149 @@ window.__ModuleLoader__.load({
 
     const NS = 'forgeloop-board'
     const BOARD_PATH = '/api/forgeloop/board'
-    const TERMINAL = { accepted: true, rejected: true, cancelled: true }
+    /** 与服务端 TERMINAL_STATUSES 保持一致：committed 也是终态，不再算“进行中”。 */
+    const TERMINAL_STATUSES = new Set(['committed', 'accepted', 'rejected', 'cancelled'])
     /** 工作台视图顺序：可靠性位于「需要处理」与「运维」之间。 */
     const WORKBENCH_VIEWS = ['hierarchy', 'tasks', 'issues', 'reliability', 'ops']
+    /** 页面请求的默认条数；服务端上限同为 100。 */
+    const BOARD_LIMIT = 100
+
+    function isTerminalStatus(status) {
+      return TERMINAL_STATUSES.has(status)
+    }
+
+    function filterRequirements(requirements, filter, issues) {
+      if (filter === 'active')
+        return requirements.filter(
+          (requirement) => !isTerminalStatus(requirement.status) && requirement.status !== 'draft',
+        )
+      if (filter === 'attention') {
+        return requirements.filter(
+          (requirement) =>
+            ['plan_proposed', 'blocked', 'executing'].includes(requirement.status) ||
+            issues.some((issue) => issue.reqId === requirement.reqId),
+        )
+      }
+      if (filter === 'draft') {
+        return requirements.filter((requirement) => requirement.status === 'draft')
+      }
+      return requirements
+    }
+
+    /** 取消需求的任务仍保留为历史，但不计入“已交付/总数”进度。 */
+    function tasksForProgress(requirement, tasks) {
+      return requirement.status === 'cancelled' ? [] : tasks
+    }
+
+    /** 终态需求只展示最终状态，不再回放历史批准/评审/验证警告。 */
+    function showsLegacyGateWarnings(status) {
+      return !isTerminalStatus(status)
+    }
+
+    function searchScopeText(t, limit = BOARD_LIMIT) {
+      return t('overview.searchScope', { limit })
+    }
+
+    /** 需求树里用短身份，完整 reqId 仍保留在详情与面包屑。 */
+    function shortReqId(reqId) {
+      const text = String(reqId || '')
+      const at = text.lastIndexOf('-')
+      return at >= 0 ? '…' + text.slice(at + 1) : text
+    }
+
+    /** 顶部状态轨：全局规模、交付进度、待处理与研发自主率。 */
+    function boardSummaryItems(t, board) {
+      const summary = (board && board.summary) || {}
+      const autonomy = board && board.autonomy && board.autonomy.requirements
+      const success = autonomy && autonomy.autonomousSuccessRate
+      const blocking = Number(summary.blocking) || 0
+      const issues = Number(summary.issues) || 0
+      return [
+        {
+          key: 'requirements',
+          label: t('rail.requirements'),
+          value: String(summary.requirements || 0),
+        },
+        { key: 'active', label: t('rail.active'), value: String(summary.active || 0) },
+        {
+          key: 'delivered',
+          label: t('rail.delivered'),
+          value: `${summary.delivered || 0}/${summary.tasks || 0}`,
+          note: t('rail.tasksNote'),
+        },
+        {
+          key: 'issues',
+          label: t('rail.issues'),
+          value: String(issues),
+          ...(blocking > 0 ? { tone: 'error', note: t('rail.blockingNote', { count: blocking }) } : {}),
+        },
+        {
+          key: 'autonomy',
+          label: t('rail.autonomy'),
+          value:
+            success && typeof success.rate === 'number'
+              ? `${Math.round(success.rate * 100)}%`
+              : t('rail.noSample'),
+          note:
+            success && success.denominator
+              ? `${success.numerator}/${success.denominator}`
+              : undefined,
+        },
+      ]
+    }
+
+    /** 小于 5 个样本时不把比率判成红/绿，统一标为“样本不足”。 */
+    function reliabilityRateTone(rate, threshold) {
+      if (!rate || typeof rate.rate !== 'number') return 'idle'
+      if ((rate.total || 0) < 5) return 'warn'
+      if (rate.rate >= threshold) return 'success'
+      return rate.rate >= threshold - 10 ? 'warn' : 'error'
+    }
+
+    /** 需求焦点：把状态、动作与阻断归纳成一句话，放在标题下方。 */
+    function requirementFocus(t, requirement) {
+      const status = requirement.status
+      if (status === 'cancelled') return null
+      const actions = Array.isArray(requirement.actions) ? requirement.actions : []
+      if (actions.includes('deploy')) return { tone: 'success', text: t('focus.deploy') }
+      if (actions.includes('build')) return { tone: 'brand', text: t('focus.build') }
+      if (actions.includes('requeue')) return { tone: 'warn', text: t('focus.requeue') }
+      if (actions.includes('retry-analysis')) return { tone: 'warn', text: t('focus.analyze') }
+      if (status === 'accepted') return { tone: 'success', text: t('focus.accepted') }
+      if (status === 'committed') return { tone: 'success', text: t('focus.committed') }
+      if (status === 'blocked') return { tone: 'error', text: t('focus.blocked') }
+      if (status === 'analysis_failed' || status === 'awaiting_clarification') {
+        return { tone: 'warn', text: t('focus.needsInput') }
+      }
+      return { tone: 'idle', text: t('focus.running') }
+    }
+
+    /** 质量结论：把快照可用性、门禁/测试/覆盖率失败归成一个可读状态。 */
+    function reliabilityVerdict(report) {
+      const snapshot = (report && report.snapshot) || {}
+      const availability = snapshot.availability || 'missing'
+      if (availability === 'missing') return { tone: 'idle', code: 'missing' }
+      if (availability === 'invalid') return { tone: 'error', code: 'invalid' }
+      const gates = Array.isArray(snapshot.gates) ? snapshot.gates : []
+      const failedGates = gates.filter((gate) => gate.status === 'fail').length
+      const tests = snapshot.tests || null
+      const failedTests = tests ? Number(tests.failed) || 0 : 0
+      const coverage = snapshot.coverage || null
+      const lowCoverage = coverage
+        ? ['lines', 'statements', 'functions', 'branches'].filter(
+            (key) =>
+              typeof coverage[key] === 'number' &&
+              coverage.thresholds &&
+              typeof coverage.thresholds[key] === 'number' &&
+              coverage[key] < coverage.thresholds[key],
+          ).length
+        : 0
+      if (failedGates > 0 || failedTests > 0 || lowCoverage > 0) {
+        return { tone: 'error', code: 'failed', failedGates, failedTests, lowCoverage }
+      }
+      if (availability === 'stale') return { tone: 'warn', code: 'stale' }
+      return { tone: 'success', code: 'pass' }
+    }
 
     const zh = {
       'view.label': '天工',
@@ -31,6 +171,46 @@ window.__ModuleLoader__.load({
       'page.retry': '重试',
       'page.empty': '这个项目还没有需求记录。',
       'page.footer': '交互式看板：已准入需求自动推进；停止、取消、重试、构建与上线保持显式动作。',
+      'build.version': '运行 {version}',
+      'build.started': '启动于 {time}',
+      'build.client': '客户端 {sha}',
+      'build.sourceMatch': '与源码一致',
+      'build.sourceMismatch': '界面与源码不一致',
+      'build.sourceSha': '源码 {sha}',
+      'build.missing': '运行版本未记录',
+      'rail.label': '全局状态',
+      'rail.requirements': '需求',
+      'rail.active': '进行中',
+      'rail.delivered': '已交付',
+      'rail.tasksNote': '任务',
+      'rail.issues': '待处理',
+      'rail.blockingNote': '阻断 {count}',
+      'rail.autonomy': '研发自主',
+      'rail.noSample': '无样本',
+      'focus.deploy': '可以核对上线',
+      'focus.build': '可以构建候选安装包',
+      'focus.requeue': '任务失败后可重新执行',
+      'focus.analyze': '分析失败，可重新分析',
+      'focus.accepted': '已验收',
+      'focus.committed': '已完成并提交',
+      'focus.blocked': '需求被阻塞',
+      'focus.needsInput': '等待澄清或人工输入',
+      'focus.running': '正在推进',
+      'reliability.verdict.missing': '质量快照未采集',
+      'reliability.verdict.missingHint': '运行 make reliability-report 生成门禁、覆盖率与变异数据。',
+      'reliability.verdict.invalid': '质量快照不可读',
+      'reliability.verdict.invalidHint': '快照存在但无法解析；查看告警或重新生成。',
+      'reliability.verdict.failed': '质量门禁未通过',
+      'reliability.verdict.failedHint': '门禁失败 {gates} 项、测试失败 {tests} 项、覆盖率低于门槛 {coverage} 项。',
+      'reliability.verdict.gatesPart': '门禁失败 {count} 项',
+      'reliability.verdict.testsPart': '测试失败 {count} 项',
+      'reliability.verdict.coveragePart': '覆盖率低于门槛 {count} 项',
+      'reliability.verdict.join': '、',
+      'reliability.verdict.stale': '质量快照已过期',
+      'reliability.verdict.staleHint': '快照落后于当前提交；结论仅作参考。',
+      'reliability.verdict.pass': '质量门禁通过',
+      'reliability.verdict.passHint': '门禁、测试与覆盖率均达到当前门槛。',
+      'reliability.sampleSmall': '样本不足（n={count}）',
       'action.approve': '批准任务包',
       'action.advance': '推进任务',
       'action.plan': '重新生成任务包',
@@ -184,6 +364,8 @@ window.__ModuleLoader__.load({
       'node.error.req': '需求 {reqId}',
       'node.clarification.title': '需求等待澄清',
       'node.clarification.questions': '需要回答',
+      'node.clarification.hint':
+        '直接回复即按澄清回答处理；本会话有多条待澄清时用“回答 <需求编号>：<回答>”指定对象。提交独立需求请写成“新需求：<内容>”。',
       'node.answer.title': '已提交澄清回答',
       'node.answer.version': '需求 v{version}',
       'tail.title': '本会话需求',
@@ -240,6 +422,46 @@ window.__ModuleLoader__.load({
       'page.empty': 'No requirements yet.',
       'page.footer':
         'Interactive board: admitted requirements advance automatically; stop, cancel, retry, build and deploy remain explicit actions.',
+      'build.version': 'Running {version}',
+      'build.started': 'started {time}',
+      'build.client': 'client {sha}',
+      'build.sourceMatch': 'matches source',
+      'build.sourceMismatch': 'UI differs from source',
+      'build.sourceSha': 'source {sha}',
+      'build.missing': 'running version not recorded',
+      'rail.label': 'Global status',
+      'rail.requirements': 'Requirements',
+      'rail.active': 'Active',
+      'rail.delivered': 'Delivered',
+      'rail.tasksNote': 'tasks',
+      'rail.issues': 'Open issues',
+      'rail.blockingNote': '{count} blocking',
+      'rail.autonomy': 'Autonomous',
+      'rail.noSample': 'No sample',
+      'focus.deploy': 'Ready to verify deployment',
+      'focus.build': 'Ready to build a candidate package',
+      'focus.requeue': 'Task failed; retry when ready',
+      'focus.analyze': 'Analysis failed; retry analysis',
+      'focus.accepted': 'Accepted',
+      'focus.committed': 'Committed',
+      'focus.blocked': 'Requirement blocked',
+      'focus.needsInput': 'Waiting for clarification or input',
+      'focus.running': 'In progress',
+      'reliability.verdict.missing': 'Quality snapshot missing',
+      'reliability.verdict.missingHint': 'Run make reliability-report to collect gates, coverage and mutation data.',
+      'reliability.verdict.invalid': 'Quality snapshot unreadable',
+      'reliability.verdict.invalidHint': 'The snapshot exists but cannot be parsed; inspect warnings or regenerate.',
+      'reliability.verdict.failed': 'Quality gates failed',
+      'reliability.verdict.failedHint': '{gates} gate(s) failed, {tests} test(s) failed, {coverage} coverage metric(s) below threshold.',
+      'reliability.verdict.gatesPart': '{count} gate(s) failed',
+      'reliability.verdict.testsPart': '{count} test(s) failed',
+      'reliability.verdict.coveragePart': '{count} coverage metric(s) below threshold',
+      'reliability.verdict.join': ', ', 
+      'reliability.verdict.stale': 'Quality snapshot stale',
+      'reliability.verdict.staleHint': 'The snapshot is behind the current commit; treat it as reference only.',
+      'reliability.verdict.pass': 'Quality gates passing',
+      'reliability.verdict.passHint': 'Gates, tests and coverage all meet the current thresholds.',
+      'reliability.sampleSmall': 'small sample (n={count})',
       'action.approve': 'Approve task package',
       'action.advance': 'Advance tasks',
       'action.plan': 'Regenerate task package',
@@ -403,6 +625,8 @@ window.__ModuleLoader__.load({
       'node.error.req': 'Requirement {reqId}',
       'node.clarification.title': 'Requirement awaiting clarification',
       'node.clarification.questions': 'Questions to answer',
+      'node.clarification.hint':
+        'Reply directly to answer. With several pending items use "回答 <reqId>: <answer>"; start a separate requirement with "新需求: <text>".',
       'node.answer.title': 'Clarification answer submitted',
       'node.answer.version': 'Requirement v{version}',
       'tail.title': 'Requirements in this session',
@@ -507,6 +731,40 @@ window.__ModuleLoader__.load({
       'detail.history': '查看版本历史（{count} 个旧版本）',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': '分析结果',
+      'detail.spec': '需求说明',
+      'detail.specScope': '范围与待决定事项',
+      'detail.specPoints': '业务要点与验收',
+      'detail.specAssumptions': '假设与依据',
+      'detail.specChanges': '本次澄清后的变化',
+      'detail.specHistory': '分析与澄清历史',
+      'detail.specFirst': '首次结构化说明。',
+      'detail.specNoChanges': '本次没有新增或修改的业务要点。',
+      'detail.specAdded': '新增',
+      'detail.specChanged': '修改',
+      'detail.specRemoved': '移除',
+      'detail.specResolved': '已解决澄清',
+      'detail.specOpen': '仍待澄清',
+      'detail.specNewQuestions': '新待澄清',
+      'detail.specAssumption': '假设',
+      'detail.specNeedsConfirm': '待确认',
+      'detail.specWorkingAssumption': '工作假设',
+      'detail.specPoint': '用户/角色',
+      'detail.specTrigger': '触发',
+      'detail.specBehavior': '预期行为',
+      'detail.specSource': '依据',
+      'detail.specExceptions': '异常与边界',
+      'detail.specAcceptance': '可观察验收',
+      'detail.answer': '回答',
+      'detail.specGiven': '前置条件',
+      'detail.specWhen': '操作',
+      'detail.specThen': '可观察结果',
+      'detail.specAnalysisRecord': '分析记录',
+      'spec.basis.user_requirement': '用户明确要求',
+      'spec.basis.project_convention': '项目约定',
+      'spec.basis.external_material': '外部资料',
+      'spec.exceptions.assessed': '已评估',
+      'spec.exceptions.not_applicable': '已评估且不适用',
+      'spec.exceptions.unanalyzed': '尚未分析',
       'detail.rules': '业务规则',
       'detail.exceptions': '异常与边界',
       'detail.nonGoals': '非目标',
@@ -611,7 +869,7 @@ window.__ModuleLoader__.load({
       'overview.boundaryClarification': '待澄清回答仍在 ForgeLoop 业务会话输入；本页只读展示问题。',
       'overview.boundaryGrant': '追加授权与重新规划尚无页面入口；额度用尽时重试会被明确拒绝。',
       'overview.searchScope':
-        '搜索范围：需求身份/状态/原文与版本、分析结论、任务目标/文件/验收标准、运行原因、失败轮次、请求说明与问题文字；最多显示 50 条。',
+        '搜索范围：需求身份/状态/原文与版本、分析结论、任务目标/文件/验收标准、运行原因、失败轮次、请求说明与问题文字；最多显示 {limit} 条。',
       'overview.next.approvals': '{count} 个任务包待批准',
       'overview.next.failures': '{count} 个失败任务待查看证据/重试',
       'overview.next.requestFailures': '{count} 条请求失败待处理',
@@ -661,6 +919,9 @@ window.__ModuleLoader__.load({
       'wb.noMatch': '没有匹配记录',
       'wb.clear': '清除搜索与筛选',
       'wb.progress': '{delivered}/{total} 个任务已交付',
+      'wb.cancelledBanner': '需求已取消；取消后不再执行任务，历史记录保留。',
+      'wb.cancelledTasks': '已取消，{count} 个任务不再执行',
+      'wb.cancelledTasksHistory': '查看已取消的 {count} 个任务',
       'wb.plan': '任务包 v{plan}',
       'wb.planLabel': '任务包',
       'wb.version': '需求 v{version}',
@@ -812,10 +1073,18 @@ window.__ModuleLoader__.load({
       'ops.monitor.never': '尚未扫描',
       'ops.monitor.last': '最近扫描 {time}',
       'ops.monitor.disabled': '主动监控未启用；只按登记检查产生事件。',
+      'ops.monitor.disabledHint':
+        '在 profile 的 ops.monitor 配置检查与阈值后，这里会显示主机指标、最近扫描与心跳。',
+      'ops.monitor.cpuLabel': 'CPU',
+      'ops.monitor.memoryLabel': '内存',
+      'ops.monitor.loadLabel': '负载',
+      'ops.monitor.issuesLabel': '异常项',
       'ops.monitor.healthy': '正常',
       'ops.monitor.degraded': '有问题',
       'ops.monitor.critical': '严重',
       'ops.monitor.error': '扫描失败',
+      'ops.monitor.incomplete': '采集不完整',
+      'ops.monitor.stale': '扫描已过期',
       'ops.monitor.cpu': 'CPU {value}%',
       'ops.monitor.memory': '内存 {value}%',
       'ops.monitor.load': '负载 {value}',
@@ -929,6 +1198,9 @@ window.__ModuleLoader__.load({
       'reliability.runtime.mttrMissing': '—（无恢复样本）',
       'reliability.runtime.candidateBuilds': '候选构建数',
       'reliability.runtime.deploymentFailures': '上线失败检查项',
+      'reliability.runtime.deploymentIntents': '部署通道（intent）',
+      'reliability.runtime.deploymentIntentsNote':
+        '已核对 {verified} · 失败 {failed} · 回退 {rolledBack} · 进行中 {pending}',
       'reliability.runtime.noDeploymentFailures': '窗口内没有失败的上线检查。',
       'reliability.runtime.noSamples': '当前窗口没有交付可靠性记录。',
       'reliability.runtime.ratesNote': '率按记录计；首轮验证按需求计。',
@@ -1024,6 +1296,40 @@ window.__ModuleLoader__.load({
       'detail.history': 'Version history ({count} older versions)',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': 'Analysis',
+      'detail.spec': 'Requirement specification',
+      'detail.specScope': 'Scope and decisions needed',
+      'detail.specPoints': 'Business points and acceptance',
+      'detail.specAssumptions': 'Assumptions and basis',
+      'detail.specChanges': 'Changes after this clarification',
+      'detail.specHistory': 'Analysis and clarification history',
+      'detail.specFirst': 'First structured specification.',
+      'detail.specNoChanges': 'No business point was added or changed in this round.',
+      'detail.specAdded': 'Added',
+      'detail.specChanged': 'Changed',
+      'detail.specRemoved': 'Removed',
+      'detail.specResolved': 'Resolved clarifications',
+      'detail.specOpen': 'Still open',
+      'detail.specNewQuestions': 'New clarifications',
+      'detail.specAssumption': 'Assumption',
+      'detail.specNeedsConfirm': 'Needs confirmation',
+      'detail.specWorkingAssumption': 'Working assumption',
+      'detail.specPoint': 'Actor',
+      'detail.specTrigger': 'Trigger',
+      'detail.specBehavior': 'Expected behavior',
+      'detail.specSource': 'Basis',
+      'detail.specExceptions': 'Exceptions and boundaries',
+      'detail.specAcceptance': 'Observable acceptance',
+      'detail.answer': 'Answer',
+      'detail.specGiven': 'Given',
+      'detail.specWhen': 'When',
+      'detail.specThen': 'Then',
+      'detail.specAnalysisRecord': 'Analysis records',
+      'spec.basis.user_requirement': 'Explicit user requirement',
+      'spec.basis.project_convention': 'Project convention',
+      'spec.basis.external_material': 'External material',
+      'spec.exceptions.assessed': 'Assessed',
+      'spec.exceptions.not_applicable': 'Assessed, not applicable',
+      'spec.exceptions.unanalyzed': 'Not analyzed',
       'detail.rules': 'Business rules',
       'detail.exceptions': 'Exceptions and boundaries',
       'detail.nonGoals': 'Non-goals',
@@ -1141,7 +1447,7 @@ window.__ModuleLoader__.load({
       'overview.boundaryGrant':
         'Extra grants and re-planning have no page entry yet; retry is explicitly rejected when the budget is exhausted.',
       'overview.searchScope':
-        'Search scope: requirement id/status/text/versions, analysis, task goals/files/acceptance, run reasons, failure rounds, request text and issue text; at most 50 results.',
+        'Search scope: requirement id/status/text/versions, analysis, task goals/files/acceptance, run reasons, failure rounds, request text and issue text; at most {limit} results.',
       'overview.next.approvals': '{count} task packages waiting for approval',
       'overview.next.failures': '{count} failed tasks to inspect/retry',
       'overview.next.requestFailures': '{count} failed requests to handle',
@@ -1193,6 +1499,9 @@ window.__ModuleLoader__.load({
       'wb.noMatch': 'No matching records',
       'wb.clear': 'Clear search and filters',
       'wb.progress': '{delivered}/{total} tasks delivered',
+      'wb.cancelledBanner': 'Requirement cancelled; its tasks no longer run and are kept as history.',
+      'wb.cancelledTasks': 'Cancelled; {count} tasks will not run',
+      'wb.cancelledTasksHistory': 'Show the {count} cancelled tasks',
       'wb.plan': 'Task package v{plan}',
       'wb.planLabel': 'Task package',
       'wb.version': 'Requirement v{version}',
@@ -1350,10 +1659,18 @@ window.__ModuleLoader__.load({
       'ops.monitor.never': 'Not scanned yet',
       'ops.monitor.last': 'Last scan {time}',
       'ops.monitor.disabled': 'Active monitoring is off; only registered checks open events.',
+      'ops.monitor.disabledHint':
+        'Configure ops.monitor checks and thresholds in the profile to show host metrics, last scan and heartbeat here.',
+      'ops.monitor.cpuLabel': 'CPU',
+      'ops.monitor.memoryLabel': 'Memory',
+      'ops.monitor.loadLabel': 'Load',
+      'ops.monitor.issuesLabel': 'Findings',
       'ops.monitor.healthy': 'Healthy',
       'ops.monitor.degraded': 'Degraded',
       'ops.monitor.critical': 'Critical',
       'ops.monitor.error': 'Scan failed',
+      'ops.monitor.incomplete': 'Collection incomplete',
+      'ops.monitor.stale': 'Scan stale',
       'ops.monitor.cpu': 'CPU {value}%',
       'ops.monitor.memory': 'Memory {value}%',
       'ops.monitor.load': 'Load {value}',
@@ -1469,6 +1786,9 @@ window.__ModuleLoader__.load({
       'reliability.runtime.mttrMissing': '— (no recovery samples)',
       'reliability.runtime.candidateBuilds': 'Candidate builds',
       'reliability.runtime.deploymentFailures': 'Failed deployment checks',
+      'reliability.runtime.deploymentIntents': 'Deployment channel (intents)',
+      'reliability.runtime.deploymentIntentsNote':
+        'Verified {verified} · failed {failed} · rolled back {rolledBack} · pending {pending}',
       'reliability.runtime.noDeploymentFailures': 'No failed deployment checks in this window.',
       'reliability.runtime.noSamples': 'No delivery reliability records in this window.',
       'reliability.runtime.ratesNote':
@@ -1483,7 +1803,8 @@ window.__ModuleLoader__.load({
       'reliability.trend.deploymentsVerified': 'Deployments verified',
       'reliability.trend.deploymentsFailed': 'Deployments failed',
       'reliability.trend.table': 'Expand data table',
-      'reliability.trend.noSamples': 'No verification, failure-round, or deployment records in 8 weeks.',
+      'reliability.trend.noSamples':
+        'No verification, failure-round, or deployment records in 8 weeks.',
       'reliability.events.title': 'Recent reliability events',
       'reliability.events.empty': 'No blocking or failed events in this window.',
       'reliability.events.open': 'Open requirement {reqId}',
@@ -1718,6 +2039,7 @@ window.__ModuleLoader__.load({
             : null,
         ),
         listItems(t, t('node.clarification.questions'), data.questions, 'questions'),
+        h('div', { className: 'flb-muted' }, t('node.clarification.hint')),
       )
     }
 
@@ -2066,6 +2388,36 @@ window.__ModuleLoader__.load({
         Chip,
         { tone: verification.fresh ? 'success' : 'warn' },
         t(verification.fresh ? 'requirement.verificationPassed' : 'requirement.verificationStale'),
+      )
+    }
+
+    /** 页脚运行身份：版本、启动时间、客户端摘要；与源码不一致时明确告警。 */
+    function BuildStamp(props) {
+      const t = props.t
+      const build = props.build
+      if (!build || !build.version) {
+        return h('span', { className: 'flb-build' }, t('build.missing'))
+      }
+      const parts = [t('build.version', { version: build.version })]
+      if (build.startedAt) parts.push(t('build.started', { time: formatMoment(build.startedAt) }))
+      if (build.clientSha256) parts.push(t('build.client', { sha: shortSha(build.clientSha256) }))
+      return h(
+        'span',
+        { className: 'flb-build' },
+        parts.join(' · '),
+        build.sourceMatches === true
+          ? h(Chip, { tone: 'success' }, t('build.sourceMatch'))
+          : build.sourceMatches === false
+            ? h(
+                Chip,
+                { tone: 'warn' },
+                build.sourceClientSha256
+                  ? `${t('build.sourceMismatch')}（${t('build.sourceSha', {
+                      sha: shortSha(build.sourceClientSha256),
+                    })}）`
+                  : t('build.sourceMismatch'),
+              )
+            : null,
       )
     }
 
@@ -2503,8 +2855,7 @@ window.__ModuleLoader__.load({
                 'span',
                 null,
                 t(
-                  requirement.remainingRounds === null ||
-                    requirement.remainingRounds === undefined
+                  requirement.remainingRounds === null || requirement.remainingRounds === undefined
                     ? 'requirement.failureRoundsUnlimited'
                     : 'requirement.failureRounds',
                   {
@@ -2569,6 +2920,173 @@ window.__ModuleLoader__.load({
           : null,
         open ? h(RequirementDetail, props) : null,
       )
+    }
+
+    function changeList(t, label, ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return null
+      return h('div', { key: label }, h('span', { className: 'flb-label' }, `${label}：`), ids.join('、'))
+    }
+
+    function specChangeView(t, changes, hasHistory) {
+      if (!changes) return null
+      const rows = [
+        changeList(t, t('detail.specAdded'), changes.addedPoints),
+        changeList(t, t('detail.specChanged'), changes.changedPoints),
+        changeList(t, t('detail.specRemoved'), changes.removedPoints),
+        changeList(t, t('detail.specResolved'), changes.resolvedClarifications),
+        changeList(t, t('detail.specOpen'), changes.remainingClarifications),
+        changeList(t, t('detail.specNewQuestions'), changes.newClarifications),
+      ].filter(Boolean)
+      if (rows.length === 0) {
+        return hasHistory ? h('div', { className: 'flb-muted' }, t('detail.specNoChanges')) : null
+      }
+      return h('div', { className: 'flb-subsection', key: 'changes' }, ...rows)
+    }
+
+    function clarificationHistoryView(t, history) {
+      const questions = history && Array.isArray(history.questions) ? history.questions : []
+      const answers = history && Array.isArray(history.answers) ? history.answers : []
+      if (questions.length === 0) return null
+      const answerFor = (question) =>
+        answers.find(
+          (answer) =>
+            Array.isArray(answer.questionIds) && answer.questionIds.includes(question.questionId),
+        )
+      return h(
+        'details',
+        { className: 'flb-details', key: 'clarification-history' },
+        h('summary', null, t('detail.specHistory')),
+        ...questions.map((question) => {
+          const answer = answerFor(question)
+          return h(
+            'div',
+            { className: 'flb-version', key: question.questionId },
+            h(
+              'div',
+              { className: 'flb-card-meta' },
+              `${question.questionId} · ${question.status === 'resolved' ? t('detail.specResolved') : t('detail.specOpen')}`,
+            ),
+            h('div', null, question.text),
+            answer ? h('div', { className: 'flb-muted' }, `${t('detail.answer')}：${answer.answer}`) : null,
+            question.status === 'resolved' && question.resolution
+              ? h('div', { className: 'flb-muted' }, question.resolution)
+              : null,
+          )
+        }),
+      )
+    }
+
+    function pointView(t, point, acceptance) {
+      const items = acceptance.filter(
+        (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
+      )
+      const exceptionText =
+        point.exceptions && point.exceptions.status === 'assessed'
+          ? arrayOf(point.exceptions.items).join('；') || '—'
+          : point.exceptions
+            ? `${t(`spec.exceptions.${point.exceptions.status}`)}：${point.exceptions.reason || '—'}`
+            : '—'
+      return h(
+        'div',
+        { className: 'flb-subsection', key: point.id },
+        h(
+          'div',
+          { className: 'flb-label' },
+          `${point.id} · ${t(`spec.basis.${point.basis}`)}`,
+        ),
+        h('div', { className: 'flb-muted' }, `${t('detail.specSource')}：${point.source}`),
+        h('div', null, `${t('detail.specPoint')}：${point.actor}`),
+        h('div', null, `${t('detail.specTrigger')}：${point.trigger}`),
+        h('div', null, `${t('detail.specBehavior')}：${point.behavior}`),
+        arrayOf(point.rules).length > 0
+          ? h('div', null, `${t('detail.rules')}：${arrayOf(point.rules).join('；')}`)
+          : null,
+        h('div', null, `${t('detail.specExceptions')}：${exceptionText}`),
+        h(
+          'div',
+          { className: 'flb-muted' },
+          ...items.map((item) =>
+            h(
+              'div',
+              { key: item.id },
+              `${item.id}：${t('detail.specGiven')} ${item.given}；${t('detail.specWhen')} ${item.when}；${t('detail.specThen')} ${item.then}`,
+            ),
+          ),
+        ),
+      )
+    }
+
+    function requirementSpecSection(t, data, analysis) {
+      const points = analysis && Array.isArray(analysis.businessPoints) ? analysis.businessPoints : []
+      if (points.length === 0) return null
+      const acceptance = Array.isArray(analysis.acceptanceItems) ? analysis.acceptanceItems : []
+      const assumptions = Array.isArray(analysis.assumptions) ? analysis.assumptions : []
+      const history = Array.isArray(data.analysisHistory) ? data.analysisHistory : []
+      const children = [
+        h(Kv, { key: 'goal', label: t('detail.goal') }, analysis.goal),
+        h('div', { className: 'flb-label', key: 'scope-label' }, t('detail.specScope')),
+        h(
+          'div',
+          { key: 'scope' },
+          analysis.nonGoals && analysis.nonGoals.length > 0
+            ? `${t('detail.nonGoals')}：${analysis.nonGoals.join('；')}`
+            : '—',
+        ),
+        analysis.clarifications && analysis.clarifications.length > 0
+          ? h(
+              'div',
+              { className: 'flb-block-warn', key: 'open' },
+              h('div', { className: 'flb-label' }, t('detail.specOpen')),
+              h(BulletList, { items: analysis.clarifications }),
+            )
+          : null,
+        h('div', { className: 'flb-label', key: 'points-label' }, t('detail.specPoints')),
+        ...points.map((point) => pointView(t, point, acceptance)),
+        assumptions.length > 0
+          ? h(
+              'div',
+              { className: 'flb-subsection', key: 'assumptions' },
+              h('div', { className: 'flb-label' }, t('detail.specAssumptions')),
+              ...assumptions.map((item) =>
+                h(
+                  'div',
+                  { key: item.id },
+                  `${item.id} · ${item.basis} · ${item.statement} · ${item.impact} · ${item.needsConfirmation ? t('detail.specNeedsConfirm') : t('detail.specWorkingAssumption')}`,
+                ),
+              ),
+            )
+          : null,
+        h('div', { className: 'flb-label', key: 'changes-label' }, t('detail.specChanges')),
+        specChangeView(t, data.specChanges, history.length > 1),
+        clarificationHistoryView(t, data.clarificationHistory),
+        history.length > 1
+          ? h(
+              'details',
+              { className: 'flb-details', key: 'analysis-history' },
+              h('summary', null, `${t('detail.specHistory')}（${history.length}）`),
+              ...history.map((item) =>
+                h(
+                  'div',
+                  { className: 'flb-version', key: item.analysisVersion },
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `v${item.analysisVersion} · ${t('detail.specAnalysisRecord')} · ${formatMoment(item.createdAt)}`,
+                  ),
+                  h('div', null, item.goal),
+                  Array.isArray(item.businessPoints)
+                    ? h('div', { className: 'flb-muted' }, item.businessPoints.map((point) => point.id).join('、'))
+                    : null,
+                ),
+              ),
+            )
+          : null,
+      ].filter(Boolean)
+      return Section({ title: t('detail.spec'), children })
+    }
+
+    function arrayOf(value) {
+      return Array.isArray(value) ? value : []
     }
 
     function RequirementDetail(props) {
@@ -2661,9 +3179,14 @@ window.__ModuleLoader__.load({
         }),
       )
 
+      const specSection = requirementSpecSection(t, data, analysis)
+      if (specSection) sections.push(specSection)
+
       sections.push(
         Section({
-          title: t('detail.analysis'),
+          title: analysis && Array.isArray(analysis.businessPoints) && analysis.businessPoints.length > 0
+            ? t('detail.specAnalysisRecord')
+            : t('detail.analysis'),
           children: analysis
             ? [
                 h(
@@ -3942,7 +4465,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'flb-muted' }, t('overview.boundaryAccept')),
             h('div', { className: 'flb-muted' }, t('overview.boundaryClarification')),
             h('div', { className: 'flb-muted' }, t('overview.boundaryGrant')),
-            h('div', { className: 'flb-muted' }, t('overview.searchScope')),
+            h('div', { className: 'flb-muted' }, searchScopeText(t)),
           ),
         ),
       )
@@ -4059,7 +4582,9 @@ window.__ModuleLoader__.load({
 .flb-task-activity-item{border-left:2px solid var(--dsw-alias-border-l2);padding:2px 0 2px 8px;font-size:11px;line-height:16px}
 .flb-task-activity-time{color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px}
 .flb-task-log{margin:0;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:10px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--dsw-alias-bg-layer-2);padding:6px;border-radius:4px}
-.flb-footer{margin-top:16px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-footer{margin-top:16px;font-size:11px;color:var(--dsw-alias-label-secondary);display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.flb-build{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.flb-tree-note{padding:4px 6px 4px 13px;font-size:10px;color:var(--dsw-alias-label-secondary)}
 .flb-bottom-spacer{height:150px;flex:none}
 .flb-workbench[data-full=true]{grid-template-columns:minmax(0,1fr)}
 .flb-workbench[data-full=true] .flb-tree-pane,.flb-workbench[data-full=true] .flb-main-pane{display:none}
@@ -4307,6 +4832,65 @@ window.__ModuleLoader__.load({
 @media (max-width:480px){.flb-rel-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `
 
+    /** 本轮视觉整理：状态轨、页签栏、进度强调、质量结论与运维指标。 */
+    const POLISH_CSS = `
+.flb-summary{display:flex;width:100%;border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);margin:2px 0 0;overflow:hidden}
+.flb-summary-item{flex:1 1 118px;min-width:0;padding:7px 12px;border-left:.5px solid var(--dsw-alias-border-l1)}
+.flb-summary-item:first-child{border-left:0}
+.flb-summary-label{display:block;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.flb-summary-value{display:flex;align-items:baseline;gap:5px;font-size:19px;font-weight:650;line-height:24px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flb-summary-value small{font-size:10px;font-weight:400;color:var(--dsw-alias-label-secondary)}
+.flb-summary-item[data-tone=error] .flb-summary-value{color:var(--dsw-alias-state-error-primary)}
+.flb-tabbar{display:flex;align-items:flex-end;gap:10px;width:100%;margin-top:2px}
+.flb-tabs{flex:1;width:auto;margin-top:0}
+.flb-tree-toggle{flex:none;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:7px 8px;cursor:pointer}
+.flb-tree-toggle:hover{color:var(--dsw-alias-label-primary)}
+.flb-tree-toggle[aria-pressed=true]{color:var(--dsw-alias-brand-primary);border-bottom-color:var(--dsw-alias-brand-primary)}
+.flb-search-meta{padding:4px 0 8px;min-height:0}
+.flb-progress{height:4px;border-radius:2px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.flb-progress>span{display:block;height:100%;background:var(--dsw-alias-brand-primary);transition:width .2s ease}
+.flb-progress[data-tone=success]>span{background:var(--dsw-alias-state-success-primary)}
+.flb-progress-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px}
+.flb-progress-value{font-size:16px;font-weight:650;line-height:20px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-warning-primary)}
+.flb-progress-value[data-tone=success]{color:var(--dsw-alias-state-success-primary)}
+.flb-rel-verdict{display:flex;gap:11px;padding:12px 14px;border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);margin:2px 0}
+.flb-rel-verdict-bar{flex:none;width:3px;border-radius:2px;background:var(--dsw-alias-label-secondary)}
+.flb-rel-verdict[data-tone=success] .flb-rel-verdict-bar{background:var(--dsw-alias-state-success-primary)}
+.flb-rel-verdict[data-tone=warn] .flb-rel-verdict-bar{background:var(--dsw-alias-state-warning-primary)}
+.flb-rel-verdict[data-tone=error] .flb-rel-verdict-bar{background:var(--dsw-alias-state-error-primary)}
+.flb-rel-verdict-title{font-size:15px;font-weight:650;line-height:21px}
+.flb-rel-verdict-detail{font-size:11px;line-height:17px;color:var(--dsw-alias-label-secondary);margin-top:2px;overflow-wrap:anywhere}
+.flb-rel-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+.flb-rel-kpi-value{font-size:24px;line-height:30px}
+.flb-rel-bar{position:relative;height:8px}
+.flb-rel-bar-threshold{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--dsw-alias-label-secondary);opacity:.75;z-index:1}
+.flb-rel-bar-fill{position:relative;z-index:0;height:100%;border-radius:999px;background:var(--dsw-alias-brand-primary)}
+.flb-ops-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.flb-ops-monitor{padding:12px}
+.flb-ops-monitor-note{font-size:11px;line-height:17px;color:var(--dsw-alias-label-secondary);margin-top:5px}
+.flb-ops-monitor-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px;font-family:inherit;color:inherit}
+.flb-ops-metric{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);min-width:0}
+.flb-ops-metric-value{font-size:18px;font-weight:650;line-height:23px;font-variant-numeric:tabular-nums}
+.flb-ops-metric-label{font-size:10px;color:var(--dsw-alias-label-secondary)}
+.flb-ops-metric[data-tone=warn] .flb-ops-metric-value{color:var(--dsw-alias-state-warning-primary)}
+.flb-ops-metric[data-tone=error] .flb-ops-metric-value{color:var(--dsw-alias-state-error-primary)}
+.flb-ops-metric[data-tone=success] .flb-ops-metric-value{color:var(--dsw-alias-state-success-primary)}
+.flb-ops-monitor-sources{font-size:11px;line-height:17px;color:var(--dsw-alias-label-secondary);margin-top:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.flb-ops-empty{padding:30px 18px;border:.5px dashed var(--dsw-alias-border-l1);border-radius:8px;text-align:center;margin-top:4px}
+.flb-ops-empty-title{font-size:13px;font-weight:600;margin-bottom:4px}
+.flb-ops-card[data-severity=critical]{border-left:2px solid var(--dsw-alias-state-error-primary)}
+.flb-ops-card[data-severity=major]{border-left:2px solid var(--dsw-alias-state-warning-primary)}
+.flb-detail-actions{display:none}
+@media (max-width:820px){.flb-detail-actions{display:block}}
+.flb-focus{display:inline-flex;align-items:center;margin:6px 0 2px;padding:3px 9px;border-left:2px solid var(--dsw-alias-border-l2);border-radius:3px;background:var(--dsw-alias-bg-layer-2);font-size:11px;line-height:17px;color:var(--dsw-alias-label-secondary)}
+.flb-focus[data-tone=success]{border-left-color:var(--dsw-alias-state-success-primary);color:var(--dsw-alias-state-success-primary)}
+.flb-focus[data-tone=warn]{border-left-color:var(--dsw-alias-state-warning-primary);color:var(--dsw-alias-state-warning-primary)}
+.flb-focus[data-tone=error]{border-left-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.flb-focus[data-tone=brand]{border-left-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+@media (max-width:900px){.flb-summary-item{flex:1 1 100px}.flb-rel-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.flb-ops-monitor-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.flb-summary{flex-wrap:wrap}.flb-summary-item{flex:1 1 33%;border-top:.5px solid var(--dsw-alias-border-l1)}.flb-summary-item:nth-child(-n+3){border-top:0}.flb-tabbar{flex-wrap:wrap}}
+`
+
     /** 注册页面；组件只在会话视图槽展开时渲染。 */
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'forgeloop: dictionaries')
@@ -4538,7 +5122,7 @@ window.__ModuleLoader__.load({
         )
 
         const visible = requirements.filter((requirement) => {
-          if (filter === 'active') return !TERMINAL[requirement.status]
+          if (filter === 'active') return !isTerminalStatus(requirement.status)
           if (filter === 'accepted') return requirement.status === 'accepted'
           return true
         })
@@ -4568,7 +5152,7 @@ window.__ModuleLoader__.load({
           const requirement = requirementById.get(task.reqId)
           return Boolean(
             requirement &&
-            !TERMINAL[requirement.status] &&
+            !isTerminalStatus(requirement.status) &&
             requirement.approval === 'approved' &&
             (requirement.remainingRounds === null ||
               requirement.remainingRounds === undefined ||
@@ -4624,7 +5208,7 @@ window.__ModuleLoader__.load({
                   value: query,
                   placeholder: t('search.placeholder'),
                   'aria-label': t('search.label'),
-                  title: t('overview.searchScope'),
+                  title: searchScopeText(t),
                   onChange: (event) => setQuery(event.target.value),
                 }),
                 query
@@ -4674,7 +5258,7 @@ window.__ModuleLoader__.load({
                     count: board.summary.requirements,
                     truncated: board.truncated ? t('search.truncated', { limit: board.limit }) : '',
                   }),
-                  h('span', { className: 'flb-muted' }, t('overview.searchScope')),
+                  h('span', { className: 'flb-muted' }, searchScopeText(t)),
                 )
               : null,
           ),
@@ -4701,7 +5285,7 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'flb-empty flb-empty-large' },
                   h('div', null, t('search.noResults', { query: board.query })),
-                  h('div', { className: 'flb-muted' }, t('overview.searchScope')),
+                  h('div', { className: 'flb-muted' }, searchScopeText(t)),
                   h(
                     'button',
                     { type: 'button', className: 'flb-refresh', onClick: () => setQuery('') },
@@ -4763,7 +5347,7 @@ window.__ModuleLoader__.load({
                             t(`filter.${key}`),
                           ),
                         ),
-                        h('span', { className: 'flb-muted' }, t('overview.searchScope')),
+                        h('span', { className: 'flb-muted' }, searchScopeText(t)),
                       ),
                       visible.length === 0
                         ? h('div', { className: 'flb-empty' }, t('empty.requirements'))
@@ -4990,13 +5574,14 @@ window.__ModuleLoader__.load({
                       type: 'button',
                       className: 'flb-tree-node',
                       'aria-current': selectedReq ? 'true' : undefined,
+                      title: requirement.reqId,
                       onClick: () => props.onOpenRequirement(requirement.reqId),
                     },
                     h('span', { className: 'flb-tree-kind' }, open ? '▾' : '▸'),
                     h(
                       'span',
                       { className: 'flb-tree-text' },
-                      h('span', { className: 'flb-tree-kind' }, requirement.reqId),
+                      h('span', { className: 'flb-tree-kind' }, shortReqId(requirement.reqId)),
                       h('br'),
                       requirement.title,
                     ),
@@ -5008,69 +5593,83 @@ window.__ModuleLoader__.load({
                     ? h(
                         'div',
                         null,
-                        reqTasks.map((task) => {
-                          const taskIssue = wbIssueFor(issues, task)
-                          const selectedTask = selected.taskId === task.taskId
-                          return h(
-                            'div',
-                            { key: task.taskId },
-                            h(
-                              'button',
-                              {
-                                type: 'button',
-                                className: 'flb-tree-node flb-tree-child',
-                                'aria-current': selectedTask ? 'true' : undefined,
-                                onClick: () =>
-                                  props.onOpenTask(requirement.reqId, task.taskId, 'overview'),
-                              },
-                              h(
-                                Chip,
-                                { tone: wbStateTone(task.state) },
-                                wbStateLabel(t, task.state),
-                              ),
-                              h(
-                                'span',
-                                { className: 'flb-tree-text' },
-                                task.taskId + ' · ' + task.goal,
-                              ),
-                            ),
-                            taskIssue
-                              ? h(
+                        requirement.status === 'cancelled'
+                          ? h(
+                              'div',
+                              { className: 'flb-tree-note' },
+                              t('wb.cancelledTasks', { count: reqTasks.length }),
+                            )
+                          : reqTasks.map((task) => {
+                              const taskIssue = wbIssueFor(issues, task)
+                              const selectedTask = selected.taskId === task.taskId
+                              return h(
+                                'div',
+                                { key: task.taskId },
+                                h(
                                   'button',
                                   {
                                     type: 'button',
-                                    className: 'flb-tree-node flb-tree-grandchild',
-                                    'aria-current':
-                                      selected.issueId === taskIssue.issueId ? 'true' : undefined,
-                                    onClick: () => props.onOpenIssue(taskIssue),
+                                    className: 'flb-tree-node flb-tree-child',
+                                    'aria-current': selectedTask ? 'true' : undefined,
+                                    onClick: () =>
+                                      props.onOpenTask(
+                                        requirement.reqId,
+                                        task.taskId,
+                                        'overview',
+                                      ),
                                   },
-                                  h('span', { className: 'flb-tree-kind' }, '↳'),
-                                  h('span', { className: 'flb-tree-text' }, taskIssue.title),
-                                )
-                              : null,
-                          )
-                        }),
-                        reqIssues
-                          .filter((issue) => !issue.taskId)
-                          .map((issue) =>
-                            h(
-                              'button',
-                              {
-                                type: 'button',
-                                key: issue.issueId,
-                                className: 'flb-tree-node flb-tree-child',
-                                'aria-current':
-                                  selected.issueId === issue.issueId ? 'true' : undefined,
-                                onClick: () => props.onOpenIssue(issue),
-                              },
-                              h(
-                                Chip,
-                                { tone: ISSUE_TONES[issue.severity] || 'warn' },
-                                t(`issue.severity.${issue.severity}`),
+                                  h(
+                                    Chip,
+                                    { tone: wbStateTone(task.state) },
+                                    wbStateLabel(t, task.state),
+                                  ),
+                                  h(
+                                    'span',
+                                    { className: 'flb-tree-text' },
+                                    task.taskId + ' · ' + task.goal,
+                                  ),
+                                ),
+                                taskIssue
+                                  ? h(
+                                      'button',
+                                      {
+                                        type: 'button',
+                                        className: 'flb-tree-node flb-tree-grandchild',
+                                        'aria-current':
+                                          selected.issueId === taskIssue.issueId
+                                            ? 'true'
+                                            : undefined,
+                                        onClick: () => props.onOpenIssue(taskIssue),
+                                      },
+                                      h('span', { className: 'flb-tree-kind' }, '↳'),
+                                      h('span', { className: 'flb-tree-text' }, taskIssue.title),
+                                    )
+                                  : null,
+                              )
+                            }),
+                        requirement.status === 'cancelled'
+                          ? null
+                          : reqIssues
+                              .filter((issue) => !issue.taskId)
+                              .map((issue) =>
+                                h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    key: issue.issueId,
+                                    className: 'flb-tree-node flb-tree-child',
+                                    'aria-current':
+                                      selected.issueId === issue.issueId ? 'true' : undefined,
+                                    onClick: () => props.onOpenIssue(issue),
+                                  },
+                                  h(
+                                    Chip,
+                                    { tone: ISSUE_TONES[issue.severity] || 'warn' },
+                                    t(`issue.severity.${issue.severity}`),
+                                  ),
+                                  h('span', { className: 'flb-tree-text' }, issue.title),
+                                ),
                               ),
-                              h('span', { className: 'flb-tree-text' }, issue.title),
-                            ),
-                          ),
                       )
                     : null,
                 )
@@ -5289,8 +5888,12 @@ window.__ModuleLoader__.load({
         }
         const tasks = props.tasks
         const issues = props.issues
-        const completed = tasks.filter((task) => task.state === 'delivered').length
-        const ratio = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
+        const cancelled = requirement.status === 'cancelled'
+        const focus = requirementFocus(t, requirement)
+        const progressTasks = tasksForProgress(requirement, tasks)
+        const completed = progressTasks.filter((task) => task.state === 'delivered').length
+        const ratio =
+          progressTasks.length > 0 ? Math.round((completed / progressTasks.length) * 100) : 0
         return h(
           'main',
           { className: 'flb-main-pane' },
@@ -5303,17 +5906,23 @@ window.__ModuleLoader__.load({
               { tone: REQUIREMENT_TONES[requirement.status] || 'idle' },
               statusLabel(t, requirement.status),
             ),
-            requirement.approval === 'approved'
-              ? h(Chip, { tone: 'success' }, t('wb.approved'))
-              : requirement.approval === 'stale'
-                ? h(Chip, { tone: 'warn' }, t('wb.stale'))
-                : h(Chip, { tone: 'warn' }, t('requirement.approvalMissing')),
-            requirement.planVersion ? planReviewChip(t, requirement.planReview) : null,
-            requirement.verification
-              ? verificationChip(t, requirement.verification)
-              : tasks.length > 0 && completed === tasks.length
-                ? verificationChip(t, null)
-                : null,
+            showsLegacyGateWarnings(requirement.status)
+              ? requirement.approval === 'approved'
+                ? h(Chip, { tone: 'success' }, t('wb.approved'))
+                : requirement.approval === 'stale'
+                  ? h(Chip, { tone: 'warn' }, t('wb.stale'))
+                  : h(Chip, { tone: 'warn' }, t('requirement.approvalMissing'))
+              : null,
+            showsLegacyGateWarnings(requirement.status) && requirement.planVersion
+              ? planReviewChip(t, requirement.planReview)
+              : null,
+            showsLegacyGateWarnings(requirement.status)
+              ? requirement.verification
+                ? verificationChip(t, requirement.verification)
+                : tasks.length > 0 && completed === tasks.length
+                  ? verificationChip(t, null)
+                  : null
+              : null,
           ),
           h('h2', { className: 'flb-hier-title' }, requirement.title),
           h(
@@ -5326,16 +5935,43 @@ window.__ModuleLoader__.load({
             h('span', null, t('wb.taskCount', { count: tasks.length })),
             h('span', null, t('wb.issueCount', { count: issues.length })),
           ),
-          h(
-            'div',
-            { className: 'flb-hier-progress' },
-            h('div', { className: 'flb-progress' }, h('span', { style: { width: ratio + '%' } })),
-            h(
-              'div',
-              { className: 'flb-wb-sub' },
-              t('wb.progress', { delivered: completed, total: tasks.length }),
-            ),
-          ),
+          focus
+            ? h('div', { className: 'flb-focus', 'data-tone': focus.tone }, focus.text)
+            : null,
+          cancelled
+            ? h(
+                'div',
+                { className: 'flb-hier-progress' },
+                h('div', { className: 'flb-banner', 'data-tone': 'warn' }, t('wb.cancelledBanner')),
+                h(
+                  'div',
+                  { className: 'flb-wb-sub' },
+                  t('wb.cancelledTasks', { count: tasks.length }),
+                ),
+              )
+            : h(
+                'div',
+                { className: 'flb-hier-progress' },
+                h(
+                  'div',
+                  { className: 'flb-progress-head' },
+                  h(
+                    'span',
+                    { className: 'flb-progress-value', 'data-tone': ratio === 100 ? 'success' : undefined },
+                    `${ratio}%`,
+                  ),
+                  h(
+                    'span',
+                    { className: 'flb-wb-sub' },
+                    t('wb.progress', { delivered: completed, total: progressTasks.length }),
+                  ),
+                ),
+                h(
+                  'div',
+                  { className: 'flb-progress', 'data-tone': ratio === 100 ? 'success' : undefined },
+                  h('span', { style: { width: ratio + '%' } }),
+                ),
+              ),
           props.actionMessage
             ? h(
                 'div',
@@ -5391,20 +6027,38 @@ window.__ModuleLoader__.load({
           ),
           props.workMode === 'relations'
             ? h(RelationsPanel, { t, requirement, tasks, onOpenTask: props.onOpenTask })
-            : tasks.length > 0
-              ? tasks.map((task) =>
-                  h(TaskRow, {
-                    t,
-                    key: task.taskId,
-                    task,
-                    tasks,
-                    issue: wbIssueFor(issues, task),
-                    selected: props.selectedTaskId === task.taskId,
-                    onOpenTask: props.onOpenTask,
-                    onOpenIssue: props.onOpenIssue,
-                  }),
-                )
-              : h('div', { className: 'flb-side-empty' }, t('wb.noExecutionHint')),
+            : tasks.length === 0
+              ? h('div', { className: 'flb-side-empty' }, t('wb.noExecutionHint'))
+              : cancelled
+                ? h(
+                    'details',
+                    { className: 'flb-details' },
+                    h('summary', null, t('wb.cancelledTasksHistory', { count: tasks.length })),
+                    tasks.map((task) =>
+                      h(TaskRow, {
+                        t,
+                        key: task.taskId,
+                        task,
+                        tasks,
+                        issue: wbIssueFor(issues, task),
+                        selected: props.selectedTaskId === task.taskId,
+                        onOpenTask: props.onOpenTask,
+                        onOpenIssue: props.onOpenIssue,
+                      }),
+                    ),
+                  )
+                : tasks.map((task) =>
+                    h(TaskRow, {
+                      t,
+                      key: task.taskId,
+                      task,
+                      tasks,
+                      issue: wbIssueFor(issues, task),
+                      selected: props.selectedTaskId === task.taskId,
+                      onOpenTask: props.onOpenTask,
+                      onOpenIssue: props.onOpenIssue,
+                    }),
+                  ),
         )
       }
 
@@ -6463,12 +7117,16 @@ window.__ModuleLoader__.load({
               )
             : null,
           kind === 'requirement'
-            ? h(ActionButtons, {
-                t,
-                actions: requirement.actions,
-                busy: props.busy,
-                onAction: (action) => props.onAction(requirement, action),
-              })
+            ? h(
+                'div',
+                { className: 'flb-detail-actions' },
+                h(ActionButtons, {
+                  t,
+                  actions: requirement.actions,
+                  busy: props.busy,
+                  onAction: (action) => props.onAction(requirement, action),
+                }),
+              )
             : kind === 'task'
               ? h(
                   'div',
@@ -6632,7 +7290,7 @@ window.__ModuleLoader__.load({
           'main',
           { className: 'flb-main-pane' },
           h('h2', { className: 'flb-hier-title' }, t('wb.allTasks')),
-          h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
+          h('div', { className: 'flb-wb-sub' }, searchScopeText(t)),
           props.requirements.length === 0
             ? h('div', { className: 'flb-side-empty' }, t('wb.noMatch'))
             : props.requirements.map((requirement) => {
@@ -6679,7 +7337,7 @@ window.__ModuleLoader__.load({
           'main',
           { className: 'flb-main-pane' },
           h('h2', { className: 'flb-hier-title' }, t('wb.attention')),
-          h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
+          h('div', { className: 'flb-wb-sub' }, searchScopeText(t)),
           props.items.length === 0
             ? h('div', { className: 'flb-side-empty' }, t('wb.noIssues'))
             : props.items.map((item) =>
@@ -6792,12 +7450,6 @@ window.__ModuleLoader__.load({
         )}`
       }
 
-      function reliabilityRateTone(rate, threshold) {
-        if (!rate || typeof rate.rate !== 'number') return 'idle'
-        if (rate.rate >= threshold) return 'success'
-        return rate.rate >= threshold - 10 ? 'warn' : 'error'
-      }
-
       function ReliabilityKpi(props) {
         return h(
           'div',
@@ -6823,6 +7475,13 @@ window.__ModuleLoader__.load({
             'aria-valuenow': value === null ? undefined : width,
             'data-empty': value === null ? 'true' : 'false',
           },
+          props.threshold !== undefined && props.threshold !== null
+            ? h('span', {
+                className: 'flb-rel-bar-threshold',
+                style: { left: `${Math.max(0, Math.min(100, props.threshold))}%` },
+                'aria-hidden': 'true',
+              })
+            : null,
           h('div', {
             className: 'flb-rel-bar-fill',
             'data-tone': props.tone || 'brand',
@@ -7030,6 +7689,7 @@ window.__ModuleLoader__.load({
         const snapshotMissing = availability === 'missing'
         const snapshotInvalid = availability === 'invalid'
         const snapshotStale = availability === 'stale'
+        const qualityReady = !snapshotMissing && !snapshotInvalid
         const unavailableValue = snapshotInvalid
           ? t('reliability.value.unavailable')
           : t('reliability.value.notCollected')
@@ -7126,18 +7786,46 @@ window.__ModuleLoader__.load({
         const deploymentFailures = Array.isArray(runtime.deploymentFailures)
           ? runtime.deploymentFailures
           : []
+        const deploymentIntents = runtime.deploymentIntents || {
+          verified: 0,
+          failed: 0,
+          rolledBack: 0,
+          pending: 0,
+        }
         const trend = Array.isArray(runtime.trend) ? runtime.trend : []
         const rates = [verification, firstPass, businessReview, deployment]
         const hasSamples = rates.some((rate) => (rate.total || 0) > 0)
         const warnings = Array.isArray(report.warnings) ? [...new Set(report.warnings)] : []
         const ratesNote = t('reliability.runtime.ratesNote')
         const smallSample = rates.some((rate) => (rate.total || 0) > 0 && (rate.total || 0) < 5)
+        const verdict = reliabilityVerdict(report)
+        const verdictDetail = (() => {
+          if (verdict.code === 'failed') {
+            const parts = []
+            if (verdict.failedGates > 0)
+              parts.push(t('reliability.verdict.gatesPart', { count: verdict.failedGates }))
+            if (verdict.failedTests > 0)
+              parts.push(t('reliability.verdict.testsPart', { count: verdict.failedTests }))
+            if (verdict.lowCoverage > 0)
+              parts.push(t('reliability.verdict.coveragePart', { count: verdict.lowCoverage }))
+            return parts.join(t('reliability.verdict.join'))
+          }
+          if (verdict.code === 'stale') return t('reliability.verdict.staleHint')
+          if (verdict.code === 'invalid') return t('reliability.verdict.invalidHint')
+          if (verdict.code === 'pass') return t('reliability.verdict.passHint')
+          return t('reliability.verdict.missingHint')
+        })()
 
         const rateCard = (label, rate, threshold) => {
           const value =
             typeof rate.rate === 'number' ? `${rate.rate}%` : t('reliability.value.none')
+          const total = rate.total || 0
           const note =
-            (rate.total || 0) > 0 ? t('reliability.sample', { count: rate.total }) : ratesNote
+            total === 0
+              ? ratesNote
+              : total < 5
+                ? t('reliability.sampleSmall', { count: total })
+                : t('reliability.sample', { count: total })
           return h(
             'div',
             { className: 'flb-rel-rate', 'data-tone': reliabilityRateTone(rate, threshold) },
@@ -7241,7 +7929,22 @@ window.__ModuleLoader__.load({
             snapshot.dirty ? h(Chip, { tone: 'warn' }, t('reliability.snapshot.dirty')) : null,
             h('span', { className: 'flb-rel-window-range' }, windowText),
           ),
-          warnings.length > 0
+          h(
+            'div',
+            { className: 'flb-rel-verdict', 'data-tone': verdict.tone },
+            h('span', { className: 'flb-rel-verdict-bar', 'aria-hidden': 'true' }),
+            h(
+              'div',
+              { className: 'flb-rel-verdict-body' },
+              h(
+                'div',
+                { className: 'flb-rel-verdict-title' },
+                t(`reliability.verdict.${verdict.code}`),
+              ),
+              h('div', { className: 'flb-rel-verdict-detail' }, verdictDetail),
+            ),
+          ),
+          warnings.length > 0 && verdict.code !== 'missing'
             ? h(
                 'div',
                 { className: 'flb-rel-warnings', role: 'status' },
@@ -7253,293 +7956,133 @@ window.__ModuleLoader__.load({
                 ),
               )
             : null,
-          h(
-            'div',
-            { className: 'flb-rel-kpis' },
-            h(ReliabilityKpi, {
-              label: t('reliability.kpi.gates'),
-              value: gateValue,
-              note: gates.length > 0 ? gateSummaryText : '',
-              tone: gateTone,
-            }),
-            h(ReliabilityKpi, {
-              label: t('reliability.kpi.tests'),
-              value: testValue,
-              note: testNote,
-              tone: testTone,
-            }),
-            h(ReliabilityKpi, {
-              label: t('reliability.kpi.lines'),
-              value: lineValue === null ? unavailableValue : lineValue,
-              note: coverage
-                ? t('reliability.coverage.threshold', { value: lineThreshold })
-                : t('reliability.value.notCollected'),
-              tone: lineTone,
-            }),
-            h(ReliabilityKpi, {
-              label: t('reliability.kpi.mutation'),
-              value: mutationValue,
-              note: mutation ? `break ${mutation.thresholds.break}` : t('reliability.value.notRun'),
-              tone: mutationTone,
-            }),
-            h(ReliabilityKpi, {
-              label: t('reliability.kpi.verification'),
-              value:
-                typeof verification.rate === 'number'
-                  ? `${verification.rate}%`
-                  : t('reliability.value.none'),
-              note:
-                (verification.total || 0) > 0
-                  ? t('reliability.sample', { count: verification.total })
-                  : ratesNote,
-              tone: reliabilityRateTone(verification, 90),
-            }),
-            h(ReliabilityKpi, {
-              label: t('reliability.kpi.deployment'),
-              value:
-                typeof deployment.rate === 'number'
-                  ? `${deployment.rate}%`
-                  : t('reliability.value.none'),
-              note:
-                (deployment.total || 0) > 0
-                  ? t('reliability.sample', { count: deployment.total })
-                  : ratesNote,
-              tone: reliabilityRateTone(deployment, 100),
-            }),
-          ),
-          h(
-            'section',
-            { className: 'flb-rel-section' },
-            h(
+          qualityReady
+            ? h(
               'div',
-              { className: 'flb-rel-section-head' },
-              h('span', { className: 'flb-rel-section-title' }, t('reliability.gates.title')),
-              gates.length > 0
-                ? h('span', { className: 'flb-rel-section-meta' }, gateSummaryText)
-                : null,
-              snapshotStale ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag')) : null,
-            ),
-            snapshotMissing
-              ? h(
-                  'div',
-                  { className: 'flb-rel-empty' },
-                  t('reliability.snapshot.missing'),
-                  '：',
-                  t('reliability.snapshot.missingHint'),
-                )
-              : snapshotInvalid
+              { className: 'flb-rel-kpis' },
+              h(ReliabilityKpi, {
+                label: t('reliability.kpi.gates'),
+                value: gateValue,
+                note: gates.length > 0 ? gateSummaryText : '',
+                tone: gateTone,
+              }),
+              h(ReliabilityKpi, {
+                label: t('reliability.kpi.tests'),
+                value: testValue,
+                note: testNote,
+                tone: testTone,
+              }),
+              h(ReliabilityKpi, {
+                label: t('reliability.kpi.lines'),
+                value: lineValue === null ? unavailableValue : lineValue,
+                note: coverage
+                  ? t('reliability.coverage.threshold', { value: lineThreshold })
+                  : t('reliability.value.notCollected'),
+                tone: lineTone,
+              }),
+              h(ReliabilityKpi, {
+                label: t('reliability.kpi.mutation'),
+                value: mutationValue,
+                note: mutation ? `break ${mutation.thresholds.break}` : t('reliability.value.notRun'),
+                tone: mutationTone,
+              }),
+            )
+            : null,
+          qualityReady
+            ? h(
+              'section',
+              { className: 'flb-rel-section' },
+              h(
+                'div',
+                { className: 'flb-rel-section-head' },
+                h('span', { className: 'flb-rel-section-title' }, t('reliability.gates.title')),
+                gates.length > 0
+                  ? h('span', { className: 'flb-rel-section-meta' }, gateSummaryText)
+                  : null,
+                snapshotStale ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag')) : null,
+              ),
+              snapshotMissing
                 ? h(
                     'div',
-                    { className: 'flb-rel-error' },
-                    t('reliability.snapshot.invalidHint'),
-                    snapshot.error ? ` ${snapshot.error}` : '',
+                    { className: 'flb-rel-empty' },
+                    t('reliability.snapshot.missing'),
+                    '：',
+                    t('reliability.snapshot.missingHint'),
                   )
-                : gates.length === 0
-                  ? h('div', { className: 'flb-rel-empty' }, t('reliability.gates.empty'))
-                  : h(
-                      'table',
-                      { className: 'flb-rel-table' },
-                      h(
-                        'thead',
-                        null,
+                : snapshotInvalid
+                  ? h(
+                      'div',
+                      { className: 'flb-rel-error' },
+                      t('reliability.snapshot.invalidHint'),
+                      snapshot.error ? ` ${snapshot.error}` : '',
+                    )
+                  : gates.length === 0
+                    ? h('div', { className: 'flb-rel-empty' }, t('reliability.gates.empty'))
+                    : h(
+                        'table',
+                        { className: 'flb-rel-table' },
                         h(
-                          'tr',
+                          'thead',
                           null,
-                          h('th', null, t('reliability.gates.status')),
-                          h('th', null, t('reliability.gates.gate')),
-                          h('th', null, t('reliability.gates.measured')),
-                          h('th', null, t('reliability.gates.threshold')),
-                          h('th', null, t('reliability.gates.duration')),
-                          h('th', null, t('reliability.gates.at')),
-                          h('th', null, t('reliability.gates.details')),
-                        ),
-                      ),
-                      h(
-                        'tbody',
-                        null,
-                        gates.map((gate) =>
                           h(
                             'tr',
-                            { key: gate.id },
-                            h(
-                              'td',
-                              null,
-                              h(
-                                'div',
-                                { className: 'flb-rel-status' },
-                                h(
-                                  Chip,
-                                  { tone: GATE_TONES[gate.status] || 'idle' },
-                                  t(`reliability.status.${gate.status}`),
-                                ),
-                                snapshotStale
-                                  ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag'))
-                                  : null,
-                              ),
-                            ),
-                            h('td', null, gate.label || gate.id),
-                            h('td', null, reliabilityUnit(t, gate, gate.measured)),
-                            h('td', null, reliabilityUnit(t, gate, gate.threshold)),
-                            h('td', null, reliabilityDuration(gate.durationMs)),
-                            h('td', null, formatMoment(gate.at)),
-                            h(
-                              'td',
-                              null,
-                              h(
-                                'details',
-                                { className: 'flb-rel-gate-detail' },
-                                h('summary', null, t('reliability.gates.details')),
-                                h(
-                                  'div',
-                                  null,
-                                  h(
-                                    Kv,
-                                    { label: t('reliability.gates.command') },
-                                    gate.command || '—',
-                                  ),
-                                  h(
-                                    Kv,
-                                    { label: t('reliability.gates.evidence') },
-                                    snapshot.path || '—',
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-          ),
-          h(
-            'section',
-            { className: 'flb-rel-section' },
-            h(
-              'div',
-              { className: 'flb-rel-section-head' },
-              h('span', { className: 'flb-rel-section-title' }, t('reliability.coverage.title')),
-              coverage
-                ? h(
-                    'span',
-                    { className: 'flb-rel-section-meta' },
-                    t('reliability.coverage.key', {
-                      passed: keyCoverage ? keyCoverage.passed : '—',
-                      total: keyCoverage ? keyCoverage.total : '—',
-                    }),
-                  )
-                : null,
-            ),
-            !coverage
-              ? h(
-                  'div',
-                  { className: 'flb-rel-empty' },
-                  snapshotMissing || snapshotInvalid
-                    ? `${unavailableValue}：${t('reliability.snapshot.missingHint')}`
-                    : t('reliability.coverage.notCollected'),
-                )
-              : h(
-                  'div',
-                  null,
-                  h(
-                    'div',
-                    { className: 'flb-rel-bars' },
-                    coverageRows.map(([key, value, threshold]) =>
-                      h(
-                        'div',
-                        { className: 'flb-rel-bar-row', key },
-                        h(
-                          'div',
-                          { className: 'flb-rel-bar-head' },
-                          h('span', null, t(`reliability.coverage.${key}`)),
-                          h(
-                            'span',
-                            { className: 'flb-rel-bar-value' },
-                            `${value === null ? '—' : reliabilityPercent(value)} · ${t(
-                              'reliability.coverage.threshold',
-                              { value: threshold },
-                            )}`,
-                          ),
-                        ),
-                        h(ReliabilityBar, {
-                          label: t(`reliability.coverage.${key}`),
-                          value,
-                          tone: value === null ? 'brand' : value >= threshold ? 'success' : 'warn',
-                        }),
-                      ),
-                    ),
-                  ),
-                  keyCoverage
-                    ? h(
-                        'details',
-                        { className: 'flb-rel-key' },
-                        h(
-                          'summary',
-                          null,
-                          `${t('reliability.coverage.keyTitle')}：${t('reliability.coverage.key', {
-                            passed: keyCoverage.passed,
-                            total: keyCoverage.total,
-                          })}`,
-                        ),
-                        h(
-                          'table',
-                          { className: 'flb-rel-table' },
-                          h(
-                            'thead',
                             null,
+                            h('th', null, t('reliability.gates.status')),
+                            h('th', null, t('reliability.gates.gate')),
+                            h('th', null, t('reliability.gates.measured')),
+                            h('th', null, t('reliability.gates.threshold')),
+                            h('th', null, t('reliability.gates.duration')),
+                            h('th', null, t('reliability.gates.at')),
+                            h('th', null, t('reliability.gates.details')),
+                          ),
+                        ),
+                        h(
+                          'tbody',
+                          null,
+                          gates.map((gate) =>
                             h(
                               'tr',
-                              null,
-                              h('th', null, t('reliability.coverage.file')),
-                              h('th', null, t('reliability.coverage.lines')),
-                              h('th', null, t('reliability.coverage.functions')),
-                              h('th', null, t('reliability.coverage.branches')),
-                              h('th', null, t('reliability.gates.status')),
-                            ),
-                          ),
-                          h(
-                            'tbody',
-                            null,
-                            keyCoverage.files.map((file) =>
+                              { key: gate.id },
                               h(
-                                'tr',
-                                { key: file.path },
-                                h('td', null, file.path),
+                                'td',
+                                null,
                                 h(
-                                  'td',
-                                  null,
-                                  `${file.lines === null ? '—' : reliabilityPercent(file.lines)} / ≥${
-                                    file.thresholds.lines
-                                  }%`,
-                                ),
-                                h(
-                                  'td',
-                                  null,
-                                  `${file.functions === null ? '—' : reliabilityPercent(file.functions)} / ≥${
-                                    file.thresholds.functions
-                                  }%`,
-                                ),
-                                h(
-                                  'td',
-                                  null,
-                                  `${file.branches === null ? '—' : reliabilityPercent(file.branches)} / ≥${
-                                    file.thresholds.branches
-                                  }%`,
-                                ),
-                                h(
-                                  'td',
-                                  null,
+                                  'div',
+                                  { className: 'flb-rel-status' },
                                   h(
                                     Chip,
-                                    {
-                                      tone: file.passed
-                                        ? 'success'
-                                        : file.present
-                                          ? 'error'
-                                          : 'idle',
-                                    },
-                                    t(
-                                      file.present
-                                        ? 'reliability.coverage.recorded'
-                                        : 'reliability.coverage.absent',
+                                    { tone: GATE_TONES[gate.status] || 'idle' },
+                                    t(`reliability.status.${gate.status}`),
+                                  ),
+                                  snapshotStale
+                                    ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag'))
+                                    : null,
+                                ),
+                              ),
+                              h('td', null, gate.label || gate.id),
+                              h('td', null, reliabilityUnit(t, gate, gate.measured)),
+                              h('td', null, reliabilityUnit(t, gate, gate.threshold)),
+                              h('td', null, reliabilityDuration(gate.durationMs)),
+                              h('td', null, formatMoment(gate.at)),
+                              h(
+                                'td',
+                                null,
+                                h(
+                                  'details',
+                                  { className: 'flb-rel-gate-detail' },
+                                  h('summary', null, t('reliability.gates.details')),
+                                  h(
+                                    'div',
+                                    null,
+                                    h(
+                                      Kv,
+                                      { label: t('reliability.gates.command') },
+                                      gate.command || '—',
+                                    ),
+                                    h(
+                                      Kv,
+                                      { label: t('reliability.gates.evidence') },
+                                      snapshot.path || '—',
                                     ),
                                   ),
                                 ),
@@ -7547,50 +8090,193 @@ window.__ModuleLoader__.load({
                             ),
                           ),
                         ),
-                      )
-                    : null,
-                  budgets || snapshot.suppressions
-                    ? h(
-                        'div',
-                        { className: 'flb-rel-budgets' },
-                        budgets
-                          ? h(
-                              Chip,
-                              {
-                                tone:
-                                  budgets.assertions.current <= budgets.assertions.baseline
-                                    ? 'success'
-                                    : 'error',
-                              },
-                              t('reliability.budget.assertions', {
-                                current: budgets.assertions.current,
-                                baseline: budgets.assertions.baseline,
-                              }),
-                            )
-                          : null,
-                        budgets
-                          ? h(
-                              Chip,
-                              { tone: budgets.tokens.overLimit === 0 ? 'success' : 'error' },
-                              t('reliability.budget.tokens', {
-                                over: budgets.tokens.overLimit,
-                                max: budgets.tokens.maxFile
-                                  ? `${budgets.tokens.maxFile} · ${budgets.tokens.maxTokens ?? '—'}`
-                                  : '—',
-                              }),
-                            )
-                          : null,
+                      ),
+            )
+            : null,
+          qualityReady
+            ? h(
+              'section',
+              { className: 'flb-rel-section' },
+              h(
+                'div',
+                { className: 'flb-rel-section-head' },
+                h('span', { className: 'flb-rel-section-title' }, t('reliability.coverage.title')),
+                coverage
+                  ? h(
+                      'span',
+                      { className: 'flb-rel-section-meta' },
+                      t('reliability.coverage.key', {
+                        passed: keyCoverage ? keyCoverage.passed : '—',
+                        total: keyCoverage ? keyCoverage.total : '—',
+                      }),
+                    )
+                  : null,
+              ),
+              !coverage
+                ? h(
+                    'div',
+                    { className: 'flb-rel-empty' },
+                    snapshotMissing || snapshotInvalid
+                      ? `${unavailableValue}：${t('reliability.snapshot.missingHint')}`
+                      : t('reliability.coverage.notCollected'),
+                  )
+                : h(
+                    'div',
+                    null,
+                    h(
+                      'div',
+                      { className: 'flb-rel-bars' },
+                      coverageRows.map(([key, value, threshold]) =>
                         h(
-                          Chip,
-                          { tone: 'idle' },
-                          t('reliability.budget.suppressions', {
-                            count: snapshot.suppressions || 0,
+                          'div',
+                          { className: 'flb-rel-bar-row', key },
+                          h(
+                            'div',
+                            { className: 'flb-rel-bar-head' },
+                            h('span', null, t(`reliability.coverage.${key}`)),
+                            h(
+                              'span',
+                              { className: 'flb-rel-bar-value' },
+                              `${value === null ? '—' : reliabilityPercent(value)} · ${t(
+                                'reliability.coverage.threshold',
+                                { value: threshold },
+                              )}`,
+                            ),
+                          ),
+                          h(ReliabilityBar, {
+                            label: t(`reliability.coverage.${key}`),
+                            value,
+                            threshold,
+                            tone: value === null ? 'brand' : value >= threshold ? 'success' : 'warn',
                           }),
                         ),
-                      )
-                    : null,
-                ),
-          ),
+                      ),
+                    ),
+                    keyCoverage
+                      ? h(
+                          'details',
+                          { className: 'flb-rel-key' },
+                          h(
+                            'summary',
+                            null,
+                            `${t('reliability.coverage.keyTitle')}：${t('reliability.coverage.key', {
+                              passed: keyCoverage.passed,
+                              total: keyCoverage.total,
+                            })}`,
+                          ),
+                          h(
+                            'table',
+                            { className: 'flb-rel-table' },
+                            h(
+                              'thead',
+                              null,
+                              h(
+                                'tr',
+                                null,
+                                h('th', null, t('reliability.coverage.file')),
+                                h('th', null, t('reliability.coverage.lines')),
+                                h('th', null, t('reliability.coverage.functions')),
+                                h('th', null, t('reliability.coverage.branches')),
+                                h('th', null, t('reliability.gates.status')),
+                              ),
+                            ),
+                            h(
+                              'tbody',
+                              null,
+                              keyCoverage.files.map((file) =>
+                                h(
+                                  'tr',
+                                  { key: file.path },
+                                  h('td', null, file.path),
+                                  h(
+                                    'td',
+                                    null,
+                                    `${file.lines === null ? '—' : reliabilityPercent(file.lines)} / ≥${
+                                      file.thresholds.lines
+                                    }%`,
+                                  ),
+                                  h(
+                                    'td',
+                                    null,
+                                    `${file.functions === null ? '—' : reliabilityPercent(file.functions)} / ≥${
+                                      file.thresholds.functions
+                                    }%`,
+                                  ),
+                                  h(
+                                    'td',
+                                    null,
+                                    `${file.branches === null ? '—' : reliabilityPercent(file.branches)} / ≥${
+                                      file.thresholds.branches
+                                    }%`,
+                                  ),
+                                  h(
+                                    'td',
+                                    null,
+                                    h(
+                                      Chip,
+                                      {
+                                        tone: file.passed
+                                          ? 'success'
+                                          : file.present
+                                            ? 'error'
+                                            : 'idle',
+                                      },
+                                      t(
+                                        file.present
+                                          ? 'reliability.coverage.recorded'
+                                          : 'reliability.coverage.absent',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : null,
+                    budgets || snapshot.suppressions
+                      ? h(
+                          'div',
+                          { className: 'flb-rel-budgets' },
+                          budgets
+                            ? h(
+                                Chip,
+                                {
+                                  tone:
+                                    budgets.assertions.current <= budgets.assertions.baseline
+                                      ? 'success'
+                                      : 'error',
+                                },
+                                t('reliability.budget.assertions', {
+                                  current: budgets.assertions.current,
+                                  baseline: budgets.assertions.baseline,
+                                }),
+                              )
+                            : null,
+                          budgets
+                            ? h(
+                                Chip,
+                                { tone: budgets.tokens.overLimit === 0 ? 'success' : 'error' },
+                                t('reliability.budget.tokens', {
+                                  over: budgets.tokens.overLimit,
+                                  max: budgets.tokens.maxFile
+                                    ? `${budgets.tokens.maxFile} · ${budgets.tokens.maxTokens ?? '—'}`
+                                    : '—',
+                                }),
+                              )
+                            : null,
+                          h(
+                            Chip,
+                            { tone: 'idle' },
+                            t('reliability.budget.suppressions', {
+                              count: snapshot.suppressions || 0,
+                            }),
+                          ),
+                        )
+                      : null,
+                  ),
+            )
+            : null,
           h(
             'section',
             { className: 'flb-rel-section' },
@@ -7716,6 +8402,25 @@ window.__ModuleLoader__.load({
                 ),
                 h('div', { className: 'flb-rel-big' }, String(runtime.candidateBuilds || 0)),
                 h('div', { className: 'flb-rel-rate-note' }, windowText),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'flb-rel-block', style: { marginTop: '10px' } },
+              h(
+                'div',
+                { className: 'flb-rel-block-title' },
+                t('reliability.runtime.deploymentIntents'),
+              ),
+              h(
+                'div',
+                { className: 'flb-rel-rate-note' },
+                t('reliability.runtime.deploymentIntentsNote', {
+                  verified: deploymentIntents.verified || 0,
+                  failed: deploymentIntents.failed || 0,
+                  rolledBack: deploymentIntents.rolledBack || 0,
+                  pending: deploymentIntents.pending || 0,
+                }),
               ),
             ),
             h(
@@ -8033,14 +8738,33 @@ window.__ModuleLoader__.load({
               ? t('ops.monitor.heartbeatOk', { time: formatMoment(monitorHeartbeat.at) })
               : t('ops.monitor.heartbeatFail')
             : t('ops.monitor.heartbeatPending')
+        const metric = (label, value, unit, tone) =>
+          h(
+            'div',
+            { className: 'flb-ops-metric', 'data-tone': tone || 'idle' },
+            h(
+              'span',
+              { className: 'flb-ops-metric-value' },
+              `${value}${unit || ''}`,
+            ),
+            h('span', { className: 'flb-ops-metric-label' }, label),
+          )
+        const cpu = Number(monitorHost.cpuPercent) || 0
+        const memory = Number(monitorHost.memoryUsedPercent) || 0
+        const load = Number(monitorHost.load1) || 0
         const monitorBar = !monitor
           ? null
           : !monitor.enabled
             ? h(
                 'div',
                 { className: 'flb-ops-monitor', 'data-status': 'idle' },
-                h(Chip, { tone: 'idle' }, t('ops.monitor')),
-                h('span', { className: 'flb-muted' }, t('ops.monitor.disabled')),
+                h(
+                  'div',
+                  { className: 'flb-ops-monitor-head' },
+                  h(Chip, { tone: 'idle' }, t('ops.monitor')),
+                  h('strong', null, t('ops.monitor.disabled')),
+                ),
+                h('div', { className: 'flb-ops-monitor-note' }, t('ops.monitor.disabledHint')),
               )
             : h(
                 'div',
@@ -8066,33 +8790,32 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'flb-ops-monitor-metrics' },
-                  h('span', null, t('ops.monitor.cpu', { value: monitorHost.cpuPercent || 0 })),
-                  h(
-                    'span',
-                    null,
-                    t('ops.monitor.memory', { value: monitorHost.memoryUsedPercent || 0 }),
+                  metric(t('ops.monitor.cpuLabel'), cpu, '%', cpu >= 85 ? 'error' : cpu >= 70 ? 'warn' : 'success'),
+                  metric(
+                    t('ops.monitor.memoryLabel'),
+                    memory,
+                    '%',
+                    memory >= 90 ? 'error' : memory >= 75 ? 'warn' : 'success',
                   ),
-                  h('span', null, t('ops.monitor.load', { value: monitorHost.load1 || 0 })),
-                  h('span', null, t('ops.monitor.issues', { count: monitor.issues || 0 })),
-                  h(
-                    'span',
-                    null,
-                    t('ops.monitor.sources', {
-                      processes: monitorSources.processes || 0,
-                      latency: monitorSources.latency || 0,
-                      logs: monitorSources.logs || 0,
-                      alerts: monitorSources.alerts || 0,
-                      checks: monitorSources.checks || 0,
-                    }),
-                  ),
-                  h(
-                    'span',
-                    null,
-                    t('ops.monitor.providers', {
-                      ids: (monitor.providers || []).join(', ') || '—',
-                    }),
-                  ),
-                  h('span', null, t('ops.monitor.heartbeat', { state: heartbeatState })),
+                  metric(t('ops.monitor.loadLabel'), load.toFixed(1), '', load >= 4 ? 'warn' : 'success'),
+                  metric(t('ops.monitor.issuesLabel'), monitor.issues || 0, '', (monitor.issues || 0) > 0 ? 'warn' : 'idle'),
+                ),
+                h(
+                  'div',
+                  { className: 'flb-ops-monitor-sources' },
+                  t('ops.monitor.sources', {
+                    processes: monitorSources.processes || 0,
+                    latency: monitorSources.latency || 0,
+                    logs: monitorSources.logs || 0,
+                    alerts: monitorSources.alerts || 0,
+                    checks: monitorSources.checks || 0,
+                  }),
+                  ' · ',
+                  t('ops.monitor.providers', {
+                    ids: (monitor.providers || []).join(', ') || '—',
+                  }),
+                  ' · ',
+                  t('ops.monitor.heartbeat', { state: heartbeatState }),
                 ),
                 monitor.summary
                   ? h('div', { className: 'flb-ops-monitor-summary' }, monitor.summary)
@@ -8125,22 +8848,22 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          h(
-            'div',
-            { className: 'flb-ops-stats' },
-            stat(t('ops.total'), stats.total || 0),
-            stat(t('ops.active'), stats.active || 0),
-            stat(t('ops.awaiting'), stats.awaitingDecision || 0),
-            stat(t('ops.recovered'), stats.recovered || 0),
-            stat(t('ops.unresolved'), stats.unresolved || 0),
-            stat(t('ops.human'), stats.humanInvolved || 0),
-          ),
+          events.length > 0
+            ? h(
+                'div',
+                { className: 'flb-ops-stats' },
+                stat(t('ops.active'), stats.active || 0),
+                stat(t('ops.awaiting'), stats.awaitingDecision || 0),
+                stat(t('ops.recovered'), stats.recovered || 0),
+                stat(t('ops.unresolved'), stats.unresolved || 0),
+              )
+            : null,
           monitorBar,
           events.length === 0
             ? h(
                 'div',
-                { className: 'flb-empty flb-empty-large' },
-                h('div', null, t('ops.empty')),
+                { className: 'flb-ops-empty' },
+                h('div', { className: 'flb-ops-empty-title' }, t('ops.empty')),
                 h('div', { className: 'flb-muted' }, t('ops.emptyHint')),
               )
             : visible.length === 0
@@ -8300,18 +9023,7 @@ window.__ModuleLoader__.load({
         const requirements = board ? board.requirements || [] : []
         const allTasks = board ? board.tasks || [] : []
         const allIssues = board ? board.issues || [] : []
-        const visible = requirements.filter((requirement) => {
-          if (filter === 'active')
-            return !TERMINAL[requirement.status] && requirement.status !== 'draft'
-          if (filter === 'attention') {
-            return (
-              ['plan_proposed', 'blocked', 'executing'].includes(requirement.status) ||
-              allIssues.some((issue) => issue.reqId === requirement.reqId)
-            )
-          }
-          if (filter === 'draft') return requirement.status === 'draft'
-          return true
-        })
+        const visible = filterRequirements(requirements, filter, allIssues)
         const requirementIssues = (reqId) => allIssues.filter((issue) => issue.reqId === reqId)
         const selectedRequirement =
           requirements.find((requirement) => requirement.reqId === selection.reqId) || null
@@ -8821,6 +9533,7 @@ window.__ModuleLoader__.load({
           h('style', null, BOARD_CSS),
           h('style', null, OPS_CSS),
           h('style', null, RELIABILITY_CSS),
+          h('style', null, POLISH_CSS),
           h(
             'header',
             { className: 'flb-head' },
@@ -8838,7 +9551,6 @@ window.__ModuleLoader__.load({
                     })
                   : t('page.loading'),
               ),
-              h('span', { className: 'flb-sub' }, t('page.source')),
             ),
             h(
               'div',
@@ -8854,6 +9566,7 @@ window.__ModuleLoader__.load({
                       value: query,
                       placeholder: t('search.placeholder'),
                       'aria-label': t('search.label'),
+                      title: searchScopeText(t, board ? board.limit : BOARD_LIMIT),
                       onChange: (event) => setQuery(event.target.value),
                     }),
                     query
@@ -8895,10 +9608,40 @@ window.__ModuleLoader__.load({
                 ' ' + t('wb.auto'),
               ),
             ),
+            board
+              ? h(
+                  'div',
+                  {
+                    className: 'flb-summary',
+                    role: 'group',
+                    'aria-label': t('rail.label'),
+                  },
+                  boardSummaryItems(t, board).map((item) =>
+                    h(
+                      'div',
+                      {
+                        className: 'flb-summary-item',
+                        key: item.key,
+                        'data-tone': item.tone,
+                      },
+                      h('span', { className: 'flb-summary-label' }, item.label),
+                      h(
+                        'span',
+                        { className: 'flb-summary-value' },
+                        item.value,
+                        item.note ? h('small', null, item.note) : null,
+                      ),
+                    ),
+                  ),
+                )
+              : null,
             h(
-              'nav',
-              { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
-              allViews.map(([key, label]) =>
+              'div',
+              { className: 'flb-tabbar' },
+              h(
+                'nav',
+                { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
+                allViews.map(([key, label]) =>
                 h(
                   'button',
                   {
@@ -8939,11 +9682,13 @@ window.__ModuleLoader__.load({
                   ),
                 ),
               ),
+              ),
               h(
                 'button',
                 {
                   type: 'button',
-                  className: 'flb-tab',
+                  className: 'flb-tree-toggle',
+                  'aria-pressed': treeOpen,
                   onClick: () => setTreeOpen((value) => !value),
                   title: t('wb.treeToggle'),
                 },
@@ -8962,7 +9707,7 @@ window.__ModuleLoader__.load({
                       count: requirements.length,
                       truncated:
                         board && board.truncated
-                          ? t('search.truncated', { limit: board.limit || 50 })
+                          ? t('search.truncated', { limit: board.limit || BOARD_LIMIT })
                           : '',
                     }),
                   )
@@ -9009,7 +9754,7 @@ window.__ModuleLoader__.load({
                     ),
                     h('span', { className: 'flb-muted' }, t('reliability.footnote')),
                   )
-                : h('span', null, t('overview.searchScope')),
+                : null,
             ),
           ),
           h(
@@ -9031,9 +9776,8 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'flb-footer' },
-              t('page.footer'),
-              ' ',
-              t('overview.boundarySource'),
+              h(BuildStamp, { t, build: board ? board.build : null }),
+              h('span', null, t('overview.boundarySource')),
             ),
             h('div', { className: 'flb-bottom-spacer', 'aria-hidden': 'true' }),
           ),
@@ -9090,8 +9834,20 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale', 'uiConversation'],
       apply,
       // 无浏览器视图测试的只读入口；宿主只消费 name/inject/apply。
-      __components: { RequirementDetail },
+      __components: { RequirementDetail, BuildStamp },
       __views: WORKBENCH_VIEWS,
+      __rules: {
+        isTerminalStatus,
+        filterRequirements,
+        tasksForProgress,
+        showsLegacyGateWarnings,
+        searchScopeText,
+        boardSummaryItems,
+        reliabilityVerdict,
+        reliabilityRateTone,
+        shortReqId,
+        requirementFocus,
+      },
       __actions: { body: actionRequest, successKey: actionSuccessKey },
     }
   },

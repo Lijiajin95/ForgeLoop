@@ -60,6 +60,8 @@ function parsedPlan(): VerificationPlan {
         acceptanceCriterion: '登录后进入首页',
         method: '运行登录冒烟',
         required: true,
+        pointIds: [],
+        acceptanceIds: [],
         checks: [{ label: 'smoke', argv: ['node', '-e', 'exit 0'], expectedOutput: 'login ok' }],
       },
     ],

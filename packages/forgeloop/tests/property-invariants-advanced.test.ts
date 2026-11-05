@@ -128,14 +128,16 @@ describe('advanced property invariants', () => {
         expect(parsed).toEqual({
           inputKind: input.input_kind,
           goal: input.goal,
-          items: [],
-          itemsProvided: false,
           scenarios: input.scenarios,
           businessRules: input.business_rules,
           exceptions: input.exceptions,
           nonGoals: input.non_goals,
           acceptanceCriteria: input.acceptance_criteria,
+          businessPoints: [],
+          acceptanceItems: [],
+          assumptions: [],
           clarifications: [],
+          clarificationUpdates: [],
           businessContext: input.business_context,
         })
         // 问题类输入不得携带待澄清项；这是载荷边界，不是可放宽的提示。

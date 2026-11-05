@@ -46,12 +46,17 @@ const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_MODEL_BLOCKED_GRACE_M
 const TURN_TIMEOUT_SECONDS = Number(process.env.FORGELOOP_REAL_MODEL_TURN_TIMEOUT_SECONDS ?? 1800)
 /** E2E 的研发尝试次数：有界，避免真实模型判断异常时空转到超时；默认 3。 */
 const MAX_TASK_ATTEMPTS = Number(process.env.FORGELOOP_REAL_MODEL_MAX_TASK_ATTEMPTS ?? 3)
+/** 失败轮次上限：避免业务终审重复阻断时无限重建候选。 */
+const MAX_FAILURE_ROUNDS = Number(process.env.FORGELOOP_REAL_MODEL_MAX_FAILURE_ROUNDS ?? 5)
 
 const REQUIREMENT = [
   '在 docs/real-model-e2e.md 中写入一行 real model e2e ok。',
   '非目标：不要新增测试文件，也不要修改 docs/real-model-e2e.md 以外的任何文件。',
   '验收标准：docs/real-model-e2e.md 存在，且内容包含 real model e2e ok。',
+  '负向行为说明：文件存在但缺少标记时，测试命令输出 missing 并以非零退出；',
+  '文件不存在或不可读时，测试命令因读取失败以非零退出（不要求输出特定文字）。',
   `测试命令：node -e "const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok')){console.log('missing');process.exit(1)}console.log('real-model-e2e-ok')"`,
+  '验证异常分支时，请用自建的临时目录复制该测试命令的行为，不要读取本仓库当前状态。',
 ].join('\n')
 
 interface RequirementRow {
@@ -235,9 +240,45 @@ async function poll(
 interface DeploymentFixture {
   readonly toolPath: string
   readonly targetDir: string
+  readonly port: number
 }
 
-/** 真实部署工具：只在本机隔离目标上写入版本与摘要，供 status 核对。 */
+/** 真实运行体：从制品里加载 app.mjs，用 /identity 暴露启动时缓存的介质摘要。 */
+const SERVER_SOURCE = `import { createHash } from 'node:crypto'
+import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { message, VERSION } from './app.mjs'
+
+const here = dirname(fileURLToPath(import.meta.url))
+// 启动时读取并缓存安装介质摘要：进程活着就只报告它启动时加载的那一份。
+const artifactSha256 = createHash('sha256').update(readFileSync(join(here, 'bundle.tgz'))).digest('hex')
+const startedAt = new Date().toISOString()
+const port = Number(process.env.FORGELOOP_M1_PORT || 0)
+const server = createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'content-type': 'text/plain' })
+    res.end('ok')
+    return
+  }
+  if (req.url === '/identity') {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ version: VERSION, artifactSha256, pid: process.pid, startedAt, message: message() }))
+    return
+  }
+  res.writeHead(404)
+  res.end()
+})
+server.listen(port, '127.0.0.1', () => {
+  process.stdout.write('listening ' + String(server.address().port) + '\\n')
+})
+`
+
+/**
+ * 真实安装器：解包制品、替换安装目录、重启真实 node 进程，
+ * status 通过 HTTP 观测运行进程启动时缓存的介质摘要，而不是复制计划里的期望值。
+ */
 function prepareDeployment(
   projectDir: string,
   recordsRoot: string,
@@ -256,52 +297,125 @@ function prepareDeployment(
     [
       "import { createHash } from 'node:crypto'",
       "import { execFileSync } from 'node:child_process'",
-      "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'",
-      "mkdirSync('dist', { recursive: true })",
-      "writeFileSync('dist/app.txt', 'real model deploy e2e\\n')",
-      "const sha = createHash('sha256').update(readFileSync('dist/app.txt')).digest('hex')",
+      "import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'",
+      '// 制品必须包含本次需求的真实产物：把需求写入的标记行编进可运行模块。',
+      "const doc = readFileSync('docs/real-model-e2e.md', 'utf8')",
+      "const occurrences = doc.split('real model e2e ok').length - 1",
+      "if (occurrences < 1) throw new Error('需求产物缺少 real model e2e ok')",
+      "rmSync('dist/bundle', { recursive: true, force: true })",
+      "mkdirSync('dist/bundle', { recursive: true })",
+      `writeFileSync('dist/bundle/app.mjs', "export const VERSION = '1.0.0'\\nexport const MARKER = 'real model e2e ok'\\nexport const OCCURRENCES = " + String(occurrences) + "\\nexport function message() { return MARKER + ':' + String(OCCURRENCES) }\\n")`,
+      "writeFileSync('dist/bundle/server.mjs', process.env.FORGELOOP_M1_SERVER_SOURCE)",
+      "execFileSync('tar', ['-czf', 'dist/bundle.tgz', '-C', 'dist/bundle', '.'])",
+      "const sha = createHash('sha256').update(readFileSync('dist/bundle.tgz')).digest('hex')",
       "let gitHead = ''",
       "try { gitHead = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch {}",
-      "writeFileSync('dist/artifact.json', JSON.stringify({ sha256: sha, tarball: process.cwd() + '/dist/app.txt', version: '1.0.0', files: ['docs/real-model-e2e.md'], gitHead }))",
+      "writeFileSync('dist/artifact.json', JSON.stringify({ sha256: sha, tarball: process.cwd() + '/dist/bundle.tgz', version: '1.0.0', files: ['app.mjs', 'server.mjs'], gitHead }))",
     ].join('\n'),
   )
   const toolDir = join(recordsRoot, 'projects', PROJECT, 'deployments', 'tools')
   mkdirSync(toolDir, { recursive: true })
-  const toolPath = join(toolDir, 'tool.py')
+  const toolPath = join(toolDir, 'install.py')
   writeFileSync(
     toolPath,
     [
-      'import json, os, sys',
+      'import hashlib, json, os, shutil, signal, socket, subprocess, sys, tarfile, time, urllib.request',
       'args = sys.argv',
       'op = args[args.index("--op") + 1]',
       'plan = json.load(open(args[args.index("--plan") + 1]))',
       'target = plan["params"]["target"]',
-      'current = os.path.join(target, "current.json")',
-      'previous = os.path.join(target, "previous.json")',
-      'os.makedirs(target, exist_ok=True)',
-      'def read(path):',
+      'current = os.path.join(target, "current")',
+      'previous = os.path.join(target, "previous")',
+      'pidfile = os.path.join(target, "process.pid")',
+      'portfile = os.path.join(target, "port")',
+      'def sha(path):',
+      '    h = hashlib.sha256()',
+      '    with open(path, "rb") as f:',
+      '        for chunk in iter(lambda: f.read(65536), b""):',
+      '            h.update(chunk)',
+      '    return h.hexdigest()',
+      'def alive(pid):',
       '    try:',
-      '        return json.load(open(path))',
+      '        os.kill(pid, 0)',
+      '        return True',
       '    except Exception:',
-      '        return None',
+      '        return False',
+      'def stop():',
+      '    try:',
+      '        pid = int(open(pidfile).read().strip())',
+      '    except Exception:',
+      '        return',
+      '    if pid and alive(pid):',
+      '        try:',
+      '            os.kill(pid, signal.SIGKILL)',
+      '        except Exception:',
+      '            pass',
+      '        for _ in range(50):',
+      '            if not alive(pid):',
+      '                break',
+      '            time.sleep(0.1)',
+      'def free_port():',
+      '    s = socket.socket()',
+      '    s.bind(("127.0.0.1", 0))',
+      '    port = s.getsockname()[1]',
+      '    s.close()',
+      '    return port',
+      'def probe(port):',
+      '    with urllib.request.urlopen("http://127.0.0.1:%d/identity" % port, timeout=2) as r:',
+      '        return json.loads(r.read().decode("utf-8"))',
+      'def start(port):',
+      '    log = open(os.path.join(target, "server.log"), "w")',
+      '    env = dict(os.environ)',
+      '    env["FORGELOOP_M1_PORT"] = str(port)',
+      '    proc = subprocess.Popen(["node", os.path.join(current, "server.mjs")], cwd=current, stdout=log, stderr=log, env=env, start_new_session=True)',
+      '    open(pidfile, "w").write(str(proc.pid))',
+      '    open(portfile, "w").write(str(port))',
+      '    for _ in range(100):',
+      '        try:',
+      '            return probe(port)',
+      '        except Exception:',
+      '            if proc.poll() is not None:',
+      '                raise RuntimeError("服务进程已退出：" + open(os.path.join(target, "server.log")).read()[-300:])',
+      '            time.sleep(0.1)',
+      '    raise RuntimeError("服务在 10 秒内没有提供 /identity")',
       'if op == "preflight":',
-      '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": "previous-1" if os.path.exists(current) else ""}))',
+      '    restorable = os.path.isdir(current)',
+      '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": "previous-1" if restorable else ""}))',
       'elif op == "apply":',
-      '    old = read(current)',
-      '    if old is not None:',
-      '        json.dump(old, open(previous, "w"))',
-      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-05T10:00:00Z"}, open(current, "w"))',
-      '    print(json.dumps({"ok": True, "state": "applied", "version": plan["artifact"]["version"], "detail": "applied"}))',
+      '    stop()',
+      '    if os.path.isdir(previous):',
+      '        shutil.rmtree(previous)',
+      '    if os.path.isdir(current):',
+      '        shutil.move(current, previous)',
+      '    os.makedirs(current)',
+      '    with tarfile.open(plan["artifact"]["path"]) as tar:',
+      '        tar.extractall(current)',
+      '    shutil.copyfile(plan["artifact"]["path"], os.path.join(current, "bundle.tgz"))',
+      '    port = free_port()',
+      '    identity = start(port)',
+      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": sha(os.path.join(current, "bundle.tgz")), "port": port}, open(os.path.join(target, "install.json"), "w"))',
+      '    print(json.dumps({"ok": True, "state": "applied", "version": identity.get("version", ""), "detail": "installed and restarted pid=" + str(identity.get("pid"))}))',
       'elif op == "status":',
-      '    now = read(current) or {}',
-      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "artifactSha256": now.get("artifactSha256", ""), "runningArtifactSha256": now.get("runningArtifactSha256", ""), "runningPid": os.getpid(), "runningStartedAt": now.get("runningStartedAt", ""), "detail": "status"}))',
+      '    try:',
+      '        installed = sha(os.path.join(current, "bundle.tgz"))',
+      '    except Exception:',
+      '        installed = ""',
+      '    try:',
+      '        port = int(open(portfile).read().strip())',
+      '        identity = probe(port)',
+      '        print(json.dumps({"ok": True, "state": "running", "version": identity.get("version", ""), "artifactSha256": installed, "runningArtifactSha256": identity.get("artifactSha256", ""), "runningPid": identity.get("pid", 0), "runningStartedAt": identity.get("startedAt", ""), "detail": "identity=" + str(identity.get("message", ""))}))',
+      '    except Exception as error:',
+      '        print(json.dumps({"ok": False, "state": "unknown", "detail": "无法观测运行身份：" + str(error)}))',
       'elif op == "rollback":',
-      '    old = read(previous)',
-      '    if old is None:',
-      '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous artifact"}))',
+      '    stop()',
+      '    if not os.path.isdir(previous):',
+      '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous install"}))',
       '    else:',
-      '        json.dump(old, open(current, "w"))',
-      '        print(json.dumps({"ok": True, "state": "rolled_back", "version": old.get("version", ""), "detail": "rolled back"}))',
+      '        shutil.rmtree(current, ignore_errors=True)',
+      '        shutil.move(previous, current)',
+      '        port = free_port()',
+      '        identity = start(port)',
+      '        print(json.dumps({"ok": True, "state": "rolled_back", "version": identity.get("version", ""), "detail": "rolled back and restarted"}))',
       'elif op == "data-rollback":',
       '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "no data scope"}))',
       'else:',
@@ -310,7 +424,7 @@ function prepareDeployment(
   )
   const targetDir = join(home, 'profiles', 'real-model-target')
   mkdirSync(targetDir, { recursive: true })
-  return { toolPath, targetDir }
+  return { toolPath, targetDir, port: 0 }
 }
 
 function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentFixture) {
@@ -323,7 +437,9 @@ function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentF
     owner: 'real-model-e2e',
     agent: { timeoutSeconds: TURN_TIMEOUT_SECONDS, maxTurnSeconds: TURN_TIMEOUT_SECONDS },
     formalTestTimeoutSeconds: 120,
-    failureRoundsPerGrant: -1,
+    // 无限失败轮次会让“业务终审重复阻断同一证据缺口”变成无限重建候选；
+    // 这里给出有界额度，失败时停在 blocked 并留下原因，便于人工判断。
+    failureRoundsPerGrant: MAX_FAILURE_ROUNDS,
     maxVerificationAttempts: -1,
     maxTaskAttempts: MAX_TASK_ATTEMPTS,
     autonomy: {
@@ -402,19 +518,37 @@ async function deployCommitted(input: {
     const intent = runtime.deployments.list().find((item) => item.requirementId === input.reqId)
     if (!intent) throw new Error('协调器没有创建部署 intent')
     if (intent.state !== 'verified') throw new Error(`部署未核对通过：${intent.state}`)
-    const installed = JSON.parse(
-      readFileSync(join(input.deploy.targetDir, 'current.json'), 'utf8'),
-    ) as { version?: string; artifactSha256?: string; runningArtifactSha256?: string }
-    if (installed.version !== build.packageVersion) {
+    const portFile = join(input.deploy.targetDir, 'port')
+    if (!existsSync(portFile)) throw new Error('安装器没有记录运行端口')
+    const port = Number(readFileSync(portFile, 'utf8').trim())
+    const response = await fetch(`http://127.0.0.1:${port}/identity`)
+    if (!response.ok) throw new Error(`运行进程 /identity 返回 ${response.status}`)
+    const identity = (await response.json()) as {
+      version?: string
+      artifactSha256?: string
+      pid?: number
+      startedAt?: string
+      message?: string
+    }
+    // 运行进程自己报告的介质摘要必须等于本次构建的制品，版本相同不足以证明。
+    if (identity.artifactSha256 !== build.artifactSha256) {
       throw new Error(
-        `目标版本 ${installed.version ?? '未知'} 与候选 ${build.packageVersion} 不一致`,
+        `运行进程介质 ${identity.artifactSha256 ?? '未知'} 与制品 ${build.artifactSha256} 不一致`,
       )
     }
-    if (installed.artifactSha256 !== build.artifactSha256) {
-      throw new Error('目标安装摘要与候选制品不一致')
+    if (identity.version !== build.packageVersion) {
+      throw new Error(
+        `运行版本 ${identity.version ?? '未知'} 与候选 ${build.packageVersion} 不一致`,
+      )
     }
-    if (installed.runningArtifactSha256 !== build.artifactSha256) {
-      throw new Error('目标运行摘要与候选制品不一致')
+    if (!identity.pid || identity.pid <= 0) throw new Error('运行进程没有报告 pid')
+    // 业务行为来自需求产物：标记行在打包时进入可运行模块。
+    if (!String(identity.message ?? '').startsWith('real model e2e ok')) {
+      throw new Error(`运行进程业务输出不符合需求产物：${String(identity.message)}`)
+    }
+    const startedAt = Date.parse(String(identity.startedAt ?? ''))
+    if (!Number.isFinite(startedAt) || Date.now() - startedAt > 30 * 60_000) {
+      throw new Error(`运行进程启动时间不可信：${String(identity.startedAt)}`)
     }
     return { intentId: intent.intentId, artifact: build.artifactSha256 }
   } finally {
@@ -446,6 +580,8 @@ async function main(): Promise<void> {
   })
   mkdirSync(home, { recursive: true })
   mkdirSync(recordsRoot, { recursive: true })
+  // 打包脚本读取服务器模板：由本进程注入，不写入仓库。
+  process.env.FORGELOOP_M1_SERVER_SOURCE = SERVER_SOURCE
   const deploy = DEPLOY ? prepareDeployment(projectDir, recordsRoot, home) : undefined
   initProject(projectDir)
   writeFileSync(configPath, `${JSON.stringify(configFor(projectDir, recordsRoot, deploy))}\n`)

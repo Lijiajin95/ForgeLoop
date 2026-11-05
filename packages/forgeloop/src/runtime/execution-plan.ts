@@ -11,7 +11,10 @@ import {
   ANALYSIS_PROMPT_VERSION,
   BUSINESS_CONTEXT_DOC,
   PRODUCT_TOOL_ALLOWLIST,
+  type AnalysisAttempt,
   type AnalysisMode,
+  type ClarificationQuestion,
+  type ClarificationUpdate,
 } from '../domain/analysis.js'
 import { readProjectDoc, writeProjectDoc } from './project-docs.js'
 import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
@@ -19,9 +22,18 @@ import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { PlanReview } from '../domain/verification.js'
 import type { Repository } from '../records/repository.js'
 import type { AgentRunner } from './agent-runner.js'
-import { analysisPrompt, devPlanningPrompt } from './prompts.js'
+import {
+  analysisHistoryContext,
+  analysisPrompt,
+  analysisSpecContext,
+  clarificationContext,
+  devPlanningPrompt,
+} from './prompts.js'
 import { buildProjectFacts } from './board.js'
 import { sourceTrusted, type AdmissionDecision } from '../domain/admission.js'
+import { analysisSpecOf, planCoverageIssues, validateSpec } from '../domain/spec.js'
+
+type RecordedAnalysis = Omit<AnalysisAttempt, 'outcome' | 'detail'>
 
 /** 研发拆解的格式重试上限：畸形输出重试有限次，不随执行限额放开。 */
 const MAX_PLANNING_ATTEMPTS = 3
@@ -33,6 +45,37 @@ function describeViolation(violation: {
   reason: string
 }): string {
   return `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`
+}
+
+/**
+ * 把模型对旧问题的处置落到程序事实：必须覆盖每个未解决问题且引用真实编号。
+ * 未解决项由程序原样保留，不依赖模型把它们重新抄进 clarifications。
+ */
+function applyClarificationUpdates(
+  open: readonly ClarificationQuestion[],
+  updates: readonly ClarificationUpdate[],
+): { remaining: readonly ClarificationQuestion[]; resolved: readonly ClarificationUpdate[] } {
+  const byId = new Map(open.map((question) => [question.questionId, question]))
+  for (const update of updates) {
+    if (!byId.has(update.questionId)) {
+      throw new MalformedError(
+        `clarification_updates 引用了不存在或已解决的问题 ${update.questionId}；只能处置上面列出的未解决问题`,
+      )
+    }
+  }
+  const byQuestion = new Map(updates.map((update) => [update.questionId, update]))
+  const missing = open.filter((question) => !byQuestion.has(question.questionId))
+  if (missing.length > 0) {
+    throw new MalformedError(
+      `clarification_updates 遗漏了未解决问题：${missing
+        .map((question) => `${question.questionId}（${question.text}）`)
+        .join('；')}`,
+    )
+  }
+  return {
+    remaining: open.filter((question) => byQuestion.get(question.questionId)?.status === 'open'),
+    resolved: updates.filter((update) => update.status === 'resolved'),
+  }
 }
 
 export interface ExecutionPlanDeps {
@@ -56,8 +99,6 @@ export interface ExecutionPlanDeps {
 export class ExecutionPlan {
   constructor(private readonly deps: ExecutionPlanDeps) {}
 
-  // 分析入口集中处理既有分析复用、模型失败、业务背景同步与准入；拆开后反而难追踪。
-  // eslint-disable-next-line complexity
   async executeAnalysis(
     reqId: string,
     signal: AbortSignal,
@@ -74,21 +115,20 @@ export class ExecutionPlan {
       }
     }
     const version = requirement.versions.length
+    const previousAnalysis = this.deps.repo.latestAnalysis(reqId)
     const attempt = this.deps.repo.analysisAttempts(reqId, version).length + 1
     const started = Date.now()
-    const transcript = join(sessionsDir(this.deps.config), `${reqId}-analyze-a${attempt}.jsonl`)
-    const facts = buildProjectFacts({
-      repository: this.deps.repo,
-      project: this.deps.config.project,
-      currentReqId: reqId,
-      now: this.deps.now(),
-    })
-    const business = readProjectDoc(this.deps.config.projectPath, BUSINESS_CONTEXT_DOC)
-    const businessContext = business.ok ? business.content : ''
+    // 每个需求版本、每次尝试一个独立轨迹文件：attempt 按版本重新计数，
+    // 不带版本号会让 v2/a1 覆盖 v1/a1 的历史证据。
+    const transcript = join(
+      sessionsDir(this.deps.config),
+      `${reqId}-v${version}-analyze-a${attempt}.jsonl`,
+    )
+    const openQuestions = this.deps.repo.openClarifications(reqId)
     const result = await this.deps.runner.run({
       role: AGENT_PRODUCT,
       cwd: this.deps.config.projectPath,
-      prompt: analysisPrompt(requirement, facts, businessContext),
+      prompt: this.analysisPromptFor(reqId, requirement),
       // 产品 Agent 允许写项目文档，但只拿到文档读写与联网检索工具，没有任何编码工具。
       permission: 'workspace-write',
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
@@ -112,11 +152,29 @@ export class ExecutionPlan {
     if (result.status !== 'completed') {
       return this.failAnalysis(recorded, result.reason)
     }
-    let draft
+    let draft: AnalysisDraft
+    let updates: ReturnType<typeof applyClarificationUpdates>
     try {
-      const latest = requirement.versions[requirement.versions.length - 1]
-      draft = this.analysisFromResult(result.text, {
-        allowProblemClarifications: latest?.source.startsWith('dev-clarification') === true,
+      draft = this.analysisFromResult(result.text)
+      updates = applyClarificationUpdates(openQuestions, draft.clarificationUpdates)
+    } catch (error) {
+      return this.failAnalysis(recorded, errorMessage(error))
+    }
+    // 未解决的旧问题由程序保留；本轮新增问题按本次分析版本获得稳定编号。
+    const openAfter = [
+      ...updates.remaining.map((question) => question.text),
+      ...draft.clarifications,
+    ]
+    try {
+      validateSpec({
+        spec: {
+          points: draft.businessPoints,
+          acceptance: draft.acceptanceItems,
+          assumptions: draft.assumptions,
+        },
+        complete: openAfter.length === 0,
+        inputKind: draft.inputKind,
+        previous: previousAnalysis ? analysisSpecOf(previousAnalysis) : null,
       })
     } catch (error) {
       return this.failAnalysis(recorded, errorMessage(error))
@@ -127,25 +185,75 @@ export class ExecutionPlan {
       requirementVersion: version,
       inputKind: draft.inputKind,
       goal: draft.goal,
-      ...(draft.itemsProvided ? { items: draft.items } : {}),
       scenarios: draft.scenarios,
       businessRules: draft.businessRules,
       exceptions: draft.exceptions,
       nonGoals: draft.nonGoals,
       acceptanceCriteria: draft.acceptanceCriteria,
-      clarifications: draft.clarifications,
+      businessPoints: draft.businessPoints,
+      acceptanceItems: draft.acceptanceItems,
+      assumptions: draft.assumptions,
+      clarifications: openAfter,
       model: recorded.model,
       promptVersion: recorded.promptVersion,
       transcriptPath: recorded.transcriptPath,
       toolCalls: recorded.toolCalls,
       createdAt: this.deps.now(),
     }
-    this.deps.repo.recordAnalysis(analysis)
-    this.deps.repo.recordAnalysisAttempt({ ...recorded, outcome: 'done', detail: '' })
-    const status = statusForAnalysis(analysis)
+    return this.settleAnalysis({
+      requirement,
+      analysis,
+      attempt: recorded,
+      newQuestions: draft.clarifications,
+      updates: draft.clarificationUpdates,
+    })
+  }
+
+  /** 分析提示词只在这里组装：需求原文、项目事实、业务背景与完整澄清问答。 */
+  private analysisPromptFor(reqId: string, requirement: Requirement): string {
+    const open = this.deps.repo.openClarifications(reqId)
+    const history = this.deps.repo.clarificationQuestions(reqId)
+    const answers = this.deps.repo.clarificationAnswers(reqId)
+    const facts = buildProjectFacts({
+      repository: this.deps.repo,
+      project: this.deps.config.project,
+      currentReqId: reqId,
+      now: this.deps.now(),
+      currentText: requirement.versions.map((version) => version.text).join('\n'),
+    })
+    const business = readProjectDoc(this.deps.config.projectPath, BUSINESS_CONTEXT_DOC)
+    return analysisPrompt(
+      requirement,
+      facts,
+      business.ok ? business.content : '',
+      analysisHistoryContext({
+        clarifications: clarificationContext({
+          questions: history.length > 0 ? history : open,
+          answers,
+        }),
+        previousSpec: analysisSpecContext(this.deps.repo.latestAnalysis(reqId)),
+      }),
+    )
+  }
+
+  /** 落库成功结论并决定下一步：仍有待澄清则等待，否则进入系统准入与研发。 */
+  private settleAnalysis(input: {
+    requirement: Requirement
+    analysis: RequirementAnalysis & { reqId: string }
+    attempt: RecordedAnalysis
+    newQuestions: readonly string[]
+    updates: readonly ClarificationUpdate[]
+  }): { state: 'done' | 'failed'; detail: string } {
+    const { requirement, analysis } = input
+    const reqId = analysis.reqId
+    this.deps.repo.recordAnalysis(analysis, {
+      questions: input.newQuestions,
+      updates: input.updates,
+    })
+    this.deps.repo.recordAnalysisAttempt({ ...input.attempt, outcome: 'done', detail: '' })
     this.deps.repo.setStatus(
       reqId,
-      status,
+      statusForAnalysis(analysis),
       analysis.clarifications.length > 0 ? `待澄清：${analysis.clarifications.join('；')}` : '',
     )
     if (analysis.clarifications.length > 0) {
@@ -183,13 +291,10 @@ export class ExecutionPlan {
    * 解析模型返回的分析结果；业务背景有变化时由程序写文档。
    * 解析畸形或写入失败都抛错，由调用方统一记成一次失败尝试。
    */
-  private analysisFromResult(
-    text: string,
-    options: { allowProblemClarifications?: boolean } = {},
-  ): AnalysisDraft {
+  private analysisFromResult(text: string): AnalysisDraft {
     let draft: AnalysisDraft
     try {
-      draft = parseAnalysisDraft(text, options)
+      draft = parseAnalysisDraft(text)
     } catch (error) {
       throw new MalformedError(`分析结果畸形：${errorMessage(error)}`)
     }
@@ -208,17 +313,7 @@ export class ExecutionPlan {
 
   /** 失败尝试同样落库并进入失败状态；自动/人工重试由主控另行排队。 */
   private failAnalysis(
-    recorded: {
-      reqId: string
-      requirementVersion: number
-      attempt: number
-      kind: AnalysisMode
-      model: string
-      promptVersion: string
-      transcriptPath: string
-      toolCalls: readonly string[]
-      createdAt: string
-    },
+    recorded: RecordedAnalysis,
     detail: string,
   ): { state: 'failed'; detail: string } {
     this.deps.repo.recordAnalysisAttempt({ ...recorded, outcome: 'failed', detail })
@@ -327,6 +422,12 @@ export class ExecutionPlan {
         ...languageViolations(plan),
         ...outsideActiveSource(plan),
         ...unknownPackages(plan, this.deps.existingPackages()),
+        ...planCoverageIssues(analysis, plan).map((issue) => ({
+          taskId: 'plan',
+          field: 'covers',
+          value: issue.code,
+          reason: issue.detail,
+        })),
       ]
       if (violations.length > 0) {
         lastError = `任务包越过 TypeScript 语言/工程边界：${violations

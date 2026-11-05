@@ -7,13 +7,11 @@ import { randomUUID } from 'node:crypto'
 import type { ForgeLoopConfig } from '../config.js'
 import { candidatesDir, integrationDir, verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
-import { inputKindOf, latestVersion } from '../domain/requirement.js'
+import { inputKindOf } from '../domain/requirement.js'
 import {
-  redGreenIssue,
   selfVerificationSufficient,
   type SelfVerificationReport,
 } from '../domain/self-verification.js'
-import type { VerificationFailureKind } from '../domain/failure-classification.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import { authorizationSourceOf, executionOrder, planLimitSeconds } from '../domain/task-plan.js'
 import {
@@ -197,7 +195,8 @@ export class AdvancePipeline {
     detail: string
     blocking: string[]
     verification: VerificationRecord | null
-    failureKind?: VerificationFailureKind
+    failureKind?: string
+    repairRecommended?: boolean
   }> {
     return this.deps.legacyVerification.verifyCandidate(input)
   }
@@ -514,11 +513,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     signal: AbortSignal
   }): Promise<
     | { ok: true; reports: SelfVerificationReport[] }
-    | {
-        ok: false
-        detail: string
-        clarification?: { question: string; context: string }
-      }
+    | { ok: false; detail: string; clarification?: { question: string; context: string } }
   > {
     const { reqId, requirement, analysis, plan, workspace, session, authorizationSource, signal } =
       input
@@ -590,7 +585,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     return { ok: true }
   }
 
-  /** 无法建立验证材料也是真实失败尝试；计入失败轮次并阻塞，避免协调器原地重排。 */
+  /** 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。 */
   private recordVerificationPrepFailure(
     reqId: string,
     detail: string,
@@ -605,69 +600,175 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     return { state: 'failed', detail }
   }
 
-  /** 环境/测试/证据类异常单独留档，不建代码问题单、不计入正式失败轮次。 */
-  private recordVerificationAnomaly(input: {
-    reqId: string
-    planVersion: number
-    candidateSha256: string
-    failureKind: VerificationFailureKind | undefined
-    detail: string
-    blocking: readonly string[]
-    reportPath: string
-    reportSha256: string
-  }): { state: 'failed'; detail: string } | null {
-    if (!input.failureKind || input.failureKind === 'implementation') return null
-    const anomalyId = `anomaly-${this.deps
-      .now()
-      .replace(/[-:TZ.]/g, '')
-      .slice(0, 14)}-${randomUUID().slice(0, 6)}`
-    this.deps.repo.recordExecutionAnomaly({
-      anomalyId,
-      requirementId: input.reqId,
-      planVersion: input.planVersion,
-      candidateSha256: input.candidateSha256,
-      kind: input.failureKind,
-      stage: 'verification',
-      detail: input.detail.slice(0, 1000),
-      evidence: {
-        blocking: input.blocking,
-        reportPath: input.reportPath,
-        reportSha256: input.reportSha256,
-      },
-      createdAt: this.deps.now(),
-    })
-    this.deps.repo.setStatus(
-      input.reqId,
-      'blocked',
-      `验证异常（${input.failureKind}，不计入正式失败轮次）：${input.detail}`,
-    )
-    return {
-      state: 'failed',
-      detail: `验证异常（${input.failureKind}）：${input.detail}`,
-    }
-  }
-
-  private async commitVerifiedCandidate(input: {
+  /** 验证阻断后的问题单、定向修复与候选重建；只有实现缺陷会进入这里。 */
+  private async handleBlockedVerification(input: {
     reqId: string
     requirement: Requirement
     plan: TaskPlan
-    candidate: CandidateFile
-  }): Promise<{ state: 'done' | 'failed'; detail: string }> {
-    this.deps.issues.resolveOpen(input.reqId, this.deps.now())
-    const commit = await this.commitCandidate({
-      reqId: input.reqId,
-      plan: input.plan,
-      candidate: input.candidate,
-      requirementTitle: requirementTitle(input.requirement),
-    })
-    if (!commit.ok) {
-      this.deps.repo.setStatus(input.reqId, 'blocked', `受控提交未完成：${commit.detail}`)
-      return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
+    workspace: string
+    workspaceInfo: {
+      workspace: string
+      baselineCommit: string
+      snapshotCommit: string
+      fresh: boolean
     }
-    this.deps.repo.setStatus(input.reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
+    session: AgentSession
+    signal: AbortSignal
+    candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
+    round: number
+    recorded: VerificationRecord
+    verification: {
+      detail: string
+      blocking: string[]
+      verification: VerificationRecord | null
+      failureKind?: string
+      repairRecommended?: boolean
+    }
+  }): Promise<
+    | { stop: true; result: { state: 'failed'; detail: string } }
+    | { stop: false; candidate: ReturnType<AdvancePipeline['finalizeCandidate']> }
+  > {
+    const { reqId, requirement, plan, workspace, workspaceInfo, session, signal, round } = input
+    const { verification } = input
+    if (verification.repairRecommended === false) {
+      return { stop: true, result: this.verificationWithoutRepair(reqId, verification) }
+    }
+    const { recorded } = input
+    const issue = this.recordVerificationIssue({
+      reqId,
+      requirement,
+      plan,
+      candidate: input.candidate,
+      verification: recorded,
+      blocking: verification.blocking,
+      devWorkspace: workspace,
+    })
+    const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
+    if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
+      const blocking = verification.blocking.join('；') || verification.detail
+      this.deps.repo.setStatus(
+        reqId,
+        'blocked',
+        `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
+      )
+      return {
+        stop: true,
+        result: {
+          state: 'failed',
+          detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
+        },
+      }
+    }
+    const repaired = await this.repairCandidate({
+      reqId,
+      requirement,
+      plan,
+      workspace,
+      session,
+      blocking: verification.blocking,
+      candidate: input.candidate,
+      signal,
+      round,
+    })
+    if (!repaired.ok) {
+      this.deps.repo.setStatus(
+        reqId,
+        'blocked',
+        `定向修复未完成：${repaired.reason}；问题单 ${issue.issueId} 保留在研发队列`,
+      )
+      return {
+        stop: true,
+        result: { state: 'failed', detail: `定向修复未完成：${repaired.reason}` },
+      }
+    }
+    this.deps.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.deps.now())
     return {
-      state: 'done',
-      detail: `需求 ${input.reqId} 已完成研发、独立验证与提交：${commit.commitSha.slice(0, 12)}`,
+      stop: false,
+      candidate: this.finalizeCandidate({
+        reqId,
+        plan,
+        workspace,
+        baselineCommit: workspaceInfo.baselineCommit,
+        snapshotCommit: workspaceInfo.snapshotCommit,
+      }),
+    }
+  }
+
+  /** 用例、环境、证据、需求争议或原因未明：保留阻断，不把问题当成实现缺陷交给研发。 */
+  private verificationWithoutRepair(
+    reqId: string,
+    verification: {
+      detail: string
+      blocking: string[]
+      verification: { verdict: 'pass' | 'block' } | null
+      failureKind?: string
+    },
+  ): { state: 'failed'; detail: string } {
+    const blocking = verification.blocking.join('；') || verification.detail
+    const kind = verification.failureKind ?? 'undetermined'
+    this.deps.repo.setStatus(
+      reqId,
+      'blocked',
+      `验证未通过（${kind}）：${blocking}；${verification.detail}`,
+    )
+    return {
+      state: 'failed',
+      detail: `验证未通过（${kind}）：${blocking}；未要求研发修改代码`,
+    }
+  }
+
+  /** 研发自验证 self 模式：按候选身份保存报告，供提交与审计复核。 */
+  private recordSelfVerification(
+    reqId: string,
+    plan: TaskPlan,
+    candidate: CandidateFile,
+    reports: readonly SelfVerificationReport[],
+  ): string {
+    const dir = candidatesDir(this.deps.config, reqId, plan.planVersion)
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, `self-verification-${candidate.candidateSha256.slice(0, 16)}.json`)
+    writeFileSync(
+      path,
+      `${JSON.stringify(
+        {
+          kind: 'dev-self-verification',
+          reqId,
+          planVersion: plan.planVersion,
+          candidateSha256: candidate.candidateSha256,
+          reports,
+          at: this.deps.now(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+    return path
+  }
+
+  /** 问题输入遇到无法确认的业务预期：追加需求版本并等待产品澄清，不冒充代码缺陷。 */
+  private async requestDevClarification(input: {
+    reqId: string
+    requirement: Requirement
+    clarification: { question: string; context: string }
+  }): Promise<{ state: 'failed'; detail: string }> {
+    const versions = input.requirement.versions
+    const latest = versions[versions.length - 1]
+    this.deps.repo.appendVersion({
+      reqId: input.reqId,
+      text: `${latest?.text ?? ''}\n\n研发澄清请求：${input.clarification.question}\n已调查事实与无法确认之处：${input.clarification.context || '未提供'}`,
+      revisedBy: 'dev',
+      source: `dev-clarification:${input.reqId}`,
+      now: this.deps.now(),
+    })
+    this.deps.repo.setStatus(
+      input.reqId,
+      'awaiting_clarification',
+      `研发请求产品澄清：${input.clarification.question}`,
+    )
+    return {
+      state: 'failed',
+      detail: `研发需要产品澄清：${input.clarification.question}；已追加需求版本，等待回答后重新分析`,
     }
   }
 
@@ -720,71 +821,40 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         return this.recordVerificationPrepFailure(reqId, verification.detail)
       }
       if (verification.state === 'pass') {
-        return await this.commitVerifiedCandidate({ reqId, requirement, plan, candidate })
+        this.deps.issues.resolveOpen(reqId, this.deps.now())
+        const commit = await this.commitCandidate({
+          reqId,
+          plan,
+          candidate,
+          requirementTitle: requirementTitle(requirement),
+        })
+        if (!commit.ok) {
+          this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+          return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
+        }
+        this.deps.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
+        return {
+          state: 'done',
+          detail: `需求 ${reqId} 已完成研发、独立验证与提交：${commit.commitSha.slice(0, 12)}`,
+        }
       }
       const recorded = verification.verification
       if (recorded && recorded.verdict === 'block') {
-        const anomaly = this.recordVerificationAnomaly({
-          reqId,
-          planVersion: plan.planVersion,
-          candidateSha256: candidate.candidateSha256,
-          failureKind: verification.failureKind,
-          detail: verification.detail,
-          blocking: verification.blocking,
-          reportPath: recorded.reportPath,
-          reportSha256: recorded.reportSha256,
-        })
-        if (anomaly) return anomaly
-        // 验证执行后判定失败：建内建问题单并定向修复；跨请求重试没有轮次上限。
-        const issue = this.recordVerificationIssue({
-          reqId,
-          requirement,
-          plan,
-          candidate,
-          verification: recorded,
-          blocking: verification.blocking,
-          devWorkspace: workspace,
-        })
-        const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
-        if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
-          const blocking = verification.blocking.join('；') || verification.detail
-          this.deps.repo.setStatus(
-            reqId,
-            'blocked',
-            `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
-          )
-          return {
-            state: 'failed',
-            detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
-          }
-        }
-        const repaired = await this.repairCandidate({
+        const handled = await this.handleBlockedVerification({
           reqId,
           requirement,
           plan,
           workspace,
+          workspaceInfo,
           session,
-          blocking: verification.blocking,
-          candidate,
           signal,
+          candidate,
           round,
+          recorded,
+          verification,
         })
-        if (!repaired.ok) {
-          this.deps.repo.setStatus(
-            reqId,
-            'blocked',
-            `定向修复未完成：${repaired.reason}；问题单 ${issue.issueId} 保留在研发队列`,
-          )
-          return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
-        }
-        this.deps.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.deps.now())
-        candidate = this.finalizeCandidate({
-          reqId,
-          plan,
-          workspace,
-          baselineCommit: workspaceInfo.baselineCommit,
-          snapshotCommit: workspaceInfo.snapshotCommit,
-        })
+        if (handled.stop) return handled.result
+        candidate = handled.candidate
         continue
       }
       // 业务验收阻断（独立验证本身已通过）仍受失败额度约束。
@@ -873,16 +943,40 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     const plan = planned.plan
     input.planRef.plan = plan
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
-    return await this.developUnderVerification({
+    // 验证 Agent 在研发开始前新开会话并生成方案；产物交付后由同一会话执行与验收。
+    const opened = await this.deps.legacyVerification.openVerification({
       reqId,
       requirement,
       analysis,
       plan,
-      authorizationSource,
-      workspaceInfo,
-      session,
       signal,
     })
+    if (!opened.ok) {
+      this.deps.repo.recordFailureRound(reqId, {
+        roundId: `verification-plan-${randomUUID()}`,
+        stage: FAILURE_VERIFICATION,
+        summary: opened.result.detail.slice(0, 1000),
+        occurredAt: this.deps.now(),
+      })
+      this.deps.repo.setStatus(reqId, 'blocked', opened.result.detail)
+      return { state: 'failed', detail: opened.result.detail }
+    }
+    try {
+      return await this.developUnderVerification({
+        reqId,
+        requirement,
+        analysis,
+        plan,
+        authorizationSource,
+        workspaceInfo,
+        session,
+        verification: opened.value,
+        signal,
+      })
+    } finally {
+      // 验证会话只服务本次推进请求；研发会话保留，不在这里关闭。
+      await opened.value.close()
+    }
   }
 
   /** 在已选定的研发会话里实现、修复与采集候选，再把验证会话交给独立验证与业务验收。 */
@@ -899,10 +993,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       fresh: boolean
     }
     session: AgentSession
+    verification: LegacyVerificationSession
     signal: AbortSignal
   }): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const { reqId, requirement, analysis, plan, workspaceInfo, session, authorizationSource } =
       input
+    const { verification } = input
     const { signal } = input
     const workspace = workspaceInfo.workspace
     this.deps.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验')
@@ -955,13 +1051,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       snapshotCommit: workspaceInfo.snapshotCommit,
     })
     const inputKind = inputKindOf(analysis)
-    for (const report of developed.reports) {
-      const redGreen = redGreenIssue({ inputKind, report })
-      if (redGreen) {
-        this.deps.repo.setStatus(reqId, 'blocked', `研发自验证不足：${redGreen}`)
-        return { state: 'failed', detail: `研发自验证不足：${redGreen}` }
-      }
-    }
     const selfMode =
       developed.reports.length > 0 &&
       developed.reports.every(
@@ -986,90 +1075,21 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       )
       return {
         state: 'done',
-        detail: `需求 ${reqId} 已完成研发自验证与提交：${commit.commitSha.slice(0, 12)}（未走独立验证，研发判断为 self）`,
+        detail: `需求 ${reqId} 已完成研发自验证与提交：${commit.commitSha.slice(0, 12)}（研发选择 self）`,
       }
     }
-    const opened = await this.deps.legacyVerification.openVerification({
+    return await this.verifyContinuousCandidate({
       reqId,
       requirement,
       analysis,
       plan,
+      candidate,
+      workspace,
+      workspaceInfo,
+      session,
+      verification,
       signal,
     })
-    if (!opened.ok) {
-      this.deps.repo.recordFailureRound(reqId, {
-        roundId: `verification-plan-${randomUUID()}`,
-        stage: FAILURE_VERIFICATION,
-        summary: opened.result.detail.slice(0, 1000),
-        occurredAt: this.deps.now(),
-      })
-      this.deps.repo.setStatus(reqId, 'blocked', opened.result.detail)
-      return { state: 'failed', detail: opened.result.detail }
-    }
-    try {
-      return await this.verifyContinuousCandidate({
-        reqId,
-        requirement,
-        analysis,
-        plan,
-        candidate,
-        workspace,
-        workspaceInfo,
-        session,
-        verification: opened.value,
-        signal,
-      })
-    } finally {
-      await opened.value.close()
-    }
-  }
-
-  /** 研发自验证不足以支撑跳过独立验证时，也保留报告供复核；文件按候选身份保存。 */
-  private recordSelfVerification(
-    reqId: string,
-    plan: TaskPlan,
-    candidate: CandidateFile,
-    reports: readonly SelfVerificationReport[],
-  ): string {
-    const dir = candidatesDir(this.deps.config, reqId, plan.planVersion)
-    mkdirSync(dir, { recursive: true })
-    const path = join(dir, `self-verification-${candidate.candidateSha256.slice(0, 16)}.json`)
-    const body = {
-      kind: 'dev-self-verification',
-      reqId,
-      planVersion: plan.planVersion,
-      candidateSha256: candidate.candidateSha256,
-      reports,
-      at: this.deps.now(),
-    }
-    writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`, 'utf8')
-    return path
-  }
-
-  /** 问题输入的研发澄清回交：追加需求版本并等待产品澄清，不把失败当代码缺陷。 */
-  private async requestDevClarification(input: {
-    reqId: string
-    requirement: Requirement
-    clarification: { question: string; context: string }
-  }): Promise<{ state: 'failed'; detail: string }> {
-    const latest = latestVersion(input.requirement)
-    const text = `${latest.text}\n\n研发澄清请求：${input.clarification.question}\n已调查事实与无法确认之处：${input.clarification.context || '未提供'}`
-    this.deps.repo.appendVersion({
-      reqId: input.reqId,
-      text,
-      revisedBy: 'dev',
-      source: `dev-clarification:${input.reqId}`,
-      now: this.deps.now(),
-    })
-    this.deps.repo.setStatus(
-      input.reqId,
-      'awaiting_clarification',
-      `研发请求产品澄清：${input.clarification.question}`,
-    )
-    return {
-      state: 'failed',
-      detail: `研发需要产品澄清：${input.clarification.question}；已追加需求版本，等待回答后重新分析`,
-    }
   }
 
   /**

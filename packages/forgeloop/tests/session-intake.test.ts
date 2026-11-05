@@ -9,6 +9,7 @@ import { installSessionSurface } from '../src/session/index.js'
 import { appendSessionEvent } from '../src/session/events.js'
 import { presetRegistryOf, registerForgeLoopPreset } from '../src/session/preset.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import { structuredSpecOf, structuredPlanOf } from './spec-fixture.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -139,14 +140,14 @@ function human(id: string, text: string) {
   return { id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }
 }
 
-const analysisText = JSON.stringify({
+const analysisText = structuredSpecOf({
   goal: '看板支持按状态过滤',
   scenarios: ['按状态筛选需求与任务'],
   acceptance_criteria: ['筛选后只显示匹配项'],
   clarifications: [],
 })
 
-const planText = JSON.stringify({
+const planText = structuredPlanOf({
   technical_solution: {
     summary: '在现有 ForgeLoop 插件内增加过滤视图和查询参数',
     approach: ['先定义过滤参数与状态枚举', '再实现视图和测试'],
@@ -606,18 +607,22 @@ describe('session intake failure paths', () => {
   })
 })
 
-const clarificationAnalysis = JSON.stringify({
+const clarificationAnalysis = structuredSpecOf({
   goal: '增加状态过滤',
   scenarios: ['按状态筛选需求'],
   acceptance_criteria: ['筛选后只显示匹配状态'],
   clarifications: ['状态字段有哪些？', '是否支持多选？'],
 })
 
-const answeredAnalysis = JSON.stringify({
+const answeredAnalysis = structuredSpecOf({
   goal: '增加状态过滤',
   scenarios: ['按状态筛选需求'],
   acceptance_criteria: ['筛选后只显示匹配状态'],
   clarifications: [],
+  clarification_updates: [
+    { question_id: 'Q1-1', status: 'resolved', resolution: '状态值有 draft/approved' },
+    { question_id: 'Q1-2', status: 'resolved', resolution: '默认单选' },
+  ],
 })
 
 describe('clarification loop', () => {
@@ -708,7 +713,7 @@ describe('session requirement summary', () => {
   it('returns only requirements from the addressed session, newest first', async () => {
     const root = mkdtempSync(join(tmpdir(), 'forgeloop-intake-'))
     roots.push(root)
-    const runtime = runtimeWithQueue(root, [answeredAnalysis])
+    const runtime = runtimeWithQueue(root, [analysisText])
     const first = runtime.submit({
       text: '本会话需求',
       by: 'owner',
@@ -727,7 +732,7 @@ describe('session requirement summary', () => {
     const summary = runtime.sessionSummary('session-a')
     expect(summary.requirements.map((item) => item.reqId)).toEqual([firstView.reqId])
     expect(summary.requirements[0]).toMatchObject({
-      goal: '增加状态过滤',
+      goal: '看板支持按状态过滤',
       clarifications: [],
     })
     expect(runtime.sessionSummary('session-missing').requirements).toEqual([])

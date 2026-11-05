@@ -6,6 +6,14 @@ import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
+import { runFormalTest } from '../src/runtime/formal-test.js'
+import { sha256OfText } from '../src/domain/delivery.js'
 
 /**
  * 业务终审：由验证 Agent 在新会话里按原始需求复核关键业务场景与实际结果，
@@ -53,14 +61,14 @@ function result(
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -80,7 +88,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const PLAN_REVIEW = JSON.stringify({
+const PLAN_REVIEW = structuredVerificationOf({
   verdict: 'pass',
   blocking: [],
   findings: [],
@@ -112,7 +120,7 @@ function businessReview(
   } = {},
 ): string {
   const verdict = options.verdict ?? 'pass'
-  return JSON.stringify({
+  return structuredReviewOf({
     verdict,
     summary: verdict === 'pass' ? '业务场景复核通过' : '业务场景复核阻断',
     findings: [],
@@ -172,6 +180,23 @@ function fakeRunner(
           }),
         )
         writeFileSync(join(verification, 'report.json'), VERIFICATION_REPORT)
+        mkdirSync(join(verification, 'controls'), { recursive: true })
+        writeFileSync(
+          join(verification, 'controls.json'),
+          JSON.stringify({
+            controls: [
+              {
+                label: 'smoke',
+                patch: 'verification/controls/fault.patch',
+                expected_failure_output: 'target rule broken',
+              },
+            ],
+          }),
+        )
+        writeFileSync(
+          join(verification, 'controls', 'fault.patch'),
+          'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
+        )
         return result(request, VERIFICATION_REPORT)
       }
       if (request.role === 'verify' && request.prompt.includes('业务验收')) {
@@ -197,6 +222,24 @@ function fakeRunner(
   }
 }
 
+const controlAwareFormalTest: typeof runFormalTest = async (request) => {
+  if (request.cwd.includes('/controls/')) {
+    const output = 'target rule broken: expected fixture, got broken'
+    mkdirSync(dirname(request.logPath), { recursive: true })
+    writeFileSync(request.logPath, output, 'utf8')
+    return {
+      exitCode: 1,
+      timedOut: false,
+      aborted: false,
+      logPath: request.logPath,
+      logSha256: sha256OfText(output),
+      durationMs: 1,
+      output,
+    }
+  }
+  return runFormalTest(request)
+}
+
 function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
   const config = resolveConfig(
     {
@@ -214,7 +257,7 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
     },
     dir,
   )
-  return new ForgeLoopRuntime({ ctx: {}, config, runner })
+  return new ForgeLoopRuntime({ ctx: {}, config, runner, formalTest: controlAwareFormalTest })
 }
 
 async function runQueued(action: 'analyze' | 'plan' | 'advance' | 'verify', reqId: string) {
@@ -297,7 +340,7 @@ describe('business final review', () => {
     runtime = makeRuntime(fakeRunner({ review: () => businessReview({ omitAcceptance: true }) }))
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('业务终审缺少验收标准')
+    expect(advance.detail).toContain('业务终审缺少验收项')
     expect(runtime.accept({ reqId, by: 'owner', source: 'test' }).ok).toBe(false)
   })
 

@@ -84,6 +84,10 @@ export interface ClarificationEventData {
   readonly requirementVersion: number
   readonly analysisVersion: number
   readonly questions: readonly string[]
+  /** 与 questions 一一对应的稳定问题编号，例如 Q1-1。 */
+  readonly questionIds?: readonly string[]
+  /** 回答与新需求入口的确定性提示；不构成授权或验收。 */
+  readonly hint?: string
   readonly at: string
 }
 
@@ -92,6 +96,9 @@ export interface AnswerEventData {
   readonly reqId: string
   readonly requirementVersion: number
   readonly answer: string
+  /** 本次回答针对的问题编号与原文，便于回看“回答了什么”。 */
+  readonly questionIds?: readonly string[]
+  readonly questions?: readonly string[]
   readonly at: string
 }
 
