@@ -139,8 +139,11 @@ export class VerificationAgent {
   private readonly session: VerificationSession
   private readonly timeoutMs: number
 
-  /** 方案修复重试：模型漏抄需求原文时，把缺失条目反馈回去再要一次；仍不合格则 fail-closed。 */
-  static readonly MAX_PLAN_ATTEMPTS = 2
+  /**
+   * 方案修复重试：模型漏抄需求原文时，把缺失条目反馈回去再要；连续两次仍不合格才 fail-closed。
+   * 覆盖判定不变，只增加一次补抄机会。
+   */
+  static readonly MAX_PLAN_ATTEMPTS = 3
 
   constructor(options: VerificationAgentOptions) {
     this.session = options.session
@@ -182,7 +185,15 @@ export class VerificationAgent {
       const issues = validateRequirementVerificationPlan(input.analysis, plan)
       if (issues.length === 0) return plan
       lastIssues = issues
-      feedback = `\n\n上一次方案未通过覆盖校验，缺少以下需求说明原文（必须逐字写进对应场景的 scenario、acceptance_criterion 或 method，可附带补充说明）：\n${issues.map((issue) => `- ${issue}`).join('\n')}\n请补全后重新输出完整 JSON。`
+      feedback = [
+        '',
+        '',
+        '上一次方案未通过覆盖校验。下列条目必须**逐字复制**到某个场景的 method 字段：',
+        '保留全部标点与空格，不要改写、不要翻译、不要省略、不要用同义句概括；',
+        '每条单独成句即可，可以在前面加“本场景验证：”。',
+        ...issues.map((issue) => `- ${issue}`),
+        '请补全后重新输出完整 JSON。',
+      ].join('\n')
     }
     throw new MalformedError(`验证方案未覆盖需求说明：${lastIssues.join('；')}`)
   }

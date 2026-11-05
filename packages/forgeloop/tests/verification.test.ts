@@ -1802,6 +1802,36 @@ describe('requirement-derived verification plan', () => {
     expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
   })
 
+  it('retries a paraphrased plan a third time and still fails closed', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const missing = requirementVerificationPlanOf({ skipRules: 'rule' })
+    const repaired = makeVerificationAgent({
+      planTexts: [missing, missing, requirementVerificationPlanOf()],
+    })
+    const plan = await repaired.agent.plan({
+      requirement,
+      analysis,
+      plan: taskPlanForVerification(),
+      transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+    })
+    // 同一处漏抄连续两次后仍允许第三次补抄，且反馈里给出要逐字复制的原文。
+    expect(repaired.turns).toHaveLength(3)
+    expect(repaired.turns[2]!.prompt).toContain('逐字复制')
+    expect(repaired.turns[2]!.prompt).toContain(BUSINESS_RULE)
+    expect(repaired.turns[2]!.transcriptPath).toContain('-a3.jsonl')
+    expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
+
+    const hopeless = makeVerificationAgent({ planTexts: [missing, missing, missing] })
+    await expect(
+      hopeless.agent.plan({
+        requirement,
+        analysis,
+        plan: taskPlanForVerification(),
+        transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+      }),
+    ).rejects.toThrow('验证方案未覆盖需求说明')
+  })
+
   it('refuses a plan that misses a business rule or an exception boundary', async () => {
     const { requirement, analysis } = requirementForVerificationPlan()
     const missingRule = makeVerificationAgent({
