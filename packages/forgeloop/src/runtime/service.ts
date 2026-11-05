@@ -1214,11 +1214,9 @@ ${answer}`
     return this.verificationChecks.run(reqId, label)
   }
 
-  writeVerificationControl(
-    reqId: string,
-    input: { label: string; patch: string; expectedFailureOutput: string },
-  ): VerificationCheckOutcome {
-    return this.verificationChecks.writeControl(reqId, input)
+  /** 验证会话的非命令工具面：对照与验证材料写入；上下文、路径与补丁由注册表校验。 */
+  get verificationTool(): VerificationCheckRegistry {
+    return this.verificationChecks
   }
 
   /**

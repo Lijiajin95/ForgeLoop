@@ -460,6 +460,52 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
     },
   },
   {
+    "description": "Write a verification script or helper under the fixed candidate verification/ directory. Only verification/ is writable; candidate source, tests and configuration are rejected.",
+    "name": "forgeloop_write_verification_material",
+    "output": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "object",
+        },
+        "ok": {
+          "type": "boolean",
+        },
+        "text": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "ok",
+        "text",
+      ],
+      "type": "object",
+    },
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "description": "UTF-8 file content",
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative path under verification/, e.g. verification/check_doc.js",
+          "type": "string",
+        },
+        "req_id": {
+          "description": "Exact requirement id under verification",
+          "type": "string",
+        },
+      },
+      "required": [
+        "req_id",
+        "path",
+        "content",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "description": "Read one Markdown document inside the current project. Only .md files inside the project are allowed; code and files outside the project are rejected. Used by the product Agent to review existing docs and business context.",
     "name": "forgeloop_read_project_doc",
     "output": {

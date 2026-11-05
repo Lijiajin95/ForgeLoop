@@ -30,6 +30,7 @@ import { businessReviewPrompt, verificationExecutionPrompt } from './prompts.js'
 import {
   VERIFICATION_CHECK_TOOL,
   VERIFICATION_CONTROL_TOOL,
+  VERIFICATION_MATERIAL_TOOL,
   VerificationCheckRegistry,
   type VerificationCheckRecord,
   type VerificationCheckSnapshot,
@@ -105,7 +106,7 @@ export class LegacyVerification {
       role: AGENT_VERIFY,
       cwd: this.deps.config.projectPath,
       permission: 'workspace-write',
-      allowTools: [VERIFICATION_CHECK_TOOL, VERIFICATION_CONTROL_TOOL],
+      allowTools: [VERIFICATION_CHECK_TOOL, VERIFICATION_CONTROL_TOOL, VERIFICATION_MATERIAL_TOOL],
     })
     const started = Date.now()
     let plan: VerificationPlan

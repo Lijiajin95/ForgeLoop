@@ -69,18 +69,34 @@ function safeName(label: string): string {
   return cleaned || 'control'
 }
 
-/** 复制候选到隔离副本，跳过 node_modules 与 .git，再按需复用依赖。 */
+/**
+ * 复制候选到隔离副本：用 git worktree 保留 HEAD 与 Git 元数据（验证命令可能检查
+ * git status/diff），再补上未跟踪的 `verification/` 材料与依赖链接。
+ */
 function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): void {
   rmSync(controlDir, { recursive: true, force: true })
-  mkdirSync(controlDir, { recursive: true })
-  cpSync(workspace, controlDir, {
-    recursive: true,
-    filter: (source) => {
-      const relative = source.slice(workspace.length).replace(/^[/\\]/, '')
-      const segment = relative.split(/[/\\]/)[0]
-      return segment !== 'node_modules' && segment !== '.git'
-    },
-  })
+  const added = runCommand(
+    'git',
+    ['worktree', 'add', '--detach', controlDir, 'HEAD'],
+    workspace,
+    60_000,
+  )
+  if (added.code === 0) {
+    const materials = join(workspace, 'verification')
+    if (existsSync(materials)) {
+      cpSync(materials, join(controlDir, 'verification'), { recursive: true })
+    }
+  } else {
+    mkdirSync(controlDir, { recursive: true })
+    cpSync(workspace, controlDir, {
+      recursive: true,
+      filter: (source) => {
+        const relative = source.slice(workspace.length).replace(/^[/\\]/, '')
+        const segment = relative.split(/[/\\]/)[0]
+        return segment !== 'node_modules' && segment !== '.git'
+      },
+    })
+  }
   const candidates = [join(workspace, 'node_modules')]
   if (dependencyRoot) candidates.push(join(dependencyRoot, 'node_modules'))
   const modules = candidates.find((path) => existsSync(path))

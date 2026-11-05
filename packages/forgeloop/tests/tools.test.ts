@@ -98,7 +98,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('tool surface', () => {
-  it('exposes exactly the seventeen documented tools with renderable output', () => {
+  it('exposes exactly the eighteen documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -112,6 +112,7 @@ describe('tool surface', () => {
       'forgeloop_rollouts',
       'forgeloop_run_verification_check',
       'forgeloop_write_verification_control',
+      'forgeloop_write_verification_material',
       'forgeloop_read_project_doc',
       'forgeloop_write_project_doc',
       'forgeloop_web_search',
@@ -363,8 +364,8 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(17)
-    expect(disposers).toHaveLength(17)
+    expect(registered).toHaveLength(18)
+    expect(disposers).toHaveLength(18)
   })
 
   it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {
@@ -466,6 +467,16 @@ describe('requirement intake tool', () => {
     })
     expect(outcome.ok).toBe(false)
     expect(outcome.text).toContain('没有正在进行的验证')
+
+    expect(
+      (
+        await call('forgeloop_write_verification_material', {
+          req_id: 'req-1',
+          path: 'verification/x.js',
+          content: 'x',
+        })
+      ).text,
+    ).toContain('没有正在进行的验证')
   })
 })
 

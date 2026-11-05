@@ -32,6 +32,7 @@ import {
 
 export const VERIFICATION_CHECK_TOOL = 'forgeloop_run_verification_check'
 export const VERIFICATION_CONTROL_TOOL = 'forgeloop_write_verification_control'
+export const VERIFICATION_MATERIAL_TOOL = 'forgeloop_write_verification_material'
 
 /** 一条通过工具执行并落日志的验证命令。 */
 export interface VerificationCheckRecord extends VerificationCheckRun {
@@ -225,14 +226,14 @@ export class VerificationCheckRegistry {
   }
 
   /**
-   * 工具入口：为一条已登记命令写入敏感性对照。
+   * 工具入口：为一条已登记命令写入敏感性对照并立即自检。
    * 补丁只能落在 verification/controls/，且必须修改 verification/ 之外的业务文件；
-   * controls.json 由运行时合并，模型不能覆盖其他对照或写入候选源码。
+   * controls.json 由运行时合并。自检返回真实失败输出，模型可据此修正 expected_failure_output。
    */
-  writeControl(
+  async writeControl(
     reqId: string,
     input: { label: string; patch: string; expectedFailureOutput: string },
-  ): VerificationCheckOutcome {
+  ): Promise<VerificationCheckOutcome> {
     const context = this.contexts.get(reqId)
     if (!context) {
       return {
@@ -258,6 +259,11 @@ export class VerificationCheckRegistry {
     const relative = `verification/controls/${safeLabel(input.label)}.patch`
     const patchPath = join(context.activation.workspace, relative)
     const controlsPath = join(context.activation.workspace, 'verification/controls.json')
+    const spec: VerificationControlSpec = {
+      label: input.label,
+      patch: relative,
+      expectedFailureOutput: input.expectedFailureOutput.trim(),
+    }
     try {
       mkdirSync(join(context.activation.workspace, 'verification/controls'), { recursive: true })
       writeFileSync(patchPath, `${input.patch.trimEnd()}\n`, 'utf8')
@@ -265,20 +271,95 @@ export class VerificationCheckRegistry {
         ? parseVerificationControls(readFileSync(controlsPath, 'utf8'))
         : []
       const next = current.filter((item) => item.label !== input.label)
-      next.push({
-        label: input.label,
-        patch: relative,
-        expectedFailureOutput: input.expectedFailureOutput.trim(),
-      })
+      next.push(spec)
       writeFileSync(controlsPath, `${JSON.stringify({ controls: next }, null, 2)}\n`, 'utf8')
-      return {
-        ok: true,
-        text: `已写入敏感性对照 ${relative}；程序会在候选隔离副本上应用并重跑 ${input.label}。`,
-        data: { label: input.label, patch: relative },
-      }
     } catch (error) {
       return { ok: false, text: `写入敏感性对照失败：${errorMessage(error)}` }
     }
+    const selfCheck = await this.runControl(context, check, spec)
+    const actual = selfCheck.result
+    const detail = actual
+      ? `受控副本退出码 ${actual.exitCode === null ? 'null' : actual.exitCode}；输出：\n${actual.output.slice(0, 800)}`
+      : '未取得执行结果'
+    if (selfCheck.issues.length > 0) {
+      return {
+        ok: false,
+        text: `已保存对照 ${relative}，但自检未通过：${selfCheck.issues.join('；')}。${detail}\n请修正补丁或 expected_failure_output 后重新调用本工具。`,
+        data: { label: input.label, patch: relative, issues: selfCheck.issues },
+      }
+    }
+    return {
+      ok: true,
+      text: `已写入并自检通过敏感性对照 ${relative}；受控副本按预期失败。${detail}`,
+      data: { label: input.label, patch: relative },
+    }
+  }
+
+  /** 工具入口：把验证脚本写到当前候选的 verification/ 下；候选源码不可写。 */
+  writeMaterial(reqId: string, input: { path: string; content: string }): VerificationCheckOutcome {
+    const context = this.contexts.get(reqId)
+    if (!context) {
+      return {
+        ok: false,
+        text: `没有正在进行的验证：${reqId}。只有验证会话可以写入验证材料。`,
+      }
+    }
+    const relative = input.path.trim().replace(/^[/\\]+/, '')
+    if (
+      !relative.startsWith('verification/') ||
+      relative.includes('..') ||
+      relative.startsWith('verification/controls')
+    ) {
+      return {
+        ok: false,
+        text: '验证材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
+      }
+    }
+    try {
+      const target = join(context.activation.workspace, relative)
+      mkdirSync(join(target, '..'), { recursive: true })
+      writeFileSync(target, input.content, 'utf8')
+      return { ok: true, text: `已写入验证材料 ${relative}。`, data: { path: relative } }
+    } catch (error) {
+      return { ok: false, text: `写入验证材料失败：${errorMessage(error)}` }
+    }
+  }
+
+  private async runControl(
+    context: ActiveContext,
+    check: VerificationCheckPlan,
+    spec: VerificationControlSpec,
+  ): Promise<{
+    issues: string[]
+    result: Awaited<ReturnType<typeof executeVerificationControls>>['results'][number] | undefined
+  }> {
+    const outcome = await executeVerificationControls({
+      workspace: context.activation.workspace,
+      dir: context.activation.dir,
+      commands: [{ label: check.label, argv: check.argv }],
+      controls: [spec],
+      dependencyRoot: context.activation.workspace,
+      run: async ({ argv, cwd, logPath }) => {
+        const test = await this.deps.formalTest({
+          ctx: this.deps.ctx,
+          cwd,
+          argv,
+          timeoutMs: context.activation.timeoutMs,
+          logPath,
+          signal: context.activation.signal,
+        })
+        return {
+          exitCode: test.exitCode,
+          timedOut: test.timedOut,
+          aborted: test.aborted,
+          durationMs: test.durationMs,
+          output: test.output,
+          logPath: test.logPath,
+          logSha256: test.logSha256,
+        }
+      },
+    })
+    return { issues: outcome.issues, result: outcome.results[0] }
   }
 
   /**

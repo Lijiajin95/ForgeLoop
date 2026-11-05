@@ -662,6 +662,7 @@ describe('continuous four-Agent flow', () => {
     expect(openRequest.allowTools).toEqual([
       'forgeloop_run_verification_check',
       'forgeloop_write_verification_control',
+      'forgeloop_write_verification_material',
     ])
     expect(openRequest.cwd).toBe(project)
 

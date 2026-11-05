@@ -12,7 +12,11 @@ import type { MonitorSnapshot } from './monitor.js'
 import { MalformedError } from '../domain/errors.js'
 import { inputKindOf, parseJsonLoose } from '../domain/requirement.js'
 import { hasStructuredSpec } from '../domain/spec.js'
-import { VERIFICATION_CHECK_TOOL, VERIFICATION_CONTROL_TOOL } from './verification-checks.js'
+import {
+  VERIFICATION_CHECK_TOOL,
+  VERIFICATION_CONTROL_TOOL,
+  VERIFICATION_MATERIAL_TOOL,
+} from './verification-checks.js'
 import { BUSINESS_CONTEXT_DOC } from '../domain/analysis.js'
 import type { ClarificationAnswer, ClarificationQuestion } from '../domain/analysis.js'
 
@@ -990,9 +994,11 @@ ${verificationPlanContext(input.plan)}
 - 对方案中的每个 label 各调用一次 ${VERIFICATION_CHECK_TOOL}，参数 req_id 为 "${input.reqId}"，label 为对应标签；不得跳过、合并、改写命令或临时新增命令。
 - 先执行完全部命令，再给出结论；工具报错时不要伪造输出，如实说明并以工具返回为准。
 - 共 ${labels.length} 条命令：${labels.join('、')}。
+- 需要验证脚本时，先用 ${VERIFICATION_MATERIAL_TOOL} 写到 \`verification/\` 下（例如 \`verification/check_doc.js\`），再在命令 argv 中引用；不能用普通文件工具，也不能写候选源码。
 - 执行后为每个必过场景至少一条被引用命令写敏感性对照：调用 ${VERIFICATION_CONTROL_TOOL}，参数 req_id 为 "${input.reqId}"、label 为对应命令、patch 为统一 diff、expected_failure_output 为受控错误实现下必须出现的失败原文（至少 8 个字符）。
-- 对照补丁必须修改 \`verification/\` 之外的业务实现文件，且让同一命令按目标业务规则失败；程序会把补丁应用到隔离副本后重跑，正式候选不被修改。
-- 不要修改任何文件，不要执行其他命令，也不要调用其他工具。
+- 对照补丁必须是可直接应用的统一 diff（\`--- a/<path>\`、\`+++ b/<path>\`、至少一行 \`+\` 或 \`-\`），只修改 \`verification/\` 之外的业务文件，并让同一命令按目标业务规则失败；程序会应用到隔离副本后重跑，正式候选不被修改。
+- 工具会立即返回受控副本的真实退出码与输出；若自检失败或 expected_failure_output 与实际输出不符，按返回内容修正后对同一 label 重新调用，直到自检通过。
+- 不要修改任何候选文件，不要调用上述两个验证工具以外的工具。
 - 完成后只输出一个 JSON 对象：{"executed": ["按实际执行顺序列出 label"], "summary": "一句话说明执行结果"}
 - 只输出 JSON。`
 }

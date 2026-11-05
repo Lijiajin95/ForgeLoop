@@ -2057,7 +2057,7 @@ describe('verification check registry', () => {
       planText,
       checksDir: mkdtempSync(join(tmpdir(), 'forgeloop-controls-dir-')),
     })
-    const written = registry.writeControl(reqId, {
+    const written = await registry.writeControl(reqId, {
       label: 'read',
       patch:
         'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-fixture\n+broken\n',
