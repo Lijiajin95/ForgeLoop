@@ -206,14 +206,16 @@ describe('ops prompts', () => {
       ...base,
       observations: ['观测一', '观测二'],
       actions: [
-        { id: 'restart', params: [] },
-        { id: 'scale', params: [{ name: 'replicas', values: ['2', '3'] }] },
+        { id: 'restart', auto: true, params: [] },
+        { id: 'scale', auto: false, params: [{ name: 'replicas', values: ['2', '3'] }] },
       ],
       deployments: [{ id: 'prod', requirementId: 'req-1' }],
     })
     expect(withActions).toContain('- 观测一\n- 观测二')
-    expect(withActions).toContain('- restart（无参数）')
+    expect(withActions).toContain('- restart（无参数；目录已预授权，可自动执行）')
     expect(withActions).toContain('- scale（replicas ∈ [2, 3]）')
+    // 预授权动作不要求人工决定；扩大权限或部署仍要求决定。
+    expect(withActions).toContain('decision_required 必须为 false')
     expect(withActions).toContain('当前没有可提议的目标'.replace('当前没有可提议的目标', 'prod'))
     expect(withActions).toContain('```\ntimeout\n```')
   })

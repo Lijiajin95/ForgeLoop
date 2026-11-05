@@ -196,7 +196,9 @@ timeout
 规则：
 - facts 只写证据直接支持的内容；推断必须放进 hypotheses，不能把猜测写成事实。
 - proposed_action 只能使用上面列出的动作；参数只能取列出的允许值。没有把握、需要扩大权限或没有匹配动作时填 null，并把 decision_required 设为 true。
-- decision_required 表示是否需要所有者决定；没有把握时必须为 true，不能靠猜测放行。
+- decision_required 表示是否需要所有者决定。标记为“目录已预授权”的动作属于目录级授权：
+  当 proposed_action 指向它、参数在允许值内、且只做临时止血时，decision_required 必须为 false；
+  要扩大权限、改配置、部署或没有匹配动作时才为 true。
 - proposed_deployment 只能从已登记的部署目标里选择（prod）；执行由主控按授权处理，你只做提议。
 - fix_required 表示即使服务恢复也需要代码或持久修复；仅止血不等于永久修复。
 - 不要输出命令、Shell 脚本、文件修改步骤或验收结论；你只做诊断与建议。

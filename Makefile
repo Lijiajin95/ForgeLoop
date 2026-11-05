@@ -158,6 +158,9 @@ real-model-e2e:
 
 # M0 全链路闭环：脚本化 Agent + 真实 Git/构建部署工具/运维检查与恢复。
 # 依赖编译后的 lib；不使用模型，真实模型 leg 由 FORGELOOP_M0_LOOP_REAL_MODEL 另行验证。
+real-ops-e2e:
+	$(NODE) scripts/ts/real-ops-e2e.ts
+
 m0-loop-e2e: build
 	$(NODE) scripts/ts/m0-loop-e2e.ts
 

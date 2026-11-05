@@ -1,0 +1,299 @@
+#!/usr/bin/env node
+/**
+ * 真实模型运维闭环 E2E（opt-in，会产生模型费用）：
+ * 隔离 DSH_HOME / 临时 Git 项目 / 临时记录根 → 起常驻 web 宿主 →
+ * 启动真实目标进程与健康检查 → 注入已标注的真实故障（SIGKILL）→
+ * 由真实模型巡检、诊断并在授权内执行恢复动作 →
+ * 断言事件 recovered 且恢复后进程 pid 变化。
+ *
+ * 默认跳过；`make real-ops-e2e` 或 `FORGELOOP_REAL_OPS=1` 才运行。
+ * 不改动生产记录、正式 profile 与版本号。
+ */
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+
+const ROOT = resolve(import.meta.dirname, '../..')
+const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
+const DSH_CLI = process.env.FORGELOOP_DSH_CLI ?? ''
+const PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
+const ENABLED = process.env.FORGELOOP_REAL_OPS === '1' || process.argv.includes('--ops')
+const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_OPS_TIMEOUT_MS ?? 900_000)
+const KEEP = process.env.FORGELOOP_REAL_OPS_KEEP === '1'
+
+function log(message: string): void {
+  console.log(`[real-ops] ${message}`)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((done) => setTimeout(done, ms))
+}
+
+async function freePort(): Promise<number> {
+  return new Promise((done, fail) => {
+    const server = createServer()
+    server.once('error', fail)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      server.close(() => done(port))
+    })
+  })
+}
+
+function dshCommand(args: string[]): [string, string[]] {
+  return DSH_CLI ? [process.execPath, [DSH_CLI, ...args]] : [DSH, args]
+}
+
+async function main(): Promise<void> {
+  if (!ENABLED) {
+    log('跳过（需要 FORGELOOP_REAL_OPS=1）')
+    return
+  }
+  const root = process.env.FORGELOOP_REAL_OPS_ROOT ?? mkdtempSync(join(tmpdir(), 'forgeloop-ops-'))
+  const project = join(root, 'project')
+  const recordsRoot = join(root, 'records')
+  const dshHome = join(root, 'dsh-home')
+  const opsDir = join(root, 'ops')
+  for (const dir of [project, recordsRoot, dshHome, opsDir]) mkdirSync(dir, { recursive: true })
+  const pidFile = join(opsDir, 'server.pid')
+  const serverScript = join(opsDir, 'server.mjs')
+  const checkScript = join(opsDir, 'check.mjs')
+  const restartScript = join(opsDir, 'restart.mjs')
+  const serverLog = join(opsDir, 'server.log')
+
+  writeFileSync(
+    serverScript,
+    [
+      "import { appendFileSync, writeFileSync } from 'node:fs'",
+      'writeFileSync(process.env.M1_OPS_PID, String(process.pid))',
+      'appendFileSync(process.env.M1_OPS_LOG, `started ${process.pid} ${new Date().toISOString()}\\n`)',
+      'setInterval(() => {}, 1000)',
+    ].join('\n'),
+  )
+  writeFileSync(
+    checkScript,
+    [
+      "import { readFileSync } from 'node:fs'",
+      'let pid = 0',
+      'try { pid = Number(readFileSync(process.env.M1_OPS_PID, "utf8")) } catch {}',
+      'if (!pid) { console.log("missing pid"); process.exit(1) }',
+      'try { process.kill(pid, 0); console.log(`alive ${pid}`); process.exit(0) } catch { console.log(`dead ${pid}`); process.exit(1) }',
+    ].join('\n'),
+  )
+  writeFileSync(
+    restartScript,
+    [
+      "import { spawn } from 'node:child_process'",
+      "import { readFileSync, rmSync } from 'node:fs'",
+      'try { rmSync(process.env.M1_OPS_PID, { force: true }) } catch {}',
+      'const child = spawn(process.execPath, [process.env.M1_OPS_SERVER], { detached: true, stdio: "ignore", env: process.env })',
+      'child.unref()',
+      'const started = Date.now()',
+      'while (Date.now() - started < 5000) {',
+      '  try {',
+      '    const pid = Number(readFileSync(process.env.M1_OPS_PID, "utf8"))',
+      '    process.kill(pid, 0)',
+      '    console.log(`restarted ${pid}`)',
+      '    process.exit(0)',
+      '  } catch {}',
+      '  await new Promise((done) => setTimeout(done, 100))',
+      '}',
+      'console.log("restart timeout")',
+      'process.exit(1)',
+    ].join('\n'),
+  )
+  const git = (args: string[]): void => {
+    const done = execFileSync('git', args, { cwd: project, encoding: 'utf8' })
+    void done
+  }
+  execFileSync('git', ['init', '-q'], { cwd: project })
+  writeFileSync(join(project, 'README.md'), '# real ops e2e\n')
+  git(['config', 'user.email', 'real-ops-e2e@example.com'])
+  git(['config', 'user.name', 'Real Ops E2E'])
+  git(['add', '-A'])
+  git(['commit', '-qm', 'baseline'])
+
+  const port = await freePort()
+  const configPath = join(root, 'config.json')
+  writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        project: 'real-ops',
+        projectPath: project,
+        recordsRoot,
+        pollSeconds: 2,
+        owner: 'real-ops-e2e',
+        autoAdvance: true,
+        ops: {
+          enabled: true,
+          intervalSeconds: 30,
+          resources: [{ id: 'svc', kind: 'app', label: 'M1 受控服务' }],
+          artifacts: [
+            { id: 'svc', label: 'M1 受控服务', logs: [{ id: 'svc-log', path: serverLog }] },
+          ],
+          checks: [
+            {
+              id: 'svc-health',
+              resourceId: 'svc',
+              command: ['node', checkScript],
+              timeoutSeconds: 15,
+              severity: 'major',
+            },
+          ],
+          actions: [
+            {
+              id: 'restart-svc',
+              resourceId: 'svc',
+              command: ['node', restartScript],
+              params: [],
+              timeoutSeconds: 20,
+              auto: true,
+              verifyCheckId: 'svc-health',
+            },
+          ],
+        },
+        deployments: { enabled: false },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+
+  const env = {
+    ...process.env,
+    DSH_HOME: dshHome,
+    FORGELOOP_CONFIG: configPath,
+    M1_OPS_PID: pidFile,
+    M1_OPS_SERVER: serverScript,
+    M1_OPS_LOG: serverLog,
+  }
+  // 基线：启动真实目标进程。
+  execFileSync('node', [restartScript], { env })
+  const beforePid = Number(readFileSync(pidFile, 'utf8'))
+  log(`基线进程 pid=${beforePid}（${project}）`)
+
+  // 先建 profile 并安装插件包，再起常驻宿主。
+  const packDir = join(root, 'pack')
+  mkdirSync(packDir, { recursive: true })
+  const packed = execFileSync('npm', ['pack', '--pack-destination', packDir], {
+    cwd: join(ROOT, 'packages', 'forgeloop'),
+    encoding: 'utf8',
+    env: { ...process.env, npm_config_cache: join(ROOT, '.cache', 'npm') },
+  })
+    .trim()
+    .split('\n')
+    .at(-1) as string
+  const tarball = join(packDir, packed)
+  const [pluginCommand, pluginArgs] = dshCommand([
+    'plugin',
+    '--profile',
+    'm1-ops-web',
+    'add',
+    tarball,
+  ])
+  execFileSync(pluginCommand, pluginArgs, { cwd: ROOT, env, stdio: 'ignore' })
+  log(`插件已安装：${tarball}`)
+
+  const [command, args] = dshCommand([
+    '--profile',
+    'm1-ops-web',
+    ...(PATCH ? ['--patch', PATCH] : []),
+    '--port',
+    String(port),
+    '--no-open',
+  ])
+  const hostLog = openSync(join(root, 'host.log'), 'w')
+  const host = spawn(command, args, {
+    cwd: ROOT,
+    env,
+    stdio: ['ignore', hostLog, hostLog],
+    detached: true,
+  })
+  host.unref()
+  log(`宿主启动 pid=${host.pid} port=${port}`)
+
+  const dbPath = join(recordsRoot, 'projects', 'real-ops', 'records.sqlite')
+  const started = Date.now()
+  let eventId = ''
+  let recovered = false
+  let recoveredPid = 0
+  const injectedAt = new Date().toISOString()
+  try {
+    while (Date.now() - started < 60_000) {
+      if (existsSync(dbPath)) break
+      await sleep(500)
+    }
+    if (!existsSync(dbPath)) {
+      const log = existsSync(join(root, 'host.log'))
+        ? readFileSync(join(root, 'host.log'), 'utf8').slice(-1200)
+        : '(无宿主日志)'
+      throw new Error(`记录库未出现：${dbPath}\n宿主日志：${log}`)
+    }
+    // 已标注的真实故障注入：直接杀掉目标进程。
+    process.kill(beforePid, 'SIGKILL')
+    log(`已注入故障（SIGKILL pid=${beforePid}，${injectedAt}）`)
+
+    while (Date.now() - started < TIMEOUT_MS) {
+      const db = new DatabaseSync(dbPath, { readOnly: true })
+      try {
+        const event = db
+          .prepare('SELECT event_id, state FROM ops_events ORDER BY rowid DESC LIMIT 1')
+          .get() as { event_id?: string; state?: string } | undefined
+        if (event?.event_id) {
+          eventId = event.event_id
+          if (event.state === 'recovered' || event.state === 'closed') {
+            recovered = true
+            break
+          }
+        }
+      } finally {
+        db.close()
+      }
+      await sleep(2_000)
+    }
+    if (existsSync(pidFile)) recoveredPid = Number(readFileSync(pidFile, 'utf8'))
+  } finally {
+    try {
+      process.kill(-host.pid!, 'SIGKILL')
+    } catch {
+      try {
+        host.kill('SIGKILL')
+      } catch {
+        // 进程可能已退出。
+      }
+    }
+    if (!KEEP) log(`现场保留在 ${root}`)
+  }
+
+  const summary = {
+    root,
+    project,
+    recordsRoot,
+    eventId,
+    recovered,
+    beforePid,
+    recoveredPid,
+    injectedAt,
+    injected: 'SIGKILL 目标进程（已标注）',
+  }
+  writeFileSync(join(root, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  log(`结果：${JSON.stringify(summary)}`)
+  if (!recovered) {
+    log('失败：真实模型没有把事件恢复到 recovered')
+    process.exitCode = 1
+    return
+  }
+  if (!recoveredPid || recoveredPid === beforePid) {
+    log('失败：恢复后进程 pid 没有变化')
+    process.exitCode = 1
+    return
+  }
+  log('OK：真实故障 → 真实模型诊断 → 授权内恢复 → 检查通过')
+}
+
+await main()

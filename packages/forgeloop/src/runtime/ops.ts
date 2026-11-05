@@ -870,6 +870,7 @@ export class OpsRuntime {
         .filter((action) => action.resourceId === event.resourceId)
         .map((action) => ({
           id: action.id,
+          auto: action.auto,
           params: action.params.map((param) => ({ name: param.name, values: param.values })),
         })),
       deployments: this.config.deployments.enabled

@@ -288,6 +288,7 @@ export interface OpsDiagnosisPromptInput {
   readonly output: string
   readonly actions: ReadonlyArray<{
     readonly id: string
+    readonly auto: boolean
     readonly params: ReadonlyArray<{ readonly name: string; readonly values: readonly string[] }>
   }>
   readonly deployments?: ReadonlyArray<{ readonly id: string; readonly requirementId: string }>
@@ -305,7 +306,8 @@ export function opsDiagnosisPrompt(input: OpsDiagnosisPromptInput): string {
                 : action.params
                     .map((param) => `${param.name} ∈ [${param.values.join(', ')}]`)
                     .join('；')
-            return `- ${action.id}（${params}）`
+            const authorization = action.auto ? '；目录已预授权，可自动执行' : ''
+            return `- ${action.id}（${params}${authorization}）`
           })
           .join('\n')
   return `你是 ForgeLoop 的运维 Agent，负责对运行事件做只读诊断并提出处置建议。你只有两个只读工具：forgeloop_ops_artifact（读取配置登记的研发制品运行状态）与 forgeloop_ops_logs（读取配置登记的日志尾部，可按字面过滤）。只能读 ops.artifacts 里登记的内容；不要尝试读取其他文件、执行命令或修改任何东西。你的输出会被程序解析并落库。
@@ -343,7 +345,9 @@ ${actions}
 规则：
 - facts 只写证据直接支持的内容；推断必须放进 hypotheses，不能把猜测写成事实。
 - proposed_action 只能使用上面列出的动作；参数只能取列出的允许值。没有把握、需要扩大权限或没有匹配动作时填 null，并把 decision_required 设为 true。
-- decision_required 表示是否需要所有者决定；没有把握时必须为 true，不能靠猜测放行。
+- decision_required 表示是否需要所有者决定。标记为“目录已预授权”的动作属于目录级授权：
+  当 proposed_action 指向它、参数在允许值内、且只做临时止血时，decision_required 必须为 false；
+  要扩大权限、改配置、部署或没有匹配动作时才为 true。
 - proposed_deployment 只能从已登记的部署目标里选择（${(input.deployments ?? []).map((target) => target.id).join('、') || '当前没有可提议的目标'}）；执行由主控按授权处理，你只做提议。
 - fix_required 表示即使服务恢复也需要代码或持久修复；仅止血不等于永久修复。
 - 不要输出命令、Shell 脚本、文件修改步骤或验收结论；你只做诊断与建议。
