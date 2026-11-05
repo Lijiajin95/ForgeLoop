@@ -6,25 +6,38 @@
  * 轮询权威 SQLite，直到需求完成准入、研发、独立验证与受控提交。
  *
  * 默认跳过；`make real-model-e2e` 或 `FORGELOOP_REAL_MODEL=1` 才运行。
+ * 设置 FORGELOOP_REAL_MODEL_DEPLOY=1 时，提交后继续构建候选、所有者验收并调用登记部署工具
+ * 部署到隔离目标 profile；默认只验证到受控提交。
  * 派生 profile 默认沿用官方模板的模型；把 `FORGELOOP_REAL_MODEL_PATCH` 指向一个
  * loader patch 文件，即可改用启动环境里有凭据的 provider（例如 Qwen Token Plan）。
  * 需要启动环境提供对应密钥；脚本不改动生产记录与正式 profile。
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { ForgeLoopRuntime } from '../../packages/forgeloop/lib/runtime/service.js'
+import { resolveConfig } from '../../packages/forgeloop/lib/config.js'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_REAL_MODEL_PROFILE ?? 'forgeloop-real-model'
 const WEB_PROFILE = `${PROFILE}-web`
 const HEADLESS_PROFILE = `${PROFILE}-headless`
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
+/** Windows/开发环境可指向 `apps/cli/lib/bin.js`，用当前 node 启动，绕开 .cmd 限制。 */
+const DSH_CLI = process.env.FORGELOOP_DSH_CLI ?? ''
+const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+
+function dshCommand(args: string[]): [string, string[]] {
+  return DSH_CLI ? [process.execPath, [DSH_CLI, ...args]] : [DSH, args]
+}
 const PROJECT = 'forgeloop-real-model'
 /** 可选 loader patch：叠加在派生 profile 之后，只影响隔离实例的模型路由。 */
 const PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
+/** opt-in：提交后再构建候选、验收并走真实部署工具到隔离目标。 */
+const DEPLOY = process.env.FORGELOOP_REAL_MODEL_DEPLOY === '1'
 const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_TIMEOUT_MS ?? 1_800_000)
 const HEADLESS_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_SUBMIT_TIMEOUT_MS ?? 600_000)
 /** blocked 的宽限期：默认可自动重排，持续阻塞超过该时长才判失败。 */
@@ -38,7 +51,7 @@ const REQUIREMENT = [
   '在 docs/real-model-e2e.md 中写入一行 real model e2e ok。',
   '非目标：不要新增测试文件，也不要修改 docs/real-model-e2e.md 以外的任何文件。',
   '验收标准：docs/real-model-e2e.md 存在，且内容包含 real model e2e ok。',
-  "测试命令：node -e \"const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok'))process.exit(1)\"",
+  `测试命令：node -e "const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok')){console.log('missing');process.exit(1)}console.log('real-model-e2e-ok')"`,
 ].join('\n')
 
 interface RequirementRow {
@@ -66,7 +79,8 @@ function freePort(): Promise<number> {
 }
 
 function dshSync(args: string[], env: NodeJS.ProcessEnv): void {
-  const result = spawnSync(DSH, args, { cwd: ROOT, env, encoding: 'utf8', timeout: 300_000 })
+  const [command, argv] = dshCommand(args)
+  const result = spawnSync(command, argv, { cwd: ROOT, env, encoding: 'utf8', timeout: 300_000 })
   if (result.status !== 0) {
     throw new Error(`dsh ${args.join(' ')} 失败：${result.stderr || result.stdout}`)
   }
@@ -218,6 +232,203 @@ async function poll(
   )
 }
 
+interface DeploymentFixture {
+  readonly toolPath: string
+  readonly targetDir: string
+}
+
+/** 真实部署工具：只在本机隔离目标上写入版本与摘要，供 status 核对。 */
+function prepareDeployment(
+  projectDir: string,
+  recordsRoot: string,
+  home: string,
+): DeploymentFixture {
+  // 候选构建要求项目内有插件包清单；这是隔离夹具的基线内容，不属于需求改动。
+  mkdirSync(join(projectDir, 'packages', 'forgeloop'), { recursive: true })
+  writeFileSync(
+    join(projectDir, 'packages', 'forgeloop', 'package.json'),
+    `${JSON.stringify({ name: 'forgeloop-dsh', version: '1.0.0' }, null, 2)}\n`,
+  )
+  const scripts = join(projectDir, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  writeFileSync(
+    join(scripts, 'package.mjs'),
+    [
+      "import { createHash } from 'node:crypto'",
+      "import { execFileSync } from 'node:child_process'",
+      "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'",
+      "mkdirSync('dist', { recursive: true })",
+      "writeFileSync('dist/app.txt', 'real model deploy e2e\\n')",
+      "const sha = createHash('sha256').update(readFileSync('dist/app.txt')).digest('hex')",
+      "let gitHead = ''",
+      "try { gitHead = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch {}",
+      "writeFileSync('dist/artifact.json', JSON.stringify({ sha256: sha, tarball: process.cwd() + '/dist/app.txt', version: '1.0.0', files: ['docs/real-model-e2e.md'], gitHead }))",
+    ].join('\n'),
+  )
+  const toolDir = join(recordsRoot, 'projects', PROJECT, 'deployments', 'tools')
+  mkdirSync(toolDir, { recursive: true })
+  const toolPath = join(toolDir, 'tool.py')
+  writeFileSync(
+    toolPath,
+    [
+      'import json, os, sys',
+      'args = sys.argv',
+      'op = args[args.index("--op") + 1]',
+      'plan = json.load(open(args[args.index("--plan") + 1]))',
+      'target = plan["params"]["target"]',
+      'current = os.path.join(target, "current.json")',
+      'previous = os.path.join(target, "previous.json")',
+      'os.makedirs(target, exist_ok=True)',
+      'def read(path):',
+      '    try:',
+      '        return json.load(open(path))',
+      '    except Exception:',
+      '        return None',
+      'if op == "preflight":',
+      '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": "previous-1" if os.path.exists(current) else ""}))',
+      'elif op == "apply":',
+      '    old = read(current)',
+      '    if old is not None:',
+      '        json.dump(old, open(previous, "w"))',
+      '    json.dump({"version": plan["artifact"]["version"], "sha256": plan["artifact"]["sha256"]}, open(current, "w"))',
+      '    print(json.dumps({"ok": True, "state": "applied", "version": plan["artifact"]["version"], "detail": "applied"}))',
+      'elif op == "status":',
+      '    now = read(current) or {}',
+      '    print(json.dumps({"ok": True, "state": "running", "version": now.get("version", ""), "detail": "status"}))',
+      'elif op == "rollback":',
+      '    old = read(previous)',
+      '    if old is None:',
+      '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous artifact"}))',
+      '    else:',
+      '        json.dump(old, open(current, "w"))',
+      '        print(json.dumps({"ok": True, "state": "rolled_back", "version": old.get("version", ""), "detail": "rolled back"}))',
+      'elif op == "data-rollback":',
+      '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "no data scope"}))',
+      'else:',
+      '    print(json.dumps({"ok": False, "state": "failed", "detail": "unknown op"}))',
+    ].join('\n'),
+  )
+  const targetDir = join(home, 'profiles', 'real-model-target')
+  mkdirSync(targetDir, { recursive: true })
+  return { toolPath, targetDir }
+}
+
+function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentFixture) {
+  return {
+    project: PROJECT,
+    projectPath: projectDir,
+    recordsRoot,
+    pollSeconds: 1,
+    autoAdvance: true,
+    owner: 'real-model-e2e',
+    agent: { timeoutSeconds: TURN_TIMEOUT_SECONDS, maxTurnSeconds: TURN_TIMEOUT_SECONDS },
+    formalTestTimeoutSeconds: 120,
+    failureRoundsPerGrant: -1,
+    maxVerificationAttempts: -1,
+    maxTaskAttempts: MAX_TASK_ATTEMPTS,
+    autonomy: { enabled: true, allowAnySource: true, allowCodeCommit: true, requireOwner: false },
+    ...(deploy
+      ? {
+          candidateBuildCommand: ['node', '-e', 'process.exit(0)'],
+          candidatePackageCommand: ['node', 'scripts/package.mjs'],
+          candidateArtifactPath: 'dist/artifact.json',
+          deployments: {
+            enabled: true,
+            alerts: { webhook: '', timeoutSeconds: 5 },
+            tools: [
+              {
+                id: 'real-model-tool',
+                kind: 'python',
+                path: deploy.toolPath,
+                capabilities: ['preflight', 'apply', 'status', 'rollback', 'data-rollback'],
+                timeoutSeconds: 60,
+              },
+            ],
+            targets: [
+              {
+                id: 'real-model-target',
+                toolId: 'real-model-tool',
+                requirementId: '',
+                approval: 'owner',
+                params: { target: deploy.targetDir },
+                rollback: { keep: 1 },
+              },
+            ],
+          },
+        }
+      : {}),
+  }
+}
+
+/** 提交后由所有者入口构建、验收并部署；不使用模型，工具与目标都是真实进程。 */
+async function deployCommitted(input: {
+  reqId: string
+  projectDir: string
+  recordsRoot: string
+  deploy: DeploymentFixture
+}): Promise<{ intentId: string; artifact: string }> {
+  const config = resolveConfig(
+    configFor(input.projectDir, input.recordsRoot, input.deploy),
+    input.projectDir,
+  )
+  const runtime = new ForgeLoopRuntime({
+    ctx: {},
+    config,
+    runner: {
+      async run() {
+        throw new Error('部署 leg 不需要 Agent')
+      },
+      async open() {
+        throw new Error('部署 leg 不需要 Agent')
+      },
+    },
+  })
+  try {
+    const built = runtime.buildCandidate({
+      reqId: input.reqId,
+      by: 'real-model-e2e',
+      source: 'real-model-e2e:build',
+    })
+    if (!built.ok) throw new Error(`候选构建失败：${built.message}`)
+    const build = runtime.repo.latestCandidateBuild(input.reqId)
+    if (!build) throw new Error('候选构建记录缺失')
+    const accepted = runtime.accept({
+      reqId: input.reqId,
+      by: 'real-model-e2e',
+      source: 'real-model-e2e:accept',
+      artifactSha256: build.artifactSha256,
+    })
+    if (!accepted.ok) throw new Error(`验收失败：${accepted.message}`)
+    const requested = await runtime.deploymentService.request({
+      targetId: 'real-model-target',
+      requirementId: input.reqId,
+      by: 'real-model-e2e',
+      source: 'real-model-e2e:deploy',
+    })
+    if (!requested.ok) throw new Error(`部署提议失败：${requested.message}`)
+    const intentId = (requested.data as { intentId: string }).intentId
+    const approved = await runtime.deploymentService.approve({
+      intentId,
+      by: 'real-model-e2e',
+    })
+    if (!approved.ok) throw new Error(`部署批准失败：${approved.message}`)
+    const verified = await runtime.deploymentService.verify({
+      intentId,
+      by: 'real-model-e2e',
+    })
+    if (!verified.ok) throw new Error(`部署核对失败：${verified.message}`)
+    const installed = JSON.parse(readFileSync(join(input.deploy.targetDir, 'current.json'), 'utf8')) as {
+      version?: string
+    }
+    if (installed.version !== build.packageVersion) {
+      throw new Error(`目标版本 ${installed.version ?? '未知'} 与候选 ${build.packageVersion} 不一致`)
+    }
+    return { intentId, artifact: build.artifactSha256 }
+  } finally {
+    runtime.close()
+  }
+}
+
 async function main(): Promise<void> {
   if (process.env.FORGELOOP_REAL_MODEL !== '1') {
     console.log(
@@ -234,31 +445,17 @@ async function main(): Promise<void> {
   const recordsRoot = join(workspace, 'records')
   const configPath = join(workspace, 'forgeloop.json')
   const dbPath = join(recordsRoot, 'projects', PROJECT, 'records.sqlite')
-  execFileSync('npm', ['run', 'build', '--workspace', 'forgeloop-dsh'], {
+  execFileSync(NPM, ['run', 'build', '--workspace', 'forgeloop-dsh'], {
     cwd: ROOT,
     stdio: 'inherit',
     env: process.env,
+    ...(process.platform === 'win32' ? { shell: true } : {}),
   })
   mkdirSync(home, { recursive: true })
   mkdirSync(recordsRoot, { recursive: true })
+  const deploy = DEPLOY ? prepareDeployment(projectDir, recordsRoot, home) : undefined
   initProject(projectDir)
-  writeFileSync(
-    configPath,
-    `${JSON.stringify({
-      project: PROJECT,
-      projectPath: projectDir,
-      recordsRoot,
-      pollSeconds: 1,
-      autoAdvance: true,
-      owner: 'real-model-e2e',
-      agent: { timeoutSeconds: TURN_TIMEOUT_SECONDS, maxTurnSeconds: TURN_TIMEOUT_SECONDS },
-      formalTestTimeoutSeconds: 120,
-      failureRoundsPerGrant: -1,
-      maxVerificationAttempts: -1,
-      maxTaskAttempts: MAX_TASK_ATTEMPTS,
-      autonomy: { enabled: true, allowAnySource: true, allowCodeCommit: true, requireOwner: false },
-    })}\n`,
-  )
+  writeFileSync(configPath, `${JSON.stringify(configFor(projectDir, recordsRoot, deploy))}\n`)
   const env = { ...process.env, DSH_HOME: home, FORGELOOP_CONFIG: configPath }
   let child: ReturnType<typeof spawn> | undefined
   try {
@@ -270,7 +467,10 @@ async function main(): Promise<void> {
     dshSync(['plugin', '--profile', WEB_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
     dshSync(['plugin', '--profile', HEADLESS_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
     const port = await freePort()
-    child = spawn(DSH, launchArgs(WEB_PROFILE, ['--port', String(port), '--no-open']), {
+    const [webCommand, webArgs] = dshCommand(
+      launchArgs(WEB_PROFILE, ['--port', String(port), '--no-open']),
+    )
+    child = spawn(webCommand, webArgs, {
       cwd: ROOT,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -278,20 +478,19 @@ async function main(): Promise<void> {
     await waitForToken(child, 90_000)
 
     const startedAt = new Date().toISOString()
-    const submitted = spawnSync(
-      DSH,
+    const [submitCommand, submitArgs] = dshCommand(
       launchArgs(HEADLESS_PROFILE, [
         '--json',
         `只调用一次工具 forgeloop_submit_requirement 提交下面的需求原文；不要修改任何文件，也不要调用其他工具。\n\n${REQUIREMENT}`,
       ]),
-      {
-        cwd: ROOT,
-        env,
-        encoding: 'utf8',
-        timeout: HEADLESS_TIMEOUT_MS,
-        maxBuffer: 32 * 1024 * 1024,
-      },
     )
+    const submitted = spawnSync(submitCommand, submitArgs, {
+      cwd: ROOT,
+      env,
+      encoding: 'utf8',
+      timeout: HEADLESS_TIMEOUT_MS,
+      maxBuffer: 32 * 1024 * 1024,
+    })
     if (submitted.status !== 0) {
       throw new Error(`真实模型提交需求失败：${submitted.stderr || submitted.stdout}`)
     }
@@ -322,7 +521,24 @@ async function main(): Promise<void> {
     if (summary.plans === 0) throw new Error('需求没有任务包')
     if (summary.commits === 0) throw new Error('需求没有受控提交')
     if (summary.verdict !== 'pass') throw new Error(`独立验证未通过：${String(summary.verdict)}`)
-    if (summary.deployments !== 0) throw new Error('研发链路不应产生部署记录')
+    if (!DEPLOY && summary.deployments !== 0) throw new Error('研发链路不应产生部署记录')
+
+    if (DEPLOY) {
+      if (!deploy) throw new Error('部署现场没有初始化')
+      if (child) {
+        await stopChild(child)
+        child = undefined
+      }
+      const deployed = await deployCommitted({
+        reqId: requirement.req_id,
+        projectDir,
+        recordsRoot,
+        deploy,
+      })
+      console.log(
+        `[real-model-e2e] 部署 OK：${deployed.intentId}；制品 ${deployed.artifact.slice(0, 12)}`,
+      )
+    }
 
     console.log(`[real-model-e2e] OK：${requirement.req_id} 完成准入、研发、验证与受控提交`)
     console.log(
