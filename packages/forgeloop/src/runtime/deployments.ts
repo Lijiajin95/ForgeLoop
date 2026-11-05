@@ -749,10 +749,15 @@ export class Deployments {
       })
       return { ok: false, message, result: emptyResult() }
     }
+    // attempt 证据必须留下工具回执的完整可核对面：退出码、超时、stdout/stderr、
+    // 输出是否截断与耗时，不能只存 stdout。
     const raw = JSON.stringify({
       exitCode: run.exitCode,
       timedOut: run.timedOut,
+      truncated: run.truncated,
+      durationMs: run.durationMs,
       stdout: run.stdout,
+      stderr: run.stderr,
     })
     if (run.timedOut) {
       const message = `工具 ${tool.id} 执行 ${op} 超时`
@@ -821,9 +826,16 @@ export class Deployments {
     }
   }
 
+  /**
+   * 失败告警只尽力发送一次；发送结果作为部署决定留痕，成功和失败都不静默。
+   * 没有配置 webhook 时也记录一条“未配置”，避免把“没发”误读成“发过”。
+   */
   private alertFailure(intent: DeploymentIntentRecord, message: string): void {
     const webhook = this.deps.config.deployments.alerts.webhook
-    if (!webhook) return
+    if (!webhook) {
+      this.decision(intent, 'alert', 'system:deployment-alerts', '未配置告警地址，未发送')
+      return
+    }
     void this.alert(
       webhook,
       {
@@ -836,7 +848,23 @@ export class Deployments {
         at: this.now(),
       },
       this.deps.config.deployments.alerts.timeoutSeconds,
-    ).catch(() => undefined)
+    )
+      .then((result) => {
+        this.decision(
+          intent,
+          'alert',
+          'system:deployment-alerts',
+          result.ok ? '告警已发送' : `告警发送失败：${result.error || '未知原因'}`,
+        )
+      })
+      .catch((error: unknown) => {
+        this.decision(
+          intent,
+          'alert',
+          'system:deployment-alerts',
+          `告警发送异常：${error instanceof Error ? error.message : '未知错误'}`,
+        )
+      })
   }
 
   private transition(intent: DeploymentIntentRecord, to: DeploymentAttemptState): void {

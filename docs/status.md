@@ -5739,3 +5739,22 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
 - **真实模型运维闭环（S2/S3）未开始**：诊断与研发仍是脚本替身。
 - 生产 profile/安装器仍未登记；本批只在临时目标目录与真实本机进程上验证。
 - 模型推理强度仍是临时 `high` patch，未写入仓库默认配置。
+## 150. 部署 attempt 证据与告警发送留痕（2026-11-05）
+
+来源：批次 C 要求的证据清单补齐。
+
+### 149.1 实现
+
+- attempt 结果 JSON 增加 `stderr`、`truncated`、`durationMs`，与 `exitCode`、`timedOut`、
+  `stdout` 一起保存；命令失败、超时、输出截断都可从记录直接核对。
+- 失败告警的发送结果写入 `deployment_decisions`（`decision=alert`）：已发送、发送失败原因、
+  异常或“未配置告警地址”；告警仍只尽力发送一次，不重试。
+- 成功路径分别留痕：工具执行成功看 attempt，状态核对成功看 `verify` 决定，业务恢复
+  （运维事件）看 `recovery` 观测，互不替代。
+
+### 149.2 证据
+
+- `tests/deployment-run.test.ts` 新增 2 项：非 0 退出/截断/带 stderr 的工具调用在 attempt 中
+  保留完整字段；核对失败后记录“告警已发送”。
+- 未执行：真实外部告警服务投递与真实工具 stderr 大输出；本批只覆盖隔离测试中的发送结果留痕。
+

@@ -221,6 +221,9 @@ artifactSha256?, runningArtifactSha256?, runningPid?, runningStartedAt? }`；超
 
 - 两张业务表：`deployment_intents`（target、requirement、artifact、来源、审批、状态）与
   `deployment_attempts`（intent、device、状态、退出码、结果 JSON、耗时、证据路径、toolSha256）。
+  结果 JSON 保存 `exitCode`、`timedOut`、`truncated`、`durationMs`、`stdout`、`stderr`，
+  失败告警的发送结果（已发送/失败/未配置）写入 `deployment_decisions` 的 `alert` 记录，
+  不把“没发出去”静默成“发过”。
 - 工具脚本留痕：`deployment_tool_scripts`（当前摘要）与 `deployment_tool_changes`（变更历史）。
 - 证据目录：`<recordsRoot>/projects/<project>/deployments/<intentId>/`，含 plan、
   preflight/apply/status 的 stdout 尾部与 stderr 摘要（有界），不含凭据。

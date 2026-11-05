@@ -308,6 +308,57 @@ describe('deployment coordinator', () => {
     ).toMatchObject({ code: 'preflight_failed' })
   })
 
+  it('keeps exit code, stderr, truncation and duration in attempt evidence', async () => {
+    const deployments = new Deployments({
+      config,
+      store: repo.deploymentStore,
+      gate: () => ({ ok: true, reason: '' }),
+      alert: async () => ({ ok: true, error: '' }),
+      runTool: async () => ({
+        exitCode: 2,
+        stdout: 'partial stdout',
+        stderr: 'boom stderr',
+        timedOut: false,
+        truncated: true,
+        sha256: 'x',
+        durationMs: 7,
+      }),
+    })
+    const requested = await deployments.request({
+      targetId: 'owner',
+      artifact: ARTIFACT,
+      source: 'evidence',
+    })
+    expect(requested).toMatchObject({ code: 'preflight_failed' })
+    const attempt = deployments.list()[0]!.intentId
+    const record = deployments.detail(attempt)?.attempts[0]
+    expect(JSON.parse(record?.resultJson ?? '{}')).toMatchObject({
+      exitCode: 2,
+      timedOut: false,
+      truncated: true,
+      durationMs: 7,
+      stdout: 'partial stdout',
+      stderr: 'boom stderr',
+    })
+  })
+
+  it('records whether the failure alert was sent', async () => {
+    const deployments = build()
+    const requested = await deployments.request({
+      targetId: 'broken',
+      artifact: ARTIFACT,
+      source: 'alert-sent',
+    })
+    const intentId = (requested.data as { intentId: string }).intentId
+    await deployments.approve(intentId)
+    expect((await deployments.verify(intentId)).ok).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const decisions = repo.deploymentStore.deploymentDecisions(intentId)
+    expect(
+      decisions.some((entry) => entry.decision === 'alert' && entry.detail === '告警已发送'),
+    ).toBe(true)
+  })
+
   it('fails the apply step when the tool reports an error', async () => {
     const deployments = new Deployments({
       config,
