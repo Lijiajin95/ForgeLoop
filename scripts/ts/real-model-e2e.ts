@@ -530,8 +530,8 @@ async function deployCommitted(input: {
     },
   })
   try {
-    const delivery = await runtime.deliveryHandoff.tick()
-    if (delivery.built < 1) throw new Error('协调器没有自动构建候选')
+    await runtime.deliveryHandoff.tick()
+    // 构建/部署可能已在前一轮完成；这里只断言最终事实，不要求本轮一定发生构建。
     const build = runtime.repo.latestCandidateBuild(input.reqId)
     if (!build) throw new Error('候选构建记录缺失')
     const intent = runtime.deployments.list().find((item) => item.requirementId === input.reqId)
