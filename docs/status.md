@@ -5156,8 +5156,8 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
   `deployment-intent` 必须显式给出 `reqId`，门禁按该需求校验候选、独立验证、业务终审与验收。
   运维提议优先使用事件已关联的修复需求，否则回退目标默认需求。
 - 涉及文件：`src/config.ts`、`runtime/deployment-gate.ts`、`runtime/deployments.ts`、
-  `runtime/deployment-service.ts`、`runtime/board-route.ts`、`runtime/ops.ts`；新增 5 个测试文件
-  共 42 项通过、`tsc --noEmit` 与 ESLint 通过。
+  `runtime/deployment-service.ts`、`runtime/board-route.ts`、`runtime/ops.ts`；部署/看板
+  5 个测试文件共 42 项通过、`tsc --noEmit` 与 ESLint 通过。
 - **M0 闭环 E2E**：受控目标不再绑定固定需求；S1/S3 在 intent 中指定 `reqId`，S3 不再重建
   运行时或改配置。实跑覆盖 S1/S2/S3、停止与正数限额、三条负例。
 - **真实模型部署 E2E**：`real-model-e2e.ts` 新增 `FORGELOOP_REAL_MODEL_DEPLOY=1`：提交后构建
