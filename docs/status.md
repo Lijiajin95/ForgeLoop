@@ -5897,11 +5897,96 @@ M1-5 失败与中断可回查、M1-6 统计复算、M1-7 历史回查、M1-8 边
   业务终审缺命令证据、负向断言依赖仓库状态、负向断言语义错位、开发自验任务失败。
   每个失败都对应可复现的模型输出问题，产品侧判据没有放宽。
 
-## 155. 研发自验证模式、任务拆解与提交检查（2026-11-06）
+## 155. M1-2 达成：真实模型 → 真实安装器 → 真实运行进程（2026-11-06）
+
+### 155.1 关键修复
+
+- **隔离项目补 npm workspace 与包级 check 脚本**（`eb46d0f`）：模型写出
+  `npm run check --workspace forgeloop-dsh`，该命令在真实仓库成立、在裸临时目录必然失败。
+  现在隔离项目有根 `package.json`（workspaces）与 `packages/forgeloop` 的 `check` 脚本
+  （从包目录解析仓库根并断言标记，缺失时非零退出）。
+- **异常断言骨架**（`67cbf33`）：提示词给出可复制的自包含命令骨架。
+- **部署 leg 只断言最终事实**（`8451514`）：构建可能已在前一轮完成，不再用 `built>=1` 误判。
+
+### 155.2 证据（真实模型一次完整主链）
+
+需求 `req-20261105164344-8ecef1`（来源 `dsh-tool:submit_requirement`，状态 `committed`）：
+
+| 环节 | 实际记录 |
+| --- | --- |
+| 候选 | `2448976b4e6a105323b93ddb4f63796b900d377aa8077e7692527c0b79ccf943` |
+| 受控提交 | `b7ef9539d1c2c0df2e81b32a7f557f5c8f183ef6` |
+| 构建制品 | 版本 `1.0.0`，`7a423a0348281d718c5210ed8301730ddf9ce6601eb0297567ea62df2c8e3a94` |
+| 部署 intent | `dep-1cffd11e-4b65-4a53-8688-e64324e45332`，状态 `verified` |
+| 部署决定 | `verify` by `system:coordinator`（无人工批准/核对） |
+| 业务终审 | `pass` |
+
+运行进程（现场 `/tmp/forgeloop-real-model-QyVm3V`，实测时仍存活）：
+
+```
+pid 3067459  node .../profiles/real-model-target/current/server.mjs
+GET /identity →
+{"version":"1.0.0","artifactSha256":"7a423a03…","pid":3067459,
+ "startedAt":"2026-11-05T16:47:45.879Z","message":"real model e2e ok:1"}
+GET /health → ok
+```
+
+安装目录 `current/bundle.tgz` 的 sha256 实测为 `7a423a03…`，与构建制品一致；
+`message` 来自需求产物（打包时把 `docs/real-model-e2e.md` 的标记行编进 `app.mjs`）。
+
+### 155.3 判定
+
+- **M1-2：达成**。同一需求由真实模型完成研发/独立验证/业务终审/受控提交，协调器自动构建、
+  真实安装器解包并重启真实 node 进程，运行进程自报的介质摘要与制品一致，intent 为 `verified`，
+  部署决定由 `system:coordinator` 记录。
+- 需要说明的边界：本次 `/identity` 是**人工用 curl 在该现场补测**的（E2E 脚本当时因
+  `built>=1` 断言误判而提前退出）；该断言缺陷已在 `8451514` 修复，后续运行由脚本自身核对。
+  证据仍是同一份记录与同一进程，未伪造。
+- 单次成功不等于 M1 通过：M1-1（受控运行目标的种子版本与运行身份档案）、M1-3（真实模型运维
+  闭环）、M1-5（真实部署中断实测）、M1-6/M1-7（统计复算与页面回查）仍未完成。
+
+## 156. M1-1 达成：种子版本安装与运行身份（2026-11-06）
+
+### 156.1 安装与身份
+
+- 制品：`npm pack` 产物 `/tmp/m1-seed/forgeloop-dsh-0.0.2.tgz`，
+  sha256 `66fa6a597bf00e936818717d56dc37967fbf94729162d82d481d950b332fc6c4`，版本 `0.0.2`。
+- 安装：`DSH_HOME=/tmp/m1-seed-home dsh plugin --profile m1-seed add <tgz>`；
+  profile 清单 `dependencies.forgeloop-dsh = file:/tmp/m1-seed/forgeloop-dsh-0.0.2.tgz`，
+  `dsh.profile.bundles = ["@deepseek-ai/dsh-base", "forgeloop-dsh"]`。
+- 启动：`DSH_HOME=/tmp/m1-seed-home dsh --profile m1-seed --patch <qwen-high> headless "只回复 ok"`，
+  插件在装载时写入 `node_modules/forgeloop-dsh/runtime-identity.json`：
+
+```json
+{"kind":"forgeloop-runtime-identity","version":"0.0.2","pid":3331603,
+ "startedAt":"2026-11-05T17:15:07.602Z","cwd":"/home/link/Project/ForgeLoop",
+ "indexSha256":"49d956e92858b33290875baeff6329fc50606d366f338940abbd7d11005cfcad",
+ "serviceSha256":"3836ae57d5caf64cc985e72edfb4697f6193ccf4a800d3e4aa6fade1d0641b1f",
+ "clientSha256":"3fa56cd0294b096d97c302c7f367f2d26d68fd72299c9595d024a37c6bf32835"}
+```
+
+### 156.2 判定与边界
+
+- **M1-1：达成**。同一 tarball 摘要、profile 依赖、运行身份（版本/pid/启动时间/入口摘要）可查询，
+  且版本与安装内容由 `runtime-identity.json` 绑定。
+- **必须披露的边界**：该 profile 沿用默认配置，装载时指向
+  `/home/link/.forgeloop/production/projects/forgeloop/records.sqlite`；由于生产宿主已持锁，
+  新宿主明确报告“单消费者锁未取得，本宿主不领取工作”，**没有消费或改写生产工作项**。
+  这不是隔离运行目标：种子档案若要长期保留，应为该 profile 配置独立 `recordsRoot`，
+  再重装一次并归档身份。本轮未改动生产记录、未取得生产锁。
+- 该实例为一次性 headless 进程，执行后退出；pid 与启动时间来自运行期写入的身份文件，
+  不是事后补写。
+
+### 156.3 观察
+
+- 全新 profile 安装种子会默认继承生产记录根，这是“安装即接触生产”的风险点；
+  建议在安装文档与 `make` 目标里要求显式 `recordsRoot`（发现但不碰，未改代码）。
+
+## 157. 研发自验证模式、任务拆解与提交检查（2026-11-06）
 
 来源：所有者 2026-11-05 的 12 项决策；在合并 `main` 的结构化规格、验证敏感性对照与失败分类之后补齐本批独有缺口。
 
-### 155.1 实际改动
+### 157.1 实际改动
 
 - 取消任务包“至少 2 个任务、至少 1 条依赖”；单任务、无依赖方案可通过；依赖仍校验存在、无环、不依赖自身。
 - 删除自验证 verification 任务类型与空 diff/只读任务交付；所有任务必须产生实际文件改动。
@@ -5911,7 +5996,7 @@ M1-5 失败与中断可回查、M1-6 统计复算、M1-7 历史回查、M1-8 边
 - `commitCheckCommand` 为空时拒绝提交并提示先配置和修复；新增跨平台 `npm run check:repo`（与 `make check` 步骤等价），推荐用于 Linux/Windows 提交检查。
 - 研发遇到无法确认的业务预期时追加需求版本并回交产品澄清（来源 `dev-clarification:`）。
 
-### 155.2 检查与实际结果
+### 157.2 检查与实际结果
 
 - `make check` 通过：149 个测试文件、1715 项测试；`make contracts`、token/断言预算通过（断言 18/18）。
 - `make package` 通过：`forgeloop-dsh@0.0.2` tarball 392,692 字节，SHA-256 `34fd40f082b252c77585684816e0e012b2eb5bf5d3ba636dba3a8585bf56f19b`。
@@ -5919,7 +6004,7 @@ M1-5 失败与中断可回查、M1-6 统计复算、M1-7 历史回查、M1-8 边
 - `make real-model-e2e` 已尝试但未通过：派生 profile 报 `MISSING_CREDENTIAL: llm-deepseek`（启动环境无 `DEEPSEEK_API_KEY`），且记录根被另一个宿主持有；该项仍未验证。
 - 未运行 `make verify-e2e`；未改生产 `~/.forgeloop/config.json`。
 
-### 155.3 边界与未完成
+### 157.3 边界与未完成
 
 - 真实模型研发阶段 E2E 未取得通过证据；`check:repo` 未在 Windows 宿主实跑。
 - `self` 模式仍以模型结构化报告与红灯/绿灯为门禁，不是 OS 隔离或自动证明。

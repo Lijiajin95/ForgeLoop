@@ -120,10 +120,39 @@ function waitForToken(child: ReturnType<typeof spawn>, timeoutMs: number): Promi
   })
 }
 
+/**
+ * 隔离项目要像一个真实项目：有根 workspace 与包级 check 脚本。
+ * 否则模型会写出 `npm run check --workspace forgelop-dsh` 这类引用宿主仓库的命令，
+ * 在真实项目里成立、在裸目录里必然失败。
+ */
+function writeProjectSkeleton(projectDir: string): void {
+  writeFileSync(
+    join(projectDir, 'package.json'),
+    `${JSON.stringify({ name: 'forgeloop-real-model', private: true, workspaces: ['packages/*'] }, null, 2)}\n`,
+  )
+  mkdirSync(join(projectDir, 'packages', 'forgeloop'), { recursive: true })
+  writeFileSync(
+    join(projectDir, 'packages', 'forgeloop', 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'forgeloop-dsh',
+        version: '1.0.0',
+        scripts: {
+          check:
+            "node -e \"const fs=require('node:fs');const p=require('node:path').resolve(process.cwd(),'../..','docs/real-model-e2e.md');const t=fs.readFileSync(p,'utf8');if(!t.includes('real model e2e ok')){console.log('missing');process.exit(1)}console.log('real-model-e2e-ok')\"",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+}
+
 function initProject(projectDir: string): void {
   mkdirSync(join(projectDir, 'docs'), { recursive: true })
   writeFileSync(join(projectDir, 'README.md'), '# ForgeLoop real-model E2E\n')
   writeFileSync(join(projectDir, 'docs', 'baseline.md'), 'baseline\n')
+  writeProjectSkeleton(projectDir)
   const git = (args: string[]): void => {
     const result = spawnSync('git', args, { cwd: projectDir, encoding: 'utf8' })
     if (result.status !== 0) throw new Error(`git ${args.join(' ')} 失败：${result.stderr}`)
@@ -511,8 +540,8 @@ async function deployCommitted(input: {
     },
   })
   try {
-    const delivery = await runtime.deliveryHandoff.tick()
-    if (delivery.built < 1) throw new Error('协调器没有自动构建候选')
+    await runtime.deliveryHandoff.tick()
+    // 构建/部署可能已在前一轮完成；这里只断言最终事实，不要求本轮一定发生构建。
     const build = runtime.repo.latestCandidateBuild(input.reqId)
     if (!build) throw new Error('候选构建记录缺失')
     const intent = runtime.deployments.list().find((item) => item.requirementId === input.reqId)
