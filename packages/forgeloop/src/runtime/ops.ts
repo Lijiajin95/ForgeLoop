@@ -1493,6 +1493,20 @@ export class OpsRuntime {
 
   // ------------------------------------------------------------ 修复需求
 
+  /** 同一签名、仍有在办修复需求且未关闭的最近事件；用来吸收重复事件。 */
+  private reusableFix(event: OpsEventRecord): string {
+    const prior = this.repo
+      .listOpsEvents(this.config.project, 200)
+      .find(
+        (item) =>
+          item.eventId !== event.eventId &&
+          item.signature === event.signature &&
+          item.fixRequirementId !== '' &&
+          item.state !== OPS_CLOSED,
+      )
+    return prior?.fixRequirementId ?? ''
+  }
+
   private ensureFixIfNeeded(event: OpsEventRecord, diagnosis: OpsDiagnosis | null): void {
     if (!diagnosis?.fixRequired || event.fixRequirementId) return
     if (![OPS_RECOVERED, OPS_UNRESOLVED, OPS_AWAITING_DECISION].includes(event.state)) return
@@ -1505,6 +1519,12 @@ export class OpsRuntime {
    */
   private ensureFixRequirement(event: OpsEventRecord, diagnosis: OpsDiagnosis): string {
     if (event.fixRequirementId) return event.fixRequirementId
+    // 同一失败签名的在办修复需求优先复用：服务反复崩溃时不为每个事件新建需求。
+    const reused = this.reusableFix(event)
+    if (reused) {
+      this.repo.linkOpsFixRequirement(event.eventId, reused, this.isoNow())
+      return reused
+    }
     const now = this.isoNow()
     const reqId = `req-${eventStamp(this.now())}-${randomUUID().slice(0, 6)}`
     const resource = this.resource(event.resourceId)

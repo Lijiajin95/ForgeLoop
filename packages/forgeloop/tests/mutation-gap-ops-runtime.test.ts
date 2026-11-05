@@ -175,6 +175,7 @@ function seedEvent(
     impact?: string
     fixRequirementId?: string
     humanInvolved?: boolean
+    signature?: string
     openedAt?: string
     recoveredAt?: string
     closedAt?: string
@@ -188,7 +189,7 @@ function seedEvent(
     project: PROJECT,
     resourceId: input.resourceId ?? 'web',
     checkId: input.checkId ?? 'web-health',
-    signature: `signature-${eventId}`,
+    signature: input.signature ?? `signature-${eventId}`,
     severity: input.severity ?? 'major',
     state: input.state ?? OPS_OPEN,
     title: '测试构造的运维事件',
@@ -738,6 +739,34 @@ describe('OpsRuntime execution failures', () => {
     )
     const requirement = repository.getRequirement(event.fixRequirementId)!
     expect(requirement.versions[0]?.text).toContain('restart-web（failed，退出码 2）')
+  })
+
+  it('reuses the fix requirement of an earlier event with the same signature', async () => {
+    const signature = 'svc/svc-health/repeat'
+    seedEvent({
+      state: OPS_RECOVERED,
+      signature,
+      openedAt: '2026-11-03T09:00:00.000Z',
+      fixRequirementId: 'req-existing-fix',
+      diagnosisJson: diagnosisText({ fixRequired: true }),
+    })
+    const { ops } = makeOps(unusedRunner(), {
+      actionCommand: ['node', '-e', 'process.exit(0)'],
+    })
+    const repeated = seedEvent({
+      state: OPS_AWAITING_DECISION,
+      signature,
+      decision: 'approved',
+      decisionBy: 'alice',
+      decisionSource: 'test:owner',
+      diagnosisJson: diagnosisText({ fixRequired: true }),
+    })
+
+    await ops.tick()
+    const event = ops.list().find((item) => item.eventId === repeated)!
+    // 不为重复事件新建需求，直接复用同一签名的在办修复需求。
+    expect(event.fixRequirementId).toBe('req-existing-fix')
+    expect(repository.listRequirements?.().length ?? 0).toBe(0)
   })
 
   it('records a timed-out action as failed but still accepts a passing recovery check', async () => {
