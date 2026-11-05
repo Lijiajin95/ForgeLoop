@@ -225,12 +225,22 @@ exports[`runtime empty-state payloads > keeps status, reliability, ops, requests
       "enabled": false,
       "intervalSeconds": 300,
       "monitor": {
+        "collection": {
+          "complete": true,
+          "errors": [],
+        },
         "enabled": false,
         "error": "",
+        "freshness": {
+          "ageSeconds": null,
+          "stale": false,
+        },
         "heartbeat": {
+          "ageSeconds": null,
           "at": "",
           "configured": false,
           "ok": false,
+          "stale": false,
         },
         "host": {
           "cpuPercent": 0,

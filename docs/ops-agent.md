@@ -85,9 +85,15 @@
 - 证据写入 `<recordsRoot>/projects/<project>/ops/monitor/monitor-<时间>.json`（快照＋报告＋会话），
   每个新事件另有 `ops/<事件>/monitor-<时间>.json`（该问题的诊断与来源）。
 - `runtime_meta` 写 `ops_monitor_at`（到期判定）与 `ops_monitor_last`
-  （时间、状态、摘要、主机指标、来源计数、问题数与错误）。
+  （时间、状态、摘要、主机指标、来源计数、问题数、错误与 `collection.errors`）。
 - 报告畸形、模型失败或采集异常：`ops_monitor_last.status=error`，错误进入本轮巡检返回值，
   **不建事件、不当作健康**；扫描时间戳照常写入，下一轮要等监控周期，不会每 5 秒重试模型。
+- **采集完整性单独表达**：单个来源失败写进快照 `errors`，并随 `ops_monitor_last.collection` 保留。
+  模型报告 `healthy` 但采集不完整时，摘要状态显示 `incomplete`、`collection.complete=false`，
+  不把缺数据算成健康或零值。
+- **新鲜度单独表达**：摘要按 `ops_monitor_last.at` 计算 `freshness.ageSeconds`；超过
+  `max(2 × intervalSeconds, 60)` 秒未更新时状态显示 `stale` 并说明过期秒数，不继续展示旧的
+  “健康”。心跳同样带 `ageSeconds`/`stale`，与扫描结论分开。
 - 新问题进入事件后，同一 Tick 内的 `advanceEvents` 会按目录授权执行动作并做恢复复核。
 
 ### 4.1 监控提供方（provider 接口）

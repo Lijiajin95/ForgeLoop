@@ -74,11 +74,23 @@ export interface OpsMonitorSummary {
     readonly alerts: number
     readonly checks: number
   }
-  /** 外部心跳：是否配置、最近一次上报时间与结果。 */
+  /** 外部心跳：是否配置、最近一次上报时间与结果，以及是否已过期。 */
   readonly heartbeat: {
     readonly configured: boolean
     readonly at: string
     readonly ok: boolean
+    readonly ageSeconds: number | null
+    readonly stale: boolean
+  }
+  /** 本轮采集是否完整；缺来源时不为“健康”背书。 */
+  readonly collection: {
+    readonly complete: boolean
+    readonly errors: readonly string[]
+  }
+  /** 最近一次扫描的新鲜度；过期后不再显示旧的健康状态。 */
+  readonly freshness: {
+    readonly ageSeconds: number | null
+    readonly stale: boolean
   }
   readonly error: string
 }
@@ -123,6 +135,13 @@ function severityRank(severity: string): number {
 
 function metaText(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+/** 距给定 ISO 时间过去的秒数；时间为空或不可解析时返回 null，不拿 0 冒充新鲜。 */
+function ageSecondsOf(iso: string, now: Date): number | null {
+  const parsed = Date.parse(iso)
+  if (!iso || !Number.isFinite(parsed)) return null
+  return Math.max(0, Math.round((now.getTime() - parsed) / 1000))
 }
 
 function metaStrings(value: unknown): string[] {
@@ -180,7 +199,11 @@ export class OpsMonitor {
         configured: monitor.heartbeat.url !== '',
         at: '',
         ok: false,
+        ageSeconds: null,
+        stale: false,
       },
+      collection: { complete: true, errors: [] },
+      freshness: { ageSeconds: null, stale: false },
       error: '',
     }
     const raw = this.repo.getMeta(MONITOR_META)
@@ -188,10 +211,25 @@ export class OpsMonitor {
     if (!raw) return { ...base, heartbeat: { ...base.heartbeat, ...heartbeat } }
     try {
       const data = parseJsonObject(raw)
+      const collection = asRecord(data.collection)
+      const collectionErrors = collection ? metaStrings(collection.errors) : []
+      const complete = collectionErrors.length === 0
+      const lastScanAt = metaText(data.at)
+      const ageSeconds = ageSecondsOf(lastScanAt, this.clock())
+      const stale = ageSeconds !== null && ageSeconds > this.staleAfterSeconds()
+      const derived = this.deriveStatus({
+        status: metaText(data.status),
+        error: metaText(data.error),
+        complete,
+        collectionErrors,
+        stale,
+        ageSeconds,
+        intervalSeconds: monitor.intervalSeconds,
+      })
       return {
         ...base,
-        lastScanAt: metaText(data.at),
-        status: metaText(data.status),
+        lastScanAt,
+        status: derived.status,
         summary: metaText(data.summary),
         issues: metaNumber(data.issues),
         providers:
@@ -209,7 +247,9 @@ export class OpsMonitor {
           checks: nestedNumber(data, 'sources', 'checks'),
         },
         heartbeat: { ...base.heartbeat, ...heartbeat },
-        error: metaText(data.error),
+        collection: { complete, errors: collectionErrors },
+        freshness: { ageSeconds, stale },
+        error: derived.error,
       }
     } catch {
       return {
@@ -221,15 +261,53 @@ export class OpsMonitor {
     }
   }
 
+  /**
+   * 摘要状态：采集不完整不能显示成健康；旧结论超过新鲜度窗口不再当作当前健康。
+   * 扫描内部错误（error）保持最高优先级，不会被过期覆盖。
+   */
+  private deriveStatus(input: {
+    status: string
+    error: string
+    complete: boolean
+    collectionErrors: readonly string[]
+    stale: boolean
+    ageSeconds: number | null
+    intervalSeconds: number
+  }): { status: string; error: string } {
+    let status = input.status
+    let error = input.error
+    if (!input.complete && (status === 'healthy' || status === '')) status = 'incomplete'
+    if (!input.complete && !error) error = `采集不完整：${input.collectionErrors.join('；')}`
+    if (!input.stale || status === 'error') return { status, error }
+    if (status === 'healthy' || status === 'incomplete' || status === '') status = 'stale'
+    if (!error) {
+      error = `最近一次监控扫描已过期 ${input.ageSeconds} 秒（周期 ${input.intervalSeconds} 秒）`
+    }
+    return { status, error }
+  }
+
+  /** 扫描结果超过两个周期仍未更新即视为过期；最短 60 秒，避免小周期抖动。 */
+  private staleAfterSeconds(): number {
+    return Math.max(this.config.ops.monitor.intervalSeconds * 2, 60)
+  }
+
   /** 心跳状态独立于扫描摘要：扫描失败时它仍然记录最近一次上报。 */
-  private heartbeatStatus(): { at: string; ok: boolean } {
+  private heartbeatStatus(): {
+    at: string
+    ok: boolean
+    ageSeconds: number | null
+    stale: boolean
+  } {
     const raw = this.repo.getMeta(HEARTBEAT_META)
-    if (!raw) return { at: '', ok: false }
+    if (!raw) return { at: '', ok: false, ageSeconds: null, stale: false }
     try {
       const data = parseJsonObject(raw)
-      return { at: metaText(data.at), ok: data.ok === true }
+      const at = metaText(data.at)
+      const ageSeconds = ageSecondsOf(at, this.clock())
+      const stale = ageSeconds !== null && ageSeconds > this.staleAfterSeconds()
+      return { at, ok: data.ok === true, ageSeconds, stale }
     } catch {
-      return { at: '', ok: false }
+      return { at: '', ok: false, ageSeconds: null, stale: false }
     }
   }
 
@@ -387,6 +465,8 @@ export class OpsMonitor {
           alerts: snapshot.alerts.length,
           checks: snapshot.checks.length,
         },
+        // 采集失败不吞掉：模型结论与采集完整性分别保存，供摘要判断是否为“健康”背书。
+        collection: { errors: snapshot.errors },
       }),
     )
   }
