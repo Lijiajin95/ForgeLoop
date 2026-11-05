@@ -434,7 +434,6 @@ const opsDiagnosisPhase: 'fix' | 'plain' = 'fix'
 function configFor(
   project: string,
   recordsRoot: string,
-  requirementId: string,
   root: string,
   limits: { maxVerificationAttempts?: number } = {},
 ): unknown {
@@ -479,7 +478,7 @@ function configFor(
           {
             id: 'm0-target',
             toolId: 'm0-tool',
-            requirementId,
+            requirementId: '',
             approval: 'owner',
             params: { target: join(root, 'dsh-home', 'profiles', 'm0-target') },
             rollback: { keep: 1 },
@@ -546,7 +545,7 @@ async function deliver(
   recordsRoot: string,
   reqId: string,
 ): Promise<{ config: unknown; runtime: ForgeLoopRuntime }> {
-  const config = configFor(project, recordsRoot, reqId, process.env.M0_ROOT!)
+  const config = configFor(project, recordsRoot, process.env.M0_ROOT!)
   runtime?.close()
   runtime = makeRuntime(config)
   const analyzed = await runNext(reqId, 'analyze')
@@ -624,7 +623,7 @@ async function runRealArtifactLeg(root: string): Promise<void> {
           {
             id: 'm0-real-target',
             toolId: 'm0-real-tool',
-            requirementId: reqId,
+            requirementId: '',
             approval: 'owner',
             params: { target: targetDir },
             rollback: { keep: 1 },
@@ -654,6 +653,7 @@ async function runRealArtifactLeg(root: string): Promise<void> {
     check(accepted.ok, `真实需求验收副本失败：${accepted.message}`)
     const requested = await local.deploymentService.request({
       targetId: 'm0-real-target',
+      requirementId: reqId,
       by: owner,
       source: 'm0-loop:real-artifact',
     })
@@ -707,7 +707,7 @@ async function main(): Promise<void> {
 
   try {
     // ---------------- S1：需求 → 研发 → 验证 → 提交 → 构建 → 部署 ----------------
-    runtime = makeRuntime(configFor(project, recordsRoot, 'req-placeholder', root), root)
+    runtime = makeRuntime(configFor(project, recordsRoot, root), root)
     const submitted = runtime.submit({
       text: 'M0 闭环：写一份可验证的文档并部署到受控目标',
       by: 'owner',
@@ -736,6 +736,7 @@ async function main(): Promise<void> {
 
     const requested = await runtime.deploymentService.request({
       targetId: 'm0-target',
+      requirementId: reqId,
       by: 'owner',
       source: 'm0-loop:s1-deploy',
     })
@@ -802,11 +803,7 @@ async function main(): Promise<void> {
       'S3 修复需求状态不是 committed',
     )
 
-    // 目标关联需求在装载期固定；S3 用新的隔离运行时把同一受控目标指向修复需求。
-    runtime.close()
-    runtime = null
-    const config3 = configFor(project, recordsRoot, fixReqId, root)
-    runtime = makeRuntime(config3, root)
+    // 受控目标不绑定固定需求；S3 用同一运行时按 intent 指定修复需求，验证部署目标可复用。
     const fixAccept = runtime.accept({
       reqId: fixReqId,
       by: 'owner',
@@ -815,6 +812,7 @@ async function main(): Promise<void> {
     check(fixAccept.ok, `S3 验收失败：${fixAccept.message}`)
     const fixRequested = await runtime.deploymentService.request({
       targetId: 'm0-target',
+      requirementId: fixReqId,
       by: 'owner',
       source: 'm0-loop:s3-deploy',
     })
@@ -879,7 +877,7 @@ async function main(): Promise<void> {
     runtime = null
     verificationFails = true
     runtime = makeRuntime(
-      configFor(project, recordsRoot, reqId, root, { maxVerificationAttempts: 1 }),
+      configFor(project, recordsRoot, root, { maxVerificationAttempts: 1 }),
     )
     const limitSubmit = runtime.submit({
       text: 'M0-7 限额测试：验证必然失败，用于确认正数次数上限会停住',
@@ -907,7 +905,7 @@ async function main(): Promise<void> {
     verificationFails = false
     runtime.close()
     runtime = null
-    runtime = makeRuntime(configFor(project, recordsRoot, reqId, root))
+    runtime = makeRuntime(configFor(project, recordsRoot, root))
     console.log(`[m0-loop] M0-7 限额完成：${limitReqId} 在 1 次验证上限后 blocked`)
 
     // ---------------- M0-4 负例：模型工具面与越界文件 ----------------
@@ -952,7 +950,7 @@ async function main(): Promise<void> {
     await runRealArtifactLeg(root)
 
     summary.s1Rollout = runtime.deploymentService.rollout(intentId)
-    const snapshot = configFor(project, recordsRoot, reqId, root) as {
+    const snapshot = configFor(project, recordsRoot, root) as {
       deployments: unknown
       ops: unknown
       autonomy: unknown
