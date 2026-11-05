@@ -1,0 +1,211 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`service operation sequences > revises, cancels and refuses terminal mutation 1`] = `
+[
+  {
+    "code": "ok",
+    "data": {
+      "analysis": null,
+      "approval": null,
+      "blockedReason": "",
+      "candidate": null,
+      "createdAt": "TIME",
+      "delivered": [],
+      "failureRoundDetails": [],
+      "failureRounds": 0,
+      "grantQuota": {
+        "grants": 1,
+        "remaining": null,
+        "used": 0,
+      },
+      "grants": 1,
+      "pendingRequests": [],
+      "planReview": null,
+      "plans": [],
+      "project": "demo",
+      "reqId": "req-fixed",
+      "runs": [],
+      "source": "test",
+      "status": "draft",
+      "submittedBy": "owner",
+      "verification": null,
+      "versions": [
+        {
+          "createdAt": "TIME",
+          "revisedBy": "owner",
+          "text": "实现登录",
+          "version": 1,
+        },
+        {
+          "createdAt": "TIME",
+          "revisedBy": "owner",
+          "text": "实现登录 v2",
+          "version": 2,
+        },
+      ],
+    },
+    "message": "已追加需求 req-fixed 版本 2；既有任务包与批准对该版本过期，需重新分析与规划",
+    "ok": true,
+  },
+  {
+    "code": "ok",
+    "data": {
+      "grants": 2,
+    },
+    "message": "已为需求 req-fixed 追加第 2 次失败轮次授权（累计不清零）",
+    "ok": true,
+  },
+  {
+    "code": "ok",
+    "data": undefined,
+    "message": "已取消需求 req-fixed；身份、版本、批准与交付记录保留",
+    "ok": true,
+  },
+  {
+    "code": "terminal",
+    "message": "需求 req-fixed 已处于终态 cancelled，不能修订",
+    "ok": false,
+  },
+  {
+    "code": "terminal",
+    "message": "需求 req-fixed 已处于终态 cancelled",
+    "ok": false,
+  },
+]
+`;
+
+exports[`service operation sequences > stops, requeues and retries with stable failures 1`] = `
+[
+  {
+    "code": "ok",
+    "data": {
+      "settled": true,
+      "settledAt": "TIME",
+    },
+    "message": "已请求停止需求 req-fixed；待执行请求已撤销，在途 Agent 会被取消",
+    "ok": true,
+  },
+  {
+    "code": "retry_not_allowed",
+    "message": "需求已被主动停止；恢复需要显式决定",
+    "ok": false,
+  },
+  {
+    "code": "plan_missing",
+    "message": "需求 req-fixed 尚无任务包",
+    "ok": false,
+  },
+  {
+    "code": "admission_required",
+    "message": "需求 req-fixed 尚未获得系统准入或人类批准；不能自动进入研发",
+    "ok": false,
+  },
+]
+`;
+
+exports[`service operations on missing requirements > rejects empty submissions 1`] = `
+{
+  "code": "empty_text",
+  "message": "需求原文不能为空",
+  "ok": false,
+}
+`;
+
+exports[`service operations on missing requirements > returns stable not-found/validation failures 1`] = `
+[
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到运维事件 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到运维事件 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到运维事件 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "generatedAt": "TIME",
+    "requirements": [],
+    "sessionId": "missing",
+  },
+  [],
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "not_found",
+    "message": "未找到需求 missing",
+    "ok": false,
+  },
+  {
+    "code": "ok",
+    "data": {
+      "requests": [],
+    },
+    "message": "共 0 条操作请求",
+    "ok": true,
+  },
+]
+`;
