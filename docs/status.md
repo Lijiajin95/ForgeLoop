@@ -6233,3 +6233,18 @@ M1-3 要求“真实/标注注入故障 → 真实诊断 → 授权内恢复 →
   这是产品级信息缺失，不是模型能力问题，也不是门禁误杀（守卫拦得对）。
 - 下一批应先补“资源→工程/仓库绑定”（配置里登记资源所属工程路径，并在修复需求文本与研发提示词里
   带上），再重跑；不得放宽工程范围守卫。
+
+## 163. 活动工程范围可配置（2026-11-06）
+
+上一轮暴露的缺口：运维修复需求的目标工程是受控小工程，但工程范围白名单是 ForgeLoop 自带的
+（`packages/`、`docs/`、`scripts/ts/` 等），`src/` 被拒；模型只能改写目标为 `packages/...`，
+于是被守卫判为越界。
+
+- `outsideActiveSource(plan, roots?)` 接受允许路径；缺省仍用 `DEFAULT_ACTIVE_ROOTS`（ForgeLoop 约定）。
+- 配置新增 `activeRoots`；`execution-plan`、`execution-dev`、`service` 三处调用透传。
+- 运维 E2E 的临时工程配置 `src/`、`test/`、`scripts/`、`docs/`、`README.md`、`package.json`。
+- 测试：默认拒绝 `src/service.mjs`；配置后接受 `src/` 且仍拒绝 `packages/x.ts`。
+- 判据未放宽：这是把“哪个工程、哪些路径”显式化，不是允许任意路径。
+- `make check`：新增用例通过；main 上另有 8 项既有失败（其他会话未完成改动），未扩大范围。
+
+下一步：重跑运维闭环，让真实模型在 `src/service.mjs` 内修复、提交、自动部署、原检查复核关闭事件。
