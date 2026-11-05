@@ -24,6 +24,7 @@ export interface DeploymentToolPlan {
   readonly previous: {
     readonly sha256: string
     readonly path: string
+    readonly version: string
     readonly restorePoint: string
   } | null
   readonly params: Readonly<Record<string, string>>

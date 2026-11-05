@@ -77,7 +77,7 @@ interface DeploymentToolDescriptor {
   `kind=shell` → `/bin/sh <script> --op <op> --plan <planFile>`（`sh script`，不是 `sh -c` 字符串）；
   `kind=k8s` → 同样执行登记脚本，脚本内部调用 kubectl/helm；ForgeLoop 不直接调 kubectl。
 - `planFile`：主控写到证据目录的 JSON，含 `intentId`、`op`、`artifact{sha256,path,version}`、
-  `previous{sha256,path,restorePoint}`（回退时）、`target.params`、`device{id,transport}`、
+  `previous{sha256,path,version,restorePoint}`（回退时指向上一已验证制品）、`target.params`、`device{id,transport}`、
   `data{volumes,migrations}`、`timeoutSeconds`。
 - 数据范围：target 声明了 `data.volumes` 或 `data.migrations` 时，工具必须具备 `data-rollback`；
   `preflight` 必须在结果里返回可用的 `restorePoint`（卷快照/数据库备份标识），没有则拒绝 apply。
@@ -198,9 +198,12 @@ artifactSha256?, runningArtifactSha256?, runningPid?, runningStartedAt? }`；超
 - **运行身份**：核对比对安装摘要与运行摘要，任一与 intent 制品不符即 `verify_failed`；
   还要求运行进程 `runningStartedAt` 不早于本次安装时间，识别“装好了但进程仍跑旧内容”；
   工具无法提供摘要或启动时间时保持未验证。
-- **回退**：保留 `keep` 份已验收产物；回退是一次新 intent，调用工具的 `rollback`（带 `restorePoint`），
-  走同一状态机与核对。容器卷与数据库迁移按 target 声明的范围一并回退；回退后重新核对，
-  不把“命令退出 0”当作数据已恢复。
+- **回退**：回退目标取同一 target 在本次 intent 之前最近一次 `verified` 的部署，`plan.previous`
+  指向那份制品的 `sha256`/`path`/`version`，而不是本次制品；上一制品必须仍保留且磁盘摘要与记录一致，
+  否则拒绝回退（没有上一已验证制品、文件缺失或被改动都不执行工具）。调用 `rollback` 后必须用
+  `status` 核对版本、安装摘要、运行摘要与进程，任一不符记 `rollback_verify_failed`，不写成成功。
+  容器卷与数据库迁移按 target 声明的范围，用本次 preflight 的 `restorePoint` 一并回退；
+  回退本身是所有者动作，不把“命令退出 0”当作数据已恢复。
 - **失败告警**：`applied_pending_verify` 超过 `verifyTimeoutSeconds` 未收敛记为 `verify_failed`，
   向 `deployments.alerts.webhook` 发送一次告警（复用一次尽力发送，不重试）；回退可由所有者一键发起。
 

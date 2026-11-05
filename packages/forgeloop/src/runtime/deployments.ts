@@ -462,30 +462,19 @@ export class Deployments {
       ? this.deps.config.deployments.tools.find((item) => item.id === target.toolId)
       : undefined
     if (!target || !tool) return fail('not_found', '部署目标或工具已不在配置中')
-
-    const restorePoint = this.restorePointOf(intent.intentId)
-    const data = target.data
     if (hasData(target) && !tool.capabilities.includes('data-rollback')) {
       return fail(
         'capability_missing',
         `目标声明了数据范围，但工具 ${tool.id} 没有 data-rollback 能力`,
       )
     }
-    if (hasData(target) && !restorePoint) {
-      const message = `部署 ${intentId} 没有可用的 restorePoint，拒绝回退`
-      this.transition(intent, 'rolling_back')
-      this.transition(intent, 'failed')
-      this.alertFailure(intent, message)
-      return fail('restore_point_missing', message)
-    }
 
+    const resolved = this.rollbackTarget(intent, hasData(target))
+    if ('code' in resolved) return resolved
+    const { previous, restorePoint } = resolved
     this.transition(intent, 'rolling_back')
     const artifact = this.artifactOf(intent)
-    const previous = {
-      sha256: intent.artifactSha256,
-      path: intent.artifactPath,
-      restorePoint,
-    }
+    const data = target.data
     if (hasData(target)) {
       const dataRollback = await this.runOperation({
         intent,
@@ -531,12 +520,73 @@ export class Deployments {
       this.alertFailure(intent, message)
       return fail('rollback_verify_failed', message)
     }
+    // 工具退出 0 不代表已回到旧制品：必须按上一已验证制品核对实际状态。
+    const mismatch = rollbackMismatch(observed.result, previous)
+    if (mismatch) {
+      this.transition(intent, 'failed')
+      this.alertFailure(intent, `回退后实际状态与上一已验证制品不一致：${mismatch}`)
+      return fail('rollback_verify_failed', `回退后实际状态不符：${mismatch}`)
+    }
     this.transition(intent, 'rolled_back')
     return ok(`部署 ${intentId} 已回退：${reason || '未说明原因'}`, {
       intentId,
       state: intent.state,
       restorePoint,
+      artifactSha256: previous.sha256,
+      artifactVersion: previous.version,
     })
+  }
+
+  /**
+   * 回退目标：上一已验证制品必须仍保留且摘要可验证；没有就拒绝回退。
+   * 声明了数据范围时还要求本次 preflight 给出 restorePoint。
+   */
+  private rollbackTarget(
+    intent: DeploymentIntentRecord,
+    requiresRestorePoint: boolean,
+  ):
+    | { previous: NonNullable<DeploymentToolPlan['previous']>; restorePoint: string }
+    | DeploymentOutcome {
+    const previousIntent = this.deps.store.previousVerifiedIntent(
+      intent.targetId,
+      intent.createdAt,
+      intent.intentId,
+    )
+    if (!previousIntent) {
+      return fail(
+        'no_previous_artifact',
+        `部署 ${intent.intentId} 没有上一已验证制品；不能回退到未知状态`,
+      )
+    }
+    const retained = artifactFileDigest(previousIntent.artifactPath)
+    if (!retained) {
+      return fail(
+        'previous_artifact_missing',
+        `上一已验证制品文件不可读：${previousIntent.artifactPath}`,
+      )
+    }
+    if (retained !== previousIntent.artifactSha256) {
+      return fail(
+        'previous_artifact_changed',
+        `上一已验证制品摘要 ${retained.slice(0, 12)}… 与记录 ${previousIntent.artifactSha256.slice(0, 12)}… 不一致`,
+      )
+    }
+    const restorePoint = this.restorePointOf(intent.intentId)
+    if (requiresRestorePoint && !restorePoint) {
+      return fail(
+        'restore_point_missing',
+        `部署 ${intent.intentId} 没有可用的 restorePoint，拒绝回退`,
+      )
+    }
+    return {
+      previous: {
+        sha256: previousIntent.artifactSha256,
+        path: previousIntent.artifactPath,
+        version: previousIntent.artifactVersion,
+        restorePoint,
+      },
+      restorePoint,
+    }
   }
 
   /** 本次安装实际开始时间；用于判断运行进程是否在安装之后才启动。 */
@@ -883,6 +933,29 @@ function verifyMismatch(
   if (Number.isFinite(applied) && started < applied - 5_000) {
     return '运行进程启动时间早于本次安装，进程可能仍运行旧内容'
   }
+  return ''
+}
+
+/**
+ * 回退后的实际状态必须回到上一已验证制品：版本、安装摘要与运行摘要都要匹配。
+ * 只检查工具 ok/退出码会把“没有真正回退”记成成功。
+ */
+function rollbackMismatch(
+  result: DeploymentToolResult,
+  previous: { readonly version: string; readonly sha256: string },
+): string {
+  if (result.version !== previous.version) {
+    return `实际运行版本 ${result.version || '未知'}，期望上一已验证版本 ${previous.version}`
+  }
+  if (!result.artifactSha256) return '工具未提供已安装制品摘要，无法确认回退结果'
+  if (result.artifactSha256 !== previous.sha256) {
+    return `已安装制品摘要不是上一已验证制品 ${previous.sha256.slice(0, 12)}…`
+  }
+  if (!result.runningArtifactSha256) return '工具未提供运行中制品摘要，无法确认回退后的运行内容'
+  if (result.runningArtifactSha256 !== previous.sha256) {
+    return `运行中制品摘要不是上一已验证制品 ${previous.sha256.slice(0, 12)}…`
+  }
+  if (result.runningPid <= 0) return '工具未提供有效运行进程 pid'
   return ''
 }
 

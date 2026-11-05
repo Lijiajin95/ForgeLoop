@@ -5465,3 +5465,25 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   `ready → preflight_failed` 边。
 - 未执行：真实外部工具与真实 DSH profile 的部署复核仍属未验证边界（本批只改隔离夹具内的确定性判定）。
 
+## 142. 回退到上一已验证制品并按实际状态核对（2026-11-05）
+
+来源：批次 B“上线与回退效果核对”。§140/§141 已完成 apply 前复核；本批修回退目标与回退后核对。
+
+### 142.1 实现
+
+- **previous 指向上一已验证制品**：回退目标取同一 target 在本次 intent 之前最近一次 `verified`
+  部署（`previousVerifiedIntent`），不再把本次制品写进 `plan.previous`；`plan.previous` 增加
+  `version` 字段，工具可据此恢复并报告旧版本。
+- **上一制品保留与摘要**：回退前重新计算上一制品文件摘要；没有上一已验证制品、文件不可读或内容
+  被改动时拒绝回退，不调用 `data-rollback`/`rollback`，intent 状态保持不变。
+- **回退后核对旧制品**：工具返回成功后仍要求 `status` 的版本、安装摘要、运行摘要与进程匹配上一
+  已验证制品；任一不符记 `rollback_verify_failed` 并告警，不写成 `rolled_back`。
+- 数据范围仍按 target 声明，用本次 preflight 的 `restorePoint` 调用 `data-rollback`；
+  回退是所有者动作（`ownerOnly`），不自动整库覆盖。
+
+### 142.2 证据
+
+- `tests/deployment-rollback.test.ts` 重写为 9 项：回退到 v1 而非 v2（检查实际下发的 plan）、
+  data-rollback 先于 rollback 且带 restorePoint、无上一已验证制品拒绝、上一制品缺失/被改拒绝、
+  工具报成功但目标仍运行新制品时 `rollback_verify_failed` 并告警、工具失败、未应用/未知 intent 拒绝。
+- 未执行：真实外部回退工具与真实数据恢复未验证；数据兼容性/不可逆迁移仍按产品规则需要人工决定。
