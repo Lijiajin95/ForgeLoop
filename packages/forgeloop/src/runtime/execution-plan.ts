@@ -420,7 +420,7 @@ export class ExecutionPlan {
       }
       const violations = [
         ...languageViolations(plan),
-        ...outsideActiveSource(plan),
+        ...outsideActiveSource(plan, this.deps.config.activeRoots),
         ...unknownPackages(plan, this.deps.existingPackages()),
         ...planCoverageIssues(analysis, plan).map((issue) => ({
           taskId: 'plan',

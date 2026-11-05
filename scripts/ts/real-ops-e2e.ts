@@ -253,6 +253,8 @@ async function main(): Promise<void> {
       {
         project: 'real-ops',
         projectPath: project,
+        // 受控目标工程自己的允许路径：临时项目不是 ForgeLoop 仓库。
+        activeRoots: ['src/', 'test/', 'scripts/', 'docs/', 'README.md', 'package.json'],
         recordsRoot,
         pollSeconds: 2,
         owner: 'real-ops-e2e',

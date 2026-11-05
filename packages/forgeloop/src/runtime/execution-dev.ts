@@ -203,7 +203,7 @@ export class ExecutionDev {
       const packages = this.deps.existingPackages()
       const violations = [
         ...languageViolations(plan),
-        ...outsideActiveSource(plan),
+        ...outsideActiveSource(plan, this.deps.config.activeRoots),
         ...unknownPackages(plan, packages),
       ]
       if (violations.length > 0) {

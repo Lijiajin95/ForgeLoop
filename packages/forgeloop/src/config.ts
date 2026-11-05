@@ -342,6 +342,8 @@ export interface ForgeLoopConfig {
   readonly recordsRoot: string
   readonly project: string
   readonly projectPath: string
+  /** 活动工程的允许顶层路径；缺省用 ForgeLoop 自带约定，受控目标工程可覆盖。 */
+  readonly activeRoots?: readonly string[] | undefined
   readonly owner: string
   readonly pollSeconds: number
   readonly autoAdvance: boolean
@@ -369,6 +371,7 @@ export interface RawConfig {
   recordsRoot?: string
   project?: string
   projectPath?: string
+  activeRoots?: string[]
   owner?: string
   pollSeconds?: number
   autoAdvance?: boolean
@@ -1185,6 +1188,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
   }
   const projectPath = resolve(cwd, expandHome(textOr(raw.projectPath, '.')))
   // Desktop 和 Web 的启动目录可能不同；项目数据始终相对已选项目定位。
+  const activeRoots = stringList(raw.activeRoots, 'activeRoots', [])
   const recordsRoot = resolve(projectPath, expandHome(textOr(raw.recordsRoot, '.forgeloop')))
   const pollSeconds = positiveNumber(raw.pollSeconds, 'pollSeconds', 5)
   if (pollSeconds < 1) throw new RuleViolationError('配置 pollSeconds 不能小于 1 秒')
@@ -1195,6 +1199,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     recordsRoot,
     project,
     projectPath,
+    ...(activeRoots.length > 0 ? { activeRoots } : {}),
     owner: textOr(raw.owner, 'local-owner'),
     pollSeconds,
     autoAdvance: raw.autoAdvance === true,

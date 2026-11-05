@@ -63,25 +63,34 @@ export function languageViolations(plan: TaskPlan): LanguageViolation[] {
   return violations
 }
 
-/** 任务文件必须落在 TypeScript 工程的允许顶层目录内。 */
-export function outsideActiveSource(plan: TaskPlan): LanguageViolation[] {
-  const activeRoots = [
-    'packages/',
-    'docs/',
-    'contracts/',
-    'config/',
-    'scripts/ts/',
-    'AGENTS.md',
-    'README.md',
-    'CONTRIBUTING.md',
-    'CONTEXT.md',
-    'Makefile',
-    'package.json',
-    'package-lock.json',
-    'pnpm-lock.yaml',
-    'pnpm-workspace.yaml',
-    'tsconfig.json',
-  ]
+/** ForgeLoop 自身工程的允许顶层路径；受控目标工程可用配置替换。 */
+export const DEFAULT_ACTIVE_ROOTS = [
+  'packages/',
+  'docs/',
+  'contracts/',
+  'config/',
+  'scripts/ts/',
+  'AGENTS.md',
+  'README.md',
+  'CONTRIBUTING.md',
+  'CONTEXT.md',
+  'Makefile',
+  'package.json',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'tsconfig.json',
+] as const
+
+/**
+ * 任务文件必须落在活动工程的允许顶层目录内。
+ * 传入 roots 时用它替换内置的 ForgeLoop 工程约定，供受控目标工程使用。
+ */
+export function outsideActiveSource(
+  plan: TaskPlan,
+  roots?: readonly string[],
+): LanguageViolation[] {
+  const activeRoots = roots && roots.length > 0 ? [...roots] : [...DEFAULT_ACTIVE_ROOTS]
   const violations: LanguageViolation[] = []
   for (const task of plan.tasks) {
     for (const file of task.files) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseTaskPlanDraft } from '../src/domain/task-plan.js'
 import { languageViolations, outsideActiveSource } from '../src/domain/language.js'
+import type { TaskPlan } from '../src/domain/task-plan.js'
 
 const context = {
   requirementId: 'req-1',
@@ -68,5 +69,28 @@ describe('TypeScript language boundary', () => {
   it('rejects files outside the active TypeScript project', () => {
     const candidate = plan(['npm', 'test'], ['unrelated/notes.txt'])
     expect(outsideActiveSource(candidate).length).toBeGreaterThan(0)
+  })
+})
+
+describe('outsideActiveSource roots', () => {
+  const plan = (file: string): TaskPlan =>
+    ({
+      tasks: [
+        {
+          taskId: 't1',
+          title: 't1',
+          files: [file],
+          testCommand: ['node', '-e', 'process.exit(0)'],
+        },
+      ],
+    }) as unknown as TaskPlan
+
+  it('rejects files outside the built-in ForgeLoop roots by default', () => {
+    expect(outsideActiveSource(plan('src/service.mjs'))).toHaveLength(1)
+  })
+
+  it('uses the target project roots when配置给出', () => {
+    expect(outsideActiveSource(plan('src/service.mjs'), ['src/', 'test/'])).toEqual([])
+    expect(outsideActiveSource(plan('packages/x.ts'), ['src/', 'test/'])).toHaveLength(1)
   })
 })

@@ -1251,7 +1251,7 @@ ${answer}`
     }
     const boundary = [
       ...languageViolations(plan),
-      ...outsideActiveSource(plan),
+      ...outsideActiveSource(plan, this.config.activeRoots),
       ...unknownPackages(plan, this.existingPackages()),
     ]
     if (boundary.length > 0) {
