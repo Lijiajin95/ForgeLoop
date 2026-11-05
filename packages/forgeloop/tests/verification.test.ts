@@ -1756,6 +1756,9 @@ describe('requirement-derived verification plan', () => {
     expect(prompt).toContain(EDGE_CASE)
     // 已准入任务包只提供任务目标用于核对覆盖面。
     expect(prompt).toContain('依据需求说明生成结构化验证方案')
+    // 异常断言给出可复制的自包含骨架，减少自由发挥。
+    expect(prompt).toContain('异常断言可参考这个骨架')
+    expect(prompt).toContain('mkdtempSync')
     // 方案阶段不接触候选身份、diff 或任务包字段名。
     expect(prompt).not.toContain('candidateSha256')
     expect(prompt).not.toContain('diff --git')

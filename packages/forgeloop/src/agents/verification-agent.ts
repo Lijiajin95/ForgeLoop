@@ -130,6 +130,13 @@ ${tasks}
 - 方案还必须覆盖需求说明中的每条业务规则、每条异常与边界：把原文写进对应场景的 scenario、acceptance_criterion 或 method（可附带补充说明）。非目标不是验收项。
 - 异常与边界必须可被命令观测，不能只写在 method 的文字里：如果异常描述某个命令应失败、应输出某个标记（例如“输出 missing”“退出码非零”），必须写一条命令显式制造并观测该分支，并在命令内部把“观测到的失败行为”转换为退出码 0 后打印该标记，把标记填进该命令的 expected_output。示例：在临时目录中不放目标文件，捕获失败并打印 missing，命令正常退出 0，expected_output 为 missing。
 - 这类异常断言命令必须自包含：用 \`mkdtemp\`/\`mktemp\`/\`tempfile\` 在临时目录里自建或删除输入，不要读取候选仓库当前状态；候选工作区在验证期间会写入 \`verification/\` 目录，任何“工作区只有目标文件被改动”的检查都必须排除该目录。
+- 异常断言可参考这个骨架（把 <被测命令> 换成需求给出的命令文本，断言成立才打印 expected_output）：
+  const {spawnSync}=require('node:child_process');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'edge-'));
+  const run=()=>spawnSync(process.execPath,['-e',<被测命令>],{cwd:dir,encoding:'utf8'});
+  // 分支一：不创建输入 -> 断言退出码非零
+  // 分支二：创建内容不符合要求的输入 -> 断言退出码非零且输出包含异常标记
+  // 两个分支都符合预期才打印异常标记；否则以非零退出
 - 至少包含一个 required=true 的场景；每个场景至少一条可执行命令；命令总数为 1 到 10 条，label 不能重复。
 - 命令会在独立的候选工作区直接执行，不允许交互输入、网络依赖或修改被验证代码；验证脚本可以放在 \`verification/\`。
 - expected_output 省略时只按退出码判定；填写时必须是命令正常输出里会逐字出现的片段。
