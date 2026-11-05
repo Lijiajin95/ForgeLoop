@@ -6152,3 +6152,20 @@ M1-3 要求“真实/标注注入故障 → 真实诊断 → 授权内恢复 →
 - **未完成**：修复需求的真实研发、自动部署与原事件复核关闭（本 E2E 当前关闭部署目标，
   修复需求停在 `draft`）。M1-3 仍记“部分达成”，不按通过计。
 - 上一轮误连生产记录的教训已在安装环节规避：本 E2E 全程 `FORGELOOP_CONFIG` + 隔离 `recordsRoot`。
+
+## 160. 全量变异推进：runtime 深度测试批次（2026-11-06）
+
+- 基线（nightly 分片产物 + 本地补测）：全量约 **68–69%**；9 个已下载分片 15,963 个变异 64.88%。
+- 本批新增 166 个行为用例（5 + 91 + 75，分三次提交），全部通过；`make check` 1,880 项通过。
+- 定向实测（fast 配置、单文件 Stryker）：
+  - `candidate-pipeline.ts` 34.78% → **62.50%**（+275 kills）
+  - `service.ts` 49.26% → **64.92%**（+220）
+  - `ops.ts` 52.66% → **78.31%**（+350）
+  - `deployments.ts`+`deployment-inspect.ts` 59.4% → **88.73%**（+283）
+  - `prompts/requirement-views/task-views` 56.5% → **88.18%**（+316）
+  - `legacy-verification/verification-pipeline` 64.7% → **73.33%**（+105）
+  - `board.ts` 69.30% → **70.00%**（+7）
+- 合计约 **+1,556 个有效 kill**；按已知分片权重外推，全量约 **76%**（仍需约 +1,100）。
+- 发现但不碰：`verification-controls.executeVerificationControls` 在 `controlDir` 位于被测 git
+  仓库子目录时，`git apply` 静默忽略仓库根相对路径并返回 0，敏感性对照可能“补丁未应用但判为通过”；
+  默认 `recordsRoot=<project>/.forgeloop` 正落此情形。测试通过把 recordsRoot 移出仓库来真实执行对照。
