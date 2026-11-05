@@ -1832,6 +1832,30 @@ describe('requirement-derived verification plan', () => {
     ).rejects.toThrow('验证方案未覆盖需求说明')
   })
 
+  it('requires an executable assertion for the output marker named by an exception', () => {
+    const analysis = {
+      scenarios: [SCENARIO],
+      acceptanceCriteria: [CRITERION],
+      exceptions: ['文件缺失时测试命令必须退出非零并输出 missing。'],
+    }
+    const withoutMarker = parseRequirementVerificationPlan(requirementVerificationPlanOf())
+    const issues = validateRequirementVerificationPlan(analysis, withoutMarker)
+    expect(issues.join('；')).toContain('缺少异常标记断言')
+    expect(issues.join('；')).toContain('missing')
+
+    const withMarker = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf().replace(
+        '"expected_output":"verified ok"',
+        '"expected_output":"missing"',
+      ),
+    )
+    expect(
+      validateRequirementVerificationPlan(analysis, withMarker).filter((issue) =>
+        issue.includes('异常标记断言'),
+      ),
+    ).toEqual([])
+  })
+
   it('refuses a plan that misses a business rule or an exception boundary', async () => {
     const { requirement, analysis } = requirementForVerificationPlan()
     const missingRule = makeVerificationAgent({

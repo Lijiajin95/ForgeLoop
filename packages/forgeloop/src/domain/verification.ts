@@ -423,6 +423,43 @@ function planReferences(plan: VerificationPlan, source: string): boolean {
 }
 
 /**
+ * 异常与边界里点名的输出标记（“输出 missing”“打印 FAIL”）必须成为某条命令的
+ * expected_output；只写在文字说明里不算可核对证据，业务终审会因此判定证据缺失。
+ */
+export function validateExceptionMarkers(
+  exceptions: readonly string[],
+  plan: VerificationPlan,
+): string[] {
+  const issues: string[] = []
+  const outputs = plan.scenarios.flatMap((scenario) =>
+    scenario.checks.map((check) => check.expectedOutput),
+  )
+  for (const item of exceptions) {
+    for (const marker of exceptionMarkers(item)) {
+      if (outputs.some((output) => output !== '' && output.includes(marker))) continue
+      issues.push(
+        `验证方案缺少异常标记断言：${item}（需要一条命令的 expected_output 包含 ${marker}）`,
+      )
+    }
+  }
+  return issues
+}
+
+/** 取“输出/打印/提示”后紧跟的 ASCII 标记，或反引号/引号里的标记。 */
+function exceptionMarkers(text: string): string[] {
+  const markers = new Set<string>()
+  for (const match of text.matchAll(/[`'"]([A-Za-z][A-Za-z0-9_-]{2,})[`'"]/g)) {
+    if (match[1]) markers.add(match[1])
+  }
+  for (const match of text.matchAll(
+    /(?:输出|打印|提示)(?:为|是|：|:)?\s*([A-Za-z][A-Za-z0-9_-]{2,})/g,
+  )) {
+    if (match[1]) markers.add(match[1])
+  }
+  return [...markers]
+}
+
+/**
  * 验证方案必须逐字覆盖需求说明中的全部业务场景、业务规则、异常与边界和验收标准。
  * 非目标只作背景，不参与正向验收。
  */
@@ -506,6 +543,7 @@ export function validateRequirementVerificationPlan(
   for (const item of analysis.exceptions ?? []) {
     if (!planReferences(plan, item)) issues.push(`验证方案缺少异常与边界：${item}`)
   }
+  issues.push(...validateExceptionMarkers(analysis.exceptions ?? [], plan))
   return issues
 }
 
