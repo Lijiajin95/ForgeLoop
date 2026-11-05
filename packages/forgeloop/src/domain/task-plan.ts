@@ -32,6 +32,8 @@ export interface PlannedTask {
   readonly testCommand: readonly string[]
   readonly dependsOn: readonly string[]
   readonly limits: TaskLimits
+  /** 本任务覆盖的业务要点编号（BP-x）；旧任务包没有该字段。 */
+  readonly covers?: readonly string[]
   readonly authorizationSource: string
   /** 验证任务只检查既有交付，不修改文件；可没有 files，交付语义见运行时。 */
   readonly verification?: boolean
@@ -100,6 +102,18 @@ export function validateFiles(files: readonly string[]): void {
   }
 }
 
+function validateCovers(covers: readonly string[] | undefined): void {
+  if (covers === undefined) return
+  if (new Set(covers).size !== covers.length) {
+    throw new RuleViolationError('任务覆盖的业务要点不能重复')
+  }
+  for (const pointId of covers) {
+    if (!/^BP-\d+$/.test(pointId)) {
+      throw new RuleViolationError(`任务覆盖的业务要点编号必须形如 BP-1: ${pointId}`)
+    }
+  }
+}
+
 export function validateTask(task: PlannedTask): void {
   requireNonEmpty(task.taskId, 'task_id')
   requireNonEmpty(task.goal, 'goal')
@@ -123,6 +137,7 @@ export function validateTask(task: PlannedTask): void {
   if (new Set(task.dependsOn).size !== task.dependsOn.length) {
     throw new RuleViolationError('任务依赖不能包含重复项')
   }
+  validateCovers(task.covers)
   for (const dependency of task.dependsOn) requireNonEmpty(dependency, 'depends_on')
   if (
     !Number.isFinite(task.limits.limitSeconds) ||
@@ -340,6 +355,7 @@ export function parseTaskPlanDraft(
       dependsOn: toStringList(task.depends_on ?? task.dependsOn ?? [], 'depends_on', true),
       limits: limitsFrom(task.limits),
       authorizationSource: '',
+      ...(task.covers === undefined ? {} : { covers: toStringList(task.covers, 'covers', true) }),
       ...(task.verification === true ? { verification: true } : {}),
     } satisfies PlannedTask
   })

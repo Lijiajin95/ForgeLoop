@@ -79,6 +79,7 @@ import { OpsRuntime } from './ops.js'
 import { applyDiffFile } from './diff-apply.js'
 import { buildStatusBoard, type StatusBoardView } from './board.js'
 import { pendingClarificationsOf, type PendingClarification } from './clarification-view.js'
+import { requirementDetailExtras } from './requirement-detail.js'
 import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
 import { runFormalTest } from './formal-test.js'
 import { planReviewPrompt, requirementContext } from './prompts.js'
@@ -1573,6 +1574,7 @@ ${answer}`
     })
     return ok(`需求 ${reqId} 详情`, {
       ...view,
+      ...requirementDetailExtras(this.repo, reqId),
       latestPlan: plan,
       artifacts,
       admission: evidence.admission,

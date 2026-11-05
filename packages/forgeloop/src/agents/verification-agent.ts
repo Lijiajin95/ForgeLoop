@@ -58,6 +58,28 @@ export function verificationPlanPrompt(input: {
   const exceptions = input.analysis.exceptions ?? []
   const nonGoals = input.analysis.nonGoals ?? []
   const tasks = input.plan.tasks.map((task) => `- ${task.taskId}：${task.goal}`).join('\n')
+  const points = (input.analysis.businessPoints ?? [])
+    .map((point) => {
+      const exceptions =
+        point.exceptions.status === 'assessed'
+          ? point.exceptions.items.join('；') || '（已评估，无额外项目）'
+          : `${point.exceptions.status}：${point.exceptions.reason}`
+      return `- ${point.id}｜${point.actor}｜${point.trigger}｜${point.behavior}
+  规则：${point.rules.join('；') || '（无）'}；异常与边界：${exceptions}`
+    })
+    .join('\n')
+  const acceptance = (input.analysis.acceptanceItems ?? [])
+    .map(
+      (item) =>
+        `- ${item.id}｜覆盖 ${item.pointIds.join('、')}｜给定 ${item.given}；当 ${item.when}；则 ${item.then}`,
+    )
+    .join('\n')
+  const structured = points
+    ? `\n结构化业务要点（验证必须按编号覆盖）：
+${points}
+可观察验收：
+${acceptance || '（无）'}`
+    : ''
   return `你是 ForgeLoop 的验证 Agent。现在只依据需求说明与已准入任务包的任务目标设计验证方案：不读取实现代码、不接触候选 diff，也不要调用任何工具。研发产物交付后，你会在同一个会话里通过工具执行这份方案并做业务验收。
 
 需求身份：${input.requirement.reqId}
@@ -77,7 +99,7 @@ ${exceptions.map((item) => `  - ${item}`).join('\n') || '  - （没有额外异�
 - 非目标（只作背景，不得写成验收场景）：
 ${nonGoals.map((item) => `  - ${item}`).join('\n') || '  - （未声明非目标）'}
 - 验收标准：
-${input.analysis.acceptanceCriteria.map((criterion) => `  - ${criterion}`).join('\n')}
+${input.analysis.acceptanceCriteria.map((criterion) => `  - ${criterion}`).join('\n')}${structured}
 
 已准入任务包 v${input.plan.planVersion} 的任务目标（只用于核对覆盖面，不要按实现方式设计验证）：
 ${tasks}
@@ -90,6 +112,8 @@ ${tasks}
       "acceptance_criterion": "验收标准原文（必须逐字包含需求说明中的标准，可补充说明）",
       "method": "如何执行：前置条件、操作、预期结果与证据",
       "required": true,
+      "point_ids": ["本场景覆盖的业务要点编号，例如 BP-1"],
+      "acceptance_ids": ["本场景覆盖的验收项编号，例如 AC-1"],
       "checks": [
         {
           "label": "全局唯一的命令标签",
@@ -102,7 +126,8 @@ ${tasks}
 }
 
 规则：
-- 方案必须逐字覆盖需求说明中的每个业务场景、每条业务规则、每条异常与边界、每条验收标准：把原文写进对应场景的 scenario、acceptance_criterion 或 method（可附带补充说明）。非目标不是验收项。
+- 有结构化业务要点时，每个必过场景必须用 point_ids 和 acceptance_ids 明确引用它覆盖的要点与验收项；所有要点和验收项都必须至少被一个 required=true 的场景覆盖，编号必须真实存在。不要重排或编造编号。
+- 方案还必须覆盖需求说明中的每条业务规则、每条异常与边界：把原文写进对应场景的 scenario、acceptance_criterion 或 method（可附带补充说明）。非目标不是验收项。
 - 至少包含一个 required=true 的场景；每个场景至少一条可执行命令；命令总数为 1 到 10 条，label 不能重复。
 - 命令会在独立的候选工作区直接执行，不允许交互输入、网络依赖或修改被验证代码；验证脚本可以放在 \`verification/\`。
 - expected_output 省略时只按退出码判定；填写时必须是命令正常输出里会逐字出现的片段。

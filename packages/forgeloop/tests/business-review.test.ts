@@ -6,6 +6,12 @@ import { execFileSync } from 'node:child_process'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 /**
  * 业务终审：由验证 Agent 在新会话里按原始需求复核关键业务场景与实际结果，
@@ -53,14 +59,14 @@ function result(
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -80,7 +86,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const PLAN_REVIEW = JSON.stringify({
+const PLAN_REVIEW = structuredVerificationOf({
   verdict: 'pass',
   blocking: [],
   findings: [],
@@ -112,7 +118,7 @@ function businessReview(
   } = {},
 ): string {
   const verdict = options.verdict ?? 'pass'
-  return JSON.stringify({
+  return structuredReviewOf({
     verdict,
     summary: verdict === 'pass' ? '业务场景复核通过' : '业务场景复核阻断',
     findings: [],
@@ -297,7 +303,7 @@ describe('business final review', () => {
     runtime = makeRuntime(fakeRunner({ review: () => businessReview({ omitAcceptance: true }) }))
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('业务终审缺少验收标准')
+    expect(advance.detail).toContain('业务终审缺少验收项')
     expect(runtime.accept({ reqId, by: 'owner', source: 'test' }).ok).toBe(false)
   })
 

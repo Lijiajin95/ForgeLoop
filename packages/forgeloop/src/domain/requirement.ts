@@ -10,6 +10,8 @@ import { asRecord } from './json.js'
 import { MalformedError, RuleViolationError, errorMessage } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
 import type { ClarificationUpdate } from './analysis.js'
+import type { AcceptanceCriterion, Assumption, BusinessPoint } from './spec.js'
+import { parseSpecFields } from './spec.js'
 
 export interface RequirementVersion {
   readonly version: number
@@ -76,6 +78,12 @@ export interface RequirementAnalysis {
   /** 非目标：本需求明确不做的范围。 */
   readonly nonGoals?: readonly string[]
   readonly acceptanceCriteria: readonly string[]
+  /** 结构化业务要点；历史记录或问题输入可能没有。 */
+  readonly businessPoints?: readonly BusinessPoint[]
+  /** 结构化可观察验收；与 businessPoints 同批出现。 */
+  readonly acceptanceItems?: readonly AcceptanceCriterion[]
+  /** 尚未验证的推断或外部假设；不是已确认业务规则。 */
+  readonly assumptions?: readonly Assumption[]
   readonly clarifications: readonly string[]
   /** 产生该结论的模型与提示词版本；历史记录可能为空。 */
   readonly model?: string
@@ -100,6 +108,9 @@ export interface AnalysisDraft {
   readonly exceptions: readonly string[]
   readonly nonGoals: readonly string[]
   readonly acceptanceCriteria: readonly string[]
+  readonly businessPoints: readonly BusinessPoint[]
+  readonly acceptanceItems: readonly AcceptanceCriterion[]
+  readonly assumptions: readonly Assumption[]
   readonly clarifications: readonly string[]
   /** 本轮对上一轮未解决问题的逐项处置；首次分析为空。 */
   readonly clarificationUpdates: readonly ClarificationUpdate[]
@@ -254,7 +265,8 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   const businessRules = listField(data, 'business_rules')
   const exceptions = listField(data, 'exceptions')
   const nonGoals = listField(data, 'non_goals')
-  const acceptanceCriteria = listField(data, 'acceptance_criteria')
+  const spec = parseSpecFields(data)
+  const acceptanceCriteria = spec.acceptanceCriteria
   const clarifications = listField(data, 'clarifications')
   const clarificationUpdates = clarificationUpdatesField(data)
   const businessContext = businessContextField(data)
@@ -277,6 +289,9 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
     exceptions,
     nonGoals,
     acceptanceCriteria,
+    businessPoints: spec.points,
+    acceptanceItems: spec.acceptance,
+    assumptions: spec.assumptions,
     clarifications,
     clarificationUpdates,
     businessContext,

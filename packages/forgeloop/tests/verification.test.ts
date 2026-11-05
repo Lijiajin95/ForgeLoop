@@ -29,6 +29,7 @@ import {
 } from '../src/agents/verification-agent.js'
 import { VerificationCheckRegistry } from '../src/runtime/verification-checks.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
+import { structuredSpecOf, structuredPlanOf, structuredReviewOf } from './spec-fixture.js'
 
 /**
  * 验证 Agent 的门禁测试：实现前评审决定能否批准，独立验证决定能否验收。
@@ -75,14 +76,14 @@ function result(
 const SCENARIO = '任务按依赖完成'
 const CRITERION = '两个任务交付且测试通过'
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -199,7 +200,7 @@ function fakeRunner(
       if (request.role === 'verify' && request.prompt.includes('业务验收')) {
         return result(
           request,
-          JSON.stringify({
+          structuredReviewOf({
             verdict: 'pass',
             summary: '业务终审通过',
             findings: [],

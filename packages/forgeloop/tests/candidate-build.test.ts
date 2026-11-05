@@ -8,6 +8,12 @@ import { resolveConfig } from '../src/config.js'
 import { PLUGIN_VERSION } from '../src/runtime/version.js'
 import { sha256OfBytes, sha256OfText } from '../src/domain/delivery.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 /**
  * 可发布候选与上线核对：
@@ -99,14 +105,14 @@ function result(
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -126,7 +132,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const PLAN_REVIEW = JSON.stringify({
+const PLAN_REVIEW = structuredVerificationOf({
   verdict: 'pass',
   blocking: [],
   findings: [],
@@ -150,7 +156,7 @@ const VERIFICATION_REPORT = JSON.stringify({
 })
 
 /** 需求说明派生的验证方案；命令由运行时在固定候选上实际执行。 */
-const VERIFICATION_PLAN = JSON.stringify({
+const VERIFICATION_PLAN = structuredVerificationOf({
   scenarios: [
     {
       scenario: SCENARIO,
@@ -168,7 +174,7 @@ const VERIFICATION_PLAN = JSON.stringify({
   ],
 })
 
-const BUSINESS_REVIEW = JSON.stringify({
+const BUSINESS_REVIEW = structuredReviewOf({
   verdict: 'pass',
   summary: '业务终审通过',
   findings: [],

@@ -6,6 +6,7 @@ import { resolveConfig } from '../src/config.js'
 import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { SessionIntake } from '../src/session/intake.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import { structuredSpecOf } from './spec-fixture.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -14,14 +15,14 @@ afterEach(() => {
 
 const SESSION = 'session-clarify-1'
 
-const QUESTIONS = JSON.stringify({
+const QUESTIONS = structuredSpecOf({
   goal: '订单列表支持取消订单',
   scenarios: ['店长查看订单列表'],
   acceptance_criteria: ['取消订单按状态可见'],
   clarifications: ['是否包含已取消订单？', '取消订单是否按取消时间筛选？'],
 })
 
-const PARTIAL = JSON.stringify({
+const PARTIAL = structuredSpecOf({
   goal: '订单列表支持取消订单',
   scenarios: ['店长查看订单列表'],
   acceptance_criteria: ['取消订单按状态可见'],
@@ -36,7 +37,7 @@ const PARTIAL = JSON.stringify({
   ],
 })
 
-const RESOLVED = JSON.stringify({
+const RESOLVED = structuredSpecOf({
   goal: '订单列表支持取消订单',
   scenarios: ['店长查看订单列表'],
   acceptance_criteria: ['取消订单按状态可见，并按取消时间筛选'],
@@ -47,7 +48,7 @@ const RESOLVED = JSON.stringify({
   ],
 })
 
-const FINAL = JSON.stringify({
+const FINAL = structuredSpecOf({
   goal: '订单列表支持取消订单',
   scenarios: ['店长查看订单列表'],
   acceptance_criteria: ['取消订单按状态可见，并按取消时间筛选'],
@@ -57,7 +58,7 @@ const FINAL = JSON.stringify({
   ],
 })
 
-const PLAIN = JSON.stringify({
+const PLAIN = structuredSpecOf({
   goal: '导出订单列表',
   scenarios: ['店长导出订单列表'],
   acceptance_criteria: ['导出文件包含当前筛选结果'],

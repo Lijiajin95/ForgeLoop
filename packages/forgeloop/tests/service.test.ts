@@ -8,6 +8,12 @@ import { Coordinator } from '../src/runtime/coordinator.js'
 import { resolveConfig } from '../src/config.js'
 import { sha256OfText } from '../src/domain/delivery.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 let dir = ''
 let runtime: ForgeLoopRuntime
@@ -46,14 +52,14 @@ function result(
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现两个小改动',
   scenarios: ['任务按依赖完成'],
   acceptance_criteria: ['两个任务交付且测试通过'],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -73,7 +79,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const PLAN_REVIEW = JSON.stringify({
+const PLAN_REVIEW = structuredVerificationOf({
   verdict: 'pass',
   blocking: [],
   findings: [],
@@ -105,7 +111,7 @@ const VERIFICATION_REPORT = JSON.stringify({
   ],
 })
 
-const VERIFICATION_PLAN = JSON.stringify({
+const VERIFICATION_PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -162,7 +168,7 @@ function fakeRunner(
       if (request.role === 'verify' && request.prompt.includes('业务验收')) {
         return result(
           request,
-          JSON.stringify({
+          structuredReviewOf({
             verdict: 'pass',
             summary: '业务终审通过',
             findings: [],

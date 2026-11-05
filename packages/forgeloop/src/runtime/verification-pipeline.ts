@@ -343,6 +343,21 @@ export class VerificationPipeline {
       }
     }
     const plan = authorized.value.plan
+    if (analysis.requirementVersion !== plan.requirementVersion) {
+      return {
+        ok: false,
+        outcome: {
+          state: 'failed',
+          detail: `最新分析依据需求 v${analysis.requirementVersion}，任务包依据 v${plan.requirementVersion}；版本不一致，不能开始独立验证`,
+        },
+      }
+    }
+    if (analysis.clarifications.length > 0) {
+      return {
+        ok: false,
+        outcome: { state: 'failed', detail: '需求仍有待澄清项；不能开始独立验证' },
+      }
+    }
     const artifacts = this.deps.repo.taskArtifacts(reqId, plan.planVersion)
     const missing = plan.tasks.filter(
       (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
@@ -736,6 +751,15 @@ export class VerificationPipeline {
       return { ok: false, detail: `需求 ${reqId} 尚无分析结论；不能做业务终审` }
     }
     const plan = authorized.value.plan
+    if (analysis.requirementVersion !== plan.requirementVersion) {
+      return {
+        ok: false,
+        detail: `最新分析依据需求 v${analysis.requirementVersion}，任务包依据 v${plan.requirementVersion}；版本不一致，不能做业务终审`,
+      }
+    }
+    if (analysis.clarifications.length > 0) {
+      return { ok: false, detail: '需求仍有待澄清项；不能做业务终审' }
+    }
     const artifacts = this.deps.repo.taskArtifacts(reqId, plan.planVersion)
     const missing = plan.tasks.filter(
       (task) => !artifacts.some((artifact) => artifact.taskId === task.taskId),
@@ -852,6 +876,8 @@ export class VerificationPipeline {
       acceptanceCriteria: analysis.acceptanceCriteria,
       businessRules: analysis.businessRules,
       exceptions: analysis.exceptions,
+      businessPoints: analysis.businessPoints,
+      acceptanceItems: analysis.acceptanceItems,
       review,
       runs: facts.map((fact) => ({
         label: fact.label,
@@ -877,6 +903,7 @@ export class VerificationPipeline {
       acceptance: review.acceptance,
       businessRules: review.businessRules,
       exceptions: review.exceptions,
+      points: review.points,
       sessionId: run.sessionId,
       at: this.deps.now(),
     }

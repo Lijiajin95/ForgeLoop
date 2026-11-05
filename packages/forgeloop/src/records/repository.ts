@@ -1913,6 +1913,7 @@ function planToPayload(plan: TaskPlan): unknown {
         max_failure_rounds: task.limits.maxFailureRounds,
       },
       authorization_source: task.authorizationSource,
+      ...(task.covers === undefined ? {} : { covers: task.covers }),
       ...(task.verification === true ? { verification: true } : {}),
     })),
   }
@@ -1956,6 +1957,7 @@ function planFromPayload(
           maxFailureRounds: Number(limits.max_failure_rounds ?? -1),
         },
         authorizationSource: textValue(task.authorization_source),
+        ...(Array.isArray(task.covers) ? { covers: stringArray(task.covers) } : {}),
         ...(task.verification === true ? { verification: true } : {}),
       }
     }),

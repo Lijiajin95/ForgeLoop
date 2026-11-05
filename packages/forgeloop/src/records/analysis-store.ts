@@ -9,6 +9,9 @@ import type { Database } from './db.js'
 import type { RequirementAnalysis } from '../domain/requirement.js'
 import { DEFAULT_INPUT_KIND, INPUT_KINDS, inputKindOf } from '../domain/requirement.js'
 import type { AnalysisAttempt, AnalysisMode, AnalysisOutcome } from '../domain/analysis.js'
+import type { AnalysisSpec } from '../domain/spec.js'
+import { parseSpecFields } from '../domain/spec.js'
+import { asRecord } from '../domain/json.js'
 import { ClarificationStore } from './clarification-store.js'
 import { RuleViolationError } from '../domain/errors.js'
 import { num, oneOf, text, type Row } from './rows.js'
@@ -75,6 +78,7 @@ export class AnalysisStore {
            ON CONFLICT(req_id, analysis_version) DO UPDATE SET kind = excluded.kind`,
         )
         .run(analysis.reqId, analysis.analysisVersion, inputKindOf(analysis))
+      this.recordSpec(analysis)
       if (!clarification) return
       this.clarifications.resolveQuestions({
         reqId: analysis.reqId,
@@ -91,10 +95,62 @@ export class AnalysisStore {
     })
   }
 
+  /** 结构化规格与结论同一事务落库；没有业务要点时不写空行。 */
+  private recordSpec(analysis: RequirementAnalysis & { reqId: string }): void {
+    const spec: AnalysisSpec = {
+      points: analysis.businessPoints ?? [],
+      acceptance: analysis.acceptanceItems ?? [],
+      assumptions: analysis.assumptions ?? [],
+    }
+    if (spec.points.length === 0 && spec.acceptance.length === 0 && spec.assumptions.length === 0) {
+      return
+    }
+    this.db
+      .prepare(
+        `INSERT INTO requirement_analysis_specs (req_id, analysis_version, spec_json)
+         VALUES (?, ?, ?)
+         ON CONFLICT(req_id, analysis_version) DO UPDATE SET spec_json = excluded.spec_json`,
+      )
+      .run(
+        analysis.reqId,
+        analysis.analysisVersion,
+        JSON.stringify({
+          business_points: spec.points,
+          acceptance_criteria: spec.acceptance.map((item) => ({
+            id: item.id,
+            point_ids: item.pointIds,
+            given: item.given,
+            when: item.when,
+            then: item.then,
+          })),
+          assumptions: spec.assumptions,
+        }),
+      )
+  }
+
+  private specs(reqId: string): Map<number, AnalysisSpec> {
+    const rows = this.db
+      .prepare('SELECT * FROM requirement_analysis_specs WHERE req_id = ?')
+      .all(reqId)
+    return new Map(
+      rows.map((row: Row) => {
+        const data: unknown = JSON.parse(text(row, 'spec_json'))
+        const parsed = parseSpecFields(asRecord(data) ?? {})
+        const spec: AnalysisSpec = {
+          points: parsed.points,
+          acceptance: parsed.acceptance,
+          assumptions: parsed.assumptions,
+        }
+        return [num(row, 'analysis_version'), spec]
+      }),
+    )
+  }
+
   analyses(reqId: string): RequirementAnalysis[] {
     const rows = this.db
       .prepare('SELECT * FROM requirement_analyses WHERE req_id = ? ORDER BY analysis_version')
       .all(reqId)
+    const specs = this.specs(reqId)
     const kinds = new Map(
       this.db
         .prepare(
@@ -105,6 +161,7 @@ export class AnalysisStore {
     )
     return rows.map((row: Row) => {
       const analysisVersion = num(row, 'analysis_version')
+      const spec = specs.get(analysisVersion)
       return {
         analysisVersion,
         requirementVersion: num(row, 'requirement_version'),
@@ -119,6 +176,13 @@ export class AnalysisStore {
         exceptions: parseStringList(text(row, 'exceptions')),
         nonGoals: parseStringList(text(row, 'non_goals')),
         acceptanceCriteria: parseStringList(text(row, 'acceptance_criteria')),
+        ...(spec
+          ? {
+              businessPoints: spec.points,
+              acceptanceItems: spec.acceptance,
+              assumptions: spec.assumptions,
+            }
+          : {}),
         clarifications: parseStringList(text(row, 'clarifications')),
         model: text(row, 'model'),
         promptVersion: text(row, 'prompt_version'),

@@ -511,6 +511,40 @@ window.__ModuleLoader__.load({
       'detail.history': '查看版本历史（{count} 个旧版本）',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': '分析结果',
+      'detail.spec': '需求说明',
+      'detail.specScope': '范围与待决定事项',
+      'detail.specPoints': '业务要点与验收',
+      'detail.specAssumptions': '假设与依据',
+      'detail.specChanges': '本次澄清后的变化',
+      'detail.specHistory': '分析与澄清历史',
+      'detail.specFirst': '首次结构化说明。',
+      'detail.specNoChanges': '本次没有新增或修改的业务要点。',
+      'detail.specAdded': '新增',
+      'detail.specChanged': '修改',
+      'detail.specRemoved': '移除',
+      'detail.specResolved': '已解决澄清',
+      'detail.specOpen': '仍待澄清',
+      'detail.specNewQuestions': '新待澄清',
+      'detail.specAssumption': '假设',
+      'detail.specNeedsConfirm': '待确认',
+      'detail.specWorkingAssumption': '工作假设',
+      'detail.specPoint': '用户/角色',
+      'detail.specTrigger': '触发',
+      'detail.specBehavior': '预期行为',
+      'detail.specSource': '依据',
+      'detail.specExceptions': '异常与边界',
+      'detail.specAcceptance': '可观察验收',
+      'detail.answer': '回答',
+      'detail.specGiven': '前置条件',
+      'detail.specWhen': '操作',
+      'detail.specThen': '可观察结果',
+      'detail.specAnalysisRecord': '分析记录',
+      'spec.basis.user_requirement': '用户明确要求',
+      'spec.basis.project_convention': '项目约定',
+      'spec.basis.external_material': '外部资料',
+      'spec.exceptions.assessed': '已评估',
+      'spec.exceptions.not_applicable': '已评估且不适用',
+      'spec.exceptions.unanalyzed': '尚未分析',
       'detail.rules': '业务规则',
       'detail.exceptions': '异常与边界',
       'detail.nonGoals': '非目标',
@@ -1028,6 +1062,40 @@ window.__ModuleLoader__.load({
       'detail.history': 'Version history ({count} older versions)',
       'detail.versionMeta': 'v{version} · {time} · {by}',
       'detail.analysis': 'Analysis',
+      'detail.spec': 'Requirement specification',
+      'detail.specScope': 'Scope and decisions needed',
+      'detail.specPoints': 'Business points and acceptance',
+      'detail.specAssumptions': 'Assumptions and basis',
+      'detail.specChanges': 'Changes after this clarification',
+      'detail.specHistory': 'Analysis and clarification history',
+      'detail.specFirst': 'First structured specification.',
+      'detail.specNoChanges': 'No business point was added or changed in this round.',
+      'detail.specAdded': 'Added',
+      'detail.specChanged': 'Changed',
+      'detail.specRemoved': 'Removed',
+      'detail.specResolved': 'Resolved clarifications',
+      'detail.specOpen': 'Still open',
+      'detail.specNewQuestions': 'New clarifications',
+      'detail.specAssumption': 'Assumption',
+      'detail.specNeedsConfirm': 'Needs confirmation',
+      'detail.specWorkingAssumption': 'Working assumption',
+      'detail.specPoint': 'Actor',
+      'detail.specTrigger': 'Trigger',
+      'detail.specBehavior': 'Expected behavior',
+      'detail.specSource': 'Basis',
+      'detail.specExceptions': 'Exceptions and boundaries',
+      'detail.specAcceptance': 'Observable acceptance',
+      'detail.answer': 'Answer',
+      'detail.specGiven': 'Given',
+      'detail.specWhen': 'When',
+      'detail.specThen': 'Then',
+      'detail.specAnalysisRecord': 'Analysis records',
+      'spec.basis.user_requirement': 'Explicit user requirement',
+      'spec.basis.project_convention': 'Project convention',
+      'spec.basis.external_material': 'External material',
+      'spec.exceptions.assessed': 'Assessed',
+      'spec.exceptions.not_applicable': 'Assessed, not applicable',
+      'spec.exceptions.unanalyzed': 'Not analyzed',
       'detail.rules': 'Business rules',
       'detail.exceptions': 'Exceptions and boundaries',
       'detail.nonGoals': 'Non-goals',
@@ -2576,6 +2644,173 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function changeList(t, label, ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return null
+      return h('div', { key: label }, h('span', { className: 'flb-label' }, `${label}：`), ids.join('、'))
+    }
+
+    function specChangeView(t, changes, hasHistory) {
+      if (!changes) return null
+      const rows = [
+        changeList(t, t('detail.specAdded'), changes.addedPoints),
+        changeList(t, t('detail.specChanged'), changes.changedPoints),
+        changeList(t, t('detail.specRemoved'), changes.removedPoints),
+        changeList(t, t('detail.specResolved'), changes.resolvedClarifications),
+        changeList(t, t('detail.specOpen'), changes.remainingClarifications),
+        changeList(t, t('detail.specNewQuestions'), changes.newClarifications),
+      ].filter(Boolean)
+      if (rows.length === 0) {
+        return hasHistory ? h('div', { className: 'flb-muted' }, t('detail.specNoChanges')) : null
+      }
+      return h('div', { className: 'flb-subsection', key: 'changes' }, ...rows)
+    }
+
+    function clarificationHistoryView(t, history) {
+      const questions = history && Array.isArray(history.questions) ? history.questions : []
+      const answers = history && Array.isArray(history.answers) ? history.answers : []
+      if (questions.length === 0) return null
+      const answerFor = (question) =>
+        answers.find(
+          (answer) =>
+            Array.isArray(answer.questionIds) && answer.questionIds.includes(question.questionId),
+        )
+      return h(
+        'details',
+        { className: 'flb-details', key: 'clarification-history' },
+        h('summary', null, t('detail.specHistory')),
+        ...questions.map((question) => {
+          const answer = answerFor(question)
+          return h(
+            'div',
+            { className: 'flb-version', key: question.questionId },
+            h(
+              'div',
+              { className: 'flb-card-meta' },
+              `${question.questionId} · ${question.status === 'resolved' ? t('detail.specResolved') : t('detail.specOpen')}`,
+            ),
+            h('div', null, question.text),
+            answer ? h('div', { className: 'flb-muted' }, `${t('detail.answer')}：${answer.answer}`) : null,
+            question.status === 'resolved' && question.resolution
+              ? h('div', { className: 'flb-muted' }, question.resolution)
+              : null,
+          )
+        }),
+      )
+    }
+
+    function pointView(t, point, acceptance) {
+      const items = acceptance.filter(
+        (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
+      )
+      const exceptionText =
+        point.exceptions && point.exceptions.status === 'assessed'
+          ? arrayOf(point.exceptions.items).join('；') || '—'
+          : point.exceptions
+            ? `${t(`spec.exceptions.${point.exceptions.status}`)}：${point.exceptions.reason || '—'}`
+            : '—'
+      return h(
+        'div',
+        { className: 'flb-subsection', key: point.id },
+        h(
+          'div',
+          { className: 'flb-label' },
+          `${point.id} · ${t(`spec.basis.${point.basis}`)}`,
+        ),
+        h('div', { className: 'flb-muted' }, `${t('detail.specSource')}：${point.source}`),
+        h('div', null, `${t('detail.specPoint')}：${point.actor}`),
+        h('div', null, `${t('detail.specTrigger')}：${point.trigger}`),
+        h('div', null, `${t('detail.specBehavior')}：${point.behavior}`),
+        arrayOf(point.rules).length > 0
+          ? h('div', null, `${t('detail.rules')}：${arrayOf(point.rules).join('；')}`)
+          : null,
+        h('div', null, `${t('detail.specExceptions')}：${exceptionText}`),
+        h(
+          'div',
+          { className: 'flb-muted' },
+          ...items.map((item) =>
+            h(
+              'div',
+              { key: item.id },
+              `${item.id}：${t('detail.specGiven')} ${item.given}；${t('detail.specWhen')} ${item.when}；${t('detail.specThen')} ${item.then}`,
+            ),
+          ),
+        ),
+      )
+    }
+
+    function requirementSpecSection(t, data, analysis) {
+      const points = analysis && Array.isArray(analysis.businessPoints) ? analysis.businessPoints : []
+      if (points.length === 0) return null
+      const acceptance = Array.isArray(analysis.acceptanceItems) ? analysis.acceptanceItems : []
+      const assumptions = Array.isArray(analysis.assumptions) ? analysis.assumptions : []
+      const history = Array.isArray(data.analysisHistory) ? data.analysisHistory : []
+      const children = [
+        h(Kv, { key: 'goal', label: t('detail.goal') }, analysis.goal),
+        h('div', { className: 'flb-label', key: 'scope-label' }, t('detail.specScope')),
+        h(
+          'div',
+          { key: 'scope' },
+          analysis.nonGoals && analysis.nonGoals.length > 0
+            ? `${t('detail.nonGoals')}：${analysis.nonGoals.join('；')}`
+            : '—',
+        ),
+        analysis.clarifications && analysis.clarifications.length > 0
+          ? h(
+              'div',
+              { className: 'flb-block-warn', key: 'open' },
+              h('div', { className: 'flb-label' }, t('detail.specOpen')),
+              h(BulletList, { items: analysis.clarifications }),
+            )
+          : null,
+        h('div', { className: 'flb-label', key: 'points-label' }, t('detail.specPoints')),
+        ...points.map((point) => pointView(t, point, acceptance)),
+        assumptions.length > 0
+          ? h(
+              'div',
+              { className: 'flb-subsection', key: 'assumptions' },
+              h('div', { className: 'flb-label' }, t('detail.specAssumptions')),
+              ...assumptions.map((item) =>
+                h(
+                  'div',
+                  { key: item.id },
+                  `${item.id} · ${item.basis} · ${item.statement} · ${item.impact} · ${item.needsConfirmation ? t('detail.specNeedsConfirm') : t('detail.specWorkingAssumption')}`,
+                ),
+              ),
+            )
+          : null,
+        h('div', { className: 'flb-label', key: 'changes-label' }, t('detail.specChanges')),
+        specChangeView(t, data.specChanges, history.length > 1),
+        clarificationHistoryView(t, data.clarificationHistory),
+        history.length > 1
+          ? h(
+              'details',
+              { className: 'flb-details', key: 'analysis-history' },
+              h('summary', null, `${t('detail.specHistory')}（${history.length}）`),
+              ...history.map((item) =>
+                h(
+                  'div',
+                  { className: 'flb-version', key: item.analysisVersion },
+                  h(
+                    'div',
+                    { className: 'flb-card-meta' },
+                    `v${item.analysisVersion} · ${t('detail.specAnalysisRecord')} · ${formatMoment(item.createdAt)}`,
+                  ),
+                  h('div', null, item.goal),
+                  Array.isArray(item.businessPoints)
+                    ? h('div', { className: 'flb-muted' }, item.businessPoints.map((point) => point.id).join('、'))
+                    : null,
+                ),
+              ),
+            )
+          : null,
+      ].filter(Boolean)
+      return Section({ title: t('detail.spec'), children })
+    }
+
+    function arrayOf(value) {
+      return Array.isArray(value) ? value : []
+    }
+
     function RequirementDetail(props) {
       const t = props.t
       const detail = props.detail
@@ -2666,9 +2901,14 @@ window.__ModuleLoader__.load({
         }),
       )
 
+      const specSection = requirementSpecSection(t, data, analysis)
+      if (specSection) sections.push(specSection)
+
       sections.push(
         Section({
-          title: t('detail.analysis'),
+          title: analysis && Array.isArray(analysis.businessPoints) && analysis.businessPoints.length > 0
+            ? t('detail.specAnalysisRecord')
+            : t('detail.analysis'),
           children: analysis
             ? [
                 h(

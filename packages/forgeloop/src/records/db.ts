@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS requirement_analyses (
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
+-- 结构化需求说明（业务要点、验收项、假设）。旁置 JSON 表，避免给已有 analyses 表补列；
+-- 历史分析没有该行时按无结构化规格处理，不补造。
+CREATE TABLE IF NOT EXISTS requirement_analysis_specs (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    spec_json TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version)
+);
 CREATE TABLE IF NOT EXISTS requirement_analysis_attempts (
     req_id TEXT NOT NULL,
     requirement_version INTEGER NOT NULL,

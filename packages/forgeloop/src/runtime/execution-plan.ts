@@ -22,9 +22,16 @@ import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { PlanReview } from '../domain/verification.js'
 import type { Repository } from '../records/repository.js'
 import type { AgentRunner } from './agent-runner.js'
-import { analysisPrompt, clarificationContext, devPlanningPrompt } from './prompts.js'
+import {
+  analysisHistoryContext,
+  analysisPrompt,
+  analysisSpecContext,
+  clarificationContext,
+  devPlanningPrompt,
+} from './prompts.js'
 import { buildProjectFacts } from './board.js'
 import { sourceTrusted, type AdmissionDecision } from '../domain/admission.js'
+import { analysisSpecOf, planCoverageIssues, validateSpec } from '../domain/spec.js'
 
 type RecordedAnalysis = Omit<AnalysisAttempt, 'outcome' | 'detail'>
 
@@ -108,6 +115,7 @@ export class ExecutionPlan {
       }
     }
     const version = requirement.versions.length
+    const previousAnalysis = this.deps.repo.latestAnalysis(reqId)
     const attempt = this.deps.repo.analysisAttempts(reqId, version).length + 1
     const started = Date.now()
     // 每个需求版本、每次尝试一个独立轨迹文件：attempt 按版本重新计数，
@@ -157,6 +165,20 @@ export class ExecutionPlan {
       ...updates.remaining.map((question) => question.text),
       ...draft.clarifications,
     ]
+    try {
+      validateSpec({
+        spec: {
+          points: draft.businessPoints,
+          acceptance: draft.acceptanceItems,
+          assumptions: draft.assumptions,
+        },
+        complete: openAfter.length === 0,
+        inputKind: draft.inputKind,
+        previous: previousAnalysis ? analysisSpecOf(previousAnalysis) : null,
+      })
+    } catch (error) {
+      return this.failAnalysis(recorded, errorMessage(error))
+    }
     const analysis: RequirementAnalysis & { reqId: string } = {
       reqId,
       analysisVersion: this.deps.repo.nextAnalysisVersion(reqId),
@@ -168,6 +190,9 @@ export class ExecutionPlan {
       exceptions: draft.exceptions,
       nonGoals: draft.nonGoals,
       acceptanceCriteria: draft.acceptanceCriteria,
+      businessPoints: draft.businessPoints,
+      acceptanceItems: draft.acceptanceItems,
+      assumptions: draft.assumptions,
       clarifications: openAfter,
       model: recorded.model,
       promptVersion: recorded.promptVersion,
@@ -194,13 +219,20 @@ export class ExecutionPlan {
       project: this.deps.config.project,
       currentReqId: reqId,
       now: this.deps.now(),
+      currentText: requirement.versions.map((version) => version.text).join('\n'),
     })
     const business = readProjectDoc(this.deps.config.projectPath, BUSINESS_CONTEXT_DOC)
     return analysisPrompt(
       requirement,
       facts,
       business.ok ? business.content : '',
-      clarificationContext({ questions: history.length > 0 ? history : open, answers }),
+      analysisHistoryContext({
+        clarifications: clarificationContext({
+          questions: history.length > 0 ? history : open,
+          answers,
+        }),
+        previousSpec: analysisSpecContext(this.deps.repo.latestAnalysis(reqId)),
+      }),
     )
   }
 
@@ -390,6 +422,12 @@ export class ExecutionPlan {
         ...languageViolations(plan),
         ...outsideActiveSource(plan),
         ...unknownPackages(plan, this.deps.existingPackages()),
+        ...planCoverageIssues(analysis, plan).map((issue) => ({
+          taskId: 'plan',
+          field: 'covers',
+          value: issue.code,
+          reason: issue.detail,
+        })),
       ]
       if (violations.length > 0) {
         lastError = `任务包越过 TypeScript 语言/工程边界：${violations

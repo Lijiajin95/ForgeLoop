@@ -23,6 +23,12 @@ import {
   type RequirementIssue,
   type RequirementIssueEvidence,
 } from '../src/domain/issue.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredVerificationOf,
+  structuredReviewOf,
+} from './spec-fixture.js'
 
 const SCENARIO = '需求功能可用'
 const CRITERION = '命令输出证明功能可用'
@@ -61,14 +67,14 @@ function result(request: { role: string; transcriptPath: string }, text: string)
   }
 }
 
-const ANALYSIS = JSON.stringify({
+const ANALYSIS = structuredSpecOf({
   goal: '实现一个可验证的小功能',
   scenarios: [SCENARIO],
   acceptance_criteria: [CRITERION],
   clarifications: [],
 })
 
-const PLAN = JSON.stringify({
+const PLAN = structuredPlanOf({
   tasks: [
     {
       task_id: 'a',
@@ -88,7 +94,7 @@ const PLAN = JSON.stringify({
   ],
 })
 
-const BUSINESS_REVIEW = JSON.stringify({
+const BUSINESS_REVIEW = structuredReviewOf({
   verdict: 'pass',
   summary: '业务场景通过',
   findings: [],
@@ -101,7 +107,7 @@ const BUSINESS_REVIEW = JSON.stringify({
 function verificationPlan(fail: boolean): string {
   const repaired =
     "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
-  return JSON.stringify({
+  return structuredVerificationOf({
     scenarios: [
       {
         scenario: SCENARIO,
