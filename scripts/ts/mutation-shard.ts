@@ -6,7 +6,9 @@
  *   node scripts/ts/mutation-shard.ts domain
  *   node scripts/ts/mutation-shard.ts all
  *
- * 分片只决定本次要变异哪些文件；runtime 分片用全量测试配置，其余用快速配置（均排除 monitor）。
+ * 分片只决定本次要变异哪些文件；默认用快速测试配置（均排除 monitor），
+ * FORGELOOP_MUTATION_FULL=1 时 runtime 分片改用全量测试配置（本地测量/显式 opt-in；
+ * nightly 默认不用，避免 2–4 小时/分片超出 240 分钟作业预算）。
  * 先校验所有源码都恰好属于一个 shard，避免新增文件悄悄漏出变异范围。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
@@ -151,10 +153,13 @@ const base = JSON.parse(readFileSync(join(PKG, 'stryker.config.json'), 'utf8')) 
   thresholds?: Record<string, number>
   [key: string]: unknown
 }
-// runtime 分片的行为断言在慢用例里，必须跑全量测试；其余分片用快速配置。
-const vitestConfig = requested.startsWith('runtime-')
-  ? 'vitest.mutation.config.ts'
-  : 'vitest.mutation-fast.config.ts'
+// 全量测试配置能显著提高 runtime 杀伤，但单分片 2–4 小时；nightly 默认仍用快速配置，
+// 需要完整测量时显式设置 FORGELOOP_MUTATION_FULL=1。
+const fullMutation = process.env.FORGELOOP_MUTATION_FULL === '1'
+const vitestConfig =
+  fullMutation && requested.startsWith('runtime-')
+    ? 'vitest.mutation.config.ts'
+    : 'vitest.mutation-fast.config.ts'
 const configPath = join(reportsDir, `stryker-shard-${requested}.json`)
 writeFileSync(
   configPath,

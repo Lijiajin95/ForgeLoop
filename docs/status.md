@@ -5064,5 +5064,8 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
   快速测试 + 大量行为断言。
 - 结论：基础设施（全量测试配置、14 分片、快照/定向测试）已落地并提升约 1,100 个 kill；
   达到 80% 仍需数十个 runtime 行为测试文件与 CI 分片/预算调整，需所有者决定投入规模。
+- 合并策略：nightly 分片默认仍用快速测试配置，`FORGELOOP_MUTATION_FULL=1` 才让 runtime 分片
+  使用全量配置（本地/显式测量）；`vitest.mutation.config.ts` 与 14 分片基础设施保留。
+  当前全局仍低于 80，nightly gate 仍红；runtime 80% 作为独立测试加固项目继续。
 - config/repository/candidate 的定向结果尚未单独复跑；`monitor.ts` 需要不依赖宿主进程表的测试。
 - 未下调 break、未排除业务源码、未把未完成写成通过。
