@@ -1493,14 +1493,18 @@ export class OpsRuntime {
 
   // ------------------------------------------------------------ 修复需求
 
-  /** 同一签名、仍有在办修复需求且未关闭的最近事件；用来吸收重复事件。 */
+  /**
+   * 同一资源+检查、仍有在办修复需求且未关闭的最近事件；用来吸收重复事件。
+   * 签名里带失败输出的摘要，服务每次崩溃的摘要可能不同，因此按资源+检查匹配。
+   */
   private reusableFix(event: OpsEventRecord): string {
     const prior = this.repo
       .listOpsEvents(this.config.project, 200)
       .find(
         (item) =>
           item.eventId !== event.eventId &&
-          item.signature === event.signature &&
+          item.resourceId === event.resourceId &&
+          item.checkId === event.checkId &&
           item.fixRequirementId !== '' &&
           item.state !== OPS_CLOSED,
       )

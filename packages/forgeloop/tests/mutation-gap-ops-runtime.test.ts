@@ -755,7 +755,8 @@ describe('OpsRuntime execution failures', () => {
     })
     const repeated = seedEvent({
       state: OPS_AWAITING_DECISION,
-      signature,
+      // 签名带输出摘要，重复崩溃的签名可能不同；按资源+检查复用。
+      signature: 'svc/svc-health/1/other-digest',
       decision: 'approved',
       decisionBy: 'alice',
       decisionSource: 'test:owner',
