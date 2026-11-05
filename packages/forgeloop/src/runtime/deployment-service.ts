@@ -38,12 +38,21 @@ export class DeploymentService {
   }
 
   /**
-   * 提议一次部署：target 必须已登记，制品取该 target 关联需求最近一次候选构建。
-   * 是否自动执行由 target.approval 决定；门禁与 preflight 仍然全部执行。
+   * 提议一次部署：target 必须已登记；需求取调用方显式指定，省略时用 target 默认需求。
+   * 制品取该需求最近一次候选构建。是否自动执行由 target.approval 决定；门禁与 preflight 仍然全部执行。
    */
-  async request(input: { targetId: string; by: string; source: string }): Promise<OperationResult> {
+  async request(input: {
+    targetId: string
+    requirementId?: string
+    by: string
+    source: string
+  }): Promise<OperationResult> {
     const target = this.deps.config.deployments.targets.find((item) => item.id === input.targetId)
     if (!target) return fail('not_found', `未登记部署目标：${input.targetId}`)
+    const requirementId = input.requirementId?.trim() || target.requirementId
+    if (!requirementId) {
+      return fail('requirement_required', '部署必须指定所属需求；目标未配置默认需求')
+    }
     const existing = this.deps.deployments
       .list(200)
       .find((intent) => intent.source === input.source)
@@ -65,10 +74,11 @@ export class DeploymentService {
         data: { intentId: existing.intentId, state: existing.state, duplicate: true },
       }
     }
-    const build = this.deps.repo.latestCandidateBuild(target.requirementId)
-    if (!build) return fail('not_found', `目标关联需求 ${target.requirementId} 没有候选构建`)
+    const build = this.deps.repo.latestCandidateBuild(requirementId)
+    if (!build) return fail('not_found', `需求 ${requirementId} 没有候选构建`)
     return this.deps.deployments.request({
       targetId: target.id,
+      requirementId,
       artifact: {
         sha256: build.artifactSha256,
         path: build.tarball,

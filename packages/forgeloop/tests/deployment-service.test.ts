@@ -23,8 +23,10 @@ function service(overrides: {
   request?: (input: unknown) => Promise<unknown>
   build?: typeof BUILD | null
   calls?: string[]
-}): { service: DeploymentService; requests: unknown[] } {
+  targetRequirementId?: string
+}): { service: DeploymentService; requests: unknown[]; buildRequests: string[] } {
   const requests: unknown[] = []
+  const buildRequests: string[] = []
   const deployments = {
     list: () => overrides.intents ?? [],
     detail: (intentId: string) => ({ intent: { intentId }, attempts: [] }),
@@ -52,17 +54,28 @@ function service(overrides: {
     },
   } as unknown as Deployments
   const repo = {
-    latestCandidateBuild: () => (overrides.build === undefined ? BUILD : overrides.build),
+    latestCandidateBuild: (requirementId: string) => {
+      buildRequests.push(requirementId)
+      return overrides.build === undefined ? BUILD : overrides.build
+    },
   } as unknown as Repository
   const config = {
     owner: 'owner',
     deployments: {
-      targets: [{ id: 'target', toolId: 'tool', requirementId: 'req-1', approval: 'owner' }],
+      targets: [
+        {
+          id: 'target',
+          toolId: 'tool',
+          requirementId: overrides.targetRequirementId ?? 'req-1',
+          approval: 'owner',
+        },
+      ],
     },
   } as unknown as ForgeLoopConfig
   return {
     service: new DeploymentService({ config, repo, deployments }),
     requests,
+    buildRequests,
   }
 }
 
@@ -74,6 +87,7 @@ describe('deployment service intent', () => {
     expect(requests).toEqual([
       {
         targetId: 'target',
+        requirementId: 'req-1',
         artifact: {
           sha256: BUILD.artifactSha256,
           path: BUILD.tarball,
@@ -82,6 +96,27 @@ describe('deployment service intent', () => {
         source: 'web:1',
       },
     ])
+  })
+
+  it('uses an explicit requirement over the target default', async () => {
+    const { service: api, requests, buildRequests } = service({})
+    const result = await api.request({
+      targetId: 'target',
+      requirementId: 'req-2',
+      by: 'owner',
+      source: 'web:3',
+    })
+    expect(result.ok).toBe(true)
+    expect(buildRequests).toEqual(['req-2'])
+    expect(requests[0]).toMatchObject({ targetId: 'target', requirementId: 'req-2' })
+  })
+
+  it('requires a requirement when neither the target nor the request names one', async () => {
+    const { service: api, requests, buildRequests } = service({ targetRequirementId: '' })
+    const result = await api.request({ targetId: 'target', by: 'owner', source: 'web:4' })
+    expect(result).toMatchObject({ ok: false, code: 'requirement_required' })
+    expect(buildRequests).toEqual([])
+    expect(requests).toHaveLength(0)
   })
 
   it('is idempotent for the same source while an intent is still open', async () => {

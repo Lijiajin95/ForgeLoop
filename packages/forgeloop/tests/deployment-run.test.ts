@@ -62,6 +62,7 @@ function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
           approval: 'owner',
           data: { volumes: ['web-data'] },
         },
+        { id: 'unbound', toolId: 't', approval: 'owner' },
       ],
       ...extra,
     } as never,
@@ -355,6 +356,7 @@ describe('deployment coordinator', () => {
       'auto',
       'broken',
       'data',
+      'unbound',
     ])
     const requested = await deployments.request({
       targetId: 'owner',
@@ -398,6 +400,27 @@ describe('deployment coordinator', () => {
     expect(
       await enabled.request({ targetId: 'nope', artifact: ARTIFACT, source: 'owner' }),
     ).toMatchObject({ code: 'not_found' })
+  })
+
+  it('records the intent requirement for an unbound target', async () => {
+    const deployments = build()
+    const requested = await deployments.request({
+      targetId: 'unbound',
+      requirementId: 'req-9',
+      artifact: ARTIFACT,
+      source: 'unbound-source',
+    })
+    expect(requested.ok).toBe(true)
+    const intentId = (requested.data as { intentId: string }).intentId
+    expect(deployments.detail(intentId)?.intent.requirementId).toBe('req-9')
+    expect(deployments.detail(intentId)?.intent.state).toBe('awaiting_approval')
+  })
+
+  it('requires a requirement when the target has no default', async () => {
+    const deployments = build()
+    expect(
+      await deployments.request({ targetId: 'unbound', artifact: ARTIFACT, source: 'none' }),
+    ).toMatchObject({ ok: false, code: 'requirement_required' })
   })
 })
 

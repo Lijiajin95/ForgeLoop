@@ -15,11 +15,12 @@ export interface DeploymentGateResult {
 export type DeploymentGate = (
   target: DeploymentTargetConfig,
   artifact: DeploymentArtifact,
+  requirementId?: string,
 ) => DeploymentGateResult
 
 export function candidateDeploymentGate(repo: Repository): DeploymentGate {
-  return (target, artifact) => {
-    const reqId = target.requirementId
+  return (target, artifact, requirementId) => {
+    const reqId = requirementId?.trim() || target.requirementId
     if (!repo.getRequirement(reqId)) return { ok: false, reason: `需求不存在：${reqId}` }
     const build = repo.latestCandidateBuild(reqId)
     if (!build) return { ok: false, reason: '没有候选构建' }

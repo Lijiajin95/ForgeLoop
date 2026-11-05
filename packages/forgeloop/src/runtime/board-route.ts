@@ -186,6 +186,7 @@ function deploymentStatus(code: string): number {
   if (code === 'forbidden') return 403
   if (code === 'not_found') return 404
   if (code === 'bad_request') return 400
+  if (code === 'requirement_required') return 400
   return 409
 }
 
@@ -222,9 +223,11 @@ async function handleDeploymentIntent(
 ): Promise<Response> {
   const targetId = text(body?.targetId)
   if (!targetId) return boardResponse(boardFailure('bad_request', '部署提议需要 targetId'), 400)
+  const requirementId = text(body?.reqId)
   const sessionId = text(body?.sessionId)
   const result = await context.runtime.deploymentService.request({
     targetId,
+    ...(requirementId ? { requirementId } : {}),
     by: context.config.owner,
     source: `web-decision:${sessionId || 'unknown-session'}:deployment-intent`,
   })

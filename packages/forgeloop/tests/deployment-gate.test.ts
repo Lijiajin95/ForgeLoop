@@ -135,4 +135,22 @@ describe('candidate deployment gate', () => {
       '需求不存在',
     )
   })
+
+  it('resolves the requirement from the intent when the target has no default', () => {
+    seedBuild()
+    seedVerification()
+    seedReview()
+    repo.recordAcceptance({
+      reqId: REQ,
+      acceptedBy: 'owner',
+      source: 'test',
+      fingerprint: 'f'.repeat(64),
+      now: '2026-11-03T10:03:00.000Z',
+    })
+    const gate = candidateDeploymentGate(repo)
+    const unbound = { ...target(), requirementId: '' }
+    expect(gate(unbound, artifact(), REQ)).toEqual({ ok: true, reason: '' })
+    expect(gate(unbound, artifact(), 'req-missing').reason).toContain('需求不存在')
+    expect(gate(unbound, artifact()).reason).toContain('需求不存在')
+  })
 })

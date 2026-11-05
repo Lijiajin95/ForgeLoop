@@ -109,6 +109,32 @@ describe('deployment board endpoints', () => {
     ).toBe(409)
   })
 
+  it('passes an explicit requirement id to the deployment service', async () => {
+    const { fetch, calls } = setup()
+    const response = await fetch(
+      post({
+        endpoint: 'deployment-intent',
+        targetId: 'target',
+        reqId: 'req-9',
+        sessionId: 's1',
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(calls[0]?.input).toMatchObject({ targetId: 'target', requirementId: 'req-9' })
+  })
+
+  it('maps a missing requirement to 400', async () => {
+    const { fetch } = setup({
+      request: async () => ({
+        ok: false,
+        code: 'requirement_required',
+        message: '未指定部署所属需求',
+      }),
+    })
+    const response = await fetch(post({ endpoint: 'deployment-intent', targetId: 'target' }))
+    expect(response.status).toBe(400)
+  })
+
   it('maps a coordinator bad_request to 400', async () => {
     const { fetch } = setup()
     expect(

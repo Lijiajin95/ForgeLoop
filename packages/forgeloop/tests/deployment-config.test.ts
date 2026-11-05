@@ -98,6 +98,22 @@ describe('deployment configuration', () => {
     expect(config.deployments.retention.compressEveryDays).toBe(14)
   })
 
+  it('allows a target without a default requirement', () => {
+    const path = writeTool()
+    const config = resolveConfig(
+      raw({
+        enabled: true,
+        tools: [{ id: 't', kind: 'python', path, capabilities: ['preflight', 'apply'] }],
+        targets: [
+          { id: 'app', toolId: 't', approval: 'owner' },
+          { id: 'app-empty', toolId: 't', requirementId: '', approval: 'owner' },
+        ],
+      }),
+      dir,
+    )
+    expect(config.deployments.targets.map((target) => target.requirementId)).toEqual(['', ''])
+  })
+
   it('rejects tools outside the trust root, bad kinds and incomplete capabilities', () => {
     const outside = join(dir, 'outside.py')
     writeFileSync(outside, 'print("{}")\n')

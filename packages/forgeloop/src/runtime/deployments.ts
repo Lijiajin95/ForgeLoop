@@ -56,6 +56,8 @@ export interface DeploymentOutcome {
 
 export interface DeploymentRequest {
   readonly targetId: string
+  /** 本次部署所属需求；省略时使用目标配置的默认需求。 */
+  readonly requirementId?: string
   readonly artifact: DeploymentArtifact
   readonly source: string
 }
@@ -100,6 +102,10 @@ export class Deployments {
     if (!config.deployments.enabled) return fail('deployments_disabled', '部署未启用')
     const target = config.deployments.targets.find((item) => item.id === input.targetId)
     if (!target) return fail('not_found', `未登记部署目标：${input.targetId}`)
+    const requirementId = input.requirementId?.trim() || target.requirementId
+    if (!requirementId) {
+      return fail('requirement_required', '部署必须指定所属需求；目标未配置默认需求')
+    }
     const tool = config.deployments.tools.find((item) => item.id === target.toolId)
     if (!tool) return fail('not_found', `部署目标引用了未登记工具：${target.toolId}`)
 
@@ -109,7 +115,7 @@ export class Deployments {
       intentId,
       project: config.project,
       targetId: target.id,
-      requirementId: target.requirementId,
+      requirementId,
       artifactSha256: input.artifact.sha256,
       artifactPath: input.artifact.path,
       artifactVersion: input.artifact.version,
@@ -123,7 +129,7 @@ export class Deployments {
     const dir = this.evidenceDir(intentId)
     mkdirSync(dir, { recursive: true })
 
-    const gate = this.deps.gate(target, input.artifact)
+    const gate = this.deps.gate(target, input.artifact, requirementId)
     if (!gate.ok) {
       this.transition(intent, 'preflight_failed')
       this.recordAttempt({

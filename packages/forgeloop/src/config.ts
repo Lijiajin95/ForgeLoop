@@ -115,6 +115,7 @@ export interface DeploymentToolConfig {
 export interface DeploymentTargetConfig {
   readonly id: string
   readonly toolId: string
+  /** 可选默认需求；空串表示每次部署必须由 intent 显式指定需求。 */
   readonly requirementId: string
   /** 目标参数（profile/namespace/unit 等）；语义由工具负责。 */
   readonly params: Readonly<Record<string, string>>
@@ -934,7 +935,7 @@ function parseDeploymentTargets(
     const toolId = requiredText(item.toolId, `${field}.toolId`)
     const tool = tools.get(toolId)
     if (!tool) throw new RuleViolationError(`配置 ${field}.toolId 引用了未登记的工具：${toolId}`)
-    const requirementId = requiredText(item.requirementId, `${field}.requirementId`)
+    const requirementId = optionalRequirementId(item.requirementId, `${field}.requirementId`)
     const params = parseDeploymentParams(item.params, `${field}.params`)
     const data = asRecord(item.data) ?? {}
     const volumes = stringList(data.volumes, `${field}.data.volumes`, [])
@@ -970,6 +971,16 @@ function parseDeploymentTargets(
       rollback: { keep },
     }
   })
+}
+
+/**
+ * 部署目标的默认需求：省略或空串表示无默认需求，由每次 intent 显式指定。
+ * 非字符串视为配置错误，不在运行期猜测。
+ */
+function optionalRequirementId(value: unknown, field: string): string {
+  if (value === undefined) return ''
+  if (typeof value !== 'string') throw new RuleViolationError(`配置 ${field} 必须是字符串`)
+  return value.trim()
 }
 
 /**

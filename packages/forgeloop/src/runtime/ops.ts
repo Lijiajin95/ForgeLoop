@@ -74,7 +74,12 @@ export interface OpsRuntimeOptions {
   readonly now: () => Date
   /** 运维诊断只提议 target id；部署执行由主控完成，模型没有执行入口。 */
   readonly deploymentService?: {
-    request(input: { targetId: string; by: string; source: string }): Promise<OpsResult>
+    request(input: {
+      targetId: string
+      requirementId?: string
+      by: string
+      source: string
+    }): Promise<OpsResult>
   }
 }
 
@@ -714,8 +719,16 @@ export class OpsRuntime {
       reject('运行环境没有接入部署协调器')
       return
     }
+    // 事件已关联修复需求时优先部署修复需求；否则回退目标默认需求。
+    const requirementId =
+      this.repo.opsEvent(event.eventId)?.fixRequirementId || target.requirementId
+    if (!requirementId) {
+      reject(`事件 ${event.eventId} 没有关联修复需求，部署目标 ${target.id} 也未配置默认需求`)
+      return
+    }
     const result = await this.deploymentService.request({
       targetId: target.id,
+      requirementId,
       by: 'ops-agent',
       source,
     })
