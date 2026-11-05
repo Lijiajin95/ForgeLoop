@@ -18,9 +18,48 @@ window.__ModuleLoader__.load({
 
     const NS = 'forgeloop-board'
     const BOARD_PATH = '/api/forgeloop/board'
-    const TERMINAL = { accepted: true, rejected: true, cancelled: true }
+    /** 与服务端 TERMINAL_STATUSES 保持一致：committed 也是终态，不再算“进行中”。 */
+    const TERMINAL_STATUSES = new Set(['committed', 'accepted', 'rejected', 'cancelled'])
     /** 工作台视图顺序：可靠性位于「需要处理」与「运维」之间。 */
     const WORKBENCH_VIEWS = ['hierarchy', 'tasks', 'issues', 'reliability', 'ops']
+    /** 页面请求的默认条数；服务端上限同为 100。 */
+    const BOARD_LIMIT = 100
+
+    function isTerminalStatus(status) {
+      return TERMINAL_STATUSES.has(status)
+    }
+
+    function filterRequirements(requirements, filter, issues) {
+      if (filter === 'active')
+        return requirements.filter(
+          (requirement) => !isTerminalStatus(requirement.status) && requirement.status !== 'draft',
+        )
+      if (filter === 'attention') {
+        return requirements.filter(
+          (requirement) =>
+            ['plan_proposed', 'blocked', 'executing'].includes(requirement.status) ||
+            issues.some((issue) => issue.reqId === requirement.reqId),
+        )
+      }
+      if (filter === 'draft') {
+        return requirements.filter((requirement) => requirement.status === 'draft')
+      }
+      return requirements
+    }
+
+    /** 取消需求的任务仍保留为历史，但不计入“已交付/总数”进度。 */
+    function tasksForProgress(requirement, tasks) {
+      return requirement.status === 'cancelled' ? [] : tasks
+    }
+
+    /** 终态需求只展示最终状态，不再回放历史批准/评审/验证警告。 */
+    function showsLegacyGateWarnings(status) {
+      return !isTerminalStatus(status)
+    }
+
+    function searchScopeText(t, limit = BOARD_LIMIT) {
+      return t('overview.searchScope', { limit })
+    }
 
     const zh = {
       'view.label': '天工',
@@ -31,6 +70,13 @@ window.__ModuleLoader__.load({
       'page.retry': '重试',
       'page.empty': '这个项目还没有需求记录。',
       'page.footer': '交互式看板：已准入需求自动推进；停止、取消、重试、构建与上线保持显式动作。',
+      'build.version': '运行 {version}',
+      'build.started': '启动于 {time}',
+      'build.client': '客户端 {sha}',
+      'build.sourceMatch': '与源码一致',
+      'build.sourceMismatch': '界面与源码不一致',
+      'build.sourceSha': '源码 {sha}',
+      'build.missing': '运行版本未记录',
       'action.approve': '批准任务包',
       'action.advance': '推进任务',
       'action.plan': '重新生成任务包',
@@ -242,6 +288,13 @@ window.__ModuleLoader__.load({
       'page.empty': 'No requirements yet.',
       'page.footer':
         'Interactive board: admitted requirements advance automatically; stop, cancel, retry, build and deploy remain explicit actions.',
+      'build.version': 'Running {version}',
+      'build.started': 'started {time}',
+      'build.client': 'client {sha}',
+      'build.sourceMatch': 'matches source',
+      'build.sourceMismatch': 'UI differs from source',
+      'build.sourceSha': 'source {sha}',
+      'build.missing': 'running version not recorded',
       'action.approve': 'Approve task package',
       'action.advance': 'Advance tasks',
       'action.plan': 'Regenerate task package',
@@ -649,7 +702,7 @@ window.__ModuleLoader__.load({
       'overview.boundaryClarification': '待澄清回答仍在 ForgeLoop 业务会话输入；本页只读展示问题。',
       'overview.boundaryGrant': '追加授权与重新规划尚无页面入口；额度用尽时重试会被明确拒绝。',
       'overview.searchScope':
-        '搜索范围：需求身份/状态/原文与版本、分析结论、任务目标/文件/验收标准、运行原因、失败轮次、请求说明与问题文字；最多显示 50 条。',
+        '搜索范围：需求身份/状态/原文与版本、分析结论、任务目标/文件/验收标准、运行原因、失败轮次、请求说明与问题文字；最多显示 {limit} 条。',
       'overview.next.approvals': '{count} 个任务包待批准',
       'overview.next.failures': '{count} 个失败任务待查看证据/重试',
       'overview.next.requestFailures': '{count} 条请求失败待处理',
@@ -699,6 +752,9 @@ window.__ModuleLoader__.load({
       'wb.noMatch': '没有匹配记录',
       'wb.clear': '清除搜索与筛选',
       'wb.progress': '{delivered}/{total} 个任务已交付',
+      'wb.cancelledBanner': '需求已取消；取消后不再执行任务，历史记录保留。',
+      'wb.cancelledTasks': '已取消，{count} 个任务不再执行',
+      'wb.cancelledTasksHistory': '查看已取消的 {count} 个任务',
       'wb.plan': '任务包 v{plan}',
       'wb.planLabel': '任务包',
       'wb.version': '需求 v{version}',
@@ -1218,7 +1274,7 @@ window.__ModuleLoader__.load({
       'overview.boundaryGrant':
         'Extra grants and re-planning have no page entry yet; retry is explicitly rejected when the budget is exhausted.',
       'overview.searchScope':
-        'Search scope: requirement id/status/text/versions, analysis, task goals/files/acceptance, run reasons, failure rounds, request text and issue text; at most 50 results.',
+        'Search scope: requirement id/status/text/versions, analysis, task goals/files/acceptance, run reasons, failure rounds, request text and issue text; at most {limit} results.',
       'overview.next.approvals': '{count} task packages waiting for approval',
       'overview.next.failures': '{count} failed tasks to inspect/retry',
       'overview.next.requestFailures': '{count} failed requests to handle',
@@ -1270,6 +1326,9 @@ window.__ModuleLoader__.load({
       'wb.noMatch': 'No matching records',
       'wb.clear': 'Clear search and filters',
       'wb.progress': '{delivered}/{total} tasks delivered',
+      'wb.cancelledBanner': 'Requirement cancelled; its tasks no longer run and are kept as history.',
+      'wb.cancelledTasks': 'Cancelled; {count} tasks will not run',
+      'wb.cancelledTasksHistory': 'Show the {count} cancelled tasks',
       'wb.plan': 'Task package v{plan}',
       'wb.planLabel': 'Task package',
       'wb.version': 'Requirement v{version}',
@@ -2150,6 +2209,36 @@ window.__ModuleLoader__.load({
         Chip,
         { tone: verification.fresh ? 'success' : 'warn' },
         t(verification.fresh ? 'requirement.verificationPassed' : 'requirement.verificationStale'),
+      )
+    }
+
+    /** 页脚运行身份：版本、启动时间、客户端摘要；与源码不一致时明确告警。 */
+    function BuildStamp(props) {
+      const t = props.t
+      const build = props.build
+      if (!build || !build.version) {
+        return h('span', { className: 'flb-build' }, t('build.missing'))
+      }
+      const parts = [t('build.version', { version: build.version })]
+      if (build.startedAt) parts.push(t('build.started', { time: formatMoment(build.startedAt) }))
+      if (build.clientSha256) parts.push(t('build.client', { sha: shortSha(build.clientSha256) }))
+      return h(
+        'span',
+        { className: 'flb-build' },
+        parts.join(' · '),
+        build.sourceMatches === true
+          ? h(Chip, { tone: 'success' }, t('build.sourceMatch'))
+          : build.sourceMatches === false
+            ? h(
+                Chip,
+                { tone: 'warn' },
+                build.sourceClientSha256
+                  ? `${t('build.sourceMismatch')}（${t('build.sourceSha', {
+                      sha: shortSha(build.sourceClientSha256),
+                    })}）`
+                  : t('build.sourceMismatch'),
+              )
+            : null,
       )
     }
 
@@ -4197,7 +4286,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'flb-muted' }, t('overview.boundaryAccept')),
             h('div', { className: 'flb-muted' }, t('overview.boundaryClarification')),
             h('div', { className: 'flb-muted' }, t('overview.boundaryGrant')),
-            h('div', { className: 'flb-muted' }, t('overview.searchScope')),
+            h('div', { className: 'flb-muted' }, searchScopeText(t)),
           ),
         ),
       )
@@ -4314,7 +4403,9 @@ window.__ModuleLoader__.load({
 .flb-task-activity-item{border-left:2px solid var(--dsw-alias-border-l2);padding:2px 0 2px 8px;font-size:11px;line-height:16px}
 .flb-task-activity-time{color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px}
 .flb-task-log{margin:0;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:10px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--dsw-alias-bg-layer-2);padding:6px;border-radius:4px}
-.flb-footer{margin-top:16px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-footer{margin-top:16px;font-size:11px;color:var(--dsw-alias-label-secondary);display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.flb-build{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.flb-tree-note{padding:4px 6px 4px 13px;font-size:10px;color:var(--dsw-alias-label-secondary)}
 .flb-bottom-spacer{height:150px;flex:none}
 .flb-workbench[data-full=true]{grid-template-columns:minmax(0,1fr)}
 .flb-workbench[data-full=true] .flb-tree-pane,.flb-workbench[data-full=true] .flb-main-pane{display:none}
@@ -4793,7 +4884,7 @@ window.__ModuleLoader__.load({
         )
 
         const visible = requirements.filter((requirement) => {
-          if (filter === 'active') return !TERMINAL[requirement.status]
+          if (filter === 'active') return !isTerminalStatus(requirement.status)
           if (filter === 'accepted') return requirement.status === 'accepted'
           return true
         })
@@ -4823,7 +4914,7 @@ window.__ModuleLoader__.load({
           const requirement = requirementById.get(task.reqId)
           return Boolean(
             requirement &&
-            !TERMINAL[requirement.status] &&
+            !isTerminalStatus(requirement.status) &&
             requirement.approval === 'approved' &&
             (requirement.remainingRounds === null ||
               requirement.remainingRounds === undefined ||
@@ -4879,7 +4970,7 @@ window.__ModuleLoader__.load({
                   value: query,
                   placeholder: t('search.placeholder'),
                   'aria-label': t('search.label'),
-                  title: t('overview.searchScope'),
+                  title: searchScopeText(t),
                   onChange: (event) => setQuery(event.target.value),
                 }),
                 query
@@ -4929,7 +5020,7 @@ window.__ModuleLoader__.load({
                     count: board.summary.requirements,
                     truncated: board.truncated ? t('search.truncated', { limit: board.limit }) : '',
                   }),
-                  h('span', { className: 'flb-muted' }, t('overview.searchScope')),
+                  h('span', { className: 'flb-muted' }, searchScopeText(t)),
                 )
               : null,
           ),
@@ -4956,7 +5047,7 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'flb-empty flb-empty-large' },
                   h('div', null, t('search.noResults', { query: board.query })),
-                  h('div', { className: 'flb-muted' }, t('overview.searchScope')),
+                  h('div', { className: 'flb-muted' }, searchScopeText(t)),
                   h(
                     'button',
                     { type: 'button', className: 'flb-refresh', onClick: () => setQuery('') },
@@ -5018,7 +5109,7 @@ window.__ModuleLoader__.load({
                             t(`filter.${key}`),
                           ),
                         ),
-                        h('span', { className: 'flb-muted' }, t('overview.searchScope')),
+                        h('span', { className: 'flb-muted' }, searchScopeText(t)),
                       ),
                       visible.length === 0
                         ? h('div', { className: 'flb-empty' }, t('empty.requirements'))
@@ -5263,69 +5354,83 @@ window.__ModuleLoader__.load({
                     ? h(
                         'div',
                         null,
-                        reqTasks.map((task) => {
-                          const taskIssue = wbIssueFor(issues, task)
-                          const selectedTask = selected.taskId === task.taskId
-                          return h(
-                            'div',
-                            { key: task.taskId },
-                            h(
-                              'button',
-                              {
-                                type: 'button',
-                                className: 'flb-tree-node flb-tree-child',
-                                'aria-current': selectedTask ? 'true' : undefined,
-                                onClick: () =>
-                                  props.onOpenTask(requirement.reqId, task.taskId, 'overview'),
-                              },
-                              h(
-                                Chip,
-                                { tone: wbStateTone(task.state) },
-                                wbStateLabel(t, task.state),
-                              ),
-                              h(
-                                'span',
-                                { className: 'flb-tree-text' },
-                                task.taskId + ' · ' + task.goal,
-                              ),
-                            ),
-                            taskIssue
-                              ? h(
+                        requirement.status === 'cancelled'
+                          ? h(
+                              'div',
+                              { className: 'flb-tree-note' },
+                              t('wb.cancelledTasks', { count: reqTasks.length }),
+                            )
+                          : reqTasks.map((task) => {
+                              const taskIssue = wbIssueFor(issues, task)
+                              const selectedTask = selected.taskId === task.taskId
+                              return h(
+                                'div',
+                                { key: task.taskId },
+                                h(
                                   'button',
                                   {
                                     type: 'button',
-                                    className: 'flb-tree-node flb-tree-grandchild',
-                                    'aria-current':
-                                      selected.issueId === taskIssue.issueId ? 'true' : undefined,
-                                    onClick: () => props.onOpenIssue(taskIssue),
+                                    className: 'flb-tree-node flb-tree-child',
+                                    'aria-current': selectedTask ? 'true' : undefined,
+                                    onClick: () =>
+                                      props.onOpenTask(
+                                        requirement.reqId,
+                                        task.taskId,
+                                        'overview',
+                                      ),
                                   },
-                                  h('span', { className: 'flb-tree-kind' }, '↳'),
-                                  h('span', { className: 'flb-tree-text' }, taskIssue.title),
-                                )
-                              : null,
-                          )
-                        }),
-                        reqIssues
-                          .filter((issue) => !issue.taskId)
-                          .map((issue) =>
-                            h(
-                              'button',
-                              {
-                                type: 'button',
-                                key: issue.issueId,
-                                className: 'flb-tree-node flb-tree-child',
-                                'aria-current':
-                                  selected.issueId === issue.issueId ? 'true' : undefined,
-                                onClick: () => props.onOpenIssue(issue),
-                              },
-                              h(
-                                Chip,
-                                { tone: ISSUE_TONES[issue.severity] || 'warn' },
-                                t(`issue.severity.${issue.severity}`),
+                                  h(
+                                    Chip,
+                                    { tone: wbStateTone(task.state) },
+                                    wbStateLabel(t, task.state),
+                                  ),
+                                  h(
+                                    'span',
+                                    { className: 'flb-tree-text' },
+                                    task.taskId + ' · ' + task.goal,
+                                  ),
+                                ),
+                                taskIssue
+                                  ? h(
+                                      'button',
+                                      {
+                                        type: 'button',
+                                        className: 'flb-tree-node flb-tree-grandchild',
+                                        'aria-current':
+                                          selected.issueId === taskIssue.issueId
+                                            ? 'true'
+                                            : undefined,
+                                        onClick: () => props.onOpenIssue(taskIssue),
+                                      },
+                                      h('span', { className: 'flb-tree-kind' }, '↳'),
+                                      h('span', { className: 'flb-tree-text' }, taskIssue.title),
+                                    )
+                                  : null,
+                              )
+                            }),
+                        requirement.status === 'cancelled'
+                          ? null
+                          : reqIssues
+                              .filter((issue) => !issue.taskId)
+                              .map((issue) =>
+                                h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    key: issue.issueId,
+                                    className: 'flb-tree-node flb-tree-child',
+                                    'aria-current':
+                                      selected.issueId === issue.issueId ? 'true' : undefined,
+                                    onClick: () => props.onOpenIssue(issue),
+                                  },
+                                  h(
+                                    Chip,
+                                    { tone: ISSUE_TONES[issue.severity] || 'warn' },
+                                    t(`issue.severity.${issue.severity}`),
+                                  ),
+                                  h('span', { className: 'flb-tree-text' }, issue.title),
+                                ),
                               ),
-                              h('span', { className: 'flb-tree-text' }, issue.title),
-                            ),
-                          ),
                       )
                     : null,
                 )
@@ -5544,8 +5649,11 @@ window.__ModuleLoader__.load({
         }
         const tasks = props.tasks
         const issues = props.issues
-        const completed = tasks.filter((task) => task.state === 'delivered').length
-        const ratio = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
+        const cancelled = requirement.status === 'cancelled'
+        const progressTasks = tasksForProgress(requirement, tasks)
+        const completed = progressTasks.filter((task) => task.state === 'delivered').length
+        const ratio =
+          progressTasks.length > 0 ? Math.round((completed / progressTasks.length) * 100) : 0
         return h(
           'main',
           { className: 'flb-main-pane' },
@@ -5558,17 +5666,23 @@ window.__ModuleLoader__.load({
               { tone: REQUIREMENT_TONES[requirement.status] || 'idle' },
               statusLabel(t, requirement.status),
             ),
-            requirement.approval === 'approved'
-              ? h(Chip, { tone: 'success' }, t('wb.approved'))
-              : requirement.approval === 'stale'
-                ? h(Chip, { tone: 'warn' }, t('wb.stale'))
-                : h(Chip, { tone: 'warn' }, t('requirement.approvalMissing')),
-            requirement.planVersion ? planReviewChip(t, requirement.planReview) : null,
-            requirement.verification
-              ? verificationChip(t, requirement.verification)
-              : tasks.length > 0 && completed === tasks.length
-                ? verificationChip(t, null)
-                : null,
+            showsLegacyGateWarnings(requirement.status)
+              ? requirement.approval === 'approved'
+                ? h(Chip, { tone: 'success' }, t('wb.approved'))
+                : requirement.approval === 'stale'
+                  ? h(Chip, { tone: 'warn' }, t('wb.stale'))
+                  : h(Chip, { tone: 'warn' }, t('requirement.approvalMissing'))
+              : null,
+            showsLegacyGateWarnings(requirement.status) && requirement.planVersion
+              ? planReviewChip(t, requirement.planReview)
+              : null,
+            showsLegacyGateWarnings(requirement.status)
+              ? requirement.verification
+                ? verificationChip(t, requirement.verification)
+                : tasks.length > 0 && completed === tasks.length
+                  ? verificationChip(t, null)
+                  : null
+              : null,
           ),
           h('h2', { className: 'flb-hier-title' }, requirement.title),
           h(
@@ -5581,16 +5695,31 @@ window.__ModuleLoader__.load({
             h('span', null, t('wb.taskCount', { count: tasks.length })),
             h('span', null, t('wb.issueCount', { count: issues.length })),
           ),
-          h(
-            'div',
-            { className: 'flb-hier-progress' },
-            h('div', { className: 'flb-progress' }, h('span', { style: { width: ratio + '%' } })),
-            h(
-              'div',
-              { className: 'flb-wb-sub' },
-              t('wb.progress', { delivered: completed, total: tasks.length }),
-            ),
-          ),
+          cancelled
+            ? h(
+                'div',
+                { className: 'flb-hier-progress' },
+                h('div', { className: 'flb-banner', 'data-tone': 'warn' }, t('wb.cancelledBanner')),
+                h(
+                  'div',
+                  { className: 'flb-wb-sub' },
+                  t('wb.cancelledTasks', { count: tasks.length }),
+                ),
+              )
+            : h(
+                'div',
+                { className: 'flb-hier-progress' },
+                h(
+                  'div',
+                  { className: 'flb-progress' },
+                  h('span', { style: { width: ratio + '%' } }),
+                ),
+                h(
+                  'div',
+                  { className: 'flb-wb-sub' },
+                  t('wb.progress', { delivered: completed, total: progressTasks.length }),
+                ),
+              ),
           props.actionMessage
             ? h(
                 'div',
@@ -5646,20 +5775,38 @@ window.__ModuleLoader__.load({
           ),
           props.workMode === 'relations'
             ? h(RelationsPanel, { t, requirement, tasks, onOpenTask: props.onOpenTask })
-            : tasks.length > 0
-              ? tasks.map((task) =>
-                  h(TaskRow, {
-                    t,
-                    key: task.taskId,
-                    task,
-                    tasks,
-                    issue: wbIssueFor(issues, task),
-                    selected: props.selectedTaskId === task.taskId,
-                    onOpenTask: props.onOpenTask,
-                    onOpenIssue: props.onOpenIssue,
-                  }),
-                )
-              : h('div', { className: 'flb-side-empty' }, t('wb.noExecutionHint')),
+            : tasks.length === 0
+              ? h('div', { className: 'flb-side-empty' }, t('wb.noExecutionHint'))
+              : cancelled
+                ? h(
+                    'details',
+                    { className: 'flb-details' },
+                    h('summary', null, t('wb.cancelledTasksHistory', { count: tasks.length })),
+                    tasks.map((task) =>
+                      h(TaskRow, {
+                        t,
+                        key: task.taskId,
+                        task,
+                        tasks,
+                        issue: wbIssueFor(issues, task),
+                        selected: props.selectedTaskId === task.taskId,
+                        onOpenTask: props.onOpenTask,
+                        onOpenIssue: props.onOpenIssue,
+                      }),
+                    ),
+                  )
+                : tasks.map((task) =>
+                    h(TaskRow, {
+                      t,
+                      key: task.taskId,
+                      task,
+                      tasks,
+                      issue: wbIssueFor(issues, task),
+                      selected: props.selectedTaskId === task.taskId,
+                      onOpenTask: props.onOpenTask,
+                      onOpenIssue: props.onOpenIssue,
+                    }),
+                  ),
         )
       }
 
@@ -6887,7 +7034,7 @@ window.__ModuleLoader__.load({
           'main',
           { className: 'flb-main-pane' },
           h('h2', { className: 'flb-hier-title' }, t('wb.allTasks')),
-          h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
+          h('div', { className: 'flb-wb-sub' }, searchScopeText(t)),
           props.requirements.length === 0
             ? h('div', { className: 'flb-side-empty' }, t('wb.noMatch'))
             : props.requirements.map((requirement) => {
@@ -6934,7 +7081,7 @@ window.__ModuleLoader__.load({
           'main',
           { className: 'flb-main-pane' },
           h('h2', { className: 'flb-hier-title' }, t('wb.attention')),
-          h('div', { className: 'flb-wb-sub' }, t('overview.searchScope')),
+          h('div', { className: 'flb-wb-sub' }, searchScopeText(t)),
           props.items.length === 0
             ? h('div', { className: 'flb-side-empty' }, t('wb.noIssues'))
             : props.items.map((item) =>
@@ -8580,18 +8727,7 @@ window.__ModuleLoader__.load({
         const requirements = board ? board.requirements || [] : []
         const allTasks = board ? board.tasks || [] : []
         const allIssues = board ? board.issues || [] : []
-        const visible = requirements.filter((requirement) => {
-          if (filter === 'active')
-            return !TERMINAL[requirement.status] && requirement.status !== 'draft'
-          if (filter === 'attention') {
-            return (
-              ['plan_proposed', 'blocked', 'executing'].includes(requirement.status) ||
-              allIssues.some((issue) => issue.reqId === requirement.reqId)
-            )
-          }
-          if (filter === 'draft') return requirement.status === 'draft'
-          return true
-        })
+        const visible = filterRequirements(requirements, filter, allIssues)
         const requirementIssues = (reqId) => allIssues.filter((issue) => issue.reqId === reqId)
         const selectedRequirement =
           requirements.find((requirement) => requirement.reqId === selection.reqId) || null
@@ -9242,7 +9378,7 @@ window.__ModuleLoader__.load({
                       count: requirements.length,
                       truncated:
                         board && board.truncated
-                          ? t('search.truncated', { limit: board.limit || 50 })
+                          ? t('search.truncated', { limit: board.limit || BOARD_LIMIT })
                           : '',
                     }),
                   )
@@ -9289,7 +9425,7 @@ window.__ModuleLoader__.load({
                     ),
                     h('span', { className: 'flb-muted' }, t('reliability.footnote')),
                   )
-                : h('span', null, t('overview.searchScope')),
+                : h('span', null, searchScopeText(t, board ? board.limit : BOARD_LIMIT)),
             ),
           ),
           h(
@@ -9311,7 +9447,8 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'flb-footer' },
-              t('page.footer'),
+              h(BuildStamp, { t, build: board ? board.build : null }),
+              h('span', null, t('page.footer')),
               ' ',
               t('overview.boundarySource'),
             ),
@@ -9370,8 +9507,15 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale', 'uiConversation'],
       apply,
       // 无浏览器视图测试的只读入口；宿主只消费 name/inject/apply。
-      __components: { RequirementDetail },
+      __components: { RequirementDetail, BuildStamp },
       __views: WORKBENCH_VIEWS,
+      __rules: {
+        isTerminalStatus,
+        filterRequirements,
+        tasksForProgress,
+        showsLegacyGateWarnings,
+        searchScopeText,
+      },
       __actions: { body: actionRequest, successKey: actionSuccessKey },
     }
   },

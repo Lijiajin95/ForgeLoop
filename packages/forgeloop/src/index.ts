@@ -13,7 +13,7 @@ import { Coordinator } from './runtime/coordinator.js'
 import { ForgeLoopRuntime } from './runtime/service.js'
 import { createBoardFetch } from './runtime/board-route.js'
 import { installSessionSurface } from './session/index.js'
-import { writeRuntimeIdentity } from './runtime/identity.js'
+import { setBuildSourcePath, writeRuntimeIdentity } from './runtime/identity.js'
 
 type AnyRecord = Record<string, unknown>
 
@@ -85,6 +85,7 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
   writeRuntimeIdentity(import.meta.url)
   // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
   const config = resolveConfig(loadConfigOrThrow(rawConfig))
+  setBuildSourcePath(config.projectPath)
   const logger = createPluginLogger(config)
   // 先校验宿主服务再打开记录库：缺服务时直接失败，不留下未关闭的 SQLite 句柄。
   const tools = hostSurface(ctx).tools

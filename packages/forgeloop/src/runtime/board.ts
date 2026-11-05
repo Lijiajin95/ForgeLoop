@@ -27,6 +27,7 @@ import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
 import type { AutonomyStats } from '../domain/autonomy.js'
+import { buildIdentity, type BuildIdentityView } from './identity.js'
 import { buildAutonomyStats } from './autonomy-stats.js'
 import {
   ACTION_ANALYZE,
@@ -35,6 +36,7 @@ import {
   ACTION_VERIFY,
   ANALYSIS_FAILED,
   APPROVED,
+  DRAFT,
   EXECUTING,
   REQUEST_FAILED,
   PLAN_PROPOSED,
@@ -210,6 +212,8 @@ export interface BoardIssueView {
 export interface StatusBoardView {
   readonly project: string
   readonly generatedAt: string
+  /** 运行版本与构建身份；宿主没有记录时字段为空，不猜测。 */
+  readonly build: BuildIdentityView
   /** 本次搜索词；空字符串表示未搜索。 */
   readonly query: string
   readonly limit: number
@@ -245,6 +249,8 @@ export interface BuildStatusBoardInput {
   readonly remainingFailureRounds?: ((reqId: string) => number) | undefined
   /** 所有者标识：用于把所有者直接发起的动作计为人工介入。 */
   readonly owner?: string
+  /** 构建身份；缺省使用空身份，页面显示“未记录”。 */
+  readonly build?: BuildIdentityView | undefined
 }
 
 /**
@@ -444,13 +450,14 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
   return {
     project,
     generatedAt: now,
+    build: input.build ?? buildIdentity(),
     query,
     limit,
     truncated: matched.length > limited.length,
     summary: {
       requirements: needle ? matched.length : all.length,
       active: (needle ? matched.map((chunk) => chunk.requirement) : all).filter(
-        (requirement) => !isTerminal(requirement.status),
+        (requirement) => !isTerminal(requirement.status) && requirement.status !== DRAFT,
       ).length,
       tasks: tasks.length,
       delivered: tasks.filter((task) => task.state === BOARD_TASK_DELIVERED).length,
