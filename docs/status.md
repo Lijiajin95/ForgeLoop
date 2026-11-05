@@ -5238,8 +5238,8 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
 ### 135.3 验证
 
 - `make.cmd check-static`：通过（typecheck、ESLint、contracts、token 预算、断言预算、可靠性注册表）。
-- `make.cmd test`：**131 个文件、1482 通过、1 跳过**（monitor 的宿主 `ps` 用例，与平台无关地
-  按可用性跳过），本机耗时约 185 秒。
+- `make.cmd test`：**131 个文件、1490 通过、1 跳过**（monitor 的宿主 `ps` 用例，与平台无关地
+  按可用性跳过），本机耗时约 170 秒。
 - `prettier --check`：通过。
 - `reliability-report --fast`（Windows）：门禁 7/8；补上 `pack.ts` 的 npm-cli 回退用例后，
   覆盖率仍报 `advance-pipeline.ts` 分支 84.93%（阈值 85），其余行覆盖 97.85% 通过。
