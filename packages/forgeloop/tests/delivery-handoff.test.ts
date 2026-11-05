@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -13,7 +14,8 @@ import type { TaskPlan } from '../src/domain/task-plan.js'
 
 const REQ = 'req-handoff-1'
 const CANDIDATE = 'c'.repeat(64)
-const ARTIFACT = 'a'.repeat(64)
+let ARTIFACT = ''
+let ARTIFACT_PATH = ''
 
 let dir = ''
 let database: Database
@@ -192,7 +194,7 @@ function buildStub(): ReturnType<typeof vi.fn> {
       verificationSha256: 'r'.repeat(64),
       packageVersion: '1.0.0',
       artifactSha256: ARTIFACT,
-      tarball: '/tmp/a.tgz',
+      tarball: ARTIFACT_PATH,
       files: ['lib/index.js'],
       gitHead: 'head',
       builtAt: '2026-11-05T09:06:00.000Z',
@@ -239,6 +241,9 @@ beforeEach(() => {
   mkdirSync(toolDir, { recursive: true })
   script = join(toolDir, 'tool.py')
   writeFileSync(script, toolScript())
+  ARTIFACT_PATH = join(dir, 'handoff-candidate.tgz')
+  writeFileSync(ARTIFACT_PATH, 'handoff-candidate')
+  ARTIFACT = createHash('sha256').update('handoff-candidate').digest('hex')
   config = resolveConfig(raw(), dir)
   seedRequirement()
 })

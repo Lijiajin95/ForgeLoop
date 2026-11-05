@@ -653,6 +653,12 @@
           "to": "failed",
           "via": "回滚失败",
           "tested": true
+        },
+        {
+          "from": "ready",
+          "to": "preflight_failed",
+          "via": "apply-revalidation",
+          "tested": true
         }
       ],
       "runtime_gaps": [

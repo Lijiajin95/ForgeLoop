@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,6 +8,8 @@ import { Repository } from '../src/records/repository.js'
 import { resolveConfig, type ForgeLoopConfig, type RawConfig } from '../src/config.js'
 import { Deployments } from '../src/runtime/deployments.js'
 import { candidateDeploymentGate } from '../src/runtime/deployment-gate.js'
+import { expectedAcceptanceFingerprints } from '../src/runtime/acceptance-binding.js'
+import { candidateIdentityOf } from '../src/domain/delivery.js'
 import type { DeploymentGate } from '../src/runtime/deployment-gate.js'
 import type { DeploymentArtifact } from '../src/domain/deployment.js'
 
@@ -17,10 +20,16 @@ let script = ''
 let config: ForgeLoopConfig
 let alerts: Array<{ url: string; body: Record<string, unknown> }> = []
 
-const ARTIFACT: DeploymentArtifact = {
-  sha256: 'a'.repeat(64),
-  path: '/tmp/a.tgz',
-  version: '1.0.0',
+let ARTIFACT: DeploymentArtifact
+
+function writeArtifact(content: string): DeploymentArtifact {
+  const path = join(dir, 'candidate.tgz')
+  writeFileSync(path, content)
+  return {
+    sha256: createHash('sha256').update(content).digest('hex'),
+    path,
+    version: '1.0.0',
+  }
 }
 
 function deploymentRaw(extra: Record<string, unknown> = {}): RawConfig {
@@ -153,6 +162,7 @@ beforeEach(() => {
   mkdirSync(toolDir, { recursive: true })
   script = join(toolDir, 'tool.py')
   writeFileSync(script, toolScript())
+  ARTIFACT = writeArtifact('candidate-content')
   config = resolveConfig(deploymentRaw(), dir)
 })
 
@@ -557,7 +567,12 @@ describe('deployment verify timeout', () => {
  */
 describe('deployment approval revalidation', () => {
   const REQ = 'req-1'
-  const CANDIDATE = 'c'.repeat(64)
+  const CANDIDATE = candidateIdentityOf({
+    planVersion: 1,
+    requirementVersion: 1,
+    baselineCommit: '',
+    candidateHashes: ['task-a-candidate'],
+  })
 
   function seedDeliverable(): void {
     repo.submit({
@@ -612,6 +627,17 @@ describe('deployment approval revalidation', () => {
           authorizationSource: 'system-admission:test',
         },
       ],
+    })
+    repo.recordTaskArtifact({
+      requirementId: REQ,
+      planVersion: 1,
+      taskId: 'a',
+      candidateSha256: 'task-a-candidate',
+      testEvidenceSha256: 'e'.repeat(64),
+      reviewSha256: 'r'.repeat(64),
+      acceptance: '存在',
+      authorizationSource: 'test',
+      recordedAt: '2026-11-05T09:02:30.000Z',
     })
     repo.recordCandidateBuild({
       reqId: REQ,
@@ -670,7 +696,7 @@ describe('deployment approval revalidation', () => {
       reqId: REQ,
       acceptedBy: 'owner',
       source: 'test',
-      fingerprint: 'f'.repeat(64),
+      fingerprint: expectedAcceptanceFingerprints(repo, REQ, ARTIFACT.sha256)[0] ?? '',
       now: '2026-11-05T09:07:00.000Z',
     })
   }
@@ -772,6 +798,17 @@ describe('deployment approval revalidation', () => {
       source: 'owner-drift-build',
     })
     const intentId = (requested.data as { intentId: string }).intentId
+    repo.recordTaskArtifact({
+      requirementId: REQ,
+      planVersion: 1,
+      taskId: 'a',
+      candidateSha256: 'task-a-candidate',
+      testEvidenceSha256: 'e'.repeat(64),
+      reviewSha256: 'r'.repeat(64),
+      acceptance: '存在',
+      authorizationSource: 'test',
+      recordedAt: '2026-11-05T09:02:30.000Z',
+    })
     repo.recordCandidateBuild({
       reqId: REQ,
       planVersion: 1,

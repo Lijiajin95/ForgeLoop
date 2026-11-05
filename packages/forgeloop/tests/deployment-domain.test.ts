@@ -10,6 +10,8 @@ describe('deployment state machine', () => {
     expect(canTransition('draft', 'awaiting_approval')).toBe(true)
     expect(canTransition('awaiting_approval', 'ready')).toBe(true)
     expect(canTransition('ready', 'applying')).toBe(true)
+    // apply 前复核失败：没有越过工具调用，收口为 preflight_failed。
+    expect(canTransition('ready', 'preflight_failed')).toBe(true)
     expect(canTransition('applying', 'applied_pending_verify')).toBe(true)
     expect(canTransition('applied_pending_verify', 'verified')).toBe(false)
     expect(canTransition('applied_pending_verify', 'verifying')).toBe(true)

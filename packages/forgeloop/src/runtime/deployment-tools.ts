@@ -67,6 +67,18 @@ export function deploymentToolDigest(path: string): { sha256: string; size: numb
 }
 
 /**
+ * 实际制品文件摘要：apply 前复核磁盘上的制品与 intent 记录一致，
+ * 避免等待批准期间制品被换掉后仍按旧记录部署。读不到时返回空串，由调用方拒绝部署。
+ */
+export function artifactFileDigest(path: string): string {
+  try {
+    return sha256OfBytes(readFileSync(path))
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 同步脚本摘要：首次登记；摘要变化时写变更记录并更新当前值。
  * 变更不阻断调用，但本次调用的摘要会进入证据与 attempt 记录。
  */

@@ -5434,3 +5434,34 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
 - `make check` 135 文件 1555 项通过；`make coverage` 通过；`make contracts` 通过。
 - 本轮没有新增真实模型或真实部署证据；M1 的真实安装器/运行进程证明、真实模型运维闭环仍未完成，
   见 §138.4。M0 收口基线仍限定在隔离受控环境，本次修复消除的是该基线内的停止门禁缺陷。
+
+## 141. 部署候选/验收绑定、制品摘要与目标互斥（2026-11-05）
+
+来源：所有者核对 §138 后的剩余缺口清单，批次 A“部署动作入口与候选绑定”。
+§140 已修复“approve 前重新执行门禁”和“中断后按观测恢复”；本批只补齐 §140 未覆盖的判定，
+不重复实现同一门禁。
+
+### 141.1 实现
+
+- **验收绑定当前候选**：owner 目标除 `accepted_at` 外，还要求验收指纹匹配当前候选材料
+  （`expectedAcceptanceFingerprints`，复用 `buildAcceptanceBinding` 与 `candidateIdentityOf`）；
+  候选、任务包或需求材料变化后旧验收自动失效。验收可能发生在构建之前，因此同时接受
+  “不含制品摘要”和“含当前制品摘要”两种绑定。`auto` 目标语义不变。
+- **实际制品摘要**：apply 前重新计算磁盘制品文件的 SHA-256，与 intent 记录不一致或文件不可读时
+  收口为 `preflight_failed`，工具不会被调用（覆盖等待批准期间同版本换包）。
+- **目标互斥**：同一 target 同一时刻只允许一个未收口 intent；并发请求或跨路径推进返回
+  `target_busy`，部署、核对与回退共用该记录事实。
+- **运行进程新鲜度**：`status` 的 `runningStartedAt` 必须不早于本次安装时间，识别“装好了但进程
+  未重载”；缺失或不可解析时按未验证收口。
+- **证据时间**：attempt 的 `startedAt`/`finishedAt` 取真实调用前后时间，不再用同一个时间戳替代。
+
+### 141.2 证据
+
+- 新增 `tests/deployment-binding.test.ts`（8 项）：验收绑定错误候选被拒且工具零调用；正确绑定可部署；
+  preflight 期间需求修订、停止后拒绝 apply；同版本换包/制品缺失在 apply 前拒绝；同 target 并发请求
+  只允许一个；并发 approve 只 apply 一次。
+- `deployment-gate`、`deployment-run`、`deployment-rollback`、`delivery-handoff`、`state-machines`
+  测试按真实制品文件与验收指纹更新夹具后通过；`contracts/reliability.json` 增加
+  `ready → preflight_failed` 边。
+- 未执行：真实外部工具与真实 DSH profile 的部署复核仍属未验证边界（本批只改隔离夹具内的确定性判定）。
+

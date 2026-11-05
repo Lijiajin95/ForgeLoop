@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -15,10 +16,16 @@ let script = ''
 let config: ForgeLoopConfig
 let alerts: Array<{ body: Record<string, unknown> }> = []
 
-const ARTIFACT: DeploymentArtifact = {
-  sha256: 'a'.repeat(64),
-  path: '/tmp/a.tgz',
-  version: '1.0.0',
+let ARTIFACT: DeploymentArtifact
+
+function writeArtifact(content: string): DeploymentArtifact {
+  const path = join(dir, 'candidate.tgz')
+  writeFileSync(path, content)
+  return {
+    sha256: createHash('sha256').update(content).digest('hex'),
+    path,
+    version: '1.0.0',
+  }
 }
 
 function toolScript(): string {
@@ -35,7 +42,7 @@ function toolScript(): string {
     'elif op == "apply":',
     '    print(json.dumps({"ok": True, "state": "applied", "detail": "apply ok"}))',
     'elif op == "status":',
-    '    print(json.dumps({"ok": True, "state": "running", "version": version, "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-03T10:00:00Z", "detail": "status ok"}))',
+    '    print(json.dumps({"ok": True, "state": "running", "version": version, "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-04T00:00:00Z", "detail": "status ok"}))',
     'elif op == "rollback":',
     '    failed = tag == "FAIL_ROLLBACK"',
     '    print(json.dumps({"ok": not failed, "state": "rolled_back" if not failed else "failed", "detail": "rollback"}))',
@@ -122,6 +129,7 @@ beforeEach(() => {
   mkdirSync(toolDir, { recursive: true })
   script = join(toolDir, 'tool.py')
   writeFileSync(script, toolScript())
+  ARTIFACT = writeArtifact('rollback-candidate')
   config = resolveConfig(raw(), dir)
 })
 

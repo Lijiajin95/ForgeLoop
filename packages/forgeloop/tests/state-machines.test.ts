@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -138,7 +139,7 @@ function deploymentConfig(): ForgeLoopConfig {
   )
 }
 
-const ARTIFACT = { sha256: 'a'.repeat(64), path: '/tmp/a.tgz', version: '1.0.0' }
+let ARTIFACT = { sha256: '', path: '', version: '1.0.0' }
 
 function fakeDeploymentTool(options: { failApply?: boolean } = {}) {
   return async (_tool: unknown, op: string) => {
@@ -218,6 +219,13 @@ const DIAGNOSIS = JSON.stringify({
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'forgeloop-state-machines-'))
   clock = new Date('2026-11-03T10:00:00.000Z')
+  const path = join(dir, 'candidate.tgz')
+  writeFileSync(path, 'state-machine-candidate')
+  ARTIFACT = {
+    sha256: createHash('sha256').update('state-machine-candidate').digest('hex'),
+    path,
+    version: '1.0.0',
+  }
 })
 
 afterEach(() => {

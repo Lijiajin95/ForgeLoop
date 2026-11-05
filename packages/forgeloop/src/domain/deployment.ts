@@ -55,7 +55,9 @@ const TRANSITIONS: Readonly<Record<DeploymentAttemptState, readonly DeploymentAt
   preflight_failed: [],
   awaiting_approval: ['rejected', 'ready'],
   rejected: [],
-  ready: ['applying'],
+  // ready 是“已批准、即将调用 apply”的边界；apply 前复核失败收口为 preflight_failed，
+  // 表示这次部署没有越过工具调用。
+  ready: ['applying', 'preflight_failed'],
   applying: ['applied_pending_verify', 'failed'],
   applied_pending_verify: ['verifying', 'verify_failed', 'rolling_back'],
   verifying: ['verified', 'verify_failed', 'failed'],
