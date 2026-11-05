@@ -33,8 +33,9 @@ jobs:
 
   reliability-advanced:
     # PR 快速进阶门禁：清单/稳定性/属性/状态机/场景/回归 + 增量变异（不做全量变异）。
+    # 本机/CI 实测该门禁可能需要超过 25 分钟；给足执行时间，不降低检查范围。
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
