@@ -194,6 +194,11 @@ const targets: Record<string, Step> = {
   stability: () => node('stability.ts'),
   'reliability-advanced': () =>
     node('reliability-report-advanced.ts', param('SCOPE') ? ['--scope', param('SCOPE')] : []),
+  'worktree-start': () =>
+    node('worktree-start.ts', [
+      required('TASK', 'worktree-start TASK=<task>'),
+      ...(param('BRANCH') ? [param('BRANCH')!] : []),
+    ]),
   'worktree-merge': () =>
     node('worktree-merge.ts', [required('BRANCH', 'worktree-merge BRANCH=<branch>')]),
   audit: () => npm(['audit', '--audit-level=high']),
@@ -215,6 +220,7 @@ function help(): void {
   make.cmd mutation-incremental [SCOPE=incremental|controlled] [BASE=<ref>]
   make.cmd reliability-report|reliability-report-fast|reliability-advanced|stability
   make.cmd verify-plugin|verify-e2e|e2e|real-model-e2e|m0-loop-e2e
+  make.cmd worktree-start TASK=<task> [BRANCH=<branch>]
   make.cmd worktree-merge BRANCH=<branch>
   make.cmd audit|security`)
 }
