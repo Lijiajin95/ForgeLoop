@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { launch } from './platform.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PKG = join(ROOT, 'packages', 'forgeloop')
@@ -179,10 +180,12 @@ writeFileSync(
 const args = ['run', configPath]
 // CI 用 STRYKER_CONCURRENCY 覆盖配置里的本地并发数；非法值直接忽略，交给配置。
 if (CONCURRENCY && /^\d+$/.test(CONCURRENCY)) args.push('--concurrency', CONCURRENCY)
-const result = spawnSync(STRYKER_BIN, args, {
+const command = launch(STRYKER_BIN, args)
+const result = spawnSync(command.file, [...command.args], {
   cwd: PKG,
   stdio: 'inherit',
   env: { ...process.env },
+  ...(command.spawnOptions ?? {}),
 })
 if (result.error) {
   console.error(`[mutation-shard] 启动 Stryker 失败：${result.error.message}`)

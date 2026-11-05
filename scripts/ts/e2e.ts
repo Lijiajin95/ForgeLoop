@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
+import { launch, npmLaunch } from './platform.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_E2E_PROFILE ?? 'forgeloop-e2e'
@@ -18,13 +19,15 @@ const home = mkdtempSync(join(tmpdir(), 'forgeloop-e2e-'))
 const failures: string[] = []
 
 function run(args: string[]): { code: number; stdout: string; stderr: string } {
+  const command = launch(DSH, args)
   try {
-    const stdout = execFileSync(DSH, args, {
+    const stdout = execFileSync(command.file, [...command.args], {
       cwd: ROOT,
       encoding: 'utf8',
       env: { ...process.env, DSH_HOME: home },
       timeout: 300_000,
       maxBuffer: 32 * 1024 * 1024,
+      ...(command.spawnOptions ?? {}),
     })
     return { code: 0, stdout, stderr: '' }
   } catch (error) {
@@ -38,7 +41,8 @@ function run(args: string[]): { code: number; stdout: string; stderr: string } {
 }
 
 try {
-  execFileSync('npm', ['run', 'build', '--workspace', 'forgeloop-dsh'], {
+  const build = npmLaunch(['run', 'build', '--workspace', 'forgeloop-dsh'])
+  execFileSync(build.file, [...build.args], {
     cwd: ROOT,
     stdio: 'inherit',
     env: process.env,

@@ -10,6 +10,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { request } from 'playwright-core'
+import { launch, terminate } from './platform.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_E2E_PROFILE ?? 'forgeloop-e2e'
@@ -29,7 +30,14 @@ function freePort(): Promise<number> {
 }
 
 function dshSync(args: string[], env: NodeJS.ProcessEnv): void {
-  const result = spawnSync(DSH, args, { cwd: ROOT, env, encoding: 'utf8', timeout: 300_000 })
+  const command = launch(DSH, args)
+  const result = spawnSync(command.file, [...command.args], {
+    cwd: ROOT,
+    env,
+    encoding: 'utf8',
+    timeout: 300_000,
+    ...(command.spawnOptions ?? {}),
+  })
   if (result.status !== 0) {
     throw new Error(`dsh ${args.join(' ')} 失败：${result.stderr || result.stdout}`)
   }
@@ -80,10 +88,12 @@ try {
   dshSync(['--profile', PROFILE, '--from-default-profile', 'web', '--dump-config'], env)
   dshSync(['plugin', '--profile', PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
   const port = await freePort()
-  child = spawn(DSH, ['--profile', PROFILE, '--port', String(port), '--no-open'], {
+  const web = launch(DSH, ['--profile', PROFILE, '--port', String(port), '--no-open'])
+  child = spawn(web.file, [...web.args], {
     cwd: ROOT,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    ...(web.spawnOptions ?? {}),
   })
   const tokenUrl = await waitForToken(child, 90_000)
   const pluginLog = join(workspace, 'records', 'projects', PROJECT, 'logs', 'plugin.log')
@@ -121,7 +131,7 @@ try {
   console.error(`[e2e-board] 失败：${error instanceof Error ? error.message : String(error)}`)
   exitCode = 1
 } finally {
-  child?.kill('SIGTERM')
+  terminate(child)
   rmSync(workspace, { recursive: true, force: true })
 }
 process.exitCode = exitCode

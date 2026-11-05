@@ -120,6 +120,22 @@ function run(command: string, args: readonly string[], cwd: string, timeoutMs: n
   }
 }
 
+/**
+ * 本机门禁统一经 make 运行；Windows 没有 GNU make，改走同目标的 make-windows.ts。
+ * CI 与 POSIX 仍执行 Makefile。
+ */
+function runMake(target: string, timeoutMs: number): RunResult {
+  if (process.platform === 'win32') {
+    return run(
+      process.execPath,
+      [join(ROOT, 'scripts', 'ts', 'make-windows.ts'), target],
+      ROOT,
+      timeoutMs,
+    )
+  }
+  return run('make', [target], ROOT, timeoutMs)
+}
+
 function gate(
   id: string,
   label: string,
@@ -402,19 +418,19 @@ function main(): void {
   mkdirSync(HISTORY_DIR, { recursive: true })
   const gates: GateRow[] = []
 
-  const typecheck = run('make', ['typecheck'], ROOT, 180_000)
+  const typecheck = runMake('typecheck', 180_000)
   gates.push(gate('typecheck', '类型检查', typecheck, 'make typecheck', null, 'errors', 0))
 
-  const lint = run('make', ['lint'], ROOT, 180_000)
+  const lint = runMake('lint', 180_000)
   gates.push(gate('lint', 'ESLint', lint, 'make lint', null, 'errors', 0))
 
-  const format = run('make', ['format'], ROOT, 120_000)
+  const format = runMake('format', 120_000)
   gates.push(gate('format', '格式', format, 'make format', null, 'files', 0))
 
-  const contracts = run('make', ['contracts'], ROOT, 120_000)
+  const contracts = runMake('contracts', 120_000)
   gates.push(gate('contracts', '架构契约', contracts, 'make contracts', null, 'violations', 0))
 
-  const budget = run('make', ['budget'], ROOT, 120_000)
+  const budget = runMake('budget', 120_000)
   const tokenValues = parseTokens(`${budget.stdout}\n${budget.stderr}`)
   gates.push(
     gate(
@@ -428,7 +444,7 @@ function main(): void {
     ),
   )
 
-  const assertions = run('make', ['assertions'], ROOT, 120_000)
+  const assertions = runMake('assertions', 120_000)
   const assertionValues = parseAssertions(`${assertions.stdout}\n${assertions.stderr}`)
   gates.push(
     gate(
@@ -489,7 +505,7 @@ function main(): void {
     gates.push(notRun('mutation', '变异测试', 'make mutation'))
   } else {
     const mutationStarted = Date.now()
-    const mutationRun = run('make', ['mutation'], ROOT, 1_800_000)
+    const mutationRun = runMake('mutation', 1_800_000)
     mutation = parseMutation(mutationStarted)
     gates.push(
       gate(

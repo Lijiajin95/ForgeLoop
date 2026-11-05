@@ -9,6 +9,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { launch } from './platform.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const DSH_HOME = resolve(process.env.FORGELOOP_DSH_HOME ?? join(ROOT, '.cache/forgeloop/dsh-home'))
@@ -19,14 +20,16 @@ const patchArgs = PATCH ? ['--patch', PATCH] : []
 const failures: string[] = []
 
 function dsh(args: string[], input?: string): { code: number; stdout: string; stderr: string } {
+  const command = launch(DSH, args)
   try {
-    const stdout = execFileSync(DSH, args, {
+    const stdout = execFileSync(command.file, [...command.args], {
       cwd: ROOT,
       encoding: 'utf8',
       input,
       env: { ...process.env, DSH_HOME },
       timeout: 300_000,
       maxBuffer: 32 * 1024 * 1024,
+      ...(command.spawnOptions ?? {}),
     })
     return { code: 0, stdout, stderr: '' }
   } catch (error) {

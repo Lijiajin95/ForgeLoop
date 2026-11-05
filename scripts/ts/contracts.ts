@@ -8,7 +8,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const failures: string[] = []
@@ -60,7 +60,7 @@ function localImport(fromFile: string, specifier: string): string | null {
     if (existsSync(`${target}.ts`)) target = `${target}.ts`
     else if (existsSync(join(target, 'index.ts'))) target = join(target, 'index.ts')
   }
-  const rel = relative(ROOT, target)
+  const rel = relative(ROOT, target).split(sep).join('/')
   if (rel.startsWith('..') || isAbsolute(rel)) return null
   return existsSync(join(ROOT, rel)) ? rel : null
 }

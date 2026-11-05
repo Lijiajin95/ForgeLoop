@@ -23,6 +23,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { request, type APIRequestContext } from 'playwright-core'
+import { launch, terminate } from './platform.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
@@ -83,12 +84,14 @@ function run(
   timeout: number,
   cwd = ROOT,
 ): { code: number; stdout: string; stderr: string } {
-  const result = spawnSync(executable, [...args], {
+  const command = launch(executable, args)
+  const result = spawnSync(command.file, [...command.args], {
     cwd,
     env,
     encoding: 'utf8',
     timeout,
     maxBuffer: 64 * 1024 * 1024,
+    ...(command.spawnOptions ?? {}),
   })
   return {
     code: result.status ?? 1,
@@ -360,10 +363,12 @@ try {
   }
 
   const port = await freePort()
-  child = spawn(DSH, ['--profile', WEB_PROFILE, '--port', String(port), '--no-open'], {
+  const web = launch(DSH, ['--profile', WEB_PROFILE, '--port', String(port), '--no-open'])
+  child = spawn(web.file, [...web.args], {
     cwd: ROOT,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    ...(web.spawnOptions ?? {}),
   })
   const tokenUrl = await waitForToken(child, 120_000)
   context = await request.newContext({ baseURL: `http://127.0.0.1:${port}` })
@@ -385,7 +390,7 @@ try {
   console.error(`[verify-e2e] 失败：${error instanceof Error ? error.message : String(error)}`)
 } finally {
   await context?.dispose()
-  child?.kill('SIGTERM')
+  terminate(child)
   rmSync(workspace, { recursive: true, force: true })
 }
 process.exitCode = exitCode
