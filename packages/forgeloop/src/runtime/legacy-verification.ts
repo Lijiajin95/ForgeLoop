@@ -24,6 +24,7 @@ import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/countin
 import { AGENT_VERIFY } from '../domain/agents.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
 import { VerificationAgent } from '../agents/verification-agent.js'
+import type { VerificationSession } from '../agents/verification-agent.js'
 import type { AgentOpenRequest, AgentSession } from './agent-runner.js'
 import type { CandidateFile } from './integration.js'
 import { businessReviewPrompt, verificationExecutionPrompt } from './prompts.js'
@@ -671,6 +672,41 @@ export class LegacyVerification {
     return { issues, head, changes }
   }
 
+  /** 方案命令必须真的执行过：只给结论不执行时先补一次明确重试，仍缺失再阻断。 */
+  private async ensureCommandsExecuted(input: {
+    reqId: string
+    dir: string
+    plan: VerificationPlan
+    token: string
+    session: VerificationSession
+    signal?: AbortSignal
+  }): Promise<{ ok: true } | { ok: false; detail: string }> {
+    const planned = input.plan.scenarios.flatMap((scenario) => scenario.checks)
+    const before = this.deps.checks.snapshot(input.reqId, input.token)
+    const executed = new Set((before?.runs ?? []).map((item) => item.label))
+    const missing = planned
+      .filter((check) => !executed.has(check.label))
+      .map((check) => check.label)
+    if (missing.length === 0) return { ok: true }
+    const started = Date.now()
+    const retry = await input.session.send({
+      prompt: [
+        '你还没有用验证工具执行下列命令，因此不能给出结论：',
+        ...missing.map((label) => `- ${label}`),
+        '',
+        '请逐条调用验证工具执行它们（不要新写命令、不要只描述结果），执行完再给出结论。',
+      ].join('\n'),
+      timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+      transcriptPath: join(input.dir, 'verification-execution-retry.jsonl'),
+      ...(input.signal ? { signal: input.signal } : {}),
+    })
+    this.deps.charge(input.reqId, started)
+    if (retry.status !== 'completed') {
+      return { ok: false, detail: `验证命令补充执行未完成：${retry.reason}` }
+    }
+    return { ok: true }
+  }
+
   /** 命令未全部执行或被停止：不能进入业务判定，也不构成候选缺陷。 */
   private preJudgeBlock(
     snapshot: VerificationCheckSnapshot,
@@ -769,6 +805,22 @@ export class LegacyVerification {
           state: 'block',
           detail: `验证执行未取得结论：${run.reason}`,
           blocking: [`验证执行未取得结论：${run.reason}`],
+          verification: null,
+        }
+      }
+      const executedRetry = await this.ensureCommandsExecuted({
+        reqId: input.reqId,
+        dir,
+        plan: verificationSession.plan,
+        token: handle.token,
+        session: verificationSession.session,
+        signal: input.signal,
+      })
+      if (!executedRetry.ok) {
+        return {
+          state: 'block',
+          detail: executedRetry.detail,
+          blocking: [executedRetry.detail],
           verification: null,
         }
       }
