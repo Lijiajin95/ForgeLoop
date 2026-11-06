@@ -17,7 +17,7 @@ import { RuleViolationError } from '../domain/errors.js'
 import { num, oneOf, text, type Row } from './rows.js'
 
 const ANALYSIS_KINDS: readonly AnalysisMode[] = ['initial', 'auto', 'manual']
-const ANALYSIS_OUTCOMES: readonly AnalysisOutcome[] = ['done', 'failed']
+const ANALYSIS_OUTCOMES: readonly AnalysisOutcome[] = ['done', 'failed', 'stale']
 
 export class AnalysisStore {
   readonly clarifications: ClarificationStore

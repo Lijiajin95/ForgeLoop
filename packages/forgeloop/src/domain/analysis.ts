@@ -29,7 +29,8 @@ export const PRODUCT_TOOL_ALLOWLIST: readonly string[] = [
 /** 一次分析尝试的来源：首次、自动重试或人工重试。 */
 export type AnalysisMode = 'initial' | 'auto' | 'manual'
 
-export type AnalysisOutcome = 'done' | 'failed'
+/** `stale`：结果返回时需求已修订/停止/取消或已有结论，只留审计、不更新业务状态。 */
+export type AnalysisOutcome = 'done' | 'failed' | 'stale'
 
 /** 一次分析尝试的完整记录；失败尝试没有分析结论，但保留模型、轨迹与工具调用。 */
 export interface AnalysisAttempt {

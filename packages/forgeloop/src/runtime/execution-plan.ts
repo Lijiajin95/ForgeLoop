@@ -6,7 +6,7 @@ import { parseAnalysisDraft, statusForAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 import { parseTaskPlanDraft } from '../domain/task-plan.js'
 import { AGENT_DEV, AGENT_PRODUCT } from '../domain/agents.js'
-import { PLAN_PROPOSED, SPECIFIED, ANALYSIS_FAILED } from '../domain/status.js'
+import { PLAN_PROPOSED, SPECIFIED, ANALYSIS_FAILED, isTerminal } from '../domain/status.js'
 import {
   ANALYSIS_PROMPT_VERSION,
   BUSINESS_CONTEXT_DOC,
@@ -101,25 +101,53 @@ export interface ExecutionPlanDeps {
   ) => Promise<{ state: 'done'; review: PlanReview } | { state: 'failed'; detail: string }>
 }
 
+export interface ExecuteAnalysisResult {
+  readonly state: 'done' | 'failed'
+  readonly detail: string
+  /** 结果返回时需求已修订/停止/取消：只保留审计，调用方不得把它当成分析结论。 */
+  readonly stale?: boolean
+}
+
 export class ExecutionPlan {
+  /** 同一需求版本只允许一次真实模型调用；并发调用共享同一结果。 */
+  private readonly inflight = new Map<string, Promise<ExecuteAnalysisResult>>()
+
   constructor(private readonly deps: ExecutionPlanDeps) {}
 
   async executeAnalysis(
     reqId: string,
     signal: AbortSignal,
     mode: AnalysisMode = 'initial',
-  ): Promise<{ state: 'done' | 'failed'; detail: string }> {
+  ): Promise<ExecuteAnalysisResult> {
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
+    const version = requirement.versions.length
     // 单次分析：当前需求版本已有结论时直接复用，不重复调用模型。
     const existing = this.deps.repo.latestAnalysis(reqId)
-    if (existing && existing.requirementVersion === requirement.versions.length) {
+    if (existing && existing.requirementVersion === version) {
       return {
         state: 'done',
         detail: `需求 ${reqId} 已有 v${existing.analysisVersion} 分析，未重复调用模型`,
       }
     }
-    const version = requirement.versions.length
+    const key = `${reqId}:${version}`
+    const running = this.inflight.get(key)
+    if (running) return running
+    const task = this.runAnalysis({ reqId, requirement, version, signal, mode }).finally(() => {
+      if (this.inflight.get(key) === task) this.inflight.delete(key)
+    })
+    this.inflight.set(key, task)
+    return task
+  }
+
+  private async runAnalysis(input: {
+    reqId: string
+    requirement: Requirement
+    version: number
+    signal: AbortSignal
+    mode: AnalysisMode
+  }): Promise<ExecuteAnalysisResult> {
+    const { reqId, requirement, version, signal, mode } = input
     const previousAnalysis = this.deps.repo.latestAnalysis(reqId)
     const attempt = this.deps.repo.analysisAttempts(reqId, version).length + 1
     const started = Date.now()
@@ -154,6 +182,10 @@ export class ExecutionPlan {
       toolCalls: result.toolCalls,
       createdAt: this.deps.now(),
     }
+    // 模型返回时先核对需求是否仍是发起时的版本与状态：迟到结果只留审计，
+    // 不能更新需求状态、系统准入或业务背景。
+    const stale = this.stalenessOf(reqId, version)
+    if (stale) return this.recordStale(recorded, stale)
     if (result.status !== 'completed') {
       return this.failAnalysis(recorded, result.reason)
     }
@@ -212,6 +244,40 @@ export class ExecutionPlan {
       newQuestions: draft.clarifications,
       updates: draft.clarificationUpdates,
     })
+  }
+
+  /**
+   * 结果是否已经过期：需求被修订、取消或停止后，旧版本的模型调用即使成功也不得写回。
+   * 只读当前记录，不依赖调用方传入的状态。
+   */
+  private stalenessOf(reqId: string, version: number): string {
+    const requirement = this.deps.repo.getRequirement(reqId)
+    if (!requirement) return '需求已不存在'
+    if (this.deps.repo.cancellation(reqId)) return '需求已取消'
+    if (isTerminal(requirement.status)) return `需求已处于终态 ${requirement.status}`
+    if (requirement.versions.length !== version) {
+      return `需求已从 v${version} 修订为 v${requirement.versions.length}`
+    }
+    if (this.deps.repo.activeStop(reqId)) return '需求已请求停止'
+    const recorded = this.deps.repo.latestAnalysis(reqId)
+    if (recorded && recorded.requirementVersion === version) {
+      return `需求 v${version} 已有分析结论`
+    }
+    return ''
+  }
+
+  /** 迟到结果只写一条审计尝试；不改需求状态，也不进入准入与业务背景。 */
+  private recordStale(recorded: RecordedAnalysis, reason: string): ExecuteAnalysisResult {
+    this.deps.repo.recordAnalysisAttempt({
+      ...recorded,
+      outcome: 'stale',
+      detail: `结果迟到已丢弃：${reason}`,
+    })
+    return {
+      state: 'failed',
+      detail: `分析结果已过期，只保留审计记录：${reason}`,
+      stale: true,
+    }
   }
 
   /** 分析提示词只在这里组装：需求原文、项目事实、业务背景与完整澄清问答。 */

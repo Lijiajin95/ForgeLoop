@@ -611,16 +611,7 @@ ${answer}`
     if (isTerminal(requirement.status)) {
       return fail('terminal', `需求 ${reqId} 已处于终态 ${requirement.status}，不能再分析`)
     }
-    const existing = this.repo.latestAnalysis(reqId)
-    if (existing && existing.requirementVersion === requirement.versions.length) {
-      return {
-        ok: true,
-        code: 'ok',
-        message: `需求 ${reqId} 已有 v${existing.analysisVersion} 分析，未重复调用模型`,
-        requirement: this.requirementView(requirement),
-        analysis: existing,
-      }
-    }
+    // 已有当前版本结论时由执行器直接复用并返回“未重复调用模型”。
     const outcome = await this.executionPlan.executeAnalysis(
       reqId,
       signal ?? new AbortController().signal,
@@ -628,8 +619,10 @@ ${answer}`
     const refreshed = this.repo.getRequirement(reqId)
     const analysis = this.repo.latestAnalysis(reqId)
     if (outcome.state !== 'done' || !analysis) {
+      // 迟到结果没有写入业务状态：独立错误码，避免被当成普通失败去重试。
+      const code = outcome.stale === true ? 'analysis_stale' : 'analysis_failed'
       return {
-        ...fail('analysis_failed', outcome.detail || '需求分析未完成'),
+        ...fail(code, outcome.detail || '需求分析未完成'),
         requirement: refreshed ? this.requirementView(refreshed) : null,
       }
     }
