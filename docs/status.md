@@ -6703,3 +6703,14 @@ extension and .../workspace/package.json contains "type": "module"`；
 下一步（最小改动）：验证结论分类时识别 `require is not defined` / `ERR_REQUIRE_ESM` 这类
 “脚本自身错误”，给出可执行的修复反馈（改用 ESM 或 `.cjs`），而不是当作候选实现缺陷；
 判据不放宽，只是把失败归到正确的一侧。
+
+## 181. 验证脚本自身报错归为测试材料错误（2026-11-06）
+
+`fd485de`：`classifyVerificationFailure` 识别 `require is not defined in ES module scope` 与
+`ERR_REQUIRE_ESM`，归 `test_error`、`requiresCodeChange=false`，指引“改用工程一致的模块形式
+（ESM import 或 .cjs）后在同一候选复验”。
+
+- 测试：`verification-integrity` 13 项通过；`make check-static` 通过。
+- 影响：这类失败不再被当成“候选实现缺陷”，但**不会自动让验证 Agent 重写脚本**——
+  当前只把归因和指引写进失败结论，链路仍会停在 blocked。
+- M1-3 仍未闭环；下一步需要“test_error 时回到验证 Agent 改写脚本再复验”的重试路径。
