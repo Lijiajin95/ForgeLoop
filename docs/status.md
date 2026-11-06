@@ -6469,3 +6469,32 @@ M1-3 要求“真实/标注注入故障 → 真实诊断 → 授权内恢复 →
 结论：这一轮暴露的不是门禁问题，也不是“模型没修”，而是**验证方案与候选工程的依赖不匹配**。
 下一步应让验证方案在候选工作区内可执行（脚本自包含、只依赖工程内已有模块），
 并在验证前做一次可加载性检查；判据不变。
+
+## 171. 方案 A 落地：方案阶段拒绝未安装模块（2026-11-06）
+
+按所有者选择执行方案 A（验证命令必须自包含、只依赖工程内已有模块，缺依赖在方案阶段拒绝）。
+
+### 171.1 改动
+
+- `validatePlanModuleDependencies`：解析命令里的 `require`/`import` 说明符，
+  内置模块（`node:*`、`builtinModules`）与工程 `package.json` 已声明依赖放行，其余在方案阶段拒绝；
+- `VerificationAgent` 增加 `projectPath`，方案校验时读取目标工程依赖；`legacy-verification` 传入；
+- 补抄反馈文案补充“依赖未安装时改用工程内已有依赖或内置模块”；
+- 同类修复：TS 脚本统一用 `./platform.ts` 导入（origin 的 `.js` 导入会让 node 直接运行报
+  `ERR_MODULE_NOT_FOUND`）；运维 E2E 按平台选择 python（POSIX `python3` / Windows `python.exe`）；
+- 修复需求文本补“原检查命令 + 连续 3 次通过的验收标准”，减少无关澄清（实测此前停在
+  `awaiting_clarification` 问观察窗口）。
+
+### 171.2 复跑结果（`/tmp/forgeloop-ops-ZNNmCl`、`/tmp/forgeloop-ops-*` 最新现场）
+
+- `MODULE_NOT_FOUND` 类失败**没有再现**：方案阶段即拒绝依赖未安装的命令；
+- 需求 `req-20261106122144-afa72a` 停在 `blocked`，原因是任务包写了
+  `scripts/verify-watchdog.mjs`，触发“不得修改已退役的旧脚本路径”规则
+  （目标工程的 `scripts/` 不在活动实现约定内）；
+- 仍为 0 提交、0 部署、事件未关闭。
+
+### 171.3 判定
+
+M1-3 仍部分达成。阻塞已从“执行期缺依赖”前移到“任务包路径与工程约定不匹配”；
+这说明方案 A 生效，但目标工程的语言/路径约定还需要按工程配置表达（下一批：
+让 `languageViolations` 也接受工程级配置，或在受控工程里不启用 ForgeLoop 专用路径规则）。
