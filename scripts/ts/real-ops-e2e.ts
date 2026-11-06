@@ -18,6 +18,10 @@ import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { launch, npmLaunch, terminate } from './platform.ts'
 
+// 与插件调用登记 python 工具的方式保持一致：POSIX 用 python3，Windows 用 python.exe。
+const PYTHON =
+  process.platform === 'win32' ? 'python.exe' : process.env.FORGELOOP_PYTHON?.trim() || 'python3'
+
 const ROOT = resolve(import.meta.dirname, '../..')
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
 const DSH_CLI = process.env.FORGELOOP_DSH_CLI ?? ''
@@ -596,11 +600,11 @@ async function main(): Promise<void> {
       data: {},
     })}\n`,
   )
-  run('python.exe', [installScript, '--op', 'preflight', '--plan', baselinePlan], {
+  run(PYTHON, [installScript, '--op', 'preflight', '--plan', baselinePlan], {
     cwd: project,
     env,
   })
-  run('python.exe', [installScript, '--op', 'apply', '--plan', baselinePlan], { cwd: project, env })
+  run(PYTHON, [installScript, '--op', 'apply', '--plan', baselinePlan], { cwd: project, env })
   const beforePid = Number(readFileSync(join(targetDir, 'process.pid'), 'utf8'))
   log(`基线制品已安装，进程 pid=${beforePid}，安装目录=${join(targetDir, 'current')}`)
 
