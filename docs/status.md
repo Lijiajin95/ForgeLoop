@@ -6594,3 +6594,15 @@ M1-3 仍部分达成。阻塞已从“执行期缺依赖”前移到“任务包
 
 结论：M1 未通过。下一步优先级：①验证 Agent 必须逐条执行方案命令（缺失即重试或拒绝）；
 ②重跑运维闭环争取 closed；③M1-5 真实崩机恢复；④M1-6 H/N/A 复算。
+
+## 176. 验证执行补重试（2026-11-06）
+
+上一轮失败点：验证 Agent 设计了 7 条命令却一条都没执行，整轮判“没有通过工具执行方案中的命令”。
+
+- 新增 `ensureCommandsExecuted`：列出未执行的 label，要求在同一会话内逐条调用验证工具，
+  仍缺失才阻断；重试对话写入 `verification-execution-retry.jsonl`。
+- 不改命令、判据与证据核对逻辑；verification/legacy/continuous 相关 113 项通过，`make check-static` 通过。
+- 提交 `68c2099`，已推送。
+
+复跑已启动（现场 `/tmp/forgeloop-ops-*` 最新）：需求进入 `developing`，截至本轮结束无提交/部署/关闭。
+M1-3 仍为部分达成。
