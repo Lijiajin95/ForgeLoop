@@ -1,3 +1,4 @@
+import { validatePlanModuleDependencies } from '../src/domain/verification.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -1870,6 +1871,27 @@ describe('requirement-derived verification plan', () => {
         issue.includes('异常标记断言'),
       ),
     ).toEqual([])
+  })
+
+  it('rejects a plan whose command depends on an uninstalled module', () => {
+    const plan = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf().replace(
+        "console.log('verified ok')",
+        "require('left-pad')('x');console.log('verified ok')",
+      ),
+    )
+    expect(validatePlanModuleDependencies(plan, { dependencies: [] }).join('；')).toContain(
+      '验证方案命令依赖未安装的模块：left-pad',
+    )
+    // 内置模块与已安装依赖放行；判据只看“是否安装”，不看用法。
+    expect(validatePlanModuleDependencies(plan, { dependencies: ['left-pad'] })).toEqual([])
+    const builtin = parseRequirementVerificationPlan(
+      requirementVerificationPlanOf().replace(
+        "console.log('verified ok')",
+        "require('node:fs').existsSync('.')&&console.log('verified ok')",
+      ),
+    )
+    expect(validatePlanModuleDependencies(builtin, { dependencies: [] })).toEqual([])
   })
 
   it('requires the exception assertion command to build its own temp input', () => {

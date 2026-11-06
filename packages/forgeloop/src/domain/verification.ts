@@ -6,6 +6,7 @@
  * 运行时只接受可解析的结构，并由程序实际执行命令。
  */
 
+import { builtinModules } from 'node:module'
 import { asRecord as recordOf } from './json.js'
 import { MalformedError } from './errors.js'
 import { parseJsonLoose } from './requirement.js'
@@ -532,6 +533,53 @@ function validateStructuredPlanCoverage(
     }
   }
   return issues
+}
+
+const BUILTIN_MODULES = new Set<string>(builtinModules)
+
+export interface VerificationPlanProject {
+  /** 目标工程已安装的包名（dependencies + devDependencies）。 */
+  readonly dependencies: readonly string[]
+}
+
+/**
+ * 方案阶段就拒绝依赖未安装模块的命令：执行期才报 MODULE_NOT_FOUND 既浪费一轮验证，
+ * 也让“缺依赖”被误当成实现缺陷。判据不变，只是提前校验。
+ */
+export function validatePlanModuleDependencies(
+  plan: VerificationPlan,
+  project: VerificationPlanProject,
+): string[] {
+  const installed = new Set(project.dependencies)
+  const issues: string[] = []
+  for (const scenario of plan.scenarios) {
+    for (const check of scenario.checks) {
+      for (const name of moduleSpecifiersOf(check.argv.join(' '))) {
+        if (name.startsWith('.') || name.startsWith('/') || name.startsWith('node:')) continue
+        if (BUILTIN_MODULES.has(name.split('/')[0] ?? name)) continue
+        const root = name.startsWith('@')
+          ? name.split('/').slice(0, 2).join('/')
+          : (name.split('/')[0] ?? name)
+        if (installed.has(root)) continue
+        issues.push(`验证方案命令依赖未安装的模块：${root}（${check.label}）`)
+      }
+    }
+  }
+  return issues
+}
+
+function moduleSpecifiersOf(text: string): string[] {
+  const names = new Set<string>()
+  for (const pattern of [
+    /require\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /from\s+['"]([^'"]+)['"]/g,
+    /import\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ]) {
+    for (const match of text.matchAll(pattern)) {
+      if (match[1]) names.add(match[1])
+    }
+  }
+  return [...names]
 }
 
 export function validateRequirementVerificationPlan(

@@ -9,11 +9,14 @@
  * 本类只负责方案阶段；执行与业务验收提示词由运行时投递到同一个会话。
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { MalformedError } from '../domain/errors.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 import {
   parseRequirementVerificationPlan,
+  validatePlanModuleDependencies,
   validateRequirementVerificationPlan,
   type VerificationPlan,
 } from '../domain/verification.js'
@@ -144,9 +147,17 @@ ${tasks}
 - 只输出 JSON，不要输出解释或 Markdown 围栏。`
 }
 
+export interface VerificationAgentOptions {
+  readonly session: VerificationSession
+  readonly timeoutMs: number
+  /** 目标工程根目录；用于在方案阶段核对命令依赖是否已安装。 */
+  readonly projectPath?: string
+}
+
 export class VerificationAgent {
   private readonly session: VerificationSession
   private readonly timeoutMs: number
+  private readonly deps: VerificationAgentOptions
 
   /**
    * 方案修复重试：模型漏抄需求原文时，把缺失条目反馈回去再要；连续两次仍不合格才 fail-closed。
@@ -155,6 +166,7 @@ export class VerificationAgent {
   static readonly MAX_PLAN_ATTEMPTS = 3
 
   constructor(options: VerificationAgentOptions) {
+    this.deps = options
     this.session = options.session
     this.timeoutMs = options.timeoutMs
   }
@@ -191,7 +203,14 @@ export class VerificationAgent {
         throw new MalformedError(`验证方案生成未完成（${run.status}）：${run.reason}`)
       }
       const plan = parseRequirementVerificationPlan(run.text)
-      const issues = validateRequirementVerificationPlan(input.analysis, plan)
+      const issues = [
+        ...validateRequirementVerificationPlan(input.analysis, plan),
+        ...(this.deps.projectPath
+          ? validatePlanModuleDependencies(plan, {
+              dependencies: installedDependencies(this.deps.projectPath),
+            })
+          : []),
+      ]
       if (issues.length === 0) return plan
       lastIssues = issues
       feedback = [
@@ -212,5 +231,22 @@ export class VerificationAgent {
       ].join('\n')
     }
     throw new MalformedError(`验证方案未覆盖需求说明：${lastIssues.join('；')}`)
+  }
+}
+
+/** 读取目标工程 package.json 里已安装的包名；缺失或畸形时返回空列表（不阻断方案阶段）。 */
+function installedDependencies(projectPath: string): string[] {
+  try {
+    const manifest: unknown = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf8'))
+    if (typeof manifest !== 'object' || manifest === null) return []
+    const fields: Record<string, unknown> = { ...manifest }
+    const names: string[] = []
+    for (const field of ['dependencies', 'devDependencies']) {
+      const value = fields[field]
+      if (typeof value === 'object' && value !== null) names.push(...Object.keys(value))
+    }
+    return names
+  } catch {
+    return []
   }
 }

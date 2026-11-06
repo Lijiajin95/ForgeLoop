@@ -117,6 +117,7 @@ export class LegacyVerification {
           send: (turn) => session.send(turn),
         },
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        projectPath: this.deps.config.projectPath,
       })
       plan = await agent.plan({
         requirement: input.requirement,
