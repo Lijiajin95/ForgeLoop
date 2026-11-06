@@ -522,7 +522,7 @@ describe('OpsRuntime diagnosis inputs and escalation', () => {
     expect(outputPrompt).toContain('第2次检查摘要')
     expect(outputPrompt).toContain('第6次检查摘要')
     expect(outputPrompt).not.toContain('第1次检查摘要')
-    expect(outputPrompt).toContain('- restart-web（mode ∈ [graceful, force]）')
+    expect(outputPrompt).toContain('- restart-web（mode ∈ [graceful, force]；目录已预授权，可自动执行）')
     expect(outputPrompt).toContain('- manual-web（无参数）')
     expect(outputPrompt).not.toContain('restart-db')
     expect(outputPrompt).toContain('当前没有可提议的目标')

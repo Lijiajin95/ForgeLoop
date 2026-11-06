@@ -624,8 +624,8 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const report = JSON.parse(readFileSync(String(record.reportPath), 'utf8'))
     expect(report.commands[0]).toMatchObject({ label: 'slow', timedOut: true })
     expect(report.failureReasons.join('；')).toContain('验证命令超时：slow')
-    expect(built.failureRounds).toHaveLength(1)
-    expect(built.failureRounds[0]?.stage).toBe('verification')
+    // undetermined 不是实现缺陷，不累计可修复失败轮次。
+    expect(built.failureRounds).toHaveLength(0)
   })
 
   it('classifies an assertion failure as an implementation defect with repair guidance', async () => {
@@ -702,7 +702,8 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const report = JSON.parse(readFileSync(String(record.reportPath), 'utf8'))
     expect(report.candidateIntegrity.changes).toContain('docs/extra.md')
     expect(report.candidateIntegrity.allowedPaths).toEqual(['verification/'])
-    expect(built.failureRounds).toHaveLength(1)
+    // test_error 不可通过“修复实现”消除，不累计实现缺陷失败轮次。
+    expect(built.failureRounds).toHaveLength(0)
   })
 
   it('passes with a proven sensitivity control and records pinned workspace evidence', async () => {
@@ -741,20 +742,20 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(built.failureRounds).toHaveLength(0)
   })
 
-  it('passes without controls but records that no sensitivity was proven', async () => {
+  it('blocks without controls and records that no sensitivity was proven', async () => {
     const built = legacy()
     const outcome = await built.verify()
-    expect(outcome.state, outcome.detail).toBe('pass')
-    const record = built.verifications[0] as Record<string, unknown>
-    const report = JSON.parse(readFileSync(String(record.reportPath), 'utf8'))
-    expect(report.verdict).toBe('pass')
-    expect(report.controls).toEqual([])
-    expect(report.blocking).toEqual([])
-    expect(built.businessReviews).toHaveLength(1)
+    expect(outcome.state).toBe('block')
+    expect(outcome.failureKind).toBe('test_error')
+    expect(outcome.repairRecommended).toBe(false)
+    expect(outcome.detail).toContain('没有任何必过场景提供敏感性对照')
+    expect(built.businessReviews).toHaveLength(0)
+    expect(built.failureRounds).toHaveLength(0)
   })
 
   it('records a business-review failure round when the review turn does not finish', async () => {
     const built = legacy({
+      controls: 'valid',
       business: { status: 'aborted', reason: 'business stopped' },
     })
     const outcome = await built.verify()
@@ -772,7 +773,10 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('fails closed and records a failure round for a malformed business review', async () => {
-    const built = legacy({ business: { status: 'completed', text: 'not json' } })
+    const built = legacy({
+      controls: 'valid',
+      business: { status: 'completed', text: 'not json' },
+    })
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
     expect(outcome.detail).toContain('业务验收材料畸形：')

@@ -1340,7 +1340,6 @@ describe('task views on real records and evidence files', () => {
       acceptance: 't1 可验收',
       testCommand: ['node', '-e', 'process.exit(0)'],
       dependsOn: [],
-      verification: false,
     })
     expect(data.run.state).toBe('failed')
     expect(data.artifact.candidateSha256).toBe('cand-1')
@@ -1551,7 +1550,7 @@ describe('task views on real records and evidence files', () => {
     })
     const data = dataOf(outcome)
     expect(outcome.message).toBe('任务 t1 执行过程')
-    expect(data.task).toMatchObject({ taskId: 't1', planVersion: 1, verification: false })
+    expect(data.task).toMatchObject({ taskId: 't1', planVersion: 1 })
     expect(data.requirement).toEqual({ version: 1, status: 'draft', blockedReason: '' })
     expect(data.session).toEqual({
       dev: 'sess-dev',
