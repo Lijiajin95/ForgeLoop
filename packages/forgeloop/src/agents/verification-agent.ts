@@ -197,10 +197,17 @@ export class VerificationAgent {
       feedback = [
         '',
         '',
-        '上一次方案未通过覆盖校验。下列条目必须**逐字复制**到某个场景的 method 字段：',
+        '上一次方案未通过覆盖校验。下列条目必须**逐字复制**到指定字段：',
         '保留全部标点与空格，不要改写、不要翻译、不要省略、不要用同义句概括；',
         '每条单独成句即可，可以在前面加“本场景验证：”。',
-        ...issues.map((issue) => `- ${issue}`),
+        ...issues.map((issue) => {
+          const field = issue.startsWith('验证计划缺少验收标准')
+            ? '`acceptance_criterion`'
+            : issue.startsWith('验证计划缺少业务场景')
+              ? '`scenario`'
+              : '`scenario`、`acceptance_criterion` 或 `method`'
+          return `- ${issue}（复制到 ${field} 字段）`
+        }),
         '请补全后重新输出完整 JSON。',
       ].join('\n')
     }
