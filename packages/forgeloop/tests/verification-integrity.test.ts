@@ -49,6 +49,22 @@ describe('verification failure classification', () => {
     expect(result.reasons.join('；')).toContain('业务断言失败')
   })
 
+  it('classifies a verification script that mixes CommonJS into an ESM project as a test error', () => {
+    const result = classifyVerificationFailure({
+      blocking: ['验证命令失败：check 退出码 1'],
+      commandRuns: [
+        run({
+          exitCode: 1,
+          output:
+            'ReferenceError: require is not defined in ES module scope, you can use import instead',
+        }),
+      ],
+    })
+    expect(result.kind).toBe('test_error')
+    expect(result.requiresCodeChange).toBe(false)
+    expect(result.guidance).toContain('.cjs')
+  })
+
   it('does not turn a bare non-zero exit without assertion evidence into a code-repair instruction', () => {
     const result = classifyVerificationFailure({
       blocking: ['验证命令失败：check 退出码 1'],

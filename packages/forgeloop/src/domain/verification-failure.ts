@@ -134,6 +134,21 @@ function preBusinessFailure(
         '必过用例没有证明能发现对应错误行为；修订用例与敏感性对照，按测试修订流程复核后复验。',
     }
   }
+  // 验证脚本自身写错（例如在 "type":"module" 工程里用 require）不是候选缺陷：
+  // 归到测试材料错误，让 Agent 改脚本，而不是让研发去改实现。
+  const scriptErrors = input.commandRuns.filter((run) =>
+    /require is not defined in ES module scope|ERR_REQUIRE_ESM/.test(run.output),
+  )
+  if (scriptErrors.length > 0) {
+    return {
+      kind: 'test_error',
+      reasons: [...blocking, ...scriptErrors.map((run) => `验证脚本自身报错：${run.label}`)],
+      evidence: scriptErrors.map(runEvidence),
+      requiresCodeChange: false,
+      guidance:
+        '验证脚本是 CommonJS 却被当作 ESM 执行（或反之）；把脚本改成工程一致的模块形式（ESM import 或 .cjs）后在同一候选复验，不要求研发改代码。',
+    }
+  }
   const noExitCode = input.commandRuns.filter(
     (run) => run.exitCode === null && !run.aborted && !run.timedOut,
   )
