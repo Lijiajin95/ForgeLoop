@@ -125,7 +125,8 @@ async function main(): Promise<void> {
   const toolDir = join(recordsRoot, 'projects', PROJECT, 'deployments', 'tools')
   mkdirSync(toolDir, { recursive: true })
   const installScript = join(toolDir, 'install.py')
-  const checkScript = join(opsDir, 'check.mjs')
+  // 检查脚本放在工程内（候选工作区是工程副本，绝对路径才能成立）。
+  const checkScript = join(project, 'ops', 'check.mjs')
   const restartScript = join(opsDir, 'restart.mjs')
   const configPath = join(root, 'config.json')
 
@@ -345,6 +346,8 @@ async function main(): Promise<void> {
       '',
     ].join('\n'),
   )
+  // 检查脚本放进工程内：候选工作区是工程副本，绝对路径才不会指向宿主临时目录。
+  mkdirSync(join(project, 'ops'), { recursive: true })
   writeFileSync(
     checkScript,
     [
