@@ -6558,3 +6558,21 @@ M1-3 仍部分达成。阻塞已从“执行期缺依赖”前移到“任务包
 
 判定：M1-3 仍为部分达成。阻塞点已从“约定/依赖”转为“研发回合时长”——链路在正常推进，
 但一次修复要跑数十分钟。下一轮观察该需求能否完成自验、独立验证、提交、自动部署与关闭。
+
+## 174. 运维闭环：研发三任务交付，验证 Agent 未按工具执行命令（2026-11-06）
+
+背景：上一轮研发在“检查脚本位于宿主临时目录”处请求澄清。把 `check.mjs` 放进受控工程 `ops/` 后
+（提交 `7c3626b`）复跑，需求 `req-20261106...`：
+
+- 澄清问题消失；研发拆成 `watchdog-fix`、`watchdog-regression-tests`、`repro-and-close-out-record`
+  三个任务，**全部 delivered**；
+- 独立验证阶段失败：`验证 Agent 没有通过工具执行方案中的命令`
+  （涉及 `svc-health-three-consecutive-passes`、`check-scripts-strictness-intact`、
+  `stale-heartbeat-captured`、`watchdog-expiry-fails-fast`、`lifecycle-and-shutdown-clean`、
+  `closeout-records-separated`、`blocked-instead-of-permission-escalation` 七条）；
+- 0 提交、0 部署、事件未关闭。
+
+判定：M1-3 仍为部分达成。研发侧已能完成实现与自验；当前阻塞在验证 Agent 的行为——
+它设计了命令但没调用验证工具执行，系统按“未实际执行”拒绝通过（这是正确判据，未放宽）。
+下一轮：让验证 Agent 的执行约束更强（例如方案里每条命令必须带回工具执行结果，缺失即重试），
+或在提示词里明确“只输出计划、不执行”与“必须执行”的边界。
