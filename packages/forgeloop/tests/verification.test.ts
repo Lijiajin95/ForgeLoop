@@ -38,6 +38,7 @@ import { structuredSpecOf, structuredPlanOf, structuredReviewOf } from './spec-f
  */
 
 let dir = ''
+let recordsDir = ''
 let runtime: ForgeLoopRuntime
 
 function git(cwd: string, args: string[]): string {
@@ -251,7 +252,7 @@ function fakeRunner(
 
 /** 对照副本中的命令按“已知错误实现”失败；正式候选仍走真实命令执行。 */
 const controlAwareFormalTest: typeof runFormalTest = async (request) => {
-  if (request.cwd.includes('/controls/')) {
+  if (request.cwd.replaceAll('\\', '/').includes('/controls/')) {
     const output = 'target rule broken: expected fixture, got broken'
     mkdirSync(dirname(request.logPath), { recursive: true })
     writeFileSync(request.logPath, output, 'utf8')
@@ -273,7 +274,7 @@ function makeRuntime(runner: AgentLike): ForgeLoopRuntime {
     {
       project: 'testproj',
       projectPath: dir,
-      recordsRoot: join(dir, '.forgeloop'),
+      recordsRoot: recordsDir,
       pollSeconds: 1,
       agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
       formalTestTimeoutSeconds: 30,
@@ -427,6 +428,7 @@ async function runPipeline(): Promise<{
 
 beforeEach(() => {
   dir = makeProject()
+  recordsDir = mkdtempSync(join(tmpdir(), 'forgeloop-verify-records-'))
   runtime = makeRuntime(fakeRunner())
 })
 
@@ -437,6 +439,7 @@ afterEach(async () => {
   for (let attempt = 0; ; attempt += 1) {
     try {
       rmSync(dir, { recursive: true, force: true })
+      rmSync(recordsDir, { recursive: true, force: true })
       return
     } catch (error) {
       if (attempt >= 4) throw error
