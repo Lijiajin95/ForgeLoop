@@ -18,8 +18,23 @@ export interface LanguageViolation {
   readonly reason: string
 }
 
+/**
+ * 语言/路径约定。默认按 ForgeLoop 自己的工程约定（TypeScript 活动实现、旧 Python/旧脚本路径已退役）；
+ * 受控目标工程可以关闭这套专属约定，只保留通用语言检查（仍禁止 Python 文件）。
+ */
+export interface LanguageRules {
+  /** 是否套用 ForgeLoop 专属的退役路径与旧命令规则；默认 true。 */
+  readonly forgeLoopConventions?: boolean
+}
+
+/** 由工程配置推导语言规则：声明了 activeRoots 的受控工程不套用 ForgeLoop 专属约定。 */
+export function languageRulesFor(activeRoots?: readonly string[]): LanguageRules {
+  return { forgeLoopConventions: activeRoots === undefined }
+}
+
 /** 返回任务包中越过 TypeScript 边界的项；空数组表示合规。 */
-export function languageViolations(plan: TaskPlan): LanguageViolation[] {
+export function languageViolations(plan: TaskPlan, rules: LanguageRules = {}): LanguageViolation[] {
+  const forgeLoop = rules.forgeLoopConventions !== false
   const violations: LanguageViolation[] = []
   for (const task of plan.tasks) {
     for (const argument of task.testCommand) {
@@ -31,7 +46,7 @@ export function languageViolations(plan: TaskPlan): LanguageViolation[] {
           reason: '正式测试命令不得使用 Python 解释器或旧 .venv',
         })
       }
-      if (LEGACY_COMMAND.test(argument)) {
+      if (forgeLoop && LEGACY_COMMAND.test(argument)) {
         violations.push({
           taskId: task.taskId,
           field: 'test_command',
@@ -41,7 +56,7 @@ export function languageViolations(plan: TaskPlan): LanguageViolation[] {
       }
     }
     for (const file of task.files) {
-      if (PYTHON_FILE.test(file) || LEGACY_PATH.test(file)) {
+      if (PYTHON_FILE.test(file) || (forgeLoop && LEGACY_PATH.test(file))) {
         violations.push({
           taskId: task.taskId,
           field: 'files',

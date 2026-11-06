@@ -94,3 +94,24 @@ describe('outsideActiveSource roots', () => {
     expect(outsideActiveSource(plan('packages/x.ts'), ['src/', 'test/'])).toHaveLength(1)
   })
 })
+
+describe('language rules by project', () => {
+  const plan = (file: string): TaskPlan =>
+    ({
+      tasks: [{ taskId: 't1', title: 't1', files: [file], testCommand: ['npm', 'test'] }],
+    }) as unknown as TaskPlan
+
+  it('rejects ForgeLoop retired script paths by default', () => {
+    expect(languageViolations(plan('scripts/verify-watchdog.mjs'))).toHaveLength(1)
+  })
+
+  it('keeps only generic checks when the target project disables ForgeLoop conventions', () => {
+    expect(
+      languageViolations(plan('scripts/verify-watchdog.mjs'), { forgeLoopConventions: false }),
+    ).toEqual([])
+    // Python 文件仍然被拒绝：这是通用语言约束，不是 ForgeLoop 专属约定。
+    expect(
+      languageViolations(plan('scripts/verify.py'), { forgeLoopConventions: false }),
+    ).toHaveLength(1)
+  })
+})

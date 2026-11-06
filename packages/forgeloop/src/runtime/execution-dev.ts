@@ -16,7 +16,12 @@ import {
 import { attemptAllowed } from '../domain/limits.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
-import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
+import {
+  languageRulesFor,
+  languageViolations,
+  outsideActiveSource,
+  unknownPackages,
+} from '../domain/language.js'
 import type { Repository } from '../records/repository.js'
 import type { AgentSession } from './agent-runner.js'
 import { devPlanningPrompt, devPrompt } from './prompts.js'
@@ -202,7 +207,7 @@ export class ExecutionDev {
       }
       const packages = this.deps.existingPackages()
       const violations = [
-        ...languageViolations(plan),
+        ...languageViolations(plan, languageRulesFor(this.deps.config.activeRoots)),
         ...outsideActiveSource(plan, this.deps.config.activeRoots),
         ...unknownPackages(plan, packages),
       ]

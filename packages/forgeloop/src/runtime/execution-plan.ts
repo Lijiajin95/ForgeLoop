@@ -17,7 +17,12 @@ import {
   type ClarificationUpdate,
 } from '../domain/analysis.js'
 import { readProjectDoc, writeProjectDoc } from './project-docs.js'
-import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
+import {
+  languageRulesFor,
+  languageViolations,
+  outsideActiveSource,
+  unknownPackages,
+} from '../domain/language.js'
 import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { PlanReview } from '../domain/verification.js'
 import type { Repository } from '../records/repository.js'
@@ -419,7 +424,7 @@ export class ExecutionPlan {
         continue
       }
       const violations = [
-        ...languageViolations(plan),
+        ...languageViolations(plan, languageRulesFor(this.deps.config.activeRoots)),
         ...outsideActiveSource(plan, this.deps.config.activeRoots),
         ...unknownPackages(plan, this.deps.existingPackages()),
         ...planCoverageIssues(analysis, plan).map((issue) => ({
