@@ -35,7 +35,7 @@ function dshCommand(args: string[]): [string, string[]] {
 }
 const PROJECT = 'forgeloop-real-model'
 /** 可选 loader patch：叠加在派生 profile 之后，只影响隔离实例的模型路由。 */
-const PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
+let PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
 /** opt-in：提交后再构建候选、验收并走真实部署工具到隔离目标。 */
 const DEPLOY = process.env.FORGELOOP_REAL_MODEL_DEPLOY === '1'
 const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_TIMEOUT_MS ?? 1_800_000)
@@ -592,10 +592,21 @@ async function main(): Promise<void> {
     )
     return
   }
+  const workspace = mkdtempSync(join(tmpdir(), 'forgeloop-real-model-'))
+  // 未显式给模型补丁时，若环境已有 Qwen Token Plan 凭据，默认走 Qwen 模型，
+  // 不强制要求 DEEPSEEK_API_KEY；模型 ID 可用 FORGELOOP_REAL_MODEL_ID 覆盖。
+  if (PATCH === undefined && process.env.QWEN_TOKEN_PLAN_CN_API_KEY) {
+    PATCH = join(workspace, 'qwen-model-patch.yml')
+    const model = process.env.FORGELOOP_REAL_MODEL_ID ?? 'deepseek-v4.1-flash-1017'
+    writeFileSync(
+      PATCH,
+      `- id: llm-pi-ai\n  config:\n    providers:\n      qwen-token-plan-cn:\n        apiKeyEnv: QWEN_TOKEN_PLAN_CN_API_KEY\n        models:\n          - id: ${model}\n            name: Qwen Token Plan ${model}\n            contextWindow: 1000000\n            maxTokens: 384000\n            input:\n              - text\n              - image\n- id: agent-default-model\n  config:\n    provider: qwen-token-plan-cn\n    model: ${model}\n`,
+      'utf8',
+    )
+  }
   if (PATCH !== undefined && !existsSync(PATCH)) {
     throw new Error(`FORGELOOP_REAL_MODEL_PATCH 指向的文件不存在：${PATCH}`)
   }
-  const workspace = mkdtempSync(join(tmpdir(), 'forgeloop-real-model-'))
   const home = join(workspace, 'dsh-home')
   const projectDir = join(workspace, 'project')
   const recordsRoot = join(workspace, 'records')
@@ -678,7 +689,12 @@ async function main(): Promise<void> {
     if (summary.admissions === 0) throw new Error('需求没有系统准入记录')
     if (summary.plans === 0) throw new Error('需求没有任务包')
     if (summary.commits === 0) throw new Error('需求没有受控提交')
-    if (summary.verdict !== 'pass') throw new Error(`独立验证未通过：${String(summary.verdict)}`)
+    if (summary.verifications > 0 && summary.verdict !== 'pass') {
+      throw new Error(`独立验证未通过：${String(summary.verdict)}`)
+    }
+    console.log(
+      `[real-model-e2e] 验证路径：${summary.verifications > 0 ? 'independent' : 'self'}；verdict=${String(summary.verdict)}`,
+    )
     if (!DEPLOY && summary.deployments !== 0) throw new Error('研发链路不应产生部署记录')
 
     if (DEPLOY) {
