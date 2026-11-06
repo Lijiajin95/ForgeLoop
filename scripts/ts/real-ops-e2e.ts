@@ -16,7 +16,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { launch, npmLaunch, terminate } from './platform.js'
+import { launch, npmLaunch, terminate } from './platform.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'

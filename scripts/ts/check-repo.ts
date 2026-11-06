@@ -3,7 +3,7 @@
  * 不依赖 GNU make；npm 与 node 通过 scripts/ts/platform.ts 启动。
  */
 import { spawnSync } from 'node:child_process'
-import { launch, npmLaunch, type Launch } from './platform.js'
+import { launch, npmLaunch, type Launch } from './platform.ts'
 
 interface Step {
   readonly name: string

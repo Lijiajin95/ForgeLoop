@@ -31,7 +31,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { launch, npmLaunch, terminate, type Launch } from './platform.js'
+import { launch, npmLaunch, terminate, type Launch } from './platform.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 /** 目标安装器必须能启动真实宿主：用当前 node 执行 dsh 的 CLI 入口。 */
