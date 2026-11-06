@@ -1556,6 +1556,7 @@ export class OpsRuntime {
       `事件证据：${event.diagnosisPath || opsDir(this.config, event.eventId)}`,
       '',
       `检查命令：${(this.check(event.checkId)?.command ?? []).join(' ') || '未登记'}`,
+      `失败输出（截断）：${this.lastCheckOutput(event.eventId)}`,
       '验收标准：修复后原检查命令连续 3 次通过；不得修改检查命令、不得降低其严格度、不得跳过存活与心跳语义。',
       '若确实无法在不扩大权限的前提下满足上述标准，请直接说明阻塞点，不要提出与验收无关的澄清问题。',
       '要求：定位并修复根因，给出可验证的验收方式；恢复服务与永久修复分别收口。',
@@ -1588,6 +1589,15 @@ export class OpsRuntime {
     }
     this.repo.linkOpsFixRequirement(event.eventId, requirement.reqId, now)
     return requirement.reqId
+  }
+
+  /** 最近一次失败检查的输出；给修复需求提供可直接定位的报错原文。 */
+  private lastCheckOutput(eventId: string): string {
+    const check = [...this.repo.opsObservations(eventId)]
+      .reverse()
+      .find((observation) => observation.kind === 'check')
+    const detail = observationOutput(check).trim()
+    return (detail || '未记录').slice(0, 400)
   }
 
   // ------------------------------------------------------------ 所有者决定
