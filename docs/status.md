@@ -6714,3 +6714,12 @@ extension and .../workspace/package.json contains "type": "module"`；
 - 影响：这类失败不再被当成“候选实现缺陷”，但**不会自动让验证 Agent 重写脚本**——
   当前只把归因和指引写进失败结论，链路仍会停在 blocked。
 - M1-3 仍未闭环；下一步需要“test_error 时回到验证 Agent 改写脚本再复验”的重试路径。
+
+## 182. 验证执行提示词要求脚本与工程模块类型一致（2026-11-06）
+
+`c32493d`：验证执行提示词补一条——工程 `package.json` 有 `"type": "module"` 时，
+验证脚本必须用 ESM（`import`）或改 `.cjs`，不要在被当作 ESM 的 `.js` 里用 `require`。
+与 `fd485de` 的失败归因配合：一个提前避免，一个事后归类。快照同步，`make check-static` 通过。
+
+据此复跑闭环 B（现场 `/tmp/forgeloop-ops-*` 最新）：截至记录时需求处于 `developing`，
+0 提交 / 0 部署 / 事件未关闭。M1-3 仍为部分达成。
