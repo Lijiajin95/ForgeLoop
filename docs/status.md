@@ -6531,3 +6531,18 @@ M1-3 仍部分达成。阻塞已从“执行期缺依赖”前移到“任务包
 - 运行 A 的独立验证现场未保留，只有脚本输出；运行 B 有完整自验证与提交证据。
 - 部署 leg 未在本轮运行（`FORGELOOP_REAL_MODEL_DEPLOY` 未开启）。
 - 运行 C 说明验证方案 JSON 仍需模型侧稳定性；未放宽解析或伪造通过。
+
+## 172. 语言/路径约定工程化（2026-11-06）
+
+上一轮复跑停在“任务包写了 `scripts/verify-watchdog.mjs`，触发旧脚本路径退役规则”。
+该规则是 ForgeLoop 自己的历史约定，不该无条件套到受控目标工程上。
+
+- `languageViolations(plan, rules)` 新增 `LanguageRules.forgeLoopConventions`：
+  关闭后跳过旧脚本路径与旧命令规则；**Python 文件仍被拒绝**（通用语言约束）。
+- 配置了 `activeRoots` 的工程自动进入该模式（`languageRulesFor`），在
+  执行计划与研发两处生效；`service.ts` 的边检保持默认（受文件 token 预算限制，未改）。
+- 测试：默认拒绝 `scripts/*.mjs`；关闭专属约定后放行 `.mjs`、仍拒绝 `.py`（9 项通过）。
+- `make check-static` 通过；提交 `d49fe83`。
+
+复跑（现场 `/tmp/forgeloop-ops-*` 最新）：任务包不再被旧脚本路径拒绝，修复需求进入 `developing`；
+截至本轮结束仍在研发，未产生提交/部署/事件关闭。M1-3 仍为部分达成。
