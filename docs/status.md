@@ -6498,3 +6498,36 @@ M1-3 要求“真实/标注注入故障 → 真实诊断 → 授权内恢复 →
 M1-3 仍部分达成。阻塞已从“执行期缺依赖”前移到“任务包路径与工程约定不匹配”；
 这说明方案 A 生效，但目标工程的语言/路径约定还需要按工程配置表达（下一批：
 让 `languageViolations` 也接受工程级配置，或在受控工程里不启用 ForgeLoop 专用路径规则）。
+
+## 172. 真实模型 E2E 改用 Qwen Token Plan 并取得提交闭环（2026-11-06）
+
+### 172.1 改动
+
+- `scripts/ts/real-model-e2e.ts` 不再依赖 `DEEPSEEK_API_KEY`：未显式给
+  `FORGELOOP_REAL_MODEL_PATCH` 且环境存在 `QWEN_TOKEN_PLAN_CN_API_KEY` 时，自动生成隔离补丁，
+  使用 provider `qwen-token-plan-cn` 与模型 `deepseek-v4.1-flash-1017`（可用
+  `FORGELOOP_REAL_MODEL_ID` 覆盖），密钥只从环境读取。
+- 真实链路接受所有者决定的两条路径：有独立验证时必须 `verdict=pass`；研发选择 `self` 且证据充分时
+  允许无独立验证记录，但必须有受控提交。脚本会打印实际验证路径。
+
+### 172.2 实际运行
+
+- 运行 A（独立验证）：`req-20261106125130-07ad23`，准入 1、方案 1、独立验证 1（`verdict=pass`）、
+  提交 1，提交 `4c12f72070aa`；现场按脚本默认删除，输出保存在 `/tmp/fl-real-e2e.log`。
+- 运行 B（自验证）：`req-20261106125454-79b7f1`，准入 1、方案 1、独立验证 0、提交 1，
+  提交 `37f2e8b8a8881a5c06493e40f6ed021d52699ac6`；现场保留在
+  `/tmp/forgeloop-real-model-cwh0WP`，自验证报告
+  `records/.../candidates/req-20261106125454-79b7f1/v1/self-verification-b3a8671aa9be0476.json`
+  记录 `mode=self`、`risk=low`、白盒/黑盒与红灯/绿灯证据。
+- 运行 C：`req-20261106125754-d265c0` 在验证方案阶段被模型输出的非法 JSON 阻断
+  （`Expected double-quoted property name ... line 65`），0 验证、0 提交；属于模型可靠性失败，
+  不是本批代码缺陷。现场 `/tmp/forgeloop-real-model-Jgf9Ur` 保留。
+- 三次均使用 Qwen Token Plan，未设置 `DEEPSEEK_API_KEY`。
+
+### 172.3 判定与边界
+
+- 真实模型研发 E2E 已取得“需求→分析→准入→研发→受控提交”的成功证据；独立验证与 self 两条路径
+  各出现一次。
+- 运行 A 的独立验证现场未保留，只有脚本输出；运行 B 有完整自验证与提交证据。
+- 部署 leg 未在本轮运行（`FORGELOOP_REAL_MODEL_DEPLOY` 未开启）。
+- 运行 C 说明验证方案 JSON 仍需模型侧稳定性；未放宽解析或伪造通过。
