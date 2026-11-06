@@ -6735,3 +6735,18 @@ extension and .../workspace/package.json contains "type": "module"`；
 另外记录一个自查问题：上一轮发现同时有两个 `real-ops-e2e` 在跑（我自己的遗留进程），
 已终止陈旧实例，仅保留一次运行。后续每轮只允许一个运行实例，避免互相抢占模型额度。
 M1-3 仍为部分达成。
+
+## 184. 闭环 B：验证要求候选未产出的根因文档（2026-11-06）
+
+现场 `/tmp/forgeloop-ops-YsCzFC`，需求 `req-20261106152434-6805e8`：
+
+- 研发四任务（`repro`、`fix`、`regress`、`accept`）全部 delivered；
+- 独立验证命令真实执行并失败，示例输出：`no rootcause doc`；
+- 失败命令：`root-cause-watchdog-survives-beyond-5s`、`original-check-three-consecutive-passes`、
+  `watchdog-still-expires-without-probe`、`blocked-and-boundary-reporting`、`restore-vs-…`；
+- 0 提交、0 部署 intent、事件未 `closed`。
+
+判定：M1-3 仍为部分达成。本轮失败**不是** CommonJS/ESM 脚本问题（提示词与归因已生效），
+而是验证方案要求了一份候选没有产出的“根因文档”，属候选产物与验证期望不一致。
+下一轮：让修复需求的验收项显式列出要求产出的证据文件（路径与格式），
+或让验证方案不得要求需求说明里没有的产物；两者都必须保持判据不放松。
