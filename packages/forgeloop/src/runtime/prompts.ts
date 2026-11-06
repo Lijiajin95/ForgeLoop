@@ -1015,6 +1015,7 @@ ${verificationPlanContext(input.plan)}
 - 先执行完全部命令，再给出结论；工具报错时不要伪造输出，如实说明并以工具返回为准。
 - 共 ${labels.length} 条命令：${labels.join('、')}。
 - 需要验证脚本时，先用 ${VERIFICATION_MATERIAL_TOOL} 写到 \`verification/\` 下（例如 \`verification/check_doc.js\`），再在命令 argv 中引用；不能用普通文件工具，也不能写候选源码。
+- 验证脚本必须与候选工程一致：工程 \`package.json\` 有 \`"type": "module"\` 时用 ESM（\`import\`，或改用 \`.cjs\`）；不要在被当作 ESM 的 \`.js\` 里用 \`require\`，否则脚本自身就会报错、白跑一轮。
 - 执行后至少为一个关键必过场景的被引用命令写敏感性对照（验收主路径优先）：调用 ${VERIFICATION_CONTROL_TOOL}，参数 req_id 为 "${input.reqId}"、label 为对应命令、patch 为统一 diff、expected_failure_output 为受控错误实现下必须出现的失败原文（至少 8 个字符）。
 - 对照补丁必须是可直接应用的统一 diff（\`--- a/<path>\`、\`+++ b/<path>\`、至少一行 \`+\` 或 \`-\`），只修改 \`verification/\` 之外的业务文件，并让同一命令按目标业务规则失败；程序会应用到隔离副本后重跑，正式候选不被修改。
 - 工具会立即返回受控副本的真实退出码与输出并做自检；失败时该对照会被撤销，必须按返回的实际输出修正 patch 或 expected_failure_output 后对同一 label 重新调用，直到自检通过。
