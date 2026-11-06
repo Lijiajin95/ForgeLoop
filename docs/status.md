@@ -6688,3 +6688,18 @@ M1-3 仍为部分达成。
 
 判定：M1-3 仍为部分达成，但阻塞性质再次前移——从“模型不执行验证”变成“执行后候选未满足验证断言”。
 这需要逐条看命令日志区分：候选确实没修好 / 验证命令与工程实际不符。判据未放宽。
+
+## 180. 闭环 B 验证失败归因：验证脚本自身是 CommonJS（2026-11-06）
+
+对 `req-20261106143912-8180ab` 的 attempt-3 做只读复核：
+
+- 失败命令：`ac2-sustained-liveness-and-heartbeat`（`node verification/check_liveness.js`）、
+  `ac4-ac1-temp-permanent-and-untouched`（`node verification/check_readme_records.js`）等；
+- 日志原文：`ReferenceError: require is not defined in ES module scope … because a '.js' file
+extension and .../workspace/package.json contains "type": "module"`；
+- 结论：**不是候选没修好**，而是验证 Agent 写的脚本用 `require` 却放在 `"type":"module"` 工程里，
+  脚本自身一启动就报错。系统按“命令失败”判未通过，行为正确，但归因应指向验证脚本缺陷。
+
+下一步（最小改动）：验证结论分类时识别 `require is not defined` / `ERR_REQUIRE_ESM` 这类
+“脚本自身错误”，给出可执行的修复反馈（改用 ESM 或 `.cjs`），而不是当作候选实现缺陷；
+判据不放宽，只是把失败归到正确的一侧。
