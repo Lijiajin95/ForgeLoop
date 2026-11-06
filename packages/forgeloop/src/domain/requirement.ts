@@ -98,6 +98,8 @@ export interface RequirementAnalysis {
 export interface BusinessContextDraft {
   readonly changed: boolean
   readonly document: string
+  /** changed=true 时的明确依据：哪条需求原文、回答或项目资料支持这次变化。 */
+  readonly reason: string
 }
 
 export interface AnalysisDraft {
@@ -140,7 +142,7 @@ function listField(data: Record<string, unknown>, key: string): readonly string[
  */
 function businessContextField(data: Record<string, unknown>): BusinessContextDraft {
   const raw = data.business_context
-  if (raw === undefined || raw === null) return { changed: false, document: '' }
+  if (raw === undefined || raw === null) return { changed: false, document: '', reason: '' }
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     throw new MalformedError('分析字段 business_context 必须是对象')
   }
@@ -153,16 +155,30 @@ function businessContextField(data: Record<string, unknown>): BusinessContextDra
     throw new MalformedError('分析字段 business_context.document 必须是字符串')
   }
   const text = typeof document === 'string' ? document : ''
-  if (record.changed) {
-    if (!text.trim()) {
-      throw new MalformedError('business_context.changed 为 true 时必须给出完整的业务背景文档')
-    }
-    return { changed: true, document: text }
+  const reason = typeof record.reason === 'string' ? record.reason.trim() : ''
+  return record.changed ? changedContext(text, reason) : unchangedContext(text, reason)
+}
+
+function changedContext(document: string, reason: string): BusinessContextDraft {
+  if (!document.trim()) {
+    throw new MalformedError('business_context.changed 为 true 时必须给出完整的业务背景文档')
   }
-  if (text.trim()) {
+  if (!reason) {
+    throw new MalformedError(
+      'business_context.changed 为 true 时必须给出 reason（需求原文、回答或项目资料依据）',
+    )
+  }
+  return { changed: true, document, reason }
+}
+
+function unchangedContext(document: string, reason: string): BusinessContextDraft {
+  if (document.trim()) {
     throw new MalformedError('business_context.changed 为 false 时 document 必须为空')
   }
-  return { changed: false, document: '' }
+  if (reason) {
+    throw new MalformedError('business_context.changed 为 false 时 reason 必须为空')
+  }
+  return { changed: false, document: '', reason: '' }
 }
 
 /**

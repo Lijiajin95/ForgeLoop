@@ -37,6 +37,7 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "archivedDeliveries": [],
     "artifacts": [],
     "blockedReason": "",
+    "businessContext": [],
     "businessReview": null,
     "candidate": null,
     "candidateBuild": null,

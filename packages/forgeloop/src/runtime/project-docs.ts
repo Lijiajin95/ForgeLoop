@@ -3,8 +3,16 @@
  * 这是“禁止修改代码”的确定性实现：产品 Agent 没有其他写入工具。
  */
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, relative as relativePath, resolve, sep } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative as relativePath,
+  resolve,
+  sep,
+} from 'node:path'
 
 export const MAX_DOC_READ_BYTES = 64 * 1024
 export const MAX_DOC_WRITE_BYTES = 128 * 1024
@@ -19,12 +27,74 @@ function blockedSegment(relative: string): boolean {
     .some((segment) => segment === '.git' || segment === 'node_modules' || segment === '')
 }
 
-/** 解析并校验一个项目内 Markdown 路径；越界、绝对路径、非 Markdown 都拒绝。 */
+function insideRoot(realRoot: string, target: string): boolean {
+  const inside = relativePath(realRoot, target)
+  return inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))
+}
+
+function markdown(path: string): boolean {
+  return path.toLowerCase().endsWith('.md')
+}
+
+/**
+ * 把词法路径解析成真实路径，并确认真实目标仍在项目内、是 Markdown 普通文件。
+ * 已存在的目标按 realpath 检查；不存在时只跟随已存在的祖先，剩余段不可能再是链接。
+ */
+function realTarget(root: string, target: string): DocTargetResult {
+  let realRoot: string
+  try {
+    realRoot = realpathSync(root)
+  } catch {
+    return { ok: false, reason: '项目目录不存在或不可解析' }
+  }
+  if (existsSync(target)) {
+    let realPath: string
+    try {
+      realPath = realpathSync(target)
+    } catch {
+      return { ok: false, reason: '文档路径不可解析' }
+    }
+    if (!insideRoot(realRoot, realPath)) return { ok: false, reason: '文档路径超出项目目录' }
+    if (!markdown(realPath)) return { ok: false, reason: '只允许读写 Markdown 文档（.md）' }
+    try {
+      if (!statSync(realPath).isFile()) return { ok: false, reason: '只允许读写普通文件' }
+    } catch {
+      return { ok: false, reason: '文档不存在或不可读' }
+    }
+    return {
+      ok: true,
+      path: realPath,
+      relative: relativePath(realRoot, realPath).split(sep).join('/'),
+    }
+  }
+  const segments: string[] = []
+  let ancestor = target
+  while (!existsSync(ancestor)) {
+    const parent = dirname(ancestor)
+    if (parent === ancestor) return { ok: false, reason: '文档路径无法解析' }
+    segments.unshift(basename(ancestor))
+    ancestor = parent
+  }
+  let realAncestor: string
+  try {
+    realAncestor = realpathSync(ancestor)
+  } catch {
+    return { ok: false, reason: '文档路径不可解析' }
+  }
+  if (!insideRoot(realRoot, realAncestor)) return { ok: false, reason: '文档路径超出项目目录' }
+  const realPath = join(realAncestor, ...segments)
+  if (!markdown(realPath)) return { ok: false, reason: '只允许读写 Markdown 文档（.md）' }
+  const relative = relativePath(realRoot, realPath).split(sep).join('/')
+  if (!relative || relative.startsWith('..')) return { ok: false, reason: '文档路径超出项目目录' }
+  return { ok: true, path: realPath, relative }
+}
+
+/** 解析并校验一个项目内 Markdown 路径；越界、绝对路径、非 Markdown、符号链接逃逸都拒绝。 */
 export function resolveProjectDoc(projectPath: string, input: string): DocTargetResult {
   const candidate = input.trim()
   if (!candidate) return { ok: false, reason: '文档路径不能为空' }
   if (isAbsolute(candidate)) return { ok: false, reason: '文档路径必须是项目内相对路径' }
-  if (!candidate.toLowerCase().endsWith('.md')) {
+  if (!markdown(candidate)) {
     return { ok: false, reason: '只允许读写 Markdown 文档（.md）' }
   }
   const root = resolve(projectPath)
@@ -36,7 +106,18 @@ export function resolveProjectDoc(projectPath: string, input: string): DocTarget
   if (blockedSegment(inside)) {
     return { ok: false, reason: '文档路径不能位于 .git 或 node_modules 下' }
   }
-  return { ok: true, path: target, relative: inside.split(sep).join('/') }
+  return realTarget(root, target)
+}
+
+/** 项目内 Markdown 文档是否真实存在（供需求依据核验使用）。 */
+export function projectDocExists(projectPath: string, input: string): boolean {
+  const target = resolveProjectDoc(projectPath, input)
+  if (!target.ok) return false
+  try {
+    return statSync(target.path).isFile()
+  } catch {
+    return false
+  }
 }
 
 export type DocReadResult =

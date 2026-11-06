@@ -132,7 +132,7 @@ describe('prompt builders', () => {
     expect(text).toContain('"exceptions"')
     expect(text).toContain('"non_goals"')
     expect(text).toContain('"business_context"')
-    expect(text).toContain('由程序在分析结束时按 business_context 写入')
+    expect(text).toContain('由程序在校验通过后按 business_context 写入')
     expect(text).toContain('"clarifications"')
     expect(text).toContain('"input_kind"')
     expect(text).toContain('先分诊再分析')

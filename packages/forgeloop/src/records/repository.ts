@@ -14,6 +14,7 @@ import { validateAnalysis, validateRequirement } from '../domain/requirement.js'
 import type { AnalysisAttempt, ClarificationQuestion } from '../domain/analysis.js'
 import { clarificationQuestionId } from '../domain/analysis.js'
 import { AnalysisStore } from './analysis-store.js'
+import { BusinessContextStore } from './business-context-store.js'
 import { ClarificationStore } from './clarification-store.js'
 import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
@@ -67,6 +68,7 @@ export class Repository extends DevSessionStore {
   readonly deploymentStore = new DeploymentStore(this.db)
   readonly deliveryStore = new DeliveryStore(this.db)
   readonly analysisStore = new AnalysisStore(this.db)
+  readonly businessContextStore = new BusinessContextStore(this.db)
   readonly clarificationStore = new ClarificationStore(this.db)
 
   close(): void {
@@ -351,6 +353,22 @@ export class Repository extends DevSessionStore {
 
   clarificationAnswers(reqId: string): ReturnType<ClarificationStore['answers']> {
     return this.clarificationStore.answers(reqId)
+  }
+
+  recordBusinessContextDraft(input: Parameters<BusinessContextStore['recordDraft']>[0]): void {
+    this.businessContextStore.recordDraft(input)
+  }
+
+  markBusinessContextApplied(input: Parameters<BusinessContextStore['markApplied']>[0]): void {
+    this.businessContextStore.markApplied(input)
+  }
+
+  businessContextChanges(reqId: string): ReturnType<BusinessContextStore['changes']> {
+    return this.businessContextStore.changes(reqId)
+  }
+
+  latestBusinessContextDraft(reqId: string): ReturnType<BusinessContextStore['latestDraft']> {
+    return this.businessContextStore.latestDraft(reqId)
   }
 
   // ---------------------------------------------------------------- 任务包

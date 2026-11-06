@@ -81,7 +81,7 @@ function analysisWithBusiness(document: string): string {
     non_goals: ['不改造支付渠道'],
     acceptance_criteria: ['筛选后只显示匹配状态的订单'],
     clarifications: [],
-    business_context: { changed: true, document },
+    business_context: { changed: true, document, reason: '测试样本背景更新' },
   })
 }
 

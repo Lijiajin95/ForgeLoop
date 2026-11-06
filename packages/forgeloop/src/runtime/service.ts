@@ -1572,6 +1572,7 @@ ${answer}`
     return ok(`需求 ${reqId} 详情`, {
       ...view,
       ...requirementDetailExtras(this.repo, reqId),
+      businessContext: this.repo.businessContextChanges(reqId),
       latestPlan: plan,
       artifacts,
       admission: evidence.admission,

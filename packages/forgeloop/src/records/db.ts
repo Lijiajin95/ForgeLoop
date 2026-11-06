@@ -107,6 +107,21 @@ CREATE TABLE IF NOT EXISTS requirement_clarification_answers (
     answered_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
+-- 业务背景变更：draft 只落库不写正式文档；分析校验通过后由程序同步并标记 applied。
+-- 记录需求版本、分析版本与明确依据，保证背景变化可回查、可审计。
+CREATE TABLE IF NOT EXISTS requirement_business_context_changes (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    changed INTEGER NOT NULL DEFAULT 1,
+    reason TEXT NOT NULL DEFAULT '',
+    document TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft',
+    doc_sha256 TEXT NOT NULL DEFAULT '',
+    applied_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version)
+);
 CREATE TABLE IF NOT EXISTS requirement_task_plans (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,

@@ -181,7 +181,7 @@ describe('analysis payload parsing', () => {
       acceptance_criteria: ['a'],
       clarifications: [],
     })
-    expect(analysis.businessContext).toEqual({ changed: false, document: '' })
+    expect(analysis.businessContext).toEqual({ changed: false, document: '', reason: '' })
   })
 
   it('accepts a full business context document when it changed', () => {
@@ -191,15 +191,16 @@ describe('analysis payload parsing', () => {
       scenarios: ['s'],
       acceptance_criteria: ['a'],
       clarifications: [],
-      business_context: { changed: true, document },
+      business_context: { changed: true, document, reason: '需求依据' },
     })
-    expect(analysis.businessContext).toEqual({ changed: true, document })
+    expect(analysis.businessContext).toEqual({ changed: true, document, reason: '需求依据' })
   })
 
   it('rejects a changed flag without a document, or a document without the flag', () => {
     for (const businessContext of [
-      { changed: true, document: '   ' },
-      { changed: true },
+      { changed: true, document: '   ', reason: '依据' },
+      { changed: true, reason: '依据' },
+      { changed: true, document: '# 背景' },
       { changed: false, document: '# 旧内容' },
       { changed: 'yes', document: '' },
       { changed: false, document: 3 },

@@ -118,8 +118,8 @@ describe('advanced property invariants', () => {
       acceptance_criteria: fc.array(WORD, { minLength: 1, maxLength: 3 }),
       clarifications: fc.constant([] as string[]),
       business_context: fc.oneof(
-        fc.constant({ changed: false, document: '' }),
-        fc.record({ changed: fc.constant(true), document: WORD }),
+        fc.constant({ changed: false, document: '', reason: '' }),
+        fc.record({ changed: fc.constant(true), document: WORD, reason: WORD }),
       ),
     })
     fc.assert(

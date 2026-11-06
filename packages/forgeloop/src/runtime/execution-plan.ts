@@ -17,6 +17,7 @@ import {
   type ClarificationUpdate,
 } from '../domain/analysis.js'
 import { readProjectDoc, writeProjectDoc } from './project-docs.js'
+import { sha256OfText } from '../domain/delivery.js'
 import {
   languageRulesFor,
   languageViolations,
@@ -198,10 +199,22 @@ export class ExecutionPlan {
       return this.failAnalysis(recorded, errorMessage(error))
     }
     // 未解决的旧问题由程序保留；本轮新增问题按本次分析版本获得稳定编号。
+    const analysisVersion = this.deps.repo.nextAnalysisVersion(reqId)
     const openAfter = [
       ...updates.remaining.map((question) => question.text),
       ...draft.clarifications,
     ]
+    // 背景变化先落草稿：即使本次分析随后校验失败或仍待澄清，也只保留草稿，不写正式文档。
+    if (draft.businessContext.changed) {
+      this.deps.repo.recordBusinessContextDraft({
+        reqId,
+        analysisVersion,
+        requirementVersion: version,
+        document: draft.businessContext.document,
+        reason: draft.businessContext.reason,
+        createdAt: this.deps.now(),
+      })
+    }
     try {
       validateSpec({
         spec: {
@@ -218,7 +231,7 @@ export class ExecutionPlan {
     }
     const analysis: RequirementAnalysis & { reqId: string } = {
       reqId,
-      analysisVersion: this.deps.repo.nextAnalysisVersion(reqId),
+      analysisVersion,
       requirementVersion: version,
       inputKind: draft.inputKind,
       goal: draft.goal,
@@ -243,6 +256,7 @@ export class ExecutionPlan {
       attempt: recorded,
       newQuestions: draft.clarifications,
       updates: draft.clarificationUpdates,
+      businessContext: draft.businessContext,
     })
   }
 
@@ -314,25 +328,47 @@ export class ExecutionPlan {
     attempt: RecordedAnalysis
     newQuestions: readonly string[]
     updates: readonly ClarificationUpdate[]
+    businessContext: AnalysisDraft['businessContext']
   }): { state: 'done' | 'failed'; detail: string } {
     const { requirement, analysis } = input
     const reqId = analysis.reqId
-    this.deps.repo.recordAnalysis(analysis, {
-      questions: input.newQuestions,
-      updates: input.updates,
-    })
-    this.deps.repo.recordAnalysisAttempt({ ...input.attempt, outcome: 'done', detail: '' })
-    this.deps.repo.setStatus(
-      reqId,
-      statusForAnalysis(analysis),
-      analysis.clarifications.length > 0 ? `待澄清：${analysis.clarifications.join('；')}` : '',
-    )
     if (analysis.clarifications.length > 0) {
+      this.deps.repo.recordAnalysis(analysis, {
+        questions: input.newQuestions,
+        updates: input.updates,
+      })
+      this.deps.repo.recordAnalysisAttempt({ ...input.attempt, outcome: 'done', detail: '' })
+      this.deps.repo.setStatus(
+        reqId,
+        statusForAnalysis(analysis),
+        `待澄清：${analysis.clarifications.join('；')}`,
+      )
       return {
         state: 'done',
         detail: `分析 v${analysis.analysisVersion} 完成，有 ${analysis.clarifications.length} 条待澄清；等待人工回答后修订需求`,
       }
     }
+    // 校验通过且没有待澄清后才同步正式业务背景；失败时草稿保留，分析按失败收口。
+    const applied = this.applyBusinessContext({
+      requirementVersion: analysis.requirementVersion,
+      analysisVersion: analysis.analysisVersion,
+      businessContext: input.businessContext,
+    })
+    if (!applied.ok) return this.failAnalysis(input.attempt, applied.reason)
+    this.deps.repo.recordAnalysis(analysis, {
+      questions: input.newQuestions,
+      updates: input.updates,
+    })
+    this.deps.repo.recordAnalysisAttempt({ ...input.attempt, outcome: 'done', detail: '' })
+    if (applied.sha256) {
+      this.deps.repo.markBusinessContextApplied({
+        reqId,
+        analysisVersion: analysis.analysisVersion,
+        docSha256: applied.sha256,
+        appliedAt: this.deps.now(),
+      })
+    }
+    this.deps.repo.setStatus(reqId, statusForAnalysis(analysis), '')
     const trusted =
       this.deps.config.autonomy.enabled &&
       sourceTrusted(requirement.source, this.deps.config.autonomy)
@@ -358,28 +394,34 @@ export class ExecutionPlan {
     }
   }
 
-  /**
-   * 解析模型返回的分析结果；业务背景有变化时由程序写文档。
-   * 解析畸形或写入失败都抛错，由调用方统一记成一次失败尝试。
-   */
+  /** 解析模型返回的分析结果；背景变化只算草稿，正式文档在 settle 校验通过后才同步。 */
   private analysisFromResult(text: string): AnalysisDraft {
-    let draft: AnalysisDraft
     try {
-      draft = parseAnalysisDraft(text)
+      return parseAnalysisDraft(text)
     } catch (error) {
       throw new MalformedError(`分析结果畸形：${errorMessage(error)}`)
     }
-    if (draft.businessContext.changed) {
-      const written = writeProjectDoc(
-        this.deps.config.projectPath,
-        BUSINESS_CONTEXT_DOC,
-        draft.businessContext.document,
-      )
-      if (!written.ok) {
-        throw new MalformedError(`业务背景文档同步失败：${written.reason}`)
-      }
+  }
+
+  /**
+   * 把已通过校验的背景草稿写成正式项目文档。
+   * 写入失败按分析失败处理：草稿保留，正式文档不被半截内容覆盖。
+   */
+  private applyBusinessContext(input: {
+    requirementVersion: number
+    analysisVersion: number
+    businessContext: AnalysisDraft['businessContext']
+  }): { ok: true; sha256: string } | { ok: false; reason: string } {
+    if (!input.businessContext.changed) return { ok: true, sha256: '' }
+    const written = writeProjectDoc(
+      this.deps.config.projectPath,
+      BUSINESS_CONTEXT_DOC,
+      input.businessContext.document,
+    )
+    if (!written.ok) {
+      return { ok: false, reason: `业务背景文档同步失败：${written.reason}` }
     }
-    return draft
+    return { ok: true, sha256: sha256OfText(input.businessContext.document) }
   }
 
   /** 失败尝试同样落库并进入失败状态；自动/人工重试由主控另行排队。 */

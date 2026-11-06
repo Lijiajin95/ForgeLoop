@@ -125,7 +125,7 @@ describe('analysis draft parsing', () => {
       assumptions: [],
       clarifications: [],
       clarificationUpdates: [],
-      businessContext: { changed: false, document: '' },
+      businessContext: { changed: false, document: '', reason: '' },
     })
     expect(
       parseAnalysisDraft(
@@ -149,7 +149,7 @@ describe('analysis draft parsing', () => {
           business_rules: ['规则'],
           exceptions: ['异常'],
           non_goals: ['非目标'],
-          business_context: { changed: true, document: '# 背景' },
+          business_context: { changed: true, document: '# 背景', reason: '需求依据' },
         }),
       ),
     ).toMatchObject({
@@ -157,7 +157,7 @@ describe('analysis draft parsing', () => {
       businessRules: ['规则'],
       exceptions: ['异常'],
       nonGoals: ['非目标'],
-      businessContext: { changed: true, document: '# 背景' },
+      businessContext: { changed: true, document: '# 背景', reason: '需求依据' },
     })
   })
 
