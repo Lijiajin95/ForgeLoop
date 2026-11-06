@@ -1,6 +1,7 @@
 name: Local Windows check
 
-# 推送后在本机 Windows self-hosted runner（标签 forgeloop-local）上跑静态门禁。
+# 推送后在 GitHub-hosted Windows runner 上跑静态门禁。
+# public 仓库使用 standard GitHub-hosted runner 不按分钟计费；不再依赖本机到 GitHub 的网络。
 # 为什么不是全量检查：行为测试与架构契约当前按 POSIX 写（/tmp 断言、路径分隔符），
 # 在 Windows 原生 Node 上会失败；全量检查仍由 local-full.yml 的 Linux runner 负责，
 # 本作业不能当作全量门槛。
@@ -17,7 +18,7 @@ concurrency:
 
 jobs:
   static:
-    runs-on: [self-hosted, Windows, X64, forgeloop-local]
+    runs-on: windows-2022
     timeout-minutes: 30
     defaults:
       run:
@@ -26,8 +27,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
       - name: Show toolchain
-        run: node --version && npm --version && make --version
+        run: node --version && npm --version
       - run: npm ci --no-audit --no-fund
       # 静态门禁中已被验证可在 Windows 原生通过的部分；架构契约因路径分隔符暂不纳入。
-      - run: make typecheck lint budget assertions reliability-registry
+      - run: node scripts/ts/make-windows.ts typecheck lint budget assertions reliability-registry

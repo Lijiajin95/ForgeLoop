@@ -1,9 +1,8 @@
 name: Local full check
 
-# 推送后在本机 self-hosted runner 上跑全量检查：类型、lint、契约、预算与全部行为测试。
-# 只监听 push，fork 的 pull_request 不会落到本机；本机 runner 使用专用标签
-# forgeloop-local，部署作业仍用 forgeloop-deploy，互不串用。
-# 直接用本机 Node（仓库要求 >=22.5），不下载工具链，避免自托管机的额外网络依赖。
+# 推送后在 GitHub-hosted Ubuntu runner 上跑全量检查：类型、lint、契约、预算与全部行为测试。
+# public 仓库使用 standard GitHub-hosted runner 不按分钟计费；不再依赖本机到 GitHub 的网络。
+# 只监听 push，fork 的 pull_request 不进入正式仓库检查。
 on:
   push:
   workflow_dispatch:
@@ -17,12 +16,16 @@ concurrency:
 
 jobs:
   full:
-    runs-on: [self-hosted, linux, forgeloop-local]
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26"
+          cache: npm
       - name: Show toolchain
         run: node --version && npm --version
       - run: npm ci --no-audit --no-fund
