@@ -23,12 +23,14 @@ describe('runtime identity', () => {
     writeFileSync(join(root, 'lib/index.js'), 'export const index = 1\n', 'utf8')
     writeFileSync(join(root, 'lib/runtime/service.js'), 'export const service = 1\n', 'utf8')
     writeFileSync(join(root, 'client.js'), 'window.client = 1\n', 'utf8')
+    writeFileSync(join(root, 'artifact.sha256'), `${'a'.repeat(64)}\n`, 'utf8')
     const identity = writeRuntimeIdentity(pathToFileURL(join(root, 'lib/index.js')).href)
     expect(identity?.kind).toBe('forgeloop-runtime-identity')
     expect(identity?.pid).toBe(process.pid)
     expect(identity?.indexSha256).toHaveLength(64)
     expect(identity?.serviceSha256).toHaveLength(64)
     expect(identity?.clientSha256).toHaveLength(64)
+    expect(identity?.artifactSha256).toBe('a'.repeat(64))
     const saved = JSON.parse(readFileSync(join(root, 'runtime-identity.json'), 'utf8')) as {
       pid: number
     }
@@ -51,6 +53,7 @@ describe('runtime identity', () => {
       indexSha256: 'i'.repeat(64),
       serviceSha256: 's'.repeat(64),
       clientSha256: hash('installed-client'),
+      artifactSha256: 'a'.repeat(64),
     }
     const mismatch = buildIdentityFrom(identity, project)
     expect(mismatch.sourceMatches).toBe(false)

@@ -19,6 +19,8 @@ export interface RuntimeIdentity {
   readonly serviceSha256: string
   /** 实际装载的客户端包摘要；用于和源码 client.js 比较。 */
   readonly clientSha256: string
+  /** 安装器写入的本次制品摘要；缺省为空，不从计划或文件名猜测。 */
+  readonly artifactSha256: string
 }
 
 /** 页面只读展示的构建身份；空字符串表示宿主没有记录，不猜测。 */
@@ -44,6 +46,8 @@ function sha256(path: string): string {
 export function writeRuntimeIdentity(moduleUrl: string): RuntimeIdentity | null {
   try {
     const packageRoot = resolve(dirname(fileURLToPath(moduleUrl)), '..')
+    const artifactFile = join(packageRoot, 'artifact.sha256')
+    const artifactSha256 = existsSync(artifactFile) ? readFileSync(artifactFile, 'utf8').trim() : ''
     const identity: RuntimeIdentity = {
       kind: 'forgeloop-runtime-identity',
       version: PLUGIN_VERSION,
@@ -53,6 +57,7 @@ export function writeRuntimeIdentity(moduleUrl: string): RuntimeIdentity | null 
       indexSha256: sha256(join(packageRoot, 'lib/index.js')),
       serviceSha256: sha256(join(packageRoot, 'lib/runtime/service.js')),
       clientSha256: sha256(join(packageRoot, 'client.js')),
+      artifactSha256: /^[0-9a-f]{64}$/.test(artifactSha256) ? artifactSha256 : '',
     }
     currentIdentity = identity
     writeFileSync(
