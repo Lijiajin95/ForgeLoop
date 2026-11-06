@@ -417,6 +417,8 @@ const PYTHON_TOOL_REFERENCE_FILES = new Set([
   'scripts/ts/real-model-e2e.ts',
   // 运维闭环 E2E 的修复部署同样登记外部 python 部署工具，理由同上。
   'scripts/ts/real-ops-e2e.ts',
+  // 自身需求到运行 E2E 的目标 profile 安装/启动同样由外部 python 工具完成，理由同上。
+  'scripts/ts/real-self-e2e.ts',
 ])
 
 function checkNoPython(): void {
