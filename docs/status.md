@@ -6723,3 +6723,15 @@ extension and .../workspace/package.json contains "type": "module"`；
 
 据此复跑闭环 B（现场 `/tmp/forgeloop-ops-*` 最新）：截至记录时需求处于 `developing`，
 0 提交 / 0 部署 / 事件未关闭。M1-3 仍为部分达成。
+
+## 183. 闭环 B 当前进度（2026-11-06）
+
+唯一在跑的一次 `make real-ops-e2e`（现场 `/tmp/forgeloop-ops-YsCzFC`，需求
+`req-20261106152434-6805e8`）：
+
+- 任务 `repro`、`fix`、`regress` 已 delivered，`accept` 运行中；
+- 0 提交、0 部署 intent、事件未 `closed`。
+
+另外记录一个自查问题：上一轮发现同时有两个 `real-ops-e2e` 在跑（我自己的遗留进程），
+已终止陈旧实例，仅保留一次运行。后续每轮只允许一个运行实例，避免互相抢占模型额度。
+M1-3 仍为部分达成。
