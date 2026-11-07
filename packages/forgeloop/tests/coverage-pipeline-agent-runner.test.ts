@@ -539,7 +539,9 @@ describe('AgentRunner session turn outcomes', () => {
     expect(refused.reason).toBe('会话已结束，不能继续投递回合')
   })
 
-  it('bounds a host dispose that never returns', async () => {
+  // 收口上限是 5 秒；vitest 默认 5 秒超时会在边界处抢先杀死用例，
+  // 显式放宽用例超时，让断言观察“有界返回”而不是调度抖动。
+  it('bounds a host dispose that never returns', { timeout: 15_000 }, async () => {
     const { session, dir } = await openSession({ dispose: 'hang' })
     await session.send(turnOf(dir))
     const started = Date.now()
