@@ -115,11 +115,24 @@ export function messageText(message: UserMessageLike): string {
 /** 显式路由：新需求、指定需求的澄清回答，或按当前待澄清状态自动判断。 */
 export type IntakeDirective =
   | { readonly kind: 'new'; readonly text: string }
-  | { readonly kind: 'answer'; readonly reqId: string; readonly text: string }
+  | {
+      readonly kind: 'answer'
+      readonly reqId: string
+      /** 只回答指定问题；缺省时回答该需求当前全部开放问题。 */
+      readonly questionIds: readonly string[]
+      readonly text: string
+    }
   | { readonly kind: 'auto'; readonly text: string }
 
 const NEW_REQUIREMENT_PREFIX = /^\s*(?:新需求|新问题|新缺陷)\s*[：:]\s*/i
-const ANSWER_TARGET_PREFIX = /^\s*(?:回答|答复|澄清)\s*(req-[A-Za-z0-9-]+)\s*[：:]\s*/i
+/** 支持“回答 req-x：…”与“回答 req-x [Q1-1,Q1-2]：…”，编号必须显式可回查。 */
+const ANSWER_TARGET_PREFIX =
+  /^\s*(?:回答|答复|澄清)\s*(req-[A-Za-z0-9-]+)\s*(?:\[([^\]]*)\]|((?:\s*Q\d+-\d+)+))?\s*[：:]\s*/i
+
+function questionIdsOf(bracket: string | undefined, repeated: string | undefined): string[] {
+  const source = bracket ?? repeated ?? ''
+  return [...new Set(source.match(/Q\d+-\d+/gi) ?? [])].map((id) => id.toUpperCase())
+}
 
 /**
  * 只按用户写明的入口判断消息归属，不让模型猜“这是回答还是新需求”。
@@ -128,7 +141,12 @@ const ANSWER_TARGET_PREFIX = /^\s*(?:回答|答复|澄清)\s*(req-[A-Za-z0-9-]+)
 export function parseIntakeDirective(text: string): IntakeDirective {
   const answer = ANSWER_TARGET_PREFIX.exec(text)
   if (answer) {
-    return { kind: 'answer', reqId: answer[1] ?? '', text: text.slice(answer[0].length).trim() }
+    return {
+      kind: 'answer',
+      reqId: answer[1] ?? '',
+      questionIds: questionIdsOf(answer[2], answer[3]),
+      text: text.slice(answer[0].length).trim(),
+    }
   }
   const next = NEW_REQUIREMENT_PREFIX.exec(text)
   if (next) {
@@ -306,6 +324,15 @@ export class SessionIntake {
       })
       return
     }
+    const invalid = input.directive.questionIds.filter((id) => !target.questionIds.includes(id))
+    if (invalid.length > 0) {
+      this.appendError(input.session, `forgeloop:error:${input.dedupeKey}`, {
+        reqId: target.reqId,
+        message: `问题 ${invalid.join('、')} 不是当前开放问题；仍待回答：${target.questionIds.join('、')}`,
+        at: input.at,
+      })
+      return
+    }
     await this.answerToTarget({
       session: input.session,
       sessionId: input.sessionId,
@@ -316,6 +343,8 @@ export class SessionIntake {
       text: input.directive.text,
       reqId: target.reqId,
       pending: target,
+      questionIds:
+        input.directive.questionIds.length > 0 ? input.directive.questionIds : target.questionIds,
     })
   }
 
@@ -329,6 +358,7 @@ export class SessionIntake {
     text: string
     reqId: string
     pending: { questionIds: readonly string[]; questions: readonly string[] }
+    questionIds?: readonly string[]
   }): Promise<void> {
     await this.answerOne({
       session: input.session,
@@ -338,7 +368,7 @@ export class SessionIntake {
       turn: input.turn,
       signal: input.signal,
       reqId: input.reqId,
-      questionIds: input.pending.questionIds,
+      questionIds: input.questionIds ?? input.pending.questionIds,
       questions: input.pending.questions,
       at: input.at,
     })
@@ -450,6 +480,7 @@ export class SessionIntake {
         answer: text,
         by: this.config.owner,
         source,
+        questionIds: input.questionIds,
         signal: input.signal,
       })
     } catch (error) {
@@ -468,13 +499,14 @@ export class SessionIntake {
       })
       return
     }
+    const answeredIds = outcome.answeredQuestionIds ?? input.questionIds
     const answer: AnswerEventData = {
       eventId: `forgeloop:answer:${sessionId}:${messageId}`,
       reqId,
       requirementVersion: outcome.requirementVersion ?? 0,
       answer: text,
-      questionIds: input.questionIds,
-      questions: input.questions,
+      questionIds: answeredIds,
+      questions: answeredIds.map((id) => input.questions[input.questionIds.indexOf(id)] ?? id),
       at,
     }
     appendSessionEvent(session, FORGELOOP_ANSWER_EVENT, answer, this.log)
@@ -507,7 +539,7 @@ export class SessionIntake {
       analysisVersion: analysis.analysisVersion,
       questions: analysis.clarifications,
       questionIds: open.map((question) => question.questionId),
-      hint: `直接回复按澄清回答处理；如需提交独立需求，请写成“新需求：<内容>”。本会话有多条待澄清时，用“回答 ${reqId}：<回答>”指定对象。`,
+      hint: `直接回复按澄清回答处理；如需提交独立需求，请写成“新需求：<内容>”。本会话有多条待澄清或只想回答部分问题时，用“回答 ${reqId} [Q1-1]：<回答>”指定对象。`,
       at,
     }
     appendSessionEvent(session, FORGELOOP_CLARIFICATION_EVENT, data, this.log)

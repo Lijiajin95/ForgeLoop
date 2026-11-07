@@ -87,49 +87,80 @@ export class ClarificationStore {
     }
   }
 
-  recordAnswer(answer: ClarificationAnswer): void {
-    this.db
-      .prepare(
-        `INSERT INTO requirement_clarification_answers
-          (req_id, analysis_version, requirement_version, answered_version, question_ids,
-           answer, source, answered_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(req_id, analysis_version) DO UPDATE SET
-           requirement_version = excluded.requirement_version,
-           answered_version = excluded.answered_version,
-           question_ids = excluded.question_ids,
-           answer = excluded.answer,
-           source = excluded.source,
-           answered_at = excluded.answered_at`,
-      )
-      .run(
-        answer.reqId,
-        answer.analysisVersion,
-        answer.requirementVersion,
-        answer.answeredVersion,
-        JSON.stringify(answer.questionIds),
-        answer.answer,
-        answer.source,
-        answer.answeredAt,
-      )
+  /** 追加一条针对单道题的回答；同一题的多条回答按 answer_seq 保留。 */
+  recordAnswer(answer: Omit<ClarificationAnswer, 'answerSeq'>): void {
+    this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT MAX(answer_seq) AS seq FROM requirement_clarification_question_answers
+           WHERE req_id = ? AND analysis_version = ? AND question_id = ?`,
+        )
+        .get(answer.reqId, answer.analysisVersion, answer.questionId)
+      const seq = (row ? num(row, 'seq') : 0) + 1
+      this.db
+        .prepare(
+          `INSERT INTO requirement_clarification_question_answers
+            (req_id, analysis_version, question_id, answer_seq, requirement_version,
+             answered_version, answer, source, answered_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          answer.reqId,
+          answer.analysisVersion,
+          answer.questionId,
+          seq,
+          answer.requirementVersion,
+          answer.answeredVersion,
+          answer.answer,
+          answer.source,
+          answer.answeredAt,
+        )
+    })
   }
 
   answers(reqId: string): ClarificationAnswer[] {
     const rows = this.db
       .prepare(
+        `SELECT * FROM requirement_clarification_question_answers
+         WHERE req_id = ? ORDER BY analysis_version, question_id, answer_seq`,
+      )
+      .all(reqId)
+    if (rows.length > 0) {
+      return rows.map((row: Row) => ({
+        reqId: text(row, 'req_id'),
+        analysisVersion: num(row, 'analysis_version'),
+        requirementVersion: num(row, 'requirement_version'),
+        answeredVersion: num(row, 'answered_version'),
+        questionId: text(row, 'question_id'),
+        answerSeq: num(row, 'answer_seq'),
+        answer: text(row, 'answer'),
+        source: text(row, 'source'),
+        answeredAt: text(row, 'answered_at'),
+      }))
+    }
+    return this.legacyAnswers(reqId)
+  }
+
+  /** 历史库只有按分析版本一条的回答：展开成逐题行，便于提示词逐题展示。 */
+  private legacyAnswers(reqId: string): ClarificationAnswer[] {
+    const rows = this.db
+      .prepare(
         'SELECT * FROM requirement_clarification_answers WHERE req_id = ? ORDER BY analysis_version',
       )
       .all(reqId)
-    return rows.map((row: Row) => ({
-      reqId: text(row, 'req_id'),
-      analysisVersion: num(row, 'analysis_version'),
-      requirementVersion: num(row, 'requirement_version'),
-      answeredVersion: num(row, 'answered_version'),
-      questionIds: parseStringList(text(row, 'question_ids')),
-      answer: text(row, 'answer'),
-      source: text(row, 'source'),
-      answeredAt: text(row, 'answered_at'),
-    }))
+    return rows.flatMap((row: Row) =>
+      parseStringList(text(row, 'question_ids')).map((questionId, index) => ({
+        reqId: text(row, 'req_id'),
+        analysisVersion: num(row, 'analysis_version'),
+        requirementVersion: num(row, 'requirement_version'),
+        answeredVersion: num(row, 'answered_version'),
+        questionId,
+        answerSeq: index + 1,
+        answer: text(row, 'answer'),
+        source: text(row, 'source'),
+        answeredAt: text(row, 'answered_at'),
+      })),
+    )
   }
 }
 

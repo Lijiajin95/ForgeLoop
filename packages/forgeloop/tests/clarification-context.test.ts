@@ -154,10 +154,10 @@ describe('clarification context across re-analysis', () => {
       'Q1-2',
     ])
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('awaiting_clarification')
-    expect(runtime.repo.clarificationAnswers(reqId)[0]).toMatchObject({
-      questionIds: ['Q1-1', 'Q1-2'],
-      answer: '需要包含已取消订单',
-    })
+    expect(runtime.repo.clarificationAnswers(reqId)).toMatchObject([
+      { questionId: 'Q1-1', answerSeq: 1, answer: '需要包含已取消订单' },
+      { questionId: 'Q1-2', answerSeq: 1, answer: '需要包含已取消订单' },
+    ])
 
     const target = runtime.pendingClarifications(SESSION)[0]!
     expect(target.reqId).toBe(reqId)
@@ -203,7 +203,7 @@ describe('clarification context across re-analysis', () => {
     expect(outcome.message).toContain('遗漏了未解决问题')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('analysis_failed')
     // 回答与问题都保留，重试时仍能回查。
-    expect(runtime.repo.clarificationAnswers(reqId)).toHaveLength(1)
+    expect(runtime.repo.clarificationAnswers(reqId)).toHaveLength(2)
     expect(runtime.repo.openClarifications(reqId)).toHaveLength(2)
   })
 })

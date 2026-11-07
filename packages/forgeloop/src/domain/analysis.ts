@@ -70,17 +70,22 @@ export interface ClarificationQuestion {
   readonly createdAt: string
 }
 
-/** 所有者针对某一轮分析的问题给出的回答；按分析版本追加，不覆盖历史。 */
+/**
+ * 所有者对某一道澄清问题的回答。按题追加：同一道题可以有多条回答（历次回答），
+ * 不同题的回答互不覆盖，未回答的问题保持开放。
+ */
 export interface ClarificationAnswer {
   readonly reqId: string
   /** 被回答的分析版本（问题来源）。 */
   readonly analysisVersion: number
-  /** 收到回答时的需求版本。 */
+  /** 该分析绑定的需求版本。 */
   readonly requirementVersion: number
   /** 回答追加后形成的新需求版本。 */
   readonly answeredVersion: number
-  /** 本轮回答所针对的开放问题编号；用于把回答关联回原问题。 */
-  readonly questionIds: readonly string[]
+  /** 回答针对的问题编号，例如 Q1-1。 */
+  readonly questionId: string
+  /** 同一道题的第几条回答，从 1 起。 */
+  readonly answerSeq: number
   readonly answer: string
   readonly source: string
   readonly answeredAt: string

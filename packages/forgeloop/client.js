@@ -92,7 +92,9 @@ window.__ModuleLoader__.load({
           key: 'issues',
           label: t('rail.issues'),
           value: String(issues),
-          ...(blocking > 0 ? { tone: 'error', note: t('rail.blockingNote', { count: blocking }) } : {}),
+          ...(blocking > 0
+            ? { tone: 'error', note: t('rail.blockingNote', { count: blocking }) }
+            : {}),
         },
         {
           key: 'autonomy',
@@ -197,11 +199,13 @@ window.__ModuleLoader__.load({
       'focus.needsInput': '等待澄清或人工输入',
       'focus.running': '正在推进',
       'reliability.verdict.missing': '质量快照未采集',
-      'reliability.verdict.missingHint': '运行 make reliability-report 生成门禁、覆盖率与变异数据。',
+      'reliability.verdict.missingHint':
+        '运行 make reliability-report 生成门禁、覆盖率与变异数据。',
       'reliability.verdict.invalid': '质量快照不可读',
       'reliability.verdict.invalidHint': '快照存在但无法解析；查看告警或重新生成。',
       'reliability.verdict.failed': '质量门禁未通过',
-      'reliability.verdict.failedHint': '门禁失败 {gates} 项、测试失败 {tests} 项、覆盖率低于门槛 {coverage} 项。',
+      'reliability.verdict.failedHint':
+        '门禁失败 {gates} 项、测试失败 {tests} 项、覆盖率低于门槛 {coverage} 项。',
       'reliability.verdict.gatesPart': '门禁失败 {count} 项',
       'reliability.verdict.testsPart': '测试失败 {count} 项',
       'reliability.verdict.coveragePart': '覆盖率低于门槛 {count} 项',
@@ -448,17 +452,21 @@ window.__ModuleLoader__.load({
       'focus.needsInput': 'Waiting for clarification or input',
       'focus.running': 'In progress',
       'reliability.verdict.missing': 'Quality snapshot missing',
-      'reliability.verdict.missingHint': 'Run make reliability-report to collect gates, coverage and mutation data.',
+      'reliability.verdict.missingHint':
+        'Run make reliability-report to collect gates, coverage and mutation data.',
       'reliability.verdict.invalid': 'Quality snapshot unreadable',
-      'reliability.verdict.invalidHint': 'The snapshot exists but cannot be parsed; inspect warnings or regenerate.',
+      'reliability.verdict.invalidHint':
+        'The snapshot exists but cannot be parsed; inspect warnings or regenerate.',
       'reliability.verdict.failed': 'Quality gates failed',
-      'reliability.verdict.failedHint': '{gates} gate(s) failed, {tests} test(s) failed, {coverage} coverage metric(s) below threshold.',
+      'reliability.verdict.failedHint':
+        '{gates} gate(s) failed, {tests} test(s) failed, {coverage} coverage metric(s) below threshold.',
       'reliability.verdict.gatesPart': '{count} gate(s) failed',
       'reliability.verdict.testsPart': '{count} test(s) failed',
       'reliability.verdict.coveragePart': '{count} coverage metric(s) below threshold',
-      'reliability.verdict.join': ', ', 
+      'reliability.verdict.join': ', ',
       'reliability.verdict.stale': 'Quality snapshot stale',
-      'reliability.verdict.staleHint': 'The snapshot is behind the current commit; treat it as reference only.',
+      'reliability.verdict.staleHint':
+        'The snapshot is behind the current commit; treat it as reference only.',
       'reliability.verdict.pass': 'Quality gates passing',
       'reliability.verdict.passHint': 'Gates, tests and coverage all meet the current thresholds.',
       'reliability.sampleSmall': 'small sample (n={count})',
@@ -1499,7 +1507,8 @@ window.__ModuleLoader__.load({
       'wb.noMatch': 'No matching records',
       'wb.clear': 'Clear search and filters',
       'wb.progress': '{delivered}/{total} tasks delivered',
-      'wb.cancelledBanner': 'Requirement cancelled; its tasks no longer run and are kept as history.',
+      'wb.cancelledBanner':
+        'Requirement cancelled; its tasks no longer run and are kept as history.',
       'wb.cancelledTasks': 'Cancelled; {count} tasks will not run',
       'wb.cancelledTasksHistory': 'Show the {count} cancelled tasks',
       'wb.plan': 'Task package v{plan}',
@@ -2924,7 +2933,12 @@ window.__ModuleLoader__.load({
 
     function changeList(t, label, ids) {
       if (!Array.isArray(ids) || ids.length === 0) return null
-      return h('div', { key: label }, h('span', { className: 'flb-label' }, `${label}：`), ids.join('、'))
+      return h(
+        'div',
+        { key: label },
+        h('span', { className: 'flb-label' }, `${label}：`),
+        ids.join('、'),
+      )
     }
 
     function specChangeView(t, changes, hasHistory) {
@@ -2947,17 +2961,14 @@ window.__ModuleLoader__.load({
       const questions = history && Array.isArray(history.questions) ? history.questions : []
       const answers = history && Array.isArray(history.answers) ? history.answers : []
       if (questions.length === 0) return null
-      const answerFor = (question) =>
-        answers.find(
-          (answer) =>
-            Array.isArray(answer.questionIds) && answer.questionIds.includes(question.questionId),
-        )
+      const answersFor = (question) =>
+        answers.filter((answer) => answer.questionId === question.questionId)
       return h(
         'details',
         { className: 'flb-details', key: 'clarification-history' },
         h('summary', null, t('detail.specHistory')),
         ...questions.map((question) => {
-          const answer = answerFor(question)
+          const questionAnswers = answersFor(question)
           return h(
             'div',
             { className: 'flb-version', key: question.questionId },
@@ -2967,7 +2978,13 @@ window.__ModuleLoader__.load({
               `${question.questionId} · ${question.status === 'resolved' ? t('detail.specResolved') : t('detail.specOpen')}`,
             ),
             h('div', null, question.text),
-            answer ? h('div', { className: 'flb-muted' }, `${t('detail.answer')}：${answer.answer}`) : null,
+            ...questionAnswers.map((answer) =>
+              h(
+                'div',
+                { className: 'flb-muted', key: `answer-${answer.answerSeq}` },
+                `${t('detail.answer')} ${answer.answerSeq}：${answer.answer}`,
+              ),
+            ),
             question.status === 'resolved' && question.resolution
               ? h('div', { className: 'flb-muted' }, question.resolution)
               : null,
@@ -2989,11 +3006,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { className: 'flb-subsection', key: point.id },
-        h(
-          'div',
-          { className: 'flb-label' },
-          `${point.id} · ${t(`spec.basis.${point.basis}`)}`,
-        ),
+        h('div', { className: 'flb-label' }, `${point.id} · ${t(`spec.basis.${point.basis}`)}`),
         h('div', { className: 'flb-muted' }, `${t('detail.specSource')}：${point.source}`),
         h('div', null, `${t('detail.specPoint')}：${point.actor}`),
         h('div', null, `${t('detail.specTrigger')}：${point.trigger}`),
@@ -3017,7 +3030,8 @@ window.__ModuleLoader__.load({
     }
 
     function requirementSpecSection(t, data, analysis) {
-      const points = analysis && Array.isArray(analysis.businessPoints) ? analysis.businessPoints : []
+      const points =
+        analysis && Array.isArray(analysis.businessPoints) ? analysis.businessPoints : []
       if (points.length === 0) return null
       const acceptance = Array.isArray(analysis.acceptanceItems) ? analysis.acceptanceItems : []
       const assumptions = Array.isArray(analysis.assumptions) ? analysis.assumptions : []
@@ -3075,7 +3089,11 @@ window.__ModuleLoader__.load({
                   ),
                   h('div', null, item.goal),
                   Array.isArray(item.businessPoints)
-                    ? h('div', { className: 'flb-muted' }, item.businessPoints.map((point) => point.id).join('、'))
+                    ? h(
+                        'div',
+                        { className: 'flb-muted' },
+                        item.businessPoints.map((point) => point.id).join('、'),
+                      )
                     : null,
                 ),
               ),
@@ -3184,9 +3202,10 @@ window.__ModuleLoader__.load({
 
       sections.push(
         Section({
-          title: analysis && Array.isArray(analysis.businessPoints) && analysis.businessPoints.length > 0
-            ? t('detail.specAnalysisRecord')
-            : t('detail.analysis'),
+          title:
+            analysis && Array.isArray(analysis.businessPoints) && analysis.businessPoints.length > 0
+              ? t('detail.specAnalysisRecord')
+              : t('detail.analysis'),
           children: analysis
             ? [
                 h(
@@ -5612,11 +5631,7 @@ window.__ModuleLoader__.load({
                                     className: 'flb-tree-node flb-tree-child',
                                     'aria-current': selectedTask ? 'true' : undefined,
                                     onClick: () =>
-                                      props.onOpenTask(
-                                        requirement.reqId,
-                                        task.taskId,
-                                        'overview',
-                                      ),
+                                      props.onOpenTask(requirement.reqId, task.taskId, 'overview'),
                                   },
                                   h(
                                     Chip,
@@ -5935,9 +5950,7 @@ window.__ModuleLoader__.load({
             h('span', null, t('wb.taskCount', { count: tasks.length })),
             h('span', null, t('wb.issueCount', { count: issues.length })),
           ),
-          focus
-            ? h('div', { className: 'flb-focus', 'data-tone': focus.tone }, focus.text)
-            : null,
+          focus ? h('div', { className: 'flb-focus', 'data-tone': focus.tone }, focus.text) : null,
           cancelled
             ? h(
                 'div',
@@ -5957,7 +5970,10 @@ window.__ModuleLoader__.load({
                   { className: 'flb-progress-head' },
                   h(
                     'span',
-                    { className: 'flb-progress-value', 'data-tone': ratio === 100 ? 'success' : undefined },
+                    {
+                      className: 'flb-progress-value',
+                      'data-tone': ratio === 100 ? 'success' : undefined,
+                    },
                     `${ratio}%`,
                   ),
                   h(
@@ -7958,273 +7974,133 @@ window.__ModuleLoader__.load({
             : null,
           qualityReady
             ? h(
-              'div',
-              { className: 'flb-rel-kpis' },
-              h(ReliabilityKpi, {
-                label: t('reliability.kpi.gates'),
-                value: gateValue,
-                note: gates.length > 0 ? gateSummaryText : '',
-                tone: gateTone,
-              }),
-              h(ReliabilityKpi, {
-                label: t('reliability.kpi.tests'),
-                value: testValue,
-                note: testNote,
-                tone: testTone,
-              }),
-              h(ReliabilityKpi, {
-                label: t('reliability.kpi.lines'),
-                value: lineValue === null ? unavailableValue : lineValue,
-                note: coverage
-                  ? t('reliability.coverage.threshold', { value: lineThreshold })
-                  : t('reliability.value.notCollected'),
-                tone: lineTone,
-              }),
-              h(ReliabilityKpi, {
-                label: t('reliability.kpi.mutation'),
-                value: mutationValue,
-                note: mutation ? `break ${mutation.thresholds.break}` : t('reliability.value.notRun'),
-                tone: mutationTone,
-              }),
-            )
+                'div',
+                { className: 'flb-rel-kpis' },
+                h(ReliabilityKpi, {
+                  label: t('reliability.kpi.gates'),
+                  value: gateValue,
+                  note: gates.length > 0 ? gateSummaryText : '',
+                  tone: gateTone,
+                }),
+                h(ReliabilityKpi, {
+                  label: t('reliability.kpi.tests'),
+                  value: testValue,
+                  note: testNote,
+                  tone: testTone,
+                }),
+                h(ReliabilityKpi, {
+                  label: t('reliability.kpi.lines'),
+                  value: lineValue === null ? unavailableValue : lineValue,
+                  note: coverage
+                    ? t('reliability.coverage.threshold', { value: lineThreshold })
+                    : t('reliability.value.notCollected'),
+                  tone: lineTone,
+                }),
+                h(ReliabilityKpi, {
+                  label: t('reliability.kpi.mutation'),
+                  value: mutationValue,
+                  note: mutation
+                    ? `break ${mutation.thresholds.break}`
+                    : t('reliability.value.notRun'),
+                  tone: mutationTone,
+                }),
+              )
             : null,
           qualityReady
             ? h(
-              'section',
-              { className: 'flb-rel-section' },
-              h(
-                'div',
-                { className: 'flb-rel-section-head' },
-                h('span', { className: 'flb-rel-section-title' }, t('reliability.gates.title')),
-                gates.length > 0
-                  ? h('span', { className: 'flb-rel-section-meta' }, gateSummaryText)
-                  : null,
-                snapshotStale ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag')) : null,
-              ),
-              snapshotMissing
-                ? h(
-                    'div',
-                    { className: 'flb-rel-empty' },
-                    t('reliability.snapshot.missing'),
-                    '：',
-                    t('reliability.snapshot.missingHint'),
-                  )
-                : snapshotInvalid
+                'section',
+                { className: 'flb-rel-section' },
+                h(
+                  'div',
+                  { className: 'flb-rel-section-head' },
+                  h('span', { className: 'flb-rel-section-title' }, t('reliability.gates.title')),
+                  gates.length > 0
+                    ? h('span', { className: 'flb-rel-section-meta' }, gateSummaryText)
+                    : null,
+                  snapshotStale ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag')) : null,
+                ),
+                snapshotMissing
                   ? h(
                       'div',
-                      { className: 'flb-rel-error' },
-                      t('reliability.snapshot.invalidHint'),
-                      snapshot.error ? ` ${snapshot.error}` : '',
+                      { className: 'flb-rel-empty' },
+                      t('reliability.snapshot.missing'),
+                      '：',
+                      t('reliability.snapshot.missingHint'),
                     )
-                  : gates.length === 0
-                    ? h('div', { className: 'flb-rel-empty' }, t('reliability.gates.empty'))
-                    : h(
-                        'table',
-                        { className: 'flb-rel-table' },
-                        h(
-                          'thead',
-                          null,
+                  : snapshotInvalid
+                    ? h(
+                        'div',
+                        { className: 'flb-rel-error' },
+                        t('reliability.snapshot.invalidHint'),
+                        snapshot.error ? ` ${snapshot.error}` : '',
+                      )
+                    : gates.length === 0
+                      ? h('div', { className: 'flb-rel-empty' }, t('reliability.gates.empty'))
+                      : h(
+                          'table',
+                          { className: 'flb-rel-table' },
                           h(
-                            'tr',
+                            'thead',
                             null,
-                            h('th', null, t('reliability.gates.status')),
-                            h('th', null, t('reliability.gates.gate')),
-                            h('th', null, t('reliability.gates.measured')),
-                            h('th', null, t('reliability.gates.threshold')),
-                            h('th', null, t('reliability.gates.duration')),
-                            h('th', null, t('reliability.gates.at')),
-                            h('th', null, t('reliability.gates.details')),
-                          ),
-                        ),
-                        h(
-                          'tbody',
-                          null,
-                          gates.map((gate) =>
                             h(
                               'tr',
-                              { key: gate.id },
-                              h(
-                                'td',
-                                null,
-                                h(
-                                  'div',
-                                  { className: 'flb-rel-status' },
-                                  h(
-                                    Chip,
-                                    { tone: GATE_TONES[gate.status] || 'idle' },
-                                    t(`reliability.status.${gate.status}`),
-                                  ),
-                                  snapshotStale
-                                    ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag'))
-                                    : null,
-                                ),
-                              ),
-                              h('td', null, gate.label || gate.id),
-                              h('td', null, reliabilityUnit(t, gate, gate.measured)),
-                              h('td', null, reliabilityUnit(t, gate, gate.threshold)),
-                              h('td', null, reliabilityDuration(gate.durationMs)),
-                              h('td', null, formatMoment(gate.at)),
-                              h(
-                                'td',
-                                null,
-                                h(
-                                  'details',
-                                  { className: 'flb-rel-gate-detail' },
-                                  h('summary', null, t('reliability.gates.details')),
-                                  h(
-                                    'div',
-                                    null,
-                                    h(
-                                      Kv,
-                                      { label: t('reliability.gates.command') },
-                                      gate.command || '—',
-                                    ),
-                                    h(
-                                      Kv,
-                                      { label: t('reliability.gates.evidence') },
-                                      snapshot.path || '—',
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-            )
-            : null,
-          qualityReady
-            ? h(
-              'section',
-              { className: 'flb-rel-section' },
-              h(
-                'div',
-                { className: 'flb-rel-section-head' },
-                h('span', { className: 'flb-rel-section-title' }, t('reliability.coverage.title')),
-                coverage
-                  ? h(
-                      'span',
-                      { className: 'flb-rel-section-meta' },
-                      t('reliability.coverage.key', {
-                        passed: keyCoverage ? keyCoverage.passed : '—',
-                        total: keyCoverage ? keyCoverage.total : '—',
-                      }),
-                    )
-                  : null,
-              ),
-              !coverage
-                ? h(
-                    'div',
-                    { className: 'flb-rel-empty' },
-                    snapshotMissing || snapshotInvalid
-                      ? `${unavailableValue}：${t('reliability.snapshot.missingHint')}`
-                      : t('reliability.coverage.notCollected'),
-                  )
-                : h(
-                    'div',
-                    null,
-                    h(
-                      'div',
-                      { className: 'flb-rel-bars' },
-                      coverageRows.map(([key, value, threshold]) =>
-                        h(
-                          'div',
-                          { className: 'flb-rel-bar-row', key },
-                          h(
-                            'div',
-                            { className: 'flb-rel-bar-head' },
-                            h('span', null, t(`reliability.coverage.${key}`)),
-                            h(
-                              'span',
-                              { className: 'flb-rel-bar-value' },
-                              `${value === null ? '—' : reliabilityPercent(value)} · ${t(
-                                'reliability.coverage.threshold',
-                                { value: threshold },
-                              )}`,
-                            ),
-                          ),
-                          h(ReliabilityBar, {
-                            label: t(`reliability.coverage.${key}`),
-                            value,
-                            threshold,
-                            tone: value === null ? 'brand' : value >= threshold ? 'success' : 'warn',
-                          }),
-                        ),
-                      ),
-                    ),
-                    keyCoverage
-                      ? h(
-                          'details',
-                          { className: 'flb-rel-key' },
-                          h(
-                            'summary',
-                            null,
-                            `${t('reliability.coverage.keyTitle')}：${t('reliability.coverage.key', {
-                              passed: keyCoverage.passed,
-                              total: keyCoverage.total,
-                            })}`,
-                          ),
-                          h(
-                            'table',
-                            { className: 'flb-rel-table' },
-                            h(
-                              'thead',
                               null,
+                              h('th', null, t('reliability.gates.status')),
+                              h('th', null, t('reliability.gates.gate')),
+                              h('th', null, t('reliability.gates.measured')),
+                              h('th', null, t('reliability.gates.threshold')),
+                              h('th', null, t('reliability.gates.duration')),
+                              h('th', null, t('reliability.gates.at')),
+                              h('th', null, t('reliability.gates.details')),
+                            ),
+                          ),
+                          h(
+                            'tbody',
+                            null,
+                            gates.map((gate) =>
                               h(
                                 'tr',
-                                null,
-                                h('th', null, t('reliability.coverage.file')),
-                                h('th', null, t('reliability.coverage.lines')),
-                                h('th', null, t('reliability.coverage.functions')),
-                                h('th', null, t('reliability.coverage.branches')),
-                                h('th', null, t('reliability.gates.status')),
-                              ),
-                            ),
-                            h(
-                              'tbody',
-                              null,
-                              keyCoverage.files.map((file) =>
+                                { key: gate.id },
                                 h(
-                                  'tr',
-                                  { key: file.path },
-                                  h('td', null, file.path),
+                                  'td',
+                                  null,
                                   h(
-                                    'td',
-                                    null,
-                                    `${file.lines === null ? '—' : reliabilityPercent(file.lines)} / ≥${
-                                      file.thresholds.lines
-                                    }%`,
-                                  ),
-                                  h(
-                                    'td',
-                                    null,
-                                    `${file.functions === null ? '—' : reliabilityPercent(file.functions)} / ≥${
-                                      file.thresholds.functions
-                                    }%`,
-                                  ),
-                                  h(
-                                    'td',
-                                    null,
-                                    `${file.branches === null ? '—' : reliabilityPercent(file.branches)} / ≥${
-                                      file.thresholds.branches
-                                    }%`,
-                                  ),
-                                  h(
-                                    'td',
-                                    null,
+                                    'div',
+                                    { className: 'flb-rel-status' },
                                     h(
                                       Chip,
-                                      {
-                                        tone: file.passed
-                                          ? 'success'
-                                          : file.present
-                                            ? 'error'
-                                            : 'idle',
-                                      },
-                                      t(
-                                        file.present
-                                          ? 'reliability.coverage.recorded'
-                                          : 'reliability.coverage.absent',
+                                      { tone: GATE_TONES[gate.status] || 'idle' },
+                                      t(`reliability.status.${gate.status}`),
+                                    ),
+                                    snapshotStale
+                                      ? h(Chip, { tone: 'warn' }, t('reliability.gates.staleTag'))
+                                      : null,
+                                  ),
+                                ),
+                                h('td', null, gate.label || gate.id),
+                                h('td', null, reliabilityUnit(t, gate, gate.measured)),
+                                h('td', null, reliabilityUnit(t, gate, gate.threshold)),
+                                h('td', null, reliabilityDuration(gate.durationMs)),
+                                h('td', null, formatMoment(gate.at)),
+                                h(
+                                  'td',
+                                  null,
+                                  h(
+                                    'details',
+                                    { className: 'flb-rel-gate-detail' },
+                                    h('summary', null, t('reliability.gates.details')),
+                                    h(
+                                      'div',
+                                      null,
+                                      h(
+                                        Kv,
+                                        { label: t('reliability.gates.command') },
+                                        gate.command || '—',
+                                      ),
+                                      h(
+                                        Kv,
+                                        { label: t('reliability.gates.evidence') },
+                                        snapshot.path || '—',
                                       ),
                                     ),
                                   ),
@@ -8232,50 +8108,200 @@ window.__ModuleLoader__.load({
                               ),
                             ),
                           ),
-                        )
-                      : null,
-                    budgets || snapshot.suppressions
-                      ? h(
-                          'div',
-                          { className: 'flb-rel-budgets' },
-                          budgets
-                            ? h(
-                                Chip,
-                                {
-                                  tone:
-                                    budgets.assertions.current <= budgets.assertions.baseline
-                                      ? 'success'
-                                      : 'error',
-                                },
-                                t('reliability.budget.assertions', {
-                                  current: budgets.assertions.current,
-                                  baseline: budgets.assertions.baseline,
-                                }),
-                              )
-                            : null,
-                          budgets
-                            ? h(
-                                Chip,
-                                { tone: budgets.tokens.overLimit === 0 ? 'success' : 'error' },
-                                t('reliability.budget.tokens', {
-                                  over: budgets.tokens.overLimit,
-                                  max: budgets.tokens.maxFile
-                                    ? `${budgets.tokens.maxFile} · ${budgets.tokens.maxTokens ?? '—'}`
-                                    : '—',
-                                }),
-                              )
-                            : null,
+                        ),
+              )
+            : null,
+          qualityReady
+            ? h(
+                'section',
+                { className: 'flb-rel-section' },
+                h(
+                  'div',
+                  { className: 'flb-rel-section-head' },
+                  h(
+                    'span',
+                    { className: 'flb-rel-section-title' },
+                    t('reliability.coverage.title'),
+                  ),
+                  coverage
+                    ? h(
+                        'span',
+                        { className: 'flb-rel-section-meta' },
+                        t('reliability.coverage.key', {
+                          passed: keyCoverage ? keyCoverage.passed : '—',
+                          total: keyCoverage ? keyCoverage.total : '—',
+                        }),
+                      )
+                    : null,
+                ),
+                !coverage
+                  ? h(
+                      'div',
+                      { className: 'flb-rel-empty' },
+                      snapshotMissing || snapshotInvalid
+                        ? `${unavailableValue}：${t('reliability.snapshot.missingHint')}`
+                        : t('reliability.coverage.notCollected'),
+                    )
+                  : h(
+                      'div',
+                      null,
+                      h(
+                        'div',
+                        { className: 'flb-rel-bars' },
+                        coverageRows.map(([key, value, threshold]) =>
                           h(
-                            Chip,
-                            { tone: 'idle' },
-                            t('reliability.budget.suppressions', {
-                              count: snapshot.suppressions || 0,
+                            'div',
+                            { className: 'flb-rel-bar-row', key },
+                            h(
+                              'div',
+                              { className: 'flb-rel-bar-head' },
+                              h('span', null, t(`reliability.coverage.${key}`)),
+                              h(
+                                'span',
+                                { className: 'flb-rel-bar-value' },
+                                `${value === null ? '—' : reliabilityPercent(value)} · ${t(
+                                  'reliability.coverage.threshold',
+                                  { value: threshold },
+                                )}`,
+                              ),
+                            ),
+                            h(ReliabilityBar, {
+                              label: t(`reliability.coverage.${key}`),
+                              value,
+                              threshold,
+                              tone:
+                                value === null ? 'brand' : value >= threshold ? 'success' : 'warn',
                             }),
                           ),
-                        )
-                      : null,
-                  ),
-            )
+                        ),
+                      ),
+                      keyCoverage
+                        ? h(
+                            'details',
+                            { className: 'flb-rel-key' },
+                            h(
+                              'summary',
+                              null,
+                              `${t('reliability.coverage.keyTitle')}：${t(
+                                'reliability.coverage.key',
+                                {
+                                  passed: keyCoverage.passed,
+                                  total: keyCoverage.total,
+                                },
+                              )}`,
+                            ),
+                            h(
+                              'table',
+                              { className: 'flb-rel-table' },
+                              h(
+                                'thead',
+                                null,
+                                h(
+                                  'tr',
+                                  null,
+                                  h('th', null, t('reliability.coverage.file')),
+                                  h('th', null, t('reliability.coverage.lines')),
+                                  h('th', null, t('reliability.coverage.functions')),
+                                  h('th', null, t('reliability.coverage.branches')),
+                                  h('th', null, t('reliability.gates.status')),
+                                ),
+                              ),
+                              h(
+                                'tbody',
+                                null,
+                                keyCoverage.files.map((file) =>
+                                  h(
+                                    'tr',
+                                    { key: file.path },
+                                    h('td', null, file.path),
+                                    h(
+                                      'td',
+                                      null,
+                                      `${file.lines === null ? '—' : reliabilityPercent(file.lines)} / ≥${
+                                        file.thresholds.lines
+                                      }%`,
+                                    ),
+                                    h(
+                                      'td',
+                                      null,
+                                      `${file.functions === null ? '—' : reliabilityPercent(file.functions)} / ≥${
+                                        file.thresholds.functions
+                                      }%`,
+                                    ),
+                                    h(
+                                      'td',
+                                      null,
+                                      `${file.branches === null ? '—' : reliabilityPercent(file.branches)} / ≥${
+                                        file.thresholds.branches
+                                      }%`,
+                                    ),
+                                    h(
+                                      'td',
+                                      null,
+                                      h(
+                                        Chip,
+                                        {
+                                          tone: file.passed
+                                            ? 'success'
+                                            : file.present
+                                              ? 'error'
+                                              : 'idle',
+                                        },
+                                        t(
+                                          file.present
+                                            ? 'reliability.coverage.recorded'
+                                            : 'reliability.coverage.absent',
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        : null,
+                      budgets || snapshot.suppressions
+                        ? h(
+                            'div',
+                            { className: 'flb-rel-budgets' },
+                            budgets
+                              ? h(
+                                  Chip,
+                                  {
+                                    tone:
+                                      budgets.assertions.current <= budgets.assertions.baseline
+                                        ? 'success'
+                                        : 'error',
+                                  },
+                                  t('reliability.budget.assertions', {
+                                    current: budgets.assertions.current,
+                                    baseline: budgets.assertions.baseline,
+                                  }),
+                                )
+                              : null,
+                            budgets
+                              ? h(
+                                  Chip,
+                                  { tone: budgets.tokens.overLimit === 0 ? 'success' : 'error' },
+                                  t('reliability.budget.tokens', {
+                                    over: budgets.tokens.overLimit,
+                                    max: budgets.tokens.maxFile
+                                      ? `${budgets.tokens.maxFile} · ${budgets.tokens.maxTokens ?? '—'}`
+                                      : '—',
+                                  }),
+                                )
+                              : null,
+                            h(
+                              Chip,
+                              { tone: 'idle' },
+                              t('reliability.budget.suppressions', {
+                                count: snapshot.suppressions || 0,
+                              }),
+                            ),
+                          )
+                        : null,
+                    ),
+              )
             : null,
           h(
             'section',
@@ -8742,11 +8768,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'flb-ops-metric', 'data-tone': tone || 'idle' },
-            h(
-              'span',
-              { className: 'flb-ops-metric-value' },
-              `${value}${unit || ''}`,
-            ),
+            h('span', { className: 'flb-ops-metric-value' }, `${value}${unit || ''}`),
             h('span', { className: 'flb-ops-metric-label' }, label),
           )
         const cpu = Number(monitorHost.cpuPercent) || 0
@@ -8790,15 +8812,30 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'flb-ops-monitor-metrics' },
-                  metric(t('ops.monitor.cpuLabel'), cpu, '%', cpu >= 85 ? 'error' : cpu >= 70 ? 'warn' : 'success'),
+                  metric(
+                    t('ops.monitor.cpuLabel'),
+                    cpu,
+                    '%',
+                    cpu >= 85 ? 'error' : cpu >= 70 ? 'warn' : 'success',
+                  ),
                   metric(
                     t('ops.monitor.memoryLabel'),
                     memory,
                     '%',
                     memory >= 90 ? 'error' : memory >= 75 ? 'warn' : 'success',
                   ),
-                  metric(t('ops.monitor.loadLabel'), load.toFixed(1), '', load >= 4 ? 'warn' : 'success'),
-                  metric(t('ops.monitor.issuesLabel'), monitor.issues || 0, '', (monitor.issues || 0) > 0 ? 'warn' : 'idle'),
+                  metric(
+                    t('ops.monitor.loadLabel'),
+                    load.toFixed(1),
+                    '',
+                    load >= 4 ? 'warn' : 'success',
+                  ),
+                  metric(
+                    t('ops.monitor.issuesLabel'),
+                    monitor.issues || 0,
+                    '',
+                    (monitor.issues || 0) > 0 ? 'warn' : 'idle',
+                  ),
                 ),
                 h(
                   'div',
@@ -9642,46 +9679,46 @@ window.__ModuleLoader__.load({
                 'nav',
                 { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
                 allViews.map(([key, label]) =>
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    key,
-                    role: 'tab',
-                    className: 'flb-tab',
-                    'aria-selected': view === key,
-                    onClick: () => {
-                      setView(key)
-                      setMobileDetail(false)
-                      setFullDetail(false)
-                    },
-                  },
-                  label,
                   h(
-                    'span',
-                    { className: 'flb-tab-count' },
-                    key === 'tasks'
-                      ? allTasks.length
-                      : key === 'issues'
-                        ? attention.length
-                        : key === 'reliability'
-                          ? reliability.data &&
-                            reliability.data.snapshot &&
-                            ['fresh', 'stale'].includes(reliability.data.snapshot.availability)
-                            ? String(
-                                reliability.data.snapshot.gates.filter(
-                                  (gate) => gate.status !== 'pass',
-                                ).length,
-                              )
-                            : '—'
-                          : key === 'ops'
-                            ? ops.data && ops.data.summary && ops.data.summary.stats
-                              ? ops.data.summary.stats.active
-                              : 0
-                            : requirements.length,
+                    'button',
+                    {
+                      type: 'button',
+                      key,
+                      role: 'tab',
+                      className: 'flb-tab',
+                      'aria-selected': view === key,
+                      onClick: () => {
+                        setView(key)
+                        setMobileDetail(false)
+                        setFullDetail(false)
+                      },
+                    },
+                    label,
+                    h(
+                      'span',
+                      { className: 'flb-tab-count' },
+                      key === 'tasks'
+                        ? allTasks.length
+                        : key === 'issues'
+                          ? attention.length
+                          : key === 'reliability'
+                            ? reliability.data &&
+                              reliability.data.snapshot &&
+                              ['fresh', 'stale'].includes(reliability.data.snapshot.availability)
+                              ? String(
+                                  reliability.data.snapshot.gates.filter(
+                                    (gate) => gate.status !== 'pass',
+                                  ).length,
+                                )
+                              : '—'
+                            : key === 'ops'
+                              ? ops.data && ops.data.summary && ops.data.summary.stats
+                                ? ops.data.summary.stats.active
+                                : 0
+                              : requirements.length,
+                    ),
                   ),
                 ),
-              ),
               ),
               h(
                 'button',

@@ -37,7 +37,6 @@ import {
   ACCEPTED,
   ACTION_VERIFY,
   APPROVED,
-  AWAITING_CLARIFICATION,
   AWAITING_DEV_SESSION,
   AUTO_ADVANCE_STATUSES,
   CANCELLED,
@@ -79,6 +78,7 @@ import { OpsRuntime } from './ops.js'
 import { applyDiffFile } from './diff-apply.js'
 import { buildStatusBoard, type StatusBoardView } from './board.js'
 import { pendingClarificationsOf, type PendingClarification } from './clarification-view.js'
+import { clarificationAnswerContext } from './clarification-answer.js'
 import { requirementDetailExtras } from './requirement-detail.js'
 import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
 import { runFormalTest } from './formal-test.js'
@@ -456,6 +456,8 @@ export class ForgeLoopRuntime {
     answer: string
     by: string
     source: string
+    /** 只回答指定问题；省略时回答当前全部开放问题。 */
+    questionIds?: readonly string[]
     signal?: AbortSignal | undefined
   }): Promise<{
     ok: boolean
@@ -463,69 +465,54 @@ export class ForgeLoopRuntime {
     message: string
     reqId: string
     requirementVersion?: number | undefined
+    answeredQuestionIds?: readonly string[] | undefined
     analysis?: RequirementAnalysis | undefined
   }> {
     const answer = input.answer.trim()
     if (!answer)
       return { ok: false, code: 'empty_answer', message: '澄清回答不能为空', reqId: input.reqId }
-    const requirement = this.repo.getRequirement(input.reqId)
-    if (!requirement)
-      return {
-        ok: false,
-        code: 'not_found',
-        message: `未找到需求 ${input.reqId}`,
-        reqId: input.reqId,
-      }
-    if (requirement.status !== AWAITING_CLARIFICATION) {
-      return {
-        ok: false,
-        code: 'no_clarification',
-        message: `需求 ${input.reqId} 当前不在待澄清状态`,
-        reqId: input.reqId,
-      }
-    }
-    const analysis = this.repo.latestAnalysis(input.reqId)
-    const open = this.repo.openClarifications(input.reqId)
-    if (
-      !analysis ||
-      analysis.requirementVersion !== requirement.versions.length ||
-      open.length === 0
-    ) {
-      return {
-        ok: false,
-        code: 'no_clarification',
-        message: `需求 ${input.reqId} 没有与当前版本对应的待澄清项`,
-        reqId: input.reqId,
-      }
-    }
+    const context = clarificationAnswerContext({
+      repository: this.repo,
+      reqId: input.reqId,
+      questionIds: input.questionIds,
+    })
+    if (!context.ok)
+      return { ok: false, code: context.code, message: context.message, reqId: input.reqId }
+    const { requirement, questions } = context
     const latest = requirement.versions[requirement.versions.length - 1]
-    if (!latest)
+    if (!latest) {
       return {
         ok: false,
         code: 'not_found',
         message: `需求 ${input.reqId} 没有可修订版本`,
         reqId: input.reqId,
       }
-    const questionIds = open.map((question) => question.questionId).join('、')
+    }
+    const questionIds = questions
+      .map((question) => `${question.questionId}（分析 v${question.analysisVersion}）`)
+      .join('、')
     const text = `${latest.text}
 
-澄清回答（针对分析 v${analysis.analysisVersion} 的问题 ${questionIds}）：
+澄清回答（问题 ${questionIds}）：
 ${answer}`
     const revised = this.revise({ reqId: input.reqId, text, by: input.by, source: input.source })
     if (!revised.ok) return { ...revised, reqId: input.reqId }
     const refreshed = this.repo.getRequirement(input.reqId)
     const answeredVersion = refreshed?.versions.length ?? latest.version + 1
     // 回答先落库再分析：即使分析失败或宿主中断，所有者答过的内容与对应问题仍可回查。
-    this.repo.recordClarificationAnswer({
-      reqId: input.reqId,
-      analysisVersion: analysis.analysisVersion,
-      requirementVersion: analysis.requirementVersion,
-      answeredVersion,
-      questionIds: open.map((question) => question.questionId),
-      answer,
-      source: input.source,
-      answeredAt: this.now(),
-    })
+    for (const question of questions) {
+      this.repo.recordClarificationAnswer({
+        reqId: input.reqId,
+        // 回答绑定问题首次提出的分析版本，而不是当前最新分析版本。
+        analysisVersion: question.analysisVersion,
+        requirementVersion: requirement.versions.length,
+        answeredVersion,
+        questionId: question.questionId,
+        answer,
+        source: input.source,
+        answeredAt: this.now(),
+      })
+    }
     const next = await this.analyzeRequirement(input.reqId, input.signal)
     if (!next.ok) {
       return {
@@ -542,6 +529,7 @@ ${answer}`
       message: next.message,
       reqId: input.reqId,
       requirementVersion: refreshed?.versions.length,
+      answeredQuestionIds: questions.map((question) => question.questionId),
       analysis: next.analysis,
     }
   }

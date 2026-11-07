@@ -83,7 +83,7 @@ export function projectFactsContext(facts: ProjectFacts): string {
 }
 
 /**
- * 重新分析时的澄清上下文：问题原文、问题身份、所有回答与解决结论都在这里。
+ * 重新分析时的澄清上下文：问题原文、问题身份、每道题的历次回答与解决结论。
  * 程序不经模型转述；已回答/已解决的问题与仍未解决的问题分开列出。
  */
 export function clarificationContext(input: {
@@ -91,26 +91,19 @@ export function clarificationContext(input: {
   answers: readonly ClarificationAnswer[]
 }): string {
   if (input.questions.length === 0) return '（没有待澄清历史）'
-  const answerByAnalysis = new Map(input.answers.map((answer) => [answer.analysisVersion, answer]))
-  const answerByQuestion = new Map<string, ClarificationAnswer>()
-  for (const answer of input.answers) {
-    for (const questionId of answer.questionIds) {
-      if (!answerByQuestion.has(questionId)) answerByQuestion.set(questionId, answer)
-    }
-  }
   const lines: string[] = []
   for (const question of input.questions) {
-    const answer =
-      answerByQuestion.get(question.questionId) ?? answerByAnalysis.get(question.analysisVersion)
     lines.push(
       `- ${question.questionId}（分析 v${question.analysisVersion}）问题原文：${question.text}`,
     )
-    if (answer) {
-      lines.push(
-        `  所有者回答（需求 v${answer.answeredVersion}，来源 ${answer.source || '未知'}）：${answer.answer}`,
-      )
-    } else {
+    const answers = input.answers.filter((answer) => answer.questionId === question.questionId)
+    if (answers.length === 0) {
       lines.push('  所有者回答：（尚无回答）')
+    }
+    for (const answer of answers) {
+      lines.push(
+        `  所有者回答 ${answer.answerSeq}（需求 v${answer.answeredVersion}，来源 ${answer.source || '未知'}）：${answer.answer}`,
+      )
     }
     if (question.status === 'resolved') {
       lines.push(
@@ -123,7 +116,6 @@ export function clarificationContext(input: {
   return lines.join('\n')
 }
 
-/** 上一次结构化规格，供重新分析沿用稳定编号；没有结构化规格时说明为空。 */
 export function analysisSpecContext(analysis: RequirementAnalysis | null): string {
   if (!analysis || (analysis.businessPoints?.length ?? 0) === 0) {
     return '（尚无结构化业务要点；首次分析请从 BP-1、AC-1 开始编号）'

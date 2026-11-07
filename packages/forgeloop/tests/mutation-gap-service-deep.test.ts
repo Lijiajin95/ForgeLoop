@@ -730,13 +730,14 @@ describe('answerClarifications', () => {
     expect(result.analysis).toMatchObject({ analysisVersion: 2, requirementVersion: 2 })
     const requirement = runtime.repo.getRequirement(reqId)
     expect(requirement?.versions.map((version) => version.version)).toEqual([1, 2])
-    expect(requirement?.versions[1]?.text).toContain('澄清回答（针对分析 v1 的问题 Q1-1）：')
+    expect(requirement?.versions[1]?.text).toContain('澄清回答（问题 Q1-1（分析 v1））：')
     expect(requirement?.versions[1]?.text).toContain('包含已取消订单')
     expect(runtime.repo.clarificationAnswers(reqId)[0]).toMatchObject({
       analysisVersion: 1,
       requirementVersion: 1,
       answeredVersion: 2,
-      questionIds: ['Q1-1'],
+      questionId: 'Q1-1',
+      answerSeq: 1,
       answer: '包含已取消订单',
       source: 'test:answer',
     })

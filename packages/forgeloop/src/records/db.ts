@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS requirement_clarification_questions (
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version, question_index)
 );
--- 澄清回答：按被回答的分析版本追加回答原文与来源，不覆盖历次问答。
+-- 澄清回答（历史格式）：按分析版本一条，question_ids 存所答问题。只读回退，不再写入。
 CREATE TABLE IF NOT EXISTS requirement_clarification_answers (
     req_id TEXT NOT NULL,
     analysis_version INTEGER NOT NULL,
@@ -106,6 +106,19 @@ CREATE TABLE IF NOT EXISTS requirement_clarification_answers (
     source TEXT NOT NULL DEFAULT '',
     answered_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
+);
+-- 逐题回答：一道题一行；同一道题可有多条历次回答，未回答的题保持开放。
+CREATE TABLE IF NOT EXISTS requirement_clarification_question_answers (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    question_id TEXT NOT NULL,
+    answer_seq INTEGER NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    answered_version INTEGER NOT NULL,
+    answer TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    answered_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version, question_id, answer_seq)
 );
 -- 业务背景变更：draft 只落库不写正式文档；分析校验通过后由程序同步并标记 applied。
 -- 记录需求版本、分析版本与明确依据，保证背景变化可回查、可审计。

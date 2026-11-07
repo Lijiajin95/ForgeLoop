@@ -354,10 +354,10 @@ exports[`prompt builders: full-string branches > renders clarification history a
 
 exports[`prompt builders: full-string branches > renders clarification history and prior structured specification branches > clarification-mixed 1`] = `
 "- Q2-1（分析 v2）问题原文：筛选范围是否包含已归档需求？
-  所有者回答（需求 v2，来源 owner）：不包含已归档需求
+  所有者回答 1（需求 v2，来源 owner）：不包含已归档需求
   处理结果：已解决（分析 v3）→ 不包含已归档需求
 - Q2-2（分析 v2）问题原文：清空筛选后是否保留排序？
-  所有者回答（需求 v2，来源 owner）：不包含已归档需求
+  所有者回答：（尚无回答）
   处理结果：仍未解决"
 `;
 
