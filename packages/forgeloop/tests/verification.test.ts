@@ -594,13 +594,13 @@ describe('verification materials', () => {
     expect(() =>
       parseVerificationCommands(
         JSON.stringify({
-          commands: Array.from({ length: 11 }, (_, index) => ({
+          commands: Array.from({ length: 16 }, (_, index) => ({
             label: `c${index}`,
             argv: ['node'],
           })),
         }),
       ),
-    ).toThrow(/最多 10 条/)
+    ).toThrow(/最多 15 条/)
 
     expect(() => parseVerificationReport('not json')).toThrow(/可解析/)
     expect(() =>

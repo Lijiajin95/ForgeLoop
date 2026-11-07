@@ -164,7 +164,8 @@ export function parseVerificationCommands(raw: string): VerificationCommand[] {
   if (!Array.isArray(data.commands) || data.commands.length === 0) {
     throw new MalformedError('验证命令清单必须给出至少一条命令')
   }
-  if (data.commands.length > 10) throw new MalformedError('验证命令一次最多 10 条')
+  if (data.commands.length > MAX_VERIFICATION_COMMANDS)
+    throw new MalformedError(`验证命令一次最多 ${MAX_VERIFICATION_COMMANDS} 条`)
   const commands = data.commands.map((item, index) => {
     const command = asRecord(item, `commands[${index}]`)
     const argv = stringList(command.argv, `commands[${index}].argv`, false)
@@ -438,7 +439,8 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
       checks,
     } satisfies VerificationPlanScenario
   })
-  if (totalChecks > 10) throw new MalformedError('验证方案的命令一次最多 10 条')
+  if (totalChecks > MAX_VERIFICATION_COMMANDS)
+    throw new MalformedError(`验证方案的命令一次最多 ${MAX_VERIFICATION_COMMANDS} 条`)
   if (new Set(scenarios.map((scenario) => scenario.scenario)).size !== scenarios.length) {
     throw new MalformedError('验证方案的场景不能重复')
   }
@@ -569,6 +571,12 @@ function acceptanceCategoryIssues(plan: VerificationPlan): string[] {
 }
 
 const BUILTIN_MODULES = new Set<string>(builtinModules)
+
+/**
+ * 单个方案允许的命令条数上限。收尾实测：验收项要求逐项有检查时 10 条不够用，
+ * 上限放宽到 15；每条命令仍必须真实执行并通过，判据不变。
+ */
+export const MAX_VERIFICATION_COMMANDS = 15
 
 export interface VerificationPlanProject {
   /** 目标工程已安装的包名（dependencies + devDependencies）。 */

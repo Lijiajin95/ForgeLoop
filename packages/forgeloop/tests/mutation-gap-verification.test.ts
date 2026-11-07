@@ -170,7 +170,7 @@ describe('plan review parsing', () => {
 })
 
 describe('verification command parsing', () => {
-  it('parses array and object forms with at most ten unique labels', () => {
+  it('parses array and object forms with a bounded number of unique labels', () => {
     expect(parseVerificationCommands(JSON.stringify([{ label: 'a', argv: ['x'] }]))).toEqual([
       { label: 'a', argv: ['x'] },
     ])
@@ -183,10 +183,10 @@ describe('verification command parsing', () => {
     expect(() =>
       parseVerificationCommands(
         JSON.stringify({
-          commands: Array.from({ length: 11 }, (_v, i) => ({ label: `c${i}`, argv: ['x'] })),
+          commands: Array.from({ length: 16 }, (_v, i) => ({ label: `c${i}`, argv: ['x'] })),
         }),
       ),
-    ).toThrow('验证命令一次最多 10 条')
+    ).toThrow('验证命令一次最多 15 条')
     expect(() =>
       parseVerificationCommands(JSON.stringify({ commands: [{ label: '', argv: ['x'] }] })),
     ).toThrow('commands[0].label 必须是非空字符串')
