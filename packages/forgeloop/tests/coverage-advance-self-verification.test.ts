@@ -295,6 +295,8 @@ function makePipeline(
     recordCommit: (record: Record<string, unknown>) => {
       commitRecords.push(record)
     },
+    activeStop: () => null,
+    cancellation: () => null,
   }
   const deps = {
     config,
@@ -536,7 +538,10 @@ describe('advance pipeline self verification and dev clarification', () => {
           reqId: 'req-1',
           planVersion: 1,
           candidateSha256: '1'.repeat(64),
-          reports: [reportA, reportB],
+          reports: [
+            { taskId: 'a', report: reportA },
+            { taskId: 'b', report: reportB },
+          ],
           at: NOW,
         },
         null,

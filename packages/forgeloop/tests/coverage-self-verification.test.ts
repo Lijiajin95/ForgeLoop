@@ -88,12 +88,28 @@ describe('self-verification payload guards', () => {
       failingBefore: false,
       passingAfter: false,
       evidence: '',
+      failingCommand: '',
+      baselineIdentity: '',
+      failingExitCode: null,
+      failingLog: '',
+      passingCommand: '',
+      fixedIdentity: '',
+      passingExitCode: null,
+      passingLog: '',
     })
     expect(report({ red_green: 'red' }).redGreen).toEqual({
       required: false,
       failingBefore: false,
       passingAfter: false,
       evidence: '',
+      failingCommand: '',
+      baselineIdentity: '',
+      failingExitCode: null,
+      failingLog: '',
+      passingCommand: '',
+      fixedIdentity: '',
+      passingExitCode: null,
+      passingLog: '',
     })
     expect(
       report({
@@ -181,6 +197,14 @@ describe('red/green requirement evidence', () => {
         failing_before: true,
         passing_after: true,
         evidence: '修复前测试退出 1，修复后退出 0',
+        failing_command: 'npm test',
+        baseline_identity: 'baseline-sha',
+        failing_exit_code: 1,
+        failing_log: '/tmp/red.log',
+        passing_command: 'npm test',
+        fixed_identity: 'fixed-sha',
+        passing_exit_code: 0,
+        passing_log: '/tmp/green.log',
       },
     })
     expect(redGreenIssue({ inputKind: 'problem', report: complete })).toBeNull()
@@ -225,7 +249,7 @@ describe('self-verification sufficiency', () => {
           },
         }),
       }),
-    ).toEqual({ ok: false, reason: '缺少修复前失败证据' })
+    ).toEqual({ ok: false, reason: '缺少修复前目标行为失败证据' })
 
     expect(
       selfVerificationSufficient({
@@ -265,6 +289,14 @@ describe('self-verification sufficiency', () => {
             failing_before: true,
             passing_after: true,
             evidence: '修复前测试退出 1，修复后退出 0',
+            failing_command: 'npm test',
+            baseline_identity: 'baseline-sha',
+            failing_exit_code: 1,
+            failing_log: '/tmp/red.log',
+            passing_command: 'npm test',
+            fixed_identity: 'fixed-sha',
+            passing_exit_code: 0,
+            passing_log: '/tmp/green.log',
           },
         }),
       }),
