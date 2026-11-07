@@ -271,11 +271,24 @@ describe('verification check categories', () => {
     )
     expect(plan.scenarios[0]?.checks[0]?.category).toBe('acceptance')
     expect(plan.scenarios[1]?.checks[0]?.category).toBe('regression')
-    const issues = validateRequirementVerificationPlan(
-      { scenarios: ['完成改动', '回归'], acceptanceCriteria: ['可观察', '不回归'] },
-      plan,
+    const noAcceptance = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '完成改动',
+            acceptance_criterion: '可观察',
+            method: '运行命令',
+            required: true,
+            checks: [{ label: 'ok', argv: ['node', '-e', '0'], category: 'regression' }],
+          },
+        ],
+      }),
     )
-    expect(issues.join('；')).toContain('必过场景缺少本次验收（acceptance）检查')
+    const issues = validateRequirementVerificationPlan(
+      { scenarios: ['完成改动'], acceptanceCriteria: ['可观察'] },
+      noAcceptance,
+    )
+    expect(issues.join('；')).toContain('缺少本次验收（acceptance）')
   })
 })
 
@@ -306,5 +319,74 @@ describe('design-stage validation', () => {
       plan,
     )
     expect(issues.join('；')).not.toContain('异常标记断言')
+  })
+})
+
+describe('prepared plan validation', () => {
+  it('allows a required regression scenario without forcing acceptance on every scenario', async () => {
+    const { parseRequirementVerificationPlan, validateRequirementVerificationPlan } =
+      await import('../src/domain/verification.js')
+    const plan = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '生成文档',
+            acceptance_criterion: '文档包含标记',
+            method: '运行命令',
+            required: true,
+            checks: [{ label: 'ok', argv: ['node', '-e', '0'] }],
+          },
+          {
+            scenario: '回归：只改目标文件',
+            acceptance_criterion: '不修改其他文件',
+            method: '检查变更范围',
+            required: true,
+            checks: [{ label: 'scope', argv: ['node', '-e', '0'], category: 'regression' }],
+          },
+        ],
+      }),
+    )
+    const issues = validateRequirementVerificationPlan(
+      {
+        scenarios: ['生成文档', '回归：只改目标文件'],
+        acceptanceCriteria: ['文档包含标记', '不修改其他文件'],
+      },
+      plan,
+    )
+    expect(issues.join('；')).not.toContain('必过场景缺少本次验收')
+  })
+
+  it('does not require temp-dir tokens when the command runs a verification script', async () => {
+    const { parseRequirementVerificationPlan, validateRequirementVerificationPlan } =
+      await import('../src/domain/verification.js')
+    const exception = '文档缺少标记时，检查命令输出 missing 并以非零状态退出。'
+    const plan = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '生成文档',
+            acceptance_criterion: '文档包含标记',
+            method: `创建文档并检查标记；${exception}`,
+            required: true,
+            checks: [
+              {
+                label: 'missing-in-temp',
+                argv: ['node', 'verification/check-marker.js'],
+                expected_output: 'missing',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    const issues = validateRequirementVerificationPlan(
+      {
+        scenarios: ['生成文档'],
+        acceptanceCriteria: ['文档包含标记'],
+        exceptions: [exception],
+      },
+      plan,
+    )
+    expect(issues.join('；')).not.toContain('必须自建临时输入')
   })
 })

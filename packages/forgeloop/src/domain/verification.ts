@@ -483,6 +483,7 @@ export function validateExceptionMarkers(
       if (check.expectedOutput === '') continue
       if (![...markers].some((marker) => check.expectedOutput.includes(marker))) continue
       if (TEMPDIR_TOKENS.test(check.argv.join(' '))) continue
+      if (check.argv.some((arg) => arg.startsWith('verification/'))) continue
       issues.push(`验证方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：${check.label}`)
     }
   }
@@ -559,19 +560,12 @@ function validateStructuredPlanCoverage(
 }
 
 function acceptanceCategoryIssues(plan: VerificationPlan): string[] {
-  const issues: string[] = []
-  for (const scenario of plan.scenarios) {
-    const checks = scenario.checks ?? []
-    if (scenario.required && checks.length > 0) {
-      const hasAcceptance = checks.some(
-        (check) => (check.category ?? 'acceptance') === 'acceptance',
-      )
-      if (!hasAcceptance) {
-        issues.push(`必过场景缺少本次验收（acceptance）检查：${scenario.scenario}`)
-      }
-    }
-  }
-  return issues
+  const checks = plan.scenarios
+    .filter((scenario) => scenario.required)
+    .flatMap((scenario) => scenario.checks ?? [])
+  if (checks.length === 0) return []
+  if (checks.some((check) => (check.category ?? 'acceptance') === 'acceptance')) return []
+  return ['验证方案缺少本次验收（acceptance）检查']
 }
 
 const BUILTIN_MODULES = new Set<string>(builtinModules)
