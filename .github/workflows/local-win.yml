@@ -35,4 +35,10 @@ jobs:
         run: node --version && npm --version
       - run: npm ci --no-audit --no-fund
       # 静态门禁中已被验证可在 Windows 原生通过的部分；架构契约因路径分隔符暂不纳入。
-      - run: node scripts/ts/make-windows.ts typecheck lint budget assertions reliability-registry
+      - name: Run static gates
+        run: |
+          node scripts/ts/make-windows.ts typecheck
+          node scripts/ts/make-windows.ts lint
+          node scripts/ts/make-windows.ts budget
+          node scripts/ts/make-windows.ts assertions
+          node scripts/ts/make-windows.ts reliability-registry
