@@ -1,4 +1,5 @@
 import type { CommitmentConflict } from './spec.js'
+import { unresolvedCommitments, type CommitmentResolution } from './commitment-resolution.js'
 
 /**
  * 系统准入：把“真实需求来源 + 有效授权 + 质量依据”转成可执行的系统决定。
@@ -95,6 +96,10 @@ export function buildAdmissionFacts(input: {
     clarifications: readonly string[]
     conflicts?: readonly CommitmentConflict[] | undefined
   } | null
+  /** 上一轮已记录、仍待解除的承诺冲突。 */
+  previousConflicts?: readonly CommitmentConflict[] | undefined
+  /** 客户对冲突的解除依据；必须绑定当前需求版本。 */
+  commitmentResolutions?: readonly CommitmentResolution[] | undefined
 }): AdmissionFacts {
   const analysis = input.analysis
   return {
@@ -108,8 +113,19 @@ export function buildAdmissionFacts(input: {
     analysisVersion: analysis?.analysisVersion ?? null,
     analysisRequirementVersion: analysis?.requirementVersion ?? null,
     clarifications: analysis?.clarifications.length ?? 0,
-    conflicts: analysis?.conflicts?.length ?? 0,
-    conflictSummaries: (analysis?.conflicts ?? []).map(
+    // 本轮新报冲突与上一轮已知冲突合并；只有带有效依据的解除才会放行。
+    conflicts: unresolvedCommitments({
+      previousConflicts: input.previousConflicts ?? [],
+      analysisConflicts: analysis?.conflicts ?? [],
+      resolutions: input.commitmentResolutions ?? [],
+      requirementVersion: input.requirementVersion,
+    }).length,
+    conflictSummaries: unresolvedCommitments({
+      previousConflicts: input.previousConflicts ?? [],
+      analysisConflicts: analysis?.conflicts ?? [],
+      resolutions: input.commitmentResolutions ?? [],
+      requirementVersion: input.requirementVersion,
+    }).map(
       (conflict) =>
         `${conflict.existingReqId}：${conflict.conflict}（取舍：${conflict.options.join(' / ')}）`,
     ),
