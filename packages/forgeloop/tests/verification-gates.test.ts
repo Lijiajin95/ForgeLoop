@@ -466,3 +466,39 @@ describe('execution preparation response parsing', () => {
     expect(plan.scenarios[0]?.checks?.[0]?.label).toBe('doc-check')
   })
 })
+
+describe('scripted exception assertions', () => {
+  it('accepts a verification script that checks the error text internally', async () => {
+    const { parseRequirementVerificationPlan, validateRequirementVerificationPlan } =
+      await import('../src/domain/verification.js')
+    const exception = '输入为空字符串时必须抛出包含 missing 的错误，不能返回成功标识。'
+    const plan = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '边界输入',
+            acceptance_criterion: '错误信息包含 missing',
+            method: `运行脚本核对；${exception}`,
+            required: true,
+            checks: [
+              {
+                label: 'boundary',
+                argv: ['node', 'verification/check-boundary.mjs'],
+                expected_output: 'boundary ok',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    const issues = validateRequirementVerificationPlan(
+      {
+        scenarios: ['边界输入'],
+        acceptanceCriteria: ['错误信息包含 missing'],
+        exceptions: [exception],
+      },
+      plan,
+    )
+    expect(issues.join('；')).not.toContain('异常标记断言')
+  })
+})

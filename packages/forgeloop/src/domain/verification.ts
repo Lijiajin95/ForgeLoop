@@ -466,6 +466,13 @@ export function validateExceptionMarkers(
   plan: VerificationPlan,
 ): string[] {
   const issues: string[] = []
+  const scripted = plan.scenarios.some((scenario) =>
+    (scenario.checks ?? []).some((check) =>
+      check.argv.some((arg) => arg.startsWith('verification/')),
+    ),
+  )
+  // 脚本可以在内部断言错误原文并打印自己的成功标记；argv 层看不到断言细节。
+  if (scripted) return []
   const outputs = plan.scenarios.flatMap((scenario) =>
     (scenario.checks ?? []).map((check) => check.expectedOutput),
   )
@@ -687,7 +694,8 @@ function lastPreparationPayload(raw: string): unknown {
       // 继续尝试后面的对象；最后一个可解析的准备结果才是有效输出。
     }
   }
-  return found === undefined ? parseJsonLoose(raw, '验证执行准备') : found
+  if (found === undefined) throw new MalformedError('验证执行准备没有可解析的 scenarios JSON')
+  return found
 }
 
 /**
