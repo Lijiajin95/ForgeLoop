@@ -828,6 +828,8 @@ describe('requirement detail extras', () => {
   it('returns neutral differences for an unknown requirement', () => {
     expect(requirementDetailExtras(repository, 'req-missing')).toEqual({
       analysisHistory: [],
+      businessContext: [],
+      analysisInvalidations: [],
       clarificationHistory: { questions: [], answers: [] },
       specChanges: {
         addedPoints: [],
@@ -879,7 +881,7 @@ describe('requirement detail extras', () => {
       analysisVersion: 1,
       requirementVersion: 1,
       answeredVersion: 1,
-      questionIds: ['Q1-1'],
+      questionId: 'Q1-1',
       answer: '只覆盖当前版本',
       source: 'owner',
       answeredAt: '2026-11-01T04:05:00.000Z',
@@ -895,7 +897,8 @@ describe('requirement detail extras', () => {
     expect(extras.clarificationHistory.answers).toHaveLength(1)
     expect(extras.clarificationHistory.answers[0]).toMatchObject({
       answer: '只覆盖当前版本',
-      questionIds: ['Q1-1'],
+      questionId: 'Q1-1',
+      answerSeq: 1,
     })
     expect(extras.specChanges).toMatchObject({
       addedPoints: ['BP-1'],
@@ -1033,6 +1036,8 @@ describe('requirement detail extras', () => {
       analyses: () => [undefined, latest],
       clarificationQuestions: () => [],
       clarificationAnswers: () => [],
+      businessContextChanges: () => [],
+      analysisInvalidations: () => [],
     })
 
     const extras = requirementDetailExtras(stub, 'req-gap')
