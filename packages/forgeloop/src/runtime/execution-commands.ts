@@ -52,10 +52,10 @@ export async function runVerificationCommands(input: {
       output: test.output,
     })
     if (test.aborted) {
-      setBlocked('独立验证命令被停止；验证工作区可丢弃，可重新验证')
+      setBlocked('独立测试命令被停止；测试工作区可丢弃，可重新验证')
       return {
         ok: false,
-        detail: '独立验证命令被停止：验证工作区可丢弃，候选未被判定失败；可重新验证',
+        detail: '独立测试命令被停止：测试工作区可丢弃，候选未被判定失败；可重新验证',
       }
     }
     if (test.timedOut) {

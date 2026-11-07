@@ -1,8 +1,8 @@
 /**
- * 验证会话的命令执行上下文。
+ * 测试会话的命令执行上下文。
  *
- * 验证 Agent 在产物交付后通过 `forgeloop_run_verification_check` 工具逐条执行
- * 当前验证方案中的命令；运行时只接受“当前候选 + 当前方案”里已列出的 label，
+ * 测试 Agent 在产物交付后通过 `forgeloop_run_verification_check` 工具逐条执行
+ * 当前测试方案中的命令；运行时只接受“当前候选 + 当前方案”里已列出的 label，
  * 不允许模型任意输入命令。退出码、超时、中止、输出与日志全部由程序记录，
  * 模型自述不能替代真实执行结果。同一 label 在一个候选上幂等，重复调用返回已有结果。
  */
@@ -45,13 +45,13 @@ export const VERIFICATION_CHECK_TOOL = 'forgeloop_run_verification_check'
 export const VERIFICATION_CONTROL_TOOL = 'forgeloop_write_verification_control'
 export const VERIFICATION_MATERIAL_TOOL = 'forgeloop_write_verification_material'
 
-/** 一条通过工具执行并落日志的验证命令。 */
+/** 一条通过工具执行并落日志的测试命令。 */
 export interface VerificationCheckRecord extends VerificationCheckRun {
   readonly logPath: string
   readonly logSha256: string
 }
 
-/** 一个候选上的验证执行上下文；方案与会话由调用方固定。 */
+/** 一个候选上的测试执行上下文；方案与会话由调用方固定。 */
 export interface VerificationCheckActivation {
   readonly reqId: string
   readonly candidateSha256: string
@@ -60,9 +60,9 @@ export interface VerificationCheckActivation {
   readonly head: string
   readonly plan: VerificationPlan
   readonly signal: AbortSignal
-  /** 单条验证命令的宿主超时；由运行时按正式测试上限注入。 */
+  /** 单条测试命令的宿主超时；由运行时按正式测试上限注入。 */
   readonly timeoutMs: number
-  /** 宿主提供的验证会话身份；工具调用必须与之一致。 */
+  /** 宿主提供的测试会话身份；工具调用必须与之一致。 */
   readonly sessionId?: string
   /** 本候选的验证尝试身份；工具调用必须与之一致。 */
   readonly attemptId?: string
@@ -105,7 +105,7 @@ function planChecks(plan: VerificationPlan): VerificationCheckPlan[] {
   return plan.scenarios.flatMap((scenario) => scenario.checks ?? [])
 }
 
-/** 验证材料摘要：排除 controls（对照单独按补丁摘要绑定），用于发现正向之后的换脚本。 */
+/** 测试材料摘要：排除 controls（对照单独按补丁摘要绑定），用于发现正向之后的换脚本。 */
 export function verificationMaterialsDigest(workspace: string): string {
   const root = join(workspace, VERIFICATION_MATERIAL_DIR)
   if (!existsSync(root)) return ''
@@ -134,7 +134,7 @@ export function verificationMaterialsDigest(workspace: string): string {
 /** 工具路径只能经过真实目录；任何符号链接都拒绝，避免写出工作区。 */
 function safeMaterialTarget(workspace: string, relative: string): string {
   if (!relative.startsWith('verification/') || relative.includes('..')) {
-    throw new RuleViolationError('验证材料路径必须位于 verification/ 下')
+    throw new RuleViolationError('测试材料路径必须位于 verification/ 下')
   }
   let current = realpathSync(workspace)
   const parts = relative.split('/').filter(Boolean)
@@ -142,7 +142,7 @@ function safeMaterialTarget(workspace: string, relative: string): string {
     current = join(current, part)
     if (existsSync(current)) {
       if (lstatSync(current).isSymbolicLink()) {
-        throw new RuleViolationError(`验证材料路径不能经过符号链接：${relative}`)
+        throw new RuleViolationError(`测试材料路径不能经过符号链接：${relative}`)
       }
       continue
     }
@@ -150,12 +150,12 @@ function safeMaterialTarget(workspace: string, relative: string): string {
   }
   const target = join(current, parts[parts.length - 1] ?? '')
   if (existsSync(target) && lstatSync(target).isSymbolicLink()) {
-    throw new RuleViolationError(`验证材料文件不能是符号链接：${relative}`)
+    throw new RuleViolationError(`测试材料文件不能是符号链接：${relative}`)
   }
   const verification = join(realpathSync(workspace), 'verification')
   const parent = realpathSync(current)
   if (parent !== verification && !parent.startsWith(`${verification}/`)) {
-    throw new RuleViolationError(`验证材料路径越出 verification/：${relative}`)
+    throw new RuleViolationError(`测试材料路径越出 verification/：${relative}`)
   }
   return target
 }
@@ -166,7 +166,7 @@ function callerIssue(
 ): string | null {
   const expectedSession = context.activation.sessionId
   if (caller?.sessionId && expectedSession && caller.sessionId !== expectedSession) {
-    return `验证会话不一致：当前上下文属于 ${expectedSession}，调用来自 ${caller.sessionId}`
+    return `测试会话不一致：当前上下文属于 ${expectedSession}，调用来自 ${caller.sessionId}`
   }
   const expectedAttempt = context.activation.attemptId
   if (caller?.attemptId && expectedAttempt && caller.attemptId !== expectedAttempt) {
@@ -190,7 +190,7 @@ export class VerificationCheckRegistry {
     const existing = this.contexts.get(activation.reqId)
     if (existing) {
       throw new RuleViolationError(
-        `需求 ${activation.reqId} 已有进行中的验证执行上下文；不能并发验证同一需求`,
+        `需求 ${activation.reqId} 已有进行中的测试执行上下文；不能并发验证同一需求`,
       )
     }
     const token = randomUUID()
@@ -231,7 +231,7 @@ export class VerificationCheckRegistry {
     if (!context) {
       return {
         ok: false,
-        text: `没有正在进行的验证：${reqId}。只有验证会话在研发产物交付后可以执行验证方案中的命令。`,
+        text: `没有正在进行的验证：${reqId}。只有测试会话在研发产物交付后可以执行测试方案中的命令。`,
       }
     }
     const identity = callerIssue(context, caller)
@@ -240,7 +240,7 @@ export class VerificationCheckRegistry {
     if (!check) {
       return {
         ok: false,
-        text: `命令 ${label} 不在当前验证方案中；只能执行方案里已经列出的 label。`,
+        text: `命令 ${label} 不在当前测试方案中；只能执行方案里已经列出的 label。`,
       }
     }
     const existing = context.runs.get(label)
@@ -257,7 +257,7 @@ export class VerificationCheckRegistry {
         timedOut: false,
         aborted: true,
         durationMs: 0,
-        output: '验证命令未执行：收到停止请求',
+        output: '测试命令未执行：收到停止请求',
         logPath: '',
         logSha256: '',
       }
@@ -316,7 +316,7 @@ export class VerificationCheckRegistry {
         timedOut: false,
         aborted: false,
         durationMs: 0,
-        output: `验证命令执行异常：${errorMessage(error)}`,
+        output: `测试命令执行异常：${errorMessage(error)}`,
       }
       const record: VerificationCheckRecord = {
         ...execution,
@@ -342,7 +342,7 @@ export class VerificationCheckRegistry {
     if (!context) {
       return {
         ok: false,
-        text: `没有正在进行的验证：${reqId}。只有验证会话可以为已登记命令写入敏感性对照。`,
+        text: `没有正在进行的验证：${reqId}。只有测试会话可以为已登记命令写入敏感性对照。`,
       }
     }
     const identity = callerIssue(context, caller)
@@ -351,7 +351,7 @@ export class VerificationCheckRegistry {
     if (!check) {
       return {
         ok: false,
-        text: `命令 ${input.label} 不在当前验证方案中；敏感性对照只能绑定方案里的 label。`,
+        text: `命令 ${input.label} 不在当前测试方案中；敏感性对照只能绑定方案里的 label。`,
       }
     }
     if (input.expectedFailureOutput.trim().length < 8) {
@@ -423,7 +423,7 @@ export class VerificationCheckRegistry {
     if (!context) {
       return {
         ok: false,
-        text: `没有正在进行的验证：${reqId}。只有验证会话可以写入验证材料。`,
+        text: `没有正在进行的验证：${reqId}。只有测试会话可以写入测试材料。`,
       }
     }
     const identity = callerIssue(context, caller)
@@ -436,15 +436,15 @@ export class VerificationCheckRegistry {
     ) {
       return {
         ok: false,
-        text: '验证材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
+        text: '测试材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
       }
     }
     try {
       const target = safeMaterialTarget(context.activation.workspace, relative)
       writeFileSync(target, input.content, 'utf8')
-      return { ok: true, text: `已写入验证材料 ${relative}。`, data: { path: relative } }
+      return { ok: true, text: `已写入测试材料 ${relative}。`, data: { path: relative } }
     } catch (error) {
-      return { ok: false, text: `写入验证材料失败：${errorMessage(error)}` }
+      return { ok: false, text: `写入测试材料失败：${errorMessage(error)}` }
     }
   }
 
@@ -511,7 +511,7 @@ export class VerificationCheckRegistry {
     if (context.materialsSha256 && current !== context.materialsSha256) {
       return {
         results: [],
-        issues: ['验证材料在正向执行后发生变化；正向与对照必须使用同一版材料'],
+        issues: ['测试材料在正向执行后发生变化；正向与对照必须使用同一版材料'],
       }
     }
     const swapped = input.controls.filter((control) => {
@@ -560,7 +560,7 @@ export class VerificationCheckRegistry {
     try {
       return requireGit(context.activation.workspace, ['rev-parse', 'HEAD'])
     } catch {
-      this.addIntegrityIssue(context, '无法读取候选提交；验证工作区可能已损坏')
+      this.addIntegrityIssue(context, '无法读取候选提交；测试工作区可能已损坏')
       return null
     }
   }
@@ -575,7 +575,7 @@ export class VerificationCheckRegistry {
         (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
       )
       if (outside.length > 0) {
-        this.addIntegrityIssue(context, `验证命令修改了固定候选：${outside.join('、')}`)
+        this.addIntegrityIssue(context, `测试命令修改了固定候选：${outside.join('、')}`)
       }
     } catch (error) {
       this.addIntegrityIssue(context, `无法核对候选完整性：${errorMessage(error)}`)

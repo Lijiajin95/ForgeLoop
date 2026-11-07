@@ -446,7 +446,7 @@ export class ReliabilityDashboard {
         kind: 'verification',
         at: fact.verifiedAt,
         reqId: fact.reqId,
-        title: '独立验证阻断',
+        title: '独立测试阻断',
         detail: '',
       })
     }

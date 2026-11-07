@@ -365,7 +365,7 @@ function handleAdvance(body: BoardBody | null, context: BoardContext): Response 
 function handleVerify(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
-  if (!reqId) return boardResponse(boardFailure('bad_request', '独立验证需要 reqId'), 400)
+  if (!reqId) return boardResponse(boardFailure('bad_request', '独立测试需要 reqId'), 400)
   const sessionId = text(body?.sessionId)
   const result = runtime.requestOperation({
     reqId,

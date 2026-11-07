@@ -271,7 +271,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS requirement_queue_sequence
 CREATE INDEX IF NOT EXISTS requirement_queue_pending
     ON requirement_queue(state, enqueued_at, sequence);
 
--- 内建问题单：验证未通过时自动创建，关联需求与验证报告，驱动研发修复后重新验证。
+-- 内建问题单：测试未通过时自动创建，关联需求与测试报告，驱动研发修复后重新验证。
 CREATE TABLE IF NOT EXISTS requirement_issues (
     issue_id TEXT PRIMARY KEY,
     req_id TEXT NOT NULL,

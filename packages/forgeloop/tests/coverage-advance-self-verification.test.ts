@@ -195,7 +195,7 @@ function verificationRecord(
     verdict,
     reportJson: JSON.stringify({
       verdict,
-      summary: verdict === 'block' ? '独立验证失败' : '独立验证通过',
+      summary: verdict === 'block' ? '独立测试失败' : '独立测试通过',
       findings: [],
       blocking: verdict === 'block' ? ['命令失败'] : [],
       scenarios: [
@@ -231,7 +231,7 @@ function verificationRecord(
 function passVerify(): VerifyOutcome {
   return {
     state: 'pass',
-    detail: '独立验证与业务验收通过',
+    detail: '独立测试与业务验收通过',
     blocking: [],
     verification: verificationRecord('pass'),
   }
@@ -332,7 +332,7 @@ function makePipeline(
     verificationPipeline: {
       executeVerification: async () => {
         verificationCalls += 1
-        return verificationOutcomes.shift() ?? { state: 'done', detail: '验证通过' }
+        return verificationOutcomes.shift() ?? { state: 'done', detail: '测试通过' }
       },
     },
     legacyVerification: {
@@ -493,7 +493,7 @@ describe('advance pipeline self verification and dev clarification', () => {
       a: { state: 'delivered', reason: '', selfVerification: reportA },
       b: { state: 'delivered', reason: '', selfVerification: reportB },
     }
-    // self 模式现在按候选 diff 收紧：只有文档/验证材料改动才算低风险，需要真实 diff 文件。
+    // self 模式现在按候选 diff 收紧：只有文档/测试材料改动才算低风险，需要真实 diff 文件。
     writeFileSync(
       join(root, 'candidate-1.diff'),
       [
@@ -524,7 +524,7 @@ describe('advance pipeline self verification and dev clarification', () => {
     })
     expect(statuses).toEqual([
       ['req-1', DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验'],
-      ['req-1', COMMITTED, `研发自验证通过并已提交 ${SHA.slice(0, 12)}；自验证证据 ${reportPath}`],
+      ['req-1', COMMITTED, `研发自测试通过并已提交 ${SHA.slice(0, 12)}；自验证证据 ${reportPath}`],
     ])
     expect(verifyInputs).toEqual([])
     expect(openCalls).toBe(1)
@@ -568,7 +568,7 @@ describe('advance pipeline self verification and dev clarification', () => {
 
     expect(outcome).toEqual({
       state: 'done',
-      detail: `需求 req-1 已完成研发、独立验证与提交：${SHA.slice(0, 12)}`,
+      detail: `需求 req-1 已完成研发、独立测试与提交：${SHA.slice(0, 12)}`,
     })
     expect(verifyInputs).toHaveLength(1)
     expect(statuses.map(([, status]) => status)).toEqual([DEVELOPING, VERIFYING, COMMITTED])
@@ -593,7 +593,7 @@ describe('advance pipeline self verification and dev clarification', () => {
 
     const outcome = await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)
 
-    expect(outcome).toMatchObject({ state: 'done', detail: expect.stringContaining('独立验证') })
+    expect(outcome).toMatchObject({ state: 'done', detail: expect.stringContaining('独立测试') })
     expect(verifyInputs).toHaveLength(1)
     expect(commitCalls).toHaveLength(1)
   })
@@ -664,7 +664,7 @@ describe('advance pipeline self verification and dev clarification', () => {
     verifyQueue = [
       {
         state: 'block',
-        detail: '验证阻断但未给出条目',
+        detail: '测试阻断但未给出条目',
         blocking: [],
         verification: verificationRecord('block', { reportJson: '{broken' }),
       },
@@ -676,20 +676,20 @@ describe('advance pipeline self verification and dev clarification', () => {
     expect(issueRecords).toHaveLength(1)
     const issue = issueRecords[0]!
     expect(issue.summary).toBe(
-      '独立验证阻断（attempt 1）：独立验证判定为阻断，但验证报告没有给出具体阻断项',
+      '独立测试阻断（attempt 1）：独立测试判定为阻断，但测试报告没有给出具体阻断项',
     )
-    expect(issue.evidence.blocking).toEqual(['独立验证判定为阻断，但验证报告没有给出具体阻断项'])
+    expect(issue.evidence.blocking).toEqual(['独立测试判定为阻断，但测试报告没有给出具体阻断项'])
     expect(issue.evidence.summary).toBe('')
     expect(issue.evidence.commands).toEqual([])
     expect(issue.evidence.logs).toEqual(['/tmp/report.json'])
     expect(outcome).toEqual({
       state: 'failed',
-      detail: `验证未通过：验证阻断但未给出条目；问题单 ${issue.issueId}（attempt 1）已加入研发队列`,
+      detail: `测试未通过：测试阻断但未给出条目；问题单 ${issue.issueId}（attempt 1）已加入研发队列`,
     })
     expect(statuses.at(-1)).toEqual([
       'req-1',
       'blocked',
-      `验证未通过，已创建问题单 ${issue.issueId}（attempt 1）：验证阻断但未给出条目；问题单已加入研发队列，将自动重新验证`,
+      `测试未通过，已创建问题单 ${issue.issueId}（attempt 1）：测试阻断但未给出条目；问题单已加入研发队列，将自动重新验证`,
     ])
     expect(repairCalls).toEqual([])
     expect(issueUpdates).toEqual([])
@@ -711,12 +711,12 @@ describe('advance pipeline self verification and dev clarification', () => {
 
     expect(outcome).toEqual({
       state: 'failed',
-      detail: '验证未通过（undetermined）：环境缺少依赖；未要求研发修改代码',
+      detail: '测试未通过（undetermined）：环境缺少依赖；未要求研发修改代码',
     })
     expect(statuses.at(-1)).toEqual([
       'req-1',
       'blocked',
-      '验证未通过（undetermined）：环境缺少依赖；环境缺少依赖',
+      '测试未通过（undetermined）：环境缺少依赖；环境缺少依赖',
     ])
     expect(issueRecords).toEqual([])
     expect(repairCalls).toEqual([])
@@ -741,12 +741,12 @@ describe('advance pipeline self verification and dev clarification', () => {
 
     expect(outcome).toEqual({
       state: 'failed',
-      detail: '验证未通过（environment）：依赖缺失；未要求研发修改代码',
+      detail: '测试未通过（environment）：依赖缺失；未要求研发修改代码',
     })
     expect(statuses.at(-1)).toEqual([
       'req-1',
       'blocked',
-      '验证未通过（environment）：依赖缺失；依赖缺失导致验证无法运行',
+      '测试未通过（environment）：依赖缺失；依赖缺失导致验证无法运行',
     ])
     expect(issueRecords).toEqual([])
     expect(repairCalls).toEqual([])
@@ -768,12 +768,12 @@ describe('advance pipeline self verification and dev clarification', () => {
 
     expect(outcome).toEqual({
       state: 'failed',
-      detail: '验证未通过且失败额度已用尽：业务验收未给出具体项',
+      detail: '测试未通过且失败额度已用尽：业务验收未给出具体项',
     })
     expect(statuses.at(-1)).toEqual([
       'req-1',
       'blocked',
-      '验证未通过且失败额度已用尽：业务验收未给出具体项',
+      '测试未通过且失败额度已用尽：业务验收未给出具体项',
     ])
     expect(issueRecords).toEqual([])
     expect(repairCalls).toEqual([])
@@ -813,7 +813,7 @@ describe('advance pipeline self verification and dev clarification', () => {
 
     expect(fixed).toEqual({
       state: 'done',
-      detail: `需求 req-1 已完成研发、独立验证与提交：${SHA.slice(0, 12)}`,
+      detail: `需求 req-1 已完成研发、独立测试与提交：${SHA.slice(0, 12)}`,
     })
     expect(issueUpdates).toEqual([['issue-open-1', ISSUE_FIXED, NOW]])
     expect(commitCalls).toHaveLength(1)
@@ -1022,13 +1022,13 @@ describe('advance pipeline self verification and dev clarification', () => {
     requirement = requirementOf()
     artifactsByTask.set('a', { authorizationSource: 'plan-approval:req-1:v1:owner' })
     artifactsByTask.set('b', { authorizationSource: 'plan-approval:req-1:v1:owner' })
-    verificationOutcomes = [{ state: 'done', detail: '验证通过' }]
+    verificationOutcomes = [{ state: 'done', detail: '测试通过' }]
 
     expect(
       await pipeline.executeAdvance('req-1', new AbortController().signal, 'request-advance'),
     ).toEqual({
       state: 'done',
-      detail: '任务包 v1 的 2 个任务已交付，验证通过',
+      detail: '任务包 v1 的 2 个任务已交付，测试通过',
     })
     expect(statuses).toEqual([['req-1', EXECUTING, undefined]])
     expect(verificationCalls).toBe(1)

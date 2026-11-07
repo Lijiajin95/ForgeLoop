@@ -294,7 +294,7 @@ describe('business review', () => {
         },
         runs: [],
       }),
-    ).toEqual(['业务终审业务场景没有关联验证命令：登录'])
+    ).toEqual(['业务终审业务场景没有关联测试命令：登录'])
     expect(
       validateBusinessReview({
         scenarios: ['登录'],
@@ -309,7 +309,7 @@ describe('business review', () => {
         },
         runs: [{ label: 'smoke', output: 'login ok' }],
       }),
-    ).toEqual(['业务终审业务场景引用了未执行的验证命令：nope'])
+    ).toEqual(['业务终审业务场景引用了未执行的测试命令：nope'])
     expect(
       validateBusinessReview({
         scenarios: ['登录'],

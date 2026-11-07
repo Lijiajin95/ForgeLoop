@@ -38,7 +38,7 @@ describe('pre-business failure classification', () => {
     expect(result).toMatchObject({
       kind: 'undetermined',
       requiresCodeChange: false,
-      reasons: ['验证命令被中止：check-1'],
+      reasons: ['测试命令被中止：check-1'],
       evidence: ['check-1（被中止）'],
     })
     expect(result.guidance).toContain('核对现场与副作用')
@@ -53,7 +53,7 @@ describe('pre-business failure classification', () => {
     })
     expect(result).toMatchObject({
       kind: 'undetermined',
-      reasons: ['场景未通过', '验证命令超时：check-1'],
+      reasons: ['场景未通过', '测试命令超时：check-1'],
       evidence: ['check-1（超时）'],
     })
     expect(result.guidance).toContain('不要求研发改代码')
@@ -69,16 +69,16 @@ describe('pre-business failure classification', () => {
 
   it('classifies candidate integrity issues as test errors', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证未通过'],
+      blocking: ['测试未通过'],
       commandRuns: [run()],
       integrityIssues: ['验证过程修改了候选'],
     })
     expect(result).toMatchObject({
       kind: 'test_error',
-      reasons: ['验证未通过', '验证过程修改了候选'],
+      reasons: ['测试未通过', '验证过程修改了候选'],
       evidence: ['验证过程修改了候选'],
     })
-    expect(result.guidance).toContain('修正验证材料后在同一候选复验')
+    expect(result.guidance).toContain('修正测试材料后在同一候选复验')
   })
 
   it('classifies missing sensitivity controls as test errors', () => {
@@ -117,7 +117,7 @@ describe('pre-business failure classification', () => {
     })
     expect(result).toMatchObject({
       kind: 'environment_error',
-      reasons: ['验证命令未取得退出码：check-1'],
+      reasons: ['测试命令未取得退出码：check-1'],
       evidence: ['check-1: spawn ENOENT'],
     })
     expect(result.guidance).toContain('命令无法启动或执行器异常')
@@ -127,11 +127,11 @@ describe('pre-business failure classification', () => {
 describe('failed command classification', () => {
   it('treats assertion-shaped failures as implementation defects', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证未通过'],
+      blocking: ['测试未通过'],
       commandRuns: [run({ exitCode: 1, output: 'AssertionError: expected 2 to be 3' })],
     })
     expect(result).toMatchObject({ kind: 'implementation_defect', requiresCodeChange: true })
-    expect(result.reasons).toEqual(['验证未通过', '业务断言失败：check-1'])
+    expect(result.reasons).toEqual(['测试未通过', '业务断言失败：check-1'])
     expect(result.evidence[0]).toContain('check-1（退出码 1）')
     expect(result.guidance).toContain('交回研发定向修复')
   })
@@ -142,7 +142,7 @@ describe('failed command classification', () => {
       commandRuns: [run({ exitCode: 2, output: 'segment fault' })],
     })
     expect(result).toMatchObject({ kind: 'undetermined', requiresCodeChange: false })
-    expect(result.reasons).toEqual(['验证命令非零退出：check-1'])
+    expect(result.reasons).toEqual(['测试命令非零退出：check-1'])
     expect(result.guidance).toContain('先诊断失败来源')
   })
 })
@@ -150,15 +150,15 @@ describe('failed command classification', () => {
 describe('post-business classification', () => {
   it('classifies missing evidence as insufficient evidence', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证未通过'],
+      blocking: ['测试未通过'],
       commandRuns: [run()],
-      materialIssues: ['缺少验证材料'],
+      materialIssues: ['缺少测试材料'],
       coverageIssues: ['必过场景未覆盖'],
       evidenceIssues: ['证据无法核对'],
     })
     expect(result).toMatchObject({ kind: 'insufficient_evidence' })
-    expect(result.reasons).toEqual(['验证未通过', '缺少验证材料', '必过场景未覆盖', '证据无法核对'])
-    expect(result.evidence).toEqual(['缺少验证材料', '必过场景未覆盖', '证据无法核对'])
+    expect(result.reasons).toEqual(['测试未通过', '缺少测试材料', '必过场景未覆盖', '证据无法核对'])
+    expect(result.evidence).toEqual(['缺少测试材料', '必过场景未覆盖', '证据无法核对'])
   })
 
   it('asks for observations when scenarios failed without command evidence', () => {

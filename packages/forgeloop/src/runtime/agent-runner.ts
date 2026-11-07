@@ -451,7 +451,7 @@ export class AgentRunner {
 
   /**
    * 打开一段连续会话：不再每轮新建 Agent，供同一需求的技术方案、实现、自验、
-   * 修复或验证阶段复用上下文与工作目录。宿主重启后会话不存在，依据持久证据恢复。
+   * 修复或测试阶段复用上下文与工作目录。宿主重启后会话不存在，依据持久证据恢复。
    */
   async open(request: AgentOpenRequest): Promise<AgentSession> {
     const selection = this.resolveSelection()

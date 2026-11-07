@@ -25,8 +25,8 @@ export function verificationVerdict(input: {
     ...integrityIssues,
     ...controlIssues,
     ...evidenceIssues,
-    ...(anyScenarioFailed ? ['报告存在未通过的验证场景'] : []),
-    ...failedCommands.map((failure) => `验证命令失败：${failure}`),
+    ...(anyScenarioFailed ? ['报告存在未通过的测试场景'] : []),
+    ...failedCommands.map((failure) => `测试命令失败：${failure}`),
     ...coverageIssues,
   ]
   const pass =
@@ -63,7 +63,7 @@ export function verificationIntegrity(
   const integrityIssues: string[] = []
   const outsideAfter = afterChanges.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
   if (outsideAfter.length > 0) {
-    integrityIssues.push(`验证命令修改了固定候选：${outsideAfter.join('、')}`)
+    integrityIssues.push(`测试命令修改了固定候选：${outsideAfter.join('、')}`)
   }
   return {
     ok: true,

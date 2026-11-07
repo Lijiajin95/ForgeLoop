@@ -12,10 +12,10 @@ import type { TestRunRequest, TestRunResult, runFormalTest } from '../src/runtim
 import { sha256OfText } from '../src/domain/delivery.js'
 
 /**
- * 覆盖率门禁补充：验证命令执行上下文的拒绝与留证边界。
+ * 覆盖率门禁补充：测试命令执行上下文的拒绝与留证边界。
  * 只通过注册表的公开方法（run/writeControl/writeMaterial/executeControls/snapshot）
  * 观察工具文本、返回数据与落盘材料；覆盖方案外命令、对照自检回滚、
- * 验证材料越界、候选提交变化与工作区损坏等拒绝路径。
+ * 测试材料越界、候选提交变化与工作区损坏等拒绝路径。
  */
 
 const NOW = '2026-11-06T00:00:00.000Z'
@@ -55,7 +55,7 @@ function planWith(label: string, overrides: Partial<VerificationCheckPlan> = {})
       {
         scenario: '候选按文档交付',
         acceptanceCriterion: '命令输出证明候选可用',
-        method: '执行验证命令',
+        method: '执行测试命令',
         required: true,
         checks: [
           {
@@ -148,7 +148,7 @@ describe('verification control registration boundaries', () => {
       expectedFailureOutput: 'target rule broken',
     })
     expect(unknown.ok).toBe(false)
-    expect(unknown.text).toBe('命令 missing 不在当前验证方案中；敏感性对照只能绑定方案里的 label。')
+    expect(unknown.text).toBe('命令 missing 不在当前测试方案中；敏感性对照只能绑定方案里的 label。')
 
     const short = await registry.writeControl(reqId, {
       label: 'read',
@@ -276,27 +276,27 @@ describe('verification material boundaries', () => {
     const outside = registry.writeMaterial(reqId, { path: 'docs/check.js', content: 'x' })
     expect(outside).toEqual({
       ok: false,
-      text: '验证材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
+      text: '测试材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
     })
     const escape = registry.writeMaterial(reqId, {
       path: 'verification/../src/a.ts',
       content: 'x',
     })
     expect(escape.text).toBe(
-      '验证材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
+      '测试材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
     )
     const controls = registry.writeMaterial(reqId, {
       path: 'verification/controls/fault.patch',
       content: 'x',
     })
     expect(controls.text).toBe(
-      '验证材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
+      '测试材料只能写到 verification/ 下，且不能覆盖 controls/；对照补丁请用敏感性对照工具。',
     )
     const missing = registry.writeMaterial('req-missing', {
       path: 'verification/a.js',
       content: 'x',
     })
-    expect(missing.text).toBe('没有正在进行的验证：req-missing。只有验证会话可以写入验证材料。')
+    expect(missing.text).toBe('没有正在进行的验证：req-missing。只有测试会话可以写入测试材料。')
   })
 
   it('writes nested material under verification/ and reports a failed write', async () => {
@@ -307,7 +307,7 @@ describe('verification material boundaries', () => {
     })
     expect(written).toEqual({
       ok: true,
-      text: '已写入验证材料 verification/nested/check.js。',
+      text: '已写入测试材料 verification/nested/check.js。',
       data: { path: 'verification/nested/check.js' },
     })
     expect(readFileSync(join(project, 'verification/nested/check.js'), 'utf8')).toBe(
@@ -320,7 +320,7 @@ describe('verification material boundaries', () => {
       content: 'x',
     })
     expect(failed.ok).toBe(false)
-    expect(failed.text).toContain('写入验证材料失败：')
+    expect(failed.text).toContain('写入测试材料失败：')
   })
 })
 
@@ -350,7 +350,7 @@ describe('verification check execution integrity', () => {
       expect(outcome.text).toBe('候选提交在验证开始后发生变化；本次命令没有执行，验证将被阻断。')
       expect(outcome.data).toMatchObject({
         label: 'smoke',
-        integrityIssues: ['无法读取候选提交；验证工作区可能已损坏', '验证期间候选提交发生变化'],
+        integrityIssues: ['无法读取候选提交；测试工作区可能已损坏', '验证期间候选提交发生变化'],
       })
     } finally {
       rmSync(plain, { recursive: true, force: true })
@@ -384,7 +384,7 @@ describe('verification check execution integrity', () => {
     const outcome = await registry.run(reqId, 'smoke')
     expect(outcome.ok).toBe(true)
     const issues = (outcome.data?.integrityIssues ?? []) as string[]
-    expect(issues).toContain('无法读取候选提交；验证工作区可能已损坏')
+    expect(issues).toContain('无法读取候选提交；测试工作区可能已损坏')
     expect(issues.some((issue) => issue.startsWith('无法核对候选完整性：'))).toBe(true)
   })
 

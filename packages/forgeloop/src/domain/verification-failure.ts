@@ -1,5 +1,5 @@
 /**
- * 验证失败的事实分类。
+ * 测试失败的事实分类。
  *
  * 验证结论一直阻断当前候选；分类只决定“下一步交给谁”，不能降低标准、清零失败
  * 或把重跑当成通过。分类依据程序记录的命令退出码、超时/中止、完整性告警、
@@ -30,7 +30,7 @@ export interface VerificationFailureClassification {
   readonly evidence: readonly string[]
   /** 是否允许把问题交回研发产生新候选。 */
   readonly requiresCodeChange: boolean
-  /** 面向运行时的下一步说明；不改变“当前验证未通过”。 */
+  /** 面向运行时的下一步说明；不改变“当前测试未通过”。 */
   readonly guidance: string
 }
 
@@ -97,7 +97,7 @@ function preBusinessFailure(
   if (aborted.length > 0) {
     return {
       kind: 'undetermined',
-      reasons: [...blocking, ...aborted.map((run) => `验证命令被中止：${run.label}`)],
+      reasons: [...blocking, ...aborted.map((run) => `测试命令被中止：${run.label}`)],
       evidence: aborted.map(runEvidence),
       requiresCodeChange: false,
       guidance: '验证被停止或中断；先核对现场与副作用，确认后再复验，不要求研发改代码。',
@@ -107,7 +107,7 @@ function preBusinessFailure(
   if (timedOut.length > 0) {
     return {
       kind: 'undetermined',
-      reasons: [...blocking, ...timedOut.map((run) => `验证命令超时：${run.label}`)],
+      reasons: [...blocking, ...timedOut.map((run) => `测试命令超时：${run.label}`)],
       evidence: timedOut.map(runEvidence),
       requiresCodeChange: false,
       guidance: '先诊断超时属于环境、用例等待还是实现挂起；取得依据前不要求研发改代码，也不放行。',
@@ -120,7 +120,7 @@ function preBusinessFailure(
       reasons: [...blocking, ...integrityIssues],
       evidence: unique(integrityIssues),
       requiresCodeChange: false,
-      guidance: '固定候选被验证过程改变；保留原始记录，修正验证材料后在同一候选复验。',
+      guidance: '固定候选被验证过程改变；保留原始记录，修正测试材料后在同一候选复验。',
     }
   }
   const controlIssues = input.controlIssues ?? []
@@ -155,7 +155,7 @@ function preBusinessFailure(
   if (noExitCode.length > 0) {
     return {
       kind: 'environment_error',
-      reasons: [...blocking, ...noExitCode.map((run) => `验证命令未取得退出码：${run.label}`)],
+      reasons: [...blocking, ...noExitCode.map((run) => `测试命令未取得退出码：${run.label}`)],
       evidence: noExitCode.map((run) => `${run.label}: ${run.output.slice(0, 200)}`),
       requiresCodeChange: false,
       guidance: '命令无法启动或执行器异常；恢复环境后按同一方案复验，不要求研发改代码。',
@@ -183,7 +183,7 @@ function failedCommandFailure(
   }
   return {
     kind: 'undetermined',
-    reasons: [...blocking, ...failedRuns.map((run) => `验证命令非零退出：${run.label}`)],
+    reasons: [...blocking, ...failedRuns.map((run) => `测试命令非零退出：${run.label}`)],
     evidence: failedRuns.map((run) => `${runEvidence(run)}: ${run.output.slice(0, 400)}`),
     requiresCodeChange: false,
     guidance: '命令失败但没有可识别的业务断言证据；先诊断失败来源，不直接要求研发改代码。',
@@ -216,7 +216,7 @@ export function classifyVerificationFailure(
       evidence: unique(missingEvidence),
       requiresCodeChange: false,
       guidance:
-        '缺少必过场景、可核对证据或验证材料；补齐观测/用例并按复核流程重验，不能凭模型自述放行。',
+        '缺少必过场景、可核对证据或测试材料；补齐观测/用例并按复核流程重验，不能凭模型自述放行。',
     }
   }
 

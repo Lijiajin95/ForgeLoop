@@ -20,7 +20,7 @@ import { registerSmokeControl } from './control-fixture.js'
 
 /**
  * 可发布候选与上线核对：
- * - 候选包只能从已通过独立验证的那份工作区构建，包版本、摘要与验证绑定；
+ * - 候选包只能从已通过独立测试的那份工作区构建，包版本、摘要与验证绑定；
  * - 安装由外部机制完成，程序核对安装文件、运行版本、需求模块与业务记录；
  * - 任一不一致都保留失败记录，不把安装回执当交付完成。
  */
@@ -144,7 +144,7 @@ const PLAN_REVIEW = structuredVerificationOf({
     {
       scenario: SCENARIO,
       acceptance_criterion: CRITERION,
-      method: '在独立候选上执行验证命令',
+      method: '在独立候选上执行测试命令',
       required: true,
     },
   ],
@@ -152,13 +152,13 @@ const PLAN_REVIEW = structuredVerificationOf({
 
 const VERIFICATION_REPORT = JSON.stringify({
   verdict: 'pass',
-  summary: '候选通过独立验证',
+  summary: '候选通过独立测试',
   findings: [],
   blocking: [],
   scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
 })
 
-/** 需求说明派生的验证方案；命令由运行时在固定候选上实际执行。 */
+/** 需求说明派生的测试方案；命令由运行时在固定候选上实际执行。 */
 const VERIFICATION_PLAN = structuredVerificationOf({
   scenarios: [
     {
@@ -217,14 +217,14 @@ function fakeRunner(): AgentLike {
       return result(request, PLAN)
     if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
       return result(request, PLAN_REVIEW)
-    // 连续研发：验证方案阶段只读需求说明，命令由运行时在固定候选上执行。
+    // 连续研发：测试方案阶段只读需求说明，命令由运行时在固定候选上执行。
     if (request.role === 'verify' && request.prompt.includes('现在只依据需求说明')) {
       return result(request, VERIFICATION_PLAN)
     }
     if (request.role === 'verify' && request.prompt.includes('现在做业务验收'))
       return result(request, BUSINESS_REVIEW)
-    // 历史请求路径：验证会话仍需在 verification/ 下产出命令与报告。
-    if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
+    // 历史请求路径：测试会话仍需在 verification/ 下产出命令与报告。
+    if (request.role === 'verify' && request.prompt.includes('独立测试 Agent')) {
       const verification = join(request.cwd, 'verification')
       mkdirSync(verification, { recursive: true })
       writeFileSync(
@@ -276,7 +276,7 @@ function fakeRunner(): AgentLike {
       return {
         sessionId: `session-fake-${request.role}`,
         async send(turn) {
-          // 验证会话在产物交付后通过工具逐条执行方案命令，程序按退出码判定。
+          // 测试会话在产物交付后通过工具逐条执行方案命令，程序按退出码判定。
           if (request.role === 'verify' && turn.prompt.includes('你必须使用工具')) {
             const reqId = /需求身份：(\S+)/.exec(turn.prompt)?.[1] ?? ''
             const labels = [...turn.prompt.matchAll(/- label: (.+)/g)].map((match) =>
@@ -763,7 +763,7 @@ describe('candidate build and deployment checks', () => {
         code: 'business_review_required',
       })
 
-      // 恢复业务终审后，篡改验证工作区使受保护内容与记录不一致。
+      // 恢复业务终审后，篡改测试工作区使受保护内容与记录不一致。
       const reviewJson = `${JSON.stringify({ kind: 'business-review', reqId, planVersion: 1, requirementVersion: 1, candidateSha256: verification.candidateSha256, verificationSha256: verification.reportSha256, verdict: 'pass', summary: '通过', blocking: [], scenarios: [], acceptance: [] })}\n`
       const reviewPath = join(dir, 'review-restore.json')
       writeFileSync(reviewPath, reviewJson, 'utf8')

@@ -17,7 +17,7 @@ import { sha256OfText } from '../src/domain/delivery.js'
 
 /**
  * 连续推进的验证门禁：同版测试材料、对照有效性、会话身份与符号链接越界。
- * 这些用例只通过验证工具的公开入口观察结果，不复制内部实现。
+ * 这些用例只通过测试工具的公开入口观察结果，不复制内部实现。
  */
 
 function project(): string {
@@ -130,7 +130,7 @@ describe('verification material freeze', () => {
       commands: [{ label: 'read-input', argv: ['node', '-e', '0'] }],
       controls: [control()],
     })
-    expect(outcome?.issues.join('；')).toContain('验证材料在正向执行后发生变化')
+    expect(outcome?.issues.join('；')).toContain('测试材料在正向执行后发生变化')
     handle.release()
   })
 
@@ -189,7 +189,7 @@ describe('verification tool identity and path confinement', () => {
     const { registry, reqId, handle } = harness()
     const outcome = await registry.run(reqId, 'read-input', { sessionId: 'other-session' })
     expect(outcome.ok).toBe(false)
-    expect(outcome.text).toContain('验证会话不一致')
+    expect(outcome.text).toContain('测试会话不一致')
     handle.release()
   })
 
@@ -500,5 +500,21 @@ describe('scripted exception assertions', () => {
       plan,
     )
     expect(issues.join('；')).not.toContain('异常标记断言')
+  })
+})
+
+describe('black-box error controls', () => {
+  it('accepts a passing expect_failure check without a source patch control', async () => {
+    const { validateControlCoverage } = await import('../src/domain/verification-controls.js')
+    expect(
+      validateControlCoverage({
+        requiredScenarios: ['错误输入被拒绝'],
+        reportScenarios: [
+          { scenario: '错误输入被拒绝', status: 'pass', commands: ['invalid-input'] },
+        ],
+        controls: [],
+        negativeLabels: ['invalid-input'],
+      }),
+    ).toEqual([])
   })
 })

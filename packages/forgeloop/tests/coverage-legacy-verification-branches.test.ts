@@ -341,7 +341,7 @@ describe('legacy verification workspace failures', () => {
     state.addCode = 1
     state.addStdout = 'fatal: worktree locked'
     const outcome = await verify()
-    expect(outcome).toMatchObject({ state: 'block', blocking: ['独立验证工作区创建失败'] })
+    expect(outcome).toMatchObject({ state: 'block', blocking: ['独立测试工作区创建失败'] })
     expect(outcome.detail).toContain('fatal: worktree locked')
   })
 
@@ -369,7 +369,7 @@ describe('legacy verification execution preparation', () => {
     const outcome = await verify(designWithoutChecks)
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['验证执行准备未完成：prep stopped'],
+      blocking: ['测试执行准备未完成：prep stopped'],
       failureKind: 'test_error',
     })
     expect(recorded).toHaveLength(1)
@@ -380,7 +380,7 @@ describe('legacy verification execution preparation', () => {
     responses = [{ status: 'completed', text: 'not json' }]
     const outcome = await verify(designWithoutChecks)
     expect(outcome.state).toBe('block')
-    expect(outcome.detail).toContain('验证执行准备材料畸形')
+    expect(outcome.detail).toContain('测试执行准备材料畸形')
     expect(recorded).toHaveLength(1)
   })
 
@@ -395,8 +395,8 @@ describe('legacy verification execution preparation', () => {
     ]
     const outcome = await verify(designWithoutChecks)
     expect(outcome.state).toBe('block')
-    expect(outcome.detail).toContain('验证执行准备未通过校验')
-    expect(outcome.detail).toContain('验证方案缺少本次验收（acceptance）检查')
+    expect(outcome.detail).toContain('测试执行准备未通过校验')
+    expect(outcome.detail).toContain('测试方案缺少本次验收（acceptance）检查')
   })
 })
 
@@ -410,7 +410,7 @@ describe('legacy verification commands and controls', () => {
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['验证命令补充执行未完成：retry stopped'],
+      blocking: ['测试命令补充执行未完成：retry stopped'],
       failureKind: 'test_error',
     })
     expect(recorded).toHaveLength(1)
@@ -420,7 +420,7 @@ describe('legacy verification commands and controls', () => {
     responses = [{ status: 'completed', text: '' }]
     const outcome = await verify(designMixed)
     expect(outcome.state).toBe('block')
-    expect(outcome.detail).toContain('验证场景没有可执行命令：补充场景')
+    expect(outcome.detail).toContain('测试场景没有可执行命令：补充场景')
     expect(recorded).toHaveLength(1)
   })
 
@@ -450,7 +450,7 @@ describe('legacy verification commands and controls', () => {
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['验证执行未取得结论：verification stopped'],
+      blocking: ['测试执行未取得结论：verification stopped'],
       failureKind: 'test_error',
     })
     expect(recorded).toHaveLength(1)
@@ -465,7 +465,7 @@ describe('legacy verification commands and controls', () => {
     responses = [{ status: 'completed', text: '' }]
     const outcome = await verify()
     expect(outcome.state).toBe('block')
-    expect(outcome.detail).toContain('独立验证阻断')
+    expect(outcome.detail).toContain('独立测试阻断')
     expect(outcome.failureKind).toBeTruthy()
     expect(recorded).toHaveLength(1)
     expect(recorded[0]).toMatchObject({ verdict: 'block' })
@@ -495,7 +495,7 @@ describe('legacy verification public interface facts', () => {
     ]
     const outcome = await verify(designWithoutChecks)
     expect(outcome.state).toBe('pass')
-    expect(outcome.detail).toContain('通过独立验证与业务验收')
+    expect(outcome.detail).toContain('通过独立测试与业务验收')
     const report = JSON.parse(readFileSync(outcome.verification!.reportPath, 'utf8')) as {
       verificationPlan: { scenarios: Array<{ checks: Array<{ label: string }> }> }
     }

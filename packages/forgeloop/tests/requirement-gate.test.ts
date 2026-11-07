@@ -98,7 +98,7 @@ const BUSINESS_REVIEW = structuredReviewOf({
   acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
-/** 需求说明派生的验证方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
+/** 需求说明派生的测试方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
 function verificationPlan(fail: boolean): string {
   const repaired =
     "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)"
@@ -122,8 +122,8 @@ function verificationPlan(fail: boolean): string {
 }
 
 /**
- * 前 N 次验证执行判阻断，之后通过；研发修复回合写真实改动。
- * 同一个验证会话通过工具执行方案命令，程序按退出码判定。
+ * 前 N 次测试执行判阻断，之后通过；研发修复回合写真实改动。
+ * 同一个测试会话通过工具执行方案命令，程序按退出码判定。
  */
 function gateRunner(options: { failVerifications: number }): AgentLike {
   const failUntil = options.failVerifications
@@ -268,7 +268,7 @@ describe('requirement pipeline gate', () => {
     expect(runtime.repo.planApproval(first, 1)).toBeNull()
     expect(runtime.autoAdvanceRequests()).toEqual([first])
 
-    // 第一轮推进：连续 3 次验证阻断，建单并停在 blocked；额度用尽后必须等待追加授权。
+    // 第一轮推进：连续 3 次测试阻断，建单并停在 blocked；额度用尽后必须等待追加授权。
     const firstAttempt = await runNext(first, 'advance')
     expect(firstAttempt.state).toBe('failed')
     expect(runtime.repo.failureRounds(first)).toHaveLength(3)

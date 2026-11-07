@@ -188,7 +188,7 @@ describe('verification outcome', () => {
       integrityIssues: [],
     })
     expect(outcome.verdict).toBe('block')
-    expect(outcome.blocking).toContain('报告存在未通过的验证场景')
+    expect(outcome.blocking).toContain('报告存在未通过的测试场景')
   })
 
   it('fails closed when the workspace head moved during verification', () => {
@@ -280,7 +280,7 @@ describe('verification command runner', () => {
       setBlocked: (message) => blocked.push(message),
     })
     expect(result.ok).toBe(false)
-    expect(blocked).toEqual(['独立验证命令被停止；验证工作区可丢弃，可重新验证'])
+    expect(blocked).toEqual(['独立测试命令被停止；测试工作区可丢弃，可重新验证'])
   })
 })
 

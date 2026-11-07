@@ -293,7 +293,7 @@ export class ExecutionDev {
     writeFileSync(join(input.taskDir, 'candidate.diff'), readFileSync(input.capture.diffPath))
   }
 
-  /** 保存本次尝试的自验证报告，并判断是否足以继续或需要回交澄清。 */
+  /** 保存本次尝试的自测试报告，并判断是否足以继续或需要回交澄清。 */
   private persistSelfVerification(input: {
     text: string
     attemptDir: string
@@ -326,7 +326,7 @@ export class ExecutionDev {
           passing_after: false,
           evidence: '',
         },
-        reason: '研发 Agent 未给出可解析的自验证 JSON；保守要求独立验证',
+        reason: '研发 Agent 未给出可解析的自验证 JSON；保守要求独立测试',
       },
       null,
       2,
@@ -377,7 +377,7 @@ export class ExecutionDev {
       kind: 'self-check',
       taskId: input.task.taskId,
       verdict: 'pass',
-      detail: '研发 Agent 自验通过；独立验证由验证 Agent 在固定候选上完成。',
+      detail: '研发 Agent 自验通过；独立测试由测试 Agent 在固定候选上完成。',
       testLog: input.test.logPath,
       at: this.deps.now(),
     }

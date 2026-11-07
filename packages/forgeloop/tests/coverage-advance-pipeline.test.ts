@@ -493,7 +493,7 @@ describe('advance pipeline branch boundaries', () => {
     )
     expect(outcome).toMatchObject({
       state: 'failed',
-      detail: expect.stringContaining('验证未通过'),
+      detail: expect.stringContaining('测试未通过'),
     })
     expect(statuses.at(-1)?.[1]).toBe('blocked')
   })

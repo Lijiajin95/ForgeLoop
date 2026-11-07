@@ -806,7 +806,7 @@ describe('requirement views on real records', () => {
     repo.recordTaskPlan(plan)
     const reportJson = JSON.stringify({
       verdict: 'pass',
-      summary: '验证通过',
+      summary: '测试通过',
       findings: ['非阻断发现'],
       blocking: [],
       scenarios: [
@@ -844,7 +844,7 @@ describe('requirement views on real records', () => {
       verificationView(repo, () => 'never-used', { reqId: 'req-1', plan, artifacts: [] }),
     ).toEqual({
       verdict: 'pass',
-      summary: '验证通过',
+      summary: '测试通过',
       blocking: [],
       findings: ['非阻断发现'],
       scenarios: [

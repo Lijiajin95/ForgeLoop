@@ -192,7 +192,7 @@ export class VerificationStore {
     return row ? verificationRow(row) : null
   }
 
-  /** 一个需求按时间累积的全部独立验证结果；用于问题单与重试历史反查。 */
+  /** 一个需求按时间累积的全部独立测试结果；用于问题单与重试历史反查。 */
   allFor(reqId: string): VerificationRecord[] {
     const rows = this.db
       .prepare(

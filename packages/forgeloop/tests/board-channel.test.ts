@@ -422,7 +422,7 @@ describe('web board host wiring', () => {
     const verifiedBody = (await verified.json()) as { ok: boolean; value: { action: string } }
     expect(verifiedBody.value.action).toBe('verify')
 
-    // 独立验证是服务端门禁，不是按钮文案：没有任务包的需求不能借路由排队验证。
+    // 独立测试是服务端门禁，不是按钮文案：没有任务包的需求不能借路由排队验证。
     const notReady = await route.fetch(
       post(JSON.stringify({ endpoint: 'verify', reqId: planReq, sessionId: 'session-a' })),
     )
@@ -606,7 +606,7 @@ describe('web board host wiring', () => {
     expect(detailBody.value.artifacts).toEqual([])
     expect(detailBody.value.progress).toMatchObject({ total: 2, delivered: 0 })
     expect(detailBody.value.acceptanceRecord.accepted_by).toBe('')
-    // 详情页必须能看到实现前评审结论；没有独立验证时明确为空，而不是伪造“已通过”。
+    // 详情页必须能看到实现前评审结论；没有独立测试时明确为空，而不是伪造“已通过”。
     expect(detailBody.value.planReview).toMatchObject({ verdict: 'pass' })
     expect(detailBody.value.verification).toBeNull()
     await host.cleanup()

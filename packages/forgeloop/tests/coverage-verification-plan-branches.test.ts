@@ -16,7 +16,7 @@ import {
 } from '../src/domain/verification.js'
 
 /**
- * 验证方案的设计、执行准备与判定分支：只通过导出的解析/校验入口观察结果，
+ * 测试方案的设计、执行准备与判定分支：只通过导出的解析/校验入口观察结果，
  * 覆盖畸形输入、结构化引用、模块依赖、异常标记与错误对照判定。
  */
 
@@ -116,7 +116,7 @@ describe('requirement verification plan design parsing', () => {
           { ...scenario, checks: [] },
         ]),
       ),
-    ).toThrow('验证方案的场景不能重复')
+    ).toThrow('测试方案的场景不能重复')
   })
 })
 
@@ -146,10 +146,10 @@ describe('verification plan coverage and structured references', () => {
       },
       plan,
     )
-    expect(issues).toContain('验证方案引用了不存在的业务要点：P9')
-    expect(issues).toContain('验证方案引用了不存在的验收项：A9')
-    expect(issues).toContain('验证方案缺少必过场景覆盖业务要点：P1')
-    expect(issues).toContain('验证方案缺少必过场景覆盖验收项：A1')
+    expect(issues).toContain('测试方案引用了不存在的业务要点：P9')
+    expect(issues).toContain('测试方案引用了不存在的验收项：A9')
+    expect(issues).toContain('测试方案缺少必过场景覆盖业务要点：P1')
+    expect(issues).toContain('测试方案缺少必过场景覆盖验收项：A1')
   })
 
   it('requires acceptance checks for required scenarios that have commands', () => {
@@ -164,7 +164,7 @@ describe('verification plan coverage and structured references', () => {
       { scenarios: ['完成改动'], acceptanceCriteria: ['改动可见'] },
       plan,
     )
-    expect(issues).toContain('验证方案缺少本次验收（acceptance）检查')
+    expect(issues).toContain('测试方案缺少本次验收（acceptance）检查')
   })
 
   it('requires exception markers to be asserted by self-contained commands', () => {
@@ -196,8 +196,8 @@ describe('verification plan coverage and structured references', () => {
       ],
     })
     expect(pending).toEqual([
-      '验证方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：quoted-marker',
-      '验证方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：output-marker',
+      '测试方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：quoted-marker',
+      '测试方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：output-marker',
     ])
   })
 
@@ -213,7 +213,7 @@ describe('verification plan coverage and structured references', () => {
       ],
     })
     expect(issues).toEqual([
-      '验证方案缺少异常标记断言：断网时输出 missing-network（需要一条命令的 expected_output 包含 missing-network）',
+      '测试方案缺少异常标记断言：断网时输出 missing-network（需要一条命令的 expected_output 包含 missing-network）',
     ])
   })
 
@@ -237,8 +237,8 @@ describe('verification plan coverage and structured references', () => {
     expect(
       validatePlanModuleDependencies(plan, { dependencies: ['lodash', '@scope/pkg'] }),
     ).toEqual([
-      '验证方案命令依赖未安装的模块：chalk（missing）',
-      '验证方案命令依赖未安装的模块：@scope/missing（scoped-missing）',
+      '测试方案命令依赖未安装的模块：chalk（missing）',
+      '测试方案命令依赖未安装的模块：@scope/missing（scoped-missing）',
     ])
   })
 })
@@ -372,7 +372,7 @@ describe('verification judging branches', () => {
       finishedAt: '2026-11-04T00:01:00.000Z',
     })
     expect(result.verdict).toBe('failed')
-    expect(result.failures).toEqual(['验证场景没有可执行命令：完成改动'])
+    expect(result.failures).toEqual(['测试场景没有可执行命令：完成改动'])
     expect(result.scenarios[0]).toMatchObject({
       scenario: '完成改动',
       status: 'fail',

@@ -659,13 +659,13 @@ export class ExecutionPlan {
         this.deps.repo.setStatus(
           reqId,
           PLAN_PROPOSED,
-          '任务包已生成，但验证 Agent 的实现前评审未完成；不能批准',
+          '任务包已生成，但测试 Agent 的实现前评审未完成；不能批准',
         )
         return { state: reviewOutcome.state, detail: reviewOutcome.detail }
       }
       if (reviewOutcome.review.verdict === 'block') {
         lastError = `实现前评审阻断：${reviewOutcome.review.blocking.join('；')}`
-        feedback = `\n\n上一次任务包被验证 Agent 的实现前评审阻断：\n- ${reviewOutcome.review.blocking.join('\n- ')}\n请修正技术方案、任务文件范围或测试命令后重新输出完整 JSON。`
+        feedback = `\n\n上一次任务包被测试 Agent 的实现前评审阻断：\n- ${reviewOutcome.review.blocking.join('\n- ')}\n请修正技术方案、任务文件范围或测试命令后重新输出完整 JSON。`
         continue
       }
       this.deps.repo.setStatus(reqId, PLAN_PROPOSED)
@@ -683,7 +683,7 @@ export class ExecutionPlan {
   }
 
   /**
-   * 实现前评审：验证 Agent 只读任务包与分析，产出验证计划。
+   * 实现前评审：测试 Agent 只读任务包与分析，产出验证计划。
    * 评审通过才允许批准；阻断原因会反馈给规划 Agent 重新生成任务包。
    */
 }

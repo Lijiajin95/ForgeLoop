@@ -7,7 +7,7 @@ import {
 } from '../src/domain/self-verification.js'
 
 /**
- * 覆盖率门禁补充：研发自验证报告的解析与证据充分性边界。
+ * 覆盖率门禁补充：研发自测试报告的解析与证据充分性边界。
  * 只调用公开的解析与判定函数，断言具体返回值/错误原文；
  * 覆盖澄清字段缺失、非对象载荷、未知风险、红绿灯字段缺失与回退分支。
  */
@@ -218,14 +218,14 @@ describe('self-verification sufficiency', () => {
         inputKind: 'requirement',
         report: report({ mode: 'independent' }),
       }),
-    ).toEqual({ ok: false, reason: '研发决定本次需要独立验证' })
+    ).toEqual({ ok: false, reason: '研发决定本次需要独立测试' })
 
     expect(
       selfVerificationSufficient({
         inputKind: 'requirement',
         report: report({ white_box: [], black_box: [] }),
       }),
-    ).toEqual({ ok: false, reason: '自验证报告没有白盒或黑盒检查证据' })
+    ).toEqual({ ok: false, reason: '自测试报告没有白盒或黑盒检查证据' })
   })
 
   it('refuses a declared high-risk change that forgot the red/green requirement', () => {

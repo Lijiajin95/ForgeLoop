@@ -37,7 +37,7 @@ function run(overrides: Partial<VerificationCheckRun> = {}): VerificationCheckRu
 describe('verification failure classification', () => {
   it('treats a failing business assertion as an implementation defect that may return to development', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证命令失败：check 退出码 1'],
+      blocking: ['测试命令失败：check 退出码 1'],
       commandRuns: [
         run({
           exitCode: 1,
@@ -52,7 +52,7 @@ describe('verification failure classification', () => {
 
   it('classifies a verification script that mixes CommonJS into an ESM project as a test error', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证命令失败：check 退出码 1'],
+      blocking: ['测试命令失败：check 退出码 1'],
       commandRuns: [
         run({
           exitCode: 1,
@@ -68,7 +68,7 @@ describe('verification failure classification', () => {
 
   it('does not turn a bare non-zero exit without assertion evidence into a code-repair instruction', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证命令失败：check 退出码 1'],
+      blocking: ['测试命令失败：check 退出码 1'],
       commandRuns: [run({ exitCode: 1, output: 'broken candidate' })],
     })
     expect(result.kind).toBe('undetermined')
@@ -77,7 +77,7 @@ describe('verification failure classification', () => {
 
   it('classifies executor and dependency failures as environment errors, not code defects', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证命令未执行'],
+      blocking: ['测试命令未执行'],
       commandRuns: [run({ exitCode: null, output: 'spawn node ENOENT' })],
     })
     expect(result.kind).toBe('environment_error')
@@ -87,9 +87,9 @@ describe('verification failure classification', () => {
 
   it('classifies a verification process that changed the candidate as a test error', () => {
     const result = classifyVerificationFailure({
-      blocking: ['验证命令修改了固定候选'],
+      blocking: ['测试命令修改了固定候选'],
       commandRuns: [run()],
-      integrityIssues: ['验证命令修改了固定候选：src/a.ts'],
+      integrityIssues: ['测试命令修改了固定候选：src/a.ts'],
     })
     expect(result.kind).toBe('test_error')
     expect(result.requiresCodeChange).toBe(false)
@@ -264,7 +264,7 @@ describe('controlled faulty copy', () => {
       }),
     })
     expect(outcome.results).toEqual([])
-    expect(outcome.issues.join('；')).toContain('验证材料在正向执行后发生变化')
+    expect(outcome.issues.join('；')).toContain('测试材料在正向执行后发生变化')
   })
 })
 
@@ -287,7 +287,7 @@ describe('append-only verification attempts', () => {
       workspaceSha256: 'tree',
       verdict,
       failureKind,
-      blocking: verdict === 'block' ? ['验证命令失败'] : [],
+      blocking: verdict === 'block' ? ['测试命令失败'] : [],
       reportJson: '{}',
       reportPath: `/tmp/${candidate}-${verdict}-${failureKind || 'pass'}-${NOW}.json`,
       reportSha256: 'sha',

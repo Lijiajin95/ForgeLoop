@@ -134,7 +134,7 @@ export class ForgeLoopRuntime {
   readonly deployments: Deployments
   readonly deploymentService: DeploymentService
   readonly deliveryHandoff
-  /** 验证失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
+  /** 测试失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
   readonly issues: IssueStore
   private readonly advancePipeline: AdvancePipeline
   private readonly executionDev: ExecutionDev
@@ -368,7 +368,7 @@ export class ForgeLoopRuntime {
       .activeRequests(this.config.project)
       .some((request) => request.reqId === requirement.reqId)
     if (active) return true
-    // 验证失败待修复/待复验的需求仍占用研发位，避免其它需求插队。
+    // 测试失败待修复/待复验的需求仍占用研发位，避免其它需求插队。
     if (this.issues.latestOpen(requirement.reqId)) return true
     // 没有自动推进时，分析收口即让出研发位；后续执行仍可由显式请求驱动。
     if (!this.config.autoAdvance) return false
@@ -796,7 +796,7 @@ ${answer}`
       if (missing.length > 0) {
         return {
           ok: false,
-          result: fail('not_delivered', `仍有任务未交付，不能开始独立验证：${missing.join('、')}`),
+          result: fail('not_delivered', `仍有任务未交付，不能开始独立测试：${missing.join('、')}`),
         }
       }
     }
@@ -1202,7 +1202,7 @@ ${answer}`
     return this.verificationChecks.run(reqId, label, caller)
   }
 
-  /** 验证会话的非命令工具面：对照与验证材料写入；上下文、路径与补丁由注册表校验。 */
+  /** 测试会话的非命令工具面：对照与测试材料写入；上下文、路径与补丁由注册表校验。 */
   get verificationTool(): VerificationCheckRegistry {
     return this.verificationChecks
   }
@@ -1262,7 +1262,7 @@ ${answer}`
     if (!review) {
       return fail(
         'plan_review_required',
-        `任务包 v${plan.planVersion} 尚未通过验证 Agent 的实现前评审；不能批准进入实现`,
+        `任务包 v${plan.planVersion} 尚未通过测试 Agent 的实现前评审；不能批准进入实现`,
       )
     }
     const planSha = sha256OfText(JSON.stringify(plan))
@@ -1352,7 +1352,7 @@ ${answer}`
   }
 
   /**
-   * 候选包：只从“已通过独立验证的那一份工作区”构建，保证安装的就是被验证的候选。
+   * 候选包：只从“已通过独立测试的那一份工作区”构建，保证安装的就是被验证的候选。
    * 构建前后核对候选内容、产物摘要与包版本，并记录验证绑定。
    */
   /** 新链路：最近的系统准入候选及其验证、业务验收和本地提交。 */
@@ -1849,7 +1849,7 @@ ${answer}`
     const scenarios = analysis.scenarios.map((scenario, index) => ({
       scenario,
       acceptanceCriterion: criteria[index] ?? criteria[0] ?? scenario,
-      method: '验证 Agent 在独立候选上设计并执行自动化测试，逐项核对业务结果与证据',
+      method: '测试 Agent 在独立候选上设计并执行自动化测试，逐项核对业务结果与证据',
       required: true,
     }))
     return {

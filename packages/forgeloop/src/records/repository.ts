@@ -729,7 +729,7 @@ export class Repository extends DevSessionStore {
     return row ? commitFromRow(row) : null
   }
 
-  // ---------------------------------------------------------------- 验证 Agent
+  // ---------------------------------------------------------------- 测试 Agent
 
   recordPlanReview(review: PlanReviewRecord): void {
     this.db
@@ -820,7 +820,7 @@ export class Repository extends DevSessionStore {
     return this.verifications.forCandidate(reqId, planVersion, candidateSha256)
   }
 
-  /** 一个需求按时间累积的全部独立验证结果；用于问题单与重试历史反查。 */
+  /** 一个需求按时间累积的全部独立测试结果；用于问题单与重试历史反查。 */
   verificationsFor(reqId: string): VerificationRecord[] {
     return this.verifications.allFor(reqId)
   }

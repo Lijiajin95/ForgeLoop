@@ -37,7 +37,7 @@ describe('retry decision', () => {
   })
 
   it('stops when everything is delivered', () => {
-    expect(retryDecision({ ...OK, delivered: 2 }).reason).toContain('下一步是独立验证')
+    expect(retryDecision({ ...OK, delivered: 2 }).reason).toContain('下一步是独立测试')
   })
 
   it('refuses while in-flight or running work exists', () => {
@@ -101,7 +101,7 @@ describe('retry decision reasons (mutation-kill)', () => {
     })
     expect(retryDecision({ ...OK, delivered: 2 })).toEqual({
       allowed: false,
-      reason: '任务已全部交付，下一步是独立验证',
+      reason: '任务已全部交付，下一步是独立测试',
     })
     expect(retryDecision({ ...OK, activeRequest: true })).toEqual({
       allowed: false,

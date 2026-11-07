@@ -303,7 +303,7 @@ function requestActionLabel(action: string): string {
   if (action === ACTION_ANALYZE) return '分析'
   if (action === ACTION_PLAN) return '规划'
   if (action === ACTION_ADVANCE) return '推进'
-  if (action === ACTION_VERIFY) return '独立验证'
+  if (action === ACTION_VERIFY) return '独立测试'
   return action
 }
 
@@ -866,7 +866,7 @@ function approvalIssues(context: IssueContext): BoardIssueView[] {
       kind: ISSUE_APPROVAL,
       severity: 'attention',
       title: `任务包 v${plan.planVersion} 待实现前评审`,
-      detail: '尚未取得验证 Agent 的实现前评审结论；不能批准或进入实现',
+      detail: '尚未取得测试 Agent 的实现前评审结论；不能批准或进入实现',
       createdAt: plan.createdAt,
     },
   ]

@@ -329,7 +329,7 @@ describe('failing before the patch can run', () => {
     const { root, ws } = workspace(PATCH_TEST_ONLY)
     const outcome = await execute({ root, ws, run: async () => controlRun() })
     expect(outcome.issues).toEqual([
-      'check：敏感性对照不能只修改验证材料，必须触及业务实现：verification/check.js',
+      'check：敏感性对照不能只修改测试材料，必须触及业务实现：verification/check.js',
     ])
     expect(outcome.results).toEqual([])
   })

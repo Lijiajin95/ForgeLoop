@@ -13,7 +13,6 @@ import { fetchWeb, searchWeb, WEB_KEY_NOTE } from './runtime/web-tools.js'
 import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
 import {
   VERIFICATION_CHECK_TOOL,
-  VERIFICATION_CONTROL_TOOL,
   VERIFICATION_MATERIAL_TOOL,
 } from './runtime/verification-checks.js'
 import { readArtifactLog, readArtifactState } from './runtime/ops-artifacts.js'
@@ -92,57 +91,6 @@ function verificationCaller(args: AnyRecord): { sessionId?: string; attemptId?: 
 function stringArg(args: AnyRecord, key: string): string | undefined {
   const value = args[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function verificationControlTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
-  return defineTool({
-    name: VERIFICATION_CONTROL_TOOL,
-    description:
-      'Register the sensitivity control for one planned verification command: a unified diff that makes a known-wrong implementation, which the runtime applies to an isolated copy before rerunning the command. The patch must change business files outside verification/ and the expected failure text must point at the target rule.',
-    parameters: {
-      type: 'object',
-      properties: {
-        req_id: { type: 'string', description: 'Exact requirement id under verification' },
-        label: {
-          type: 'string',
-          description: 'Command label from the current verification plan',
-        },
-        patch: {
-          type: 'string',
-          description:
-            'Unified diff applied to an isolated copy; must modify files outside verification/',
-        },
-        expected_failure_output: {
-          type: 'string',
-          description: 'Text that must appear when the faulty copy runs the same command',
-        },
-        session_id: { type: 'string', description: 'Verification session id from the prompt' },
-        attempt_id: { type: 'string', description: 'Verification attempt id from the prompt' },
-      },
-      required: ['req_id', 'label', 'patch', 'expected_failure_output'],
-      additionalProperties: false,
-    },
-    async run(args) {
-      const reqId = stringArg(args, 'req_id')
-      if (!reqId) return { ok: false, text: 'req_id is required' }
-      const label = stringArg(args, 'label')
-      if (!label) return { ok: false, text: 'label is required' }
-      const patch = stringArg(args, 'patch')
-      if (!patch) return { ok: false, text: 'patch is required' }
-      const expected = stringArg(args, 'expected_failure_output')
-      if (!expected) return { ok: false, text: 'expected_failure_output is required' }
-      const outcome = await runtime.verificationTool.writeControl(
-        reqId,
-        { label, patch, expectedFailureOutput: expected },
-        verificationCaller(args),
-      )
-      return {
-        ok: outcome.ok,
-        text: outcome.text,
-        ...(outcome.data === undefined ? {} : { data: outcome.data }),
-      }
-    },
-  })
 }
 
 function verificationMaterialTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
@@ -480,7 +428,6 @@ export function buildTools(
     ...opsArtifactTools(config),
     rolloutTool(runtime, config),
     verificationCheckTool(runtime),
-    verificationControlTool(runtime),
     verificationMaterialTool(runtime),
     defineTool({
       name: 'forgeloop_read_project_doc',

@@ -482,7 +482,7 @@ describe('需求只读视图', () => {
       attempt: 1,
       archivedAt: NOW,
       archivedPath: join(dir, 'archive/t2-1'),
-      reason: '验证阻断',
+      reason: '测试阻断',
     })
     runtime.repo.recordCommit({
       requirementId: reqId,
@@ -588,7 +588,7 @@ describe('需求只读视图', () => {
         candidateSha256: 'sha-t2',
         archivedAt: NOW,
         archivedPath: join(dir, 'archive/t2-1'),
-        reason: '验证阻断',
+        reason: '测试阻断',
       },
     ])
     expect(data.activeRequests).toBe(1)
@@ -848,7 +848,7 @@ describe('requestOperation 守卫', () => {
     ).toEqual({
       ok: false,
       code: 'not_delivered',
-      message: '仍有任务未交付，不能开始独立验证：t1、t2',
+      message: '仍有任务未交付，不能开始独立测试：t1、t2',
     })
 
     runtime.repo.recordTaskArtifact(artifactFor(reqId, 't1'))
@@ -857,7 +857,7 @@ describe('requestOperation 守卫', () => {
     ).toEqual({
       ok: false,
       code: 'not_delivered',
-      message: '仍有任务未交付，不能开始独立验证：t2',
+      message: '仍有任务未交付，不能开始独立测试：t2',
     })
 
     runtime.repo.recordTaskArtifact(artifactFor(reqId, 't2'))
@@ -1349,7 +1349,7 @@ describe('approvePlan 守卫', () => {
     expect(runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })).toEqual({
       ok: false,
       code: 'plan_review_required',
-      message: '任务包 v1 尚未通过验证 Agent 的实现前评审；不能批准进入实现',
+      message: '任务包 v1 尚未通过测试 Agent 的实现前评审；不能批准进入实现',
     })
 
     recordReview(reqId, plan, { planSha256: 'stale-sha' })
@@ -1489,10 +1489,10 @@ describe('recoverInterrupted', () => {
 })
 
 describe('验证与执行入口', () => {
-  it('没有验证上下文时拒绝执行验证命令', async () => {
+  it('没有验证上下文时拒绝执行测试命令', async () => {
     await expect(runtime.runVerificationCheck('req-no-context', 'unit')).resolves.toEqual({
       ok: false,
-      text: '没有正在进行的验证：req-no-context。只有验证会话在研发产物交付后可以执行验证方案中的命令。',
+      text: '没有正在进行的验证：req-no-context。只有测试会话在研发产物交付后可以执行测试方案中的命令。',
     })
   })
 

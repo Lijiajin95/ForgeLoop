@@ -2,7 +2,7 @@
  * 验证敏感性对照：证明必过用例确实能发现对应错误行为。
  *
  * 只靠“命令退出 0 + 输出里有预期文字”不能证明业务正确：只打印固定标记的脚本
- * 同样满足这两点。验证材料必须为关键用例声明一个受控错误补丁，程序把补丁应用到
+ * 同样满足这两点。测试材料必须为关键用例声明一个受控错误补丁，程序把补丁应用到
  * 候选的隔离副本后重跑同一命令，要求它按目标业务规则失败。对照不修改正式候选。
  *
  * 补丁只能改 `verification/` 之外的文件，避免“把测试自己改坏”冒充敏感性。
@@ -84,8 +84,13 @@ export function validateControlCoverage(input: {
     readonly commands: readonly string[]
   }[]
   readonly controls: readonly { readonly label: string }[]
+  /** 黑盒错误对照命令：expect_failure=true 且实际按预期失败。 */
+  readonly negativeLabels?: readonly string[]
 }): string[] {
-  const controlled = new Set(input.controls.map((control) => control.label))
+  const controlled = new Set([
+    ...input.controls.map((control) => control.label),
+    ...(input.negativeLabels ?? []),
+  ])
   const passedRequired = input.reportScenarios.filter(
     (result) => result.status === 'pass' && input.requiredScenarios.includes(result.scenario),
   )
@@ -100,7 +105,7 @@ export function validateControlCoverage(input: {
   ]
 }
 
-/** 从统一 diff 中读取目标路径；用于拒绝只改验证材料或越界的“对照”。 */
+/** 从统一 diff 中读取目标路径；用于拒绝只改测试材料或越界的“对照”。 */
 export function controlPatchTargets(patch: string): string[] {
   const targets = new Set<string>()
   for (const line of patch.split('\n')) {
@@ -129,7 +134,7 @@ export function validateControlPatch(patch: string): string[] {
       continue
     }
     if (target.startsWith('verification/')) {
-      issues.push(`敏感性对照不能只修改验证材料，必须触及业务实现：${target}`)
+      issues.push(`敏感性对照不能只修改测试材料，必须触及业务实现：${target}`)
     }
   }
   return issues

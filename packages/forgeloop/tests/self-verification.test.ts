@@ -109,7 +109,7 @@ describe('dev self-verification', () => {
           { taskId: 'b', report: self },
         ],
       }),
-    ).toMatchObject({ ok: false, reason: '任务 a 缺少持久化自验证报告' })
+    ).toMatchObject({ ok: false, reason: '任务 a 缺少持久化自测试报告' })
     expect(
       candidateSelfVerification({
         inputKind: 'requirement',
@@ -118,7 +118,7 @@ describe('dev self-verification', () => {
           { taskId: 'b', report: self },
         ],
       }),
-    ).toMatchObject({ ok: false, reason: '任务 a 选择独立验证' })
+    ).toMatchObject({ ok: false, reason: '任务 a 选择独立测试' })
   })
 
   it('rejects red/green without real command, identity, exit code and log', () => {

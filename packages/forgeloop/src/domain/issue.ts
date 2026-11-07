@@ -1,7 +1,7 @@
 /**
- * ForgeLoop 内建问题单：验证未通过时，把验证日志、环境与状态固化成可追溯记录。
+ * ForgeLoop 内建问题单：测试未通过时，把验证日志、环境与状态固化成可追溯记录。
  *
- * 问题单属于需求，绑定本次验证报告与候选；它的用途是驱动研发定向修复并让需求
+ * 问题单属于需求，绑定本次测试报告与候选；它的用途是驱动研发定向修复并让需求
  * 自动重新进入验证。问题单不是人工工单，也不写 `by=owner` 或任何批准语义。
  */
 
@@ -57,7 +57,7 @@ export interface RequirementIssueEvidence {
   readonly blocking: readonly string[]
   readonly summary: string
   readonly commands: readonly IssueCommandEvidence[]
-  /** 验证日志路径（命令日志与验证报告），供研发直接读取。 */
+  /** 验证日志路径（命令日志与测试报告），供研发直接读取。 */
   readonly logs: readonly string[]
   readonly environment: IssueEnvironment
   readonly state: {
@@ -76,7 +76,7 @@ export interface RequirementIssue {
   readonly status: IssueStatus
   readonly summary: string
   readonly evidence: RequirementIssueEvidence
-  /** 产生问题单的验证报告摘要；用于反查对应验证结果。 */
+  /** 产生问题单的测试报告摘要；用于反查对应验证结果。 */
   readonly verificationSha256: string
   readonly candidateSha256: string
   readonly createdAt: string

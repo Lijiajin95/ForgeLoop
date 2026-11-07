@@ -1,7 +1,7 @@
 /**
  * 研发自验证结果：研发 Agent 在完成白盒/黑盒自验后，根据代码 diff 风险决定
- * 本次候选是否需要独立验证。独立验证是后续阶段，本结构只记录研发侧的判断与证据，
- * 不描述验证 Agent 将如何验证。
+ * 本次候选是否需要独立测试。独立测试是后续阶段，本结构只记录研发侧的判断与证据，
+ * 不描述测试 Agent 将如何验证。
  */
 
 import { asRecord } from './json.js'
@@ -96,7 +96,7 @@ function parseRedGreen(value: unknown): SelfVerificationRedGreen {
 }
 
 /**
- * 解析研发 Agent 的最终 JSON。结构不合法返回 null，由运行时保守地按“需要独立验证”处理；
+ * 解析研发 Agent 的最终 JSON。结构不合法返回 null，由运行时保守地按“需要独立测试”处理；
  * 不猜测缺失的 mode，也不把模型自由文本当自验证结论。
  */
 export function parseSelfVerificationReport(raw: string): SelfVerificationReport | null {
@@ -161,14 +161,14 @@ export function redGreenIssue(input: {
   return redGreenProblems(input.report)
 }
 
-/** 自验证报告是否足以支撑“本次不需要独立验证”。 */
+/** 自测试报告是否足以支撑“本次不需要独立测试”。 */
 export function selfVerificationSufficient(input: {
   readonly inputKind: 'requirement' | 'problem'
   readonly report: SelfVerificationReport
 }): { ok: true } | { ok: false; reason: string } {
-  if (input.report.mode !== 'self') return { ok: false, reason: '研发决定本次需要独立验证' }
+  if (input.report.mode !== 'self') return { ok: false, reason: '研发决定本次需要独立测试' }
   if (input.report.whiteBox.length === 0 && input.report.blackBox.length === 0) {
-    return { ok: false, reason: '自验证报告没有白盒或黑盒检查证据' }
+    return { ok: false, reason: '自测试报告没有白盒或黑盒检查证据' }
   }
   if (requiresRedGreen(input) && !input.report.redGreen.required) {
     return { ok: false, reason: 'BUG 修复或高风险改动必须声明红灯/绿灯要求' }
@@ -180,7 +180,7 @@ export function selfVerificationSufficient(input: {
   return { ok: true }
 }
 
-/** 整份候选的自验证结论：所有已交付任务都必须有 self 报告，缺一即转独立验证。 */
+/** 整份候选的自验证结论：所有已交付任务都必须有 self 报告，缺一即转独立测试。 */
 export function candidateSelfVerification(input: {
   readonly inputKind: 'requirement' | 'problem'
   readonly reports: ReadonlyArray<{
@@ -188,13 +188,13 @@ export function candidateSelfVerification(input: {
     readonly report: SelfVerificationReport | null
   }>
 }): { ok: true } | { ok: false; reason: string } {
-  if (input.reports.length === 0) return { ok: false, reason: '没有可核对的任务自验证报告' }
+  if (input.reports.length === 0) return { ok: false, reason: '没有可核对的任务自测试报告' }
   for (const item of input.reports) {
     if (item.report === null) {
-      return { ok: false, reason: `任务 ${item.taskId} 缺少持久化自验证报告` }
+      return { ok: false, reason: `任务 ${item.taskId} 缺少持久化自测试报告` }
     }
     if (item.report.mode !== 'self') {
-      return { ok: false, reason: `任务 ${item.taskId} 选择独立验证` }
+      return { ok: false, reason: `任务 ${item.taskId} 选择独立测试` }
     }
     const sufficient = selfVerificationSufficient({
       inputKind: input.inputKind,
@@ -220,7 +220,7 @@ export function changedPathsFromDiff(diff: string): string[] {
 
 /**
  * self 模式的实际改动门禁：仅文档改动可直接 self；改到代码时，
- * 必须每份自验证报告都声明低风险且有白盒或黑盒检查，否则交给独立验证。
+ * 必须每份自测试报告都声明低风险且有白盒或黑盒检查，否则交给独立测试。
  */
 export function selfModeAllowedByDiff(input: {
   readonly paths: readonly string[]
@@ -230,13 +230,13 @@ export function selfModeAllowedByDiff(input: {
     (path) => !path.endsWith('.md') && !path.startsWith('verification/'),
   )
   if (code.length === 0) return { ok: true }
-  if (input.reports.length === 0) return { ok: false, reason: '没有自验证报告，不能 self' }
+  if (input.reports.length === 0) return { ok: false, reason: '没有自测试报告，不能 self' }
   for (const report of input.reports) {
     if (report.risk !== 'low') {
-      return { ok: false, reason: `候选改到代码（${code[0]}），风险不是 low，需要独立验证` }
+      return { ok: false, reason: `候选改到代码（${code[0]}），风险不是 low，需要独立测试` }
     }
     if (report.whiteBox.length === 0 && report.blackBox.length === 0) {
-      return { ok: false, reason: '候选改到代码但缺少白盒/黑盒检查，需要独立验证' }
+      return { ok: false, reason: '候选改到代码但缺少白盒/黑盒检查，需要独立测试' }
     }
   }
   return { ok: true }

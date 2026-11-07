@@ -1,7 +1,7 @@
 /**
- * 验证 Agent：同一会话先设计验证方案，研发产物交付后再由该会话通过工具执行方案并做业务验收。
+ * 测试 Agent：同一会话先设计测试方案，研发产物交付后再由该会话通过工具执行方案并做业务验收。
  *
- * 1. 方案：只依据需求说明（原文与分析）与已准入任务包的任务目标设计结构化验证方案；
+ * 1. 方案：只依据需求说明（原文与分析）与已准入任务包的任务目标设计结构化测试方案；
  *    不读取任务包实现细节、候选 diff 或源码，防止验证被实现方式反向约束。
  * 2. 执行与验收：产物交付后由同一个会话调用运行时提供的执行工具，逐条执行方案中的命令；
  *    通过与否只按真实退出码、超时、中止与输出判定，模型自述不构成证据。
@@ -46,7 +46,7 @@ export interface VerificationAgentOptions {
 }
 
 /**
- * 只依据需求说明与已准入任务目标设计验证方案。这里刻意不提供候选、diff 或实现代码，
+ * 只依据需求说明与已准入任务目标设计测试方案。这里刻意不提供候选、diff 或实现代码，
  * 也不要求模型在方案阶段执行命令——执行发生在产物交付之后、同一个会话里。
  */
 export function verificationPlanPrompt(input: {
@@ -83,7 +83,7 @@ ${points}
 可观察验收：
 ${acceptance || '（无）'}`
     : ''
-  return `你是 ForgeLoop 的验证 Agent。现在只依据需求说明与已准入任务包的任务目标设计验证方案：不读取实现代码、不接触候选 diff，也不要调用任何工具。研发产物交付后，你会在同一个会话里通过工具执行这份方案并做业务验收。
+  return `你是 ForgeLoop 的测试 Agent。现在只依据需求说明与已准入任务包的任务目标设计测试方案：不读取实现代码、不接触候选 diff，也不要调用任何工具。研发产物交付后，你会在同一个会话里通过工具执行这份方案并做业务验收。
 
 需求身份：${input.requirement.reqId}
 项目：${input.requirement.project}
@@ -172,7 +172,7 @@ export class VerificationAgent {
   }
 
   /**
-   * 仅凭需求说明生成并校验验证方案。
+   * 仅凭需求说明生成并校验测试方案。
    * 模型未完成、结构畸形或未覆盖需求说明、业务规则或异常边界时 fail-closed，不返回半成品方案。
    */
   async plan(input: {
@@ -196,7 +196,7 @@ export class VerificationAgent {
         ...(input.signal ? { signal: input.signal } : {}),
       })
       if (run.status !== 'completed') {
-        throw new MalformedError(`验证方案生成未完成（${run.status}）：${run.reason}`)
+        throw new MalformedError(`测试方案生成未完成（${run.status}）：${run.reason}`)
       }
       let plan: VerificationPlan
       try {
@@ -204,11 +204,11 @@ export class VerificationAgent {
       } catch (error) {
         // 畸形 JSON 不是“覆盖不足”，要把具体解析错误回给同一会话，让模型定向修正；
         // 次数仍受 MAX_PLAN_ATTEMPTS 限制，连续畸形同样留证并阻断。
-        lastIssues = [`验证方案 JSON 畸形：${errorMessage(error)}`]
+        lastIssues = [`测试方案 JSON 畸形：${errorMessage(error)}`]
         feedback = [
           '',
           '',
-          `上一次输出不是可解析的验证方案 JSON：${errorMessage(error)}`,
+          `上一次输出不是可解析的测试方案 JSON：${errorMessage(error)}`,
           '请只输出一个完整的 JSON 对象，字段值用双引号，不要代码围栏、注释或多余文字。',
           '结构参考：{"scenarios":[{"scenario":"...","acceptance_criterion":"...","method":"...","checks":[...]}]}',
         ].join('\n')
@@ -241,7 +241,7 @@ export class VerificationAgent {
         '请补全后重新输出完整 JSON。',
       ].join('\n')
     }
-    throw new MalformedError(`验证方案未覆盖需求说明：${lastIssues.join('；')}`)
+    throw new MalformedError(`测试方案未覆盖需求说明：${lastIssues.join('；')}`)
   }
 }
 

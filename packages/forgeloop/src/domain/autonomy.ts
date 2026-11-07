@@ -1,7 +1,7 @@
 /**
  * 自主率统计：只依据已落库的事实计算，不猜测“是否人工帮助过”。
  *
- * - 研发：分母是项目内全部需求；分子是已受控提交、独立验证通过且没有人工介入的需求。
+ * - 研发：分母是项目内全部需求；分子是已受控提交、独立测试通过且没有人工介入的需求。
  * - 运维：分母是项目内全部运维事件；分子是自动恢复/关闭且未记录人工介入的事件。
  * - 需求或事件为 0 时返回 null 比率，界面显示“无样本”，不能算成 0% 或 100%。
  */
@@ -91,7 +91,7 @@ export function requirementHumanInvolved(facts: RequirementAutonomyFacts): boole
   )
 }
 
-/** 自主成功：已提交、验证通过、部署核对完成，且整条链路没有人工介入。 */
+/** 自主成功：已提交、测试通过、部署核对完成，且整条链路没有人工介入。 */
 export function requirementAutonomousSuccess(facts: RequirementAutonomyFacts): boolean {
   return (
     facts.committed &&

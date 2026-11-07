@@ -17,11 +17,11 @@ function verificationFact(raw: unknown):
   const logPath = typeof command.logPath === 'string' ? command.logPath : ''
   if (!label || !logPath) return null
   if (!existsSync(logPath)) {
-    return { ok: false, detail: `验证命令 ${label} 的日志缺失；不能做业务终审` }
+    return { ok: false, detail: `测试命令 ${label} 的日志缺失；不能做业务终审` }
   }
   const text = readFileSync(logPath, 'utf8')
   if (typeof command.logSha256 === 'string' && sha256OfText(text) !== command.logSha256) {
-    return { ok: false, detail: `验证命令 ${label} 的日志摘要不一致；不能做业务终审` }
+    return { ok: false, detail: `测试命令 ${label} 的日志摘要不一致；不能做业务终审` }
   }
   return {
     ok: true,
@@ -49,7 +49,7 @@ export function reviewFacts(reportPath: string):
   try {
     canonical = parseJsonObject(readFileSync(reportPath, 'utf8'))
   } catch {
-    return { ok: false, detail: '独立验证报告无法解析；不能做业务终审' }
+    return { ok: false, detail: '独立测试报告无法解析；不能做业务终审' }
   }
   const commands = Array.isArray(canonical.commands) ? canonical.commands : []
   const facts: Array<{
@@ -65,7 +65,7 @@ export function reviewFacts(reportPath: string):
     facts.push(parsed.fact)
   }
   if (facts.length === 0) {
-    return { ok: false, detail: '独立验证没有可核对的命令输出；不能做业务终审' }
+    return { ok: false, detail: '独立测试没有可核对的命令输出；不能做业务终审' }
   }
   return { ok: true, facts }
 }

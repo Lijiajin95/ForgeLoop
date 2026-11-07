@@ -105,7 +105,7 @@ const BUSINESS_REVIEW = structuredReviewOf({
   acceptance: [{ criterion: CRITERION, status: 'pass', evidence: SMOKE, commands: ['smoke'] }],
 })
 
-/** 需求说明派生的验证方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
+/** 需求说明派生的测试方案：候选修复前命令退出码 1，修复后输出 SMOKE。 */
 function verificationPlan(fail: boolean): string {
   const repaired =
     "const fs=require('node:fs');const t=fs.existsSync('docs/a.md')?fs.readFileSync('docs/a.md','utf8'):'';if(t.startsWith('fixed')){console.log('verified ok');process.exit(0)}console.error('AssertionError: expected fixed content, got broken');process.exit(1)"
@@ -129,8 +129,8 @@ function verificationPlan(fail: boolean): string {
 }
 
 /**
- * 前 N 次验证执行判阻断，之后通过；研发修复回合写真实文件改动。
- * 同一个验证会话通过工具执行方案命令，程序按退出码判定。
+ * 前 N 次测试执行判阻断，之后通过；研发修复回合写真实文件改动。
+ * 同一个测试会话通过工具执行方案命令，程序按退出码判定。
  */
 function fakeRunner(
   options: { failVerifications?: number; repairNoChange?: boolean } = {},
@@ -289,8 +289,8 @@ describe('verification failure issue loop', () => {
     expect(issue.verificationSha256).toMatch(/^[0-9a-f]{64}$/)
     expect(issue.candidateSha256).toMatch(/^[0-9a-f]{64}$/)
 
-    // 证据包含验证命令、退出码、日志路径、环境与状态。
-    expect(issue.evidence.blocking).toContain('验证命令失败：smoke（退出码 1）')
+    // 证据包含测试命令、退出码、日志路径、环境与状态。
+    expect(issue.evidence.blocking).toContain('测试命令失败：smoke（退出码 1）')
     expect(issue.evidence.commands).toHaveLength(1)
     expect(issue.evidence.commands[0]).toMatchObject({
       label: 'smoke',
@@ -414,7 +414,7 @@ describe('verification failure issue loop', () => {
     const issues = runtime.issues.issuesFor(reqId)
     expect(issues).toHaveLength(1)
     expect(issues[0]?.status).toBe('open')
-    expect(issues[0]?.evidence.blocking).toContain('验证命令失败：smoke（退出码 1）')
+    expect(issues[0]?.evidence.blocking).toContain('测试命令失败：smoke（退出码 1）')
     expect(runtime.autoAdvanceRequests()).toContain(reqId)
     expect(runtime.issues.latestOpen(reqId)?.issueId).toBe(issues[0]?.issueId)
   })
@@ -422,7 +422,7 @@ describe('verification failure issue loop', () => {
 
 function issueEvidenceFor(attempt: number): RequirementIssueEvidence {
   return {
-    blocking: ['验证命令退出码 1'],
+    blocking: ['测试命令退出码 1'],
     summary: '候选未满足需求',
     commands: [
       {
@@ -468,7 +468,7 @@ function validIssue(overrides: Partial<RequirementIssue> = {}): RequirementIssue
     attempt: 1,
     stage: ISSUE_STAGE_VERIFICATION,
     status: ISSUE_OPEN,
-    summary: '独立验证阻断',
+    summary: '独立测试阻断',
     evidence: issueEvidenceFor(1),
     verificationSha256: 'e'.repeat(64),
     candidateSha256: 'a'.repeat(64),

@@ -120,7 +120,7 @@ function deliver(reqId: string, taskId: string, planVersion = 1): void {
   })
 }
 
-/** 验收必须绑定当前候选的独立验证结论；这里写入可核对的通过证据。 */
+/** 验收必须绑定当前候选的独立测试结论；这里写入可核对的通过证据。 */
 function verify(reqId: string, planVersion = 1): string {
   const plan = runtime.repo.taskPlan(reqId, planVersion)!
   const artifacts = plan.tasks.map((task) =>
@@ -141,7 +141,7 @@ function verify(reqId: string, planVersion = 1): string {
     workspaceSha256: 'tree',
     planReviewSha256: 'plan-review',
     verdict: 'pass',
-    summary: '候选通过独立验证',
+    summary: '候选通过独立测试',
     findings: [],
     blocking: [],
     scenarios: [

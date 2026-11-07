@@ -79,17 +79,17 @@ export class BuildMaterialValidator {
   ): BuildMaterialCheck<{ canonical: Record<string, unknown> }> {
     const { verification, plan } = input
     if (!existsSync(verification.reportPath)) {
-      return this.failure('verification_invalid', '独立验证报告文件缺失；不能构建')
+      return this.failure('verification_invalid', '独立测试报告文件缺失；不能构建')
     }
     const reportText = readFileSync(verification.reportPath, 'utf8')
     if (sha256OfText(reportText) !== verification.reportSha256) {
-      return this.failure('verification_invalid', '独立验证报告摘要与登记不一致；不能构建')
+      return this.failure('verification_invalid', '独立测试报告摘要与登记不一致；不能构建')
     }
     let canonical: Record<string, unknown>
     try {
       canonical = parseJsonObject(reportText)
     } catch {
-      return this.failure('verification_invalid', '独立验证报告不是可解析 JSON；不能构建')
+      return this.failure('verification_invalid', '独立测试报告不是可解析 JSON；不能构建')
     }
     const canonicalCandidate =
       typeof canonical.candidateSha256 === 'string' ? canonical.candidateSha256 : ''
@@ -103,7 +103,7 @@ export class BuildMaterialValidator {
     if (mismatch) {
       return this.failure(
         'verification_invalid',
-        '独立验证报告的候选、需求、方案或工作区身份不一致；不能构建',
+        '独立测试报告的候选、需求、方案或工作区身份不一致；不能构建',
       )
     }
     return { ok: true, value: { canonical } }
@@ -238,20 +238,20 @@ export class BuildMaterialValidator {
     const { verification } = input
     const source = join(verification.evidenceDir, 'workspace')
     if (!existsSync(source)) {
-      return this.failure('verification_workspace_missing', `独立验证工作区不存在：${source}`)
+      return this.failure('verification_workspace_missing', `独立测试工作区不存在：${source}`)
     }
     const tree = requireGit(source, ['rev-parse', 'HEAD^{tree}']).trim()
     if (tree !== verification.workspaceSha256) {
       return this.failure(
         'verification_workspace_invalid',
-        '独立验证工作区的 HEAD 树与验证记录不一致；不能构建',
+        '独立测试工作区的 HEAD 树与测试记录不一致；不能构建',
       )
     }
     const outside = outsideWorkspaceChanges(source)
     if (outside.length > 0) {
       return this.failure(
         'candidate_content_mismatch',
-        `独立验证工作区在验证后出现了受保护改动：${outside.join('、')}`,
+        `独立测试工作区在验证后出现了受保护改动：${outside.join('、')}`,
       )
     }
     const contentMismatch = this.workspaceCandidateMismatch(source, input.candidate, canonical)
@@ -269,7 +269,7 @@ export class BuildMaterialValidator {
       if (applied.code !== 0 || sha256OfText(applied.stdout) !== candidate.diffSha256) {
         return this.failure(
           'candidate_content_mismatch',
-          '验证工作区的候选内容与候选 diff 不一致；不能构建',
+          '测试工作区的候选内容与候选 diff 不一致；不能构建',
         )
       }
       return null
@@ -280,7 +280,7 @@ export class BuildMaterialValidator {
     if (sha256OfText(actual) === recordedContent) return null
     return this.failure(
       'candidate_content_mismatch',
-      '验证工作区的受保护内容与验证记录不一致；不能构建',
+      '测试工作区的受保护内容与测试记录不一致；不能构建',
     )
   }
 }

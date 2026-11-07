@@ -39,7 +39,6 @@ import {
 } from './prompts.js'
 import {
   VERIFICATION_CHECK_TOOL,
-  VERIFICATION_CONTROL_TOOL,
   VERIFICATION_MATERIAL_TOOL,
   VerificationCheckRegistry,
   verificationMaterialsDigest,
@@ -59,7 +58,7 @@ export interface LegacyVerificationDeps {
   now: () => string
   charge: (reqId: string, started: number) => void
   openAgent: (request: AgentOpenRequest) => Promise<AgentSession>
-  /** 验证会话的工具执行上下文；只接受当前候选与当前方案中的命令。 */
+  /** 测试会话的工具执行上下文；只接受当前候选与当前方案中的命令。 */
   checks: VerificationCheckRegistry
 }
 
@@ -71,12 +70,12 @@ export interface LegacyVerifyInput {
   candidate: CandidateFile
   devWorkspace: string
   signal: AbortSignal
-  /** 研发开始前建立的验证会话；方案与业务验收共用它。 */
+  /** 研发开始前建立的测试会话；方案与业务验收共用它。 */
   verification: LegacyVerificationSession
 }
 
 /**
- * 同一验证会话的两段工作：研发交付前生成方案，交付后执行方案并做业务验收。
+ * 同一测试会话的两段工作：研发交付前生成方案，交付后执行方案并做业务验收。
  * 会话在整条推进请求期间保持打开，方案、命令执行与业务验收共享上下文。
  */
 export interface LegacyVerificationSession {
@@ -90,7 +89,7 @@ export class LegacyVerification {
   constructor(private readonly deps: LegacyVerificationDeps) {}
 
   /**
-   * 研发开始前新开验证会话并生成方案。方案只依据需求说明与已准入任务目标，
+   * 研发开始前新开测试会话并生成方案。方案只依据需求说明与已准入任务目标，
    * 不接触候选、diff 或源码；方案失败时不进入研发。
    */
   async openVerification(input: {
@@ -117,7 +116,7 @@ export class LegacyVerification {
       role: AGENT_VERIFY,
       cwd: this.deps.config.projectPath,
       permission: 'workspace-write',
-      allowTools: [VERIFICATION_CHECK_TOOL, VERIFICATION_CONTROL_TOOL, VERIFICATION_MATERIAL_TOOL],
+      allowTools: [VERIFICATION_CHECK_TOOL, VERIFICATION_MATERIAL_TOOL],
     })
     const started = Date.now()
     let plan: VerificationPlan
@@ -139,7 +138,7 @@ export class LegacyVerification {
       })
     } catch (error) {
       await session.close()
-      const detail = `验证方案未取得可用结果：${errorMessage(error)}`
+      const detail = `测试方案未取得可用结果：${errorMessage(error)}`
       return {
         ok: false,
         result: { state: 'block', detail, blocking: [detail], verification: null },
@@ -381,7 +380,7 @@ export class LegacyVerification {
     }
     return {
       state: 'pass',
-      detail: `候选 ${input.candidate.candidateSha256.slice(0, 16)}… 通过独立验证与业务验收（${runs.length} 条命令）`,
+      detail: `候选 ${input.candidate.candidateSha256.slice(0, 16)}… 通过独立测试与业务验收（${runs.length} 条命令）`,
       blocking: [],
       verification,
     }
@@ -659,7 +658,7 @@ export class LegacyVerification {
         this.deps.repo.recordFailureRound(input.reqId, {
           roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-a${input.attempt.number}`,
           stage: FAILURE_VERIFICATION,
-          summary: `独立验证阻断（${kind}）：${blocking.join('；') || result.summary}`.slice(
+          summary: `独立测试阻断（${kind}）：${blocking.join('；') || result.summary}`.slice(
             0,
             1000,
           ),
@@ -670,7 +669,7 @@ export class LegacyVerification {
         ok: false,
         result: {
           state: 'block',
-          detail: `独立验证阻断（${kind}）：${blocking.join('；') || result.summary}；${failureGuidance}；证据 ${verificationPath}`,
+          detail: `独立测试阻断（${kind}）：${blocking.join('；') || result.summary}；${failureGuidance}；证据 ${verificationPath}`,
           blocking,
           verification,
           failureKind: kind,
@@ -728,8 +727,8 @@ export class LegacyVerification {
         ok: false,
         result: {
           state: 'block',
-          detail: `无法从研发现场创建独立验证工作区：${added.stderr.trim() || added.stdout.trim()}`,
-          blocking: ['独立验证工作区创建失败'],
+          detail: `无法从研发现场创建独立测试工作区：${added.stderr.trim() || added.stdout.trim()}`,
+          blocking: ['独立测试工作区创建失败'],
           verification: null,
         },
       }
@@ -745,7 +744,7 @@ export class LegacyVerification {
         ok: false,
         result: {
           state: 'block',
-          detail: `候选 diff 无法应用到独立验证工作区：${applied.stderr.trim() || applied.stdout.trim()}`,
+          detail: `候选 diff 无法应用到独立测试工作区：${applied.stderr.trim() || applied.stdout.trim()}`,
           blocking: ['候选 diff 无法应用'],
           verification: null,
         },
@@ -765,8 +764,8 @@ export class LegacyVerification {
           ok: false,
           result: {
             state: 'block',
-            detail: `验证工作区准备命令失败（退出码 ${prepare.code}）`,
-            blocking: [`验证工作区准备命令失败（退出码 ${prepare.code}）`],
+            detail: `测试工作区准备命令失败（退出码 ${prepare.code}）`,
+            blocking: [`测试工作区准备命令失败（退出码 ${prepare.code}）`],
             verification: null,
           },
         }
@@ -827,7 +826,7 @@ export class LegacyVerification {
     const changes = workspaceChanges(workspace)
     const outside = changes.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
     if (outside.length > 0) {
-      const issue = `验证命令修改了固定候选：${outside.join('、')}`
+      const issue = `测试命令修改了固定候选：${outside.join('、')}`
       if (!issues.includes(issue)) issues.push(issue)
     }
     return { issues, head, changes }
@@ -852,10 +851,10 @@ export class LegacyVerification {
     const started = Date.now()
     const retry = await input.session.send({
       prompt: [
-        '你还没有用验证工具执行下列命令，因此不能给出结论：',
+        '你还没有用测试工具执行下列命令，因此不能给出结论：',
         ...missing.map((label) => `- ${label}`),
         '',
-        '请逐条调用验证工具执行它们（不要新写命令、不要只描述结果），执行完再给出结论。',
+        '请逐条调用测试工具执行它们（不要新写命令、不要只描述结果），执行完再给出结论。',
       ].join('\n'),
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
       transcriptPath: join(input.dir, 'verification-execution-retry.jsonl'),
@@ -863,7 +862,7 @@ export class LegacyVerification {
     })
     this.deps.charge(input.reqId, started)
     if (retry.status !== 'completed') {
-      return { ok: false, detail: `验证命令补充执行未完成：${retry.reason}` }
+      return { ok: false, detail: `测试命令补充执行未完成：${retry.reason}` }
     }
     return { ok: true }
   }
@@ -879,20 +878,20 @@ export class LegacyVerification {
       .filter((check) => !byLabel.has(check.label))
       .map((check) => check.label)
     if (missing.length > 0) {
-      const detail = `验证 Agent 没有通过工具执行方案中的命令：${missing.join('、')}`
+      const detail = `测试 Agent 没有通过工具执行方案中的命令：${missing.join('、')}`
       return { state: 'block', detail, blocking: [detail] }
     }
     if (snapshot.runs.some((run) => run.aborted)) {
       return {
         state: 'block',
-        detail: '独立验证命令被停止；验证工作区可丢弃，可重新验证',
-        blocking: ['独立验证命令被停止'],
+        detail: '独立测试命令被停止；测试工作区可丢弃，可重新验证',
+        blocking: ['独立测试命令被停止'],
       }
     }
     return null
   }
 
-  /** 读取并执行验证会话写下的敏感性对照；材料畸形时 fail-closed。 */
+  /** 读取并执行测试会话写下的敏感性对照；材料畸形时 fail-closed。 */
   private async runSensitivityControls(input: {
     reqId: string
     workspace: string
@@ -920,7 +919,7 @@ export class LegacyVerification {
     return { ok: true, outcome }
   }
 
-  /** 候选固定后、执行前，在同一验证会话里把设计落成命令；失败按尝试留证。 */
+  /** 候选固定后、执行前，在同一测试会话里把设计落成命令；失败按尝试留证。 */
   private async prepareVerificationPlan(input: {
     reqId: string
     analysis: RequirementAnalysis
@@ -949,18 +948,18 @@ export class LegacyVerification {
       this.deps.charge(input.reqId, started)
     }
     if (run.status !== 'completed') {
-      return { ok: false, detail: `验证执行准备未完成：${run.reason}` }
+      return { ok: false, detail: `测试执行准备未完成：${run.reason}` }
     }
     try {
       const plan = parseVerificationCheckPreparation(run.text, input.plan)
       const issues = validateRequirementVerificationPlan(input.analysis, plan)
       if (issues.length > 0) {
-        return { ok: false, detail: `验证执行准备未通过校验：${issues.join('；')}` }
+        return { ok: false, detail: `测试执行准备未通过校验：${issues.join('；')}` }
       }
       writeFileSync(join(input.dir, 'verification-plan.json'), `${JSON.stringify(plan, null, 2)}\n`)
       return { ok: true, plan }
     } catch (error) {
-      return { ok: false, detail: `验证执行准备材料畸形：${errorMessage(error)}` }
+      return { ok: false, detail: `测试执行准备材料畸形：${errorMessage(error)}` }
     }
   }
 
@@ -1067,7 +1066,7 @@ export class LegacyVerification {
         signal: input.signal,
       })
       if (run.status !== 'completed') {
-        const detail = `验证执行未取得结论：${run.reason}`
+        const detail = `测试执行未取得结论：${run.reason}`
         return this.recordBlockedAttempt({
           reqId: input.reqId,
           plan: input.plan,
@@ -1135,7 +1134,7 @@ export class LegacyVerification {
       handle.release()
     }
     if (!snapshot) {
-      const detail = '验证执行上下文在结论前丢失；无法核对命令结果'
+      const detail = '测试执行上下文在结论前丢失；无法核对命令结果'
       return this.recordBlockedAttempt({
         reqId: input.reqId,
         plan: input.plan,
@@ -1199,7 +1198,7 @@ export class LegacyVerification {
       },
       finishedAt: this.deps.now(),
     })
-    // 验证会话可通过对照工具写补丁；没有覆盖关键必过场景时按证据不足阻断。
+    // 测试会话可通过对照工具写补丁；没有覆盖关键必过场景时按证据不足阻断。
     const controlCoverageIssues = validateControlCoverage({
       requiredScenarios: verificationPlan.scenarios
         .filter((scenario) => scenario.required)
@@ -1210,6 +1209,11 @@ export class LegacyVerification {
         commands: scenario.checks.map((check) => check.label),
       })),
       controls: controlOutcome.results,
+      negativeLabels: result.scenarios
+        .filter((scenario) => scenario.status === 'pass')
+        .flatMap((scenario) => scenario.checks)
+        .filter((check) => check.expectFailure === true)
+        .map((check) => check.label),
     })
     const recordedVerification = this.recordAgentVerification({
       reqId: input.reqId,
@@ -1231,7 +1235,7 @@ export class LegacyVerification {
     if (!recordedVerification.ok) return recordedVerification.result
     const verification = recordedVerification.verification
 
-    // 业务验收复用同一个验证会话；模型看到的证据只来自工具真实执行的输出。
+    // 业务验收复用同一个测试会话；模型看到的证据只来自工具真实执行的输出。
     const business = await this.runLegacyBusinessReview({
       reqId: input.reqId,
       requirement: input.requirement,

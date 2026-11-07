@@ -422,10 +422,10 @@ describe('spec coverage across research inputs', () => {
     const analysis = analysisOf()
     expect(validateRequirementVerificationPlan(analysis, verificationPlan(['BP-1']))).toEqual([])
     expect(validateRequirementVerificationPlan(analysis, verificationPlan([]))).toContain(
-      '验证方案缺少必过场景覆盖业务要点：BP-1',
+      '测试方案缺少必过场景覆盖业务要点：BP-1',
     )
     expect(validateRequirementVerificationPlan(analysis, verificationPlan(['BP-9']))).toContain(
-      '验证方案引用了不存在的业务要点：BP-9',
+      '测试方案引用了不存在的业务要点：BP-9',
     )
   })
 

@@ -33,8 +33,8 @@ import { issueStageOf, issueStatusOf } from '../src/records/rows.js'
 
 function evidence(overrides: Record<string, unknown> = {}) {
   return {
-    blocking: ['验证未通过'],
-    summary: '验证失败',
+    blocking: ['测试未通过'],
+    summary: '测试失败',
     commands: [],
     logs: [],
     environment: {
@@ -69,7 +69,7 @@ function issue(overrides: Partial<RequirementIssue> = {}): RequirementIssue {
     attempt: 1,
     stage: ISSUE_STAGE_VERIFICATION,
     status: ISSUE_OPEN,
-    summary: '验证失败',
+    summary: '测试失败',
     evidence: evidence() as RequirementIssue['evidence'],
     verificationSha256: 'b'.repeat(64),
     candidateSha256: 'a'.repeat(64),
@@ -145,7 +145,7 @@ describe('issue domain', () => {
         issueId: '  issue-1  ',
         requirementId: ' req-1 ',
         project: ' demo ',
-        summary: ' 验证失败 ',
+        summary: ' 测试失败 ',
         createdAt: ' 2026-11-04T00:00:00.000Z ',
         updatedAt: ' 2026-11-04T00:00:00.000Z ',
       }),
@@ -154,7 +154,7 @@ describe('issue domain', () => {
       issueId: 'issue-1',
       requirementId: 'req-1',
       project: 'demo',
-      summary: '验证失败',
+      summary: '测试失败',
       attempt: 1,
       stage: ISSUE_STAGE_VERIFICATION,
       status: ISSUE_OPEN,
@@ -211,7 +211,7 @@ describe('issue store', () => {
       store.record(issue({ issueId: 'issue-2', attempt: 2 }))
       store.record(issue({ issueId: 'issue-1', attempt: 1 }))
       store.record(issue({ issueId: 'issue-1', attempt: 1, summary: '覆盖尝试' }))
-      expect(store.get('issue-1')?.summary).toBe('验证失败')
+      expect(store.get('issue-1')?.summary).toBe('测试失败')
       expect(store.get('missing')).toBeNull()
       expect(store.issuesFor('req-1').map((item) => item.issueId)).toEqual(['issue-1', 'issue-2'])
       expect(store.issuesFor('other')).toEqual([])

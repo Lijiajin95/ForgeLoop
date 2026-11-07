@@ -27,7 +27,7 @@ export function parseVerificationMaterials(workspace: string):
   if (!existsSync(commandsPath) || !existsSync(reportPath)) {
     return {
       ok: false,
-      detail: '独立验证未产出命令清单或逐场景报告；需重新验证',
+      detail: '独立测试未产出命令清单或逐场景报告；需重新验证',
     }
   }
   const controlsPath = join(workspace, CONTROLS_FILE)
@@ -42,12 +42,12 @@ export function parseVerificationMaterials(workspace: string):
         : [],
     }
   } catch (error) {
-    return { ok: false, detail: `独立验证材料畸形（fail-closed）：${errorMessage(error)}` }
+    return { ok: false, detail: `独立测试材料畸形（fail-closed）：${errorMessage(error)}` }
   }
 }
 
 /**
- * 正向命令执行时的验证材料身份。冻结脚本/辅助文件内容，避免正向成功后替换脚本
+ * 正向命令执行时的测试材料身份。冻结脚本/辅助文件内容，避免正向成功后替换脚本
  * 再做对照，把“旧结果 + 新脚本”拼成通过证据。元数据与对照补丁不参与，因为它们在
  * 对照阶段本来就会新增；脚本、fixture 等执行材料必须保持同一份。
  */

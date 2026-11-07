@@ -126,7 +126,7 @@ export function businessReviewEvidenceWindow(output: string, window = 4000): str
   return `${output.slice(0, window)}\n…（中间省略 ${output.length - window * 2} 字符）…\n${output.slice(-window)}`
 }
 
-/** 验证 Agent 的合法材料目录；候选受保护内容不含此目录。 */
+/** 测试 Agent 的合法材料目录；候选受保护内容不含此目录。 */
 export const VERIFICATION_MATERIAL_DIR = 'verification/'
 
 /**
@@ -152,7 +152,7 @@ export function workspaceChanges(workspace: string): string[] {
   return [...new Set(paths)].sort()
 }
 
-/** 记录验证材料清单与摘要，使报告能绑定实际存在的材料。 */
+/** 记录测试材料清单与摘要，使报告能绑定实际存在的材料。 */
 export function verificationMaterials(
   dir: string,
 ): Array<{ path: string; sha256: string; bytes: number }> {

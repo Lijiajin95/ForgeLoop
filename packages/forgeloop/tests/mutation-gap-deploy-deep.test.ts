@@ -464,7 +464,7 @@ describe('deployment request validation and approval paths', () => {
   })
 
   it('records a preflight attempt with no tool call and an evidence path when the gate rejects', async () => {
-    const deployments = build({ gate: () => ({ ok: false, reason: '独立验证未通过' }) })
+    const deployments = build({ gate: () => ({ ok: false, reason: '独立测试未通过' }) })
     const requested = await deployments.request({
       targetId: 'owner',
       artifact: artifact(),
@@ -473,7 +473,7 @@ describe('deployment request validation and approval paths', () => {
     expect(requested).toEqual({
       ok: false,
       code: 'preflight_failed',
-      message: '部署门禁未通过：独立验证未通过',
+      message: '部署门禁未通过：独立测试未通过',
     })
     const intentId = deployments.list()[0]!.intentId
     expect(deployments.detail(intentId)?.intent.state).toBe('preflight_failed')
@@ -483,7 +483,7 @@ describe('deployment request validation and approval paths', () => {
       state: 'preflight_failed',
       exitCode: -1,
       resultJson: '',
-      detail: '独立验证未通过',
+      detail: '独立测试未通过',
       toolSha256: '',
     })
     expect(attempt?.evidencePath).toBe(evidenceDir(intentId))

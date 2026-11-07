@@ -1,8 +1,8 @@
 /**
- * 验证 Agent 的结构化输入与输出。
+ * 测试 Agent 的结构化输入与输出。
  *
  * 实现前评审把需求场景、验收标准与技术方案映射成可执行的验证计划；
- * 独立验证对固定候选逐项执行，提交结论、命令与证据。模型自述不构成通过，
+ * 独立测试对固定候选逐项执行，提交结论、命令与证据。模型自述不构成通过，
  * 运行时只接受可解析的结构，并由程序实际执行命令。
  */
 
@@ -159,13 +159,13 @@ export function parsePlanReview(raw: string): PlanReview {
 }
 
 export function parseVerificationCommands(raw: string): VerificationCommand[] {
-  const parsed = parseJsonLoose(raw, '验证命令清单')
-  const data = Array.isArray(parsed) ? { commands: parsed } : asRecord(parsed, '验证命令清单')
+  const parsed = parseJsonLoose(raw, '测试命令清单')
+  const data = Array.isArray(parsed) ? { commands: parsed } : asRecord(parsed, '测试命令清单')
   if (!Array.isArray(data.commands) || data.commands.length === 0) {
-    throw new MalformedError('验证命令清单必须给出至少一条命令')
+    throw new MalformedError('测试命令清单必须给出至少一条命令')
   }
   if (data.commands.length > MAX_VERIFICATION_COMMANDS)
-    throw new MalformedError(`验证命令一次最多 ${MAX_VERIFICATION_COMMANDS} 条`)
+    throw new MalformedError(`测试命令一次最多 ${MAX_VERIFICATION_COMMANDS} 条`)
   const commands = data.commands.map((item, index) => {
     const command = asRecord(item, `commands[${index}]`)
     const argv = stringList(command.argv, `commands[${index}].argv`, false)
@@ -175,24 +175,24 @@ export function parseVerificationCommands(raw: string): VerificationCommand[] {
     }
   })
   if (new Set(commands.map((command) => command.label)).size !== commands.length) {
-    throw new MalformedError('验证命令的 label 不能重复')
+    throw new MalformedError('测试命令的 label 不能重复')
   }
   return commands
 }
 
 export function parseVerificationReport(raw: string): VerificationReport {
-  const data = asRecord(parseJsonLoose(raw, '独立验证报告'), '独立验证报告')
-  const verdict = verdictOf(data.verdict, '独立验证')
+  const data = asRecord(parseJsonLoose(raw, '独立测试报告'), '独立测试报告')
+  const verdict = verdictOf(data.verdict, '独立测试')
   const blocking = stringList(data.blocking, 'blocking', true)
   const findings = stringList(data.findings, 'findings', true)
   if (verdict === 'pass' && blocking.length > 0) {
-    throw new MalformedError('独立验证结论为 pass 时 blocking 必须为空')
+    throw new MalformedError('独立测试结论为 pass 时 blocking 必须为空')
   }
   if (verdict === 'block' && blocking.length === 0) {
-    throw new MalformedError('独立验证结论为 block 时必须给出至少一条阻断原因')
+    throw new MalformedError('独立测试结论为 block 时必须给出至少一条阻断原因')
   }
   if (!Array.isArray(data.scenarios))
-    throw new MalformedError('独立验证报告必须给出 scenarios 数组')
+    throw new MalformedError('独立测试报告必须给出 scenarios 数组')
   const scenarios = data.scenarios.map((item, index) => {
     const scenario = asRecord(item, `scenarios[${index}]`)
     const status = scenario.status
@@ -207,7 +207,7 @@ export function parseVerificationReport(raw: string): VerificationReport {
     } satisfies VerificationScenarioResult
   })
   if (new Set(scenarios.map((scenario) => scenario.scenario)).size !== scenarios.length) {
-    throw new MalformedError('独立验证报告的场景不能重复')
+    throw new MalformedError('独立测试报告的场景不能重复')
   }
   return {
     verdict,
@@ -274,7 +274,7 @@ export function validateVerificationCoverage(
   return issues
 }
 
-/** 程序实际执行的一条验证命令及其结果；只由运行时按执行记录产生。 */
+/** 程序实际执行的一条测试命令及其结果；只由运行时按执行记录产生。 */
 export interface VerificationCommandRun {
   readonly label: string
   readonly exitCode: number | null
@@ -310,14 +310,14 @@ export function validateScenarioEvidence(
     if (result.status !== 'pass') continue
     for (const label of result.commands) {
       if (!byLabel.has(label))
-        issues.push(`场景 ${result.scenario} 引用了未执行的验证命令：${label}`)
+        issues.push(`场景 ${result.scenario} 引用了未执行的测试命令：${label}`)
     }
   }
   for (const item of plan.filter((scenario) => scenario.required)) {
     const result = report.scenarios.find((scenario) => scenario.scenario === item.scenario)
     if (!result || result.status !== 'pass') continue
     if (result.commands.length === 0) {
-      issues.push(`必过场景没有关联验证命令：${item.scenario}`)
+      issues.push(`必过场景没有关联测试命令：${item.scenario}`)
       continue
     }
     const referenced = result.commands
@@ -326,20 +326,20 @@ export function validateScenarioEvidence(
     if (referenced.length === 0) continue
     const executed = referenced.filter((run) => !run.timedOut && !run.aborted && run.exitCode === 0)
     if (executed.length === 0) {
-      issues.push(`必过场景关联的验证命令没有成功执行：${item.scenario}`)
+      issues.push(`必过场景关联的测试命令没有成功执行：${item.scenario}`)
       continue
     }
     if (!executed.some((run) => matchesCommandOutput(run.output, result.evidence))) {
-      issues.push(`必过场景证据无法在验证命令输出中核对：${item.scenario}`)
+      issues.push(`必过场景证据无法在测试命令输出中核对：${item.scenario}`)
     }
   }
   return issues
 }
 
-// ---------------------------------------------------------------- 需求验证方案
+// ---------------------------------------------------------------- 需求测试方案
 
 /**
- * 由需求说明生成的验证方案：每个业务场景都落到可执行命令与判定口径。
+ * 由需求说明生成的测试方案：每个业务场景都落到可执行命令与判定口径。
  * 与实现前评审的 verification_plan 不同，它不依赖任务包或候选，只依据需求说明。
  */
 export type VerificationCheckCategory = 'acceptance' | 'regression' | 'integration' | 'artifact'
@@ -363,7 +363,7 @@ export interface VerificationCheckPlan {
 }
 
 export interface VerificationPlanScenario extends VerificationScenarioPlan {
-  /** 设计阶段允许为空；候选固定后由同一验证会话补齐执行命令。 */
+  /** 设计阶段允许为空；候选固定后由同一测试会话补齐执行命令。 */
   readonly checks?: readonly VerificationCheckPlan[]
 }
 
@@ -372,15 +372,15 @@ export interface VerificationPlan {
 }
 
 /**
- * 解析验证 Agent 产出的方案。结构不合法时 fail-closed：
+ * 解析测试 Agent 产出的方案。结构不合法时 fail-closed：
  * 缺场景、缺命令、label 重复、没有必过场景都按畸形拒绝，不静默补全。
  */
 export function parseRequirementVerificationPlan(raw: string): VerificationPlan {
-  const data = asRecord(parseJsonLoose(raw, '验证方案'), '验证方案')
+  const data = asRecord(parseJsonLoose(raw, '测试方案'), '测试方案')
   if (!Array.isArray(data.scenarios) || data.scenarios.length === 0) {
-    throw new MalformedError('验证方案必须给出至少一个业务场景')
+    throw new MalformedError('测试方案必须给出至少一个业务场景')
   }
-  if (data.scenarios.length > 20) throw new MalformedError('验证方案的场景一次最多 20 个')
+  if (data.scenarios.length > 20) throw new MalformedError('测试方案的场景一次最多 20 个')
   const labels = new Set<string>()
   let totalChecks = 0
   const scenarios = data.scenarios.map((item, index) => {
@@ -394,7 +394,7 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
     const checks = (scenario.checks ?? []).map((rawCheck, checkIndex) => {
       const check = asRecord(rawCheck, `scenarios[${index}].checks[${checkIndex}]`)
       const label = nonEmpty(check.label, `scenarios[${index}].checks[${checkIndex}].label`)
-      if (labels.has(label)) throw new MalformedError(`验证方案的命令 label 不能重复：${label}`)
+      if (labels.has(label)) throw new MalformedError(`测试方案的命令 label 不能重复：${label}`)
       labels.add(label)
       totalChecks += 1
       const expected = check.expected_output ?? check.expectedOutput
@@ -440,12 +440,12 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
     } satisfies VerificationPlanScenario
   })
   if (totalChecks > MAX_VERIFICATION_COMMANDS)
-    throw new MalformedError(`验证方案的命令一次最多 ${MAX_VERIFICATION_COMMANDS} 条`)
+    throw new MalformedError(`测试方案的命令一次最多 ${MAX_VERIFICATION_COMMANDS} 条`)
   if (new Set(scenarios.map((scenario) => scenario.scenario)).size !== scenarios.length) {
-    throw new MalformedError('验证方案的场景不能重复')
+    throw new MalformedError('测试方案的场景不能重复')
   }
   if (!scenarios.some((scenario) => scenario.required)) {
-    throw new MalformedError('验证方案至少要有一个必过场景')
+    throw new MalformedError('测试方案至少要有一个必过场景')
   }
   return { scenarios }
 }
@@ -480,11 +480,11 @@ export function validateExceptionMarkers(
     for (const marker of exceptionMarkers(item)) {
       if (outputs.some((output) => output !== '' && output.includes(marker))) continue
       issues.push(
-        `验证方案缺少异常标记断言：${item}（需要一条命令的 expected_output 包含 ${marker}）`,
+        `测试方案缺少异常标记断言：${item}（需要一条命令的 expected_output 包含 ${marker}）`,
       )
     }
   }
-  // 异常断言必须在临时目录自建输入：依赖候选仓库当前状态会在独立验证里失败，
+  // 异常断言必须在临时目录自建输入：依赖候选仓库当前状态会在独立测试里失败，
   // 也会让“缺失/失败”分支变成与环境耦合的猜测。
   const markers = new Set(exceptions.flatMap((item) => exceptionMarkers(item)))
   for (const scenario of plan.scenarios) {
@@ -493,7 +493,7 @@ export function validateExceptionMarkers(
       if (![...markers].some((marker) => check.expectedOutput.includes(marker))) continue
       if (TEMPDIR_TOKENS.test(check.argv.join(' '))) continue
       if (check.argv.some((arg) => arg.startsWith('verification/'))) continue
-      issues.push(`验证方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：${check.label}`)
+      issues.push(`测试方案的异常断言命令必须自建临时输入（不要依赖候选仓库状态）：${check.label}`)
     }
   }
   return issues
@@ -517,7 +517,7 @@ function exceptionMarkers(text: string): string[] {
 }
 
 /**
- * 验证方案必须逐字覆盖需求说明中的全部业务场景、业务规则、异常与边界和验收标准。
+ * 测试方案必须逐字覆盖需求说明中的全部业务场景、业务规则、异常与边界和验收标准。
  * 非目标只作背景，不参与正向验收。
  */
 function validateStructuredPlanRefs(
@@ -530,11 +530,11 @@ function validateStructuredPlanRefs(
   const knownItems = new Set(items.map((item) => item.id))
   for (const scenario of plan.scenarios) {
     for (const pointId of scenario.pointIds ?? []) {
-      if (!knownPoints.has(pointId)) issues.push(`验证方案引用了不存在的业务要点：${pointId}`)
+      if (!knownPoints.has(pointId)) issues.push(`测试方案引用了不存在的业务要点：${pointId}`)
     }
     for (const acceptanceId of scenario.acceptanceIds ?? []) {
       if (!knownItems.has(acceptanceId)) {
-        issues.push(`验证方案引用了不存在的验收项：${acceptanceId}`)
+        issues.push(`测试方案引用了不存在的验收项：${acceptanceId}`)
       }
     }
   }
@@ -553,7 +553,7 @@ function validateStructuredPlanCoverage(
         (scenario) => scenario.required && (scenario.pointIds ?? []).includes(point.id),
       )
     ) {
-      issues.push(`验证方案缺少必过场景覆盖业务要点：${point.id}`)
+      issues.push(`测试方案缺少必过场景覆盖业务要点：${point.id}`)
     }
   }
   for (const item of items) {
@@ -562,7 +562,7 @@ function validateStructuredPlanCoverage(
         (scenario) => scenario.required && (scenario.acceptanceIds ?? []).includes(item.id),
       )
     ) {
-      issues.push(`验证方案缺少必过场景覆盖验收项：${item.id}`)
+      issues.push(`测试方案缺少必过场景覆盖验收项：${item.id}`)
     }
   }
   return issues
@@ -574,7 +574,7 @@ function acceptanceCategoryIssues(plan: VerificationPlan): string[] {
     .flatMap((scenario) => scenario.checks ?? [])
   if (checks.length === 0) return []
   if (checks.some((check) => (check.category ?? 'acceptance') === 'acceptance')) return []
-  return ['验证方案缺少本次验收（acceptance）检查']
+  return ['测试方案缺少本次验收（acceptance）检查']
 }
 
 const BUILTIN_MODULES = new Set<string>(builtinModules)
@@ -609,7 +609,7 @@ export function validatePlanModuleDependencies(
           ? name.split('/').slice(0, 2).join('/')
           : (name.split('/')[0] ?? name)
         if (installed.has(root)) continue
-        issues.push(`验证方案命令依赖未安装的模块：${root}（${check.label}）`)
+        issues.push(`测试方案命令依赖未安装的模块：${root}（${check.label}）`)
       }
     }
   }
@@ -658,10 +658,10 @@ export function validateRequirementVerificationPlan(
         })
   issues.push(...acceptanceCategoryIssues(plan))
   for (const rule of analysis.businessRules ?? []) {
-    if (!planReferences(plan, rule)) issues.push(`验证方案缺少业务规则：${rule}`)
+    if (!planReferences(plan, rule)) issues.push(`测试方案缺少业务规则：${rule}`)
   }
   for (const item of analysis.exceptions ?? []) {
-    if (!planReferences(plan, item)) issues.push(`验证方案缺少异常与边界：${item}`)
+    if (!planReferences(plan, item)) issues.push(`测试方案缺少异常与边界：${item}`)
   }
   if (plan.scenarios.some((scenario) => (scenario.checks ?? []).length > 0)) {
     issues.push(...validateExceptionMarkers(analysis.exceptions ?? [], plan))
@@ -679,12 +679,12 @@ function lastPreparationPayload(raw: string): unknown {
   let found: unknown
   for (let index = raw.indexOf('{'); index >= 0; index = raw.indexOf('{', index + 1)) {
     try {
-      const value: unknown = parseJsonLoose(raw.slice(index), '验证执行准备')
-      const record = asRecord(value, '验证执行准备')
+      const value: unknown = parseJsonLoose(raw.slice(index), '测试执行准备')
+      const record = asRecord(value, '测试执行准备')
       if (
         Array.isArray(record.scenarios) &&
         record.scenarios.some((item) => {
-          const scenario = asRecord(item, '验证执行准备场景')
+          const scenario = asRecord(item, '测试执行准备场景')
           return Array.isArray(scenario.checks) && scenario.checks.length > 0
         })
       ) {
@@ -694,7 +694,7 @@ function lastPreparationPayload(raw: string): unknown {
       // 继续尝试后面的对象；最后一个可解析的准备结果才是有效输出。
     }
   }
-  if (found === undefined) throw new MalformedError('验证执行准备没有可解析的 scenarios JSON')
+  if (found === undefined) throw new MalformedError('测试执行准备没有可解析的 scenarios JSON')
   return found
 }
 
@@ -706,9 +706,9 @@ export function parseVerificationCheckPreparation(
   raw: string,
   design: VerificationPlan,
 ): VerificationPlan {
-  const data = asRecord(lastPreparationPayload(raw), '验证执行准备')
+  const data = asRecord(lastPreparationPayload(raw), '测试执行准备')
   if (!Array.isArray(data.scenarios)) {
-    throw new MalformedError('验证执行准备必须给出 scenarios 数组')
+    throw new MalformedError('测试执行准备必须给出 scenarios 数组')
   }
   const byScenario = new Map<string, unknown>()
   for (const item of data.scenarios) {
@@ -736,9 +736,9 @@ export function parseVerificationCheckPreparation(
   return parseRequirementVerificationPlan(JSON.stringify(merged))
 }
 
-// ---------------------------------------------------------------- 验证执行结果
+// ---------------------------------------------------------------- 测试执行结果
 
-/** 程序实际执行的一条验证命令；由执行器记录，模型不能伪造。 */
+/** 程序实际执行的一条测试命令；由执行器记录，模型不能伪造。 */
 export interface VerificationCheckRun {
   readonly label: string
   readonly argv: readonly string[]
@@ -753,7 +753,7 @@ export interface VerificationCheckRun {
   readonly output: string
 }
 
-/** 研发 Agent 自验证后交给验证 Agent 的产物身份与独立工作区。 */
+/** 研发 Agent 自验证后交给测试 Agent 的产物身份与独立工作区。 */
 export interface VerificationArtifact {
   readonly requirementVersion: number
   readonly candidateSha256: string
@@ -796,18 +796,18 @@ function outputContains(output: string, expected: string): boolean {
  * 且命令输出包含方案要求的预期片段，才判定 passed；任何报错或问题都 failed。
  */
 function judgeCheck(check: VerificationCheckPlan, run: VerificationCheckRun): string | null {
-  if (run.aborted) return `验证命令被中止：${check.label}`
-  if (run.timedOut) return `验证命令超时：${check.label}`
+  if (run.aborted) return `测试命令被中止：${check.label}`
+  if (run.timedOut) return `测试命令超时：${check.label}`
   if (check.expectFailure) {
     if (run.exitCode === null) return `错误对照没有真实退出码，不能证明其失败：${check.label}`
     if (run.exitCode === 0) return `错误对照预期失败但命令成功：${check.label}`
     return null
   }
   if (run.exitCode !== 0) {
-    return `验证命令失败：${check.label}（退出码 ${run.exitCode === null ? 'null' : run.exitCode}）`
+    return `测试命令失败：${check.label}（退出码 ${run.exitCode === null ? 'null' : run.exitCode}）`
   }
   if (!outputContains(run.output, check.expectedOutput)) {
-    return `验证命令输出缺少预期片段：${check.label}（预期 ${check.expectedOutput}）`
+    return `测试命令输出缺少预期片段：${check.label}（预期 ${check.expectedOutput}）`
   }
   return null
 }
@@ -826,12 +826,12 @@ export function judgeVerificationResult(input: {
     const runs: VerificationCheckRun[] = []
     const issues = (planned.checks ?? []).map((check) => {
       const run = byLabel.get(check.label)
-      if (!run) return `缺少验证命令执行结果：${check.label}`
+      if (!run) return `缺少测试命令执行结果：${check.label}`
       runs.push(run)
       return judgeCheck(check, run)
     })
     if ((planned.checks ?? []).length === 0)
-      issues.push(`验证场景没有可执行命令：${planned.scenario}`)
+      issues.push(`测试场景没有可执行命令：${planned.scenario}`)
     const problems = issues.filter((issue): issue is string => issue !== null)
     failures.push(...problems)
     scenarios.push({
@@ -847,8 +847,8 @@ export function judgeVerificationResult(input: {
     verdict,
     summary:
       verdict === 'passed'
-        ? `验证通过：${scenarios.length} 个业务场景、${input.checks.length} 条命令符合正向/错误对照预期`
-        : `验证失败：${failures[0]}${failures.length > 1 ? ` 等 ${failures.length} 项问题` : ''}`,
+        ? `测试通过：${scenarios.length} 个业务场景、${input.checks.length} 条命令符合正向/错误对照预期`
+        : `测试失败：${failures[0]}${failures.length > 1 ? ` 等 ${failures.length} 项问题` : ''}`,
     artifact: input.artifact,
     scenarios,
     checks: input.checks,

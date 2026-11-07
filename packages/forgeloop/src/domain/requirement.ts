@@ -323,7 +323,7 @@ export function parseJsonLoose(text: string, what: string): unknown {
   const candidate = fenced?.[1]?.trim() ?? text.trim()
   const start = candidate.indexOf('{')
   const end = candidate.lastIndexOf('}')
-  // 模型也可能只返回数组（例如验证命令清单）。数组载荷按方括号取整体，
+  // 模型也可能只返回数组（例如测试命令清单）。数组载荷按方括号取整体，
   // 不能套用对象的花括号切片，否则 [{...}] 会被切成单个对象而丢掉数组语义。
   const arrayStart = candidate.indexOf('[')
   const arrayEnd = candidate.lastIndexOf(']')

@@ -83,7 +83,7 @@ const PLAN = structuredPlanOf({
   ],
 })
 
-/** 需求说明派生的验证方案；命令由运行时在固定候选上实际执行。 */
+/** 需求说明派生的测试方案；命令由运行时在固定候选上实际执行。 */
 const VERIFICATION_PLAN = structuredVerificationOf({
   scenarios: [
     {
@@ -125,7 +125,7 @@ const BUSINESS_REVIEW = structuredReviewOf({
   ],
 })
 
-/** 只走成功路径的确定性执行器：分析、规划、实现、独立验证与业务验收。 */
+/** 只走成功路径的确定性执行器：分析、规划、实现、独立测试与业务验收。 */
 function fakeRunner(): AgentLike {
   const session = (request: AgentOpenRequest) => ({
     sessionId: `session-fl-${request.role}-test`,

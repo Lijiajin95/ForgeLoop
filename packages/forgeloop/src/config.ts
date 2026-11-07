@@ -1305,7 +1305,7 @@ export function planReviewDir(config: ForgeLoopConfig, reqId: string, planVersio
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, 'plan')
 }
 
-/** 验证方案目录：候选生成前按任务包版本固定，供同一验证会话设计与复用。 */
+/** 测试方案目录：候选生成前按任务包版本固定，供同一测试会话设计与复用。 */
 export function verificationPlanDir(
   config: ForgeLoopConfig,
   reqId: string,
@@ -1314,7 +1314,7 @@ export function verificationPlanDir(
   return join(projectDir(config), 'verifications', reqId, `v${planVersion}`, 'plan')
 }
 
-/** 独立验证目录：按候选身份隔离，保留旧候选的验证证据。 */
+/** 独立测试目录：按候选身份隔离，保留旧候选的验证证据。 */
 export function verificationDir(
   config: ForgeLoopConfig,
   reqId: string,

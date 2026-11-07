@@ -100,7 +100,7 @@ const VERIFY_OUTPUT = 'smoke ok: verified'
 
 const VERIFICATION_REPORT = JSON.stringify({
   verdict: 'pass',
-  summary: '候选通过独立验证',
+  summary: '候选通过独立测试',
   findings: [],
   blocking: [],
   scenarios: [
@@ -132,7 +132,7 @@ function fakeRunner(
       }
       if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
         return result(request, PLAN_REVIEW)
-      if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
+      if (request.role === 'verify' && request.prompt.includes('独立测试 Agent')) {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
         writeFileSync(
@@ -1370,7 +1370,7 @@ describe('execution scope, plan freeze and repair loop', () => {
     const base = fakeRunner()
     const runner: AgentLike = {
       async run(request) {
-        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
+        if (request.role === 'verify' && request.prompt.includes('独立测试 Agent')) {
           verifyCalls += 1
           const verification = join(request.cwd, 'verification')
           mkdirSync(verification, { recursive: true })
@@ -1416,9 +1416,9 @@ describe('execution scope, plan freeze and repair loop', () => {
     }
     runtime.close()
     runtime = makeRuntime(runner)
-    const reqId = await prepared('验证失败自动回研发')
+    const reqId = await prepared('测试失败自动回研发')
 
-    // 第一轮验证失败后，同一请求内把问题交回执行角色修复，再重新验证。
+    // 第一轮测试失败后，同一请求内把问题交回执行角色修复，再重新验证。
     const advance = await runQueued('advance', reqId)
     expect(advance.state, advance.detail).toBe('done')
     expect(verifyCalls).toBe(2)

@@ -87,8 +87,8 @@ function safeName(label: string): string {
 }
 
 /**
- * 复制候选到隔离副本：保留 Git 元数据的一份独立仓库，验证命令可检查 git status/diff，
- * 但补丁只能落在副本内。先复制源码与验证材料，再初始化并提交基线，最后应用错误补丁。
+ * 复制候选到隔离副本：保留 Git 元数据的一份独立仓库，测试命令可检查 git status/diff，
+ * 但补丁只能落在副本内。先复制源码与测试材料，再初始化并提交基线，最后应用错误补丁。
  */
 function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): void {
   rmSync(controlDir, { recursive: true, force: true })
@@ -238,7 +238,7 @@ export async function executeVerificationControls(
     input.expectedMaterialsSha256 !== undefined &&
     input.expectedMaterialsSha256 !== verificationMaterialDigest(input.workspace)
   ) {
-    const detail = '验证材料在正向执行后发生变化；旧结果不能与新材料拼成敏感性对照'
+    const detail = '测试材料在正向执行后发生变化；旧结果不能与新材料拼成敏感性对照'
     issues.push(detail)
     return {
       results: [],

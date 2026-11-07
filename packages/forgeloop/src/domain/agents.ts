@@ -31,7 +31,7 @@ const LABELS: Readonly<Record<AgentIdentity, string>> = {
   [AGENT_PRODUCT]: '产品 Agent',
   [AGENT_ORCHESTRATOR]: '主控 Agent',
   [AGENT_DEV]: '研发 Agent',
-  [AGENT_VERIFY]: '验证 Agent',
+  [AGENT_VERIFY]: '测试 Agent',
   [AGENT_OPS]: '运维 Agent',
 }
 

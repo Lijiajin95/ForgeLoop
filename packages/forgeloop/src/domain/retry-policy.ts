@@ -45,7 +45,7 @@ export function retryDecision(facts: RetryFacts): RetryDecision {
   if (!facts.planApproved) return { allowed: false, reason: '任务包尚未批准' }
   if (facts.total === 0) return { allowed: false, reason: '任务包没有任务' }
   if (facts.delivered >= facts.total) {
-    return { allowed: false, reason: '任务已全部交付，下一步是独立验证' }
+    return { allowed: false, reason: '任务已全部交付，下一步是独立测试' }
   }
   if (facts.activeRequest) return { allowed: false, reason: '已有在途请求，等待收口' }
   if (facts.runningTasks > 0) return { allowed: false, reason: '仍有任务在运行' }

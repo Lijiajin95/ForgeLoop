@@ -1,5 +1,5 @@
 /**
- * 系统交付判定：部署执行前复核当前版本、准入、候选、独立验证、业务终审与受控提交。
+ * 系统交付判定：部署执行前复核当前版本、准入、候选、独立测试、业务终审与受控提交。
  * 这是“程序可以继续交付”的事实判定，不是人类验收，也不写 owner 决定。
  */
 
@@ -58,7 +58,7 @@ export function deliveryReadiness(
     build.candidateSha256,
   )
   if (!verification || verification.verdict !== 'pass') {
-    return { ok: false, reason: '独立验证未通过' }
+    return { ok: false, reason: '独立测试未通过' }
   }
   const review = repo.businessReviewForCandidate(reqId, build.planVersion, build.candidateSha256)
   if (!review || review.verdict !== 'pass') {

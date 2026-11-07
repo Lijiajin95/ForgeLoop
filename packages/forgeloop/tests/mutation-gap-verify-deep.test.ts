@@ -27,7 +27,7 @@ import type { PlannedTask, TaskPlan } from '../src/domain/task-plan.js'
 
 /**
  * 验证链路缺口测试：只通过 LegacyVerification / VerificationPipeline 的公开方法、
- * 仓库记录与真实子进程命令观察结论。重点覆盖验证方案解析与覆盖校验、命令超时与失败、
+ * 仓库记录与真实子进程命令观察结论。重点覆盖测试方案解析与覆盖校验、命令超时与失败、
  * 证据核对、候选固定与工作区摘要、未授权与终态守卫、失败轮次与回修问题单。
  */
 
@@ -37,7 +37,7 @@ const CRITERION = '输出证明候选可用'
 const MARKER = 'verified marker ok'
 const CONTROL_FAILURE = 'target rule broken'
 
-/** 读 README 的验证命令：正常候选打印标记；受控错误补丁下按目标规则失败。 */
+/** 读 README 的测试命令：正常候选打印标记；受控错误补丁下按目标规则失败。 */
 const README_CHECK = [
   "const fs = require('node:fs')",
   "const text = fs.readFileSync('README.md', 'utf8')",
@@ -61,7 +61,7 @@ function git(cwd: string, args: string[]): string {
 
 interface FixtureProject {
   dir: string
-  /** 研发工作开始前的基线提交；验证工作区从它固定。 */
+  /** 研发工作开始前的基线提交；测试工作区从它固定。 */
   baseline: string
   /** 基线到研发提交之间的真实 diff。 */
   diffPath: string
@@ -96,7 +96,7 @@ function removeProject(dir: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// LegacyVerification：同一验证会话里的方案、命令执行与业务验收
+// LegacyVerification：同一测试会话里的方案、命令执行与业务验收
 // ---------------------------------------------------------------------------
 
 const LEGACY_REQ = 'req-gap-legacy'
@@ -471,7 +471,7 @@ describe('LegacyVerification plan opening', () => {
     if (opened.ok) throw new Error('unreachable')
     expect(opened.result.state).toBe('block')
     expect(opened.result.verification).toBeNull()
-    expect(opened.result.detail).toContain('验证方案未取得可用结果')
+    expect(opened.result.detail).toContain('测试方案未取得可用结果')
     expect(opened.result.detail).toContain('验证计划缺少业务场景：候选可用')
     expect(opened.result.detail).toContain('验证计划缺少验收标准：输出证明候选可用')
     // 方案修复重试有上限：三次不合格后 fail-closed，且关闭会话、照常计工时。
@@ -536,8 +536,8 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
     expect(outcome.verification).toBeNull()
-    expect(outcome.blocking).toEqual(['独立验证工作区创建失败'])
-    expect(outcome.detail).toContain('无法从研发现场创建独立验证工作区')
+    expect(outcome.blocking).toEqual(['独立测试工作区创建失败'])
+    expect(outcome.detail).toContain('无法从研发现场创建独立测试工作区')
     expect(built.failureRounds).toHaveLength(0)
   })
 
@@ -551,7 +551,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
       expect(outcome.state).toBe('block')
       expect(outcome.verification).toBeNull()
       expect(outcome.blocking).toEqual(['候选 diff 无法应用'])
-      expect(outcome.detail).toContain('候选 diff 无法应用到独立验证工作区')
+      expect(outcome.detail).toContain('候选 diff 无法应用到独立测试工作区')
     } finally {
       rmSync(brokenDir, { recursive: true, force: true })
     }
@@ -562,8 +562,8 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const outcome = await built.verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      detail: '验证执行未取得结论：host timeout',
-      blocking: ['验证执行未取得结论：host timeout'],
+      detail: '测试执行未取得结论：host timeout',
+      blocking: ['测试执行未取得结论：host timeout'],
       failureKind: 'test_error',
     })
     expect(outcome.verification).not.toBeNull()
@@ -576,7 +576,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const built = legacy({ skipCommands: true })
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
-    expect(outcome.detail).toBe('验证 Agent 没有通过工具执行方案中的命令：ok')
+    expect(outcome.detail).toBe('测试 Agent 没有通过工具执行方案中的命令：ok')
     expect(outcome.verification?.failureKind).toBe('test_error')
     expect(built.verifications).toHaveLength(1)
     expect(built.failureRounds).toHaveLength(1)
@@ -589,8 +589,8 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
     expect(outcome.verification?.failureKind).toBe('test_error')
-    expect(outcome.blocking).toEqual(['独立验证命令被停止'])
-    expect(outcome.detail).toBe('独立验证命令被停止；验证工作区可丢弃，可重新验证')
+    expect(outcome.blocking).toEqual(['独立测试命令被停止'])
+    expect(outcome.detail).toBe('独立测试命令被停止；测试工作区可丢弃，可重新验证')
   })
 
   it('classifies a timed-out command as undetermined and never asks for a code repair', async () => {
@@ -620,13 +620,13 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(outcome.state).toBe('block')
     expect(outcome.failureKind).toBe('undetermined')
     expect(outcome.repairRecommended).toBe(false)
-    expect(outcome.detail).toContain('验证命令超时：slow')
+    expect(outcome.detail).toContain('测试命令超时：slow')
     const record = built.verifications[0] as Record<string, unknown>
     expect(record.verdict).toBe('block')
     expect(record.failureKind).toBe('undetermined')
     const report = JSON.parse(readFileSync(String(record.reportPath), 'utf8'))
     expect(report.commands[0]).toMatchObject({ label: 'slow', timedOut: true })
-    expect(report.failureReasons.join('；')).toContain('验证命令超时：slow')
+    expect(report.failureReasons.join('；')).toContain('测试命令超时：slow')
     // undetermined 不是实现缺陷，不累计可修复失败轮次。
     expect(built.failureRounds).toHaveLength(0)
   })
@@ -659,13 +659,13 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(outcome.state).toBe('block')
     expect(outcome.failureKind).toBe('implementation_defect')
     expect(outcome.repairRecommended).toBe(true)
-    expect(outcome.detail).toContain('独立验证阻断（implementation_defect）')
-    expect(outcome.detail).toContain('验证命令失败：smoke（退出码 1）')
+    expect(outcome.detail).toContain('独立测试阻断（implementation_defect）')
+    expect(outcome.detail).toContain('测试命令失败：smoke（退出码 1）')
     const record = built.verifications[0] as Record<string, unknown>
     expect(record.failureKind).toBe('implementation_defect')
     expect(built.failureRounds).toHaveLength(1)
     expect(String(built.failureRounds[0]?.summary)).toContain(
-      '独立验证阻断（implementation_defect）',
+      '独立测试阻断（implementation_defect）',
     )
   })
 
@@ -700,7 +700,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(outcome.state).toBe('block')
     expect(outcome.failureKind).toBe('test_error')
     expect(outcome.repairRecommended).toBe(false)
-    expect(outcome.detail).toContain('验证命令修改了固定候选：docs/extra.md')
+    expect(outcome.detail).toContain('测试命令修改了固定候选：docs/extra.md')
     const record = built.verifications[0] as Record<string, unknown>
     const report = JSON.parse(readFileSync(String(record.reportPath), 'utf8'))
     expect(report.candidateIntegrity.changes).toContain('docs/extra.md')
@@ -714,7 +714,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const outcome = await built.verify()
     expect(outcome.state, outcome.detail).toBe('pass')
     expect(outcome.detail).toContain(
-      `候选 ${LEGACY_CANDIDATE.slice(0, 16)}… 通过独立验证与业务验收（1 条命令）`,
+      `候选 ${LEGACY_CANDIDATE.slice(0, 16)}… 通过独立测试与业务验收（1 条命令）`,
     )
 
     const record = built.verifications[0] as Record<string, unknown>
@@ -883,7 +883,7 @@ function planReviewJson(verdict: 'pass' | 'block' = 'pass'): string {
       {
         scenario: SCENARIO,
         acceptance_criterion: CRITERION,
-        method: '在独立候选上执行验证命令',
+        method: '在独立候选上执行测试命令',
         required: true,
       },
     ],
@@ -897,7 +897,7 @@ function pipelineReport(
 ): Record<string, unknown> {
   return {
     verdict: 'pass',
-    summary: '候选通过独立验证',
+    summary: '候选通过独立测试',
     findings: [],
     blocking: [],
     scenarios: [
@@ -1038,7 +1038,7 @@ function setupPipeline(options: PipelineOptions = {}) {
 
   const runner = {
     async run(request: AgentRunRequest): Promise<AgentRunResult> {
-      if (request.prompt.includes('独立验证 Agent')) {
+      if (request.prompt.includes('独立测试 Agent')) {
         verifyPrompts.push(request.prompt)
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
@@ -1168,7 +1168,7 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome).toEqual({
       state: 'failed',
-      detail: '最新分析依据需求 v2，任务包依据 v1；版本不一致，不能开始独立验证',
+      detail: '最新分析依据需求 v2，任务包依据 v1；版本不一致，不能开始独立测试',
     })
     expect(built.testCalls()).toBe(0)
   })
@@ -1178,7 +1178,7 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome).toEqual({
       state: 'failed',
-      detail: '需求仍有待澄清项；不能开始独立验证',
+      detail: '需求仍有待澄清项；不能开始独立测试',
     })
     expect(built.testCalls()).toBe(0)
   })
@@ -1195,15 +1195,15 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(Date.now() - started).toBeLessThan(4000)
     expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('验证命令失败：slow 超时')
-    expect(outcome.detail).toContain('独立验证阻断（undetermined）')
+    expect(outcome.detail).toContain('测试命令失败：slow 超时')
+    expect(outcome.detail).toContain('独立测试阻断（undetermined）')
     expect(built.reopened).toEqual([])
     const record = repo.verification(PIPE_REQ, 1)
     expect(record?.verdict).toBe('block')
     expect(latestPipelineAttempt(built.identity())?.failureKind).toBe('undetermined')
     const report = JSON.parse(record!.reportJson)
     expect(report.commands[0]).toMatchObject({ label: 'slow', timedOut: true })
-    expect(report.failureReasons.join('；')).toContain('验证命令超时：slow')
+    expect(report.failureReasons.join('；')).toContain('测试命令超时：slow')
     expect(repo.failureRounds(PIPE_REQ)).toHaveLength(1)
     expect(repo.failureRounds(PIPE_REQ)[0]?.stage).toBe('verification')
     expect(pipelineStatus()).toBe('blocked')
@@ -1233,13 +1233,13 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome.state).toBe('repair')
     expect(outcome.detail).toContain('已返回研发修复，任务包 v1 不变')
-    expect(outcome.detail).toContain('独立验证阻断（实现缺陷）')
+    expect(outcome.detail).toContain('独立测试阻断（实现缺陷）')
     expect(built.reopened).toHaveLength(1)
     const problem = built.reopened[0]!
     expect(problem.identity).toBe(built.identity())
     expect(problem.reason).toContain('实现缺陷')
     expect(problem.reason).toContain('业务断言失败：smoke')
-    expect(problem.reason).toContain('预期与用例：候选可用（在独立候选上执行验证命令）')
+    expect(problem.reason).toContain('预期与用例：候选可用（在独立候选上执行测试命令）')
     expect(problem.reason).toContain('日志：smoke:')
     expect(latestPipelineAttempt(built.identity())?.failureKind).toBe('implementation_defect')
     expect(repo.failureRounds(PIPE_REQ)).toHaveLength(1)
@@ -1256,7 +1256,7 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     })
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('独立验证阻断（environment_error）')
+    expect(outcome.detail).toContain('独立测试阻断（environment_error）')
     expect(outcome.detail).toContain('恢复环境后按同一方案复验')
     expect(built.reopened).toEqual([])
     const record = repo.verification(PIPE_REQ, 1)
@@ -1285,7 +1285,7 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     })
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('必过场景证据无法在验证命令输出中核对：候选可用')
+    expect(outcome.detail).toContain('必过场景证据无法在测试命令输出中核对：候选可用')
     const record = repo.verification(PIPE_REQ, 1)
     expect(latestPipelineAttempt(built.identity())?.failureKind).toBe('insufficient_evidence')
     const report = JSON.parse(record!.reportJson)
@@ -1316,8 +1316,8 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     })
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('验证命令修改了固定候选：docs/extra.md')
-    expect(outcome.detail).toContain('独立验证阻断（test_error）')
+    expect(outcome.detail).toContain('测试命令修改了固定候选：docs/extra.md')
+    expect(outcome.detail).toContain('独立测试阻断（test_error）')
     expect(built.reopened).toEqual([])
     const record = repo.verification(PIPE_REQ, 1)
     expect(latestPipelineAttempt(built.identity())?.failureKind).toBe('test_error')
@@ -1368,7 +1368,7 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome).toEqual({
       state: 'failed',
-      detail: `候选 ${identity.slice(0, 16)}… 的独立验证已阻断（尝试 3，environment_error）：环境异常；需修复后产生新候选再验证`,
+      detail: `候选 ${identity.slice(0, 16)}… 的独立测试已阻断（尝试 3，environment_error）：环境异常；需修复后产生新候选再验证`,
     })
     expect(built.testCalls()).toBe(0)
     expect(built.verifyPrompts).toHaveLength(0)

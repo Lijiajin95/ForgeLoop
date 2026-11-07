@@ -621,7 +621,7 @@ describe('build readiness', () => {
     ).toMatchObject({
       ok: false,
       code: 'verification_required',
-      message: '候选没有通过的独立验证；不能构建',
+      message: '候选没有通过的独立测试；不能构建',
     })
     expect(
       (pipeline as any).buildReadiness(delivery({ verification: null }), undefined),
@@ -701,13 +701,13 @@ describe('admitted candidate build', () => {
       validateBuildMaterials: () => ({
         ok: false,
         code: 'verification_invalid',
-        message: '独立验证报告的候选、需求、方案或工作区身份不一致；不能构建',
+        message: '独立测试报告的候选、需求、方案或工作区身份不一致；不能构建',
       }),
     })
     expect(fixture.pipeline.buildCandidate({ reqId: 'req-material', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'verification_invalid',
-      message: '独立验证报告的候选、需求、方案或工作区身份不一致；不能构建',
+      message: '独立测试报告的候选、需求、方案或工作区身份不一致；不能构建',
     })
   })
 

@@ -224,7 +224,7 @@ describe('deployment coordinator', () => {
   })
 
   it('stops before the tool when the gate rejects', async () => {
-    const deployments = build({ gate: () => ({ ok: false, reason: '独立验证未通过' }) })
+    const deployments = build({ gate: () => ({ ok: false, reason: '独立测试未通过' }) })
     const requested = await deployments.request({
       targetId: 'owner',
       artifact: ARTIFACT,
@@ -233,7 +233,7 @@ describe('deployment coordinator', () => {
     expect(requested).toMatchObject({ ok: false, code: 'preflight_failed' })
     const intentId = deployments.list()[0]!.intentId
     expect(deployments.detail(intentId)?.intent.state).toBe('preflight_failed')
-    expect(deployments.detail(intentId)?.attempts[0]?.detail).toContain('独立验证未通过')
+    expect(deployments.detail(intentId)?.attempts[0]?.detail).toContain('独立测试未通过')
   })
 
   it('marks a version mismatch as verify_failed and alerts once', async () => {

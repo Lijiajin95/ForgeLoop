@@ -23,7 +23,7 @@ export const controlAwareFormalTest: typeof runFormalTest = async (request) => {
   return runFormalTest(request)
 }
 
-/** 为当前验证会话登记一份可自检通过的对照，供只关心流程的用例使用。 */
+/** 为当前测试会话登记一份可自检通过的对照，供只关心流程的用例使用。 */
 export async function registerSmokeControl(
   runtime: ForgeLoopRuntime,
   reqId: string,

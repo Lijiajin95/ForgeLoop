@@ -164,7 +164,7 @@ describe('business review coverage validation', () => {
         review: noCommand,
         runs,
       })[0],
-    ).toContain('没有关联验证命令')
+    ).toContain('没有关联测试命令')
 
     const unknownCommand = parseBusinessReview(
       review({
@@ -178,7 +178,7 @@ describe('business review coverage validation', () => {
         review: unknownCommand,
         runs,
       })[0],
-    ).toContain('引用了未执行的验证命令')
+    ).toContain('引用了未执行的测试命令')
   })
 
   it('requires business rules and exception boundaries to be verified item by item', () => {
@@ -225,7 +225,7 @@ describe('business review coverage validation', () => {
         review: noCommand,
         runs,
       })[0],
-    ).toContain('业务终审业务规则没有关联验证命令')
+    ).toContain('业务终审业务规则没有关联测试命令')
 
     const failed = parseBusinessReview(
       review({

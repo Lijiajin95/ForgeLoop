@@ -70,11 +70,11 @@ describe('review facts', () => {
     const report = write('verification.json', 'not json')
     expect(reviewFacts(report)).toEqual({
       ok: false,
-      detail: '独立验证报告无法解析；不能做业务终审',
+      detail: '独立测试报告无法解析；不能做业务终审',
     })
     expect(reviewFacts(join(dir, 'missing.json'))).toEqual({
       ok: false,
-      detail: '独立验证报告无法解析；不能做业务终审',
+      detail: '独立测试报告无法解析；不能做业务终审',
     })
   })
 
@@ -87,12 +87,12 @@ describe('review facts', () => {
     )
     expect(reviewFacts(report)).toEqual({
       ok: false,
-      detail: '独立验证没有可核对的命令输出；不能做业务终审',
+      detail: '独立测试没有可核对的命令输出；不能做业务终审',
     })
     const missingCommands = write('empty.json', JSON.stringify({}))
     expect(reviewFacts(missingCommands)).toEqual({
       ok: false,
-      detail: '独立验证没有可核对的命令输出；不能做业务终审',
+      detail: '独立测试没有可核对的命令输出；不能做业务终审',
     })
   })
 
@@ -105,7 +105,7 @@ describe('review facts', () => {
     )
     expect(reviewFacts(report)).toEqual({
       ok: false,
-      detail: '验证命令 smoke 的日志缺失；不能做业务终审',
+      detail: '测试命令 smoke 的日志缺失；不能做业务终审',
     })
   })
 
@@ -119,7 +119,7 @@ describe('review facts', () => {
     )
     expect(reviewFacts(report)).toEqual({
       ok: false,
-      detail: '验证命令 smoke 的日志摘要不一致；不能做业务终审',
+      detail: '测试命令 smoke 的日志摘要不一致；不能做业务终审',
     })
   })
 })

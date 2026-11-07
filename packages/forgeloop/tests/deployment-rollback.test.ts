@@ -208,7 +208,7 @@ describe('deployment rollback', () => {
     await deploy(deployments, 'plain', v1)
     const intentId = await deploy(deployments, 'plain', v2)
 
-    const rolled = await deployments.rollback(intentId, '验证失败回退')
+    const rolled = await deployments.rollback(intentId, '测试失败回退')
     expect(rolled.ok, rolled.message).toBe(true)
     const detail = deployments.detail(intentId)
     expect(detail?.intent.state).toBe('rolled_back')

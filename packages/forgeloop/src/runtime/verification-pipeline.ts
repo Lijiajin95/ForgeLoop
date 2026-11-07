@@ -123,7 +123,7 @@ export class VerificationPipeline {
       planReviewSha256: input.planReviewSha256,
       verdict: 'block',
       failureKind: classification.kind,
-      summary: '候选无法在当前基线组装，未执行验证命令',
+      summary: '候选无法在当前基线组装，未执行测试命令',
       findings: [],
       blocking: [...classification.reasons],
       scenarios: [],
@@ -158,19 +158,19 @@ export class VerificationPipeline {
     this.deps.repo.recordFailureRound(input.reqId, {
       roundId: `verification-${input.plan.planVersion}-${input.candidateSha256.slice(0, 12)}-a${input.attempt.number}-preflight`,
       stage: FAILURE_VERIFICATION,
-      summary: `独立验证无法组装候选：${classification.reasons.join('；')}`.slice(0, 1000),
+      summary: `独立测试无法组装候选：${classification.reasons.join('；')}`.slice(0, 1000),
       occurredAt: this.deps.now(),
     })
     this.deps.repo.setStatus(
       input.reqId,
       'blocked',
-      `独立验证无法组装候选（候选 ${input.candidateSha256.slice(0, 16)}…，尝试 ${input.attempt.number}）：${classification.reasons.join('；')}`,
+      `独立测试无法组装候选（候选 ${input.candidateSha256.slice(0, 16)}…，尝试 ${input.attempt.number}）：${classification.reasons.join('；')}`,
     )
     return reportPath
   }
 
   /**
-   * 独立验证：把已交付任务的全部 diff 应用成固定候选，交给验证 Agent 在独立目录
+   * 独立测试：把已交付任务的全部 diff 应用成固定候选，交给测试 Agent 在独立目录
    * 编写验证测试并产出命令清单与逐场景报告；程序随后实际执行命令并只看退出码、
    * 日志与必过场景覆盖，模型自述不构成通过。
    */
@@ -188,11 +188,11 @@ export class VerificationPipeline {
     if (!latest) return null
     if (latest.verdict === 'pass') {
       if (!this.verificationMaterialValid(latest)) {
-        return { state: 'failed', detail: '独立验证报告文件缺失或摘要不一致；需重新验证' }
+        return { state: 'failed', detail: '独立测试报告文件缺失或摘要不一致；需重新验证' }
       }
       return {
         state: 'done',
-        detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立验证；等待验收`,
+        detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立测试；等待验收`,
       }
     }
     // 非实现缺陷（用例、环境、证据、争议或原因未明）允许有界复验同一候选；
@@ -204,7 +204,7 @@ export class VerificationPipeline {
     if (retryable) return null
     return {
       state: 'failed',
-      detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立验证已阻断（尝试 ${latest.attemptNumber}，${latest.failureKind || '未分类'}）：${verificationBlocking(latest.reportJson)}；需修复后产生新候选再验证`,
+      detail: `候选 ${candidateSha256.slice(0, 16)}… 的独立测试已阻断（尝试 ${latest.attemptNumber}，${latest.failureKind || '未分类'}）：${verificationBlocking(latest.reportJson)}；需修复后产生新候选再验证`,
     }
   }
 
@@ -396,14 +396,14 @@ export class VerificationPipeline {
         ok: false,
         outcome: {
           state: 'failed',
-          detail: `最新分析依据需求 v${analysis.requirementVersion}，任务包依据 v${plan.requirementVersion}；版本不一致，不能开始独立验证`,
+          detail: `最新分析依据需求 v${analysis.requirementVersion}，任务包依据 v${plan.requirementVersion}；版本不一致，不能开始独立测试`,
         },
       }
     }
     if (analysis.clarifications.length > 0) {
       return {
         ok: false,
-        outcome: { state: 'failed', detail: '需求仍有待澄清项；不能开始独立验证' },
+        outcome: { state: 'failed', detail: '需求仍有待澄清项；不能开始独立测试' },
       }
     }
     const artifacts = this.deps.repo.taskArtifacts(reqId, plan.planVersion)
@@ -415,7 +415,7 @@ export class VerificationPipeline {
         ok: false,
         outcome: {
           state: 'failed',
-          detail: `仍有任务未交付，不能开始独立验证：${missing.map((task) => task.taskId).join('、')}`,
+          detail: `仍有任务未交付，不能开始独立测试：${missing.map((task) => task.taskId).join('、')}`,
         },
       }
     }
@@ -425,7 +425,7 @@ export class VerificationPipeline {
         ok: false,
         outcome: {
           state: 'failed',
-          detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立验证`,
+          detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立测试`,
         },
       }
     }
@@ -515,7 +515,7 @@ export class VerificationPipeline {
     this.deps.repo.setStatus(input.reqId, EXECUTING)
     return {
       state: 'done',
-      detail: `候选 ${input.candidateSha256.slice(0, 16)}… 已通过独立验证（${input.report.scenarios.length} 个场景，${input.commandRuns.length} 条命令）；${businessReview.detail}`,
+      detail: `候选 ${input.candidateSha256.slice(0, 16)}… 已通过独立测试（${input.report.scenarios.length} 个场景，${input.commandRuns.length} 条命令）；${businessReview.detail}`,
     }
   }
 
@@ -655,7 +655,7 @@ export class VerificationPipeline {
     this.deps.repo.recordFailureRound(reqId, {
       roundId: `verification-${plan.planVersion}-${candidateSha256.slice(0, 12)}-a${attempt.number}`,
       stage: FAILURE_VERIFICATION,
-      summary: `独立验证阻断（${kind}）：${blockingText}`.slice(0, 1000),
+      summary: `独立测试阻断（${kind}）：${blockingText}`.slice(0, 1000),
       occurredAt: this.deps.now(),
     })
     const budgetLeft = this.deps.remainingFailureRounds(reqId)
@@ -688,22 +688,22 @@ export class VerificationPipeline {
         this.deps.repo.setStatus(
           reqId,
           'blocked',
-          `独立验证阻断（实现缺陷，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；已返回研发修复（失败轮次 ${rounds}，剩余 ${budgetLeft}）`,
+          `独立测试阻断（实现缺陷，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；已返回研发修复（失败轮次 ${rounds}，剩余 ${budgetLeft}）`,
         )
         return {
           state: 'repair',
-          detail: `独立验证阻断（实现缺陷）：${blockingText}；已返回研发修复，任务包 v${plan.planVersion} 不变；证据 ${input.reportPath}`,
+          detail: `独立测试阻断（实现缺陷）：${blockingText}；已返回研发修复，任务包 v${plan.planVersion} 不变；证据 ${input.reportPath}`,
         }
       }
     }
     this.deps.repo.setStatus(
       reqId,
       'blocked',
-      `独立验证阻断（${kind}，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；失败轮次 ${rounds}${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}；${classification?.guidance ?? ''}`,
+      `独立测试阻断（${kind}，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；失败轮次 ${rounds}${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}；${classification?.guidance ?? ''}`,
     )
     return {
       state: 'failed',
-      detail: `独立验证阻断（${kind}）：${blockingText}；${classification?.guidance ?? ''}；证据 ${input.reportPath}`,
+      detail: `独立测试阻断（${kind}）：${blockingText}；${classification?.guidance ?? ''}；证据 ${input.reportPath}`,
     }
   }
 
@@ -750,11 +750,11 @@ export class VerificationPipeline {
       this.deps.repo.setStatus(
         reqId,
         'blocked',
-        `独立验证 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
+        `独立测试 Agent ${run.status === 'aborted' ? '被停止' : run.status === 'timeout' ? '超时' : '未完成'}：${run.reason}`,
       )
       return {
         ok: false,
-        outcome: { state: 'failed', detail: `独立验证未取得可用结论：${run.reason}` },
+        outcome: { state: 'failed', detail: `独立测试未取得可用结论：${run.reason}` },
       }
     }
     return { ok: true, run }
@@ -819,8 +819,8 @@ export class VerificationPipeline {
     const changed = workspaceChanges(workspace)
     const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
     if (currentHead !== workspaceHead) {
-      this.deps.repo.setStatus(reqId, 'blocked', '独立验证期间候选提交发生变化；需重新验证')
-      return { state: 'failed', detail: '独立验证期间候选提交发生变化（fail-closed）；需重新验证' }
+      this.deps.repo.setStatus(reqId, 'blocked', '独立测试期间候选提交发生变化；需重新验证')
+      return { state: 'failed', detail: '独立测试期间候选提交发生变化（fail-closed）；需重新验证' }
     }
     const outsideVerification = changed.filter(
       (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
@@ -829,11 +829,11 @@ export class VerificationPipeline {
       this.deps.repo.setStatus(
         reqId,
         'blocked',
-        `独立验证修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
+        `独立测试修改了 verification/ 之外的文件：${outsideVerification.join('、')}`,
       )
       return {
         state: 'failed',
-        detail: `独立验证越出独立验证目录（fail-closed）：${outsideVerification.join('、')}`,
+        detail: `独立测试越出独立测试目录（fail-closed）：${outsideVerification.join('、')}`,
       }
     }
 
@@ -883,7 +883,7 @@ export class VerificationPipeline {
         }
       },
     })
-    // 验证命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
+    // 测试命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
     // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
     const integrity = verificationIntegrity(workspace, workspaceHead)
     if (!integrity.ok) return { state: 'failed', detail: integrity.detail }
@@ -927,8 +927,8 @@ export class VerificationPipeline {
   }
 
   /**
-   * 业务终审：验证 Agent 在新会话里按原始需求复核业务场景与验收标准。
-   * 证据必须来自独立验证实际执行的命令输出，不能只复述验证报告。
+   * 业务终审：测试 Agent 在新会话里按原始需求复核业务场景与验收标准。
+   * 证据必须来自独立测试实际执行的命令输出，不能只复述测试报告。
    */
   private businessReviewInputs(reqId: string):
     | {
@@ -970,17 +970,17 @@ export class VerificationPipeline {
     }
     const verification = this.deps.repo.verification(reqId, plan.planVersion)
     if (!verification || verification.verdict !== 'pass') {
-      return { ok: false, detail: '独立验证未通过；不能做业务终审' }
+      return { ok: false, detail: '独立测试未通过；不能做业务终审' }
     }
     const candidateSha256 = this.deps.candidateIdentity(plan, artifacts)
     if (verification.candidateSha256 !== candidateSha256) {
       return {
         ok: false,
-        detail: '独立验证绑定的候选与当前材料不一致；需重新验证后再终审',
+        detail: '独立测试绑定的候选与当前材料不一致；需重新验证后再终审',
       }
     }
     if (!this.verificationMaterialValid(verification)) {
-      return { ok: false, detail: '独立验证报告文件缺失或摘要不一致；不能做业务终审' }
+      return { ok: false, detail: '独立测试报告文件缺失或摘要不一致；不能做业务终审' }
     }
     return { ok: true, requirement, analysis, plan, verification, candidateSha256 }
   }
@@ -1011,7 +1011,7 @@ export class VerificationPipeline {
     }
     return {
       state: 'failed',
-      detail: '业务终审报告缺失、摘要不一致或未绑定当前独立验证；需重新终审',
+      detail: '业务终审报告缺失、摘要不一致或未绑定当前独立测试；需重新终审',
     }
   }
 

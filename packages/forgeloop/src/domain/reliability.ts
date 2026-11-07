@@ -85,8 +85,8 @@ export interface VerificationFact {
 }
 
 /**
- * 首轮验证通过率：每个需求取全历史最早一条验证；只有该条落在窗口内且 pass 才计入分子。
- * 分母是窗口内有验证记录的需求数。需求最早一条在窗口外时，不把窗口内的重试冒充首轮。
+ * 首轮测试通过率：每个需求取全历史最早一条验证；只有该条落在窗口内且 pass 才计入分子。
+ * 分母是窗口内有测试记录的需求数。需求最早一条在窗口外时，不把窗口内的重试冒充首轮。
  */
 export function firstPassVerificationRate(
   facts: readonly VerificationFact[],

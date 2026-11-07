@@ -126,7 +126,7 @@ export class IssueStore {
     return result.changes > 0
   }
 
-  /** 验证通过后收口该需求全部未解决问题单；返回收口数量。 */
+  /** 测试通过后收口该需求全部未解决问题单；返回收口数量。 */
   resolveOpen(reqId: string, now: string): number {
     const result = this.db
       .prepare(

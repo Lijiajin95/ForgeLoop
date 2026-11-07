@@ -145,7 +145,7 @@ describe('control patch validation', () => {
     ])
     expect(validateControlPatch('+++ b//abs.ts')).toEqual(['敏感性对照补丁路径越界：/abs.ts'])
     expect(validateControlPatch('+++ b/verification/check.js')).toEqual([
-      '敏感性对照不能只修改验证材料，必须触及业务实现：verification/check.js',
+      '敏感性对照不能只修改测试材料，必须触及业务实现：verification/check.js',
     ])
     expect(validateControlPatch(patch)).toEqual([])
   })

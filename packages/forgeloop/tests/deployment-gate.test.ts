@@ -171,9 +171,9 @@ describe('candidate deployment gate', () => {
     expect(gate(target(), artifact({ sha256: 'b'.repeat(64) })).ok).toBe(false)
     expect(gate(target(), artifact({ path: '/tmp/other.tgz' })).reason).toContain('路径')
 
-    expect(gate(target(), artifact()).reason).toContain('独立验证')
+    expect(gate(target(), artifact()).reason).toContain('独立测试')
     seedVerification('block')
-    expect(gate(target(), artifact()).reason).toContain('独立验证')
+    expect(gate(target(), artifact()).reason).toContain('独立测试')
     seedVerification('pass')
     expect(gate(target(), artifact()).reason).toContain('业务终审')
     seedReview('block')

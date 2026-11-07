@@ -17,8 +17,8 @@ import { runFormalTest } from '../src/runtime/formal-test.js'
 import { sha256OfText } from '../src/domain/delivery.js'
 
 /**
- * 业务终审：由验证 Agent 在新会话里按原始需求复核关键业务场景与实际结果，
- * 不能只读验证报告；系统判定、模型建议与所有者验收分别记录。
+ * 业务终审：由测试 Agent 在新会话里按原始需求复核关键业务场景与实际结果，
+ * 不能只读测试报告；系统判定、模型建议与所有者验收分别记录。
  */
 
 let dir = ''
@@ -98,7 +98,7 @@ const PLAN_REVIEW = structuredVerificationOf({
     {
       scenario: SCENARIO,
       acceptance_criterion: CRITERION,
-      method: '在独立候选上执行验证命令',
+      method: '在独立候选上执行测试命令',
       required: true,
     },
   ],
@@ -106,7 +106,7 @@ const PLAN_REVIEW = structuredVerificationOf({
 
 const VERIFICATION_REPORT = JSON.stringify({
   verdict: 'pass',
-  summary: '候选通过独立验证',
+  summary: '候选通过独立测试',
   findings: [],
   blocking: [],
   scenarios: [{ scenario: SCENARIO, status: 'pass', evidence: SMOKE_OUTPUT, commands: ['smoke'] }],
@@ -163,7 +163,7 @@ function fakeRunner(
         return result(request, PLAN)
       if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))
         return result(request, PLAN_REVIEW)
-      if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
+      if (request.role === 'verify' && request.prompt.includes('独立测试 Agent')) {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
         writeFileSync(

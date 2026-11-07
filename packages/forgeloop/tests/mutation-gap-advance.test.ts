@@ -167,7 +167,7 @@ function verificationRecord(verdict: 'pass' | 'block'): VerificationRecord {
     verdict,
     reportJson: JSON.stringify({
       verdict,
-      summary: verdict === 'block' ? '独立验证失败' : '独立验证通过',
+      summary: verdict === 'block' ? '独立测试失败' : '独立测试通过',
       findings: [],
       blocking: verdict === 'block' ? ['命令失败'] : [],
       scenarios: [
@@ -202,7 +202,7 @@ function verificationRecord(verdict: 'pass' | 'block'): VerificationRecord {
 function passVerify(): VerifyOutcome {
   return {
     state: 'pass',
-    detail: '独立验证与业务验收通过',
+    detail: '独立测试与业务验收通过',
     blocking: [],
     verification: verificationRecord('pass'),
   }
@@ -305,7 +305,7 @@ function makePipeline(
     verificationPipeline: {
       executeVerification: async () => {
         verificationCalls += 1
-        return verificationOutcomes.shift() ?? { state: 'done', detail: '验证通过' }
+        return verificationOutcomes.shift() ?? { state: 'done', detail: '测试通过' }
       },
     },
     legacyVerification: {
@@ -590,20 +590,20 @@ describe('advance pipeline mutation gaps', () => {
       ok: false,
       result: {
         state: 'block',
-        detail: '验证方案未取得可用结果：验证 Agent 超时',
-        blocking: ['验证方案未取得可用结果：验证 Agent 超时'],
+        detail: '测试方案未取得可用结果：测试 Agent 超时',
+        blocking: ['测试方案未取得可用结果：测试 Agent 超时'],
         verification: null,
       },
     }
 
     const outcome = await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)
 
-    expect(outcome).toEqual({ state: 'failed', detail: '验证方案未取得可用结果：验证 Agent 超时' })
-    expect(statuses).toEqual([['req-1', 'blocked', '验证方案未取得可用结果：验证 Agent 超时']])
+    expect(outcome).toEqual({ state: 'failed', detail: '测试方案未取得可用结果：测试 Agent 超时' })
+    expect(statuses).toEqual([['req-1', 'blocked', '测试方案未取得可用结果：测试 Agent 超时']])
     expect(failureRounds).toHaveLength(1)
     expect(failureRounds[0]).toMatchObject({
       stage: FAILURE_VERIFICATION,
-      summary: '验证方案未取得可用结果：验证 Agent 超时',
+      summary: '测试方案未取得可用结果：测试 Agent 超时',
     })
     expect(String(failureRounds[0]?.roundId)).toMatch(/^verification-plan-/)
     expect(budgetEnsured).toEqual([['req-1', 1200]])
@@ -638,21 +638,21 @@ describe('advance pipeline mutation gaps', () => {
   it('records a failed verification round when no verification material is produced', async () => {
     const pipeline = makePipeline()
     verifyQueue = [
-      { state: 'block', detail: '独立验证报告无法生成', blocking: [], verification: null },
+      { state: 'block', detail: '独立测试报告无法生成', blocking: [], verification: null },
     ]
 
     const outcome = await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)
 
-    expect(outcome).toEqual({ state: 'failed', detail: '独立验证报告无法生成' })
+    expect(outcome).toEqual({ state: 'failed', detail: '独立测试报告无法生成' })
     expect(statuses).toEqual([
       ['req-1', DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验'],
-      ['req-1', VERIFYING, '验证 Agent 正在验证候选 v1'],
-      ['req-1', 'blocked', '独立验证报告无法生成'],
+      ['req-1', VERIFYING, '测试 Agent 正在验证候选 v1'],
+      ['req-1', 'blocked', '独立测试报告无法生成'],
     ])
     expect(failureRounds).toHaveLength(1)
     expect(failureRounds[0]).toMatchObject({
       stage: 'verification',
-      summary: '独立验证报告无法生成',
+      summary: '独立测试报告无法生成',
       occurredAt: NOW,
     })
     expect(String(failureRounds[0]?.roundId)).toMatch(/^verification-prep-/)
@@ -667,7 +667,7 @@ describe('advance pipeline mutation gaps', () => {
     verifyQueue = [
       {
         state: 'block',
-        detail: '验证命令失败',
+        detail: '测试命令失败',
         blocking: ['命令失败', '缺少证据'],
         verification: verificationRecord('block'),
       },
@@ -690,9 +690,9 @@ describe('advance pipeline mutation gaps', () => {
       resolvedAt: '',
     })
     expect(issue.issueId).toMatch(/^issue-20261103100000-[0-9a-f]{6}$/)
-    expect(issue.summary).toBe('独立验证阻断（attempt 1）：命令失败；缺少证据')
+    expect(issue.summary).toBe('独立测试阻断（attempt 1）：命令失败；缺少证据')
     expect(issue.evidence.blocking).toEqual(['命令失败', '缺少证据'])
-    expect(issue.evidence.summary).toBe('独立验证失败')
+    expect(issue.evidence.summary).toBe('独立测试失败')
     expect(issue.evidence.commands).toHaveLength(1)
     expect(issue.evidence.commands[0]).toMatchObject({
       label: 'smoke',
@@ -714,16 +714,16 @@ describe('advance pipeline mutation gaps', () => {
     })
     expect(statuses).toEqual([
       ['req-1', DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验'],
-      ['req-1', VERIFYING, '验证 Agent 正在验证候选 v1'],
+      ['req-1', VERIFYING, '测试 Agent 正在验证候选 v1'],
       [
         'req-1',
         'blocked',
-        `验证未通过，已创建问题单 ${issue.issueId}（attempt 1）：命令失败；缺少证据；问题单已加入研发队列，将自动重新验证`,
+        `测试未通过，已创建问题单 ${issue.issueId}（attempt 1）：命令失败；缺少证据；问题单已加入研发队列，将自动重新验证`,
       ],
     ])
     expect(outcome).toEqual({
       state: 'failed',
-      detail: `验证未通过：命令失败；缺少证据；问题单 ${issue.issueId}（attempt 1）已加入研发队列`,
+      detail: `测试未通过：命令失败；缺少证据；问题单 ${issue.issueId}（attempt 1）已加入研发队列`,
     })
     expect(repairCalls).toEqual([])
     expect(issueUpdates).toEqual([])
@@ -736,7 +736,7 @@ describe('advance pipeline mutation gaps', () => {
     verifyQueue = [
       {
         state: 'block',
-        detail: '验证命令失败',
+        detail: '测试命令失败',
         blocking: ['命令失败', '缺少证据'],
         verification: verificationRecord('block'),
       },
@@ -772,7 +772,7 @@ describe('advance pipeline mutation gaps', () => {
     verifyQueue = [
       {
         state: 'block',
-        detail: '验证命令失败',
+        detail: '测试命令失败',
         blocking: ['命令失败'],
         verification: verificationRecord('block'),
       },
@@ -785,12 +785,12 @@ describe('advance pipeline mutation gaps', () => {
     const issue = issueRecords[0]!
     expect(outcome).toEqual({
       state: 'done',
-      detail: `需求 req-1 已完成研发、独立验证与提交：${SHA.slice(0, 12)}`,
+      detail: `需求 req-1 已完成研发、独立测试与提交：${SHA.slice(0, 12)}`,
     })
     expect(statuses).toEqual([
       ['req-1', DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验'],
-      ['req-1', VERIFYING, '验证 Agent 正在验证候选 v1'],
-      ['req-1', VERIFYING, '验证 Agent 正在验证候选 v2'],
+      ['req-1', VERIFYING, '测试 Agent 正在验证候选 v1'],
+      ['req-1', VERIFYING, '测试 Agent 正在验证候选 v2'],
       ['req-1', COMMITTED, `已提交 ${SHA.slice(0, 12)}`],
     ])
     expect(repairCalls).toHaveLength(1)
@@ -822,9 +822,9 @@ describe('advance pipeline mutation gaps', () => {
 
     expect(outcome).toEqual({
       state: 'failed',
-      detail: '验证未通过且失败额度已用尽：业务场景未通过',
+      detail: '测试未通过且失败额度已用尽：业务场景未通过',
     })
-    expect(statuses.at(-1)).toEqual(['req-1', 'blocked', '验证未通过且失败额度已用尽：场景失败'])
+    expect(statuses.at(-1)).toEqual(['req-1', 'blocked', '测试未通过且失败额度已用尽：场景失败'])
     expect(issueRecords).toEqual([])
     expect(repairCalls).toEqual([])
     expect(failureRounds).toEqual([])
@@ -849,7 +849,7 @@ describe('advance pipeline mutation gaps', () => {
 
     expect(outcome).toEqual({
       state: 'done',
-      detail: `需求 req-1 已完成研发、独立验证与提交：${SHA.slice(0, 12)}`,
+      detail: `需求 req-1 已完成研发、独立测试与提交：${SHA.slice(0, 12)}`,
     })
     expect(repairCalls).toHaveLength(1)
     expect(repairCalls[0]).toMatchObject({ blocking: ['场景失败'], round: 1 })
@@ -996,7 +996,7 @@ describe('advance pipeline mutation gaps', () => {
     const pipeline = makePipeline()
     verificationOutcomes = [
       { state: 'repair', detail: '需要再次验证' },
-      { state: 'failed', detail: '独立验证未通过' },
+      { state: 'failed', detail: '独立测试未通过' },
     ]
 
     const outcome = await pipeline.executeAdvance(
@@ -1005,7 +1005,7 @@ describe('advance pipeline mutation gaps', () => {
       'request-1',
     )
 
-    expect(outcome).toEqual({ state: 'failed', detail: '独立验证未通过' })
+    expect(outcome).toEqual({ state: 'failed', detail: '独立测试未通过' })
     expect(verificationCalls).toBe(2)
     expect(deliverCalls).toHaveLength(4)
     expect(statuses).toEqual([['req-1', EXECUTING, undefined]])

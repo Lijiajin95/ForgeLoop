@@ -540,7 +540,7 @@ describe('owner write endpoints', () => {
     const cases: Array<[Record<string, unknown>, string]> = [
       [{ endpoint: 'plan' }, '重新生成任务包需要 reqId'],
       [{ endpoint: 'advance' }, '推进需要 reqId'],
-      [{ endpoint: 'verify' }, '独立验证需要 reqId'],
+      [{ endpoint: 'verify' }, '独立测试需要 reqId'],
       [{ endpoint: 'requeue' }, '重新执行需要 reqId'],
       [{ endpoint: 'retry-analysis' }, '重新分析需要 reqId'],
       [{ endpoint: 'build' }, '构建候选需要 reqId'],

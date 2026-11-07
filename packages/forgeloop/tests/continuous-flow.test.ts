@@ -121,7 +121,7 @@ const BUSINESS_REVIEW = structuredReviewOf({
   ],
 })
 
-/** 需求说明派生的验证方案；同一个验证会话通过工具执行命令。 */
+/** 需求说明派生的测试方案；同一个测试会话通过工具执行命令。 */
 function verificationPlan(fail = false, outside = false): string {
   const faultCheck =
     "const fs=require('node:fs');if(fs.existsSync('verification-fault.txt')){console.error('target rule broken: fault injected');process.exit(1)}"
@@ -670,7 +670,7 @@ describe('continuous four-Agent flow', () => {
     expect(accepted.ok, accepted.message).toBe(true)
     expect(runtime.repo.acceptance(reqId).accepted_at).not.toBe('')
 
-    // 研发会话不因需求结束而销毁，只回到空闲并留下与会话 ID 关联的总结；验证会话验完即关。
+    // 研发会话不因需求结束而销毁，只回到空闲并留下与会话 ID 关联的总结；测试会话验完即关。
     expect(runner.closedRoles).not.toContain('dev')
     expect(runner.closedRoles).toContain('verify')
     const sessionId = boundSessionId(reqId)
@@ -718,14 +718,13 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state, advance.detail).toBe('done')
 
-    // 方案阶段在同一个验证会话里只读需求说明与已准入任务目标：
-    // 不用标准编码 preset，只暴露执行验证方案命令的工具。
+    // 方案阶段在同一个测试会话里只读需求说明与已准入任务目标：
+    // 不用标准编码 preset，只暴露执行测试方案命令的工具。
     expect(openRequests).toHaveLength(1)
     const openRequest = openRequests[0]!
     expect(openRequest.tools).toBeUndefined()
     expect(openRequest.allowTools).toEqual([
       'forgeloop_run_verification_check',
-      'forgeloop_write_verification_control',
       'forgeloop_write_verification_material',
     ])
     expect(openRequest.cwd).toBe(project)
@@ -860,7 +859,7 @@ describe('continuous four-Agent flow', () => {
         return {
           sessionId: session.sessionId,
           async send(turn) {
-            // 验证方案阶段拿不到可解析的方案：程序按畸形方案阻断，而不是先执行再猜。
+            // 测试方案阶段拿不到可解析的方案：程序按畸形方案阻断，而不是先执行再猜。
             return {
               status: 'completed',
               text: '{}',
@@ -889,7 +888,7 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('验证方案')
+    expect(advance.detail).toContain('测试方案')
     expect(runtime.repo.failureRounds(reqId).length).toBeGreaterThan(0)
   })
 
@@ -957,7 +956,7 @@ describe('continuous four-Agent flow', () => {
       runtime.autoAdvanceRequests()
       const advance = await runNext(reqId, 'advance')
       expect(advance.state).toBe('failed')
-      expect(advance.detail).toMatch(/验证方案|验证命令修改了固定候选|业务终审/)
+      expect(advance.detail).toMatch(/测试方案|测试命令修改了固定候选|业务终审/)
     }
   })
 
@@ -1168,7 +1167,7 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('验证 Agent 没有通过工具执行方案中的命令：smoke')
+    expect(advance.detail).toContain('测试 Agent 没有通过工具执行方案中的命令：smoke')
     const attempts = runtime.repo.verificationsFor(reqId)
     expect(attempts).toHaveLength(1)
     expect(attempts[0]?.verdict).toBe('block')
@@ -1523,7 +1522,7 @@ describe('continuous four-Agent flow', () => {
     })
     const reqId = (submitted.data as { reqId: string }).reqId
     await runNext(reqId, 'analyze')
-    // 默认限额为 0（不限），这里显式设一个已经用尽的 1 秒限额来验证阻断。
+    // 默认限额为 0（不限），这里显式设一个已经用尽的 1 秒限额来测试阻断。
     runtime.repo.ensureBudget(reqId, 1)
     runtime.repo.chargeBudget(reqId, 1)
     runtime.autoAdvanceRequests()
@@ -1888,7 +1887,7 @@ describe('development session routing failures', () => {
     const firstDev = gated.roleTrace.indexOf('dev')
     const secondDev = gated.roleTrace.indexOf('dev', firstDev + 1)
     expect(secondDev).toBeGreaterThan(firstDev)
-    // 验证会话在研发前生成方案、交付后才执行与验收；研发会话不因结束而关闭。
+    // 测试会话在研发前生成方案、交付后才执行与验收；研发会话不因结束而关闭。
     expect(gated.roleTrace.lastIndexOf('verify')).toBeGreaterThan(secondDev)
     expect(gated.closedRoles).toContain('verify')
     expect(gated.closedRoles).not.toContain('dev')

@@ -232,7 +232,7 @@ function devHost(options: {
   return { ctx, turns, attempts: () => taskAttempts }
 }
 
-/** 非研发身份：产品分析、验证方案、工具执行与业务验收都用确定性脚本回答。 */
+/** 非研发身份：产品分析、测试方案、工具执行与业务验收都用确定性脚本回答。 */
 function otherRoles(runtimeOf: () => ForgeLoopRuntime): AgentLike {
   const reply = (
     request: { role: string; transcriptPath?: string },

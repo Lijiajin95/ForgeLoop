@@ -12,11 +12,7 @@ import type { MonitorSnapshot } from './monitor.js'
 import { MalformedError } from '../domain/errors.js'
 import { inputKindOf, parseJsonLoose } from '../domain/requirement.js'
 import { hasStructuredSpec } from '../domain/spec.js'
-import {
-  VERIFICATION_CHECK_TOOL,
-  VERIFICATION_CONTROL_TOOL,
-  VERIFICATION_MATERIAL_TOOL,
-} from './verification-checks.js'
+import { VERIFICATION_CHECK_TOOL, VERIFICATION_MATERIAL_TOOL } from './verification-checks.js'
 import { BUSINESS_CONTEXT_DOC } from '../domain/analysis.js'
 import type { ClarificationAnswer, ClarificationQuestion } from '../domain/analysis.js'
 
@@ -655,13 +651,13 @@ ${plan.tasks
   .join('\n')}`
 }
 
-/** 实现前评审：把业务场景与技术方案映射为独立验证计划。 */
+/** 实现前评审：把业务场景与技术方案映射为独立测试计划。 */
 export function planReviewPrompt(input: {
   requirement: Requirement
   analysis: RequirementAnalysis
   plan: TaskPlan
 }): string {
-  return `你是 ForgeLoop 的验证 Agent，正在做实现前评审。你只依据下面的事实判断，不要臆造未出现的代码、目录或风险。你没有可用工具：不要尝试读取或修改任何文件。
+  return `你是 ForgeLoop 的测试 Agent，正在做实现前评审。你只依据下面的事实判断，不要臆造未出现的代码、目录或风险。你没有可用工具：不要尝试读取或修改任何文件。
 
 ${requirementContext(input.requirement)}
 
@@ -679,7 +675,7 @@ ${planContext(input.plan)}
     {
       "scenario": "与分析中的业务场景或验收标准对应的原文或明确映射",
       "acceptance_criterion": "对应的可检查验收标准",
-      "method": "独立验证时如何执行：前置条件、操作、预期结果与证据",
+      "method": "独立测试时如何执行：前置条件、操作、预期结果与证据",
       "required": true
     }
   ]
@@ -694,7 +690,7 @@ ${inputKindOf(input.analysis) === 'problem' ? '- 这是问题输入：只要求�
 - 只输出 JSON。`
 }
 
-/** 独立验证：对固定候选执行验证计划，写命令清单与逐场景报告。 */
+/** 独立测试：对固定候选执行验证计划，写命令清单与逐场景报告。 */
 export function verificationPrompt(input: {
   requirement: Requirement
   analysis: RequirementAnalysis
@@ -706,7 +702,7 @@ export function verificationPrompt(input: {
   diff: string
 }): string {
   const review = input.planReview
-  return `你是 ForgeLoop 的独立验证 Agent。候选已经固定，你只验证它，不修改它。你可以使用工具，但只能新增或修改当前工作目录下 \`verification/\` 目录里的文件；不得修改 \`verification/\` 之外的任何文件、不得执行 git commit/push、不得修改生产环境。
+  return `你是 ForgeLoop 的独立测试 Agent。候选已经固定，你只验证它，不修改它。你可以使用工具，但只能新增或修改当前工作目录下 \`verification/\` 目录里的文件；不得修改 \`verification/\` 之外的任何文件、不得执行 git commit/push、不得修改生产环境。
 
 ${requirementContext(input.requirement)}
 
@@ -725,7 +721,7 @@ ${JSON.stringify(review.verificationPlan, null, 2)}
 候选 diff：
 ${input.diff || '（空 diff）'}
 
-请完成独立验证，并只输出 JSON 对象：
+请完成独立测试，并只输出 JSON 对象：
 {
   "verdict": "pass" 或 "block",
   "summary": "一句话结论",
@@ -754,7 +750,7 @@ ${input.diff || '（空 diff）'}
 - 必过场景必须实际执行并以 pass 出现在 scenarios 中；evidence 必须能在所引用命令的输出里逐字核对，模型自述或无关命令退出 0 不算证据，程序会重跑命令并用退出码判定。
 - commands 只能引用 commands.json 里的 label；引用不存在的命令、无法核对的 evidence 都会判阻断。
 - 只打印固定文字、不调用业务入口、不检查返回值/持久状态的用例不能作为通过证据；必须让测试覆盖实际业务入口，并让受控错误实现能够使它失败。
-- 验证测试和辅助脚本只能放在 \`verification/\`；验证命令也不得修改候选源码、测试或配置，否则按候选被篡改阻断。
+- 验证测试和辅助脚本只能放在 \`verification/\`；测试命令也不得修改候选源码、测试或配置，否则按候选被篡改阻断。
 - 若候选未满足需求，如实判 block 并给出可复现步骤、预期、实际结果与证据。
 - verdict=pass 时 blocking 必须为空；verdict=block 时至少给出一条 blocking。
 - 只输出报告 JSON；文件内容必须与之一致。`
@@ -787,9 +783,9 @@ ${requirementContext(requirement)}
    程序会自行采集 diff。
 2. 计划中的文件清单只是预期说明：实现确实需要时可以改动当前项目内的其他文件。
 3. 不要改动版本号（如 package.json 的 version），除非任务明确要求并已获得所有者许可。
-4. 完成实现后做研发自验证：先运行上面的正式测试命令（白盒检查），再从业务用户视角补充黑盒检查；自验证失败要修到通过或如实说明，不能伪造结果。
+4. 完成实现后做研发自验证：先运行上面的正式测试命令（白盒检查），再从业务用户视角补充黑盒检查；自测试失败要修到通过或如实说明，不能伪造结果。
 5. 如果这是 BUG 修复或关键业务行为，必须保留“修复前目标行为失败、修复后通过”的红灯/绿灯证据；文档或低风险改动可以按影响选择检查。
-6. 根据本次代码 diff 的实际风险，自行决定后续是否需要独立验证：低风险、证据充分时可选 self；涉及关键行为、跨模块、数据或环境变化时选 independent。你不需要描述独立验证怎么做。
+6. 根据本次代码 diff 的实际风险，自行决定后续是否需要独立测试：低风险、证据充分时可选 self；涉及关键行为、跨模块、数据或环境变化时选 independent。你不需要描述独立测试怎么做。
 7. 如果遇到无法通过调查确认的业务预期，不要猜；在 needs_clarification 中提出具体问题，交给产品澄清。
    只针对需求本身的业务预期提问；如果是你自己引入的实现细节（例如某个定时器是否 unref、内部函数怎么拆），按需求里的验收标准自行决定，不要占用澄清。
 8. 不得部署、发布、安装到任何正式 profile、修改正式环境或生产数据；部署与发布只能由所有者在受控入口显式执行。
@@ -1003,7 +999,7 @@ ${(scenario.checks ?? [])
 }
 
 /**
- * 产物交付后的验证执行提示词：同一个验证会话通过工具逐条执行方案里的命令。
+ * 产物交付后的测试执行提示词：同一个测试会话通过工具逐条执行方案里的命令。
  * 工具只执行方案内的 label，退出码与输出由程序记录。
  */
 /** 候选固定后的执行准备：只读公开接口，把设计场景落成可执行命令。 */
@@ -1023,7 +1019,7 @@ export function verificationPreparationPrompt(input: {
 覆盖：${[...(scenario.pointIds ?? []), ...(scenario.acceptanceIds ?? [])].join('、') || '（旧文本覆盖）'}`,
     )
     .join('\n')
-  return `你是 ForgeLoop 的验证 Agent。候选已经固定。现在只做执行准备：依据下面研发前固定的业务设计，以及候选工程公开的只读接口，准备稍后由运行时执行的命令；不要执行命令、不要读取源码、不要修改任何文件。
+  return `你是 ForgeLoop 的测试 Agent。候选已经固定。现在只做执行准备：依据下面研发前固定的业务设计，以及候选工程公开的只读接口，准备稍后由运行时执行的命令；不要执行命令、不要读取源码、不要修改任何文件。
 
 需求身份：${input.reqId}
 候选：${input.candidateSha256}
@@ -1035,12 +1031,12 @@ ${design}
 ${input.interfaceFacts.map((fact) => `- ${fact}`).join('\n') || '- （未发现 package.json scripts 或根目录说明）'}
 
 只输出一个 JSON 对象：
-{"scenarios":[{"scenario":"设计里的场景原文","checks":[{"label":"全局唯一标签","argv":["可执行程序","参数"],"expected_output":"输出中逐字出现的片段，可省略","category":"acceptance"}]}]}
+{"scenarios":[{"scenario":"设计里的场景原文","checks":[{"label":"全局唯一标签","argv":["可执行程序","参数"],"expected_output":"输出中逐字出现的片段，可省略","category":"acceptance","expect_failure":false}]}]}
 
 规则：
-- 每个场景必须原样返回，checks 覆盖该场景的预期；必过场景至少一条 acceptance 检查，其余可用 regression、integration、artifact。
+- 每个场景必须原样返回，checks 覆盖该场景的预期；每个必过场景至少一条正向 acceptance 检查，并至少一条 \`expect_failure: true\` 的错误对照。错误对照用无效输入、缺失依赖或越权操作触发，必须真实非零退出；不得读取或修改源码来制造失败。
 - 命令总数 1 到 10 条，label 全局唯一；优先引用公开 scripts、bin 或已有测试入口，不按实现细节猜内部函数。
-- 命令不得交互、联网或修改候选；需要脚本时先用验证材料工具写入 \`verification/\`，再在 argv 引用。
+- 命令不得交互、联网或修改候选；需要脚本时先用测试材料工具写入 \`verification/\`，再在 argv 引用。
 - 候选工作区是已提交的固定快照，\`git status\` 干净；范围检查应与基线提交比较，不能依赖未提交改动。
 - 异常/边界断言必须自建临时输入，不能依赖候选仓库当前状态。
 - 执行准备结果会与研发前设计合并，编号和原文不得改写。`
@@ -1056,35 +1052,33 @@ export function verificationExecutionPrompt(input: {
   const labels = input.plan.scenarios.flatMap((scenario) =>
     (scenario.checks ?? []).map((check) => check.label),
   )
-  return `你是 ForgeLoop 的验证 Agent。研发产物已交付并固定在独立候选工作区。你必须使用工具 ${VERIFICATION_CHECK_TOOL} 逐条执行下面的验证方案；工具只在固定候选上执行方案里的 argv，并返回真实退出码与输出。
+  return `你是 ForgeLoop 的测试 Agent。研发产物已交付并固定在独立候选工作区。你必须使用工具 ${VERIFICATION_CHECK_TOOL} 逐条执行下面的测试方案；工具只在固定候选上执行方案里的 argv，并返回真实退出码与输出。
 
 需求身份：${input.reqId}
-验证会话：${input.sessionId ?? '（未知）'}
+测试会话：${input.sessionId ?? '（未知）'}
 验证尝试：${input.attemptId ?? '（未知）'}
 候选：${input.candidateSha256}
 
-验证方案：
+测试方案：
 ${verificationPlanContext(input.plan)}
 
 执行要求：
-- **执行顺序固定**：先准备全部材料与对照，再执行任何正向命令。第一条命令执行后不得再改 \`verification/\` 下的脚本、输入或对照补丁；否则同一 label 的正向结果与对照会因材料版本不一致而失效。
+- **执行顺序固定**：先准备全部测试脚本与输入，再执行任何命令。第一条命令执行后不得再改 \`verification/\` 下的脚本或输入；否则同一次测试会因材料版本不一致而失效。
 - 需要验证脚本时，先用 ${VERIFICATION_MATERIAL_TOOL} 写到 \`verification/\` 下（例如 \`verification/check_doc.js\`，参数含 req_id、session_id、attempt_id、path、content），把本轮要用的脚本和输入一次性写完；不能用普通文件工具，也不能写候选源码。
-- **必须至少调用一次** ${VERIFICATION_CONTROL_TOOL} 为关键必过场景登记敏感性对照（验收主路径优先）；命令内部自己复制并变异文件的“对照”不算，运行时只承认通过该工具登记并自检通过的补丁：调用 ${VERIFICATION_CONTROL_TOOL}，参数 req_id 为 "${input.reqId}"、session_id 为 "${input.sessionId ?? ''}"、attempt_id 为 "${input.attemptId ?? ''}"、label 为对应命令、patch 为统一 diff、expected_failure_output 为受控错误实现下必须出现的失败原文（至少 8 个字符）。
-- 对照自检通过后，再对方案中的每个 label 各调用一次 ${VERIFICATION_CHECK_TOOL}，参数 req_id 为 "${input.reqId}"、session_id 为 "${input.sessionId ?? ''}"、attempt_id 为 "${input.attemptId ?? ''}"、label 为对应标签；不得跳过、合并、改写命令或临时新增命令。
+- 方案中的错误对照（\`expect_failure: true\`）必须真实返回非零；正向检查必须真实返回 0。两种检查都通过工具执行，不能用文字或静态阅读代替。
+- 对方案中的每个 label 各调用一次 ${VERIFICATION_CHECK_TOOL}，参数 req_id 为 "${input.reqId}"、session_id 为 "${input.sessionId ?? ''}"、attempt_id 为 "${input.attemptId ?? ''}"、label 为对应标签；不得跳过、合并、改写命令或临时新增命令。
 - 共 ${labels.length} 条命令：${labels.join('、')}。全部执行完再给出结论；工具报错时不要伪造输出，如实说明并以工具返回为准。
 - 验证脚本必须与候选工程一致：工程 \`package.json\` 有 \`"type": "module"\` 时用 ESM（\`import\`，或改用 \`.cjs\`）；不要在被当作 ESM 的 \`.js\` 里用 \`require\`，否则脚本自身就会报错、白跑一轮。
-- 对照补丁必须是可直接应用的统一 diff（\`--- a/<path>\`、\`+++ b/<path>\`、至少一行 \`+\` 或 \`-\`），只修改 \`verification/\` 之外的业务文件，并让同一命令按目标业务规则失败；程序会应用到隔离副本后重跑，正式候选不被修改。
-- 工具会立即返回受控副本的真实退出码与输出并做自检；失败时该对照会被撤销，必须按返回的实际输出修正 patch 或 expected_failure_output 后对同一 label 重新调用，直到自检通过。
 - 候选工作区是已提交的固定快照，\`git status\` 应当干净；核对改动范围时使用 \`git show --stat HEAD\` 或与基线提交比较，不能期待未提交改动。
-- 不要修改任何候选文件，不要调用上述两个验证工具以外的工具。
+- 不要修改任何候选文件，不要调用上述测试工具以外的工具。
 - 完成后只输出一个 JSON 对象：{"executed": ["按实际执行顺序列出 label"], "summary": "一句话说明执行结果"}
 - 只输出 JSON。`
 }
 
 /**
- * 业务验收提示词：验证 Agent 在同一验证会话里按原始需求、业务规则与异常边界复核业务结果。
- * 只提供需求、分析、任务与同一会话通过工具实际执行的命令输出；不提供验证报告结论，
- * 避免把“验证 Agent 说通过”当作业务复核依据。
+ * 业务验收提示词：测试 Agent 在同一测试会话里按原始需求、业务规则与异常边界复核业务结果。
+ * 只提供需求、分析、任务与同一会话通过工具实际执行的命令输出；不提供测试报告结论，
+ * 避免把“测试 Agent 说通过”当作业务复核依据。
  */
 export function businessReviewPrompt(input: {
   requirement: Requirement
@@ -1125,7 +1119,7 @@ export function businessReviewPrompt(input: {
     points.length > 0
       ? `\n结构化业务要点（业务验收必须逐条按编号核对）：\n${points}\n可观察验收：\n${acceptanceItems || '（无）'}`
       : ''
-  return `你是 ForgeLoop 的验证 Agent，现在做业务验收。你只能依据验证方案与下面实际执行的命令输出判断，不要臆造未提供的运行结果。
+  return `你是 ForgeLoop 的测试 Agent，现在做业务验收。你只能依据测试方案与下面实际执行的命令输出判断，不要臆造未提供的运行结果。
 
 ${requirementContext(input.requirement)}
 
@@ -1145,10 +1139,10 @@ ${(Array.isArray(input.analysis.acceptanceCriteria) ? input.analysis.acceptanceC
 已准入任务包 v${input.plan.planVersion}：
 ${tasks}
 
-${input.verificationPlan ? `同一会话执行的验证方案：\n${verificationPlanContext(input.verificationPlan)}\n\n` : ''}候选身份：${input.candidateSha256}
+${input.verificationPlan ? `同一会话执行的测试方案：\n${verificationPlanContext(input.verificationPlan)}\n\n` : ''}候选身份：${input.candidateSha256}
 
-同一会话通过工具实际执行的命令（真实退出码与输出，不是验证 Agent 的结论）：
-${commands || '（没有可用的验证命令输出）'}
+同一会话通过工具实际执行的命令（真实退出码与输出，不是测试 Agent 的结论）：
+${commands || '（没有可用的测试命令输出）'}
 
 请按原始需求逐项复核业务场景、验收标准、业务规则与异常边界，只输出一个 JSON 对象：
 {
@@ -1201,8 +1195,8 @@ ${commands || '（没有可用的验证命令输出）'}
 
 规则：
 - 有结构化业务要点时，每个业务要点必须出现在 points 中并按编号核对；旧需求没有业务要点时，每个业务场景、验收标准、业务规则和异常边界都必须出现。所有条目都要引用实际执行的命令与可在其输出中逐字核对的证据；非目标不是验收项。
-- 不能只复述验证 Agent 的结论，也不能用“代码看起来正确”“测试通过”代替业务结果；缺证据就判 not_verified。
+- 不能只复述测试 Agent 的结论，也不能用“代码看起来正确”“测试通过”代替业务结果；缺证据就判 not_verified。
 - verdict=pass 时 blocking 必须为空；verdict=block 时至少一条 blocking。
-- 这是验证 Agent 的业务判断，不是所有者验收；不要声称或伪造所有者批准。
+- 这是测试 Agent 的业务判断，不是所有者验收；不要声称或伪造所有者批准。
 - 只输出 JSON。`
 }

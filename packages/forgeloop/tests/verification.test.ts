@@ -39,7 +39,7 @@ import {
 } from './spec-fixture.js'
 
 /**
- * 验证 Agent 的门禁测试：实现前评审决定能否批准，独立验证决定能否验收。
+ * 测试 Agent 的门禁测试：实现前评审决定能否批准，独立测试决定能否验收。
  * 这里既固定纯解析/覆盖规则，也走真实的候选副本与命令执行，避免只测模型自述。
  */
 
@@ -142,7 +142,7 @@ function verificationReportOf(
 ): string {
   return JSON.stringify({
     verdict: options.verdict ?? 'pass',
-    summary: '候选通过独立验证',
+    summary: '候选通过独立测试',
     findings: [],
     blocking: options.verdict === 'block' ? ['候选未满足需求'] : [],
     scenarios: [
@@ -187,7 +187,7 @@ function fakeRunner(
           options.verifyPlan ? options.verifyPlan(reviewAttempt) : planReviewOf('pass'),
         )
       }
-      if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
+      if (request.role === 'verify' && request.prompt.includes('独立测试 Agent')) {
         const workspaceOptions = options.workspace ?? {}
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
@@ -1070,7 +1070,7 @@ describe('pre-implementation review gate', () => {
                   {
                     scenario: SCENARIO,
                     acceptance_criterion: CRITERION,
-                    method: '在独立候选上执行验证命令',
+                    method: '在独立候选上执行测试命令',
                     required: true,
                   },
                   {
@@ -1155,7 +1155,7 @@ describe('coverage acceptance of wording variance', () => {
           {
             scenario: `${SCENARIO}（覆盖依赖顺序）`,
             acceptance_criterion: `${CRITERION}；并核对两个任务的交付证据`,
-            method: '在独立候选上执行验证命令',
+            method: '在独立候选上执行测试命令',
             required: true,
           },
         ],
@@ -1177,7 +1177,7 @@ describe('coverage acceptance of wording variance', () => {
           {
             scenario: '依赖按顺序完成',
             acceptance_criterion: '两个任务都交付了',
-            method: '在独立候选上执行验证命令',
+            method: '在独立候选上执行测试命令',
             required: true,
           },
         ],
@@ -1199,7 +1199,7 @@ describe('coverage acceptance of wording variance', () => {
           {
             scenario: '任务按依赖   完成',
             acceptance_criterion: '两个任务交付且测试通过',
-            method: '在独立候选上执行验证命令',
+            method: '在独立候选上执行测试命令',
             required: true,
           },
         ],
@@ -1258,8 +1258,8 @@ describe('verification result judgement', () => {
     })
     expect(result.verdict).toBe('failed')
     expect(result.failures).toEqual([
-      '验证命令超时：slow',
-      '验证命令输出缺少预期片段：noisy（预期 READY）',
+      '测试命令超时：slow',
+      '测试命令输出缺少预期片段：noisy（预期 READY）',
     ])
   })
 
@@ -1271,7 +1271,7 @@ describe('verification result judgement', () => {
       finishedAt,
       checks: [run({ label: 'noisy', output: 'READY' })],
     })
-    expect(missing.failures).toEqual(['缺少验证命令执行结果：slow'])
+    expect(missing.failures).toEqual(['缺少测试命令执行结果：slow'])
 
     const aborted = judgeVerificationResult({
       plan,
@@ -1280,7 +1280,7 @@ describe('verification result judgement', () => {
       finishedAt,
       checks: [run({ label: 'slow', aborted: true }), run({ label: 'noisy', output: 'READY' })],
     })
-    expect(aborted.failures).toEqual(['验证命令被中止：slow'])
+    expect(aborted.failures).toEqual(['测试命令被中止：slow'])
 
     const unknown = judgeVerificationResult({
       plan,
@@ -1289,7 +1289,7 @@ describe('verification result judgement', () => {
       finishedAt,
       checks: [run({ label: 'slow', exitCode: null }), run({ label: 'noisy', output: 'READY' })],
     })
-    expect(unknown.failures).toEqual(['验证命令失败：slow（退出码 null）'])
+    expect(unknown.failures).toEqual(['测试命令失败：slow（退出码 null）'])
 
     const empty = judgeVerificationResult({
       plan: {
@@ -1300,7 +1300,7 @@ describe('verification result judgement', () => {
       finishedAt,
       checks: [],
     })
-    expect(empty.failures).toEqual([`验证场景没有可执行命令：${SCENARIO}`])
+    expect(empty.failures).toEqual([`测试场景没有可执行命令：${SCENARIO}`])
   })
 })
 
@@ -1379,7 +1379,7 @@ describe('independent verification gate', () => {
 
     const again = await runQueued('verify', reqId)
     expect(again.state, again.detail).toBe('done')
-    expect(again.detail).toContain('已通过独立验证')
+    expect(again.detail).toContain('已通过独立测试')
     expect(verifyRuns).toBe(1)
   })
 
@@ -1388,7 +1388,7 @@ describe('independent verification gate', () => {
     const base = fakeRunner()
     const failing: AgentLike = {
       async run(request) {
-        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent'))
+        if (request.role === 'verify' && request.prompt.includes('独立测试 Agent'))
           return result(request, '', 'error')
         return base.run(request)
       },
@@ -1396,7 +1396,7 @@ describe('independent verification gate', () => {
     runtime = makeRuntime(failing)
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('独立验证未取得可用结论')
+    expect(advance.detail).toContain('独立测试未取得可用结论')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
     expect(runtime.repo.verification(reqId, 1)).toBeNull()
   })
@@ -1406,7 +1406,7 @@ describe('independent verification gate', () => {
     runtime = makeRuntime(fakeRunner({ workspace: { report: 'not json' } }))
     const { advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('独立验证材料畸形')
+    expect(advance.detail).toContain('独立测试材料畸形')
   })
 
   it('reports an already blocked candidate instead of rerunning it', async () => {
@@ -1439,7 +1439,7 @@ describe('independent verification gate', () => {
     )
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('验证命令失败')
+    expect(advance.detail).toContain('测试命令失败')
     const plan = runtime.repo.latestTaskPlan(reqId)!
     expect(runtime.repo.verification(reqId, plan.planVersion)?.verdict).toBe('block')
     expect(runtime.repo.failureRounds(reqId).some((round) => round.stage === 'verification')).toBe(
@@ -1468,7 +1468,7 @@ describe('independent verification gate', () => {
     runtime = makeRuntime(fakeRunner({ workspace: { outside: 'docs/evil.md' } }))
     const { advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('越出独立验证目录')
+    expect(advance.detail).toContain('越出独立测试目录')
   })
 
   it('fails closed when the verification agent writes no materials', async () => {
@@ -1476,7 +1476,7 @@ describe('independent verification gate', () => {
     const runner = fakeRunner()
     const silent: AgentLike = {
       async run(request) {
-        if (request.role === 'verify' && request.prompt.includes('独立验证 Agent')) {
+        if (request.role === 'verify' && request.prompt.includes('独立测试 Agent')) {
           return result(request, verificationReportOf())
         }
         return runner.run(request)
@@ -1518,7 +1518,7 @@ describe('independent verification gate', () => {
     )
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('引用了未执行的验证命令：never-run')
+    expect(advance.detail).toContain('引用了未执行的测试命令：never-run')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
 
@@ -1534,7 +1534,7 @@ describe('independent verification gate', () => {
     )
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('证据无法在验证命令输出中核对')
+    expect(advance.detail).toContain('证据无法在测试命令输出中核对')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
 
@@ -1553,7 +1553,7 @@ describe('independent verification gate', () => {
     )
     const { reqId, advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('验证命令修改了固定候选：docs/a.md')
+    expect(advance.detail).toContain('测试命令修改了固定候选：docs/a.md')
     expect(runtime.repo.verification(reqId, 1)?.verdict).toBe('block')
     expect(runtime.accept({ reqId, by: 'owner', source: 'test' })).toMatchObject({
       ok: false,
@@ -1576,7 +1576,7 @@ describe('independent verification gate', () => {
     )
     const { advance } = await runPipeline()
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('验证命令修改了固定候选：docs/extra.md')
+    expect(advance.detail).toContain('测试命令修改了固定候选：docs/extra.md')
   })
 
   it('allows ignored build output while the tracked candidate stays unchanged', async () => {
@@ -1603,7 +1603,7 @@ const EXTRA_CRITERION = '错误输出包含原因'
 const BUSINESS_RULE = '未登录用户的写入请求一律拒绝'
 const EDGE_CASE = '空标题必须返回明确错误'
 
-/** 验证 Agent 只拿需求原文与分析；不接触任务包、候选或实现代码。 */
+/** 测试 Agent 只拿需求原文与分析；不接触任务包、候选或实现代码。 */
 function requirementForVerificationPlan(): {
   requirement: Requirement
   analysis: RequirementAnalysis
@@ -1617,7 +1617,7 @@ function requirementForVerificationPlan(): {
       versions: [
         {
           version: 1,
-          text: '实现验证 Agent：依据需求说明生成验证方案并执行。',
+          text: '实现测试 Agent：依据需求说明生成测试方案并执行。',
           createdAt: '2026-10-31T00:00:00.000Z',
           revisedBy: 'owner',
           source: 'dsh-session:sess-plan:msg-plan',
@@ -1629,7 +1629,7 @@ function requirementForVerificationPlan(): {
     analysis: {
       analysisVersion: 1,
       requirementVersion: 1,
-      goal: '验证 Agent 依据需求说明验证研发产物',
+      goal: '测试 Agent 依据需求说明验证研发产物',
       scenarios: [SCENARIO, EXTRA_SCENARIO],
       acceptanceCriteria: [CRITERION, EXTRA_CRITERION],
       businessRules: [BUSINESS_RULE],
@@ -1699,7 +1699,7 @@ function taskPlanForVerification(): TaskPlan {
     tasks: [
       {
         taskId: 't1',
-        goal: '依据需求说明生成结构化验证方案',
+        goal: '依据需求说明生成结构化测试方案',
         files: ['src/agents/verification-agent.ts'],
         acceptance: '方案可以解析并覆盖需求说明',
         testCommand: ['node', '-e', 'process.exit(0)'],
@@ -1775,7 +1775,7 @@ describe('requirement-derived verification plan', () => {
     expect(prompt).toContain(BUSINESS_RULE)
     expect(prompt).toContain(EDGE_CASE)
     // 已准入任务包只提供任务目标用于核对覆盖面。
-    expect(prompt).toContain('依据需求说明生成结构化验证方案')
+    expect(prompt).toContain('依据需求说明生成结构化测试方案')
     // 异常断言给出可复制的自包含骨架，减少自由发挥。
     expect(prompt).toContain('异常断言可参考这个骨架')
     expect(prompt).toContain('mkdtempSync')
@@ -1798,7 +1798,7 @@ describe('requirement-derived verification plan', () => {
         plan: taskPlanForVerification(),
         transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
       }),
-    ).rejects.toThrow('验证方案未覆盖需求说明')
+    ).rejects.toThrow('测试方案未覆盖需求说明')
   })
 
   it('repairs a plan that misses an analysis item by retrying with the missing text', async () => {
@@ -1852,7 +1852,7 @@ describe('requirement-derived verification plan', () => {
         plan: taskPlanForVerification(),
         transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
       }),
-    ).rejects.toThrow('验证方案未覆盖需求说明')
+    ).rejects.toThrow('测试方案未覆盖需求说明')
   })
 
   it('feeds back malformed JSON and retries in the same session', async () => {
@@ -1871,7 +1871,7 @@ describe('requirement-derived verification plan', () => {
     expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
     expect(harness.turns).toHaveLength(2)
     // 具体解析错误要回到同一会话，模型才能定向修正。
-    expect(harness.turns[1]!.prompt).toContain('不是可解析的验证方案 JSON')
+    expect(harness.turns[1]!.prompt).toContain('不是可解析的测试方案 JSON')
     expect(harness.turns[1]!.prompt).toContain('JSON')
     expect(harness.turns[1]!.transcriptPath).toContain('-a2.jsonl')
   })
@@ -1889,9 +1889,9 @@ describe('requirement-derived verification plan', () => {
         plan: taskPlanForVerification(),
         transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
       }),
-    ).rejects.toThrow('验证方案 JSON 畸形')
+    ).rejects.toThrow('测试方案 JSON 畸形')
     expect(harness.turns).toHaveLength(3)
-    expect(harness.turns[2]!.prompt).toContain('不是可解析的验证方案 JSON')
+    expect(harness.turns[2]!.prompt).toContain('不是可解析的测试方案 JSON')
   })
 
   it('requires an executable assertion for the output marker named by an exception', () => {
@@ -1926,7 +1926,7 @@ describe('requirement-derived verification plan', () => {
       ),
     )
     expect(validatePlanModuleDependencies(plan, { dependencies: [] }).join('；')).toContain(
-      '验证方案命令依赖未安装的模块：left-pad',
+      '测试方案命令依赖未安装的模块：left-pad',
     )
     // 内置模块与已安装依赖放行；判据只看“是否安装”，不看用法。
     expect(validatePlanModuleDependencies(plan, { dependencies: ['left-pad'] })).toEqual([])
@@ -1984,7 +1984,7 @@ describe('requirement-derived verification plan', () => {
         plan: taskPlanForVerification(),
         transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
       }),
-    ).rejects.toThrow(`验证方案缺少业务规则：${BUSINESS_RULE}`)
+    ).rejects.toThrow(`测试方案缺少业务规则：${BUSINESS_RULE}`)
 
     const missingEdge = makeVerificationAgent({
       planText: requirementVerificationPlanOf({ skipRules: 'exception' }),
@@ -1996,7 +1996,7 @@ describe('requirement-derived verification plan', () => {
         plan: taskPlanForVerification(),
         transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
       }),
-    ).rejects.toThrow(`验证方案缺少异常与边界：${EDGE_CASE}`)
+    ).rejects.toThrow(`测试方案缺少异常与边界：${EDGE_CASE}`)
   })
 
   it('fails closed when the planning model fails or returns a malformed plan', async () => {
@@ -2009,7 +2009,7 @@ describe('requirement-derived verification plan', () => {
         plan: taskPlanForVerification(),
         transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
       }),
-    ).rejects.toThrow('验证方案生成未完成')
+    ).rejects.toThrow('测试方案生成未完成')
 
     const designPlan = JSON.parse(requirementVerificationPlanOf()) as {
       scenarios: Array<{ checks: unknown[] }>
@@ -2047,7 +2047,7 @@ describe('requirement-derived verification plan', () => {
 })
 
 /**
- * 验证执行上下文：命令由验证会话通过工具触发，运行时只接受当前方案里的 label，
+ * 测试执行上下文：命令由测试会话通过工具触发，运行时只接受当前方案里的 label，
  * 退出码、超时、中止、日志与完整性全部由程序记录，模型自述不构成证据。
  */
 describe('verification check registry', () => {
@@ -2181,7 +2181,7 @@ describe('verification check registry', () => {
     const { registry, reqId } = checkHarness()
     const outside = await registry.run(reqId, 'rm -rf')
     expect(outside.ok).toBe(false)
-    expect(outside.text).toContain('不在当前验证方案中')
+    expect(outside.text).toContain('不在当前测试方案中')
     expect(() =>
       registry.activate({
         reqId,
@@ -2193,7 +2193,7 @@ describe('verification check registry', () => {
         signal: new AbortController().signal,
         timeoutMs: 1_000,
       }),
-    ).toThrow('已有进行中的验证执行上下文')
+    ).toThrow('已有进行中的测试执行上下文')
     expect((await registry.run('req-unknown', 'happy-path')).ok).toBe(false)
   })
 
@@ -2274,7 +2274,7 @@ describe('verification check registry', () => {
     })
     const outcome = await registry.run(reqId, 'happy-path')
     expect(outcome.data).toMatchObject({ exitCode: null, logPath: '' })
-    expect(outcome.text).toContain('验证命令执行异常：spawn failed')
+    expect(outcome.text).toContain('测试命令执行异常：spawn failed')
   })
 
   it('flags a changed candidate commit or files written outside verification/', async () => {

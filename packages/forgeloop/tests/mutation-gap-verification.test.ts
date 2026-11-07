@@ -37,7 +37,7 @@ function planReview(overrides: Record<string, unknown> = {}): string {
 function report(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     verdict: 'pass',
-    summary: '验证通过',
+    summary: '测试通过',
     findings: [],
     blocking: [],
     scenarios: [
@@ -178,7 +178,7 @@ describe('verification command parsing', () => {
       parseVerificationCommands(JSON.stringify({ commands: [{ label: 'b', argv: ['y'] }] })),
     ).toEqual([{ label: 'b', argv: ['y'] }])
     expect(() => parseVerificationCommands(JSON.stringify({ commands: [] }))).toThrow(
-      '验证命令清单必须给出至少一条命令',
+      '测试命令清单必须给出至少一条命令',
     )
     expect(() =>
       parseVerificationCommands(
@@ -186,7 +186,7 @@ describe('verification command parsing', () => {
           commands: Array.from({ length: 16 }, (_v, i) => ({ label: `c${i}`, argv: ['x'] })),
         }),
       ),
-    ).toThrow('验证命令一次最多 15 条')
+    ).toThrow('测试命令一次最多 15 条')
     expect(() =>
       parseVerificationCommands(JSON.stringify({ commands: [{ label: '', argv: ['x'] }] })),
     ).toThrow('commands[0].label 必须是非空字符串')
@@ -202,8 +202,8 @@ describe('verification command parsing', () => {
           ],
         }),
       ),
-    ).toThrow('验证命令的 label 不能重复')
-    expect(() => parseVerificationCommands('nope')).toThrow('验证命令清单不是可解析的 JSON')
+    ).toThrow('测试命令的 label 不能重复')
+    expect(() => parseVerificationCommands('nope')).toThrow('测试命令清单不是可解析的 JSON')
   })
 })
 
@@ -211,7 +211,7 @@ describe('verification report parsing', () => {
   it('parses a valid report and rejects malformed fields', () => {
     expect(parseVerificationReport(report())).toEqual({
       verdict: 'pass',
-      summary: '验证通过',
+      summary: '测试通过',
       findings: [],
       blocking: [],
       scenarios: [
@@ -219,16 +219,16 @@ describe('verification report parsing', () => {
       ],
     })
     expect(() => parseVerificationReport(report({ verdict: 'x' }))).toThrow(
-      '独立验证结论必须是 pass 或 block',
+      '独立测试结论必须是 pass 或 block',
     )
     expect(() => parseVerificationReport(report({ verdict: 'pass', blocking: ['x'] }))).toThrow(
-      '独立验证结论为 pass 时 blocking 必须为空',
+      '独立测试结论为 pass 时 blocking 必须为空',
     )
     expect(() => parseVerificationReport(report({ verdict: 'block', blocking: [] }))).toThrow(
-      '独立验证结论为 block 时必须给出至少一条阻断原因',
+      '独立测试结论为 block 时必须给出至少一条阻断原因',
     )
     expect(() => parseVerificationReport(report({ scenarios: undefined }))).toThrow(
-      '独立验证报告必须给出 scenarios 数组',
+      '独立测试报告必须给出 scenarios 数组',
     )
     expect(() =>
       parseVerificationReport(
@@ -249,8 +249,8 @@ describe('verification report parsing', () => {
           ],
         }),
       ),
-    ).toThrow('独立验证报告的场景不能重复')
-    expect(() => parseVerificationReport('[]')).toThrow('独立验证报告必须是 JSON 对象')
+    ).toThrow('独立测试报告的场景不能重复')
+    expect(() => parseVerificationReport('[]')).toThrow('独立测试报告必须是 JSON 对象')
   })
 })
 
@@ -312,13 +312,13 @@ describe('coverage validation', () => {
     const plan = parsedReview.verificationPlan
     const ok: VerificationReport = { ...JSON.parse(report()) }
     expect(validateScenarioEvidence(plan, ok, [])).toEqual([
-      '场景 用户登录成功 引用了未执行的验证命令：smoke',
+      '场景 用户登录成功 引用了未执行的测试命令：smoke',
     ])
     expect(validateScenarioEvidence(plan, ok, [run({ exitCode: 1 })])).toEqual([
-      '必过场景关联的验证命令没有成功执行：用户登录成功',
+      '必过场景关联的测试命令没有成功执行：用户登录成功',
     ])
     expect(validateScenarioEvidence(plan, ok, [run({ output: 'nothing useful' })])).toEqual([
-      '必过场景证据无法在验证命令输出中核对：用户登录成功',
+      '必过场景证据无法在测试命令输出中核对：用户登录成功',
     ])
     expect(
       validateScenarioEvidence(
@@ -331,7 +331,7 @@ describe('coverage validation', () => {
         },
         [run()],
       ),
-    ).toEqual(['必过场景没有关联验证命令：用户登录成功'])
+    ).toEqual(['必过场景没有关联测试命令：用户登录成功'])
     expect(validateScenarioEvidence(plan, ok, [run()])).toEqual([])
   })
 })
@@ -362,13 +362,13 @@ describe('requirement verification plan', () => {
       ],
     })
     expect(() => parseRequirementVerificationPlan(JSON.stringify({ scenarios: [] }))).toThrow(
-      '验证方案必须给出至少一个业务场景',
+      '测试方案必须给出至少一个业务场景',
     )
     expect(() =>
       parseRequirementVerificationPlan(
         JSON.stringify({ scenarios: Array.from({ length: 21 }, () => ({ scenario: 's' })) }),
       ),
-    ).toThrow('验证方案的场景一次最多 20 个')
+    ).toThrow('测试方案的场景一次最多 20 个')
     expect(
       parseRequirementVerificationPlan(
         JSON.stringify({
@@ -417,7 +417,7 @@ describe('requirement verification plan', () => {
         },
         plan,
       ),
-    ).toEqual(['验证方案缺少业务规则：必须登录', '验证方案缺少异常与边界：网络断开'])
+    ).toEqual(['测试方案缺少业务规则：必须登录', '测试方案缺少异常与边界：网络断开'])
     expect(
       validateRequirementVerificationPlan(
         {
@@ -443,7 +443,7 @@ describe('verification judge', () => {
     })
     expect(passed).toMatchObject({
       verdict: 'passed',
-      summary: '验证通过：1 个业务场景、1 条命令符合正向/错误对照预期',
+      summary: '测试通过：1 个业务场景、1 条命令符合正向/错误对照预期',
       failures: [],
       artifact,
       environment,
@@ -459,12 +459,12 @@ describe('verification judge', () => {
 
   it('fails on missing, aborted, timed out, failed and mismatched checks', () => {
     const cases: Array<[VerificationCommandRun[], string]> = [
-      [[], '缺少验证命令执行结果：smoke'],
-      [[run({ aborted: true })], '验证命令被中止：smoke'],
-      [[run({ timedOut: true })], '验证命令超时：smoke'],
-      [[run({ exitCode: null })], '验证命令失败：smoke（退出码 null）'],
-      [[run({ exitCode: 2 })], '验证命令失败：smoke（退出码 2）'],
-      [[run({ output: 'other' })], '验证命令输出缺少预期片段：smoke（预期 login ok）'],
+      [[], '缺少测试命令执行结果：smoke'],
+      [[run({ aborted: true })], '测试命令被中止：smoke'],
+      [[run({ timedOut: true })], '测试命令超时：smoke'],
+      [[run({ exitCode: null })], '测试命令失败：smoke（退出码 null）'],
+      [[run({ exitCode: 2 })], '测试命令失败：smoke（退出码 2）'],
+      [[run({ output: 'other' })], '测试命令输出缺少预期片段：smoke（预期 login ok）'],
     ]
     for (const [checks, message] of cases) {
       const result = judgeVerificationResult({
@@ -505,8 +505,8 @@ describe('verification judge', () => {
     })
     expect(result.verdict).toBe('failed')
     expect(result.failures).toEqual([
-      '验证命令输出缺少预期片段：a（预期 alpha）',
-      '验证命令输出缺少预期片段：b（预期 needle）',
+      '测试命令输出缺少预期片段：a（预期 alpha）',
+      '测试命令输出缺少预期片段：b（预期 needle）',
     ])
     expect(result.summary).toContain('等 2 项问题')
   })

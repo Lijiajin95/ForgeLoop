@@ -47,7 +47,7 @@ describe('candidate build readiness', () => {
     expect(p['buildReadiness'](delivery({ candidate: null }) as never, undefined)).toMatchObject({
       ok: false,
       code: 'verification_required',
-      message: '候选没有通过的独立验证；不能构建',
+      message: '候选没有通过的独立测试；不能构建',
     })
     expect(
       p['buildReadiness'](delivery({ verification: { verdict: 'block' } }) as never, undefined),

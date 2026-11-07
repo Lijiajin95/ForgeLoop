@@ -167,7 +167,7 @@ function seedPlanReview(reqId: string, planVersion = 1, verdict: 'pass' | 'block
   })
 }
 
-/** 独立验证绑定固定候选；新鲜度决定看板是否还提供“独立验证”。 */
+/** 独立测试绑定固定候选；新鲜度决定看板是否还提供“独立测试”。 */
 function seedVerification(
   reqId: string,
   planVersion = 1,
@@ -192,7 +192,7 @@ function seedVerification(
     workspaceSha256: 'tree',
     planReviewSha256: 'plan-review',
     verdict,
-    summary: verdict === 'pass' ? '候选通过独立验证' : '候选未通过独立验证',
+    summary: verdict === 'pass' ? '候选通过独立测试' : '候选未通过独立测试',
     findings: [],
     blocking: verdict === 'pass' ? [] : ['必过场景未通过'],
     scenarios: [
@@ -470,7 +470,7 @@ describe('status board', () => {
       workspaceSha256: 'tree',
       planReviewSha256: 'plan-review',
       verdict: 'pass',
-      summary: '候选通过独立验证',
+      summary: '候选通过独立测试',
       findings: [],
       blocking: [],
       scenarios: [],

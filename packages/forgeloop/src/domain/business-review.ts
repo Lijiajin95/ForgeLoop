@@ -1,8 +1,8 @@
 /**
- * 业务终审：验证 Agent 在新会话中按原始需求复核关键业务场景与验收标准。
+ * 业务终审：测试 Agent 在新会话中按原始需求复核关键业务场景与验收标准。
  *
- * 终审不是复述验证报告：每条业务场景与验收标准都要给出实际结果，并且证据必须能在
- * 独立验证实际执行的命令输出中逐字核对。系统只接受可核对的结构化结论；模型自述
+ * 终审不是复述测试报告：每条业务场景与验收标准都要给出实际结果，并且证据必须能在
+ * 独立测试实际执行的命令输出中逐字核对。系统只接受可核对的结构化结论；模型自述
  * “通过”不构成通过，所有者验收仍由真实决定入口单独记录。
  */
 
@@ -134,7 +134,7 @@ export function parseBusinessReview(raw: string): BusinessReview {
   }
 }
 
-/** 静默成功命令没有 stdout；允许以验证报告里的 exit_code: 0 作为证据。 */
+/** 静默成功命令没有 stdout；允许以测试报告里的 exit_code: 0 作为证据。 */
 function matchesExitCodeEvidence(run: BusinessReviewCommandRun, evidence: string): boolean {
   if (run.exitCode !== 0) return false
   const needle = evidence.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -157,7 +157,7 @@ function checkItem(
     return issues
   }
   if (item.commands.length === 0) {
-    issues.push(`${what}没有关联验证命令：${text}`)
+    issues.push(`${what}没有关联测试命令：${text}`)
     return issues
   }
   const referenced = item.commands
@@ -165,13 +165,13 @@ function checkItem(
     .filter((run): run is BusinessReviewCommandRun => run !== undefined)
   if (referenced.length !== item.commands.length) {
     const unreported = item.commands.filter((label) => !runs.has(label))
-    issues.push(`${what}引用了未执行的验证命令：${unreported.join('、')}`)
+    issues.push(`${what}引用了未执行的测试命令：${unreported.join('、')}`)
     return issues
   }
   if (requireControls) {
     const positive = referenced.filter((run) => run.expectFailure !== true)
     const negative = referenced.filter((run) => run.expectFailure === true)
-    if (positive.length === 0) issues.push(`${what}没有引用正向验证命令：${text}`)
+    if (positive.length === 0) issues.push(`${what}没有引用正向测试命令：${text}`)
     if (negative.length === 0) issues.push(`${what}没有引用错误对照命令：${text}`)
     if (negative.some((run) => run.exitCode === 0)) {
       issues.push(`${what}引用的错误对照没有失败：${text}`)
@@ -192,7 +192,7 @@ function checkItem(
 
 /**
  * 终审必须逐项覆盖分析中的业务场景、验收标准、业务规则与异常边界，
- * 且证据来自独立验证的真实命令输出。缺项即使模型自报通过也阻断。
+ * 且证据来自独立测试的真实命令输出。缺项即使模型自报通过也阻断。
  */
 export function validateBusinessReview(input: {
   scenarios: readonly string[]

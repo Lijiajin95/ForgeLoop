@@ -232,7 +232,7 @@ describe('legacy verification failure paths', () => {
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['独立验证工作区创建失败'],
+      blocking: ['独立测试工作区创建失败'],
       verification: null,
     })
     expect(outcome.detail).toContain('cannot add worktree')
@@ -256,7 +256,7 @@ describe('legacy verification failure paths', () => {
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['验证工作区准备命令失败（退出码 2）'],
+      blocking: ['测试工作区准备命令失败（退出码 2）'],
       verification: null,
     })
   })
@@ -266,7 +266,7 @@ describe('legacy verification failure paths', () => {
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['验证执行未取得结论：verification stopped'],
+      blocking: ['测试执行未取得结论：verification stopped'],
       failureKind: 'test_error',
     })
     expect(outcome.verification).not.toBeNull()
@@ -291,7 +291,7 @@ describe('legacy verification failure paths', () => {
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['验证执行上下文在结论前丢失；无法核对命令结果'],
+      blocking: ['测试执行上下文在结论前丢失；无法核对命令结果'],
       failureKind: 'undetermined',
     })
     expect(recorded).toHaveLength(1)
@@ -316,7 +316,7 @@ describe('legacy verification failure paths', () => {
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['独立验证命令被停止'],
+      blocking: ['独立测试命令被停止'],
       failureKind: 'test_error',
     })
     expect(recorded).toHaveLength(1)
@@ -419,6 +419,6 @@ describe('legacy verification failure paths', () => {
     state.statusOutput = ' M extra.ts\0'
     const outcome = await verify()
     expect(outcome.state).toBe('block')
-    expect(outcome.blocking.join('；')).toContain('验证命令修改了固定候选：extra.ts')
+    expect(outcome.blocking.join('；')).toContain('测试命令修改了固定候选：extra.ts')
   })
 })

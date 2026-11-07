@@ -76,7 +76,7 @@ export function withStructuredPlan(raw: string): string {
   })
 }
 
-/** 给验证方案/报告的 scenarios 或 verification_plan 补编号引用。 */
+/** 给测试方案/报告的 scenarios 或 verification_plan 补编号引用。 */
 export function withStructuredVerificationPlan(raw: string): string {
   const data = parse(raw)
   if (!data) return raw

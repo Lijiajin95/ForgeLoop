@@ -192,7 +192,7 @@ export class AdvancePipeline {
   }
 
   /**
-   * 验证 Agent 在同一会话里完成独立验证与业务验收：先设计并执行验证，再依据
+   * 测试 Agent 在同一会话里完成独立测试与业务验收：先设计并执行验证，再依据
    * 实际命令输出核对业务场景；不修改候选，不降低需求标准。
    */
   private async verifyCandidate(input: LegacyVerifyInput): Promise<{
@@ -299,7 +299,7 @@ export class AdvancePipeline {
   }
 
   /**
-   * 把一次验证阻断固化为内建问题单：绑定需求、验证报告与候选，
+   * 把一次测试阻断固化为内建问题单：绑定需求、测试报告与候选，
    * 并保存实际执行的命令日志、运行环境与状态，供研发复现和后续反查。
    */
   recordVerificationIssue(input: {
@@ -316,7 +316,7 @@ export class AdvancePipeline {
     const blocking =
       input.blocking.length > 0
         ? [...input.blocking]
-        : ['独立验证判定为阻断，但验证报告没有给出具体阻断项']
+        : ['独立测试判定为阻断，但测试报告没有给出具体阻断项']
     const commands = this.issueCommands(input.verification.reportJson)
     let verificationSummary = ''
     try {
@@ -365,7 +365,7 @@ export class AdvancePipeline {
       attempt,
       stage: ISSUE_STAGE_VERIFICATION,
       status: ISSUE_OPEN,
-      summary: `独立验证阻断（attempt ${attempt}）：${blocking.join('；')}`.slice(0, 1000),
+      summary: `独立测试阻断（attempt ${attempt}）：${blocking.join('；')}`.slice(0, 1000),
       evidence,
       verificationSha256: input.verification.reportSha256,
       candidateSha256: input.candidate.candidateSha256,
@@ -377,7 +377,7 @@ export class AdvancePipeline {
     return issue
   }
 
-  /** 从验证报告提取实际执行过的命令；报告畸形时保留空清单，报告路径仍作为证据。 */
+  /** 从测试报告提取实际执行过的命令；报告畸形时保留空清单，报告路径仍作为证据。 */
   private issueCommands(reportJson: string): IssueCommandEvidence[] {
     let data: unknown
     try {
@@ -396,7 +396,7 @@ export class AdvancePipeline {
     return collected
   }
 
-  /** 验证阻断后的定向修复：同一研发会话与工作区，只处理缺陷，不重建全部任务。 */
+  /** 测试阻断后的定向修复：同一研发会话与工作区，只处理缺陷，不重建全部任务。 */
   async repairCandidate(input: {
     reqId: string
     requirement: Requirement
@@ -420,13 +420,13 @@ export class AdvancePipeline {
       'repair',
     )
     mkdirSync(reportDir, { recursive: true })
-    const prompt = `你是 ForgeLoop 的研发 Agent。验证 Agent 在候选 ${input.candidate.candidateSha256.slice(0, 16)}… 上发现缺陷。
+    const prompt = `你是 ForgeLoop 的研发 Agent。测试 Agent 在候选 ${input.candidate.candidateSha256.slice(0, 16)}… 上发现缺陷。
 当前工作区就是候选的工作现场，已有成果必须保留；只修复下面列出的缺陷，不要重做全部任务，不要修改需求或验收标准，不要改版本号。
 
 需求：${requirementTitle(input.requirement)}
 
 缺陷与阻断证据：
-${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给出具体阻断项'}
+${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给出具体阻断项'}
 
 请在同一工作区定位并修复，完成后用简短文本说明改了什么、如何验证。不要执行 git commit/push，程序会采集并固定新候选。`
     for (let attempt = 1; attemptAllowed(attempt, this.deps.config.maxTaskAttempts); attempt += 1) {
@@ -460,7 +460,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
   }
 
   /**
-   * 连续研发：系统准入后由同一个推进请求完成方案、实现、自验、独立验证、
+   * 连续研发：系统准入后由同一个推进请求完成方案、实现、自验、独立测试、
    * 定向修复和受控提交；例外（越界、额度用尽、提交检查失败）才停下等待决定。
    */
   private continuousInputs(reqId: string):
@@ -623,7 +623,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     return { ok: true }
   }
 
-  /** 无法建立验证材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。 */
+  /** 无法建立测试材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。 */
   private recordVerificationPrepFailure(
     reqId: string,
     detail: string,
@@ -638,7 +638,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     return { state: 'failed', detail }
   }
 
-  /** 验证阻断后的问题单、定向修复与候选重建；只有实现缺陷会进入这里。 */
+  /** 测试阻断后的问题单、定向修复与候选重建；只有实现缺陷会进入这里。 */
   private async handleBlockedVerification(input: {
     reqId: string
     requirement: Requirement
@@ -686,13 +686,13 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       this.deps.repo.setStatus(
         reqId,
         'blocked',
-        `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；失败轮次额度已用尽，需有效追加授权后才能继续修复或再次送验`,
+        `测试未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；失败轮次额度已用尽，需有效追加授权后才能继续修复或再次送验`,
       )
       return {
         stop: true,
         result: {
           state: 'failed',
-          detail: `验证未通过：${blocking}；已保留问题单 ${issue.issueId}，等待追加授权`,
+          detail: `测试未通过：${blocking}；已保留问题单 ${issue.issueId}，等待追加授权`,
         },
       }
     }
@@ -702,13 +702,13 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       this.deps.repo.setStatus(
         reqId,
         'blocked',
-        `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
+        `测试未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
       )
       return {
         stop: true,
         result: {
           state: 'failed',
-          detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
+          detail: `测试未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
         },
       }
     }
@@ -762,15 +762,15 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     this.deps.repo.setStatus(
       reqId,
       'blocked',
-      `验证未通过（${kind}）：${blocking}；${verification.detail}`,
+      `测试未通过（${kind}）：${blocking}；${verification.detail}`,
     )
     return {
       state: 'failed',
-      detail: `验证未通过（${kind}）：${blocking}；未要求研发修改代码`,
+      detail: `测试未通过（${kind}）：${blocking}；未要求研发修改代码`,
     }
   }
 
-  /** 读取已交付任务持久化的自验报告；缺失时返回 null，整份候选转独立验证。 */
+  /** 读取已交付任务持久化的自验报告；缺失时返回 null，整份候选转独立测试。 */
   private readSelfVerification(
     reqId: string,
     plan: TaskPlan,
@@ -881,7 +881,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       this.deps.repo.setStatus(
         reqId,
         VERIFYING,
-        `验证 Agent 正在验证候选 v${candidate.candidateVersion}`,
+        `测试 Agent 正在验证候选 v${candidate.candidateVersion}`,
       )
       const verification = await this.verifyCandidate({
         reqId,
@@ -915,7 +915,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         this.deps.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
         return {
           state: 'done',
-          detail: `需求 ${reqId} 已完成研发、独立验证与提交：${commit.commitSha.slice(0, 12)}`,
+          detail: `需求 ${reqId} 已完成研发、独立测试与提交：${commit.commitSha.slice(0, 12)}`,
         }
       }
       const recorded = verification.verification
@@ -937,14 +937,14 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         candidate = handled.candidate
         continue
       }
-      // 业务验收阻断（独立验证本身已通过）仍受失败额度约束。
+      // 业务验收阻断（独立测试本身已通过）仍受失败额度约束。
       if (this.deps.remainingFailureRounds(reqId) === 0) {
         this.deps.repo.setStatus(
           reqId,
           'blocked',
-          `验证未通过且失败额度已用尽：${verification.blocking.join('；') || verification.detail}`,
+          `测试未通过且失败额度已用尽：${verification.blocking.join('；') || verification.detail}`,
         )
-        return { state: 'failed', detail: `验证未通过且失败额度已用尽：${verification.detail}` }
+        return { state: 'failed', detail: `测试未通过且失败额度已用尽：${verification.detail}` }
       }
       const repaired = await this.repairCandidate({
         reqId,
@@ -1023,7 +1023,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     const plan = planned.plan
     input.planRef.plan = plan
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
-    // 验证 Agent 在研发开始前新开会话并生成方案；产物交付后由同一会话执行与验收。
+    // 测试 Agent 在研发开始前新开会话并生成方案；产物交付后由同一会话执行与验收。
     const opened = await this.deps.legacyVerification.openVerification({
       reqId,
       requirement,
@@ -1054,12 +1054,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         signal,
       })
     } finally {
-      // 验证会话只服务本次推进请求；研发会话保留，不在这里关闭。
+      // 测试会话只服务本次推进请求；研发会话保留，不在这里关闭。
       await opened.value.close()
     }
   }
 
-  /** 在已选定的研发会话里实现、修复与采集候选，再把验证会话交给独立验证与业务验收。 */
+  /** 在已选定的研发会话里实现、修复与采集候选，再把测试会话交给独立测试与业务验收。 */
   private async developUnderVerification(input: {
     reqId: string
     requirement: Requirement
@@ -1159,7 +1159,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       this.deps.repo.setStatus(
         reqId,
         COMMITTED,
-        `研发自验证通过并已提交 ${commit.commitSha.slice(0, 12)}；自验证证据 ${reportPath}`,
+        `研发自测试通过并已提交 ${commit.commitSha.slice(0, 12)}；自验证证据 ${reportPath}`,
       )
       return {
         state: 'done',
@@ -1182,7 +1182,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
 
   /**
    * 连续研发：先由主控 Agent 选择或新建研发会话，再在同一会话里完成方案、实现、
-   * 自验、独立验证、定向修复和受控提交；会话忙时需求排队等待，不算失败。
+   * 自验、独立测试、定向修复和受控提交；会话忙时需求排队等待，不算失败。
    */
   async executeContinuousAdvance(
     reqId: string,
@@ -1487,7 +1487,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     if (budgetOutcome) return budgetOutcome
     this.deps.repo.setStatus(reqId, EXECUTING)
 
-    // 任务包冻结：验证阻断时把问题交回同一任务包的执行角色修复，然后重新验证；
+    // 任务包冻结：测试阻断时把问题交回同一任务包的执行角色修复，然后重新验证；
     // 修复额度由失败轮次控制，用尽后停在 blocked，不再自动循环。
     for (;;) {
       for (const taskId of executionOrder(plan)) {

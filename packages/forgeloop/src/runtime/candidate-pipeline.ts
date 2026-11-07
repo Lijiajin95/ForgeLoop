@@ -97,7 +97,7 @@ export class CandidatePipeline {
   }
 
   /**
-   * 新旧构建路径共用的材料核验：文件摘要、规范字段、候选身份、验证工作区树、
+   * 新旧构建路径共用的材料核验：文件摘要、规范字段、候选身份、测试工作区树、
    * 未提交改动、候选 diff 与受控提交的文件集合都必须一致。只读取证据，不改写历史。
    */
   private protectedFileHashes(root: string, files: readonly string[]): Map<string, string> {
@@ -130,7 +130,7 @@ export class CandidatePipeline {
   }
 
   /**
-   * 新链路构建：依据系统准入、固定候选、独立验证、业务验收和本地提交，
+   * 新链路构建：依据系统准入、固定候选、独立测试、业务验收和本地提交，
    * 不再要求旧任务包批准或所有者整体验收。
    */
   private buildReadiness(
@@ -139,7 +139,7 @@ export class CandidatePipeline {
   ): OperationResult | null {
     const { candidate, verification, review } = delivery
     if (!candidate || !verification || verification.verdict !== 'pass') {
-      return fail('verification_required', '候选没有通过的独立验证；不能构建')
+      return fail('verification_required', '候选没有通过的独立测试；不能构建')
     }
     if (!review || review.verdict !== 'pass') {
       return fail('business_review_required', '候选没有通过的业务验收；不能构建')
@@ -171,7 +171,7 @@ export class CandidatePipeline {
     const notReady = this.buildReadiness(delivery, input.version)
     if (notReady) return notReady
     if (!candidate || !verification) {
-      return fail('verification_required', '候选没有通过的独立验证；不能构建')
+      return fail('verification_required', '候选没有通过的独立测试；不能构建')
     }
     if (!review) return fail('business_review_required', '候选没有通过的业务验收；不能构建')
     const materials = this.deps.validateBuildMaterials({
@@ -268,7 +268,7 @@ export class CandidatePipeline {
     writeFileSync(join(dir, basename(candidate.diffPath)), diffText, 'utf8')
     const sharedModules = join(this.deps.config.projectPath, 'node_modules')
     if (existsSync(sharedModules)) {
-      // 验证工作区可能带有不完整的 node_modules 副本；构建副本必须使用主项目
+      // 测试工作区可能带有不完整的 node_modules 副本；构建副本必须使用主项目
       // 已安装的依赖，否则 tsc 等本地二进制不存在，会把环境缺依赖误判为候选失败。
       rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
       try {
@@ -604,7 +604,7 @@ export class CandidatePipeline {
         ok: false,
         result: fail(
           'verification_required',
-          `候选 ${identity.slice(0, 16)}… 没有通过的独立验证；不能构建可发布候选`,
+          `候选 ${identity.slice(0, 16)}… 没有通过的独立测试；不能构建可发布候选`,
         ),
       }
     }
@@ -953,7 +953,7 @@ export class CandidatePipeline {
     )
   }
 
-  /** 验收时复核独立验证与业务终审；任何材料漂移都阻断，不降级为警告。 */
+  /** 验收时复核独立测试与业务终审；任何材料漂移都阻断，不降级为警告。 */
   private acceptanceReview(
     reqId: string,
     plan: TaskPlan,
@@ -968,7 +968,7 @@ export class CandidatePipeline {
         ok: false,
         result: fail(
           'verification_required',
-          `需求 ${reqId} 尚未完成验证 Agent 的独立验证；不能验收`,
+          `需求 ${reqId} 尚未完成测试 Agent 的独立测试；不能验收`,
         ),
       }
     }
@@ -980,7 +980,7 @@ export class CandidatePipeline {
         ok: false,
         result: fail(
           'verification_stale',
-          '独立验证结论绑定的候选或需求版本与当前材料不一致；必须对当前候选重新验证后再验收',
+          '独立测试结论绑定的候选或需求版本与当前材料不一致；必须对当前候选重新验证后再验收',
         ),
       }
     }
@@ -990,7 +990,7 @@ export class CandidatePipeline {
     ) {
       return {
         ok: false,
-        result: fail('verification_invalid', '独立验证报告文件缺失或摘要不一致；不能验收'),
+        result: fail('verification_invalid', '独立测试报告文件缺失或摘要不一致；不能验收'),
       }
     }
     if (verification.verdict !== 'pass') {
@@ -998,7 +998,7 @@ export class CandidatePipeline {
         ok: false,
         result: fail(
           'verification_blocked',
-          `独立验证未通过：${verificationBlocking(verification.reportJson)}`,
+          `独立测试未通过：${verificationBlocking(verification.reportJson)}`,
         ),
       }
     }
@@ -1012,7 +1012,7 @@ export class CandidatePipeline {
         ok: false,
         result: fail(
           'business_review_required',
-          `需求 ${reqId} 尚未完成验证 Agent 的业务终审；不能验收`,
+          `需求 ${reqId} 尚未完成测试 Agent 的业务终审；不能验收`,
         ),
       }
     }
