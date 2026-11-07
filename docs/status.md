@@ -7162,3 +7162,20 @@ main 上 `business-context-store.ts`（functions 85.71% < 95）、`clarification
 该文件单独运行 15 项全通过，属全量顺序/他人改动导致的不一致，不是本次 diff 引入。
 
 处理：按“检查失败不提交”的纪律保留在 worktree，未合并；待该项失败修复后再提交。
+
+## 194. P0 可靠性第二轮：承诺冲突解除依据（2026-11-07）
+
+- 缺陷：准入只读取**本次分析**的冲突列表；模型本轮返回空列表即可让上一轮已知的承诺冲突静默解除，
+  没有绑定需求版本、客户决定来源和生效关系。
+- 修复（`cc120e1`）：新增 `src/domain/commitment-resolution.ts`——
+  `decisionSourceTrusted` 只认 `web-decision:`/`owner:`；`resolutionCovers` 要求绑定当前需求版本、
+  命中冲突中的已有承诺、有明确解除方式与理由；`unresolvedCommitments` 把上一轮已知冲突与本轮新报冲突合并，
+  空列表不会清掉已知冲突。`buildAdmissionFacts` 接受 `previousConflicts` 与 `commitmentResolutions`，
+  冲突数与摘要都按未解除集合计算。
+- 证据：`tests/commitment-resolution.test.ts` 6 例（版本不符、模型来源、缺理由、空列表不清冲突、
+  旧版本顺延、正常无冲突放行）；新模块覆盖率 lines 96.15 / branches 90 / functions 100；
+  提交由 pre-commit 的 `make commit-check` 放行（逐文件覆盖率门槛）。
+- 未完成：`service.ts` 尚未从记录库取出 `previousConflicts`/`commitmentResolutions` 传入准入事实，
+  当前门禁只在调用方提供依据时生效。
+- 本会话阻断：真实需求闭环（研发→独立验证→受控提交→安装与装载核对）与固定模型配置回放，
+  缺少本会话可用的隔离部署目标与模型调用授权，均未执行。
