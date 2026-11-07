@@ -7238,3 +7238,22 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
 3. 跑一次 `make real-ops-e2e`（`KEEP=1`），确认 `reports/m1/ops-*` 归档；
 4. 若闭环仍不过，把 M1-3 记为“未达成（模型修复质量/澄清行为）”，并把本清单写入证据包；
 5. 之后补 M1-5 真实崩机恢复、M1-6 H/N/A 复算、M1-1/M1-2 重跑归档。
+
+## 193. 首个持久化归档证据：M1-3 运行现场（2026-11-07）
+
+`reports/m1/ops-2026-11-07T06-52-28-823Z/`（1.1 MB，含 `records.sqlite`、`config.json`、
+`host.log`、`verifications/`、`summary.json`）——归档功能首次产出可长期回查的证据。
+
+内容要点：
+
+- 事件 `ops-20261107052231-36b740`：受控 `SIGKILL` 注入（05:22:28，已标注），检查失败输出 `dead 2923644`；
+- 真实模型诊断（会话 `session-fl-ops-026bc6cb-…`）从**日志尾部**读出
+  `Error: liveness watchdog expired`、`target/current/src/service.mjs:31`，给出影响、事实、假设与
+  `proposed_action=restart-svc`、`fix_required=true`；
+- 授权：`decision=auto`、`decision_by=ops-catalog`、`human_involved=0`，恢复后 pid 2923933 ≠ 原 2923644；
+- 修复需求 `req-20261107052239-c727ed`（`source=ops:ops-20261107052231-36b740`）创建成功；
+- 停在 `awaiting_clarification`（研发自造 `unref` 问题），0 提交、0 部署、事件未关闭；
+- `summary.json` 如实记录 `failures: ["事件没有在原检查复核后关闭"]`，运行以非零退出。
+
+意义：M1-3 的“止血/诊断/授权/归档”四段已有可回查证据；缺口仍是“永久修复→部署→原检查复核→关闭”。
+同时验证了 `/tmp` 清理后证据可按 `reports/m1/` 回查。
