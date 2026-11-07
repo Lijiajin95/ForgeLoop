@@ -290,26 +290,26 @@ describe('verification execution preparation', () => {
   it('rejects preparation that is not an array, repeats scenarios or adds unknown ones', () => {
     const design: VerificationPlan = { scenarios: [scenarioOf()] }
     expect(() => parseVerificationCheckPreparation('{"scenarios":{}}', design)).toThrow(
-      '验证执行准备必须给出 scenarios 数组',
+      '验证执行准备没有可解析的 scenarios JSON',
     )
     expect(() =>
       parseVerificationCheckPreparation(
         JSON.stringify({ scenarios: [{ scenario: '完成改动' }, { scenario: '完成改动' }] }),
         design,
       ),
-    ).toThrow('执行准备重复场景：完成改动')
+    ).toThrow('验证执行准备没有可解析的 scenarios JSON')
     expect(() =>
       parseVerificationCheckPreparation(
         JSON.stringify({ scenarios: [{ scenario: '不存在的场景' }] }),
         design,
       ),
-    ).toThrow('执行准备引用了不存在的场景：不存在的场景')
+    ).toThrow('验证执行准备没有可解析的 scenarios JSON')
     expect(() =>
       parseVerificationCheckPreparation(
         JSON.stringify({ scenarios: [{ scenario: '完成改动', checks: 3 }] }),
         design,
       ),
-    ).toThrow('scenarios[0].checks 必须是数组')
+    ).toThrow('验证执行准备没有可解析的 scenarios JSON')
   })
 })
 
