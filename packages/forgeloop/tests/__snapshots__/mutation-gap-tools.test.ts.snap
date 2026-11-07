@@ -392,12 +392,20 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
     "parameters": {
       "additionalProperties": false,
       "properties": {
+        "attempt_id": {
+          "description": "Verification attempt id from the prompt",
+          "type": "string",
+        },
         "label": {
           "description": "Command label from the current verification plan",
           "type": "string",
         },
         "req_id": {
           "description": "Exact requirement id under verification",
+          "type": "string",
+        },
+        "session_id": {
+          "description": "Verification session id from the prompt",
           "type": "string",
         },
       },
@@ -433,6 +441,10 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
     "parameters": {
       "additionalProperties": false,
       "properties": {
+        "attempt_id": {
+          "description": "Verification attempt id from the prompt",
+          "type": "string",
+        },
         "expected_failure_output": {
           "description": "Text that must appear when the faulty copy runs the same command",
           "type": "string",
@@ -447,6 +459,10 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
         },
         "req_id": {
           "description": "Exact requirement id under verification",
+          "type": "string",
+        },
+        "session_id": {
+          "description": "Verification session id from the prompt",
           "type": "string",
         },
       },
@@ -484,6 +500,10 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
     "parameters": {
       "additionalProperties": false,
       "properties": {
+        "attempt_id": {
+          "description": "Verification attempt id from the prompt",
+          "type": "string",
+        },
         "content": {
           "description": "UTF-8 file content",
           "type": "string",
@@ -494,6 +514,10 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
         },
         "req_id": {
           "description": "Exact requirement id under verification",
+          "type": "string",
+        },
+        "session_id": {
+          "description": "Verification session id from the prompt",
           "type": "string",
         },
       },

@@ -7,15 +7,26 @@
  * 模型自述不能替代真实执行结果。同一 label 在一个候选上幂等，重复调用返回已有结果。
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type {
   VerificationCheckPlan,
   VerificationCheckRun,
   VerificationPlan,
 } from '../domain/verification.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
+import { sha256OfText } from '../domain/delivery.js'
 import type { runFormalTest } from './formal-test.js'
 import {
   VERIFICATION_MATERIAL_DIR,
@@ -51,6 +62,10 @@ export interface VerificationCheckActivation {
   readonly signal: AbortSignal
   /** 单条验证命令的宿主超时；由运行时按正式测试上限注入。 */
   readonly timeoutMs: number
+  /** 宿主提供的验证会话身份；工具调用必须与之一致。 */
+  readonly sessionId?: string
+  /** 本候选的验证尝试身份；工具调用必须与之一致。 */
+  readonly attemptId?: string
 }
 
 export interface VerificationCheckSnapshot {
@@ -76,6 +91,8 @@ interface ActiveContext {
   readonly runs: Map<string, VerificationCheckRecord>
   readonly integrityIssues: string[]
   readonly startedAt: string
+  /** 第一条命令执行前封存的 verification/ 材料摘要。 */
+  materialsSha256?: string
 }
 
 export interface VerificationCheckRegistryDeps {
@@ -86,6 +103,76 @@ export interface VerificationCheckRegistryDeps {
 
 function planChecks(plan: VerificationPlan): VerificationCheckPlan[] {
   return plan.scenarios.flatMap((scenario) => scenario.checks)
+}
+
+/** 验证材料摘要：排除 controls（对照单独按补丁摘要绑定），用于发现正向之后的换脚本。 */
+export function verificationMaterialsDigest(workspace: string): string {
+  const root = join(workspace, VERIFICATION_MATERIAL_DIR)
+  if (!existsSync(root)) return ''
+  const entries: string[] = []
+  const walk = (dir: string, prefix: string): void => {
+    for (const item of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      const relative = prefix ? `${prefix}/${item.name}` : item.name
+      if (relative === 'controls' || relative === 'controls.json') continue
+      const path = join(dir, item.name)
+      if (item.isDirectory()) {
+        walk(path, relative)
+        continue
+      }
+      const digest = item.isSymbolicLink()
+        ? `link:${readlinkSync(path)}`
+        : createHash('sha256').update(readFileSync(path)).digest('hex')
+      entries.push(`${relative}:${digest}`)
+    }
+  }
+  walk(root, '')
+  return createHash('sha256').update(entries.join('\n')).digest('hex')
+}
+
+/** 工具路径只能经过真实目录；任何符号链接都拒绝，避免写出工作区。 */
+function safeMaterialTarget(workspace: string, relative: string): string {
+  if (!relative.startsWith('verification/') || relative.includes('..')) {
+    throw new RuleViolationError('验证材料路径必须位于 verification/ 下')
+  }
+  let current = realpathSync(workspace)
+  const parts = relative.split('/').filter(Boolean)
+  for (const part of parts.slice(0, -1)) {
+    current = join(current, part)
+    if (existsSync(current)) {
+      if (lstatSync(current).isSymbolicLink()) {
+        throw new RuleViolationError(`验证材料路径不能经过符号链接：${relative}`)
+      }
+      continue
+    }
+    mkdirSync(current)
+  }
+  const target = join(current, parts[parts.length - 1] ?? '')
+  if (existsSync(target) && lstatSync(target).isSymbolicLink()) {
+    throw new RuleViolationError(`验证材料文件不能是符号链接：${relative}`)
+  }
+  const verification = join(realpathSync(workspace), 'verification')
+  const parent = realpathSync(current)
+  if (parent !== verification && !parent.startsWith(`${verification}/`)) {
+    throw new RuleViolationError(`验证材料路径越出 verification/：${relative}`)
+  }
+  return target
+}
+
+function callerIssue(
+  context: ActiveContext,
+  caller?: { readonly sessionId?: string; readonly attemptId?: string },
+): string | null {
+  const expectedSession = context.activation.sessionId
+  if (caller?.sessionId && expectedSession && caller.sessionId !== expectedSession) {
+    return `验证会话不一致：当前上下文属于 ${expectedSession}，调用来自 ${caller.sessionId}`
+  }
+  const expectedAttempt = context.activation.attemptId
+  if (caller?.attemptId && expectedAttempt && caller.attemptId !== expectedAttempt) {
+    return `验证尝试不一致：当前上下文属于 ${expectedAttempt}，调用来自 ${caller.attemptId}`
+  }
+  return null
 }
 
 function safeLabel(label: string): string {
@@ -135,7 +222,11 @@ export class VerificationCheckRegistry {
   }
 
   /** 工具入口：只执行当前方案中的 label；未登记上下文或方案外命令一律拒绝。 */
-  async run(reqId: string, label: string): Promise<VerificationCheckOutcome> {
+  async run(
+    reqId: string,
+    label: string,
+    caller?: { readonly sessionId?: string; readonly attemptId?: string },
+  ): Promise<VerificationCheckOutcome> {
     const context = this.contexts.get(reqId)
     if (!context) {
       return {
@@ -143,6 +234,8 @@ export class VerificationCheckRegistry {
         text: `没有正在进行的验证：${reqId}。只有验证会话在研发产物交付后可以执行验证方案中的命令。`,
       }
     }
+    const identity = callerIssue(context, caller)
+    if (identity) return { ok: false, text: identity }
     const check = planChecks(context.activation.plan).find((item) => item.label === label)
     if (!check) {
       return {
@@ -152,11 +245,13 @@ export class VerificationCheckRegistry {
     }
     const existing = context.runs.get(label)
     if (existing) return this.outcome(existing, context, true)
+    context.materialsSha256 ??= verificationMaterialsDigest(context.activation.workspace)
     if (context.activation.signal.aborted) {
       const aborted: VerificationCheckRecord = {
         label,
         argv: check.argv,
         expectFailure: check.expectFailure,
+        materialsSha256: context.materialsSha256,
         exitCode: null,
         timedOut: false,
         aborted: true,
@@ -193,6 +288,7 @@ export class VerificationCheckRegistry {
         label,
         argv: check.argv,
         expectFailure: check.expectFailure,
+        materialsSha256: context.materialsSha256,
         exitCode: test.exitCode,
         timedOut: test.timedOut,
         aborted: test.aborted,
@@ -212,6 +308,7 @@ export class VerificationCheckRegistry {
         label,
         argv: check.argv,
         expectFailure: check.expectFailure,
+        materialsSha256: context.materialsSha256,
         exitCode: null,
         timedOut: false,
         aborted: false,
@@ -236,6 +333,7 @@ export class VerificationCheckRegistry {
   async writeControl(
     reqId: string,
     input: { label: string; patch: string; expectedFailureOutput: string },
+    caller?: { readonly sessionId?: string; readonly attemptId?: string },
   ): Promise<VerificationCheckOutcome> {
     const context = this.contexts.get(reqId)
     if (!context) {
@@ -244,6 +342,8 @@ export class VerificationCheckRegistry {
         text: `没有正在进行的验证：${reqId}。只有验证会话可以为已登记命令写入敏感性对照。`,
       }
     }
+    const identity = callerIssue(context, caller)
+    if (identity) return { ok: false, text: identity }
     const check = planChecks(context.activation.plan).find((item) => item.label === input.label)
     if (!check) {
       return {
@@ -260,16 +360,18 @@ export class VerificationCheckRegistry {
     const issues = validateControlPatch(input.patch)
     if (issues.length > 0) return { ok: false, text: issues.join('；') }
     const relative = `verification/controls/${safeLabel(input.label)}.patch`
-    const patchPath = join(context.activation.workspace, relative)
-    const controlsPath = join(context.activation.workspace, 'verification/controls.json')
     const spec: VerificationControlSpec = {
       label: input.label,
       patch: relative,
       expectedFailureOutput: input.expectedFailureOutput.trim(),
+      patchSha256: sha256OfText(input.patch.trimEnd()),
     }
+    let patchPath = ''
+    let controlsPath = ''
     try {
-      mkdirSync(join(context.activation.workspace, 'verification/controls'), { recursive: true })
+      patchPath = safeMaterialTarget(context.activation.workspace, relative)
       writeFileSync(patchPath, `${input.patch.trimEnd()}\n`, 'utf8')
+      controlsPath = safeMaterialTarget(context.activation.workspace, 'verification/controls.json')
       const current = existsSync(controlsPath)
         ? parseVerificationControls(readFileSync(controlsPath, 'utf8'))
         : []
@@ -279,17 +381,8 @@ export class VerificationCheckRegistry {
     } catch (error) {
       return { ok: false, text: `写入敏感性对照失败：${errorMessage(error)}` }
     }
-    console.error('[debug-write]', JSON.stringify({ label: check.label, argv: check.argv }))
     const selfCheck = await this.runControl(context, check, spec)
     const actual = selfCheck.result
-    console.error(
-      '[debug-self]',
-      JSON.stringify({
-        issues: selfCheck.issues,
-        exit: actual?.exitCode,
-        output: actual?.output.slice(0, 300),
-      }),
-    )
     const detail = actual
       ? `受控副本退出码 ${actual.exitCode === null ? 'null' : actual.exitCode}；输出：\n${actual.output.slice(0, 800)}`
       : '未取得执行结果'
@@ -318,7 +411,11 @@ export class VerificationCheckRegistry {
   }
 
   /** 工具入口：把验证脚本写到当前候选的 verification/ 下；候选源码不可写。 */
-  writeMaterial(reqId: string, input: { path: string; content: string }): VerificationCheckOutcome {
+  writeMaterial(
+    reqId: string,
+    input: { path: string; content: string },
+    caller?: { readonly sessionId?: string; readonly attemptId?: string },
+  ): VerificationCheckOutcome {
     const context = this.contexts.get(reqId)
     if (!context) {
       return {
@@ -326,6 +423,8 @@ export class VerificationCheckRegistry {
         text: `没有正在进行的验证：${reqId}。只有验证会话可以写入验证材料。`,
       }
     }
+    const identity = callerIssue(context, caller)
+    if (identity) return { ok: false, text: identity }
     const relative = input.path.trim().replace(/^[/\\]+/, '')
     if (
       !relative.startsWith('verification/') ||
@@ -338,8 +437,7 @@ export class VerificationCheckRegistry {
       }
     }
     try {
-      const target = join(context.activation.workspace, relative)
-      mkdirSync(join(target, '..'), { recursive: true })
+      const target = safeMaterialTarget(context.activation.workspace, relative)
       writeFileSync(target, input.content, 'utf8')
       return { ok: true, text: `已写入验证材料 ${relative}。`, data: { path: relative } }
     } catch (error) {
@@ -391,16 +489,47 @@ export class VerificationCheckRegistry {
   async executeControls(
     reqId: string,
     token: string,
-    commands: readonly { label: string; argv: readonly string[] }[],
-    controls: readonly VerificationControlSpec[],
+    input: {
+      readonly commands: readonly { label: string; argv: readonly string[] }[]
+      readonly controls: readonly VerificationControlSpec[]
+      readonly caller?: { readonly sessionId?: string; readonly attemptId?: string }
+    },
   ): Promise<Awaited<ReturnType<typeof executeVerificationControls>> | null> {
     const context = this.contexts.get(reqId)
     if (!context || context.token !== token) return null
+    const identity = callerIssue(context, input.caller)
+    if (identity) {
+      return {
+        results: [],
+        issues: [identity],
+      }
+    }
+    const current = verificationMaterialsDigest(context.activation.workspace)
+    if (context.materialsSha256 && current !== context.materialsSha256) {
+      return {
+        results: [],
+        issues: ['验证材料在正向执行后发生变化；正向与对照必须使用同一版材料'],
+      }
+    }
+    const swapped = input.controls.filter((control) => {
+      if (!control.patchSha256) return false
+      const path = join(context.activation.workspace, control.patch)
+      return (
+        !existsSync(path) ||
+        sha256OfText(readFileSync(path, 'utf8').trimEnd()) !== control.patchSha256
+      )
+    })
+    if (swapped.length > 0) {
+      return {
+        results: [],
+        issues: swapped.map((control) => `敏感性对照补丁在登记后发生变化：${control.label}`),
+      }
+    }
     return executeVerificationControls({
       workspace: context.activation.workspace,
       dir: context.activation.dir,
-      commands,
-      controls,
+      commands: input.commands,
+      controls: input.controls,
       dependencyRoot: context.activation.workspace,
       run: async ({ argv, cwd, logPath }) => {
         const test = await this.deps.formalTest({

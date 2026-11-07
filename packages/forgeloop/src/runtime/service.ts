@@ -100,7 +100,6 @@ import { createDeliveryHandoff } from './delivery-handoff.js'
 import { buildRequirementView, deliveryProgress } from './requirement-views.js'
 import { BuildMaterialValidator } from './build-materials.js'
 
-/** 可注入的 Agent 执行器：真实插件用 AgentRunner，测试可替换为确定性假执行器。 */
 export interface AgentLike {
   run(request: Parameters<AgentRunner['run']>[0]): ReturnType<AgentRunner['run']>
   open?(request: AgentOpenRequest): Promise<AgentSession>
@@ -111,7 +110,6 @@ export interface RuntimeOptions {
   readonly ctx: Record<string, unknown>
   readonly config: ForgeLoopConfig
   readonly now?: () => Date
-  /** 测试注入：真实插件使用 AgentRunner；用例可替换为确定性假执行器。 */
   readonly runner?: AgentLike
   readonly formalTest?: typeof runFormalTest
 }
@@ -125,7 +123,6 @@ export class ForgeLoopRuntime {
   readonly repo: Repository
   readonly runner: AgentLike
   readonly ops: OpsRuntime
-  /** 需求队列：只在研发空闲时领取队首需求，同一时间最多一个在研。 */
   readonly requirementQueue: RequirementQueue
   readonly analysisQueue: AnalysisQueue
   /** 部署协调器：intent/审批/apply/status/回退；模型工具只能只读查询。 */
@@ -1093,10 +1090,6 @@ ${answer}`
     return Math.max(0, this.repo.grantCount(reqId) * perGrant - used)
   }
 
-  /**
-   * 系统准入：按真实来源、所有者、授权策略与当前需求说明判定。
-   * 结果单独写 requirement_admissions；不写 plan approval，也不伪造 by=owner。
-   */
   private admitRequirement(
     reqId: string,
   ): { ok: true; admitted: boolean; decision: AdmissionDecision } | { ok: false; message: string } {
@@ -1180,14 +1173,15 @@ ${answer}`
     plan: TaskPlan | null,
   ): boolean {
     if (requirement.status !== 'blocked') {
-      return AUTO_ADVANCE_STATUSES.has(requirement.status)
+      if (AUTO_ADVANCE_STATUSES.has(requirement.status)) return true
+      return (
+        requirement.status === APPROVED &&
+        admission !== null &&
+        this.remainingFailureRounds(requirement.reqId) > 0
+      )
     }
     if (!admission) return this.retryDecisionFor(requirement.reqId).allowed
-    return (
-      plan !== null &&
-      (this.remainingFailureRounds(requirement.reqId) > 0 ||
-        this.issues.latestOpen(requirement.reqId) !== null)
-    )
+    return plan !== null && this.remainingFailureRounds(requirement.reqId) > 0
   }
 
   private recordAutoAdvance(requirement: Requirement, plan: TaskPlan | null, now: string): boolean {
@@ -1209,8 +1203,12 @@ ${answer}`
     }
   }
 
-  runVerificationCheck(reqId: string, label: string): Promise<VerificationCheckOutcome> {
-    return this.verificationChecks.run(reqId, label)
+  runVerificationCheck(
+    reqId: string,
+    label: string,
+    caller?: { readonly sessionId?: string; readonly attemptId?: string },
+  ): Promise<VerificationCheckOutcome> {
+    return this.verificationChecks.run(reqId, label, caller)
   }
 
   /** 验证会话的非命令工具面：对照与验证材料写入；上下文、路径与补丁由注册表校验。 */
@@ -1316,6 +1314,13 @@ ${answer}`
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     const count = this.repo.appendGrant(input.reqId, input.by, this.now())
+    if (requirement.status === 'blocked') {
+      this.repo.setStatus(
+        input.reqId,
+        APPROVED,
+        `已追加第 ${count} 次失败轮次授权（累计不清零），恢复推进`,
+      )
+    }
     return ok(`已为需求 ${input.reqId} 追加第 ${count} 次失败轮次授权（累计不清零）`, {
       grants: count,
     })
@@ -1511,7 +1516,6 @@ ${answer}`
     })
   }
 
-  /** 只读可靠性聚合。 */
   reliability(window: ReliabilityWindow) {
     return reliabilityReport(this.repo, this.config, this.clock, window)
   }

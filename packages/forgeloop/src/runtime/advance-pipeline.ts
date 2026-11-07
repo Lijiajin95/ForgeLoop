@@ -643,6 +643,21 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       blocking: verification.blocking,
       devWorkspace: workspace,
     })
+    if (this.deps.remainingFailureRounds(reqId) <= 0) {
+      const blocking = verification.blocking.join('；') || verification.detail
+      this.deps.repo.setStatus(
+        reqId,
+        'blocked',
+        `验证未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；失败轮次额度已用尽，需有效追加授权后才能继续修复或再次送验`,
+      )
+      return {
+        stop: true,
+        result: {
+          state: 'failed',
+          detail: `验证未通过：${blocking}；已保留问题单 ${issue.issueId}，等待追加授权`,
+        },
+      }
+    }
     const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
     if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
       const blocking = verification.blocking.join('；') || verification.detail

@@ -539,7 +539,11 @@ function boundSessionId(reqId: string, requirementVersion = 1): string {
 
 function makeRuntime(
   runner: AgentLike,
-  autonomy: { allowCodeCommit?: boolean; commitCheckCommand?: string[] } = {},
+  autonomy: {
+    allowCodeCommit?: boolean
+    commitCheckCommand?: string[]
+    failureRoundsPerGrant?: number
+  } = {},
 ): ForgeLoopRuntime {
   const config = resolveConfig(
     {
@@ -553,7 +557,7 @@ function makeRuntime(
       maxTaskAttempts: 2,
       // 这里的用例覆盖“限制生效时如何阻断”；默认不限的行为由 unlimited-execution.test.ts 覆盖。
       maxVerificationAttempts: 3,
-      failureRoundsPerGrant: 3,
+      failureRoundsPerGrant: autonomy.failureRoundsPerGrant ?? 3,
       autonomy: {
         enabled: true,
         allowCodeCommit: autonomy.allowCodeCommit ?? true,
@@ -937,6 +941,33 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('业务验收材料畸形')
+  })
+
+  it('stops after one verification failure until a new grant is recorded', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ failFirstVerification: true }), {
+      failureRoundsPerGrant: 1,
+    })
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-1:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const first = await runNext(reqId, 'advance')
+    expect(first.state).toBe('failed')
+    expect(first.detail).toContain('等待追加授权')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
+
+    const granted = runtime.grant({ reqId, by: 'owner' })
+    expect(granted.ok, granted.message).toBe(true)
+    runtime.autoAdvanceRequests()
+    const second = await runNext(reqId, 'advance')
+    expect(second.state, second.detail).toBe('done')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
   })
 
   it('stops after a repair round that produces no changes', async () => {

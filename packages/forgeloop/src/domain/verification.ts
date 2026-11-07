@@ -625,6 +625,8 @@ export interface VerificationCheckRun {
   readonly label: string
   readonly argv: readonly string[]
   readonly expectFailure?: boolean
+  /** 正向命令执行时封存的 verification/ 材料摘要；对照必须使用同一版材料。 */
+  readonly materialsSha256?: string
   readonly exitCode: number | null
   readonly timedOut: boolean
   readonly aborted: boolean

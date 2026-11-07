@@ -33,6 +33,7 @@ import {
   VERIFICATION_CONTROL_TOOL,
   VERIFICATION_MATERIAL_TOOL,
   VerificationCheckRegistry,
+  verificationMaterialsDigest,
   type VerificationCheckRecord,
   type VerificationCheckSnapshot,
 } from './verification-checks.js'
@@ -249,6 +250,8 @@ export class LegacyVerification {
       acceptanceCriteria: input.analysis.acceptanceCriteria,
       businessRules: input.analysis.businessRules,
       exceptions: input.analysis.exceptions,
+      businessPoints: input.analysis.businessPoints,
+      acceptanceItems: input.analysis.acceptanceItems,
       review,
       runs: runs.map((run) => ({
         label: run.label,
@@ -427,6 +430,7 @@ export class LegacyVerification {
     const commands = input.checks.map((check) => ({
       label: check.label,
       argv: check.argv,
+      materialsSha256: check.materialsSha256,
       exitCode: check.exitCode,
       timedOut: check.timedOut,
       aborted: check.aborted,
@@ -448,7 +452,16 @@ export class LegacyVerification {
       attemptNumber: input.attempt.number,
       previousAttemptId: input.attempt.previousAttemptId,
       workspaceSha256,
+      verificationMaterialsSha256: verificationMaterialsDigest(join(input.dir, 'workspace')),
       verificationPlan: input.verificationPlan,
+      businessPoints: [
+        ...new Set(input.verificationPlan.scenarios.flatMap((scenario) => scenario.pointIds ?? [])),
+      ],
+      acceptanceItems: [
+        ...new Set(
+          input.verificationPlan.scenarios.flatMap((scenario) => scenario.acceptanceIds ?? []),
+        ),
+      ],
       environment: result.environment,
       verdict,
       ...(classification
@@ -533,7 +546,7 @@ export class LegacyVerification {
         workspace: string
         workspaceSha256: string
         workspaceHead: string
-        attempt: { number: number; previousAttemptId: string; dir: string }
+        attempt: { number: number; id: string; previousAttemptId: string; dir: string }
       }
     | {
         ok: false
@@ -645,6 +658,7 @@ export class LegacyVerification {
       workspaceHead,
       attempt: {
         number: attempt.attemptNumber,
+        id: `verification-v${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-a${attempt.attemptNumber}`,
         previousAttemptId: attempt.previousAttemptId,
         dir,
       },
@@ -737,6 +751,7 @@ export class LegacyVerification {
     workspace: string
     token: string
     plan: VerificationPlan
+    caller: { sessionId: string; attemptId: string }
   }): Promise<
     | { ok: true; outcome: Awaited<ReturnType<VerificationCheckRegistry['executeControls']>> }
     | { ok: false; detail: string }
@@ -750,12 +765,11 @@ export class LegacyVerification {
     } catch (error) {
       return { ok: false, detail: errorMessage(error) }
     }
-    const outcome = await this.deps.checks.executeControls(
-      input.reqId,
-      input.token,
-      input.plan.scenarios.flatMap((scenario) => scenario.checks),
+    const outcome = await this.deps.checks.executeControls(input.reqId, input.token, {
+      commands: input.plan.scenarios.flatMap((scenario) => scenario.checks),
       controls,
-    )
+      caller: input.caller,
+    })
     return { ok: true, outcome }
   }
 
@@ -785,6 +799,8 @@ export class LegacyVerification {
       plan: verificationSession.plan,
       signal: input.signal,
       timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
+      sessionId: verificationSession.sessionId,
+      attemptId: attempt.id,
     })
     let snapshot: VerificationCheckSnapshot | null = null
     let controlOutcome: Awaited<ReturnType<VerificationCheckRegistry['executeControls']>> = null
@@ -795,6 +811,8 @@ export class LegacyVerification {
           reqId: input.reqId,
           candidateSha256: input.candidate.candidateSha256,
           plan: verificationSession.plan,
+          sessionId: verificationSession.sessionId,
+          attemptId: attempt.id,
         }),
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(dir, 'verification-execution.jsonl'),
@@ -829,6 +847,7 @@ export class LegacyVerification {
         workspace,
         token: handle.token,
         plan: verificationSession.plan,
+        caller: { sessionId: verificationSession.sessionId, attemptId: attempt.id },
       })
       if (!controlsResult.ok) {
         return {

@@ -344,14 +344,17 @@ describe('verification failure issue loop', () => {
     expect(issues.map((issue) => issue.attempt)).toEqual([1, 2, 3])
     expect(issues[2]?.status).toBe('open')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
-    // 失败额度已用尽，但未收口问题单让需求继续排队，而不是停在 blocked。
-    expect(runtime.autoAdvanceRequests()).toContain(reqId)
+    // 失败额度已用尽：未收口问题单本身不再让需求自动入队，必须追加授权。
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
     expect(
       runtime.repo
         .pendingRequests('demo')
         .some((request) => request.reqId === reqId && request.action === 'advance'),
-    ).toBe(true)
+    ).toBe(false)
 
+    const granted = runtime.grant({ reqId, by: 'owner' })
+    expect(granted.ok, granted.message).toBe(true)
+    runtime.autoAdvanceRequests()
     const second = await runNext(reqId, 'advance')
     expect(second.state, second.detail).toBe('done')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
@@ -382,16 +385,18 @@ describe('verification failure issue loop', () => {
 
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
     expect(runtime.issues.issuesFor(reqId)).toHaveLength(3)
-    expect(runtime.autoAdvanceRequests()).toContain(reqId)
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
 
+    expect(runtime.grant({ reqId, by: 'owner' }).ok).toBe(true)
+    runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
     const issues = runtime.issues.issuesFor(reqId)
     expect(issues.map((issue) => issue.attempt)).toEqual([1, 2, 3, 4, 5, 6])
     expect(issues[5]?.status).toBe('open')
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(6)
     expect(runtime.issues.latestOpen(reqId)?.attempt).toBe(6)
-    // 仍未设置轮次上限：问题单未收口时继续自动排队下一次修复与验证。
-    expect(runtime.autoAdvanceRequests()).toContain(reqId)
+    // 第二批同样用尽额度：继续等待下一次有效追加授权，而不是自动重排。
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
 

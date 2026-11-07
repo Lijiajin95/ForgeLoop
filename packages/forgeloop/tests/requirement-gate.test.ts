@@ -266,14 +266,14 @@ describe('requirement pipeline gate', () => {
     expect(runtime.repo.planApproval(first, 1)).toBeNull()
     expect(runtime.autoAdvanceRequests()).toEqual([first])
 
-    // 第一轮推进：连续 3 次验证阻断，建单并停在 blocked；额度已用尽但问题单让它继续排队。
+    // 第一轮推进：连续 3 次验证阻断，建单并停在 blocked；额度用尽后必须等待追加授权。
     const firstAttempt = await runNext(first, 'advance')
     expect(firstAttempt.state).toBe('failed')
     expect(runtime.repo.failureRounds(first)).toHaveLength(3)
     expect(runtime.issues.issuesFor(first).map((issue) => issue.attempt)).toEqual([1, 2, 3])
     expect(runtime.issues.latestOpen(first)?.attempt).toBe(3)
     expect(runtime.repo.getRequirement(first)?.status).toBe('blocked')
-    expect(runtime.autoAdvanceRequests()).toContain(first)
+    expect(runtime.autoAdvanceRequests()).not.toContain(first)
     // 第一个需求未收口时，第二个需求仍保持排队且没有分析请求。
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(first)
     expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([second])
@@ -281,14 +281,16 @@ describe('requirement pipeline gate', () => {
       false,
     )
 
-    // 第二轮推进：先按问题单修复，再验证失败一次，继续修复后通过并提交。
+    // 追加授权后才允许继续修复与再次送验。
+    expect(runtime.grant({ reqId: first, by: 'owner' }).ok).toBe(true)
+    expect(runtime.autoAdvanceRequests()).toContain(first)
     const secondAttempt = await runNext(first, 'advance')
     expect(secondAttempt.state, secondAttempt.detail).toBe('done')
     expect(runtime.repo.getRequirement(first)?.status).toBe(COMMITTED)
     expect(runtime.repo.latestCommit(first)).not.toBeNull()
     expect(runtime.issues.issuesFor(first).map((issue) => issue.attempt)).toEqual([1, 2, 3, 4])
     expect(runtime.issues.issuesFor(first).every((issue) => issue.status === 'resolved')).toBe(true)
-    expect(runtime.repo.grantCount(first)).toBe(1)
+    expect(runtime.repo.grantCount(first)).toBe(2)
     expect(runtime.repo.failureRounds(first)).toHaveLength(4)
     expect(
       runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'block'),
