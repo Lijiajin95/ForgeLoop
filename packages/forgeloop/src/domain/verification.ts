@@ -687,8 +687,7 @@ function lastPreparationPayload(raw: string): unknown {
       // 继续尝试后面的对象；最后一个可解析的准备结果才是有效输出。
     }
   }
-  if (found === undefined) throw new MalformedError('验证执行准备没有可解析的 scenarios JSON')
-  return found
+  return found === undefined ? parseJsonLoose(raw, '验证执行准备') : found
 }
 
 /**
