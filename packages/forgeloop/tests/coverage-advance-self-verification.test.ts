@@ -491,6 +491,19 @@ describe('advance pipeline self verification and dev clarification', () => {
       a: { state: 'delivered', reason: '', selfVerification: reportA },
       b: { state: 'delivered', reason: '', selfVerification: reportB },
     }
+    // self 模式现在按候选 diff 收紧：只有文档/验证材料改动才算低风险，需要真实 diff 文件。
+    writeFileSync(
+      join(root, 'candidate-1.diff'),
+      [
+        'diff --git a/docs/a.md b/docs/a.md',
+        '--- a/docs/a.md',
+        '+++ b/docs/a.md',
+        '@@ -1 +1 @@',
+        '-旧文档',
+        '+新文档',
+        '',
+      ].join('\n'),
+    )
     const pipeline = makePipeline()
 
     const outcome = await pipeline.executeContinuousAdvance(

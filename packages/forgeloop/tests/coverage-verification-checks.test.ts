@@ -229,7 +229,9 @@ describe('verification control registration boundaries', () => {
       patch: VALID_PATCH,
       expectedFailureOutput: 'target rule broken',
     })
-    expect(written.ok, written.text).toBe(true)
+    // 没有退出码不能算自检通过：对照被撤销，并如实报告退出码缺失。
+    expect(written.ok, written.text).toBe(false)
+    expect(written.text).toContain('敏感性对照没有取得退出码')
     expect(written.text).toContain('受控副本退出码 null')
   })
 
@@ -389,11 +391,17 @@ describe('verification check execution integrity', () => {
   it('returns null for controls when the requirement or token no longer matches', async () => {
     const { registry, reqId, handle, plan } = harness()
     const commands = plan.scenarios.flatMap((scenario) => scenario.checks)
-    expect(await registry.executeControls('req-missing', handle.token, commands, [])).toBeNull()
-    expect(await registry.executeControls(reqId, 'stale-token', commands, [])).toBeNull()
-    expect(await registry.executeControls(reqId, handle.token, commands, [])).toEqual({
-      results: [],
-      issues: [],
-    })
+    expect(
+      await registry.executeControls('req-missing', handle.token, { commands, controls: [] }),
+    ).toBeNull()
+    expect(
+      await registry.executeControls(reqId, 'stale-token', { commands, controls: [] }),
+    ).toBeNull()
+    expect(await registry.executeControls(reqId, handle.token, { commands, controls: [] })).toEqual(
+      {
+        results: [],
+        issues: [],
+      },
+    )
   })
 })
