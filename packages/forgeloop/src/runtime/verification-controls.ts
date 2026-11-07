@@ -3,8 +3,19 @@
  * 要求它按目标业务规则失败。正式候选不被修改；对照副本、日志与结果作为证据保留。
  */
 
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs'
+import { isAbsolute, join, relative, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { controlPatchTargets } from '../domain/verification-controls.js'
 import type { VerificationCommand } from '../domain/verification.js'
 import { matchesCommandOutput } from '../domain/verification.js'
 import type { VerificationControlSpec } from '../domain/verification-controls.js'
@@ -118,20 +129,52 @@ function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: s
   }
 }
 
+function inside(parent: string, child: string): boolean {
+  const rel = relative(resolve(parent), resolve(child))
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+/** 目标文件的内容摘要；补丁只有真的改了这些内容才算生效。 */
+function targetDigests(root: string, targets: readonly string[]): Map<string, string> {
+  const digests = new Map<string, string>()
+  for (const target of targets) {
+    const path = join(root, target)
+    digests.set(
+      target,
+      existsSync(path) ? createHash('sha256').update(readFileSync(path)).digest('hex') : 'missing',
+    )
+  }
+  return digests
+}
+
+/**
+ * 对照副本必须落在候选之外：默认 recordsRoot 在项目内，直接复制到候选子目录会递归复制，
+ * 补丁也会在候选自己的仓库里执行，出现“git 返回成功但候选没被隔离”的假证据。
+ */
+function isolatedControlDir(workspace: string, controlDir: string): string {
+  if (!inside(workspace, controlDir)) return controlDir
+  return mkdtempSync(join(tmpdir(), 'forgeloop-control-'))
+}
+
 /** 在隔离副本应用补丁并确认它确实改变了业务文件。 */
 function applyControlPatch(
   workspace: string,
-  controlDir: string,
+  controlDirInput: string,
   patchPath: string,
   dependencyRoot?: string,
-): { applied: boolean; changedFiles: string[]; issue: string } {
+): { applied: boolean; changedFiles: string[]; issue: string; controlDir: string } {
+  const controlDir = isolatedControlDir(workspace, controlDirInput)
+  const targets = controlPatchTargets(readFileSync(patchPath, 'utf8'))
   copyCandidate(workspace, controlDir, dependencyRoot)
+  const before = targetDigests(controlDir, targets)
+  const candidateBefore = targetDigests(workspace, targets)
   const check = runCommand('git', ['apply', '--check', patchPath], controlDir, 30_000)
   if (check.code !== 0) {
     return {
       applied: false,
       changedFiles: [],
       issue: `敏感性对照补丁无法应用：${(check.stderr || check.stdout).trim() || `退出码 ${check.code}`}`,
+      controlDir,
     }
   }
   const applied = runCommand('git', ['apply', patchPath], controlDir, 30_000)
@@ -140,6 +183,30 @@ function applyControlPatch(
       applied: false,
       changedFiles: [],
       issue: `敏感性对照补丁应用失败：${(applied.stderr || applied.stdout).trim()}`,
+      controlDir,
+    }
+  }
+  const after = targetDigests(controlDir, targets)
+  const unchanged = targets.filter((target) => before.get(target) === after.get(target))
+  if (unchanged.length > 0) {
+    return {
+      applied: false,
+      changedFiles: [],
+      issue: `敏感性对照补丁应用后目标文件内容没有变化：${unchanged.join(',')}`,
+      controlDir,
+    }
+  }
+  // 原候选不能被对照过程改动：隔离副本才是唯一允许变化的地方。
+  const candidateAfter = targetDigests(workspace, targets)
+  const touched = targets.filter(
+    (target) => candidateBefore.get(target) !== candidateAfter.get(target),
+  )
+  if (touched.length > 0) {
+    return {
+      applied: false,
+      changedFiles: [],
+      issue: `敏感性对照改动了原候选：${touched.join(',')}`,
+      controlDir,
     }
   }
   const status = runCommand('git', ['status', '--porcelain'], controlDir, 30_000)
@@ -151,6 +218,7 @@ function applyControlPatch(
     applied: true,
     changedFiles,
     issue: changedFiles.length === 0 ? '敏感性对照补丁没有改变任何业务文件' : '',
+    controlDir,
   }
 }
 
@@ -181,7 +249,8 @@ export async function executeVerificationControls(
       issues.push(...patchIssues.map((issue) => `${control.label}：${issue}`))
       continue
     }
-    const controlDir = join(input.dir, 'controls', safeName(control.label))
+    const requestedDir = join(input.dir, 'controls', safeName(control.label))
+    let controlDir = requestedDir
     let applied = false
     let changedFiles: string[] = []
     let run: ControlCommandRun = {
@@ -197,10 +266,11 @@ export async function executeVerificationControls(
     try {
       const prepared = applyControlPatch(
         input.workspace,
-        controlDir,
+        requestedDir,
         patchPath,
         input.dependencyRoot,
       )
+      controlDir = prepared.controlDir
       applied = prepared.applied
       changedFiles = prepared.changedFiles
       issue = prepared.issue
@@ -208,7 +278,7 @@ export async function executeVerificationControls(
         run = await input.run({
           argv: command.argv,
           cwd: controlDir,
-          logPath: join(input.dir, 'controls', `${safeName(control.label)}.log`),
+          logPath: join(controlDir, '..', `${safeName(control.label)}.log`),
         })
         issue = judgeControlRun(run, control)
       }
