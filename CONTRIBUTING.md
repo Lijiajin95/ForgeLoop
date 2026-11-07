@@ -39,7 +39,19 @@
 ## 提交前检查（pre-commit）
 
 仓库内置 `.githooks/pre-commit`：提交前先运行 worktree 硬约束（主工作树暂存代码文件即拒绝），
-再运行 `make check-static`（类型、lint、架构契约、token/断言预算）与 `make format`，失败即阻止提交。
+再按暂存范围选择检查：
+
+- **含代码路径**（`packages/`、`scripts/`、`contracts/`、`.github/`、`.githooks/`、`Makefile`、
+  包清单等，判定见 `scripts/ts/commit-scope.ts`）：运行 `make commit-check`，即静态检查 +
+  全量行为测试 + `vitest` 逐文件覆盖率门槛（lines 90 / functions 95 / branches 85）；覆盖率不达标
+  即非零退出，提交被阻止。
+- **纯文档/状态记录**：只运行 `make check-static`（类型、lint、架构契约、token/断言预算），
+  不跑全量覆盖率，避免无意义的等待。
+- 两类都要再运行 `make format`，失败即阻止提交。
+
+注意边界：pre-commit 是**本地**约束，`git commit --no-verify` 能绕过；远端 CI 只能约束 push/merge，
+不能阻止本地提交。`make commit-check` 生成的 `packages/forgeloop/coverage/coverage-summary.json`
+属于生成物，hook 在检查后恢复它，不应进入暂存区。
 任务开始用 `make worktree-start TASK=<task>` 创建独立现场；纯文档改动可在主工作树提交。新克隆执行一次安装：
 
 ```bash

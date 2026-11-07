@@ -1,12 +1,53 @@
 #!/bin/sh
-# ForgeLoop 提交前基础检查：类型、lint（含断言规则）、架构契约、token/断言预算、格式。
-# 不做完整测试与覆盖/变异（那些在 make check / CI 中跑），保证提交延迟可控。
+# ForgeLoop 提交前硬约束：
+# 1) worktree-guard：主工作树不得提交代码改动（代码先在 .cache/worktrees/<task> 修改）；
+# 2) 暂存区含代码路径时执行 make commit-check（静态检查 + 全量行为测试 + 逐文件覆盖率门槛），
+#    仅文档/状态记录时只跑 make check-static，避免无意义的全量覆盖率；
+# 3) 最后统一跑 make format。
+# 覆盖率失败即非零退出阻止 commit；不能只打印报告或吞掉失败。
+# 注意：pre-commit 可被 git commit --no-verify 绕过，这是本地约束而非不可绕过保证。
 set -e
 cd "$(git rev-parse --show-toplevel)"
+
+COVERAGE_ARTIFACT='packages/forgeloop/coverage/coverage-summary.json'
+
+restore_coverage_artifact() {
+  if ! git diff --cached --name-only | grep -qx "$COVERAGE_ARTIFACT"; then
+    git checkout -- "$COVERAGE_ARTIFACT" 2>/dev/null || true
+  fi
+}
+
 echo "[pre-commit] worktree guard"
 node scripts/ts/worktree-guard.ts
-echo "[pre-commit] make check-static"
-make check-static
+
+SCOPE=$(node scripts/ts/commit-scope.ts)
+echo "[pre-commit] staged scope: $SCOPE"
+
+# git commit 会把 GIT_DIR / GIT_INDEX_FILE 等导出给 hook；测试夹具里的临时仓库会继承这些变量，
+# 反过来锁住真实仓库的 .git/config 或移动真实分支。跑检查前一律清掉，让嵌套 git 只看自己的 cwd。
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+
+case "$SCOPE" in
+  code)
+    echo "[pre-commit] make commit-check（含逐文件覆盖率门槛）"
+    if ! make commit-check; then
+      restore_coverage_artifact
+      echo "[pre-commit] 覆盖率或静态检查未通过，提交被阻止" >&2
+      exit 1
+    fi
+    restore_coverage_artifact
+    ;;
+  docs)
+    echo "[pre-commit] make check-static（文档改动，不跑覆盖率）"
+    make check-static
+    ;;
+  *)
+    echo "[pre-commit] 无法判定暂存范围：$SCOPE" >&2
+    exit 1
+    ;;
+esac
+
 echo "[pre-commit] make format"
 make format
 echo "[pre-commit] OK"

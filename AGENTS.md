@@ -96,6 +96,9 @@
 - **自动提交前检查包含覆盖率**：`autonomy.commitCheckCommand` 使用 `make commit-check`（跨平台等价
   `npm run check:commit`），它等于 `make check` 的静态检查加上带**逐文件覆盖率门槛**的全量行为测试；
   覆盖率不达标即拒绝提交。不要把它换成只跑测试或只生成报告的入口。
+- **本地 pre-commit 同样包含覆盖率**：`.githooks/pre-commit` 按暂存范围分流，含代码路径时执行
+  `make commit-check`（覆盖率失败即阻止提交），纯文档改动只执行 `make check-static`；两者都再跑
+  `make format`。这是本地约束：`git commit --no-verify` 可绕过，远端 CI 只能约束 push/merge。
 - **小型多次提交（small diff smart）**：一次 commit 只解决一个目标，优先拆成“实现 / 测试 / 契约与文档 /
   安装记录”等可独立验证的步骤。提交前用路径或 hunk 暂存，禁止把无关重构、全仓格式化、生成物或他人在途
   改动混入同一提交。一个 diff 应能被一次审阅解释清楚；跨模块大改先拆成可独立运行的步骤。
