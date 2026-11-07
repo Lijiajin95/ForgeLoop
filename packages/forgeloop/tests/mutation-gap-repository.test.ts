@@ -60,6 +60,38 @@ function analysis(overrides: Record<string, unknown> = {}) {
   }
 }
 
+describe('stale action watchdog', () => {
+  it('interrupts only actions whose heartbeat is older than the cutoff', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-stale-action-'))
+    const repo = new Repository(Database.open(join(dir, '.forgeloop', 'records.sqlite')))
+    try {
+      repo.startAction({
+        actionId: 'act-old',
+        taskId: 'req-1',
+        node: 'advance',
+        role: 'coordinator',
+        now: '2026-11-07T00:00:00.000Z',
+      })
+      repo.startAction({
+        actionId: 'act-fresh',
+        taskId: 'req-1',
+        node: 'advance',
+        role: 'coordinator',
+        now: '2026-11-07T02:00:00.000Z',
+      })
+      const marked = repo.markStaleActionsInterrupted(
+        '2026-11-07T01:00:00.000Z',
+        '2026-11-07T03:00:00.000Z',
+      )
+      expect(marked).toBe(1)
+      expect(repo.action('act-old')?.state).toBe('interrupted')
+      expect(repo.action('act-fresh')?.state).toBe('started')
+    } finally {
+      repo.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 describe('submission and versions', () => {
   it('rejects a conflicting client key with the exact identity message', () => {
     submit('first', 'key-1')

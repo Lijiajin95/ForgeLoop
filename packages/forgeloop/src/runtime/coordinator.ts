@@ -11,6 +11,7 @@
 
 import { hostname } from 'node:os'
 import { errorMessage } from '../domain/errors.js'
+import { staleActionMs } from '../domain/action-liveness.js'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './service.js'
 import { projectDir } from '../config.js'
@@ -213,6 +214,14 @@ export class Coordinator {
 
   private async runOnce(): Promise<void> {
     try {
+      // 运行期看门狗：心跳停滞的动作由协调器收口，避免一次挂起永久卡住需求。
+      const stale = this.runtime.repo.markStaleActionsInterrupted(
+        new Date(
+          Date.now() - staleActionMs(this.runtime.config.agent.maxTurnSeconds),
+        ).toISOString(),
+        new Date().toISOString(),
+      )
+      if (stale > 0) this.logger.error(`[forgeloop] 已收口 ${stale} 个无心跳动作`)
       if (this.autoAdvance) this.ensureAutoAdvanceRequests()
       // 产品分析失败自动重试：有上限，且不重复排队在途请求。
       this.runtime.analysisQueue.autoRetry()
