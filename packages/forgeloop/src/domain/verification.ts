@@ -667,6 +667,30 @@ export function needsExecutionPreparation(plan: VerificationPlan): boolean {
   return plan.scenarios.every((scenario) => (scenario.checks ?? []).length === 0)
 }
 
+/** 模型可能先重复设计再输出命令；取最后一个带 checks 的 JSON 对象。 */
+function lastPreparationPayload(raw: string): unknown {
+  let found: unknown
+  for (let index = raw.indexOf('{'); index >= 0; index = raw.indexOf('{', index + 1)) {
+    try {
+      const value: unknown = parseJsonLoose(raw.slice(index), '验证执行准备')
+      const record = asRecord(value, '验证执行准备')
+      if (
+        Array.isArray(record.scenarios) &&
+        record.scenarios.some((item) => {
+          const scenario = asRecord(item, '验证执行准备场景')
+          return Array.isArray(scenario.checks) && scenario.checks.length > 0
+        })
+      ) {
+        found = value
+      }
+    } catch {
+      // 继续尝试后面的对象；最后一个可解析的准备结果才是有效输出。
+    }
+  }
+  if (found === undefined) throw new MalformedError('验证执行准备没有可解析的 scenarios JSON')
+  return found
+}
+
 /**
  * 把候选固定后的执行准备结果合并回研发前设计：每个场景按名称取回 checks，
  * 保留设计阶段的编号、预期与必过标记；结构再走同一解析与覆盖校验。
@@ -675,7 +699,7 @@ export function parseVerificationCheckPreparation(
   raw: string,
   design: VerificationPlan,
 ): VerificationPlan {
-  const data = asRecord(parseJsonLoose(raw, '验证执行准备'), '验证执行准备')
+  const data = asRecord(lastPreparationPayload(raw), '验证执行准备')
   if (!Array.isArray(data.scenarios)) {
     throw new MalformedError('验证执行准备必须给出 scenarios 数组')
   }

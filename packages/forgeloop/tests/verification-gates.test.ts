@@ -426,3 +426,43 @@ describe('exception marker extraction', () => {
     expect(issues.join('；')).not.toContain('异常标记断言')
   })
 })
+
+describe('execution preparation response parsing', () => {
+  it('uses the last JSON object when the model repeats the design before checks', async () => {
+    const { parseRequirementVerificationPlan, parseVerificationCheckPreparation } =
+      await import('../src/domain/verification.js')
+    const design = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '生成文档',
+            acceptance_criterion: '文档包含标记',
+            method: '检查文档',
+            required: true,
+            checks: [],
+          },
+        ],
+      }),
+    )
+    const repeatedDesign = JSON.stringify({ scenarios: [] })
+    const checks = JSON.stringify({
+      scenarios: [
+        {
+          scenario: '生成文档',
+          checks: [
+            {
+              label: 'doc-check',
+              argv: ['node', 'verification/check.js'],
+              expected_output: 'ok',
+            },
+          ],
+        },
+      ],
+    })
+    const plan = parseVerificationCheckPreparation(
+      `${repeatedDesign}\n${JSON.stringify(design)}\n${checks}`,
+      design,
+    )
+    expect(plan.scenarios[0]?.checks?.[0]?.label).toBe('doc-check')
+  })
+})
