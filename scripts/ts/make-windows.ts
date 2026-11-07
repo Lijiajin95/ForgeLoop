@@ -110,6 +110,12 @@ function check(): void {
   }
 }
 
+/** 提交前门禁：与 POSIX 的 make commit-check 等价，静态检查 + 覆盖率下的全量测试。 */
+function commitCheck(): void {
+  staticStep()
+  npmWorkspace('coverage')()
+}
+
 function mutation(): void {
   npmWorkspace('mutation')()
 }
@@ -145,6 +151,7 @@ const targets: Record<string, Step> = {
   'test-fast': npmWorkspace('test:fast'),
   'test-slow': npmWorkspace('test:slow'),
   check,
+  'commit-check': commitCheck,
   'check-fast': () => {
     staticStep()
     npmWorkspace('test:fast')()
@@ -210,6 +217,7 @@ function help(): void {
 
   make.cmd setup|hooks            安装依赖 / 安装 .githooks
   make.cmd check [MUTATION=1]     静态检查 + 全量测试（可选全量变异）
+  make.cmd commit-check           静态检查 + 全量测试 + 逐文件覆盖率门槛
   make.cmd check-fast             静态检查 + 快速测试
   make.cmd check-static           typecheck + lint + 契约 + 预算 + 断言 + 可靠性注册表
   make.cmd test|test-fast|test-slow

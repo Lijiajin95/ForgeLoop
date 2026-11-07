@@ -15,7 +15,7 @@ CONTRACTS := $(NODE) scripts/ts/contracts.ts
 MUTATION ?= $(FORGELOOP_MUTATION)
 MUTATION_ENABLED := $(filter 1,$(MUTATION))
 
-.PHONY: setup hooks build typecheck test check check-static lint format contracts budget assertions sbom \
+.PHONY: setup hooks build typecheck test check commit-check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
 	precommit verify-plugin verify-e2e web-auth web-smoke package m0-loop-e2e worktree-start \
 	coverage mutation mutation-shard mutation-merge mutation-incremental audit security help \
@@ -24,6 +24,7 @@ MUTATION_ENABLED := $(filter 1,$(MUTATION))
 help:
 	@echo "make hooks                 安装 pre-commit（check-static + format）"
 	@echo "make check                 类型检查 + 架构契约 + 全量行为测试（默认不含变异）"
+	@echo "make commit-check          提交前门禁：静态检查 + 全量行为测试 + 逐文件覆盖率门槛"
 	@echo "make check MUTATION=1      全量检查后追加全量 Stryker 变异（慢，可选）"
 	@echo "make check-fast            快速检查：静态检查 + 快速用例，永不运行变异"
 	@echo "make test                  全部 TypeScript 行为测试（vitest，forks）"
@@ -77,6 +78,11 @@ test-fast:
 
 test-slow:
 	$(NPM) run test:slow --workspace forgeloop-dsh
+
+# 提交前门禁：静态检查 + 全量行为测试 + 逐文件覆盖率门槛（等价于 check 的测试部分换成 coverage）。
+# 覆盖率不达标即非零退出；不允许用“报告已生成”代替门槛通过。
+commit-check:
+	$(NODE) scripts/ts/check-repo.ts --coverage
 
 check: check-static test
 ifeq ($(MUTATION_ENABLED),1)
