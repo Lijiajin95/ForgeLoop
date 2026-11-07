@@ -1,11 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { verificationAttemptDir, verificationPlanDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 import type { VerificationPlan, VerificationResult } from '../domain/verification.js'
-import { judgeVerificationResult } from '../domain/verification.js'
+import {
+  judgeVerificationResult,
+  needsExecutionPreparation,
+  parseVerificationCheckPreparation,
+  validateRequirementVerificationPlan,
+} from '../domain/verification.js'
 import {
   CONTROLS_FILE,
   parseVerificationControls,
@@ -19,6 +24,7 @@ import {
 } from '../domain/business-review.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
+import { asRecord, parseJsonObject } from '../domain/json.js'
 import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { AGENT_VERIFY } from '../domain/agents.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
@@ -26,7 +32,11 @@ import { VerificationAgent } from '../agents/verification-agent.js'
 import type { VerificationSession } from '../agents/verification-agent.js'
 import type { AgentOpenRequest, AgentSession } from './agent-runner.js'
 import type { CandidateFile } from './integration.js'
-import { businessReviewPrompt, verificationExecutionPrompt } from './prompts.js'
+import {
+  businessReviewPrompt,
+  verificationExecutionPrompt,
+  verificationPreparationPrompt,
+} from './prompts.js'
 import {
   VERIFICATION_CHECK_TOOL,
   VERIFICATION_CONTROL_TOOL,
@@ -832,7 +842,7 @@ export class LegacyVerification {
     session: VerificationSession
     signal?: AbortSignal
   }): Promise<{ ok: true } | { ok: false; detail: string }> {
-    const planned = input.plan.scenarios.flatMap((scenario) => scenario.checks)
+    const planned = input.plan.scenarios.flatMap((scenario) => scenario.checks ?? [])
     const before = this.deps.checks.snapshot(input.reqId, input.token)
     const executed = new Set((before?.runs ?? []).map((item) => item.label))
     const missing = planned
@@ -865,7 +875,7 @@ export class LegacyVerification {
   ): { state: 'block'; detail: string; blocking: string[] } | null {
     const byLabel = new Map(snapshot.runs.map((run) => [run.label, run]))
     const missing = plan.scenarios
-      .flatMap((scenario) => scenario.checks)
+      .flatMap((scenario) => scenario.checks ?? [])
       .filter((check) => !byLabel.has(check.label))
       .map((check) => check.label)
     if (missing.length > 0) {
@@ -903,11 +913,81 @@ export class LegacyVerification {
       return { ok: false, detail: errorMessage(error) }
     }
     const outcome = await this.deps.checks.executeControls(input.reqId, input.token, {
-      commands: input.plan.scenarios.flatMap((scenario) => scenario.checks),
+      commands: input.plan.scenarios.flatMap((scenario) => scenario.checks ?? []),
       controls,
       caller: input.caller,
     })
     return { ok: true, outcome }
+  }
+
+  /** 候选固定后、执行前，在同一验证会话里把设计落成命令；失败按尝试留证。 */
+  private async prepareVerificationPlan(input: {
+    reqId: string
+    analysis: RequirementAnalysis
+    plan: VerificationPlan
+    candidateSha256: string
+    workspace: string
+    dir: string
+    session: AgentSession
+    signal: AbortSignal
+  }): Promise<{ ok: true; plan: VerificationPlan } | { ok: false; detail: string }> {
+    const started = Date.now()
+    let run: Awaited<ReturnType<AgentSession['send']>>
+    try {
+      run = await input.session.send({
+        prompt: verificationPreparationPrompt({
+          reqId: input.reqId,
+          candidateSha256: input.candidateSha256,
+          plan: input.plan,
+          interfaceFacts: this.publicInterfaceFacts(input.workspace),
+        }),
+        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(input.dir, 'verification-prep.jsonl'),
+        signal: input.signal,
+      })
+    } finally {
+      this.deps.charge(input.reqId, started)
+    }
+    if (run.status !== 'completed') {
+      return { ok: false, detail: `验证执行准备未完成：${run.reason}` }
+    }
+    try {
+      const plan = parseVerificationCheckPreparation(run.text, input.plan)
+      const issues = validateRequirementVerificationPlan(input.analysis, plan)
+      if (issues.length > 0) {
+        return { ok: false, detail: `验证执行准备未通过校验：${issues.join('；')}` }
+      }
+      writeFileSync(join(input.dir, 'verification-plan.json'), `${JSON.stringify(plan, null, 2)}\n`)
+      return { ok: true, plan }
+    } catch (error) {
+      return { ok: false, detail: `验证执行准备材料畸形：${errorMessage(error)}` }
+    }
+  }
+
+  private publicInterfaceFacts(workspace: string): string[] {
+    const facts: string[] = []
+    try {
+      const pkg = parseJsonObject(readFileSync(join(workspace, 'package.json'), 'utf8'))
+      const scripts = asRecord(pkg.scripts) ?? {}
+      for (const [name, command] of Object.entries(scripts)) {
+        if (typeof command === 'string') facts.push(`script ${name}: ${command}`)
+      }
+      if (typeof pkg.bin === 'string') facts.push(`bin: ${pkg.bin}`)
+      else {
+        for (const [name, path] of Object.entries(asRecord(pkg.bin) ?? {})) {
+          if (typeof path === 'string') facts.push(`bin ${name}: ${path}`)
+        }
+      }
+      facts.push(
+        ...readdirSync(workspace, { withFileTypes: true })
+          .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules')
+          .map((entry) => `${entry.isDirectory() ? 'dir' : 'file'} ${entry.name}`)
+          .slice(0, 30),
+      )
+    } catch {
+      // 没有 package.json 或不可读时不阻断；模型仍可依据设计准备命令。
+    }
+    return facts
   }
 
   // eslint-disable-next-line complexity, max-statements
@@ -923,18 +1003,48 @@ export class LegacyVerification {
     if (!prepared.ok) return prepared.result
     const { dir, workspace, workspaceSha256, workspaceHead, attempt } = prepared
     const verificationSession = input.verification
-    writeFileSync(
-      join(dir, 'verification-plan.json'),
-      `${JSON.stringify(verificationSession.plan, null, 2)}\n`,
-      'utf8',
-    )
+    let verificationPlan = verificationSession.plan
+    if (needsExecutionPreparation(verificationPlan)) {
+      const prep = await this.prepareVerificationPlan({
+        reqId: input.reqId,
+        analysis: input.analysis,
+        plan: verificationPlan,
+        candidateSha256: input.candidate.candidateSha256,
+        workspace,
+        dir,
+        session: verificationSession.session,
+        signal: input.signal,
+      })
+      if (!prep.ok) {
+        return this.recordBlockedAttempt({
+          reqId: input.reqId,
+          plan: input.plan,
+          candidate: input.candidate,
+          workspaceSha256,
+          dir,
+          attempt,
+          sessionId: verificationSession.sessionId,
+          detail: prep.detail,
+          blocking: [prep.detail],
+          failureKind: 'test_error',
+          runs: [],
+        })
+      }
+      verificationPlan = prep.plan
+    } else {
+      writeFileSync(
+        join(dir, 'verification-plan.json'),
+        `${JSON.stringify(verificationPlan, null, 2)}\n`,
+        'utf8',
+      )
+    }
     const handle = this.deps.checks.activate({
       reqId: input.reqId,
       candidateSha256: input.candidate.candidateSha256,
       workspace,
       dir,
       head: workspaceHead,
-      plan: verificationSession.plan,
+      plan: verificationPlan,
       signal: input.signal,
       timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
       sessionId: verificationSession.sessionId,
@@ -948,7 +1058,7 @@ export class LegacyVerification {
         prompt: verificationExecutionPrompt({
           reqId: input.reqId,
           candidateSha256: input.candidate.candidateSha256,
-          plan: verificationSession.plan,
+          plan: verificationPlan,
           sessionId: verificationSession.sessionId,
           attemptId: attempt.id,
         }),
@@ -975,7 +1085,7 @@ export class LegacyVerification {
       const executedRetry = await this.ensureCommandsExecuted({
         reqId: input.reqId,
         dir,
-        plan: verificationSession.plan,
+        plan: verificationPlan,
         token: handle.token,
         session: verificationSession.session,
         signal: input.signal,
@@ -999,7 +1109,7 @@ export class LegacyVerification {
         reqId: input.reqId,
         workspace,
         token: handle.token,
-        plan: verificationSession.plan,
+        plan: verificationPlan,
         caller: { sessionId: verificationSession.sessionId, attemptId: attempt.id },
       })
       if (!controlsResult.ok) {
@@ -1057,7 +1167,7 @@ export class LegacyVerification {
       })
     }
     const recorded = snapshot
-    const preJudge = this.preJudgeBlock(recorded, verificationSession.plan)
+    const preJudge = this.preJudgeBlock(recorded, verificationPlan)
     if (preJudge) {
       return this.recordBlockedAttempt({
         reqId: input.reqId,
@@ -1075,7 +1185,7 @@ export class LegacyVerification {
     }
     const integrity = this.candidateIntegrity(workspace, workspaceHead, recorded)
     const result = judgeVerificationResult({
-      plan: verificationSession.plan,
+      plan: verificationPlan,
       artifact: {
         requirementVersion: input.plan.requirementVersion,
         candidateSha256: input.candidate.candidateSha256,
@@ -1091,7 +1201,7 @@ export class LegacyVerification {
     })
     // 验证会话可通过对照工具写补丁；没有覆盖关键必过场景时按证据不足阻断。
     const controlCoverageIssues = validateControlCoverage({
-      requiredScenarios: verificationSession.plan.scenarios
+      requiredScenarios: verificationPlan.scenarios
         .filter((scenario) => scenario.required)
         .map((scenario) => scenario.scenario),
       reportScenarios: result.scenarios.map((scenario) => ({
@@ -1107,7 +1217,7 @@ export class LegacyVerification {
       candidate: input.candidate,
       dir,
       workspaceSha256,
-      verificationPlan: verificationSession.plan,
+      verificationPlan: verificationPlan,
       result,
       checks: recorded.runs,
       integrityIssues: integrity.issues,
@@ -1127,7 +1237,7 @@ export class LegacyVerification {
       requirement: input.requirement,
       analysis: input.analysis,
       plan: input.plan,
-      verificationPlan: verificationSession.plan,
+      verificationPlan: verificationPlan,
       candidate: input.candidate,
       session: verificationSession.session,
       dir,

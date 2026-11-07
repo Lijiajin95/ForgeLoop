@@ -369,14 +369,21 @@ describe('requirement verification plan', () => {
         JSON.stringify({ scenarios: Array.from({ length: 21 }, () => ({ scenario: 's' })) }),
       ),
     ).toThrow('验证方案的场景一次最多 20 个')
-    expect(() =>
-      parseRequirementVerificationPlan(JSON.stringify({ scenarios: [{ required: true }] })),
-    ).toThrow('scenarios[0].checks 必须给出至少一条可执行命令')
-    expect(() =>
+    expect(
       parseRequirementVerificationPlan(
-        JSON.stringify({ scenarios: [{ required: true, checks: [] }] }),
-      ),
-    ).toThrow('scenarios[0].checks 必须给出至少一条可执行命令')
+        JSON.stringify({
+          scenarios: [
+            {
+              scenario: '设计场景',
+              acceptance_criterion: '可观察',
+              method: '稍后准备命令',
+              required: true,
+              checks: [],
+            },
+          ],
+        }),
+      ).scenarios[0]?.checks,
+    ).toEqual([])
     expect(() =>
       parseRequirementVerificationPlan(
         JSON.stringify({

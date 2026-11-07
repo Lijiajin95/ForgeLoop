@@ -988,7 +988,7 @@ function verificationPlanContext(plan: VerificationPlan): string {
 方法：${scenario.method}
 必过：${scenario.required ? '是' : '否'}
 命令：
-${scenario.checks
+${(scenario.checks ?? [])
   .map(
     (check) =>
       `  - label: ${check.label}\n    argv: ${JSON.stringify(check.argv)}${check.expectedOutput ? `\n    预期输出: ${check.expectedOutput}` : ''}`,
@@ -1002,6 +1002,45 @@ ${scenario.checks
  * 产物交付后的验证执行提示词：同一个验证会话通过工具逐条执行方案里的命令。
  * 工具只执行方案内的 label，退出码与输出由程序记录。
  */
+/** 候选固定后的执行准备：只读公开接口，把设计场景落成可执行命令。 */
+export function verificationPreparationPrompt(input: {
+  readonly reqId: string
+  readonly candidateSha256: string
+  readonly plan: VerificationPlan
+  readonly interfaceFacts: readonly string[]
+}): string {
+  const design = input.plan.scenarios
+    .map(
+      (scenario, index) =>
+        `${index + 1}. 场景：${scenario.scenario}
+验收标准：${scenario.acceptanceCriterion}
+方法/预期：${scenario.method}
+必过：${scenario.required ? '是' : '否'}
+覆盖：${[...(scenario.pointIds ?? []), ...(scenario.acceptanceIds ?? [])].join('、') || '（旧文本覆盖）'}`,
+    )
+    .join('\n')
+  return `你是 ForgeLoop 的验证 Agent。候选已经固定。现在只做执行准备：依据下面研发前固定的业务设计，以及候选工程公开的只读接口，准备稍后由运行时执行的命令；不要执行命令、不要读取源码、不要修改任何文件。
+
+需求身份：${input.reqId}
+候选：${input.candidateSha256}
+
+研发前固定的验证设计：
+${design}
+
+候选公开接口（只读）：
+${input.interfaceFacts.map((fact) => `- ${fact}`).join('\n') || '- （未发现 package.json scripts 或根目录说明）'}
+
+只输出一个 JSON 对象：
+{"scenarios":[{"scenario":"设计里的场景原文","checks":[{"label":"全局唯一标签","argv":["可执行程序","参数"],"expected_output":"输出中逐字出现的片段，可省略","category":"acceptance"}]}]}
+
+规则：
+- 每个场景必须原样返回，checks 覆盖该场景的预期；必过场景至少一条 acceptance 检查，其余可用 regression、integration、artifact。
+- 命令总数 1 到 10 条，label 全局唯一；优先引用公开 scripts、bin 或已有测试入口，不按实现细节猜内部函数。
+- 命令不得交互、联网或修改候选；需要脚本时先用验证材料工具写入 \`verification/\`，再在 argv 引用。
+- 异常/边界断言必须自建临时输入，不能依赖候选仓库当前状态。
+- 执行准备结果会与研发前设计合并，编号和原文不得改写。`
+}
+
 export function verificationExecutionPrompt(input: {
   readonly reqId: string
   readonly candidateSha256: string
@@ -1010,7 +1049,7 @@ export function verificationExecutionPrompt(input: {
   readonly attemptId?: string
 }): string {
   const labels = input.plan.scenarios.flatMap((scenario) =>
-    scenario.checks.map((check) => check.label),
+    (scenario.checks ?? []).map((check) => check.label),
   )
   return `你是 ForgeLoop 的验证 Agent。研发产物已交付并固定在独立候选工作区。你必须使用工具 ${VERIFICATION_CHECK_TOOL} 逐条执行下面的验证方案；工具只在固定候选上执行方案里的 argv，并返回真实退出码与输出。
 
