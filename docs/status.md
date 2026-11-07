@@ -7008,3 +7008,44 @@ M1-4/M1-8 达成。未代签任何验收。
 - 新验证管线（非 Legacy）仍直接执行已有方案；两步准备目前只在连续推进的 Legacy 路径生效。
 - 执行准备只读接口限于 `package.json` scripts/bin 与根目录条目，未运行 `--help` 等真实公开入口。
 - 真实 DSH + DeepSeek 主路径未复跑。
+
+## 192. P0 可靠性第一批：对照隔离、契约漏检、畸形方案重试与关单一致性（2026-11-07）
+
+本轮以 `30c81ed` 为基线，在 worktree `p0-reliability` 内完成，每条改动都先有失败用例、后有通过结果。
+
+### 192.1 敏感性对照：隔离副本与真实生效判定
+
+- 缺陷：默认 `recordsRoot` 在项目内，对照副本落在候选目录里，`cpSync` 递归复制自身失败，
+  记为“敏感性对照执行异常”；即使复制成功，补丁也会在候选仓库内执行，形成“git 返回成功但候选没被隔离”的假证据。
+- 修复：副本落在候选内时改用系统临时目录；应用前后对比补丁声明的目标文件内容摘要，内容没变即拒绝；
+  并再次核对原候选摘要未被改动。
+- 证据：`tests/verification-controls-inrepo.test.ts`（3 例，修复前 2 例失败），提交 `e0dcd60`。
+
+### 192.2 架构契约：domain 层宿主副作用模块
+
+- 缺陷：原正则只匹配 `from 'node:fs'` 与 `import('node:fs')`，漏掉裸 `fs`、`import 'node:fs'`、
+  `fs/promises` 与 `require('fs')`。
+- 修复：契约新增 `forbidden_modules`，扫描静态/副作用/动态/require/再导出说明符，`node:` 前缀与子路径归一。
+- 证据：`tests/architecture-contract.test.ts` 新增 6 例，提交 `d9df87d`。
+
+### 192.3 验证方案生成：畸形 JSON 回传重试
+
+- 缺陷：畸形 JSON 直接 fail-closed，解析错误不回传。
+- 修复：把解析错误与结构示例反馈给同一会话，在既有 3 次上限内重试；连续畸形以“验证方案 JSON 畸形”阻断。
+- 证据：`tests/verification.test.ts` 新增 2 例，提交 `a146013`。
+
+### 192.4 运维关单一致性
+
+- 缺陷：原检查复核通过后只写 `state=closed`，没写 `closed_at`。
+- 修复：状态与 `closed_at` 同一次写入；失败或检查缺失保持未关闭；同一 intent 重复轮询只记一条 `fix_check`。
+- 证据：`tests/ops-recheck.test.ts` 新增 3 例（修复前 2 例失败），提交 `66ba42a`。
+
+### 192.5 门禁与未完成项
+
+- `make check`：166 文件 / 2,018 项通过（`/tmp/p0-check.log`，退出码 0）；`make coverage` 退出码 0；
+  `make contracts` 通过。
+- 未验证/未完成：
+  - Windows 上 `npm run check:repo`：本机为 Linux，无 Windows 宿主。
+  - 真实运维闭环（研发→验证→提交→自动部署→原检查复核→关单）：本会话没有已授权的隔离部署环境与真实制品。
+  - “观察窗口”关单规则：配置与实现里没有观察窗口字段，属产品口径未定。
+  - 研发/运维 H/N/A 复算与 >200 事件回查：本机没有该规模的真实记录库。
