@@ -19,7 +19,8 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
 （`allowAnySource=true`、`requireOwner=false`）：任何非空来源都可进入，来源与提交者完整记录；
 需要收紧时显式设置 `allowAnySource=false` 并维护 `trustedSources`。`allowCodeCommit=true`；
 `commitCheckCommand` 为空时拒绝提交并提示先配置和修复，不再把“未配置”视为通过。推荐跨平台配置
-`["npm","run","check:repo"]`（与 `make check` 步骤等价，Linux/Windows 都可用）；发布/部署仍需独立授权，
+`["npm","run","check:commit"]`：静态检查 + 带**逐文件覆盖率门槛**的全量行为测试（等价 `make commit-check`，
+Linux/Windows 都可用）；`["npm","run","check:repo"]` 仍等于 `make check`，不含覆盖率。发布/部署仍需独立授权，
 研发 Agent 没有部署工具。
 限额统一用 `-1` 表示不限（界面显示 MAX），正数恢复原行为；任务工时、需求工时、任务尝试、
 失败轮次与验证次数默认不限，规划/评审/分析/诊断的格式重试仍有正数上限。
