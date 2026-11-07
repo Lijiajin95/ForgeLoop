@@ -390,3 +390,39 @@ describe('prepared plan validation', () => {
     expect(issues.join('；')).not.toContain('必须自建临时输入')
   })
 })
+
+describe('exception marker extraction', () => {
+  it('does not treat a quoted input example as a required output marker', async () => {
+    const { parseRequirementVerificationPlan, validateRequirementVerificationPlan } =
+      await import('../src/domain/verification.js')
+    const exception = '非 "ok" 输入（如 "bad"）必须抛出错误且错误信息包含 "missing"。'
+    const plan = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '标记函数',
+            acceptance_criterion: '错误输入被拒绝',
+            method: `调用 mark；${exception}`,
+            required: true,
+            checks: [
+              {
+                label: 'bad-input',
+                argv: ['node', 'verification/check-mark.js'],
+                expected_output: 'missing',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    const issues = validateRequirementVerificationPlan(
+      {
+        scenarios: ['标记函数'],
+        acceptanceCriteria: ['错误输入被拒绝'],
+        exceptions: [exception],
+      },
+      plan,
+    )
+    expect(issues.join('；')).not.toContain('异常标记断言')
+  })
+})

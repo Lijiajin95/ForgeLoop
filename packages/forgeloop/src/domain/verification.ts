@@ -498,11 +498,11 @@ const TEMPDIR_TOKENS = /mkdtemp|mkdtempSync|mktemp|tempfile|TemporaryDirectory|t
 /** 取“输出/打印/提示”后紧跟的 ASCII 标记，或反引号/引号里的标记。 */
 function exceptionMarkers(text: string): string[] {
   const markers = new Set<string>()
-  for (const match of text.matchAll(/[`'"]([A-Za-z][A-Za-z0-9_-]{2,})[`'"]/g)) {
+  for (const match of text.matchAll(/`([A-Za-z][A-Za-z0-9_-]{2,})`/g)) {
     if (match[1]) markers.add(match[1])
   }
   for (const match of text.matchAll(
-    /(?:输出|打印|提示)(?:为|是|：|:)?\s*([A-Za-z][A-Za-z0-9_-]{2,})/g,
+    /(?:输出|打印|提示|包含)(?:为|是|：|:)?\s*[`'"]?([A-Za-z][A-Za-z0-9_-]{2,})/g,
   )) {
     if (match[1]) markers.add(match[1])
   }
