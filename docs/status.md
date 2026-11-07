@@ -7105,9 +7105,13 @@ M1-4/M1-8 达成。未代签任何验收。
 环境说明：`make check` 在 `dd3af24` 后因机器负载（load >15）出现 5 秒超时类失败
 （`coverage-pipeline-agent-runner` 的 host dispose、`candidate-build` 材料用例、`assertion-policy`）；
 这些用例在干净 `main` 上同样复现，隔离运行通过，不归因于本分支行为。负载回落后需再跑一次完整 `make check`。
-真实 DSH + DeepSeek 的三组场景（连续部分回答、历史承诺冲突、缺陷+新能力混合）本轮**尚未执行**：
-隔离 DSH_HOME、插件安装与模型路由需另行搭建，时间用尽。fixture 与单元测试不能当作真实场景验收；
-这三组场景在交付说明中列为未验证。
+真实 DSH + DeepSeek 三组场景已用隔离 `DSH_HOME`、自定义 profile、当前分支构建与真实产品 Agent 复跑；
+路由 `command-goat/deepseek/deepseek-v4.1-flash`。原始输入、输出、驱动插件与模型 patch 存在
+`docs/evidence/2026-11-07-requirement-stage/`，结论：连续部分回答只落对应问题且其余问题继续阻断；
+历史承诺冲突被识别并给出取舍；缺陷与新能力在同一项目内正确分诊。
+复验同时发现：回答中宣布“旧承诺废止”后模型不再报冲突并通过准入，但旧需求没有被修订或退役，
+可能留下两条互相矛盾的已准入需求；本轮未改，列为后续规则缺口。场景 A 的“全部答完”在 web 宿主
+第三次分析超时终止，未取得完成态。
 
 遗留与“发现但不碰”：
 
