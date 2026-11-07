@@ -56,6 +56,7 @@ let snapshot: {
   startedAt: string
 } | null
 let sendStatus: 'completed' | 'aborted' | 'timeout' | 'error'
+let attemptNumber = 1
 
 const plan: VerificationPlan = {
   scenarios: [
@@ -96,7 +97,14 @@ function buildVerification(prepareCommand: readonly string[] = []): LegacyVerifi
   const repo = {
     recordVerification: (value: unknown) => recorded.push(value),
     recordFailureRound: (value: unknown) => failureRounds.push(value),
-    nextVerificationAttempt: () => ({ attemptNumber: 1, previousAttemptId: '' }),
+    nextVerificationAttempt: () => {
+      const current = attemptNumber
+      attemptNumber += 1
+      return {
+        attemptNumber: current,
+        previousAttemptId: current > 1 ? `verification-v1-${'c'.repeat(12)}-a${current - 1}` : '',
+      }
+    },
   }
   return new LegacyVerification({
     config,
@@ -197,6 +205,7 @@ beforeEach(() => {
   state.statusOutput = ''
   recorded = []
   failureRounds = []
+  attemptNumber = 1
   snapshot = { runs: [runRecord()], integrityIssues: [], startedAt: '2026-11-03T10:00:00.000Z' }
   sendStatus = 'completed'
   verification = buildVerification()
@@ -306,6 +315,42 @@ describe('legacy verification failure paths', () => {
     }
     expect(report.commands[0]).toMatchObject({ label: 'check-1', aborted: true })
     expect(report.commands[0]?.logPath).toContain('check-1.log')
+  })
+
+  it('keeps both attempts and their logs when the same candidate is re-verified', async () => {
+    snapshot = {
+      runs: [runRecord({ aborted: true, exitCode: null })],
+      integrityIssues: [],
+      startedAt: '2026-11-03T10:00:00.000Z',
+    }
+    const first = await verify()
+    expect(first.verification?.attemptNumber).toBe(1)
+    const firstPath = first.verification!.reportPath
+    expect(existsSync(firstPath)).toBe(true)
+
+    snapshot = { runs: [runRecord()], integrityIssues: [], startedAt: '2026-11-03T10:00:00.000Z' }
+    const second = await verify()
+    expect(second.verification?.attemptNumber).toBe(2)
+    const secondPath = second.verification!.reportPath
+    expect(secondPath).not.toBe(firstPath)
+    expect(existsSync(secondPath)).toBe(true)
+    expect(recorded).toHaveLength(2)
+    expect(recorded.map((item) => (item as { attemptNumber: number }).attemptNumber)).toEqual([
+      1, 2,
+    ])
+    const firstReport = JSON.parse(readFileSync(firstPath, 'utf8')) as {
+      attemptNumber: number
+      previousAttemptId: string
+      commands: Array<{ logPath: string }>
+    }
+    const secondReport = JSON.parse(readFileSync(secondPath, 'utf8')) as {
+      attemptNumber: number
+      previousAttemptId: string
+    }
+    expect(firstReport.attemptNumber).toBe(1)
+    expect(secondReport.attemptNumber).toBe(2)
+    expect(secondReport.previousAttemptId).toContain('a1')
+    expect(firstReport.commands[0]?.logPath).toContain('check-1.log')
   })
 
   it('records a block when the candidate commit changed during verification', async () => {

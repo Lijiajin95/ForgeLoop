@@ -726,6 +726,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(report.controls).toHaveLength(1)
     expect(report.controls[0]).toMatchObject({ label: 'ok', applied: true, exitCode: 1, issue: '' })
     expect(report.verificationPlan.scenarios[0].scenario).toBe(SCENARIO)
+    expect(report.checksByCategory).toMatchObject({ acceptance: 1 })
 
     // 候选身份与工作区摘要同时落在 candidate.json 与 verification.json，二者必须一致。
     const candidate = JSON.parse(readFileSync(join(built.dir, 'candidate.json'), 'utf8'))

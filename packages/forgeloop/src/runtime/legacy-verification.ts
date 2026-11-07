@@ -445,6 +445,7 @@ export class LegacyVerification {
       commands: input.runs.map((run) => ({
         label: run.label,
         argv: run.argv,
+        category: run.category ?? 'acceptance',
         materialsSha256: run.materialsSha256,
         exitCode: run.exitCode,
         timedOut: run.timedOut,
@@ -559,6 +560,7 @@ export class LegacyVerification {
     const commands = input.checks.map((check) => ({
       label: check.label,
       argv: check.argv,
+      category: check.category ?? 'acceptance',
       materialsSha256: check.materialsSha256,
       exitCode: check.exitCode,
       timedOut: check.timedOut,
@@ -605,6 +607,12 @@ export class LegacyVerification {
       blocking,
       scenarios,
       commands,
+      checksByCategory: Object.fromEntries(
+        ['acceptance', 'regression', 'integration', 'artifact'].map((category) => [
+          category,
+          commands.filter((command) => command.category === category).length,
+        ]),
+      ),
       controls: input.controls,
       candidateIntegrity: {
         head: afterHead,

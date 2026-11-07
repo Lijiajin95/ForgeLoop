@@ -6904,3 +6904,29 @@ M1-4/M1-8 达成。未代签任何验收。
 
 - 模型补丁文件需放在仓库内（`.cache/real-model-qwen.patch.yml`）或每次重建，`/tmp` 会被清理；
 - `/tmp` 现场不可作为验收证据位置。
+
+## 189. 复验尝试保留与验证证据分类（2026-11-07）
+
+来源：第二批“复验和执行准备”。本轮补齐同候选两次尝试的可查证据，并按已确认清单区分
+本次验收、回归、真实集成和制品检查；两步执行准备仍未拆分。
+
+### 189.1 实现
+
+- 同一候选第一次命令中止、第二次复验时，两次尝试分别写各自的 `verification.json` 与命令日志；
+  第二条报告保留 `attemptNumber=2`、`previousAttemptId` 指向第一次尝试，旧报告不被覆盖。
+- 验证方案每条命令新增 `category`：`acceptance`、`regression`、`integration`、`artifact`，缺省
+  `acceptance`；每个 `required=true` 场景必须至少有一条 acceptance 检查。
+- 验证报告新增 `checksByCategory` 计数，命令记录携带 `category`；旧报告与旧方案缺省按 acceptance
+  兼容。
+
+### 189.2 验收与证据
+
+- `coverage-legacy-verification` 新增“同一候选复验保留两次尝试与日志”用例。
+- `verification-gates` 覆盖 category 缺省、显式分类与缺 acceptance 的阻断。
+- `mutation-gap-verify-deep` 的通过报告断言 `checksByCategory.acceptance=1`。
+- `make check` 通过：158 个测试文件、1899 项。
+
+### 189.3 未完成
+
+- 研发前业务设计（编号、输入、预期、反例）与候选后执行准备仍由方案阶段一次生成，未拆成两次投递。
+- 真实 DSH + DeepSeek 主路径未复跑。

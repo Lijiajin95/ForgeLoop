@@ -244,3 +244,37 @@ describe('self-verification diff gate', () => {
     expect(selfModeAllowedByDiff({ paths: ['src/a.ts'], reports: [report()] }).ok).toBe(true)
   })
 })
+
+describe('verification check categories', () => {
+  it('defaults to acceptance and requires acceptance evidence on required scenarios', async () => {
+    const { parseRequirementVerificationPlan, validateRequirementVerificationPlan } =
+      await import('../src/domain/verification.js')
+    const plan = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '完成改动',
+            acceptance_criterion: '可观察',
+            method: '运行命令',
+            required: true,
+            checks: [{ label: 'ok', argv: ['node', '-e', '0'] }],
+          },
+          {
+            scenario: '回归',
+            acceptance_criterion: '不回归',
+            method: '运行回归',
+            required: true,
+            checks: [{ label: 'reg', argv: ['node', '-e', '0'], category: 'regression' }],
+          },
+        ],
+      }),
+    )
+    expect(plan.scenarios[0]?.checks[0]?.category).toBe('acceptance')
+    expect(plan.scenarios[1]?.checks[0]?.category).toBe('regression')
+    const issues = validateRequirementVerificationPlan(
+      { scenarios: ['完成改动', '回归'], acceptanceCriteria: ['可观察', '不回归'] },
+      plan,
+    )
+    expect(issues.join('；')).toContain('必过场景缺少本次验收（acceptance）检查')
+  })
+})
