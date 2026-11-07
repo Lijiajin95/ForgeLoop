@@ -6854,3 +6854,16 @@ M1 仍未通过；本轮未启动新运行（避免在无法归档的前提下�
   方案阶段仍会预写命令，未拆成两次投递。
 - 适用清单的本次验收/回归/真实集成/制品检查尚未分别落盘。
 - 真实 DSH + DeepSeek 主路径未在隔离环境复跑。
+
+## 187. 闭环 B：方案通过、研发完成，验证执行后判 test_error（2026-11-07）
+
+- 修复：受控工程 `activeRoots` 补 `docs/`（`7424777`），根因文档路径不再被工程范围规则拒绝；
+- 复跑：方案通过、研发完成、验证命令真实执行；
+- 结论：`验证未通过（test_error）`，失败命令 `check-cmd-three-consecutive-passes`、
+  `service-survives-watchdog`、`recovery-not-dependent-on-restart`、`restart-vs-permanent-fix-separated`、
+  `root-cause-doc-complete`；并附“没有任何必过场景提供敏感性对照，无法证明用例能发现错误行为”。
+- 0 提交、0 部署、事件未 closed。
+
+归因：候选仍不满足验证断言（例如 `service-survives-watchdog` 未通过，说明修复没真正解决崩溃），
+且验证 Agent 未登记敏感性对照 patch。这两项都属于“链路质量问题”，不是门禁缺陷。
+证据归档功能（`2c4dc8f`）已就位，本次运行因提前失败未产出 `reports/m1/`。
