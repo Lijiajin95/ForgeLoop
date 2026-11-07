@@ -1487,6 +1487,20 @@ export class Repository extends DevSessionStore {
   }
 
   /** 启动时把未收口的 started 动作标为 interrupted；不删除证据。 */
+  /**
+   * 运行期看门狗：把心跳早于 cutoff 的 started 动作标为 interrupted。
+   * 与宿主启动时的全量收口不同，这里只处理“确实没有心跳”的动作，避免误杀长回合。
+   */
+  markStaleActionsInterrupted(cutoff: string, now: string): number {
+    const result = this.db
+      .prepare(
+        `UPDATE actions SET state = 'interrupted', finished_at = ?, detail = detail || ?
+          WHERE state = 'started' AND heartbeat_at < ?`,
+      )
+      .run(now, `\n动作心跳超过阈值，已标记 interrupted（${now}）`, cutoff)
+    return result.changes
+  }
+
   markStartedActionsInterrupted(now: string): number {
     const result = this.db
       .prepare(
