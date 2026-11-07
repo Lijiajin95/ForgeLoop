@@ -124,6 +124,7 @@ function git(args: readonly string[], cwd: string): string {
 function makeProject(): void {
   mkdirSync(join(PROJECT_DIR, 'docs'), { recursive: true })
   writeFileSync(join(PROJECT_DIR, 'README.md'), '# ForgeLoop E2E project\n', 'utf8')
+  writeFileSync(join(PROJECT_DIR, '.gitignore'), 'docs/forgeloop/\nverification/\n', 'utf8')
   writeFileSync(join(PROJECT_DIR, 'docs/README.md'), '# Docs\n', 'utf8')
   writeFileSync(
     join(PROJECT_DIR, 'package.json'),

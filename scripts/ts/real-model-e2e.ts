@@ -151,6 +151,7 @@ function writeProjectSkeleton(projectDir: string): void {
 function initProject(projectDir: string): void {
   mkdirSync(join(projectDir, 'docs'), { recursive: true })
   writeFileSync(join(projectDir, 'README.md'), '# ForgeLoop real-model E2E\n')
+  writeFileSync(join(projectDir, '.gitignore'), 'docs/forgeloop/\nverification/\n')
   writeFileSync(join(projectDir, 'docs', 'baseline.md'), 'baseline\n')
   writeProjectSkeleton(projectDir)
   const git = (args: string[]): void => {
