@@ -128,8 +128,16 @@ function archiveEvidence(root: string, summary: unknown): void {
       const from = join(root, name)
       if (existsSync(from)) copyFileSync(from, join(target, name))
     }
+    // SQLite 快照用 VACUUM INTO：单文件、一致、不依赖 -wal/-shm，归档后可直接打开。
     const db = join(root, 'records', 'projects', 'real-ops', 'records.sqlite')
-    if (existsSync(db)) copyFileSync(db, join(target, 'records.sqlite'))
+    if (existsSync(db)) {
+      const source = new DatabaseSync(db, { readOnly: true })
+      try {
+        source.exec(`VACUUM INTO '${join(target, 'records.sqlite').replaceAll("'", "''")}'`)
+      } finally {
+        source.close()
+      }
+    }
     const verifications = join(root, 'records', 'projects', 'real-ops', 'verifications')
     if (existsSync(verifications)) {
       cpSync(verifications, join(target, 'verifications'), { recursive: true })
