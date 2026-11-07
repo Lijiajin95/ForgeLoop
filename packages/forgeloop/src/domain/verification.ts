@@ -362,7 +362,8 @@ export interface VerificationCheckPlan {
 }
 
 export interface VerificationPlanScenario extends VerificationScenarioPlan {
-  readonly checks: readonly VerificationCheckPlan[]
+  /** 设计阶段允许为空；候选固定后由同一验证会话补齐执行命令。 */
+  readonly checks?: readonly VerificationCheckPlan[]
 }
 
 export interface VerificationPlan {
@@ -386,10 +387,10 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
     if (typeof scenario.required !== 'boolean') {
       throw new MalformedError(`scenarios[${index}].required 必须是布尔值`)
     }
-    if (!Array.isArray(scenario.checks) || scenario.checks.length === 0) {
-      throw new MalformedError(`scenarios[${index}].checks 必须给出至少一条可执行命令`)
+    if (scenario.checks !== undefined && !Array.isArray(scenario.checks)) {
+      throw new MalformedError(`scenarios[${index}].checks 必须是数组`)
     }
-    const checks = scenario.checks.map((rawCheck, checkIndex) => {
+    const checks = (scenario.checks ?? []).map((rawCheck, checkIndex) => {
       const check = asRecord(rawCheck, `scenarios[${index}].checks[${checkIndex}]`)
       const label = nonEmpty(check.label, `scenarios[${index}].checks[${checkIndex}].label`)
       if (labels.has(label)) throw new MalformedError(`验证方案的命令 label 不能重复：${label}`)
@@ -464,7 +465,7 @@ export function validateExceptionMarkers(
 ): string[] {
   const issues: string[] = []
   const outputs = plan.scenarios.flatMap((scenario) =>
-    scenario.checks.map((check) => check.expectedOutput),
+    (scenario.checks ?? []).map((check) => check.expectedOutput),
   )
   for (const item of exceptions) {
     for (const marker of exceptionMarkers(item)) {
@@ -478,7 +479,7 @@ export function validateExceptionMarkers(
   // 也会让“缺失/失败”分支变成与环境耦合的猜测。
   const markers = new Set(exceptions.flatMap((item) => exceptionMarkers(item)))
   for (const scenario of plan.scenarios) {
-    for (const check of scenario.checks) {
+    for (const check of scenario.checks ?? []) {
       if (check.expectedOutput === '') continue
       if (![...markers].some((marker) => check.expectedOutput.includes(marker))) continue
       if (TEMPDIR_TOKENS.test(check.argv.join(' '))) continue
@@ -557,6 +558,22 @@ function validateStructuredPlanCoverage(
   return issues
 }
 
+function acceptanceCategoryIssues(plan: VerificationPlan): string[] {
+  const issues: string[] = []
+  for (const scenario of plan.scenarios) {
+    const checks = scenario.checks ?? []
+    if (scenario.required && checks.length > 0) {
+      const hasAcceptance = checks.some(
+        (check) => (check.category ?? 'acceptance') === 'acceptance',
+      )
+      if (!hasAcceptance) {
+        issues.push(`必过场景缺少本次验收（acceptance）检查：${scenario.scenario}`)
+      }
+    }
+  }
+  return issues
+}
+
 const BUILTIN_MODULES = new Set<string>(builtinModules)
 
 export interface VerificationPlanProject {
@@ -575,7 +592,7 @@ export function validatePlanModuleDependencies(
   const installed = new Set(project.dependencies)
   const issues: string[] = []
   for (const scenario of plan.scenarios) {
-    for (const check of scenario.checks) {
+    for (const check of scenario.checks ?? []) {
       for (const name of moduleSpecifiersOf(check.argv.join(' '))) {
         if (name.startsWith('.') || name.startsWith('/') || name.startsWith('node:')) continue
         if (BUILTIN_MODULES.has(name.split('/')[0] ?? name)) continue
@@ -630,14 +647,7 @@ export function validateRequirementVerificationPlan(
           summary: '',
           verificationPlan: plan.scenarios,
         })
-  for (const scenario of plan.scenarios) {
-    if (
-      scenario.required &&
-      !scenario.checks.some((check) => (check.category ?? 'acceptance') === 'acceptance')
-    ) {
-      issues.push(`必过场景缺少本次验收（acceptance）检查：${scenario.scenario}`)
-    }
-  }
+  issues.push(...acceptanceCategoryIssues(plan))
   for (const rule of analysis.businessRules ?? []) {
     if (!planReferences(plan, rule)) issues.push(`验证方案缺少业务规则：${rule}`)
   }
@@ -646,6 +656,49 @@ export function validateRequirementVerificationPlan(
   }
   issues.push(...validateExceptionMarkers(analysis.exceptions ?? [], plan))
   return issues
+}
+
+/** 执行准备阶段是否仍需补齐命令；旧方案带命令时保持原路径。 */
+export function needsExecutionPreparation(plan: VerificationPlan): boolean {
+  return plan.scenarios.every((scenario) => (scenario.checks ?? []).length === 0)
+}
+
+/**
+ * 把候选固定后的执行准备结果合并回研发前设计：每个场景按名称取回 checks，
+ * 保留设计阶段的编号、预期与必过标记；结构再走同一解析与覆盖校验。
+ */
+export function parseVerificationCheckPreparation(
+  raw: string,
+  design: VerificationPlan,
+): VerificationPlan {
+  const data = asRecord(parseJsonLoose(raw, '验证执行准备'), '验证执行准备')
+  if (!Array.isArray(data.scenarios)) {
+    throw new MalformedError('验证执行准备必须给出 scenarios 数组')
+  }
+  const byScenario = new Map<string, unknown>()
+  for (const item of data.scenarios) {
+    const record = asRecord(item, 'scenarios[]')
+    const name = nonEmpty(record.scenario, 'scenarios[].scenario')
+    if (byScenario.has(name)) throw new MalformedError(`执行准备重复场景：${name}`)
+    byScenario.set(name, record.checks)
+  }
+  const merged = {
+    scenarios: design.scenarios.map((scenario) => ({
+      scenario: scenario.scenario,
+      acceptance_criterion: scenario.acceptanceCriterion,
+      method: scenario.method,
+      required: scenario.required,
+      ...(scenario.pointIds ? { point_ids: scenario.pointIds } : {}),
+      ...(scenario.acceptanceIds ? { acceptance_ids: scenario.acceptanceIds } : {}),
+      checks: byScenario.get(scenario.scenario) ?? [],
+    })),
+  }
+  for (const name of byScenario.keys()) {
+    if (!design.scenarios.some((scenario) => scenario.scenario === name)) {
+      throw new MalformedError(`执行准备引用了不存在的场景：${name}`)
+    }
+  }
+  return parseRequirementVerificationPlan(JSON.stringify(merged))
 }
 
 // ---------------------------------------------------------------- 验证执行结果
@@ -736,13 +789,14 @@ export function judgeVerificationResult(input: {
   const scenarios: VerificationScenarioRun[] = []
   for (const planned of input.plan.scenarios) {
     const runs: VerificationCheckRun[] = []
-    const issues = planned.checks.map((check) => {
+    const issues = (planned.checks ?? []).map((check) => {
       const run = byLabel.get(check.label)
       if (!run) return `缺少验证命令执行结果：${check.label}`
       runs.push(run)
       return judgeCheck(check, run)
     })
-    if (planned.checks.length === 0) issues.push(`验证场景没有可执行命令：${planned.scenario}`)
+    if ((planned.checks ?? []).length === 0)
+      issues.push(`验证场景没有可执行命令：${planned.scenario}`)
     const problems = issues.filter((issue): issue is string => issue !== null)
     failures.push(...problems)
     scenarios.push({

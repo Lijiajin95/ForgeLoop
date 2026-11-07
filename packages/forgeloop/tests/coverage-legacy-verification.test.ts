@@ -57,6 +57,7 @@ let snapshot: {
 } | null
 let sendStatus: 'completed' | 'aborted' | 'timeout' | 'error'
 let attemptNumber = 1
+let responses: Array<{ status: 'completed' | 'aborted' | 'timeout' | 'error'; text: string }> = []
 
 const plan: VerificationPlan = {
   scenarios: [
@@ -140,13 +141,18 @@ function buildVerification(prepareCommand: readonly string[] = []): LegacyVerifi
   })
 }
 
-function verify() {
+function verify(planOverride?: VerificationPlan) {
   const diffPath = join(root, 'candidate.diff')
   writeFileSync(diffPath, 'diff --git a/a.ts b/a.ts\n', 'utf8')
   return verification.verifyCandidate({
     reqId: 'req-1',
     requirement: { reqId: 'req-1', versions: [{ version: 1, text: '实现改动' }] } as never,
-    analysis: {} as never,
+    analysis: {
+      scenarios: ['完成改动'],
+      acceptanceCriteria: ['改动可见'],
+      businessRules: [],
+      exceptions: [],
+    } as never,
     plan: {
       taskPlanId: 'plan-1',
       requirementId: 'req-1',
@@ -173,20 +179,22 @@ function verify() {
     verification: {
       session: {
         sessionId: 'session-verify',
-        send: () =>
-          Promise.resolve({
-            status: sendStatus,
-            text: '',
+        send: () => {
+          const next = responses.shift()
+          return Promise.resolve({
+            status: next?.status ?? sendStatus,
+            text: next?.text ?? '',
             sessionId: 'session-verify',
             reason: 'verification stopped',
             transcriptPath: join(root, 'transcript.jsonl'),
             durationMs: 1,
             toolCalls: [],
-          }),
+          })
+        },
         close: () => Promise.resolve(),
       },
       sessionId: 'session-verify',
-      plan,
+      plan: planOverride ?? plan,
       close: () => Promise.resolve(),
     },
   })
@@ -206,6 +214,7 @@ beforeEach(() => {
   recorded = []
   failureRounds = []
   attemptNumber = 1
+  responses = []
   snapshot = { runs: [runRecord()], integrityIssues: [], startedAt: '2026-11-03T10:00:00.000Z' }
   sendStatus = 'completed'
   verification = buildVerification()
@@ -315,6 +324,48 @@ describe('legacy verification failure paths', () => {
     }
     expect(report.commands[0]).toMatchObject({ label: 'check-1', aborted: true })
     expect(report.commands[0]?.logPath).toContain('check-1.log')
+  })
+
+  it('prepares execution commands after the candidate is fixed', async () => {
+    snapshot = {
+      runs: [runRecord({ label: 'prepared-check', output: 'prepared ok' })],
+      integrityIssues: [],
+      startedAt: '2026-11-03T10:00:00.000Z',
+    }
+    responses = [
+      {
+        status: 'completed',
+        text: JSON.stringify({
+          scenarios: [
+            {
+              scenario: '完成改动',
+              checks: [{ label: 'prepared-check', argv: ['node', '-e', 'process.exit(0)'] }],
+            },
+          ],
+        }),
+      },
+      { status: 'completed', text: '{"executed":["prepared-check"],"summary":"ok"}' },
+      { status: 'completed', text: 'not json' },
+    ]
+    const design: VerificationPlan = {
+      scenarios: [
+        {
+          scenario: '完成改动',
+          acceptanceCriterion: '改动可见',
+          method: '检查文件',
+          required: true,
+          checks: [],
+        },
+      ],
+    }
+    const outcome = await verify(design)
+    expect(outcome.state).toBe('block')
+    expect(responses).toHaveLength(1)
+    const report = JSON.parse(readFileSync(outcome.verification!.reportPath, 'utf8')) as {
+      verificationPlan: { scenarios: Array<{ checks: Array<{ label: string }> }> }
+    }
+    expect(report.verificationPlan.scenarios[0]?.checks[0]?.label).toBe('prepared-check')
+    expect(recorded).toHaveLength(1)
   })
 
   it('keeps both attempts and their logs when the same candidate is re-verified', async () => {

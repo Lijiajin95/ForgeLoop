@@ -102,7 +102,7 @@ export interface VerificationCheckRegistryDeps {
 }
 
 function planChecks(plan: VerificationPlan): VerificationCheckPlan[] {
-  return plan.scenarios.flatMap((scenario) => scenario.checks)
+  return plan.scenarios.flatMap((scenario) => scenario.checks ?? [])
 }
 
 /** 验证材料摘要：排除 controls（对照单独按补丁摘要绑定），用于发现正向之后的换脚本。 */

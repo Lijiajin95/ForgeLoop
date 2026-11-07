@@ -1966,27 +1966,18 @@ describe('requirement-derived verification plan', () => {
       }),
     ).rejects.toThrow('验证方案生成未完成')
 
-    const malformed = makeVerificationAgent({
-      planText: JSON.stringify({
-        scenarios: [
-          {
-            scenario: SCENARIO,
-            acceptance_criterion: CRITERION,
-            method: '空命令',
-            required: true,
-            checks: [],
-          },
-        ],
-      }),
+    const designPlan = JSON.parse(requirementVerificationPlanOf()) as {
+      scenarios: Array<{ checks: unknown[] }>
+    }
+    for (const scenario of designPlan.scenarios) scenario.checks = []
+    const malformed = makeVerificationAgent({ planText: JSON.stringify(designPlan) })
+    const design = await malformed.agent.plan({
+      requirement,
+      analysis,
+      plan: taskPlanForVerification(),
+      transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
     })
-    await expect(
-      malformed.agent.plan({
-        requirement,
-        analysis,
-        plan: taskPlanForVerification(),
-        transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
-      }),
-    ).rejects.toThrow('checks 必须给出至少一条可执行命令')
+    expect(design.scenarios[0]?.checks).toEqual([])
   })
 
   it('rejects duplicate command labels and plans without a required scenario', () => {

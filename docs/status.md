@@ -6980,3 +6980,31 @@ M1-4/M1-8 达成。未代签任何验收。
   `["npm","run","check:commit"]`（备份 `~/.forgeloop/config.json.bak-20261107002752`）。
 - 负向验证：加入 0 覆盖的探针源码文件后 `npm run check:commit` 在 coverage 步骤退出码 1
   （`ERROR: Coverage for lines (0%) … __coverage_probe.ts`）；删除探针后退出码 0。
+
+## 190. 验证设计与执行准备拆成同会话两步（2026-11-07）
+
+来源：所有者第二批“将同一会话内的工作分成两步”。本批把研发前的业务设计与候选后的执行准备
+拆开，旧方案（自带命令）保持兼容。
+
+### 190.1 实现
+
+- 研发前方案阶段只固定场景、`BP`/`AC` 编号、输入、预期与反例，`checks` 必须为空数组；
+  方案提示词不再让模型预写命令。
+- 候选固定后、执行前，同一验证会话接收执行准备提示词：只读 `package.json` scripts/bin 与根目录
+  公开条目，按设计场景准备命令，标注 `acceptance`/`regression`/`integration`/`artifact`。
+- 执行准备结果按场景名合并回原设计，保留编号与原文；合并后复用同一解析与覆盖校验。准备失败、
+  超时或材料畸形按当前尝试留证并阻断，不进入执行。
+- 旧方案若已带命令则跳过准备步骤，沿用既有执行路径；新链路与旧链路均不改变发布门禁。
+
+### 190.2 验收与证据
+
+- `coverage-legacy-verification` 新增设计态方案：准备响应被合并，报告中的
+  `verificationPlan.scenarios[0].checks[0].label` 为准备阶段生成的 label。
+- 方案解析测试改为接受 `checks: []`，执行准备覆盖生成命令后再校验 acceptance 类别。
+- `make check` 通过：158 个测试文件、1900 项。
+
+### 190.3 未完成
+
+- 新验证管线（非 Legacy）仍直接执行已有方案；两步准备目前只在连续推进的 Legacy 路径生效。
+- 执行准备只读接口限于 `package.json` scripts/bin 与根目录条目，未运行 `--help` 等真实公开入口。
+- 真实 DSH + DeepSeek 主路径未复跑。
