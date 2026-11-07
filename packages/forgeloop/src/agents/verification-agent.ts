@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { MalformedError } from '../domain/errors.js'
+import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 import {
@@ -197,7 +197,22 @@ export class VerificationAgent {
       if (run.status !== 'completed') {
         throw new MalformedError(`验证方案生成未完成（${run.status}）：${run.reason}`)
       }
-      const plan = parseRequirementVerificationPlan(run.text)
+      let plan: VerificationPlan
+      try {
+        plan = parseRequirementVerificationPlan(run.text)
+      } catch (error) {
+        // 畸形 JSON 不是“覆盖不足”，要把具体解析错误回给同一会话，让模型定向修正；
+        // 次数仍受 MAX_PLAN_ATTEMPTS 限制，连续畸形同样留证并阻断。
+        lastIssues = [`验证方案 JSON 畸形：${errorMessage(error)}`]
+        feedback = [
+          '',
+          '',
+          `上一次输出不是可解析的验证方案 JSON：${errorMessage(error)}`,
+          '请只输出一个完整的 JSON 对象，字段值用双引号，不要代码围栏、注释或多余文字。',
+          '结构参考：{"scenarios":[{"scenario":"...","acceptance_criterion":"...","method":"...","checks":[...]}]}',
+        ].join('\n')
+        continue
+      }
       const issues = [
         ...validateRequirementVerificationPlan(input.analysis, plan),
         ...(this.deps.projectPath

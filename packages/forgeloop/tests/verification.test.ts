@@ -1849,6 +1849,45 @@ describe('requirement-derived verification plan', () => {
     ).rejects.toThrow('验证方案未覆盖需求说明')
   })
 
+  it('feeds back malformed JSON and retries in the same session', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const harness = makeVerificationAgent({
+      planTexts: ['{ 这不是 JSON', requirementVerificationPlanOf()],
+    })
+
+    const plan = await harness.agent.plan({
+      requirement,
+      analysis,
+      plan: taskPlanForVerification(),
+      transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+    })
+
+    expect(validateRequirementVerificationPlan(analysis, plan)).toEqual([])
+    expect(harness.turns).toHaveLength(2)
+    // 具体解析错误要回到同一会话，模型才能定向修正。
+    expect(harness.turns[1]!.prompt).toContain('不是可解析的验证方案 JSON')
+    expect(harness.turns[1]!.prompt).toContain('JSON')
+    expect(harness.turns[1]!.transcriptPath).toContain('-a2.jsonl')
+  })
+
+  it('blocks with evidence after three malformed plans', async () => {
+    const { requirement, analysis } = requirementForVerificationPlan()
+    const harness = makeVerificationAgent({
+      planTexts: ['{ 坏 JSON', '{"scenarios": }', '仍然不是 JSON'],
+    })
+
+    await expect(
+      harness.agent.plan({
+        requirement,
+        analysis,
+        plan: taskPlanForVerification(),
+        transcriptPath: VERIFY_PLAN_TRANSCRIPT(),
+      }),
+    ).rejects.toThrow('验证方案 JSON 畸形')
+    expect(harness.turns).toHaveLength(3)
+    expect(harness.turns[2]!.prompt).toContain('不是可解析的验证方案 JSON')
+  })
+
   it('requires an executable assertion for the output marker named by an exception', () => {
     const analysis = {
       scenarios: [SCENARIO],
