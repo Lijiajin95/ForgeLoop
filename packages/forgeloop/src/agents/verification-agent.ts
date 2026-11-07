@@ -121,7 +121,8 @@ ${tasks}
         {
           "label": "全局唯一的命令标签",
           "argv": ["可执行程序", "参数"],
-          "expected_output": "期望在输出中逐字出现的片段；可省略"
+          "expected_output": "期望在输出中逐字出现的片段；可省略",
+          "category": "acceptance、regression、integration 或 artifact；缺省为 acceptance"
         }
       ]
     }
@@ -141,6 +142,7 @@ ${tasks}
   // 分支二：创建内容不符合要求的输入 -> 断言退出码非零且输出包含异常标记
   // 两个分支都符合预期才打印异常标记；否则以非零退出
 - 至少包含一个 required=true 的场景；每个场景至少一条可执行命令；命令总数为 1 到 10 条，label 不能重复。
+- 每条命令用 category 标注证据类别：本次验收（acceptance）、回归（regression）、真实集成（integration）或制品检查（artifact）；每个 required 场景至少一条 acceptance 检查。
 - 命令会在独立的候选工作区直接执行，不允许交互输入、网络依赖或修改被验证代码；验证脚本可以放在 \`verification/\`。
 - expected_output 省略时只按退出码判定；填写时必须是命令正常输出里会逐字出现的片段。
 - 本阶段只设计划，不执行命令；不要臆造实现细节或候选状态。

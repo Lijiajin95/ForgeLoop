@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
@@ -33,6 +32,7 @@ import {
   VERIFICATION_CONTROL_TOOL,
   VERIFICATION_MATERIAL_TOOL,
   VerificationCheckRegistry,
+  verificationMaterialsDigest,
   type VerificationCheckRecord,
   type VerificationCheckSnapshot,
 } from './verification-checks.js'
@@ -161,6 +161,7 @@ export class LegacyVerification {
     signal: AbortSignal
     runs: readonly VerificationCheckRecord[]
     verification: VerificationRecord
+    attemptId: string
   }): Promise<
     | {
         ok: true
@@ -208,17 +209,18 @@ export class LegacyVerification {
     })
     this.deps.charge(input.reqId, businessStarted)
     if (businessRun.status !== 'completed') {
-      this.deps.repo.recordFailureRound(input.reqId, {
-        roundId: `business-review-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-${randomUUID()}`,
-        stage: FAILURE_BUSINESS_REVIEW,
-        summary: `业务验收未取得结论：${businessRun.reason}`.slice(0, 1000),
-        occurredAt: this.deps.now(),
+      const detail = `业务验收未取得结论：${businessRun.reason}`
+      this.recordBusinessReviewError({
+        ...input,
+        detail,
+        kind: 'test_error',
+        blocking: [businessRun.reason],
       })
       return {
         ok: false,
         result: {
           state: 'block',
-          detail: `业务验收未取得结论：${businessRun.reason}`,
+          detail,
           blocking: [businessRun.reason],
           verification,
         },
@@ -228,18 +230,19 @@ export class LegacyVerification {
     try {
       review = parseBusinessReview(businessRun.text)
     } catch (error) {
-      this.deps.repo.recordFailureRound(input.reqId, {
-        roundId: `business-review-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-${randomUUID()}`,
-        stage: FAILURE_BUSINESS_REVIEW,
-        summary: `业务验收材料畸形：${errorMessage(error)}`.slice(0, 1000),
-        occurredAt: this.deps.now(),
+      const detail = `业务验收材料畸形：${errorMessage(error)}`
+      this.recordBusinessReviewError({
+        ...input,
+        detail,
+        kind: 'insufficient_evidence',
+        blocking: [detail],
       })
       return {
         ok: false,
         result: {
           state: 'block',
-          detail: `业务验收材料畸形：${errorMessage(error)}`,
-          blocking: [`业务验收材料畸形：${errorMessage(error)}`],
+          detail,
+          blocking: [detail],
           verification,
         },
       }
@@ -249,6 +252,8 @@ export class LegacyVerification {
       acceptanceCriteria: input.analysis.acceptanceCriteria,
       businessRules: input.analysis.businessRules,
       exceptions: input.analysis.exceptions,
+      businessPoints: input.analysis.businessPoints,
+      acceptanceItems: input.analysis.acceptanceItems,
       review,
       runs: runs.map((run) => ({
         label: run.label,
@@ -257,6 +262,43 @@ export class LegacyVerification {
       })),
     })
     return { ok: true, facts, review, businessRun, issues }
+  }
+
+  /** 终审超时或 JSON 畸形：在本次尝试目录留证，并计入业务验收失败。 */
+  private recordBusinessReviewError(input: {
+    reqId: string
+    plan: TaskPlan
+    candidate: CandidateFile
+    dir: string
+    attemptId: string
+    verification: VerificationRecord
+    detail: string
+    kind: string
+    blocking: readonly string[]
+  }): void {
+    const report = {
+      kind: 'business-review-error',
+      reqId: input.reqId,
+      planVersion: input.plan.planVersion,
+      candidateSha256: input.candidate.candidateSha256,
+      verificationSha256: input.verification.reportSha256,
+      attemptId: input.attemptId,
+      failureKind: input.kind,
+      detail: input.detail,
+      blocking: input.blocking,
+      at: this.deps.now(),
+    }
+    writeFileSync(
+      join(input.dir, 'business-review-error.json'),
+      `${JSON.stringify(report, null, 2)}\n`,
+      'utf8',
+    )
+    this.deps.repo.recordFailureRound(input.reqId, {
+      roundId: `business-review-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-a${input.attemptId}`,
+      stage: FAILURE_BUSINESS_REVIEW,
+      summary: input.detail.slice(0, 1000),
+      occurredAt: this.deps.now(),
+    })
   }
 
   private recordLegacyBusinessReview(input: {
@@ -363,6 +405,97 @@ export class LegacyVerification {
     }
   }
 
+  /** 中止、超时、材料错误等未进入判定的尝试也必须留证，绑定同一次尝试身份。 */
+  private recordBlockedAttempt(input: {
+    reqId: string
+    plan: TaskPlan
+    candidate: CandidateFile
+    workspaceSha256: string
+    dir: string
+    attempt: { number: number; id: string; previousAttemptId: string }
+    sessionId: string
+    detail: string
+    blocking: readonly string[]
+    failureKind: string
+    runs: readonly VerificationCheckRecord[]
+  }): {
+    state: 'block'
+    detail: string
+    blocking: string[]
+    verification: VerificationRecord
+    failureKind: string
+    repairRecommended: false
+  } {
+    const canonical = {
+      kind: 'verification',
+      reqId: input.reqId,
+      planVersion: input.plan.planVersion,
+      requirementVersion: input.plan.requirementVersion,
+      candidateSha256: input.candidate.candidateSha256,
+      candidateVersion: input.candidate.candidateVersion,
+      snapshotCommit: input.candidate.snapshotCommit,
+      attemptId: input.attempt.id,
+      attemptNumber: input.attempt.number,
+      previousAttemptId: input.attempt.previousAttemptId,
+      workspaceSha256: input.workspaceSha256,
+      verdict: 'block',
+      failureKind: input.failureKind,
+      blocking: input.blocking,
+      detail: input.detail,
+      commands: input.runs.map((run) => ({
+        label: run.label,
+        argv: run.argv,
+        category: run.category ?? 'acceptance',
+        materialsSha256: run.materialsSha256,
+        exitCode: run.exitCode,
+        timedOut: run.timedOut,
+        aborted: run.aborted,
+        durationMs: run.durationMs,
+        logPath: run.logPath,
+        logSha256: run.logSha256,
+      })),
+      sessionId: input.sessionId,
+      at: this.deps.now(),
+    }
+    const reportJson = `${JSON.stringify(canonical, null, 2)}\n`
+    const reportPath = join(input.dir, 'verification.json')
+    writeFileSync(reportPath, reportJson, 'utf8')
+    const verification: VerificationRecord = {
+      requirementId: input.reqId,
+      planVersion: input.plan.planVersion,
+      candidateSha256: input.candidate.candidateSha256,
+      requirementVersion: input.plan.requirementVersion,
+      workspaceSha256: input.workspaceSha256,
+      verdict: 'block',
+      failureKind: input.failureKind,
+      blocking: input.blocking,
+      reportJson,
+      reportPath,
+      reportSha256: sha256OfText(reportJson),
+      evidenceDir: input.dir,
+      sessionId: input.sessionId,
+      verifiedAt: this.deps.now(),
+      attemptId: input.attempt.id,
+      attemptNumber: input.attempt.number,
+      previousAttemptId: input.attempt.previousAttemptId,
+    }
+    this.deps.repo.recordVerification(verification)
+    this.deps.repo.recordFailureRound(input.reqId, {
+      roundId: `verification-${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-a${input.attempt.number}`,
+      stage: FAILURE_VERIFICATION,
+      summary: `验证未取得结论（${input.failureKind}）：${input.detail}`.slice(0, 1000),
+      occurredAt: this.deps.now(),
+    })
+    return {
+      state: 'block',
+      detail: input.detail,
+      blocking: [...input.blocking],
+      verification,
+      failureKind: input.failureKind,
+      repairRecommended: false,
+    }
+  }
+
   private recordAgentVerification(input: {
     reqId: string
     plan: TaskPlan
@@ -427,13 +560,14 @@ export class LegacyVerification {
     const commands = input.checks.map((check) => ({
       label: check.label,
       argv: check.argv,
+      category: check.category ?? 'acceptance',
+      materialsSha256: check.materialsSha256,
       exitCode: check.exitCode,
       timedOut: check.timedOut,
       aborted: check.aborted,
       durationMs: check.durationMs,
       logPath: check.logPath,
       logSha256: check.logSha256,
-      materialsSha256: check.materialsSha256,
     }))
     const kind = classification?.kind ?? 'undetermined'
     const failureGuidance = classification?.guidance ?? ''
@@ -449,7 +583,16 @@ export class LegacyVerification {
       attemptNumber: input.attempt.number,
       previousAttemptId: input.attempt.previousAttemptId,
       workspaceSha256,
+      verificationMaterialsSha256: verificationMaterialsDigest(join(input.dir, 'workspace')),
       verificationPlan: input.verificationPlan,
+      businessPoints: [
+        ...new Set(input.verificationPlan.scenarios.flatMap((scenario) => scenario.pointIds ?? [])),
+      ],
+      acceptanceItems: [
+        ...new Set(
+          input.verificationPlan.scenarios.flatMap((scenario) => scenario.acceptanceIds ?? []),
+        ),
+      ],
       environment: result.environment,
       verdict,
       ...(classification
@@ -464,6 +607,12 @@ export class LegacyVerification {
       blocking,
       scenarios,
       commands,
+      checksByCategory: Object.fromEntries(
+        ['acceptance', 'regression', 'integration', 'artifact'].map((category) => [
+          category,
+          commands.filter((command) => command.category === category).length,
+        ]),
+      ),
       controls: input.controls,
       candidateIntegrity: {
         head: afterHead,
@@ -534,7 +683,7 @@ export class LegacyVerification {
         workspace: string
         workspaceSha256: string
         workspaceHead: string
-        attempt: { number: number; previousAttemptId: string; dir: string }
+        attempt: { number: number; id: string; previousAttemptId: string; dir: string }
       }
     | {
         ok: false
@@ -646,6 +795,7 @@ export class LegacyVerification {
       workspaceHead,
       attempt: {
         number: attempt.attemptNumber,
+        id: `verification-v${input.plan.planVersion}-${input.candidate.candidateSha256.slice(0, 12)}-a${attempt.attemptNumber}`,
         previousAttemptId: attempt.previousAttemptId,
         dir,
       },
@@ -738,6 +888,7 @@ export class LegacyVerification {
     workspace: string
     token: string
     plan: VerificationPlan
+    caller: { sessionId: string; attemptId: string }
   }): Promise<
     | { ok: true; outcome: Awaited<ReturnType<VerificationCheckRegistry['executeControls']>> }
     | { ok: false; detail: string }
@@ -751,16 +902,15 @@ export class LegacyVerification {
     } catch (error) {
       return { ok: false, detail: errorMessage(error) }
     }
-    const outcome = await this.deps.checks.executeControls(
-      input.reqId,
-      input.token,
-      input.plan.scenarios.flatMap((scenario) => scenario.checks),
+    const outcome = await this.deps.checks.executeControls(input.reqId, input.token, {
+      commands: input.plan.scenarios.flatMap((scenario) => scenario.checks),
       controls,
-      this.deps.checks.materialsDigest(input.reqId, input.token) ?? '',
-    )
+      caller: input.caller,
+    })
     return { ok: true, outcome }
   }
 
+  // eslint-disable-next-line complexity, max-statements
   async verifyCandidate(input: LegacyVerifyInput): Promise<{
     state: 'pass' | 'block'
     detail: string
@@ -787,6 +937,8 @@ export class LegacyVerification {
       plan: verificationSession.plan,
       signal: input.signal,
       timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
+      sessionId: verificationSession.sessionId,
+      attemptId: attempt.id,
     })
     let snapshot: VerificationCheckSnapshot | null = null
     let controlOutcome: Awaited<ReturnType<VerificationCheckRegistry['executeControls']>> = null
@@ -797,18 +949,28 @@ export class LegacyVerification {
           reqId: input.reqId,
           candidateSha256: input.candidate.candidateSha256,
           plan: verificationSession.plan,
+          sessionId: verificationSession.sessionId,
+          attemptId: attempt.id,
         }),
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(dir, 'verification-execution.jsonl'),
         signal: input.signal,
       })
       if (run.status !== 'completed') {
-        return {
-          state: 'block',
-          detail: `验证执行未取得结论：${run.reason}`,
-          blocking: [`验证执行未取得结论：${run.reason}`],
-          verification: null,
-        }
+        const detail = `验证执行未取得结论：${run.reason}`
+        return this.recordBlockedAttempt({
+          reqId: input.reqId,
+          plan: input.plan,
+          candidate: input.candidate,
+          workspaceSha256,
+          dir,
+          attempt,
+          sessionId: verificationSession.sessionId,
+          detail,
+          blocking: [detail],
+          failureKind: 'test_error',
+          runs: this.deps.checks.snapshot(input.reqId, handle.token)?.runs ?? [],
+        })
       }
       const executedRetry = await this.ensureCommandsExecuted({
         reqId: input.reqId,
@@ -819,26 +981,42 @@ export class LegacyVerification {
         signal: input.signal,
       })
       if (!executedRetry.ok) {
-        return {
-          state: 'block',
+        return this.recordBlockedAttempt({
+          reqId: input.reqId,
+          plan: input.plan,
+          candidate: input.candidate,
+          workspaceSha256,
+          dir,
+          attempt,
+          sessionId: verificationSession.sessionId,
           detail: executedRetry.detail,
           blocking: [executedRetry.detail],
-          verification: null,
-        }
+          failureKind: 'test_error',
+          runs: this.deps.checks.snapshot(input.reqId, handle.token)?.runs ?? [],
+        })
       }
       const controlsResult = await this.runSensitivityControls({
         reqId: input.reqId,
         workspace,
         token: handle.token,
         plan: verificationSession.plan,
+        caller: { sessionId: verificationSession.sessionId, attemptId: attempt.id },
       })
       if (!controlsResult.ok) {
-        return {
-          state: 'block',
-          detail: `验证敏感性对照材料畸形：${controlsResult.detail}`,
-          blocking: [`验证敏感性对照材料畸形：${controlsResult.detail}`],
-          verification: null,
-        }
+        const detail = `验证敏感性对照材料畸形：${controlsResult.detail}`
+        return this.recordBlockedAttempt({
+          reqId: input.reqId,
+          plan: input.plan,
+          candidate: input.candidate,
+          workspaceSha256,
+          dir,
+          attempt,
+          sessionId: verificationSession.sessionId,
+          detail,
+          blocking: [detail],
+          failureKind: 'test_error',
+          runs: this.deps.checks.snapshot(input.reqId, handle.token)?.runs ?? [],
+        })
       }
       controlOutcome = controlsResult.outcome
     } finally {
@@ -847,24 +1025,54 @@ export class LegacyVerification {
       handle.release()
     }
     if (!snapshot) {
-      return {
-        state: 'block',
-        detail: '验证执行上下文在结论前丢失；无法核对命令结果',
-        blocking: ['验证执行上下文在结论前丢失'],
-        verification: null,
-      }
+      const detail = '验证执行上下文在结论前丢失；无法核对命令结果'
+      return this.recordBlockedAttempt({
+        reqId: input.reqId,
+        plan: input.plan,
+        candidate: input.candidate,
+        workspaceSha256,
+        dir,
+        attempt,
+        sessionId: verificationSession.sessionId,
+        detail,
+        blocking: [detail],
+        failureKind: 'undetermined',
+        runs: [],
+      })
     }
     if (!controlOutcome) {
-      return {
-        state: 'block',
-        detail: '验证敏感性对照上下文在结论前丢失；无法核对用例有效性',
-        blocking: ['验证敏感性对照上下文在结论前丢失'],
-        verification: null,
-      }
+      const detail = '验证敏感性对照上下文在结论前丢失；无法核对用例有效性'
+      return this.recordBlockedAttempt({
+        reqId: input.reqId,
+        plan: input.plan,
+        candidate: input.candidate,
+        workspaceSha256,
+        dir,
+        attempt,
+        sessionId: verificationSession.sessionId,
+        detail,
+        blocking: [detail],
+        failureKind: 'undetermined',
+        runs: snapshot.runs,
+      })
     }
     const recorded = snapshot
     const preJudge = this.preJudgeBlock(recorded, verificationSession.plan)
-    if (preJudge) return { ...preJudge, verification: null }
+    if (preJudge) {
+      return this.recordBlockedAttempt({
+        reqId: input.reqId,
+        plan: input.plan,
+        candidate: input.candidate,
+        workspaceSha256,
+        dir,
+        attempt,
+        sessionId: verificationSession.sessionId,
+        detail: preJudge.detail,
+        blocking: preJudge.blocking,
+        failureKind: 'test_error',
+        runs: recorded.runs,
+      })
+    }
     const integrity = this.candidateIntegrity(workspace, workspaceHead, recorded)
     const result = judgeVerificationResult({
       plan: verificationSession.plan,
@@ -926,6 +1134,7 @@ export class LegacyVerification {
       signal: input.signal,
       runs: recorded.runs,
       verification,
+      attemptId: attempt.id,
     })
     if (!business.ok) return business.result
     const { review, businessRun, issues } = business

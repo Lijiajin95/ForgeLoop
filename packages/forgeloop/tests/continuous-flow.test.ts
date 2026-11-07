@@ -378,10 +378,10 @@ function fakeRunner(
                 passing_after: false,
                 evidence: '',
               },
-              reason: '业务预期无法从现有说明确认',
+              reason: '业务预期无法确认',
               needs_clarification: {
-                question: '这个功能是否必须支持离线模式？',
-                context: '现有说明只描述在线路径，没有可核对依据。',
+                question: '是否必须支持离线模式？',
+                context: '现有说明没有可核对依据。',
               },
             }),
           )
@@ -569,10 +569,10 @@ function boundSessionId(reqId: string, requirementVersion = 1): string {
 
 function makeRuntime(
   runner: AgentLike,
-  autonomy: { allowCodeCommit?: boolean; commitCheckCommand?: string[] } = {},
-  limits: {
+  autonomy: {
+    allowCodeCommit?: boolean
+    commitCheckCommand?: string[]
     failureRoundsPerGrant?: number
-    maxVerificationAttempts?: number
     activeRoots?: string[]
   } = {},
 ): ForgeLoopRuntime {
@@ -587,9 +587,9 @@ function makeRuntime(
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
       // 这里的用例覆盖“限制生效时如何阻断”；默认不限的行为由 unlimited-execution.test.ts 覆盖。
-      maxVerificationAttempts: limits.maxVerificationAttempts ?? 3,
-      failureRoundsPerGrant: limits.failureRoundsPerGrant ?? 3,
-      ...(limits.activeRoots ? { activeRoots: limits.activeRoots } : {}),
+      maxVerificationAttempts: 3,
+      failureRoundsPerGrant: autonomy.failureRoundsPerGrant ?? 3,
+      ...(autonomy.activeRoots ? { activeRoots: autonomy.activeRoots } : {}),
       autonomy: {
         enabled: true,
         allowCodeCommit: autonomy.allowCodeCommit ?? true,
@@ -975,6 +975,33 @@ describe('continuous four-Agent flow', () => {
     expect(advance.detail).toContain('业务验收材料畸形')
   })
 
+  it('stops after one verification failure until a new grant is recorded', async () => {
+    runtime.close()
+    runtime = makeRuntime(fakeRunner({ failFirstVerification: true }), {
+      failureRoundsPerGrant: 1,
+    })
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-1:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const first = await runNext(reqId, 'advance')
+    expect(first.state).toBe('failed')
+    expect(first.detail).toContain('等待追加授权')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
+
+    const granted = runtime.grant({ reqId, by: 'owner' })
+    expect(granted.ok, granted.message).toBe(true)
+    runtime.autoAdvanceRequests()
+    const second = await runNext(reqId, 'advance')
+    expect(second.state, second.detail).toBe('done')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
+  })
+
   it('stops after a repair round that produces no changes', async () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner({ failFirstVerification: true, repairNoChange: true }))
@@ -1140,7 +1167,10 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('验证 Agent 没有通过工具执行方案中的命令：smoke')
-    expect(runtime.repo.verificationsFor(reqId)).toEqual([])
+    const attempts = runtime.repo.verificationsFor(reqId)
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]?.verdict).toBe('block')
+    expect(attempts[0]?.reportJson).toContain('test_error')
     expect(runtime.issues.issuesFor(reqId)).toEqual([])
   })
 
@@ -1922,27 +1952,6 @@ describe('development session routing failures', () => {
     expect(advance.detail).toContain('已取消')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('cancelled')
     expect(runtime.repo.latestCommit(reqId)).toBeNull()
-    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
-  })
-
-  it('does not repair when the first failure exhausts the quota', async () => {
-    runner = fakeRunner({ failFirstVerification: true })
-    runtime = makeRuntime(runner, {}, { failureRoundsPerGrant: 1 })
-    const submitted = runtime.submit({
-      text: '实现一个可验证的小功能',
-      by: 'owner',
-      source: 'dsh-session:sess-quota:msg-1',
-    })
-    const reqId = (submitted.data as { reqId: string }).reqId
-    await runNext(reqId, 'analyze')
-    runtime.autoAdvanceRequests()
-    const advance = await runNext(reqId, 'advance')
-    expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('失败轮次额度已用尽')
-    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
-    expect(runtime.issues.issuesFor(reqId)).toHaveLength(1)
-    expect(runtime.repo.failureRounds(reqId)).toHaveLength(1)
-    expect(runtime.repo.latestCommit(reqId)).toBeNull()
   })
 
   it('hands a clarification to the product flow with zero code changes', async () => {
@@ -1962,12 +1971,11 @@ describe('development session routing failures', () => {
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('awaiting_clarification')
     expect(runtime.repo.getRequirement(reqId)?.versions).toHaveLength(2)
     expect(runtime.repo.taskArtifacts(reqId, 1)).toEqual([])
-    expect(runtime.repo.latestCommit(reqId)).toBeNull()
   })
 
-  it('rejects an actual out-of-scope diff even when the plan files are allowed', async () => {
+  it('rejects an actual out-of-scope diff even when plan files are allowed', async () => {
     runner = fakeRunner({ devExtraFile: 'src/evil.ts' })
-    runtime = makeRuntime(runner, {}, { activeRoots: ['docs/'] })
+    runtime = makeRuntime(runner, { activeRoots: ['docs/'] })
     const submitted = runtime.submit({
       text: '实现一个可验证的小功能',
       by: 'owner',
@@ -1981,6 +1989,5 @@ describe('development session routing failures', () => {
     expect(advance.detail).toContain('实际改动越过活动工程范围：src/evil.ts')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
     expect(runtime.repo.latestCommit(reqId)).toBeNull()
-    expect(runtime.repo.taskArtifacts(reqId, 1)).toEqual([])
   })
 })

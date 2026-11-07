@@ -1006,6 +1006,8 @@ export function verificationExecutionPrompt(input: {
   readonly reqId: string
   readonly candidateSha256: string
   readonly plan: VerificationPlan
+  readonly sessionId?: string
+  readonly attemptId?: string
 }): string {
   const labels = input.plan.scenarios.flatMap((scenario) =>
     scenario.checks.map((check) => check.label),
@@ -1013,18 +1015,20 @@ export function verificationExecutionPrompt(input: {
   return `你是 ForgeLoop 的验证 Agent。研发产物已交付并固定在独立候选工作区。你必须使用工具 ${VERIFICATION_CHECK_TOOL} 逐条执行下面的验证方案；工具只在固定候选上执行方案里的 argv，并返回真实退出码与输出。
 
 需求身份：${input.reqId}
+验证会话：${input.sessionId ?? '（未知）'}
+验证尝试：${input.attemptId ?? '（未知）'}
 候选：${input.candidateSha256}
 
 验证方案：
 ${verificationPlanContext(input.plan)}
 
 执行要求：
-- 对方案中的每个 label 各调用一次 ${VERIFICATION_CHECK_TOOL}，参数 req_id 为 "${input.reqId}"，label 为对应标签；不得跳过、合并、改写命令或临时新增命令。
+- 对方案中的每个 label 各调用一次 ${VERIFICATION_CHECK_TOOL}，参数 req_id 为 "${input.reqId}"、session_id 为 "${input.sessionId ?? ''}"、attempt_id 为 "${input.attemptId ?? ''}"、label 为对应标签；不得跳过、合并、改写命令或临时新增命令。
 - 先执行完全部命令，再给出结论；工具报错时不要伪造输出，如实说明并以工具返回为准。
 - 共 ${labels.length} 条命令：${labels.join('、')}。
-- 需要验证脚本时，先用 ${VERIFICATION_MATERIAL_TOOL} 写到 \`verification/\` 下（例如 \`verification/check_doc.js\`），再在命令 argv 中引用；不能用普通文件工具，也不能写候选源码。
+- 需要验证脚本时，先用 ${VERIFICATION_MATERIAL_TOOL} 写到 \`verification/\` 下（例如 \`verification/check_doc.js\`，参数含 req_id、session_id、attempt_id、path、content），再在命令 argv 中引用；不能用普通文件工具，也不能写候选源码。
 - 验证脚本必须与候选工程一致：工程 \`package.json\` 有 \`"type": "module"\` 时用 ESM（\`import\`，或改用 \`.cjs\`）；不要在被当作 ESM 的 \`.js\` 里用 \`require\`，否则脚本自身就会报错、白跑一轮。
-- 执行后至少为一个关键必过场景的被引用命令写敏感性对照（验收主路径优先）：调用 ${VERIFICATION_CONTROL_TOOL}，参数 req_id 为 "${input.reqId}"、label 为对应命令、patch 为统一 diff、expected_failure_output 为受控错误实现下必须出现的失败原文（至少 8 个字符）。
+- 执行后至少为一个关键必过场景的被引用命令写敏感性对照（验收主路径优先）：调用 ${VERIFICATION_CONTROL_TOOL}，参数 req_id 为 "${input.reqId}"、session_id 为 "${input.sessionId ?? ''}"、attempt_id 为 "${input.attemptId ?? ''}"、label 为对应命令、patch 为统一 diff、expected_failure_output 为受控错误实现下必须出现的失败原文（至少 8 个字符）。
 - 对照补丁必须是可直接应用的统一 diff（\`--- a/<path>\`、\`+++ b/<path>\`、至少一行 \`+\` 或 \`-\`），只修改 \`verification/\` 之外的业务文件，并让同一命令按目标业务规则失败；程序会应用到隔离副本后重跑，正式候选不被修改。
 - 工具会立即返回受控副本的真实退出码与输出并做自检；失败时该对照会被撤销，必须按返回的实际输出修正 patch 或 expected_failure_output 后对同一 label 重新调用，直到自检通过。
 - 不要修改任何候选文件，不要调用上述两个验证工具以外的工具。

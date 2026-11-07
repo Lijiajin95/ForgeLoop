@@ -2129,12 +2129,10 @@ describe('verification check registry', () => {
     expect(controls.map((control) => control.label)).toEqual(['read'])
 
     expect((await registry.run(reqId, 'read')).ok).toBe(true)
-    const outcome = await registry.executeControls(
-      reqId,
-      handle.token,
-      plan.scenarios.flatMap((scenario) => scenario.checks),
+    const outcome = await registry.executeControls(reqId, handle.token, {
+      commands: plan.scenarios.flatMap((scenario) => scenario.checks),
       controls,
-    )
+    })
     expect(outcome).not.toBeNull()
     expect(outcome?.issues).toEqual([])
     expect(outcome?.results[0]).toMatchObject({ applied: true, exitCode: 1 })

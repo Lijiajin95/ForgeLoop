@@ -80,6 +80,15 @@ function defineTool(input: {
   }
 }
 
+function verificationCaller(args: AnyRecord): { sessionId?: string; attemptId?: string } {
+  const caller: { sessionId?: string; attemptId?: string } = {}
+  const sessionId = stringArg(args, 'session_id')
+  if (sessionId) caller.sessionId = sessionId
+  const attemptId = stringArg(args, 'attempt_id')
+  if (attemptId) caller.attemptId = attemptId
+  return caller
+}
+
 function stringArg(args: AnyRecord, key: string): string | undefined {
   const value = args[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -107,6 +116,8 @@ function verificationControlTool(runtime: ForgeLoopRuntime): ToolDefinitionLike 
           type: 'string',
           description: 'Text that must appear when the faulty copy runs the same command',
         },
+        session_id: { type: 'string', description: 'Verification session id from the prompt' },
+        attempt_id: { type: 'string', description: 'Verification attempt id from the prompt' },
       },
       required: ['req_id', 'label', 'patch', 'expected_failure_output'],
       additionalProperties: false,
@@ -120,11 +131,11 @@ function verificationControlTool(runtime: ForgeLoopRuntime): ToolDefinitionLike 
       if (!patch) return { ok: false, text: 'patch is required' }
       const expected = stringArg(args, 'expected_failure_output')
       if (!expected) return { ok: false, text: 'expected_failure_output is required' }
-      const outcome = await runtime.verificationTool.writeControl(reqId, {
-        label,
-        patch,
-        expectedFailureOutput: expected,
-      })
+      const outcome = await runtime.verificationTool.writeControl(
+        reqId,
+        { label, patch, expectedFailureOutput: expected },
+        verificationCaller(args),
+      )
       return {
         ok: outcome.ok,
         text: outcome.text,
@@ -149,6 +160,8 @@ function verificationMaterialTool(runtime: ForgeLoopRuntime): ToolDefinitionLike
             'Workspace-relative path under verification/, e.g. verification/check_doc.js',
         },
         content: { type: 'string', description: 'UTF-8 file content' },
+        session_id: { type: 'string', description: 'Verification session id from the prompt' },
+        attempt_id: { type: 'string', description: 'Verification attempt id from the prompt' },
       },
       required: ['req_id', 'path', 'content'],
       additionalProperties: false,
@@ -160,7 +173,11 @@ function verificationMaterialTool(runtime: ForgeLoopRuntime): ToolDefinitionLike
       if (!path) return { ok: false, text: 'path is required' }
       const content = typeof args.content === 'string' ? args.content : undefined
       if (content === undefined) return { ok: false, text: 'content is required' }
-      const outcome = runtime.verificationTool.writeMaterial(reqId, { path, content })
+      const outcome = runtime.verificationTool.writeMaterial(
+        reqId,
+        { path, content },
+        verificationCaller(args),
+      )
       return {
         ok: outcome.ok,
         text: outcome.text,
@@ -183,6 +200,8 @@ function verificationCheckTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
           type: 'string',
           description: 'Command label from the current verification plan',
         },
+        session_id: { type: 'string', description: 'Verification session id from the prompt' },
+        attempt_id: { type: 'string', description: 'Verification attempt id from the prompt' },
       },
       required: ['req_id', 'label'],
       additionalProperties: false,
@@ -192,7 +211,7 @@ function verificationCheckTool(runtime: ForgeLoopRuntime): ToolDefinitionLike {
       if (!reqId) return { ok: false, text: 'req_id is required' }
       const label = stringArg(args, 'label')
       if (!label) return { ok: false, text: 'label is required' }
-      const outcome = await runtime.runVerificationCheck(reqId, label)
+      const outcome = await runtime.runVerificationCheck(reqId, label, verificationCaller(args))
       return {
         ok: outcome.ok,
         text: outcome.text,

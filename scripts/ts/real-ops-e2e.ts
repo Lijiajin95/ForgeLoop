@@ -10,7 +10,16 @@
  * 不改动生产记录、正式 profile 与版本号。
  */
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -107,6 +116,29 @@ async function probeIdentity(port: number): Promise<Record<string, unknown>> {
   const response = await fetch(`http://127.0.0.1:${port}/identity`)
   if (!response.ok) throw new Error(`/identity 返回 ${response.status}`)
   return (await response.json()) as Record<string, unknown>
+}
+
+/** 把本次运行的关键证据复制到 reports/m1/<时间戳>/，便于长期回查。 */
+function archiveEvidence(root: string, summary: unknown): void {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const target = join(ROOT, 'reports', 'm1', `ops-${stamp}`)
+  try {
+    mkdirSync(target, { recursive: true })
+    for (const name of ['summary.json', 'host.log', 'config.json']) {
+      const from = join(root, name)
+      if (existsSync(from)) copyFileSync(from, join(target, name))
+    }
+    const db = join(root, 'records', 'projects', 'real-ops', 'records.sqlite')
+    if (existsSync(db)) copyFileSync(db, join(target, 'records.sqlite'))
+    const verifications = join(root, 'records', 'projects', 'real-ops', 'verifications')
+    if (existsSync(verifications)) {
+      cpSync(verifications, join(target, 'verifications'), { recursive: true })
+    }
+    writeFileSync(join(target, 'README.md'), `${JSON.stringify(summary, null, 2)}\n`)
+    log(`证据已归档：${target}`)
+  } catch (error) {
+    log(`证据归档失败（不影响本次结论）：${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 async function main(): Promise<void> {
@@ -492,7 +524,7 @@ async function main(): Promise<void> {
       {
         project: PROJECT,
         projectPath: project,
-        activeRoots: ['src/', 'scripts/', 'server.mjs', 'README.md', 'package.json'],
+        activeRoots: ['src/', 'scripts/', 'docs/', 'server.mjs', 'README.md', 'package.json'],
         recordsRoot,
         pollSeconds: 2,
         owner: 'real-ops-e2e',
@@ -857,6 +889,8 @@ async function main(): Promise<void> {
   }
   summary.failures = failures
   writeFileSync(join(root, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  // 证据归档到仓库内持久目录：/tmp 会被系统清理，不能作为验收证据位置。
+  archiveEvidence(root, summary)
   log(`结果：${JSON.stringify({ eventId, fixReqId, closed, failures })}`)
   if (failures.length > 0) {
     process.exitCode = 1

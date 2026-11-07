@@ -21,6 +21,8 @@ export interface VerificationControlSpec {
   readonly patch: string
   /** 受控错误实现下必须出现在命令输出中的失败原文（至少 8 个字符）。 */
   readonly expectedFailureOutput: string
+  /** 登记时补丁内容的摘要；执行时复核，防止正向之后替换补丁。 */
+  readonly patchSha256?: string
 }
 
 function nonEmpty(value: unknown, field: string): string {

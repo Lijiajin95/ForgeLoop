@@ -564,19 +564,22 @@ describe('LegacyVerification candidate fixing and execution', () => {
       state: 'block',
       detail: '验证执行未取得结论：host timeout',
       blocking: ['验证执行未取得结论：host timeout'],
-      verification: null,
+      failureKind: 'test_error',
     })
+    expect(outcome.verification).not.toBeNull()
     expect(built.charges).toHaveLength(1)
-    expect(built.failureRounds).toHaveLength(0)
+    expect(built.verifications).toHaveLength(1)
+    expect(built.failureRounds).toHaveLength(1)
   })
 
   it('blocks when the agent skipped a planned command instead of inventing output', async () => {
     const built = legacy({ skipCommands: true })
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
-    expect(outcome.verification).toBeNull()
     expect(outcome.detail).toBe('验证 Agent 没有通过工具执行方案中的命令：ok')
-    expect(built.verifications).toHaveLength(0)
+    expect(outcome.verification?.failureKind).toBe('test_error')
+    expect(built.verifications).toHaveLength(1)
+    expect(built.failureRounds).toHaveLength(1)
   })
 
   it('blocks a stopped validation command before any business verdict', async () => {
@@ -585,7 +588,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
     const built = legacy({ signal: controller.signal })
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
-    expect(outcome.verification).toBeNull()
+    expect(outcome.verification?.failureKind).toBe('test_error')
     expect(outcome.blocking).toEqual(['独立验证命令被停止'])
     expect(outcome.detail).toBe('独立验证命令被停止；验证工作区可丢弃，可重新验证')
   })
@@ -723,6 +726,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(report.controls).toHaveLength(1)
     expect(report.controls[0]).toMatchObject({ label: 'ok', applied: true, exitCode: 1, issue: '' })
     expect(report.verificationPlan.scenarios[0].scenario).toBe(SCENARIO)
+    expect(report.checksByCategory).toMatchObject({ acceptance: 1 })
 
     // 候选身份与工作区摘要同时落在 candidate.json 与 verification.json，二者必须一致。
     const candidate = JSON.parse(readFileSync(join(built.dir, 'candidate.json'), 'utf8'))
@@ -770,6 +774,12 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(String(built.failureRounds[0]?.summary)).toContain(
       '业务验收未取得结论：business stopped',
     )
+    const sidecar = JSON.parse(
+      readFileSync(join(built.dir, 'business-review-error.json'), 'utf8'),
+    ) as { attemptId: string; failureKind: string; detail: string }
+    expect(sidecar.failureKind).toBe('test_error')
+    expect(sidecar.detail).toContain('business stopped')
+    expect(sidecar.attemptId).toContain('a1')
   })
 
   it('fails closed and records a failure round for a malformed business review', async () => {
@@ -785,6 +795,12 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(built.failureRounds).toHaveLength(1)
     expect(built.failureRounds[0]?.stage).toBe('business_review')
     expect(String(built.failureRounds[0]?.summary)).toContain('业务验收材料畸形：')
+    const sidecar = JSON.parse(
+      readFileSync(join(built.dir, 'business-review-error.json'), 'utf8'),
+    ) as { attemptId: string; failureKind: string; detail: string }
+    expect(sidecar.failureKind).toBe('insufficient_evidence')
+    expect(sidecar.detail).toContain('业务验收材料畸形')
+    expect(sidecar.attemptId).toContain('a1')
   })
 })
 

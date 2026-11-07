@@ -341,6 +341,15 @@ export function validateScenarioEvidence(
  * 由需求说明生成的验证方案：每个业务场景都落到可执行命令与判定口径。
  * 与实现前评审的 verification_plan 不同，它不依赖任务包或候选，只依据需求说明。
  */
+export type VerificationCheckCategory = 'acceptance' | 'regression' | 'integration' | 'artifact'
+
+const CHECK_CATEGORIES: readonly VerificationCheckCategory[] = [
+  'acceptance',
+  'regression',
+  'integration',
+  'artifact',
+]
+
 export interface VerificationCheckPlan {
   readonly label: string
   readonly argv: readonly string[]
@@ -348,6 +357,8 @@ export interface VerificationCheckPlan {
   readonly expectedOutput: string
   /** true 表示这是错误对照：必须失败；false/缺省表示正向检查：必须成功。 */
   readonly expectFailure: boolean
+  /** 本条检查属于哪类证据；缺省为本次验收。 */
+  readonly category?: VerificationCheckCategory
 }
 
 export interface VerificationPlanScenario extends VerificationScenarioPlan {
@@ -390,6 +401,16 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
           `scenarios[${index}].checks[${checkIndex}].expected_output 必须是字符串`,
         )
       }
+      const rawCategory = check.category
+      const category =
+        rawCategory === undefined
+          ? 'acceptance'
+          : CHECK_CATEGORIES.find((item) => item === rawCategory)
+      if (!category) {
+        throw new MalformedError(
+          `scenarios[${index}].checks[${checkIndex}].category 必须是 acceptance、regression、integration 或 artifact`,
+        )
+      }
       const expectFailure = check.expect_failure ?? check.expectFailure
       if (expectFailure !== undefined && typeof expectFailure !== 'boolean') {
         throw new MalformedError(
@@ -401,6 +422,7 @@ export function parseRequirementVerificationPlan(raw: string): VerificationPlan 
         argv: stringList(check.argv, `scenarios[${index}].checks[${checkIndex}].argv`, false),
         expectedOutput: typeof expected === 'string' ? expected.trim() : '',
         expectFailure: expectFailure === true,
+        category,
       } satisfies VerificationCheckPlan
     })
     return {
@@ -608,6 +630,14 @@ export function validateRequirementVerificationPlan(
           summary: '',
           verificationPlan: plan.scenarios,
         })
+  for (const scenario of plan.scenarios) {
+    if (
+      scenario.required &&
+      !scenario.checks.some((check) => (check.category ?? 'acceptance') === 'acceptance')
+    ) {
+      issues.push(`必过场景缺少本次验收（acceptance）检查：${scenario.scenario}`)
+    }
+  }
   for (const rule of analysis.businessRules ?? []) {
     if (!planReferences(plan, rule)) issues.push(`验证方案缺少业务规则：${rule}`)
   }
@@ -625,6 +655,9 @@ export interface VerificationCheckRun {
   readonly label: string
   readonly argv: readonly string[]
   readonly expectFailure?: boolean
+  /** 正向命令执行时封存的 verification/ 材料摘要；对照必须使用同一版材料。 */
+  readonly category?: VerificationCheckCategory
+  readonly materialsSha256?: string
   readonly exitCode: number | null
   readonly timedOut: boolean
   readonly aborted: boolean

@@ -344,18 +344,17 @@ describe('verification failure issue loop', () => {
     expect(issues.map((issue) => issue.attempt)).toEqual([1, 2, 3])
     expect(issues[2]?.status).toBe('open')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
-    // 失败额度已用尽：未收口问题单也不能绕过授权，自动扫描必须停下。
+    // 失败额度已用尽：未收口问题单本身不再让需求自动入队，必须追加授权。
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
-    expect(runtime.grant({ reqId, by: 'owner' }).ok).toBe(true)
     expect(
-      runtime.requestOperation({
-        reqId,
-        action: 'advance',
-        by: 'owner',
-        source: 'test',
-      }).ok,
-    ).toBe(true)
+      runtime.repo
+        .pendingRequests('demo')
+        .some((request) => request.reqId === reqId && request.action === 'advance'),
+    ).toBe(false)
 
+    const granted = runtime.grant({ reqId, by: 'owner' })
+    expect(granted.ok, granted.message).toBe(true)
+    runtime.autoAdvanceRequests()
     const second = await runNext(reqId, 'advance')
     expect(second.state, second.detail).toBe('done')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
@@ -379,7 +378,7 @@ describe('verification failure issue loop', () => {
     }
   })
 
-  it('keeps creating issues but blocks after the quota until a grant is added', async () => {
+  it('keeps creating issues and requeueing the same requirement across repeated failures', async () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner({ failVerifications: 99 }))
     const reqId = await analyzeRequirement()
@@ -389,21 +388,14 @@ describe('verification failure issue loop', () => {
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
 
     expect(runtime.grant({ reqId, by: 'owner' }).ok).toBe(true)
-    expect(
-      runtime.requestOperation({
-        reqId,
-        action: 'advance',
-        by: 'owner',
-        source: 'test',
-      }).ok,
-    ).toBe(true)
+    runtime.autoAdvanceRequests()
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
     const issues = runtime.issues.issuesFor(reqId)
     expect(issues.map((issue) => issue.attempt)).toEqual([1, 2, 3, 4, 5, 6])
     expect(issues[5]?.status).toBe('open')
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(6)
     expect(runtime.issues.latestOpen(reqId)?.attempt).toBe(6)
-    // 新授权也用尽后再次阻断；未收口问题单不能继续自动排队。
+    // 第二批同样用尽额度：继续等待下一次有效追加授权，而不是自动重排。
     expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
