@@ -1,0 +1,12 @@
+{"owner":"owner","config":{"project":"partial2","projectPath":"/tmp/fl-scen-run/partial2","recordsRoot":"/tmp/fl-scen-run/partial2/.forgeloop","owner":"owner","pollSeconds":2,"autoAdvance":false,"autonomy":{"enabled":true,"allowCodeCommit":false}},"steps":[
+{"name":"submit","call":"submit","text":"门店订单列表需要支持按状态筛选。是否包含已取消订单、以及时间范围按哪个字段，我还没想好。"},
+{"name":"analyze1","call":"analyze","reqId":"$req"},
+{"name":"open1","call":"open","reqId":"$req"},
+{"name":"answerQ1","call":"answer","reqId":"$req","questionIds":["Q1-1"],"text":"列表需要包含已取消订单，默认展示全部状态。"},
+{"name":"open2","call":"open","reqId":"$req"},
+{"name":"detail2","call":"detail","reqId":"$req"},
+{"name":"answerRest","call":"answer","reqId":"$req","all":true,"text":"时间范围按下单时间；状态支持多选；本次只做状态筛选，时间范围后续再提。"},
+{"name":"open3","call":"open","reqId":"$req"},
+{"name":"answerFinal","call":"answer","reqId":"$req","all":true,"optional":true,"text":"时间范围本次不做；状态筛选单选，默认全部，包含已取消订单。"},
+{"name":"open4","call":"open","reqId":"$req"},
+{"name":"detailFinal","call":"detail","reqId":"$req"}]}
