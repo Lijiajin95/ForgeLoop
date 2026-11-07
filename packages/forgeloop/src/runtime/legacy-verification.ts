@@ -203,15 +203,16 @@ export class LegacyVerification {
       logTail: businessReviewEvidenceWindow(item.output),
     }))
     const businessStarted = Date.now()
-    const businessRun = await session.send({
-      prompt: businessReviewPrompt({
-        requirement: input.requirement,
-        analysis: input.analysis,
-        plan: input.plan,
-        verificationPlan: input.verificationPlan,
-        candidateSha256: input.candidate.candidateSha256,
-        commands: facts,
-      }),
+    const basePrompt = businessReviewPrompt({
+      requirement: input.requirement,
+      analysis: input.analysis,
+      plan: input.plan,
+      verificationPlan: input.verificationPlan,
+      candidateSha256: input.candidate.candidateSha256,
+      commands: facts,
+    })
+    let businessRun = await session.send({
+      prompt: basePrompt,
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
       transcriptPath: join(dir, 'business-review.jsonl'),
       signal: input.signal,
@@ -256,7 +257,7 @@ export class LegacyVerification {
         },
       }
     }
-    const issues = validateBusinessReview({
+    let issues = validateBusinessReview({
       scenarios: input.analysis.scenarios,
       acceptanceCriteria: input.analysis.acceptanceCriteria,
       businessRules: input.analysis.businessRules,
@@ -270,6 +271,61 @@ export class LegacyVerification {
         exitCode: run.exitCode,
       })),
     })
+    if (review.verdict === 'pass' && issues.length > 0) {
+      const retryRun = await session.send({
+        prompt: `${basePrompt}
+
+上一次终审未通过校验，必须补齐以下条目后重新输出完整 JSON（不要只输出差异）：
+${issues.map((issue) => `- ${issue}`).join('\n')}`,
+        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(dir, 'business-review-retry.jsonl'),
+        signal: input.signal,
+      })
+      this.deps.charge(input.reqId, businessStarted)
+      if (retryRun.status !== 'completed') {
+        const detail = `业务验收补充未取得结论：${retryRun.reason}`
+        this.recordBusinessReviewError({
+          ...input,
+          detail,
+          kind: 'test_error',
+          blocking: [detail],
+        })
+        return {
+          ok: false,
+          result: { state: 'block', detail, blocking: [detail], verification },
+        }
+      }
+      try {
+        review = parseBusinessReview(retryRun.text)
+      } catch (error) {
+        const detail = `业务验收材料畸形：${errorMessage(error)}`
+        this.recordBusinessReviewError({
+          ...input,
+          detail,
+          kind: 'insufficient_evidence',
+          blocking: [detail],
+        })
+        return {
+          ok: false,
+          result: { state: 'block', detail, blocking: [detail], verification },
+        }
+      }
+      businessRun = retryRun
+      issues = validateBusinessReview({
+        scenarios: input.analysis.scenarios,
+        acceptanceCriteria: input.analysis.acceptanceCriteria,
+        businessRules: input.analysis.businessRules,
+        exceptions: input.analysis.exceptions,
+        businessPoints: input.analysis.businessPoints,
+        acceptanceItems: input.analysis.acceptanceItems,
+        review,
+        runs: runs.map((run) => ({
+          label: run.label,
+          output: run.output,
+          exitCode: run.exitCode,
+        })),
+      })
+    }
     return { ok: true, facts, review, businessRun, issues }
   }
 

@@ -129,7 +129,13 @@ interface LegacyOptions {
   /** controls 缺省为不写敏感性对照文件。 */
   controls?: 'valid' | 'malformed'
   business?:
-    | { status: 'aborted' | 'timeout' | 'error' | 'completed'; text?: string; reason?: string }
+    | {
+        status: 'aborted' | 'timeout' | 'error' | 'completed'
+        text?: string
+        reason?: string
+        /** 依次返回的终审结果；用尽后回落到 text。 */
+        turns?: Array<{ status: 'completed'; text: string }>
+      }
     | undefined
   phase?: { status: 'aborted' | 'timeout' | 'error'; reason: string }
   skipCommands?: boolean
@@ -259,9 +265,10 @@ function makeLegacy(options: LegacyOptions = {}): LegacyFixture {
       sent.push(turn.prompt)
       if (turn.prompt.includes('做业务验收')) {
         const business = options.business ?? { status: 'completed' as const }
+        const queued = business.turns?.shift()
         return {
-          status: business.status,
-          text: business.text ?? businessReviewText(),
+          status: queued?.status ?? business.status,
+          text: queued?.text ?? business.text ?? businessReviewText(),
           sessionId: 'session-legacy-verify',
           reason: business.reason ?? '',
           transcriptPath: turn.transcriptPath,
@@ -754,6 +761,26 @@ describe('LegacyVerification candidate fixing and execution', () => {
     expect(outcome.repairRecommended).toBe(false)
     expect(outcome.detail).toContain('没有任何必过场景提供敏感性对照')
     expect(built.businessReviews).toHaveLength(0)
+    expect(built.failureRounds).toHaveLength(0)
+  })
+
+  it('retries once when the business review omits a required acceptance item', async () => {
+    const built = legacy({
+      controls: 'valid',
+      business: {
+        status: 'completed',
+        turns: [
+          {
+            status: 'completed',
+            text: businessReviewText({ acceptance: [] }),
+          },
+        ],
+      },
+    })
+    const outcome = await built.verify()
+    expect(outcome.state, outcome.detail).toBe('pass')
+    expect(built.sent.filter((prompt) => prompt.includes('做业务验收'))).toHaveLength(2)
+    expect(built.businessReviews).toHaveLength(1)
     expect(built.failureRounds).toHaveLength(0)
   })
 
