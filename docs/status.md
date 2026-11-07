@@ -7179,3 +7179,30 @@ main 上 `business-context-store.ts`（functions 85.71% < 95）、`clarification
   当前门禁只在调用方提供依据时生效。
 - 本会话阻断：真实需求闭环（研发→独立验证→受控提交→安装与装载核对）与固定模型配置回放，
   缺少本会话可用的隔离部署目标与模型调用授权，均未执行。
+
+## 191. 新缺陷：协调器 advance 动作挂起且无运行时超时（2026-11-07）
+
+现场 `/tmp/forgeloop-ops-mnLdsu`：
+
+- `analyze` done（05:10:51），`advance` **started**（05:10:52）后一直未结束；
+- `actions.heartbeat_at` 只在开始时写一次，运行期不刷新；
+- `dev_sessions.state=busy` 卡在 05:10:52，需求停在 `draft`；
+- 宿主进程存活、日志无错误。
+
+代码核实：
+
+- `Repository.markStartedActionsInterrupted(now)` 会把**所有** `started` 动作标记 interrupted，
+  只在宿主启动时调用；
+- 运行期没有“动作超过阈值无心跳即判中断”的检查。
+
+影响：一次卡住的 advance 会让该需求永久停住，直到宿主重启；真实闭环会被卡死，
+且现有证据无法区分“模型慢”和“执行器挂起”。
+
+建议的最小修复（下一批，需先写失败测试）：
+
+1. 运行期定时刷新 `actions.heartbeat_at`（advance 执行中每 N 秒）；
+2. 增加“started 且心跳超过阈值 → 标 interrupted、释放 dev 会话、重新排队”的检查，
+   阈值必须大于 `agent.maxTurnSeconds`，避免误杀长回合；
+3. 在状态记录中区分“模型慢”与“执行器挂起”。
+
+本轮未改代码（预算耗尽），M1 仍未通过。
