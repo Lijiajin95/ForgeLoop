@@ -308,6 +308,14 @@ export class Repository extends DevSessionStore {
     return this.analyses(reqId).at(-1) ?? null
   }
 
+  recordAnalysisInvalidation(input: Parameters<AnalysisStore['recordInvalidation']>[0]): void {
+    this.analysisStore.recordInvalidation(input)
+  }
+
+  analysisInvalidations(reqId: string): ReturnType<AnalysisStore['invalidations']> {
+    return this.analysisStore.invalidations(reqId)
+  }
+
   recordAnalysisAttempt(attempt: AnalysisAttempt): void {
     this.analysisStore.recordAttempt(attempt)
   }

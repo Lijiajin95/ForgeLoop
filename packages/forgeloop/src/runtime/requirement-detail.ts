@@ -16,6 +16,10 @@ export interface RequirementDetailExtras {
     readonly answers: readonly ClarificationAnswer[]
   }
   readonly specChanges: SpecChanges
+  /** 业务背景变更记录：草稿、已应用版本与依据。 */
+  readonly businessContext: ReturnType<Repository['businessContextChanges']>
+  /** 需求修订导致旧分析失效的审计记录。 */
+  readonly analysisInvalidations: ReturnType<Repository['analysisInvalidations']>
 }
 
 export function requirementDetailExtras(
@@ -32,5 +36,7 @@ export function requirementDetailExtras(
       answers: repository.clarificationAnswers(reqId),
     },
     specChanges: specChanges(previous, latest),
+    businessContext: repository.businessContextChanges(reqId),
+    analysisInvalidations: repository.analysisInvalidations(reqId),
   }
 }

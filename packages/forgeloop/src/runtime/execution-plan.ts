@@ -150,96 +150,163 @@ export class ExecutionPlan {
   }): Promise<ExecuteAnalysisResult> {
     const { reqId, requirement, version, signal, mode } = input
     const previousAnalysis = this.deps.repo.latestAnalysis(reqId)
-    const attempt = this.deps.repo.analysisAttempts(reqId, version).length + 1
-    const started = Date.now()
-    // 每个需求版本、每次尝试一个独立轨迹文件：attempt 按版本重新计数，
-    // 不带版本号会让 v2/a1 覆盖 v1/a1 的历史证据。
-    const transcript = join(
-      sessionsDir(this.deps.config),
-      `${reqId}-v${version}-analyze-a${attempt}.jsonl`,
-    )
     const openQuestions = this.deps.repo.openClarifications(reqId)
-    const result = await this.deps.runner.run({
-      role: AGENT_PRODUCT,
-      cwd: this.deps.config.projectPath,
-      prompt: this.analysisPromptFor(reqId, requirement),
-      // 产品 Agent 允许写项目文档，但只拿到文档读写与联网检索工具，没有任何编码工具。
-      permission: 'workspace-write',
-      timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
-      transcriptPath: transcript,
-      signal,
-      tools: 'default',
-      allowTools: PRODUCT_TOOL_ALLOWLIST,
-    })
-    this.deps.charge(reqId, started)
-    const recorded = {
-      reqId,
-      requirementVersion: version,
-      attempt,
-      kind: mode,
-      model: this.deps.config.agent.model,
-      promptVersion: ANALYSIS_PROMPT_VERSION,
-      transcriptPath: transcript,
-      toolCalls: result.toolCalls,
-      createdAt: this.deps.now(),
+    const historicalIds = this.historicalSpecIds(reqId)
+    // 格式/校验失败时在同一运行内重试一次，并把上一轮的具体错误交给模型；
+    // 每次调用仍落独立尝试与轨迹，不能覆盖第一次失败证据。
+    const maxCalls = 2
+    let lastError = ''
+    for (let call = 0; call < maxCalls; call += 1) {
+      const attempt = this.deps.repo.analysisAttempts(reqId, version).length + 1
+      const started = Date.now()
+      // 每个需求版本、每次尝试一个独立轨迹文件：attempt 按版本重新计数，
+      // 不带版本号会让 v2/a1 覆盖 v1/a1 的历史证据。
+      const transcript = join(
+        sessionsDir(this.deps.config),
+        `${reqId}-v${version}-analyze-a${attempt}.jsonl`,
+      )
+      const result = await this.deps.runner.run({
+        role: AGENT_PRODUCT,
+        cwd: this.deps.config.projectPath,
+        prompt: this.analysisPromptFor(reqId, requirement) + retryPromptNote(lastError),
+        // 产品 Agent 允许写项目文档，但只拿到文档读写与联网检索工具，没有任何编码工具。
+        permission: 'workspace-write',
+        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        transcriptPath: transcript,
+        signal,
+        tools: 'default',
+        allowTools: PRODUCT_TOOL_ALLOWLIST,
+      })
+      this.deps.charge(reqId, started)
+      const recorded = {
+        reqId,
+        requirementVersion: version,
+        attempt,
+        kind: mode,
+        model: this.deps.config.agent.model,
+        promptVersion: ANALYSIS_PROMPT_VERSION,
+        transcriptPath: transcript,
+        toolCalls: result.toolCalls,
+        createdAt: this.deps.now(),
+      }
+      // 模型返回时先核对需求是否仍是发起时的版本与状态：迟到结果只留审计，
+      // 不能更新需求状态、系统准入或业务背景。
+      const stale = this.stalenessOf(reqId, version)
+      if (stale) return this.recordStale(recorded, stale)
+      if (result.status !== 'completed') {
+        return this.failAnalysis(recorded, result.reason)
+      }
+      let prepared: ReturnType<ExecutionPlan['validatedDraft']>
+      try {
+        prepared = this.validatedDraft({
+          text: result.text,
+          reqId,
+          requirement,
+          version,
+          openQuestions,
+          previousAnalysis,
+          historicalIds,
+        })
+      } catch (error) {
+        const detail = errorMessage(error)
+        if (call + 1 < maxCalls) {
+          this.retryAttempt(recorded, detail)
+          lastError = detail
+          continue
+        }
+        return this.failAnalysis(recorded, detail)
+      }
+      const { draft, openAfter, analysisVersion } = prepared
+      const analysis = this.analysisOf({
+        reqId,
+        analysisVersion,
+        requirementVersion: version,
+        draft,
+        openAfter,
+        recorded,
+      })
+      return this.settleAnalysis({
+        requirement,
+        analysis,
+        attempt: recorded,
+        newQuestions: draft.clarifications,
+        updates: draft.clarificationUpdates,
+        businessContext: draft.businessContext,
+      })
     }
-    // 模型返回时先核对需求是否仍是发起时的版本与状态：迟到结果只留审计，
-    // 不能更新需求状态、系统准入或业务背景。
-    const stale = this.stalenessOf(reqId, version)
-    if (stale) return this.recordStale(recorded, stale)
-    if (result.status !== 'completed') {
-      return this.failAnalysis(recorded, result.reason)
-    }
-    let draft: AnalysisDraft
-    let updates: ReturnType<typeof applyClarificationUpdates>
-    try {
-      draft = this.analysisFromResult(result.text)
-      updates = applyClarificationUpdates(openQuestions, draft.clarificationUpdates)
-    } catch (error) {
-      return this.failAnalysis(recorded, errorMessage(error))
-    }
-    // 未解决的旧问题由程序保留；本轮新增问题按本次分析版本获得稳定编号。
-    const analysisVersion = this.deps.repo.nextAnalysisVersion(reqId)
+    return { state: 'failed', detail: lastError || '分析未完成' }
+  }
+
+  /**
+   * 解析并校验草稿：背景变化先落草稿，再跑确定性校验。
+   * 任何解析/校验错误都抛出给调用方决定重试或失败。
+   */
+  private validatedDraft(input: {
+    text: string
+    reqId: string
+    requirement: Requirement
+    version: number
+    openQuestions: readonly ClarificationQuestion[]
+    previousAnalysis: RequirementAnalysis | null
+    historicalIds: readonly string[]
+  }): {
+    draft: AnalysisDraft
+    openAfter: readonly string[]
+    analysisVersion: number
+  } {
+    const draft = this.analysisFromResult(input.text)
+    const updates = applyClarificationUpdates(input.openQuestions, draft.clarificationUpdates)
+    const analysisVersion = this.deps.repo.nextAnalysisVersion(input.reqId)
     const openAfter = [
       ...updates.remaining.map((question) => question.text),
       ...draft.clarifications,
     ]
-    // 背景变化先落草稿：即使本次分析随后校验失败或仍待澄清，也只保留草稿，不写正式文档。
+    // 背景变化先落草稿：即使校验失败或仍待澄清，也只保留草稿，不写正式文档。
     if (draft.businessContext.changed) {
       this.deps.repo.recordBusinessContextDraft({
-        reqId,
+        reqId: input.reqId,
         analysisVersion,
-        requirementVersion: version,
+        requirementVersion: input.version,
         document: draft.businessContext.document,
         reason: draft.businessContext.reason,
         createdAt: this.deps.now(),
       })
     }
-    try {
-      validateSpec({
-        spec: {
-          points: draft.businessPoints,
-          acceptance: draft.acceptanceItems,
-          assumptions: draft.assumptions,
-          conflicts: draft.conflicts,
-        },
-        complete: openAfter.length === 0,
-        inputKind: draft.inputKind,
-        previous: previousAnalysis ? analysisSpecOf(previousAnalysis) : null,
-        requirementTexts: requirement.versions.map((version) => version.text),
-        projectDocExists: (relative) => projectDocExists(this.deps.config.projectPath, relative),
-        knownRequirementIds: this.deps.repo
-          .listRequirements(this.deps.config.project)
-          .map((item) => item.reqId),
-        currentReqId: reqId,
-      })
-    } catch (error) {
-      return this.failAnalysis(recorded, errorMessage(error))
-    }
-    const analysis: RequirementAnalysis & { reqId: string } = {
-      reqId,
-      analysisVersion,
-      requirementVersion: version,
+    validateSpec({
+      spec: {
+        points: draft.businessPoints,
+        acceptance: draft.acceptanceItems,
+        assumptions: draft.assumptions,
+        conflicts: draft.conflicts,
+      },
+      complete: openAfter.length === 0,
+      inputKind: draft.inputKind,
+      previous: input.previousAnalysis ? analysisSpecOf(input.previousAnalysis) : null,
+      requirementTexts: input.requirement.versions.map((version) => version.text),
+      projectDocExists: (relative) => projectDocExists(this.deps.config.projectPath, relative),
+      knownRequirementIds: this.deps.repo
+        .listRequirements(this.deps.config.project)
+        .map((item) => item.reqId),
+      currentReqId: input.reqId,
+      historicalIds: input.historicalIds,
+    })
+    return { draft, openAfter, analysisVersion }
+  }
+
+  /** 把已通过的草稿投影成落库分析；所有来源字段一次性绑定尝试与版本。 */
+  private analysisOf(input: {
+    reqId: string
+    analysisVersion: number
+    requirementVersion: number
+    draft: AnalysisDraft
+    openAfter: readonly string[]
+    recorded: RecordedAnalysis
+  }): RequirementAnalysis & { reqId: string } {
+    const { draft, recorded } = input
+    return {
+      reqId: input.reqId,
+      analysisVersion: input.analysisVersion,
+      requirementVersion: input.requirementVersion,
       inputKind: draft.inputKind,
       goal: draft.goal,
       scenarios: draft.scenarios,
@@ -251,20 +318,31 @@ export class ExecutionPlan {
       acceptanceItems: draft.acceptanceItems,
       assumptions: draft.assumptions,
       conflicts: draft.conflicts,
-      clarifications: openAfter,
+      clarifications: input.openAfter,
       model: recorded.model,
       promptVersion: recorded.promptVersion,
       transcriptPath: recorded.transcriptPath,
       toolCalls: recorded.toolCalls,
       createdAt: this.deps.now(),
     }
-    return this.settleAnalysis({
-      requirement,
-      analysis,
-      attempt: recorded,
-      newQuestions: draft.clarifications,
-      updates: draft.clarificationUpdates,
-      businessContext: draft.businessContext,
+  }
+
+  /** 历史分析用过的编号：退役后不得复用，即使新编号大于当前版本最大值。 */
+  private historicalSpecIds(reqId: string): string[] {
+    const ids: string[] = []
+    for (const analysis of this.deps.repo.analyses(reqId)) {
+      for (const point of analysis.businessPoints ?? []) ids.push(point.id)
+      for (const item of analysis.acceptanceItems ?? []) ids.push(item.id)
+    }
+    return [...new Set(ids)]
+  }
+
+  /** 一次格式/校验失败的重试：先落失败尝试，下一轮提示词带上具体错误。 */
+  private retryAttempt(attempt: RecordedAnalysis, detail: string): void {
+    this.deps.repo.recordAnalysisAttempt({
+      ...attempt,
+      outcome: 'failed',
+      detail: `校验未通过，准备重试：${detail}`,
     })
   }
 
@@ -608,4 +686,10 @@ export class ExecutionPlan {
    * 实现前评审：验证 Agent 只读任务包与分析，产出验证计划。
    * 评审通过才允许批准；阻断原因会反馈给规划 Agent 重新生成任务包。
    */
+}
+
+/** 重试提示只带上一轮的具体校验错误，不夹带模型自己写的解释。 */
+function retryPromptNote(error: string): string {
+  if (!error) return ''
+  return `\n\n## 上一次尝试未通过程序校验\n${error}\n请修正上述问题后重新输出完整 JSON；不要解释，只输出 JSON。`
 }

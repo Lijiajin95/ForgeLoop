@@ -83,6 +83,7 @@ import { applyDiffFile } from './diff-apply.js'
 import { buildStatusBoard, type StatusBoardView } from './board.js'
 import { pendingClarificationsOf, type PendingClarification } from './clarification-view.js'
 import { clarificationAnswerContext } from './clarification-answer.js'
+import { recordRevisionInvalidation } from './analysis-lifecycle.js'
 import { requirementDetailExtras } from './requirement-detail.js'
 import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
 import { runFormalTest } from './formal-test.js'
@@ -638,6 +639,13 @@ ${answer}`
       text: input.text,
       revisedBy: input.by,
       source: input.source,
+      now: this.now(),
+    })
+    recordRevisionInvalidation({
+      repository: this.repo,
+      reqId: input.reqId,
+      invalidated: this.repo.latestAnalysis(input.reqId),
+      toRequirementVersion: updated.versions.length,
       now: this.now(),
     })
     this.repo.dismissPendingFor(input.reqId, '需求修订：旧请求所依据的版本已过期', this.now())
@@ -1556,13 +1564,14 @@ ${answer}`
     const progress = deliveryProgress(plan, delivered, runs)
     const requests = this.repo.requestsFor(reqId)
     const evidence = requirementEvidence({
-      admissions: this.repo.admissionsFor(reqId),
+      admissions: this.repo
+        .admissionsFor(reqId)
+        .filter((record) => record.requirementVersion === requirement.versions.length),
       commits: this.repo.commitsFor(reqId),
     })
     return ok(`需求 ${reqId} 详情`, {
       ...view,
       ...requirementDetailExtras(this.repo, reqId),
-      businessContext: this.repo.businessContextChanges(reqId),
       latestPlan: plan,
       artifacts,
       admission: evidence.admission,

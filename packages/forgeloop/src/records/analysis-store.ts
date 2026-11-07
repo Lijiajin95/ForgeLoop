@@ -8,7 +8,12 @@
 import type { Database } from './db.js'
 import type { RequirementAnalysis } from '../domain/requirement.js'
 import { DEFAULT_INPUT_KIND, INPUT_KINDS, inputKindOf } from '../domain/requirement.js'
-import type { AnalysisAttempt, AnalysisMode, AnalysisOutcome } from '../domain/analysis.js'
+import type {
+  AnalysisAttempt,
+  AnalysisInvalidation,
+  AnalysisMode,
+  AnalysisOutcome,
+} from '../domain/analysis.js'
 import type { AnalysisSpec } from '../domain/spec.js'
 import { parseSpecFields } from '../domain/spec.js'
 import { asRecord } from '../domain/json.js'
@@ -236,6 +241,50 @@ export class AnalysisStore {
         JSON.stringify(attempt.toolCalls),
         attempt.createdAt,
       )
+  }
+
+  /** 修订时登记旧分析失效；同一目标版本只记一次。 */
+  recordInvalidation(input: {
+    reqId: string
+    analysisVersion: number
+    fromRequirementVersion: number
+    toRequirementVersion: number
+    reason: string
+    createdAt: string
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO requirement_analysis_invalidations
+          (req_id, analysis_version, from_requirement_version, to_requirement_version, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(req_id, analysis_version, to_requirement_version) DO UPDATE SET
+           reason = excluded.reason,
+           created_at = excluded.created_at`,
+      )
+      .run(
+        input.reqId,
+        input.analysisVersion,
+        input.fromRequirementVersion,
+        input.toRequirementVersion,
+        input.reason,
+        input.createdAt,
+      )
+  }
+
+  invalidations(reqId: string): AnalysisInvalidation[] {
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM requirement_analysis_invalidations WHERE req_id = ? ORDER BY to_requirement_version',
+      )
+      .all(reqId)
+    return rows.map((row: Row) => ({
+      reqId: text(row, 'req_id'),
+      analysisVersion: num(row, 'analysis_version'),
+      fromRequirementVersion: num(row, 'from_requirement_version'),
+      toRequirementVersion: num(row, 'to_requirement_version'),
+      reason: text(row, 'reason'),
+      createdAt: text(row, 'created_at'),
+    }))
   }
 
   attempts(reqId: string, requirementVersion?: number): AnalysisAttempt[] {

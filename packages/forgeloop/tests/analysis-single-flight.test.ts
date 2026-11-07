@@ -77,9 +77,9 @@ function submit(runtime: ForgeLoopRuntime, text = REQUIREMENT): string {
 }
 
 /** 等到执行器真的收到模型调用。 */
-async function waitForCall(pending: Pending[]): Promise<Pending> {
+async function waitForCall(pending: Pending[], from = 0): Promise<Pending> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const first = pending[0]
+    const first = pending[from]
     if (first) return first
     await new Promise((done) => setTimeout(done, 1))
   }
@@ -182,7 +182,7 @@ describe('analysis single flight', () => {
     runtime.close()
   })
 
-  it('records each real attempt with its own transcript when a format retry happens', async () => {
+  it('retries a malformed result with the concrete validation error and keeps both attempts', async () => {
     const pending: Pending[] = []
     const { runtime } = makeRuntime(controlledRunner(pending))
     const reqId = submit(runtime)
@@ -190,17 +190,15 @@ describe('analysis single flight', () => {
     const running = runtime.analyzeRequirement(reqId)
     const first = await waitForCall(pending)
     first.resolve('{"goal": ""}')
-    // 等第一次失败收口后再重试同一版本。
-    await running
-    expect(runtime.repo.getRequirement(reqId)?.status).toBe('analysis_failed')
-
-    const retry = runtime.analyzeRequirement(reqId)
-    const second = await waitForCall(pending.slice(1))
+    const second = await waitForCall(pending, 1)
+    expect(second.request.prompt).toContain('上一次尝试未通过程序校验')
+    expect(second.request.prompt).toContain('分析缺少非空目标')
     second.resolve(analysisText())
-    expect((await retry).ok).toBe(true)
+    expect((await running).ok).toBe(true)
 
     const attempts = runtime.repo.analysisAttempts(reqId)
-    expect(attempts).toHaveLength(2)
+    expect(attempts.map((attempt) => attempt.attempt)).toEqual([1, 2])
+    expect(attempts.map((attempt) => attempt.outcome)).toEqual(['failed', 'done'])
     const paths = attempts.map((attempt) => attempt.transcriptPath)
     expect(new Set(paths).size).toBe(2)
     expect(paths[0]).toContain(`${reqId}-v1-analyze-a1.jsonl`)

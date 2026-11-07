@@ -33,6 +33,16 @@ export type AnalysisMode = 'initial' | 'auto' | 'manual'
 export type AnalysisOutcome = 'done' | 'failed' | 'stale'
 
 /** 一次分析尝试的完整记录；失败尝试没有分析结论，但保留模型、轨迹与工具调用。 */
+/** 需求修订使旧分析失效的审计记录：旧分析仍可回查，但不能再作为当前版本依据。 */
+export interface AnalysisInvalidation {
+  readonly reqId: string
+  readonly analysisVersion: number
+  readonly fromRequirementVersion: number
+  readonly toRequirementVersion: number
+  readonly reason: string
+  readonly createdAt: string
+}
+
 export interface AnalysisAttempt {
   readonly reqId: string
   readonly requirementVersion: number

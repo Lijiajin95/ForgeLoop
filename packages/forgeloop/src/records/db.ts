@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_specs (
     spec_json TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
+-- 需求修订使旧分析失效：只追加审计，不删除旧分析；准入按版本号判定过期。
+CREATE TABLE IF NOT EXISTS requirement_analysis_invalidations (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    from_requirement_version INTEGER NOT NULL,
+    to_requirement_version INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version, to_requirement_version)
+);
 CREATE TABLE IF NOT EXISTS requirement_analysis_attempts (
     req_id TEXT NOT NULL,
     requirement_version INTEGER NOT NULL,

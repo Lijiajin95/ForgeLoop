@@ -303,13 +303,20 @@ function stableIds(
   items: readonly { id: string }[],
   previous: readonly { id: string }[],
   label: string,
+  historical: readonly string[] = [],
 ): void {
   const previousIds = new Set(previous.map((item) => item.id))
+  const retired = new Set(historical)
   const previousMax = previous.reduce((max, item) => {
     const match = /\d+$/.exec(item.id)
     return Math.max(max, match ? Number(match[0]) : 0)
   }, 0)
   for (const item of items) {
+    if (retired.has(item.id) && !previousIds.has(item.id)) {
+      throw new MalformedError(
+        `${label}编号 ${item.id} 已被历史版本使用，退役后不能复用；请使用更大的新编号`,
+      )
+    }
     if (previousIds.has(item.id)) continue
     const number = Number(/\d+$/.exec(item.id)?.[0] ?? 0)
     if (number <= previousMax) {
@@ -330,6 +337,8 @@ export interface SpecValidationInput {
   /** 项目内已存在的需求身份；冲突引用必须指向真实存在的其他需求。 */
   readonly knownRequirementIds?: readonly string[] | undefined
   readonly currentReqId?: string | undefined
+  /** 历史分析用过的业务要点/验收编号；退役后不得复用。 */
+  readonly historicalIds?: readonly string[] | undefined
 }
 
 /** 去掉引号、来源前缀与空白后比较，保留字词与标点本身。 */
@@ -369,16 +378,20 @@ function validatePointSource(point: BusinessPoint, input: SpecValidationInput): 
  * complete=false（仍有待澄清）时允许规格不完整，但不允许非法引用；
  * complete=true 时缺业务要点、要点无验收、未分析异常或未确认假设都阻断。
  */
-function validateIds(spec: AnalysisSpec, previous: AnalysisSpec | null | undefined): void {
+function validateIds(
+  spec: AnalysisSpec,
+  previous: AnalysisSpec | null | undefined,
+  historicalIds: readonly string[],
+): void {
   uniqueIds(spec.points, 'BP')
   uniqueIds(spec.acceptance, 'AC')
   uniqueIds(spec.assumptions, 'AS')
   maxId(spec.points, POINT_ID, 'BP')
   maxId(spec.acceptance, ACCEPTANCE_ID, 'AC')
   maxId(spec.assumptions, ASSUMPTION_ID, 'AS')
-  stableIds(spec.points, previous?.points ?? [], '业务要点')
-  stableIds(spec.acceptance, previous?.acceptance ?? [], '验收项')
-  stableIds(spec.assumptions, previous?.assumptions ?? [], '假设')
+  stableIds(spec.points, previous?.points ?? [], '业务要点', historicalIds)
+  stableIds(spec.acceptance, previous?.acceptance ?? [], '验收项', historicalIds)
+  stableIds(spec.assumptions, previous?.assumptions ?? [], '假设', historicalIds)
 }
 
 function validateReferences(spec: AnalysisSpec): void {
@@ -440,7 +453,7 @@ export function validateSpec(input: SpecValidationInput): void {
     }
     return
   }
-  validateIds(spec, previous)
+  validateIds(spec, previous, input.historicalIds ?? [])
   validateReferences(spec)
   for (const point of spec.points) validatePointSource(point, input)
   validateConflicts(spec, input)

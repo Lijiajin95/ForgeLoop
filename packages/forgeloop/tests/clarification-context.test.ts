@@ -188,7 +188,7 @@ describe('clarification context across re-analysis', () => {
   it('fails closed when re-analysis silently drops an unresolved question', async () => {
     const root = mkdtempSync(join(tmpdir(), 'forgeloop-clarify-'))
     roots.push(root)
-    const harness = makeHarness(root, [QUESTIONS, PLAIN])
+    const harness = makeHarness(root, [QUESTIONS, PLAIN, PLAIN])
     const runtime = harness.runtime
     const reqId = submit(runtime, '订单列表支持取消订单', 'msg-1')
     await runtime.analyzeRequirement(reqId)
