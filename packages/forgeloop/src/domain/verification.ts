@@ -654,7 +654,9 @@ export function validateRequirementVerificationPlan(
   for (const item of analysis.exceptions ?? []) {
     if (!planReferences(plan, item)) issues.push(`验证方案缺少异常与边界：${item}`)
   }
-  issues.push(...validateExceptionMarkers(analysis.exceptions ?? [], plan))
+  if (plan.scenarios.some((scenario) => (scenario.checks ?? []).length > 0)) {
+    issues.push(...validateExceptionMarkers(analysis.exceptions ?? [], plan))
+  }
   return issues
 }
 

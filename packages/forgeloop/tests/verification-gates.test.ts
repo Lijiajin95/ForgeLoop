@@ -278,3 +278,33 @@ describe('verification check categories', () => {
     expect(issues.join('；')).toContain('必过场景缺少本次验收（acceptance）检查')
   })
 })
+
+describe('design-stage validation', () => {
+  it('does not require command markers before execution preparation', async () => {
+    const { parseRequirementVerificationPlan, validateRequirementVerificationPlan } =
+      await import('../src/domain/verification.js')
+    const exception = '文档缺少标记时，检查命令输出 missing 并以非零状态退出。'
+    const plan = parseRequirementVerificationPlan(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: '生成文档',
+            acceptance_criterion: '文档包含标记',
+            method: `创建文档并检查标记；${exception}`,
+            required: true,
+            checks: [],
+          },
+        ],
+      }),
+    )
+    const issues = validateRequirementVerificationPlan(
+      {
+        scenarios: ['生成文档'],
+        acceptanceCriteria: ['文档包含标记'],
+        exceptions: [exception],
+      },
+      plan,
+    )
+    expect(issues.join('；')).not.toContain('异常标记断言')
+  })
+})
