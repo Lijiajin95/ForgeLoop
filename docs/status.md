@@ -7147,3 +7147,18 @@ main 上 `business-context-store.ts`（functions 85.71% < 95）、`clarification
 `tests/coverage-stores-branches.test.ts`、`tests/coverage-admission-project-docs.test.ts` 与
 `tests/coverage-{verification-plan,legacy-verification}-branches.test.ts` 覆盖；
 `make coverage` 退出码 0，2,114 项通过。
+
+## 190. 闭环 B：需求文本收紧与 full-suite 阻塞（2026-11-07）
+
+本轮修复（在 worktree `m1-nocmd`，**未提交**）：
+
+- 删除需求里的“检查命令”行——它会被分析当成业务场景，验证方案漏抄即判“缺少业务场景”；
+  原检查本就由主控在运维目标上执行，研发不需要这条命令。
+
+未提交原因：`.githooks/pre-commit` 现在对代码改动执行 `make commit-check`（含逐文件覆盖率门槛），
+全量跑出 1 项**与本次改动无关**的既有失败：
+`coverage-verification-plan-branches.test.ts > rejects preparation that is not an array…`
+（期望 `验证执行准备没有可解析的 scenarios JSON`，实际 `验证执行准备必须给出 scenarios 数组`）。
+该文件单独运行 15 项全通过，属全量顺序/他人改动导致的不一致，不是本次 diff 引入。
+
+处理：按“检查失败不提交”的纪律保留在 worktree，未合并；待该项失败修复后再提交。
