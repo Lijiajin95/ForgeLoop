@@ -7118,3 +7118,32 @@ M1-4/M1-8 达成。未代签任何验收。
 - 旧格式 `requirement_clarification_answers` 仅只读回退，不迁移；新库按当前结构建立。
 - 真实模型对“依据逐字引用”“冲突取舍质量”的稳定性仍需持续样本对照；确定性校验只保证可核对，不保证语义最优。
 - `analysis` 非格式类失败仍走原有失败轮次与自动重试策略，未改变额度。
+
+## 193. 本地提交纳入覆盖率门禁（2026-11-07）
+
+### 193.1 约束
+
+- `.githooks/pre-commit` 按暂存范围分流（判定在 `scripts/ts/commit-scope.ts`，复用 worktree-guard 的代码路径定义）：
+  - **含代码路径**（`packages/`、`scripts/`、`contracts/`、`.github/`、`.githooks/`、`Makefile`、包清单等）：
+    执行 `make commit-check`，即静态检查 + 全量行为测试 + `vitest` 逐文件覆盖率门槛；失败即非零退出。
+  - **纯文档/状态记录**：只执行 `make check-static`，不跑全量覆盖率。
+  - 两条路径最后都执行 `make format`。
+- 检查前 `unset GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE/GIT_PREFIX` 等：`git commit` 会把这些变量导出给 hook，
+  测试夹具的临时仓库会继承并反向锁住真实仓库（实测曾把分支移动到夹具提交、锁住 `.git/config`）。
+- 检查后恢复 `packages/forgeloop/coverage/coverage-summary.json` 生成物，不进入暂存区。
+- 边界：pre-commit 是**本地**约束，`git commit --no-verify` 可绕过；远端 CI 只约束 push/merge。
+
+### 193.2 实测证据
+
+- 代码路径 + 0 覆盖探针：`ERROR: Coverage for lines (0%) … __commit_probe.ts`、`[check-repo] coverage 失败（退出码 1）`，
+  hook 退出码 1、输出“提交被阻止”（`/tmp/hook-code-fail.log`）。
+- 纯文档：`staged scope: docs` → 仅 check-static + format，退出码 0（`/tmp/hook-docs.log`）。
+- 正常代码提交：`staged scope: code` → `[check-repo] 全部通过（含逐文件覆盖率门槛）` → `[pre-commit] OK`（`/tmp/commit-ok.log`、`/tmp/hook-final.log`）。
+
+### 193.3 同时补齐的覆盖率缺口
+
+main 上 `business-context-store.ts`（functions 85.71% < 95）、`clarification-store.ts`（lines 83.96% < 90）、
+`project-docs.ts`（branches 84.12% < 85）、`domain/admission.ts`（branches 90.9% < 100）已由本批新增的
+`tests/coverage-stores-branches.test.ts`、`tests/coverage-admission-project-docs.test.ts` 与
+`tests/coverage-{verification-plan,legacy-verification}-branches.test.ts` 覆盖；
+`make coverage` 退出码 0，2,114 项通过。
