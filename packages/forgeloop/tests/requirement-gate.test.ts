@@ -273,7 +273,17 @@ describe('requirement pipeline gate', () => {
     expect(runtime.issues.issuesFor(first).map((issue) => issue.attempt)).toEqual([1, 2, 3])
     expect(runtime.issues.latestOpen(first)?.attempt).toBe(3)
     expect(runtime.repo.getRequirement(first)?.status).toBe('blocked')
-    expect(runtime.autoAdvanceRequests()).toContain(first)
+    // 额度耗尽后问题单不能绕过授权；自动扫描必须停下，追加授权后才恢复。
+    expect(runtime.autoAdvanceRequests()).not.toContain(first)
+    expect(runtime.grant({ reqId: first, by: 'owner' }).ok).toBe(true)
+    expect(
+      runtime.requestOperation({
+        reqId: first,
+        action: 'advance',
+        by: 'owner',
+        source: 'test',
+      }).ok,
+    ).toBe(true)
     // 第一个需求未收口时，第二个需求仍保持排队且没有分析请求。
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(first)
     expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([second])
@@ -288,7 +298,7 @@ describe('requirement pipeline gate', () => {
     expect(runtime.repo.latestCommit(first)).not.toBeNull()
     expect(runtime.issues.issuesFor(first).map((issue) => issue.attempt)).toEqual([1, 2, 3, 4])
     expect(runtime.issues.issuesFor(first).every((issue) => issue.status === 'resolved')).toBe(true)
-    expect(runtime.repo.grantCount(first)).toBe(1)
+    expect(runtime.repo.grantCount(first)).toBe(2)
     expect(runtime.repo.failureRounds(first)).toHaveLength(4)
     expect(
       runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'block'),

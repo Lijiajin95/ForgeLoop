@@ -202,6 +202,9 @@ function fakeRunner(
     devNoChange?: boolean
     businessIncomplete?: boolean
     businessBlock?: boolean
+    onVerifyExecution?: () => void
+    clarification?: boolean
+    devExtraFile?: string
     orchestratorSessionId?: () => string | null
     resumeFails?: boolean
     selfTestGate?: boolean
@@ -247,6 +250,7 @@ function fakeRunner(
       if (request.role === 'verify' && turn.prompt.includes('你必须使用工具')) {
         // 模型声称已执行但没调用工具时，运行时不能把自述当证据。
         if (options.skipExecution) return reply(JSON.stringify({ executed: ['smoke'] }))
+        options.onVerifyExecution?.()
         return executePlanThroughTool(`session-fl-${request.role}-test`, turn.prompt)
       }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
@@ -360,12 +364,38 @@ function fakeRunner(
         if (options.devNoChange) {
           return result({ role: request.role, transcriptPath: turn.transcriptPath }, 'no change')
         }
+        if (options.clarification) {
+          return result(
+            { role: request.role, transcriptPath: turn.transcriptPath },
+            JSON.stringify({
+              mode: 'independent',
+              risk: 'unknown',
+              white_box: [],
+              black_box: [],
+              red_green: {
+                required: false,
+                failing_before: false,
+                passing_after: false,
+                evidence: '',
+              },
+              reason: '业务预期无法从现有说明确认',
+              needs_clarification: {
+                question: '这个功能是否必须支持离线模式？',
+                context: '现有说明只描述在线路径，没有可核对依据。',
+              },
+            }),
+          )
+        }
         const taskId = /当前任务：(.+)/.exec(turn.prompt)?.[1]?.trim() ?? 'a'
         devAttempts += 1
         devPrompts.push(turn.prompt)
         devWorkspaces.push(request.cwd)
         mkdirSync(join(request.cwd, 'docs'), { recursive: true })
         writeFileSync(join(request.cwd, `docs/${taskId}.md`), `content ${Date.now()}\n`)
+        if (options.devExtraFile) {
+          mkdirSync(join(request.cwd, options.devExtraFile, '..'), { recursive: true })
+          writeFileSync(join(request.cwd, options.devExtraFile), 'outside\n')
+        }
         if (options.selfTestGate === true && devAttempts >= 2) {
           writeFileSync(join(request.cwd, 'docs/ready'), 'ready\n')
         }
@@ -540,6 +570,11 @@ function boundSessionId(reqId: string, requirementVersion = 1): string {
 function makeRuntime(
   runner: AgentLike,
   autonomy: { allowCodeCommit?: boolean; commitCheckCommand?: string[] } = {},
+  limits: {
+    failureRoundsPerGrant?: number
+    maxVerificationAttempts?: number
+    activeRoots?: string[]
+  } = {},
 ): ForgeLoopRuntime {
   const config = resolveConfig(
     {
@@ -552,8 +587,9 @@ function makeRuntime(
       formalTestTimeoutSeconds: 30,
       maxTaskAttempts: 2,
       // 这里的用例覆盖“限制生效时如何阻断”；默认不限的行为由 unlimited-execution.test.ts 覆盖。
-      maxVerificationAttempts: 3,
-      failureRoundsPerGrant: 3,
+      maxVerificationAttempts: limits.maxVerificationAttempts ?? 3,
+      failureRoundsPerGrant: limits.failureRoundsPerGrant ?? 3,
+      ...(limits.activeRoots ? { activeRoots: limits.activeRoots } : {}),
       autonomy: {
         enabled: true,
         allowCodeCommit: autonomy.allowCodeCommit ?? true,
@@ -986,7 +1022,8 @@ describe('continuous four-Agent flow', () => {
     expect((await runNext(reqId, 'advance')).state).toBe('failed')
     const sessionId = boundSessionId(reqId)
     const workspace = boundWorkspace(reqId)
-    writeFileSync(join(workspace, 'continued.txt'), 'continued\n')
+    mkdirSync(join(workspace, 'docs'), { recursive: true })
+    writeFileSync(join(workspace, 'docs', 'continued.txt'), 'continued\n')
     runtime.close()
     runtime = makeRuntime(fakeRunner())
     runtime.autoAdvanceRequests()
@@ -1000,7 +1037,7 @@ describe('continuous four-Agent flow', () => {
         '--pretty=format:',
         runtime.repo.latestCommit(reqId)!.commitSha,
       ]),
-    ).toContain('continued.txt')
+    ).toContain('docs/continued.txt')
   })
 
   it('writes a session summary bound to the session and requirement', async () => {
@@ -1859,5 +1896,91 @@ describe('development session routing failures', () => {
     // 旧会话记录与工作区不删除，只换绑定。
     expect(runtime.repo.devSession(firstSession)?.workspace).toBe(firstWorkspace)
     expect(existsSync(firstWorkspace)).toBe(true)
+  })
+
+  it('keeps a cancelled requirement terminal when verification returns late', async () => {
+    let reqId = ''
+    let cancelled = false
+    runner = fakeRunner({
+      onVerifyExecution: () => {
+        if (cancelled) return
+        cancelled = true
+        runtime.cancel({ reqId, by: 'owner', reason: '验证中取消' })
+      },
+    })
+    runtime = makeRuntime(runner)
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-cancel:msg-1',
+    })
+    reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('已取消')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('cancelled')
+    expect(runtime.repo.latestCommit(reqId)).toBeNull()
+    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
+  })
+
+  it('does not repair when the first failure exhausts the quota', async () => {
+    runner = fakeRunner({ failFirstVerification: true })
+    runtime = makeRuntime(runner, {}, { failureRoundsPerGrant: 1 })
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-quota:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('失败轮次额度已用尽')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+    expect(runtime.issues.issuesFor(reqId)).toHaveLength(1)
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(1)
+    expect(runtime.repo.latestCommit(reqId)).toBeNull()
+  })
+
+  it('hands a clarification to the product flow with zero code changes', async () => {
+    runner = fakeRunner({ clarification: true })
+    runtime = makeRuntime(runner)
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-clarify:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('研发需要产品澄清')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('awaiting_clarification')
+    expect(runtime.repo.getRequirement(reqId)?.versions).toHaveLength(2)
+    expect(runtime.repo.taskArtifacts(reqId, 1)).toEqual([])
+    expect(runtime.repo.latestCommit(reqId)).toBeNull()
+  })
+
+  it('rejects an actual out-of-scope diff even when the plan files are allowed', async () => {
+    runner = fakeRunner({ devExtraFile: 'src/evil.ts' })
+    runtime = makeRuntime(runner, {}, { activeRoots: ['docs/'] })
+    const submitted = runtime.submit({
+      text: '实现一个可验证的小功能',
+      by: 'owner',
+      source: 'dsh-session:sess-scope:msg-1',
+    })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    await runNext(reqId, 'analyze')
+    runtime.autoAdvanceRequests()
+    const advance = await runNext(reqId, 'advance')
+    expect(advance.state).toBe('failed')
+    expect(advance.detail).toContain('实际改动越过活动工程范围：src/evil.ts')
+    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
+    expect(runtime.repo.latestCommit(reqId)).toBeNull()
+    expect(runtime.repo.taskArtifacts(reqId, 1)).toEqual([])
   })
 })

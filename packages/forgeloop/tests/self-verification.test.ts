@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  candidateSelfVerification,
   parseSelfVerificationReport,
   redGreenIssue,
   selfVerificationSufficient,
@@ -54,6 +55,14 @@ describe('dev self-verification', () => {
         failing_before: true,
         passing_after: true,
         evidence: '修复前测试退出 1，修复后退出 0',
+        failing_command: 'npm test',
+        baseline_identity: 'baseline-sha',
+        failing_exit_code: 1,
+        failing_log: '/tmp/red.log',
+        passing_command: 'npm test',
+        fixed_identity: 'fixed-sha',
+        passing_exit_code: 0,
+        passing_log: '/tmp/green.log',
       },
     })
     expect(redGreenIssue({ inputKind: 'requirement', report: green! })).toBeNull()
@@ -82,5 +91,48 @@ describe('dev self-verification', () => {
     expect(
       selfVerificationSufficient({ inputKind: 'requirement', report: independent! }),
     ).toMatchObject({ ok: false })
+  })
+
+  it('requires every delivered task to have a sufficient self report', () => {
+    const self = report()!
+    expect(
+      candidateSelfVerification({
+        inputKind: 'requirement',
+        reports: [{ taskId: 'a', report: self }],
+      }),
+    ).toEqual({ ok: true })
+    expect(
+      candidateSelfVerification({
+        inputKind: 'requirement',
+        reports: [
+          { taskId: 'a', report: null },
+          { taskId: 'b', report: self },
+        ],
+      }),
+    ).toMatchObject({ ok: false, reason: '任务 a 缺少持久化自验证报告' })
+    expect(
+      candidateSelfVerification({
+        inputKind: 'requirement',
+        reports: [
+          { taskId: 'a', report: report({ mode: 'independent' }) },
+          { taskId: 'b', report: self },
+        ],
+      }),
+    ).toMatchObject({ ok: false, reason: '任务 a 选择独立验证' })
+  })
+
+  it('rejects red/green without real command, identity, exit code and log', () => {
+    const incomplete = report({
+      risk: 'high',
+      red_green: {
+        required: true,
+        failing_before: true,
+        passing_after: true,
+        evidence: '只看文字',
+      },
+    })
+    expect(redGreenIssue({ inputKind: 'requirement', report: incomplete! })).toContain(
+      '红灯缺少真实命令',
+    )
   })
 })

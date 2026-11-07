@@ -5,17 +5,19 @@ import { hostname } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopConfig } from '../config.js'
-import { candidatesDir, integrationDir, verificationDir } from '../config.js'
+import { candidatesDir, evidenceDir, integrationDir, verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import { inputKindOf } from '../domain/requirement.js'
 import {
-  selfVerificationSufficient,
+  candidateSelfVerification,
+  parseSelfVerificationReport,
   type SelfVerificationReport,
 } from '../domain/self-verification.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import { authorizationSourceOf, executionOrder, planLimitSeconds } from '../domain/task-plan.js'
 import {
   AWAITING_DEV_SESSION,
+  CANCELLED,
   COMMITTED,
   DEVELOPING,
   EXECUTING,
@@ -40,6 +42,7 @@ import type {
   LegacyVerifyInput,
 } from './legacy-verification.js'
 import type { OperationResult } from './operation-result.js'
+import { changedFilesFromDiff, outsideActiveFiles } from '../domain/language.js'
 import { requirementTitle } from './board.js'
 import type { AcquireDevSessionResult, DevSessionRegistry } from './dev-sessions.js'
 import type { OrchestratorChoice, SessionOrchestrator } from './orchestrator.js'
@@ -201,14 +204,43 @@ export class AdvancePipeline {
     return this.deps.legacyVerification.verifyCandidate(input)
   }
 
+  /**
+   * 取消是终态，停止是显式阻断：任何迟到的验证/修复/提交结果都必须在动作入口
+   * 重新核对当前记录，不能凭请求开始时的快照继续写代码或提交。
+   */
+  private inactiveReason(reqId: string): string | null {
+    const requirement = this.deps.repo.getRequirement(reqId)
+    if (!requirement) return `未找到需求 ${reqId}`
+    if (requirement.status === CANCELLED) {
+      return `需求 ${reqId} 已取消；不再产生新请求、修复或提交`
+    }
+    if (isTerminal(requirement.status)) {
+      return `需求 ${reqId} 已处于终态 ${requirement.status}；不再推进`
+    }
+    if (this.deps.repo.activeStop(reqId)) {
+      return `需求 ${reqId} 已收到停止请求；不再产生新提交`
+    }
+    return null
+  }
+
   async commitCandidate(input: {
     reqId: string
     plan: TaskPlan
     candidate: CandidateFile
     requirementTitle: string
   }): Promise<{ ok: true; commitSha: string } | { ok: false; detail: string }> {
+    const inactive = this.inactiveReason(input.reqId)
+    if (inactive) return { ok: false, detail: inactive }
     if (!this.deps.config.autonomy.allowCodeCommit) {
       return { ok: false, detail: '系统授权不允许代码提交；等待所有者授权' }
+    }
+    if (!existsSync(input.candidate.diffPath)) {
+      return { ok: false, detail: `候选 diff 不存在：${input.candidate.diffPath}` }
+    }
+    const candidateFiles = changedFilesFromDiff(readFileSync(input.candidate.diffPath, 'utf8'))
+    const outside = outsideActiveFiles(candidateFiles, this.deps.config.activeRoots)
+    if (outside.length > 0) {
+      return { ok: false, detail: `候选越过活动工程范围：${outside.join('、')}` }
     }
     const commit = integrateCandidate({
       projectPath: this.deps.config.projectPath,
@@ -375,6 +407,8 @@ export class AdvancePipeline {
     signal: AbortSignal
     round: number
   }): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const inactive = this.inactiveReason(input.reqId)
+    if (inactive) return { ok: false, reason: inactive }
     const reportDir = join(
       verificationDir(
         this.deps.config,
@@ -512,16 +546,19 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     authorizationSource: string
     signal: AbortSignal
   }): Promise<
-    | { ok: true; reports: SelfVerificationReport[] }
+    | { ok: true; reports: Array<{ taskId: string; report: SelfVerificationReport | null }> }
     | { ok: false; detail: string; clarification?: { question: string; context: string } }
   > {
     const { reqId, requirement, analysis, plan, workspace, session, authorizationSource, signal } =
       input
-    const reports: SelfVerificationReport[] = []
+    const reports: Array<{ taskId: string; report: SelfVerificationReport | null }> = []
     for (const taskId of executionOrder(plan)) {
       const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
       if (!task) continue
-      if (this.deps.repo.taskArtifact(reqId, plan.planVersion, taskId)) continue
+      if (this.deps.repo.taskArtifact(reqId, plan.planVersion, taskId)) {
+        reports.push({ taskId, report: this.readSelfVerification(reqId, plan, taskId) })
+        continue
+      }
       const outcome = await this.deps.executionDev.developTaskInSession({
         reqId,
         requirement,
@@ -533,7 +570,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         inputKind: inputKindOf(analysis),
         signal,
       })
-      if (outcome.selfVerification) reports.push(outcome.selfVerification)
+      reports.push({ taskId, report: outcome.selfVerification ?? null })
       if (outcome.state !== 'delivered') {
         this.deps.repo.setStatus(reqId, 'blocked', outcome.reason)
         return {
@@ -555,6 +592,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     signal: AbortSignal
   }): Promise<{ ok: true } | { ok: false; detail: string }> {
     const { reqId, requirement, plan, workspace, session, signal } = input
+    const inactive = this.inactiveReason(reqId)
+    if (inactive) return { ok: false, detail: inactive }
     const openIssue = this.deps.issues.latestOpen(reqId)
     if (!openIssue) return { ok: true }
     this.deps.repo.setStatus(
@@ -630,6 +669,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
   > {
     const { reqId, requirement, plan, workspace, workspaceInfo, session, signal, round } = input
     const { verification } = input
+    const inactive = this.inactiveReason(reqId)
+    if (inactive) return { stop: true, result: { state: 'failed', detail: inactive } }
     if (verification.repairRecommended === false) {
       return { stop: true, result: this.verificationWithoutRepair(reqId, verification) }
     }
@@ -656,6 +697,21 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         result: {
           state: 'failed',
           detail: `验证未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
+        },
+      }
+    }
+    if (this.deps.remainingFailureRounds(reqId) === 0) {
+      const blocking = verification.blocking.join('；') || verification.detail
+      this.deps.repo.setStatus(
+        reqId,
+        'blocked',
+        `验证未通过且失败轮次额度已用尽：${blocking}；问题单 ${issue.issueId} 保留，需要追加授权后才能继续`,
+      )
+      return {
+        stop: true,
+        result: {
+          state: 'failed',
+          detail: `验证未通过且失败轮次额度已用尽：${blocking}；问题单 ${issue.issueId} 保留，未要求研发修改`,
         },
       }
     }
@@ -717,12 +773,30 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     }
   }
 
+  /** 读取已交付任务持久化的自验报告；缺失时返回 null，让整份候选转独立验证。 */
+  private readSelfVerification(
+    reqId: string,
+    plan: TaskPlan,
+    taskId: string,
+  ): SelfVerificationReport | null {
+    const path = join(
+      evidenceDir(this.deps.config, reqId, plan.planVersion, taskId),
+      'self-verification.json',
+    )
+    if (!existsSync(path)) return null
+    try {
+      return parseSelfVerificationReport(readFileSync(path, 'utf8'))
+    } catch {
+      return null
+    }
+  }
+
   /** 研发自验证 self 模式：按候选身份保存报告，供提交与审计复核。 */
   private recordSelfVerification(
     reqId: string,
     plan: TaskPlan,
     candidate: CandidateFile,
-    reports: readonly SelfVerificationReport[],
+    reports: ReadonlyArray<{ taskId: string; report: SelfVerificationReport | null }>,
   ): string {
     const dir = candidatesDir(this.deps.config, reqId, plan.planVersion)
     mkdirSync(dir, { recursive: true })
@@ -772,6 +846,9 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     }
   }
 
+  // 取消/额度/独立验证/修复/提交的入口都需要再核对，复杂度集中在这里；拆分
+  // 会把“同一候选生命周期”的判断分散到多个方法，反而更难审计。
+  // eslint-disable-next-line complexity
   private async verifyContinuousCandidate(input: {
     reqId: string
     requirement: Requirement
@@ -802,6 +879,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
     } = input
     let candidate = input.candidate
     for (let round = 1; ; round += 1) {
+      const inactive = this.inactiveReason(reqId)
+      if (inactive) return { state: 'failed', detail: inactive }
       this.deps.repo.setStatus(
         reqId,
         VERIFYING,
@@ -817,6 +896,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         signal,
         verification: verificationSession,
       })
+      const afterVerifyInactive = this.inactiveReason(reqId)
+      if (afterVerifyInactive) return { state: 'failed', detail: afterVerifyInactive }
       if (verification.verification === null && verification.state === 'block') {
         return this.recordVerificationPrepFailure(reqId, verification.detail)
       }
@@ -829,7 +910,9 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
           requirementTitle: requirementTitle(requirement),
         })
         if (!commit.ok) {
-          this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+          if (this.deps.repo.getRequirement(reqId)?.status !== CANCELLED) {
+            this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+          }
           return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
         }
         this.deps.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
@@ -1050,12 +1133,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       baselineCommit: workspaceInfo.baselineCommit,
       snapshotCommit: workspaceInfo.snapshotCommit,
     })
+    const inactive = this.inactiveReason(reqId)
+    if (inactive) return { state: 'failed', detail: inactive }
     const inputKind = inputKindOf(analysis)
     const selfMode =
-      developed.reports.length > 0 &&
-      developed.reports.every(
-        (report) => report.mode === 'self' && selfVerificationSufficient({ inputKind, report }).ok,
-      )
+      developed.reports.length === plan.tasks.length &&
+      candidateSelfVerification({ inputKind, reports: developed.reports }).ok
     if (selfMode) {
       const reportPath = this.recordSelfVerification(reqId, plan, candidate, developed.reports)
       const commit = await this.commitCandidate({
@@ -1065,7 +1148,9 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
         requirementTitle: requirementTitle(requirement),
       })
       if (!commit.ok) {
-        this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+        if (this.deps.repo.getRequirement(reqId)?.status !== CANCELLED) {
+          this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+        }
         return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
       }
       this.deps.repo.setStatus(

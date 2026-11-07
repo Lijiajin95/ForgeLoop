@@ -112,6 +112,8 @@ function makePipeline(): AdvancePipeline {
     recordRun: (...args: unknown[]) => runs.push(args),
     releaseDevSession: () => undefined,
     releaseRequirementDevSession: () => undefined,
+    activeStop: () => false,
+    cancellation: () => null,
   }
   const deps = {
     config,

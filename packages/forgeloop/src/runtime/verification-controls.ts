@@ -11,6 +11,7 @@ import type { VerificationControlSpec } from '../domain/verification-controls.js
 import { validateControlPatch } from '../domain/verification-controls.js'
 import { errorMessage } from '../domain/errors.js'
 import { runCommand } from './workspace.js'
+import { verificationMaterialDigest } from './verification-materials.js'
 
 export interface ControlExecutionResult {
   readonly label: string
@@ -44,6 +45,8 @@ export interface ExecuteControlsInput {
   readonly controls: readonly VerificationControlSpec[]
   /** 依赖根（通常是项目工作树）；验证副本人造工作区缺少 node_modules 时回退到它。 */
   readonly dependencyRoot?: string
+  /** 正向执行时冻结的材料摘要；对照必须使用同一份材料。 */
+  readonly expectedMaterialsSha256?: string
   readonly run: (input: {
     readonly argv: readonly string[]
     readonly cwd: string
@@ -124,6 +127,17 @@ export async function executeVerificationControls(
 ): Promise<{ results: ControlExecutionResult[]; issues: string[] }> {
   const byLabel = new Map(input.commands.map((command) => [command.label, command]))
   const issues: string[] = []
+  if (
+    input.expectedMaterialsSha256 !== undefined &&
+    input.expectedMaterialsSha256 !== verificationMaterialDigest(input.workspace)
+  ) {
+    const detail = '验证材料在正向执行后发生变化；旧结果不能与新材料拼成敏感性对照'
+    issues.push(detail)
+    return {
+      results: [],
+      issues: [detail],
+    }
+  }
   const results: ControlExecutionResult[] = []
   for (const control of input.controls) {
     const command = byLabel.get(control.label)

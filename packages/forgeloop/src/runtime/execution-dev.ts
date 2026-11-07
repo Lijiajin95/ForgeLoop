@@ -19,6 +19,7 @@ import { errorMessage } from '../domain/errors.js'
 import {
   languageRulesFor,
   languageViolations,
+  outsideActiveFiles,
   outsideActiveSource,
   unknownPackages,
 } from '../domain/language.js'
@@ -616,6 +617,24 @@ export class ExecutionDev {
         feedback = `\n\n上一次研发回合未完成：${result.reason}。请继续完成同一个任务。`
         continue
       }
+      // 澄清是零改动的合法交接：先读结构化报告，不能因为“没有文件变化”把问题
+      // 当成研发失败反复重试。
+      const earlySelf = this.persistSelfVerification({
+        text: result.text,
+        attemptDir,
+        taskDir,
+        inputKind: input.inputKind,
+        reqId: input.reqId,
+        plan: input.plan,
+        task: input.task,
+      })
+      if (earlySelf.blocked?.clarification) {
+        this.deps.recordRun(input.reqId, input.plan, input.task, {
+          state: TASK_RUN_BLOCKED,
+          reason: earlySelf.blocked.reason,
+        })
+        return earlySelf.blocked
+      }
       const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
       // 只读任务本来就不改文件：空改动不是失败信号，直接进入正式测试；
       // 否则在 maxTaskAttempts = -1 下这种任务会永远重试，把模型调用堆到任意大。
@@ -674,6 +693,15 @@ export class ExecutionDev {
       if (capture.changedFiles.length === 0) {
         feedback = this.taskNoChangeFeedback(input)
         continue
+      }
+      const outside = outsideActiveFiles(capture.changedFiles, this.deps.config.activeRoots)
+      if (outside.length > 0) {
+        const reason = `实际改动越过活动工程范围：${outside.join('、')}`
+        this.deps.recordRun(input.reqId, input.plan, input.task, {
+          state: TASK_RUN_FAILED,
+          reason,
+        })
+        return { state: 'blocked', reason }
       }
       this.recordAttemptCandidate({ attemptDir, taskDir, capture })
       runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)

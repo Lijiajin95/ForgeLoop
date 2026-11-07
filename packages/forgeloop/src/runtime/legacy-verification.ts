@@ -433,6 +433,7 @@ export class LegacyVerification {
       durationMs: check.durationMs,
       logPath: check.logPath,
       logSha256: check.logSha256,
+      materialsSha256: check.materialsSha256,
     }))
     const kind = classification?.kind ?? 'undetermined'
     const failureGuidance = classification?.guidance ?? ''
@@ -755,6 +756,7 @@ export class LegacyVerification {
       input.token,
       input.plan.scenarios.flatMap((scenario) => scenario.checks),
       controls,
+      this.deps.checks.materialsDigest(input.reqId, input.token) ?? '',
     )
     return { ok: true, outcome }
   }

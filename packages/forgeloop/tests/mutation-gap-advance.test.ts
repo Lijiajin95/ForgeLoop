@@ -269,6 +269,8 @@ function makePipeline(
     recordCodeCandidate: () => undefined,
     nextPlanVersion: () => 1,
     recordCommit: () => undefined,
+    activeStop: () => false,
+    cancellation: () => null,
   }
   const deps = {
     config,

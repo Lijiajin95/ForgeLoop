@@ -1183,11 +1183,8 @@ ${answer}`
       return AUTO_ADVANCE_STATUSES.has(requirement.status)
     }
     if (!admission) return this.retryDecisionFor(requirement.reqId).allowed
-    return (
-      plan !== null &&
-      (this.remainingFailureRounds(requirement.reqId) > 0 ||
-        this.issues.latestOpen(requirement.reqId) !== null)
-    )
+    // 额度耗尽就是阻断；未关闭问题单不能成为绕过失败额度的第二张通行证。
+    return plan !== null && this.remainingFailureRounds(requirement.reqId) > 0
   }
 
   private recordAutoAdvance(requirement: Requirement, plan: TaskPlan | null, now: string): boolean {

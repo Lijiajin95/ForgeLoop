@@ -24,6 +24,7 @@ import {
 } from './service-helpers.js'
 import { requireGit } from './workspace.js'
 import { executeVerificationControls } from './verification-controls.js'
+import { verificationMaterialDigest } from './verification-materials.js'
 import {
   parseVerificationControls,
   validateControlPatch,
@@ -38,6 +39,8 @@ export const VERIFICATION_MATERIAL_TOOL = 'forgeloop_write_verification_material
 export interface VerificationCheckRecord extends VerificationCheckRun {
   readonly logPath: string
   readonly logSha256: string
+  /** 首次执行时冻结的验证材料摘要；后续对照必须使用同一份。 */
+  readonly materialsSha256?: string
 }
 
 /** 一个候选上的验证执行上下文；方案与会话由调用方固定。 */
@@ -57,6 +60,7 @@ export interface VerificationCheckSnapshot {
   readonly runs: readonly VerificationCheckRecord[]
   readonly integrityIssues: readonly string[]
   readonly startedAt: string
+  readonly materialsSha256: string
 }
 
 export interface VerificationCheckActivationHandle {
@@ -76,6 +80,7 @@ interface ActiveContext {
   readonly runs: Map<string, VerificationCheckRecord>
   readonly integrityIssues: string[]
   readonly startedAt: string
+  materialsSha256: string
 }
 
 export interface VerificationCheckRegistryDeps {
@@ -113,6 +118,7 @@ export class VerificationCheckRegistry {
       runs: new Map(),
       integrityIssues: [],
       startedAt: this.deps.now(),
+      materialsSha256: '',
     })
     return {
       token,
@@ -131,7 +137,14 @@ export class VerificationCheckRegistry {
       runs: [...context.runs.values()],
       integrityIssues: [...context.integrityIssues],
       startedAt: context.startedAt,
+      materialsSha256: context.materialsSha256,
     }
+  }
+
+  /** 当前上下文冻结的材料摘要；供对照执行前核对。 */
+  materialsDigest(reqId: string, token: string): string | null {
+    const context = this.contexts.get(reqId)
+    return context?.token === token ? context.materialsSha256 : null
   }
 
   /** 工具入口：只执行当前方案中的 label；未登记上下文或方案外命令一律拒绝。 */
@@ -152,6 +165,20 @@ export class VerificationCheckRegistry {
     }
     const existing = context.runs.get(label)
     if (existing) return this.outcome(existing, context, true)
+    const materials = verificationMaterialDigest(context.activation.workspace)
+    if (context.materialsSha256 === '') {
+      context.materialsSha256 = materials
+    } else if (context.materialsSha256 !== materials) {
+      this.addIntegrityIssue(
+        context,
+        '验证材料在正向执行后发生变化；旧结果不能与新材料拼成通过证据',
+      )
+      return {
+        ok: false,
+        text: '验证材料在正向执行后发生变化；本次命令没有执行，验证将被阻断。',
+        data: { label, integrityIssues: [...context.integrityIssues] },
+      }
+    }
     if (context.activation.signal.aborted) {
       const aborted: VerificationCheckRecord = {
         label,
@@ -164,6 +191,7 @@ export class VerificationCheckRegistry {
         output: '验证命令未执行：收到停止请求',
         logPath: '',
         logSha256: '',
+        materialsSha256: context.materialsSha256,
       }
       context.runs.set(label, aborted)
       return this.outcome(aborted, context, false)
@@ -203,6 +231,7 @@ export class VerificationCheckRegistry {
         ...execution,
         logPath: test.logPath,
         logSha256: test.logSha256,
+        materialsSha256: context.materialsSha256,
       }
       context.runs.set(label, record)
       this.checkIntegrity(context)
@@ -326,6 +355,12 @@ export class VerificationCheckRegistry {
         text: `没有正在进行的验证：${reqId}。只有验证会话可以写入验证材料。`,
       }
     }
+    if (context.materialsSha256 !== '') {
+      return {
+        ok: false,
+        text: '验证材料已在正向执行时冻结；不能改写脚本或 fixture。请重新开始一次验证。',
+      }
+    }
     const relative = input.path.trim().replace(/^[/\\]+/, '')
     if (
       !relative.startsWith('verification/') ||
@@ -388,11 +423,14 @@ export class VerificationCheckRegistry {
    * 在隔离副本上执行敏感性对照；只读当前候选，正式工作区不被修改。
    * 未登记上下文时返回 null，由调用方按证据不足阻断。
    */
+  // 第 5 参数是冻结材料摘要，必须与 4 个既有身份参数一起原子传递。
+  // eslint-disable-next-line max-params
   async executeControls(
     reqId: string,
     token: string,
     commands: readonly { label: string; argv: readonly string[] }[],
     controls: readonly VerificationControlSpec[],
+    expectedMaterialsSha256?: string,
   ): Promise<Awaited<ReturnType<typeof executeVerificationControls>> | null> {
     const context = this.contexts.get(reqId)
     if (!context || context.token !== token) return null
@@ -402,6 +440,7 @@ export class VerificationCheckRegistry {
       commands,
       controls,
       dependencyRoot: context.activation.workspace,
+      ...(expectedMaterialsSha256 === undefined ? {} : { expectedMaterialsSha256 }),
       run: async ({ argv, cwd, logPath }) => {
         const test = await this.deps.formalTest({
           ctx: this.deps.ctx,

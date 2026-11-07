@@ -400,7 +400,15 @@ exports[`remaining prompt snapshots > keeps planning, review, dev, orchestration
     "required": true,
     "failing_before": true,
     "passing_after": true,
-    "evidence": "修复前失败与修复后通过的证据说明"
+    "evidence": "修复前失败与修复后通过的证据说明",
+    "failing_command": "红灯实际执行的命令 argv",
+    "baseline_identity": "修复前工作区/基线提交或 diff 身份",
+    "failing_exit_code": 1,
+    "failing_log": "红灯日志路径或可核对输出位置",
+    "passing_command": "绿灯实际执行的命令 argv",
+    "fixed_identity": "修复后工作区提交或 diff 身份",
+    "passing_exit_code": 0,
+    "passing_log": "绿灯日志路径或可核对输出位置"
   },
   "reason": "为什么选择 independent 或 self",
   "needs_clarification": {"question": "需要产品澄清的问题", "context": "已调查的事实与无法确认的原因"} 或 null

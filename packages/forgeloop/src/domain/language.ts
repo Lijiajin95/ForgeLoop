@@ -101,20 +101,53 @@ export const DEFAULT_ACTIVE_ROOTS = [
  * 任务文件必须落在活动工程的允许顶层目录内。
  * 传入 roots 时用它替换内置的 ForgeLoop 工程约定，供受控目标工程使用。
  */
+function normalizedRoot(root: string): string {
+  return root.replaceAll('\\', '/').replace(/\/+$/, '').trim()
+}
+
+/** 目录按路径边界匹配，文件按完整路径匹配；不能用 src 前缀吞掉 src2。 */
+export function insideActiveFile(file: string, roots?: readonly string[]): boolean {
+  const normalized = file.replaceAll('\\', '/')
+  const activeRoots =
+    roots && roots.length > 0
+      ? roots.map(normalizedRoot).filter(Boolean)
+      : DEFAULT_ACTIVE_ROOTS.map(normalizedRoot).filter(Boolean)
+  return activeRoots.some((root) => normalized === root || normalized.startsWith(`${root}/`))
+}
+
+/** 按实际变更文件检查活动工程范围；任务计划校验和提交前兜底共用同一规则。 */
+export function outsideActiveFiles(files: readonly string[], roots?: readonly string[]): string[] {
+  return files.filter((file) => !insideActiveFile(file, roots))
+}
+
+/** 从统一 diff 读取实际变更路径；用于在候选/提交通道上按 activeRoots 兜底。 */
+export function changedFilesFromDiff(diff: string): string[] {
+  const files = new Set<string>()
+  for (const line of diff.split('\n')) {
+    const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line)
+    if (match?.[2]) {
+      files.add(match[2])
+      continue
+    }
+    const plus = /^\+\+\+ b\/(.+)$/.exec(line)
+    if (plus?.[1] && plus[1] !== '/dev/null') files.add(plus[1])
+  }
+  return [...files]
+}
+
 export function outsideActiveSource(
   plan: TaskPlan,
   roots?: readonly string[],
 ): LanguageViolation[] {
-  const activeRoots = roots && roots.length > 0 ? [...roots] : [...DEFAULT_ACTIVE_ROOTS]
   const violations: LanguageViolation[] = []
   for (const task of plan.tasks) {
     for (const file of task.files) {
-      if (!activeRoots.some((root) => file === root || file.startsWith(root))) {
+      if (!insideActiveFile(file, roots)) {
         violations.push({
           taskId: task.taskId,
           field: 'files',
           value: file,
-          reason: `文件不在当前活动工程范围（${activeRoots.join('、')}）`,
+          reason: `文件不在当前活动工程范围（${(roots && roots.length > 0 ? roots : DEFAULT_ACTIVE_ROOTS).join('、')}）`,
         })
       }
     }

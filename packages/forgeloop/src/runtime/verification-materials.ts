@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { sha256OfBytes } from '../domain/delivery.js'
 import {
   parseVerificationCommands,
   parseVerificationReport,
@@ -43,4 +44,34 @@ export function parseVerificationMaterials(workspace: string):
   } catch (error) {
     return { ok: false, detail: `独立验证材料畸形（fail-closed）：${errorMessage(error)}` }
   }
+}
+
+/**
+ * 正向命令执行时的验证材料身份。冻结脚本/辅助文件内容，避免正向成功后替换脚本
+ * 再做对照，把“旧结果 + 新脚本”拼成通过证据。元数据与对照补丁不参与，因为它们在
+ * 对照阶段本来就会新增；脚本、fixture 等执行材料必须保持同一份。
+ */
+export function verificationMaterialDigest(workspace: string): string {
+  const root = join(workspace, 'verification')
+  if (!existsSync(root)) return ''
+  const parts: string[] = []
+  const walk = (relative: string): void => {
+    for (const entry of readdirSync(relative ? join(root, relative) : root, {
+      withFileTypes: true,
+    })) {
+      const path = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        if (path === 'controls') continue
+        walk(path)
+        continue
+      }
+      if (!entry.isFile()) continue
+      // 只冻结可执行脚本；JSON 元数据、对照补丁与日志由运行时管理。
+      if (!/\.(?:js|mjs|cjs|ts|sh|py|ps1|rb)$/i.test(path)) continue
+      parts.push(`${path}\0${sha256OfBytes(readFileSync(join(root, path)))}`)
+    }
+  }
+  walk('')
+  if (parts.length === 0) return ''
+  return sha256OfBytes(Buffer.from(parts.sort().join('\n')))
 }

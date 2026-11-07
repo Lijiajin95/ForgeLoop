@@ -321,6 +321,7 @@ function developFixture(options: DevFixtureOptions = {}): DevFixture {
   const workspace = join(dir, 'workspace')
   initRepo(workspace, options.workspaceFiles ?? { 'README.md': 'workspace\n' })
   const config = configFor(dir, project, {
+    activeRoots: ['src'],
     maxTaskAttempts: options.maxTaskAttempts ?? -1,
     formalTestTimeoutSeconds: options.formalTestTimeoutSeconds ?? -1,
     agent: { timeoutSeconds: -1, maxTurnSeconds: -1 },

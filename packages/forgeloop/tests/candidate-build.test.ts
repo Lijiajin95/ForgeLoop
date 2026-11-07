@@ -1369,7 +1369,7 @@ describe('candidate build and deployment checks', () => {
       code: 'business_review_required',
     })
     // 该用例串行跑十余次完整流水线，合并后慢机/覆盖率插桩下 15 秒仍不稳定。
-  }, 30_000)
+  }, 60_000)
 
   it('fails admitted deployment when the installed version or business evidence is wrong', async () => {
     const reqId = await admittedRequirement()

@@ -109,6 +109,7 @@ function buildVerification(prepareCommand: readonly string[] = []): LegacyVerifi
     checks: {
       activate: () => ({ token: 'token-1', release: () => undefined }),
       snapshot: () => snapshot,
+      materialsDigest: () => '',
       executeControls: async () => ({
         results: [
           {

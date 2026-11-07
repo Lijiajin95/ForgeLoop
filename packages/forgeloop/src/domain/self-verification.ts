@@ -17,6 +17,16 @@ export interface SelfVerificationRedGreen {
   readonly failingBefore: boolean
   readonly passingAfter: boolean
   readonly evidence: string
+  /** 红灯：修复前实际执行的命令、代码身份、退出码与日志。 */
+  readonly failingCommand: string
+  readonly baselineIdentity: string
+  readonly failingExitCode: number | null
+  readonly failingLog: string
+  /** 绿灯：修复后实际执行的命令、代码身份、退出码与日志。 */
+  readonly passingCommand: string
+  readonly fixedIdentity: string
+  readonly passingExitCode: number | null
+  readonly passingLog: string
 }
 
 export interface SelfVerificationReport {
@@ -64,6 +74,27 @@ function clarification(value: unknown): SelfVerificationReport['needsClarificati
   return { question, context }
 }
 
+function parseRedGreen(value: unknown): SelfVerificationRedGreen {
+  const red = asRecord(value) ?? {}
+  const text = (input: unknown): string => (typeof input === 'string' ? input.trim() : '')
+  const exitCode = (input: unknown): number | null =>
+    typeof input === 'number' && Number.isInteger(input) ? input : null
+  return {
+    required: boolean(red.required),
+    failingBefore: boolean(red.failing_before),
+    passingAfter: boolean(red.passing_after),
+    evidence: text(red.evidence),
+    failingCommand: text(red.failing_command ?? red.failingCommand),
+    baselineIdentity: text(red.baseline_identity ?? red.baselineIdentity),
+    failingExitCode: exitCode(red.failing_exit_code ?? red.failingExitCode),
+    failingLog: text(red.failing_log ?? red.failingLog),
+    passingCommand: text(red.passing_command ?? red.passingCommand),
+    fixedIdentity: text(red.fixed_identity ?? red.fixedIdentity),
+    passingExitCode: exitCode(red.passing_exit_code ?? red.passingExitCode),
+    passingLog: text(red.passing_log ?? red.passingLog),
+  }
+}
+
 /**
  * 解析研发 Agent 的最终 JSON。结构不合法返回 null，由运行时保守地按“需要独立验证”处理；
  * 不猜测缺失的 mode，也不把模型自由文本当自验证结论。
@@ -81,14 +112,7 @@ export function parseSelfVerificationReport(raw: string): SelfVerificationReport
   const risk = data.risk
   if (!isMode(mode)) return null
   if (risk !== undefined && !isRisk(risk)) return null
-  const red = asRecord(data.red_green) ?? {}
-  const evidence = typeof red.evidence === 'string' ? red.evidence.trim() : ''
-  const redGreen: SelfVerificationRedGreen = {
-    required: boolean(red.required),
-    failingBefore: boolean(red.failing_before),
-    passingAfter: boolean(red.passing_after),
-    evidence,
-  }
+  const redGreen = parseRedGreen(data.red_green)
   const needsClarification = clarification(data.needs_clarification)
   return {
     mode,
@@ -109,6 +133,24 @@ export function requiresRedGreen(input: {
   return input.inputKind === 'problem' || input.report.risk === 'high'
 }
 
+function redGreenProblems(report: SelfVerificationReport): string | null {
+  const red = report.redGreen
+  if (!red.failingBefore) return '缺少修复前目标行为失败证据'
+  if (!red.passingAfter) return '缺少修复后通过证据'
+  if (!red.evidence.trim()) return '红灯/绿灯缺少可核对证据说明'
+  if (!red.failingCommand || !red.baselineIdentity || !red.failingLog) {
+    return '红灯缺少真实命令、基线代码身份或日志'
+  }
+  if (red.failingExitCode === null || red.failingExitCode === 0) {
+    return '红灯必须记录非零退出码'
+  }
+  if (!red.passingCommand || !red.fixedIdentity || !red.passingLog) {
+    return '绿灯缺少真实命令、修复后代码身份或日志'
+  }
+  if (red.passingExitCode !== 0) return '绿灯必须记录退出码 0'
+  return null
+}
+
 /** BUG 修复或高风险改动的红灯/绿灯证据是否完整；低风险改动不强制。 */
 export function redGreenIssue(input: {
   readonly inputKind: 'requirement' | 'problem'
@@ -116,10 +158,7 @@ export function redGreenIssue(input: {
 }): string | null {
   if (!requiresRedGreen(input)) return null
   if (!input.report.redGreen.required) return 'BUG 修复或高风险改动必须声明红灯/绿灯要求'
-  if (!input.report.redGreen.failingBefore) return '缺少修复前目标行为失败证据'
-  if (!input.report.redGreen.passingAfter) return '缺少修复后通过证据'
-  if (!input.report.redGreen.evidence.trim()) return '红灯/绿灯缺少可核对证据说明'
-  return null
+  return redGreenProblems(input.report)
 }
 
 /** 自验证报告是否足以支撑“本次不需要独立验证”。 */
@@ -135,14 +174,34 @@ export function selfVerificationSufficient(input: {
     return { ok: false, reason: 'BUG 修复或高风险改动必须声明红灯/绿灯要求' }
   }
   if (input.report.redGreen.required) {
-    if (!input.report.redGreen.failingBefore) {
-      return { ok: false, reason: '缺少修复前失败证据' }
+    const problem = redGreenProblems(input.report)
+    if (problem) return { ok: false, reason: problem }
+  }
+  return { ok: true }
+}
+
+/** 整份候选的自验证结论：所有已交付任务都必须有 self 报告，缺一即转独立验证。 */
+export function candidateSelfVerification(input: {
+  readonly inputKind: 'requirement' | 'problem'
+  readonly reports: ReadonlyArray<{
+    readonly taskId: string
+    readonly report: SelfVerificationReport | null
+  }>
+}): { ok: true } | { ok: false; reason: string } {
+  if (input.reports.length === 0) return { ok: false, reason: '没有可核对的任务自验证报告' }
+  for (const item of input.reports) {
+    if (item.report === null) {
+      return { ok: false, reason: `任务 ${item.taskId} 缺少持久化自验证报告` }
     }
-    if (!input.report.redGreen.passingAfter) {
-      return { ok: false, reason: '缺少修复后通过证据' }
+    if (item.report.mode !== 'self') {
+      return { ok: false, reason: `任务 ${item.taskId} 选择独立验证` }
     }
-    if (!input.report.redGreen.evidence.trim()) {
-      return { ok: false, reason: '红灯/绿灯缺少可核对证据说明' }
+    const sufficient = selfVerificationSufficient({
+      inputKind: input.inputKind,
+      report: item.report,
+    })
+    if (!sufficient.ok) {
+      return { ok: false, reason: `任务 ${item.taskId} 自验证不足：${sufficient.reason}` }
     }
   }
   return { ok: true }

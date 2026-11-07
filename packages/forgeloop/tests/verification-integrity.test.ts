@@ -9,6 +9,7 @@ import {
   validateControlPatch,
 } from '../src/domain/verification-controls.js'
 import { executeVerificationControls } from '../src/runtime/verification-controls.js'
+import { verificationMaterialDigest } from '../src/runtime/verification-materials.js'
 import { Repository } from '../src/records/repository.js'
 import { Database } from '../src/records/db.js'
 import type { VerificationCheckRun } from '../src/domain/verification.js'
@@ -238,6 +239,32 @@ describe('controlled faulty copy', () => {
       }),
     })
     expect(outcome.issues.join('；')).toContain('不能证明它能发现错误行为')
+  })
+
+  it('rejects a control when verification material was replaced after the positive run', async () => {
+    const ws = workspace()
+    writeFileSync(join(ws, 'verification', 'runner.js'), 'positive ok', 'utf8')
+    const frozen = verificationMaterialDigest(ws)
+    // 模拟先成功、随后替换脚本：旧正向结果不能与新材料拼成敏感性证明。
+    writeFileSync(join(ws, 'verification', 'runner.js'), 'always exit 1', 'utf8')
+    const outcome = await executeVerificationControls({
+      workspace: ws,
+      dir: join(root, 'attempt-stale'),
+      commands: [{ label: 'check', argv: ['node', 'verification/runner.js'] }],
+      controls: [control],
+      expectedMaterialsSha256: frozen,
+      run: async () => ({
+        exitCode: 1,
+        timedOut: false,
+        aborted: false,
+        durationMs: 1,
+        output: 'target rule broken',
+        logPath: join(root, 'stale.log'),
+        logSha256: 'sha',
+      }),
+    })
+    expect(outcome.results).toEqual([])
+    expect(outcome.issues.join('；')).toContain('验证材料在正向执行后发生变化')
   })
 })
 
