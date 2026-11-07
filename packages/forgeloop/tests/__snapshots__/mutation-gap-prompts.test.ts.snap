@@ -69,6 +69,15 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
       "needs_confirmation": true
     }
   ],
+  "conflicts": [
+    {
+      "existing_req_id": "已有承诺所在的需求身份，必须来自上面的项目事实",
+      "commitment": "已有承诺的原文或摘要",
+      "conflict": "这次输入与哪个承诺冲突、为什么不能同时满足",
+      "options": ["至少两种可比较的取舍，例如保留旧承诺 / 采用新要求并放弃什么"],
+      "decision_needed": "需要所有者决定什么"
+    }
+  ],
   "clarifications": ["本轮新发现的、确实阻塞实施的待澄清问题；没有就留空数组；问题输入必须为空"],
   "clarification_updates": [
     {
@@ -87,13 +96,14 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
 
 规则：
 - 先分诊再分析：input_kind 只能是 requirement 或 problem。输入提出新的业务能力、业务规则或流程变化时是 requirement；输入描述已经发生或可观察的缺陷、报错、行为与预期不符，只需要修好时是 problem。判断不定时按 requirement，交给产品澄清。
-- 问题输入：goal 写现象与影响，scenarios 写现象与复现要点（可留空），acceptance_criteria 仍用字符串数组写可检查的修复判据（至少一条）；business_points / assumptions 必须为空数组；business_rules / exceptions / non_goals 只写问题本身必须成立的约束；clarifications 与 clarification_updates 必须为空——问题不做产品侧澄清，程序会直接交研发定位根因并做最小修复。
+- 问题输入：goal 写现象与影响，scenarios 写现象与复现要点（可留空），acceptance_criteria 仍用字符串数组写可检查的修复判据（至少一条，必须写清前提、操作与可观察结果，不接受空白或“正常/修好”这类占位）；business_points / assumptions / conflicts 必须为空数组；business_rules / exceptions / non_goals 只写问题本身必须成立的约束；clarifications 与 clarification_updates 必须为空——问题不做产品侧澄清，程序会直接交研发定位根因并做最小修复。
 - 需求输入：按下面的规则做需求分析，并把需要所有者回答的问题放进 clarifications。
 - 处理已有澄清：上面“已记录的澄清问答”列出问题原文、回答与处理结果。每个仍未解决的问题必须在 clarification_updates 中逐项出现，不能遗漏、不能编造编号；已回答或已解决的问题不得在无新证据时重新提问、改写或推翻。回答只覆盖部分问题时，未覆盖的问题保持 open 并写明 reason；不得因为只回答了一部分就丢掉其余问题。
 - clarifications 只写本轮新发现的问题；不要重复把 clarification_updates 中仍为 open 的旧问题抄进 clarifications。
 - 需求输入必须给出 business_points 与 acceptance_criteria：每个要点写清谁在什么条件下做什么、预期业务行为、关联规则与异常边界；每个要点至少被一个验收项通过 point_ids 引用。简单需求可以只有一个要点，不要为凑字段复制目标或编造规则；没有内容时用空数组/空字符串，不要写无意义占位。
 - 业务要点是业务粒度，不是文件清单、实现步骤或研发任务；不要输出要改哪个文件、用什么库或怎么做。
-- 依据必须可回查：user_requirement 引用需求原文；project_convention 给出项目文档路径（如 docs/xxx.md）；external_material 给出资料地址。外部资料不能自动当成用户要求，模型推断只能写进 assumptions，不能写成业务要点或已确认规则。
+- 依据必须可回查：user_requirement 的 source 必须逐字引用当前需求版本中的用户原文（可带“需求原文：”前缀，但不要改写）；project_convention 的 source 必须是项目中真实存在的 Markdown 文档路径（如 docs/xxx.md，可带 #小节）；external_material 的 source 必须是 http(s) 地址。外部资料不能自动当成用户要求，模型推断只能写进 assumptions，不能写成业务要点或已确认规则。
+- 冲突处理：只有当这次输入与项目事实中的已有承诺无法同时满足时，才写 conflicts；existing_req_id 必须是项目事实里真实存在的其他需求，options 至少两种取舍，decision_needed 写清要所有者决定什么。没有真实冲突就留空数组，不要为了显得严谨编造冲突。
 - 异常与边界必须写明状态：assessed 表示已经评估并列出条目；not_applicable 表示评估后确认不适用并给出理由；unanalyzed 表示尚未分析，必须在 clarifications 里提出对应问题。没有待澄清项时不允许留下 unanalyzed。
 - needs_confirmation=true 的假设必须在 clarifications 或仍然 open 的问题中请求确认；没有待澄清项时所有假设都应为 false，不能带着未确认假设进入研发。
 - 验收项必须使用 given/when/then：前置条件或输入、操作、可观察结果。“优化体验”“用户使用系统”“功能正常”不能单独作为充分验收；要说明谁在什么条件下做什么、看到什么结果。

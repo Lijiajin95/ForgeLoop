@@ -146,3 +146,37 @@ export function structuredVerificationOf(value: Json): string {
 export function structuredReviewOf(value: Json): string {
   return withStructuredBusinessReview(JSON.stringify(value))
 }
+
+/** 从分析提示词里取回当前需求版本原文，供测试夹具按真实用户原文引用依据。 */
+function requirementTextFromPrompt(prompt: string): string {
+  const marker = /### 版本 (\d+)（[^）]*）\n/g
+  let last = -1
+  let match: RegExpExecArray | null
+  while ((match = marker.exec(prompt)) !== null) last = match.index
+  if (last < 0) return ''
+  const after = prompt.slice(last)
+  const start = after.indexOf('\n') + 1
+  const end = after.indexOf('\n\n', start)
+  const text = end >= 0 ? after.slice(start, end) : after.slice(start)
+  return text.trim()
+}
+
+/**
+ * 把测试夹具产出的分析改成“依据引用真实用户原文”：生产校验要求 user_requirement
+ * 的 source 能在需求版本中逐字核对，夹具按提示词里的当前版本原文填 source。
+ */
+export function withPromptRequirementSource(prompt: string, raw: string): string {
+  const data = parse(raw)
+  if (!data) return raw
+  const text = requirementTextFromPrompt(prompt)
+  const points = Array.isArray(data.business_points) ? data.business_points : []
+  if (!text || points.length === 0) return raw
+  return JSON.stringify({
+    ...data,
+    business_points: points.map((point) =>
+      typeof point === 'object' && point !== null && !Array.isArray(point)
+        ? { ...(point as Json), source: text }
+        : point,
+    ),
+  })
+}

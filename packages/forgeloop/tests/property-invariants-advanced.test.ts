@@ -136,6 +136,7 @@ describe('advanced property invariants', () => {
           businessPoints: [],
           acceptanceItems: [],
           assumptions: [],
+          conflicts: [],
           clarifications: [],
           clarificationUpdates: [],
           businessContext: input.business_context,

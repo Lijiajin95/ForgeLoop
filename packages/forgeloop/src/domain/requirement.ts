@@ -10,7 +10,7 @@ import { asRecord } from './json.js'
 import { MalformedError, RuleViolationError, errorMessage } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
 import type { ClarificationUpdate } from './analysis.js'
-import type { AcceptanceCriterion, Assumption, BusinessPoint } from './spec.js'
+import type { AcceptanceCriterion, Assumption, BusinessPoint, CommitmentConflict } from './spec.js'
 import { parseSpecFields } from './spec.js'
 
 export interface RequirementVersion {
@@ -84,6 +84,8 @@ export interface RequirementAnalysis {
   readonly acceptanceItems?: readonly AcceptanceCriterion[]
   /** 尚未验证的推断或外部假设；不是已确认业务规则。 */
   readonly assumptions?: readonly Assumption[]
+  /** 与已有承诺的冲突；非空时暂停系统准入，等待所有者决定取舍。 */
+  readonly conflicts?: readonly CommitmentConflict[]
   readonly clarifications: readonly string[]
   /** 产生该结论的模型与提示词版本；历史记录可能为空。 */
   readonly model?: string
@@ -113,6 +115,7 @@ export interface AnalysisDraft {
   readonly businessPoints: readonly BusinessPoint[]
   readonly acceptanceItems: readonly AcceptanceCriterion[]
   readonly assumptions: readonly Assumption[]
+  readonly conflicts: readonly CommitmentConflict[]
   readonly clarifications: readonly string[]
   /** 本轮对上一轮未解决问题的逐项处置；首次分析为空。 */
   readonly clarificationUpdates: readonly ClarificationUpdate[]
@@ -308,6 +311,7 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
     businessPoints: spec.points,
     acceptanceItems: spec.acceptance,
     assumptions: spec.assumptions,
+    conflicts: spec.conflicts,
     clarifications,
     clarificationUpdates,
     businessContext,

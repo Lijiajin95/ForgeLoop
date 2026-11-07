@@ -10,7 +10,7 @@ import type { PlannedTask, TaskPlan } from '../src/domain/task-plan.js'
 import type { TaskArtifact } from '../src/domain/work.js'
 import type { OperationResult } from '../src/runtime/operation-result.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
-import { structuredSpecOf } from './spec-fixture.js'
+import { structuredSpecOf, withPromptRequirementSource } from './spec-fixture.js'
 
 /**
  * service.ts 的公共入口行为：只通过 ForgeLoopRuntime 的公开方法观察结果，
@@ -30,7 +30,7 @@ const runner: AgentLike = {
     if (!reply) throw new Error('测试没有排队的 Agent 响应')
     return {
       status: reply.status,
-      text: reply.text,
+      text: withPromptRequirementSource(request.prompt, reply.text),
       sessionId: 'session-test',
       reason: reply.reason,
       transcriptPath: request.transcriptPath,

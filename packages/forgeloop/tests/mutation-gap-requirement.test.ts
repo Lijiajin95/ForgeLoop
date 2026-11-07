@@ -123,6 +123,7 @@ describe('analysis draft parsing', () => {
       businessPoints: [],
       acceptanceItems: [],
       assumptions: [],
+      conflicts: [],
       clarifications: [],
       clarificationUpdates: [],
       businessContext: { changed: false, document: '', reason: '' },

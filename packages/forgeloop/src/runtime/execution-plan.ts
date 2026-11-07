@@ -16,7 +16,7 @@ import {
   type ClarificationQuestion,
   type ClarificationUpdate,
 } from '../domain/analysis.js'
-import { readProjectDoc, writeProjectDoc } from './project-docs.js'
+import { projectDocExists, readProjectDoc, writeProjectDoc } from './project-docs.js'
 import { sha256OfText } from '../domain/delivery.js'
 import {
   languageRulesFor,
@@ -221,10 +221,17 @@ export class ExecutionPlan {
           points: draft.businessPoints,
           acceptance: draft.acceptanceItems,
           assumptions: draft.assumptions,
+          conflicts: draft.conflicts,
         },
         complete: openAfter.length === 0,
         inputKind: draft.inputKind,
         previous: previousAnalysis ? analysisSpecOf(previousAnalysis) : null,
+        requirementTexts: requirement.versions.map((version) => version.text),
+        projectDocExists: (relative) => projectDocExists(this.deps.config.projectPath, relative),
+        knownRequirementIds: this.deps.repo
+          .listRequirements(this.deps.config.project)
+          .map((item) => item.reqId),
+        currentReqId: reqId,
       })
     } catch (error) {
       return this.failAnalysis(recorded, errorMessage(error))
@@ -243,6 +250,7 @@ export class ExecutionPlan {
       businessPoints: draft.businessPoints,
       acceptanceItems: draft.acceptanceItems,
       assumptions: draft.assumptions,
+      conflicts: draft.conflicts,
       clarifications: openAfter,
       model: recorded.model,
       promptVersion: recorded.promptVersion,
@@ -368,6 +376,14 @@ export class ExecutionPlan {
         appliedAt: this.deps.now(),
       })
     }
+    const conflict = this.conflictPause(analysis)
+    if (conflict) {
+      this.deps.repo.setStatus(reqId, 'blocked', conflict)
+      return {
+        state: 'done',
+        detail: `分析 v${analysis.analysisVersion} 完成；${conflict}；等待所有者决定后修订需求`,
+      }
+    }
     this.deps.repo.setStatus(reqId, statusForAnalysis(analysis), '')
     const trusted =
       this.deps.config.autonomy.enabled &&
@@ -401,6 +417,15 @@ export class ExecutionPlan {
     } catch (error) {
       throw new MalformedError(`分析结果畸形：${errorMessage(error)}`)
     }
+  }
+
+  /** 冲突需要所有者决定取舍：暂停准入并保留完整材料，不降级为普通失败。 */
+  private conflictPause(analysis: RequirementAnalysis & { reqId: string }): string {
+    const count = analysis.conflicts?.length ?? 0
+    if (count === 0) return ''
+    const admission = this.deps.admitRequirement(analysis.reqId)
+    if (admission.ok && !admission.admitted) return admission.decision.reason
+    return `与已有 ${count} 处承诺冲突，需要所有者决定取舍`
   }
 
   /**

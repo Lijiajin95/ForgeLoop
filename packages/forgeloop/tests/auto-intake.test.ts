@@ -18,6 +18,7 @@ import {
   structuredPlanOf,
   structuredVerificationOf,
   structuredReviewOf,
+  withPromptRequirementSource,
 } from './spec-fixture.js'
 
 const SCENARIO = '需求功能可用'
@@ -169,7 +170,8 @@ function fakeRunner(): AgentLike {
   })
   return {
     async run(request: AgentRunRequest) {
-      if (request.role === 'product') return result(request, ANALYSIS)
+      if (request.role === 'product')
+        return result(request, withPromptRequirementSource(request.prompt, ANALYSIS))
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         return result(request, PLAN)
       }

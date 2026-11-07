@@ -752,6 +752,9 @@ window.__ModuleLoader__.load({
       'detail.specRemoved': '移除',
       'detail.specResolved': '已解决澄清',
       'detail.specOpen': '仍待澄清',
+      'detail.specConflicts': '与已有承诺的冲突（需要决定取舍）',
+      'detail.specOptions': '可选择的取舍',
+      'detail.specDecision': '需要决定',
       'detail.specNewQuestions': '新待澄清',
       'detail.specAssumption': '假设',
       'detail.specNeedsConfirm': '待确认',
@@ -1317,6 +1320,9 @@ window.__ModuleLoader__.load({
       'detail.specRemoved': 'Removed',
       'detail.specResolved': 'Resolved clarifications',
       'detail.specOpen': 'Still open',
+      'detail.specConflicts': 'Conflicts with existing commitments (decision needed)',
+      'detail.specOptions': 'Options',
+      'detail.specDecision': 'Decision needed',
       'detail.specNewQuestions': 'New clarifications',
       'detail.specAssumption': 'Assumption',
       'detail.specNeedsConfirm': 'Needs confirmation',
@@ -3046,6 +3052,30 @@ window.__ModuleLoader__.load({
             ? `${t('detail.nonGoals')}：${analysis.nonGoals.join('；')}`
             : '—',
         ),
+        analysis.conflicts && analysis.conflicts.length > 0
+          ? h(
+              'div',
+              { className: 'flb-block-warn', key: 'conflicts' },
+              h('div', { className: 'flb-label' }, t('detail.specConflicts')),
+              ...analysis.conflicts.map((conflict) =>
+                h(
+                  'div',
+                  { key: `${conflict.existingReqId}-${conflict.conflict}` },
+                  `${conflict.existingReqId}：${conflict.commitment} ↔ ${conflict.conflict}`,
+                  h(
+                    'div',
+                    { className: 'flb-muted' },
+                    `${t('detail.specOptions')}：${(conflict.options || []).join(' / ')}`,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-muted' },
+                    `${t('detail.specDecision')}：${conflict.decisionNeeded}`,
+                  ),
+                ),
+              ),
+            )
+          : null,
         analysis.clarifications && analysis.clarifications.length > 0
           ? h(
               'div',

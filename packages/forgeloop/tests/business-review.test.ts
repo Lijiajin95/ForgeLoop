@@ -11,6 +11,7 @@ import {
   structuredPlanOf,
   structuredVerificationOf,
   structuredReviewOf,
+  withPromptRequirementSource,
 } from './spec-fixture.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
 import { sha256OfText } from '../src/domain/delivery.js'
@@ -156,7 +157,8 @@ function fakeRunner(
 ): AgentLike {
   return {
     async run(request) {
-      if (request.role === 'product') return result(request, ANALYSIS)
+      if (request.role === 'product')
+        return result(request, withPromptRequirementSource(request.prompt, ANALYSIS))
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
         return result(request, PLAN)
       if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))

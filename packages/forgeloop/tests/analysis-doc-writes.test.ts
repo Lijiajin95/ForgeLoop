@@ -15,7 +15,7 @@ import { resolveConfig } from '../src/config.js'
 import { BUSINESS_CONTEXT_DOC } from '../src/domain/analysis.js'
 import { readProjectDoc, writeProjectDoc } from '../src/runtime/project-docs.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
-import { structuredSpecOf } from './spec-fixture.js'
+import { structuredSpecOf, withPromptRequirementSource } from './spec-fixture.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -33,7 +33,7 @@ function makeRuntime(root: string, text: string): ForgeLoopRuntime {
     async run(request: AgentRunRequest): Promise<AgentRunResult> {
       return {
         status: 'completed',
-        text,
+        text: withPromptRequirementSource(request.prompt, text),
         sessionId: 'session-product',
         reason: '',
         transcriptPath: request.transcriptPath,

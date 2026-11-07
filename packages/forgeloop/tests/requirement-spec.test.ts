@@ -177,6 +177,7 @@ describe('deterministic spec validation', () => {
         spec: specOf(),
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).not.toThrow()
     expect(() =>
@@ -184,6 +185,7 @@ describe('deterministic spec validation', () => {
         spec: specOf({ acceptanceCriteria: [], acceptanceItems: [] }),
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).toThrow('没有对应的可观察验收项')
   })
@@ -196,6 +198,7 @@ describe('deterministic spec validation', () => {
         spec: { ...base, points: [base.points[0]!, base.points[0]!] },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).toThrow('编号不能重复')
     expect(() =>
@@ -206,6 +209,7 @@ describe('deterministic spec validation', () => {
         },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).toThrow('引用了不存在的业务要点')
     expect(() =>
@@ -213,6 +217,7 @@ describe('deterministic spec validation', () => {
         spec: { ...base, points: [{ ...base.points[0]!, id: 'X-1' }] },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).toThrow('编号必须形如')
     expect(draft.businessPoints).toHaveLength(1)
@@ -225,7 +230,13 @@ describe('deterministic spec validation', () => {
       points: [...previous.points, { ...previous.points[0]!, id: 'BP-1' }],
     }
     expect(() =>
-      validateSpec({ spec: next, complete: true, inputKind: 'requirement', previous }),
+      validateSpec({
+        spec: next,
+        complete: true,
+        inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
+        previous,
+      }),
     ).toThrow('编号不能重复')
     expect(() =>
       validateSpec({
@@ -239,6 +250,7 @@ describe('deterministic spec validation', () => {
         },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
         previous,
       }),
     ).not.toThrow()
@@ -254,6 +266,7 @@ describe('deterministic spec validation', () => {
         },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
         previous: {
           ...previous,
           assumptions: [
@@ -286,6 +299,7 @@ describe('deterministic spec validation', () => {
         },
         complete: false,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).not.toThrow()
     expect(() =>
@@ -301,6 +315,7 @@ describe('deterministic spec validation', () => {
         },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).toThrow('异常与边界尚未分析')
     expect(() =>
@@ -320,6 +335,7 @@ describe('deterministic spec validation', () => {
         },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).toThrow('仍需所有者确认')
   })
@@ -334,6 +350,7 @@ describe('deterministic spec validation', () => {
         },
         complete: true,
         inputKind: 'requirement',
+        requirementTexts: ['门店按状态处理订单'],
       }),
     ).toThrow('必须给出项目文档路径')
   })

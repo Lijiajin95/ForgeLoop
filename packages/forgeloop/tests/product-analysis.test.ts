@@ -18,7 +18,7 @@ import {
 } from '../src/domain/analysis.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import { SessionIntake } from '../src/session/intake.js'
-import { structuredSpecOf } from './spec-fixture.js'
+import { structuredSpecOf, withPromptRequirementSource } from './spec-fixture.js'
 
 const SOURCE = 'dsh-session:sess-1:msg-1'
 const BUSINESS = '# 业务背景\n\n行业：本地生活服务；业务目标：门店订单处理。\n'
@@ -107,7 +107,7 @@ function runner(): AgentLike {
       requests.push(request)
       return {
         status: next.status,
-        text: next.text,
+        text: withPromptRequirementSource(request.prompt, next.text),
         sessionId: 'session-fake-product',
         reason: next.reason,
         transcriptPath: request.transcriptPath,

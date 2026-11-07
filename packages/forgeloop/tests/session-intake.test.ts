@@ -9,7 +9,7 @@ import { installSessionSurface } from '../src/session/index.js'
 import { appendSessionEvent } from '../src/session/events.js'
 import { presetRegistryOf, registerForgeLoopPreset } from '../src/session/preset.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
-import { structuredSpecOf, structuredPlanOf } from './spec-fixture.js'
+import { structuredSpecOf, structuredPlanOf, withPromptRequirementSource } from './spec-fixture.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -103,7 +103,7 @@ function runtimeWithQueue(
       }
       return {
         status,
-        text,
+        text: withPromptRequirementSource(request.prompt, text),
         sessionId: 'session-requirement-agent',
         reason: status === 'completed' ? '' : 'fake failure',
         transcriptPath: request.transcriptPath,

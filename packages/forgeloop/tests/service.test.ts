@@ -13,6 +13,7 @@ import {
   structuredPlanOf,
   structuredVerificationOf,
   structuredReviewOf,
+  withPromptRequirementSource,
 } from './spec-fixture.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
 
@@ -123,7 +124,7 @@ function fakeRunner(
     async run(request) {
       if (request.role === 'product') {
         overrides.onAnalyze?.(request, request.prompt)
-        return result(request, ANALYSIS)
+        return result(request, withPromptRequirementSource(request.prompt, ANALYSIS))
       }
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解')) {
         overrides.onPlan?.(request, request.prompt)

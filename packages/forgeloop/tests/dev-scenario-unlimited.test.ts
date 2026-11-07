@@ -15,6 +15,7 @@ import {
 import { COMMITTED } from '../src/domain/status.js'
 import {
   structuredSpecOf,
+  withPromptRequirementSource,
   structuredPlanOf,
   structuredVerificationOf,
   structuredReviewOf,
@@ -265,7 +266,8 @@ function otherRoles(runtimeOf: () => ForgeLoopRuntime): AgentLike {
   }
   return {
     async run(request: AgentRunRequest) {
-      if (request.role === 'product') return reply(request, ANALYSIS)
+      if (request.role === 'product')
+        return reply(request, withPromptRequirementSource(request.prompt, ANALYSIS))
       if (request.role === 'orchestrator') {
         return reply(request, JSON.stringify({ session_id: null, reason: 'test route' }))
       }

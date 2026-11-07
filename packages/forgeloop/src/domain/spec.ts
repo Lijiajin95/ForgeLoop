@@ -64,10 +64,22 @@ export interface Assumption {
   readonly needsConfirmation: boolean
 }
 
+/** 与已有承诺的冲突：必须指明是哪条需求、冲突点、可选择的取舍以及需要决定什么。 */
+export interface CommitmentConflict {
+  /** 已有承诺所在需求，必须是项目中真实存在的其他需求。 */
+  readonly existingReqId: string
+  readonly commitment: string
+  readonly conflict: string
+  /** 至少两种可比较的取舍，交给所有者决定。 */
+  readonly options: readonly string[]
+  readonly decisionNeeded: string
+}
+
 export interface AnalysisSpec {
   readonly points: readonly BusinessPoint[]
   readonly acceptance: readonly AcceptanceCriterion[]
   readonly assumptions: readonly Assumption[]
+  readonly conflicts: readonly CommitmentConflict[]
 }
 
 /** 只需规格字段的分析投影；避免 domain/requirement 与 domain/spec 形成循环依赖。 */
@@ -75,6 +87,7 @@ export interface SpecBearingAnalysis {
   readonly businessPoints?: readonly BusinessPoint[] | undefined
   readonly acceptanceItems?: readonly AcceptanceCriterion[] | undefined
   readonly assumptions?: readonly Assumption[] | undefined
+  readonly conflicts?: readonly CommitmentConflict[] | undefined
   readonly clarifications?: readonly string[] | undefined
 }
 
@@ -211,7 +224,11 @@ function parseAcceptanceField(
     if (points.length > 0) {
       throw new MalformedError('给出业务要点时 acceptance_criteria 必须使用带编号的对象')
     }
-    return { acceptance: [], acceptanceCriteria: strings.map((item) => item.trim()) }
+    const criteria = strings.map((item) => item.trim())
+    if (criteria.some((item) => !item)) {
+      throw new MalformedError('分析字段 acceptance_criteria 只能包含非空字符串')
+    }
+    return { acceptance: [], acceptanceCriteria: criteria }
   }
   if (strings.length > 0) {
     throw new MalformedError('分析字段 acceptance_criteria 不能混用字符串与对象')
@@ -219,6 +236,32 @@ function parseAcceptanceField(
   const acceptance = items.map((item, index) => parseAcceptance(item, index))
   // 顶层字符串保持纯可观察结果，供旧看板/文本覆盖使用；编号与 given/when 在结构化项中。
   return { acceptance, acceptanceCriteria: acceptance.map((item) => item.then) }
+}
+
+function parseConflicts(raw: unknown): CommitmentConflict[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 conflicts 必须是数组')
+  return raw.map((item, index) => {
+    const field = `conflicts[${index}]`
+    const data = objectAt(item, field)
+    const options = stringList(data.options, `${field}.options`)
+    if (options.length < 2) {
+      throw new MalformedError(`${field}.options 必须给出至少两种可比较的取舍`)
+    }
+    return {
+      existingReqId: nonEmpty(
+        data.existing_req_id ?? data.existingReqId,
+        `${field}.existing_req_id`,
+      ),
+      commitment: nonEmpty(data.commitment, `${field}.commitment`),
+      conflict: nonEmpty(data.conflict, `${field}.conflict`),
+      options,
+      decisionNeeded: nonEmpty(
+        data.decision_needed ?? data.decisionNeeded,
+        `${field}.decision_needed`,
+      ),
+    } satisfies CommitmentConflict
+  })
 }
 
 export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields {
@@ -233,7 +276,8 @@ export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields
     throw new MalformedError('分析字段 assumptions 必须是数组')
   }
   const assumptions = (rawAssumptions ?? []).map((item, index) => parseAssumption(item, index))
-  return { points, acceptance, assumptions, acceptanceCriteria }
+  const conflicts = parseConflicts(data.conflicts)
+  return { points, acceptance, assumptions, conflicts, acceptanceCriteria }
 }
 
 function maxId(items: readonly { id: string }[], pattern: RegExp, label: string): number {
@@ -279,6 +323,45 @@ export interface SpecValidationInput {
   readonly complete: boolean
   readonly inputKind: 'requirement' | 'problem'
   readonly previous?: AnalysisSpec | null | undefined
+  /** 当前需求的全部版本原文；用户要求类依据必须能在其中逐字核对。 */
+  readonly requirementTexts?: readonly string[] | undefined
+  /** 项目内 Markdown 文档是否存在；用于核对项目约定依据。 */
+  readonly projectDocExists?: ((relative: string) => boolean) | undefined
+  /** 项目内已存在的需求身份；冲突引用必须指向真实存在的其他需求。 */
+  readonly knownRequirementIds?: readonly string[] | undefined
+  readonly currentReqId?: string | undefined
+}
+
+/** 去掉引号、来源前缀与空白后比较，保留字词与标点本身。 */
+function normalizeQuote(text: string): string {
+  return text
+    .replace(/^\s*(?:需求原文|用户原文|用户要求)\s*[：:]\s*/u, '')
+    .replace(/^[「『“"']|[」』”"']$/gu, '')
+    .replace(/\s+/gu, '')
+}
+
+function validatePointSource(point: BusinessPoint, input: SpecValidationInput): void {
+  const source = point.source.trim()
+  if (point.basis === 'user_requirement') {
+    const texts = (input.requirementTexts ?? []).map(normalizeQuote)
+    const quote = normalizeQuote(source)
+    if (quote.length < 2 || !texts.some((text) => text.includes(quote))) {
+      throw new MalformedError(
+        `业务要点 ${point.id} 的用户原文依据无法在需求版本中逐字核对：${source}`,
+      )
+    }
+    return
+  }
+  if (point.basis === 'project_convention') {
+    const relative = source.split('#')[0]?.trim() ?? ''
+    if (!relative || !input.projectDocExists?.(relative)) {
+      throw new MalformedError(`业务要点 ${point.id} 引用的项目约定文档不存在或不可读：${source}`)
+    }
+    return
+  }
+  if (!/^https?:\/\/\S+$/u.test(source)) {
+    throw new MalformedError(`业务要点 ${point.id} 的外部资料必须是 http(s) 地址：${source}`)
+  }
 }
 
 /**
@@ -347,14 +430,33 @@ function validateComplete(spec: AnalysisSpec): void {
 export function validateSpec(input: SpecValidationInput): void {
   const { spec, complete, inputKind, previous } = input
   if (inputKind === 'problem') {
-    if (spec.points.length > 0 || spec.acceptance.length > 0 || spec.assumptions.length > 0) {
+    if (
+      spec.points.length > 0 ||
+      spec.acceptance.length > 0 ||
+      spec.assumptions.length > 0 ||
+      spec.conflicts.length > 0
+    ) {
       throw new MalformedError('问题输入不做业务要点拆解；只给现象与可检查的修复判据')
     }
     return
   }
   validateIds(spec, previous)
   validateReferences(spec)
+  for (const point of spec.points) validatePointSource(point, input)
+  validateConflicts(spec, input)
   if (complete) validateComplete(spec)
+}
+
+/** 冲突必须引用真实存在的其他需求，并给出可比较的取舍。 */
+function validateConflicts(spec: AnalysisSpec, input: SpecValidationInput): void {
+  const known = new Set(input.knownRequirementIds ?? [])
+  for (const conflict of spec.conflicts) {
+    if (conflict.existingReqId === input.currentReqId || !known.has(conflict.existingReqId)) {
+      throw new MalformedError(
+        `冲突引用 ${conflict.existingReqId} 不是项目中已存在的其他需求；不能据此暂停准入`,
+      )
+    }
+  }
 }
 
 export function analysisSpecOf(analysis: SpecBearingAnalysis): AnalysisSpec {
@@ -362,6 +464,7 @@ export function analysisSpecOf(analysis: SpecBearingAnalysis): AnalysisSpec {
     points: analysis.businessPoints ?? [],
     acceptance: analysis.acceptanceItems ?? [],
     assumptions: analysis.assumptions ?? [],
+    conflicts: analysis.conflicts ?? [],
   }
 }
 

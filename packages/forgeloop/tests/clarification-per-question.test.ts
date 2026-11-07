@@ -6,7 +6,7 @@ import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { SessionIntake } from '../src/session/intake.js'
 import { resolveConfig } from '../src/config.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
-import { structuredSpecOf } from './spec-fixture.js'
+import { structuredSpecOf, withPromptRequirementSource } from './spec-fixture.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -89,7 +89,7 @@ function makeHarness(responses: readonly string[]): Harness {
       if (text === undefined) throw new Error('测试响应已用尽')
       return {
         status: 'completed',
-        text,
+        text: withPromptRequirementSource(request.prompt, text),
         sessionId: 'session-product',
         reason: '',
         transcriptPath: request.transcriptPath,

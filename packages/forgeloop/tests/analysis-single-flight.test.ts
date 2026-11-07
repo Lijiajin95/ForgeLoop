@@ -6,7 +6,7 @@ import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import { BUSINESS_CONTEXT_DOC } from '../src/domain/analysis.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
-import { structuredSpecOf } from './spec-fixture.js'
+import { structuredSpecOf, withPromptRequirementSource } from './spec-fixture.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -40,7 +40,7 @@ function controlledRunner(pending: Pending[]): AgentLike {
           resolve: (text: string) =>
             resolve({
               status: 'completed',
-              text,
+              text: withPromptRequirementSource(request.prompt, text),
               sessionId: 'session-product-test',
               reason: '',
               transcriptPath: request.transcriptPath,

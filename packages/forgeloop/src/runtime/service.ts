@@ -44,7 +44,11 @@ import {
   isTerminal,
 } from '../domain/status.js'
 import { AGENT_PRODUCT, AGENT_VERIFY } from '../domain/agents.js'
-import { decideAdmission, type AdmissionDecision } from '../domain/admission.js'
+import {
+  buildAdmissionFacts,
+  decideAdmission,
+  type AdmissionDecision,
+} from '../domain/admission.js'
 import {
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
@@ -1078,7 +1082,7 @@ ${answer}`
     if (!requirement) return { ok: false, message: `未找到需求 ${reqId}` }
     const analysis = this.repo.latestAnalysis(reqId)
     const decision = decideAdmission(
-      {
+      buildAdmissionFacts({
         requirementStatus: requirement.status,
         requirementVersion: requirement.versions.length,
         project: this.config.project,
@@ -1086,10 +1090,8 @@ ${answer}`
         source: requirement.source,
         submittedBy: requirement.submittedBy,
         owner: this.config.owner,
-        analysisVersion: analysis?.analysisVersion ?? null,
-        analysisRequirementVersion: analysis?.requirementVersion ?? null,
-        clarifications: analysis?.clarifications.length ?? 0,
-      },
+        analysis,
+      }),
       this.config.autonomy,
     )
     const latest = this.repo.latestAdmission(reqId, requirement.versions.length)

@@ -101,8 +101,14 @@ export class AnalysisStore {
       points: analysis.businessPoints ?? [],
       acceptance: analysis.acceptanceItems ?? [],
       assumptions: analysis.assumptions ?? [],
+      conflicts: analysis.conflicts ?? [],
     }
-    if (spec.points.length === 0 && spec.acceptance.length === 0 && spec.assumptions.length === 0) {
+    if (
+      spec.points.length === 0 &&
+      spec.acceptance.length === 0 &&
+      spec.assumptions.length === 0 &&
+      spec.conflicts.length === 0
+    ) {
       return
     }
     this.db
@@ -131,6 +137,13 @@ export class AnalysisStore {
             impact: item.impact,
             needs_confirmation: item.needsConfirmation,
           })),
+          conflicts: spec.conflicts.map((item) => ({
+            existing_req_id: item.existingReqId,
+            commitment: item.commitment,
+            conflict: item.conflict,
+            options: item.options,
+            decision_needed: item.decisionNeeded,
+          })),
         }),
       )
   }
@@ -147,6 +160,7 @@ export class AnalysisStore {
           points: parsed.points,
           acceptance: parsed.acceptance,
           assumptions: parsed.assumptions,
+          conflicts: parsed.conflicts,
         }
         return [num(row, 'analysis_version'), spec]
       }),
@@ -188,6 +202,7 @@ export class AnalysisStore {
               businessPoints: spec.points,
               acceptanceItems: spec.acceptance,
               assumptions: spec.assumptions,
+              conflicts: spec.conflicts,
             }
           : {}),
         clarifications: parseStringList(text(row, 'clarifications')),

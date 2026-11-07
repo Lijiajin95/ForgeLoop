@@ -13,6 +13,7 @@ import {
   structuredPlanOf,
   structuredVerificationOf,
   structuredReviewOf,
+  withPromptRequirementSource,
 } from './spec-fixture.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
 import { registerSmokeControl } from './control-fixture.js'
@@ -210,7 +211,8 @@ function fakeRunner(): AgentLike {
     if (request.role === 'orchestrator') {
       return result(request, JSON.stringify({ session_id: null, reason: 'test new session' }))
     }
-    if (request.role === 'product') return result(request, ANALYSIS)
+    if (request.role === 'product')
+      return result(request, withPromptRequirementSource(request.prompt, ANALYSIS))
     if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
       return result(request, PLAN)
     if (request.role === 'verify' && request.prompt.includes('正在做实现前评审'))

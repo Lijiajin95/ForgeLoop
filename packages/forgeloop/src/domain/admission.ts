@@ -1,3 +1,5 @@
+import type { CommitmentConflict } from './spec.js'
+
 /**
  * 系统准入：把“真实需求来源 + 有效授权 + 质量依据”转成可执行的系统决定。
  *
@@ -31,6 +33,9 @@ export interface AdmissionFacts {
   readonly analysisVersion: number | null
   readonly analysisRequirementVersion: number | null
   readonly clarifications: number
+  /** 与已有承诺的冲突数；非空时暂停准入，等待所有者决定取舍。 */
+  readonly conflicts?: number | undefined
+  readonly conflictSummaries?: readonly string[] | undefined
 }
 
 export interface AdmissionBasis {
@@ -75,6 +80,42 @@ export function sourceTrusted(source: string, policy: AdmissionPolicy): boolean 
   return policy.trustedSources.some((prefix) => prefix.length > 0 && value.startsWith(prefix))
 }
 
+/** 从需求与分析记录组装准入事实；冲突摘要与结构同源，避免展示与判定口径不一致。 */
+export function buildAdmissionFacts(input: {
+  requirementStatus: string
+  requirementVersion: number
+  project: string
+  projectPath: string
+  source: string
+  submittedBy: string
+  owner: string
+  analysis: {
+    analysisVersion: number
+    requirementVersion: number
+    clarifications: readonly string[]
+    conflicts?: readonly CommitmentConflict[] | undefined
+  } | null
+}): AdmissionFacts {
+  const analysis = input.analysis
+  return {
+    requirementStatus: input.requirementStatus,
+    requirementVersion: input.requirementVersion,
+    project: input.project,
+    projectPath: input.projectPath,
+    source: input.source,
+    submittedBy: input.submittedBy,
+    owner: input.owner,
+    analysisVersion: analysis?.analysisVersion ?? null,
+    analysisRequirementVersion: analysis?.requirementVersion ?? null,
+    clarifications: analysis?.clarifications.length ?? 0,
+    conflicts: analysis?.conflicts?.length ?? 0,
+    conflictSummaries: (analysis?.conflicts ?? []).map(
+      (conflict) =>
+        `${conflict.existingReqId}：${conflict.conflict}（取舍：${conflict.options.join(' / ')}）`,
+    ),
+  }
+}
+
 export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy): AdmissionDecision {
   const trustedSource = sourceTrusted(facts.source, policy)
   const basis: AdmissionBasis = {
@@ -97,6 +138,14 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
     reason,
     basis,
   })
+  /** 与已有承诺冲突时暂停准入：理由必须列出具体取舍，不能只给数量。 */
+  const conflictBlock = (): AdmissionDecision | null => {
+    const count = facts.conflicts ?? 0
+    if (count === 0) return null
+    const summaries = facts.conflictSummaries ?? []
+    const detail = summaries.length > 0 ? `：${summaries.join('；')}` : ''
+    return block('commitment_conflict', `与已有承诺冲突 ${count} 处，需要所有者决定取舍${detail}`)
+  }
 
   if (TERMINAL.has(facts.requirementStatus)) {
     return block('terminal', `需求已处于终态 ${facts.requirementStatus}`)
@@ -128,6 +177,8 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
       `需求说明依据版本 v${facts.analysisRequirementVersion ?? '?'}，当前是 v${facts.requirementVersion}；需要由产品 Agent 重新澄清`,
     )
   }
+  const conflict = conflictBlock()
+  if (conflict) return conflict
   if (facts.clarifications > 0) {
     return block('clarification_required', `仍有 ${facts.clarifications} 条业务歧义需要澄清`)
   }

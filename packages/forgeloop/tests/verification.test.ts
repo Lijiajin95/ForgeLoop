@@ -31,7 +31,12 @@ import {
 import { VerificationCheckRegistry } from '../src/runtime/verification-checks.js'
 import { parseVerificationControls } from '../src/domain/verification-controls.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
-import { structuredSpecOf, structuredPlanOf, structuredReviewOf } from './spec-fixture.js'
+import {
+  structuredSpecOf,
+  structuredPlanOf,
+  structuredReviewOf,
+  withPromptRequirementSource,
+} from './spec-fixture.js'
 
 /**
  * 验证 Agent 的门禁测试：实现前评审决定能否批准，独立验证决定能否验收。
@@ -171,7 +176,8 @@ function fakeRunner(
   let reviewAttempt = 0
   return {
     async run(request) {
-      if (request.role === 'product') return result(request, ANALYSIS)
+      if (request.role === 'product')
+        return result(request, withPromptRequirementSource(request.prompt, ANALYSIS))
       if (request.role === 'dev' && request.prompt.includes('技术方案与研发任务拆解'))
         return result(request, PLAN)
       if (request.role === 'verify' && request.prompt.includes('正在做实现前评审')) {
