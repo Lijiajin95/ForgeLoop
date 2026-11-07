@@ -1558,7 +1558,12 @@ export class OpsRuntime {
       `已执行处置：${actionSummary}`,
       `事件证据：${event.diagnosisPath || opsDir(this.config, event.eventId)}`,
       '',
-      `检查命令：${(this.check(event.checkId)?.command ?? []).join(' ') || '未登记'}`,
+      `检查命令（由主控在运维目标上执行，不在候选工作区运行）：${
+        (this.check(event.checkId)?.command ?? [])
+          .join(' ')
+          .split(this.config.projectPath + '/')
+          .join('') || '未登记'
+      }`,
       `失败输出（截断）：${this.lastCheckOutput(event.eventId)}`,
       `验收标准：修复后原检查命令连续 3 次通过（不得修改检查命令或降低其严格度），并在 docs/ 下新增根因记录 \`docs/root-cause-${event.eventId}.md\`（含根因、证据链、验证方式）。`,
       '若确实无法在不扩大权限的前提下满足上述标准，请直接说明阻塞点，不要提出与验收无关的澄清问题。',
