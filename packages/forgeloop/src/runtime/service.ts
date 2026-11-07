@@ -1099,6 +1099,8 @@ ${answer}`
         submittedBy: requirement.submittedBy,
         owner: this.config.owner,
         analysis,
+        // 历史未解除冲突与客户解除依据都来自记录库；模型空列表不能清除。
+        ...this.repo.admissionCommitmentHistory(reqId, analysis?.analysisVersion),
       }),
       this.config.autonomy,
     )

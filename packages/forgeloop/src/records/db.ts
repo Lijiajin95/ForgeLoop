@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS requirement_versions (
     source TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (req_id, version)
 );
+-- 承诺冲突的解除依据：绑定需求版本、被解除的已有承诺与客户决定来源，历史永不覆盖。
+CREATE TABLE IF NOT EXISTS requirement_commitment_resolutions (
+    req_id TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    existing_req_id TEXT NOT NULL,
+    decision_source TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    decided_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, requirement_version, existing_req_id)
+);
 CREATE TABLE IF NOT EXISTS requirement_analyses (
     req_id TEXT NOT NULL,
     analysis_version INTEGER NOT NULL,
