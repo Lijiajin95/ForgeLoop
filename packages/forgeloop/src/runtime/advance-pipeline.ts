@@ -9,6 +9,8 @@ import { candidatesDir, integrationDir, verificationDir } from '../config.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import { inputKindOf } from '../domain/requirement.js'
 import {
+  changedPathsFromDiff,
+  selfModeAllowedByDiff,
   selfVerificationSufficient,
   type SelfVerificationReport,
 } from '../domain/self-verification.js'
@@ -1066,7 +1068,15 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 验证 Agent 未给
       snapshotCommit: workspaceInfo.snapshotCommit,
     })
     const inputKind = inputKindOf(analysis)
+    const diffAvailable = existsSync(candidate.diffPath)
+    const diff = diffAvailable ? readFileSync(candidate.diffPath, 'utf8') : ''
+    const diffGate = selfModeAllowedByDiff({
+      paths: changedPathsFromDiff(diff),
+      reports: developed.reports,
+    })
     const selfMode =
+      diffAvailable &&
+      diffGate.ok &&
       developed.reports.length > 0 &&
       developed.reports.every(
         (report) => report.mode === 'self' && selfVerificationSufficient({ inputKind, report }).ok,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { LegacyVerification } from '../src/runtime/legacy-verification.js'
@@ -242,24 +242,41 @@ describe('legacy verification failure paths', () => {
     })
   })
 
-  it('blocks when the verification turn does not complete', async () => {
+  it('records the attempt when the verification turn does not complete', async () => {
     sendStatus = 'aborted'
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
       blocking: ['验证执行未取得结论：verification stopped'],
-      verification: null,
+      failureKind: 'test_error',
     })
+    expect(outcome.verification).not.toBeNull()
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]).toMatchObject({
+      attemptNumber: 1,
+      failureKind: 'test_error',
+      verdict: 'block',
+    })
+    expect(failureRounds).toHaveLength(1)
+    const report = JSON.parse(readFileSync(outcome.verification!.reportPath, 'utf8')) as {
+      attemptId: string
+      attemptNumber: number
+    }
+    expect(report.attemptNumber).toBe(1)
+    expect(report.attemptId).toContain('a1')
+    expect(existsSync(outcome.verification!.reportPath)).toBe(true)
   })
 
-  it('blocks when the verification snapshot was lost', async () => {
+  it('records the attempt when the verification snapshot was lost', async () => {
     snapshot = null
     const outcome = await verify()
     expect(outcome).toMatchObject({
       state: 'block',
-      blocking: ['验证执行上下文在结论前丢失'],
-      verification: null,
+      blocking: ['验证执行上下文在结论前丢失；无法核对命令结果'],
+      failureKind: 'undetermined',
     })
+    expect(recorded).toHaveLength(1)
+    expect(failureRounds).toHaveLength(1)
   })
 
   it('blocks when the agent skipped a planned command', async () => {
@@ -267,6 +284,8 @@ describe('legacy verification failure paths', () => {
     const outcome = await verify()
     expect(outcome.state).toBe('block')
     expect(outcome.detail).toContain('没有通过工具执行方案中的命令')
+    expect(recorded).toHaveLength(1)
+    expect(outcome.verification?.failureKind).toBe('test_error')
   })
 
   it('blocks when a verification command was aborted', async () => {
@@ -279,7 +298,14 @@ describe('legacy verification failure paths', () => {
     expect(outcome).toMatchObject({
       state: 'block',
       blocking: ['独立验证命令被停止'],
+      failureKind: 'test_error',
     })
+    expect(recorded).toHaveLength(1)
+    const report = JSON.parse(readFileSync(outcome.verification!.reportPath, 'utf8')) as {
+      commands: Array<{ label: string; aborted: boolean; logPath: string }>
+    }
+    expect(report.commands[0]).toMatchObject({ label: 'check-1', aborted: true })
+    expect(report.commands[0]?.logPath).toContain('check-1.log')
   })
 
   it('records a block when the candidate commit changed during verification', async () => {

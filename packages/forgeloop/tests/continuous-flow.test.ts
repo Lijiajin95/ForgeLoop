@@ -1134,7 +1134,10 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('验证 Agent 没有通过工具执行方案中的命令：smoke')
-    expect(runtime.repo.verificationsFor(reqId)).toEqual([])
+    const attempts = runtime.repo.verificationsFor(reqId)
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]?.verdict).toBe('block')
+    expect(attempts[0]?.reportJson).toContain('test_error')
     expect(runtime.issues.issuesFor(reqId)).toEqual([])
   })
 

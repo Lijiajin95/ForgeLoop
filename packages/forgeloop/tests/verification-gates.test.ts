@@ -210,3 +210,37 @@ describe('verification tool identity and path confinement', () => {
     rmSync(outside, { recursive: true, force: true })
   })
 })
+
+describe('self-verification diff gate', () => {
+  const report = (overrides: Record<string, unknown> = {}) => ({
+    mode: 'self' as const,
+    risk: 'low' as const,
+    whiteBox: ['npm test'],
+    blackBox: [],
+    redGreen: { required: false, failingBefore: false, passingAfter: false, evidence: '' },
+    reason: '',
+    ...overrides,
+  })
+
+  it('allows documentation-only changes and blocks code changes without low-risk evidence', async () => {
+    const { changedPathsFromDiff, selfModeAllowedByDiff } =
+      await import('../src/domain/self-verification.js')
+    expect(changedPathsFromDiff('diff --git a/docs/a.md b/docs/a.md\n')).toEqual(['docs/a.md'])
+    expect(
+      selfModeAllowedByDiff({ paths: ['docs/a.md'], reports: [report({ risk: 'unknown' })] }).ok,
+    ).toBe(true)
+    expect(
+      selfModeAllowedByDiff({ paths: ['src/a.ts'], reports: [report({ risk: 'unknown' })] }),
+    ).toMatchObject({ ok: false })
+    expect(
+      selfModeAllowedByDiff({ paths: ['src/a.ts'], reports: [report({ risk: 'high' })] }).ok,
+    ).toBe(false)
+    expect(
+      selfModeAllowedByDiff({
+        paths: ['src/a.ts'],
+        reports: [report({ whiteBox: [], blackBox: [] })],
+      }).ok,
+    ).toBe(false)
+    expect(selfModeAllowedByDiff({ paths: ['src/a.ts'], reports: [report()] }).ok).toBe(true)
+  })
+})

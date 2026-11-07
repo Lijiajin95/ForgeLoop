@@ -147,3 +147,38 @@ export function selfVerificationSufficient(input: {
   }
   return { ok: true }
 }
+
+/** 从候选 diff 中提取受影响路径；用于让 self 决策依据实际改动，而不是模型自述。 */
+export function changedPathsFromDiff(diff: string): string[] {
+  const paths = new Set<string>()
+  for (const line of diff.split('\n')) {
+    const match = /^diff --git a\/(.+?) b\//.exec(line)
+    if (match?.[1]) paths.add(match[1])
+    else if (line.startsWith('+++ b/')) paths.add(line.slice(6).trim())
+  }
+  return [...paths]
+}
+
+/**
+ * self 模式的实际改动门禁：仅文档改动可直接 self；改到代码时，
+ * 必须每份自验证报告都声明低风险且有白盒或黑盒检查，否则交给独立验证。
+ */
+export function selfModeAllowedByDiff(input: {
+  readonly paths: readonly string[]
+  readonly reports: readonly SelfVerificationReport[]
+}): { ok: true } | { ok: false; reason: string } {
+  const code = input.paths.filter(
+    (path) => !path.endsWith('.md') && !path.startsWith('verification/'),
+  )
+  if (code.length === 0) return { ok: true }
+  if (input.reports.length === 0) return { ok: false, reason: '没有自验证报告，不能 self' }
+  for (const report of input.reports) {
+    if (report.risk !== 'low') {
+      return { ok: false, reason: `候选改到代码（${code[0]}），风险不是 low，需要独立验证` }
+    }
+    if (report.whiteBox.length === 0 && report.blackBox.length === 0) {
+      return { ok: false, reason: '候选改到代码但缺少白盒/黑盒检查，需要独立验证' }
+    }
+  }
+  return { ok: true }
+}
