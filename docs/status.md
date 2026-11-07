@@ -7310,3 +7310,20 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
 - 补充轮使用独立 `business-review-retry.jsonl`，超时/畸形仍按当前 attempt 留证并计入失败轮。
 - 新增用例：第一次终审漏 acceptance，第二次补齐后通过，业务终审记录只落一次，失败轮为 0。
 - `make check` 通过（179 个测试文件、2127 项）。
+
+## 195. P0 收口：承诺冲突解除依据接入真实准入（2026-11-08）
+
+- 缺陷：`admitRequirement` 之前只把**本次分析**交给 `buildAdmissionFacts`，模型本轮返回空冲突列表
+  即可让历史承诺冲突静默解除；也没有从记录库读取客户解除依据。
+- 修复（`56a3e6a`）：
+  - 新增表 `requirement_commitment_resolutions`（需求版本 + 已有承诺 + 客户来源 + 方式 + 理由），
+    同版本同承诺只保留首次决定。
+  - `Repository.priorCommitmentConflicts` 汇总当前分析版本之前的冲突，
+    `admissionCommitmentHistory` 一次返回历史冲突与解除记录。
+  - `admitRequirement` 把两者传入准入事实；未解除冲突继续阻断，解除必须绑定当前需求版本与
+    `web-decision:`/`owner:` 来源。
+- 证据：`tests/commitment-resolution-admission.test.ts` 6 例（空列表不清冲突、旧版本/其他需求/模型来源不复用、
+  合法修订放行、普通需求准入、首次决定不可覆盖）；提交经 `make commit-check` 全绿放行
+  （静态 + 全量行为 + 逐文件覆盖率门槛）。
+- 未完成：看门狗挂起检测、黑盒错误对照误放行、SQLite WAL 一致快照归档、测试 Agent 黑盒边界、
+  固定模型复跑，以及真实需求闭环与装载核对 —— 均需外部授权/宿主/记录，本轮未执行。
