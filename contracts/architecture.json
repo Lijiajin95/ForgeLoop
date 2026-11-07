@@ -14,7 +14,17 @@
     {
       "name": "domain",
       "path": "packages/forgeloop/src/domain",
-      "may_import": []
+      "may_import": [],
+      "forbidden_modules": [
+        "fs",
+        "net",
+        "http",
+        "https",
+        "child_process",
+        "dgram",
+        "tls",
+        "os"
+      ]
     },
     {
       "name": "agents",

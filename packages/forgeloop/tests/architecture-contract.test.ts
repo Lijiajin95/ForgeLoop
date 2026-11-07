@@ -139,4 +139,39 @@ describe('retired implementation admission', () => {
     expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('src/forgeloop')
   })
+
+  describe('host side-effect modules in the domain layer', () => {
+    it.each([
+      ['bare fs import', "import { readFileSync } from 'fs'\n"],
+      ['node:fs side-effect import', "import 'node:fs'\n"],
+      ['fs/promises bare import', "import { readFile } from 'fs/promises'\n"],
+      ['node:fs dynamic import', "export const load = () => import('node:fs')\n"],
+      ['require form', "const fs = require('fs')\n"],
+    ])('rejects %s', (_label, content) => {
+      addFile('packages/forgeloop/src/domain/probe.ts')
+      addFileContent('packages/forgeloop/src/domain/probe.ts', `${content}export const value = 1\n`)
+      const result = check()
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('不得依赖宿主副作用模块')
+    })
+
+    it('accepts legal domain imports and other layers using fs', () => {
+      addFileContent(
+        'packages/forgeloop/src/domain/probe.ts',
+        [
+          "import { asRecord } from './json.js'",
+          'export const value = asRecord({}) ?? {}',
+          '',
+        ].join('\n'),
+      )
+      addFileContent(
+        'packages/forgeloop/src/records/probe.ts',
+        ["import { readFileSync } from 'node:fs'", 'export const read = readFileSync', ''].join(
+          '\n',
+        ),
+      )
+      const result = check()
+      expect(result.status, result.stderr).toBe(0)
+    })
+  })
 })

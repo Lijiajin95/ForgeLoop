@@ -43,6 +43,29 @@ interface Layer {
   readonly name: string
   readonly path: string
   readonly may_import: readonly string[]
+  /** 该层禁止依赖的宿主副作用模块；裸名与 node: 前缀等价，例如 fs 命中 fs/promises。 */
+  readonly forbidden_modules?: readonly string[]
+}
+
+/** 所有模块说明符：静态导入、副作用导入、动态导入、require 与再导出。 */
+function moduleSpecifiers(source: string): string[] {
+  const patterns = [
+    /\bfrom\s*['"]([^'"]+)['"]/g,
+    /\bimport\s+['"]([^'"]+)['"]/g,
+    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ]
+  const found = new Set<string>()
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      if (match[1]) found.add(match[1])
+    }
+  }
+  return [...found]
+}
+
+function hostModule(specifier: string): string {
+  return specifier.replace(/^node:/, '').split('/')[0] ?? specifier
 }
 
 function layerOf(file: string, layers: readonly Layer[]): Layer | undefined {
@@ -122,7 +145,20 @@ function checkLayers(
     if (!existsSync(absolute)) fail(`分层路径不存在：${raw.path}`)
     if (!inside(join(ROOT, sourceRoot), absolute))
       fail(`分层路径必须位于 ${sourceRoot} 内：${raw.path}`)
-    layers.push({ name: raw.name, path: raw.path, may_import: raw.may_import })
+    const forbidden = raw.forbidden_modules
+    if (
+      forbidden !== undefined &&
+      (!Array.isArray(forbidden) || forbidden.some((item: unknown) => typeof item !== 'string'))
+    ) {
+      fail(`分层 ${raw.name} 的 forbidden_modules 必须是字符串数组`)
+      continue
+    }
+    layers.push({
+      name: raw.name,
+      path: raw.path,
+      may_import: raw.may_import,
+      ...(forbidden ? { forbidden_modules: forbidden } : {}),
+    })
   }
   for (const layer of layers) {
     for (const dependency of layer.may_import) {
@@ -150,14 +186,14 @@ function checkDependencies(
     }
     used.add(layer.name)
     const text = readFileSync(join(ROOT, file), 'utf8')
-    if (layer.name === 'domain') {
-      const banned = [
-        ...text.matchAll(
-          /(?:from\s+|import\s*\(\s*)['"](node:(?:fs|net|http|https|child_process|dgram|tls|os)(?:\/[^'"]*)?)['"]/g,
-        ),
-      ]
-      if (banned.length > 0) {
-        fail(`${file}（domain）不得依赖宿主副作用模块 ${banned[0]![1]}`)
+    const forbidden = layer.forbidden_modules ?? []
+    if (forbidden.length > 0) {
+      const allowed = new Set(forbidden.map(hostModule))
+      for (const specifier of moduleSpecifiers(text)) {
+        if (allowed.has(hostModule(specifier))) {
+          fail(`${file}（${layer.name}）不得依赖宿主副作用模块 ${specifier}`)
+          break
+        }
       }
     }
     const dependencies: string[] = []

@@ -735,9 +735,12 @@ export class OpsRuntime {
       }),
     })
     this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
+    // closed 与 closed_at 必须同一次写入；失败时保持未关闭且不写关单时间。
+    const checkedAt = this.isoNow()
     this.repo.updateOpsEvent(eventId, {
       state: passed ? OPS_CLOSED : OPS_UNRESOLVED,
-      updatedAt: this.isoNow(),
+      ...(passed ? { closedAt: checkedAt } : {}),
+      updatedAt: checkedAt,
     })
   }
 

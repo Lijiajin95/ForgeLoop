@@ -44,12 +44,12 @@ const runner: AgentLike = {
   },
 }
 
-function seedEvent(fixRequirementId: string): string {
+function seedEvent(fixRequirementId: string, checkId = 'web-health'): string {
   const event = repo.createOpsEvent({
     eventId: 'ops-fix-1',
     project: 'testproj',
     resourceId: 'web',
-    checkId: 'web-health',
+    checkId,
     signature: 'sig',
     severity: 'major',
     state: 'recovered',
@@ -88,6 +88,34 @@ describe('ops fix recheck', () => {
     const observations = repo.opsObservations(eventId).filter((item) => item.kind === 'fix_check')
     expect(observations).toHaveLength(1)
     expect(observations[0]?.summary).toContain('原检查通过')
+  })
+
+  it('writes closed_at together with the closed state', async () => {
+    const eventId = seedEvent('req-fix-1')
+    await ops.recheckFix(eventId, 'dep-1')
+    const event = repo.opsEvent(eventId)
+    expect(event?.state).toBe(OPS_CLOSED)
+    // closed 与 closed_at 必须同一次写入：只改状态会让关单时间缺失。
+    expect(event?.closedAt).toBe('2026-11-05T10:00:00.000Z')
+    expect(event?.updatedAt).toBe('2026-11-05T10:00:00.000Z')
+  })
+
+  it('keeps the first closed_at when the same intent is polled again', async () => {
+    const eventId = seedEvent('req-fix-1')
+    await ops.recheckFix(eventId, 'dep-1')
+    const closedAt = repo.opsEvent(eventId)?.closedAt
+    await ops.recheckFix(eventId, 'dep-1')
+    expect(repo.opsEvent(eventId)?.closedAt).toBe(closedAt)
+    expect(repo.opsObservations(eventId).filter((item) => item.kind === 'fix_check')).toHaveLength(
+      1,
+    )
+  })
+
+  it('keeps the event open when the original check is no longer registered', async () => {
+    const eventId = seedEvent('req-fix-1', 'web-missing')
+    await ops.recheckFix(eventId, 'dep-1')
+    expect(repo.opsEvent(eventId)?.state).toBe(OPS_UNRESOLVED)
+    expect(repo.opsEvent(eventId)?.closedAt ?? '').toBe('')
   })
 
   it('marks the event unresolved when the check still fails', async () => {
