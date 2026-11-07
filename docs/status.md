@@ -6930,3 +6930,53 @@ M1-4/M1-8 达成。未代签任何验收。
 
 - 研发前业务设计（编号、输入、预期、反例）与候选后执行准备仍由方案阶段一次生成，未拆成两次投递。
 - 真实 DSH + DeepSeek 主路径未复跑。
+
+## 190. 覆盖率门禁补齐与提交前覆盖率检查（2026-11-07）
+
+### 190.1 覆盖缺口（`make coverage` 实测，本次改动前）
+
+逐文件门槛（lines/statements 90、functions 95、branches 85）下失败 10 个文件：
+
+| 文件                               | 失败项                        |
+| ---------------------------------- | ----------------------------- |
+| `runtime/verification-controls.ts` | lines 83.82 / branches 52     |
+| `runtime/verification-checks.ts`   | lines 86.16 / branches 79.48  |
+| `runtime/requirement-detail.ts`    | branches 66.66                |
+| `records/verification-store.ts`    | lines 84.96 / functions 81.81 |
+| `domain/verification-failure.ts`   | lines 81.81                   |
+| `runtime/acceptance-binding.ts`    | branches 68                   |
+| `runtime/clarification-view.ts`    | branches 76.47                |
+| `domain/verification-controls.ts`  | lines 89.01 / branches 78.04  |
+| `domain/self-verification.ts`      | branches 64.28                |
+| `runtime/advance-pipeline.ts`      | functions 94.44               |
+
+### 190.2 补齐后的实测（`make coverage` 退出码 0，165 文件 / 2,002 项）
+
+| 文件                               | lines | statements | functions | branches |
+| ---------------------------------- | ----- | ---------- | --------- | -------- |
+| `domain/self-verification.ts`      | 100   | 100        | 100       | 100      |
+| `domain/verification-controls.ts`  | 100   | 100        | 100       | 100      |
+| `domain/verification-failure.ts`   | 99.46 | 99.46      | 100       | 98.71    |
+| `records/verification-store.ts`    | 100   | 100        | 100       | 100      |
+| `runtime/acceptance-binding.ts`    | 100   | 100        | 100       | 97.05    |
+| `runtime/advance-pipeline.ts`      | 99.73 | 99.73      | 100       | 96.62    |
+| `runtime/clarification-view.ts`    | 100   | 100        | 100       | 100      |
+| `runtime/requirement-detail.ts`    | 100   | 100        | 100       | 100      |
+| `runtime/verification-checks.ts`   | 94.23 | 94.23      | 100       | 90       |
+| `runtime/verification-controls.ts` | 100   | 100        | 100       | 92.59    |
+
+新增测试 7 个文件、约 130 个用例（`tests/coverage-*.test.ts`）；门槛与 `vitest.config.ts` 未改，未排除任何源码。
+按 §188 的收紧调整了两处用例：self 模式补真实 docs-only diff，对照写入按“没有退出码即撤销”断言。
+
+### 190.3 提交前检查纳入覆盖率
+
+- 原配置 `autonomy.commitCheckCommand=["npm","run","check","--workspace","forgeloop-dsh"]` 只跑
+  `tsc --noEmit && vitest run`，覆盖率不达标仍可提交。
+- 现在 `scripts/ts/check-repo.ts` 支持 `--coverage`：静态步骤（typecheck/lint/contracts/budget/
+  assertions/reliability-registry）之后用 `npm run coverage` 代替普通测试步骤，逐文件门槛失败即非零退出。
+- 入口：`make commit-check`（POSIX）、`make.cmd commit-check`（Windows）、`npm run check:commit`（跨平台）；
+  `check:repo` 与 `make check` 语义不变。
+- 生效配置：`~/.forgeloop/config.json` 的 `autonomy.commitCheckCommand` 已改为
+  `["npm","run","check:commit"]`（备份 `~/.forgeloop/config.json.bak-20261107002752`）。
+- 负向验证：加入 0 覆盖的探针源码文件后 `npm run check:commit` 在 coverage 步骤退出码 1
+  （`ERROR: Coverage for lines (0%) … __coverage_probe.ts`）；删除探针后退出码 0。

@@ -8,6 +8,9 @@
 - 一个可独立审阅的小改动完成且相关检查通过后，即可创建 commit，不再逐次等待所有者授权。
   代码/行为改动至少运行 `make check`；契约/文档改动运行 `make contracts` 和文档链接检查；
   插件或安装相关改动按影响补充 `make verify-plugin` / `make package`。检查未通过不提交。
+- 自动提交（研发 Agent 应用候选后）使用 `autonomy.commitCheckCommand`，当前指向 `make commit-check`
+  （跨平台等价 `npm run check:commit`）：静态检查 + 全量行为测试 + `vitest` 逐文件覆盖率门槛
+  （lines 90 / functions 95 / branches 85）。覆盖率不达标即拒绝提交，不能只看测试通过或报告已生成。
 - 采用小型多次提交（small diff smart）：一次提交只解决一个目标，按实现、测试、契约/文档、安装记录
   等可独立验证的步骤拆分。禁止把无关重构、全仓格式化、生成物或他人在途改动混入同一提交。
 - 提交消息遵循 Conventional Commits（`type(scope): summary`），正文记录验证命令与结果。
