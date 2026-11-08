@@ -129,4 +129,55 @@ describe('covers normalization', () => {
       parseTaskPlanDraft(JSON.stringify(planWith(['BP-3', 'BP-1', 'BP-3'])), context8),
     ).toThrow('不能包含重复项')
   })
+
+  it('rejects ids that match only the prefix or suffix of an acceptance id', () => {
+    const contextA = {
+      requirementId: 'req-covers-a',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    // 'AC-1x' 只匹配前缀、'xAC-1' 只匹配后缀：都不该被当作验收项丢弃，必须交给校验拒绝。
+    for (const bad of ['AC-1x', 'xAC-1']) {
+      expect(() => parseTaskPlanDraft(JSON.stringify(planWith([bad])), contextA)).toThrow(/BP-1/)
+    }
+  })
+
+  it('accepts multi-digit business points and rejects non-digit suffixes', () => {
+    const contextB = {
+      requirementId: 'req-covers-b',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    const plan = parseTaskPlanDraft(JSON.stringify(planWith(['BP-12', 'BP-1'])), contextB)
+    expect(plan.tasks[0]?.covers).toEqual(['BP-12', 'BP-1'])
+    expect(() => parseTaskPlanDraft(JSON.stringify(planWith(['BP-1_'])), contextB)).toThrow(/BP-1/)
+  })
+
+  it('drops empty fragments produced by adjacent separators', () => {
+    const contextC = {
+      requirementId: 'req-covers-c',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    const plan = parseTaskPlanDraft(JSON.stringify(planWith(['BP-1::BP-2'])), contextC)
+    expect(plan.tasks[0]?.covers).toEqual(['BP-1', 'BP-2'])
+  })
+
+  it('leaves the authorization source empty on a freshly parsed task', () => {
+    const contextD = {
+      requirementId: 'req-covers-d',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    const plan = parseTaskPlanDraft(JSON.stringify(planWith(['BP-1'])), contextD)
+    expect(plan.tasks[0]?.authorizationSource).toBe('')
+  })
 })
