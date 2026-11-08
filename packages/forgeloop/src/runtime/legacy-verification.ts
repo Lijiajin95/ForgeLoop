@@ -117,6 +117,7 @@ export class LegacyVerification {
       cwd: this.deps.config.projectPath,
       permission: 'workspace-write',
       allowTools: [VERIFICATION_CHECK_TOOL, VERIFICATION_MATERIAL_TOOL],
+      reqId: input.reqId,
     })
     const started = Date.now()
     let plan: VerificationPlan

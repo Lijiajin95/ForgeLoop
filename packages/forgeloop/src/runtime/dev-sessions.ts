@@ -282,6 +282,7 @@ export class DevSessionRegistry {
         permission: 'workspace-write',
         tools: 'default',
         sessionId,
+        reqId: input.reqId,
       })
       this.live.set(sessionId, session)
       return {
