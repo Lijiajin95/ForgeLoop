@@ -9,6 +9,7 @@ import { asRecord } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
 import { isoNow } from './db.js'
 import { RuleViolationError } from '../domain/errors.js'
+import { chargeWindow } from '../domain/work-time.js'
 import type { Requirement, RequirementAnalysis, RequirementVersion } from '../domain/requirement.js'
 import type { CommitmentConflict } from '../domain/spec.js'
 import { validateAnalysis, validateRequirement } from '../domain/requirement.js'
@@ -77,6 +78,9 @@ export type {
 } from './rows.js'
 
 export class Repository extends DevSessionStore {
+  /** 各需求已累计到的墙上时刻；用于避免重叠区间重复计费。 */
+  private readonly chargedUntil = new Map<string, number>()
+
   readonly deploymentStore = new DeploymentStore(this.db)
   readonly deliveryStore = new DeliveryStore(this.db)
   readonly analysisStore = new AnalysisStore(this.db)
@@ -1292,6 +1296,17 @@ export class Repository extends DevSessionStore {
       limitSeconds: num(row, 'limit_seconds'),
       consumedSeconds: num(row, 'consumed_seconds'),
     }
+  }
+
+  /** 同一需求的重叠计时只累计一次（嵌套执行、补充轮复用起点时不会重复计费）。 */
+  chargeBudgetOnce(reqId: string, startedAtMs: number, nowMs: number): void {
+    const window = chargeWindow({
+      chargedUntilMs: this.chargedUntil.get(reqId) ?? 0,
+      startedAtMs,
+      nowMs,
+    })
+    this.chargedUntil.set(reqId, window.chargedUntilMs)
+    this.chargeBudget(reqId, window.seconds)
   }
 
   chargeBudget(reqId: string, seconds: number): void {

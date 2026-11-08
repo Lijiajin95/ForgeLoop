@@ -272,6 +272,7 @@ export class LegacyVerification {
       })),
     })
     if (review.verdict === 'pass' && issues.length > 0) {
+      const retryStarted = Date.now()
       const retryRun = await session.send({
         prompt: `${basePrompt}
 
@@ -281,7 +282,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
         transcriptPath: join(dir, 'business-review-retry.jsonl'),
         signal: input.signal,
       })
-      this.deps.charge(input.reqId, businessStarted)
+      this.deps.charge(input.reqId, retryStarted)
       if (retryRun.status !== 'completed') {
         const detail = `业务验收补充未取得结论：${retryRun.reason}`
         this.recordBusinessReviewError({
@@ -904,7 +905,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
       .filter((check) => !executed.has(check.label))
       .map((check) => check.label)
     if (missing.length === 0) return { ok: true }
-    const started = Date.now()
+    // 该补充执行发生在外层“测试执行”计时区间内，由外层统一计费，避免同一时间段累计两次。
     const retry = await input.session.send({
       prompt: [
         '你还没有用测试工具执行下列命令，因此不能给出结论：',
@@ -916,7 +917,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
       transcriptPath: join(input.dir, 'verification-execution-retry.jsonl'),
       ...(input.signal ? { signal: input.signal } : {}),
     })
-    this.deps.charge(input.reqId, started)
     if (retry.status !== 'completed') {
       return { ok: false, detail: `测试命令补充执行未完成：${retry.reason}` }
     }
