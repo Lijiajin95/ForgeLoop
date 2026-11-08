@@ -192,6 +192,11 @@ async function main(): Promise<void> {
     const dir = join(ROOT, 'reports', 'm1', `seed-${stamp}`)
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'identity.json'), `${JSON.stringify(identity, null, 2)}\n`)
+    // 归档要能独立复核：宿主日志与生效配置一起复制，不依赖临时目录。
+    for (const name of ['host.log', 'forgeloop.json']) {
+      const from = join(site.root, name)
+      if (existsSync(from)) writeFileSync(join(dir, name), readFileSync(from))
+    }
     writeFileSync(
       join(dir, 'summary.json'),
       `${JSON.stringify(
