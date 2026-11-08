@@ -1589,6 +1589,45 @@ export class Repository extends DevSessionStore {
     return result.changes
   }
 
+  /** 心跳早于 cutoff 的 started 动作；看门狗据此逐个收口动作与其请求。 */
+  staleStartedActions(cutoff: string): ActionRecord[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM actions WHERE state = 'started' AND heartbeat_at < ? ORDER BY started_at",
+      )
+      .all(cutoff)
+    return rows.map(actionFromRow)
+  }
+
+  /** 执行期间刷新动作心跳；动作已收口时返回 false，避免复活旧执行。 */
+  touchAction(actionId: string, now: string): boolean {
+    const result = this.db
+      .prepare("UPDATE actions SET heartbeat_at = ? WHERE action_id = ? AND state = 'started'")
+      .run(now, actionId)
+    return result.changes > 0
+  }
+
+  /** 只在动作仍是 started 时收口；返回 false 表示已被别的路径收口（迟到结果不得覆盖）。 */
+  finishActionIfStarted(actionId: string, state: string, detail: string, now: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE actions SET state = ?, detail = ?, finished_at = ? WHERE action_id = ? AND state = 'started'",
+      )
+      .run(state, detail, now, actionId)
+    return result.changes > 0
+  }
+
+  /** 只在请求仍是 claimed 时收口；返回 false 表示已被收口（迟到结果不得覆盖）。 */
+  resolveRequestIfClaimed(requestId: string, state: string, detail: string, now: string): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE service_requests SET state = ?, detail = ?, resolved_at = ?
+          WHERE request_id = ? AND state = 'claimed'`,
+      )
+      .run(state, detail, now, requestId)
+    return result.changes > 0
+  }
+
   markStartedActionsInterrupted(now: string): number {
     const result = this.db
       .prepare(
