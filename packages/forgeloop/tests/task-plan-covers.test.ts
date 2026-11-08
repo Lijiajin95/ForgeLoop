@@ -180,4 +180,36 @@ describe('covers normalization', () => {
     const plan = parseTaskPlanDraft(JSON.stringify(planWith(['BP-1'])), contextD)
     expect(plan.tasks[0]?.authorizationSource).toBe('')
   })
+
+  it('splits Chinese punctuation without surrounding spaces', () => {
+    const contextE = {
+      requirementId: 'req-covers-e',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    const plan = parseTaskPlanDraft(JSON.stringify(planWith(['BP-1：BP-2，BP-3；BP-4'])), contextE)
+    expect(plan.tasks[0]?.covers).toEqual(['BP-1', 'BP-2', 'BP-3', 'BP-4'])
+
+    // 顿号不在分隔符集合内：整段保留，交给校验拒绝，而不是被静默拆开。
+    expect(() => parseTaskPlanDraft(JSON.stringify(planWith(['BP-1、BP-2'])), contextE)).toThrow(
+      /BP-1/,
+    )
+  })
+
+  it('drops acceptance ids and duplicates in the same pass', () => {
+    const contextF = {
+      requirementId: 'req-covers-f',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    const plan = parseTaskPlanDraft(
+      JSON.stringify(planWith(['AC-7:BP-1:BP-1', 'AC-8', 'BP-2'])),
+      contextF,
+    )
+    expect(plan.tasks[0]?.covers).toEqual(['BP-1', 'BP-2'])
+  })
 })
