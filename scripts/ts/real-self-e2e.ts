@@ -62,37 +62,38 @@ const OWNER = 'm1-self-agent'
  * 提交者按脚本 Agent 身份记录；这里不声明 owner 批准，也不冒充所有者验收。
  */
 const REQUIREMENT = [
-  '修复 verification-controls 的控制补丁应用（来源：docs/status.md §160「发现但不碰」记录的真实待办，不是 fixture 或测试造数）。',
+  '在看门狗收口挂起请求时，把“最后一次可观测进展时间”写进请求与动作的收口说明',
+  '（来源：docs/status.md 记录的挂起排查困难；不是 fixture 或测试造数）。',
   '',
-  '背景：验证敏感性对照 executeVerificationControls 把候选复制到 controlDir 后执行 git apply。',
-  '当 controlDir 位于被测 Git 仓库的子目录时（默认 recordsRoot 就在项目内 .forgeloop 下），',
-  '仓库根相对路径的补丁会被 git apply 静默忽略并返回 0，出现“补丁未应用但对照判为通过”。',
+  '背景：协调器现在能判定“无进展”并收口动作与请求，但收口说明只写了动作心跳早于哪个截止时间，',
+  '没有记录该请求最后一次真正有进展的时刻，也没有说明是“从未有过进展”还是“进展后停滞”。',
+  '排查时无法区分这两种情况，也无法回看模型最后动作的时间点。',
   '',
   '要求：',
-  '1. 控制补丁必须真正应用到被测仓库根相对路径：controlDir 位于仓库子目录时，先按仓库根解析再应用（例如 git rev-parse --show-toplevel 后配合 git apply --directory，或等价正确做法）。',
-  '2. 补丁不能应用、应用后没有实际变化、或无法确认已应用时必须失败（applied 为 false 并产生 issue），不得静默通过。',
-  '3. 新增回归测试覆盖 controlDir 位于仓库子目录的场景，并证明修复前会失败、修复后通过。',
-  '4. 保持现有对照语义：正式候选不被修改；对照命令失败时仍要求退出码非零且输出命中 expectedFailureOutput。',
+  '1. 收口说明必须包含最后一次可观测进展的时间（ISO 8601）；从未有过进展时写明“无进展记录”。',
+  '2. 说明中必须写明本次停滞阈值与该阈值来源（配置的每回合上限 + 宽限）。',
+  '3. 收口行为不变：动作、请求、研发会话租约与取消信号仍按同一规则处理，迟到结果仍被拒绝。',
+  '4. 新增行为测试覆盖“有进展后停滞”和“从未有进展”两种收口说明。',
   '',
   '允许修改的文件（仅限）：',
-  '- packages/forgeloop/src/runtime/verification-controls.ts',
-  '- packages/forgeloop/tests/verification-integrity.test.ts（回归测试写在这里；如确需新文件，命名为 packages/forgeloop/tests/verification-controls.test.ts）',
+  '- packages/forgeloop/src/runtime/coordinator.ts',
+  '- packages/forgeloop/tests/coordinator-stall.test.ts',
   '',
-  '非目标：不新增依赖；不改记录表结构、部署与运维实现；不修改 docs/ 下的其他文档。',
+  '非目标：不改状态机、不改记录表结构、不改看门狗阈值判定逻辑。',
   '',
   '验收标准：',
-  '- controlDir 位于仓库子目录时补丁真正应用；不可应用或应用后无变化时必须失败并留 issue。',
-  '- 现有相关测试通过。',
+  '- 有进展后停滞时，收口说明包含最后进展时间；从未有进展时写明“无进展记录”。',
+  '- 现有协调器与看门狗相关测试通过。',
   '- TypeScript 类型检查通过。',
   '',
   '测试命令：node scripts/m1-check.mjs',
-  '需求来源：docs/status.md §160（真实待办）。提交者：脚本 Agent（m1-self-e2e）；不是 owner 批准，也不代表所有者验收。',
+  '需求来源：docs/status.md 挂起排查记录。提交者：脚本 Agent（m1-self-e2e）；不是 owner 批准，也不代表所有者验收。',
 ].join('\n')
 
 const REQUIREMENT_DOC = [
-  '# M1-2 真实自身需求基线：控制补丁在仓库子目录中的应用',
+  '# M1-2 真实自身需求基线：看门狗收口说明中的最后进展时间',
   '',
-  '- 需求来源：docs/status.md §160「发现但不碰」记录的真实待办，非 fixture、非测试造数。',
+  '- 需求来源：docs/status.md 记录的挂起排查困难，非 fixture、非测试造数。',
   '- 提交者：脚本 Agent（m1-self-e2e）。本文不是 owner 批准，也不代表所有者验收。',
   '- 生成方式：由 scripts/ts/real-self-e2e.ts 写入并随现场基线提交；提交给 ForgeLoop 的原文与下方完全一致。',
   '',
@@ -1568,17 +1569,15 @@ function evaluateEvidence(
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-  const implemented = recordedFiles.includes(
-    'packages/forgeloop/src/runtime/verification-controls.ts',
-  )
+  const implemented = recordedFiles.includes('packages/forgeloop/src/runtime/coordinator.ts')
   const tested = recordedFiles.some(
     (file) => file.startsWith('packages/forgeloop/tests/') && file.endsWith('.test.ts'),
   )
-  ok(implemented, `受控提交没有包含 verification-controls.ts：${recordedFiles.join('、')}`)
+  ok(implemented, `受控提交没有包含 coordinator.ts：${recordedFiles.join('、')}`)
   ok(tested, `受控提交没有包含回归测试改动：${recordedFiles.join('、')}`)
   ok(
-    actualFiles.includes('packages/forgeloop/src/runtime/verification-controls.ts'),
-    `真实提交没有包含 verification-controls.ts：${actualFiles.join('、')}`,
+    actualFiles.includes('packages/forgeloop/src/runtime/coordinator.ts'),
+    `真实提交没有包含 coordinator.ts：${actualFiles.join('、')}`,
   )
   ok(
     actualFiles.some(
@@ -1597,11 +1596,9 @@ function evaluateEvidence(
     actualTarballSha === buildSha,
     `候选构建摘要与 tarball 实际摘要不一致：${buildSha} != ${actualTarballSha}`,
   )
-  const moduleMember = tarball
-    ? tarballMember(tarball, 'package/lib/runtime/verification-controls.js')
-    : null
+  const moduleMember = tarball ? tarballMember(tarball, 'package/lib/runtime/coordinator.js') : null
   const moduleSha = moduleMember ? sha256Buffer(moduleMember) : ''
-  ok(Boolean(moduleMember), '候选 tarball 没有包含 verification-controls 的编译产物')
+  ok(Boolean(moduleMember), '候选 tarball 没有包含 coordinator 的编译产物')
   ok(
     rowString(build, 'git_head').length >= 7 || recordedFiles.length > 0,
     '候选构建缺少可回查的提交或文件清单',
