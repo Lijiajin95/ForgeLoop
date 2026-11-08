@@ -782,6 +782,15 @@ async function main(): Promise<void> {
     if (!KEEP) log(`现场保留在 ${root}`)
   }
 
+  // 永久修复部署会启动新进程：最终身份必须核对部署后的进程，而不是临时恢复的那个。
+  const deployedPidFile = join(targetDir, 'process.pid')
+  const deployedPid = existsSync(deployedPidFile)
+    ? Number(readFileSync(deployedPidFile, 'utf8'))
+    : 0
+  const deployedAt = existsSync(deployedPidFile)
+    ? statSync(deployedPidFile).mtime.toISOString()
+    : ''
+
   const summary: Record<string, unknown> = {
     root,
     project,
@@ -790,6 +799,8 @@ async function main(): Promise<void> {
     eventId,
     recoveredPid,
     beforePid,
+    deployedPid,
+    deployedAt,
     fixReqId,
     closed,
     injectedAt,
@@ -882,8 +893,22 @@ async function main(): Promise<void> {
       if (!identity.startedAt || !Number.isFinite(Date.parse(String(identity.startedAt)))) {
         failures.push('运行进程没有报告可信启动时间')
       }
-      if (Number(identity.pid) !== recoveredPid) {
-        failures.push('运行进程 pid 与恢复后 pid 不一致')
+      // 三段身份分别核对：注入前、临时恢复后、永久部署后；最终必须是部署后的进程。
+      if (!deployedPid || deployedPid <= 0) {
+        failures.push('永久修复部署后没有记录新进程 pid')
+      } else {
+        if (deployedPid === beforePid) failures.push('部署后进程仍是注入前的旧进程')
+        if (deployedPid === recoveredPid) failures.push('部署后进程仍是临时恢复的旧进程')
+        if (!alive(deployedPid)) failures.push('部署后记录的进程已不在运行')
+        if (Number(identity.pid) !== deployedPid) {
+          failures.push('运行进程 pid 与部署后记录的 pid 不一致')
+        }
+        if (deployedAt && identity.startedAt) {
+          const startedAt = Date.parse(String(identity.startedAt))
+          if (Number.isFinite(startedAt) && startedAt + 5_000 < Date.parse(deployedAt)) {
+            failures.push('运行进程启动时间早于部署时间，进程未加载新制品')
+          }
+        }
       }
       if ((duplicateSources.n ?? 0) > 1) {
         failures.push(`同一检查生成了 ${String(duplicateSources.n)} 个修复需求，去重未生效`)
