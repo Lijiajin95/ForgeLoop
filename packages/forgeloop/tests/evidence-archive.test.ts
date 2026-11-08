@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { archiveDatabase } from '../../../scripts/ts/evidence-archive.js'
+import { Database } from '../src/records/db.js'
+import { Repository } from '../src/records/repository.js'
 
 let dir = ''
 
@@ -72,5 +74,46 @@ describe('evidence archive', () => {
     archiveDatabase(source, second)
     expect(rows(first)).toEqual(rows(second))
     expect(rows(first)).toHaveLength(5)
+  })
+})
+
+describe('archive reopen check', () => {
+  it('reopens the archive with the same records and resolutions queryable both ways', () => {
+    const source = join(dir, 'records.sqlite')
+    const repo = new Repository(Database.open(source))
+    try {
+      repo.submit({
+        reqId: 'req-arch',
+        project: 'demo',
+        text: '归档回查需求',
+        submittedBy: 'owner',
+        source: 'dsh-session:s1',
+        now: '2026-11-08T06:00:00.000Z',
+      })
+      repo.recordCommitmentResolution({
+        reqId: 'req-arch',
+        requirementVersion: 1,
+        existingReqId: 'req-old',
+        decisionSource: 'web-decision:owner-9',
+        decision: 'revise',
+        reason: '所有者选择修订',
+        decidedAt: '2026-11-08T06:10:00.000Z',
+      })
+    } finally {
+      repo.close()
+    }
+    const target = join(dir, 'archive', 'records.sqlite')
+    archiveDatabase(source, target)
+    const reopened = new Repository(Database.open(target))
+    try {
+      expect(reopened.getRequirement('req-arch')).toMatchObject({ reqId: 'req-arch' })
+      expect(reopened.commitmentResolutionFor('req-arch', 1, 'req-old')).toMatchObject({
+        decisionSource: 'web-decision:owner-9',
+        decision: 'revise',
+      })
+      expect(reopened.commitmentResolutions('req-arch')).toHaveLength(1)
+    } finally {
+      reopened.close()
+    }
   })
 })
