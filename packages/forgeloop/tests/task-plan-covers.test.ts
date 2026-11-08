@@ -88,4 +88,45 @@ describe('covers normalization', () => {
     const plan = parseTaskPlanDraft(JSON.stringify(planWith(undefined)), context4)
     expect(plan.tasks[0]?.covers).toBeUndefined()
   })
+
+  it('rejects ids that merely contain a business point id', () => {
+    const context6 = {
+      requirementId: 'req-covers-6',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    // 只匹配前缀 / 后缀的编号都不是合法业务点，必须拒绝。
+    for (const bad of ['xBP-1', 'BP-1x', 'BP-1 BP-2x', 'BPX-1']) {
+      expect(() => parseTaskPlanDraft(JSON.stringify(planWith([bad])), context6)).toThrow(/BP-1/)
+    }
+  })
+
+  it('separates explicit empty covers from an omitted field', () => {
+    const context7 = {
+      requirementId: 'req-covers-7',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    const omitted = parseTaskPlanDraft(JSON.stringify(planWith(undefined)), context7)
+    expect(omitted.tasks[0]?.covers).toBeUndefined()
+    const empty = parseTaskPlanDraft(JSON.stringify(planWith([])), context7)
+    expect(empty.tasks[0]?.covers).toEqual([])
+  })
+
+  it('rejects a covers list that repeats a point before normalization', () => {
+    const context8 = {
+      requirementId: 'req-covers-8',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    expect(() =>
+      parseTaskPlanDraft(JSON.stringify(planWith(['BP-3', 'BP-1', 'BP-3'])), context8),
+    ).toThrow('不能包含重复项')
+  })
 })
