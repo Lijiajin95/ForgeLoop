@@ -105,11 +105,18 @@ export function validateFiles(files: readonly string[]): void {
  * 拆开、去重；AC 编号不属于本字段（验收项另有字段），其余非法编号仍交给校验拒绝。
  */
 function normalizeCovers(covers: readonly string[]): string[] {
-  const ids = covers
-    .flatMap((item) => item.split(/[:：,，;；\s]+/))
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0 && !/^AC-\d+$/.test(item))
-  return [...new Set(ids)]
+  const ids: string[] = []
+  for (const item of covers) {
+    for (const part of item.split(/[:：,，;；\s]+/)) {
+      const id = part.trim()
+      if (id === '') continue
+      // AC 编号属于验收项字段，不作为业务要点；重复编号只保留首次出现。
+      if (/^AC-\d+$/.test(id)) continue
+      if (ids.includes(id)) continue
+      ids.push(id)
+    }
+  }
+  return ids
 }
 
 function validateCovers(covers: readonly string[] | undefined): void {
