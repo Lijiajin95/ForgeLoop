@@ -1364,7 +1364,7 @@ describe('VerificationPipeline gates and fixed candidate', () => {
       blocking: ['环境异常'],
       scenarios: [],
     })
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
       const dir = verificationAttemptDir(built.config, {
         reqId: PIPE_REQ,
         planVersion: 1,
@@ -1395,7 +1395,7 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
     expect(outcome).toEqual({
       state: 'failed',
-      detail: `候选 ${identity.slice(0, 16)}… 的独立测试已阻断（尝试 3，environment_error）：环境异常；需修复后产生新候选再验证`,
+      detail: `候选 ${identity.slice(0, 16)}… 的独立测试已阻断（尝试 5，environment_error）：环境异常；需修复后产生新候选再验证`,
     })
     expect(built.testCalls()).toBe(0)
     expect(built.verifyPrompts).toHaveLength(0)

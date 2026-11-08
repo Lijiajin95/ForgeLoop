@@ -73,7 +73,8 @@ export interface VerificationPipelineDeps {
 
 export class VerificationPipeline {
   /** 同一候选最多追加的验证尝试数；防止以“重跑直到通过”替代修复。 */
-  static readonly MAX_SAME_CANDIDATE_ATTEMPTS = 3
+  /** 同一候选的复验次数：测试材料类失败只有在同候选上多试几次才可能收敛。 */
+  static readonly MAX_SAME_CANDIDATE_ATTEMPTS = 5
 
   constructor(private readonly deps: VerificationPipelineDeps) {}
 
