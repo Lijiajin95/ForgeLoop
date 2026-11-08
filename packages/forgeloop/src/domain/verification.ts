@@ -795,12 +795,27 @@ function outputContains(output: string, expected: string): boolean {
  * 纯判定：所有必过场景与命令都实际执行、退出码为 0、未超时/中止，
  * 且命令输出包含方案要求的预期片段，才判定 passed；任何报错或问题都 failed。
  */
+/** 与目标业务无关的失败：缺依赖、脚本自身报错、命令不存在等，不能当作错误对照的证据。 */
+const UNRELATED_FAILURES: readonly RegExp[] = [
+  /Cannot find module/i,
+  /ERR_MODULE_NOT_FOUND/,
+  /MODULE_NOT_FOUND/,
+  /command not found/i,
+]
+
 function judgeCheck(check: VerificationCheckPlan, run: VerificationCheckRun): string | null {
   if (run.aborted) return `测试命令被中止：${check.label}`
   if (run.timedOut) return `测试命令超时：${check.label}`
   if (check.expectFailure) {
     if (run.exitCode === null) return `错误对照没有真实退出码，不能证明其失败：${check.label}`
     if (run.exitCode === 0) return `错误对照预期失败但命令成功：${check.label}`
+    // 负例声明了预期时，实际失败必须落在目标业务证据上；无关脚本报错不算证明。
+    if (check.expectedOutput !== '' && !outputContains(run.output, check.expectedOutput)) {
+      return `错误对照的失败输出缺少预期片段：${check.label}（预期 ${check.expectedOutput}）`
+    }
+    if (UNRELATED_FAILURES.some((pattern) => pattern.test(run.output))) {
+      return `错误对照的失败不是目标业务断言：${check.label}`
+    }
     return null
   }
   if (run.exitCode !== 0) {
