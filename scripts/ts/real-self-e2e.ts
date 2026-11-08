@@ -1211,7 +1211,7 @@ function installerSource(paths: Paths): string {
     '        sys.exit(0)',
     '    with open(os.path.join(target, "installs.log"), "a", encoding="utf-8") as handle:',
     '        handle.write(str(time.time()) + " " + str(artifact.get("sha256", "")) + "\\n")',
-    '    time.sleep(' + str(INSTALL_DELAY_SECONDS) + ')',
+    '    time.sleep(' + String(INSTALL_DELAY_SECONDS) + ')',
     '    stop_host()',
     '    try:',
     '        marker = install_tarball(tarball)',

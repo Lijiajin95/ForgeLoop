@@ -559,7 +559,7 @@ async function main(): Promise<void> {
       '    port = free_port()',
       '    identity = start(port)',
       '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": sha(os.path.join(current, "bundle.tgz")), "port": port}, open(os.path.join(target, "install.json"), "w"))',
-      '    time.sleep(' + str(INSTALL_DELAY_SECONDS) + ')',
+      '    time.sleep(' + String(INSTALL_DELAY_SECONDS) + ')',
       '    print(json.dumps({"ok": True, "state": "applied", "version": identity.get("version", ""), "detail": "installed and restarted pid=" + str(identity.get("pid"))}))',
       'elif op == "restart":',
       '    stop()',
