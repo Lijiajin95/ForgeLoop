@@ -42,6 +42,10 @@ const PYTHON =
   process.platform === 'win32' ? 'python.exe' : process.env.FORGELOOP_PYTHON?.trim() || 'python3'
 const ENABLED = process.env.FORGELOOP_REAL_SELF === '1' || process.argv.includes('--self')
 const KEEP = process.env.KEEP === '1' || process.env.FORGELOOP_REAL_SELF_KEEP === '1'
+/** 中断验收模式：部署进入 applying 后真实杀掉协调宿主，重启后核对恢复。 */
+const INTERRUPT = process.env.FORGELOOP_REAL_SELF_INTERRUPT === '1'
+/** 中断模式下安装动作先等待若干秒，保证宿主在安装完成前被杀。 */
+const INSTALL_DELAY_SECONDS = INTERRUPT ? 20 : 0
 const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_SELF_TIMEOUT_MS ?? 3_600_000)
 const SUBMIT_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_SELF_SUBMIT_TIMEOUT_MS ?? 600_000)
 const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_SELF_BLOCKED_GRACE_MS ?? 900_000)
@@ -298,6 +302,15 @@ function sleep(ms: number): Promise<void> {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** 安装器每调用一次追加一行；中断恢复后用它证明没有重复安装。 */
+function countInstalls(paths: Paths): number {
+  const path = join(paths.targetDir, 'installs.log')
+  if (!existsSync(path)) return 0
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim().length > 0).length
 }
 
 function tail(path: string, bytes = 2000): string {
@@ -617,7 +630,7 @@ function writeCoordinatorConfig(paths: Paths): void {
     ops: { enabled: false },
     deployments: {
       enabled: true,
-      verifyTimeoutSeconds: 300,
+      verifyTimeoutSeconds: INTERRUPT ? 35 : 300,
       alerts: { webhook: 'http://127.0.0.1:9/unreachable', timeoutSeconds: 5 },
       tools: [
         {
@@ -1196,6 +1209,9 @@ function installerSource(paths: Paths): string {
     '    if expected and actual != expected:',
     '        print(json.dumps({"ok": False, "state": "failed", "detail": "制品摘要与计划不一致"}))',
     '        sys.exit(0)',
+    '    with open(os.path.join(target, "installs.log"), "a", encoding="utf-8") as handle:',
+    '        handle.write(str(time.time()) + " " + str(artifact.get("sha256", "")) + "\\n")',
+    '    time.sleep(' + str(INSTALL_DELAY_SECONDS) + ')',
     '    stop_host()',
     '    try:',
     '        marker = install_tarball(tarball)',
@@ -1761,6 +1777,57 @@ function cleanupWorktree(project: string): void {
   runCommand(GIT, ['worktree', 'prune'], { cwd: ROOT })
 }
 
+/**
+ * 中断验收：等部署 intent 进入 applying，对协调宿主发 SIGKILL，
+ * 记录安装调用次数后在同一端口重启宿主，让真实协调器执行中断核对。
+ */
+async function interruptDuringDeploy(
+  paths: Paths,
+  reqId: string,
+  env: NodeJS.ProcessEnv,
+  port: number,
+  current: () => ChildProcess | undefined,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const snapshot = readSnapshot(paths.dbPath, reqId)
+    const intentState = rowString(snapshot.intent, 'state')
+    if (intentState === 'applying') {
+      const installsBefore = countInstalls(paths)
+      const killedAt = new Date().toISOString()
+      const host = current()
+      host?.kill('SIGKILL')
+      await sleep(3_000)
+      const installsAfterKill = countInstalls(paths)
+      const restarted = startCoordinator(paths, env, port)
+      await waitForDatabase(restarted, paths.dbPath, paths.coordinatorLog)
+      // 等过中断判定窗口，让协调器执行 recoverInterrupted。
+      await sleep(45_000)
+      const recovered = readSnapshot(paths.dbPath, reqId)
+      const decisions = queryAll(
+        new DatabaseSync(paths.dbPath, { readOnly: true }),
+        'SELECT decision FROM deployment_decisions WHERE intent_id = ? ORDER BY rowid',
+        [rowString(recovered.intent, 'intent_id')],
+      ).map((row) => rowString(row, 'decision'))
+      return {
+        killedAt,
+        intentAtKill: intentState,
+        installsBefore,
+        installsAfterKill,
+        intentAfterRecovery: rowString(recovered.intent, 'state'),
+        decisions,
+        restartedPid: restarted.pid ?? 0,
+        coordinator: restarted,
+      }
+    }
+    if (['verified', 'failed', 'verify_failed', 'rejected'].includes(intentState)) {
+      throw new Error(`部署在中断注入前已结束：${intentState}`)
+    }
+    await sleep(2_000)
+  }
+  throw new Error('等待部署进入 applying 超时，未能注入中断')
+}
+
 async function main(): Promise<void> {
   if (!ENABLED) {
     log(
@@ -1853,6 +1920,12 @@ async function main(): Promise<void> {
     summary.requirementSource = rowString(submitted.requirement, 'source')
 
     log('等待分析 → 准入 → 规划 → 研发 → 验证 → 终审 → 提交 → 构建 → 部署核对')
+    if (INTERRUPT) {
+      summary.interrupt = await interruptDuringDeploy(paths, reqId, env, port, () => coordinator)
+      coordinator = (summary.interrupt as { coordinator: ChildProcess }).coordinator
+      delete (summary.interrupt as Record<string, unknown>).coordinator
+      summary.interrupts = summary.interrupt
+    }
     const delivered = await waitForDelivery(paths.dbPath, reqId)
     summary.deliveredAt = new Date().toISOString()
     summary.deliveredStatus = rowString(delivered.requirement, 'status')
@@ -1868,6 +1941,31 @@ async function main(): Promise<void> {
 
     const evaluated = evaluateEvidence(paths, reqId, evidence)
     failures.push(...evaluated.failures)
+    if (INTERRUPT) {
+      const info = summary.interrupt as {
+        installsBefore: number
+        installsAfterKill: number
+        intentAfterRecovery: string
+        decisions: string[]
+      }
+      const installsFinal = countInstalls(paths)
+      const duplicated = installsFinal !== info.installsBefore
+      summary.installCounts = {
+        beforeKill: info.installsBefore,
+        afterKill: info.installsAfterKill,
+        final: installsFinal,
+      }
+      if (duplicated)
+        failures.push(`中断恢复后发生了重复安装：${info.installsBefore} → ${installsFinal}`)
+      if (!['applied_pending_verify', 'verified'].includes(info.intentAfterRecovery)) {
+        failures.push(`中断恢复没有收口为待核对/已验证：${info.intentAfterRecovery}`)
+      }
+      if (info.decisions.length === 0) failures.push('中断恢复没有留下部署决定')
+      summary.interruptRecovery = {
+        intentAfterRecovery: info.intentAfterRecovery,
+        decisions: info.decisions,
+      }
+    }
     summary.values = evaluated.values
     summary.evidence = {
       requirement: evidence.requirement,
