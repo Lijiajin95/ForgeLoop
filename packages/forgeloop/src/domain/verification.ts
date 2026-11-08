@@ -853,6 +853,10 @@ export function judgeVerificationResult(input: {
   const byLabel = new Map(input.checks.map((run) => [run.label, run]))
   const failures: string[] = []
   const scenarios: VerificationScenarioRun[] = []
+  // 方案里一旦出现错误对照，就必须是“每个必过场景各自配对”的，不能拿别的场景的负例顶替。
+  const hasAnyControl = input.plan.scenarios.some((scenario) =>
+    (scenario.checks ?? []).some((check) => check.expectFailure),
+  )
   for (const planned of input.plan.scenarios) {
     const runs: VerificationCheckRun[] = []
     const issues = (planned.checks ?? []).map((check) => {
@@ -863,6 +867,13 @@ export function judgeVerificationResult(input: {
     })
     if ((planned.checks ?? []).length === 0)
       issues.push(`测试场景没有可执行命令：${planned.scenario}`)
+    if (
+      hasAnyControl &&
+      planned.required &&
+      !(planned.checks ?? []).some((check) => check.expectFailure)
+    ) {
+      issues.push(`必过场景缺少自己的错误对照：${planned.scenario}`)
+    }
     const problems = issues.filter((issue): issue is string => issue !== null)
     failures.push(...problems)
     scenarios.push({
