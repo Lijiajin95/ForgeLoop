@@ -1509,6 +1509,20 @@
         "mutator": "EqualityOperator",
         "reason": "end 的 >= 与 > 只在 start==end（单括号）时不同；该输入切片仍无法解析，结果同为 MalformedError。",
         "snippet": "if (start >= 0 && end > start) {"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 110,
+        "mutator": "Regex",
+        "reason": "分隔符正则去掉 + 后，连续分隔符会产生空片段，但紧随其后的 id === '' 守卫会丢弃它们；所有可达输入拆分结果相同。",
+        "snippet": "for (const id of item.split(/[:：,，;；\\s]+/)) {"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 362,
+        "mutator": "StringLiteral",
+        "reason": "authorizationSource 的初值是空字符串，Stryker 把该字面量替换成空字符串后源码完全相同，任何测试都无法区分。",
+        "snippet": "authorizationSource: '',"
       }
     ],
     "note": "全量 92 源文件变异仍低于 80（2026-11 实测 56.28%）；本清单只声明今晚的受控范围，不改 stryker break，不排除业务源码。"
