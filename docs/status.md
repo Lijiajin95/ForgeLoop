@@ -7398,3 +7398,12 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
 - 副作用无法确认：恢复后仍 applying，`recovery_unknown`，安装计数 1。
 
 闭环 B 仍在复跑；M1 尚未通过。
+
+### 198.2 执行进展二（2026-11-08）
+
+- 步骤 2（领域 3 · 三维回查）已完成一半：`afa1fd2` 新增
+  `commitmentResolutionFor(reqId, requirementVersion, existingReqId)`，解除依据可按“需求 + 版本 + 承诺”直接回查；
+  其他版本、其他需求、其他承诺均不命中，同三元组保留首次决定。
+  证据：`tests/commitment-resolution-lookup.test.ts` 3 例（三维命中、错位不命中、首次决定不被覆盖），
+  与既有准入用例合计 9 项通过；经 `make commit-check` 放行。
+- 仍缺：客户决定身份的可信入口核验（当前仍是 `web-decision:`/`owner:` 前缀判定），以及步骤 3–6。
