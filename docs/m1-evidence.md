@@ -84,6 +84,20 @@ node scripts/ts/real-deploy-interrupt.ts
 重启宿主让协调器执行中断核对，并在收尾核对“无重复安装、收口到待核对/已验证、留下部署决定”。
 **尚未在一次成功走到部署的运行上执行过**，因此 M1-5 仍不判达成。
 
+## 2.6 2026-11-08 深夜批次（本轮）
+
+- 同一候选复验上限 3 → 5（`MAX_SAME_CANDIDATE_ATTEMPTS`），给测试材料错误更多修正机会；
+- 新增 `real-ops-e2e` 的宿主中断模式（`FORGELOOP_REAL_OPS_INTERRUPT=1`）；
+- 新增 `scripts/ts/m1-history-review.ts`（M1-7）与 `scripts/ts/m1-seed.ts`（M1-1）。
+
+运行结果（归档 `reports/m1/ops-2026-11-08T15-35-01-932Z-stopped`）：
+修复需求走到验证 v1，最终阻断为
+_“测试 Agent 没有通过工具执行方案中的命令：baseline-dead-reproduced、svc-health-3x-alive …”_；
+0 提交、0 部署、事件未关闭。
+
+最新统计（跨归档去重）：N研 15 / H研 3（20.0%）/ A研 0；N运 14 / H运 0。
+历史回查：引用 71 条，缺失 36。
+
 ## 3. M1-3 现状（未达成）
 
 多次真实运行已取得：受控注入 → 真实模型诊断（从日志读出 watchdog 崩溃）→ 授权内临时恢复 →
