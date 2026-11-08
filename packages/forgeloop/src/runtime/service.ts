@@ -1935,7 +1935,7 @@ ${answer}`
   }
 
   private charge(reqId: string, startedAt: number): void {
-    this.repo.chargeBudget(reqId, Math.max(0, (Date.now() - startedAt) / 1000))
+    this.repo.chargeBudgetOnce(reqId, startedAt, Date.now())
   }
 
   directorySummary(): unknown {
