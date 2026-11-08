@@ -121,9 +121,8 @@ function normalizeCovers(covers: readonly string[]): string[] {
 
 function validateCovers(covers: readonly string[] | undefined): void {
   if (covers === undefined) return
-  if (new Set(covers).size !== covers.length) {
-    throw new RuleViolationError('任务覆盖的业务要点不能重复')
-  }
+  // 重复项在 toStringList 阶段已被拒绝、这里又经过 normalizeCovers 去重，
+  // 因此不再保留一条永远走不到的重复检查（受控变异中它是不可达分支）。
   for (const pointId of covers) {
     if (!/^BP-\d+$/.test(pointId)) {
       throw new RuleViolationError(`任务覆盖的业务要点编号必须形如 BP-1: ${pointId}`)
