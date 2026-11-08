@@ -100,6 +100,18 @@ export function validateFiles(files: readonly string[]): void {
   }
 }
 
+/**
+ * 模型有时把多个编号拼成一条（例如 `BP-1: BP-1: AC-1`）：
+ * 拆开、去重；AC 编号不属于本字段（验收项另有字段），其余非法编号仍交给校验拒绝。
+ */
+function normalizeCovers(covers: readonly string[]): string[] {
+  const ids = covers
+    .flatMap((item) => item.split(/[:：,，;；\s]+/))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && !/^AC-\d+$/.test(item))
+  return [...new Set(ids)]
+}
+
 function validateCovers(covers: readonly string[] | undefined): void {
   if (covers === undefined) return
   if (new Set(covers).size !== covers.length) {
@@ -342,7 +354,9 @@ export function parseTaskPlanDraft(
       dependsOn: toStringList(task.depends_on ?? task.dependsOn ?? [], 'depends_on', true),
       limits: limitsFrom(task.limits),
       authorizationSource: '',
-      ...(task.covers === undefined ? {} : { covers: toStringList(task.covers, 'covers', true) }),
+      ...(task.covers === undefined
+        ? {}
+        : { covers: normalizeCovers(toStringList(task.covers, 'covers', true)) }),
     } satisfies PlannedTask
   })
   const solution =
