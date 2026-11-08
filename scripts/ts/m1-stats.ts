@@ -86,7 +86,7 @@ function args(): { dbs: string[]; out: string } {
 function labelOf(dbPath: string): string {
   const rel = relative(ROOT, dbPath)
   if (/reports\/m1\/ops-/.test(rel)) return '受控演练（运维 E2E 注入故障）'
-  if (/reports\/m1\/model-/.test(rel)) return '真实需求（M1 闭环 A 样本）'
+  if (/reports\/m1\/(model|self)-/.test(rel)) return '真实需求（M1 闭环 A 样本）'
   return '未标注'
 }
 
