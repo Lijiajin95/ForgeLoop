@@ -702,6 +702,21 @@ function lastPreparationPayload(raw: string): unknown {
  * 把候选固定后的执行准备结果合并回研发前设计：每个场景按名称取回 checks，
  * 保留设计阶段的编号、预期与必过标记；结构再走同一解析与覆盖校验。
  */
+/**
+ * 把模型返回的场景名对回设计里的原名：先精确匹配；再允许“设计原名 + 补充说明”的唯一前缀匹配。
+ * 只接受唯一解，避免把不同场景的检查挂错。
+ */
+function canonicalScenarioName(name: string, design: VerificationPlan): string {
+  const trimmed = name.trim()
+  if (design.scenarios.some((scenario) => scenario.scenario === trimmed)) return trimmed
+  const prefixed = design.scenarios.filter(
+    (scenario) => scenario.scenario !== '' && trimmed.startsWith(scenario.scenario),
+  )
+  const [only] = prefixed
+  if (prefixed.length === 1 && only) return only.scenario
+  return trimmed
+}
+
 export function parseVerificationCheckPreparation(
   raw: string,
   design: VerificationPlan,
@@ -714,8 +729,9 @@ export function parseVerificationCheckPreparation(
   for (const item of data.scenarios) {
     const record = asRecord(item, 'scenarios[]')
     const name = nonEmpty(record.scenario, 'scenarios[].scenario')
-    if (byScenario.has(name)) throw new MalformedError(`执行准备重复场景：${name}`)
-    byScenario.set(name, record.checks)
+    const canonical = canonicalScenarioName(name, design)
+    if (byScenario.has(canonical)) throw new MalformedError(`执行准备重复场景：${canonical}`)
+    byScenario.set(canonical, record.checks)
   }
   const merged = {
     scenarios: design.scenarios.map((scenario) => ({

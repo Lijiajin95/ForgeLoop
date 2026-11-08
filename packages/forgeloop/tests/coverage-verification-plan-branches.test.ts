@@ -287,6 +287,30 @@ describe('verification execution preparation', () => {
     expect(prepared.scenarios[1]?.checks).toEqual([])
   })
 
+  it('maps a scenario name that appends an explanation back to the designed scenario', () => {
+    const design: VerificationPlan = { scenarios: [scenarioOf()] }
+    const prepared = parseVerificationCheckPreparation(
+      JSON.stringify({
+        scenarios: [
+          {
+            scenario: `完成改动（补充：验证命令必须真实执行）`,
+            checks: [
+              {
+                label: 'check-appended',
+                argv: ['node', '-e', 'process.exit(0)'],
+                category: 'acceptance',
+                expect_failure: false,
+              },
+            ],
+          },
+        ],
+      }),
+      design,
+    )
+    expect(prepared.scenarios[0]?.scenario).toBe('完成改动')
+    expect(prepared.scenarios[0]?.checks[0]?.label).toBe('check-appended')
+  })
+
   it('rejects preparation that is not an array, repeats scenarios or adds unknown ones', () => {
     const design: VerificationPlan = { scenarios: [scenarioOf()] }
     expect(() => parseVerificationCheckPreparation('{"scenarios":{}}', design)).toThrow(/scenarios/)
