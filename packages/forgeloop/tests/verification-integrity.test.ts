@@ -66,6 +66,42 @@ describe('verification failure classification', () => {
     expect(result.guidance).toContain('.cjs')
   })
 
+  it('keeps a real assertion failure visible when another command reports an ESM script error', () => {
+    const result = classifyVerificationFailure({
+      blocking: ['验证命令失败：check 退出码 1'],
+      commandRuns: [
+        run({
+          label: 'control-negative',
+          exitCode: 1,
+          output: 'ReferenceError: require is not defined in ES module scope',
+        }),
+        run({
+          label: 'business',
+          exitCode: 1,
+          output: 'AssertionError: expected 3 rounds to pause, got 4',
+        }),
+      ],
+    })
+    expect(result.kind).toBe('implementation_defect')
+    expect(result.requiresCodeChange).toBe(true)
+  })
+
+  it('does not treat ESM text printed by a passing command as a test-material error', () => {
+    const result = classifyVerificationFailure({
+      blocking: ['验证命令失败：check 退出码 1'],
+      commandRuns: [
+        run({
+          label: 'control-negative',
+          exitCode: 0,
+          output: 'expected failure reproduced: require is not defined in ES module scope',
+        }),
+        run({ label: 'business', exitCode: 1, output: 'broken candidate' }),
+      ],
+    })
+    expect(result.kind).toBe('undetermined')
+    expect(result.requiresCodeChange).toBe(false)
+  })
+
   it('does not turn a bare non-zero exit without assertion evidence into a code-repair instruction', () => {
     const result = classifyVerificationFailure({
       blocking: ['测试命令失败：check 退出码 1'],

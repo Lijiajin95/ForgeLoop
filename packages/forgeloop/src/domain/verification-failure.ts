@@ -136,9 +136,17 @@ function preBusinessFailure(
   }
   // 验证脚本自身写错（例如在 "type":"module" 工程里用 require）不是候选缺陷：
   // 归到测试材料错误，让 Agent 改脚本，而不是让研发去改实现。
-  const scriptErrors = input.commandRuns.filter((run) =>
-    /require is not defined in ES module scope|ERR_REQUIRE_ESM/.test(run.output),
+  // 只在“确实失败”且“没有任何业务断言失败”时才这样归类：对照组正常输出里的同类文本、
+  // 或被别的命令的业务断言遮蔽时，不能把真实缺陷判成测试材料问题。
+  const failedRuns = input.commandRuns.filter(
+    (run) => !run.aborted && !run.timedOut && run.exitCode !== null && run.exitCode !== 0,
   )
+  const hasAssertionFailure = failedRuns.some((run) => hasAssertionSignature(run.output))
+  const scriptErrors = hasAssertionFailure
+    ? []
+    : failedRuns.filter((run) =>
+        /require is not defined in ES module scope|ERR_REQUIRE_ESM/.test(run.output),
+      )
   if (scriptErrors.length > 0) {
     return {
       kind: 'test_error',
