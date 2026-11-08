@@ -7407,3 +7407,13 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
   证据：`tests/commitment-resolution-lookup.test.ts` 3 例（三维命中、错位不命中、首次决定不被覆盖），
   与既有准入用例合计 9 项通过；经 `make commit-check` 放行。
 - 仍缺：客户决定身份的可信入口核验（当前仍是 `web-decision:`/`owner:` 前缀判定），以及步骤 3–6。
+
+### 198.3 执行进展三：N/H/A 复跑（2026-11-08）
+
+- 复跑命令：`node scripts/ts/m1-stats.ts --db reports/m1/ops-2026-11-07T06-52-28-823Z/records.sqlite --db reports/m1/ops-2026-11-07T06-40-22-461Z/records.sqlite --out /tmp/m1-stats`（退出码 0）。
+- 结果（研发以独立需求、运维以独立事件为分母）：
+  - 库 A：N研=1、H研=1、A研=0，未完成 1（req-…c727ed，awaiting_clarification）；N运=1、H运=0、自主恢复=1（原始告警 11 行合并为 1 起）。
+  - 库 B：N研=1、H研=0、A研=0，未完成 1（req-…903b01，blocked）；N运=2、H运=0、自主恢复=1（原始告警 151 行合并为 2 起）。
+- 证据位置：`/tmp/m1-stats/stats.md`、`/tmp/m1-stats/stats.json`（临时目录，未入库）。
+- 未覆盖：真实归档里单库最大 151 条告警行，**>200 事件规模边界没有真实样本**；确定性夹具的规模用例仍未补。
+- 发现但不碰：`stats.md` 的比率显示为“1/1 = 1.0%”，分母为 1 时百分比少乘 100（应为 100%），属该脚本展示缺陷，未在本轮修改。
