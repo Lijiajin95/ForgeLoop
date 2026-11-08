@@ -7521,3 +7521,16 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
   `make mutation-incremental SCOPE=controlled`（约 35 分钟），确认关键存活归零。
 - 本轮未新增提交：尝试新建 covers 用例时发现 main 已有同名文件，按“复用不重复”放弃，
   worktree `p0-tp` 已清理。
+
+## 203. 受控变异复跑（2026-11-08 20:37）
+
+- `4b4e89a` 扩写 `tests/task-plan-covers.test.ts`（5 例：全部分隔符、AC- 任意位置过滤、去重、缺省 undefined），
+  提交经 `make commit-check` 放行。
+- 复跑 `make mutation-incremental SCOPE=controlled`：`score=94.52%`，分母 766
+  （killed 718 / timeout 6 / survived 38 / noCoverage 4），存活 23、**关键存活 14**、豁免 19。
+  与上一轮相比关键存活 15 → 14（少 1），仍 FAIL。
+- 剩余 14 条关键存活仍在 `src/domain/task-plan.ts`：
+  117 行去重分支、121 行 `/^BP-\d+$/` 及其前后缀变体、359 行 `covers` 缺省分支。
+  需要的输入形状：只匹配前缀的 `xBP-1`、只匹配后缀的 `BP-1x`、重复项（去重前后）、
+  `covers` 字段存在但为空数组 vs 缺省。补齐后再跑同一命令确认归零。
+- 领域 1 仍记**未完成**；日志 `/tmp/mut4.log`。
