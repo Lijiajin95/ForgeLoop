@@ -586,7 +586,15 @@ async function main(): Promise<void> {
       {
         project: PROJECT,
         projectPath: project,
-        activeRoots: ['src/', 'scripts/', 'docs/', 'server.mjs', 'README.md', 'package.json'],
+        activeRoots: [
+          'src/',
+          'scripts/',
+          'docs/',
+          'evidence/',
+          'server.mjs',
+          'README.md',
+          'package.json',
+        ],
         recordsRoot,
         pollSeconds: 2,
         owner: 'real-ops-e2e',
