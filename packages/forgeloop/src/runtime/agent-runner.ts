@@ -44,6 +44,8 @@ export interface AgentOpenRequest {
   readonly allowTools?: readonly string[]
   /** 程序指定会话身份；研发会话必须可跨请求恢复，不能每轮随机。 */
   readonly sessionId?: string
+  /** 该会话服务哪个需求；协调器用它判断会话是否还有可观测进展。 */
+  readonly reqId?: string
 }
 
 export interface AgentResumeRequest {

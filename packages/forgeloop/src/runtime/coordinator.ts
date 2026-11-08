@@ -22,6 +22,8 @@ export interface CoordinatorOptions {
   readonly runtime: ForgeLoopRuntime
   readonly pollSeconds: number
   readonly autoAdvance: boolean
+  /** 可注入时钟；测试用，默认 Date.now。 */
+  readonly now?: () => number
 }
 
 export interface CoordinatorSnapshot {
@@ -48,6 +50,9 @@ export class Coordinator {
   private stopped = true
   private ticking = false
   private inflight = new Map<string, AbortController>()
+  private readonly now: () => number
+  /** 各在途请求开始执行的时间；用于给“尚未产生进展”的回合留出启动宽限。 */
+  private readonly startedAt = new Map<string, number>()
   private lastTickAt = ''
   private lastError = ''
   private current: Promise<void> | undefined
@@ -58,6 +63,7 @@ export class Coordinator {
     this.logger = createPluginLogger(options.runtime.config)
     this.pollSeconds = options.pollSeconds
     this.autoAdvance = options.autoAdvance
+    this.now = options.now ?? (() => Date.now())
     this.owner = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
   }
 
@@ -218,6 +224,18 @@ export class Coordinator {
     await this.runtime.deployments.recoverInterrupted()
   }
 
+  /** 是否有可观测进展：最近一次活动在宽限窗口内。 */
+  private hasProgress(reqId: string, requestId: string): boolean {
+    const started = this.startedAt.get(requestId) ?? 0
+    const at = Math.max(this.runtime.progress.last(reqId), started)
+    return this.now() - at <= this.progressGraceMs()
+  }
+
+  /** 启动宽限与进展宽限：小于停滞阈值，保证正常思考不会被误判。 */
+  private progressGraceMs(): number {
+    return Math.max(30_000, Math.min(120_000, this.watchdogIntervalMs() * 4))
+  }
+
   /** 看门狗轮询间隔：远小于判定阈值，保证挂起能在一个阈值窗口附近被收口。 */
   private watchdogIntervalMs(): number {
     return Math.max(5, Math.min(30, this.pollSeconds)) * 1000
@@ -233,7 +251,7 @@ export class Coordinator {
    * 只处理心跳停滞的 started 动作，并把动作、请求、会话与取消信号一起收口；
    * 副作用未知时保留“需核对”的失败记录，不自动重放。返回本次收口数量。
    */
-  async runWatchdog(now = new Date().toISOString()): Promise<number> {
+  async runWatchdog(now = new Date(this.now()).toISOString()): Promise<number> {
     if (this.stopped) return 0
     const cutoff = new Date(
       Date.parse(now) - staleActionMs(this.runtime.config.agent.maxTurnSeconds),
@@ -241,15 +259,20 @@ export class Coordinator {
     const stale = this.runtime.repo.staleStartedActions(cutoff)
     let closed = 0
     for (const action of stale) {
+      const requestId = action.actionId.startsWith('act-')
+        ? action.actionId.slice('act-'.length)
+        : ''
+      // 动作心跳过期但确实还有可观测进展：说明模型在做事，续期而不是误杀。
+      if (requestId !== '' && this.hasProgress(action.taskId, requestId)) {
+        this.runtime.repo.touchAction(action.actionId, now)
+        continue
+      }
       const detail =
         `执行无进展：动作心跳早于 ${cutoff}，由看门狗收口（${now}）；` +
         '可能已产生副作用，需人工核对后重新排队，未自动重放'
       if (!this.runtime.repo.finishActionIfStarted(action.actionId, 'interrupted', detail, now)) {
         continue
       }
-      const requestId = action.actionId.startsWith('act-')
-        ? action.actionId.slice('act-'.length)
-        : ''
       if (requestId !== '') {
         this.runtime.repo.resolveRequestIfClaimed(requestId, 'failed', detail, now)
         this.runtime.repo.releaseDevSessionByRequest(requestId, now)
@@ -290,7 +313,7 @@ export class Coordinator {
     const controller = new AbortController()
     this.inflight.set(request.requestId, controller)
     const actionId = `act-${request.requestId}`
-    const now = new Date().toISOString()
+    const now = new Date(this.now()).toISOString()
     this.runtime.repo.startAction({
       actionId,
       taskId: request.reqId,
@@ -300,14 +323,17 @@ export class Coordinator {
       now,
       pid: process.pid,
     })
-    // 执行期间持续刷新心跳：长回合仍有进展，看门狗不会误杀。
+    // 只有出现可观测进展才刷新心跳：执行器挂起后不再刷新，看门狗才能识别。
+    this.startedAt.set(request.requestId, this.now())
     const heartbeat = setInterval(() => {
-      this.runtime.repo.touchAction(actionId, new Date().toISOString())
+      if (!this.hasProgress(request.reqId, request.requestId)) return
+      this.runtime.repo.touchAction(actionId, new Date(this.now()).toISOString())
     }, this.heartbeatIntervalMs())
     heartbeat.unref()
+    const execution = this.runtime.executeRequest(request, controller.signal)
     try {
-      const outcome = await this.runtime.executeRequest(request, controller.signal)
-      const finishedAt = new Date().toISOString()
+      const outcome = await Promise.race([execution, abortRejection(controller.signal)])
+      const finishedAt = new Date(this.now()).toISOString()
       // 迟到结果不得覆盖已被看门狗收口的状态。
       if (
         !this.runtime.repo.finishActionIfStarted(
@@ -328,8 +354,18 @@ export class Coordinator {
       )
       this.runtime.settleStopIfQuiet(request.reqId)
     } catch (error) {
-      const finishedAt = new Date().toISOString()
-      const detail = `执行异常：${errorMessage(error)}；按失败收口，可重新执行`
+      const finishedAt = new Date(this.now()).toISOString()
+      // 被取消时优先记录执行器真正返回的原因；取不到再用取消本身的原因。
+      // 宿主停止时优先保留执行器真正返回的原因；看门狗收口不等待，避免拖慢后续调度。
+      const settled =
+        controller.signal.aborted && this.stopped ? await settleWithin(execution) : null
+      const reason =
+        settled === null
+          ? errorMessage(error)
+          : settled.status === 'rejected'
+            ? errorMessage(settled.reason)
+            : settled.value.detail
+      const detail = `执行异常：${reason}；按失败收口，可重新执行`
       this.lastError = detail
       if (this.runtime.repo.finishActionIfStarted(actionId, 'failed', detail, finishedAt)) {
         this.runtime.repo.resolveRequestIfClaimed(request.requestId, 'failed', detail, finishedAt)
@@ -340,6 +376,7 @@ export class Coordinator {
     } finally {
       clearInterval(heartbeat)
       this.inflight.delete(request.requestId)
+      this.startedAt.delete(request.requestId)
     }
   }
 
@@ -364,4 +401,39 @@ export class Coordinator {
       record: this.runtime.repo.action(`act-${request.requestId}`),
     }))
   }
+}
+
+/** 取消信号到位即返回拒绝，避免不响应取消的执行永久占住调度。 */
+function abortRejection(signal: AbortSignal): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('执行被取消'))
+      return
+    }
+    signal.addEventListener(
+      'abort',
+      () => {
+        reject(new Error('执行被取消'))
+      },
+      { once: true },
+    )
+  })
+}
+
+/** 在短窗口内取得执行结果；超时返回 null，避免为记录原因而无限等待。 */
+function settleWithin<T>(
+  promise: Promise<T>,
+): Promise<{ status: 'fulfilled'; value: T } | { status: 'rejected'; reason: unknown } | null> {
+  return Promise.race([
+    promise.then(
+      (value) => ({ status: 'fulfilled' as const, value }),
+      (reason: unknown) => ({ status: 'rejected' as const, reason }),
+    ),
+    new Promise<null>((done) => {
+      const timer = setTimeout(() => {
+        done(null)
+      }, 2_000)
+      timer.unref()
+    }),
+  ])
 }

@@ -19,6 +19,8 @@ import type { ForgeLoopConfig } from '../config.js'
 import { evidenceDir, planReviewDir, recordsPath, sessionsDir, workspaceDir } from '../config.js'
 import { Database } from '../records/db.js'
 import { Repository, type ServiceRequestRecord } from '../records/repository.js'
+import { ProgressTracker } from '../domain/progress.js'
+import { withProgressTracking } from './agent-progress.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import { type Requirement, type RequirementAnalysis } from '../domain/requirement.js'
 import {
@@ -1204,18 +1206,18 @@ ${answer}`
     return this.verificationChecks.run(reqId, label, caller)
   }
 
-  /** 测试会话的非命令工具面：对照与测试材料写入；上下文、路径与补丁由注册表校验。 */
+  /** 测试会话的非命令工具面（对照与材料写入）；上下文与补丁由注册表校验。 */
   get verificationTool(): VerificationCheckRegistry {
     return this.verificationChecks
   }
 
-  /**
-   * 打开连续 Agent 会话；测试可注入只实现 run 的假执行器，
-   * 此时退化为每轮独立执行（业务状态与证据仍由主控收口）。
-   */
+  readonly progress = new ProgressTracker()
   private async openAgent(request: AgentOpenRequest): Promise<AgentSession> {
-    if (typeof this.runner.open === 'function') return this.runner.open(request)
-    return sessionFromRunner(this.runner, request)
+    const session =
+      typeof this.runner.open === 'function'
+        ? await this.runner.open(request)
+        : sessionFromRunner(this.runner, request)
+    return withProgressTracking(session, request.reqId, this.progress)
   }
 
   approvePlan(input: {
