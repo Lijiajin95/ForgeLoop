@@ -7511,3 +7511,13 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
 - **判据**：分数高于 80 门槛，但关键存活不为 0 → 领域 1 仍记为**未完成**。
   最小补齐：为 `task-plan.ts` 的 AC/BP 解析与空值分支补行为测试后重跑同一命令。
 - 日志：`/tmp/mut3.log`；报告：`reports/mutation-incremental-controlled-*.json`。
+
+### 202.1 关键存活复核（2026-11-08 20:2x）
+
+- 复核 `tests/task-plan-covers.test.ts`（main 上已有，2 例：拼接编号拆分、非业务点编号拒绝）：
+  该文件在 `mut3` 运行时已在树中，15 条关键存活仍未被杀死，说明现有断言只覆盖“结果集合”，
+  未覆盖各条正则/空值/去重分支（`task-plan.ts` 109–121、359）。
+- 因此领域 1 仍不满足判据；最小补齐是把该用例扩成逐分支断言后再跑
+  `make mutation-incremental SCOPE=controlled`（约 35 分钟），确认关键存活归零。
+- 本轮未新增提交：尝试新建 covers 用例时发现 main 已有同名文件，按“复用不重复”放弃，
+  worktree `p0-tp` 已清理。
