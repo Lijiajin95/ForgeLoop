@@ -183,10 +183,10 @@ describe('verification command parsing', () => {
     expect(() =>
       parseVerificationCommands(
         JSON.stringify({
-          commands: Array.from({ length: 16 }, (_v, i) => ({ label: `c${i}`, argv: ['x'] })),
+          commands: Array.from({ length: 21 }, (_v, i) => ({ label: `c${i}`, argv: ['x'] })),
         }),
       ),
-    ).toThrow('测试命令一次最多 15 条')
+    ).toThrow('测试命令一次最多 20 条')
     expect(() =>
       parseVerificationCommands(JSON.stringify({ commands: [{ label: '', argv: ['x'] }] })),
     ).toThrow('commands[0].label 必须是非空字符串')
