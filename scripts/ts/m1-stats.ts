@@ -233,9 +233,10 @@ function report(dbPath: string): DatabaseReport {
   }
 }
 
-function ratio(numerator: number, denominator: number): string {
-  if (denominator === 0) return '无样本'
-  return `${numerator}/${denominator} = ${(numerator / denominator).toFixed(1)}%`
+/** 比率显示：分母为 0 时明确“无样本”，否则按百分比保留一位小数。 */
+export function formatRate(numerator: number, denominator: number): string {
+  if (denominator === 0) return `${numerator}/0 = 无样本`
+  return `${numerator}/${denominator} = ${((numerator / denominator) * 100).toFixed(1)}%`
 }
 
 function render(reports: readonly DatabaseReport[]): string {
@@ -256,8 +257,12 @@ function render(reports: readonly DatabaseReport[]): string {
     lines.push(`- 观察窗口：${item.window.from || '无'} → ${item.window.to || '无'}`)
     lines.push('### 研发', '')
     lines.push(`- N研 = ${reqs.length}`)
-    lines.push(`- H研 = ${involved.length}（人工介入率 ${ratio(involved.length, reqs.length)}）`)
-    lines.push(`- A研 = ${results.length}（自主成功比例 ${ratio(results.length, reqs.length)}）`)
+    lines.push(
+      `- H研 = ${involved.length}（人工介入率 ${formatRate(involved.length, reqs.length)}）`,
+    )
+    lines.push(
+      `- A研 = ${results.length}（自主成功比例 ${formatRate(results.length, reqs.length)}）`,
+    )
     lines.push(`- 无介入但未完成：${unfinished.length}`)
     for (const sample of reqs) {
       const facts = sample.interventions.length > 0 ? sample.interventions.join('；') : '无记录介入'
@@ -272,9 +277,11 @@ function render(reports: readonly DatabaseReport[]): string {
     const recovered = incidents.filter((incident) => !incident.humanInvolved && incident.recovered)
     lines.push(`- 原始告警行 = ${item.events.length}（同一故障的多条告警合并后计入分母）`)
     lines.push(`- N运 = ${incidents.length}`)
-    lines.push(`- H运 = ${human.length}（人工介入率 ${ratio(human.length, incidents.length)}）`)
     lines.push(
-      `- 自主恢复 = ${recovered.length}（恢复比例 ${ratio(recovered.length, incidents.length)}）`,
+      `- H运 = ${human.length}（人工介入率 ${formatRate(human.length, incidents.length)}）`,
+    )
+    lines.push(
+      `- 自主恢复 = ${recovered.length}（恢复比例 ${formatRate(recovered.length, incidents.length)}）`,
     )
     for (const incident of incidents) {
       lines.push(
@@ -289,20 +296,22 @@ function render(reports: readonly DatabaseReport[]): string {
   return `${lines.join('\n')}\n`
 }
 
-const options = args()
-if (options.dbs.length === 0) {
-  process.stdout.write(
-    '没有可统计的记录库；先用 --db 指定或先运行真实 E2E 生成 reports/m1 归档。\n',
-  )
-  process.exit(0)
+function main(): void {
+  const options = args()
+  if (options.dbs.length === 0) {
+    process.stderr.write('没有可统计的记录库：请用 --db 指定，或先归档到 reports/m1\n')
+    process.exit(1)
+  }
+  const reports = options.dbs.map(report)
+  const markdown = render(reports)
+  if (options.out) {
+    mkdirSync(options.out, { recursive: true })
+    writeFileSync(join(options.out, 'stats.md'), markdown)
+    writeFileSync(join(options.out, 'stats.json'), `${JSON.stringify(reports, null, 2)}\n`)
+    process.stdout.write(`统计已写入 ${options.out}\n`)
+  } else {
+    process.stdout.write(markdown)
+  }
 }
-const reports = options.dbs.map(report)
-const markdown = render(reports)
-if (options.out) {
-  mkdirSync(options.out, { recursive: true })
-  writeFileSync(join(options.out, 'stats.md'), markdown)
-  writeFileSync(join(options.out, 'stats.json'), `${JSON.stringify(reports, null, 2)}\n`)
-  process.stdout.write(`统计已写入 ${options.out}\n`)
-} else {
-  process.stdout.write(markdown)
-}
+
+if (process.argv[1]?.endsWith('m1-stats.ts')) main()
