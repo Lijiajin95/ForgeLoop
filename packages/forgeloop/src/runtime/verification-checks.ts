@@ -180,6 +180,21 @@ function safeLabel(label: string): string {
   return cleaned || 'check'
 }
 
+/** 命令里引用、但候选工作区里并不存在的 verification/ 路径。 */
+function missingMaterialPaths(workspace: string, argv: readonly string[]): string[] {
+  const missing: string[] = []
+  for (const arg of argv) {
+    const match = /(?:^|[\s'"=])(verification\/[^\s'"]+)/.exec(arg)
+    if (!match) continue
+    const relative = match[1] ?? ''
+    if (relative === '' || relative.includes('..')) continue
+    if (!existsSync(join(workspace, relative)) && !missing.includes(relative)) {
+      missing.push(relative)
+    }
+  }
+  return missing
+}
+
 export class VerificationCheckRegistry {
   private readonly contexts = new Map<string, ActiveContext>()
 
@@ -272,6 +287,26 @@ export class VerificationCheckRegistry {
         text: '候选提交在验证开始后发生变化；本次命令没有执行，验证将被阻断。',
         data: { label, integrityIssues: [...context.integrityIssues] },
       }
+    }
+    // 引用了 verification/ 下并不存在的脚本：立即给出可执行的失败，而不是 MODULE_NOT_FOUND。
+    const missing = missingMaterialPaths(context.activation.workspace, check.argv)
+    if (missing.length > 0) {
+      const record: VerificationCheckRecord = {
+        label,
+        argv: check.argv,
+        expectFailure: check.expectFailure,
+        ...(check.category ? { category: check.category } : {}),
+        materialsSha256: context.materialsSha256,
+        exitCode: 1,
+        timedOut: false,
+        aborted: false,
+        durationMs: 0,
+        output: `验证脚本未创建：${missing.join('、')}；请先用测试材料工具写入后再执行该命令`,
+        logPath: '',
+        logSha256: '',
+      }
+      context.runs.set(label, record)
+      return this.outcome(record, context, false)
     }
     const index = context.runs.size + 1
     const logPath = join(context.activation.dir, `verification-${index}-${safeLabel(label)}.log`)
