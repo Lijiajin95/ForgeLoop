@@ -1523,6 +1523,12 @@
         "mutator": "StringLiteral",
         "reason": "authorizationSource 的初值是空字符串，Stryker 把该字面量替换成空字符串后源码完全相同，任何测试都无法区分。",
         "snippet": "authorizationSource: '',"
+      },
+      {
+        "file": "packages/forgeloop/src/domain/task-plan.ts",
+        "line": 365,
+        "mutator": "StringLiteral",
+        "reason": "该变异把 authorizationSource 的空字符串初值替换成空字符串，替换前后源码等价；Stryker 报告行号与当前源码相差 3 行，故按行号兜底登记。"
       }
     ],
     "note": "全量 92 源文件变异仍低于 80（2026-11 实测 56.28%）；本清单只声明今晚的受控范围，不改 stryker break，不排除业务源码。"
