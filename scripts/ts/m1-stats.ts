@@ -26,8 +26,22 @@ interface RequirementSample {
   readonly autonomousSuccess: boolean
 }
 
+interface OpsIncident {
+  readonly key: string
+  readonly resourceId: string
+  readonly checkId: string
+  readonly fixRequirementId: string
+  readonly eventIds: readonly string[]
+  readonly states: readonly string[]
+  readonly humanInvolved: boolean
+  readonly closed: boolean
+  readonly recovered: boolean
+}
+
 interface OpsSample {
   readonly eventId: string
+  readonly resourceId: string
+  readonly checkId: string
   readonly project: string
   readonly state: string
   readonly humanInvolved: boolean
@@ -42,6 +56,7 @@ interface DatabaseReport {
   readonly window: { readonly from: string; readonly to: string }
   readonly requirements: readonly RequirementSample[]
   readonly events: readonly OpsSample[]
+  readonly incidents: readonly OpsIncident[]
 }
 
 function args(): { dbs: string[]; out: string } {
@@ -150,12 +165,15 @@ function requirementsOf(db: DatabaseSync): RequirementSample[] {
 function eventsOf(db: DatabaseSync): OpsSample[] {
   const rows = db
     .prepare(
-      `SELECT event_id, project, state, human_involved, closed_at, recovered_at, fix_requirement_id
+      `SELECT event_id, project, resource_id, check_id, state, human_involved,
+              closed_at, recovered_at, fix_requirement_id
          FROM ops_events ORDER BY opened_at`,
     )
     .all() as Array<Record<string, unknown>>
   return rows.map((row) => ({
     eventId: String(row.event_id),
+    resourceId: String(row.resource_id ?? ''),
+    checkId: String(row.check_id ?? ''),
     project: String(row.project),
     state: String(row.state),
     humanInvolved: Number(row.human_involved ?? 0) === 1,
@@ -163,6 +181,33 @@ function eventsOf(db: DatabaseSync): OpsSample[] {
     recoveredAt: String(row.recovered_at ?? ''),
     fixRequirementId: String(row.fix_requirement_id ?? ''),
   }))
+}
+
+/**
+ * 事件归并为“同一次故障”：同一资源与检查、且指向同一个修复需求（或都还没有修复需求）
+ * 的多个告警合并计为一个事件；映射保留在 eventIds 里，便于回查每条原始记录。
+ */
+function incidentsOf(events: readonly OpsSample[]): OpsIncident[] {
+  const groups = new Map<string, OpsSample[]>()
+  for (const event of events) {
+    const key = [event.resourceId, event.checkId, event.fixRequirementId].join('|')
+    const list = groups.get(key) ?? []
+    list.push(event)
+    groups.set(key, list)
+  }
+  return [...groups.entries()]
+    .map(([key, list]) => ({
+      key,
+      resourceId: list[0]!.resourceId,
+      checkId: list[0]!.checkId,
+      fixRequirementId: list[0]!.fixRequirementId,
+      eventIds: list.map((event) => event.eventId),
+      states: [...new Set(list.map((event) => event.state))],
+      humanInvolved: list.some((event) => event.humanInvolved),
+      closed: list.some((event) => event.closedAt !== ''),
+      recovered: list.some((event) => event.recoveredAt !== ''),
+    }))
+    .sort((left, right) => left.key.localeCompare(right.key))
 }
 
 function report(dbPath: string): DatabaseReport {
@@ -181,6 +226,7 @@ function report(dbPath: string): DatabaseReport {
       window: { from: String(windows?.from_at ?? ''), to: String(windows?.to_at ?? '') },
       requirements: requirementsOf(db),
       events: eventsOf(db),
+      incidents: incidentsOf(eventsOf(db)),
     }
   } finally {
     db.close()
@@ -221,20 +267,21 @@ function render(reports: readonly DatabaseReport[]): string {
       )
     }
     lines.push('', '### 运维', '')
-    const events = item.events
-    const human = events.filter((event) => event.humanInvolved)
-    const recovered = events.filter(
-      (event) => !event.humanInvolved && (event.state === 'recovered' || event.state === 'closed'),
-    )
-    lines.push(`- N运 = ${events.length}`)
-    lines.push(`- H运 = ${human.length}（人工介入率 ${ratio(human.length, events.length)}）`)
+    const incidents = item.incidents
+    const human = incidents.filter((incident) => incident.humanInvolved)
+    const recovered = incidents.filter((incident) => !incident.humanInvolved && incident.recovered)
+    lines.push(`- 原始告警行 = ${item.events.length}（同一故障的多条告警合并后计入分母）`)
+    lines.push(`- N运 = ${incidents.length}`)
+    lines.push(`- H运 = ${human.length}（人工介入率 ${ratio(human.length, incidents.length)}）`)
     lines.push(
-      `- 自主恢复 = ${recovered.length}（恢复比例 ${ratio(recovered.length, events.length)}）`,
+      `- 自主恢复 = ${recovered.length}（恢复比例 ${ratio(recovered.length, incidents.length)}）`,
     )
-    for (const event of events) {
+    for (const incident of incidents) {
       lines.push(
-        `  - ${event.eventId}｜${event.state}｜人工介入 ${event.humanInvolved ? '是' : '否'}｜` +
-          `关闭 ${event.closedAt || '未关闭'}｜修复需求 ${event.fixRequirementId || '无'}`,
+        `  - ${incident.resourceId}/${incident.checkId}｜状态 ${incident.states.join('/')}｜` +
+          `人工介入 ${incident.humanInvolved ? '是' : '否'}｜关闭 ${incident.closed ? '是' : '否'}｜` +
+          `修复需求 ${incident.fixRequirementId || '无'}｜事件 ${incident.eventIds.length} 条：` +
+          `${incident.eventIds.slice(0, 5).join('、')}${incident.eventIds.length > 5 ? '…' : ''}`,
       )
     }
     lines.push('')
