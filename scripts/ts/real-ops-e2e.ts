@@ -119,17 +119,25 @@ async function probeIdentity(port: number): Promise<Record<string, unknown>> {
 }
 
 /** 把本次运行的关键证据复制到 reports/m1/<时间戳>/，便于长期回查。 */
-function archiveEvidence(root: string, summary: unknown): void {
+function archiveEvidence(
+  root: string,
+  summary: unknown,
+): { ok: boolean; dir: string; error: string } {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const target = join(ROOT, 'reports', 'm1', `ops-${stamp}`)
+  const files: string[] = []
   try {
     mkdirSync(target, { recursive: true })
     for (const name of ['summary.json', 'host.log', 'config.json']) {
       const from = join(root, name)
-      if (existsSync(from)) copyFileSync(from, join(target, name))
+      if (existsSync(from)) {
+        copyFileSync(from, join(target, name))
+        files.push(name)
+      }
     }
     // SQLite 快照用 VACUUM INTO：单文件、一致、不依赖 -wal/-shm，归档后可直接打开。
-    const db = join(root, 'records', 'projects', 'real-ops', 'records.sqlite')
+    const projectRecords = join(root, 'records', 'projects', 'real-ops')
+    const db = join(projectRecords, 'records.sqlite')
     if (existsSync(db)) {
       const source = new DatabaseSync(db, { readOnly: true })
       try {
@@ -137,15 +145,61 @@ function archiveEvidence(root: string, summary: unknown): void {
       } finally {
         source.close()
       }
+      files.push('records.sqlite')
     }
-    const verifications = join(root, 'records', 'projects', 'real-ops', 'verifications')
-    if (existsSync(verifications)) {
-      cpSync(verifications, join(target, 'verifications'), { recursive: true })
+    // 运维诊断、验证材料等原始文件：只复制项目记录目录，跳过数据库与 WAL 附属文件。
+    if (existsSync(projectRecords)) {
+      cpSync(projectRecords, join(target, 'records'), {
+        recursive: true,
+        filter: (source) => !/records\.sqlite(-shm|-wal)?$/.test(source),
+      })
+      files.push('records/')
     }
-    writeFileSync(join(target, 'README.md'), `${JSON.stringify(summary, null, 2)}\n`)
+    // 独立可查自检：归档快照必须能单独打开，且不依赖源目录。
+    if (files.includes('records.sqlite')) {
+      const snapshot = new DatabaseSync(join(target, 'records.sqlite'), { readOnly: true })
+      try {
+        snapshot.prepare('SELECT COUNT(*) AS n FROM requirements').get()
+        snapshot.prepare('SELECT COUNT(*) AS n FROM ops_events').get()
+      } finally {
+        snapshot.close()
+      }
+    }
+    const index = [
+      '# M1 运维闭环证据归档',
+      '',
+      `- 生成时间：${new Date().toISOString()}`,
+      `- 源现场：${root}（可能已被清理，本目录应可独立复核）`,
+      `- 文件：${files.join('、')}`,
+      '',
+      '## 复核查询',
+      '',
+      '```sql',
+      '-- 事件与关闭状态',
+      'SELECT event_id, state, closed_at, fix_requirement_id FROM ops_events ORDER BY opened_at;',
+      '-- 修复需求与提交',
+      'SELECT req_id, status, source FROM requirements;',
+      'SELECT req_id, commit_sha, candidate_sha256 FROM requirement_commits;',
+      '-- 部署意图与决定',
+      'SELECT intent_id, state, artifact_sha256 FROM deployment_intents;',
+      'SELECT intent_id, decision, decided_by FROM deployment_decisions;',
+      '```',
+      '',
+      '## 摘要',
+      '',
+      '```json',
+      JSON.stringify(summary, null, 2),
+      '```',
+      '',
+    ].join('\n')
+    writeFileSync(join(target, 'index.md'), index)
+    files.push('index.md')
     log(`证据已归档：${target}`)
+    return { ok: true, dir: target, error: '' }
   } catch (error) {
-    log(`证据归档失败（不影响本次结论）：${error instanceof Error ? error.message : String(error)}`)
+    const message = error instanceof Error ? error.message : String(error)
+    log(`证据归档失败：${message}`)
+    return { ok: false, dir: target, error: message }
   }
 }
 
@@ -920,10 +974,17 @@ async function main(): Promise<void> {
       db.close()
     }
   }
-  summary.failures = failures
   writeFileSync(join(root, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
   // 证据归档到仓库内持久目录：/tmp 会被系统清理，不能作为验收证据位置。
-  archiveEvidence(root, summary)
+  const archive = archiveEvidence(root, summary)
+  summary.archive = { dir: archive.dir, ok: archive.ok, error: archive.error }
+  if (!archive.ok) failures.push(`证据归档失败：${archive.error}`)
+  summary.failures = failures
+  writeFileSync(join(root, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  if (archive.ok) {
+    // 归档目录里的摘要同步成最终版本（含归档结果与失败项）。
+    writeFileSync(join(archive.dir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  }
   log(`结果：${JSON.stringify({ eventId, fixReqId, closed, failures })}`)
   if (failures.length > 0) {
     process.exitCode = 1
