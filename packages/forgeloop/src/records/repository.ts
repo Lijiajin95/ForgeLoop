@@ -348,6 +348,30 @@ export class Repository extends DevSessionStore {
       )
   }
 
+  /** 按需求 + 版本 + 承诺三维回查解除依据；没有记录时返回 null。 */
+  commitmentResolutionFor(
+    reqId: string,
+    requirementVersion: number,
+    existingReqId: string,
+  ): CommitmentResolutionRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM requirement_commitment_resolutions
+         WHERE req_id = ? AND requirement_version = ? AND existing_req_id = ?`,
+      )
+      .get(reqId, requirementVersion, existingReqId)
+    if (!row) return null
+    return {
+      reqId: text(row, 'req_id'),
+      requirementVersion: num(row, 'requirement_version'),
+      existingReqId: text(row, 'existing_req_id'),
+      decisionSource: text(row, 'decision_source'),
+      decision: commitmentDecisionOf(text(row, 'decision')),
+      reason: text(row, 'reason'),
+      decidedAt: text(row, 'decided_at'),
+    }
+  }
+
   commitmentResolutions(reqId: string): CommitmentResolutionRecord[] {
     const rows = this.db
       .prepare(
