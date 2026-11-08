@@ -7493,3 +7493,21 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
 七领域状态（本轮结束）：1 部分完成（变异未取得结果）；2 通过；3 部分完成（身份核验缺）；
 4 部分完成（真实闭环未跑）；5 部分完成（双入口未统一）；6 部分完成（规模回归已补、看板端到端未验）；
 7 未完成（黑盒越界用例与模型复跑）。
+
+## 202. 变异门禁恢复与结果（2026-11-08 20:00）
+
+- **根因定位**：Stryker 沙箱只拷贝 `packages/forgeloop`，而 `tests/evidence-archive.test.ts` 通过
+  `../../../scripts/ts/evidence-archive.js` 引用仓库根脚本 → dry run 报
+  `Cannot find module '.../scripts/ts/evidence-archive.js'`，整个变异运行中止。
+- **修复**（`8192a8a`）：归档实现移入 `packages/forgeloop/src/records/evidence-archive.ts`，
+  `scripts/ts/evidence-archive.ts` 改为薄 CLI（引用编译产物）；测试改引用 `src`；
+  补齐“源库不存在”“rename 失败清理临时文件”两条失败路径（6 例全绿）。
+  该决定同时修正了分层：可发布实现随包走，仓库脚本只做入口。
+- **恢复后的实际结果**（`make mutation-incremental SCOPE=controlled`，退出码 2）：
+  `score=94.52% 分母=766（killed=717, timeout=7, survived=38, noCoverage=4）`；
+  存活 24、**关键存活 15**、豁免 18。
+  15 条关键存活全部位于 `src/domain/task-plan.ts`（109–121、359 行：AC-/BP- 编号解析与空值分支），
+  不在本轮改动文件内，属既有缺口。
+- **判据**：分数高于 80 门槛，但关键存活不为 0 → 领域 1 仍记为**未完成**。
+  最小补齐：为 `task-plan.ts` 的 AC/BP 解析与空值分支补行为测试后重跑同一命令。
+- 日志：`/tmp/mut3.log`；报告：`reports/mutation-incremental-controlled-*.json`。
