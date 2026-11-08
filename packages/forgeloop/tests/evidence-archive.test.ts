@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
-import { archiveDatabase } from '../../../scripts/ts/evidence-archive.js'
+import { archiveDatabase } from '../src/records/evidence-archive.js'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
 
@@ -115,5 +115,24 @@ describe('archive reopen check', () => {
     } finally {
       reopened.close()
     }
+  })
+})
+describe('archive failure paths', () => {
+  it('reports a missing source and leaves nothing behind', () => {
+    expect(() => archiveDatabase(join(dir, 'nope.sqlite'), join(dir, 'out', 'x.sqlite'))).toThrow(
+      '记录库不存在',
+    )
+  })
+
+  it('cleans the staging file when the final rename fails', () => {
+    const source = join(dir, 'records.sqlite')
+    seed(source)
+    // 目标是非空目录：rename 必失败，必须清理临时文件并把错误抛出。
+    const target = join(dir, 'occupied')
+    mkdirSync(target)
+    writeFileSync(join(target, 'keep.txt'), 'x')
+    expect(() => archiveDatabase(source, target)).toThrow()
+    const leftovers = readdirSync(dir).filter((name) => name.endsWith('.partial'))
+    expect(leftovers).toEqual([])
   })
 })
