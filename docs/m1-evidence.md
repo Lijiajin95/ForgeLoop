@@ -68,6 +68,22 @@ node scripts/ts/real-deploy-interrupt.ts
 核对结论（脚本断言，非计划值）：运行身份 pid = 宿主进程 pid；版本与安装包一致；
 启动时间可解析；三个入口摘要均为 64 位十六进制；`artifactSha256` 等于 tarball 摘要。
 
+## 2.4 M1-7 历史回查（2026-11-08）
+
+`node scripts/ts/m1-history-review.ts` 扫描 docs 中引用的现场路径并核对是否仍可取得。
+最新结果：引用 66 条，可取得 31，**缺失 35**（多为 `/tmp` 旧现场）。
+缺失清单见 `reports/m1/history-*/review.md`。结论：这些缺失引用不能作为“已验证证据”，
+旧汇总中依赖它们的“达成”需要由本文件重新判定。
+
+## 2.5 真实宿主中断模式（待跑通）
+
+- `real-self-e2e.ts`：`FORGELOOP_REAL_SELF_INTERRUPT=1`
+- `real-ops-e2e.ts`：`FORGELOOP_REAL_OPS_INTERRUPT=1`
+
+两者都在部署 intent 进入 `applying` 后真实终止协调宿主，记录安装调用次数，
+重启宿主让协调器执行中断核对，并在收尾核对“无重复安装、收口到待核对/已验证、留下部署决定”。
+**尚未在一次成功走到部署的运行上执行过**，因此 M1-5 仍不判达成。
+
 ## 3. M1-3 现状（未达成）
 
 多次真实运行已取得：受控注入 → 真实模型诊断（从日志读出 watchdog 崩溃）→ 授权内临时恢复 →
