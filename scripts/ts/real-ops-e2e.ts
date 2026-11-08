@@ -32,6 +32,10 @@ const PYTHON =
   process.platform === 'win32' ? 'python.exe' : process.env.FORGELOOP_PYTHON?.trim() || 'python3'
 
 const ROOT = resolve(import.meta.dirname, '../..')
+/** 中断验收：部署进入 applying 后真实杀掉协调宿主，重启后由协调器核对恢复。 */
+const INTERRUPT = process.env.FORGELOOP_REAL_OPS_INTERRUPT === '1'
+/** 中断模式下安装动作等待若干秒，保证宿主在安装结果持久化前被杀。 */
+const INSTALL_DELAY_SECONDS = INTERRUPT ? 20 : 0
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
 const DSH_CLI = process.env.FORGELOOP_DSH_CLI ?? ''
 const PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
@@ -201,6 +205,14 @@ function archiveEvidence(
     log(`证据归档失败：${message}`)
     return { ok: false, dir: target, error: message }
   }
+}
+
+function countInstalls(targetDir: string): number {
+  const path = join(targetDir, 'installs.log')
+  if (!existsSync(path)) return 0
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim().length > 0).length
 }
 
 async function main(): Promise<void> {
@@ -533,6 +545,8 @@ async function main(): Promise<void> {
       '    restorable = os.path.isdir(current)',
       '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": "previous-1" if restorable else ""}))',
       'elif op == "apply":',
+      '    with open(os.path.join(target, "installs.log"), "a") as handle:',
+      '        handle.write(str(time.time()) + "\\n")',
       '    stop()',
       '    if os.path.isdir(previous):',
       '        shutil.rmtree(previous)',
@@ -545,6 +559,7 @@ async function main(): Promise<void> {
       '    port = free_port()',
       '    identity = start(port)',
       '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": sha(os.path.join(current, "bundle.tgz")), "port": port}, open(os.path.join(target, "install.json"), "w"))',
+      '    time.sleep(' + str(INSTALL_DELAY_SECONDS) + ')',
       '    print(json.dumps({"ok": True, "state": "applied", "version": identity.get("version", ""), "detail": "installed and restarted pid=" + str(identity.get("pid"))}))',
       'elif op == "restart":',
       '    stop()',
@@ -649,7 +664,7 @@ async function main(): Promise<void> {
         agent: { timeoutSeconds: 2400, maxTurnSeconds: 2400 },
         deployments: {
           enabled: true,
-          verifyTimeoutSeconds: 120,
+          verifyTimeoutSeconds: INTERRUPT ? 35 : 120,
           alerts: { webhook: 'http://127.0.0.1:9/unreachable', timeoutSeconds: 5 },
           tools: [
             {
@@ -822,7 +837,59 @@ async function main(): Promise<void> {
     }
     log(`事件 ${eventId} 已恢复，pid=${recoveredPid}`)
 
+    let interruptInfo: Record<string, unknown> | undefined
     while (Date.now() - started < TIMEOUT_MS) {
+      if (INTERRUPT && interruptInfo === undefined && fixReqId !== '') {
+        const db = new DatabaseSync(dbPath, { readOnly: true })
+        try {
+          const intent = db
+            .prepare(
+              'SELECT intent_id, state FROM deployment_intents WHERE requirement_id = ? ORDER BY rowid DESC LIMIT 1',
+            )
+            .get(fixReqId) as { intent_id?: string; state?: string } | undefined
+          if (intent?.state === 'applying') {
+            const installsBefore = countInstalls(targetDir)
+            const killedAt = new Date().toISOString()
+            terminate(host)
+            await sleep(3_000)
+            const installsAfterKill = countInstalls(targetDir)
+            const relaunch = spawn(hostLaunch.file, hostLaunch.args, {
+              cwd: ROOT,
+              env,
+              stdio: ['ignore', hostLog, hostLog],
+              ...hostLaunch.spawnOptions,
+            })
+            log(`中断注入：已杀宿主并重启 pid=${relaunch.pid}`)
+            // 等过中断判定窗口，让真实协调器执行 recoverInterrupted。
+            await sleep(45_000)
+            const after = new DatabaseSync(dbPath, { readOnly: true })
+            try {
+              const recovered = after
+                .prepare('SELECT state FROM deployment_intents WHERE intent_id = ?')
+                .get(String(intent.intent_id)) as { state?: string } | undefined
+              const decisions = after
+                .prepare(
+                  'SELECT decision FROM deployment_decisions WHERE intent_id = ? ORDER BY rowid',
+                )
+                .all(String(intent.intent_id)) as Array<{ decision?: string }>
+              interruptInfo = {
+                killedAt,
+                intentAtKill: intent.state,
+                installsBefore,
+                installsAfterKill,
+                intentAfterRecovery: String(recovered?.state ?? ''),
+                decisions: decisions.map((row) => String(row.decision ?? '')),
+                installsFinal: countInstalls(targetDir),
+              }
+            } finally {
+              after.close()
+            }
+            Object.assign(host, relaunch)
+          }
+        } finally {
+          db.close()
+        }
+      }
       const db = new DatabaseSync(dbPath, { readOnly: true })
       try {
         const row = db
@@ -867,8 +934,33 @@ async function main(): Promise<void> {
     closed,
     injectedAt,
     injected: 'SIGKILL 安装目录启动的目标进程（已标注）',
+    interrupted: INTERRUPT,
+    interrupt: interruptInfo,
   }
   const failures: string[] = []
+  if (INTERRUPT) {
+    const info = interruptInfo as
+      | {
+          installsBefore: number
+          installsFinal: number
+          intentAfterRecovery: string
+          decisions: string[]
+        }
+      | undefined
+    if (!info) failures.push('中断注入没有发生（部署没有进入 applying）')
+    else {
+      if (info.installsFinal !== info.installsBefore) {
+        failures.push(`中断恢复后发生了重复安装：${info.installsBefore} → ${info.installsFinal}`)
+      }
+      if (
+        info.intentAfterRecovery !== 'verified' &&
+        info.intentAfterRecovery !== 'applied_pending_verify'
+      ) {
+        failures.push(`中断恢复没有收口为待核对/已验证：${info.intentAfterRecovery}`)
+      }
+      if (info.decisions.length === 0) failures.push('中断恢复没有留下部署决定')
+    }
+  }
   if (!closed) failures.push('事件没有在原检查复核后关闭')
   if (!recoveredPid || recoveredPid === beforePid) failures.push('恢复后进程 pid 没有变化')
   if (!fixReqId) failures.push('事件没有关联修复需求')
