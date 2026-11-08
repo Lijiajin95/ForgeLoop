@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { verificationExecutionPrompt } from '../src/runtime/prompts.js'
 import {
   judgeVerificationResult,
   needsExecutionPreparation,
@@ -436,5 +437,34 @@ describe('verification judging branches', () => {
     )
     expect(review.blocking).toEqual([])
     expect(review.findings).toEqual([])
+  })
+})
+
+describe('verification execution feedback', () => {
+  it('lists previous blocking reasons so the same candidate can be re-verified with corrections', () => {
+    const prompt = verificationExecutionPrompt({
+      reqId: 'req-1',
+      candidateSha256: 'abc',
+      plan: { scenarios: [] } as never,
+      sessionId: 's1',
+      attemptId: 'a2',
+      previousIssues: [
+        '测试命令失败：s1-check（退出码 1）',
+        '错误对照预期失败但命令成功：s1-negative',
+      ],
+    })
+    expect(prompt).toContain('上一次未通过的具体原因')
+    expect(prompt).toContain('s1-negative')
+  })
+
+  it('omits the feedback block on the first attempt', () => {
+    const prompt = verificationExecutionPrompt({
+      reqId: 'req-1',
+      candidateSha256: 'abc',
+      plan: { scenarios: [] } as never,
+      sessionId: 's1',
+      attemptId: 'a1',
+    })
+    expect(prompt).not.toContain('上一次未通过的具体原因')
   })
 })

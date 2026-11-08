@@ -889,6 +889,28 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return { issues, head, changes }
   }
 
+  /** 同候选上一次验证的阻断原因；用于在复验时给出可执行反馈。 */
+  private previousVerificationIssues(
+    reqId: string,
+    plan: TaskPlan,
+    candidate: { readonly candidateSha256: string },
+  ): string[] {
+    // 部分测试替身没有这个方法：取不到历史就不给反馈，不影响判定。
+    let attempts: Array<{ blocking?: readonly string[] }>
+    try {
+      attempts = this.deps.repo.verificationAttemptsForCandidate(
+        reqId,
+        plan.planVersion,
+        candidate.candidateSha256,
+      )
+    } catch {
+      return []
+    }
+    const latest = attempts[attempts.length - 1]
+    if (!latest) return []
+    return [...(latest.blocking ?? [])].slice(0, 8)
+  }
+
   /** 方案命令必须真的执行过：只给结论不执行时先补一次明确重试，仍缺失再阻断。 */
   private async ensureCommandsExecuted(input: {
     reqId: string
@@ -1116,6 +1138,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
           plan: verificationPlan,
           sessionId: verificationSession.sessionId,
           attemptId: attempt.id,
+          previousIssues: this.previousVerificationIssues(input.reqId, input.plan, input.candidate),
         }),
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(dir, 'verification-execution.jsonl'),
