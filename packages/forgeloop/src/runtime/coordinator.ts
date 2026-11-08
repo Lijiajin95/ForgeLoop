@@ -40,6 +40,7 @@ export class Coordinator {
   readonly owner: string
   private readonly logger: PluginLogger
   private timer: NodeJS.Timeout | undefined
+  private watchdogTimer: NodeJS.Timeout | undefined
   private opsTimer: NodeJS.Timeout | undefined
   private opsCurrent: Promise<void> | undefined
   private deliveryTimer: NodeJS.Timeout | undefined
@@ -123,6 +124,9 @@ export class Coordinator {
       this.startOpsTimer()
     }
     // 交付推进与研发领取分开：长研发任务不能在整轮 tick 里阻塞部署核对与超时收口。
+    // 看门狗独立于 tick：被 await 挂住的执行不会阻止它继续检查。
+    this.watchdogTimer = setInterval(() => void this.runWatchdog(), this.watchdogIntervalMs())
+    this.watchdogTimer.unref()
     this.deliveryTimer = setInterval(() => void this.kickDelivery(), this.pollSeconds * 1000)
     this.deliveryTimer.unref()
     setTimeout(() => void this.kickDelivery(), 90).unref()
@@ -136,6 +140,8 @@ export class Coordinator {
     this.timer = undefined
     if (this.opsTimer) clearInterval(this.opsTimer)
     this.opsTimer = undefined
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer)
+    this.watchdogTimer = undefined
     if (this.deliveryTimer) clearInterval(this.deliveryTimer)
     this.deliveryTimer = undefined
     for (const controller of this.inflight.values()) controller.abort()
@@ -212,16 +218,51 @@ export class Coordinator {
     await this.runtime.deployments.recoverInterrupted()
   }
 
+  /** 看门狗轮询间隔：远小于判定阈值，保证挂起能在一个阈值窗口附近被收口。 */
+  private watchdogIntervalMs(): number {
+    return Math.max(5, Math.min(30, this.pollSeconds)) * 1000
+  }
+
+  /** 执行期间刷新动作心跳的间隔，必须明显小于判定阈值。 */
+  private heartbeatIntervalMs(): number {
+    return Math.max(5, Math.min(15, this.pollSeconds)) * 1000
+  }
+
+  /**
+   * 运行期看门狗：与 tick 解耦，被 await 挂住的执行不会阻止它继续检查。
+   * 只处理心跳停滞的 started 动作，并把动作、请求、会话与取消信号一起收口；
+   * 副作用未知时保留“需核对”的失败记录，不自动重放。返回本次收口数量。
+   */
+  async runWatchdog(now = new Date().toISOString()): Promise<number> {
+    if (this.stopped) return 0
+    const cutoff = new Date(
+      Date.parse(now) - staleActionMs(this.runtime.config.agent.maxTurnSeconds),
+    ).toISOString()
+    const stale = this.runtime.repo.staleStartedActions(cutoff)
+    let closed = 0
+    for (const action of stale) {
+      const detail =
+        `执行无进展：动作心跳早于 ${cutoff}，由看门狗收口（${now}）；` +
+        '可能已产生副作用，需人工核对后重新排队，未自动重放'
+      if (!this.runtime.repo.finishActionIfStarted(action.actionId, 'interrupted', detail, now)) {
+        continue
+      }
+      const requestId = action.actionId.startsWith('act-')
+        ? action.actionId.slice('act-'.length)
+        : ''
+      if (requestId !== '') {
+        this.runtime.repo.resolveRequestIfClaimed(requestId, 'failed', detail, now)
+        this.runtime.repo.releaseDevSessionByRequest(requestId, now)
+        this.inflight.get(requestId)?.abort()
+      }
+      closed += 1
+    }
+    if (closed > 0) this.logger.error(`[forgeloop] 看门狗收口 ${closed} 个无进展动作`)
+    return closed
+  }
+
   private async runOnce(): Promise<void> {
     try {
-      // 运行期看门狗：心跳停滞的动作由协调器收口，避免一次挂起永久卡住需求。
-      const stale = this.runtime.repo.markStaleActionsInterrupted(
-        new Date(
-          Date.now() - staleActionMs(this.runtime.config.agent.maxTurnSeconds),
-        ).toISOString(),
-        new Date().toISOString(),
-      )
-      if (stale > 0) this.logger.error(`[forgeloop] 已收口 ${stale} 个无心跳动作`)
       if (this.autoAdvance) this.ensureAutoAdvanceRequests()
       // 产品分析失败自动重试：有上限，且不重复排队在途请求。
       this.runtime.analysisQueue.autoRetry()
@@ -259,20 +300,45 @@ export class Coordinator {
       now,
       pid: process.pid,
     })
+    // 执行期间持续刷新心跳：长回合仍有进展，看门狗不会误杀。
+    const heartbeat = setInterval(() => {
+      this.runtime.repo.touchAction(actionId, new Date().toISOString())
+    }, this.heartbeatIntervalMs())
+    heartbeat.unref()
     try {
       const outcome = await this.runtime.executeRequest(request, controller.signal)
       const finishedAt = new Date().toISOString()
-      this.runtime.repo.finishAction(actionId, outcome.state, outcome.detail, finishedAt)
-      this.runtime.repo.resolveRequest(request.requestId, outcome.state, outcome.detail, finishedAt)
+      // 迟到结果不得覆盖已被看门狗收口的状态。
+      if (
+        !this.runtime.repo.finishActionIfStarted(
+          actionId,
+          outcome.state,
+          outcome.detail,
+          finishedAt,
+        )
+      ) {
+        this.logger.error(`[forgeloop] 迟到结果被拒绝：${actionId} 已收口`)
+        return
+      }
+      this.runtime.repo.resolveRequestIfClaimed(
+        request.requestId,
+        outcome.state,
+        outcome.detail,
+        finishedAt,
+      )
       this.runtime.settleStopIfQuiet(request.reqId)
     } catch (error) {
       const finishedAt = new Date().toISOString()
       const detail = `执行异常：${errorMessage(error)}；按失败收口，可重新执行`
       this.lastError = detail
-      this.runtime.repo.finishAction(actionId, 'failed', detail, finishedAt)
-      this.runtime.repo.resolveRequest(request.requestId, 'failed', detail, finishedAt)
+      if (this.runtime.repo.finishActionIfStarted(actionId, 'failed', detail, finishedAt)) {
+        this.runtime.repo.resolveRequestIfClaimed(request.requestId, 'failed', detail, finishedAt)
+      } else {
+        this.logger.error(`[forgeloop] 迟到异常被忽略：${actionId} 已收口`)
+      }
       this.runtime.settleStopIfQuiet(request.reqId)
     } finally {
+      clearInterval(heartbeat)
       this.inflight.delete(request.requestId)
     }
   }

@@ -107,6 +107,17 @@ export class DevSessionStore extends ReliabilityStore {
       .run(now, sessionId)
   }
 
+  /** 某个请求被收口时释放它占住的会话；没有占用则返回 0。 */
+  releaseDevSessionByRequest(requestId: string, now: string): number {
+    const result = this.db
+      .prepare(
+        `UPDATE dev_sessions SET state = 'idle', lease_request_id = '', updated_at = ?
+          WHERE state = 'busy' AND lease_request_id = ?`,
+      )
+      .run(now, requestId)
+    return result.changes
+  }
+
   /** 宿主重启后本进程没有任何在途会话：把遗留 busy 释放为空闲，保留绑定与总结。 */
   resetBusyDevSessions(now: string): number {
     const result = this.db
