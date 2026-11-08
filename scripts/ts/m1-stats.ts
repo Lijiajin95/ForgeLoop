@@ -19,7 +19,7 @@ import {
   isAutonomousSuccess,
   type OpsEventFacts,
   type RequirementFacts,
-} from '../../packages/forgeloop/lib/domain/m1-stats.js'
+} from '../../packages/forgeloop/src/domain/m1-stats.ts'
 
 const ROOT = process.cwd()
 
