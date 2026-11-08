@@ -57,6 +57,17 @@ node scripts/ts/real-deploy-interrupt.ts
 | `18d3dde`、`52bc1e0` 系列 | 方案命令上限 10→15→20→30，并要求单场景合并同类检查       |
 | `23655d5`                 | 统计把闭环 A 的 self-* 归档标为真实需求样本              |
 
+## 2.3 M1-1 证据（2026-11-08）
+
+`reports/m1/seed-2026-11-08T13-31-03-760Z/`：
+
+- `summary.json`：HEAD、插件版本 `0.0.2`、tarball 路径与 sha256、profile、端口、宿主 pid；
+- `identity.json`：运行进程自己写出的版本、pid、startedAt、index/service/client 摘要与 `artifactSha256`；
+- `host.log`、`forgeloop.json`：宿主日志与生效配置副本。
+
+核对结论（脚本断言，非计划值）：运行身份 pid = 宿主进程 pid；版本与安装包一致；
+启动时间可解析；三个入口摘要均为 64 位十六进制；`artifactSha256` 等于 tarball 摘要。
+
 ## 3. M1-3 现状（未达成）
 
 多次真实运行已取得：受控注入 → 真实模型诊断（从日志读出 watchdog 崩溃）→ 授权内临时恢复 →
