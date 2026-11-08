@@ -1048,6 +1048,8 @@ export function verificationExecutionPrompt(input: {
   readonly plan: VerificationPlan
   readonly sessionId?: string
   readonly attemptId?: string
+  /** 同一候选上一次被阻断的具体原因；用于让本轮修正测试材料或结论。 */
+  readonly previousIssues?: readonly string[]
 }): string {
   const labels = input.plan.scenarios.flatMap((scenario) =>
     (scenario.checks ?? []).map((check) => check.label),
@@ -1061,7 +1063,11 @@ export function verificationExecutionPrompt(input: {
 
 测试方案：
 ${verificationPlanContext(input.plan)}
-
+${
+  input.previousIssues && input.previousIssues.length > 0
+    ? `\n同一候选上一次未通过的具体原因（必须逐条处理；测试材料问题就修正材料，实现问题就如实报告）：\n${input.previousIssues.map((issue) => `- ${issue}`).join('\n')}\n`
+    : ''
+}
 执行要求：
 - **执行顺序固定**：先准备全部测试脚本与输入，再执行任何命令。第一条命令执行后不得再改 \`verification/\` 下的脚本或输入；否则同一次测试会因材料版本不一致而失效。
 - 需要验证脚本时，先用 ${VERIFICATION_MATERIAL_TOOL} 写到 \`verification/\` 下（例如 \`verification/check_doc.js\`，参数含 req_id、session_id、attempt_id、path、content），把本轮要用的脚本和输入一次性写完；不能用普通文件工具，也不能写候选源码。
