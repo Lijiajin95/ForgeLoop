@@ -7424,3 +7424,14 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
   用 `Repository` 打开归档库，按需求查回、按“需求 + 版本 + 承诺”查回解除依据，全部命中。
   证据：`tests/evidence-archive.test.ts` 4 例全绿（原 3 例 + 重开回查 1 例），经 `make commit-check` 放行。
 - 仍未完成：>200 事件确定性夹具；领域 3 客户决定身份核验；领域 5 双入口语义；领域 7 黑盒边界与模型复跑。
+
+### 198.5 领域 1/2 证据与变异受阻（2026-11-08）
+
+- `make contracts` 退出码 0：`[contracts] OK：分层、依赖、循环、退役路径、工具、UI 与会话边界一致`。
+  覆盖本轮新增的 `commitment-resolution` 领域模块、`requirement_commitment_resolutions` 表与 `evidence-archive` 脚本。
+- `make mutation-incremental SCOPE=controlled` **未完成**：Stryker 初始测试运行失败
+  （`Error: Something went wrong in the initial test run`），退出码 2。未取得变异得分，
+  因此领域 1 的“增量变异无新增关键存活”判据**不成立**，不能记为通过。
+  需在负载较低且无其他 Agent 并发跑测试时重跑，并保留 `reports/mutation` 原始日志。
+- 剩余未完成（本轮未执行）：领域 3 客户决定身份核验、领域 5 双入口语义统一、
+  领域 6 >200 事件确定性夹具、领域 7 测试 Agent 黑盒越界拒绝用例与固定模型复跑。
