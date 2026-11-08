@@ -107,8 +107,8 @@ export function validateFiles(files: readonly string[]): void {
 function normalizeCovers(covers: readonly string[]): string[] {
   const ids: string[] = []
   for (const item of covers) {
-    for (const part of item.split(/[:：,，;；\s]+/)) {
-      const id = part.trim()
+    for (const id of item.split(/[:：,，;；\s]+/)) {
+      // 分隔符集包含空白，split 已去掉两侧空白，无需再 trim。
       if (id === '') continue
       // AC 编号属于验收项字段，不作为业务要点；重复编号只保留首次出现。
       if (/^AC-\d+$/.test(id)) continue

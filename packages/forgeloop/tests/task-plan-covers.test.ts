@@ -212,4 +212,32 @@ describe('covers normalization', () => {
     )
     expect(plan.tasks[0]?.covers).toEqual(['BP-1', 'BP-2'])
   })
+
+  it('handles leading and trailing separators without producing empty points', () => {
+    const contextG = {
+      requirementId: 'req-covers-g',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    const plan = parseTaskPlanDraft(
+      JSON.stringify(planWith([':BP-1:BP-2:', '  BP-3  ', '\t BP-4 \n'])),
+      contextG,
+    )
+    expect(plan.tasks[0]?.covers).toEqual(['BP-1', 'BP-2', 'BP-3', 'BP-4'])
+  })
+
+  it('rejects a covers list that already contains duplicates before normalization', () => {
+    const contextH = {
+      requirementId: 'req-covers-h',
+      project: 'p',
+      planVersion: 1,
+      requirementVersion: 1,
+      now: '2026-11-08T00:00:00.000Z',
+    }
+    expect(() => parseTaskPlanDraft(JSON.stringify(planWith(['BP-1', 'BP-1'])), contextH)).toThrow(
+      '不能包含重复项',
+    )
+  })
 })
