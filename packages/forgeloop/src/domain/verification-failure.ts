@@ -142,6 +142,28 @@ function preBusinessFailure(
     (run) => !run.aborted && !run.timedOut && run.exitCode !== null && run.exitCode !== 0,
   )
   const hasAssertionFailure = failedRuns.some((run) => hasAssertionSignature(run.output))
+  // 验证脚本直接 import 源码目录里的 .js（源码是 .ts、构建产物在 lib/dist）：
+  // 这是测试材料写法问题，不是候选业务缺陷。
+  if (!hasAssertionFailure) {
+    const moduleErrors = failedRuns.filter((run) =>
+      /Cannot find module '[^']*\/src\/[^']*\.js'|ERR_MODULE_NOT_FOUND[^\n]*\/src\//.test(
+        run.output,
+      ),
+    )
+    if (moduleErrors.length > 0) {
+      return {
+        kind: 'test_error',
+        reasons: [
+          ...blocking,
+          ...moduleErrors.map((run) => `验证脚本引用了不存在的源码模块：${run.label}`),
+        ],
+        evidence: moduleErrors.map(runEvidence),
+        requiresCodeChange: false,
+        guidance:
+          '验证脚本不要直接 import 源码目录的 .ts 或按 .js 解析源码；改用 npm 脚本、已构建的 lib/dist 入口或测试运行器，在同一候选复验。',
+      }
+    }
+  }
   const scriptErrors = hasAssertionFailure
     ? []
     : failedRuns.filter((run) =>

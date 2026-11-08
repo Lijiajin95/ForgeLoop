@@ -102,6 +102,22 @@ describe('verification failure classification', () => {
     expect(result.requiresCodeChange).toBe(false)
   })
 
+  it('treats a verification script importing a source .js module as a test-material error', () => {
+    const result = classifyVerificationFailure({
+      blocking: ['验证命令失败：check 退出码 1'],
+      commandRuns: [
+        run({
+          exitCode: 1,
+          output:
+            "Error: Cannot find module '/tmp/w/packages/forgeloop/src/domain/verification-controls.js'",
+        }),
+      ],
+    })
+    expect(result.kind).toBe('test_error')
+    expect(result.requiresCodeChange).toBe(false)
+    expect(result.guidance).toContain('lib/dist')
+  })
+
   it('does not turn a bare non-zero exit without assertion evidence into a code-repair instruction', () => {
     const result = classifyVerificationFailure({
       blocking: ['测试命令失败：check 退出码 1'],
