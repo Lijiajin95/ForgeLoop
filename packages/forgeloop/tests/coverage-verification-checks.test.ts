@@ -405,3 +405,23 @@ describe('verification check execution integrity', () => {
     )
   })
 })
+
+describe('missing verification materials', () => {
+  it('fails the command with an actionable message instead of a module resolution error', async () => {
+    const plan = planWith('needs-script')
+    plan.scenarios[0]!.checks = [
+      {
+        label: 'needs-script',
+        argv: ['node', 'verification/not-written.js'],
+        expectedOutput: '',
+        expectFailure: false,
+      },
+    ]
+    const built = harness({ plan })
+    await built.registry.run(built.reqId, 'needs-script')
+    const runs = built.registry.snapshot(built.reqId, built.handle.token)?.runs ?? []
+    expect(runs[0]?.output).toContain('验证脚本未创建')
+    expect(runs[0]?.output).toContain('verification/not-written.js')
+    expect(runs[0]?.exitCode).toBe(1)
+  })
+})
