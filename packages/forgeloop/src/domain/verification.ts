@@ -583,7 +583,7 @@ const BUILTIN_MODULES = new Set<string>(builtinModules)
  * 单个方案允许的命令条数上限。收尾实测：验收项要求逐项有检查时 10 条不够用，
  * 上限放宽到 15；每条命令仍必须真实执行并通过，判据不变。
  */
-export const MAX_VERIFICATION_COMMANDS = 15
+export const MAX_VERIFICATION_COMMANDS = 20
 
 export interface VerificationPlanProject {
   /** 目标工程已安装的包名（dependencies + devDependencies）。 */
