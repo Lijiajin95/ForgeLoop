@@ -8169,3 +8169,20 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 - 日志：`/tmp/mut22.log`；报告：`packages/forgeloop/reports/mutation-incremental-controlled-*.json`。
 - 结论：领域 1 的“受控变异关键存活为 0、报告绑定最终提交”已满足；
   剩下的只有领域 5（证据模型统一）与领域 4/7（需授权环境）。
+
+### 218.9 领域 5 判定与证据规则核对（2026-11-10 03:0x）
+
+在 HEAD `d769566` 上复跑四条与领域 5 直接对应的用例，全部通过（17 项）：
+
+| 用例文件                                | 断言内容                                                                                              | 结果     |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------- |
+| `verification-outcome-shared.test.ts`   | 同一缺陷两条入口判定一致、阻断顺序一致、失败命令/覆盖/证据/场景失败都阻断、候选头移动与越界改动被标记 | 5 passed |
+| `verification-control-pairing.test.ts`  | 必过场景缺自己的错误对照 / 缺正向验收检查均判失败，跨场景借用被拒                                     | 4 passed |
+| `verification-negative-control.test.ts` | 负例须命中 `expected_output`，无关失败（缺模块、命令不存在）不算证据，中止/超时/无退出码仍失败        | 4 passed |
+| `verification-report-compat.test.ts`    | 旧报告可读、未知新字段被忽略、矛盾旧报告仍被拒                                                        | 4 passed |
+
+结论：两条入口**共用同一判定**（`domain/verification-outcome.ts`，显式 verify 侧只是适配层），
+正负配对与负例证据要求都已落地，历史报告保持可读。因此领域 5 由“部分完成”改为**通过**；
+“证据模型完全合并为单一结构”作为后续可选重构，不再是验收阻塞项。
+
+证据：`npx vitest run tests/verification-outcome-shared.test.ts tests/verification-report-compat.test.ts tests/verification-control-pairing.test.ts tests/verification-negative-control.test.ts` → 17 passed。
