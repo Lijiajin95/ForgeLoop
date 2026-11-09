@@ -8043,3 +8043,22 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 | 7 AI 行为可靠性 | 部分完成 | `ed70cff`；显式 verify 工具白名单未统一               |
 
 **P0 收口仍不声明，M1 验收由所有者作出。**
+
+## 217. 领域 7 边界结构核查（2026-11-10 00:2x）
+
+只读核查，未改代码；用于把“还差什么”说清楚。
+
+- **连续推进路径（有测试会话）已经收紧工具面**：`runtime/legacy-verification.ts:119-125` 调用 `openAgent` 时传
+  `allowTools: [VERIFICATION_CHECK_TOOL, VERIFICATION_MATERIAL_TOOL]`，即测试会话只有“按方案执行验证命令”和
+  “写 verification/ 材料”两个工具；`agent-runner.ts` 在 `allowTools` 存在时用 `restrictToolNames` 收紧工具集。
+  已有断言：`tests/continuous-flow.test.ts:722-729` 要求 `openRequest.allowTools` 恰为这两个工具、
+  `tools` 为 undefined（不挂标准编码 preset）。
+- **显式 verify 路径不打开测试会话**：`runtime/verification-pipeline.ts` 的 `VerificationPipelineDeps.openAgent`
+  在 `tests/coverage-pipeline-verification.test.ts:396` 处被用作“若被调用即抛错（验证流水线不应打开多轮会话）”。
+  也就是说显式 verify 只按方案 argv 在固定候选工作区执行命令，不向任何模型会话投喂源码或候选 diff。
+- **结论**：“测试 Agent 只能拿公开接口、不能读源码/diff”在两条路径上的机制不同但都已成立——
+  推进路径靠工具白名单，显式 verify 靠“根本不开会话、只跑命令”。剩余缺口是
+  **真实复验证据**（固定 DSH + DeepSeek 配置下的正常执行、越界拒绝、有界纠错、失败阻断的逐轮原始记录），
+  需要模型调用授权与隔离环境，本轮未执行，故领域 7 仍记**部分完成**。
+- 最小补齐：在已授权隔离环境跑一次完整 verify，保存每轮输入/输出/命令/结果；对“越界工具调用”留一条
+  被 `restrictToolNames` 拒绝的实际记录（当前只有白名单配置与断言，没有真实拒绝样本）。
