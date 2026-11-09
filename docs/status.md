@@ -8224,3 +8224,27 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 2. 指定一个已授权的隔离装载目标，记录实际加载的制品摘要与运行身份；
 3. 用同一次运行产生 `requirementId`，归档时传入 `archiveRunEvidence`（接口已支持，见 §218.6），
    以覆盖“候选、验证、部署双向回查”。
+
+## 220. 七领域验收表（当前快照，2026-11-10 03:2x）
+
+以 `HEAD=408516e` 为基线，对照审查提交 `b484807`。环境：linux / Node v24 / `/home/link/Project/ForgeLoop`。
+
+| 领域            | 结果         | 关键提交                      | 实际命令                                                                                                                                   | 证据位置                                                                                  | 适用环境   |
+| --------------- | ------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ---------- |
+| 1 代码可靠性    | **通过**     | `9f99e1e` `45293eb` `2376fb9` | `npm run check:commit`（0，2251 项，0 覆盖率错误）；`make mutation-incremental SCOPE=controlled`（PASS，score=95.1%，关键存活 0，豁免 21） | `/tmp/gate-head3.log`、`/tmp/mut22.log`、`reports/mutation-incremental-controlled-*.json` | 本机       |
+| 2 静态架构      | **通过**     | `2376fb9`                     | `make contracts`（0）；`node scripts/ts/reliability-registry.ts`（OK，受控变异文件 7）                                                     | 同上仓库脚本输出                                                                          | 本机       |
+| 3 业务可靠性    | **通过**     | `66e081e`                     | 准入/冲突解除用例（§216.5）                                                                                                                | `tests/commitment-*.test.ts`、`docs/status.md` §216                                       | 本机       |
+| 4 工程可靠性    | **未完成**   | `9f99e1e`（缺陷已修）         | 真实闭环未执行                                                                                                                             | §219 核查：`DEEPSEEK_API_KEY` 等全部 unset、配置无部署目标                                | 需授权环境 |
+| 5 评测与证据    | **通过**     | `41711f4` `7b54e0d` `60c27fa` | `npx vitest run` 四文件（17 项通过）                                                                                                       | `tests/verification-outcome-shared.test.ts` 等、§218.9                                    | 本机       |
+| 6 数据可靠性    | **通过**     | `36dbc7e` `9f99e1e` `95feb11` | `tests/autonomy-deployment`（5）、`tests/m1-archive`（6）、规模与口径用例（§213.8、§218.3）                                                | 对应测试文件、`/tmp/m1-stats/stats.md`                                                    | 本机       |
+| 7 AI 行为可靠性 | **部分完成** | `ed70cff` `9803201`           | 白名单 fail-closed 用例（3 项）；真实模型复验未执行                                                                                        | `tests/agent-tool-allowlist.test.ts`、§217、§218.10、§219                                 | 需授权环境 |
+
+**结论：5 项通过、1 项未完成（领域 4）、1 项部分完成（领域 7）。不声明 P0 收口；M1 阶段验收由所有者作出。**
+
+未完成原因均为外部条件，非实现缺口：
+
+1. 宿主导出模型密钥（`DEEPSEEK_API_KEY`）后可运行 `make real-model-e2e`；
+2. 需要一个已授权的隔离装载目标，用于核对实际加载的制品摘要与运行身份；
+3. 完成后把真实 `requirementId` 传给 `archiveRunEvidence`（接口已支持，§218.6），即可覆盖候选/验证/部署双向回查。
+
+现场：`main` 未 push、未打 tag、版本号未变；工作树干净、无遗留 worktree；本轮所有改动的失败现场与通过证据均保留在 `/tmp` 与 `docs/status.md` 对应小节。
