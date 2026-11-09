@@ -8158,3 +8158,14 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
   `2376fb9`（受控变异清单 7 文件）、`60c27fa`（历史报告兼容）、`95feb11`（归档双向回查）。
 - 环境：本机 Node v24 / linux / `/home/link/Project/ForgeLoop`。
 - 未做：7 文件受控变异复跑（预计 40 分钟以上），以及需要授权环境的领域 4/7 真实运行。
+
+### 218.8 受控变异 7 文件 PASS（2026-11-10 02:5x）
+
+- 命令：`make mutation-incremental SCOPE=controlled`，范围 `base=524067d .. head=7bea7a0`，**7 个文件**
+  （新增 `runtime/autonomy-stats.ts` 后首次全量受控运行）。
+- 结果：**PASS，score=95.1%**，分母 837（killed 790 / timeout 6 / survived 39 / noCoverage 2），
+  存活 20，**关键存活 0**，豁免 21（沿用既有等价变异清单）。
+- 绑定提交：`7bea7a0`（含 `9f99e1e` 当前制品部署判定、`45293eb` 人工请求分支、`2376fb9` 清单变更）。
+- 日志：`/tmp/mut22.log`；报告：`packages/forgeloop/reports/mutation-incremental-controlled-*.json`。
+- 结论：领域 1 的“受控变异关键存活为 0、报告绑定最终提交”已满足；
+  剩下的只有领域 5（证据模型统一）与领域 4/7（需授权环境）。
