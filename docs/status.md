@@ -8062,3 +8062,21 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
   需要模型调用授权与隔离环境，本轮未执行，故领域 7 仍记**部分完成**。
 - 最小补齐：在已授权隔离环境跑一次完整 verify，保存每轮输入/输出/命令/结果；对“越界工具调用”留一条
   被 `restrictToolNames` 拒绝的实际记录（当前只有白名单配置与断言，没有真实拒绝样本）。
+
+## 218. 自主成功只认当前制品的 verified 部署（2026-11-10 00:5x）
+
+- **缺陷**：`runtime/autonomy-stats.ts` 原先把“任一 `verified` 部署”当作已部署；当旧制品仍处于 `verified`、
+  当前候选尚未部署时，需求会被计为部署成功（进而可能计入自主成功）。
+- **修复**（`9f99e1e`）：抽出 `matchesCandidateArtifact(intents, build)`，只认
+  `state === 'verified'` **且** `artifactSha256 === build.artifactSha256` 的记录；无构建、未核对、
+  旧制品三种情况均返回 false。
+- **证据**：`tests/autonomy-deployment.test.ts` 5 例——无部署 / 仅旧制品已 verified / 当前制品已 verified /
+  当前制品仅 applied_pending_verify / 无构建；修复后 5/5 通过，整条 `make commit-check` 放行。
+- **同批解阻塞**（不解决则任何提交都过不了门禁）：
+  - `scripts/ts/real-ops-e2e.ts` 在并行批次合入后未格式化，导致 `make format` 全仓失败 → 已格式化；
+  - `tests/coverage-verification-controls.test.ts` 断言 git 报错前缀 `fatal:`，中文环境输出“致命错误：”
+    必然失败 → 改为断言“无法初始化对照副本”，与 locale 无关。
+- **领域 6 更新**：三样本（无部署 / 仅旧制品 / 当前制品）已由 `matchesCandidateArtifact` 用例直接证明；
+  取数口径与看板一致性见 §213.8，判定口径交叉见 §211。
+- **领域 4 说明**：本缺陷即“旧制品 verified 被计为自主成功”的修复，但领域 4 要求的是
+  **用运行中的 ForgeLoop 受理并走完整闭环 + 隔离目标装载核对**，本轮仍未执行，故领域 4 保持**未完成**。
