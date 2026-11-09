@@ -287,7 +287,6 @@ describe('prompt builders: full-string branches', () => {
         candidateSha256: 'c'.repeat(64),
         workspaceSha256: 'w'.repeat(64),
         workspacePath: '/tmp/ws',
-        diff: '',
       }),
     ).toMatchSnapshot('verification-without-solution-empty-diff')
   })

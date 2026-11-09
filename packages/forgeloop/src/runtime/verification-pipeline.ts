@@ -718,14 +718,13 @@ export class VerificationPipeline {
     workspaceSha256: string
     workspace: string
     dir: string
-    candidateDiff: string
     signal: AbortSignal
   }): Promise<
     | { ok: true; run: Awaited<ReturnType<AgentRunner['run']>> }
     | { ok: false; outcome: { state: 'failed'; detail: string } }
   > {
     const { reqId, requirement, analysis, plan, planReview, candidateSha256 } = input
-    const { workspaceSha256, workspace, dir, candidateDiff, signal } = input
+    const { workspaceSha256, workspace, dir, signal } = input
     const started = Date.now()
     const run = await this.deps.runner.run({
       role: AGENT_VERIFY,
@@ -738,7 +737,6 @@ export class VerificationPipeline {
         candidateSha256,
         workspaceSha256,
         workspacePath: workspace,
-        diff: candidateDiff,
       }),
       permission: 'workspace-write',
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
@@ -795,7 +793,7 @@ export class VerificationPipeline {
       artifacts,
     })
     if (!finalized.ok) return finalized.outcome
-    const { workspaceSha256, workspaceHead, candidateDiff } = finalized
+    const { workspaceSha256, workspaceHead } = finalized
     const agent = await this.runVerificationAgent({
       reqId,
       requirement,
@@ -806,7 +804,6 @@ export class VerificationPipeline {
       workspaceSha256,
       workspace,
       dir,
-      candidateDiff,
       signal,
     })
     if (!agent.ok) return agent.outcome

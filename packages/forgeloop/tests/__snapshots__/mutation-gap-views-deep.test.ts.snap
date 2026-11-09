@@ -1046,9 +1046,6 @@ exports[`prompt builders: full-string branches > renders plan review and verific
 候选工作区树摘要：wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 工作目录：/tmp/ws
 
-候选 diff：
-（空 diff）
-
 请完成独立测试，并只输出 JSON 对象：
 {
   "verdict": "pass" 或 "block",

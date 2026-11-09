@@ -862,9 +862,6 @@ exports[`remaining prompt snapshots > keeps planning, review, dev, orchestration
 候选工作区树摘要：wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 工作目录：/tmp/ws
 
-候选 diff：
-diff --git a/x b/x
-
 请完成独立测试，并只输出 JSON 对象：
 {
   "verdict": "pass" 或 "block",

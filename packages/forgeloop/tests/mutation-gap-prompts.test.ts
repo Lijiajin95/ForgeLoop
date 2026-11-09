@@ -457,9 +457,20 @@ describe('remaining prompt snapshots', () => {
         candidateSha256: 'c'.repeat(64),
         workspaceSha256: 'w'.repeat(64),
         workspacePath: '/tmp/ws',
-        diff: 'diff --git a/x b/x',
       }),
     ).toMatchSnapshot('verification')
+    // 测试会话是黑盒：不把候选 diff 传进提示词，测试只能通过公开接口与 materials 观察候选。
+    expect(
+      verificationPrompt({
+        requirement: requirement(1),
+        analysis,
+        plan,
+        planReview,
+        candidateSha256: 'c'.repeat(64),
+        workspaceSha256: 'w'.repeat(64),
+        workspacePath: '/tmp/ws',
+      }),
+    ).not.toContain('候选 diff')
     expect(
       devPrompt({ requirement: requirement(1), plan, task: task as never, workdir: '/tmp/ws' }),
     ).toMatchSnapshot('dev')

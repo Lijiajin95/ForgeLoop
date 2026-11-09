@@ -699,7 +699,6 @@ export function verificationPrompt(input: {
   candidateSha256: string
   workspaceSha256: string
   workspacePath: string
-  diff: string
 }): string {
   const review = input.planReview
   return `你是 ForgeLoop 的独立测试 Agent。候选已经固定，你只验证它，不修改它。你可以使用工具，但只能新增或修改当前工作目录下 \`verification/\` 目录里的文件；不得修改 \`verification/\` 之外的任何文件、不得执行 git commit/push、不得修改生产环境。
@@ -717,9 +716,6 @@ ${JSON.stringify(review.verificationPlan, null, 2)}
 候选身份：${input.candidateSha256}
 候选工作区树摘要：${input.workspaceSha256}
 工作目录：${input.workspacePath}
-
-候选 diff：
-${input.diff || '（空 diff）'}
 
 请完成独立测试，并只输出 JSON 对象：
 {
