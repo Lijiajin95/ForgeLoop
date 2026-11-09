@@ -7631,3 +7631,101 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
   但仍不计自主成功；用例已按此断言并留注释。
 - 边界：本次只固定“判定口径一致”，**看板端到端取数**（board 渲染链路读到同一集合）仍未单独验证。
 - 证据：`packages/forgeloop/tests/autonomy-parity.test.ts`；提交经 `make commit-check` 放行。
+
+## 212. M1 收口进展汇总（2026-11-09）
+
+### 212.1 本轮落地的工程修复
+
+- `496a89d` **看门狗按可观测进展续期**：会话活动经 `ProgressTracker` 记录；心跳只在有进展时刷新；
+  执行与取消信号 race，执行器不响应取消也不再阻塞后续调度；收口时同时处理动作、请求、会话租约与取消，
+  迟到结果被拒。行为测试覆盖“不手工改心跳仍识别挂起、长回合不误杀、幂等、迟到结果、调度继续”。
+- `cdf2cb9` **M1 统计口径修正**：任何 `requirement_grants` 行都是一次显式追加授权并计入介入；
+  A研要求无介入 + 已提交 + 测试 pass + 部署 verified + 状态 committed/accepted；
+  比例乘 100、空分母“无样本”、跨归档去重、未知介入单列、事件归并保留 eventIds。
+  判定逻辑抽到 `packages/forgeloop/src/domain/m1-stats.ts` 并有夹具测试。
+- `539e4d1` 同一候选复验上限 3 → 5（测试材料类错误多两次修正机会，判据不变）。
+- `eaaf28c` 闭环 A 需求替换为“看门狗收口说明写明最后可观测进展时间/无进展记录/阈值来源”
+  （原“控制补丁子目录不生效”已无法取得修复前红灯）。
+- `70a70bd` 受控工程允许 `evidence/` 目录（研发自验产物）。
+- `25d2e4f` 修复安装器模板里的 `str()` 误用（真实运行直接 `ReferenceError`）。
+- `8fbb12b` / `b8dc526` 新增真实宿主中断模式：`FORGELOOP_REAL_SELF_INTERRUPT` /
+  `FORGELOOP_REAL_OPS_INTERRUPT`，部署进入 `applying` 后 SIGKILL 宿主、记录安装次数、重启宿主让
+  协调器 `recoverInterrupted` 核对副作用。
+
+### 212.2 M1-1 达成
+
+`scripts/ts/m1-seed.ts`：打包当前插件 → 隔离 `DSH_HOME`/profile 安装 → 启动真实宿主 →
+读取运行进程写出的 `runtime-identity.json`，断言 pid 等于宿主 pid、版本一致、启动时间可解析、
+三个入口摘要为 64 位十六进制、`artifactSha256` 等于 tarball 摘要。
+证据：`reports/m1/seed-2026-11-08T13-31-03-760Z/`（identity.json、host.log、forgeloop.json、summary.json）。
+
+### 212.3 M1-7 部分达成
+
+`scripts/ts/m1-history-review.ts` 扫描 docs 引用的现场路径：**引用 71 条，缺失 36**，
+缺失清单见 `reports/m1/history-2026-11-08T15-35-09-660Z/review.md`。缺失项不能作为已验证证据。
+
+### 212.4 两条闭环的最后状态（均未达成）
+
+- 闭环 A（`self-*` 归档）：分析/准入/规划通过，候选多次被独立测试 block，
+  最后阻断为“错误对照的失败不是目标业务断言 / 错误对照实际成功”等测试材料问题；
+  0 提交、0 部署。需求原文与来源已冻结在 `scripts/ts/real-self-e2e.ts`。
+- 闭环 B（`ops-*` 归档）：注入→诊断→授权内恢复→`source=ops:` 修复需求→研发交付稳定复现；
+  验证阶段反复出现方案覆盖不足、错误对照不成立、命令未执行等问题；0 提交、0 部署、事件未关闭。
+- M1-5 宿主级中断模式已实现但**未在一次走到部署的运行上执行过**；进程级演练证据仍在
+  `reports/m1/interrupt-*`，只作范围受限的补充。
+
+### 212.5 最新统计（跨归档去重，`node scripts/ts/m1-stats.ts`）
+
+- 研发：N研 = 15，H研 = 3（20.0%），A研 = 0；未知介入 0；重复样本 0
+- 运维：N运 = 14，H运 = 0
+- 全部运维样本为受控演练，无真实线上事件；M1-6 只提供基线，不宣称达标。
+
+### 212.6 结论
+
+M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1-6 部分；M1-7 部分。
+**M1 未通过，不具备验收条件。** 主要阻塞是模型产出的验证方案/材料质量（不是门禁缺陷），
+以及宿主级中断演练依赖一次成功走到部署的运行。
+
+## 212. P0 七领域当前快照（2026-11-09 09:0x）
+
+### 212.1 结果表
+
+| 领域            | 状态         | 提交                            | 实际命令／证据                                                                                                                                                           | 剩余条件                                                |
+| --------------- | ------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| 1 代码可靠性    | **通过**     | `274bba4`                       | `npm run check:commit` 退出码 0、2195 项、0 条覆盖率错误；`make mutation-incremental SCOPE=controlled` **PASS**，`score=96.05%`、关键存活 0、豁免 21（`/tmp/mut15.log`） | 最终候选前复跑一次门禁                                  |
+| 2 静态架构      | **通过**     | `8192a8a`                       | `make contracts` 0；`reliability-registry` OK；等价变异按清单登记、阈值未改                                                                                              | 无                                                      |
+| 3 业务可靠性    | **部分完成** | `afa1fd2`                       | 三维回查 3 例 + 准入 6 例；客户决定编号核验的原型已实现但**未合入**（见 212.2）                                                                                          | 完成决定表接入并让 4 个新用例全绿                       |
+| 4 工程可靠性    | **部分完成** | `7a7e0f2`                       | 独立看门狗与收口由并行批次交付，`tests/coordinator-watchdog.test.ts` 覆盖挂起、迟到、重复唤醒                                                                            | 用真实自身缺陷跑受理→交付闭环；隔离目标装载核对         |
+| 5 评测与证据    | **部分完成** | `1787aa6`、`1ccb785`            | 逐场景正负配对 3 例；负例证据校验 4 例                                                                                                                                   | `advance` 与显式 `verify` 的判定与证据结构统一          |
+| 6 数据可靠性    | **部分完成** | `801104c`、`b946bbf`、`7953189` | 统计 7 例、250 事件规模 4 例、脚本/看板口径交叉 5 例、真实归档 N/H/A 复跑                                                                                                | 看板端到端取数；归档失败场景保持未完成判定              |
+| 7 AI 行为可靠性 | **未完成**   | —                               | 无                                                                                                                                                                       | 测试 Agent 黑盒越界拒绝用例；固定模型配置复跑（需授权） |
+
+**结论**：七项中 2 项通过、4 项部分完成、1 项未完成，**不声明 P0 收口**；M1 阶段验收仍由所有者作出。
+
+### 212.2 领域 3 的在途原型（未合入）
+
+为把“解除依据不能只靠来源前缀”落地，本轮在独立 worktree 做了原型，**因用例未全绿已回滚，未提交**：
+
+- 新增表 `customer_decisions`（`decision_id` 主键、需求、需求版本、来源、决定人、理由、时间）；
+- `Repository.recordCustomerDecision` / `customerDecision` / `customerDecisions(reqId)`；
+- `requirement_commitment_resolutions` 增加 `decision_id` 列并在仓储映射中带出；
+- `resolutionCovers` 增加“存在客户决定时必须引用同版本、同来源的决定编号”分支；
+- `buildAdmissionFacts` 接受 `customerDecisions` 并透传给 `unresolvedCommitments`。
+
+已通过：引用了正确决定 → 放行；引用旧版本决定 → 阻断；无决定记录时保留前缀口径。
+未通过：阻断时的**理由文案**仍是通用“与已有承诺冲突 1 处…”，用例期望的是“没有引用已记录的客户决定 / 需求版本是 v2”。
+即：判定行为已正确，缺的是把具体原因从 `resolutionCovers` 传到 `AdmissionDecision.reason`。
+
+补丁留档：`/tmp/p0-decision.patch`、`/tmp/customer-decision.test.ts`（临时目录，重启后可能丢失）。
+下一步：让 `unresolvedCommitments` 返回“未解除冲突 + 每条被拒理由”，`decideAdmission` 拼接进 reason，再跑 4 个用例。
+
+### 212.3 证据位置索引
+
+| 内容               | 位置                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| 完整提交门禁       | `/tmp/gate-head.log`                                                                             |
+| 受控变异 PASS      | `/tmp/mut15.log`；`reports/mutation-incremental-controlled-*.json`                               |
+| 变异演进（15→0）   | `/tmp/mut3.log` … `/tmp/mut15.log`                                                               |
+| N/H/A 真实归档复跑 | `/tmp/m1-stats/stats.md`、`stats.json`                                                           |
+| 归档快照实现与用例 | `packages/forgeloop/src/records/evidence-archive.ts`、`tests/evidence-archive.test.ts`           |
+| 冲突解除领域判定   | `packages/forgeloop/src/domain/commitment-resolution.ts`、`tests/commitment-resolution*.test.ts` |
