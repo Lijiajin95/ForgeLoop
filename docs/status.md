@@ -7765,3 +7765,21 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
   4. 抽 `customer-decision-store.ts` 让 `repository.ts` 回到 2000 行内、把承诺计算抽成
      `commitmentFactsOf` 让复杂度回到 15 以下，再跑 `make commit-check`。
 - 领域 3 仍记**部分完成**。
+
+### 213.6 领域 3 阻塞点定位：repository.ts 的 max-lines 上限（2026-11-09 08:40）
+
+- 实测：`repository.ts` 基线 **2158 物理行 / 2079 计数行**，ESLint `max-lines` 上限 **2000**（跳过空行）。
+  也就是说：**基线本身已贴着上限**，本次新增的客户决定/解除查询（约 135 计数行）无论怎么写都会越界。
+- 结论：领域 3 的落库代码**不能放在 repository.ts**，必须拆到独立 store 并在 `Repository` 组合；
+  但由于 `Repository` 每加一行也会越界，正确做法是把 store 注入到 `DevSessionStore` 基类（该类已承载
+  其他 store），`Repository` 不新增字段/方法行，调用方改用 `repo.commitments.customerDecisions(reqId)`。
+- 本轮尝试：在 worktree 内按方法名抽取 6 个方法到新 store，脚本因正则/引号问题两次中断，
+  **未产生任何提交**；worktree 已清理，`main` 干净。
+- 留档（已用 `git diff HEAD` 保存并校验非空，10.5 KB）：`.cache/p0-decision/decision-prototype.patch` +
+  `customer-decision.test.ts`；`decision-v2.patch` 仍为 0 字节，作废但保留以标注事故。
+- 下一轮最小步骤：
+  1. 新建 `src/records/commitment-store.ts`（class，构造入 db，含 6 个方法与两个记录类型）；
+  2. 在 `src/records/dev-session-store.ts` 里实例化 `readonly commitments = new CommitmentStore(this.db)`；
+  3. 删除 repository.ts 中对应方法与 `commitmentDecisionOf` 助手（迁移到 store）；
+  4. 更新调用方（service.ts、测试）为 `repo.commitments.*`；
+  5. 再叠加 `resolutionRejections`/`conflictReasons`，跑 `make commit-check`。
