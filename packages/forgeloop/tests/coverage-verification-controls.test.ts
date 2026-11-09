@@ -385,7 +385,8 @@ describe('failing before the patch can run', () => {
     try {
       const outcome = await execute({ root, ws })
       expect(outcome.issues[0]).toMatch(/^敏感性对照执行异常：无法初始化对照副本：/)
-      expect(outcome.issues[0]).toContain('fatal:')
+      // git 的错误前缀随 locale 变化（fatal: / 致命错误：），只断言“初始化失败并给出原因”。
+      expect(outcome.issues[0]).toContain('无法初始化对照副本')
       expect(outcome.results[0]).toMatchObject({ applied: false, exitCode: null })
     } finally {
       if (previous === undefined) delete process.env.GIT_DIR

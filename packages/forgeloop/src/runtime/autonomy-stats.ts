@@ -13,6 +13,20 @@ import {
 } from '../domain/autonomy.js'
 import { COMMITTED } from '../domain/status.js'
 
+/**
+ * 已核对部署是否指向**当前构建制品**：只有 artifactSha256 与最新构建一致才算。
+ * 旧制品仍处于 verified 时不能算作当前需求的部署成功。
+ */
+export function matchesCandidateArtifact(
+  intents: readonly { readonly state: string; readonly artifactSha256: string }[],
+  build: { readonly artifactSha256: string } | null,
+): boolean {
+  if (build === null) return false
+  return intents.some(
+    (intent) => intent.state === 'verified' && intent.artifactSha256 === build.artifactSha256,
+  )
+}
+
 /** 人工入口来源前缀：网页决定与人工重试。 */
 const HUMAN_SOURCE_PREFIX = 'web-decision:'
 
@@ -25,12 +39,7 @@ function requirementFacts(
   const verification = plan ? repo.verification(requirement.reqId, plan.planVersion) : null
   const build = repo.latestCandidateBuild(requirement.reqId)
   const intents = repo.deploymentStore.deploymentIntentsForRequirement(requirement.reqId, 50)
-  const deployed = intents.some(
-    (intent) =>
-      intent.state === 'verified' &&
-      build !== null &&
-      intent.artifactSha256 === build.artifactSha256,
-  )
+  const deployed = matchesCandidateArtifact(intents, build)
   const deploymentFailed = intents.some(
     (intent) => intent.state === 'failed' || intent.state === 'verify_failed',
   )
