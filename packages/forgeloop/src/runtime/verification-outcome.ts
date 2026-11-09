@@ -1,8 +1,16 @@
 import type { VerificationReport } from '../domain/verification.js'
+import {
+  candidateIntegrityFacts,
+  decideVerificationOutcome,
+} from '../domain/verification-outcome.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { requireGit } from './workspace.js'
 import { VERIFICATION_MATERIAL_DIR, workspaceChanges } from './service-helpers.js'
 
+/**
+ * 显式 `verify` / 任务包推进用的判定适配：把采集到的报告转换成共用判定函数的输入。
+ * 判定规则本身在 `domain/verification-outcome.ts`，与连续推进入口共用同一份。
+ */
 export function verificationVerdict(input: {
   report: VerificationReport
   failedCommands: readonly string[]
@@ -11,33 +19,16 @@ export function verificationVerdict(input: {
   integrityIssues: readonly string[]
   controlIssues?: readonly string[]
 }): { verdict: 'pass' | 'block'; blocking: string[] } {
-  const {
-    report,
-    failedCommands,
-    coverageIssues,
-    evidenceIssues,
-    integrityIssues,
-    controlIssues = [],
-  } = input
-  const anyScenarioFailed = report.scenarios.some((scenario) => scenario.status === 'fail')
-  const blocking = [
-    ...report.blocking,
-    ...integrityIssues,
-    ...controlIssues,
-    ...evidenceIssues,
-    ...(anyScenarioFailed ? ['报告存在未通过的测试场景'] : []),
-    ...failedCommands.map((failure) => `测试命令失败：${failure}`),
-    ...coverageIssues,
-  ]
-  const pass =
-    report.verdict === 'pass' &&
-    failedCommands.length === 0 &&
-    coverageIssues.length === 0 &&
-    evidenceIssues.length === 0 &&
-    integrityIssues.length === 0 &&
-    controlIssues.length === 0 &&
-    !anyScenarioFailed
-  return { verdict: pass ? 'pass' : 'block', blocking }
+  return decideVerificationOutcome({
+    reportedPassed: input.report.verdict === 'pass',
+    blocking: input.report.blocking,
+    scenarioFailed: input.report.scenarios.some((scenario) => scenario.status === 'fail'),
+    failedCommands: input.failedCommands,
+    coverageIssues: input.coverageIssues,
+    evidenceIssues: input.evidenceIssues,
+    integrityIssues: input.integrityIssues,
+    controlIssues: input.controlIssues ?? [],
+  })
 }
 
 export function verificationIntegrity(
@@ -60,10 +51,15 @@ export function verificationIntegrity(
     }
   }
   const afterChanges = workspaceChanges(workspace)
+  const facts = candidateIntegrityFacts({
+    expectedHead: workspaceHead,
+    actualHead: afterHead,
+    changes: afterChanges,
+    allowedPrefix: VERIFICATION_MATERIAL_DIR,
+  })
   const integrityIssues: string[] = []
-  const outsideAfter = afterChanges.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
-  if (outsideAfter.length > 0) {
-    integrityIssues.push(`测试命令修改了固定候选：${outsideAfter.join('、')}`)
+  if (facts.outside.length > 0) {
+    integrityIssues.push(`测试命令修改了固定候选：${facts.outside.join('、')}`)
   }
   return {
     ok: true,

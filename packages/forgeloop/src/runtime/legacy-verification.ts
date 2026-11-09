@@ -18,6 +18,10 @@ import {
 } from '../domain/verification-controls.js'
 import { classifyVerificationFailure } from '../domain/verification-failure.js'
 import {
+  candidateIntegrityFacts,
+  decideVerificationOutcome,
+} from '../domain/verification-outcome.js'
+import {
   parseBusinessReview,
   validateBusinessReview,
   type BusinessReview,
@@ -453,11 +457,14 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     verdict: 'pass' | 'block'
     classification: ReturnType<typeof classifyVerificationFailure> | null
   } {
-    const passed =
-      input.result.verdict === 'passed' &&
-      input.integrityIssues.length === 0 &&
-      input.controlIssues.length === 0
-    if (passed) return { verdict: 'pass', classification: null }
+    // 判定规则与显式 verify 共用：只有报告通过、候选完整、对照成立才算通过。
+    const outcome = decideVerificationOutcome({
+      reportedPassed: input.result.verdict === 'passed',
+      blocking: input.result.failures,
+      integrityIssues: input.integrityIssues,
+      controlIssues: input.controlIssues,
+    })
+    if (outcome.verdict === 'pass') return { verdict: 'pass', classification: null }
     return {
       verdict: 'block',
       classification: classifyVerificationFailure({
@@ -877,14 +884,19 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
   ): { issues: string[]; head: string; changes: string[] } {
     const head = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
     const issues = [...recorded.integrityIssues]
-    if (head !== workspaceHead) {
+    const changes = workspaceChanges(workspace)
+    const facts = candidateIntegrityFacts({
+      expectedHead: workspaceHead,
+      actualHead: head,
+      changes,
+      allowedPrefix: VERIFICATION_MATERIAL_DIR,
+    })
+    if (facts.headChanged) {
       const issue = '验证期间候选提交发生变化'
       if (!issues.includes(issue)) issues.push(issue)
     }
-    const changes = workspaceChanges(workspace)
-    const outside = changes.filter((path) => !path.startsWith(VERIFICATION_MATERIAL_DIR))
-    if (outside.length > 0) {
-      const issue = `测试命令修改了固定候选：${outside.join('、')}`
+    if (facts.outside.length > 0) {
+      const issue = `测试命令修改了固定候选：${facts.outside.join('、')}`
       if (!issues.includes(issue)) issues.push(issue)
     }
     return { issues, head, changes }
