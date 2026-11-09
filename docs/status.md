@@ -8127,3 +8127,13 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 - 校验：`node scripts/ts/reliability-registry.ts` → `受控变异文件 7`、清单 sha256 更新；
   提交经 `make commit-check` 放行。
 - 注意：下次跑 `make mutation-incremental SCOPE=controlled` 会多变异一个文件，耗时增加约 2–3 分钟。
+
+### 218.5 历史验证报告可读性证据（2026-11-10 02:2x）
+
+- `60c27fa` 新增 `tests/verification-report-compat.test.ts`（4 例）：
+  ①旧 pass 报告（只有 verdict/summary/scenarios/blocking）解析时按缺省补齐 `findings`、`commands`；
+  ②旧 block 报告保留 `blocking`/`findings`；③新写入方多带的 `attemptId`/`candidateSha256` 等字段被忽略而非拒绝；
+  ④矛盾的旧报告（pass 却带 blocking、block 却无理由）仍被拒。
+- 结论：`parseVerificationReport` 对历史报告向后兼容、对新字段向前兼容，历史证据可继续读取，
+  新执行规则（正负配对、两入口共用判定）不受影响。
+- 局限：这属于“证据模型可读性”的回归证据；两套证据结构**尚未合并为一套**，因此领域 5 仍记**部分完成**。
