@@ -7,6 +7,8 @@
  * 用法：make worktree-merge BRANCH=fix/xxx
  */
 import { execFileSync } from 'node:child_process'
+import { join } from 'node:path'
+import { unlinkWorkspaceLink } from './worktree-links.ts'
 
 function fail(message: string): never {
   console.error(`[worktree-merge] ${message}`)
@@ -71,6 +73,15 @@ if (entry) {
 
 git(['merge', '--ff-only', branch])
 if (entry) {
+  // 先摘掉复用依赖的链接：递归删除工作树会顺着链接删到主工作树的 node_modules。
+  for (const link of ['node_modules', join('packages', 'forgeloop', 'node_modules')]) {
+    if (unlinkWorkspaceLink(join(entry.path, link))) {
+      console.log(`[worktree-merge] 已摘除链接 ${join(entry.path, link)}`)
+    }
+  }
+  if (git(['status', '--porcelain'], entry.path) !== '') {
+    fail(`摘除链接后 worktree 仍不干净：${entry.path}；请手工核对后再清理`)
+  }
   git(['worktree', 'remove', entry.path])
   console.log(`[worktree-merge] 已移除 worktree ${entry.path}`)
 }
