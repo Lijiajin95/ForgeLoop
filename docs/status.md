@@ -8149,3 +8149,12 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
   提交经 `make commit-check` 放行。
 - 边界：目前只在归档自检里回查；`scripts/ts/real-ops-e2e.ts` 尚未传 `requirementId`，
   下一轮把真实运行的需求 id 接上即可覆盖真实归档。
+
+### 218.7 最终门禁复跑（2026-11-10 02:30）
+
+- `npm run check:commit` 在当前 HEAD（`db4eead`）**退出码 0**：**2251 项通过**、0 条 `ERROR: Coverage`、
+  收尾 `[check-repo] 全部通过（含逐文件覆盖率门槛）`；日志 `/tmp/gate-head3.log`。
+- 覆盖本轮全部合入：`9f99e1e`（当前制品部署判定）、`45293eb`（人工请求分支）、
+  `2376fb9`（受控变异清单 7 文件）、`60c27fa`（历史报告兼容）、`95feb11`（归档双向回查）。
+- 环境：本机 Node v24 / linux / `/home/link/Project/ForgeLoop`。
+- 未做：7 文件受控变异复跑（预计 40 分钟以上），以及需要授权环境的领域 4/7 真实运行。
