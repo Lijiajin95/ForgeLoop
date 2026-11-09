@@ -33,11 +33,26 @@ CREATE TABLE IF NOT EXISTS requirement_versions (
     source TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (req_id, version)
 );
--- 承诺冲突的解除依据：绑定需求版本、被解除的已有承诺与客户决定来源，历史永不覆盖。
+-- 客户对承诺冲突的决定：绑定可信客户身份、需求版本与具体承诺；历史永不覆盖。
+-- 解除依据必须引用这里的决定编号，只有来源前缀不再视为有效。
+CREATE TABLE IF NOT EXISTS customer_decisions (
+    decision_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    existing_req_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    decided_by TEXT NOT NULL,
+    decision_source TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    decided_at TEXT NOT NULL,
+    UNIQUE (req_id, requirement_version, existing_req_id)
+);
+-- 承诺冲突的解除依据投影：必须引用一条已记录的客户决定编号。
 CREATE TABLE IF NOT EXISTS requirement_commitment_resolutions (
     req_id TEXT NOT NULL,
     requirement_version INTEGER NOT NULL,
     existing_req_id TEXT NOT NULL,
+    decision_id TEXT NOT NULL DEFAULT '',
     decision_source TEXT NOT NULL,
     decision TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT '',
@@ -690,6 +705,21 @@ CREATE INDEX IF NOT EXISTS deployment_tool_changes_by_tool ON deployment_tool_ch
 
 export type SqlParam = string | number | bigint | Uint8Array | null
 
+/**
+ * 只增列的最小迁移：老库由 CREATE TABLE IF NOT EXISTS 建表、缺新列时补上，
+ * 不重建表、不丢历史行。库结构以本文件的 SCHEMA 为准。
+ */
+function ensureColumn(
+  handle: DatabaseSync,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const rows = handle.prepare(`PRAGMA table_info(${table})`).all()
+  if (rows.some((row) => String(row.name) === column)) return
+  handle.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+}
+
 export interface OpenOptions {
   /** true 时打开已有库且不创建新库，也不执行任何写入。 */
   readonly readOnly?: boolean
@@ -716,6 +746,12 @@ export class Database {
       handle.exec('PRAGMA journal_mode = WAL')
       handle.exec('PRAGMA foreign_keys = OFF')
       handle.exec(SCHEMA)
+      ensureColumn(
+        handle,
+        'requirement_commitment_resolutions',
+        'decision_id',
+        "TEXT NOT NULL DEFAULT ''",
+      )
     }
     return new Database(handle, path)
   }

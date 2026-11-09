@@ -53,6 +53,30 @@ function recordAnalysis(
   })
 }
 
+/** 客户决定入口的领域等价：记录决定 + 投影，供准入三维回查。 */
+function recordDecision(
+  reqId: string,
+  requirementVersion: number,
+  existingReqId: string,
+  overrides: Partial<{
+    decision: 'revise' | 'replace' | 'reject'
+    decidedBy: string
+    decisionSource: string
+    reason: string
+  }> = {},
+): string {
+  return repo.commitments.recordCustomerDecision({
+    reqId,
+    requirementVersion,
+    existingReqId,
+    decision: overrides.decision ?? 'replace',
+    decidedBy: overrides.decidedBy ?? 'owner',
+    decisionSource: overrides.decisionSource ?? 'web-decision:owner-1',
+    reason: overrides.reason ?? '所有者选择替换旧承诺',
+    decidedAt: '2026-11-08T02:00:00.000Z',
+  }).decisionId
+}
+
 function admissionFor(reqId: string) {
   const requirement = repo.getRequirement(reqId)!
   const analysis = repo.latestAnalysis(reqId)
@@ -66,10 +90,10 @@ function admissionFor(reqId: string) {
       submittedBy: requirement.submittedBy,
       owner: 'owner',
       analysis,
-      previousConflicts: analysis
-        ? repo.priorCommitmentConflicts(reqId, analysis.analysisVersion)
-        : [],
-      commitmentResolutions: repo.commitmentResolutions(reqId),
+      ...repo.commitments.admissionCommitmentHistory(
+        reqId,
+        analysis ? repo.priorCommitmentConflicts(reqId, analysis.analysisVersion) : [],
+      ),
     }),
     policy,
   )
@@ -93,33 +117,18 @@ describe('commitment resolutions at the admission entry', () => {
     const decision = admissionFor('req-new')
     expect(decision).toMatchObject({ admit: false, code: 'commitment_conflict' })
     expect(decision.reason).toContain('req-old：共享入口')
+    expect(decision.reason).toContain('没有引用已记录的客户决定')
   })
 
   it('ignores decisions bound to another version or another requirement', () => {
     seedRequirement('req-new')
     recordAnalysis('req-new', 1, [conflict])
     recordAnalysis('req-new', 2, [])
-    repo.recordCommitmentResolution({
-      reqId: 'req-new',
-      requirementVersion: 99,
-      existingReqId: 'req-old',
-      decisionSource: 'web-decision:owner-1',
-      decision: 'replace',
-      reason: '旧版本决定',
-      decidedAt: '2026-11-08T02:00:00.000Z',
-    })
+    recordDecision('req-new', 99, 'req-old', { reason: '旧版本决定' })
     expect(admissionFor('req-new')).toMatchObject({ code: 'commitment_conflict' })
 
     seedRequirement('req-other')
-    repo.recordCommitmentResolution({
-      reqId: 'req-other',
-      requirementVersion: 1,
-      existingReqId: 'req-old',
-      decisionSource: 'web-decision:owner-2',
-      decision: 'replace',
-      reason: '别的需求的决定',
-      decidedAt: '2026-11-08T02:10:00.000Z',
-    })
+    recordDecision('req-other', 1, 'req-old', { reason: '别的需求的决定' })
     expect(admissionFor('req-new')).toMatchObject({ code: 'commitment_conflict' })
   })
 
@@ -127,15 +136,7 @@ describe('commitment resolutions at the admission entry', () => {
     seedRequirement('req-new')
     recordAnalysis('req-new', 1, [conflict])
     recordAnalysis('req-new', 2, [])
-    repo.recordCommitmentResolution({
-      reqId: 'req-new',
-      requirementVersion: 1,
-      existingReqId: 'req-old',
-      decisionSource: 'web-decision:owner-3',
-      decision: 'revise',
-      reason: '所有者选择修订旧承诺',
-      decidedAt: '2026-11-08T02:20:00.000Z',
-    })
+    recordDecision('req-new', 1, 'req-old', { decision: 'revise', reason: '所有者选择修订旧承诺' })
     expect(admissionFor('req-new')).toMatchObject({ admit: true, code: 'admitted' })
   })
 
@@ -143,16 +144,23 @@ describe('commitment resolutions at the admission entry', () => {
     seedRequirement('req-new')
     recordAnalysis('req-new', 1, [conflict])
     recordAnalysis('req-new', 2, [])
-    repo.recordCommitmentResolution({
-      reqId: 'req-new',
-      requirementVersion: 1,
-      existingReqId: 'req-old',
-      decisionSource: 'agent:model',
+    recordDecision('req-new', 1, 'req-old', {
       decision: 'replace',
+      decisionSource: 'agent:model',
       reason: '模型自己决定',
-      decidedAt: '2026-11-08T02:30:00.000Z',
     })
-    expect(admissionFor('req-new')).toMatchObject({ code: 'commitment_conflict' })
+    const decision = admissionFor('req-new')
+    expect(decision).toMatchObject({ code: 'commitment_conflict' })
+    expect(decision.reason).toContain('不是客户决定来源')
+  })
+
+  it('blocks a decision recorded by an identity other than the owner', () => {
+    seedRequirement('req-new')
+    recordAnalysis('req-new', 1, [conflict])
+    recordDecision('req-new', 1, 'req-old', { decidedBy: 'intruder' })
+    const decision = admissionFor('req-new')
+    expect(decision).toMatchObject({ code: 'commitment_conflict' })
+    expect(decision.reason).toContain('与配置所有者不一致')
   })
 
   it('admits an ordinary requirement without conflicts', () => {
@@ -161,25 +169,37 @@ describe('commitment resolutions at the admission entry', () => {
     expect(admissionFor('req-plain')).toMatchObject({ admit: true, code: 'admitted' })
   })
 
+  it('treats missing history inputs as empty rather than failing', () => {
+    const facts = buildAdmissionFacts({
+      requirementStatus: 'draft',
+      requirementVersion: 1,
+      project: 'demo',
+      projectPath: dir,
+      source: 'dsh-session:s1',
+      submittedBy: 'owner',
+      owner: 'owner',
+      analysis: {
+        analysisVersion: 1,
+        requirementVersion: 1,
+        clarifications: [],
+      },
+    })
+    expect(facts.conflicts).toBe(0)
+    expect(facts.conflictSummaries).toEqual([])
+    expect(facts.conflictReasons).toEqual([])
+    expect(decideAdmission(facts, policy)).toMatchObject({ code: 'admitted' })
+  })
+
   it('keeps the first recorded decision for a version and promise', () => {
     seedRequirement('req-new')
     recordAnalysis('req-new', 1, [conflict])
-    const base = {
-      reqId: 'req-new',
-      requirementVersion: 1,
-      existingReqId: 'req-old',
-      decisionSource: 'web-decision:owner-4',
-      decidedAt: '2026-11-08T03:00:00.000Z',
-    }
-    repo.recordCommitmentResolution({ ...base, decision: 'revise', reason: '第一次决定' })
-    repo.recordCommitmentResolution({
-      ...base,
-      decision: 'reject',
-      reason: '后来改主意',
-      decidedAt: '2026-11-08T03:10:00.000Z',
-    })
-    expect(repo.commitmentResolutions('req-new')).toEqual([
+    recordDecision('req-new', 1, 'req-old', { decision: 'revise', reason: '第一次决定' })
+    recordDecision('req-new', 1, 'req-old', { decision: 'reject', reason: '后来改主意' })
+    expect(repo.commitments.commitmentResolutions('req-new')).toEqual([
       expect.objectContaining({ decision: 'revise', reason: '第一次决定' }),
+    ])
+    expect(repo.commitments.customerDecisions('req-new')).toEqual([
+      expect.objectContaining({ decision: 'revise', decidedBy: 'owner' }),
     ])
   })
 })

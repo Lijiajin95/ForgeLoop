@@ -90,12 +90,13 @@ describe('archive reopen check', () => {
         source: 'dsh-session:s1',
         now: '2026-11-08T06:00:00.000Z',
       })
-      repo.recordCommitmentResolution({
+      repo.commitments.recordCustomerDecision({
         reqId: 'req-arch',
         requirementVersion: 1,
         existingReqId: 'req-old',
-        decisionSource: 'web-decision:owner-9',
         decision: 'revise',
+        decidedBy: 'owner',
+        decisionSource: 'web-decision:owner-9',
         reason: '所有者选择修订',
         decidedAt: '2026-11-08T06:10:00.000Z',
       })
@@ -107,11 +108,14 @@ describe('archive reopen check', () => {
     const reopened = new Repository(Database.open(target))
     try {
       expect(reopened.getRequirement('req-arch')).toMatchObject({ reqId: 'req-arch' })
-      expect(reopened.commitmentResolutionFor('req-arch', 1, 'req-old')).toMatchObject({
+      expect(reopened.commitments.commitmentResolutionFor('req-arch', 1, 'req-old')).toMatchObject({
         decisionSource: 'web-decision:owner-9',
         decision: 'revise',
       })
-      expect(reopened.commitmentResolutions('req-arch')).toHaveLength(1)
+      expect(reopened.commitments.commitmentResolutions('req-arch')).toHaveLength(1)
+      expect(reopened.commitments.customerDecisions('req-arch')).toEqual([
+        expect.objectContaining({ decidedBy: 'owner', decision: 'revise' }),
+      ])
     } finally {
       reopened.close()
     }

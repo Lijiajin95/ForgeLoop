@@ -139,6 +139,24 @@ describe('system admission', () => {
     })
   })
 
+  it('carries the concrete rejection reason for a commitment conflict', () => {
+    const withReasons = decideAdmission(
+      facts({
+        conflicts: 1,
+        conflictSummaries: ['req-old：共享入口（取舍：保留 / 替换）'],
+        conflictReasons: ['承诺 req-old 没有引用已记录的客户决定'],
+      }),
+      POLICY,
+    )
+    expect(withReasons).toMatchObject({ admit: false, code: 'commitment_conflict' })
+    expect(withReasons.reason).toContain('req-old：共享入口')
+    expect(withReasons.reason).toContain('没有引用已记录的客户决定')
+
+    // 没有摘要与理由时也要给出可执行的阻断文案。
+    const bare = decideAdmission(facts({ conflicts: 2 }), POLICY)
+    expect(bare.reason).toBe('与已有承诺冲突 2 处，需要所有者决定取舍')
+  })
+
   it('blocks when autonomy is disabled, the project is missing, or the requirement is terminal', () => {
     expect(decideAdmission(facts(), { ...POLICY, enabled: false })).toMatchObject({
       admit: false,

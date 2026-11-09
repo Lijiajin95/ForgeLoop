@@ -1,5 +1,10 @@
 import type { CommitmentConflict } from './spec.js'
-import { unresolvedCommitments, type CommitmentResolution } from './commitment-resolution.js'
+import {
+  resolutionRejections,
+  unresolvedCommitments,
+  type CommitmentResolution,
+  type CustomerDecision,
+} from './commitment-resolution.js'
 
 /**
  * 系统准入：把“真实需求来源 + 有效授权 + 质量依据”转成可执行的系统决定。
@@ -37,6 +42,8 @@ export interface AdmissionFacts {
   /** 与已有承诺的冲突数；非空时暂停准入，等待所有者决定取舍。 */
   readonly conflicts?: number | undefined
   readonly conflictSummaries?: readonly string[] | undefined
+  /** 每条解除依据被拒的具体原因；有冲突时拼进阻断文案。 */
+  readonly conflictReasons?: readonly string[] | undefined
 }
 
 export interface AdmissionBasis {
@@ -81,6 +88,55 @@ export function sourceTrusted(source: string, policy: AdmissionPolicy): boolean 
   return policy.trustedSources.some((prefix) => prefix.length > 0 && value.startsWith(prefix))
 }
 
+/** 承诺冲突的合并结果：未解除数量、可读摘要与每条解除依据被拒的原因。 */
+function commitmentFactsOf(input: {
+  readonly requirementVersion: number
+  readonly owner: string
+  readonly previousConflicts?: readonly CommitmentConflict[] | undefined
+  readonly commitmentResolutions?: readonly CommitmentResolution[] | undefined
+  readonly customerDecisions?: readonly CustomerDecision[] | undefined
+  readonly analysisConflicts?: readonly CommitmentConflict[] | undefined
+}): {
+  conflicts: number
+  conflictSummaries: string[]
+  conflictReasons: string[]
+} {
+  const previousConflicts = input.previousConflicts ?? []
+  const analysisConflicts = input.analysisConflicts ?? []
+  const resolutions = input.commitmentResolutions ?? []
+  const decisions = input.customerDecisions ?? []
+  const check = {
+    requirementVersion: input.requirementVersion,
+    conflicts: [...previousConflicts, ...analysisConflicts],
+    decisions,
+    owner: input.owner,
+  }
+  const unresolved = unresolvedCommitments({
+    ...check,
+    previousConflicts,
+    analysisConflicts,
+    resolutions,
+  })
+  const reasons = resolutionRejections({ ...check, resolutions })
+  // 没有任何解除依据的冲突也要给出可执行理由，而不是只报数量。
+  for (const conflict of unresolved) {
+    if (resolutions.some((resolution) => resolution.existingReqId === conflict.existingReqId)) {
+      continue
+    }
+    reasons.push(
+      `承诺 ${conflict.existingReqId} 没有引用已记录的客户决定（需要所有者做出修订、替代或拒绝）`,
+    )
+  }
+  return {
+    conflicts: unresolved.length,
+    conflictSummaries: unresolved.map(
+      (conflict) =>
+        `${conflict.existingReqId}：${conflict.conflict}（取舍：${conflict.options.join(' / ')}）`,
+    ),
+    conflictReasons: reasons,
+  }
+}
+
 /** 从需求与分析记录组装准入事实；冲突摘要与结构同源，避免展示与判定口径不一致。 */
 export function buildAdmissionFacts(input: {
   requirementStatus: string
@@ -98,10 +154,20 @@ export function buildAdmissionFacts(input: {
   } | null
   /** 上一轮已记录、仍待解除的承诺冲突。 */
   previousConflicts?: readonly CommitmentConflict[] | undefined
-  /** 客户对冲突的解除依据；必须绑定当前需求版本。 */
+  /** 客户对冲突的解除依据；必须引用当前需求版本的客户决定。 */
   commitmentResolutions?: readonly CommitmentResolution[] | undefined
+  /** 已记录的客户决定；按需求/版本/承诺三维回查。 */
+  customerDecisions?: readonly CustomerDecision[] | undefined
 }): AdmissionFacts {
   const analysis = input.analysis
+  const commitment = commitmentFactsOf({
+    requirementVersion: input.requirementVersion,
+    owner: input.owner,
+    previousConflicts: input.previousConflicts,
+    commitmentResolutions: input.commitmentResolutions,
+    customerDecisions: input.customerDecisions,
+    analysisConflicts: analysis?.conflicts,
+  })
   return {
     requirementStatus: input.requirementStatus,
     requirementVersion: input.requirementVersion,
@@ -113,22 +179,10 @@ export function buildAdmissionFacts(input: {
     analysisVersion: analysis?.analysisVersion ?? null,
     analysisRequirementVersion: analysis?.requirementVersion ?? null,
     clarifications: analysis?.clarifications.length ?? 0,
-    // 本轮新报冲突与上一轮已知冲突合并；只有带有效依据的解除才会放行。
-    conflicts: unresolvedCommitments({
-      previousConflicts: input.previousConflicts ?? [],
-      analysisConflicts: analysis?.conflicts ?? [],
-      resolutions: input.commitmentResolutions ?? [],
-      requirementVersion: input.requirementVersion,
-    }).length,
-    conflictSummaries: unresolvedCommitments({
-      previousConflicts: input.previousConflicts ?? [],
-      analysisConflicts: analysis?.conflicts ?? [],
-      resolutions: input.commitmentResolutions ?? [],
-      requirementVersion: input.requirementVersion,
-    }).map(
-      (conflict) =>
-        `${conflict.existingReqId}：${conflict.conflict}（取舍：${conflict.options.join(' / ')}）`,
-    ),
+    // 本轮新报冲突与上一轮已知冲突合并；只有带有效客户决定的解除才会放行。
+    conflicts: commitment.conflicts,
+    conflictSummaries: commitment.conflictSummaries,
+    conflictReasons: commitment.conflictReasons,
   }
 }
 
@@ -160,7 +214,12 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
     if (count === 0) return null
     const summaries = facts.conflictSummaries ?? []
     const detail = summaries.length > 0 ? `：${summaries.join('；')}` : ''
-    return block('commitment_conflict', `与已有承诺冲突 ${count} 处，需要所有者决定取舍${detail}`)
+    const reasons = facts.conflictReasons ?? []
+    const rejection = reasons.length > 0 ? `；解除依据未通过：${reasons.join('；')}` : ''
+    return block(
+      'commitment_conflict',
+      `与已有承诺冲突 ${count} 处，需要所有者决定取舍${detail}${rejection}`,
+    )
   }
 
   if (TERMINAL.has(facts.requirementStatus)) {

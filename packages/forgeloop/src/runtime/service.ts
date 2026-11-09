@@ -46,11 +46,9 @@ import {
   isTerminal,
 } from '../domain/status.js'
 import { AGENT_PRODUCT, AGENT_VERIFY } from '../domain/agents.js'
-import {
-  buildAdmissionFacts,
-  decideAdmission,
-  type AdmissionDecision,
-} from '../domain/admission.js'
+import { type AdmissionDecision } from '../domain/admission.js'
+import { admissionDecisionFor, admissionDecisionOf } from './admission-decision.js'
+import { resolveCommitment, type CommitmentDecisionInput } from './commitment-decisions.js'
 import {
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
@@ -1090,22 +1088,7 @@ ${answer}`
   ): { ok: true; admitted: boolean; decision: AdmissionDecision } | { ok: false; message: string } {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, message: `未找到需求 ${reqId}` }
-    const analysis = this.repo.latestAnalysis(reqId)
-    const decision = decideAdmission(
-      buildAdmissionFacts({
-        requirementStatus: requirement.status,
-        requirementVersion: requirement.versions.length,
-        project: this.config.project,
-        projectPath: this.config.projectPath,
-        source: requirement.source,
-        submittedBy: requirement.submittedBy,
-        owner: this.config.owner,
-        analysis,
-        // 历史未解除冲突与客户解除依据都来自记录库；模型空列表不能清除。
-        ...this.repo.admissionCommitmentHistory(reqId, analysis?.analysisVersion),
-      }),
-      this.config.autonomy,
-    )
+    const decision = admissionDecisionOf({ config: this.config, repo: this.repo }, requirement)
     const latest = this.repo.latestAdmission(reqId, requirement.versions.length)
     const decisionName = decision.admit ? 'admit' : 'block'
     if (!latest || latest.decision !== decisionName || latest.code !== decision.code) {
@@ -1118,6 +1101,16 @@ ${answer}`
       })
     }
     return { ok: true, admitted: decision.admit, decision }
+  }
+
+  /** 客户决定入口：模型工具不暴露。 */
+  resolveCommitment(input: CommitmentDecisionInput): OperationResult {
+    return resolveCommitment({ repo: this.repo, owner: this.config.owner }, input)
+  }
+
+  /** 只读：重新判定准入（不写记录）。 */
+  admissionDecision(reqId: string): AdmissionDecision | null {
+    return admissionDecisionFor({ config: this.config, repo: this.repo }, reqId)
   }
 
   /** 当前需求版本是否已有系统准入；不把旧的准入沿用到新版本。 */

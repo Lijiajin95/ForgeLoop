@@ -25,15 +25,7 @@ import type { TaskArtifact, TaskRun } from '../domain/work.js'
 import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
 /** 承诺冲突解除记录；与领域判定共用字段，便于双向回查。 */
-export interface CommitmentResolutionRecord {
-  readonly reqId: string
-  readonly requirementVersion: number
-  readonly existingReqId: string
-  readonly decisionSource: string
-  readonly decision: 'revise' | 'replace' | 'reject'
-  readonly reason: string
-  readonly decidedAt: string
-}
+export type { CommitmentResolutionRecord, CustomerDecisionRecord } from './commitment-store.js'
 
 import { DeploymentStore } from './deployment-store.js'
 import { DeliveryStore } from './delivery-store.js'
@@ -318,91 +310,6 @@ export class Repository extends DevSessionStore {
 
   analyses(reqId: string): RequirementAnalysis[] {
     return this.analysisStore.analyses(reqId)
-  }
-
-  /** 记录一条承诺冲突解除依据；同一需求版本与已有承诺只保留第一次生效的决定。 */
-  recordCommitmentResolution(input: {
-    reqId: string
-    requirementVersion: number
-    existingReqId: string
-    decisionSource: string
-    decision: 'revise' | 'replace' | 'reject'
-    reason: string
-    decidedAt: string
-  }): void {
-    this.db
-      .prepare(
-        `INSERT INTO requirement_commitment_resolutions
-          (req_id, requirement_version, existing_req_id, decision_source, decision, reason, decided_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(req_id, requirement_version, existing_req_id) DO NOTHING`,
-      )
-      .run(
-        input.reqId,
-        input.requirementVersion,
-        input.existingReqId,
-        input.decisionSource,
-        input.decision,
-        input.reason,
-        input.decidedAt,
-      )
-  }
-
-  /** 按需求 + 版本 + 承诺三维回查解除依据；没有记录时返回 null。 */
-  commitmentResolutionFor(
-    reqId: string,
-    requirementVersion: number,
-    existingReqId: string,
-  ): CommitmentResolutionRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM requirement_commitment_resolutions
-         WHERE req_id = ? AND requirement_version = ? AND existing_req_id = ?`,
-      )
-      .get(reqId, requirementVersion, existingReqId)
-    if (!row) return null
-    return {
-      reqId: text(row, 'req_id'),
-      requirementVersion: num(row, 'requirement_version'),
-      existingReqId: text(row, 'existing_req_id'),
-      decisionSource: text(row, 'decision_source'),
-      decision: commitmentDecisionOf(text(row, 'decision')),
-      reason: text(row, 'reason'),
-      decidedAt: text(row, 'decided_at'),
-    }
-  }
-
-  commitmentResolutions(reqId: string): CommitmentResolutionRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM requirement_commitment_resolutions
-         WHERE req_id = ? ORDER BY requirement_version, existing_req_id`,
-      )
-      .all(reqId)
-    return rows.map((row: Record<string, unknown>) => ({
-      reqId: text(row, 'req_id'),
-      requirementVersion: num(row, 'requirement_version'),
-      existingReqId: text(row, 'existing_req_id'),
-      decisionSource: text(row, 'decision_source'),
-      decision: commitmentDecisionOf(text(row, 'decision')),
-      reason: text(row, 'reason'),
-      decidedAt: text(row, 'decided_at'),
-    }))
-  }
-
-  /** 准入所需的承诺历史与解除依据：一次查询返回，避免入口重复拼接。 */
-  admissionCommitmentHistory(
-    reqId: string,
-    analysisVersion: number | undefined,
-  ): {
-    previousConflicts: CommitmentConflict[]
-    commitmentResolutions: CommitmentResolutionRecord[]
-  } {
-    return {
-      previousConflicts:
-        analysisVersion === undefined ? [] : this.priorCommitmentConflicts(reqId, analysisVersion),
-      commitmentResolutions: this.commitmentResolutions(reqId),
-    }
   }
 
   /** 当前分析版本之前已记录、仍可能未解除的承诺冲突。 */
@@ -2150,9 +2057,4 @@ function textValue(value: unknown): string {
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.filter((item): item is string => typeof item === 'string')
-}
-
-function commitmentDecisionOf(value: string): 'revise' | 'replace' | 'reject' {
-  if (value === 'revise' || value === 'replace' || value === 'reject') return value
-  throw new RuleViolationError(`未知的承诺解除方式：${value}`)
 }

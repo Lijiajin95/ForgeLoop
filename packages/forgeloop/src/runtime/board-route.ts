@@ -7,6 +7,7 @@ import type { Coordinator } from './coordinator.js'
 import type { ForgeLoopRuntime } from './service.js'
 import { extendWorkBudget } from './budget.js'
 import { grantFailureRounds } from './grants.js'
+import { resolveCommitment } from './commitment-decisions.js'
 
 const BOARD_ENDPOINTS = [
   'board',
@@ -22,6 +23,7 @@ const BOARD_ENDPOINTS = [
   'extend-budget',
   'grant-rounds',
   'retry-analysis',
+  'resolve-commitment',
   'build',
   'deploy',
   'deployments',
@@ -394,6 +396,43 @@ function handleGrantRounds(body: BoardBody | null, context: BoardContext): Respo
   )
 }
 
+function readCommitmentDecision(body: BoardBody | null): 'revise' | 'replace' | 'reject' | null {
+  return body?.decision === 'revise' || body?.decision === 'replace' || body?.decision === 'reject'
+    ? body.decision
+    : null
+}
+
+/** 客户对承诺冲突的决定：身份取自已认证的所有者，模型工具不能调用。 */
+function handleResolveCommitment(body: BoardBody | null, context: BoardContext): Response {
+  const { runtime, config } = context
+  const reqId = text(body?.reqId)
+  const existingReqId = text(body?.existingReqId)
+  const decision = readCommitmentDecision(body)
+  if (!reqId || !existingReqId || !decision) {
+    return boardResponse(
+      boardFailure('bad_request', '承诺决定需要 reqId、existingReqId 与 revise/replace/reject'),
+      400,
+    )
+  }
+  const sessionId = text(body?.sessionId)
+  const result = resolveCommitment(
+    { repo: runtime.repo, owner: config.owner, now: () => new Date().toISOString() },
+    {
+      reqId,
+      existingReqId,
+      decision,
+      reason: text(body?.reason),
+      by: config.owner,
+      source: `web-decision:${sessionId || 'unknown-session'}:commitment-${decision}`,
+      ...(textOrUndefined(body?.decisionId) ? { decisionId: text(body?.decisionId) } : {}),
+    },
+  )
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : 409,
+  )
+}
+
 function handleExtendBudget(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
@@ -579,6 +618,9 @@ function handleWrite(
   if (endpoint === 'deployment-verify') return handleDeploymentVerify(body, context)
 
   if (endpoint === 'deployment-rollback') return handleDeploymentRollback(body, context)
+
+  // 客户决定入口：承诺冲突的修订/替代/拒绝只能由认证的所有者发起。
+  if (endpoint === 'resolve-commitment') return handleResolveCommitment(body, context)
 
   return handleLegacyWrite(body, endpoint, context)
 }

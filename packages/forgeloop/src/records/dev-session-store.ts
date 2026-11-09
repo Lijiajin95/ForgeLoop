@@ -6,6 +6,7 @@
  */
 
 import { RuleViolationError } from '../domain/errors.js'
+import { CommitmentStore } from './commitment-store.js'
 import { ReliabilityStore } from './reliability-store.js'
 import {
   num,
@@ -17,6 +18,9 @@ import {
 } from './rows.js'
 
 export class DevSessionStore extends ReliabilityStore {
+  /** 客户决定与承诺冲突解除依据；仓储不新增字段，调用方用 repo.commitments.*。 */
+  readonly commitments = new CommitmentStore(this.db)
+
   // ---------------------------------------------------------------- 研发会话
 
   /** 登记或更新一个研发会话；会话记录不删除，需求结束后只改忙闲与总结。 */
