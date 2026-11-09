@@ -8092,3 +8092,16 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 - 下一步最小做法：把增量范围收窄到本轮真正改动的单个文件
   （`packages/forgeloop/src/runtime/autonomy-stats.ts`），用脚本的 `--mutate` 或临时配置只变异该文件，
   预期 5–10 分钟可出结果；若仍超出窗口，应在会话外以后台作业跑完并保留 `reports/mutation-incremental-*.json`。
+
+### 218.2 单文件变异结果：autonomy-stats.ts 77.92%（未达 80）（2026-11-10 01:52）
+
+- 命令（临时配置，只变异一个文件，快速 vitest 配置）：
+  `../../node_modules/.bin/stryker run reports/stryker-autonomy.json`，`mutate=['src/runtime/autonomy-stats.ts']`。
+- 结果：**77 个变异体、dry run 579 项测试通过**，最终 **mutation score 77.92% < break 80 → 退出码 1**。
+- 存活 17 条，全部落在**既有代码**（第 31–68 行 `requirementFacts`：人工请求计数、部署决策判定、
+  状态判断与字符串兜底），**本轮新增的 `matchesCandidateArtifact` 没有存活变异**（新加的 5 个用例覆盖完整）。
+- 结论：本轮改动本身被测试充分约束，但该文件的历史分支覆盖不足，达不到 80 门槛。
+  要收口需补 3 类用例：①`requestsFor` 为空/非空时的人工请求计数；②部署决策 by 前缀为 `system:` 与人工身份的区分；
+  ③`status` 为 committed/accepted 与其他状态的分支。这些需要真实 Repository 夹具（与 `board-stats` 用例同源）。
+- 证据：`packages/forgeloop/reports/mutation-autonomy-stats.json`、`/tmp/mut20.log`。
+- 因此领域 1 的“本轮改动增量变异通过”**尚不成立**，不声明通过。
