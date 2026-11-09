@@ -7747,3 +7747,21 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
      复杂度回到 15 以下；
   3. 重跑 `npx vitest run tests/customer-decision.test.ts` 与 `make commit-check`，再合并。
 - 补丁留档：`.cache/p0-decision/decision-v2.patch` 与 `.cache/p0-decision/customer-decision.test.ts`。
+
+### 213.5 原型留档纠正（2026-11-09 08:35）
+
+- 复核发现 `.cache/p0-decision/decision-v2.patch` 为 **0 字节**：保存时用的是 `git diff`，
+  而当时改动已被 `git add` 暂存，工作区与索引无差异 → 补丁为空。
+  **v2 的源码改动（`resolutionRejections`、`conflictReasons`、决定表接线）因此丢失，只保留了当时的 4 个用例文件。**
+- 仍有效的留档：`decision-prototype.patch`（10.5 KB，v1：决定表 + 仓储 + 域判定 + 准入透传，
+  4 个用例中 2 个因“阻断理由未携带具体原因”失败）。
+- 正确做法（已记入本节）：保存补丁必须用 `git diff HEAD`（或 `git stash show -p`），
+  不能用 `git diff`；保存后校验文件非空。
+- 重做 v2 的最小步骤（约 3 处编辑，无需重新设计）：
+  1. 应用 `decision-prototype.patch` 与 `customer-decision.test.ts`；
+  2. 在 `commitment-resolution.ts` 追加 `resolutionRejections(...)`（收集 `resolutionCovers` 的 `reason`）；
+  3. `admission.ts` 给 `AdmissionFacts` 加 `conflictReasons`，`buildAdmissionFacts` 计算之，
+     `decideAdmission` 的 `conflictBlock` 拼接“解除依据未通过：…”；
+  4. 抽 `customer-decision-store.ts` 让 `repository.ts` 回到 2000 行内、把承诺计算抽成
+     `commitmentFactsOf` 让复杂度回到 15 以下，再跑 `make commit-check`。
+- 领域 3 仍记**部分完成**。
