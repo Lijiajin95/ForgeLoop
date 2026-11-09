@@ -7729,3 +7729,21 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 | N/H/A 真实归档复跑 | `/tmp/m1-stats/stats.md`、`stats.json`                                                           |
 | 归档快照实现与用例 | `packages/forgeloop/src/records/evidence-archive.ts`、`tests/evidence-archive.test.ts`           |
 | 冲突解除领域判定   | `packages/forgeloop/src/domain/commitment-resolution.ts`、`tests/commitment-resolution*.test.ts` |
+
+### 213.4 领域 3 原型 v2：行为已通过，卡在两条 lint 阈值（2026-11-09 08:30）
+
+- 在 `customer_decisions` 表 + 仓储查询基础上补齐“阻断理由”：新增 `resolutionRejections`，
+  `buildAdmissionFacts` 产出 `conflictReasons`，`decideAdmission` 把它拼进阻断理由。
+- 行为证据：`tests/customer-decision.test.ts` **4/4 通过**——未引用决定阻断且理由写明原因、
+  引用同版本同来源决定放行、旧版本决定阻断、需求无决定记录时保留前缀口径。
+- 提交门禁拦下两处**静态阈值**问题（不是行为问题）：
+  1. `admission.ts` `buildAdmissionFacts` 复杂度 22 > 15；
+  2. `repository.ts` 2079 行 > 2000 行上限（本次新增查询把文件顶出上限）。
+- 修复路径（下一步，无需重新设计）：
+  1. 把 `customerDecision`/`customerDecisions`/`recordCustomerDecision` 抽到
+     `src/records/customer-decision-store.ts`，`Repository` 组合该 store（与既有 stores 同构），
+     让 `repository.ts` 回到 2000 行以内；
+  2. 把 `buildAdmissionFacts` 里的承诺计算抽成 `commitmentFactsOf(input, analysis)`，
+     复杂度回到 15 以下；
+  3. 重跑 `npx vitest run tests/customer-decision.test.ts` 与 `make commit-check`，再合并。
+- 补丁留档：`.cache/p0-decision/decision-v2.patch` 与 `.cache/p0-decision/customer-decision.test.ts`。
