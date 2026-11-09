@@ -8105,3 +8105,15 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
   ③`status` 为 committed/accepted 与其他状态的分支。这些需要真实 Repository 夹具（与 `board-stats` 用例同源）。
 - 证据：`packages/forgeloop/reports/mutation-autonomy-stats.json`、`/tmp/mut20.log`。
 - 因此领域 1 的“本轮改动增量变异通过”**尚不成立**，不声明通过。
+
+### 218.3 autonomy-stats 单文件变异达标（2026-11-10 01:55）
+
+- 针对 §218.2 的 77.92% 未达标，补 `tests/autonomy-human-requests.test.ts` 4 例覆盖 `requirementFacts` 的人工请求判定：
+  `web-decision:` 前缀计入、`requestedBy === owner` 计入、无 owner 配置时不误计、requestedBy 与 owner 均为空不误计。
+- 复跑同一单文件变异（`mutate=['src/runtime/autonomy-stats.ts']`、快速 vitest 配置）：
+  dry run **583 项**通过，**Final mutation score 85.71% ≥ break 80 → 通过**（`/tmp/mut21.log`）。
+- 证据绑定：实现 `9f99e1e`（`matchesCandidateArtifact`）+ 用例 `45293eb`；
+  报告 `packages/forgeloop/reports/mutation-autonomy-stats.json`。
+- 领域 1 的本轮改动因此**满足“增量变异关键存活 0 / 分数达标”**；仓库级 `make mutation-incremental SCOPE=controlled`
+  的 PASS 证据仍是 `/tmp/mut15.log`（score 96.05%、关键存活 0）。
+- 仍欠：把 `runtime/autonomy-stats.ts` 纳入受控变异文件清单，避免下次只能靠临时单文件配置。
