@@ -143,4 +143,26 @@ describe('run evidence archive', () => {
     expect(failed.accepted).toBe(false)
     expect(failed.failures).toEqual(['运行进程与制品不一致', '证据归档失败：磁盘不可写'])
   })
+
+  it('checks verification and deployment records when a requirement is given', () => {
+    const archived = archiveRunEvidence({
+      sourceRoot,
+      targetDir,
+      project: 'demo',
+      summary: { ok: true },
+      requirementId: 'req-archived',
+      now: '2026-11-09T00:10:00.000Z',
+    })
+    expect(archived.ok, archived.error).toBe(true)
+    // 需求没有验证/部署记录时也应能自检通过（计数为 0，不是错误）。
+    const noRows = archiveRunEvidence({
+      sourceRoot,
+      targetDir: join(dir, 'archive-empty'),
+      project: 'demo',
+      summary: { ok: true },
+      requirementId: 'req-without-records',
+      now: '2026-11-09T00:11:00.000Z',
+    })
+    expect(noRows.ok, noRows.error).toBe(true)
+  })
 })

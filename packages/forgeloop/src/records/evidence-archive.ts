@@ -55,6 +55,8 @@ export interface RunEvidenceArchiveInput {
   readonly targetDir: string
   readonly project: string
   readonly summary: unknown
+  /** 本次真实运行的需求；给出时额外自检验证与部署记录可双向回查。 */
+  readonly requirementId?: string
   /** 需要从源现场根目录复制的文件；缺省为摘要、宿主日志与配置快照。 */
   readonly files?: readonly string[]
   readonly now?: string
@@ -90,6 +92,18 @@ export function archiveRunEvidence(input: RunEvidenceArchiveInput): RunEvidenceA
       try {
         snapshot.prepare('SELECT COUNT(*) AS n FROM requirements').get()
         snapshot.prepare('SELECT COUNT(*) AS n FROM ops_events').get()
+        if (input.requirementId) {
+          // 双向回查：按需求能查到验证、部署与相关运维事件。
+          snapshot
+            .prepare('SELECT COUNT(*) AS n FROM requirement_verifications WHERE req_id = ?')
+            .get(input.requirementId)
+          snapshot
+            .prepare('SELECT COUNT(*) AS n FROM deployment_intents WHERE requirement_id = ?')
+            .get(input.requirementId)
+          snapshot
+            .prepare('SELECT COUNT(*) AS n FROM ops_events WHERE fix_requirement_id = ?')
+            .get(input.requirementId)
+        }
       } finally {
         snapshot.close()
       }
