@@ -8137,3 +8137,15 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 - 结论：`parseVerificationReport` 对历史报告向后兼容、对新字段向前兼容，历史证据可继续读取，
   新执行规则（正负配对、两入口共用判定）不受影响。
 - 局限：这属于“证据模型可读性”的回归证据；两套证据结构**尚未合并为一套**，因此领域 5 仍记**部分完成**。
+
+### 218.6 归档快照的双向回查自检（2026-11-10 02:5x）
+
+- `95feb11`：`archiveRunEvidence` 增加可选 `requirementId`。给出时，归档快照除原有
+  `requirements`/`ops_events` 计数外，还按需求回查 `requirement_verifications`、`deployment_intents`
+  与 `ops_events.fix_requirement_id`，把候选、验证、部署绑到同一条需求上。
+- 先失败后通过：用例最初把表列名写成 `deployment_intents.req_id`，实测 `no such column: req_id`
+  → 改为 `requirement_id` 后通过；另有一次因重复 `seedRun()` 触发 `UNIQUE constraint failed`，已修正。
+- 证据：`tests/m1-archive.test.ts` 6 例（原 5 + 新 1：有需求行与无记录两种情况都自检通过）；
+  提交经 `make commit-check` 放行。
+- 边界：目前只在归档自检里回查；`scripts/ts/real-ops-e2e.ts` 尚未传 `requirementId`，
+  下一轮把真实运行的需求 id 接上即可覆盖真实归档。
