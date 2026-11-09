@@ -1389,7 +1389,8 @@
       "packages/forgeloop/src/domain/task-plan.ts",
       "packages/forgeloop/src/domain/deployment.ts",
       "packages/forgeloop/src/domain/delivery.ts",
-      "packages/forgeloop/src/runtime/acceptance-binding.ts"
+      "packages/forgeloop/src/runtime/acceptance-binding.ts",
+      "packages/forgeloop/src/runtime/autonomy-stats.ts"
     ],
     "critical_files": [
       "packages/forgeloop/src/domain/retry-policy.ts",
