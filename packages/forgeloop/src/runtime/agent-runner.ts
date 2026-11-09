@@ -177,7 +177,7 @@ function restrictService(ctx: AnyRecord): RestrictService | undefined {
 }
 
 /** 按白名单收紧工具：列出的保留，其余全部 deny；不传白名单时等同全部 deny。 */
-function restrictToolNames(
+export function restrictToolNames(
   agentCtx: AnyRecord,
   tools: ToolsService,
   allowed?: readonly string[],
@@ -187,8 +187,13 @@ function restrictToolNames(
     .map((schema) => schema.name)
     .filter((name): name is string => Boolean(name))
   const deny = allowed ? names.filter((name) => !allowed.includes(name)) : names
+  const service = restrictService(agentCtx)
+  if (!service) {
+    // 白名单必须真的生效：宿主没有工具限制服务时不能静默放行全部工具。
+    throw new Error('宿主未提供工具限制服务，拒绝以未受限工具运行')
+  }
   if (deny.length === 0) return
-  restrictService(agentCtx)?.restrict({ deny })
+  service.restrict({ deny })
 }
 
 function presetRegistry(ctx: AnyRecord): PresetRegistry | undefined {
@@ -433,7 +438,8 @@ export class AgentRunner {
     const presetId = request.tools === 'none' || request.allowTools ? undefined : 'standard'
     if (request.allowTools) {
       return (agentCtx: AnyRecord) => {
-        if (tools) restrictToolNames(agentCtx, tools, request.allowTools)
+        if (!tools) throw new Error('宿主未提供工具服务，无法执行工具白名单')
+        restrictToolNames(agentCtx, tools, request.allowTools)
       }
     }
     if (request.tools === 'none' && tools) {
