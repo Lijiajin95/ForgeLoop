@@ -8186,3 +8186,17 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 “证据模型完全合并为单一结构”作为后续可选重构，不再是验收阻塞项。
 
 证据：`npx vitest run tests/verification-outcome-shared.test.ts tests/verification-report-compat.test.ts tests/verification-control-pairing.test.ts tests/verification-negative-control.test.ts` → 17 passed。
+
+### 218.10 工具白名单 fail-open 修复（2026-11-10 02:5x）
+
+- **缺陷**：`runtime/agent-runner.ts` 的 `restrictToolNames` 用 `restrictService(agentCtx)?.restrict({ deny })`
+  静默降级——宿主没有工具限制服务时，`allowTools` 白名单**等于没生效**，测试会话仍拿到全部工具。
+  这正是领域 7 要求“越界工具调用被拒绝”的机制漏洞。
+- **修复**（`9803201`）：
+  - 缺少工具限制服务时抛错 `宿主未提供工具限制服务，拒绝以未受限工具运行`（fail-closed）；
+  - setup 阶段缺少工具服务时抛错 `宿主未提供工具服务，无法执行工具白名单`；
+  - 未给白名单时仍 deny 全部（原语义保留）。
+- **证据**：`tests/agent-tool-allowlist.test.ts` 3 例——白名单外全部 deny、无限制服务即拒绝、未给白名单 deny 全部；
+  先失败后通过：首次导入报 `(0, restrictToolNames) is not a function`，补导出后 3/3 通过；整条 `make commit-check` 放行。
+- **对领域 7 的意义**：白名单现在是“要么生效、要么拒绝运行”，不再是可静默跳过的配置；
+  但“真实模型下的越界拒绝记录”仍需授权环境，故领域 7 仍记**部分完成**。
