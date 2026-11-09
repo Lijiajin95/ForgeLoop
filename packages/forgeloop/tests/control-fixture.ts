@@ -6,7 +6,8 @@ import { sha256OfText } from '../src/domain/delivery.js'
 
 /** 对照副本中的命令按“已知错误实现”失败；正式候选仍走真实命令执行。 */
 export const controlAwareFormalTest: typeof runFormalTest = async (request) => {
-  if (request.cwd.includes('/controls/')) {
+  // 路径分隔符按平台归一化：Windows 的 cwd 用反斜杠，直接匹配 '/controls/' 会漏判。
+  if (request.cwd.replaceAll('\\', '/').includes('/controls/')) {
     const output = 'target rule broken: injected fault'
     mkdirSync(dirname(request.logPath), { recursive: true })
     writeFileSync(request.logPath, output, 'utf8')

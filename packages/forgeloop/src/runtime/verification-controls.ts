@@ -11,6 +11,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
 } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
@@ -142,9 +143,12 @@ function targetDigests(root: string, targets: readonly string[]): Map<string, st
   const digests = new Map<string, string>()
   for (const target of targets) {
     const path = join(root, target)
+    // 目录、符号链接等非普通文件按“不存在”处理：不能让摘要计算抛 EISDIR，
+    // 也不能把目录当成补丁目标。
+    const present = existsSync(path) && statSync(path).isFile()
     digests.set(
       target,
-      existsSync(path) ? createHash('sha256').update(readFileSync(path)).digest('hex') : 'missing',
+      present ? createHash('sha256').update(readFileSync(path)).digest('hex') : 'missing',
     )
   }
   return digests

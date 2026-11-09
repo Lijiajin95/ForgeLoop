@@ -225,7 +225,7 @@ function fakeRunner(
 }
 
 const controlAwareFormalTest: typeof runFormalTest = async (request) => {
-  if (request.cwd.includes('/controls/')) {
+  if (request.cwd.replaceAll('\\', '/').includes('/controls/')) {
     const output = 'target rule broken: expected fixture, got broken'
     mkdirSync(dirname(request.logPath), { recursive: true })
     writeFileSync(request.logPath, output, 'utf8')

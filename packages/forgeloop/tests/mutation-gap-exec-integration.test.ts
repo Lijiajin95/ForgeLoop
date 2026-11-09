@@ -639,7 +639,7 @@ describe('execution-dev task turns', () => {
       reason: `研发回合被停止：宿主停止；现场保留，未交付改动已保存到 ${checkpointDiff}，可继续修复`,
     })
     expect(aborted.calls.map((call) => call.transcriptPath)).toEqual([
-      expect.stringMatching(/\/attempts\/a1-\d+\/dev\.jsonl$/),
+      expect.stringMatching(/[\\/]attempts[\\/]a1-\d+[\\/]dev\.jsonl$/),
     ])
     const checkpoint = JSON.parse(readFileSync(join(checkpointDir, 'checkpoint-a1.json'), 'utf8'))
     expect(checkpoint).toMatchObject({
@@ -696,8 +696,8 @@ describe('execution-dev task turns', () => {
       '上一次研发回合未完成：模型崩溃。请继续完成同一个任务。',
     )
     expect(session.calls.map((call) => call.transcriptPath)).toEqual([
-      expect.stringMatching(/\/attempts\/a1-\d+\/dev\.jsonl$/),
-      expect.stringMatching(/\/attempts\/a2-\d+\/dev\.jsonl$/),
+      expect.stringMatching(/[\\/]attempts[\\/]a1-\d+[\\/]dev\.jsonl$/),
+      expect.stringMatching(/[\\/]attempts[\\/]a2-\d+[\\/]dev\.jsonl$/),
     ])
     expect(session.calls[0]?.timeoutMs).toBe(60_000)
     expect(formalTest.calls).toHaveLength(1)
@@ -705,7 +705,7 @@ describe('execution-dev task turns', () => {
       cwd: fixture.workspace,
       argv: fixture.task.testCommand,
       timeoutMs: 25_000,
-      logPath: expect.stringMatching(/\/attempts\/a2-\d+\/formal-test\.log$/),
+      logPath: expect.stringMatching(/[\\/]attempts[\\/]a2-\d+[\\/]formal-test\.log$/),
     })
     expect(fixture.repo.taskRuns(REQ_ID, 1)).toEqual([
       expect.objectContaining({ taskId: 't1', state: 'delivered', reason: '' }),
@@ -780,7 +780,7 @@ describe('execution-dev task turns', () => {
       cwd: fixture.workspace,
       argv: fixture.task.testCommand,
       timeoutMs: 25_000,
-      logPath: expect.stringMatching(/\/attempts\/a1-\d+\/formal-test\.log$/),
+      logPath: expect.stringMatching(/[\\/]attempts[\\/]a1-\d+[\\/]formal-test\.log$/),
     })
     expect(session.calls).toHaveLength(2)
     expect(session.calls[1]?.prompt).toContain('研发自验未通过（退出码 1）')

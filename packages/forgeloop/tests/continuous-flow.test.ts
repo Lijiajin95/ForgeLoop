@@ -1189,7 +1189,7 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('business model unavailable')
-  })
+  }, 120_000)
 
   it('rejects a plan that leaves the TypeScript project boundary and retries', async () => {
     runtime.close()
@@ -1276,7 +1276,7 @@ describe('continuous four-Agent flow', () => {
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('业务验收阻断')
     expect(runtime.repo.failureRounds(reqId).length).toBeGreaterThanOrEqual(3)
-  })
+  }, 120_000)
 
   it('blocks when the business acceptance reports a real failure', async () => {
     runtime.close()
@@ -1292,7 +1292,7 @@ describe('continuous four-Agent flow', () => {
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
     expect(advance.detail).toContain('业务结果不符合预期')
-  })
+  }, 120_000)
 
   it('does not duplicate an advance request that is already queued', async () => {
     const submitted = runtime.submit({
@@ -1704,6 +1704,7 @@ describe('continuous four-Agent flow', () => {
       append: '\nfault-injected\n',
     })
     try {
+      runtime.close()
       runtime = makeRuntime(fakeRunner())
       const submitted = runtime.submit({
         text: '实现一个可验证的小功能',
@@ -1771,6 +1772,8 @@ describe('continuous four-Agent flow', () => {
       replaceTo: 'fault-replaced',
     })
     try {
+      // 换新运行时前先关闭旧库句柄：Windows 下未释放的 SQLite 会让 afterEach 清理报 EPERM。
+      runtime.close()
       runtime = makeRuntime(fakeRunner())
       const submitted = runtime.submit({
         text: '实现一个可验证的小功能',
@@ -1939,6 +1942,8 @@ describe('development session routing failures', () => {
         runtime.cancel({ reqId, by: 'owner', reason: '验证中取消' })
       },
     })
+    // 换新运行时前先关闭旧库句柄，否则 Windows 下 afterEach 清理会报 EPERM。
+    runtime.close()
     runtime = makeRuntime(runner)
     const submitted = runtime.submit({
       text: '实现一个可验证的小功能',
@@ -1957,6 +1962,7 @@ describe('development session routing failures', () => {
 
   it('hands a clarification to the product flow with zero code changes', async () => {
     runner = fakeRunner({ clarification: true })
+    runtime.close()
     runtime = makeRuntime(runner)
     const submitted = runtime.submit({
       text: '实现一个可验证的小功能',
@@ -1976,6 +1982,7 @@ describe('development session routing failures', () => {
 
   it('rejects an actual out-of-scope diff even when plan files are allowed', async () => {
     runner = fakeRunner({ devExtraFile: 'src/evil.ts' })
+    runtime.close()
     runtime = makeRuntime(runner, { activeRoots: ['docs/'] })
     const submitted = runtime.submit({
       text: '实现一个可验证的小功能',

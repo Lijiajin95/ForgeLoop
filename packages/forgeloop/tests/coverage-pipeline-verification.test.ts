@@ -374,7 +374,7 @@ function setup(options: SetupOptions = {}) {
   const formalTest = async (request: TestRunRequest): Promise<TestRunResult> => {
     testCalls += 1
     // 对照副本中的命令按已知错误实现失败；正式候选结果仍由测试给定。
-    if (request.cwd.includes('/controls/')) {
+    if (request.cwd.replaceAll('\\', '/').includes('/controls/')) {
       return testResult(request, {
         exitCode: 1,
         output: 'target rule broken: expected fixture, got broken',

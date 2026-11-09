@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Database } from '../src/records/db.js'
 import { Repository } from '../src/records/repository.js'
@@ -142,6 +142,49 @@ function build(overrides: { gate?: DeploymentGate; now?: () => string } = {}): D
   })
 }
 
+/**
+ * 结束安装器启动的服务进程：写入 stop 标记让服务自行退出，并等待进程消失。
+ * 不按 pid 发信号——Windows 上 pid 会复用，误杀可能命中测试 worker 自身。
+ */
+function stopInstalledServers(root: string): void {
+  const pidFiles: string[] = []
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const path = join(current, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.name === 'process.pid') pidFiles.push(path)
+    }
+  }
+  try {
+    walk(root)
+  } catch {
+    return
+  }
+  for (const pidFile of pidFiles) {
+    const pid = Number(readFileSync(pidFile, 'utf8').trim())
+    if (!Number.isInteger(pid) || pid <= 0) continue
+    try {
+      writeFileSync(join(dirname(pidFile), 'current', 'stop'), 'stop\n', 'utf8')
+    } catch {
+      // 目标已不在：无需停止。
+    }
+    waitForExit(pid)
+  }
+}
+
+/** 同步等待进程退出；最多约 5 秒，超时交给 rmSync 重试兜底。 */
+function waitForExit(pid: number): void {
+  const sleep = new Int32Array(new SharedArrayBuffer(4))
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      return
+    }
+    Atomics.wait(sleep, 0, 0, 100)
+  }
+}
+
 function toolScript(): string {
   return [
     'import json, os, sys',
@@ -184,7 +227,9 @@ beforeEach(() => {
 
 afterEach(() => {
   repo.close()
-  rmSync(dir, { recursive: true, force: true })
+  // 安装器会启动真实的 node 服务进程；先按 pid 文件结束它，否则目录仍被占用（Windows 报 EPERM）。
+  stopInstalledServers(dir)
+  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 describe('deployment coordinator', () => {
@@ -1000,10 +1045,12 @@ describe('deployment interruption recovery', () => {
 describe('real installer and running identity', () => {
   const SERVER = `import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
+// 测试清理时写入 stop 文件，服务自行退出；不靠杀 pid，避免 pid 复用误杀其他进程。
+setInterval(() => { if (existsSync(join(here, 'stop'))) process.exit(0) }, 100).unref()
 const sha = createHash('sha256').update(readFileSync(join(here, 'bundle.tgz'))).digest('hex')
 const startedAt = new Date().toISOString()
 const port = Number(process.env.FORGELOOP_TEST_PORT || 0)
@@ -1072,6 +1119,11 @@ createServer((req, res) => {
     '    print(json.dumps({"ok": True, "state": "running", "version": identity["version"], "artifactSha256": installed, "runningArtifactSha256": identity["artifactSha256"], "runningPid": identity["pid"], "runningStartedAt": identity["startedAt"], "detail": "live identity"}))',
   ].join('\n')
 
+  /** 用 Node 计算摘要，避免依赖 sha256sum 这类 POSIX 工具。 */
+  function sha256OfFile(path: string): string {
+    return createHash('sha256').update(readFileSync(path)).digest('hex')
+  }
+
   function makeArtifact(path: string, body: string): string {
     const bundle = join(dir, `bundle-${Math.random().toString(36).slice(2)}`)
     mkdirSync(bundle, { recursive: true })
@@ -1099,7 +1151,7 @@ createServer((req, res) => {
   it('closes an interrupted apply from real status without reinstalling', async () => {
     const artifactPath = makeArtifact(join(dir, 'interrupt.tgz'), 'export const marker = "v1"\n')
     const artifact = {
-      sha256: execFileSync('sha256sum', [artifactPath], { encoding: 'utf8' }).split(' ')[0]!,
+      sha256: sha256OfFile(artifactPath),
       path: artifactPath,
       version: '1.0.0',
     }
@@ -1179,7 +1231,7 @@ createServer((req, res) => {
   it('verifies against the live process identity and rejects a stale process', async () => {
     const artifactPath = makeArtifact(join(dir, 'app.tgz'), 'export const marker = "v1"\n')
     const artifact = {
-      sha256: execFileSync('sha256sum', [artifactPath], { encoding: 'utf8' }).split(' ')[0]!,
+      sha256: sha256OfFile(artifactPath),
       path: artifactPath,
       version: '1.0.0',
     }

@@ -237,7 +237,7 @@ function makeRuntime(
   const selectedFormalTest: typeof runFormalTest =
     formalTest ??
     (async (request) => {
-      if (request.cwd.includes('/controls/')) {
+      if (request.cwd.replaceAll('\\', '/').includes('/controls/')) {
         const output = 'target rule broken: expected fixture, got broken'
         const result = await runFormalTest(request)
         mkdirSync(dirname(request.logPath), { recursive: true })
@@ -724,7 +724,7 @@ describe('task retry', () => {
       },
     })
     runtime = makeRuntime(runner, async (request) => {
-      if (request.cwd.includes('/controls/')) {
+      if (request.cwd.replaceAll('\\', '/').includes('/controls/')) {
         const output = 'target rule broken: expected fixture, got broken'
         writeFileSync(request.logPath, output)
         return {

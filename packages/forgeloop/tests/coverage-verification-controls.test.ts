@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -121,15 +120,6 @@ async function execute(input: {
     ...(input.dependencyRoot ? { dependencyRoot: input.dependencyRoot } : {}),
     run: input.run ?? (async () => controlRun()),
   })
-}
-
-/** 包装脚本转发未拦截的 Git 子命令，保证 init/add/commit 仍由真实 Git 执行。 */
-function realGitPath(): string {
-  for (const dir of (process.env.PATH ?? '').split(':')) {
-    const candidate = join(dir, 'git')
-    if (dir && existsSync(candidate)) return candidate
-  }
-  throw new Error('git 不在 PATH 中')
 }
 
 afterEach(() => {
@@ -348,45 +338,59 @@ describe('failing before the patch can run', () => {
   })
 
   it('reports a patch that passes git apply --check but fails to apply', async () => {
-    const { root, ws } = workspace()
-    const bin = join(root, 'apply-bin')
-    mkdirSync(bin, { recursive: true })
-    const wrapper = join(bin, 'git')
+    // 用真实 Git 制造“检查通过、应用失败”：把 business.txt 改名到同名目录。
+    // 不依赖 POSIX shell，Windows 与 Linux 走同一条判定。
+    const root = mkdtempSync(join(tmpdir(), 'forgeloop-controls-cov-'))
+    roots.push(root)
+    const ws = join(root, 'workspace')
+    mkdirSync(join(ws, 'verification', 'controls'), { recursive: true })
+    mkdirSync(join(ws, 'blocked.txt'), { recursive: true })
+    writeFileSync(join(ws, 'blocked.txt', 'keep.txt'), 'occupied\n', 'utf8')
+    writeFileSync(join(ws, 'business.txt'), 'ok\n', 'utf8')
     writeFileSync(
-      wrapper,
+      join(ws, 'verification', 'controls', 'fault.patch'),
       [
-        '#!/bin/sh',
-        'if [ "$1" = "apply" ] && [ "$2" = "--check" ]; then exit 0; fi',
-        'if [ "$1" = "apply" ]; then echo "error: mock apply failure" >&2; exit 1; fi',
-        `exec "${realGitPath()}" "$@"`,
+        'diff --git a/business.txt b/blocked.txt',
+        'similarity index 100%',
+        'rename from business.txt',
+        'rename to blocked.txt',
         '',
       ].join('\n'),
       'utf8',
     )
-    chmodSync(wrapper, 0o755)
-    process.env.PATH = bin
-    const outcome = await execute({ root, ws, run: async () => controlRun() })
-    expect(outcome.issues).toEqual(['敏感性对照补丁应用失败：error: mock apply failure'])
+    git(ws, ['init', '-q'])
+    git(ws, ['add', '-A'])
+    git(ws, [
+      '-c',
+      'user.email=forgeloop@example.invalid',
+      '-c',
+      'user.name=ForgeLoop',
+      'commit',
+      '-qm',
+      'base',
+    ])
+    const outcome = await execute({ root, ws })
+    expect(outcome.issues[0]).toMatch(/^敏感性对照补丁应用失败：/)
+    expect(outcome.issues[0]).toContain('blocked.txt')
     expect(outcome.results[0]).toMatchObject({ applied: false, exitCode: null })
   })
 
   it('reports a copy that cannot initialize its own Git repository', async () => {
+    // 让 git init 必然失败（GIT_DIR 指向普通文件），错误由真实 Git 给出。
     const { root, ws } = workspace()
-    const bin = join(root, 'fake-bin')
-    mkdirSync(bin, { recursive: true })
-    const fakeGit = join(bin, 'git')
-    writeFileSync(
-      fakeGit,
-      '#!/bin/sh\necho "fatal: mock git init unavailable" >&2\nexit 1\n',
-      'utf8',
-    )
-    chmodSync(fakeGit, 0o755)
-    process.env.PATH = bin
-    const outcome = await execute({ root, ws, run: async () => controlRun() })
-    expect(outcome.issues).toEqual([
-      '敏感性对照执行异常：无法初始化对照副本：fatal: mock git init unavailable',
-    ])
-    expect(outcome.results[0]).toMatchObject({ applied: false, exitCode: null })
+    const blocker = join(root, 'git-dir-blocker')
+    writeFileSync(blocker, 'not a git dir', 'utf8')
+    const previous = process.env.GIT_DIR
+    process.env.GIT_DIR = blocker
+    try {
+      const outcome = await execute({ root, ws })
+      expect(outcome.issues[0]).toMatch(/^敏感性对照执行异常：无法初始化对照副本：/)
+      expect(outcome.issues[0]).toContain('fatal:')
+      expect(outcome.results[0]).toMatchObject({ applied: false, exitCode: null })
+    } finally {
+      if (previous === undefined) delete process.env.GIT_DIR
+      else process.env.GIT_DIR = previous
+    }
   })
 
   it('reports the exception when the isolated copy cannot be created', async () => {

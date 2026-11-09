@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildAdmissionFacts, decideAdmission } from '../src/domain/admission.js'
@@ -140,14 +140,11 @@ describe('project document edge branches', () => {
   })
 
   it('reports a write failure instead of pretending the document was saved', () => {
-    mkdirSync(join(root, 'readonly'), { recursive: true })
-    chmodSync(join(root, 'readonly'), 0o500)
-    try {
-      const written = writeProjectDoc(root, 'readonly/blocked.md', '# x\n')
-      expect(written).toMatchObject({ ok: false })
-      if (!written.ok) expect(written.reason).toContain('文档写入失败')
-    } finally {
-      chmodSync(join(root, 'readonly'), 0o700)
-    }
+    // 用“父路径已经是文件”制造可移植的写入失败（mkdir 报 ENOTDIR），
+    // Windows 的 chmod 只读不生效，不能依赖权限位。
+    writeFileSync(join(root, 'blocked.md'), 'not a directory\n', 'utf8')
+    const written = writeProjectDoc(root, 'blocked.md/inner.md', '# x\n')
+    expect(written).toMatchObject({ ok: false })
+    if (!written.ok) expect(written.reason).toContain('文档写入失败')
   })
 })

@@ -9,7 +9,10 @@ import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runne
 import { structuredSpecOf, withPromptRequirementSource } from './spec-fixture.js'
 
 const roots: string[] = []
+const runtimes: ForgeLoopRuntime[] = []
 afterEach(() => {
+  // 先关记录库再删目录：Windows 下未释放的 SQLite 句柄会让 rmSync 报 EPERM。
+  for (const runtime of runtimes.splice(0)) runtime.close()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -103,6 +106,7 @@ function makeHarness(root: string, initial: readonly string[]): Harness {
     root,
   )
   harness.runtime = new ForgeLoopRuntime({ ctx: {}, config, runner })
+  runtimes.push(harness.runtime)
   return harness
 }
 

@@ -18,7 +18,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative as relativePath } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import type {
   VerificationCheckPlan,
@@ -154,7 +154,9 @@ function safeMaterialTarget(workspace: string, relative: string): string {
   }
   const verification = join(realpathSync(workspace), 'verification')
   const parent = realpathSync(current)
-  if (parent !== verification && !parent.startsWith(`${verification}/`)) {
+  // 用路径关系判断而不是拼 `${dir}/`：Windows 的真实路径用反斜杠，拼正斜杠会误判越界。
+  const inside = parent === verification || !relativePath(verification, parent).startsWith('..')
+  if (!inside) {
     throw new RuleViolationError(`测试材料路径越出 verification/：${relative}`)
   }
   return target
