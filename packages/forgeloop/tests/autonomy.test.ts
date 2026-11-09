@@ -163,7 +163,7 @@ describe('autonomy records', () => {
     return reqId
   }
 
-  function markCommitted(reqId: string): void {
+  function markCommitted(reqId: string, deploy: 'none' | 'old' | 'current' = 'current'): void {
     repository.recordTaskPlan(plan(reqId))
     repository.recordVerification({
       requirementId: reqId,
@@ -205,12 +205,14 @@ describe('autonomy records', () => {
       builtAt: NOW,
       evidenceDir: dir,
     })
+    if (deploy === 'none') return
     repository.deploymentStore.recordDeploymentIntent({
       intentId: `dep-${reqId}`,
       project: PROJECT,
       targetId: 'auto',
       requirementId: reqId,
-      artifactSha256: `artifact-${reqId}`,
+      // 只有与当前构建制品一致的 verified 部署才算上线完成；旧制品单独构造。
+      artifactSha256: deploy === 'old' ? 'artifact-old' : `artifact-${reqId}`,
       artifactPath: join(dir, 'candidate.tgz'),
       artifactVersion: '1.0.0',
       source: 'test',
@@ -235,6 +237,26 @@ describe('autonomy records', () => {
     expect(stats.requirements.autonomousSuccess).toBe(1)
     expect(stats.requirements.involvementRate.rate).toBe(0)
     expect(stats.requirements.autonomousSuccessRate.rate).toBe(1)
+  })
+
+  it('only counts autonomy when the deployed artifact matches the current build', () => {
+    // 三个样本走同一公共入口：无部署、仅旧制品已部署、当前制品已部署。
+    markCommitted(submit('req-no-deploy'), 'none')
+    markCommitted(submit('req-old-deploy'), 'old')
+    markCommitted(submit('req-current-deploy'), 'current')
+
+    const stats = buildAutonomyStats(repository, PROJECT, 'owner')
+    expect(stats.requirements.total).toBe(3)
+    expect(stats.requirements.researchCompleted).toBe(3)
+    // 旧制品的 verified 部署不能算上线完成，也不能计入自主成功。
+    expect(stats.requirements.deploymentCompleted).toBe(1)
+    expect(stats.requirements.autonomousSuccess).toBe(1)
+    expect(stats.requirements.notAutonomous).toBe(2)
+    expect(stats.requirements.autonomousSuccessRate).toEqual({
+      numerator: 1,
+      denominator: 3,
+      rate: 1 / 3,
+    })
   })
 
   it('records budget extensions and counts them as human involvement', () => {
