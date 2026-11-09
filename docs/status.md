@@ -7607,3 +7607,17 @@ M1-5/M1-6/M1-7 部分，M1-4/M1-8 达成。未代签验收。
 - 日志：`/tmp/gate-head.log`（适用环境：本机 Node v24 / linux / 仓库 `/home/link/Project/ForgeLoop`）。
 - 与领域 1 的关系：门禁通过 ≠ 变异门禁通过；受控变异仍有 2 条等价关键存活待登记豁免，
   因此领域 1 仍记**部分完成**。
+
+## 210. 受控变异 PASS（2026-11-09 08:15）
+
+- `274bba4` 按行号兜底登记最后一条等价变异（`task-plan.ts` 的 `authorizationSource` 空串字面量，替换前后源码相同）。
+  先前 3 次尝试失败原因已定位并修正：①按片段匹配取不到因 Stryker 行号偏移 3 行的源码行；②写入 JSON 时用了字面量 \n 导致清单不可解析。
+- 复跑 `make mutation-incremental SCOPE=controlled`（HEAD `25d2e4f`）：
+  **PASS，score=96.05%**（killed 724 / timeout 6 / survived 9 / noCoverage 2），
+  **关键存活 0**，豁免 21 条（含本轮登记的等价变异）。
+- 配上 `npm run check:commit` 退出码 0（2195 项、0 条覆盖率错误，`/tmp/gate-head.log`）与
+  `make contracts` 0，**领域 1 与领域 2 判据均已满足**。
+- 证据：`/tmp/mut15.log`；变异报告 `reports/mutation-incremental-controlled-*.json`。
+
+七领域状态：1 通过；2 通过；3 部分完成（待可信客户入口核验）；4 部分完成（待真实缺陷闭环与装载核对）；
+5 部分完成（待双入口语义统一）；6 部分完成（待看板端到端取数）；7 未完成（需黑盒越界用例与模型复跑授权）。
