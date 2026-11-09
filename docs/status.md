@@ -7894,3 +7894,71 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 3. **领域 6 增强**（可选）：把 `archiveEvidence` 失败分支抽成纯函数并加单测，使“归档失败 → 验收未完成”可单测。
 4. **领域 4**：用真实自身缺陷（统计误计已修复，可另选一个仍复现的）走完整闭环；装载核对需已授权隔离目标。
 5. **领域 7**：需 DSH 宿主提供测试 Agent 工具白名单；仓库侧先准备越界用例骨架与预期拒绝原因。
+
+## 215. 七领域 P0 收口第二轮：领域 3 完成与跨平台边界修复（2026-11-09）
+
+对照 `b484807`，以执行时实际 HEAD 与原始证据为准。本批在独立 worktree `feat/p0-commitment`
+完成，两个提交：`66e081e`（领域 3）、`a22f6eb`（跨平台边界修复）。
+
+### 215.1 结果表
+
+| 领域            | 状态         | 关键提交              | 实际命令／证据                                                                                                                                                    | 剩余条件                                                                 |
+| --------------- | ------------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 1 代码可靠性    | **通过**     | `a22f6eb`             | `npx vitest run --coverage`（串行）：194 文件、2222 通过、1 跳过，逐文件覆盖率全过，总计 98.05/93.8/99.41；静态门禁六项逐个 0（`.cache/p0-batch-20261109/gate-serial.log`） | 最终候选合并后按 `npm run check:commit` 复跑（并行环境见 215.4）          |
+| 2 静态架构      | **通过**     | `66e081e`             | `node scripts/ts/contracts.ts` 0；`token-budget`/`assertion-budget`/`reliability-registry` 0；新增表与源码未改分层方向                                            | 无                                                                       |
+| 3 业务可靠性    | **通过**     | `66e081e`             | `tests/customer-decision.test.ts` 等 5 文件 30+ 用例；伪造来源/错误身份/过期决定/跨需求复用均被拒；合法修订放行、拒绝收口并保留理由                              | 无（决定表已落库并有老库迁移）                                           |
+| 4 工程可靠性    | **部分完成** | `7a7e0f2`（既有）     | 看门狗用例既有；本批未跑真实自身缺陷闭环                                                                                                                          | 用真实自身缺陷走受理→分析→准入→研发→独立测试→受控提交→制品→装载核对      |
+| 5 评测与证据    | **部分完成** | `a22f6eb`             | 修复验证材料边界（Windows 前缀与目录 EISDIR）与敏感性对照夹具；`advance`/显式 `verify` 仍分别走 legacy 与 verification-pipeline 两套判定                          | 让连续推进复用 `VerificationPipeline` 的判定与证据结构，两入口各留一正一反 |
+| 6 数据可靠性    | **部分完成** | `801104c` 等（既有）  | 统计口径、250 事件规模、脚本/看板交叉与看板端到端既有证据                                                                                                          | 归档失败判定抽成可测函数；三样本（无/旧/当前制品部署）实证                |
+| 7 AI 行为可靠性 | **未完成**   | —                     | 仓库内已有 `allowTools` 机制（`agent-runner.ts`、`execution-plan.ts`、`legacy-verification.ts`），但测试会话仍拿到候选工作区与材料路径，未做越界拒绝判定            | 统一两条入口的工具白名单；越界读源码/候选 diff 的拒绝证据；固定模型复验   |
+
+**结论**：七项中 3 项通过、3 项部分完成、1 项未完成，**仍不声明 P0 收口**；M1 阶段验收由所有者作出。
+
+### 215.2 领域 3 落地内容
+
+- `customer_decisions` 表（决定编号、需求、需求版本、具体承诺、决定方式、决定人、来源、理由、时间）；
+  `requirement_commitment_resolutions` 增加 `decision_id` 投影列，老库用 `PRAGMA table_info` + `ALTER`
+  最小迁移（用例覆盖老库补列）。
+- `CommitmentStore`（`src/records/commitment-store.ts`）承载三维回查与准入历史；`DevSessionStore`
+  组合为 `repo.commitments`，`repository.ts` 因带宽上限不再增长。
+- `resolutionCovers` 依次校验：版本、来源前缀、决定方式、理由、承诺存在、决定存在、同需求、同承诺、
+  同版本（过期）、决定人等于配置所有者、来源可信、方式一致；`resolutionRejections` 把每条被拒原因
+  交给准入，`decideAdmission` 的阻断文案追加“解除依据未通过：…”。
+- 入口：`resolveCommitment`（服务层，模型工具不暴露）与看板 `resolve-commitment`（所有者身份取自已认证
+  入口）；`decision: 'reject'` 把需求收口为 `rejected` 并保留理由；无冲突需求继续 `admitted`。
+
+### 215.3 本批修复的真实缺陷（Windows）
+
+1. `safeMaterialTarget` 用 `${dir}/` 前缀比较真实路径：Windows 反斜杠导致合法写入被判“越出
+   verification/”，整个验证材料写入链路不可用。改为 `relative()` 路径关系判断。
+2. `targetDigests` 对目录调用 `readFileSync` 抛 EISDIR：目标路径是目录时敏感性对照整轮异常。
+   改为只对普通文件求摘要。
+3. 控制副本夹具按 `cwd.includes('/controls/')` 识别副本：Windows 上永不命中，导致“必过用例在已知
+   错误实现上仍然通过”，验证无法通过。
+4. 部署夹具按 pid 强杀服务：pid 复用会误杀测试 worker（出现 `Channel closed` / worker RPC 超时）；
+   改为写 stop 标记让服务自退出并等待退出。
+5. 多处用例在重建运行时不关闭旧库句柄 → 清理报 EPERM；统一先 `runtime.close()`。
+6. 用例依赖 `sha256sum`、`chmod` 只读、POSIX shell 顶替 git：改为 Node 摘要、目录占位、`GIT_DIR`
+   指向普通文件等可移植手段。
+
+### 215.4 环境发现与证据位置
+
+- 并行跑全量覆盖率时，外部 e2e（`real-ops-e2e.ts`，非本会话）与本套件的重子进程用例并发，
+  触发 vitest worker `onTaskUpdate` 超时（14 个 unhandled error），`npm run check:commit`
+  因此偶发失败；同一配置改为串行（`--no-file-parallelism`）后 194/194 通过、覆盖率门槛全过。
+  证据：`.cache/p0-batch-20261109/gate-serial.log`（串行通过）、`coverage-parallel.log`（并行失败）。
+- 覆盖率配置补充排除 `__assertion_probe_*.ts`（断言规则用例临时写入 src 的探针，并行时被计成 0%）。
+- **阻塞项**：主工作树存在他人未提交改动（`packages/forgeloop/src/runtime/service.ts`、
+  `tests/continuous-flow.test.ts`），快进合并会覆盖在途改动，本批两个提交仍留在
+  `feat/p0-commitment`，待主工作树干净后执行 `make worktree-merge BRANCH=feat/p0-commitment`。
+
+### 215.5 剩余最小补齐条件
+
+1. **领域 5**：把 `executeContinuousAdvance` 的验证步骤改为复用 `VerificationPipeline`
+   （与显式 `verify` 同判定、同 `verification.json` 结构），或在两处抽出同一判定函数；
+   两条入口各补一正一反用例。
+2. **领域 7**：测试会话工具白名单统一（`allowTools` 已存在），并在测试材料/候选读取入口做
+   `src/**`、`*.diff`、`.git/**` 的显式拒绝；需要固定 DSH + 模型配置的隔离复验（需授权）。
+3. **领域 6**：把 `archiveEvidence` 失败判定抽成纯函数并单测；用实际入口验证无部署/仅旧制品/
+   当前制品三个样本。
+4. **领域 4**：选一条仍复现的真实自身缺陷，走完整闭环并在已授权隔离目标核对装载身份与摘要。
