@@ -7783,3 +7783,21 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
   3. 删除 repository.ts 中对应方法与 `commitmentDecisionOf` 助手（迁移到 store）；
   4. 更新调用方（service.ts、测试）为 `repo.commitments.*`；
   5. 再叠加 `resolutionRejections`/`conflictReasons`，跑 `make commit-check`。
+
+### 213.7 当前候选门禁复跑与领域 7 边界核查（2026-11-09 08:50）
+
+- `npm run check:commit` 在当前 HEAD（`23534fb`）**退出码 0**：**2200 项通过**、0 条 `ERROR: Coverage`、
+  收尾 `[check-repo] 全部通过（含逐文件覆盖率门槛）`；日志 `/tmp/gate-head2.log`。
+  → 领域 1 的“最终候选门禁”证据已刷新到最新 HEAD。
+- 领域 7 边界核查（只读检查，未改代码）：
+  - 在 `packages/forgeloop/src` 中检索 `allowedTools` / `allowed_tools` / `toolAllow` 均**无结果**；
+  - `runtime/formal-test.ts` 只负责按命令跑正式测试（`runFormalTest`），没有“测试 Agent 可读路径”的判定；
+  - 结论：**“测试 Agent 只拿公开接口、越界读源码/候选 diff 被拒绝”目前没有任何代码机制**，
+    属“只有声明没有机制”，按约定必须记为**未完成**，不能用新增测试或文档冒充。
+- 最小可落地路径（下一轮）：
+  1. 在 `src/domain/black-box-boundary.ts` 定义纯函数：输入访问目标（相对路径 + 类型：
+     `verification-material` / `product-entry` / `source` / `candidate-diff` / `git`），输出允许/拒绝与理由；
+  2. 在测试 Agent 的**实际读取入口**（`verification-materials.ts` 或测试会话的读文件封装）调用它，
+     确保越界请求在入口被拒绝并记录；
+  3. 用例覆盖：允许公开接口与 verification/ 材料；拒绝 `src/**`、`*.diff`、`.git/**`、候选补丁路径；
+  4. 双入口（连续推进 / 显式 verify）各留一条通过与被拒证据。
