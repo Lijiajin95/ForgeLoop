@@ -8117,3 +8117,13 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 - 领域 1 的本轮改动因此**满足“增量变异关键存活 0 / 分数达标”**；仓库级 `make mutation-incremental SCOPE=controlled`
   的 PASS 证据仍是 `/tmp/mut15.log`（score 96.05%、关键存活 0）。
 - 仍欠：把 `runtime/autonomy-stats.ts` 纳入受控变异文件清单，避免下次只能靠临时单文件配置。
+
+### 218.4 受控变异清单纳入 autonomy-stats（2026-11-10 02:5x）
+
+- `2376fb9`：`contracts/reliability.json` 的 `mutation.controlled_scope` 从 6 个文件增到 **7 个**，
+  加入 `packages/forgeloop/src/runtime/autonomy-stats.ts`（单文件变异 85.71% 已达标，见 §218.3）。
+- 该文件未列入 `critical_files`：其变异体不参与“关键存活必须为 0”的判定，只参与受控范围分数；
+  如后续要升级为关键文件，需先确认剩余 17 条历史分支存活全部消除。
+- 校验：`node scripts/ts/reliability-registry.ts` → `受控变异文件 7`、清单 sha256 更新；
+  提交经 `make commit-check` 放行。
+- 注意：下次跑 `make mutation-incremental SCOPE=controlled` 会多变异一个文件，耗时增加约 2–3 分钟。
