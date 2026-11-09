@@ -7814,3 +7814,12 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
      确保越界请求在入口被拒绝并记录；
   3. 用例覆盖：允许公开接口与 verification/ 材料；拒绝 `src/**`、`*.diff`、`.git/**`、候选补丁路径；
   4. 双入口（连续推进 / 显式 verify）各留一条通过与被拒证据。
+
+### 213.8 看板端到端取数证据（2026-11-09 08:45）
+
+- `b3802a1` 新增 `tests/board-stats.test.ts`（2 例）：`buildStatusBoard` 产出的
+  `autonomy.requirements.{total,autonomousSuccess,humanInvolved}` 与 `buildAutonomyStats` 的领域计算一致；
+  看板需求条数与统计总数一致、且只包含本项目的需求。
+- 意义：领域 6 此前只有“判定口径一致”（`autonomy-parity`），缺“看板真的按同一集合取数”的证据；本次补齐端到端一层。
+- 剩余（领域 6）：归档失败场景下“本轮验收保持未完成”的判定仍未有专门用例；规模夹具已覆盖 >200。
+- 证据：`packages/forgeloop/tests/board-stats.test.ts`，提交经 `make commit-check` 放行。
