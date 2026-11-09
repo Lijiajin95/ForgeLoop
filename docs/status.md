@@ -8080,3 +8080,15 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
   取数口径与看板一致性见 §213.8，判定口径交叉见 §211。
 - **领域 4 说明**：本缺陷即“旧制品 verified 被计为自主成功”的修复，但领域 4 要求的是
   **用运行中的 ForgeLoop 受理并走完整闭环 + 隔离目标装载核对**，本轮仍未执行，故领域 4 保持**未完成**。
+
+### 218.1 本轮增量变异状态（2026-11-10 01:40）
+
+- 对 `BASE=c1c4b5c .. HEAD=eb49a62` 运行 `make mutation-incremental SCOPE=incremental`：
+  选择到 5 个文件（含 `src/records/repository.ts` 这类大文件），Stryker 持续运行约 50 分钟仍未产出得分，
+  会话时间窗内无法取得结论，已终止该进程，**本轮不声称增量变异通过**。
+- 已成立的变异证据仍是受控范围那次：`make mutation-incremental SCOPE=controlled` PASS、
+  `score=96.05%`、关键存活 0、豁免 21（`/tmp/mut15.log`），但它绑定的是 `25d2e4f`，不含本轮
+  `matchesCandidateArtifact` 的新变异。
+- 下一步最小做法：把增量范围收窄到本轮真正改动的单个文件
+  （`packages/forgeloop/src/runtime/autonomy-stats.ts`），用脚本的 `--mutate` 或临时配置只变异该文件，
+  预期 5–10 分钟可出结果；若仍超出窗口，应在会话外以后台作业跑完并保留 `reports/mutation-incremental-*.json`。
