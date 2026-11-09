@@ -360,6 +360,8 @@ describe('verification judging branches', () => {
   })
 
   it('requires error controls to fail with a real non-zero exit code', () => {
+    // 只有负例的方案不再算通过：除负例自身的问题外，还会报“缺少正向验收检查”。
+    const missingPositive = '必过场景缺少正向验收检查：完成改动'
     const missingCode = judgeVerificationResult({
       plan: negativePlan(),
       artifact,
@@ -367,7 +369,10 @@ describe('verification judging branches', () => {
       environment,
       finishedAt: '2026-11-04T00:01:00.000Z',
     })
-    expect(missingCode.failures).toEqual(['错误对照没有真实退出码，不能证明其失败：negative'])
+    expect(missingCode.failures).toEqual([
+      '错误对照没有真实退出码，不能证明其失败：negative',
+      missingPositive,
+    ])
 
     const unexpectedlyGreen = judgeVerificationResult({
       plan: negativePlan(),
@@ -376,7 +381,10 @@ describe('verification judging branches', () => {
       environment,
       finishedAt: '2026-11-04T00:01:00.000Z',
     })
-    expect(unexpectedlyGreen.failures).toEqual(['错误对照预期失败但命令成功：negative'])
+    expect(unexpectedlyGreen.failures).toEqual([
+      '错误对照预期失败但命令成功：negative',
+      missingPositive,
+    ])
 
     const failedAsExpected = judgeVerificationResult({
       plan: negativePlan(),
@@ -385,7 +393,7 @@ describe('verification judging branches', () => {
       environment,
       finishedAt: '2026-11-04T00:01:00.000Z',
     })
-    expect(failedAsExpected).toMatchObject({ verdict: 'passed', failures: [] })
+    expect(failedAsExpected).toMatchObject({ verdict: 'failed', failures: [missingPositive] })
   })
 
   it('fails a scenario that has no executable commands', () => {

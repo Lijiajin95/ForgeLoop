@@ -843,6 +843,26 @@ function judgeCheck(check: VerificationCheckPlan, run: VerificationCheckRun): st
   return null
 }
 
+/**
+ * 必过场景的两条成对规则：既要自己的错误对照，也要自己的正向验收检查。
+ * 只有对照（负例）能过，等于只证明“错误实现会失败”，不能证明候选满足需求。
+ */
+function scenarioControlIssues(
+  planned: VerificationPlanScenario,
+  hasAnyControl: boolean,
+): string[] {
+  if (!planned.required) return []
+  const checks = planned.checks ?? []
+  const issues: string[] = []
+  if (hasAnyControl && !checks.some((check) => check.expectFailure)) {
+    issues.push(`必过场景缺少自己的错误对照：${planned.scenario}`)
+  }
+  if (checks.length > 0 && !checks.some((check) => !check.expectFailure)) {
+    issues.push(`必过场景缺少正向验收检查：${planned.scenario}`)
+  }
+  return issues
+}
+
 export function judgeVerificationResult(input: {
   readonly plan: VerificationPlan
   readonly artifact: VerificationArtifact
@@ -867,13 +887,7 @@ export function judgeVerificationResult(input: {
     })
     if ((planned.checks ?? []).length === 0)
       issues.push(`测试场景没有可执行命令：${planned.scenario}`)
-    if (
-      hasAnyControl &&
-      planned.required &&
-      !(planned.checks ?? []).some((check) => check.expectFailure)
-    ) {
-      issues.push(`必过场景缺少自己的错误对照：${planned.scenario}`)
-    }
+    issues.push(...scenarioControlIssues(planned, hasAnyControl))
     const problems = issues.filter((issue): issue is string => issue !== null)
     failures.push(...problems)
     scenarios.push({

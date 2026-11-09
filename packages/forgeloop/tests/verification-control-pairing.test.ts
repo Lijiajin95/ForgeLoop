@@ -109,4 +109,22 @@ describe('per-scenario negative control', () => {
     const result = judge(plan, [run('pos')])
     expect(result.verdict).toBe('passed')
   })
+
+  it('rejects a required scenario that only proves the faulty copy fails', () => {
+    // 只有负例没有正向验收：对照成立也不能证明候选本身满足需求。
+    const plan: VerificationPlan = {
+      scenarios: [
+        {
+          scenario: '错误路径',
+          acceptanceCriterion: '被拒绝',
+          method: '命令',
+          required: true,
+          checks: [negative('neg')],
+        },
+      ],
+    }
+    const result = judge(plan, [{ ...run('neg', 1), output: 'target rule broken' }])
+    expect(result.verdict).toBe('failed')
+    expect(result.failures.join('；')).toContain('必过场景缺少正向验收检查：错误路径')
+  })
 })
