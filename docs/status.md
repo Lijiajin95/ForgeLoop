@@ -8289,3 +8289,65 @@ env | grep -c API_KEY                                              →  0
 - 历史验证报告**向后/向前兼容**（`60c27fa`，4 例）；
 - `runtime/autonomy-stats.ts` 单文件变异 85.71% 并纳入受控变异清单（`45293eb`、`2376fb9`）；
 - 受控变异 7 文件 **PASS 95.1%、关键存活 0**（`/tmp/mut22.log`）；门禁 **2251 项通过**（`/tmp/gate-head3.log`）。
+
+## 222. 独立复核 HEAD `729d708`：门禁复跑与 §217 结论更正（2026-11-10 22:0x）
+
+按“以执行时实际 HEAD 与原始证据为准”复核暂停记录。以下都是本机（Windows 11 / Node 24.14.1）
+在 `HEAD=729d708` 上的原始结果，不是转述。
+
+### 222.1 独立复跑结果
+
+| 检查                  | 命令                                                                | 结果                                                               |
+| --------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 全量行为+逐文件覆盖率 | `npx vitest run --coverage --no-file-parallelism`                   | **201 文件、2253 通过、1 跳过**，98.06/93.81/99.42，逐文件门槛全过 |
+| 类型                  | `tsc -p packages/forgeloop/tsconfig.json --noEmit`                  | 0                                                                  |
+| Lint                  | `eslint packages/forgeloop/src packages/forgeloop/tests scripts/ts` | 0                                                                  |
+| 契约                  | `node scripts/ts/contracts.ts`                                      | OK（分层/依赖/循环/退役路径/工具/UI/会话边界一致）                 |
+
+证据：`.cache/p0-batch-20261109/gate-final-729d708.log`。与 §220 的 Linux 结果（2251 项）差异来自
+平台相关用例计数与新增用例，方向一致，未发现回归。
+
+### 222.2 更正 §217 关于“显式 verify 不开测试会话”的结论
+
+§217 写道“显式 verify 路径不打开测试会话……只按方案 argv 执行命令，不向任何模型会话投喂源码”。
+按 `HEAD=729d708` 的源码核对，这条**不准确**：
+
+- `src/runtime/verification-pipeline.ts:729-746` 仍然启动一次 `role=verify` 的 Agent 运行：
+  `permission: 'workspace-write'`、`tools: 'default'`、提示词要求模型自己写
+  `verification/commands.json`、`report.json`、`controls.json`。
+- 该路径确实**不再把候选 diff 放进提示词**（`ed70cff`），也不使用 `openAgent` 多轮会话；
+  但“测试 Agent 不能读源码”这一条**没有**在机制上成立：模型拿到的是标准编码工具面
+  且工作目录就是候选工作区。
+- 现有兜底是事后判定：`candidateIntegrityFacts`/`verificationIntegrity` 在命令执行后核对
+  候选提交与越界改动，采纳前若候选被改会 fail-closed 阻断；但**读取**源码/diff 不受限制。
+- 相对地，连续推进路径（`legacy-verification.ts:123`）确实把测试会话收紧为
+  `allowTools: [VERIFICATION_CHECK_TOOL, VERIFICATION_MATERIAL_TOOL]`，且 `agent-runner.ts`
+  在宿主缺少工具限制服务时 fail-closed（`9803201`）。
+
+**因此领域 7 的正确表述是**：连续推进路径的黑盒边界已成立；显式 verify 路径目前只有
+“提示词不含 diff + 事后完整性阻断”，缺“读源码/任意命令/改写候选”的**事前拒绝**。
+领域 7 记**部分完成**是准确的，但剩余条件不止“真实模型复验”，还有一条仓库内改动。
+
+### 222.3 领域 7 仓库内剩余改动（需所有者确认方向）
+
+最小可行方案（二选一，都属于跨模块重构，未经确认不在本批顺手做）：
+
+1. **让显式 verify 复用连续推进的黑盒机制**：`executeVerification` 内改为
+   `legacyVerification.openVerification` → `verifyCandidate`，两条入口收敛到同一执行/证据模型；
+   需要把 `CandidateFile`（候选 diff、版本、snapshot）从现有记录组装出来，并处理业务复审只跑一次。
+   预计影响 `verification-pipeline.ts`、`service.ts` 接线与 `verification.test.ts` 等约 50+ 用例。
+2. **给 pipeline 注入 `VerificationCheckRegistry`**：改为“先由测试会话写方案命令、再经授权工具执行、
+   最后程序判定”，保留材料通道但要求命令只能走注册表；同样需要改写现有假 runner 用例。
+
+方向性选择建议先写 ADR（`docs/adr/`），确认后再分两步实施：先接线与单条正向用例，再迁移存量用例。
+
+### 222.4 其余域与外部条件（沿用 §219/§220，未变）
+
+- 领域 1/2/3/5/6：通过；领域 5 的“证据模型完全统一”仍作为可选重构记在 §218.9，不是阻塞项。
+- 领域 4：需要 `DEEPSEEK_API_KEY` 等模型凭据（当前环境全部 unset）与一个已授权的隔离装载目标；
+  仓库内 `archiveRunEvidence(requirementId)` 接口已就绪（§218.6）。
+- 领域 7 外部部分：固定 DSH + DeepSeek 配置下的真实复验（正常执行、越界拒绝、有界纠错、失败阻断），
+  保存每轮原始输入/输出/命令/结果。
+
+**结论：七领域仍为 5 通过 / 1 未完成（领域 4）/ 1 部分完成（领域 7），不声明 P0 收口；
+M1 阶段验收由所有者作出。**
