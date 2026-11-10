@@ -8248,3 +8248,44 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 3. 完成后把真实 `requirementId` 传给 `archiveRunEvidence`（接口已支持，§218.6），即可覆盖候选/验证/部署双向回查。
 
 现场：`main` 未 push、未打 tag、版本号未变；工作树干净、无遗留 worktree；本轮所有改动的失败现场与通过证据均保留在 `/tmp` 与 `docs/status.md` 对应小节。
+
+## 221. 收口暂停记录：外部条件缺失（2026-11-10 08:12）
+
+本轮（P0 收口批次）到此停止自动推进，状态与 §220 一致，未再产生代码改动。记录停止原因与恢复条件，便于后续接续。
+
+### 221.1 停止点
+
+- `HEAD = aab2976`（`docs(status): add the consolidated seven-domain acceptance table`），
+  本地领先 `origin/main` 20 个提交；**未 push、未打 tag、版本号未变**；工作树干净，无遗留 worktree。
+- 七领域：**5 项通过**（1 代码、2 静态架构、3 业务、5 评测与证据、6 数据），
+  **领域 4 未完成**、**领域 7 部分完成**。
+- 结论：**不声明 P0 收口**；M1 阶段验收仍由所有者作出。
+
+### 221.2 阻塞条件（连续三轮相同，附实测命令）
+
+```
+printenv DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY   →  全部 unset
+env | grep -c API_KEY                                              →  0
+~/.forgeloop/config.json 键                                        →  autoAdvance, autonomy,
+  candidateArtifactPath, candidateBuildCommand, candidatePackageCommand,
+  owner, pollSeconds, project, projectPath, recordsRoot（无部署目标）
+```
+
+- `Makefile` 的 `real-model-e2e` 需要 `FORGELOOP_REAL_MODEL=1` 且宿主已导出模型密钥；当前无法运行。
+- 没有已授权的隔离装载目标，无法核对“实际加载的制品摘要与运行身份”。
+
+### 221.3 恢复后按序执行的三个动作
+
+1. 导出模型密钥 → `make real-model-e2e`，保存每轮原始输入/输出/命令/结果与阶段耗时；
+2. 在已授权隔离目标装载候选，比对制品摘要与运行身份；
+3. 用真实 `requirementId` 调用 `archiveRunEvidence`（接口已支持，§218.6），
+   完成候选、验证、部署记录的双向回查，并验证归档失败会阻止验收通过。
+
+### 221.4 本轮之前已交付的关键能力（便于复核）
+
+- 自主成功判定只认**当前制品**的 `verified` 部署（`9f99e1e`，5 例）；
+- 工具白名单 **fail-closed**：宿主无法限制工具时拒绝运行（`9803201`，3 例）；
+- 归档快照**双向回查**：按需求查验证/部署/事件（`95feb11`，6 例）；
+- 历史验证报告**向后/向前兼容**（`60c27fa`，4 例）；
+- `runtime/autonomy-stats.ts` 单文件变异 85.71% 并纳入受控变异清单（`45293eb`、`2376fb9`）；
+- 受控变异 7 文件 **PASS 95.1%、关键存活 0**（`/tmp/mut22.log`）；门禁 **2251 项通过**（`/tmp/gate-head3.log`）。
