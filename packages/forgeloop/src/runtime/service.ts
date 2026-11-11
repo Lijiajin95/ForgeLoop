@@ -227,6 +227,9 @@ export class ForgeLoopRuntime {
       reopenDeliveredTasks: (input) => this.reopenDeliveredTasks(input),
       verificationBaseline: (analysis) => this.verificationBaseline(analysis),
       remainingFailureRounds: (reqId) => this.remainingFailureRounds(reqId),
+      // 显式 verify 与连续推进共用同一黑盒测试会话（ADR 0012 选项 A）。
+      openBlackBoxSession: (input) => this.legacyVerification.openVerification(input),
+      verifyCandidateBlackBox: (input) => this.legacyVerification.verifyCandidate(input),
     })
     this.taskViews = new TaskViews({
       config: this.config,
@@ -1688,7 +1691,8 @@ ${answer}`
       )
     }
     if (request.action === ACTION_VERIFY) {
-      const verification = await this.verificationPipeline.executeVerification(
+      // 显式 verify 走黑盒测试会话（ADR 0012 选项 A），不再给模型标准编码工具面。
+      const verification = await this.verificationPipeline.executeVerificationBlackBox(
         request.reqId,
         signal,
       )

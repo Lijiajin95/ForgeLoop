@@ -41,6 +41,8 @@ import {
 import { runVerificationCommands, type VerificationCommandRun } from './execution-commands.js'
 import { VERIFICATION_MATERIAL_TOOL } from './verification-checks.js'
 import { verificationIntegrity, verificationVerdict } from './verification-outcome.js'
+import type { LegacyVerificationSession, LegacyVerifyInput } from './legacy-verification.js'
+import type { CandidateFile } from './integration.js'
 import type { OperationResult } from './operation-result.js'
 
 export interface VerificationPipelineDeps {
@@ -70,6 +72,23 @@ export interface VerificationPipelineDeps {
   }) => Array<{ taskId: string; attempt: number; archivedPath: string }>
   verificationBaseline: (analysis: RequirementAnalysis) => PlanReview
   remainingFailureRounds: (reqId: string) => number
+  /** 黑盒验证路径（ADR 0012 A）：与连续推进共用同一受限测试会话。 */
+  openBlackBoxSession: (input: {
+    reqId: string
+    requirement: Requirement
+    analysis: RequirementAnalysis
+    plan: TaskPlan
+    signal: AbortSignal
+  }) => Promise<
+    | { ok: true; value: LegacyVerificationSession }
+    | { ok: false; result: { state: 'block'; detail: string; blocking: string[] } }
+  >
+  verifyCandidateBlackBox: (input: LegacyVerifyInput) => Promise<{
+    state: 'pass' | 'block'
+    detail: string
+    blocking: string[]
+    repairRecommended?: boolean
+  }>
 }
 
 export class VerificationPipeline {
@@ -914,6 +933,95 @@ export class VerificationPipeline {
       controlRuns: controlOutcome.results,
       controlIssues: controlOutcome.issues,
     })
+  }
+
+  /**
+   * 黑盒验证路径（ADR 0012 选项 A）：与连续推进共用同一执行模型。
+   *
+   * 测试会话只有“按方案执行验证命令”和“写 verification/ 材料”两个工具，宿主无法收紧工具时
+   * fail-closed；命令由 `VerificationCheckRegistry` 真实执行，判定、敏感性对照与业务复审都在
+   * legacy 路径内完成。这里只把已交付候选整理成“固定候选工作区 + 候选身份”，再翻译结果。
+   *
+   * 候选已经烘焙进 `snapshotCommit`，所以交给 legacy 的补丁是空补丁：它创建隔离 worktree 时
+   * 直接检出候选，不会二次应用。
+   */
+  async executeVerificationBlackBox(
+    reqId: string,
+    signal: AbortSignal,
+  ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
+    const inputs = this.verificationInputs(reqId)
+    if (!inputs.ok) return inputs.outcome
+    const { requirement, analysis, plan, artifacts, reviewRecord, candidateSha256 } = inputs
+    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
+    if (existingOutcome) return existingOutcome
+    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
+    if (budgetOutcome) return budgetOutcome
+    const attempt = this.attemptOf(reqId, plan, candidateSha256)
+    const prepared = this.prepareVerificationWorkspace({
+      reqId,
+      plan,
+      reviewRecord,
+      candidateSha256,
+      attempt,
+    })
+    if (!prepared.ok) return prepared.outcome
+    const { dir, workspace, diffs, baseline, snapshot } = prepared
+    const finalized = this.finalizeVerificationWorkspace({
+      reqId,
+      plan,
+      dir,
+      workspace,
+      diffs,
+      candidateSha256,
+      baseline,
+      snapshot,
+      artifacts,
+    })
+    if (!finalized.ok) return finalized.outcome
+    const diffPath = join(dir, 'candidate-in-snapshot.diff')
+    writeFileSync(diffPath, '', 'utf8')
+    const candidate: CandidateFile = {
+      reqId,
+      planVersion: plan.planVersion,
+      candidateVersion: attempt.number,
+      candidateSha256,
+      requirementVersion: plan.requirementVersion,
+      baselineCommit: baseline,
+      snapshotCommit: finalized.workspaceHead,
+      diffPath,
+      diffSha256: sha256OfText(''),
+      createdAt: this.deps.now(),
+    }
+    const opened = await this.deps.openBlackBoxSession({
+      reqId,
+      requirement,
+      analysis,
+      plan,
+      signal,
+    })
+    if (!opened.ok) {
+      this.deps.repo.setStatus(reqId, 'blocked', opened.result.detail)
+      return { state: 'failed', detail: opened.result.detail }
+    }
+    try {
+      const result = await this.deps.verifyCandidateBlackBox({
+        reqId,
+        requirement,
+        analysis,
+        plan,
+        candidate,
+        devWorkspace: workspace,
+        signal,
+        verification: opened.value,
+      })
+      if (result.state === 'pass') return { state: 'done', detail: result.detail }
+      // 有修复建议的阻断交回研发；其余按失败收口。
+      return result.repairRecommended === true
+        ? { state: 'repair', detail: result.detail }
+        : { state: 'failed', detail: result.detail }
+    } finally {
+      await opened.value.close()
+    }
   }
 
   /** 业务终审报告文件与摘要是否仍一致。 */
