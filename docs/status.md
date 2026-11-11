@@ -8388,3 +8388,29 @@ M1 阶段验收由所有者作出。**
   配额恢复或换用有额度的密钥后重跑 `make real-model-e2e`（可加 `FORGELOOP_REAL_MODEL_DEPLOY=1`
   覆盖隔离目标装载核对）。
 - 证据：`.cache/p0-batch-20261109/real-model-run3.log`。
+
+### 223.4 配额耗尽复核与变异门禁的本机限制（2026-11-11 11:1x）
+
+- **配额复核**：再次运行 `real-model-e2e`（同凭据、`FORGELOOP_DSH_CLI` 指向 DSH CLI）仍在需求提交
+  阶段返回 `QUOTA: 429 {"type":"insufficient_quota","code":"insufficient_quota"}`，配额未恢复；
+  证据 `.cache/p0-batch-20261109/real-model-run4.log`。同日志中的“单消费者锁未取得”是本机 DSH web
+  宿主占用同一记录根的正常提示，不是失败原因。
+- **变异门禁（领域 1 的“绑定最终提交”）**：
+  - 原先 `mutation-incremental` 在本机直接 `spawn node_modules/.bin/stryker` → `ENOENT`
+    （Windows 只有 `stryker.cmd`）。已修（`543a714`）：改用当前 node 执行
+    `@stryker-mutator/core/bin/stryker.js`；启动、配置生成与 dry run 阶段都能进入。
+  - 但本机 dry run 仍失败于**已登记的并行 worker 问题**：在 Stryker 沙箱里跑
+    `vitest --config vitest.mutation.config.ts`，13 个文件失败、31 例失败，错误为
+    `[vitest-worker]: Timeout calling "onTaskUpdate"`（与本会话串行门禁能通过、并行门禁偶发
+    超时是同一根因）。
+  - 因此本机**未取得绑定 `543a714` 的变异分**，不声称变异通过。领域 1 的变异证据仍是
+    Linux 侧绑定旧提交的那次（§221.4：受控 7 文件 PASS 95.1%、关键存活 0）。
+  - 恢复条件：在 Linux/CI 侧跑 `make mutation-incremental SCOPE=incremental BASE=<对照提交>`
+    并保留 `reports/mutation-incremental-*.json`；本机需要先解决并行 worker 超时
+    （或在串行配置下接受更长的运行时间）。
+
+### 223.5 本轮结论
+
+七领域不变：1/2/3/5/6 通过；**领域 4 未完成**（缺可用模型配额与已授权装载目标）；
+**领域 7 部分完成**（黑盒边界已在两条路径生效，剩余为执行模型合并与真实复验）。
+**不声明 P0 收口；M1 验收由所有者作出。**
