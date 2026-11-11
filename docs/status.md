@@ -8354,3 +8354,37 @@ env | grep -c API_KEY                                              →  0
 
 **结论：七领域仍为 5 通过 / 1 未完成（领域 4）/ 1 部分完成（领域 7），不声明 P0 收口；
 M1 阶段验收由所有者作出。**
+
+## 223. 领域 7 选项 A 第一步：显式验证收紧为材料工具（2026-11-11 10:4x）
+
+所有者已选定 [ADR 0012](../adr/0012-single-verification-path.md) 的 **A**（显式 verify 复用连续推进的
+黑盒机制）。按“先接线与边界用例，再迁移存量用例”的顺序，本步先收紧工具面，执行模型迁移留到下一步。
+
+### 223.1 改动（`262dd32`）
+
+- `VerificationPipeline.runVerificationAgent` 由 `tools: 'default'` 改为
+  `allowTools: ['forgeloop_write_verification_material']`：测试会话只能往 `verification/` 写材料，
+  没有 shell、读文件、改候选或未授权工具；声明的命令由程序在固定候选上真实执行并核对输出。
+- `verificationPrompt` 同步声明该边界：没有执行能力、不得读源码或候选 diff、
+  `evidence` 必须是命令会稳定打印的原文片段，与真实输出不符即阻断。
+- 用例：`verification.test.ts` 新增“只有材料工具”边界断言（`allowTools` 恰为材料工具、
+  `tools` 未设置、提示词不含候选 diff 段落、明确禁止读源码）；提示词快照同步更新。
+
+### 223.2 未完成（下一步）
+
+- 把显式 verify 完全切到 legacy 两阶段会话（方案先定 → 受限工具执行 → 业务复审），
+  删除“材料 + 程序重跑”这条并行实现；需迁移 `verification.test.ts` 等约 50 例假 runner。
+- 试点实现已在本轮尝试（`executeVerificationBlackBox` + 依赖接线，编译与 lint 通过），
+  因存量显式验证用例断言材料路径而全部失败，故未合入；重做时应与用例迁移同批提交。
+
+### 223.3 真实模型复验：凭据已提供但配额耗尽
+
+- 所有者提供 `QWEN_TOKEN_PLAN_CN_API_KEY` 与 `QWEN_TOKEN_PLAN_CN_MODEL_ID`（2026-11-11）；
+  已按脚本约定映射 `FORGELOOP_REAL_MODEL_ID` 并配合 `FORGELOOP_DSH_CLI` 指向
+  `deepseek-harness/apps/cli/lib/bin.js` 启动 `real-model-e2e`。
+- 结果：需求提交阶段返回 **`QUOTA: 429 Your token-plan quota has been exhausted`**，
+  真实闭环未启动；另有一次因本机 DSH 单消费者锁被占用而失败（已定位为同一记录根被另一宿主消费）。
+- 因此领域 4 与领域 7 的“真实模型复验”仍缺可用配额，**不记通过**；恢复条件：
+  配额恢复或换用有额度的密钥后重跑 `make real-model-e2e`（可加 `FORGELOOP_REAL_MODEL_DEPLOY=1`
+  覆盖隔离目标装载核对）。
+- 证据：`.cache/p0-batch-20261109/real-model-run3.log`。
