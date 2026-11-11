@@ -93,6 +93,7 @@ import { LegacyVerification } from './legacy-verification.js'
 import { TaskDelivery, type DeliverInput, type DeliverOutcome } from './task-delivery.js'
 import { TaskViews } from './task-views.js'
 import { VerificationPipeline } from './verification-pipeline.js'
+import { blackBoxVerificationDeps } from './blackbox-verification.js'
 import { CandidatePipeline } from './candidate-pipeline.js'
 import { ExecutionPlan } from './execution-plan.js'
 import { ExecutionDev } from './execution-dev.js'
@@ -227,9 +228,7 @@ export class ForgeLoopRuntime {
       reopenDeliveredTasks: (input) => this.reopenDeliveredTasks(input),
       verificationBaseline: (analysis) => this.verificationBaseline(analysis),
       remainingFailureRounds: (reqId) => this.remainingFailureRounds(reqId),
-      // 显式 verify 与连续推进共用同一黑盒测试会话（ADR 0012 选项 A）。
-      openBlackBoxSession: (input) => this.legacyVerification.openVerification(input),
-      verifyCandidateBlackBox: (input) => this.legacyVerification.verifyCandidate(input),
+      ...blackBoxVerificationDeps(() => this.legacyVerification),
     })
     this.taskViews = new TaskViews({
       config: this.config,
@@ -1355,7 +1354,6 @@ ${answer}`
    * 候选包：只从“已通过独立测试的那一份工作区”构建，保证安装的就是被验证的候选。
    * 构建前后核对候选内容、产物摘要与包版本，并记录验证绑定。
    */
-  /** 新链路：最近的系统准入候选及其验证、业务验收和本地提交。 */
   buildCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
     return this.candidatePipeline.buildCandidate(input)
   }
@@ -1691,7 +1689,6 @@ ${answer}`
       )
     }
     if (request.action === ACTION_VERIFY) {
-      // 显式 verify 走黑盒测试会话（ADR 0012 选项 A），不再给模型标准编码工具面。
       const verification = await this.verificationPipeline.executeVerificationBlackBox(
         request.reqId,
         signal,
