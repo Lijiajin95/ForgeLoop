@@ -1370,6 +1370,26 @@ describe('independent verification gate', () => {
     expect(binding.verificationCandidateSha256).toBe(identity)
   })
 
+  it('runs the independent test agent with only the material tool', async () => {
+    let seen: AgentRunRequest | undefined
+    runtime.close()
+    runtime = makeRuntime(
+      fakeRunner({
+        onVerify: (request) => {
+          seen = request
+        },
+      }),
+    )
+    const { advance } = await runPipeline()
+    expect(advance.state, advance.detail).toBe('done')
+    // 黑盒边界（ADR 0012）：显式验证不给标准编码工具面，模型只能写 verification/ 材料。
+    expect(seen?.allowTools).toEqual(['forgeloop_write_verification_material'])
+    expect(seen?.tools).toBeUndefined()
+    expect(seen?.prompt).not.toContain('候选 diff：')
+    expect(seen?.prompt).toContain('forgeloop_write_verification_material')
+    expect(seen?.prompt).toContain('不得读取源码或候选 diff')
+  })
+
   it('does not rerun verification for a candidate that already passed', async () => {
     let verifyRuns = 0
     runtime.close()

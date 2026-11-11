@@ -470,7 +470,7 @@ describe('remaining prompt snapshots', () => {
         workspaceSha256: 'w'.repeat(64),
         workspacePath: '/tmp/ws',
       }),
-    ).not.toContain('候选 diff')
+    ).not.toContain('候选 diff：')
     expect(
       devPrompt({ requirement: requirement(1), plan, task: task as never, workdir: '/tmp/ws' }),
     ).toMatchSnapshot('dev')

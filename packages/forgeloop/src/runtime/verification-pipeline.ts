@@ -39,6 +39,7 @@ import {
   type ControlExecutionResult,
 } from './verification-controls.js'
 import { runVerificationCommands, type VerificationCommandRun } from './execution-commands.js'
+import { VERIFICATION_MATERIAL_TOOL } from './verification-checks.js'
 import { verificationIntegrity, verificationVerdict } from './verification-outcome.js'
 import type { OperationResult } from './operation-result.js'
 
@@ -742,7 +743,9 @@ export class VerificationPipeline {
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
       transcriptPath: join(dir, 'verify.jsonl'),
       signal,
-      tools: 'default',
+      // 黑盒边界（ADR 0012）：测试会话只能写 verification/ 材料，不能读源码或执行任意命令；
+      // 声明的命令由程序在固定候选上真实执行并核对输出。
+      allowTools: [VERIFICATION_MATERIAL_TOOL],
     })
     this.deps.charge(reqId, started)
     if (run.status !== 'completed') {

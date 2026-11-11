@@ -701,7 +701,7 @@ export function verificationPrompt(input: {
   workspacePath: string
 }): string {
   const review = input.planReview
-  return `你是 ForgeLoop 的独立测试 Agent。候选已经固定，你只验证它，不修改它。你可以使用工具，但只能新增或修改当前工作目录下 \`verification/\` 目录里的文件；不得修改 \`verification/\` 之外的任何文件、不得执行 git commit/push、不得修改生产环境。
+  return `你是 ForgeLoop 的独立测试 Agent。候选已经固定，你只验证它，不修改它。你没有 shell，也没有通用文件工具：唯一可用的是 \`forgeloop_write_verification_material\`，用它把材料写到当前工作目录的 \`verification/\` 下。不得执行命令、不得读取源码或候选 diff、不得修改候选、不得执行 git commit/push、不得修改生产环境；你声明的测试命令由程序在固定候选上真实执行并核对输出。
 
 ${requirementContext(input.requirement)}
 
@@ -733,8 +733,8 @@ ${JSON.stringify(review.verificationPlan, null, 2)}
   ]
 }
 
-同时写三个文件（只能放在 verification/ 目录）：
-1. \`verification/commands.json\`：程序会重新执行的命令清单，至少一条：
+同时用材料工具写三个文件（只能放在 verification/ 目录）：
+1. \`verification/commands.json\`：程序会执行的命令清单，至少一条：
    {"commands":[{"label":"唯一标签","argv":["可执行程序","参数"]}]}
 2. \`verification/report.json\`：上面的报告 JSON 原文。
 3. \`verification/controls.json\`：每个必过场景至少一条被引用命令的敏感性对照：
@@ -743,7 +743,8 @@ ${JSON.stringify(review.verificationPlan, null, 2)}
    程序会把补丁应用到候选的隔离副本、重跑同一命令，要求它按目标业务规则失败。正式候选不被修改。
 
 规则：
-- 必过场景必须实际执行并以 pass 出现在 scenarios 中；evidence 必须能在所引用命令的输出里逐字核对，模型自述或无关命令退出 0 不算证据，程序会重跑命令并用退出码判定。
+- 你没有执行能力，报告里的 pass 只是待验证声明：程序会用命令真实退出码与输出判定，evidence 必须是你设计的命令会稳定打印的原文片段（至少 8 个字符），与真实输出不符即阻断。
+- 必过场景必须在 scenarios 中出现；没有实际执行的命令、被引用命令失败、输出对不上，都会判阻断。
 - commands 只能引用 commands.json 里的 label；引用不存在的命令、无法核对的 evidence 都会判阻断。
 - 只打印固定文字、不调用业务入口、不检查返回值/持久状态的用例不能作为通过证据；必须让测试覆盖实际业务入口，并让受控错误实现能够使它失败。
 - 验证测试和辅助脚本只能放在 \`verification/\`；测试命令也不得修改候选源码、测试或配置，否则按候选被篡改阻断。
