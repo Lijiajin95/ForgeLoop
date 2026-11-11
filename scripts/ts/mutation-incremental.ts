@@ -18,11 +18,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join, relative, resolve } from 'node:path'
 import { loadContract, PKG, REPORTS, ROOT, run, tail, writeJson } from './reliability-lib.ts'
 
-const STRYKER_BIN = [
-  join(ROOT, 'node_modules', '.bin', 'stryker'),
-  join(PKG, 'node_modules', '.bin', 'stryker'),
+// Windows 上 .bin/stryker 是 shell 包装脚本，直接 spawn 会 ENOENT/EINVAL；
+// 统一用当前 node 执行 Stryker 的 JS 入口，跨平台一致。
+const STRYKER_CLI = [
+  join(ROOT, 'node_modules', '@stryker-mutator', 'core', 'bin', 'stryker.js'),
+  join(PKG, 'node_modules', '@stryker-mutator', 'core', 'bin', 'stryker.js'),
 ].find((candidate) => existsSync(candidate))
-if (!STRYKER_BIN) {
+const STRYKER_BIN = process.execPath
+if (!STRYKER_CLI) {
   console.error('[mutation-incremental] 找不到 Stryker 可执行文件；不能判定为通过。')
   process.exit(2)
 }
@@ -176,7 +179,7 @@ const concurrency = process.env.STRYKER_CONCURRENCY
 const strykerArgs = ['run', configPath]
 if (concurrency && /^\d+$/.test(concurrency)) strykerArgs.push('--concurrency', concurrency)
 const started = Date.now()
-const result = run(STRYKER_BIN, strykerArgs, { cwd: PKG, timeoutMs: 60 * 60_000 })
+const result = run(STRYKER_BIN, [STRYKER_CLI, ...strykerArgs], { cwd: PKG, timeoutMs: 60 * 60_000 })
 const durationMs = Date.now() - started
 const reportAbsolute = join(PKG, reportRelative)
 rmSync(configPath, { force: true })
