@@ -8620,3 +8620,53 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
   失败基线是 3 次自验失败 + 空 diff + 回合超时）；**完整闭环未走通**。
   下一步最小改法：把需求改成高度指令化（只允许改两个指定文件、禁止浏览其他文件），
   或把该缺陷拆成更小的任务，然后重跑。
+
+## 228. 绑定 DSH 工作区与跨工作区隔离（2026-11-12）
+
+来源：所有者要求“ForgeLoop 绑定 DSH 的工作区，各个工作区间隔离，禁止跨工作区访问”。
+已确认的四项决定：租户键取 Workspace id（`projects/ws-<id>`）；未绑定工作区的会话拒绝；
+旧目录仅按路径完全相同复用；隔离覆盖需求/任务/证据/运维/部署/日志。
+
+### 228.1 实现
+
+- 新增 `runtime/workspace-tenants.ts`：工作区 → 租户配置派生（`recordsRoot` 共享、`project=ws-<id>`、
+  `projectPath=工作区路径`）、按路径/会话解析、懒创建运行时与协调器、启动枚举与释放。
+- `index.ts`：装载期判定多工作区/单项目模式；有 `workspaceRegistry` 时按注册表预加载；
+  工具改用 `buildScopedTools`，看板改用 `createScopedBoardFetch`；无工作区服务的 headless
+  profile 保持单项目。隔离模式下不再创建旧项目运行时。
+- `tools.ts`：工具执行按 `exec.agent.session.header.cwd` 解析租户；无 agent 或未绑定工作区直接拒绝。
+  保留 `buildTools(runtime, config)` 兼容单项目测试。
+- `runtime/board-route.ts`：新增 `createScopedBoardFetch`，每个请求必须有 `sessionId`，
+  按会话所属工作区选择运行时；缺少会话 `session_required`(400)，未绑定 `workspace_unbound`(403)，
+  跨工作区身份按 `not_found`(404)。`createBoardFetch` 三参数形式保留给单项目测试。
+- `session/index.ts`：业务会话按 `header.cwd` 选择租户的输入接管器；未绑定工作区时写入
+  `plugin:forgeloop/error` 并拒绝，不回退默认项目。
+- `client.js`：天工页的 reader 绑定当前会话身份，所有看板请求都带 `sessionId`。
+- 旧目录兼容：仅当工作区路径与显式配置的旧 `projectPath` 完全相同时复用旧项目名。
+
+### 228.2 验证
+
+- 新增 `tests/workspace-tenants.test.ts`（11 项）、`tests/workspace-wiring.test.ts`（12 项）、
+  `tests/workspace-isolation.test.ts`（6 项）：租户派生与旧目录复用、按路径/会话解析、
+  放行侧（本工作区可见）与拒绝侧（跨工作区查询、未绑定会话、看板缺会话）双侧断言。
+- `npm run typecheck` 通过；`make check-static`（lint、契约、预算、断言基线）通过。
+- `make commit-check`：207 个测试文件、2294 项通过、1 跳过，逐文件覆盖率达标；
+  命令退出码仍为 1，原因是 vitest worker 的 `onTaskUpdate` 心跳超时（13 个），
+  相关文件单独复跑均通过，未据此计为通过。
+- 未运行：`make verify-plugin`、3080 真实双工作区冒烟。
+
+### 228.3 未完成与限制
+
+- 部署目标与运维检查清单仍是 profile 级配置；记录、工具根与回滚点按工作区隔离，
+  但两个工作区登记同一目标时安装副作用仍共享。不是已完成的发布隔离。
+- 工作区删除后的运行时与锁释放未接入注册表变更事件，需重启或后续补齐。
+- 天工页客户端 bundle 未重新构建/安装；正式 3080 仍是旧 bundle，真实双工作区冒烟未做。
+- headless profile 没有工作区服务，保持单项目模式；这是兼容路径，不是跨工作区回退。
+- 看板作用域取请求声明的会话身份；同一已认证所有者仍可主动为自己的另一个会话发起请求，
+  这里防的是工作区之间的数据串读，不是所有者内部的权限分级。
+
+### 228.4 发现但不碰
+
+- 主工作树 `docs/status.md` 的在途改动已由 `ba27343` 提交；本批从该提交 rebase，未改写其内容。
+- `scripts/ts/real-model-e2e.ts` 在 `f364abc` 后未通过 `make format`，为让提交门禁可运行，
+  单独提交了纯格式修复（`db82f9c`），未改变行为。

@@ -15,7 +15,16 @@ dsh --profile <name> --dump-config   # 应出现 "# == forgeloop-dsh" 层
 
 随后在该 profile 的 `cordis.patch.yml` 里覆盖 `forgeloop` 行的 `recordsRoot`、`project`、
 `projectPath`、`agent.provider/model`、可选的 `autonomy` 与 `ops` 目录。记录根布局：
-`<recordsRoot>/projects/<project>/records.sqlite`。`autonomy` 默认启用系统准入并放开来源
+`<recordsRoot>/projects/<project>/records.sqlite`。
+
+**工作区绑定**：宿主提供 DSH 工作区服务时，插件按工作区建项目：每个工作区一个租户，
+记录在 `<recordsRoot>/projects/ws-<workspaceId>/`，`projectPath` 取该工作区路径；
+`project`/`projectPath` 只用于旧目录兼容（仅当某个工作区路径与旧 `projectPath` 完全相同时复用旧项目名）。
+业务会话、模型工具与天工看板都按会话所属工作区读写，未绑定工作区的会话被拒绝；
+天工页的每个看板请求必须携带会话身份。没有工作区服务的 headless profile 保持单项目模式。
+部署目标与运维检查清单仍是 profile 级配置，记录按工作区隔离，这一缺口见架构 §4.3.1。
+
+`autonomy` 默认启用系统准入并放开来源
 （`allowAnySource=true`、`requireOwner=false`）：任何非空来源都可进入，来源与提交者完整记录；
 需要收紧时显式设置 `allowAnySource=false` 并维护 `trustedSources`。`allowCodeCommit=true`；
 `commitCheckCommand` 为空时拒绝提交并提示先配置和修复，不再把“未配置”视为通过。推荐跨平台配置
