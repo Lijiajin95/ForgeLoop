@@ -34,6 +34,12 @@ function dshCommand(args: string[]): [string, string[]] {
   return DSH_CLI ? [process.execPath, [DSH_CLI, ...args]] : [DSH, args]
 }
 const PROJECT = 'forgeloop-real-model'
+/** 用既有 git 目录当受控项目（真实仓库副本）；用于以自身缺陷为需求的自举闭环。 */
+const PROJECT_DIR = process.env.FORGELOOP_REAL_MODEL_PROJECT_DIR?.trim() ?? ''
+/** 受控提交门禁命令（JSON 数组）；缺省沿用夹具的 docs 标记检查。 */
+const COMMIT_CHECK = process.env.FORGELOOP_REAL_MODEL_COMMIT_CHECK?.trim() ?? ''
+/** 候选工作区依赖准备命令（JSON 数组），例如把主仓库 node_modules 链接进来。 */
+const WORKTREE_PREPARE = process.env.FORGELOOP_REAL_MODEL_WORKTREE_PREPARE?.trim() ?? ''
 /** 可选 loader patch：叠加在派生 profile 之后，只影响隔离实例的模型路由。 */
 let PATCH = process.env.FORGELOOP_REAL_MODEL_PATCH
 /** opt-in：提交后再构建候选、验收并走真实部署工具到隔离目标。 */
@@ -479,12 +485,15 @@ function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentF
       allowAnySource: true,
       allowCodeCommit: true,
       requireOwner: false,
-      commitCheckCommand: [
-        'node',
-        '-e',
-        "const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok'))process.exit(1)",
-      ],
+      commitCheckCommand: COMMIT_CHECK
+        ? (JSON.parse(COMMIT_CHECK) as string[])
+        : [
+            'node',
+            '-e',
+            "const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok'))process.exit(1)",
+          ],
     },
+    ...(WORKTREE_PREPARE ? { worktreePrepareCommand: JSON.parse(WORKTREE_PREPARE) as string[] } : {}),
     ...(deploy
       ? {
           candidateBuildCommand: ['node', '-e', 'process.exit(0)'],
@@ -611,7 +620,7 @@ async function main(): Promise<void> {
     throw new Error(`FORGELOOP_REAL_MODEL_PATCH 指向的文件不存在：${PATCH}`)
   }
   const home = join(workspace, 'dsh-home')
-  const projectDir = join(workspace, 'project')
+  const projectDir = PROJECT_DIR === '' ? join(workspace, 'project') : PROJECT_DIR
   const recordsRoot = join(workspace, 'records')
   const configPath = join(workspace, 'forgeloop.json')
   const dbPath = join(recordsRoot, 'projects', PROJECT, 'records.sqlite')
@@ -626,7 +635,7 @@ async function main(): Promise<void> {
   // 打包脚本读取服务器模板：由本进程注入，不写入仓库。
   process.env.FORGELOOP_M1_SERVER_SOURCE = SERVER_SOURCE
   const deploy = DEPLOY ? prepareDeployment(projectDir, recordsRoot, home) : undefined
-  initProject(projectDir)
+  if (PROJECT_DIR === '') initProject(projectDir)
   writeFileSync(configPath, `${JSON.stringify(configFor(projectDir, recordsRoot, deploy))}\n`)
   const env = { ...process.env, DSH_HOME: home, FORGELOOP_CONFIG: configPath }
   let child: ReturnType<typeof spawn> | undefined
