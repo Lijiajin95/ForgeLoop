@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { apply } from '../src/index.js'
+import { apply, waitForWorkspaceMode } from '../src/index.js'
 import { projectDir, resolveConfig, type RawConfig } from '../src/config.js'
 import { UNBOUND_WORKSPACE_MESSAGE, installSessionSurface } from '../src/session/index.js'
 import type { WorkspaceIdentity } from '../src/runtime/workspace-tenants.js'
@@ -33,15 +33,20 @@ function workspace(id: string): WorkspaceIdentity {
 function host(
   options: {
     workspaces?: readonly WorkspaceIdentity[]
+    /** 工作区服务晚于插件 apply 注册的毫秒数；用于固定装载竞态。 */
+    registryDelayMs?: number
     sessions?: Record<string, string>
     readSession?: (sessionId: string) => Promise<{ header?: { cwd?: string } }>
     byPathThrows?: boolean
+    /** 模拟 Web 宿主：暴露 webServer，但不提供工作区服务。 */
+    webServer?: boolean
   } = {},
 ) {
   const tools: RegisteredTool[] = []
   const routes: RegisteredRoute[] = []
   const services: Record<string, unknown> = {}
-  if (options.workspaces) {
+  if (options.webServer) services.webServer = { getOrigin: () => 'http://localhost' }
+  const installRegistry = () => {
     services.workspaceRegistry = {
       list: () => [...options.workspaces!],
       resolveByPath: async (path: string) => {
@@ -49,6 +54,10 @@ function host(
         return options.workspaces!.find((item) => item.path === path)
       },
     }
+  }
+  if (options.workspaces) {
+    if (options.registryDelayMs) setTimeout(installRegistry, options.registryDelayMs)
+    else installRegistry()
   }
   services.sessions = {
     get: (sessionId: string) => {
@@ -300,6 +309,121 @@ describe('plugin wiring with DSH workspaces', () => {
     const board = await call(hosted.routes[0]!, { endpoint: 'board', sessionId: 'session-a' })
     expect(board.status).toBe(200)
     expect((board.payload.value as { project: string }).project).toBe('ws-a')
+  })
+  it('resolves workspace mode when the service registers after apply', async () => {
+    const hosted = host({
+      workspaces: [workspace('a')],
+      registryDelayMs: 150,
+      sessions: { 'session-a': workspace('a').path },
+    })
+    apply(hosted.ctx, rawConfig())
+    const status = hosted.tools.find((tool) => tool.name === 'forgeloop_status')!
+
+    const scoped = (await status.execute(
+      {},
+      { agent: { session: { header: { cwd: workspace('a').path } } } },
+    )) as { ok: boolean }
+
+    expect(scoped.ok).toBe(true)
+  })
+
+  it('fails closed when a web host never exposes the workspace service', async () => {
+    const hosted = host({ webServer: true })
+    apply(hosted.ctx, rawConfig(), { modeWait: { pollMs: 5, webTimeoutMs: 40 } })
+    const status = hosted.tools.find((tool) => tool.name === 'forgeloop_status')!
+
+    await expect(status.execute({}, {})).rejects.toThrow('工作区服务未就绪')
+  })
+
+  it('routes a bound business session through its workspace tenant', async () => {
+    const hosted = host({ workspaces: [workspace('a')] })
+    let listener: ((payload: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined
+    hosted.ctx.on = (_event: string, handler: typeof listener) => {
+      listener = handler
+      return () => undefined
+    }
+    hosted.ctx.agentPresets = {
+      register: async () => async () => undefined,
+      composedPreset: () => 'forgeloop',
+    }
+    apply(hosted.ctx, rawConfig(), {
+      modeWait: { pollMs: 5, plainTimeoutMs: 200, webTimeoutMs: 200 },
+    })
+
+    const decision = await listener!(
+      {
+        agent: {
+          session: {
+            id: 'session-bound',
+            header: { agentPreset: 'forgeloop', cwd: workspace('a').path },
+            append: () => undefined,
+          },
+          ctx: {},
+        },
+        messages: [
+          { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '需求 A' }] },
+        ],
+        turn: 1,
+      },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+
+    expect(decision).toEqual({ kind: 'reject' })
+  })
+})
+
+describe('host mode detection', () => {
+  it('detects an already registered workspace service', async () => {
+    expect(
+      await waitForWorkspaceMode(
+        () => ({}),
+        () => false,
+      ),
+    ).toBe('workspace')
+  })
+
+  it('waits for a late registration instead of falling back to single mode', async () => {
+    let registry: Record<string, unknown> | undefined
+    setTimeout(() => {
+      registry = {}
+    }, 80)
+
+    const mode = await waitForWorkspaceMode(
+      () => registry,
+      () => false,
+      {
+        pollMs: 10,
+        plainTimeoutMs: 1000,
+      },
+    )
+
+    expect(mode).toBe('workspace')
+  })
+
+  it('falls back to single mode only for a non-web host', async () => {
+    const mode = await waitForWorkspaceMode(
+      () => undefined,
+      () => false,
+      {
+        pollMs: 5,
+        plainTimeoutMs: 30,
+      },
+    )
+
+    expect(mode).toBe('single')
+  })
+
+  it('fails closed for a web host whose workspace service never appears', async () => {
+    const mode = await waitForWorkspaceMode(
+      () => undefined,
+      () => true,
+      {
+        pollMs: 5,
+        webTimeoutMs: 30,
+      },
+    )
+
+    expect(mode).toBe('unavailable')
   })
 })
 
