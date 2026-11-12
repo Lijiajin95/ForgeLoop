@@ -8722,3 +8722,62 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 契约无变化；`docs/architecture.md` 同批更新。
 
 边界：日期按 UTC；同日文件按创建顺序编号，编号不回收；旧的 `plugin.log.1` 不做迁移或改名。
+
+## 231. 工作区版本地安装与真实双工作区验证（2026-11-12）
+
+来源：所有者要求“本地上线验证”。按仓库既有做法，**不重启 3080**（本会话运行在该进程内），
+改用隔离 DSH_HOME + 独立端口验证候选 tarball，并把候选安装到正式 web profile 磁盘待重启生效。
+
+### 231.1 安装与产物
+
+- 候选包：`forgeloop-dsh-0.0.2.tgz`，442,273 字节，SHA-256
+  `808684b00810cf078f4ef465ab9da1e8ead34f1e8273a94c2a2ebca805385298`，
+  gitHead `28052cec1f1e26bed254f9f1e54ec8476bf81679`，工作树干净。
+- 正式 `web` profile 已从该 tarball 重装（`package.json` 依赖路径不变，执行
+  `pnpm install --force` 强制替换）；安装前备份：旧 tarball
+  `forgeloop-dsh-0.0.2-pre-workspace-20261112-ws.tgz`、`package.json.bak-20261112-ws`、
+  `cordis.patch.yml.bak-20261112-ws`。
+- **运行中的 3080 进程仍是旧代码**（旧 `runtime-identity.json` 指向 pid 39520 / 01:45 启动）；
+  新包需重启该宿主后才生效，重启会中断当前 Web 会话，未擅自执行。
+
+### 231.2 真实隔离宿主验证（新包）
+
+隔离环境：临时 `DSH_HOME`、profile `verify-web`（web 模板 + 正式模型 patch）、端口 3091、
+独立 `recordsRoot`；通过网关（token → Cookie）创建两个工作区与两个 ForgeLoop 业务会话。
+
+结果：
+
+- 启动日志：工作区 A 路径等于旧 `projectPath`，按规则复用旧项目名 `legacy`；
+  工作区 B 绑定 `ws-40788f6e-…`；两个租户各自建库。
+- 两个业务会话各提交一条需求（`req-20261112114725-dd83a9`、
+  `req-20261112114726-98a681`），看板：
+  - A 项目与 B 项目不同，B 看不到 A 的需求；
+  - 缺 `sessionId` → 400 `session_required`；
+  - 伪造会话 → 403 `workspace_unbound`；
+  - 用会话 B 读 A 的需求详情 → 404 `not_found`；用会话 A 读 → 200。
+
+### 231.3 验证发现并修复的缺陷
+
+首次用新包启动隔离宿主时日志为 `mode=single`：`workspaceRegistry` 注册晚于插件 `apply`，
+装载期一次判定把 Web 宿主误判为单项目——这是会导致静默跨工作区回退的真实缺陷。
+修复（`28052ce`）：改为等待工作区服务就绪后再判定；Web 宿主 60s 内等不到即失败关闭，
+无 Web 能力的 headless 宿主宽限 2s 后走单项目；判定前不创建记录库/协调器。
+修复后同一隔离宿主启动即进入工作区模式，并完成上述双工作区验证。
+
+### 231.4 检查与环境
+
+- `make check-static` 通过；`make package` 通过。
+- 全量 `make check`：2295 通过、1 跳过；6 个部署/运维用例在并行负载下失败，
+  单独复跑 6 个文件 105/105 通过，未据此计为通过。
+- `make commit-check` 在本机多次出现 vitest worker `onTaskUpdate` 超时并挂起
+  （与 §229 记录的既有环境缺口一致）；定向覆盖率：`src/index.ts` 行/函数 100%、
+  分支 89.92%，`src/session/index.ts` 行 100%、分支 95.34%，均高于逐文件门槛。
+- 未运行：`make verify-plugin`、`make verify-e2e`、正式 3080 重启后的页面冒烟。
+
+### 231.5 发现但不碰
+
+- 其他 Agent 的日志功能提交（`5559928`、`a90fa7f`）已先行进入 main；本次 rebase 后合并，
+  未改写其内容。
+- `node_modules` 缺少 `@cacheable/memory` 导致 lint 崩溃，已用 `npm install --ignore-scripts`
+  修复，lockfile 未变。
+- 正式 3080 的重启与新包生效属于下一步；隔离验证成功后仍有“重启后页面/旧记录兼容”未验证。
