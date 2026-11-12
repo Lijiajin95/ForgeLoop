@@ -7,8 +7,11 @@ import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
 import { createPluginLogger } from '../runtime/log.js'
+import { FORGELOOP_ERROR_EVENT, appendSessionEvent } from './events.js'
 import {
   SessionIntake,
+  isForgeLoopSession,
+  type AgentViewLike,
   type PreStepDecision,
   type PreStepNext,
   type PreStepPayloadLike,
@@ -17,14 +20,29 @@ import { presetRegistryOf, registerForgeLoopPreset, type PresetRegistration } fr
 
 type AnyRecord = Record<string, unknown>
 
-export interface SessionSurfaceOptions {
+/** 业务会话所属工作区的运行时；由宿主注册表按会话目录解析。 */
+export interface SessionTenant {
+  readonly id: string
   readonly runtime: ForgeLoopRuntime
   readonly config: ForgeLoopConfig
+}
+
+export interface SessionTenantSource {
+  /** 按会话 header 的原始目录解析工作区；未绑定任何工作区时返回 undefined。 */
+  forCwd(cwd: string): Promise<SessionTenant | undefined>
+}
+
+export interface SessionSurfaceOptions {
+  /** 单项目/兼容模式的服务与配置；多工作区模式只给 tenants。 */
+  readonly runtime?: ForgeLoopRuntime | undefined
+  readonly config?: ForgeLoopConfig | undefined
   readonly log?: (message: string) => void
+  /** 多工作区装配；缺省时保持单项目行为（兼容调用与测试）。 */
+  readonly tenants?: SessionTenantSource | undefined
 }
 
 export interface SessionSurface {
-  readonly intake: SessionIntake
+  readonly intake: SessionIntake | undefined
   /** preset 注册结果；宿主没有 agentPresets 时 reason 说明缺口。 */
   readonly ready: Promise<PresetRegistration>
   dispose(): Promise<void>
@@ -37,28 +55,84 @@ export function installSessionSurface(
   ctx: AnyRecord,
   options: SessionSurfaceOptions,
 ): SessionSurface {
-  const logger = createPluginLogger(options.config)
+  const loggerConfig = options.config ?? options.runtime?.config
+  const logger = loggerConfig ? createPluginLogger(loggerConfig) : undefined
   const log =
     options.log ??
     ((message: string) => {
-      logger.warn(`[forgeloop] ${message}`)
+      logger?.warn(`[forgeloop] ${message}`)
     })
   const registry = presetRegistryOf(ctx)
-  const intake = new SessionIntake({
-    runtime: options.runtime,
-    config: options.config,
-    log,
-    presetOf: registry?.composedPreset
-      ? (agent) => registry.composedPreset?.(agent.ctx)
-      : undefined,
-  })
+  const presetOf = registry?.composedPreset
+    ? (agent: AgentViewLike) => registry.composedPreset?.(agent.ctx)
+    : undefined
+  const intake =
+    options.runtime !== undefined && options.config !== undefined
+      ? new SessionIntake({
+          runtime: options.runtime,
+          config: options.config,
+          log,
+          presetOf,
+        })
+      : undefined
+
+  /** 每个工作区一个输入接管器；它们的运行时与记录库互不共享。 */
+  const tenantIntakes = new Map<string, SessionIntake>()
+  const intakeFor = (tenant: SessionTenant): SessionIntake => {
+    const existing = tenantIntakes.get(tenant.id)
+    if (existing) return existing
+    const created = new SessionIntake({
+      runtime: tenant.runtime,
+      config: tenant.config,
+      log,
+      presetOf,
+    })
+    tenantIntakes.set(tenant.id, created)
+    return created
+  }
+
+  /**
+   * 多工作区入口：先按会话原始目录找所属工作区。找不到时明确拒绝，并把原因写入会话，
+   * 不把需求落到任何默认项目——跨工作区写入口必须失败关闭。
+   */
+  const handleScoped = async (
+    payload: PreStepPayloadLike,
+    next: PreStepNext,
+  ): Promise<PreStepDecision> => {
+    const tenants = options.tenants
+    if (!tenants) {
+      if (intake) return intake.handlePreStep(payload, next)
+      log('ForgeLoop 会话表面没有可用运行时：请检查工作区服务或单项目配置')
+      return { kind: 'reject' }
+    }
+    const agent = payload.agent
+    if (!isForgeLoopSession(agent, presetOf)) return next()
+    const cwd = agent?.session?.header?.cwd
+    const tenant = typeof cwd === 'string' && cwd ? await tenants.forCwd(cwd) : undefined
+    if (!tenant) {
+      appendSessionEvent(
+        agent?.session,
+        FORGELOOP_ERROR_EVENT,
+        {
+          eventId: `forgeloop:error:workspace:${payload.turn ?? 0}`,
+          reqId: '',
+          message:
+            '当前会话没有绑定 DSH 工作区：请先在某个工作区中新建 ForgeLoop 业务会话再提交需求；ForgeLoop 不跨工作区读写。',
+          at: new Date().toISOString(),
+        },
+        log,
+      )
+      return { kind: 'reject' }
+    }
+    return intakeFor(tenant).handlePreStep(payload, next)
+  }
 
   const disposers: Array<() => void> = []
   const on = (ctx as { on?: (event: string, listener: Listener) => unknown }).on
   if (typeof on === 'function') {
     const dispose: unknown = Reflect.apply(on, ctx, [
       'agent/pre-step',
-      (payload: PreStepPayloadLike, next: PreStepNext) => intake.handlePreStep(payload, next),
+      (payload: PreStepPayloadLike, next: PreStepNext) => handleScoped(payload, next),
     ])
     if (typeof dispose === 'function')
       disposers.push(() => {

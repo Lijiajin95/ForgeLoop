@@ -556,7 +556,7 @@ describe('session surface wiring', () => {
       { runtime: {} as never, config: {} as never },
     )
     expect((await surface.ready).ok).toBe(true)
-    const decision = await surface.intake.handlePreStep(
+    const decision = await surface.intake!.handlePreStep(
       {
         agent: { session: { header: { agentPreset: 'other' } }, ctx: {} },
         messages: [],

@@ -2096,7 +2096,7 @@ window.__ModuleLoader__.load({
 
       const readDetail = React.useCallback(
         (alive) => {
-          const reader = createReader(t)
+          const reader = createReader(t, props.sessionId)
           return reader('detail', { reqId: data.reqId })
             .then((value) => {
               if (alive()) setDetail(value)
@@ -2152,7 +2152,7 @@ window.__ModuleLoader__.load({
         if (busy) return
         setBusy(endpoint)
         setMessage('')
-        const reader = createReader(t)
+        const reader = createReader(t, props.sessionId)
         reader(endpoint, {
           reqId: data.reqId,
           planVersion: data.planVersion,
@@ -2449,13 +2449,14 @@ window.__ModuleLoader__.load({
     /**
      * 读取看板与需求详情：只走本插件注册的认证 Fetch 路由。
      * 宿主连接层负责 Host/Origin 检查与浏览器凭据准入；页面不直接访问记录库。
+     * 每次请求都带当前会话身份，服务端据此只读写该会话所属的 DSH 工作区。
      */
-    function createReader(t) {
+    function createReader(t, sessionId) {
       return async function read(endpoint, body, signal) {
         const response = await fetch(BOARD_PATH, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ endpoint, ...(body || {}) }),
+          body: JSON.stringify({ endpoint, ...(sessionId ? { sessionId } : {}), ...(body || {}) }),
           credentials: 'same-origin',
           ...(signal ? { signal } : {}),
         })
@@ -2566,7 +2567,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (preset !== 'forgeloop' || !props.sessionId) return undefined
         let alive = true
-        const reader = createReader(t)
+        const reader = createReader(t, props.sessionId)
         const tick = () => {
           reader('session', { sessionId: props.sessionId }, undefined)
             .then((value) => {
@@ -4944,9 +4945,9 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'forgeloop: dictionaries')
       const t = ctx.locale.bind(NS)
-      const read = createReader(t)
 
       function LegacyBoardView(props) {
+        const read = React.useMemo(() => createReader(t, props.sessionId), [t, props.sessionId])
         const [state, setState] = React.useState({ phase: 'loading', board: null, error: '' })
         const [view, setView] = React.useState('overview')
         const [query, setQuery] = React.useState('')
@@ -8987,6 +8988,7 @@ window.__ModuleLoader__.load({
       }
 
       function BoardView(props) {
+        const read = React.useMemo(() => createReader(t, props.sessionId), [t, props.sessionId])
         const [state, setState] = React.useState({ phase: 'loading', board: null, error: '' })
         const [query, setQuery] = React.useState('')
         const [appliedQuery, setAppliedQuery] = React.useState('')

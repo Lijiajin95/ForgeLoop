@@ -47,11 +47,14 @@ const BOARD_ENDPOINTS = [
 
 type BoardBody = Record<string, unknown>
 
-interface BoardContext {
+export interface BoardContext {
   readonly runtime: ForgeLoopRuntime
   readonly config: ForgeLoopConfig
   readonly coordinator: Coordinator
 }
+
+/** 按浏览器会话解析其所属工作区的看板作用域；找不到（未绑定）返回 undefined。 */
+export type BoardScopeSource = (sessionId: string) => Promise<BoardContext | undefined>
 
 interface BoardFailure {
   readonly code: string
@@ -754,7 +757,7 @@ function handleOps(
   return null
 }
 
-function handleBoardQuery(body: BoardBody | null, runtime: ForgeLoopRuntime): Response {
+function handleBoardQuery(body: BoardBody | null, context: BoardContext): Response {
   if (body?.query !== undefined && typeof body.query !== 'string') {
     return boardResponse(boardFailure('bad_request', 'query 必须是字符串'), 400)
   }
@@ -774,14 +777,37 @@ function handleBoardQuery(body: BoardBody | null, runtime: ForgeLoopRuntime): Re
     }
     limit = body.limit
   }
-  return boardResponse({ ok: true, value: runtime.statusBoard(limit, query) })
+  return boardResponse({ ok: true, value: context.runtime.statusBoard(limit, query) })
 }
 
-/** 看板与客户决定的唯一认证入口；模型工具不能调用。 */
+/**
+ * 看板与客户决定的唯一认证入口；模型工具不能调用。
+ *
+ * 三参数形式固定使用同一作用域，供单项目测试与兼容调用；生产装配使用
+ * {@link createScopedBoardFetch}，按请求携带的会话身份选择工作区。
+ */
 export function createBoardFetch(
   runtime: ForgeLoopRuntime,
   config: ForgeLoopConfig,
   coordinator: Coordinator,
+): (request: Request) => Promise<Response> {
+  return createBoardHandler(async () => ({ runtime, config, coordinator }), false)
+}
+
+/**
+ * 多工作区看板：每个请求都必须给出会话身份，服务端按该会话的工作区选择记录库与
+ * 协调器。请求体里的任何工作区标识都不作数，也不存在“全局看板”——缺少会话或
+ * 会话未绑定工作区时直接拒绝。
+ */
+export function createScopedBoardFetch(
+  source: BoardScopeSource,
+): (request: Request) => Promise<Response> {
+  return createBoardHandler(source, true)
+}
+
+function createBoardHandler(
+  source: BoardScopeSource,
+  scoped: boolean,
 ): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
     let payload: unknown
@@ -795,13 +821,39 @@ export function createBoardFetch(
     if (!BOARD_ENDPOINTS.includes(String(endpoint))) {
       return boardResponse(boardFailure('not_found', `未知的看板端点 ${String(endpoint)}`), 404)
     }
-    const context: BoardContext = { runtime, config, coordinator }
+    let context: BoardContext
+    if (scoped) {
+      const sessionId = text(body?.sessionId)
+      if (!sessionId) {
+        return boardResponse(
+          boardFailure('session_required', '看板请求缺少会话身份 sessionId'),
+          400,
+        )
+      }
+      const resolved = await source(sessionId)
+      if (!resolved) {
+        return boardResponse(
+          boardFailure(
+            'workspace_unbound',
+            '当前会话没有绑定 DSH 工作区；ForgeLoop 不跨工作区读取或写入',
+          ),
+          403,
+        )
+      }
+      context = resolved
+    } else {
+      const resolved = await source('')
+      if (!resolved) {
+        return boardResponse(boardFailure('internal', '看板作用域未就绪'), 500)
+      }
+      context = resolved
+    }
     try {
       const handled =
         handleRead(body, endpoint, context) ??
         handleWrite(body, endpoint, context) ??
         handleOps(body, endpoint, context) ??
-        handleBoardQuery(body, runtime)
+        handleBoardQuery(body, context)
       return handled instanceof Promise ? await handled : handled
     } catch (error) {
       return boardResponse(boardFailure('internal', `看板读取失败：${errorMessage(error)}`), 500)
