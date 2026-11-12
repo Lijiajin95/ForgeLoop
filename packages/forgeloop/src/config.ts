@@ -43,6 +43,25 @@ export interface AgentConfig {
   readonly idleTimeoutSeconds?: number
 }
 
+export const LOG_LEVELS = ['info', 'warn', 'error'] as const
+export type LogLevel = (typeof LOG_LEVELS)[number]
+export const LOG_FORMATS = ['json', 'text'] as const
+export type LogFormat = (typeof LOG_FORMATS)[number]
+
+/** 插件运行日志：默认 JSON Lines，按文件大小轮转，级别只影响写盘与 console。 */
+export interface LoggingConfig {
+  readonly level: LogLevel
+  readonly format: LogFormat
+  /** 单个文件上限（字节）；0 表示不轮转。 */
+  readonly maxBytes: number
+}
+
+export interface RawLoggingConfig {
+  level?: string
+  format?: string
+  maxBytes?: number
+}
+
 export interface OpsMonitorProcess {
   readonly id: string
   /** 进程归属的登记资源；监控问题只能落在已登记资源上。 */
@@ -365,6 +384,7 @@ export interface ForgeLoopConfig {
   readonly autonomy: AutonomyConfig
   readonly ops: OpsConfig
   readonly deployments: DeploymentsConfig
+  readonly logging: LoggingConfig
 }
 
 export interface RawConfig {
@@ -388,6 +408,7 @@ export interface RawConfig {
   autonomy?: RawAutonomyConfig
   ops?: RawOpsConfig
   deployments?: RawDeploymentsConfig
+  logging?: RawLoggingConfig
 }
 
 /**
@@ -1078,6 +1099,49 @@ function parseArtifacts(items: RawOpsArtifact[] | undefined): OpsArtifact[] {
   })
 }
 
+const DEFAULT_LOG_MAX_BYTES = 10 * 1024 * 1024
+const MAX_LOG_MAX_BYTES = 1024 * 1024 * 1024
+
+function isLogLevel(value: string): value is LogLevel {
+  return LOG_LEVELS.some((candidate) => candidate === value)
+}
+
+function isLogFormat(value: string): value is LogFormat {
+  return LOG_FORMATS.some((candidate) => candidate === value)
+}
+
+/**
+ * 插件运行日志配置：未知级别/格式或越界大小在装载期拒绝，不在运行期猜测。
+ * 级别只过滤写盘与 console；轮转上限 0 表示保留单文件不轮转。
+ */
+function parseLogging(raw: RawLoggingConfig | undefined): LoggingConfig {
+  const source = raw ?? {}
+  const level = source.level === undefined ? 'info' : source.level
+  if (!isLogLevel(level)) {
+    throw new RuleViolationError(
+      `配置 logging.level 只能是 info、warn 或 error，实际 ${JSON.stringify(source.level)}`,
+    )
+  }
+  const format = source.format === undefined ? 'json' : source.format
+  if (!isLogFormat(format)) {
+    throw new RuleViolationError(
+      `配置 logging.format 只能是 json 或 text，实际 ${JSON.stringify(source.format)}`,
+    )
+  }
+  const maxBytes = source.maxBytes === undefined ? DEFAULT_LOG_MAX_BYTES : source.maxBytes
+  if (
+    typeof maxBytes !== 'number' ||
+    !Number.isInteger(maxBytes) ||
+    maxBytes < 0 ||
+    maxBytes > MAX_LOG_MAX_BYTES
+  ) {
+    throw new RuleViolationError(
+      `配置 logging.maxBytes 必须是 0 到 ${MAX_LOG_MAX_BYTES} 之间的整数，实际 ${JSON.stringify(source.maxBytes)}`,
+    )
+  }
+  return { level, format, maxBytes }
+}
+
 /**
  * 运维目录：资源、只读检查与登记动作。目录非法时装载失败，
  * 不在运行期猜测或放宽；未启用的目录也做同样的静态校验。
@@ -1237,6 +1301,7 @@ export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopCon
     autonomy: parseAutonomyConfig(raw.autonomy),
     ops: parseOpsConfig(raw.ops),
     deployments: parseDeployments(raw.deployments, deploymentRoot),
+    logging: parseLogging(raw.logging),
   }
 }
 

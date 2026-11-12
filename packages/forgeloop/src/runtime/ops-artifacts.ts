@@ -16,10 +16,15 @@ import { sha256OfBytes } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { parseJsonObject } from '../domain/json.js'
 import { processAlive, readInstalledVersion } from './deployment-inspect.js'
+import { pluginLogPath } from './log.js'
 import { readLogTail } from './log-tail.js'
 
 /** 运维 Agent 唯一的工具面：只能读制品状态与登记日志。 */
 export const OPS_ARTIFACT_TOOL_NAMES = ['forgeloop_ops_artifact', 'forgeloop_ops_logs'] as const
+
+/** 程序内建的插件日志入口：无需 ops.artifacts 配置即可读到自身运行日志。 */
+export const PLUGIN_LOG_ARTIFACT_ID = 'forgeloop-plugin'
+export const PLUGIN_LOG_ID = 'plugin'
 
 /** 部署进 profile 的包名；当前只有 ForgeLoop 自身作为研发制品。 */
 const ARTIFACT_PACKAGE = 'forgeloop-dsh'
@@ -85,8 +90,21 @@ export interface ArtifactStateView {
 type Ok<T> = { readonly ok: true; readonly data: T }
 type Err = { readonly ok: false; readonly reason: string }
 
+function builtinArtifact(config: ForgeLoopConfig): OpsArtifact {
+  return {
+    id: PLUGIN_LOG_ARTIFACT_ID,
+    label: 'ForgeLoop 插件运行日志',
+    profile: '',
+    logs: [{ id: PLUGIN_LOG_ID, path: pluginLogPath(config), errorPattern: 'ERROR' }],
+  }
+}
+
 function findArtifact(config: ForgeLoopConfig, id: string): OpsArtifact | undefined {
-  return config.ops.artifacts.find((artifact) => artifact.id === id)
+  // 显式配置同 id 时以配置为准，便于把日志换到别的路径。
+  return (
+    config.ops.artifacts.find((artifact) => artifact.id === id) ??
+    (id === PLUGIN_LOG_ARTIFACT_ID ? builtinArtifact(config) : undefined)
+  )
 }
 
 function findLog(artifact: OpsArtifact, id: string): OpsArtifactLog | undefined {

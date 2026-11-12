@@ -35,7 +35,13 @@ describe('runtime identity', () => {
       pid: number
     }
     expect(saved.pid).toBe(process.pid)
-    expect(writeRuntimeIdentity('not-a-valid-url')).toBeNull()
+    const warnings: string[] = []
+    expect(
+      writeRuntimeIdentity('not-a-valid-url', (message) => {
+        warnings.push(message)
+      }),
+    ).toBeNull()
+    expect(warnings[0]).toContain('无法写入运行身份')
   })
 
   it('records whether the running client matches the source client', () => {

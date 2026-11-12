@@ -177,12 +177,15 @@ function workspaceBoardSource(active: WorkspaceTenants): BoardScopeSource {
 export const inject = ['agents', 'agentLoop', 'tools']
 
 export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
-  writeRuntimeIdentity(import.meta.url)
   // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
   const loaded = loadConfigOrThrow(rawConfig)
   const config = resolveConfig(loaded)
   setBuildSourcePath(config.projectPath)
   const logger = createPluginLogger(config)
+  // 运行身份写入失败也必须落到项目日志，而不是只出现在宿主 console。
+  writeRuntimeIdentity(import.meta.url, (message) => {
+    logger.warn(message)
+  })
   // 先校验宿主服务再打开记录库：缺服务时直接失败，不留下未关闭的 SQLite 句柄。
   const tools = hostSurface(ctx).tools
   if (!tools) throw new Error('宿主缺少 tools 服务，无法注册 ForgeLoop 工具')
@@ -273,8 +276,9 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
         ? installSessionSurface(ctx, { tenants: mode.sessionTenants })
         : installSessionSurface(ctx, { runtime: mode.tenant.runtime, config })
     void sessionSurface.ready.then((result) => {
-      if (result.ok) logger.info('[forgeloop] 已注册业务会话 preset forgeloop')
-      else logger.warn(`[forgeloop] ${result.reason}`)
+      if (result.ok)
+        logger.info('[forgeloop] 已注册业务会话 preset forgeloop', { event: 'session.preset' })
+      else logger.warn(`[forgeloop] ${result.reason}`, { event: 'session.preset' })
     })
     // Web 看板路由可选：无浏览器连接的 profile（headless）保持只有工具。
     registerBoardRoute(ctx, () =>
@@ -284,6 +288,7 @@ export function apply(ctx: AnyRecord, rawConfig: RawConfig = {}): void {
     )
     logger.info(
       `[forgeloop] 已加载 records=${config.recordsRoot} project=${config.project} owner=${config.owner} mode=${mode.kind}`,
+      { event: 'plugin.start' },
     )
     return async () => {
       await sessionSurface.dispose()

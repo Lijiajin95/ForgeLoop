@@ -28,6 +28,36 @@ describe('configuration defaults', () => {
     expect(config.recordsRoot).toBe(join(cwd, '.forgeloop'))
   })
 
+  it('defaults to JSON logging at info level with a 10 MiB rotation ceiling', () => {
+    expect(resolveConfig({}, cwd).logging).toEqual({
+      level: 'info',
+      format: 'json',
+      maxBytes: 10 * 1024 * 1024,
+    })
+    expect(
+      resolveConfig({ logging: { level: 'warn', format: 'text', maxBytes: 1024 } }, cwd).logging,
+    ).toEqual({ level: 'warn', format: 'text', maxBytes: 1024 })
+    expect(resolveConfig({ logging: { maxBytes: 0 } }, cwd).logging.maxBytes).toBe(0)
+  })
+
+  it('rejects unknown log levels, formats and invalid rotation sizes', () => {
+    expect(() => resolveConfig({ logging: { level: 'debug' } }, cwd)).toThrow(
+      '配置 logging.level 只能是 info、warn 或 error',
+    )
+    expect(() => resolveConfig({ logging: { format: 'xml' } }, cwd)).toThrow(
+      '配置 logging.format 只能是 json 或 text',
+    )
+    expect(() => resolveConfig({ logging: { maxBytes: -1 } }, cwd)).toThrow(
+      '配置 logging.maxBytes 必须是 0 到 1073741824 之间的整数',
+    )
+    expect(() => resolveConfig({ logging: { maxBytes: 1.5 } }, cwd)).toThrow(
+      '配置 logging.maxBytes 必须是 0 到 1073741824 之间的整数',
+    )
+    expect(() => resolveConfig({ logging: { maxBytes: 1024 * 1024 * 1024 + 1 } }, cwd)).toThrow(
+      '配置 logging.maxBytes 必须是 0 到 1073741824 之间的整数',
+    )
+  })
+
   it('accepts an explicit long-task turn cap', () => {
     const config = resolveConfig({ agent: { timeoutSeconds: 600, maxTurnSeconds: 10800 } }, cwd)
     expect(config.agent.timeoutSeconds).toBe(600)

@@ -468,7 +468,7 @@ describe('session surface wiring', () => {
     )
     expect((await surface.ready).ok).toBe(true)
     expect(warn).toHaveBeenCalledWith(
-      '[forgeloop] 宿主没有 ctx.on，无法安装 agent/pre-step 输入接管',
+      expect.stringContaining('[forgeloop] 宿主没有 ctx.on，无法安装 agent/pre-step 输入接管'),
     )
     await surface.dispose()
     warn.mockRestore()

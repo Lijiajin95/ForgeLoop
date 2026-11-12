@@ -158,7 +158,10 @@ OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Ag
 
 边界：
 
-- 工具只接受 `ops.artifacts` 里登记的 id；`path` 在装载期登记，工具没有任意路径参数。
+- 工具只接受 `ops.artifacts` 里登记的 id，或程序内建制品 `forgeloop-plugin`；`path` 在装载期登记，
+  工具没有任意路径参数。
+- 内建制品 `forgeloop-plugin`（日志 id `plugin`）直接指向插件运行日志 `logs/plugin.log`，
+  无需登记即可读取；它没有 `profile`，不返回运行身份。显式配置同 id 时以配置为准。
 - 读取有界：只读文件尾部 64 KiB，单行最多 500 字符，单次最多 500 行且总计不超过 60,000 字符。
 - `profile` 只能是 `~/.dsh/profiles` 下的单段目录名；产物包名固定为 `forgeloop-dsh`。
   `profile` 为空表示只登记日志，不读运行身份；两者至少要有一个。
@@ -296,7 +299,7 @@ OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Ag
 
 - 模型工具 `forgeloop_ops`：只读事件、诊断、处置记录、监控摘要与统计；可传 `event_id`。
 - 模型工具 `forgeloop_ops_artifact` / `forgeloop_ops_logs`：运维 Agent 专用，只能读 `ops.artifacts`
-  登记的制品运行状态与日志尾部；不改变任何状态。
+  登记或内建 `forgeloop-plugin` 的制品运行状态与日志尾部；不改变任何状态。
 - 认证 Web 端点（与天工工作台同一路由 `/api/forgeloop/board`）：
   `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`。
   读端点只取记录；写端点使用本机 owner，模型工具不能调用。

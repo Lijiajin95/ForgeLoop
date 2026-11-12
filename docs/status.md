@@ -8670,3 +8670,36 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - 主工作树 `docs/status.md` 的在途改动已由 `ba27343` 提交；本批从该提交 rebase，未改写其内容。
 - `scripts/ts/real-model-e2e.ts` 在 `f364abc` 后未通过 `make format`，为让提交门禁可运行，
   单独提交了纯格式修复（`db82f9c`），未改变行为。
+## 229. 插件运行日志：结构化、轮转、级别与内建读取入口（2026-11-12）
+
+对日志记录的只读审计发现：`plugin.log` 只有少量纯文本、无轮转/级别/结构化字段，产品内没有读取入口；
+同时 193 个 `catch` 分支只有 11 处直接写 logger，异常多数只剩消息、没有栈。按 P0–P2 完成最小改造：
+
+- `src/runtime/log.ts`：默认 JSON Lines（`ts`/`level`/`message`，可带 `event`/`reqId`/`taskId`/`actionId`
+  与 `error{name,message,stack}`）；`logging.level` 过滤写盘与 console；`logging.maxBytes` 超限时把
+  现有内容改名为 `plugin.log.1`（只保留一份），轮转失败不阻断本次写入；Bearer／`sk-`／
+  `api_key`／`token`／`secret`／`password` 值写入前脱敏；`logging.format: "text"` 保留旧纯文本格式。
+- `src/config.ts`：新增 `logging`（默认 `info`／`json`／10 MiB），装载期拒绝未知级别/格式与
+  0–1 GiB 之外的 `maxBytes`。
+- `src/runtime/ops-artifacts.ts`：内建只读制品 `forgeloop-plugin`（日志 id `plugin`）直接指向
+  `logs/plugin.log`，无需 `ops.artifacts` 配置即可用 `forgeloop_ops_logs` 读取；显式配置同 id 时以配置为准。
+- `src/runtime/identity.ts`、`src/index.ts`：运行身份写入失败改走 logger（不再只落宿主 console）；
+  启动与 preset 注册日志带 `event`。
+- `src/runtime/coordinator.ts`：tick/execute/运维/交付/看门狗/迟到结果日志带 `event` 与
+  `reqId`/`actionId`，执行异常记录完整 error 栈；`runOnce` 异常立即落盘，不再只写会被下一轮覆盖的 `lastError`。
+
+测试：`tests/log.test.ts` 10 项（JSON 字段、关联字段与栈、脱敏、级别过滤、text 格式、轮转、
+单备份替换、0 不轮转、轮转失败仍追加、日志目录不可建）；`tests/config-validation.test.ts` 新增 2 项；
+`tests/ops-artifacts.test.ts` 新增内建制品与显式覆盖 2 项；`tests/runtime-identity.test.ts` 覆盖失败回调。
+`tests/coverage-small-modules.test.ts` 的 console 断言改为包含匹配（console 行现在带级别前缀）。
+
+验证：`make check-static` 通过（typecheck、lint、契约、token/断言预算、可靠性登记），
+`prettier --check` 通过。定向行为测试 75 项通过（`log` 10、`ops-artifacts` 14、`config-validation`、
+`runtime-identity` 及 `coverage-small-modules` 其余用例）；定向覆盖率统计 `log.ts` 行/函数 100%、
+分支 95.74%，`ops-artifacts.ts` 行 98.39%。全量 vitest 在并行、串行与 `--pool=threads` 三种跑法下
+均出现既有 worker `onTaskUpdate` 心跳超时并长时间挂起（发生在不同文件，单独复跑通过），
+未据此计为通过；提交按仓库既有做法保留该环境缺口。契约无变化（无新增源码文件，工具名与调用面未变）；
+`docs/architecture.md` 与 `docs/ops-agent.md` 同批更新。
+
+边界：只保留一份轮转备份、不跨进程加锁；不跟随外部日志轮转；Agent 轨迹与命令证据仍按原样保留，
+未做内容级脱敏；结构化字段只覆盖有上下文的调用点，业务状态仍以 SQLite 为权威。

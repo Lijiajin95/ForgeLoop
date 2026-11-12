@@ -90,7 +90,7 @@ export class Coordinator {
       // 只读宿主：不领取、不修改别人的在途请求。
       this.stopped = true
       this.lastError = `单消费者锁未取得：${lock.reason}（${lock.holder}）`
-      this.logger.error(`[forgeloop] ${this.lastError}`)
+      this.logger.error(`[forgeloop] ${this.lastError}`, { event: 'coordinator.lock' })
       return
     }
     this.stopped = false
@@ -178,12 +178,14 @@ export class Coordinator {
       .then((outcome) => {
         if (outcome.errors.length > 0) {
           this.lastError = outcome.errors.join('；')
-          this.logger.error(`[forgeloop] 运维巡检错误：${this.lastError}`)
+          this.logger.error(`[forgeloop] 运维巡检错误：${this.lastError}`, {
+            event: 'coordinator.ops',
+          })
         }
       })
       .catch((error: unknown) => {
         this.lastError = `运维巡检异常：${errorMessage(error)}`
-        this.logger.error(`[forgeloop] ${this.lastError}`)
+        this.logger.error(`[forgeloop] ${this.lastError}`, { event: 'coordinator.ops', error })
       })
       .finally(() => {
         this.opsCurrent = undefined
@@ -207,7 +209,7 @@ export class Coordinator {
     this.deliveryCurrent = this.deliveryTick()
       .catch((error: unknown) => {
         this.lastError = `交付推进异常：${errorMessage(error)}`
-        this.logger.error(`[forgeloop] ${this.lastError}`)
+        this.logger.error(`[forgeloop] ${this.lastError}`, { event: 'coordinator.delivery', error })
       })
       .finally(() => {
         this.deliveryCurrent = undefined
@@ -280,7 +282,10 @@ export class Coordinator {
       }
       closed += 1
     }
-    if (closed > 0) this.logger.error(`[forgeloop] 看门狗收口 ${closed} 个无进展动作`)
+    if (closed > 0)
+      this.logger.error(`[forgeloop] 看门狗收口 ${closed} 个无进展动作`, {
+        event: 'coordinator.watchdog',
+      })
     return closed
   }
 
@@ -299,6 +304,11 @@ export class Coordinator {
       this.lastTickAt = new Date().toISOString()
     } catch (error) {
       this.lastError = errorMessage(error)
+      // 推进异常必须立即落盘；只写 lastError 会让下一次 tick 覆盖掉唯一线索。
+      this.logger.error(`[forgeloop] 协调器推进异常：${this.lastError}`, {
+        event: 'coordinator.tick',
+        error,
+      })
     }
   }
 
@@ -343,7 +353,11 @@ export class Coordinator {
           finishedAt,
         )
       ) {
-        this.logger.error(`[forgeloop] 迟到结果被拒绝：${actionId} 已收口`)
+        this.logger.error(`[forgeloop] 迟到结果被拒绝：${actionId} 已收口`, {
+          event: 'coordinator.late-result',
+          actionId,
+          reqId: request.reqId,
+        })
         return
       }
       this.runtime.repo.resolveRequestIfClaimed(
@@ -367,10 +381,20 @@ export class Coordinator {
             : settled.value.detail
       const detail = `执行异常：${reason}；按失败收口，可重新执行`
       this.lastError = detail
+      this.logger.error(`[forgeloop] ${detail}`, {
+        event: 'coordinator.execute',
+        actionId,
+        reqId: request.reqId,
+        error,
+      })
       if (this.runtime.repo.finishActionIfStarted(actionId, 'failed', detail, finishedAt)) {
         this.runtime.repo.resolveRequestIfClaimed(request.requestId, 'failed', detail, finishedAt)
       } else {
-        this.logger.error(`[forgeloop] 迟到异常被忽略：${actionId} 已收口`)
+        this.logger.error(`[forgeloop] 迟到异常被忽略：${actionId} 已收口`, {
+          event: 'coordinator.late-error',
+          actionId,
+          reqId: request.reqId,
+        })
       }
       this.runtime.settleStopIfQuiet(request.reqId)
     } finally {

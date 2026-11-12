@@ -43,7 +43,12 @@ function sha256(path: string): string {
 }
 
 /** 写入当前安装包根目录；失败只告警，不阻止插件装载。 */
-export function writeRuntimeIdentity(moduleUrl: string): RuntimeIdentity | null {
+export function writeRuntimeIdentity(
+  moduleUrl: string,
+  log: (message: string) => void = (message) => {
+    console.warn(message)
+  },
+): RuntimeIdentity | null {
   try {
     const packageRoot = resolve(dirname(fileURLToPath(moduleUrl)), '..')
     const artifactFile = join(packageRoot, 'artifact.sha256')
@@ -67,7 +72,7 @@ export function writeRuntimeIdentity(moduleUrl: string): RuntimeIdentity | null 
     )
     return identity
   } catch (error) {
-    console.warn(`[forgeloop] 无法写入运行身份：${errorMessage(error)}`)
+    log(`[forgeloop] 无法写入运行身份：${errorMessage(error)}`)
     return null
   }
 }

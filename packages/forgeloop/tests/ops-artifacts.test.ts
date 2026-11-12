@@ -109,6 +109,52 @@ describe('artifact logs', () => {
     expect(filtered.data.errorMatches).toBe(2)
   })
 
+  it('exposes the plugin runtime log as a built-in artifact', () => {
+    const path = join(dir, '.forgeloop', 'projects', 'testproj', 'logs', 'plugin.log')
+    write(
+      path,
+      [
+        '{"ts":"2026-11-03T00:00:00.000Z","level":"INFO","message":"boot"}',
+        '{"ts":"2026-11-03T00:00:01.000Z","level":"ERROR","message":"boom"}',
+      ].join('\n') + '\n',
+    )
+    const read = readArtifactLog(config, { artifactId: 'forgeloop-plugin', logId: 'plugin' })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.data.path).toBe(path)
+    expect(read.data.totalLines).toBe(2)
+    expect(read.data.errorMatches).toBe(1)
+    const state = readArtifactState(config, 'forgeloop-plugin')
+    expect(state.ok).toBe(true)
+    if (!state.ok) return
+    expect(state.data.profile).toBe('')
+    expect(state.data.runtime).toBeNull()
+    expect(state.data.logs[0]).toMatchObject({ id: 'plugin', exists: true, errorMatches: 1 })
+  })
+
+  it('lets an explicit artifact override the built-in plugin log id', () => {
+    const base = buildConfig()
+    const overridden: ForgeLoopConfig = {
+      ...base,
+      ops: {
+        ...base.ops,
+        artifacts: [
+          ...base.ops.artifacts,
+          {
+            id: 'forgeloop-plugin',
+            label: 'custom',
+            profile: '',
+            logs: [{ id: 'plugin', path: join(dir, 'logs', 'host.log'), errorPattern: '' }],
+          },
+        ],
+      },
+    }
+    const read = readArtifactLog(overridden, { artifactId: 'forgeloop-plugin', logId: 'plugin' })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.data.path).toBe(join(dir, 'logs', 'host.log'))
+  })
+
   it('reports unknown artifacts, unknown logs, bad bounds and unreadable files', () => {
     expect(readArtifactLog(config, { artifactId: 'nope', logId: 'run' })).toEqual({
       ok: false,
