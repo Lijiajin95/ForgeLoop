@@ -485,7 +485,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件运行日志固定写入
   `<recordsRoot>/projects/<project>/logs/plugin.log`（同时保留宿主 console 输出）：默认 JSON Lines
   （`ts`/`level`/`message`，可带 `event`/`reqId`/`taskId`/`actionId` 与 `error` 栈），
-  按 `logging.maxBytes` 轮转为 `plugin.log.1`，`logging.level` 控制写盘与 console 级别，
+  按 `logging.maxBytes` 轮转为带日期后缀的文件（如 `plugin-2026-11-12.log`，同日多次轮转追加序号），
+  历史文件不删除、不覆盖；`logging.level` 控制写盘与 console 级别，
   凭据形态在写入前脱敏。运维只读工具通过内建制品 `forgeloop-plugin` 的 `plugin` 日志读取尾部，
   无需 `ops.artifacts` 配置；显式配置同 id 时以配置为准。
 - 表：需求与版本、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、

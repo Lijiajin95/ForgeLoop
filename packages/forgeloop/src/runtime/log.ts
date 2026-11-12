@@ -3,11 +3,12 @@
  *
  * 默认位置：`<recordsRoot>/projects/<project>/logs/plugin.log`。
  * 默认 JSON Lines（`ts`/`level`/`message` 与可选关联字段、错误栈），可配置纯文本；
- * 按 `logging.maxBytes` 轮转为 `plugin.log.1`（只保留一份）。
+ * 按 `logging.maxBytes` 轮转为带日期后缀的文件（如 `plugin-2026-11-12.log`），
+ * 同日多次轮转追加序号，历史文件不删除、不覆盖。
  * 日志写盘失败不影响业务；调用方仍能从宿主 console 看到原文。
  */
-import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import type { ForgeLoopConfig, LogFormat, LogLevel, LoggingConfig } from '../config.js'
 import { projectDir } from '../config.js'
 
@@ -91,9 +92,9 @@ function buildRecord(
   level: LogLevelName,
   message: string,
   context: LogContext | undefined,
-  now: () => Date,
+  ts: string,
 ): LogRecord {
-  const record: LogRecord = { ts: now().toISOString(), level, message }
+  const record: LogRecord = { ts, level, message }
   for (const key of CONTEXT_KEYS) {
     const value = context?.[key]
     if (typeof value === 'string' && value !== '') record[key] = redact(value)
@@ -108,19 +109,33 @@ function formatRecord(record: LogRecord, format: LogFormat): string {
 }
 
 /**
- * 文件达到上限后把现有内容改名为 `.1`，再写新行；失败由调用方吞掉并继续追加，
- * 轮转不是业务前置条件。多进程同时写仍按先到先得处理，只保留一份备份。
+ * 轮转文件名：日期后缀（UTC，与日志 `ts` 一致）。同日多次轮转追加序号，
+ * 先探测再改名，绝不覆盖已有文件。历史文件永久保留。
  */
-function rotateIfNeeded(path: string, maxBytes: number, incomingBytes: number): void {
+function rotatedPath(path: string, stamp: string): string {
+  const directory = dirname(path)
+  const name = basename(path, '.log')
+  const date = stamp.slice(0, 10)
+  let candidate = join(directory, `${name}-${date}.log`)
+  for (let index = 1; existsSync(candidate); index += 1) {
+    candidate = join(directory, `${name}-${date}-${index}.log`)
+  }
+  return candidate
+}
+
+/**
+ * 文件达到上限后改名为带日期的文件，再写新行；失败由调用方吞掉并继续追加，
+ * 轮转不是业务前置条件。这里不删除任何历史文件。
+ */
+function rotateIfNeeded(
+  path: string,
+  maxBytes: number,
+  incomingBytes: number,
+  stamp: string,
+): void {
   if (maxBytes <= 0 || !existsSync(path)) return
   if (statSync(path).size + incomingBytes <= maxBytes) return
-  const backup = `${path}.1`
-  if (existsSync(backup)) {
-    // 只替换普通文件；目录或其它类型说明现场异常，交给调用方吞掉并继续追加。
-    if (!statSync(backup).isFile()) throw new Error(`轮转目标不是普通文件：${backup}`)
-    rmSync(backup, { force: true })
-  }
-  renameSync(path, backup)
+  renameSync(path, rotatedPath(path, stamp))
 }
 
 export function createPluginLogger(
@@ -141,12 +156,13 @@ export function createPluginLogger(
   const emit = (level: LogLevelName, message: string, context?: LogContext): void => {
     if (LEVEL_RANK[level] < minRank) return
     const text = redact(message)
-    const line = formatRecord(buildRecord(level, text, context, now), format)
+    const stamp = now().toISOString()
+    const line = formatRecord(buildRecord(level, text, context, stamp), format)
     if (path) {
       try {
         mkdirSync(dirname(path), { recursive: true })
         try {
-          rotateIfNeeded(path, maxBytes, Buffer.byteLength(line, 'utf8'))
+          rotateIfNeeded(path, maxBytes, Buffer.byteLength(line, 'utf8'), stamp)
         } catch {
           // 轮转失败只保留现有文件，不阻断本次写入。
         }

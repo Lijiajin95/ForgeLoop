@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveConfig, type RawLoggingConfig } from '../src/config.js'
 import { createPluginLogger, pluginLogPath } from '../src/runtime/log.js'
@@ -29,6 +29,12 @@ function configOf(root: string, logging?: RawLoggingConfig): ReturnType<typeof r
 
 function logLines(config: ReturnType<typeof resolveConfig>): string[] {
   return readFileSync(pluginLogPath(config), 'utf8').trim().split('\n')
+}
+
+/** 固定 NOW（2026-11-03）对应的轮转文件名；同日多次轮转追加序号。 */
+function rotatedLogPath(config: ReturnType<typeof resolveConfig>, index?: number): string {
+  const suffix = index === undefined ? '' : `-${index}`
+  return join(dirname(pluginLogPath(config)), `plugin-2026-11-03${suffix}.log`)
 }
 
 afterEach(() => {
@@ -113,7 +119,7 @@ describe('plugin logger', () => {
     expect(logLines(config)).toEqual([`${ISO} INFO [forgeloop] hello`])
   })
 
-  it('rotates the log once the next line would exceed maxBytes', () => {
+  it('rotates into a date-suffixed file and keeps the rotated content', () => {
     const root = tempDir()
     const config = configOf(root, { maxBytes: 120 })
     const logger = createPluginLogger(config, NOW)
@@ -122,14 +128,14 @@ describe('plugin logger', () => {
     const firstSize = readFileSync(pluginLogPath(config), 'utf8').length
     expect(firstSize).toBeLessThanOrEqual(120)
     logger.info(`second ${padding}`)
-    const backup = `${pluginLogPath(config)}.1`
-    expect(existsSync(backup)).toBe(true)
-    expect(readFileSync(backup, 'utf8')).toContain('first')
+    const rotated = rotatedLogPath(config)
+    expect(existsSync(rotated)).toBe(true)
+    expect(readFileSync(rotated, 'utf8')).toContain('first')
     expect(readFileSync(pluginLogPath(config), 'utf8')).toContain('second')
     expect(readFileSync(pluginLogPath(config), 'utf8')).not.toContain('first')
   })
 
-  it('replaces the single backup file on the next rotation', () => {
+  it('keeps every rotated file and adds a sequence for same-day rotations', () => {
     const root = tempDir()
     const config = configOf(root, { maxBytes: 120 })
     const logger = createPluginLogger(config, NOW)
@@ -137,10 +143,10 @@ describe('plugin logger', () => {
     logger.info(`first ${padding}`)
     logger.info(`second ${padding}`)
     logger.info(`third ${padding}`)
-    expect(readFileSync(`${pluginLogPath(config)}.1`, 'utf8')).toContain('second')
-    expect(readFileSync(`${pluginLogPath(config)}.1`, 'utf8')).not.toContain('first')
+    expect(readFileSync(rotatedLogPath(config), 'utf8')).toContain('first')
+    expect(readFileSync(rotatedLogPath(config, 1), 'utf8')).toContain('second')
     expect(readFileSync(pluginLogPath(config), 'utf8')).toContain('third')
-    expect(existsSync(`${pluginLogPath(config)}.2`)).toBe(false)
+    expect(existsSync(rotatedLogPath(config, 2))).toBe(false)
   })
 
   it('never rotates when maxBytes is zero', () => {
@@ -149,21 +155,8 @@ describe('plugin logger', () => {
     const logger = createPluginLogger(config, NOW)
     logger.info('a'.repeat(200))
     logger.info('b'.repeat(200))
-    expect(existsSync(`${pluginLogPath(config)}.1`)).toBe(false)
+    expect(existsSync(rotatedLogPath(config))).toBe(false)
     expect(logLines(config)).toHaveLength(2)
-  })
-
-  it('keeps appending when the rotation target cannot be replaced', () => {
-    const root = tempDir()
-    const config = configOf(root, { maxBytes: 120 })
-    const backup = `${pluginLogPath(config)}.1`
-    mkdirSync(backup, { recursive: true })
-    writeFileSync(join(backup, 'keep'), 'x')
-    const logger = createPluginLogger(config, NOW)
-    expect(() => logger.info('a'.repeat(80))).not.toThrow()
-    expect(() => logger.info('b'.repeat(80))).not.toThrow()
-    expect(logLines(config)).toHaveLength(2)
-    expect(existsSync(join(backup, 'keep'))).toBe(true)
   })
 
   it('never throws when the log directory cannot be created', () => {
