@@ -20,6 +20,10 @@ import { presetRegistryOf, registerForgeLoopPreset, type PresetRegistration } fr
 
 type AnyRecord = Record<string, unknown>
 
+/** 业务会话未绑定 DSH 工作区时的固定拒绝文案；受理、看板与工具共用同一语义。 */
+export const UNBOUND_WORKSPACE_MESSAGE =
+  '当前会话没有绑定 DSH 工作区：请先在某个工作区中新建 ForgeLoop 业务会话再提交需求；ForgeLoop 不跨工作区读写。'
+
 /** 业务会话所属工作区的运行时；由宿主注册表按会话目录解析。 */
 export interface SessionTenant {
   readonly id: string
@@ -116,8 +120,7 @@ export function installSessionSurface(
         {
           eventId: `forgeloop:error:workspace:${payload.turn ?? 0}`,
           reqId: '',
-          message:
-            '当前会话没有绑定 DSH 工作区：请先在某个工作区中新建 ForgeLoop 业务会话再提交需求；ForgeLoop 不跨工作区读写。',
+          message: UNBOUND_WORKSPACE_MESSAGE,
           at: new Date().toISOString(),
         },
         log,

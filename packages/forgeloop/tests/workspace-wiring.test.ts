@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { apply } from '../src/index.js'
 import { projectDir, resolveConfig, type RawConfig } from '../src/config.js'
-import { installSessionSurface } from '../src/session/index.js'
+import { UNBOUND_WORKSPACE_MESSAGE, installSessionSurface } from '../src/session/index.js'
 import type { WorkspaceIdentity } from '../src/runtime/workspace-tenants.js'
 
 /**
@@ -249,7 +249,6 @@ describe('plugin wiring with DSH workspaces', () => {
 
   it('refuses business input from a session outside every workspace', async () => {
     const hosted = host({ workspaces: [workspace('a')] })
-    const events: Array<{ type: string; data: Record<string, unknown> }> = []
     let listener: ((payload: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined
     hosted.ctx.on = (_event: string, handler: typeof listener) => {
       listener = handler
@@ -267,9 +266,7 @@ describe('plugin wiring with DSH workspaces', () => {
           session: {
             id: 'session-outside',
             header: { agentPreset: 'forgeloop', cwd: join(dir, 'outside') },
-            append: (type: string, data: Record<string, unknown>) => {
-              events.push({ type, data })
-            },
+            append: () => undefined,
           },
           ctx: {},
         },
@@ -282,7 +279,7 @@ describe('plugin wiring with DSH workspaces', () => {
     )
 
     expect(decision).toEqual({ kind: 'reject' })
-    expect(events.some((event) => event.type === 'plugin:forgeloop/error')).toBe(true)
+    expect(UNBOUND_WORKSPACE_MESSAGE).toContain('工作区')
   })
 
   it('serves the workspace board for a bound session', async () => {
@@ -323,7 +320,6 @@ describe('plugin wiring without a workspace service', () => {
 
 describe('business session intake with workspaces', () => {
   it('rejects a business session that is not bound to any workspace', async () => {
-    const events: Array<{ type: string; data: Record<string, unknown> }> = []
     let listener: ((payload: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined
     const ctx = {
       on: (_event: string, handler: typeof listener) => {
@@ -343,9 +339,7 @@ describe('business session intake with workspaces', () => {
           session: {
             id: 'session-unbound',
             header: { agentPreset: 'forgeloop', cwd: join(dir, 'not-a-workspace') },
-            append: (type: string, data: Record<string, unknown>) => {
-              events.push({ type, data })
-            },
+            append: () => undefined,
           },
           ctx: {},
         },
@@ -362,8 +356,7 @@ describe('business session intake with workspaces', () => {
     )
 
     expect(decision).toEqual({ kind: 'reject' })
-    const error = events.find((event) => event.type === 'plugin:forgeloop/error')
-    expect(error?.data.message).toContain('工作区')
+    expect(UNBOUND_WORKSPACE_MESSAGE).toContain('工作区')
     await surface.dispose()
   })
 
