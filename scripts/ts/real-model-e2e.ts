@@ -493,7 +493,9 @@ function configFor(projectDir: string, recordsRoot: string, deploy?: DeploymentF
             "const fs=require('node:fs');const t=fs.readFileSync('docs/real-model-e2e.md','utf8');if(!t.includes('real model e2e ok'))process.exit(1)",
           ],
     },
-    ...(WORKTREE_PREPARE ? { worktreePrepareCommand: JSON.parse(WORKTREE_PREPARE) as string[] } : {}),
+    ...(WORKTREE_PREPARE
+      ? { worktreePrepareCommand: JSON.parse(WORKTREE_PREPARE) as string[] }
+      : {}),
     ...(deploy
       ? {
           candidateBuildCommand: ['node', '-e', 'process.exit(0)'],
