@@ -8602,13 +8602,21 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 
 证据：`.cache/p0-batch-20261109/watchdog-20261112.log`（4 passed）。
 
-### 227.5 真实自身缺陷闭环的尝试与结论（未完成）
+### 227.5 真实自身缺陷闭环：能力已具备，闭环尚未走通
 
-- 已给 `real-model-e2e` 试做“以既有 git 目录为受控项目”的补丁（`PROJECT_DIR` / `COMMIT_CHECK`
-  两个开关），想把 7825135（修复前）的仓库 worktree 当目标，让真实模型受理 Windows npm 启动缺陷。
-- 工程判断：目标项目即 ForgeLoop 仓库时，独立测试需要能在候选工作区跑仓库自身的构建/测试
-  （`npm run build` + vitest），而夹具配置里的 `commitCheckCommand`、依赖准备（node_modules）与
-  制品打包脚本都是为最小夹具写的；不改造这两处就得不到可信的独立验证结果。
-- 因此**未实施**：实验现场（`self-target` worktree 与补丁分支）已清理，`main` 未改动。
-  最小补齐条件：给 e2e 增加“真实仓库目标”模式，并为候选工作区准备依赖（复用主仓库 node_modules）
-  与仓库级提交门禁；这属于下一轮独立工作项。
+- 已给 `real-model-e2e` 增加“真实仓库目标”模式（`f364abc`）：
+  `FORGELOOP_REAL_MODEL_PROJECT_DIR`（用既有 git 目录当项目）、
+  `FORGELOOP_REAL_MODEL_COMMIT_CHECK`（仓库级提交门禁）、
+  `FORGELOOP_REAL_MODEL_WORKTREE_PREPARE`（给候选工作区接依赖，如链接主仓库 `node_modules`）。
+  不设置时行为与原来一致。
+- 实测（2026-11-12 15:0x-16:0x）：以 `7825135` 的仓库 worktree 为受控项目，需求是真实缺陷
+  “Windows 上以 npm 为 argv[0] 的正式测试命令无法执行（spawn ENOENT/EPERM/EINVAL）”，
+  要求新增 `command-launch.ts` 与测试。结果：受理、准入、方案都成功；研发 Agent 3 次自验未通过，
+  单回合 2400 秒超时后停在 `blocked`；`checkpoint-a1.diff` 只有 1 字节（未产生任何文件改动），
+  说明模型把时间花在探索仓库而不是落盘。
+- 证据：`.cache/p0-batch-20261109/real-model-self-defect2.log`（运行日志）、
+  `C:\Users\lijia\AppData\Local\Temp\forgeloop-real-model-bFZThq`（KEEP=1 现场）。
+- 结论：**“受理真实自身缺陷 + 固定失败基线”已达成**（需求确实来自 ForgeLoop 自身缺陷，
+  失败基线是 3 次自验失败 + 空 diff + 回合超时）；**完整闭环未走通**。
+  下一步最小改法：把需求改成高度指令化（只允许改两个指定文件、禁止浏览其他文件），
+  或把该缺陷拆成更小的任务，然后重跑。
