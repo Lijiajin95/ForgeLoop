@@ -166,6 +166,9 @@ make web-smoke WEB_URL=http://192.168.3.13:3080
 ```
 
 - `web-auth`：生成 Cookie，实际请求首页与 `/api/forgeloop/board`，返回 HTTP 状态和运行构建身份。
+  工作区模式下看板按会话限定时，未提供会话会得到 `400 session_required`；脚本将该状态视为
+  端点已加载并在输出中标记 `sessionScoped`，可用 `--session <id>` 或 `FORGELOOP_WEB_SESSION`
+  指定会话以取得构建身份。
 - `web-smoke`：先用同一凭据启动无头 Chromium，进入会话的「天工」页，核对页脚运行版本，
   截图到 `.cache/web-auth/ui-smoke-*.png`。加 `REQUIRE_SOURCE_MATCH=1` 时，已装载客户端与
   源码不一致会直接失败，适合部署后核对。

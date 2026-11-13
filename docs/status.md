@@ -8781,3 +8781,48 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - `node_modules` 缺少 `@cacheable/memory` 导致 lint 崩溃，已用 `npm install --ignore-scripts`
   修复，lockfile 未变。
 - 正式 3080 的重启与新包生效属于下一步；隔离验证成功后仍有“重启后页面/旧记录兼容”未验证。
+
+## 232. 正式 3080 本地上线：热重载与线上隔离核对（2026-11-13）
+
+来源：所有者要求“本地部署验证”。
+
+### 232.1 不重启生效
+
+- 3080 是宿主进程（pid 39520）加本地前端代理（pid 22564），模型 API key 只在宿主进程环境里，
+  直接重启可能丢凭据；因此改用 DSH 插件管理器的 `set_plugin` 停用/启用触发**热重载**，
+  未重启宿主、未中断当前会话。
+- 热重载后运行身份更新为 pid 39520、启动于 `2026-11-13T02:00:01Z`、新 `indexSha256`；
+  启动日志出现“等待宿主模式判定”，随后按工作区模式绑定三个工作区：
+  `D:\Project\deepseek-harness`、`D:\Project\ForgeLoop`、
+  `C:\Users\lijia\Documents\deepseek-harness\default-workspace`。
+- 最终包：442,435 字节，SHA-256
+  `30d6671a7b2fd02ff909bb536cb2bfc73e3e71f965faf5a0d31b1b52e22a23c3`，
+  gitHead `16349ff`，工作树干净；已安装到正式 `web` profile。
+
+### 232.2 线上页面与接口
+
+- `web-auth`（适配后）：首页 200；未带会话的看板返回 400 `session_required`，证明端点已加载。
+- `web-ui-smoke`（系统 Chrome）：进入「天工」页成功，页脚
+  `运行 0.0.2 · 启动于 2026/11/13 09:41:19 · 客户端 49d494a5…`；
+  截图 `.cache/web-auth/ui-smoke-2026-11-13T01-47-57-236Z.png`。
+- 看板作用域（真实会话）：三个工作区的会话分别返回
+  `ws-3bb9ecf6…`、`ws-2844648b…`、`ws-032dc1bd…`；缺会话 400、伪造会话 403。
+- `--require-source-match` 报“与源码不一致”：`setBuildSourcePath` 仍取 profile 的旧
+  `projectPath`（`web-verify/project`），那里没有插件源码。这是身份对比路径未随工作区模式调整，
+  不影响隔离；已列为后续项。
+
+### 232.3 验证中发现并修复的缺陷
+
+1. **冷会话全部无法绑定工作区**（`09a1267`）：DSH `sessionQuery.readSession` 返回
+   `{ session: header, events }`，插件读的是 `snapshot.header`，导致所有非活动会话解析为空、
+   看板 403。线上三个工作区的冷会话在修复后全部返回各自项目。测试假体同步改为 `session` 字段。
+2. **`web-auth` 未适配看板会话作用域**（`16349ff`）：工作区模式下无会话的看板按契约返回
+   `400 session_required`，旧脚本把它当失败。现在脚本接受该状态并继续生成凭据，
+   也支持 `--session`/`FORGELOOP_WEB_SESSION` 指定会话。
+
+### 232.4 未完成
+
+- 线上三个租户目前都没有需求；正式实例上的完整业务闭环（提交 → 研发 → 验证 → 提交）未跑。
+- 跨工作区详情拒绝在隔离实例用真实需求验证过（404），线上因租户为空未复现。
+- `make verify-plugin` / `make verify-e2e` 未运行；`--require-source-match` 未通过（见 §232.2）。
+- 回滚：用 `forgeloop-dsh-0.0.2-pre-workspace-20261112-ws.tgz` 重装并热重载即可。
