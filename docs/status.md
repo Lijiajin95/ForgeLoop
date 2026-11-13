@@ -8826,3 +8826,20 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - 跨工作区详情拒绝在隔离实例用真实需求验证过（404），线上因租户为空未复现。
 - `make verify-plugin` / `make verify-e2e` 未运行；`--require-source-match` 未通过（见 §232.2）。
 - 回滚：用 `forgeloop-dsh-0.0.2-pre-workspace-20261112-ws.tgz` 重装并热重载即可。
+
+## 233. 天工页显示工作区名而不是租户键（2026-11-13）
+
+来源：所有者要求天工页不显示 `ws-2844648b-…` 这类项目 ID，而是显示 DSH 工作区名。
+
+- 看板在有工作区作用域时附带 `workspace{id,title,path}`；`project` 字段保持内部隔离键不变。
+- 客户端新增 `boardProjectLabel`：副标题优先显示 `workspace.title`，单项目模式回退到
+  `board.project`；中文、英文、350px 窄屏均使用同一 helper。
+- 测试：`client-terminal-semantics` 增加工作区名/空白标题/单项目回退三项；`workspace-wiring`、
+  `workspace-isolation` 断言响应携带正确的 `workspace.title`。共 56 项定向通过，
+  typecheck 与 `check-static` 通过。
+- 正式 3080 热重载后：看板返回 `workspace.title`（`ForgeLoop`、`deepseek-harness`、
+  `default-workspace`）；天工页副标题实测为 `deepseek-harness · 更新于 …`，不再出现 `ws-<id>`。
+- 最终包：442,786 字节，SHA-256
+  `166273b3d2af726eb2d6d15e2c19333a927639d19927c6cc61f87255d113ca92`，gitHead `c079d05`。
+- 限制：仅替换副标题展示；`workspace.id` 仍在只读响应中用于身份，未做脱敏；单项目模式仍显示
+  配置里的 `project`。

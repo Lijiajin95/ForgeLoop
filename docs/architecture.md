@@ -455,6 +455,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   工作区选择记录库与协调器；请求体里的任何工作区标识都不作数。缺少会话返回
   `session_required`，会话未绑定工作区返回 `workspace_unbound`，跨工作区的需求/任务/运维/
   部署身份按 `not_found` 处理，不泄露对方是否存在。
+- **展示名**：看板响应在有工作区作用域时附带 `workspace{id,title,path}`；天工页副标题优先显示
+  工作区标题（DSH 工作区名），`project` 仍是内部隔离键 `ws-<id>`，不作为项目名展示。
 - **旧目录兼容**：profile 中显式配置的 `project`/`projectPath` 只作为旧项目名复用条件，
   仅当某个工作区路径与旧 `projectPath` 完全相同时沿用 `<recordsRoot>/projects/<旧 project>`；
   其他工作区一律使用 `ws-<id>`，不会自动挂载无法证明归属的旧目录。
