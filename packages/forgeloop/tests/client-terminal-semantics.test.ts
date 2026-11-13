@@ -37,6 +37,11 @@ interface ClientExports {
       limit?: number,
     ) => string
     boardProjectLabel: (board: { project: string; workspace?: { title?: string } }) => string
+    shouldRenderSessionTail: (
+      preset: string | undefined,
+      turn: number | undefined,
+      latestTurn: number | null,
+    ) => boolean
   }
 }
 
@@ -178,6 +183,18 @@ describe('terminal semantics', () => {
       'ws-2844648b',
     )
     expect(rules.boardProjectLabel({ project: 'legacy' })).toBe('legacy')
+  })
+
+  it('renders the session requirement tail only on the latest turn', () => {
+    const rules = exportsValue.__rules
+    expect(rules.shouldRenderSessionTail('forgeloop', 3, 5)).toBe(false)
+    expect(rules.shouldRenderSessionTail('forgeloop', 5, 5)).toBe(true)
+    // 非 ForgeLoop 会话不显示。
+    expect(rules.shouldRenderSessionTail('standard', 5, 5)).toBe(false)
+    expect(rules.shouldRenderSessionTail(undefined, 5, 5)).toBe(false)
+    // 轮次未知时保留显示，避免旧宿主或加载中把内容整体藏掉。
+    expect(rules.shouldRenderSessionTail('forgeloop', 5, null)).toBe(true)
+    expect(rules.shouldRenderSessionTail('forgeloop', undefined, 5)).toBe(true)
   })
 
   it('treats committed as terminal, matching the server status set', () => {

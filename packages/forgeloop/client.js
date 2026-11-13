@@ -2568,13 +2568,32 @@ window.__ModuleLoader__.load({
 .flb-tail-empty{padding:2px 0;color:var(--dsw-alias-label-secondary)}
 `
 
+    /**
+     * “本会话需求”只挂在最新一轮：turn tail 每轮都会渲染，而数据是当前会话需求，
+     * 历史轮次一并渲染会让同一需求在每一轮重复出现。轮次未知时保留显示。
+     */
+    function shouldRenderSessionTail(preset, turn, latestTurn) {
+      if (preset !== 'forgeloop') return false
+      if (typeof turn !== 'number' || typeof latestTurn !== 'number') return true
+      return turn === latestTurn
+    }
+
     function RequirementsTail(props) {
       const t = props.t
       const preset =
         typeof props.useProjection === 'function' ? props.useProjection('agentPreset') : undefined
+      const latestTurn =
+        typeof props.useChat === 'function'
+          ? props.useChat((snapshot) => {
+              const order = snapshot && snapshot.timeline && snapshot.timeline.turnOrder
+              return Array.isArray(order) && order.length > 0 ? order[order.length - 1] : null
+            })
+          : null
       const [state, setState] = React.useState({ phase: 'idle', data: null })
       React.useEffect(() => {
-        if (preset !== 'forgeloop' || !props.sessionId) return undefined
+        // 历史轮次既然不渲染，也不再轮询当前需求，避免每个旧 turn 各留一个 4 秒定时器。
+        if (!shouldRenderSessionTail(preset, props.turn, latestTurn) || !props.sessionId)
+          return undefined
         let alive = true
         const reader = createReader(t, props.sessionId)
         const tick = () => {
@@ -2592,8 +2611,8 @@ window.__ModuleLoader__.load({
           alive = false
           clearInterval(timer)
         }
-      }, [preset, props.sessionId, props.seq])
-      if (preset !== 'forgeloop') return null
+      }, [preset, props.sessionId, props.seq, props.turn, latestTurn])
+      if (!shouldRenderSessionTail(preset, props.turn, latestTurn)) return null
       const requirements = (state.data && state.data.requirements) || []
       if (requirements.length === 0) return null
       const needs = requirements.filter(
@@ -9926,6 +9945,7 @@ window.__ModuleLoader__.load({
         shortReqId,
         requirementFocus,
         boardProjectLabel,
+        shouldRenderSessionTail,
       },
       __actions: { body: actionRequest, successKey: actionSuccessKey },
     }

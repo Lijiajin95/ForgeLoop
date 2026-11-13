@@ -8843,3 +8843,19 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
   `166273b3d2af726eb2d6d15e2c19333a927639d19927c6cc61f87255d113ca92`，gitHead `c079d05`。
 - 限制：仅替换副标题展示；`workspace.id` 仍在只读响应中用于身份，未做脱敏；单项目模式仍显示
   配置里的 `project`。
+
+## 234. 会话需求尾部只渲染最新一轮（2026-11-13）
+
+来源：所有者反馈 ForgeLoop 会话里同一条需求与澄清出现 5 次。排查结论：不是重复受理或重复分析，
+而是 `conversation.chat.turnTail`（每轮都会渲染的 turn tail）各自轮询当前会话需求，导致同一需求
+出现在每一轮。证据：会话 `session-dcd69b22…` 有 5 个 turn；当前工作区只有 1 条需求、
+1 次分析、4 条澄清问题；旧轮次的卡片只是 turn footer。
+
+- `client.js`：新增 `shouldRenderSessionTail(preset, turn, latestTurn)`，只有
+  `preset === 'forgeloop'` 且 `turn === 最新轮次` 时渲染；轮次未知时保留显示。
+  `RequirementsTail` 通过 session 标准属性 `useChat` 读取 `snapshot.timeline.turnOrder` 的最后一轮。
+- 历史轮次不再渲染，也不再启动 4 秒轮询（effect 条件与依赖同步加上最新轮次）。
+- 测试：`client-terminal-semantics` 增加最新轮/历史轮/非 ForgeLoop/未知轮次四项；
+  `client-view`、`client-terminal-semantics` 共 32 项通过；typecheck、lint 通过。
+- 限制：正式 3080 仍运行旧 `client.js`，需要重新打包/安装（或按部署流程热更新）后才生效；
+  本次未部署，未改版本号。
