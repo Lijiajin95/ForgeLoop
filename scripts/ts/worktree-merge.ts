@@ -8,7 +8,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
-import { unlinkWorkspaceLink } from './worktree-links.ts'
+import { findWorkspaceLinks, unlinkWorkspaceLink } from './worktree-links.ts'
 
 function fail(message: string): never {
   console.error(`[worktree-merge] ${message}`)
@@ -78,6 +78,13 @@ if (entry) {
     if (unlinkWorkspaceLink(join(entry.path, link))) {
       console.log(`[worktree-merge] 已摘除链接 ${join(entry.path, link)}`)
     }
+  }
+  // 兜底：链接识别/摘除失败时绝不能继续递归删除，否则会越过工作树删到主工作树。
+  const remaining = findWorkspaceLinks(entry.path)
+  if (remaining.length > 0) {
+    fail(
+      `worktree 里仍有目录链接，拒绝删除：${remaining.join('、')}。请先手工摘除链接后重试`,
+    )
   }
   if (git(['status', '--porcelain'], entry.path) !== '') {
     fail(`摘除链接后 worktree 仍不干净：${entry.path}；请手工核对后再清理`)

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { unlinkWorkspaceLink } from '../../../scripts/ts/worktree-links.ts'
+import { unlinkWorkspaceLink, findWorkspaceLinks, isWorkspaceLink } from '../../../scripts/ts/worktree-links.ts'
 
 /**
  * worktree 复用依赖时放的是目录链接；清理工作树前必须只摘链接本身。
@@ -39,5 +39,38 @@ describe('workspace link cleanup', () => {
     expect(unlinkWorkspaceLink(real)).toBe(false)
     expect(existsSync(join(real, 'file.txt'))).toBe(true)
     expect(unlinkWorkspaceLink(join(dir, 'missing'))).toBe(false)
+  })
+
+  it('finds nested links without descending into their targets', () => {
+    const outside = join(dir, 'outside')
+    mkdirSync(join(outside, 'keep'), { recursive: true })
+    writeFileSync(join(outside, 'keep', 'sentinel.txt'), 'keep\n', 'utf8')
+    const worktree = join(dir, 'worktree')
+    mkdirSync(join(worktree, 'packages', 'forgeloop'), { recursive: true })
+    writeFileSync(join(worktree, 'README.md'), 'worktree\n', 'utf8')
+    const nested = join(worktree, 'packages', 'forgeloop', 'node_modules')
+    symlinkSync(outside, nested, process.platform === 'win32' ? 'junction' : 'dir')
+
+    expect(isWorkspaceLink(nested)).toBe(true)
+    const links = findWorkspaceLinks(worktree)
+    expect(links).toEqual([nested])
+    // 只应看到链接本身；链接目标里的文件不能被当成工作树内容。
+    expect(links.some((link) => link.includes('sentinel.txt'))).toBe(false)
+    expect(existsSync(join(outside, 'keep', 'sentinel.txt'))).toBe(true)
+  })
+
+  it('reports no links after they are removed and ignores real directories', () => {
+    const worktree = join(dir, 'worktree')
+    mkdirSync(join(worktree, 'src'), { recursive: true })
+    writeFileSync(join(worktree, 'src', 'index.ts'), 'export {}\n', 'utf8')
+    const target = join(dir, 'target')
+    mkdirSync(target, { recursive: true })
+    const link = join(worktree, 'node_modules')
+    symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+
+    expect(findWorkspaceLinks(worktree)).toEqual([link])
+    expect(unlinkWorkspaceLink(link)).toBe(true)
+    expect(findWorkspaceLinks(worktree)).toEqual([])
+    expect(existsSync(target)).toBe(true)
   })
 })
