@@ -701,6 +701,26 @@ CREATE TABLE IF NOT EXISTS deployment_tool_changes (
     changed_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS deployment_tool_changes_by_tool ON deployment_tool_changes (tool_id, changed_at);
+
+-- 需求库索引：项目文档条目是内容权威，这里只存同步快照与缺失标记，
+-- 分析时按 id 取索引、按 path/ref 读正文，并据此生成注入摘要。
+CREATE TABLE IF NOT EXISTS library_entries (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    ref TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    status TEXT NOT NULL,
+    topics_json TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    always INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    bytes INTEGER NOT NULL,
+    declared_at TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    missing INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS library_entries_by_status ON library_entries (status, missing);
 `
 
 export type SqlParam = string | number | bigint | Uint8Array | null
