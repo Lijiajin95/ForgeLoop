@@ -14,6 +14,8 @@ import type { ForgeLoopConfig } from './config.js'
 import { readProjectDoc, resolveProjectDoc, writeProjectDoc } from './runtime/project-docs.js'
 import { fetchWeb, searchWeb, WEB_KEY_NOTE } from './runtime/web-tools.js'
 import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
+import { errorMessage } from './domain/errors.js'
+import { loadLibrary } from './runtime/library-docs.js'
 import {
   VERIFICATION_CHECK_TOOL,
   VERIFICATION_MATERIAL_TOOL,
@@ -499,6 +501,7 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
         }
       },
     }),
+    libraryEntryTool(resolve),
     tool({
       name: 'forgeloop_write_project_doc',
       description:
@@ -626,6 +629,47 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
       },
     }),
   ]
+}
+
+/** 需求库逐条读取：渐进式披露的 L1 入口，只读项目内条目。 */
+function libraryEntryTool(resolve: ToolScopeResolver): ToolDefinitionLike {
+  const tool = (input: ToolSpec) => defineTool(input, resolve)
+  return tool({
+    name: 'forgeloop_read_library_entry',
+    description:
+      'Read one requirement-library entry by id. Entries are project Markdown with a JSON header; the body (or the referenced document) is returned for progressive disclosure.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Library entry id, e.g. metrics.reliability' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    async run(args, scope) {
+      const id = stringArg(args, 'id')
+      if (!id) return { ok: false, text: 'id is required' }
+      let library
+      try {
+        library = loadLibrary(scope.config.projectPath)
+      } catch (error) {
+        return { ok: false, text: `需求库不可用：${errorMessage(error)}` }
+      }
+      const found = library.entries.find((item) => item.entry.id === id)
+      if (!found) return { ok: false, text: `需求库没有条目 ${id}` }
+      let content = found.entry.body
+      if (found.entry.ref) {
+        const read = readProjectDoc(scope.config.projectPath, found.entry.ref)
+        if (!read.ok) return { ok: false, text: read.reason }
+        content = read.content
+      }
+      return {
+        ok: true,
+        text: `已读取需求库条目 ${id}`,
+        data: { id, status: found.entry.status, content },
+      }
+    },
+  })
 }
 
 export function registerTools(

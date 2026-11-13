@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_attempts (
     prompt_version TEXT NOT NULL DEFAULT '',
     transcript_path TEXT NOT NULL DEFAULT '',
     tool_calls TEXT NOT NULL DEFAULT '[]',
+    library_digest TEXT NOT NULL DEFAULT '',
+    library_review TEXT NOT NULL DEFAULT '',
+    library_warnings TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, requirement_version, attempt)
 );
@@ -771,6 +774,24 @@ export class Database {
         'requirement_commitment_resolutions',
         'decision_id',
         "TEXT NOT NULL DEFAULT ''",
+      )
+      ensureColumn(
+        handle,
+        'requirement_analysis_attempts',
+        'library_digest',
+        "TEXT NOT NULL DEFAULT ''",
+      )
+      ensureColumn(
+        handle,
+        'requirement_analysis_attempts',
+        'library_review',
+        "TEXT NOT NULL DEFAULT ''",
+      )
+      ensureColumn(
+        handle,
+        'requirement_analysis_attempts',
+        'library_warnings',
+        "TEXT NOT NULL DEFAULT '[]'",
       )
     }
     return new Database(handle, path)

@@ -17,6 +17,7 @@ import type { AnalysisAttempt, ClarificationQuestion } from '../domain/analysis.
 import { clarificationQuestionId } from '../domain/analysis.js'
 import { AnalysisStore } from './analysis-store.js'
 import { BusinessContextStore } from './business-context-store.js'
+import { LibraryStore, type LibrarySyncEntry } from './library-store.js'
 import { ClarificationStore } from './clarification-store.js'
 import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
@@ -77,6 +78,7 @@ export class Repository extends DevSessionStore {
   readonly deliveryStore = new DeliveryStore(this.db)
   readonly analysisStore = new AnalysisStore(this.db)
   readonly businessContextStore = new BusinessContextStore(this.db)
+  readonly libraryStore = new LibraryStore(this.db)
   readonly clarificationStore = new ClarificationStore(this.db)
 
   close(): void {
@@ -400,6 +402,19 @@ export class Repository extends DevSessionStore {
 
   latestBusinessContextDraft(reqId: string): ReturnType<BusinessContextStore['latestDraft']> {
     return this.businessContextStore.latestDraft(reqId)
+  }
+
+  /** 覆盖式同步需求库索引；文件消失只标 missing，不删除行。 */
+  syncLibrary(entries: readonly LibrarySyncEntry[], now: string): void {
+    this.libraryStore.sync(entries, now)
+  }
+
+  libraryEntries(): ReturnType<LibraryStore['list']> {
+    return this.libraryStore.list()
+  }
+
+  libraryEntry(id: string): ReturnType<LibraryStore['byId']> {
+    return this.libraryStore.byId(id)
   }
 
   // ---------------------------------------------------------------- 任务包

@@ -7,7 +7,7 @@
  */
 
 /** 分析提示词的版本号；提示词语义变化时必须递增并同步测试。 */
-export const ANALYSIS_PROMPT_VERSION = 'analysis-v4'
+export const ANALYSIS_PROMPT_VERSION = 'analysis-v5'
 
 /** 自动重试上限：首次失败后最多再自动尝试 3 次。 */
 export const MAX_AUTO_ANALYSIS_RETRIES = 3
@@ -20,6 +20,7 @@ export const BUSINESS_CONTEXT_DOC = 'docs/product/business-context.md'
  * 联网工具走 DeepSeek Search & Fetch（`runtime/web-tools.ts`），不在本地起浏览器或抓取器。
  */
 export const PRODUCT_TOOL_ALLOWLIST: readonly string[] = [
+  'forgeloop_read_library_entry',
   'forgeloop_read_project_doc',
   'forgeloop_write_project_doc',
   'forgeloop_web_search',
@@ -54,6 +55,12 @@ export interface AnalysisAttempt {
   readonly promptVersion: string
   readonly transcriptPath: string
   readonly toolCalls: readonly string[]
+  /** 本次分析注入的需求库摘要（id/哈希/字节）；库为空时为空串。 */
+  readonly libraryDigest?: string
+  /** 模型给出的需求库遍历记录与缺口依据；库为空时为空串。 */
+  readonly libraryReview?: string
+  /** 需求库扫描警告（例如跳过没有头的文档）。 */
+  readonly libraryWarnings?: readonly string[]
   readonly createdAt: string
 }
 

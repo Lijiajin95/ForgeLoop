@@ -38,6 +38,13 @@ import {
 import { buildProjectFacts } from './board.js'
 import { sourceTrusted, type AdmissionDecision } from '../domain/admission.js'
 import { analysisSpecOf, planCoverageIssues, validateSpec } from '../domain/spec.js'
+import {
+  renderLibraryDigest,
+  renderLibraryIndex,
+  validateLibraryReview,
+  type LibraryEntry,
+} from '../domain/library.js'
+import { loadLibrary } from './library-docs.js'
 
 type RecordedAnalysis = Omit<AnalysisAttempt, 'outcome' | 'detail'>
 
@@ -149,6 +156,12 @@ export class ExecutionPlan {
     mode: AnalysisMode
   }): Promise<ExecuteAnalysisResult> {
     const { reqId, requirement, version, signal, mode } = input
+    let library: ReturnType<ExecutionPlan['libraryContext']>
+    try {
+      library = this.libraryContext()
+    } catch (error) {
+      return { state: 'failed', detail: `需求库不可用：${errorMessage(error)}` }
+    }
     const previousAnalysis = this.deps.repo.latestAnalysis(reqId)
     const openQuestions = this.deps.repo.openClarifications(reqId)
     const historicalIds = this.historicalSpecIds(reqId)
@@ -168,7 +181,8 @@ export class ExecutionPlan {
       const result = await this.deps.runner.run({
         role: AGENT_PRODUCT,
         cwd: this.deps.config.projectPath,
-        prompt: this.analysisPromptFor(reqId, requirement) + retryPromptNote(lastError),
+        prompt:
+          this.analysisPromptFor(reqId, requirement, library.index) + retryPromptNote(lastError),
         // 产品 Agent 允许写项目文档，但只拿到文档读写与联网检索工具，没有任何编码工具。
         permission: 'workspace-write',
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
@@ -187,6 +201,8 @@ export class ExecutionPlan {
         promptVersion: ANALYSIS_PROMPT_VERSION,
         transcriptPath: transcript,
         toolCalls: result.toolCalls,
+        libraryDigest: library.digest,
+        libraryWarnings: library.warnings,
         createdAt: this.deps.now(),
       }
       // 模型返回时先核对需求是否仍是发起时的版本与状态：迟到结果只留审计，
@@ -206,6 +222,7 @@ export class ExecutionPlan {
           openQuestions,
           previousAnalysis,
           historicalIds,
+          libraryEntries: library.entries,
         })
       } catch (error) {
         const detail = errorMessage(error)
@@ -225,10 +242,14 @@ export class ExecutionPlan {
         openAfter,
         recorded,
       })
+      const attemptWithReview = {
+        ...recorded,
+        libraryReview: draft.libraryReview ? JSON.stringify(draft.libraryReview) : '',
+      }
       return this.settleAnalysis({
         requirement,
         analysis,
-        attempt: recorded,
+        attempt: attemptWithReview,
         newQuestions: draft.clarifications,
         updates: draft.clarificationUpdates,
         businessContext: draft.businessContext,
@@ -249,6 +270,7 @@ export class ExecutionPlan {
     openQuestions: readonly ClarificationQuestion[]
     previousAnalysis: RequirementAnalysis | null
     historicalIds: readonly string[]
+    libraryEntries: readonly LibraryEntry[]
   }): {
     draft: AnalysisDraft
     openAfter: readonly string[]
@@ -289,6 +311,11 @@ export class ExecutionPlan {
         .map((item) => item.reqId),
       currentReqId: input.reqId,
       historicalIds: input.historicalIds,
+    })
+    validateLibraryReview({
+      review: draft.libraryReview,
+      entries: input.libraryEntries,
+      clarifications: draft.clarifications,
     })
     return { draft, openAfter, analysisVersion }
   }
@@ -381,7 +408,7 @@ export class ExecutionPlan {
   }
 
   /** 分析提示词只在这里组装：需求原文、项目事实、业务背景与完整澄清问答。 */
-  private analysisPromptFor(reqId: string, requirement: Requirement): string {
+  private analysisPromptFor(reqId: string, requirement: Requirement, libraryIndex: string): string {
     const open = this.deps.repo.openClarifications(reqId)
     const history = this.deps.repo.clarificationQuestions(reqId)
     const answers = this.deps.repo.clarificationAnswers(reqId)
@@ -393,18 +420,38 @@ export class ExecutionPlan {
       currentText: requirement.versions.map((version) => version.text).join('\n'),
     })
     const business = readProjectDoc(this.deps.config.projectPath, BUSINESS_CONTEXT_DOC)
-    return analysisPrompt(
-      requirement,
-      facts,
-      business.ok ? business.content : '',
-      analysisHistoryContext({
+    return analysisPrompt(requirement, facts, {
+      businessContext: business.ok ? business.content : '',
+      history: analysisHistoryContext({
         clarifications: clarificationContext({
           questions: history.length > 0 ? history : open,
           answers,
         }),
         previousSpec: analysisSpecContext(this.deps.repo.latestAnalysis(reqId)),
       }),
-    )
+      library: libraryIndex,
+    })
+  }
+
+  /**
+   * 分析前的需求库现场：扫描文档、同步 SQLite 索引，并生成 L0 索引与摘要。
+   * 读取或格式失败时抛错，由调用方把分析按失败收口（fail-closed）。
+   */
+  private libraryContext(): {
+    entries: readonly LibraryEntry[]
+    index: string
+    digest: string
+    warnings: readonly string[]
+  } {
+    const loaded = loadLibrary(this.deps.config.projectPath)
+    this.deps.repo.syncLibrary(loaded.entries, this.deps.now())
+    const entries = loaded.entries.map((item) => item.entry)
+    return {
+      entries,
+      index: renderLibraryIndex(entries),
+      digest: renderLibraryDigest(loaded.digest),
+      warnings: loaded.warnings,
+    }
   }
 
   /** 落库成功结论并决定下一步：仍有待澄清则等待，否则进入系统准入与研发。 */

@@ -113,6 +113,7 @@ describe('tool surface', () => {
       'forgeloop_run_verification_check',
       'forgeloop_write_verification_material',
       'forgeloop_read_project_doc',
+      'forgeloop_read_library_entry',
       'forgeloop_write_project_doc',
       'forgeloop_web_search',
       'forgeloop_web_fetch',
@@ -363,8 +364,8 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(17)
-    expect(disposers).toHaveLength(17)
+    expect(registered).toHaveLength(18)
+    expect(disposers).toHaveLength(18)
   })
 
   it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {

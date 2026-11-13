@@ -12,6 +12,7 @@ import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
 import type { ClarificationUpdate } from './analysis.js'
 import type { AcceptanceCriterion, Assumption, BusinessPoint, CommitmentConflict } from './spec.js'
 import { parseSpecFields } from './spec.js'
+import { parseLibraryReview, type LibraryReview } from './library.js'
 
 export interface RequirementVersion {
   readonly version: number
@@ -119,6 +120,8 @@ export interface AnalysisDraft {
   readonly clarifications: readonly string[]
   /** 本轮对上一轮未解决问题的逐项处置；首次分析为空。 */
   readonly clarificationUpdates: readonly ClarificationUpdate[]
+  /** 需求库遍历记录与澄清缺口；库为空时可以为 null。 */
+  readonly libraryReview: LibraryReview | null
   readonly businessContext: BusinessContextDraft
 }
 
@@ -314,6 +317,7 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
     conflicts: spec.conflicts,
     clarifications,
     clarificationUpdates,
+    libraryReview: parseLibraryReview(data.library_review),
     businessContext,
   }
 }

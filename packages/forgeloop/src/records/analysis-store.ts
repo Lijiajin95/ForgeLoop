@@ -225,8 +225,8 @@ export class AnalysisStore {
       .prepare(
         `INSERT INTO requirement_analysis_attempts
           (req_id, requirement_version, attempt, kind, outcome, detail, model, prompt_version,
-           transcript_path, tool_calls, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           transcript_path, tool_calls, library_digest, library_review, library_warnings, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         attempt.reqId,
@@ -239,6 +239,9 @@ export class AnalysisStore {
         attempt.promptVersion,
         attempt.transcriptPath,
         JSON.stringify(attempt.toolCalls),
+        attempt.libraryDigest ?? '',
+        attempt.libraryReview ?? '',
+        JSON.stringify(attempt.libraryWarnings ?? []),
         attempt.createdAt,
       )
   }

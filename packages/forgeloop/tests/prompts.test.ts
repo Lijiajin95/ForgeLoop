@@ -119,7 +119,9 @@ describe('prompt builders', () => {
   })
 
   it('states the product Agent tools, business background rule and JSON contract', () => {
-    const text = analysisPrompt(requirement, projectFacts, '行业：本地生活服务')
+    const text = analysisPrompt(requirement, projectFacts, {
+      businessContext: '行业：本地生活服务',
+    })
     expect(text).toContain('你是 ForgeLoop 的产品 Agent')
     expect(text).toContain('forgeloop_read_project_doc')
     expect(text).toContain('forgeloop_write_project_doc')
@@ -143,6 +145,20 @@ describe('prompt builders', () => {
 
   it('tells the product Agent when no business background document exists yet', () => {
     expect(analysisPrompt(requirement, projectFacts)).toContain('（尚无业务背景文档）')
+  })
+
+  it('injects the requirement library index and the clarification gate rules', () => {
+    const empty = analysisPrompt(requirement, projectFacts)
+    expect(empty).toContain('（项目尚未建立需求库；本轮按无背景处理）')
+    expect(empty).toContain('forgeloop_read_library_entry')
+    expect(empty).toContain('library_review.reviewed')
+    expect(empty).toContain('一次最多 3 条')
+
+    const withLibrary = analysisPrompt(requirement, projectFacts, {
+      library: '- metrics.reliability｜可靠性度量口径｜confirmed｜topics: reliability.metric',
+    })
+    expect(withLibrary).toContain('metrics.reliability')
+    expect(withLibrary).not.toContain('（项目尚未建立需求库')
   })
 
   it('renders current requirements and tasks with times, statuses and approvals as background facts', () => {

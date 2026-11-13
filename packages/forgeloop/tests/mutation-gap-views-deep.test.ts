@@ -591,7 +591,9 @@ describe('prompt builders: full-string branches', () => {
   it('keeps the analysis prompt stable while embedding facts and requirement context', () => {
     expect(requirementContext(promptRequirement())).toMatchSnapshot('requirement-context')
     expect(projectFactsContext(projectFacts)).toMatchSnapshot('project-facts-context')
-    expect(analysisPrompt(promptRequirement(), projectFacts, '行业背景：本地生活')).toMatchSnapshot(
+    expect(
+      analysisPrompt(promptRequirement(), projectFacts, { businessContext: '行业背景：本地生活' }),
+    ).toMatchSnapshot(
       'analysis-prompt',
     )
   })

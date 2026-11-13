@@ -225,3 +225,177 @@ export function renderLibraryDigest(digest: LibraryDigest): string {
     }))
   return JSON.stringify({ entries })
 }
+
+export type LibraryGapBlocking = 'scope' | 'acceptance' | 'data'
+
+export const LIBRARY_GAP_BLOCKING: readonly LibraryGapBlocking[] = ['scope', 'acceptance', 'data']
+
+export const LIBRARY_MAX_CLARIFICATIONS = 3
+
+export interface LibraryReviewItem {
+  readonly id: string
+  readonly mode: 'read' | 'dismissed'
+  readonly reason: string
+}
+
+export interface LibraryGap {
+  readonly question: string
+  readonly topic: string
+  readonly searched: readonly string[]
+  readonly blocking: LibraryGapBlocking
+  readonly reason: string
+}
+
+export interface LibraryReview {
+  readonly reviewed: readonly LibraryReviewItem[]
+  readonly used: readonly string[]
+  readonly gaps: readonly LibraryGap[]
+}
+
+function reviewItems(value: unknown): LibraryReviewItem[] {
+  if (!Array.isArray(value)) throw new LibraryError('分析字段 library_review.reviewed 必须是数组')
+  return value.map((item, index) => {
+    const record = asRecord(item)
+    if (!record) throw new LibraryError(`library_review.reviewed[${index}] 必须是对象`)
+    const id = nonEmptyString(record.id, `reviewed[${index}].id`, 64)
+    const mode = record.mode
+    if (mode !== 'read' && mode !== 'dismissed') {
+      throw new LibraryError(`library_review.reviewed[${index}].mode 只能是 read 或 dismissed`)
+    }
+    const reason = typeof record.reason === 'string' ? record.reason.trim() : ''
+    if (mode === 'dismissed' && !reason) {
+      throw new LibraryError(`library_review.reviewed[${index}] dismissed 时必须给出 reason`)
+    }
+    return { id, mode, reason }
+  })
+}
+
+function listOfStrings(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw new LibraryError(`需求库条目 ${field} 必须是字符串数组`)
+  return value.map((item, index) => {
+    if (typeof item !== 'string' || !item.trim()) {
+      throw new LibraryError(`需求库条目 ${field}[${index}] 必须是非空字符串`)
+    }
+    return item.trim()
+  })
+}
+
+function gapItems(value: unknown): LibraryGap[] {
+  if (!Array.isArray(value)) throw new LibraryError('分析字段 library_review.gaps 必须是数组')
+  return value.map((item, index) => {
+    const record = asRecord(item)
+    if (!record) throw new LibraryError(`library_review.gaps[${index}] 必须是对象`)
+    const blocking = record.blocking
+    if (blocking !== 'scope' && blocking !== 'acceptance' && blocking !== 'data') {
+      throw new LibraryError(
+        `library_review.gaps[${index}].blocking 只能是 scope、acceptance 或 data`,
+      )
+    }
+    return {
+      question: nonEmptyString(record.question, `gaps[${index}].question`, 500),
+      topic: nonEmptyString(record.topic, `gaps[${index}].topic`, 100),
+      searched: listOfStrings(record.searched ?? [], `gaps[${index}].searched`),
+      blocking,
+      reason: nonEmptyString(record.reason, `gaps[${index}].reason`, 500),
+    }
+  })
+}
+
+/** 解析模型给出的库遍历记录；缺省视为没有（库为空时合法）。 */
+export function parseLibraryReview(value: unknown): LibraryReview | null {
+  if (value === undefined || value === null) return null
+  const record = asRecord(value)
+  if (!record) throw new LibraryError('分析字段 library_review 必须是对象')
+  return {
+    reviewed: reviewItems(record.reviewed),
+    used: record.used === undefined ? [] : listOfStrings(record.used, 'library_review.used'),
+    gaps: gapItems(record.gaps ?? []),
+  }
+}
+
+function normalizeTopic(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function confirmedTopicMap(entries: readonly LibraryEntry[]): Map<string, string> {
+  const topics = new Map<string, string>()
+  for (const entry of entries) {
+    if (entry.status !== 'confirmed') continue
+    for (const topic of entry.topics) topics.set(normalizeTopic(topic), entry.id)
+  }
+  return topics
+}
+
+/** 校验遍历覆盖与引用：库里的每条都必须恰好被 reviewed 一次。 */
+function validateReviewed(review: LibraryReview, entries: readonly LibraryEntry[]): string[] {
+  const ids = new Set(entries.map((entry) => entry.id))
+  const reviewedIds = review.reviewed.map((item) => item.id)
+  if (new Set(reviewedIds).size !== reviewedIds.length) {
+    throw new LibraryError('library_review.reviewed 不能重复引用同一条目')
+  }
+  const missing = entries
+    .filter((entry) => !reviewedIds.includes(entry.id))
+    .map((entry) => entry.id)
+  if (missing.length > 0) {
+    throw new LibraryError(`library_review 未覆盖全部条目：${missing.join('、')}`)
+  }
+  for (const id of reviewedIds) {
+    if (!ids.has(id)) throw new LibraryError(`library_review 引用了不存在的条目：${id}`)
+  }
+  for (const id of review.used) {
+    if (!reviewedIds.includes(id)) {
+      throw new LibraryError(`library_review.used 引用了未遍历的条目：${id}`)
+    }
+  }
+  return reviewedIds
+}
+
+/** 校验澄清与缺口：每条澄清一个缺口，缺口主题不得已被 confirmed 条目覆盖。 */
+function validateGapCoverage(input: {
+  readonly review: LibraryReview
+  readonly entries: readonly LibraryEntry[]
+  readonly reviewedIds: readonly string[]
+  readonly clarifications: readonly string[]
+}): void {
+  const { review, entries, reviewedIds, clarifications } = input
+  if (clarifications.length > LIBRARY_MAX_CLARIFICATIONS) {
+    throw new LibraryError(`有需求库时一次分析最多提出 ${LIBRARY_MAX_CLARIFICATIONS} 条澄清`)
+  }
+  if (review.gaps.length !== clarifications.length) {
+    throw new LibraryError('每条澄清必须对应 library_review.gaps 中的一条缺口')
+  }
+  const questions = new Set(clarifications)
+  const covered = confirmedTopicMap(entries)
+  for (const gap of review.gaps) {
+    if (!questions.has(gap.question)) {
+      throw new LibraryError(`library_review.gaps 的问题不在本轮澄清中：${gap.question}`)
+    }
+    const entryId = covered.get(normalizeTopic(gap.topic))
+    if (entryId) {
+      throw new LibraryError(`库内条目 ${entryId} 已覆盖主题 ${gap.topic}，不能重复提问`)
+    }
+    for (const id of gap.searched) {
+      if (!reviewedIds.includes(id)) {
+        throw new LibraryError(`library_review.gaps 引用了未遍历的条目：${id}`)
+      }
+    }
+  }
+}
+
+/**
+ * 澄清闸门：库非空时先完成全库遍历，再允许提出有缺口依据的问题。
+ * 这里只校验结构、覆盖与主题冲突；语义是否真的回答仍由提示词与所有者审阅约束。
+ */
+export function validateLibraryReview(input: {
+  readonly review: LibraryReview | null
+  readonly entries: readonly LibraryEntry[]
+  readonly clarifications: readonly string[]
+}): void {
+  const { review, entries, clarifications } = input
+  if (entries.length === 0) return
+  if (!review) {
+    throw new LibraryError('需求库非空时必须给出 library_review（遍历记录与缺口依据）')
+  }
+  const reviewedIds = validateReviewed(review, entries)
+  validateGapCoverage({ review, entries, reviewedIds, clarifications })
+}

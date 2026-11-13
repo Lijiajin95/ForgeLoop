@@ -176,7 +176,9 @@ describe('analysis prompt', () => {
     expect(prompt).toContain('（尚无业务背景文档）')
     expect(prompt).toContain('"input_kind": "requirement 或 problem"')
     expect(prompt).toContain('只输出 JSON。')
-    const withContext = analysisPrompt(requirement(1), facts(), '# 行业背景')
+    const withContext = analysisPrompt(requirement(1), facts(), {
+      businessContext: '# 行业背景',
+    })
     expect(withContext).toContain('# 行业背景')
     expect(withContext).not.toContain('（尚无业务背景文档）')
   })
