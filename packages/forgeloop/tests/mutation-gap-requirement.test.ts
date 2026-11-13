@@ -126,6 +126,7 @@ describe('analysis draft parsing', () => {
       conflicts: [],
       clarifications: [],
       clarificationUpdates: [],
+      libraryReview: null,
       businessContext: { changed: false, document: '', reason: '' },
     })
     expect(

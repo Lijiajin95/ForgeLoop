@@ -507,6 +507,42 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
     },
   },
   {
+    "description": "Read one requirement-library entry by id. Entries are project Markdown with a JSON header; the body (or the referenced document) is returned for progressive disclosure.",
+    "name": "forgeloop_read_library_entry",
+    "output": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "object",
+        },
+        "ok": {
+          "type": "boolean",
+        },
+        "text": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "ok",
+        "text",
+      ],
+      "type": "object",
+    },
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Library entry id, e.g. metrics.reliability",
+          "type": "string",
+        },
+      },
+      "required": [
+        "id",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "description": "Create or overwrite one Markdown document inside the current project. Only .md files inside the project are allowed; code is rejected. The business context document is written by the runtime from the analysis result, not through this tool.",
     "name": "forgeloop_write_project_doc",
     "output": {
