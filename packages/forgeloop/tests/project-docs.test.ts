@@ -22,9 +22,9 @@ afterEach(() => {
 
 describe('project document boundary', () => {
   it('accepts project-relative Markdown paths and normalizes them', () => {
-    expect(resolveProjectDoc(root, 'docs/forgeloop/business-context.md')).toMatchObject({
+    expect(resolveProjectDoc(root, 'docs/product/business-context.md')).toMatchObject({
       ok: true,
-      relative: 'docs/forgeloop/business-context.md',
+      relative: 'docs/product/business-context.md',
     })
     expect(resolveProjectDoc(root, './docs//a.md')).toMatchObject({
       ok: true,
@@ -49,9 +49,9 @@ describe('project document boundary', () => {
   })
 
   it('writes and reads back a document, creating parent directories', () => {
-    const written = writeProjectDoc(root, 'docs/forgeloop/business-context.md', '# 背景\n')
+    const written = writeProjectDoc(root, 'docs/product/business-context.md', '# 背景\n')
     expect(written).toMatchObject({ ok: true, bytes: 9 })
-    const read = readProjectDoc(root, 'docs/forgeloop/business-context.md')
+    const read = readProjectDoc(root, 'docs/product/business-context.md')
     expect(read).toMatchObject({ ok: true, content: '# 背景\n', truncated: false })
   })
 

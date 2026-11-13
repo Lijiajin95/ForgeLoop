@@ -1,7 +1,7 @@
 # 分支保护与发布门禁
 
 本文记录**已经能由仓库内代码强制执行**的门禁，以及仍需在 GitHub 仓库设置中手工
-配置、当前**未落实**的项。按 [AGENTS.md](../AGENTS.md) 的规则，只有声明、没有机制的
+配置、当前**未落实**的项。按 [AGENTS.md](../../AGENTS.md) 的规则，只有声明、没有机制的
 限制一律标为“未落实”。
 
 ## 已落实：仓库内可执行门禁
@@ -141,6 +141,6 @@ gh api -X DELETE repos/Lijiajin95/ForgeLoop/branches/main/protection   # 回滚 
 
 ## 维护
 
-- 门禁命令以 [Makefile](../Makefile)、`.github/workflows/` 与 `contracts/` 为准；
+- 门禁命令以 [Makefile](../../Makefile)、`.github/workflows/` 与 `contracts/` 为准；
   本文只描述入口与设置，不复制判定参数。
-- 修改必需检查列表时同步更新本文与 `docs/status.md`。
+- 修改必需检查列表时同步更新本文与 `docs/verification/status.md`。

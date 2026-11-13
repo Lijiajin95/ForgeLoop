@@ -2,7 +2,7 @@ name: Engineering quality
 
 # 活动实现是 TypeScript 原生 DSH 插件；CI 只用 Node 与仓库内脚本，不再安装 Python。
 # 真实宿主验证（make verify-plugin）需要模型凭据，不在公共 CI 中执行；由本机按
-# docs/deployment.md 运行并记录。
+# docs/development/deployment.md 运行并记录。
 
 on:
   push:

@@ -1,6 +1,6 @@
 /**
  * 类型断言预算：`as` 是绕过类型检查的入口，按 ratchet 只减不增。
- * 目标是把边界之外的断言收敛到 schema 解析（见 docs/status.md §45–§46）。
+ * 目标是把边界之外的断言收敛到 schema 解析（见 docs/verification/status.md §45–§46）。
  * 统计排除 `as const`（不改变类型安全性）。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'

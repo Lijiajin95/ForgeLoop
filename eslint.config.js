@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint'
  * 代码可靠性门禁：
  * - src 使用类型感知规则（异步、类型断言、穷尽 switch、复杂度）；
  * - tests / scripts 使用无类型规则，避免为测试再建一套 program 拖慢检查。
- * 未接入的规则（non-null、unnecessary-condition 等）见 docs/status.md 的 ratchet 清单。
+ * 未接入的规则（non-null、unnecessary-condition 等）见 docs/verification/status.md 的 ratchet 清单。
  */
 export default tseslint.config(
   {

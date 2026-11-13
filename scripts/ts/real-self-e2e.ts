@@ -4,7 +4,7 @@
  *
  * 隔离现场（临时 Git 工作树 / 协调宿主 home / 目标宿主 home / 独立 records）→
  * 安装当前插件 tarball 的协调宿主，由真实模型通过 forgeloop_submit_requirement 提交
- * 一条真实自身需求（docs/status.md §160 的控制补丁缺陷）→
+ * 一条真实自身需求（docs/verification/status.md §160 的控制补丁缺陷）→
  * 协调器完成分析、准入、规划、研发、独立验证、业务终审、受控提交与候选构建 →
  * 真实 Python 安装器把新 tarball 装进隔离目标 profile、写入安装制品摘要并重启真实宿主 →
  * 上线核对 verified 后，用固定 reqId 从 SQLite 与运行身份逐项核对。
@@ -62,12 +62,12 @@ const TOOL_ID = 'm1-self-install'
 const OWNER = 'm1-self-agent'
 
 /**
- * 需求原文：来源是 docs/status.md §160 记录的真实待办，不是 fixture、不是测试造数。
+ * 需求原文：来源是 docs/verification/status.md §160 记录的真实待办，不是 fixture、不是测试造数。
  * 提交者按脚本 Agent 身份记录；这里不声明 owner 批准，也不冒充所有者验收。
  */
 const REQUIREMENT = [
   '在看门狗收口挂起请求时，把“最后一次可观测进展时间”写进请求与动作的收口说明',
-  '（来源：docs/status.md 记录的挂起排查困难；不是 fixture 或测试造数）。',
+  '（来源：docs/verification/status.md 记录的挂起排查困难；不是 fixture 或测试造数）。',
   '',
   '背景：协调器现在能判定“无进展”并收口动作与请求，但收口说明只写了动作心跳早于哪个截止时间，',
   '没有记录该请求最后一次真正有进展的时刻，也没有说明是“从未有过进展”还是“进展后停滞”。',
@@ -91,13 +91,13 @@ const REQUIREMENT = [
   '- TypeScript 类型检查通过。',
   '',
   '测试命令：node scripts/m1-check.mjs',
-  '需求来源：docs/status.md 挂起排查记录。提交者：脚本 Agent（m1-self-e2e）；不是 owner 批准，也不代表所有者验收。',
+  '需求来源：docs/verification/status.md 挂起排查记录。提交者：脚本 Agent（m1-self-e2e）；不是 owner 批准，也不代表所有者验收。',
 ].join('\n')
 
 const REQUIREMENT_DOC = [
   '# M1-2 真实自身需求基线：看门狗收口说明中的最后进展时间',
   '',
-  '- 需求来源：docs/status.md 记录的挂起排查困难，非 fixture、非测试造数。',
+  '- 需求来源：docs/verification/status.md 记录的挂起排查困难，非 fixture、非测试造数。',
   '- 提交者：脚本 Agent（m1-self-e2e）。本文不是 owner 批准，也不代表所有者验收。',
   '- 生成方式：由 scripts/ts/real-self-e2e.ts 写入并随现场基线提交；提交给 ForgeLoop 的原文与下方完全一致。',
   '',
@@ -1510,7 +1510,7 @@ function evaluateEvidence(
     `需求被写入了验收人，脚本不应伪造验收：${rowString(requirement, 'accepted_by')}`,
   )
   ok(latestVersionText === REQUIREMENT, '需求原文与基线记录不一致')
-  ok(latestVersionText.includes('docs/status.md §160'), '需求原文没有标注 docs/status.md §160 来源')
+  ok(latestVersionText.includes('docs/verification/status.md §160'), '需求原文没有标注 docs/verification/status.md §160 来源')
   ok(Number(evidence.analysisCount) >= 1, '需求没有分析记录')
   ok(
     rowString(admission, 'decision') === 'admit',

@@ -1,8 +1,8 @@
 # ADR 0011：运维模块维护优先，研发转向核心交付闭环
 
 - 状态：已接受（2026-11-06，所有者决定）
-- 依据：[统一方案 §8.3](../product.md#83-运维职责与简化要求)、[§11.3](../product.md#113-m1-通过目标所有者设定2026-11-05)、[§14.2](../product.md#142-尚需具体化的实施与验收事项)
-- 接续：[ADR 0010](0010-remove-command-surface-legacy-compat-and-commit-policy.md)；实际状态与证据见[状态记录 §178](../status.md#178-运维模块进入维护阶段所有者决定2026-11-06)
+- 依据：[统一方案 §8.3](../../product/product.md#83-运维职责与简化要求)、[§11.3](../../product/product.md#113-m1-通过目标所有者设定2026-11-05)、[§14.2](../../product/product.md#142-尚需具体化的实施与验收事项)
+- 接续：[ADR 0010](0010-remove-command-surface-legacy-compat-and-commit-policy.md)；实际状态与证据见[状态记录 §178](../../verification/status.md#178-运维模块进入维护阶段所有者决定2026-11-06)
 
 ## 背景
 

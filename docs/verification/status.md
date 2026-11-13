@@ -1,6 +1,6 @@
 # ForgeLoop 状态记录
 
-本文件是当前状态与实际证据的入口；新目标、需求和方案见[统一方案](product.md)。
+本文件是当前状态与实际证据的入口；新目标、需求和方案见[统一方案](../product/product.md)。
 更新时区分当前快照与历史批次，数字绑定检查日期、构建和原始日志；发现冲突先核对并留勘误。
 本文件不把工程检查、安装回执或历史自迭代当作新方案的完整验收。
 
@@ -8,15 +8,15 @@
 
 | 项目         | 最近有依据的状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 回查                                                                                                                                   |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 新产品方案   | 产品、技术与验证决定已合并；种子范围、首条真实需求及 M2 参数仍待明确                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | [统一方案 §14](product.md#14-实施边界与待决项)                                                                                         |
-| 阶段投入     | 2026-11-06 所有者决定：运维模块进入维护阶段，研发优先核心交付闭环与真实使用反馈；保留现有运维能力，暂缓接入 Prometheus、Grafana、OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Agent、扩展通用平台与主动运维复跑；M1-3 仍为部分达成                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | [ADR 0011](adr/0011-ops-maintenance-first.md)、[§8.3](product.md#83-运维职责与简化要求)、§178                                          |
-| 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、系统准入、自动推进、研发拆解、独立验证、业务终审、验收、候选构建、受控提交与部署接口均已接入；部署目标可配置默认需求，也可由 intent 按需求复用；天工页提供停止/取消/恢复、追加授权、工时延长、构建与上线核对；部署协调器的工作台页面与证据入口未实现；`autoDeliver` 目标已接入提交后自动构建/部署/核对与修复回流；当前 Windows DSH `web` profile（3080）已运行 2026-11-05 tarball，真实需求 `req-20261105090042-07ff5f` 已在页面可见                                                                                                                                                                                                                                                                                                                                 | [架构](architecture.md)、§131–§136                                                                                                     |
+| 新产品方案   | 产品、技术与验证决定已合并；种子范围、首条真实需求及 M2 参数仍待明确                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | [统一方案 §14](../product/product.md#14-实施边界与待决项)                                                                                         |
+| 阶段投入     | 2026-11-06 所有者决定：运维模块进入维护阶段，研发优先核心交付闭环与真实使用反馈；保留现有运维能力，暂缓接入 Prometheus、Grafana、OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Agent、扩展通用平台与主动运维复跑；M1-3 仍为部分达成                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | [ADR 0011](../development/adr/0011-ops-maintenance-first.md)、[§8.3](../product/product.md#83-运维职责与简化要求)、§178                                          |
+| 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、系统准入、自动推进、研发拆解、独立验证、业务终审、验收、候选构建、受控提交与部署接口均已接入；部署目标可配置默认需求，也可由 intent 按需求复用；天工页提供停止/取消/恢复、追加授权、工时延长、构建与上线核对；部署协调器的工作台页面与证据入口未实现；`autoDeliver` 目标已接入提交后自动构建/部署/核对与修复回流；当前 Windows DSH `web` profile（3080）已运行 2026-11-05 tarball，真实需求 `req-20261105090042-07ff5f` 已在页面可见                                                                                                                                                                                                                                                                                                                                 | [架构](../development/architecture.md)、§131–§136                                                                                                     |
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | §30                                                                                                                                    |
-| 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | §13、[ADR 0009](adr/0009-remove-retired-implementation.md)                                                                             |
+| 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | §13、[ADR 0009](../development/adr/0009-remove-retired-implementation.md)                                                                             |
 | 最近安装记录 | 2026-11-05 `forgeloop-dsh@0.0.2` tarball（337,392 字节，SHA-256 `58d2cd45…`）安装到当前 Windows `web` profile（PID 22496 热重载；备份 `C:\Users\lijia\.dsh\profiles\web.backup-20261105`）；稳定 tarball 在 `C:\Users\lijia\.forgeloop\artifacts\forgeloop-dsh-0.0.2.tgz`；安装记录不等于交付完成                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | §135                                                                                                                                   |
 | 最近工程检查 | 2026-11-06 worktree `feat/m1-closure`：`check-static`（typecheck、ESLint、contracts、token/断言预算、可靠性注册表）通过；定向 mutation 73 项、verification 54 项、identity 3 项通过；全量 `make check` 157 文件/1887 项中 66 失败（11 文件，集中在 Windows 控制副本夹具与 recordsRoot 在项目内时的敏感性对照），未通过。M1 现场与失败见 §168。                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | §132.4、§135.3、§168                                                                                                                   |
 | 真实业务链路 | 2026-11-05 当前 DSH `web`（3080）真实需求 `req-20261105090042-07ff5f`：通过插件工具提交，经分析→系统准入→研发→独立验证（pass）→业务终审（pass）→受控提交 `e18de603ae08…`，共约 5 分钟；天工页可见，Board detail 返回 `fresh=true`、`businessReview=pass`。另有真实模型部署 E2E `req-20261105084110-d498df`（到隔离目标 verified）与 §134 的 M0 E2E 证据。2026-11-06 M1 收尾新增的两条真实闭环 A/B 均未跑通：停止时分别停在 `control-apply`、`watchdog-root-cause`，0 提交、0 部署 intent、0 关闭事件（§168）。                                                                                                                                                                                                                                                                                                          | §131、§133–§135、§168                                                                                                                  |
-| 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控 + 2026-11-03 按需读制品日志：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，Agent 评审后建事件；另有两个只读工具按需读取 `ops.artifacts` 登记的制品运行状态（安装版本、pid、存活、身份摘要）与日志尾部（行数、错误行数可过滤）；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证；2026-11-06 起按所有者决定进入维护阶段（§178、[ADR 0011](adr/0011-ops-maintenance-first.md)），不再扩展外部工具或主动复跑 | §35、§110、§112、[运维设计](ops-agent.md)、§178                                                                                        |
+| 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控 + 2026-11-03 按需读制品日志：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，Agent 评审后建事件；另有两个只读工具按需读取 `ops.artifacts` 登记的制品运行状态（安装版本、pid、存活、身份摘要）与日志尾部（行数、错误行数可过滤）；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证；2026-11-06 起按所有者决定进入维护阶段（§178、[ADR 0011](../development/adr/0011-ops-maintenance-first.md)），不再扩展外部工具或主动复跑 | §35、§110、§112、[运维设计](../development/ops-agent.md)、§178                                                                                        |
 | 关键缺口     | M1 仍未达成（§168）：两条真实闭环 A/B 在所有者要求停止时仍在研发，未提交/部署/关闭；M1-5 真实部署中途崩机、M1-6 H/N/A 复算、M1-7/8 证据包未完成；§157 的中断恢复仍是测试构造状态，不是真实崩机。全量 `make check` 在 Windows 仍有 66 项失败（11 文件），根因是控制副本/recordsRoot 在项目内时的敏感性对照夹具，需先修 §160 的真实缺陷或调整夹具。S2/S3 的诊断与研发角色仍是脚本替身；工作台部署页面、证据入口与保留期未实现；验证/终审非 OS 隔离；天工页仍显示旧“未批准/未评审”标签。2026-11-06 所有者决定运维维护优先（§178）：后续运维复跑调整排期；M1-3 仍为部分达成，已有临时恢复证据，永久修复部署、原事件复核与关闭仍待验证。                                                                                                                                                                                     | §4.1、§131–§136、§160、§168、§178                                                                                                      |
 | 覆盖率       | 2026-11-03 行／语句 92.75%、函数 96.74%、分支 84.60%，门槛（90/93/84）通过                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §110、§112；历史测量及勘误见 §35、§34、§33、§32、§31、§30、§29、§28、§27、§26、§25、§23、§22、§21、§19、§18、§15、§14、§13、§3.4、§2.2 |
 
@@ -81,13 +81,13 @@ M1 整体未通过，未代签验收。**
   与待处理问题的状态；页面不提供批准、推进或验收入口。
 - 业务记录：SQLite（`node:sqlite`），`<recordsRoot>/projects/<project>/records.sqlite`；
   新库从空库建立，不读取或修补旧业务库。
-- 旧 Python／前端／serve 路线：由 [ADR 0008](adr/0008-typescript-native-dsh-plugin.md) 取代；
+- 旧 Python／前端／serve 路线：由 [ADR 0008](../development/adr/0008-typescript-native-dsh-plugin.md) 取代；
   代码隔离在 `legacy/`，不参与构建、检查或运行（迁移见 §6）。
-- 详细架构与信任边界：[docs/architecture.md](architecture.md)。
+- 详细架构与信任边界：[docs/development/architecture.md](../development/architecture.md)。
 
 ## 2. 2026-10-22 批次：全量转 TypeScript／DSH 并完成 V0→V1
 
-完整范围、产物、失败、外部补救和恢复记录见[当批交付报告](delivery/2026-10-22-typescript-dsh.md)。
+完整范围、产物、失败、外部补救和恢复记录见[当批交付报告](../development/delivery/2026-10-22-typescript-dsh.md)。
 本节保留基线、检索身份及勘误，不再复制报告全文。
 
 ### 2.1 基线与在途工作处理
@@ -117,7 +117,7 @@ M1 整体未通过，未代签验收。**
 ### 2.3 V0：真实研发闭环
 
 需求 `req-20261022151546-b52121`（失败轮次可见性），3 个任务完成；候选约 44 KB。
-产物摘要、审查、测试、安装与验收见[交付报告 §5](delivery/2026-10-22-typescript-dsh.md#5-v0-与-v1-链路证据)。
+产物摘要、审查、测试、安装与验收见[交付报告 §5](../development/delivery/2026-10-22-typescript-dsh.md#5-v0-与-v1-链路证据)。
 批准、安装等来自外部执行，不能计为 ForgeLoop 独立成果。
 
 ### 2.4 V1：自迭代结果
@@ -128,7 +128,7 @@ M1 整体未通过，未代签验收。**
 
 ### 2.5 规则与负例
 
-规划不合规、文件越界、第二宿主造成 unknown、上游改动未交接及外部补救见[交付报告 §8](delivery/2026-10-22-typescript-dsh.md#8-人工介入与外部补救)。
+规划不合规、文件越界、第二宿主造成 unknown、上游改动未交接及外部补救见[交付报告 §8](../development/delivery/2026-10-22-typescript-dsh.md#8-人工介入与外部补救)。
 当批新增单消费者锁与依赖产物交接；局部测试和事件不能证明所有限额、停止或恢复路径已完整验收，当前缺口见 §4.1。
 
 ## 3. 2026-10-23 批次：会话区「天工」页（只读状态看板）
@@ -167,7 +167,7 @@ without inject`。Fetch 路由走同一 Connection 认证层（Host/Origin 检�
   `locale/en.json` 与 `icon.svg`。
 - 契约：`contracts/architecture.json` 增加 `ui_surface` 与 `web_board_route` 接缝；
   `scripts/ts/contracts.ts` 增加 `checkUiSurface()`，校验槽位、视图身份、排序、数据路径、
-  端点、入口文件、图标与 locale 与实现一致。`docs/architecture.md`、包 README 同步。
+  端点、入口文件、图标与 locale 与实现一致。`docs/development/architecture.md`、包 README 同步。
 
 ### 3.2 检查（实际执行）
 
@@ -269,12 +269,12 @@ without inject`。Fetch 路由走同一 Connection 认证层（Host/Origin 检�
 
 | 位置                                                                                                                       | 已知缺口与影响                                                                                                                                                                                     |
 | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 客户入口、[服务](../packages/forgeloop/src/runtime/service.ts)、[协调器](../packages/forgeloop/src/runtime/coordinator.ts) | 当前没有客户决定入口；stop／cancel 的运行时操作能更新状态并撤销 pending，但在途 AbortController 只接协调器整体 stop，需求级停止未接通。成功文案不能证明 Agent 已停稳；在途修订的停止边界同样需验证 |
-| 服务与[工时规则](../packages/forgeloop/src/domain/limits.ts)                                                               | 推进开始检查工时，后续动作／尝试未逐一复检；领域存在 extend，但无公开工时延长命令。不能声明逐动作工时已强制                                                                                        |
-| 服务与[失败计数](../packages/forgeloop/src/domain/counting.ts)                                                             | 失败额度在记录失败、循环分支、advance 入口与 retryTask 检查（2026-10-29 补齐推进准入）；回合 ID 已绑定推进请求与尝试序号，跨请求重试不再吞轮次；追加授权入口与额度用尽后的继续路径仍未实现         |
-| 服务与[Agent 执行器](../packages/forgeloop/src/runtime/agent-runner.ts)                                                    | 实现请求 `danger-full-access`，独立副本与事后 diff 检查未形成副本外写入的预防性限制；ADR 中“工作区写权限”不能当作实际约束证据                                                                      |
+| 客户入口、[服务](../../packages/forgeloop/src/runtime/service.ts)、[协调器](../../packages/forgeloop/src/runtime/coordinator.ts) | 当前没有客户决定入口；stop／cancel 的运行时操作能更新状态并撤销 pending，但在途 AbortController 只接协调器整体 stop，需求级停止未接通。成功文案不能证明 Agent 已停稳；在途修订的停止边界同样需验证 |
+| 服务与[工时规则](../../packages/forgeloop/src/domain/limits.ts)                                                               | 推进开始检查工时，后续动作／尝试未逐一复检；领域存在 extend，但无公开工时延长命令。不能声明逐动作工时已强制                                                                                        |
+| 服务与[失败计数](../../packages/forgeloop/src/domain/counting.ts)                                                             | 失败额度在记录失败、循环分支、advance 入口与 retryTask 检查（2026-10-29 补齐推进准入）；回合 ID 已绑定推进请求与尝试序号，跨请求重试不再吞轮次；追加授权入口与额度用尽后的继续路径仍未实现         |
+| 服务与[Agent 执行器](../../packages/forgeloop/src/runtime/agent-runner.ts)                                                    | 实现请求 `danger-full-access`，独立副本与事后 diff 检查未形成副本外写入的预防性限制；ADR 中“工作区写权限”不能当作实际约束证据                                                                      |
 | 失败计数与入口                                                                                                             | 有 `user_acceptance` 失败类型，但当前无公开的用户验收失败反馈入口，尚未形成完整累计路径                                                                                                            |
-| [服务验收入口](../packages/forgeloop/src/runtime/service.ts)与[记录层](../packages/forgeloop/src/records/repository.ts)    | 当前允许未构建候选包时按任务材料验收；验收成功不证明已经打包、安装或上线。历史 diff 对变化后源码重放曾需外部合并，见 §2 与交付记录                                                                 |
+| [服务验收入口](../../packages/forgeloop/src/runtime/service.ts)与[记录层](../../packages/forgeloop/src/records/repository.ts)    | 当前允许未构建候选包时按任务材料验收；验收成功不证明已经打包、安装或上线。历史 diff 对变化后源码重放曾需外部合并，见 §2 与交付记录                                                                 |
 
 其他保留限制：任务包已按所有者 2026-11-05 决定取消“至少两个任务与依赖”，按实际成果拆分并用 covers 追踪；运行时不自动核验外部副作用，
 中断任务按未交付收口，运维中断动作由 Agent 上报根因但不重放。费用计量、脱敏与材料保留策略、
@@ -300,7 +300,7 @@ without inject`。Fetch 路由走同一 Connection 认证层（Host/Origin 检�
 - 旧记录库兼容读取曾在迁移时实测（旧需求 `req-20261021015151-fbbc3f` 可在当时的 `/fl status` 中查到）；
   该兼容已于 2026-10-28 删除，见 §14。
 - 真实发布、部署、回滚、备份未执行；“发现但不碰”的问题保留在批次记录，不借迁移顺手修改。
-- 文档、契约与安装版本已按最终状态同步；未执行检查在[交付记录](delivery/2026-10-22-typescript-dsh.md)
+- 文档、契约与安装版本已按最终状态同步；未执行检查在[交付记录](../development/delivery/2026-10-22-typescript-dsh.md)
   中逐条标注。
 
 ## 7. 文档清理（2026-10-25）
@@ -350,7 +350,7 @@ git log -- docs/history docs/adr
 
 ### 8.1 计划范围与实际改动
 
-- 新增 `docs/product.md`：保存已确认的目标、首版从零 DogFood 范围、例外人决、受控架构演进、
+- 新增 `docs/product/product.md`：保存已确认的目标、首版从零 DogFood 范围、例外人决、受控架构演进、
   配置与部署边界、研发和运维两类统计口径；细化 14 项需求、12 个验收场景与三个阶段。
 - 修改 `AGENTS.md`、`README.md`、`docs/README.md` 的定位与入口，区分新目标、当前实现和待评审方案。
   保留现有命令／工具的人类决定边界，不通过目标文档放宽运行门禁。
@@ -393,7 +393,7 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
   身份/排序/文案与双语文案键一致性的测试。
 - `contracts/architecture.json` 的 `ui_surface` 删除 `composer_slot` 与 `composer_id`；
   `scripts/ts/contracts.ts` 同步移除对应校验。
-- `docs/architecture.md` 与 `packages/forgeloop/README.md` 的入口描述同步为当前事实。
+- `docs/development/architecture.md` 与 `packages/forgeloop/README.md` 的入口描述同步为当前事实。
 
 ### 9.2 检查与实际安装
 
@@ -424,7 +424,7 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
 - 新增 `docs/validation-evaluation.md`，作为已确认首版方案的入口：小型回归库、真实主路径、
   独立业务终审、模型配置保护、测试有效性与回归库维护、两道交付门槛、失败计数及有据复验。
 - 更新 `docs/README.md` 的方案入口与状态说明。
-- 定向更新 `docs/product.md` 的验证说明、停止参数及上线检查表述：固定检查通过即交付，
+- 定向更新 `docs/product/product.md` 的验证说明、停止参数及上线检查表述：固定检查通过即交付，
   不增加发布后固定观察期；原 PRD 的其他技术细化没有在本批全面重写。
 - 更新 `docs/planning-handoff-2026-10-27.md` 的收口状态，补充上线缺陷计入本轮、检查集合通过即完成、
   有据复验三项决定；保留既有讨论来源与历史检查记录。
@@ -453,13 +453,13 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
 
 ### 11.1 计划范围与实际改动
 
-- 统一 `docs/product.md`：合并产品基线、需求与场景映射、技术决定、验证规则、统计口径、待实施项及 DSH 接缝依据。
+- 统一 `docs/product/product.md`：合并产品基线、需求与场景映射、技术决定、验证规则、统计口径、待实施项及 DSH 接缝依据。
   用最新决定替换“宿主待定”“旧数据兼容待定”等表述；保留需求／场景细化与具体实施尚未完成的状态。
 - 删除 `docs/planning-handoff-2026-10-27.md`、`docs/validation-evaluation.md`：有效方案已并入统一文档，不再维护重复版本。
 - 删除 `docs/proudct.md`：重规划前的范围与阶段已过时，现状大部分重复；独有实现缺口迁入 §4.1，原件包含的手动修订已留本机副本。
 - 同步 `docs/README.md`、根 `README.md`、`AGENTS.md`、`CONTRIBUTING.md`、`CONTEXT.md`、
-  `docs/architecture.md`、`docs/deployment.md`、`docs/development-discipline.md`、
-  `docs/adr/0008-typescript-native-dsh-plugin.md`、`docs/delivery/2026-10-22-typescript-dsh.md`、
+  `docs/development/architecture.md`、`docs/development/deployment.md`、`docs/development-discipline.md`、
+  `docs/development/adr/0008-typescript-native-dsh-plugin.md`、`docs/development/delivery/2026-10-22-typescript-dsh.md`、
   `packages/forgeloop/README.md` 和本状态记录：修复入口、旧范围和不准确的完成表述，标明当前与历史文档适用性。
 - 共修改 13 份、删除 3 份文档。保留当前架构／领域／安装说明、工程纪律、两份 ADR 与真实交付记录，
   它们承担独立的实现、操作或证据职责；本机阅读资料、退役代码、原始数据及已有代码／契约改动保持原样。
@@ -493,8 +493,8 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
 ### 12.1 范围与实际改动
 
 - 开发规则并入 `AGENTS.md`，删除 `docs/development-discipline.md`；`CONTRIBUTING.md` 聚焦许可、提交策略与钩子操作，删除重复时段。
-- `CONTEXT.md` 精简为当前术语与对象关系，不重复命令流程和参数；`docs/product.md` 保持统一方案，补需求至方案／验收场景映射，压缩重复提醒。
-- `docs/architecture.md` 压缩功能操作细节，保留模块、依赖、数据、状态与信任边界；`docs/deployment.md` 区分桌面、非桌面和测试入口，改用候选／上一已验证版本，并修正验证脚本环境变量说明。
+- `CONTEXT.md` 精简为当前术语与对象关系，不重复命令流程和参数；`docs/product/product.md` 保持统一方案，补需求至方案／验收场景映射，压缩重复提醒。
+- `docs/development/architecture.md` 压缩功能操作细节，保留模块、依赖、数据、状态与信任边界；`docs/development/deployment.md` 区分桌面、非桌面和测试入口，改用候选／上一已验证版本，并修正验证脚本环境变量说明。
 - 本状态记录前置最新快照、精简已有独立交付报告的迁移批次，并在 §2.2 登记覆盖率及测试日志勘误。
 - 根 `README.md`、`docs/README.md` 仅同步纪律入口；`docs/library/reading-guide.md` 标明历史背景并修复最新入口，其余研究正文保留。
 - 范围为上述 10 份修改、1 份删除；两份 ADR、历史交付报告、插件 README 与 legacy 说明原样保留。未修改源码、契约、测试、依赖或运行配置。
@@ -582,7 +582,7 @@ Agent 直接实施，未通过 ForgeLoop 受理需求，不计为插件自主执
 | `packages/forgeloop/src/records/db.ts`、`repository.ts`、`status.ts`、`config.ts`                                                                                   | 删除旧库补列、旧库兼容注释与相关表述；新库从空库按当前结构建立                                    |
 | `scripts/ts/commit-policy.ts`、`config/commit-policy.template.toml`、`config/workday-calendars/`、`.githooks/`                                                      | 删除本机提交时间策略、配置模板、年历与钩子                                                        |
 | `Makefile`、`.github/workflows/quality.yml`、`CONTRIBUTING.md`、`AGENTS.md`、`scripts/ts/verify-plugin.ts`                                                          | 删除提交策略目标、CI 作业、操作说明与命令探针；`make check` 只做类型、架构契约与行为测试          |
-| `docs/adr/0002-*`、新增 `docs/adr/0010-*`、`docs/README.md`、`docs/product.md`、`docs/architecture.md`、`docs/deployment.md`、`CONTEXT.md`、根与插件 README、本记录 | 记录删除决定、当前事实、替代入口缺口与历史回查方式                                                |
+| `docs/development/adr/0002-*`、新增 `docs/development/adr/0010-*`、`docs/README.md`、`docs/product/product.md`、`docs/development/architecture.md`、`docs/development/deployment.md`、`CONTEXT.md`、根与插件 README、本记录 | 记录删除决定、当前事实、替代入口缺口与历史回查方式                                                |
 
 本机 `core.hooksPath` 已取消，`.cache/forgeloop/commit-policy.toml` 已移除；仓库不再包含提交时间判定代码。
 删除的命令、契约与策略文件可按原路径从 Git 历史回查。未清理业务数据库、证据、候选包、DSH 配置或凭据。
@@ -1451,7 +1451,7 @@ ForgeLoop 旧实现用 `session.append('forgeloop/…')` 写入自定义会话�
   `web_board_rpc` 的端点列表在 `replan` 加入后已经过时。
 - 端点检查只验证“契约列出的端点出现在源码”，不拒绝源码新增未声明端点；`BOARD_ENDPOINTS`
   可被扩充而不被发现。
-- 契约没有依赖环检测；`docs/architecture.md` 的检查只匹配三个字符串，不能证明文档与代码一致。
+- 契约没有依赖环检测；`docs/development/architecture.md` 的检查只匹配三个字符串，不能证明文档与代码一致。
 - `retired` 把路径数组、说明文字和历史命令面混在一个对象里，路径规则本身可验证，其余是文档。
 
 ### 30.2 修改内容
@@ -1468,7 +1468,7 @@ ForgeLoop 旧实现用 `session.append('forgeloop/…')` 写入自定义会话�
 | `ui_surface`                                | 保留槽位、视图身份、排序、数据路径；删除 `client_bundle`、`data_endpoints`、标签、只读标志与长说明；端点从 `BOARD_ENDPOINTS` 自动发现，校验每个非默认端点都有分发分支、无重复/非法名 |
 | `retired_paths`                             | 由对象改为字符串数组；只保留可验证的仓库路径                                                                                                                                         |
 | `session_surface`                           | 只保留 `preset_id` 与 `interception`；事件从 `events.ts` 自动发现，校验 client 注册且无孤儿事件                                                                                      |
-| `external_seams`、`verification`、`product` | 删除；外部边界与命令入口由 `docs/architecture.md`、`Makefile` 维护，不再伪装成契约                                                                                                   |
+| `external_seams`、`verification`、`product` | 删除；外部边界与命令入口由 `docs/development/architecture.md`、`Makefile` 维护，不再伪装成契约                                                                                                   |
 | `--update-architecture`                     | 删除；模块/工具/端点无需生成回写                                                                                                                                                     |
 | `Makefile`                                  | `make architecture-contract` 与 `architecture-contract-check` 都只执行检查；`make contracts` 仍为统一入口                                                                            |
 
@@ -1741,7 +1741,7 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 来源：产品方案 §8.3 与所有者要求“运维Agent的设计和实现”。目标是把首版运维范围落成可运行的
 巡查、诊断、受控处置与恢复复核，而不是建设通用运维平台；资源、检查与动作全部来自插件配置中的
-登记目录，生产变更不接受任意 Shell。设计与配置示例见[运维 Agent](ops-agent.md)。
+登记目录，生产变更不接受任意 Shell。设计与配置示例见[运维 Agent](../development/ops-agent.md)。
 
 ### 35.1 实现
 
@@ -1968,7 +1968,7 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 | `src/runtime/service.ts` | 研发执行请求的权限从 `danger-full-access` 改为 `workspace-write`；越界写入由宿主沙箱拒绝，候选采集逻辑不变                     |
 | `src/runtime/prompts.ts` | 开发提示词明确“具体实现需要时只允许改动当前项目的文件，不允许改动其他项目的文件”；增加“未经任务要求与所有者许可不得改动版本号” |
 | `AGENTS.md`              | 版本号变更规则：只在用户明确要求时变更，不得为安装/重装/修复/发布自行递增或回退                                                |
-| `docs/architecture.md`   | 执行范围补充 `workspace-write`、当前项目边界与版本号约束                                                                       |
+| `docs/development/architecture.md`   | 执行范围补充 `workspace-write`、当前项目边界与版本号约束                                                                       |
 
 ### 38.2 验证
 
@@ -2466,7 +2466,7 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 - 真实自身需求 `req-20261031014704-1d47b1` v1，任务包 `plan-req-20261031014704-1d47b1-1`
   （方案 v1）：`evidence-domain`、`api-contract`、`detail-ui`、`verify-check` 四个任务。
 - 受控实现提交：`527e17f115d6777abd11d7c5cdf05d83289c8743`，只包含本需求文件：
-  `docs/status.md`、`client.js`、`domain/requirement-evidence.ts`、`records/repository.ts`、
+  `docs/verification/status.md`、`client.js`、`domain/requirement-evidence.ts`、`records/repository.ts`、
   `runtime/service.ts` 与三份需求测试。
 - `requirementDetail` 返回最近一次系统准入的 `decision/code/reason/createdAt` 与最近一次受控提交的
   `commitSha/files/committedAt`；无记录时为 `null`。详情页只读展示两组证据，无批准、推进或验收入口；
@@ -3084,7 +3084,7 @@ Agent 执行过程，并复用认证入口、真实记录与既有批准/重试/
 
 ### 48. 分支保护与 E2E 门禁现状（2026-11-02）
 
-- 新增[分支保护](branch-protection.md)：列明已由仓库代码强制的门禁（quality、format、
+- 新增[分支保护](../development/branch-protection.md)：列明已由仓库代码强制的门禁（quality、format、
   nightly、release、contracts、CODEOWNERS）与必须在 GitHub 设置中手工开启的项。
 - GitHub 分支保护、tag 保护与必需检查**尚未配置**，文档明确标为“未落实”。
 - 当前没有 Playwright/E2E 套件与 `make e2e`；文档说明现有集成测试覆盖范围，
@@ -3206,7 +3206,7 @@ suppressions 20、service.ts 5,986 行。
   `requirement-views`、`review-facts`、`verification-materials`、`execution-views`。
 - `as` 断言 165 → **163**，断言基线同步收紧；类型检查、ESLint（strictTypeChecked）、
   fast/full CI、mutation 97.80%、coverage ~91/97/85 均通过。
-- 分支保护与 E2E 现状写入 `docs/branch-protection.md`，未落实项已标注。
+- 分支保护与 E2E 现状写入 `docs/development/branch-protection.md`，未落实项已标注。
 
 未完成（下一目标必须继续）：
 
@@ -3679,7 +3679,7 @@ suppressions 20、service.ts 5,986 行。
 ### 94. 分支保护文档补齐（新目标 Round 12）
 
 - 所有者确认：**只补文档与可回放命令，不改仓库设置**（当前仍是档位 1）。
-- `docs/branch-protection.md` 新增：
+- `docs/development/branch-protection.md` 新增：
   - `main` 必须走 PR 的可回放 `gh api PUT .../protection` JSON 与影响说明；
   - `v*` tag 保护的 ruleset `gh api POST .../rulesets` JSON、发布前验证要求与回滚命令；
   - E2E 现状更新为“部分落实”：`make e2e` 已存在（装载层、无模型），未接入 CI；
@@ -3841,7 +3841,7 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - 业务验收改为**另开**一个无工具验证会话，只给原始需求、分析、已准入任务包与程序重跑出的真实
   命令输出；业务记录绑定新会话，与方案会话分离。连续路径不再读取模型自报的
   `verification/commands.json` / `report.json`；旧 `verification-pipeline` 保留给历史请求路径。
-- 分层契约 `contracts/architecture.json` 允许 `runtime` 依赖 `agents`；`docs/architecture.md` §4.2
+- 分层契约 `contracts/architecture.json` 允许 `runtime` 依赖 `agents`；`docs/development/architecture.md` §4.2
   与 `packages/forgeloop/README.md` 同步说明两阶段新会话与产物验证。
 - 测试：新增“方案提示不含 diff/任务包/源码且无工具”“业务验收会话与方案会话不同”的断言；
   适配 auto-intake / candidate-build / issue-retry-loop / requirement-gate 的假执行器。
@@ -3865,7 +3865,7 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   记录值经 `rows.ts` 的 `oneOf` 收窄，非法值按记录损坏报错，不静默取默认。
 - 提示词：分析提示词改为产品 Agent 身份，声明可用工具（读/写项目 Markdown、`web_search`/
   `web_fetch`）、禁止改代码或执行命令、业务背景段落与三个新字段；同时要求“从业务场景出发”、
-  识别行业与业务背景并写入/更新 `docs/forgeloop/business-context.md`，增删改在同一次运行内同步。
+  识别行业与业务背景并写入/更新 `docs/product/business-context.md`，增删改在同一次运行内同步。
   研发规划提示词改为覆盖业务场景、业务规则、异常与边界和验收标准，非目标不得拆成任务。
 - 执行：`ExecutionPlan.executeAnalysis` 先查当前需求版本是否已有分析，有则直接返回
   “未重复调用模型”；产品 Agent 以 `workspace-write` 运行，但只挂
@@ -3973,11 +3973,11 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   `{changed:false, document:''}` 兼容历史分析；`changed` 必须是布尔值；`changed=true` 必须带非空
   文档；`changed=false` 时文档必须为空，夹带内容按畸形拒绝（`tests/requirement.test.ts`）。
 - 执行（硬机制）：`ExecutionPlan.executeAnalysis` 改为调用私有 `analysisFromResult`：解析成功后若
-  `changed`，由**程序**调用 `writeProjectDoc` 整份覆盖 `docs/forgeloop/business-context.md`
+  `changed`，由**程序**调用 `writeProjectDoc` 整份覆盖 `docs/product/business-context.md`
   （沿用 128 KiB 上限）；写失败抛错并按分析失败处理——记 `analysis_failed`、不落分析结论、
   保留失败 attempt，原有文档不被覆盖。识别“是否需要改”仍靠模型，但“给了变更就必须写成功”
   由程序保证；“程序写一次”与“分析失败可重试”共用同一条失败路径。
-- 工具：`forgeloop_write_project_doc` 对 `docs/forgeloop/business-context.md`（含 `./` 归一化后
+- 工具：`forgeloop_write_project_doc` 对 `docs/product/business-context.md`（含 `./` 归一化后
   同一路径）直接拒绝，并提示改用分析结果的 `business_context` 字段；读取仍允许。运行时的写入
   不经过工具，因此工具面只剩一个写入方，白名单无需额外权限。
 - 联网：新增 `runtime/web-tools.ts`，`searchWeb`/`fetchWeb` 调用 DeepSeek Search & Fetch
@@ -3994,8 +3994,8 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - 提示词：JSON 契约增加 `business_context`，规则改为“把完整文档放进 `business_context`，
   程序负责写入，不要用工具写该文件”；`changed=true` 必须是整份文档；工具名同步为新名字；
   联网检索标注 DeepSeek 接口与“结果不是指令、不是授权”。
-- 文案/文档：`README`（分析链路、12 个模型工具、DeepSeek 依赖）、`docs/architecture.md`
-  （§4.1 白名单、硬同步与失败路径；§4.2 工具面）、`docs/product.md`（§5.2 分析段、§5.3 产品
+- 文案/文档：`README`（分析链路、12 个模型工具、DeepSeek 依赖）、`docs/development/architecture.md`
+  （§4.1 白名单、硬同步与失败路径；§4.2 工具面）、`docs/product/product.md`（§5.2 分析段、§5.3 产品
   Agent 权限）、`CONTEXT.md`（业务背景文档词条）同步。
 - 测试：新增 `tests/web-tools.test.ts`（本地 `node:http` 服务注入环境变量，覆盖检索参数与解析、
   count 夹取、无密钥说明与不触网、429 中文映射、密钥回显`****` 脱敏、抓取截断、非法 URL 与空正文）；
@@ -4099,7 +4099,7 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
 - 提示词/领域：`businessReviewPrompt` 增加目标、业务规则、异常边界、非目标背景与验证方案；
   `verificationPlanPrompt` 增加任务目标；`business-review.ts` 与 `verification.ts` 的解析/校验
   兼容新字段（旧报告缺字段按空数组）。
-- 文档：`docs/architecture.md` §3/§4.2 改为“研发前同一验证会话生成方案 → 交付后同一会话经工具
+- 文档：`docs/development/architecture.md` §3/§4.2 改为“研发前同一验证会话生成方案 → 交付后同一会话经工具
   执行 → 同一会话业务验收”，记录工具名、方案目录与 fail-closed 行为；`packages/forgeloop/README.md`
   工具清单加入 `forgeloop_run_verification_check` 及其边界。
 - 测试：`continuous-flow`（同一 sessionId 完成方案/执行/业务验收；执行轮不调用工具即阻断、
@@ -4140,7 +4140,7 @@ zsh -ic 'FORGELOOP_DSH_HOME=$PWD/.cache/forgeloop/dsh-home \
   本分支不改 `legacy-verification.ts` 与 `verification-pipeline.ts`，只保证研发会话自验留在研发会话内。
 - **宿主恢复**：本进程内复用 live 会话句柄；宿主重启后经 `agents.resume` 恢复，宿主不支持时明确失败，
   不新建同名会话冒充恢复。
-- 文档同步：`docs/architecture.md`、`docs/product.md`、`docs/status.md`、`CONTEXT.md`、
+- 文档同步：`docs/development/architecture.md`、`docs/product/product.md`、`docs/verification/status.md`、`CONTEXT.md`、
   `README.md`／`README.zh-CN.md`、`packages/forgeloop/README.md` 改为五种身份与会话化工作区。
 - **结果**：`make check` 60 个文件、623 项通过；`make coverage` 行/语句 90.95%、函数 96.34%、
   分支 84.31%（`repository.ts` 分支 87.62%）；`make budget` service.ts 21,843（基线下调）、
@@ -4421,7 +4421,7 @@ Ignoring previously applied (or reversed) patch.
 | `src/session/events.ts`、`src/session/intake.ts`                     | 分析事件携带 `inputKind`                                    |
 | `client.js`                                                          | 分析卡片与需求详情展示输入类型                              |
 | `tests/*`                                                            | 解析、仓储 round-trip、运行时问题分流、提示词、事件与语言包 |
-| `README.md`、`docs/architecture.md`、`docs/product.md`、`CONTEXT.md` | 分诊、问题口径与术语                                        |
+| `README.md`、`docs/development/architecture.md`、`docs/product/product.md`、`CONTEXT.md` | 分诊、问题口径与术语                                        |
 
 ### 118.3 验证
 
@@ -4502,7 +4502,7 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 | `src/records/repository.ts` | 无预算记录和任务包缺省按 `-1`                                                          |
 | `client.js`                 | 需求卡 `额度 MAX`（中英文）                                                            |
 | 测试                        | `config-validation`、`limits`、`task-plan-rules`、`unlimited-execution`、`formal-test` |
-| 文档                        | `README.md`、`docs/architecture.md`、`docs/product.md`、`CONTEXT.md`                   |
+| 文档                        | `README.md`、`docs/development/architecture.md`、`docs/product/product.md`、`CONTEXT.md`                   |
 
 ### 119.5 验证
 
@@ -4766,7 +4766,7 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
 - 未验证：真实 DSH + 真实模型 + 实际工具 E2E（无凭据）、nightly/release 的真实 CI 运行。
 - 全量变异 56.28% < 80：该分数是新增覆盖率用例之前测得，新增用例后未重跑全量变异；
   夜间 `mutation-gate` 会失败，是否调整门槛或补测试需所有者决定。
-- 合并：主树 `3655bb8`（`fd19ce1` 后 19 个提交）已合入本分支；冲突为 `docs/status.md`（保留
+- 合并：主树 `3655bb8`（`fd19ce1` 后 19 个提交）已合入本分支；冲突为 `docs/verification/status.md`（保留
   §120–§123 与本 §53）和 `tests/tools.test.ts` 的导入。合并后 `make check`、`make coverage` 通过，
   准备以快进方式合并到 main。
 
@@ -4799,7 +4799,7 @@ detail 追加“同类失败 N 次，最近一次 <时间>”。不同失败原�
   实测输出 `[e2e-board] 运行日志已落盘：…/logs/plugin.log`。
 - 生产默认路径：`~/Library/Application Support/ForgeLoop/production/projects/forgeloop/logs/plugin.log`
   （由 `~/.forgeloop/config.json` 的 `recordsRoot` 决定）。
-- `docs/architecture.md` 记录该现场产物；未引入日志库、轮转或级别配置。
+- `docs/development/architecture.md` 记录该现场产物；未引入日志库、轮转或级别配置。
 - 验证边界（如实）：
   - `make check-static`、`make format`、log/session 聚焦用例通过；
   - 全量 `make check` 在本机并行负载下出现 2 个重型用例 20s 超时，串行重跑
@@ -4929,7 +4929,7 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 - 已知 flaky 定位（seed 61697261）：原失败反例为任务包 `test_command: ["l","l"]`；
   `parseTaskPlanDraft` 按领域规则拒绝重复命令，属于**测试生成器假设错误**，不是
   round-trip 缺陷。证据与固定 seed 复现命令见
-  [reliability.md](reliability.md#3-属性测试与已知-flaky-修复)；修复为 `fc.uniqueArray`，
+  [reliability.md](../development/reliability.md#3-属性测试与已知-flaky-修复)；修复为 `fc.uniqueArray`，
   实现与断言未改；同 seed 已通过。
 - 实际执行（本机，2026-11-03/04 Asia/Shanghai）：
   - `make reliability-registry`：OK（8 门禁 / 15 模块 / 16 不变量 / 4 状态机 / 12 场景 /
@@ -5035,7 +5035,7 @@ GitHub `Engineering quality` 连续失败在 `e2e` 与 `security` 两个作业�
 
 | 编号 | 结论             | 证据与说明                                                                                                                                                                                                                                                                                                              |
 | ---- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`（隔离 `DSH_HOME` 与 `FORGELOOP_CONFIG`）；owner 授权、门禁与停止语义见 `docs/deployment-interface.md`/`docs/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                                                              |
+| M0-1 | 达成（隔离环境） | 配置快照 `config.snapshot.json`（隔离 `DSH_HOME` 与 `FORGELOOP_CONFIG`）；owner 授权、门禁与停止语义见 `docs/development/deployment-interface.md`/`docs/development/architecture.md`；停止与限额在 §131.2 有实测。生产环境未部署。                                                                                                              |
 | M0-2 | 达成             | 真实需求 `req-20261031080821-f940b9`（owner 经 `dsh-session:` 提交，原始输入见 `requirement_versions`）；生产库 records 为只读证据；新部署接口用该需求的真实制品在隔离副本中再次部署（见 §131.2 真实制品 leg）。                                                                                                        |
 | M0-3 | 达成             | 同一需求在生产完成研发→独立验证（pass）→受控提交 `9b3b9c840a69`→构建 `f3eeee74…`→部署（`requirement_deployments` `verified`，7 项检查）；新部署接口在隔离副本中使用同一制品安装到隔离 DSH profile，完成 intent→门禁→owner→apply→status。生产记录见 `~/.forgeloop/production/projects/forgeloop/records.sqlite` 与 §53。 |
 | M0-4 | 达成             | 非所有者批准 403、模型工具面无部署/批准/回退入口、越界文件被拒；另有 `deployment-access`/`board-route-deployments` 正反测试。                                                                                                                                                                                           |
@@ -5197,7 +5197,7 @@ NoCoverage。例：`candidate-pipeline.ts` 快速配置 24.79%（noCoverage 600�
 ## 134. M0 收口：部署目标复用、真实模型部署与闭环复核（2026-11-05）
 
 来源：所有者要求“完成 M0”。本批在 worktree `feat/m0-complete` 完成，按
-[product.md §11.1](product.md#111-阶段划分) 的种子口径（隔离受控环境）收口；生产部署与工作台
+[product.md §11.1](../product/product.md#111-阶段划分) 的种子口径（隔离受控环境）收口；生产部署与工作台
 部署页面属于 M1/P1，不纳入本次完成条件。
 
 ### 134.1 实现
@@ -5359,7 +5359,7 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
 - 实测（本机 Windows，定向 Stryker 只变异 `src/runtime/monitor.ts`，365 个变异、8 并发）：
   **27.40% → 86.30%**（killed 100 → 315，survived 116 → 46，noCoverage 149 → 4）。
 - 未改业务源码、未调 break、未把 `monitor.test.ts` 移出变异排除；封闭用例不依赖宿主进程表，
-  可在 Stryker worker 内执行。`docs/reliability.md` §5 同步说明分工。
+  可在 Stryker worker 内执行。`docs/development/reliability.md` §5 同步说明分工。
 - `make.cmd check`（Windows）：132 个文件、1524 通过、1 跳过（monitor 宿主 `ps` 用例）。
 - 未完成：剩余 46 个存活以等价/不可观测分支为主；runtime 其余模块仍按 §132.3 继续。
 
@@ -5549,7 +5549,7 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   路径均唯一，不迁移或改写历史文件。
 - 业务会话增加确定性入口：单个待澄清需求可直接回复；多条待澄清必须写“回答 <需求编号>：<回答>”；
   新输入写“新需求：<内容>”会单独受理，不并入澄清回答。事件卡片显示同一提示。
-- 同步 `docs/architecture.md` 与 `CONTEXT.md`；`client.js` 只增加提示文案，不新增决定入口。
+- 同步 `docs/development/architecture.md` 与 `CONTEXT.md`；`client.js` 只增加提示文案，不新增决定入口。
 
 ### 143.2 检查与证据
 
@@ -5583,7 +5583,7 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   含已结束需求，给出命中词），不读全量历史，不引入向量库。
 - 页面：需求详情新增 `analysisHistory`、`clarificationHistory`、`specChanges`，并从同一份分析数据生成
   “需求说明”分区（目标与范围、业务要点与验收、假设与依据、本次变化、可展开历史）；不另存 PRD。
-- 同步 `docs/architecture.md` 与 `CONTEXT.md`。
+- 同步 `docs/development/architecture.md` 与 `CONTEXT.md`。
 
 ### 144.2 检查与证据
 
@@ -5709,7 +5709,7 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
   尚未显式区分“业务设计”和“执行准备”两个落盘版本。
 - 固定适用验证清单（本次验收、全量适用回归、真实外部接缝、安装制品）尚未在验证流水线中
   形成独立必过项；现有 `make check`/`verify-e2e` 仍是人工选择入口。
-- 发现但不碰：`docs/architecture.md` §5 旧验证路径描述与新管线并存，本批只补新管线段落，
+- 发现但不碰：`docs/development/architecture.md` §5 旧验证路径描述与新管线并存，本批只补新管线段落，
   未重写旧路径章节。
 
 ## 148. 部署通道与自主交付指标复算（2026-11-05）
@@ -5871,7 +5871,7 @@ deepseek-v4.1-flash-1017`，会话 `request/context` 可回查。
 
 ## 152. M1 通过目标与当前差距（2026-11-05）
 
-所有者要求设定 M1 通过的目标。目标写在[统一方案 §11.3](product.md#113-m1-通过目标所有者设定2026-11-05)：
+所有者要求设定 M1 通过的目标。目标写在[统一方案 §11.3](../product/product.md#113-m1-通过目标所有者设定2026-11-05)：
 M1-1 种子版本确认、M1-2 真实需求到运行、M1-3 真实事件到修复、M1-4 授权阻断、
 M1-5 失败与中断可回查、M1-6 统计复算、M1-7 历史回查、M1-8 边界声明，逐项列了证据与不接受的做法。
 
@@ -6402,7 +6402,7 @@ M1-3 要求“真实/标注注入故障 → 真实诊断 → 授权内恢复 →
 
 ### 168.2 闭环 A 现场（未通过）
 
-- 需求 `req-20261106090456-55f491`，来源 `docs/status.md` §160 的真实待办（`verification-controls` 控制补丁未真正应用），项目为 `eab02e6` 的真实 Git worktree。
+- 需求 `req-20261106090456-55f491`，来源 `docs/verification/status.md` §160 的真实待办（`verification-controls` 控制补丁未真正应用），项目为 `eab02e6` 的真实 Git worktree。
 - 停止时 `developing`，任务 `control-apply` 执行中；0 提交、0 候选构建、0 部署 intent；现场 `C:\Users\lijia\AppData\Local\Temp\forgeloop-self-6vezK3`。
 - 已打通：真实模型提交、分析、准入、任务包、研发会话、协调宿主、目标 profile 安装/启动、运行身份与制品摘要核对脚本。
 - 现场暴露并已修的阻塞：DSH 沙箱拒绝候选工作树内建 `node_modules` junction（改为 records 祖先目录依赖链接）；vitest 的 esbuild 管道子进程被沙箱拒绝（自检改为 `tsc`，独立验证仍由宿主执行）；验证方案补抄字段错误（`e37d124`）。
@@ -6642,7 +6642,7 @@ M1-3 仍为部分达成。
 
 所有者确认：当前主要是个人使用的 DSH 插件和一个尚未上线的网站，持续运行的运维场景还不充分。
 据此决定运维模块进入维护阶段，研发优先级转向核心研发交付闭环和真实使用反馈。完整决定与影响见
-[ADR 0011](adr/0011-ops-maintenance-first.md)，产品侧记录见[统一方案 §8.3](product.md#83-运维职责与简化要求)。
+[ADR 0011](../development/adr/0011-ops-maintenance-first.md)，产品侧记录见[统一方案 §8.3](../product/product.md#83-运维职责与简化要求)。
 
 - **保留能力**：本地安装与升级核对、运行身份查询、登记巡检、只读日志、事件和证据记录，
   以及已有授权范围内的恢复与复核；维护优先处理直接阻塞实际使用或现有交付的问题。
@@ -7107,7 +7107,7 @@ M1-4/M1-8 达成。未代签任何验收。
 这些用例在干净 `main` 上同样复现，隔离运行通过，不归因于本分支行为。负载回落后需再跑一次完整 `make check`。
 真实 DSH + DeepSeek 三组场景已用隔离 `DSH_HOME`、自定义 profile、当前分支构建与真实产品 Agent 复跑；
 路由 `command-goat/deepseek/deepseek-v4.1-flash`。原始输入、输出、驱动插件与模型 patch 存在
-`docs/evidence/2026-11-07-requirement-stage/`，结论：连续部分回答只落对应问题且其余问题继续阻断；
+`docs/verification/evidence/2026-11-07-requirement-stage/`，结论：连续部分回答只落对应问题且其余问题继续阻断；
 历史承诺冲突被识别并给出取舍；缺陷与新能力在同一项目内正确分诊。
 复验同时发现：回答中宣布“旧承诺废止”后模型不再报冲突并通过准入，但旧需求没有被修订或退役，
 可能留下两条互相矛盾的已准入需求；本轮未改，列为后续规则缺口。场景 A 的“全部答完”在 web 宿主
@@ -8233,7 +8233,7 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 | --------------- | ------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ---------- |
 | 1 代码可靠性    | **通过**     | `9f99e1e` `45293eb` `2376fb9` | `npm run check:commit`（0，2251 项，0 覆盖率错误）；`make mutation-incremental SCOPE=controlled`（PASS，score=95.1%，关键存活 0，豁免 21） | `/tmp/gate-head3.log`、`/tmp/mut22.log`、`reports/mutation-incremental-controlled-*.json` | 本机       |
 | 2 静态架构      | **通过**     | `2376fb9`                     | `make contracts`（0）；`node scripts/ts/reliability-registry.ts`（OK，受控变异文件 7）                                                     | 同上仓库脚本输出                                                                          | 本机       |
-| 3 业务可靠性    | **通过**     | `66e081e`                     | 准入/冲突解除用例（§216.5）                                                                                                                | `tests/commitment-*.test.ts`、`docs/status.md` §216                                       | 本机       |
+| 3 业务可靠性    | **通过**     | `66e081e`                     | 准入/冲突解除用例（§216.5）                                                                                                                | `tests/commitment-*.test.ts`、`docs/verification/status.md` §216                                       | 本机       |
 | 4 工程可靠性    | **未完成**   | `9f99e1e`（缺陷已修）         | 真实闭环未执行                                                                                                                             | §219 核查：`DEEPSEEK_API_KEY` 等全部 unset、配置无部署目标                                | 需授权环境 |
 | 5 评测与证据    | **通过**     | `41711f4` `7b54e0d` `60c27fa` | `npx vitest run` 四文件（17 项通过）                                                                                                       | `tests/verification-outcome-shared.test.ts` 等、§218.9                                    | 本机       |
 | 6 数据可靠性    | **通过**     | `36dbc7e` `9f99e1e` `95feb11` | `tests/autonomy-deployment`（5）、`tests/m1-archive`（6）、规模与口径用例（§213.8、§218.3）                                                | 对应测试文件、`/tmp/m1-stats/stats.md`                                                    | 本机       |
@@ -8247,7 +8247,7 @@ M1-1 达成；M1-4、M1-8 沿用历史结论；M1-2、M1-3、M1-5 未达成；M1
 2. 需要一个已授权的隔离装载目标，用于核对实际加载的制品摘要与运行身份；
 3. 完成后把真实 `requirementId` 传给 `archiveRunEvidence`（接口已支持，§218.6），即可覆盖候选/验证/部署双向回查。
 
-现场：`main` 未 push、未打 tag、版本号未变；工作树干净、无遗留 worktree；本轮所有改动的失败现场与通过证据均保留在 `/tmp` 与 `docs/status.md` 对应小节。
+现场：`main` 未 push、未打 tag、版本号未变；工作树干净、无遗留 worktree；本轮所有改动的失败现场与通过证据均保留在 `/tmp` 与 `docs/verification/status.md` 对应小节。
 
 ## 221. 收口暂停记录：外部条件缺失（2026-11-10 08:12）
 
@@ -8339,9 +8339,9 @@ env | grep -c API_KEY                                              →  0
 2. **给 pipeline 注入 `VerificationCheckRegistry`**：改为“先由测试会话写方案命令、再经授权工具执行、
    最后程序判定”，保留材料通道但要求命令只能走注册表；同样需要改写现有假 runner 用例。
 
-方向性选择建议先写 ADR（`docs/adr/`），确认后再分两步实施：先接线与单条正向用例，再迁移存量用例。
+方向性选择建议先写 ADR（`docs/development/adr/`），确认后再分两步实施：先接线与单条正向用例，再迁移存量用例。
 
-> 已落成提案：[ADR 0012](../adr/0012-single-verification-path.md)（状态：提议，待所有者确认）。
+> 已落成提案：[ADR 0012](../development/adr/0012-single-verification-path.md)（状态：提议，待所有者确认）。
 > 它记录了两条执行模型的差异、A/B 两个迁移方向与分步实施顺序；未确认前领域 7 保持“部分完成”。
 
 ### 222.4 其余域与外部条件（沿用 §219/§220，未变）
@@ -8357,7 +8357,7 @@ M1 阶段验收由所有者作出。**
 
 ## 223. 领域 7 选项 A 第一步：显式验证收紧为材料工具（2026-11-11 10:4x）
 
-所有者已选定 [ADR 0012](../adr/0012-single-verification-path.md) 的 **A**（显式 verify 复用连续推进的
+所有者已选定 [ADR 0012](../development/adr/0012-single-verification-path.md) 的 **A**（显式 verify 复用连续推进的
 黑盒机制）。按“先接线与边界用例，再迁移存量用例”的顺序，本步先收紧工具面，执行模型迁移留到下一步。
 
 ### 223.1 改动（`262dd32`）
@@ -8667,7 +8667,7 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 
 ### 228.4 发现但不碰
 
-- 主工作树 `docs/status.md` 的在途改动已由 `ba27343` 提交；本批从该提交 rebase，未改写其内容。
+- 主工作树 `docs/verification/status.md` 的在途改动已由 `ba27343` 提交；本批从该提交 rebase，未改写其内容。
 - `scripts/ts/real-model-e2e.ts` 在 `f364abc` 后未通过 `make format`，为让提交门禁可运行，
   单独提交了纯格式修复（`db82f9c`），未改变行为。
 ## 229. 插件运行日志：结构化、轮转、级别与内建读取入口（2026-11-12）
@@ -8699,7 +8699,7 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 分支 95.74%，`ops-artifacts.ts` 行 98.39%。全量 vitest 在并行、串行与 `--pool=threads` 三种跑法下
 均出现既有 worker `onTaskUpdate` 心跳超时并长时间挂起（发生在不同文件，单独复跑通过），
 未据此计为通过；提交按仓库既有做法保留该环境缺口。契约无变化（无新增源码文件，工具名与调用面未变）；
-`docs/architecture.md` 与 `docs/ops-agent.md` 同批更新。
+`docs/development/architecture.md` 与 `docs/development/ops-agent.md` 同批更新。
 
 边界：轮转实现已由 §230 改为日期后缀且不删除历史（本节“单备份”描述随 §230 失效）；
 不跨进程加锁；不跟随外部日志轮转；Agent 轨迹与命令证据仍按原样保留，
@@ -8719,7 +8719,7 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 
 验证：定向覆盖率 `log.ts` 行 99.17%、分支 93.47%、函数 100%；`tests/log.test.ts` 与
 `tests/ops-artifacts.test.ts` 23 项通过；typecheck、lint 通过。全量 vitest 环境缺口同 §229。
-契约无变化；`docs/architecture.md` 同批更新。
+契约无变化；`docs/development/architecture.md` 同批更新。
 
 边界：日期按 UTC；同日文件按创建顺序编号，编号不回收；旧的 `plugin.log.1` 不做迁移或改名。
 

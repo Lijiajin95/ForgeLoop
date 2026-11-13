@@ -17,7 +17,7 @@ beforeEach(() => {
     'packages/forgeloop/locale',
     'scripts/ts/contracts.ts',
     'contracts/architecture.json',
-    'docs/architecture.md',
+    'docs/development/architecture.md',
   ]) {
     const target = join(fixture, path)
     mkdirSync(dirname(target), { recursive: true })

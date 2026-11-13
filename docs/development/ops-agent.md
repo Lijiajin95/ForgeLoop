@@ -1,7 +1,7 @@
 # 运维 Agent（定时主动监控）
 
-编写日期：2026-10-29；2026-11-02 增补定时主动监控。本文描述当前 TypeScript 实现如何落实[产品方案 §8.3](product.md#83-运维职责与简化要求)的运维边界，
-并明确哪些判断由程序强制、哪些仍待验证。对象是否已交付以[状态记录](status.md)为准，不以本文存在为完成证据。
+编写日期：2026-10-29；2026-11-02 增补定时主动监控。本文描述当前 TypeScript 实现如何落实[产品方案 §8.3](../product/product.md#83-运维职责与简化要求)的运维边界，
+并明确哪些判断由程序强制、哪些仍待验证。对象是否已交付以[状态记录](../verification/status.md)为准，不以本文存在为完成证据。
 
 ## 1. 范围
 
@@ -17,7 +17,7 @@
 OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Agent、扩展通用运维平台和主动
 开展运维闭环复跑；此前的工具选型讨论只保留为将来评估的参考，**当前没有接入任何上述外部工具**，
 只有本文描述的登记检查、`builtin` 采集器、两个只读制品工具与已有恢复动作。恢复投入条件见
-[产品方案 §8.3](product.md#83-运维职责与简化要求)与 [ADR 0011](adr/0011-ops-maintenance-first.md)。
+[产品方案 §8.3](../product/product.md#83-运维职责与简化要求)与 [ADR 0011](adr/0011-ops-maintenance-first.md)。
 
 资源、检查、动作与监控来源都来自插件配置中的 `ops` 目录；目录在装载时校验，非法配置直接失败。
 正常巡检或健康快照不产生事件，也不进入人工介入统计的分母。
@@ -250,7 +250,7 @@ OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Ag
   超时默认 5 秒、上限 30 秒。
 - 未启用的目录同样做静态校验，非法值不会在运行期被静默忽略。
 
-最小可用配置见 [`packages/forgeloop/config.example.json`](../packages/forgeloop/config.example.json)：
+最小可用配置见 [`packages/forgeloop/config.example.json`](../../packages/forgeloop/config.example.json)：
 一个 `host` 资源、一个 `node -e` 的 HTTP 检查、只含主机指标与检查状态的监控、无监控来源、
 无动作、无 webhook、心跳留空。装载它只会产生检查与扫描记录，不会执行任何处置动作。
 延迟来源要先有一个返回 2xx 的健康地址再加——401/404 会被记成 `ok:false`，是噪音而不是故障。

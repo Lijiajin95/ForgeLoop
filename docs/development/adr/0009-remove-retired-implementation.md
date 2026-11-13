@@ -1,8 +1,8 @@
 # ADR 0009：删除退役实现与未接入运行链路的重复代码
 
 - 状态：已接受（2026-10-28，所有者要求根据最新项目文档删除冗余功能和代码）
-- 依据：[统一方案 §5](../product.md#5-宿主协调与多-agent-流程)、[§6](../product.md#6-全新存储与一致性协议)与[§14](../product.md#14-实施边界与待决项)
-- 接续：[ADR 0008](0008-typescript-native-dsh-plugin.md)；实际范围和验证见[清理记录](../status.md#13-冗余功能与代码清理2026-10-28)
+- 依据：[统一方案 §5](../../product/product.md#5-宿主协调与多-agent-流程)、[§6](../../product/product.md#6-全新存储与一致性协议)与[§14](../../product/product.md#14-实施边界与待决项)
+- 接续：[ADR 0008](0008-typescript-native-dsh-plugin.md)；实际范围和验证见[清理记录](../../verification/status.md#13-冗余功能与代码清理2026-10-28)
 
 ## 背景
 

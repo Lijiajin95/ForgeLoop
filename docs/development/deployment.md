@@ -1,11 +1,11 @@
 # 安装、升级与恢复（本机 DSH 插件）
 
-本文描述当前实现的操作步骤。新首版的同包验证、第三方受控发布与上线判定见[统一方案](product.md#8-客户入口发布与运维)，自动发布链路尚待实现。
+本文描述当前实现的操作步骤。新首版的同包验证、第三方受控发布与上线判定见[统一方案](../product/product.md#8-客户入口发布与运维)，自动发布链路尚待实现。
 历史构建角色 V0／V1 及其操作记录见[交付记录](delivery/2026-10-22-typescript-dsh.md)，下文使用实际目标 profile 与候选包。
 
 ## 1. 选择目标与前置条件
 
-- DSH 和 Node 满足[插件包声明](../packages/forgeloop/package.json)，并有可用模型接入。
+- DSH 和 Node 满足[插件包声明](../../packages/forgeloop/package.json)，并有可用模型接入。
 - 明确目标 DSH home、profile、项目路径与记录根；业务库为 `<recordsRoot>/projects/<project>/records.sqlite`。
 - 安装前保留上一已验证 tarball、`artifact.json` 和配置／记录副本，记录本次目标与包摘要。
 
@@ -31,7 +31,7 @@ dsh --profile "$FORGELOOP_PROFILE" --dump-config | grep forgeloop-dsh
 ```
 
 源码安装为 `link:` 依赖，重新构建并重启该宿主后加载。它用于开发，不算安装包验证。
-插件的项目与模型路由配置见[包说明](../packages/forgeloop/README.md)。
+插件的项目与模型路由配置见[包说明](../../packages/forgeloop/README.md)。
 
 ## 3. 构建候选安装包
 
@@ -45,7 +45,7 @@ SHA-256、文件清单、构建时 Git HEAD 与工作树状态。运行时也保
 
 ## 4. 安装到桌面 profile
 
-通过 DSH 宿主插件管理器的 `install_bundle` 安装目标 tarball。最近安装记录与摘要见[状态记录 §9](status.md#9-移除输入框工作流选择器2026-10-26)。
+通过 DSH 宿主插件管理器的 `install_bundle` 安装目标 tarball。最近安装记录与摘要见[状态记录 §9](../verification/status.md#9-移除输入框工作流选择器2026-10-26)。
 当批结果为 `application: applied`，宿主重载后刷新页面生效；不能据此假设每次安装都不需重启。
 按管理器结果完成必要的重载／重启，再执行 §6；安装回执本身不证明业务行为正常。
 
@@ -91,7 +91,7 @@ profile 配置核对。安装不删除业务库和证据；新方案丢弃旧业
 
 ## 8. 真实宿主验收环境
 
-[验证脚本](../scripts/ts/verify-plugin.ts)读取 `FORGELOOP_DSH_HOME` 和 `FORGELOOP_PROFILE`，默认分别为
+[验证脚本](../../scripts/ts/verify-plugin.ts)读取 `FORGELOOP_DSH_HOME` 和 `FORGELOOP_PROFILE`，默认分别为
 `.cache/forgeloop/dsh-home` 与 `forgeloop`；只设置普通 `DSH_HOME` 不会覆盖脚本选择。
 
 ```sh
@@ -123,7 +123,7 @@ FORGELOOP_CANDIDATE_TARBALL="$PWD/packages/forgeloop/dist/forgeloop-dsh-<version
 
 ## 9. 已知限制
 
-- DSH 接缝与版本兼容需实际验证；当前已有证据见[状态记录](status.md)。
+- DSH 接缝与版本兼容需实际验证；当前已有证据见[状态记录](../verification/status.md)。
 - 安装／卸载不是业务事务，异常后按实际副作用核对并恢复。
 - 插件卸载会停止协调器并请求取消在途 Agent；重启后未收口请求需核对，不能把卸载成功等同于副作用已清理。
 - 旧 Python、独立 HTTP 服务及旧 `forgeloop` CLI 不参与当前安装与恢复。

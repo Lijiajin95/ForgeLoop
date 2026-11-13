@@ -37,15 +37,15 @@ DSH is the only persistent host. It provides sessions, model access, tools, UI i
 
 The active implementation lives in [`packages/forgeloop`](packages/forgeloop). It uses TypeScript and Node's built-in SQLite support. ForgeLoop does not require a separate persistent backend.
 
-The target design defines five identities: **Product Agent**, **Orchestrator Agent**, **Development Agent**, **Verification Agent**, and **Operations Agent**. The Orchestrator Agent only routes work: it reads a new requirement plus the existing development sessions and picks the session to run it in (creating one when none fits). Each development session keeps a fixed workspace, is never deleted on its own, and leaves a summary tied to its session id when a round ends; a requirement that targets a busy session waits for it instead of running in parallel. The Verification Agent runs independent verification and business review in one freshly opened session. These are in-process Agent sessions with runtime checks, not OS-level role isolation. See the [architecture](docs/architecture.md) and [product plan](docs/product.md) for the distinction.
+The target design defines five identities: **Product Agent**, **Orchestrator Agent**, **Development Agent**, **Verification Agent**, and **Operations Agent**. The Orchestrator Agent only routes work: it reads a new requirement plus the existing development sessions and picks the session to run it in (creating one when none fits). Each development session keeps a fixed workspace, is never deleted on its own, and leaves a summary tied to its session id when a round ends; a requirement that targets a busy session waits for it instead of running in parallel. The Verification Agent runs independent verification and business review in one freshly opened session. These are in-process Agent sessions with runtime checks, not OS-level role isolation. See the [architecture](docs/development/architecture.md) and [product plan](docs/product/product.md) for the distinction.
 
-A first-version **Operations Agent** is also in place: registered resource checks, a periodic active monitor that samples host CPU, memory and load, process aggregates, HTTP latency, log tails, alert files and the last result of every check, a small catalog of recovery actions, a tool-free review and diagnosis session, recovery actions executed only with catalog or owner authorization and re-checked afterwards, one best-effort webhook alert per new event, and linked fix requirements when a diagnosis calls for permanent repair. Actions run in the host account with no OS isolation, nothing is collected until `ops.monitor` is enabled, and online incidents have not been exercised yet — see the [operations design](docs/ops-agent.md).
+A first-version **Operations Agent** is also in place: registered resource checks, a periodic active monitor that samples host CPU, memory and load, process aggregates, HTTP latency, log tails, alert files and the last result of every check, a small catalog of recovery actions, a tool-free review and diagnosis session, recovery actions executed only with catalog or owner authorization and re-checked afterwards, one best-effort webhook alert per new event, and linked fix requirements when a diagnosis calls for permanent repair. Actions run in the host account with no OS isolation, nothing is collected until `ops.monitor` is enabled, and online incidents have not been exercised yet — see the [operations design](docs/development/ops-agent.md).
 
 ## Current foundation and priorities
 
 The repository includes versioned requirements and task plans, development workspaces scoped to reusable dev sessions, orchestrator session routing, candidate diffs, independent verification and business review, formal test execution, durable requests, and evidence records; pre-implementation review, independent diff review, and approval/acceptance are kept only for historical compatibility. DSH tools and a web board expose project information.
 
-Some workflow operations remain internal, and availability depends on the revision being used. A successful tool call, test run, or package installation does not by itself prove complete delivery. The [status record](docs/status.md) documents implementation, actual validation, and known gaps.
+Some workflow operations remain internal, and availability depends on the revision being used. A successful tool call, test run, or package installation does not by itself prove complete delivery. The [status record](docs/verification/status.md) documents implementation, actual validation, and known gaps.
 
 Current priorities are:
 
@@ -71,7 +71,7 @@ make package     # Build a candidate tarball and artifact manifest
 
 `make check` does not run mutation testing by default. Set `MUTATION=1` for a one-off run, or export `FORGELOOP_MUTATION=1` on a machine that should include it in every full check; `make check-fast` and `make precommit` never run mutation. CI keeps mutation in the nightly shard matrix rather than the quick quality job.
 
-For installation, model configuration, and profile selection, follow the [deployment guide](docs/deployment.md) and [plugin guide](packages/forgeloop/README.md). `make verify-plugin` runs a real host/model smoke test, and `make verify-e2e` runs the full real-model, real-tool delivery path from a candidate tarball; both require model authentication and are described in the deployment guide.
+For installation, model configuration, and profile selection, follow the [deployment guide](docs/development/deployment.md) and [plugin guide](packages/forgeloop/README.md). `make verify-plugin` runs a real host/model smoke test, and `make verify-e2e` runs the full real-model, real-tool delivery path from a candidate tarball; both require model authentication and are described in the deployment guide.
 
 ## Documentation
 
@@ -79,12 +79,12 @@ Most detailed project documentation is currently in Chinese.
 
 | Document | Contents |
 | --- | --- |
-| [Product and first-release plan](docs/product.md) | Goals, scope, design decisions, and validation rules |
-| [Status and evidence](docs/status.md) | Implemented capabilities, checks, installation records, and known gaps |
-| [Architecture](docs/architecture.md) | Current modules, persistence, and external interfaces |
+| [Product and first-release plan](docs/product/product.md) | Goals, scope, design decisions, and validation rules |
+| [Status and evidence](docs/verification/status.md) | Implemented capabilities, checks, installation records, and known gaps |
+| [Architecture](docs/development/architecture.md) | Current modules, persistence, and external interfaces |
 | [Domain language](CONTEXT.md) | Business objects, identities, and lifecycle terminology |
 | [Plugin guide](packages/forgeloop/README.md) | Plugin entry points and configuration |
-| [Deployment guide](docs/deployment.md) | Installation, upgrades, validation, and recovery |
+| [Deployment guide](docs/development/deployment.md) | Installation, upgrades, validation, and recovery |
 | [Documentation index](docs/README.md) | Design decisions and historical records |
 
 ## Contributing and license

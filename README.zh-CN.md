@@ -42,18 +42,18 @@ DSH 是唯一常驻宿主，提供会话、模型接入、工具、UI 集成和�
 固定工作区完成方案、实现与自验，会话不主动删除、结束时留下与会话 ID 关联的总结；会话正忙时需求排队等
 空闲后再加入。测试 Agent 用一次新开的测试会话完成独立测试与业务验收，候选必须与该次验证一致才能继续。
 这些都是宿主进程内的 Agent 会话加运行时校验，不是操作系统级角色隔离。具体区别见
-[架构说明](docs/architecture.md) 与[产品方案](docs/product.md)。
+[架构说明](docs/development/architecture.md) 与[产品方案](docs/product/product.md)。
 
 运维 Agent 首版也已接入：登记资源检查、按周期主动采集主机 CPU／内存／负载、进程、HTTP 延迟、
 日志尾部、告警文件与每个检查的最后结果，无工具诊断，仅在目录授权或所有者批准后执行并复核恢复，
 新事件向 webhook 尽力告警一次，诊断判定需要永久修复时生成关联修复需求。动作在宿主账户下执行，
-没有 OS 隔离，未启用 `ops.monitor` 时不采集，真实线上事件尚未跑通，见[运维设计](docs/ops-agent.md)。
+没有 OS 隔离，未启用 `ops.monitor` 时不采集，真实线上事件尚未跑通，见[运维设计](docs/development/ops-agent.md)。
 
 ## 当前基础与开发重点
 
 仓库包含需求与任务包版本管理、按会话复用的研发工作区、主控会话路由、候选 diff、独立测试与业务验收、正式测试执行、持久请求和证据记录，并通过 DSH 工具与网页看板呈现项目信息；实现前评审、独立 diff 审查与批准/验收仅作历史兼容保留。
 
-部分工作流操作仍是内部能力，具体可用功能取决于所用版本。工具调用、测试或安装成功，都不能单独证明完整交付。[状态记录](docs/status.md)保存实现情况、实际验证与已知缺口。
+部分工作流操作仍是内部能力，具体可用功能取决于所用版本。工具调用、测试或安装成功，都不能单独证明完整交付。[状态记录](docs/verification/status.md)保存实现情况、实际验证与已知缺口。
 
 当前开发重点：
 
@@ -75,7 +75,7 @@ make build       # 编译插件
 make package     # 构建候选 tarball 与产物清单
 ```
 
-安装、模型配置与 profile 选择见[部署指南](docs/deployment.md)和[插件说明](packages/forgeloop/README.md)。`make verify-plugin` 执行真实宿主与模型冒烟，需要独立测试 DSH home 和可用的模型认证；执行前请阅读部署指南。
+安装、模型配置与 profile 选择见[部署指南](docs/development/deployment.md)和[插件说明](packages/forgeloop/README.md)。`make verify-plugin` 执行真实宿主与模型冒烟，需要独立测试 DSH home 和可用的模型认证；执行前请阅读部署指南。
 
 ## 文档
 
@@ -83,12 +83,12 @@ make package     # 构建候选 tarball 与产物清单
 
 | 文档 | 内容 |
 | --- | --- |
-| [产品与首版方案](docs/product.md) | 目标、范围、设计决定与验证规则 |
-| [状态与证据](docs/status.md) | 已实现能力、检查、安装记录与已知缺口 |
-| [架构说明](docs/architecture.md) | 当前模块、持久化与外部接缝 |
+| [产品与首版方案](docs/product/product.md) | 目标、范围、设计决定与验证规则 |
+| [状态与证据](docs/verification/status.md) | 已实现能力、检查、安装记录与已知缺口 |
+| [架构说明](docs/development/architecture.md) | 当前模块、持久化与外部接缝 |
 | [领域语言](CONTEXT.md) | 业务对象、身份与生命周期术语 |
 | [插件说明](packages/forgeloop/README.md) | 插件入口与配置 |
-| [部署指南](docs/deployment.md) | 安装、升级、验证与恢复 |
+| [部署指南](docs/development/deployment.md) | 安装、升级、验证与恢复 |
 | [文档索引](docs/README.md) | 设计决定与历史记录 |
 
 ## 贡献与许可

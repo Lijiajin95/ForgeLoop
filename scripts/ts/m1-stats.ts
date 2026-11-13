@@ -1,7 +1,7 @@
 /**
  * M1 基线统计：从权威记录复算研发与运维的 N/H/A，并列出每个样本。
  *
- * 口径见 docs/product.md §12：判定逻辑在 packages/forgeloop/src/domain/m1-stats.ts；
+ * 口径见 docs/product/product.md §12：判定逻辑在 packages/forgeloop/src/domain/m1-stats.ts；
  * 本脚本只负责读取归档库、去重、渲染。空分母显示“无样本”，未知介入单列。
  *
  * 用法：node scripts/ts/m1-stats.ts [--db <records.sqlite> ...] [--out <dir>]
@@ -196,7 +196,7 @@ function report(dbPath: string): DatabaseReport {
 function render(reports: readonly DatabaseReport[], totals: Totals): string {
   const lines: string[] = ['# M1 基线统计（从权威记录复算）', '']
   lines.push(`- 生成时间：${new Date().toISOString()}`)
-  lines.push('- 口径：docs/product.md §12；判定实现在 `packages/forgeloop/src/domain/m1-stats.ts`')
+  lines.push('- 口径：docs/product/product.md §12；判定实现在 `packages/forgeloop/src/domain/m1-stats.ts`')
   lines.push('- 空分母显示“无样本”；未知介入单列；未完成不计成功；跨归档同一对象只计一次', '')
   for (const item of reports) {
     const success = item.requirements.filter((sample) => sample.success)

@@ -154,7 +154,7 @@ async function drain(reqId: string) {
 
 beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'forgeloop-product-analysis-'))
-  mkdirSync(join(project, 'docs/forgeloop'), { recursive: true })
+  mkdirSync(join(project, 'docs/product'), { recursive: true })
   writeFileSync(join(project, BUSINESS_CONTEXT_DOC), BUSINESS)
   requests = []
   next = script(ANALYSIS, {

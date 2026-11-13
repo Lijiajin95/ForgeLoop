@@ -172,7 +172,7 @@ describe('analysis prompt', () => {
     expect(prompt).toContain('你是 ForgeLoop 的产品 Agent')
     expect(prompt).toContain('需求身份：req-1')
     expect(prompt).toContain('查询时间：2026-11-04T00:00:00.000Z')
-    expect(prompt).toContain('项目业务背景（来自 docs/forgeloop/business-context.md')
+    expect(prompt).toContain('项目业务背景（来自 docs/product/business-context.md')
     expect(prompt).toContain('（尚无业务背景文档）')
     expect(prompt).toContain('"input_kind": "requirement 或 problem"')
     expect(prompt).toContain('只输出 JSON。')

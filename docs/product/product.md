@@ -21,10 +21,10 @@
 
 本文是新方案的唯一入口；后续决定直接更新相应章节及变更依据，避免另建重复的 PRD、技术摘要或测试规则。
 2026-10-26 的目标／PRD、2026-10-27 的讨论接续记录和 2026-10-28 的测试方案已合并到本文；
-原稿处置与可回查副本见[文档整合记录](status.md#11-方案文档整合与清理2026-10-28)。
+原稿处置与可回查副本见[文档整合记录](../verification/status.md#11-方案文档整合与清理2026-10-28)。
 
-[状态记录](status.md)保存当前实现、检查与真实交付证据；[架构说明](architecture.md)、
-[领域语言](../CONTEXT.md)和[安装说明](deployment.md)仍描述现有代码。
+[状态记录](../verification/status.md)保存当前实现、检查与真实交付证据；[架构说明](../development/architecture.md)、
+[领域语言](../../CONTEXT.md)和[安装说明](../development/deployment.md)仍描述现有代码。
 近期里程碑证据见 §11.1，已接入的业务入口、验证路径和待复验项见 §14。
 
 ## 2. 产品目标与首版范围（已确认）
@@ -206,7 +206,7 @@ ForgeLoop 部署后，其自身配置变更必须取得客户明确批准；改�
 分析失败的需求进入 `analysis_failed`，协调器自动重试，同一需求版本最多再自动尝试 3 次；
 自动次数用完后仍可由客户在看板手动“重新分析”。失败原因、每次尝试的模型、提示词版本、
 轨迹与工具调用全部保留，不清零也不覆盖历史结论。识别到的行业与业务背景单独存放在
-`docs/forgeloop/business-context.md`；分析结果里的 `business_context` 声明是否变化并给出整份文档，
+`docs/product/business-context.md`；分析结果里的 `business_context` 声明是否变化并给出整份文档，
 由**程序**在分析结束时写入，写失败按分析失败处理，因此“识别到新背景就必须同步文档”不依赖模型自觉。
 
 实现自验与独立测试分开。测试 Agent 不得修改被验收候选或降低标准；研发 Agent 不得修改生效需求、
@@ -218,7 +218,7 @@ ForgeLoop 部署后，其自身配置变更必须取得客户明确批准；改�
 - 产品 Agent：读写项目内 Markdown 文档与联网检索（DeepSeek Search & Fetch），先把输入分诊为需求或问题：
   需求产出需求说明，问题只产出须修复的现象与可检查的修复判据并直接交研发；问题不做产品澄清；
   识别到的行业与业务背景由程序按分析结果的 `business_context` 写入
-  `docs/forgeloop/business-context.md`，工具不能直接写该文件；工作权限是 `workspace-write`，
+  `docs/product/business-context.md`，工具不能直接写该文件；工作权限是 `workspace-write`，
   但工具面没有 shell 或代码编辑，因此不得也改不了实现代码、生效授权或质量规则。
 - 研发 Agent：在绑定研发会话的工作副本修改代码和测试，运行自验并定向修复；工作区随会话，计划文件清单只是预期，执行范围是当前项目工作区；不得改变生效授权／验收基线与版本号，不直接提交、发布或部署。
 - 测试 Agent：研发前在同一会话设计测试方案；交付后在同一会话通过运行时工具执行方案命令并做业务验收，产出命令记录、场景报告与业务验收结论；只写 `verification/` 等测试材料，不得修改候选、生效标准或生产环境。
@@ -353,7 +353,7 @@ DSH 的重复提醒不能代替 ForgeLoop 的确定性暂停。
 #### 2026-11-06 阶段投入决定：运维维护优先
 
 所有者确认：当前主要是个人使用的 DSH 插件和一个尚未上线的网站，持续运行的运维场景还不充分。
-据此调整阶段投入，决定记录见 [ADR 0011](adr/0011-ops-maintenance-first.md)。
+据此调整阶段投入，决定记录见 [ADR 0011](../development/adr/0011-ops-maintenance-first.md)。
 
 1. **运维模块进入维护阶段**：保留现有能力，包括本地安装与升级核对、运行身份查询、登记巡检、
    只读日志、事件和证据记录，以及已有授权范围内的恢复与复核。维护优先处理直接阻塞实际使用
@@ -399,8 +399,8 @@ DSH 的重复提醒不能代替 ForgeLoop 的确定性暂停。
 首版采用**小型回归库＋真实主路径＋独立业务终审**，复用现有工具链，围绕从零建设 ForgeLoop 的 DogFood 闭环验证。
 测试环境遵守 §8.3 的简化边界，扩展条件见 §10.8；关键拒绝、恢复和配置保护要求仍须覆盖。
 
-首版仍执行项目有效的工程门禁。关键判断、计算、状态流转和幂等逻辑，按[研发纪律](../AGENTS.md#关键行为测试与工程检查)先运行失败的行为测试，再实现使其通过。
-预期独立于实现，不以空断言、测试数量、覆盖率数字或模型自评替代业务验收。现有检查入口以 [Makefile](../Makefile) 和项目配置为准。
+首版仍执行项目有效的工程门禁。关键判断、计算、状态流转和幂等逻辑，按[研发纪律](../../AGENTS.md#关键行为测试与工程检查)先运行失败的行为测试，再实现使其通过。
+预期独立于实现，不以空断言、测试数量、覆盖率数字或模型自评替代业务验收。现有检查入口以 [Makefile](../../Makefile) 和项目配置为准。
 
 角色交接按 §5.2 执行；业务终审实际复验关键场景，不重复整套技术测试。
 
@@ -440,7 +440,7 @@ DSH 的重复提醒不能代替 ForgeLoop 的确定性暂停。
 所有者于 2026-11-11 确认独立测试统一采用黑盒执行流程。测试 Agent 根据需求和验收基线设计场景，
 通过公开产品接口验证固定候选。执行阶段的工具仅允许执行方案中已登记的检查与写入测试材料。运行时核对候选
 完整性和实际输出，测试 Agent 据此复核业务结果。宿主无法施加工具白名单时拒绝执行。迁移进度见 §14.1。
-[ADR 0012](adr/0012-single-verification-path.md)
+[ADR 0012](../development/adr/0012-single-verification-path.md)
 
 测试 Agent 的前置计划必须建立这三者的映射。每个场景明确：
 
@@ -564,21 +564,21 @@ M1 可以存在如实记录的人工介入和外部补救；依赖补救的那�
 旧实现的历史自迭代证据可供参考，不自动构成本轮 M0 或 M1 已通过。
 
 截至 2026-11-12，**M0 已由所有者批准结束，M1 尚未通过**。M1 按 §11.3 逐项核对证据，由所有者签署。
-[M0 确认记录](status.md#0-m0-结论所有者确认2026-11-05)
+[M0 确认记录](../verification/status.md#0-m0-结论所有者确认2026-11-05)
 
 - **种子运行（M1-1）**已有隔离安装与运行身份核对证据。11 月 9 日 Windows 复跑的安装文件、tarball 摘要
   和宿主进程身份可从本机归档 `.cache/m1-evidence-2026-11-09.zip` 的
   `seed-2026-11-09T02-13-36-596Z/` 复核。
 - **真实需求到运行（M1-2）**仍待补齐可独立复核的完整记录。旧汇总曾记为达成，后续证据包按原始现场的
-  可用性改为待重跑。已归档的闭环 A 多次在独立测试阶段阻断。[M1 证据包](m1-evidence.md#0-判定总表)、
-  [闭环 A 复跑记录](status.md#2127-闭环-a-最新一次运行2026-11-09-0840)
+  可用性改为待重跑。已归档的闭环 A 多次在独立测试阶段阻断。[M1 证据包](../verification/m1-evidence.md#0-判定总表)、
+  [闭环 A 复跑记录](../verification/status.md#2127-闭环-a-最新一次运行2026-11-09-0840)
 - **运行事件到修复（M1-3）**已有一轮受控注入样本完成临时恢复、独立验证与业务终审、受控提交、自动部署、
   运行身份核对及原检查复核关单。原始记录同时显示修复需求仍为 `blocked`，需由所有者核对本轮能否满足
   M1-3 条件。本机归档 `.cache/m1-evidence-2026-11-09.zip` 的 `ops-2026-11-09T05-15-25Z/`
   保留了 `summary.json` 与 `records.sqlite`。
 - **中断、统计与回查（M1-5～M1-7）**已有隔离中断演练、样本复算和归档回查证据。仍需补齐真实交付中的
-  宿主中断复验与缺失的历史材料。当前运维样本来自受控演练。[M1 证据包](m1-evidence.md#4-m1-5-证据达成受控演练)、
-  [状态记录 §212](status.md#212-m1-收口进展汇总2026-11-09)
+  宿主中断复验与缺失的历史材料。当前运维样本来自受控演练。[M1 证据包](../verification/m1-evidence.md#4-m1-5-证据达成受控演练)、
+  [状态记录 §212](../verification/status.md#212-m1-收口进展汇总2026-11-09)
 
 ### 11.3 M1 通过目标（所有者设定，2026-11-05）
 
@@ -654,10 +654,10 @@ M1 的目标是**证明“真实需求 → 真实运行”与“真实事件 →
 
 当前看板以项目内需求为分母。需求修订、追加授权、工时延长、停止／取消、人工请求及非系统身份作出的部署决定
 计入介入。自主成功同时要求已受控提交、最新独立验证为 `pass`、存在与最新构建制品摘要一致的 `verified`
-部署且无人工介入。空分母显示“无样本”。[状态记录 §218](status.md#218-自主成功只认当前制品的-verified-部署2026-11-10-005x)
+部署且无人工介入。空分母显示“无样本”。[状态记录 §218](../verification/status.md#218-自主成功只认当前制品的-verified-部署2026-11-10-005x)
 
 M1 归档复算脚本目前按需求是否存在任一 `verified` 部署计数，历史制品可能影响复算结果。
-验收时须按当前制品摘要回查部署证据。[M1 归档复算脚本](../scripts/ts/m1-stats.ts)
+验收时须按当前制品摘要回查部署证据。[M1 归档复算脚本](../../scripts/ts/m1-stats.ts)
 
 ### 12.2 运维
 
@@ -671,7 +671,7 @@ M1 归档复算脚本目前按需求是否存在任一 `verified` 部署计数�
 
 当前看板以项目内 `ops_events` 为分母。事件记录 `humanInvolved=true` 时计入人工介入，状态为
 `recovered` 或 `closed` 且无介入记录才计为自主成功。M1 归档脚本按资源、检查和修复需求归并，
-并保留归并前的事件编号。[M1 归档复算脚本](../scripts/ts/m1-stats.ts)
+并保留归并前的事件编号。[M1 归档复算脚本](../../scripts/ts/m1-stats.ts)
 
 ### 12.3 共同规则
 
@@ -720,26 +720,26 @@ M2 的统计观察窗口与首版“不设置发布后固定观察期”是两�
 
 当前活动实现为 TypeScript 原生 DSH 插件。专用业务会话已接入需求受理、分析与逐题澄清。普通需求经
 系统准入自动推进研发、验证和受控提交，任务包批准和整体验收入口用于兼容旧记录。运行时已接入登记部署目标、
-安装与上线核对。模块与入口见[当前架构](architecture.md)和[架构契约](../contracts/architecture.json)。
+安装与上线核对。模块与入口见[当前架构](../development/architecture.md)和[架构契约](../../contracts/architecture.json)。
 
 - **承诺冲突决定**已接入认证看板接口。所有者可记录修订、替代或拒绝，决定绑定需求当前版本、冲突承诺、
   来源及理由，准入复核后才采纳。覆盖其他业务例外的工作台交互和自然语言决定入口仍待完成。
-  [状态记录 §215.2](status.md#2152-领域-3-落地内容)
+  [状态记录 §215.2](../verification/status.md#2152-领域-3-落地内容)
 - **独立验证**的连续推进和显式 `verify` 已接入受限黑盒会话。兼容的 `advance` 任务包路径仍由测试会话
   写入材料、运行时复跑声明的命令。两种执行路径共用候选完整性与通过／阻断判据，宿主无法限制工具时拒绝运行。
-  任务包路径及其用例的迁移、真实模型下的黑盒复验仍待完成。[状态记录 §218.9](status.md#2189-领域-5-判定与证据规则核对2026-11-10-030x)、
-  [§224](status.md#224-adr-0012-a-第二步显式-verify-改走黑盒会话2026-11-11-112x5f44847)、
-  [§225](status.md#225-第-8-轮复核配额第-3-次耗尽与迁移成本实测2026-11-11-122x)
+  任务包路径及其用例的迁移、真实模型下的黑盒复验仍待完成。[状态记录 §218.9](../verification/status.md#2189-领域-5-判定与证据规则核对2026-11-10-030x)、
+  [§224](../verification/status.md#224-adr-0012-a-第二步显式-verify-改走黑盒会话2026-11-11-112x5f44847)、
+  [§225](../verification/status.md#225-第-8-轮复核配额第-3-次耗尽与迁移成本实测2026-11-11-122x)
 - **运行证据归档**已支持独立打开 SQLite 一致快照，并按需求回查验证、部署与关联事件。
-  受控验收脚本把归档失败记为本轮失败。[状态记录 §218.6](status.md#2186-归档快照的双向回查自检2026-11-10-025x)
+  受控验收脚本把归档失败记为本轮失败。[状态记录 §218.6](../verification/status.md#2186-归档快照的双向回查自检2026-11-10-025x)
 - **Windows 正式命令**在 `3d458ab` 中新增了按 `PATHEXT` 解析命令的实现和单元测试。提交说明记载了接线。
   当前源码的宿主与本地执行分支均仍直接使用原始 argv，解析逻辑待接入后复验。
-  [命令解析](../packages/forgeloop/src/runtime/command-launch.ts)、
-  [正式命令执行](../packages/forgeloop/src/runtime/formal-test.ts)
+  [命令解析](../../packages/forgeloop/src/runtime/command-launch.ts)、
+  [正式命令执行](../../packages/forgeloop/src/runtime/formal-test.ts)
 
 最近的 P0 记录仍将工程可靠性列为未完成、AI 行为可靠性列为部分完成，其余五个领域在已有证据范围内通过。
-最终候选的受控变异证据仍待补齐，已有通过记录绑定历史提交。[七领域结果](status.md#2243-七领域当前)、
-[变异验证范围](status.md#2234-配额耗尽复核与变异门禁的本机限制2026-11-11-111x)
+最终候选的受控变异证据仍待补齐，已有通过记录绑定历史提交。[七领域结果](../verification/status.md#2243-七领域当前)、
+[变异验证范围](../verification/status.md#2234-配额耗尽复核与变异门禁的本机限制2026-11-11-111x)
 
 ### 14.2 尚需具体化的实施与验收事项
 
@@ -747,7 +747,7 @@ M2 的统计观察窗口与首版“不设置发布后固定观察期”是两�
 11 月 12 日两次带部署的试运行分别在 Windows 正式命令启动和工程范围校验处停止。仍需在具备模型额度和
 部署授权的隔离目标上补齐独立测试、业务终审、制品装载与运行核对证据。后续试运行可回查本机
 `.cache/p0-batch-20261109/` 下的 `real-model-command-goat.log`、`real-model-min-deploy.log`
-与 `real-model-qwen-deploy.log`。[早期配额记录](status.md#2251-真实模型复验第-3-次重试)
+与 `real-model-qwen-deploy.log`。[早期配额记录](../verification/status.md#2251-真实模型复验第-3-次重试)
 
 | 事项 | 剩余内容 | 确定时点 |
 | --- | --- | --- |
@@ -761,7 +761,7 @@ M2 的统计观察窗口与首版“不设置发布后固定观察期”是两�
 | M2 统计 | 样本数量、观察窗口、结算截止、跨期归属与事件归并细则 | M2 评测窗口开始前 |
 | 数据与成本 | 证据保留、可发送材料、敏感信息处理和计量缺口 | 涉及对应材料和资源前 |
 
-当前项目许可与对外分发仍按[贡献规范](../CONTRIBUTING.md)处理。
+当前项目许可与对外分发仍按[贡献规范](../../CONTRIBUTING.md)处理。
 
 ## 15. 附录：DSH 接缝核查依据
 
@@ -771,18 +771,18 @@ M2 的统计观察窗口与首版“不设置发布后固定观察期”是两�
 
 | 接缝 | 已核查事实及接续注意事项 | 本机一手资料 |
 | --- | --- | --- |
-| 原生子 Agent | 默认 spawn／fork 为进程内；spawn 空对话，fork 复制父已完成轮次快照；支持继续消息及结构化结果等能力 | [子 Agent](../../deepseek-harness/docs/subsystems/subagent.zh.md) |
-| 独立 DSH 子运行时 | SDK 后端每次新进程、自有 profile／会话／模型工具，不继承父对话；当前不支持续发消息、统一 `outputSchema`、调用侧独立 `agentPreset` 或父传深度上限 | [SDK 后端](../../deepseek-harness/packages/subagent/subagent-dsh-sdk/README.zh.md) |
+| 原生子 Agent | 默认 spawn／fork 为进程内；spawn 空对话，fork 复制父已完成轮次快照；支持继续消息及结构化结果等能力 | [子 Agent](../../../deepseek-harness/docs/subsystems/subagent.zh.md) |
+| 独立 DSH 子运行时 | SDK 后端每次新进程、自有 profile／会话／模型工具，不继承父对话；当前不支持续发消息、统一 `outputSchema`、调用侧独立 `agentPreset` 或父传深度上限 | [SDK 后端](../../../deepseek-harness/packages/subagent/subagent-dsh-sdk/README.zh.md) |
 | 运行结果 | SDK 后端主要返回终态文本及停止信息，中间工具流量保留在子运行时；完整轨迹、结构化产物交接需要 ForgeLoop 对接 | 同上 |
-| 程序调度 | `startActivation()` 可用 caller 结果交付；仍有父 Agent 身份／生命周期约定，不能假设协调器可以无适配直接调用；DSH 容量限制不等于业务排队机制 | [管理器约定](../../deepseek-harness/packages/subagent/subagent/README.zh.md) |
-| 工具与沙箱 | 作用域白名单可用，但自身作用域新注册工具不受继承工具过滤；SDK 子运行时须配置自身权限。文件沙箱不等于完整网络、进程和机密隔离 | [工具](../../deepseek-harness/docs/subsystems/tools.zh.md)、[沙箱](../../deepseek-harness/docs/subsystems/sandbox.zh.md) |
-| 存储 | DSH storage-domain 的 KV 接口没有跨表事务、二级索引和内置迁移；不能因后端是 SQLite 就假设消费者可用完整 SQL 事务 | [存储约定](../../deepseek-harness/packages/storage/storage-domain/README.zh.md) |
-| 重复与超时 | repeat-tool-reminder 仅提醒、不强制停止；工具超时按工具声明执行，不能等同 Agent 总执行时限或确认进程已停 | [重复提醒](../../deepseek-harness/packages/guard/repeat-tool-reminder/README.zh.md)、[工具超时](../../deepseek-harness/packages/guard/timeout-policy/README.zh.md) |
-| Desktop | 关闭主窗口隐藏页面，Host 继续；退出应用关闭 Host。新方案的持久恢复仍需自身验证 | [桌面生命周期](../../deepseek-harness/apps/desktop/README.zh.md) |
-| 插件升级 | 部分安装失败恢复 manifest／lockfile；安装后激活失败可能保留磁盘修改，不等于完整业务自动回退 | [插件管理器](../../deepseek-harness/packages/boot/plugin-manager/README.zh.md) |
-| 会话入口 | preset 可定义工具、提示词与技能组合，但不是安全沙箱；实际输入接入与可信人类来源判定还需验证 | [preset](../../deepseek-harness/packages/preset/agent-preset-registry/README.zh.md) |
-| 配置与凭据 | 模型设置通过 profile 配置持久化；凭据默认在 `$DSH_HOME/.credentials.yaml`。同 OS 用户的本地文件权限不能隔绝其 Agent 读取机密，不能宣称 profile 本身完成凭据强隔离 | [设置](../../deepseek-harness/packages/settings/settings/README.zh.md)、[凭据](../../deepseek-harness/packages/credentials/credentials-local/README.zh.md) |
-| 初始化 | `initializeProfileFromDefault()` 可以替换已有自定义 profile，包含用户 patch；不能拿它重置正式配置。新 home 也不会自动拥有原模型接入 | [初始化源码](../../deepseek-harness/apps/cli/src/profile-boot.ts) |
+| 程序调度 | `startActivation()` 可用 caller 结果交付；仍有父 Agent 身份／生命周期约定，不能假设协调器可以无适配直接调用；DSH 容量限制不等于业务排队机制 | [管理器约定](../../../deepseek-harness/packages/subagent/subagent/README.zh.md) |
+| 工具与沙箱 | 作用域白名单可用，但自身作用域新注册工具不受继承工具过滤；SDK 子运行时须配置自身权限。文件沙箱不等于完整网络、进程和机密隔离 | [工具](../../../deepseek-harness/docs/subsystems/tools.zh.md)、[沙箱](../../../deepseek-harness/docs/subsystems/sandbox.zh.md) |
+| 存储 | DSH storage-domain 的 KV 接口没有跨表事务、二级索引和内置迁移；不能因后端是 SQLite 就假设消费者可用完整 SQL 事务 | [存储约定](../../../deepseek-harness/packages/storage/storage-domain/README.zh.md) |
+| 重复与超时 | repeat-tool-reminder 仅提醒、不强制停止；工具超时按工具声明执行，不能等同 Agent 总执行时限或确认进程已停 | [重复提醒](../../../deepseek-harness/packages/guard/repeat-tool-reminder/README.zh.md)、[工具超时](../../../deepseek-harness/packages/guard/timeout-policy/README.zh.md) |
+| Desktop | 关闭主窗口隐藏页面，Host 继续；退出应用关闭 Host。新方案的持久恢复仍需自身验证 | [桌面生命周期](../../../deepseek-harness/apps/desktop/README.zh.md) |
+| 插件升级 | 部分安装失败恢复 manifest／lockfile；安装后激活失败可能保留磁盘修改，不等于完整业务自动回退 | [插件管理器](../../../deepseek-harness/packages/boot/plugin-manager/README.zh.md) |
+| 会话入口 | preset 可定义工具、提示词与技能组合，但不是安全沙箱；实际输入接入与可信人类来源判定还需验证 | [preset](../../../deepseek-harness/packages/preset/agent-preset-registry/README.zh.md) |
+| 配置与凭据 | 模型设置通过 profile 配置持久化；凭据默认在 `$DSH_HOME/.credentials.yaml`。同 OS 用户的本地文件权限不能隔绝其 Agent 读取机密，不能宣称 profile 本身完成凭据强隔离 | [设置](../../../deepseek-harness/packages/settings/settings/README.zh.md)、[凭据](../../../deepseek-harness/packages/credentials/credentials-local/README.zh.md) |
+| 初始化 | `initializeProfileFromDefault()` 可以替换已有自定义 profile，包含用户 patch；不能拿它重置正式配置。新 home 也不会自动拥有原模型接入 | [初始化源码](../../../deepseek-harness/apps/cli/src/profile-boot.ts) |
 
 已知限制须保留，不补造隔离或恢复保证；同时遵守所有者不新增账户／虚拟机／SSH 环境、不扩大运维平台的首版边界。
 具体缺口在实现与验证中按真实证据处理，不用放宽规则或伪造授权使其通过。

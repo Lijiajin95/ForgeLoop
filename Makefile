@@ -131,7 +131,7 @@ sbom:
 package: build
 	$(NPM) run candidate --workspace forgeloop-dsh
 
-# 真实宿主装载冒烟：需要 FORGELOOP_DSH_HOME 与模型凭据（见 docs/deployment.md）。
+# 真实宿主装载冒烟：需要 FORGELOOP_DSH_HOME 与模型凭据（见 docs/development/deployment.md）。
 verify-plugin:
 	$(NODE) scripts/ts/verify-plugin.ts
 

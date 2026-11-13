@@ -2,8 +2,8 @@
 
 本文件说明 2026-11-03 引入的进阶可靠性门禁：清单、属性测试、状态机、P0 场景、稳定性、
 增量变异与统一报告。它不重复 [架构说明](architecture.md) 的分层/依赖规则，也不替代
-[Makefile](../Makefile)、[覆盖率配置](../packages/forgeloop/vitest.config.ts) 与
-[Stryker 配置](../packages/forgeloop/stryker.config.json) 中的门槛数值。
+[Makefile](../../Makefile)、[覆盖率配置](../../packages/forgeloop/vitest.config.ts) 与
+[Stryker 配置](../../packages/forgeloop/stryker.config.json) 中的门槛数值。
 
 ## 1. 入口与产物
 

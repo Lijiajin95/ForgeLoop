@@ -5,7 +5,7 @@
 只读工具 `forgeloop_rollouts`、`DeploymentService` 运行时门面与看板动作端点、
 回退（含 `data-rollback`）与内置 webhook 告警；页面只读展示与证据保留期尚未实现。
 真实模型与真实外部工具（k8s/容器）集成未验证。
-相关：[产品方案 §8.2 发布与数据迁移](product.md#82-发布与数据迁移)、[安装与升级](deployment.md)、
+相关：[产品方案 §8.2 发布与数据迁移](../product/product.md#82-发布与数据迁移)、[安装与升级](deployment.md)、
 [运维 Agent](ops-agent.md)、[架构](architecture.md)。
 
 ## 1. 问题与定位
@@ -287,4 +287,4 @@ artifactSha256?, runningArtifactSha256?, runningPid?, runningStartedAt? }`；超
 - `packages/forgeloop/src/runtime/board-route.ts`、`client.js`：目标列表、批准/回退与证据。
 - 测试：`tests/deployment-config.test.ts`、`tests/deployment-tools.test.ts`、
   `tests/deployment-run.test.ts`、`tests/deployment-retention.test.ts`、`tests/ops-deployment.test.ts`。
-- 文档：本文件、`docs/architecture.md`、`docs/ops-agent.md`、`docs/deployment.md`、`docs/status.md`。
+- 文档：本文件、`docs/development/architecture.md`、`docs/development/ops-agent.md`、`docs/development/deployment.md`、`docs/verification/status.md`。

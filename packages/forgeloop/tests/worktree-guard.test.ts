@@ -14,7 +14,7 @@ describe('worktree guard', () => {
 
   it('allows docs-only commits in the main worktree', () => {
     expect(
-      checkWorktree({ root: '/repo', mainRoot: '/repo', staged: ['docs/status.md', 'AGENTS.md'] })
+      checkWorktree({ root: '/repo', mainRoot: '/repo', staged: ['docs/verification/status.md', 'AGENTS.md'] })
         .ok,
     ).toBe(true)
   })
@@ -23,7 +23,7 @@ describe('worktree guard', () => {
     const result = checkWorktree({
       root: '/repo',
       mainRoot: '/repo',
-      staged: ['docs/status.md', 'packages/forgeloop/src/index.ts'],
+      staged: ['docs/verification/status.md', 'packages/forgeloop/src/index.ts'],
     })
     expect(result.ok).toBe(false)
     expect(result.message).toContain('主工作树禁止直接提交代码')
@@ -40,6 +40,6 @@ describe('worktree guard', () => {
     ]) {
       expect(isCodePath(path)).toBe(true)
     }
-    expect(isCodePath('docs/status.md')).toBe(false)
+    expect(isCodePath('docs/verification/status.md')).toBe(false)
   })
 })

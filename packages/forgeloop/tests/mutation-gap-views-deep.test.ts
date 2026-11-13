@@ -112,7 +112,7 @@ const structuredAnalysis: RequirementAnalysis = {
     {
       id: 'BP-2',
       basis: 'project_convention',
-      source: 'docs/product.md',
+      source: 'docs/product/product.md',
       actor: '管理员',
       trigger: '清空筛选',
       behavior: '恢复全部需求',

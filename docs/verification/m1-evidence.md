@@ -114,7 +114,7 @@ M1-1 脚本 `scripts/ts/m1-seed.ts`；M1-7 脚本 `scripts/ts/m1-history-review.
 候选 v1…v6 反复被独立测试 block，验证 attempt 5 仍未通过、失败轮次用尽；最后阻断为
 “测试命令失败：stall2-post-progress-detail”“错误对照预期失败但命令成功”
 “错误对照的失败输出缺少预期片段”“必过场景缺少自己的错误对照”。0 提交、0 部署。
-详细进展见 `docs/status.md` §212。
+详细进展见 `docs/verification/status.md` §212。
 
 ## 3. M1-3 现状（未达成）
 

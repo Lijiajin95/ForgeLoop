@@ -95,7 +95,7 @@ describe('analysis vocabulary', () => {
   it('keeps prompt/retry/document/tool allowlist literals stable', () => {
     expect(ANALYSIS_PROMPT_VERSION).toBe('analysis-v4')
     expect(MAX_AUTO_ANALYSIS_RETRIES).toBe(3)
-    expect(BUSINESS_CONTEXT_DOC).toBe('docs/forgeloop/business-context.md')
+    expect(BUSINESS_CONTEXT_DOC).toBe('docs/product/business-context.md')
     expect(PRODUCT_TOOL_ALLOWLIST).toEqual([
       'forgeloop_read_project_doc',
       'forgeloop_write_project_doc',

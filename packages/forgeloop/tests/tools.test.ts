@@ -186,23 +186,23 @@ describe('tool surface', () => {
 
   it('reads and writes project Markdown documents, and nothing else', async () => {
     const written = await call('forgeloop_write_project_doc', {
-      path: 'docs/forgeloop/notes.md',
+      path: 'docs/product/notes.md',
       content: '# 业务背景\n\n行业：本地生活服务\n',
     })
     expect(written.ok, written.text).toBe(true)
     const read = await call('forgeloop_read_project_doc', {
-      path: 'docs/forgeloop/notes.md',
+      path: 'docs/product/notes.md',
     })
     expect(read.ok, read.text).toBe(true)
     expect(read.data).toMatchObject({
-      path: 'docs/forgeloop/notes.md',
+      path: 'docs/product/notes.md',
       truncated: false,
     })
     expect((read.data as { content: string }).content).toContain('本地生活服务')
 
     // 业务背景文档只由运行时按分析结果写，工具入口一律拒绝。
     const refused = await call('forgeloop_write_project_doc', {
-      path: './docs/forgeloop/business-context.md',
+      path: './docs/product/business-context.md',
       content: '# 业务背景\n\n行业：本地生活服务\n',
     })
     expect(refused.ok).toBe(false)
@@ -212,7 +212,7 @@ describe('tool surface', () => {
     expect(
       (
         await call('forgeloop_write_project_doc', {
-          path: 'docs/forgeloop/BUSINESS-CONTEXT.MD',
+          path: 'docs/product/BUSINESS-CONTEXT.MD',
           content: 'x',
         })
       ).ok,

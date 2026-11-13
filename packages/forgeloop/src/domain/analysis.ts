@@ -13,7 +13,7 @@ export const ANALYSIS_PROMPT_VERSION = 'analysis-v4'
 export const MAX_AUTO_ANALYSIS_RETRIES = 3
 
 /** 行业与业务背景的项目文档路径（相对项目根目录）。 */
-export const BUSINESS_CONTEXT_DOC = 'docs/forgeloop/business-context.md'
+export const BUSINESS_CONTEXT_DOC = 'docs/product/business-context.md'
 
 /**
  * 产品 Agent 可用的工具白名单；此外不挂载任何编码工具。

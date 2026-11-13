@@ -157,7 +157,7 @@ const planText = structuredPlanOf({
     {
       task_id: 'ui',
       goal: '增加过滤控件',
-      files: ['docs/architecture.md'],
+      files: ['docs/development/architecture.md'],
       acceptance: '控件可选择状态并更新列表',
       test_command: ['npm', 'run', 'check', '--workspace', 'forgeloop-dsh'],
       depends_on: [],
@@ -165,7 +165,7 @@ const planText = structuredPlanOf({
     {
       task_id: 'test',
       goal: '补充过滤行为测试',
-      files: ['docs/status.md'],
+      files: ['docs/verification/status.md'],
       acceptance: '测试覆盖过滤结果',
       test_command: ['npm', 'run', 'check', '--workspace', 'forgeloop-dsh'],
       depends_on: ['ui'],

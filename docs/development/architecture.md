@@ -1,7 +1,7 @@
 # ForgeLoop 架构（TypeScript 原生 DSH 插件）
 
 编写日期：2026-10-22；文档适用性与缺口说明更新：2026-10-29（同日增补运维 Agent 首版）。本文描述**当前活动实现**。
-新方案的主控／独立子运行时、角色权限和全新存储见[产品与首版方案](product.md#5-宿主协调与多-agent-流程)，尚不能视为当前实现。
+新方案的主控／独立子运行时、角色权限和全新存储见[产品与首版方案](../product/product.md#5-宿主协调与多-agent-流程)，尚不能视为当前实现。
 旧 Python／Web／serve 路线由 [ADR 0008](adr/0008-typescript-native-dsh-plugin.md) 取代，
 退役代码快照已按 [ADR 0009](adr/0009-remove-retired-implementation.md) 删除；源码和旧文档从 Git 历史回查。
 2026-10-28 又按 [ADR 0010](adr/0010-remove-command-surface-legacy-compat-and-commit-policy.md)
@@ -93,7 +93,7 @@ DSH 宿主（唯一常驻产品）
    目标、业务场景、业务规则、异常与边界、非目标、结构化业务要点（稳定编号 `BP-n`、依据来源、用户／触发／预期行为、
    规则、异常边界状态）、可观察验收项（`AC-n`，`point_ids` + given/when/then）、假设（`AS-n`）、验收标准与待澄清项；
    分析提示词同时携带
-   `docs/forgeloop/business-context.md` 的行业与业务背景、程序查询的当前项目活动需求与任务
+   `docs/product/business-context.md` 的行业与业务背景、程序查询的当前项目活动需求与任务
    （标题、状态、创建／更新时间、任务包版本与批准状态、任务状态与最近活动），已结束需求只给数量，
    与当前原文相关的少量历史要求（含已结束需求，按词面重合度有界查询并给出命中词）、
    上一次结构化说明与结构化澄清问答（问题编号、原文、所有者回答、解决结论）；这些内容只是背景事实，
@@ -145,7 +145,7 @@ preset。文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越�
 
 分析结果可以带 `business_context: { changed, document }`：`changed=true` 时必须给出整份 Markdown，
 `changed=false` 时 `document` 必须为空；缺字段按未变化处理。`executeAnalysis` 在解析成功后由
-**程序**调用 `writeProjectDoc` 写 `docs/forgeloop/business-context.md`，写失败按分析失败处理
+**程序**调用 `writeProjectDoc` 写 `docs/product/business-context.md`，写失败按分析失败处理
 （记 `analysis_failed`、不落分析结论），因此“识别到新背景就必须同步文档”是确定性规则，
 不依赖模型遵守提示词；`forgeloop_write_project_doc` 对同一路径直接拒绝，运行时是唯一写入方。
 
@@ -192,7 +192,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
      与已有承诺冲突时，`conflicts` 必须引用真实存在的其他需求，并给出至少两种取舍与待决定事项；
      程序暂停系统准入并把冲突与取舍写入阻塞原因，等待所有者修订需求后重新分析。
    - 业务背景变更先落 `requirement_business_context_changes` 草稿（含需求版本、分析版本与明确 reason）；
-     只有分析校验通过且无待澄清项时，程序才把草稿同步为 `docs/forgeloop/business-context.md` 并标记
+     只有分析校验通过且无待澄清项时，程序才把草稿同步为 `docs/product/business-context.md` 并标记
      `applied`，记录文档摘要。失败或待澄清的分析只保留草稿，绝不写正式文档。
    - 澄清回答逐题绑定：每条回答记录需求版本、问题首次提出的分析版本、问题编号与同题序号。只回答一部分时，
      其余问题保持开放并继续阻断准入；同一道题可以有多条历次回答，重新分析会看到全部回答。
@@ -546,7 +546,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - **中断恢复**：不保留“无法判定”的状态。执行发生在一次性快照内，运行时是唯一写入记录的一方；
   宿主重启时把 `claimed` 判为 `failed`、丢弃快照，再由 `requeue`/`autoAdvance` 重新执行。
   残余风险是执行者在沙箱内发起的网络调用等外部副作用无法回收，已在状态记录中列为边界。
-- 失败额度与验收失败入口等已知缺口见[状态记录 §4.1](status.md#41-当前实现缺口2026-10-28-整理)。
+- 失败额度与验收失败入口等已知缺口见[状态记录 §4.1](../verification/status.md#41-当前实现缺口2026-10-28-整理)。
 
 ## 7. 信任边界
 

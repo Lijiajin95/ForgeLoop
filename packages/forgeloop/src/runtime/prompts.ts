@@ -567,7 +567,7 @@ ${inputKindOf(analysis) === 'problem' ? '- 这是问题输入：任务按“复�
 - 依赖必须存在且无环；task_id 唯一；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
 - files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
-- 任务需要新增或修改测试时，把 packages/forgeloop/tests/ 下的对应测试文件写进 files；需要同步架构说明时，把 docs/architecture.md 写进 files；
+- 任务需要新增或修改测试时，把 packages/forgeloop/tests/ 下的对应测试文件写进 files；需要同步架构说明时，把 docs/development/architecture.md 写进 files；
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
 - 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；

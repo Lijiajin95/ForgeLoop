@@ -4,7 +4,7 @@ ForgeLoop 的 TypeScript 原生 DSH 插件：把需求受理、产品澄清、�
 业务验收、受控提交、证据与持久推进放进 DSH 宿主进程。运行期不依赖 Python 或独立 HTTP 服务。
 身份只有产品、主控、研发、验证、运维五个 Agent。主控 Agent 只做研发会话路由（无工具）；
 研发 Agent 的工作区随研发会话，会话不主动删除，结束时留下与会话 ID 关联的总结；验证会话一次性使用。
-本文描述当前实现；最新产品、技术和验证规则统一见仓库中的 `docs/product.md`，不表示新方案已实现。
+本文描述当前实现；最新产品、技术和验证规则统一见仓库中的 `docs/product/product.md`，不表示新方案已实现。
 
 ## 安装
 
@@ -47,7 +47,7 @@ Linux/Windows 都可用）；`["npm","run","check:repo"]` 仍等于 `make check`
   定位与修复，不等待产品澄清；
   它只有项目 Markdown 读写与联网检索工具（`workspace-write` 权限，但不含任何编码工具，因此改不了代码），
   联网检索走 DeepSeek Search & Fetch；识别到的行业与业务背景由**程序**在分析结束时按分析结果的
-  `business_context` 整份写入 `docs/forgeloop/business-context.md`，下次分析时读入，工具不能直接写该文件；
+  `business_context` 整份写入 `docs/product/business-context.md`，下次分析时读入，工具不能直接写该文件；
   有待澄清时追加澄清请求，回答形成新需求版本并重新分析，不新建第二条需求；
 - **同一需求版本只分析一次**：首次分析在会话入口同步执行，成功后需求才入队；队列与协调器不会
   再展开第二次分析。每次尝试都记录模型、提示词版本（`analysis-v3`）、轨迹文件与工具调用；
@@ -114,7 +114,7 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 `forgeloop_ops_artifact`/`forgeloop_ops_logs` 只对运维会话开放：只读 `ops.artifacts` 登记的制品运行状态
 （安装版本、pid、存活、身份摘要、日志大小与错误行数）与日志尾部，不接受任意路径。
 两个文档工具只接受项目内 `.md` 路径（拒绝绝对路径、越界、`.git`/`node_modules` 与代码文件）；
-`docs/forgeloop/business-context.md` 例外：它只由运行时按分析结果写入，工具写入会被拒绝。
+`docs/product/business-context.md` 例外：它只由运行时按分析结果写入，工具写入会被拒绝。
 两个联网工具调用 DeepSeek Search & Fetch（`POST /v1/tools/search`、`POST /v1/tools/fetch`），
 需要宿主进程环境变量 `DEEPSEEK_API_KEY`；`FORGELOOP_WEB_BASE_URL` 可覆盖接口地址（测试用）。
 密钥只读：不写入 DSH 配置或环境，不落库、不进输出；工具描述与每次调用结果都会说明这一点，
@@ -197,7 +197,7 @@ preset 只接管 `agentPreset=forgeloop` 且非子 Agent 的会话；普通会�
 - 新事件按配置向 webhook 发送一次尽力告警，结果作为观测留档；归并到已有事件不重复告警。
 - 未恢复或诊断要求永久修复时创建关联修复需求并排队分析；恢复与修复分别收口。
 - 只读工具 `forgeloop_ops` 可查事件、诊断、处置、监控摘要与统计。完整边界与限制见
-  [运维 Agent](../../docs/ops-agent.md)。
+  [运维 Agent](../../docs/development/ops-agent.md)。
 
 Web 工作台：DSH Web 会话区「天工」页（与「对话」「轨迹」并列），提供 **层级工作台 / 全部任务 /
 需要处理 / 可靠性 / 运维** 入口。可靠性页只读展示代码可靠性快照（门禁、测试、覆盖率、变异、预算、

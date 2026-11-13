@@ -3,7 +3,7 @@
 - 状态：P1 已实现（2026-11-03）；P2 未做
 - 日期：2026-11-03
 - 范围：`conversation.view` 的 `forgeloop` 天工页新增「可靠性」视图；只读展示
-- 相关：[架构 §4.3](architecture.md#43-天工层级工作台web-只读事实--客户动作)、[状态 §44–§50](status.md)、[Makefile](../Makefile)、[覆盖率配置](../packages/forgeloop/vitest.config.ts)
+- 相关：[架构 §4.3](../development/architecture.md#43-天工层级工作台web-只读事实--客户动作)、[状态 §44–§50](../verification/status.md)、[Makefile](../../Makefile)、[覆盖率配置](../../packages/forgeloop/vitest.config.ts)
 
 ## 1. 目标与边界
 
@@ -388,7 +388,7 @@
 
 | 文件 | 目的 | 类型 |
 | --- | --- | --- |
-| `docs/reliability-dashboard.md` | 本方案、指标口径与实施记录 | 新增 |
+| `docs/product/reliability-dashboard.md` | 本方案、指标口径与实施记录 | 新增 |
 | `docs/README.md` | 文档索引加入专题方案 | 修改 |
 | `scripts/ts/reliability-report.ts` | 运行门禁、读取覆盖率/变异/测试 JSON、生成快照与历史 | 新增 |
 | `Makefile` | 增加 `reliability-report` 与 `reliability-report-fast` 目标 | 修改 |
@@ -404,8 +404,8 @@
 | `packages/forgeloop/tests/reliability-runtime.test.ts` | 快照缺失/损坏/过期与组合视图测试 | 新增 |
 | `packages/forgeloop/tests/board-route.test.ts` | 端点窗口与分发测试 | 修改 |
 | `packages/forgeloop/tests/client-view.test.ts` | 新视图顺序与词典注册 | 修改 |
-| `docs/architecture.md` §4.3 | 新视图、端点与只读边界 | 修改 |
-| `docs/status.md` | 实施批次、检查结果与未完成项 | 修改 |
+| `docs/development/architecture.md` §4.3 | 新视图、端点与只读边界 | 修改 |
+| `docs/verification/status.md` | 实施批次、检查结果与未完成项 | 修改 |
 | `CONTEXT.md` | “代码可靠性看板”术语与工作台视图清单 | 修改 |
 
 没有修改 `vitest.config.ts`：测试 JSON 由命令行 `--reporter=json --outputFile` 生成；token 与断言脚本

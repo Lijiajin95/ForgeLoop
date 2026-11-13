@@ -126,7 +126,7 @@ describe('prompt builders', () => {
     expect(text).toContain('forgeloop_web_search')
     expect(text).toContain('forgeloop_web_fetch')
     expect(text).toContain('禁止修改代码')
-    expect(text).toContain('docs/forgeloop/business-context.md')
+    expect(text).toContain('docs/product/business-context.md')
     expect(text).toContain('行业：本地生活服务')
     expect(text).toContain('"business_rules"')
     expect(text).toContain('"exceptions"')
@@ -183,7 +183,7 @@ describe('prompt builders', () => {
     expect(text).toContain('筛选后只显示匹配项')
     expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准')
     expect(text).toContain('packages/forgeloop/tests/')
-    expect(text).toContain('把 docs/architecture.md 写进 files')
+    expect(text).toContain('把 docs/development/architecture.md 写进 files')
     expect(text).toContain('任务不得包含部署、发布、安装到正式 profile')
   })
 

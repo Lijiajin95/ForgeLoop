@@ -4,10 +4,10 @@
 
 ## 项目与阅读入口
 
-- [产品与首版方案](docs/product.md)是最新目标、需求、技术与验证规则的统一入口；已确认方案、细化稿与待实施事项分别标明。
+- [产品与首版方案](docs/product/product.md)是最新目标、需求、技术与验证规则的统一入口；已确认方案、细化稿与待实施事项分别标明。
 - 当前活动实现为 TypeScript 原生 DSH 插件（`packages/forgeloop`）；DSH 是唯一常驻宿主。
   退役 Python／独立 Web 实现已从工作树清理，原文从 Git 历史回查。新方案不能被当作现有能力或具体实施授权。
-- 修改前阅读相关设计、[状态记录](docs/status.md)、[当前架构](docs/architecture.md)、[领域术语](CONTEXT.md)；完整入口见[文档索引](docs/README.md)。
+- 修改前阅读相关设计、[状态记录](docs/verification/status.md)、[当前架构](docs/development/architecture.md)、[领域术语](CONTEXT.md)；完整入口见[文档索引](docs/README.md)。
   以所有者最新明确需求和已确认方案界定范围，旧计划、历史证据和现有代码不自动成为新需求。
 - 文档结论须与源码、契约及原始记录核对；不一致时披露。进度、验证数字、环境问题和未落实项写入状态或批次记录，不在本文件固化。
 
@@ -53,7 +53,7 @@
   新方案的客户决定入口尚未实现；不得用工具、参数或文档声明冒充人类批准。
 - 强制位置包括 `packages/forgeloop/src/domain`、`records`、装载期配置校验、`make check` 和 CI；
   新增规则须有通过／拒绝两侧的行为测试，不能将任意一层视为可跳过的完整保障。
-- 只有声明、没有机制的限制标为“未落实”。当前缺口见[状态记录](docs/status.md#41-当前实现缺口2026-10-28-整理)；
+- 只有声明、没有机制的限制标为“未落实”。当前缺口见[状态记录](docs/verification/status.md#41-当前实现缺口2026-10-28-整理)；
   不得放宽规则、补造批准或改写失败使结果看起来通过。
 
 ## 关键行为测试与工程检查
@@ -73,9 +73,9 @@
 - 运行 `make check`；按影响运行 `make verify-plugin`、`make package` 与候选场景。
   门槛以 [Makefile](Makefile)、vitest 配置及 `contracts/` 为准。
 - 模块增删改名换层、依赖方向、持久化表／介质、现场产物约定、外部接缝及工具表面变化，
-  同批更新[架构说明](docs/architecture.md)；分层、依赖方向、外部表面或退役路径变化时更新
+  同批更新[架构说明](docs/development/architecture.md)；分层、依赖方向、外部表面或退役路径变化时更新
   `contracts/architecture.json`，运行 `make contracts`。新增普通源码文件不需要登记；
-  方向性选择写入 `docs/adr/`。契约检查负责其已编码的规则，不能代替文档语义与实际行为审阅。
+  方向性选择写入 `docs/development/adr/`。契约检查负责其已编码的规则，不能代替文档语义与实际行为审阅。
 
 ## 授权、DogFood 与真实记录
 
