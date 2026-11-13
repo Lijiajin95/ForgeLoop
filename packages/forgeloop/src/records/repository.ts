@@ -349,6 +349,11 @@ export class Repository extends DevSessionStore {
     return this.analysisStore.attempts(reqId, requirementVersion)
   }
 
+  /** 最近一次带需求库遍历记录的分析原文；回答回写时用它取问题对应的 topic。 */
+  latestLibraryReview(reqId: string): string {
+    return this.analysisStore.latestReview(reqId)
+  }
+
   // ---------------------------------------------------------------- 澄清问答
 
   clarificationQuestions(reqId: string): ClarificationQuestion[] {

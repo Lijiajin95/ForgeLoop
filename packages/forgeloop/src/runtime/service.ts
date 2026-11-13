@@ -22,6 +22,8 @@ import { Repository, type ServiceRequestRecord } from '../records/repository.js'
 import { ProgressTracker } from '../domain/progress.js'
 import { withProgressTracking } from './agent-progress.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
+import { gapsFromReviewText, writeAnswerDecisions } from './library-writeback.js'
+import { loadLibrary } from './library-docs.js'
 import { type Requirement, type RequirementAnalysis } from '../domain/requirement.js'
 import {
   authorizationSourceOf,
@@ -474,6 +476,8 @@ export class ForgeLoopRuntime {
     requirementVersion?: number | undefined
     answeredQuestionIds?: readonly string[] | undefined
     analysis?: RequirementAnalysis | undefined
+    /** 所有者回答回写需求库失败时的告警；不影响回答与重新分析本身。 */
+    libraryWarning?: string | undefined
   }> {
     const answer = input.answer.trim()
     if (!answer)
@@ -520,6 +524,30 @@ ${answer}`
         answeredAt: this.now(),
       })
     }
+    // 所有者回答即授权：能归因到分析缺口的回答直接回写为 confirmed 决策条目，
+    // 让下一次分析不再重复提问。回写失败只告警，不回滚回答与重新分析。
+    let libraryWarning = ''
+    try {
+      const gaps = gapsFromReviewText(this.repo.latestLibraryReview(input.reqId))
+      const outcome = writeAnswerDecisions({
+        projectPath: this.config.projectPath,
+        reqId: input.reqId,
+        now: this.now(),
+        answers: questions.map((question) => ({
+          questionId: question.questionId,
+          question: question.text,
+          answer,
+        })),
+        gaps,
+        existing: this.repo.libraryEntries(),
+      })
+      if (outcome.written.length > 0) {
+        const loaded = loadLibrary(this.config.projectPath)
+        this.repo.syncLibrary(loaded.entries, this.now())
+      }
+    } catch (error) {
+      libraryWarning = `需求库回写失败：${errorMessage(error)}`
+    }
     const next = await this.analyzeRequirement(input.reqId, input.signal)
     if (!next.ok) {
       return {
@@ -528,6 +556,7 @@ ${answer}`
         message: next.message,
         reqId: input.reqId,
         requirementVersion: refreshed?.versions.length,
+        ...(libraryWarning ? { libraryWarning } : {}),
       }
     }
     return {
@@ -538,6 +567,7 @@ ${answer}`
       requirementVersion: refreshed?.versions.length,
       answeredQuestionIds: questions.map((question) => question.questionId),
       analysis: next.analysis,
+      ...(libraryWarning ? { libraryWarning } : {}),
     }
   }
 

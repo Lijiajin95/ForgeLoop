@@ -314,8 +314,24 @@ export class AnalysisStore {
       promptVersion: text(row, 'prompt_version'),
       transcriptPath: text(row, 'transcript_path'),
       toolCalls: parseStringList(text(row, 'tool_calls')),
+      libraryDigest: text(row, 'library_digest'),
+      libraryReview: text(row, 'library_review'),
+      libraryWarnings: parseStringList(text(row, 'library_warnings')),
       createdAt: text(row, 'created_at'),
     }))
+  }
+
+  /** 最近一次带需求库遍历记录的分析尝试原文；没有时为空串。 */
+  latestReview(reqId: string): string {
+    const row = this.db
+      .prepare(
+        `SELECT library_review FROM requirement_analysis_attempts
+         WHERE req_id = ? AND library_review <> ''
+         ORDER BY created_at DESC, requirement_version DESC, attempt DESC LIMIT 1`,
+      )
+      .get(reqId)
+    const record = asRecord(row)
+    return record ? text(record, 'library_review') : ''
   }
 }
 
