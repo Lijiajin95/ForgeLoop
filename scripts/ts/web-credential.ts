@@ -148,10 +148,21 @@ export interface WebCheck {
   readonly indexStatus: number
   readonly boardStatus: number
   readonly build: WebSession['build']
+  /** 工作区模式且未给会话身份：看板按契约拒绝，但已证明端点已加载。 */
+  readonly sessionScoped?: boolean
 }
 
-/** 用 Cookie 实打实访问首页与看板端点：只读，不提交任何动作。 */
-export async function checkWebSession(session: WebSession): Promise<WebCheck> {
+/**
+ * 用 Cookie 实打实访问首页与看板端点：只读，不提交任何动作。
+ *
+ * 看板在 Web 宿主按会话身份限定工作区：提供 `sessionId` 时按其所属工作区读取；
+ * 不提供时会得到 `400 session_required`，这同样证明端点与插件已加载，只是拿不到
+ * 构建身份。其他状态码仍失败。
+ */
+export async function checkWebSession(
+  session: WebSession,
+  options: { readonly sessionId?: string } = {},
+): Promise<WebCheck> {
   const origin = new URL(session.baseUrl).origin
   const headers = { cookie: `${session.cookieName}=${session.cookieValue}` }
   const index = await fetch(new URL('/', session.baseUrl), {
@@ -166,13 +177,25 @@ export async function checkWebSession(session: WebSession): Promise<WebCheck> {
   const response = await fetch(new URL('/api/forgeloop/board', session.baseUrl), {
     method: 'POST',
     headers: { ...headers, 'content-type': 'application/json', origin },
-    body: JSON.stringify({ endpoint: 'board', limit: 1 }),
+    body: JSON.stringify({
+      endpoint: 'board',
+      limit: 1,
+      ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+    }),
   })
   const payload = (await response.json().catch(() => null)) as {
     ok?: unknown
     value?: { build?: WebSession['build'] }
-    error?: { message?: string }
+    error?: { code?: string; message?: string }
   } | null
+  if (response.status === 400 && payload?.error?.code === 'session_required') {
+    return {
+      indexStatus: index.status,
+      boardStatus: response.status,
+      build: undefined,
+      sessionScoped: true,
+    }
+  }
   if (response.status !== 200 || payload?.ok !== true) {
     throw new Error(
       `看板返回 HTTP ${response.status}：${payload?.error?.message ?? '响应不可读'}；` +
@@ -241,7 +264,8 @@ async function main(): Promise<void> {
     }
   }
 
-  const check = await checkWebSession(session)
+  const sessionFlag = option('--session') ?? process.env.FORGELOOP_WEB_SESSION?.trim()
+  const check = await checkWebSession(session, sessionFlag ? { sessionId: sessionFlag } : {})
   session = { ...session, build: check.build }
   writeSession(outDir, session)
   console.log(
@@ -254,6 +278,7 @@ async function main(): Promise<void> {
         sessionPath,
         indexStatus: check.indexStatus,
         boardStatus: check.boardStatus,
+        sessionScoped: check.sessionScoped === true,
         build: check.build ?? null,
       },
       null,
