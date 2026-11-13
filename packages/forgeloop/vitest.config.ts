@@ -10,6 +10,8 @@ export default defineConfig({
     // 真实 Git/子进程流程在满载（覆盖率并行）时会到 25–30 秒：单用例上限放宽到 60 秒，
     // 仍有明确上界，挂起仍会被判失败。需要更久的个别用例单独声明超时。
     testTimeout: 60_000,
+    // 重型夹具在 beforeAll 里起 Git/子进程；10s 默认 hook 超时在满载时会误杀。
+    hookTimeout: 60_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],
