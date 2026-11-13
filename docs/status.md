@@ -8857,5 +8857,28 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - 历史轮次不再渲染，也不再启动 4 秒轮询（effect 条件与依赖同步加上最新轮次）。
 - 测试：`client-terminal-semantics` 增加最新轮/历史轮/非 ForgeLoop/未知轮次四项；
   `client-view`、`client-terminal-semantics` 共 32 项通过；typecheck、lint 通过。
-- 限制：正式 3080 仍运行旧 `client.js`，需要重新打包/安装（或按部署流程热更新）后才生效；
-  本次未部署，未改版本号。
+- 限制：部署前正式 3080 仍运行旧 `client.js`，需要重新打包/安装后才生效；§235 已完成这次部署，
+  未改版本号。
+
+## 235. 本地部署：会话尾部修复上线到正式 web profile（2026-11-13）
+
+来源：所有者要求“本地部署”。目标为正式 `web` profile（3080，宿主 pid 23520）。
+
+- 备份上一已验证包：`C:\Users\lijia\.forgeloop\artifacts\forgeloop-dsh-0.0.2-pre-tail-20261113.tgz`
+  （442,786 字节，SHA-256
+  `166273b3d2af726eb2d6d15e2c19333a927639d19927c6cc61f87255d113ca92`，gitHead `c079d05`）。
+- 新包：443,210 字节，SHA-256
+  `af6639f0f3ccd7e2a8c798674291ff9820cb232b182c681c8f862f961d57b032`，gitHead `b210357`，
+  工作树干净；包内 `client.js` 含 `shouldRenderSessionTail`。版本仍为 `0.0.2`，未改版本号。
+- 安装路径：插件管理器对同版本返回 `already-installed`，按管理器提示
+  `remove_bundle forgeloop-dsh` → `install_bundle <新 tarball>`；两次结果均为 `application: applied`，
+  宿主未重启。安装目录为目录（非 `link:`），`runtime-identity.json` 更新为 pid 23520、
+  启动于 `2026-11-13T08:47:43.673Z`、`clientSha256=b76e0801…`。
+- 浏览器验证：首页 200；未认证看板 401、认证后无会话看板 400 `session_required`；
+  `web-ui-smoke` 通过，页脚显示 `运行 0.0.2 · 启动于 2026/11/13 16:47:43 · 客户端 b76e0801…`；
+  浏览器实际加载的 `forgeloop-dsh/client.js`（`rev=723a1cd7005c`）包含
+  `shouldRenderSessionTail`，证明新客户端已下发。
+- 未完成/限制：未在页面上逐个会话人工核对 5 张卡片已合并为 1 张（组件行为由 4 项客户端测试固定，
+  线上以“新 bundle 已下发 + 页面加载正常”为限）；`--require-source-match` 仍为 false
+  （既有缺口，见 §232.2）；未运行 `make verify-plugin` / `make verify-e2e`。
+- 回滚：重新安装备份 tarball 并热重载；业务库与证据未改动。
