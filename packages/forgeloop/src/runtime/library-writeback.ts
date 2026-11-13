@@ -4,6 +4,8 @@
  */
 
 import { LIBRARY_DOC_DIR, parseLibraryReview, type LibraryGap } from '../domain/library.js'
+import type { LibrarySyncEntry } from '../records/library-store.js'
+import { loadLibrary } from './library-docs.js'
 import { writeProjectDoc } from './project-docs.js'
 
 export interface AnswerDecisionInput {
@@ -151,4 +153,49 @@ export function writeAnswerDecisions(input: AnswerDecisionInput): AnswerDecision
     written.push(answer.questionId)
   }
   return { written, skipped }
+}
+
+/**
+ * 回答回写的一站式入口：取最近分析的缺口、写决策条目、再刷新 SQLite 索引。
+ * 回写是回答落库后的尽力而为，失败不阻断重新分析。
+ */
+/** 回答回写只需要这三个仓库能力；用结构类型避免 runtime 直接耦合 Repository。 */
+export interface LibraryWriteBackRepo {
+  latestLibraryReview(reqId: string): string
+  libraryEntries(): ReadonlyArray<{
+    readonly id: string
+    readonly status: string
+    readonly topics: readonly string[]
+  }>
+  syncLibrary(entries: readonly LibrarySyncEntry[], now: string): void
+}
+
+export function writeBackClarificationAnswers(input: {
+  readonly projectPath: string
+  readonly repo: LibraryWriteBackRepo
+  readonly now: string
+  readonly reqId: string
+  readonly questions: ReadonlyArray<{ readonly questionId: string; readonly text: string }>
+  readonly answer: string
+}): void {
+  try {
+    const result = writeAnswerDecisions({
+      projectPath: input.projectPath,
+      reqId: input.reqId,
+      now: input.now,
+      answers: input.questions.map((question) => ({
+        questionId: question.questionId,
+        question: question.text,
+        answer: input.answer,
+      })),
+      gaps: gapsFromReviewText(input.repo.latestLibraryReview(input.reqId)),
+      existing: input.repo.libraryEntries(),
+    })
+    if (result.written.length > 0) {
+      const loaded = loadLibrary(input.projectPath)
+      input.repo.syncLibrary(loaded.entries, input.now)
+    }
+  } catch {
+    // 文件不可写或库损坏时保留回答与重新分析，由下一轮分析重新暴露库问题。
+  }
 }

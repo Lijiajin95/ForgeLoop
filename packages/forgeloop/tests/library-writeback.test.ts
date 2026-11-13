@@ -6,6 +6,7 @@ import {
   gapsFromReviewText,
   writeAnswerDecision,
   writeAnswerDecisions,
+  writeBackClarificationAnswers,
 } from '../src/runtime/library-writeback.js'
 import { loadLibrary } from '../src/runtime/library-docs.js'
 
@@ -90,5 +91,25 @@ describe('answer write-back', () => {
     expect(gapsFromReviewText('')).toEqual([])
     expect(gapsFromReviewText('not json')).toEqual([])
     expect(gapsFromReviewText('{"reviewed":[]}')).toEqual([])
+  })
+
+  it('writes from the latest review and refreshes the index once', () => {
+    const synced: string[] = []
+    writeBackClarificationAnswers({
+      projectPath: root,
+      repo: {
+        latestLibraryReview: () => JSON.stringify({ reviewed: [], used: [], gaps: [gap] }),
+        libraryEntries: () => [],
+        syncLibrary: (entries) => {
+          for (const item of entries) synced.push(item.entry.id)
+        },
+      },
+      now: '2026-11-14T00:00:00.000Z',
+      reqId: 'req-1',
+      questions: [{ questionId: 'Q1-1', text: answer.question }],
+      answer: answer.answer,
+    })
+    expect(synced).toEqual(['decision.req-1.q1-1'])
+    expect(loadLibrary(root).entries.map((item) => item.entry.status)).toEqual(['confirmed'])
   })
 })

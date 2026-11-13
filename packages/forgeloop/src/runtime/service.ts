@@ -5,15 +5,7 @@
 
 import { asRecord } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { evidenceDir, planReviewDir, recordsPath, sessionsDir, workspaceDir } from '../config.js'
@@ -22,8 +14,7 @@ import { Repository, type ServiceRequestRecord } from '../records/repository.js'
 import { ProgressTracker } from '../domain/progress.js'
 import { withProgressTracking } from './agent-progress.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
-import { gapsFromReviewText, writeAnswerDecisions } from './library-writeback.js'
-import { loadLibrary } from './library-docs.js'
+import { writeBackClarificationAnswers } from './library-writeback.js'
 import { type Requirement, type RequirementAnalysis } from '../domain/requirement.js'
 import {
   authorizationSourceOf,
@@ -122,7 +113,7 @@ export interface RuntimeOptions {
   readonly formalTest?: typeof runFormalTest
 }
 
-import { directorySummaryOf, planReviewBlocking } from './service-helpers.js'
+import { directorySummaryOf, existingPackageNames, planReviewBlocking } from './service-helpers.js'
 
 import { AnalysisQueue, analysisModeOf } from './analysis-queue.js'
 
@@ -457,8 +448,7 @@ export class ForgeLoopRuntime {
   }
 
   /**
-   * 回答一个待澄清需求：追加需求版本（保留原文与历史），再让产品 Agent 重新分析。
-   * 只有会话输入接管或未来可信入口调用；模型工具不能调用。
+   * 回答待澄清需求：追加需求版本并重新分析；只有会话输入接管或可信入口调用。
    */
   async answerClarifications(input: {
     reqId: string
@@ -476,8 +466,6 @@ export class ForgeLoopRuntime {
     requirementVersion?: number | undefined
     answeredQuestionIds?: readonly string[] | undefined
     analysis?: RequirementAnalysis | undefined
-    /** 所有者回答回写需求库失败时的告警；不影响回答与重新分析本身。 */
-    libraryWarning?: string | undefined
   }> {
     const answer = input.answer.trim()
     if (!answer)
@@ -524,30 +512,14 @@ ${answer}`
         answeredAt: this.now(),
       })
     }
-    // 所有者回答即授权：能归因到分析缺口的回答直接回写为 confirmed 决策条目，
-    // 让下一次分析不再重复提问。回写失败只告警，不回滚回答与重新分析。
-    let libraryWarning = ''
-    try {
-      const gaps = gapsFromReviewText(this.repo.latestLibraryReview(input.reqId))
-      const outcome = writeAnswerDecisions({
-        projectPath: this.config.projectPath,
-        reqId: input.reqId,
-        now: this.now(),
-        answers: questions.map((question) => ({
-          questionId: question.questionId,
-          question: question.text,
-          answer,
-        })),
-        gaps,
-        existing: this.repo.libraryEntries(),
-      })
-      if (outcome.written.length > 0) {
-        const loaded = loadLibrary(this.config.projectPath)
-        this.repo.syncLibrary(loaded.entries, this.now())
-      }
-    } catch (error) {
-      libraryWarning = `需求库回写失败：${errorMessage(error)}`
-    }
+    writeBackClarificationAnswers({
+      projectPath: this.config.projectPath,
+      repo: this.repo,
+      now: this.now(),
+      reqId: input.reqId,
+      questions,
+      answer,
+    })
     const next = await this.analyzeRequirement(input.reqId, input.signal)
     if (!next.ok) {
       return {
@@ -556,7 +528,6 @@ ${answer}`
         message: next.message,
         reqId: input.reqId,
         requirementVersion: refreshed?.versions.length,
-        ...(libraryWarning ? { libraryWarning } : {}),
       }
     }
     return {
@@ -567,7 +538,6 @@ ${answer}`
       requirementVersion: refreshed?.versions.length,
       answeredQuestionIds: questions.map((question) => question.questionId),
       analysis: next.analysis,
-      ...(libraryWarning ? { libraryWarning } : {}),
     }
   }
 
@@ -1951,13 +1921,7 @@ ${answer}`
 
   /** 应用一个候选 diff：先 git apply，失败后用受控 fuzz；不修改证据原文。 */
   private existingPackages(): string[] {
-    try {
-      return readdirSync(join(this.config.projectPath, 'packages'), { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-    } catch {
-      return []
-    }
+    return existingPackageNames(this.config.projectPath)
   }
 
   private charge(reqId: string, startedAt: number): void {

@@ -225,3 +225,14 @@ export function directorySummaryOf(config: ForgeLoopConfig, runner: unknown): un
     autoAdvance: config.autoAdvance,
   }
 }
+
+/** 项目内已存在的 packages/<name> 目录；不存在时为空数组。 */
+export function existingPackageNames(projectPath: string): string[] {
+  try {
+    return readdirSync(join(projectPath, 'packages'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+  } catch {
+    return []
+  }
+}
