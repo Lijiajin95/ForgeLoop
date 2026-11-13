@@ -167,7 +167,16 @@ describe('workspace board isolation', () => {
     return createScopedBoardFetch(async (sessionId) => {
       const tenant = await source.forSession(sessionId)
       return tenant
-        ? { runtime: tenant.runtime, config: tenant.config, coordinator: tenant.coordinator }
+        ? {
+            runtime: tenant.runtime,
+            config: tenant.config,
+            coordinator: tenant.coordinator,
+            workspace: {
+              id: tenant.workspace.id,
+              title: tenant.workspace.title,
+              path: tenant.workspace.path,
+            },
+          }
         : undefined
     })
   }
@@ -212,6 +221,8 @@ describe('workspace board isolation', () => {
     expect(JSON.stringify(boardB.payload)).not.toContain(reqId)
     expect((boardA.payload.value as { project: string }).project).toBe(workspaceProjectName('a'))
     expect((boardB.payload.value as { project: string }).project).toBe(workspaceProjectName('b'))
+    expect((boardA.payload.value as { workspace?: { title?: string } }).workspace?.title).toBe('a')
+    expect((boardB.payload.value as { workspace?: { title?: string } }).workspace?.title).toBe('b')
   })
 
   it('rejects a detail request from another workspace', async () => {

@@ -36,6 +36,7 @@ interface ClientExports {
       t: (key: string, params?: Record<string, unknown>) => string,
       limit?: number,
     ) => string
+    boardProjectLabel: (board: { project: string; workspace?: { title?: string } }) => string
   }
 }
 
@@ -168,6 +169,17 @@ beforeAll(async () => {
 })
 
 describe('terminal semantics', () => {
+  it('shows the DSH workspace title instead of the tenant key', () => {
+    const rules = exportsValue.__rules
+    expect(
+      rules.boardProjectLabel({ project: 'ws-2844648b', workspace: { title: 'ForgeLoop' } }),
+    ).toBe('ForgeLoop')
+    expect(rules.boardProjectLabel({ project: 'ws-2844648b', workspace: { title: '   ' } })).toBe(
+      'ws-2844648b',
+    )
+    expect(rules.boardProjectLabel({ project: 'legacy' })).toBe('legacy')
+  })
+
   it('treats committed as terminal, matching the server status set', () => {
     const rules = exportsValue.__rules
     for (const status of ['committed', 'accepted', 'rejected', 'cancelled']) {

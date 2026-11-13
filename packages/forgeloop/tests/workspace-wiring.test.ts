@@ -308,7 +308,14 @@ describe('plugin wiring with DSH workspaces', () => {
 
     const board = await call(hosted.routes[0]!, { endpoint: 'board', sessionId: 'session-a' })
     expect(board.status).toBe(200)
-    expect((board.payload.value as { project: string }).project).toBe('ws-a')
+    const value = board.payload.value as {
+      project: string
+      workspace?: { id: string; title: string; path: string }
+    }
+    expect(value.project).toBe('ws-a')
+    expect(value.workspace?.title).toBe('a')
+    expect(value.workspace?.id).toBe('a')
+    expect(value.workspace?.path).toBe(workspace('a').path)
   })
   it('resolves workspace mode when the service registers after apply', async () => {
     const hosted = host({

@@ -2483,6 +2483,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 界面显示的工作区名：优先 DSH 工作区标题（项目名），单项目模式回退到项目键。
+     * 租户键 `ws-<id>` 只用于内部分离，不直接当项目名展示。
+     */
+    function boardProjectLabel(board) {
+      const title = board && board.workspace && board.workspace.title
+      return typeof title === 'string' && title.trim() ? title : board.project
+    }
+
+    /**
      * 统一的动作请求体：卡片与工作台共用，避免两处入口漂移。
      * 返回 null 表示用户取消或输入非法，调用方不得发请求。
      */
@@ -5239,7 +5248,7 @@ window.__ModuleLoader__.load({
                     'span',
                     { className: 'flb-sub', 'aria-live': 'polite' },
                     t('page.subtitle', {
-                      project: board.project,
+                      project: boardProjectLabel(board),
                       time: formatTime(board.generatedAt),
                     }),
                     ` · ${t('page.source')}`,
@@ -9615,7 +9624,7 @@ window.__ModuleLoader__.load({
                 { className: 'flb-sub' },
                 board
                   ? t('page.subtitle', {
-                      project: board.project,
+                      project: boardProjectLabel(board),
                       time: formatMoment(board.generatedAt),
                     })
                   : t('page.loading'),
@@ -9916,6 +9925,7 @@ window.__ModuleLoader__.load({
         reliabilityRateTone,
         shortReqId,
         requirementFocus,
+        boardProjectLabel,
       },
       __actions: { body: actionRequest, successKey: actionSuccessKey },
     }

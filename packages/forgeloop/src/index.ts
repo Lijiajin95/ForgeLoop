@@ -220,7 +220,16 @@ function workspaceBoardSource(active: WorkspaceTenants): BoardScopeSource {
   return async (sessionId) => {
     const tenant = await active.forSession(sessionId)
     return tenant
-      ? { runtime: tenant.runtime, config: tenant.config, coordinator: tenant.coordinator }
+      ? {
+          runtime: tenant.runtime,
+          config: tenant.config,
+          coordinator: tenant.coordinator,
+          workspace: {
+            id: tenant.workspace.id,
+            title: tenant.workspace.title,
+            path: tenant.workspace.path,
+          },
+        }
       : undefined
   }
 }

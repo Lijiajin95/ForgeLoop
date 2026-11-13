@@ -47,10 +47,19 @@ const BOARD_ENDPOINTS = [
 
 type BoardBody = Record<string, unknown>
 
+/** 看板所属 DSH 工作区的展示身份：界面显示标题，内部仍用租户项目键隔离。 */
+export interface BoardWorkspace {
+  readonly id: string
+  readonly title: string
+  readonly path: string
+}
+
 export interface BoardContext {
   readonly runtime: ForgeLoopRuntime
   readonly config: ForgeLoopConfig
   readonly coordinator: Coordinator
+  /** 工作区模式下的展示身份；单项目模式缺省。 */
+  readonly workspace?: BoardWorkspace | undefined
 }
 
 /** 按浏览器会话解析其所属工作区的看板作用域；找不到（未绑定）返回 undefined。 */
@@ -777,7 +786,12 @@ function handleBoardQuery(body: BoardBody | null, context: BoardContext): Respon
     }
     limit = body.limit
   }
-  return boardResponse({ ok: true, value: context.runtime.statusBoard(limit, query) })
+  const value = context.runtime.statusBoard(limit, query)
+  return boardResponse({
+    ok: true,
+    // `project` 是隔离用的租户键；界面显示工作区标题，不把 ws-<id> 暴露成项目名。
+    value: context.workspace ? { ...value, workspace: context.workspace } : value,
+  })
 }
 
 /**
