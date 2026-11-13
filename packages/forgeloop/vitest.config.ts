@@ -12,6 +12,8 @@ export default defineConfig({
     testTimeout: 60_000,
     // 重型夹具在 beforeAll 里起 Git/子进程；10s 默认 hook 超时在满载时会误杀。
     hookTimeout: 60_000,
+    // 每个测试文件会 spawn Git/Node；把并行度收敛到 4，避免 worker RPC 在满载下超时。
+    maxWorkers: 4,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],
