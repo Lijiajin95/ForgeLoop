@@ -187,7 +187,8 @@ async function sessionCwdOf(ctx: AnyRecord, sessionId: string): Promise<string |
   if (typeof readSession === 'function') {
     try {
       const snapshot = asRecord(await Reflect.apply(readSession, query, [sessionId]))
-      const cwd = asRecord(snapshot?.header)?.cwd
+      // DSH `readSession` 返回 `{ session: header, events }`：header 字段名是 `session`。
+      const cwd = asRecord(snapshot?.session)?.cwd
       if (typeof cwd === 'string' && cwd) return cwd
     } catch {
       return undefined

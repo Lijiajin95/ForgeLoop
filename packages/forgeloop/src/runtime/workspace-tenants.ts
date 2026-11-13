@@ -120,7 +120,15 @@ export class WorkspaceTenants {
   /** 按会话身份解析租户；读取会话 header 的原始 cwd，不受模型 cd 影响。 */
   async forSession(sessionId: string): Promise<Tenant | undefined> {
     const cwd = await this.options.sessionCwd(sessionId)
-    return cwd ? this.forCwd(cwd) : undefined
+    if (!cwd) {
+      this.options.log?.(`[forgeloop] 会话 ${sessionId} 没有可用的 header 目录，无法绑定工作区`)
+      return undefined
+    }
+    const tenant = await this.forCwd(cwd)
+    if (!tenant) {
+      this.options.log?.(`[forgeloop] 会话 ${sessionId} 的目录 ${cwd} 不属于任何已注册工作区`)
+    }
+    return tenant
   }
 
   /** 幂等创建租户运行时并启动其协调器；同一工作区只创建一次。 */

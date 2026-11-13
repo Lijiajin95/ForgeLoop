@@ -36,7 +36,7 @@ function host(
     /** 工作区服务晚于插件 apply 注册的毫秒数；用于固定装载竞态。 */
     registryDelayMs?: number
     sessions?: Record<string, string>
-    readSession?: (sessionId: string) => Promise<{ header?: { cwd?: string } }>
+    readSession?: (sessionId: string) => Promise<{ session?: { cwd?: string } }>
     byPathThrows?: boolean
     /** 模拟 Web 宿主：暴露 webServer，但不提供工作区服务。 */
     webServer?: boolean
@@ -209,7 +209,7 @@ describe('plugin wiring with DSH workspaces', () => {
   it('resolves a cold session through its persisted header', async () => {
     const hosted = host({
       workspaces: [workspace('a')],
-      readSession: async () => ({ header: { cwd: workspace('a').path } }),
+      readSession: async () => ({ session: { cwd: workspace('a').path } }),
     })
     apply(hosted.ctx, rawConfig())
 
@@ -235,7 +235,7 @@ describe('plugin wiring with DSH workspaces', () => {
 
     const empty = host({
       workspaces: [workspace('a')],
-      readSession: async () => ({ header: {} }),
+      readSession: async () => ({ session: {} }),
     })
     apply(empty.ctx, rawConfig())
     const noCwd = await call(empty.routes[0]!, { endpoint: 'board', sessionId: 'session-nocwd' })
