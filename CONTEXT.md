@@ -65,6 +65,7 @@
 | 澄清回答 Clarification Answer | 所有者针对某一道开放问题提交的原文、来源、问题编号与同题序号，绑定问题首次提出的分析版本与需求版本；同一道题可以有多条历次回答，未回答的问题保持开放 | 不是新需求；只回答一部分时其余问题仍阻断准入，有独立需求时必须走明确的新需求入口 |
 | 业务背景文档 Business Context Doc | 由程序按产品分析结果的 `business_context` 整份写入 `docs/product/business-context.md`，记录识别到的行业、业务目标、术语、约束与假设 | 不是需求原文，也不是客户决定；分析时只作背景材料读入，工具不能直接写该文件 |
 | 需求库条目 Requirement Library Entry | 项目文档里带 JSON 注释头的 Markdown（产品目标、术语、决策、指标口径等），`id`／`topics`／`status` 稳定；内容权威在 `docs/product/library/`，SQLite 的 `library_entries` 只存索引、哈希与缺失标记 | 不是需求原文，也不是授权；`draft` 条目不能作为“已有结论、禁止提问”的依据 |
+| 澄清缺口 Library Gap | 需求库非空时，分析在 `library_review.gaps` 里给出“库内没有依据、且影响范围／验收／数据”的问题；每条新澄清必须对应一个缺口，缺口主题不得命中 `confirmed` 条目的 topics | 不是普通疑问或偏好；没有缺口的提问会被闸门拒绝，已有结论的问题不得重复问 |
 
 ## 执行与证据
 

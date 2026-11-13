@@ -103,4 +103,9 @@ describe('library document loading', () => {
       'docs/product/library/z.md',
     ])
   })
+
+  it('fails closed when entry content exceeds the body cap', () => {
+    write('docs/product/library/a.md', header({ ...base, id: 'a' }, 'x'.repeat(64 * 1024 + 1)))
+    expect(() => loadLibrary(root)).toThrowError('超过')
+  })
 })

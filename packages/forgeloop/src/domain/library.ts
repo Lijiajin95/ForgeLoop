@@ -17,7 +17,7 @@ export const LIBRARY_HEADER = '<!-- library'
 
 export const LIBRARY_MAX_ENTRIES = 64
 export const LIBRARY_MAX_SUMMARY_CHARS = 240
-export const LIBRARY_MAX_BODY_BYTES = 16 * 1024
+export const LIBRARY_MAX_BODY_BYTES = 64 * 1024
 
 export type LibraryStatus = 'confirmed' | 'draft' | 'superseded'
 

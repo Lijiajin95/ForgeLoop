@@ -38,6 +38,7 @@ export function loadLibrary(projectPath: string): LoadedLibrary {
   for (const path of markdownFiles(projectPath)) {
     const read = readProjectDoc(projectPath, path)
     if (!read.ok) throw new LibraryError(`需求库条目不可读：${path}（${read.reason}）`)
+    if (read.truncated) throw new LibraryError(`需求库条目超过读取上限：${path}`)
     if (!read.content.replace(/^\uFEFF/, '').startsWith(LIBRARY_HEADER)) {
       warnings.push(`跳过非条目文档：${path}`)
       continue
