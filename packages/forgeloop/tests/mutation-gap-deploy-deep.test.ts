@@ -9,6 +9,7 @@ import { Repository } from '../src/records/repository.js'
 import { resolveConfig, type ForgeLoopConfig, type RawConfig } from '../src/config.js'
 import { Deployments, type DeploymentsDeps } from '../src/runtime/deployments.js'
 import type { DeploymentGate } from '../src/runtime/deployment-gate.js'
+import { createTarball } from './tar-portable.js'
 import {
   inspectRequirementModules,
   inspectRuntimeIdentity,
@@ -1463,9 +1464,7 @@ describe('deployment inspect', () => {
     writeFileSync(join(pack, 'b.js'), 'export const b = 2\n')
     writeFileSync(join(pack, 'package', 'c.js'), 'export const c = 3\n')
     const tarball = join(dir, 'build.tgz')
-    execFileSync('tar', ['-czf', tarball, '-C', pack, 'package/a.js', 'b.js', 'package/c.js'], {
-      stdio: 'ignore',
-    })
+    createTarball(tarball, pack, ['package/a.js', 'b.js', 'package/c.js'])
     const installedRoot = join(dir, 'installed-files')
     mkdirSync(installedRoot, { recursive: true })
     writeFileSync(join(installedRoot, 'a.js'), 'export const a = 1\n')

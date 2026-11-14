@@ -25,13 +25,20 @@ describe('commit coverage scope', () => {
   })
 
   it('does not require coverage for docs-only changes', () => {
-    for (const path of ['docs/verification/status.md', 'AGENTS.md', 'CONTRIBUTING.md', 'README.md']) {
+    for (const path of [
+      'docs/verification/status.md',
+      'AGENTS.md',
+      'CONTRIBUTING.md',
+      'README.md',
+    ]) {
       expect(requiresCoverage([path]), path).toBe(false)
     }
   })
 
   it('detects code in a mixed changeset', () => {
-    expect(requiresCoverage(['docs/verification/status.md', 'packages/forgeloop/src/index.ts'])).toBe(true)
+    expect(
+      requiresCoverage(['docs/verification/status.md', 'packages/forgeloop/src/index.ts']),
+    ).toBe(true)
   })
 
   it('requires coverage when a code file is deleted', () => {

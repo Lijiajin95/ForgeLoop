@@ -14,8 +14,11 @@ describe('worktree guard', () => {
 
   it('allows docs-only commits in the main worktree', () => {
     expect(
-      checkWorktree({ root: '/repo', mainRoot: '/repo', staged: ['docs/verification/status.md', 'AGENTS.md'] })
-        .ok,
+      checkWorktree({
+        root: '/repo',
+        mainRoot: '/repo',
+        staged: ['docs/verification/status.md', 'AGENTS.md'],
+      }).ok,
     ).toBe(true)
   })
 

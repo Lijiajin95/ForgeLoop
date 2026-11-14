@@ -147,6 +147,37 @@ describe('tool surface', () => {
     expect((await call('forgeloop_status', { req_id: 'req-missing' })).ok).toBe(false)
   })
 
+  it('requires fields for the verification material tool', async () => {
+    expect((await call('forgeloop_write_verification_material', {})).text).toContain(
+      'req_id is required',
+    )
+    expect(
+      (await call('forgeloop_write_verification_material', { req_id: 'req-1' })).text,
+    ).toContain('path is required')
+    expect(
+      (
+        await call('forgeloop_write_verification_material', {
+          req_id: 'req-1',
+          path: 'verification/a.js',
+        })
+      ).text,
+    ).toContain('content is required')
+  })
+
+  it('reads a requirement library entry and reports unknown ids', async () => {
+    expect((await call('forgeloop_read_library_entry', {})).text).toContain('id is required')
+    expect((await call('forgeloop_read_library_entry', { id: 'missing' })).ok).toBe(false)
+    mkdirSync(join(dir, 'docs/product/library'), { recursive: true })
+    writeFileSync(
+      join(dir, 'docs/product/library/a.md'),
+      '<!-- library\n{"id":"a","title":"A","status":"confirmed","topics":["t"],"summary":"s","source":"owner","updatedAt":"2026-11-14"}\n-->\n\n正文\n',
+      'utf8',
+    )
+    const found = await call('forgeloop_read_library_entry', { id: 'a' })
+    expect(found.ok).toBe(true)
+    expect(found.text).toContain('a')
+  })
+
   it('requires req_id for the per-requirement readers', async () => {
     for (const name of [
       'forgeloop_show_requirement',

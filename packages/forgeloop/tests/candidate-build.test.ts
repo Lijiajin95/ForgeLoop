@@ -17,6 +17,7 @@ import {
 } from './spec-fixture.js'
 import { runFormalTest } from '../src/runtime/formal-test.js'
 import { registerSmokeControl } from './control-fixture.js'
+import { extractTarball } from './tar-portable.js'
 
 /**
  * 可发布候选与上线核对：
@@ -67,14 +68,14 @@ function makeProject(): string {
       "} else if (mode === 'package-min') {",
       "  mkdirSync('packages/forgeloop/dist', { recursive: true })",
       "  const tarball = resolve('packages/forgeloop/dist/artifact-min.tar.gz')",
-      "  execFileSync('tar', ['-czf', tarball, '-C', 'packages/forgeloop', 'lib'])",
+      "  execFileSync('tar', ['-czf', 'packages/forgeloop/dist/artifact-min.tar.gz', '-C', 'packages/forgeloop', 'lib'])",
       "  const sha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex')",
       "  const pkg = JSON.parse(readFileSync('packages/forgeloop/package.json', 'utf8'))",
       "  writeFileSync('packages/forgeloop/dist/artifact.json', JSON.stringify({ name: 'forgeloop-dsh', version: pkg.version, sha256, tarball }))",
       '} else {',
       "  mkdirSync('packages/forgeloop/dist', { recursive: true })",
       "  const tarball = resolve('packages/forgeloop/dist/artifact.tar.gz')",
-      "  execFileSync('tar', ['-czf', tarball, '-C', 'packages/forgeloop', 'lib'])",
+      "  execFileSync('tar', ['-czf', 'packages/forgeloop/dist/artifact.tar.gz', '-C', 'packages/forgeloop', 'lib'])",
       "  const sha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex')",
       "  const pkg = JSON.parse(readFileSync('packages/forgeloop/package.json', 'utf8'))",
       "  writeFileSync('packages/forgeloop/dist/artifact.json', JSON.stringify({",
@@ -393,7 +394,7 @@ it('builds an admitted candidate without any plan approval or overall acceptance
   expect(build.ok, build.message).toBe(true)
   expect((build.data as { candidateSha256: string }).candidateSha256).toHaveLength(64)
   const installed = installProfile('admitted')
-  execFileSync('tar', ['-xzf', (build.data as { tarball: string }).tarball, '-C', installed])
+  extractTarball((build.data as { tarball: string }).tarball, installed)
   writeFileSync(
     join(installed, 'package.json'),
     JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
@@ -521,7 +522,7 @@ describe('candidate build and deployment checks', () => {
     expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
     const build = runtime.repo.candidateBuild(reqId, 1)!
     const installed = installProfile('web')
-    execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
+    extractTarball(build.tarball, installed)
     writeFileSync(
       join(installed, 'package.json'),
       JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
@@ -547,7 +548,7 @@ describe('candidate build and deployment checks', () => {
     expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
     const build = runtime.repo.candidateBuild(reqId, 1)!
     const installed = installProfile('web')
-    execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
+    extractTarball(build.tarball, installed)
     writeFileSync(
       join(installed, 'package.json'),
       JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
@@ -647,7 +648,7 @@ describe('candidate build and deployment checks', () => {
       expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
-      execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
+      extractTarball(build.tarball, installed)
       writeFileSync(
         join(installed, 'package.json'),
         JSON.stringify({ name: 'forgeloop-dsh', version: '9.9.9' }),
@@ -718,7 +719,7 @@ describe('candidate build and deployment checks', () => {
       expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
-      execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
+      extractTarball(build.tarball, installed)
       writeFileSync(
         join(installed, 'package.json'),
         JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
@@ -892,7 +893,7 @@ describe('candidate build and deployment checks', () => {
       expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
-      execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
+      extractTarball(build.tarball, installed)
       writeFileSync(
         join(installed, 'package.json'),
         JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
@@ -958,7 +959,7 @@ describe('candidate build and deployment checks', () => {
       expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
-      execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
+      extractTarball(build.tarball, installed)
       writeFileSync(
         join(installed, 'package.json'),
         JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
@@ -977,7 +978,7 @@ describe('candidate build and deployment checks', () => {
       expect(missingFile.message).toContain('installed_files')
 
       // 包文件不可读：安装文件存在但 tarball 被删。
-      execFileSync('tar', ['-xzf', build.tarball, '-C', installed])
+      extractTarball(build.tarball, installed)
       rmSync(build.tarball, { force: true })
       const missingTarball = runtime.verifyDeployment({
         reqId,
@@ -1273,7 +1274,7 @@ describe('candidate build and deployment checks', () => {
     const built = runtime.buildCandidate({ reqId, by: 'owner' })
     expect(built.ok, built.message).toBe(true)
     const installed = installProfile('admitted-mismatch')
-    execFileSync('tar', ['-xzf', (built.data as { tarball: string }).tarball, '-C', installed])
+    extractTarball((built.data as { tarball: string }).tarball, installed)
     writeFileSync(
       join(installed, 'package.json'),
       JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
@@ -1378,7 +1379,7 @@ describe('candidate build and deployment checks', () => {
     const built = runtime.buildCandidate({ reqId, by: 'owner' })
     expect(built.ok, built.message).toBe(true)
     const installed = installProfile('admitted-version')
-    execFileSync('tar', ['-xzf', (built.data as { tarball: string }).tarball, '-C', installed])
+    extractTarball((built.data as { tarball: string }).tarball, installed)
     writeFileSync(
       join(installed, 'package.json'),
       JSON.stringify({ name: 'forgeloop-dsh', version: '9.9.9' }),

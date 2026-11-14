@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -13,6 +12,7 @@ import { expectedAcceptanceFingerprints } from '../src/runtime/acceptance-bindin
 import { candidateIdentityOf } from '../src/domain/delivery.js'
 import type { DeploymentGate } from '../src/runtime/deployment-gate.js'
 import type { DeploymentArtifact } from '../src/domain/deployment.js'
+import { createTarball } from './tar-portable.js'
 
 let dir = ''
 let database: Database
@@ -1129,7 +1129,7 @@ createServer((req, res) => {
     mkdirSync(bundle, { recursive: true })
     writeFileSync(join(bundle, 'server.mjs'), SERVER)
     writeFileSync(join(bundle, 'app.mjs'), body)
-    execFileSync('tar', ['-czf', path, '-C', bundle, '.'])
+    createTarball(path, bundle, ['.'])
     return path
   }
 

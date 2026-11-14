@@ -82,9 +82,7 @@ if (entry) {
   // 兜底：链接识别/摘除失败时绝不能继续递归删除，否则会越过工作树删到主工作树。
   const remaining = findWorkspaceLinks(entry.path)
   if (remaining.length > 0) {
-    fail(
-      `worktree 里仍有目录链接，拒绝删除：${remaining.join('、')}。请先手工摘除链接后重试`,
-    )
+    fail(`worktree 里仍有目录链接，拒绝删除：${remaining.join('、')}。请先手工摘除链接后重试`)
   }
   if (git(['status', '--porcelain'], entry.path) !== '') {
     fail(`摘除链接后 worktree 仍不干净：${entry.path}；请手工核对后再清理`)

@@ -1,7 +1,7 @@
 import { parseJsonObject } from '../domain/json.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { sha256OfBytes } from '../domain/delivery.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 
@@ -19,6 +19,10 @@ export function verifyInstalledFiles(
   installedRoot: string,
 ): { ok: boolean; detail: string } {
   const issues: string[] = []
+  // 以包所在目录为工作目录、只传文件名：GNU tar（Git for Windows 自带）会把 `C:\...`
+  // 里的盘符当成远程主机（Cannot connect to C:），相对路径对 GNU tar 与 bsdtar 都成立。
+  const tarballDir = dirname(build.tarball)
+  const tarballName = basename(build.tarball)
   for (const file of build.files) {
     const installedPath = join(installedRoot, file)
     if (!existsSync(installedPath)) {
@@ -29,7 +33,8 @@ export function verifyInstalledFiles(
     // npm pack 的成员带 `package/` 前缀；测试或本地 tar 可能没有，两种都核对。
     for (const member of [`package/${file}`, file]) {
       try {
-        packed = execFileSync('tar', ['-xzf', build.tarball, '-O', member], {
+        packed = execFileSync('tar', ['-xzf', tarballName, '-O', member], {
+          cwd: tarballDir,
           maxBuffer: 64 * 1024 * 1024,
           stdio: ['ignore', 'pipe', 'ignore'],
         })

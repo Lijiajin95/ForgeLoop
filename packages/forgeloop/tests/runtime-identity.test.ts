@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -42,6 +42,19 @@ describe('runtime identity', () => {
       }),
     ).toBeNull()
     expect(warnings[0]).toContain('无法写入运行身份')
+  })
+
+  it('falls back to console.warn when the caller does not pass a logger', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const identity = writeRuntimeIdentity('not-a-valid-url')
+      const calls = [...warn.mock.calls]
+      expect(identity).toBeNull()
+      expect(calls).toHaveLength(1)
+      expect(String(calls[0]?.[0])).toContain('无法写入运行身份')
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('records whether the running client matches the source client', () => {

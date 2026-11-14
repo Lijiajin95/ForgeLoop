@@ -9,6 +9,17 @@
 set -e
 cd "$(git rev-parse --show-toplevel)"
 
+# 门禁入口跨平台：POSIX 有 make；Windows 的 Git Bash 通常没有 GNU make，
+# 改用仓库自带、与 Makefile 同名的 make.cmd（实现在 scripts/ts/make-windows.ts）。
+if command -v make >/dev/null 2>&1; then
+  MAKE=make
+elif [ -f ./make.cmd ]; then
+  MAKE=./make.cmd
+else
+  echo "[pre-commit] 找不到 make 或 make.cmd，无法执行提交门禁" >&2
+  exit 1
+fi
+
 COVERAGE_ARTIFACT='packages/forgeloop/coverage/coverage-summary.json'
 
 restore_coverage_artifact() {
@@ -30,8 +41,8 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
 
 case "$SCOPE" in
   code)
-    echo "[pre-commit] make commit-check（含逐文件覆盖率门槛）"
-    if ! make commit-check; then
+    echo "[pre-commit] commit-check（含逐文件覆盖率门槛）"
+    if ! "$MAKE" commit-check; then
       restore_coverage_artifact
       echo "[pre-commit] 覆盖率或静态检查未通过，提交被阻止" >&2
       exit 1
@@ -39,8 +50,8 @@ case "$SCOPE" in
     restore_coverage_artifact
     ;;
   docs)
-    echo "[pre-commit] make check-static（文档改动，不跑覆盖率）"
-    make check-static
+    echo "[pre-commit] check-static（文档改动，不跑覆盖率）"
+    "$MAKE" check-static
     ;;
   *)
     echo "[pre-commit] 无法判定暂存范围：$SCOPE" >&2
@@ -48,6 +59,6 @@ case "$SCOPE" in
     ;;
 esac
 
-echo "[pre-commit] make format"
-make format
+echo "[pre-commit] format"
+"$MAKE" format
 echo "[pre-commit] OK"

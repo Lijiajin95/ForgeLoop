@@ -1510,7 +1510,10 @@ function evaluateEvidence(
     `需求被写入了验收人，脚本不应伪造验收：${rowString(requirement, 'accepted_by')}`,
   )
   ok(latestVersionText === REQUIREMENT, '需求原文与基线记录不一致')
-  ok(latestVersionText.includes('docs/verification/status.md §160'), '需求原文没有标注 docs/verification/status.md §160 来源')
+  ok(
+    latestVersionText.includes('docs/verification/status.md §160'),
+    '需求原文没有标注 docs/verification/status.md §160 来源',
+  )
   ok(Number(evidence.analysisCount) >= 1, '需求没有分析记录')
   ok(
     rowString(admission, 'decision') === 'admit',

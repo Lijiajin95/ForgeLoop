@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { unlinkWorkspaceLink, findWorkspaceLinks, isWorkspaceLink } from '../../../scripts/ts/worktree-links.ts'
+import {
+  unlinkWorkspaceLink,
+  findWorkspaceLinks,
+  isWorkspaceLink,
+} from '../../../scripts/ts/worktree-links.ts'
 
 /**
  * worktree 复用依赖时放的是目录链接；清理工作树前必须只摘链接本身。

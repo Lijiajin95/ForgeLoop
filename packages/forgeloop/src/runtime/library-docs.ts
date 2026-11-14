@@ -9,7 +9,6 @@ import { join, relative, sep } from 'node:path'
 import {
   LIBRARY_DOC_DIR,
   LIBRARY_HEADER,
-  LIBRARY_MAX_BODY_BYTES,
   LibraryError,
   parseLibraryEntry,
   validateLibrary,
@@ -46,9 +45,6 @@ export function loadLibrary(projectPath: string): LoadedLibrary {
     const entry = parseLibraryEntry(read.content, path)
     const content = entry.ref ? refContent(projectPath, entry) : entry.body
     const bytes = Buffer.byteLength(content, 'utf8')
-    if (bytes > LIBRARY_MAX_BODY_BYTES) {
-      throw new LibraryError(`需求库条目内容超过 ${LIBRARY_MAX_BODY_BYTES} 字节：${path}`)
-    }
     entries.push({
       entry,
       sha256: createHash('sha256').update(content, 'utf8').digest('hex'),

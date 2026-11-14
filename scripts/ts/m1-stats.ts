@@ -196,7 +196,9 @@ function report(dbPath: string): DatabaseReport {
 function render(reports: readonly DatabaseReport[], totals: Totals): string {
   const lines: string[] = ['# M1 基线统计（从权威记录复算）', '']
   lines.push(`- 生成时间：${new Date().toISOString()}`)
-  lines.push('- 口径：docs/product/product.md §12；判定实现在 `packages/forgeloop/src/domain/m1-stats.ts`')
+  lines.push(
+    '- 口径：docs/product/product.md §12；判定实现在 `packages/forgeloop/src/domain/m1-stats.ts`',
+  )
   lines.push('- 空分母显示“无样本”；未知介入单列；未完成不计成功；跨归档同一对象只计一次', '')
   for (const item of reports) {
     const success = item.requirements.filter((sample) => sample.success)
