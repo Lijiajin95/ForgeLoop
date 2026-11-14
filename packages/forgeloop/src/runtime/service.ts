@@ -49,7 +49,7 @@ import {
   TASK_RUN_FAILED,
   TASK_RUN_RUNNING,
 } from '../domain/status.js'
-import { languageViolations, outsideActiveSource, unknownPackages } from '../domain/language.js'
+import { outsideActiveSource, unknownPackages } from '../domain/language.js'
 import { requirementEvidence } from '../domain/requirement-evidence.js'
 import { parsePlanReview, validatePlanCoverage, type PlanReview } from '../domain/verification.js'
 import type { TaskRun } from '../domain/work.js'
@@ -1238,14 +1238,13 @@ ${answer}`
       )
     }
     const boundary = [
-      ...languageViolations(plan),
       ...outsideActiveSource(plan, this.config.activeRoots),
       ...unknownPackages(plan, this.existingPackages()),
     ]
     if (boundary.length > 0) {
       return fail(
         'plan_out_of_boundary',
-        `任务包越过 TypeScript 语言/工程边界，不能批准：${boundary
+        `任务包越过活动工程边界，不能批准：${boundary
           .map((violation) => `${violation.taskId}.${violation.field}=${violation.value}`)
           .join('；')}`,
       )

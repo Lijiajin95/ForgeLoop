@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -108,6 +108,21 @@ describe('workspace tenant binding', () => {
     expect(projectDir(configA)).not.toBe(projectDir(configB))
     expect(recordsPath(configA)).not.toBe(recordsPath(configB))
     expect(configA.deployments.toolRoot).not.toBe(configB.deployments.toolRoot)
+  })
+
+  it('applies each workspace project profile to its own engineering facts', () => {
+    const { dir, tenants } = setup()
+    const a = workspace('a', dir)
+    const b = workspace('b', dir)
+    mkdirSync(a.path, { recursive: true })
+    writeFileSync(
+      join(a.path, '.forgeloop.json'),
+      JSON.stringify({ candidateBuildCommand: ['make', 'build'] }),
+      'utf8',
+    )
+
+    expect(tenants.configFor(a).candidateBuildCommand).toEqual(['make', 'build'])
+    expect(tenants.configFor(b).candidateBuildCommand).toEqual([])
   })
 
   it('reuses the legacy project only when the workspace path is identical', () => {

@@ -593,9 +593,7 @@ describe('prompt builders: full-string branches', () => {
     expect(projectFactsContext(projectFacts)).toMatchSnapshot('project-facts-context')
     expect(
       analysisPrompt(promptRequirement(), projectFacts, { businessContext: '行业背景：本地生活' }),
-    ).toMatchSnapshot(
-      'analysis-prompt',
-    )
+    ).toMatchSnapshot('analysis-prompt')
   })
 })
 

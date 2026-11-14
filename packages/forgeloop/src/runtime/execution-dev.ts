@@ -16,13 +16,7 @@ import {
 import { attemptAllowed } from '../domain/limits.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
-import {
-  languageRulesFor,
-  languageViolations,
-  outsideActiveFiles,
-  outsideActiveSource,
-  unknownPackages,
-} from '../domain/language.js'
+import { outsideActiveFiles, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import type { Repository } from '../records/repository.js'
 import type { AgentSession } from './agent-runner.js'
 import { devPlanningPrompt, devPrompt } from './prompts.js'
@@ -208,12 +202,11 @@ export class ExecutionDev {
       }
       const packages = this.deps.existingPackages()
       const violations = [
-        ...languageViolations(plan, languageRulesFor(this.deps.config.activeRoots)),
         ...outsideActiveSource(plan, this.deps.config.activeRoots),
         ...unknownPackages(plan, packages),
       ]
       if (violations.length > 0) {
-        lastError = `任务包越过 TypeScript 语言/工程边界：${violations
+        lastError = `任务包越过活动工程边界：${violations
           .map(
             (violation) =>
               `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`,

@@ -615,6 +615,25 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - 文件是普通 JSON，字段与 `RawConfig` 一致；非法 JSON、非对象在装载期报错。
 - 修改配置后需要重载插件宿主；业务数据（记录库、证据、工作副本）仍只在 `recordsRoot` 下。
 
+### 8.2 项目级工程事实（2026-11-14）
+
+- 每个被研发的项目可以在自己根目录放 `.forgeloop.json`，声明**工程事实**：`activeRoots`、
+  `candidateBuildCommand`、`candidatePackageCommand`、`candidateArtifactPath`、
+  `worktreePrepareCommand`、`formalTestTimeoutSeconds`、`maxTaskAttempts`。
+- 优先级：项目文件 > 全局配置；项目文件里没写的键继续用全局值。工作区租户按各自工作区路径
+  解析，因此同一宿主里的不同项目各用各的构建与测试口径。
+- 只接受上表登记的键；出现 `owner`、`autonomy`、`deployments` 等键直接报错。授权、部署目标与
+  身份仍然只能来自全局配置和人类入口，项目目录里的文件不会扩大权限。
+- 文件非 JSON 或不是对象时装载失败并指出路径，不静默忽略。
+
+### 8.3 语言边界只做工程范围（2026-11-14）
+
+- 程序不再按语言或扩展名禁止文件（原先强制 TypeScript、拒绝 `.py` 与旧 `.venv`）。目标项目
+  用什么语言由项目自己决定，运行时要判断的只有“文件是否落在活动工程范围内”，以及任务包
+  引用的 `packages/<name>` 是否真实存在。
+- 规划提示词与越界反馈不再要求 npm/node 或 TypeScript；`unknownPackages` 报错也不再写死
+  “活动插件包是 packages/forgeloop”。
+
 ## 9. 已退役与清理
 
 | 旧形态                                              | 处置                                                                                  |

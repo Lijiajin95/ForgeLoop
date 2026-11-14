@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { TaskPlan } from '../src/domain/task-plan.js'
-import { languageViolations, outsideActiveSource, unknownPackages } from '../src/domain/language.js'
+import { outsideActiveSource, unknownPackages } from '../src/domain/language.js'
 import {
   parseBusinessReview,
   validateBusinessReview,
@@ -34,78 +34,23 @@ function plan(tasks: Array<{ taskId: string; files: string[]; testCommand?: stri
 }
 
 describe('language boundaries', () => {
-  it('rejects Python interpreters, files and legacy venv paths', () => {
-    const violations = languageViolations(
-      plan([
-        {
-          taskId: 't1',
-          files: [
-            'a.py',
-            'tests/x.ts',
-            'src/forgeloop/x.ts',
-            'frontend/src/x.ts',
-            'scripts/x.sh',
-            '.venv/x',
-          ],
-          testCommand: ['python3', '-m', 'pytest', '.venv/bin/python', 'x.py', 'forgeloop'],
-        },
-        { taskId: 't2', files: [], testCommand: ['node', '--test', 'src/forgeloop/x.js'] },
-      ]),
-    )
-    expect(violations.map((v) => [v.taskId, v.field, v.value, v.reason])).toEqual([
-      ['t1', 'test_command', 'python3', '正式测试命令不得使用 Python 解释器或旧 .venv'],
-      ['t1', 'test_command', '.venv/bin/python', '正式测试命令不得使用 Python 解释器或旧 .venv'],
-      ['t1', 'test_command', 'x.py', '正式测试命令不得使用 Python 解释器或旧 .venv'],
-      ['t1', 'test_command', 'forgeloop', '正式测试命令不得调用旧 forgeloop CLI'],
-      [
-        't1',
-        'files',
-        'a.py',
-        '任务不得修改已退役的 Python/旧前端/旧脚本路径；活动实现统一在 TypeScript 工程内',
-      ],
-      [
-        't1',
-        'files',
-        'tests/x.ts',
-        '任务不得修改已退役的 Python/旧前端/旧脚本路径；活动实现统一在 TypeScript 工程内',
-      ],
-      [
-        't1',
-        'files',
-        'src/forgeloop/x.ts',
-        '任务不得修改已退役的 Python/旧前端/旧脚本路径；活动实现统一在 TypeScript 工程内',
-      ],
-      [
-        't1',
-        'files',
-        'frontend/src/x.ts',
-        '任务不得修改已退役的 Python/旧前端/旧脚本路径；活动实现统一在 TypeScript 工程内',
-      ],
-      [
-        't1',
-        'files',
-        'scripts/x.sh',
-        '任务不得修改已退役的 Python/旧前端/旧脚本路径；活动实现统一在 TypeScript 工程内',
-      ],
-      [
-        't1',
-        'files',
-        '.venv/x',
-        '任务不得修改已退役的 Python/旧前端/旧脚本路径；活动实现统一在 TypeScript 工程内',
-      ],
-      [
-        't1',
-        'test_command',
-        'python3 -m pytest .venv/bin/python x.py forgeloop',
-        '正式测试命令不得指向旧 Python 源码或旧虚拟环境',
-      ],
-      [
-        't2',
-        'test_command',
-        'node --test src/forgeloop/x.js',
-        '正式测试命令不得指向旧 Python 源码或旧虚拟环境',
-      ],
+  it('does not prohibit any file type or interpreter inside the active project', () => {
+    const candidate = plan([
+      {
+        taskId: 't1',
+        files: [
+          'packages/forgeloop/a.py',
+          'packages/forgeloop/tests/x.ts',
+          'packages/forgeloop/src/forgeloop/x.ts',
+          'packages/forgeloop/frontend/src/x.ts',
+          'packages/forgeloop/scripts/x.sh',
+          'packages/forgeloop/.venv/x',
+        ],
+        testCommand: ['python3', '-m', 'pytest', '.venv/bin/python', 'x.py', 'forgeloop'],
+      },
     ])
+    // 语言与扩展名由项目自己决定；只剩“是否在活动工程内”这一条范围规则。
+    expect(outsideActiveSource(candidate)).toEqual([])
   })
 
   it('accepts compliant plans and checks active source roots', () => {
@@ -116,7 +61,6 @@ describe('language boundaries', () => {
         testCommand: ['npm', 'test'],
       },
     ])
-    expect(languageViolations(good)).toEqual([])
     expect(outsideActiveSource(good)).toEqual([])
     const outside = outsideActiveSource(
       plan([
@@ -139,8 +83,8 @@ describe('language boundaries', () => {
       ['forgeloop'],
     )
     expect(violations.map((v) => [v.value, v.reason])).toEqual([
-      ['packages/other/a.ts', '包 packages/other 不存在；活动插件包是 packages/forgeloop'],
-      ['packages/nested/x/y.ts', '包 packages/nested 不存在；活动插件包是 packages/forgeloop'],
+      ['packages/other/a.ts', '包 packages/other 不存在；只能修改已存在的包'],
+      ['packages/nested/x/y.ts', '包 packages/nested 不存在；只能修改已存在的包'],
     ])
   })
 })

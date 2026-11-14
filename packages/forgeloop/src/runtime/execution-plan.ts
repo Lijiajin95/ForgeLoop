@@ -18,12 +18,7 @@ import {
 } from '../domain/analysis.js'
 import { projectDocExists, readProjectDoc, writeProjectDoc } from './project-docs.js'
 import { sha256OfText } from '../domain/delivery.js'
-import {
-  languageRulesFor,
-  languageViolations,
-  outsideActiveSource,
-  unknownPackages,
-} from '../domain/language.js'
+import { outsideActiveSource, unknownPackages } from '../domain/language.js'
 import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { PlanReview } from '../domain/verification.js'
 import type { Repository } from '../records/repository.js'
@@ -682,7 +677,6 @@ export class ExecutionPlan {
         continue
       }
       const violations = [
-        ...languageViolations(plan, languageRulesFor(this.deps.config.activeRoots)),
         ...outsideActiveSource(plan, this.deps.config.activeRoots),
         ...unknownPackages(plan, this.deps.existingPackages()),
         ...planCoverageIssues(analysis, plan).map((issue) => ({
@@ -693,10 +687,8 @@ export class ExecutionPlan {
         })),
       ]
       if (violations.length > 0) {
-        lastError = `任务包越过 TypeScript 语言/工程边界：${violations
-          .map(describeViolation)
-          .join('；')}`
-        feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。不得使用 Python、旧 .venv 或旧 forgeloop CLI；请只修改 TypeScript 工程并给出 npm/node 测试命令。重新输出完整 JSON。`
+        lastError = `任务包越过活动工程边界：${violations.map(describeViolation).join('；')}`
+        feedback = `\n\n上一次输出的任务包被程序拒绝：${lastError}。任务文件必须落在当前活动工程范围内，只引用已存在的包。重新输出完整 JSON。`
         continue
       }
       this.deps.repo.recordTaskPlan(plan)

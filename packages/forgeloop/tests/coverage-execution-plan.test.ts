@@ -207,9 +207,9 @@ describe('execution plan failure paths', () => {
     ]
     const outcome = await executionPlan().executeDevPlanning('req-1', new AbortController().signal)
     expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('TypeScript 语言/工程边界')
+    expect(outcome.detail).toContain('活动工程边界')
     expect(outcome.detail).toContain('a.files=scripts/old.py')
-    expect(runnerCalls.at(-1)?.prompt).toContain('不得使用 Python')
+    expect(runnerCalls.at(-1)?.prompt).toContain('任务文件必须落在当前活动工程范围内')
     expect(statuses.at(-1)?.[1]).toBe('blocked')
   })
 

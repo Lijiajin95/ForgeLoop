@@ -442,6 +442,59 @@ export function mergeConfig(base: RawConfig, file: RawConfig): RawConfig {
 }
 
 /**
+ * 项目级工程事实文件：`<projectPath>/.forgeloop.json`。
+ *
+ * 多项目时每个项目自带构建、打包、活动范围与上限；这些只决定“怎么干活”，不包含授权、
+ * 部署目标与 owner 等决定权，所以放在被研发的项目目录里也不会扩大权限。只接受下面登记的键：
+ * 未知键一律拒绝，避免项目配置变成隐藏的第二套全局配置。
+ */
+export const PROJECT_PROFILE_FILE = '.forgeloop.json'
+
+export const PROJECT_PROFILE_KEYS = [
+  'activeRoots',
+  'candidateBuildCommand',
+  'candidatePackageCommand',
+  'candidateArtifactPath',
+  'worktreePrepareCommand',
+  'formalTestTimeoutSeconds',
+  'maxTaskAttempts',
+] as const
+
+export type ProjectProfileKey = (typeof PROJECT_PROFILE_KEYS)[number]
+
+export function projectProfilePath(projectPath: string): string {
+  return join(projectPath, PROJECT_PROFILE_FILE)
+}
+
+/** 读取项目级工程事实：文件不存在返回空对象；存在但非法时直接报错，不静默忽略。 */
+export function loadProjectProfile(projectPath: string): RawConfig {
+  const path = projectProfilePath(projectPath)
+  if (!existsSync(path)) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch (error) {
+    throw new RuleViolationError(`项目配置文件不是合法 JSON：${path}：${errorMessage(error)}`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new RuleViolationError(`项目配置文件必须是 JSON 对象：${path}`)
+  }
+  const allowed = new Set<string>(PROJECT_PROFILE_KEYS)
+  const unknown = Object.keys(parsed).filter((key) => !allowed.has(key))
+  if (unknown.length > 0) {
+    throw new RuleViolationError(
+      `项目配置文件 ${path} 不支持键 ${unknown.join('、')}；只允许 ${PROJECT_PROFILE_KEYS.join('、')}`,
+    )
+  }
+  return parsed
+}
+
+/** 项目级工程事实覆盖全局配置；未声明的键继续沿用全局值。 */
+export function applyProjectProfile(base: RawConfig, profile: RawConfig): RawConfig {
+  return Object.keys(profile).length > 0 ? { ...base, ...profile } : base
+}
+
+/**
  * 装载业务配置：优先独立文件。两者都没有关键值时报错，而不是静默回落到
  * “当前目录/.forgeloop”——静默回落会让插件连到另一个记录库，造成假死或分叉。
  */
@@ -1244,13 +1297,18 @@ function textOr(value: string | undefined, fallback: string): string {
 }
 
 export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopConfig {
+  const projectPath = resolve(cwd, expandHome(textOr(raw.projectPath, '.')))
+  // 项目自带工程事实优先；授权、部署与身份仍只来自全局配置。
+  return resolveEffective(applyProjectProfile(raw, loadProjectProfile(projectPath)), projectPath)
+}
+
+function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig {
   const project = textOr(raw.project, 'forgeloop')
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(project)) {
     throw new RuleViolationError(
       `配置 project 只能是安全的项目名，实际 ${JSON.stringify(raw.project)}`,
     )
   }
-  const projectPath = resolve(cwd, expandHome(textOr(raw.projectPath, '.')))
   // Desktop 和 Web 的启动目录可能不同；项目数据始终相对已选项目定位。
   const activeRoots = stringList(raw.activeRoots, 'activeRoots', [])
   const recordsRoot = resolve(projectPath, expandHome(textOr(raw.recordsRoot, '.forgeloop')))

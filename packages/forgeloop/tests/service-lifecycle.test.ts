@@ -621,11 +621,16 @@ describe('execution guards and directory summary', () => {
 })
 
 describe('approval boundaries', () => {
-  it('refuses a plan that references a retired Python runtime', () => {
+  it('does not reject a Python test command at the boundary gate', () => {
     const reqId = submit()
     seedPlan(reqId, 1, ['python', '-m', 'pytest'])
     const result = runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' })
-    expect(result).toMatchObject({ ok: false, code: 'plan_out_of_boundary' })
+    // 语言/解释器不再被禁止；通过边界后停在下一道真实门禁（实现前评审）。
+    expect(result).toEqual({
+      ok: false,
+      code: 'plan_review_required',
+      message: '任务包 v1 尚未通过测试 Agent 的实现前评审；不能批准进入实现',
+    })
   })
 
   it('rejects an approval for a missing plan or stale requirement version', () => {

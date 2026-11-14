@@ -1309,8 +1309,7 @@ describe('approvePlan 守卫', () => {
     ).toEqual({
       ok: false,
       code: 'plan_out_of_boundary',
-      message:
-        '任务包越过 TypeScript 语言/工程边界，不能批准：t1.files=src/legacy.py；t1.files=src/legacy.py',
+      message: '任务包越过活动工程边界，不能批准：t1.files=src/legacy.py',
     })
 
     const unknownPackage = submit('req-approve-package')
@@ -1322,7 +1321,7 @@ describe('approvePlan 守卫', () => {
     ).toEqual({
       ok: false,
       code: 'plan_out_of_boundary',
-      message: '任务包越过 TypeScript 语言/工程边界，不能批准：t1.files=packages/ghost/src/x.ts',
+      message: '任务包越过活动工程边界，不能批准：t1.files=packages/ghost/src/x.ts',
     })
   })
 

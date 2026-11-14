@@ -513,7 +513,7 @@ exports[`remaining prompt snapshots > keeps planning, review, dev, orchestration
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
 - 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
-- 禁止把 Python 解释器、旧 .venv、旧 forgeloop CLI、src/forgeloop/、tests/（旧 Python 测试）、frontend/src/ 写进 files 或 test_command；
+- 文件范围只限当前活动工程；不要写进其他项目的文件，也不要写进工作目录之外；
 - 任务不得包含部署、发布、安装到正式 profile 或修改正式环境/生产数据的步骤；这些只能由所有者在受控入口显式执行；
 - 正式测试命令必须是 TypeScript 工程可执行的真实 argv，例如 ["npm","run","check","--workspace","forgeloop-dsh"]；
 - 只输出 JSON。"
@@ -584,7 +584,7 @@ exports[`remaining prompt snapshots > keeps planning, review, dev, orchestration
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
 - 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
-- 禁止把 Python 解释器、旧 .venv、旧 forgeloop CLI、src/forgeloop/、tests/（旧 Python 测试）、frontend/src/ 写进 files 或 test_command；
+- 文件范围只限当前活动工程；不要写进其他项目的文件，也不要写进工作目录之外；
 - 任务不得包含部署、发布、安装到正式 profile 或修改正式环境/生产数据的步骤；这些只能由所有者在受控入口显式执行；
 - 正式测试命令必须是 TypeScript 工程可执行的真实 argv，例如 ["npm","run","check","--workspace","forgeloop-dsh"]；
 - 只输出 JSON。"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseTaskPlanDraft } from '../src/domain/task-plan.js'
-import { languageViolations, outsideActiveSource } from '../src/domain/language.js'
+import { outsideActiveSource, unknownPackages } from '../src/domain/language.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
 
 const context = {
@@ -30,43 +30,30 @@ function plan(testCommand: string[], files: string[]) {
   )
 }
 
-describe('TypeScript language boundary', () => {
-  it('accepts a TypeScript-only plan', () => {
+describe('active project scope', () => {
+  it('accepts a plan whose files stay inside the active project', () => {
     const candidate = plan(
       ['npm', 'run', 'check', '--workspace', 'forgeloop-dsh'],
       ['packages/forgeloop/src/index.ts'],
     )
-    expect(languageViolations(candidate)).toEqual([])
     expect(outsideActiveSource(candidate)).toEqual([])
   })
 
-  it('rejects Python interpreters and the old virtualenv in test commands', () => {
+  it('accepts any language or file extension inside the active project', () => {
+    // 目标项目自己决定用什么语言；程序不再按扩展名禁止文件。
+    const candidate = plan(['python3', '-m', 'pytest'], ['packages/forgeloop/src/app.py'])
+    expect(outsideActiveSource(candidate)).toEqual([])
+  })
+
+  it('accepts a Python test command and a legacy-shaped path by scope alone', () => {
     const candidate = plan(
-      ['.venv/bin/python', '-m', 'forgeloop'],
-      ['packages/forgeloop/src/index.ts'],
+      ['.venv/bin/python', '-m', 'pytest', 'tests/test_app.py'],
+      ['packages/forgeloop/src/app.py'],
     )
-    const violations = languageViolations(candidate)
-    expect(violations.some((violation) => violation.field === 'test_command')).toBe(true)
+    expect(outsideActiveSource(candidate)).toEqual([])
   })
 
-  it('rejects the legacy forgeloop CLI as a test command', () => {
-    const candidate = plan(
-      ['forgeloop', 'requirement', 'status'],
-      ['packages/forgeloop/src/index.ts'],
-    )
-    expect(
-      languageViolations(candidate).some((violation) => /旧 forgeloop/.test(violation.reason)),
-    ).toBe(true)
-  })
-
-  it('rejects retired Python/frontend paths in the file list', () => {
-    const candidate = plan(['npm', 'test'], ['src/forgeloop/domain/requirement.py'])
-    expect(languageViolations(candidate).some((violation) => violation.field === 'files')).toBe(
-      true,
-    )
-  })
-
-  it('rejects files outside the active TypeScript project', () => {
+  it('rejects files outside the active project roots', () => {
     const candidate = plan(['npm', 'test'], ['unrelated/notes.txt'])
     expect(outsideActiveSource(candidate).length).toBeGreaterThan(0)
   })
@@ -95,23 +82,19 @@ describe('outsideActiveSource roots', () => {
   })
 })
 
-describe('language rules by project', () => {
+describe('unknown packages', () => {
   const plan = (file: string): TaskPlan =>
     ({
       tasks: [{ taskId: 't1', title: 't1', files: [file], testCommand: ['npm', 'test'] }],
     }) as unknown as TaskPlan
 
-  it('rejects ForgeLoop retired script paths by default', () => {
-    expect(languageViolations(plan('scripts/verify-watchdog.mjs'))).toHaveLength(1)
+  it('rejects a package that does not exist without naming a fixed plugin package', () => {
+    const violations = unknownPackages(plan('packages/other/src/a.ts'), ['forgeloop'])
+    expect(violations).toHaveLength(1)
+    expect(violations[0]?.reason).not.toContain('packages/forgeloop')
   })
 
-  it('keeps only generic checks when the target project disables ForgeLoop conventions', () => {
-    expect(
-      languageViolations(plan('scripts/verify-watchdog.mjs'), { forgeLoopConventions: false }),
-    ).toEqual([])
-    // Python 文件仍然被拒绝：这是通用语言约束，不是 ForgeLoop 专属约定。
-    expect(
-      languageViolations(plan('scripts/verify.py'), { forgeLoopConventions: false }),
-    ).toHaveLength(1)
+  it('accepts an existing package', () => {
+    expect(unknownPackages(plan('packages/forgeloop/src/a.ts'), ['forgeloop'])).toEqual([])
   })
 })
