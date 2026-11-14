@@ -4,6 +4,7 @@
  */
 
 import { asRecord } from './domain/json.js'
+import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { errorMessage } from './domain/errors.js'
 import { isAbsolute, join, relative, resolve } from 'node:path'
@@ -185,6 +186,10 @@ export interface OpsArtifact {
   readonly label: string
   /** 已部署产物所在 profile 的目录名；空字符串表示不关联运行实例。 */
   readonly profile: string
+  /** profile 下 node_modules 里的包名；默认 ForgeLoop 自身制品，其他项目显式配置。 */
+  readonly package: string
+  /** 运行身份比对用的入口文件（相对安装根）；空数组表示不做文件摘要比对。 */
+  readonly entryFiles: readonly string[]
   readonly logs: readonly OpsArtifactLog[]
 }
 
@@ -285,6 +290,8 @@ export interface RawOpsArtifact {
   id?: string
   label?: string
   profile?: string
+  package?: string
+  entryFiles?: string[]
   logs?: RawOpsArtifactLog[]
 }
 
@@ -379,6 +386,8 @@ export interface ForgeLoopConfig {
   readonly candidateBuildCommand: readonly string[]
   readonly candidatePackageCommand: readonly string[]
   readonly candidateArtifactPath: string
+  /** 业务背景文档路径（项目内相对路径）；默认沿用 ForgeLoop 自身布局，可被项目级配置覆盖。 */
+  readonly businessContextDoc: string
   /** DSH profile 根目录：部署核对读取目标 profile 的实际安装版本。 */
   readonly dshProfilesRoot: string
   readonly autonomy: AutonomyConfig
@@ -404,6 +413,7 @@ export interface RawConfig {
   candidateBuildCommand?: string[]
   candidatePackageCommand?: string[]
   candidateArtifactPath?: string
+  businessContextDoc?: string
   dshProfilesRoot?: string
   autonomy?: RawAutonomyConfig
   ops?: RawOpsConfig
@@ -455,6 +465,7 @@ export const PROJECT_PROFILE_KEYS = [
   'candidateBuildCommand',
   'candidatePackageCommand',
   'candidateArtifactPath',
+  'businessContextDoc',
   'worktreePrepareCommand',
   'formalTestTimeoutSeconds',
   'maxTaskAttempts',
@@ -1095,6 +1106,11 @@ function parseDeployments(
 
 /** profile 目录名必须是一段：拒绝 `.`、`..` 与路径分隔符，避免读到 profile 根之外。 */
 const PROFILE_SEGMENT = /^[A-Za-z0-9._-]+$/
+/** 未显式配置 package 时的默认制品包名；仅 ForgeLoop 自身沿用，其他项目应在 ops.artifacts 里声明。 */
+const DEFAULT_ARTIFACT_PACKAGE = 'forgeloop-dsh'
+/** 未显式配置 entryFiles 时的默认入口摘要比对文件；非 ForgeLoop 包布局应显式覆盖或置空。 */
+const DEFAULT_ARTIFACT_ENTRY_FILES = ['lib/index.js', 'lib/runtime/service.js']
+const PACKAGE_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i
 const MAX_ARTIFACTS = 20
 const MAX_ARTIFACT_LOGS = 20
 
@@ -1143,13 +1159,41 @@ function parseArtifacts(items: RawOpsArtifact[] | undefined): OpsArtifact[] {
     if (!profile && logs.length === 0) {
       throw new RuleViolationError(`配置 ${field} 至少要登记一个 profile 或一条日志`)
     }
+    const { package: packageName, entryFiles } = parseArtifactRuntime(item, field)
     return {
       id,
       label: typeof item.label === 'string' && item.label.trim() ? item.label.trim() : id,
       profile,
+      package: packageName,
+      entryFiles,
       logs,
     }
   })
+}
+
+/** 制品包名与入口文件：默认沿用 ForgeLoop 自身布局，其他项目显式覆盖。 */
+function parseArtifactRuntime(
+  item: RawOpsArtifact,
+  field: string,
+): { package: string; entryFiles: readonly string[] } {
+  const packageName = textOr(
+    typeof item.package === 'string' ? item.package : undefined,
+    DEFAULT_ARTIFACT_PACKAGE,
+  )
+  if (!PACKAGE_NAME.test(packageName)) {
+    throw new RuleViolationError(`配置 ${field}.package 只能是合法包名：${packageName}`)
+  }
+  const entryFiles = stringList(
+    item.entryFiles,
+    `${field}.entryFiles`,
+    DEFAULT_ARTIFACT_ENTRY_FILES,
+  )
+  for (const entry of entryFiles) {
+    if (entry === '' || entry.startsWith('/') || entry.split(/[\\/]/).includes('..')) {
+      throw new RuleViolationError(`配置 ${field}.entryFiles 只能是安装根下的相对路径：${entry}`)
+    }
+  }
+  return { package: packageName, entryFiles }
 }
 
 const DEFAULT_LOG_MAX_BYTES = 10 * 1024 * 1024
@@ -1352,6 +1396,7 @@ function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig 
     candidateBuildCommand: stringList(raw.candidateBuildCommand, 'candidateBuildCommand', []),
     candidatePackageCommand: stringList(raw.candidatePackageCommand, 'candidatePackageCommand', []),
     candidateArtifactPath: textOr(raw.candidateArtifactPath, ''),
+    businessContextDoc: textOr(raw.businessContextDoc, BUSINESS_CONTEXT_DOC),
     dshProfilesRoot: resolve(
       projectPath,
       expandHome(textOr(raw.dshProfilesRoot, join(homedir(), '.dsh', 'profiles'))),

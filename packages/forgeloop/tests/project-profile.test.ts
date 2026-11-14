@@ -23,6 +23,19 @@ afterEach(() => {
 })
 
 describe('project profile', () => {
+  it('keeps the default business-context path when nothing overrides it', () => {
+    const root = projectDir()
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.businessContextDoc).toBe('docs/product/business-context.md')
+  })
+
+  it('takes the business-context path from the project profile', () => {
+    const root = projectDir()
+    writeProfile(root, { businessContextDoc: 'docs/business/context.md' })
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.businessContextDoc).toBe('docs/business/context.md')
+  })
+
   it('keeps the global engineering facts when the project has no profile', () => {
     const root = projectDir()
     const config = resolveConfig(

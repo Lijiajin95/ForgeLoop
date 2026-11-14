@@ -232,6 +232,30 @@ describe('ops configuration', () => {
     ).toThrow('不能大于 60 秒')
   })
 
+  it('accepts a scoped package name for the registered artifact', () => {
+    const config = resolveConfig(
+      {
+        ops: {
+          enabled: true,
+          monitor: { enabled: true },
+          artifacts: [
+            {
+              id: 'scoped',
+              profile: 'web',
+              package: '@acme/app',
+              entryFiles: ['dist/main.js'],
+            },
+          ],
+        },
+      },
+      cwd,
+    )
+    expect(config.ops.artifacts[0]).toMatchObject({
+      package: '@acme/app',
+      entryFiles: ['dist/main.js'],
+    })
+  })
+
   it('accepts only registered monitor providers and normalizes heartbeat settings', () => {
     const config = resolveConfig(
       {
@@ -312,6 +336,8 @@ describe('ops configuration', () => {
         id: 'host',
         label: 'ForgeLoop 宿主',
         profile: 'web',
+        package: 'forgeloop-dsh',
+        entryFiles: ['lib/index.js', 'lib/runtime/service.js'],
         logs: [
           { id: 'run', path: join(homedir(), 'logs', 'host.log'), errorPattern: 'ERROR' },
           { id: 'plain', path: '/var/log/plain.log', errorPattern: '' },
@@ -332,6 +358,8 @@ describe('ops configuration', () => {
       id: 'logs-only',
       label: 'logs-only',
       profile: '',
+      package: 'forgeloop-dsh',
+      entryFiles: ['lib/index.js', 'lib/runtime/service.js'],
       logs: [{ id: 'run', path: 'run.log', errorPattern: '' }],
     })
   })
@@ -381,6 +409,12 @@ describe('ops configuration', () => {
         cwd,
       ),
     ).toThrow('不是合法正则')
+    expect(() =>
+      resolveConfig(artifacts([{ id: 'a', profile: 'web', package: '../escape' }]), cwd),
+    ).toThrow('只能是合法包名')
+    expect(() =>
+      resolveConfig(artifacts([{ id: 'a', profile: 'web', entryFiles: ['../outside.js'] }]), cwd),
+    ).toThrow('只能是安装根下的相对路径')
     expect(() =>
       resolveConfig(
         artifacts(Array.from({ length: 21 }, (_, index) => ({ id: `a-${index}`, profile: 'web' }))),

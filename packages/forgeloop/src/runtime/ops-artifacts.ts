@@ -26,8 +26,7 @@ export const OPS_ARTIFACT_TOOL_NAMES = ['forgeloop_ops_artifact', 'forgeloop_ops
 export const PLUGIN_LOG_ARTIFACT_ID = 'forgeloop-plugin'
 export const PLUGIN_LOG_ID = 'plugin'
 
-/** 部署进 profile 的包名；当前只有 ForgeLoop 自身作为研发制品。 */
-const ARTIFACT_PACKAGE = 'forgeloop-dsh'
+/** 部署进 profile 的包名与入口文件由 ops.artifacts 配置提供；这里不再写死具体项目。 */
 const MAX_LOG_BYTES = 64 * 1024
 const MAX_LINE_CHARS = 500
 const MAX_LOG_TEXT = 60_000
@@ -95,6 +94,8 @@ function builtinArtifact(config: ForgeLoopConfig): OpsArtifact {
     id: PLUGIN_LOG_ARTIFACT_ID,
     label: 'ForgeLoop 插件运行日志',
     profile: '',
+    package: '',
+    entryFiles: [],
     logs: [{ id: PLUGIN_LOG_ID, path: pluginLogPath(config), errorPattern: 'ERROR' }],
   }
 }
@@ -208,9 +209,41 @@ export function readArtifactLog(
   }
 }
 
+/** 按配置的入口文件比对运行身份与安装文件；未配置入口时不做比对并如实说明。 */
+function compareEntryFiles(input: {
+  installedRoot: string
+  installedVersion: string
+  entryFiles: readonly string[]
+  kind: string
+  version: string
+  indexSha256: string
+  serviceSha256: string
+}): { matchesInstalled: boolean; detail: string } {
+  const [indexFile, serviceFile] = input.entryFiles
+  if (!indexFile) return { matchesInstalled: false, detail: '，未配置入口文件，跳过摘要比对' }
+  try {
+    const indexHash = sha256OfBytes(readFileSync(join(input.installedRoot, indexFile)))
+    const serviceHash = serviceFile
+      ? sha256OfBytes(readFileSync(join(input.installedRoot, serviceFile)))
+      : input.serviceSha256
+    const matchesInstalled =
+      input.kind === 'forgeloop-runtime-identity' &&
+      input.version === input.installedVersion &&
+      input.indexSha256 === indexHash &&
+      input.serviceSha256 === serviceHash
+    return {
+      matchesInstalled,
+      detail: matchesInstalled ? '，入口与服务摘要与安装文件一致' : '，身份与安装文件不一致',
+    }
+  } catch {
+    return { matchesInstalled: false, detail: '，无法读取安装文件摘要' }
+  }
+}
+
 function identityOf(
   installedRoot: string,
   installedVersion: string,
+  entryFiles: readonly string[] = [],
 ): Pick<
   ArtifactRuntime,
   | 'identityPresent'
@@ -244,18 +277,17 @@ function identityOf(
     const serviceSha256 = typeof identity.serviceSha256 === 'string' ? identity.serviceSha256 : ''
     let matchesInstalled = false
     let detail = `运行身份 pid=${pid || '未知'}`
-    try {
-      const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))
-      const serviceHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/runtime/service.js')))
-      matchesInstalled =
-        kind === 'forgeloop-runtime-identity' &&
-        version === installedVersion &&
-        indexSha256 === indexHash &&
-        serviceSha256 === serviceHash
-      detail += matchesInstalled ? '，入口与服务摘要与安装文件一致' : '，身份与安装文件不一致'
-    } catch {
-      detail += '，无法读取安装文件摘要'
-    }
+    const comparison = compareEntryFiles({
+      installedRoot,
+      installedVersion,
+      entryFiles,
+      kind,
+      version,
+      indexSha256,
+      serviceSha256,
+    })
+    matchesInstalled = comparison.matchesInstalled
+    detail += comparison.detail
     return {
       identityPresent: true,
       identityKind: kind,
@@ -312,7 +344,7 @@ export function readArtifactState(
     }
   }
   const profileDir = join(config.dshProfilesRoot, artifact.profile)
-  const installedRoot = join(profileDir, 'node_modules', ARTIFACT_PACKAGE)
+  const installedRoot = join(profileDir, 'node_modules', artifact.package)
   const packagePresent = existsSync(installedRoot)
   const installedVersion = packagePresent ? readInstalledVersion(installedRoot) : ''
   const runtime = packagePresent
@@ -321,7 +353,7 @@ export function readArtifactState(
         installedRoot,
         packagePresent,
         installedVersion,
-        ...identityOf(installedRoot, installedVersion),
+        ...identityOf(installedRoot, installedVersion, artifact.entryFiles),
       }
     : {
         profileDir,

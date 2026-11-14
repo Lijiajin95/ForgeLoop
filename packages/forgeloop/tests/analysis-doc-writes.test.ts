@@ -28,7 +28,7 @@ function tempRoot(prefix: string): string {
   return root
 }
 
-function makeRuntime(root: string, text: string): ForgeLoopRuntime {
+function makeRuntime(root: string, text: string, businessContextDoc?: string): ForgeLoopRuntime {
   const runner: AgentLike = {
     async run(request: AgentRunRequest): Promise<AgentRunResult> {
       return {
@@ -49,6 +49,7 @@ function makeRuntime(root: string, text: string): ForgeLoopRuntime {
       recordsRoot: join(root, '.forgeloop'),
       owner: 'owner',
       agent: { provider: 'fake', model: 'fake-model', timeoutSeconds: 30 },
+      ...(businessContextDoc ? { businessContextDoc } : {}),
     },
     root,
   )
@@ -163,6 +164,22 @@ describe('business context drafts', () => {
     expect(runtime.repo.businessContextChanges(reqId)).toMatchObject([
       { status: 'draft', requirementVersion: 1 },
     ])
+    runtime.close()
+  })
+
+  it('writes the business context to the configured project path', async () => {
+    const root = tempRoot('forgeloop-context-custom-')
+    const custom = 'docs/business/context.md'
+    const runtime = makeRuntime(
+      root,
+      analysisWith({ changed: true, document: CONTEXT, reason: '配置路径' }),
+      custom,
+    )
+    const reqId = submit(runtime)
+    const outcome = await runtime.analyzeRequirement(reqId)
+    expect(outcome.ok, outcome.message).toBe(true)
+    expect(readFileSync(join(root, custom), 'utf8')).toBe(CONTEXT)
+    expect(existsSync(join(root, BUSINESS_CONTEXT_DOC))).toBe(false)
     runtime.close()
   })
 

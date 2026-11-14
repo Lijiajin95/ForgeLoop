@@ -9,7 +9,6 @@ import { AGENT_DEV, AGENT_PRODUCT } from '../domain/agents.js'
 import { PLAN_PROPOSED, SPECIFIED, ANALYSIS_FAILED, isTerminal } from '../domain/status.js'
 import {
   ANALYSIS_PROMPT_VERSION,
-  BUSINESS_CONTEXT_DOC,
   PRODUCT_TOOL_ALLOWLIST,
   type AnalysisAttempt,
   type AnalysisMode,
@@ -414,9 +413,11 @@ export class ExecutionPlan {
       now: this.deps.now(),
       currentText: requirement.versions.map((version) => version.text).join('\n'),
     })
-    const business = readProjectDoc(this.deps.config.projectPath, BUSINESS_CONTEXT_DOC)
+    const docPath = this.deps.config.businessContextDoc
+    const business = readProjectDoc(this.deps.config.projectPath, docPath)
     return analysisPrompt(requirement, facts, {
       businessContext: business.ok ? business.content : '',
+      businessContextDoc: docPath,
       history: analysisHistoryContext({
         clarifications: clarificationContext({
           questions: history.length > 0 ? history : open,
@@ -560,7 +561,7 @@ export class ExecutionPlan {
     if (!input.businessContext.changed) return { ok: true, sha256: '' }
     const written = writeProjectDoc(
       this.deps.config.projectPath,
-      BUSINESS_CONTEXT_DOC,
+      this.deps.config.businessContextDoc,
       input.businessContext.document,
     )
     if (!written.ok) {

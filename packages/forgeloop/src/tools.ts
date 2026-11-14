@@ -13,7 +13,6 @@ import type { ForgeLoopRuntime } from './runtime/service.js'
 import type { ForgeLoopConfig } from './config.js'
 import { readProjectDoc, resolveProjectDoc, writeProjectDoc } from './runtime/project-docs.js'
 import { fetchWeb, searchWeb, WEB_KEY_NOTE } from './runtime/web-tools.js'
-import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
 import { errorMessage } from './domain/errors.js'
 import { loadLibrary } from './runtime/library-docs.js'
 import {
@@ -523,10 +522,13 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
         // 业务背景文档只有一个写入方：分析结束时由程序按 business_context 同步。
         // 路径比较忽略大小写，避免在大小写不敏感的文件系统上换一种写法绕过。
         const target = resolveProjectDoc(config.projectPath, path)
-        if (target.ok && target.relative.toLowerCase() === BUSINESS_CONTEXT_DOC.toLowerCase()) {
+        if (
+          target.ok &&
+          target.relative.toLowerCase() === config.businessContextDoc.toLowerCase()
+        ) {
           return {
             ok: false,
-            text: `业务背景文档 ${BUSINESS_CONTEXT_DOC} 由程序在分析结束时同步：请在分析结果里给出 business_context，不要用工具直接写这个文件`,
+            text: `业务背景文档 ${config.businessContextDoc} 由程序在分析结束时同步：请在分析结果里给出 business_context，不要用工具直接写这个文件`,
           }
         }
         const outcome = writeProjectDoc(config.projectPath, path, args.content)

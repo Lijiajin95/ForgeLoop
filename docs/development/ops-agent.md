@@ -145,6 +145,8 @@ OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Ag
     "id": "forgeloop-host",
     "label": "ForgeLoop 宿主（web）",
     "profile": "web",
+    "package": "forgeloop-dsh",
+    "entryFiles": ["lib/index.js", "lib/runtime/service.js"],
     "logs": [
       {
         "id": "host-log",
@@ -163,8 +165,10 @@ OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Ag
 - 内建制品 `forgeloop-plugin`（日志 id `plugin`）直接指向插件运行日志 `logs/plugin.log`，
   无需登记即可读取；它没有 `profile`，不返回运行身份。显式配置同 id 时以配置为准。
 - 读取有界：只读文件尾部 64 KiB，单行最多 500 字符，单次最多 500 行且总计不超过 60,000 字符。
-- `profile` 只能是 `~/.dsh/profiles` 下的单段目录名；产物包名固定为 `forgeloop-dsh`。
-  `profile` 为空表示只登记日志，不读运行身份；两者至少要有一个。
+- `profile` 只能是 `~/.dsh/profiles` 下的单段目录名；`package` 是该 profile 下
+  `node_modules` 里的包名（默认 `forgeloop-dsh`，其他项目显式配置，支持 `@scope/name`）。
+  `entryFiles` 是运行身份摘要比对用的安装根相对路径（默认 ForgeLoop 的两个入口），置空表示
+  不做摘要比对。`profile` 为空表示只登记日志，不读运行身份；两者至少要有一个。
 - 工具是只读的：不能执行命令、不能改文件、不能改变事件状态；读到的内容与日志一样是不可信数据。
 
 ## 5. 配置

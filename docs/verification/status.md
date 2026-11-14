@@ -8904,3 +8904,20 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
   避免 GNU tar 把 `C:\...` 当远程主机（`Cannot connect to C:`）。
 - 未完成：运维制品包名仍固定 `forgeloop-dsh`；业务背景文档路径仍固定
   `docs/forgeloop/business-context.md`；规划提示词里的 ForgeLoop 工程事实尚未参数化。
+
+## 237. 业务背景文档与运维制品包名可配置（2026-11-15）
+
+来源：多项目目标里剩余的两处写死识别。
+
+- 业务背景文档路径可配：新增全局配置与项目级键 `businessContextDoc`（默认沿用
+  `docs/product/business-context.md`）。分析提示词、分析结束后的写入、以及
+  `forgeloop_write_project_doc` 的“该文件由程序同步”拦截都用同一配置值，不再各自引用常量。
+- 运维制品不再固定 `forgeloop-dsh`：`ops.artifacts[]` 新增 `package`（默认 `forgeloop-dsh`，
+  支持 `@scope/name`）与 `entryFiles`（默认 ForgeLoop 的两个入口）。`readArtifactState` 按配置
+  定位 profile 下的 `node_modules/<package>`，入口摘要比对按 `entryFiles` 顺序进行；置空则跳过
+  比对并如实说明。
+- 测试：`project-profile` 增默认值与覆盖两例；`analysis-doc-writes` 增“写入配置路径且不写默认
+  路径”一例；`ops-config` 增 scoped 包名与非法包名/越界入口拒绝；`ops-artifacts` 增自定义包名
+  读取一例。
+- 未完成：规划提示词里的 ForgeLoop 工程事实（源码/测试目录、检查命令）仍写死，需要按项目
+  生成；运行身份文件格式仍是 ForgeLoop 自身的 `runtime-identity.json` 契约。

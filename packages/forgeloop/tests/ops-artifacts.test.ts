@@ -270,6 +270,41 @@ describe('artifact runtime state', () => {
     expect(state.data.logs[1]).toMatchObject({ id: 'empty', exists: false, error: '文件不存在' })
   })
 
+  it('reads a configured package and entry files instead of a fixed name', () => {
+    const root = join(dir, 'profiles', 'web', 'node_modules', 'other-app')
+    write(join(root, 'package.json'), JSON.stringify({ name: 'other-app', version: '2.0.0' }))
+    write(join(root, 'dist', 'main.js'), 'export const main = 1\n')
+    const custom = resolveConfig(
+      {
+        project: 'testproj',
+        projectPath: dir,
+        recordsRoot: join(dir, '.forgeloop'),
+        dshProfilesRoot: join(dir, 'profiles'),
+        ops: {
+          enabled: true,
+          monitor: { enabled: true },
+          artifacts: [
+            {
+              id: 'other',
+              profile: 'web',
+              package: 'other-app',
+              entryFiles: ['dist/main.js'],
+              logs: [{ id: 'run', path: 'logs/host.log' }],
+            },
+          ],
+        },
+      },
+      dir,
+    )
+    const state = readArtifactState(custom, 'other')
+    expect(state.ok).toBe(true)
+    if (!state.ok) return
+    expect(state.data.runtime?.installedRoot).toBe(root)
+    expect(state.data.runtime?.installedVersion).toBe('2.0.0')
+    // 自定义包没有 ForgeLoop 运行身份文件：如实标记缺失，不按固定布局猜。
+    expect(state.data.runtime?.identityPresent).toBe(false)
+  })
+
   it('flags an identity that no longer matches the installed files', () => {
     installProfile()
     write(

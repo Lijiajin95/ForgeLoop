@@ -619,7 +619,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 
 - 每个被研发的项目可以在自己根目录放 `.forgeloop.json`，声明**工程事实**：`activeRoots`、
   `candidateBuildCommand`、`candidatePackageCommand`、`candidateArtifactPath`、
-  `worktreePrepareCommand`、`formalTestTimeoutSeconds`、`maxTaskAttempts`。
+  `businessContextDoc`、`worktreePrepareCommand`、`formalTestTimeoutSeconds`、`maxTaskAttempts`。
 - 优先级：项目文件 > 全局配置；项目文件里没写的键继续用全局值。工作区租户按各自工作区路径
   解析，因此同一宿主里的不同项目各用各的构建与测试口径。
 - 只接受上表登记的键；出现 `owner`、`autonomy`、`deployments` 等键直接报错。授权、部署目标与
