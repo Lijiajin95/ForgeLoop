@@ -203,6 +203,28 @@ describe('prompt builders', () => {
     expect(text).toContain('任务不得包含部署、发布、安装到正式 profile')
   })
 
+  it('renders the configured engineering facts instead of the built-in layout', () => {
+    const text = devPlanningPrompt(
+      requirement,
+      {
+        analysisVersion: 1,
+        requirementVersion: 2,
+        goal: '目标',
+        scenarios: ['场景'],
+        businessRules: ['规则'],
+        exceptions: ['异常'],
+        nonGoals: ['非目标'],
+        acceptanceCriteria: ['标准'],
+        clarifications: [],
+        createdAt: '2026-10-23T00:06:00.000Z',
+      },
+      { engineeringFacts: ['源码在 src/（TypeScript）', '检查命令：["npm","test"]'] },
+    )
+    expect(text).toContain('- 源码在 src/（TypeScript）')
+    expect(text).toContain('- 检查命令：["npm","test"]')
+    expect(text).not.toContain('插件活动源码在 packages/forgeloop/src/')
+  })
+
   it('tells the development Agent to fix a problem instead of rebuilding a feature', () => {
     const text = devPlanningPrompt(requirement, {
       analysisVersion: 1,

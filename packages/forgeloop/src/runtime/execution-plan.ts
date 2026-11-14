@@ -652,7 +652,10 @@ export class ExecutionPlan {
       const result = await this.deps.runner.run({
         role: AGENT_DEV,
         cwd: this.deps.config.projectPath,
-        prompt: devPlanningPrompt(requirement, analysis) + feedback,
+        prompt:
+          devPlanningPrompt(requirement, analysis, {
+            engineeringFacts: this.deps.config.engineeringFacts,
+          }) + feedback,
         permission: 'workspace-write',
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
         transcriptPath: transcript,

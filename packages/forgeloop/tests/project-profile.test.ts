@@ -23,6 +23,35 @@ afterEach(() => {
 })
 
 describe('project profile', () => {
+  it('takes engineering facts and the version file from the project profile', () => {
+    const root = projectDir()
+    writeProfile(root, {
+      engineeringFacts: ['源码在 src/', '检查命令：["npm","test"]'],
+      candidateVersionFile: 'package.json',
+    })
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.engineeringFacts).toEqual(['源码在 src/', '检查命令：["npm","test"]'])
+    expect(config.candidateVersionFile).toBe('package.json')
+  })
+
+  it('keeps ForgeLoop defaults for facts and version file when unset', () => {
+    const root = projectDir()
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.engineeringFacts).toEqual([])
+    expect(config.candidateVersionFile).toBe('packages/forgeloop/package.json')
+  })
+
+  it('rejects an absolute or escaping version file', () => {
+    const first = projectDir()
+    writeProfile(first, { candidateVersionFile: '../escape.json' })
+    expect(() => resolveConfig({ project: 'demo', projectPath: first }, first)).toThrow(/不能包含/)
+    const second = projectDir()
+    writeProfile(second, { candidateVersionFile: 'C:/abs/package.json' })
+    expect(() => resolveConfig({ project: 'demo', projectPath: second }, second)).toThrow(
+      /项目内相对路径/,
+    )
+  })
+
   it('keeps the default business-context path when nothing overrides it', () => {
     const root = projectDir()
     const config = resolveConfig({ project: 'demo', projectPath: root }, root)

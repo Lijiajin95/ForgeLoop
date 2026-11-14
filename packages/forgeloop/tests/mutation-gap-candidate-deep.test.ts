@@ -879,7 +879,7 @@ describe('candidate build copy preparation', () => {
       ok: false,
       result: { code: 'package_missing' },
     })
-    expect(emptyVersion.result.result.message).toContain('候选包清单缺少版本号')
+    expect(emptyVersion.result.result.message).toContain('候选版本清单缺少版本号')
   })
 })
 

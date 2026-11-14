@@ -8921,3 +8921,19 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
   读取一例。
 - 未完成：规划提示词里的 ForgeLoop 工程事实（源码/测试目录、检查命令）仍写死，需要按项目
   生成；运行身份文件格式仍是 ForgeLoop 自身的 `runtime-identity.json` 契约。
+
+## 238. 版本文件与规划工程事实可配置（2026-11-15）
+
+来源：多项目剩余的两处写死——候选版本改写固定 `packages/forgeloop/package.json`，规划提示词
+固定 ForgeLoop 的源码/测试目录与检查命令。
+
+- 新增配置与项目级键 `candidateVersionFile`（默认 `packages/forgeloop/package.json`，显式空字符串
+  表示不改写版本号；拒绝绝对路径与 `..`）。候选准备阶段按它定位版本清单、改写版本并登记
+  buildIgnore，不再写死包路径。
+- 新增配置与项目级键 `engineeringFacts`（字符串数组）：非空时替换规划提示词里的“已知工程事实”，
+  为空时沿用内置的 ForgeLoop 布局默认值。
+- 测试：`project-profile` 增覆盖、默认与非法路径三例；`prompts` 增“渲染配置事实且不出现默认
+  源码行”一例；`coverage-candidate-pipeline` 增“按配置改写版本文件”“未配置版本文件时跳过改写”
+  两例。
+- 未完成：运行身份文件格式仍是 ForgeLoop 自身的 `runtime-identity.json` 契约；`activeRoots`
+  未配置时仍按 ForgeLoop 顶层布局判定。

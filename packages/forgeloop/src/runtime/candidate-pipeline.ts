@@ -236,16 +236,44 @@ export class CandidatePipeline {
     })
   }
 
+  /** 按配置改写候选版本号；未配置版本文件时不做改写。 */
   private patchCandidateVersion(dir: string, version: string | undefined): OperationResult | null {
     if (version === undefined) return null
-    const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
+    const relative = this.deps.config.candidateVersionFile
+    if (!relative) return null
+    const packageJsonPath = join(dir, relative)
     if (!existsSync(packageJsonPath)) {
-      return fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`)
+      return fail('package_missing', `候选副本缺少版本清单 ${packageJsonPath}`)
     }
     const packageJson = parseJsonObject(readFileSync(packageJsonPath, 'utf8'))
     packageJson.version = version
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
     return null
+  }
+
+  /** 读取候选版本号：配置了版本文件时以它为准，否则用请求版本（可能为空）。 */
+  private candidateVersionOf(
+    dir: string,
+    version: string | undefined,
+  ): { ok: true; packageVersion: string } | { ok: false; result: OperationResult } {
+    const relative = this.deps.config.candidateVersionFile
+    if (!relative) return { ok: true, packageVersion: version ?? '' }
+    const packageJsonPath = join(dir, relative)
+    if (!existsSync(packageJsonPath)) {
+      return {
+        ok: false,
+        result: fail('package_missing', `候选副本缺少版本清单 ${packageJsonPath}`),
+      }
+    }
+    const packageJson = parseJsonObject(readFileSync(packageJsonPath, 'utf8'))
+    const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
+    if (!packageVersion) {
+      return {
+        ok: false,
+        result: fail('package_missing', `候选版本清单缺少版本号：${packageJsonPath}`),
+      }
+    }
+    return { ok: true, packageVersion }
   }
 
   private prepareCandidateBuild(
@@ -279,22 +307,13 @@ export class CandidatePipeline {
     }
     const versionError = this.patchCandidateVersion(dir, input.version)
     if (versionError) return { ok: false, result: versionError }
-    const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
-    if (!existsSync(packageJsonPath)) {
-      return {
-        ok: false,
-        result: fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`),
-      }
-    }
-    const packageJson = parseJsonObject(readFileSync(packageJsonPath, 'utf8'))
-    const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
-    if (!packageVersion) {
-      return {
-        ok: false,
-        result: fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`),
-      }
-    }
-    const buildIgnore = input.version !== undefined ? ['packages/forgeloop/package.json'] : []
+    const versioned = this.candidateVersionOf(dir, input.version)
+    if (!versioned.ok) return { ok: false, result: versioned.result }
+    const packageVersion = versioned.packageVersion
+    const buildIgnore =
+      input.version !== undefined && this.deps.config.candidateVersionFile
+        ? [this.deps.config.candidateVersionFile]
+        : []
     const protectedBefore = this.protectedFileHashes(dir, materials.protectedFiles)
     const log: string[] = []
     for (const [label, command] of [
@@ -424,7 +443,10 @@ export class CandidatePipeline {
       { label: 'build', command: this.deps.config.candidateBuildCommand },
       { label: 'package', command: this.deps.config.candidatePackageCommand },
     ]
-    const buildIgnore = input.version !== undefined ? ['packages/forgeloop/package.json'] : []
+    const buildIgnore =
+      input.version !== undefined && this.deps.config.candidateVersionFile
+        ? [this.deps.config.candidateVersionFile]
+        : []
     const built = this.runCandidateCommands(dir, commands, materials.protectedFiles, buildIgnore)
     if (!built.ok) return built.result
     const artifact = this.readCandidateArtifact(dir, packageVersion)
@@ -650,22 +672,9 @@ export class CandidatePipeline {
     cpSync(source, dir, { recursive: true })
     const versionError = this.patchCandidateVersion(dir, input.version)
     if (versionError) return { ok: false, result: versionError }
-    const packageJsonPath = join(dir, 'packages/forgeloop/package.json')
-    if (!existsSync(packageJsonPath)) {
-      return {
-        ok: false,
-        result: fail('package_missing', `候选副本缺少插件包清单 ${packageJsonPath}`),
-      }
-    }
-    const packageJson = parseJsonObject(readFileSync(packageJsonPath, 'utf8'))
-    const packageVersion = typeof packageJson.version === 'string' ? packageJson.version : ''
-    if (!packageVersion) {
-      return {
-        ok: false,
-        result: fail('package_missing', `候选包清单缺少版本号：${packageJsonPath}`),
-      }
-    }
-    return { ok: true, dir, source, packageVersion, protectedDigest }
+    const versioned = this.candidateVersionOf(dir, input.version)
+    if (!versioned.ok) return { ok: false, result: versioned.result }
+    return { ok: true, dir, source, packageVersion: versioned.packageVersion, protectedDigest }
   }
 
   /**

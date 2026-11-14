@@ -548,10 +548,27 @@ ${actions}
  * 技术方案与任务拆解提示词。研发会话内规划时允许只读查看代码；
  * 旧规划入口没有工具，避免模型把工具调用标记当成最终文本。
  */
+/**
+ * 规划提示词里的工程事实：项目配置优先；未配置时沿用 ForgeLoop 自身布局作为默认。
+ * 其他项目应在 `.forgeloop.json` 里给出自己的源码/测试目录与检查命令。
+ */
+const DEFAULT_ENGINEERING_FACTS: readonly string[] = [
+  '插件活动源码在 packages/forgeloop/src/（入口 src/index.ts，运行时 src/runtime/service.ts，工具 src/tools.ts，记录 src/records/，领域 src/domain/）',
+  '行为测试在 packages/forgeloop/tests/（vitest）',
+  '正式检查命令：["npm","run","check","--workspace","forgeloop-dsh"]',
+  '仓库根目录另有 docs/、contracts/、config/、Makefile 与根 package.json',
+  '不存在 packages/dsh 或 packages/forgeloop-dsh；不要新建并行插件包',
+]
+
+function engineeringFactsBlock(facts: readonly string[] | undefined): string {
+  const list = facts && facts.length > 0 ? facts : DEFAULT_ENGINEERING_FACTS
+  return list.map((fact) => `- ${fact}`).join('\n')
+}
+
 export function devPlanningPrompt(
   requirement: Requirement,
   analysis: RequirementAnalysis,
-  input: { tools?: 'none' | 'read' } = {},
+  input: { tools?: 'none' | 'read'; engineeringFacts?: readonly string[] } = {},
 ): string {
   const toolRule =
     input.tools === 'read'
@@ -564,11 +581,7 @@ ${requirementContext(requirement)}
 ${analysisContext(analysis)}
 
 已知工程事实（以此为准，不要臆造目录）：
-- 插件活动源码在 packages/forgeloop/src/（入口 src/index.ts，运行时 src/runtime/service.ts，工具 src/tools.ts，记录 src/records/，领域 src/domain/）
-- 行为测试在 packages/forgeloop/tests/（vitest）
-- 正式检查命令：["npm","run","check","--workspace","forgeloop-dsh"]
-- 仓库根目录另有 docs/、contracts/、config/、Makefile 与根 package.json
-- 不存在 packages/dsh 或 packages/forgeloop-dsh；不要新建并行插件包
+${engineeringFactsBlock(input.engineeringFacts)}
 
 请只输出一个 JSON 对象：
 {

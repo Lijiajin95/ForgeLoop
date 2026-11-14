@@ -172,6 +172,64 @@ describe('candidate pipeline defensive paths', () => {
     })
   })
 
+  it('rewrites the configured version file instead of a fixed package path', () => {
+    const custom = resolveConfig({
+      project: 'demo',
+      projectPath: root,
+      recordsRoot: join(root, '.forgeloop'),
+      candidateBuildCommand: ['node', '-e', 'process.exit(0)'],
+      candidatePackageCommand: ['node', '-e', 'process.exit(0)'],
+      candidateArtifactPath: 'artifact.json',
+      candidateVersionFile: 'package.json',
+    })
+    const evidenceDir = join(root, 'evidence-custom')
+    const workspace = join(evidenceDir, 'workspace')
+    mkdirSync(workspace, { recursive: true })
+    writeFileSync(
+      join(workspace, 'package.json'),
+      JSON.stringify({ name: 'other-app', version: '1.0.0' }),
+      'utf8',
+    )
+    mkdirSync(join(workspace, '.git'), { recursive: true })
+    const diffPath = join(root, 'candidate-custom.diff')
+    writeFileSync(diffPath, 'diff', 'utf8')
+    const customPipeline = new CandidatePipeline({ config: custom } as never)
+    const prepared = customPipeline['prepareCandidateBuild'](
+      { reqId: 'req-1', version: '9.9.9' },
+      {
+        plan: plan(),
+        candidate: candidate(diffPath),
+        verification: verification(evidenceDir),
+        materials: { diffPath, protectedFiles: [] },
+      },
+    )
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.packageVersion).toBe('9.9.9')
+    const written = JSON.parse(readFileSync(join(prepared.dir, 'package.json'), 'utf8')) as {
+      version: string
+    }
+    expect(written.version).toBe('9.9.9')
+  })
+
+  it('skips the version file entirely when none is configured', () => {
+    const noVersion = resolveConfig({
+      project: 'demo',
+      projectPath: root,
+      recordsRoot: join(root, '.forgeloop'),
+      candidateBuildCommand: [],
+      candidateVersionFile: '',
+    })
+    const dir = join(root, 'noversion')
+    mkdirSync(dir, { recursive: true })
+    const pipelineWithout = new CandidatePipeline({ config: noVersion } as never)
+    expect(pipelineWithout['patchCandidateVersion'](dir, '9.9.9')).toBeNull()
+    expect(pipelineWithout['candidateVersionOf'](dir, '3.0.0')).toEqual({
+      ok: true,
+      packageVersion: '3.0.0',
+    })
+  })
+
   it('rejects a candidate with an empty build command', () => {
     const evidenceDir = join(root, 'evidence')
     const workspace = join(evidenceDir, 'workspace')
