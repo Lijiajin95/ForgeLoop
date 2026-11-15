@@ -8,6 +8,7 @@ import type { ForgeLoopRuntime } from './service.js'
 import { extendWorkBudget } from './budget.js'
 import { grantFailureRounds } from './grants.js'
 import { resolveCommitment } from './commitment-decisions.js'
+import { loadLibrary } from './library-docs.js'
 
 const BOARD_ENDPOINTS = [
   'board',
@@ -38,6 +39,7 @@ const BOARD_ENDPOINTS = [
   'stop',
   'cancel',
   'reliability',
+  'library',
   'ops',
   'ops-detail',
   'ops-decide',
@@ -188,6 +190,8 @@ function handleRead(
 
   if (endpoint === 'reliability') return handleReliability(body, context)
 
+  if (endpoint === 'library') return handleLibrary(context)
+
   if (endpoint === 'deployments') return handleDeployments(body, context)
 
   if (endpoint === 'deployment') return handleDeployment(body, context)
@@ -320,6 +324,38 @@ function handleReliability(body: BoardBody | null, context: BoardContext): Respo
     return boardResponse(boardFailure('bad_request', '可靠性窗口只能是 7d、30d、90d 或 all'), 400)
   }
   return boardResponse({ ok: true, value: context.runtime.reliability(window) })
+}
+
+/** 需求库只读视图：每次请求重新扫描项目文档，返回当前条目与扫描提醒。 */
+function handleLibrary(context: BoardContext): Response {
+  const projectPath = context.config.projectPath
+  if (typeof projectPath !== 'string' || !projectPath) {
+    return boardResponse(boardFailure('bad_request', '项目路径未配置，无法读取需求库'), 400)
+  }
+  try {
+    const loaded = loadLibrary(projectPath)
+    return boardResponse({
+      ok: true,
+      value: {
+        entries: loaded.entries.map((item) => ({
+          id: item.entry.id,
+          title: item.entry.title,
+          status: item.entry.status,
+          topics: item.entry.topics,
+          summary: item.entry.summary,
+          always: item.entry.always,
+          path: item.entry.path,
+          ref: item.entry.ref,
+          source: item.entry.source,
+          updatedAt: item.entry.updatedAt,
+          bytes: item.bytes,
+        })),
+        warnings: loaded.warnings,
+      },
+    })
+  } catch (error) {
+    return boardResponse(boardFailure('bad_request', `需求库不可用：${errorMessage(error)}`), 400)
+  }
 }
 
 function handlePlan(body: BoardBody | null, context: BoardContext): Response {

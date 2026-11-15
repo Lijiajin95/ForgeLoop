@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createBoardFetch } from '../src/runtime/board-route.js'
 import type { Coordinator } from '../src/runtime/coordinator.js'
 import type { ForgeLoopRuntime } from '../src/runtime/service.js'
 import type { ForgeLoopConfig } from '../src/config.js'
 
-function setup(overrides: Record<string, unknown> = {}) {
+function setup(
+  overrides: Record<string, unknown> = {},
+  configOverrides: Record<string, unknown> = {},
+) {
   const calls: Array<{ method: string; input?: unknown }> = []
   const runtime = {
     requirementDetail: (reqId: string) => {
@@ -98,7 +104,7 @@ function setup(overrides: Record<string, unknown> = {}) {
       return true
     },
   } as unknown as Coordinator
-  const config = { owner: 'owner' } as ForgeLoopConfig
+  const config = { owner: 'owner', ...configOverrides } as ForgeLoopConfig
   return { fetch: createBoardFetch(runtime, config, coordinator), calls, aborted: () => aborted }
 }
 
@@ -139,6 +145,54 @@ describe('board route', () => {
     expect((await post(fetch, { endpoint: 'reliability', window: '7d' })).status).toBe(200)
     expect(calls.at(-1)).toEqual({ method: 'reliability', input: '7d' })
     expect((await post(fetch, { endpoint: 'reliability', window: '12h' })).status).toBe(400)
+  })
+
+  it('serves the current requirement library as a read-only view', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-board-library-'))
+    try {
+      mkdirSync(join(dir, 'docs/product/library'), { recursive: true })
+      writeFileSync(
+        join(dir, 'docs/product/library/a.md'),
+        `<!-- library\n${JSON.stringify({
+          id: 'a',
+          title: '条目 A',
+          status: 'confirmed',
+          topics: ['a.topic'],
+          summary: 'A 摘要',
+          source: 'docs/product.md',
+          updatedAt: '2026-11-15',
+        })}\n-->\n\n正文\n`,
+        'utf8',
+      )
+      writeFileSync(join(dir, 'docs/product/library/README.md'), '# 说明\n', 'utf8')
+      const { fetch } = setup({}, { projectPath: dir })
+      const response = await post(fetch, { endpoint: 'library' })
+      expect(response.status).toBe(200)
+      expect(response.body.value.entries).toEqual([
+        expect.objectContaining({
+          id: 'a',
+          title: '条目 A',
+          status: 'confirmed',
+          topics: ['a.topic'],
+          summary: 'A 摘要',
+          ref: '',
+          source: 'docs/product.md',
+          updatedAt: '2026-11-15',
+        }),
+      ])
+      expect(response.body.value.warnings).toEqual([
+        '跳过非条目文档：docs/product/library/README.md',
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects the library view when the project path is missing', async () => {
+    const { fetch } = setup({}, { projectPath: undefined })
+    const response = await post(fetch, { endpoint: 'library' })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe('bad_request')
   })
 
   it('validates read endpoint inputs and dispatches successes', async () => {

@@ -148,9 +148,29 @@ describe('client conversation view', () => {
       'hierarchy',
       'tasks',
       'issues',
+      'product',
       'reliability',
       'ops',
     ])
+  })
+
+  it('ships product labels in both locales', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts!.zh['nav.product']).toBe('产品')
+    expect(dicts!.en['nav.product']).toBe('Product')
+    for (const key of [
+      'product.title',
+      'product.subtitle',
+      'product.loading',
+      'product.empty',
+      'product.topics',
+      'product.status.confirmed',
+      'product.status.draft',
+      'product.status.superseded',
+    ]) {
+      expect(dicts!.zh[key], key).toBeTruthy()
+      expect(dicts!.en[key], key).toBeTruthy()
+    }
   })
 
   it('ships reliability labels in both locales', () => {

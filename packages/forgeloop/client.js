@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     /** 与服务端 TERMINAL_STATUSES 保持一致：committed 也是终态，不再算“进行中”。 */
     const TERMINAL_STATUSES = new Set(['committed', 'accepted', 'rejected', 'cancelled'])
     /** 工作台视图顺序：可靠性位于「需要处理」与「运维」之间。 */
-    const WORKBENCH_VIEWS = ['hierarchy', 'tasks', 'issues', 'reliability', 'ops']
+    const WORKBENCH_VIEWS = ['hierarchy', 'tasks', 'issues', 'product', 'reliability', 'ops']
     /** 页面请求的默认条数；服务端上限同为 100。 */
     const BOARD_LIMIT = 100
 
@@ -690,6 +690,7 @@ window.__ModuleLoader__.load({
       'nav.requirements': '需求',
       'nav.tasks': '任务',
       'nav.issues': '问题',
+      'nav.product': '产品',
       'nav.reliability': '可靠性',
       'nav.ops': '运维',
       'nav.label': '工作台视图',
@@ -1115,6 +1116,22 @@ window.__ModuleLoader__.load({
       'ops.obs.alert': '告警已发送',
       'ops.obs.alert_error': '告警失败',
       'reliability.title': '代码可靠性',
+      'product.title': '需求库',
+      'product.subtitle': '当前项目的需求库条目：产品目标、已确认决策与指标口径',
+      'product.loading': '正在读取需求库…',
+      'product.error': '需求库读取失败',
+      'product.retry': '重试',
+      'product.empty': '需求库为空；在 docs/product/library/ 下新增条目后刷新',
+      'product.warnings': '扫描提醒',
+      'product.status.confirmed': '已确认',
+      'product.status.draft': '草稿',
+      'product.status.superseded': '已被取代',
+      'product.topics': '主题',
+      'product.always': '每次注入',
+      'product.ref': '引用文档',
+      'product.source': '来源',
+      'product.updatedAt': '更新',
+      'product.bytes': '字节',
       'reliability.loading': '正在读取可靠性数据…',
       'reliability.error': '可靠性数据读取失败',
       'reliability.retry': '重试',
@@ -1253,6 +1270,7 @@ window.__ModuleLoader__.load({
       'nav.requirements': 'Requirements',
       'nav.tasks': 'Tasks',
       'nav.issues': 'Issues',
+      'nav.product': 'Product',
       'nav.reliability': 'Reliability',
       'nav.ops': 'Ops',
       'nav.label': 'Workbench views',
@@ -1705,6 +1723,23 @@ window.__ModuleLoader__.load({
       'ops.obs.alert': 'Alert sent',
       'ops.obs.alert_error': 'Alert failed',
       'reliability.title': 'Code reliability',
+      'product.title': 'Requirement library',
+      'product.subtitle':
+        'Current project library entries: goals, confirmed decisions and metric definitions',
+      'product.loading': 'Loading requirement library…',
+      'product.error': 'Failed to read requirement library',
+      'product.retry': 'Retry',
+      'product.empty': 'The library is empty; add entries under docs/product/library/ and refresh',
+      'product.warnings': 'Scan warnings',
+      'product.status.confirmed': 'Confirmed',
+      'product.status.draft': 'Draft',
+      'product.status.superseded': 'Superseded',
+      'product.topics': 'Topics',
+      'product.always': 'Always injected',
+      'product.ref': 'Referenced document',
+      'product.source': 'Source',
+      'product.updatedAt': 'Updated',
+      'product.bytes': 'bytes',
       'reliability.loading': 'Reading reliability data…',
       'reliability.error': 'Failed to read reliability data',
       'reliability.retry': 'Retry',
@@ -4815,6 +4850,24 @@ window.__ModuleLoader__.load({
 @media (max-width:820px){.flb-ops-grid{grid-template-columns:minmax(0,1fr)}.flb-ops-list{max-height:40vh}}
 `
 
+    const PRODUCT_CSS = `
+.flb-product-pane{min-width:0}
+.flb-product-head{padding:2px 0 10px}
+.flb-product-title{margin:0 0 4px;font-size:16px;font-weight:600}
+.flb-product-list{display:flex;flex-direction:column;gap:8px}
+.flb-product-card{border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:10px;background:var(--dsw-alias-bg-layer-1)}
+.flb-product-card-head{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.flb-product-badge{font-size:11px;line-height:18px;border:.5px solid var(--dsw-alias-border-l2);border-radius:999px;padding:0 8px;color:var(--dsw-alias-label-secondary)}
+.flb-product-badge[data-status=confirmed]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
+.flb-product-badge[data-status=draft]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}
+.flb-product-badge[data-status=superseded]{color:var(--dsw-alias-label-secondary);text-decoration:line-through}
+.flb-product-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dsw-alias-label-secondary);margin-top:2px}
+.flb-product-summary{margin-top:6px;font-size:13px;overflow-wrap:anywhere}
+.flb-product-meta{font-size:11px;color:var(--dsw-alias-label-secondary);margin-top:3px;overflow-wrap:anywhere}
+.flb-product-warnings{font-size:12px;color:var(--dsw-alias-state-warn-primary);margin:0 0 8px;overflow-wrap:anywhere}
+.flb-product-error{color:var(--dsw-alias-state-error-primary);font-size:13px}
+`
+
     const RELIABILITY_CSS = `
 .flb-rel-pane{display:flex;flex-direction:column;gap:12px;max-height:none;overflow:visible}
 .flb-rel-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
@@ -7726,6 +7779,113 @@ window.__ModuleLoader__.load({
         )
       }
 
+      /** 产品视图：只读展示当前需求库条目（产品目标、决策、指标口径）。 */
+      function ProductPane(props) {
+        const t = props.t
+        const data = props.data || {}
+        const entries = Array.isArray(data.entries) ? data.entries : []
+        const warnings = Array.isArray(data.warnings) ? data.warnings : []
+        if (!props.data) {
+          return h(
+            'main',
+            { className: 'flb-main-pane flb-product-pane' },
+            props.error
+              ? h(
+                  'div',
+                  { className: 'flb-product-error' },
+                  t('product.error'),
+                  '：',
+                  props.error,
+                  props.onRetry
+                    ? h(
+                        'button',
+                        { type: 'button', className: 'flb-card-action', onClick: props.onRetry },
+                        t('product.retry'),
+                      )
+                    : null,
+                )
+              : h('div', { className: 'flb-empty' }, t('product.loading')),
+          )
+        }
+        return h(
+          'main',
+          { className: 'flb-main-pane flb-product-pane' },
+          h(
+            'div',
+            { className: 'flb-product-head' },
+            h('h2', { className: 'flb-product-title' }, t('product.title')),
+            h('div', { className: 'flb-muted' }, t('product.subtitle')),
+          ),
+          warnings.length > 0
+            ? h(
+                'div',
+                { className: 'flb-product-warnings' },
+                t('product.warnings'),
+                '：',
+                warnings.join('；'),
+              )
+            : null,
+          entries.length === 0
+            ? h('div', { className: 'flb-empty' }, t('product.empty'))
+            : h(
+                'div',
+                { className: 'flb-product-list' },
+                entries.map((entry) =>
+                  h(
+                    'article',
+                    { key: entry.id, className: 'flb-product-card' },
+                    h(
+                      'div',
+                      { className: 'flb-product-card-head' },
+                      h('strong', null, entry.title),
+                      h(
+                        'span',
+                        { className: 'flb-product-badge', 'data-status': entry.status },
+                        t(`product.status.${entry.status}`),
+                      ),
+                      entry.always
+                        ? h('span', { className: 'flb-product-badge' }, t('product.always'))
+                        : null,
+                    ),
+                    h('div', { className: 'flb-product-id' }, entry.id),
+                    h('div', { className: 'flb-product-summary' }, entry.summary),
+                    h(
+                      'div',
+                      { className: 'flb-product-meta' },
+                      t('product.topics'),
+                      '：',
+                      (entry.topics || []).join('、'),
+                    ),
+                    entry.ref
+                      ? h(
+                          'div',
+                          { className: 'flb-product-meta' },
+                          t('product.ref'),
+                          '：',
+                          entry.ref,
+                        )
+                      : null,
+                    h(
+                      'div',
+                      { className: 'flb-product-meta' },
+                      t('product.source'),
+                      '：',
+                      entry.source,
+                      ' · ',
+                      t('product.updatedAt'),
+                      ' ',
+                      entry.updatedAt,
+                      ' · ',
+                      t('product.bytes'),
+                      ' ',
+                      entry.bytes,
+                    ),
+                  ),
+                ),
+              ),
+        )
+      }
+
       /** 代码可靠性视图：质量快照 + 只读运行记录；没有快照时局部降级，不清空整页。 */
       function ReliabilityPane(props) {
         const t = props.t
@@ -9069,6 +9229,8 @@ window.__ModuleLoader__.load({
           error: '',
         })
         const [reliabilityNonce, setReliabilityNonce] = React.useState(0)
+        const [product, setProduct] = React.useState({ phase: 'idle', data: null, error: '' })
+        const [productNonce, setProductNonce] = React.useState(0)
         const inflight = React.useRef(null)
         const reqInflight = React.useRef(null)
         const taskInflight = React.useRef(null)
@@ -9297,6 +9459,27 @@ window.__ModuleLoader__.load({
           }
         }, [view, auto, reliabilityWindow, reliabilityNonce])
 
+        React.useEffect(() => {
+          if (view !== 'product') return undefined
+          let alive = true
+          read('library', {}, undefined)
+            .then((value) => {
+              if (!alive) return
+              setProduct({ phase: 'ready', data: value, error: '' })
+            })
+            .catch((error) => {
+              if (!alive) return
+              setProduct((previous) => ({
+                phase: 'error',
+                data: previous.data,
+                error: error.message || String(error),
+              }))
+            })
+          return () => {
+            alive = false
+          }
+        }, [view, productNonce])
+
         const openRequirement = (reqId) => {
           setSelection({ kind: 'requirement', reqId, taskId: '', issueId: '' })
           setExpanded(reqId)
@@ -9447,6 +9630,7 @@ window.__ModuleLoader__.load({
           hierarchy: t('wb.hierarchy'),
           tasks: t('wb.allTasks'),
           issues: t('wb.attention'),
+          product: t('nav.product'),
           reliability: t('nav.reliability'),
           ops: t('nav.ops'),
         }
@@ -9469,6 +9653,14 @@ window.__ModuleLoader__.load({
               onSelect: setOpsSelected,
               onFilter: setOpsFilter,
               onAction: runOpsAction,
+            })
+          }
+          if (view === 'product') {
+            return h(ProductPane, {
+              t,
+              data: product.data,
+              error: product.error,
+              onRetry: () => setProductNonce((value) => value + 1),
             })
           }
           if (view === 'reliability') {
@@ -9629,6 +9821,7 @@ window.__ModuleLoader__.load({
           { className: 'flb-root' },
           h('style', null, BOARD_CSS),
           h('style', null, OPS_CSS),
+          h('style', null, PRODUCT_CSS),
           h('style', null, RELIABILITY_CSS),
           h('style', null, POLISH_CSS),
           h(
