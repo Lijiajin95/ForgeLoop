@@ -8952,3 +8952,21 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - 未处理（属产品自身契约，不是项目绑定）：运行身份文件仍是 ForgeLoop 自己的
   `runtime-identity.json`（index/service/client 三个摘要字段）；`identityOf` 仍要求
   `kind=forgeloop-runtime-identity` 才判定一致。
+
+## 240. 清理冗余现场的经验与教训（2026-11-15）
+
+多项目改造合并到 `main`（`3e81b58`）后清理遗留 worktree/分支，过程中出现过一次误删，
+如实记录并给出后续约束。
+
+事故：删除 `.cache/worktrees/m1-closeout` 残留目录时，该目录内存在指向主工作树的链接，
+`Remove-Item -Recurse` 顺着链接删掉了主工作树的 `packages/forgeloop`（383 个受控文件）与
+`node_modules`。发现后 `git restore .` 恢复全部受控文件、`npm install` 重装依赖、重新 build，
+并用 `tsc`、目标用例、`contracts`/`token-budget`/`reliability-registry` 复验通过，`git status` 归零。
+
+规则（后续必须遵守）：
+
+- 清理 worktree 优先 `git worktree remove --force`；失败时先 `git worktree prune` 并查明占用
+  （常见原因：某个进程/会话的 cwd 在目录内），不要直接对目录做递归删除。
+- 递归删除前先查目录内是否有 junction/符号链接（`Get-Item` 的 `LinkType`），有链接时只删除链接本身。
+- 清理动作只碰自己创建的现场；`incoming-*`、`p0-batch-*` 等他人批次证据不动。
+- 删除分支前若分支含未合并提交，先 `git bundle` 存档再删，保留可恢复性。
