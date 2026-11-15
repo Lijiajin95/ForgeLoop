@@ -1239,7 +1239,7 @@ ${answer}`
     }
     const boundary = [
       ...outsideActiveSource(plan, this.config.activeRoots),
-      ...unknownPackages(plan, this.existingPackages()),
+      ...unknownPackages(plan, this.existingPackages(), this.config.allowNewPackages),
     ]
     if (boundary.length > 0) {
       return fail(

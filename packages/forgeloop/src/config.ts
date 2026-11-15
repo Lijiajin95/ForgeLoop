@@ -390,6 +390,10 @@ export interface ForgeLoopConfig {
   readonly candidateVersionFile: string
   /** 业务背景文档路径（项目内相对路径）；默认沿用 ForgeLoop 自身布局，可被项目级配置覆盖。 */
   readonly businessContextDoc: string
+  /** 前端入口文件（项目内相对路径），用于源码摘要比对；空字符串表示不比对。 */
+  readonly clientEntryFile: string
+  /** 是否允许计划里出现尚不存在的 packages/<name> 包；默认 false（只改已存在的包）。 */
+  readonly allowNewPackages: boolean
   /** 规划提示词里的“已知工程事实”条目；空数组表示使用内置默认。 */
   readonly engineeringFacts: readonly string[]
   /** DSH profile 根目录：部署核对读取目标 profile 的实际安装版本。 */
@@ -419,6 +423,8 @@ export interface RawConfig {
   candidateArtifactPath?: string
   candidateVersionFile?: string
   businessContextDoc?: string
+  clientEntryFile?: string
+  allowNewPackages?: boolean
   engineeringFacts?: string[]
   dshProfilesRoot?: string
   autonomy?: RawAutonomyConfig
@@ -473,6 +479,8 @@ export const PROJECT_PROFILE_KEYS = [
   'candidateArtifactPath',
   'candidateVersionFile',
   'businessContextDoc',
+  'clientEntryFile',
+  'allowNewPackages',
   'engineeringFacts',
   'worktreePrepareCommand',
   'formalTestTimeoutSeconds',
@@ -1116,6 +1124,8 @@ function parseDeployments(
 const PROFILE_SEGMENT = /^[A-Za-z0-9._-]+$/
 /** 未显式配置时改写的版本文件；仅 ForgeLoop 自身沿用，其他项目应在项目配置里覆盖或置空。 */
 const DEFAULT_CANDIDATE_VERSION_FILE = 'packages/forgeloop/package.json'
+/** 未显式配置时的前端入口；仅 ForgeLoop 自身沿用，其他项目覆盖或置空即跳过摘要比对。 */
+const DEFAULT_CLIENT_ENTRY_FILE = 'packages/forgeloop/client.js'
 /** 未显式配置 package 时的默认制品包名；仅 ForgeLoop 自身沿用，其他项目应在 ops.artifacts 里声明。 */
 const DEFAULT_ARTIFACT_PACKAGE = 'forgeloop-dsh'
 /** 未显式配置 entryFiles 时的默认入口摘要比对文件；非 ForgeLoop 包布局应显式覆盖或置空。 */
@@ -1183,14 +1193,19 @@ function parseArtifacts(items: RawOpsArtifact[] | undefined): OpsArtifact[] {
 
 /** 版本文件：未配置时用默认；显式空字符串表示不改写版本号。 */
 function candidateVersionFileOf(value: string | undefined): string {
-  if (value === undefined) return DEFAULT_CANDIDATE_VERSION_FILE
+  return relativeFileOf(value, 'candidateVersionFile', DEFAULT_CANDIDATE_VERSION_FILE)
+}
+
+/** 项目内相对路径：未配置用默认，显式空字符串表示禁用；拒绝绝对路径与 `..`。 */
+function relativeFileOf(value: string | undefined, field: string, fallback: string): string {
+  if (value === undefined) return fallback
   const normalized = value.trim()
   if (normalized === '') return ''
   if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
-    throw new RuleViolationError(`配置 candidateVersionFile 只能是项目内相对路径：${normalized}`)
+    throw new RuleViolationError(`配置 ${field} 只能是项目内相对路径：${normalized}`)
   }
   if (normalized.split(/[\\/]/).includes('..')) {
-    throw new RuleViolationError(`配置 candidateVersionFile 不能包含 ..：${normalized}`)
+    throw new RuleViolationError(`配置 ${field} 不能包含 ..：${normalized}`)
   }
   return normalized
 }
@@ -1389,7 +1404,8 @@ function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig 
     recordsRoot,
     project,
     projectPath,
-    ...(activeRoots.length > 0 ? { activeRoots } : {}),
+    // 显式声明（即使空数组）以项目配置为准；空数组表示不做范围限制。
+    ...(Array.isArray(raw.activeRoots) ? { activeRoots } : {}),
     owner: textOr(raw.owner, 'local-owner'),
     pollSeconds,
     autoAdvance: raw.autoAdvance === true,
@@ -1422,6 +1438,12 @@ function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig 
     candidateArtifactPath: textOr(raw.candidateArtifactPath, ''),
     candidateVersionFile: candidateVersionFileOf(raw.candidateVersionFile),
     businessContextDoc: textOr(raw.businessContextDoc, BUSINESS_CONTEXT_DOC),
+    clientEntryFile: relativeFileOf(
+      raw.clientEntryFile,
+      'clientEntryFile',
+      DEFAULT_CLIENT_ENTRY_FILE,
+    ),
+    allowNewPackages: raw.allowNewPackages === true,
     engineeringFacts: stringList(raw.engineeringFacts, 'engineeringFacts', []),
     dshProfilesRoot: resolve(
       projectPath,

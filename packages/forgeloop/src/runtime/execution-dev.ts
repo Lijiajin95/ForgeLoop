@@ -203,7 +203,7 @@ export class ExecutionDev {
       const packages = this.deps.existingPackages()
       const violations = [
         ...outsideActiveSource(plan, this.deps.config.activeRoots),
-        ...unknownPackages(plan, packages),
+        ...unknownPackages(plan, packages, this.deps.config.allowNewPackages),
       ]
       if (violations.length > 0) {
         lastError = `任务包越过活动工程边界：${violations

@@ -8937,3 +8937,18 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
   两例。
 - 未完成：运行身份文件格式仍是 ForgeLoop 自身的 `runtime-identity.json` 契约；`activeRoots`
   未配置时仍按 ForgeLoop 顶层布局判定。
+
+## 239. 清理剩余 ForgeLoop 绑定（2026-11-15）
+
+来源：多项目改造后列出的 5 处残留绑定。
+
+- 构建身份：新增 `clientEntryFile`（默认 `packages/forgeloop/client.js`，空字符串表示不比对），
+  `buildIdentityFrom`/`buildIdentity` 与宿主装载都按它取前端入口，不再写死路径。
+- 工程范围：`activeRoots` 显式写成空数组表示不做范围限制；完全不写才用内置 ForgeLoop 布局。
+  这样其他项目可以选择“不声明范围”，而不必先伪造一套顶层目录。
+- 新建包：新增 `allowNewPackages`（默认 false）。为真时 `unknownPackages` 直接放行，
+  供允许新建 workspace 包的项目使用。
+- 内建运维制品标签改为“插件运行日志”，不再带项目名。
+- 未处理（属产品自身契约，不是项目绑定）：运行身份文件仍是 ForgeLoop 自己的
+  `runtime-identity.json`（index/service/client 三个摘要字段）；`identityOf` 仍要求
+  `kind=forgeloop-runtime-identity` 才判定一致。

@@ -248,7 +248,7 @@ export function apply(
   // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
   const loaded = loadConfigOrThrow(rawConfig)
   const config = resolveConfig(loaded)
-  setBuildSourcePath(config.projectPath)
+  setBuildSourcePath(config.projectPath, config.clientEntryFile)
   const logger = createPluginLogger(config)
   // 运行身份写入失败也必须落到项目日志，而不是只出现在宿主 console。
   writeRuntimeIdentity(import.meta.url, (message) => {

@@ -92,7 +92,7 @@ type Err = { readonly ok: false; readonly reason: string }
 function builtinArtifact(config: ForgeLoopConfig): OpsArtifact {
   return {
     id: PLUGIN_LOG_ARTIFACT_ID,
-    label: 'ForgeLoop 插件运行日志',
+    label: '插件运行日志',
     profile: '',
     package: '',
     entryFiles: [],

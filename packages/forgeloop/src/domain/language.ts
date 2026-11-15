@@ -44,6 +44,8 @@ function normalizedRoot(root: string): string {
 /** 目录按路径边界匹配，文件按完整路径匹配；不能用 src 前缀吞掉 src2。 */
 export function insideActiveFile(file: string, roots?: readonly string[]): boolean {
   const normalized = file.replaceAll('\\', '/')
+  // 显式声明空数组表示不做范围限制；未声明才使用内置默认（ForgeLoop 自身布局）。
+  if (roots && roots.length === 0) return true
   const activeRoots =
     roots && roots.length > 0
       ? roots.map(normalizedRoot).filter(Boolean)
@@ -91,8 +93,13 @@ export function outsideActiveSource(
   return violations
 }
 
-/** 任务若引用 packages/<name>，该包必须已经存在；不按包名猜项目，只按实际目录判断。 */
-export function unknownPackages(plan: TaskPlan, existing: readonly string[]): LanguageViolation[] {
+/** 任务若引用 packages/<name>，该包必须已经存在；`allowNew` 为真时放行（允许新建包）。 */
+export function unknownPackages(
+  plan: TaskPlan,
+  existing: readonly string[],
+  allowNew = false,
+): LanguageViolation[] {
+  if (allowNew) return []
   const known = new Set(existing)
   const violations: LanguageViolation[] = []
   for (const task of plan.tasks) {

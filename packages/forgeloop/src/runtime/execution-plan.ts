@@ -682,7 +682,7 @@ export class ExecutionPlan {
       }
       const violations = [
         ...outsideActiveSource(plan, this.deps.config.activeRoots),
-        ...unknownPackages(plan, this.deps.existingPackages()),
+        ...unknownPackages(plan, this.deps.existingPackages(), this.deps.config.allowNewPackages),
         ...planCoverageIssues(analysis, plan).map((issue) => ({
           taskId: 'plan',
           field: 'covers',

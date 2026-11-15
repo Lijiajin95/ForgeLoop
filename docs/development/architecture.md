@@ -623,6 +623,9 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   `formalTestTimeoutSeconds`、`maxTaskAttempts`。
 - `candidateVersionFile` 是候选版本改写的目标文件（相对项目根）；显式空字符串表示不改写版本号。
   `engineeringFacts` 是规划提示词里的“已知工程事实”条目；为空时沿用 ForgeLoop 自身布局作为默认。
+- `clientEntryFile` 是构建身份比对用的前端入口（默认 `packages/forgeloop/client.js`，空字符串表示
+  不比对源码摘要）。`allowNewPackages` 为真时允许计划引用尚不存在的 `packages/<name>`。
+- `activeRoots` 显式写成空数组表示**不做范围限制**；完全不写才使用内置的 ForgeLoop 顶层布局。
 - 优先级：项目文件 > 全局配置；项目文件里没写的键继续用全局值。工作区租户按各自工作区路径
   解析，因此同一宿主里的不同项目各用各的构建与测试口径。
 - 只接受上表登记的键；出现 `owner`、`autonomy`、`deployments` 等键直接报错。授权、部署目标与

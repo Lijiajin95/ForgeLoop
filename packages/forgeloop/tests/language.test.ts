@@ -80,6 +80,10 @@ describe('outsideActiveSource roots', () => {
     expect(outsideActiveSource(plan('src/service.mjs'), ['src/', 'test/'])).toEqual([])
     expect(outsideActiveSource(plan('packages/x.ts'), ['src/', 'test/'])).toHaveLength(1)
   })
+
+  it('treats an explicitly empty roots list as no scope restriction', () => {
+    expect(outsideActiveSource(plan('anything/at/all.txt'), [])).toEqual([])
+  })
 })
 
 describe('unknown packages', () => {
@@ -96,5 +100,9 @@ describe('unknown packages', () => {
 
   it('accepts an existing package', () => {
     expect(unknownPackages(plan('packages/forgeloop/src/a.ts'), ['forgeloop'])).toEqual([])
+  })
+
+  it('allows a new package when the project permits it', () => {
+    expect(unknownPackages(plan('packages/brand-new/src/a.ts'), ['forgeloop'], true)).toEqual([])
   })
 })

@@ -23,6 +23,28 @@ afterEach(() => {
 })
 
 describe('project profile', () => {
+  it('takes the client entry and package allowance from the profile', () => {
+    const root = projectDir()
+    writeProfile(root, { clientEntryFile: 'src/main.ts', allowNewPackages: true })
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.clientEntryFile).toBe('src/main.ts')
+    expect(config.allowNewPackages).toBe(true)
+  })
+
+  it('defaults the client entry to the ForgeLoop path and forbids new packages', () => {
+    const root = projectDir()
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.clientEntryFile).toBe('packages/forgeloop/client.js')
+    expect(config.allowNewPackages).toBe(false)
+  })
+
+  it('treats an explicitly empty activeRoots as no scope restriction', () => {
+    const root = projectDir()
+    writeProfile(root, { activeRoots: [] })
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.activeRoots).toEqual([])
+  })
+
   it('takes engineering facts and the version file from the project profile', () => {
     const root = projectDir()
     writeProfile(root, {

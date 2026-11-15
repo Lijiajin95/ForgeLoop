@@ -37,6 +37,8 @@ export interface BuildIdentityView {
 let currentIdentity: RuntimeIdentity | null = null
 /** 源码工程路径；由宿主装载时设置，用于比较装载客户端与源码。 */
 let buildSourcePath = ''
+/** 前端入口文件（项目内相对路径）；空字符串表示不做源码摘要比对。 */
+let buildClientEntryFile = ''
 
 function sha256(path: string): string {
   return existsSync(path) ? createHash('sha256').update(readFileSync(path)).digest('hex') : ''
@@ -84,11 +86,11 @@ export function writeRuntimeIdentity(
 export function buildIdentityFrom(
   identity: RuntimeIdentity | null,
   projectPath?: string,
+  clientEntryFile = '',
 ): BuildIdentityView {
   const clientSha256 = identity?.clientSha256 ?? ''
-  const sourceClientSha256 = projectPath
-    ? sha256(join(projectPath, 'packages/forgeloop/client.js'))
-    : ''
+  const sourceClientSha256 =
+    projectPath && clientEntryFile ? sha256(join(projectPath, clientEntryFile)) : ''
   return {
     version: identity?.version ?? PLUGIN_VERSION,
     startedAt: identity?.startedAt ?? '',
@@ -99,12 +101,13 @@ export function buildIdentityFrom(
   }
 }
 
-/** 宿主装载时记录源码工程路径；不改变业务配置。 */
-export function setBuildSourcePath(projectPath: string): void {
+/** 宿主装载时记录源码工程路径与前端入口；不改变业务配置。 */
+export function setBuildSourcePath(projectPath: string, clientEntryFile = ''): void {
   buildSourcePath = projectPath
+  buildClientEntryFile = clientEntryFile
 }
 
 /** 当前进程写入的运行身份与源码身份；未装载（如单测直接构造 runtime）时字段为空。 */
 export function buildIdentity(projectPath?: string): BuildIdentityView {
-  return buildIdentityFrom(currentIdentity, projectPath ?? buildSourcePath)
+  return buildIdentityFrom(currentIdentity, projectPath ?? buildSourcePath, buildClientEntryFile)
 }
