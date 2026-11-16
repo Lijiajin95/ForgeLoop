@@ -1138,6 +1138,17 @@ window.__ModuleLoader__.load({
       'product.body.error': '正文读取失败',
       'product.body.ref': '正文来自引用文档',
       'product.body.truncated': '正文已截断',
+      'product.rebuild.start': '重建需求库',
+      'product.rebuild.starting': '正在启动重建…',
+      'product.rebuild.progress': '重建中：{stage} · 批次 {done}/{total} · 材料 {materials}',
+      'product.rebuild.done': '已重建 {published} 条草案；冲突 {conflicts}，未决 {unresolved}',
+      'product.rebuild.failed': '重建失败',
+      'product.rebuild.cancelled': '已取消重建',
+      'product.rebuild.cancel': '取消重建',
+      'product.rebuild.stage.collect': '取证',
+      'product.rebuild.stage.synthesize': '提炼',
+      'product.rebuild.stage.review': '核对',
+      'product.rebuild.stage.publish': '发布',
       'reliability.loading': '正在读取可靠性数据…',
       'reliability.error': '可靠性数据读取失败',
       'reliability.retry': '重试',
@@ -1752,6 +1763,17 @@ window.__ModuleLoader__.load({
       'product.body.error': 'Failed to read full text',
       'product.body.ref': 'Full text comes from the referenced document',
       'product.body.truncated': 'Text truncated',
+      'product.rebuild.start': 'Rebuild library',
+      'product.rebuild.starting': 'Starting rebuild…',
+      'product.rebuild.progress': 'Rebuilding: {stage} · batch {done}/{total} · materials {materials}',
+      'product.rebuild.done': 'Rebuilt {published} draft(s); conflicts {conflicts}, unresolved {unresolved}',
+      'product.rebuild.failed': 'Rebuild failed',
+      'product.rebuild.cancelled': 'Rebuild cancelled',
+      'product.rebuild.cancel': 'Cancel rebuild',
+      'product.rebuild.stage.collect': 'collect',
+      'product.rebuild.stage.synthesize': 'synthesize',
+      'product.rebuild.stage.review': 'review',
+      'product.rebuild.stage.publish': 'publish',
       'reliability.loading': 'Reading reliability data…',
       'reliability.error': 'Failed to read reliability data',
       'reliability.retry': 'Retry',
@@ -4864,7 +4886,10 @@ window.__ModuleLoader__.load({
 
     const PRODUCT_CSS = `
 .flb-product-pane{min-width:0}
-.flb-product-head{padding:2px 0 10px}
+.flb-product-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:2px 0 10px}
+.flb-product-head-text{min-width:0}
+.flb-product-rebuild{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.flb-product-rebuild-status{font-size:11px;color:var(--dsw-alias-label-secondary);max-width:320px;text-align:right;overflow-wrap:anywhere}
 .flb-product-title{margin:0 0 4px;font-size:16px;font-weight:600}
 .flb-product-list{display:flex;flex-direction:column;gap:8px}
 .flb-product-card{border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:10px;background:var(--dsw-alias-bg-layer-1)}
@@ -7800,9 +7825,101 @@ window.__ModuleLoader__.load({
         const read = props.read
         const [openIds, setOpenIds] = React.useState({})
         const [bodies, setBodies] = React.useState({})
+        const [rebuild, setRebuild] = React.useState(null)
+        const rebuildTimer = React.useRef(null)
         const data = props.data || {}
         const entries = Array.isArray(data.entries) ? data.entries : []
         const warnings = Array.isArray(data.warnings) ? data.warnings : []
+
+        React.useEffect(
+          () => () => {
+            if (rebuildTimer.current) clearInterval(rebuildTimer.current)
+          },
+          [],
+        )
+
+        const clearRebuildTimer = () => {
+          if (rebuildTimer.current) clearInterval(rebuildTimer.current)
+          rebuildTimer.current = null
+        }
+
+        // 重建在后台运行：点击后按运行 id 轮询，结束后刷新库列表。
+        const pollRebuild = (runId) => {
+          if (typeof read !== 'function') return
+          clearRebuildTimer()
+          const tick = () => {
+            read('library-rebuild-status', { runId })
+              .then((run) => {
+                setRebuild({ runId, run })
+                if (
+                  run.status === 'done' ||
+                  run.status === 'failed' ||
+                  run.status === 'cancelled'
+                ) {
+                  clearRebuildTimer()
+                  if (run.status === 'done' && typeof props.onRebuildDone === 'function') {
+                    props.onRebuildDone()
+                  }
+                }
+              })
+              .catch((error) => {
+                clearRebuildTimer()
+                setRebuild({ runId, phase: 'error', error: error.message || String(error) })
+              })
+          }
+          tick()
+          rebuildTimer.current = setInterval(tick, 2000)
+        }
+
+        const startRebuild = () => {
+          if (typeof read !== 'function') return
+          setRebuild({ phase: 'starting' })
+          read('library-rebuild-run', {})
+            .then((started) => {
+              setRebuild({ runId: started.runId, run: started.status })
+              pollRebuild(started.runId)
+            })
+            .catch((error) => setRebuild({ phase: 'error', error: error.message || String(error) }))
+        }
+
+        const cancelRebuild = () => {
+          const runId = rebuild && rebuild.runId
+          if (!runId || typeof read !== 'function') return
+          read('library-rebuild-cancel', { runId }).catch(() => undefined)
+        }
+
+        const rebuildRunning =
+          rebuild !== null &&
+          (rebuild.phase === 'starting' ||
+            Boolean(
+              rebuild.run &&
+                (rebuild.run.status === 'queued' || rebuild.run.status === 'running'),
+            ))
+
+        const rebuildStatusText = (() => {
+          if (!rebuild) return ''
+          if (rebuild.phase === 'error') return `${t('product.rebuild.failed')}：${rebuild.error}`
+          if (rebuild.phase === 'starting') return t('product.rebuild.starting')
+          const run = rebuild.run
+          if (!run) return ''
+          if (run.status === 'queued' || run.status === 'running') {
+            return t('product.rebuild.progress', {
+              stage: t(`product.rebuild.stage.${run.stage}`),
+              done: run.batchesDone,
+              total: run.batches,
+              materials: run.materials,
+            })
+          }
+          if (run.status === 'done') {
+            return t('product.rebuild.done', {
+              published: run.published,
+              conflicts: run.conflicts,
+              unresolved: run.unresolved,
+            })
+          }
+          if (run.status === 'cancelled') return t('product.rebuild.cancelled')
+          return `${t('product.rebuild.failed')}${run.error ? `：${run.error}` : ''}`
+        })()
 
         // 正文只在第一次展开时读取；失败后再次点击可重试。
         const loadBody = (entry) => {
@@ -7901,8 +8018,29 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'flb-product-head' },
-            h('h2', { className: 'flb-product-title' }, t('product.title')),
-            h('div', { className: 'flb-muted' }, t('product.subtitle')),
+            h(
+              'div',
+              { className: 'flb-product-head-text' },
+              h('h2', { className: 'flb-product-title' }, t('product.title')),
+              h('div', { className: 'flb-muted' }, t('product.subtitle')),
+            ),
+            h(
+              'div',
+              { className: 'flb-product-rebuild' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-card-action',
+                  disabled: rebuild !== null && rebuild.phase === 'starting',
+                  onClick: rebuildRunning ? cancelRebuild : startRebuild,
+                },
+                rebuildRunning ? t('product.rebuild.cancel') : t('product.rebuild.start'),
+              ),
+              rebuildStatusText
+                ? h('div', { className: 'flb-product-rebuild-status' }, rebuildStatusText)
+                : null,
+            ),
           ),
           warnings.length > 0
             ? h(
@@ -9765,6 +9903,7 @@ window.__ModuleLoader__.load({
               error: product.error,
               read,
               onRetry: () => setProductNonce((value) => value + 1),
+              onRebuildDone: () => setProductNonce((value) => value + 1),
             })
           }
           if (view === 'reliability') {

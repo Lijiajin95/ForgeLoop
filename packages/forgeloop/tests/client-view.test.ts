@@ -172,6 +172,17 @@ describe('client conversation view', () => {
       'product.body.loading',
       'product.body.error',
       'product.body.ref',
+      'product.rebuild.start',
+      'product.rebuild.starting',
+      'product.rebuild.progress',
+      'product.rebuild.done',
+      'product.rebuild.failed',
+      'product.rebuild.cancelled',
+      'product.rebuild.cancel',
+      'product.rebuild.stage.collect',
+      'product.rebuild.stage.synthesize',
+      'product.rebuild.stage.review',
+      'product.rebuild.stage.publish',
     ]) {
       expect(dicts!.zh[key], key).toBeTruthy()
       expect(dicts!.en[key], key).toBeTruthy()
