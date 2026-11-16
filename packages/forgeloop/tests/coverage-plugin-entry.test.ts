@@ -9,6 +9,9 @@ let cleanups: Array<() => Promise<void> | void> = []
 let registrations: unknown[] = []
 let logs: string[] = []
 
+/** 测试不需要真实的 10 秒模式观察窗；缩短等待避免拖慢全量用例。 */
+const FAST_MODE = { modeWait: { pollMs: 5, plainTimeoutMs: 40, webTimeoutMs: 40 } }
+
 function rawConfig() {
   return {
     project: 'demo',
@@ -119,7 +122,7 @@ describe('plugin entry wiring', () => {
 
   it('starts the runtime, registers tools and a board route, then disposes them', async () => {
     const hosted = host()
-    apply(hosted.ctx, rawConfig())
+    apply(hosted.ctx, rawConfig(), FAST_MODE)
     expect(registrations.length).toBeGreaterThan(0)
     expect(hosted.registered).toHaveLength(1)
     expect(hosted.registered[0]).toMatchObject({ path: '/api/forgeloop/board', methods: ['POST'] })
@@ -134,23 +137,23 @@ describe('plugin entry wiring', () => {
 
   it('starts without a connection service or a board effect', async () => {
     const first = host({ connection: false })
-    apply(first.ctx, rawConfig())
+    apply(first.ctx, rawConfig(), FAST_MODE)
     expect(first.registered).toHaveLength(0)
 
     const second = host({ effect: false })
-    apply(second.ctx, rawConfig())
+    apply(second.ctx, rawConfig(), FAST_MODE)
     expect(second.registered).toHaveLength(0)
   })
 
   it('starts without an inject hook at all', async () => {
     const { ctx, registered } = host({ inject: false })
-    apply(ctx, rawConfig())
+    apply(ctx, rawConfig(), FAST_MODE)
     expect(registered).toHaveLength(0)
   })
 
   it('keeps disposing the remaining tools when one cleanup fails', async () => {
     const hosted = host({ throwOnDispose: true })
-    apply(hosted.ctx, rawConfig())
+    apply(hosted.ctx, rawConfig(), FAST_MODE)
     // 运行时 effect 在外层注册，后入栈。
     const stop = cleanups[1]
     cleanups.splice(1, 1)
@@ -160,12 +163,12 @@ describe('plugin entry wiring', () => {
   })
 
   it('requires the tools service', () => {
-    expect(() => apply({ effect: () => undefined }, rawConfig())).toThrow('tools 服务')
+    expect(() => apply({ effect: () => undefined }, rawConfig(), FAST_MODE)).toThrow('tools 服务')
   })
 
   it('requires the effect service', () => {
-    expect(() => apply({ tools: { register: () => () => undefined } }, rawConfig())).toThrow(
-      'effect 服务',
-    )
+    expect(() =>
+      apply({ tools: { register: () => () => undefined } }, rawConfig(), FAST_MODE),
+    ).toThrow('effect 服务')
   })
 })

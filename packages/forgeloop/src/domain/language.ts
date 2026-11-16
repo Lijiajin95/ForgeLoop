@@ -44,12 +44,9 @@ function normalizedRoot(root: string): string {
 /** 目录按路径边界匹配，文件按完整路径匹配；不能用 src 前缀吞掉 src2。 */
 export function insideActiveFile(file: string, roots?: readonly string[]): boolean {
   const normalized = file.replaceAll('\\', '/')
-  // 显式声明空数组表示不做范围限制；未声明才使用内置默认（ForgeLoop 自身布局）。
-  if (roots && roots.length === 0) return true
-  const activeRoots =
-    roots && roots.length > 0
-      ? roots.map(normalizedRoot).filter(Boolean)
-      : DEFAULT_ACTIVE_ROOTS.map(normalizedRoot).filter(Boolean)
+  // 未配置或显式空数组都表示不做范围限制；范围由项目自己声明，不再默认套用 ForgeLoop 布局。
+  if (!roots || roots.length === 0) return true
+  const activeRoots = roots.map(normalizedRoot).filter(Boolean)
   return activeRoots.some((root) => normalized === root || normalized.startsWith(`${root}/`))
 }
 
@@ -85,7 +82,7 @@ export function outsideActiveSource(
           taskId: task.taskId,
           field: 'files',
           value: file,
-          reason: `文件不在当前活动工程范围（${(roots && roots.length > 0 ? roots : DEFAULT_ACTIVE_ROOTS).join('、')}）`,
+          reason: `文件不在当前活动工程范围（${roots && roots.length > 0 ? roots.join('、') : '（未配置）'}）`,
         })
       }
     }

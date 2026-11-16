@@ -1238,14 +1238,14 @@ exports[`prompt builders: full-string branches > renders requirement and problem
 - 不再支持 verification 任务类型；所有任务都是实现任务，必须产生文件改动；
 - 依赖必须存在且无环；task_id 唯一；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
-- files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
-- 任务需要新增或修改测试时，把 packages/forgeloop/tests/ 下的对应测试文件写进 files；需要同步架构说明时，把 docs/development/architecture.md 写进 files；
+- files 必须逐个列出具体文件路径（按已知工程事实里的源码目录给出具体文件），不能写目录、不能以 / 结尾；新增文件也写完整路径；
+- 任务需要新增或修改测试时，把工程既有测试目录下的对应测试文件写进 files；需要同步架构说明时，把工程既有架构文档写进 files；
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
-- 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
+- 本轮活动工程以“已知工程事实”和配置的文件范围为准，不要套用其他项目的目录布局；
 - 文件范围只限当前活动工程；不要写进其他项目的文件，也不要写进工作目录之外；
 - 任务不得包含部署、发布、安装到正式 profile 或修改正式环境/生产数据的步骤；这些只能由所有者在受控入口显式执行；
-- 正式测试命令必须是 TypeScript 工程可执行的真实 argv，例如 ["npm","run","check","--workspace","forgeloop-dsh"]；
+- 正式测试命令必须是当前工程可直接执行的真实 argv；具体命令以已知工程事实为准，不要照搬其他项目的命令；
 - 只输出 JSON。"
 `;
 
@@ -1310,14 +1310,14 @@ exports[`prompt builders: full-string branches > renders requirement and problem
 - 不再支持 verification 任务类型；所有任务都是实现任务，必须产生文件改动；
 - 依赖必须存在且无环；task_id 唯一；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
-- files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
-- 任务需要新增或修改测试时，把 packages/forgeloop/tests/ 下的对应测试文件写进 files；需要同步架构说明时，把 docs/development/architecture.md 写进 files；
+- files 必须逐个列出具体文件路径（按已知工程事实里的源码目录给出具体文件），不能写目录、不能以 / 结尾；新增文件也写完整路径；
+- 任务需要新增或修改测试时，把工程既有测试目录下的对应测试文件写进 files；需要同步架构说明时，把工程既有架构文档写进 files；
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
-- 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
+- 本轮活动工程以“已知工程事实”和配置的文件范围为准，不要套用其他项目的目录布局；
 - 文件范围只限当前活动工程；不要写进其他项目的文件，也不要写进工作目录之外；
 - 任务不得包含部署、发布、安装到正式 profile 或修改正式环境/生产数据的步骤；这些只能由所有者在受控入口显式执行；
-- 正式测试命令必须是 TypeScript 工程可执行的真实 argv，例如 ["npm","run","check","--workspace","forgeloop-dsh"]；
+- 正式测试命令必须是当前工程可直接执行的真实 argv；具体命令以已知工程事实为准，不要照搬其他项目的命令；
 - 只输出 JSON。"
 `;
 
@@ -1402,14 +1402,14 @@ exports[`prompt builders: full-string branches > renders structured business poi
 - 不再支持 verification 任务类型；所有任务都是实现任务，必须产生文件改动；
 - 依赖必须存在且无环；task_id 唯一；
 - files 只能是项目内相对路径，不能是绝对路径或包含 ..；
-- files 必须逐个列出具体文件路径（例如 packages/forgeloop/src/runtime/service.ts），不能写目录、不能以 / 结尾；新增文件也写完整路径；
-- 任务需要新增或修改测试时，把 packages/forgeloop/tests/ 下的对应测试文件写进 files；需要同步架构说明时，把 docs/development/architecture.md 写进 files；
+- files 必须逐个列出具体文件路径（按已知工程事实里的源码目录给出具体文件），不能写目录、不能以 / 结尾；新增文件也写完整路径；
+- 任务需要新增或修改测试时，把工程既有测试目录下的对应测试文件写进 files；需要同步架构说明时，把工程既有架构文档写进 files；
 - 每个任务必须给出非空 test_command，且是真正的 argv 数组；files 是计划说明，执行时可以改动工作区内的其他文件；
 - 不要输出 authorization_source；授权只由系统准入或真实批准写入；
-- 本轮活动工程是仓库根下的 TypeScript 工程：允许修改 packages/、docs/、contracts/、config/、scripts/ts/ 与根配置文件；
+- 本轮活动工程以“已知工程事实”和配置的文件范围为准，不要套用其他项目的目录布局；
 - 文件范围只限当前活动工程；不要写进其他项目的文件，也不要写进工作目录之外；
 - 任务不得包含部署、发布、安装到正式 profile 或修改正式环境/生产数据的步骤；这些只能由所有者在受控入口显式执行；
-- 正式测试命令必须是 TypeScript 工程可执行的真实 argv，例如 ["npm","run","check","--workspace","forgeloop-dsh"]；
+- 正式测试命令必须是当前工程可直接执行的真实 argv；具体命令以已知工程事实为准，不要照搬其他项目的命令；
 - 只输出 JSON。"
 `;
 

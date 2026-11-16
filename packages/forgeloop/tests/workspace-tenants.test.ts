@@ -164,6 +164,28 @@ describe('workspace tenant binding', () => {
     expect(tenants.tenantOfCwd(a.path)).toBeUndefined()
   })
 
+  it('resolves a session opened in a workspace subdirectory', () => {
+    const { dir, tenants } = setup()
+    const a = workspace('a', dir)
+    const tenant = tenants.ensure(a)
+
+    expect(tenants.tenantOfCwd(join(a.path, 'src', 'service'))).toBe(tenant)
+  })
+
+  it('prefers the most specific workspace for nested workspaces', () => {
+    const { dir, tenants } = setup()
+    const outer = workspace('a', dir)
+    const nested = tenants.ensure({
+      id: 'nested',
+      path: join(outer.path, 'inner'),
+      title: 'nested',
+    })
+    tenants.ensure(outer)
+
+    expect(tenants.tenantOfCwd(join(outer.path, 'inner', 'src'))).toBe(nested)
+    expect(tenants.tenantOfCwd(join(outer.path, 'other'))).not.toBe(nested)
+  })
+
   it('does not treat a sibling path prefix as containment', () => {
     const { dir, tenants } = setup()
     const tenant = tenants.ensure(workspace('a', dir))

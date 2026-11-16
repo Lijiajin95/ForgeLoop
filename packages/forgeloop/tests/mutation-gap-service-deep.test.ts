@@ -50,6 +50,7 @@ beforeEach(() => {
       projectPath: dir,
       recordsRoot: join(dir, '.forgeloop'),
       failureRoundsPerGrant: 1,
+      activeRoots: ['packages/', 'docs/', 'contracts/', 'config/', 'scripts/ts/'],
       agent: { provider: 'demo', model: 'demo' },
     },
     dir,

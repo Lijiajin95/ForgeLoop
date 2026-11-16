@@ -397,6 +397,8 @@ export interface ForgeLoopConfig {
   /** 规划提示词里的“已知工程事实”条目；空数组表示使用内置默认。 */
   readonly engineeringFacts: readonly string[]
   /** DSH profile 根目录：部署核对读取目标 profile 的实际安装版本。 */
+  /** 项目级可靠性质量快照路径（项目内相对路径）；默认 `reports/reliability/latest.json`。 */
+  readonly reliabilitySnapshot: string
   readonly dshProfilesRoot: string
   readonly autonomy: AutonomyConfig
   readonly ops: OpsConfig
@@ -426,6 +428,7 @@ export interface RawConfig {
   clientEntryFile?: string
   allowNewPackages?: boolean
   engineeringFacts?: string[]
+  reliabilitySnapshot?: string
   dshProfilesRoot?: string
   autonomy?: RawAutonomyConfig
   ops?: RawOpsConfig
@@ -488,6 +491,7 @@ export const PROJECT_PROFILE_KEYS = [
   'autonomy',
   'deployments',
   'ops',
+  'reliabilitySnapshot',
 ] as const
 
 export type ProjectProfileKey = (typeof PROJECT_PROFILE_KEYS)[number]
@@ -1142,6 +1146,8 @@ function parseDeployments(
 const PROFILE_SEGMENT = /^[A-Za-z0-9._-]+$/
 /** 未显式配置时改写的版本文件；仅 ForgeLoop 自身沿用，其他项目应在项目配置里覆盖或置空。 */
 const DEFAULT_CANDIDATE_VERSION_FILE = 'packages/forgeloop/package.json'
+/** 未显式配置时的质量快照路径；项目可覆盖。 */
+const DEFAULT_RELIABILITY_SNAPSHOT = 'reports/reliability/latest.json'
 /** 未显式配置时的前端入口；仅 ForgeLoop 自身沿用，其他项目覆盖或置空即跳过摘要比对。 */
 const DEFAULT_CLIENT_ENTRY_FILE = 'packages/forgeloop/client.js'
 /** 未显式配置 package 时的默认制品包名；仅 ForgeLoop 自身沿用，其他项目应在 ops.artifacts 里声明。 */
@@ -1464,6 +1470,12 @@ function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig 
     ),
     allowNewPackages: raw.allowNewPackages === true,
     engineeringFacts: stringList(raw.engineeringFacts, 'engineeringFacts', []),
+    reliabilitySnapshot:
+      relativeFileOf(
+        raw.reliabilitySnapshot,
+        'reliabilitySnapshot',
+        DEFAULT_RELIABILITY_SNAPSHOT,
+      ) || DEFAULT_RELIABILITY_SNAPSHOT,
     dshProfilesRoot: resolve(
       projectPath,
       expandHome(textOr(raw.dshProfilesRoot, join(homedir(), '.dsh', 'profiles'))),

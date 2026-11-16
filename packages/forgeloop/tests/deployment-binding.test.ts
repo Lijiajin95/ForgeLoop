@@ -402,6 +402,16 @@ describe('deployment apply revalidation', () => {
   })
 })
 
+describe('deployment target ownership', () => {
+  it('rejects a target requirement that belongs to another workspace', () => {
+    const target = config.deployments.targets[0]!
+    const result = candidateDeploymentGate(repo)(target, artifact(), 'req-other-workspace')
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain('不属于当前项目')
+  })
+})
+
 describe('deployment target mutual exclusion', () => {
   it('allows only one active intent per target', async () => {
     const slow = deferred()

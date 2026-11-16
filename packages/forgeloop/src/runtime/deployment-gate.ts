@@ -23,6 +23,11 @@ export type DeploymentGate = (
 export function candidateDeploymentGate(repo: Repository): DeploymentGate {
   return (target, artifact, requirementId) => {
     const reqId = requirementId?.trim() || target.requirementId
+    if (!reqId) return { ok: false, reason: '需求不存在或未指定所属需求，不能继续部署' }
+    // 目标配置可引用需求；跨项目/工作区的需求在当前租户记录里不存在，必须明确拒绝。
+    if (!repo.getRequirement(reqId)) {
+      return { ok: false, reason: `需求不存在或不属于当前项目/工作区：${reqId}` }
+    }
     const existing = repo.latestCandidateBuild(reqId)
     if (existing && artifact.path !== existing.tarball) {
       return { ok: false, reason: '制品路径与最近候选构建不一致' }

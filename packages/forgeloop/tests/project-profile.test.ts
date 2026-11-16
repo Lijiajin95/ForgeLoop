@@ -63,6 +63,19 @@ describe('project profile', () => {
     expect(config.candidateVersionFile).toBe('packages/forgeloop/package.json')
   })
 
+  it('takes the reliability snapshot path from the project profile', () => {
+    const root = projectDir()
+    writeProfile(root, { reliabilitySnapshot: 'reports/quality.json' })
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.reliabilitySnapshot).toBe('reports/quality.json')
+  })
+
+  it('defaults the reliability snapshot path when unset', () => {
+    const root = projectDir()
+    const config = resolveConfig({ project: 'demo', projectPath: root }, root)
+    expect(config.reliabilitySnapshot).toBe('reports/reliability/latest.json')
+  })
+
   it('rejects an absolute or escaping version file', () => {
     const first = projectDir()
     writeProfile(first, { candidateVersionFile: '../escape.json' })

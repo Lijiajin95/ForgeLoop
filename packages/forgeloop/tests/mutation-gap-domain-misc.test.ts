@@ -54,6 +54,7 @@ describe('language boundaries', () => {
   })
 
   it('accepts compliant plans and checks active source roots', () => {
+    const roots = ['packages/', 'docs/', 'Makefile', 'README.md', 'CONTRIBUTING.md']
     const good = plan([
       {
         taskId: 't',
@@ -61,7 +62,7 @@ describe('language boundaries', () => {
         testCommand: ['npm', 'test'],
       },
     ])
-    expect(outsideActiveSource(good)).toEqual([])
+    expect(outsideActiveSource(good, roots)).toEqual([])
     const outside = outsideActiveSource(
       plan([
         {
@@ -69,6 +70,7 @@ describe('language boundaries', () => {
           files: ['src/a.ts', 'python/x.py', 'node_modules/x', 'README.md', 'docs/a.md'],
         },
       ]),
+      roots,
     )
     expect(outside.map((v) => v.value)).toEqual(['src/a.ts', 'python/x.py', 'node_modules/x'])
     expect(outside[0]?.reason).toContain('文件不在当前活动工程范围')

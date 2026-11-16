@@ -97,16 +97,23 @@ export class WorkspaceTenants {
   }
 
   /**
-   * 按目录找到已加载租户：工作区路径本身，或租户记录目录内的子会话目录。
-   * 只匹配已创建的租户；新工作区由 {@link forCwd} 通过工作区注册表发现。
+   * 按目录找到已加载租户：工作区路径本身、租户记录目录内的子会话目录，
+   * 或工作区内的子目录（取路径最长的工作区，支持嵌套工作区）。
    */
   tenantOfCwd(cwd: string): Tenant | undefined {
     const target = resolve(cwd)
+    let contained: Tenant | undefined
+    let containedLength = -1
     for (const tenant of this.tenants.values()) {
       if (samePath(tenant.workspace.path, target)) return tenant
       if (containsPath(projectDir(tenant.config), target)) return tenant
+      const workspacePath = resolve(tenant.workspace.path)
+      if (containsPath(workspacePath, target) && workspacePath.length > containedLength) {
+        contained = tenant
+        containedLength = workspacePath.length
+      }
     }
-    return undefined
+    return contained
   }
 
   /** 按目录解析租户；目录是已注册工作区时按需创建，否则 undefined。 */

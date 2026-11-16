@@ -116,6 +116,7 @@ beforeEach(() => {
     project: 'demo',
     projectPath: root,
     recordsRoot: join(root, '.forgeloop'),
+    activeRoots: ['packages/', 'docs/', 'contracts/', 'config/', 'scripts/ts/'],
     agent: { timeoutSeconds: 10 },
   })
   requirement = {

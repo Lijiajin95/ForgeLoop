@@ -530,6 +530,10 @@ export function reliabilityReport(
       repository,
       project: config.project,
       projectPath: config.projectPath,
+      snapshotPath: join(
+        config.projectPath,
+        config.reliabilitySnapshot || 'reports/reliability/latest.json',
+      ),
       now,
     })
     dashboards.set(repository, dashboard)

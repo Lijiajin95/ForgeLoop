@@ -1,0 +1,19 @@
+{
+  "activeRoots": [
+    "packages/",
+    "docs/",
+    "contracts/",
+    "config/",
+    "scripts/ts/",
+    "AGENTS.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "CONTEXT.md",
+    "Makefile",
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "tsconfig.json"
+  ]
+}

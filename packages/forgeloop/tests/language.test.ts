@@ -53,9 +53,9 @@ describe('active project scope', () => {
     expect(outsideActiveSource(candidate)).toEqual([])
   })
 
-  it('rejects files outside the active project roots', () => {
+  it('rejects files outside the configured roots', () => {
     const candidate = plan(['npm', 'test'], ['unrelated/notes.txt'])
-    expect(outsideActiveSource(candidate).length).toBeGreaterThan(0)
+    expect(outsideActiveSource(candidate, ['packages/', 'docs/']).length).toBeGreaterThan(0)
   })
 })
 
@@ -72,8 +72,8 @@ describe('outsideActiveSource roots', () => {
       ],
     }) as unknown as TaskPlan
 
-  it('rejects files outside the built-in ForgeLoop roots by default', () => {
-    expect(outsideActiveSource(plan('src/service.mjs'))).toHaveLength(1)
+  it('does not restrict files when no roots are configured', () => {
+    expect(outsideActiveSource(plan('src/service.mjs'))).toEqual([])
   })
 
   it('uses the target project roots when配置给出', () => {
