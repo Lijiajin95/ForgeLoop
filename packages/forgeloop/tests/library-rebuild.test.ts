@@ -5,6 +5,7 @@ import {
   candidateFingerprint,
   candidateSource,
   orderEvidence,
+  parseRebuildCandidates,
   planRebuild,
   renderCandidateEntry,
   summarizeRebuildPlan,
@@ -270,5 +271,46 @@ describe('rebuild planning against the existing library', () => {
 
     const unresolved = plan({ existing: [snapshot()] })
     expect(summarizeRebuildPlan(unresolved)).toMatchObject({ unresolved: 1 })
+  })
+})
+
+describe('rebuild model output parsing', () => {
+  function payload(overrides: Record<string, unknown> = {}): string {
+    return JSON.stringify({ candidates: [{ ...candidate(), ...overrides }] })
+  }
+
+  it('parses fenced JSON and returns validated candidates', () => {
+    const parsed = parseRebuildCandidates(`\`\`\`json\n${payload()}\n\`\`\``)
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0]).toMatchObject({ id: ID, confidence: 'high' })
+    expect(parsed[0]?.evidence[0]?.ref).toBe('docs/order.md')
+  })
+
+  it('accepts an empty candidate list', () => {
+    expect(parseRebuildCandidates('{"candidates":[]}')).toEqual([])
+  })
+
+  it('rejects non-JSON, missing candidates and non-object entries', () => {
+    expect(() => parseRebuildCandidates('not json')).toThrow(/JSON/)
+    expect(() => parseRebuildCandidates('{"candidates":{}}')).toThrow(/candidates/)
+    expect(() => parseRebuildCandidates('{"candidates":[null]}')).toThrow(/对象/)
+    expect(() => parseRebuildCandidates('[]')).toThrow(/JSON 对象/)
+  })
+
+  it('rejects invalid candidate fields from the model', () => {
+    expect(() => parseRebuildCandidates(payload({ id: 'Bad Id' }))).toThrow(/id/)
+    expect(() => parseRebuildCandidates(payload({ confidence: 'certain' }))).toThrow(/confidence/)
+    expect(() => parseRebuildCandidates(payload({ topics: [] }))).toThrow(/topics/)
+    expect(() => parseRebuildCandidates(payload({ acceptance: [] }))).toThrow(/验收/)
+    expect(() => parseRebuildCandidates(payload({ evidence: [] }))).toThrow(/证据/)
+  })
+
+  it('defaults missing gaps and rejects a non-array topics field', () => {
+    const withoutGaps = Object.fromEntries(
+      Object.entries(candidate()).filter(([key]) => key !== 'gaps'),
+    )
+    const parsed = parseRebuildCandidates(JSON.stringify({ candidates: [withoutGaps] }))
+    expect(parsed[0]?.gaps).toEqual([])
+    expect(() => parseRebuildCandidates(payload({ topics: 'rule' }))).toThrow(/topics/)
   })
 })

@@ -1249,3 +1249,72 @@ ${commands || '（没有可用的测试命令输出）'}
 - 这是测试 Agent 的业务判断，不是所有者验收；不要声称或伪造所有者批准。
 - 只输出 JSON。`
 }
+
+/** 需求库重建提示词版本；语义变化时递增并同步测试。 */
+export const LIBRARY_REBUILD_PROMPT_VERSION = 'library-rebuild-v1'
+
+export interface LibraryRebuildPromptInput {
+  readonly materials: ReadonlyArray<{
+    readonly kind: string
+    readonly ref: string
+    readonly locator: string
+    readonly time: string
+    readonly text: string
+  }>
+  readonly libraryIndex: string
+  readonly batch: number
+  readonly batches: number
+}
+
+/**
+ * 需求库一键重建的提炼提示词：只看本批次证据，输出候选 JSON。
+ * 不向用户提问、不声称所有者确认；状态与发布由程序决定（一律 draft）。
+ */
+export function libraryRebuildPrompt(input: LibraryRebuildPromptInput): string {
+  const materials = input.materials
+    .map((material) => {
+      const time = material.time ? `｜时间 ${material.time}` : '｜时间未知'
+      return `### [${material.kind}] ${material.ref}｜${material.locator}${time}\n${material.text}`
+    })
+    .join('\n\n')
+  return `你是 ForgeLoop 的产品 Agent。你要从下面的项目证据里提炼可直接进入需求库的业务规则，供后续需求分析引用。输出会被程序解析、校验并写成 draft 条目；不要向用户提问，也不要声称已经得到所有者确认。
+
+可用证据（批次 ${input.batch}/${input.batches}；只允许引用这些 ref）：
+${materials || '（本批次没有可用证据）'}
+
+现有需求库索引（用于避免重复；confirmed 条目不要改写）：
+${input.libraryIndex || '（库为空）'}
+
+请只输出一个 JSON 对象：
+{
+  "candidates": [
+    {
+      "id": "稳定身份，小写字母/数字/点/下划线/连字符，例如 rules.cancel-shipped-order",
+      "title": "一条业务规则或目标的短标题",
+      "topics": ["与规则对应的主题，2-6 个"],
+      "summary": "不超过 240 字，一句话说清规则",
+      "scope": "适用范围与版本，例如“已发货订单，2026-11 版本”；不确定写“适用范围待确认”",
+      "goal": "这条规则服务的业务目标",
+      "actors": ["谁发起、谁受影响"],
+      "trigger": "什么条件或操作触发",
+      "behavior": "系统应当表现出的业务行为",
+      "rules": ["必须成立的业务约束"],
+      "exceptions": ["异常、边界与拒绝路径"],
+      "acceptance": ["用户可观察或可核对的验收条件，至少一条"],
+      "evidence": [
+        { "kind": "doc、acceptance、git 或 source", "ref": "证据列表里的 ref", "locator": "章节或行号", "time": "证据时间或空串", "digest": "可留空" }
+      ],
+      "confidence": "low、medium 或 high",
+      "gaps": ["证据无法确定的事项；没有就留空数组"]
+    }
+  ]
+}
+
+规则：
+- 每条候选只描述一条可独立复核的业务规则或目标；证据不足时输出 {"candidates": []}，不要编造。
+- 每条候选至少引用一条上面列出的证据，evidence.ref 必须逐字来自证据列表；验收至少一条且是用户可观察的结果。
+- 用产品需求说明的表达：业务目标、角色、触发、预期行为、规则、例外与边界、可观察验收；不要写要改哪个文件、用什么库、怎么实现。
+- 不写测试数字、提交数、覆盖率、版本号或耗时；不把“已实现”写成“已确认”，也不要以所有者口吻作决定。
+- 现有索引已覆盖的规则不要重复生成；同主题规则发生变化时用新的 id，不要覆盖 confirmed 条目。
+- 只输出 JSON，不要代码围栏之外的说明。`
+}

@@ -14,6 +14,7 @@ import {
   type LibraryStatus,
 } from './library.js'
 import { asRecord } from './json.js'
+import { errorMessage } from './errors.js'
 
 export class RebuildError extends Error {
   constructor(message: string) {
@@ -505,4 +506,58 @@ export function summarizeRebuildPlan(plan: RebuildPlan): RebuildReviewSummary {
     if (review.kind === 'unresolved') summary.unresolved += 1
   }
   return summary
+}
+
+function candidateFromRecord(record: Record<string, unknown>, index: number): RebuildCandidate {
+  const confidence = record.confidence
+  if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
+    throw new RebuildError(`重建候选 candidates[${index}].confidence 只能是 low、medium 或 high`)
+  }
+  if (!Array.isArray(record.topics)) {
+    throw new RebuildError(`重建候选 candidates[${index}].topics 必须是数组`)
+  }
+  const candidate: RebuildCandidate = {
+    id: nonEmpty(record.id, `candidates[${index}].id`, 64),
+    title: nonEmpty(record.title, `candidates[${index}].title`, MAX_TITLE_CHARS),
+    topics: record.topics.map((topic, topicIndex) =>
+      nonEmpty(topic, `candidates[${index}].topics[${topicIndex}]`, MAX_TOPIC_CHARS),
+    ),
+    summary: nonEmpty(record.summary, `candidates[${index}].summary`, LIBRARY_MAX_SUMMARY_CHARS),
+    scope: nonEmpty(record.scope, `candidates[${index}].scope`, MAX_SCOPE_CHARS),
+    goal: nonEmpty(record.goal, `candidates[${index}].goal`, MAX_TEXT_CHARS),
+    actors: textList(record.actors, `candidates[${index}].actors`, 120),
+    trigger: nonEmpty(record.trigger, `candidates[${index}].trigger`, MAX_TEXT_CHARS),
+    behavior: nonEmpty(record.behavior, `candidates[${index}].behavior`, MAX_TEXT_CHARS),
+    rules: textList(record.rules, `candidates[${index}].rules`),
+    exceptions: textList(record.exceptions, `candidates[${index}].exceptions`),
+    acceptance: textList(record.acceptance, `candidates[${index}].acceptance`),
+    evidence: evidenceList(record.evidence),
+    confidence,
+    gaps: record.gaps === undefined ? [] : textList(record.gaps, `candidates[${index}].gaps`),
+  }
+  validateCandidate(candidate)
+  return candidate
+}
+
+/** 解析模型输出：允许 ```json 围栏，必须是 {candidates:[...]}；逐条校验后返回。 */
+export function parseRebuildCandidates(text: string): RebuildCandidate[] {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+  let payload: unknown
+  try {
+    payload = JSON.parse(cleaned)
+  } catch (error) {
+    throw new RebuildError(`重建输出不是合法 JSON：${errorMessage(error)}`)
+  }
+  const record = asRecord(payload)
+  if (!record) throw new RebuildError('重建输出必须是 JSON 对象')
+  const list = record.candidates
+  if (!Array.isArray(list)) throw new RebuildError('重建输出缺少 candidates 数组')
+  return list.map((item, index) => {
+    const candidate = asRecord(item)
+    if (!candidate) throw new RebuildError(`重建候选 candidates[${index}] 必须是对象`)
+    return candidateFromRecord(candidate, index)
+  })
 }

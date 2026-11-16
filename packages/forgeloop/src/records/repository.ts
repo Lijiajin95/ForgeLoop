@@ -18,6 +18,7 @@ import { clarificationQuestionId } from '../domain/analysis.js'
 import { AnalysisStore } from './analysis-store.js'
 import { BusinessContextStore } from './business-context-store.js'
 import { LibraryStore, type LibrarySyncEntry } from './library-store.js'
+import { LibraryRebuildStore } from './library-rebuild-store.js'
 import { ClarificationStore } from './clarification-store.js'
 import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
@@ -79,6 +80,7 @@ export class Repository extends DevSessionStore {
   readonly analysisStore = new AnalysisStore(this.db)
   readonly businessContextStore = new BusinessContextStore(this.db)
   readonly libraryStore = new LibraryStore(this.db)
+  readonly libraryRebuildStore = new LibraryRebuildStore(this.db)
   readonly clarificationStore = new ClarificationStore(this.db)
 
   close(): void {

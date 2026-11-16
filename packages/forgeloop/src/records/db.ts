@@ -724,6 +724,27 @@ CREATE TABLE IF NOT EXISTS library_entries (
     missing INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS library_entries_by_status ON library_entries (status, missing);
+
+CREATE TABLE IF NOT EXISTS library_rebuilds (
+  run_id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  status TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  materials INTEGER NOT NULL DEFAULT 0,
+  batches INTEGER NOT NULL DEFAULT 0,
+  batches_done INTEGER NOT NULL DEFAULT 0,
+  candidates INTEGER NOT NULL DEFAULT 0,
+  published INTEGER NOT NULL DEFAULT 0,
+  drafts INTEGER NOT NULL DEFAULT 0,
+  conflicts INTEGER NOT NULL DEFAULT 0,
+  unresolved INTEGER NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  finished_at TEXT NOT NULL DEFAULT '',
+  report_path TEXT NOT NULL DEFAULT '',
+  published_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS library_rebuilds_by_project ON library_rebuilds (project, started_at);
 `
 
 export type SqlParam = string | number | bigint | Uint8Array | null
