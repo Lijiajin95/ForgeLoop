@@ -14,6 +14,8 @@ function run(overrides: Partial<LibraryRebuildRun> = {}): LibraryRebuildRun {
     project: 'p',
     status: 'running',
     stage: 'collect',
+    requestedBy: 'owner',
+    source: 'test',
     materials: 3,
     batches: 2,
     batchesDone: 1,

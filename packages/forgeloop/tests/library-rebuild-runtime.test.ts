@@ -94,7 +94,7 @@ describe('library rebuild run', () => {
     const { dir, service, store, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
-    const { runId } = service.start()
+    const { runId } = service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status(runId)
@@ -112,12 +112,12 @@ describe('library rebuild run', () => {
     const { service, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const file = join(entryPath, 'rules.cancel-shipped-order.md')
     const before = readFileSync(file, 'utf8')
 
-    const second = service.start()
+    const second = service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const latest = service.status(second.runId)
@@ -130,11 +130,11 @@ describe('library rebuild run', () => {
     const { dir, service, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson({ rules })] })),
     )
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     rules = ['签收前可取消，签收后拒绝']
-    const second = service.start()
+    const second = service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const latest = service.status(second.runId)
@@ -149,14 +149,14 @@ describe('library rebuild run', () => {
     const { service, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson({ rules })] })),
     )
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const file = join(entryPath, 'rules.cancel-shipped-order.md')
     writeFileSync(file, `${readFileSync(file, 'utf8')}\n人工补充。\n`, 'utf8')
     const edited = readFileSync(file, 'utf8')
 
     rules = ['签收前可取消']
-    const second = service.start()
+    const second = service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const latest = service.status(second.runId)
@@ -166,7 +166,7 @@ describe('library rebuild run', () => {
 
   it('records model failures and publishes nothing', async () => {
     const { dir, service } = setup(async () => failed('model down'))
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
@@ -188,7 +188,7 @@ describe('library rebuild run', () => {
           request.signal?.addEventListener('abort', () => resolve(completed('{"candidates":[]}')))
         }),
     )
-    const { runId } = service.start()
+    const { runId } = service.start({ by: 'owner', source: 'test' })
     await started
     expect(service.cancel(runId)).toBe(true)
     await service.whenIdle()
@@ -206,15 +206,15 @@ describe('library rebuild run', () => {
       await gate
       return completed('{"candidates":[]}')
     })
-    service.start()
-    expect(() => service.start()).toThrow(/已有重建/)
+    service.start({ by: 'owner', source: 'test' })
+    expect(() => service.start({ by: 'owner', source: 'test' })).toThrow(/已有重建/)
     release?.()
     await service.whenIdle()
   })
 
   it('finishes with no candidates when the model returns an empty list', async () => {
     const { dir, service } = setup(async () => completed('{"candidates":[]}'))
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 0, candidates: 0 })
     expect(loadLibrary(dir).entries).toEqual([])
@@ -224,7 +224,7 @@ describe('library rebuild run', () => {
     const throwing = setup(async () => {
       throw new Error('runner exploded')
     })
-    throwing.service.start()
+    throwing.service.start({ by: 'owner', source: 'test' })
     await throwing.service.whenIdle()
     expect(throwing.service.status()).toMatchObject({ status: 'done', published: 0 })
     expect(readFileSync(join(throwing.service.status()!.reportPath, 'run.json'), 'utf8')).toContain(
@@ -232,7 +232,7 @@ describe('library rebuild run', () => {
     )
 
     const invalid = setup(async () => completed('not-json'))
-    invalid.service.start()
+    invalid.service.start({ by: 'owner', source: 'test' })
     await invalid.service.whenIdle()
     expect(invalid.service.status()).toMatchObject({ status: 'done', published: 0 })
     expect(readFileSync(join(invalid.service.status()!.reportPath, 'run.json'), 'utf8')).toContain(
@@ -256,7 +256,7 @@ describe('library rebuild run', () => {
         },
       },
     )
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const run = service.status()
     expect(run).toMatchObject({ status: 'done', published: 1 })
@@ -282,7 +282,7 @@ describe('library rebuild run', () => {
       })}\n-->\n\n旧正文\n`,
       'utf8',
     )
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
@@ -299,6 +299,8 @@ describe('library rebuild run', () => {
       project: 'p',
       status: 'done',
       stage: 'done',
+      requestedBy: 'owner',
+      source: 'test',
       materials: 1,
       batches: 1,
       batchesDone: 1,
@@ -313,7 +315,7 @@ describe('library rebuild run', () => {
       reportPath: '',
       publishedJson: '{"not":"an array"}',
     })
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -334,7 +336,7 @@ describe('library rebuild run', () => {
         }),
       ),
     )
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const run = service.status()
     expect(run).toMatchObject({ status: 'done', published: 1, candidates: 1 })
@@ -350,7 +352,7 @@ describe('library rebuild run', () => {
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
     mkdirSync(join(entryPath, 'rules.cancel-shipped-order.md'), { recursive: true })
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
@@ -364,7 +366,7 @@ describe('library rebuild run', () => {
       async () => completed(JSON.stringify({ candidates: [candidateJson()] })),
       { omitSync: true },
     )
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -378,6 +380,8 @@ describe('library rebuild run', () => {
       project: 'p',
       status: 'done',
       stage: 'done',
+      requestedBy: 'owner',
+      source: 'test',
       materials: 0,
       batches: 0,
       batchesDone: 0,
@@ -392,7 +396,7 @@ describe('library rebuild run', () => {
       reportPath: '',
       publishedJson: 'not-json',
     })
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -406,6 +410,8 @@ describe('library rebuild run', () => {
       project: 'p',
       status: 'done',
       stage: 'done',
+      requestedBy: 'owner',
+      source: 'test',
       materials: 0,
       batches: 0,
       batchesDone: 0,
@@ -420,7 +426,7 @@ describe('library rebuild run', () => {
       reportPath: '',
       publishedJson: '[null,{"id":"x"},{"id":"a","sha256":"s","fingerprint":""}]',
     })
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -445,12 +451,25 @@ describe('library rebuild run', () => {
         'utf8',
       )
     }
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
     expect(run).toMatchObject({ status: 'done', published: 0 })
     expect(readFileSync(join(run!.reportPath, 'report.md'), 'utf8')).toContain('整库容量已满')
+  })
+
+  it('marks the run failed when the library cannot be read', async () => {
+    const { service, entryPath } = setup(async () => completed('{"candidates":[]}'))
+    mkdirSync(entryPath, { recursive: true })
+    writeFileSync(join(entryPath, 'broken.md'), '<!-- library\n{broken}\n-->\n', 'utf8')
+
+    const { runId } = service.start({ by: 'owner', source: 'test' })
+    await service.whenIdle()
+
+    const run = service.status(runId)
+    expect(run).toMatchObject({ status: 'failed' })
+    expect(run?.error).toContain('需求库')
   })
 
   it('skips an update when the file changed before the publish step', async () => {
@@ -463,12 +482,12 @@ describe('library rebuild run', () => {
       }
       return completed(JSON.stringify({ candidates: [candidateJson({ rules })] }))
     })
-    service.start()
+    service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     editBeforePublish = true
     rules = ['新规则']
-    const second = service.start()
+    const second = service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status(second.runId)

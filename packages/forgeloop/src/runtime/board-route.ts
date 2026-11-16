@@ -10,6 +10,7 @@ import { grantFailureRounds } from './grants.js'
 import { resolveCommitment } from './commitment-decisions.js'
 import { buildIdentity } from './identity.js'
 import { loadLibrary } from './library-docs.js'
+import { libraryRebuildOf } from './library-rebuild-registry.js'
 
 const BOARD_ENDPOINTS = [
   'board',
@@ -42,6 +43,9 @@ const BOARD_ENDPOINTS = [
   'reliability',
   'library',
   'library-entry',
+  'library-rebuild-run',
+  'library-rebuild-status',
+  'library-rebuild-cancel',
   'ops',
   'ops-detail',
   'ops-decide',
@@ -195,6 +199,8 @@ function handleRead(
   if (endpoint === 'library') return handleLibrary(context)
 
   if (endpoint === 'library-entry') return handleLibraryEntry(body, context)
+
+  if (endpoint === 'library-rebuild-status') return handleLibraryRebuildStatus(body, context)
 
   if (endpoint === 'deployments') return handleDeployments(body, context)
 
@@ -397,6 +403,40 @@ function handleLibraryEntry(body: BoardBody | null, context: BoardContext): Resp
       content: found.content,
     },
   })
+}
+
+/** 重建进度：只读；缺 runId 时返回该项目最近一次运行。 */
+function handleLibraryRebuildStatus(body: BoardBody | null, context: BoardContext): Response {
+  const runId = text(body?.runId)
+  const run = libraryRebuildOf(context.runtime).status(runId || undefined)
+  return boardResponse(
+    run ? { ok: true, value: run } : boardFailure('not_found', '该项目尚未运行过需求库重建'),
+    run ? 200 : 404,
+  )
+}
+
+/** 一键重建：owner 动作；已有运行在途时返回 409。 */
+function handleLibraryRebuildRun(body: BoardBody | null, context: BoardContext): Response {
+  const sessionId = text(body?.sessionId)
+  try {
+    const started = libraryRebuildOf(context.runtime).start({
+      by: context.config.owner,
+      source: `web-decision:${sessionId || 'unknown-session'}:library-rebuild`,
+    })
+    return boardResponse({ ok: true, value: started })
+  } catch (error) {
+    return boardResponse(boardFailure('conflict', errorMessage(error)), 409)
+  }
+}
+
+/** 取消尚未发布的一轮重建；已发布文件不回滚。 */
+function handleLibraryRebuildCancel(body: BoardBody | null, context: BoardContext): Response {
+  const runId = text(body?.runId)
+  if (!runId) {
+    return boardResponse(boardFailure('bad_request', '取消需求库重建需要 runId'), 400)
+  }
+  const cancelled = libraryRebuildOf(context.runtime).cancel(runId)
+  return boardResponse({ ok: true, value: { cancelled, runId } })
 }
 
 function handlePlan(body: BoardBody | null, context: BoardContext): Response {
@@ -699,6 +739,10 @@ function handleWrite(
 ): Response | Promise<Response> | null {
   // 部署执行/回退与“上线核对”分开命名，避免把装好之后的核对当成部署动作。
   if (endpoint === 'deployment-intent') return handleDeploymentIntent(body, context)
+
+  if (endpoint === 'library-rebuild-run') return handleLibraryRebuildRun(body, context)
+
+  if (endpoint === 'library-rebuild-cancel') return handleLibraryRebuildCancel(body, context)
 
   if (endpoint === 'deployment-approve') return handleDeploymentApprove(body, context)
 

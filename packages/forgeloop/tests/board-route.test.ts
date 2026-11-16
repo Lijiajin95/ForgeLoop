@@ -95,6 +95,20 @@ function setup(
       calls.push({ method: 'reliability', input: window })
       return { window: { key: window } }
     },
+    libraryRebuild: {
+      start: (input: unknown) => {
+        calls.push({ method: 'libraryRebuildStart', input })
+        return { runId: 'run-1', status: {} }
+      },
+      status: (runId?: string) => {
+        calls.push({ method: 'libraryRebuildStatus', input: runId })
+        return { runId: runId ?? 'latest' }
+      },
+      cancel: (runId: string) => {
+        calls.push({ method: 'libraryRebuildCancel', input: runId })
+        return true
+      },
+    },
     ...overrides,
   } as unknown as ForgeLoopRuntime
   let aborted = 0
@@ -246,6 +260,57 @@ describe('board route', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('starts, reads and cancels a library rebuild through the board', async () => {
+    const { fetch, calls } = setup()
+
+    const started = await post(fetch, { endpoint: 'library-rebuild-run', sessionId: 's1' })
+    expect(started.status).toBe(200)
+    expect(started.body.value).toEqual({ runId: 'run-1', status: {} })
+    expect(calls.at(-1)).toEqual({
+      method: 'libraryRebuildStart',
+      input: { by: 'owner', source: 'web-decision:s1:library-rebuild' },
+    })
+
+    const status = await post(fetch, { endpoint: 'library-rebuild-status', runId: 'run-1' })
+    expect(status.status).toBe(200)
+    expect(status.body.value).toEqual({ runId: 'run-1' })
+    expect(calls.at(-1)).toEqual({ method: 'libraryRebuildStatus', input: 'run-1' })
+
+    expect((await post(fetch, { endpoint: 'library-rebuild-cancel' })).status).toBe(400)
+    const cancelled = await post(fetch, {
+      endpoint: 'library-rebuild-cancel',
+      runId: 'run-1',
+    })
+    expect(cancelled.status).toBe(200)
+    expect(cancelled.body.value).toEqual({ cancelled: true, runId: 'run-1' })
+    expect(calls.at(-1)).toEqual({ method: 'libraryRebuildCancel', input: 'run-1' })
+  })
+
+  it('returns 409 when a rebuild is already running and 404 for unknown status', async () => {
+    const running = setup({
+      libraryRebuild: {
+        start: () => {
+          throw new Error('已有重建在运行')
+        },
+        status: () => null,
+        cancel: () => false,
+      },
+    })
+    const response = await post(running.fetch, { endpoint: 'library-rebuild-run' })
+    expect(response.status).toBe(409)
+    expect(response.body.error.code).toBe('conflict')
+    expect(response.body.error.message).toContain('已有重建')
+
+    const missing = setup({
+      libraryRebuild: {
+        start: () => ({ runId: 'run-1', status: {} }),
+        status: () => null,
+        cancel: () => false,
+      },
+    })
+    expect((await post(missing.fetch, { endpoint: 'library-rebuild-status' })).status).toBe(404)
   })
 
   it('rejects library entry reads without a project path or with a broken library', async () => {

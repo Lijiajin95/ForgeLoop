@@ -35,6 +35,9 @@ export interface LibraryRebuildRun {
   readonly project: string
   readonly status: LibraryRebuildStatus
   readonly stage: LibraryRebuildStage
+  /** 触发重建的所有者与来源；与看板其他 owner 动作同一口径。 */
+  readonly requestedBy: string
+  readonly source: string
   readonly materials: number
   readonly batches: number
   readonly batchesDone: number
@@ -58,13 +61,15 @@ export class LibraryRebuildStore {
     this.db
       .prepare(
         `INSERT INTO library_rebuilds
-          (run_id, project, status, stage, materials, batches, batches_done, candidates,
-           published, drafts, conflicts, unresolved, error, started_at, finished_at,
+          (run_id, project, status, stage, requested_by, source, materials, batches, batches_done,
+           candidates, published, drafts, conflicts, unresolved, error, started_at, finished_at,
            report_path, published_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id) DO UPDATE SET
            status = excluded.status,
            stage = excluded.stage,
+           requested_by = excluded.requested_by,
+           source = excluded.source,
            materials = excluded.materials,
            batches = excluded.batches,
            batches_done = excluded.batches_done,
@@ -83,6 +88,8 @@ export class LibraryRebuildStore {
         run.project,
         run.status,
         run.stage,
+        run.requestedBy,
+        run.source,
         run.materials,
         run.batches,
         run.batchesDone,
@@ -166,6 +173,8 @@ function runRow(row: Row): LibraryRebuildRun {
     project: text(row, 'project'),
     status: statusOf(text(row, 'status')),
     stage: stageOf(text(row, 'stage')),
+    requestedBy: text(row, 'requested_by'),
+    source: text(row, 'source'),
     materials: num(row, 'materials'),
     batches: num(row, 'batches'),
     batchesDone: num(row, 'batches_done'),

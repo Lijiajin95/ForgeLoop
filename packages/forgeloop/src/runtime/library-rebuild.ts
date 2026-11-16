@@ -62,6 +62,27 @@ export interface LibraryRebuildStartResult {
   readonly status: LibraryRebuildRun
 }
 
+/** 运行时装配入口：把配置、记录库与 Agent 运行器接到同一个服务实例。 */
+export interface LibraryRebuildRepo {
+  readonly libraryRebuildStore: LibraryRebuildStore
+  syncLibrary(entries: readonly LibrarySyncEntry[], now: string): void
+}
+
+export function createLibraryRebuild(
+  config: ForgeLoopConfig,
+  repo: LibraryRebuildRepo,
+  runner: LibraryRebuildRunner,
+): LibraryRebuildService {
+  return new LibraryRebuildService({
+    config,
+    store: repo.libraryRebuildStore,
+    runner,
+    sync: (entries, now) => {
+      repo.syncLibrary(entries, now)
+    },
+  })
+}
+
 interface PublishedEntry {
   readonly id: string
   readonly sha256: string
@@ -78,10 +99,16 @@ export class LibraryRebuildService {
   }
 
   /** 启动一轮重建；已有运行在途时拒绝，重复点击由页面读取当前进度。 */
-  start(): LibraryRebuildStartResult {
+  start(input: { readonly by: string; readonly source: string }): LibraryRebuildStartResult {
     if (this.active) throw new RebuildError('已有重建在运行；请等待完成或先取消')
     const runId = `lrb-${stamp(this.now())}-${randomUUID().slice(0, 8)}`
-    const record = emptyRun(runId, this.deps.config.project, this.now())
+    const record = emptyRun({
+      runId,
+      project: this.deps.config.project,
+      startedAt: this.now(),
+      requestedBy: input.by,
+      source: input.source,
+    })
     this.deps.store.save(record)
     const controller = new AbortController()
     this.active = { runId, controller }
@@ -421,12 +448,20 @@ function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
 }
 
-function emptyRun(runId: string, project: string, startedAt: string): LibraryRebuildRun {
+function emptyRun(input: {
+  runId: string
+  project: string
+  startedAt: string
+  requestedBy: string
+  source: string
+}): LibraryRebuildRun {
   return {
-    runId,
-    project,
+    runId: input.runId,
+    project: input.project,
     status: 'queued',
     stage: 'collect',
+    requestedBy: input.requestedBy,
+    source: input.source,
     materials: 0,
     batches: 0,
     batchesDone: 0,
@@ -436,7 +471,7 @@ function emptyRun(runId: string, project: string, startedAt: string): LibraryReb
     conflicts: 0,
     unresolved: 0,
     error: '',
-    startedAt,
+    startedAt: input.startedAt,
     finishedAt: '',
     reportPath: '',
     publishedJson: '[]',

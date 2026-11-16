@@ -730,6 +730,8 @@ CREATE TABLE IF NOT EXISTS library_rebuilds (
   project TEXT NOT NULL,
   status TEXT NOT NULL,
   stage TEXT NOT NULL,
+  requested_by TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
   materials INTEGER NOT NULL DEFAULT 0,
   batches INTEGER NOT NULL DEFAULT 0,
   batches_done INTEGER NOT NULL DEFAULT 0,
