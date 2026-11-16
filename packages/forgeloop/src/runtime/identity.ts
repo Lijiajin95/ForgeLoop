@@ -107,7 +107,16 @@ export function setBuildSourcePath(projectPath: string, clientEntryFile = ''): v
   buildClientEntryFile = clientEntryFile
 }
 
-/** 当前进程写入的运行身份与源码身份；未装载（如单测直接构造 runtime）时字段为空。 */
-export function buildIdentity(projectPath?: string): BuildIdentityView {
-  return buildIdentityFrom(currentIdentity, projectPath ?? buildSourcePath, buildClientEntryFile)
+/**
+ * 当前进程写入的运行身份与源码身份；未装载（如单测直接构造 runtime）时字段为空。
+ *
+ * 工作区模式下每个租户的 `projectPath` 与 `clientEntryFile` 不同，调用方必须显式传入；
+ * 省略时回退到装载期记录的全局值（单项目/兼容路径）。
+ */
+export function buildIdentity(projectPath?: string, clientEntryFile?: string): BuildIdentityView {
+  return buildIdentityFrom(
+    currentIdentity,
+    projectPath ?? buildSourcePath,
+    clientEntryFile ?? buildClientEntryFile,
+  )
 }

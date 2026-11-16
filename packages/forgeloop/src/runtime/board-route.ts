@@ -8,6 +8,7 @@ import type { ForgeLoopRuntime } from './service.js'
 import { extendWorkBudget } from './budget.js'
 import { grantFailureRounds } from './grants.js'
 import { resolveCommitment } from './commitment-decisions.js'
+import { buildIdentity } from './identity.js'
 import { loadLibrary } from './library-docs.js'
 
 const BOARD_ENDPOINTS = [
@@ -863,10 +864,19 @@ function handleBoardQuery(body: BoardBody | null, context: BoardContext): Respon
     limit = body.limit
   }
   const value = context.runtime.statusBoard(limit, query)
+  // 工作区模式下源码身份按当前租户解析（每个租户的 clientEntryFile 不同）；
+  // 单项目模式保留运行时自己的全局身份，避免改变既有响应。
+  const scopedBuild = context.workspace
+    ? buildIdentity(context.config.projectPath, context.config.clientEntryFile)
+    : undefined
   return boardResponse({
     ok: true,
     // `project` 是隔离用的租户键；界面显示工作区标题，不把 ws-<id> 暴露成项目名。
-    value: context.workspace ? { ...value, workspace: context.workspace } : value,
+    value: {
+      ...value,
+      ...(scopedBuild ? { build: scopedBuild } : {}),
+      ...(context.workspace ? { workspace: context.workspace } : {}),
+    },
   })
 }
 
