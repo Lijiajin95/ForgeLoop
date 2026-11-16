@@ -15,6 +15,7 @@
 | 已收口的验证与评测方案           | [§10](product/product.md#10-首版验证与评测方案已收口)         |
 | 里程碑、场景、自主程度统计与证据 | [§11–§13](product/product.md#11-里程碑与验收路径细化稿)       |
 | 待实施事项与 DSH 接缝依据        | [§14–§15](product/product.md#14-实施边界与待决项)             |
+| 一键重建需求库与复用项目上下文   | [library-rebuild.md](product/library-rebuild.md)              |
 | 天工「代码可靠性」看板方案       | [reliability-dashboard.md](product/reliability-dashboard.md)  |
 
 ## 研发
@@ -24,7 +25,6 @@
 | [architecture.md](development/architecture.md)                 | 当前模块、持久化与外部接缝，对应源码和架构契约                                           |
 | [deployment.md](development/deployment.md)                     | 当前本机安装、升级、验证与恢复操作                                                       |
 | [deployment-interface.md](development/deployment-interface.md) | 部署接口方案：外部工具契约、目标与授权、状态机与回退（部分实现）                         |
-| [library-rebuild.md](development/library-rebuild.md)           | 需求库一键重建，按时间取证、业务规则提炼、已有条目审查和安全发布（待实施）               |
 | [ops-agent.md](development/ops-agent.md)                       | 运维 Agent：登记目录、检查与定时主动监控、事件、诊断、授权处置、恢复复核、外部告警与限制 |
 | [reliability.md](development/reliability.md)                   | 进阶可靠性门禁：清单、属性测试与 seed 复现、状态机覆盖、稳定性、增量变异与报告口径       |
 | [branch-protection.md](development/branch-protection.md)       | 分支保护、必需检查与 E2E 门禁的已落实/未落实状态                                         |
