@@ -16,7 +16,7 @@ import { sha256OfBytes } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { parseJsonObject } from '../domain/json.js'
 import { processAlive, readInstalledVersion } from './deployment-inspect.js'
-import { hostLogPath } from './log.js'
+import { pluginLogPath } from './log.js'
 import { readLogTail } from './log-tail.js'
 
 /** 运维 Agent 唯一的工具面：只能读制品状态与登记日志。 */
@@ -96,7 +96,7 @@ function builtinArtifact(config: ForgeLoopConfig): OpsArtifact {
     profile: '',
     package: '',
     entryFiles: [],
-    logs: [{ id: PLUGIN_LOG_ID, path: hostLogPath(config), errorPattern: 'ERROR' }],
+    logs: [{ id: PLUGIN_LOG_ID, path: pluginLogPath(config), errorPattern: 'ERROR' }],
   }
 }
 

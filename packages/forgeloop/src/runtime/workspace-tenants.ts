@@ -170,19 +170,23 @@ export class WorkspaceTenants {
   configFor(workspace: WorkspaceIdentity): ForgeLoopConfig {
     const legacy = this.options.legacy
     const isLegacy = legacy !== undefined && samePath(legacy.projectPath, workspace.path)
-    const project = isLegacy
-      ? legacy.project
-      : workspaceProjectName(workspace.id)
+    const project = isLegacy ? legacy.project : workspaceProjectName(workspace.id)
     const raw: RawConfig = {
       ...this.options.raw,
       project,
       projectPath: workspace.path,
       recordsRoot: this.options.base.recordsRoot,
     }
-    if (!isLegacy && this.options.base.ops.enabled) {
+    if (!isLegacy) {
       const profile = loadProjectProfile(workspace.path)
-      if (!Object.prototype.hasOwnProperty.call(profile, 'ops')) {
-        raw.ops = { ...this.options.raw.ops, enabled: false }
+      const declaresOps = Object.prototype.hasOwnProperty.call(profile, 'ops')
+      if (!declaresOps) {
+        if (this.options.base.ops.enabled) raw.ops = { ...this.options.raw.ops, enabled: false }
+      } else if (profile.ops) {
+        // 非 legacy 项目没声明自己的制品清单时，不继承全局路径，避免读到其他工作区的日志。
+        if (!Object.prototype.hasOwnProperty.call(profile.ops, 'artifacts')) {
+          raw.ops = { ...this.options.raw.ops, artifacts: [] }
+        }
       }
     }
     return resolveConfig(raw, this.options.cwd)

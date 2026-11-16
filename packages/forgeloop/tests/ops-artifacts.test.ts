@@ -110,7 +110,7 @@ describe('artifact logs', () => {
   })
 
   it('exposes the plugin runtime log as a built-in artifact', () => {
-    const path = join(dir, '.forgeloop', 'logs', 'plugin.log')
+    const path = join(dir, '.forgeloop', 'projects', 'testproj', 'logs', 'plugin.log')
     write(
       path,
       [

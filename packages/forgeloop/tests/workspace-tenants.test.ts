@@ -275,16 +275,31 @@ describe('workspace tenant binding', () => {
         checks: [
           { id: 'web-health', resourceId: 'web', command: ['node', '-e', 'process.exit(0)'] },
         ],
+        artifacts: [
+          { id: 'global', label: 'global', logs: [{ id: 'l', path: 'logs/global.log' }] },
+        ],
       },
     })
     const legacy = tenants.configFor(legacyWorkspace(legacyProjectPath))
     const other = tenants.configFor(workspace('a', dir))
     expect(legacy.ops.enabled).toBe(true)
+    expect(legacy.ops.artifacts).toHaveLength(1)
     expect(other.ops.enabled).toBe(false)
 
     mkdirSync(other.projectPath, { recursive: true })
     writeFileSync(join(other.projectPath, '.forgeloop.json'), '{"ops":{"enabled":true}}\n')
-    expect(tenants.configFor(workspace('a', dir)).ops.enabled).toBe(true)
+    const optedIn = tenants.configFor(workspace('a', dir))
+    expect(optedIn.ops.enabled).toBe(true)
+    // 未声明自己的制品清单时不继承全局路径，避免跨工作区读日志。
+    expect(optedIn.ops.artifacts).toEqual([])
+
+    writeFileSync(
+      join(other.projectPath, '.forgeloop.json'),
+      '{"ops":{"enabled":true,"artifacts":[{"id":"own","label":"own","logs":[{"id":"l","path":"logs/own.log"}]}]}}\n',
+    )
+    expect(tenants.configFor(workspace('a', dir)).ops.artifacts.map((item) => item.id)).toEqual([
+      'own',
+    ])
   })
 
   it('keeps preloading when one workspace fails to start', async () => {
