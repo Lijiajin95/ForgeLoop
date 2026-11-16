@@ -282,7 +282,7 @@ describe('design document intake', () => {
     expect(missing.ok).toBe(false)
     expect(missing.code).toBe('document_not_found')
 
-    for (const path of ['docs/code.ts', '../outside.md', 'D:/abs.md', 'docs/.git/x.md', '']) {
+    for (const path of ['docs/code.ts', '../outside.md', '/abs.md', 'docs/.git/x.md', '']) {
       const rejected = designDocumentIntakeOf(runtime).intake({
         path,
         by: 'owner',
