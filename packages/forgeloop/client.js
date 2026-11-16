@@ -1277,6 +1277,21 @@ window.__ModuleLoader__.load({
       'reliability.duration.seconds': '{value} 秒',
       'reliability.duration.minutes': '{value} 分钟',
       'reliability.duration.hours': '{value} 小时',
+      'reliability.checkedAt': '最后检查 {time}',
+      'reliability.history.samples': '指标历史',
+      'reliability.history.samplesMeta': '显示最近 {count} 条（上限 {limit}）',
+      'reliability.history.samplesNote':
+        '指标变化时追加一条；长期没有变化时每 6 小时留一条心跳。历史只增不改。',
+      'reliability.history.emptySamples': '还没有指标样本；协调器运行后会在指标变化时记录。',
+      'reliability.history.snapshots': '快照历史',
+      'reliability.history.snapshotsMeta': '显示最近 {count} 份（上限 {limit}）',
+      'reliability.history.emptySnapshots': '还没有历史快照；每次生成快照会追加一份。',
+      'reliability.history.time': '时间',
+      'reliability.history.unresolvedOps': '未解决运维',
+      'reliability.history.commit': '提交',
+      'reliability.history.gates': '门禁',
+      'reliability.history.tests': '测试',
+      'reliability.history.mutation': '变异',
       'reliability.footnote':
         '口径：未采集或未运行不算通过；样本少于 5 标注“样本不足”；所有时间按本地时区显示。',
       'wb.stopHelp': '停止请求会撤销待执行请求；完成前不能认定已经停稳。',
@@ -1906,6 +1921,23 @@ window.__ModuleLoader__.load({
       'reliability.duration.seconds': '{value}s',
       'reliability.duration.minutes': '{value} min',
       'reliability.duration.hours': '{value} h',
+      'reliability.checkedAt': 'Checked {time}',
+      'reliability.history.samples': 'Metric history',
+      'reliability.history.samplesMeta': 'Showing {count} (limit {limit})',
+      'reliability.history.samplesNote':
+        'A sample is appended when metrics change; idle periods keep one heartbeat every 6 hours. History is append-only.',
+      'reliability.history.emptySamples':
+        'No metric samples yet; the coordinator records them when metrics change.',
+      'reliability.history.snapshots': 'Snapshot history',
+      'reliability.history.snapshotsMeta': 'Showing {count} (limit {limit})',
+      'reliability.history.emptySnapshots':
+        'No snapshot history yet; each generated snapshot is appended.',
+      'reliability.history.time': 'Time',
+      'reliability.history.unresolvedOps': 'Unresolved ops',
+      'reliability.history.commit': 'Commit',
+      'reliability.history.gates': 'Gates',
+      'reliability.history.tests': 'Tests',
+      'reliability.history.mutation': 'Mutation',
       'reliability.footnote':
         'Not collected or not run is never a pass; fewer than 5 samples is marked as a small sample; times use the local time zone.',
       'wb.stopHelp':
@@ -4988,6 +5020,12 @@ window.__ModuleLoader__.load({
 .flb-rel-legend i[data-tone=brand]{background:var(--dsw-alias-brand-primary)}
 .flb-rel-legend i[data-tone=info]{background:var(--dsw-alias-state-info-primary)}
 .flb-rel-trend-table{margin-top:6px}
+.flb-rel-table{width:100%;border-collapse:collapse;font-size:11px}
+.flb-rel-table th,.flb-rel-table td{text-align:left;padding:4px 6px;border-top:.5px solid var(--dsw-alias-border-l1);white-space:nowrap}
+.flb-rel-table th{font-weight:600;color:var(--dsw-alias-label-secondary);font-size:10px}
+.flb-rel-table tbody tr:first-child td{border-top:0}
+.flb-rel-table td:first-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary)}
+.flb-rel-table-wrap{overflow-x:auto}
 .flb-rel-trend-table summary{cursor:pointer;font-size:11px;color:var(--dsw-alias-brand-primary)}
 .flb-rel-events{display:flex;flex-direction:column;gap:6px}
 .flb-rel-event{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:6px 0;border-top:.5px solid var(--dsw-alias-border-l1)}
@@ -8269,6 +8307,9 @@ window.__ModuleLoader__.load({
           pending: 0,
         }
         const trend = Array.isArray(runtime.trend) ? runtime.trend : []
+        const history = report.history || {}
+        const samples = Array.isArray(history.samples) ? history.samples : []
+        const snapshotHistory = Array.isArray(history.snapshots) ? history.snapshots : []
         const rates = [verification, firstPass, businessReview, deployment]
         const hasSamples = rates.some((rate) => (rate.total || 0) > 0)
         const warnings = Array.isArray(report.warnings) ? [...new Set(report.warnings)] : []
@@ -8352,6 +8393,66 @@ window.__ModuleLoader__.load({
             ]
           : []
 
+        const rateCell = (rate) =>
+          rate && typeof rate.rate === 'number' ? `${rate.rate}%` : '—'
+        const historyTable = (headers, rows) =>
+          h(
+            'div',
+            { className: 'flb-rel-table-wrap' },
+            h(
+              'table',
+              { className: 'flb-rel-table' },
+              h(
+                'thead',
+                null,
+                h(
+                  'tr',
+                  null,
+                  headers.map((header) => h('th', { key: header }, header)),
+                ),
+              ),
+              h(
+                'tbody',
+                null,
+                rows.map((cells, index) =>
+                  h(
+                    'tr',
+                    { key: index },
+                    cells.map((cell, cellIndex) => h('td', { key: cellIndex }, cell)),
+                  ),
+                ),
+              ),
+            ),
+          )
+        const sampleRows = samples.map((sample) => [
+          formatMoment(sample.sampledAt),
+          rateCell(sample.verification),
+          rateCell(sample.firstPassVerification),
+          rateCell(sample.businessReview),
+          rateCell(sample.deployment),
+          String((sample.failureRounds && sample.failureRounds.total) || 0),
+          String((sample.ops && sample.ops.unresolved) || 0),
+        ])
+        const snapshotRows = snapshotHistory.map((point) => {
+          const gates = point.gates || { pass: 0, fail: 0 }
+          return [
+            formatMoment(point.generatedAt),
+            `${shortSha(point.commit)}${point.dirty ? ' *' : ''}`,
+            `${gates.pass}/${Number(gates.pass) + Number(gates.fail)}`,
+            point.tests
+              ? `${point.tests.passed === null ? '—' : point.tests.passed}/${
+                  point.tests.total === null ? '—' : point.tests.total
+                }`
+              : '—',
+            point.coverage ? reliabilityPercent(point.coverage.lines) || '—' : '—',
+            point.mutation && typeof point.mutation.score === 'number'
+              ? `${point.mutation.score}%`
+              : '—',
+          ]
+        })
+        const samplesLimit = Number(history.sampleLimit) || samples.length
+        const snapshotsLimit = Number(history.snapshotHistoryLimit) || snapshotHistory.length
+
         return h(
           'main',
           { className: 'flb-main-pane flb-rel-pane' },
@@ -8404,6 +8505,13 @@ window.__ModuleLoader__.load({
               : null,
             snapshot.dirty ? h(Chip, { tone: 'warn' }, t('reliability.snapshot.dirty')) : null,
             h('span', { className: 'flb-rel-window-range' }, windowText),
+            props.checkedAt
+              ? h(
+                  'span',
+                  { className: 'flb-rel-meta' },
+                  t('reliability.checkedAt', { time: formatMoment(props.checkedAt) }),
+                )
+              : null,
           ),
           h(
             'div',
@@ -8942,6 +9050,72 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'flb-rel-section-head' },
+              h('span', { className: 'flb-rel-section-title' }, t('reliability.history.samples')),
+              h(
+                'span',
+                { className: 'flb-rel-section-meta' },
+                t('reliability.history.samplesMeta', {
+                  count: samples.length,
+                  limit: samplesLimit,
+                }),
+              ),
+            ),
+            samples.length === 0
+              ? h('div', { className: 'flb-rel-empty' }, t('reliability.history.emptySamples'))
+              : historyTable(
+                  [
+                    t('reliability.history.time'),
+                    t('reliability.runtime.verification'),
+                    t('reliability.runtime.firstPass'),
+                    t('reliability.runtime.businessReview'),
+                    t('reliability.runtime.deployment'),
+                    t('reliability.runtime.failureRounds'),
+                    t('reliability.history.unresolvedOps'),
+                  ],
+                  sampleRows,
+                ),
+            h('div', { className: 'flb-rel-note' }, t('reliability.history.samplesNote')),
+          ),
+          h(
+            'section',
+            { className: 'flb-rel-section' },
+            h(
+              'div',
+              { className: 'flb-rel-section-head' },
+              h(
+                'span',
+                { className: 'flb-rel-section-title' },
+                t('reliability.history.snapshots'),
+              ),
+              h(
+                'span',
+                { className: 'flb-rel-section-meta' },
+                t('reliability.history.snapshotsMeta', {
+                  count: snapshotHistory.length,
+                  limit: snapshotsLimit,
+                }),
+              ),
+            ),
+            snapshotHistory.length === 0
+              ? h('div', { className: 'flb-rel-empty' }, t('reliability.history.emptySnapshots'))
+              : historyTable(
+                  [
+                    t('reliability.history.time'),
+                    t('reliability.history.commit'),
+                    t('reliability.history.gates'),
+                    t('reliability.history.tests'),
+                    t('reliability.coverage.lines'),
+                    t('reliability.history.mutation'),
+                  ],
+                  snapshotRows,
+                ),
+          ),
+          h(
+            'section',
+            { className: 'flb-rel-section' },
+            h(
+              'div',
+              { className: 'flb-rel-section-head' },
               h('span', { className: 'flb-rel-section-title' }, t('reliability.trend.title')),
             ),
             h(ReliabilityTrend, { t, rows: trend }),
@@ -9468,7 +9642,9 @@ window.__ModuleLoader__.load({
           phase: 'idle',
           data: null,
           error: '',
+          checkedAt: '',
         })
+        const reliabilityRevision = React.useRef('')
         const [reliabilityNonce, setReliabilityNonce] = React.useState(0)
         const [product, setProduct] = React.useState({ phase: 'idle', data: null, error: '' })
         const [productNonce, setProductNonce] = React.useState(0)
@@ -9677,11 +9853,31 @@ window.__ModuleLoader__.load({
         React.useEffect(() => {
           if (view !== 'reliability') return undefined
           let alive = true
+          const checkedAt = () => new Date().toISOString()
           const loadReliability = () => {
             read('reliability', { window: reliabilityWindow }, undefined)
               .then((value) => {
                 if (!alive) return
-                setReliability({ phase: 'ready', data: value, error: '' })
+                const revision = value && typeof value.revision === 'string' ? value.revision : ''
+                // 版本一致说明指标没变：保留当前数据，不重渲染也不闪动。
+                // 窗口必须参与比较：revision 只由事实决定，切换窗口后同一版本仍是不同视图。
+                const key = revision === '' ? '' : `${reliabilityWindow}:${revision}`
+                if (key !== '' && key === reliabilityRevision.current) {
+                  setReliability((previous) => ({
+                    ...previous,
+                    phase: 'ready',
+                    error: '',
+                    checkedAt: checkedAt(),
+                  }))
+                  return
+                }
+                reliabilityRevision.current = key
+                setReliability({
+                  phase: 'ready',
+                  data: value,
+                  error: '',
+                  checkedAt: checkedAt(),
+                })
               })
               .catch((error) => {
                 if (!alive) return
@@ -9689,11 +9885,12 @@ window.__ModuleLoader__.load({
                   phase: 'error',
                   data: previous.data,
                   error: error.message || String(error),
+                  checkedAt: previous.checkedAt,
                 }))
               })
           }
           loadReliability()
-          const timer = auto ? setInterval(loadReliability, 30000) : null
+          const timer = auto ? setInterval(loadReliability, 10000) : null
           return () => {
             alive = false
             if (timer) clearInterval(timer)
@@ -9911,6 +10108,7 @@ window.__ModuleLoader__.load({
               t,
               data: reliability.data,
               error: reliability.error,
+              checkedAt: reliability.checkedAt,
               onRetry: () => setReliabilityNonce((value) => value + 1),
               onOpenRequirement: (reqId) => {
                 setView('hierarchy')

@@ -205,6 +205,11 @@ describe('client conversation view', () => {
       'reliability.runtime.title',
       'reliability.trend.title',
       'reliability.events.title',
+      'reliability.history.samples',
+      'reliability.history.snapshots',
+      'reliability.history.samplesMeta',
+      'reliability.history.snapshotsMeta',
+      'reliability.checkedAt',
       'reliability.footnote',
     ]
     for (const key of keys) {

@@ -296,7 +296,14 @@ exports[`runtime empty-state payloads > keeps status, reliability, ops, requests
 exports[`runtime empty-state payloads > keeps status, reliability, ops, requests and directory payloads stable > reliability-empty 1`] = `
 {
   "generatedAt": "TIME",
+  "history": {
+    "sampleLimit": 24,
+    "samples": [],
+    "snapshotHistoryLimit": 12,
+    "snapshots": [],
+  },
   "project": "demo",
+  "revision": "31f85f76cd395baa",
   "runtime": {
     "businessReview": {
       "pass": 0,

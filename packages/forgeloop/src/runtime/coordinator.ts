@@ -17,6 +17,7 @@ import type { ForgeLoopRuntime } from './service.js'
 import { projectDir } from '../config.js'
 import { acquireHostLock, type HostLock } from './lock.js'
 import { createPluginLogger, type PluginLogger } from './log.js'
+import { reliabilitySample } from './reliability.js'
 
 export interface CoordinatorOptions {
   readonly runtime: ForgeLoopRuntime
@@ -47,6 +48,7 @@ export class Coordinator {
   private opsCurrent: Promise<void> | undefined
   private deliveryTimer: NodeJS.Timeout | undefined
   private deliveryCurrent: Promise<void> | undefined
+  private reliabilityTimer: NodeJS.Timeout | undefined
   private stopped = true
   private ticking = false
   private inflight = new Map<string, AbortController>()
@@ -136,6 +138,17 @@ export class Coordinator {
     this.deliveryTimer = setInterval(() => void this.kickDelivery(), this.pollSeconds * 1000)
     this.deliveryTimer.unref()
     setTimeout(() => void this.kickDelivery(), 90).unref()
+    // 指标历史采样：指标变化时追加一条样本；暂停/退出后不再写。
+    this.reliabilityTimer = setInterval(
+      () => {
+        this.sampleReliability()
+      },
+      Math.max(30, this.pollSeconds) * 1000,
+    )
+    this.reliabilityTimer.unref()
+    setTimeout(() => {
+      this.sampleReliability()
+    }, 150).unref()
     // 启动扫描：先核对/恢复，再立即消费 pending。
     setTimeout(() => void this.kick(), 50).unref()
   }
@@ -150,6 +163,8 @@ export class Coordinator {
     this.watchdogTimer = undefined
     if (this.deliveryTimer) clearInterval(this.deliveryTimer)
     this.deliveryTimer = undefined
+    if (this.reliabilityTimer) clearInterval(this.reliabilityTimer)
+    this.reliabilityTimer = undefined
     for (const controller of this.inflight.values()) controller.abort()
     await this.current?.catch(() => undefined)
     await this.opsCurrent?.catch(() => undefined)
@@ -224,6 +239,20 @@ export class Coordinator {
     this.runtime.deployments.expireStale()
     // 中断可能停在 applying/verifying：先观测实际结果再收口，不重新安装。
     await this.runtime.deployments.recoverInterrupted()
+  }
+
+  /** 指标历史采样只写历史表；失败记日志，不影响调度。 */
+  private sampleReliability(): void {
+    if (this.stopped) return
+    try {
+      // 时钟取协调器的可注入 now，测试与生产共用同一时间源。
+      reliabilitySample(this.runtime.repo, this.runtime.config, () => new Date(this.now()))
+    } catch (error) {
+      this.logger.error(`[forgeloop] 可靠性指标采样失败：${errorMessage(error)}`, {
+        event: 'coordinator.reliability',
+        error,
+      })
+    }
   }
 
   /** 是否有可观测进展：最近一次活动在宽限窗口内。 */

@@ -32,6 +32,13 @@ export const SNAPSHOT_MAX_BYTES = 256 * 1024
 export const SNAPSHOT_MAX_GATES = 32
 export const SNAPSHOT_MAX_FILES = 200
 
+/** 指标历史采样：变化至少间隔 1 分钟，长期无变化时每 6 小时留一条心跳。 */
+export const RELIABILITY_SAMPLE_MIN_INTERVAL_MS = 60_000
+export const RELIABILITY_SAMPLE_HEARTBEAT_MS = 6 * 60 * 60 * 1000
+/** 页面最多展示的采样条数与快照历史份数；数据库仍保留全部采样。 */
+export const RELIABILITY_SAMPLE_HISTORY_LIMIT = 24
+export const SNAPSHOT_HISTORY_LIMIT = 12
+
 /** 省略窗口时使用全部记录；非法值返回 null，由路由给出 400。 */
 export function parseReliabilityWindow(value: unknown): ReliabilityWindow | null {
   if (value === undefined) return 'all'
@@ -697,6 +704,95 @@ function parseBudgets(value: unknown): ReliabilityBudgets | null {
   }
 }
 
+/** 一条指标历史样本：只记录页面展示的聚合值，不复制原始记录。 */
+export interface ReliabilitySamplePayload {
+  readonly verification: ReliabilityRate
+  readonly firstPassVerification: ReliabilityRate
+  readonly businessReview: ReliabilityRate
+  readonly deployment: ReliabilityRate
+  readonly failureRounds: { readonly total: number; readonly requirements: number }
+  readonly tasks: TaskRunSummary
+  readonly ops: {
+    readonly opened: number
+    readonly closed: number
+    readonly recovered: number
+    readonly unresolved: number
+    readonly mttrSeconds: number | null
+  }
+  readonly candidateBuilds: number
+  readonly deploymentIntents: {
+    readonly verified: number
+    readonly failed: number
+    readonly rolledBack: number
+    readonly pending: number
+  }
+}
+
+export interface ReliabilitySample extends ReliabilitySamplePayload {
+  readonly sampleId: number
+  readonly project: string
+  readonly sampledAt: string
+  /** 采样时的指标版本；与当前版本不同即说明数据发生变化。 */
+  readonly revision: string
+}
+
+function sampleCount(value: unknown, field: string): number {
+  const number = numberValue(value, field)
+  if (number === null || !Number.isInteger(number) || number < 0) {
+    throw new MalformedError(`可靠性指标样本字段 ${field} 必须是非负整数`)
+  }
+  return number
+}
+
+function sampleRate(value: unknown, field: string): ReliabilityRate {
+  const record = requireRecord(value, field)
+  const pass = sampleCount(record.pass, `${field}.pass`)
+  const total = sampleCount(record.total, `${field}.total`)
+  if (pass > total) throw new MalformedError(`可靠性指标样本字段 ${field}.pass 不能大于 total`)
+  return { pass, total, rate: numberValue(record.rate, `${field}.rate`) }
+}
+
+/** 解析一条已落库的样本；损坏的行由调用方跳过，不能显示成 0。 */
+export function parseReliabilitySample(value: unknown): ReliabilitySamplePayload {
+  const record = requireRecord(value, 'sample')
+  const rounds = requireRecord(record.failureRounds, 'sample.failureRounds')
+  const tasks = requireRecord(record.tasks, 'sample.tasks')
+  const ops = requireRecord(record.ops, 'sample.ops')
+  const intents = requireRecord(record.deploymentIntents, 'sample.deploymentIntents')
+  return {
+    verification: sampleRate(record.verification, 'sample.verification'),
+    firstPassVerification: sampleRate(record.firstPassVerification, 'sample.firstPassVerification'),
+    businessReview: sampleRate(record.businessReview, 'sample.businessReview'),
+    deployment: sampleRate(record.deployment, 'sample.deployment'),
+    failureRounds: {
+      total: sampleCount(rounds.total, 'sample.failureRounds.total'),
+      requirements: sampleCount(rounds.requirements, 'sample.failureRounds.requirements'),
+    },
+    tasks: {
+      total: sampleCount(tasks.total, 'sample.tasks.total'),
+      delivered: sampleCount(tasks.delivered, 'sample.tasks.delivered'),
+      failed: sampleCount(tasks.failed, 'sample.tasks.failed'),
+      blocked: sampleCount(tasks.blocked, 'sample.tasks.blocked'),
+      awaitingUser: sampleCount(tasks.awaitingUser, 'sample.tasks.awaitingUser'),
+      running: sampleCount(tasks.running, 'sample.tasks.running'),
+    },
+    ops: {
+      opened: sampleCount(ops.opened, 'sample.ops.opened'),
+      closed: sampleCount(ops.closed, 'sample.ops.closed'),
+      recovered: sampleCount(ops.recovered, 'sample.ops.recovered'),
+      unresolved: sampleCount(ops.unresolved, 'sample.ops.unresolved'),
+      mttrSeconds: numberValue(ops.mttrSeconds, 'sample.ops.mttrSeconds'),
+    },
+    candidateBuilds: sampleCount(record.candidateBuilds, 'sample.candidateBuilds'),
+    deploymentIntents: {
+      verified: sampleCount(intents.verified, 'sample.deploymentIntents.verified'),
+      failed: sampleCount(intents.failed, 'sample.deploymentIntents.failed'),
+      rolledBack: sampleCount(intents.rolledBack, 'sample.deploymentIntents.rolledBack'),
+      pending: sampleCount(intents.pending, 'sample.deploymentIntents.pending'),
+    },
+  }
+}
+
 export function parseReliabilitySnapshot(value: unknown): ReliabilitySnapshot {
   const record = requireRecord(value, 'root')
   if (record.schemaVersion !== 1) {
@@ -735,5 +831,64 @@ export function parseReliabilitySnapshot(value: unknown): ReliabilitySnapshot {
     budgets: parseBudgets(record.budgets),
     suppressions: numberValue(record.suppressions, 'suppressions') ?? 0,
     artifacts: Object.fromEntries(artifactEntries.map(([key, item]) => [key, stringValue(item)])),
+  }
+}
+
+/** 快照历史里的一条压缩记录：只保留比较趋势需要的字段。 */
+export interface SnapshotHistoryPoint {
+  readonly generatedAt: string
+  readonly commit: string
+  readonly branch: string
+  readonly dirty: boolean
+  readonly gates: {
+    readonly pass: number
+    readonly fail: number
+    readonly skipped: number
+    readonly notRun: number
+  }
+  readonly tests: {
+    readonly passed: number | null
+    readonly total: number | null
+    readonly failed: number | null
+    readonly skipped: number | null
+  } | null
+  readonly coverage: {
+    readonly lines: number | null
+    readonly functions: number | null
+    readonly branches: number | null
+  } | null
+  readonly mutation: { readonly score: number | null } | null
+}
+
+export function snapshotHistoryPoint(snapshot: ReliabilitySnapshot): SnapshotHistoryPoint {
+  const gates = { pass: 0, fail: 0, skipped: 0, notRun: 0 }
+  for (const gate of snapshot.gates) {
+    if (gate.status === 'pass') gates.pass += 1
+    else if (gate.status === 'fail') gates.fail += 1
+    else if (gate.status === 'skipped') gates.skipped += 1
+    else gates.notRun += 1
+  }
+  return {
+    generatedAt: snapshot.generatedAt,
+    commit: snapshot.git.head,
+    branch: snapshot.git.branch,
+    dirty: snapshot.git.dirty,
+    gates,
+    tests: snapshot.tests
+      ? {
+          passed: snapshot.tests.passed,
+          total: snapshot.tests.total,
+          failed: snapshot.tests.failed,
+          skipped: snapshot.tests.skipped,
+        }
+      : null,
+    coverage: snapshot.coverage
+      ? {
+          lines: snapshot.coverage.lines,
+          functions: snapshot.coverage.functions,
+          branches: snapshot.coverage.branches,
+        }
+      : null,
+    mutation: snapshot.mutation ? { score: snapshot.mutation.score } : null,
   }
 }

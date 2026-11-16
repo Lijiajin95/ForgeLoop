@@ -144,6 +144,23 @@
 | 变更前置时间、部署频率 | 现有记录没有可靠的“开始开发/发布”时间边界 | 需要新的时间事实，不能从任务更新时间猜测 |
 | 跨项目可靠性排名 | 不在单项目看板范围 | 另立方案 |
 
+### 3.5 指标历史与自动刷新（2026-11-16）
+
+页面新增两块只读历史：**质量快照历史**与**运行指标历史**。历史用于回答“指标怎么变过来的”，不参与门禁判定。
+
+| 项 | 口径 |
+| --- | --- |
+| 采样时机 | 协调器启动后每 30 秒检查一次；指标版本变化且距上一条 ≥ 1 分钟时追加；长期无变化时每 6 小时留一条心跳 |
+| 指标版本 `revision` | 快照文件 mtime/size、追加型记录数量与最后时间、运维事件状态、任务当前状态与候选构建数的摘要；**不含样本编号**，写样本本身不会让页面再刷新 |
+| 写入口 | 只有协调器调用 `reliabilitySample()` 写入；页面请求、端点与快照生成都不写历史 |
+| 样本内容 | 独立验证、首轮验证、业务终审、上线核对四个率，失败轮次、任务状态、运维、候选构建、部署通道计数；不含趋势与事件 |
+| 存储 | `reliability_metric_samples`（按项目、只追加）；损坏的 `payload_json` 读取时跳过，不显示成 0 |
+| 保留 | 数据库保留全部样本；页面只读最近 24 条，端点不提供删除入口 |
+| 快照历史 | 读取 `reports/reliability/history/*.json`（生成器原本就保留最近 30 份），页面取最近 12 份并压缩为门禁/测试/覆盖/变异摘要；损坏文件跳过 |
+| 自动刷新 | 页面激活时每 10 秒请求一次；`revision` 未变化时保留当前数据，避免闪烁；显示最后检查时间 |
+
+历史是登记材料：采样失败只写插件日志，不影响研发、验证、部署或运维状态。
+
 ## 4. 数据来源与真实性
 
 ### 4.1 现状核对（2026-11-03）
@@ -277,6 +294,7 @@
   value: {
     project: string,
     generatedAt: string,
+    revision: string,
     window: { key: '7d' | '30d' | '90d' | 'all', from: string | null, to: string },
     snapshot: {
       availability: 'fresh' | 'stale' | 'missing' | 'invalid',
@@ -322,12 +340,41 @@
       trend: WeeklyReliability[],
       recentEvents: ReliabilityEventView[]
     },
+    history: {
+      samples: Array<{
+        sampleId: number, project: string, sampledAt: string, revision: string,
+        verification: RateView, firstPassVerification: RateView,
+        businessReview: RateView, deployment: RateView,
+        failureRounds: { total: number, requirements: number },
+        tasks: { total: number, delivered: number, failed: number,
+                 blocked: number, awaitingUser: number, running: number },
+        ops: { opened: number, closed: number, recovered: number,
+               unresolved: number, mttrSeconds: number | null },
+        candidateBuilds: number,
+        deploymentIntents: { verified: number, failed: number,
+                             rolledBack: number, pending: number }
+      }>,
+      snapshots: Array<{
+        generatedAt: string, commit: string, branch: string, dirty: boolean,
+        gates: { pass: number, fail: number, skipped: number, notRun: number },
+        tests: { passed: number | null, total: number | null,
+                 failed: number | null, skipped: number | null } | null,
+        coverage: { lines: number | null, functions: number | null,
+                    branches: number | null } | null,
+        mutation: { score: number | null } | null
+      }>,
+      sampleLimit: number,
+      snapshotHistoryLimit: number
+    },
     warnings: string[]
   }
 }
 ```
 
 - `RateView = { pass: number, total: number, rate: number | null }`；`rate = null` 表示无样本。
+- `revision` 是给页面做变更检测的不透明字符串：两次请求相同即指标未变，页面保留当前视图不重渲染。
+- `history.samples` 从新到旧、最多 24 条；`history.snapshots` 从新到旧、最多 12 份。损坏的样本或快照文件跳过，不显示成 0。
+- 采样由协调器完成，端点与页面请求都不写 `reliability_metric_samples`。
 - 快照缺失是正常状态，返回 HTTP 200 与 `availability: 'missing'`；快照损坏也是 200 + `invalid` +
   原因，便于页面局部降级。`snapshot.warnings` 与顶层 `warnings` 都是可直接展示的字符串。
 - 快照读取或运行聚合失败返回 HTTP 500 与 `internal` 错误；页面保留已有数据并显示错误横幅，
@@ -360,7 +407,10 @@
 - **窗口切换**：重新请求 `reliability` 端点并带上新窗口；服务端按 mtime 复用已解析的快照，
   门禁区不闪烁。切换期间保留旧数据，窗口标注仍是旧值直到响应返回。
 - **刷新**：重新请求快照与运行指标；门禁快照按文件 mtime 判断是否需要重新解析。
-- **自动刷新**：沿用现有开关；可靠性视图激活时每 30 秒请求一次，切走后停止。
+- **自动刷新**：沿用现有开关；可靠性视图激活时每 10 秒请求一次，切走后停止。响应里的
+  `revision` 未变化时保留当前数据，只更新“最后检查”时间，避免整页闪动。
+- **历史**：指标历史与快照历史只读展示最近若干条；没有样本时显示“还没有指标样本”，不显示 0。
+  历史随自动刷新一起更新；页面刷新不触发采样，也不清理历史。
 - **下钻**：
   - 点击最近事件里的需求，先切回 `hierarchy` 视图，再调用现有 `openRequirement`，复用已有详情。
   - 失败轮次、验证记录与部署失败是窗口聚合，不伪造单条需求映射；只展示可回查的汇总。
@@ -382,6 +432,7 @@
 | P1-2 | 领域计算与只读仓储聚合 | 率、首轮、MTTR、阶段分布、新鲜度有行为测试 | 完成 |
 | P1-3 | `reliability` 端点 | 只读、窗口校验、缺失/损坏/过期状态 | 完成 |
 | P1-4 | 客户端视图、KPI、门禁矩阵、覆盖率、运行区 | 真实页面可见，窄屏可用，无写入口 | 完成 |
+| P1-5 | 指标历史采样、快照历史、10 秒自动刷新与变更检测（2026-11-16） | 协调器只追加样本；页面只读历史；`revision` 未变不重渲染 | 完成 |
 | P2 | 快照历史折线、依赖漏洞、Semgrep、flaky、失败后交付率 | 另列数据源与验证方案 | 未做 |
 
 ### 7.2 实际实施文件
@@ -410,6 +461,25 @@
 
 没有修改 `vitest.config.ts`：测试 JSON 由命令行 `--reporter=json --outputFile` 生成；token 与断言脚本
 已有可解析的文本输出，因此不需要新增 `--json`。
+
+P1-5（2026-11-16）实际文件：
+
+| 文件 | 目的 | 类型 |
+| --- | --- | --- |
+| `packages/forgeloop/src/records/db.ts` | 新表 `reliability_metric_samples`（按项目、只追加） | 修改 |
+| `packages/forgeloop/src/records/reliability-store.ts` | 追加样本、按项目读取最近样本；损坏行跳过 | 修改 |
+| `packages/forgeloop/src/domain/reliability.ts` | 样本格式与解析、快照历史压缩点、采样常量 | 修改 |
+| `packages/forgeloop/src/runtime/reliability.ts` | 采样判定、`revision`、历史读取、端点视图 | 修改 |
+| `packages/forgeloop/src/runtime/coordinator.ts` | 周期检查采样；失败只记日志 | 修改 |
+| `packages/forgeloop/client.js` | 指标历史/快照历史两区、10 秒轮询与变更检测、词典 | 修改 |
+| `packages/forgeloop/tests/reliability-history.test.ts` | 样本解析、记录、采样节流、历史与 `revision` | 新增 |
+| `packages/forgeloop/tests/client-view.test.ts` | 新词典键的双语断言 | 修改 |
+| `packages/forgeloop/tests/__snapshots__/mutation-gap-service.test.ts.snap` | 空状态响应新增 `revision` 与 `history` | 修改 |
+| `docs/development/architecture.md` §4.3 | 记录历史表、采样与刷新边界 | 修改 |
+| `CONTEXT.md` | “指标历史样本”术语 | 修改 |
+| `docs/verification/status.md` | 本批实现、验证与未完成 | 修改 |
+
+`service.ts` 没有新增方法：协调器直接调用 `reliabilitySample(repo, config, now)`，保持在 token 预算基线内。
 
 ### 7.3 验证
 
@@ -442,6 +512,19 @@
 6. `make check` 通过；新增行为测试覆盖拒绝与允许两侧；真实页面在 390px 下可用。
 7. 文档同步：架构、状态、术语与索引与实际实现一致；未完成项如实列出。
 
+### 7.5 P1-5 验证（2026-11-16）
+
+- **目标测试**：`tests/reliability-history.test.ts` 14 项通过。覆盖样本字段完整往返、非法载荷拒绝、
+  零样本与整数校验、快照历史压缩（含失败/跳过/缺可选段）、按项目/上限读取、损坏样本跳过、
+  首条采样立即写入、1 分钟内变化不重复写、心跳补样、`revision` 稳定与变化、快照历史排序、截断与缓存复用。
+- **回归**：`reliability.test.ts`、`reliability-runtime.test.ts`、`reliability-records.test.ts`、
+  `board-route.test.ts`、`ops-deployment-metrics.test.ts` 共 46 项通过。
+- **全量**：见[状态记录 §247](../verification/status.md#247-可靠性页指标历史与自动刷新2026-11-16)；
+  空状态响应快照因新增 `revision`/`history` 更新，diff 只包含这两个字段。
+- **静态门禁**：typecheck、ESLint、Prettier、`make contracts`、token 预算、断言预算 18/18、
+  reliability-registry 全部通过。
+- **未验证**：真实 3080 页面的人工验收未做；6 小时心跳只在测试时钟下验证；宿主停机期间不产生样本。
+
 ## 8. 已确认的决定
 
 1. **导航位置与名称**：放在「需要处理」与「运维」之间，中文「可靠性」、英文 `Reliability`。
@@ -456,6 +539,9 @@
 - 变异测试只在 `make reliability-report`（非 fast）运行时采集；最近一次 fast 快照显示 `not_run`。
 - 页面不提供生成快照、重跑检查、修复、批准或验收入口；这些动作仍需显式命令或既有会话流程。
 - 真实页面验收需在部署后的 3080 端口复核；未执行前不把本页视为线上已验收。
+- 指标历史依赖协调器运行：宿主停机期间没有样本，也不补写；管理端不提供历史导出与清理入口。
+- 快照历史仍由生成器保留 30 份，页面只读 12 份；完整折线仍在 P2。
+- 指标历史的口径与本页当前窗口一致，但采样固定记录“全部记录”口径；切到 7d/30d 时历史区不随窗口重算。
 
 ## 9. 运行指标历史的最小 DogFood 方案（待确认，未实施）
 

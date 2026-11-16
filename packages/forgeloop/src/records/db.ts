@@ -626,6 +626,18 @@ CREATE TABLE IF NOT EXISTS ops_action_attempts (
 );
 CREATE INDEX IF NOT EXISTS ops_action_attempts_by_event ON ops_action_attempts (event_id, started_at);
 
+-- 可靠性指标历史：协调器在指标发生变化（或 6 小时心跳）时追加一条样本；
+-- 只追加、不改写，页面按时间倒序展示最近若干条。
+CREATE TABLE IF NOT EXISTS reliability_metric_samples (
+    sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    sampled_at TEXT NOT NULL,
+    revision TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS reliability_metric_samples_by_project
+    ON reliability_metric_samples (project, sample_id);
+
 CREATE TABLE IF NOT EXISTS deployment_intents (
     intent_id TEXT PRIMARY KEY,
     project TEXT NOT NULL,

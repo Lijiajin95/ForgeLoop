@@ -10,12 +10,15 @@ import type {
   DeploymentFact,
   FailureRoundFact,
   OpsEventFact,
+  ReliabilitySample,
+  ReliabilitySamplePayload,
   ReviewFact,
   TaskRunFact,
   VerificationFact,
 } from '../domain/reliability.js'
+import { RELIABILITY_SAMPLE_HISTORY_LIMIT, parseReliabilitySample } from '../domain/reliability.js'
 import { OpsStore } from './ops-store.js'
-import { text, type Row } from './rows.js'
+import { num, text, type Row } from './rows.js'
 
 function parseChecks(value: string): unknown[] {
   try {
@@ -137,5 +140,57 @@ export class ReliabilityStore extends OpsStore {
       reqId: text(row, 'req_id'),
       builtAt: text(row, 'built_at'),
     }))
+  }
+
+  /** 追加一条只读指标样本；历史只增不改，也不因需求后续状态重写。 */
+  recordReliabilitySample(input: {
+    readonly project: string
+    readonly sampledAt: string
+    readonly revision: string
+    readonly payload: ReliabilitySamplePayload
+  }): number {
+    const result = this.db
+      .prepare(
+        `INSERT INTO reliability_metric_samples (project, sampled_at, revision, payload_json)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(input.project, input.sampledAt, input.revision, JSON.stringify(input.payload))
+    return Number(result.lastInsertRowid)
+  }
+
+  /** 最近若干条样本，从新到旧；损坏的行跳过，不显示成 0 或猜测值。 */
+  reliabilitySamples(
+    project: string,
+    limit = RELIABILITY_SAMPLE_HISTORY_LIMIT,
+  ): ReliabilitySample[] {
+    const rows = this.db
+      .prepare(
+        `SELECT sample_id, project, sampled_at, revision, payload_json
+           FROM reliability_metric_samples
+          WHERE project = ?
+          ORDER BY sample_id DESC
+          LIMIT ?`,
+      )
+      .all(project, limit)
+    const samples: ReliabilitySample[] = []
+    for (const row of rows) {
+      try {
+        const payload = parseReliabilitySample(JSON.parse(text(row, 'payload_json')))
+        samples.push({
+          ...payload,
+          sampleId: num(row, 'sample_id'),
+          project: text(row, 'project'),
+          sampledAt: text(row, 'sampled_at'),
+          revision: text(row, 'revision'),
+        })
+      } catch {
+        // 损坏的样本不阻塞其他历史，也不把缺失值当成 0。
+      }
+    }
+    return samples
+  }
+
+  latestReliabilitySample(project: string): ReliabilitySample | null {
+    return this.reliabilitySamples(project, 1)[0] ?? null
   }
 }
