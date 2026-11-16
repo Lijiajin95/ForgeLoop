@@ -78,6 +78,12 @@ function checkProfile(): void {
   if (dump.code !== 0) failures.push(`--dump-config 失败：${dump.stderr.trim()}`)
   else if (!dump.stdout.includes('forgeloop-dsh'))
     failures.push('--dump-config 未出现 forgeloop-dsh 层')
+  else if (dump.stdout.includes('@deepseek-ai/dsh-workspace')) {
+    // CLI 会话没有工作区身份：工作区模式下工具会拒绝，不能用“工具调用成功”证明安装可用。
+    failures.push(
+      '目标 profile 含 DSH 工作区插件；本脚本的 CLI 会话无法绑定工作区，请改用 make verify-e2e 验证工作区模式',
+    )
+  }
 }
 
 function checkToolLoop(): void {

@@ -24,12 +24,12 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { request, type APIRequestContext } from 'playwright-core'
 import { launch, terminate } from './platform.ts'
+import { createWorkspaceSession, ensureWorkspace, promptSession, readBoard } from './web-rpc.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
 const TIMEOUT_MS = positiveInt(process.env.FORGELOOP_E2E_TIMEOUT_MS, 15 * 60 * 1000)
 const WEB_PROFILE = 'forgeloop-e2e-web'
-const HEADLESS_PROFILE = 'forgeloop-e2e-headless'
 const PROJECT = 'forgeloop-e2e'
 const TOKEN = `E2E-${Date.now().toString(36).toUpperCase()}`
 const REQUIREMENT = [
@@ -173,31 +173,29 @@ function waitForToken(child: ChildProcess, timeoutMs: number): Promise<string> {
   })
 }
 
-async function board(
-  context: APIRequestContext,
-  body: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const response = await context.post('/api/forgeloop/board', { data: body })
-  const parsed: unknown = await response.json()
-  const record =
-    typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
-  if (response.status() !== 200 || record.ok !== true) {
-    throw new Error(
-      `看板 ${String(body.endpoint)} 返回异常：HTTP ${response.status()} ${JSON.stringify(record).slice(0, 500)}`,
-    )
+async function waitForRequirement(context: APIRequestContext, sessionId: string): Promise<string> {
+  const deadline = Date.now() + TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const value = await readBoard(context, { endpoint: 'board', limit: 5, sessionId })
+    const requirements = Array.isArray(value.requirements) ? value.requirements : []
+    const first: unknown = requirements[0]
+    const record =
+      typeof first === 'object' && first !== null ? (first as Record<string, unknown>) : {}
+    if (typeof record.reqId === 'string' && record.reqId) return record.reqId
+    await new Promise((done) => setTimeout(done, 1000))
   }
-  const value = record.value
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+  throw new Error(`等待需求出现在工作区看板超时（${TIMEOUT_MS}ms）`)
 }
 
 async function pollCommitted(
   context: APIRequestContext,
+  sessionId: string,
   reqId: string,
 ): Promise<Record<string, unknown>> {
   const deadline = Date.now() + TIMEOUT_MS
   let lastStatus = ''
   while (Date.now() < deadline) {
-    const detail = await board(context, { endpoint: 'detail', reqId })
+    const detail = await readBoard(context, { endpoint: 'detail', reqId, sessionId })
     const status = typeof detail.status === 'string' ? detail.status : ''
     if (status !== lastStatus) {
       log(`需求 ${reqId} 状态：${status || '(unknown)'}`)
@@ -209,60 +207,6 @@ async function pollCommitted(
   throw new Error(
     `等待需求 ${reqId} 提交超时（${TIMEOUT_MS}ms）；最后状态：${lastStatus || '(unknown)'}`,
   )
-}
-
-function parseRequirementId(output: string): string {
-  const match = /req-\d{14}-[a-z0-9]{6}/i.exec(output)
-  if (!match) throw new Error(`真实模型没有返回需求 ID；输出：${output.slice(-1200)}`)
-  return match[0]
-}
-
-function submitWithModel(env: NodeJS.ProcessEnv): string {
-  const prompt = [
-    'You are running a ForgeLoop end-to-end check.',
-    'Call the forgeloop_submit_requirement tool exactly once with these arguments:',
-    `text: ${JSON.stringify(REQUIREMENT)}`,
-    `client_key: ${JSON.stringify(`e2e-${TOKEN}`)}`,
-    'After the tool returns, answer with the requirement id exactly as returned. Do not call other tools.',
-  ].join('\n')
-  const result = dsh(['--profile', HEADLESS_PROFILE, '--json', prompt], env, 600_000)
-  if (result.code !== 0) {
-    throw new Error(
-      `真实模型提交需求失败（退出码 ${result.code}）：${(result.stderr || result.stdout).slice(-1200)}`,
-    )
-  }
-  if (!result.stdout.includes('"tool":"forgeloop_submit_requirement"')) {
-    throw new Error(
-      `模型没有调用 forgeloop_submit_requirement；输出：${result.stdout.slice(-1200)}`,
-    )
-  }
-  return parseRequirementId(result.stdout)
-}
-
-function readWithModel(env: NodeJS.ProcessEnv, reqId: string): void {
-  const prompt = [
-    `Call the forgeloop_show_requirement tool with req_id ${JSON.stringify(reqId)}.`,
-    `Then call the forgeloop_evidence tool with the same req_id ${JSON.stringify(reqId)}.`,
-    'Then answer with the requirement status and the commit sha exactly as returned. Do not call other tools.',
-  ].join('\n')
-  const result = dsh(['--profile', HEADLESS_PROFILE, '--json', prompt], env, 600_000)
-  if (result.code !== 0) {
-    throw new Error(
-      `真实模型读取最终记录失败（退出码 ${result.code}）：${(result.stderr || result.stdout).slice(-1200)}`,
-    )
-  }
-  for (const tool of ['forgeloop_show_requirement', 'forgeloop_evidence']) {
-    if (!result.stdout.includes(`"tool":"${tool}"`)) {
-      throw new Error(`模型没有调用 ${tool}；输出：${result.stdout.slice(-1200)}`)
-    }
-  }
-  if (!result.stdout.includes(reqId)) {
-    throw new Error(`模型读取结果没有包含需求 ${reqId}；输出：${result.stdout.slice(-1200)}`)
-  }
-  if (!result.stdout.includes('"kind":"completed"')) {
-    throw new Error('真实模型读取回合没有正常结束')
-  }
-  log(`真实模型已通过实际工具读取 ${reqId} 的需求与证据`)
 }
 
 function assertDelivered(detail: Record<string, unknown>): void {
@@ -292,7 +236,8 @@ function assertDelivered(detail: Record<string, unknown>): void {
 
 const workspace = mkdtempSync(join(tmpdir(), 'forgeloop-verify-e2e-'))
 const HOME = join(workspace, 'dsh-home')
-let PROJECT_DIR = join(workspace, 'project')
+const PROJECT_DIR = join(workspace, 'project')
+const BASE_PROJECT_DIR = join(workspace, 'base-project')
 const RECORDS = join(workspace, 'records')
 const CONFIG_PATH = join(workspace, 'forgeloop.json')
 let child: ChildProcess | undefined
@@ -302,8 +247,8 @@ let exitCode = 0
 try {
   requireCredential()
   const tarball = candidateTarball()
-  PROJECT_DIR = join(workspace, 'project')
   mkdirSync(PROJECT_DIR, { recursive: true })
+  mkdirSync(BASE_PROJECT_DIR, { recursive: true })
   mkdirSync(HOME, { recursive: true })
   makeProject()
   writeFileSync(
@@ -311,7 +256,7 @@ try {
     `${JSON.stringify(
       {
         project: PROJECT,
-        projectPath: PROJECT_DIR,
+        projectPath: BASE_PROJECT_DIR,
         recordsRoot: RECORDS,
         owner: 'e2e-owner',
         pollSeconds: 1,
@@ -350,22 +295,18 @@ try {
     FORGELOOP_CONFIG: CONFIG_PATH,
   }
 
-  for (const [profile, template] of [
-    [WEB_PROFILE, 'web'],
-    [HEADLESS_PROFILE, 'headless'],
-  ] as const) {
-    mustDsh(['--profile', profile, '--from-default-profile', template, '--dump-config'], env)
-    mustDsh(['plugin', '--profile', profile, 'add', tarball], env)
-    const installed = join(HOME, 'profiles', profile, 'node_modules', 'forgeloop-dsh')
-    if (!existsSync(installed)) throw new Error(`profile ${profile} 未安装 forgeloop-dsh`)
-    if (lstatSync(installed).isSymbolicLink()) {
-      throw new Error(`profile ${profile} 使用链接安装，不能证明真实 tarball 安装`)
-    }
-    const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as {
-      version?: unknown
-    }
-    log(`profile ${profile} 已从 tarball 安装 forgeloop-dsh@${String(manifest.version ?? '?')}`)
+  const profile = WEB_PROFILE
+  mustDsh(['--profile', profile, '--from-default-profile', 'web', '--dump-config'], env)
+  mustDsh(['plugin', '--profile', profile, 'add', tarball], env)
+  const installed = join(HOME, 'profiles', profile, 'node_modules', 'forgeloop-dsh')
+  if (!existsSync(installed)) throw new Error(`profile ${profile} 未安装 forgeloop-dsh`)
+  if (lstatSync(installed).isSymbolicLink()) {
+    throw new Error(`profile ${profile} 使用链接安装，不能证明真实 tarball 安装`)
   }
+  const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as {
+    version?: unknown
+  }
+  log(`profile ${profile} 已从 tarball 安装 forgeloop-dsh@${String(manifest.version ?? '?')}`)
 
   const port = await freePort()
   const web = launch(DSH, ['--profile', WEB_PROFILE, '--port', String(port), '--no-open'])
@@ -379,17 +320,18 @@ try {
   context = await request.newContext({ baseURL: `http://127.0.0.1:${port}` })
   const auth = await context.get(tokenUrl.replace(`http://127.0.0.1:${port}`, ''))
   if (!auth.ok()) throw new Error(`token 换取会话失败：HTTP ${auth.status()}`)
-  const boardView = await board(context, { endpoint: 'board', limit: 3 })
-  if (boardView.project !== PROJECT) throw new Error(`看板项目不符：${String(boardView.project)}`)
   log(`web 宿主已就绪：http://127.0.0.1:${port}`)
 
-  const reqId = submitWithModel(env)
-  log(`真实模型已通过实际工具提交需求 ${reqId}`)
-  const detail = await pollCommitted(context, reqId)
+  const workspaceView = await ensureWorkspace(context, PROJECT_DIR)
+  const businessSession = await createWorkspaceSession(context, workspaceView.id, 'forgeloop')
+  await promptSession(context, businessSession, REQUIREMENT)
+  log(`已在工作区 ${workspaceView.title} 提交需求，等待受理`)
+  const reqId = await waitForRequirement(context, businessSession)
+  log(`真实模型已通过工作区业务会话受理需求 ${reqId}`)
+  const detail = await pollCommitted(context, businessSession, reqId)
   assertDelivered(detail)
-  readWithModel(env, reqId)
 
-  log(`OK：真实 DSH + 真实模型 + 实际工具的端到端主路径通过（${reqId}）`)
+  log(`OK：真实 DSH + 真实模型 + 工作区隔离的端到端主路径通过（${reqId}）`)
 } catch (error) {
   exitCode = 1
   console.error(`[verify-e2e] 失败：${error instanceof Error ? error.message : String(error)}`)

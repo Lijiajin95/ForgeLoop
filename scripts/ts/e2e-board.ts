@@ -2,7 +2,8 @@
 /**
  * 看板 HTTP 路由 E2E（Playwright request，不依赖模型）：
  * 初始化隔离 DSH web profile 并安装插件 → 启动 web → token 换取 cookie →
- * POST /api/forgeloop/board，校验返回项目与摘要结构。
+ * 创建工作区与工作区会话 → POST /api/forgeloop/board（带 sessionId），
+ * 校验返回的是该工作区租户、标题与摘要结构，并核对租户日志落盘。
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -11,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { request } from 'playwright-core'
 import { launch, terminate } from './platform.ts'
+import { createWorkspaceSession, ensureWorkspace, readBoard } from './web-rpc.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_E2E_PROFILE ?? 'forgeloop-e2e'
@@ -66,18 +68,30 @@ async function waitForToken(child: ReturnType<typeof spawn>, timeoutMs: number):
   })
 }
 
+async function waitForFile(path: string, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return readFileSync(path, 'utf8')
+    await new Promise((done) => setTimeout(done, 200))
+  }
+  throw new Error(`等待日志超时：${path}`)
+}
+
 const workspace = mkdtempSync(join(tmpdir(), 'forgeloop-e2e-board-'))
 const home = join(workspace, 'dsh-home')
-const projectDir = join(workspace, 'project')
+const baseProject = join(workspace, 'base-project')
+const workspacePath = join(workspace, 'workspace-a')
 const configPath = join(workspace, 'forgeloop.json')
-mkdirSync(projectDir, { recursive: true })
+const recordsRoot = join(workspace, 'records')
+mkdirSync(baseProject, { recursive: true })
+mkdirSync(workspacePath, { recursive: true })
 mkdirSync(home, { recursive: true })
 writeFileSync(
   configPath,
   `${JSON.stringify({
     project: PROJECT,
-    projectPath: projectDir,
-    recordsRoot: join(workspace, 'records'),
+    projectPath: baseProject,
+    recordsRoot,
     autoAdvance: false,
   })}\n`,
 )
@@ -96,34 +110,47 @@ try {
     ...(web.spawnOptions ?? {}),
   })
   const tokenUrl = await waitForToken(child, 90_000)
-  const pluginLog = join(workspace, 'records', 'projects', PROJECT, 'logs', 'plugin.log')
-  if (!existsSync(pluginLog)) throw new Error(`未生成运行日志：${pluginLog}`)
-  const logText = readFileSync(pluginLog, 'utf8')
-  if (!logText.includes('已加载 records=')) throw new Error('运行日志缺少启动记录')
-  console.log(`[e2e-board] 运行日志已落盘：${pluginLog}`)
+  const baseLog = join(recordsRoot, 'projects', PROJECT, 'logs', 'plugin.log')
+  const baseText = await waitForFile(baseLog, 30_000)
+  if (!baseText.includes('已加载 records=')) throw new Error('运行日志缺少启动记录')
+  console.log(`[e2e-board] 运行日志已落盘：${baseLog}`)
+
   const context = await request.newContext({ baseURL: `http://127.0.0.1:${port}` })
   try {
     const auth = await context.get(tokenUrl.replace(`http://127.0.0.1:${port}`, ''))
     if (!auth.ok()) throw new Error(`token 换取会话失败：HTTP ${auth.status()}`)
-    const response = await context.post('/api/forgeloop/board', {
-      data: { endpoint: 'board', limit: 3 },
-    })
-    const body = (await response.json()) as {
-      ok?: unknown
-      value?: { project?: unknown; summary?: unknown }
+    const ws = await ensureWorkspace(context, workspacePath)
+    const expectedProject = `ws-${ws.id}`
+    const sessionId = await createWorkspaceSession(context, ws.id)
+    const value = await readBoard(context, { endpoint: 'board', limit: 3, sessionId })
+    if (value.project !== expectedProject) {
+      throw new Error(`看板租户不符：${String(value.project)}（期望 ${expectedProject}）`)
     }
-    if (response.status() !== 200 || body.ok !== true) {
-      throw new Error(
-        `看板返回异常：HTTP ${response.status()} ${JSON.stringify(body).slice(0, 300)}`,
-      )
+    const workspaceView = value.workspace
+    if (
+      typeof workspaceView !== 'object' ||
+      workspaceView === null ||
+      (workspaceView as { title?: unknown }).title !== 'workspace-a'
+    ) {
+      throw new Error(`看板缺少工作区标题：${JSON.stringify(workspaceView)}`)
     }
-    if (body.value?.project !== PROJECT) {
-      throw new Error(`看板项目不符：${String(body.value?.project)}`)
-    }
-    if (typeof body.value.summary !== 'object' || body.value.summary === null) {
+    if (typeof value.summary !== 'object' || value.summary === null) {
       throw new Error('看板缺少 summary')
     }
-    console.log(`[e2e-board] OK：看板路由返回 project=${PROJECT}（HTTP 200）`)
+    const tenantDir = join(recordsRoot, 'projects', expectedProject)
+    const bindDeadline = Date.now() + 30_000
+    while (Date.now() < bindDeadline) {
+      const text = readFileSync(baseLog, 'utf8')
+      if (text.includes(`绑定项目 ${expectedProject}`) && existsSync(tenantDir)) break
+      await new Promise((done) => setTimeout(done, 200))
+    }
+    if (!readFileSync(baseLog, 'utf8').includes(`绑定项目 ${expectedProject}`)) {
+      throw new Error(`基础日志缺少工作区绑定记录：${expectedProject}`)
+    }
+    if (!existsSync(tenantDir)) throw new Error(`租户记录目录未创建：${tenantDir}`)
+    console.log(
+      `[e2e-board] OK：看板返回 project=${expectedProject}，workspace.title=workspace-a，租户目录=${tenantDir}`,
+    )
   } finally {
     await context.dispose()
   }

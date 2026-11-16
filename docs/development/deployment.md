@@ -102,13 +102,16 @@ make verify-plugin
 
 前提是该测试 home 中已准备 profile、安装包与可用模型认证；新 home 不自动继承正式配置。
 需要手动调用同一测试实例时，用 `DSH_HOME="$FORGELOOP_DSH_HOME" dsh --profile "$FORGELOOP_PROFILE" ...`。
-`make verify-plugin` 检查安装形态、组合层并真实调用模型工具。
+`make verify-plugin` 检查安装形态、组合层并真实调用模型工具。若目标 profile 含 DSH 工作区插件，
+脚本会直接失败并提示改用 `make verify-e2e`：CLI 会话没有工作区身份，工作区模式下工具会拒绝，
+不能拿“工具调用成功”当作安装可用。
 
-真实端到端主路径由 `make verify-e2e` 覆盖：它把候选 tarball 安装到隔离 `DSH_HOME` 的
-web/headless 两个 profile，启动 web 宿主，再让真实模型通过 `forgeloop_submit_requirement`
-提交需求；协调器自动完成分析、规划、研发、独立验证与受控提交，最后同一模型通过
-`forgeloop_show_requirement` / `forgeloop_evidence` 读取最终记录。脚本会核对受控提交里确实
-包含需求要求的文件，否则失败。
+真实端到端主路径由 `make verify-e2e` 覆盖：它把候选 tarball 安装到隔离 `DSH_HOME` 的 web profile，
+启动 web 宿主，通过网关创建一个 DSH 工作区和一个 ForgeLoop 业务会话，把需求发到该会话；
+协调器自动完成分析、规划、研发、独立验证与受控提交。脚本按该会话身份轮询看板，
+核对 `ws-<工作区 id>` 租户、`workspace.title`、受控提交里确实包含需求要求的文件，否则失败。
+`make e2e-board` 是不依赖模型的看板路由冒烟：同样创建工作区与会话，校验租户键、工作区标题
+与租户记录目录。
 
 ```sh
 make package
