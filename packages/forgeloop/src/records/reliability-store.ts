@@ -115,7 +115,7 @@ export class ReliabilityStore extends OpsStore {
   reliabilityOpsEvents(project: string): OpsEventFact[] {
     const rows = this.db
       .prepare(
-        `SELECT event_id, state, title, opened_at, recovered_at
+        `SELECT event_id, state, title, opened_at, recovered_at, closed_at, updated_at
          FROM ops_events
          WHERE project = ?
          ORDER BY opened_at, event_id`,
@@ -127,6 +127,8 @@ export class ReliabilityStore extends OpsStore {
       title: text(row, 'title'),
       openedAt: text(row, 'opened_at'),
       recoveredAt: text(row, 'recovered_at'),
+      closedAt: text(row, 'closed_at'),
+      updatedAt: text(row, 'updated_at'),
     }))
   }
 

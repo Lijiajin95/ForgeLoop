@@ -16,7 +16,7 @@ import {
   reviewRate,
   snapshotStaleness,
   taskRunSummary,
-  unresolvedOpsCount,
+  unresolvedOpsAsOf,
   weeklyReliability,
 } from '../src/domain/reliability.js'
 
@@ -213,38 +213,41 @@ describe('ops recovery', () => {
     expect(medianSeconds([{ start: 'a', end: 'b' }])).toBeNull()
   })
 
-  it('counts currently unresolved events across all time', () => {
+  it('counts events still unresolved at the measurement point', () => {
     expect(
-      unresolvedOpsCount([
-        {
-          eventId: 'a',
-          state: 'open',
-          title: '事件 a',
-          openedAt: NOW.toISOString(),
-          recoveredAt: '',
-        },
-        {
-          eventId: 'b',
-          state: 'unresolved',
-          title: '事件 b',
-          openedAt: NOW.toISOString(),
-          recoveredAt: '',
-        },
-        {
-          eventId: 'c',
-          state: 'closed',
-          title: '事件 c',
-          openedAt: NOW.toISOString(),
-          recoveredAt: '',
-        },
-        {
-          eventId: 'd',
-          state: 'recovered',
-          title: '事件 d',
-          openedAt: NOW.toISOString(),
-          recoveredAt: NOW.toISOString(),
-        },
-      ]),
+      unresolvedOpsAsOf(
+        [
+          {
+            eventId: 'a',
+            state: 'open',
+            title: '事件 a',
+            openedAt: NOW.toISOString(),
+            recoveredAt: '',
+          },
+          {
+            eventId: 'b',
+            state: 'unresolved',
+            title: '事件 b',
+            openedAt: NOW.toISOString(),
+            recoveredAt: '',
+          },
+          {
+            eventId: 'c',
+            state: 'closed',
+            title: '事件 c',
+            openedAt: NOW.toISOString(),
+            recoveredAt: '',
+          },
+          {
+            eventId: 'd',
+            state: 'recovered',
+            title: '事件 d',
+            openedAt: NOW.toISOString(),
+            recoveredAt: NOW.toISOString(),
+          },
+        ],
+        NOW,
+      ),
     ).toBe(2)
   })
 })

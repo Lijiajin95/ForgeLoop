@@ -108,6 +108,11 @@
 
 这一组指标来自 ForgeLoop 的 SQLite 记录。**只有追加型表可以按时间窗口统计**；`requirement_task_runs` 是可变当前状态，只能显示“当前”，不能画历史趋势。
 
+**测量点**：整页以质量快照的 `generatedAt` 为测量点 `T`（没有可用快照时退回当前时刻并标注“未绑定”）。
+R1–R12、趋势、最近事件与窗口终点都按 `T` 计算：`T` 之后产生的验证、部署、失败轮次与运维恢复不进入本页，
+也不回填成“当时已发生”。因此门禁与运行指标始终同属一个提交和时间，不与当前 HEAD 混排。
+任务当前状态（R6/R7）不参与测量点，页面上单独标注“当前状态”。
+
 | 编号 | 指标 | 口径与公式 | 页面位置 | 关注线 | 数据源 | v1 |
 | --- | --- | --- | --- | --- | --- | --- |
 | R1 | 独立验证通过率 | `pass ÷ (pass + block)`，按 `verified_at` 落在窗口内；每条验证记录一票 | KPI、趋势 | 建议 ≥ `90%`；低于标黄，不阻断 | `requirement_verifications` | 是 |
@@ -117,9 +122,9 @@
 | R5 | 失败轮次 | 总数、每需求均值、按阶段分布（planning、implementation_review、formal_test、interrupted、verification、business_review、user_acceptance） | 明细、阶段柱状图 | 信息项，观察趋势 | `requirement_failure_rounds` | 是 |
 | R6 | 任务交付率（当前） | 每个需求最新任务包中 `delivered` 任务数 ÷ 全部任务运行数 | 明细 | 信息项 | `requirement_task_runs` | 是 |
 | R7 | 任务失败/阻塞占比（当前） | `(failed + blocked + awaiting_user) ÷ 全部任务运行数` | 明细 | 信息项 | `requirement_task_runs` | 是 |
-| R8 | 运维事件恢复率 | `recovered_at` 非空的事件数 ÷ 已收口事件数；已收口 = 有 `recovered_at` 或 `state = unresolved/closed`；按 `opened_at` 窗口，进行中事件不计入分母 | KPI | 信息项 | `ops_events` | 是 |
-| R9 | 运维 MTTR | 窗口内已恢复事件的 `recovered_at - opened_at` 中位数；同时显示样本数 | 明细 | 信息项 | `ops_events` | 是 |
-| R10 | 未解决运维事件（当前） | 当前状态不属于 `recovered`/`closed` 的事件数 | 顶部提醒 | 理想为 `0` | `ops_events` | 是 |
+| R8 | 运维事件恢复率 | 截至测量点 `T` 已恢复的事件数 ÷ 已收口事件数；已收口 = `recovered_at ≤ T`、`closed_at ≤ T` 或 `state = unresolved` 且 `updated_at ≤ T`；按 `opened_at` 窗口，`T` 之后才恢复的不算 | KPI | 信息项 | `ops_events` | 是 |
+| R9 | 运维 MTTR | 窗口内截至 `T` 已恢复事件的 `recovered_at - opened_at` 中位数；同时显示样本数 | 明细 | 信息项 | `ops_events` | 是 |
+| R10 | 未解决运维事件（截至测量点） | 截至 `T` 仍未恢复且未关闭的事件数；之后才恢复的不回填为已解决 | 顶部提醒 | 理想为 `0` | `ops_events` | 是 |
 | R11 | 候选构建数 | 窗口内成功记录的候选构建数（不是成功率；失败构建没有独立表） | 明细 | 信息项 | `requirement_candidate_builds` | 是 |
 | R12 | 上线失败检查项 | 失败部署中 `checks[].ok = false` 的检查 ID 与次数 | 明细 | 信息项 | `requirement_deployments.checks_json` | 是 |
 | R13 | 失败后交付率（当前） | 有失败轮次且当前全部任务已交付的需求数 ÷ 有失败轮次的需求数 | 明细 | 信息项 | 失败轮次 + 任务运行 | P2 |
@@ -151,9 +156,9 @@
 | 项 | 口径 |
 | --- | --- |
 | 采样时机 | 协调器启动后每 30 秒检查一次；指标版本变化且距上一条 ≥ 1 分钟时追加；长期无变化时每 6 小时留一条心跳 |
-| 指标版本 `revision` | 快照文件 mtime/size、追加型记录数量与最后时间、运维事件状态、任务当前状态与候选构建数的摘要；**不含样本编号**，写样本本身不会让页面再刷新 |
+| 指标版本 `revision` | 快照文件 mtime/size、测量点（`asOf`/`commit`）、测量点之前的追加型记录数量与最后时间、运维事件状态、任务当前状态与候选构建数的摘要；**不含样本编号**，写样本本身不会让页面再刷新；测量点之后新增的事实不改变版本 |
 | 写入口 | 只有协调器调用 `reliabilitySample()` 写入；页面请求、端点与快照生成都不写历史 |
-| 样本内容 | 独立验证、首轮验证、业务终审、上线核对四个率，失败轮次、任务状态、运维、候选构建、部署通道计数；不含趋势与事件 |
+| 样本内容 | 测量点 `asOf`/`commit`，独立验证、首轮验证、业务终审、上线核对四个率，失败轮次、任务状态、运维、候选构建、部署通道计数；不含趋势与事件 |
 | 存储 | `reliability_metric_samples`（按项目、只追加）；损坏的 `payload_json` 读取时跳过，不显示成 0 |
 | 保留 | 数据库保留全部样本；页面只读最近 24 条，端点不提供删除入口 |
 | 快照历史 | 读取 `reports/reliability/history/*.json`（生成器原本就保留最近 30 份），页面取最近 12 份并压缩为门禁/测试/覆盖/变异摘要；损坏文件跳过 |
@@ -263,11 +268,13 @@
 ### 4.4 窗口与分母
 
 - 允许窗口：`7d`、`30d`、`90d`、`all`；默认 `all`，页面与端点一致。
+- **窗口终点是测量点 `T`，不是请求时刻**：有快照时 `T = snapshot.generatedAt`；没有可用快照时退回当前时刻并标注“未绑定测量点”。
 - 时间边界按服务器本地时区计算，响应同时返回窗口起止的 ISO 时间；页面按本地时间显示。
 - 分母为 0 时返回 `null`，页面显示 `—（无样本）`，不显示 `0%`。
 - 验证与终审按“每条记录”计，不按需求去重；首轮验证按“需求”计。页面必须同时显示样本数 `n`，避免把
   25 条记录误读成 25 个需求。
-- 运维恢复率按“开启时间落在窗口内”的事件计；恢复时间可以晚于窗口结束，仍算该事件的恢复。
+- 运维恢复率按“开启时间落在窗口内”的事件计；只有 `recovered_at ≤ T` 才算在测量点上恢复，之后才恢复的
+  仍计为未恢复，不拿未来结果回填。
 - 取消、停止、终审、上线核对的历史记录不因需求当前状态改变而重算。
 
 ### 4.5 禁止的推断
@@ -295,6 +302,12 @@
     project: string,
     generatedAt: string,
     revision: string,
+    measurement: {
+      asOf: string,
+      commit: string,
+      branch: string,
+      source: 'snapshot' | 'current'
+    },
     window: { key: '7d' | '30d' | '90d' | 'all', from: string | null, to: string },
     snapshot: {
       availability: 'fresh' | 'stale' | 'missing' | 'invalid',
@@ -372,8 +385,13 @@
 ```
 
 - `RateView = { pass: number, total: number, rate: number | null }`；`rate = null` 表示无样本。
+- `measurement` 是整页测量点：`source = 'snapshot'` 时 `asOf/commit/branch` 来自快照，运行指标、趋势、
+  事件与 `window.to` 都以 `asOf` 为终点；`source = 'current'` 表示没有可用快照、退回当前时刻，页面必须
+  同时显示“未绑定测量点”，不能把运行指标伪装成已校验。
 - `revision` 是给页面做变更检测的不透明字符串：两次请求相同即指标未变，页面保留当前视图不重渲染。
-- `history.samples` 从新到旧、最多 24 条；`history.snapshots` 从新到旧、最多 12 份。损坏的样本或快照文件跳过，不显示成 0。
+  测量点之后新增的事实不改变 `revision`，因此不会把未来数据混进同一测量点；任务当前状态除外。
+- `history.samples` 从新到旧、最多 24 条；`history.snapshots` 从新到旧、最多 12 份。每条样本带
+  `asOf`/`commit`，指向它在记录时对应的测量点。损坏的样本或快照文件跳过，不显示成 0。
 - 采样由协调器完成，端点与页面请求都不写 `reliability_metric_samples`。
 - 快照缺失是正常状态，返回 HTTP 200 与 `availability: 'missing'`；快照损坏也是 200 + `invalid` +
   原因，便于页面局部降级。`snapshot.warnings` 与顶层 `warnings` 都是可直接展示的字符串。
@@ -395,9 +413,9 @@
 | --- | --- |
 | 加载中 | KPI 与区块骨架，保持布局高度；不显示 `0` |
 | 正常 | 所有区块按 §2.2 展示 |
-| 快照缺失 | 门禁矩阵与覆盖率显示“未采集”，附 `make reliability-report` 提示；运行区正常 |
-| 快照过期 | 顶部黄色提醒；门禁数值仍显示，但每项带“过期”标签；KPI 不宣称当前通过 |
-| 快照损坏 | 门禁区显示错误原因与证据路径；运行区正常 |
+| 快照缺失 | 门禁矩阵与覆盖率显示“未采集”；运行区按当前时刻计算并标注“未绑定测量点”；附 `make reliability-report` 提示 |
+| 快照过期 | 整页仍按快照测量点展示，门禁与运行指标同属该提交/时刻；顶部提醒“不是当前 HEAD”，不宣称对应当前代码 |
+| 快照损坏 | 门禁区显示错误原因与证据路径；运行区按当前时刻计算并标注“未绑定测量点” |
 | 无样本 | 对应指标显示 `—（无样本）`；不显示绿色通过 |
 | 运行区失败 | 运行区独立错误与重试；门禁区不受影响 |
 | 整体读取失败 | 显示错误与重试按钮；不覆盖已有数据，不伪造空布局 |

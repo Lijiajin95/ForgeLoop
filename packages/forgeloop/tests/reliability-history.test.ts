@@ -30,6 +30,8 @@ afterEach(() => {
 
 function payload(overrides: Partial<ReliabilitySamplePayload> = {}): ReliabilitySamplePayload {
   return {
+    asOf: '2026-11-03T09:00:00.000Z',
+    commit: 'abc123',
     verification: { pass: 1, total: 2, rate: 50 },
     firstPassVerification: { pass: 1, total: 1, rate: 100 },
     businessReview: { pass: 1, total: 1, rate: 100 },
@@ -109,6 +111,12 @@ function writeHistory(name: string, value: unknown): void {
     typeof value === 'string' ? value : JSON.stringify(value),
     'utf8',
   )
+}
+
+function writeLatest(value: unknown): void {
+  const latest = join(dir, 'reports', 'reliability', 'latest.json')
+  mkdirSync(join(dir, 'reports', 'reliability'), { recursive: true })
+  writeFileSync(latest, JSON.stringify(value), 'utf8')
 }
 
 function verification(reqId: string, verdict: 'pass' | 'block', at: string): void {
@@ -318,6 +326,27 @@ describe('reliability sampling', () => {
       total: 1,
       rate: 100,
     })
+  })
+
+  it('pins each sample to the snapshot measurement point', () => {
+    writeLatest(
+      snapshotJson({
+        generatedAt: '2026-11-03T09:00:00.000Z',
+        git: { head: 'abc123', branch: 'main', dirty: false },
+      }),
+    )
+    let now = new Date(NOW)
+    const instance = dashboard(() => now)
+    // 测量点之后产生的记录不进入样本，也不改变整页版本。
+    verification('req-late', 'pass', '2026-11-03T09:30:00.000Z')
+
+    expect(instance.recordSampleIfDue()).toBe(true)
+    const sample = repository.reliabilitySamples(PROJECT)[0]
+    expect(sample).toMatchObject({ asOf: '2026-11-03T09:00:00.000Z', commit: 'abc123' })
+    expect(sample.verification.total).toBe(0)
+
+    now = new Date(now.getTime() + 30_000)
+    expect(instance.recordSampleIfDue()).toBe(false)
   })
 
   it('keeps a heartbeat sample when nothing changed for the heartbeat window', () => {

@@ -424,6 +424,9 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   `reliability_metric_samples` 追加一条只读样本，长期无变化时每 6 小时留一条心跳；页面每 10 秒轮询，
   `revision` 未变时保留当前视图。快照历史读取 `reports/reliability/history/`，页面只读最近 12 份；
   端点、页面与快照生成都不写历史，损坏样本跳过而不显示成 0。
+  整页以快照测量点对齐：有快照时 `asOf` 取 `generatedAt`，交付指标、趋势、事件与窗口终点都截止到它，
+  测量点之后的事实不进入本页；没有可用快照时退回当前时刻并显式标注“未绑定测量点”。样本同时记录
+  `asOf`/`commit`，历史中的每个数字都能回指当时的快照。
 - 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`stopRequested` 表示存在未恢复的
   主动停止记录，不等于已经停稳。两者都不等于任务已经停稳或结果已经收口；中断的运维动作以 `interrupted` 记录，
   根因报告作为观测与证据展示，不是新的业务状态。

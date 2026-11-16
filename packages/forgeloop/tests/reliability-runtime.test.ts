@@ -368,6 +368,70 @@ describe('reliability dashboard', () => {
     }).report('30d')
     expect(stale.snapshot.availability).toBe('stale')
     expect(stale.snapshot.warnings.join(' ')).toContain('未提交改动')
-    expect(stale.warnings.join(' ')).toContain('质量快照已过期')
+    expect(stale.warnings.join(' ')).toContain('均按测量点')
+  })
+
+  it('pins every metric to the snapshot measurement point', () => {
+    seed()
+    const instance = dashboard({ snapshot: snapshot() })
+    const report = instance.report('all')
+    expect(report.measurement).toEqual({
+      asOf: '2026-11-03T09:00:00.000Z',
+      commit: 'abc123',
+      branch: 'main',
+      source: 'snapshot',
+    })
+    expect(report.window.to).toBe('2026-11-03T09:00:00.000Z')
+    expect(report.runtime.verification.total).toBe(3)
+
+    // 测量点之后产生的记录不能进入页面，也不能改变整页版本。
+    verification('req-late', 'pass', '2026-11-03T09:30:00.000Z')
+    const again = instance.report('all')
+    expect(again.measurement.asOf).toBe('2026-11-03T09:00:00.000Z')
+    expect(again.runtime.verification.total).toBe(3)
+    expect(again.revision).toBe(report.revision)
+  })
+
+  it('falls back to the current time and marks the measurement unbound without a snapshot', () => {
+    verification('req-a', 'pass', '2026-11-03T09:30:00.000Z')
+    const report = dashboard().report('all')
+    expect(report.measurement).toEqual({
+      asOf: NOW.toISOString(),
+      commit: '',
+      branch: '',
+      source: 'current',
+    })
+    expect(report.runtime.verification.total).toBe(1)
+    expect(report.warnings.join(' ')).toContain('未绑定测量点')
+  })
+
+  it('does not count recoveries that happened after the measurement point', () => {
+    repository.createOpsEvent({
+      eventId: 'ops-late',
+      project: PROJECT,
+      resourceId: 'web',
+      checkId: 'health',
+      signature: 'late/health/1',
+      severity: 'major',
+      state: 'open',
+      title: '测量点之后才恢复',
+      openedAt: '2026-11-03T08:00:00.000Z',
+      updatedAt: '2026-11-03T08:00:00.000Z',
+    })
+    repository.updateOpsEvent('ops-late', {
+      state: 'recovered',
+      recoveredAt: '2026-11-03T09:30:00.000Z',
+      updatedAt: '2026-11-03T09:30:00.000Z',
+    })
+
+    const report = dashboard({ snapshot: snapshot() }).report('all')
+    expect(report.runtime.ops).toMatchObject({
+      opened: 1,
+      closed: 0,
+      recovered: 0,
+      unresolved: 1,
+      mttrSeconds: null,
+    })
+    expect(report.runtime.recentEvents.some((event) => event.kind === 'ops')).toBe(true)
   })
 })

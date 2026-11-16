@@ -210,6 +210,10 @@ describe('client conversation view', () => {
       'reliability.history.samplesMeta',
       'reliability.history.snapshotsMeta',
       'reliability.checkedAt',
+      'reliability.measurement.meta',
+      'reliability.measurement.current',
+      'reliability.measurement.note',
+      'reliability.history.measurement',
       'reliability.footnote',
     ]
     for (const key of keys) {

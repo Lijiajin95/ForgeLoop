@@ -31,7 +31,7 @@ import {
   snapshotHistoryPoint,
   snapshotStaleness,
   taskRunSummary,
-  unresolvedOpsCount,
+  unresolvedOpsAsOf,
   weeklyReliability,
   withinWindow,
   type CandidateBuildFact,
@@ -161,11 +161,23 @@ export interface ReliabilityHistoryView {
   readonly snapshotHistoryLimit: number
 }
 
+/**
+ * 页面测量点：所有门禁与运行指标都对应这一个时刻与提交。
+ * 有质量快照时取快照生成时间；没有可用快照时退回当前时刻并显式标记未绑定。
+ */
+export interface ReliabilityMeasurement {
+  readonly asOf: string
+  readonly commit: string
+  readonly branch: string
+  readonly source: 'snapshot' | 'current'
+}
+
 export interface ReliabilityReportView {
   readonly project: string
   readonly generatedAt: string
   /** 指标版本：快照、业务记录或历史采样变化时改变，供页面做变更检测。 */
   readonly revision: string
+  readonly measurement: ReliabilityMeasurement
   readonly window: {
     readonly key: ReliabilityWindow
     readonly from: string | null
@@ -223,8 +235,13 @@ interface CachedSnapshotHistory {
 }
 
 /** 从运行指标中挑出需要进入历史样本的字段；趋势事件不进样本。 */
-function samplePayloadOf(core: ReliabilityRuntimeCore): ReliabilitySamplePayload {
+function samplePayloadOf(
+  core: ReliabilityRuntimeCore,
+  measurement: ReliabilityMeasurement,
+): ReliabilitySamplePayload {
   return {
+    asOf: measurement.asOf,
+    commit: measurement.commit,
     verification: core.verification,
     firstPassVerification: core.firstPassVerification,
     businessReview: core.businessReview,
@@ -279,7 +296,11 @@ export class ReliabilityDashboard {
 
   report(window: ReliabilityWindow): ReliabilityReportView {
     const now = this.now()
-    const range = reliabilityWindowRange(window, now)
+    // 先确定测量点，再让所有指标以它为终点；不允许把旧快照和当前指标混在一页。
+    const snapshot = this.snapshotView(now)
+    const measurement = this.measurementOf(snapshot, now)
+    const asOf = new Date(measurement.asOf)
+    const range = reliabilityWindowRange(window, asOf)
     const facts = this.facts()
     const core = this.runtimeCore(facts, range)
     const samples = this.repository.reliabilitySamples(this.project, this.sampleLimit)
@@ -290,7 +311,7 @@ export class ReliabilityDashboard {
         verifications: facts.verifications,
         failureRounds: facts.rounds,
         deployments: facts.deployments,
-        now,
+        now: asOf,
         weeks: 8,
       }),
       recentEvents: this.recentEvents({
@@ -298,15 +319,15 @@ export class ReliabilityDashboard {
         deployments: facts.deployments,
         opsEvents: facts.opsEvents,
         from: range.from,
-        to: range.to,
+        to: asOf,
       }),
     }
-    const snapshot = this.snapshotView(now)
-    const warnings = this.warnings(snapshot, runtime)
+    const warnings = this.warnings(snapshot, runtime, measurement)
     return {
       project: this.project,
       generatedAt: now.toISOString(),
-      revision: this.revisionOf(facts),
+      revision: this.revisionOf(facts, measurement),
+      measurement,
       window: {
         key: window,
         from: range.from?.toISOString() ?? null,
@@ -326,13 +347,14 @@ export class ReliabilityDashboard {
 
   /**
    * 指标变化（或心跳到期）时追加一条历史样本；只写历史表，不改业务状态。
-   * 变化到写入至少间隔 1 分钟，避免同一批动作连续写多行；页面刷新不触发写入。
+   * 样本记录当时的测量点，历史里的每个数字都能回指同一份快照。
    */
   recordSampleIfDue(): boolean {
     const now = this.now()
     const latest = this.repository.latestReliabilitySample(this.project)
+    const measurement = this.measurementOf(this.snapshotView(now), now)
     const facts = this.facts()
-    const revision = this.revisionOf(facts)
+    const revision = this.revisionOf(facts, measurement)
     const lastAt = latest ? Date.parse(latest.sampledAt) : Number.NaN
     const elapsed = Number.isFinite(lastAt) ? now.getTime() - lastAt : Number.POSITIVE_INFINITY
     const changed = latest === null || latest.revision !== revision
@@ -341,14 +363,31 @@ export class ReliabilityDashboard {
       (changed && elapsed >= this.minSampleIntervalMs) ||
       elapsed >= this.sampleHeartbeatMs
     if (!due) return false
-    const core = this.runtimeCore(facts, reliabilityWindowRange('all', now))
+    const range = reliabilityWindowRange('all', new Date(measurement.asOf))
     this.repository.recordReliabilitySample({
       project: this.project,
       sampledAt: now.toISOString(),
       revision,
-      payload: samplePayloadOf(core),
+      payload: samplePayloadOf(this.runtimeCore(facts, range), measurement),
     })
     return true
+  }
+
+  /** 有可用快照时以快照生成时间为测量点；否则退回当前时刻并标记未绑定。 */
+  private measurementOf(snapshot: ReliabilitySnapshotView, now: Date): ReliabilityMeasurement {
+    const generated = Date.parse(snapshot.generatedAt)
+    const hasSnapshot =
+      (snapshot.availability === 'fresh' || snapshot.availability === 'stale') &&
+      Number.isFinite(generated)
+    if (hasSnapshot) {
+      return {
+        asOf: snapshot.generatedAt,
+        commit: snapshot.commit,
+        branch: snapshot.branch,
+        source: 'snapshot',
+      }
+    }
+    return { asOf: now.toISOString(), commit: '', branch: '', source: 'current' }
   }
 
   private facts(): ReliabilityFacts {
@@ -384,7 +423,7 @@ export class ReliabilityDashboard {
       deployment: deploymentRate(facts.deployments, range.from, range.to),
       failureRounds: failureSummary(windowedRounds),
       tasks: taskRunSummary(facts.taskRuns),
-      ops: { ...ops, unresolved: unresolvedOpsCount(facts.opsEvents) },
+      ops: { ...ops, unresolved: unresolvedOpsAsOf(facts.opsEvents, range.to) },
       candidateBuilds: facts.builds.filter((fact) =>
         withinWindow(fact.builtAt, range.from, range.to),
       ).length,
@@ -394,27 +433,32 @@ export class ReliabilityDashboard {
   }
 
   /**
-   * 指标版本：快照文件、追加型记录或任务状态任一变化即改变。
-   * 不含样本编号：写入一条样本本身不应让页面再刷新一次。
+   * 指标版本：快照文件、测量点或测量点之前的业务事实变化时改变。
+   * 测量点之后新增的记录不改变整页数值，也不应触发样本；任务当前状态除外。
    */
-  private revisionOf(facts: ReliabilityFacts): string {
+  private revisionOf(facts: ReliabilityFacts, measurement: ReliabilityMeasurement): string {
     const snapshot = this.statSnapshot()
+    const asOf = new Date(measurement.asOf)
+    const upTo = (at: string): boolean => withinWindow(at, null, asOf)
     const hash = createHash('sha1')
     hash.update(`${snapshot?.mtimeMs ?? 0}:${snapshot?.size ?? 0}`)
+    if (measurement.source === 'snapshot') {
+      hash.update(`|${measurement.asOf}|${measurement.commit}`)
+    }
     hash.update(
       [
-        facts.verifications.length,
-        facts.verifications.at(-1)?.verifiedAt ?? '',
-        facts.reviews.length,
-        facts.reviews.at(-1)?.reviewedAt ?? '',
-        facts.deployments.length,
-        facts.deployments.at(-1)?.recordedAt ?? '',
-        facts.rounds.length,
-        facts.rounds.at(-1)?.occurredAt ?? '',
-        facts.opsEvents.length,
-        facts.opsEvents.map((fact) => `${fact.state}:${fact.recoveredAt}`).join(','),
+        facts.verifications.filter((fact) => upTo(fact.verifiedAt)).length,
+        facts.verifications.filter((fact) => upTo(fact.verifiedAt)).at(-1)?.verifiedAt ?? '',
+        facts.reviews.filter((fact) => upTo(fact.reviewedAt)).length,
+        facts.deployments.filter((fact) => upTo(fact.recordedAt)).length,
+        facts.rounds.filter((fact) => upTo(fact.occurredAt)).length,
+        facts.opsEvents.filter((fact) => upTo(fact.openedAt)).length,
+        facts.opsEvents
+          .filter((fact) => upTo(fact.openedAt))
+          .map((fact) => `${fact.state}:${fact.recoveredAt}:${fact.closedAt ?? ''}`)
+          .join(','),
         facts.taskRuns.map((fact) => fact.state).join(','),
-        facts.builds.length,
+        facts.builds.filter((fact) => upTo(fact.builtAt)).length,
       ].join('|'),
     )
     return hash.digest('hex').slice(0, 16)
@@ -636,6 +680,7 @@ export class ReliabilityDashboard {
       title: string
       openedAt: string
       recoveredAt: string
+      closedAt?: string | undefined
     }[]
     from: Date | null
     to: Date
@@ -669,13 +714,16 @@ export class ReliabilityDashboard {
       })
     }
     for (const fact of input.opsEvents) {
-      if (fact.state === 'recovered' || fact.state === 'closed') continue
+      // 只展示测量点上仍未恢复/未关闭的事件；之后才恢复的不回填成“当时已解决”。
+      if (!withinWindow(fact.openedAt, null, input.to)) continue
+      if (fact.recoveredAt !== '' && withinWindow(fact.recoveredAt, null, input.to)) continue
+      if (fact.closedAt && withinWindow(fact.closedAt, null, input.to)) continue
       events.push({
         kind: 'ops',
         at: fact.openedAt,
         reqId: '',
         title: fact.title || `运维事件 ${fact.eventId}`,
-        detail: fact.state,
+        detail: '截至测量点未恢复',
       })
     }
     return events
@@ -689,16 +737,25 @@ export class ReliabilityDashboard {
       .slice(0, 8)
   }
 
-  private warnings(snapshot: ReliabilitySnapshotView, runtime: ReliabilityRuntimeView): string[] {
+  private warnings(
+    snapshot: ReliabilitySnapshotView,
+    runtime: ReliabilityRuntimeView,
+    measurement: ReliabilityMeasurement,
+  ): string[] {
     const warnings: string[] = [...snapshot.warnings]
+    const point = `${measurement.commit.slice(0, 7) || '—'}@${measurement.asOf}`
+    if (measurement.source === 'snapshot' && snapshot.availability === 'stale') {
+      warnings.push(
+        `门禁与运行指标均按测量点 ${point} 计算，不是当前 HEAD；重新生成快照后整页同步切换。`,
+      )
+    }
     if (snapshot.availability === 'missing') {
-      warnings.push('未找到质量快照；运行 make reliability-report 生成。')
+      warnings.push(
+        '未找到质量快照；运行指标截至当前，未绑定测量点。运行 make reliability-report 生成。',
+      )
     }
     if (snapshot.availability === 'invalid') {
-      warnings.push(`质量快照不可用：${snapshot.error}`)
-    }
-    if (snapshot.availability === 'stale') {
-      warnings.push('质量快照已过期，门禁数值只代表生成时的代码。')
+      warnings.push(`质量快照不可用：${snapshot.error}；运行指标截至当前，未绑定测量点。`)
     }
     const rates = [
       runtime.verification,
@@ -710,7 +767,7 @@ export class ReliabilityDashboard {
       warnings.push('部分可靠性指标样本少于 5，趋势仅供参考。')
     }
     if (rates.every((rate) => rate.total === 0)) {
-      warnings.push('当前窗口没有交付可靠性记录。')
+      warnings.push('当前测量点窗口内没有交付可靠性记录。')
     }
     return [...new Set(warnings)]
   }

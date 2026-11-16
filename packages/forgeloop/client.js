@@ -1278,15 +1278,19 @@ window.__ModuleLoader__.load({
       'reliability.duration.minutes': '{value} 分钟',
       'reliability.duration.hours': '{value} 小时',
       'reliability.checkedAt': '最后检查 {time}',
+      'reliability.measurement.meta': '测量点 {branch}@{commit} · {time}',
+      'reliability.measurement.current': '未绑定质量快照 · 运行指标截至 {time}',
+      'reliability.measurement.note': '门禁、运行指标、趋势与事件均截至测量点；任务当前状态除外。',
       'reliability.history.samples': '指标历史',
       'reliability.history.samplesMeta': '显示最近 {count} 条（上限 {limit}）',
       'reliability.history.samplesNote':
-        '指标变化时追加一条；长期没有变化时每 6 小时留一条心跳。历史只增不改。',
+        '每行记录采样时的测量点；指标变化时追加一条，长期没有变化时每 6 小时留一条心跳。历史只增不改。',
       'reliability.history.emptySamples': '还没有指标样本；协调器运行后会在指标变化时记录。',
       'reliability.history.snapshots': '快照历史',
       'reliability.history.snapshotsMeta': '显示最近 {count} 份（上限 {limit}）',
       'reliability.history.emptySnapshots': '还没有历史快照；每次生成快照会追加一份。',
       'reliability.history.time': '时间',
+      'reliability.history.measurement': '测量点',
       'reliability.history.unresolvedOps': '未解决运维',
       'reliability.history.commit': '提交',
       'reliability.history.gates': '门禁',
@@ -1922,10 +1926,14 @@ window.__ModuleLoader__.load({
       'reliability.duration.minutes': '{value} min',
       'reliability.duration.hours': '{value} h',
       'reliability.checkedAt': 'Checked {time}',
+      'reliability.measurement.meta': 'Measurement {branch}@{commit} · {time}',
+      'reliability.measurement.current': 'No quality snapshot bound · metrics through {time}',
+      'reliability.measurement.note':
+        'Gates, delivery metrics, trend and events all stop at the measurement point; current task state is excluded.',
       'reliability.history.samples': 'Metric history',
       'reliability.history.samplesMeta': 'Showing {count} (limit {limit})',
       'reliability.history.samplesNote':
-        'A sample is appended when metrics change; idle periods keep one heartbeat every 6 hours. History is append-only.',
+        'Each row records its measurement point; a sample is appended when metrics change, and idle periods keep one heartbeat every 6 hours. History is append-only.',
       'reliability.history.emptySamples':
         'No metric samples yet; the coordinator records them when metrics change.',
       'reliability.history.snapshots': 'Snapshot history',
@@ -1933,6 +1941,7 @@ window.__ModuleLoader__.load({
       'reliability.history.emptySnapshots':
         'No snapshot history yet; each generated snapshot is appended.',
       'reliability.history.time': 'Time',
+      'reliability.history.measurement': 'Measurement',
       'reliability.history.unresolvedOps': 'Unresolved ops',
       'reliability.history.commit': 'Commit',
       'reliability.history.gates': 'Gates',
@@ -8366,14 +8375,22 @@ window.__ModuleLoader__.load({
         const recoveryRate =
           (ops.closed || 0) > 0 ? Math.round(((ops.recovered || 0) / ops.closed) * 1000) / 10 : null
 
-        const snapshotMeta =
-          snapshot.branch || snapshot.commit
-            ? t('reliability.snapshot.meta', {
-                branch: snapshot.branch || '—',
-                commit: shortSha(snapshot.commit),
-                time: formatMoment(snapshot.generatedAt),
+        const measurement = report.measurement || {
+          asOf: report.generatedAt,
+          commit: '',
+          branch: '',
+          source: 'current',
+        }
+        const measurementMeta =
+          measurement.source === 'snapshot'
+            ? t('reliability.measurement.meta', {
+                branch: measurement.branch || '—',
+                commit: shortSha(measurement.commit),
+                time: formatMoment(measurement.asOf),
               })
-            : ''
+            : t('reliability.measurement.current', {
+                time: formatMoment(measurement.asOf),
+              })
         const windowText =
           report.window && report.window.from
             ? t('reliability.window.range', {
@@ -8426,6 +8443,9 @@ window.__ModuleLoader__.load({
           )
         const sampleRows = samples.map((sample) => [
           formatMoment(sample.sampledAt),
+          sample.commit
+            ? `${shortSha(sample.commit)} · ${formatMoment(sample.asOf)}`
+            : '—',
           rateCell(sample.verification),
           rateCell(sample.firstPassVerification),
           rateCell(sample.businessReview),
@@ -8495,7 +8515,7 @@ window.__ModuleLoader__.load({
                       : 'reliability.snapshot.fresh',
               ),
             ),
-            snapshotMeta ? h('span', { className: 'flb-rel-meta' }, snapshotMeta) : null,
+            h('span', { className: 'flb-rel-meta flb-rel-measurement' }, measurementMeta),
             snapshot.behindCommits !== null && snapshot.behindCommits > 0
               ? h(
                   Chip,
@@ -8505,6 +8525,7 @@ window.__ModuleLoader__.load({
               : null,
             snapshot.dirty ? h(Chip, { tone: 'warn' }, t('reliability.snapshot.dirty')) : null,
             h('span', { className: 'flb-rel-window-range' }, windowText),
+            h('span', { className: 'flb-rel-meta' }, t('reliability.measurement.note')),
             props.checkedAt
               ? h(
                   'span',
@@ -9065,6 +9086,7 @@ window.__ModuleLoader__.load({
               : historyTable(
                   [
                     t('reliability.history.time'),
+                    t('reliability.history.measurement'),
                     t('reliability.runtime.verification'),
                     t('reliability.runtime.firstPass'),
                     t('reliability.runtime.businessReview'),

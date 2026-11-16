@@ -204,6 +204,8 @@ describe('reliability records', () => {
         title: '页面不可用',
         openedAt: NOW,
         recoveredAt: NOW,
+        closedAt: '',
+        updatedAt: NOW,
       },
     ])
     expect(repository.reliabilityCandidateBuilds()).toEqual([{ reqId: 'req-a', builtAt: NOW }])

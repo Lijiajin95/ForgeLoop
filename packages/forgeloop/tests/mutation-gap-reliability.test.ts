@@ -22,7 +22,7 @@ import {
   reviewRate,
   snapshotStaleness,
   taskRunSummary,
-  unresolvedOpsCount,
+  unresolvedOpsAsOf,
   weeklyReliability,
   withinWindow,
 } from '../src/domain/reliability.js'
@@ -220,7 +220,7 @@ describe('reliability rates and summaries', () => {
       recovered: 1,
       mttrSeconds: 10,
     })
-    expect(unresolvedOpsCount(facts)).toBe(1)
+    expect(unresolvedOpsAsOf(facts, NOW)).toBe(1)
     expect(medianSeconds([])).toBeNull()
     expect(medianSeconds([{ start: '2026-01-01T00:00:00Z', end: '2026-01-01T00:00:10Z' }])).toBe(10)
     expect(

@@ -147,6 +147,9 @@ export interface OpsEventFact {
   readonly title: string
   readonly openedAt: string
   readonly recoveredAt: string
+  /** 可选：老记录或测试夹具没有该字段时按空串处理。 */
+  readonly closedAt?: string
+  readonly updatedAt?: string
 }
 
 export interface CandidateBuildFact {
@@ -271,17 +274,18 @@ export interface OpsRecoverySummary {
   readonly mttrSeconds: number | null
 }
 
-/** 只统计窗口内开启的事件；恢复时间可以晚于窗口结束。 */
+/**
+ * 只统计窗口内开启、且截至测量点 `to` 已经收口/恢复的事件。
+ * 恢复时间晚于测量点时，该事件在测量点上仍算未恢复，不拿未来结果回填历史。
+ */
 export function opsRecoverySummary(
   facts: readonly OpsEventFact[],
   from: Date | null,
   to: Date,
 ): OpsRecoverySummary {
   const opened = facts.filter((fact) => withinWindow(fact.openedAt, from, to))
-  const closed = opened.filter(
-    (fact) => fact.recoveredAt !== '' || fact.state === 'unresolved' || fact.state === 'closed',
-  )
-  const recovered = opened.filter((fact) => fact.recoveredAt !== '')
+  const recovered = opened.filter((fact) => recoveredBy(fact, to))
+  const closed = opened.filter((fact) => closedBy(fact, to))
   return {
     opened: opened.length,
     closed: closed.length,
@@ -290,6 +294,20 @@ export function opsRecoverySummary(
       recovered.map((fact) => ({ start: fact.openedAt, end: fact.recoveredAt })),
     ),
   }
+}
+
+function recoveredBy(fact: OpsEventFact, to: Date): boolean {
+  return fact.recoveredAt !== '' && withinWindow(fact.recoveredAt, null, to)
+}
+
+function closedBy(fact: OpsEventFact, to: Date): boolean {
+  if (recoveredBy(fact, to)) return true
+  if (fact.closedAt && withinWindow(fact.closedAt, null, to)) return true
+  if (fact.state === 'unresolved') {
+    return !fact.updatedAt || withinWindow(fact.updatedAt, null, to)
+  }
+  if (fact.state === 'closed') return !fact.closedAt || withinWindow(fact.closedAt, null, to)
+  return false
 }
 
 export function medianSeconds(pairs: readonly { start: string; end: string }[]): number | null {
@@ -307,8 +325,16 @@ export function medianSeconds(pairs: readonly { start: string; end: string }[]):
   return Math.round((lower + upper) / 2 / 1000)
 }
 
-export function unresolvedOpsCount(facts: readonly OpsEventFact[]): number {
-  return facts.filter((fact) => fact.state !== 'recovered' && fact.state !== 'closed').length
+/** 截至测量点仍未恢复、未关闭的事件数；不使用当前状态回填历史。 */
+export function unresolvedOpsAsOf(facts: readonly OpsEventFact[], to: Date): number {
+  return facts.filter((fact) => {
+    if (!withinWindow(fact.openedAt, null, to)) return false
+    if (recoveredBy(fact, to)) return false
+    if (fact.closedAt && withinWindow(fact.closedAt, null, to)) return false
+    // 老记录/夹具缺关闭时间时按终态兜底，避免把已关闭事件算成未解决。
+    if (!fact.closedAt && fact.state === 'closed') return false
+    return true
+  }).length
 }
 
 export interface DeploymentFailure {
@@ -706,6 +732,9 @@ function parseBudgets(value: unknown): ReliabilityBudgets | null {
 
 /** 一条指标历史样本：只记录页面展示的聚合值，不复制原始记录。 */
 export interface ReliabilitySamplePayload {
+  /** 样本对应的测量点：快照生成时间与提交；未绑定快照时为空。 */
+  readonly asOf: string
+  readonly commit: string
   readonly verification: ReliabilityRate
   readonly firstPassVerification: ReliabilityRate
   readonly businessReview: ReliabilityRate
@@ -760,6 +789,8 @@ export function parseReliabilitySample(value: unknown): ReliabilitySamplePayload
   const ops = requireRecord(record.ops, 'sample.ops')
   const intents = requireRecord(record.deploymentIntents, 'sample.deploymentIntents')
   return {
+    asOf: stringValue(record.asOf),
+    commit: stringValue(record.commit),
     verification: sampleRate(record.verification, 'sample.verification'),
     firstPassVerification: sampleRate(record.firstPassVerification, 'sample.firstPassVerification'),
     businessReview: sampleRate(record.businessReview, 'sample.businessReview'),

@@ -302,8 +302,14 @@ exports[`runtime empty-state payloads > keeps status, reliability, ops, requests
     "snapshotHistoryLimit": 12,
     "snapshots": [],
   },
+  "measurement": {
+    "asOf": "TIME",
+    "branch": "",
+    "commit": "",
+    "source": "current",
+  },
   "project": "demo",
-  "revision": "31f85f76cd395baa",
+  "revision": "4d14124f2c5e9002",
   "runtime": {
     "businessReview": {
       "pass": 0,
@@ -458,8 +464,8 @@ exports[`runtime empty-state payloads > keeps status, reliability, ops, requests
     "warnings": [],
   },
   "warnings": [
-    "未找到质量快照；运行 make reliability-report 生成。",
-    "当前窗口没有交付可靠性记录。",
+    "未找到质量快照；运行指标截至当前，未绑定测量点。运行 make reliability-report 生成。",
+    "当前测量点窗口内没有交付可靠性记录。",
   ],
   "window": {
     "from": null,
