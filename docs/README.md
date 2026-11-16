@@ -17,6 +17,7 @@
 | 待实施事项与 DSH 接缝依据        | [§14–§15](product/product.md#14-实施边界与待决项)             |
 | 一键重建需求库与复用项目上下文   | [library-rebuild.md](product/library-rebuild.md)              |
 | 天工「代码可靠性」看板方案       | [reliability-dashboard.md](product/reliability-dashboard.md)  |
+| 存量项目一键重建需求库           | [library-rebuild.md](product/library-rebuild.md)              |
 
 ## 研发
 

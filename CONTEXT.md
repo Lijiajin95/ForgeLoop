@@ -66,6 +66,7 @@
 | 业务背景文档 Business Context Doc | 由程序按产品分析结果的 `business_context` 整份写入 `docs/product/business-context.md`，记录识别到的行业、业务目标、术语、约束与假设 | 不是需求原文，也不是客户决定；分析时只作背景材料读入，工具不能直接写该文件 |
 | 需求库条目 Requirement Library Entry | 项目文档里带 JSON 注释头的 Markdown（产品目标、术语、决策、指标口径等），`id`／`topics`／`status` 稳定；内容权威在 `docs/product/library/`，SQLite 的 `library_entries` 只存索引、哈希与缺失标记 | 不是需求原文，也不是授权；`draft` 条目不能作为“已有结论、禁止提问”的依据 |
 | 澄清缺口 Library Gap | 需求库非空时，分析在 `library_review.gaps` 里给出“库内没有依据、且影响范围／验收／数据”的问题；每条新澄清必须对应一个缺口，缺口主题不得命中 `confirmed` 条目的 topics | 不是普通疑问或偏好；没有缺口的提问会被闸门拒绝，已有结论的问题不得重复问 |
+| 需求库重建 Library Rebuild | 产品页的一次 owner 动作：按项目文档、验收用例、Git 与源码取证，分批交产品 Agent 提炼候选，经已有库审查后只把 `draft` 写入 `docs/product/library/`；报告与发布清单落在 `records/projects/<project>/library-rebuild/<runId>/` | 不产生 `confirmed`；不覆盖人工条目或已确认规则；运行中可取消，已发布条目不回滚 |
 
 ## 执行与证据
 

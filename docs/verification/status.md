@@ -9096,3 +9096,25 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - 未完成：租户日志存在性修复、`verify-plugin` / `verify-e2e` 未运行；旧文本格式日志仍保留在
   legacy 租户文件中。
 - 回滚：重新安装 `forgeloop-dsh-0.0.2-20261116-1035.tgz` 并热重载；业务库与证据未改动。
+
+## 242. 需求库一键重建（2026-11-16）
+
+来源：所有者要求存量项目一键重建需求库；产品范围见 [library-rebuild.md](../product/library-rebuild.md)。
+
+- 取证：[library-extract.ts](../../packages/forgeloop/src/runtime/library-extract.ts) 扫描项目 Markdown
+  （排除库目录与依赖/构建目录）、测试文件 `it/test` 标题与只读 Git 提交；文档与用例不足 3 条时兜底读取源码，
+  覆盖纯源码项目。证据按时间从新到旧、无时间排后；每项带来源、位置、时间与摘要；
+  `api_key`／token／私钥／Bearer 在进入模型前过滤。
+- 提炼：[library-rebuild.ts](../../packages/forgeloop/src/runtime/library-rebuild.ts) 单轮调度，
+  同一项目同时只允许一轮；材料每批 ≤16 条、最多 12 批；模型 `tools: 'none'`；单批失败只记错误不中断；
+  同 id 候选合并证据。
+- 审查与发布：[library-rebuild.ts](../../packages/forgeloop/src/domain/library-rebuild.ts) 负责候选校验、
+  内容指纹、已有库审查（一致保留、指纹变化更新、文件摘要不一致按人工改动保护、`confirmed` 与人工条目只记冲突）
+  与 64 条容量；发布前核对文件摘要，临时文件 + 重命名原子写入；报告与发布清单写
+  `records/projects/<project>/library-rebuild/<runId>/`。
+- 入口：看板 `library-rebuild-run/status/cancel`；产品页一键按钮、进度轮询、取消与结果摘要；
+  `library_rebuilds` 记录状态、阶段、计数、触发者与来源。
+- 验证：领域 24 项、取证 14 项、运行 21 项、记录 5 项、看板 2 项；全量 `commit-check`
+  2485 通过 / 1 跳过 / 0 失败；新文件覆盖率均过逐文件门槛。
+- 未完成：增量水位、纯源码项目的入口识别（当前为有界源码兜底）、漂移提醒、真实模型端到端验收；
+  自动条目一律 `draft`，澄清闸门仍只认 `confirmed`。

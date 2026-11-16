@@ -101,6 +101,12 @@ DSH 宿主（唯一常驻产品）
    `library_review` 给出缺口依据；所有者回答会按缺口回写为 `confirmed` 决策条目。这些内容只是背景事实，
    不构成授权；成功追加 `plugin:forgeloop/analysis`，失败追加
    `plugin:forgeloop/error`。有待澄清项时再追加 `plugin:forgeloop/clarification-request`。
+   产品页的「重建需求库」是 owner 的独立动作：运行时扫描项目文档、验收用例、Git 与源码
+   （`runtime/library-extract.ts`，按证据时间从新到旧、限额与凭据过滤），分批交给无工具的产品 Agent
+   提炼业务规则候选；候选经 `domain/library-rebuild.ts` 的已有库审查后，只把 `draft` 写入
+   `docs/product/library/`，`confirmed` 与人工修改只记冲突；发布前核对文件摘要并原子写入，
+   报告与发布清单落在 `records/projects/<project>/library-rebuild/<runId>/`。重建不产生
+   `confirmed`，澄清闸门仍只认所有者确认的条目。
 5. 消息归属由确定性入口决定，不让模型猜：会话只有一个待澄清需求时，直接回复按澄清回答处理；
    多条待澄清时必须写“回答 <需求编号>：<回答>”指定对象；任何需要独立受理的新输入写
    “新需求：<内容>”，即使有需求待澄清也不会并入回答。回答追加需求版本并重新分析，
@@ -502,7 +508,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   凭据形态在写入前脱敏。运维只读工具通过内建制品 `forgeloop-plugin` 的 `plugin` 日志读取**当前租户**
   项目日志尾部，无需 `ops.artifacts` 配置；显式配置同 id 时以配置为准。插件级宿主日志
   `<recordsRoot>/logs/plugin.log` 只作为磁盘运维证据，不通过工具暴露（其中含全部工作区身份）。
-- 表：需求与版本、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
+- 表：需求与版本、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、需求库重建运行（`library_rebuilds`：状态、阶段、材料／批次／发布计数、触发者与来源、报告路径与发布清单）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立测试（含追加式验证尝试）、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、
   `requirement_dev_sessions`、`dev_session_summaries`），以及运维事件、运维观测与运维动作 attempt；
@@ -600,7 +606,9 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
   `plan`、`approve`、`advance`、`verify`、`requeue`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
   以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`，和只读 `reliability`、
-  需求库 `library`（条目索引与摘要）与 `library-entry`（按 id 读取单条正文，引用条目返回被引用文档）；
+  需求库 `library`（条目索引与摘要）与 `library-entry`（按 id 读取单条正文，引用条目返回被引用文档），
+  以及一键重建 `library-rebuild-run`（owner 写，在途时 409）、`library-rebuild-status`（只读）、
+  `library-rebuild-cancel`（owner 写）；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
   并注册 ForgeLoop Chat 节点（含技术方案/任务包）与 `conversation.chat.turnTail` 需求摘要，
