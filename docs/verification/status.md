@@ -13,7 +13,7 @@
 | 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、系统准入、自动推进、研发拆解、独立验证、业务终审、验收、候选构建、受控提交与部署接口均已接入；部署目标可配置默认需求，也可由 intent 按需求复用；天工页提供停止/取消/恢复、追加授权、工时延长、构建与上线核对；部署协调器的工作台页面与证据入口未实现；`autoDeliver` 目标已接入提交后自动构建/部署/核对与修复回流；当前 Windows DSH `web` profile（3080）已运行 2026-11-05 tarball，真实需求 `req-20261105090042-07ff5f` 已在页面可见                                                                                                                                                                                                                                                                                                                                                | [架构](../development/architecture.md)、§131–§136                                                                                      |
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | §30                                                                                                                                    |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §13、[ADR 0009](../development/adr/0009-remove-retired-implementation.md)                                                              |
-| 最近安装记录 | 2026-11-16 22:12 `forgeloop-dsh@0.0.2` tarball（484,353 字节，SHA-256 `806d71dc…`，gitHead `862ed71`）安装到当前 Windows `web` profile（插件热重载，pid 57876；上一包 `20261116-2042.tgz` 保留可回滚）；安装记录不等于交付完成 | §250 |
+| 最近安装记录 | 2026-11-16 22:12 `forgeloop-dsh@0.0.2` tarball（484,353 字节，SHA-256 `806d71dc…`，gitHead `862ed71`）安装到当前 Windows `web` profile（插件热重载，pid 57876；上一包 `20261116-2042.tgz` 保留可回滚）；安装记录不等于交付完成                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §250                                                                                                                                   |
 | 最近工程检查 | 2026-11-06 worktree `feat/m1-closure`：`check-static`（typecheck、ESLint、contracts、token/断言预算、可靠性注册表）通过；定向 mutation 73 项、verification 54 项、identity 3 项通过；全量 `make check` 157 文件/1887 项中 66 失败（11 文件，集中在 Windows 控制副本夹具与 recordsRoot 在项目内时的敏感性对照），未通过。M1 现场与失败见 §168。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §132.4、§135.3、§168                                                                                                                   |
 | 真实业务链路 | 2026-11-05 当前 DSH `web`（3080）真实需求 `req-20261105090042-07ff5f`：通过插件工具提交，经分析→系统准入→研发→独立验证（pass）→业务终审（pass）→受控提交 `e18de603ae08…`，共约 5 分钟；天工页可见，Board detail 返回 `fresh=true`、`businessReview=pass`。另有真实模型部署 E2E `req-20261105084110-d498df`（到隔离目标 verified）与 §134 的 M0 E2E 证据。2026-11-06 M1 收尾新增的两条真实闭环 A/B 均未跑通：停止时分别停在 `control-apply`、`watchdog-root-cause`，0 提交、0 部署 intent、0 关闭事件（§168）。                                                                                                                                                                                                                                                                                                                         | §131、§133–§135、§168                                                                                                                  |
 | 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控 + 2026-11-03 按需读制品日志：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，Agent 评审后建事件；另有两个只读工具按需读取 `ops.artifacts` 登记的制品运行状态（安装版本、pid、存活、身份摘要）与日志尾部（行数、错误行数可过滤）；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证；2026-11-06 起按所有者决定进入维护阶段（§178、[ADR 0011](../development/adr/0011-ops-maintenance-first.md)），不再扩展外部工具或主动复跑 | §35、§110、§112、[运维设计](../development/ops-agent.md)、§178                                                                         |
@@ -9062,6 +9062,7 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
    `check-static` 通过。
 
 仍然存在的边界（非工作区数据面）：
+
 - 看板按 DSH 会话身份限定时，同一已认证所有者可以像在 DSH 中切换工作区一样，用自己的另一个
   会话读取另一工作区；这不是跨租户数据面泄漏，但也不是多用户权限分级。
 - 部署目标、`dshProfilesRoot` 与 DSH profile 是宿主级资源；两个项目可以登记同一部署目标，
@@ -9271,7 +9272,7 @@ Windows DSH `web` profile（3080）。
   `clientSha256=bef1ed2c…`，与仓库 `client.js` 一致。
 - 验证：
   - ForgeLoop 租户 `reliability` 端点：`measurement = { asOf: '2026-11-16T11:12:28.257Z',
-    commit: 'b729d6a…', branch: 'main', source: 'snapshot' }`，`window.to` 同值；告警为
+commit: 'b729d6a…', branch: 'main', source: 'snapshot' }`，`window.to` 同值；告警为
     “快照提交与当前 HEAD 不一致”“门禁与运行指标均按测量点 b729d6a@… 计算，不是当前 HEAD”。
   - 新样本记录 `asOf`/`commit`（`14:13:18Z` 写入，指向 `b729d6a@11:12:28Z`）；旧样本缺字段时显示 `—`。
   - 无快照的租户（Books）：`source = current`，页面头部显示“未绑定质量快照 · 运行指标截至 …”。
@@ -9299,7 +9300,7 @@ Windows DSH `web` profile（3080）。
 ### 251.2 端点与数据
 
 - `reliability` 端点（ForgeLoop 租户）：`measurement = { asOf: 11:12:28.257Z, commit: b729d6a…,
-  source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量点，`from` 分别为
+source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量点，`from` 分别为
   `null/11-09/10-17/08-18 的 11:12:28Z`。
 - 告警：快照与 HEAD 不一致；门禁与运行指标均按测量点计算；当前测量点窗口内没有交付记录。
 - 租户库 `reliability_metric_samples`：2 条。部署后新样本 `14:13:18Z` 带
@@ -9323,6 +9324,7 @@ Windows DSH `web` profile（3080）。
   本次未改。
 - 既有 `candidate-build` 60 秒超时与 `mutation-gap-verify-deep` 4 秒耗时断言在本机负载下仍会越界，
   `main` 同样复现，与本批无关。
+
 ## 252. 从功能设计文档到可安装交付（第一增量，2026-11-16）
 
 来源：[从功能设计文档到可安装交付](../product/design-document-delivery.md)（产品设计稿）。本批实现
@@ -9363,3 +9365,46 @@ Windows DSH `web` profile（3080）。
   可靠性注册表、全量行为测试与逐文件覆盖率。
 - 未完成：§4 三项度量指标（可安装交付率、人工介入耗时、受理到可用用时）；天工页没有文档快照与
   可安装交付的专门区块；未用真实模型跑过文档入口；未在本机正式 profile 重新安装本批代码。
+
+## 253. 夜间门禁红灯根因与跨平台命令解析修复（2026-11-16）
+
+### 253.1 数据来源：gh CLI 已可用
+
+- 本机已安装 `gh` 2.104.0（`C:\Program Files\GitHub CLI\gh.exe`），HTTPS 登录 `Lijiajin95` 成功。
+- 已用 `gh run list` / `gh run download` 取到真实数据：最近一次**成功**的夜间是
+  `43132824985`（2026-11-12），其后 `43332928326`、`43531602387`、`43650114255`、`43773934537`
+  连续失败；artifact 已下载到 `reports/ci/43132824985/`（保留 14 天，过期不可再取）。
+
+### 253.2 红灯根因：`command-launch` 的 Windows 模拟用例在 Linux 上失败
+
+- 失败 job：`coverage`、`reliability-advanced`、`mutation (runtime-execution-1)`；
+  三者的共同失败点是 `tests/command-launch.test.ts` 的 3 个用例（日志：
+  “Test Files 1 failed | 206 passed”，`❯ tests/command-launch.test.ts:30/39/80`）。
+- 根因：`resolveOnPath` 用**宿主机**的 `path.delimiter`/`path.join` 解析「目标平台」PATH；
+  Linux 上分隔符是 `:`、拼接线是 `/`，而用例构造的是 Windows 风格 `;` 与反斜杠，于是找不到候选。
+- 修复（分支 `feat/p0-launch-linux`，`bdd6a34`）：按目标平台取分隔符（win32 `;`）与拼接
+  （`win32.join`），并拆出 `pathCandidates` 避免 5 参数。
+- 验证：`tests/command-launch.test.ts` 7 例通过，该文件覆盖率 100/91.42/100；
+  在 rebase 到当时 `main` 后跑全量：**225 文件、2523 通过、1 跳过**（只有覆盖率门禁因下列
+  他人新增文件未达标而失败）。
+
+### 253.3 合并受阻：当前 main 的逐文件覆盖率未达标（非本批文件）
+
+`npx vitest run --coverage --no-file-parallelism` 在 rebase 后的树上报：
+
+- `src/domain/installable-delivery.ts` branches 72.91%（阈值 85）
+- `src/records/installable-delivery-store.ts` lines 83.17 / functions 77.77（阈值 90/95）
+- `src/runtime/design-document-intake.ts` branches 84.61%（阈值 85）
+- `src/session/intake.ts` lines 89.73%（阈值 90）
+
+这些都是 11-16 并行提交新增的文件；本批修复没有触碰它们。按仓库规则不能用跳过覆盖率的方式合入，
+因此 `feat/p0-launch-linux` 保留在本地分支，等这些文件补齐测试后再合。
+
+### 253.4 测试指标汇聚建议（记录结论）
+
+- 首选：以 CI artifact 为权威源，用 `gh run download` 拉到 `reports/ci/<run-id>/`，再用一个薄脚本
+  汇总成 `reports/metrics/latest.json` + `latest.md` + `history/`（字段：head、runId、8 项门禁状态、
+  属性 runs/seed、稳定性轮次、受控变异分数与关键存活、覆盖率 total 与最差 5 个文件）。
+- 不建议引入 Codecov/Sonar/Prometheus：需要第三方授权与长期维护，ADR 0011 已把运维投入降到维护级。
+- 本机可离线生成的只有 `reports/reliability/latest.json`（`make.cmd reliability-report-fast`）；
+  变异在本机不可靠（Stryker dry run 受 vitest 并行 worker 超时影响）。
