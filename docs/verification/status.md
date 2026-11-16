@@ -9323,3 +9323,43 @@ Windows DSH `web` profile（3080）。
   本次未改。
 - 既有 `candidate-build` 60 秒超时与 `mutation-gap-verify-deep` 4 秒耗时断言在本机负载下仍会越界，
   `main` 同样复现，与本批无关。
+## 252. 从功能设计文档到可安装交付（第一增量，2026-11-16）
+
+来源：[从功能设计文档到可安装交付](../product/design-document-delivery.md)（产品设计稿）。本批实现
+§1「提交即发起」与 §2 的「可安装交付」定义与记录；§4 的三项度量指标尚未实现。
+
+### 251. 设计文档受理（§1）
+
+- 业务会话新增确定性入口「文档：<项目内 .md>」（也接受「设计文档：…」或写在「新需求：」之后）。
+  正文成为需求原文；`runtime/design-document-intake.ts` 用 `resolveProjectDoc` 做路径、越界与 `.md`
+  校验，读取上限沿用 64 KiB；越界、缺失、非普通文件与空正文都返回明确失败，不静默降级为普通需求。
+- 快照与版本同一事务：`repo.submit` / `repo.appendVersion` 在写 `requirement_versions` 的同一事务里
+  追加 `requirement_documents`（类型、项目内路径、sha256、字节数、标题）。内联粘贴正文登记
+  `kind=inline` 的快照；正文始终以需求版本原文为权威，快照只固定“这一版对应哪份文档”。
+- 归属判定：同一路径同一摘要 → 返回原需求，不新建、不重复分析；摘要变化且原需求未终态 →
+  原需求追加版本，旧快照、旧分析与既有证据保留，旧分析登记失效并撤销待执行请求；原需求已终态 →
+  另建需求，并把该路径的最新绑定指向新需求，旧需求的证据不被覆盖。
+- 会话事件 `plugin:forgeloop/intake` 增加 `document` 元数据与 `status=duplicate`；需求详情新增 `documents`。
+
+### 251. 可安装交付（§2）
+
+- 判定：`domain/installable-delivery.ts` 要求六项材料同时可用——受控提交、与提交对应的候选构建包、
+  安装说明、独立测试结论、业务验收结论、已核对试装；并校验测试与验收通过、试装包摘要等于交付包摘要、
+  材料绑定的需求版本等于当前版本。`availableAt` 取六项材料时间中最晚的一项，作为“受理到可用结果”的终点。
+- 记录：`runtime/installable-delivery.ts` 按记录取材料，先写安装说明
+  `candidates/<req>/v<plan>/delivery/<包摘要前 16 位>/INSTALL.md`，再判定并追加
+  `requirement_installable_deliveries`；同一候选与同一包摘要幂等，材料不齐或摘要不一致只返回明确失败。
+- 接线：`DeliveryHandoff` 在部署核对通过后登记（含手工发起但落在 auto 目标的 intent）；
+  `CandidatePipeline.verifyDeployment` 在上线核对通过后登记。登记失败只写入交接说明，不改变部署状态。
+- 边界：缺少试装与摘要不一致分开报告；`deployment_intents` 路径不含候选身份，只按包摘要与需求对应。
+
+### 251. 验证
+
+- 新增行为测试：`tests/design-document.test.ts` 12 项（入口解析、摘要与标题边界、新建、重复投递、
+  修订版本、终态后新建、越界与缺失拒绝、内联快照、会话入口、重复投递不二次分析、错误提示）；
+  `tests/installable-delivery.test.ts` 8 项（缺项顺序、通过/拦截、说明文本、登记、幂等、
+  摘要不一致、旧版本材料、验收与测试不同轮）。
+- `node scripts/ts/make-windows.ts commit-check` 通过：typecheck、eslint、架构契约、token/断言预算、
+  可靠性注册表、全量行为测试与逐文件覆盖率。
+- 未完成：§4 三项度量指标（可安装交付率、人工介入耗时、受理到可用用时）；天工页没有文档快照与
+  可安装交付的专门区块；未用真实模型跑过文档入口；未在本机正式 profile 重新安装本批代码。

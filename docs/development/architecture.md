@@ -32,10 +32,11 @@ agent preset 后，在普通输入框输入；插件在 `agent/pre-step` 接管�
 DSH 宿主（唯一常驻产品）
 ├── 原生交互：会话 / 工具卡片
 ├── forgeloop-dsh 插件（同进程）
-│   ├── domain/     纯规则：身份、版本、批准、失败轮次、工时、材料身份；影响事实/推断分区只经注入窄接口
+│   ├── domain/     纯规则：身份、版本、批准、失败轮次、工时、材料身份、设计文档快照、可安装交付判定
 │   ├── agents/     需求测试 Agent：仅凭需求说明生成测试方案；执行与业务验收由同一会话经工具完成
-│   ├── records/    node:sqlite：权威记录、请求领取、动作身份、证据索引
-│   ├── runtime/    协调器、Agent 执行器、正式测试、快照工作副本、候选打包、运维巡检与主动监控、状态看板事实
+│   ├── records/    node:sqlite：权威记录、请求领取、动作身份、证据索引、文档快照与可安装交付记录
+│   ├── runtime/    协调器、Agent 执行器、设计文档受理、正式测试、快照工作副本、候选打包、
+│   │                可安装交付登记（含安装说明）、运维巡检与主动监控、状态看板事实
 │   ├── session/    ForgeLoop 业务会话：preset、agent/pre-step 输入接管、自定义会话事件
 │   ├── tools.ts    模型只读工具 + 需求受理（不能批准、推进或验收）
 │   └── client.js   Web 会话区「天工」页 + ForgeLoop 受理/分析自定义 Chat 节点
@@ -65,6 +66,9 @@ DSH 宿主（唯一常驻产品）
 `runtime/monitor.ts` 的 `OpsMonitorProvider.collect` 是提供方的采集接口，`PROVIDER_IMPLEMENTATIONS`
 登记实现；未登记描述符或未实现 `collect` 的提供方都不会被使用，
 `domain/failure-advice.ts` 把失败原因、正式测试日志与审查结论整理成确定性的下一步建议。
+`domain/design-document.ts` 定义文档入口解析、快照摘要与标题，`runtime/design-document-intake.ts`
+负责读取项目文档、去重与修订版本；`domain/installable-delivery.ts` 定义可安装交付的六项材料判定与安装说明文本，
+`runtime/installable-delivery.ts` 负责按记录事实判定、写说明并登记。
 工作副本使用 `runtime/workspace.ts` 的快照路径，包含未提交进展；文件选择遵循 Git 跟踪与忽略规则。
 
 `client.js` 是浏览器端入口（普通 `dsh.client` 模块，不参与 tsc 编译），通过认证 Fetch 路由
@@ -109,7 +113,10 @@ DSH 宿主（唯一常驻产品）
    `confirmed`，澄清闸门仍只认所有者确认的条目。
 5. 消息归属由确定性入口决定，不让模型猜：会话只有一个待澄清需求时，直接回复按澄清回答处理；
    多条待澄清时必须写“回答 <需求编号>：<回答>”指定对象；任何需要独立受理的新输入写
-   “新需求：<内容>”，即使有需求待澄清也不会并入回答。回答追加需求版本并重新分析，
+   “新需求：<内容>”，即使有需求待澄清也不会并入回答；写“文档：<项目内 .md 路径>”
+   （也可写“设计文档：…”或放在“新需求：”之后）按设计文档受理：正文成为需求原文，
+   同内容重复投递返回原需求，内容修订在原需求下追加版本，原需求已终态时另建需求并重新绑定路径。
+   回答追加需求版本并重新分析，
    追加 `plugin:forgeloop/clarification-answer`、`plugin:forgeloop/analysis`，必要时再次推送
    `plugin:forgeloop/clarification-request`。每个问题在首次提出的分析内有稳定编号
    `Q<分析版本>-<序号>`；重新分析必须逐项处置旧问题，未解决项由程序保留，模型不能静默丢弃。
@@ -381,6 +388,38 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
     未恢复或诊断 `fix_required` 时创建关联修复需求并排队分析。
     当前不抢占研发任务，每个事件最多执行一次动作；细节与限制见[运维 Agent](ops-agent.md)。
 
+### 4.2.1 设计文档受理与可安装交付（2026-11-16）
+
+**设计文档受理（提交即发起）。** `runtime/design-document-intake.ts` 读取项目内 Markdown
+（`resolveProjectDoc` 的路径边界、`.md` 限制与 64 KiB 上限；越界、缺失、非普通文件与空正文都明确失败），
+按内容摘要与“项目+路径”判定归属：
+
+- 首次提交：`repo.submit` 在**同一事务**里写需求版本 1 与 `requirement_documents` 快照
+  （类型、路径、sha256、字节数、标题），随后按 `autonomy` 授权策略入队分析。
+- 同一内容重复投递：返回原需求与版本，不新建、不重新分析。
+- 内容修订且原需求未终态：`repo.appendVersion` 追加版本并登记新快照，旧快照保留；
+  旧分析登记 `requirement_analysis_invalidations`，待执行请求被撤销，需求回到 `draft` 重新分析。
+- 原需求已终态：另建需求（新编号）并把该路径的最新绑定指向新需求，旧需求的快照与证据不被覆盖。
+- 内联粘贴的正文同样登记 `kind=inline` 的快照；正文始终以 `requirement_versions.text` 为权威，
+  快照只固定“这一版对应哪份文档”。需求详情经 `requirementDetailExtras` 返回 `documents`。
+
+**可安装交付。** 六项材料同时可用才成立：受控提交、与该提交对应的候选构建包、安装说明、
+独立测试结论、业务验收结论、隔离试装记录；且试装包摘要必须等于交付包摘要，
+材料绑定的需求版本必须是当前版本。`domain/installable-delivery.ts` 只做判定与说明文本，
+`runtime/installable-delivery.ts` 按记录取材料，先写安装说明
+（`candidates/<req>/v<plan>/delivery/<包摘要前 16 位>/INSTALL.md`，含包身份、提交、测试与验收摘要、
+试装目标与参数、上线检查与回退说明），再判定并追加 `requirement_installable_deliveries`。
+`availableAt` 取六项材料时间中最晚的一项，是“受理到可用结果”的计时终点。
+
+登记入口只有确定性运行时：`DeliveryHandoff` 在部署核对通过后登记（自动交付与手工发起但落在
+auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `verifyDeployment` 在上线核对通过后登记。
+同一候选与同一包摘要重复登记不新增行；材料不齐或摘要不一致只返回明确失败，不写“看起来成功”的记录。
+缺少试装的原因与摘要不一致分开报告：摘要不同是“不成立”，不是“缺少记录”。
+
+尚未接通的部分：三项度量指标（可安装交付率、人工介入耗时、受理到可用用时）尚未实现；
+天工页还没有展示文档快照与可安装交付的专门区块，只在需求详情 JSON 中返回；
+`部署 intent` 路径的试装证据不包含候选身份，只能按包摘要与需求对应。
+
 ### 4.3 天工层级工作台（Web 只读事实 + 客户动作）
 
 - 入口仍是 `conversation.view` 的 `forgeloop` 视图（标签「天工」/Forge）。页面提供
@@ -515,9 +554,10 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   凭据形态在写入前脱敏。运维只读工具通过内建制品 `forgeloop-plugin` 的 `plugin` 日志读取**当前租户**
   项目日志尾部，无需 `ops.artifacts` 配置；显式配置同 id 时以配置为准。插件级宿主日志
   `<recordsRoot>/logs/plugin.log` 只作为磁盘运维证据，不通过工具暴露（其中含全部工作区身份）。
-- 表：需求与版本、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、需求库重建运行（`library_rebuilds`：状态、阶段、材料／批次／发布计数、触发者与来源、报告路径与发布清单）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
+- 表：需求与版本、需求文档快照（`requirement_documents`：每个需求版本一条，正文仍在需求版本原文）、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、需求库重建运行（`library_rebuilds`：状态、阶段、材料／批次／发布计数、触发者与来源、报告路径与发布清单）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立测试（含追加式验证尝试）、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
-  候选构建、部署核对、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、
+  候选构建、部署核对、可安装交付（`requirement_installable_deliveries`：六项材料身份、安装说明摘要、
+  试装目标与包摘要、可用时间）、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、
   `requirement_dev_sessions`、`dev_session_summaries`），以及运维事件、运维观测与运维动作 attempt；
   权威 Schema 在 `records/db.ts`，契约只固定 SQLite 驱动、数据库路径与单库边界，不复制表清单。
 - 新库从空库按当前结构建立；不承担旧业务库兼容、补列、迁移或只读历史查询。
@@ -531,6 +571,7 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   命令日志、敏感性对照副本与日志、`verification.json`、`business-review/`）；提交检查在
   `integrations/<req>/<candidate 前 16 位>/`；
   产品分析每次尝试的 Agent 轨迹在 `sessions/<reqId>-v<需求版本>-analyze-a<n>.jsonl`（不覆盖历史尝试）；
+  可安装交付的安装说明在 `candidates/<req>/v<plan>/delivery/<包摘要前 16 位>/INSTALL.md`（同一包摘要只一份）；
   运维证据在 `ops/<事件>/`。
 
 ## 6. 持久工作、去重与恢复
