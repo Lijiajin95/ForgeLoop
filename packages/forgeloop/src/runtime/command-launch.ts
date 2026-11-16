@@ -8,7 +8,7 @@
  * 纯函数 + 可注入的 platform/env/exists，便于在任意宿主上测试；非 Windows 原样返回。
  */
 import { existsSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, win32 } from 'node:path'
 
 export interface LaunchOptions {
   readonly platform?: NodeJS.Platform
@@ -27,21 +27,22 @@ function quoteForCmd(part: string): string {
   return `"${part.replaceAll('"', '""')}"`
 }
 
-/** 在 PATH 里按 PATHEXT 顺序找第一个存在的候选。 */
-function resolveOnPath(
-  command: string,
-  extensions: readonly string[],
-  env: NodeJS.ProcessEnv,
-  exists: (path: string) => boolean,
-): string | null {
-  const directories = (env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean)
-  for (const extension of extensions) {
+/** 按「目标平台」的 PATH 规则找第一个存在的候选（分隔符与拼接都不用宿主机的）。 */
+function pathCandidates(input: {
+  readonly command: string
+  readonly extensions: readonly string[]
+  readonly env: NodeJS.ProcessEnv
+  readonly platform: NodeJS.Platform
+}): string[] {
+  const pathDelimiter = input.platform === 'win32' ? ';' : delimiter
+  const directories = (input.env.PATH ?? input.env.Path ?? '').split(pathDelimiter).filter(Boolean)
+  const candidates: string[] = []
+  for (const extension of input.extensions) {
     for (const directory of directories) {
-      const candidate = join(directory, `${command}${extension}`)
-      if (exists(candidate)) return candidate
+      candidates.push(win32.join(directory, `${input.command}${extension}`))
     }
   }
-  return null
+  return candidates
 }
 
 /** 把 `.cmd/.bat` 命令包成 `cmd.exe /d /s /c "<file>" "arg"…`。 */
@@ -77,19 +78,19 @@ export function prepareCommandArgv(argv: readonly string[], options: LaunchOptio
     .split(';')
     .filter(Boolean)
     .map((extension) => extension.toLowerCase())
-  const direct = resolveOnPath(
+  const direct = pathCandidates({
     command,
-    pathext.filter((extension) => DIRECT_EXTENSIONS.includes(extension)),
+    extensions: pathext.filter((extension) => DIRECT_EXTENSIONS.includes(extension)),
     env,
-    exists,
-  )
+    platform,
+  }).find((candidate) => exists(candidate))
   if (direct) return [direct, ...rest]
-  const wrapper = resolveOnPath(
+  const wrapper = pathCandidates({
     command,
-    pathext.filter((extension) => WRAPPER_EXTENSIONS.includes(extension)),
+    extensions: pathext.filter((extension) => WRAPPER_EXTENSIONS.includes(extension)),
     env,
-    exists,
-  )
+    platform,
+  }).find((candidate) => exists(candidate))
   if (wrapper) return wrapWithCommandShell(wrapper, rest, env)
   return [...argv]
 }
