@@ -9185,3 +9185,30 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - `scripts/ts/m1-stats.ts` 对缺 `requirement_clarification_questions` 表的旧归档直接崩溃，历史复算
   仍不可用；本批未改。
 - 审计现存的 `reports/` 为空、无质量快照与 M1 归档；本批没有生成快照，也没补归档。
+
+## 248. 本地部署：可靠性指标历史与自动刷新（2026-11-16）
+
+来源：所有者要求“本地部署”。把 `35451bc`（可靠性指标历史与自动刷新）重新打包并部署到当前
+Windows DSH `web` profile（3080）。
+
+- 构建：工作树干净，gitHead `35451bc`；`packages/forgeloop/dist/forgeloop-dsh-0.0.2.tgz`
+  483,116 字节，SHA-256 `13796d4dc8344c855211fde1cd95a9ca674eb0d6541e8c4d0eff6c0f4409a9a8`，
+  builtAt `2026-11-16T12:42:10Z`；另存为
+  `C:\Users\lijia\.forgeloop\artifacts\forgeloop-dsh-0.0.2-20261116-2042.tgz`。
+- 安装：插件管理器 `install_bundle file:<新 tarball>` → `application: applied`；profile 依赖更新为该
+  tarball。宿主未重启（pid 57876），插件热重载；`runtime-identity.json` 启动时间 `12:42:52Z`、
+  `clientSha256=67618fbd…`，安装包 `client.js` 与仓库源码哈希一致。
+- 验证：
+  - `reliability` 端点（ForgeLoop 租户 `ws-2844648b…`）返回 `revision=ee5b2256…`、
+    `history.samples` 1 条（`12:42:53Z`，各率无样本）、`history.snapshots` 1 份；
+    `board.build.sourceMatches=true`。
+  - 浏览器（headless Chrome、`playwright-core`、1440×1100）：可靠性视图出现「指标历史」「快照历史」，
+    「最后检查」时间在 10 秒轮询后更新，切换「7 天」窗口历史区保留；无 console/page error。
+    截图：`.cache/review-metrics/reliability-tab.png`、`.cache/review-metrics/reliability-history.png`。
+  - `web-ui-smoke`：ok；页脚 `运行 0.0.2 · 启动于 2026/11/16 20:42:52 · 客户端 67618fbde8eca069…`。
+- 未完成与边界：
+  - 页面质量快照仍是 `19:12:28Z`（`b729d6a`）生成的旧文件，状态 `stale`；该次运行的 tests/coverage
+    记录为 fail，是当时并发负载下的结果。本批没有重新生成快照，待空闲时运行 `make reliability-report-fast`。
+  - 指标历史依赖协调器运行，宿主停机期间不补样本；没有快照目录的租户（如 Books）快照历史为空。
+  - `verify-plugin` / `verify-e2e`（真实模型与宿主 E2E）未运行；本次只验证安装、端点与页面。
+- 回滚：重新安装 `forgeloop-dsh-0.0.2-20261116-1941.tgz` 并等待热重载；业务库与证据未改动。
