@@ -303,17 +303,14 @@ function parseGitChunk(chunk: string): GitChunk | undefined {
   if (!sha) return undefined
   const time = (fields[1] ?? '').trim()
   const subject = (fields[2] ?? '').trim()
-  const tail = fields[3] ?? ''
-  const marker = tail.indexOf('\x03')
-  const body = marker >= 0 ? tail.slice(0, marker).trim() : tail.trim()
-  const paths =
-    marker >= 0
-      ? tail
-          .slice(marker + 1)
-          .split(/\r?\n/)
-          .map((path) => path.trim())
-          .filter(Boolean)
-      : []
+  // 格式串固定以 %x03 结尾（body 之后），所以按它切分即可：前半是正文、后半是文件名。
+  // 没有标记时 split 只给一段，paths 自然为空，不需要额外分支。
+  const [bodyPart = '', pathsPart = ''] = (fields[3] ?? '').split('\x03')
+  const body = bodyPart.trim()
+  const paths = pathsPart
+    .split(/\r?\n/)
+    .map((path) => path.trim())
+    .filter(Boolean)
   return { sha, time, text: `${subject}${body ? `\n\n${body}` : ''}`, paths }
 }
 
