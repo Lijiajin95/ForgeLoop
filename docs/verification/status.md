@@ -8990,3 +8990,23 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
   看板返回 `project=ws-2844648b-…`。
 - 未完成：观察窗口仍是有限等待；宿主若在 10 秒之后才注册服务，仍会降级为单项目（日志可见，
   可在发现后用插件热重载恢复）。更强的宿主就绪信号（装载完成事件等）尚未接入。
+
+## 242. 硬绑定审查后的 P0 修复第一批（2026-11-16）
+
+来源：所有者要求审查剩余硬绑定并“按顺序修复”。第一批处理 P0-1～P0-4。
+
+- **P0-1 规划提示词**（`d3d141d`）：删除“活动工程是 TypeScript 工程”、`packages/` 白名单、
+  `packages/forgeloop/tests/`、`docs/development/architecture.md` 与 `forgeloop-dsh` 检查命令等
+  静态示例；文件/测试/架构文档与正式命令改为“按已知工程事实与 activeRoots”。自定义事实下
+  断言不再出现 ForgeLoop 静态示例。
+- **P0-2 构建源码身份**（`0d5ba7a`）：`buildIdentity` 接受显式 `clientEntryFile`；工作区模式下看板
+  按租户 `projectPath/clientEntryFile` 计算源码摘要，不再用装载期全局 base 路径。单项目行为不变，
+  看板快照未受影响。
+- **P0-3/P0-4 项目级配置**（`e1c44c2`）：`.forgeloop.json` 增加 `autonomy`、`deployments`、`ops`，
+  三个对象段一层合并；项目可只覆盖 `commitCheckCommand`、部署目标或运维检查，其余继承全局。
+  `owner`/`agent`/`recordsRoot`/`project`/`projectPath` 仍不在项目级键集中。
+- 验证：相关定向用例 83 项通过（prompts、runtime-identity、project-profile、workspace-*、
+  board-route）；`check-static` 通过；架构 §8.2 同步。
+- 后续：P0-5（`verify-e2e`/`e2e-board`/`verify-plugin` 适配工作区会话）；P1 项（可靠性快照路径、
+  activeRoots 默认、ops 每租户重复、部署目标归属、工作区删除释放、子目录会话、logger/base 路径）。
+- 未完成：尚未重跑线上 3080 热重载；P0-2 的 `sourceMatches` 需真实验证；上述检查不等于验收。
