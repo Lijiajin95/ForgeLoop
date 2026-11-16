@@ -630,7 +630,10 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   `engineeringFacts` 是规划提示词里的“已知工程事实”条目；为空时沿用 ForgeLoop 自身布局作为默认。
 - `clientEntryFile` 是构建身份比对用的前端入口（默认 `packages/forgeloop/client.js`，空字符串表示
   不比对源码摘要）。`allowNewPackages` 为真时允许计划引用尚不存在的 `packages/<name>`。
-- `activeRoots` 显式写成空数组表示**不做范围限制**；完全不写才使用内置的 ForgeLoop 顶层布局。
+  `reliabilitySnapshot` 是「可靠性」视图读取的质量快照路径（项目内相对路径，默认
+  `reports/reliability/latest.json`）。
+- `activeRoots` 显式写成空数组或**完全不写**都表示不做范围限制；范围由项目自己声明。
+  ForgeLoop 仓库根放了 `.forgeloop.json` 声明自身顶层目录，避免默认放开后失去自身范围约束。
 - 优先级：项目文件 > 全局配置；项目文件里没写的键继续用全局值。工作区租户按各自工作区路径
   解析，因此同一宿主里的不同项目各用各的构建、提交与部署口径。
 - 只接受上表登记的键；`owner`、`agent`、`recordsRoot`、`project`/`projectPath` 等身份与运行参数
@@ -644,6 +647,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   引用的 `packages/<name>` 是否真实存在。
 - 规划提示词与越界反馈不再要求 npm/node 或 TypeScript；`unknownPackages` 报错也不再写死
   “活动插件包是 packages/forgeloop”。
+- 不配置 `activeRoots` 的项目默认**不做范围限制**（此前默认套用 ForgeLoop 顶层布局）。需要范围
+  约束的项目应在 `.forgeloop.json` 里显式声明；ForgeLoop 仓库自身已声明。
 
 ## 9. 已退役与清理
 

@@ -9010,3 +9010,21 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - 后续：P0-5（`verify-e2e`/`e2e-board`/`verify-plugin` 适配工作区会话）；P1 项（可靠性快照路径、
   activeRoots 默认、ops 每租户重复、部署目标归属、工作区删除释放、子目录会话、logger/base 路径）。
 - 未完成：尚未重跑线上 3080 热重载；P0-2 的 `sourceMatches` 需真实验证；上述检查不等于验收。
+
+## 243. P0-5 与 P1 第一批（2026-11-16）
+
+- **P0-5 验证脚本**（`a98dba3`）：新增 `scripts/ts/web-rpc.ts`（workspace/create、session/create、
+  session/prompt、带 sessionId 的看板）；`e2e-board` 改为建工作区/会话并断言 `ws-<id>`、工作区标题与
+  租户目录（隔离宿主实跑通过）；`verify-e2e` 改为 web 工作区业务会话提交、按会话轮询看板；
+  `verify-plugin` 检测到工作区插件时明确要求改用 `verify-e2e`。
+- **可靠性快照路径**：新增项目级 `reliabilitySnapshot`（默认 `reports/reliability/latest.json`），
+  可靠性视图按租户配置读取；缺失字段时回退默认，兼容测试里手工构造的配置。
+- **部署目标归属**：门禁先核对目标/请求引用的需求在当前租户记录中存在，缺失时明确返回
+  “需求不存在或不属于当前项目/工作区”，不进入后续候选/验收判定。
+- **activeRoots 默认**：未配置不再套用 ForgeLoop 顶层布局，默认不做范围限制；ForgeLoop 仓库根新增
+  `.forgeloop.json` 声明自身顶层目录，保留自身范围约束。
+- **子目录会话绑定**：工作区子目录内的会话按路径边界绑定到该工作区；嵌套工作区取最长路径。
+- 验证：`test:fast` 2152 项通过、1 跳过；1 个 ops 用例在并行下失败、单独复跑通过；
+  `check-static` 通过。提示词快照随 P0-1 语义更新。
+- 未完成：`verify-e2e` 未用真实模型运行；ops 每租户重复监控、工作区删除释放、logger/base 路径
+  仍在后续批次。
