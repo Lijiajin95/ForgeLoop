@@ -464,9 +464,11 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - **旧目录兼容**：profile 中显式配置的 `project`/`projectPath` 只作为旧项目名复用条件，
   仅当某个工作区路径与旧 `projectPath` 完全相同时沿用 `<recordsRoot>/projects/<旧 project>`；
   其他工作区一律使用 `ws-<id>`，不会自动挂载无法证明归属的旧目录。
-- **当前限制**：部署目标与运维检查清单仍来自 profile 级配置（记录、工具根与回滚点按工作区隔离）；
-  两个工作区登记同一部署目标时，安装副作用仍落在同一目标。工作区删除后的运行时释放尚未接入
-  注册表变更事件，需重启或后续补齐。以上均按“未落实”记录，不当作已隔离。
+- **当前限制**：部署目标与运维检查清单可由项目级配置覆盖；两个项目登记同一部署目标时，
+  安装副作用仍落在同一目标。运维监控默认只在复用旧项目的工作区运行，其他工作区需在
+  `.forgeloop.json` 显式声明 `ops` 才开启。工作区注册表每 60 秒核对一次：新增工作区自动创建，
+  删除的工作区释放协调器与记录库。插件级日志写到 `<recordsRoot>/logs/plugin.log`，
+  租户运行日志仍在各自项目目录。
 
 ### 4.4 放开限制与自主率（2026-11-03）
 
@@ -490,8 +492,9 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 ## 5. 持久化
 
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
-- 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件运行日志固定写入
-  `<recordsRoot>/projects/<project>/logs/plugin.log`（同时保留宿主 console 输出）：默认 JSON Lines
+- 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件级运行日志写入
+  `<recordsRoot>/logs/plugin.log`，租户运行日志写入各自 `<recordsRoot>/projects/<project>/logs/plugin.log`
+  （同时保留宿主 console 输出）：默认 JSON Lines
   （`ts`/`level`/`message`，可带 `event`/`reqId`/`taskId`/`actionId` 与 `error` 栈），
   按 `logging.maxBytes` 轮转为带日期后缀的文件（如 `plugin-2026-11-12.log`，同日多次轮转追加序号），
   历史文件不删除、不覆盖；`logging.level` 控制写盘与 console 级别，
