@@ -9408,6 +9408,7 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
 - 不建议引入 Codecov/Sonar/Prometheus：需要第三方授权与长期维护，ADR 0011 已把运维投入降到维护级。
 - 本机可离线生成的只有 `reports/reliability/latest.json`（`make.cmd reliability-report-fast`）；
   变异在本机不可靠（Stryker dry run 受 vitest 并行 worker 超时影响）。
+
 ## 254. 交付度量：三项指标（2026-11-16）
 
 来源：[从功能设计文档到可安装交付](../product/design-document-delivery.md) §4。本批补齐三项指标的计算、
@@ -9488,3 +9489,18 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
 - 仍有“不可达防御分支”和平台相关分支未覆盖（锁竞态的第二次获取失败、`??` 兜底、Windows 路径分支等）；
   继续补测收益低于维护成本，未为数字改写实现。
 - 覆盖率提高只说明测试执行到了这些路径，不等于业务行为已被真实场景验收。
+
+## 254. 跨平台命令解析修复合入与全量验证（2026-11-17 02:1x）
+
+- 覆盖补齐的并行提交（`25101e2`、`8d22d56`）落地后，把 `feat/p0-launch-linux` rebase 到
+  `fcfca1e` 并重跑全量门禁：
+  `npx vitest run --coverage --no-file-parallelism` → **228 文件、2566 通过、1 跳过**，
+  逐文件覆盖率全过（98.42/93.91/99.65），退出码 0。
+  证据：`.cache/p0-batch-20261109/gate-final-2.log`。
+- 修复已合入 `main`：`e39f70f fix(runtime): PATH 解析按目标平台的分隔符与拼接`。
+  合并后 `make.cmd check-static` 退出码 0（typecheck / eslint / contracts / token / 断言 / 注册表）。
+- 说明：在此之前有两次全量运行出现“所有测试通过、覆盖率达标，但 vitest 以 1 退出”的情况，
+  唯一原因是既有的 `[vitest-worker]: Timeout calling "onTaskUpdate"` 未处理错误（Windows 负载下偶发）；
+  最终这次运行没有该错误。
+- 预期效果：下一次夜间 CI（coverage / reliability-advanced / mutation 分片）不再因
+  `tests/command-launch.test.ts` 在 Linux 上失败而整体变红。
