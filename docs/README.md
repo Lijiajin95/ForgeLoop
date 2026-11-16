@@ -15,6 +15,7 @@
 | 已收口的验证与评测方案           | [§10](product/product.md#10-首版验证与评测方案已收口)         |
 | 里程碑、场景、自主程度统计与证据 | [§11–§13](product/product.md#11-里程碑与验收路径细化稿)       |
 | 待实施事项与 DSH 接缝依据        | [§14–§15](product/product.md#14-实施边界与待决项)             |
+| 从功能设计文档到可安装交付       | [design-document-delivery.md](product/design-document-delivery.md) |
 | 一键重建需求库与复用项目上下文   | [library-rebuild.md](product/library-rebuild.md)              |
 | 天工「代码可靠性」看板方案       | [reliability-dashboard.md](product/reliability-dashboard.md)  |
 | 存量项目一键重建需求库           | [library-rebuild.md](product/library-rebuild.md)              |
