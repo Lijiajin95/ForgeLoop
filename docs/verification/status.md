@@ -9118,3 +9118,20 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
   2485 通过 / 1 跳过 / 0 失败；新文件覆盖率均过逐文件门槛。
 - 未完成：增量水位、纯源码项目的入口识别（当前为有界源码兜底）、漂移提醒、真实模型端到端验收；
   自动条目一律 `draft`，澄清闸门仍只认 `confirmed`。
+
+## 243. 一键重建真实模型验收（2026-11-16）
+
+模型 command-goat / deepseek/deepseek-v4.1-flash；项目 `D:\Project\ForgeLoop`（租户 `ws-2844648b…`）。
+
+- 入口：天工看板 `library-rebuild-run`（owner 动作，来源 `web-decision:session-3d5143a6…:library-rebuild`），
+  运行 `lrb-20261116114701-11437723`。
+- 材料：doc 26、acceptance 120、git 200、source 0（文档与用例充足，按设计跳过源码兜底）。
+- 运行：12 批（上限）；19:47:01 → 20:04:07，约 17 分钟；状态 `done`。
+- 结果：候选 92，发布 62 条 `draft`（整库 64 条容量，30 条超容量仅在报告可见），冲突 0、未决 0。
+- 安全性：两条既有 `confirmed` 条目文件未被修改；发布清单写入 `library_rebuilds`。
+- 证据：`records/projects/ws-2844648b…/library-rebuild/lrb-20261116114701-11437723/`
+  （`report.md`、`run.json`）；草案条目带 `source: library-rebuild:lrb-…` 与证据引用。
+- 验收后处理：62 条草案已从项目文档移除，避免未审阅内容进入后续分析；运行记录与报告保留，
+  可在产品页重新发起。
+- 未覆盖：纯源码项目（无 Git、无文档、无测试）未做真实端到端，仅由取证与发布的单元测试覆盖；
+  真实运行未出现冲突与人工改动保护场景。
