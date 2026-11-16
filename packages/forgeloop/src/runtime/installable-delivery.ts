@@ -254,13 +254,8 @@ export function recordInstallableDelivery(
     businessReview: reviewOf(review),
     trial,
   })
-  if (verdict.status === 'incomplete') {
-    return fail(
-      'delivery_incomplete',
-      `需求 ${reqId} 不能登记可安装交付：缺少 ${verdict.missing.join('、')}`,
-    )
-  }
-  if (verdict.status === 'mismatch') {
+  // 走到这里六项材料都已具备，判定只剩“成立”或“不一致”；不一致必须阻断登记。
+  if (verdict.status !== 'delivered') {
     return fail(
       'delivery_mismatch',
       `需求 ${reqId} 不能登记可安装交付：${verdict.mismatches.join('；')}`,

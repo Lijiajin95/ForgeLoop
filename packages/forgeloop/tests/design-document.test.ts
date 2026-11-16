@@ -9,6 +9,7 @@ import {
   MAX_DOCUMENT_TITLE_CHARS,
   designDocumentSnapshot,
   documentDirectiveOf,
+  documentIntakeResultOf,
 } from '../src/domain/design-document.js'
 import { designDocumentIntakeOf } from '../src/runtime/design-document-intake.js'
 import { structuredSpecOf, withPromptRequirementSource } from './spec-fixture.js'
@@ -405,6 +406,101 @@ describe('design document session intake', () => {
     expect(session.events.map((event) => event.type)).toEqual(['plugin:forgeloop/error'])
     expect(String(session.events[0]!.data.message)).toContain('docs/missing.md')
     expect(runtime.repo.listRequirements('testproj')).toEqual([])
+    runtime.close()
+  })
+})
+
+describe('design document intake result parsing', () => {
+  it('parses every known outcome and rejects malformed payloads', () => {
+    const snapshot = {
+      kind: 'project-doc',
+      path: 'docs/a.md',
+      sha256: 'abc',
+      bytes: 3,
+      title: '标题',
+    }
+    for (const outcome of ['created', 'duplicate', 'revised', 'recreated'] as const) {
+      expect(
+        documentIntakeResultOf({
+          reqId: 'req-1',
+          requirementVersion: 2,
+          outcome,
+          document: snapshot,
+        }),
+      ).toEqual({ reqId: 'req-1', requirementVersion: 2, outcome, document: snapshot })
+    }
+    expect(documentIntakeResultOf(null)).toBeNull()
+    expect(documentIntakeResultOf({})).toBeNull()
+    expect(documentIntakeResultOf({ reqId: '', outcome: 'created', document: {} })).toBeNull()
+    expect(documentIntakeResultOf({ reqId: 'r', outcome: 'other', document: {} })).toBeNull()
+    expect(documentIntakeResultOf({ reqId: 'r', outcome: 'created' })).toBeNull()
+    expect(
+      documentIntakeResultOf({
+        reqId: 'r',
+        outcome: 'created',
+        document: { kind: 'inline', bytes: 'x' },
+        requirementVersion: 'x',
+      }),
+    ).toEqual({
+      reqId: 'r',
+      requirementVersion: 0,
+      outcome: 'created',
+      document: { kind: 'inline', path: '', sha256: '', bytes: 0, title: '' },
+    })
+  })
+})
+
+describe('design document unusable inputs', () => {
+  it('rejects a directory, an oversized document and a blank document', () => {
+    const root = projectRoot()
+    mkdirSync(join(root, 'docs', 'dir.md'), { recursive: true })
+    writeDoc(root, 'docs/big.md', 'x'.repeat(70 * 1024))
+    writeDoc(root, 'docs/blank.md', '   ')
+    const runtime = runtimeFor(root)
+    const intake = designDocumentIntakeOf(runtime)
+
+    const directory = intake.intake({ path: 'docs/dir.md', by: 'owner', source: 'test' })
+    expect(directory.ok).toBe(false)
+    expect(directory.code).toBe('document_invalid')
+
+    const oversized = intake.intake({ path: 'docs/big.md', by: 'owner', source: 'test' })
+    expect(oversized.code).toBe('document_too_large')
+
+    const blank = intake.intake({ path: 'docs/blank.md', by: 'owner', source: 'test' })
+    expect(blank.code).toBe('document_invalid')
+    expect(runtime.repo.listRequirements('testproj')).toEqual([])
+    runtime.close()
+  })
+
+  it('accepts the document entry after an explicit new-requirement prefix', async () => {
+    const root = projectRoot()
+    writeDoc(root, 'docs/product/feature.md', DOC)
+    const runtime = runtimeFor(root)
+    const intake = new SessionIntake({ runtime, config: runtime.config })
+    const session = new FakeSession()
+    const next = vi.fn(async () => ({ kind: 'enter' as const, messages: [] }))
+
+    await intake.handlePreStep(
+      {
+        agent: { session },
+        messages: [human('msg-1', '新需求：文档：docs/product/feature.md')],
+        turn: 1,
+      },
+      next,
+    )
+    expect(session.events.map((event) => event.type)).toEqual([
+      'plugin:forgeloop/intake',
+      'plugin:forgeloop/analysis',
+    ])
+    expect(runtime.repo.listRequirements('testproj')).toHaveLength(1)
+
+    session.events.length = 0
+    await intake.handlePreStep(
+      { agent: { session }, messages: [human('msg-2', '文档：')], turn: 1 },
+      next,
+    )
+    expect(session.events.map((event) => event.type)).toEqual(['plugin:forgeloop/error'])
+    expect(String(session.events[0]!.data.message)).toContain('Markdown 路径')
     runtime.close()
   })
 })

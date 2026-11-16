@@ -60,13 +60,6 @@ function readDesignDocument(projectPath: string, reference: string): DocumentRea
   }
   try {
     const info = statSync(target.path)
-    if (!info.isFile()) {
-      return {
-        ok: false,
-        code: 'document_invalid',
-        message: `设计文档必须是普通文件：${target.relative}`,
-      }
-    }
     if (info.size > MAX_DOC_READ_BYTES) {
       return {
         ok: false,
