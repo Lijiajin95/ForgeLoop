@@ -9067,3 +9067,32 @@ run5 的部署 leg 失败原因已定位为**产品既定边界**：`buildCandid
 - 部署目标、`dshProfilesRoot` 与 DSH profile 是宿主级资源；两个项目可以登记同一部署目标，
   安装副作用仍共享。项目级配置只能避免错误登记，不能阻止人为共享目标。
 - `ops` 监控归属仍是 legacy 工作区；legacy 被删除后其他租户不会自动接管，需要项目显式开启。
+
+## 246. 本地部署：宿主日志与隔离修复上线（2026-11-16）
+
+来源：所有者要求“打包并部署”。审查发现线上仍是 11-16 10:35 的旧构建，缺少宿主/租户日志分离与
+§245 隔离修复，因此直接部署当前 `main`。
+
+- 部署前运行 `check-static` 通过（typecheck、lint、契约、预算、断言、可靠性注册表）。
+- 上一包：`forgeloop-dsh-0.0.2-20261116-1035.tgz`，457,540 字节，SHA-256
+  `1c9236bdbaccc975f0d4b4b689155f4624813534f92385c6c3e1e870bb4366c4`；运行身份启动于
+  `2026-11-16T02:35:49Z`，client `7930287c…`。
+- 新包：462,860 字节，SHA-256
+  `0c9b5f71a03f00432921bf1a48362af3b887824630bf7dfe2c4c47a330f0767d`，gitHead `5c26dce`，
+  工作树干净；保存为
+  `C:\Users\lijia\.forgeloop\artifacts\forgeloop-dsh-0.0.2-20261116-1743.tgz`。
+- 安装：插件管理器 `remove_bundle forgeloop-dsh` → `install_bundle <新 tarball>`，两次均
+  `application: applied`，宿主未重启。运行身份 pid 57876、启动于 `2026-11-16T09:44:56.014Z`、
+  `indexSha256=eadfcb87…`、client `7930287c…`。
+- 验证：
+  - 新宿主日志 `<recordsRoot>/logs/plugin.log` 已创建（1,011 字节，5 条：plugin.start、三个工作区
+    绑定、session.preset），全部为 JSON INFO；legacy 租户日志保持 17,359 字节 / 10:35 未再追加，
+    说明宿主日志不再混入租户文件。
+  - `web-ui-smoke` 通过，页脚 `运行 0.0.2 · 启动于 2026/11/16 17:44:56 · 客户端 7930287c…`，
+    `sourceMatches=true`（§232.2 的源码摘要缺口已消失）。
+  - 认证看板 400 `session_required`（路由正常）。
+  - **仍存在**：`forgeloop_ops_logs` 对 `ws-2844648b…` 仍返回 ENOENT——租户插件日志只在协调器
+    记录错误时创建，健康工作区没有文件；该读取入口对工作区仍不可用，属 §245 之后的待修缺口。
+- 未完成：租户日志存在性修复、`verify-plugin` / `verify-e2e` 未运行；旧文本格式日志仍保留在
+  legacy 租户文件中。
+- 回滚：重新安装 `forgeloop-dsh-0.0.2-20261116-1035.tgz` 并热重载；业务库与证据未改动。
