@@ -622,16 +622,19 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - 每个被研发的项目可以在自己根目录放 `.forgeloop.json`，声明**工程事实**：`activeRoots`、
   `candidateBuildCommand`、`candidatePackageCommand`、`candidateArtifactPath`、
   `candidateVersionFile`、`businessContextDoc`、`engineeringFacts`、`worktreePrepareCommand`、
-  `formalTestTimeoutSeconds`、`maxTaskAttempts`。
+  `formalTestTimeoutSeconds`、`maxTaskAttempts`，以及 `autonomy`、`deployments`、`ops` 三个对象段。
+- `autonomy` / `deployments` / `ops` 按**一层合并**：项目只覆盖自己写出的字段（例如只改
+  `autonomy.commitCheckCommand`、只增加部署目标），其余字段与数组沿用全局值。项目因此可以
+  为自己的仓库设置提交检查命令、部署目标与运维检查，而不影响其他工作区。
 - `candidateVersionFile` 是候选版本改写的目标文件（相对项目根）；显式空字符串表示不改写版本号。
   `engineeringFacts` 是规划提示词里的“已知工程事实”条目；为空时沿用 ForgeLoop 自身布局作为默认。
 - `clientEntryFile` 是构建身份比对用的前端入口（默认 `packages/forgeloop/client.js`，空字符串表示
   不比对源码摘要）。`allowNewPackages` 为真时允许计划引用尚不存在的 `packages/<name>`。
 - `activeRoots` 显式写成空数组表示**不做范围限制**；完全不写才使用内置的 ForgeLoop 顶层布局。
 - 优先级：项目文件 > 全局配置；项目文件里没写的键继续用全局值。工作区租户按各自工作区路径
-  解析，因此同一宿主里的不同项目各用各的构建与测试口径。
-- 只接受上表登记的键；出现 `owner`、`autonomy`、`deployments` 等键直接报错。授权、部署目标与
-  身份仍然只能来自全局配置和人类入口，项目目录里的文件不会扩大权限。
+  解析，因此同一宿主里的不同项目各用各的构建、提交与部署口径。
+- 只接受上表登记的键；`owner`、`agent`、`recordsRoot`、`project`/`projectPath` 等身份与运行参数
+  仍只能来自全局配置和人类入口，项目目录里的文件不会扩大这些权限。
 - 文件非 JSON 或不是对象时装载失败并指出路径，不静默忽略。
 
 ### 8.3 语言边界只做工程范围（2026-11-14）

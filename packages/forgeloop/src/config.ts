@@ -485,6 +485,9 @@ export const PROJECT_PROFILE_KEYS = [
   'worktreePrepareCommand',
   'formalTestTimeoutSeconds',
   'maxTaskAttempts',
+  'autonomy',
+  'deployments',
+  'ops',
 ] as const
 
 export type ProjectProfileKey = (typeof PROJECT_PROFILE_KEYS)[number]
@@ -516,9 +519,24 @@ export function loadProjectProfile(projectPath: string): RawConfig {
   return parsed
 }
 
-/** 项目级工程事实覆盖全局配置；未声明的键继续沿用全局值。 */
+/**
+ * 项目级工程事实覆盖全局配置；未声明的键继续沿用全局值。
+ *
+ * `autonomy` / `deployments` / `ops` 三个对象做一层合并：项目只覆盖自己声明的字段
+ * （例如只改提交检查命令、只增加部署目标），其余字段与数组沿用全局值；身份、owner
+ * 与 agent 模型仍不在项目级键集中。
+ */
 export function applyProjectProfile(base: RawConfig, profile: RawConfig): RawConfig {
-  return Object.keys(profile).length > 0 ? { ...base, ...profile } : base
+  if (Object.keys(profile).length === 0) return base
+  return {
+    ...base,
+    ...profile,
+    ...(profile.autonomy ? { autonomy: { ...base.autonomy, ...profile.autonomy } } : {}),
+    ...(profile.deployments
+      ? { deployments: { ...base.deployments, ...profile.deployments } }
+      : {}),
+    ...(profile.ops ? { ops: { ...base.ops, ...profile.ops } } : {}),
+  }
 }
 
 /**
@@ -1381,7 +1399,8 @@ function textOr(value: string | undefined, fallback: string): string {
 
 export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopConfig {
   const projectPath = resolve(cwd, expandHome(textOr(raw.projectPath, '.')))
-  // 项目自带工程事实优先；授权、部署与身份仍只来自全局配置。
+  // 项目自带工程事实优先；owner、agent、recordsRoot 仍只来自全局配置，
+  // autonomy/deployments/ops 允许项目只覆盖自己声明的字段。
   return resolveEffective(applyProjectProfile(raw, loadProjectProfile(projectPath)), projectPath)
 }
 

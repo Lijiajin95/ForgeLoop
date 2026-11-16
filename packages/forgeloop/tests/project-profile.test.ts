@@ -154,6 +154,66 @@ describe('project profile', () => {
     expect(config.pollSeconds).toBe(7)
   })
 
+  it('overrides only the commit check command and inherits the rest of autonomy', () => {
+    const root = projectDir()
+    writeProfile(root, { autonomy: { commitCheckCommand: ['npm', 'run', 'check:commit'] } })
+
+    const config = resolveConfig(
+      {
+        project: 'demo',
+        projectPath: root,
+        autonomy: {
+          enabled: true,
+          allowCodeCommit: true,
+          requireOwner: true,
+          allowAnySource: false,
+          trustedSources: ['dsh-session:'],
+          commitCheckCommand: ['node', 'scripts/check.mjs'],
+        },
+      },
+      root,
+    )
+
+    expect(config.autonomy.commitCheckCommand).toEqual(['npm', 'run', 'check:commit'])
+    expect(config.autonomy.requireOwner).toBe(true)
+    expect(config.autonomy.allowAnySource).toBe(false)
+    expect(config.autonomy.trustedSources).toEqual(['dsh-session:'])
+  })
+
+  it('merges deployment fields declared by the project with the global section', () => {
+    const root = projectDir()
+    writeProfile(root, { deployments: { enabled: true } })
+
+    const config = resolveConfig(
+      {
+        project: 'demo',
+        projectPath: root,
+        deployments: { enabled: false, verifyTimeoutSeconds: 120 },
+      },
+      root,
+    )
+
+    expect(config.deployments.enabled).toBe(true)
+    expect(config.deployments.verifyTimeoutSeconds).toBe(120)
+  })
+
+  it('merges ops fields declared by the project with the global section', () => {
+    const root = projectDir()
+    writeProfile(root, { ops: { intervalSeconds: 60 } })
+
+    const config = resolveConfig(
+      {
+        project: 'demo',
+        projectPath: root,
+        ops: { enabled: false, intervalSeconds: 300 },
+      },
+      root,
+    )
+
+    expect(config.ops.enabled).toBe(false)
+    expect(config.ops.intervalSeconds).toBe(60)
+  })
+
   it('rejects a malformed profile file instead of silently ignoring it', () => {
     const root = projectDir()
     writeFileSync(join(root, '.forgeloop.json'), '{ not json', 'utf8')
