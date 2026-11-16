@@ -162,9 +162,10 @@ OpenTelemetry、SigNoz、Alertmanager 等外部工具，也暂缓增强运维 Ag
 
 - 工具只接受 `ops.artifacts` 里登记的 id，或程序内建制品 `forgeloop-plugin`；`path` 在装载期登记，
   工具没有任意路径参数。
-- 内建制品 `forgeloop-plugin`（日志 id `plugin`）直接指向插件级运行日志
-  `<recordsRoot>/logs/plugin.log`，无需登记即可读取；它没有 `profile`，不返回运行身份。
-  显式配置同 id 时以配置为准。
+- 内建制品 `forgeloop-plugin`（日志 id `plugin`）直接指向**当前租户**的插件项目日志
+  `<recordsRoot>/projects/<project>/logs/plugin.log`，无需登记即可读取；它没有 `profile`，
+  不返回运行身份。显式配置同 id 时以配置为准。插件级宿主日志（`<recordsRoot>/logs/plugin.log`）
+  含全部工作区身份，不作为运维工具输入。
 - 读取有界：只读文件尾部 64 KiB，单行最多 500 字符，单次最多 500 行且总计不超过 60,000 字符。
 - `profile` 只能是 `~/.dsh/profiles` 下的单段目录名；`package` 是该 profile 下
   `node_modules` 里的包名（默认 `forgeloop-dsh`，其他项目显式配置，支持 `@scope/name`）。

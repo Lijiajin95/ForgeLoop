@@ -466,9 +466,10 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   其他工作区一律使用 `ws-<id>`，不会自动挂载无法证明归属的旧目录。
 - **当前限制**：部署目标与运维检查清单可由项目级配置覆盖；两个项目登记同一部署目标时，
   安装副作用仍落在同一目标。运维监控默认只在复用旧项目的工作区运行，其他工作区需在
-  `.forgeloop.json` 显式声明 `ops` 才开启。工作区注册表每 60 秒核对一次：新增工作区自动创建，
-  删除的工作区释放协调器与记录库。插件级日志写到 `<recordsRoot>/logs/plugin.log`，
-  租户运行日志仍在各自项目目录。
+  `.forgeloop.json` 显式声明 `ops` 才开启；非 legacy 项目未声明自己的 `artifacts` 时不会继承
+  全局制品路径（避免读到其他工作区的日志）。工作区注册表每 60 秒核对一次：新增工作区自动创建，
+  删除的工作区释放协调器与记录库。插件级日志写到 `<recordsRoot>/logs/plugin.log`，租户运行日志
+  仍在各自项目目录；宿主日志只作为磁盘运维证据，不通过工具暴露。
 
 ### 4.4 放开限制与自主率（2026-11-03）
 
@@ -498,8 +499,9 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
   （`ts`/`level`/`message`，可带 `event`/`reqId`/`taskId`/`actionId` 与 `error` 栈），
   按 `logging.maxBytes` 轮转为带日期后缀的文件（如 `plugin-2026-11-12.log`，同日多次轮转追加序号），
   历史文件不删除、不覆盖；`logging.level` 控制写盘与 console 级别，
-  凭据形态在写入前脱敏。运维只读工具通过内建制品 `forgeloop-plugin` 的 `plugin` 日志读取尾部，
-  无需 `ops.artifacts` 配置；显式配置同 id 时以配置为准。
+  凭据形态在写入前脱敏。运维只读工具通过内建制品 `forgeloop-plugin` 的 `plugin` 日志读取**当前租户**
+  项目日志尾部，无需 `ops.artifacts` 配置；显式配置同 id 时以配置为准。插件级宿主日志
+  `<recordsRoot>/logs/plugin.log` 只作为磁盘运维证据，不通过工具暴露（其中含全部工作区身份）。
 - 表：需求与版本、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立测试（含追加式验证尝试）、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、持久请求、动作身份、运行元信息，研发会话、需求与会话绑定、研发会话总结（`dev_sessions`、
