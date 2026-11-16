@@ -126,6 +126,18 @@ export class LibraryRebuildStore {
     return row ? runRow(row) : null
   }
 
+  /** 最近一次成功完成的重建；重跑与人工改动保护只信任它。 */
+  latestDone(project: string): LibraryRebuildRun | null {
+    const row = asRecord(
+      this.db
+        .prepare(
+          "SELECT * FROM library_rebuilds WHERE project = ? AND status = 'done' ORDER BY started_at DESC, run_id DESC LIMIT 1",
+        )
+        .get(project),
+    )
+    return row ? runRow(row) : null
+  }
+
   recent(project: string, limit = 10): LibraryRebuildRun[] {
     return this.db
       .prepare(
