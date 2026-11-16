@@ -8,7 +8,7 @@
  * 服务的宿主（headless）保持单项目模式。未绑定工作区的会话不落入任何默认项目。
  */
 
-import { createPluginLogger } from './runtime/log.js'
+import { createHostLogger } from './runtime/log.js'
 import { errorMessage } from './domain/errors.js'
 import { asRecord } from './domain/json.js'
 import { loadConfigOrThrow, resolveConfig, type ForgeLoopConfig, type RawConfig } from './config.js'
@@ -260,7 +260,8 @@ export function apply(
   const loaded = loadConfigOrThrow(rawConfig)
   const config = resolveConfig(loaded)
   setBuildSourcePath(config.projectPath, config.clientEntryFile)
-  const logger = createPluginLogger(config)
+  // 插件级日志写到记录根，不绑定任何项目目录；租户运行时仍用各自项目日志。
+  const logger = createHostLogger(config)
   // 运行身份写入失败也必须落到项目日志，而不是只出现在宿主 console。
   writeRuntimeIdentity(import.meta.url, (message) => {
     logger.warn(message)
@@ -360,6 +361,7 @@ export function apply(
       .then(async (mode) => {
         if (mode.kind === 'workspace') {
           await mode.tenants.preload()
+          mode.tenants.startReconcile()
         } else {
           mode.coordinator.start()
         }

@@ -21,6 +21,8 @@ interface BuildOptions {
   readonly workspaceIds?: readonly string[]
   /** 指定项目名在创建运行时抛错，用于验证单个工作区失败不影响其余工作区。 */
   readonly failForProject?: string
+  /** 全局 ops 配置；用于验证只有 legacy 工作区默认开启监控。 */
+  readonly ops?: RawConfig['ops']
 }
 
 function setup(options: BuildOptions = {}) {
@@ -33,6 +35,7 @@ function setup(options: BuildOptions = {}) {
     owner: 'owner',
     pollSeconds: 2,
     autoAdvance: true,
+    ...(options.ops ? { ops: options.ops } : {}),
   }
   const base = resolveConfig(raw, dir)
   const created: ForgeLoopConfig[] = []
@@ -40,7 +43,7 @@ function setup(options: BuildOptions = {}) {
   const stopped: string[] = []
   const closed: string[] = []
   const log: string[] = []
-  const workspaces = (options.workspaceIds ?? ['a', 'b']).map((id) => workspace(id, dir))
+  const registered = (options.workspaceIds ?? ['a', 'b']).map((id) => workspace(id, dir))
   const sessionCwds = new Map<string, string>([
     ['session-legacy', legacyProjectPath],
     ['session-a', join(dir, 'a')],
@@ -51,9 +54,9 @@ function setup(options: BuildOptions = {}) {
     base,
     legacy: { project: 'legacy', projectPath: legacyProjectPath },
     workspaces: {
-      list: async () => workspaces,
+      list: async () => registered,
       byPath: async (path) =>
-        workspaces.find((workspace) => workspace.path === path) ??
+        registered.find((workspace) => workspace.path === path) ??
         (path === legacyProjectPath ? legacyWorkspace(legacyProjectPath) : undefined),
     },
     sessionCwd: async (sessionId) => sessionCwds.get(sessionId),
@@ -80,7 +83,19 @@ function setup(options: BuildOptions = {}) {
       log.push(message)
     },
   })
-  return { dir, raw, base, tenants, created, started, stopped, closed, log, legacyProjectPath }
+  return {
+    dir,
+    raw,
+    base,
+    tenants,
+    created,
+    started,
+    stopped,
+    closed,
+    log,
+    registered,
+    legacyProjectPath,
+  }
 }
 
 function legacyWorkspace(path: string): WorkspaceIdentity {
@@ -227,6 +242,49 @@ describe('workspace tenant binding', () => {
     expect(tenants.list()).toHaveLength(0)
     expect(stopped).toHaveLength(2)
     expect(closed).toHaveLength(2)
+  })
+
+  it('releases removed workspaces and picks up new ones on reconcile', async () => {
+    const { dir, tenants, registered, stopped, closed } = setup({
+      workspaceIds: ['a', 'b'],
+    })
+    await tenants.preload()
+    registered.splice(1)
+
+    await tenants.reconcile()
+
+    expect(tenants.list().map((tenant) => tenant.workspace.id)).toEqual(['a'])
+    expect(stopped).toContain(workspaceProjectName('b'))
+    expect(closed).toContain(workspaceProjectName('b'))
+
+    registered.push(workspace('c', dir))
+    await tenants.reconcile()
+    expect(
+      tenants
+        .list()
+        .map((tenant) => tenant.workspace.id)
+        .sort(),
+    ).toEqual(['a', 'c'])
+  })
+
+  it('runs host monitoring only for the legacy workspace unless the project opts in', () => {
+    const { dir, tenants, legacyProjectPath } = setup({
+      ops: {
+        enabled: true,
+        resources: [{ id: 'web', kind: 'app', label: 'web' }],
+        checks: [
+          { id: 'web-health', resourceId: 'web', command: ['node', '-e', 'process.exit(0)'] },
+        ],
+      },
+    })
+    const legacy = tenants.configFor(legacyWorkspace(legacyProjectPath))
+    const other = tenants.configFor(workspace('a', dir))
+    expect(legacy.ops.enabled).toBe(true)
+    expect(other.ops.enabled).toBe(false)
+
+    mkdirSync(other.projectPath, { recursive: true })
+    writeFileSync(join(other.projectPath, '.forgeloop.json'), '{"ops":{"enabled":true}}\n')
+    expect(tenants.configFor(workspace('a', dir)).ops.enabled).toBe(true)
   })
 
   it('keeps preloading when one workspace fails to start', async () => {

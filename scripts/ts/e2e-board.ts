@@ -110,7 +110,7 @@ try {
     ...(web.spawnOptions ?? {}),
   })
   const tokenUrl = await waitForToken(child, 90_000)
-  const baseLog = join(recordsRoot, 'projects', PROJECT, 'logs', 'plugin.log')
+  const baseLog = join(recordsRoot, 'logs', 'plugin.log')
   const baseText = await waitForFile(baseLog, 30_000)
   if (!baseText.includes('已加载 records=')) throw new Error('运行日志缺少启动记录')
   console.log(`[e2e-board] 运行日志已落盘：${baseLog}`)

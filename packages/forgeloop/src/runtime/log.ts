@@ -72,6 +72,11 @@ export function pluginLogPath(config: ForgeLoopConfig): string {
   return join(projectDir(config), 'logs', 'plugin.log')
 }
 
+/** 插件级（宿主）日志：与具体项目解耦，工作区模式下写到记录根下。 */
+export function hostLogPath(config: ForgeLoopConfig): string {
+  return join(config.recordsRoot, 'logs', 'plugin.log')
+}
+
 /** 宿主或测试可能只构造部分配置；缺 logging 时退回默认，而不是让装载失败。 */
 function loggingOf(config: Partial<ForgeLoopConfig>): LoggingConfig {
   return config.logging ?? DEFAULT_LOGGING
@@ -141,10 +146,11 @@ function rotateIfNeeded(
 export function createPluginLogger(
   config: ForgeLoopConfig,
   now: () => Date = () => new Date(),
+  pathOf: (config: ForgeLoopConfig) => string = pluginLogPath,
 ): PluginLogger {
   let path: string | undefined
   try {
-    path = pluginLogPath(config)
+    path = pathOf(config)
   } catch {
     // 宿主或测试可能只提供部分配置；此时退回纯 console。
     path = undefined
@@ -187,4 +193,12 @@ export function createPluginLogger(
       emit('ERROR', message, context)
     },
   }
+}
+
+/** 插件级日志：写到 `<recordsRoot>/logs/plugin.log`，不与任何项目目录绑定。 */
+export function createHostLogger(
+  config: ForgeLoopConfig,
+  now: () => Date = () => new Date(),
+): PluginLogger {
+  return createPluginLogger(config, now, hostLogPath)
 }

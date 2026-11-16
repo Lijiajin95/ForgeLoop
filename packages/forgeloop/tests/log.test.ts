@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveConfig, type RawLoggingConfig } from '../src/config.js'
-import { createPluginLogger, pluginLogPath } from '../src/runtime/log.js'
+import {
+  createHostLogger,
+  createPluginLogger,
+  hostLogPath,
+  pluginLogPath,
+} from '../src/runtime/log.js'
 
 const dirs: string[] = []
 const NOW = () => new Date('2026-11-03T00:00:00.000Z')
@@ -39,6 +44,22 @@ function rotatedLogPath(config: ReturnType<typeof resolveConfig>, index?: number
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+describe('host logger', () => {
+  it('writes plugin-level logs under the records root, not a project directory', () => {
+    const root = tempDir()
+    const config = configOf(root)
+    const logger = createHostLogger(config, NOW)
+
+    logger.info('[forgeloop] host ready')
+
+    expect(hostLogPath(config)).toBe(join(config.recordsRoot, 'logs', 'plugin.log'))
+    const lines = readFileSync(hostLogPath(config), 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('host ready')
+    expect(existsSync(pluginLogPath(config))).toBe(false)
+  })
 })
 
 describe('plugin logger', () => {

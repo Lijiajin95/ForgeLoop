@@ -15,7 +15,13 @@
  */
 
 import { isAbsolute, relative, resolve } from 'node:path'
-import { projectDir, resolveConfig, type ForgeLoopConfig, type RawConfig } from '../config.js'
+import {
+  loadProjectProfile,
+  projectDir,
+  resolveConfig,
+  type ForgeLoopConfig,
+  type RawConfig,
+} from '../config.js'
 import type { Coordinator } from './coordinator.js'
 import type { ForgeLoopRuntime } from './service.js'
 
@@ -85,6 +91,7 @@ function containsPath(root: string, candidate: string): boolean {
 
 export class WorkspaceTenants {
   private readonly tenants = new Map<string, Tenant>()
+  private reconcileTimer: NodeJS.Timeout | undefined
 
   constructor(private readonly options: WorkspaceTenantsOptions) {}
 
@@ -153,22 +160,32 @@ export class WorkspaceTenants {
     return tenant
   }
 
-  /** 派生租户配置：旧目录仅按完全相同路径复用，其余一律使用工作区专属项目名。 */
+  /**
+   * 派生租户配置：旧目录仅按完全相同路径复用，其余一律使用工作区专属项目名。
+   *
+   * 运维检查是宿主级清单：默认只让复用旧项目的工作区跑监控，其他工作区关闭 ops，
+   * 避免 N 个工作区重复扫描同一主机；项目在自己的 `.forgeloop.json` 里声明 `ops`
+   * 时才按项目配置开启（显式 opt-in）。
+   */
   configFor(workspace: WorkspaceIdentity): ForgeLoopConfig {
     const legacy = this.options.legacy
-    const project =
-      legacy && samePath(legacy.projectPath, workspace.path)
-        ? legacy.project
-        : workspaceProjectName(workspace.id)
-    return resolveConfig(
-      {
-        ...this.options.raw,
-        project,
-        projectPath: workspace.path,
-        recordsRoot: this.options.base.recordsRoot,
-      },
-      this.options.cwd,
-    )
+    const isLegacy = legacy !== undefined && samePath(legacy.projectPath, workspace.path)
+    const project = isLegacy
+      ? legacy.project
+      : workspaceProjectName(workspace.id)
+    const raw: RawConfig = {
+      ...this.options.raw,
+      project,
+      projectPath: workspace.path,
+      recordsRoot: this.options.base.recordsRoot,
+    }
+    if (!isLegacy && this.options.base.ops.enabled) {
+      const profile = loadProjectProfile(workspace.path)
+      if (!Object.prototype.hasOwnProperty.call(profile, 'ops')) {
+        raw.ops = { ...this.options.raw.ops, enabled: false }
+      }
+    }
+    return resolveConfig(raw, this.options.cwd)
   }
 
   /** 启动时枚举已注册工作区；单个工作区创建失败只记录，不影响其余工作区。 */
@@ -184,8 +201,76 @@ export class WorkspaceTenants {
     }
   }
 
+  /** 周期核对注册表：新增工作区按需创建，已删除工作区释放协调器与记录库。 */
+  startReconcile(intervalMs = 60_000): void {
+    if (this.reconcileTimer) return
+    this.reconcileTimer = setInterval(() => {
+      void this.reconcile()
+    }, intervalMs)
+    this.reconcileTimer.unref()
+  }
+
+  stopReconcile(): void {
+    if (!this.reconcileTimer) return
+    clearInterval(this.reconcileTimer)
+    this.reconcileTimer = undefined
+  }
+
+  async reconcile(): Promise<void> {
+    const workspaces = await this.registeredWorkspaces()
+    if (!workspaces) return
+    const registered = new Set(workspaces.map((workspace) => workspace.id))
+    for (const [id, tenant] of [...this.tenants]) {
+      if (!registered.has(id)) await this.releaseTenant(id, tenant)
+    }
+    for (const workspace of workspaces) {
+      if (!this.tenants.has(workspace.id)) this.ensureSafely(workspace)
+    }
+  }
+
+  private async registeredWorkspaces(): Promise<readonly WorkspaceIdentity[] | undefined> {
+    try {
+      return await this.options.workspaces.list()
+    } catch (error) {
+      this.options.log?.(
+        `[forgeloop] 工作区列表读取失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+      return undefined
+    }
+  }
+
+  private async releaseTenant(id: string, tenant: Tenant): Promise<void> {
+    this.tenants.delete(id)
+    try {
+      await tenant.coordinator.stop()
+    } catch (error) {
+      this.options.log?.(
+        `[forgeloop] 停止已删除工作区 ${id} 协调器失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    try {
+      tenant.runtime.close()
+    } catch (error) {
+      this.options.log?.(
+        `[forgeloop] 关闭已删除工作区 ${id} 记录库失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    this.options.log?.(`[forgeloop] 工作区 ${id} 已移除，租户已释放`)
+  }
+
+  private ensureSafely(workspace: WorkspaceIdentity): void {
+    try {
+      this.ensure(workspace)
+    } catch (error) {
+      this.options.log?.(
+        `[forgeloop] 新工作区 ${workspace.id} 创建失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
   /** 停止所有租户协调器并关闭记录库；失败逐个记录，不阻断其余释放。 */
   async dispose(): Promise<void> {
+    this.stopReconcile()
     for (const tenant of this.tenants.values()) {
       try {
         await tenant.coordinator.stop()
