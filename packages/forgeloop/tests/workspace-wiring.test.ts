@@ -407,6 +407,29 @@ describe('host mode detection', () => {
     expect(mode).toBe('workspace')
   })
 
+  it('switches to the web budget when web services appear after the first poll', async () => {
+    let registry: Record<string, unknown> | undefined
+    let web = false
+    setTimeout(() => {
+      web = true
+    }, 20)
+    setTimeout(() => {
+      registry = {}
+    }, 100)
+
+    const mode = await waitForWorkspaceMode(
+      () => registry,
+      () => web,
+      {
+        pollMs: 5,
+        plainTimeoutMs: 40,
+        webTimeoutMs: 400,
+      },
+    )
+
+    expect(mode).toBe('workspace')
+  })
+
   it('falls back to single mode only for a non-web host', async () => {
     const mode = await waitForWorkspaceMode(
       () => undefined,

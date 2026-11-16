@@ -65,17 +65,17 @@ export interface HostModeWaitOptions {
   readonly pollMs?: number
   /** Web 宿主等待工作区服务出现的上限；超时按“不可用”失败关闭。 */
   readonly webTimeoutMs?: number
-  /** 非 Web 宿主等待工作区服务出现的宽限；超时按单项目兼容模式。 */
+  /** 非 Web 宿主的观察窗口：窗口内每轮重新判定 Web 能力，始终没有宿主服务才按单项目兼容。 */
   readonly plainTimeoutMs?: number
 }
 
 /**
  * 等待 DSH 工作区服务就绪后判定宿主模式。
  *
- * 工作区服务与插件可能在同一装载批次里异步注册，apply 时读不到不等于宿主没有工作区；
- * 因此这里轮询到它就绪。Web 宿主（有 webServer/webApp/connection）在超时后返回
- * `unavailable`，由调用方失败关闭，绝不以单项目模式继续读写；没有 Web 能力的宿主
- * （headless）在宽限期后按单项目兼容。
+ * 工作区服务与 Web 服务都可能在同一装载批次里晚于插件 apply 注册：只按 apply 时的一次快照
+ * 判定，会把“服务稍后到位”的 Web 宿主误判成单项目，并静默读写旧项目。这里每轮重新判定 Web
+ * 能力：一旦看到 Web 服务就切换到 Web 预算（超时失败关闭）；只有整个观察窗口内既没有 Web
+ * 服务也没有工作区服务时，才按单项目兼容。
  */
 export async function waitForWorkspaceMode(
   registryOf: () => AnyRecord | undefined,
@@ -83,12 +83,23 @@ export async function waitForWorkspaceMode(
   options: HostModeWaitOptions = {},
 ): Promise<'workspace' | 'single' | 'unavailable'> {
   const pollMs = options.pollMs ?? 100
-  const web = webCapable()
-  const budget = web ? (options.webTimeoutMs ?? 60_000) : (options.plainTimeoutMs ?? 2_000)
-  const deadline = Date.now() + budget
+  const webTimeoutMs = options.webTimeoutMs ?? 60_000
+  // 观察窗口要盖住真实的冷启动：实测 Web 服务与工作区服务在 apply 之后约 2–3 秒才注册，
+  // 旧的 2 秒窗口会在这个间隙把 Web 宿主误判成单项目。
+  const plainTimeoutMs = options.plainTimeoutMs ?? 10_000
+  const startedAt = Date.now()
+  let webDeadline = 0
+
   for (;;) {
     if (registryOf()) return 'workspace'
-    if (Date.now() >= deadline) return web ? 'unavailable' : 'single'
+
+    const now = Date.now()
+    if (webCapable()) {
+      if (webDeadline === 0) webDeadline = now + webTimeoutMs
+      if (now >= webDeadline) return 'unavailable'
+    } else if (now - startedAt >= plainTimeoutMs) {
+      return 'single'
+    }
     await new Promise((resolve) => setTimeout(resolve, pollMs))
   }
 }
