@@ -1132,6 +1132,12 @@ window.__ModuleLoader__.load({
       'product.source': '来源',
       'product.updatedAt': '更新',
       'product.bytes': '字节',
+      'product.expand': '展开正文',
+      'product.collapse': '收起正文',
+      'product.body.loading': '正在读取正文…',
+      'product.body.error': '正文读取失败',
+      'product.body.ref': '正文来自引用文档',
+      'product.body.truncated': '正文已截断',
       'reliability.loading': '正在读取可靠性数据…',
       'reliability.error': '可靠性数据读取失败',
       'reliability.retry': '重试',
@@ -1740,6 +1746,12 @@ window.__ModuleLoader__.load({
       'product.source': 'Source',
       'product.updatedAt': 'Updated',
       'product.bytes': 'bytes',
+      'product.expand': 'Show full text',
+      'product.collapse': 'Hide full text',
+      'product.body.loading': 'Reading full text…',
+      'product.body.error': 'Failed to read full text',
+      'product.body.ref': 'Full text comes from the referenced document',
+      'product.body.truncated': 'Text truncated',
       'reliability.loading': 'Reading reliability data…',
       'reliability.error': 'Failed to read reliability data',
       'reliability.retry': 'Retry',
@@ -4866,6 +4878,9 @@ window.__ModuleLoader__.load({
 .flb-product-meta{font-size:11px;color:var(--dsw-alias-label-secondary);margin-top:3px;overflow-wrap:anywhere}
 .flb-product-warnings{font-size:12px;color:var(--dsw-alias-state-warn-primary);margin:0 0 8px;overflow-wrap:anywhere}
 .flb-product-error{color:var(--dsw-alias-state-error-primary);font-size:13px}
+.flb-product-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
+.flb-product-body{margin-top:8px;border-top:.5px solid var(--dsw-alias-border-l1);padding-top:8px}
+.flb-product-body-text{margin:6px 0 0;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;padding:8px}
 `
 
     const RELIABILITY_CSS = `
@@ -7779,12 +7794,85 @@ window.__ModuleLoader__.load({
         )
       }
 
-      /** 产品视图：只读展示当前需求库条目（产品目标、决策、指标口径）。 */
+      /** 产品视图：只读展示当前需求库条目；默认只给摘要，正文按需展开。 */
       function ProductPane(props) {
         const t = props.t
+        const read = props.read
+        const [openIds, setOpenIds] = React.useState({})
+        const [bodies, setBodies] = React.useState({})
         const data = props.data || {}
         const entries = Array.isArray(data.entries) ? data.entries : []
         const warnings = Array.isArray(data.warnings) ? data.warnings : []
+
+        // 正文只在第一次展开时读取；失败后再次点击可重试。
+        const loadBody = (entry) => {
+          if (typeof read !== 'function') return
+          const current = bodies[entry.id]
+          if (current && (current.phase === 'loading' || current.phase === 'ready')) return
+          setBodies((previous) => ({ ...previous, [entry.id]: { phase: 'loading' } }))
+          read('library-entry', { entryId: entry.id })
+            .then((value) => {
+              setBodies((previous) => ({
+                ...previous,
+                [entry.id]: {
+                  phase: 'ready',
+                  content: typeof value.content === 'string' ? value.content : '',
+                  ref: typeof value.ref === 'string' ? value.ref : '',
+                },
+              }))
+            })
+            .catch((error) => {
+              setBodies((previous) => ({
+                ...previous,
+                [entry.id]: { phase: 'error', error: error.message || String(error) },
+              }))
+            })
+        }
+
+        const toggleBody = (entry) => {
+          const willOpen = !openIds[entry.id]
+          setOpenIds((previous) => ({ ...previous, [entry.id]: willOpen }))
+          if (willOpen) loadBody(entry)
+        }
+
+        const bodyBlock = (entry) => {
+          const state = bodies[entry.id]
+          if (!state || state.phase === 'loading') {
+            return h(
+              'div',
+              { className: 'flb-product-body' },
+              h('div', { className: 'flb-product-meta' }, t('product.body.loading')),
+            )
+          }
+          if (state.phase === 'error') {
+            return h(
+              'div',
+              { className: 'flb-product-body' },
+              h(
+                'div',
+                { className: 'flb-product-error' },
+                t('product.body.error'),
+                '：',
+                state.error,
+              ),
+            )
+          }
+          return h(
+            'div',
+            { className: 'flb-product-body' },
+            entry.ref
+              ? h(
+                  'div',
+                  { className: 'flb-product-meta' },
+                  t('product.body.ref'),
+                  '：',
+                  entry.ref,
+                )
+              : null,
+            h('pre', { className: 'flb-product-body-text' }, state.content),
+          )
+        }
+
         if (!props.data) {
           return h(
             'main',
@@ -7880,6 +7968,21 @@ window.__ModuleLoader__.load({
                       ' ',
                       entry.bytes,
                     ),
+                    h(
+                      'div',
+                      { className: 'flb-product-actions' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'flb-card-action',
+                          'aria-expanded': openIds[entry.id] ? 'true' : 'false',
+                          onClick: () => toggleBody(entry),
+                        },
+                        openIds[entry.id] ? t('product.collapse') : t('product.expand'),
+                      ),
+                    ),
+                    openIds[entry.id] ? bodyBlock(entry) : null,
                   ),
                 ),
               ),
@@ -9660,6 +9763,7 @@ window.__ModuleLoader__.load({
               t,
               data: product.data,
               error: product.error,
+              read,
               onRetry: () => setProductNonce((value) => value + 1),
             })
           }

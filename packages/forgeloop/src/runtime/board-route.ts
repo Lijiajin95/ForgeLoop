@@ -40,6 +40,7 @@ const BOARD_ENDPOINTS = [
   'cancel',
   'reliability',
   'library',
+  'library-entry',
   'ops',
   'ops-detail',
   'ops-decide',
@@ -191,6 +192,8 @@ function handleRead(
   if (endpoint === 'reliability') return handleReliability(body, context)
 
   if (endpoint === 'library') return handleLibrary(context)
+
+  if (endpoint === 'library-entry') return handleLibraryEntry(body, context)
 
   if (endpoint === 'deployments') return handleDeployments(body, context)
 
@@ -356,6 +359,43 @@ function handleLibrary(context: BoardContext): Response {
   } catch (error) {
     return boardResponse(boardFailure('bad_request', `需求库不可用：${errorMessage(error)}`), 400)
   }
+}
+
+/**
+ * 需求库单条正文：列表只给摘要，正文按需读取（渐进式披露的 L1）。
+ * 引用条目返回被引用文档的正文；普通条目返回条目正文，不含 JSON 注释头。
+ */
+function handleLibraryEntry(body: BoardBody | null, context: BoardContext): Response {
+  const projectPath = context.config.projectPath
+  if (typeof projectPath !== 'string' || !projectPath) {
+    return boardResponse(boardFailure('bad_request', '项目路径未配置，无法读取需求库'), 400)
+  }
+  const entryId = text(body?.entryId)
+  if (!entryId) {
+    return boardResponse(boardFailure('bad_request', '读取需求库正文需要 entryId'), 400)
+  }
+  let loaded
+  try {
+    loaded = loadLibrary(projectPath)
+  } catch (error) {
+    return boardResponse(boardFailure('bad_request', `需求库不可用：${errorMessage(error)}`), 400)
+  }
+  const found = loaded.entries.find((item) => item.entry.id === entryId)
+  if (!found) {
+    return boardResponse(boardFailure('not_found', `需求库没有条目 ${entryId}`), 404)
+  }
+  return boardResponse({
+    ok: true,
+    value: {
+      id: found.entry.id,
+      title: found.entry.title,
+      status: found.entry.status,
+      path: found.entry.path,
+      ref: found.entry.ref,
+      bytes: found.bytes,
+      content: found.content,
+    },
+  })
 }
 
 function handlePlan(body: BoardBody | null, context: BoardContext): Response {

@@ -195,6 +195,80 @@ describe('board route', () => {
     expect(response.body.error.code).toBe('bad_request')
   })
 
+  it('serves one library entry body on demand', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-board-library-entry-'))
+    try {
+      mkdirSync(join(dir, 'docs/product/library'), { recursive: true })
+      writeFileSync(
+        join(dir, 'docs/product/library/a.md'),
+        `<!-- library\n${JSON.stringify({
+          id: 'a',
+          title: '条目 A',
+          status: 'confirmed',
+          topics: ['a.topic'],
+          summary: 'A 摘要',
+          source: 'docs/product.md',
+          updatedAt: '2026-11-15',
+        })}\n-->\n\n正文 A\n`,
+        'utf8',
+      )
+      writeFileSync(
+        join(dir, 'docs/product/library/b.md'),
+        `<!-- library\n${JSON.stringify({
+          id: 'b',
+          title: '条目 B',
+          status: 'confirmed',
+          topics: ['b.topic'],
+          summary: 'B 摘要',
+          ref: 'docs/ref.md',
+          source: 'docs/ref.md',
+          updatedAt: '2026-11-15',
+        })}\n-->\n\n引用说明\n`,
+        'utf8',
+      )
+      writeFileSync(join(dir, 'docs/ref.md'), '# 引用正文\n\n细节\n', 'utf8')
+      const { fetch } = setup({}, { projectPath: dir })
+
+      const body = await post(fetch, { endpoint: 'library-entry', entryId: 'a' })
+      expect(body.status).toBe(200)
+      expect(body.body.value).toMatchObject({ id: 'a', ref: '', content: '正文 A\n' })
+      expect(body.body.value.content).not.toContain('<!-- library')
+
+      const ref = await post(fetch, { endpoint: 'library-entry', entryId: 'b' })
+      expect(ref.status).toBe(200)
+      expect(ref.body.value.ref).toBe('docs/ref.md')
+      expect(ref.body.value.content).toContain('引用正文')
+
+      expect((await post(fetch, { endpoint: 'library-entry' })).status).toBe(400)
+      expect((await post(fetch, { endpoint: 'library-entry', entryId: 'missing' })).status).toBe(
+        404,
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects library entry reads without a project path or with a broken library', async () => {
+    const noPath = setup({}, { projectPath: undefined })
+    expect((await post(noPath.fetch, { endpoint: 'library-entry', entryId: 'a' })).status).toBe(400)
+
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-board-library-broken-'))
+    try {
+      mkdirSync(join(dir, 'docs/product/library'), { recursive: true })
+      writeFileSync(
+        join(dir, 'docs/product/library/bad.md'),
+        '<!-- library\n{broken}\n-->\n',
+        'utf8',
+      )
+      const { fetch } = setup({}, { projectPath: dir })
+      const response = await post(fetch, { endpoint: 'library-entry', entryId: 'bad' })
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe('bad_request')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('validates read endpoint inputs and dispatches successes', async () => {
     const { fetch, calls } = setup()
     expect((await post(fetch, { endpoint: 'detail' })).status).toBe(400)

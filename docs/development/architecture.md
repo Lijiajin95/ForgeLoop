@@ -593,7 +593,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
   `plan`、`approve`、`advance`、`verify`、`requeue`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
-  以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`，和只读 `reliability`；
+  以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`，和只读 `reliability`、
+  需求库 `library`（条目索引与摘要）与 `library-entry`（按 id 读取单条正文，引用条目返回被引用文档）；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
   并注册 ForgeLoop Chat 节点（含技术方案/任务包）与 `conversation.chat.turnTail` 需求摘要，

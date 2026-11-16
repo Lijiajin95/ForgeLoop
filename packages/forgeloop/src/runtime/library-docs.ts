@@ -21,6 +21,8 @@ export interface LoadedLibraryEntry {
   readonly entry: LibraryEntry
   readonly sha256: string
   readonly bytes: number
+  /** 注入与展示用的正文：普通条目是条目正文，引用条目是被引用文档正文。 */
+  readonly content: string
 }
 
 export interface LoadedLibrary {
@@ -49,6 +51,7 @@ export function loadLibrary(projectPath: string): LoadedLibrary {
       entry,
       sha256: createHash('sha256').update(content, 'utf8').digest('hex'),
       bytes,
+      content,
     })
   }
   validateLibrary(entries.map((item) => item.entry))

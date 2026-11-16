@@ -167,6 +167,11 @@ describe('client conversation view', () => {
       'product.status.confirmed',
       'product.status.draft',
       'product.status.superseded',
+      'product.expand',
+      'product.collapse',
+      'product.body.loading',
+      'product.body.error',
+      'product.body.ref',
     ]) {
       expect(dicts!.zh[key], key).toBeTruthy()
       expect(dicts!.en[key], key).toBeTruthy()
