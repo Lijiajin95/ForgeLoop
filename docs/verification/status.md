@@ -9504,3 +9504,22 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
   最终这次运行没有该错误。
 - 预期效果：下一次夜间 CI（coverage / reliability-advanced / mutation 分片）不再因
   `tests/command-launch.test.ts` 在 Linux 上失败而整体变红。
+
+## 255. CI 全绿收口（2026-11-17 05:3x）
+
+夜间与推送门禁在本次同步前连续红，逐项定位并修复后，`main` 上三个工作流全部通过
+（`Engineering quality`、`Local full check`、`Local Windows check`，run 43960723xxx）：
+
+1. **命令解析跨平台**（`e39f70f`）：`resolveOnPath` 按目标平台取 PATH 分隔符与拼接，
+   修复 Linux 上 `command-launch` 三个用例失败（夜间红的主因）。
+2. **token 预算忽略行尾**（`fa35ca1`）：计数前把 `\r\n` 归一为 `\n`；Windows checkout 的
+   CRLF 让同一提交多算约 500 token，Windows CI 因此超预算。
+3. **跨平台绝对路径用例**（`d64b18b`）：`design-document` 拒绝分支用 `/abs.md` 代替
+   `D:/abs.md`，Linux 上不再误判为相对路径。
+4. **变异配置超时**（`751757c`）：变异专用 vitest 配置 20 秒 → 120 秒；覆盖插桩下重型用例
+   超时会让 Stryker dry run 直接失败（`Something went wrong in the initial test run`）。
+5. **去不可达分支**（`b2cb973`）：`parseGitChunk` 用 `\x03` 切分代替存在性判断，
+   去掉永远走不到的 else，`library-extract` branch 覆盖率 84.61% → 86.5%。
+
+验证（本地，串行全量）：228 文件 / 2566 通过 / 1 跳过，逐文件覆盖率 98.43/93.92/99.65；
+变异配置串行：227 文件 / 2551 通过。远端：`main` 已同步至 `751757c`，三个工作流 success。
