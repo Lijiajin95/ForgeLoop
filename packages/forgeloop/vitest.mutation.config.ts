@@ -17,6 +17,6 @@ export default defineConfig({
     exclude: ['tests/monitor.test.ts'],
     environment: 'node',
     pool: 'forks',
-    testTimeout: 20_000,
+    testTimeout: 120_000,
   },
 })

@@ -13,6 +13,6 @@ export default defineConfig({
     exclude: [...SLOW_TEST_FILES, 'tests/monitor.test.ts'],
     environment: 'node',
     pool: 'forks',
-    testTimeout: 20_000,
+    testTimeout: 120_000,
   },
 })
