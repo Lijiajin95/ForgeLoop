@@ -9280,3 +9280,46 @@ Windows DSH `web` profile（3080）。
 - 未完成与边界：页面测量点仍是 `b729d6a@19:12` 的旧快照；要切换到当前代码质量需运行
   `make reliability-report-fast`，页面 10 秒内自动整页切换。`verify-plugin` / `verify-e2e` 未运行。
 - 回滚：重装 `forgeloop-dsh-0.0.2-20261116-2042.tgz` 并等待热重载。
+
+## 251. 本地部署验证：可靠性页测量点（2026-11-16 22:30–22:35）
+
+对 `862ed71` 的本地部署做只读复核，覆盖安装身份、端点口径与真实页面；不改代码与业务记录。
+
+### 251.1 安装身份
+
+- profile `web` 依赖为 `file:...artifacts/forgeloop-dsh-0.0.2-20261116-2212.tgz`；该文件与
+  `packages/forgeloop/dist/forgeloop-dsh-0.0.2.tgz` 的 SHA-256 同为
+  `806d71dc694f96be8c3c91e8bff7971f39000d9a36147a551d0ee6f15bd79556`。
+- 安装包 `client.js` 哈希 `bef1ed2c…` 与仓库一致；`lib/index.js` 哈希 `eadfcb87…` 与
+  `runtime-identity.json` 一致；宿主 pid 57876 存活，启动时间 `14:13:18Z`，未再重启。
+- 宿主日志：14:13:18 重新加载，四个工作区绑定成功，无 ERROR。
+- 边界：`runtime-identity.json` 的 `artifactSha256` 为空（经插件管理器安装，没有安装器写入的制品摘要）；
+  制品绑定以 tarball 路径、`client.js`/`index.js` 哈希和 profile 依赖为准。
+
+### 251.2 端点与数据
+
+- `reliability` 端点（ForgeLoop 租户）：`measurement = { asOf: 11:12:28.257Z, commit: b729d6a…,
+  source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量点，`from` 分别为
+  `null/11-09/10-17/08-18 的 11:12:28Z`。
+- 告警：快照与 HEAD 不一致；门禁与运行指标均按测量点计算；当前测量点窗口内没有交付记录。
+- 租户库 `reliability_metric_samples`：2 条。部署后新样本 `14:13:18Z` 带
+  `asOf=11:12:28.257Z / commit=b729d6a…`；部署前旧样本缺少这两个字段，页面显示 `—`，未丢弃。
+
+### 251.3 真实页面（headless Chrome，3080）
+
+- 打开 ForgeLoop 会话（侧栏「度量指标」）→ 天工 → 可靠性：头部为「快照过期 / 测量点
+  main@b729d6aa… · 2026/11/16 19:12:28 / 落后当前 HEAD 9 个提交」，窗口「7 天」显示
+  `2026/11/9 19:12:28 至 2026/11/16 19:12:28`，每条门禁带“过期”，KPI 6/8、行覆盖 98.1%、变异未运行。
+- 自动刷新：等待 11 秒后“最后检查”时间更新（实测 `22:32:54`），历史区与门禁数值不闪动；
+  历史表显示 2 条，新样本“测量点 b729d6aa3fc120cf… · 19:12:28”，旧样本 `—`；无 console/page error。
+- 无快照的 Books 租户：头部显示「未绑定质量快照 · 运行指标截至 …」。
+- `web-ui-smoke`：ok、`sourceMatches=true`，页脚 `启动于 2026/11/16 22:13:18 · 客户端 bef1ed2c…`。
+- 截图：`.cache/review-metrics/verify-measured-7d.png`、`verify-forgeloop-measured.png`。
+
+### 251.4 发现与边界
+
+- 测量点仍是 `b729d6a@19:12`，页面已明确标为历史并落后 HEAD 9 个提交；推进测量点需重新生成快照。
+- 工作台顶部全局摘要（需求 2、待处理 9、研发自主 0%）来自当前 board，不属于可靠性面板的测量点；
+  本次未改。
+- 既有 `candidate-build` 60 秒超时与 `mutation-gap-verify-deep` 4 秒耗时断言在本机负载下仍会越界，
+  `main` 同样复现，与本批无关。
