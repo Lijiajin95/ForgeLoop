@@ -9,6 +9,9 @@
 import { asRecord } from '../domain/json.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
+import { documentDirectiveOf, documentIntakeResultOf } from '../domain/design-document.js'
+import { designDocumentIntakeOf } from '../runtime/design-document-intake.js'
+import type { OperationResult } from '../runtime/operation-result.js'
 import type { RequirementAnalysis } from '../domain/requirement.js'
 import { inputKindOf } from '../domain/requirement.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
@@ -235,11 +238,22 @@ export class SessionIntake {
     const pending = this.runtime.pendingClarifications(sessionId)
     const target = { session, sessionId, messageId, turn: input.turn, signal: input.signal, at }
     if (directive.kind === 'new') {
+      const document = documentDirectiveOf(directive.text)
+      if (document) {
+        await this.submitDocument({ ...target, path: document.path, text: directive.text })
+        return
+      }
       await this.submitNewDirective({ ...target, text: directive.text, dedupeKey })
       return
     }
     if (directive.kind === 'answer') {
       await this.answerDirective({ ...target, directive, pending, dedupeKey })
+      return
+    }
+    // 文档引用始终是发起动作：不受本会话待澄清状态影响，提交后直接排队研发。
+    const document = documentDirectiveOf(text)
+    if (document) {
+      await this.submitDocument({ ...target, path: document.path, text })
       return
     }
     if (pending.length > 1) {
@@ -432,7 +446,86 @@ export class SessionIntake {
       at,
     }
     appendSessionEvent(session, FORGELOOP_INTAKE_EVENT, intake, this.log)
+    await this.analyzeAndShow({ session, reqId, at, signal: input.signal })
+    // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
+    // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
+  }
 
+  /**
+   * 文档入口：引用项目内一份 Markdown 即发起研发。路径、快照、去重与修订版本
+   * 都由运行时确定性判定；这里只负责把结果如实呈现到会话。
+   */
+  private async submitDocument(input: {
+    session: SessionViewLike | undefined
+    sessionId: string
+    messageId: string
+    turn: number
+    signal?: AbortSignal | undefined
+    at: string
+    path: string
+    text: string
+  }): Promise<void> {
+    const { session, sessionId, messageId, at } = input
+    const source = `dsh-session:${sessionId}:${messageId}`
+    let submitted: OperationResult
+    try {
+      submitted = designDocumentIntakeOf(this.runtime, () => this.now().toISOString()).intake({
+        path: input.path,
+        by: this.config.owner,
+        source,
+        clientKey: source,
+        analyze: false,
+      })
+    } catch (error) {
+      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, {
+        reqId: '',
+        message: `设计文档受理异常：${errorMessage(error)}`,
+        at,
+      })
+      return
+    }
+    if (!submitted.ok) {
+      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, {
+        reqId: '',
+        message: submitted.message,
+        at,
+      })
+      return
+    }
+    const data = documentIntakeResultOf(submitted.data)
+    if (!data) {
+      this.appendError(session, `forgeloop:error:${sessionId}:${messageId}`, {
+        reqId: '',
+        message: '设计文档已写入但没有返回需求身份',
+        at,
+      })
+      return
+    }
+    const intake: IntakeEventData = {
+      eventId: `forgeloop:intake:${sessionId}:${messageId}`,
+      reqId: data.reqId,
+      text: input.text,
+      sessionId,
+      messageId,
+      turn: input.turn,
+      status: data.outcome === 'duplicate' ? 'duplicate' : 'accepted',
+      document: { ...data.document, outcome: data.outcome },
+      at,
+    }
+    appendSessionEvent(session, FORGELOOP_INTAKE_EVENT, intake, this.log)
+    // 重复投递同一份内容不重新分析；修订与新需求都要按新版本走一次产品分析。
+    if (data.outcome === 'duplicate') return
+    await this.analyzeAndShow({ session, reqId: data.reqId, at, signal: input.signal })
+  }
+
+  /** 受理后立即做首次产品分析并回显；失败只追加错误事件，不退回普通聊天。 */
+  private async analyzeAndShow(input: {
+    session: SessionViewLike | undefined
+    reqId: string
+    at: string
+    signal?: AbortSignal | undefined
+  }): Promise<void> {
+    const { session, reqId, at } = input
     let outcome: Awaited<ReturnType<ForgeLoopRuntime['analyzeRequirement']>>
     try {
       outcome = await this.runtime.analyzeRequirement(reqId, input.signal)
@@ -455,8 +548,6 @@ export class SessionIntake {
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
     this.enqueueIfReady(reqId, outcome.analysis)
-    // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
-    // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
 
   private async answerOne(input: {

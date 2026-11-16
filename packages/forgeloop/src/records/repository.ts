@@ -31,6 +31,12 @@ export type { CommitmentResolutionRecord, CustomerDecisionRecord } from './commi
 
 import { DeploymentStore } from './deployment-store.js'
 import { DeliveryStore } from './delivery-store.js'
+import { DesignDocumentStore } from './design-document-store.js'
+import type { RequirementDocumentRecord } from './design-document-store.js'
+import type { DocumentKind } from '../domain/design-document.js'
+import { designDocumentSnapshot } from '../domain/design-document.js'
+
+export type { RequirementDocumentRecord } from './design-document-store.js'
 import { DevSessionStore } from './dev-session-store.js'
 import { VerificationStore } from './verification-store.js'
 import type {
@@ -77,6 +83,7 @@ export class Repository extends DevSessionStore {
 
   readonly deploymentStore = new DeploymentStore(this.db)
   readonly deliveryStore = new DeliveryStore(this.db)
+  readonly designDocumentStore = new DesignDocumentStore(this.db)
   readonly analysisStore = new AnalysisStore(this.db)
   readonly businessContextStore = new BusinessContextStore(this.db)
   readonly libraryStore = new LibraryStore(this.db)
@@ -97,6 +104,8 @@ export class Repository extends DevSessionStore {
     source: string
     clientKey?: string
     now: string
+    /** 设计文档来源：项目内路径；省略时按会话内粘贴的内联正文处理。 */
+    document?: { readonly kind: DocumentKind; readonly path: string }
   }): SubmitResult {
     const clientKey = input.clientKey ?? ''
     if (clientKey) {
@@ -124,6 +133,16 @@ export class Repository extends DevSessionStore {
            VALUES (?, 1, ?, ?, ?, ?)`,
         )
         .run(input.reqId, input.text.trim(), input.now, input.submittedBy, input.source)
+      this.recordDocumentSnapshot({
+        reqId: input.reqId,
+        requirementVersion: 1,
+        project: input.project,
+        text: input.text,
+        document: input.document,
+        submittedBy: input.submittedBy,
+        source: input.source,
+        now: input.now,
+      })
     })
     const requirement = this.getRequirement(input.reqId)
     if (!requirement) throw new RuleViolationError(`需求 ${input.reqId} 写入后不可读`)
@@ -135,6 +154,16 @@ export class Repository extends DevSessionStore {
       .prepare('SELECT req_id FROM requirements WHERE client_key = ? ORDER BY created_at LIMIT 1')
       .get(clientKey)
     return row ? this.getRequirement(text(row, 'req_id')) : null
+  }
+
+  /** 需求的文档快照历史：每个版本一条，只追加。 */
+  documentsOf(reqId: string): RequirementDocumentRecord[] {
+    return this.designDocumentStore.documentsOf(reqId)
+  }
+
+  /** 项目内同一路径最近一次绑定的设计文档快照；用于重复投递与修订判定。 */
+  latestDocumentByPath(project: string, path: string): RequirementDocumentRecord | null {
+    return this.designDocumentStore.latestByPath(project, path)
   }
 
   getRequirement(reqId: string): Requirement | null {
@@ -180,6 +209,8 @@ export class Repository extends DevSessionStore {
     revisedBy: string
     source: string
     now: string
+    /** 修订来自设计文档时的来源快照；省略表示人工改写内联正文。 */
+    document?: { readonly kind: DocumentKind; readonly path: string }
   }): Requirement {
     const requirement = this.getRequirement(input.reqId)
     if (!requirement) throw new RuleViolationError(`未找到需求 ${input.reqId}`)
@@ -192,6 +223,16 @@ export class Repository extends DevSessionStore {
            VALUES (?, ?, ?, ?, ?, ?)`,
         )
         .run(input.reqId, next, input.text.trim(), input.now, input.revisedBy, input.source)
+      this.recordDocumentSnapshot({
+        reqId: input.reqId,
+        requirementVersion: next,
+        project: requirement.project,
+        text: input.text,
+        document: input.document,
+        submittedBy: input.revisedBy,
+        source: input.source,
+        now: input.now,
+      })
       // 修订使既有任务包与其批准对当前版本过期：状态回到 draft，历史不回写。
       this.db.handle
         .prepare("UPDATE requirements SET status = 'draft', blocked_reason = '' WHERE req_id = ?")
@@ -200,6 +241,32 @@ export class Repository extends DevSessionStore {
     const updated = this.getRequirement(input.reqId)
     if (!updated) throw new RuleViolationError(`需求 ${input.reqId} 修订后不可读`)
     return updated
+  }
+
+  /** 需求版本的文档快照与版本行同一事务写入；正文仍以 requirement_versions 为权威。 */
+  private recordDocumentSnapshot(input: {
+    reqId: string
+    requirementVersion: number
+    project: string
+    text: string
+    document: { readonly kind: DocumentKind; readonly path: string } | undefined
+    submittedBy: string
+    source: string
+    now: string
+  }): void {
+    const snapshot = designDocumentSnapshot(input.text, {
+      kind: input.document?.kind ?? 'inline',
+      path: input.document?.path ?? '',
+    })
+    this.designDocumentStore.record({
+      ...snapshot,
+      reqId: input.reqId,
+      requirementVersion: input.requirementVersion,
+      project: input.project,
+      submittedBy: input.submittedBy,
+      source: input.source,
+      capturedAt: input.now,
+    })
   }
 
   listRequirements(project?: string): Requirement[] {

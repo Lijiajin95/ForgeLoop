@@ -35,6 +35,25 @@ CREATE TABLE IF NOT EXISTS requirement_versions (
 );
 -- 客户对承诺冲突的决定：绑定可信客户身份、需求版本与具体承诺；历史永不覆盖。
 -- 解除依据必须引用这里的决定编号，只有来源前缀不再视为有效。
+-- 设计文档快照：每个需求版本一行，绑定当时的文档类型、项目内路径与内容摘要。
+-- 正文不另存一份，仍以 requirement_versions.text 为权威；快照只证明“这一版对应哪份文档”。
+CREATE TABLE IF NOT EXISTS requirement_documents (
+    req_id TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    project TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    doc_path TEXT NOT NULL DEFAULT '',
+    doc_sha256 TEXT NOT NULL,
+    doc_bytes INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    submitted_by TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    captured_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, requirement_version)
+);
+CREATE INDEX IF NOT EXISTS requirement_documents_by_path
+    ON requirement_documents (project, doc_path, captured_at);
+
 CREATE TABLE IF NOT EXISTS customer_decisions (
     decision_id TEXT PRIMARY KEY,
     req_id TEXT NOT NULL,

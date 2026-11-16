@@ -54,7 +54,17 @@ export interface IntakeEventData {
   readonly sessionId: string
   readonly messageId: string
   readonly turn: number
-  readonly status: 'accepted'
+  /** duplicate 表示同一份设计文档已受理，未重复创建需求。 */
+  readonly status: 'accepted' | 'duplicate'
+  /** 设计文档快照身份：路径、摘要、字节数与受理结论；普通粘贴正文时缺省。 */
+  readonly document?: {
+    readonly kind: 'inline' | 'project-doc'
+    readonly path: string
+    readonly sha256: string
+    readonly bytes: number
+    readonly title: string
+    readonly outcome: 'created' | 'duplicate' | 'revised' | 'recreated'
+  }
   readonly at: string
 }
 
