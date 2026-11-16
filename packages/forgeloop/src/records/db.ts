@@ -493,6 +493,25 @@ CREATE INDEX IF NOT EXISTS requirement_installable_deliveries_by_project
 CREATE INDEX IF NOT EXISTS requirement_installable_deliveries_by_req
     ON requirement_installable_deliveries (req_id, delivery_version);
 
+-- 人工处理区间：只记录可观测的活跃处理时段，用于“每条需求的人工介入耗时”。
+-- 已有权威记录（澄清回答、业务决定、授权、延长、停止、取消）只有时刻，不会写这里；
+-- 同一人的重叠区间在聚合时合并，缺结束时刻按“时长未知”展示。
+CREATE TABLE IF NOT EXISTS human_interventions (
+    intervention_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    project TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS human_interventions_by_project
+    ON human_interventions (project, started_at);
+CREATE INDEX IF NOT EXISTS human_interventions_by_req
+    ON human_interventions (req_id, started_at);
+
 CREATE TABLE IF NOT EXISTS requirement_deployments (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,

@@ -11,6 +11,7 @@ import { resolveCommitment } from './commitment-decisions.js'
 import { buildIdentity } from './identity.js'
 import { loadLibrary } from './library-docs.js'
 import { libraryRebuildOf } from './library-rebuild-registry.js'
+import { deliveryMetricsSnapshot, recordHumanIntervention } from './delivery-metrics.js'
 
 const BOARD_ENDPOINTS = [
   'board',
@@ -41,6 +42,7 @@ const BOARD_ENDPOINTS = [
   'stop',
   'cancel',
   'reliability',
+  'delivery-metrics',
   'library',
   'library-entry',
   'library-rebuild-run',
@@ -51,6 +53,7 @@ const BOARD_ENDPOINTS = [
   'ops-decide',
   'ops-close',
   'ops-request-fix',
+  'intervention',
 ]
 
 type BoardBody = Record<string, unknown>
@@ -206,7 +209,22 @@ function handleRead(
 
   if (endpoint === 'deployment') return handleDeployment(body, context)
 
+  if (endpoint === 'delivery-metrics') return handleDeliveryMetrics(body, context)
+
   return null
+}
+
+/**
+ * 三项交付度量：按项目与受理日期归组的可安装交付率、人工介入耗时与受理到可用结果的用时。
+ * 只读；截止时点可以回看过去，但不能给未来时点。
+ */
+function handleDeliveryMetrics(body: BoardBody | null, context: BoardContext): Response {
+  const cutoff = text(body?.cutoff)
+  const result = deliveryMetricsSnapshot(context.runtime, cutoff ? { cutoff } : {})
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    result.ok ? 200 : 400,
+  )
 }
 
 /** 部署动作的 HTTP 状态：缺参 400、非所有者 403、不存在 404、状态冲突 409。 */
@@ -755,7 +773,36 @@ function handleWrite(
   // 客户决定入口：承诺冲突的修订/替代/拒绝只能由认证的所有者发起。
   if (endpoint === 'resolve-commitment') return handleResolveCommitment(body, context)
 
+  // 人工处理区间：只记录所有者实际处理的时段，用来计算“每条需求的人工介入耗时”。
+  if (endpoint === 'intervention') return handleIntervention(body, context)
+
   return handleLegacyWrite(body, endpoint, context)
+}
+
+/** 人工处理区间的最小校验；区间本身由运行时校验并落库。 */
+function handleIntervention(body: BoardBody | null, context: BoardContext): Response {
+  const reqId = text(body?.reqId)
+  const reason = text(body?.reason)
+  const startedAt = text(body?.startedAt)
+  if (!reqId || !reason || !startedAt) {
+    return boardResponse(
+      boardFailure('bad_request', '人工处理记录需要 reqId、reason 与 startedAt'),
+      400,
+    )
+  }
+  const sessionId = text(body?.sessionId)
+  const result = recordHumanIntervention(context.runtime, {
+    reqId,
+    reason,
+    startedAt,
+    actor: context.config.owner,
+    source: `web-decision:${sessionId || 'owner'}`,
+  })
+  const status = result.ok ? 200 : result.code === 'not_found' ? 404 : 400
+  return boardResponse(
+    result.ok ? { ok: true, value: result.data } : boardFailure(result.code, result.message),
+    status,
+  )
 }
 
 function handleLegacyWrite(

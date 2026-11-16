@@ -33,6 +33,7 @@ import { DeploymentStore } from './deployment-store.js'
 import { DeliveryStore } from './delivery-store.js'
 import { DesignDocumentStore } from './design-document-store.js'
 import { InstallableDeliveryStore } from './installable-delivery-store.js'
+import { MetricsStore } from './metrics-store.js'
 import type { RequirementDocumentRecord } from './design-document-store.js'
 import type { DocumentKind } from '../domain/design-document.js'
 import { designDocumentSnapshot } from '../domain/design-document.js'
@@ -86,6 +87,7 @@ export class Repository extends DevSessionStore {
   readonly deliveryStore = new DeliveryStore(this.db)
   readonly designDocumentStore = new DesignDocumentStore(this.db)
   readonly installableDeliveryStore = new InstallableDeliveryStore(this.db)
+  readonly metricsStore = new MetricsStore(this.db)
   readonly analysisStore = new AnalysisStore(this.db)
   readonly businessContextStore = new BusinessContextStore(this.db)
   readonly libraryStore = new LibraryStore(this.db)
