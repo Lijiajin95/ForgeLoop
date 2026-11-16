@@ -1,212 +1,172 @@
-# 需求库重建设计：多源提取与确认闭环（设计稿）
+# 需求库一键重建设计：多源提取、无持续人工输入（设计稿 v2）
 
-状态：**设计稿，未实施**（2026-11-16）。本文只定义方案，不代表代码已具备；实施前按
-[AGENTS](../../AGENTS.md) 的 worktree、行为测试与 `make check` 流程执行。
+状态：**设计稿，未实施**（2026-11-16，v2）。本文替换 v1 的“草案逐条确认”流程，只定义方案，
+不代表代码已具备；实施按 [AGENTS](../../AGENTS.md) 的 worktree、行为测试与 `make check` 流程执行。
 相关入口：[产品与首版方案](../product/product.md)、[当前架构](architecture.md)、
 [状态记录](../verification/status.md)、[领域术语](../../CONTEXT.md)、
 [需求库条目格式](../../packages/forgeloop/src/domain/library.ts)。
+
+## 0. 本版变更（相对 v1）
+
+| 项 | v1 | v2 |
+| --- | --- | --- |
+| 触发 | 预览 → 启动 → 逐条确认 | **一键**：点一次即开始并直接生效 |
+| 人工输入 | owner 问卷、逐条确认 | **不要求**持续输入业务场景或逐条确认 |
+| 条目状态 | 只产出 `draft`，确认后 `confirmed` | 新增 `rebuilt`：机器重建、所有者一次授权生效 |
+| 提取器 | 含 `interview` | 去掉 `interview`；`issues` 仅按配置自动读取 |
+| 端点 | preview/start/status/cancel/drafts/decide | run/status/cancel（+ 只读草案） |
 
 ## 1. 目标与非目标
 
 ### 目标
 
-- 任何**租户项目**都能从自身仓库与记录重建需求库，不依赖作者记忆，不写死在 ForgeLoop 仓库上。
-- 产出**可审计的草案**：每条候选带证据（提交、文档小节、测试、代码表面），能在产品页展开核对。
-- 覆盖三类条目：产品目标与范围（`goal`）、已确认决策（`decision`）、能力与验收（`capability` / `acceptance`）。
-- 重建过程幂等、可中断、可重跑；草案与正式库分离，确认前不进入分析上下文。
+- **一键重建**：所有者只做一次点击（浏览器认证动作），之后不再需要指定业务场景或逐条确认。
+- 任何租户项目都能从自身仓库与记录重建，不依赖作者记忆，不写死 ForgeLoop 仓库。
+- 产出可直接参与分析上下文的条目：机器重建、所有者一次授权、证据可审计。
+- 幂等、可中断、可重跑；重跑自动替换上一次重建结果，不叠加垃圾。
 
 ### 非目标
 
-- 不自动把草案标为 `confirmed`：提交、代码、测试都不是所有者授权。
-- 不覆盖或删除已确认条目；同主题只生成取代提案（supersede）与冲突列表。
-- 不跨项目读取：所有路径来自当前租户 `config.projectPath`/`recordsRoot`。
-- 不把验证数字、测试数、覆盖率、版本号、安装记录写进库——这些会立刻过时。
-- 不评估费用与工期，不在重建中执行项目命令（Git 只读）。
+- 不逐条征求确认，也不要求在聊天里补充场景；一键之后没有“下一步输入”。
+- 不覆盖或删除 `confirmed`（所有者逐条回答产生的条目）。
+- 不跨项目读取；不执行项目命令；Git 只读。
+- 不保证语义绝对正确：重建是“有证据的推断”，所有者可随时用回答取代。
+- 不把验证数字、测试数、覆盖率、版本号、安装记录写进库。
 
-## 2. 事实等级与证据规则
+## 2. 授权模型（一键的关键）
 
-需求库的价值在于“可追溯的结论”，因此先固定来源等级：
+- **点击本身就是授权**：`library-rebuild-run` 是 owner 动作，记录 `by=config.owner`、
+  `source=web-decision:<session>:library-rebuild`，与批准/验收同一套认证入口。
+- 重建产出的条目状态为 **`rebuilt`**，`source` 固定为
+  `owner-authorized-rebuild:<runId>#<candidateId>`，可回溯到本次运行与证据。
+- `confirmed` 仍只来自所有者逐条回答；两者区别：
+
+| 状态 | 含义 | 分析闸门是否阻止重复提问 | 页面标识 |
+| --- | --- | --- | --- |
+| `confirmed` | 所有者逐条确认 | 是 | 已确认 |
+| `rebuilt` | 机器重建、所有者一次授权 | 是 | 重建 |
+| `draft` | 低置信候选，未生效 | 否 | 草稿 |
+| `superseded` | 被新结论取代 | 否 | 已被取代 |
+
+- 所有者回答命中 `rebuilt` 覆盖的主题时，允许写入 `confirmed`，并把对应 `rebuilt` 条目置
+  `superseded`——一键结果可被纠正，但不阻塞。
+
+## 3. 事实等级与证据规则
 
 | 等级 | 来源 | 能产出 | 可信度 |
 | --- | --- | --- | --- |
-| L4 | 所有者确认、结构化访谈 | 目标、取舍、非目标 | 唯一可 `confirmed` |
+| L4 | 所有者逐条回答 | 目标、取舍、非目标 | `confirmed` |
 | L3 | 产品文档、ADR、变更日志、状态批次记录 | 目标、决策、边界 | 高 |
 | L2 | 测试与对外契约（可执行规格） | 验收标准、业务规则、状态机 | 中高 |
 | L1 | 代码表面：端点、工具、菜单、i18n、配置、错误码 | 能力地图、用户可见行为 | 中 |
 | L0 | 数据模型与迁移：表、枚举、约束 | 领域实体、状态、不变量 | 中 |
-| L- | 提交记录、工单、IM、监控 | 动机线索、时间线 | 低（只作线索） |
+| L- | 提交记录、工单、监控 | 动机线索、时间线 | 低（只作线索） |
 
-规则（建议写进校验器，而不是只写在提示词里）：
+规则：
 
-1. **每条候选至少一个可定位证据**（`文件:行`、测试名、端点名、表名、提交 sha）；无证据不入草案。
-2. **单一来源只能产出 `draft`**，包括“代码与测试一致”也不行。
-3. 两类独立来源一致时标 `confidence: high`，但仍是 `draft`。
-4. 代码与文档冲突时以文档为意图、代码为现状，并列入 `conflicts`。
-5. **目标类条目不允许从代码推断**：`kind: goal` 只能来自文档或所有者回答。
-6. 能力类条目可以由代码表面自动生成（`kind: capability`），但必须标 `draft`。
+1. 每条候选至少一个可定位证据（`文件:行`、测试名、端点名、表名、提交 sha），无证据不写库。
+2. **决定“写库为 `rebuilt` 还是留草案”的是证据组合，不是模型自评**（见 §5 阈值）。
+3. 代码与文档冲突时：文档代表意图、代码代表现状，写入 `conflicts`，冲突条目降为草案。
+4. `kind: goal` 只能来自文档或所有者回答；代码与测试不能生成目标类条目。
+5. 目标类条目数量少而稳；能力类条目可多，但只描述“系统确实具备什么”。
 
-## 3. 多源提取器
+## 4. 多源提取器（全部自动，无人工输入）
 
-每个来源实现为独立 `extractor`，输出统一候选格式（§4），由流水线统一聚类、校验与落盘。
-这样“重建”不绑定 Git，也不要求每个项目都有同一种记录。
-
-| 提取器 | 输入 | 产出 | 默认开启 | 是否用模型 |
+| 提取器 | 输入 | 产出 | 一键流程 | 用模型 |
 | --- | --- | --- | --- | --- |
-| `git` | `git log` 元数据与变更路径 | 时间线、决策线索、能力变更 | 是 | 摘要用 |
-| `docs` | 产品文档、ADR、状态批次段、README | 目标、决策、边界 | 是 | 是 |
 | `tests` | 测试文件、`describe`/`it` 标题、断言 | 验收标准、业务规则 | 是 | 否 |
-| `code-surface` | 端点、工具、菜单、i18n、配置、错误码 | 能力地图、用户可见行为 | 是 | 否 |
-| `schema` | 建表语句、枚举、约束、迁移 | 领域模型、状态机 | 是 | 否 |
-| `contracts` | OpenAPI / JSON Schema / 架构契约 | 对外承诺与边界 | 有则开启 | 否 |
-| `issues` | GitHub/GitLab Issue、PR 描述（需凭据） | 动机、被否决方案 | 手动 | 是 |
-| `interview` | 所有者问卷与确认记录 | `confirmed` 结论 | 手动 | 否 |
+| `code-surface` | 端点、工具、菜单、i18n、配置、错误码 | 能力地图、可见行为 | 是 | 否 |
+| `schema` | 建表语句、枚举、约束 | 领域模型、状态机 | 是 | 否 |
+| `contracts` | OpenAPI / JSON Schema / 架构契约 | 对外承诺与边界 | 有则启用 | 否 |
+| `docs` | 产品文档、ADR、状态批次段、README | 目标、决策、边界 | 是 | 是 |
+| `git` | `git log` 元数据与变更路径 | 时间线、决策线索 | 是 | 是（仅辅助） |
+| `issues` | Issue/PR 描述（需凭据） | 动机、被否决方案 | 配置后自动 | 是 |
 
-### 3.1 各提取器要点
+- 不设 `interview` 提取器：一键流程不接受“指定业务场景”的输入。
+- `issues` 不产生交互：凭据在配置里，读取失败只记错误，不阻塞其余提取器。
+- 所有提取器输出统一候选（§5），由流水线决定状态。
 
-- `git`：只读 `git log`，不 checkout、不改工作区；默认排除合并提交与 `docs/verification/**` 一类
-  过程记录作为“条目来源”，但仍作为时间线证据。提交信息平均很短，**不能单独成条**。
-- `docs`：按标题切段，用段标题 + 首段做候选摘要；引用行号作为证据。ADR 与状态批次段优先，
-  因为它们记录“为什么”和“被否决的方案”。
-- `tests`：`describe` 分组聚成能力，`it` 标题作为验收标准候选；断言里的业务不变量作为
-  `decision` 候选证据。临时兼容行为不允许直接升为 `confirmed`。
-- `code-surface`：端点/工具/菜单/i18n/配置项直接生成 `capability` 候选；错误码与拒绝分支
-  生成边界候选。
-- `schema`：表名与枚举生成领域实体；唯一约束、外键、状态枚举生成不变量与状态机候选。
-- `issues`：默认关闭；启用需要显式凭据与“只本地聚合、不上传”的约定，并过滤个人信息。
-- `interview`：唯一把 `draft` 变 `confirmed` 的通道，问题用“行为差异”式提问。
-
-### 3.2 本仓库实测素材（说明多源可行）
-
-| 来源 | 规模 | 能补什么 |
-| --- | --- | --- |
-| 提交 | 975 条（2026-10-12 → 2026-11-16），62 个合并 | 时间线与证据索引 |
-| 测试 | 220 个文件、2399 项 | 验收标准、业务规则、异常边界 |
-| 表结构 | 56 张表 | 领域实体、状态机、不变量 |
-| 端点 / 工具 | 35 / 16 | 能力地图 |
-| i18n | 1630 条 | 用户可见行为与状态 |
-| 文档 | 21 个 Markdown、5 个 ADR | 目标、决策、边界 |
-| 状态记录 | 209 个批次段 | 决策时间线与已废弃方案 |
-
-## 4. 统一候选格式
+## 5. 候选格式与状态判定
 
 ```ts
 type CandidateKind = 'goal' | 'decision' | 'capability' | 'acceptance'
 type SourceKind = 'commit' | 'doc' | 'test' | 'code' | 'schema' | 'contract' | 'issue'
 
 interface LibraryCandidate {
-  /** 与库条目一致的稳定身份：^[a-z0-9][a-z0-9._-]{0,63}$ */
-  readonly id: string
+  readonly id: string                 // ^[a-z0-9][a-z0-9._-]{0,63}$
   readonly kind: CandidateKind
   readonly title: string
-  /** 受控词表，与澄清缺口的 topic 对齐 */
-  readonly topics: readonly string[]
-  /** ≤240 字符；一条只回答一个主题 */
-  readonly summary: string
-  /** ≤4 KiB；引用条目可留空，正文留在被引用文档 */
-  readonly body: string
+  readonly topics: readonly string[]  // 受控词表
+  readonly summary: string            // ≤240 字符
+  readonly body: string               // ≤4 KiB
   readonly sources: ReadonlyArray<{ kind: SourceKind; ref: string; note?: string }>
-  readonly confidence: 'low' | 'medium' | 'high'
-  /** 同主题已有确认条目时的取代提案 */
+  readonly confidence: 'low' | 'medium' | 'high'   // 由证据组合计算，不由模型决定
   readonly supersedes?: string
-  /** 与其他候选或现有条目的互斥结论 */
   readonly conflicts?: readonly string[]
 }
 ```
 
-示例：
+**写库阈值（确定性）**：
 
-```json
-{
-  "id": "decisions.library-gate",
-  "kind": "decision",
-  "title": "需求库澄清闸门",
-  "topics": ["library.gate", "workflow.clarification"],
-  "summary": "默认空澄清；遍历全库后才允许提问；命中 confirmed 主题禁止重复提问；≤3 条；所有者回答回写 confirmed。",
-  "body": "……",
-  "sources": [
-    { "kind": "commit", "ref": "1429b48" },
-    { "kind": "doc", "ref": "docs/verification/status.md#241" },
-    { "kind": "test", "ref": "packages/forgeloop/tests/library-gate.test.ts" }
-  ],
-  "confidence": "high"
-}
-```
+| 条件 | 结果 |
+| --- | --- |
+| `kind` 为 `capability`/`acceptance`，且证据 ≥1 个代码/测试/契约来源 | 写为 `rebuilt` |
+| `kind` 为 `decision`，证据含 ≥1 个文档/ADR 来源，或 ≥2 类独立来源 | 写为 `rebuilt` |
+| `kind` 为 `goal`，证据含产品文档或 ADR | 写为 `rebuilt` |
+| 只有提交消息、只有单一低等级来源、或存在未解冲突 | 写草案目录，状态 `draft` |
+| 与现有 `confirmed` 主题冲突 | 不写库；进 `conflicts` 与草案 |
 
-## 5. 流水线
+## 6. 一键流水线
 
 ```
-提取 extractors
-   │   git / docs / tests / code-surface / schema / contracts
+点击“一键重建”
+   │  owner 动作 → 创建 run（唯一并发）
    ▼
-归一化与去重（确定性）
-   │   id 冲突合并、同证据去重、证据路径标准化
+采集（并行）   tests / code-surface / schema / contracts / docs / git / issues
    ▼
-聚类（确定性）
-   │   按 scope → 目录 → 关键词；每簇 ≤60 条证据、全库 ≤20 簇
+归一化与聚类   按 scope → 目录 → 关键词；≤20 簇，每簇 ≤60 条证据
    ▼
-提炼（模型，仅 decision/goal 需要）
-   │   每簇一次调用，严格 JSON，tools: none，失败不中断整次运行
+提炼（模型，仅 decision/goal 需要的簇；每簇 0–3 条）
    ▼
-校验与冲突（确定性）
-   │   复用需求库解析器；证据必须存在；同主题冲突显式列出
+校验与冲突     复用例库解析器；证据必须存在；冲突降级
    ▼
-草案落盘 + 报告
-   │   docs/product/library-drafts/<id>.md（不进入扫描目录）
+写库            高置信 → docs/product/library/*.md（status=rebuilt）
+                低置信 → docs/product/library-drafts/*.md（status=draft）
+                上一次重建产生的 rebuilt 条目整体替换
    ▼
-所有者确认（页面动作）
-   │   确认后才写入 docs/product/library/ 并置 confirmed
-   ▼
-漂移维护（P2）
-       代码/测试变化 → 受影响条目 → 提示复核
+报告与索引      报告写入 records；刷新页面列表
 ```
 
-### 5.1 阶段细节
+- **没有预览门槛、没有逐条确认**；点击后立即运行并生效。
+- 模型失败或额度不足时，确定性提取器仍会写出一批 `rebuilt` 能力/验收条目，一键不会“空手而归”。
+- 取消：中断模型调用，已写入的条目保留，报告标记 `cancelled`。
+- 重跑：删除 `source` 以 `owner-authorized-rebuild:` 开头的旧条目后重写，`confirmed` 不动。
 
-- **归一化**：同一 `id` 的多条候选按证据合并；`topics` 去重并归一到受控词表；证据 `ref`
-  统一为项目内相对路径。
-- **聚类**：优先用提交 scope，其次用变更目录，再次用关键词；低于 3 条证据且无文档/契约支撑的簇
-  直接丢弃，避免碎片。
-- **提炼**：只有 `decision` 与 `goal` 需要模型；`capability`/`acceptance` 由确定性提取器直接产出。
-  每簇最多重试一次，失败写 `errors` 并继续下一簇。
-- **校验**：复用 [`parseLibraryEntry`/`validateLibrary`](../../packages/forgeloop/src/domain/library.ts)
-  的 fail-closed 规则；草案目录单独校验，不阻塞正式库。
-- **落盘**：先写临时目录，全部解析通过后原子替换；任何失败整体回滚。
+## 7. 存储
 
-### 5.2 失败与恢复
+| 内容 | 位置 |
+| --- | --- |
+| 重建条目 | `<projectPath>/docs/product/library/**/*.md`（`status: rebuilt`） |
+| 低置信草案 | `<projectPath>/docs/product/library-drafts/<id>.md`（不进分析上下文） |
+| 报告与摘要 | `<recordsRoot>/projects/<project>/library-rebuild/<runId>/report.md`、`digest.jsonl` |
 
-- 单簇失败只记错误，不中断整次运行；报告里列出失败簇。
-- 宿主重启时把遗留 `running` 标记为 `failed(interrupted)`，不假装完成。
-- 取消通过 `AbortSignal` 中断模型调用；已生成草案保留。
-
-## 6. 存储与状态
-
-### 6.1 文件布局
-
-| 内容 | 位置 | 说明 |
-| --- | --- | --- |
-| 正式条目 | `<projectPath>/docs/product/library/**/*.md` | 现有格式；确认后写入 |
-| 草案 | `<projectPath>/docs/product/library-drafts/<id>.md` | 不在扫描目录内，未确认不影响分析 |
-| 报告 | `<recordsRoot>/projects/<project>/library-rebuild/<runId>/report.md` | 提交→条目映射、跳过原因、冲突 |
-| 摘要证据 | 同上 `digest.jsonl` | 每簇输入摘要，便于复现 |
-
-### 6.2 SQLite
-
-沿用现有 `CREATE TABLE IF NOT EXISTS` + `ensureColumn` 迁移方式：
+SQLite（沿用 `CREATE TABLE IF NOT EXISTS` + `ensureColumn`）：
 
 ```sql
 CREATE TABLE IF NOT EXISTS library_rebuilds (
   run_id TEXT PRIMARY KEY,
   project TEXT NOT NULL,
-  mode TEXT NOT NULL,              -- incremental | full
   status TEXT NOT NULL,            -- queued | running | done | failed | cancelled
-  stage TEXT NOT NULL,             -- collect | cluster | synthesize | validate | draft
+  stage TEXT NOT NULL,             -- collect | cluster | synthesize | validate | apply
   commits_total INTEGER NOT NULL,
   clusters_total INTEGER NOT NULL,
   clusters_done INTEGER NOT NULL,
+  applied_total INTEGER NOT NULL,  -- 写为 rebuilt 的条目数
   drafts_total INTEGER NOT NULL,
+  conflicts_total INTEGER NOT NULL,
   model TEXT NOT NULL,
   prompt_version TEXT NOT NULL,
-  last_commit TEXT NOT NULL,       -- 水位
+  last_commit TEXT NOT NULL,
   report_path TEXT NOT NULL,
   error TEXT NOT NULL,
   started_at TEXT NOT NULL,
@@ -214,113 +174,91 @@ CREATE TABLE IF NOT EXISTS library_rebuilds (
 );
 ```
 
-- 状态机：`queued → running → done | failed | cancelled`；只允许一次运行一个项目。
-- 水位：最近一次 `done` 的 `last_commit`；增量模式只处理之后的提交，首次默认全量。
-- 草案不写库表；正式条目由现有扫描与 `library_entries` 同步负责。
-
-## 7. 限额与估算
-
-| 参数 | 建议值 | 理由 |
-| --- | --- | --- |
-| `MAX_COMMITS` | 2000 | 覆盖大多数历史项目，避免无界读取 |
-| `MAX_CLUSTERS` | 20 | 控制模型调用次数 |
-| `MAX_COMMITS_PER_CLUSTER` | 60 | 单次提示词可控 |
-| `MAX_ENTRIES_PER_RUN` | 24 | 避免一次生成过多草案 |
-| `MAX_CALLS` | 24 | 与簇数相当，失败重试计入 |
-| 单条正文 | ≤4 KiB | 与库读取上限一致 |
-| 单条摘要 | ≤240 字符 | 与库格式一致 |
-| 全库条目 | ≤64 | 与 `LIBRARY_MAX_ENTRIES` 一致 |
-| 单次调用超时 | `agent.timeoutSeconds` | 复用现有配置 |
-
-预览阶段给出：提交数、新增提交数、簇数、预计模型调用次数与预估 token，不调用模型。
+- 单项目同时只允许一次运行；重启把遗留 `running` 标为 `failed(interrupted)`。
+- 水位 `last_commit`：一键默认增量；首次或手动“全量”时从头处理。
 
 ## 8. 端点
 
-沿用 `/api/forgeloop/board` 的认证路由与 owner 动作模式（`by=config.owner`，
-`source=web-decision:<session>:library-rebuild`）。
-
 | 端点 | 类型 | 请求 | 响应 |
 | --- | --- | --- | --- |
-| `library-rebuild-preview` | 只读 | `{ mode }` | 提交数、新增数、簇列表、预计调用次数 |
-| `library-rebuild-start` | owner 写 | `{ mode }` | `{ runId }` |
-| `library-rebuild-status` | 只读 | `{ runId? }` | 状态、阶段、进度、草案数、错误 |
+| `library-rebuild-run` | owner 写 | `{ mode?: 'incremental'\|'full' }` | `{ runId }` |
+| `library-rebuild-status` | 只读 | `{ runId? }` | 状态、阶段、进度、已写入/草案/冲突数 |
 | `library-rebuild-cancel` | owner 写 | `{ runId }` | `{ cancelled: true }` |
-| `library-drafts` | 只读 | `{}` | 草案列表（含证据与置信度） |
-| `library-draft-decide` | owner 写 | `{ draftId, decision }` | `confirm` 写入库并置 `confirmed`；`discard` 删除草案 |
+| `library-drafts` | 只读 | `{}` | 低置信草案列表（可展开看证据） |
 
 拒绝语义：缺 `sessionId` → `session_required`；未绑定工作区 → `workspace_unbound`；
-项目不是 Git 仓库 → `400` 并说明；运行中重复启动 → `409`。
+项目不是 Git 仓库或缺少可提取来源 → `400` 并说明；运行中重复启动 → `409`。
 
 ## 9. 页面
 
-产品页（[`client.js`](../../packages/forgeloop/client.js) 的 `ProductPane`）顶部新增：
-
 ```
-需求库                                        [从 Git 历史重建]
-上次重建：2026-11-16 10:20 · 975 提交 / 14 主题 / 3 条草案
-[采集] [聚类] [提炼 7/14] [校验]
-草案（待确认）
-  决策：工作区模式判定      证据 6 条   [展开] [确认入库] [忽略]
+需求库                                            [一键重建]
+上次重建：2026-11-16 14:20 · 975 提交 / 14 主题 / 已写入 12 条 / 草案 3 条
+[采集] [聚类] [提炼 7/14] [写入]
 ```
 
-- 空库时同样显示按钮；按钮先触发预览，展示估算后再启动；
-- 草案卡片展开后复用现有“正文展开”样式显示证据与正文；
-- 确认/忽略是 owner 动作，结果即时刷新列表；
-- 中英文案：`product.rebuild.*`、`product.drafts.*` 约 15 个 key。
+- 按钮即启动，无二次确认；运行中显示阶段与进度，可取消。
+- 完成后列表直接显示 `rebuilt` 条目（徽标“重建”），无需逐条操作。
+- 低置信草案折叠在“草案（待确认）”区，不阻断使用；可在日后由回答取代。
+- 中英文案新增 `product.rebuild.*`、`product.status.rebuilt` 约 10 个 key。
 
 ## 10. 提示词与模型
 
-- 复用产品 Agent 角色（`AGENT_PRODUCT`），`tools: 'none'`，只给有界摘要；
-- 新增 `LIBRARY_REBUILD_PROMPT_VERSION = 'library-rebuild-v1'`，与 `ANALYSIS_PROMPT_VERSION` 并列；
-- 提示词要求：只写可核实陈述；每条必须引用输入提供的证据；不写测试数字/版本号/耗时；
-  不把“已实现”写成“已确认”；输出严格 JSON；每簇 0–3 条；
-- 模型输出先做 JSON 结构校验，再进入候选校验；失败重试一次，仍失败记错误并继续。
+- 复用产品 Agent 角色（`AGENT_PRODUCT`），`tools: 'none'`，只给有界证据摘要。
+- 新增 `LIBRARY_REBUILD_PROMPT_VERSION = 'library-rebuild-v2'`，与 `ANALYSIS_PROMPT_VERSION` 并列。
+- 提示词纪律：只写可核实陈述；每条必须引用输入证据；不向用户提问、不输出澄清项；
+  不写测试数字/版本号/耗时；不把“已实现”写成“已确认”；输出严格 JSON；每簇 0–3 条。
+- 失败重试一次；仍失败则该簇只保留确定性提取器的结果。
 
-## 11. 安全与隔离
+## 11. 安全与限额
 
-- 只读当前项目：不跨 `projectPath`，不读其他租户记录。
-- Git 只读：不 checkout、不 stash、不执行项目脚本。
-- 不联网：`issues` 提取器默认关闭，启用需显式凭据与所有者同意。
-- 敏感信息：对生成内容做密钥/凭据/内网地址正则扫描，命中即拒绝该条并记错误。
-- 审计：每次运行保留输入摘要、模型、提示词版本、证据与报告路径。
-- 失败关闭：草案目录解析失败只影响本次运行；正式库解析失败仍按现有 fail-closed 阻断分析。
+- 只读当前项目；Git 只读；不执行项目命令；不跨租户。
+- 密钥/凭据/内网地址正则扫描，命中拒绝该条并记错误。
+- 限额：提交 ≤2000、簇 ≤20、每簇证据 ≤60、每次写入 ≤24 条、单条正文 ≤4 KiB、
+  单次调用超时 `agent.timeoutSeconds`、全库 ≤64 条。
+- 审计：保留 run 输入摘要、模型、提示词版本、证据、报告路径与写入清单。
 
 ## 12. 冲突与取代
 
-- 同 `id` 或同 `topics` 已有 `confirmed` 条目：不覆盖，生成 `supersedes` 提案；确认后旧条目改
-  `status: superseded`，保留原文与来源。
-- 两条候选结论互斥：写入 `conflicts`，不自动选择；页面并把冲突显示给所有者。
-- 当前库解析器拒绝未知字段，因此 `supersedes`/`conflicts` 先写在草案正文与报告里；
-  是否扩展头部字段属于后续独立改动（需要解析、测试与文档同步）。
+- `confirmed` 优先：重建遇到同主题已确认条目不覆盖，只记冲突。
+- 两条重建条目互斥：保留证据更强者，另一条降为草案并记 `conflicts`。
+- 所有者回答命中 `rebuilt` 主题：写入 `confirmed`，旧 `rebuilt` 置 `superseded`。
+- 重跑时旧 `rebuilt` 直接替换（不保留 superseded 噪音），历史由 Git 保留。
 
 ## 13. 漂移维护（P2）
 
-- 记录每条条目依赖的证据（测试文件、端点、表、文档小节）。
-- 当代码或测试变化命中依赖时，生成“可能过期”提示，并把该条目标为待复核（不自动改内容）。
-- 每次重建只提案受影响的条目，不重跑全量。
+- 记录每条重建条目依赖的证据（测试文件、端点、表、文档小节）。
+- 代码或测试变化命中依赖时，页面提示“可能过期”，并建议一键重建（不自动改内容）。
 
 ## 14. 分阶段实施
 
-| 阶段 | 内容 | 交付 | 主要文件 |
+| 阶段 | 内容 | 一键可用性 | 主要文件 |
 | --- | --- | --- | --- |
-| **P0** | 确定性提取（tests/code-surface/schema）+ 聚类 + 预览端点 + 页面按钮 + 报告 | 任意项目可看到“可重建的簇与证据”，不调模型、不写库 | `src/domain/library-rebuild.ts`、`src/runtime/library-extract.ts`、`board-route.ts`、`client.js`、测试 |
-| **P1** | 后台运行 + 模型提炼 + 草案列表 + 确认/忽略 + `library_rebuilds` 表 | 草案可审阅、确认后入库 | `src/runtime/library-rebuild.ts`、`src/records/library-rebuild-store.ts`、`db.ts`、`prompts.ts`、客户端、测试 |
-| **P2** | 增量水位、漂移维护、`issues` 提取器、能力索引 | 增量提案与过期提示 | 同上 + 脚本与文档 |
+| **P0** | 确定性提取（tests/code-surface/schema/contracts）+ 聚类 + 写 `rebuilt` + 报告 + 页面按钮 | 点一次即得到能力/验收条目（**不调模型**） | `src/domain/library-rebuild.ts`、`src/runtime/library-extract.ts`、`board-route.ts`、`client.js`、测试 |
+| **P1** | docs/git 提炼 `decision`/`goal` + 草案区 + `library_rebuilds` 表 | 同一次点击写出决策条目 | `src/runtime/library-rebuild.ts`、`src/records/library-rebuild-store.ts`、`db.ts`、`prompts.ts`、客户端、测试 |
+| **P2** | 增量水位、漂移提示、`issues` 提取器 | 一键增量重建 | 同上 + 脚本与文档 |
 
-每阶段都要求：行为测试（正反例）、`make check`、架构说明与状态记录同步。
+P0 的前置是状态扩展：`LIBRARY_STATUSES` 增加 `rebuilt`、分析闸门把 `rebuilt` 计入覆盖、
+客户端徽标与 `library-store` 状态校验、所有者回答可取代 `rebuilt`，以及相关测试，必须与
+“写 `rebuilt`”同批完成，否则会出现“页面显示重建、分析却不认”的不一致。
+P1 只增加 docs/git 的决策与目标提炼和 `library_rebuilds` 审计表。
 
-## 15. 待决问题
+## 15. 已定参数（不再询问）
 
-1. 模型提炼默认是否开启？建议开启但每次运行上限 24 次调用，并在预览中给出估算。
-2. 草案目录：建议 `docs/product/library-drafts/`（与扫描目录分离）；另一种是直接写库目录用 `draft`。
-3. 确认方式：建议页面「确认入库」owner 动作；聊天回答用于修改内容。
-4. 首次范围：建议首次全量、之后按水位增量，并允许手动“全量重建”。
+| 项 | 取值 |
+| --- | --- |
+| 触发与生效 | 一键运行，直接写 `rebuilt`，无逐条确认 |
+| 人工输入 | 无；不要求指定业务场景 |
+| 低置信候选 | 写 `docs/product/library-drafts/`，不参与分析 |
+| 首次范围 | 全量；之后按水位增量；可手动全量 |
+| 模型默认 | 开启，单次运行 ≤24 次调用；失败仍保留确定性结果 |
 
 ## 16. 风险
 
-- **提交信息太薄**：只靠 Git 会产出空壳；必须依赖 tests/docs/schema 等确定性来源。
-- **文档缺失**：历史项目常没有产品文档，此时只能产出 `capability`/`acceptance` 草案，`goal` 必须访谈补齐。
-- **模型幻觉**：严格证据校验 + 单一来源只给 draft + owner 确认三重约束；仍不能证明语义正确。
-- **成本**：簇数 × 调用次数；预览与上限先兜底。
-- **草案污染**：与扫描目录分离可避免；若选择写库目录，必须只给 `draft` 且页面明确标注。
-- **取代关系缺字段**：当前头部不支持 `supersedes`，P0/P1 用正文与报告承载，结构化属于后续改动。
+- **自动生效的语义风险**：`rebuilt` 会抑制同类澄清，若重建结论错误，可能让分析少问一次。
+  缓解：证据阈值、冲突降级、页面“重建”标识、所有者回答可取代、重跑可整体替换。
+- **证据薄**：只有提交信息的项目会得到很少的决策条目，但能力/验收条目仍可用；不会空跑。
+- **模型幻觉**：严格证据校验 + 确定性阈值 + 可回滚；但不能证明语义绝对正确。
+- **成本**：簇数 × 调用次数；上限与失败回退兜底。
+- **状态扩展的连带面**：新增 `rebuilt` 要同步解析、闸门、回写、记录校验、UI 与测试，
+  漏一处会出现“页面显示重建、分析却不认”的不一致，必须同批完成。
