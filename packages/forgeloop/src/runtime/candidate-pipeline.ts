@@ -30,6 +30,7 @@ import {
 import { PLUGIN_VERSION } from './version.js'
 import type { OperationResult } from './operation-result.js'
 import { fail, ok } from './operation-result.js'
+import { safeInstallableDelivery } from './installable-delivery.js'
 import type { CodeCandidateRecord, RequirementCommitRecord } from '../records/repository.js'
 
 export interface AdmittedDelivery {
@@ -927,8 +928,14 @@ export class CandidatePipeline {
         `上线核对未通过：${failed.join('；')}；证据 ${reportPath}`,
       )
     }
+    // 上线核对通过即试装成立；登记可安装交付把六项材料收口成一条可用记录。
+    // 登记异常只作为说明返回，不回滚已完成的核对结论，也不伪造成功。
+    const installable = safeInstallableDelivery(this.deps, input.reqId)
     return ok(
-      `上线核对通过：运行版本 ${PLUGIN_VERSION}，候选 ${identity.slice(0, 16)}…，profile ${input.targetProfile}`,
+      `上线核对通过：运行版本 ${PLUGIN_VERSION}，候选 ${identity.slice(0, 16)}…，profile ${input.targetProfile}` +
+        (installable.ok
+          ? `；${installable.message}`
+          : `；可安装交付未登记：${installable.message}`),
       {
         state,
         reportPath,

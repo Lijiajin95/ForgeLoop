@@ -1609,6 +1609,16 @@ export function candidatesDir(config: ForgeLoopConfig, reqId: string, planVersio
   return join(projectDir(config), 'candidates', reqId, `v${planVersion}`)
 }
 
+/** 可安装交付的安装说明与证据目录：按需求版本与包摘要隔离，包变化不覆盖旧说明。 */
+export function deliveryDir(
+  config: ForgeLoopConfig,
+  reqId: string,
+  planVersion: number,
+  artifactSha256: string,
+): string {
+  return join(candidatesDir(config, reqId, planVersion), 'delivery', artifactSha256.slice(0, 16))
+}
+
 export function sessionsDir(config: ForgeLoopConfig): string {
   return join(projectDir(config), 'sessions')
 }

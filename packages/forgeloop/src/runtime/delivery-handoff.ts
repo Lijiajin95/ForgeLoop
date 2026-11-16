@@ -15,6 +15,7 @@ import type { Repository } from '../records/repository.js'
 import type { Deployments } from './deployments.js'
 import type { DeploymentService } from './deployment-service.js'
 import type { DeliveryHandoffState } from '../records/delivery-store.js'
+import { safeInstallableDelivery } from './installable-delivery.js'
 
 export interface DeliveryHandoffDeps {
   readonly config: ForgeLoopConfig
@@ -202,7 +203,11 @@ export class DeliveryHandoff {
       return
     }
     if (state === 'verified') {
-      this.record({ reqId, build, target }, 'verified', `部署 ${intentId} 已核对`)
+      this.record(
+        { reqId, build, target },
+        'verified',
+        `部署 ${intentId} 已核对${this.recordDelivery(reqId)}`,
+      )
       result.verified += 1
       await this.ensureAndDrainRechecks(reqId, intentId)
       return
@@ -230,9 +235,21 @@ export class DeliveryHandoff {
       result.failed += 1
       return
     }
-    this.record(input, 'verified', verified.message)
+    this.record(input, 'verified', `${verified.message}${this.recordDelivery(input.reqId)}`)
     result.verified += 1
     await this.ensureAndDrainRechecks(input.reqId, input.intentId)
+  }
+
+  /**
+   * 上线核对通过后登记可安装交付；失败只写进交接说明，不改变部署状态。
+   * 材料不齐或摘要不一致时保留现有部署结论，等材料补齐后再次核对即可登记。
+   */
+  private recordDelivery(reqId: string): string {
+    const delivery = safeInstallableDelivery(
+      { config: this.deps.config, repo: this.deps.repo, now: this.deps.now },
+      reqId,
+    )
+    return delivery.ok ? `；${delivery.message}` : `；未登记可安装交付：${delivery.message}`
   }
 
   /** 手工发起但落在 auto 目标的 intent，也由协调器核对；owner 目标仍等人工。 */
@@ -250,6 +267,7 @@ export class DeliveryHandoff {
       const verified = await this.deps.deployments.verify(intent.intentId, 'system:coordinator')
       if (verified.ok) result.verified += 1
       else result.failed += 1
+      if (verified.ok) this.recordDelivery(intent.requirementId)
       if (verified.ok) await this.ensureAndDrainRechecks(intent.requirementId, intent.intentId)
     }
   }

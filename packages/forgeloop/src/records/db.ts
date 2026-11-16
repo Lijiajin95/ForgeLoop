@@ -464,6 +464,35 @@ CREATE TABLE IF NOT EXISTS requirement_candidate_builds (
     PRIMARY KEY (req_id, plan_version, candidate_sha256)
 );
 
+CREATE TABLE IF NOT EXISTS requirement_installable_deliveries (
+    delivery_id TEXT PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    delivery_version INTEGER NOT NULL,
+    project TEXT NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    plan_version INTEGER NOT NULL,
+    candidate_sha256 TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    package_version TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    tarball TEXT NOT NULL,
+    instructions_path TEXT NOT NULL,
+    instructions_sha256 TEXT NOT NULL,
+    instructions_bytes INTEGER NOT NULL,
+    verification_sha256 TEXT NOT NULL,
+    business_review_sha256 TEXT NOT NULL,
+    trial_target TEXT NOT NULL,
+    trial_runtime_version TEXT NOT NULL,
+    trial_artifact_sha256 TEXT NOT NULL,
+    available_at TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    evidence_dir TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS requirement_installable_deliveries_by_project
+    ON requirement_installable_deliveries (project, available_at);
+CREATE INDEX IF NOT EXISTS requirement_installable_deliveries_by_req
+    ON requirement_installable_deliveries (req_id, delivery_version);
+
 CREATE TABLE IF NOT EXISTS requirement_deployments (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,

@@ -20,6 +20,10 @@ export interface RequirementDetailExtras {
   readonly businessContext: ReturnType<Repository['businessContextChanges']>
   /** 需求修订导致旧分析失效的审计记录。 */
   readonly analysisInvalidations: ReturnType<Repository['analysisInvalidations']>
+  /** 设计文档快照历史：每个需求版本一条，正文仍以需求版本原文为准。 */
+  readonly documents: ReturnType<Repository['documentsOf']>
+  /** 最近一次可安装交付；没有记录时为空，页面显示空态而不是推断成功。 */
+  readonly installableDelivery: ReturnType<Repository['installableDeliveryStore']['latest']>
 }
 
 export function requirementDetailExtras(
@@ -38,5 +42,7 @@ export function requirementDetailExtras(
     specChanges: specChanges(previous, latest),
     businessContext: repository.businessContextChanges(reqId),
     analysisInvalidations: repository.analysisInvalidations(reqId),
+    documents: repository.documentsOf(reqId),
+    installableDelivery: repository.installableDeliveryStore.latest(reqId),
   }
 }

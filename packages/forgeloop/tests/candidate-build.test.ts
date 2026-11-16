@@ -1372,7 +1372,10 @@ describe('candidate build and deployment checks', () => {
       code: 'business_review_required',
     })
     // 该用例串行跑十余次完整流水线，合并后慢机/覆盖率插桩下 15 秒仍不稳定。
-  }, 60_000)
+    // 2026-11-16 在 Windows 工作副本上实测：单独运行 78 秒；全量覆盖率并行（4 worker）
+    // 超过 120 秒。两个数字都是同一份业务断言，因此只提高该集成用例的时限到 240 秒，
+    // 未改任何业务判定、也未下调覆盖率或超时门槛。
+  }, 240_000)
 
   it('fails admitted deployment when the installed version or business evidence is wrong', async () => {
     const reqId = await admittedRequirement()

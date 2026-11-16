@@ -425,7 +425,7 @@ function seedAcceptRequirement(): void {
   }
 }
 
-type StubRepository = Record<string, (...args: never[]) => unknown>
+type StubRepository = Record<string, unknown>
 
 function stubRepository(overrides: StubRepository): Repository {
   return overrides as unknown as Repository
@@ -830,6 +830,8 @@ describe('requirement detail extras', () => {
       analysisHistory: [],
       businessContext: [],
       analysisInvalidations: [],
+      documents: [],
+      installableDelivery: null,
       clarificationHistory: { questions: [], answers: [] },
       specChanges: {
         addedPoints: [],
@@ -1038,6 +1040,8 @@ describe('requirement detail extras', () => {
       clarificationAnswers: () => [],
       businessContextChanges: () => [],
       analysisInvalidations: () => [],
+      documentsOf: () => [],
+      installableDeliveryStore: { latest: () => null },
     })
 
     const extras = requirementDetailExtras(stub, 'req-gap')

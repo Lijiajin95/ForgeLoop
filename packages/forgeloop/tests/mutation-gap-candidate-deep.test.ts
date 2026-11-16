@@ -220,6 +220,8 @@ function makeDeps(overrides: Record<string, any> = {}): any {
     recordCandidateBuild: () => {},
     recordCandidate: () => {},
     recordDeployment: () => {},
+    latestCommit: () => null,
+    deploymentStore: { deploymentIntents: () => [] },
     ...(overrides.repo ?? {}),
   }
   return {
