@@ -198,8 +198,8 @@ describe('prompt builders', () => {
     expect(text).toContain('不改变需求列表的默认排序')
     expect(text).toContain('筛选后只显示匹配项')
     expect(text).toContain('任务拆解必须覆盖分析中的每条业务场景、业务规则、异常与边界和验收标准')
-    expect(text).toContain('packages/forgeloop/tests/')
-    expect(text).toContain('把 docs/development/architecture.md 写进 files')
+    expect(text).toContain('工程既有测试目录下的对应测试文件')
+    expect(text).toContain('把工程既有架构文档写进 files')
     expect(text).toContain('任务不得包含部署、发布、安装到正式 profile')
   })
 
@@ -223,6 +223,8 @@ describe('prompt builders', () => {
     expect(text).toContain('- 源码在 src/（TypeScript）')
     expect(text).toContain('- 检查命令：["npm","test"]')
     expect(text).not.toContain('插件活动源码在 packages/forgeloop/src/')
+    expect(text).not.toContain('本轮活动工程是仓库根下的 TypeScript 工程')
+    expect(text).not.toContain('例如 packages/forgeloop/src/runtime/service.ts')
   })
 
   it('tells the development Agent to fix a problem instead of rebuilding a feature', () => {
