@@ -21,9 +21,11 @@ function filesUnder(dir: string): string[] {
 }
 
 function tokensOf(text: string): number {
+  // 行尾差异不该影响预算：Windows checkout 可能是 CRLF，Linux 是 LF。
+  const normalized = text.replace(/\r\n/g, '\n')
   let ascii = 0
   let other = 0
-  for (const char of text) {
+  for (const char of normalized) {
     if (char.codePointAt(0)! < 128) ascii += 1
     else other += 1
   }
