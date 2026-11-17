@@ -3,16 +3,20 @@
  *
  * 显式运行，不在页面请求中执行检查：
  *   node scripts/ts/reliability-report.ts [--fast]
+ *   node scripts/ts/reliability-report.ts --from-ci <artifact 目录> [--out <快照路径>]
  *
  * `--fast` 跳过变异测试，并把该项记为 not_run；其余检查照常执行。
+ * `--from-ci` 不执行任何命令，只把已下载的 CI 工件映射成同一份快照 schema
+ * （行为测试/覆盖率/变异），快照里带 `source: "ci"`、runId 与提交身份。
  * 快照写入 reports/reliability/latest.json（reports/ 已被忽略），历史保留 30 份。
  */
 
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import config from '../../packages/forgeloop/vitest.config.ts'
+import { assertArtifactDir, buildCiSnapshot } from './reliability-ci.ts'
 
 const ROOT = process.cwd()
 const PKG_DIR = join(ROOT, 'packages', 'forgeloop')
@@ -22,9 +26,18 @@ const LATEST = join(REPORT_DIR, 'latest.json')
 const VITEST_REPORT = join(ROOT, 'reports', 'vitest.json')
 const COVERAGE_REPORT = join(PKG_DIR, 'coverage', 'coverage-summary.json')
 const MUTATION_REPORT = join(PKG_DIR, 'reports', 'mutation.json')
-const FAST = process.argv.includes('--fast')
 const HISTORY_LIMIT = 30
 const VITEST_BIN = fileURLToPath(import.meta.resolve('vitest/vitest.mjs'))
+
+function argValue(flag: string): string | null {
+  const index = process.argv.indexOf(flag)
+  const value = index >= 0 ? process.argv[index + 1] : undefined
+  return value && !value.startsWith('--') ? value : null
+}
+
+const FAST = process.argv.includes('--fast')
+const FROM_CI = argValue('--from-ci')
+const OUT = argValue('--out')
 
 interface RunResult {
   readonly ok: boolean
@@ -401,20 +414,67 @@ function dirtyStatus(): boolean {
   })
 }
 
-function pruneHistory(): void {
+function pruneHistory(historyDir = HISTORY_DIR): void {
   try {
-    const files = readdirSync(HISTORY_DIR)
+    const files = readdirSync(historyDir)
       .filter((name) => name.endsWith('.json'))
       .sort()
     for (const name of files.slice(0, Math.max(0, files.length - HISTORY_LIMIT))) {
-      unlinkSync(join(HISTORY_DIR, name))
+      unlinkSync(join(historyDir, name))
     }
   } catch {
     // 历史清理失败不阻断本次快照。
   }
 }
 
+/** 写快照与历史；`--out` 指向部署宿主的 projectPath 时也写它自己的 history。 */
+function writeSnapshot(snapshot: Record<string, unknown>, outPath: string): void {
+  mkdirSync(dirname(outPath), { recursive: true })
+  const historyDir = join(dirname(outPath), 'history')
+  mkdirSync(historyDir, { recursive: true })
+  const text = `${JSON.stringify(snapshot, null, 2)}\n`
+  writeFileSync(outPath, text, 'utf8')
+  const generatedAt = String(snapshot.generatedAt ?? new Date().toISOString())
+  const stamp = generatedAt.replace(/[:.]/g, '-')
+  const headValue = record(snapshot.git)?.head
+  const head = typeof headValue === 'string' ? headValue.slice(0, 7) : ''
+  writeFileSync(join(historyDir, `${stamp}-${head || 'nogit'}.json`), text, 'utf8')
+  pruneHistory(historyDir)
+}
+
+function gateListOf(snapshot: Record<string, unknown>): readonly GateRow[] {
+  const gates = snapshot.gates
+  return Array.isArray(gates) ? (gates as GateRow[]) : []
+}
+
+/** `--from-ci`：只映射已下载的 CI 工件，不执行任何命令。 */
+function reportFromCi(dir: string): void {
+  assertArtifactDir(dir)
+  const built = buildCiSnapshot({ dir })
+  for (const warning of built.warnings) console.warn(`[reliability] 警告：${warning}`)
+  const target = OUT ?? LATEST
+  writeSnapshot(built.snapshot, target)
+  const gates = gateListOf(built.snapshot)
+  const failed = gates.filter((item) => item.status === 'fail')
+  const passed = gates.filter((item) => item.status === 'pass')
+  const skipped = gates.filter((item) => item.status === 'skipped' || item.status === 'not_run')
+  const ci = record(built.snapshot.ci) ?? {}
+  console.log(
+    `[reliability] 已从 CI 工件生成快照 ${relative(ROOT, target)}；` +
+      `来源 ${String(ci.workflow ?? 'ci')}${ci.runId ? `#${String(ci.runId)}` : ''} ` +
+      `提交 ${String(ci.head ?? '').slice(0, 7) || '未知'}；` +
+      `门禁 ${passed.length}/${passed.length + failed.length} 通过` +
+      `${failed.length > 0 ? `，失败：${failed.map((item) => item.label).join('、')}` : ''}` +
+      `${skipped.length > 0 ? `，未包含：${skipped.map((item) => item.label).join('、')}` : ''}`,
+  )
+  if (failed.length > 0) process.exitCode = 1
+}
+
 function main(): void {
+  if (FROM_CI) {
+    reportFromCi(FROM_CI)
+    return
+  }
   mkdirSync(HISTORY_DIR, { recursive: true })
   const gates: GateRow[] = []
 
@@ -557,17 +617,14 @@ function main(): void {
       mutation: 'packages/forgeloop/reports/mutation.json',
     },
   }
-  const text = `${JSON.stringify(snapshot, null, 2)}\n`
-  writeFileSync(LATEST, text, 'utf8')
-  const stamp = snapshot.generatedAt.replace(/[:.]/g, '-')
-  const head = snapshot.git.head.slice(0, 7) || 'nogit'
-  writeFileSync(join(HISTORY_DIR, `${stamp}-${head}.json`), text, 'utf8')
-  pruneHistory()
+  const target = OUT ?? LATEST
+  const snapshotRecord = snapshot as unknown as Record<string, unknown>
+  writeSnapshot(snapshotRecord, target)
 
   const failed = gates.filter((item) => item.status === 'fail')
   const passed = gates.filter((item) => item.status === 'pass')
   console.log(
-    `[reliability] 快照 ${relative(ROOT, LATEST)}；门禁 ${passed.length}/${passed.length + failed.length} 通过` +
+    `[reliability] 快照 ${relative(ROOT, target)}；门禁 ${passed.length}/${passed.length + failed.length} 通过` +
       `${failed.length > 0 ? `，失败：${failed.map((item) => item.label).join('、')}` : ''}` +
       `${FAST ? '；变异测试未运行' : ''}`,
   )

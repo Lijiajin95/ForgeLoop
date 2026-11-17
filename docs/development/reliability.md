@@ -7,12 +7,12 @@
 
 ## 1. 入口与产物
 
-| 入口 | 作用 | 产物 |
-| --- | --- | --- |
-| `make reliability-registry` | 校验 `contracts/reliability.json` 结构、文件存在、门禁/NA、状态机闭包与 Stryker break 一致 | 控制台；失败非零退出 |
-| `make stability` | 登记的关键测试串行独立运行 3 次（nightly 5 次），隔离 TMPDIR，固定 seed | `reports/stability.json` |
-| `make mutation-incremental` | 只变异 `git diff BASE` 影响的源码及其直接依赖；`SCOPE=controlled` 跑清单受控范围 | `reports/mutation-incremental.json` |
-| `make reliability-advanced` | 清单 + 稳定性 + 属性 + 状态机 + 场景 + 回归 + 增量变异 + 报告 | `reports/reliability-advanced.json` 与控制台 Markdown |
+| 入口                        | 作用                                                                                       | 产物                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `make reliability-registry` | 校验 `contracts/reliability.json` 结构、文件存在、门禁/NA、状态机闭包与 Stryker break 一致 | 控制台；失败非零退出                                  |
+| `make stability`            | 登记的关键测试串行独立运行 3 次（nightly 5 次），隔离 TMPDIR，固定 seed                    | `reports/stability.json`                              |
+| `make mutation-incremental` | 只变异 `git diff BASE` 影响的源码及其直接依赖；`SCOPE=controlled` 跑清单受控范围           | `reports/mutation-incremental.json`                   |
+| `make reliability-advanced` | 清单 + 稳定性 + 属性 + 状态机 + 场景 + 回归 + 增量变异 + 报告                              | `reports/reliability-advanced.json` 与控制台 Markdown |
 
 `reports/` 已被忽略，报告不进入版本库；机器可读结论、base/head SHA、registry sha256
 与每项分母/范围/时间戳都在 JSON 中。状态只有 `PASS / FAIL / ERROR / NOT_APPLICABLE`：
@@ -81,12 +81,12 @@ Caused by: RuleViolationError: 任务包字段 test_command 不能包含重复�
 
 ## 4. 状态机与执行方式
 
-| 状态机 | 执行方式 | 测试覆盖 |
-| --- | --- | --- |
-| 部署 attempt | `canTransition` 是唯一判定，`Deployments.transition` 写库前校验并持久化 | 13 状态全 169 对穷举：合法边 19/19、非法边 150/150、终态 3×13；运行时批准/核对/拒绝/预检失败/工具失败路径与持久化一致 |
-| 需求状态 | 词表与终态在 `domain/status.ts`；分析/规划/推进/修订/取消/停止/授权入口先查 `isTerminal` | 34/48 条声明边由 `revise/cancel/stop/grant` 入口逐条驱动；终态+冻结态 4 个 × 7 个操作全部拒绝且持久化不变；中断恢复断为 blocked；`rejected` 无写入入口（见 §6） |
-| 任务运行结果 | 编译期联合类型；`recordTaskRun` 以 (req,plan,task) upsert，重试覆盖上一次事实 | 5×5=25 种结果写入/读回全部一致；心跳不隐式插入；未知状态从数据库读回时 fail-closed |
-| 运维事件 | 入口守卫：`decide` 只接受 awaiting_decision，`close` 拒绝已关闭/动作运行中，`requestFix` 只接受三个状态；`OpsStore.updateOpsEvent` 本身不做状态机校验 | 7 状态 × 3 入口 = 21 组允许/拒绝判定；拒绝决定 → unresolved；重复关闭；运行中动作中断 → interrupted + unresolved 且不重放 |
+| 状态机       | 执行方式                                                                                                                                              | 测试覆盖                                                                                                                                                        |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 部署 attempt | `canTransition` 是唯一判定，`Deployments.transition` 写库前校验并持久化                                                                               | 13 状态全 169 对穷举：合法边 19/19、非法边 150/150、终态 3×13；运行时批准/核对/拒绝/预检失败/工具失败路径与持久化一致                                           |
+| 需求状态     | 词表与终态在 `domain/status.ts`；分析/规划/推进/修订/取消/停止/授权入口先查 `isTerminal`                                                              | 34/48 条声明边由 `revise/cancel/stop/grant` 入口逐条驱动；终态+冻结态 4 个 × 7 个操作全部拒绝且持久化不变；中断恢复断为 blocked；`rejected` 无写入入口（见 §6） |
+| 任务运行结果 | 编译期联合类型；`recordTaskRun` 以 (req,plan,task) upsert，重试覆盖上一次事实                                                                         | 5×5=25 种结果写入/读回全部一致；心跳不隐式插入；未知状态从数据库读回时 fail-closed                                                                              |
+| 运维事件     | 入口守卫：`decide` 只接受 awaiting_decision，`close` 拒绝已关闭/动作运行中，`requestFix` 只接受三个状态；`OpsStore.updateOpsEvent` 本身不做状态机校验 | 7 状态 × 3 入口 = 21 组允许/拒绝判定；拒绝决定 → unresolved；重复关闭；运行中动作中断 → interrupted + unresolved 且不重放                                       |
 
 未逐边断言的 14 条需求状态边（分析失败、待澄清、准入、规划、批准后执行、验证/提交等）
 需要完整 Agent 流水线才能产生，已标记 `tested: false` 并由既有
@@ -132,8 +132,34 @@ monitor 源码仍在全量变异范围内；这里只调整变异执行器的测
 - PR / push：`quality.yml` 的 `reliability-advanced` 作业运行 `make reliability-advanced`
   （增量变异，不做全量）；`make check-fast` 内置 registry 校验。
 - nightly：`nightly.yml` 新增进阶作业（属性 1000 次、稳定性 5 轮、seed 取 run number），
-  并保留全量覆盖率、8 分片变异与 `mutation-merge`。
+  并保留全量覆盖率、14 分片变异与独立 `mutation-gate`。
 - release：保持 real-host E2E（`make verify-plugin` / `make verify-e2e`），本批未改动。
+
+### 7.1 把 CI 结果记录成快照（页面可见）
+
+页面只读 `reports/reliability/latest.json`；把已下载的 CI 工件映射成同一份快照：
+
+```bash
+# 1) 下载最近一次夜间或质量门工件
+gh run download <run-id> -D reports/ci/<run-id>
+
+# 2) 只读取工件、不执行任何命令，生成快照（行为测试/覆盖率/变异）
+node scripts/ts/reliability-report.ts --from-ci reports/ci/<run-id>
+
+# 部署宿主读取的是 projectPath 下的快照时，用 --out 直接写到它那里
+node scripts/ts/reliability-report.ts --from-ci reports/ci/<run-id> \
+  --out "$HOME/.forgeloop/<project>/project/reports/reliability/latest.json"
+```
+
+映射规则：
+
+- 行为测试：优先用工件里的 `vitest.json` 计数；没有时用 `reliability-advanced.json` 的
+  `coverage` 段推断（该 job 的 `make coverage` 会跑全量行为测试，段 PASS 即测试通过）。
+- 覆盖率：`coverage-summary.json` 的 total 与逐文件门槛（门槛从 vitest 配置读取）。
+- 变异：`mutation-incremental.json` 的 `score` 与 `break`。
+- 静态门禁（typecheck/lint/format/contracts/token/assertion）不在这些 artifact 里，
+  标记为 `skipped`，不伪造为通过；快照带 `source: "ci"`、`ci.runId` 与提交身份，
+  提交不一致时页面按“过期”提示。
 
 ## 8. 复现命令
 
