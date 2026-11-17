@@ -169,8 +169,7 @@ export class LibraryRebuildService {
     if (!run) throw new RebuildError('没有可确认的重建运行')
     if (run.status !== 'done') throw new RebuildError('该重建尚未完成，不能确认草稿')
     const ids = publishedIds(run.publishedJson)
-    const loaded = this.deps.load?.(this.deps.config.projectPath)
-    if (!loaded) throw new RebuildError('无法读取需求库')
+    const loaded = (this.deps.load ?? loadLibrary)(this.deps.config.projectPath)
     const byId = new Map(loaded.entries.map((item) => [item.entry.id, item.entry]))
     const confirmed: string[] = []
     const skipped: Array<{ id: string; reason: string }> = []
@@ -186,8 +185,8 @@ export class LibraryRebuildService {
       else if (outcome.reason) skipped.push({ id, reason: outcome.reason })
     }
     if (confirmed.length > 0) {
-      const fresh = this.deps.load?.(this.deps.config.projectPath)
-      if (fresh) this.deps.sync?.(fresh.entries, this.now())
+      const fresh = (this.deps.load ?? loadLibrary)(this.deps.config.projectPath)
+      this.deps.sync?.(fresh.entries, this.now())
     }
     return { confirmed, skipped }
   }
