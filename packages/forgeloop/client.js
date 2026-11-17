@@ -924,6 +924,9 @@ window.__ModuleLoader__.load({
       'wb.relations': '前后序',
       'wb.activity': 'Agent 执行过程',
       'wb.tests': '测试与审查',
+      'wb.activityEmpty': '该需求还没有可执行任务；Agent 执行过程从任务开始执行后记录。',
+      'wb.testsHint':
+        '测试与审查展示任务执行后的正式测试日志、独立审查结论与证据摘要；当前需求还没有任务，暂无内容。',
       'wb.changes': '变更记录',
       'wb.taskList': '任务列表',
       'wb.dependencies': '依赖关系',
@@ -1569,6 +1572,10 @@ window.__ModuleLoader__.load({
       'wb.relations': 'Dependencies',
       'wb.activity': 'Agent execution',
       'wb.tests': 'Tests & review',
+      'wb.activityEmpty':
+        'This requirement has no executable task yet; Agent execution is recorded once a task starts.',
+      'wb.testsHint':
+        'Tests & review shows the formal test log, independent review and evidence digests after a task runs; nothing exists until then.',
       'wb.changes': 'Changes',
       'wb.taskList': 'Task list',
       'wb.dependencies': 'Dependencies',
@@ -7053,7 +7060,18 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'flb-section' },
           props.tasks.length === 0
-            ? h('div', { className: 'flb-side-empty' }, t('wb.noExecution'))
+            ? h(
+                'div',
+                { className: 'flb-side-empty' },
+                t('wb.activityEmpty'),
+                props.requirement && props.requirement.blockedReason
+                  ? h(
+                      'div',
+                      { className: 'flb-card-meta', style: { marginTop: '6px' } },
+                      props.requirement.blockedReason,
+                    )
+                  : null,
+              )
             : props.tasks.map((task) =>
                 h(
                   'div',
@@ -7210,6 +7228,7 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { className: 'flb-section' },
+          h('div', { className: 'flb-wb-sub' }, t('wb.testsHint')),
           h('div', { className: 'flb-label' }, t('task.evidence')),
           artifacts.length === 0
             ? h('div', { className: 'flb-wb-sub' }, t('detail.noArtifacts'))
@@ -7503,6 +7522,7 @@ window.__ModuleLoader__.load({
                         : h(RequirementActivity, {
                             t,
                             tasks: props.tasks,
+                            requirement,
                             onOpenTask: props.onOpenTask,
                           })
                     : props.tab === 'tests'
