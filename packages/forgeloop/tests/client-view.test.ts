@@ -188,6 +188,10 @@ describe('client conversation view', () => {
       'product.rebuild.process.empty',
       'product.rebuild.batch',
       'product.rebuild.batch.failed',
+      'product.rebuild.confirm',
+      'product.rebuild.confirming',
+      'product.rebuild.confirmed',
+      'product.rebuild.confirmError',
     ]) {
       expect(dicts!.zh[key], key).toBeTruthy()
       expect(dicts!.en[key], key).toBeTruthy()

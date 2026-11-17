@@ -72,6 +72,12 @@ export interface RebuildBatchLogEntry {
   readonly error: string
 }
 
+/** 一次批量确认的结果：跳过的条目带原因，便于页面与报告核对。 */
+export interface LibraryConfirmResult {
+  readonly confirmed: readonly string[]
+  readonly skipped: ReadonlyArray<{ readonly id: string; readonly reason: string }>
+}
+
 /** 运行时装配入口：把配置、记录库与 Agent 运行器接到同一个服务实例。 */
 export interface LibraryRebuildRepo {
   readonly libraryRebuildStore: LibraryRebuildStore
@@ -150,6 +156,40 @@ export class LibraryRebuildService {
     if (!this.active || this.active.runId !== runId) return false
     this.active.controller.abort()
     return true
+  }
+
+  /**
+   * 所有者一次授权把某轮发布的草稿整批确认为 `confirmed`（减少逐条操作）。
+   * 只动来源为本轮 `library-rebuild:` 的 `draft`；其余条目跳过并给出原因。
+   */
+  confirm(runId: string | undefined, source: string): LibraryConfirmResult {
+    const run = runId
+      ? this.deps.store.get(runId)
+      : this.deps.store.latestDone(this.deps.config.project)
+    if (!run) throw new RebuildError('没有可确认的重建运行')
+    if (run.status !== 'done') throw new RebuildError('该重建尚未完成，不能确认草稿')
+    const ids = publishedIds(run.publishedJson)
+    const loaded = this.deps.load?.(this.deps.config.projectPath)
+    if (!loaded) throw new RebuildError('无法读取需求库')
+    const byId = new Map(loaded.entries.map((item) => [item.entry.id, item.entry]))
+    const confirmed: string[] = []
+    const skipped: Array<{ id: string; reason: string }> = []
+    const today = this.now().slice(0, 10)
+    for (const id of ids) {
+      const entry = byId.get(id)
+      if (!entry) {
+        skipped.push({ id, reason: '条目不存在' })
+        continue
+      }
+      const outcome = confirmOne(entry, this.deps.config.projectPath, source, today)
+      if (outcome.done) confirmed.push(id)
+      else if (outcome.reason) skipped.push({ id, reason: outcome.reason })
+    }
+    if (confirmed.length > 0) {
+      const fresh = this.deps.load?.(this.deps.config.projectPath)
+      if (fresh) this.deps.sync?.(fresh.entries, this.now())
+    }
+    return { confirmed, skipped }
   }
 
   /** 测试与关闭流程等待当前运行收尾。 */
@@ -562,6 +602,63 @@ function sha256File(path: string): string {
   } catch {
     return ''
   }
+}
+
+/** 运行记录里的发布清单：只取 id，坏条目忽略。 */
+function publishedIds(json: string): string[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+  const ids: string[] = []
+  for (const item of parsed) {
+    const record = asRecord(item)
+    const id = record && typeof record.id === 'string' ? record.id : ''
+    if (id) ids.push(id)
+  }
+  return ids
+}
+
+/** 单条确认：done 表示写入成功；already 与跳过都返回 false，跳过附原因。 */
+function confirmOne(
+  entry: { readonly path: string; readonly status: string; readonly source: string },
+  projectPath: string,
+  source: string,
+  today: string,
+): { readonly done: boolean; readonly reason: string } {
+  if (entry.status === 'confirmed') return { done: false, reason: '' }
+  if (entry.status !== 'draft') return { done: false, reason: '不是草稿' }
+  if (!entry.source.startsWith('library-rebuild:')) return { done: false, reason: '不是重建草稿' }
+  const full = join(projectPath, entry.path)
+  let text: string
+  try {
+    text = readFileSync(full, 'utf8')
+  } catch {
+    return { done: false, reason: '条目不可读' }
+  }
+  const updated = headerConfirmed(text, source, today)
+  if (!updated) return { done: false, reason: '无法识别条目头' }
+  return writeAtomic(full, updated)
+    ? { done: true, reason: '' }
+    : { done: false, reason: '写入失败' }
+}
+
+/** 把条目头的 `draft` 改成 `confirmed`，并写所有者来源与日期；正文不动。 */
+function headerConfirmed(text: string, source: string, today: string): string | undefined {
+  const end = text.indexOf('-->')
+  if (end < 0) return undefined
+  const header = text.slice(0, end)
+  if (!/"status"\s*:\s*"draft"/.test(header)) return undefined
+  if (!/"source"\s*:\s*"[^"]*"/.test(header)) return undefined
+  if (!/"updatedAt"\s*:\s*"[^"]*"/.test(header)) return undefined
+  const next = header
+    .replace(/"status"\s*:\s*"draft"/, '"status": "confirmed"')
+    .replace(/"source"\s*:\s*"[^"]*"/, `"source": ${JSON.stringify(source)}`)
+    .replace(/"updatedAt"\s*:\s*"[^"]*"/, `"updatedAt": "${today}"`)
+  return `${next}${text.slice(end)}`
 }
 
 /** 临时文件 + 重命名；失败时删除临时文件并保留原文件。 */

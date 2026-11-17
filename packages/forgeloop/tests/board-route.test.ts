@@ -108,6 +108,10 @@ function setup(
         calls.push({ method: 'libraryRebuildCancel', input: runId })
         return true
       },
+      confirm: (runId: string | undefined, source: string) => {
+        calls.push({ method: 'libraryRebuildConfirm', input: { runId, source } })
+        return { confirmed: ['a'], skipped: [] }
+      },
     },
     ...overrides,
   } as unknown as ForgeLoopRuntime
@@ -286,6 +290,37 @@ describe('board route', () => {
     expect(cancelled.status).toBe(200)
     expect(cancelled.body.value).toEqual({ cancelled: true, runId: 'run-1' })
     expect(calls.at(-1)).toEqual({ method: 'libraryRebuildCancel', input: 'run-1' })
+
+    const confirmed = await post(fetch, {
+      endpoint: 'library-rebuild-confirm',
+      runId: 'run-1',
+      sessionId: 's1',
+    })
+    expect(confirmed.status).toBe(200)
+    expect(confirmed.body.value).toEqual({ confirmed: ['a'], skipped: [] })
+    expect(calls.at(-1)).toEqual({
+      method: 'libraryRebuildConfirm',
+      input: { runId: 'run-1', source: 'owner-confirm:web-decision:s1' },
+    })
+  })
+
+  it('returns 409 when confirming a run that is not done', async () => {
+    const running = setup({
+      libraryRebuild: {
+        start: () => ({ runId: 'run-1', status: {} }),
+        status: () => null,
+        cancel: () => false,
+        confirm: () => {
+          throw new Error('该重建尚未完成，不能确认草稿')
+        },
+      },
+    })
+    const response = await post(running.fetch, {
+      endpoint: 'library-rebuild-confirm',
+      runId: 'run-1',
+    })
+    expect(response.status).toBe(409)
+    expect(response.body.error.code).toBe('conflict')
   })
 
   it('returns 409 when a rebuild is already running and 404 for unknown status', async () => {

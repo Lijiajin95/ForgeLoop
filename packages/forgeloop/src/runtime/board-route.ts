@@ -48,6 +48,7 @@ const BOARD_ENDPOINTS = [
   'library-rebuild-run',
   'library-rebuild-status',
   'library-rebuild-cancel',
+  'library-rebuild-confirm',
   'ops',
   'ops-detail',
   'ops-decide',
@@ -457,6 +458,21 @@ function handleLibraryRebuildCancel(body: BoardBody | null, context: BoardContex
   return boardResponse({ ok: true, value: { cancelled, runId } })
 }
 
+/** 所有者一次授权：把某轮发布的草稿整批确认；来源写入条目头。 */
+function handleLibraryRebuildConfirm(body: BoardBody | null, context: BoardContext): Response {
+  const runId = text(body?.runId)
+  const sessionId = text(body?.sessionId)
+  try {
+    const result = libraryRebuildOf(context.runtime).confirm(
+      runId || undefined,
+      `owner-confirm:web-decision:${sessionId || 'unknown-session'}`,
+    )
+    return boardResponse({ ok: true, value: result })
+  } catch (error) {
+    return boardResponse(boardFailure('conflict', errorMessage(error)), 409)
+  }
+}
+
 function handlePlan(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
@@ -761,6 +777,8 @@ function handleWrite(
   if (endpoint === 'library-rebuild-run') return handleLibraryRebuildRun(body, context)
 
   if (endpoint === 'library-rebuild-cancel') return handleLibraryRebuildCancel(body, context)
+
+  if (endpoint === 'library-rebuild-confirm') return handleLibraryRebuildConfirm(body, context)
 
   if (endpoint === 'deployment-approve') return handleDeploymentApprove(body, context)
 

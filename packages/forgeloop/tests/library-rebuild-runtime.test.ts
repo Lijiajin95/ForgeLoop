@@ -577,4 +577,147 @@ describe('library rebuild run', () => {
     } as never)
     expect(service.status()).toBeNull()
   })
+
+  it('confirms every draft of a run with one owner action', async () => {
+    const { dir, service } = setup(async () =>
+      completed(JSON.stringify({ candidates: [candidateJson()] })),
+    )
+    const { runId } = service.start({ by: 'owner', source: 'test' })
+    await service.whenIdle()
+
+    const result = service.confirm(runId, 'owner-confirm:web-decision:s1')
+    expect(result.confirmed).toEqual(['rules.cancel-shipped-order'])
+    expect(result.skipped).toEqual([])
+
+    const loaded = loadLibrary(dir)
+    expect(loaded.entries[0]?.entry.status).toBe('confirmed')
+    expect(loaded.entries[0]?.entry.source).toBe('owner-confirm:web-decision:s1')
+    expect(loaded.entries[0]?.entry.updatedAt).toBe('2026-11-16')
+
+    // 再点一次是幂等的：已确认条目不再计入“本次确认”。
+    expect(service.confirm(runId, 'owner-confirm:web-decision:s1')).toMatchObject({
+      confirmed: [],
+    })
+  })
+
+  it('refuses to confirm a rebuild that is still running', async () => {
+    let release: (() => void) | undefined
+    const pending = new Promise<AgentRunResult>((resolve) => {
+      release = () => resolve(completed('{"candidates":[]}'))
+    })
+    const { service } = setup(() => pending)
+    const { runId } = service.start({ by: 'owner', source: 'test' })
+
+    expect(() => service.confirm(runId, 'owner-confirm:test')).toThrow('尚未完成')
+    release?.()
+    await service.whenIdle()
+  })
+
+  function doneRun(overrides: Partial<LibraryRebuildRun> = {}): LibraryRebuildRun {
+    return {
+      runId: 'lrb-manual',
+      project: 'p',
+      status: 'done',
+      stage: 'done',
+      requestedBy: 'owner',
+      source: 'test',
+      pid: process.pid,
+      batchLogJson: '[]',
+      materials: 0,
+      batches: 1,
+      batchesDone: 1,
+      candidates: 0,
+      published: 0,
+      drafts: 0,
+      conflicts: 0,
+      unresolved: 0,
+      error: '',
+      startedAt: '2026-11-16T09:00:00.000Z',
+      finishedAt: NOW,
+      reportPath: '',
+      publishedJson: '[]',
+      ...overrides,
+    }
+  }
+
+  function libraryHeader(id: string, status: string, source: string): string {
+    return [
+      '<!-- library',
+      JSON.stringify(
+        {
+          id,
+          title: id,
+          status,
+          topics: [id],
+          summary: id,
+          source,
+          updatedAt: '2026-11-16',
+        },
+        null,
+        2,
+      ),
+      '-->',
+      '',
+      '# ' + id,
+      '',
+    ].join('\n')
+  }
+
+  it('skips published ids that are missing, not drafts, or not rebuild drafts', () => {
+    const { service, store, entryPath } = setup(async () => completed('{"candidates":[]}'))
+    mkdirSync(entryPath, { recursive: true })
+    writeFileSync(
+      join(entryPath, 'manual.draft.md'),
+      libraryHeader('manual.draft', 'draft', 'manual'),
+      'utf8',
+    )
+    writeFileSync(
+      join(entryPath, 'manual.superseded.md'),
+      libraryHeader('manual.superseded', 'superseded', 'manual'),
+      'utf8',
+    )
+    store.save(
+      doneRun({
+        publishedJson: JSON.stringify([
+          { id: 'manual.draft', sha256: 'x', fingerprint: 'f' },
+          { id: 'manual.superseded', sha256: 'x', fingerprint: 'f' },
+          { id: 'missing.entry', sha256: 'x', fingerprint: 'f' },
+        ]),
+      }),
+    )
+
+    const result = service.confirm('lrb-manual', 'owner-confirm:test')
+    expect(result.confirmed).toEqual([])
+    expect(result.skipped.map((item) => item.reason).sort()).toEqual(
+      ['不是重建草稿', '不是草稿', '条目不存在'].sort(),
+    )
+  })
+
+  it('returns no confirmation for an empty or malformed published list', () => {
+    const { service, store } = setup(async () => completed('{"candidates":[]}'))
+    store.save(doneRun({ runId: 'lrb-empty', publishedJson: '[]' }))
+    expect(service.confirm('lrb-empty', 'owner-confirm:test')).toEqual({
+      confirmed: [],
+      skipped: [],
+    })
+
+    store.save(doneRun({ runId: 'lrb-bad', publishedJson: 'not-json' }))
+    expect(service.confirm('lrb-bad', 'owner-confirm:test')).toEqual({
+      confirmed: [],
+      skipped: [],
+    })
+
+    expect(() => service.confirm('missing-run', 'owner-confirm:test')).toThrow('没有可确认')
+  })
+
+  it('uses the latest done run when no run id is given and ignores non-array credits', () => {
+    const { service, store } = setup(async () => completed('{"candidates":[]}'))
+    expect(() => service.confirm(undefined, 'owner-confirm:test')).toThrow('没有可确认')
+
+    store.save(doneRun({ runId: 'lrb-object', publishedJson: '{}' }))
+    expect(service.confirm(undefined, 'owner-confirm:test')).toEqual({
+      confirmed: [],
+      skipped: [],
+    })
+  })
 })

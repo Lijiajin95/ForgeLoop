@@ -1154,6 +1154,10 @@ window.__ModuleLoader__.load({
       'product.rebuild.process.empty': '正在等待第 1 批完成…',
       'product.rebuild.batch': '第 {index} 批 · 材料 {materials} · 候选 {candidates} · {seconds}s',
       'product.rebuild.batch.failed': '第 {index} 批失败：{error}',
+      'product.rebuild.confirm': '确认本轮草案',
+      'product.rebuild.confirming': '正在确认…',
+      'product.rebuild.confirmed': '已确认 {count} 条（跳过 {skipped}）',
+      'product.rebuild.confirmError': '确认失败',
       'reliability.loading': '正在读取可靠性数据…',
       'reliability.error': '可靠性数据读取失败',
       'reliability.retry': '重试',
@@ -1804,6 +1808,10 @@ window.__ModuleLoader__.load({
       'product.rebuild.batch':
         'Batch {index} · materials {materials} · candidates {candidates} · {seconds}s',
       'product.rebuild.batch.failed': 'Batch {index} failed: {error}',
+      'product.rebuild.confirm': 'Confirm run drafts',
+      'product.rebuild.confirming': 'Confirming…',
+      'product.rebuild.confirmed': 'Confirmed {count} (skipped {skipped})',
+      'product.rebuild.confirmError': 'Confirm failed',
       'reliability.loading': 'Reading reliability data…',
       'reliability.error': 'Failed to read reliability data',
       'reliability.retry': 'Retry',
@@ -7889,6 +7897,7 @@ window.__ModuleLoader__.load({
         const [openIds, setOpenIds] = React.useState({})
         const [bodies, setBodies] = React.useState({})
         const [rebuild, setRebuild] = React.useState(null)
+        const [confirmState, setConfirmState] = React.useState(null)
         const rebuildTimer = React.useRef(null)
         const data = props.data || {}
         const entries = Array.isArray(data.entries) ? data.entries : []
@@ -7965,6 +7974,25 @@ window.__ModuleLoader__.load({
           const runId = rebuild && rebuild.runId
           if (!runId || typeof read !== 'function') return
           read('library-rebuild-cancel', { runId }).catch(() => undefined)
+        }
+
+        // 一次授权整批确认本轮草稿，减少逐条操作；来源与日期写进条目头。
+        const confirmRebuild = () => {
+          const runId = rebuild && rebuild.runId
+          if (!runId || typeof read !== 'function') return
+          setConfirmState({ phase: 'loading' })
+          read('library-rebuild-confirm', { runId })
+            .then((result) => {
+              setConfirmState({
+                phase: 'done',
+                confirmed: Array.isArray(result.confirmed) ? result.confirmed.length : 0,
+                skipped: Array.isArray(result.skipped) ? result.skipped.length : 0,
+              })
+              if (typeof props.onRebuildDone === 'function') props.onRebuildDone()
+            })
+            .catch((error) =>
+              setConfirmState({ phase: 'error', error: error.message || String(error) }),
+            )
         }
 
         const rebuildRunning =
@@ -8136,6 +8164,32 @@ window.__ModuleLoader__.load({
               ),
               rebuildStatusText
                 ? h('div', { className: 'flb-product-rebuild-status' }, rebuildStatusText)
+                : null,
+              rebuild && rebuild.run && rebuild.run.status === 'done' && rebuild.run.published > 0
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'flb-card-action',
+                      disabled: confirmState !== null && confirmState.phase === 'loading',
+                      onClick: confirmRebuild,
+                    },
+                    t('product.rebuild.confirm'),
+                  )
+                : null,
+              confirmState
+                ? h(
+                    'div',
+                    { className: 'flb-product-rebuild-status' },
+                    confirmState.phase === 'loading'
+                      ? t('product.rebuild.confirming')
+                      : confirmState.phase === 'error'
+                        ? `${t('product.rebuild.confirmError')}：${confirmState.error}`
+                        : t('product.rebuild.confirmed', {
+                            count: confirmState.confirmed,
+                            skipped: confirmState.skipped,
+                          }),
+                  )
                 : null,
               rebuildBatchLog.length > 0
                 ? h(

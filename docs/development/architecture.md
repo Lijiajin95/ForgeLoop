@@ -675,7 +675,7 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`，和只读 `reliability`、
   需求库 `library`（条目索引与摘要）与 `library-entry`（按 id 读取单条正文，引用条目返回被引用文档），
   以及一键重建 `library-rebuild-run`（owner 写，在途时 409）、`library-rebuild-status`（只读）、
-  `library-rebuild-cancel`（owner 写）；
+  `library-rebuild-cancel`（owner 写）、`library-rebuild-confirm`（owner 写，整批确认某轮草稿）；
   `board` 支持 `query`/`limit` 搜索，`detail` 返回需求原文/任务包/交付/验收材料，`task` 返回运行、日志截断、审查与证据身份。
   浏览器半是 `dsh.client` 模块，经 `ctx.slots.inject('conversation.view')` 注册「天工」工作台（英文 Forge），
   并注册 ForgeLoop Chat 节点（含技术方案/任务包）与 `conversation.chat.turnTail` 需求摘要，
