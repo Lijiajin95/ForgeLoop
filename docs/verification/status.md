@@ -9523,3 +9523,21 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
 
 验证（本地，串行全量）：228 文件 / 2566 通过 / 1 跳过，逐文件覆盖率 98.43/93.92/99.65；
 变异配置串行：227 文件 / 2551 通过。远端：`main` 已同步至 `751757c`，三个工作流 success。
+
+## 256. 可靠性页接入 CI 结果（2026-11-17 13:3x）
+
+页面此前只读本机快照：`make reliability-report` 在本机现场跑门禁，CI 的行为测试、覆盖率与
+变异结果只存在于 Actions artifact，没有任何入口写进 `reports/reliability/latest.json`，
+因此长期显示旧快照的“失败/未运行/过期”。
+
+- `4ac1059` 新增 `--from-ci <artifact 目录>`：只读工件、不执行命令，映射成同一份快照 schema；
+  行为测试优先 `vitest.json`，没有时用 `reliability-advanced.json` 的 coverage 段推断
+  （该 job 的 `make coverage` 内含全量行为测试）；覆盖率取 `coverage-summary.json` 并把
+  CI 绝对路径归一为 `packages/forgeloop/...`；变异取 `mutation-incremental.json` 的
+  score/break。静态门禁不在 artifact 里，标 `skipped`，不伪造通过。
+- 快照带 `source: "ci"`、`ci.runId/workflow/head`；`--out` 可直接写到部署宿主的
+  `projectPath/reports/reliability/latest.json`。
+- 真实工件验证（run 43132824985）：`source=ci`、head `7825135`、行为测试 pass、覆盖率 98.05、
+  变异 95.1；门禁 3/3 通过、6 项静态门禁标 skipped。
+- 用例 `tests/reliability-ci.test.ts` 6 例；文档 `docs/development/reliability.md` §7.1。
+- 验证：全量 230 文件、2583 通过、1 跳过，逐文件覆盖率 98.43/93.88/99.65。
