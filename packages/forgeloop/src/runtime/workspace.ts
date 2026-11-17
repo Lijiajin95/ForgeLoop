@@ -29,8 +29,11 @@ export function runCommand(
 ): CommandResult {
   const timeoutMs = typeof options === 'number' ? options : (options.timeoutMs ?? 120_000)
   const extraEnv = typeof options === 'number' ? {} : (options.env ?? {})
+  // 研发副本与快照工作区在临时目录下会复制 `docs/verification/evidence/**` 里的长文件名；
+  // Windows 默认 260 字符上限会让 `git add -A` 直接失败。按次传 `-c`，不改全局配置。
+  const commandArgs = command === 'git' ? ['-c', 'core.longpaths=true', ...args] : [...args]
   try {
-    const stdout = execFileSync(command, [...args], {
+    const stdout = execFileSync(command, commandArgs, {
       cwd,
       encoding: 'utf8',
       // 限额 -1（不限）与 0 都不建超时；execFileSync 拒绝负的超时值。
@@ -123,6 +126,8 @@ export function prepareSnapshotWorkspace(input: {
   requireGit(input.workspacePath, ['init', '-q'])
   requireGit(input.workspacePath, ['config', 'user.email', 'forgeloop@localhost'])
   requireGit(input.workspacePath, ['config', 'user.name', 'ForgeLoop Snapshot'])
+  // 副本本身也写入 longpaths，后续由 Agent 或测试发起的 git 命令同样受益。
+  requireGit(input.workspacePath, ['config', 'core.longpaths', 'true'])
   requireGit(input.workspacePath, ['add', '-A'])
   requireGit(input.workspacePath, ['commit', '-qm', 'forgeloop baseline snapshot'])
   return {

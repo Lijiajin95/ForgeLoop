@@ -169,4 +169,10 @@ describe('workspace edge cases', () => {
     expect(existsSync(join(workspace, 'broken-link'))).toBe(false)
     expect(existsSync(join(workspace, 'dir-link'))).toBe(false)
   })
+
+  it('enables Windows long paths for every git invocation', () => {
+    expect(git(project, ['config', '--get', 'core.longpaths']).stdout.trim()).toBe('true')
+    expect(git(project, ['config', '--get', 'core.longpaths']).code).toBe(0)
+    expect(runCommand('node', ['-e', 'process.exit(0)'], dir).code).toBe(0)
+  })
 })
