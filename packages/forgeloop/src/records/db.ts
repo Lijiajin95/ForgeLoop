@@ -811,6 +811,8 @@ CREATE TABLE IF NOT EXISTS library_rebuilds (
   stage TEXT NOT NULL,
   requested_by TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT '',
+  pid INTEGER NOT NULL DEFAULT 0,
+  batch_log_json TEXT NOT NULL DEFAULT '[]',
   materials INTEGER NOT NULL DEFAULT 0,
   batches INTEGER NOT NULL DEFAULT 0,
   batches_done INTEGER NOT NULL DEFAULT 0,
@@ -895,6 +897,8 @@ export class Database {
         'library_warnings',
         "TEXT NOT NULL DEFAULT '[]'",
       )
+      ensureColumn(handle, 'library_rebuilds', 'pid', 'INTEGER NOT NULL DEFAULT 0')
+      ensureColumn(handle, 'library_rebuilds', 'batch_log_json', "TEXT NOT NULL DEFAULT '[]'")
     }
     return new Database(handle, path)
   }

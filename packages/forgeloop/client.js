@@ -1149,6 +1149,11 @@ window.__ModuleLoader__.load({
       'product.rebuild.stage.synthesize': '提炼',
       'product.rebuild.stage.review': '核对',
       'product.rebuild.stage.publish': '发布',
+      'product.rebuild.current': '提炼第 {index}/{total} 批 · 材料 {materials}',
+      'product.rebuild.process': 'Agent 过程',
+      'product.rebuild.process.empty': '正在等待第 1 批完成…',
+      'product.rebuild.batch': '第 {index} 批 · 材料 {materials} · 候选 {candidates} · {seconds}s',
+      'product.rebuild.batch.failed': '第 {index} 批失败：{error}',
       'reliability.loading': '正在读取可靠性数据…',
       'reliability.error': '可靠性数据读取失败',
       'reliability.retry': '重试',
@@ -1793,6 +1798,12 @@ window.__ModuleLoader__.load({
       'product.rebuild.stage.synthesize': 'synthesize',
       'product.rebuild.stage.review': 'review',
       'product.rebuild.stage.publish': 'publish',
+      'product.rebuild.current': 'Batch {index}/{total} · materials {materials}',
+      'product.rebuild.process': 'Agent progress',
+      'product.rebuild.process.empty': 'Waiting for batch 1 to finish…',
+      'product.rebuild.batch':
+        'Batch {index} · materials {materials} · candidates {candidates} · {seconds}s',
+      'product.rebuild.batch.failed': 'Batch {index} failed: {error}',
       'reliability.loading': 'Reading reliability data…',
       'reliability.error': 'Failed to read reliability data',
       'reliability.retry': 'Retry',
@@ -4931,6 +4942,11 @@ window.__ModuleLoader__.load({
 .flb-product-head-text{min-width:0}
 .flb-product-rebuild{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
 .flb-product-rebuild-status{font-size:11px;color:var(--dsw-alias-label-secondary);max-width:320px;text-align:right;overflow-wrap:anywhere}
+.flb-product-rebuild-process{margin-top:2px;font-size:11px;color:var(--dsw-alias-label-secondary);max-width:360px;text-align:right}
+.flb-product-rebuild-process summary{cursor:pointer}
+.flb-product-rebuild-batches{margin:4px 0 0;padding-left:16px;max-height:240px;overflow:auto;text-align:left}
+.flb-product-rebuild-batches li{margin:2px 0;overflow-wrap:anywhere}
+.flb-product-rebuild-batches li[data-status=failed]{color:var(--dsw-alias-state-error-primary)}
 .flb-product-title{margin:0 0 4px;font-size:16px;font-weight:600}
 .flb-product-list{display:flex;flex-direction:column;gap:8px}
 .flb-product-card{border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:10px;background:var(--dsw-alias-bg-layer-1)}
@@ -7885,6 +7901,22 @@ window.__ModuleLoader__.load({
           [],
         )
 
+        // 切回产品页时恢复最近一次重建：运行中继续轮询，结束则显示结果。
+        React.useEffect(() => {
+          if (typeof read !== 'function') return undefined
+          let alive = true
+          read('library-rebuild-status', {})
+            .then((run) => {
+              if (!alive || !run) return
+              setRebuild({ runId: run.runId, run })
+              if (run.status === 'queued' || run.status === 'running') pollRebuild(run.runId)
+            })
+            .catch(() => undefined)
+          return () => {
+            alive = false
+          }
+        }, [])
+
         const clearRebuildTimer = () => {
           if (rebuildTimer.current) clearInterval(rebuildTimer.current)
           rebuildTimer.current = null
@@ -7950,6 +7982,13 @@ window.__ModuleLoader__.load({
           const run = rebuild.run
           if (!run) return ''
           if (run.status === 'queued' || run.status === 'running') {
+            if (run.stage === 'synthesize' && run.batches > 0) {
+              return t('product.rebuild.current', {
+                index: Math.min(run.batchesDone + 1, run.batches),
+                total: run.batches,
+                materials: run.materials,
+              })
+            }
             return t('product.rebuild.progress', {
               stage: t(`product.rebuild.stage.${run.stage}`),
               done: run.batchesDone,
@@ -7966,6 +8005,17 @@ window.__ModuleLoader__.load({
           }
           if (run.status === 'cancelled') return t('product.rebuild.cancelled')
           return `${t('product.rebuild.failed')}${run.error ? `：${run.error}` : ''}`
+        })()
+
+        const rebuildBatchLog = (() => {
+          const raw = rebuild && rebuild.run && rebuild.run.batchLogJson
+          if (typeof raw !== 'string' || !raw) return []
+          try {
+            const parsed = JSON.parse(raw)
+            return Array.isArray(parsed) ? parsed : []
+          } catch {
+            return []
+          }
         })()
 
         // 正文只在第一次展开时读取；失败后再次点击可重试。
@@ -8087,6 +8137,44 @@ window.__ModuleLoader__.load({
               rebuildStatusText
                 ? h('div', { className: 'flb-product-rebuild-status' }, rebuildStatusText)
                 : null,
+              rebuildBatchLog.length > 0
+                ? h(
+                    'details',
+                    { className: 'flb-product-rebuild-process' },
+                    h(
+                      'summary',
+                      null,
+                      `${t('product.rebuild.process')}（${rebuildBatchLog.length}）`,
+                    ),
+                    h(
+                      'ul',
+                      { className: 'flb-product-rebuild-batches' },
+                      rebuildBatchLog.map((batch) =>
+                        h(
+                          'li',
+                          { key: `rebuild-batch-${batch.index}`, 'data-status': batch.status },
+                          batch.status === 'failed'
+                            ? t('product.rebuild.batch.failed', {
+                                index: batch.index,
+                                error: batch.error,
+                              })
+                            : t('product.rebuild.batch', {
+                                index: batch.index,
+                                materials: batch.materials,
+                                candidates: batch.candidates,
+                                seconds: (Number(batch.durationMs) / 1000).toFixed(1),
+                              }),
+                        ),
+                      ),
+                    ),
+                  )
+                : rebuildRunning
+                  ? h(
+                      'div',
+                      { className: 'flb-product-rebuild-process' },
+                      t('product.rebuild.process.empty'),
+                    )
+                  : null,
             ),
           ),
           warnings.length > 0

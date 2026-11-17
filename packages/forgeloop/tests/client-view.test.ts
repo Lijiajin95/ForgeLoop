@@ -183,6 +183,11 @@ describe('client conversation view', () => {
       'product.rebuild.stage.synthesize',
       'product.rebuild.stage.review',
       'product.rebuild.stage.publish',
+      'product.rebuild.current',
+      'product.rebuild.process',
+      'product.rebuild.process.empty',
+      'product.rebuild.batch',
+      'product.rebuild.batch.failed',
     ]) {
       expect(dicts!.zh[key], key).toBeTruthy()
       expect(dicts!.en[key], key).toBeTruthy()

@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest'
 import { projectDir, resolveConfig, type RawConfig } from '../src/config.js'
 import { Database } from '../src/records/db.js'
 import type { LibrarySyncEntry } from '../src/records/library-store.js'
-import { LibraryRebuildStore } from '../src/records/library-rebuild-store.js'
+import {
+  LibraryRebuildStore,
+  type LibraryRebuildRun,
+} from '../src/records/library-rebuild-store.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import { LibraryRebuildService } from '../src/runtime/library-rebuild.js'
 import { loadLibrary } from '../src/runtime/library-docs.js'
@@ -55,6 +58,7 @@ function setup(
   options: {
     sync?: (entries: readonly LibrarySyncEntry[], now: string) => void
     omitSync?: boolean
+    seed?: (store: LibraryRebuildStore) => void
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-rebuild-run-'))
@@ -71,6 +75,7 @@ function setup(
   const config = resolveConfig(raw, dir)
   const db = Database.open(join(projectDir(config), 'records.sqlite'))
   const store = new LibraryRebuildStore(db)
+  options.seed?.(store)
   const calls: AgentRunRequest[] = []
   const service = new LibraryRebuildService({
     config,
@@ -301,6 +306,8 @@ describe('library rebuild run', () => {
       stage: 'done',
       requestedBy: 'owner',
       source: 'test',
+      pid: 1,
+      batchLogJson: '[]',
       materials: 1,
       batches: 1,
       batchesDone: 1,
@@ -382,6 +389,8 @@ describe('library rebuild run', () => {
       stage: 'done',
       requestedBy: 'owner',
       source: 'test',
+      pid: 1,
+      batchLogJson: '[]',
       materials: 0,
       batches: 0,
       batchesDone: 0,
@@ -412,6 +421,8 @@ describe('library rebuild run', () => {
       stage: 'done',
       requestedBy: 'owner',
       source: 'test',
+      pid: 1,
+      batchLogJson: '[]',
       materials: 0,
       batches: 0,
       batchesDone: 0,
@@ -493,5 +504,77 @@ describe('library rebuild run', () => {
     const run = service.status(second.runId)
     expect(run).toMatchObject({ status: 'done', published: 0 })
     expect(readFileSync(join(run!.reportPath, 'run.json'), 'utf8')).toContain('跳过更新')
+  })
+
+  it('records per-batch progress and candidate counts incrementally', async () => {
+    const { service } = setup(async () =>
+      completed(JSON.stringify({ candidates: [candidateJson()] })),
+    )
+    service.start({ by: 'owner', source: 'test' })
+    await service.whenIdle()
+
+    const run = service.status()!
+    const log = JSON.parse(run.batchLogJson) as Array<Record<string, unknown>>
+    expect(log).toHaveLength(1)
+    expect(log[0]).toMatchObject({ index: 1, materials: 1, candidates: 1, status: 'ok' })
+    expect(run.candidates).toBe(1)
+  })
+
+  it('marks a run left running by another host process as interrupted', async () => {
+    const seeded: LibraryRebuildRun = {
+      runId: 'lrb-old',
+      project: 'p',
+      status: 'running',
+      stage: 'synthesize',
+      requestedBy: 'owner',
+      source: 'test',
+      pid: 1,
+      batchLogJson: '[]',
+      materials: 1,
+      batches: 1,
+      batchesDone: 0,
+      candidates: 0,
+      published: 0,
+      drafts: 0,
+      conflicts: 0,
+      unresolved: 0,
+      error: '',
+      startedAt: '2026-11-16T09:00:00.000Z',
+      finishedAt: '',
+      reportPath: '',
+      publishedJson: '[]',
+    }
+    const { store } = setup(async () => completed('{"candidates":[]}'), {
+      seed: (seedStore) => seedStore.save(seeded),
+    })
+
+    expect(store.get('lrb-old')).toMatchObject({
+      status: 'failed',
+      error: '宿主重启导致运行中断',
+      finishedAt: NOW,
+    })
+  })
+
+  it('constructs even when interrupted-run cleanup fails', () => {
+    const service = new LibraryRebuildService({
+      config: { project: 'p', projectPath: '/tmp' },
+      store: {
+        markInterrupted: () => {
+          throw new Error('db locked')
+        },
+        get: () => null,
+        latest: () => null,
+      },
+      runner: { run: async () => completed('{"candidates":[]}') },
+      load: () => ({ entries: [], warnings: [] }),
+      collect: () => ({
+        materials: [],
+        batches: [],
+        counts: { doc: 0, acceptance: 0, git: 0, source: 0, library: 0 },
+        skipped: [],
+      }),
+      now: () => NOW,
+    } as never)
+    expect(service.status()).toBeNull()
   })
 })

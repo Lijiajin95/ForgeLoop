@@ -62,6 +62,16 @@ export interface LibraryRebuildStartResult {
   readonly status: LibraryRebuildRun
 }
 
+/** 单批提炼的过程记录：页面按批展示，失败批次保留原因。 */
+export interface RebuildBatchLogEntry {
+  readonly index: number
+  readonly materials: number
+  readonly candidates: number
+  readonly status: 'ok' | 'failed'
+  readonly durationMs: number
+  readonly error: string
+}
+
 /** 运行时装配入口：把配置、记录库与 Agent 运行器接到同一个服务实例。 */
 export interface LibraryRebuildRepo {
   readonly libraryRebuildStore: LibraryRebuildStore
@@ -96,6 +106,12 @@ export class LibraryRebuildService {
 
   constructor(private readonly deps: LibraryRebuildDeps) {
     this.now = deps.now ?? (() => new Date().toISOString())
+    // 新进程首次使用该服务时，把上一进程遗留的运行标为中断；同进程热重载不受影响。
+    try {
+      this.deps.store.markInterrupted(this.deps.config.project, process.pid, this.now())
+    } catch {
+      // 记录不可写时仍允许读取与重新发起，由页面展示库或记录错误。
+    }
   }
 
   /** 启动一轮重建；已有运行在途时拒绝，重复点击由页面读取当前进度。 */
@@ -221,22 +237,36 @@ export class LibraryRebuildService {
     errors: string[]
   }): Promise<Map<string, RebuildCandidate>> {
     const merged = new Map<string, RebuildCandidate>()
-    let batchesDone = 0
+    const log: RebuildBatchLogEntry[] = []
     for (let index = 0; index < input.batches.length; index += 1) {
       if (isAborted(input.controller.signal)) break
-      const parsed = await this.runBatch({
+      const batch = input.batches[index] ?? []
+      const startedAt = Date.now()
+      const result = await this.runBatch({
         runId: input.runId,
         projectPath: input.projectPath,
-        batch: input.batches[index] ?? [],
+        batch,
         index,
         total: input.batches.length,
         libraryIndex: input.libraryIndex,
         controller: input.controller,
-        errors: input.errors,
       })
-      if (parsed) mergeCandidates(merged, parsed)
-      batchesDone += 1
-      this.patch(input.runId, { batchesDone })
+      const durationMs = Date.now() - startedAt
+      if (result.error) input.errors.push(result.error)
+      if (result.candidates.length > 0) mergeCandidates(merged, result.candidates)
+      log.push({
+        index: index + 1,
+        materials: batch.length,
+        candidates: result.candidates.length,
+        status: result.error ? 'failed' : 'ok',
+        durationMs,
+        error: result.error,
+      })
+      this.patch(input.runId, {
+        batchesDone: index + 1,
+        candidates: merged.size,
+        batchLogJson: JSON.stringify(log),
+      })
     }
     return merged
   }
@@ -250,8 +280,7 @@ export class LibraryRebuildService {
     total: number
     libraryIndex: string
     controller: AbortController
-    errors: string[]
-  }): Promise<readonly RebuildCandidate[] | undefined> {
+  }): Promise<{ readonly candidates: readonly RebuildCandidate[]; readonly error: string }> {
     const prompt = libraryRebuildPrompt({
       materials: input.batch,
       libraryIndex: input.libraryIndex,
@@ -276,18 +305,18 @@ export class LibraryRebuildService {
         tools: 'none',
       })
     } catch (error) {
-      input.errors.push(`批次 ${input.index + 1} 调用失败：${errorMessage(error)}`)
-      return undefined
+      return { candidates: [], error: `批次 ${input.index + 1} 调用失败：${errorMessage(error)}` }
     }
     if (result.status !== 'completed') {
-      input.errors.push(`批次 ${input.index + 1} 未完成：${result.reason || result.status}`)
-      return undefined
+      return {
+        candidates: [],
+        error: `批次 ${input.index + 1} 未完成：${result.reason || result.status}`,
+      }
     }
     try {
-      return parseRebuildCandidates(result.text)
+      return { candidates: parseRebuildCandidates(result.text), error: '' }
     } catch (error) {
-      input.errors.push(`批次 ${input.index + 1} 输出不可用：${errorMessage(error)}`)
-      return undefined
+      return { candidates: [], error: `批次 ${input.index + 1} 输出不可用：${errorMessage(error)}` }
     }
   }
 
@@ -462,6 +491,8 @@ function emptyRun(input: {
     stage: 'collect',
     requestedBy: input.requestedBy,
     source: input.source,
+    pid: process.pid,
+    batchLogJson: '[]',
     materials: 0,
     batches: 0,
     batchesDone: 0,

@@ -38,6 +38,10 @@ export interface LibraryRebuildRun {
   /** 触发重建的所有者与来源；与看板其他 owner 动作同一口径。 */
   readonly requestedBy: string
   readonly source: string
+  /** 启动该运行的宿主进程；用于重启后识别被中断的运行。 */
+  readonly pid: number
+  /** 逐批进度：[{index,materials,candidates,status,durationMs,error}]。 */
+  readonly batchLogJson: string
   readonly materials: number
   readonly batches: number
   readonly batchesDone: number
@@ -61,15 +65,17 @@ export class LibraryRebuildStore {
     this.db
       .prepare(
         `INSERT INTO library_rebuilds
-          (run_id, project, status, stage, requested_by, source, materials, batches, batches_done,
-           candidates, published, drafts, conflicts, unresolved, error, started_at, finished_at,
-           report_path, published_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (run_id, project, status, stage, requested_by, source, pid, batch_log_json, materials,
+           batches, batches_done, candidates, published, drafts, conflicts, unresolved, error,
+           started_at, finished_at, report_path, published_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id) DO UPDATE SET
            status = excluded.status,
            stage = excluded.stage,
            requested_by = excluded.requested_by,
            source = excluded.source,
+           pid = excluded.pid,
+           batch_log_json = excluded.batch_log_json,
            materials = excluded.materials,
            batches = excluded.batches,
            batches_done = excluded.batches_done,
@@ -90,6 +96,8 @@ export class LibraryRebuildStore {
         run.stage,
         run.requestedBy,
         run.source,
+        run.pid,
+        run.batchLogJson,
         run.materials,
         run.batches,
         run.batchesDone,
@@ -145,6 +153,16 @@ export class LibraryRebuildStore {
     return row ? runRow(row) : null
   }
 
+  /** 宿主重启后，把上一进程遗留的 queued/running 运行标为中断失败。 */
+  markInterrupted(project: string, pid: number, now: string): number {
+    const result = this.db
+      .prepare(
+        "UPDATE library_rebuilds SET status = 'failed', stage = 'done', error = '宿主重启导致运行中断', finished_at = ? WHERE project = ? AND status IN ('queued','running') AND pid <> ?",
+      )
+      .run(now, project, pid)
+    return result.changes
+  }
+
   recent(project: string, limit = 10): LibraryRebuildRun[] {
     return this.db
       .prepare(
@@ -175,6 +193,8 @@ function runRow(row: Row): LibraryRebuildRun {
     stage: stageOf(text(row, 'stage')),
     requestedBy: text(row, 'requested_by'),
     source: text(row, 'source'),
+    pid: num(row, 'pid'),
+    batchLogJson: text(row, 'batch_log_json'),
     materials: num(row, 'materials'),
     batches: num(row, 'batches'),
     batchesDone: num(row, 'batches_done'),

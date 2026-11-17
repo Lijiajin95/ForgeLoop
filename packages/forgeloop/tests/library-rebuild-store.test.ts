@@ -16,6 +16,8 @@ function run(overrides: Partial<LibraryRebuildRun> = {}): LibraryRebuildRun {
     stage: 'collect',
     requestedBy: 'owner',
     source: 'test',
+    pid: 1234,
+    batchLogJson: '[]',
     materials: 3,
     batches: 2,
     batchesDone: 1,
@@ -76,6 +78,22 @@ describe('library rebuild store', () => {
     const { db, store } = open()
     expect(store.get('unknown')).toBeNull()
     expect(store.latest('p')).toBeNull()
+    db.close()
+  })
+
+  it('marks runs from another process as interrupted', () => {
+    const { db, store } = open()
+    store.save(run({ runId: 'old', status: 'running', pid: 999 }))
+    store.save(run({ runId: 'same', status: 'running', pid: 1234 }))
+
+    expect(store.markInterrupted('p', 1234, '2026-11-17T00:00:00Z')).toBe(1)
+    expect(store.get('old')).toMatchObject({
+      status: 'failed',
+      stage: 'done',
+      error: '宿主重启导致运行中断',
+      finishedAt: '2026-11-17T00:00:00Z',
+    })
+    expect(store.get('same')?.status).toBe('running')
     db.close()
   })
 })
