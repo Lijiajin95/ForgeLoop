@@ -5440,7 +5440,8 @@ window.__ModuleLoader__.load({
 .flb-product-window .flb-product-body-text{max-height:none}
 @media (max-width:819px){
   .flb-library{display:block}
-  .flb-library-topics{display:none}
+  .flb-library-topics{display:block;border-right:0;padding-right:0;margin-bottom:8px}
+  .flb-library-topics-title,.flb-library-topic{display:none}
   .flb-library-topic-select{display:block;width:100%;margin-bottom:8px}
   .flb-library-search{flex:1 1 100%}
 }
