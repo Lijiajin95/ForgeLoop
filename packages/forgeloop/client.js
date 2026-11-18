@@ -180,6 +180,279 @@ window.__ModuleLoader__.load({
       return { tone: 'success', code: 'pass' }
     }
 
+    /**
+     * 业务要点与验收的对应：按分析里的 BP 编号分组。
+     * 没有 point_ids 的验收归为“尚未关联”，保留原文而不猜测归属。
+     */
+    function businessPointRows(analysis, planTasks) {
+      const points =
+        analysis && Array.isArray(analysis.businessPoints) ? analysis.businessPoints : []
+      const acceptance =
+        analysis && Array.isArray(analysis.acceptanceItems) ? analysis.acceptanceItems : []
+      const tasks = Array.isArray(planTasks) ? planTasks : []
+      const rows = points.map((point) => ({
+        id: point.id,
+        text: point.behavior || '',
+        acceptance: acceptance
+          .filter((item) => (item.pointIds || []).includes(point.id))
+          .map((item) => item.then || item.when || ''),
+        covers: tasks
+          .filter((task) => (task.covers || []).includes(point.id))
+          .map((task) => task.taskId),
+      }))
+      const unlinked = acceptance
+        .filter((item) => !(item.pointIds || []).length)
+        .map((item) => item.then || item.when || '')
+      return { rows, unlinked }
+    }
+
+    /**
+     * 三列阶段状态：只根据已有记录判读，读取中、失败与无记录分别呈现。
+     * 状态词与颜色由同一 tone 决定，不把未采集写成通过。
+     */
+    function stageStatuses(t, requirement, tasks, detail) {
+      const phase = detail && detail.phase ? detail.phase : 'idle'
+      const data = (detail && detail.data) || {}
+      if (phase === 'idle' || phase === 'loading') {
+        return {
+          product: { tone: 'idle', label: t('stage.loading') },
+          development: { tone: 'idle', label: t('stage.loading') },
+          verification: { tone: 'idle', label: t('stage.loading') },
+        }
+      }
+      if (phase === 'error') {
+        return {
+          product: { tone: 'error', label: t('wb.error') },
+          development: { tone: 'error', label: t('wb.error') },
+          verification: { tone: 'error', label: t('wb.error') },
+        }
+      }
+      const analysis = data.analysis || null
+      const activity = Array.isArray(data.analysisActivity) ? data.analysisActivity : []
+      const latestAttempt = activity[activity.length - 1] || null
+      const product = (() => {
+        if (analysis) return { tone: 'success', label: t('stage.product.ready') }
+        if (requirement && requirement.status === 'awaiting_clarification') {
+          return { tone: 'warn', label: t('stage.product.clarify') }
+        }
+        if (latestAttempt && latestAttempt.outcome === 'failed') {
+          return { tone: 'error', label: t('stage.product.failed') }
+        }
+        return { tone: 'idle', label: t('stage.product.empty') }
+      })()
+      const development = (() => {
+        if (requirement && requirement.status === 'cancelled') {
+          return { tone: 'idle', label: t('stage.dev.cancelled') }
+        }
+        const list = Array.isArray(tasks) ? tasks : []
+        if (list.length === 0) return { tone: 'idle', label: t('stage.dev.planning') }
+        const delivered = list.filter((task) => task.state === 'delivered').length
+        if (delivered === list.length) return { tone: 'success', label: t('stage.dev.delivered') }
+        if (list.some((task) => task.state === 'failed')) {
+          return { tone: 'error', label: t('stage.dev.failed') }
+        }
+        if (list.some((task) => task.state === 'blocked')) {
+          return { tone: 'error', label: t('stage.dev.blocked') }
+        }
+        if (list.some((task) => task.state === 'running')) {
+          return { tone: 'brand', label: t('stage.dev.running') }
+        }
+        return { tone: 'idle', label: t('stage.dev.pending') }
+      })()
+      const verification = data.verification
+      const verificationStatus = (() => {
+        if (!verification) return { tone: 'idle', label: t('stage.verify.none') }
+        if (verification.fresh === false) return { tone: 'warn', label: t('stage.verify.stale') }
+        if (verification.verdict === 'pass') {
+          return { tone: 'success', label: t('stage.verify.pass') }
+        }
+        return { tone: 'error', label: t('stage.verify.block') }
+      })()
+      return { product, development, verification: verificationStatus }
+    }
+
+    /**
+     * 当前候选之外的最近验证异常：只引用记录里能确认的失败分类与阻塞原因，
+     * 与“尚无结论”并存显示，不改写成“验证未通过”。
+     */
+    function verificationAnomaly(detail) {
+      const data = (detail && detail.data) || {}
+      const activity = Array.isArray(data.verificationActivity) ? data.verificationActivity : []
+      const latest = activity[activity.length - 1]
+      if (!latest) return null
+      const current = data.verification
+      if (current && current.candidateSha256 === latest.candidateSha256) return null
+      return {
+        blocking: Array.isArray(latest.blocking) ? latest.blocking : [],
+        failureKind: latest.failureKind || '',
+        verifiedAt: latest.verifiedAt || '',
+      }
+    }
+
+    /** 验证场景与结论：报告只有场景文字时留在候选层级，不冒充业务要点覆盖。 */
+    function verificationScenarioRows(detail) {
+      const data = (detail && detail.data) || {}
+      const verification = data.verification || null
+      const scenarios =
+        verification && Array.isArray(verification.scenarios) ? verification.scenarios : []
+      return scenarios.map((scenario) => ({
+        name: scenario.scenario,
+        status: scenario.status,
+        evidence: scenario.evidence || '',
+      }))
+    }
+
+    /** 阶段活动窗口：产品分析与验证尝试的公开记录，不展示推理与原始日志。 */
+    function StageActivity(props) {
+      const t = props.t
+      const stage = props.stage
+      const detail = props.detail || {}
+      const data = detail.data || {}
+      const attempts =
+        stage === 'product'
+          ? Array.isArray(data.analysisActivity)
+            ? data.analysisActivity
+            : []
+          : Array.isArray(data.verificationActivity)
+            ? data.verificationActivity
+            : []
+      return h(
+        'div',
+        { className: 'flb-stage-activity' },
+        detail.phase === 'error'
+          ? h(
+              'div',
+              { className: 'flb-error-inline', role: 'alert' },
+              detail.error || t('wb.error'),
+            )
+          : null,
+        attempts.length === 0
+          ? h(
+              'div',
+              { className: 'flb-stage-activity-empty' },
+              h('div', null, t('stage.activity.empty')),
+              h('div', { className: 'flb-muted' }, t('stage.activity.emptyHint')),
+            )
+          : h(
+              'ol',
+              { className: 'flb-stage-activity-list' },
+              attempts
+                .slice()
+                .reverse()
+                .map((attempt, index) =>
+                  stage === 'product'
+                    ? h(AnalysisAttemptRow, {
+                        t,
+                        key: `a-${attempt.attempt}-${index}`,
+                        attempt,
+                      })
+                    : h(VerificationAttemptRow, {
+                        t,
+                        key: `v-${attempt.attemptId || index}-${index}`,
+                        attempt,
+                      }),
+                ),
+            ),
+      )
+    }
+
+    function AnalysisAttemptRow(props) {
+      const t = props.t
+      const attempt = props.attempt
+      const outcomeKey = `stage.activity.outcome.${attempt.outcome}`
+      const outcomeLabel = t(outcomeKey)
+      const tone =
+        attempt.outcome === 'failed' ? 'error' : attempt.outcome === 'stale' ? 'warn' : 'success'
+      return h(
+        'li',
+        { className: 'flb-activity-row', 'data-tone': tone },
+        h(
+          'div',
+          { className: 'flb-activity-head' },
+          h(
+            'span',
+            { className: 'flb-activity-title' },
+            t('stage.activity.attempt', { attempt: attempt.attempt }),
+          ),
+          h(Chip, { tone }, outcomeLabel === outcomeKey ? String(attempt.outcome) : outcomeLabel),
+          h(
+            'span',
+            { className: 'flb-muted' },
+            `v${attempt.requirementVersion} · ${attempt.kind} · ${formatMoment(attempt.createdAt)}`,
+          ),
+        ),
+        attempt.detail ? h('p', { className: 'flb-activity-text' }, attempt.detail) : null,
+        Array.isArray(attempt.toolCalls) && attempt.toolCalls.length > 0
+          ? h(
+              'div',
+              { className: 'flb-activity-tools' },
+              h('span', { className: 'flb-muted' }, t('stage.activity.tools')),
+              attempt.toolCalls.map((name) =>
+                h('span', { className: 'flb-chip', key: name }, name),
+              ),
+            )
+          : null,
+        attempt.model
+          ? h(
+              'div',
+              { className: 'flb-muted' },
+              t('stage.activity.model', { model: attempt.model }),
+            )
+          : null,
+      )
+    }
+
+    function VerificationAttemptRow(props) {
+      const t = props.t
+      const attempt = props.attempt
+      const blocking = Array.isArray(attempt.blocking) ? attempt.blocking : []
+      return h(
+        'li',
+        { className: 'flb-activity-row', 'data-tone': attempt.verdict === 'pass' ? 'success' : 'error' },
+        h(
+          'div',
+          { className: 'flb-activity-head' },
+          h(
+            'span',
+            { className: 'flb-activity-title' },
+            t('stage.activity.attempt', { attempt: attempt.attemptNumber }),
+          ),
+          h(
+            Chip,
+            { tone: attempt.verdict === 'pass' ? 'success' : 'error' },
+            t(attempt.verdict === 'pass' ? 'stage.activity.verdict.pass' : 'stage.activity.verdict.block'),
+          ),
+          h(
+            'span',
+            { className: 'flb-muted' },
+            `v${attempt.planVersion} · ${shortSha(attempt.candidateSha256 || '')} · ${formatMoment(attempt.verifiedAt)}`,
+          ),
+        ),
+        attempt.failureKind
+          ? h(
+              'div',
+              { className: 'flb-muted' },
+              `${t('stage.activity.failureKind')}：${attempt.failureKind}`,
+            )
+          : null,
+        blocking.length > 0
+          ? h(
+              'div',
+              { className: 'flb-activity-blocking' },
+              h('div', { className: 'flb-label' }, t('stage.activity.blocking')),
+              h(
+                'ul',
+                { className: 'flb-bullets' },
+                blocking.map((reason, index) => h('li', { key: index }, reason)),
+              ),
+            )
+          : null,
+        attempt.sessionId
+          ? h('div', { className: 'flb-muted' }, `${t('wb.session')}：${attempt.sessionId}`)
+          : null,
+      )
+    }
+
     const zh = {
       'view.label': '天工',
       'page.title': '天工',
@@ -935,6 +1208,65 @@ window.__ModuleLoader__.load({
       'queue.openRequirement': '查看需求 ↗',
       'queue.back.requirement': '‹ 返回按需求',
       'queue.back.tasks': '‹ 返回按任务',
+      'stage.product': '产品',
+      'stage.development': '研发',
+      'stage.verification': '验证',
+      'stage.product.ready': '已形成说明',
+      'stage.product.failed': '分析失败',
+      'stage.product.clarify': '待澄清',
+      'stage.product.empty': '尚无说明',
+      'stage.dev.planning': '尚无任务',
+      'stage.dev.pending': '待执行',
+      'stage.dev.running': '执行中',
+      'stage.dev.delivered': '已交付',
+      'stage.dev.failed': '失败',
+      'stage.dev.blocked': '阻塞',
+      'stage.dev.cancelled': '已取消',
+      'stage.verify.none': '尚无结论',
+      'stage.verify.pass': '验证通过',
+      'stage.verify.block': '验证未通过',
+      'stage.verify.stale': '需重新验证',
+      'stage.loading': '读取中…',
+      'stage.points': '业务要点',
+      'stage.acceptance': '验收要点',
+      'stage.unlinked': '尚未关联',
+      'stage.noPoints': '这次分析没有结构化业务要点，正文见需求详情。',
+      'stage.showAll': '显示全部',
+      'stage.selected': '已选 {id}',
+      'stage.tasks': '研发任务',
+      'stage.covers': '覆盖 {ids}',
+      'stage.noCovers': '未关联业务要点',
+      'stage.execution': 'Agent 执行过程 ↗',
+      'stage.openDetail': '查看详情 ↗',
+      'stage.noActivity': '没有可读的执行记录',
+      'stage.deliveredCount': '{delivered} / {total} 个任务已交付',
+      'stage.verification.candidate': '候选 {sha}',
+      'stage.verification.scenarios': '验证场景',
+      'stage.verification.more': '显示其余 {count} 项',
+      'stage.verification.anomaly': '最近异常',
+      'stage.verification.history': '历史尝试 {count} 次',
+      'stage.verification.empty': '交付后才会有当前候选的验证结论。',
+      'stage.scenario.pass': '通过',
+      'stage.scenario.fail': '失败',
+      'stage.scenario.not_verified': '未验证',
+      'stage.activity.product': '产品 Agent 执行过程',
+      'stage.activity.verification': '验证 Agent 执行过程',
+      'stage.activity.empty': '没有可读的阶段执行记录。',
+      'stage.activity.emptyHint': '该阶段尚未运行，或记录未保留。',
+      'stage.activity.attempt': '第 {attempt} 次',
+      'stage.activity.outcome.done': '完成',
+      'stage.activity.outcome.failed': '失败',
+      'stage.activity.outcome.stale': '已过期',
+      'stage.activity.tools': '工具',
+      'stage.activity.blocking': '阻塞原因',
+      'stage.activity.failureKind': '失败分类',
+      'stage.activity.model': '模型 {model}',
+      'stage.activity.verdict.pass': '通过',
+      'stage.activity.verdict.block': '阻断',
+      'stage.issues': '需要处理 {count} 项',
+      'stage.queue': '查看待办',
+      'overlay.close': '关闭',
+      'overlay.detail': '详情',
       'wb.requirement': '需求',
       'wb.task': '任务',
       'wb.issue': '问题',
@@ -1603,6 +1935,65 @@ window.__ModuleLoader__.load({
       'queue.openRequirement': 'View requirement ↗',
       'queue.back.requirement': '‹ Back to requirements',
       'queue.back.tasks': '‹ Back to tasks',
+      'stage.product': 'Product',
+      'stage.development': 'Development',
+      'stage.verification': 'Verification',
+      'stage.product.ready': 'Spec ready',
+      'stage.product.failed': 'Analysis failed',
+      'stage.product.clarify': 'Needs clarification',
+      'stage.product.empty': 'No spec yet',
+      'stage.dev.planning': 'No tasks yet',
+      'stage.dev.pending': 'Pending',
+      'stage.dev.running': 'Running',
+      'stage.dev.delivered': 'Delivered',
+      'stage.dev.failed': 'Failed',
+      'stage.dev.blocked': 'Blocked',
+      'stage.dev.cancelled': 'Cancelled',
+      'stage.verify.none': 'No verdict',
+      'stage.verify.pass': 'Verification passed',
+      'stage.verify.block': 'Verification blocked',
+      'stage.verify.stale': 'Needs re-verification',
+      'stage.loading': 'Reading…',
+      'stage.points': 'Business points',
+      'stage.acceptance': 'Acceptance',
+      'stage.unlinked': 'Not linked',
+      'stage.noPoints': 'This analysis has no structured business points; read the detail for the text.',
+      'stage.showAll': 'Show all',
+      'stage.selected': '{id} selected',
+      'stage.tasks': 'Development tasks',
+      'stage.covers': 'Covers {ids}',
+      'stage.noCovers': 'No linked business point',
+      'stage.execution': 'Agent execution ↗',
+      'stage.openDetail': 'View details ↗',
+      'stage.noActivity': 'No readable execution record',
+      'stage.deliveredCount': '{delivered} of {total} tasks delivered',
+      'stage.verification.candidate': 'Candidate {sha}',
+      'stage.verification.scenarios': 'Verification scenarios',
+      'stage.verification.more': 'Show {count} more',
+      'stage.verification.anomaly': 'Latest anomaly',
+      'stage.verification.history': '{count} earlier attempts',
+      'stage.verification.empty': 'A verification verdict appears after delivery.',
+      'stage.scenario.pass': 'Passed',
+      'stage.scenario.fail': 'Failed',
+      'stage.scenario.not_verified': 'Not verified',
+      'stage.activity.product': 'Product agent execution',
+      'stage.activity.verification': 'Verification agent execution',
+      'stage.activity.empty': 'No readable stage execution record.',
+      'stage.activity.emptyHint': 'The stage has not run, or its record was not retained.',
+      'stage.activity.attempt': 'Attempt {attempt}',
+      'stage.activity.outcome.done': 'Done',
+      'stage.activity.outcome.failed': 'Failed',
+      'stage.activity.outcome.stale': 'Stale',
+      'stage.activity.tools': 'Tools',
+      'stage.activity.blocking': 'Blocking reasons',
+      'stage.activity.failureKind': 'Failure kind',
+      'stage.activity.model': 'Model {model}',
+      'stage.activity.verdict.pass': 'Pass',
+      'stage.activity.verdict.block': 'Block',
+      'stage.issues': '{count} need attention',
+      'stage.queue': 'Open queue',
+      'overlay.close': 'Close',
+      'overlay.detail': 'Details',
       'wb.requirement': 'Requirement',
       'wb.task': 'Task',
       'wb.issue': 'Issue',
@@ -5197,6 +5588,71 @@ window.__ModuleLoader__.load({
   .flb-queue-table td{display:block;border:0;padding:2px 0}
   .flb-queue-table td:before{content:attr(data-label);display:inline-block;width:7em;color:var(--dsw-alias-label-secondary);font-size:11px}
 }
+/* 按需求：产品 / 研发 / 验证三列；验证状态在首屏可见，窄屏先给三项摘要。 */
+.flb-stageboard-wrap{margin-top:10px}
+.flb-stageboard{display:grid;grid-template-columns:30fr 36fr 34fr;gap:10px;align-items:start}
+.flb-stagecol{box-sizing:border-box;display:flex;flex-direction:column;gap:8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);padding:12px;min-width:0}
+.flb-stagecol-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.flb-stagecol-title{font-size:13px;font-weight:600;margin:0}
+.flb-stage-list{display:flex;flex-direction:column;gap:7px;min-width:0}
+.flb-stage-foot{margin-top:auto;padding-top:8px;border-top:.5px dashed var(--dsw-alias-border-l1);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.flb-stage-progress{display:flex;flex-direction:column;gap:4px}
+.flb-point{box-sizing:border-box;width:100%;display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;color:inherit;border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);padding:7px 9px;cursor:pointer;min-width:0}
+.flb-point:hover{border-color:var(--dsw-alias-brand-primary)}
+.flb-point[aria-pressed=true]{border-color:var(--dsw-alias-brand-primary);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary)}
+.flb-point-id{font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.flb-point-text{font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.flb-point-accept,.flb-point-covers{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.flb-stage-task{border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);padding:7px 9px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.flb-stage-task[data-dim=true]{opacity:.55}
+.flb-stage-task-head{display:flex;align-items:flex-start;justify-content:space-between;gap:6px}
+.flb-stage-task-title{border:0;background:transparent;color:inherit;font:inherit;font-size:12px;line-height:18px;text-align:left;padding:0;cursor:pointer;overflow-wrap:anywhere}
+.flb-stage-task-title:hover{color:var(--dsw-alias-brand-primary)}
+.flb-stage-task-meta{font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.flb-stage-task-actions{display:flex;gap:8px;flex-wrap:wrap}
+.flb-covers{display:flex;gap:4px;flex-wrap:wrap}
+.flb-stage-candidate{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.flb-stage-anomaly{border-left:2px solid var(--dsw-alias-state-warning-primary);border-radius:3px;background:var(--dsw-alias-bg-layer-2);padding:5px 8px;font-size:11px;line-height:16px;overflow-wrap:anywhere}
+.flb-stage-scenarios{display:flex;flex-direction:column;gap:4px}
+.flb-verify-scenario{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;font-size:11px;line-height:16px;border-bottom:.5px dashed var(--dsw-alias-border-l1);padding-bottom:3px}
+.flb-verify-name{overflow-wrap:anywhere}
+.flb-stage-unlinked{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+.flb-narrow-stages{display:none}
+.flb-narrow-stage{display:inline-flex;align-items:center;gap:6px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:11px;padding:3px 9px;cursor:pointer}
+.flb-narrow-stage-label{font-weight:600}
+.flb-actions-menu{position:relative;display:inline-flex}
+.flb-actions-menu summary{cursor:pointer;font-size:11px;color:var(--dsw-alias-brand-primary);padding:2px 6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:5px;list-style:none;white-space:nowrap}
+.flb-actions-menu summary::-webkit-details-marker{display:none}
+.flb-actions-menu .flb-card-actions{position:absolute;top:100%;right:0;z-index:5;display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:8px;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 6px 18px rgba(0,0,0,.16);min-width:140px}
+/* 详情与阶段活动窗口：覆盖主体，关闭后回到发起的位置。 */
+.flb-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.32);display:flex;justify-content:flex-end}
+.flb-overlay-panel{box-sizing:border-box;width:min(920px,96vw);height:100%;overflow:auto;background:var(--dsw-alias-bg-layer-1);border-left:.5px solid var(--dsw-alias-border-l2);box-shadow:-8px 0 24px rgba(0,0,0,.2);padding:14px}
+.flb-overlay-head{display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-1);padding-bottom:8px;border-bottom:.5px solid var(--dsw-alias-border-l1);margin-bottom:10px}
+.flb-overlay-kind{font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.flb-overlay-close{border:.5px solid var(--dsw-alias-border-l2);border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:3px 10px;cursor:pointer;white-space:nowrap}
+.flb-overlay-panel .flb-side{max-height:none;border:0;background:transparent;padding:0}
+.flb-stage-activity{display:flex;flex-direction:column;gap:8px}
+.flb-stage-activity-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.flb-activity-row{display:flex;flex-direction:column;gap:3px;border-left:2px solid var(--dsw-alias-border-l2);border-radius:3px;padding:5px 9px;background:var(--dsw-alias-bg-base);min-width:0}
+.flb-activity-row[data-tone=error]{border-left-color:var(--dsw-alias-state-error-primary)}
+.flb-activity-row[data-tone=success]{border-left-color:var(--dsw-alias-state-success-primary)}
+.flb-activity-row[data-tone=warn]{border-left-color:var(--dsw-alias-state-warning-primary)}
+.flb-activity-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.flb-activity-title{font-size:12px;font-weight:600}
+.flb-activity-text{margin:0;font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.flb-activity-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.flb-activity-blocking{display:flex;flex-direction:column;gap:2px}
+.flb-stage-activity-empty{padding:14px;border:.5px dashed var(--dsw-alias-border-l1);border-radius:7px}
+@media (max-width:1199px){
+  .flb-stageboard{grid-template-columns:1fr 1fr}
+  .flb-stagecol[data-stage=verification]{grid-column:1/-1}
+}
+@media (max-width:819px){
+  .flb-stageboard{display:block}
+  .flb-stagecol{margin-bottom:10px}
+  .flb-narrow-stages{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .flb-overlay-panel{width:100vw}
+}
 `
 
     /** 注册页面；组件只在会话视图槽展开时渲染。 */
@@ -6045,192 +6501,6 @@ window.__ModuleLoader__.load({
         )
       }
 
-      function CenterPane(props) {
-        const t = props.t
-        const requirement = props.requirement
-        if (!requirement) {
-          return h(
-            'main',
-            { className: 'flb-main-pane' },
-            h('div', { className: 'flb-side-empty' }, t('wb.noSelection')),
-          )
-        }
-        const tasks = props.tasks
-        const issues = props.issues
-        const cancelled = requirement.status === 'cancelled'
-        const focus = requirementFocus(t, requirement)
-        const progressTasks = tasksForProgress(requirement, tasks)
-        const completed = progressTasks.filter((task) => task.state === 'delivered').length
-        const ratio =
-          progressTasks.length > 0 ? Math.round((completed / progressTasks.length) * 100) : 0
-        return h(
-          'main',
-          { className: 'flb-main-pane' },
-          h(
-            'div',
-            { className: 'flb-wb-head' },
-            h('span', { className: 'flb-tree-kind' }, requirement.reqId),
-            h(
-              Chip,
-              { tone: REQUIREMENT_TONES[requirement.status] || 'idle' },
-              statusLabel(t, requirement.status),
-            ),
-            showsLegacyGateWarnings(requirement.status)
-              ? requirement.approval === 'approved'
-                ? h(Chip, { tone: 'success' }, t('wb.approved'))
-                : requirement.approval === 'stale'
-                  ? h(Chip, { tone: 'warn' }, t('wb.stale'))
-                  : h(Chip, { tone: 'warn' }, t('requirement.approvalMissing'))
-              : null,
-            showsLegacyGateWarnings(requirement.status) && requirement.planVersion
-              ? planReviewChip(t, requirement.planReview)
-              : null,
-            showsLegacyGateWarnings(requirement.status)
-              ? requirement.verification
-                ? verificationChip(t, requirement.verification)
-                : tasks.length > 0 && completed === tasks.length
-                  ? verificationChip(t, null)
-                  : null
-              : null,
-          ),
-          h('h2', { className: 'flb-hier-title' }, requirement.title),
-          h(
-            'div',
-            { className: 'flb-hier-meta' },
-            h('span', null, t('wb.version', { version: requirement.version })),
-            requirement.planVersion
-              ? h('span', null, t('wb.plan', { plan: requirement.planVersion }))
-              : null,
-            h('span', null, t('wb.taskCount', { count: tasks.length })),
-            h('span', null, t('wb.issueCount', { count: issues.length })),
-          ),
-          focus ? h('div', { className: 'flb-focus', 'data-tone': focus.tone }, focus.text) : null,
-          cancelled
-            ? h(
-                'div',
-                { className: 'flb-hier-progress' },
-                h('div', { className: 'flb-banner', 'data-tone': 'warn' }, t('wb.cancelledBanner')),
-                h(
-                  'div',
-                  { className: 'flb-wb-sub' },
-                  t('wb.cancelledTasks', { count: tasks.length }),
-                ),
-              )
-            : h(
-                'div',
-                { className: 'flb-hier-progress' },
-                h(
-                  'div',
-                  { className: 'flb-progress-head' },
-                  h(
-                    'span',
-                    {
-                      className: 'flb-progress-value',
-                      'data-tone': ratio === 100 ? 'success' : undefined,
-                    },
-                    `${ratio}%`,
-                  ),
-                  h(
-                    'span',
-                    { className: 'flb-wb-sub' },
-                    t('wb.progress', { delivered: completed, total: progressTasks.length }),
-                  ),
-                ),
-                h(
-                  'div',
-                  { className: 'flb-progress', 'data-tone': ratio === 100 ? 'success' : undefined },
-                  h('span', { style: { width: ratio + '%' } }),
-                ),
-              ),
-          props.actionMessage
-            ? h(
-                'div',
-                { className: 'flb-card-action-message', role: 'status' },
-                props.actionMessage,
-              )
-            : null,
-          h(ActionButtons, {
-            t,
-            actions: requirement.actions,
-            busy: props.busy,
-            onAction: (action) => props.onAction(requirement, action),
-          }),
-          issues.length > 0
-            ? h(
-                'div',
-                { className: 'flb-banner', 'data-tone': 'warn', style: { marginTop: '7px' } },
-                h('div', { className: 'flb-label' }, t('wb.attention')),
-                issues.slice(0, 4).map((issue) =>
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      key: issue.issueId,
-                      className: 'flb-link-button',
-                      onClick: () => props.onOpenIssue(issue),
-                    },
-                    issue.title,
-                  ),
-                ),
-              )
-            : null,
-          h(
-            'div',
-            { className: 'flb-hier-tabs', role: 'tablist' },
-            [
-              ['list', t('wb.taskList')],
-              ['relations', t('wb.dependencies')],
-            ].map(([key, label]) =>
-              h(
-                'button',
-                {
-                  type: 'button',
-                  key,
-                  className: 'flb-hier-tab',
-                  role: 'tab',
-                  'aria-selected': props.workMode === key,
-                  onClick: () => props.onWorkMode(key),
-                },
-                label,
-              ),
-            ),
-          ),
-          props.workMode === 'relations'
-            ? h(RelationsPanel, { t, requirement, tasks, onOpenTask: props.onOpenTask })
-            : tasks.length === 0
-              ? h('div', { className: 'flb-side-empty' }, t('wb.noExecutionHint'))
-              : cancelled
-                ? h(
-                    'details',
-                    { className: 'flb-details' },
-                    h('summary', null, t('wb.cancelledTasksHistory', { count: tasks.length })),
-                    tasks.map((task) =>
-                      h(TaskRow, {
-                        t,
-                        key: task.taskId,
-                        task,
-                        tasks,
-                        issue: wbIssueFor(issues, task),
-                        selected: props.selectedTaskId === task.taskId,
-                        onOpenTask: props.onOpenTask,
-                        onOpenIssue: props.onOpenIssue,
-                      }),
-                    ),
-                  )
-                : tasks.map((task) =>
-                    h(TaskRow, {
-                      t,
-                      key: task.taskId,
-                      task,
-                      tasks,
-                      issue: wbIssueFor(issues, task),
-                      selected: props.selectedTaskId === task.taskId,
-                      onOpenTask: props.onOpenTask,
-                      onOpenIssue: props.onOpenIssue,
-                    }),
-                  ),
-        )
-      }
 
       function TaskOverview(props) {
         const t = props.t
@@ -9732,6 +10002,432 @@ window.__ModuleLoader__.load({
         )
       }
 
+      /** 研发任务行：目标、状态、覆盖的业务要点与执行过程入口。 */
+      function StageTaskRow(props) {
+        const t = props.t
+        const task = props.task
+        const run = task.run
+        const dim = Boolean(props.selected && !task.covers.includes(props.selected))
+        return h(
+          'div',
+          { className: 'flb-stage-task', 'data-dim': String(dim) },
+          h(
+            'div',
+            { className: 'flb-stage-task-head' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-stage-task-title',
+                onClick: () => props.onOpenTask(task.taskId),
+              },
+              task.goal || task.taskId,
+            ),
+            run
+              ? h(Chip, { tone: wbStateTone(run.state) }, wbStateLabel(t, run.state))
+              : h(Chip, { tone: 'idle' }, t('stage.dev.pending')),
+          ),
+          h('div', { className: 'flb-stage-task-meta' }, task.taskId),
+          task.covers.length > 0
+            ? h(
+                'div',
+                { className: 'flb-covers' },
+                task.covers.map((id) => h('span', { className: 'flb-chip', key: id }, id)),
+              )
+            : h('div', { className: 'flb-muted' }, t('stage.noCovers')),
+          run && run.failureReason
+            ? h('div', { className: 'flb-card-failure' }, run.failureReason)
+            : null,
+          h(
+            'div',
+            { className: 'flb-stage-task-actions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'flb-link-button',
+                onClick: () => props.onOpenTaskActivity(task.taskId),
+              },
+              t('stage.execution'),
+            ),
+          ),
+        )
+      }
+
+      /**
+       * 按需求：产品、研发、验证三列在同一屏对齐事实与阶段入口。
+       * 选中业务要点时突出声明覆盖它的任务，其他行保留并提供“显示全部”。
+       */
+      function StageBoard(props) {
+        const t = props.t
+        const requirement = props.requirement
+        const detail = props.detail || { phase: 'idle', data: null, error: '' }
+        const data = detail.data || {}
+        const analysis = data.analysis || null
+        const plan = data.latestPlan || null
+        const planTasks = plan && Array.isArray(plan.tasks) ? plan.tasks : []
+        const boardTasks = Array.isArray(props.tasks) ? props.tasks : []
+        const statuses = stageStatuses(t, requirement, boardTasks, detail)
+        const points = businessPointRows(analysis, planTasks)
+        const selected = props.selectedPoint || ''
+        const scenarios = verificationScenarioRows(detail)
+        const anomaly = verificationAnomaly(detail)
+        const verification = data.verification || null
+        const progress = data.progress || { total: 0, delivered: 0 }
+        const [allScenarios, setAllScenarios] = React.useState(false)
+        const tasks = planTasks.length
+          ? planTasks.map((task) => ({
+              taskId: task.taskId,
+              goal: task.goal,
+              covers: Array.isArray(task.covers) ? task.covers : [],
+              run: boardTasks.find((run) => run.taskId === task.taskId) || null,
+            }))
+          : boardTasks.map((run) => ({
+              taskId: run.taskId,
+              goal: run.goal,
+              covers: [],
+              run,
+            }))
+        const jump = (stage) => {
+          if (typeof document === 'undefined') return
+          const node = document.querySelector(`.flb-stagecol[data-stage="${stage}"]`)
+          if (node && typeof node.scrollIntoView === 'function') {
+            node.scrollIntoView({ block: 'start' })
+          }
+        }
+        const activityButton = (stage, count, label) =>
+          count > 0
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-link-button',
+                  onClick: () => props.onStageActivity(stage),
+                },
+                label,
+              )
+            : h('span', { className: 'flb-muted' }, t('stage.noActivity'))
+        const activityCount = (stage) => {
+          const list =
+            stage === 'product' ? data.analysisActivity : data.verificationActivity
+          return Array.isArray(list) ? list.length : 0
+        }
+        const pointRows = points.rows.map((point) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              key: point.id,
+              className: 'flb-point',
+              'aria-pressed': selected === point.id,
+              onClick: () => props.onSelectPoint(selected === point.id ? '' : point.id),
+            },
+            h('span', { className: 'flb-point-id' }, point.id),
+            h('span', { className: 'flb-point-text' }, point.text),
+            point.acceptance.length > 0
+              ? h(
+                  'span',
+                  { className: 'flb-point-accept' },
+                  `${t('stage.acceptance')}：${point.acceptance.join('；')}`,
+                )
+              : null,
+            h(
+              'span',
+              { className: 'flb-point-covers' },
+              point.covers.length > 0
+                ? t('stage.covers', { ids: point.covers.join('、') })
+                : t('stage.noCovers'),
+            ),
+          ),
+        )
+        const unlinked =
+          points.unlinked.length > 0
+            ? h(
+                'div',
+                { className: 'flb-stage-unlinked' },
+                h('div', { className: 'flb-label' }, t('stage.unlinked')),
+                h(
+                  'ul',
+                  { className: 'flb-bullets' },
+                  points.unlinked.map((text, index) => h('li', { key: index }, text)),
+                ),
+              )
+            : null
+        const productBody =
+          detail.phase === 'idle' || detail.phase === 'loading'
+            ? h('div', { className: 'flb-muted' }, t('stage.loading'))
+            : detail.phase === 'error'
+              ? h(
+                  'div',
+                  { className: 'flb-error-inline', role: 'alert' },
+                  detail.error || t('wb.error'),
+                )
+              : h(
+                  'div',
+                  { className: 'flb-stage-list' },
+                  points.rows.length === 0 && !unlinked
+                    ? h('div', { className: 'flb-muted' }, t('stage.noPoints'))
+                    : null,
+                  ...pointRows,
+                  unlinked,
+                )
+        const deliveredCount = progress.delivered || 0
+        const totalCount = progress.total || tasks.length
+        const devBody =
+          tasks.length === 0
+            ? h('div', { className: 'flb-muted' }, t('wb.noExecutionHint'))
+            : h(
+                'div',
+                { className: 'flb-stage-list' },
+                h(
+                  'div',
+                  { className: 'flb-stage-progress' },
+                  h(
+                    'div',
+                    { className: 'flb-progress-head' },
+                    h(
+                      'span',
+                      { className: 'flb-muted' },
+                      t('stage.deliveredCount', {
+                        delivered: deliveredCount,
+                        total: totalCount,
+                      }),
+                    ),
+                    selected
+                      ? h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'flb-link-button',
+                            onClick: () => props.onSelectPoint(''),
+                          },
+                          t('stage.showAll'),
+                        )
+                      : null,
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-progress' },
+                    h('span', {
+                      style: {
+                        width: `${
+                          totalCount > 0 ? Math.round((deliveredCount / totalCount) * 100) : 0
+                        }%`,
+                      },
+                    }),
+                  ),
+                ),
+                ...tasks.map((task) =>
+                  h(StageTaskRow, {
+                    t,
+                    key: task.taskId,
+                    task,
+                    selected,
+                    onOpenTask: (taskId) => props.onOpenTask(taskId, 'overview'),
+                    onOpenTaskActivity: (taskId) => props.onOpenTask(taskId, 'activity'),
+                  }),
+                ),
+              )
+        const shownScenarios = allScenarios ? scenarios : scenarios.slice(0, 5)
+        const verificationBody =
+          detail.phase === 'idle' || detail.phase === 'loading'
+            ? h('div', { className: 'flb-muted' }, t('stage.loading'))
+            : detail.phase === 'error'
+              ? h(
+                  'div',
+                  { className: 'flb-error-inline', role: 'alert' },
+                  detail.error || t('wb.error'),
+                )
+              : h(
+                  'div',
+                  { className: 'flb-stage-list' },
+                  verification
+                    ? h(
+                        'div',
+                        { className: 'flb-stage-candidate' },
+                        h(
+                          'span',
+                          { className: 'flb-muted' },
+                          t('stage.verification.candidate', {
+                            sha: shortSha(verification.candidateSha256 || ''),
+                          }),
+                        ),
+                        verification.verifiedAt
+                          ? h(
+                              'span',
+                              { className: 'flb-muted' },
+                              formatMoment(verification.verifiedAt),
+                            )
+                          : null,
+                      )
+                    : h('div', { className: 'flb-muted' }, t('stage.verification.empty')),
+                  verification && verification.summary
+                    ? h('p', { className: 'flb-text' }, verification.summary)
+                    : null,
+                  verification &&
+                  Array.isArray(verification.blocking) &&
+                  verification.blocking.length > 0
+                    ? h(
+                        'div',
+                        { className: 'flb-banner', 'data-tone': 'error' },
+                        verification.blocking[0],
+                      )
+                    : null,
+                  anomaly
+                    ? h(
+                        'div',
+                        { className: 'flb-stage-anomaly' },
+                        h('div', { className: 'flb-label' }, t('stage.verification.anomaly')),
+                        h(
+                          'div',
+                          null,
+                          anomaly.blocking[0] || anomaly.failureKind || t('wb.error'),
+                        ),
+                      )
+                    : null,
+                  scenarios.length > 0
+                    ? h(
+                        'div',
+                        { className: 'flb-stage-scenarios' },
+                        h('div', { className: 'flb-label' }, t('stage.verification.scenarios')),
+                        ...shownScenarios.map((scenario) =>
+                          h(
+                            'div',
+                            { className: 'flb-verify-scenario', key: scenario.name },
+                            h('span', { className: 'flb-verify-name' }, scenario.name),
+                            h(
+                              Chip,
+                              {
+                                tone:
+                                  scenario.status === 'pass'
+                                    ? 'success'
+                                    : scenario.status === 'fail'
+                                      ? 'error'
+                                      : 'idle',
+                              },
+                              t(`stage.scenario.${scenario.status}`),
+                            ),
+                          ),
+                        ),
+                        scenarios.length > shownScenarios.length
+                          ? h(
+                              'button',
+                              {
+                                type: 'button',
+                                className: 'flb-link-button',
+                                onClick: () => setAllScenarios(true),
+                              },
+                              t('stage.verification.more', {
+                                count: scenarios.length - shownScenarios.length,
+                              }),
+                            )
+                          : null,
+                      )
+                    : null,
+                  activityCount('verification') > 0
+                    ? h(
+                        'div',
+                        { className: 'flb-muted' },
+                        t('stage.verification.history', {
+                          count: activityCount('verification'),
+                        }),
+                      )
+                    : null,
+                )
+        const summaryBar = h(
+          'div',
+          { className: 'flb-narrow-stages', role: 'group', 'aria-label': t('nav.label') },
+          [
+            ['product', t('stage.product'), statuses.product],
+            ['development', t('stage.development'), statuses.development],
+            ['verification', t('stage.verification'), statuses.verification],
+          ].map(([stage, label, status]) =>
+            h(
+              'button',
+              {
+                type: 'button',
+                key: stage,
+                className: 'flb-narrow-stage',
+                onClick: () => jump(stage),
+              },
+              h('span', { className: 'flb-narrow-stage-label' }, label),
+              h(Chip, { tone: status.tone }, status.label),
+            ),
+          ),
+        )
+        return h(
+          'div',
+          { className: 'flb-stageboard-wrap' },
+          summaryBar,
+          h(
+            'div',
+            { className: 'flb-stageboard' },
+            h(
+              'section',
+              { className: 'flb-stagecol', 'data-stage': 'product', key: 'product' },
+              h(
+                'header',
+                { className: 'flb-stagecol-head' },
+                h('h3', { className: 'flb-stagecol-title' }, t('stage.product')),
+                h(Chip, { tone: statuses.product.tone }, statuses.product.label),
+              ),
+              productBody,
+              h(
+                'footer',
+                { className: 'flb-stage-foot' },
+                activityButton('product', activityCount('product'), t('stage.execution')),
+              ),
+            ),
+            h(
+              'section',
+              { className: 'flb-stagecol', 'data-stage': 'development', key: 'development' },
+              h(
+                'header',
+                { className: 'flb-stagecol-head' },
+                h('h3', { className: 'flb-stagecol-title' }, t('stage.development')),
+                h(Chip, { tone: statuses.development.tone }, statuses.development.label),
+              ),
+              devBody,
+              props.issues.length > 0
+                ? h(
+                    'footer',
+                    { className: 'flb-stage-foot' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-link-button',
+                        onClick: () => props.onOpenQueue(),
+                      },
+                      t('stage.issues', { count: props.issues.length }),
+                    ),
+                  )
+                : null,
+            ),
+            h(
+              'section',
+              { className: 'flb-stagecol', 'data-stage': 'verification', key: 'verification' },
+              h(
+                'header',
+                { className: 'flb-stagecol-head' },
+                h('h3', { className: 'flb-stagecol-title' }, t('stage.verification')),
+                h(Chip, { tone: statuses.verification.tone }, statuses.verification.label),
+              ),
+              verificationBody,
+              h(
+                'footer',
+                { className: 'flb-stage-foot' },
+                activityButton(
+                  'verification',
+                  activityCount('verification'),
+                  t('stage.execution'),
+                ),
+              ),
+            ),
+          ),
+        )
+      }
+
       function BoardView(props) {
         const read = React.useMemo(() => createReader(t, props.sessionId), [t, props.sessionId])
         const [state, setState] = React.useState({ phase: 'loading', board: null, error: '' })
@@ -9739,7 +10435,6 @@ window.__ModuleLoader__.load({
         const [appliedQuery, setAppliedQuery] = React.useState('')
         const [view, setView] = React.useState('hierarchy')
         const [filter, setFilter] = React.useState('all')
-        const [workMode, setWorkMode] = React.useState('list')
         const [mode, setMode] = React.useState('requirement')
         const [queueFrom, setQueueFrom] = React.useState('requirement')
         const [selection, setSelection] = React.useState({
@@ -9749,8 +10444,9 @@ window.__ModuleLoader__.load({
           issueId: '',
         })
         const [tab, setTab] = React.useState('overview')
-        const [mobileDetail, setMobileDetail] = React.useState(false)
-        const [fullDetail, setFullDetail] = React.useState(false)
+        const [selectedPoint, setSelectedPoint] = React.useState('')
+        const [overlay, setOverlay] = React.useState('')
+        const [activityStage, setActivityStage] = React.useState('product')
         const [auto, setAuto] = React.useState(true)
         const [readAt, setReadAt] = React.useState('')
         const [opsReadAt, setOpsReadAt] = React.useState('')
@@ -9796,6 +10492,7 @@ window.__ModuleLoader__.load({
         const inflight = React.useRef(null)
         const reqInflight = React.useRef(null)
         const taskInflight = React.useRef(null)
+        const lastFocus = React.useRef(null)
 
         const load = React.useCallback(() => {
           if (inflight.current) inflight.current.abort()
@@ -10081,21 +10778,29 @@ window.__ModuleLoader__.load({
         const openRequirement = (reqId) => {
           setMode('requirement')
           setSelection({ kind: 'requirement', reqId, taskId: '', issueId: '' })
+          setSelectedPoint('')
           setTab('overview')
-          const narrow = typeof window !== 'undefined' && window.innerWidth <= 820
-          setMobileDetail(!narrow)
-          if (narrow) scrollWorkbench()
-          setFullDetail(false)
+          setOverlay('')
+        }
+        // 打开窗口前记住发起控件，关闭后把焦点还回去；对象消失时浏览器忽略即可。
+        const captureFocus = () => {
+          if (overlay) return
+          if (typeof document !== 'undefined') lastFocus.current = document.activeElement
+        }
+        const openRequirementDetail = (reqId) => {
+          captureFocus()
+          openRequirement(reqId)
+          setOverlay('detail')
         }
         const openTask = (reqId, taskId, nextTab) => {
+          captureFocus()
           setMode('requirement')
           setSelection({ kind: 'task', reqId, taskId, issueId: '' })
           setTab(nextTab || 'overview')
-          setMobileDetail(true)
-          setFullDetail(false)
-          if (typeof window !== 'undefined' && window.innerWidth <= 820) scrollWorkbench()
+          setOverlay('detail')
         }
         const openIssue = (issue) => {
+          captureFocus()
           setMode('requirement')
           setSelection({
             kind: 'issue',
@@ -10104,21 +10809,31 @@ window.__ModuleLoader__.load({
             issueId: issue.issueId,
           })
           setTab('overview')
-          setMobileDetail(true)
-          setFullDetail(false)
-          if (typeof window !== 'undefined' && window.innerWidth <= 820) scrollWorkbench()
+          setOverlay('detail')
+        }
+        const openStageActivity = (stage) => {
+          captureFocus()
+          setActivityStage(stage)
+          setOverlay('activity')
+        }
+        const closeOverlay = () => {
+          setOverlay('')
+          const node = lastFocus.current
+          if (node && typeof node.focus === 'function' && typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => node.focus())
+          }
         }
 
-        const scrollWorkbench = () => {
-          if (typeof document === 'undefined') return
-          requestAnimationFrame(() => {
-            const node =
-              document.querySelector('.flb-workbench[data-mobile-detail="true"] .flb-side') ||
-              document.querySelector('.flb-workbench')
-            if (node && typeof node.scrollIntoView === 'function')
-              node.scrollIntoView({ block: 'start' })
-          })
-        }
+        React.useEffect(() => {
+          if (!overlay) return undefined
+          const onKey = (event) => {
+            if (event.key === 'Escape') setOverlay('')
+          }
+          if (typeof document !== 'undefined') document.addEventListener('keydown', onKey)
+          return () => {
+            if (typeof document !== 'undefined') document.removeEventListener('keydown', onKey)
+          }
+        }, [overlay])
 
         const runAction = (requirement, endpoint) => {
           if (action.busy) return
@@ -10248,6 +10963,7 @@ window.__ModuleLoader__.load({
         /** 按需求：需求选择器与总状态同一行，详情入口就在旁边。 */
         const requirementPicker = () => {
           const current = activeRequirement || visible[0] || null
+          const focus = current ? requirementFocus(t, current) : null
           return h(
             'div',
             { className: 'flb-reqpick' },
@@ -10282,19 +10998,38 @@ window.__ModuleLoader__.load({
                   statusLabel(t, current.status),
                 )
               : null,
+            focus && showsLegacyGateWarnings(current.status)
+              ? h('span', { className: 'flb-focus', 'data-tone': focus.tone }, focus.text)
+              : null,
             current
               ? h(
                   'button',
                   {
                     type: 'button',
                     className: 'flb-link-button',
-                    onClick: () => {
-                      setMobileDetail(true)
-                      setFullDetail(false)
-                      scrollWorkbench()
-                    },
+                    onClick: () => openRequirementDetail(current.reqId),
                   },
                   `${t('selector.detail')} ›`,
+                )
+              : null,
+            current && Array.isArray(current.actions) && current.actions.length > 0
+              ? h(
+                  'details',
+                  { className: 'flb-actions-menu' },
+                  h('summary', null, t('wb.more')),
+                  h(ActionButtons, {
+                    t,
+                    actions: current.actions,
+                    busy: action.busy,
+                    onAction: (endpoint) => runAction(current, endpoint),
+                  }),
+                )
+              : null,
+            action.message
+              ? h(
+                  'span',
+                  { className: 'flb-card-action-message', role: 'status' },
+                  action.message,
                 )
               : null,
           )
@@ -10407,7 +11142,8 @@ window.__ModuleLoader__.load({
               rows: queue,
               from: queueFrom,
               onBack: () => setMode(queueFrom),
-              onOpen: (item) => (item.issue ? openIssue(item.issue) : openRequirement(item.reqId)),
+              onOpen: (item) =>
+                item.issue ? openIssue(item.issue) : openRequirementDetail(item.reqId),
             })
           }
           if (visible.length === 0) {
@@ -10441,71 +11177,22 @@ window.__ModuleLoader__.load({
               onOpenIssue: openIssue,
             })
           }
-          return h(
-            'div',
-            {
-              className: 'flb-workbench',
-              'data-mobile-detail': String(mobileDetail),
-              'data-full': String(fullDetail),
+          const stageRequirement = activeRequirement || visible[0] || null
+          return h(StageBoard, {
+            t,
+            requirement: stageRequirement,
+            tasks: stageRequirement ? wbTasksOf(allTasks, stageRequirement) : [],
+            issues: stageRequirement ? requirementIssues(stageRequirement.reqId) : [],
+            detail: reqDetail,
+            selectedPoint,
+            onSelectPoint: setSelectedPoint,
+            onOpenTask: (taskId, nextTab) => openTask(stageRequirement.reqId, taskId, nextTab),
+            onStageActivity: openStageActivity,
+            onOpenQueue: () => {
+              setQueueFrom('requirement')
+              setMode('issues')
             },
-            fullDetail
-              ? null
-              : h(CenterPane, {
-                  t,
-                  requirement: activeRequirement || visible[0] || null,
-                  tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
-                  issues: activeRequirement ? requirementIssues(activeRequirement.reqId) : [],
-                  workMode,
-                  onWorkMode: setWorkMode,
-                  selectedTaskId: selection.taskId,
-                  busy: action.busy,
-                  actionMessage: action.message,
-                  onAction: runAction,
-                  onOpenTask: openTask,
-                  onOpenIssue: openIssue,
-                }),
-            h(DetailPane, {
-              t,
-              read,
-              selection: {
-                ...selection,
-                kind: selectedTask ? 'task' : selectedIssue ? 'issue' : 'requirement',
-                reqId:
-                  (activeRequirement || selectedRequirement || visible[0] || {}).reqId ||
-                  selection.reqId,
-              },
-              requirement: activeRequirement || visible[0] || null,
-              task:
-                selectedTask ||
-                (selectedIssue && selectedIssue.taskId
-                  ? allTasks.find(
-                      (task) =>
-                        task.taskId === selectedIssue.taskId && task.reqId === selectedIssue.reqId,
-                    ) || null
-                  : null),
-              issue: selectedIssue,
-              tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
-              reqDetail,
-              taskDetail,
-              tab,
-              fullDetail,
-              active: tab === 'activity',
-              busy: action.busy,
-              actionMessage: action.message,
-              retry,
-              onOpenRequirement: openRequirement,
-              onOpenTask: openTask,
-              onOpenIssue: openIssue,
-              onTab: setTab,
-              onAction: runAction,
-              onRetry: retryTask,
-              onBack: () => {
-                setMobileDetail(false)
-                setFullDetail(false)
-              },
-              onToggleFull: () => setFullDetail((value) => !value),
-            }),
-          )
+          })
         }
 
         return h(
@@ -10581,8 +11268,7 @@ window.__ModuleLoader__.load({
                     'aria-selected': view === key,
                     onClick: () => {
                       setView(key)
-                      setMobileDetail(false)
-                      setFullDetail(false)
+                      setOverlay('')
                     },
                   },
                   label,
@@ -10678,6 +11364,96 @@ window.__ModuleLoader__.load({
             ),
             h('div', { className: 'flb-bottom-spacer', 'aria-hidden': 'true' }),
           ),
+          overlay
+            ? h(
+                'div',
+                {
+                  className: 'flb-overlay',
+                  role: 'dialog',
+                  'aria-modal': 'true',
+                  'aria-label': t(
+                    overlay === 'activity'
+                      ? activityStage === 'product'
+                        ? 'stage.activity.product'
+                        : 'stage.activity.verification'
+                      : 'overlay.detail',
+                  ),
+                  onClick: (event) => {
+                    if (event.target === event.currentTarget) setOverlay('')
+                  },
+                },
+                h(
+                  'div',
+                  { className: 'flb-overlay-panel' },
+                  h(
+                    'div',
+                    { className: 'flb-overlay-head' },
+                    h(
+                      'span',
+                      { className: 'flb-overlay-kind' },
+                      t(
+                        overlay === 'activity'
+                          ? activityStage === 'product'
+                            ? 'stage.activity.product'
+                            : 'stage.activity.verification'
+                          : 'overlay.detail',
+                      ),
+                    ),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-overlay-close',
+                        onClick: closeOverlay,
+                        autoFocus: true,
+                      },
+                      t('overlay.close'),
+                    ),
+                  ),
+                  overlay === 'activity'
+                    ? h(StageActivity, { t, stage: activityStage, detail: reqDetail })
+                    : h(DetailPane, {
+                        t,
+                        read,
+                        selection: {
+                          ...selection,
+                          kind: selectedTask ? 'task' : selectedIssue ? 'issue' : 'requirement',
+                          reqId:
+                            (activeRequirement || selectedRequirement || visible[0] || {}).reqId ||
+                            selection.reqId,
+                        },
+                        requirement: activeRequirement || visible[0] || null,
+                        task:
+                          selectedTask ||
+                          (selectedIssue && selectedIssue.taskId
+                            ? allTasks.find(
+                                (task) =>
+                                  task.taskId === selectedIssue.taskId &&
+                                  task.reqId === selectedIssue.reqId,
+                              ) || null
+                            : null),
+                        issue: selectedIssue,
+                        tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
+                        reqDetail,
+                        taskDetail,
+                        tab,
+                        fullDetail: true,
+                        active: tab === 'activity',
+                        busy: action.busy,
+                        actionMessage: action.message,
+                        retry,
+                        onOpenRequirement: openRequirement,
+                        onOpenTask: openTask,
+                        onOpenIssue: openIssue,
+                        onTab: setTab,
+                        onAction: runAction,
+                        onRetry: retryTask,
+                        onBack: closeOverlay,
+                        onToggleFull: closeOverlay,
+                      }),
+                ),
+              )
+            : null,
         )
       }
 
@@ -10741,6 +11517,10 @@ window.__ModuleLoader__.load({
         searchScopeText,
         attentionItems,
         queueRows,
+        businessPointRows,
+        stageStatuses,
+        verificationAnomaly,
+        verificationScenarioRows,
         reliabilityVerdict,
         reliabilityRateTone,
         shortReqId,

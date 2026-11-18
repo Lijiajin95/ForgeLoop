@@ -8,6 +8,7 @@ import { Repository } from '../src/records/repository.js'
 import { ForgeLoopRuntime } from '../src/runtime/service.js'
 import { resolveConfig } from '../src/config.js'
 import type { AdmissionDecision } from '../src/domain/admission.js'
+import { requirementDetailExtras, STAGE_ACTIVITY_LIMIT } from '../src/runtime/requirement-detail.js'
 
 /**
  * 需求详情对外契约：
@@ -316,5 +317,96 @@ describe('requirement detail evidence contract', () => {
     } finally {
       await host.cleanup()
     }
+  })
+})
+
+describe('stage activity projection', () => {
+  function seedAttempt(reqId: string, attempt: number): void {
+    withRepository((repository) => {
+      repository.recordAnalysisAttempt({
+        reqId,
+        requirementVersion: 1,
+        attempt,
+        kind: 'initial',
+        outcome: 'failed',
+        detail: '模型未返回结构化结论',
+        model: 'fake-model',
+        promptVersion: 'analysis-v5',
+        transcriptPath: join(dir, `analysis-${attempt}.jsonl`),
+        toolCalls: ['forgeloop_read_project_doc'],
+        createdAt: `2026-10-31T00:0${attempt}:00.000Z`,
+      })
+    })
+  }
+
+  function seedVerification(reqId: string): void {
+    withRepository((repository) => {
+      repository.recordVerification({
+        requirementId: reqId,
+        planVersion: 1,
+        candidateSha256: 'c'.repeat(64),
+        requirementVersion: 1,
+        workspaceSha256: 'w'.repeat(64),
+        verdict: 'block',
+        reportJson: '{"verdict":"block"}',
+        reportPath: join(dir, 'verification.json'),
+        reportSha256: 'r'.repeat(64),
+        evidenceDir: join(dir, 'evidence'),
+        sessionId: 'session-verify',
+        verifiedAt: '2026-10-31T00:10:00.000Z',
+        failureKind: 'test_error',
+        blocking: ['测试方案生成失败'],
+      })
+    })
+  }
+
+  it('exposes the public facts of product and verification attempts', () => {
+    seedRequirement('req-stage')
+    seedAttempt('req-stage', 1)
+    seedVerification('req-stage')
+    withRepository((repository) => {
+      const extras = requirementDetailExtras(repository, 'req-stage')
+      expect(extras.analysisActivity).toEqual([
+        {
+          requirementVersion: 1,
+          attempt: 1,
+          kind: 'initial',
+          outcome: 'failed',
+          detail: '模型未返回结构化结论',
+          model: 'fake-model',
+          toolCalls: ['forgeloop_read_project_doc'],
+          createdAt: '2026-10-31T00:01:00.000Z',
+        },
+      ])
+      expect(extras.verificationActivity).toHaveLength(1)
+      expect(extras.verificationActivity[0]).toMatchObject({
+        attemptNumber: 1,
+        planVersion: 1,
+        candidateSha256: 'c'.repeat(64),
+        verdict: 'block',
+        failureKind: 'test_error',
+        blocking: ['测试方案生成失败'],
+        sessionId: 'session-verify',
+        verifiedAt: '2026-10-31T00:10:00.000Z',
+      })
+    })
+  })
+
+  it('keeps only the latest activity and leaves a requirement without attempts empty', () => {
+    seedRequirement('req-many')
+    seedRequirement('req-empty')
+    for (let attempt = 1; attempt <= STAGE_ACTIVITY_LIMIT + 5; attempt += 1) {
+      seedAttempt('req-many', attempt)
+    }
+    withRepository((repository) => {
+      const extras = requirementDetailExtras(repository, 'req-many')
+      expect(extras.analysisActivity).toHaveLength(STAGE_ACTIVITY_LIMIT)
+      expect(extras.analysisActivity[0]?.attempt).toBe(6)
+      expect(extras.analysisActivity.at(-1)?.attempt).toBe(STAGE_ACTIVITY_LIMIT + 5)
+
+      const empty = requirementDetailExtras(repository, 'req-empty')
+      expect(empty.analysisActivity).toEqual([])
+      expect(empty.verificationActivity).toEqual([])
+    })
   })
 })

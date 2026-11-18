@@ -75,6 +75,36 @@ interface ClientExports {
       stage: string
       actionLabel: string
     }>
+    verificationAnomaly: (detail: { data?: Record<string, unknown> | null }) => {
+      blocking: string[]
+      failureKind: string
+      verifiedAt: string
+    } | null
+    verificationScenarioRows: (detail: { data?: Record<string, unknown> | null }) => Array<{
+      name: string
+      status: string
+      evidence: string
+    }>
+    businessPointRows: (
+      analysis: {
+        businessPoints?: Array<{ id: string; behavior: string }>
+        acceptanceItems?: Array<{ pointIds: readonly string[]; then: string; when: string }>
+      } | null,
+      planTasks: Array<{ taskId: string; covers?: readonly string[] }>,
+    ) => {
+      rows: Array<{ id: string; text: string; acceptance: string[]; covers: string[] }>
+      unlinked: string[]
+    }
+    stageStatuses: (
+      t: (key: string) => string,
+      requirement: { status: string } | null,
+      tasks: Array<{ state: string }>,
+      detail: { phase: string; data?: Record<string, unknown> | null; error?: string },
+    ) => {
+      product: { tone: string; label: string }
+      development: { tone: string; label: string }
+      verification: { tone: string; label: string }
+    }
     boardProjectLabel: (board: { project: string; workspace?: { title?: string } }) => string
     shouldRenderSessionTail: (
       preset: string | undefined,
@@ -441,5 +471,132 @@ describe('requirement focus', () => {
     })
     expect(focus(t, { status: 'blocked', actions: [] })).toMatchObject({ tone: 'error' })
     expect(focus(t, { status: 'cancelled', actions: [] })).toBeNull()
+  })
+})
+
+describe('按需求三列映射', () => {
+  const analysis = {
+    businessPoints: [
+      { id: 'BP-1', behavior: '页签显示为「度量」' },
+      { id: 'BP-2', behavior: '页面标题同步' },
+    ],
+    acceptanceItems: [
+      { pointIds: ['BP-1'], then: '页签与无障碍名称一致', when: '' },
+      { pointIds: [], then: '旧记录没有编号', when: '' },
+    ],
+  }
+  const planTasks = [
+    { taskId: 't1', covers: ['BP-1'] },
+    { taskId: 't2', covers: ['BP-1', 'BP-2'] },
+    { taskId: 't3' },
+  ]
+
+  it('groups acceptance under business points and keeps legacy items unlinked', () => {
+    const rows = exportsValue.__rules.businessPointRows(analysis, planTasks)
+    expect(rows.rows.map((row) => row.id)).toEqual(['BP-1', 'BP-2'])
+    expect(rows.rows[0]).toMatchObject({
+      text: '页签显示为「度量」',
+      acceptance: ['页签与无障碍名称一致'],
+      covers: ['t1', 't2'],
+    })
+    expect(rows.rows[1]?.covers).toEqual(['t2'])
+    expect(rows.unlinked).toEqual(['旧记录没有编号'])
+  })
+
+  it('derives each stage status from recorded facts without guessing', () => {
+    const rules = exportsValue.__rules
+    const loading = rules.stageStatuses(t, { status: 'executing' }, [], { phase: 'loading' })
+    expect(loading.product).toEqual({ tone: 'idle', label: '读取中…' })
+
+    const ready = rules.stageStatuses(
+      t,
+      { status: 'executing' },
+      [{ state: 'running' }, { state: 'delivered' }],
+      {
+        phase: 'ready',
+        data: {
+          analysis,
+          analysisActivity: [],
+          verification: { fresh: true, verdict: 'pass', candidateSha256: 'a' },
+        },
+      },
+    )
+    expect(ready.product).toEqual({ tone: 'success', label: '已形成说明' })
+    expect(ready.development).toEqual({ tone: 'brand', label: '执行中' })
+    expect(ready.verification).toEqual({ tone: 'success', label: '验证通过' })
+
+    const failedAnalysis = rules.stageStatuses(t, { status: 'analysis_failed' }, [], {
+      phase: 'ready',
+      data: { analysis: null, analysisActivity: [{ outcome: 'failed' }] },
+    })
+    expect(failedAnalysis.product).toEqual({ tone: 'error', label: '分析失败' })
+
+    const stale = rules.stageStatuses(t, { status: 'executing' }, [], {
+      phase: 'ready',
+      data: { verification: { fresh: false, verdict: 'pass', candidateSha256: 'a' } },
+    })
+    expect(stale.verification).toEqual({ tone: 'warn', label: '需重新验证' })
+
+    const blocked = rules.stageStatuses(t, { status: 'blocked' }, [{ state: 'blocked' }], {
+      phase: 'ready',
+      data: { verification: { fresh: true, verdict: 'block', candidateSha256: 'a' } },
+    })
+    expect(blocked.development).toEqual({ tone: 'error', label: '阻塞' })
+    expect(blocked.verification).toEqual({ tone: 'error', label: '验证未通过' })
+
+    const cancelled = rules.stageStatuses(t, { status: 'cancelled' }, [], {
+      phase: 'ready',
+      data: {},
+    })
+    expect(cancelled.development.label).toBe('已取消')
+    expect(cancelled.verification.label).toBe('尚无结论')
+  })
+
+  it('reports a verification anomaly only when it is not the current candidate', () => {
+    const rules = exportsValue.__rules
+    expect(
+      rules.verificationAnomaly({
+        data: {
+          verification: { candidateSha256: 'a' },
+          verificationActivity: [{ candidateSha256: 'a' }],
+        },
+      }),
+    ).toBeNull()
+    expect(
+      rules.verificationAnomaly({
+        data: {
+          verification: { candidateSha256: 'a' },
+          verificationActivity: [
+            {
+              candidateSha256: 'b',
+              blocking: ['测试方案生成失败'],
+              failureKind: 'test_error',
+              verifiedAt: '2026-11-18T08:00:00.000Z',
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      blocking: ['测试方案生成失败'],
+      failureKind: 'test_error',
+      verifiedAt: '2026-11-18T08:00:00.000Z',
+    })
+  })
+
+  it('lists verification scenarios with their recorded status', () => {
+    const rows = exportsValue.__rules.verificationScenarioRows({
+      data: {
+        verification: {
+          scenarios: [
+            { scenario: '核对名称', status: 'pass' },
+            { scenario: '无障碍名称', status: 'fail', evidence: '断言失败' },
+          ],
+        },
+      },
+    })
+    expect(rows).toEqual([
+      { name: '核对名称', status: 'pass', evidence: '' },
+      { name: '无障碍名称', status: 'fail', evidence: '断言失败' },
+    ])
   })
 })

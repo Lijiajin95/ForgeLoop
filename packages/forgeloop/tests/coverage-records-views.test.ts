@@ -833,6 +833,8 @@ describe('requirement detail extras', () => {
       documents: [],
       installableDelivery: null,
       clarificationHistory: { questions: [], answers: [] },
+      analysisActivity: [],
+      verificationActivity: [],
       specChanges: {
         addedPoints: [],
         changedPoints: [],
@@ -1042,6 +1044,8 @@ describe('requirement detail extras', () => {
       analysisInvalidations: () => [],
       documentsOf: () => [],
       installableDeliveryStore: { latest: () => null },
+      analysisAttempts: () => [],
+      verificationAttempts: () => [],
     })
 
     const extras = requirementDetailExtras(stub, 'req-gap')

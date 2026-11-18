@@ -32,6 +32,7 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "activeRequests": 0,
     "admission": null,
     "analysis": null,
+    "analysisActivity": [],
     "analysisHistory": [],
     "analysisInvalidations": [],
     "approval": null,
@@ -109,6 +110,7 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "stopRequested": false,
     "submittedBy": "owner",
     "verification": null,
+    "verificationActivity": [],
     "versions": [
       {
         "createdAt": "TIME",
