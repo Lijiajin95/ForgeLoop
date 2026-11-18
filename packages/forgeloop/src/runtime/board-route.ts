@@ -2,7 +2,7 @@ import { asRecord } from '../domain/json.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
 import { parseReliabilityWindow } from '../domain/reliability.js'
-import { BOARD_MAX_LIMIT } from './board.js'
+import { attentionView, BOARD_MAX_LIMIT } from './board.js'
 import type { Coordinator } from './coordinator.js'
 import type { ForgeLoopRuntime } from './service.js'
 import { extendWorkBudget } from './budget.js'
@@ -15,6 +15,7 @@ import { deliveryMetricsSnapshot, recordHumanIntervention } from './delivery-met
 
 const BOARD_ENDPOINTS = [
   'board',
+  'attention',
   'detail',
   'session',
   'task',
@@ -190,6 +191,8 @@ function handleRead(
   endpoint: unknown,
   context: BoardContext,
 ): Response | null {
+  if (endpoint === 'attention') return handleAttention(body, context)
+
   if (endpoint === 'detail') return handleDetail(body, context)
 
   if (endpoint === 'task') return handleTask(body, context)
@@ -950,6 +953,51 @@ function handleOps(
   if (endpoint === 'ops-request-fix') return handleOpsRequestFix(body, context)
 
   return null
+}
+
+/** 可选的分页参数：缺省合法，给出时必须是范围内的整数。 */
+function isOptionalCounter(
+  value: unknown,
+  min: number,
+  max: number,
+): value is number | undefined {
+  if (value === undefined) return true
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
+}
+
+/** 待办筛选只接受三种取值；其他输入一律拒绝，不做默认猜测。 */
+function isAttentionPriority(value: unknown): value is 'all' | 'blocked' | 'input' {
+  return value === 'all' || value === 'blocked' || value === 'input'
+}
+
+/**
+ * 全项目待办队列：只读分页；入口计数来自同一聚合的 total。
+ * offset 允许超过总数（返回空页），便于翻页后记录减少时继续收敛。
+ */
+function handleAttention(body: BoardBody | null, context: BoardContext): Response {
+  const offset = body?.offset
+  if (!isOptionalCounter(offset, 0, Number.MAX_SAFE_INTEGER)) {
+    return boardResponse(boardFailure('bad_request', 'offset 必须是不小于 0 的整数'), 400)
+  }
+  const limit = body?.limit
+  if (!isOptionalCounter(limit, 1, BOARD_MAX_LIMIT)) {
+    return boardResponse(
+      boardFailure('bad_request', `limit 必须是 1..${BOARD_MAX_LIMIT} 的整数`),
+      400,
+    )
+  }
+  const priority = body?.priority === undefined ? 'all' : body.priority
+  if (!isAttentionPriority(priority)) {
+    return boardResponse(boardFailure('bad_request', 'priority 只能是 all、blocked 或 input'), 400)
+  }
+  const reqId = text(body?.reqId)
+  const value = attentionView(context.runtime, {
+    ...(offset === undefined ? {} : { offset }),
+    ...(limit === undefined ? {} : { limit }),
+    priority,
+    ...(reqId ? { reqId } : {}),
+  })
+  return boardResponse({ ok: true, value })
 }
 
 function handleBoardQuery(body: BoardBody | null, context: BoardContext): Response {

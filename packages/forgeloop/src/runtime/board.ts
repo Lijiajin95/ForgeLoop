@@ -226,6 +226,8 @@ export interface StatusBoardView {
     readonly delivered: number
     readonly issues: number
     readonly blocking: number
+    /** 项目全部需求的待办总数（不受搜索、条数上限与看板问题上限影响），供入口计数与队列共用。 */
+    readonly attention: number
   }
   readonly requirements: readonly BoardRequirementView[]
   readonly tasks: readonly BoardTaskView[]
@@ -427,11 +429,7 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
   const query = (input.query ?? '').trim().slice(0, 200)
   const all = repository.listRequirements(project)
 
-  const chunks: RequirementChunk[] = []
-
-  for (const requirement of all) {
-    chunks.push(buildRequirementChunk(repository, requirement, input.remainingFailureRounds))
-  }
+  const chunks = buildRequirementChunks(repository, all, input.remainingFailureRounds)
 
   const needle = query.toLowerCase()
   const matched = needle ? chunks.filter((chunk) => chunk.haystack.includes(needle)) : chunks
@@ -463,12 +461,147 @@ export function buildStatusBoard(input: BuildStatusBoardInput): StatusBoardView 
       delivered: tasks.filter((task) => task.state === BOARD_TASK_DELIVERED).length,
       issues: sortedIssues.length,
       blocking: sortedIssues.filter((issue) => issue.severity === 'blocking').length,
+      // 入口计数与队列共用同一聚合：项目内全部需求的待办，不受搜索、需求上限或看板问题上限影响。
+      attention: chunks.reduce((count, chunk) => count + chunk.issues.length, 0),
     },
     requirements,
     tasks,
     issues: sortedIssues,
     autonomy: buildAutonomyStats(repository, project, input.owner ?? ''),
   }
+}
+
+/** 待办队列的默认页大小；入口计数不依赖分页。 */
+export const ATTENTION_DEFAULT_LIMIT = 20
+
+/** 待办队列的优先程度筛选：全部、仅阻塞、仅待输入。 */
+export type AttentionPriority = 'all' | 'blocked' | 'input'
+
+export interface AttentionItemView {
+  readonly issueId: string
+  readonly reqId: string
+  readonly requirementTitle: string
+  readonly taskId?: string
+  readonly taskGoal: string
+  readonly kind: BoardIssueKind
+  readonly severity: BoardIssueSeverity
+  readonly priority: 'blocked' | 'input'
+  readonly title: string
+  readonly detail: string
+  readonly createdAt: string
+}
+
+export interface AttentionView {
+  /** 项目内全部待办数（不受筛选影响）。 */
+  readonly total: number
+  /** 应用筛选后的条数。 */
+  readonly filtered: number
+  readonly offset: number
+  readonly limit: number
+  readonly items: readonly AttentionItemView[]
+  /** 下一页起点；没有更多时为 null。 */
+  readonly nextOffset: number | null
+}
+
+export interface BuildAttentionInput {
+  readonly repository: Repository
+  readonly project: string
+  readonly offset?: number
+  readonly limit?: number
+  readonly priority?: AttentionPriority
+  /** 只看某条需求的待办；缺省读取整个项目。 */
+  readonly reqId?: string
+  readonly remainingFailureRounds?: (reqId: string) => number
+}
+
+/** 队列查询条件：由 runtime 补上仓库、项目与额度判定。 */
+export type AttentionQuery = Omit<
+  BuildAttentionInput,
+  'repository' | 'project' | 'remainingFailureRounds'
+>
+
+/** 运行时入口的薄封装：把已装配的仓库与额度判定传给同一个聚合。 */
+export interface AttentionSource {
+  readonly repo: Repository
+  readonly config: { readonly project: string }
+  remainingFailureRounds(reqId: string): number
+}
+
+export function attentionView(source: AttentionSource, query: AttentionQuery = {}): AttentionView {
+  return buildAttentionView({
+    repository: source.repo,
+    project: source.config.project,
+    remainingFailureRounds: (reqId) => source.remainingFailureRounds(reqId),
+    ...query,
+  })
+}
+
+/**
+ * 先在同一项目权威记录上聚合全部待办、再稳定排序与分页。
+ * 排序为优先程度、最近记录时间、稳定身份；同一任务的不同故障分别保留。
+ */
+export function buildAttentionView(input: BuildAttentionInput): AttentionView {
+  const chunks = buildRequirementChunks(
+    input.repository,
+    input.repository.listRequirements(input.project),
+    input.remainingFailureRounds,
+  )
+  const rows: AttentionItemView[] = []
+  for (const chunk of chunks) {
+    const taskById = new Map(chunk.tasks.map((task) => [task.taskId, task]))
+    for (const issue of chunk.issues) {
+      const task = issue.taskId ? taskById.get(issue.taskId) : undefined
+      rows.push({
+        issueId: issue.issueId,
+        reqId: issue.reqId,
+        requirementTitle: chunk.view.title,
+        ...(issue.taskId ? { taskId: issue.taskId } : {}),
+        taskGoal: task?.goal ?? '',
+        kind: issue.kind,
+        severity: issue.severity,
+        priority: issue.severity === 'blocking' ? 'blocked' : 'input',
+        title: issue.title,
+        detail: issue.detail,
+        createdAt: issue.createdAt,
+      })
+    }
+  }
+  rows.sort(attentionOrder)
+  const total = rows.length
+  const matched = rows.filter((row) => {
+    if (input.reqId && row.reqId !== input.reqId) return false
+    if (input.priority === 'blocked') return row.priority === 'blocked'
+    if (input.priority === 'input') return row.priority === 'input'
+    return true
+  })
+  const offset = Math.max(0, Math.trunc(input.offset ?? 0))
+  const limit = Math.min(
+    BOARD_MAX_LIMIT,
+    Math.max(1, Math.trunc(input.limit ?? ATTENTION_DEFAULT_LIMIT)),
+  )
+  const items = matched.slice(offset, offset + limit)
+  const nextOffset = offset + items.length < matched.length ? offset + items.length : null
+  return { total, filtered: matched.length, offset, limit, items, nextOffset }
+}
+
+function attentionOrder(left: AttentionItemView, right: AttentionItemView): number {
+  const bySeverity = SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity]
+  if (bySeverity !== 0) return bySeverity
+  const byTime = right.createdAt.localeCompare(left.createdAt)
+  if (byTime !== 0) return byTime
+  const leftKey = `${left.reqId}:${left.taskId ?? ''}:${left.issueId}`
+  const rightKey = `${right.reqId}:${right.taskId ?? ''}:${right.issueId}`
+  return leftKey.localeCompare(rightKey)
+}
+
+function buildRequirementChunks(
+  repository: Repository,
+  requirements: readonly Requirement[],
+  remainingFailureRounds?: (reqId: string) => number,
+): RequirementChunk[] {
+  return requirements.map((requirement) =>
+    buildRequirementChunk(repository, requirement, remainingFailureRounds),
+  )
 }
 
 /** 产品 Agent 一次最多读取的活动需求条数；避免把整个项目历史塞进提示词。 */

@@ -8,9 +8,11 @@ import { MAX_ROUNDS_PER_GRANT } from '../src/domain/counting.js'
 import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
 import type { TaskPlan } from '../src/domain/task-plan.js'
 import {
+  ATTENTION_DEFAULT_LIMIT,
   BOARD_TASK_AWAITING_INPUT,
   BOARD_TASK_DELIVERED,
   BOARD_TASK_PENDING,
+  buildAttentionView,
   buildProjectFacts,
   buildStatusBoard,
   requirementTitle,
@@ -239,6 +241,7 @@ describe('status board', () => {
       delivered: 0,
       issues: 0,
       blocking: 0,
+      attention: 0,
     })
     expect(view.requirements).toEqual([])
     expect(view.tasks).toEqual([])
@@ -1253,4 +1256,108 @@ it('carries the build identity into the read-only board payload', () => {
   const view = buildStatusBoard({ repository, project: PROJECT, now: NOW, build })
   expect(view.build).toEqual(build)
   expect(board().build.sourceMatches).toBeNull()
+})
+
+describe('attention queue', () => {
+  function attention(
+    options: Partial<Parameters<typeof buildAttentionView>[0]> = {},
+  ): ReturnType<typeof buildAttentionView> {
+    return buildAttentionView({ repository, project: PROJECT, ...options })
+  }
+
+  it('aggregates every requirement before the board limit and search', () => {
+    for (let index = 0; index < 3; index += 1) {
+      const reqId = submit(`req-a-${index}`, `阻塞需求 ${index}`)
+      repository.setStatus(reqId, 'blocked', `阻塞原因 ${index}`)
+    }
+    const limited = board({ limit: 1, query: '没有匹配' })
+    expect(limited.requirements).toHaveLength(0)
+    expect(limited.issues).toEqual([])
+    expect(limited.summary.attention).toBe(3)
+
+    const queue = attention()
+    expect(queue.total).toBe(3)
+    expect(queue.items).toHaveLength(3)
+    expect(queue.nextOffset).toBeNull()
+  })
+
+  it('orders blocking before attention, newest first, and pages by offset', () => {
+    const blocked = submit('req-blocked', '阻塞需求')
+    repository.setStatus(blocked, 'blocked', '较早的阻塞')
+    const clarifyOld = submit('req-clarify-old', '澄清需求 1')
+    analyze(clarifyOld, ['旧问题'])
+    const clarifyNew = submit('req-clarify-new', '澄清需求 2')
+    repository.recordAnalysis({
+      reqId: clarifyNew,
+      analysisVersion: 1,
+      requirementVersion: 1,
+      goal: '目标',
+      scenarios: ['场景'],
+      acceptanceCriteria: ['标准'],
+      clarifications: ['新问题'],
+      createdAt: '2026-10-23T00:00:05.000Z',
+    })
+    const failing = submit('req-failing', '失败需求')
+    repository.setStatus(failing, 'executing')
+    repository.recordFailureRound(failing, {
+      roundId: 't1-a1',
+      stage: 'formal_test',
+      summary: '正式测试退出码 1',
+      occurredAt: '2026-10-23T09:00:00.000Z',
+    })
+
+    const options = { remainingFailureRounds: () => 2 }
+    const queue = attention(options)
+    expect(queue.total).toBe(4)
+    expect(queue.items.map((item) => item.reqId)).toEqual([
+      'req-clarify-new',
+      'req-clarify-old',
+      'req-blocked',
+      'req-failing',
+    ])
+    expect(queue.items.map((item) => item.priority)).toEqual([
+      'blocked',
+      'blocked',
+      'blocked',
+      'input',
+    ])
+
+    const firstPage = attention({ ...options, limit: 2 })
+    expect(firstPage.items).toHaveLength(2)
+    expect(firstPage.nextOffset).toBe(2)
+    const secondPage = attention({ ...options, limit: 2, offset: firstPage.nextOffset ?? 0 })
+    expect(secondPage.items.map((item) => item.reqId)).toEqual(['req-blocked', 'req-failing'])
+    expect(secondPage.nextOffset).toBeNull()
+
+    const blockedOnly = attention({ ...options, priority: 'blocked' })
+    expect(blockedOnly.total).toBe(4)
+    expect(blockedOnly.filtered).toBe(3)
+    expect(blockedOnly.items.every((item) => item.priority === 'blocked')).toBe(true)
+  })
+
+  it('keeps distinct reasons for one requirement and carries task context', () => {
+    const reqId = submit('req-multi', '多原因需求')
+    repository.recordTaskPlan(plan(reqId))
+    analyze(reqId, ['待澄清问题'])
+    repository.recordFailureRound(reqId, {
+      roundId: 't1-a1',
+      stage: 'formal_test',
+      summary: '正式测试退出码 1',
+      occurredAt: '2026-10-23T00:30:00.000Z',
+    })
+    const queue = attention()
+    const rows = queue.items.filter((item) => item.reqId === reqId)
+    expect(rows).toHaveLength(2)
+    const failure = rows.find((item) => item.kind === 'failure_round')
+    expect(failure).toMatchObject({
+      taskId: 't1',
+      taskGoal: '写文档',
+      requirementTitle: '多原因需求',
+      priority: 'input',
+    })
+    const clarification = rows.find((item) => item.kind === 'clarification')
+    expect(clarification?.taskId).toBeUndefined()
+    expect(clarification?.title).toBe('待澄清问题')
+    expect(ATTENTION_DEFAULT_LIMIT).toBeGreaterThan(0)
+  })
 })

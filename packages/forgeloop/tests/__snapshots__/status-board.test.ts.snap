@@ -112,6 +112,7 @@ exports[`keeps a fully populated board payload stable 1`] = `
   ],
   "summary": {
     "active": 0,
+    "attention": 1,
     "blocking": 0,
     "delivered": 0,
     "issues": 1,

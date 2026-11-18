@@ -91,6 +91,9 @@ function setup(
       calls.push({ method: 'statusBoard', input: { limit, query } })
       return { requirements: [] }
     },
+    repo: { listRequirements: () => [] },
+    config: { project: 'testproj' },
+    remainingFailureRounds: () => 2,
     reliability: (window: string) => {
       calls.push({ method: 'reliability', input: window })
       return { window: { key: window } }
@@ -154,6 +157,34 @@ describe('board route', () => {
     expect((await post(fetch, { endpoint: 'board', limit: 0 })).status).toBe(400)
     expect((await post(fetch, { endpoint: 'board', limit: 101 })).status).toBe(400)
     expect((await post(fetch, { endpoint: 'board', limit: 2, query: ' x ' })).status).toBe(200)
+  })
+
+  it('serves the project attention queue with validated paging and priority', async () => {
+    const { fetch } = setup()
+    const empty = await post(fetch, { endpoint: 'attention' })
+    expect(empty.status).toBe(200)
+    expect(empty.body.value).toEqual({
+      total: 0,
+      filtered: 0,
+      offset: 0,
+      limit: 20,
+      items: [],
+      nextOffset: null,
+    })
+    const paged = await post(fetch, {
+      endpoint: 'attention',
+      offset: 2,
+      limit: 5,
+      priority: 'blocked',
+      reqId: 'req-1',
+    })
+    expect(paged.status).toBe(200)
+    expect(paged.body.value).toMatchObject({ offset: 2, limit: 5, total: 0, items: [] })
+    expect((await post(fetch, { endpoint: 'attention', offset: -1 })).status).toBe(400)
+    expect((await post(fetch, { endpoint: 'attention', offset: 1.5 })).status).toBe(400)
+    expect((await post(fetch, { endpoint: 'attention', limit: 0 })).status).toBe(400)
+    expect((await post(fetch, { endpoint: 'attention', limit: 101 })).status).toBe(400)
+    expect((await post(fetch, { endpoint: 'attention', priority: 'urgent' })).status).toBe(400)
   })
 
   it('dispatches the read-only reliability endpoint with a validated window', async () => {

@@ -24,6 +24,8 @@ window.__ModuleLoader__.load({
     const PAGE_VIEWS = ['hierarchy', 'product', 'reliability', 'ops']
     /** 页面请求的默认条数；服务端上限同为 100。 */
     const BOARD_LIMIT = 100
+    /** 待办队列每页条数；服务端另有 1..100 的校验。 */
+    const QUEUE_PAGE_SIZE = 20
 
     function isTerminalStatus(status) {
       return TERMINAL_STATUSES.has(status)
@@ -69,62 +71,28 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 全项目待办来源：匹配需求下阻断与需关注的问题。
-     * 同一对象的不同原因分别保留；重复的问题身份只出现一次。
+     * 待办行：服务端聚合好的条目只做展示映射，客户端不再二次聚合。
+     * 影响对象优先用任务目标，其次需求标题；缺失时保留原身份。
      */
-    function attentionItems(t, requirements, issues) {
-      const items = []
-      const seen = new Set()
-      for (const requirement of requirements) {
-        const reqIssues = issues.filter(
-          (issue) =>
-            issue.reqId === requirement.reqId &&
-            ['blocking', 'attention'].includes(issue.severity),
-        )
-        for (const issue of reqIssues) {
-          const key = issue.issueId || requirement.reqId + ':req:' + issue.title
-          if (seen.has(key)) continue
-          seen.add(key)
-          items.push({
-            key: 'issue:' + issue.issueId,
-            reqId: requirement.reqId,
-            taskId: issue.taskId || '',
-            kind: 'issue',
-            kindLabel: t(`issue.${issue.kind}`),
-            title: issue.title,
-            detail: issue.detail || '',
-            tone: ISSUE_TONES[issue.severity] || 'warn',
-            issue,
-          })
-        }
-      }
-      return items
-    }
-
-    /**
-     * 队列行：先给可理解的原因，再给影响对象与阶段，最后给一个具体动作。
-     * 优先程度只区分阻断与待输入；对象缺失时保留原身份，不猜测归属。
-     */
-    function queueRows(t, items, requirements, tasks) {
-      return items.map((item) => {
-        const requirement = requirements.find((entry) => entry.reqId === item.reqId) || null
-        const task = item.taskId
-          ? tasks.find((entry) => entry.taskId === item.taskId && entry.reqId === item.reqId) ||
-            null
-          : null
-        const blocked = Boolean(item.issue && item.issue.severity === 'blocking')
-        return {
-          key: item.key,
-          priorityLabel: t(blocked ? 'queue.priority.blocked' : 'queue.priority.input'),
-          reason: item.title,
-          detail: item.detail,
-          target: task ? task.goal || task.taskId : requirement ? requirement.title : item.reqId,
-          stage: task ? t('wb.task') : t('wb.requirement'),
-          tone: item.tone,
-          actionLabel: task ? t('queue.openTask') : t('queue.openRequirement'),
-          item,
-        }
-      })
+    function attentionRows(t, items) {
+      return (Array.isArray(items) ? items : []).map((item) => ({
+        key: item.issueId,
+        priorityLabel: t(
+          item.priority === 'blocked' ? 'queue.priority.blocked' : 'queue.priority.input',
+        ),
+        reason: item.title,
+        detail: item.detail || '',
+        target: item.taskId
+          ? item.taskGoal || item.taskId
+          : item.requirementTitle || item.reqId,
+        stage: item.taskId
+          ? t('wb.task')
+          : t('wb.requirement'),
+        tone: item.severity === 'blocking' ? 'error' : 'warn',
+        actionLabel: t(item.taskId ? 'queue.openTask' : 'queue.openRequirement'),
+        reqId: item.reqId,
+        taskId: item.taskId || '',
+      }))
     }
 
     /** 小于 5 个样本时不把比率判成红/绿，统一标为“样本不足”。 */
@@ -1196,7 +1164,9 @@ window.__ModuleLoader__.load({
       'queue.title': '需要处理',
       'queue.scope': '当前项目 · {count} 项',
       'queue.filter.stage': '全部阶段 ▾',
-      'queue.filter.priority': '全部优先程度 ▾',
+      'queue.blockedOnly': '仅阻塞',
+      'queue.loading': '正在读取待办…',
+      'queue.more': '加载更多',
       'queue.priority': '优先程度',
       'queue.reason': '需要处理的原因',
       'queue.target': '影响对象 › 阶段',
@@ -1923,7 +1893,9 @@ window.__ModuleLoader__.load({
       'queue.title': 'Needs attention',
       'queue.scope': 'Current project · {count} items',
       'queue.filter.stage': 'All stages ▾',
-      'queue.filter.priority': 'All priorities ▾',
+      'queue.blockedOnly': 'Blocked only',
+      'queue.loading': 'Reading the queue…',
+      'queue.more': 'Load more',
       'queue.priority': 'Priority',
       'queue.reason': 'Reason',
       'queue.target': 'Object › stage',
@@ -5575,6 +5547,8 @@ window.__ModuleLoader__.load({
 .flb-queue-table td{padding:8px;border-bottom:.5px solid var(--dsw-alias-border-l1);vertical-align:top;overflow-wrap:anywhere}
 .flb-queue-table tr:hover td{background:var(--dsw-alias-bg-layer-1)}
 .flb-queue-table .flb-card-action{white-space:nowrap}
+.flb-queue-toggle{display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:var(--dsw-alias-label-primary)}
+.flb-queue-more{margin-top:8px;display:flex;justify-content:center}
 /* 天工页隐藏宿主输入区（发送、附件、模型选择与统计占位）；回到对话时组件卸载即恢复。 */
 [data-conversation-content]:has(.flb-root) [data-composer-seat]{display:none}
 @media (max-width:820px){
@@ -7785,9 +7759,11 @@ window.__ModuleLoader__.load({
       }
 
       /** 需要处理队列：全项目待办按优先程度排列，下一步只给查看入口。 */
+      /** 需要处理队列：服务端聚合分页，行给出原因、影响对象与一个查看动作。 */
       function QueuePane(props) {
         const t = props.t
         const rows = Array.isArray(props.rows) ? props.rows : []
+        const loading = props.phase === 'loading' || props.phase === 'refreshing'
         return h(
           'main',
           { className: 'flb-queue' },
@@ -7800,16 +7776,35 @@ window.__ModuleLoader__.load({
               t(props.from === 'tasks' ? 'queue.back.tasks' : 'queue.back.requirement'),
             ),
             h('h2', { className: 'flb-queue-title' }, t('queue.title')),
-            h('span', { className: 'flb-muted' }, t('queue.scope', { count: rows.length })),
+            h('span', { className: 'flb-muted' }, t('queue.scope', { count: props.total })),
           ),
           h(
-            'p',
+            'div',
             { className: 'flb-queue-filters' },
             h('span', null, t('queue.filter.stage')),
-            h('span', null, t('queue.filter.priority')),
+            h(
+              'label',
+              { className: 'flb-queue-toggle' },
+              h('input', {
+                type: 'checkbox',
+                checked: Boolean(props.blockedOnly),
+                onChange: (event) => props.onBlockedOnly(event.target.checked),
+              }),
+              ' ' + t('queue.blockedOnly'),
+            ),
+            h(
+              'button',
+              { type: 'button', className: 'flb-link-button', onClick: props.onRefresh },
+              t('page.refresh'),
+            ),
           ),
+          props.error
+            ? h('div', { className: 'flb-error', role: 'alert' }, props.error)
+            : null,
           rows.length === 0
-            ? h('div', { className: 'flb-empty' }, t('queue.empty'))
+            ? loading
+              ? h('div', { className: 'flb-empty' }, t('queue.loading'))
+              : h('div', { className: 'flb-empty' }, t('queue.empty'))
             : h(
                 'table',
                 { className: 'flb-queue-table' },
@@ -7856,7 +7851,7 @@ window.__ModuleLoader__.load({
                           {
                             type: 'button',
                             className: 'flb-card-action',
-                            onClick: () => props.onOpen(row.item),
+                            onClick: () => props.onOpen(row),
                           },
                           row.actionLabel,
                         ),
@@ -7865,6 +7860,23 @@ window.__ModuleLoader__.load({
                   ),
                 ),
               ),
+          loading && rows.length > 0 ? h('div', { className: 'flb-muted' }, t('queue.loading')) : null,
+          props.hasMore
+            ? h(
+                'div',
+                { className: 'flb-queue-more' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-card-action',
+                    onClick: props.onLoadMore,
+                    disabled: loading,
+                  },
+                  t('queue.more'),
+                ),
+              )
+            : null,
         )
       }
 
@@ -10437,6 +10449,13 @@ window.__ModuleLoader__.load({
         const [filter, setFilter] = React.useState('all')
         const [mode, setMode] = React.useState('requirement')
         const [queueFrom, setQueueFrom] = React.useState('requirement')
+        const [queueState, setQueueState] = React.useState({
+          phase: 'idle',
+          data: null,
+          error: '',
+        })
+        const [queuePriority, setQueuePriority] = React.useState('all')
+        const [queueNonce, setQueueNonce] = React.useState(0)
         const [selection, setSelection] = React.useState({
           kind: 'requirement',
           reqId: '',
@@ -10775,6 +10794,65 @@ window.__ModuleLoader__.load({
           }
         }, [view, productNonce])
 
+        // 进入待办队列时读取服务端聚合：分页、优先程度筛选与入口计数同源。
+        React.useEffect(() => {
+          if (view !== 'hierarchy' || mode !== 'issues') return undefined
+          let alive = true
+          const loadQueue = () => {
+            read('attention', { offset: 0, limit: QUEUE_PAGE_SIZE, priority: queuePriority })
+              .then((value) => {
+                if (!alive) return
+                setQueueState({ phase: 'ready', data: value, error: '' })
+              })
+              .catch((error) => {
+                if (!alive) return
+                setQueueState((previous) => ({
+                  phase: 'error',
+                  data: previous.data,
+                  error: error.message || String(error),
+                }))
+              })
+          }
+          setQueueState((previous) => ({
+            phase: previous.data ? 'refreshing' : 'loading',
+            data: previous.data,
+            error: '',
+          }))
+          loadQueue()
+          const timer = auto ? setInterval(loadQueue, 15000) : null
+          return () => {
+            alive = false
+            if (timer) clearInterval(timer)
+          }
+        }, [view, mode, queuePriority, queueNonce, auto])
+
+        /** 追加下一页；翻页失败保留已读行，只显示错误。 */
+        const loadQueueMore = () => {
+          const current = queueState.data
+          if (!current || current.nextOffset === null) return
+          if (queueState.phase === 'loading' || queueState.phase === 'refreshing') return
+          const offset = current.nextOffset
+          setQueueState((previous) => ({ ...previous, phase: 'loading' }))
+          read('attention', { offset, limit: QUEUE_PAGE_SIZE, priority: queuePriority })
+            .then((value) => {
+              setQueueState((previous) => {
+                const items = Array.isArray(previous.data?.items) ? previous.data.items : []
+                return {
+                  phase: 'ready',
+                  data: { ...value, offset: 0, items: [...items, ...value.items] },
+                  error: '',
+                }
+              })
+            })
+            .catch((error) =>
+              setQueueState((previous) => ({
+                phase: 'error',
+                data: previous.data,
+                error: error.message || String(error),
+              })),
+            )
+        }
+
         const openRequirement = (reqId) => {
           setMode('requirement')
           setSelection({ kind: 'requirement', reqId, taskId: '', issueId: '' })
@@ -10907,8 +10985,10 @@ window.__ModuleLoader__.load({
             })
         }
 
-        const attention = attentionItems(t, requirements, allIssues)
-        const queue = queueRows(t, attention, requirements, allTasks)
+        const attentionTotal =
+          board && board.summary && typeof board.summary.attention === 'number'
+            ? board.summary.attention
+            : 0
 
         const pageLabels = {
           hierarchy: t('wb.hierarchy'),
@@ -10922,7 +11002,10 @@ window.__ModuleLoader__.load({
           if (view === 'reliability') setReliabilityNonce((value) => value + 1)
           else if (view === 'ops') setOpsNonce((value) => value + 1)
           else if (view === 'product') setProductNonce((value) => value + 1)
-          else load()
+          else if (mode === 'issues') {
+            load()
+            setQueueNonce((value) => value + 1)
+          } else load()
         }
         const refreshing = state.phase === 'loading' || state.phase === 'refreshing'
         const pageReadAt =
@@ -11068,7 +11151,7 @@ window.__ModuleLoader__.load({
                 setMode('issues')
               },
             },
-            `${t('wb.queue', { count: queue.length })} ›`,
+            `${t('wb.queue', { count: attentionTotal })} ›`,
           ),
         )
 
@@ -11137,13 +11220,24 @@ window.__ModuleLoader__.load({
             )
           }
           if (mode === 'issues') {
+            const data = queueState.data
             return h(QueuePane, {
               t,
-              rows: queue,
+              rows: attentionRows(t, data && data.items ? data.items : []),
+              total: data && typeof data.total === 'number' ? data.total : attentionTotal,
+              hasMore: Boolean(data && data.nextOffset !== null && data.nextOffset !== undefined),
+              phase: queueState.phase,
+              error: queueState.error,
+              blockedOnly: queuePriority === 'blocked',
+              onBlockedOnly: (value) => setQueuePriority(value ? 'blocked' : 'all'),
+              onRefresh: () => setQueueNonce((value) => value + 1),
+              onLoadMore: loadQueueMore,
               from: queueFrom,
               onBack: () => setMode(queueFrom),
-              onOpen: (item) =>
-                item.issue ? openIssue(item.issue) : openRequirementDetail(item.reqId),
+              onOpen: (row) =>
+                row.taskId
+                  ? openTask(row.reqId, row.taskId, 'overview')
+                  : openRequirementDetail(row.reqId),
             })
           }
           if (visible.length === 0) {
@@ -11515,8 +11609,7 @@ window.__ModuleLoader__.load({
         tasksForProgress,
         showsLegacyGateWarnings,
         searchScopeText,
-        attentionItems,
-        queueRows,
+        attentionRows,
         businessPointRows,
         stageStatuses,
         verificationAnomaly,

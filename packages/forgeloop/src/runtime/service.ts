@@ -1078,7 +1078,8 @@ ${answer}`
     return { ok: true, plan, task, run, remainingRounds }
   }
 
-  private remainingFailureRounds(reqId: string): number {
+  /** 只读：失败轮次剩余额度。 */
+  remainingFailureRounds(reqId: string): number {
     const perGrant = this.config.failureRoundsPerGrant
     if (perGrant < 0) return Number.POSITIVE_INFINITY
     const used = this.repo.failureRounds(reqId).length

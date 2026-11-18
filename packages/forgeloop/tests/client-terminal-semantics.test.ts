@@ -36,45 +36,30 @@ interface ClientExports {
       t: (key: string, params?: Record<string, unknown>) => string,
       limit?: number,
     ) => string
-    attentionItems: (
+    attentionRows: (
       t: (key: string) => string,
-      requirements: Array<{ reqId: string; title: string }>,
-      issues: Array<{
+      items: Array<{
         issueId: string
         reqId: string
+        requirementTitle: string
         taskId?: string
+        taskGoal: string
         severity: string
-        kind: string
+        priority: string
         title: string
-        detail?: string
+        detail: string
       }>,
     ) => Array<{
       key: string
-      reqId: string
-      taskId: string
-      title: string
-      tone: string
-      issue: { severity: string }
-    }>
-    queueRows: (
-      t: (key: string, params?: Record<string, unknown>) => string,
-      items: Array<{
-        key: string
-        reqId: string
-        taskId: string
-        title: string
-        tone: string
-        issue?: { severity: string }
-      }>,
-      requirements: Array<{ reqId: string; title: string }>,
-      tasks: Array<{ reqId: string; taskId: string; goal: string }>,
-    ) => Array<{
       priorityLabel: string
       reason: string
       target: string
       stage: string
       actionLabel: string
+      reqId: string
+      taskId: string
     }>
+
     verificationAnomaly: (detail: { data?: Record<string, unknown> | null }) => {
       blocking: string[]
       failureKind: string
@@ -340,74 +325,65 @@ describe('build stamp', () => {
 })
 
 describe('需要处理队列', () => {
-  const requirements = [
-    { reqId: 'req-1', title: '把可靠性标签页名称修改为度量' },
-    { reqId: 'req-2', title: '周报统计范围' },
-  ]
-  const issues = [
+  const items = [
     {
       issueId: 'i1',
       reqId: 'req-1',
+      requirementTitle: '把可靠性标签页名称修改为度量',
       taskId: 't1',
+      taskGoal: '更新页签显示名称',
       severity: 'blocking',
-      kind: 'blocked',
+      priority: 'blocked',
       title: '测试方案生成失败',
       detail: '尚无可用测试结果',
     },
     {
       issueId: 'i2',
-      reqId: 'req-1',
-      taskId: 't1',
-      severity: 'blocking',
-      kind: 'request',
-      title: '同任务另一原因',
-    },
-    {
-      issueId: 'i3',
       reqId: 'req-2',
+      requirementTitle: '周报统计范围',
+      taskGoal: '',
       severity: 'attention',
-      kind: 'clarification',
+      priority: 'input',
       title: '需明确统计范围',
+      detail: '',
     },
-    { issueId: 'i4', reqId: 'req-2', severity: 'info', kind: 'approval', title: '不进入队列' },
   ]
-  const tasks = [{ reqId: 'req-1', taskId: 't1', goal: '更新页签显示名称' }]
 
-  it('keeps different reasons under the same task and skips non-attention issues', () => {
-    const items = exportsValue.__rules.attentionItems(t, requirements, issues)
-    expect(items.map((item) => item.key)).toEqual(['issue:i1', 'issue:i2', 'issue:i3'])
-    expect(items.map((item) => item.reqId)).toEqual(['req-1', 'req-1', 'req-2'])
-  })
-
-  it('states priority, reason, object with stage and one next step per row', () => {
-    const items = exportsValue.__rules.attentionItems(t, requirements, issues)
-    const rows = exportsValue.__rules.queueRows(t, items, requirements, tasks)
-    expect(rows.map((row) => row.priorityLabel)).toEqual(['阻塞', '阻塞', '待输入'])
-    expect(rows.map((row) => row.reason)).toEqual([
-      '测试方案生成失败',
-      '同任务另一原因',
-      '需明确统计范围',
-    ])
+  it('maps the server rows without re-aggregating or guessing', () => {
+    const rows = exportsValue.__rules.attentionRows(t, items)
+    expect(rows.map((row) => row.key)).toEqual(['i1', 'i2'])
+    expect(rows.map((row) => row.priorityLabel)).toEqual(['阻塞', '待输入'])
     expect(rows[0]).toMatchObject({
       target: '更新页签显示名称',
       stage: '任务',
       actionLabel: '查看任务 ↗',
+      reqId: 'req-1',
+      taskId: 't1',
     })
-    expect(rows[2]).toMatchObject({
+    expect(rows[1]).toMatchObject({
       target: '周报统计范围',
       stage: '需求',
       actionLabel: '查看需求 ↗',
+      reqId: 'req-2',
+      taskId: '',
     })
   })
 
-  it('falls back to the requirement id when the issue has no matching requirement', () => {
-    const rows = exportsValue.__rules.queueRows(
-      t,
-      [{ key: 'issue:x', reqId: 'req-9', taskId: '', title: '对象已消失', tone: 'warn' }],
-      requirements,
-      tasks,
-    )
-    expect(rows[0]).toMatchObject({ target: 'req-9', stage: '需求' })
+  it('falls back to the recorded identities when display text is missing', () => {
+    const rows = exportsValue.__rules.attentionRows(t, [
+      {
+        issueId: 'i3',
+        reqId: 'req-3',
+        requirementTitle: '',
+        taskId: 't9',
+        taskGoal: '',
+        severity: 'blocking',
+        priority: 'blocked',
+        title: '对象已消失',
+        detail: '',
+      },
+    ])
+    expect(rows[0]).toMatchObject({ target: 't9', stage: '任务' })
   })
 })
 
