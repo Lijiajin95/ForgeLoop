@@ -13,7 +13,7 @@
 | 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、系统准入、自动推进、研发拆解、独立验证、业务终审、验收、候选构建、受控提交与部署接口均已接入；部署目标可配置默认需求，也可由 intent 按需求复用；天工页提供停止/取消/恢复、追加授权、工时延长、构建与上线核对；部署协调器的工作台页面与证据入口未实现；`autoDeliver` 目标已接入提交后自动构建/部署/核对与修复回流；当前 Windows DSH `web` profile（3080）已运行 2026-11-05 tarball，真实需求 `req-20261105090042-07ff5f` 已在页面可见                                                                                                                                                                                                                                                                                                                                                | [架构](../development/architecture.md)、§131–§136                                                                                      |
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | §30                                                                                                                                    |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §13、[ADR 0009](../development/adr/0009-remove-retired-implementation.md)                                                              |
-| 最近安装记录 | 2026-11-16 22:12 `forgeloop-dsh@0.0.2` tarball（484,353 字节，SHA-256 `806d71dc…`，gitHead `862ed71`）安装到当前 Windows `web` profile（插件热重载，pid 57876；上一包 `20261116-2042.tgz` 保留可回滚）；安装记录不等于交付完成                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §250                                                                                                                                   |
+| 最近安装记录 | 2026-11-18 20:13 `forgeloop-dsh@0.0.2` tarball（517,034 字节，SHA-256 `e5fc9578…`，gitHead `80a35e3`）安装到当前 Windows `web` profile（依赖 `C:/Users/lijia/.forgeloop/artifacts/forgeloop-dsh-0.0.2-20261118-2011.tgz`；bundle 禁用/启用后在进程内重载，运行身份 `clientSha256 d77bbcf1…` 与源码一致）；上一包 `20261118-1944.tgz`（`89b60d2d…`）与 `20261117-1700.tgz` 保留可回滚；安装记录不等于交付完成 | §261                                                                                                                                   |
 | 最近工程检查 | 2026-11-06 worktree `feat/m1-closure`：`check-static`（typecheck、ESLint、contracts、token/断言预算、可靠性注册表）通过；定向 mutation 73 项、verification 54 项、identity 3 项通过；全量 `make check` 157 文件/1887 项中 66 失败（11 文件，集中在 Windows 控制副本夹具与 recordsRoot 在项目内时的敏感性对照），未通过。M1 现场与失败见 §168。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §132.4、§135.3、§168                                                                                                                   |
 | 真实业务链路 | 2026-11-05 当前 DSH `web`（3080）真实需求 `req-20261105090042-07ff5f`：通过插件工具提交，经分析→系统准入→研发→独立验证（pass）→业务终审（pass）→受控提交 `e18de603ae08…`，共约 5 分钟；天工页可见，Board detail 返回 `fresh=true`、`businessReview=pass`。另有真实模型部署 E2E `req-20261105084110-d498df`（到隔离目标 verified）与 §134 的 M0 E2E 证据。2026-11-06 M1 收尾新增的两条真实闭环 A/B 均未跑通：停止时分别停在 `control-apply`、`watchdog-root-cause`，0 提交、0 部署 intent、0 关闭事件（§168）。                                                                                                                                                                                                                                                                                                                         | §131、§133–§135、§168                                                                                                                  |
 | 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控 + 2026-11-03 按需读制品日志：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，Agent 评审后建事件；另有两个只读工具按需读取 `ops.artifacts` 登记的制品运行状态（安装版本、pid、存活、身份摘要）与日志尾部（行数、错误行数可过滤）；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证；2026-11-06 起按所有者决定进入维护阶段（§178、[ADR 0011](../development/adr/0011-ops-maintenance-first.md)），不再扩展外部工具或主动复跑 | §35、§110、§112、[运维设计](../development/ops-agent.md)、§178                                                                         |
@@ -9606,4 +9606,32 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
   并有行为测试；旧的展开/收起正文与对应标签移除。
 - 验证：`make check-static` 通过；客户端两文件 42 项、架构契约 18 项通过。
 - 未完成：真实 DSH 会话的视觉与窄屏验收，以及受命令运行器限制未能跑完的全量 `make check`。
+
+## 261. 天工四页改版本地部署与界面验证（2026-11-18 20:00）
+
+目标与事实：把 `80a35e3`（含批次 4 与窄屏主题选择器修复）构建为 `forgeloop-dsh@0.0.2` 候选包，
+安装到当前 Windows `web` profile（`DSH_HOME=C:\Users\lijia\.dsh`，3080），并在真实浏览器里只读核对。
+
+- 构建：`npm run build --workspace forgeloop-dsh` + `node packages/forgeloop/lib/cli/pack.js`
+  → 517,034 字节，SHA-256 `e5fc9578fa7b7ed26696c796e7b01ad13262445a88a3e5b941eeb6ff678dc27d`，
+  gitHead `80a35e3`，工作树干净；复制到 `C:/Users/lijia/.forgeloop/artifacts/forgeloop-dsh-0.0.2-20261118-2011.tgz`。
+- 安装：plugin manager `install_bundle` 返回 `application: applied`，profile 依赖改为该 tarball；
+  仅安装不会重载服务端模块（首次安装写入 19:45 的运行身份），随后 bundle 禁用/启用触发进程内重载，
+  运行身份更新为 `startedAt 2026-11-18T12:13:47.174Z`、`clientSha256 d77bbcf1…`、`sourceMatches true`。
+- 只读接口核对（本机 Web 同源 Cookie + 当前会话）：`board` 200（4 个需求、`summary.attention 11`）、
+  `detail` 含 `analysisActivity 2 / verificationActivity 0`、`attention` 200（total 11，limit 5，
+  nextOffset 5），证明新服务端投影与队列端点已生效。
+- 真实浏览器（Edge headless，1440px / 390px）只读核对：
+  四页导航「工作台/产品/度量/运维」；按需求三列「产品 已形成说明 / 研发 执行中 / 验证 尚无结论」，
+  选中 BP-1 后任务仍可见（覆盖它）、需求选择器显示「把可靠性标签页名称修改为度量 · 研发中」；
+  「需要处理 10 项」队列表头为「优先程度 / 需要处理的原因 / 影响对象 › 阶段 / 下一步」并显示 10 行；
+  按任务页标题「研发任务」；产品页 64 条、搜索与主题目录可用；度量页标题「度量」与时间窗口控件；
+  运维页监控条存在；天工内 `[data-composer-seat]` 为 `display:none`，切回对话恢复为 `flex` 且有高度；
+  任务执行过程窗口可打开、Esc 关闭；390px 下三项阶段摘要可见、三列纵排、无横向滚动。
+- 发现并修复：窄屏主题选择器随目录容器一起被隐藏（`80a35e3` 修复），重新构建安装后
+  从真实页面读取已加载客户端包，确认包含修复规则且旧规则已消失。
+- 回滚目标：`20261118-1944.tgz`（`89b60d2d…`，批次 1–4 客户端）或 `20261117-1700.tgz`；
+  回滚同样需要 bundle 重载并复核运行身份。
+- 未完成：未跑全量 `make check`（命令运行器限制）；未在 390px 下重截修复后的主题选择器截图，
+  以真实页面加载的客户端包内容核对代替；安装与界面核对不等于业务验收。
 
