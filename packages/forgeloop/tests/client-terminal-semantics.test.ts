@@ -36,6 +36,45 @@ interface ClientExports {
       t: (key: string, params?: Record<string, unknown>) => string,
       limit?: number,
     ) => string
+    attentionItems: (
+      t: (key: string) => string,
+      requirements: Array<{ reqId: string; title: string }>,
+      issues: Array<{
+        issueId: string
+        reqId: string
+        taskId?: string
+        severity: string
+        kind: string
+        title: string
+        detail?: string
+      }>,
+    ) => Array<{
+      key: string
+      reqId: string
+      taskId: string
+      title: string
+      tone: string
+      issue: { severity: string }
+    }>
+    queueRows: (
+      t: (key: string, params?: Record<string, unknown>) => string,
+      items: Array<{
+        key: string
+        reqId: string
+        taskId: string
+        title: string
+        tone: string
+        issue?: { severity: string }
+      }>,
+      requirements: Array<{ reqId: string; title: string }>,
+      tasks: Array<{ reqId: string; taskId: string; goal: string }>,
+    ) => Array<{
+      priorityLabel: string
+      reason: string
+      target: string
+      stage: string
+      actionLabel: string
+    }>
     boardProjectLabel: (board: { project: string; workspace?: { title?: string } }) => string
     shouldRenderSessionTail: (
       preset: string | undefined,
@@ -270,21 +309,79 @@ describe('build stamp', () => {
   })
 })
 
-describe('summary rail and quality verdict', () => {
-  it('builds a compact global summary with delivery and autonomy', () => {
-    const items = exportsValue.__rules.boardSummaryItems(t, {
-      summary: { requirements: 6, active: 0, tasks: 14, delivered: 8, issues: 0, blocking: 0 },
-      autonomy: {
-        requirements: {
-          autonomousSuccessRate: { numerator: 0, denominator: 6, rate: 0 },
-        },
-      },
-    })
-    expect(items.map((item) => item.value)).toEqual(['6', '0', '8/14', '0', '0%'])
-    expect(items[2]?.note).toBe('任务')
-    expect(items[4]?.note).toBe('0/6')
+describe('需要处理队列', () => {
+  const requirements = [
+    { reqId: 'req-1', title: '把可靠性标签页名称修改为度量' },
+    { reqId: 'req-2', title: '周报统计范围' },
+  ]
+  const issues = [
+    {
+      issueId: 'i1',
+      reqId: 'req-1',
+      taskId: 't1',
+      severity: 'blocking',
+      kind: 'blocked',
+      title: '测试方案生成失败',
+      detail: '尚无可用测试结果',
+    },
+    {
+      issueId: 'i2',
+      reqId: 'req-1',
+      taskId: 't1',
+      severity: 'blocking',
+      kind: 'request',
+      title: '同任务另一原因',
+    },
+    {
+      issueId: 'i3',
+      reqId: 'req-2',
+      severity: 'attention',
+      kind: 'clarification',
+      title: '需明确统计范围',
+    },
+    { issueId: 'i4', reqId: 'req-2', severity: 'info', kind: 'approval', title: '不进入队列' },
+  ]
+  const tasks = [{ reqId: 'req-1', taskId: 't1', goal: '更新页签显示名称' }]
+
+  it('keeps different reasons under the same task and skips non-attention issues', () => {
+    const items = exportsValue.__rules.attentionItems(t, requirements, issues)
+    expect(items.map((item) => item.key)).toEqual(['issue:i1', 'issue:i2', 'issue:i3'])
+    expect(items.map((item) => item.reqId)).toEqual(['req-1', 'req-1', 'req-2'])
   })
 
+  it('states priority, reason, object with stage and one next step per row', () => {
+    const items = exportsValue.__rules.attentionItems(t, requirements, issues)
+    const rows = exportsValue.__rules.queueRows(t, items, requirements, tasks)
+    expect(rows.map((row) => row.priorityLabel)).toEqual(['阻塞', '阻塞', '待输入'])
+    expect(rows.map((row) => row.reason)).toEqual([
+      '测试方案生成失败',
+      '同任务另一原因',
+      '需明确统计范围',
+    ])
+    expect(rows[0]).toMatchObject({
+      target: '更新页签显示名称',
+      stage: '任务',
+      actionLabel: '查看任务 ↗',
+    })
+    expect(rows[2]).toMatchObject({
+      target: '周报统计范围',
+      stage: '需求',
+      actionLabel: '查看需求 ↗',
+    })
+  })
+
+  it('falls back to the requirement id when the issue has no matching requirement', () => {
+    const rows = exportsValue.__rules.queueRows(
+      t,
+      [{ key: 'issue:x', reqId: 'req-9', taskId: '', title: '对象已消失', tone: 'warn' }],
+      requirements,
+      tasks,
+    )
+    expect(rows[0]).toMatchObject({ target: 'req-9', stage: '需求' })
+  })
+})
+
+describe('summary rail and quality verdict', () => {
   it('turns snapshot availability, gate and coverage failures into one verdict', () => {
     const rules = exportsValue.__rules
     expect(rules.reliabilityVerdict({ snapshot: { availability: 'missing' } })).toMatchObject({

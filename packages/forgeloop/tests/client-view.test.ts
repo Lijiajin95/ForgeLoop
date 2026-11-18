@@ -143,15 +143,8 @@ describe('client conversation view', () => {
     expect(typeof view!.component).toBe('function')
   })
 
-  it('places the reliability view between issues and ops', () => {
-    expect(registered.exports.__views).toEqual([
-      'hierarchy',
-      'tasks',
-      'issues',
-      'product',
-      'reliability',
-      'ops',
-    ])
+  it('registers the four top-level pages in the fixed order', () => {
+    expect(registered.exports.__views).toEqual(['hierarchy', 'product', 'reliability', 'ops'])
   })
 
   it('ships product labels in both locales', () => {
@@ -201,8 +194,8 @@ describe('client conversation view', () => {
   it('ships reliability labels in both locales', () => {
     const dicts = dictionaries.get('forgeloop-board')
     expect(dicts).toBeDefined()
-    expect(dicts!.zh['nav.reliability']).toBe('可靠性')
-    expect(dicts!.en['nav.reliability']).toBe('Reliability')
+    expect(dicts!.zh['nav.reliability']).toBe('度量')
+    expect(dicts!.en['nav.reliability']).toBe('Metrics')
     const keys = [
       'reliability.title',
       'reliability.window.all',
@@ -226,6 +219,44 @@ describe('client conversation view', () => {
       'reliability.footnote',
     ]
     for (const key of keys) {
+      expect(dicts!.zh[key], key).toBeTruthy()
+      expect(dicts!.en[key], key).toBeTruthy()
+    }
+  })
+
+  it('labels the four pages and the workbench browsing modes in both locales', () => {
+    const dicts = dictionaries.get('forgeloop-board')
+    expect(dicts!.zh['wb.hierarchy']).toBe('工作台')
+    expect(dicts!.en['wb.hierarchy']).toBe('Workbench')
+    expect(dicts!.zh['wb.mode.requirement']).toBe('按需求')
+    expect(dicts!.en['wb.mode.tasks']).toBe('By task')
+    for (const key of [
+      'nav.product',
+      'nav.reliability',
+      'nav.ops',
+      'wb.mode.label',
+      'wb.mode.tasks',
+      'wb.queue',
+      'selector.label',
+      'selector.count',
+      'selector.detail',
+      'tasks.title',
+      'queue.title',
+      'queue.scope',
+      'queue.priority',
+      'queue.reason',
+      'queue.target',
+      'queue.next',
+      'queue.priority.blocked',
+      'queue.priority.input',
+      'queue.empty',
+      'queue.openTask',
+      'queue.openRequirement',
+      'queue.back.requirement',
+      'queue.back.tasks',
+      'page.readAt',
+      'page.project',
+    ]) {
       expect(dicts!.zh[key], key).toBeTruthy()
       expect(dicts!.en[key], key).toBeTruthy()
     }
@@ -360,6 +391,11 @@ describe('client conversation view', () => {
       'ops.state.unknown',
       'ops.confirmUnknown',
       'ops.unknownConfirm',
+      'rail.label',
+      'rail.requirements',
+      'rail.delivered',
+      'wb.tree',
+      'wb.treeToggle',
     ]
     for (const key of removed) {
       expect(dicts!.zh[key], key).toBeUndefined()

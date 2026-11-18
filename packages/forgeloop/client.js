@@ -20,8 +20,8 @@ window.__ModuleLoader__.load({
     const BOARD_PATH = '/api/forgeloop/board'
     /** 与服务端 TERMINAL_STATUSES 保持一致：committed 也是终态，不再算“进行中”。 */
     const TERMINAL_STATUSES = new Set(['committed', 'accepted', 'rejected', 'cancelled'])
-    /** 工作台视图顺序：可靠性位于「需要处理」与「运维」之间。 */
-    const WORKBENCH_VIEWS = ['hierarchy', 'tasks', 'issues', 'product', 'reliability', 'ops']
+    /** 一级页面顺序：工作台（复用 hierarchy 入口）、产品、度量、运维。 */
+    const PAGE_VIEWS = ['hierarchy', 'product', 'reliability', 'ops']
     /** 页面请求的默认条数；服务端上限同为 100。 */
     const BOARD_LIMIT = 100
 
@@ -68,47 +68,63 @@ window.__ModuleLoader__.load({
       return at >= 0 ? '…' + text.slice(at + 1) : text
     }
 
-    /** 顶部状态轨：全局规模、交付进度、待处理与研发自主率。 */
-    function boardSummaryItems(t, board) {
-      const summary = (board && board.summary) || {}
-      const autonomy = board && board.autonomy && board.autonomy.requirements
-      const success = autonomy && autonomy.autonomousSuccessRate
-      const blocking = Number(summary.blocking) || 0
-      const issues = Number(summary.issues) || 0
-      return [
-        {
-          key: 'requirements',
-          label: t('rail.requirements'),
-          value: String(summary.requirements || 0),
-        },
-        { key: 'active', label: t('rail.active'), value: String(summary.active || 0) },
-        {
-          key: 'delivered',
-          label: t('rail.delivered'),
-          value: `${summary.delivered || 0}/${summary.tasks || 0}`,
-          note: t('rail.tasksNote'),
-        },
-        {
-          key: 'issues',
-          label: t('rail.issues'),
-          value: String(issues),
-          ...(blocking > 0
-            ? { tone: 'error', note: t('rail.blockingNote', { count: blocking }) }
-            : {}),
-        },
-        {
-          key: 'autonomy',
-          label: t('rail.autonomy'),
-          value:
-            success && typeof success.rate === 'number'
-              ? `${Math.round(success.rate * 100)}%`
-              : t('rail.noSample'),
-          note:
-            success && success.denominator
-              ? `${success.numerator}/${success.denominator}`
-              : undefined,
-        },
-      ]
+    /**
+     * 全项目待办来源：匹配需求下阻断与需关注的问题。
+     * 同一对象的不同原因分别保留；重复的问题身份只出现一次。
+     */
+    function attentionItems(t, requirements, issues) {
+      const items = []
+      const seen = new Set()
+      for (const requirement of requirements) {
+        const reqIssues = issues.filter(
+          (issue) =>
+            issue.reqId === requirement.reqId &&
+            ['blocking', 'attention'].includes(issue.severity),
+        )
+        for (const issue of reqIssues) {
+          const key = issue.issueId || requirement.reqId + ':req:' + issue.title
+          if (seen.has(key)) continue
+          seen.add(key)
+          items.push({
+            key: 'issue:' + issue.issueId,
+            reqId: requirement.reqId,
+            taskId: issue.taskId || '',
+            kind: 'issue',
+            kindLabel: t(`issue.${issue.kind}`),
+            title: issue.title,
+            detail: issue.detail || '',
+            tone: ISSUE_TONES[issue.severity] || 'warn',
+            issue,
+          })
+        }
+      }
+      return items
+    }
+
+    /**
+     * 队列行：先给可理解的原因，再给影响对象与阶段，最后给一个具体动作。
+     * 优先程度只区分阻断与待输入；对象缺失时保留原身份，不猜测归属。
+     */
+    function queueRows(t, items, requirements, tasks) {
+      return items.map((item) => {
+        const requirement = requirements.find((entry) => entry.reqId === item.reqId) || null
+        const task = item.taskId
+          ? tasks.find((entry) => entry.taskId === item.taskId && entry.reqId === item.reqId) ||
+            null
+          : null
+        const blocked = Boolean(item.issue && item.issue.severity === 'blocking')
+        return {
+          key: item.key,
+          priorityLabel: t(blocked ? 'queue.priority.blocked' : 'queue.priority.input'),
+          reason: item.title,
+          detail: item.detail,
+          target: task ? task.goal || task.taskId : requirement ? requirement.title : item.reqId,
+          stage: task ? t('wb.task') : t('wb.requirement'),
+          tone: item.tone,
+          actionLabel: task ? t('queue.openTask') : t('queue.openRequirement'),
+          item,
+        }
+      })
     }
 
     /** 小于 5 个样本时不把比率判成红/绿，统一标为“样本不足”。 */
@@ -180,15 +196,8 @@ window.__ModuleLoader__.load({
       'build.sourceMismatch': '界面与源码不一致',
       'build.sourceSha': '源码 {sha}',
       'build.missing': '运行版本未记录',
-      'rail.label': '全局状态',
-      'rail.requirements': '需求',
-      'rail.active': '进行中',
-      'rail.delivered': '已交付',
-      'rail.tasksNote': '任务',
-      'rail.issues': '待处理',
-      'rail.blockingNote': '阻断 {count}',
-      'rail.autonomy': '研发自主',
-      'rail.noSample': '无样本',
+      'page.project': '{project}',
+      'page.readAt': '上次读取 {time}',
       'focus.deploy': '可以核对上线',
       'focus.build': '可以构建候选安装包',
       'focus.requeue': '任务失败后可重新执行',
@@ -433,15 +442,8 @@ window.__ModuleLoader__.load({
       'build.sourceMismatch': 'UI differs from source',
       'build.sourceSha': 'source {sha}',
       'build.missing': 'running version not recorded',
-      'rail.label': 'Global status',
-      'rail.requirements': 'Requirements',
-      'rail.active': 'Active',
-      'rail.delivered': 'Delivered',
-      'rail.tasksNote': 'tasks',
-      'rail.issues': 'Open issues',
-      'rail.blockingNote': '{count} blocking',
-      'rail.autonomy': 'Autonomous',
-      'rail.noSample': 'No sample',
+      'page.project': '{project}',
+      'page.readAt': 'Read at {time}',
       'focus.deploy': 'Ready to verify deployment',
       'focus.build': 'Ready to build a candidate package',
       'focus.requeue': 'Task failed; retry when ready',
@@ -691,9 +693,9 @@ window.__ModuleLoader__.load({
       'nav.tasks': '任务',
       'nav.issues': '问题',
       'nav.product': '产品',
-      'nav.reliability': '可靠性',
+      'nav.reliability': '度量',
       'nav.ops': '运维',
-      'nav.label': '工作台视图',
+      'nav.label': '天工页面',
       'search.placeholder': '搜索需求、任务、问题…',
       'search.label': '搜索工作台',
       'search.clear': '清除搜索',
@@ -908,11 +910,31 @@ window.__ModuleLoader__.load({
       'filter.requirement.draft': '草稿',
       'task.failureAction': '下一步',
       'task.noTestLog': '尚未记录正式测试日志。',
-      'wb.tree': '需求树',
-      'wb.treeToggle': '收起/展开需求树',
-      'wb.hierarchy': '层级工作台',
-      'wb.allTasks': '全部任务',
+      'wb.hierarchy': '工作台',
       'wb.attention': '需要处理',
+      'wb.mode.label': '工作台浏览方式',
+      'wb.mode.requirement': '按需求',
+      'wb.mode.tasks': '按任务',
+      'wb.queue': '需要处理 {count} 项',
+      'selector.label': '选择需求',
+      'selector.count': '{count} 个需求',
+      'selector.detail': '查看详情',
+      'tasks.title': '研发任务',
+      'queue.title': '需要处理',
+      'queue.scope': '当前项目 · {count} 项',
+      'queue.filter.stage': '全部阶段 ▾',
+      'queue.filter.priority': '全部优先程度 ▾',
+      'queue.priority': '优先程度',
+      'queue.reason': '需要处理的原因',
+      'queue.target': '影响对象 › 阶段',
+      'queue.next': '下一步',
+      'queue.priority.blocked': '阻塞',
+      'queue.priority.input': '待输入',
+      'queue.empty': '当前没有需要处理的事项。',
+      'queue.openTask': '查看任务 ↗',
+      'queue.openRequirement': '查看需求 ↗',
+      'queue.back.requirement': '‹ 返回按需求',
+      'queue.back.tasks': '‹ 返回按任务',
       'wb.requirement': '需求',
       'wb.task': '任务',
       'wb.issue': '问题',
@@ -1319,9 +1341,9 @@ window.__ModuleLoader__.load({
       'nav.tasks': 'Tasks',
       'nav.issues': 'Issues',
       'nav.product': 'Product',
-      'nav.reliability': 'Reliability',
+      'nav.reliability': 'Metrics',
       'nav.ops': 'Ops',
-      'nav.label': 'Workbench views',
+      'nav.label': 'Forge pages',
       'search.placeholder': 'Search requirements, tasks, issues…',
       'search.label': 'Search workbench',
       'search.clear': 'Clear search',
@@ -1556,11 +1578,31 @@ window.__ModuleLoader__.load({
       'filter.requirement.draft': 'Draft',
       'task.failureAction': 'Next step',
       'task.noTestLog': 'No formal test log recorded yet.',
-      'wb.tree': 'Requirement tree',
-      'wb.treeToggle': 'Toggle requirement tree',
-      'wb.hierarchy': 'Hierarchy',
-      'wb.allTasks': 'All tasks',
+      'wb.hierarchy': 'Workbench',
       'wb.attention': 'Needs attention',
+      'wb.mode.label': 'Workbench browsing mode',
+      'wb.mode.requirement': 'By requirement',
+      'wb.mode.tasks': 'By task',
+      'wb.queue': '{count} need attention',
+      'selector.label': 'Select requirement',
+      'selector.count': '{count} requirements',
+      'selector.detail': 'View details',
+      'tasks.title': 'Development tasks',
+      'queue.title': 'Needs attention',
+      'queue.scope': 'Current project · {count} items',
+      'queue.filter.stage': 'All stages ▾',
+      'queue.filter.priority': 'All priorities ▾',
+      'queue.priority': 'Priority',
+      'queue.reason': 'Reason',
+      'queue.target': 'Object › stage',
+      'queue.next': 'Next step',
+      'queue.priority.blocked': 'Blocked',
+      'queue.priority.input': 'Needs input',
+      'queue.empty': 'Nothing needs attention right now.',
+      'queue.openTask': 'View task ↗',
+      'queue.openRequirement': 'View requirement ↗',
+      'queue.back.requirement': '‹ Back to requirements',
+      'queue.back.tasks': '‹ Back to tasks',
       'wb.requirement': 'Requirement',
       'wb.task': 'Task',
       'wb.issue': 'Issue',
@@ -4798,16 +4840,12 @@ window.__ModuleLoader__.load({
 .flb-task-log{margin:0;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:10px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--dsw-alias-bg-layer-2);padding:6px;border-radius:4px}
 .flb-footer{margin-top:16px;font-size:11px;color:var(--dsw-alias-label-secondary);display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
 .flb-build{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
-.flb-tree-note{padding:4px 6px 4px 13px;font-size:10px;color:var(--dsw-alias-label-secondary)}
-.flb-bottom-spacer{height:150px;flex:none}
+.flb-bottom-spacer{height:24px;flex:none}
 .flb-workbench[data-full=true]{grid-template-columns:minmax(0,1fr)}
-.flb-workbench[data-full=true] .flb-tree-pane,.flb-workbench[data-full=true] .flb-main-pane{display:none}
+.flb-workbench[data-full=true] .flb-main-pane{display:none}
 .flb-workbench[data-full=true] .flb-side{grid-column:1/-1;max-height:none}
-.flb-workbench[data-tree-open=false]{grid-template-columns:minmax(0,1fr) minmax(340px,440px)}
-.flb-workbench[data-tree-open=false] .flb-tree-pane{display:none}
-.flb-workbench{display:grid;grid-template-columns:250px minmax(0,1fr) minmax(340px,440px);gap:10px;align-items:start;margin-top:10px;min-width:0}
-.flb-tree-pane,.flb-main-pane,.flb-side{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);min-width:0;max-height:calc(100vh - 420px);overflow:auto}
-.flb-tree-pane{padding:8px}
+.flb-workbench{display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,440px);gap:10px;align-items:start;margin-top:10px;min-width:0}
+.flb-main-pane,.flb-side{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);min-width:0;max-height:calc(100vh - 420px);overflow:auto}
 .flb-main-pane{padding:12px}
 .flb-side{padding:10px}
 .flb-wb-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px}
@@ -4815,17 +4853,7 @@ window.__ModuleLoader__.load({
 .flb-wb-sub{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .flb-wb-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
 .flb-wb-spacer{flex:1}
-.flb-tree-group{border-top:.5px solid var(--dsw-alias-border-l1);padding:5px 0}
-.flb-tree-group:first-of-type{border-top:0}
-.flb-tree-node{box-sizing:border-box;width:100%;display:flex;align-items:flex-start;gap:5px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;line-height:16px;text-align:left;padding:5px 6px;cursor:pointer;min-width:0}
-.flb-tree-node:hover{background:var(--dsw-alias-bg-layer-2)}
-.flb-tree-node[aria-current=true]{background:var(--dsw-alias-bg-layer-2);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary)}
-.flb-tree-node .flb-tree-text{min-width:0;overflow-wrap:anywhere}
-.flb-tree-child{margin-left:13px;width:calc(100% - 13px)}
-.flb-tree-grandchild{margin-left:26px;width:calc(100% - 26px)}
-.flb-tree-kind{color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px}
-.flb-tree-count{font-size:10px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-radius:999px;padding:0 5px;line-height:14px;margin-left:auto}
-.flb-tree-empty{padding:10px 6px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+/* 需求树已由需求选择器替代；节点样式随组件移除。 */
 .flb-hier-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .flb-hier-title{font-size:15px;font-weight:600;line-height:22px;overflow-wrap:anywhere;margin:2px 0}
 .flb-hier-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
@@ -4888,12 +4916,12 @@ window.__ModuleLoader__.load({
 .flb-side-empty{padding:14px 8px;font-size:11px;color:var(--dsw-alias-label-secondary)}
 .flb-mobile-back{display:none}
 .flb-hidden{display:none!important}
-@media (max-width:1180px){.flb-workbench{grid-template-columns:220px minmax(0,1fr)}.flb-side{grid-column:1/-1;max-height:none}.flb-workbench[data-tree-open=false]{grid-template-columns:minmax(0,1fr) minmax(340px,440px)}}
+@media (max-width:1180px){.flb-workbench{grid-template-columns:minmax(0,1fr)}.flb-side{grid-column:1/-1;max-height:none}}
 @media (max-width:820px){
-  .flb-workbench,.flb-workbench[data-tree-open=false]{display:block}
-  .flb-tree-pane,.flb-main-pane,.flb-side{max-height:none;margin-bottom:8px}
+  .flb-workbench{display:block}
+  .flb-main-pane,.flb-side{max-height:none;margin-bottom:8px}
   .flb-side{display:none}
-  .flb-workbench[data-mobile-detail=true] .flb-tree-pane,.flb-workbench[data-mobile-detail=true] .flb-main-pane{display:none}
+  .flb-workbench[data-mobile-detail=true] .flb-main-pane{display:none}
   .flb-workbench[data-mobile-detail=true] .flb-side{display:block}
   .flb-mobile-back{display:inline-block}
   .flb-rel-edge{grid-template-columns:minmax(0,1fr)}
@@ -4903,7 +4931,6 @@ window.__ModuleLoader__.load({
   .flb-head-tools{width:100%}
   .flb-search{flex:1 1 140px;min-width:0}
   .flb-head-tools label.flb-muted{flex:none;white-space:nowrap;font-size:10px}
-  .flb-workbench[data-tree-open=false] .flb-tree-pane{display:none}
   .flb-side{scroll-margin-top:270px}
 }
 @media (max-width:900px){.flb-overview-grid{grid-template-columns:minmax(0,1fr)}}
@@ -5083,18 +5110,7 @@ window.__ModuleLoader__.load({
 
     /** 本轮视觉整理：状态轨、页签栏、进度强调、质量结论与运维指标。 */
     const POLISH_CSS = `
-.flb-summary{display:flex;width:100%;border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);margin:2px 0 0;overflow:hidden}
-.flb-summary-item{flex:1 1 118px;min-width:0;padding:7px 12px;border-left:.5px solid var(--dsw-alias-border-l1)}
-.flb-summary-item:first-child{border-left:0}
-.flb-summary-label{display:block;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
-.flb-summary-value{display:flex;align-items:baseline;gap:5px;font-size:19px;font-weight:650;line-height:24px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.flb-summary-value small{font-size:10px;font-weight:400;color:var(--dsw-alias-label-secondary)}
-.flb-summary-item[data-tone=error] .flb-summary-value{color:var(--dsw-alias-state-error-primary)}
-.flb-tabbar{display:flex;align-items:flex-end;gap:10px;width:100%;margin-top:2px}
 .flb-tabs{flex:1;width:auto;margin-top:0}
-.flb-tree-toggle{flex:none;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:7px 8px;cursor:pointer}
-.flb-tree-toggle:hover{color:var(--dsw-alias-label-primary)}
-.flb-tree-toggle[aria-pressed=true]{color:var(--dsw-alias-brand-primary);border-bottom-color:var(--dsw-alias-brand-primary)}
 .flb-search-meta{padding:4px 0 8px;min-height:0}
 .flb-progress{height:4px;border-radius:2px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
 .flb-progress>span{display:block;height:100%;background:var(--dsw-alias-brand-primary);transition:width .2s ease}
@@ -5136,8 +5152,51 @@ window.__ModuleLoader__.load({
 .flb-focus[data-tone=warn]{border-left-color:var(--dsw-alias-state-warning-primary);color:var(--dsw-alias-state-warning-primary)}
 .flb-focus[data-tone=error]{border-left-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .flb-focus[data-tone=brand]{border-left-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
-@media (max-width:900px){.flb-summary-item{flex:1 1 100px}.flb-rel-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.flb-ops-monitor-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:600px){.flb-summary{flex-wrap:wrap}.flb-summary-item{flex:1 1 33%;border-top:.5px solid var(--dsw-alias-border-l1)}.flb-summary-item:nth-child(-n+3){border-top:0}.flb-tabbar{flex-wrap:wrap}}
+@media (max-width:900px){.flb-rel-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.flb-ops-monitor-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.flb-tabs{flex-wrap:wrap}}
+`
+
+    /**
+     * 四页与工作台三视图的版面：页面导航、需求选择器、队列与宿主底栏隐藏。
+     * 输入区按活动视图隐藏；离开天工后组件卸载，草稿与附件仍由宿主持有。
+     */
+    const PAGE_CSS = `
+.flb-readat{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.flb-auto{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap;cursor:pointer}
+.flb-pagenav{display:flex;align-items:flex-end;gap:10px;padding:0 16px;border-bottom:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}
+.flb-pagenav .flb-tabs{width:auto;flex:1;margin-top:0}
+.flb-pagebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px 0}
+.flb-modebar{display:flex;align-items:center;gap:12px;width:100%}
+.flb-switch{display:inline-flex;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;padding:2px;background:var(--dsw-alias-bg-layer-1)}
+.flb-switch-btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:4px 12px;border-radius:4px;cursor:pointer;white-space:nowrap}
+.flb-switch-btn[aria-pressed=true]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600}
+.flb-queue-link{margin-left:auto;border:0;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-size:12px;cursor:pointer;padding:4px 0;white-space:nowrap}
+.flb-queue-link:hover{text-decoration:underline}
+.flb-reqpick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%}
+.flb-reqpick-label{display:inline-flex;align-items:center;gap:6px;min-width:0;flex:1 1 320px}
+.flb-select{box-sizing:border-box;max-width:100%;min-width:220px;height:28px;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}
+.flb-queue{display:flex;flex-direction:column;gap:6px}
+.flb-queue-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.flb-queue-title{font-size:15px;font-weight:600;margin:0}
+.flb-queue-filters{display:flex;gap:16px;margin:2px 0 4px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-queue-table{width:100%;border-collapse:collapse;font-size:12px}
+.flb-queue-table th{text-align:left;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);padding:6px 8px;border-bottom:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);white-space:nowrap}
+.flb-queue-table td{padding:8px;border-bottom:.5px solid var(--dsw-alias-border-l1);vertical-align:top;overflow-wrap:anywhere}
+.flb-queue-table tr:hover td{background:var(--dsw-alias-bg-layer-1)}
+.flb-queue-table .flb-card-action{white-space:nowrap}
+/* 天工页隐藏宿主输入区（发送、附件、模型选择与统计占位）；回到对话时组件卸载即恢复。 */
+[data-conversation-content]:has(.flb-root) [data-composer-seat]{display:none}
+@media (max-width:820px){
+  .flb-pagenav{padding:0 12px}
+  .flb-pagebar{padding:8px 12px 0}
+  .flb-reqpick-label{flex:1 1 100%}
+}
+@media (max-width:760px){
+  .flb-queue-table thead{display:none}
+  .flb-queue-table tr{display:block;padding:8px 0;border-bottom:.5px solid var(--dsw-alias-border-l1)}
+  .flb-queue-table td{display:block;border:0;padding:2px 0}
+  .flb-queue-table td:before{content:attr(data-label);display:inline-block;width:7em;color:var(--dsw-alias-label-secondary);font-size:11px}
+}
 `
 
     /** 注册页面；组件只在会话视图槽展开时渲染。 */
@@ -5785,141 +5844,6 @@ window.__ModuleLoader__.load({
         } else {
           notify(t('wb.copyFailed') + ': ' + text)
         }
-      }
-
-      function WorkbenchTree(props) {
-        const t = props.t
-        const selected = props.selected
-        const requirements = props.requirements
-        const tasks = props.tasks
-        const issues = props.issues
-        return h(
-          'aside',
-          { className: 'flb-tree-pane', 'aria-label': t('wb.tree') },
-          h(
-            'div',
-            { className: 'flb-wb-head' },
-            h('span', { className: 'flb-wb-title' }, t('wb.tree')),
-            h(
-              'span',
-              { className: 'flb-wb-sub' },
-              t('wb.reqCount', { count: requirements.length }),
-            ),
-          ),
-          requirements.length === 0
-            ? h('div', { className: 'flb-tree-empty' }, t('wb.noMatch'))
-            : requirements.map((requirement) => {
-                const reqTasks = wbTasksOf(tasks, requirement)
-                const reqIssues = issues.filter((issue) => issue.reqId === requirement.reqId)
-                const open = props.expanded === requirement.reqId
-                const selectedReq =
-                  selected.reqId === requirement.reqId && !selected.taskId && !selected.issueId
-                return h(
-                  'div',
-                  { className: 'flb-tree-group', key: requirement.reqId },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'flb-tree-node',
-                      'aria-current': selectedReq ? 'true' : undefined,
-                      title: requirement.reqId,
-                      onClick: () => props.onOpenRequirement(requirement.reqId),
-                    },
-                    h('span', { className: 'flb-tree-kind' }, open ? '▾' : '▸'),
-                    h(
-                      'span',
-                      { className: 'flb-tree-text' },
-                      h('span', { className: 'flb-tree-kind' }, shortReqId(requirement.reqId)),
-                      h('br'),
-                      requirement.title,
-                    ),
-                    reqIssues.length > 0
-                      ? h('span', { className: 'flb-tree-count' }, String(reqIssues.length))
-                      : null,
-                  ),
-                  open
-                    ? h(
-                        'div',
-                        null,
-                        requirement.status === 'cancelled'
-                          ? h(
-                              'div',
-                              { className: 'flb-tree-note' },
-                              t('wb.cancelledTasks', { count: reqTasks.length }),
-                            )
-                          : reqTasks.map((task) => {
-                              const taskIssue = wbIssueFor(issues, task)
-                              const selectedTask = selected.taskId === task.taskId
-                              return h(
-                                'div',
-                                { key: task.taskId },
-                                h(
-                                  'button',
-                                  {
-                                    type: 'button',
-                                    className: 'flb-tree-node flb-tree-child',
-                                    'aria-current': selectedTask ? 'true' : undefined,
-                                    onClick: () =>
-                                      props.onOpenTask(requirement.reqId, task.taskId, 'overview'),
-                                  },
-                                  h(
-                                    Chip,
-                                    { tone: wbStateTone(task.state) },
-                                    wbStateLabel(t, task.state),
-                                  ),
-                                  h(
-                                    'span',
-                                    { className: 'flb-tree-text' },
-                                    task.taskId + ' · ' + task.goal,
-                                  ),
-                                ),
-                                taskIssue
-                                  ? h(
-                                      'button',
-                                      {
-                                        type: 'button',
-                                        className: 'flb-tree-node flb-tree-grandchild',
-                                        'aria-current':
-                                          selected.issueId === taskIssue.issueId
-                                            ? 'true'
-                                            : undefined,
-                                        onClick: () => props.onOpenIssue(taskIssue),
-                                      },
-                                      h('span', { className: 'flb-tree-kind' }, '↳'),
-                                      h('span', { className: 'flb-tree-text' }, taskIssue.title),
-                                    )
-                                  : null,
-                              )
-                            }),
-                        requirement.status === 'cancelled'
-                          ? null
-                          : reqIssues
-                              .filter((issue) => !issue.taskId)
-                              .map((issue) =>
-                                h(
-                                  'button',
-                                  {
-                                    type: 'button',
-                                    key: issue.issueId,
-                                    className: 'flb-tree-node flb-tree-child',
-                                    'aria-current':
-                                      selected.issueId === issue.issueId ? 'true' : undefined,
-                                    onClick: () => props.onOpenIssue(issue),
-                                  },
-                                  h(
-                                    Chip,
-                                    { tone: ISSUE_TONES[issue.severity] || 'warn' },
-                                    t(`issue.severity.${issue.severity}`),
-                                  ),
-                                  h('span', { className: 'flb-tree-text' }, issue.title),
-                                ),
-                              ),
-                      )
-                    : null,
-                )
-              }),
-        )
       }
 
       function TaskRow(props) {
@@ -7548,7 +7472,7 @@ window.__ModuleLoader__.load({
         return h(
           'main',
           { className: 'flb-main-pane' },
-          h('h2', { className: 'flb-hier-title' }, t('wb.allTasks')),
+          h('h2', { className: 'flb-hier-title' }, t('tasks.title')),
           h('div', { className: 'flb-wb-sub' }, searchScopeText(t)),
           props.requirements.length === 0
             ? h('div', { className: 'flb-side-empty' }, t('wb.noMatch'))
@@ -7590,56 +7514,90 @@ window.__ModuleLoader__.load({
         )
       }
 
-      function IssuesPane(props) {
+      /** 需要处理队列：全项目待办按优先程度排列，下一步只给查看入口。 */
+      function QueuePane(props) {
         const t = props.t
+        const rows = Array.isArray(props.rows) ? props.rows : []
         return h(
           'main',
-          { className: 'flb-main-pane' },
-          h('h2', { className: 'flb-hier-title' }, t('wb.attention')),
-          h('div', { className: 'flb-wb-sub' }, searchScopeText(t)),
-          props.items.length === 0
-            ? h('div', { className: 'flb-side-empty' }, t('wb.noIssues'))
-            : props.items.map((item) =>
+          { className: 'flb-queue' },
+          h(
+            'div',
+            { className: 'flb-queue-head' },
+            h(
+              'button',
+              { type: 'button', className: 'flb-link-button', onClick: props.onBack },
+              t(props.from === 'tasks' ? 'queue.back.tasks' : 'queue.back.requirement'),
+            ),
+            h('h2', { className: 'flb-queue-title' }, t('queue.title')),
+            h('span', { className: 'flb-muted' }, t('queue.scope', { count: rows.length })),
+          ),
+          h(
+            'p',
+            { className: 'flb-queue-filters' },
+            h('span', null, t('queue.filter.stage')),
+            h('span', null, t('queue.filter.priority')),
+          ),
+          rows.length === 0
+            ? h('div', { className: 'flb-empty' }, t('queue.empty'))
+            : h(
+                'table',
+                { className: 'flb-queue-table' },
                 h(
-                  'article',
-                  { className: 'flb-hier-card', key: item.key },
+                  'thead',
+                  null,
                   h(
-                    'div',
-                    { className: 'flb-hier-card-head' },
-                    h(
-                      'span',
-                      { className: 'flb-tree-kind' },
-                      item.reqId + (item.taskId ? ' › ' + item.taskId : ''),
+                    'tr',
+                    null,
+                    ['queue.priority', 'queue.reason', 'queue.target', 'queue.next'].map((key) =>
+                      h('th', { key, scope: 'col' }, t(key)),
                     ),
-                    h(Chip, { tone: item.tone || 'warn' }, item.kindLabel),
                   ),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'flb-hier-card-title',
-                      onClick: () => props.onOpen(item),
-                    },
-                    item.title,
-                  ),
-                  item.detail ? h('div', { className: 'flb-wb-sub' }, item.detail) : null,
-                  h(
-                    'div',
-                    { className: 'flb-hier-card-actions' },
+                ),
+                h(
+                  'tbody',
+                  null,
+                  rows.map((row) =>
                     h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'flb-card-action',
-                        onClick: () => props.onOpen(item),
-                      },
-                      item.taskId ? t('wb.openTask') : t('wb.openRequirement'),
+                      'tr',
+                      { key: row.key },
+                      h(
+                        'td',
+                        { 'data-label': t('queue.priority') },
+                        h(Chip, { tone: row.tone }, row.priorityLabel),
+                      ),
+                      h(
+                        'td',
+                        { 'data-label': t('queue.reason') },
+                        row.reason,
+                        row.detail ? h('div', { className: 'flb-muted' }, row.detail) : null,
+                      ),
+                      h(
+                        'td',
+                        { 'data-label': t('queue.target') },
+                        row.target,
+                        h('div', { className: 'flb-muted' }, row.stage),
+                      ),
+                      h(
+                        'td',
+                        { 'data-label': t('queue.next') },
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'flb-card-action',
+                            onClick: () => props.onOpen(row.item),
+                          },
+                          row.actionLabel,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
         )
       }
+
 
       const OPS_STATE_TONE = {
         open: 'warn',
@@ -9782,8 +9740,8 @@ window.__ModuleLoader__.load({
         const [view, setView] = React.useState('hierarchy')
         const [filter, setFilter] = React.useState('all')
         const [workMode, setWorkMode] = React.useState('list')
-        const [treeOpen, setTreeOpen] = React.useState(true)
-        const [expanded, setExpanded] = React.useState('')
+        const [mode, setMode] = React.useState('requirement')
+        const [queueFrom, setQueueFrom] = React.useState('requirement')
         const [selection, setSelection] = React.useState({
           kind: 'requirement',
           reqId: '',
@@ -9794,6 +9752,9 @@ window.__ModuleLoader__.load({
         const [mobileDetail, setMobileDetail] = React.useState(false)
         const [fullDetail, setFullDetail] = React.useState(false)
         const [auto, setAuto] = React.useState(true)
+        const [readAt, setReadAt] = React.useState('')
+        const [opsReadAt, setOpsReadAt] = React.useState('')
+        const [productReadAt, setProductReadAt] = React.useState('')
         const [action, setAction] = React.useState({ busy: '', message: '' })
         const [retry, setRetry] = React.useState({ key: '', busy: false, message: '' })
         const [reqDetail, setReqDetail] = React.useState({
@@ -9853,6 +9814,7 @@ window.__ModuleLoader__.load({
             .then((board) => {
               if (controller && controller.signal.aborted) return
               setState({ phase: 'ready', board, error: '' })
+              setReadAt(board.generatedAt || new Date().toISOString())
             })
             .catch((error) => {
               if (controller && controller.signal.aborted) return
@@ -9887,7 +9849,6 @@ window.__ModuleLoader__.load({
         const requirementIssues = (reqId) => allIssues.filter((issue) => issue.reqId === reqId)
         const selectedRequirement =
           requirements.find((requirement) => requirement.reqId === selection.reqId) || null
-        const selectedTasks = selectedRequirement ? wbTasksOf(allTasks, selectedRequirement) : []
         const selectedTask = selection.taskId
           ? allTasks.find(
               (task) => task.taskId === selection.taskId && task.reqId === selection.reqId,
@@ -9918,8 +9879,21 @@ window.__ModuleLoader__.load({
             taskId: '',
             issueId: '',
           })
-          setExpanded(requirements[0].reqId)
         }, [selection.reqId, requirements.length])
+
+        // 搜索或筛选把当前需求移出可见列表时，选择器跟到第一条可见需求，
+        // 不让下拉框停在一个不在选项里的值上。
+        const visibleKey = visible.map((requirement) => requirement.reqId).join('|')
+        React.useEffect(() => {
+          if (visible.length === 0) return
+          if (visible.some((requirement) => requirement.reqId === selection.reqId)) return
+          setSelection({
+            kind: 'requirement',
+            reqId: visible[0].reqId,
+            taskId: '',
+            issueId: '',
+          })
+        }, [visibleKey, selection.reqId])
 
         React.useEffect(() => {
           if (!activeRequirement) return
@@ -9989,6 +9963,7 @@ window.__ModuleLoader__.load({
               .then((value) => {
                 if (!alive) return
                 setOps({ phase: 'ready', data: value, error: '' })
+                setOpsReadAt(new Date().toISOString())
                 setOpsSelected(
                   (current) =>
                     current || (value.events && value.events[0] ? value.events[0].eventId : ''),
@@ -10088,6 +10063,7 @@ window.__ModuleLoader__.load({
             .then((value) => {
               if (!alive) return
               setProduct({ phase: 'ready', data: value, error: '' })
+              setProductReadAt(new Date().toISOString())
             })
             .catch((error) => {
               if (!alive) return
@@ -10103,33 +10079,30 @@ window.__ModuleLoader__.load({
         }, [view, productNonce])
 
         const openRequirement = (reqId) => {
+          setMode('requirement')
           setSelection({ kind: 'requirement', reqId, taskId: '', issueId: '' })
-          setExpanded(reqId)
           setTab('overview')
           const narrow = typeof window !== 'undefined' && window.innerWidth <= 820
           setMobileDetail(!narrow)
-          if (narrow) {
-            setTreeOpen(false)
-            scrollWorkbench()
-          }
+          if (narrow) scrollWorkbench()
           setFullDetail(false)
         }
         const openTask = (reqId, taskId, nextTab) => {
+          setMode('requirement')
           setSelection({ kind: 'task', reqId, taskId, issueId: '' })
-          setExpanded(reqId)
           setTab(nextTab || 'overview')
           setMobileDetail(true)
           setFullDetail(false)
           if (typeof window !== 'undefined' && window.innerWidth <= 820) scrollWorkbench()
         }
         const openIssue = (issue) => {
+          setMode('requirement')
           setSelection({
             kind: 'issue',
             reqId: issue.reqId,
             taskId: issue.taskId || '',
             issueId: issue.issueId,
           })
-          setExpanded(issue.reqId)
           setTab('overview')
           setMobileDetail(true)
           setFullDetail(false)
@@ -10219,44 +10192,151 @@ window.__ModuleLoader__.load({
             })
         }
 
-        const attention = (() => {
-          const items = []
-          const seen = new Set()
-          for (const requirement of requirements) {
-            const reqIssues = requirementIssues(requirement.reqId).filter((issue) =>
-              ['blocking', 'attention'].includes(issue.severity),
-            )
-            for (const issue of reqIssues) {
-              const key = issue.taskId
-                ? requirement.reqId + ':task:' + issue.taskId
-                : requirement.reqId + ':req:' + issue.issueId
-              if (seen.has(key)) continue
-              seen.add(key)
-              items.push({
-                key: 'issue:' + issue.issueId,
-                reqId: requirement.reqId,
-                taskId: issue.taskId || '',
-                kind: 'issue',
-                kindLabel: t(`issue.${issue.kind}`),
-                title: issue.title,
-                detail: issue.detail || '',
-                tone: ISSUE_TONES[issue.severity] || 'warn',
-                issue,
-              })
-            }
-          }
-          return items
-        })()
+        const attention = attentionItems(t, requirements, allIssues)
+        const queue = queueRows(t, attention, requirements, allTasks)
 
-        const viewLabels = {
+        const pageLabels = {
           hierarchy: t('wb.hierarchy'),
-          tasks: t('wb.allTasks'),
-          issues: t('wb.attention'),
           product: t('nav.product'),
           reliability: t('nav.reliability'),
           ops: t('nav.ops'),
         }
-        const allViews = WORKBENCH_VIEWS.map((key) => [key, viewLabels[key]])
+        const pageTabs = PAGE_VIEWS.map((key) => [key, pageLabels[key]])
+
+        const refresh = () => {
+          if (view === 'reliability') setReliabilityNonce((value) => value + 1)
+          else if (view === 'ops') setOpsNonce((value) => value + 1)
+          else if (view === 'product') setProductNonce((value) => value + 1)
+          else load()
+        }
+        const refreshing = state.phase === 'loading' || state.phase === 'refreshing'
+        const pageReadAt =
+          view === 'reliability'
+            ? reliability.checkedAt
+            : view === 'ops'
+              ? opsReadAt
+              : view === 'product'
+                ? productReadAt
+                : readAt
+
+        const searchBox = h(
+          'label',
+          { className: 'flb-search' },
+          h('span', { className: 'flb-search-icon' }, '⌕'),
+          h('input', {
+            type: 'search',
+            value: query,
+            placeholder: t('search.placeholder'),
+            'aria-label': t('search.label'),
+            title: searchScopeText(t, board ? board.limit : BOARD_LIMIT),
+            onChange: (event) => setQuery(event.target.value),
+          }),
+          query
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-search-clear',
+                  onClick: () => setQuery(''),
+                  'aria-label': t('search.clear'),
+                },
+                '×',
+              )
+            : null,
+        )
+
+        /** 按需求：需求选择器与总状态同一行，详情入口就在旁边。 */
+        const requirementPicker = () => {
+          const current = activeRequirement || visible[0] || null
+          return h(
+            'div',
+            { className: 'flb-reqpick' },
+            h(
+              'label',
+              { className: 'flb-reqpick-label' },
+              h('span', { className: 'flb-muted' }, t('selector.label')),
+              h(
+                'select',
+                {
+                  className: 'flb-select',
+                  value: current ? current.reqId : '',
+                  'aria-label': t('selector.label'),
+                  onChange: (event) => {
+                    if (event.target.value) openRequirement(event.target.value)
+                  },
+                },
+                visible.map((requirement) =>
+                  h(
+                    'option',
+                    { value: requirement.reqId, key: requirement.reqId },
+                    `${requirement.title} · ${statusLabel(t, requirement.status)}`,
+                  ),
+                ),
+              ),
+            ),
+            h('span', { className: 'flb-muted' }, t('selector.count', { count: visible.length })),
+            current && showsLegacyGateWarnings(current.status)
+              ? h(
+                  Chip,
+                  { tone: REQUIREMENT_TONES[current.status] || 'idle' },
+                  statusLabel(t, current.status),
+                )
+              : null,
+            current
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'flb-link-button',
+                    onClick: () => {
+                      setMobileDetail(true)
+                      setFullDetail(false)
+                      scrollWorkbench()
+                    },
+                  },
+                  `${t('selector.detail')} ›`,
+                )
+              : null,
+          )
+        }
+
+        const modeBar = h(
+          'div',
+          { className: 'flb-modebar' },
+          h(
+            'div',
+            { className: 'flb-switch', role: 'group', 'aria-label': t('wb.mode.label') },
+            [
+              ['requirement', t('wb.mode.requirement')],
+              ['tasks', t('wb.mode.tasks')],
+            ].map(([key, label]) =>
+              h(
+                'button',
+                {
+                  type: 'button',
+                  key,
+                  className: 'flb-switch-btn',
+                  'aria-pressed': mode === key,
+                  onClick: () => setMode(key),
+                },
+                label,
+              ),
+            ),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'flb-queue-link',
+              onClick: () => {
+                setQueueFrom(mode === 'tasks' ? 'tasks' : 'requirement')
+                setMode('issues')
+              },
+            },
+            `${t('wb.queue', { count: queue.length })} ›`,
+          ),
+        )
+
         const body = () => {
           if (!board) {
             return state.error
@@ -10321,7 +10401,16 @@ window.__ModuleLoader__.load({
               h('div', { className: 'flb-muted' }, t('overview.next.submit')),
             )
           }
-          if (visible.length === 0 && view !== 'issues') {
+          if (mode === 'issues') {
+            return h(QueuePane, {
+              t,
+              rows: queue,
+              from: queueFrom,
+              onBack: () => setMode(queueFrom),
+              onOpen: (item) => (item.issue ? openIssue(item.issue) : openRequirement(item.reqId)),
+            })
+          }
+          if (visible.length === 0) {
             return h(
               'div',
               { className: 'flb-empty flb-empty-large' },
@@ -10340,63 +10429,41 @@ window.__ModuleLoader__.load({
               ),
             )
           }
+          if (mode === 'tasks') {
+            return h(AllTasksPane, {
+              t,
+              requirements: visible,
+              tasks: allTasks,
+              issues: allIssues,
+              selectedTaskId: selection.taskId,
+              onOpenRequirement: openRequirement,
+              onOpenTask: openTask,
+              onOpenIssue: openIssue,
+            })
+          }
           return h(
             'div',
             {
               className: 'flb-workbench',
               'data-mobile-detail': String(mobileDetail),
               'data-full': String(fullDetail),
-              'data-tree-open': String(treeOpen),
             },
-            treeOpen
-              ? h(WorkbenchTree, {
-                  t,
-                  requirements: visible,
-                  tasks: allTasks,
-                  issues: allIssues,
-                  selected: selection,
-                  expanded,
-                  onOpenRequirement: openRequirement,
-                  onOpenTask: openTask,
-                  onOpenIssue: openIssue,
-                })
-              : null,
             fullDetail
               ? null
-              : view === 'hierarchy'
-                ? h(CenterPane, {
-                    t,
-                    requirement: activeRequirement || visible[0] || null,
-                    tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
-                    issues: activeRequirement ? requirementIssues(activeRequirement.reqId) : [],
-                    workMode,
-                    onWorkMode: setWorkMode,
-                    selectedTaskId: selection.taskId,
-                    busy: action.busy,
-                    actionMessage: action.message,
-                    onAction: runAction,
-                    onOpenTask: openTask,
-                    onOpenIssue: openIssue,
-                  })
-                : view === 'tasks'
-                  ? h(AllTasksPane, {
-                      t,
-                      requirements: visible,
-                      tasks: allTasks,
-                      issues: allIssues,
-                      selectedTaskId: selection.taskId,
-                      onOpenRequirement: openRequirement,
-                      onOpenTask: openTask,
-                      onOpenIssue: openIssue,
-                    })
-                  : h(IssuesPane, {
-                      t,
-                      items: attention.filter((item) =>
-                        visible.some((requirement) => requirement.reqId === item.reqId),
-                      ),
-                      onOpen: (item) =>
-                        item.issue ? openIssue(item.issue) : openRequirement(item.reqId),
-                    }),
+              : h(CenterPane, {
+                  t,
+                  requirement: activeRequirement || visible[0] || null,
+                  tasks: activeRequirement ? wbTasksOf(allTasks, activeRequirement) : [],
+                  issues: activeRequirement ? requirementIssues(activeRequirement.reqId) : [],
+                  workMode,
+                  onWorkMode: setWorkMode,
+                  selectedTaskId: selection.taskId,
+                  busy: action.busy,
+                  actionMessage: action.message,
+                  onAction: runAction,
+                  onOpenTask: openTask,
+                  onOpenIssue: openIssue,
+                }),
             h(DetailPane, {
               t,
               read,
@@ -10449,6 +10516,7 @@ window.__ModuleLoader__.load({
           h('style', null, PRODUCT_CSS),
           h('style', null, RELIABILITY_CSS),
           h('style', null, POLISH_CSS),
+          h('style', null, PAGE_CSS),
           h(
             'header',
             { className: 'flb-head' },
@@ -10460,217 +10528,131 @@ window.__ModuleLoader__.load({
                 'span',
                 { className: 'flb-sub' },
                 board
-                  ? t('page.subtitle', {
-                      project: boardProjectLabel(board),
-                      time: formatMoment(board.generatedAt),
-                    })
+                  ? t('page.project', { project: boardProjectLabel(board) })
                   : t('page.loading'),
               ),
             ),
             h(
               'div',
               { className: 'flb-head-tools' },
-              view === 'reliability'
-                ? null
-                : h(
-                    'label',
-                    { className: 'flb-search' },
-                    h('span', { className: 'flb-search-icon' }, '⌕'),
-                    h('input', {
-                      type: 'search',
-                      value: query,
-                      placeholder: t('search.placeholder'),
-                      'aria-label': t('search.label'),
-                      title: searchScopeText(t, board ? board.limit : BOARD_LIMIT),
-                      onChange: (event) => setQuery(event.target.value),
-                    }),
-                    query
-                      ? h(
-                          'button',
-                          {
-                            type: 'button',
-                            className: 'flb-search-clear',
-                            onClick: () => setQuery(''),
-                            'aria-label': t('search.clear'),
-                          },
-                          '×',
-                        )
-                      : null,
-                  ),
+              h(
+                'span',
+                { className: 'flb-readat' },
+                t('page.readAt', { time: pageReadAt ? formatMoment(pageReadAt) : '—' }),
+              ),
               h(
                 'button',
                 {
                   type: 'button',
                   className: 'flb-refresh',
-                  onClick: () => {
-                    load()
-                    if (view === 'reliability') {
-                      setReliabilityNonce((value) => value + 1)
-                    }
-                  },
-                  disabled: state.phase === 'loading' || state.phase === 'refreshing',
+                  onClick: refresh,
+                  disabled: refreshing,
                 },
                 state.phase === 'refreshing' ? t('page.refreshing') : t('page.refresh'),
               ),
-              h(
-                'label',
-                { className: 'flb-muted' },
-                h('input', {
-                  type: 'checkbox',
-                  checked: auto,
-                  onChange: (event) => setAuto(event.target.checked),
-                }),
-                ' ' + t('wb.auto'),
+              view === 'product'
+                ? null
+                : h(
+                    'label',
+                    { className: 'flb-auto' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: auto,
+                      onChange: (event) => setAuto(event.target.checked),
+                    }),
+                    ' ' + t('wb.auto'),
+                  ),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'flb-pagenav' },
+            h(
+              'nav',
+              { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
+              pageTabs.map(([key, label]) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    key,
+                    role: 'tab',
+                    className: 'flb-tab',
+                    'aria-selected': view === key,
+                    onClick: () => {
+                      setView(key)
+                      setMobileDetail(false)
+                      setFullDetail(false)
+                    },
+                  },
+                  label,
+                ),
               ),
             ),
-            board
+          ),
+          h(
+            'div',
+            { className: 'flb-pagebar' },
+            view === 'hierarchy' ? modeBar : null,
+            view === 'hierarchy' && mode === 'requirement' ? requirementPicker() : null,
+            view === 'hierarchy' ? searchBox : null,
+            view === 'hierarchy' && mode === 'requirement'
               ? h(
                   'div',
-                  {
-                    className: 'flb-summary',
-                    role: 'group',
-                    'aria-label': t('rail.label'),
-                  },
-                  boardSummaryItems(t, board).map((item) =>
+                  { className: 'flb-toolbar' },
+                  ['all', 'active', 'attention', 'draft'].map((key) =>
                     h(
-                      'div',
+                      'button',
                       {
-                        className: 'flb-summary-item',
-                        key: item.key,
-                        'data-tone': item.tone,
+                        type: 'button',
+                        key,
+                        className: 'flb-filter',
+                        'aria-pressed': filter === key,
+                        onClick: () => setFilter(key),
                       },
-                      h('span', { className: 'flb-summary-label' }, item.label),
-                      h(
-                        'span',
-                        { className: 'flb-summary-value' },
-                        item.value,
-                        item.note ? h('small', null, item.note) : null,
-                      ),
+                      t(`filter.requirement.${key}`),
                     ),
                   ),
                 )
               : null,
-            h(
-              'div',
-              { className: 'flb-tabbar' },
-              h(
-                'nav',
-                { className: 'flb-tabs', role: 'tablist', 'aria-label': t('nav.label') },
-                allViews.map(([key, label]) =>
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      key,
-                      role: 'tab',
-                      className: 'flb-tab',
-                      'aria-selected': view === key,
-                      onClick: () => {
-                        setView(key)
-                        setMobileDetail(false)
-                        setFullDetail(false)
-                      },
-                    },
-                    label,
+            query && view === 'hierarchy'
+              ? h(
+                  'span',
+                  { className: 'flb-search-meta' },
+                  t('search.results', {
+                    query,
+                    count: requirements.length,
+                    truncated:
+                      board && board.truncated
+                        ? t('search.truncated', { limit: board.limit || BOARD_LIMIT })
+                        : '',
+                  }),
+                )
+              : null,
+            view === 'reliability'
+              ? h(
+                  'div',
+                  {
+                    className: 'flb-rel-window',
+                    role: 'group',
+                    'aria-label': t('reliability.window.label'),
+                  },
+                  h('span', { className: 'flb-rel-window-label' }, t('reliability.window.label')),
+                  RELIABILITY_WINDOW_KEYS.map((key) =>
                     h(
-                      'span',
-                      { className: 'flb-tab-count' },
-                      key === 'tasks'
-                        ? allTasks.length
-                        : key === 'issues'
-                          ? attention.length
-                          : key === 'reliability'
-                            ? reliability.data &&
-                              reliability.data.snapshot &&
-                              ['fresh', 'stale'].includes(reliability.data.snapshot.availability)
-                              ? String(
-                                  reliability.data.snapshot.gates.filter(
-                                    (gate) => gate.status !== 'pass',
-                                  ).length,
-                                )
-                              : '—'
-                            : key === 'ops'
-                              ? ops.data && ops.data.summary && ops.data.summary.stats
-                                ? ops.data.summary.stats.active
-                                : 0
-                              : requirements.length,
+                      'button',
+                      {
+                        type: 'button',
+                        key,
+                        'aria-pressed': reliabilityWindow === key,
+                        onClick: () => setReliabilityWindow(key),
+                      },
+                      t(`reliability.window.${key}`),
                     ),
                   ),
-                ),
-              ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'flb-tree-toggle',
-                  'aria-pressed': treeOpen,
-                  onClick: () => setTreeOpen((value) => !value),
-                  title: t('wb.treeToggle'),
-                },
-                t('wb.tree'),
-              ),
-            ),
-            h(
-              'div',
-              { className: 'flb-search-meta' },
-              query && view !== 'reliability'
-                ? h(
-                    'span',
-                    null,
-                    t('search.results', {
-                      query,
-                      count: requirements.length,
-                      truncated:
-                        board && board.truncated
-                          ? t('search.truncated', { limit: board.limit || BOARD_LIMIT })
-                          : '',
-                    }),
-                  )
-                : null,
-              view === 'hierarchy'
-                ? h(
-                    'div',
-                    { className: 'flb-toolbar' },
-                    ['all', 'active', 'attention', 'draft'].map((key) =>
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          key,
-                          className: 'flb-filter',
-                          'aria-pressed': filter === key,
-                          onClick: () => setFilter(key),
-                        },
-                        t(`filter.requirement.${key}`),
-                      ),
-                    ),
-                  )
-                : null,
-              view === 'reliability'
-                ? h(
-                    'div',
-                    {
-                      className: 'flb-rel-window',
-                      role: 'group',
-                      'aria-label': t('reliability.window.label'),
-                    },
-                    h('span', { className: 'flb-rel-window-label' }, t('reliability.window.label')),
-                    RELIABILITY_WINDOW_KEYS.map((key) =>
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          key,
-                          'aria-pressed': reliabilityWindow === key,
-                          onClick: () => setReliabilityWindow(key),
-                        },
-                        t(`reliability.window.${key}`),
-                      ),
-                    ),
-                    h('span', { className: 'flb-muted' }, t('reliability.footnote')),
-                  )
-                : null,
-            ),
+                  h('span', { className: 'flb-muted' }, t('reliability.footnote')),
+                )
+              : null,
           ),
           h(
             'div',
@@ -10750,14 +10732,15 @@ window.__ModuleLoader__.load({
       apply,
       // 无浏览器视图测试的只读入口；宿主只消费 name/inject/apply。
       __components: { RequirementDetail, BuildStamp },
-      __views: WORKBENCH_VIEWS,
+      __views: PAGE_VIEWS,
       __rules: {
         isTerminalStatus,
         filterRequirements,
         tasksForProgress,
         showsLegacyGateWarnings,
         searchScopeText,
-        boardSummaryItems,
+        attentionItems,
+        queueRows,
         reliabilityVerdict,
         reliabilityRateTone,
         shortReqId,
