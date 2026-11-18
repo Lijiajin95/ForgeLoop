@@ -80,6 +80,17 @@ interface ClientExports {
       rows: Array<{ id: string; text: string; acceptance: string[]; covers: string[] }>
       unlinked: string[]
     }
+    filterLibraryEntries: (
+      entries: Array<{
+        id: string
+        title: string
+        summary: string
+        status: string
+        topics?: readonly string[]
+      }>,
+      filter: { query?: string; status?: string; topic?: string },
+    ) => Array<{ id: string }>
+    libraryTopics: (entries: Array<{ topics?: readonly string[] }>) => string[]
     stageStatuses: (
       t: (key: string) => string,
       requirement: { status: string } | null,
@@ -574,5 +585,63 @@ describe('按需求三列映射', () => {
       { name: '核对名称', status: 'pass', evidence: '' },
       { name: '无障碍名称', status: 'fail', evidence: '断言失败' },
     ])
+  })
+})
+
+describe('需求库筛选', () => {
+  const entries = [
+    {
+      id: 'a',
+      title: '工作台展示口径',
+      summary: '同一名称用于页签与标题',
+      status: 'confirmed',
+      topics: ['工作台'],
+    },
+    {
+      id: 'b',
+      title: '候选交付条件',
+      summary: '交付前核对候选身份',
+      status: 'draft',
+      topics: ['交付'],
+    },
+    {
+      id: 'c',
+      title: '旧口径',
+      summary: '已被取代的说明',
+      status: 'superseded',
+      topics: ['工作台'],
+    },
+  ]
+
+  it('shows current entries by default and recovers superseded ones by filter', () => {
+    const rules = exportsValue.__rules
+    expect(rules.filterLibraryEntries(entries, {}).map((entry) => entry.id)).toEqual(['a', 'b'])
+    expect(rules.filterLibraryEntries(entries, { status: 'all' }).map((entry) => entry.id)).toEqual(
+      ['a', 'b', 'c'],
+    )
+    expect(
+      rules.filterLibraryEntries(entries, { status: 'superseded' }).map((entry) => entry.id),
+    ).toEqual(['c'])
+    expect(
+      rules.filterLibraryEntries(entries, { status: 'all', topic: '工作台' }).map((e) => e.id),
+    ).toEqual(['a', 'c'])
+  })
+
+  it('searches titles and summaries without inventing matches', () => {
+    const rules = exportsValue.__rules
+    expect(rules.filterLibraryEntries(entries, { query: '候选' }).map((entry) => entry.id)).toEqual(
+      ['b'],
+    )
+    expect(rules.filterLibraryEntries(entries, { query: '页签' }).map((entry) => entry.id)).toEqual(
+      ['a'],
+    )
+    expect(rules.filterLibraryEntries(entries, { query: '不存在' })).toEqual([])
+  })
+
+  it('derives the topic directory from the entries rather than a fixed list', () => {
+    expect(exportsValue.__rules.libraryTopics(entries)).toEqual(['交付', '工作台'])
+    expect(
+      exportsValue.__rules.libraryTopics([{ topics: ['b'] }, { topics: ['a', 'b'] }, {}]),
+    ).toEqual(['a', 'b'])
   })
 })

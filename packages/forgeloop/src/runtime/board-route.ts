@@ -956,11 +956,7 @@ function handleOps(
 }
 
 /** 可选的分页参数：缺省合法，给出时必须是范围内的整数。 */
-function isOptionalCounter(
-  value: unknown,
-  min: number,
-  max: number,
-): value is number | undefined {
+function isOptionalCounter(value: unknown, min: number, max: number): value is number | undefined {
   if (value === undefined) return true
   return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
 }

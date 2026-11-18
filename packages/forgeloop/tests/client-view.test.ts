@@ -160,8 +160,6 @@ describe('client conversation view', () => {
       'product.status.confirmed',
       'product.status.draft',
       'product.status.superseded',
-      'product.expand',
-      'product.collapse',
       'product.body.loading',
       'product.body.error',
       'product.body.ref',
@@ -185,6 +183,19 @@ describe('client conversation view', () => {
       'product.rebuild.confirming',
       'product.rebuild.confirmed',
       'product.rebuild.confirmError',
+      'product.search',
+      'product.searchLabel',
+      'product.filter.status',
+      'product.filter.current',
+      'product.filter.all',
+      'product.filter.topicAll',
+      'product.topicsTitle',
+      'product.count',
+      'product.noMatch',
+      'product.clear',
+      'product.noTopic',
+      'product.detail',
+      'product.open',
     ]) {
       expect(dicts!.zh[key], key).toBeTruthy()
       expect(dicts!.en[key], key).toBeTruthy()

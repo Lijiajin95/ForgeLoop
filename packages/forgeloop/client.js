@@ -95,6 +95,34 @@ window.__ModuleLoader__.load({
       }))
     }
 
+    /**
+     * 需求库条目筛选：标题/摘要搜索、状态与主题。
+     * 默认只看当前条目；已被取代的条目要显式切到“全部”或“已被取代”才出现。
+     */
+    function filterLibraryEntries(entries, filter) {
+      const query = String((filter && filter.query) || '')
+        .trim()
+        .toLowerCase()
+      const status = (filter && filter.status) || 'current'
+      const topic = (filter && filter.topic) || 'all'
+      return (Array.isArray(entries) ? entries : []).filter((entry) => {
+        if (status === 'current' && entry.status === 'superseded') return false
+        if (status !== 'all' && status !== 'current' && entry.status !== status) return false
+        if (topic !== 'all' && !(entry.topics || []).includes(topic)) return false
+        if (!query) return true
+        return `${entry.title || ''}\n${entry.summary || ''}`.toLowerCase().includes(query)
+      })
+    }
+
+    /** 主题目录由实际条目生成：去重并按名称排序，不发明没有条目的主题。 */
+    function libraryTopics(entries) {
+      const topics = new Set()
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        for (const topic of entry.topics || []) topics.add(topic)
+      }
+      return [...topics].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+    }
+
     /** 小于 5 个样本时不把比率判成红/绿，统一标为“样本不足”。 */
     function reliabilityRateTone(rate, threshold) {
       if (!rate || typeof rate.rate !== 'number') return 'idle'
@@ -1442,8 +1470,8 @@ window.__ModuleLoader__.load({
       'ops.obs.monitor': '主动监控',
       'ops.obs.alert': '告警已发送',
       'ops.obs.alert_error': '告警失败',
-      'reliability.title': '代码可靠性',
-      'product.title': '需求库',
+      'reliability.title': '度量',
+      'product.title': '产品需求库',
       'product.subtitle': '当前项目的需求库条目：产品目标、已确认决策与指标口径',
       'product.loading': '正在读取需求库…',
       'product.error': '需求库读取失败',
@@ -1459,8 +1487,19 @@ window.__ModuleLoader__.load({
       'product.source': '来源',
       'product.updatedAt': '更新',
       'product.bytes': '字节',
-      'product.expand': '展开正文',
-      'product.collapse': '收起正文',
+      'product.search': '搜索条目标题或摘要',
+      'product.searchLabel': '搜索需求库',
+      'product.filter.status': '状态',
+      'product.filter.current': '当前条目',
+      'product.filter.all': '全部条目',
+      'product.filter.topicAll': '全部主题',
+      'product.topicsTitle': '主题目录',
+      'product.count': '{count} 条',
+      'product.noMatch': '没有匹配当前条件的条目',
+      'product.clear': '清除筛选',
+      'product.noTopic': '未分主题',
+      'product.detail': '需求库条目',
+      'product.open': '查看详情 ↗',
       'product.body.loading': '正在读取正文…',
       'product.body.error': '正文读取失败',
       'product.body.ref': '正文来自引用文档',
@@ -2179,8 +2218,8 @@ window.__ModuleLoader__.load({
       'ops.obs.monitor': 'Active monitoring',
       'ops.obs.alert': 'Alert sent',
       'ops.obs.alert_error': 'Alert failed',
-      'reliability.title': 'Code reliability',
-      'product.title': 'Requirement library',
+      'reliability.title': 'Metrics',
+      'product.title': 'Product requirement library',
       'product.subtitle':
         'Current project library entries: goals, confirmed decisions and metric definitions',
       'product.loading': 'Loading requirement library…',
@@ -2197,8 +2236,19 @@ window.__ModuleLoader__.load({
       'product.source': 'Source',
       'product.updatedAt': 'Updated',
       'product.bytes': 'bytes',
-      'product.expand': 'Show full text',
-      'product.collapse': 'Hide full text',
+      'product.search': 'Search entry titles or summaries',
+      'product.searchLabel': 'Search the requirement library',
+      'product.filter.status': 'Status',
+      'product.filter.current': 'Current entries',
+      'product.filter.all': 'All entries',
+      'product.filter.topicAll': 'All topics',
+      'product.topicsTitle': 'Topics',
+      'product.count': '{count} entries',
+      'product.noMatch': 'No entry matches the current filters',
+      'product.clear': 'Clear filters',
+      'product.noTopic': 'No topic',
+      'product.detail': 'Library entry',
+      'product.open': 'View details ↗',
       'product.body.loading': 'Reading full text…',
       'product.body.error': 'Failed to read full text',
       'product.body.ref': 'Full text comes from the referenced document',
@@ -5368,6 +5418,32 @@ window.__ModuleLoader__.load({
 .flb-product-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
 .flb-product-body{margin-top:8px;border-top:.5px solid var(--dsw-alias-border-l1);padding-top:8px}
 .flb-product-body-text{margin:6px 0 0;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;padding:8px}
+/* 需求库：左侧主题目录 + 右侧单栏阅读列表；窗口先给正文，再给来源与时间。 */
+.flb-library{display:grid;grid-template-columns:200px minmax(0,1fr);gap:16px;align-items:start}
+.flb-library-topics{display:flex;flex-direction:column;gap:2px;padding-right:12px;border-right:.5px solid var(--dsw-alias-border-l1);min-width:0}
+.flb-library-topics-title{font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.flb-library-topic{display:flex;align-items:center;justify-content:space-between;gap:6px;border:0;background:transparent;color:inherit;font:inherit;font-size:12px;text-align:left;padding:4px 6px;border-radius:5px;cursor:pointer;min-width:0}
+.flb-library-topic:hover{background:var(--dsw-alias-bg-layer-2)}
+.flb-library-topic[aria-pressed=true]{background:var(--dsw-alias-bg-layer-2);font-weight:600}
+.flb-library-topic span{overflow-wrap:anywhere}
+.flb-library-topic-count{flex:none;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.flb-library-topic-select{display:none}
+.flb-library-main{display:flex;flex-direction:column;gap:8px;min-width:0}
+.flb-library-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.flb-library-search{flex:1 1 240px;min-width:0;max-width:none}
+.flb-library-status{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.flb-library-status select,.flb-library-topic-select{box-sizing:border-box;height:26px;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}
+.flb-product-card-title{border:0;background:transparent;color:inherit;font:inherit;font-size:14px;font-weight:600;text-align:left;padding:0;cursor:pointer;overflow-wrap:anywhere}
+.flb-product-card-title:hover{color:var(--dsw-alias-brand-primary)}
+.flb-product-summary{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:46em;line-height:20px}
+.flb-product-window{display:flex;flex-direction:column;gap:6px;max-width:44em}
+.flb-product-window .flb-product-body-text{max-height:none}
+@media (max-width:819px){
+  .flb-library{display:block}
+  .flb-library-topics{display:none}
+  .flb-library-topic-select{display:block;width:100%;margin-bottom:8px}
+  .flb-library-search{flex:1 1 100%}
+}
 `
 
     const RELIABILITY_CSS = `
@@ -8154,14 +8230,21 @@ window.__ModuleLoader__.load({
       function ProductPane(props) {
         const t = props.t
         const read = props.read
-        const [openIds, setOpenIds] = React.useState({})
         const [bodies, setBodies] = React.useState({})
+        const [query, setQuery] = React.useState('')
+        const [status, setStatus] = React.useState('current')
+        const [topic, setTopic] = React.useState('all')
+        const [openEntry, setOpenEntry] = React.useState('')
         const [rebuild, setRebuild] = React.useState(null)
         const [confirmState, setConfirmState] = React.useState(null)
         const rebuildTimer = React.useRef(null)
         const data = props.data || {}
         const entries = Array.isArray(data.entries) ? data.entries : []
         const warnings = Array.isArray(data.warnings) ? data.warnings : []
+        const topics = libraryTopics(entries)
+        const filteredEntries = filterLibraryEntries(entries, { query, status, topic })
+        const filterActive = query.trim() !== '' || status !== 'current' || topic !== 'all'
+        const open = openEntry ? entries.find((entry) => entry.id === openEntry) || null : null
 
         React.useEffect(
           () => () => {
@@ -8331,11 +8414,11 @@ window.__ModuleLoader__.load({
             })
         }
 
-        const toggleBody = (entry) => {
-          const willOpen = !openIds[entry.id]
-          setOpenIds((previous) => ({ ...previous, [entry.id]: willOpen }))
-          if (willOpen) loadBody(entry)
+        const openWindow = (entry) => {
+          setOpenEntry(entry.id)
+          loadBody(entry)
         }
+        const closeWindow = () => setOpenEntry('')
 
         const bodyBlock = (entry) => {
           const state = bodies[entry.id]
@@ -8399,7 +8482,7 @@ window.__ModuleLoader__.load({
         }
         return h(
           'main',
-          { className: 'flb-main-pane flb-product-pane' },
+          { className: 'flb-product-pane' },
           h(
             'div',
             { className: 'flb-product-head' },
@@ -8500,82 +8583,239 @@ window.__ModuleLoader__.load({
                 warnings.join('；'),
               )
             : null,
-          entries.length === 0
-            ? h('div', { className: 'flb-empty' }, t('product.empty'))
-            : h(
-                'div',
-                { className: 'flb-product-list' },
-                entries.map((entry) =>
+          h(
+            'div',
+            { className: 'flb-library' },
+            h(
+              'aside',
+              { className: 'flb-library-topics', 'aria-label': t('product.topicsTitle') },
+              h('div', { className: 'flb-library-topics-title' }, t('product.topicsTitle')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'flb-library-topic',
+                  'aria-pressed': topic === 'all',
+                  onClick: () => setTopic('all'),
+                },
+                t('product.filter.topicAll'),
+                h('span', { className: 'flb-library-topic-count' }, String(entries.length)),
+              ),
+              ...topics.map((name) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    key: name,
+                    className: 'flb-library-topic',
+                    'aria-pressed': topic === name,
+                    onClick: () => setTopic(name),
+                  },
+                  name,
                   h(
-                    'article',
-                    { key: entry.id, className: 'flb-product-card' },
-                    h(
-                      'div',
-                      { className: 'flb-product-card-head' },
-                      h('strong', null, entry.title),
-                      h(
-                        'span',
-                        { className: 'flb-product-badge', 'data-status': entry.status },
-                        t(`product.status.${entry.status}`),
-                      ),
-                      entry.always
-                        ? h('span', { className: 'flb-product-badge' }, t('product.always'))
-                        : null,
+                    'span',
+                    { className: 'flb-library-topic-count' },
+                    String(
+                      entries.filter((entry) => (entry.topics || []).includes(name)).length,
                     ),
-                    h('div', { className: 'flb-product-id' }, entry.id),
-                    h('div', { className: 'flb-product-summary' }, entry.summary),
-                    h(
-                      'div',
-                      { className: 'flb-product-meta' },
-                      t('product.topics'),
-                      '：',
-                      (entry.topics || []).join('、'),
-                    ),
-                    entry.ref
-                      ? h(
-                          'div',
-                          { className: 'flb-product-meta' },
-                          t('product.ref'),
-                          '：',
-                          entry.ref,
-                        )
-                      : null,
-                    h(
-                      'div',
-                      { className: 'flb-product-meta' },
-                      t('product.source'),
-                      '：',
-                      entry.source,
-                      ' · ',
-                      t('product.updatedAt'),
-                      ' ',
-                      entry.updatedAt,
-                      ' · ',
-                      t('product.bytes'),
-                      ' ',
-                      entry.bytes,
-                    ),
-                    h(
-                      'div',
-                      { className: 'flb-product-actions' },
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'flb-card-action',
-                          'aria-expanded': openIds[entry.id] ? 'true' : 'false',
-                          onClick: () => toggleBody(entry),
-                        },
-                        openIds[entry.id] ? t('product.collapse') : t('product.expand'),
-                      ),
-                    ),
-                    openIds[entry.id] ? bodyBlock(entry) : null,
                   ),
                 ),
               ),
+              h(
+                'select',
+                {
+                  className: 'flb-library-topic-select',
+                  value: topic,
+                  'aria-label': t('product.topicsTitle'),
+                  onChange: (event) => setTopic(event.target.value),
+                },
+                h('option', { value: 'all' }, t('product.filter.topicAll')),
+                ...topics.map((name) => h('option', { value: name, key: name }, name)),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'flb-library-main' },
+              h(
+                'div',
+                { className: 'flb-library-toolbar' },
+                h(
+                  'label',
+                  { className: 'flb-search flb-library-search' },
+                  h('input', {
+                    type: 'search',
+                    value: query,
+                    placeholder: t('product.search'),
+                    'aria-label': t('product.searchLabel'),
+                    onChange: (event) => setQuery(event.target.value),
+                  }),
+                ),
+                h(
+                  'label',
+                  { className: 'flb-library-status' },
+                  h('span', { className: 'flb-muted' }, t('product.filter.status')),
+                  h(
+                    'select',
+                    { value: status, onChange: (event) => setStatus(event.target.value) },
+                    ...[
+                      ['current', t('product.filter.current')],
+                      ['all', t('product.filter.all')],
+                      ['confirmed', t('product.status.confirmed')],
+                      ['draft', t('product.status.draft')],
+                      ['superseded', t('product.status.superseded')],
+                    ].map(([value, label]) => h('option', { value, key: value }, label)),
+                  ),
+                ),
+                h(
+                  'span',
+                  { className: 'flb-muted' },
+                  t('product.count', { count: filteredEntries.length }),
+                ),
+              ),
+              filteredEntries.length === 0
+                ? h(
+                    'div',
+                    { className: 'flb-empty' },
+                    h('div', null, filterActive ? t('product.noMatch') : t('product.empty')),
+                    filterActive
+                      ? h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'flb-card-action',
+                            onClick: () => {
+                              setQuery('')
+                              setStatus('current')
+                              setTopic('all')
+                            },
+                          },
+                          t('product.clear'),
+                        )
+                      : null,
+                  )
+                : h(
+                    'div',
+                    { className: 'flb-product-list' },
+                    ...filteredEntries.map((entry) =>
+                      h(
+                        'article',
+                        { key: entry.id, className: 'flb-product-card' },
+                        h(
+                          'div',
+                          { className: 'flb-product-card-head' },
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'flb-product-card-title',
+                              onClick: () => openWindow(entry),
+                            },
+                            entry.title,
+                          ),
+                          h(
+                            'span',
+                            { className: 'flb-product-badge', 'data-status': entry.status },
+                            t(`product.status.${entry.status}`),
+                          ),
+                          entry.always
+                            ? h('span', { className: 'flb-product-badge' }, t('product.always'))
+                            : null,
+                        ),
+                        h('div', { className: 'flb-product-summary' }, entry.summary),
+                        h(
+                          'div',
+                          { className: 'flb-product-meta' },
+                          `${
+                            entry.topics && entry.topics.length > 0
+                              ? entry.topics.join('、')
+                              : t('product.noTopic')
+                          } · ${t('product.updatedAt')} ${entry.updatedAt}`,
+                        ),
+                        h(
+                          'div',
+                          { className: 'flb-product-actions' },
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'flb-link-button',
+                              onClick: () => openWindow(entry),
+                            },
+                            t('product.open'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+            ),
+          ),
+          open
+            ? h(
+                'div',
+                {
+                  className: 'flb-overlay',
+                  role: 'dialog',
+                  'aria-modal': 'true',
+                  'aria-label': t('product.detail'),
+                  onClick: (event) => {
+                    if (event.target === event.currentTarget) closeWindow()
+                  },
+                },
+                h(
+                  'div',
+                  { className: 'flb-overlay-panel' },
+                  h(
+                    'div',
+                    { className: 'flb-overlay-head' },
+                    h('span', { className: 'flb-overlay-kind' }, t('product.detail')),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'flb-overlay-close',
+                        onClick: closeWindow,
+                        autoFocus: true,
+                      },
+                      t('overlay.close'),
+                    ),
+                  ),
+                  h(
+                    'div',
+                    { className: 'flb-product-window' },
+                    h('h2', { className: 'flb-product-title' }, open.title),
+                    h(
+                      'div',
+                      { className: 'flb-product-card-head' },
+                      h(
+                        'span',
+                        { className: 'flb-product-badge', 'data-status': open.status },
+                        t(`product.status.${open.status}`),
+                      ),
+                      h('span', { className: 'flb-product-id' }, open.id),
+                    ),
+                    h(
+                      'div',
+                      { className: 'flb-product-meta' },
+                      `${
+                        open.topics && open.topics.length > 0
+                          ? open.topics.join('、')
+                          : t('product.noTopic')
+                      } · ${t('product.updatedAt')} ${open.updatedAt} · ${t('product.source')} ${open.source}`,
+                    ),
+                    bodyBlock(open),
+                    open.ref
+                      ? h(
+                          'div',
+                          { className: 'flb-product-meta' },
+                          `${t('product.ref')}：${open.ref}`,
+                        )
+                      : null,
+                  ),
+                ),
+              )
+            : null,
         )
       }
-
       /** 代码可靠性视图：质量快照 + 只读运行记录；没有快照时局部降级，不清空整页。 */
       function ReliabilityPane(props) {
         const t = props.t
@@ -11610,6 +11850,8 @@ window.__ModuleLoader__.load({
         showsLegacyGateWarnings,
         searchScopeText,
         attentionRows,
+        filterLibraryEntries,
+        libraryTopics,
         businessPointRows,
         stageStatuses,
         verificationAnomaly,
