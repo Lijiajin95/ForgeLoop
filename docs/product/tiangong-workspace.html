@@ -1,0 +1,848 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>天工 · 工作区设计稿</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fff;
+        --ink: #192431;
+        --sub: #546372;
+        --line: #d9e0e5;
+        --wash: #f5f8fa;
+        --blue: #1753aa;
+        --warn: #845820;
+        --good: #176548;
+        --bad: #ad3836;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #182029;
+          --ink: #e7edf3;
+          --sub: #acbac7;
+          --line: #405061;
+          --wash: #212d39;
+          --blue: #9ac4ff;
+          --warn: #f2ca87;
+          --good: #96dbb8;
+          --bad: #ffa9a5;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          14px/1.55 system-ui,
+          sans-serif;
+      }
+      a {
+        color: var(--blue);
+        text-underline-offset: 4px;
+      }
+      a:focus-visible {
+        outline: 3px solid var(--blue);
+        outline-offset: 3px;
+      }
+      .host,
+      .mast,
+      nav,
+      main,
+      .note {
+        padding-inline: clamp(16px, 4vw, 64px);
+      }
+      .host {
+        padding-block: 10px;
+        border-bottom: 1px solid var(--line);
+        color: var(--sub);
+      }
+      .host b {
+        color: var(--blue);
+      }
+      .mast,
+      nav,
+      .bar,
+      article header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .mast,
+      .bar,
+      article header {
+        justify-content: space-between;
+      }
+      .mast {
+        padding-block: 14px;
+      }
+      .mast b {
+        font-size: 22px;
+      }
+      nav {
+        border-bottom: 1px solid var(--line);
+        gap: 28px;
+      }
+      nav a {
+        padding: 9px 0;
+        text-decoration: none;
+        color: var(--sub);
+        font-weight: 600;
+      }
+      main {
+        max-width: 1600px;
+        margin: auto;
+      }
+      .screen {
+        display: none;
+        padding: 18px 0 32px;
+      }
+      .screen:target,
+      body:not(:has(.screen:target)) #work {
+        display: block;
+      }
+      .bar {
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+      .bar div:last-child {
+        white-space: normal;
+      }
+      .switch {
+        display: inline-flex;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 3px;
+      }
+      .switch a {
+        padding: 5px 12px;
+        text-decoration: none;
+        color: var(--sub);
+      }
+      .switch a[aria-current] {
+        background: var(--wash);
+        color: var(--ink);
+        font-weight: 700;
+      }
+      h2,
+      h3,
+      h4,
+      p {
+        margin: 0 0 8px;
+      }
+      h2 {
+        font-size: 22px;
+      }
+      h3 {
+        font-size: 17px;
+      }
+      h4 {
+        font-size: 16px;
+      }
+      small,
+      p,
+      .note {
+        color: var(--sub);
+      }
+      small {
+        font-size: 13px;
+      }
+      .chip {
+        display: inline-block;
+        padding: 2px 8px;
+        border: 1px solid currentColor;
+        border-radius: 5px;
+        font-size: 12px;
+        color: var(--sub);
+      }
+      .green {
+        color: var(--good);
+      }
+      .blue {
+        color: var(--blue);
+      }
+      .red {
+        color: var(--bad);
+      }
+      .amber {
+        color: var(--warn);
+      }
+      .stages {
+        display: grid;
+        grid-template-columns: 30fr 36fr 34fr;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .stage {
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .stage + .stage {
+        border-left: 1px solid var(--line);
+      }
+      article header {
+        margin-bottom: 22px;
+      }
+      article header h3 {
+        margin: 0;
+      }
+      .stage footer {
+        margin-top: auto;
+        padding-top: 22px;
+      }
+      .stage h4 {
+        margin: 5px 0 12px;
+      }
+      .warning {
+        background: var(--wash);
+        padding: 10px 12px;
+        border-inline-start: 3px solid var(--warn);
+      }
+      .library {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 28px;
+      }
+      .library aside {
+        display: grid;
+        align-content: start;
+        gap: 14px;
+        border-right: 1px solid var(--line);
+        padding: 12px;
+      }
+      .filters {
+        padding: 12px 0;
+        color: var(--sub);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      td,
+      th {
+        padding: 12px 8px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+      }
+      th {
+        font-size: 13px;
+        background: var(--wash);
+        color: var(--sub);
+      }
+      .rates {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-block: 18px;
+      }
+      .rates strong {
+        display: block;
+        font-size: 24px;
+        font-variant-numeric: tabular-nums;
+      }
+      .note {
+        font-size: 12px;
+        padding-block: 12px;
+        border-top: 1px solid var(--line);
+      }
+      .detail {
+        max-width: 70ch;
+        margin: 20px auto;
+      }
+      .detail h3 {
+        margin-top: 24px;
+      }
+      .stackstatus {
+        display: none;
+      }
+      body:has(.detail:only-child):has(.screen:target > .detail) :is(.host, nav, .mast) {
+        display: none;
+      }
+      @media (max-width: 1199px) {
+        .stages {
+          grid-template-columns: 1fr 1fr;
+        }
+        .stage:last-child {
+          grid-column: 1/-1;
+          border: 0;
+          border-top: 1px solid var(--line);
+        }
+        .stackstatus {
+          display: block;
+          color: var(--sub);
+          margin-bottom: 12px;
+        }
+      }
+      @media (max-width: 819px) {
+        .stages,
+        .library {
+          display: block;
+        }
+        .stage + .stage {
+          border: 0;
+          border-top: 1px solid var(--line);
+        }
+        .library aside {
+          display: flex;
+          flex-wrap: wrap;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+        .rates {
+          grid-template-columns: 1fr 1fr;
+        }
+        thead {
+          display: none;
+        }
+        tr,
+        td {
+          display: block;
+        }
+        tr {
+          padding: 8px 0;
+          border-bottom: 1px solid var(--line);
+        }
+        td {
+          border: none;
+          padding: 3px 0;
+          overflow-wrap: anywhere;
+        }
+        td:before {
+          content: attr(data-label);
+          display: inline-block;
+          color: var(--sub);
+          font-size: 12px;
+          width: 8em;
+        }
+        nav {
+          gap: 20px;
+        }
+        .mast {
+          flex-wrap: wrap;
+        }
+        .stage header {
+          margin-bottom: 12px;
+        }
+      }
+      body:has(#work:target) nav a[href='#work'],
+      body:has(#tasks:target) nav a[href='#work'],
+      body:has(#queue:target) nav a[href='#work'],
+      body:has(#queue-task:target) nav a[href='#work'],
+      body:not(:has(.screen:target)) nav a[href='#work'] {
+        color: var(--ink);
+        box-shadow: inset 0 -3px var(--blue);
+      }
+      body:has(#product:target) nav a[href='#product'] {
+        color: var(--ink);
+        box-shadow: inset 0 -3px var(--blue);
+      }
+      body:has(#metrics:target) nav a[href='#metrics'] {
+        color: var(--ink);
+        box-shadow: inset 0 -3px var(--blue);
+      }
+      body:has(#ops:target) nav a[href='#ops'] {
+        color: var(--ink);
+        box-shadow: inset 0 -3px var(--blue);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="host">对话　　 轨迹　　 <b>天工</b></div>
+    <div class="mast">
+      <div><b>天工</b>　 ForgeLoop</div>
+      <small>最近读取 14:32　 刷新</small>
+    </div>
+    <nav aria-label="天工页面">
+      <a href="#work">工作台</a><a href="#product">产品</a><a href="#metrics">度量</a
+      ><a href="#ops">运维</a>
+    </nav>
+    <main>
+      <section class="screen" id="work">
+        <div class="bar">
+          <div>
+            <span class="switch"
+              ><a href="#work" aria-current="page">按需求</a><a href="#tasks">按任务</a></span
+            >
+          </div>
+          <div><a href="#queue">需要处理 2 项 ›</a></div>
+        </div>
+        <div class="bar">
+          <div>
+            <small>当前需求</small>
+            <h2>把可靠性标签页名称修改为度量</h2>
+          </div>
+          <div>
+            <span class="chip blue">研发中</span>　<a href="#req" target="_blank" rel="noopener"
+              >查看详情 ↗</a
+            >
+          </div>
+        </div>
+        <div class="stackstatus">产品 · 已形成说明　研发 · 执行中　验证 · 尚无结论</div>
+        <div class="stages">
+          <article class="stage">
+            <header>
+              <h3>产品</h3>
+              <span class="chip green">已形成说明</span>
+            </header>
+            <div>
+              <small>业务要点 BP-1</small>
+              <h4>页签显示为「度量」</h4>
+              <small>验收要点</small>
+              <p>页签、页面标题与无障碍名称一致。</p>
+            </div>
+            <footer><a href="#pa" target="_blank" rel="noopener">Agent 执行过程 ↗</a></footer>
+          </article>
+          <article class="stage">
+            <header>
+              <h3>研发</h3>
+              <span class="chip blue">执行中</span>
+            </header>
+            <div>
+              <small>覆盖 BP-1</small>
+              <h4>更新页签显示名称</h4>
+              <p>rename-metrics-tab</p>
+              <strong>0 / 1</strong> 个任务已交付
+            </div>
+            <footer><a href="#da" target="_blank" rel="noopener">Agent 执行过程 ↗</a></footer>
+          </article>
+          <article class="stage">
+            <header>
+              <h3>验证</h3>
+              <span class="chip amber">尚无结论</span>
+            </header>
+            <div>
+              <small>验证目标</small>
+              <h4>核对名称与无障碍标签</h4>
+              <div class="warning"><b>测试方案生成失败</b><br />尚无可用测试结果</div>
+            </div>
+            <footer><a href="#va" target="_blank" rel="noopener">Agent 执行过程 ↗</a></footer>
+          </article>
+        </div>
+      </section>
+      <section class="screen" id="tasks">
+        <div class="bar">
+          <div>
+            <span class="switch"
+              ><a href="#work">按需求</a><a href="#tasks" aria-current="page">按任务</a></span
+            >
+          </div>
+          <div><a href="#queue-task">需要处理 2 项 ›</a></div>
+        </div>
+        <h2>研发任务</h2>
+        <p class="filters">按需求筛选任务　　所属需求 · 全部　　状态 · 全部</p>
+        <table>
+          <thead>
+            <tr>
+              <th>任务</th>
+              <th>所属需求</th>
+              <th>状态</th>
+              <th>最近活动</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="任务">
+                <a href="#task" target="_blank" rel="noopener">更新页签显示名称 ↗</a>
+              </td>
+              <td data-label="所属需求"><a href="#work">页签改名</a></td>
+              <td data-label="状态"><span class="chip blue">执行中</span></td>
+              <td data-label="最近活动">14:30</td>
+              <td data-label="操作">
+                <a href="#da" target="_blank" rel="noopener">Agent 执行过程 ↗</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="queue">
+        <a href="#work">‹ 返回按需求</a>
+        <div class="bar">
+          <div><h2>需要处理</h2></div>
+          <div>当前项目 · 2 项</div>
+        </div>
+        <p class="filters">全部阶段　　全部优先程度</p>
+        <table>
+          <thead>
+            <tr>
+              <th>优先程度</th>
+              <th>需要处理的原因</th>
+              <th>影响对象</th>
+              <th>下一步</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="优先程度"><span class="chip red">阻塞</span></td>
+              <td data-label="需要处理的原因">测试方案生成失败</td>
+              <td data-label="影响对象">页签改名 · 验证</td>
+              <td data-label="下一步">
+                <a href="#va" target="_blank" rel="noopener">查看验证过程 ↗</a>
+              </td>
+            </tr>
+            <tr>
+              <td data-label="优先程度"><span class="chip amber">待输入</span></td>
+              <td data-label="需要处理的原因">需明确统计范围</td>
+              <td data-label="影响对象">周报范围 · 产品</td>
+              <td data-label="下一步">
+                <a href="#clarify" target="_blank" rel="noopener">查看待澄清项 ↗</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="queue-task">
+        <a href="#tasks">‹ 返回按任务</a>
+        <div class="bar">
+          <div><h2>需要处理</h2></div>
+          <div>当前项目 · 2 项</div>
+        </div>
+        <p class="filters">全部阶段　　全部优先程度</p>
+        <table>
+          <thead>
+            <tr>
+              <th>优先程度</th>
+              <th>需要处理的原因</th>
+              <th>影响对象</th>
+              <th>下一步</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="优先程度"><span class="chip red">阻塞</span></td>
+              <td data-label="需要处理的原因">测试方案生成失败</td>
+              <td data-label="影响对象">页签改名 · 验证</td>
+              <td data-label="下一步">
+                <a href="#va" target="_blank" rel="noopener">查看验证过程 ↗</a>
+              </td>
+            </tr>
+            <tr>
+              <td data-label="优先程度"><span class="chip amber">待输入</span></td>
+              <td data-label="需要处理的原因">需明确统计范围</td>
+              <td data-label="影响对象">周报范围 · 产品</td>
+              <td data-label="下一步">
+                <a href="#clarify" target="_blank" rel="noopener">查看待澄清项 ↗</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="product">
+        <div class="bar">
+          <div><h2>产品需求库</h2></div>
+          <div>重建需求库</div>
+        </div>
+        <div class="library">
+          <aside><small>主题目录</small><b>全部条目</b><span>工作台</span><span>交付</span></aside>
+          <div>
+            <p class="filters">搜索条目标题或摘要　　　状态 · 当前条目</p>
+            <div class="bar">
+              <div>
+                <h3>工作台展示口径</h3>
+                <p>同一名称用于页签、页面标题与无障碍标签。</p>
+                <small>工作台 · 今日更新</small>
+              </div>
+              <div>
+                <span class="chip green">已确认</span>　<a
+                  href="#entry"
+                  target="_blank"
+                  rel="noopener"
+                  >查看详情 ↗</a
+                >
+              </div>
+            </div>
+            <div class="bar">
+              <div>
+                <h3>候选交付条件</h3>
+                <p>交付前核对候选身份与验证记录。</p>
+                <small>交付 · 昨日更新</small>
+              </div>
+              <div>
+                <span class="chip neutral">草稿</span>　<a
+                  href="#draft"
+                  target="_blank"
+                  rel="noopener"
+                  >查看详情 ↗</a
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="screen" id="metrics">
+        <div class="bar">
+          <div><h2>度量</h2></div>
+          <div>测量截至 11 月 18 日 14:00</div>
+        </div>
+        <small>工程质量 · 本次快照</small>
+        <div class="bar">
+          <div><h3>行覆盖率低于门槛</h3></div>
+          <div><span class="chip green">快照有效</span></div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>质量门禁</th>
+              <th>状态</th>
+              <th>实测 / 门槛</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="质量门禁">行覆盖率</td>
+              <td data-label="状态"><span class="chip red">未通过</span></td>
+              <td data-label="实测 / 门槛">88% / 90%</td>
+              <td data-label="操作">
+                <a href="#gate" target="_blank" rel="noopener">查看证据 ↗</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="bar">
+          <div><h3>交付表现</h3></div>
+          <div>7 天　30 天　90 天　<b>全部</b></div>
+        </div>
+        <div class="rates">
+          <div><small>验证通过</small><strong>75%</strong>3 / 4 次</div>
+          <div><small>首轮通过</small><strong>50%</strong>1 / 2 项</div>
+          <div><small>业务终审</small><strong>100%</strong>1 / 1 次</div>
+          <div><small>上线核对</small><strong>—</strong>无样本</div>
+        </div>
+        <p>样本少于 5，趋势仅供参考。</p>
+        <h3>最近 8 周 · 验证结果</h3>
+        <div
+          style="
+            display: flex;
+            align-items: end;
+            gap: 4%;
+            height: 78px;
+            border-bottom: 1px solid var(--line);
+            padding: 0 14px;
+          "
+          aria-hidden="true"
+        >
+          <i style="width: 8%; height: 1px; background: var(--line)"></i
+          ><i style="width: 8%; height: 1px; background: var(--line)"></i
+          ><i style="width: 8%; height: 1px; background: var(--line)"></i
+          ><i style="width: 8%; height: 1px; background: var(--line)"></i
+          ><i style="width: 8%; height: 1px; background: var(--line)"></i
+          ><i style="width: 8%; height: 34px; background: var(--good)"></i
+          ><i style="width: 8%; height: 34px; background: var(--good)"></i
+          ><i
+            style="
+              width: 8%;
+              height: 68px;
+              background: linear-gradient(var(--bad) 50%, var(--good) 50%);
+            "
+          ></i>
+        </div>
+        <p><small>前 7 周至本周 · 每柱 1 周 · 通过／阻断（次）</small></p>
+        <details>
+          <summary>查看趋势数据表</summary>
+          <table>
+            <thead>
+              <tr>
+                <th>周</th>
+                <th>通过</th>
+                <th>阻断</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="周">前 7 至前 3 周（各周）</td>
+                <td data-label="通过">0</td>
+                <td data-label="阻断">0</td>
+              </tr>
+              <tr>
+                <td data-label="周">前 2 周、前 1 周（各周）</td>
+                <td data-label="通过">1</td>
+                <td data-label="阻断">0</td>
+              </tr>
+              <tr>
+                <td data-label="周">本周</td>
+                <td data-label="通过">1</td>
+                <td data-label="阻断">1</td>
+              </tr>
+            </tbody>
+          </table>
+        </details>
+      </section>
+      <section class="screen" id="ops">
+        <div class="bar">
+          <div><h2>运维事件</h2></div>
+          <div><a href="#monitor" target="_blank" rel="noopener">监控详情 ↗</a></div>
+        </div>
+        <p class="warning">主动监控 · 采集不完整　　 最近扫描 14:30</p>
+        <p class="filters">处理中　　全部　　　严重度 · 全部　　处置状态 · 全部</p>
+        <table>
+          <thead>
+            <tr>
+              <th>严重度</th>
+              <th>事件与业务影响</th>
+              <th>资源</th>
+              <th>处置状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="严重度"><span class="chip amber">重要</span></td>
+              <td data-label="事件与业务影响">
+                应用健康检查失败<br /><small>业务影响待确认</small>
+              </td>
+              <td data-label="资源">应用服务</td>
+              <td data-label="处置状态"><span class="chip amber">待决定</span></td>
+              <td data-label="操作">
+                <a href="#incident" target="_blank" rel="noopener">查看详情 ↗</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="req">
+        <div class="detail">
+          <small>需求详情 · ForgeLoop</small>
+          <h2>把可靠性标签页名称修改为度量</h2>
+          <h3>原始需求</h3>
+          <p>把可靠性标签页名称修改为度量</p>
+          <h3>状态</h3>
+          <p>研发中 · 0 / 1 个任务已交付</p>
+          <h3>历史版本</h3>
+          <p>需求 v1 · 原始提交</p>
+        </div>
+      </section>
+      <section class="screen" id="task">
+        <div class="detail">
+          <small>任务详情 · ForgeLoop</small>
+          <h2>更新页签显示名称</h2>
+          <h3>任务身份</h3>
+          <p>rename-metrics-tab · 任务包 v1</p>
+          <h3>执行状态</h3>
+          <p>执行中</p>
+          <h3>前置任务</h3>
+          <p>无前置任务</p>
+        </div>
+      </section>
+      <section class="screen" id="pa">
+        <div class="detail">
+          <small>产品 Agent 执行过程 · ForgeLoop</small>
+          <h2>页签改名 · 需求分析</h2>
+          <h3>需求身份</h3>
+          <p>示例需求 · v1</p>
+          <h3>本次记录</h3>
+          <p>已形成业务要点 BP-1</p>
+          <h3>产出</h3>
+          <p>页签、页面标题与无障碍名称一致</p>
+        </div>
+      </section>
+      <section class="screen" id="da">
+        <div class="detail">
+          <small>研发 Agent 执行过程 · ForgeLoop</small>
+          <h2>rename-metrics-tab</h2>
+          <h3>本次尝试</h3>
+          <p>任务包 v1 · 执行中</p>
+          <h3>最近公开活动</h3>
+          <p>核对可见名称和无障碍名称</p>
+          <h3>交付</h3>
+          <p>尚无交付记录</p>
+        </div>
+      </section>
+      <section class="screen" id="va">
+        <div class="detail">
+          <small>验证 Agent 执行过程 · ForgeLoop</small>
+          <h2>页签改名 · 测试方案</h2>
+          <h3>阶段</h3>
+          <p>生成测试方案</p>
+          <h3>最近异常</h3>
+          <p>Agent 回合中断，方案未完成</p>
+          <h3>结论</h3>
+          <p>尚无当前候选的可用验证结果</p>
+        </div>
+      </section>
+      <section class="screen" id="clarify">
+        <div class="detail">
+          <small>待澄清项 · ForgeLoop</small>
+          <h2>周报统计范围</h2>
+          <h3>影响范围</h3>
+          <p>周报范围 · 产品分析</p>
+          <h3>待决定事项</h3>
+          <p>是否纳入已取消需求？</p>
+        </div>
+      </section>
+      <section class="screen" id="entry">
+        <div class="detail">
+          <small>需求库条目 · ForgeLoop</small>
+          <h2>工作台展示口径</h2>
+          <h3>正文</h3>
+          <p>同一名称用于导航页签、页面标题与无障碍名称。</p>
+          <h3>状态</h3>
+          <p>已确认</p>
+          <h3>主题</h3>
+          <p>工作台</p>
+        </div>
+      </section>
+      <section class="screen" id="draft">
+        <div class="detail">
+          <small>需求库条目 · ForgeLoop</small>
+          <h2>候选交付条件</h2>
+          <h3>正文</h3>
+          <p>交付前核对候选身份与验证记录。</p>
+          <h3>状态</h3>
+          <p>草稿</p>
+        </div>
+      </section>
+      <section class="screen" id="gate">
+        <div class="detail">
+          <small>门禁证据 · ForgeLoop</small>
+          <h2>行覆盖率</h2>
+          <h3>测量点</h3>
+          <p>11 月 18 日 14:00</p>
+          <h3>结论</h3>
+          <p>88% · 门槛 90%</p>
+          <h3>证据</h3>
+          <p>本次快照中的行覆盖率记录</p>
+        </div>
+      </section>
+      <section class="screen" id="monitor">
+        <div class="detail">
+          <small>监控详情 · ForgeLoop</small>
+          <h2>最近一次扫描</h2>
+          <h3>状态</h3>
+          <p>采集不完整</p>
+          <h3>最近扫描</h3>
+          <p>14:30</p>
+          <h3>缺项</h3>
+          <p>未取得内存样本</p>
+        </div>
+      </section>
+      <section class="screen" id="incident">
+        <div class="detail">
+          <small>运维事件 · ForgeLoop</small>
+          <h2>应用健康检查失败</h2>
+          <h3>已观测事实</h3>
+          <p>应用服务健康检查未取得有效响应</p>
+          <h3>业务影响</h3>
+          <p>待确认</p>
+          <h3>建议与处置</h3>
+          <p>待决定 · 在真实界面核对登记动作及作用对象</p>
+          <h3>恢复核对</h3>
+          <p>尚无恢复记录</p>
+        </div>
+      </section>
+    </main>
+    <footer class="note">
+      交互设计稿 · 示例数据　 <a href="tiangong-workspace.md">研发规格</a>
+    </footer>
+  </body>
+</html>
