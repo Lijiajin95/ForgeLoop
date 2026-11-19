@@ -913,7 +913,7 @@ ${answer}`
         archivedPath,
         reason: input.reason,
       })
-      this.repo.clearTaskDelivery(input.reqId, input.plan.planVersion, task.taskId)
+      this.repo.deleteTaskDeliveryRecords(input.reqId, input.plan.planVersion, task.taskId)
       this.recordRun(input.reqId, input.plan, task, {
         state: TASK_RUN_BLOCKED,
         reason: `${input.reason}（旧候选 ${artifact.candidateSha256.slice(0, 12)}… 与材料已归档）`,

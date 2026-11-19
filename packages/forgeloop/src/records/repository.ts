@@ -1193,7 +1193,7 @@ export class Repository extends DevSessionStore {
     }))
   }
 
-  clearTaskDelivery(reqId: string, planVersion: number, taskId: string): void {
+  deleteTaskDeliveryRecords(reqId: string, planVersion: number, taskId: string): void {
     this.db
       .prepare(
         'DELETE FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? AND task_id = ?',
