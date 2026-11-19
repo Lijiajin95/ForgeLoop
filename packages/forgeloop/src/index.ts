@@ -1,13 +1,3 @@
-/**
- * forgeloop-dsh 插件入口：装载 TypeScript 业务运行时、持久工作协调器、
- * 业务会话输入接管、模型工具与只读 Web 看板通道。
- * 运行期不依赖 Python 解释器或独立 HTTP 服务。
- *
- * 多工作区绑定：宿主存在 DSH 工作区服务时，每个工作区一个租户（配置、记录库、
- * 协调器、工具作用域），业务会话与看板都按会话所属工作区选择租户；没有工作区
- * 服务的宿主（headless）保持单项目模式。未绑定工作区的会话不落入任何默认项目。
- */
-
 import { createHostLogger } from './runtime/log.js'
 import { errorMessage } from './domain/errors.js'
 import { asRecord } from './domain/json.js'
@@ -36,7 +26,6 @@ interface HostSurface {
   effect?: (callback: () => unknown) => unknown
 }
 
-/** 宿主运行时模式：工作区租户注册表，或没有工作区服务的单项目兼容运行时。 */
 type RuntimeMode =
   | {
       readonly kind: 'workspace'
@@ -60,7 +49,6 @@ function serviceOf(ctx: AnyRecord, name: string): AnyRecord | undefined {
   return asRecord(ctx[name])
 }
 
-/** 模式等待参数：测试可缩短；生产默认值只在宿主真的缺少工作区服务时承担一次等待成本。 */
 export interface HostModeWaitOptions {
   readonly pollMs?: number
   /** Web 宿主等待工作区服务出现的上限；超时按“不可用”失败关闭。 */
@@ -69,14 +57,6 @@ export interface HostModeWaitOptions {
   readonly plainTimeoutMs?: number
 }
 
-/**
- * 等待 DSH 工作区服务就绪后判定宿主模式。
- *
- * 工作区服务与 Web 服务都可能在同一装载批次里晚于插件 apply 注册：只按 apply 时的一次快照
- * 判定，会把“服务稍后到位”的 Web 宿主误判成单项目，并静默读写旧项目。这里每轮重新判定 Web
- * 能力：一旦看到 Web 服务就切换到 Web 预算（超时失败关闭）；只有整个观察窗口内既没有 Web
- * 服务也没有工作区服务时，才按单项目兼容。
- */
 export async function waitForWorkspaceMode(
   registryOf: () => AnyRecord | undefined,
   webCapable: () => boolean,
@@ -84,7 +64,6 @@ export async function waitForWorkspaceMode(
 ): Promise<'workspace' | 'single' | 'unavailable'> {
   const pollMs = options.pollMs ?? 100
   const webTimeoutMs = options.webTimeoutMs ?? 60_000
-  // 观察窗口要盖住真实的冷启动：实测 Web 服务与工作区服务在 apply 之后约 2–3 秒才注册，
   // 旧的 2 秒窗口会在这个间隙把 Web 宿主误判成单项目。
   const plainTimeoutMs = options.plainTimeoutMs ?? 10_000
   const startedAt = Date.now()
@@ -104,7 +83,6 @@ export async function waitForWorkspaceMode(
   }
 }
 
-/** 工作区注册表的只读适配：身份只取 id、路径与标题，不信任其他字段。 */
 function workspaceSourceOf(registry: AnyRecord) {
   return {
     list: async (): Promise<readonly WorkspaceIdentity[]> => {
@@ -121,7 +99,6 @@ function workspaceSourceOf(registry: AnyRecord) {
       try {
         return workspaceIdentityOf(asRecord(await Reflect.apply(byPath, registry, [path])))
       } catch {
-        // 目录不存在、路径不规范或尚未注册：都视为未绑定工作区。
         return undefined
       }
     },
@@ -165,7 +142,6 @@ function registerBoardRoute(
         path: BOARD_HTTP_PATH,
         methods: ['POST'],
         requestBody: 'buffered',
-        // 模式在首个请求到达时已判定；等待期间请求保持挂起，不返回错误页面。
         fetch: async (request: Request) => (await build())(request),
       })
       return () => {
@@ -175,7 +151,6 @@ function registerBoardRoute(
   })
 }
 
-/** 工作区注册表的只读适配：身份只取 id、路径与标题，不信任其他字段。 */
 function workspaceIdentityOf(value: AnyRecord | undefined): WorkspaceIdentity | undefined {
   if (!value) return undefined
   const id = typeof value.id === 'string' ? value.id : ''
@@ -184,7 +159,6 @@ function workspaceIdentityOf(value: AnyRecord | undefined): WorkspaceIdentity | 
   return { id, path, title: typeof value.title === 'string' ? value.title : path }
 }
 
-/** 会话 header 的原始目录：优先活动会话，其次持久化记录；找不到时返回 undefined。 */
 async function sessionCwdOf(ctx: AnyRecord, sessionId: string): Promise<string | undefined> {
   const sessions = serviceOf(ctx, 'sessions')
   const get = sessions?.get
@@ -208,13 +182,11 @@ async function sessionCwdOf(ctx: AnyRecord, sessionId: string): Promise<string |
   return undefined
 }
 
-/** 显式配置的旧项目：只有宿主真的写了 projectPath 时才按路径复用旧目录。 */
 function legacyProjectOf(raw: RawConfig, config: ForgeLoopConfig): LegacyProject | undefined {
   if (!raw.projectPath) return undefined
   return { project: config.project, projectPath: config.projectPath }
 }
 
-/** 业务会话输入接管的作用域：按会话目录找租户，找不到返回 undefined 由调用方拒绝。 */
 function workspaceSessionSource(active: WorkspaceTenants): SessionTenantSource {
   return {
     forCwd: async (cwd) => {
@@ -226,7 +198,6 @@ function workspaceSessionSource(active: WorkspaceTenants): SessionTenantSource {
   }
 }
 
-/** 看板作用域：按浏览器会话身份找租户，找不到返回 undefined 由路由拒绝。 */
 function workspaceBoardSource(active: WorkspaceTenants): BoardScopeSource {
   return async (sessionId) => {
     const tenant = await active.forSession(sessionId)
@@ -256,23 +227,18 @@ export function apply(
   rawConfig: RawConfig = {},
   options: { readonly modeWait?: HostModeWaitOptions } = {},
 ): void {
-  // 业务配置放在 ForgeLoop 自己的文件里；宿主配置只负责装载，不再保存一份。
   const loaded = loadConfigOrThrow(rawConfig)
   const config = resolveConfig(loaded)
   setBuildSourcePath(config.projectPath, config.clientEntryFile)
-  // 插件级日志写到记录根，不绑定任何项目目录；租户运行时仍用各自项目日志。
   const logger = createHostLogger(config)
-  // 运行身份写入失败也必须落到项目日志，而不是只出现在宿主 console。
   writeRuntimeIdentity(import.meta.url, (message) => {
     logger.warn(message)
   })
-  // 先校验宿主服务再打开记录库：缺服务时直接失败，不留下未关闭的 SQLite 句柄。
   const tools = hostSurface(ctx).tools
   if (!tools) throw new Error('宿主缺少 tools 服务，无法注册 ForgeLoop 工具')
   const effect = hostSurface(ctx).effect
   if (typeof effect !== 'function') throw new Error('宿主缺少 effect 服务，无法启动协调器')
 
-  // 工作区服务可能与本插件在同一装载批次中异步注册：模式判定放到首次使用前完成，
   // 判定前不创建任何记录库或协调器；Web 宿主等服务缺失时失败关闭，不回退单项目。
   const createTenant = (runtimeConfig: ForgeLoopConfig) => {
     const runtime = new ForgeLoopRuntime({ ctx, config: runtimeConfig })
@@ -328,7 +294,6 @@ export function apply(
     logger.error(`[forgeloop] 宿主模式判定失败：${errorMessage(error)}`)
   })
 
-  /** 工具作用域：等待模式判定；单项目固定使用兼容运行时，工作区按会话解析。 */
   const definitions = buildScopedTools(async (exec) => {
     const mode = await modePromise
     if (mode.kind === 'single') return { ok: true, scope: { runtime: mode.runtime, config } }
@@ -367,14 +332,12 @@ export function apply(
         }
       })
       .catch(() => undefined)
-    // ForgeLoop 业务会话：注册 preset 并按会话所属工作区接管人类输入。
     const sessionSurface = installSessionSurface(ctx, { tenants: sessionTenants })
     void sessionSurface.ready.then((result) => {
       if (result.ok)
         logger.info('[forgeloop] 已注册业务会话 preset forgeloop', { event: 'session.preset' })
       else logger.warn(`[forgeloop] ${result.reason}`, { event: 'session.preset' })
     })
-    // Web 看板路由可选：无浏览器连接的 profile（headless）保持只有工具。
     registerBoardRoute(ctx, async () => {
       const mode = await modePromise
       return mode.kind === 'workspace'
@@ -391,7 +354,7 @@ export function apply(
         try {
           dispose()
         } catch {
-          // 单个工具注销失败不阻止其余清理。
+          continue
         }
       }
       const mode = await modePromise.catch(() => undefined)
