@@ -607,9 +607,7 @@ export class Repository extends DevSessionStore {
 
   admissionsFor(reqId: string): AdmissionRecord[] {
     const rows = this.db
-      .prepare(
-        'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at, admission_id',
-      )
+      .prepare('SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at, rowid')
       .all(reqId)
     return rows.map(admissionFromRow)
   }
@@ -619,14 +617,14 @@ export class Repository extends DevSessionStore {
       requirementVersion === undefined
         ? this.db.handle
             .prepare(
-              'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at DESC, admission_id DESC LIMIT 1',
+              'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
             )
             .all(reqId)
         : this.db.handle
             .prepare(
               `SELECT * FROM requirement_admissions
                 WHERE req_id = ? AND requirement_version = ?
-                ORDER BY created_at DESC, admission_id DESC LIMIT 1`,
+                ORDER BY created_at DESC, rowid DESC LIMIT 1`,
             )
             .all(reqId, requirementVersion)
     const row = rows[0]

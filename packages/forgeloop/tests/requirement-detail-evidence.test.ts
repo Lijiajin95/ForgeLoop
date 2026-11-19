@@ -193,6 +193,18 @@ describe('requirement detail admission and commit evidence', () => {
     })
   })
 
+  it('breaks equal admission timestamps by insertion order', () => {
+    const reqId = submitRequirement()
+    const stamp = '2026-10-31T05:00:00.000Z'
+    recordAdmission(reqId, false, 'first', '同秒第一次', stamp)
+    recordAdmission(reqId, true, 'second', '同秒第二次', stamp)
+
+    const view = detail(reqId)
+
+    expect(view.admission?.code).toBe('second')
+    expect(view.admission?.decision).toBe('admit')
+  })
+
   it('maps a block decision without turning it into an admission', () => {
     const reqId = submitRequirement()
     recordAdmission(reqId, true, 'admitted', '较早的准入', '2026-10-31T01:00:00.000Z')
