@@ -1,8 +1,3 @@
-/**
- * 产品 Agent 的项目文档读写边界：只允许项目内 Markdown，路径不得越界或进入依赖目录。
- * 这是“禁止修改代码”的确定性实现：产品 Agent 没有其他写入工具。
- */
-
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import {
   basename,
@@ -36,10 +31,6 @@ function markdown(path: string): boolean {
   return path.toLowerCase().endsWith('.md')
 }
 
-/**
- * 把词法路径解析成真实路径，并确认真实目标仍在项目内、是 Markdown 普通文件。
- * 已存在的目标按 realpath 检查；不存在时只跟随已存在的祖先，剩余段不可能再是链接。
- */
 function realTarget(root: string, target: string): DocTargetResult {
   let realRoot: string
   try {
@@ -89,7 +80,6 @@ function realTarget(root: string, target: string): DocTargetResult {
   return { ok: true, path: realPath, relative }
 }
 
-/** 解析并校验一个项目内 Markdown 路径；越界、绝对路径、非 Markdown、符号链接逃逸都拒绝。 */
 export function resolveProjectDoc(projectPath: string, input: string): DocTargetResult {
   const candidate = input.trim()
   if (!candidate) return { ok: false, reason: '文档路径不能为空' }
@@ -109,7 +99,6 @@ export function resolveProjectDoc(projectPath: string, input: string): DocTarget
   return realTarget(root, target)
 }
 
-/** 项目内 Markdown 文档是否真实存在（供需求依据核验使用）。 */
 export function projectDocExists(projectPath: string, input: string): boolean {
   const target = resolveProjectDoc(projectPath, input)
   if (!target.ok) return false

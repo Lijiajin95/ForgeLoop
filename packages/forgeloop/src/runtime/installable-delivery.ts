@@ -1,14 +1,3 @@
-/**
- * 可安装交付登记：把已经存在的权威记录拼成一次交付，写入安装说明并保存可用时间。
- *
- * 只在六项材料齐备且互相一致时登记；缺材料、摘要不一致或材料绑定旧需求版本时
- * 返回明确失败，不写“看起来成功”的记录。同一候选与同一包摘要重复调用不新增记录，
- * 因此部署核对、宿主重启与重复轮询都不会重复登记。
- *
- * 顺序遵循“证据先封存，再登记引用”：先写安装说明，再按材料判定并写记录；
- * 判定失败时文件留在证据目录，不产生交付记录。
- */
-
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
@@ -70,10 +59,6 @@ interface TrialEvidence {
   readonly candidateSha256: string
 }
 
-/**
- * 取该需求最新一次已核对通过的试装。这里不按包摘要过滤：
- * 摘要不一致要作为“交付不成立”的事实报告出来，而不是伪装成“缺少试装记录”。
- */
 function trialEvidenceOf(
   deps: InstallableDeliveryDeps,
   reqId: string,
@@ -168,7 +153,6 @@ function writeInstructions(input: {
   }
 }
 
-/** 部署核对后的登记入口：记录层异常转成明确失败，不让登记问题回滚已完成的核对。 */
 export function safeInstallableDelivery(
   deps: InstallableDeliveryDeps,
   reqId: string,
@@ -180,10 +164,6 @@ export function safeInstallableDelivery(
   }
 }
 
-/**
- * 登记一份可安装交付。调用方是部署核对完成后的确定性运行时入口；
- * 人类或模型都无法用参数绕过材料检查。
- */
 export function recordInstallableDelivery(
   deps: InstallableDeliveryDeps,
   reqId: string,
@@ -254,7 +234,6 @@ export function recordInstallableDelivery(
     businessReview: reviewOf(review),
     trial,
   })
-  // 走到这里六项材料都已具备，判定只剩“成立”或“不一致”；不一致必须阻断登记。
   if (verdict.status !== 'delivered') {
     return fail(
       'delivery_mismatch',

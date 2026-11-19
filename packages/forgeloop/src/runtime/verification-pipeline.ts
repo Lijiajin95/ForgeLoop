@@ -72,7 +72,6 @@ export interface VerificationPipelineDeps {
   }) => Array<{ taskId: string; attempt: number; archivedPath: string }>
   verificationBaseline: (analysis: RequirementAnalysis) => PlanReview
   remainingFailureRounds: (reqId: string) => number
-  /** 黑盒验证路径（ADR 0012 A）：与连续推进共用同一受限测试会话。 */
   openBlackBoxSession: (input: {
     reqId: string
     requirement: Requirement
@@ -92,13 +91,10 @@ export interface VerificationPipelineDeps {
 }
 
 export class VerificationPipeline {
-  /** 同一候选最多追加的验证尝试数；防止以“重跑直到通过”替代修复。 */
-  /** 同一候选的复验次数：测试材料类失败只有在同候选上多试几次才可能收敛。 */
   static readonly MAX_SAME_CANDIDATE_ATTEMPTS = 5
 
   constructor(private readonly deps: VerificationPipelineDeps) {}
 
-  /** 当前候选的下一次尝试身份与独立证据目录；目录不覆盖旧尝试。 */
   private attemptOf(
     reqId: string,
     plan: TaskPlan,
@@ -190,11 +186,6 @@ export class VerificationPipeline {
     return reportPath
   }
 
-  /**
-   * 独立测试：把已交付任务的全部 diff 应用成固定候选，交给测试 Agent 在独立目录
-   * 编写验证测试并产出命令清单与逐场景报告；程序随后实际执行命令并只看退出码、
-   * 日志与必过场景覆盖，模型自述不构成通过。
-   */
   private existingVerificationOutcome(
     reqId: string,
     plan: TaskPlan,
@@ -216,8 +207,6 @@ export class VerificationPipeline {
         detail: `候选 ${candidateSha256.slice(0, 16)}… 已通过独立测试；等待验收`,
       }
     }
-    // 非实现缺陷（用例、环境、证据、争议或原因未明）允许有界复验同一候选；
-    // 每次复验仍追加新尝试、保留旧证据，并继续计入失败轮次。
     const retryableKinds = ['environment_error', 'test_error', 'insufficient_evidence']
     const retryable =
       retryableKinds.includes(latest.failureKind) &&
@@ -540,7 +529,6 @@ export class VerificationPipeline {
     }
   }
 
-  /** 覆盖、敏感性对照与证据合并后的结论；分类只在阻断时产生。 */
   private verificationConclusion(input: {
     planReview: PlanReview
     report: VerificationReport
@@ -657,7 +645,6 @@ export class VerificationPipeline {
     }
   }
 
-  /** 阻断总是保留；只有实现缺陷且仍有额度时才交回研发，其他分类只给处置依据。 */
   private blockedVerificationOutcome(input: {
     reqId: string
     plan: TaskPlan
@@ -762,8 +749,6 @@ export class VerificationPipeline {
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
       transcriptPath: join(dir, 'verify.jsonl'),
       signal,
-      // 黑盒边界（ADR 0012）：测试会话只能写 verification/ 材料，不能读源码或执行任意命令；
-      // 声明的命令由程序在固定候选上真实执行并核对输出。
       allowTools: [VERIFICATION_MATERIAL_TOOL],
     })
     this.deps.charge(reqId, started)
@@ -876,7 +861,6 @@ export class VerificationPipeline {
     })
     if (!ran.ok) return { state: 'failed', detail: ran.detail }
     const { commandRuns, failedCommands } = ran
-    // 必过用例的敏感性对照：在候选隔离副本上应用受控错误补丁并重跑同一命令。
     const controlOutcome = await executeVerificationControls({
       workspace,
       dir,
@@ -903,8 +887,6 @@ export class VerificationPipeline {
         }
       },
     })
-    // 测试命令本身也可能改坏候选：执行后重新核对 HEAD 与受保护内容。
-    // 合法材料只有 verification/；Git 忽略的构建输出不属于候选。
     const integrity = verificationIntegrity(workspace, workspaceHead)
     if (!integrity.ok) return { state: 'failed', detail: integrity.detail }
     const { integrityIssues, afterHead, afterChanges, candidateContentSha256 } = integrity
@@ -935,16 +917,6 @@ export class VerificationPipeline {
     })
   }
 
-  /**
-   * 黑盒验证路径（ADR 0012 选项 A）：与连续推进共用同一执行模型。
-   *
-   * 测试会话只有“按方案执行验证命令”和“写 verification/ 材料”两个工具，宿主无法收紧工具时
-   * fail-closed；命令由 `VerificationCheckRegistry` 真实执行，判定、敏感性对照与业务复审都在
-   * legacy 路径内完成。这里只把已交付候选整理成“固定候选工作区 + 候选身份”，再翻译结果。
-   *
-   * 候选已经烘焙进 `snapshotCommit`，所以交给 legacy 的补丁是空补丁：它创建隔离 worktree 时
-   * 直接检出候选，不会二次应用。
-   */
   async executeVerificationBlackBox(
     reqId: string,
     signal: AbortSignal,
@@ -1015,7 +987,6 @@ export class VerificationPipeline {
         verification: opened.value,
       })
       if (result.state === 'pass') return { state: 'done', detail: result.detail }
-      // 有修复建议的阻断交回研发；其余按失败收口。
       return result.repairRecommended === true
         ? { state: 'repair', detail: result.detail }
         : { state: 'failed', detail: result.detail }
@@ -1024,7 +995,6 @@ export class VerificationPipeline {
     }
   }
 
-  /** 业务终审报告文件与摘要是否仍一致。 */
   private businessReviewMaterialValid(record: {
     reportPath: string
     reportSha256: string
@@ -1035,10 +1005,6 @@ export class VerificationPipeline {
     )
   }
 
-  /**
-   * 业务终审：测试 Agent 在新会话里按原始需求复核业务场景与验收标准。
-   * 证据必须来自独立测试实际执行的命令输出，不能只复述测试报告。
-   */
   private businessReviewInputs(reqId: string):
     | {
         ok: true
@@ -1137,7 +1103,6 @@ export class VerificationPipeline {
     if (!factsResult.ok) return { state: 'failed', detail: factsResult.detail }
     const facts = factsResult.facts
 
-    // 终审报告跟随本次验证尝试目录，复验不会覆盖旧结论。
     const dir = join(verification.evidenceDir, 'business-review')
     mkdirSync(dir, { recursive: true })
     const started = Date.now()

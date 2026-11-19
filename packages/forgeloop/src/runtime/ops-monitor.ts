@@ -1,12 +1,3 @@
-/**
- * 定时主动监控：采集快照 → 运维 Agent 评审 → 新问题建事件 / 旧问题归并 → 外部告警。
- *
- * 模型只有两个只读工具（制品状态与登记日志），不能执行命令或改文件；
- * 能否自动处置仍由目录授权在 `authorizeOpsAction` 中判定。
- * 监控事件与检查失败事件共用同一套事件、诊断、处置与恢复记录；区别只在于事实来源
- * 是快照而不是检查退出码。
- */
-
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -60,7 +51,6 @@ export interface OpsMonitorSummary {
   readonly status: string
   readonly summary: string
   readonly issues: number
-  /** 产生最近一份快照的提供方；当前只有自研采集器。 */
   readonly providers: readonly string[]
   readonly host: {
     readonly cpuPercent: number
@@ -74,7 +64,6 @@ export interface OpsMonitorSummary {
     readonly alerts: number
     readonly checks: number
   }
-  /** 外部心跳：是否配置、最近一次上报时间与结果，以及是否已过期。 */
   readonly heartbeat: {
     readonly configured: boolean
     readonly at: string
@@ -82,12 +71,10 @@ export interface OpsMonitorSummary {
     readonly ageSeconds: number | null
     readonly stale: boolean
   }
-  /** 本轮采集是否完整；缺来源时不为“健康”背书。 */
   readonly collection: {
     readonly complete: boolean
     readonly errors: readonly string[]
   }
-  /** 最近一次扫描的新鲜度；过期后不再显示旧的健康状态。 */
   readonly freshness: {
     readonly ageSeconds: number | null
     readonly stale: boolean
@@ -137,7 +124,6 @@ function metaText(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** 距给定 ISO 时间过去的秒数；时间为空或不可解析时返回 null，不拿 0 冒充新鲜。 */
 function ageSecondsOf(iso: string, now: Date): number | null {
   const parsed = Date.parse(iso)
   if (!iso || !Number.isFinite(parsed)) return null
@@ -162,10 +148,6 @@ export function monitorDir(config: ForgeLoopConfig): string {
   return join(projectDir(config), 'ops', 'monitor')
 }
 
-/**
- * 监控运行时。每次扫描独立取证；报告畸形、模型失败与来源失败都只记录，
- * 不把“没有看到问题”当成健康，也不创建空事件。
- */
 export class OpsMonitor {
   private readonly config: ForgeLoopConfig
   private readonly repo: Repository
@@ -261,10 +243,6 @@ export class OpsMonitor {
     }
   }
 
-  /**
-   * 摘要状态：采集不完整不能显示成健康；旧结论超过新鲜度窗口不再当作当前健康。
-   * 扫描内部错误（error）保持最高优先级，不会被过期覆盖。
-   */
   private deriveStatus(input: {
     status: string
     error: string
@@ -286,12 +264,10 @@ export class OpsMonitor {
     return { status, error }
   }
 
-  /** 扫描结果超过两个周期仍未更新即视为过期；最短 60 秒，避免小周期抖动。 */
   private staleAfterSeconds(): number {
     return Math.max(this.config.ops.monitor.intervalSeconds * 2, 60)
   }
 
-  /** 心跳状态独立于扫描摘要：扫描失败时它仍然记录最近一次上报。 */
   private heartbeatStatus(): {
     at: string
     ok: boolean
@@ -311,10 +287,6 @@ export class OpsMonitor {
     }
   }
 
-  /**
-   * 跑一轮监控。扫描间隔由调用方按 `ops_monitor_at` 判定；这里在每个结果上都写时间戳，
-   * 避免模型失败时每 5 秒重试一次。心跳在扫描之后单独上报，失败只记录，不改变扫描结论。
-   */
   async scan(signal?: AbortSignal): Promise<MonitorScanOutcome> {
     if (!this.config.ops.monitor.enabled) return { ...EMPTY_OUTCOME }
     if (signal?.aborted) return { ...EMPTY_OUTCOME, errors: ['主动监控已取消'] }
@@ -336,10 +308,6 @@ export class OpsMonitor {
     }
   }
 
-  /**
-   * 上报一次外部心跳。宿主已中止时不上报：把主动停机谎报成“仍然存活”比不报更糟。
-   * 地址为空表示关闭，不做任何记录。
-   */
   private async beat(at: Date, outcome: MonitorScanOutcome, signal?: AbortSignal): Promise<string> {
     const heartbeat = this.config.ops.monitor.heartbeat
     if (!heartbeat.url || signal?.aborted) return ''
@@ -465,7 +433,6 @@ export class OpsMonitor {
           alerts: snapshot.alerts.length,
           checks: snapshot.checks.length,
         },
-        // 采集失败不吞掉：模型结论与采集完整性分别保存，供摘要判断是否为“健康”背书。
         collection: { errors: snapshot.errors },
       }),
     )

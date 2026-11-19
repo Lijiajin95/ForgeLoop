@@ -1,7 +1,3 @@
-/**
- * 需求修订后的分析失效登记：旧分析保留可回查，但不能再作为当前版本依据。
- */
-
 import type { RequirementAnalysis } from '../domain/requirement.js'
 import type { Repository } from '../records/repository.js'
 

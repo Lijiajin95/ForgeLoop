@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { bestEffortValue } from './best-effort.js'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { evidenceDir, sessionsDir } from '../config.js'
@@ -37,19 +38,10 @@ import {
   type SelfVerificationReport,
 } from '../domain/self-verification.js'
 
-/**
- * 研发回合结束后是否按“没有改动”重试。每个任务都必须产生实际改动；
- * git 查询失败本身也算失败，不能拿空结果当真。
- */
 function needsNoChangeRetry(status: { code: number; stdout: string }): boolean {
   return status.code !== 0 || status.stdout.trim() === ''
 }
 
-/**
- * 研发回合上限（秒）：`lower` 是任务工时与 agent 回合上限的较大者，`cap` 是长任务硬上限。
- * 两者都可能是 -1（不限）：只有 `lower` 不限时才退化到 `cap`，都无限制时返回 -1，
- * 调用方据此不建定时器；0 不是合法的“不限”取值，不能让它变成立即超时。
- */
 export function turnTimeoutSeconds(lower: number, cap: number): number {
   if (lower <= 0) return cap > 0 ? cap : -1
   return cap > 0 ? Math.min(lower, cap) : lower
@@ -81,10 +73,6 @@ export interface ExecutionDevDeps {
 export class ExecutionDev {
   constructor(private readonly deps: ExecutionDevDeps) {}
 
-  /**
-   * 按当前项目基线准备研发会话的固定工作区；路径随会话保留，内容整体刷新。
-   * 旧文件全部丢弃，避免把上一个需求的工作副本当成新需求的基线。
-   */
   prepareDevWorkspace(workspace: string): {
     workspace: string
     baselineCommit: string
@@ -100,7 +88,6 @@ export class ExecutionDev {
     return { workspace, baselineCommit, snapshotCommit }
   }
 
-  /** 复用会话前核对现场：路径存在、Git 工作副本干净，才能安全刷新到新基线。 */
   workspaceStatus(workspace: string): { exists: boolean; clean: boolean; head: string } {
     if (!existsSync(join(workspace, '.git'))) return { exists: false, clean: false, head: '' }
     const status = git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
@@ -111,7 +98,6 @@ export class ExecutionDev {
     }
   }
 
-  /** 重启后把已交付任务的增量 diff 依次恢复到同一个研发工作区。 */
   restoreDeliveredArtifacts(
     reqId: string,
     plan: TaskPlan,
@@ -148,10 +134,6 @@ export class ExecutionDev {
     return { ok: true }
   }
 
-  /**
-   * 在研发会话第一回合完成技术方案与任务拆解：不再单独起规划角色，
-   * 规划结果仍由程序校验并落库；技术方案是工作记录，不是批准门禁。
-   */
   async planInDevSession(input: {
     reqId: string
     requirement: Requirement
@@ -260,7 +242,6 @@ export class ExecutionDev {
       `${JSON.stringify(record, null, 2)}\n`,
       'utf8',
     )
-    // 兼容旧读取路径：保留当前任务目录的日志副本；逐次历史以 attempts/ 为准。
     writeFileSync(join(input.taskDir, 'formal-test.log'), readFileSync(input.test.logPath))
   }
 
@@ -286,7 +267,6 @@ export class ExecutionDev {
     writeFileSync(join(input.taskDir, 'candidate.diff'), readFileSync(input.capture.diffPath))
   }
 
-  /** 保存本次尝试的自测试报告，并判断是否足以继续或需要回交澄清。 */
   private persistSelfVerification(input: {
     text: string
     attemptDir: string
@@ -354,7 +334,6 @@ export class ExecutionDev {
     return { ...(parsed === null ? {} : { selfVerification: parsed }) }
   }
 
-  /** 在同一个研发会话与工作区里完成一个任务；自验失败留在现场继续修，不重建副本。 */
   private recordDeliveredTask(input: {
     reqId: string
     plan: TaskPlan
@@ -415,10 +394,6 @@ export class ExecutionDev {
     return '\n\n上一次研发没有产生任何文件改动。请真正实现任务目标。'
   }
 
-  /**
-   * 任务包的 limit_seconds 是任务的工时预算，回合上限不能比它更短；
-   * 同时受 agent.maxTurnSeconds 硬上限约束。三者都为 -1（默认）时不设回合超时。
-   */
   private devTurnTimeoutMs(task: PlannedTask): number {
     const floor = this.deps.config.agent.timeoutSeconds
     const cap = this.deps.config.agent.maxTurnSeconds ?? -1
@@ -426,10 +401,6 @@ export class ExecutionDev {
     return turnTimeoutSeconds(Math.max(planned, floor), cap) * 1000
   }
 
-  /**
-   * 中断时先把尚未交付的改动落成检查点：工作副本会在下一次执行时重建，
-   * 不保存 diff 的话，几十分钟的修改会直接丢失。
-   */
   private saveCheckpoint(input: {
     reqId: string
     plan: TaskPlan
@@ -471,7 +442,6 @@ export class ExecutionDev {
       )
       return capture.diffPath
     } catch {
-      // 检查点是尽力保存；采集失败不能覆盖原始中断原因。
       return ''
     }
   }
@@ -521,7 +491,6 @@ export class ExecutionDev {
     return { state: 'blocked', reason }
   }
 
-  // 该方法是任务级编排入口，分支和语句较多；具体证据写入已拆到独立方法。
   // eslint-disable-next-line complexity, max-statements
   async developTaskInSession(input: {
     reqId: string
@@ -558,12 +527,10 @@ export class ExecutionDev {
       }
       const attemptDir = join(taskDir, 'attempts', `a${attempt}-${Date.now()}`)
       mkdirSync(attemptDir, { recursive: true })
-      let headBefore = ''
-      try {
-        headBefore = requireGit(input.workspace, ['rev-parse', 'HEAD']).trim()
-      } catch {
-        // 证据采集失败不阻断研发回合；缺少代码身份会在 attempt.json 中如实为空。
-      }
+      const headBefore = bestEffortValue(
+        () => requireGit(input.workspace, ['rev-parse', 'HEAD']).trim(),
+        '',
+      )
       this.deps.recordRun(input.reqId, input.plan, input.task, {
         state: TASK_RUN_RUNNING,
         reason: '研发 Agent 工作中',
@@ -610,8 +577,6 @@ export class ExecutionDev {
         feedback = `\n\n上一次研发回合未完成：${result.reason}。请继续完成同一个任务。`
         continue
       }
-      // 澄清是零改动的合法交接：先读结构化报告，不能因为“没有文件变化”把问题
-      // 当成研发失败反复重试。
       const earlySelf = this.persistSelfVerification({
         text: result.text,
         attemptDir,
@@ -629,8 +594,6 @@ export class ExecutionDev {
         return earlySelf.blocked
       }
       const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
-      // 只读任务本来就不改文件：空改动不是失败信号，直接进入正式测试；
-      // 否则在 maxTaskAttempts = -1 下这种任务会永远重试，把模型调用堆到任意大。
       if (needsNoChangeRetry(status)) {
         feedback = this.taskNoChangeFeedback(input)
         continue
@@ -643,12 +606,10 @@ export class ExecutionDev {
         logPath: join(attemptDir, 'formal-test.log'),
         signal: input.signal,
       })
-      let headAfter = ''
-      try {
-        headAfter = requireGit(input.workspace, ['rev-parse', 'HEAD']).trim()
-      } catch {
-        // 同上：非 Git 现场的测试替身不阻断自验，身份字段保持为空。
-      }
+      const headAfter = bestEffortValue(
+        () => requireGit(input.workspace, ['rev-parse', 'HEAD']).trim(),
+        '',
+      )
       this.recordAttemptEvidence({
         attemptDir,
         taskDir,
@@ -739,10 +700,4 @@ export class ExecutionDev {
     })
     return { state: 'blocked', reason }
   }
-
-  /** 把研发工作区当前 HEAD 固定为需求级候选；旧候选与报告保留。 */
-  /**
-   * 隔离故障注入：只在显式设置 FORGELOOP_FAULT_INJECT 的测试宿主生效，
-   * 对每个需求/方案只注入一次，并把注入事实写入候选证据目录。生产不设置该变量。
-   */
 }

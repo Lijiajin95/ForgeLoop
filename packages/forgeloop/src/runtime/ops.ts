@@ -1,21 +1,6 @@
-/**
- * 运维 Agent 运行时：把已登记的检查、诊断、受控处置与恢复复核接成一条可审计闭环。
- *
- * 分工：
- * - 运维 Agent（模型）只读诊断，输出影响、事实、推断与一个已登记动作建议；
- *   只有两个只读工具（制品状态与登记日志），不能执行命令、读任意路径或修改文件。
- * - 主控（本模块）执行检查与动作、校验参数、判定恢复、落库与取证；模型不能直接执行命令。
- * - 目录在装载期登记；动作只能来自目录，参数只能取允许值，恢复只认检查退出码。
- *
- * 安全与恢复：
- * - 动作先登记意图（running）再执行；宿主中断后标记为 `interrupted`，事件按未解决收口。
- * - 没有结果记录时不由状态猜测：运维 Agent 基于已记录事实分析根因并上报，不自动重放。
- * - 每个事件首版只执行一次处置动作；失败后不循环重试，等待人工决定或修复需求。
- * - 正常巡检通过不产生事件，也不进入人工介入统计的分母。
- */
-
 import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
+import { bestEffort, bestEffortValue } from './best-effort.js'
 import { randomUUID } from 'node:crypto'
 import { errorMessage } from '../domain/errors.js'
 import { spawn } from 'node:child_process'
@@ -72,7 +57,6 @@ export interface OpsRuntimeOptions {
   readonly repo: Repository
   readonly runner: OpsRunner
   readonly now: () => Date
-  /** 运维诊断只提议 target id；部署执行由主控完成，模型没有执行入口。 */
   readonly deploymentService?: {
     request(input: {
       targetId: string
@@ -106,14 +90,12 @@ export interface OpsCommandResult {
   readonly stderr: string
 }
 
-/** 自动诊断的格式重试上限：连续失败等于无法自动判断，转人工。 */
 const MAX_DIAGNOSIS_ATTEMPTS = 3
 const MAX_OUTPUT_BYTES = 256 * 1024
 const TRUNCATED_MARK = '\n…（输出已截断）'
 
 function appendOutput(current: string, chunk: Buffer): string {
   if (current.length >= MAX_OUTPUT_BYTES) {
-    // 恰好填满上限时也要留下截断标记，避免证据看起来完整。
     return current.endsWith(TRUNCATED_MARK)
       ? current
       : `${current.slice(0, MAX_OUTPUT_BYTES)}${TRUNCATED_MARK}`
@@ -123,10 +105,6 @@ function appendOutput(current: string, chunk: Buffer): string {
   return `${next.slice(0, MAX_OUTPUT_BYTES)}${TRUNCATED_MARK}`
 }
 
-/**
- * 执行登记过的 argv。不用 Shell，不展开变量；超时或宿主停止都返回可判定的结果，
- * 由调用方按“失败/中断”收口，而不是当作可重试的成功或未知状态。
- */
 export function runOpsCommand(
   argv: readonly string[],
   cwd: string,
@@ -271,12 +249,8 @@ function logOf(argv: readonly string[], result: OpsCommandResult): string {
 
 function observationOutput(observation: OpsObservationRecord | undefined): string {
   if (!observation) return '（没有检查输出）'
-  try {
-    const data = parseJsonObject(observation.detailJson)
-    if (typeof data.output === 'string' && data.output.trim()) return data.output
-  } catch {
-    // 旧记录或损坏字段回退到摘要。
-  }
+  const data = bestEffortValue(() => parseJsonObject(observation.detailJson), {})
+  if (typeof data.output === 'string' && data.output.trim()) return data.output
   return observation.summary
 }
 
@@ -475,8 +449,6 @@ export class OpsRuntime {
       })
   }
 
-  // ------------------------------------------------------------ 周期巡检
-
   private checkDue(check: OpsCheck): boolean {
     const raw = this.repo.getMeta(`ops_check_at:${check.id}`)
     if (!raw) return true
@@ -485,10 +457,6 @@ export class OpsRuntime {
     return this.now().getTime() - last >= this.config.ops.intervalSeconds * 1000
   }
 
-  /**
-   * 一次巡检：到期检查 → 主动监控 → 失败归并/建事件 → 诊断 → 授权内处置 → 恢复复核 → 修复需求。
-   * 单个检查或事件失败不会中断其他事件；错误只在返回值和日志中出现，不伪造成功。
-   */
   async tick(signal?: AbortSignal): Promise<OpsTickResult> {
     if (!this.enabled) return { ...EMPTY_TICK, skipped: true }
     if (this.ticking) return { ...EMPTY_TICK, errors: ['上一轮巡检尚未结束，本次跳过'] }
@@ -577,7 +545,6 @@ export class OpsRuntime {
     return this.now().getTime() - last >= this.config.ops.monitor.intervalSeconds * 1000
   }
 
-  /** 主动监控到点才采集与评审；扫描失败不产生事件，也不伪装成健康。 */
   private async runMonitor(state: TickState, signal?: AbortSignal): Promise<void> {
     if (!this.monitorDue()) return
     try {
@@ -595,7 +562,6 @@ export class OpsRuntime {
   }
 
   private async advanceEvents(state: TickState, signal?: AbortSignal): Promise<void> {
-    // 事件在一个 Tick 内最多推进三轮：诊断 → 处置 → 复核。
     // 同一事件在一次 Tick 内只尝试一次诊断，避免模型失败时立刻重试三次。
     const diagnosedThisTick = new Set<string>()
     for (let pass = 0; pass < 3; pass += 1) {
@@ -678,15 +644,6 @@ export class OpsRuntime {
     }
   }
 
-  /**
-   * 运维提议部署：只接受已登记 target；资源匹配以 target.params.resource 为准（未声明则不限制）。
-   * 是否自动执行由 target.approval 决定，执行走 DeploymentService 的门禁与证据；
-   * 这里只记录一条观测，不把模型输出当成授权。
-   */
-  /**
-   * 永久修复部署核对通过后，回到原事件执行原检查并留观测。
-   * 通过则关闭事件；失败则转 unresolved，等待人工判断，不重复生成修复需求。
-   */
   async recheckFix(eventId: string, intentId: string): Promise<void> {
     const event = this.repo.opsEvent(eventId)
     if (!event || !event.fixRequirementId) return
@@ -735,7 +692,6 @@ export class OpsRuntime {
       }),
     })
     this.repo.setMeta(`ops_check_at:${check.id}`, this.isoNow())
-    // closed 与 closed_at 必须同一次写入；失败时保持未关闭且不写关单时间。
     const checkedAt = this.isoNow()
     this.repo.updateOpsEvent(eventId, {
       state: passed ? OPS_CLOSED : OPS_UNRESOLVED,
@@ -780,7 +736,6 @@ export class OpsRuntime {
       reject('运行环境没有接入部署协调器')
       return
     }
-    // 事件已关联修复需求时优先部署修复需求；否则回退目标默认需求。
     const requirementId =
       this.repo.opsEvent(event.eventId)?.fixRequirementId || target.requirementId
     if (!requirementId) {
@@ -1027,8 +982,6 @@ export class OpsRuntime {
     return { event, created }
   }
 
-  // ------------------------------------------------------------ 诊断
-
   private async diagnoseEvent(event: OpsEventRecord, signal?: AbortSignal): Promise<boolean> {
     const now = this.isoNow()
     const observations = this.repo.opsObservations(event.eventId)
@@ -1171,8 +1124,6 @@ export class OpsRuntime {
     return true
   }
 
-  // ------------------------------------------------------------ 处置与复核
-
   private async executeEvent(
     event: OpsEventRecord,
     signal?: AbortSignal,
@@ -1181,7 +1132,6 @@ export class OpsRuntime {
     if (!resolved) return 'not_started'
     const { diagnosis, proposed, action } = resolved
     if (this.repo.opsActionAttempts(event.eventId).length > 0) {
-      // 首版每个事件只执行一次处置动作；失败或中断都不自动重放。
       return 'not_started'
     }
     const authorizationSource = this.authorizationFor(event, action, diagnosis)
@@ -1213,7 +1163,6 @@ export class OpsRuntime {
     writeFileSync(evidencePath, logOf(argv, result), 'utf8')
 
     if (result.aborted || result.timedOut) {
-      // 中止或超时是确定事实：动作没有成功收口、没有退出码。
       // 不把它改写成“未知”状态，也不自动重放。
       this.repo.finishOpsActionAttempt(attemptId, {
         state: OPS_ATTEMPT_FAILED,
@@ -1235,7 +1184,6 @@ export class OpsRuntime {
       const latest = this.repo.opsEvent(event.eventId)
       if (latest) this.ensureFixIfNeeded(latest, diagnosis)
       if (result.timedOut) {
-        // 超时后仍可用登记的恢复检查判定实际服务状态；检查通过即视为已恢复。
         return this.verifyAfterAction(event.eventId, action, diagnosis, attemptIndex)
       }
       return 'unresolved'
@@ -1279,7 +1227,6 @@ export class OpsRuntime {
     return this.verifyAfterAction(event.eventId, action, diagnosis, attemptIndex)
   }
 
-  /** 处置后必须由登记的恢复检查复核；动作退出码 0 本身不算恢复。 */
   private async verifyAfterAction(
     eventId: string,
     action: OpsAction,
@@ -1336,7 +1283,6 @@ export class OpsRuntime {
     return passed ? 'recovered' : 'unresolved'
   }
 
-  /** 宿主中断后恢复：已有动作记录的事件不再执行，只按记录收口；无记录时等待人工决定。 */
   private async verifyEvent(
     event: OpsEventRecord,
   ): Promise<'recovered' | 'unresolved' | 'not_started'> {
@@ -1356,7 +1302,6 @@ export class OpsRuntime {
     }
     if (attempt.state === OPS_ATTEMPT_RUNNING) return 'not_started'
     if (attempt.state === OPS_ATTEMPT_INTERRUPTED) {
-      // 事实：动作已开始但没有结果记录；事件按未解决收口，根因由运维 Agent 上报。
       this.repo.updateOpsEvent(event.eventId, { state: OPS_UNRESOLVED, updatedAt: this.isoNow() })
       return 'unresolved'
     }
@@ -1379,11 +1324,6 @@ export class OpsRuntime {
     )
   }
 
-  /**
-   * 中断的动作没有结果记录：先把确定性事实写入观测，再由运维 Agent 分析根因并上报。
-   * 报告只用于人工判断，不改变“每个事件只执行一次动作”的规则，也不自动重放。
-   * 每次中断只尝试一次模型报告；失败时保留事实并记录错误，不反复调用模型。
-   */
   private async reportInterruption(event: OpsEventRecord): Promise<void> {
     const observations = this.repo.opsObservations(event.eventId)
     if (interruptionReported(observations)) return
@@ -1494,12 +1434,6 @@ export class OpsRuntime {
     this.repo.updateOpsEvent(event.eventId, { updatedAt: this.isoNow() })
   }
 
-  // ------------------------------------------------------------ 修复需求
-
-  /**
-   * 同一资源+检查、仍有在办修复需求且未关闭的最近事件；用来吸收重复事件。
-   * 签名里带失败输出的摘要，服务每次崩溃的摘要可能不同，因此按资源+检查匹配。
-   */
   private reusableFix(event: OpsEventRecord): string {
     const prior = this.repo
       .listOpsEvents(this.config.project, 200)
@@ -1520,13 +1454,8 @@ export class OpsRuntime {
     this.ensureFixRequirement(event, diagnosis)
   }
 
-  /**
-   * 为事件生成一次关联修复需求：走正常需求流程，不自动批准、不跳过分析。
-   * 客户端幂等键绑定事件；同一事件不会生成第二条需求。
-   */
   private ensureFixRequirement(event: OpsEventRecord, diagnosis: OpsDiagnosis): string {
     if (event.fixRequirementId) return event.fixRequirementId
-    // 同一失败签名的在办修复需求优先复用：服务反复崩溃时不为每个事件新建需求。
     const reused = this.reusableFix(event)
     if (reused) {
       this.repo.linkOpsFixRequirement(event.eventId, reused, this.isoNow())
@@ -1574,7 +1503,7 @@ export class OpsRuntime {
       now,
     })
     if (created) {
-      try {
+      bestEffort(() => {
         this.repo.recordRequest({
           requestId: `rq-${randomUUID()}`,
           reqId: requirement.reqId,
@@ -1585,15 +1514,12 @@ export class OpsRuntime {
           source: `ops:${event.eventId}`,
           now,
         })
-      } catch {
-        // 已有同需求请求时复用，不制造第二套队列状态。
-      }
+      })
     }
     this.repo.linkOpsFixRequirement(event.eventId, requirement.reqId, now)
     return requirement.reqId
   }
 
-  /** 最近一次失败检查的输出；给修复需求提供可直接定位的报错原文。 */
   private lastCheckOutput(eventId: string): string {
     const check = [...this.repo.opsObservations(eventId)]
       .reverse()
@@ -1601,8 +1527,6 @@ export class OpsRuntime {
     const detail = observationOutput(check).trim()
     return (detail || '未记录').slice(0, 400)
   }
-
-  // ------------------------------------------------------------ 所有者决定
 
   decide(input: {
     eventId: string
@@ -1719,8 +1643,6 @@ export class OpsRuntime {
     return ok(`已为事件 ${event.eventId} 生成修复需求 ${reqId}`, { reqId })
   }
 
-  // ------------------------------------------------------------ 查询
-
   list(): OpsEventView[] {
     return this.repo.listOpsEvents(this.config.project).map((event) => {
       const resource = this.resource(event.resourceId)
@@ -1798,7 +1720,6 @@ export class OpsRuntime {
   }
 }
 
-/** 供服务层生成 evidence 目录名；与事件现场保持一致。 */
 export function opsEvidenceRoot(config: ForgeLoopConfig): string {
   return join(projectDir(config), 'ops')
 }

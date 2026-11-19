@@ -27,7 +27,6 @@ function quoteForCmd(part: string): string {
   return `"${part.replaceAll('"', '""')}"`
 }
 
-/** 按「目标平台」的 PATH 规则找第一个存在的候选（分隔符与拼接都不用宿主机的）。 */
 function pathCandidates(input: {
   readonly command: string
   readonly extensions: readonly string[]
@@ -45,7 +44,6 @@ function pathCandidates(input: {
   return candidates
 }
 
-/** 把 `.cmd/.bat` 命令包成 `cmd.exe /d /s /c "<file>" "arg"…`。 */
 function wrapWithCommandShell(
   file: string,
   args: readonly string[],
@@ -56,11 +54,6 @@ function wrapWithCommandShell(
   return [shell, '/d', '/s', '/c', commandLine]
 }
 
-/**
- * 返回真正可以交给 `spawn` 的 argv。
- * Windows 下：`.exe` 解析成绝对路径；`.cmd/.bat` 包到 cmd.exe；解析不到时保留原样，
- * 让调用方看到原始失败原因，而不是悄悄换命令。
- */
 export function prepareCommandArgv(argv: readonly string[], options: LaunchOptions = {}): string[] {
   const platform = options.platform ?? process.platform
   const env = options.env ?? process.env

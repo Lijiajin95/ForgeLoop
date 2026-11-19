@@ -1,12 +1,5 @@
-/**
- * 监控心跳：每轮扫描后向登记的外部地址上报一次“仍然活着”。
- *
- * 自研采集器只能证明“我还能采集”，证明不了“ForgeLoop 整个停了”。心跳把存活判断
- * 交给外部死信服务（例如 Healthchecks）：约定时间内没有收到上报就由外部告警。
- * 因此这里只做一次尽力上报，不重试、不阻塞扫描，也不把失败当成监控结果。
- */
-
 import { errorMessage } from '../domain/errors.js'
+import { bestEffortAsync } from './best-effort.js'
 
 const MAX_HEARTBEAT_ERROR = 300
 
@@ -41,12 +34,9 @@ function originOf(url: string): string {
 }
 
 async function cancelBody(response: Response): Promise<void> {
-  if (!response.body) return
-  try {
-    await response.body.cancel()
-  } catch {
-    // 心跳只看状态码，不读响应体。
-  }
+  const body = response.body
+  if (!body) return
+  await bestEffortAsync(() => body.cancel())
 }
 
 /**

@@ -1,10 +1,3 @@
-/**
- * 部署工具调用：唯一有部署副作用的入口。
- *
- * ForgeLoop 只按固定协议调用登记脚本（python3 / sh），写入 plan 文件、限制环境与超时、
- * 截断输出、记录脚本摘要；不拼部署命令、不解释工具输出为指令。
- */
-
 import { spawn } from 'node:child_process'
 import { readFileSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -14,7 +7,6 @@ import type { DeploymentToolConfig } from '../config.js'
 import { sha256OfBytes } from '../domain/delivery.js'
 import type { DeploymentStore } from '../records/deployment-store.js'
 
-/** 单次调用最多保留的 stdout/stderr 字节数；超出部分丢弃并标记。 */
 const MAX_OUTPUT_BYTES = 64 * 1024
 
 export interface DeploymentToolPlan {
@@ -43,7 +35,6 @@ export interface DeploymentToolRun {
   readonly durationMs: number
 }
 
-/** 固定 argv：解释器 + 脚本 + `--op` + `--plan`；没有 shell 字符串，也没有模型参数。 */
 export function deploymentToolArgv(
   tool: DeploymentToolConfig,
   op: DeploymentOperation,
@@ -53,7 +44,6 @@ export function deploymentToolArgv(
   return { command, args: [tool.path, '--op', op, '--plan', planPath] }
 }
 
-/** 只传 PATH 与登记白名单；其余宿主环境不进入工具进程。 */
 export function deploymentToolEnv(tool: DeploymentToolConfig): Record<string, string> {
   const env: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin' }
   for (const name of tool.env) {
@@ -79,10 +69,6 @@ export function artifactFileDigest(path: string): string {
   }
 }
 
-/**
- * 同步脚本摘要：首次登记；摘要变化时写变更记录并更新当前值。
- * 变更不阻断调用，但本次调用的摘要会进入证据与 attempt 记录。
- */
 export function syncDeploymentToolScript(
   repo: DeploymentStore,
   tool: DeploymentToolConfig,
@@ -127,7 +113,6 @@ class OutputBuffer {
   }
 }
 
-/** 运行一次工具；超时或异常都返回结果对象，由调用方按失败记录，不抛出整体失败。 */
 export async function runDeploymentTool(
   tool: DeploymentToolConfig,
   op: DeploymentOperation,

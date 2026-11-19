@@ -47,7 +47,6 @@ function listTrackedFiles(source: string): string[] {
     .filter(Boolean)
 }
 
-/** 构建材料核验：只读取证据，不改写历史。 */
 export class BuildMaterialValidator {
   constructor(private readonly projectPath: string) {}
 

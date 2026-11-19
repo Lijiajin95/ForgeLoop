@@ -1,7 +1,3 @@
-/**
- * 失败轮次追加授权：所有者动作。每次 +3 轮，累计失败与历史保留，不清零。
- * 只在需求处于 blocked 时允许，避免执行中放宽额度。
- */
 import { APPROVED, isTerminal } from '../domain/status.js'
 import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
 import type { Repository } from '../records/repository.js'

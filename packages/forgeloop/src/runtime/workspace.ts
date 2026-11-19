@@ -1,8 +1,3 @@
-/**
- * 快照工作副本：包含当前未提交进展，开发改动只落在副本里。
- * 交付候选 = 暂存后的二进制 diff（含未跟踪文件），并核对改动是否在批准的文件清单内。
- */
-
 import { asRecord } from '../domain/json.js'
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -90,13 +85,6 @@ function listSnapshotFiles(projectPath: string): string[] {
   return [...new Set([...tracked, ...untracked].filter(Boolean))].sort()
 }
 
-/**
- * 在当前工作树（含未提交在途改动）上建立独立执行副本。
- *
- * 不能用 `git worktree`：本轮基线包含其他执行方尚未提交的实现，只从 HEAD 取树会漏掉它们。
- * 因此按 Git 跟踪清单 + 未忽略的新文件逐个复制到任务目录，再在该副本里初始化一个
- * 仅用于采集 diff 的临时仓库；产品仓库不会因此产生提交或引用。
- */
 export function prepareSnapshotWorkspace(input: {
   projectPath: string
   workspacePath: string
@@ -141,12 +129,6 @@ export interface CandidateCapture {
   readonly diffPath: string
 }
 
-/**
- * 暂存全部改动并生成候选 diff。
- *
- * `allowedFiles` 省略时表示执行范围是整个工作区（当前研发执行角色的默认策略）；
- * 只有显式给出清单时才计算越界文件，供需要硬边界的调用方使用。
- */
 export function captureCandidate(input: {
   worktreePath: string
   allowedFiles?: readonly string[]

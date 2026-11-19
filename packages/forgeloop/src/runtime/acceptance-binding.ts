@@ -35,13 +35,6 @@ export function buildAcceptanceBinding(input: AcceptanceBindingInput) {
   }
 }
 
-/**
- * 复核当前候选的验收材料指纹：验收记录必须绑定当前候选（必要时也绑定当前制品摘要），
- * 不能只凭 `accepted_at` 就认为验收仍然有效。
- *
- * 返回可接受的指纹集合；空数组表示当前候选材料不完整，无法复核。
- * 验收可能发生在构建之前，因此同时给出“不含制品摘要”和“含当前制品摘要”两种绑定。
- */
 export function expectedAcceptanceFingerprints(
   repo: Repository,
   reqId: string,

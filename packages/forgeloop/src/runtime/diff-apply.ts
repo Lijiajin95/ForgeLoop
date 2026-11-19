@@ -1,7 +1,3 @@
-/**
- * 把候选 diff 应用到工作副本。上游任务已交付的改动可能已经随基线进入副本
- * （例如修复已合并回主分支），此时重复应用应视为成功而不是冲突。
- */
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runCommand } from './workspace.js'

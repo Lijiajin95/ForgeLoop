@@ -1,7 +1,3 @@
-/**
- * 运行身份自述：把实际加载的包版本、进程和已加载入口/服务/客户端摘要写到安装包目录，
- * 供上线核对区分“同版本但不同构建”，不把安装回执当作运行证据。
- */
 import { createHash } from 'node:crypto'
 import { errorMessage } from '../domain/errors.js'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -17,13 +13,10 @@ export interface RuntimeIdentity {
   readonly cwd: string
   readonly indexSha256: string
   readonly serviceSha256: string
-  /** 实际装载的客户端包摘要；用于和源码 client.js 比较。 */
   readonly clientSha256: string
-  /** 安装器写入的本次制品摘要；缺省为空，不从计划或文件名猜测。 */
   readonly artifactSha256: string
 }
 
-/** 页面只读展示的构建身份；空字符串表示宿主没有记录，不猜测。 */
 export interface BuildIdentityView {
   readonly version: string
   readonly startedAt: string
@@ -35,16 +28,13 @@ export interface BuildIdentityView {
 }
 
 let currentIdentity: RuntimeIdentity | null = null
-/** 源码工程路径；由宿主装载时设置，用于比较装载客户端与源码。 */
 let buildSourcePath = ''
-/** 前端入口文件（项目内相对路径）；空字符串表示不做源码摘要比对。 */
 let buildClientEntryFile = ''
 
 function sha256(path: string): string {
   return existsSync(path) ? createHash('sha256').update(readFileSync(path)).digest('hex') : ''
 }
 
-/** 写入当前安装包根目录；失败只告警，不阻止插件装载。 */
 export function writeRuntimeIdentity(
   moduleUrl: string,
   log: (message: string) => void = (message) => {
@@ -79,10 +69,6 @@ export function writeRuntimeIdentity(
   }
 }
 
-/**
- * 由已知身份与源码目录构造页面使用的构建视图；纯函数，便于测试。
- * 源码摘要只在传入 projectPath 且能找到 client.js 时计算。
- */
 export function buildIdentityFrom(
   identity: RuntimeIdentity | null,
   projectPath?: string,
@@ -101,18 +87,11 @@ export function buildIdentityFrom(
   }
 }
 
-/** 宿主装载时记录源码工程路径与前端入口；不改变业务配置。 */
 export function setBuildSourcePath(projectPath: string, clientEntryFile = ''): void {
   buildSourcePath = projectPath
   buildClientEntryFile = clientEntryFile
 }
 
-/**
- * 当前进程写入的运行身份与源码身份；未装载（如单测直接构造 runtime）时字段为空。
- *
- * 工作区模式下每个租户的 `projectPath` 与 `clientEntryFile` 不同，调用方必须显式传入；
- * 省略时回退到装载期记录的全局值（单项目/兼容路径）。
- */
 export function buildIdentity(projectPath?: string, clientEntryFile?: string): BuildIdentityView {
   return buildIdentityFrom(
     currentIdentity,

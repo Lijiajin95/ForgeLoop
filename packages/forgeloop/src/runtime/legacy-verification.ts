@@ -62,7 +62,6 @@ export interface LegacyVerificationDeps {
   now: () => string
   charge: (reqId: string, started: number) => void
   openAgent: (request: AgentOpenRequest) => Promise<AgentSession>
-  /** 测试会话的工具执行上下文；只接受当前候选与当前方案中的命令。 */
   checks: VerificationCheckRegistry
 }
 
@@ -74,14 +73,9 @@ export interface LegacyVerifyInput {
   candidate: CandidateFile
   devWorkspace: string
   signal: AbortSignal
-  /** 研发开始前建立的测试会话；方案与业务验收共用它。 */
   verification: LegacyVerificationSession
 }
 
-/**
- * 同一测试会话的两段工作：研发交付前生成方案，交付后执行方案并做业务验收。
- * 会话在整条推进请求期间保持打开，方案、命令执行与业务验收共享上下文。
- */
 export interface LegacyVerificationSession {
   readonly session: AgentSession
   readonly sessionId: string
@@ -92,10 +86,6 @@ export interface LegacyVerificationSession {
 export class LegacyVerification {
   constructor(private readonly deps: LegacyVerificationDeps) {}
 
-  /**
-   * 研发开始前新开测试会话并生成方案。方案只依据需求说明与已准入任务目标，
-   * 不接触候选、diff 或源码；方案失败时不进入研发。
-   */
   async openVerification(input: {
     reqId: string
     requirement: Requirement
@@ -199,7 +189,6 @@ export class LegacyVerification {
         }
       }
   > {
-    // 业务验收与方案、执行共用同一个会话；证据只取工具实际执行的输出。
     const { runs, session, dir, verification } = input
     const facts = runs.map((item) => ({
       label: item.label,
@@ -335,7 +324,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return { ok: true, facts, review, businessRun, issues }
   }
 
-  /** 终审超时或 JSON 畸形：在本次尝试目录留证，并计入业务验收失败。 */
   private recordBusinessReviewError(input: {
     reqId: string
     plan: TaskPlan
@@ -457,7 +445,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     verdict: 'pass' | 'block'
     classification: ReturnType<typeof classifyVerificationFailure> | null
   } {
-    // 判定规则与显式 verify 共用：只有报告通过、候选完整、对照成立才算通过。
     const outcome = decideVerificationOutcome({
       reportedPassed: input.result.verdict === 'passed',
       blocking: input.result.failures,
@@ -479,7 +466,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     }
   }
 
-  /** 中止、超时、材料错误等未进入判定的尝试也必须留证，绑定同一次尝试身份。 */
   private recordBlockedAttempt(input: {
     reqId: string
     plan: TaskPlan
@@ -777,7 +763,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     const workspace = join(dir, 'workspace')
     mkdirSync(dir, { recursive: true })
     rmSync(workspace, { recursive: true, force: true })
-    // 旧候选的验证 worktree 可能已登记但目录被清理；先移除登记再创建，
     // 否则重试验证会永久卡在“丢失但已注册的工作区”。
     runCommand('git', ['worktree', 'remove', '--force', workspace], input.devWorkspace, 30_000)
     runCommand('git', ['worktree', 'prune'], input.devWorkspace, 30_000)
@@ -876,7 +861,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     }
   }
 
-  /** 合并工具告警与实际复核：提交变化、候选外的改动都算完整性问题。 */
   private candidateIntegrity(
     workspace: string,
     workspaceHead: string,
@@ -902,13 +886,11 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return { issues, head, changes }
   }
 
-  /** 同候选上一次验证的阻断原因；用于在复验时给出可执行反馈。 */
   private previousVerificationIssues(
     reqId: string,
     plan: TaskPlan,
     candidate: { readonly candidateSha256: string },
   ): string[] {
-    // 部分测试替身没有这个方法：取不到历史就不给反馈，不影响判定。
     let attempts: Array<{ blocking?: readonly string[] }>
     try {
       attempts = this.deps.repo.verificationAttemptsForCandidate(
@@ -924,7 +906,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return [...(latest.blocking ?? [])].slice(0, 8)
   }
 
-  /** 方案命令必须真的执行过：只给结论不执行时先补一次明确重试，仍缺失再阻断。 */
   private async ensureCommandsExecuted(input: {
     reqId: string
     dir: string
@@ -940,7 +921,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
       .filter((check) => !executed.has(check.label))
       .map((check) => check.label)
     if (missing.length === 0) return { ok: true }
-    // 该补充执行发生在外层“测试执行”计时区间内，由外层统一计费，避免同一时间段累计两次。
     const retry = await input.session.send({
       prompt: [
         '你还没有用测试工具执行下列命令，因此不能给出结论：',
@@ -958,7 +938,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return { ok: true }
   }
 
-  /** 命令未全部执行或被停止：不能进入业务判定，也不构成候选缺陷。 */
   private preJudgeBlock(
     snapshot: VerificationCheckSnapshot,
     plan: VerificationPlan,
@@ -982,7 +961,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return null
   }
 
-  /** 读取并执行测试会话写下的敏感性对照；材料畸形时 fail-closed。 */
   private async runSensitivityControls(input: {
     reqId: string
     workspace: string
@@ -1010,7 +988,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return { ok: true, outcome }
   }
 
-  /** 候选固定后、执行前，在同一测试会话里把设计落成命令；失败按尝试留证。 */
   private async prepareVerificationPlan(input: {
     reqId: string
     analysis: RequirementAnalysis
@@ -1075,7 +1052,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
           .slice(0, 30),
       )
     } catch {
-      // 没有 package.json 或不可读时不阻断；模型仍可依据设计准备命令。
+      return facts
     }
     return facts
   }
@@ -1290,7 +1267,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
       },
       finishedAt: this.deps.now(),
     })
-    // 测试会话可通过对照工具写补丁；没有覆盖关键必过场景时按证据不足阻断。
     const controlCoverageIssues = validateControlCoverage({
       requiredScenarios: verificationPlan.scenarios
         .filter((scenario) => scenario.required)
@@ -1327,7 +1303,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     if (!recordedVerification.ok) return recordedVerification.result
     const verification = recordedVerification.verification
 
-    // 业务验收复用同一个测试会话；模型看到的证据只来自工具真实执行的输出。
     const business = await this.runLegacyBusinessReview({
       reqId: input.reqId,
       requirement: input.requirement,

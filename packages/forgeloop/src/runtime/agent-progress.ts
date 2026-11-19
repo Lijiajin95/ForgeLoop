@@ -1,7 +1,6 @@
 import type { AgentSession } from './agent-runner.js'
 import type { ProgressTracker } from '../domain/progress.js'
 
-/** 把会话里可观测到的活动记成需求进展；没有活动就说明执行器不再推进。 */
 export function withProgressTracking(
   session: AgentSession,
   reqId: string | undefined,

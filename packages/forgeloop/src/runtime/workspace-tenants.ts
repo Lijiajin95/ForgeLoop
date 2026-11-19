@@ -1,19 +1,3 @@
-/**
- * DSH 工作区到 ForgeLoop 租户的绑定与运行时注册表。
- *
- * 所有者确认的绑定规则：
- * - 每个 DSH Workspace 一个租户，租户键取工作区 id，记录目录为
- *   `<recordsRoot>/projects/ws-<id>`；同一工作区内的会话共享同一份记录。
- * - profile 里显式配置的 `project` / `projectPath` 只作为旧目录兼容：仅当工作区路径
- *   与旧 `projectPath` 完全相同时复用旧项目名，避免把旧数据搬移或暴露给其他工作区。
- * - 会话按 `header.cwd` 归属：等于工作区路径，或位于该租户记录目录内
- *   （研发、验证、运维子会话都落在记录目录里）。
- * - 无法归属任何工作区的会话一律拒绝，不回退到默认项目。
- *
- * 隔离靠“一租户一配置一运行时一记录库”实现：现有 `projectDir()` 及其下游目录
- * 都由派生配置决定，因此不存在跨租户的共享库或共享工作区。
- */
-
 import { isAbsolute, relative, resolve } from 'node:path'
 import {
   loadProjectProfile,
@@ -38,7 +22,6 @@ export interface Tenant {
   readonly coordinator: Coordinator
 }
 
-/** DSH 工作区发现接缝：生产实现读 `ctx.workspaceRegistry`，测试用假实现。 */
 export interface WorkspaceSource {
   list(): Promise<readonly WorkspaceIdentity[]>
   byPath(path: string): Promise<WorkspaceIdentity | undefined>
@@ -50,15 +33,11 @@ export interface LegacyProject {
 }
 
 export interface WorkspaceTenantsOptions {
-  /** 合并后的原始配置：派生租户配置时重新解析，部署等相对路径才会落到租户目录。 */
   readonly raw: RawConfig
-  /** 解析相对配置的基准目录（宿主启动目录）。 */
   readonly cwd: string
-  /** 已解析的全局模板：提供 recordsRoot、owner 等共享值。 */
   readonly base: ForgeLoopConfig
   readonly legacy?: LegacyProject | undefined
   readonly workspaces: WorkspaceSource
-  /** 会话身份 → 原始项目目录；找不到时返回 undefined。 */
   readonly sessionCwd: (sessionId: string) => Promise<string | undefined>
   readonly create: (config: ForgeLoopConfig) => {
     runtime: ForgeLoopRuntime
@@ -67,7 +46,6 @@ export interface WorkspaceTenantsOptions {
   readonly log?: (message: string) => void
 }
 
-/** 工作区 id 派生出的项目名；只保留配置允许的字符，并加 `ws-` 前缀避免与旧项目重名。 */
 export function workspaceProjectName(id: string): string {
   const safe = id
     .toLowerCase()
@@ -83,7 +61,6 @@ function samePath(left: string, right: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
-/** 路径是否等于 root 或位于其下（按路径边界，不接受前缀字符串匹配）。 */
 function containsPath(root: string, candidate: string): boolean {
   const rel = relative(resolve(root), resolve(candidate))
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
@@ -103,10 +80,6 @@ export class WorkspaceTenants {
     return this.tenants.get(id)
   }
 
-  /**
-   * 按目录找到已加载租户：工作区路径本身、租户记录目录内的子会话目录，
-   * 或工作区内的子目录（取路径最长的工作区，支持嵌套工作区）。
-   */
   tenantOfCwd(cwd: string): Tenant | undefined {
     const target = resolve(cwd)
     let contained: Tenant | undefined
@@ -123,7 +96,6 @@ export class WorkspaceTenants {
     return contained
   }
 
-  /** 按目录解析租户；目录是已注册工作区时按需创建，否则 undefined。 */
   async forCwd(cwd: string): Promise<Tenant | undefined> {
     const known = this.tenantOfCwd(cwd)
     if (known) return known
@@ -131,7 +103,6 @@ export class WorkspaceTenants {
     return workspace ? this.ensure(workspace) : undefined
   }
 
-  /** 按会话身份解析租户；读取会话 header 的原始 cwd，不受模型 cd 影响。 */
   async forSession(sessionId: string): Promise<Tenant | undefined> {
     const cwd = await this.options.sessionCwd(sessionId)
     if (!cwd) {
@@ -145,7 +116,6 @@ export class WorkspaceTenants {
     return tenant
   }
 
-  /** 幂等创建租户运行时并启动其协调器；同一工作区只创建一次。 */
   ensure(workspace: WorkspaceIdentity): Tenant {
     const existing = this.tenants.get(workspace.id)
     if (existing) return existing
@@ -160,13 +130,6 @@ export class WorkspaceTenants {
     return tenant
   }
 
-  /**
-   * 派生租户配置：旧目录仅按完全相同路径复用，其余一律使用工作区专属项目名。
-   *
-   * 运维检查是宿主级清单：默认只让复用旧项目的工作区跑监控，其他工作区关闭 ops，
-   * 避免 N 个工作区重复扫描同一主机；项目在自己的 `.forgeloop.json` 里声明 `ops`
-   * 时才按项目配置开启（显式 opt-in）。
-   */
   configFor(workspace: WorkspaceIdentity): ForgeLoopConfig {
     const legacy = this.options.legacy
     const isLegacy = legacy !== undefined && samePath(legacy.projectPath, workspace.path)
@@ -183,7 +146,6 @@ export class WorkspaceTenants {
       if (!declaresOps) {
         if (this.options.base.ops.enabled) raw.ops = { ...this.options.raw.ops, enabled: false }
       } else if (profile.ops) {
-        // 非 legacy 项目没声明自己的制品清单时，不继承全局路径，避免读到其他工作区的日志。
         if (!Object.prototype.hasOwnProperty.call(profile.ops, 'artifacts')) {
           raw.ops = { ...this.options.raw.ops, artifacts: [] }
         }
@@ -192,7 +154,6 @@ export class WorkspaceTenants {
     return resolveConfig(raw, this.options.cwd)
   }
 
-  /** 启动时枚举已注册工作区；单个工作区创建失败只记录，不影响其余工作区。 */
   async preload(): Promise<void> {
     for (const workspace of await this.options.workspaces.list()) {
       try {
@@ -205,7 +166,6 @@ export class WorkspaceTenants {
     }
   }
 
-  /** 周期核对注册表：新增工作区按需创建，已删除工作区释放协调器与记录库。 */
   startReconcile(intervalMs = 60_000): void {
     if (this.reconcileTimer) return
     this.reconcileTimer = setInterval(() => {
@@ -272,7 +232,6 @@ export class WorkspaceTenants {
     }
   }
 
-  /** 停止所有租户协调器并关闭记录库；失败逐个记录，不阻断其余释放。 */
   async dispose(): Promise<void> {
     this.stopReconcile()
     for (const tenant of this.tenants.values()) {

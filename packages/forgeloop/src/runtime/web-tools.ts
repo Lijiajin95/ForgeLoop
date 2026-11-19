@@ -1,22 +1,6 @@
-/**
- * 联网检索的宿主实现：调用 DeepSeek Search & Fetch API
- * （`POST /v1/tools/search`、`POST /v1/tools/fetch`）。
- *
- * 取舍：
- * - 密钥只从宿主进程的环境变量 `DEEPSEEK_API_KEY` 读取，不写入 DSH 配置或环境，
- *   不落库、不进提示词、不出现在工具输出里；
- * - `FORGELOOP_WEB_BASE_URL` 可覆盖 base URL，测试用本地 HTTP 服务，不触网；
- * - 工具是只读的：检索结果只是材料，改状态仍由程序与人类入口决定；
- * - 错误按 HTTP 状态码映射成中文原因，调用方据此决定是否重试。
- */
-
 import { asRecord } from '../domain/json.js'
 import { errorMessage } from '../domain/errors.js'
 
-/**
- * 密钥口径：工具描述与每次调用结果共用这一句，避免各处说法漂移。
- * 只说明“密钥从哪来、我们怎么处理”，不包含任何密钥内容。
- */
 export const WEB_KEY_NOTE =
   '联网说明：使用宿主进程环境变量 DEEPSEEK_API_KEY 访问 DeepSeek；密钥只读，不写入 DSH 配置或环境。'
 
@@ -147,7 +131,6 @@ function toHit(value: unknown): SearchHit | null {
   }
 }
 
-/** 检索公共网页；返回按相关度排序的结构化结果，摘要可直接进模型上下文。 */
 export async function searchWeb(query: string, count?: number): Promise<WebResponse<SearchData>> {
   const normalized = query.trim()
   if (!normalized) return { ok: false, reason: '检索词不能为空' }
@@ -194,7 +177,6 @@ function validUrl(input: string): { ok: true; url: string } | { ok: false; reaso
   return { ok: true, url: parsed.toString() }
 }
 
-/** 抓取单个页面并转成 Markdown；超出上限时截断并标记，避免撑爆上下文。 */
 export async function fetchWeb(input: string): Promise<WebResponse<FetchData>> {
   const target = validUrl(input)
   if (!target.ok) return target

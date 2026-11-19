@@ -1,10 +1,3 @@
-/**
- * 部署接口的运行时门面：把看板/协调器的部署动作集中在这里，
- * 复核所有者身份、解析候选制品并委托给 Deployments 状态机。
- *
- * 模型工具不经过这里；看板认证端点以 config.owner 调用。
- */
-
 import type { Deployments } from './deployments.js'
 import type { ForgeLoopConfig } from '../config.js'
 import type { Repository } from '../records/repository.js'
@@ -20,7 +13,6 @@ export interface DeploymentServiceDeps {
 export class DeploymentService {
   constructor(private readonly deps: DeploymentServiceDeps) {}
 
-  /** 已登记目标与最近 intent；只读。 */
   rollouts(limit = 20): { targets: unknown[]; rollouts: unknown[] } {
     return {
       targets: this.deps.config.deployments.targets.map((target) => ({
@@ -37,10 +29,6 @@ export class DeploymentService {
     return this.deps.deployments.detail(intentId)
   }
 
-  /**
-   * 提议一次部署：target 必须已登记；需求取调用方显式指定，省略时用 target 默认需求。
-   * 制品取该需求最近一次候选构建。是否自动执行由 target.approval 决定；门禁与 preflight 仍然全部执行。
-   */
   async request(input: {
     targetId: string
     requirementId?: string

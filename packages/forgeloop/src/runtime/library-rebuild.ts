@@ -1,13 +1,5 @@
-/**
- * 需求库一键重建的单轮调度：取证、分批提炼、已有库审查、安全发布与报告。
- *
- * - 同一项目一次只允许一轮；取消只停止尚未发布的部分，发布前不触碰现有库。
- * - 自动产物一律 `draft`；`confirmed` 与人工修改永不覆盖（由 domain 的审查规则决定）。
- * - 发布前核对文件摘要；写入使用临时文件 + 重命名，失败保留原文件。
- * 产品范围见 docs/product/library-rebuild.md。
- */
-
 import { createHash, randomUUID } from 'node:crypto'
+import { bestEffort } from './best-effort.js'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { projectDir, sessionsDir, type ForgeLoopConfig } from '../config.js'
@@ -38,7 +30,6 @@ import type { AgentRunRequest, AgentRunResult } from './agent-runner.js'
 import type { LibraryRebuildRun, LibraryRebuildStore } from '../records/library-rebuild-store.js'
 import type { LibrarySyncEntry } from '../records/library-store.js'
 
-/** 单次调用携带的材料上限与总批次上限；控制成本与提示词长度。 */
 export const REBUILD_MATERIALS_PER_BATCH = 16
 export const REBUILD_MAX_BATCHES = 12
 
@@ -53,7 +44,6 @@ export interface LibraryRebuildDeps {
   readonly now?: () => string
   readonly load?: (projectPath: string) => LoadedLibrary
   readonly collect?: (projectPath: string) => RebuildMaterials
-  /** 发布后刷新需求库 SQLite 索引；失败只进报告，不回滚已发布文件。 */
   readonly sync?: (entries: readonly LibrarySyncEntry[], now: string) => void
 }
 
@@ -62,7 +52,6 @@ export interface LibraryRebuildStartResult {
   readonly status: LibraryRebuildRun
 }
 
-/** 单批提炼的过程记录：页面按批展示，失败批次保留原因。 */
 export interface RebuildBatchLogEntry {
   readonly index: number
   readonly materials: number
@@ -72,13 +61,11 @@ export interface RebuildBatchLogEntry {
   readonly error: string
 }
 
-/** 一次批量确认的结果：跳过的条目带原因，便于页面与报告核对。 */
 export interface LibraryConfirmResult {
   readonly confirmed: readonly string[]
   readonly skipped: ReadonlyArray<{ readonly id: string; readonly reason: string }>
 }
 
-/** 运行时装配入口：把配置、记录库与 Agent 运行器接到同一个服务实例。 */
 export interface LibraryRebuildRepo {
   readonly libraryRebuildStore: LibraryRebuildStore
   syncLibrary(entries: readonly LibrarySyncEntry[], now: string): void
@@ -112,15 +99,11 @@ export class LibraryRebuildService {
 
   constructor(private readonly deps: LibraryRebuildDeps) {
     this.now = deps.now ?? (() => new Date().toISOString())
-    // 新进程首次使用该服务时，把上一进程遗留的运行标为中断；同进程热重载不受影响。
-    try {
-      this.deps.store.markInterrupted(this.deps.config.project, process.pid, this.now())
-    } catch {
-      // 记录不可写时仍允许读取与重新发起，由页面展示库或记录错误。
-    }
+    bestEffort(() =>
+      this.deps.store.markInterrupted(this.deps.config.project, process.pid, this.now()),
+    )
   }
 
-  /** 启动一轮重建；已有运行在途时拒绝，重复点击由页面读取当前进度。 */
   start(input: { readonly by: string; readonly source: string }): LibraryRebuildStartResult {
     if (this.active) throw new RebuildError('已有重建在运行；请等待完成或先取消')
     const runId = `lrb-${stamp(this.now())}-${randomUUID().slice(0, 8)}`
@@ -151,17 +134,12 @@ export class LibraryRebuildService {
     return this.deps.store.latest(this.deps.config.project)
   }
 
-  /** 取消尚未发布的一轮；已发布文件不回滚。 */
   cancel(runId: string): boolean {
     if (!this.active || this.active.runId !== runId) return false
     this.active.controller.abort()
     return true
   }
 
-  /**
-   * 所有者一次授权把某轮发布的草稿整批确认为 `confirmed`（减少逐条操作）。
-   * 只动来源为本轮 `library-rebuild:` 的 `draft`；其余条目跳过并给出原因。
-   */
   confirm(runId: string | undefined, source: string): LibraryConfirmResult {
     const run = runId
       ? this.deps.store.get(runId)
@@ -191,7 +169,6 @@ export class LibraryRebuildService {
     return { confirmed, skipped }
   }
 
-  /** 测试与关闭流程等待当前运行收尾。 */
   async whenIdle(): Promise<void> {
     await this.completion
   }
@@ -266,7 +243,6 @@ export class LibraryRebuildService {
     })
   }
 
-  /** 按时间排序的材料分批提炼；取消时提前返回，由调用方决定不发布。 */
   private async synthesize(input: {
     runId: string
     projectPath: string
@@ -310,7 +286,6 @@ export class LibraryRebuildService {
     return merged
   }
 
-  /** 跑一个批次：模型只拿有界证据；失败与畸形输出都只记错误，不中断整轮。 */
   private async runBatch(input: {
     runId: string
     projectPath: string
@@ -367,16 +342,14 @@ export class LibraryRebuildService {
   }
 
   private fail(runId: string, error: unknown): void {
-    try {
+    bestEffort(() => {
       this.patch(runId, {
         status: 'failed',
         stage: 'done',
         error: errorMessage(error),
         finishedAt: this.now(),
       })
-    } catch {
-      // 记录本身不可写时没有可用的审计位置，避免在清理路径再次抛出。
-    }
+    })
   }
 
   private cancelled(runId: string): void {
@@ -388,7 +361,6 @@ export class LibraryRebuildService {
     })
   }
 
-  /** 上一次成功发布的清单；用于区分“重建草稿未变”与“人工改动”。 */
   private previousPublished(): Map<string, PreviousPublishedEntry> {
     const latest = this.deps.store.latestDone(this.deps.config.project)
     if (!latest) return new Map()
@@ -411,7 +383,6 @@ export class LibraryRebuildService {
     return map
   }
 
-  /** 逐条发布：更新前核对文件摘要；写入中失败保留原文件并把原因写进报告。 */
   private publish(projectPath: string, plan: RebuildPlan, errors: string[]): PublishedEntry[] {
     const candidates = new Map<string, RebuildCandidate>()
     for (const review of plan.reviews) {
@@ -511,7 +482,6 @@ export class LibraryRebuildService {
   }
 }
 
-/** 读取取消状态：通过函数读取避免 TypeScript 把 getter 收窄成常量。 */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
 }
@@ -603,7 +573,6 @@ function sha256File(path: string): string {
   }
 }
 
-/** 运行记录里的发布清单：只取 id，坏条目忽略。 */
 function publishedIds(json: string): string[] {
   let parsed: unknown
   try {
@@ -621,7 +590,6 @@ function publishedIds(json: string): string[] {
   return ids
 }
 
-/** 单条确认：done 表示写入成功；already 与跳过都返回 false，跳过附原因。 */
 function confirmOne(
   entry: { readonly path: string; readonly status: string; readonly source: string },
   projectPath: string,
@@ -645,7 +613,6 @@ function confirmOne(
     : { done: false, reason: '写入失败' }
 }
 
-/** 把条目头的 `draft` 改成 `confirmed`，并写所有者来源与日期；正文不动。 */
 function headerConfirmed(text: string, source: string, today: string): string | undefined {
   const end = text.indexOf('-->')
   if (end < 0) return undefined
@@ -660,7 +627,6 @@ function headerConfirmed(text: string, source: string, today: string): string | 
   return `${next}${text.slice(end)}`
 }
 
-/** 临时文件 + 重命名；失败时删除临时文件并保留原文件。 */
 function writeAtomic(path: string, content: string): boolean {
   const temporary = `${path}.tmp-${randomUUID()}`
   try {
@@ -669,11 +635,9 @@ function writeAtomic(path: string, content: string): boolean {
     renameSync(temporary, path)
     return true
   } catch {
-    try {
+    bestEffort(() => {
       rmSync(temporary, { force: true })
-    } catch {
-      // 临时文件清理失败不覆盖原始错误。
-    }
+    })
     return false
   }
 }

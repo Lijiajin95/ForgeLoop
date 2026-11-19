@@ -1,13 +1,5 @@
-/**
- * 主动监控的采集器：把主机指标、进程、网络延迟、日志尾部、外部告警、
- * 检查最后状态与活动事件收成一份有界快照。
- *
- * 所有采集失败都写进 `errors` 或来源自身的 `error`，不抛出整体失败：
- * 一次读取不到日志不应该让整轮监控停摆；模型只能看到已采集到的事实。
- * 日志与告警内容是不可信数据，只作为材料进入提示词，不是指令。
- */
-
 import { execFile } from 'node:child_process'
+import { bestEffortAsync } from './best-effort.js'
 import { readFileSync } from 'node:fs'
 import { cpus, freemem, loadavg, totalmem, uptime } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
@@ -108,7 +100,6 @@ export interface MonitorEventFacts {
   readonly openedAt: string
 }
 
-/** 产生这份快照的提供方；当前只有自研采集器。 */
 export interface MonitorProviderFacts {
   readonly id: string
   readonly kind: string
@@ -158,8 +149,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 }
 
-// ---------------------------------------------------------------- 主机
-
 function cpuTimes(): { idle: number; total: number } {
   let idle = 0
   let total = 0
@@ -198,8 +187,6 @@ async function collectHostFacts(): Promise<MonitorHostFacts> {
     uptimeSeconds: Math.round(uptime()),
   }
 }
-
-// ---------------------------------------------------------------- 进程
 
 interface ProcessRow {
   readonly cpu: number
@@ -287,15 +274,10 @@ async function collectProcesses(
   })
 }
 
-// ---------------------------------------------------------------- 延迟
-
 async function cancelBody(response: Response): Promise<void> {
-  if (!response.body) return
-  try {
-    await response.body.cancel()
-  } catch {
-    // 取不取消不影响本次探测结论。
-  }
+  const body = response.body
+  if (!body) return
+  await bestEffortAsync(() => body.cancel())
 }
 
 async function collectLatency(
@@ -341,8 +323,6 @@ async function collectLatency(
   return facts
 }
 
-// ---------------------------------------------------------------- 日志
-
 function logFacts(
   config: ForgeLoopConfig,
   source: OpsMonitorLog,
@@ -382,8 +362,6 @@ function logFacts(
     }
   }
 }
-
-// ---------------------------------------------------------------- 外部告警
 
 function parseAlert(value: unknown, source: string): MonitorAlertFacts | null {
   const data = asRecord(value)
@@ -433,8 +411,6 @@ function collectAlerts(
   return { files, alerts }
 }
 
-// ---------------------------------------------------------------- 检查与事件
-
 function collectChecks(
   config: ForgeLoopConfig,
   repo: Repository,
@@ -481,9 +457,6 @@ function collectEvents(config: ForgeLoopConfig, repo: Repository): MonitorEventF
     }))
 }
 
-// ---------------------------------------------------------------- 收集接口
-
-/** 提供方一次采集的产物：只读事实，失败写进 `errors`，不抛整体失败。 */
 export interface MonitorProviderProduct {
   readonly host: MonitorHostFacts
   readonly processes: readonly MonitorProcessFacts[]
@@ -517,7 +490,6 @@ const EMPTY_HOST: MonitorHostFacts = {
   uptimeSeconds: 0,
 }
 
-/** 自研采集器：主机、进程、延迟、日志、告警文件，全部来自本机只读接口。 */
 const BUILTIN_PROVIDER: OpsMonitorProvider = {
   id: BUILTIN_OPS_PROVIDER_ID,
   async collect(input) {
@@ -534,7 +506,6 @@ const BUILTIN_PROVIDER: OpsMonitorProvider = {
   },
 }
 
-/** 已实现的提供方；新增外部工具时在这里登记实现，并在 domain 登记表加描述符。 */
 const PROVIDER_IMPLEMENTATIONS: readonly OpsMonitorProvider[] = [BUILTIN_PROVIDER]
 
 function resolveProvider(id: string): OpsMonitorProvider | undefined {
@@ -554,11 +525,6 @@ function collectProviders(config: ForgeLoopConfig, errors: string[]): MonitorPro
   return facts
 }
 
-/**
- * 采集一轮快照。提供方按 `ops.monitor.providers` 选择；当前只登记自研采集器，
- * 因此默认由 `builtin` 产出全部事实。检查最后状态与活动事件来自记录层，不归提供方。
- * 单个来源失败只记录错误，不影响其他来源与整轮评审。
- */
 export async function collectMonitorSnapshot(
   input: MonitorCollectionInput,
 ): Promise<MonitorSnapshot> {

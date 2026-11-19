@@ -78,13 +78,11 @@ export class TaskDelivery {
     baseline: string
     authorizationSource: string
     signal: AbortSignal
-    /** 推进请求身份：失败轮次 ID 带上它，跨请求重试时同一尝试序号不会互相吞掉。 */
     requestId: string
   }): Promise<{
     state: 'delivered' | 'awaiting_user' | 'failed' | 'blocked'
     reason: string
     requirementStatus: string
-    /** 这次尝试是否因停止/超时/宿主中断而未完成；用于计一轮中断失败。 */
     interrupted?: boolean
   }> {
     const { requirement, plan, taskId, baseline, authorizationSource, signal, requestId } = input
@@ -99,7 +97,6 @@ export class TaskDelivery {
     const worktree = workspaceDir(this.deps.config, requirement.reqId, plan.planVersion, taskId)
     mkdirSync(taskDir, { recursive: true })
 
-    // 人工重试是新的一次 advance；把上一次失败原因和测试日志尾部重新交给实现者，
     // 不要求它从零猜测，也不因此跳过失败轮次或文件边界。
     let feedback = this.deps.previousTaskFailure(requirement.reqId, plan.planVersion, taskId)
     let attempt = 0
@@ -200,10 +197,6 @@ export class TaskDelivery {
     }
   }
 
-  /**
-   * 上一次失败留下的可复用上下文：运行原因、最近失败轮次与正式测试日志尾部。
-   * 只在任务最近一次运行确为失败/阻塞/待决定时返回；交付或运行中不产生反馈。
-   */
   private async stepDevelopment(input: {
     requirement: Requirement
     plan: TaskPlan
@@ -231,7 +224,6 @@ export class TaskDelivery {
       role: 'dev',
       cwd: worktree,
       prompt: devPrompt({ requirement, plan, task, workdir: worktree }) + feedback,
-      // 研发执行只允许在隔离工作副本内改动；默认工具仍可用，越界写入由宿主沙箱拒绝。
       permission: 'workspace-write',
       timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
       transcriptPath: join(taskDir, 'dev.jsonl'),
@@ -251,7 +243,6 @@ export class TaskDelivery {
       const reason = `开发回合${
         dev.status === 'aborted' ? '被停止' : `超时（${dev.reason || '未给出原因'}）`
       }：任务未交付，一次性工作副本可丢弃；可重新执行`
-      // 运行记录必须收口为 blocked：否则任务会永远显示“执行中”，
       // 心跳也停在中断那一刻，看板无法区分“还在跑”和“已经中断”。
       this.deps.recordRun(requirement.reqId, plan, task, {
         state: TASK_RUN_BLOCKED,
@@ -312,7 +303,6 @@ export class TaskDelivery {
   > {
     const { requirement, plan, task, taskDir, signal, capture, ledger, attempt, roundIdFor } = input
     let feedback = input.feedback
-    // 独立审查：新会话、只读提示词、独立目录，只针对固定候选 diff。
     const reviewWorkspace = reviewDir(
       this.deps.config,
       requirement.reqId,
@@ -558,7 +548,6 @@ export class TaskDelivery {
       workspacePath: worktree,
       baselineCommit: baseline,
     })
-    // 上游任务已交付的改动必须先进入本任务副本；否则依赖任务会在自己的
     // 文件清单里重写上游实现，范围检查会（正确地）阻断它。
     const upstream = ancestorTaskIds(plan, taskId)
     const appliedUpstream: string[] = []
@@ -618,7 +607,6 @@ export class TaskDelivery {
           },
         }
       }
-      // 准备命令只允许影响被忽略的依赖目录；任何对跟踪文件的改动都还原，
       // 保证候选 diff 只包含开发回合的改动。
       runCommand('git', ['reset', '--hard', 'HEAD'], worktree)
       runCommand('git', ['clean', '-fd'], worktree)

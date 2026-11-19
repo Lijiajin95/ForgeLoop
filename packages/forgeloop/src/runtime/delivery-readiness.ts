@@ -1,8 +1,3 @@
-/**
- * 系统交付判定：部署执行前复核当前版本、准入、候选、独立测试、业务终审与受控提交。
- * 这是“程序可以继续交付”的事实判定，不是人类验收，也不写 owner 决定。
- */
-
 import { ACCEPTED, COMMITTED } from '../domain/status.js'
 import type { Repository } from '../records/repository.js'
 

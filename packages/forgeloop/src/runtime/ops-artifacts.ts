@@ -1,14 +1,3 @@
-/**
- * 研发制品只读视图：给运维 Agent 两个能力的实现层。
- *
- * - 运行状态：profile 安装根、安装版本、runtime-identity（pid/启动时间）、进程是否存活、
- *   身份摘要是否仍与安装文件一致，以及各登记日志的大小、修改时间与错误行数。
- * - 日志尾部：只读登记路径的固定字节尾部，可按字面过滤并限定行数。
- *
- * 只接受配置 `ops.artifacts` 里登记的 id；不接受任意路径。所有输出有界，
- * 读不到只返回事实与错误，不抛整体失败；内容是不可信数据，只作材料。
- */
-
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import type { ForgeLoopConfig, OpsArtifact, OpsArtifactLog } from '../config.js'
@@ -19,14 +8,11 @@ import { processAlive, readInstalledVersion } from './deployment-inspect.js'
 import { pluginLogPath } from './log.js'
 import { readLogTail } from './log-tail.js'
 
-/** 运维 Agent 唯一的工具面：只能读制品状态与登记日志。 */
 export const OPS_ARTIFACT_TOOL_NAMES = ['forgeloop_ops_artifact', 'forgeloop_ops_logs'] as const
 
-/** 程序内建的插件日志入口：无需 ops.artifacts 配置即可读到自身运行日志。 */
 export const PLUGIN_LOG_ARTIFACT_ID = 'forgeloop-plugin'
 export const PLUGIN_LOG_ID = 'plugin'
 
-/** 部署进 profile 的包名与入口文件由 ops.artifacts 配置提供；这里不再写死具体项目。 */
 const MAX_LOG_BYTES = 64 * 1024
 const MAX_LINE_CHARS = 500
 const MAX_LOG_TEXT = 60_000
@@ -101,7 +87,6 @@ function builtinArtifact(config: ForgeLoopConfig): OpsArtifact {
 }
 
 function findArtifact(config: ForgeLoopConfig, id: string): OpsArtifact | undefined {
-  // 显式配置同 id 时以配置为准，便于把日志换到别的路径。
   return (
     config.ops.artifacts.find((artifact) => artifact.id === id) ??
     (id === PLUGIN_LOG_ARTIFACT_ID ? builtinArtifact(config) : undefined)
@@ -137,7 +122,6 @@ function sizeOf(path: string): number {
   }
 }
 
-/** 按错误正则统计尾部命中行；未配置正则时返回 null，避免把“没统计”显示成 0。 */
 function errorMatchesOf(lines: readonly string[], pattern: string): number | null {
   if (!pattern) return null
   try {
@@ -152,7 +136,6 @@ function readLines(config: ForgeLoopConfig, log: OpsArtifactLog): string[] {
   return readLogTail(logPath(config, log), MAX_LOG_BYTES).filter((line) => line.length > 0)
 }
 
-/** 从尾部向前取行：先保证行数，再保证总字符数，避免一次回灌整份日志。 */
 function tailWithinBudget(lines: readonly string[], limit: number): string[] {
   const picked: string[] = []
   let budget = MAX_LOG_TEXT
@@ -209,7 +192,6 @@ export function readArtifactLog(
   }
 }
 
-/** 按配置的入口文件比对运行身份与安装文件；未配置入口时不做比对并如实说明。 */
 function compareEntryFiles(input: {
   installedRoot: string
   installedVersion: string

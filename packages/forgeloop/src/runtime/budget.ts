@@ -1,7 +1,3 @@
-/**
- * 工时延长：所有者动作。只加总上限、不清零已消耗；当前因工时耗尽阻塞时，
- * 同时解除该阻塞，随后由 requeue/autoAdvance 重新排队。
- */
 import { APPROVED, isTerminal } from '../domain/status.js'
 import type { Repository } from '../records/repository.js'
 
@@ -10,7 +6,6 @@ export interface WorkBudgetExtension {
   readonly seconds: number
   readonly by: string
   readonly source: string
-  /** 审计时间；缺省取当前时间，测试传入固定值。 */
   readonly now?: string
 }
 
@@ -21,7 +16,6 @@ export interface WorkBudgetResult {
   readonly data?: unknown
 }
 
-/** 规范化延长秒数：`-1` 表示改为不限，其余只接受 60–86400 秒；不合法返回 `null`。 */
 function normaliseSeconds(input: number): number | null {
   const seconds = Math.trunc(input)
   if (seconds === -1) return seconds

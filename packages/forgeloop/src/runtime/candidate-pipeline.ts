@@ -1,4 +1,5 @@
 import { parseJsonObject } from '../domain/json.js'
+import { bestEffort } from './best-effort.js'
 import {
   cpSync,
   existsSync,
@@ -97,10 +98,6 @@ export class CandidatePipeline {
     return null
   }
 
-  /**
-   * 新旧构建路径共用的材料核验：文件摘要、规范字段、候选身份、测试工作区树、
-   * 未提交改动、候选 diff 与受控提交的文件集合都必须一致。只读取证据，不改写历史。
-   */
   private protectedFileHashes(root: string, files: readonly string[]): Map<string, string> {
     const hashes = new Map<string, string>()
     for (const file of files) {
@@ -130,10 +127,6 @@ export class CandidatePipeline {
     return changed
   }
 
-  /**
-   * 新链路构建：依据系统准入、固定候选、独立测试、业务验收和本地提交，
-   * 不再要求旧任务包批准或所有者整体验收。
-   */
   private buildReadiness(
     delivery: AdmittedDelivery,
     version: string | undefined,
@@ -237,7 +230,6 @@ export class CandidatePipeline {
     })
   }
 
-  /** 按配置改写候选版本号；未配置版本文件时不做改写。 */
   private patchCandidateVersion(dir: string, version: string | undefined): OperationResult | null {
     if (version === undefined) return null
     const relative = this.deps.config.candidateVersionFile
@@ -252,7 +244,6 @@ export class CandidatePipeline {
     return null
   }
 
-  /** 读取候选版本号：配置了版本文件时以它为准，否则用请求版本（可能为空）。 */
   private candidateVersionOf(
     dir: string,
     version: string | undefined,
@@ -297,14 +288,11 @@ export class CandidatePipeline {
     writeFileSync(join(dir, basename(candidate.diffPath)), diffText, 'utf8')
     const sharedModules = join(this.deps.config.projectPath, 'node_modules')
     if (existsSync(sharedModules)) {
-      // 测试工作区可能带有不完整的 node_modules 副本；构建副本必须使用主项目
       // 已安装的依赖，否则 tsc 等本地二进制不存在，会把环境缺依赖误判为候选失败。
       rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
-      try {
+      bestEffort(() => {
         symlinkSync(sharedModules, join(dir, 'node_modules'), 'dir')
-      } catch {
-        // 构建失败会由命令输出说明；不伪造成功。
-      }
+      })
     }
     const versionError = this.patchCandidateVersion(dir, input.version)
     if (versionError) return { ok: false, result: versionError }
@@ -678,10 +666,6 @@ export class CandidatePipeline {
     return { ok: true, dir, source, packageVersion: versioned.packageVersion, protectedDigest }
   }
 
-  /**
-   * 上线核对：安装由外部受控机制完成，本方法只核对“装进去的、正在跑的”是否就是
-   * 被验证并验收的那份候选；任一不一致都保留失败记录，不把安装回执当交付完成。
-   */
   private resolveDeploymentTarget(input: { reqId: string; targetProfile: string }):
     | {
         ok: true
@@ -849,7 +833,6 @@ export class CandidatePipeline {
       `实际运行版本 ${PLUGIN_VERSION}，候选包版本 ${build.packageVersion}`,
     )
 
-    // 包自述文件由插件装载时写入：进程存活且入口/服务摘要与安装内容一致，
     // 才能把“同版本”区分为“同一构建实例”。旧包没有该文件时不伪造该检查。
     const identityCheck = inspectRuntimeIdentity(installedRoot, build)
     if (identityCheck) check(identityCheck.id, identityCheck.ok, identityCheck.detail)
@@ -928,7 +911,6 @@ export class CandidatePipeline {
         `上线核对未通过：${failed.join('；')}；证据 ${reportPath}`,
       )
     }
-    // 上线核对通过即试装成立；登记可安装交付把六项材料收口成一条可用记录。
     // 登记异常只作为说明返回，不回滚已完成的核对结论，也不伪造成功。
     const installable = safeInstallableDelivery(this.deps, input.reqId)
     return ok(
@@ -969,7 +951,6 @@ export class CandidatePipeline {
     )
   }
 
-  /** 验收时复核独立测试与业务终审；任何材料漂移都阻断，不降级为警告。 */
   private acceptanceReview(
     reqId: string,
     plan: TaskPlan,
@@ -1049,10 +1030,6 @@ export class CandidatePipeline {
     return { ok: true, verification, businessReview }
   }
 
-  /**
-   * 验收身份：准入链路绑定最近一次代码候选（diff）；旧链路绑定任务产物聚合身份。
-   * 两种身份都来自真实记录，不能互相替代，也不允许缺记录时放宽。
-   */
   private acceptanceIdentity(
     reqId: string,
     plan: TaskPlan,
@@ -1087,7 +1064,6 @@ export class CandidatePipeline {
     const latestPlan = this.deps.repo.latestTaskPlan(reqId)
     if (!latestPlan) return { ok: false, result: fail('plan_missing', `需求 ${reqId} 没有任务包`) }
     const approval = this.deps.repo.planApproval(reqId, latestPlan.planVersion)
-    // 新链路以系统准入作为研发/验证/提交授权；验收是所有者对交付物的显式决定，
     // 不再要求旧的任务包批准。没有当前准入时才回退到旧批准校验。
     const admitted = this.deps.currentAdmission(reqId) !== null
     if (!admitted) {

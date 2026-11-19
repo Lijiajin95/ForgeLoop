@@ -1,10 +1,4 @@
 import { asRecord as jsonRecord } from '../domain/json.js'
-/**
- * 任务执行过程读取：把 AgentRunner 落盘的 dev.jsonl 解析成可公开的会话事件。
- *
- * 只暴露用户/助手公开文本、工具调用及结果、阶段事件；不读取或展示 reasoning 块。
- * 事件按原始 seq/time 排序，调用与结果按 callId 关联；分页只切公开事件，原始文件不被改写。
- */
 
 type JsonRecord = Record<string, unknown>
 
@@ -337,10 +331,6 @@ function toPage(state: ParseState, offset: number, limit: number): ExecutionPage
   }
 }
 
-/**
- * 解析一轮或多轮 dev.jsonl。offset/limit 只作用于最终公开事件数组。
- * 无法解析的行被忽略；调用/结果缺少对端时保留可见记录，不伪造另一方。
- */
 export function parseTaskExecution(
   source: string,
   options: { offset?: number | undefined; limit?: number | undefined } = {},

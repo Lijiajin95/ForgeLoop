@@ -1,10 +1,3 @@
-/**
- * 部署协调器：intent → 门禁 → preflight → 审批/自动 → apply → 等待核对 → 回退。
- *
- * 实际部署只发生在登记工具的进程里；这里负责状态机、证据与失败告警，不拼命令、
- * 不接受模型提供的脚本或参数。工具返回 ok 只代表它执行完了，部署成功要等 status 核对。
- */
-
 import { randomUUID } from 'node:crypto'
 import { asRecord } from '../domain/json.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -58,7 +51,6 @@ export interface DeploymentOutcome {
 
 export interface DeploymentRequest {
   readonly targetId: string
-  /** 本次部署所属需求；省略时使用目标配置的默认需求。 */
   readonly requirementId?: string
   readonly artifact: DeploymentArtifact
   readonly source: string
@@ -173,7 +165,6 @@ export class Deployments {
       })
       return fail('preflight_failed', message)
     }
-    // 预检期间依据可能变化（停止、版本、候选、验收）；产生副作用前必须重新核对。
     const blocked = this.revalidate(target, input.artifact, requirementId)
     if (blocked) {
       this.transition(intent, 'preflight_failed')
@@ -222,8 +213,6 @@ export class Deployments {
       ? this.deps.config.deployments.tools.find((item) => item.id === target.toolId)
       : undefined
     if (!target || !tool) return fail('not_found', '部署目标或工具已不在配置中')
-    // 等待审批期间依据可能变化：停止、版本、候选或验收失效都必须拒绝执行。
-    // 拒绝不改变 intent 状态：显式恢复并重新满足门禁后仍可批准。
     const blocked = this.revalidate(target, this.artifactOf(intent), intent.requirementId)
     if (blocked) {
       this.deps.store.recordDeploymentDecision({
@@ -323,7 +312,6 @@ export class Deployments {
     return ok(`部署 ${intentId} 已核对：版本 ${intent.artifactVersion}`)
   }
 
-  /** 产生副作用前的依据复核：门禁闭包包含当前版本、停止、候选、验证、终审与验收。 */
   private revalidate(
     target: DeploymentTargetConfig,
     artifact: DeploymentArtifact,
@@ -333,11 +321,6 @@ export class Deployments {
     return result.ok ? null : fail('gate_failed', result.reason)
   }
 
-  /**
-   * 中断恢复：applying/verifying/rolling_back 超过核对窗口仍未收口时，先只读观测实际结果，
-   * 再决定完成、失败或记录未知；绝不重新执行 apply 或回退。
-   * 回退中断若无法观测，释放目标并记录未知，避免目标被永久占用。
-   */
   async recoverInterrupted(now = this.now()): Promise<number> {
     if (!this.deps.config.deployments.enabled) return 0
     const limitMs = this.deps.config.deployments.verifyTimeoutSeconds * 1000
@@ -349,7 +332,6 @@ export class Deployments {
     return recovered
   }
 
-  /** 需要恢复的中断：applying/verifying/rolling_back 超过窗口，且尚未留下“结果未知”决定。 */
   private interrupted(intent: DeploymentIntentRecord, now: string, limitMs: number): boolean {
     if (
       intent.state !== 'applying' &&
@@ -393,7 +375,6 @@ export class Deployments {
     const mismatch = observed.ok ? verifyMismatch(observed.result, intent) : observed.message
     if (mismatch) {
       if (!observed.ok) {
-        // 结果未知：先记录事实并告警，保留原状态等待人工决定，不重复调用工具。
         this.decide(intent.intentId, 'recovery_unknown', mismatch, now)
         this.alertFailure(
           intent,
@@ -417,10 +398,6 @@ export class Deployments {
     return true
   }
 
-  /**
-   * 回退中断：按“是否已回到上一已验证制品”收口，不重新执行回退。
-   * 观测失败或没有上一制品时转 failed 并记录未知，释放目标供人工处理。
-   */
   private async recoverRollingBack(
     intent: DeploymentIntentRecord,
     target: DeploymentTargetConfig,
@@ -493,10 +470,6 @@ export class Deployments {
     })
   }
 
-  /**
-   * 核对超时：applied_pending_verify 超过 verifyTimeoutSeconds 仍未核对时标记 verify_failed
-   * 并告警。只是收口与告警，不自动回退；回退仍是所有者动作。
-   */
   expireStale(now = this.now()): number {
     if (!this.deps.config.deployments.enabled) return 0
     const limitMs = this.deps.config.deployments.verifyTimeoutSeconds * 1000
@@ -515,11 +488,6 @@ export class Deployments {
     return expired
   }
 
-  /**
-   * 回退：从 applied_pending_verify/verified/verify_failed/failed 进入 rolling_back，
-   * 先按 target 声明的数据范围调用 data-rollback，再调用 rollback，最后用 status 复核。
-   * 回退成功只表示工具执行且状态观测通过，不把“退出码 0”当成数据已恢复。
-   */
   async rollback(intentId: string, reason: string): Promise<DeploymentOutcome> {
     const intent = this.requireIntent(intentId)
     if ('code' in intent) return intent
@@ -595,7 +563,6 @@ export class Deployments {
       this.alertFailure(intent, message)
       return fail('rollback_verify_failed', message)
     }
-    // 工具退出 0 不代表已回到旧制品：必须按上一已验证制品核对实际状态。
     const mismatch = rollbackMismatch(observed.result, previous)
     if (mismatch) {
       this.transition(intent, 'failed')
@@ -612,10 +579,6 @@ export class Deployments {
     })
   }
 
-  /**
-   * 回退目标：上一已验证制品必须仍保留且摘要可验证；没有就拒绝回退。
-   * 声明了数据范围时还要求本次 preflight 给出 restorePoint。
-   */
   private rollbackTarget(
     intent: DeploymentIntentRecord,
     requiresRestorePoint: boolean,
@@ -664,7 +627,6 @@ export class Deployments {
     }
   }
 
-  /** 本次安装实际开始时间；用于判断运行进程是否在安装之后才启动。 */
   private appliedAt(intentId: string): string {
     const attempt = this.deps.store
       .deploymentAttempts(intentId)
@@ -690,7 +652,6 @@ export class Deployments {
     return ''
   }
 
-  /** 同一目标同一时刻只允许一个未收口的 intent：部署、核对与回退不能互相踩踏。 */
   private targetBusy(targetId: string): DeploymentOutcome | null {
     const active = this.deps.store.activeDeploymentIntentForTarget(targetId)
     if (!active) return null
@@ -700,12 +661,6 @@ export class Deployments {
     )
   }
 
-  /**
-   * apply 前的确定性复核：返回空串才允许继续。
-   * - 门禁按当前记录重新判定（需求版本、停止、验证、终审、提交、验收绑定）；
-   * - 同一目标不能有另一个进行中的 intent；
-   * - 磁盘上的制品摘要必须与 intent 记录一致（等待批准期间可能被换包）。
-   */
   private revalidateBeforeApply(
     intent: DeploymentIntentRecord,
     target: DeploymentTargetConfig,
@@ -750,7 +705,6 @@ export class Deployments {
     },
   ): Promise<DeploymentOutcome> {
     const target = this.deps.config.deployments.targets.find((item) => item.id === intent.targetId)
-    // apply 前复核：门禁、目标互斥与磁盘制品摘要都必须在调用工具前重新成立。
     const blocked = target
       ? this.revalidateBeforeApply(intent, target, artifact)
       : '部署目标已不在配置中'
@@ -804,7 +758,6 @@ export class Deployments {
     mkdirSync(dir, { recursive: true })
     const planPath = join(dir, `${op}.json`)
     writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
-    // 真实开始/结束时间进入 attempt 证据，不用同一次 now() 顶替。
     const startedAt = this.now()
     let run: DeploymentToolRun
     try {
@@ -824,8 +777,6 @@ export class Deployments {
       })
       return { ok: false, message, result: emptyResult() }
     }
-    // attempt 证据必须留下工具回执的完整可核对面：退出码、超时、stdout/stderr、
-    // 输出是否截断与耗时，不能只存 stdout。
     const raw = JSON.stringify({
       exitCode: run.exitCode,
       timedOut: run.timedOut,
@@ -901,10 +852,6 @@ export class Deployments {
     }
   }
 
-  /**
-   * 失败告警只尽力发送一次；发送结果作为部署决定留痕，成功和失败都不静默。
-   * 没有配置 webhook 时也记录一条“未配置”，避免把“没发”误读成“发过”。
-   */
   private alertFailure(intent: DeploymentIntentRecord, message: string): void {
     const webhook = this.deps.config.deployments.alerts.webhook
     if (!webhook) {
@@ -995,7 +942,6 @@ export class Deployments {
     return join(projectDir(this.deps.config), 'deployments', intentId)
   }
 
-  /** 证据目录必须在第一次调用工具前存在；runOperation 也可能先于 request 被恢复路径调用。 */
   private evidenceFor(intentId: string): string {
     const dir = this.evidenceDir(intentId)
     mkdirSync(dir, { recursive: true })
@@ -1028,7 +974,6 @@ function verifyMismatch(
     return '运行中制品摘要与本次部署制品不一致（进程可能仍运行旧内容）'
   }
   if (result.runningPid <= 0) return '工具未提供有效运行进程 pid'
-  // 同版本新包的常见失败是“装好了但进程没重载”：运行进程必须晚于本次安装才开始。
   if (!result.runningStartedAt) return '工具未提供运行进程启动时间，无法确认进程已加载本次制品'
   const started = Date.parse(result.runningStartedAt)
   if (!Number.isFinite(started)) return '工具提供的运行进程启动时间不可解析'
@@ -1039,10 +984,6 @@ function verifyMismatch(
   return ''
 }
 
-/**
- * 回退后的实际状态必须回到上一已验证制品：版本、安装摘要与运行摘要都要匹配。
- * 只检查工具 ok/退出码会把“没有真正回退”记成成功。
- */
 function rollbackMismatch(
   result: DeploymentToolResult,
   previous: { readonly version: string; readonly sha256: string },

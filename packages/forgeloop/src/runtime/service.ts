@@ -1,9 +1,5 @@
-/**
- * ForgeLoop 业务运行时：把领域规则、权威记录与 DSH Agent 执行接在一起。
- * 命令与工具都是本类的薄包装；这里不依赖任何交互界面。
- */
-
 import { asRecord } from '../domain/json.js'
+import { bestEffort } from './best-effort.js'
 import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -124,11 +120,9 @@ export class ForgeLoopRuntime {
   readonly ops: OpsRuntime
   readonly requirementQueue: RequirementQueue
   readonly analysisQueue: AnalysisQueue
-  /** 部署协调器：intent/审批/apply/status/回退；模型工具只能只读查询。 */
   readonly deployments: Deployments
   readonly deploymentService: DeploymentService
   readonly deliveryHandoff
-  /** 测试失败自动创建的内建问题单；按需求累积 attempt 与证据。 */
   readonly issues: IssueStore
   private readonly advancePipeline: AdvancePipeline
   private readonly executionDev: ExecutionDev
@@ -318,12 +312,6 @@ export class ForgeLoopRuntime {
     return this.clock().toISOString()
   }
 
-  // 需求队列
-
-  /**
-   * 研发空闲时领取队首需求并排入分析；研发忙、已有在研需求或队列为空时返回 null。
-   * 入队本身立即返回，只有协调器在确认没有未收口请求后才让需求真正进入研发。
-   */
   intakeQueuedRequirement(): string | null {
     const claimed = this.requirementQueue.inFlight()
     if (claimed) {
@@ -333,8 +321,6 @@ export class ForgeLoopRuntime {
       }
     }
     if (this.requirementQueue.inFlight()) return null
-    // 有未收口请求时不算空闲，避免新需求与在途分析/研发并发启动。
-    // 已是终态需求遗留的请求无法再执行，不占用研发位。
     const busy = this.repo.activeRequests(this.config.project).some((request) => {
       const requirement = this.repo.getRequirement(request.reqId)
       return requirement !== null && !isTerminal(requirement.status)
@@ -356,22 +342,18 @@ export class ForgeLoopRuntime {
     }
   }
 
-  /** 队列占用是否仍对应研发位：有在途请求、未收口问题单或需求仍处于自动研发链路时为真。 */
   private queueSlotActive(requirement: Requirement): boolean {
     if (isTerminal(requirement.status)) return false
     const active = this.repo
       .activeRequests(this.config.project)
       .some((request) => request.reqId === requirement.reqId)
     if (active) return true
-    // 测试失败待修复/待复验的需求仍占用研发位，避免其它需求插队。
     if (this.issues.latestOpen(requirement.reqId)) return true
-    // 没有自动推进时，分析收口即让出研发位；后续执行仍可由显式请求驱动。
     if (!this.config.autoAdvance) return false
     if (requirement.status === SPECIFIED) return this.currentAdmission(requirement.reqId) !== null
     return AUTO_ADVANCE_STATUSES.has(requirement.status)
   }
 
-  /** 让领取到的需求进入分析；当前版本已有分析时不重复调用分析 Agent。 */
   private startQueuedRequirement(requirement: Requirement): boolean {
     const analysis = this.repo.latestAnalysis(requirement.reqId)
     if (analysis && analysis.requirementVersion === requirement.versions.length) return true
@@ -385,21 +367,14 @@ export class ForgeLoopRuntime {
   }
 
   private completeQueueEntry(requirementId: string): void {
-    try {
-      this.requirementQueue.complete(requirementId)
-    } catch {
-      // 已完成或被并发收口：队列状态以记录为准，不重复报错。
-    }
+    bestEffort(() => this.requirementQueue.complete(requirementId))
   }
-
-  // 受理与修订
 
   submit(input: {
     text: string
     by: string
     source: string
     clientKey?: string
-    /** 是否把首次分析排进队列；业务会话先同步分析一次，因此传 false。 */
     analyze?: boolean
   }): OperationResult {
     const text = input.text.trim()
@@ -416,7 +391,6 @@ export class ForgeLoopRuntime {
       clientKey: input.clientKey ?? '',
       now: this.now(),
     })
-    // 首次分析只入队一次；已有分析则不再调用模型。
     const handoff = this.analysisQueue.accepted(requirement, {
       created,
       source: input.source,
@@ -430,10 +404,6 @@ export class ForgeLoopRuntime {
     )
   }
 
-  /**
-   * 读取一个业务会话关联的待澄清需求。会话关系来自需求受理 source：
-   * `dsh-session:<sessionId>:<messageId>`；只返回当前需求版本已有待澄清分析的需求。
-   */
   pendingClarifications(sessionId: string): PendingClarification[] {
     return pendingClarificationsOf({
       repository: this.repo,
@@ -442,20 +412,15 @@ export class ForgeLoopRuntime {
     })
   }
 
-  /** 当前仍需所有者回答的澄清问题；问题编号稳定，供提示词与展示共同引用。 */
   openClarifications(reqId: string) {
     return this.repo.openClarifications(reqId)
   }
 
-  /**
-   * 回答待澄清需求：追加需求版本并重新分析；只有会话输入接管或可信入口调用。
-   */
   async answerClarifications(input: {
     reqId: string
     answer: string
     by: string
     source: string
-    /** 只回答指定问题；省略时回答当前全部开放问题。 */
     questionIds?: readonly string[]
     signal?: AbortSignal | undefined
   }): Promise<{
@@ -498,11 +463,9 @@ ${answer}`
     if (!revised.ok) return { ...revised, reqId: input.reqId }
     const refreshed = this.repo.getRequirement(input.reqId)
     const answeredVersion = refreshed?.versions.length ?? latest.version + 1
-    // 回答先落库再分析：即使分析失败或宿主中断，所有者答过的内容与对应问题仍可回查。
     for (const question of questions) {
       this.repo.recordClarificationAnswer({
         reqId: input.reqId,
-        // 回答绑定问题首次提出的分析版本，而不是当前最新分析版本。
         analysisVersion: question.analysisVersion,
         requirementVersion: requirement.versions.length,
         answeredVersion,
@@ -541,7 +504,6 @@ ${answer}`
     }
   }
 
-  /** 研发任务拆解入口：依据分析形成任务包并校验落库；规划不等于批准或执行。 */
   async planDevTasks(
     reqId: string,
     signal?: AbortSignal,
@@ -572,7 +534,6 @@ ${answer}`
     }
   }
 
-  /** 一个业务会话已经受理并拆解的需求，用于会话末尾摘要。 */
   sessionSummary(sessionId: string) {
     return this.taskViews.sessionSummary(sessionId)
   }
@@ -606,7 +567,6 @@ ${answer}`
     if (isTerminal(requirement.status)) {
       return fail('terminal', `需求 ${reqId} 已处于终态 ${requirement.status}，不能再分析`)
     }
-    // 已有当前版本结论时由执行器直接复用并返回“未重复调用模型”。
     const outcome = await this.executionPlan.executeAnalysis(
       reqId,
       signal ?? new AbortController().signal,
@@ -614,7 +574,6 @@ ${answer}`
     const refreshed = this.repo.getRequirement(reqId)
     const analysis = this.repo.latestAnalysis(reqId)
     if (outcome.state !== 'done' || !analysis) {
-      // 迟到结果没有写入业务状态：独立错误码，避免被当成普通失败去重试。
       const code = outcome.stale === true ? 'analysis_stale' : 'analysis_failed'
       return {
         ...fail(code, outcome.detail || '需求分析未完成'),
@@ -700,7 +659,6 @@ ${answer}`
     })
   }
 
-  /** 没有在途请求/运行任务时，把停止请求收口为“实际停稳”；不自动恢复。 */
   settleStopIfQuiet(reqId: string): void {
     if (!this.repo.activeStop(reqId)) return
     if (
@@ -713,7 +671,6 @@ ${answer}`
     this.repo.markStopSettled(reqId, this.now())
   }
 
-  /** 排队一个持久操作请求：先落库，再返回受理身份。 */
   private resumeStoppedAdvance(input: {
     reqId: string
     action: 'analyze' | 'plan' | 'advance' | 'verify'
@@ -817,7 +774,6 @@ ${answer}`
     action: 'analyze' | 'plan' | 'advance' | 'verify'
     by: string
     source: string
-    /** 已批准任务包默认冻结；只有所有者显式许可并说明原因才能重新生成。 */
     confirmPlanChange?: boolean
     reason?: string
   }): OperationResult {
@@ -826,7 +782,6 @@ ${answer}`
     if (isTerminal(requirement.status)) {
       return fail('terminal', `需求 ${input.reqId} 已处于终态 ${requirement.status}，不能再排队`)
     }
-    // 主动停止只能由显式恢复动作解除；自动扫描永远不会走到这里。
     this.resumeStoppedAdvance(input)
     const frozen = this.planChangeGuard(input)
     if (frozen) return frozen
@@ -862,12 +817,6 @@ ${answer}`
     }
   }
 
-  // ------------------------------------------------------------ 决定
-
-  /**
-   * 任务重试：只重新排队一次 advance，不新建任务包、不清零失败轮次。
-   * 结果未知的请求必须在明确确认后再核对关闭，避免把中断当成可直接重放。
-   */
   retryTask(input: {
     reqId: string
     planVersion: number
@@ -890,11 +839,6 @@ ${answer}`
     })
   }
 
-  /**
-   * 需求级重新执行：失败停在 blocked 后，不再要求人工逐个任务重试。
-   * 与 retryTask 共用同一份判定（额度、在途请求、批准、终态），
-   * 只排队一次 advance；不新建任务包、不清零失败轮次。
-   */
   requeue(input: { reqId: string; by: string; source: string }): OperationResult {
     const requirement = this.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
@@ -910,7 +854,6 @@ ${answer}`
     return ok(`已重新排队执行需求 ${input.reqId}：${queued.message}`, queued.data)
   }
 
-  /** 需求级“是否还能再来一次”的只读判定；看板与 requeue 共用。 */
   retryDecisionFor(reqId: string): { allowed: boolean; reason: string } {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { allowed: false, reason: `未找到需求 ${reqId}` }
@@ -938,10 +881,6 @@ ${answer}`
     })
   }
 
-  /**
-   * 把已交付任务退回执行角色修复：归档旧产物与材料、清交付标记、记录修复原因。
-   * 任务包版本不变；新一次执行会产生新的候选身份。
-   */
   private reopenDeliveredTasks(input: {
     reqId: string
     plan: TaskPlan
@@ -984,7 +923,6 @@ ${answer}`
     return archived
   }
 
-  /** 判断一个失败任务能否人工重试；只读，供任务详情与 retryTask 共用。 */
   private retryEligibility(
     reqId: string,
     planVersion: number,
@@ -1110,12 +1048,10 @@ ${answer}`
     return resolveCommitment({ repo: this.repo, owner: this.config.owner }, input)
   }
 
-  /** 只读：重新判定准入（不写记录）。 */
   admissionDecision(reqId: string): AdmissionDecision | null {
     return admissionDecisionFor({ config: this.config, repo: this.repo }, reqId)
   }
 
-  /** 当前需求版本是否已有系统准入；不把旧的准入沿用到新版本。 */
   private currentAdmission(reqId: string): ReturnType<Repository['latestAdmission']> {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return null
@@ -1123,10 +1059,6 @@ ${answer}`
     return admission?.decision === 'admit' ? admission : null
   }
 
-  /**
-   * 确定性的自动推进队列：只排一次 advance，具体动作仍由协调器领取执行。
-   * 系统准入覆盖普通需求；旧的显式批准只作为兼容路径，不成为新的常规门禁。
-   */
   autoAdvanceRequests(now = this.now()): string[] {
     const queued: string[] = []
     for (const requirement of this.repo.listRequirements(this.config.project)) {
@@ -1150,7 +1082,6 @@ ${answer}`
 
   private autoQueueCandidate(requirement: Requirement): boolean {
     if (isTerminal(requirement.status)) return false
-    // 主动停止是明确决定：扫描、重启和重复唤醒都不能把它变成自动恢复。
     if (this.repo.activeStop(requirement.reqId)) return false
     return !this.repo
       .requestsFor(requirement.reqId)
@@ -1188,7 +1119,6 @@ ${answer}`
       })
       return true
     } catch {
-      // 并发扫描或已有的在途请求：留给下一轮，不制造第二套状态。
       return false
     }
   }
@@ -1201,7 +1131,6 @@ ${answer}`
     return this.verificationChecks.run(reqId, label, caller)
   }
 
-  /** 测试会话的非命令工具面（对照与材料写入）；上下文与补丁由注册表校验。 */
   get verificationTool(): VerificationCheckRegistry {
     return this.verificationChecks
   }
@@ -1227,8 +1156,6 @@ ${answer}`
       return fail('terminal', `需求已处于终态 ${requirement.status}`)
     const plan = this.repo.taskPlan(input.reqId, input.planVersion)
     if (!plan) return fail('plan_missing', `需求 ${input.reqId} 没有任务包 v${input.planVersion}`)
-    // 存储的旧任务包可能早于当前硬性规则；批准前按现行规则再校验一次，
-    // 不能因为“当时能落库”就放行一个现在明确不合规的任务包。
     try {
       validateTaskPlan(plan)
     } catch (error) {
@@ -1286,7 +1213,6 @@ ${answer}`
       approvedAt: this.now(),
       source: input.source,
     }
-    // 授权来源由批准行派生；任务包正文不改写，回查时按批准版本判定。
     bindAuthorization(plan, approval)
     this.repo.recordPlanApproval(approval)
     this.repo.setStatus(input.reqId, APPROVED)
@@ -1315,10 +1241,6 @@ ${answer}`
     })
   }
 
-  /**
-   * 宿主启动时的确定性收口：执行者已经不在了，工作副本是运行时建的一次性快照，
-   * 直接判失败并丢弃快照，随后可重新执行。没有“无法判定”的中间状态。
-   */
   recoverInterrupted(now = this.now()): {
     interruptedRequests: string[]
     migratedUnknown: number
@@ -1349,10 +1271,6 @@ ${answer}`
     }
   }
 
-  /**
-   * 候选包：只从“已通过独立测试的那一份工作区”构建，保证安装的就是被验证的候选。
-   * 构建前后核对候选内容、产物摘要与包版本，并记录验证绑定。
-   */
   buildCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
     return this.candidatePipeline.buildCandidate(input)
   }
@@ -1375,7 +1293,6 @@ ${answer}`
     return this.candidatePipeline.verifyDeployment(input)
   }
 
-  /** 一次交付的候选身份；验证与验收必须绑定同一摘要。 */
   private candidateIdentity(
     plan: TaskPlan,
     artifacts: ReturnType<Repository['taskArtifacts']>,
@@ -1393,8 +1310,6 @@ ${answer}`
     })
   }
 
-  // ------------------------------------------------------------ 查询
-
   requirementView(requirement: Requirement): unknown {
     return buildRequirementView(this.repo, {
       candidateIdentityOf: this.candidateIdentity.bind(this),
@@ -1404,11 +1319,6 @@ ${answer}`
     })
   }
 
-  /**
-   * 需求修订影响摘要：命令与模型工具共用同一事实计算链。
-   * 默认零模型调用；只有显式 explain 才把事实交给无工具 Agent，推断与事实分区返回。
-   * 只读：不写记录，也不提供批准、推进或验收路径。
-   */
   async impact(reqId: string, options: { explain?: boolean } = {}): Promise<OperationResult> {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
@@ -1446,7 +1356,6 @@ ${answer}`
     )
   }
 
-  /** 仅当显式请求推断时调用；Agent 固定无工具，且只读事实快照。 */
   private impactExplainAgent(reqId: string): ImpactExplainAgent {
     return {
       run: async (request): Promise<ImpactExplainAgentResponse> => {
@@ -1487,12 +1396,6 @@ ${answer}`
     return ok(`需求 ${reqId} 状态：${requirement.status}`, this.requirementView(requirement))
   }
 
-  /**
-   * 只读状态看板：需求、任务与待处理问题的事实视图。
-   * 供 Web 客户端页面与测试共用；不写记录，也不提供批准、推进或验收入口。
-   * @param limit 需求条数上限；搜索时仍受同一上限约束。
-   * @param query 搜索词；匹配范围见 runtime/board.ts。
-   */
   statusBoard(limit?: number, query?: string): StatusBoardView {
     return buildStatusBoard({
       repository: this.repo,
@@ -1508,9 +1411,6 @@ ${answer}`
     return reliabilityReport(this.repo, this.config, this.clock, window)
   }
 
-  // ------------------------------------------------------------ 运维
-
-  /** 供协调器周期调用；不直接暴露给模型或页面动作。 */
   async opsTick(signal?: AbortSignal): Promise<Awaited<ReturnType<OpsRuntime['tick']>>> {
     return this.ops.tick(signal)
   }
@@ -1545,11 +1445,6 @@ ${answer}`
     return this.ops.requestFix(input)
   }
 
-  /**
-   * 单条需求的完整只读详情：在 status 视图之上补充最新任务包正文、
-   * 交付产物、验收记录、进度，以及最近一次系统准入与受控提交的只读证据
-   * （无记录时为 null），供工作台展开需求后展示。
-   */
   requirementDetail(reqId: string): OperationResult {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
@@ -1649,13 +1544,6 @@ ${answer}`
     return ok(`共 ${requests.length} 条操作请求`, { requests: requests.map(requestView) })
   }
 
-  // ------------------------------------------------------------ 执行流水线
-
-  /**
-   * 执行一条已领取的请求；返回结局文本。调用方负责请求状态落库。
-   * 只有“已交付”和“未交付（失败）”两种结局：中断/超时也按失败收口，
-   * 执行者已不在，一次性工作副本可丢弃，随后重新执行。
-   */
   async executeRequest(
     request: ServiceRequestRecord,
     signal: AbortSignal,
@@ -1744,14 +1632,10 @@ ${answer}`
       try {
         parsed = parsePlanReview(result.text)
       } catch (error) {
-        // 评审材料畸形属于可修正的评审输出问题：带着明确的 JSON 结构要求重试一次，
-        // 仍失败则 fail-closed，不伪造通过，也不占用研发重新规划的次数。
         lastMalformed = errorMessage(error)
         feedback = `\n\n上一次输出无法解析：${lastMalformed}。请重新只输出一个完整 JSON 对象，字段与上面要求一致，scenarios 不得重复。`
         continue
       }
-      // 评审模型自报通过还不够：验证计划必须覆盖分析中的每个场景与验收标准。
-      // 缺项先带着精确缺项重试评审；仍缺项才按阻断记录，交回研发重新规划。
       if (parsed.verdict === 'pass') {
         const coverage = validatePlanCoverage(analysis, parsed)
         if (coverage.length > 0) {
@@ -1773,8 +1657,6 @@ ${answer}`
     const dir = planReviewDir(this.config, requirement.reqId, plan.planVersion)
     mkdirSync(dir, { recursive: true })
     const reportPath = join(dir, 'plan-review.json')
-    // 摘要必须绑定“已落库的任务包”：内存对象与恢复对象的字段顺序不同，
-    // 若按内存对象计算，批准时重新加载后再核对会永远判为过期。
     const planSha256 = sha256OfText(
       JSON.stringify(this.repo.taskPlan(requirement.reqId, plan.planVersion) ?? plan),
     )
@@ -1809,10 +1691,6 @@ ${answer}`
     return { state: 'done', review }
   }
 
-  /**
-   * 候选在验证开始前就无法组装（例如交付 diff 与当前基线冲突）：
-   * 如实记录一次阻断验证与失败轮次，让“回到研发修复”有据可依。
-   */
   private requireAuthorizedPlan(
     reqId: string,
   ): { ok: true; value: { plan: TaskPlan } } | { ok: false; result: OperationResult } {
@@ -1840,7 +1718,6 @@ ${answer}`
     return { ok: true, value: { plan } }
   }
 
-  /** 从需求说明生成确定性验证基线；不再依赖单独的实现前评审门禁。 */
   private verificationBaseline(analysis: RequirementAnalysis): PlanReview {
     const criteria = analysis.acceptanceCriteria
     const scenarios = analysis.scenarios.map((scenario, index) => ({
@@ -1865,7 +1742,6 @@ ${answer}`
     }
   }
 
-  /** 需求级研发现场；需求版本变化时重建，旧现场保留在目录中不再复用。 */
   private async deliverTask(input: DeliverInput): Promise<DeliverOutcome> {
     return this.taskDelivery.deliver(input)
   }
@@ -1918,7 +1794,6 @@ ${answer}`
     })
   }
 
-  /** 应用一个候选 diff：先 git apply，失败后用受控 fuzz；不修改证据原文。 */
   private existingPackages(): string[] {
     return existingPackageNames(this.config.projectPath)
   }

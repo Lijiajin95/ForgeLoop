@@ -49,7 +49,6 @@ export class TaskViews {
     return { sessionId, generatedAt: this.deps.now(), requirements }
   }
 
-  /** 单个任务的运行状态、证据与 Agent 活动过程；只读查询。 */
   taskDetail(reqId: string, taskId: string, planVersion?: number): OperationResult {
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${reqId}`)
@@ -142,10 +141,6 @@ export class TaskViews {
     })
   }
 
-  /**
-   * 任务 Agent 执行过程：读取该任务当前保存的 dev.jsonl、审查、正式测试与交付记录。
-   * 只返回公开消息/工具调用；历史失败轮次没有独立执行文件时明确标记不可用。
-   */
   taskExecution(input: {
     reqId: string
     taskId: string
@@ -248,10 +243,4 @@ export class TaskViews {
       reason: hasDev ? '' : '没有找到该任务的执行记录',
     })
   }
-
-  /**
-   * 产品 Agent 的分析入口：对已受理需求运行一次结构化分析，落库后返回
-   * 目标、场景、验收标准与待澄清项。已有同版本分析时直接复用，避免重复调用模型。
-   * 只供可信入口（当前是 ForgeLoop 业务会话的输入接管）调用；不是客户决定入口。
-   */
 }

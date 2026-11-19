@@ -1,11 +1,3 @@
-/**
- * 代码可靠性看板的运行时视图：读取质量快照、组合只读业务记录与最近事件。
- *
- * 快照是本地登记材料；文件缺失或损坏不抛到整页，而是作为快照状态返回。
- * 运行指标只使用追加型记录；任务运行是当前状态，不参与历史趋势。
- * 指标历史由协调器按“变化或心跳”追加到 reliability_metric_samples，只增不改。
- */
-
 import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -125,10 +117,6 @@ export interface ReliabilityRuntimeView {
   readonly ops: ReliabilityOpsView
   readonly candidateBuilds: number
   readonly deploymentFailures: readonly { readonly checkId: string; readonly count: number }[]
-  /**
-   * 新部署通道（deployment_intents）的完成情况，与上面的 legacy 上线核对分开统计，
-   * 两套记录不合并分母，避免漏计或重复计数。
-   */
   readonly deploymentIntents: {
     readonly verified: number
     readonly failed: number
@@ -149,22 +137,15 @@ export interface ReliabilityRuntimeView {
   readonly recentEvents: readonly ReliabilityEventView[]
 }
 
-/** 运行指标中可被历史样本记录的部分；趋势与事件每次按需计算。 */
 export type ReliabilityRuntimeCore = Omit<ReliabilityRuntimeView, 'trend' | 'recentEvents'>
 
 export interface ReliabilityHistoryView {
-  /** 最近若干条指标样本，从新到旧。 */
   readonly samples: readonly ReliabilitySample[]
-  /** 最近若干份质量快照的压缩记录，从新到旧。 */
   readonly snapshots: readonly SnapshotHistoryPoint[]
   readonly sampleLimit: number
   readonly snapshotHistoryLimit: number
 }
 
-/**
- * 页面测量点：所有门禁与运行指标都对应这一个时刻与提交。
- * 有质量快照时取快照生成时间；没有可用快照时退回当前时刻并显式标记未绑定。
- */
 export interface ReliabilityMeasurement {
   readonly asOf: string
   readonly commit: string
@@ -175,7 +156,6 @@ export interface ReliabilityMeasurement {
 export interface ReliabilityReportView {
   readonly project: string
   readonly generatedAt: string
-  /** 指标版本：快照、业务记录或历史采样变化时改变，供页面做变更检测。 */
   readonly revision: string
   readonly measurement: ReliabilityMeasurement
   readonly window: {
@@ -205,17 +185,11 @@ export interface ReliabilityDashboardOptions {
   readonly project: string
   readonly projectPath: string
   readonly now: () => Date
-  /** 测试可注入；默认读取项目根 HEAD。 */
   readonly currentHead?: () => string | null
-  /** 默认 `<projectPath>/reports/reliability/latest.json`。 */
   readonly snapshotPath?: string
-  /** 页面展示的样本条数；只影响读取，不删除已有历史。 */
   readonly sampleLimit?: number
-  /** 页面展示的快照历史份数。 */
   readonly snapshotHistoryLimit?: number
-  /** 两次“变化采样”之间的最小间隔。 */
   readonly minSampleIntervalMs?: number
-  /** 无变化时保留心跳样本的间隔。 */
   readonly sampleHeartbeatMs?: number
 }
 
@@ -234,7 +208,6 @@ interface CachedSnapshotHistory {
   readonly points: readonly SnapshotHistoryPoint[]
 }
 
-/** 从运行指标中挑出需要进入历史样本的字段；趋势事件不进样本。 */
 function samplePayloadOf(
   core: ReliabilityRuntimeCore,
   measurement: ReliabilityMeasurement,
@@ -296,7 +269,6 @@ export class ReliabilityDashboard {
 
   report(window: ReliabilityWindow): ReliabilityReportView {
     const now = this.now()
-    // 先确定测量点，再让所有指标以它为终点；不允许把旧快照和当前指标混在一页。
     const snapshot = this.snapshotView(now)
     const measurement = this.measurementOf(snapshot, now)
     const asOf = new Date(measurement.asOf)
@@ -345,10 +317,6 @@ export class ReliabilityDashboard {
     }
   }
 
-  /**
-   * 指标变化（或心跳到期）时追加一条历史样本；只写历史表，不改业务状态。
-   * 样本记录当时的测量点，历史里的每个数字都能回指同一份快照。
-   */
   recordSampleIfDue(): boolean {
     const now = this.now()
     const latest = this.repository.latestReliabilitySample(this.project)
@@ -373,7 +341,6 @@ export class ReliabilityDashboard {
     return true
   }
 
-  /** 有可用快照时以快照生成时间为测量点；否则退回当前时刻并标记未绑定。 */
   private measurementOf(snapshot: ReliabilitySnapshotView, now: Date): ReliabilityMeasurement {
     const generated = Date.parse(snapshot.generatedAt)
     const hasSnapshot =
@@ -432,10 +399,6 @@ export class ReliabilityDashboard {
     }
   }
 
-  /**
-   * 指标版本：快照文件、测量点或测量点之前的业务事实变化时改变。
-   * 测量点之后新增的记录不改变整页数值，也不应触发样本；任务当前状态除外。
-   */
   private revisionOf(facts: ReliabilityFacts, measurement: ReliabilityMeasurement): string {
     const snapshot = this.statSnapshot()
     const asOf = new Date(measurement.asOf)
@@ -473,7 +436,6 @@ export class ReliabilityDashboard {
     }
   }
 
-  /** 快照历史：读取 latest 同级 history 目录，按生成时间从新到旧；损坏文件跳过。 */
   private snapshotHistory(): readonly SnapshotHistoryPoint[] {
     const historyDir = join(dirname(this.snapshotPath), 'history')
     let names: string[]
@@ -495,7 +457,7 @@ export class ReliabilityDashboard {
         const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
         points.push(snapshotHistoryPoint(parseReliabilitySnapshot(parsed)))
       } catch {
-        // 损坏或不可读的历史不参与展示，也不影响 latest。
+        continue
       }
     }
     points.sort((left, right) => Date.parse(right.generatedAt) - Date.parse(left.generatedAt))
@@ -635,7 +597,6 @@ export class ReliabilityDashboard {
     }
   }
 
-  /** 部署通道统计：只把已收口的 intent 计入分母，进行中的单独报 pending。 */
   private deploymentIntentSummary(
     from: Date | null,
     to: Date,
@@ -714,7 +675,6 @@ export class ReliabilityDashboard {
       })
     }
     for (const fact of input.opsEvents) {
-      // 只展示测量点上仍未恢复/未关闭的事件；之后才恢复的不回填成“当时已解决”。
       if (!withinWindow(fact.openedAt, null, input.to)) continue
       if (fact.recoveredAt !== '' && withinWindow(fact.recoveredAt, null, input.to)) continue
       if (fact.closedAt && withinWindow(fact.closedAt, null, input.to)) continue
@@ -775,7 +735,6 @@ export class ReliabilityDashboard {
 
 const dashboards = new WeakMap<Repository, ReliabilityDashboard>()
 
-/** 同一仓库实例复用快照、HEAD 与历史缓存；每次请求只做增量读取。 */
 function dashboardFor(
   repository: Repository,
   config: ForgeLoopConfig,
@@ -807,10 +766,6 @@ export function reliabilityReport(
   return dashboardFor(repository, config, now).report(window)
 }
 
-/**
- * 供协调器周期调用：指标变化或心跳到期时追加一条历史样本。
- * 只写 `reliability_metric_samples`，不改需求、验证、部署或运维状态。
- */
 export function reliabilitySample(
   repository: Repository,
   config: ForgeLoopConfig,
