@@ -517,6 +517,8 @@ describe('delivery metrics board endpoints', () => {
 
   it('records an owner handling interval and rejects missing fields or unknown requirements', async () => {
     const { fetch, records } = boardWith()
+    // 未传 endedAt 时区间终点取当前时刻，因此起点必须相对 now，不能钉死日期。
+    const startedAt = new Date(Date.now() - 30 * 60_000).toISOString()
     expect((await post(fetch, { endpoint: 'intervention', reqId: 'req-1' })).status).toBe(400)
     expect(
       (
@@ -524,7 +526,7 @@ describe('delivery metrics board endpoints', () => {
           endpoint: 'intervention',
           reqId: 'req-missing',
           reason: '人工澄清',
-          startedAt: '2026-11-16T09:00:00.000Z',
+          startedAt,
         })
       ).status,
     ).toBe(404)
@@ -532,7 +534,7 @@ describe('delivery metrics board endpoints', () => {
       endpoint: 'intervention',
       reqId: 'req-1',
       reason: '人工澄清',
-      startedAt: '2026-11-16T09:00:00.000Z',
+      startedAt,
       sessionId: 'session-1',
     })
     expect(ok.status).toBe(200)
