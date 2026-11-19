@@ -82,7 +82,6 @@ import { LegacyVerification } from './legacy-verification.js'
 import { TaskDelivery, type DeliverInput, type DeliverOutcome } from './task-delivery.js'
 import { TaskViews } from './task-views.js'
 import { VerificationPipeline } from './verification-pipeline.js'
-import { blackBoxVerificationDeps } from './blackbox-verification.js'
 import { CandidatePipeline } from './candidate-pipeline.js'
 import { ExecutionPlan } from './execution-plan.js'
 import { ExecutionDev } from './execution-dev.js'
@@ -198,6 +197,16 @@ export class ForgeLoopRuntime {
       authorizedPlan: (plan, source) => this.authorizedPlan(plan, source),
       applyDiffFile,
     })
+    this.legacyVerification = new LegacyVerification({
+      config: this.config,
+      repo: this.repo,
+      now: () => this.now(),
+      charge: (reqId, started) => {
+        this.charge(reqId, started)
+      },
+      openAgent: (request) => this.openAgent(request),
+      checks: this.verificationChecks,
+    })
     this.verificationPipeline = new VerificationPipeline({
       config: this.config,
       repo: this.repo,
@@ -215,7 +224,8 @@ export class ForgeLoopRuntime {
       reopenDeliveredTasks: (input) => this.reopenDeliveredTasks(input),
       verificationBaseline: (analysis) => this.verificationBaseline(analysis),
       remainingFailureRounds: (reqId) => this.remainingFailureRounds(reqId),
-      ...blackBoxVerificationDeps(() => this.legacyVerification),
+      openBlackBoxSession: (input) => this.legacyVerification.openVerification(input),
+      verifyCandidateBlackBox: (input) => this.legacyVerification.verifyCandidate(input),
     })
     this.taskViews = new TaskViews({
       config: this.config,
@@ -241,16 +251,6 @@ export class ForgeLoopRuntime {
       previousTaskFailure: (reqId, planVersion, taskId) =>
         this.previousTaskFailure(reqId, planVersion, taskId),
       applyDiffFile,
-    })
-    this.legacyVerification = new LegacyVerification({
-      config: this.config,
-      repo: this.repo,
-      now: () => this.now(),
-      charge: (reqId, started) => {
-        this.charge(reqId, started)
-      },
-      openAgent: (request) => this.openAgent(request),
-      checks: this.verificationChecks,
     })
     this.sessionRouting = new SessionRouting({
       config: this.config,
