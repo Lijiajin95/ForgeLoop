@@ -821,8 +821,31 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  // 把同一组判定分散到多个方法，更难审计。
-  // eslint-disable-next-line complexity
+  private async commitVerifiedCandidate(input: {
+    reqId: string
+    plan: TaskPlan
+    candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
+    requirementTitle: string
+  }): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const commit = await this.commitCandidate({
+      reqId: input.reqId,
+      plan: input.plan,
+      candidate: input.candidate,
+      requirementTitle: input.requirementTitle,
+    })
+    if (!commit.ok) {
+      if (this.deps.repo.getRequirement(input.reqId)?.status !== CANCELLED) {
+        this.deps.repo.setStatus(input.reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+      }
+      return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
+    }
+    this.deps.repo.setStatus(input.reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
+    return {
+      state: 'done',
+      detail: `需求 ${input.reqId} 已完成研发、独立测试与提交：${commit.commitSha.slice(0, 12)}`,
+    }
+  }
+
   private async verifyContinuousCandidate(input: {
     reqId: string
     requirement: Requirement
@@ -877,23 +900,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       }
       if (verification.state === 'pass') {
         this.deps.issues.resolveOpen(reqId, this.deps.now())
-        const commit = await this.commitCandidate({
+        return this.commitVerifiedCandidate({
           reqId,
           plan,
           candidate,
           requirementTitle: requirementTitle(requirement),
         })
-        if (!commit.ok) {
-          if (this.deps.repo.getRequirement(reqId)?.status !== CANCELLED) {
-            this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
-          }
-          return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
-        }
-        this.deps.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
-        return {
-          state: 'done',
-          detail: `需求 ${reqId} 已完成研发、独立测试与提交：${commit.commitSha.slice(0, 12)}`,
-        }
       }
       const recorded = verification.verification
       if (recorded && recorded.verdict === 'block') {
