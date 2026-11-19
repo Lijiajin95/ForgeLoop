@@ -1,13 +1,23 @@
 import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { RuleViolationError } from '../domain/errors.js'
+import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import { parsePlanReview, parseVerificationReport } from '../domain/verification.js'
 import { sha256OfBytes } from '../domain/delivery.js'
 import { projectDir, recordsPath, type ForgeLoopConfig } from '../config.js'
 import { AgentRunner } from './agent-runner.js'
 import { git } from './workspace.js'
+
+export function linkSharedModules(target: string, linkPath: string): string {
+  try {
+    symlinkSync(target, linkPath, 'dir')
+    return ''
+  } catch (error) {
+    if (existsSync(linkPath)) return ''
+    return `无法链接共享依赖 ${target} -> ${linkPath}：${errorMessage(error)}`
+  }
+}
 
 export function summarizeActivity(events: readonly Record<string, unknown>[]): string {
   for (let index = events.length - 1; index >= 0; index -= 1) {

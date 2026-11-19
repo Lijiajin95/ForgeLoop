@@ -1,20 +1,11 @@
 import { parseJsonObject } from '../domain/json.js'
-import { bestEffort } from './best-effort.js'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { candidatesDir } from '../config.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { sha256OfBytes, sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
-import { verificationBlocking } from './service-helpers.js'
+import { linkSharedModules, verificationBlocking } from './service-helpers.js'
 import type { Requirement } from '../domain/requirement.js'
 import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
 import { requireGit, runCommand } from './workspace.js'
@@ -288,11 +279,9 @@ export class CandidatePipeline {
     writeFileSync(join(dir, basename(candidate.diffPath)), diffText, 'utf8')
     const sharedModules = join(this.deps.config.projectPath, 'node_modules')
     if (existsSync(sharedModules)) {
-      // 已安装的依赖，否则 tsc 等本地二进制不存在，会把环境缺依赖误判为候选失败。
       rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
-      bestEffort(() => {
-        symlinkSync(sharedModules, join(dir, 'node_modules'), 'dir')
-      })
+      const linkError = linkSharedModules(sharedModules, join(dir, 'node_modules'))
+      if (linkError) return { ok: false, result: fail('candidate_env_unavailable', linkError) }
     }
     const versionError = this.patchCandidateVersion(dir, input.version)
     if (versionError) return { ok: false, result: versionError }

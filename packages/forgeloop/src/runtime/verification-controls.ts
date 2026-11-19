@@ -1,15 +1,5 @@
 import { createHash } from 'node:crypto'
-import { bestEffort } from './best-effort.js'
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  symlinkSync,
-} from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { controlPatchTargets } from '../domain/verification-controls.js'
@@ -18,6 +8,7 @@ import { matchesCommandOutput } from '../domain/verification.js'
 import type { VerificationControlSpec } from '../domain/verification-controls.js'
 import { validateControlPatch } from '../domain/verification-controls.js'
 import { errorMessage } from '../domain/errors.js'
+import { linkSharedModules } from './service-helpers.js'
 import { runCommand } from './workspace.js'
 import { verificationMaterialDigest } from './verification-materials.js'
 
@@ -79,7 +70,7 @@ function safeName(label: string): string {
   return cleaned || 'control'
 }
 
-function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): void {
+function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): string {
   rmSync(controlDir, { recursive: true, force: true })
   mkdirSync(controlDir, { recursive: true })
   cpSync(workspace, controlDir, {
@@ -113,10 +104,10 @@ function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: s
   if (dependencyRoot) candidates.push(join(dependencyRoot, 'node_modules'))
   const modules = candidates.find((path) => existsSync(path))
   if (modules) {
-    bestEffort(() => {
-      symlinkSync(modules, join(controlDir, 'node_modules'), 'dir')
-    })
+    const linkError = linkSharedModules(modules, join(controlDir, 'node_modules'))
+    if (linkError) return linkError
   }
+  return ''
 }
 
 function inside(parent: string, child: string): boolean {
@@ -156,7 +147,8 @@ function applyControlPatch(
 ): { applied: boolean; changedFiles: string[]; issue: string; controlDir: string } {
   const controlDir = isolatedControlDir(workspace, controlDirInput)
   const targets = controlPatchTargets(readFileSync(patchPath, 'utf8'))
-  copyCandidate(workspace, controlDir, dependencyRoot)
+  const copyIssue = copyCandidate(workspace, controlDir, dependencyRoot)
+  if (copyIssue) return { applied: false, changedFiles: [], issue: copyIssue, controlDir }
   const before = targetDigests(controlDir, targets)
   const candidateBefore = targetDigests(workspace, targets)
   const check = runCommand('git', ['apply', '--check', patchPath], controlDir, 30_000)
