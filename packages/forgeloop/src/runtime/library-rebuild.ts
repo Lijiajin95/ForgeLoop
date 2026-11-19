@@ -198,7 +198,9 @@ export class LibraryRebuildService {
       controller,
       errors,
     })
-    if (isAborted(controller.signal)) {
+    try {
+      controller.signal.throwIfAborted()
+    } catch {
       this.cancelled(runId)
       return
     }
@@ -213,7 +215,9 @@ export class LibraryRebuildService {
       updatedAt: this.now().slice(0, 10),
     })
     const summary = summarizeRebuildPlan(plan)
-    if (isAborted(controller.signal)) {
+    try {
+      controller.signal.throwIfAborted()
+    } catch {
       this.cancelled(runId)
       return
     }
@@ -254,7 +258,11 @@ export class LibraryRebuildService {
     const merged = new Map<string, RebuildCandidate>()
     const log: RebuildBatchLogEntry[] = []
     for (let index = 0; index < input.batches.length; index += 1) {
-      if (isAborted(input.controller.signal)) break
+      try {
+        input.controller.signal.throwIfAborted()
+      } catch {
+        break
+      }
       const batch = input.batches[index] ?? []
       const startedAt = Date.now()
       const result = await this.runBatch({
@@ -480,10 +488,6 @@ export class LibraryRebuildService {
     writeAtomic(join(dir, 'report.md'), `${lines.join('\n')}\n`)
     return dir
   }
-}
-
-function isAborted(signal: AbortSignal): boolean {
-  return signal.aborted
 }
 
 function emptyRun(input: {
