@@ -158,7 +158,7 @@ describe('delivery metrics domain', () => {
         actor: 'owner',
         reason: '人工澄清',
         startedAt: '2026-11-15T10:00:00.000Z',
-        endedAt: '',
+        endedAt: null,
       },
     ])
     expect(unknown.minutes).toBeNull()
@@ -186,7 +186,7 @@ describe('delivery metrics domain', () => {
             actor: '',
             reason: '停止需求',
             startedAt: '2026-11-15T11:00:00.000Z',
-            endedAt: '',
+            endedAt: null,
           },
         ],
       }),
@@ -545,5 +545,29 @@ describe('delivery metrics board endpoints', () => {
       reason: '人工澄清',
       source: 'web-decision:session-1',
     })
+  })
+})
+
+describe('delivery metrics records boundary', () => {
+  it('maps the empty duration sentinel to null', () => {
+    const root = mkdtempSync(join(tmpdir(), 'forgeloop-metrics-'))
+    roots.push(root)
+    const runtime = runtimeWith(root)
+    const reqId = submit(runtime, '需求 C')
+    runtime.repo.metricsStore.recordIntervention({
+      interventionId: 'hi-boundary',
+      reqId,
+      project: 'demo',
+      actor: 'owner',
+      reason: '人工澄清',
+      startedAt: '2026-11-16T09:00:00.000Z',
+      endedAt: null,
+      source: 'test',
+      recordedAt: '2026-11-16T09:10:00.000Z',
+    })
+
+    const [row] = runtime.repo.metricsStore.interventionsFor(reqId)
+    expect(row?.endedAt).toBeNull()
+    runtime.close()
   })
 })

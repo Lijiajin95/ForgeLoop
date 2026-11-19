@@ -19,8 +19,7 @@ export interface MetricsIntervention {
   readonly actor: string
   readonly reason: string
   readonly startedAt: string
-  /** 空串表示只记录了介入事实、没有可观测的处理时长。 */
-  readonly endedAt: string
+  readonly endedAt: string | null
 }
 
 export interface RequirementStanding {

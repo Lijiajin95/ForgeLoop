@@ -20,7 +20,7 @@ export interface MetricsInterventionRow {
   readonly actor: string
   readonly reason: string
   readonly startedAt: string
-  readonly endedAt: string
+  readonly endedAt: string | null
 }
 
 export interface HumanInterventionRecord {
@@ -30,7 +30,7 @@ export interface HumanInterventionRecord {
   readonly actor: string
   readonly reason: string
   readonly startedAt: string
-  readonly endedAt: string
+  readonly endedAt: string | null
   readonly source: string
   readonly recordedAt: string
 }
@@ -56,7 +56,7 @@ function interventionRow(row: Row): MetricsInterventionRow {
     actor: text(row, 'actor'),
     reason: text(row, 'reason'),
     startedAt: text(row, 'at') || text(row, 'started_at'),
-    endedAt: text(row, 'ended_at'),
+    endedAt: text(row, 'ended_at') || null,
   }
 }
 
@@ -119,7 +119,7 @@ export class MetricsStore {
         record.actor,
         record.reason,
         record.startedAt,
-        record.endedAt,
+        record.endedAt ?? '',
         record.source,
         record.recordedAt,
       )
