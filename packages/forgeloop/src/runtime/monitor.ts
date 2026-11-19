@@ -508,6 +508,10 @@ const BUILTIN_PROVIDER: OpsMonitorProvider = {
 
 const PROVIDER_IMPLEMENTATIONS: readonly OpsMonitorProvider[] = [BUILTIN_PROVIDER]
 
+export function providerImplementationIds(): readonly string[] {
+  return PROVIDER_IMPLEMENTATIONS.map((provider) => provider.id)
+}
+
 function resolveProvider(id: string): OpsMonitorProvider | undefined {
   return PROVIDER_IMPLEMENTATIONS.find((provider) => provider.id === id)
 }
