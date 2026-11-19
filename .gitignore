@@ -27,6 +27,10 @@ reports/
 # 所有者个人草稿文件：明确不入库（放在仓库根但不参与版本控制）。
 email.txt
 
+# Archify 项目图与说明页：由 .cache/tools/archify 在本机生成，
+# 候选 JSON、HTML 与校验回执都是本机现场，不进入版本库。
+.archify/
+
 # 本地阅读资料（第三方文章/书籍节选，不进仓库；所有者 2026-10-13 决定）
 docs/library/
 
