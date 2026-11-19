@@ -1,17 +1,7 @@
-/**
- * 结构化需求说明：业务要点、可观察验收与未确认假设。
- *
- * 目标是把“用户原文 → 业务要点 → 验收项 → 研发/验证输入”串成同一份权威结构。
- * 这里只做字段合法性、编号唯一、引用有效与覆盖关系等确定性检查；
- * 语义质量（是否真的完整、是否误解业务）由真实模型样本评审，不用关键词黑名单、
- * 字数门槛或模型自报“通过”代替。
- */
-
 import { asRecord } from './json.js'
 import { MalformedError } from './errors.js'
 import type { TaskPlan } from './task-plan.js'
 
-/** 业务要点的依据：用户明确要求、已生效项目约定或外部资料。模型推断只能进假设。 */
 export type PointBasis = 'user_requirement' | 'project_convention' | 'external_material'
 
 const POINT_BASES: readonly PointBasis[] = [
@@ -20,23 +10,19 @@ const POINT_BASES: readonly PointBasis[] = [
   'external_material',
 ]
 
-/** 异常与边界必须说明是已评估、评估后不适用，还是尚未分析。 */
 export type ExceptionStatus = 'assessed' | 'not_applicable' | 'unanalyzed'
 
 const EXCEPTION_STATUSES: readonly ExceptionStatus[] = ['assessed', 'not_applicable', 'unanalyzed']
 
 export interface PointExceptions {
   readonly status: ExceptionStatus
-  /** assessed 时列出的异常与边界；其他状态必须为空。 */
   readonly items: readonly string[]
-  /** not_applicable / unanalyzed 的理由；assessed 可为空。 */
   readonly reason: string
 }
 
 export interface BusinessPoint {
   readonly id: string
   readonly basis: PointBasis
-  /** 用户原文、项目文档路径或外部资料地址；用于回查依据。 */
   readonly source: string
   readonly actor: string
   readonly trigger: string
@@ -45,7 +31,6 @@ export interface BusinessPoint {
   readonly exceptions: PointExceptions
 }
 
-/** 可观察验收：谁在什么前置条件下做什么，以及能看到什么结果。 */
 export interface AcceptanceCriterion {
   readonly id: string
   readonly pointIds: readonly string[]
@@ -54,7 +39,6 @@ export interface AcceptanceCriterion {
   readonly then: string
 }
 
-/** 尚未验证的推断或外部假设；needsConfirmation 时不得进入研发。 */
 export interface Assumption {
   readonly id: string
   readonly statement: string
@@ -64,13 +48,10 @@ export interface Assumption {
   readonly needsConfirmation: boolean
 }
 
-/** 与已有承诺的冲突：必须指明是哪条需求、冲突点、可选择的取舍以及需要决定什么。 */
 export interface CommitmentConflict {
-  /** 已有承诺所在需求，必须是项目中真实存在的其他需求。 */
   readonly existingReqId: string
   readonly commitment: string
   readonly conflict: string
-  /** 至少两种可比较的取舍，交给所有者决定。 */
   readonly options: readonly string[]
   readonly decisionNeeded: string
 }
@@ -92,7 +73,6 @@ export interface SpecBearingAnalysis {
 }
 
 export interface ParsedSpecFields extends AnalysisSpec {
-  /** 兼容既有提示词、看板与验证文本匹配的字符串形式；由结构化项渲染。 */
   readonly acceptanceCriteria: readonly string[]
 }
 
@@ -187,7 +167,6 @@ function parseAssumption(value: unknown, index: number): Assumption {
       `分析字段 ${field}.basis 必须是 inference 或 external_material；用户要求应写成业务要点`,
     )
   }
-  // 存储层按 snake_case 序列化；旧行或驼峰字段也接受，避免读回时整条分析不可读。
   const needsConfirmation = data.needs_confirmation ?? data.needsConfirmation
   if (typeof needsConfirmation !== 'boolean') {
     throw new MalformedError(`分析字段 ${field}.needs_confirmation 必须是布尔值`)
@@ -206,11 +185,6 @@ export function renderAcceptanceCriterion(item: AcceptanceCriterion): string {
   return `${item.id}：给定 ${item.given}；当 ${item.when}；则 ${item.then}`
 }
 
-/**
- * 解析分析载荷里的规格字段。兼容历史记录：缺字段得到空规格，
- * acceptance_criteria 仍是字符串时按旧格式读入；一旦给出业务要点，
- * 验收标准必须是带编号和 given/when/then 的对象，避免两套口径并存。
- */
 function parseAcceptanceField(
   raw: unknown,
   points: readonly BusinessPoint[],
@@ -234,7 +208,6 @@ function parseAcceptanceField(
     throw new MalformedError('分析字段 acceptance_criteria 不能混用字符串与对象')
   }
   const acceptance = items.map((item, index) => parseAcceptance(item, index))
-  // 顶层字符串保持纯可观察结果，供旧看板/文本覆盖使用；编号与 given/when 在结构化项中。
   return { acceptance, acceptanceCriteria: acceptance.map((item) => item.then) }
 }
 
@@ -298,7 +271,6 @@ function uniqueIds(items: readonly { id: string }[], label: string): void {
   }
 }
 
-/** 新编号必须大于历史上已用编号，防止重新分析时把新增项悄悄挤回旧编号。 */
 function stableIds(
   items: readonly { id: string }[],
   previous: readonly { id: string }[],
@@ -330,18 +302,13 @@ export interface SpecValidationInput {
   readonly complete: boolean
   readonly inputKind: 'requirement' | 'problem'
   readonly previous?: AnalysisSpec | null | undefined
-  /** 当前需求的全部版本原文；用户要求类依据必须能在其中逐字核对。 */
   readonly requirementTexts?: readonly string[] | undefined
-  /** 项目内 Markdown 文档是否存在；用于核对项目约定依据。 */
   readonly projectDocExists?: ((relative: string) => boolean) | undefined
-  /** 项目内已存在的需求身份；冲突引用必须指向真实存在的其他需求。 */
   readonly knownRequirementIds?: readonly string[] | undefined
   readonly currentReqId?: string | undefined
-  /** 历史分析用过的业务要点/验收编号；退役后不得复用。 */
   readonly historicalIds?: readonly string[] | undefined
 }
 
-/** 去掉引号、来源前缀与空白后比较，保留字词与标点本身。 */
 function normalizeQuote(text: string): string {
   return text
     .replace(/^\s*(?:需求原文|用户原文|用户要求)\s*[：:]\s*/u, '')
@@ -373,11 +340,6 @@ function validatePointSource(point: BusinessPoint, input: SpecValidationInput): 
   }
 }
 
-/**
- * 确定性校验：编号、引用、覆盖与完成度。
- * complete=false（仍有待澄清）时允许规格不完整，但不允许非法引用；
- * complete=true 时缺业务要点、要点无验收、未分析异常或未确认假设都阻断。
- */
 function validateIds(
   spec: AnalysisSpec,
   previous: AnalysisSpec | null | undefined,
@@ -435,11 +397,6 @@ function validateComplete(spec: AnalysisSpec): void {
   }
 }
 
-/**
- * 确定性校验：编号、引用、覆盖与完成度。
- * complete=false（仍有待澄清）时允许规格不完整，但不允许非法引用；
- * complete=true 时缺业务要点、要点无验收、未分析异常或未确认假设都阻断。
- */
 export function validateSpec(input: SpecValidationInput): void {
   const { spec, complete, inputKind, previous } = input
   if (inputKind === 'problem') {
@@ -460,7 +417,6 @@ export function validateSpec(input: SpecValidationInput): void {
   if (complete) validateComplete(spec)
 }
 
-/** 冲突必须引用真实存在的其他需求，并给出可比较的取舍。 */
 function validateConflicts(spec: AnalysisSpec, input: SpecValidationInput): void {
   const known = new Set(input.knownRequirementIds ?? [])
   for (const conflict of spec.conflicts) {
@@ -503,10 +459,6 @@ function byId(items: readonly { id: string }[]): Map<string, string> {
   return new Map(items.map((item) => [item.id, JSON.stringify(item)]))
 }
 
-/**
- * 两次分析之间的确定性差异：新增/修改/移除的要点与验收，以及澄清项的解决与新开。
- * 只按编号与序列化内容比较，不做语义推断。
- */
 export function specChanges(
   previous: SpecBearingAnalysis | null,
   latest: SpecBearingAnalysis | null,
@@ -561,7 +513,6 @@ export interface PlanCoverageIssue {
   readonly detail: string
 }
 
-/** 任务包必须显式覆盖每条业务要点；没有结构化规格的旧分析不套用。 */
 export function planCoverageIssues(
   analysis: SpecBearingAnalysis,
   plan: TaskPlan,

@@ -1,22 +1,11 @@
-/**
- * 失败轮次与追加授权（迁移自旧 `domain/counting.py`）：
- * - 正式转测后，测试或验收失败计一个失败轮次；转测前失败不计。
- * - 同一轮重复反馈不重复加数（round_id 幂等）。
- * - 失败轮次默认 -1（不限）：逐轮记录，但默认不因次数停止自动推进。
- * - 显式配置每次授权的轮次上限（> 0）时，额度用尽才等待追加授权。
- */
-
 import { GrantExhaustedError, RuleViolationError } from './errors.js'
 import { unlimitedLimit } from './limits.js'
 
-/** 显式配置每次授权轮次上限时的默认值。 */
 export const MAX_ROUNDS_PER_GRANT = 3
 
 export const FAILURE_FORMAL_TEST = 'formal_test'
 export const FAILURE_PLANNING = 'planning'
-/** 实现后独立审查判定 block：同样消耗失败轮次，不能无限返工。 */
 export const FAILURE_IMPLEMENTATION_REVIEW = 'implementation_review'
-/** 执行回合超时/被停止：同样消耗一轮额度，避免自动重试无限循环。 */
 export const FAILURE_INTERRUPTED = 'interrupted'
 export const FAILURE_VERIFICATION = 'verification'
 export const FAILURE_BUSINESS_REVIEW = 'business_review'
@@ -100,7 +89,6 @@ export class GrantLedger {
     return this.remainingInCurrentGrant > 0
   }
 
-  /** 额度用尽：自动推进停止，等待追加授权或停止决定；不限时永不触发。 */
   get awaitingGrantDecision(): boolean {
     return this.remainingInCurrentGrant === 0
   }
@@ -119,7 +107,6 @@ export class GrantLedger {
     return { recorded: true, cumulativeFailures: this.cumulativeFailures }
   }
 
-  /** 明确追加一次授权：额度按每份配置增加，累计失败与历史保留，不清零。 */
   appendGrant(): void {
     this.grants += 1
   }

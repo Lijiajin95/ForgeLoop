@@ -1,11 +1,3 @@
-/**
- * 运维事件的纯规则：已登记的检查与处置动作目录、失败签名、事件状态、
- * 诊断结果结构、自动处置授权与恢复判定、统计口径。
- *
- * 这里只做确定性判定，不读写数据库、不执行命令、不调用模型。
- * 动作只能来自预先登记的目录；模型不能自行创造命令或参数。
- */
-
 import { asRecord } from './json.js'
 import { createHash } from 'node:crypto'
 import { MalformedError, RuleViolationError } from './errors.js'
@@ -17,7 +9,6 @@ export type OpsSeverity = (typeof OPS_SEVERITIES)[number]
 export const OPS_RESOURCE_KINDS = ['app', 'database', 'cache', 'queue', 'host', 'other'] as const
 export type OpsResourceKind = (typeof OPS_RESOURCE_KINDS)[number]
 
-/** 事件生命周期：观测到失败后先开放，诊断与处置各自留档。 */
 export const OPS_OPEN = 'open'
 export const OPS_DIAGNOSED = 'diagnosed'
 export const OPS_AWAITING_DECISION = 'awaiting_decision'
@@ -35,11 +26,6 @@ export type OpsEventState =
   | typeof OPS_UNRESOLVED
   | typeof OPS_CLOSED
 
-/**
- * 处置动作尝试的状态：只记录可判定的事实，不保留“结果未知”。
- * `interrupted` 表示宿主在动作结束前退出、没有退出码；事实是“没有结果记录”，
- * 不是一种业务状态。事件按未解决收口，再由运维 Agent 分析根因并上报。
- */
 export const OPS_ATTEMPT_RUNNING = 'running'
 export const OPS_ATTEMPT_SUCCEEDED = 'succeeded'
 export const OPS_ATTEMPT_FAILED = 'failed'
@@ -51,7 +37,6 @@ export type OpsAttemptState =
   | typeof OPS_ATTEMPT_FAILED
   | typeof OPS_ATTEMPT_INTERRUPTED
 
-/** 仍在处理中的事件：同一失败只归并到这些事件，不重复计数。 */
 export const OPS_ACTIVE_STATES: ReadonlySet<string> = new Set([
   OPS_OPEN,
   OPS_DIAGNOSED,
@@ -73,7 +58,6 @@ export interface OpsResource {
 export interface OpsCheck {
   readonly id: string
   readonly resourceId: string
-  /** 只读检查的 argv；不接受 Shell 字符串。 */
   readonly command: readonly string[]
   readonly timeoutSeconds: number
   readonly severity: OpsSeverity
@@ -81,20 +65,16 @@ export interface OpsCheck {
 
 export interface OpsActionParam {
   readonly name: string
-  /** 参数只允许登记过的取值，模型与页面都不能提交目录外的值。 */
   readonly values: readonly string[]
 }
 
 export interface OpsAction {
   readonly id: string
   readonly resourceId: string
-  /** 已登记的 argv 模板，可包含 `{参数名}` 占位符。 */
   readonly command: readonly string[]
   readonly params: readonly OpsActionParam[]
   readonly timeoutSeconds: number
-  /** 目录预先授权该动作在自身参数范围内自动执行；未标记的必须人工决定。 */
   readonly auto: boolean
-  /** 恢复复核所用的检查；必须与动作属于同一资源。 */
   readonly verifyCheckId: string
 }
 
@@ -127,10 +107,6 @@ function assertPositive(value: number, what: string): void {
   if (!Number.isFinite(value) || value <= 0) throw new RuleViolationError(`${what}必须是正数`)
 }
 
-/**
- * 装载期校验：目录必须自洽，非法配置直接失败，不做静默回落。
- * 资源、检查、动作只登记一次；动作只能引用同资源的检查作为恢复复核。
- */
 export function validateOpsCatalog(catalog: OpsCatalog): void {
   const resources = validateOpsResources(catalog)
   const checks = validateOpsChecks(catalog, resources)
@@ -248,10 +224,6 @@ function validateActionPlaceholders(action: OpsAction, declared: Set<string>): v
   }
 }
 
-/**
- * 把已校验的参数代入登记过的 argv。
- * 缺参、未知参数或目录外取值一律拒绝，不把模型输出拼进命令。
- */
 export function actionArgv(action: OpsAction, params: Readonly<Record<string, string>>): string[] {
   const declared = new Map(action.params.map((param) => [param.name, param]))
   for (const [name, value] of Object.entries(params)) {
@@ -281,10 +253,6 @@ function normalizedLine(output: string): string {
   return line ? line.replace(/\s+/g, ' ').slice(0, 400) : 'no-output'
 }
 
-/**
- * 一次失败的稳定签名：资源＋检查＋退出码＋首条输出摘要。
- * 同一故障的重复告警归并到同一事件；输出变化（不同首行）形成新签名。
- */
 export function opsSignatureOf(input: {
   readonly resourceId: string
   readonly checkId: string
@@ -298,7 +266,6 @@ export function opsSignatureOf(input: {
   return `${input.resourceId}/${input.checkId}/${input.exitCode}/${digest}`
 }
 
-/** 恢复复核只认程序退出码；超时即使退出码为 0 也不算通过。 */
 export function recoveryPassed(input: {
   readonly code: number
   readonly timedOut: boolean
@@ -323,18 +290,12 @@ export interface OpsProposedDeployment {
 }
 
 export interface OpsDiagnosis {
-  /** 面向业务用户的影响说明，不能只写技术报错。 */
   readonly impact: string
-  /** 已观察到的事实；与推断分开保存。 */
   readonly facts: readonly string[]
-  /** 未证实的推断；不能当作事实或授权依据。 */
   readonly hypotheses: readonly OpsHypothesis[]
   readonly proposedAction: OpsProposedAction | null
-  /** 运维只能提议已登记的部署目标；执行由主控按 target.approval 决定，模型没有部署工具。 */
   readonly proposedDeployment?: OpsProposedDeployment | null
-  /** 模型认为需要人工决定时为 true；运行时仍按目录授权判定，模型不能自行放宽。 */
   readonly decisionRequired: boolean
-  /** 即使恢复服务也需要代码修复时置 true，用于生成关联修复需求。 */
   readonly fixRequired: boolean
   readonly summary: string
 }
@@ -396,10 +357,6 @@ function parseProposedAction(value: unknown): OpsProposedAction | null {
   return { actionId, params }
 }
 
-/**
- * 从已解析的 JSON 对象读出诊断字段。主动监控报告里的每个问题复用同一结构，
- * 避免诊断与监控各有一套字段名与容错规则。
- */
 export function parseOpsDiagnosisFields(data: Record<string, unknown>): OpsDiagnosis {
   const impact = nonEmptyString(data.impact, '运维诊断的业务影响')
   const facts = stringArray(data.facts, '运维诊断的事实')
@@ -428,10 +385,6 @@ export function parseOpsDiagnosisFields(data: Record<string, unknown>): OpsDiagn
   }
 }
 
-/**
- * 解析运维 Agent 的诊断 JSON。结构畸形直接失败，不把部分字段当成结论。
- * 这里不校验动作是否登记；调用方必须再用目录校验动作与参数。
- */
 export function parseOpsDiagnosis(text: string): OpsDiagnosis {
   const payload = parseJsonLoose(text, '运维诊断')
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
@@ -440,7 +393,6 @@ export function parseOpsDiagnosis(text: string): OpsDiagnosis {
   return parseOpsDiagnosisFields(asRecord(payload) ?? {})
 }
 
-/** 以模型输入格式保存诊断：读回时复用同一解析器，避免两套字段名。 */
 export function serializeOpsDiagnosis(diagnosis: OpsDiagnosis): string {
   return JSON.stringify({
     impact: diagnosis.impact,
@@ -460,15 +412,10 @@ export function serializeOpsDiagnosis(diagnosis: OpsDiagnosis): string {
 
 export interface OpsAuthorization {
   readonly auto: boolean
-  /** 自动执行时的授权来源，写入动作记录；人工决定时由调用方给出 owner 来源。 */
   readonly source: string
   readonly reason: string
 }
 
-/**
- * 自动处置判定：只有目录预先标记 auto、动作属于同一资源、且模型未要求人工决定时才成立。
- * 模型不能把未登记或未授权的动作变成自动执行。
- */
 export function authorizeOpsAction(input: {
   readonly event: {
     readonly resourceId: string
@@ -498,13 +445,9 @@ export function authorizeOpsAction(input: {
 }
 
 export interface OpsInterruptionReport {
-  /** 面向所有者的一句话结论。 */
   readonly summary: string
-  /** 基于已记录事实与推断的根因分析。 */
   readonly rootCause: string
-  /** Agent 实际使用的事实；不能凭空补造。 */
   readonly evidence: readonly string[]
-  /** 建议的人工下一步；不会因此自动执行动作。 */
   readonly nextStep: string
 }
 
@@ -522,10 +465,6 @@ function boundedString(value: unknown, what: string, max: number): string {
   return text
 }
 
-/**
- * 解析“动作被中断、没有结果记录”时的根因报告。
- * 这是上报材料，不是业务状态，也不能作为重新执行动作的授权。
- */
 export function parseOpsInterruptionReport(text: string): OpsInterruptionReport {
   const payload = parseJsonLoose(text, '运维中断根因报告')
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {

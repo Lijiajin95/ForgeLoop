@@ -1,17 +1,7 @@
-/**
- * 任务包领域规则（迁移自旧 `domain/task_plan.py`）：
- * - 每个任务有目标、允许修改文件、验收标准、正式测试命令、依赖与限额；
- * - 文件清单必须是项目内相对路径，不得越界；测试命令是非空 argv；
- * - 依赖必须存在且无环，task_id 唯一；
- * - 批准绑定需求身份与任务包版本；旧版本批准不能驱动新任务包，授权来源只由真实批准写入。
- */
-
 import { asRecord as recordOf } from './json.js'
 import { MalformedError, NotFoundError, RuleViolationError, errorMessage } from './errors.js'
 
-/** 任务工时预算的默认值：-1 表示不限，仍记录实际消耗。 */
 export const DEFAULT_TASK_LIMIT_SECONDS = -1
-/** 任务失败轮次的默认值：-1 表示不限，仍逐轮记录。 */
 export const DEFAULT_MAX_FAILURE_ROUNDS = -1
 
 export interface TaskLimits {
@@ -32,7 +22,6 @@ export interface PlannedTask {
   readonly testCommand: readonly string[]
   readonly dependsOn: readonly string[]
   readonly limits: TaskLimits
-  /** 本任务覆盖的业务要点编号（BP-x）；旧任务包没有该字段。 */
   readonly covers?: readonly string[]
   readonly authorizationSource: string
 }
@@ -43,7 +32,6 @@ export interface TechnicalSolution {
   readonly risks: readonly string[]
 }
 
-/** 需求级工时：任一任务不限（-1）则整体不限，否则累加任务限额。 */
 export function planLimitSeconds(tasks: readonly PlannedTask[]): number {
   if (tasks.some((task) => task.limits.limitSeconds < 0)) return -1
   return tasks.reduce((sum, task) => sum + task.limits.limitSeconds, 0)
@@ -56,7 +44,6 @@ export interface TaskPlan {
   readonly planVersion: number
   readonly requirementVersion: number
   readonly tasks: readonly PlannedTask[]
-  /** 研发 Agent 给出的技术方案；新任务包应提供，历史记录可能没有。 */
   readonly technicalSolution?: TechnicalSolution
   readonly createdAt: string
 }
@@ -86,7 +73,6 @@ function toStringList(value: unknown, field: string, allowEmpty: boolean): strin
   return items
 }
 
-/** 文件清单必须是项目根下的相对路径；拒绝绝对路径与 `..` 越界。 */
 export function validateFiles(files: readonly string[]): void {
   if (files.length === 0) throw new RuleViolationError('任务的准许修改文件清单不能为空')
   for (const relative of files) {
@@ -100,17 +86,11 @@ export function validateFiles(files: readonly string[]): void {
   }
 }
 
-/**
- * 模型有时把多个编号拼成一条（例如 `BP-1: BP-1: AC-1`）：
- * 拆开、去重；AC 编号不属于本字段（验收项另有字段），其余非法编号仍交给校验拒绝。
- */
 function normalizeCovers(covers: readonly string[]): string[] {
   const ids: string[] = []
   for (const item of covers) {
     for (const id of item.split(/[:：,，;；\s]+/)) {
-      // 分隔符集包含空白，split 已去掉两侧空白，无需再 trim。
       if (id === '') continue
-      // AC 编号属于验收项字段，不作为业务要点；重复编号只保留首次出现。
       if (/^AC-\d+$/.test(id)) continue
       if (ids.includes(id)) continue
       ids.push(id)
@@ -121,7 +101,6 @@ function normalizeCovers(covers: readonly string[]): string[] {
 
 function validateCovers(covers: readonly string[] | undefined): void {
   if (covers === undefined) return
-  // 重复项在 toStringList 阶段已被拒绝、这里又经过 normalizeCovers 去重，
   // 因此不再保留一条永远走不到的重复检查（受控变异中它是不可达分支）。
   for (const pointId of covers) {
     if (!/^BP-\d+$/.test(pointId)) {
@@ -163,7 +142,6 @@ export function validateTask(task: PlannedTask): void {
   }
 }
 
-/** 按依赖拓扑序返回任务身份；声明顺序作为同层稳定顺序。 */
 export function executionOrder(plan: Pick<TaskPlan, 'tasks'>): string[] {
   const order: string[] = []
   const remaining = new Map(plan.tasks.map((task) => [task.taskId, new Set(task.dependsOn)]))
@@ -230,7 +208,6 @@ export interface PlanAuthorization {
   readonly reason: string
 }
 
-/** 判定任务包能否据此批准开始执行（纯函数）。 */
 export function authorizePlan(
   plan: TaskPlan,
   approval: TaskPlanApproval | null,
@@ -251,7 +228,6 @@ export function authorizePlan(
   return { status: 'approved', approval, reason: '' }
 }
 
-/** 把真实批准的授权来源写入任务包内每个任务；不匹配时明确拒绝。 */
 export function bindAuthorization(plan: TaskPlan, approval: TaskPlanApproval): TaskPlan {
   const authorization = authorizePlan(plan, approval)
   if (authorization.status !== 'approved') {
@@ -294,7 +270,6 @@ function limitsFrom(value: unknown): TaskLimits {
   return { limitSeconds, maxFailureRounds }
 }
 
-/** 解析模型给出的任务包载荷；不允许载荷自带 authorization_source。 */
 function parseTechnicalSolution(value: unknown): TechnicalSolution {
   const data = asRecord(value, 'technical_solution')
   return {
@@ -323,17 +298,17 @@ export function parseTaskPlanDraft(
         const parsed: unknown = JSON.parse(body)
         return parsed
       } catch (error) {
-        // 模型偶尔把 JSON 包在工具调用标记或说明文字里；只接受唯一一段完整对象，
         // 不猜测多个候选，也不放宽任务包校验。
         const start = body.indexOf('{')
         const end = body.lastIndexOf('}')
         if (start >= 0 && end > start) {
+          let parsed: unknown
           try {
-            const parsed: unknown = JSON.parse(body.slice(start, end + 1))
-            return parsed
+            parsed = JSON.parse(body.slice(start, end + 1))
           } catch {
-            // 落到统一的畸形错误。
+            parsed = undefined
           }
+          if (parsed !== undefined) return parsed
         }
         throw new MalformedError(`任务包不是可解析的 JSON：${errorMessage(error)}`)
       }
@@ -389,7 +364,6 @@ export function findTask(plan: TaskPlan, taskId: string): PlannedTask {
   return task
 }
 
-/** 某任务的全部上游任务（递归去重），按执行顺序返回。 */
 export function ancestorTaskIds(plan: TaskPlan, taskId: string): string[] {
   const target = findTask(plan, taskId)
   const seen = new Set<string>()

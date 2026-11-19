@@ -1,11 +1,3 @@
-/**
- * 需求受理的身份与修订规则（迁移自旧 `domain/requirement.py`）：
- * - 首次提交原文占用版本 1，永久保留；修订只追加，不覆盖。
- * - 同一目标的修订不重新分配身份，版本号从 1 起连续。
- * - 未知身份明确失败。
- * - 分析结果必须是结构化对象；有待澄清项时等待回答，不进入实现。
- */
-
 import { asRecord } from './json.js'
 import { MalformedError, RuleViolationError, errorMessage } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
@@ -32,7 +24,6 @@ export interface Requirement {
   readonly source: string
 }
 
-/** 构造并校验一条需求的全部版本：版本号连续、原文非空、绑定项目。 */
 export function validateRequirement(input: {
   reqId: string
   project: string
@@ -55,10 +46,6 @@ export function latestVersion(requirement: Requirement): RequirementVersion {
   return version
 }
 
-/**
- * 输入分诊结果：需求走需求分析流程，问题直接交研发定位与修复。
- * 历史分析没有该字段，一律按需求处理。
- */
 export type InputKind = 'requirement' | 'problem'
 
 export const INPUT_KINDS: readonly InputKind[] = ['requirement', 'problem']
@@ -68,30 +55,20 @@ export const DEFAULT_INPUT_KIND: InputKind = 'requirement'
 export interface RequirementAnalysis {
   readonly analysisVersion: number
   readonly requirementVersion: number
-  /** 输入分诊结论；缺省表示历史记录，按需求处理。 */
   readonly inputKind?: InputKind
   readonly goal: string
   readonly scenarios: readonly string[]
-  /** 业务规则：哪些业务约束必须成立。 */
   readonly businessRules?: readonly string[]
-  /** 异常与边界：异常路径、边界条件与不可用状态。 */
   readonly exceptions?: readonly string[]
-  /** 非目标：本需求明确不做的范围。 */
   readonly nonGoals?: readonly string[]
   readonly acceptanceCriteria: readonly string[]
-  /** 结构化业务要点；历史记录或问题输入可能没有。 */
   readonly businessPoints?: readonly BusinessPoint[]
-  /** 结构化可观察验收；与 businessPoints 同批出现。 */
   readonly acceptanceItems?: readonly AcceptanceCriterion[]
-  /** 尚未验证的推断或外部假设；不是已确认业务规则。 */
   readonly assumptions?: readonly Assumption[]
-  /** 与已有承诺的冲突；非空时暂停系统准入，等待所有者决定取舍。 */
   readonly conflicts?: readonly CommitmentConflict[]
   readonly clarifications: readonly string[]
-  /** 产生该结论的模型与提示词版本；历史记录可能为空。 */
   readonly model?: string
   readonly promptVersion?: string
-  /** 该次分析的 Agent 轨迹文件。 */
   readonly transcriptPath?: string
   readonly toolCalls?: readonly string[]
   readonly createdAt: string
@@ -101,7 +78,6 @@ export interface RequirementAnalysis {
 export interface BusinessContextDraft {
   readonly changed: boolean
   readonly document: string
-  /** changed=true 时的明确依据：哪条需求原文、回答或项目资料支持这次变化。 */
   readonly reason: string
 }
 
@@ -118,9 +94,7 @@ export interface AnalysisDraft {
   readonly assumptions: readonly Assumption[]
   readonly conflicts: readonly CommitmentConflict[]
   readonly clarifications: readonly string[]
-  /** 本轮对上一轮未解决问题的逐项处置；首次分析为空。 */
   readonly clarificationUpdates: readonly ClarificationUpdate[]
-  /** 需求库遍历记录与澄清缺口；库为空时可以为 null。 */
   readonly libraryReview: LibraryReview | null
   readonly businessContext: BusinessContextDraft
 }
@@ -137,15 +111,10 @@ function stringList(value: unknown, field: string): string[] {
   return items
 }
 
-/** 缺字段按空数组处理；字段存在但不是字符串数组时交给 stringList 报畸形。 */
 function listField(data: Record<string, unknown>, key: string): readonly string[] {
   return stringList(data[key] ?? [], key)
 }
 
-/**
- * 业务背景同步指令：缺字段视为“没有变化”，兼容历史分析；
- * changed=true 必须带完整文档，changed=false 不许夹带内容，避免程序写半截文档。
- */
 function businessContextField(data: Record<string, unknown>): BusinessContextDraft {
   const raw = data.business_context
   if (raw === undefined || raw === null) return { changed: false, document: '', reason: '' }
@@ -187,10 +156,6 @@ function unchangedContext(document: string, reason: string): BusinessContextDraf
   return { changed: false, document: '', reason: '' }
 }
 
-/**
- * 输入分诊字段：缺省按需求处理，兼容历史分析；出现未知取值时按畸形失败，
- * 不猜测输入类型。
- */
 function inputKindField(data: Record<string, unknown>): InputKind {
   const raw = data.input_kind
   if (raw === undefined || raw === null || raw === '') return DEFAULT_INPUT_KIND
@@ -198,10 +163,6 @@ function inputKindField(data: Record<string, unknown>): InputKind {
   throw new MalformedError('分析字段 input_kind 只能是 requirement 或 problem')
 }
 
-/**
- * 本轮对旧问题的处置。问题身份必须指向上一轮未解决问题（程序在调用方核对）；
- * 这里只校验结构、非空理由与重复引用，不猜测模型想解决哪个问题。
- */
 function clarificationUpdatesField(data: Record<string, unknown>): ClarificationUpdate[] {
   const raw = data.clarification_updates
   if (raw === undefined || raw === null) return []
@@ -240,10 +201,6 @@ function clarificationUpdatesField(data: Record<string, unknown>): Clarification
   return updates
 }
 
-/**
- * 处理完本轮旧问题后仍有开放项时，不要求场景与验收标准已经完整；
- * 全部开放项都已解决或本轮没有待澄清项时，才要求给出可研发可验证的完整内容。
- */
 function assertDraftCompleteness(input: {
   inputKind: InputKind
   scenarios: readonly string[]
@@ -266,10 +223,6 @@ function assertDraftCompleteness(input: {
   }
 }
 
-/**
- * 解析模型返回的分析载荷。默认容忍 ```json 围栏与前后说明，但字段本身必须合法；
- * 缺字段或类型不符按畸形失败，不静默补空值。
- */
 export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   let payload = raw
   if (typeof payload === 'string') {
@@ -283,7 +236,6 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   const goal = typeof data.goal === 'string' ? data.goal.trim() : ''
   if (!goal) throw new MalformedError('分析缺少非空目标')
   const scenarios = listField(data, 'scenarios')
-  // 业务规则、异常与边界、非目标允许为空（历史分析没有这些字段），但给定时必须是字符串数组。
   const businessRules = listField(data, 'business_rules')
   const exceptions = listField(data, 'exceptions')
   const nonGoals = listField(data, 'non_goals')
@@ -292,7 +244,6 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
   const clarifications = listField(data, 'clarifications')
   const clarificationUpdates = clarificationUpdatesField(data)
   const businessContext = businessContextField(data)
-  // 问题不做产品侧澄清：带待澄清项或旧问题处置都说明它需要需求澄清，按需求处理，不能悄悄放行。
   if (inputKind === 'problem' && (clarifications.length > 0 || clarificationUpdates.length > 0)) {
     throw new MalformedError('问题直接交研发处理，不能带待澄清项；需要澄清时按需求处理')
   }
@@ -344,12 +295,10 @@ export function parseJsonLoose(text: string, what: string): unknown {
   }
 }
 
-/** 一次分析完成后的需求状态：有待澄清项时等待回答，否则仍是 draft。 */
 export function statusForAnalysis(analysis: Pick<RequirementAnalysis, 'clarifications'>): string {
   return analysis.clarifications.length > 0 ? AWAITING_CLARIFICATION : DRAFT
 }
 
-/** 读取输入分诊结果；旧分析没有该字段时按需求处理，不改变既有流程。 */
 export function inputKindOf(analysis: Pick<RequirementAnalysis, 'inputKind'>): InputKind {
   return analysis.inputKind ?? DEFAULT_INPUT_KIND
 }
@@ -364,7 +313,6 @@ export function validateAnalysis(
     throw new RuleViolationError('分析绑定的需求版本超出实际版本')
   }
   if (!analysis.goal.trim()) throw new MalformedError('分析缺少非空目标')
-  // 问题直接交研发处理：带待澄清项会让下游把它当需求等待回答，落库前就拒绝。
   if (analysis.inputKind === 'problem' && analysis.clarifications.length > 0) {
     throw new RuleViolationError('问题输入不能带待澄清项；需要澄清时按需求处理')
   }

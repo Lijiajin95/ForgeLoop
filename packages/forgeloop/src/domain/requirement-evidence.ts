@@ -1,11 +1,3 @@
-/**
- * 需求详情中的只读证据：最近一次系统准入与最近一次受控提交。
- *
- * 这里只做确定性聚合与字段映射：按 createdAt / committedAt 取最近一条，
- * commit 携带记录中的 commitMessage 供详情只读展示，无记录时返回 null。
- * 系统准入不是人类批准，这里也不提供任何写入口。
- */
-
 export interface AdmissionEvidence {
   readonly decision: 'admit' | 'block'
   readonly code: string
@@ -25,7 +17,6 @@ export interface RequirementEvidence {
   readonly commit: CommitEvidence | null
 }
 
-/** 聚合只依赖记录中的证据字段，领域层不反向依赖 records。 */
 export interface AdmissionEvidenceRecord {
   readonly decision: 'admit' | 'block'
   readonly code: string
@@ -57,10 +48,6 @@ function latestBy<T>(records: readonly T[], at: (record: T) => string): T | null
   return latest
 }
 
-/**
- * 聚合需求详情证据：admission 取 createdAt 最近的一条，commit 取 committedAt
- * 最近的一条，两者都始终存在（对象或 null），调用方无需判空分支。
- */
 export function requirementEvidence(input: {
   readonly admissions: readonly AdmissionEvidenceRecord[]
   readonly commits: readonly CommitEvidenceRecord[]

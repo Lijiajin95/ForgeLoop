@@ -1,10 +1,3 @@
-/**
- * 主动监控报告的纯规则：报告状态、问题身份、严重度与诊断字段。
- *
- * 模型只描述观察到的问题；程序决定是否成为事件、能否自动处置。
- * 这里不读文件、不执行命令、不调用模型。
- */
-
 import { asRecord } from './json.js'
 import { MalformedError } from './errors.js'
 import { parseJsonLoose } from './requirement.js'
@@ -18,7 +11,6 @@ import {
 export const MONITOR_STATUSES = ['healthy', 'degraded', 'critical'] as const
 export type MonitorStatus = (typeof MONITOR_STATUSES)[number]
 
-/** 问题身份用于跨扫描归并：同一资源下同一 key 视为同一问题。 */
 export const MONITOR_KEY_PATTERN = /^[a-z][a-z0-9-]{1,40}$/
 
 export const MONITOR_MAX_ISSUES = 10
@@ -28,12 +20,10 @@ export const MONITOR_MAX_TITLE = 200
 export const MONITOR_MAX_FACTS = 20
 
 export interface MonitorIssue extends OpsDiagnosis {
-  /** 稳定的短身份，只用于同一资源下的问题归并。 */
   readonly key: string
   readonly resourceId: string
   readonly severity: OpsSeverity
   readonly title: string
-  /** 新事件是否发送外部告警；未给出时严重与重要默认发送，一般默认不发送。 */
   readonly alert: boolean
 }
 
@@ -108,10 +98,6 @@ function parseIssue(value: unknown, index: number): MonitorIssue {
   }
 }
 
-/**
- * 解析运维 Agent 的主动监控报告。状态与问题必须自洽：
- * 健康不能带问题，非健康至少要有一条问题，严重状态至少要有一条严重问题。
- */
 export function parseMonitorReport(text: string): MonitorReport {
   const payload = parseJsonLoose(text, '主动监控报告')
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
@@ -141,7 +127,6 @@ export function parseMonitorReport(text: string): MonitorReport {
   return { status, summary, issues }
 }
 
-/** 同一资源、同一问题 key 的稳定签名；不把标题或摘要拼进身份，避免措辞变化产生新事件。 */
 export function monitorSignatureOf(resourceId: string, key: string): string {
   return `monitor/${resourceId}/${key}`
 }

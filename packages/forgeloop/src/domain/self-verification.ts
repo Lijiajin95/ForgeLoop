@@ -1,9 +1,3 @@
-/**
- * 研发自验证结果：研发 Agent 在完成白盒/黑盒自验后，根据代码 diff 风险决定
- * 本次候选是否需要独立测试。独立测试是后续阶段，本结构只记录研发侧的判断与证据，
- * 不描述测试 Agent 将如何验证。
- */
-
 import { asRecord } from './json.js'
 import { parseJsonLoose } from './requirement.js'
 
@@ -12,17 +6,14 @@ export type VerificationMode = 'independent' | 'self'
 export type SelfVerificationRisk = 'low' | 'medium' | 'high' | 'unknown'
 
 export interface SelfVerificationRedGreen {
-  /** 本次改动是否属于 BUG 修复或关键业务行为，按风险要求红灯/绿灯证据。 */
   readonly required: boolean
   readonly failingBefore: boolean
   readonly passingAfter: boolean
   readonly evidence: string
-  /** 红灯：修复前实际执行的命令、代码身份、退出码与日志。 */
   readonly failingCommand: string
   readonly baselineIdentity: string
   readonly failingExitCode: number | null
   readonly failingLog: string
-  /** 绿灯：修复后实际执行的命令、代码身份、退出码与日志。 */
   readonly passingCommand: string
   readonly fixedIdentity: string
   readonly passingExitCode: number | null
@@ -95,10 +86,6 @@ function parseRedGreen(value: unknown): SelfVerificationRedGreen {
   }
 }
 
-/**
- * 解析研发 Agent 的最终 JSON。结构不合法返回 null，由运行时保守地按“需要独立测试”处理；
- * 不猜测缺失的 mode，也不把模型自由文本当自验证结论。
- */
 export function parseSelfVerificationReport(raw: string): SelfVerificationReport | null {
   let payload: unknown
   try {
@@ -125,7 +112,6 @@ export function parseSelfVerificationReport(raw: string): SelfVerificationReport
   }
 }
 
-/** BUG 修复或高风险改动必须有红灯/绿灯；低风险文档改动不强制。 */
 export function requiresRedGreen(input: {
   readonly inputKind: 'requirement' | 'problem'
   readonly report: SelfVerificationReport
@@ -151,7 +137,6 @@ function redGreenProblems(report: SelfVerificationReport): string | null {
   return null
 }
 
-/** BUG 修复或高风险改动的红灯/绿灯证据是否完整；低风险改动不强制。 */
 export function redGreenIssue(input: {
   readonly inputKind: 'requirement' | 'problem'
   readonly report: SelfVerificationReport
@@ -161,7 +146,6 @@ export function redGreenIssue(input: {
   return redGreenProblems(input.report)
 }
 
-/** 自测试报告是否足以支撑“本次不需要独立测试”。 */
 export function selfVerificationSufficient(input: {
   readonly inputKind: 'requirement' | 'problem'
   readonly report: SelfVerificationReport
@@ -180,7 +164,6 @@ export function selfVerificationSufficient(input: {
   return { ok: true }
 }
 
-/** 整份候选的自验证结论：所有已交付任务都必须有 self 报告，缺一即转独立测试。 */
 export function candidateSelfVerification(input: {
   readonly inputKind: 'requirement' | 'problem'
   readonly reports: ReadonlyArray<{
@@ -207,7 +190,6 @@ export function candidateSelfVerification(input: {
   return { ok: true }
 }
 
-/** 从候选 diff 中提取受影响路径；用于让 self 决策依据实际改动，而不是模型自述。 */
 export function changedPathsFromDiff(diff: string): string[] {
   const paths = new Set<string>()
   for (const line of diff.split('\n')) {
@@ -218,10 +200,6 @@ export function changedPathsFromDiff(diff: string): string[] {
   return [...paths]
 }
 
-/**
- * self 模式的实际改动门禁：仅文档改动可直接 self；改到代码时，
- * 必须每份自测试报告都声明低风险且有白盒或黑盒检查，否则交给独立测试。
- */
 export function selfModeAllowedByDiff(input: {
   readonly paths: readonly string[]
   readonly reports: readonly SelfVerificationReport[]

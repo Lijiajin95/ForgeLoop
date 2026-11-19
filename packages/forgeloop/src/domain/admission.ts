@@ -6,25 +6,13 @@ import {
   type CustomerDecision,
 } from './commitment-resolution.js'
 
-/**
- * 系统准入：把“真实需求来源 + 有效授权 + 质量依据”转成可执行的系统决定。
- *
- * 系统准入不是人类批准，也不写入 by=owner / approved=true；它由程序按策略判定、
- * 绑定需求版本与分析版本并单独记录。人类批准仍只用于策略明确列出的例外。
- */
-
 export const ADMISSION_POLICY_VERSION = 'system-admission-v1'
 
 export interface AdmissionPolicy {
-  /** 总开关；关闭后所有需求都停在待处理，不自动进入研发。 */
   readonly enabled: boolean
-  /** 是否允许系统准入后由主控整合并提交代码；发布/部署仍需独立授权。 */
   readonly allowCodeCommit: boolean
-  /** 可信人类入口的来源前缀；allowAnySource=false 时只有这些来源可以触发系统准入。 */
   readonly trustedSources: readonly string[]
-  /** 放开来源限制：任何非空来源都可以进入系统准入；来源仍完整记录在案。 */
   readonly allowAnySource: boolean
-  /** 是否要求提交者与配置所有者一致；false 时运维/工具提交也可进入。 */
   readonly requireOwner: boolean
 }
 
@@ -39,10 +27,8 @@ export interface AdmissionFacts {
   readonly analysisVersion: number | null
   readonly analysisRequirementVersion: number | null
   readonly clarifications: number
-  /** 与已有承诺的冲突数；非空时暂停准入，等待所有者决定取舍。 */
   readonly conflicts?: number | undefined
   readonly conflictSummaries?: readonly string[] | undefined
-  /** 每条解除依据被拒的具体原因；有冲突时拼进阻断文案。 */
   readonly conflictReasons?: readonly string[] | undefined
 }
 
@@ -80,7 +66,6 @@ function admittedReason(allowed: boolean): string {
     : '可信需求来源与需求说明齐备；允许研发与验证，代码提交仍需单独授权'
 }
 
-/** 来源是否被策略接受：空来源永远不可信；放开后非空来源都可信。 */
 export function sourceTrusted(source: string, policy: AdmissionPolicy): boolean {
   const value = source.trim()
   if (!value) return false
@@ -88,7 +73,6 @@ export function sourceTrusted(source: string, policy: AdmissionPolicy): boolean 
   return policy.trustedSources.some((prefix) => prefix.length > 0 && value.startsWith(prefix))
 }
 
-/** 承诺冲突的合并结果：未解除数量、可读摘要与每条解除依据被拒的原因。 */
 function commitmentFactsOf(input: {
   readonly requirementVersion: number
   readonly owner: string
@@ -118,7 +102,6 @@ function commitmentFactsOf(input: {
     resolutions,
   })
   const reasons = resolutionRejections({ ...check, resolutions })
-  // 没有任何解除依据的冲突也要给出可执行理由，而不是只报数量。
   for (const conflict of unresolved) {
     if (resolutions.some((resolution) => resolution.existingReqId === conflict.existingReqId)) {
       continue
@@ -137,7 +120,6 @@ function commitmentFactsOf(input: {
   }
 }
 
-/** 从需求与分析记录组装准入事实；冲突摘要与结构同源，避免展示与判定口径不一致。 */
 export function buildAdmissionFacts(input: {
   requirementStatus: string
   requirementVersion: number
@@ -152,11 +134,8 @@ export function buildAdmissionFacts(input: {
     clarifications: readonly string[]
     conflicts?: readonly CommitmentConflict[] | undefined
   } | null
-  /** 上一轮已记录、仍待解除的承诺冲突。 */
   previousConflicts?: readonly CommitmentConflict[] | undefined
-  /** 客户对冲突的解除依据；必须引用当前需求版本的客户决定。 */
   commitmentResolutions?: readonly CommitmentResolution[] | undefined
-  /** 已记录的客户决定；按需求/版本/承诺三维回查。 */
   customerDecisions?: readonly CustomerDecision[] | undefined
 }): AdmissionFacts {
   const analysis = input.analysis
@@ -179,7 +158,6 @@ export function buildAdmissionFacts(input: {
     analysisVersion: analysis?.analysisVersion ?? null,
     analysisRequirementVersion: analysis?.requirementVersion ?? null,
     clarifications: analysis?.clarifications.length ?? 0,
-    // 本轮新报冲突与上一轮已知冲突合并；只有带有效客户决定的解除才会放行。
     conflicts: commitment.conflicts,
     conflictSummaries: commitment.conflictSummaries,
     conflictReasons: commitment.conflictReasons,
@@ -208,7 +186,6 @@ export function decideAdmission(facts: AdmissionFacts, policy: AdmissionPolicy):
     reason,
     basis,
   })
-  /** 与已有承诺冲突时暂停准入：理由必须列出具体取舍，不能只给数量。 */
   const conflictBlock = (): AdmissionDecision | null => {
     const count = facts.conflicts ?? 0
     if (count === 0) return null

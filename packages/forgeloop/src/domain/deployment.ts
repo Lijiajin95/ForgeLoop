@@ -1,10 +1,3 @@
-/**
- * 部署领域：工具种类与能力、attempt 状态机、工具结果解析。
- *
- * 部署的副作用只来自登记的外部工具；本模块只做确定性校验，不执行任何命令，
- * 也不接受模型提供的脚本、参数或路径。
- */
-
 import { MalformedError } from './errors.js'
 import { asRecord } from './json.js'
 
@@ -55,7 +48,6 @@ const TRANSITIONS: Readonly<Record<DeploymentAttemptState, readonly DeploymentAt
   preflight_failed: [],
   awaiting_approval: ['rejected', 'ready'],
   rejected: [],
-  // ready 是“已批准、即将调用 apply”的边界；apply 前复核失败收口为 preflight_failed，
   // 表示这次部署没有越过工具调用。
   ready: ['applying', 'preflight_failed'],
   applying: ['applied_pending_verify', 'failed'],
@@ -68,19 +60,15 @@ const TRANSITIONS: Readonly<Record<DeploymentAttemptState, readonly DeploymentAt
   rolled_back: [],
 }
 
-/** 只有显式声明的迁移才允许；不允许从终态回到进行中。 */
 export function canTransition(from: DeploymentAttemptState, to: DeploymentAttemptState): boolean {
   return TRANSITIONS[from].includes(to)
 }
 
-/** 工具调用结果：stdout 上唯一的 JSON 对象。 */
 export interface DeploymentToolResult {
   readonly ok: boolean
   readonly state: string
   readonly version: string
-  /** 实际安装的制品摘要；工具无法给出时为空，核对必须失败。 */
   readonly artifactSha256: string
-  /** 实际运行中代码的制品摘要；用于识别“已安装新包但进程仍跑旧内容”。 */
   readonly runningArtifactSha256: string
   readonly runningPid: number
   readonly runningStartedAt: string
@@ -108,10 +96,6 @@ function pidOf(record: Record<string, unknown>): number {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : 0
 }
 
-/**
- * 严格解析工具输出：必须是一个 JSON 对象，`ok` 为布尔、`state` 为非空字符串。
- * 其余字段只取已知类型，出现未知字段不影响；畸形输出按失败处理，不猜测成功。
- */
 export function parseDeploymentToolResult(stdout: string): DeploymentToolResult {
   const text = stdout.trim()
   if (!text) throw new MalformedError('工具没有输出')
@@ -147,20 +131,17 @@ export function parseDeploymentToolResult(stdout: string): DeploymentToolResult 
   }
 }
 
-/** 制品：部署只绑定摘要与路径，不在这里重新构建。 */
 export interface DeploymentArtifact {
   readonly sha256: string
   readonly path: string
   readonly version: string
 }
 
-/** 目标声明的数据范围：容器卷与数据库迁移；执行与恢复由工具负责。 */
 export interface DeploymentDataScope {
   readonly volumes: readonly string[]
   readonly migrations: readonly string[]
 }
 
-/** 一次部署请求的持久记录；state 与 attempt 状态机共用。 */
 export interface DeploymentIntentRecord {
   readonly intentId: string
   readonly project: string
@@ -176,7 +157,6 @@ export interface DeploymentIntentRecord {
   updatedAt: string
 }
 
-/** 一次工具调用：op、退出码、结果 JSON 与证据路径。 */
 export interface DeploymentAttemptRecord {
   readonly intentId: string
   readonly op: DeploymentOperation

@@ -1,17 +1,3 @@
-/**
- * 需求修订影响摘要的确定性事实引擎（只读）。
- *
- * 输入权威记录快照，输出可直接展示的事实：需求全部版本、分析/任务包/批准
- * 各自依据的需求版本、当前批准绑定、交付材料与待核对请求。
- *
- * 判定口径：
- * - 已过期（stale）：条目依据的需求版本落后于当前最新需求版本。
- * - 仍待核对（pending）：分析/任务包/批准版本彼此不一致、最新阶段缺口、
- *   任务未交付、交付材料不完整，或存在结果未知的请求。
- *
- * 本模块只读：不导入记录库、不调用模型，也不提供批准、推进或验收等写操作。
- */
-
 import { latestVersion, type Requirement, type RequirementAnalysis } from './requirement.js'
 import type { TaskPlan, TaskPlanApproval } from './task-plan.js'
 import type { TaskArtifact } from './work.js'
@@ -23,7 +9,6 @@ export interface ImpactReason {
   readonly message: string
 }
 
-/** 每条事实统一的过期/待核对判定。stale 与 pending 可以同时成立。 */
 export interface ImpactCheck {
   readonly state: ImpactState
   readonly stale: boolean
@@ -69,7 +54,6 @@ export interface PlanImpactFact extends ImpactCheck {
 export interface ApprovalImpactFact extends ImpactCheck {
   readonly planVersion: number
   readonly requirementId: string
-  /** 批准本身只绑定任务包版本；依据的需求版本由对应任务包派生。 */
   readonly requirementVersion: number | null
   readonly approvedBy: string
   readonly approvedAt: string
@@ -95,7 +79,6 @@ export interface DeliveryImpactFact extends ImpactCheck {
   readonly deliveredAt: string
 }
 
-/** 只依赖请求记录中与影响摘要相关的字段，避免领域层反向依赖记录库。 */
 export interface ImpactRequest {
   readonly requestId: string
   readonly action: string
@@ -107,7 +90,6 @@ export interface ImpactRequest {
 export interface RequestImpactFact extends ImpactCheck {
   readonly requestId: string
   readonly action: string
-  /** 持久请求自身状态（pending/claimed/done/failed/dismissed），与 ImpactCheck.state 判定分开。 */
   readonly requestState: string
   readonly planVersion: number
   readonly createdAt: string
@@ -127,11 +109,8 @@ export interface ImpactSummary {
   readonly approvals: number
   readonly deliveredTasks: number
   readonly requests: number
-  /** 顶层阶段缺口数（缺少分析/任务包/批准、最新任务未交付、未知请求）。 */
   readonly gaps: number
-  /** 已过期事实条目数（含任务与交付明细，因此可能重复计数同一次交付）。 */
   readonly staleItems: number
-  /** 仍待核对事实条目数（含任务与交付明细，因此可能重复计数同一次交付）。 */
   readonly pendingItems: number
 }
 
@@ -376,7 +355,6 @@ function buildPlanFacts(plans: readonly TaskPlan[], context: PlanFactsContext): 
         )
       }
       if (artifact === undefined) {
-        // 历史任务包已被更新版本取代时，其未交付状态不构成本轮“仍待核对”；
         // 只有最新任务包的未交付任务需要继续核对。
         if (isLatest) {
           taskPendingReasons.push(
@@ -586,12 +564,6 @@ function buildGapReasons(context: GapFactsContext): ImpactReason[] {
   return gapReasons
 }
 
-/**
- * 汇总一条需求的修订影响事实。纯函数，不写任何记录。
- *
- * “从未规划”仍返回完整事实结构：分析/任务包/批准/交付为空数组，
- * 并在顶层 pendingReasons 与 coverage 中标出缺口。
- */
 export function buildImpactFacts(input: ImpactInput): ImpactFacts {
   const { requirement } = input
   const latest = latestVersion(requirement)

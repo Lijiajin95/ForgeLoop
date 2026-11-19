@@ -1,20 +1,5 @@
-/**
- * 可安装交付的判定：一份需求要能被称为“可安装交付”，必须同时具备
- *
- * 1. 通过验收的受控提交；
- * 2. 与该提交对应的安装包（候选构建产物）；
- * 3. 安装说明（可核对摘要的文档）；
- * 4. 独立测试与业务验收通过；
- * 5. 隔离试装记录，且试装包摘要与交付包摘要一致。
- *
- * 判定只看记录事实：缺一项即“未完成”，摘要或版本不一致即“不成立”，
- * 不因为报告里写了“通过”就放行。`availableAt` 是这些材料同时可用的时刻，
- * 也就是“受理到可用结果”计时的终点。
- */
-
 export type DeliveryStatus = 'delivered' | 'incomplete' | 'mismatch'
 
-/** 材料编号；顺序固定，供页面与报告稳定展示。 */
 export const DELIVERY_MATERIALS = [
   'commit',
   'package',
@@ -61,9 +46,7 @@ export interface DeliveryTrial {
 }
 
 export interface InstallableDeliveryMaterials {
-  /** 材料绑定的需求版本。 */
   readonly requirementVersion: number
-  /** 需求当前版本；两者不同说明材料已对当前需求过期。 */
   readonly currentRequirementVersion: number
   readonly commit: DeliveryCommit | null
   readonly package: DeliveryPackage | null
@@ -73,7 +56,6 @@ export interface InstallableDeliveryMaterials {
   readonly trial: DeliveryTrial | null
 }
 
-/** 六项材料齐备后的窄类型；判定函数只在齐备分支使用它。 */
 interface CompleteMaterials {
   readonly requirementVersion: number
   readonly currentRequirementVersion: number
@@ -87,11 +69,8 @@ interface CompleteMaterials {
 
 export interface InstallableDeliveryVerdict {
   readonly status: DeliveryStatus
-  /** 缺少的材料编号；只有 incomplete 时非空。 */
   readonly missing: readonly DeliveryMaterialId[]
-  /** 不成立的具体原因；只有 mismatch 时非空。 */
   readonly mismatches: readonly string[]
-  /** 六项材料同时可用的时刻；未交付时为空串。 */
   readonly availableAt: string
 }
 
@@ -112,7 +91,6 @@ function isComplete(input: InstallableDeliveryMaterials): input is CompleteMater
   return missingMaterials(input).length === 0
 }
 
-/** ISO 时间串按字典序即时间序；返回最晚一项，无法解析时返回空串。 */
 export function latestAvailableAt(times: readonly string[]): string {
   const usable = times.filter((time) => Number.isFinite(Date.parse(time)))
   if (usable.length !== times.length || usable.length === 0) return ''
@@ -142,7 +120,6 @@ function mismatchReasons(input: CompleteMaterials): string[] {
   return reasons
 }
 
-/** 判定六项材料是否构成一次可安装交付，以及从哪一刻起可用。 */
 export function evaluateInstallableDelivery(
   input: InstallableDeliveryMaterials,
 ): InstallableDeliveryVerdict {
@@ -190,10 +167,6 @@ function paramLine(params: Readonly<Record<string, string>>): string {
   return entries.map(([key, value]) => `${key}=${value}`).join('，')
 }
 
-/**
- * 安装说明是交付材料之一：内容只陈述已登记事实，不承担授权。
- * 安装与回退仍由外部受控机制执行，ForgeLoop 不调用安装器。
- */
 export function installInstructionsOf(input: InstallInstructionsInput): string {
   const { commit, package: pkg, trial } = input
   return [

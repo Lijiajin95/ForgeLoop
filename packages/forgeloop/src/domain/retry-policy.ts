@@ -1,14 +1,6 @@
-/**
- * 重新执行的判定：任务失败后不再让需求永久停住。
- *
- * 只做确定性判断：额度、在途请求、计划批准状态、是否还有可执行任务。
- * 自动重试与手动重试共用同一份判定，避免两条入口各自放宽条件。
- */
-
 export interface RetryFacts {
   readonly status: string
   readonly blockedReason: string
-  /** 当前授权下剩余失败轮次；0 表示必须先追加授权，-1 表示不限。 */
   readonly remainingRounds: number
   readonly activeRequest: boolean
   readonly runningTasks: number
@@ -25,7 +17,6 @@ export interface RetryDecision {
 
 const RETRYABLE_STATUSES = new Set(['approved', 'executing', 'blocked'])
 
-/** 这些阻塞原因不是“再来一次”能解决的，必须先处理授权或工时。 */
 const HARD_BLOCK_PATTERNS: readonly RegExp[] = [/额度已用尽/, /工时已用尽/, /需要追加授权/, /终态/]
 
 function hardBlockedBy(facts: RetryFacts): string | null {
