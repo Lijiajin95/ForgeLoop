@@ -11,7 +11,7 @@ import {
   type PlanReview,
   type VerificationReport,
 } from '../domain/verification.js'
-import { MAX_ROUNDS_PER_GRANT } from '../domain/counting.js'
+import { MAX_ROUNDS_PER_GRANT, type FailureStage } from '../domain/counting.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import { buildTaskFailureAdvice, type TaskFailureAdvice } from '../domain/failure-advice.js'
 import type { AutonomyStats } from '../domain/autonomy.js'
@@ -261,6 +261,17 @@ function requestActionLabel(action: string): string {
   if (action === ACTION_ADVANCE) return '推进'
   if (action === ACTION_VERIFY) return '独立测试'
   return action
+}
+
+export function latestFailureStage(
+  plan: TaskPlan | null,
+  rounds: ReturnType<Repository['failureRounds']>,
+  taskId: string,
+): FailureStage | undefined {
+  return rounds
+    .filter((round) => taskIdOfFailureRound(plan, round.roundId) === taskId)
+    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
+    .at(-1)?.stage
 }
 
 export function taskIdOfFailureRound(plan: TaskPlan | null, roundId: string): string | undefined {
@@ -810,8 +821,9 @@ function buildTaskViews(context: {
   readonly runByTask: Map<string, ReturnType<Repository['taskRuns']>[number]>
   readonly delivered: ReadonlySet<string>
   readonly remainingRounds: number
+  readonly failureRounds: ReturnType<Repository['failureRounds']>
 }): { tasks: BoardTaskView[]; progress: BoardProgress } {
-  const { requirement, plan, runByTask, delivered, remainingRounds } = context
+  const { requirement, plan, runByTask, delivered, remainingRounds, failureRounds } = context
   const progress: BoardProgress = {
     total: plan?.tasks.length ?? 0,
     delivered: 0,
@@ -827,7 +839,13 @@ function buildTaskViews(context: {
     const run = runByTask.get(task.taskId)
     const state = boardTaskState({ delivered: delivered.has(task.taskId), run })
     progress[state === BOARD_TASK_DELIVERED ? 'delivered' : progressKey(state)] += 1
-    const failureAdvice = taskAdvice(state, run, task.files, remainingRounds)
+    const failureAdvice = taskAdvice({
+      state,
+      run,
+      files: task.files,
+      remainingRounds,
+      failureStage: latestFailureStage(plan, failureRounds, task.taskId),
+    })
     tasks.push({
       reqId: requirement.reqId,
       planVersion: plan?.planVersion ?? 0,
@@ -843,15 +861,23 @@ function buildTaskViews(context: {
   return { tasks, progress }
 }
 
-function taskAdvice(
-  state: BoardTaskState,
-  run: ReturnType<Repository['taskRuns']>[number] | undefined,
-  files: readonly string[],
-  remainingRounds: number,
-): TaskFailureAdvice | null {
-  const needsAdvice = state === TASK_RUN_AWAITING_USER || state === 'failed' || state === 'blocked'
+function taskAdvice(input: {
+  state: BoardTaskState
+  run: ReturnType<Repository['taskRuns']>[number] | undefined
+  files: readonly string[]
+  remainingRounds: number
+  failureStage: FailureStage | undefined
+}): TaskFailureAdvice | null {
+  const needsAdvice =
+    input.state === TASK_RUN_AWAITING_USER || input.state === 'failed' || input.state === 'blocked'
   if (!needsAdvice) return null
-  return buildTaskFailureAdvice({ state, reason: run?.reason ?? '', files, remainingRounds })
+  return buildTaskFailureAdvice({
+    state: input.state,
+    reason: input.run?.reason ?? '',
+    files: input.files,
+    remainingRounds: input.remainingRounds,
+    failureStage: input.failureStage,
+  })
 }
 
 function progressKey(state: BoardTaskState): keyof BoardProgress {
@@ -1326,6 +1352,7 @@ function buildRequirementChunk(
     runByTask,
     delivered,
     remainingRounds,
+    failureRounds: repository.failureRounds(requirement.reqId),
   })
 
   const retry = retryDecision({

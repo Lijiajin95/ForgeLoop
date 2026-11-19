@@ -7,7 +7,7 @@ import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
 import type { TaskRun } from '../domain/work.js'
 import { buildTaskFailureAdvice } from '../domain/failure-advice.js'
 import { parseFormalTestHeader, readActivity, readJson } from './service-helpers.js'
-import { taskIdOfFailureRound } from './board.js'
+import { latestFailureStage, taskIdOfFailureRound } from './board.js'
 import { fail, ok, type OperationResult } from './operation-result.js'
 import { TASK_RUN_DELIVERED, TASK_RUN_RUNNING } from '../domain/status.js'
 import {
@@ -74,6 +74,7 @@ export class TaskViews {
     const testLogTail = testLog.slice(-4000)
     const testHeader = parseFormalTestHeader(testLog)
     const rounds = this.deps.repo.failureRounds(reqId)
+    const failureStage = latestFailureStage(plan, rounds, taskId)
     const remainingRounds = this.deps.remainingFailureRounds(reqId)
     const advice = buildTaskFailureAdvice({
       state: run?.state ?? (artifact ? TASK_RUN_DELIVERED : 'pending'),
@@ -82,6 +83,7 @@ export class TaskViews {
       remainingRounds,
       testLogTail,
       review,
+      failureStage,
     })
     const eligibility = this.deps.retryEligibility(reqId, plan.planVersion, taskId)
     const requests = this.deps.repo.requestsFor(reqId)

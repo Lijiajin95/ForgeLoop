@@ -7,6 +7,7 @@ import {
   type BusinessReview,
 } from '../src/domain/business-review.js'
 import { buildTaskFailureAdvice } from '../src/domain/failure-advice.js'
+import { FAILURE_IMPLEMENTATION_REVIEW } from '../src/domain/counting.js'
 import {
   FACTS_TITLE,
   INFERENCE_DISCLAIMER,
@@ -311,8 +312,16 @@ describe('task failure advice', () => {
       ...base,
       reason: '独立审查阻断',
       review: { verdict: 'block', blocking: ['缺少测试', '  ', '越界'] },
+      failureStage: FAILURE_IMPLEMENTATION_REVIEW,
     })
     expect(blocking).toMatchObject({ cause: '独立审查阻断：缺少测试；越界。', scope: [] })
+    expect(
+      buildTaskFailureAdvice({
+        ...base,
+        reason: '独立审查阻断',
+        review: { verdict: 'block', blocking: ['缺少测试'] },
+      })?.cause,
+    ).not.toContain('缺少测试')
     expect(
       buildTaskFailureAdvice({
         ...base,

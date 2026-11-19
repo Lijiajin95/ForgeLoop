@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildTaskFailureAdvice } from '../src/domain/failure-advice.js'
+import { FAILURE_IMPLEMENTATION_REVIEW } from '../src/domain/counting.js'
 
 /**
  * 失败建议：把已经记录的任务失败原因与证据整理成“发生了什么、下一步做什么”。
@@ -51,6 +52,7 @@ describe('task failure advice', () => {
       files: ['packages/forgeloop/tests/queue.test.ts'],
       remainingRounds: 2,
       review: { verdict: 'block', blocking: ['测试没有覆盖失败分支', '错误码未断言'] },
+      failureStage: FAILURE_IMPLEMENTATION_REVIEW,
     })
 
     const actions = advice!.actions.join('\n')

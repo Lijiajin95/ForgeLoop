@@ -1,4 +1,5 @@
 import { asRecord } from './json.js'
+import { FAILURE_IMPLEMENTATION_REVIEW, type FailureStage } from './counting.js'
 
 export interface TaskFailureAdvice {
   readonly cause: string
@@ -13,6 +14,7 @@ export interface TaskFailureInput {
   readonly remainingRounds: number
   readonly testLogTail?: string
   readonly review?: unknown
+  readonly failureStage?: FailureStage | undefined
 }
 
 const FAILURE_STATES = new Set<string>(['failed', 'blocked', 'awaiting_user'])
@@ -76,7 +78,8 @@ function collectAdviceFacts(input: TaskFailureInput): AdviceFacts {
     reason,
     modules: contractModules(log),
     boundaries: outOfScopeFiles(reason),
-    blocking: /审查/.test(reason) ? reviewBlocking(input.review) : [],
+    blocking:
+      input.failureStage === FAILURE_IMPLEMENTATION_REVIEW ? reviewBlocking(input.review) : [],
     files: testFiles(log),
   }
 }
