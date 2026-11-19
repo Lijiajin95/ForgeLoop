@@ -102,14 +102,6 @@ function commitmentFactsOf(input: {
     resolutions,
   })
   const reasons = resolutionRejections({ ...check, resolutions })
-  for (const conflict of unresolved) {
-    if (resolutions.some((resolution) => resolution.existingReqId === conflict.existingReqId)) {
-      continue
-    }
-    reasons.push(
-      `承诺 ${conflict.existingReqId} 没有引用已记录的客户决定（需要所有者做出修订、替代或拒绝）`,
-    )
-  }
   return {
     conflicts: unresolved.length,
     conflictSummaries: unresolved.map(
