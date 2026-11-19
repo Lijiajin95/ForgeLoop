@@ -1,10 +1,3 @@
-/**
- * SQLite 记录层基础设施：当前实现的权威表结构与事务入口。
- * 新库从空库按本结构建立，不承担旧业务库的读取、补列或迁移。
- *
- * 数据库通过 Node 内置 `node:sqlite` 访问，不引入原生扩展，也不依赖 Python。
- */
-
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -33,9 +26,7 @@ CREATE TABLE IF NOT EXISTS requirement_versions (
     source TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (req_id, version)
 );
--- 客户对承诺冲突的决定：绑定可信客户身份、需求版本与具体承诺；历史永不覆盖。
 -- 解除依据必须引用这里的决定编号，只有来源前缀不再视为有效。
--- 设计文档快照：每个需求版本一行，绑定当时的文档类型、项目内路径与内容摘要。
 -- 正文不另存一份，仍以 requirement_versions.text 为权威；快照只证明“这一版对应哪份文档”。
 CREATE TABLE IF NOT EXISTS requirement_documents (
     req_id TEXT NOT NULL,
@@ -66,7 +57,6 @@ CREATE TABLE IF NOT EXISTS customer_decisions (
     decided_at TEXT NOT NULL,
     UNIQUE (req_id, requirement_version, existing_req_id)
 );
--- 承诺冲突的解除依据投影：必须引用一条已记录的客户决定编号。
 CREATE TABLE IF NOT EXISTS requirement_commitment_resolutions (
     req_id TEXT NOT NULL,
     requirement_version INTEGER NOT NULL,
@@ -96,7 +86,6 @@ CREATE TABLE IF NOT EXISTS requirement_analyses (
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
--- 结构化需求说明（业务要点、验收项、假设）。旁置 JSON 表，避免给已有 analyses 表补列；
 -- 历史分析没有该行时按无结构化规格处理，不补造。
 CREATE TABLE IF NOT EXISTS requirement_analysis_specs (
     req_id TEXT NOT NULL,
@@ -104,7 +93,6 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_specs (
     spec_json TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
--- 需求修订使旧分析失效：只追加审计，不删除旧分析；准入按版本号判定过期。
 CREATE TABLE IF NOT EXISTS requirement_analysis_invalidations (
     req_id TEXT NOT NULL,
     analysis_version INTEGER NOT NULL,
@@ -131,7 +119,6 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_attempts (
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, requirement_version, attempt)
 );
--- 输入分诊：每条分析记录判断输入是需求还是问题。旁置表而不是给 requirement_analyses
 -- 补列：已有库按 CREATE TABLE IF NOT EXISTS 建立，不做迁移或 ALTER；缺行按需求处理。
 CREATE TABLE IF NOT EXISTS requirement_analysis_input_kinds (
     req_id TEXT NOT NULL,
@@ -139,7 +126,6 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_input_kinds (
     kind TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
--- 澄清问题：每个问题在首次提出的分析版本内获得稳定编号（Q<分析版本>-<序号>）。
 -- 问题只追加；解决时写结论与解决版本，不删除历史。旁置表避免给已有 analyses 表补列。
 CREATE TABLE IF NOT EXISTS requirement_clarification_questions (
     req_id TEXT NOT NULL,
@@ -153,7 +139,6 @@ CREATE TABLE IF NOT EXISTS requirement_clarification_questions (
     created_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version, question_index)
 );
--- 澄清回答（历史格式）：按分析版本一条，question_ids 存所答问题。只读回退，不再写入。
 CREATE TABLE IF NOT EXISTS requirement_clarification_answers (
     req_id TEXT NOT NULL,
     analysis_version INTEGER NOT NULL,
@@ -165,7 +150,6 @@ CREATE TABLE IF NOT EXISTS requirement_clarification_answers (
     answered_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
--- 逐题回答：一道题一行；同一道题可有多条历次回答，未回答的题保持开放。
 CREATE TABLE IF NOT EXISTS requirement_clarification_question_answers (
     req_id TEXT NOT NULL,
     analysis_version INTEGER NOT NULL,
@@ -178,7 +162,6 @@ CREATE TABLE IF NOT EXISTS requirement_clarification_question_answers (
     answered_at TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version, question_id, answer_seq)
 );
--- 业务背景变更：draft 只落库不写正式文档；分析校验通过后由程序同步并标记 applied。
 -- 记录需求版本、分析版本与明确依据，保证背景变化可回查、可审计。
 CREATE TABLE IF NOT EXISTS requirement_business_context_changes (
     req_id TEXT NOT NULL,
@@ -237,7 +220,6 @@ CREATE TABLE IF NOT EXISTS requirement_verifications (
     verified_at TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version, candidate_sha256)
 );
--- 每次验证尝试独立追加；requirement_verifications 只是“当前有效结果”的投影，
 -- 不能反向覆盖历史。旧库没有本表时按新表建立，不迁移旧行。
 CREATE TABLE IF NOT EXISTS requirement_verification_attempts (
     attempt_id TEXT PRIMARY KEY,
@@ -287,7 +269,6 @@ CREATE TABLE IF NOT EXISTS requirement_budget (
     limit_seconds REAL NOT NULL,
     consumed_seconds REAL NOT NULL
 );
--- 工时延长审计：人工延长或改为不限都要留痕，供自主率统计回查。
 CREATE TABLE IF NOT EXISTS requirement_budget_extensions (
     req_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -305,7 +286,6 @@ CREATE TABLE IF NOT EXISTS requirement_cancellations (
     cancelled_at TEXT NOT NULL
 );
 
--- 需求队列：按提出时间先后领取，同一时间最多一条处于研发中（claimed）。
 CREATE TABLE IF NOT EXISTS requirement_queue (
     req_id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -319,7 +299,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS requirement_queue_sequence
 CREATE INDEX IF NOT EXISTS requirement_queue_pending
     ON requirement_queue(state, enqueued_at, sequence);
 
--- 内建问题单：测试未通过时自动创建，关联需求与测试报告，驱动研发修复后重新验证。
 CREATE TABLE IF NOT EXISTS requirement_issues (
     issue_id TEXT PRIMARY KEY,
     req_id TEXT NOT NULL,
@@ -389,7 +368,6 @@ CREATE TABLE IF NOT EXISTS requirement_task_evidence (
     recorded_at TEXT NOT NULL,
     PRIMARY KEY (req_id, plan_version, task_id)
 );
--- 研发会话：一个需求绑定一个研发会话与一份工作区；会话不随需求结束销毁。
 CREATE TABLE IF NOT EXISTS dev_sessions (
     session_id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -405,7 +383,6 @@ CREATE TABLE IF NOT EXISTS dev_sessions (
 );
 CREATE INDEX IF NOT EXISTS dev_sessions_by_project ON dev_sessions(project, state, updated_at);
 
--- 需求与研发会话的绑定：同一需求版本重复推进时沿用同一会话与工作区。
 CREATE TABLE IF NOT EXISTS requirement_dev_sessions (
     req_id TEXT NOT NULL,
     requirement_version INTEGER NOT NULL,
@@ -422,7 +399,6 @@ CREATE TABLE IF NOT EXISTS requirement_dev_sessions (
 CREATE INDEX IF NOT EXISTS requirement_dev_sessions_by_session
     ON requirement_dev_sessions(session_id, assigned_at);
 
--- 研发会话结束时的总结：绑定会话 ID 与需求，保留可回查文本。
 CREATE TABLE IF NOT EXISTS dev_session_summaries (
     session_id TEXT NOT NULL,
     req_id TEXT NOT NULL,
@@ -493,7 +469,6 @@ CREATE INDEX IF NOT EXISTS requirement_installable_deliveries_by_project
 CREATE INDEX IF NOT EXISTS requirement_installable_deliveries_by_req
     ON requirement_installable_deliveries (req_id, delivery_version);
 
--- 人工处理区间：只记录可观测的活跃处理时段，用于“每条需求的人工介入耗时”。
 -- 已有权威记录（澄清回答、业务决定、授权、延长、停止、取消）只有时刻，不会写这里；
 -- 同一人的重叠区间在聚合时合并，缺结束时刻按“时长未知”展示。
 CREATE TABLE IF NOT EXISTS human_interventions (
@@ -589,7 +564,6 @@ CREATE TABLE IF NOT EXISTS requirement_admissions (
 CREATE INDEX IF NOT EXISTS requirement_admissions_by_req
     ON requirement_admissions(req_id, requirement_version, created_at);
 
--- 主动停止与可恢复失败分开记录；停止后不会因扫描或重启自动恢复。
 CREATE TABLE IF NOT EXISTS requirement_stops (
     req_id TEXT PRIMARY KEY,
     requested_by TEXT NOT NULL,
@@ -601,7 +575,6 @@ CREATE TABLE IF NOT EXISTS requirement_stops (
     resumed_at TEXT NOT NULL DEFAULT ''
 );
 
--- 需求级代码候选：同一需求可有多版候选，旧候选、验证与报告保留。
 CREATE TABLE IF NOT EXISTS requirement_code_candidates (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,
@@ -618,7 +591,6 @@ CREATE TABLE IF NOT EXISTS requirement_code_candidates (
 CREATE INDEX IF NOT EXISTS requirement_code_candidates_by_sha
     ON requirement_code_candidates(req_id, plan_version, candidate_sha256);
 
--- 受控整合提交：只记录真实项目中的提交，不包含临时快照基线提交。
 CREATE TABLE IF NOT EXISTS requirement_commits (
     req_id TEXT NOT NULL,
     plan_version INTEGER NOT NULL,
@@ -693,7 +665,6 @@ CREATE TABLE IF NOT EXISTS ops_action_attempts (
 );
 CREATE INDEX IF NOT EXISTS ops_action_attempts_by_event ON ops_action_attempts (event_id, started_at);
 
--- 可靠性指标历史：协调器在指标发生变化（或 6 小时心跳）时追加一条样本；
 -- 只追加、不改写，页面按时间倒序展示最近若干条。
 CREATE TABLE IF NOT EXISTS reliability_metric_samples (
     sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -784,7 +755,6 @@ CREATE TABLE IF NOT EXISTS deployment_tool_changes (
 );
 CREATE INDEX IF NOT EXISTS deployment_tool_changes_by_tool ON deployment_tool_changes (tool_id, changed_at);
 
--- 需求库索引：项目文档条目是内容权威，这里只存同步快照与缺失标记，
 -- 分析时按 id 取索引、按 path/ref 读正文，并据此生成注入摘要。
 CREATE TABLE IF NOT EXISTS library_entries (
     id TEXT PRIMARY KEY,
@@ -832,10 +802,6 @@ CREATE INDEX IF NOT EXISTS library_rebuilds_by_project ON library_rebuilds (proj
 
 export type SqlParam = string | number | bigint | Uint8Array | null
 
-/**
- * 只增列的最小迁移：老库由 CREATE TABLE IF NOT EXISTS 建表、缺新列时补上，
- * 不重建表、不丢历史行。库结构以本文件的 SCHEMA 为准。
- */
 function ensureColumn(
   handle: DatabaseSync,
   table: string,
@@ -848,7 +814,6 @@ function ensureColumn(
 }
 
 export interface OpenOptions {
-  /** true 时打开已有库且不创建新库，也不执行任何写入。 */
   readonly readOnly?: boolean
 }
 
@@ -857,7 +822,6 @@ import type { Row } from './rows.js'
 export class Database {
   readonly handle: DatabaseSync
   readonly path: string
-  /** 释放是幂等的：重复关闭不再抛错，但关闭后的读写仍然失败。 */
   private closed = false
 
   private constructor(handle: DatabaseSync, path: string) {
@@ -926,7 +890,6 @@ export class Database {
     this.handle.close()
   }
 
-  /** 单事务执行；抛错回滚。供领取等需要原子性的路径使用。 */
   transaction<T>(operation: () => T): T {
     this.handle.exec('BEGIN IMMEDIATE')
     try {
@@ -934,12 +897,17 @@ export class Database {
       this.handle.exec('COMMIT')
       return value
     } catch (error) {
-      try {
-        this.handle.exec('ROLLBACK')
-      } catch {
-        // 回滚失败保留原始错误。
-      }
+      this.rollback()
       throw error
+    }
+  }
+
+  private rollback(): boolean {
+    try {
+      this.handle.exec('ROLLBACK')
+      return true
+    } catch {
+      return false
     }
   }
 }

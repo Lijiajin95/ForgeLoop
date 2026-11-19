@@ -1,11 +1,3 @@
-/**
- * 澄清问答持久化：问题身份、解决状态与所有者回答。
- *
- * 问题与回答只追加；解决时写结论与解决版本，不删除历史。旁置表避免给已有
- * `requirement_analyses` 补列，也不承担旧库迁移。事务边界由调用方（Repository）
- * 决定，这样分析结论、问题状态与回答可以在同一事务落库。
- */
-
 import type { Database } from './db.js'
 import type { ClarificationAnswer, ClarificationQuestion } from '../domain/analysis.js'
 import { clarificationQuestionId } from '../domain/analysis.js'
@@ -87,7 +79,6 @@ export class ClarificationStore {
     }
   }
 
-  /** 追加一条针对单道题的回答；同一题的多条回答按 answer_seq 保留。 */
   recordAnswer(answer: Omit<ClarificationAnswer, 'answerSeq'>): void {
     this.db.transaction(() => {
       const row = this.db
@@ -141,7 +132,6 @@ export class ClarificationStore {
     return this.legacyAnswers(reqId)
   }
 
-  /** 历史库只有按分析版本一条的回答：展开成逐题行，便于提示词逐题展示。 */
   private legacyAnswers(reqId: string): ClarificationAnswer[] {
     const rows = this.db
       .prepare(

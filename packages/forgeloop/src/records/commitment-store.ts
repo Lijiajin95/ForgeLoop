@@ -1,12 +1,3 @@
-/**
- * 客户决定与承诺冲突解除依据的持久化。
- *
- * 从 Repository 拆出单独一类：仓储文件已贴近行数上限，而这里的查询会继续增长。
- * 有效解除必须引用一条已记录的客户决定（`customer_decisions`），决定绑定
- * 可信客户身份、需求版本与具体已有承诺；`requirement_commitment_resolutions`
- * 只是同一决定的投影，便于按三维回查与历史留痕。
- */
-
 import { randomUUID } from 'node:crypto'
 import type { Database } from './db.js'
 import type { CommitmentConflict } from '../domain/spec.js'
@@ -29,7 +20,6 @@ export interface CustomerDecisionRecord {
   readonly decidedAt: string
 }
 
-/** 解除依据投影；`decisionId` 指回客户决定，历史行永不覆盖。 */
 export interface CommitmentResolutionRecord {
   readonly reqId: string
   readonly requirementVersion: number
@@ -75,10 +65,6 @@ function resolutionFromRow(row: Row): CommitmentResolutionRecord {
 export class CommitmentStore {
   constructor(private readonly db: Database) {}
 
-  /**
-   * 记录一条客户决定，并在同一事务里写入解除依据投影。
-   * 同一需求版本 + 已有承诺只保留第一次决定，重复提交返回既有记录。
-   */
   recordCustomerDecision(input: {
     reqId: string
     requirementVersion: number
@@ -139,7 +125,6 @@ export class CommitmentStore {
     })
   }
 
-  /** 按决定编号回查；编号不属于本项目时调用方拿不到记录。 */
   customerDecision(decisionId: string): CustomerDecisionRecord | null {
     const row = this.db
       .prepare('SELECT * FROM customer_decisions WHERE decision_id = ?')
@@ -157,7 +142,6 @@ export class CommitmentStore {
     return rows.map(decisionFromRow)
   }
 
-  /** 需求 + 版本 + 已有承诺三维回查当前决定；没有记录时返回 null。 */
   decisionForCommitment(
     reqId: string,
     requirementVersion: number,
@@ -196,7 +180,6 @@ export class CommitmentStore {
     return rows.map(resolutionFromRow)
   }
 
-  /** 准入所需的解除依据与客户决定；历史冲突由仓储按分析版本另行给出。 */
   admissionCommitmentHistory(
     reqId: string,
     previousConflicts: readonly CommitmentConflict[],

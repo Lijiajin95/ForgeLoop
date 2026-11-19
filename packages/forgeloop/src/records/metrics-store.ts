@@ -1,11 +1,3 @@
-/**
- * 度量事实的只读查询与人工处理区间记录。
- *
- * 记录库本身按项目隔离（一项目一库），因此这里不做项目过滤；调用方按已受理需求筛选。
- * 人工处理区间只来自显式记录：已有事实（澄清回答、业务决定、授权、延长、停止、取消）
- * 只有时刻、没有处理时长，页面按规范显示「时长未知」，不猜测区间。
- */
-
 import type { Database } from './db.js'
 import { num, text, type Row } from './rows.js'
 
@@ -43,7 +35,6 @@ export interface HumanInterventionRecord {
   readonly recordedAt: string
 }
 
-/** 已有权威记录里的介入事实：都只有时刻，没有可观测的处理时长。 */
 const INTERVENTION_FACTS = `
 SELECT req_id, '' AS actor, '人工澄清' AS reason, answered_at AS at, '' AS ended_at
   FROM requirement_clarification_answers
@@ -105,7 +96,6 @@ export class MetricsStore {
       }))
   }
 
-  /** 全部介入事实：已有记录只有时刻，`human_interventions` 才有可观测区间。 */
   interventions(): MetricsInterventionRow[] {
     const facts = this.db.prepare(INTERVENTION_FACTS).all().map(interventionRow)
     const recorded = this.db

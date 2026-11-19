@@ -101,7 +101,6 @@ export class OpsStore {
     return row ? opsEventFromRow(row) : null
   }
 
-  /** 同一项目内按失败签名查找仍在处理中的事件；终态事件不吸收新告警。 */
   findActiveOpsEvent(project: string, signature: string): OpsEventRecord | null {
     const row = this.db
       .prepare(
@@ -121,7 +120,6 @@ export class OpsStore {
     return rows.map(opsEventFromRow)
   }
 
-  /** 按白名单列更新事件；未知字段直接拒绝，避免把任意键拼进 SQL。 */
   updateOpsEvent(eventId: string, patch: OpsEventPatch): OpsEventRecord {
     const columns: Record<string, string> = {
       state: 'state',
@@ -302,11 +300,6 @@ export class OpsStore {
     return row ? opsActionAttemptFromRow(row) : null
   }
 
-  /**
-   * 宿主启动时收口上次未完成的处置动作：动作已经不在，但退出码没有落库。
-   * 记录为 `interrupted`（事实：没有结果记录），事件按“未解决”收口，
-   * 由运维 Agent 分析根因后上报；不自动重放动作。
-   */
   markRunningOpsActionsInterrupted(now: string): Array<{ actionId: string; eventId: string }> {
     const rows = this.db
       .prepare("SELECT * FROM ops_action_attempts WHERE state = 'running' ORDER BY started_at")
@@ -331,10 +324,6 @@ export class OpsStore {
     return marked
   }
 
-  /**
-   * 旧库里的运维 unknown 收口：事件改为未解决，动作尝试改为 interrupted。
-   * 只做一次迁移；新库不会写入 unknown。
-   */
   migrateLegacyOpsUnknown(now: string): number {
     return this.db.transaction(() => {
       const attempts = this.db.handle
@@ -353,6 +342,4 @@ export class OpsStore {
       return Number(attempts.changes) + Number(events.changes)
     })
   }
-
-  // ---------------------------------------------------------------- 元信息
 }

@@ -1,10 +1,3 @@
-/**
- * 代码可靠性看板的只读记录查询。
- *
- * 只做聚合与投影，不写表、不调用模型。任务运行只取每个需求最新任务包的状态；
- * 历史趋势必须使用追加型表，不能拿可变的当前任务状态回放过去。
- */
-
 import type {
   CandidateBuildFact,
   DeploymentFact,
@@ -91,7 +84,6 @@ export class ReliabilityStore extends OpsStore {
     }))
   }
 
-  /** 每个需求最新任务包的任务运行当前状态；不代表历史交付率。 */
   reliabilityTaskRuns(): TaskRunFact[] {
     const rows = this.db
       .prepare(
@@ -144,7 +136,6 @@ export class ReliabilityStore extends OpsStore {
     }))
   }
 
-  /** 追加一条只读指标样本；历史只增不改，也不因需求后续状态重写。 */
   recordReliabilitySample(input: {
     readonly project: string
     readonly sampledAt: string
@@ -160,7 +151,6 @@ export class ReliabilityStore extends OpsStore {
     return Number(result.lastInsertRowid)
   }
 
-  /** 最近若干条样本，从新到旧；损坏的行跳过，不显示成 0 或猜测值。 */
   reliabilitySamples(
     project: string,
     limit = RELIABILITY_SAMPLE_HISTORY_LIMIT,
@@ -186,7 +176,7 @@ export class ReliabilityStore extends OpsStore {
           revision: text(row, 'revision'),
         })
       } catch {
-        // 损坏的样本不阻塞其他历史，也不把缺失值当成 0。
+        continue
       }
     }
     return samples

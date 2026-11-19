@@ -1,8 +1,3 @@
-/**
- * 交付交接记录：按需求 + 候选 + 目标持久化“构建/部署/核对”进度。
- * 协调器重复轮询、宿主重启后按该记录续跑，不重复构建或重复发起部署。
- */
-
 import type { Database } from './db.js'
 import { text, type Row } from './rows.js'
 
@@ -102,10 +97,6 @@ export class DeliveryStore {
       )
   }
 
-  /**
-   * 事件复核待办：与“部署核对完成”分开持久化，部署不重复而复核可以续跑。
-   * 同一需求+部署+事件只保留一条；已完成的不会被重新打开。
-   */
   ensureRechecks(input: {
     reqId: string
     intentId: string

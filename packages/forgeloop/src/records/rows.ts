@@ -25,7 +25,6 @@ import {
 
 export type Row = Record<string, unknown>
 
-/** 一次工时延长的审计记录；`seconds = -1` 表示改为不限。 */
 export interface BudgetExtensionRecord {
   readonly seconds: number
   readonly extendedBy: string
@@ -38,7 +37,6 @@ export function text(row: Row, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** 把记录里的字符串收窄到已知取值；非法值按记录损坏报错，不静默取默认。 */
 export function oneOf<T extends string>(value: string, allowed: readonly T[], label: string): T {
   const found = allowed.find((item) => item === value)
   if (found === undefined) throw new RuleViolationError(`记录损坏：${label} 取值非法（${value}）`)
@@ -88,7 +86,6 @@ export function num(row: Row, key: string): number {
   return typeof value === 'number' ? value : Number(value ?? 0)
 }
 
-/** 可空整数列：NULL 与缺失都返回 null，不把未知值当成 0。 */
 export function nullableNum(row: Row, key: string): number | null {
   const value = row[key]
   if (value === null || value === undefined) return null
@@ -201,11 +198,9 @@ export interface VerificationRecord {
   readonly evidenceDir: string
   readonly sessionId: string
   readonly verifiedAt: string
-  /** 以下是追加保存的尝试身份；旧调用方可省略，由仓库按候选自动编号。 */
   readonly attemptId?: string
   readonly attemptNumber?: number
   readonly previousAttemptId?: string
-  /** 失败分类；通过时为空。 */
   readonly failureKind?: string
   readonly blocking?: readonly string[]
 }
@@ -233,7 +228,6 @@ export interface BusinessReviewRecord {
   readonly reviewedAt: string
 }
 
-/** 研发会话的权威记录：会话不随需求结束删除，忙闲与最近总结落在这里。 */
 export interface DevSessionRecord {
   readonly sessionId: string
   readonly project: string

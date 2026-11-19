@@ -1,11 +1,3 @@
-/**
- * 可安装交付记录：六项材料（提交、安装包、安装说明、测试、业务验收、试装）
- * 同时可用时追加一行，作为“从什么时候起用户能取得哪份已验证安装包”的权威事实。
- *
- * 只追加：同一候选与同一包摘要重复登记不新增行；包或候选变化产生新的交付版本，
- * 旧记录不被覆盖，供指标与审计回查。
- */
-
 import type { Database } from './db.js'
 import { num, text, type Row } from './rows.js'
 
@@ -121,7 +113,6 @@ export class InstallableDeliveryStore {
       .map(deliveryRow)
   }
 
-  /** 同一候选与同一包摘要的既有记录；重复登记与幂等判定用。 */
   forCandidate(
     reqId: string,
     planVersion: number,
@@ -145,7 +136,6 @@ export class InstallableDeliveryStore {
     return row ? num(row, 'total') : 0
   }
 
-  /** 项目内全部交付记录，按可用时间升序；指标按此计算交付数与用时。 */
   all(project?: string): InstallableDeliveryRecord[] {
     const rows = project
       ? this.db

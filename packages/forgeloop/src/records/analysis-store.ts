@@ -1,10 +1,3 @@
-/**
- * 产品分析结论与分析尝试的持久化。
- *
- * 结论、分诊类型、澄清问题与旧问题处置在同一事务写入；失败尝试同样保留模型、
- * 提示词版本、轨迹与工具调用。读取时按分析版本排序，最新一条由仓储层转发。
- */
-
 import type { Database } from './db.js'
 import type { RequirementAnalysis } from '../domain/requirement.js'
 import { DEFAULT_INPUT_KIND, INPUT_KINDS, inputKindOf } from '../domain/requirement.js'
@@ -75,7 +68,6 @@ export class AnalysisStore {
           JSON.stringify(analysis.toolCalls ?? []),
           analysis.createdAt,
         )
-      // 分诊结果与分析记录同一事务写入；重复写入同一版本时以最新结论为准。
       this.db
         .prepare(
           `INSERT INTO requirement_analysis_input_kinds (req_id, analysis_version, kind)
@@ -100,7 +92,6 @@ export class AnalysisStore {
     })
   }
 
-  /** 结构化规格与结论同一事务落库；没有业务要点时不写空行。 */
   private recordSpec(analysis: RequirementAnalysis & { reqId: string }): void {
     const spec: AnalysisSpec = {
       points: analysis.businessPoints ?? [],
@@ -246,7 +237,6 @@ export class AnalysisStore {
       )
   }
 
-  /** 修订时登记旧分析失效；同一目标版本只记一次。 */
   recordInvalidation(input: {
     reqId: string
     analysisVersion: number
@@ -321,7 +311,6 @@ export class AnalysisStore {
     }))
   }
 
-  /** 最近一次带需求库遍历记录的分析尝试原文；没有时为空串。 */
   latestReview(reqId: string): string {
     const row = this.db
       .prepare(

@@ -1,8 +1,3 @@
-/**
- * 内建问题单的 SQLite 适配。问题单只追加、通过状态收口；
- * 读取失败按畸形拒绝，不返回半份证据。
- */
-
 import { MalformedError, errorMessage } from '../domain/errors.js'
 import type { Database } from './db.js'
 import { issueStageOf, issueStatusOf } from './rows.js'
@@ -60,7 +55,6 @@ export class IssueStore {
     this.db = db
   }
 
-  /** 追加问题单；同一身份重复写入保持幂等，不覆盖既有证据。 */
   record(issue: RequirementIssue): void {
     this.db
       .prepare(
@@ -92,7 +86,6 @@ export class IssueStore {
     return row ? issueFromRow(row) : null
   }
 
-  /** 一个需求的全部问题单，按 attempt 升序；历史不删除。 */
   issuesFor(reqId: string): RequirementIssue[] {
     const rows = this.db
       .prepare('SELECT * FROM requirement_issues WHERE req_id = ? ORDER BY attempt, created_at')
@@ -100,7 +93,6 @@ export class IssueStore {
     return rows.map(issueFromRow)
   }
 
-  /** 仍未收口的问题单：open 或已修复待验证。 */
   latestOpen(reqId: string): RequirementIssue | null {
     const row = this.db
       .prepare(
@@ -126,7 +118,6 @@ export class IssueStore {
     return result.changes > 0
   }
 
-  /** 测试通过后收口该需求全部未解决问题单；返回收口数量。 */
   resolveOpen(reqId: string, now: string): number {
     const result = this.db
       .prepare(

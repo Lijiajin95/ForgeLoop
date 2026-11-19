@@ -1,10 +1,3 @@
-/**
- * 需求队列的 SQLite 适配：把 `domain/requirement-queue.ts` 的存储端口落到权威表。
- *
- * 领取在一次 `BEGIN IMMEDIATE` 事务内完成“无在研需求时取队首并标记 claimed”，
- * 排序口径与领域层一致：提出时间升序，时间相同按入队序号升序。
- */
-
 import type { Database } from './db.js'
 import { QUEUE_CLAIMED, QUEUE_QUEUED } from '../domain/requirement-queue.js'
 import type {
