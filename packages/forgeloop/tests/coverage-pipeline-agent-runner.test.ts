@@ -66,7 +66,14 @@ function host(options: HostOptions = {}) {
   const events = options.events ?? (() => COMPLETED_EVENTS)
   const agent = {
     id: 'session-fl-dev-test',
-    session: { ownEvents: () => events() },
+    session: {
+      get seq() {
+        return events().length
+      },
+      inheritedEventCount: 0,
+      snapshotEvents: (fromSeq: number, toSeqExclusive: number) =>
+        events().slice(fromSeq, toSeqExclusive),
+    },
     followup: () => undefined,
     whenIdle: () => {
       if (options.behavior === 'throw') return Promise.reject(new Error('boom'))

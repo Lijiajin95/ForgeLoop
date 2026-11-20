@@ -36,15 +36,18 @@ function fakeAgent(text: string) {
       agent: {
         id: 'session-fake-agent',
         session: {
-          ownEvents: () => [
-            {
-              type: 'assistant/message',
-              seq: 1,
-              time: 0,
-              data: { message: { role: 'assistant', content: [{ type: 'text', text }] } },
-            },
-            { type: 'turn/end', seq: 2, time: 0, data: { reason: { kind: 'completed' } } },
-          ],
+          seq: 2,
+          inheritedEventCount: 0,
+          snapshotEvents: (fromSeq: number, toSeqExclusive: number) =>
+            [
+              {
+                type: 'assistant/message',
+                seq: 1,
+                time: 0,
+                data: { message: { role: 'assistant', content: [{ type: 'text', text }] } },
+              },
+              { type: 'turn/end', seq: 2, time: 0, data: { reason: { kind: 'completed' } } },
+            ].slice(fromSeq, toSeqExclusive),
         },
         followup: () => undefined,
         whenIdle: async () => undefined,

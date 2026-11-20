@@ -1,10 +1,11 @@
 import { asRecord } from '../domain/json.js'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { errorMessage } from '../domain/errors.js'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AgentConfig } from '../config.js'
 import type { AgentIdentity } from '../domain/agents.js'
+import { TranscriptWriter } from './transcript.js'
 
 type AnyRecord = Record<string, unknown>
 
@@ -121,7 +122,9 @@ interface AgentView {
 }
 
 interface SessionView {
-  ownEvents(): readonly AnyRecord[]
+  readonly seq: number
+  readonly inheritedEventCount: number
+  snapshotEvents(fromSeq: number, toSeqExclusive: number): readonly AnyRecord[]
 }
 
 function serviceOf(ctx: AnyRecord, name: string): unknown {
@@ -259,18 +262,8 @@ function closedSessionResult(sessionId: string, transcriptPath: string): AgentRu
   }
 }
 
-function writeTranscriptFile(path: string, events: readonly AnyRecord[]): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf8')
-}
-
-function writeTranscript(
-  view: SessionHandle,
-  turn: AgentTurnRequest,
-): ReturnType<AgentView['session']['ownEvents']> {
-  const events = view.agent.session.ownEvents()
-  writeTranscriptFile(turn.transcriptPath, events)
-  return events
+function transcriptOf(session: SessionView, path: string): TranscriptWriter {
+  return new TranscriptWriter(path, session)
 }
 
 interface RunResultBase {
@@ -571,15 +564,11 @@ export class AgentRunner {
     const flushActivity = (
       turn: AgentTurnRequest,
       watch: ReturnType<typeof startTurnWatch>,
+      transcript: TranscriptWriter,
     ): void => {
-      try {
-        const events = handle.agent.session.ownEvents()
-        watch.touch(events.length)
-        writeTranscriptFile(turn.transcriptPath, events)
-        turn.onActivity?.(events)
-      } catch {
-        // 活动快照是观测数据；写入失败不能中断 Agent 回合。
-      }
+      const events = transcript.flushQuietly()
+      watch.touch(events.length)
+      turn.onActivity?.(events)
     }
     return {
       sessionId,
@@ -587,8 +576,9 @@ export class AgentRunner {
         const started = Date.now()
         if (dead) return closedSessionResult(sessionId, turn.transcriptPath)
         const watch = startTurnWatch(turn)
+        const transcript = transcriptOf(handle.agent.session, turn.transcriptPath)
         const activityTimer = setInterval(() => {
-          flushActivity(turn, watch)
+          flushActivity(turn, watch, transcript)
         }, 1_500)
         activityTimer.unref()
         let whenIdleError = ''
@@ -606,7 +596,7 @@ export class AgentRunner {
           watch.stop()
           clearInterval(activityTimer)
         }
-        const events = writeTranscript(handle, turn)
+        const events = transcript.finish()
         const base = {
           text: extractAssistantText(events),
           sessionId,
@@ -719,19 +709,11 @@ export class AgentRunner {
     request.signal?.addEventListener('abort', onAbort, { once: true })
 
     mkdirSync(dirname(request.transcriptPath), { recursive: true })
+    const transcript = transcriptOf(handle.agent.session, request.transcriptPath)
     const flushActivity = (): void => {
-      try {
-        const events = handle.agent.session.ownEvents()
-        idle.touch(events.length)
-        writeFileSync(
-          request.transcriptPath,
-          `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-          'utf8',
-        )
-        request.onActivity?.(events)
-      } catch {
-        return
-      }
+      const events = transcript.flushQuietly()
+      idle.touch(events.length)
+      request.onActivity?.(events)
     }
     const activityTimer = setInterval(flushActivity, 1_500)
     activityTimer.unref()
@@ -756,14 +738,8 @@ export class AgentRunner {
       cleanup()
     }
 
-    const events = handle.agent.session.ownEvents()
+    const events = transcript.finish()
     const transcriptPath = request.transcriptPath
-    mkdirSync(dirname(transcriptPath), { recursive: true })
-    writeFileSync(
-      transcriptPath,
-      `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-      'utf8',
-    )
 
     await handle.dispose().catch(() => undefined)
 

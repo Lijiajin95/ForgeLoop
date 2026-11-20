@@ -18,7 +18,14 @@ function fakeContext(options: {
   let cancelled = false
   const agent = {
     id: 'session-fake',
-    session: { ownEvents: () => options.events },
+    session: {
+      get seq() {
+        return options.events.length
+      },
+      inheritedEventCount: 0,
+      snapshotEvents: (fromSeq: number, toSeqExclusive: number) =>
+        options.events.slice(fromSeq, toSeqExclusive),
+    },
     followup: vi.fn(),
     whenIdle: () => {
       if (options.behavior === 'throw') return Promise.reject(new Error('boom'))

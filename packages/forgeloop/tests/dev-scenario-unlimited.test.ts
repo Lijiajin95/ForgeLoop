@@ -156,7 +156,14 @@ function devHost(options: {
         }
 
         const agent = {
-          session: { ownEvents: () => events },
+          session: {
+            get seq() {
+              return events.length
+            },
+            inheritedEventCount: 0,
+            snapshotEvents: (fromSeq: number, toSeqExclusive: number) =>
+              events.slice(fromSeq, toSeqExclusive),
+          },
           followup: (message: { content?: readonly { type?: string; text?: string }[] }) => {
             const prompt = (message.content ?? []).map((part) => part.text ?? '').join('')
             const plan = prompt.includes('技术方案与研发任务拆解')

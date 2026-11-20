@@ -9661,3 +9661,26 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
    分析 schema v2 迁移时一并评估。
 
 验证：各批次 `make check` 通过（229 文件、2586–2587 用例），pre-commit 覆盖率门禁通过。
+
+## 263. transcript 增量写入（2026-11-20）
+
+来源：所有者提供的现场报告——Agent 回合期间每 1.5 秒把全部会话事件重新序列化并全量重写
+transcript，CPU profile 中写盘链路合计 91.5%（`writeTranscript` 42.6%、`writeFileSync` 31.0%、
+`writeFileUtf8` 12.7%、`writeTranscriptFile` 5.2%），Web 界面长时间无响应。
+
+- 新增 `src/runtime/transcript.ts`：`TranscriptWriter` 按会话游标（`inheritedEventCount` → `seq`）
+  只读取并追加新事件；首次写入截断同名文件，回合收尾补写剩余事件；零事件时仍写出与旧实现相同的
+  单个换行。活动快照写失败继续被吞掉，收尾写入仍按旧行为抛错。
+- `agent-runner` 的 `send()` 与 `run()` 两处改为复用同一个 writer；`turn.onActivity` 收到的是
+  闭包内累积的完整事件数组（内容与顺序不变），`watch.touch`/`idle.touch` 仍传事件总数。
+- 测试 `tests/transcript.test.ts`（7 项）：分 tick 增量与旧全量算法**逐字节等价**、只读新增窗口、
+  继承前缀起始、残留文件截断、零事件换行、写失败静默与收尾抛错、自动建目录；四处假会话改为
+  提供 `seq`/`inheritedEventCount`/`snapshotEvents`。
+- 读取 API 说明：DSH `snapshotEvents`/`seq` 属于
+  `.agents/notes/implemented/architecture/2026-09-09-deprecate-synchronous-session-event-reads.md`
+  标记的同步历史读取，当前没有非废弃的区间入口；迁移依赖宿主提供增量事件订阅或异步分页，
+  已在 `transcript.ts` 注明。
+- 验证：定向 66 项通过；`test:fast` 2357 通过、1 跳过（1 个验证深链用例并行失败、单独复跑通过）；
+  `check-static` 通过。
+- 未完成：修复需重新打包并安装到目标 profile 后才对运行实例生效；现场 CPU profile 复检
+  （写盘 < 5%、CPU < 30%、界面 < 200ms）尚未在本机执行。
