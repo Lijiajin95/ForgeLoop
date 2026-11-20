@@ -1,10 +1,3 @@
-/**
- * 研发会话持久化：会话、需求与会话绑定、会话总结三张表。
- *
- * 从 Repository 拆出单独一类，避免仓储文件超出上下文与行数预算；
- * Repository 继承本类，对调用方仍是同一组方法。
- */
-
 import { RuleViolationError } from '../domain/errors.js'
 import { CommitmentStore } from './commitment-store.js'
 import { ReliabilityStore } from './reliability-store.js'
@@ -18,12 +11,8 @@ import {
 } from './rows.js'
 
 export class DevSessionStore extends ReliabilityStore {
-  /** 客户决定与承诺冲突解除依据；仓储不新增字段，调用方用 repo.commitments.*。 */
   readonly commitments = new CommitmentStore(this.db)
 
-  // ---------------------------------------------------------------- 研发会话
-
-  /** 登记或更新一个研发会话；会话记录不删除，需求结束后只改忙闲与总结。 */
   upsertDevSession(input: {
     sessionId: string
     project: string
@@ -91,7 +80,6 @@ export class DevSessionStore extends ReliabilityStore {
       .run(...values, sessionId)
   }
 
-  /** 原子地占住空闲会话；已被别的请求占用时返回 false，由调用方等待。 */
   leaseDevSession(sessionId: string, requestId: string, now: string): boolean {
     const result = this.db
       .prepare(
@@ -111,7 +99,6 @@ export class DevSessionStore extends ReliabilityStore {
       .run(now, sessionId)
   }
 
-  /** 某个请求被收口时释放它占住的会话；没有占用则返回 0。 */
   releaseDevSessionByRequest(requestId: string, now: string): number {
     const result = this.db
       .prepare(

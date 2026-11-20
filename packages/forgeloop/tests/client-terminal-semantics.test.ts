@@ -318,7 +318,7 @@ describe('build stamp', () => {
           serverSha256: 'a'.repeat(64),
           clientSha256: 'b'.repeat(64),
           sourceClientSha256: 'c'.repeat(64),
-          sourceMatches: false,
+          sourceMatches: 'mismatch',
         },
       }),
     )

@@ -1,13 +1,7 @@
-/**
- * M1 统计口径（docs/product/product.md §12）的纯计算部分：
- * 从记录事实判定人工介入与自主成功，避免脚本里散落判定而无法测试。
- */
-
 export interface RequirementFacts {
   readonly reqId: string
   readonly status: string
   readonly versions: number
-  /** requirement_grants 行数：任何一行都是一次显式追加授权。 */
   readonly grants: number
   readonly budgetExtensions: number
   readonly stops: number
@@ -15,7 +9,6 @@ export interface RequirementFacts {
   readonly clarificationQuestions: number
   readonly committed: boolean
   readonly verification: string
-  /** 该需求是否有 verified 的部署记录。 */
   readonly deployed: boolean
 }
 
@@ -30,7 +23,6 @@ export interface OpsEventFacts {
   readonly recoveredAt: string
 }
 
-/** 人工介入事实；空数组表示记录中没有任何介入依据。 */
 export function interventionsOf(facts: RequirementFacts): string[] {
   const items: string[] = []
   if (facts.versions > 1) items.push(`需求修订 ${facts.versions - 1} 次`)
@@ -44,10 +36,6 @@ export function interventionsOf(facts: RequirementFacts): string[] {
   return items
 }
 
-/**
- * 自主成功：无人工介入、已受控提交、测试通过、部署 verified、
- * 且需求处于已提交/已验收状态。已提交但未部署不算成功。
- */
 export function isAutonomousSuccess(facts: RequirementFacts): boolean {
   return (
     interventionsOf(facts).length === 0 &&
@@ -58,14 +46,12 @@ export function isAutonomousSuccess(facts: RequirementFacts): boolean {
   )
 }
 
-/** 百分比：空分母显示“无样本”，绝不把 1/1 显示成 1.0%。 */
 export function formatRatio(numerator: number, denominator: number): string {
   if (denominator === 0) return '无样本'
   const percent = (numerator / denominator) * 100
   return `${numerator}/${denominator} = ${percent.toFixed(1)}%`
 }
 
-/** 同一对象在多份归档中出现时只计一次；返回去重后的键与重复项。 */
 export function dedupeByKey<T>(
   items: readonly T[],
   keyOf: (item: T) => string,
@@ -85,7 +71,6 @@ export function dedupeByKey<T>(
   return { unique, duplicates }
 }
 
-/** 同一故障的告警归并：资源+检查+修复需求相同即视为同一次故障。 */
 export function groupIncidents(events: readonly OpsEventFacts[]): Array<{
   key: string
   eventIds: string[]

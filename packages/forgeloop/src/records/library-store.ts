@@ -1,8 +1,3 @@
-/**
- * 需求库索引：项目文档条目是内容权威，本表只存同步快照（id/主题/状态/哈希/缺失）。
- * 同步是“覆盖式”的：文件消失只标 missing，不删除行，便于回查与恢复。
- */
-
 import type { Database } from './db.js'
 import { num, text, type Row } from './rows.js'
 import { RuleViolationError } from '../domain/errors.js'
@@ -37,7 +32,6 @@ const STATUSES: readonly LibraryStatus[] = ['confirmed', 'draft', 'superseded']
 export class LibraryStore {
   constructor(readonly db: Database) {}
 
-  /** 用一次扫描结果覆盖索引；未出现的条目标 missing，不删除历史行。 */
   sync(entries: readonly LibrarySyncEntry[], now: string): void {
     this.db.transaction(() => {
       for (const item of entries) this.upsert(item, now)

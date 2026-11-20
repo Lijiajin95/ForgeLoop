@@ -1,11 +1,3 @@
-/**
- * ForgeLoop 业务会话的输入接管。
- *
- * 在 DSH 的 `agent/pre-step` waterfall 中，只处理 agentPreset=forgeloop 的
- * 非子 Agent 会话：把人类输入交给需求受理与产品 Agent 分析，然后 reject 普通
- * 模型步骤。用户看到的是自定义会话事件，不是普通聊天回复。
- */
-
 import { asRecord } from '../domain/json.js'
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
@@ -71,15 +63,9 @@ export interface SessionIntakeOptions {
   readonly config: ForgeLoopConfig
   readonly log?: SessionEventLogger
   readonly now?: () => Date
-  /** 读取会话当前生效的 preset；缺省或返回 undefined 时回退到 session header。 */
   readonly presetOf?: ((agent: AgentViewLike) => string | undefined) | undefined
 }
 
-/**
- * 是否是 ForgeLoop 业务会话：当前 preset 匹配且不是子 Agent 会话。
- * Web 会话的 header 是创建事实；用户可能在首轮前切换 preset，因此优先读取
- * 运行中的 preset 组合，header 只作为回退。
- */
 export function isForgeLoopSession(
   agent: AgentViewLike | undefined,
   presetOf?: (agent: AgentViewLike) => string | undefined,
@@ -115,13 +101,11 @@ export function messageText(message: UserMessageLike): string {
   return textOfContent(message.content)
 }
 
-/** 显式路由：新需求、指定需求的澄清回答，或按当前待澄清状态自动判断。 */
 export type IntakeDirective =
   | { readonly kind: 'new'; readonly text: string }
   | {
       readonly kind: 'answer'
       readonly reqId: string
-      /** 只回答指定问题；缺省时回答该需求当前全部开放问题。 */
       readonly questionIds: readonly string[]
       readonly text: string
     }
@@ -137,10 +121,6 @@ function questionIdsOf(bracket: string | undefined, repeated: string | undefined
   return [...new Set(source.match(/Q\d+-\d+/gi) ?? [])].map((id) => id.toUpperCase())
 }
 
-/**
- * 只按用户写明的入口判断消息归属，不让模型猜“这是回答还是新需求”。
- * 没有前缀时保持兼容：会话只有一个待澄清需求就按回答处理，否则由调用方报错。
- */
 export function parseIntakeDirective(text: string): IntakeDirective {
   const answer = ANSWER_TARGET_PREFIX.exec(text)
   if (answer) {
@@ -158,7 +138,6 @@ export function parseIntakeDirective(text: string): IntakeDirective {
   return { kind: 'auto', text }
 }
 
-/** 业务会话的确定性输入接管器；不依赖浏览器，也不依赖命令表面。 */
 export class SessionIntake {
   private readonly runtime: ForgeLoopRuntime
   private readonly config: ForgeLoopConfig
@@ -175,14 +154,12 @@ export class SessionIntake {
     this.presetOf = options.presetOf
   }
 
-  /** 只接管 ForgeLoop 业务会话；其他会话原样交给后续 waterfall。 */
   async handlePreStep(payload: PreStepPayloadLike, next: PreStepNext): Promise<PreStepDecision> {
     const agent = payload.agent
     if (!isForgeLoopSession(agent, this.presetOf)) return next()
 
     const messages = humanMessages(payload.messages ?? [])
     if (messages.length === 0) {
-      // 业务会话不运行普通模型步骤；系统注入的上下文也不应触发聊天。
       return { kind: 'reject' }
     }
     const session = agent?.session
@@ -250,7 +227,6 @@ export class SessionIntake {
       await this.answerDirective({ ...target, directive, pending, dedupeKey })
       return
     }
-    // 文档引用始终是发起动作：不受本会话待澄清状态影响，提交后直接排队研发。
     const document = documentDirectiveOf(text)
     if (document) {
       await this.submitDocument({ ...target, path: document.path, text })
@@ -274,7 +250,6 @@ export class SessionIntake {
     await this.submitOne({ ...target, text })
   }
 
-  /** 明确标记的新需求入口：即使会话里有待澄清需求也单独受理，不并入回答。 */
   private async submitNewDirective(input: {
     session: SessionViewLike | undefined
     sessionId: string
@@ -304,7 +279,6 @@ export class SessionIntake {
     })
   }
 
-  /** 明确的回答对象：只能回答本会话待澄清列表里的需求，找不到就报错，不猜测。 */
   private async answerDirective(input: {
     session: SessionViewLike | undefined
     sessionId: string
@@ -406,7 +380,6 @@ export class SessionIntake {
         by: this.config.owner,
         source,
         clientKey: source,
-        // 业务会话先同步执行首次分析，成功后入队；不让队列再排第二次分析。
         analyze: false,
       })
     } catch (error) {
@@ -447,14 +420,9 @@ export class SessionIntake {
     }
     appendSessionEvent(session, FORGELOOP_INTAKE_EVENT, intake, this.log)
     await this.analyzeAndShow({ session, reqId, at, signal: input.signal })
-    // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
     // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
 
-  /**
-   * 文档入口：引用项目内一份 Markdown 即发起研发。路径、快照、去重与修订版本
-   * 都由运行时确定性判定；这里只负责把结果如实呈现到会话。
-   */
   private async submitDocument(input: {
     session: SessionViewLike | undefined
     sessionId: string
@@ -513,12 +481,10 @@ export class SessionIntake {
       at,
     }
     appendSessionEvent(session, FORGELOOP_INTAKE_EVENT, intake, this.log)
-    // 重复投递同一份内容不重新分析；修订与新需求都要按新版本走一次产品分析。
     if (data.outcome === 'duplicate') return
     await this.analyzeAndShow({ session, reqId: data.reqId, at, signal: input.signal })
   }
 
-  /** 受理后立即做首次产品分析并回显；失败只追加错误事件，不退回普通聊天。 */
   private async analyzeAndShow(input: {
     session: SessionViewLike | undefined
     reqId: string
@@ -604,11 +570,9 @@ export class SessionIntake {
     this.appendAnalysis(session, reqId, outcome.analysis, at)
     this.appendClarificationIfNeeded(session, reqId, outcome.analysis, at)
     this.enqueueIfReady(reqId, outcome.analysis)
-    // 方案与实现由协调器自动排入研发 Agent；人类会话不再直接调用旧规划入口，
     // 否则会并行生成第二份任务包并把需求打回 plan_proposed。
   }
 
-  /** 首次产品分析完成后入队；有待澄清项时等回答后的分析再入队。 */
   private enqueueIfReady(reqId: string, analysis: RequirementAnalysis): void {
     if (analysis.clarifications.length > 0) return
     const outcome = this.runtime.analysisQueue.enqueue(reqId)

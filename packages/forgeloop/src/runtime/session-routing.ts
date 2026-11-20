@@ -1,8 +1,3 @@
-/**
- * 研发会话路由的组合入口：把主控 Agent 与研发会话注册表接到运行时，
- * 并提供“该需求绑定的会话是否空闲”的查询。业务运行时只持有这一个依赖。
- */
-
 import type { ForgeLoopConfig } from '../config.js'
 import type { Repository } from '../records/repository.js'
 import type {
@@ -55,7 +50,6 @@ export class SessionRouting {
     })
   }
 
-  /** 需求已绑定会话且会话空闲：只有这时才重新排队等待中的需求。 */
   idleForRequirement(reqId: string, requirementVersion: number): boolean {
     const binding = this.deps.repo.requirementDevSession(reqId, requirementVersion)
     if (!binding) return false

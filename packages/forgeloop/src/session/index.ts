@@ -1,8 +1,3 @@
-/**
- * ForgeLoop 业务会话接入：注册 agent preset，并在 DSH 的 agent/pre-step
- * waterfall 上接管该 preset 会话的人类输入。
- */
-
 import type { ForgeLoopConfig } from '../config.js'
 import { errorMessage } from '../domain/errors.js'
 import type { ForgeLoopRuntime } from '../runtime/service.js'
@@ -20,11 +15,9 @@ import { presetRegistryOf, registerForgeLoopPreset, type PresetRegistration } fr
 
 type AnyRecord = Record<string, unknown>
 
-/** 业务会话未绑定 DSH 工作区时的固定拒绝文案；受理、看板与工具共用同一语义。 */
 export const UNBOUND_WORKSPACE_MESSAGE =
   '当前会话没有绑定 DSH 工作区：请先在某个工作区中新建 ForgeLoop 业务会话再提交需求；ForgeLoop 不跨工作区读写。'
 
-/** 业务会话所属工作区的运行时；由宿主注册表按会话目录解析。 */
 export interface SessionTenant {
   readonly id: string
   readonly runtime: ForgeLoopRuntime
@@ -32,29 +25,24 @@ export interface SessionTenant {
 }
 
 export interface SessionTenantSource {
-  /** 按会话 header 的原始目录解析工作区；未绑定任何工作区时返回 undefined。 */
   forCwd(cwd: string): Promise<SessionTenant | undefined>
 }
 
 export interface SessionSurfaceOptions {
-  /** 单项目/兼容模式的服务与配置；多工作区模式只给 tenants。 */
   readonly runtime?: ForgeLoopRuntime | undefined
   readonly config?: ForgeLoopConfig | undefined
   readonly log?: (message: string) => void
-  /** 多工作区装配；缺省时保持单项目行为（兼容调用与测试）。 */
   readonly tenants?: SessionTenantSource | undefined
 }
 
 export interface SessionSurface {
   readonly intake: SessionIntake | undefined
-  /** preset 注册结果；宿主没有 agentPresets 时 reason 说明缺口。 */
   readonly ready: Promise<PresetRegistration>
   dispose(): Promise<void>
 }
 
 type Listener = (payload: PreStepPayloadLike, next: PreStepNext) => Promise<PreStepDecision>
 
-/** 安装输入接管与 preset；返回的 dispose 供插件卸载时释放。 */
 export function installSessionSurface(
   ctx: AnyRecord,
   options: SessionSurfaceOptions,
@@ -80,7 +68,6 @@ export function installSessionSurface(
         })
       : undefined
 
-  /** 每个工作区一个输入接管器；它们的运行时与记录库互不共享。 */
   const tenantIntakes = new Map<string, SessionIntake>()
   const intakeFor = (tenant: SessionTenant): SessionIntake => {
     const existing = tenantIntakes.get(tenant.id)
@@ -95,10 +82,6 @@ export function installSessionSurface(
     return created
   }
 
-  /**
-   * 多工作区入口：先按会话原始目录找所属工作区。找不到时明确拒绝，并把原因写入会话，
-   * 不把需求落到任何默认项目——跨工作区写入口必须失败关闭。
-   */
   const handleScoped = async (
     payload: PreStepPayloadLike,
     next: PreStepNext,
@@ -169,7 +152,7 @@ export function installSessionSurface(
         try {
           dispose()
         } catch {
-          // 单个监听器清理失败不阻止其余清理。
+          continue
         }
       }
       await ready.catch(() => undefined)

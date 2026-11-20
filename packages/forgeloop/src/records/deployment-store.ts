@@ -1,8 +1,3 @@
-/**
- * 部署记录：intent、工具调用、脚本摘要与变更历史。
- * 单独成类，避免业务仓储不断膨胀；表结构在 db.ts 的 SCHEMA 中。
- */
-
 import {
   DEPLOYMENT_OPERATIONS,
   DEPLOYMENT_STATES,
@@ -63,10 +58,6 @@ export class DeploymentStore {
       .map(deploymentIntentRow)
   }
 
-  /**
-   * 同一目标上尚未收口的部署。部署、核对与回退共用这一条互斥事实，
-   * 避免同一目标被两个 intent 同时推进。
-   */
   activeDeploymentIntentForTarget(
     targetId: string,
     excludeIntentId = '',
@@ -83,10 +74,6 @@ export class DeploymentStore {
     return row ? deploymentIntentRow(row) : null
   }
 
-  /**
-   * 目标在给定 intent 之前最近一次核对通过的部署。回退只认这一条：
-   * previous 指向上一已验证制品，而不是本次制品。
-   */
   previousVerifiedIntent(
     targetId: string,
     beforeCreatedAt: string,

@@ -1,19 +1,5 @@
-/**
- * 执行敏感性对照：把声明的受控错误补丁应用到候选的隔离副本，重跑同一必过命令，
- * 要求它按目标业务规则失败。正式候选不被修改；对照副本、日志与结果作为证据保留。
- */
-
 import { createHash } from 'node:crypto'
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  symlinkSync,
-} from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { controlPatchTargets } from '../domain/verification-controls.js'
@@ -22,6 +8,7 @@ import { matchesCommandOutput } from '../domain/verification.js'
 import type { VerificationControlSpec } from '../domain/verification-controls.js'
 import { validateControlPatch } from '../domain/verification-controls.js'
 import { errorMessage } from '../domain/errors.js'
+import { linkSharedModules } from './service-helpers.js'
 import { runCommand } from './workspace.js'
 import { verificationMaterialDigest } from './verification-materials.js'
 
@@ -30,7 +17,6 @@ export interface ControlExecutionResult {
   readonly patch: string
   readonly controlDir: string
   readonly applied: boolean
-  /** 应用补丁后实际变化的受版本控制文件；空数组说明补丁没有改变目标行为。 */
   readonly changedFiles: readonly string[]
   readonly exitCode: number | null
   readonly timedOut: boolean
@@ -57,9 +43,7 @@ export interface ExecuteControlsInput {
   readonly dir: string
   readonly commands: readonly Pick<VerificationCommand, 'label' | 'argv'>[]
   readonly controls: readonly VerificationControlSpec[]
-  /** 依赖根（通常是项目工作树）；验证副本人造工作区缺少 node_modules 时回退到它。 */
   readonly dependencyRoot?: string
-  /** 正向执行时冻结的材料摘要；对照必须使用同一份材料。 */
   readonly expectedMaterialsSha256?: string
   readonly run: (input: {
     readonly argv: readonly string[]
@@ -68,7 +52,6 @@ export interface ExecuteControlsInput {
   }) => Promise<ControlCommandRun>
 }
 
-/** 只有“非零退出且输出命中目标规则证据”才算对照成立。 */
 function judgeControlRun(run: ControlCommandRun, control: VerificationControlSpec): string {
   if (run.aborted) return `敏感性对照被中止：${control.label}`
   if (run.timedOut) return `敏感性对照超时：${control.label}`
@@ -87,11 +70,7 @@ function safeName(label: string): string {
   return cleaned || 'control'
 }
 
-/**
- * 复制候选到隔离副本：保留 Git 元数据的一份独立仓库，测试命令可检查 git status/diff，
- * 但补丁只能落在副本内。先复制源码与测试材料，再初始化并提交基线，最后应用错误补丁。
- */
-function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): void {
+function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): string {
   rmSync(controlDir, { recursive: true, force: true })
   mkdirSync(controlDir, { recursive: true })
   cpSync(workspace, controlDir, {
@@ -125,12 +104,10 @@ function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: s
   if (dependencyRoot) candidates.push(join(dependencyRoot, 'node_modules'))
   const modules = candidates.find((path) => existsSync(path))
   if (modules) {
-    try {
-      symlinkSync(modules, join(controlDir, 'node_modules'), 'dir')
-    } catch {
-      // 依赖无法链接时让对照命令自己失败；环境问题会由分类器识别，不伪造成敏感性证明。
-    }
+    const linkError = linkSharedModules(modules, join(controlDir, 'node_modules'))
+    if (linkError) return linkError
   }
+  return ''
 }
 
 function inside(parent: string, child: string): boolean {
@@ -143,7 +120,6 @@ function targetDigests(root: string, targets: readonly string[]): Map<string, st
   const digests = new Map<string, string>()
   for (const target of targets) {
     const path = join(root, target)
-    // 目录、符号链接等非普通文件按“不存在”处理：不能让摘要计算抛 EISDIR，
     // 也不能把目录当成补丁目标。
     const present = existsSync(path) && statSync(path).isFile()
     digests.set(
@@ -163,7 +139,6 @@ function isolatedControlDir(workspace: string, controlDir: string): string {
   return mkdtempSync(join(tmpdir(), 'forgeloop-control-'))
 }
 
-/** 在隔离副本应用补丁并确认它确实改变了业务文件。 */
 function applyControlPatch(
   workspace: string,
   controlDirInput: string,
@@ -172,7 +147,8 @@ function applyControlPatch(
 ): { applied: boolean; changedFiles: string[]; issue: string; controlDir: string } {
   const controlDir = isolatedControlDir(workspace, controlDirInput)
   const targets = controlPatchTargets(readFileSync(patchPath, 'utf8'))
-  copyCandidate(workspace, controlDir, dependencyRoot)
+  const copyIssue = copyCandidate(workspace, controlDir, dependencyRoot)
+  if (copyIssue) return { applied: false, changedFiles: [], issue: copyIssue, controlDir }
   const before = targetDigests(controlDir, targets)
   const candidateBefore = targetDigests(workspace, targets)
   const check = runCommand('git', ['apply', '--check', patchPath], controlDir, 30_000)
@@ -203,7 +179,6 @@ function applyControlPatch(
       controlDir,
     }
   }
-  // 原候选不能被对照过程改动：隔离副本才是唯一允许变化的地方。
   const candidateAfter = targetDigests(workspace, targets)
   const touched = targets.filter(
     (target) => candidateBefore.get(target) !== candidateAfter.get(target),
@@ -229,10 +204,6 @@ function applyControlPatch(
   }
 }
 
-/**
- * 逐条执行对照。任何一条无法证明敏感性都返回 issue；调用方仍可保留通过的主命令结果，
- * 但整体验证不得通过。
- */
 export async function executeVerificationControls(
   input: ExecuteControlsInput,
 ): Promise<{ results: ControlExecutionResult[]; issues: string[] }> {

@@ -1,10 +1,3 @@
-/**
- * 业务背景变更记录：失败或待澄清的分析只留草稿，测试通过后才由程序把草稿同步成
- * 正式项目文档，并把需求版本与分析版本绑定回查依据。
- *
- * 正式文档是派生物，变更记录才是审计来源；两者不一致时以记录为准。
- */
-
 import type { Database } from './db.js'
 import { num, text, type Row } from './rows.js'
 
@@ -15,7 +8,6 @@ export interface BusinessContextChange {
   readonly analysisVersion: number
   readonly requirementVersion: number
   readonly changed: boolean
-  /** 这次变化的明确依据（需求原文、澄清回答或项目资料）。 */
   readonly reason: string
   readonly status: BusinessContextStatus
   readonly documentSha256: string
@@ -26,7 +18,6 @@ export interface BusinessContextChange {
 export class BusinessContextStore {
   constructor(readonly db: Database) {}
 
-  /** 记录或更新草稿；同一分析版本重试时覆盖为最新草案，不产生半截正式文档。 */
   recordDraft(input: {
     reqId: string
     analysisVersion: number
@@ -95,7 +86,6 @@ export class BusinessContextStore {
     }))
   }
 
-  /** 最近一次仍为草稿的背景变更；没有草稿时返回 null。 */
   latestDraft(reqId: string): BusinessContextChange | null {
     const changes = this.changes(reqId).filter((change) => change.status === 'draft')
     return changes.at(-1) ?? null

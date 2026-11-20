@@ -1,12 +1,3 @@
-/**
- * 需求库一键重建的领域模型：证据、候选、已有库审查与发布计划。
- *
- * - 纯函数：不读文件、不调模型、不写库；取证、模型调用与落盘在 runtime。
- * - 自动产物一律 `draft`；`confirmed` 只能来自所有者决定，本模块不会生成。
- * - 候选的证据、适用范围与验收必须可回查；缺证据或无法核实的候选不进入发布。
- * 产品范围见 docs/product/library-rebuild.md。
- */
-
 import {
   LIBRARY_MAX_BODY_BYTES,
   LIBRARY_MAX_ENTRIES,
@@ -23,7 +14,6 @@ export class RebuildError extends Error {
   }
 }
 
-/** 证据来源类型；与产品文档的取证范围一一对应。 */
 export type RebuildSourceKind = 'doc' | 'acceptance' | 'git' | 'source' | 'library'
 
 export const REBUILD_SOURCE_KINDS: readonly RebuildSourceKind[] = [
@@ -38,30 +28,22 @@ export type RebuildConfidence = 'low' | 'medium' | 'high'
 
 export const REBUILD_CONFIDENCES: readonly RebuildConfidence[] = ['low', 'medium', 'high']
 
-/** 条目目录与自动产物来源前缀；重跑与人工改动保护都依赖该前缀。 */
 export const REBUILD_ENTRY_DIR = 'docs/product/library'
 export const REBUILD_SOURCE_PREFIX = 'library-rebuild:'
 
-/** 单条候选的证据：来源、原始位置、证据时间与内容摘要。 */
 export interface RebuildEvidence {
   readonly kind: RebuildSourceKind
-  /** 项目内相对路径（doc/acceptance/source/library）或提交 sha（git）。 */
   readonly ref: string
-  /** 章节标题、行段、工单编号或提交中的路径；用于回查原文。 */
   readonly locator: string
-  /** 证据时间（YYYY-MM-DD 或 ISO）；无法确定时为空串，排序时排在有时间的证据之后。 */
   readonly time: string
-  /** 内容摘要或版本标识；可与运行时计算的文件摘要核对。 */
   readonly digest: string
 }
 
-/** 一条待发布的业务规则候选；正文按产品需求说明组织。 */
 export interface RebuildCandidate {
   readonly id: string
   readonly title: string
   readonly topics: readonly string[]
   readonly summary: string
-  /** 适用范围与版本，例如“已发货订单，2026-11 版本”。 */
   readonly scope: string
   readonly goal: string
   readonly actors: readonly string[]
@@ -72,11 +54,9 @@ export interface RebuildCandidate {
   readonly acceptance: readonly string[]
   readonly evidence: readonly RebuildEvidence[]
   readonly confidence: RebuildConfidence
-  /** 证据缺口或无法确定的运行条件；进入报告，不写成业务规则。 */
   readonly gaps: readonly string[]
 }
 
-/** 运行开始时的已有条目快照；由 loadLibrary 提供内容摘要与来源。 */
 export interface RebuildEntrySnapshot {
   readonly id: string
   readonly status: LibraryStatus
@@ -85,7 +65,6 @@ export interface RebuildEntrySnapshot {
   readonly source: string
 }
 
-/** 上一次发布记录中的条目身份与文件摘要；用于区分人工改动。 */
 export interface PreviousPublishedEntry {
   readonly id: string
   readonly sha256: string
@@ -132,7 +111,6 @@ export interface RebuildPublishItem {
 export interface RebuildPlan {
   readonly reviews: readonly RebuildReview[]
   readonly publish: readonly RebuildPublishItem[]
-  /** 因整库容量未发布的候选 id；仍在报告中可见。 */
   readonly overflow: readonly string[]
 }
 
@@ -192,7 +170,6 @@ function evidenceList(value: unknown): RebuildEvidence[] {
   })
 }
 
-/** 校验一条候选；结构不合法时抛 RebuildError，调用方不得发布。 */
 export function validateCandidate(candidate: RebuildCandidate): void {
   if (!ID_PATTERN.test(candidate.id)) {
     throw new RebuildError(`重建候选 id 只能是小写字母、数字、点、下划线与连字符：${candidate.id}`)
@@ -232,7 +209,6 @@ export function validateCandidate(candidate: RebuildCandidate): void {
   textList(candidate.gaps, 'gaps')
 }
 
-/** 证据排序：有时间的从新到旧，无时间的排在最后；同一时间按来源、位置稳定排序。 */
 export function orderEvidence(evidence: readonly RebuildEvidence[]): RebuildEvidence[] {
   return [...evidence].sort((left, right) => {
     const leftTime = left.time || ''
@@ -252,10 +228,6 @@ function canonicalEvidence(evidence: RebuildEvidence): string {
   return `${evidence.kind}|${evidence.ref}|${evidence.locator}|${evidence.time}|${evidence.digest}`
 }
 
-/**
- * 候选的内容指纹：与运行 ID、时间无关，只包含业务语义字段。
- * 用于判断“同一条规则没有变化”，也是重跑幂等的依据。
- */
 export function candidateFingerprint(candidate: RebuildCandidate): string {
   const payload = {
     id: candidate.id,
@@ -281,7 +253,6 @@ function bulletList(values: readonly string[]): string {
   return values.length === 0 ? '（无）' : values.map((value) => `- ${value}`).join('\n')
 }
 
-/** 渲染候选正文：产品需求说明的分节结构 + 可回查证据。 */
 export function renderCandidateBody(candidate: RebuildCandidate): string {
   const evidence = orderEvidence(candidate.evidence)
     .map((item) => {
@@ -337,7 +308,6 @@ export interface RenderEntryInput {
   readonly updatedAt: string
 }
 
-/** 渲染成需求库条目文件（draft）；正文超过读取上限时拒绝。 */
 export function renderCandidateEntry(candidate: RebuildCandidate, input: RenderEntryInput): string {
   validateCandidate(candidate)
   if (!TIME_PATTERN.test(input.updatedAt)) {
@@ -365,7 +335,6 @@ export function renderCandidateEntry(candidate: RebuildCandidate, input: RenderE
 
 const CONFIDENCE_RANK: Record<RebuildConfidence, number> = { high: 0, medium: 1, low: 2 }
 
-/** 发布优先级：置信度高、证据多、id 稳定。 */
 export function orderCandidates(candidates: readonly RebuildCandidate[]): RebuildCandidate[] {
   return [...candidates].sort(
     (left, right) =>
@@ -378,7 +347,6 @@ export function orderCandidates(candidates: readonly RebuildCandidate[]): Rebuil
 export interface ReviewCandidatesInput {
   readonly candidates: readonly RebuildCandidate[]
   readonly existing: readonly RebuildEntrySnapshot[]
-  /** 上一次发布记录：id → 文件摘要与内容指纹。 */
   readonly previous: ReadonlyMap<string, PreviousPublishedEntry>
   readonly runId: string
   readonly updatedAt: string
@@ -422,13 +390,6 @@ function reviewOne(input: {
   return { kind: 'update', id: candidate.id, candidate, replacesSha: existing.sha256 }
 }
 
-/**
- * 审查整库并形成发布计划：
- * - 人工条目、已确认规则、被人工修改的重建草稿一律保留并记冲突；
- * - 缺少上次发布摘要的重建草稿无法核实，保留并记未决；
- * - 同 id 且指纹一致视为未变化；指纹不同才更新；
- * - 整库容量按 64 条校验，超出容量的候选进入 overflow，仍在报告可见。
- */
 export function planRebuild(input: ReviewCandidatesInput): RebuildPlan {
   const capacity = input.capacity ?? LIBRARY_MAX_ENTRIES
   const existingById = new Map(input.existing.map((entry) => [entry.id, entry]))
@@ -539,7 +500,6 @@ function candidateFromRecord(record: Record<string, unknown>, index: number): Re
   return candidate
 }
 
-/** 解析模型输出：允许 ```json 围栏，必须是 {candidates:[...]}；逐条校验后返回。 */
 export function parseRebuildCandidates(text: string): RebuildCandidate[] {
   const cleaned = text
     .trim()

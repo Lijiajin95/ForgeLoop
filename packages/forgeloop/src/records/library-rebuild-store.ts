@@ -1,10 +1,3 @@
-/**
- * 需求库重建运行记录：状态、阶段、计数与发布摘要。
- *
- * 报告正文、证据目录与发布回执另存文件；本表只保证运行可查询、可恢复与可审计。
- * 状态与阶段在写入时校验，损坏记录按记录错误处理而不是静默降级。
- */
-
 import type { Database } from './db.js'
 import { num, text, type Row } from './rows.js'
 import { asRecord } from '../domain/json.js'
@@ -35,10 +28,8 @@ export interface LibraryRebuildRun {
   readonly project: string
   readonly status: LibraryRebuildStatus
   readonly stage: LibraryRebuildStage
-  /** 触发重建的所有者与来源；与看板其他 owner 动作同一口径。 */
   readonly requestedBy: string
   readonly source: string
-  /** 启动该运行的宿主进程；用于重启后识别被中断的运行。 */
   readonly pid: number
   /** 逐批进度：[{index,materials,candidates,status,durationMs,error}]。 */
   readonly batchLogJson: string
@@ -141,7 +132,6 @@ export class LibraryRebuildStore {
     return row ? runRow(row) : null
   }
 
-  /** 最近一次成功完成的重建；重跑与人工改动保护只信任它。 */
   latestDone(project: string): LibraryRebuildRun | null {
     const row = asRecord(
       this.db
@@ -153,7 +143,6 @@ export class LibraryRebuildStore {
     return row ? runRow(row) : null
   }
 
-  /** 宿主重启后，把上一进程遗留的 queued/running 运行标为中断失败。 */
   markInterrupted(project: string, pid: number, now: string): number {
     const result = this.db
       .prepare(

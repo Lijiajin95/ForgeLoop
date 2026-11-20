@@ -1,8 +1,3 @@
-/**
- * 自主率统计的事实采集：从权威记录读取需求、提交、验证、人工决定与运维事件。
- * 只读，不写记录；不在本模块推断“Agent 是否自主”。
- */
-
 import type { Repository } from '../records/repository.js'
 import type { Requirement } from '../domain/requirement.js'
 import {
@@ -13,10 +8,6 @@ import {
 } from '../domain/autonomy.js'
 import { COMMITTED } from '../domain/status.js'
 
-/**
- * 已核对部署是否指向**当前构建制品**：只有 artifactSha256 与最新构建一致才算。
- * 旧制品仍处于 verified 时不能算作当前需求的部署成功。
- */
 export function matchesCandidateArtifact(
   intents: readonly { readonly state: string; readonly artifactSha256: string }[],
   build: { readonly artifactSha256: string } | null,
@@ -27,7 +18,6 @@ export function matchesCandidateArtifact(
   )
 }
 
-/** 人工入口来源前缀：网页决定与人工重试。 */
 const HUMAN_SOURCE_PREFIX = 'web-decision:'
 
 function requirementFacts(

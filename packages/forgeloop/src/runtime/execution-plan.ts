@@ -42,7 +42,6 @@ import { loadLibrary } from './library-docs.js'
 
 type RecordedAnalysis = Omit<AnalysisAttempt, 'outcome' | 'detail'>
 
-/** 研发拆解的格式重试上限：畸形输出重试有限次，不随执行限额放开。 */
 const MAX_PLANNING_ATTEMPTS = 3
 
 function describeViolation(violation: {
@@ -54,10 +53,6 @@ function describeViolation(violation: {
   return `${violation.taskId}.${violation.field}=${violation.value}（${violation.reason}）`
 }
 
-/**
- * 把模型对旧问题的处置落到程序事实：必须覆盖每个未解决问题且引用真实编号。
- * 未解决项由程序原样保留，不依赖模型把它们重新抄进 clarifications。
- */
 function applyClarificationUpdates(
   open: readonly ClarificationQuestion[],
   updates: readonly ClarificationUpdate[],
@@ -106,12 +101,10 @@ export interface ExecutionPlanDeps {
 export interface ExecuteAnalysisResult {
   readonly state: 'done' | 'failed'
   readonly detail: string
-  /** 结果返回时需求已修订/停止/取消：只保留审计，调用方不得把它当成分析结论。 */
   readonly stale?: boolean
 }
 
 export class ExecutionPlan {
-  /** 同一需求版本只允许一次真实模型调用；并发调用共享同一结果。 */
   private readonly inflight = new Map<string, Promise<ExecuteAnalysisResult>>()
 
   constructor(private readonly deps: ExecutionPlanDeps) {}
@@ -124,7 +117,6 @@ export class ExecutionPlan {
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return { state: 'failed', detail: `未找到需求 ${reqId}` }
     const version = requirement.versions.length
-    // 单次分析：当前需求版本已有结论时直接复用，不重复调用模型。
     const existing = this.deps.repo.latestAnalysis(reqId)
     if (existing && existing.requirementVersion === version) {
       return {
@@ -159,14 +151,12 @@ export class ExecutionPlan {
     const previousAnalysis = this.deps.repo.latestAnalysis(reqId)
     const openQuestions = this.deps.repo.openClarifications(reqId)
     const historicalIds = this.historicalSpecIds(reqId)
-    // 格式/校验失败时在同一运行内重试一次，并把上一轮的具体错误交给模型；
     // 每次调用仍落独立尝试与轨迹，不能覆盖第一次失败证据。
     const maxCalls = 2
     let lastError = ''
     for (let call = 0; call < maxCalls; call += 1) {
       const attempt = this.deps.repo.analysisAttempts(reqId, version).length + 1
       const started = Date.now()
-      // 每个需求版本、每次尝试一个独立轨迹文件：attempt 按版本重新计数，
       // 不带版本号会让 v2/a1 覆盖 v1/a1 的历史证据。
       const transcript = join(
         sessionsDir(this.deps.config),
@@ -177,7 +167,6 @@ export class ExecutionPlan {
         cwd: this.deps.config.projectPath,
         prompt:
           this.analysisPromptFor(reqId, requirement, library.index) + retryPromptNote(lastError),
-        // 产品 Agent 允许写项目文档，但只拿到文档读写与联网检索工具，没有任何编码工具。
         permission: 'workspace-write',
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
         transcriptPath: transcript,
@@ -199,7 +188,6 @@ export class ExecutionPlan {
         libraryWarnings: library.warnings,
         createdAt: this.deps.now(),
       }
-      // 模型返回时先核对需求是否仍是发起时的版本与状态：迟到结果只留审计，
       // 不能更新需求状态、系统准入或业务背景。
       const stale = this.stalenessOf(reqId, version)
       if (stale) return this.recordStale(recorded, stale)
@@ -252,10 +240,6 @@ export class ExecutionPlan {
     return { state: 'failed', detail: lastError || '分析未完成' }
   }
 
-  /**
-   * 解析并校验草稿：背景变化先落草稿，再跑确定性校验。
-   * 任何解析/校验错误都抛出给调用方决定重试或失败。
-   */
   private validatedDraft(input: {
     text: string
     reqId: string
@@ -277,7 +261,6 @@ export class ExecutionPlan {
       ...updates.remaining.map((question) => question.text),
       ...draft.clarifications,
     ]
-    // 背景变化先落草稿：即使校验失败或仍待澄清，也只保留草稿，不写正式文档。
     if (draft.businessContext.changed) {
       this.deps.repo.recordBusinessContextDraft({
         reqId: input.reqId,
@@ -314,7 +297,6 @@ export class ExecutionPlan {
     return { draft, openAfter, analysisVersion }
   }
 
-  /** 把已通过的草稿投影成落库分析；所有来源字段一次性绑定尝试与版本。 */
   private analysisOf(input: {
     reqId: string
     analysisVersion: number
@@ -348,7 +330,6 @@ export class ExecutionPlan {
     }
   }
 
-  /** 历史分析用过的编号：退役后不得复用，即使新编号大于当前版本最大值。 */
   private historicalSpecIds(reqId: string): string[] {
     const ids: string[] = []
     for (const analysis of this.deps.repo.analyses(reqId)) {
@@ -358,7 +339,6 @@ export class ExecutionPlan {
     return [...new Set(ids)]
   }
 
-  /** 一次格式/校验失败的重试：先落失败尝试，下一轮提示词带上具体错误。 */
   private retryAttempt(attempt: RecordedAnalysis, detail: string): void {
     this.deps.repo.recordAnalysisAttempt({
       ...attempt,
@@ -367,10 +347,6 @@ export class ExecutionPlan {
     })
   }
 
-  /**
-   * 结果是否已经过期：需求被修订、取消或停止后，旧版本的模型调用即使成功也不得写回。
-   * 只读当前记录，不依赖调用方传入的状态。
-   */
   private stalenessOf(reqId: string, version: number): string {
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return '需求已不存在'
@@ -387,7 +363,6 @@ export class ExecutionPlan {
     return ''
   }
 
-  /** 迟到结果只写一条审计尝试；不改需求状态，也不进入准入与业务背景。 */
   private recordStale(recorded: RecordedAnalysis, reason: string): ExecuteAnalysisResult {
     this.deps.repo.recordAnalysisAttempt({
       ...recorded,
@@ -401,7 +376,6 @@ export class ExecutionPlan {
     }
   }
 
-  /** 分析提示词只在这里组装：需求原文、项目事实、业务背景与完整澄清问答。 */
   private analysisPromptFor(reqId: string, requirement: Requirement, libraryIndex: string): string {
     const open = this.deps.repo.openClarifications(reqId)
     const history = this.deps.repo.clarificationQuestions(reqId)
@@ -429,10 +403,6 @@ export class ExecutionPlan {
     })
   }
 
-  /**
-   * 分析前的需求库现场：扫描文档、同步 SQLite 索引，并生成 L0 索引与摘要。
-   * 读取或格式失败时抛错，由调用方把分析按失败收口（fail-closed）。
-   */
   private libraryContext(): {
     entries: readonly LibraryEntry[]
     index: string
@@ -450,7 +420,6 @@ export class ExecutionPlan {
     }
   }
 
-  /** 落库成功结论并决定下一步：仍有待澄清则等待，否则进入系统准入与研发。 */
   private settleAnalysis(input: {
     requirement: Requirement
     analysis: RequirementAnalysis & { reqId: string }
@@ -477,7 +446,6 @@ export class ExecutionPlan {
         detail: `分析 v${analysis.analysisVersion} 完成，有 ${analysis.clarifications.length} 条待澄清；等待人工回答后修订需求`,
       }
     }
-    // 校验通过且没有待澄清后才同步正式业务背景；失败时草稿保留，分析按失败收口。
     const applied = this.applyBusinessContext({
       requirementVersion: analysis.requirementVersion,
       analysisVersion: analysis.analysisVersion,
@@ -531,7 +499,6 @@ export class ExecutionPlan {
     }
   }
 
-  /** 解析模型返回的分析结果；背景变化只算草稿，正式文档在 settle 校验通过后才同步。 */
   private analysisFromResult(text: string): AnalysisDraft {
     try {
       return parseAnalysisDraft(text)
@@ -540,7 +507,6 @@ export class ExecutionPlan {
     }
   }
 
-  /** 冲突需要所有者决定取舍：暂停准入并保留完整材料，不降级为普通失败。 */
   private conflictPause(analysis: RequirementAnalysis & { reqId: string }): string {
     const count = analysis.conflicts?.length ?? 0
     if (count === 0) return ''
@@ -549,10 +515,6 @@ export class ExecutionPlan {
     return `与已有 ${count} 处承诺冲突，需要所有者决定取舍`
   }
 
-  /**
-   * 把已通过校验的背景草稿写成正式项目文档。
-   * 写入失败按分析失败处理：草稿保留，正式文档不被半截内容覆盖。
-   */
   private applyBusinessContext(input: {
     requirementVersion: number
     analysisVersion: number
@@ -570,7 +532,6 @@ export class ExecutionPlan {
     return { ok: true, sha256: sha256OfText(input.businessContext.document) }
   }
 
-  /** 失败尝试同样落库并进入失败状态；自动/人工重试由主控另行排队。 */
   private failAnalysis(
     recorded: RecordedAnalysis,
     detail: string,
@@ -598,7 +559,6 @@ export class ExecutionPlan {
     if (!requirement) {
       return { ok: false, outcome: { state: 'failed', detail: `未找到需求 ${reqId}` } }
     }
-    // 入队时未批准、执行时已批准：仍必须拒绝，避免旧请求悄悄覆盖已冻结的任务包。
     const latestPlan = this.deps.repo.latestTaskPlan(reqId)
     if (
       latestPlan &&
@@ -724,14 +684,8 @@ export class ExecutionPlan {
     }
     return { state: 'failed', detail: lastError }
   }
-
-  /**
-   * 实现前评审：测试 Agent 只读任务包与分析，产出验证计划。
-   * 评审通过才允许批准；阻断原因会反馈给规划 Agent 重新生成任务包。
-   */
 }
 
-/** 重试提示只带上一轮的具体校验错误，不夹带模型自己写的解释。 */
 function retryPromptNote(error: string): string {
   if (!error) return ''
   return `\n\n## 上一次尝试未通过程序校验\n${error}\n请修正上述问题后重新输出完整 JSON；不要解释，只输出 JSON。`

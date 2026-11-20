@@ -1,60 +1,40 @@
-/**
- * 交付度量：按项目和受理时间归组的可安装交付率、人工介入耗时与受理到可用结果的用时。
- *
- * 口径只依赖权威记录：
- * - 受理记录（`requirements.created_at`）确定起始时刻与分母；
- * - 可安装交付记录确定“从什么时候起可以取得已验证安装包”；
- * - 人工处理记录说明谁在哪个事项上花了时间；没有结束时刻就显示「时长未知」。
- *
- * 交付结果按截止时生效的需求版本判定：交付记录绑定的版本必须等于需求当前版本，
- * 旧版本的交付不算当前需求的达成。失败、阻塞、取消和未完成都留在分母里。
- */
-
 export const DELIVERY_METRICS_CUTOFF_SKEW_MS = 5 * 60 * 1000
 
 export interface MetricsRequirement {
   readonly reqId: string
   readonly project: string
-  /** 首次受理时间；文档修订、重复投递和重试沿用同一个受理时刻。 */
   readonly acceptedAt: string
   readonly status: string
-  /** 需求当前版本；交付记录必须绑定它才算截止时的有效交付。 */
   readonly requirementVersion: number
 }
 
 export interface MetricsDelivery {
   readonly reqId: string
   readonly requirementVersion: number
-  /** 六项材料同时可用、交付记录登记的时刻。 */
   readonly availableAt: string
 }
 
 export interface MetricsIntervention {
   readonly reqId: string
   readonly actor: string
-  /** 介入原因；页面按此聚合展示“在哪个事项上花了时间”。 */
   readonly reason: string
   readonly startedAt: string
-  /** 空串表示只记录了介入事实、没有可观测的处理时长。 */
-  readonly endedAt: string
+  readonly endedAt: string | null
 }
 
 export interface RequirementStanding {
   readonly reqId: string
   readonly status: string
-  /** 截至统计时点已等待的分钟数。 */
   readonly waitedMinutes: number
 }
 
 export interface DeliveryRateGroup {
   readonly project: string
-  /** 受理日期（UTC，YYYY-MM-DD）；同一组使用同一个截止时点。 */
   readonly acceptedDate: string
   readonly cutoff: string
   readonly accepted: number
   readonly delivered: number
   readonly rate: number
-  /** 未达成需求及其当前状态；失败、阻塞、取消和未完成都在这里。 */
   readonly undelivered: readonly RequirementStanding[]
 }
 
@@ -64,18 +44,15 @@ export interface DeliveredDuration {
 }
 
 export interface DurationSummary {
-  /** 已交付样本数；中位数与 P90 都基于它。 */
   readonly samples: number
   readonly medianMinutes: number | null
   readonly p90Minutes: number | null
   readonly delivered: readonly DeliveredDuration[]
-  /** 未完成需求单独列示已等待时长，不混进交付样本。 */
   readonly pending: readonly RequirementStanding[]
 }
 
 export interface RequirementInterventionSummary {
   readonly reqId: string
-  /** 已知处理分钟数合计；null 表示至少一项缺时长，页面显示「时长未知」。 */
   readonly minutes: number | null
   readonly unknown: boolean
   readonly reasons: readonly string[]
@@ -84,7 +61,6 @@ export interface RequirementInterventionSummary {
 export interface InterventionSummary {
   readonly requirements: readonly RequirementInterventionSummary[]
   readonly totalRequirements: number
-  /** 已知时长之和；有未知时仍给出已知部分，由页面同时显示未知数量。 */
   readonly totalMinutes: number
   readonly unknownCount: number
 }
@@ -120,7 +96,6 @@ function valueAt(sorted: readonly number[], position: number): number {
   return value
 }
 
-/** 线性插值分位数：样本为空返回 null，单样本返回自身。调用方先排序。 */
 export function percentileOf(sorted: readonly number[], fraction: number): number | null {
   const count = sorted.length
   if (count === 0) return null
@@ -133,10 +108,6 @@ export function percentileOf(sorted: readonly number[], fraction: number): numbe
   return Math.round((low + (high - low) * (index - lower)) * 10) / 10
 }
 
-/**
- * 人工介入时长：同一人的重叠时段只计一次。
- * 任一记录缺结束时刻时整体为「时长未知」（null），但仍保留原因清单。
- */
 export function interventionMinutes(entries: readonly MetricsIntervention[]): {
   minutes: number | null
   unknown: boolean
@@ -180,7 +151,6 @@ export function interventionMinutes(entries: readonly MetricsIntervention[]): {
   }
 }
 
-/** 截止时的有效交付：绑定当前需求版本且可用时间不晚于截止时点；同一需求取最早一次。 */
 function deliveredAtByRequirement(
   input: DeliveryMetricsInput,
   requirement: MetricsRequirement,
@@ -300,7 +270,6 @@ function interventionSummary(
   }
 }
 
-/** 计算截止时点上的三项指标；所有输入都是记录事实，函数不访问文件或数据库。 */
 export function buildDeliveryMetrics(input: DeliveryMetricsInput): DeliveryMetrics {
   const accepted = input.requirements.filter(
     (requirement) => requirement.acceptedAt && requirement.acceptedAt <= input.cutoff,

@@ -1,10 +1,3 @@
-/**
- * ForgeLoop 业务会话的 DSH agent preset。
- *
- * 该 preset 不挂普通助手工具；用户输入由 `agent/pre-step` 接管后直接进入
- * ForgeLoop 需求受理与产品 Agent 分析，不调用模型聊天。
- */
-
 import {
   FORGELOOP_PRESET_DESCRIPTION,
   FORGELOOP_PRESET_ID,
@@ -39,7 +32,6 @@ function serviceOf(ctx: AnyRecord, name: string): unknown {
   return ctx[name]
 }
 
-/** 读取宿主 preset 注册表；headless profile 没有该服务时返回 undefined。 */
 export function presetRegistryOf(ctx: AnyRecord): AgentPresetRegistryLike | undefined {
   const registry = serviceOf(ctx, 'agentPresets') as Partial<AgentPresetRegistryLike> | undefined
   return typeof registry?.register === 'function'
@@ -47,10 +39,6 @@ export function presetRegistryOf(ctx: AnyRecord): AgentPresetRegistryLike | unde
     : undefined
 }
 
-/**
- * 注册 ForgeLoop 业务会话 preset。已存在同名 preset 时保留既有声明（可能是
- * profile 配置），不覆盖；注册失败只记录原因，插件其余功能继续可用。
- */
 export async function registerForgeLoopPreset(
   ctx: AnyRecord,
   log: (message: string) => void = () => undefined,

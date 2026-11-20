@@ -1,10 +1,3 @@
-/**
- * 验证结果持久化：追加式尝试历史与最新结果投影。
- *
- * 从 Repository 拆出，避免仓储文件超出上下文与行数预算；Repository 委托本类，
- * 调用方仍通过同一组公开方法读取。
- */
-
 import type { Database } from './db.js'
 import type { VerificationAttemptRecord, VerificationRecord } from './rows.js'
 import { num, text, verificationAttemptRow, verificationRow } from './rows.js'
@@ -12,10 +5,6 @@ import { num, text, verificationAttemptRow, verificationRow } from './rows.js'
 export class VerificationStore {
   constructor(private readonly db: Database) {}
 
-  /**
-   * 追加一次验证尝试，并把 requirement_verifications 更新为最新有效结果投影。
-   * 未显式给出尝试身份时按候选自动编号；历史行永不覆盖。
-   */
   record(verification: VerificationRecord): void {
     const next = this.nextAttempt(
       verification.requirementId,
@@ -97,7 +86,6 @@ export class VerificationStore {
     })
   }
 
-  /** 下一个尝试序号与紧邻的上一次尝试；并发验证同一需求由运行时互斥。 */
   nextAttempt(
     reqId: string,
     planVersion: number,
@@ -133,7 +121,6 @@ export class VerificationStore {
     return row ? text(row, 'attempt_id') : ''
   }
 
-  /** 一个候选上按序号追加的全部验证尝试；旧尝试与原始证据保持可查询。 */
   attemptsForCandidate(
     reqId: string,
     planVersion: number,
@@ -149,7 +136,6 @@ export class VerificationStore {
     return rows.map(verificationAttemptRow)
   }
 
-  /** 一个需求跨候选的全部验证尝试；用于复验历史与失败反查。 */
   attempts(reqId: string): VerificationAttemptRecord[] {
     const rows = this.db
       .prepare(
@@ -192,7 +178,6 @@ export class VerificationStore {
     return row ? verificationRow(row) : null
   }
 
-  /** 一个需求按时间累积的全部独立测试结果；用于问题单与重试历史反查。 */
   allFor(reqId: string): VerificationRecord[] {
     const rows = this.db
       .prepare(

@@ -1,12 +1,3 @@
-/**
- * 交付度量的读取与人工处理区间记录。
- *
- * 读：只从权威记录取事实（受理、可安装交付、人工处理），默认截止时点为当前时刻；
- * 调用方可以给更早的截止时点回看历史，但不能给未来时点。
- * 写：只接受真实发生的人工处理区间，时长上限 24 小时，结束时刻不得晚于当前时刻；
- * 缺结束时刻的旧事实不会伪造区间，页面按规范显示「时长未知」。
- */
-
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopConfig } from '../config.js'
 import { buildDeliveryMetrics, type DeliveryMetrics } from '../domain/delivery-metrics.js'
@@ -14,7 +5,6 @@ import { DELIVERY_METRICS_CUTOFF_SKEW_MS } from '../domain/delivery-metrics.js'
 import type { Repository } from '../records/repository.js'
 import { fail, ok, type OperationResult } from './operation-result.js'
 
-/** 单次人工处理区间的上限：超过它说明记录的不是一次实际处理。 */
 export const MAX_HANDLING_MINUTES = 24 * 60
 
 export interface DeliveryMetricsRuntime {
@@ -24,7 +14,6 @@ export interface DeliveryMetricsRuntime {
 
 export interface DeliveryMetricsOptions {
   readonly now?: (() => string) | undefined
-  /** 统计截止时点；省略时取当前时刻。不能晚于当前时刻（允许 5 分钟时钟偏差）。 */
   readonly cutoff?: string | undefined
 }
 
@@ -32,7 +21,6 @@ function clockOf(options: { readonly now?: (() => string) | undefined }): () => 
   return options.now ?? (() => new Date().toISOString())
 }
 
-/** 三项指标在给定截止时点的快照；只读，不写记录。 */
 export function deliveryMetricsSnapshot(
   runtime: DeliveryMetricsRuntime,
   options: DeliveryMetricsOptions = {},
@@ -64,10 +52,6 @@ export interface HumanInterventionInput {
   readonly now?: (() => string) | undefined
 }
 
-/**
- * 记录一次可观测的人工处理区间。只写事实，不改变需求状态，也不构成任何授权。
- * 校验失败返回明确 code，不写记录。
- */
 export function recordHumanIntervention(
   runtime: DeliveryMetricsRuntime,
   input: HumanInterventionInput,

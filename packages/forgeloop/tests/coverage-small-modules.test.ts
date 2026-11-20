@@ -11,7 +11,7 @@ import { SessionRouting } from '../src/runtime/session-routing.js'
 import { verificationIntegrity, verificationVerdict } from '../src/runtime/verification-outcome.js'
 import { runVerificationCommands } from '../src/runtime/execution-commands.js'
 import { sendOpsHeartbeat } from '../src/runtime/ops-heartbeat.js'
-import { appendSessionEvent } from '../src/session/events.js'
+import { appendSessionEvent, setSessionEventAppender } from '../src/session/events.js'
 import { registerForgeLoopPreset } from '../src/session/preset.js'
 import { installSessionSurface } from '../src/session/index.js'
 
@@ -352,6 +352,19 @@ describe('session event append fallbacks', () => {
     }
     expect(appendSessionEvent(session, 'plugin:test', { a: 1 })).toBe(true)
     expect(written).toEqual([{ type: 'plugin:test', data: { a: 1 } }])
+  })
+
+  it('uses an injected appender before the session fallback', () => {
+    const calls: Array<[unknown, string, Record<string, unknown>]> = []
+    setSessionEventAppender((session, type, data) => {
+      calls.push([session, type, data])
+    })
+    try {
+      expect(appendSessionEvent({}, 'plugin:test', { a: 1 })).toBe(true)
+      expect(calls).toEqual([[{}, 'plugin:test', { a: 1 }]])
+    } finally {
+      setSessionEventAppender(null)
+    }
   })
 
   it('reports a session without append instead of throwing', () => {

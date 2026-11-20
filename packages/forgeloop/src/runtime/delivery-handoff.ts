@@ -1,10 +1,3 @@
-/**
- * 交付交接：受控提交后，协调器按配置对 autoDeliver 目标自动构建、提议部署并核对。
- *
- * 只处理系统准入的普通需求；legacy 任务包链路保持手动构建/上线核对。
- * 幂等来自三处：候选构建记录、deployment intent 的 source 去重、delivery_handoffs 状态。
- */
-
 import type { ForgeLoopConfig } from '../config.js'
 import type { DeploymentTargetConfig } from '../config.js'
 import { ACCEPTED, COMMITTED } from '../domain/status.js'
@@ -80,7 +73,6 @@ export class DeliveryHandoff {
 
   async tick(): Promise<DeliveryTickResult> {
     const result = { built: 0, proposed: 0, applied: 0, verified: 0, failed: 0 }
-    // 事件复核与部署交接分开持久化：已核对完成的部署不再执行，但其复核仍可续跑。
     await this.drainRechecks()
     for (const requirement of this.deps.repo.listRequirements(this.deps.config.project)) {
       const plan = this.deliveryPlan(requirement.reqId)
@@ -95,7 +87,6 @@ export class DeliveryHandoff {
     return result
   }
 
-  /** 只有当前准入、当前版本、已提交且未停止的需求进入自动交付。 */
   private deliveryPlan(reqId: string): DeliveryPlan | null {
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return null
@@ -240,10 +231,6 @@ export class DeliveryHandoff {
     await this.ensureAndDrainRechecks(input.reqId, input.intentId)
   }
 
-  /**
-   * 上线核对通过后登记可安装交付；失败只写进交接说明，不改变部署状态。
-   * 材料不齐或摘要不一致时保留现有部署结论，等材料补齐后再次核对即可登记。
-   */
   private recordDelivery(reqId: string): string {
     const delivery = safeInstallableDelivery(
       { config: this.deps.config, repo: this.deps.repo, now: this.deps.now },
@@ -252,7 +239,6 @@ export class DeliveryHandoff {
     return delivery.ok ? `；${delivery.message}` : `；未登记可安装交付：${delivery.message}`
   }
 
-  /** 手工发起但落在 auto 目标的 intent，也由协调器核对；owner 目标仍等人工。 */
   private async verifyAppliedAutoTargets(result: {
     verified: number
     failed: number
@@ -287,7 +273,6 @@ export class DeliveryHandoff {
     })
   }
 
-  /** 部署核对完成：为每个绑定该修复需求的事件登记一条待复核记录（幂等）。 */
   private async ensureAndDrainRechecks(reqId: string, intentId: string): Promise<void> {
     const eventIds = this.deps.repo
       .listOpsEvents(this.deps.config.project)
@@ -302,10 +287,6 @@ export class DeliveryHandoff {
     await this.drainRechecks()
   }
 
-  /**
-   * 续跑所有待复核事件：异常只记录在待办上，不抛出、不影响部署状态；
-   * 同事件同部署重复调用由 recheckFix 自身的观测去重保证幂等。
-   */
   private async drainRechecks(): Promise<void> {
     for (const pending of this.deps.repo.deliveryStore.allPendingRechecks()) {
       try {

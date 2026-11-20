@@ -1,12 +1,5 @@
-/**
- * 研发会话注册表：一个需求绑定一个研发会话与一份固定工作区。
- *
- * - 会话不随需求结束销毁：只把忙闲置回 idle，并写入“会话 + 需求”总结。
- * - 本进程内保存 live handle，跨请求复用同一段上下文；宿主重启后从持久会话恢复。
- * - 会话被占用时需求进入等待，不新建并行会话，也不覆盖别人的现场。
- */
-
 import { randomUUID } from 'node:crypto'
+import { bestEffortAsync } from './best-effort.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
@@ -27,7 +20,6 @@ export interface DevSessionsDeps {
   repo: Repository
   now: () => string
   openAgent: (request: AgentOpenRequest) => Promise<AgentSession>
-  /** 宿主不支持恢复时省略；省略时不会把旧会话伪装成新会话。 */
   resumeAgent?: ((request: AgentResumeRequest) => Promise<AgentSession>) | undefined
   executionDev: ExecutionDev
 }
@@ -59,7 +51,6 @@ export interface AcquireRequest {
   readonly selectedBy: string
   readonly requestId: string
   readonly signal: AbortSignal
-  /** 选中会话确认不可用时改派新会话（更新绑定）；仅在调用方明确要求恢复时开启。 */
   readonly allowRebind?: boolean
 }
 
@@ -75,16 +66,10 @@ export class DevSessionRegistry {
 
   constructor(private readonly deps: DevSessionsDeps) {}
 
-  /** 当前进程里仍存活的研发会话；宿主重启后为空。 */
   liveSession(sessionId: string): AgentSession | undefined {
     return this.live.get(sessionId)
   }
 
-  /**
-   * 取本进程内的会话句柄；宿主重启后从持久会话恢复。
-   * 恢复失败（宿主不支持、超时、会话已不存在、句柄不可用）一律显式报错，
-   * 不新建同名会话冒充恢复：调用方据此把需求改派到新会话，旧会话与工作区保留。
-   */
   private async sessionFor(sessionId: string, workspace: string): Promise<AgentSession> {
     const existing = this.live.get(sessionId)
     if (existing) return existing
@@ -110,10 +95,6 @@ export class DevSessionRegistry {
     return resumed
   }
 
-  /**
-   * 取得需求要使用的研发会话：已有绑定优先；否则采用主控 Agent 的选择；
-   * 选不中、非法或没有会话时新建。会话忙时不占用，返回等待。
-   */
   async acquire(input: AcquireRequest): Promise<AcquireDevSessionResult> {
     const binding = this.deps.repo.requirementDevSession(input.reqId, input.requirementVersion)
     const selectedSessionId = (binding?.sessionId ?? input.selectedSessionId) || null
@@ -129,7 +110,6 @@ export class DevSessionRegistry {
     })
   }
 
-  /** 已有会话（绑定或主控选中）：占用、重建或改派；忙则原样交给调用方等待。 */
   private async acquireSelected(
     input: AcquireRequest & {
       binding: RequirementDevSessionRecord | null
@@ -161,7 +141,6 @@ export class DevSessionRegistry {
     return this.rebindAfterFailure(input, acquired.detail)
   }
 
-  /** 原会话不可用时改派新会话；旧会话记录与工作区不删除，只更新需求绑定。 */
   private async rebindAfterFailure(
     input: { reqId: string; requirementVersion: number; requestId: string; signal: AbortSignal },
     detail: string,
@@ -307,10 +286,6 @@ export class DevSessionRegistry {
     }
   }
 
-  /**
-   * 需求结束时写“当前会话内容 + 需求内容”总结并释放会话。
-   * 总结回合失败时用需求与任务包生成确定性摘要，不把总结失败伪装成研发失败。
-   */
   async finish(input: {
     reqId: string
     requirementVersion: number
@@ -325,7 +300,7 @@ export class DevSessionRegistry {
     const transcriptPath = join(dir, `${input.reqId}-summary.jsonl`)
     let summary = ''
     let source: FinishDevSessionResult['source'] = 'agent'
-    try {
+    await bestEffortAsync(async () => {
       const result = await input.session.send({
         prompt: devSessionSummaryPrompt({
           requirement: input.requirement,
@@ -338,9 +313,7 @@ export class DevSessionRegistry {
       if (result.status === 'completed' && result.text.trim()) {
         summary = result.text.trim().slice(0, 8_000)
       }
-    } catch {
-      // 落到程序化摘要；会话取消/超时不能让需求状态卡在 busy。
-    }
+    })
     if (!summary) {
       source = 'fallback'
       summary = fallbackSummary(input.requirement, input.plan, input.outcome)
@@ -370,13 +343,11 @@ export class DevSessionRegistry {
     return { summary, summaryPath, summarySha256, source }
   }
 
-  /** 需求被放弃/崩溃后只释放占用，不写总结；会话与工作区仍保留。 */
   release(input: { sessionId: string }): void {
     this.deps.repo.releaseDevSession(input.sessionId, this.deps.now())
   }
 }
 
-/** 不可用原因进入绑定说明时压成一行，避免把多行报错塞进记录。 */
 function clipDetail(detail: string): string {
   const flattened = detail.trim().replace(/\s+/g, ' ')
   return flattened.length > 200 ? `${flattened.slice(0, 200)}…` : flattened

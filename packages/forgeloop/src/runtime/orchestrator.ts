@@ -1,17 +1,3 @@
-/**
- * 主控 Agent：把新需求路由到最合适的既有研发会话。
- *
- * 主控只读需求、分析与会话摘要，输出一个会话 ID；程序校验该 ID 是否存在，
- * 选不中、非法或模型不可用时返回 null，由程序新建会话。路由结果不是批准，
- * 也不改变需求范围。
- *
- * 路由的异常路径都收口在程序里：候选为空不调用模型；停止请求在调用前后各查一次；
- * 候选数量与总结长度有上限，避免把无限上下文塞进提示词；模型给出不存在的会话 ID、
- * 非字符串、畸形 JSON 或未完成回合都回退为新建，并把原因写进需求详情。
- * 选中会话在真正占用时失效（工作区被删、恢复失败等）时，调用方还能按
- * `alternatives` 顺序换一个候选，全部不可用才新建。
- */
-
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -26,13 +12,10 @@ import type { Repository } from '../records/repository.js'
 import type { AgentRunRequest, AgentRunResult } from './agent-runner.js'
 import { orchestratorPrompt, type DevSessionCandidate } from './prompts.js'
 
-/** 候选上限：会话再多也只把最近的这些交给模型，避免提示词随历史无限增长。 */
 const MAX_CANDIDATES = 20
 
-/** 单个会话总结进入提示词的长度上限。 */
 const MAX_SUMMARY_CHARS = 400
 
-/** 重新读一次停止标记：同一个属性被 TS 收窄成 false，但等待模型期间可能已被中止。 */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
 }
@@ -47,14 +30,12 @@ export interface OrchestratorChoice {
   readonly sessionId: string | null
   readonly reason: string
   readonly source: 'model' | 'fallback'
-  /** 选中会话不可用时可依次尝试的备选会话 ID；永远不含 sessionId 本身。 */
   readonly alternatives: readonly string[]
 }
 
 export class SessionOrchestrator {
   constructor(private readonly deps: OrchestratorDeps) {}
 
-  /** 可路由的候选：项目内、工作区仍有 Git 元数据的研发会话，按最近更新排序后截断。 */
   private candidates(): DevSessionCandidate[] {
     const candidates: DevSessionCandidate[] = []
     for (const session of this.deps.repo.devSessions(this.deps.config.project)) {
@@ -141,7 +122,6 @@ export class SessionOrchestrator {
     return this.interpret(result.text, candidates)
   }
 
-  /** 解析并校验主控输出：只接受候选清单里的会话 ID。 */
   private interpret(text: string, candidates: readonly DevSessionCandidate[]): OrchestratorChoice {
     let data: Record<string, unknown>
     try {

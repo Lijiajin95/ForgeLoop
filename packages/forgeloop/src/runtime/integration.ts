@@ -1,11 +1,5 @@
-/**
- * 需求级候选与受控提交：候选是研发工作区相对快照基线的固定 diff；
- * 提交只把该 diff 应用到真实项目，运行配置的检查后创建本地 commit。
- *
- * 不 push、不创建 tag、不修改版本号；不把真实项目中的其他在途改动混入提交。
- */
-
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { bestEffort } from './best-effort.js'
 import { join } from 'node:path'
 import { sha256OfText } from '../domain/delivery.js'
 import { RuleViolationError } from '../domain/errors.js'
@@ -44,7 +38,6 @@ export function candidateIdentity(input: {
   )
 }
 
-/** 从研发工作区导出相对快照基线的完整候选；调用前工作区必须已提交。 */
 export function exportCandidate(input: {
   readonly workspace: string
   readonly snapshotCommit: string
@@ -117,10 +110,6 @@ function worktreeRemove(projectPath: string, path: string): void {
   runCommand('git', ['worktree', 'prune'], projectPath, 30_000)
 }
 
-/**
- * 在临时工作树上应用候选并执行检查，通过后才在真实项目上暂存同一 diff 并提交。
- * 真实项目必须干净且 HEAD 与候选基线一致；否则阻断，不做自动合并或清理。
- */
 function failure(detail: string, extra: Partial<IntegrationResult> = {}): IntegrationResult {
   return {
     ok: false,
@@ -203,15 +192,12 @@ function applyAndCheck(
   checkPath: string,
 ): { ok: true; checkOutput: string; checkSha256: string } | IntegrationResult {
   worktreeAdd(input.projectPath, worktree, input.candidateBaseline)
-  // 提交检查工作树没有 node_modules（被忽略、不随 git 进入候选）；复用主项目的
   // 已安装依赖，才能运行 tsc/vitest 等真实检查，而不是把缺依赖误判为候选失败。
   const sharedModules = join(input.projectPath, 'node_modules')
   if (existsSync(sharedModules) && !existsSync(join(worktree, 'node_modules'))) {
-    try {
+    bestEffort(() => {
       symlinkSync(sharedModules, join(worktree, 'node_modules'), 'dir')
-    } catch {
-      // 权限或平台不支持时保留原检查结果；检查命令会给出明确失败。
-    }
+    })
   }
   const applied = runCommand(
     'git',
@@ -280,7 +266,6 @@ export function integrateCandidate(input: {
       const checked = applyAndCheck(input, worktree, checkPath)
       if (!('checkOutput' in checked)) return checked
       const { checkOutput, checkSha256 } = checked
-      // 检查期间不持有真实项目 index 的写锁之外的保护；提交前重新核对 HEAD、
       // 工作树与暂存区。任何他人在途改动都阻断，绝不 reset/clean 或覆盖。
       const recheck = recheckBeforeCommit(input, checkPath, checkOutput)
       if (recheck) return recheck
@@ -301,7 +286,6 @@ export function integrateCandidate(input: {
           detail: `提交前候选无法干净应用：${checkApply.stderr.trim() || checkApply.stdout.trim()}`,
         }
       }
-      // 检查通过：在真实干净项目上暂存同一 diff，创建本地提交。
       const staged = runCommand(
         'git',
         ['apply', '--index', '--binary', input.candidateDiffPath],

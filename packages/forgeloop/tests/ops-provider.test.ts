@@ -6,8 +6,15 @@ import {
   describeOpsProviders,
   findOpsProvider,
 } from '../src/domain/ops-provider.js'
+import { providerImplementationIds } from '../src/runtime/monitor.js'
 
 describe('ops provider registry', () => {
+  it('keeps registered descriptors and runtime implementations in sync', () => {
+    expect([...providerImplementationIds()].sort()).toEqual(
+      OPS_PROVIDER_REGISTRY.map((provider) => provider.id).sort(),
+    )
+  })
+
   it('registers only the builtin collector today', () => {
     expect(OPS_PROVIDER_REGISTRY.map((provider) => provider.id)).toEqual([BUILTIN_OPS_PROVIDER_ID])
     const builtin = findOpsProvider(BUILTIN_OPS_PROVIDER_ID)

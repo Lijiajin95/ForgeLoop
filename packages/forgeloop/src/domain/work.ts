@@ -1,5 +1,3 @@
-/** 任务执行记录与交付材料；实际推进和材料准入由运行时接线。 */
-
 import type { TaskRunState } from './status.js'
 
 export interface TaskArtifact {

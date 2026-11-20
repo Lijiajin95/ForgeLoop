@@ -9635,3 +9635,29 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
 - 未完成：未跑全量 `make check`（命令运行器限制）；未在 390px 下重截修复后的主题选择器截图，
   以真实页面加载的客户端包内容核对代替；安装与界面核对不等于业务验收。
 
+## 262. 注释清理后续四项的处置（2026-11-20）
+
+`no-comments` 审查遗留的四项：两项按授权完成；另两项按所有者 2026-11-20 决定保留现状：
+
+- **所有者决定（2026-11-20）：不改动与外部对接的 API，保留与外部服务的兼容性适配。**
+  因此 session/events 继续保留宿主 appender 解析（不做移除）；`spec.ts` 三处兼容投影继续保留
+  （不做收紧）。两项不再作为待办，等待宿主或分析 schema 迁移时再评估。
+- `sourceMatches` 从 `boolean | null` 改为 `match | mismatch | unknown`（`86e6d02`）。
+- 工时预算的 `-1` 哨兵收进 `WorkLimit`（`number \| 'unlimited'`，`4bef53f`）；数据库与配置仍落 `-1`，
+  对外 JSON 不变，执行限额边界用 `workLimitSeconds` 还原。
+- session 事件的宿主 appender 解析抽到 `session/host-appender.ts`，并新增
+  `setSessionEventAppender` 注入点（`c805055`），测试不再只能依赖假会话兜底。
+- `spec.ts` 兼容层保留的依据：`acceptance_criteria` 已持久化到分析表并被提示词、看板与验证共用，
+  收紧需要分析 schema 迁移、旧分析数据迁移与真实模型回归。
+
+外部约束记录：
+
+1. DSH 的 `appendPluginRecord` 只允许 `packages/experimental/` 调用
+   （`@deepseek-ai/dsh-session` 的 `src/index.ts:482`、`README.md:72`），普通 `session.append`
+   不接受外部插件的 `plugin:` 事件。外部插件没有合法写入 API，ForgeLoop 无法单方面移除
+   `process.argv` 解析，只能隔离并保留注入 seam；按所有者决定不改动该外部对接，
+   待宿主提供外部插件记录 API 时再评估。
+2. `spec.ts` 的字符串/双键容错在兼容模型输出，按所有者决定保留该兼容适配，不再作为待办；
+   分析 schema v2 迁移时一并评估。
+
+验证：各批次 `make check` 通过（229 文件、2586–2587 用例），pre-commit 覆盖率门禁通过。

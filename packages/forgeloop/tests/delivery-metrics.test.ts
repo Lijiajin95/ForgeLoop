@@ -158,7 +158,7 @@ describe('delivery metrics domain', () => {
         actor: 'owner',
         reason: '人工澄清',
         startedAt: '2026-11-15T10:00:00.000Z',
-        endedAt: '',
+        endedAt: null,
       },
     ])
     expect(unknown.minutes).toBeNull()
@@ -186,7 +186,7 @@ describe('delivery metrics domain', () => {
             actor: '',
             reason: '停止需求',
             startedAt: '2026-11-15T11:00:00.000Z',
-            endedAt: '',
+            endedAt: null,
           },
         ],
       }),
@@ -517,6 +517,8 @@ describe('delivery metrics board endpoints', () => {
 
   it('records an owner handling interval and rejects missing fields or unknown requirements', async () => {
     const { fetch, records } = boardWith()
+    // 未传 endedAt 时区间终点取当前时刻，因此起点必须相对 now，不能钉死日期。
+    const startedAt = new Date(Date.now() - 30 * 60_000).toISOString()
     expect((await post(fetch, { endpoint: 'intervention', reqId: 'req-1' })).status).toBe(400)
     expect(
       (
@@ -524,7 +526,7 @@ describe('delivery metrics board endpoints', () => {
           endpoint: 'intervention',
           reqId: 'req-missing',
           reason: '人工澄清',
-          startedAt: '2026-11-16T09:00:00.000Z',
+          startedAt,
         })
       ).status,
     ).toBe(404)
@@ -532,7 +534,7 @@ describe('delivery metrics board endpoints', () => {
       endpoint: 'intervention',
       reqId: 'req-1',
       reason: '人工澄清',
-      startedAt: '2026-11-16T09:00:00.000Z',
+      startedAt,
       sessionId: 'session-1',
     })
     expect(ok.status).toBe(200)
@@ -543,5 +545,29 @@ describe('delivery metrics board endpoints', () => {
       reason: '人工澄清',
       source: 'web-decision:session-1',
     })
+  })
+})
+
+describe('delivery metrics records boundary', () => {
+  it('maps the empty duration sentinel to null', () => {
+    const root = mkdtempSync(join(tmpdir(), 'forgeloop-metrics-'))
+    roots.push(root)
+    const runtime = runtimeWith(root)
+    const reqId = submit(runtime, '需求 C')
+    runtime.repo.metricsStore.recordIntervention({
+      interventionId: 'hi-boundary',
+      reqId,
+      project: 'demo',
+      actor: 'owner',
+      reason: '人工澄清',
+      startedAt: '2026-11-16T09:00:00.000Z',
+      endedAt: null,
+      source: 'test',
+      recordedAt: '2026-11-16T09:10:00.000Z',
+    })
+
+    const [row] = runtime.repo.metricsStore.interventionsFor(reqId)
+    expect(row?.endedAt).toBeNull()
+    runtime.close()
   })
 })

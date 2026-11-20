@@ -1,11 +1,3 @@
-/**
- * 客户决定入口：所有者对“新需求与已有承诺冲突”做出修订、替代或拒绝。
- *
- * 只由已认证的客户通道（看板/所有者入口）调用；模型工具不能调用。
- * 决定绑定可信客户身份、当前需求版本与具体已有承诺；重复提交复用第一次决定。
- * 单独成文件是为了让 service.ts 保持在上限内，判定仍集中在这里。
- */
-
 import { isTerminal } from '../domain/status.js'
 import { decisionSourceTrusted } from '../domain/commitment-resolution.js'
 import type { CommitmentConflict } from '../domain/spec.js'
@@ -19,19 +11,15 @@ export interface CommitmentDecisionInput {
   readonly reason: string
   readonly by: string
   readonly source: string
-  /** 复用一条已记录的决定时必须给编号；跨需求/跨版本/跨承诺都会被拒。 */
   readonly decisionId?: string
 }
 
 export interface CommitmentDecisionDeps {
   readonly repo: Repository
-  /** 配置所有者；决定人必须与之一致。 */
   readonly owner: string
-  /** 记录时间；缺省取当前时间。 */
   readonly now?: () => string
 }
 
-/** 当前需求已知的承诺冲突：本轮与历史分析合并，按已有需求去重。 */
 function conflictsFor(repo: Repository, reqId: string): CommitmentConflict[] {
   const seen = new Set<string>()
   const conflicts: CommitmentConflict[] = []
@@ -45,7 +33,6 @@ function conflictsFor(repo: Repository, reqId: string): CommitmentConflict[] {
   return conflicts
 }
 
-/** 复用已记录决定：必须同需求、同当前版本、同具体承诺且同决定方式。 */
 function reuseDecision(
   deps: CommitmentDecisionDeps,
   input: CommitmentDecisionInput,
@@ -139,7 +126,6 @@ export function resolveCommitment(
       requirementVersion: version,
     })
   }
-  // 修订/替代只解除这一条承诺；准入在下一轮按当前版本重新判定。
   return ok(`已记录客户决定 ${recorded.decisionId}：${recorded.decision} ${input.existingReqId}`, {
     decisionId: recorded.decisionId,
     decision: recorded.decision,

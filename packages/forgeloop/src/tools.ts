@@ -1,12 +1,3 @@
-/**
- * 模型工具：只读查询 + 需求受理（数据入口）。
- * 批准、验收、推进、停止、追加授权不在工具里暴露——这些动作只从人类命令入口进入，
- * 模型不能通过工具参数自证 owner 或 approved。
- *
- * 多工作区隔离：每个工具调用先按调用者会话解析所属 DSH 工作区，再使用该工作区的
- * 配置与运行时；解析不到工作区时直接拒绝，不会回退到任何默认项目。
- */
-
 import { asRecord } from './domain/json.js'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './runtime/service.js'
@@ -40,7 +31,6 @@ interface ToolDefinitionLike {
   execute(args: unknown, exec: AnyRecord): Promise<unknown>
 }
 
-/** 工具执行时的租户作用域：一个 DSH 工作区对应一份配置与运行时。 */
 export interface ToolScope {
   readonly runtime: ForgeLoopRuntime
   readonly config: ForgeLoopConfig
@@ -49,7 +39,6 @@ export interface ToolScope {
 export type ToolScopeResolution =
   { readonly ok: true; readonly scope: ToolScope } | { readonly ok: false; readonly text: string }
 
-/** 由工具调用上下文（`exec.agent`）解析所属工作区；未绑定工作区必须拒绝。 */
 export type ToolScopeResolver = (exec: AnyRecord) => Promise<ToolScopeResolution>
 
 interface ToolSpec {
@@ -194,7 +183,6 @@ function verificationCheckTool(resolve: ToolScopeResolver): ToolDefinitionLike {
   })
 }
 
-/** 运维只读工具：只能读配置登记的制品状态与日志尾部，不接受任意路径。 */
 function opsArtifactTools(resolve: ToolScopeResolver): ToolDefinitionLike[] {
   const tool = (input: ToolSpec) => defineTool(input, resolve)
   return [
@@ -278,7 +266,6 @@ function opsArtifactTools(resolve: ToolScopeResolver): ToolDefinitionLike[] {
   ]
 }
 
-/** 只读部署视图：目标与 rollout 记录；没有部署、批准或回退入口。 */
 function rolloutTool(resolve: ToolScopeResolver): ToolDefinitionLike {
   const tool = (input: ToolSpec) => defineTool(input, resolve)
   return tool({
@@ -323,7 +310,6 @@ function rolloutTool(resolve: ToolScopeResolver): ToolDefinitionLike {
   })
 }
 
-/** 单租户作用域：兼容旧调用与单项目测试；生产装配使用 {@link buildScopedTools}。 */
 export function buildTools(
   runtime: ForgeLoopRuntime,
   config: ForgeLoopConfig,
@@ -331,7 +317,6 @@ export function buildTools(
   return buildScopedTools(async () => ({ ok: true, scope: { runtime, config } }))
 }
 
-/** 多工作区装配：每个工具调用按 exec.agent 解析租户，未绑定工作区直接拒绝。 */
 export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike[] {
   const tool = (input: ToolSpec) => defineTool(input, resolve)
   return [
@@ -519,7 +504,6 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
         const path = stringArg(args, 'path')
         if (!path) return { ok: false, text: 'path is required' }
         if (typeof args.content !== 'string') return { ok: false, text: 'content is required' }
-        // 业务背景文档只有一个写入方：分析结束时由程序按 business_context 同步。
         // 路径比较忽略大小写，避免在大小写不敏感的文件系统上换一种写法绕过。
         const target = resolveProjectDoc(config.projectPath, path)
         if (
@@ -633,7 +617,6 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
   ]
 }
 
-/** 需求库逐条读取：渐进式披露的 L1 入口，只读项目内条目。 */
 function libraryEntryTool(resolve: ToolScopeResolver): ToolDefinitionLike {
   const tool = (input: ToolSpec) => defineTool(input, resolve)
   return tool({

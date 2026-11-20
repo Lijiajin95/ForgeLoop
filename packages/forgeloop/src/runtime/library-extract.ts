@@ -1,37 +1,21 @@
-/**
- * 需求库重建的多源取证：项目文档、验收用例、Git 记录与源码。
- *
- * - 只读当前项目；跳过符号链接、依赖目录与凭证；所有路径限定在 projectPath 内。
- * - 输出有界材料：来源、原始位置、证据时间与内容摘要，供模型提炼候选。
- * - 材料只是证据，不是结论；候选的校验与发布决策在 domain/library-rebuild.ts。
- * 产品范围见 docs/product/library-rebuild.md。
- */
-
 import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
 import type { RebuildSourceKind } from '../domain/library-rebuild.js'
 import { git } from './workspace.js'
 
-/** 一条取证材料：来源类型、位置、时间与有界内容。 */
 export interface RebuildMaterial {
   readonly kind: RebuildSourceKind
-  /** 项目内相对路径；git 材料是提交 sha。 */
   readonly ref: string
-  /** 章节标题、行号、提交路径等原始位置。 */
   readonly locator: string
-  /** 证据时间（YYYY-MM-DD 或 ISO）；无法确定时为空串。 */
   readonly time: string
-  /** 内容的 sha256，用于回查与人工改动核对。 */
   readonly digest: string
-  /** 交给模型的有界内容；已过滤凭据。 */
   readonly text: string
 }
 
 export interface RebuildMaterials {
   readonly materials: readonly RebuildMaterial[]
   readonly counts: Readonly<Record<RebuildSourceKind, number>>
-  /** 跳过或降级的原因，进入运行报告。 */
   readonly skipped: readonly string[]
 }
 
@@ -53,7 +37,6 @@ export const REBUILD_EXTRACT_LIMITS = {
   commits: 200,
   sourceFiles: 40,
   sourceBytes: 8_000,
-  /** 单个文件最大读取量，避免把构建产物或日志读进内存。 */
   maxFileBytes: 1024 * 1024,
 } as const
 
@@ -108,7 +91,6 @@ const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/Bearer\s+[A-Za-z0-9._-]{10,}/gi, 'Bearer ****'],
 ]
 
-/** 去掉常见凭据形态；材料与报告都必须先过这一层。 */
 export function redactSecrets(text: string): string {
   let result = text
   for (const [pattern, replacement] of SECRET_PATTERNS)
@@ -116,7 +98,6 @@ export function redactSecrets(text: string): string {
   return result
 }
 
-/** 项目内相对路径，统一 POSIX 分隔符。 */
 export function projectRelative(root: string, path: string): string {
   return relative(root, path).split(sep).join('/')
 }
@@ -140,7 +121,6 @@ interface WalkOptions {
   readonly limit: number
 }
 
-/** 有界遍历：跳过符号链接、依赖目录与忽略目录；超过上限即停止。 */
 function walkFiles(options: WalkOptions): { files: string[]; exceeded: boolean } {
   const files: string[] = []
   let exceeded = false
@@ -179,7 +159,6 @@ function isGitRepository(projectPath: string): boolean {
   return result.code === 0 && result.stdout.trim() === 'true'
 }
 
-/** 路径 → 最近一次提交日期；用于给文档、用例与源码补证据时间。 */
 function gitPathTimes(projectPath: string, limit: number): Map<string, string> {
   const times = new Map<string, string>()
   if (!isGitRepository(projectPath)) return times
@@ -295,7 +274,6 @@ interface GitChunk {
   readonly paths: readonly string[]
 }
 
-/** 解析一条 Git 材料：sha、日期、标题+正文、涉及路径。 */
 function parseGitChunk(chunk: string): GitChunk | undefined {
   const fields = chunk.split('\x02')
   if (fields.length < 4) return undefined
@@ -303,7 +281,6 @@ function parseGitChunk(chunk: string): GitChunk | undefined {
   if (!sha) return undefined
   const time = (fields[1] ?? '').trim()
   const subject = (fields[2] ?? '').trim()
-  // 格式串固定以 %x03 结尾（body 之后），所以按它切分即可：前半是正文、后半是文件名。
   // 没有标记时 split 只给一段，paths 自然为空，不需要额外分支。
   const [bodyPart = '', pathsPart = ''] = (fields[3] ?? '').split('\x03')
   const body = bodyPart.trim()
@@ -401,7 +378,6 @@ const KIND_ORDER: Record<RebuildSourceKind, number> = {
   library: 4,
 }
 
-/** 材料排序：有时间的从新到旧、无时间的排最后；同一时间按来源、位置稳定排序。 */
 export function orderMaterials(materials: readonly RebuildMaterial[]): RebuildMaterial[] {
   return [...materials].sort((left, right) => {
     if (left.time && right.time && left.time !== right.time) {
@@ -425,11 +401,6 @@ const EMPTY_COUNTS: Record<RebuildSourceKind, number> = {
   library: 0,
 }
 
-/**
- * 收集一个项目的全部可用材料。
- *
- * 源码是兜底来源：文档与验收用例合计不足 3 条时才读取，避免有资料的项目无谓放大输入。
- */
 export function collectRebuildMaterials(
   projectPath: string,
   options: CollectOptions = {},

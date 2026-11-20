@@ -1,12 +1,3 @@
-/**
- * 测试会话的命令执行上下文。
- *
- * 测试 Agent 在产物交付后通过 `forgeloop_run_verification_check` 工具逐条执行
- * 当前测试方案中的命令；运行时只接受“当前候选 + 当前方案”里已列出的 label，
- * 不允许模型任意输入命令。退出码、超时、中止、输出与日志全部由程序记录，
- * 模型自述不能替代真实执行结果。同一 label 在一个候选上幂等，重复调用返回已有结果。
- */
-
 import {
   existsSync,
   lstatSync,
@@ -20,6 +11,7 @@ import {
 } from 'node:fs'
 import { join, relative as relativePath } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
+import { bestEffort } from './best-effort.js'
 import type {
   VerificationCheckPlan,
   VerificationCheckRun,
@@ -45,13 +37,11 @@ export const VERIFICATION_CHECK_TOOL = 'forgeloop_run_verification_check'
 export const VERIFICATION_CONTROL_TOOL = 'forgeloop_write_verification_control'
 export const VERIFICATION_MATERIAL_TOOL = 'forgeloop_write_verification_material'
 
-/** 一条通过工具执行并落日志的测试命令。 */
 export interface VerificationCheckRecord extends VerificationCheckRun {
   readonly logPath: string
   readonly logSha256: string
 }
 
-/** 一个候选上的测试执行上下文；方案与会话由调用方固定。 */
 export interface VerificationCheckActivation {
   readonly reqId: string
   readonly candidateSha256: string
@@ -60,11 +50,8 @@ export interface VerificationCheckActivation {
   readonly head: string
   readonly plan: VerificationPlan
   readonly signal: AbortSignal
-  /** 单条测试命令的宿主超时；由运行时按正式测试上限注入。 */
   readonly timeoutMs: number
-  /** 宿主提供的测试会话身份；工具调用必须与之一致。 */
   readonly sessionId?: string
-  /** 本候选的验证尝试身份；工具调用必须与之一致。 */
   readonly attemptId?: string
 }
 
@@ -91,7 +78,6 @@ interface ActiveContext {
   readonly runs: Map<string, VerificationCheckRecord>
   readonly integrityIssues: string[]
   readonly startedAt: string
-  /** 第一条命令执行前封存的 verification/ 材料摘要。 */
   materialsSha256?: string
 }
 
@@ -105,7 +91,6 @@ function planChecks(plan: VerificationPlan): VerificationCheckPlan[] {
   return plan.scenarios.flatMap((scenario) => scenario.checks ?? [])
 }
 
-/** 测试材料摘要：排除 controls（对照单独按补丁摘要绑定），用于发现正向之后的换脚本。 */
 export function verificationMaterialsDigest(workspace: string): string {
   const root = join(workspace, VERIFICATION_MATERIAL_DIR)
   if (!existsSync(root)) return ''
@@ -131,7 +116,6 @@ export function verificationMaterialsDigest(workspace: string): string {
   return createHash('sha256').update(entries.join('\n')).digest('hex')
 }
 
-/** 工具路径只能经过真实目录；任何符号链接都拒绝，避免写出工作区。 */
 function safeMaterialTarget(workspace: string, relative: string): string {
   if (!relative.startsWith('verification/') || relative.includes('..')) {
     throw new RuleViolationError('测试材料路径必须位于 verification/ 下')
@@ -182,7 +166,6 @@ function safeLabel(label: string): string {
   return cleaned || 'check'
 }
 
-/** 命令里引用、但候选工作区里并不存在的 verification/ 路径。 */
 function missingMaterialPaths(workspace: string, argv: readonly string[]): string[] {
   const missing: string[] = []
   for (const arg of argv) {
@@ -202,7 +185,6 @@ export class VerificationCheckRegistry {
 
   constructor(private readonly deps: VerificationCheckRegistryDeps) {}
 
-  /** 为一个候选登记执行上下文；返回的释放函数必须在该候选验证结束时调用。 */
   activate(activation: VerificationCheckActivation): VerificationCheckActivationHandle {
     const existing = this.contexts.get(activation.reqId)
     if (existing) {
@@ -227,7 +209,6 @@ export class VerificationCheckRegistry {
     }
   }
 
-  /** 读取并固定本次执行的命令结果；之后释放上下文也不会丢证据。 */
   snapshot(reqId: string, token: string): VerificationCheckSnapshot | null {
     const context = this.contexts.get(reqId)
     if (!context || context.token !== token) return null
@@ -238,7 +219,6 @@ export class VerificationCheckRegistry {
     }
   }
 
-  /** 工具入口：只执行当前方案中的 label；未登记上下文或方案外命令一律拒绝。 */
   async run(
     reqId: string,
     label: string,
@@ -290,7 +270,6 @@ export class VerificationCheckRegistry {
         data: { label, integrityIssues: [...context.integrityIssues] },
       }
     }
-    // 引用了 verification/ 下并不存在的脚本：立即给出可执行的失败，而不是 MODULE_NOT_FOUND。
     const missing = missingMaterialPaths(context.activation.workspace, check.argv)
     if (missing.length > 0) {
       const record: VerificationCheckRecord = {
@@ -365,11 +344,6 @@ export class VerificationCheckRegistry {
     }
   }
 
-  /**
-   * 工具入口：为一条已登记命令写入敏感性对照并立即自检。
-   * 补丁只能落在 verification/controls/，且必须修改 verification/ 之外的业务文件；
-   * controls.json 由运行时合并。自检返回真实失败输出，模型可据此修正 expected_failure_output。
-   */
   async writeControl(
     reqId: string,
     input: { label: string; patch: string; expectedFailureOutput: string },
@@ -427,16 +401,13 @@ export class VerificationCheckRegistry {
       ? `受控副本退出码 ${actual.exitCode === null ? 'null' : actual.exitCode}；输出：\n${actual.output.slice(0, 800)}`
       : '未取得执行结果'
     if (selfCheck.issues.length > 0) {
-      // 自检失败不能留下“看起来已登记”的对照：撤销本次写入，要求模型修正后重试。
-      try {
+      bestEffort(() => {
         const remaining = parseVerificationControls(readFileSync(controlsPath, 'utf8')).filter(
           (item) => item.label !== input.label,
         )
         writeFileSync(controlsPath, `${JSON.stringify({ controls: remaining }, null, 2)}\n`, 'utf8')
         rmSync(patchPath, { force: true })
-      } catch {
-        // 回滚失败也按未通过处理；下一轮验证会重新读取材料。
-      }
+      })
       return {
         ok: false,
         text: `对照自检未通过，已撤销本次对照：${selfCheck.issues.join('；')}。${detail}\n请修正补丁或 expected_failure_output 后重新调用本工具。`,
@@ -450,7 +421,6 @@ export class VerificationCheckRegistry {
     }
   }
 
-  /** 工具入口：把验证脚本写到当前候选的 verification/ 下；候选源码不可写。 */
   writeMaterial(
     reqId: string,
     input: { path: string; content: string },
@@ -522,10 +492,6 @@ export class VerificationCheckRegistry {
     return { issues: outcome.issues, result: outcome.results[0] }
   }
 
-  /**
-   * 在隔离副本上执行敏感性对照；只读当前候选，正式工作区不被修改。
-   * 未登记上下文时返回 null，由调用方按证据不足阻断。
-   */
   async executeControls(
     reqId: string,
     token: string,

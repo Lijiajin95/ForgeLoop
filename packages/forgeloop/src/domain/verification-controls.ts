@@ -1,13 +1,3 @@
-/**
- * 验证敏感性对照：证明必过用例确实能发现对应错误行为。
- *
- * 只靠“命令退出 0 + 输出里有预期文字”不能证明业务正确：只打印固定标记的脚本
- * 同样满足这两点。测试材料必须为关键用例声明一个受控错误补丁，程序把补丁应用到
- * 候选的隔离副本后重跑同一命令，要求它按目标业务规则失败。对照不修改正式候选。
- *
- * 补丁只能改 `verification/` 之外的文件，避免“把测试自己改坏”冒充敏感性。
- */
-
 import { asRecord } from './json.js'
 import { MalformedError } from './errors.js'
 import { parseJsonLoose } from './requirement.js'
@@ -17,11 +7,8 @@ export const CONTROL_DIR = 'verification/controls'
 
 export interface VerificationControlSpec {
   readonly label: string
-  /** 相对工作区的补丁路径，必须位于 verification/controls/ 下。 */
   readonly patch: string
-  /** 受控错误实现下必须出现在命令输出中的失败原文（至少 8 个字符）。 */
   readonly expectedFailureOutput: string
-  /** 登记时补丁内容的摘要；执行时复核，防止正向之后替换补丁。 */
   readonly patchSha256?: string
 }
 
@@ -42,7 +29,6 @@ function validatePatchPath(path: string): string {
   return path
 }
 
-/** 解析 `verification/controls.json`；结构不合法时 fail-closed。 */
 export function parseVerificationControls(raw: string): VerificationControlSpec[] {
   const data = asRecord(parseJsonLoose(raw, '敏感性对照'))
   if (!data) throw new MalformedError('敏感性对照必须是 JSON 对象')
@@ -72,10 +58,6 @@ export function parseVerificationControls(raw: string): VerificationControlSpec[
   return controls
 }
 
-/**
- * 至少一个必过场景必须有关联命令带敏感性对照；否则无法证明测试能发现错误行为。
- * 回归场景可以复用同一业务入口，不要求每条必过用例都单独做变异式对照。
- */
 export function validateControlCoverage(input: {
   readonly requiredScenarios: readonly string[]
   readonly reportScenarios: readonly {
@@ -84,7 +66,6 @@ export function validateControlCoverage(input: {
     readonly commands: readonly string[]
   }[]
   readonly controls: readonly { readonly label: string }[]
-  /** 黑盒错误对照命令：expect_failure=true 且实际按预期失败。 */
   readonly negativeLabels?: readonly string[]
 }): string[] {
   const controlled = new Set([
@@ -94,7 +75,6 @@ export function validateControlCoverage(input: {
   const passedRequired = input.reportScenarios.filter(
     (result) => result.status === 'pass' && input.requiredScenarios.includes(result.scenario),
   )
-  // 没有任何必过场景通过时，失败本身已经阻断；不重复把“缺少对照”当成第二类结论。
   if (passedRequired.length === 0) return []
   const covered = passedRequired.some((result) =>
     result.commands.some((label) => controlled.has(label)),
@@ -105,7 +85,6 @@ export function validateControlCoverage(input: {
   ]
 }
 
-/** 从统一 diff 中读取目标路径；用于拒绝只改测试材料或越界的“对照”。 */
 export function controlPatchTargets(patch: string): string[] {
   const targets = new Set<string>()
   for (const line of patch.split('\n')) {
@@ -120,10 +99,6 @@ export function controlPatchTargets(patch: string): string[] {
   return [...targets]
 }
 
-/**
- * 对照补丁必须修改业务文件，不能只改 verification/ 下的测试或标记脚本；
- * 路径必须留在工作区内。返回问题列表，空数组表示可执行。
- */
 export function validateControlPatch(patch: string): string[] {
   const targets = controlPatchTargets(patch)
   if (targets.length === 0) return ['敏感性对照补丁没有可识别的目标文件']

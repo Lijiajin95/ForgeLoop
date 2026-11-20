@@ -60,7 +60,6 @@ const BOARD_ENDPOINTS = [
 
 type BoardBody = Record<string, unknown>
 
-/** 看板所属 DSH 工作区的展示身份：界面显示标题，内部仍用租户项目键隔离。 */
 export interface BoardWorkspace {
   readonly id: string
   readonly title: string
@@ -71,11 +70,9 @@ export interface BoardContext {
   readonly runtime: ForgeLoopRuntime
   readonly config: ForgeLoopConfig
   readonly coordinator: Coordinator
-  /** 工作区模式下的展示身份；单项目模式缺省。 */
   readonly workspace?: BoardWorkspace | undefined
 }
 
-/** 按浏览器会话解析其所属工作区的看板作用域；找不到（未绑定）返回 undefined。 */
 export type BoardScopeSource = (sessionId: string) => Promise<BoardContext | undefined>
 
 interface BoardFailure {
@@ -218,10 +215,6 @@ function handleRead(
   return null
 }
 
-/**
- * 三项交付度量：按项目与受理日期归组的可安装交付率、人工介入耗时与受理到可用结果的用时。
- * 只读；截止时点可以回看过去，但不能给未来时点。
- */
 function handleDeliveryMetrics(body: BoardBody | null, context: BoardContext): Response {
   const cutoff = text(body?.cutoff)
   const result = deliveryMetricsSnapshot(context.runtime, cutoff ? { cutoff } : {})
@@ -231,7 +224,6 @@ function handleDeliveryMetrics(body: BoardBody | null, context: BoardContext): R
   )
 }
 
-/** 部署动作的 HTTP 状态：缺参 400、非所有者 403、不存在 404、状态冲突 409。 */
 function deploymentStatus(code: string): number {
   if (code === 'forbidden') return 403
   if (code === 'not_found') return 404
@@ -358,7 +350,6 @@ function handleReliability(body: BoardBody | null, context: BoardContext): Respo
   return boardResponse({ ok: true, value: context.runtime.reliability(window) })
 }
 
-/** 需求库只读视图：每次请求重新扫描项目文档，返回当前条目与扫描提醒。 */
 function handleLibrary(context: BoardContext): Response {
   const projectPath = context.config.projectPath
   if (typeof projectPath !== 'string' || !projectPath) {
@@ -390,10 +381,6 @@ function handleLibrary(context: BoardContext): Response {
   }
 }
 
-/**
- * 需求库单条正文：列表只给摘要，正文按需读取（渐进式披露的 L1）。
- * 引用条目返回被引用文档的正文；普通条目返回条目正文，不含 JSON 注释头。
- */
 function handleLibraryEntry(body: BoardBody | null, context: BoardContext): Response {
   const projectPath = context.config.projectPath
   if (typeof projectPath !== 'string' || !projectPath) {
@@ -427,7 +414,6 @@ function handleLibraryEntry(body: BoardBody | null, context: BoardContext): Resp
   })
 }
 
-/** 重建进度：只读；缺 runId 时返回该项目最近一次运行。 */
 function handleLibraryRebuildStatus(body: BoardBody | null, context: BoardContext): Response {
   const runId = text(body?.runId)
   const run = libraryRebuildOf(context.runtime).status(runId || undefined)
@@ -437,7 +423,6 @@ function handleLibraryRebuildStatus(body: BoardBody | null, context: BoardContex
   )
 }
 
-/** 一键重建：owner 动作；已有运行在途时返回 409。 */
 function handleLibraryRebuildRun(body: BoardBody | null, context: BoardContext): Response {
   const sessionId = text(body?.sessionId)
   try {
@@ -451,7 +436,6 @@ function handleLibraryRebuildRun(body: BoardBody | null, context: BoardContext):
   }
 }
 
-/** 取消尚未发布的一轮重建；已发布文件不回滚。 */
 function handleLibraryRebuildCancel(body: BoardBody | null, context: BoardContext): Response {
   const runId = text(body?.runId)
   if (!runId) {
@@ -461,7 +445,6 @@ function handleLibraryRebuildCancel(body: BoardBody | null, context: BoardContex
   return boardResponse({ ok: true, value: { cancelled, runId } })
 }
 
-/** 所有者一次授权：把某轮发布的草稿整批确认；来源写入条目头。 */
 function handleLibraryRebuildConfirm(body: BoardBody | null, context: BoardContext): Response {
   const runId = text(body?.runId)
   const sessionId = text(body?.sessionId)
@@ -568,7 +551,6 @@ function readCommitmentDecision(body: BoardBody | null): 'revise' | 'replace' | 
     : null
 }
 
-/** 客户对承诺冲突的决定：身份取自已认证的所有者，模型工具不能调用。 */
 function handleResolveCommitment(body: BoardBody | null, context: BoardContext): Response {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
@@ -774,7 +756,6 @@ function handleWrite(
   endpoint: unknown,
   context: BoardContext,
 ): Response | Promise<Response> | null {
-  // 部署执行/回退与“上线核对”分开命名，避免把装好之后的核对当成部署动作。
   if (endpoint === 'deployment-intent') return handleDeploymentIntent(body, context)
 
   if (endpoint === 'library-rebuild-run') return handleLibraryRebuildRun(body, context)
@@ -791,16 +772,13 @@ function handleWrite(
 
   if (endpoint === 'deployment-rollback') return handleDeploymentRollback(body, context)
 
-  // 客户决定入口：承诺冲突的修订/替代/拒绝只能由认证的所有者发起。
   if (endpoint === 'resolve-commitment') return handleResolveCommitment(body, context)
 
-  // 人工处理区间：只记录所有者实际处理的时段，用来计算“每条需求的人工介入耗时”。
   if (endpoint === 'intervention') return handleIntervention(body, context)
 
   return handleLegacyWrite(body, endpoint, context)
 }
 
-/** 人工处理区间的最小校验；区间本身由运行时校验并落库。 */
 function handleIntervention(body: BoardBody | null, context: BoardContext): Response {
   const reqId = text(body?.reqId)
   const reason = text(body?.reason)
@@ -1017,14 +995,12 @@ function handleBoardQuery(body: BoardBody | null, context: BoardContext): Respon
     limit = body.limit
   }
   const value = context.runtime.statusBoard(limit, query)
-  // 工作区模式下源码身份按当前租户解析（每个租户的 clientEntryFile 不同）；
   // 单项目模式保留运行时自己的全局身份，避免改变既有响应。
   const scopedBuild = context.workspace
     ? buildIdentity(context.config.projectPath, context.config.clientEntryFile)
     : undefined
   return boardResponse({
     ok: true,
-    // `project` 是隔离用的租户键；界面显示工作区标题，不把 ws-<id> 暴露成项目名。
     value: {
       ...value,
       ...(scopedBuild ? { build: scopedBuild } : {}),
@@ -1033,12 +1009,6 @@ function handleBoardQuery(body: BoardBody | null, context: BoardContext): Respon
   })
 }
 
-/**
- * 看板与客户决定的唯一认证入口；模型工具不能调用。
- *
- * 三参数形式固定使用同一作用域，供单项目测试与兼容调用；生产装配使用
- * {@link createScopedBoardFetch}，按请求携带的会话身份选择工作区。
- */
 export function createBoardFetch(
   runtime: ForgeLoopRuntime,
   config: ForgeLoopConfig,

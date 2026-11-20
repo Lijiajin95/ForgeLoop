@@ -89,7 +89,6 @@ export function inspectRequirementModules(
   plan: TaskPlan,
   installedRoot: string,
 ): { ok: boolean; detail: string } {
-  // 新链路按候选 diff 的实际源码文件核对；旧链路仍按任务包声明核对。
   const expectedSources = admitted
     ? [
         ...readFileSync(candidateDiffPath, 'utf8').matchAll(

@@ -1,14 +1,3 @@
-/**
- * 测试 Agent：同一会话先设计测试方案，研发产物交付后再由该会话通过工具执行方案并做业务验收。
- *
- * 1. 方案：只依据需求说明（原文与分析）与已准入任务包的任务目标设计结构化测试方案；
- *    不读取任务包实现细节、候选 diff 或源码，防止验证被实现方式反向约束。
- * 2. 执行与验收：产物交付后由同一个会话调用运行时提供的执行工具，逐条执行方案中的命令；
- *    通过与否只按真实退出码、超时、中止与输出判定，模型自述不构成证据。
- *
- * 本类只负责方案阶段；执行与业务验收提示词由运行时投递到同一个会话。
- */
-
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MalformedError, errorMessage } from '../domain/errors.js'
@@ -21,7 +10,6 @@ import {
   type VerificationPlan,
 } from '../domain/verification.js'
 
-/** 宿主会话的最小表面：同一会话多轮投递，模型与工具由宿主提供。 */
 export interface VerificationSessionResult {
   readonly status: 'completed' | 'aborted' | 'timeout' | 'error'
   readonly text: string
@@ -45,10 +33,6 @@ export interface VerificationAgentOptions {
   readonly timeoutMs: number
 }
 
-/**
- * 只依据需求说明与已准入任务目标设计测试方案。这里刻意不提供候选、diff 或实现代码，
- * 也不要求模型在方案阶段执行命令——执行发生在产物交付之后、同一个会话里。
- */
 export function verificationPlanPrompt(input: {
   readonly requirement: Requirement
   readonly analysis: RequirementAnalysis
@@ -146,7 +130,6 @@ ${tasks}
 export interface VerificationAgentOptions {
   readonly session: VerificationSession
   readonly timeoutMs: number
-  /** 目标工程根目录；用于在方案阶段核对命令依赖是否已安装。 */
   readonly projectPath?: string
 }
 
@@ -155,10 +138,6 @@ export class VerificationAgent {
   private readonly timeoutMs: number
   private readonly deps: VerificationAgentOptions
 
-  /**
-   * 方案修复重试：模型漏抄需求原文时，把缺失条目反馈回去再要；连续两次仍不合格才 fail-closed。
-   * 覆盖判定不变，只增加一次补抄机会。
-   */
   static readonly MAX_PLAN_ATTEMPTS = 3
 
   constructor(options: VerificationAgentOptions) {
@@ -171,10 +150,6 @@ export class VerificationAgent {
     return this.session.sessionId
   }
 
-  /**
-   * 仅凭需求说明生成并校验测试方案。
-   * 模型未完成、结构畸形或未覆盖需求说明、业务规则或异常边界时 fail-closed，不返回半成品方案。
-   */
   async plan(input: {
     readonly requirement: Requirement
     readonly analysis: RequirementAnalysis
@@ -202,7 +177,6 @@ export class VerificationAgent {
       try {
         plan = parseRequirementVerificationPlan(run.text)
       } catch (error) {
-        // 畸形 JSON 不是“覆盖不足”，要把具体解析错误回给同一会话，让模型定向修正；
         // 次数仍受 MAX_PLAN_ATTEMPTS 限制，连续畸形同样留证并阻断。
         lastIssues = [`测试方案 JSON 畸形：${errorMessage(error)}`]
         feedback = [
@@ -245,7 +219,6 @@ export class VerificationAgent {
   }
 }
 
-/** 读取目标工程 package.json 里已安装的包名；缺失或畸形时返回空列表（不阻断方案阶段）。 */
 function installedDependencies(projectPath: string): string[] {
   try {
     const manifest: unknown = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf8'))

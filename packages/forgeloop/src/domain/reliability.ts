@@ -1,10 +1,3 @@
-/**
- * 代码可靠性看板的纯计算：窗口、比率、首轮验证、运维恢复、周趋势与快照新鲜度。
- *
- * 这里不读文件、不访问数据库、不调用模型。所有“没有样本”的情况返回 null，
- * 不能把缺失数据算成 0 或通过。
- */
-
 import {
   FAILURE_BUSINESS_REVIEW,
   FAILURE_FORMAL_TEST,
@@ -32,14 +25,11 @@ export const SNAPSHOT_MAX_BYTES = 256 * 1024
 export const SNAPSHOT_MAX_GATES = 32
 export const SNAPSHOT_MAX_FILES = 200
 
-/** 指标历史采样：变化至少间隔 1 分钟，长期无变化时每 6 小时留一条心跳。 */
 export const RELIABILITY_SAMPLE_MIN_INTERVAL_MS = 60_000
 export const RELIABILITY_SAMPLE_HEARTBEAT_MS = 6 * 60 * 60 * 1000
-/** 页面最多展示的采样条数与快照历史份数；数据库仍保留全部采样。 */
 export const RELIABILITY_SAMPLE_HISTORY_LIMIT = 24
 export const SNAPSHOT_HISTORY_LIMIT = 12
 
-/** 省略窗口时使用全部记录；非法值返回 null，由路由给出 400。 */
 export function parseReliabilityWindow(value: unknown): ReliabilityWindow | null {
   if (value === undefined) return 'all'
   if (typeof value !== 'string') return null
@@ -77,7 +67,6 @@ export function withinWindow(at: string, from: Date | null, to: Date): boolean {
 export interface ReliabilityRate {
   readonly pass: number
   readonly total: number
-  /** 0..100，保留一位小数；没有样本时为 null。 */
   readonly rate: number | null
 }
 
@@ -91,10 +80,6 @@ export interface VerificationFact {
   readonly verifiedAt: string
 }
 
-/**
- * 首轮测试通过率：每个需求取全历史最早一条验证；只有该条落在窗口内且 pass 才计入分子。
- * 分母是窗口内有测试记录的需求数。需求最早一条在窗口外时，不把窗口内的重试冒充首轮。
- */
 export function firstPassVerificationRate(
   facts: readonly VerificationFact[],
   from: Date | null,
@@ -274,10 +259,6 @@ export interface OpsRecoverySummary {
   readonly mttrSeconds: number | null
 }
 
-/**
- * 只统计窗口内开启、且截至测量点 `to` 已经收口/恢复的事件。
- * 恢复时间晚于测量点时，该事件在测量点上仍算未恢复，不拿未来结果回填历史。
- */
 export function opsRecoverySummary(
   facts: readonly OpsEventFact[],
   from: Date | null,
@@ -325,13 +306,11 @@ export function medianSeconds(pairs: readonly { start: string; end: string }[]):
   return Math.round((lower + upper) / 2 / 1000)
 }
 
-/** 截至测量点仍未恢复、未关闭的事件数；不使用当前状态回填历史。 */
 export function unresolvedOpsAsOf(facts: readonly OpsEventFact[], to: Date): number {
   return facts.filter((fact) => {
     if (!withinWindow(fact.openedAt, null, to)) return false
     if (recoveredBy(fact, to)) return false
     if (fact.closedAt && withinWindow(fact.closedAt, null, to)) return false
-    // 老记录/夹具缺关闭时间时按终态兜底，避免把已关闭事件算成未解决。
     if (!fact.closedAt && fact.state === 'closed') return false
     return true
   }).length
@@ -342,7 +321,6 @@ export interface DeploymentFailure {
   readonly count: number
 }
 
-/** 失败部署中的检查项计数；非法 checks 跳过，不猜测。 */
 export function deploymentFailures(
   facts: readonly DeploymentFact[],
   from: Date | null,
@@ -372,7 +350,6 @@ export interface WeeklyReliability {
   readonly deploymentsFailed: number
 }
 
-/** 最近 N 个 UTC 周（周一 00:00 起），只统计追加型记录。 */
 export function weeklyReliability(input: {
   readonly verifications: readonly VerificationFact[]
   readonly failureRounds: readonly FailureRoundFact[]
@@ -418,10 +395,6 @@ export interface SnapshotStaleness {
   readonly ageSeconds: number | null
 }
 
-/**
- * 快照是否还能代表当前代码。当前 HEAD 读不到时按过期处理，不能默认新鲜。
- * behindCommits 由运行时另算，这里只判断提交身份、工作树与时间。
- */
 export function snapshotStaleness(
   snapshot: {
     readonly generatedAt: string
@@ -492,7 +465,6 @@ export interface ReliabilityCoverage extends CoveragePercentages {
   readonly files: readonly CoverageFile[]
 }
 
-/** 与 `vitest.config.ts` 的关键文件门槛同步；测试会核对两边，避免页面另写一套门槛。 */
 export const KEY_COVERAGE_THRESHOLDS = {
   'src/runtime/service.ts': { lines: 90, functions: 95, branches: 85 },
   'src/runtime/coordinator.ts': { lines: 90, functions: 99, branches: 85 },
@@ -730,9 +702,7 @@ function parseBudgets(value: unknown): ReliabilityBudgets | null {
   }
 }
 
-/** 一条指标历史样本：只记录页面展示的聚合值，不复制原始记录。 */
 export interface ReliabilitySamplePayload {
-  /** 样本对应的测量点：快照生成时间与提交；未绑定快照时为空。 */
   readonly asOf: string
   readonly commit: string
   readonly verification: ReliabilityRate
@@ -761,7 +731,6 @@ export interface ReliabilitySample extends ReliabilitySamplePayload {
   readonly sampleId: number
   readonly project: string
   readonly sampledAt: string
-  /** 采样时的指标版本；与当前版本不同即说明数据发生变化。 */
   readonly revision: string
 }
 
@@ -781,7 +750,6 @@ function sampleRate(value: unknown, field: string): ReliabilityRate {
   return { pass, total, rate: numberValue(record.rate, `${field}.rate`) }
 }
 
-/** 解析一条已落库的样本；损坏的行由调用方跳过，不能显示成 0。 */
 export function parseReliabilitySample(value: unknown): ReliabilitySamplePayload {
   const record = requireRecord(value, 'sample')
   const rounds = requireRecord(record.failureRounds, 'sample.failureRounds')
@@ -865,7 +833,6 @@ export function parseReliabilitySnapshot(value: unknown): ReliabilitySnapshot {
   }
 }
 
-/** 快照历史里的一条压缩记录：只保留比较趋势需要的字段。 */
 export interface SnapshotHistoryPoint {
   readonly generatedAt: string
   readonly commit: string

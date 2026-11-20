@@ -1,8 +1,3 @@
-/**
- * 正式测试执行：由程序实际运行批准过的测试命令，保存命令、退出码、耗时与完整日志。
- * 模型声称“测试通过”不能替代这里的退出码和日志摘要。
- */
-
 import { asRecord } from '../domain/json.js'
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -111,7 +106,6 @@ async function runProcess(
     child.stderr.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))
     })
-    // -1 表示不限：不建超时定时器，避免 setTimeout(..., 0) 立即终止命令。
     const timer =
       request.timeoutMs > 0
         ? setTimeout(() => {

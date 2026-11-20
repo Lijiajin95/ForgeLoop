@@ -1,11 +1,3 @@
-/**
- * DSH 宿主内 Agent 执行器：在本进程创建独立 Agent、投递一次任务、等待回合结束，
- * 读取该会话自己的事件日志，保存可回查轨迹。
- *
- * 这是真实的 DSH Agent（不是旧 Python 业务核心，也不是自建对话壳）：
- * 模型、工具、权限与会话生命周期都由宿主提供；本模块只负责投递、等待、取消与取证。
- */
-
 import { asRecord } from '../domain/json.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { errorMessage } from '../domain/errors.js'
@@ -21,17 +13,12 @@ export interface AgentRunRequest {
   readonly cwd: string
   readonly prompt: string
   readonly permission: 'workspace-write' | 'danger-full-access'
-  /** 单回合上限；缺省或 -1 表示不限。 */
   readonly timeoutMs?: number | undefined
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；-1 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
-  /** 'none' 用于只做推理的阶段：不给 Agent 任何工具，避免无界探索。 */
   readonly tools?: 'none' | 'default'
-  /** 只暴露列出的工具；与 tools 一起使用时不会挂载标准编码 preset。 */
   readonly allowTools?: readonly string[]
-  /** 运行中周期性回报当前事件快照，供任务心跳与详情页使用。 */
   readonly onActivity?: (events: readonly AnyRecord[]) => void
 }
 
@@ -40,11 +27,8 @@ export interface AgentOpenRequest {
   readonly cwd: string
   readonly permission: 'workspace-write' | 'danger-full-access'
   readonly tools?: 'none' | 'default'
-  /** 只暴露列出的工具；与 tools 一起使用时不会挂载标准编码 preset。 */
   readonly allowTools?: readonly string[]
-  /** 程序指定会话身份；研发会话必须可跨请求恢复，不能每轮随机。 */
   readonly sessionId?: string
-  /** 该会话服务哪个需求；协调器用它判断会话是否还有可观测进展。 */
   readonly reqId?: string
 }
 
@@ -53,24 +37,19 @@ export interface AgentResumeRequest {
   readonly sessionId: string
   readonly permission: 'workspace-write' | 'danger-full-access'
   readonly tools?: 'none' | 'default'
-  /** 只暴露列出的工具；与 tools 一起使用时不会挂载标准编码 preset。 */
   readonly allowTools?: readonly string[]
-  /** 会话原工作目录；仅用于宿主不支持从会话记录推断目录时的提示。 */
   readonly cwd?: string
 }
 
 export interface AgentTurnRequest {
   readonly prompt: string
-  /** 单回合上限；缺省或 -1 表示不限。 */
   readonly timeoutMs?: number | undefined
-  /** 连续无新进展的上限；缺省取 agent.idleTimeoutSeconds；-1 表示不启用。 */
   readonly idleTimeoutMs?: number | undefined
   readonly transcriptPath: string
   readonly signal?: AbortSignal | undefined
   readonly onActivity?: (events: readonly AnyRecord[]) => void
 }
 
-/** 同一身份的一段连续工作：多轮 send 共享会话、工作目录与上下文。 */
 export interface AgentSession {
   readonly sessionId: string
   send(turn: AgentTurnRequest): Promise<AgentRunResult>
@@ -87,7 +66,6 @@ export interface AgentRunResult {
   readonly toolCalls: readonly string[]
 }
 
-/** 宿主执行器没有多轮会话能力时，用单轮运行拼一个同构会话；关闭后拒绝继续投递。 */
 export function sessionFromRunner(
   runner: { run(request: AgentRunRequest): Promise<AgentRunResult> },
   request: AgentOpenRequest,
@@ -129,7 +107,6 @@ export function sessionFromRunner(
 export interface AgentRunnerOptions {
   readonly ctx: AnyRecord
   readonly agent: AgentConfig
-  /** 恢复持久会话的等待上限：宿主卡住时不能让需求永远停在 claimed。 */
   readonly resumeTimeoutMs?: number
 }
 
@@ -176,7 +153,6 @@ function restrictService(ctx: AnyRecord): RestrictService | undefined {
   return { restrict: (filter) => Reflect.apply(restrict, service, [filter]) as () => void }
 }
 
-/** 按白名单收紧工具：列出的保留，其余全部 deny；不传白名单时等同全部 deny。 */
 export function restrictToolNames(
   agentCtx: AnyRecord,
   tools: ToolsService,
@@ -189,7 +165,6 @@ export function restrictToolNames(
   const deny = allowed ? names.filter((name) => !allowed.includes(name)) : names
   const service = restrictService(agentCtx)
   if (!service) {
-    // 白名单必须真的生效：宿主没有工具限制服务时不能静默放行全部工具。
     throw new Error('宿主未提供工具限制服务，拒绝以未受限工具运行')
   }
   if (deny.length === 0) return
@@ -352,19 +327,16 @@ function runOutcome(input: {
 
 type SessionHandle = { agent: AgentView; dispose(): Promise<void> }
 
-/** 宿主的 Agent 服务视图：create 必然存在，resume 因宿主版本不同而可能缺省。 */
 interface AgentService {
   create(options: AnyRecord): Promise<SessionHandle>
   /** 宿主恢复接口；返回空句柄按宿主缺陷处理，不当作恢复成功。 */
   resume?(options: AnyRecord): Promise<SessionHandle | undefined>
 }
 
-/** 单回合上限：缺省视为不限（-1）。 */
 function requestedTimeoutMs(request: { timeoutMs?: number | undefined }): number {
   return request.timeoutMs ?? -1
 }
 
-/** 单回合超时定时器：只有正数才建定时器，-1（不限）与非法 0 都不限时。 */
 function armTurnTimeout(timeoutMs: number, fire: () => void): NodeJS.Timeout | undefined {
   if (timeoutMs <= 0) return undefined
   const timer = setTimeout(fire, timeoutMs)
@@ -372,7 +344,6 @@ function armTurnTimeout(timeoutMs: number, fire: () => void): NodeJS.Timeout | u
   return timer
 }
 
-/** 连续无新事件时取消回合；事件计数变化会重置计时。 */
 function idleWatch(
   idleMs: number,
   cancel: () => void,
@@ -415,7 +386,6 @@ export class AgentRunner {
     this.resumeTimeoutMs = options.resumeTimeoutMs ?? DEFAULT_RESUME_TIMEOUT_MS
   }
 
-  /** 解析实际使用的 provider/model：配置显式给出优先，否则用宿主默认选择。 */
   resolveSelection(): { provider: string; model: string } {
     if (this.agent.provider && this.agent.model) {
       return { provider: this.agent.provider, model: this.agent.model }
@@ -457,10 +427,6 @@ export class AgentRunner {
     }
   }
 
-  /**
-   * 打开一段连续会话：不再每轮新建 Agent，供同一需求的技术方案、实现、自验、
-   * 修复或测试阶段复用上下文与工作目录。宿主重启后会话不存在，依据持久证据恢复。
-   */
   async open(request: AgentOpenRequest): Promise<AgentSession> {
     const selection = this.resolveSelection()
     const sessionId = request.sessionId ?? `session-fl-${request.role}-${randomUUID()}`
@@ -478,10 +444,6 @@ export class AgentRunner {
     return this.wrapSession(handle, sessionId)
   }
 
-  /**
-   * 从宿主持久化的会话恢复研发 Agent：宿主重启后内存里没有 handle，但会话与工作目录
-   * 仍然存在。宿主不支持恢复时明确失败，不假装恢复成新会话。
-   */
   async resume(request: AgentResumeRequest): Promise<AgentSession> {
     const selection = this.resolveSelection()
     const agents = this.agentService()
@@ -519,7 +481,6 @@ export class AgentRunner {
     return this.wrapSession(handle, request.sessionId)
   }
 
-  /** 恢复可能因为宿主内部等待而挂起；超时报错交回调用方，不静默降级为新会话。 */
   private async withResumeDeadline(
     pending: Promise<SessionHandle | undefined>,
     sessionId: string,
@@ -581,7 +542,6 @@ export class AgentRunner {
         idleTimer.unref()
       }
       armIdle()
-      // -1 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
       const timer = armTurnTimeout(timeoutMs, () => {
         timedOut = true
         handle.agent.cancel({ kind: 'user' })
@@ -748,7 +708,6 @@ export class AgentRunner {
       handle.agent.cancel({ kind: 'user' })
     })
     const timeoutMs = requestedTimeoutMs(request)
-    // -1 表示不限：不建超时定时器，只保留停止请求与无进展看门狗。
     const timer = armTurnTimeout(timeoutMs, () => {
       timedOut = true
       handle.agent.cancel({ kind: 'user' })
@@ -771,7 +730,7 @@ export class AgentRunner {
         )
         request.onActivity?.(events)
       } catch {
-        // 活动快照是观测数据；写入失败不能中断 Agent 回合。
+        return
       }
     }
     const activityTimer = setInterval(flushActivity, 1_500)

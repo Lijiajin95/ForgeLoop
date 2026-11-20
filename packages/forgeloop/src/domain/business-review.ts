@@ -1,11 +1,3 @@
-/**
- * 业务终审：测试 Agent 在新会话中按原始需求复核关键业务场景与验收标准。
- *
- * 终审不是复述测试报告：每条业务场景与验收标准都要给出实际结果，并且证据必须能在
- * 独立测试实际执行的命令输出中逐字核对。系统只接受可核对的结构化结论；模型自述
- * “通过”不构成通过，所有者验收仍由真实决定入口单独记录。
- */
-
 import { asRecord as recordOf } from './json.js'
 import { MalformedError } from './errors.js'
 import { parseJsonLoose } from './requirement.js'
@@ -15,7 +7,6 @@ export type BusinessReviewStatus = 'pass' | 'fail' | 'not_verified'
 
 export interface BusinessReviewItem {
   readonly text: string
-  /** 结构化验收项的稳定编号；旧报告没有该字段。 */
   readonly id?: string
   readonly status: BusinessReviewStatus
   readonly evidence: string
@@ -29,18 +20,14 @@ export interface BusinessReview {
   readonly blocking: readonly string[]
   readonly scenarios: readonly BusinessReviewItem[]
   readonly acceptance: readonly BusinessReviewItem[]
-  /** 逐条业务规则的实际结果；旧报告缺少该字段时按空数组兼容。 */
   readonly businessRules: readonly BusinessReviewItem[]
-  /** 逐条异常与边界的实际结果；旧报告缺少该字段时按空数组兼容。 */
   readonly exceptions: readonly BusinessReviewItem[]
-  /** 结构化业务要点的逐条实际结果；旧报告缺少该字段时按空数组兼容。 */
   readonly points: readonly BusinessReviewItem[]
 }
 
 export interface BusinessReviewCommandRun {
   readonly label: string
   readonly output: string
-  /** 命令退出码；静默成功的命令没有 stdout，只能以退出码作为可核对证据。 */
   readonly exitCode?: number | null
   /** true 表示错误对照命令，预期非零退出；缺省按旧数据只做正向证据校验。 */
   readonly expectFailure?: boolean
@@ -134,7 +121,6 @@ export function parseBusinessReview(raw: string): BusinessReview {
   }
 }
 
-/** 静默成功命令没有 stdout；允许以测试报告里的 exit_code: 0 作为证据。 */
 function matchesExitCodeEvidence(run: BusinessReviewCommandRun, evidence: string): boolean {
   if (run.exitCode !== 0) return false
   const needle = evidence.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -190,10 +176,6 @@ function checkItem(
   return issues
 }
 
-/**
- * 终审必须逐项覆盖分析中的业务场景、验收标准、业务规则与异常边界，
- * 且证据来自独立测试的真实命令输出。缺项即使模型自报通过也阻断。
- */
 export function validateBusinessReview(input: {
   scenarios: readonly string[]
   acceptanceCriteria: readonly string[]
@@ -203,7 +185,6 @@ export function validateBusinessReview(input: {
   acceptanceItems?: readonly { readonly id: string }[] | undefined
   review: BusinessReview
   runs: readonly BusinessReviewCommandRun[]
-  /** 默认按 runs 是否带 expectFailure 自动判断；旧验证链路显式关闭。 */
   requireControls?: boolean
 }): string[] {
   const issues: string[] = []
@@ -231,7 +212,6 @@ export function validateBusinessReview(input: {
       issues.push(...checkItem(item, { runs, requireControls }, what, text))
     }
   }
-  // 结构化规格以要点编号覆盖为准；旧报告继续按场景与验收标准原文核对。
   if ((input.businessPoints?.length ?? 0) > 0) {
     checkAll(
       (input.businessPoints ?? []).map((point) => point.id),

@@ -118,6 +118,12 @@ describe('commitment resolution evidence', () => {
     expect(reasons[2]).toContain('必须说明理由')
   })
 
+  it('reports a conflict that has no resolution at all', () => {
+    const reasons = resolutionRejections({ ...check(), resolutions: [] })
+    expect(reasons).toHaveLength(1)
+    expect(reasons[0]).toContain('没有引用已记录的客户决定')
+  })
+
   it('keeps a known conflict blocking when the model returns an empty conflict list', () => {
     const still = unresolvedCommitments({
       previousConflicts: [conflict],

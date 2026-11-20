@@ -1,10 +1,3 @@
-/**
- * 权威业务记录（TypeScript）：需求与版本、分析、任务包与批准、任务运行与产物、
- * 持久操作请求、动作身份、失败轮次/授权与工时。
- *
- * 只读写当前实现建立的权威表；不读取或修补旧业务库。
- */
-
 import { asRecord } from '../domain/json.js'
 import { randomUUID } from 'node:crypto'
 import { isoNow } from './db.js'
@@ -24,9 +17,15 @@ import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
 import type { FailureRound } from '../domain/counting.js'
 import type { TaskArtifact, TaskRun } from '../domain/work.js'
+import {
+  UNLIMITED_WORK,
+  unlimitedWork,
+  workLimitOfSeconds,
+  workLimitSeconds,
+  type WorkLimit,
+} from '../domain/budget.js'
 import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
-/** 承诺冲突解除记录；与领域判定共用字段，便于双向回查。 */
 export type { CommitmentResolutionRecord, CustomerDecisionRecord } from './commitment-store.js'
 
 import { DeploymentStore } from './deployment-store.js'
@@ -80,7 +79,6 @@ export type {
 } from './rows.js'
 
 export class Repository extends DevSessionStore {
-  /** 各需求已累计到的墙上时刻；用于避免重叠区间重复计费。 */
   private readonly chargedUntil = new Map<string, number>()
 
   readonly deploymentStore = new DeploymentStore(this.db)
@@ -98,8 +96,6 @@ export class Repository extends DevSessionStore {
     this.db.close()
   }
 
-  // ---------------------------------------------------------------- 需求
-
   submit(input: {
     reqId: string
     project: string
@@ -108,7 +104,6 @@ export class Repository extends DevSessionStore {
     source: string
     clientKey?: string
     now: string
-    /** 设计文档来源：项目内路径；省略时按会话内粘贴的内联正文处理。 */
     document?: { readonly kind: DocumentKind; readonly path: string }
   }): SubmitResult {
     const clientKey = input.clientKey ?? ''
@@ -160,12 +155,10 @@ export class Repository extends DevSessionStore {
     return row ? this.getRequirement(text(row, 'req_id')) : null
   }
 
-  /** 需求的文档快照历史：每个版本一条，只追加。 */
   documentsOf(reqId: string): RequirementDocumentRecord[] {
     return this.designDocumentStore.documentsOf(reqId)
   }
 
-  /** 项目内同一路径最近一次绑定的设计文档快照；用于重复投递与修订判定。 */
   latestDocumentByPath(project: string, path: string): RequirementDocumentRecord | null {
     return this.designDocumentStore.latestByPath(project, path)
   }
@@ -213,7 +206,6 @@ export class Repository extends DevSessionStore {
     revisedBy: string
     source: string
     now: string
-    /** 修订来自设计文档时的来源快照；省略表示人工改写内联正文。 */
     document?: { readonly kind: DocumentKind; readonly path: string }
   }): Requirement {
     const requirement = this.getRequirement(input.reqId)
@@ -237,7 +229,6 @@ export class Repository extends DevSessionStore {
         source: input.source,
         now: input.now,
       })
-      // 修订使既有任务包与其批准对当前版本过期：状态回到 draft，历史不回写。
       this.db.handle
         .prepare("UPDATE requirements SET status = 'draft', blocked_reason = '' WHERE req_id = ?")
         .run(input.reqId)
@@ -247,7 +238,6 @@ export class Repository extends DevSessionStore {
     return updated
   }
 
-  /** 需求版本的文档快照与版本行同一事务写入；正文仍以 requirement_versions 为权威。 */
   private recordDocumentSnapshot(input: {
     reqId: string
     requirementVersion: number
@@ -356,16 +346,10 @@ export class Repository extends DevSessionStore {
     }
   }
 
-  // ---------------------------------------------------------------- 分析
-
   nextAnalysisVersion(reqId: string): number {
     return this.analysisStore.nextVersion(reqId)
   }
 
-  /**
-   * 记录一条分析结论。澄清问题与旧问题处置和结论在同一事务写入：
-   * 问题身份、解决状态与结论版本不会出现一半成功。
-   */
   recordAnalysis(
     analysis: RequirementAnalysis & { reqId: string },
     clarification?: {
@@ -387,7 +371,6 @@ export class Repository extends DevSessionStore {
     return this.analysisStore.analyses(reqId)
   }
 
-  /** 当前分析版本之前已记录、仍可能未解除的承诺冲突。 */
   priorCommitmentConflicts(reqId: string, currentAnalysisVersion: number): CommitmentConflict[] {
     const seen = new Set<string>()
     const conflicts: CommitmentConflict[] = []
@@ -422,21 +405,14 @@ export class Repository extends DevSessionStore {
     return this.analysisStore.attempts(reqId, requirementVersion)
   }
 
-  /** 最近一次带需求库遍历记录的分析原文；回答回写时用它取问题对应的 topic。 */
   latestLibraryReview(reqId: string): string {
     return this.analysisStore.latestReview(reqId)
   }
-
-  // ---------------------------------------------------------------- 澄清问答
 
   clarificationQuestions(reqId: string): ClarificationQuestion[] {
     return this.clarificationStore.clarificationQuestions(reqId)
   }
 
-  /**
-   * 当前仍未解决的澄清问题。历史库没有旁置问题行时，回退到最新分析里的
-   * clarifications（编号按该分析版本生成），保证旧记录仍可回答，不补造回答。
-   */
   openClarifications(reqId: string): ClarificationQuestion[] {
     const recorded = this.clarificationStore.clarificationQuestions(reqId)
     if (recorded.length > 0) {
@@ -482,7 +458,6 @@ export class Repository extends DevSessionStore {
     return this.businessContextStore.latestDraft(reqId)
   }
 
-  /** 覆盖式同步需求库索引；文件消失只标 missing，不删除行。 */
   syncLibrary(entries: readonly LibrarySyncEntry[], now: string): void {
     this.libraryStore.sync(entries, now)
   }
@@ -494,8 +469,6 @@ export class Repository extends DevSessionStore {
   libraryEntry(id: string): ReturnType<LibraryStore['byId']> {
     return this.libraryStore.byId(id)
   }
-
-  // ---------------------------------------------------------------- 任务包
 
   nextPlanVersion(reqId: string): number {
     const row = this.db
@@ -599,8 +572,6 @@ export class Repository extends DevSessionStore {
     }
   }
 
-  // ---------------------------------------------------------------- 系统准入
-
   recordAdmission(input: {
     requirementId: string
     requirementVersion: number
@@ -643,9 +614,7 @@ export class Repository extends DevSessionStore {
 
   admissionsFor(reqId: string): AdmissionRecord[] {
     const rows = this.db
-      .prepare(
-        'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at, admission_id',
-      )
+      .prepare('SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at, rowid')
       .all(reqId)
     return rows.map(admissionFromRow)
   }
@@ -655,21 +624,19 @@ export class Repository extends DevSessionStore {
       requirementVersion === undefined
         ? this.db.handle
             .prepare(
-              'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at DESC, admission_id DESC LIMIT 1',
+              'SELECT * FROM requirement_admissions WHERE req_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
             )
             .all(reqId)
         : this.db.handle
             .prepare(
               `SELECT * FROM requirement_admissions
                 WHERE req_id = ? AND requirement_version = ?
-                ORDER BY created_at DESC, admission_id DESC LIMIT 1`,
+                ORDER BY created_at DESC, rowid DESC LIMIT 1`,
             )
             .all(reqId, requirementVersion)
     const row = rows[0]
     return row ? admissionFromRow(row) : null
   }
-
-  // ---------------------------------------------------------------- 主动停止
 
   recordStop(input: {
     requirementId: string
@@ -728,8 +695,6 @@ export class Repository extends DevSessionStore {
       )
       .run(input.resumedBy, input.reason, input.resumedAt, input.requirementId)
   }
-
-  // ---------------------------------------------------------------- 代码候选与提交
 
   recordCodeCandidate(input: CodeCandidateRecord): CodeCandidateRecord {
     this.db
@@ -845,8 +810,6 @@ export class Repository extends DevSessionStore {
     return row ? commitFromRow(row) : null
   }
 
-  // ---------------------------------------------------------------- 测试 Agent
-
   recordPlanReview(review: PlanReviewRecord): void {
     this.db
       .prepare(
@@ -936,7 +899,6 @@ export class Repository extends DevSessionStore {
     return this.verifications.forCandidate(reqId, planVersion, candidateSha256)
   }
 
-  /** 一个需求按时间累积的全部独立测试结果；用于问题单与重试历史反查。 */
   verificationsFor(reqId: string): VerificationRecord[] {
     return this.verifications.allFor(reqId)
   }
@@ -995,8 +957,6 @@ export class Repository extends DevSessionStore {
     return row ? businessReviewRow(row) : null
   }
 
-  // ---------------------------------------------------------------- 任务运行与产物
-
   recordTaskRun(run: TaskRun): void {
     this.db
       .prepare(
@@ -1019,7 +979,6 @@ export class Repository extends DevSessionStore {
       )
   }
 
-  /** 只刷新运行中心跳，不增加执行秒数；任务尚未开始时不做隐式插入。 */
   heartbeatTaskRun(input: {
     requirementId: string
     planVersion: number
@@ -1163,10 +1122,6 @@ export class Repository extends DevSessionStore {
     }
   }
 
-  /**
-   * 宿主启动时把上一次仍在 running 的任务运行标为 blocked：
-   * 执行者已不在，任务未交付；一次性工作副本会在下次执行时重建。
-   */
   markRunningTaskRunsInterrupted(now: string): number {
     const result = this.db
       .prepare(
@@ -1176,12 +1131,6 @@ export class Repository extends DevSessionStore {
     return result.changes
   }
 
-  // ---------------------------------------------------------------- 失败轮次与授权
-
-  /**
-   * 归档一次已交付产物：重新研发前保留旧候选、材料与授权来源，
-   * 新尝试按 attempt 递增，不覆盖历史。
-   */
   recordArchivedArtifact(input: {
     artifact: TaskArtifact
     attempt: number
@@ -1249,8 +1198,7 @@ export class Repository extends DevSessionStore {
     }))
   }
 
-  /** 重新研发：清掉“已交付”标记，让 advance 按原批准任务包重新执行。 */
-  clearTaskDelivery(reqId: string, planVersion: number, taskId: string): void {
+  deleteTaskDeliveryRecords(reqId: string, planVersion: number, taskId: string): void {
     this.db
       .prepare(
         'DELETE FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = ? AND task_id = ?',
@@ -1302,8 +1250,6 @@ export class Repository extends DevSessionStore {
     return current + 1
   }
 
-  // ---------------------------------------------------------------- 工时
-
   ensureBudget(reqId: string, limitSeconds: number): void {
     this.db
       .prepare(
@@ -1313,16 +1259,15 @@ export class Repository extends DevSessionStore {
       .run(reqId, limitSeconds)
   }
 
-  budget(reqId: string): { limitSeconds: number; consumedSeconds: number } {
+  budget(reqId: string): { limit: WorkLimit; consumedSeconds: number } {
     const row = this.db.prepare('SELECT * FROM requirement_budget WHERE req_id = ?').get(reqId)
-    if (!row) return { limitSeconds: -1, consumedSeconds: 0 }
+    if (!row) return { limit: UNLIMITED_WORK, consumedSeconds: 0 }
     return {
-      limitSeconds: num(row, 'limit_seconds'),
+      limit: workLimitOfSeconds(num(row, 'limit_seconds')),
       consumedSeconds: num(row, 'consumed_seconds'),
     }
   }
 
-  /** 同一需求的重叠计时只累计一次（嵌套执行、补充轮复用起点时不会重复计费）。 */
   chargeBudgetOnce(reqId: string, startedAtMs: number, nowMs: number): void {
     const window = chargeWindow({
       chargedUntilMs: this.chargedUntil.get(reqId) ?? 0,
@@ -1341,16 +1286,12 @@ export class Repository extends DevSessionStore {
       .run(Math.max(0, seconds), reqId)
   }
 
-  /**
-   * 所有者延长工时：只加总上限，不清零已消耗，避免用延长掩盖历史消耗。
-   * `seconds = -1` 表示改为不限；已经不限的记录保持 -1。
-   */
-  extendBudget(reqId: string, seconds: number): number {
-    if (seconds === -1) {
+  extendBudget(reqId: string, limit: WorkLimit): WorkLimit {
+    if (unlimitedWork(limit)) {
       this.db
         .prepare('UPDATE requirement_budget SET limit_seconds = -1 WHERE req_id = ?')
         .run(reqId)
-      return this.budget(reqId).limitSeconds
+      return this.budget(reqId).limit
     }
     this.db
       .prepare(
@@ -1358,14 +1299,13 @@ export class Repository extends DevSessionStore {
          SET limit_seconds = CASE WHEN limit_seconds = -1 THEN -1 ELSE limit_seconds + ? END
          WHERE req_id = ?`,
       )
-      .run(Math.max(0, seconds), reqId)
-    return this.budget(reqId).limitSeconds
+      .run(Math.max(0, limit), reqId)
+    return this.budget(reqId).limit
   }
 
-  /** 工时延长审计：每次人工延长或改为不限都追加一行，供自主率统计回查。 */
   recordBudgetExtension(input: {
     reqId: string
-    seconds: number
+    seconds: WorkLimit
     extendedBy: string
     source: string
     extendedAt: string
@@ -1384,7 +1324,14 @@ export class Repository extends DevSessionStore {
             (req_id, seq, seconds, extended_by, source, extended_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(input.reqId, seq, input.seconds, input.extendedBy, input.source, input.extendedAt)
+        .run(
+          input.reqId,
+          seq,
+          workLimitSeconds(input.seconds),
+          input.extendedBy,
+          input.source,
+          input.extendedAt,
+        )
     })
   }
 
@@ -1393,16 +1340,13 @@ export class Repository extends DevSessionStore {
       .prepare('SELECT * FROM requirement_budget_extensions WHERE req_id = ? ORDER BY seq')
       .all(reqId)
     return rows.map((row) => ({
-      seconds: num(row, 'seconds'),
+      seconds: workLimitOfSeconds(num(row, 'seconds')),
       extendedBy: text(row, 'extended_by'),
       source: text(row, 'source'),
       extendedAt: text(row, 'extended_at'),
     }))
   }
 
-  // ---------------------------------------------------------------- 操作请求
-
-  /** 受理前落库：同需求同动作的待执行请求复用，不同动作拒绝，已有在跑请求拒绝。 */
   recordRequest(input: {
     requestId: string
     reqId: string
@@ -1477,7 +1421,6 @@ export class Repository extends DevSessionStore {
     return rows.map(requestFromRow)
   }
 
-  /** 未收口的请求（pending 或 claimed）；自动领取用它判断研发是否空闲。 */
   activeRequests(project?: string): ServiceRequestRecord[] {
     const rows = project
       ? this.db.handle
@@ -1493,7 +1436,6 @@ export class Repository extends DevSessionStore {
     return rows.map(requestFromRow)
   }
 
-  /** 原子领取一条待执行请求；返回 null 表示没有可领取工作。 */
   claimNextRequest(owner: string, now: string, project?: string): ServiceRequestRecord | null {
     return this.db.transaction(() => {
       const candidate = project
@@ -1528,11 +1470,6 @@ export class Repository extends DevSessionStore {
       .run(state, detail, now, requestId)
   }
 
-  /**
-   * 宿主启动时收口上次未完成的请求：执行者已不在了，工作副本是一次性快照，
-   * 直接判为 failed（未交付），由调用方丢弃快照后重新执行。
-   * 不再保留“unknown”这种无法判定的中间态。
-   */
   failClaimedOnRestart(now: string): ServiceRequestRecord[] {
     return this.db.transaction(() => {
       const rows = this.db.handle
@@ -1548,7 +1485,6 @@ export class Repository extends DevSessionStore {
     })
   }
 
-  /** 旧库里的 unknown 收口为 failed：保留原因，不当作成功或失败证据。 */
   migrateLegacyUnknown(now: string): number {
     const result = this.db
       .prepare(
@@ -1566,8 +1502,6 @@ export class Repository extends DevSessionStore {
       .run(detail, now, reqId)
     return result.changes
   }
-
-  // ---------------------------------------------------------------- 动作身份
 
   startAction(input: {
     actionId: string
@@ -1613,11 +1547,6 @@ export class Repository extends DevSessionStore {
     return rows.map(actionFromRow)
   }
 
-  /** 启动时把未收口的 started 动作标为 interrupted；不删除证据。 */
-  /**
-   * 运行期看门狗：把心跳早于 cutoff 的 started 动作标为 interrupted。
-   * 与宿主启动时的全量收口不同，这里只处理“确实没有心跳”的动作，避免误杀长回合。
-   */
   markStaleActionsInterrupted(cutoff: string, now: string): number {
     const result = this.db
       .prepare(
@@ -1628,7 +1557,6 @@ export class Repository extends DevSessionStore {
     return result.changes
   }
 
-  /** 心跳早于 cutoff 的 started 动作；看门狗据此逐个收口动作与其请求。 */
   staleStartedActions(cutoff: string): ActionRecord[] {
     const rows = this.db
       .prepare(
@@ -1638,7 +1566,6 @@ export class Repository extends DevSessionStore {
     return rows.map(actionFromRow)
   }
 
-  /** 执行期间刷新动作心跳；动作已收口时返回 false，避免复活旧执行。 */
   touchAction(actionId: string, now: string): boolean {
     const result = this.db
       .prepare("UPDATE actions SET heartbeat_at = ? WHERE action_id = ? AND state = 'started'")
@@ -1646,7 +1573,6 @@ export class Repository extends DevSessionStore {
     return result.changes > 0
   }
 
-  /** 只在动作仍是 started 时收口；返回 false 表示已被别的路径收口（迟到结果不得覆盖）。 */
   finishActionIfStarted(actionId: string, state: string, detail: string, now: string): boolean {
     const result = this.db
       .prepare(
@@ -1656,7 +1582,6 @@ export class Repository extends DevSessionStore {
     return result.changes > 0
   }
 
-  /** 只在请求仍是 claimed 时收口；返回 false 表示已被收口（迟到结果不得覆盖）。 */
   resolveRequestIfClaimed(requestId: string, state: string, detail: string, now: string): boolean {
     const result = this.db
       .prepare(
@@ -1675,8 +1600,6 @@ export class Repository extends DevSessionStore {
       .run(now, `\n宿主重启：动作结果未收口，已标记 interrupted（${now}）`)
     return result.changes
   }
-
-  // ---------------------------------------------------------------- 候选包
 
   recordCandidate(candidate: {
     reqId: string
@@ -1947,8 +1870,6 @@ export class Repository extends DevSessionStore {
     }
   }
 
-  // ---------------------------------------------------------------- 运维事件
-
   setMeta(key: string, value: string, now = isoNow()): void {
     this.db
       .prepare(
@@ -2058,7 +1979,6 @@ function commitFromRow(row: Row): RequirementCommitRecord {
 }
 
 function parseStringList(raw: string): string[] {
-  // 旧库可能缺列或被清空；空字符串表示“没有条目”，不是损坏。
   if (raw.trim() === '') return []
   const data: unknown = JSON.parse(raw)
   if (!Array.isArray(data) || !data.every((item): item is string => typeof item === 'string')) {

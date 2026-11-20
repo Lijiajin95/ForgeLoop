@@ -666,7 +666,7 @@ describe('work budget extension', () => {
     })
     expect(result.ok, result.message).toBe(true)
     const budget = runtime.repo.budget(reqId)
-    expect(budget.limitSeconds).toBe(7200 + 3600)
+    expect(budget.limit).toBe(7200 + 3600)
     expect(budget.consumedSeconds).toBe(7300)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('approved')
     expect(runtime.repo.getRequirement(reqId)?.blockedReason).not.toContain('工时已用尽')

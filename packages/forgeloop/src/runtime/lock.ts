@@ -1,11 +1,3 @@
-/**
- * 单消费者锁：同一记录根同时只允许一个宿主协调器领取工作。
- *
- * 目录创建是原子的：`mkdir(lockDir)` 成功即获得所有权；存在时读取持有者进程，
- * 进程已退出视为残留并清理一次。第二个宿主仍可提供只读命令，但不得领取请求、
- * 不得修改别人的在途请求状态。
- */
-
 import { parseJsonObject } from '../domain/json.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -85,7 +77,6 @@ export function acquireHostLock(lockRoot: string, owner: string): HostLock {
         release: () => undefined,
       }
     }
-    // 残留锁：清理后只重试一次，避免并发进程互相删除。
     rmSync(lockDir, { recursive: true, force: true })
     if (!tryAcquire()) {
       const holder = readHolder(lockDir)
@@ -109,7 +100,6 @@ export function acquireHostLock(lockRoot: string, owner: string): HostLock {
       if (released) return
       released = true
       const { record } = readHolder(lockDir)
-      // 只删除自己持有的锁；不清理其他进程的现场。
       if (!record || (record.owner === owner && record.pid === process.pid)) {
         rmSync(lockDir, { recursive: true, force: true })
       }

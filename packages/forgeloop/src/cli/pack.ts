@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * 本地候选打包：构建产物 → npm pack → 计算摘要与内容清单。
- * 输出 JSON 到 stdout，并写 `<packageDir>/dist/artifact.json`，供安装与回查。
- */
 
 import { asRecord, parseJsonArray, parseJsonObject } from '../domain/json.js'
 import { execFileSync } from 'node:child_process'

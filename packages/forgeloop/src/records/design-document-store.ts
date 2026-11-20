@@ -1,10 +1,3 @@
-/**
- * 设计文档快照记录：需求版本与“当时提交的是哪份文档”的对应关系。
- *
- * 只追加：同一需求版本只有一条快照，重复写入不覆盖；修订产生新版本时另行追加。
- * 正文仍保存在 requirement_versions，本表只提供身份与内容摘要，避免同一份文档存两份。
- */
-
 import type { Database } from './db.js'
 import { num, text, type Row } from './rows.js'
 import type { DesignDocumentSnapshot, DocumentKind } from '../domain/design-document.js'
@@ -41,7 +34,6 @@ function documentRow(row: Row): RequirementDocumentRecord {
 export class DesignDocumentStore {
   constructor(readonly db: Database) {}
 
-  /** 快照是不可变事实：同一需求版本重复写入只保留首次记录。 */
   record(record: RequirementDocumentRecord): void {
     this.db
       .prepare(
@@ -75,7 +67,6 @@ export class DesignDocumentStore {
       .map(documentRow)
   }
 
-  /** 项目内同一路径最近一次绑定的快照；内联提交没有路径，不参与项目文档去重。 */
   latestByPath(project: string, path: string): RequirementDocumentRecord | null {
     const target = path.trim()
     if (!target) return null

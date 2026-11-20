@@ -29,6 +29,7 @@ import {
   isTerminal,
   type TaskRunState,
 } from '../domain/status.js'
+import { workLimitSeconds } from '../domain/budget.js'
 import { attemptAllowed, ExecutionBudget } from '../domain/limits.js'
 import { FAILURE_PLANNING, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
@@ -191,10 +192,6 @@ export class AdvancePipeline {
     return candidate
   }
 
-  /**
-   * 测试 Agent 在同一会话里完成独立测试与业务验收：先设计并执行验证，再依据
-   * 实际命令输出核对业务场景；不修改候选，不降低需求标准。
-   */
   private async verifyCandidate(input: LegacyVerifyInput): Promise<{
     state: 'pass' | 'block'
     detail: string
@@ -206,7 +203,6 @@ export class AdvancePipeline {
     return this.deps.legacyVerification.verifyCandidate(input)
   }
 
-  /** 取消/停止/终态必须在动作入口复核，迟到的在途结果不能写提交或修复。 */
   private inactiveReason(reqId: string): string | null {
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return `未找到需求 ${reqId}`
@@ -298,10 +294,6 @@ export class AdvancePipeline {
     return { ok: true, commitSha: commit.commitSha }
   }
 
-  /**
-   * 把一次测试阻断固化为内建问题单：绑定需求、测试报告与候选，
-   * 并保存实际执行的命令日志、运行环境与状态，供研发复现和后续反查。
-   */
   recordVerificationIssue(input: {
     reqId: string
     requirement: Requirement
@@ -377,7 +369,6 @@ export class AdvancePipeline {
     return issue
   }
 
-  /** 从测试报告提取实际执行过的命令；报告畸形时保留空清单，报告路径仍作为证据。 */
   private issueCommands(reportJson: string): IssueCommandEvidence[] {
     let data: unknown
     try {
@@ -396,7 +387,6 @@ export class AdvancePipeline {
     return collected
   }
 
-  /** 测试阻断后的定向修复：同一研发会话与工作区，只处理缺陷，不重建全部任务。 */
   async repairCandidate(input: {
     reqId: string
     requirement: Requirement
@@ -459,10 +449,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     return { ok: false, reason: '修复回合没有产生可用改动' }
   }
 
-  /**
-   * 连续研发：系统准入后由同一个推进请求完成方案、实现、自验、独立测试、
-   * 定向修复和受控提交；例外（越界、额度用尽、提交检查失败）才停下等待决定。
-   */
   private continuousInputs(reqId: string):
     | {
         ok: true
@@ -491,7 +477,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       return { ok: false, outcome: { state: 'failed', detail: '需求说明缺失或已过期' } }
     }
     const budget = this.deps.repo.budget(reqId)
-    if (budget.limitSeconds > 0 && budget.limitSeconds <= budget.consumedSeconds) {
+    const limitSeconds = workLimitSeconds(budget.limit)
+    if (limitSeconds > 0 && limitSeconds <= budget.consumedSeconds) {
       this.deps.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需要显式延长或拆分需求')
       return { ok: false, outcome: { state: 'failed', detail: '执行工时已用尽' } }
     }
@@ -522,7 +509,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       signal,
     })
     if (planned.ok) return { ok: true, plan: planned.plan }
-    // 方案格式/模型异常已在研发会话内重试；仍失败时计一轮并停在 blocked，
     // 不自动整轮重放，避免同样的畸形输出无限循环。
     this.deps.repo.recordFailureRound(reqId, {
       roundId: `planning-${randomUUID()}`,
@@ -623,7 +609,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     return { ok: true }
   }
 
-  /** 无法建立测试材料也是真实的失败尝试；计入失败轮次，避免协调器原地重排。 */
   private recordVerificationPrepFailure(
     reqId: string,
     detail: string,
@@ -638,7 +623,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     return { state: 'failed', detail }
   }
 
-  /** 测试阻断后的问题单、定向修复与候选重建；只有实现缺陷会进入这里。 */
   private async handleBlockedVerification(input: {
     reqId: string
     requirement: Requirement
@@ -747,7 +731,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  /** 用例、环境、证据、需求争议或原因未明：保留阻断，不把问题当成实现缺陷交给研发。 */
   private verificationWithoutRepair(
     reqId: string,
     verification: {
@@ -770,7 +753,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  /** 读取已交付任务持久化的自验报告；缺失时返回 null，整份候选转独立测试。 */
   private readSelfVerification(
     reqId: string,
     plan: TaskPlan,
@@ -788,7 +770,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  /** 研发自验证 self 模式：按候选身份保存报告，供提交与审计复核。 */
   private recordSelfVerification(
     reqId: string,
     plan: TaskPlan,
@@ -817,7 +798,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     return path
   }
 
-  /** 问题输入遇到无法确认的业务预期：追加需求版本并等待产品澄清，不冒充代码缺陷。 */
   private async requestDevClarification(input: {
     reqId: string
     requirement: Requirement
@@ -843,9 +823,31 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  // 取消/额度/自验/验证/修复/提交的入口都在同一候选生命周期内复核；拆分只会
-  // 把同一组判定分散到多个方法，更难审计。
-  // eslint-disable-next-line complexity
+  private async commitVerifiedCandidate(input: {
+    reqId: string
+    plan: TaskPlan
+    candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
+    requirementTitle: string
+  }): Promise<{ state: 'done' | 'failed'; detail: string }> {
+    const commit = await this.commitCandidate({
+      reqId: input.reqId,
+      plan: input.plan,
+      candidate: input.candidate,
+      requirementTitle: input.requirementTitle,
+    })
+    if (!commit.ok) {
+      if (this.deps.repo.getRequirement(input.reqId)?.status !== CANCELLED) {
+        this.deps.repo.setStatus(input.reqId, 'blocked', `受控提交未完成：${commit.detail}`)
+      }
+      return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
+    }
+    this.deps.repo.setStatus(input.reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
+    return {
+      state: 'done',
+      detail: `需求 ${input.reqId} 已完成研发、独立测试与提交：${commit.commitSha.slice(0, 12)}`,
+    }
+  }
+
   private async verifyContinuousCandidate(input: {
     reqId: string
     requirement: Requirement
@@ -900,23 +902,12 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       }
       if (verification.state === 'pass') {
         this.deps.issues.resolveOpen(reqId, this.deps.now())
-        const commit = await this.commitCandidate({
+        return this.commitVerifiedCandidate({
           reqId,
           plan,
           candidate,
           requirementTitle: requirementTitle(requirement),
         })
-        if (!commit.ok) {
-          if (this.deps.repo.getRequirement(reqId)?.status !== CANCELLED) {
-            this.deps.repo.setStatus(reqId, 'blocked', `受控提交未完成：${commit.detail}`)
-          }
-          return { state: 'failed', detail: `受控提交未完成：${commit.detail}` }
-        }
-        this.deps.repo.setStatus(reqId, COMMITTED, `已提交 ${commit.commitSha.slice(0, 12)}`)
-        return {
-          state: 'done',
-          detail: `需求 ${reqId} 已完成研发、独立测试与提交：${commit.commitSha.slice(0, 12)}`,
-        }
       }
       const recorded = verification.verification
       if (recorded && recorded.verdict === 'block') {
@@ -937,7 +928,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
         candidate = handled.candidate
         continue
       }
-      // 业务验收阻断（独立测试本身已通过）仍受失败额度约束。
       if (this.deps.remainingFailureRounds(reqId) === 0) {
         this.deps.repo.setStatus(
           reqId,
@@ -971,7 +961,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  /** 需求结束只释放会话并写总结；研发会话本身不 dispose，现场与上下文保留。 */
   private async finishDevSession(input: {
     reqId: string
     requirementVersion: number
@@ -984,7 +973,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     try {
       await this.deps.devSessions.finish(input)
     } catch {
-      // 总结写入失败也必须释放占用；否则需求会永远停在等待会话空闲。
       this.deps.repo.releaseDevSession(input.sessionId, this.deps.now())
       this.deps.repo.releaseRequirementDevSession(
         input.reqId,
@@ -1023,7 +1011,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     const plan = planned.plan
     input.planRef.plan = plan
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
-    // 测试 Agent 在研发开始前新开会话并生成方案；产物交付后由同一会话执行与验收。
     const opened = await this.deps.legacyVerification.openVerification({
       reqId,
       requirement,
@@ -1054,12 +1041,10 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
         signal,
       })
     } finally {
-      // 测试会话只服务本次推进请求；研发会话保留，不在这里关闭。
       await opened.value.close()
     }
   }
 
-  /** 在已选定的研发会话里实现、修复与采集候选，再把测试会话交给独立测试与业务验收。 */
   private async developUnderVerification(input: {
     reqId: string
     requirement: Requirement
@@ -1180,10 +1165,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     })
   }
 
-  /**
-   * 连续研发：先由主控 Agent 选择或新建研发会话，再在同一会话里完成方案、实现、
-   * 自验、独立测试、定向修复和受控提交；会话忙时需求排队等待，不算失败。
-   */
   async executeContinuousAdvance(
     reqId: string,
     signal: AbortSignal,
@@ -1248,7 +1229,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  /** 绑定优先、否则采用主控结果；两种来源各自记录是谁选的与理由。 */
   private routingSelection(
     bound: RequirementDevSessionRecord | null,
     choice: OrchestratorChoice | null,
@@ -1268,11 +1248,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  /**
-   * 取得需求要用的研发会话：已有绑定直接复用；否则由主控 Agent 选择。
-   * 主控选中的会话在真正占用时失效（工作区被删、宿主恢复失败等）时，按主控给的备选
-   * 顺序再试，全部不可用才改派新会话并更新绑定；会话忙仍按等待处理，不换会话。
-   */
   private async resolveDevSession(input: {
     reqId: string
     requirement: Requirement
@@ -1323,7 +1298,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
   ): { state: 'failed'; detail: string } | null {
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
     const budget = new ExecutionBudget(
-      this.deps.repo.budget(reqId).limitSeconds,
+      workLimitSeconds(this.deps.repo.budget(reqId).limit),
       this.deps.repo.budget(reqId).consumedSeconds,
     )
     if (budget.canStartAction()) return null
@@ -1355,7 +1330,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
         requestId,
       })
     } catch (error) {
-      // 未预期异常也必须写出终态：否则运行记录会停在 running，看板无法区分
       // “还在跑”和“已经崩溃”。已落产物说明交付实际完成，不能改判失败。
       const reason = `任务执行异常：${errorMessage(error)}；任务未交付，可重新执行`
       const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
@@ -1412,7 +1386,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     taskId: string,
     outcome: Awaited<DeliverOutcome>,
   ): { state: 'done' | 'failed'; detail: string } {
-    // 中断/超时也计一轮失败：否则 autoAdvance 会无穷重试同一条 30 分钟上限的任务。
     if (outcome.interrupted) {
       this.deps.repo.recordFailureRound(reqId, {
         roundId: `interrupted-${requestId}-${taskId}`,
@@ -1487,7 +1460,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     if (budgetOutcome) return budgetOutcome
     this.deps.repo.setStatus(reqId, EXECUTING)
 
-    // 任务包冻结：测试阻断时把问题交回同一任务包的执行角色修复，然后重新验证；
     // 修复额度由失败轮次控制，用尽后停在 blocked，不再自动循环。
     for (;;) {
       for (const taskId of executionOrder(plan)) {

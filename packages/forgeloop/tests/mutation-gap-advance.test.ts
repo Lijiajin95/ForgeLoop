@@ -42,7 +42,7 @@ let config: ForgeLoopConfig
 let requirement: Requirement | null
 let analysis: RequirementAnalysis | null
 let admission: unknown
-let budget: { limitSeconds: number; consumedSeconds: number }
+let budget: { limit: number | 'unlimited'; consumedSeconds: number }
 let statuses: Array<[string, string, string?]>
 let failureRounds: Array<Record<string, unknown>>
 let runs: unknown[]
@@ -400,7 +400,7 @@ beforeEach(() => {
   requirement = requirementOf()
   analysis = analysisOf()
   admission = { admissionId: 'admission-1' }
-  budget = { limitSeconds: -1, consumedSeconds: 100 }
+  budget = { limit: 'unlimited', consumedSeconds: 100 }
   statuses = []
   failureRounds = []
   runs = []
@@ -514,7 +514,7 @@ describe('advance pipeline mutation gaps', () => {
 
     statuses = []
     analysis = analysisOf()
-    budget = { limitSeconds: 10, consumedSeconds: 10 }
+    budget = { limit: 10, consumedSeconds: 10 }
     expect(await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)).toEqual({
       state: 'failed',
       detail: '执行工时已用尽',
@@ -884,7 +884,7 @@ describe('advance pipeline mutation gaps', () => {
 
   it('rejects an exhausted execution budget before dispatching tasks', async () => {
     const pipeline = makePipeline()
-    budget = { limitSeconds: 10, consumedSeconds: 10 }
+    budget = { limit: 10, consumedSeconds: 10 }
 
     const outcome = await pipeline.executeAdvance(
       'req-1',

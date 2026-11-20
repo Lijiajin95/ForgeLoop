@@ -1,11 +1,7 @@
 /**
- * 证据归档：把记录库复制成一致快照。
- *
  * 直接用文件复制会漏掉 WAL 中已提交但尚未 checkpoint 的数据，也可能拿到半页状态。
  * 这里用 SQLite 的 `VACUUM INTO`：单条语句、读事务内完成，结果是可独立打开的一致数据库，
  * 不依赖 -wal/-shm 文件。先写临时文件再原子改名，中断不会留下“看起来成功”的半成品。
- *
- * 放在 records 层而不是脚本里：实现要随包发布，测试才能在沙箱里导入，不必引用仓库根脚本。
  */
 import {
   copyFileSync,
@@ -26,7 +22,6 @@ export interface ArchiveResult {
   readonly bytes: number
 }
 
-/** 把 `source` 的记录库快照到 `target`；目标目录不存在时创建。 */
 export function archiveDatabase(source: string, target: string): ArchiveResult {
   if (!existsSync(source)) throw new Error(`记录库不存在：${source}`)
   mkdirSync(dirname(target), { recursive: true })
@@ -49,15 +44,12 @@ export function archiveDatabase(source: string, target: string): ArchiveResult {
   return { target, bytes: statSync(target).size }
 }
 
-/** 一次运行现场归档的输入：源现场、目标目录、项目名与摘要。 */
 export interface RunEvidenceArchiveInput {
   readonly sourceRoot: string
   readonly targetDir: string
   readonly project: string
   readonly summary: unknown
-  /** 本次真实运行的需求；给出时额外自检验证与部署记录可双向回查。 */
   readonly requirementId?: string
-  /** 需要从源现场根目录复制的文件；缺省为摘要、宿主日志与配置快照。 */
   readonly files?: readonly string[]
   readonly now?: string
 }
@@ -68,10 +60,6 @@ export interface RunEvidenceArchiveResult {
   readonly error: string
 }
 
-/**
- * 把一次运行的现场归档到持久目录：摘要/日志/配置、记录库一致快照、原始记录目录与
- * 可独立复核的索引。归档快照必须能单独打开，否则整次归档按失败处理。
- */
 export function archiveRunEvidence(input: RunEvidenceArchiveInput): RunEvidenceArchiveResult {
   const files: string[] = []
   try {
@@ -87,13 +75,11 @@ export function archiveRunEvidence(input: RunEvidenceArchiveInput): RunEvidenceA
     if (existsSync(database)) {
       archiveDatabase(database, join(input.targetDir, 'records.sqlite'))
       files.push('records.sqlite')
-      // 独立可查自检：归档快照必须能单独打开，且不依赖源目录。
       const snapshot = new DatabaseSync(join(input.targetDir, 'records.sqlite'), { readOnly: true })
       try {
         snapshot.prepare('SELECT COUNT(*) AS n FROM requirements').get()
         snapshot.prepare('SELECT COUNT(*) AS n FROM ops_events').get()
         if (input.requirementId) {
-          // 双向回查：按需求能查到验证、部署与相关运维事件。
           snapshot
             .prepare('SELECT COUNT(*) AS n FROM requirement_verifications WHERE req_id = ?')
             .get(input.requirementId)
@@ -108,7 +94,6 @@ export function archiveRunEvidence(input: RunEvidenceArchiveInput): RunEvidenceA
         snapshot.close()
       }
     }
-    // 运维诊断、验证材料等原始文件：只复制项目记录目录，跳过数据库与 WAL 附属文件。
     if (existsSync(projectRecords)) {
       cpSync(projectRecords, join(input.targetDir, 'records'), {
         recursive: true,
@@ -167,10 +152,6 @@ function renderArchiveIndex(input: {
   ].join('\n')
 }
 
-/**
- * 验收判定：任何失败项（含“证据归档失败”）都让本轮未通过。
- * 归档失败单独追加一条，避免只改 summary 字段却仍被当成成功。
- */
 export function acceptanceVerdict(input: {
   readonly failures: readonly string[]
   readonly archive: { readonly ok: boolean; readonly error: string }

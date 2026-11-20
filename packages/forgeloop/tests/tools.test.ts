@@ -131,10 +131,19 @@ describe('tool surface', () => {
   })
 
   it('never exposes deployment or human decisions as model tools', () => {
-    const forbidden = /deploy|deployment|publish|release|approve|cancel|grant|budget_extend/i
+    const forbidden =
+      /deploy|deployment|publish|release|approve|cancel|grant|budget_extend|commitment|decide|decision/i
     expect(
       tools.map((definition) => definition.name).filter((name) => forbidden.test(name)),
     ).toEqual([])
+    const decisionParams = /^(approved|by|owner|decided_by)$/i
+    for (const definition of tools) {
+      const parameters = definition.parameters as { properties?: Record<string, unknown> }
+      const names = Object.keys(parameters.properties ?? {}).filter((name) =>
+        decisionParams.test(name),
+      )
+      expect(names, definition.name).toEqual([])
+    }
   })
 
   it('lists requirements and reads one by id', async () => {

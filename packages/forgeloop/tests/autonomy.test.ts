@@ -271,10 +271,10 @@ describe('autonomy records', () => {
       now: NOW,
     })
     expect(result.ok).toBe(true)
-    expect(repository.budget(reqId).limitSeconds).toBe(-1)
+    expect(repository.budget(reqId).limit).toBe('unlimited')
     expect(repository.budgetExtensions(reqId)).toEqual([
       {
-        seconds: -1,
+        seconds: 'unlimited',
         extendedBy: 'owner',
         source: 'web:extend-budget',
         extendedAt: NOW,

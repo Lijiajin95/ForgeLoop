@@ -1,8 +1,3 @@
-/**
- * 部署门禁：系统交付判定始终有效；人类验收只对需要 owner 决定的目标必需。
- * 这里只读记录，不执行任何命令；不满足时给出可读原因，调用方不得继续调用部署工具。
- */
-
 import type { DeploymentTargetConfig } from '../config.js'
 import type { DeploymentArtifact } from '../domain/deployment.js'
 import type { Repository } from '../records/repository.js'
@@ -24,7 +19,6 @@ export function candidateDeploymentGate(repo: Repository): DeploymentGate {
   return (target, artifact, requirementId) => {
     const reqId = requirementId?.trim() || target.requirementId
     if (!reqId) return { ok: false, reason: '需求不存在或未指定所属需求，不能继续部署' }
-    // 目标配置可引用需求；跨项目/工作区的需求在当前租户记录里不存在，必须明确拒绝。
     if (!repo.getRequirement(reqId)) {
       return { ok: false, reason: `需求不存在或不属于当前项目/工作区：${reqId}` }
     }
@@ -34,11 +28,9 @@ export function candidateDeploymentGate(repo: Repository): DeploymentGate {
     }
     const readiness = deliveryReadiness(repo, reqId, artifact.sha256)
     if (!readiness.ok) return readiness
-    // owner 目标仍要求人类验收；auto 目标由目标配置授权，验收不是系统交付判定的替代品。
     if (target.approval === 'owner') {
       const acceptance = repo.acceptance(reqId)
       if (!acceptance.accepted_at) return { ok: false, reason: '需求尚未验收' }
-      // 验收必须绑定当前候选/制品材料：候选、任务包或需求材料变化后旧验收不再有效。
       const fingerprints = expectedAcceptanceFingerprints(repo, reqId, artifact.sha256)
       if (fingerprints.length === 0) {
         return { ok: false, reason: '无法复核验收所绑定的候选材料，不能继续部署' }

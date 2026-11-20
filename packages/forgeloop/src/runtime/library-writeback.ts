@@ -1,9 +1,5 @@
-/**
- * 所有者回答回写需求库：回答原文是授权，直接生成 confirmed 决策条目。
- * 只处理能对上分析缺口（topic）的答案；没有 topic 或主题已被 confirmed 覆盖时跳过。
- */
-
 import { LIBRARY_DOC_DIR, parseLibraryReview, type LibraryGap } from '../domain/library.js'
+import { bestEffort } from './best-effort.js'
 import type { LibrarySyncEntry } from '../records/library-store.js'
 import { loadLibrary } from './library-docs.js'
 import { writeProjectDoc } from './project-docs.js'
@@ -30,7 +26,6 @@ export interface AnswerDecisionResult {
   readonly skipped: readonly string[]
 }
 
-/** 从最近一次分析尝试的 library_review 里取出缺口；损坏时返回空数组。 */
 export function gapsFromReviewText(text: string): readonly LibraryGap[] {
   if (!text.trim()) return []
   let raw: unknown
@@ -83,7 +78,6 @@ function headerOf(input: {
   )
 }
 
-/** 写入一条决策条目；返回项目内相对路径。 */
 export function writeAnswerDecision(input: {
   projectPath: string
   reqId: string
@@ -120,7 +114,6 @@ export function writeAnswerDecision(input: {
   return path
 }
 
-/** 逐条回写可归因的回答；写入失败时抛错，由调用方决定告警或降级。 */
 export function writeAnswerDecisions(input: AnswerDecisionInput): AnswerDecisionResult {
   const confirmed = new Set<string>()
   for (const entry of input.existing) {
@@ -155,11 +148,6 @@ export function writeAnswerDecisions(input: AnswerDecisionInput): AnswerDecision
   return { written, skipped }
 }
 
-/**
- * 回答回写的一站式入口：取最近分析的缺口、写决策条目、再刷新 SQLite 索引。
- * 回写是回答落库后的尽力而为，失败不阻断重新分析。
- */
-/** 回答回写只需要这三个仓库能力；用结构类型避免 runtime 直接耦合 Repository。 */
 export interface LibraryWriteBackRepo {
   latestLibraryReview(reqId: string): string
   libraryEntries(): ReadonlyArray<{
@@ -178,7 +166,7 @@ export function writeBackClarificationAnswers(input: {
   readonly questions: ReadonlyArray<{ readonly questionId: string; readonly text: string }>
   readonly answer: string
 }): void {
-  try {
+  bestEffort(() => {
     const result = writeAnswerDecisions({
       projectPath: input.projectPath,
       reqId: input.reqId,
@@ -195,7 +183,5 @@ export function writeBackClarificationAnswers(input: {
       const loaded = loadLibrary(input.projectPath)
       input.repo.syncLibrary(loaded.entries, input.now)
     }
-  } catch {
-    // 文件不可写或库损坏时保留回答与重新分析，由下一轮分析重新暴露库问题。
-  }
+  })
 }

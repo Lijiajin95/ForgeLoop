@@ -1,10 +1,3 @@
-/**
- * 业务会话的待澄清需求视图：只返回与该会话来源绑定、当前版本仍在等待回答的需求。
- *
- * 关系来自需求受理 source 的 `dsh-session:<sessionId>:<messageId>` 前缀；
- * 问题来自结构化澄清表，历史没有旁置行时由仓储回退到最新分析。
- */
-
 import type { Repository } from '../records/repository.js'
 import { AWAITING_CLARIFICATION } from '../domain/status.js'
 import { requirementTitle } from './board.js'

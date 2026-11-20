@@ -1,9 +1,3 @@
-/**
- * 有界日志读取：只读文件尾部固定字节数，不把整份日志读进内存。
- * 从文件中间开始时首行可能被截断，直接丢弃而不是当成完整日志行。
- * 监控采集与运维按需读取共用这一份实现，避免两处边界漂移。
- */
-
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
 
 export function readLogTail(path: string, maxBytes: number): string[] {

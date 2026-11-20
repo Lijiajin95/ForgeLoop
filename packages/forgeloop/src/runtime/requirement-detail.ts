@@ -1,10 +1,3 @@
-/**
- * 需求详情的只读补充：历次分析、澄清问答与本次规格变化。
- *
- * 页面从同一份权威分析记录生成需求说明；这里只做投影与确定性差异，
- * 不另维护 PRD，也不写业务状态。
- */
-
 import type { Repository } from '../records/repository.js'
 import type { ClarificationAnswer, ClarificationQuestion } from '../domain/analysis.js'
 import { specChanges, type SpecChanges } from '../domain/spec.js'
@@ -16,13 +9,9 @@ export interface RequirementDetailExtras {
     readonly answers: readonly ClarificationAnswer[]
   }
   readonly specChanges: SpecChanges
-  /** 业务背景变更记录：草稿、已应用版本与依据。 */
   readonly businessContext: ReturnType<Repository['businessContextChanges']>
-  /** 需求修订导致旧分析失效的审计记录。 */
   readonly analysisInvalidations: ReturnType<Repository['analysisInvalidations']>
-  /** 设计文档快照历史：每个需求版本一条，正文仍以需求版本原文为准。 */
   readonly documents: ReturnType<Repository['documentsOf']>
-  /** 最近一次可安装交付；没有记录时为空，页面显示空态而不是推断成功。 */
   readonly installableDelivery: ReturnType<Repository['installableDeliveryStore']['latest']>
   /** 产品阶段：按需求版本与尝试时间排列的分析尝试，含失败的公开原因与已记录工具名。 */
   readonly analysisActivity: readonly AnalysisAttemptView[]

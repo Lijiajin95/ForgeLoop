@@ -1,13 +1,23 @@
 import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { RuleViolationError } from '../domain/errors.js'
+import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import { parsePlanReview, parseVerificationReport } from '../domain/verification.js'
 import { sha256OfBytes } from '../domain/delivery.js'
 import { projectDir, recordsPath, type ForgeLoopConfig } from '../config.js'
 import { AgentRunner } from './agent-runner.js'
 import { git } from './workspace.js'
+
+export function linkSharedModules(target: string, linkPath: string): string {
+  try {
+    symlinkSync(target, linkPath, 'dir')
+    return ''
+  } catch (error) {
+    if (existsSync(linkPath)) return ''
+    return `无法链接共享依赖 ${target} -> ${linkPath}：${errorMessage(error)}`
+  }
+}
 
 export function summarizeActivity(events: readonly Record<string, unknown>[]): string {
   for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -66,7 +76,6 @@ function activityItem(line: string): { type: string; at: string; summary: string
     const at = typeof event.time === 'number' ? new Date(event.time).toISOString() : ''
     return { type, at, summary: summarizeEvent(type, data) }
   } catch {
-    // 轨迹中损坏的单行不阻断详情页。
     return null
   }
 }
@@ -117,22 +126,13 @@ export function verificationBlocking(reportJson: string): string {
   }
 }
 
-/**
- * 业务验收的证据窗口：前置断言通常出现在输出开头，结论与退出信息在末尾。
- * 只截尾部会让开头打印的证据无法核对；这里保留开头与末尾，中间省略。
- */
 export function businessReviewEvidenceWindow(output: string, window = 4000): string {
   if (output.length <= window * 2) return output
   return `${output.slice(0, window)}\n…（中间省略 ${output.length - window * 2} 字符）…\n${output.slice(-window)}`
 }
 
-/** 测试 Agent 的合法材料目录；候选受保护内容不含此目录。 */
 export const VERIFICATION_MATERIAL_DIR = 'verification/'
 
-/**
- * 列出 Git 可见的工作区变化（含未忽略的新文件）。Git 忽略的构建输出
- * （例如 `packages` 下的 `lib` 目录、`coverage` 目录）不属于候选，也不进入本列表。
- */
 export function workspaceChanges(workspace: string): string[] {
   // 不能用 requireGit：它会给输出 trim，从而吃掉首条记录状态位前的空格。
   const result = git(workspace, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
@@ -152,7 +152,6 @@ export function workspaceChanges(workspace: string): string[] {
   return [...new Set(paths)].sort()
 }
 
-/** 记录测试材料清单与摘要，使报告能绑定实际存在的材料。 */
 export function verificationMaterials(
   dir: string,
 ): Array<{ path: string; sha256: string; bytes: number }> {
@@ -211,7 +210,6 @@ export function parseFormalTestHeader(text: string): {
   }
 }
 
-/** 目录摘要：暴露记录根、项目目录与当前 Agent 选择，供状态页与自检使用。 */
 export function directorySummaryOf(config: ForgeLoopConfig, runner: unknown): unknown {
   return {
     recordsRoot: config.recordsRoot,
@@ -226,7 +224,6 @@ export function directorySummaryOf(config: ForgeLoopConfig, runner: unknown): un
   }
 }
 
-/** 项目内已存在的 packages/<name> 目录；不存在时为空数组。 */
 export function existingPackageNames(projectPath: string): string[] {
   try {
     return readdirSync(join(projectPath, 'packages'), { withFileTypes: true })

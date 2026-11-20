@@ -1,8 +1,3 @@
-/**
- * 需求库文档扫描：把 docs/product/library 下的 Markdown 条目读成可注入的索引与摘要。
- * 只读取、不写文件；内容权威仍是项目文档，索引由 SQLite 保存。
- */
-
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
@@ -21,18 +16,15 @@ export interface LoadedLibraryEntry {
   readonly entry: LibraryEntry
   readonly sha256: string
   readonly bytes: number
-  /** 注入与展示用的正文：普通条目是条目正文，引用条目是被引用文档正文。 */
   readonly content: string
 }
 
 export interface LoadedLibrary {
   readonly entries: readonly LoadedLibraryEntry[]
   readonly digest: LibraryDigest
-  /** 被跳过或需要提示的项目文档；分析记录会保留，便于发现配错的条目。 */
   readonly warnings: readonly string[]
 }
 
-/** 扫描并解析整个需求库；格式错误、引用缺失或超限时抛错（fail-closed）。 */
 export function loadLibrary(projectPath: string): LoadedLibrary {
   const entries: LoadedLibraryEntry[] = []
   const warnings: string[] = []
@@ -82,7 +74,6 @@ function refContent(projectPath: string, entry: LibraryEntry): string {
   return read.content
 }
 
-/** 库目录下全部 Markdown（递归、项目内相对路径、排序稳定）；目录不存在时为空。 */
 export function markdownFiles(projectPath: string): string[] {
   const root = join(projectPath, LIBRARY_DOC_DIR)
   if (!existsSync(root)) return []

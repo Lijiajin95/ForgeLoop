@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { resolveConfig } from '../src/config.js'
 import {
   businessReviewEvidenceWindow,
+  linkSharedModules,
   directorySummaryOf,
   parseFormalTestHeader,
   planReviewBlocking,
@@ -237,5 +238,26 @@ describe('directory summary', () => {
     expect(summary.autoAdvance).toBe(false)
     expect(summary.projectDir).toContain('testproj')
     expect(summary.database).toContain('records.sqlite')
+  })
+})
+
+describe('shared module links', () => {
+  it('creates the link and returns a message instead of swallowing failures', () => {
+    const target = join(dir, 'deps')
+    mkdirSync(target, { recursive: true })
+    const link = join(dir, 'app', 'node_modules')
+    mkdirSync(join(dir, 'app'), { recursive: true })
+
+    expect(linkSharedModules(target, link)).toBe('')
+    expect(lstatSync(link).isSymbolicLink()).toBe(true)
+
+    const missingParent = join(dir, 'missing', 'node_modules')
+    const message = linkSharedModules(target, missingParent)
+    expect(message).toContain('无法链接共享依赖')
+
+    const existing = join(dir, 'existing', 'node_modules')
+    mkdirSync(existing, { recursive: true })
+    expect(linkSharedModules(target, existing)).toBe('')
+    expect(lstatSync(existing).isDirectory()).toBe(true)
   })
 })

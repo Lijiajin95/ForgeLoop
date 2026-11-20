@@ -1,10 +1,3 @@
-/**
- * 部署告警：向登记的 webhook 尽力发送一次告警。
- *
- * 约束与部署工具一致：固定请求方法、有界超时、最多一次重试、不抛错、不进入部署判定。
- * 发送失败只返回错误摘要，不改变部署状态；调用方自行决定是否记录。
- */
-
 export interface AlertSendResult {
   readonly ok: boolean
   readonly error: string
@@ -22,10 +15,6 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
-/**
- * 发送告警：超时按 AbortController 截断，失败后最多重试一次（合计两次请求）。
- * 永不抛出；超时、网络错误与非 2xx 都作为失败摘要返回。
- */
 export async function sendDeploymentAlert(
   url: string,
   body: Record<string, unknown>,

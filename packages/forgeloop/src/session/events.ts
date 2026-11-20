@@ -1,10 +1,3 @@
-/**
- * ForgeLoop 业务会话的自定义会话事件。
- *
- * 这些事件只写入 DSH Session 日志用于可回放的对话呈现（log-only），
- * 不带 surfaceOp，不进入模型消息历史，也不构成业务授权或验收证据。
- */
-
 // DSH 只接受“已知事件”或显式 ignorable 的 `plugin:` 记录；外部插件不能追加新的
 // 普通 Session 事件类型，否则该会话在下一次打开时会被拒绝。
 export const FORGELOOP_INTAKE_EVENT = 'plugin:forgeloop/intake'
@@ -16,30 +9,16 @@ export const FORGELOOP_ERROR_EVENT = 'plugin:forgeloop/error'
 
 import { asRecord } from '../domain/json.js'
 import type { InputKind } from '../domain/requirement.js'
-import { createRequire } from 'node:module'
 import { errorMessage } from '../domain/errors.js'
-import { realpathSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { resolveHostSessionAppender, type SessionAppender } from './host-appender.js'
 
-type AppendRecord = (session: unknown, type: string, data: unknown) => unknown
-function isAppendRecord(value: unknown): value is AppendRecord {
-  return typeof value === 'function'
+let injectedAppender: SessionAppender | undefined
+
+export function setSessionEventAppender(appender: SessionAppender | null | undefined): void {
+  injectedAppender = appender ?? undefined
 }
 
-let appendRecord: AppendRecord | undefined
-try {
-  // 从 DSH 自己的入口解析包，避免把宿主内部包写进插件依赖；测试环境找不到时
-  // 回退到 session.append，仅用于不持久化 DSH 日志的假会话。
-  const entry = process.argv[1] ? realpathSync(process.argv[1]) : ''
-  const requireFromDsh = createRequire(entry)
-  const sessionModule: unknown = await import(
-    pathToFileURL(requireFromDsh.resolve('@deepseek-ai/dsh-session')).href
-  )
-  const candidate = asRecord(sessionModule)?.appendPluginRecord
-  appendRecord = isAppendRecord(candidate) ? candidate : undefined
-} catch {
-  appendRecord = undefined
-}
+const hostAppender = await resolveHostSessionAppender()
 
 export interface AppendableSession {
   append(type: string, data: Record<string, unknown>): unknown
@@ -155,8 +134,9 @@ export function appendSessionEvent(
 ): boolean {
   try {
     const record = asRecord(data) ?? {}
-    if (appendRecord) {
-      appendRecord(session, type, record)
+    const appender = injectedAppender ?? hostAppender
+    if (appender) {
+      appender(session, type, record)
       return true
     }
     const append = asRecord(session)?.append

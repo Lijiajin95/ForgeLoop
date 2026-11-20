@@ -1,14 +1,3 @@
-/**
- * 测试失败的事实分类。
- *
- * 验证结论一直阻断当前候选；分类只决定“下一步交给谁”，不能降低标准、清零失败
- * 或把重跑当成通过。分类依据程序记录的命令退出码、超时/中止、完整性告警、
- * 覆盖与证据问题、敏感性对照结果和日志片段，不接受模型自报的失败类型。
- *
- * 只有“实现缺陷”才把问题交回研发改代码；用例/证据、环境异常、需求争议和原因
- * 未明都保留阻断，并给出各自的有据处置建议。
- */
-
 import type { VerificationCheckRun } from './verification.js'
 
 export const VERIFICATION_FAILURE_KINDS = [
@@ -24,32 +13,24 @@ export type VerificationFailureKind = (typeof VERIFICATION_FAILURE_KINDS)[number
 
 export interface VerificationFailureClassification {
   readonly kind: VerificationFailureKind
-  /** 结构化事实摘要，供报告、问题单与看板展示。 */
   readonly reasons: readonly string[]
-  /** 支撑分类的证据引用（命令 label、日志路径、告警原文）。 */
   readonly evidence: readonly string[]
-  /** 是否允许把问题交回研发产生新候选。 */
   readonly requiresCodeChange: boolean
-  /** 面向运行时的下一步说明；不改变“当前测试未通过”。 */
   readonly guidance: string
 }
 
 export interface VerificationFailureInput {
   readonly blocking: readonly string[]
   readonly commandRuns: readonly VerificationCheckRun[]
-  /** 报告里 status=fail 的场景名。 */
   readonly failedScenarios?: readonly string[]
   readonly coverageIssues?: readonly string[]
   readonly evidenceIssues?: readonly string[]
   readonly integrityIssues?: readonly string[]
   readonly controlIssues?: readonly string[]
-  /** 材料缺失/畸形、工作区准备失败等发生在业务判定之前的阻断。 */
   readonly materialIssues?: readonly string[]
-  /** 已确认属于运行环境（依赖、宿主、外部服务）的问题。 */
   readonly environmentIssues?: readonly string[]
 }
 
-/** 公开日志里常见的断言失败特征；只用于把“命令失败”归到实现缺陷，不据此放行。 */
 const ASSERTION_SIGNATURES = [
   /AssertionError/i,
   /\bexpected\b[\s\S]{0,120}\b(?:to|but|actual|received)\b/i,
@@ -78,7 +59,6 @@ function runEvidence(run: VerificationCheckRun): string {
   return `${run.label}（${state}）`
 }
 
-/** 运行环境、中止、超时、材料完整性等“业务断言之前”的事实。 */
 function preBusinessFailure(
   input: VerificationFailureInput,
   blocking: readonly string[],
@@ -134,7 +114,6 @@ function preBusinessFailure(
         '必过用例没有证明能发现对应错误行为；修订用例与敏感性对照，按测试修订流程复核后复验。',
     }
   }
-  // 验证脚本自身写错（例如在 "type":"module" 工程里用 require）不是候选缺陷：
   // 归到测试材料错误，让 Agent 改脚本，而不是让研发去改实现。
   // 只在“确实失败”且“没有任何业务断言失败”时才这样归类：对照组正常输出里的同类文本、
   // 或被别的命令的业务断言遮蔽时，不能把真实缺陷判成测试材料问题。
@@ -142,7 +121,6 @@ function preBusinessFailure(
     (run) => !run.aborted && !run.timedOut && run.exitCode !== null && run.exitCode !== 0,
   )
   const hasAssertionFailure = failedRuns.some((run) => hasAssertionSignature(run.output))
-  // 验证脚本直接 import 源码目录里的 .js（源码是 .ts、构建产物在 lib/dist）：
   // 这是测试材料写法问题，不是候选业务缺陷。
   if (!hasAssertionFailure) {
     const moduleErrors = failedRuns.filter((run) =>
@@ -194,7 +172,6 @@ function preBusinessFailure(
   return null
 }
 
-/** 已有非零退出命令时的实现缺陷/未明归类。 */
 function failedCommandFailure(
   input: VerificationFailureInput,
   blocking: readonly string[],
@@ -220,10 +197,6 @@ function failedCommandFailure(
   }
 }
 
-/**
- * 对一次验证尝试做确定性归类。判定优先级从“已知环境问题”到“实现缺陷”，
- * 最后落到“原因未明”；任何分支都不改变本次验证已阻断的事实。
- */
 export function classifyVerificationFailure(
   input: VerificationFailureInput,
 ): VerificationFailureClassification {

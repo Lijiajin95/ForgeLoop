@@ -1,9 +1,3 @@
-/**
- * 澄清回答前的确定性校验：需求状态、当前版本分析与开放问题。
- *
- * 只有服务入口会调用；模型工具不能调用，也不在这里写任何状态。
- */
-
 import type { ClarificationQuestion } from '../domain/analysis.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import { AWAITING_CLARIFICATION } from '../domain/status.js'
@@ -18,7 +12,6 @@ export type ClarificationAnswerContext =
       readonly questions: readonly ClarificationQuestion[]
     }
 
-/** 解析本次回答绑定哪些问题：省略 = 全部开放问题；显式指定必须是当前开放问题。 */
 export function clarificationAnswerTargets(
   open: readonly ClarificationQuestion[],
   questionIds: readonly string[] | undefined,
@@ -39,7 +32,6 @@ export function clarificationAnswerTargets(
   return { ok: true, questions }
 }
 
-/** 回答前的完整校验；任何一项不满足都不追加需求版本，也不写回答。 */
 export function clarificationAnswerContext(input: {
   repository: Repository
   reqId: string

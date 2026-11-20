@@ -7,10 +7,6 @@ import { sha256OfText } from '../domain/delivery.js'
 import { requireGit } from './workspace.js'
 import { VERIFICATION_MATERIAL_DIR, workspaceChanges } from './service-helpers.js'
 
-/**
- * 显式 `verify` / 任务包推进用的判定适配：把采集到的报告转换成共用判定函数的输入。
- * 判定规则本身在 `domain/verification-outcome.ts`，与连续推进入口共用同一份。
- */
 export function verificationVerdict(input: {
   report: VerificationReport
   failedCommands: readonly string[]

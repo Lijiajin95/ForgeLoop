@@ -1,8 +1,3 @@
-/**
- * 插件配置：所有两个部署可能不同的值都在这里，不硬编码。
- * 非法值在插件装载时失败（fail loudly），不静默回落。
- */
-
 import { asRecord } from './domain/json.js'
 import { BUSINESS_CONTEXT_DOC } from './domain/analysis.js'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -101,7 +96,6 @@ export interface OpsMonitorHeartbeat {
   readonly timeoutSeconds: number
 }
 
-/** 主动监控：定时采集主机、进程、延迟、日志与告警，交给运维 Agent 评审。 */
 export interface OpsMonitorConfig {
   readonly enabled: boolean
   readonly intervalSeconds: number
@@ -157,7 +151,6 @@ export interface DeploymentAlertConfig {
   readonly timeoutSeconds: number
 }
 
-/** 部署：登记外部工具与目标；ForgeLoop 只调用工具并记录，不内置部署机制。 */
 export interface DeploymentsConfig {
   readonly enabled: boolean
   readonly toolRoot: string
@@ -168,7 +161,6 @@ export interface DeploymentsConfig {
   readonly targets: readonly DeploymentTargetConfig[]
 }
 
-/** 研发制品的一条运行日志：装载期登记路径，运维工具只读尾部。 */
 export interface OpsArtifactLog {
   readonly id: string
   /** 绝对路径或项目内相对路径；`~` 在装载期展开。 */
@@ -345,7 +337,6 @@ export interface AutonomyConfig {
   readonly enabled: boolean
   /** 是否允许系统准入后整合并提交代码；发布/部署另有授权。 */
   readonly allowCodeCommit: boolean
-  /** 可信人类入口来源前缀。 */
   readonly trustedSources: readonly string[]
   /** 放开来源限制：任何非空来源都可以进入系统准入；来源仍完整记录在案。 */
   readonly allowAnySource: boolean
@@ -368,7 +359,6 @@ export interface ForgeLoopConfig {
   readonly recordsRoot: string
   readonly project: string
   readonly projectPath: string
-  /** 活动工程的允许顶层路径；缺省用 ForgeLoop 自带约定，受控目标工程可覆盖。 */
   readonly activeRoots?: readonly string[] | undefined
   readonly owner: string
   readonly pollSeconds: number
@@ -396,7 +386,6 @@ export interface ForgeLoopConfig {
   readonly allowNewPackages: boolean
   /** 规划提示词里的“已知工程事实”条目；空数组表示使用内置默认。 */
   readonly engineeringFacts: readonly string[]
-  /** DSH profile 根目录：部署核对读取目标 profile 的实际安装版本。 */
   /** 项目级可靠性质量快照路径（项目内相对路径）；默认 `reports/reliability/latest.json`。 */
   readonly reliabilitySnapshot: string
   readonly dshProfilesRoot: string
@@ -436,11 +425,6 @@ export interface RawConfig {
   logging?: RawLoggingConfig
 }
 
-/**
- * ForgeLoop 自己的配置文件：默认 `~/.forgeloop/config.json`，可用 `FORGELOOP_CONFIG`
- * 覆盖路径。DSH 的 cordis 配置只负责装载插件，不再存放业务配置；
- * 文件里的值优先于装载参数，避免两处配置各说一套。
- */
 export function defaultConfigPath(): string {
   return join(homedir(), '.forgeloop', 'config.json')
 }
@@ -461,18 +445,10 @@ export function loadConfigFile(
   return parsed
 }
 
-/** 合并顺序：宿主装载参数做底，独立配置文件覆盖；缺文件时保持原样。 */
 export function mergeConfig(base: RawConfig, file: RawConfig): RawConfig {
   return { ...base, ...file }
 }
 
-/**
- * 项目级工程事实文件：`<projectPath>/.forgeloop.json`。
- *
- * 多项目时每个项目自带构建、打包、活动范围与上限；这些只决定“怎么干活”，不包含授权、
- * 部署目标与 owner 等决定权，所以放在被研发的项目目录里也不会扩大权限。只接受下面登记的键：
- * 未知键一律拒绝，避免项目配置变成隐藏的第二套全局配置。
- */
 export const PROJECT_PROFILE_FILE = '.forgeloop.json'
 
 export const PROJECT_PROFILE_KEYS = [
@@ -500,7 +476,6 @@ export function projectProfilePath(projectPath: string): string {
   return join(projectPath, PROJECT_PROFILE_FILE)
 }
 
-/** 读取项目级工程事实：文件不存在返回空对象；存在但非法时直接报错，不静默忽略。 */
 export function loadProjectProfile(projectPath: string): RawConfig {
   const path = projectProfilePath(projectPath)
   if (!existsSync(path)) return {}
@@ -523,13 +498,6 @@ export function loadProjectProfile(projectPath: string): RawConfig {
   return parsed
 }
 
-/**
- * 项目级工程事实覆盖全局配置；未声明的键继续沿用全局值。
- *
- * `autonomy` / `deployments` / `ops` 三个对象做一层合并：项目只覆盖自己声明的字段
- * （例如只改提交检查命令、只增加部署目标），其余字段与数组沿用全局值；身份、owner
- * 与 agent 模型仍不在项目级键集中。
- */
 export function applyProjectProfile(base: RawConfig, profile: RawConfig): RawConfig {
   if (Object.keys(profile).length === 0) return base
   return {
@@ -543,15 +511,10 @@ export function applyProjectProfile(base: RawConfig, profile: RawConfig): RawCon
   }
 }
 
-/**
- * 装载业务配置：优先独立文件。两者都没有关键值时报错，而不是静默回落到
- * “当前目录/.forgeloop”——静默回落会让插件连到另一个记录库，造成假死或分叉。
- */
 export function loadConfigOrThrow(
   base: RawConfig = {},
   path = process.env.FORGELOOP_CONFIG?.trim() || defaultConfigPath(),
 ): RawConfig {
-  // 装载参数已经给出关键路径（测试或显式宿主配置）时以它为准；
   // 只有宿主没有配置时才读取独立文件，避免测试被本机配置污染。
   if (base.recordsRoot || base.projectPath) return base
   const file = loadConfigFile(path)
@@ -579,7 +542,6 @@ function positiveInteger(value: unknown, field: string, fallback: number): numbe
   return value
 }
 
-/** 执行限制类配置：-1 表示不限，其他负值、0 与非数字拒绝。 */
 function limitNumber(value: unknown, field: string, fallback: number): number {
   if (value === undefined) return fallback
   if (typeof value !== 'number' || !Number.isFinite(value) || (value !== -1 && value <= 0)) {
@@ -635,10 +597,6 @@ function objectList(value: unknown, field: string): Array<Record<string, unknown
   })
 }
 
-/**
- * 系统准入与提交检查配置。默认对可信人类入口开放研发与提交，但发布/部署不在授权内；
- * 所有者可以在配置文件中关闭或收紧来源前缀。
- */
 function parseAutonomyConfig(raw: RawAutonomyConfig | undefined): AutonomyConfig {
   const source = raw ?? {}
   const trustedSources = stringList(source.trustedSources, 'autonomy.trustedSources', [
@@ -769,10 +727,6 @@ function parseMonitorAlertFiles(
   })
 }
 
-/**
- * 监控提供方：默认只用自研采集器。写了未登记的提供方（例如未来的 Glances）
- * 在装载时失败，避免运行时静默忽略——“支持对接”不等于“已经支持”。
- */
 function parseMonitorProviders(value: unknown): string[] {
   if (value === undefined) return [...DEFAULT_OPS_PROVIDER_IDS]
   if (!Array.isArray(value)) {
@@ -823,10 +777,6 @@ function parseMonitorHeartbeat(raw: RawOpsMonitorHeartbeat | undefined): OpsMoni
   return { url, method, timeoutSeconds }
 }
 
-/**
- * 主动监控目录：采集来源必须指向已登记资源，身份唯一，URL/正则在装载期校验。
- * 默认关闭；启用后由运维巡检按自己的周期运行，不与检查周期绑定。
- */
 function parseMonitorConfig(
   raw: RawOpsMonitorConfig | undefined,
   resources: readonly OpsResource[],
@@ -1103,20 +1053,12 @@ function parseDeploymentTargets(
   })
 }
 
-/**
- * 部署目标的默认需求：省略或空串表示无默认需求，由每次 intent 显式指定。
- * 非字符串视为配置错误，不在运行期猜测。
- */
 function optionalRequirementId(value: unknown, field: string): string {
   if (value === undefined) return ''
   if (typeof value !== 'string') throw new RuleViolationError(`配置 ${field} 必须是字符串`)
   return value.trim()
 }
 
-/**
- * 部署目录：登记外部部署工具与目标。默认关闭；工具脚本与目标在装载期校验，
- * 非法值不会在运行期被忽略。当前版本只支持本机部署，多机配置直接失败。
- */
 function parseDeployments(
   raw: RawDeploymentsConfig | undefined,
   deploymentRoot: string,
@@ -1142,26 +1084,16 @@ function parseDeployments(
   return { enabled, toolRoot, verifyTimeoutSeconds, alerts, retention, tools, targets }
 }
 
-/** profile 目录名必须是一段：拒绝 `.`、`..` 与路径分隔符，避免读到 profile 根之外。 */
 const PROFILE_SEGMENT = /^[A-Za-z0-9._-]+$/
-/** 未显式配置时改写的版本文件；仅 ForgeLoop 自身沿用，其他项目应在项目配置里覆盖或置空。 */
 const DEFAULT_CANDIDATE_VERSION_FILE = 'packages/forgeloop/package.json'
-/** 未显式配置时的质量快照路径；项目可覆盖。 */
 const DEFAULT_RELIABILITY_SNAPSHOT = 'reports/reliability/latest.json'
-/** 未显式配置时的前端入口；仅 ForgeLoop 自身沿用，其他项目覆盖或置空即跳过摘要比对。 */
 const DEFAULT_CLIENT_ENTRY_FILE = 'packages/forgeloop/client.js'
-/** 未显式配置 package 时的默认制品包名；仅 ForgeLoop 自身沿用，其他项目应在 ops.artifacts 里声明。 */
 const DEFAULT_ARTIFACT_PACKAGE = 'forgeloop-dsh'
-/** 未显式配置 entryFiles 时的默认入口摘要比对文件；非 ForgeLoop 包布局应显式覆盖或置空。 */
 const DEFAULT_ARTIFACT_ENTRY_FILES = ['lib/index.js', 'lib/runtime/service.js']
 const PACKAGE_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i
 const MAX_ARTIFACTS = 20
 const MAX_ARTIFACT_LOGS = 20
 
-/**
- * 研发制品目录：每条日志一个登记路径，运维工具只能读取这里列出的文件。
- * profile 只接受单个目录名；路径支持 `~` 展开，其余相对路径按项目根解析。
- */
 function parseArtifacts(items: RawOpsArtifact[] | undefined): OpsArtifact[] {
   const list = objectList(items, 'ops.artifacts')
   if (list.length > MAX_ARTIFACTS) {
@@ -1215,12 +1147,10 @@ function parseArtifacts(items: RawOpsArtifact[] | undefined): OpsArtifact[] {
   })
 }
 
-/** 版本文件：未配置时用默认；显式空字符串表示不改写版本号。 */
 function candidateVersionFileOf(value: string | undefined): string {
   return relativeFileOf(value, 'candidateVersionFile', DEFAULT_CANDIDATE_VERSION_FILE)
 }
 
-/** 项目内相对路径：未配置用默认，显式空字符串表示禁用；拒绝绝对路径与 `..`。 */
 function relativeFileOf(value: string | undefined, field: string, fallback: string): string {
   if (value === undefined) return fallback
   const normalized = value.trim()
@@ -1234,7 +1164,6 @@ function relativeFileOf(value: string | undefined, field: string, fallback: stri
   return normalized
 }
 
-/** 制品包名与入口文件：默认沿用 ForgeLoop 自身布局，其他项目显式覆盖。 */
 function parseArtifactRuntime(
   item: RawOpsArtifact,
   field: string,
@@ -1270,10 +1199,6 @@ function isLogFormat(value: string): value is LogFormat {
   return LOG_FORMATS.some((candidate) => candidate === value)
 }
 
-/**
- * 插件运行日志配置：未知级别/格式或越界大小在装载期拒绝，不在运行期猜测。
- * 级别只过滤写盘与 console；轮转上限 0 表示保留单文件不轮转。
- */
 function parseLogging(raw: RawLoggingConfig | undefined): LoggingConfig {
   const source = raw ?? {}
   const level = source.level === undefined ? 'info' : source.level
@@ -1302,10 +1227,6 @@ function parseLogging(raw: RawLoggingConfig | undefined): LoggingConfig {
   return { level, format, maxBytes }
 }
 
-/**
- * 运维目录：资源、只读检查与登记动作。目录非法时装载失败，
- * 不在运行期猜测或放宽；未启用的目录也做同样的静态校验。
- */
 function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {
   const source = raw ?? {}
   const enabled = booleanValue(source.enabled, 'ops.enabled', false)
@@ -1405,7 +1326,6 @@ function textOr(value: string | undefined, fallback: string): string {
 
 export function resolveConfig(raw: RawConfig, cwd = process.cwd()): ForgeLoopConfig {
   const projectPath = resolve(cwd, expandHome(textOr(raw.projectPath, '.')))
-  // 项目自带工程事实优先；owner、agent、recordsRoot 仍只来自全局配置，
   // autonomy/deployments/ops 允许项目只覆盖自己声明的字段。
   return resolveEffective(applyProjectProfile(raw, loadProjectProfile(projectPath)), projectPath)
 }
@@ -1417,7 +1337,6 @@ function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig 
       `配置 project 只能是安全的项目名，实际 ${JSON.stringify(raw.project)}`,
     )
   }
-  // Desktop 和 Web 的启动目录可能不同；项目数据始终相对已选项目定位。
   const activeRoots = stringList(raw.activeRoots, 'activeRoots', [])
   const recordsRoot = resolve(projectPath, expandHome(textOr(raw.recordsRoot, '.forgeloop')))
   const pollSeconds = positiveNumber(raw.pollSeconds, 'pollSeconds', 5)
@@ -1487,7 +1406,6 @@ function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig 
   }
 }
 
-/** 记录根下的项目目录：`<recordsRoot>/projects/<name>`。 */
 export function projectDir(config: ForgeLoopConfig): string {
   return join(config.recordsRoot, 'projects', config.project)
 }
@@ -1514,22 +1432,18 @@ export function workspaceDir(
   return join(projectDir(config), 'workspaces', reqId, `v${planVersion}`, taskId)
 }
 
-/** 需求级研发现场：同一需求的方案、实现、自验与修复共用，不按阶段重建。 */
 export function devWorkspaceDir(config: ForgeLoopConfig, reqId: string): string {
   return join(projectDir(config), 'workspaces', reqId, 'dev')
 }
 
-/** 研发会话的固定工作区：路径随会话保留，内容按新需求基线刷新。 */
 export function devSessionWorkspaceDir(config: ForgeLoopConfig, sessionId: string): string {
   return join(projectDir(config), 'workspaces', 'dev-sessions', sessionId)
 }
 
-/** 研发会话总结与阶段轨迹目录；总结文件随会话 ID 与需求 ID 绑定。 */
 export function devSessionDir(config: ForgeLoopConfig, sessionId: string): string {
   return join(sessionsDir(config), 'dev-sessions', sessionId)
 }
 
-/** 提交检查与整合证据目录；每次提交尝试独立一份，旧记录不覆盖。 */
 export function integrationDir(
   config: ForgeLoopConfig,
   reqId: string,
@@ -1547,12 +1461,10 @@ export function reviewDir(
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, taskId)
 }
 
-/** 实现前评审的固定目录；每个任务包版本一份。 */
 export function planReviewDir(config: ForgeLoopConfig, reqId: string, planVersion: number): string {
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, 'plan')
 }
 
-/** 测试方案目录：候选生成前按任务包版本固定，供同一测试会话设计与复用。 */
 export function verificationPlanDir(
   config: ForgeLoopConfig,
   reqId: string,
@@ -1561,7 +1473,6 @@ export function verificationPlanDir(
   return join(projectDir(config), 'verifications', reqId, `v${planVersion}`, 'plan')
 }
 
-/** 独立测试目录：按候选身份隔离，保留旧候选的验证证据。 */
 export function verificationDir(
   config: ForgeLoopConfig,
   reqId: string,
@@ -1577,7 +1488,6 @@ export function verificationDir(
   )
 }
 
-/** 业务终审目录：按任务包版本保存，报告绑定当前候选身份。 */
 export function businessReviewDir(
   config: ForgeLoopConfig,
   reqId: string,
@@ -1586,10 +1496,6 @@ export function businessReviewDir(
   return join(projectDir(config), 'reviews', reqId, `v${planVersion}`, 'business')
 }
 
-/**
- * 一次验证尝试的独立证据目录：候选 + 尝试序号。
- * 同一候选再次验证写到新目录，旧报告、日志、工作副本不被覆盖。
- */
 export function verificationAttemptDir(
   config: ForgeLoopConfig,
   key: {
@@ -1609,7 +1515,6 @@ export function candidatesDir(config: ForgeLoopConfig, reqId: string, planVersio
   return join(projectDir(config), 'candidates', reqId, `v${planVersion}`)
 }
 
-/** 可安装交付的安装说明与证据目录：按需求版本与包摘要隔离，包变化不覆盖旧说明。 */
 export function deliveryDir(
   config: ForgeLoopConfig,
   reqId: string,
@@ -1623,7 +1528,6 @@ export function sessionsDir(config: ForgeLoopConfig): string {
   return join(projectDir(config), 'sessions')
 }
 
-/** 运维事件证据目录：检查输出、诊断、动作日志与恢复复核各一份。 */
 export function opsDir(config: ForgeLoopConfig, eventId: string): string {
   return join(projectDir(config), 'ops', eventId)
 }

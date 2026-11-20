@@ -1,5 +1,3 @@
-/** 需求与任务生命周期词表：状态字面量只在这里定义，不在实现里各写一份。 */
-
 export const DRAFT = 'draft'
 export const ANALYSIS_FAILED = 'analysis_failed'
 export const AWAITING_CLARIFICATION = 'awaiting_clarification'
@@ -10,14 +8,12 @@ export const APPROVED = 'approved'
 export const DEVELOPING = 'developing'
 export const EXECUTING = 'executing'
 export const VERIFYING = 'verifying'
-/** 已选定研发会话但会话忙：需求保留在队列里等待会话空闲，不算失败。 */
 export const AWAITING_DEV_SESSION = 'awaiting_dev_session'
 export const COMMITTED = 'committed'
 export const ACCEPTED = 'accepted'
 export const REJECTED = 'rejected'
 export const CANCELLED = 'cancelled'
 
-/** 需要自动推进或继续占用研发位的非终态；等待会话空闲也在此列。 */
 export const AUTO_ADVANCE_STATUSES: ReadonlySet<string> = new Set([
   SPECIFIED,
   DEVELOPING,
@@ -27,7 +23,6 @@ export const AUTO_ADVANCE_STATUSES: ReadonlySet<string> = new Set([
   AWAITING_DEV_SESSION,
 ])
 
-/** 终态不回退，也不能再排队分析、规划、推进或修订。 */
 export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   COMMITTED,
   ACCEPTED,
@@ -39,7 +34,6 @@ export function isTerminal(status: string): boolean {
   return TERMINAL_STATUSES.has(status)
 }
 
-/** 任务一次推进的结果：交付、等待人工、失败或阻塞。 */
 export const TASK_RUN_RUNNING = 'running'
 export const TASK_RUN_DELIVERED = 'delivered'
 export const TASK_RUN_AWAITING_USER = 'awaiting_user'
@@ -53,16 +47,13 @@ export type TaskRunState =
   | typeof TASK_RUN_FAILED
   | typeof TASK_RUN_BLOCKED
 
-/** 持久操作请求状态。 */
 export const REQUEST_FAILED = 'failed'
 
-/** 请求动作。 */
 export const ACTION_ANALYZE = 'analyze'
 export const ACTION_PLAN = 'plan'
 export const ACTION_ADVANCE = 'advance'
 export const ACTION_VERIFY = 'verify'
 
-/** 需求分析/规划/推进的下一步主体：人还是 Agent。 */
 export const ACTOR_USER = 'user'
 export const ACTOR_AGENT = 'agent'
 

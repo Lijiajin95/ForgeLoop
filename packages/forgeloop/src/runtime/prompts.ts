@@ -1,8 +1,3 @@
-/**
- * 各阶段提示词与结构化结果解析。
- * 提示词只提供事实与边界；通过/失败由程序判定，模型自评不构成验收。
- */
-
 import { asRecord } from '../domain/json.js'
 import type { Requirement, RequirementAnalysis } from '../domain/requirement.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
@@ -30,7 +25,6 @@ function approvalLabel(status: ProjectRequirementFact['approval']): string {
   return '无批准记录'
 }
 
-/** 单个需求事实的渲染：条目与任务；时间与状态原样保留。 */
 function requirementFactLines(requirement: ProjectRequirementFact): string[] {
   const plan =
     requirement.planVersion === null
@@ -50,7 +44,6 @@ function requirementFactLines(requirement: ProjectRequirementFact): string[] {
   return lines
 }
 
-/** 与当前原文相关的少量历史要求；不是全量历史，也不是授权。 */
 function relatedHistoryLines(facts: ProjectFacts): string[] {
   const relatedHistory = facts.relatedHistory ?? []
   if (relatedHistory.length === 0) return []
@@ -63,7 +56,6 @@ function relatedHistoryLines(facts: ProjectFacts): string[] {
   ]
 }
 
-/** 把项目事实渲染成提示词里的只读段落；时间与状态原样保留，便于模型自行核对。 */
 export function projectFactsContext(facts: ProjectFacts): string {
   const lines: string[] = [
     `查询时间：${facts.generatedAt}；项目 ${facts.project} 共有活动需求 ${facts.total} 条，本次列出 ${facts.listed} 条。`,
@@ -78,10 +70,6 @@ export function projectFactsContext(facts: ProjectFacts): string {
   return lines.join('\n')
 }
 
-/**
- * 重新分析时的澄清上下文：问题原文、问题身份、每道题的历次回答与解决结论。
- * 程序不经模型转述；已回答/已解决的问题与仍未解决的问题分开列出。
- */
 export function clarificationContext(input: {
   questions: readonly ClarificationQuestion[]
   answers: readonly ClarificationAnswer[]
@@ -148,7 +136,6 @@ ${acceptance || '（无）'}
 ${assumptions || '（无）'}`
 }
 
-/** 分析提示词的追问上下文：澄清问答与上一次结构化规格合并成一段。 */
 export function analysisHistoryContext(input: {
   clarifications?: string
   previousSpec?: string
@@ -160,10 +147,8 @@ ${input.clarifications ?? '（没有待澄清历史）'}
 ${input.previousSpec ?? '（尚无结构化业务要点；首次分析请从 BP-1、AC-1 开始编号）'}`
 }
 
-/** 分析提示词的可选项目上下文；缺省按“无背景、无历史、无需求库”渲染。 */
 export interface AnalysisPromptContext {
   readonly businessContext?: string
-  /** 业务背景文档路径；由配置决定，缺省沿用 ForgeLoop 自身布局。 */
   readonly businessContextDoc?: string
   readonly history?: string
   readonly library?: string
@@ -308,7 +293,6 @@ ${library || '（项目尚未建立需求库；本轮按无背景处理）'}
 - 只输出 JSON。`
 }
 
-/** 运维 Agent 只读诊断的输入事实；动作目录只给身份、参数与允许值，不给命令 argv。 */
 export interface OpsDiagnosisPromptInput {
   readonly eventId: string
   readonly title: string
@@ -386,7 +370,6 @@ ${actions}
 - 只输出 JSON。`
 }
 
-/** 中断动作的上报输入：只给已记录的事实与有界日志尾部，不给工具或执行入口。 */
 export interface OpsInterruptionPromptInput {
   readonly eventId: string
   readonly title: string
@@ -450,7 +433,6 @@ ${input.logTail || '（没有日志）'}
 - 只输出 JSON。`
 }
 
-/** 主动监控评审的输入：有界快照、登记资源与动作目录。 */
 export interface MonitorPromptInput {
   readonly snapshot: MonitorSnapshot
   readonly resources: ReadonlyArray<{
@@ -474,10 +456,6 @@ function monitorSnapshotText(snapshot: MonitorSnapshot): string {
     : text
 }
 
-/**
- * 定时主动监控提示词：模型评审快照并指出问题。
- * 日志、告警与检查输出都是不可信数据；动作只能从登记目录中选择。
- */
 export function monitorPrompt(input: MonitorPromptInput): string {
   const resources =
     input.resources.length === 0
@@ -544,14 +522,6 @@ ${actions}
 - 只输出 JSON。`
 }
 
-/**
- * 技术方案与任务拆解提示词。研发会话内规划时允许只读查看代码；
- * 旧规划入口没有工具，避免模型把工具调用标记当成最终文本。
- */
-/**
- * 规划提示词里的工程事实：项目配置优先；未配置时沿用 ForgeLoop 自身布局作为默认。
- * 其他项目应在 `.forgeloop.json` 里给出自己的源码/测试目录与检查命令。
- */
 const DEFAULT_ENGINEERING_FACTS: readonly string[] = [
   '插件活动源码在 packages/forgeloop/src/（入口 src/index.ts，运行时 src/runtime/service.ts，工具 src/tools.ts，记录 src/records/，领域 src/domain/）',
   '行为测试在 packages/forgeloop/tests/（vitest）',
@@ -697,7 +667,6 @@ ${plan.tasks
   .join('\n')}`
 }
 
-/** 实现前评审：把业务场景与技术方案映射为独立测试计划。 */
 export function planReviewPrompt(input: {
   requirement: Requirement
   analysis: RequirementAnalysis
@@ -736,7 +705,6 @@ ${inputKindOf(input.analysis) === 'problem' ? '- 这是问题输入：只要求�
 - 只输出 JSON。`
 }
 
-/** 独立测试：对固定候选执行验证计划，写命令清单与逐场景报告。 */
 export function verificationPrompt(input: {
   requirement: Requirement
   analysis: RequirementAnalysis
@@ -857,7 +825,6 @@ ${requirementContext(requirement)}
 }`
 }
 
-/** 主控 Agent 的候选研发会话：只给身份、现场与最近总结，不给源码或工具。 */
 export interface DevSessionCandidate {
   readonly sessionId: string
   readonly workspace: string
@@ -867,10 +834,6 @@ export interface DevSessionCandidate {
   readonly summary: string
 }
 
-/**
- * 主控 Agent 提示词：为新需求选择最合适的既有研发会话；选不中或没有合适会话时
- * 返回 null，由程序新建。主控只做路由，不写代码、不做业务判断。
- */
 export function orchestratorPrompt(input: {
   requirement: Requirement
   analysis: RequirementAnalysis
@@ -909,7 +872,6 @@ ${sessions}
 - 只输出 JSON。`
 }
 
-/** 研发会话结束时的总结：把本次会话内容与需求绑定，供下次路由回查。 */
 export function devSessionSummaryPrompt(input: {
   requirement: Requirement
   plan: TaskPlan | null
@@ -1041,11 +1003,6 @@ ${(scenario.checks ?? [])
     .join('\n\n')
 }
 
-/**
- * 产物交付后的测试执行提示词：同一个测试会话通过工具逐条执行方案里的命令。
- * 工具只执行方案内的 label，退出码与输出由程序记录。
- */
-/** 候选固定后的执行准备：只读公开接口，把设计场景落成可执行命令。 */
 export function verificationPreparationPrompt(input: {
   readonly reqId: string
   readonly candidateSha256: string
@@ -1091,7 +1048,6 @@ export function verificationExecutionPrompt(input: {
   readonly plan: VerificationPlan
   readonly sessionId?: string
   readonly attemptId?: string
-  /** 同一候选上一次被阻断的具体原因；用于让本轮修正测试材料或结论。 */
   readonly previousIssues?: readonly string[]
 }): string {
   const labels = input.plan.scenarios.flatMap((scenario) =>
@@ -1124,11 +1080,6 @@ ${
 - 只输出 JSON。`
 }
 
-/**
- * 业务验收提示词：测试 Agent 在同一测试会话里按原始需求、业务规则与异常边界复核业务结果。
- * 只提供需求、分析、任务与同一会话通过工具实际执行的命令输出；不提供测试报告结论，
- * 避免把“测试 Agent 说通过”当作业务复核依据。
- */
 export function businessReviewPrompt(input: {
   requirement: Requirement
   analysis: RequirementAnalysis
@@ -1250,7 +1201,6 @@ ${commands || '（没有可用的测试命令输出）'}
 - 只输出 JSON。`
 }
 
-/** 需求库重建提示词版本；语义变化时递增并同步测试。 */
 export const LIBRARY_REBUILD_PROMPT_VERSION = 'library-rebuild-v1'
 
 export interface LibraryRebuildPromptInput {
@@ -1266,10 +1216,6 @@ export interface LibraryRebuildPromptInput {
   readonly batches: number
 }
 
-/**
- * 需求库一键重建的提炼提示词：只看本批次证据，输出候选 JSON。
- * 不向用户提问、不声称所有者确认；状态与发布由程序决定（一律 draft）。
- */
 export function libraryRebuildPrompt(input: LibraryRebuildPromptInput): string {
   const materials = input.materials
     .map((material) => {
