@@ -11,6 +11,7 @@
 | 产品目标、首版范围与客户决定     | [§2–§4](product/product.md#2-产品目标与首版范围已确认)        |
 | 宿主、Agent、存储、停止规则      | [§5–§7](product/product.md#5-宿主协调与多-agent-流程)         |
 | 需求阶段产物、进展与自动移交     | [需求阶段交付标准](product/requirement-stage-delivery.md)      |
+| 归档与自动移交的详细实施需求     | [需求阶段归档与自动移交](product/requirement-stage-handoff.md) |
 | 客户工作台、发布与运维           | [§8](product/product.md#8-客户入口发布与运维)                 |
 | 首版需求                         | [§9](product/product.md#9-首版需求与可观察结果细化稿)         |
 | 已收口的验证与评测方案           | [§10](product/product.md#10-首版验证与评测方案已收口)         |
