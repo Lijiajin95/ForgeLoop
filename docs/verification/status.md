@@ -9697,3 +9697,18 @@ transcript，CPU profile 中写盘链路合计 91.5%（`writeTranscript` 42.6%�
   热点；最高业务项为 1.5 秒心跳的 `heartbeatTaskRun`（0.1%）。
 - 未测：真实 ForgeLoop 回合期间的前后 profile 对比与界面延迟。该测量需要真实业务回合
   （会在工作区产生需求并可能自动研发提交），未在本次授权范围内执行。
+
+部署验证（2026-11-20 22:33–22:45，对象是已装入 `profiles/web` 的产物）：
+
+- 线上健康：插件 `include:forgeloop` active；`board` 返回 200，`project=ws-2844648b…`、
+  `workspace.title=ForgeLoop`、3 条需求；首页 3 ms 响应（`board` 端点 256–679 ms，含 SQLite 与
+  构建身份哈希，与本次改动无关）。
+- 受控回合同等对比（同一 harness、15,003 事件、32,074,264 字节 transcript、1.5 秒 tick）：
+  修复前构建 CPU 7,610 ms（占 3.3%）、部署版 875 ms（占 0.4%），产物字节数与行数完全一致
+  （32,074,264 字节 / 15,003 行）。
+- 部署版 20 秒回合（396 事件）行为：`status=completed`，transcript 396 行、序号连续、末尾换行；
+  CPU profile 99.7% idle，无 `writeFileSync`/`writeTranscript` 热点。
+- 部署版异常路径：目录被占位文件阻塞时 `flushQuietly()` 不抛且无事件丢失，`finish()` 仍抛错
+  （与旧行为一致）。
+- 结论：部署产物的 transcript 路径按增量写入执行，输出与旧实现等价；真实业务回合的前后
+  profile 与“回合期间界面延迟”仍未测量。
