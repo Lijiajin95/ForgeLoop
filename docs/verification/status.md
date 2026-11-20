@@ -9541,3 +9541,25 @@ source: 'snapshot' }`；`all/7d/30d/90d` 四个窗口的 `to` 全部等于测量
   变异 95.1；门禁 3/3 通过、6 项静态门禁标 skipped。
 - 用例 `tests/reliability-ci.test.ts` 6 例；文档 `docs/development/reliability.md` §7.1。
 - 验证：全量 230 文件、2583 通过、1 跳过，逐文件覆盖率 98.43/93.88/99.65。
+
+## 257. 注释清理后续四项的处置（2026-11-20）
+
+`no-comments` 审查遗留的四项按所有者授权处理，两项完成、两项受外部约束：
+
+- `sourceMatches` 从 `boolean | null` 改为 `match | mismatch | unknown`（`86e6d02`）。
+- 工时预算的 `-1` 哨兵收进 `WorkLimit`（`number \| 'unlimited'`，`4bef53f`）；数据库与配置仍落 `-1`，
+  对外 JSON 不变，执行限额边界用 `workLimitSeconds` 还原。
+- session 事件的宿主 appender 解析抽到 `session/host-appender.ts`，并新增
+  `setSessionEventAppender` 注入点（`c805055`），测试不再只能依赖假会话兜底。
+- `spec.ts` 三处兼容投影未改：`acceptance_criteria` 已持久化到分析表并被提示词、看板与验证共用，
+  收紧需要分析 schema 迁移、旧分析数据迁移与真实模型回归，当前环境无法验证真实模型输出。
+
+外部约束记录：
+
+1. DSH 的 `appendPluginRecord` 只允许 `packages/experimental/` 调用
+   （`@deepseek-ai/dsh-session` 的 `src/index.ts:482`、`README.md:72`），普通 `session.append`
+   不接受外部插件的 `plugin:` 事件。外部插件没有合法写入 API，ForgeLoop 无法单方面移除
+   `process.argv` 解析，只能隔离并保留注入 seam；待宿主提供外部插件记录 API。
+2. `spec.ts` 的字符串/双键容错在兼容模型输出，属分析 schema v2 迁移的前置，未在本次范围实施。
+
+验证：各批次 `make check` 通过（229 文件、2586–2587 用例），pre-commit 覆盖率门禁通过。
