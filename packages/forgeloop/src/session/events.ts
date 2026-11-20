@@ -9,29 +9,16 @@ export const FORGELOOP_ERROR_EVENT = 'plugin:forgeloop/error'
 
 import { asRecord } from '../domain/json.js'
 import type { InputKind } from '../domain/requirement.js'
-import { createRequire } from 'node:module'
 import { errorMessage } from '../domain/errors.js'
-import { realpathSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { resolveHostSessionAppender, type SessionAppender } from './host-appender.js'
 
-type AppendRecord = (session: unknown, type: string, data: unknown) => unknown
-function isAppendRecord(value: unknown): value is AppendRecord {
-  return typeof value === 'function'
+let injectedAppender: SessionAppender | undefined
+
+export function setSessionEventAppender(appender: SessionAppender | null | undefined): void {
+  injectedAppender = appender ?? undefined
 }
 
-let appendRecord: AppendRecord | undefined
-try {
-  // 回退到 session.append，仅用于不持久化 DSH 日志的假会话。
-  const entry = process.argv[1] ? realpathSync(process.argv[1]) : ''
-  const requireFromDsh = createRequire(entry)
-  const sessionModule: unknown = await import(
-    pathToFileURL(requireFromDsh.resolve('@deepseek-ai/dsh-session')).href
-  )
-  const candidate = asRecord(sessionModule)?.appendPluginRecord
-  appendRecord = isAppendRecord(candidate) ? candidate : undefined
-} catch {
-  appendRecord = undefined
-}
+const hostAppender = await resolveHostSessionAppender()
 
 export interface AppendableSession {
   append(type: string, data: Record<string, unknown>): unknown
@@ -147,8 +134,9 @@ export function appendSessionEvent(
 ): boolean {
   try {
     const record = asRecord(data) ?? {}
-    if (appendRecord) {
-      appendRecord(session, type, record)
+    const appender = injectedAppender ?? hostAppender
+    if (appender) {
+      appender(session, type, record)
       return true
     }
     const append = asRecord(session)?.append
