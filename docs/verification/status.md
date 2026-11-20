@@ -9684,3 +9684,16 @@ transcript，CPU profile 中写盘链路合计 91.5%（`writeTranscript` 42.6%�
   `check-static` 通过。
 - 未完成：修复需重新打包并安装到目标 profile 后才对运行实例生效；现场 CPU profile 复检
   （写盘 < 5%、CPU < 30%、界面 < 200ms）尚未在本机执行。
+
+补充实测（2026-11-20 22:20–22:25）：
+
+- 已用插件管理器远程接口（`pluginManager/setPluginEnabled`）对 3080 宿主停用/启用 `include:forgeloop`
+  完成热重载，未重启进程；运行身份 `startedAt=2026-11-20T14:20:43.485Z`，pid 41036，
+  `indexSha256=6b42136c…`；启动日志列出 5 个工作区绑定。
+- 合成对比（同一 6000 事件、200 次 tick、增量 30 事件/次）：旧实现合计 1214 ms、单 tick 峰值 13 ms、
+  累计写盘 162,342,060 字节；新实现合计 51 ms、单 tick 峰值 1 ms、写盘 1.63 MB（等于最终文件大小）。
+  两端产物 sha256 一致（400 事件样本逐字节比对 `identical=true`），无新事件时零读取、零写盘。
+- 热重载后对 3080 空闲采样 12.26 s（7500 样本）：97.4% idle，无 `writeFileSync`/`writeTranscript`
+  热点；最高业务项为 1.5 秒心跳的 `heartbeatTaskRun`（0.1%）。
+- 未测：真实 ForgeLoop 回合期间的前后 profile 对比与界面延迟。该测量需要真实业务回合
+  （会在工作区产生需求并可能自动研发提交），未在本次授权范围内执行。
