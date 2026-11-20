@@ -83,6 +83,21 @@ export interface LegacyVerificationSession {
   close(): Promise<void>
 }
 
+type LegacyExecutionOutcome =
+  | {
+      readonly ok: true
+      readonly snapshot: VerificationCheckSnapshot
+      readonly controlOutcome: NonNullable<
+        Awaited<ReturnType<VerificationCheckRegistry['executeControls']>>
+      >
+    }
+  | {
+      readonly ok: false
+      readonly detail: string
+      readonly failureKind: string
+      readonly runs: VerificationCheckSnapshot['runs']
+    }
+
 export class LegacyVerification {
   constructor(private readonly deps: LegacyVerificationDeps) {}
 
@@ -1057,7 +1072,6 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return facts
   }
 
-  // eslint-disable-next-line complexity, max-statements
   async verifyCandidate(input: LegacyVerifyInput): Promise<{
     state: 'pass' | 'block'
     detail: string
@@ -1105,105 +1119,16 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
         'utf8',
       )
     }
-    const handle = this.deps.checks.activate({
-      reqId: input.reqId,
-      candidateSha256: input.candidate.candidateSha256,
+    const executed = await this.executeVerification({
+      request: input,
       workspace,
       dir,
-      head: workspaceHead,
       plan: verificationPlan,
-      signal: input.signal,
-      timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
-      sessionId: verificationSession.sessionId,
-      attemptId: attempt.id,
+      session: verificationSession,
+      attempt,
+      workspaceHead,
     })
-    let snapshot: VerificationCheckSnapshot | null = null
-    let controlOutcome: Awaited<ReturnType<VerificationCheckRegistry['executeControls']>> = null
-    const executionStarted = Date.now()
-    try {
-      const run = await verificationSession.session.send({
-        prompt: verificationExecutionPrompt({
-          reqId: input.reqId,
-          candidateSha256: input.candidate.candidateSha256,
-          plan: verificationPlan,
-          sessionId: verificationSession.sessionId,
-          attemptId: attempt.id,
-          previousIssues: this.previousVerificationIssues(input.reqId, input.plan, input.candidate),
-        }),
-        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
-        transcriptPath: join(dir, 'verification-execution.jsonl'),
-        signal: input.signal,
-      })
-      if (run.status !== 'completed') {
-        const detail = `测试执行未取得结论：${run.reason}`
-        return this.recordBlockedAttempt({
-          reqId: input.reqId,
-          plan: input.plan,
-          candidate: input.candidate,
-          workspaceSha256,
-          dir,
-          attempt,
-          sessionId: verificationSession.sessionId,
-          detail,
-          blocking: [detail],
-          failureKind: 'test_error',
-          runs: this.deps.checks.snapshot(input.reqId, handle.token)?.runs ?? [],
-        })
-      }
-      const executedRetry = await this.ensureCommandsExecuted({
-        reqId: input.reqId,
-        dir,
-        plan: verificationPlan,
-        token: handle.token,
-        session: verificationSession.session,
-        signal: input.signal,
-      })
-      if (!executedRetry.ok) {
-        return this.recordBlockedAttempt({
-          reqId: input.reqId,
-          plan: input.plan,
-          candidate: input.candidate,
-          workspaceSha256,
-          dir,
-          attempt,
-          sessionId: verificationSession.sessionId,
-          detail: executedRetry.detail,
-          blocking: [executedRetry.detail],
-          failureKind: 'test_error',
-          runs: this.deps.checks.snapshot(input.reqId, handle.token)?.runs ?? [],
-        })
-      }
-      const controlsResult = await this.runSensitivityControls({
-        reqId: input.reqId,
-        workspace,
-        token: handle.token,
-        plan: verificationPlan,
-        caller: { sessionId: verificationSession.sessionId, attemptId: attempt.id },
-      })
-      if (!controlsResult.ok) {
-        const detail = `验证敏感性对照材料畸形：${controlsResult.detail}`
-        return this.recordBlockedAttempt({
-          reqId: input.reqId,
-          plan: input.plan,
-          candidate: input.candidate,
-          workspaceSha256,
-          dir,
-          attempt,
-          sessionId: verificationSession.sessionId,
-          detail,
-          blocking: [detail],
-          failureKind: 'test_error',
-          runs: this.deps.checks.snapshot(input.reqId, handle.token)?.runs ?? [],
-        })
-      }
-      controlOutcome = controlsResult.outcome
-    } finally {
-      this.deps.charge(input.reqId, executionStarted)
-      snapshot = this.deps.checks.snapshot(input.reqId, handle.token)
-      handle.release()
-    }
-    if (!snapshot) {
-      const detail = '测试执行上下文在结论前丢失；无法核对命令结果'
+    if (!executed.ok) {
       return this.recordBlockedAttempt({
         reqId: input.reqId,
         plan: input.plan,
@@ -1212,28 +1137,13 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
         dir,
         attempt,
         sessionId: verificationSession.sessionId,
-        detail,
-        blocking: [detail],
-        failureKind: 'undetermined',
-        runs: [],
+        detail: executed.detail,
+        blocking: [executed.detail],
+        failureKind: executed.failureKind,
+        runs: executed.runs,
       })
     }
-    if (!controlOutcome) {
-      const detail = '验证敏感性对照上下文在结论前丢失；无法核对用例有效性'
-      return this.recordBlockedAttempt({
-        reqId: input.reqId,
-        plan: input.plan,
-        candidate: input.candidate,
-        workspaceSha256,
-        dir,
-        attempt,
-        sessionId: verificationSession.sessionId,
-        detail,
-        blocking: [detail],
-        failureKind: 'undetermined',
-        runs: snapshot.runs,
-      })
-    }
+    const { snapshot, controlOutcome } = executed
     const recorded = snapshot
     const preJudge = this.preJudgeBlock(recorded, verificationPlan)
     if (preJudge) {
@@ -1329,5 +1239,114 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
       issues,
       runs: recorded.runs,
     })
+  }
+
+  private async executeVerification(context: {
+    request: LegacyVerifyInput
+    workspace: string
+    dir: string
+    plan: VerificationPlan
+    session: LegacyVerificationSession
+    attempt: { readonly id: string }
+    workspaceHead: string
+  }): Promise<LegacyExecutionOutcome> {
+    const { request, workspace, dir, plan, session, attempt, workspaceHead } = context
+    const handle = this.deps.checks.activate({
+      reqId: request.reqId,
+      candidateSha256: request.candidate.candidateSha256,
+      workspace,
+      dir,
+      head: workspaceHead,
+      plan,
+      signal: request.signal,
+      timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
+      sessionId: session.sessionId,
+      attemptId: attempt.id,
+    })
+    let snapshot: VerificationCheckSnapshot | null = null
+    let controlOutcome: Awaited<ReturnType<VerificationCheckRegistry['executeControls']>> = null
+    const executionStarted = Date.now()
+    try {
+      const run = await session.session.send({
+        prompt: verificationExecutionPrompt({
+          reqId: request.reqId,
+          candidateSha256: request.candidate.candidateSha256,
+          plan,
+          sessionId: session.sessionId,
+          attemptId: attempt.id,
+          previousIssues: this.previousVerificationIssues(
+            request.reqId,
+            request.plan,
+            request.candidate,
+          ),
+        }),
+        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(dir, 'verification-execution.jsonl'),
+        signal: request.signal,
+      })
+      if (run.status !== 'completed') {
+        const detail = `测试执行未取得结论：${run.reason}`
+        return {
+          ok: false,
+          detail,
+          failureKind: 'test_error',
+          runs: this.deps.checks.snapshot(request.reqId, handle.token)?.runs ?? [],
+        }
+      }
+      const executedRetry = await this.ensureCommandsExecuted({
+        reqId: request.reqId,
+        dir,
+        plan,
+        token: handle.token,
+        session: session.session,
+        signal: request.signal,
+      })
+      if (!executedRetry.ok) {
+        return {
+          ok: false,
+          detail: executedRetry.detail,
+          failureKind: 'test_error',
+          runs: this.deps.checks.snapshot(request.reqId, handle.token)?.runs ?? [],
+        }
+      }
+      const controlsResult = await this.runSensitivityControls({
+        reqId: request.reqId,
+        workspace,
+        token: handle.token,
+        plan,
+        caller: { sessionId: session.sessionId, attemptId: attempt.id },
+      })
+      if (!controlsResult.ok) {
+        const detail = `验证敏感性对照材料畸形：${controlsResult.detail}`
+        return {
+          ok: false,
+          detail,
+          failureKind: 'test_error',
+          runs: this.deps.checks.snapshot(request.reqId, handle.token)?.runs ?? [],
+        }
+      }
+      controlOutcome = controlsResult.outcome
+    } finally {
+      this.deps.charge(request.reqId, executionStarted)
+      snapshot = this.deps.checks.snapshot(request.reqId, handle.token)
+      handle.release()
+    }
+    if (!snapshot) {
+      return {
+        ok: false,
+        detail: '测试执行上下文在结论前丢失；无法核对命令结果',
+        failureKind: 'undetermined',
+        runs: [],
+      }
+    }
+    if (!controlOutcome) {
+      return {
+        ok: false,
+        detail: '验证敏感性对照上下文在结论前丢失；无法核对用例有效性',
+        failureKind: 'undetermined',
+        runs: snapshot.runs,
+      }
+    }
+    return { ok: true, snapshot, controlOutcome }
   }
 }
