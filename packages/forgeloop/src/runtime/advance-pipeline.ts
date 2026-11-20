@@ -29,6 +29,7 @@ import {
   isTerminal,
   type TaskRunState,
 } from '../domain/status.js'
+import { workLimitSeconds } from '../domain/budget.js'
 import { attemptAllowed, ExecutionBudget } from '../domain/limits.js'
 import { FAILURE_PLANNING, FAILURE_VERIFICATION } from '../domain/counting.js'
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
@@ -476,7 +477,8 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       return { ok: false, outcome: { state: 'failed', detail: '需求说明缺失或已过期' } }
     }
     const budget = this.deps.repo.budget(reqId)
-    if (budget.limitSeconds > 0 && budget.limitSeconds <= budget.consumedSeconds) {
+    const limitSeconds = workLimitSeconds(budget.limit)
+    if (limitSeconds > 0 && limitSeconds <= budget.consumedSeconds) {
       this.deps.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需要显式延长或拆分需求')
       return { ok: false, outcome: { state: 'failed', detail: '执行工时已用尽' } }
     }
@@ -1296,7 +1298,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
   ): { state: 'failed'; detail: string } | null {
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
     const budget = new ExecutionBudget(
-      this.deps.repo.budget(reqId).limitSeconds,
+      workLimitSeconds(this.deps.repo.budget(reqId).limit),
       this.deps.repo.budget(reqId).consumedSeconds,
     )
     if (budget.canStartAction()) return null

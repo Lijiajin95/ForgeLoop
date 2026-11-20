@@ -17,6 +17,13 @@ import type { TaskPlan, TaskPlanApproval } from '../domain/task-plan.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
 import type { FailureRound } from '../domain/counting.js'
 import type { TaskArtifact, TaskRun } from '../domain/work.js'
+import {
+  UNLIMITED_WORK,
+  unlimitedWork,
+  workLimitOfSeconds,
+  workLimitSeconds,
+  type WorkLimit,
+} from '../domain/budget.js'
 import type { AdmissionBasis, AdmissionDecision } from '../domain/admission.js'
 
 export type { CommitmentResolutionRecord, CustomerDecisionRecord } from './commitment-store.js'
@@ -1252,11 +1259,11 @@ export class Repository extends DevSessionStore {
       .run(reqId, limitSeconds)
   }
 
-  budget(reqId: string): { limitSeconds: number; consumedSeconds: number } {
+  budget(reqId: string): { limit: WorkLimit; consumedSeconds: number } {
     const row = this.db.prepare('SELECT * FROM requirement_budget WHERE req_id = ?').get(reqId)
-    if (!row) return { limitSeconds: -1, consumedSeconds: 0 }
+    if (!row) return { limit: UNLIMITED_WORK, consumedSeconds: 0 }
     return {
-      limitSeconds: num(row, 'limit_seconds'),
+      limit: workLimitOfSeconds(num(row, 'limit_seconds')),
       consumedSeconds: num(row, 'consumed_seconds'),
     }
   }
@@ -1279,16 +1286,12 @@ export class Repository extends DevSessionStore {
       .run(Math.max(0, seconds), reqId)
   }
 
-  /**
-   * 所有者延长工时：只加总上限，不清零已消耗，避免用延长掩盖历史消耗。
-   * `seconds = -1` 表示改为不限；已经不限的记录保持 -1。
-   */
-  extendBudget(reqId: string, seconds: number): number {
-    if (seconds === -1) {
+  extendBudget(reqId: string, limit: WorkLimit): WorkLimit {
+    if (unlimitedWork(limit)) {
       this.db
         .prepare('UPDATE requirement_budget SET limit_seconds = -1 WHERE req_id = ?')
         .run(reqId)
-      return this.budget(reqId).limitSeconds
+      return this.budget(reqId).limit
     }
     this.db
       .prepare(
@@ -1296,13 +1299,13 @@ export class Repository extends DevSessionStore {
          SET limit_seconds = CASE WHEN limit_seconds = -1 THEN -1 ELSE limit_seconds + ? END
          WHERE req_id = ?`,
       )
-      .run(Math.max(0, seconds), reqId)
-    return this.budget(reqId).limitSeconds
+      .run(Math.max(0, limit), reqId)
+    return this.budget(reqId).limit
   }
 
   recordBudgetExtension(input: {
     reqId: string
-    seconds: number
+    seconds: WorkLimit
     extendedBy: string
     source: string
     extendedAt: string
@@ -1321,7 +1324,14 @@ export class Repository extends DevSessionStore {
             (req_id, seq, seconds, extended_by, source, extended_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(input.reqId, seq, input.seconds, input.extendedBy, input.source, input.extendedAt)
+        .run(
+          input.reqId,
+          seq,
+          workLimitSeconds(input.seconds),
+          input.extendedBy,
+          input.source,
+          input.extendedAt,
+        )
     })
   }
 
@@ -1330,7 +1340,7 @@ export class Repository extends DevSessionStore {
       .prepare('SELECT * FROM requirement_budget_extensions WHERE req_id = ? ORDER BY seq')
       .all(reqId)
     return rows.map((row) => ({
-      seconds: num(row, 'seconds'),
+      seconds: workLimitOfSeconds(num(row, 'seconds')),
       extendedBy: text(row, 'extended_by'),
       source: text(row, 'source'),
       extendedAt: text(row, 'extended_at'),

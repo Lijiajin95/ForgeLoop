@@ -37,7 +37,7 @@ let config: ForgeLoopConfig
 let requirement: Requirement | null
 let analysis: RequirementAnalysis | null
 let admission: unknown
-let budget: { limitSeconds: number; consumedSeconds: number }
+let budget: { limit: number | 'unlimited'; consumedSeconds: number }
 let statuses: Array<[string, string, string?]>
 let failureRounds: Array<Record<string, unknown>>
 let approval: unknown
@@ -409,7 +409,7 @@ beforeEach(() => {
   requirement = requirementOf()
   analysis = analysisOf()
   admission = { admissionId: 'admission-1' }
-  budget = { limitSeconds: -1, consumedSeconds: 100 }
+  budget = { limit: 'unlimited', consumedSeconds: 100 }
   statuses = []
   failureRounds = []
   approval = {

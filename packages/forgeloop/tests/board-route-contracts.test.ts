@@ -782,7 +782,7 @@ describe('owner write endpoints', () => {
         status: 'blocked',
         blockedReason: '执行工时已用尽；需要延长',
       }),
-      budget: () => ({ limitSeconds: 100, consumedSeconds: 10 }),
+      budget: () => ({ limit: 100, consumedSeconds: 10 }),
       extendBudget: (_reqId: string, seconds: number) => 100 + seconds,
       recordBudgetExtension: (input: Record<string, unknown>) => {
         extensions.push(input)

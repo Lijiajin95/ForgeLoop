@@ -94,7 +94,7 @@ function harness(
     }),
     verificationAttemptsForCandidate: () => [],
     ensureBudget: () => undefined,
-    budget: () => ({ limitSeconds: -1, consumedSeconds: 0, extensions: [] }),
+    budget: () => ({ limit: 'unlimited', consumedSeconds: 0, extensions: [] }),
     setStatus: (_reqId: string, status: string) => {
       statuses.push(status)
     },

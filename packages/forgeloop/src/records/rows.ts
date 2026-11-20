@@ -1,4 +1,5 @@
 import type { AdmissionBasis } from '../domain/admission.js'
+import type { WorkLimit } from '../domain/budget.js'
 import type { Requirement } from '../domain/requirement.js'
 import type { OpsSeverity } from '../domain/ops.js'
 import { OPS_SEVERITIES } from '../domain/ops.js'
@@ -26,7 +27,7 @@ import {
 export type Row = Record<string, unknown>
 
 export interface BudgetExtensionRecord {
-  readonly seconds: number
+  readonly seconds: WorkLimit
   readonly extendedBy: string
   readonly source: string
   readonly extendedAt: string

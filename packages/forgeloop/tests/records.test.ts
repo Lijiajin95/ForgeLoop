@@ -270,7 +270,7 @@ describe('actions and budgets', () => {
     repository.ensureBudget('req-1', 100)
     repository.chargeBudget('req-1', 30)
     repository.chargeBudget('req-1', 20)
-    expect(repository.budget('req-1')).toEqual({ limitSeconds: 100, consumedSeconds: 50 })
+    expect(repository.budget('req-1')).toEqual({ limit: 100, consumedSeconds: 50 })
 
     expect(repository.grantCount('req-1')).toBe(1)
     expect(repository.appendGrant('req-1', 'owner', 'now')).toBe(2)

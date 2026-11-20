@@ -16,7 +16,7 @@ let config: ForgeLoopConfig
 let requirement: Requirement | null
 let analysis: RequirementAnalysis | null
 let admission: unknown
-let budget: { limitSeconds: number; consumedSeconds: number }
+let budget: { limit: number | 'unlimited'; consumedSeconds: number }
 let statuses: Array<[string, string, string?]>
 let failureRounds: unknown[]
 let runs: unknown[]
@@ -184,7 +184,7 @@ beforeEach(() => {
     at: NOW,
   } as never
   admission = { admissionId: 'admission-1' }
-  budget = { limitSeconds: -1, consumedSeconds: 0 }
+  budget = { limit: 'unlimited', consumedSeconds: 0 }
   statuses = []
   failureRounds = []
   runs = []
@@ -238,26 +238,26 @@ describe('advance pipeline branch boundaries', () => {
     ])
 
     analysis = { ...analysis, requirementVersion: 1 } as never
-    budget = { limitSeconds: 10, consumedSeconds: 10 }
+    budget = { limit: 10, consumedSeconds: 10 }
     expect(await pipeline['continuousInputs']('req-1')).toMatchObject({
       ok: false,
       outcome: { detail: '执行工时已用尽' },
     })
 
-    budget = { limitSeconds: -1, consumedSeconds: 100 }
+    budget = { limit: 'unlimited', consumedSeconds: 100 }
     expect(await pipeline['continuousInputs']('req-1')).toMatchObject({ ok: true })
   })
 
   it('stops before delivery and records a budget failure', async () => {
     const pipeline = makePipeline()
-    budget = { limitSeconds: 1, consumedSeconds: 1 }
+    budget = { limit: 1, consumedSeconds: 1 }
     expect(pipeline['advanceBudgetGuard']('req-1', plan)).toEqual({
       state: 'failed',
       detail: '执行工时已用尽；需显式延长或拆分任务',
     })
     expect(statuses.at(-1)?.[1]).toBe('blocked')
 
-    budget = { limitSeconds: -1, consumedSeconds: 100 }
+    budget = { limit: 'unlimited', consumedSeconds: 100 }
     expect(pipeline['advanceBudgetGuard']('req-1', plan)).toBeNull()
   })
 

@@ -267,7 +267,7 @@ describe('runtime defaults', () => {
     runtime.repo.ensureBudget(reqId, -1)
     runtime.repo.chargeBudget(reqId, 5400)
 
-    expect(runtime.repo.budget(reqId)).toEqual({ limitSeconds: -1, consumedSeconds: 5400 })
+    expect(runtime.repo.budget(reqId)).toEqual({ limit: 'unlimited', consumedSeconds: 5400 })
     const extended = extendWorkBudget(runtime.repo, {
       reqId,
       seconds: 3600,

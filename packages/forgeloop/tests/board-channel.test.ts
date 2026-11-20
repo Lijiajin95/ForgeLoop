@@ -1034,7 +1034,7 @@ describe('owner authorization routes', () => {
     )
     expect(response.status).toBe(200)
     withRepository((repository) => {
-      expect(repository.budget('req-extend-route').limitSeconds).toBe(10800)
+      expect(repository.budget('req-extend-route').limit).toBe(10800)
       expect(repository.getRequirement('req-extend-route')?.status).toBe('approved')
     })
     await host.cleanup()

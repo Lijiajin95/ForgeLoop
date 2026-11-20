@@ -23,6 +23,7 @@ import { headCommit, prepareSnapshotWorkspace, requireGit, runCommand } from './
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/counting.js'
+import { workLimitSeconds } from '../domain/budget.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
 import type { AgentOpenRequest, AgentRunner, AgentSession } from './agent-runner.js'
@@ -224,7 +225,7 @@ export class VerificationPipeline {
   ): { state: 'failed'; detail: string } | null {
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
     const budget = new ExecutionBudget(
-      this.deps.repo.budget(reqId).limitSeconds,
+      workLimitSeconds(this.deps.repo.budget(reqId).limit),
       this.deps.repo.budget(reqId).consumedSeconds,
     )
     if (budget.canStartAction()) return null
