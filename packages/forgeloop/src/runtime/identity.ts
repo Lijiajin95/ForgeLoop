@@ -23,8 +23,7 @@ export interface BuildIdentityView {
   readonly serverSha256: string
   readonly clientSha256: string
   readonly sourceClientSha256: string
-  /** null 表示无法比较（缺安装包或源码摘要）。 */
-  readonly sourceMatches: boolean | null
+  readonly sourceMatches: 'match' | 'mismatch' | 'unknown'
 }
 
 let currentIdentity: RuntimeIdentity | null = null
@@ -83,7 +82,12 @@ export function buildIdentityFrom(
     serverSha256: identity?.indexSha256 ?? '',
     clientSha256,
     sourceClientSha256,
-    sourceMatches: clientSha256 && sourceClientSha256 ? clientSha256 === sourceClientSha256 : null,
+    sourceMatches:
+      clientSha256 && sourceClientSha256
+        ? clientSha256 === sourceClientSha256
+          ? 'match'
+          : 'mismatch'
+        : 'unknown',
   }
 }
 

@@ -1248,9 +1248,9 @@ it('carries the build identity into the read-only board payload', () => {
     serverSha256: 'a'.repeat(64),
     clientSha256: 'b'.repeat(64),
     sourceClientSha256: 'c'.repeat(64),
-    sourceMatches: false,
+    sourceMatches: 'mismatch',
   }
   const view = buildStatusBoard({ repository, project: PROJECT, now: NOW, build })
   expect(view.build).toEqual(build)
-  expect(board().build.sourceMatches).toBeNull()
+  expect(board().build.sourceMatches).toBe('unknown')
 })

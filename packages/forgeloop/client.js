@@ -2549,9 +2549,9 @@ window.__ModuleLoader__.load({
         'span',
         { className: 'flb-build' },
         parts.join(' · '),
-        build.sourceMatches === true
+        build.sourceMatches === 'match'
           ? h(Chip, { tone: 'success' }, t('build.sourceMatch'))
-          : build.sourceMatches === false
+          : build.sourceMatches === 'mismatch'
             ? h(
                 Chip,
                 { tone: 'warn' },

@@ -45,7 +45,7 @@ exports[`keeps a fully populated board payload stable 1`] = `
     "clientSha256": "",
     "serverSha256": "",
     "sourceClientSha256": "",
-    "sourceMatches": null,
+    "sourceMatches": "unknown",
     "startedAt": "",
     "version": "0.0.2",
   },

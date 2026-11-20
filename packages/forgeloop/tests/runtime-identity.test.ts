@@ -76,7 +76,7 @@ describe('runtime identity', () => {
     }
     const entry = 'packages/forgeloop/client.js'
     const mismatch = buildIdentityFrom(identity, project, entry)
-    expect(mismatch.sourceMatches).toBe(false)
+    expect(mismatch.sourceMatches).toBe('mismatch')
     expect(mismatch.sourceClientSha256).toBe(hash('source-client'))
     expect(mismatch.clientSha256).toBe(hash('installed-client'))
 
@@ -85,15 +85,15 @@ describe('runtime identity', () => {
       project,
       entry,
     )
-    expect(match.sourceMatches).toBe(true)
+    expect(match.sourceMatches).toBe('match')
 
     // 未配置前端入口时不做源码比对，也不猜路径。
     const skipped = buildIdentityFrom(identity, project)
     expect(skipped.sourceClientSha256).toBe('')
-    expect(skipped.sourceMatches).toBeNull()
+    expect(skipped.sourceMatches).toBe('unknown')
 
     const unknown = buildIdentityFrom(identity, undefined)
-    expect(unknown.sourceMatches).toBeNull()
+    expect(unknown.sourceMatches).toBe('unknown')
     expect(unknown.sourceClientSha256).toBe('')
   })
 
