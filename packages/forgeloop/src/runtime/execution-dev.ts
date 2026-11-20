@@ -70,6 +70,13 @@ export interface ExecutionDevDeps {
   ) => { ok: boolean; detail: string }
 }
 
+type DevelopTaskResult = {
+  state: 'delivered' | 'blocked'
+  reason: string
+  selfVerification?: SelfVerificationReport
+  clarification?: { question: string; context: string }
+}
+
 export class ExecutionDev {
   constructor(private readonly deps: ExecutionDevDeps) {}
 
@@ -491,7 +498,6 @@ export class ExecutionDev {
     return { state: 'blocked', reason }
   }
 
-  // eslint-disable-next-line complexity, max-statements
   async developTaskInSession(input: {
     reqId: string
     requirement: Requirement
@@ -502,12 +508,7 @@ export class ExecutionDev {
     authorizationSource: string
     inputKind: 'requirement' | 'problem'
     signal: AbortSignal
-  }): Promise<{
-    state: 'delivered' | 'blocked'
-    reason: string
-    selfVerification?: SelfVerificationReport
-    clarification?: { question: string; context: string }
-  }> {
+  }): Promise<DevelopTaskResult> {
     const taskDir = evidenceDir(
       this.deps.config,
       input.reqId,
@@ -593,105 +594,19 @@ export class ExecutionDev {
         })
         return earlySelf.blocked
       }
-      const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
-      if (needsNoChangeRetry(status)) {
-        feedback = this.taskNoChangeFeedback(input)
-        continue
-      }
-      const test = await this.deps.formalTest({
-        ctx: this.deps.ctx,
-        cwd: input.workspace,
-        argv: input.task.testCommand,
-        timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
-        logPath: join(attemptDir, 'formal-test.log'),
-        signal: input.signal,
-      })
-      const headAfter = bestEffortValue(
-        () => requireGit(input.workspace, ['rev-parse', 'HEAD']).trim(),
-        '',
-      )
-      this.recordAttemptEvidence({
+      const outcome = await this.completeTaskAttempt({
+        input,
         attemptDir,
         taskDir,
-        reqId: input.reqId,
-        planVersion: input.plan.planVersion,
-        taskId: input.task.taskId,
         attempt,
-        command: input.task.testCommand,
         headBefore,
-        headAfter,
-        test,
-      })
-      if (test.aborted || test.timedOut) {
-        const reason = test.aborted
-          ? '研发自验被停止：现场保留，可继续执行'
-          : `研发自验超时（${this.deps.config.formalTestTimeoutSeconds} 秒）：现场保留，可继续修复`
-        this.deps.recordRun(input.reqId, input.plan, input.task, {
-          state: TASK_RUN_BLOCKED,
-          reason: reason,
-        })
-        return { state: 'blocked', reason }
-      }
-      if (test.exitCode !== 0) {
-        this.deps.recordRun(input.reqId, input.plan, input.task, {
-          state: TASK_RUN_FAILED,
-          reason: `研发自验退出码 ${test.exitCode}，日志 ${test.logPath}`,
-        })
-        feedback = `\n\n研发自验未通过（退出码 ${test.exitCode}）。日志：${test.logPath}\n${test.output.slice(-4000)}\n请在同一工作区修复后继续。`
-        continue
-      }
-      const capture = captureCandidate({
-        worktreePath: input.workspace,
-        diffPath: join(attemptDir, 'candidate.diff'),
-      })
-      if (capture.changedFiles.length === 0) {
-        feedback = this.taskNoChangeFeedback(input)
-        continue
-      }
-      const outside = outsideActiveFiles(capture.changedFiles, this.deps.config.activeRoots)
-      if (outside.length > 0) {
-        const reason = `实际改动越过活动工程范围：${outside.join('、')}`
-        this.deps.recordRun(input.reqId, input.plan, input.task, {
-          state: TASK_RUN_FAILED,
-          reason,
-        })
-        return { state: 'blocked', reason }
-      }
-      this.recordAttemptCandidate({ attemptDir, taskDir, capture })
-      runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)
-      const selfCheck = this.persistSelfVerification({
         text: result.text,
-        attemptDir,
-        taskDir,
-        inputKind: input.inputKind,
-        reqId: input.reqId,
-        plan: input.plan,
-        task: input.task,
       })
-      if (selfCheck.blocked) {
-        this.deps.recordRun(input.reqId, input.plan, input.task, {
-          state: TASK_RUN_BLOCKED,
-          reason: selfCheck.blocked.reason,
-        })
-        return selfCheck.blocked
+      if ('retry' in outcome) {
+        feedback = outcome.retry
+        continue
       }
-      const selfVerification = selfCheck.selfVerification
-      this.recordDeliveredTask({
-        reqId: input.reqId,
-        plan: input.plan,
-        task: input.task,
-        workspace: input.workspace,
-        sessionId: input.session.sessionId,
-        authorizationSource: input.authorizationSource,
-        capture,
-        test,
-        taskDir,
-      })
-      this.deps.recordRun(input.reqId, input.plan, input.task, {
-        state: TASK_RUN_DELIVERED,
-        reason: '',
-      })
-      return { state: 'delivered', reason: '', ...(selfVerification ? { selfVerification } : {}) }
+      return outcome.done
     }
     const reason = `任务 ${input.task.taskId} 已尝试 ${this.deps.config.maxTaskAttempts} 次仍未通过自验；现场保留，等待修复或授权`
     this.deps.recordRun(input.reqId, input.plan, input.task, {
@@ -699,5 +614,116 @@ export class ExecutionDev {
       reason: reason,
     })
     return { state: 'blocked', reason }
+  }
+
+  private async completeTaskAttempt(context: {
+    input: Parameters<ExecutionDev['developTaskInSession']>[0]
+    attemptDir: string
+    taskDir: string
+    attempt: number
+    headBefore: string
+    text: string
+  }): Promise<{ retry: string } | { done: DevelopTaskResult }> {
+    const { input, attemptDir, taskDir, attempt, headBefore, text } = context
+    const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+    if (needsNoChangeRetry(status)) {
+      return { retry: this.taskNoChangeFeedback(input) }
+    }
+    const test = await this.deps.formalTest({
+      ctx: this.deps.ctx,
+      cwd: input.workspace,
+      argv: input.task.testCommand,
+      timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
+      logPath: join(attemptDir, 'formal-test.log'),
+      signal: input.signal,
+    })
+    const headAfter = bestEffortValue(
+      () => requireGit(input.workspace, ['rev-parse', 'HEAD']).trim(),
+      '',
+    )
+    this.recordAttemptEvidence({
+      attemptDir,
+      taskDir,
+      reqId: input.reqId,
+      planVersion: input.plan.planVersion,
+      taskId: input.task.taskId,
+      attempt,
+      command: input.task.testCommand,
+      headBefore,
+      headAfter,
+      test,
+    })
+    if (test.aborted || test.timedOut) {
+      const reason = test.aborted
+        ? '研发自验被停止：现场保留，可继续执行'
+        : `研发自验超时（${this.deps.config.formalTestTimeoutSeconds} 秒）：现场保留，可继续修复`
+      this.deps.recordRun(input.reqId, input.plan, input.task, {
+        state: TASK_RUN_BLOCKED,
+        reason,
+      })
+      return { done: { state: 'blocked', reason } }
+    }
+    if (test.exitCode !== 0) {
+      this.deps.recordRun(input.reqId, input.plan, input.task, {
+        state: TASK_RUN_FAILED,
+        reason: `研发自验退出码 ${test.exitCode}，日志 ${test.logPath}`,
+      })
+      return {
+        retry: `\n\n研发自验未通过（退出码 ${test.exitCode}）。日志：${test.logPath}\n${test.output.slice(-4000)}\n请在同一工作区修复后继续。`,
+      }
+    }
+    const capture = captureCandidate({
+      worktreePath: input.workspace,
+      diffPath: join(attemptDir, 'candidate.diff'),
+    })
+    if (capture.changedFiles.length === 0) {
+      return { retry: this.taskNoChangeFeedback(input) }
+    }
+    const outside = outsideActiveFiles(capture.changedFiles, this.deps.config.activeRoots)
+    if (outside.length > 0) {
+      const reason = `实际改动越过活动工程范围：${outside.join('、')}`
+      this.deps.recordRun(input.reqId, input.plan, input.task, {
+        state: TASK_RUN_FAILED,
+        reason,
+      })
+      return { done: { state: 'blocked', reason } }
+    }
+    this.recordAttemptCandidate({ attemptDir, taskDir, capture })
+    runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)
+    const selfCheck = this.persistSelfVerification({
+      text,
+      attemptDir,
+      taskDir,
+      inputKind: input.inputKind,
+      reqId: input.reqId,
+      plan: input.plan,
+      task: input.task,
+    })
+    if (selfCheck.blocked) {
+      this.deps.recordRun(input.reqId, input.plan, input.task, {
+        state: TASK_RUN_BLOCKED,
+        reason: selfCheck.blocked.reason,
+      })
+      return { done: selfCheck.blocked }
+    }
+    const selfVerification = selfCheck.selfVerification
+    this.recordDeliveredTask({
+      reqId: input.reqId,
+      plan: input.plan,
+      task: input.task,
+      workspace: input.workspace,
+      sessionId: input.session.sessionId,
+      authorizationSource: input.authorizationSource,
+      capture,
+      test,
+      taskDir,
+    })
+    this.deps.recordRun(input.reqId, input.plan, input.task, {
+      state: TASK_RUN_DELIVERED,
+      reason: '',
+    })
+    return {
+      done: { state: 'delivered', reason: '', ...(selfVerification ? { selfVerification } : {}) },
+    }
   }
 }
