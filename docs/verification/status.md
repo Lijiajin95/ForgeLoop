@@ -9712,3 +9712,29 @@ transcript，CPU profile 中写盘链路合计 91.5%（`writeTranscript` 42.6%�
   （与旧行为一致）。
 - 结论：部署产物的 transcript 路径按增量写入执行，输出与旧实现等价；真实业务回合的前后
   profile 与“回合期间界面延迟”仍未测量。
+
+## 264. 命令执行与快照复制改为异步（2026-11-21）
+
+来源：所有者提供的现场报告（本版合并「transcript 全量重写」与「git 同步调用」两项，后者此前未修）。
+profile 显示插件在宿主同进程内用 execFileSync 跑 git（5.39 s 采样中 91.1% 落在 spawn），事件循环整段停转：
+TCP 可连、HTTP 超时、setTimeout(0) 与 setImmediate 都不触发。
+
+- untime/workspace.ts：unCommand/git/equireGit/headCommit 改为 spawn + Promise；
+  保留 timeout（<=0 不设超时）、64 MiB 输出上限、core.longpaths、GIT_TERMINAL_PROMPT=0 语义；
+  快照准备与候选采集合改用 s/promises（m/mkdir/stat/copyFile/writeFile）。
+- 全部 103 处调用点（16 个文件）迁移为 wait；受控提交、diff 应用、构建材料校验、验证链路、
+  库重建取证、可靠性看板与部署自检一并异步；deployment-inspect 的逐文件 	ar 解包改为异步 spawn。
+- 新增 estEffortValueAsync；execution-dev 的 head 取值改用它，写盘失败容忍语义不变。
+- 行为等价约束：同一流程内 git 步骤仍串行；inalizeCandidate/commitCandidate/integrateCandidate 的
+  先检查后提交顺序、锁文件与回滚步骤未变。
+- 测试：workspace.test.ts 新增「子进程运行期间事件循环仍在转」（旧 execFileSync 实现会得到 0 次 tick）
+  与「超时按 1 退出并说明」两项；其余受影响的 36 个测试文件按异步接口补 wait/ejects。
+- 验证：check-static（typecheck、lint、contracts、budget、assertions、reliability-registry）通过；
+  全量带覆盖率测试 **2613 通过、1 跳过、230 个文件全绿**，总覆盖率 lines 98.42% / functions 99.51% / branches 93.97%，
+  156 个逐文件门槛全部达标；ormat 通过。合并提交 ebdf7f0 由 pre-commit 门禁放行。
+
+未完成与边界：
+
+- 未在本机 3080 宿主上做真实回合的 inspector 探针、CPU 与界面延迟复测；需重新打包安装并触发真实回合后另测。
+- 小体量同步文件读写（读 JSON/日志、写证据 JSON）仍同步；本次只移除同步子进程与大块同步复制/写入。
+- untime/deployment-inspect.ts 之外的 cli/pack.ts 仍在 CLI 进程内同步调用 git：该进程不承载宿主事件循环。

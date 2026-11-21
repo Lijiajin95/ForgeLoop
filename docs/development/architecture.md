@@ -48,6 +48,19 @@ DSH 宿主（唯一常驻产品）
 └── 项目现场：git 仓库、SQLite、证据、候选包
 ```
 
+### 2.1 命令执行不阻塞宿主事件循环（2026-11-21）
+
+插件与 DSH 同进程，宿主的 HTTP 服务就在同一个事件循环上，因此 `runtime/` 不得用同步子进程
+（`execFileSync`/`spawnSync`）或大块同步文件读写执行 git、打包、测试与快照复制。
+
+- `runtime/workspace.ts` 的 `runCommand`、`git`、`requireGit`、`headCommit` 返回 Promise，
+  用 `spawn` 收集输出；超时、输出上限、`core.longpaths` 与 `GIT_TERMINAL_PROMPT=0` 语义保持不变。
+- 快照准备（`prepareSnapshotWorkspace`）、候选采集（`captureCandidate`）、受控提交
+  （`integrateCandidate`）、diff 应用（`applyDiffFile`）、构建材料校验、验证链路命令、
+  库重建取证与部署自检（含 `tar` 解包）全部为异步函数，调用链同样为 `async`。
+- 事务性顺序不变：同一流程内的 git 步骤仍按原顺序串行等待，避免两个改动并发写同一工作区。
+- `runtime/best-effort.ts` 增加 `bestEffortValueAsync`，用于「失败可忽略、但必须异步执行」的取值。
+
 ## 3. 分层与依赖方向
 
 | 层      | 路径                                           | 允许依赖                        | 职责                                                                                                                    |
