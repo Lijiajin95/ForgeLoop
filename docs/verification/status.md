@@ -9776,8 +9776,10 @@ TCP 可连、HTTP 超时、`setTimeout(0)` 与 `setImmediate` 都不触发。
   需求停在 `specified`，未生成任务包、未进入研发。
 - inspector 探针（`probe-inspector.js --port 9230`）两个窗口各 10 次、覆盖上述两个回合：
   **20/20 全部 `simple eval OK` / `setTimeout(0) loop-turned` / `setImmediate immediate-ran`，0 次 timed out**。
-- 页面延迟：Node `fetch`（keep-alive）30 次 p50 9 ms / p95 21 ms / max 35 ms；PowerShell 逐次新建连接
-  40 次为 71–212 ms（含 .NET 连接开销），其中 1 次 2519 ms 离群，同窗口的 inspector 探针仍全绿。
+- 页面延迟（安装实例）：带认证 cookie 的 Node `fetch` 30 次全部 200，p50 12 ms / p95 23 ms / max 39 ms；
+  回合窗口内用 PowerShell 逐次新建会话测得 40 次 71–212 ms（含 .NET 建连与 303 重定向开销），其中
+  1 次 2519 ms 离群（同窗口 inspector 探针仍全绿）。注意：`?token=` 返回 303 + Set-Cookie，
+  延迟探针必须携带 cookie，否则测到的是认证跳转而不是页面。
 - CPU（monitor-cpu.ps1，每 20 s 采样 pid 30220）：回合计 2.3%–17.6%，单次 41.7%（01:10:15）。
   该 41.7% 窗口内插件无文件活动（仅 01:09:29 的 SQLite WAL 写入），同一探针负载单独对照为 3.5%，
   判定为宿主编排/工具结果流量而非插件同步 I/O。
