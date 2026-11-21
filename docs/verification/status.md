@@ -13,7 +13,7 @@
 | 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、系统准入、自动推进、研发拆解、独立验证、业务终审、验收、候选构建、受控提交与部署接口均已接入；部署目标可配置默认需求，也可由 intent 按需求复用；天工页提供停止/取消/恢复、追加授权、工时延长、构建与上线核对；部署协调器的工作台页面与证据入口未实现；`autoDeliver` 目标已接入提交后自动构建/部署/核对与修复回流；当前 Windows DSH `web` profile（3080）已运行 2026-11-05 tarball，真实需求 `req-20261105090042-07ff5f` 已在页面可见                                                                                                                                                                                                                                                                                                                                                | [架构](../development/architecture.md)、§131–§136                                                                                      |
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | §30                                                                                                                                    |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §13、[ADR 0009](../development/adr/0009-remove-retired-implementation.md)                                                              |
-| 最近安装记录 | 2026-11-18 20:13 `forgeloop-dsh@0.0.2` tarball（517,034 字节，SHA-256 `e5fc9578…`，gitHead `80a35e3`）安装到当前 Windows `web` profile（依赖 `C:/Users/lijia/.forgeloop/artifacts/forgeloop-dsh-0.0.2-20261118-2011.tgz`；bundle 禁用/启用后在进程内重载，运行身份 `clientSha256 d77bbcf1…` 与源码一致）；上一包 `20261118-1944.tgz`（`89b60d2d…`）与 `20261117-1700.tgz` 保留可回滚；安装记录不等于交付完成 | §261                                                                                                                                   |
+| 最近安装记录 | 2026-11-18 20:13 `forgeloop-dsh@0.0.2` tarball（517,034 字节，SHA-256 `e5fc9578…`，gitHead `80a35e3`）安装到当前 Windows `web` profile（依赖 `C:/Users/lijia/.forgeloop/artifacts/forgeloop-dsh-0.0.2-20261118-2011.tgz`；bundle 禁用/启用后在进程内重载，运行身份 `clientSha256 d77bbcf1…` 与源码一致）；上一包 `20261118-1944.tgz`（`89b60d2d…`）与 `20261117-1700.tgz` 保留可回滚；安装记录不等于交付完成                                                                                                                                                                                                                                                                                                                                                                                                                           | §261                                                                                                                                   |
 | 最近工程检查 | 2026-11-06 worktree `feat/m1-closure`：`check-static`（typecheck、ESLint、contracts、token/断言预算、可靠性注册表）通过；定向 mutation 73 项、verification 54 项、identity 3 项通过；全量 `make check` 157 文件/1887 项中 66 失败（11 文件，集中在 Windows 控制副本夹具与 recordsRoot 在项目内时的敏感性对照），未通过。M1 现场与失败见 §168。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §132.4、§135.3、§168                                                                                                                   |
 | 真实业务链路 | 2026-11-05 当前 DSH `web`（3080）真实需求 `req-20261105090042-07ff5f`：通过插件工具提交，经分析→系统准入→研发→独立验证（pass）→业务终审（pass）→受控提交 `e18de603ae08…`，共约 5 分钟；天工页可见，Board detail 返回 `fresh=true`、`businessReview=pass`。另有真实模型部署 E2E `req-20261105084110-d498df`（到隔离目标 verified）与 §134 的 M0 E2E 证据。2026-11-06 M1 收尾新增的两条真实闭环 A/B 均未跑通：停止时分别停在 `control-apply`、`watchdog-root-cause`，0 提交、0 部署 intent、0 关闭事件（§168）。                                                                                                                                                                                                                                                                                                                         | §131、§133–§135、§168                                                                                                                  |
 | 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控 + 2026-11-03 按需读制品日志：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，Agent 评审后建事件；另有两个只读工具按需读取 `ops.artifacts` 登记的制品运行状态（安装版本、pid、存活、身份摘要）与日志尾部（行数、错误行数可过滤）；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证；2026-11-06 起按所有者决定进入维护阶段（§178、[ADR 0011](../development/adr/0011-ops-maintenance-first.md)），不再扩展外部工具或主动复跑 | §35、§110、§112、[运维设计](../development/ops-agent.md)、§178                                                                         |
@@ -9716,25 +9716,79 @@ transcript，CPU profile 中写盘链路合计 91.5%（`writeTranscript` 42.6%�
 ## 264. 命令执行与快照复制改为异步（2026-11-21）
 
 来源：所有者提供的现场报告（本版合并「transcript 全量重写」与「git 同步调用」两项，后者此前未修）。
-profile 显示插件在宿主同进程内用 execFileSync 跑 git（5.39 s 采样中 91.1% 落在 spawn），事件循环整段停转：
-TCP 可连、HTTP 超时、setTimeout(0) 与 setImmediate 都不触发。
+profile 显示插件在宿主同进程内用 `execFileSync` 跑 git（5.39 s 采样中 91.1% 落在 spawn），事件循环整段停转：
+TCP 可连、HTTP 超时、`setTimeout(0)` 与 `setImmediate` 都不触发。
 
-- untime/workspace.ts：unCommand/git/equireGit/headCommit 改为 spawn + Promise；
-  保留 timeout（<=0 不设超时）、64 MiB 输出上限、core.longpaths、GIT_TERMINAL_PROMPT=0 语义；
-  快照准备与候选采集合改用 s/promises（m/mkdir/stat/copyFile/writeFile）。
-- 全部 103 处调用点（16 个文件）迁移为 wait；受控提交、diff 应用、构建材料校验、验证链路、
-  库重建取证、可靠性看板与部署自检一并异步；deployment-inspect 的逐文件 	ar 解包改为异步 spawn。
-- 新增 estEffortValueAsync；execution-dev 的 head 取值改用它，写盘失败容忍语义不变。
-- 行为等价约束：同一流程内 git 步骤仍串行；inalizeCandidate/commitCandidate/integrateCandidate 的
+- `runtime/workspace.ts`：`runCommand`/`git`/`requireGit`/`headCommit` 改为 `spawn` + Promise；
+  保留 timeout（`<=0` 不设超时）、64 MiB 输出上限、`core.longpaths`、`GIT_TERMINAL_PROMPT=0` 语义；
+  快照准备与候选采集合改用 `fs/promises`（`rm`/`mkdir`/`stat`/`copyFile`/`writeFile`）。
+- 全部 103 处调用点（16 个文件）迁移为 `await`；受控提交、diff 应用、构建材料校验、验证链路、
+  库重建取证、可靠性看板与部署自检一并异步；`deployment-inspect` 的逐文件 `tar` 解包改为异步 `spawn`。
+- 新增 `bestEffortValueAsync`；`execution-dev` 的 head 取值改用它，写盘失败容忍语义不变。
+- `agent-runner` 两处活动快照改为 `bestEffort` 包住 `onActivity`：活动回调抛错不再成为未捕获异常。
+- 行为等价约束：同一流程内 git 步骤仍串行；`finalizeCandidate`/`commitCandidate`/`integrateCandidate` 的
   先检查后提交顺序、锁文件与回滚步骤未变。
-- 测试：workspace.test.ts 新增「子进程运行期间事件循环仍在转」（旧 execFileSync 实现会得到 0 次 tick）
-  与「超时按 1 退出并说明」两项；其余受影响的 36 个测试文件按异步接口补 wait/ejects。
-- 验证：check-static（typecheck、lint、contracts、budget、assertions、reliability-registry）通过；
+- 测试：`workspace.test.ts` 新增「子进程运行期间事件循环仍在转」（旧 `execFileSync` 实现会得到 0 次 tick）
+  与「超时按 1 退出并说明」两项；其余受影响的 36 个测试文件按异步接口补 `await`/`rejects`。
+- 验证：`check-static`（typecheck、lint、contracts、budget、assertions、reliability-registry）通过；
   全量带覆盖率测试 **2613 通过、1 跳过、230 个文件全绿**，总覆盖率 lines 98.42% / functions 99.51% / branches 93.97%，
-  156 个逐文件门槛全部达标；ormat 通过。合并提交 ebdf7f0 由 pre-commit 门禁放行。
+  156 个逐文件门槛全部达标；`format` 通过。合并提交 `ebdf7f0` 由 pre-commit 门禁放行。
 
 未完成与边界：
 
-- 未在本机 3080 宿主上做真实回合的 inspector 探针、CPU 与界面延迟复测；需重新打包安装并触发真实回合后另测。
 - 小体量同步文件读写（读 JSON/日志、写证据 JSON）仍同步；本次只移除同步子进程与大块同步复制/写入。
-- untime/deployment-inspect.ts 之外的 cli/pack.ts 仍在 CLI 进程内同步调用 git：该进程不承载宿主事件循环。
+- `runtime/deployment-inspect.ts` 之外的 `cli/pack.ts` 仍在 CLI 进程内同步调用 git：该进程不承载宿主事件循环。
+- `agents/verification-agent.ts` 的 `spawnSync` 只出现在给验证 Agent 的提示词文本里，插件自身不执行它。
+
+## 265. 本地安装与宿主验收实测（2026-11-22）
+
+安装对象：`profiles/web`（DSH home `C:\Users\lijia\.dsh`），宿主 pid 30220，启动
+2026-11-21T16:48:56Z，身份摘要 `indexSha256=d6cb0d3f…`、`serviceSha256=99b59f2b…`，与安装后的
+`lib/index.js`/`lib/runtime/service.js` 逐字节一致（安装前为 `6b42136c…`/`90c2c4d0…`，pid 48316）。
+
+安装材料与回退：
+
+- 候选包 `C:/Users/lijia/.forgeloop/artifacts/forgeloop-dsh-0.0.2-20261122-0042.tgz`，
+  sha256 `8da024a9e3eaceb73c8728316f172ccae62125b32ac848afa3472ac8450e8b77`，gitHead `ef2f3d2`；
+  profile `dependencies.forgeloop-dsh` 指向该文件，用 pnpm 11.28.5 安装。
+- 回退材料：`C:/Users/lijia/.forgeloop/backups/web-forgeloop-20261122-0042/`（旧 `node_modules/forgeloop-dsh`、
+  `package.json`、`pnpm-lock.yaml`、`cordis.patch.yml`）。回退只需把 `dependencies.forgeloop-dsh`
+  指回旧 tarball（`forgeloop-dsh-0.0.2-20261120-2216.tgz`）后重装并重启宿主。
+- 静态核对：安装后的 `lib/runtime/**` 中 `execFileSync(`/`spawnSync(` 为 0 处（仅 `lib/cli/pack.js` 的 CLI 进程
+  与 `lib/agents/verification-agent.js` 的提示词文本各自保留）。
+
+部署产物前后对比（同一 harness，导入各自的 `lib/runtime/workspace.js`，跑同一条 git 工作负载：
+1.2 s 子进程 + `git log` + 快照准备 + 候选采集；进程中每 20 ms 采样事件循环间隔，外部子进程每 40 ms 请求
+目标 HTTP）：
+
+| 指标                 | 旧产物（execFileSync）                                         | 新产物（spawn + await） |
+| -------------------- | -------------------------------------------------------------- | ----------------------- |
+| 工作量耗时           | 2636 ms                                                        | 2286 ms                 |
+| 事件循环最大间隔     | **2687 ms**                                                    | **34 ms**               |
+| 外部 HTTP 最大延迟   | **2554 ms**                                                    | **28 ms**               |
+| 期间完成的 HTTP 请求 | 22                                                             | 75                      |
+| 产物一致性           | `snapshotFiles=1`、`changedFiles=0`、`diffSha256=01ba4719c80b` | 同左（完全一致）        |
+
+宿主真实回合（安装后）：
+
+- 用例 `req-20261121170509-f29323`（临时验收需求），分析回合两次：a1 61 个事件（01:05:10–01:07:46）、
+  a2 26 个事件（01:07:52–01:09:29），均 `turn/end completed`；结果写入分析 v1（`analysis-v5`），
+  需求停在 `specified`，未生成任务包、未进入研发。
+- inspector 探针（`probe-inspector.js --port 9230`）两个窗口各 10 次、覆盖上述两个回合：
+  **20/20 全部 `simple eval OK` / `setTimeout(0) loop-turned` / `setImmediate immediate-ran`，0 次 timed out**。
+- 页面延迟：Node `fetch`（keep-alive）30 次 p50 9 ms / p95 21 ms / max 35 ms；PowerShell 逐次新建连接
+  40 次为 71–212 ms（含 .NET 连接开销），其中 1 次 2519 ms 离群，同窗口的 inspector 探针仍全绿。
+- CPU（monitor-cpu.ps1，每 20 s 采样 pid 30220）：回合计 2.3%–17.6%，单次 41.7%（01:10:15）。
+  该 41.7% 窗口内插件无文件活动（仅 01:09:29 的 SQLite WAL 写入），同一探针负载单独对照为 3.5%，
+  判定为宿主编排/工具结果流量而非插件同步 I/O。
+- 回合内 15 s CPU profile（7165 样本）：89.0% idle；`appendFileSync`/`writeFileSync`/`openSync`/
+  `spawnSync`/`execFileSync`/`runCommand` 帧均为 0，最高业务帧 < 1.5%。
+
+未验证与边界：
+
+- `cordis.patch.yml` 的 `autoAdvance` 仍为 `false`：本次只验证了**分析回合**；开发/验证回合（git 重路径）
+  没有在宿主里跑，该路径由上面的产物级前后对比覆盖。开启 `autoAdvance` 会让已批准计划自动进入研发，
+  需所有者单独决定（现有 blocked 需求仍持有计划，开启后可能被自动推进）。
+- transcript 逐字节等价由 `tests/transcript.test.ts` 7 项保证；安装实例上没有再造一次真实 transcript 对比。
+- 「transcript 目录不可写」等异常路径由单元测试覆盖，未在安装实例上构造。
+- 一个 2.5 s 页面延迟离群样本未定位到插件代码（同窗口探针全绿、插件无对应文件活动），按宿主/代理尾延迟记录。
