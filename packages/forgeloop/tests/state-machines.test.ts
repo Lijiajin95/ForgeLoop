@@ -95,8 +95,8 @@ function runtimeOf(): ForgeLoopRuntime {
   return new ForgeLoopRuntime({ ctx: {}, config: serviceConfig(), runner: AGENT_MUST_NOT_RUN })
 }
 
-function submitRequirement(runtime: ForgeLoopRuntime): string {
-  const result = runtime.submit({
+async function submitRequirement(runtime: ForgeLoopRuntime): string {
+  const result = await runtime.submit({
     text: '状态机测试需求',
     by: 'owner',
     source: 'test',
@@ -381,7 +381,7 @@ describe('requirement state machine', () => {
     const states = [...TERMINAL_STATUSES]
     const guarded = [
       (reqId: string) => runtime.revise({ reqId, text: '再改一次', by: 'owner', source: 'test' }),
-      (reqId: string) => runtime.cancel({ reqId, by: 'owner', reason: '不做了' }),
+      async (reqId: string) => await runtime.cancel({ reqId, by: 'owner', reason: '不做了' }),
       (reqId: string) => runtime.stop({ reqId, by: 'owner', reason: '停下' }),
       (reqId: string) =>
         runtime.requestOperation({ reqId, action: 'plan', by: 'owner', source: 'test' }),
@@ -391,22 +391,22 @@ describe('requirement state machine', () => {
     ]
     for (const state of states) {
       for (const operation of guarded) {
-        const reqId = submitRequirement(runtime)
+        const reqId = await submitRequirement(runtime)
         runtime.repo.setStatus(reqId, state)
-        const result = operation(reqId)
+        const result = await operation(reqId)
         expect(result.ok, `${state} 上被拒绝的操作返回成功`).toBe(false)
         expect(result.code).toBe('terminal')
         expect(runtime.repo.getRequirement(reqId)?.status).toBe(state)
         observed.add(state)
       }
-      const reqId = submitRequirement(runtime)
+      const reqId = await submitRequirement(runtime)
       runtime.repo.setStatus(reqId, state)
       const analysis = await runtime.analyzeRequirement(reqId)
       expect(analysis.ok).toBe(false)
       expect(analysis.code).toBe('terminal')
       expect(runtime.repo.getRequirement(reqId)?.status).toBe(state)
       // 冻结态唯一例外：最终验收入口仍可进入（材料缺失时失败，但不是 terminal）。
-      const accepted = runtime.accept({ reqId, by: 'owner', source: 'test' })
+      const accepted = await runtime.accept({ reqId, by: 'owner', source: 'test' })
       expect(accepted.ok).toBe(false)
       expect(accepted.code).not.toBe('terminal')
       expect(runtime.repo.getRequirement(reqId)?.status).toBe(state)
@@ -420,7 +420,7 @@ describe('requirement state machine', () => {
     runtime.close()
   })
 
-  it('requirement: declared legal edges are produced by the guarded entry points', () => {
+  it('requirement: declared legal edges are produced by the guarded entry points', async () => {
     const machine = machineOf('requirement-status')
     const legal = edgeSet(machine)
     const runtime = runtimeOf()
@@ -435,26 +435,26 @@ describe('requirement state machine', () => {
     }
     let reqId = ''
     for (const from of NON_TERMINAL) {
-      reqId = submitRequirement(runtime)
+      reqId = await submitRequirement(runtime)
       runtime.repo.setStatus(reqId, from)
       check(from, 'draft', runtime.revise({ reqId, text: '修订一次', by: 'owner', source: 'test' }))
 
-      reqId = submitRequirement(runtime)
+      reqId = await submitRequirement(runtime)
       runtime.repo.setStatus(reqId, from)
-      check(from, 'cancelled', runtime.cancel({ reqId, by: 'owner', reason: '不做了' }))
+      check(from, 'cancelled', await runtime.cancel({ reqId, by: 'owner', reason: '不做了' }))
 
-      reqId = submitRequirement(runtime)
+      reqId = await submitRequirement(runtime)
       runtime.repo.setStatus(reqId, from)
       check(from, 'blocked', runtime.stop({ reqId, by: 'owner', reason: '停下' }))
     }
     // 重复停止：blocked -> blocked 是声明的幂等自环。
-    const repeated = submitRequirement(runtime)
+    const repeated = await submitRequirement(runtime)
     runtime.repo.setStatus(repeated, 'blocked')
     reqId = repeated
     check('blocked', 'blocked', runtime.stop({ reqId, by: 'owner', reason: '再次停下' }))
 
     // 追加授权：blocked -> approved。
-    reqId = submitRequirement(runtime)
+    reqId = await submitRequirement(runtime)
     runtime.repo.setStatus(reqId, 'blocked')
     check(
       'blocked',
@@ -463,10 +463,10 @@ describe('requirement state machine', () => {
     )
 
     // 重复取消：终态后再次取消必须被拒绝且状态不变。
-    reqId = submitRequirement(runtime)
+    reqId = await submitRequirement(runtime)
     runtime.repo.setStatus(reqId, 'draft')
-    expect(runtime.cancel({ reqId, by: 'owner', reason: '取消' }).ok).toBe(true)
-    const again = runtime.cancel({ reqId, by: 'owner', reason: '再取消' })
+    expect((await runtime.cancel({ reqId, by: 'owner', reason: '取消' })).ok).toBe(true)
+    const again = await runtime.cancel({ reqId, by: 'owner', reason: '再取消' })
     expect(again.ok).toBe(false)
     expect(again.code).toBe('terminal')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('cancelled')
@@ -482,10 +482,10 @@ describe('requirement state machine', () => {
     runtime.close()
   })
 
-  it('requirement: interruption recovery settles to blocked and discards the workspace', () => {
+  it('requirement: interruption recovery settles to blocked and discards the workspace', async () => {
     const machine = machineOf('requirement-status')
     const runtime = runtimeOf()
-    const reqId = submitRequirement(runtime)
+    const reqId = await submitRequirement(runtime)
     runtime.repo.setStatus(reqId, 'approved')
     runtime.repo.recordTaskPlan(seedPlan(reqId))
     runtime.repo.recordRequest({

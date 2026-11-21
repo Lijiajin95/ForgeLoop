@@ -261,7 +261,7 @@ export class VerificationCheckRegistry {
       context.runs.set(label, aborted)
       return this.outcome(aborted, context, false)
     }
-    const headBefore = this.headOf(context)
+    const headBefore = await this.headOf(context)
     if (headBefore !== context.activation.head) {
       this.addIntegrityIssue(context, '验证期间候选提交发生变化')
       return {
@@ -319,7 +319,7 @@ export class VerificationCheckRegistry {
         logSha256: test.logSha256,
       }
       context.runs.set(label, record)
-      this.checkIntegrity(context)
+      await this.checkIntegrity(context)
       return this.outcome(record, context, false)
     } catch (error) {
       execution = {
@@ -559,22 +559,22 @@ export class VerificationCheckRegistry {
     })
   }
 
-  private headOf(context: ActiveContext): string | null {
+  private async headOf(context: ActiveContext): Promise<string | null> {
     try {
-      return requireGit(context.activation.workspace, ['rev-parse', 'HEAD'])
+      return await requireGit(context.activation.workspace, ['rev-parse', 'HEAD'])
     } catch {
       this.addIntegrityIssue(context, '无法读取候选提交；测试工作区可能已损坏')
       return null
     }
   }
 
-  private checkIntegrity(context: ActiveContext): void {
-    const head = this.headOf(context)
+  private async checkIntegrity(context: ActiveContext): Promise<void> {
+    const head = await this.headOf(context)
     if (head !== null && head !== context.activation.head) {
       this.addIntegrityIssue(context, '验证期间候选提交发生变化')
     }
     try {
-      const outside = workspaceChanges(context.activation.workspace).filter(
+      const outside = (await workspaceChanges(context.activation.workspace)).filter(
         (path) => !path.startsWith(VERIFICATION_MATERIAL_DIR),
       )
       if (outside.length > 0) {

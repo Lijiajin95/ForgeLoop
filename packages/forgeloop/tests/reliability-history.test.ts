@@ -303,23 +303,23 @@ describe('reliability history records', () => {
 })
 
 describe('reliability sampling', () => {
-  it('records the first sample immediately and then only when metrics change', () => {
+  it('records the first sample immediately and then only when metrics change', async () => {
     let now = new Date(NOW)
     const instance = dashboard(() => now)
 
-    expect(instance.recordSampleIfDue()).toBe(true)
+    expect(await instance.recordSampleIfDue()).toBe(true)
     expect(repository.reliabilitySamples(PROJECT)).toHaveLength(1)
     expect(repository.reliabilitySamples(PROJECT)[0].verification.total).toBe(0)
 
-    expect(instance.recordSampleIfDue()).toBe(false)
+    expect(await instance.recordSampleIfDue()).toBe(false)
 
     verification('req-a', 'pass', '2026-11-03T10:00:20.000Z')
     now = new Date('2026-11-03T10:00:30.000Z')
     // 变化立刻可见，但两次采样至少间隔 1 分钟，避免每个请求都写一行。
-    expect(instance.recordSampleIfDue()).toBe(false)
+    expect(await instance.recordSampleIfDue()).toBe(false)
 
     now = new Date('2026-11-03T10:01:05.000Z')
-    expect(instance.recordSampleIfDue()).toBe(true)
+    expect(await instance.recordSampleIfDue()).toBe(true)
     expect(repository.reliabilitySamples(PROJECT)).toHaveLength(2)
     expect(repository.reliabilitySamples(PROJECT)[0].verification).toEqual({
       pass: 1,
@@ -328,7 +328,7 @@ describe('reliability sampling', () => {
     })
   })
 
-  it('pins each sample to the snapshot measurement point', () => {
+  it('pins each sample to the snapshot measurement point', async () => {
     writeLatest(
       snapshotJson({
         generatedAt: '2026-11-03T09:00:00.000Z',
@@ -340,40 +340,40 @@ describe('reliability sampling', () => {
     // 测量点之后产生的记录不进入样本，也不改变整页版本。
     verification('req-late', 'pass', '2026-11-03T09:30:00.000Z')
 
-    expect(instance.recordSampleIfDue()).toBe(true)
+    expect(await instance.recordSampleIfDue()).toBe(true)
     const sample = repository.reliabilitySamples(PROJECT)[0]
     expect(sample).toMatchObject({ asOf: '2026-11-03T09:00:00.000Z', commit: 'abc123' })
     expect(sample.verification.total).toBe(0)
 
     now = new Date(now.getTime() + 30_000)
-    expect(instance.recordSampleIfDue()).toBe(false)
+    expect(await instance.recordSampleIfDue()).toBe(false)
   })
 
-  it('keeps a heartbeat sample when nothing changed for the heartbeat window', () => {
+  it('keeps a heartbeat sample when nothing changed for the heartbeat window', async () => {
     let now = new Date(NOW)
     const instance = dashboard(() => now, { sampleHeartbeatMs: 60 * 60 * 1000 })
-    expect(instance.recordSampleIfDue()).toBe(true)
+    expect(await instance.recordSampleIfDue()).toBe(true)
 
     now = new Date(now.getTime() + 30 * 60 * 1000)
-    expect(instance.recordSampleIfDue()).toBe(false)
+    expect(await instance.recordSampleIfDue()).toBe(false)
 
     now = new Date(now.getTime() + 31 * 60 * 1000)
-    expect(instance.recordSampleIfDue()).toBe(true)
+    expect(await instance.recordSampleIfDue()).toBe(true)
     expect(repository.reliabilitySamples(PROJECT)).toHaveLength(2)
   })
 
-  it('reports a stable revision until the underlying facts change', () => {
+  it('reports a stable revision until the underlying facts change', async () => {
     const instance = dashboard(() => NOW)
-    const first = instance.report('all')
-    expect(instance.report('all').revision).toBe(first.revision)
+    const first = await instance.report('all')
+    expect((await instance.report('all')).revision).toBe(first.revision)
 
     verification('req-a', 'pass', '2026-11-03T10:00:00.000Z')
-    const changed = instance.report('all')
+    const changed = await instance.report('all')
     expect(changed.revision).not.toBe(first.revision)
     expect(changed.runtime.verification.total).toBe(1)
   })
 
-  it('returns recorded samples and compact snapshot history with the report', () => {
+  it('returns recorded samples and compact snapshot history with the report', async () => {
     repository.recordReliabilitySample({
       project: PROJECT,
       sampledAt: '2026-11-03T10:00:00.000Z',
@@ -391,7 +391,7 @@ describe('reliability sampling', () => {
     writeHistory('broken.json', '{oops')
 
     const instance = dashboard(() => NOW)
-    const report = instance.report('all')
+    const report = await instance.report('all')
     expect(report.history.samples).toHaveLength(1)
     expect(report.history.samples[0].revision).toBe('r1')
     expect(report.history.snapshots).toHaveLength(2)
@@ -403,10 +403,10 @@ describe('reliability sampling', () => {
     expect(report.history.snapshotHistoryLimit).toBeGreaterThan(0)
 
     // 第二次读取复用历史缓存，结果一致。
-    expect(instance.report('all').history.snapshots).toEqual(report.history.snapshots)
+    expect((await instance.report('all')).history.snapshots).toEqual(report.history.snapshots)
   })
 
-  it('limits the snapshot history to the newest entries', () => {
+  it('limits the snapshot history to the newest entries', async () => {
     for (let index = 1; index <= 3; index += 1) {
       writeHistory(
         `2026-11-0${index}T09-00-00-000Z-c${index}.json`,
@@ -416,7 +416,7 @@ describe('reliability sampling', () => {
         }),
       )
     }
-    const report = dashboard(() => NOW, { snapshotHistoryLimit: 2 }).report('all')
+    const report = await dashboard(() => NOW, { snapshotHistoryLimit: 2 }).report('all')
     expect(report.history.snapshots.map((point) => point.commit)).toEqual(['c3', 'c2'])
   })
 })

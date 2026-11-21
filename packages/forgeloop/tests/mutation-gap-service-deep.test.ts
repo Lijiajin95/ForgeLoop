@@ -774,7 +774,7 @@ describe('answerClarifications', () => {
 })
 
 describe('requestOperation 守卫', () => {
-  it('拒绝未找到与终态需求', () => {
+  it('拒绝未找到与终态需求', async () => {
     expect(
       runtime.requestOperation({
         reqId: 'missing',
@@ -785,7 +785,7 @@ describe('requestOperation 守卫', () => {
     ).toEqual({ ok: false, code: 'not_found', message: '未找到需求 missing' })
 
     const reqId = submit('req-cancelled')
-    runtime.cancel({ reqId, by: 'owner', reason: '不需要' })
+    await runtime.cancel({ reqId, by: 'owner', reason: '不需要' })
     expect(
       runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' }),
     ).toEqual({
@@ -1020,7 +1020,7 @@ describe('requestOperation 守卫', () => {
 })
 
 describe('retryTask 资格判定', () => {
-  it('拒绝未找到、终态与缺少任务包的需求', () => {
+  it('拒绝未找到、终态与缺少任务包的需求', async () => {
     expect(
       runtime.retryTask({
         reqId: 'missing',
@@ -1032,7 +1032,7 @@ describe('retryTask 资格判定', () => {
     ).toEqual({ ok: false, code: 'not_found', message: '未找到需求 missing' })
 
     const cancelled = submit('req-retry-cancelled')
-    runtime.cancel({ reqId: cancelled, by: 'owner', reason: '不需要' })
+    await runtime.cancel({ reqId: cancelled, by: 'owner', reason: '不需要' })
     expect(
       runtime.retryTask({
         reqId: cancelled,
@@ -1263,13 +1263,13 @@ describe('retryTask 资格判定', () => {
 })
 
 describe('approvePlan 守卫', () => {
-  it('拒绝未找到、终态与缺少任务包', () => {
+  it('拒绝未找到、终态与缺少任务包', async () => {
     expect(
       runtime.approvePlan({ reqId: 'missing', planVersion: 1, by: 'owner', source: 'test' }),
     ).toEqual({ ok: false, code: 'not_found', message: '未找到需求 missing' })
 
     const cancelled = submit('req-approve-cancelled')
-    runtime.cancel({ reqId: cancelled, by: 'owner', reason: '不需要' })
+    await runtime.cancel({ reqId: cancelled, by: 'owner', reason: '不需要' })
     expect(
       runtime.approvePlan({ reqId: cancelled, planVersion: 1, by: 'owner', source: 'test' }),
     ).toEqual({ ok: false, code: 'terminal', message: '需求已处于终态 cancelled' })
@@ -1516,7 +1516,7 @@ describe('验证与执行入口', () => {
     })
 
     const cancelled = submit('req-exec-cancelled')
-    runtime.cancel({ reqId: cancelled, by: 'owner', reason: '不需要' })
+    await runtime.cancel({ reqId: cancelled, by: 'owner', reason: '不需要' })
     runtime.repo.recordRequest({
       requestId: 'rq-terminal',
       reqId: cancelled,

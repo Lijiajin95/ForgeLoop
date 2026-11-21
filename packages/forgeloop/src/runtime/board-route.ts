@@ -629,12 +629,12 @@ function handleRetryAnalysis(body: BoardBody | null, context: BoardContext): Res
     result.ok ? 200 : 409,
   )
 }
-function handleBuild(body: BoardBody | null, context: BoardContext): Response {
+async function handleBuild(body: BoardBody | null, context: BoardContext): Promise<Response> {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
   if (!reqId) return boardResponse(boardFailure('bad_request', '构建候选需要 reqId'), 400)
   const version = textOrUndefined(body?.version)
-  const result = runtime.buildCandidate({
+  const result = await runtime.buildCandidate({
     reqId,
     by: config.owner,
     ...(version ? { version } : {}),
@@ -644,7 +644,7 @@ function handleBuild(body: BoardBody | null, context: BoardContext): Response {
     result.ok ? 200 : 409,
   )
 }
-function handleDeploy(body: BoardBody | null, context: BoardContext): Response {
+async function handleDeploy(body: BoardBody | null, context: BoardContext): Promise<Response> {
   const { runtime, config } = context
   const reqId = text(body?.reqId)
   const targetProfile = text(body?.targetProfile)
@@ -652,7 +652,7 @@ function handleDeploy(body: BoardBody | null, context: BoardContext): Response {
     return boardResponse(boardFailure('bad_request', '上线核对需要 reqId 与 targetProfile'), 400)
   }
   const sessionId = text(body?.sessionId)
-  const result = runtime.verifyDeployment({
+  const result = await runtime.verifyDeployment({
     reqId,
     targetProfile,
     by: config.owner,
@@ -808,7 +808,7 @@ function handleLegacyWrite(
   body: BoardBody | null,
   endpoint: unknown,
   context: BoardContext,
-): Response | null {
+): Response | Promise<Response> | null {
   if (endpoint === 'plan') return handlePlan(body, context)
 
   if (endpoint === 'approve') return handleApprove(body, context)

@@ -936,7 +936,7 @@ describe('advance pipeline self verification and dev clarification', () => {
     const pipeline = makePipeline({ stubFinalize: false, stubCommit: false })
     writeFileSync(join(workspace, 'docs', 'a.md'), 'candidate change\n')
 
-    const candidate = pipeline.finalizeCandidate({
+    const candidate = await pipeline.finalizeCandidate({
       reqId: 'req-1',
       plan,
       workspace,

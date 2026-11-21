@@ -94,7 +94,7 @@ describe('coordinator stall detection', () => {
       return new Promise(() => {})
     }
     const coordinator = makeCoordinator()
-    coordinator.start()
+    await coordinator.start()
     await settle(220)
 
     const actionId = `act-${requestId}`
@@ -115,7 +115,7 @@ describe('coordinator stall detection', () => {
     const requestId = queue(reqId, 'rq-long')
     runtime.executeRequest = () => new Promise(() => {})
     const coordinator = makeCoordinator()
-    coordinator.start()
+    await coordinator.start()
     await settle(220)
 
     const actionId = `act-${requestId}`
@@ -138,7 +138,7 @@ describe('coordinator stall detection', () => {
         finish = resolve
       })
     const coordinator = makeCoordinator()
-    coordinator.start()
+    await coordinator.start()
     await settle(220)
 
     clock += 700_000
@@ -163,7 +163,7 @@ describe('coordinator stall detection', () => {
       return Promise.resolve({ state: 'done', detail: '后续请求完成' })
     }
     const coordinator = makeCoordinator()
-    coordinator.start()
+    await coordinator.start()
     await settle(260)
 
     clock += 700_000

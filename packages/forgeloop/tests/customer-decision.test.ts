@@ -251,7 +251,7 @@ describe('customer decision entry', () => {
     )
   })
 
-  it('rejects a decision for an unknown requirement or a terminal one', () => {
+  it('rejects a decision for an unknown requirement or a terminal one', async () => {
     expect(
       runtime.resolveCommitment({
         reqId: 'req-missing',
@@ -265,7 +265,7 @@ describe('customer decision entry', () => {
     expect(runtime.admissionDecision('req-missing')).toBeNull()
 
     submitAndAnalyze('req-terminal')
-    runtime.cancel({ reqId: 'req-terminal', by: OWNER, reason: '终态' })
+    await runtime.cancel({ reqId: 'req-terminal', by: OWNER, reason: '终态' })
     expect(
       runtime.resolveCommitment({
         reqId: 'req-terminal',

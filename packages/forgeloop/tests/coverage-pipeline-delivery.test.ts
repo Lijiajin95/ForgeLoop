@@ -37,15 +37,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-delivery-cov-'))
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
   return dir
 }
 
@@ -188,7 +188,7 @@ function harness(options: HarnessOptions = {}) {
       if (request.role === 'dev') {
         devCalls += 1
         devPrompts.push(request.prompt)
-        upstreamCommits.push(git(request.cwd, ['log', '-1', '--pretty=%s']))
+        upstreamCommits.push(await git(request.cwd, ['log', '-1', '--pretty=%s']))
         // 活动回报应写入任务运行记录，供看板区分“还在跑”和“已经中断”。
         request.onActivity?.([{ type: 'tool/call', data: { name: 'bash' } }])
         heartbeats.push(repo.taskRuns(REQ_ID, 1)[0]?.reason ?? '')
@@ -249,7 +249,7 @@ function harness(options: HarnessOptions = {}) {
   }
 }
 
-function deliver(
+async function deliver(
   built: ReturnType<typeof harness>,
   plan: TaskPlan,
   taskId: string,
@@ -259,7 +259,7 @@ function deliver(
     requirement: REQUIREMENT,
     plan,
     taskId,
-    baseline: git(project, ['rev-parse', 'HEAD']),
+    baseline: await git(project, ['rev-parse', 'HEAD']),
     authorizationSource: 'plan-approval:owner',
     signal,
     requestId: 'req-advance-1',
@@ -274,8 +274,8 @@ function taskRunReason(): string {
   return repo.taskRuns(REQ_ID, 1)[0]?.reason ?? ''
 }
 
-beforeEach(() => {
-  project = makeProject()
+beforeEach(async () => {
+  project = await makeProject()
   repo = new Repository(Database.open(join(project, '.forgeloop', 'records.sqlite')))
 })
 

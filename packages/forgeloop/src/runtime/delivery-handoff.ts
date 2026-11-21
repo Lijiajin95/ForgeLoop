@@ -14,7 +14,7 @@ export interface DeliveryHandoffDeps {
   readonly config: ForgeLoopConfig
   readonly repo: Repository
   readonly now: () => string
-  readonly buildCandidate: (reqId: string) => OperationResult
+  readonly buildCandidate: (reqId: string) => Promise<OperationResult>
   readonly deployments: Deployments
   readonly deploymentService: DeploymentService
   readonly ops: { recheckFix(eventId: string, intentId: string): Promise<void> }
@@ -26,7 +26,7 @@ export interface DeliveryRuntime {
   readonly deployments: Deployments
   readonly deploymentService: DeploymentService
   readonly ops: { recheckFix(eventId: string, intentId: string): Promise<void> }
-  buildCandidate(input: { reqId: string; by: string }): OperationResult
+  buildCandidate(input: { reqId: string; by: string }): Promise<OperationResult>
 }
 
 export function createDeliveryHandoff(
@@ -77,7 +77,7 @@ export class DeliveryHandoff {
     for (const requirement of this.deps.repo.listRequirements(this.deps.config.project)) {
       const plan = this.deliveryPlan(requirement.reqId)
       if (!plan) continue
-      const build = this.ensureBuild(plan, result)
+      const build = await this.ensureBuild(plan, result)
       if (!build) continue
       for (const target of this.autoTargets(plan.reqId)) {
         await this.deliverOne(plan.reqId, build, target, result)
@@ -107,10 +107,10 @@ export class DeliveryHandoff {
     }
   }
 
-  private ensureBuild(
+  private async ensureBuild(
     plan: DeliveryPlan,
     result: { built: number; failed: number },
-  ): BuildRecord | null {
+  ): Promise<BuildRecord | null> {
     const existing = this.deps.repo.latestCandidateBuild(plan.reqId)
     if (
       existing &&
@@ -121,7 +121,7 @@ export class DeliveryHandoff {
     }
     const marker = this.deps.repo.deliveryStore.handoff(plan.reqId, plan.candidateSha256, '')
     if (marker?.state === 'build_failed') return null
-    const built = this.deps.buildCandidate(plan.reqId)
+    const built = await this.deps.buildCandidate(plan.reqId)
     if (!built.ok) {
       this.deps.repo.deliveryStore.recordHandoff({
         reqId: plan.reqId,

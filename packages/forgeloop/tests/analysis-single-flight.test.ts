@@ -170,7 +170,7 @@ describe('analysis single flight', () => {
 
     const running = runtime.analyzeRequirement(reqId)
     const call = await waitForCall(pending)
-    expect(runtime.cancel({ reqId, by: 'owner', reason: '取消' }).ok).toBe(true)
+    expect((await runtime.cancel({ reqId, by: 'owner', reason: '取消' })).ok).toBe(true)
 
     call.resolve(analysisText())
     const outcome = await running
@@ -214,7 +214,7 @@ describe('business context is not written for a stale result', () => {
     const reqId = submit(runtime)
     const running = runtime.analyzeRequirement(reqId)
     const call = await waitForCall(pending)
-    runtime.cancel({ reqId, by: 'owner', reason: '取消' })
+    await runtime.cancel({ reqId, by: 'owner', reason: '取消' })
     call.resolve(
       analysisText({
         business_context: { changed: true, document: '# 业务背景\n\n不存在。\n', reason: '迟到' },

@@ -154,15 +154,15 @@ function walkFiles(options: WalkOptions): { files: string[]; exceeded: boolean }
   return { files, exceeded }
 }
 
-function isGitRepository(projectPath: string): boolean {
-  const result = git(projectPath, ['rev-parse', '--is-inside-work-tree'])
+async function isGitRepository(projectPath: string): Promise<boolean> {
+  const result = await git(projectPath, ['rev-parse', '--is-inside-work-tree'])
   return result.code === 0 && result.stdout.trim() === 'true'
 }
 
-function gitPathTimes(projectPath: string, limit: number): Map<string, string> {
+async function gitPathTimes(projectPath: string, limit: number): Promise<Map<string, string>> {
   const times = new Map<string, string>()
-  if (!isGitRepository(projectPath)) return times
-  const result = git(projectPath, [
+  if (!(await isGitRepository(projectPath))) return times
+  const result = await git(projectPath, [
     'log',
     '--no-merges',
     '-n',
@@ -291,17 +291,17 @@ function parseGitChunk(chunk: string): GitChunk | undefined {
   return { sha, time, text: `${subject}${body ? `\n\n${body}` : ''}`, paths }
 }
 
-function collectGit(input: {
+async function collectGit(input: {
   projectPath: string
   limit: number
   bytes: number
   skipped: string[]
-}): RebuildMaterial[] {
-  if (!isGitRepository(input.projectPath)) {
+}): Promise<RebuildMaterial[]> {
+  if (!(await isGitRepository(input.projectPath))) {
     input.skipped.push('项目不是 Git 仓库，跳过 Git 证据')
     return []
   }
-  const result = git(input.projectPath, [
+  const result = await git(input.projectPath, [
     'log',
     '--no-merges',
     '-n',
@@ -401,10 +401,10 @@ const EMPTY_COUNTS: Record<RebuildSourceKind, number> = {
   library: 0,
 }
 
-export function collectRebuildMaterials(
+export async function collectRebuildMaterials(
   projectPath: string,
   options: CollectOptions = {},
-): RebuildMaterials {
+): Promise<RebuildMaterials> {
   const limits = {
     docFiles: options.docFiles ?? REBUILD_EXTRACT_LIMITS.docFiles,
     docBytes: options.docBytes ?? REBUILD_EXTRACT_LIMITS.docBytes,
@@ -415,7 +415,7 @@ export function collectRebuildMaterials(
     sourceBytes: options.sourceBytes ?? REBUILD_EXTRACT_LIMITS.sourceBytes,
   }
   const skipped: string[] = []
-  const times = gitPathTimes(projectPath, limits.commits)
+  const times = await gitPathTimes(projectPath, limits.commits)
   const documents = collectDocuments({
     projectPath,
     times,
@@ -430,7 +430,7 @@ export function collectRebuildMaterials(
     limitTitles: limits.acceptanceTitles,
     skipped,
   })
-  const commits = collectGit({
+  const commits = await collectGit({
     projectPath,
     limit: limits.commits,
     bytes: limits.docBytes,

@@ -67,20 +67,20 @@ interface FixtureProject {
   diffPath: string
 }
 
-function makeProject(): FixtureProject {
+async function makeProject(): Promise<FixtureProject> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-gap-deep-'))
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
-  const baseline = git(dir, ['rev-parse', 'HEAD'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
+  const baseline = await git(dir, ['rev-parse', 'HEAD'])
   mkdirSync(join(dir, 'docs'), { recursive: true })
   writeFileSync(join(dir, 'docs', 'a.md'), 'doc a\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'work'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'work'])
   const diff = execFileSync('git', ['diff', `${baseline}..HEAD`, '--binary'], {
     cwd: dir,
     encoding: 'utf8',
@@ -218,8 +218,8 @@ function businessReviewText(overrides: Record<string, unknown> = {}): string {
   })
 }
 
-function makeLegacy(options: LegacyOptions = {}): LegacyFixture {
-  const project = makeProject()
+async function makeLegacy(options: LegacyOptions = {}): Promise<LegacyFixture> {
+  const project = await makeProject()
   // 记录根必须在被验证仓库之外：敏感性对照在复制目录里执行 git apply，
   // 位于仓库子目录时 git 会静默忽略仓库根相对路径，无法证明对照有效。
   const recordsRoot = mkdtempSync(join(tmpdir(), 'forgeloop-gap-records-'))
@@ -397,8 +397,8 @@ describe('LegacyVerification plan opening', () => {
   let project: FixtureProject
   let config: ForgeLoopConfig
 
-  beforeEach(() => {
-    project = makeProject()
+  beforeEach(async () => {
+    project = await makeProject()
     config = resolveConfig(
       {
         project: 'demo',
@@ -533,13 +533,13 @@ describe('LegacyVerification candidate fixing and execution', () => {
     fixture = null
   })
 
-  function legacy(options: LegacyOptions = {}): LegacyFixture {
-    fixture = makeLegacy(options)
+  async function legacy(options: LegacyOptions = {}): Promise<LegacyFixture> {
+    fixture = await makeLegacy(options)
     return fixture
   }
 
   it('blocks when the independent worktree cannot be created from the snapshot', async () => {
-    const built = legacy({ snapshotCommit: 'd'.repeat(40) })
+    const built = await legacy({ snapshotCommit: 'd'.repeat(40) })
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
     expect(outcome.verification).toBeNull()
@@ -553,7 +553,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
     try {
       const broken = join(brokenDir, 'broken.diff')
       writeFileSync(broken, 'this is not a diff\n', 'utf8')
-      const built = legacy({ diffPath: broken })
+      const built = await legacy({ diffPath: broken })
       const outcome = await built.verify()
       expect(outcome.state).toBe('block')
       expect(outcome.verification).toBeNull()
@@ -565,7 +565,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('stops before judgement when the verification turn does not complete', async () => {
-    const built = legacy({ phase: { status: 'timeout', reason: 'host timeout' } })
+    const built = await legacy({ phase: { status: 'timeout', reason: 'host timeout' } })
     const outcome = await built.verify()
     expect(outcome).toMatchObject({
       state: 'block',
@@ -580,7 +580,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('blocks when the agent skipped a planned command instead of inventing output', async () => {
-    const built = legacy({ skipCommands: true })
+    const built = await legacy({ skipCommands: true })
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
     expect(outcome.detail).toBe('测试 Agent 没有通过工具执行方案中的命令：ok')
@@ -592,7 +592,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   it('blocks a stopped validation command before any business verdict', async () => {
     const controller = new AbortController()
     controller.abort()
-    const built = legacy({ signal: controller.signal })
+    const built = await legacy({ signal: controller.signal })
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
     expect(outcome.verification?.failureKind).toBe('test_error')
@@ -601,7 +601,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('classifies a timed-out command as undetermined and never asks for a code repair', async () => {
-    const built = legacy({
+    const built = await legacy({
       formalTestTimeoutSeconds: 1,
       plan: {
         scenarios: [
@@ -639,7 +639,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('classifies an assertion failure as an implementation defect with repair guidance', async () => {
-    const built = legacy({
+    const built = await legacy({
       plan: {
         scenarios: [
           {
@@ -677,7 +677,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('detects a command that modified the pinned candidate outside verification/', async () => {
-    const built = legacy({
+    const built = await legacy({
       plan: {
         scenarios: [
           {
@@ -717,7 +717,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('passes with a proven sensitivity control and records pinned workspace evidence', async () => {
-    const built = legacy({ controls: 'valid' })
+    const built = await legacy({ controls: 'valid' })
     const outcome = await built.verify()
     expect(outcome.state, outcome.detail).toBe('pass')
     expect(outcome.detail).toContain(
@@ -726,7 +726,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
 
     const record = built.verifications[0] as Record<string, unknown>
     const report = JSON.parse(readFileSync(String(record.reportPath), 'utf8'))
-    const workspaceTree = git(built.workspace, ['rev-parse', 'HEAD^{tree}'])
+    const workspaceTree = await git(built.workspace, ['rev-parse', 'HEAD^{tree}'])
     expect(report.workspaceSha256).toBe(workspaceTree)
     expect(report.candidateSha256).toBe(LEGACY_CANDIDATE)
     expect(report.snapshotCommit).toBe(built.project.baseline)
@@ -754,7 +754,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('blocks without controls and records that no sensitivity was proven', async () => {
-    const built = legacy()
+    const built = await legacy()
     const outcome = await built.verify()
     expect(outcome.state).toBe('block')
     expect(outcome.failureKind).toBe('test_error')
@@ -765,7 +765,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('retries once when the business review omits a required acceptance item', async () => {
-    const built = legacy({
+    const built = await legacy({
       controls: 'valid',
       business: {
         status: 'completed',
@@ -785,7 +785,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('records a business-review failure round when the review turn does not finish', async () => {
-    const built = legacy({
+    const built = await legacy({
       controls: 'valid',
       business: { status: 'aborted', reason: 'business stopped' },
     })
@@ -810,7 +810,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
   })
 
   it('fails closed and records a failure round for a malformed business review', async () => {
-    const built = legacy({
+    const built = await legacy({
       controls: 'valid',
       business: { status: 'completed', text: 'not json' },
     })
@@ -1165,8 +1165,8 @@ function latestPipelineAttempt(identity: string) {
 }
 
 describe('VerificationPipeline gates and fixed candidate', () => {
-  beforeEach(() => {
-    pipelineProjectDir = makeProject().dir
+  beforeEach(async () => {
+    pipelineProjectDir = (await makeProject()).dir
     // 验证证据目录放在被验证仓库之外，敏感性对照的 git apply 才能触及业务文件。
     pipelineRecordsDir = mkdtempSync(join(tmpdir(), 'forgeloop-gap-pipeline-records-'))
     repo = new Repository(Database.open(join(pipelineRecordsDir, 'records.sqlite')))

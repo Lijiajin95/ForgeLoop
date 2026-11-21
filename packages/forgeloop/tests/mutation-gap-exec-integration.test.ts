@@ -63,23 +63,23 @@ function gitOutput(cwd: string, args: readonly string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
 }
 
-function initRepo(dir: string, files: Record<string, string>): string {
+async function initRepo(dir: string, files: Record<string, string>): Promise<string> {
   mkdirSync(dir, { recursive: true })
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   for (const [name, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, name)), { recursive: true })
     writeFileSync(join(dir, name), content)
   }
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
-  return git(dir, ['rev-parse', 'HEAD'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
+  return await git(dir, ['rev-parse', 'HEAD'])
 }
 
-function makeProject(): { dir: string; baseline: string } {
+async function makeProject(): Promise<{ dir: string; baseline: string }> {
   const dir = tempDir('forgeloop-gap-project-')
-  const baseline = initRepo(dir, {
+  const baseline = await initRepo(dir, {
     'README.md': 'base\n',
     '.gitignore': 'node_modules/\nignored/\n',
   })
@@ -152,25 +152,25 @@ function makePlan(tasks: readonly PlannedTask[], planVersion = 1): TaskPlan {
 }
 
 /** 在独立克隆里构造相对项目基线的候选 diff；不依赖网络或远端仓库。 */
-function candidateFor(
+async function candidateFor(
   project: string,
   files: Record<string, string> = { 'docs/a.md': 'change\n' },
-): {
+): Promise<{
   diffPath: string
   baseline: string
   diffSha256: string
-} {
-  const baseline = git(project, ['rev-parse', 'HEAD'])
+}> {
+  const baseline = await git(project, ['rev-parse', 'HEAD'])
   const work = tempDir('forgeloop-gap-candidate-')
   execFileSync('git', ['clone', '-q', project, '.'], { cwd: work, encoding: 'utf8' })
-  git(work, ['config', 'user.email', 'test@example.com'])
-  git(work, ['config', 'user.name', 'Test'])
+  await git(work, ['config', 'user.email', 'test@example.com'])
+  await git(work, ['config', 'user.name', 'Test'])
   for (const [name, content] of Object.entries(files)) {
     mkdirSync(dirname(join(work, name)), { recursive: true })
     writeFileSync(join(work, name), content)
   }
-  git(work, ['add', '-A'])
-  git(work, ['commit', '-qm', 'candidate'])
+  await git(work, ['add', '-A'])
+  await git(work, ['commit', '-qm', 'candidate'])
   const diff = gitOutput(work, ['diff', `${baseline}..HEAD`, '--binary'])
   const diffPath = join(tempDir('forgeloop-gap-artifacts-'), 'candidate.diff')
   writeFileSync(diffPath, diff)
@@ -314,12 +314,12 @@ interface DevFixtureOptions {
   workspaceFiles?: Record<string, string>
 }
 
-function developFixture(options: DevFixtureOptions = {}): DevFixture {
+async function developFixture(options: DevFixtureOptions = {}): Promise<DevFixture> {
   const dir = tempDir('forgeloop-gap-dev-')
   const project = join(dir, 'project')
-  initRepo(project, { 'README.md': 'project\n' })
+  await initRepo(project, { 'README.md': 'project\n' })
   const workspace = join(dir, 'workspace')
-  initRepo(workspace, options.workspaceFiles ?? { 'README.md': 'workspace\n' })
+  await initRepo(workspace, options.workspaceFiles ?? { 'README.md': 'workspace\n' })
   const config = configFor(dir, project, {
     activeRoots: ['src'],
     maxTaskAttempts: options.maxTaskAttempts ?? -1,
@@ -362,14 +362,14 @@ interface CandidateFixture {
   diffSha256: string
 }
 
-function integrate(
+async function integrate(
   projectPath: string,
   candidate: CandidateFixture,
   evidence: string,
   checkCommand: readonly string[],
   commitMessage = 'feat: test candidate',
 ) {
-  return integrateCandidate({
+  return await integrateCandidate({
     projectPath,
     candidateDiffPath: candidate.diffPath,
     candidateBaseline: candidate.baseline,
@@ -382,10 +382,10 @@ function integrate(
 }
 
 describe('execution-dev workspace preparation', () => {
-  it('copies tracked and untracked project files into a clean baseline snapshot, skipping ignored ones', () => {
+  it('copies tracked and untracked project files into a clean baseline snapshot, skipping ignored ones', async () => {
     const root = tempDir('forgeloop-gap-prepare-')
     const project = join(root, 'project')
-    const baseline = initRepo(project, { 'README.md': 'base\n', '.gitignore': 'ignored/\n' })
+    const baseline = await initRepo(project, { 'README.md': 'base\n', '.gitignore': 'ignored/\n' })
     writeFileSync(join(project, 'notes.md'), 'untracked work\n')
     mkdirSync(join(project, 'ignored'), { recursive: true })
     writeFileSync(join(project, 'ignored/secret.txt'), 'ignored\n')
@@ -393,37 +393,37 @@ describe('execution-dev workspace preparation', () => {
     const dev = executionDev(configFor(root, project), repo)
     const workspace = join(root, 'workspace')
 
-    const prepared = dev.prepareDevWorkspace(workspace)
+    const prepared = await dev.prepareDevWorkspace(workspace)
 
     expect(prepared.workspace).toBe(workspace)
     expect(prepared.baselineCommit).toBe(baseline)
     expect(prepared.snapshotCommit).toMatch(/^[0-9a-f]{40}$/)
     expect(prepared.snapshotCommit).not.toBe(baseline)
-    expect(git(workspace, ['rev-parse', 'HEAD'])).toBe(prepared.snapshotCommit)
+    expect(await git(workspace, ['rev-parse', 'HEAD'])).toBe(prepared.snapshotCommit)
     expect(readFileSync(join(workspace, 'README.md'), 'utf8')).toBe('base\n')
     expect(readFileSync(join(workspace, 'notes.md'), 'utf8')).toBe('untracked work\n')
     expect(existsSync(join(workspace, 'ignored/secret.txt'))).toBe(false)
-    expect(git(workspace, ['log', '--pretty=%s'])).toBe('forgeloop baseline snapshot')
-    expect(git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
+    expect(await git(workspace, ['log', '--pretty=%s'])).toBe('forgeloop baseline snapshot')
+    expect(await git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
   })
 
-  it('refreshes the same workspace path onto a newer project baseline and drops stale files', () => {
+  it('refreshes the same workspace path onto a newer project baseline and drops stale files', async () => {
     const root = tempDir('forgeloop-gap-refresh-')
     const project = join(root, 'project')
-    initRepo(project, { 'README.md': 'base\n' })
+    await initRepo(project, { 'README.md': 'base\n' })
     const repo = newRepo(root)
     const dev = executionDev(configFor(root, project), repo)
     const workspace = join(root, 'workspace')
-    const first = dev.prepareDevWorkspace(workspace)
+    const first = await dev.prepareDevWorkspace(workspace)
     writeFileSync(join(workspace, 'stale.txt'), 'old work copy\n')
 
     writeFileSync(join(project, 'README.md'), 'base v2\n')
     writeFileSync(join(project, 'new.txt'), 'new file\n')
-    git(project, ['add', '-A'])
-    git(project, ['commit', '-qm', 'second'])
-    const secondBaseline = git(project, ['rev-parse', 'HEAD'])
+    await git(project, ['add', '-A'])
+    await git(project, ['commit', '-qm', 'second'])
+    const secondBaseline = await git(project, ['rev-parse', 'HEAD'])
 
-    const second = dev.prepareDevWorkspace(workspace)
+    const second = await dev.prepareDevWorkspace(workspace)
 
     expect(second.workspace).toBe(workspace)
     expect(second.baselineCommit).toBe(secondBaseline)
@@ -432,45 +432,45 @@ describe('execution-dev workspace preparation', () => {
     expect(readFileSync(join(workspace, 'README.md'), 'utf8')).toBe('base v2\n')
     expect(readFileSync(join(workspace, 'new.txt'), 'utf8')).toBe('new file\n')
     expect(existsSync(join(workspace, 'stale.txt'))).toBe(false)
-    expect(git(workspace, ['rev-list', '--count', 'HEAD'])).toBe('1')
-    expect(git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
+    expect(await git(workspace, ['rev-list', '--count', 'HEAD'])).toBe('1')
+    expect(await git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
   })
 
-  it('reports a missing workspace, a clean snapshot, and tracked and untracked dirt', () => {
+  it('reports a missing workspace, a clean snapshot, and tracked and untracked dirt', async () => {
     const root = tempDir('forgeloop-gap-status-')
     const project = join(root, 'project')
-    initRepo(project, { 'README.md': 'base\n' })
+    await initRepo(project, { 'README.md': 'base\n' })
     const repo = newRepo(root)
     const dev = executionDev(configFor(root, project), repo)
 
-    expect(dev.workspaceStatus(join(root, 'absent'))).toEqual({
+    expect(await dev.workspaceStatus(join(root, 'absent'))).toEqual({
       exists: false,
       clean: false,
       head: '',
     })
     const plain = join(root, 'plain')
     mkdirSync(plain)
-    expect(dev.workspaceStatus(plain)).toEqual({ exists: false, clean: false, head: '' })
+    expect(await dev.workspaceStatus(plain)).toEqual({ exists: false, clean: false, head: '' })
 
-    const prepared = dev.prepareDevWorkspace(join(root, 'workspace'))
+    const prepared = await dev.prepareDevWorkspace(join(root, 'workspace'))
     const workspace = prepared.workspace
-    expect(dev.workspaceStatus(workspace)).toEqual({
+    expect(await dev.workspaceStatus(workspace)).toEqual({
       exists: true,
       clean: true,
       head: prepared.snapshotCommit,
     })
 
     writeFileSync(join(workspace, 'README.md'), 'dirty\n')
-    expect(dev.workspaceStatus(workspace)).toEqual({
+    expect(await dev.workspaceStatus(workspace)).toEqual({
       exists: true,
       clean: false,
       head: prepared.snapshotCommit,
     })
 
-    git(workspace, ['checkout', '--', 'README.md'])
+    await git(workspace, ['checkout', '--', 'README.md'])
     mkdirSync(join(workspace, 'nested'), { recursive: true })
     writeFileSync(join(workspace, 'nested/new.txt'), 'new\n')
-    expect(dev.workspaceStatus(workspace)).toEqual({
+    expect(await dev.workspaceStatus(workspace)).toEqual({
       exists: true,
       clean: false,
       head: prepared.snapshotCommit,
@@ -479,10 +479,10 @@ describe('execution-dev workspace preparation', () => {
 })
 
 describe('execution-dev delivered artifact restore', () => {
-  it('applies delivered diffs in dependency order and commits each restored task', () => {
+  it('applies delivered diffs in dependency order and commits each restored task', async () => {
     const root = tempDir('forgeloop-gap-restore-order-')
     const project = join(root, 'project')
-    initRepo(project, { 'README.md': 'base\n' })
+    await initRepo(project, { 'README.md': 'base\n' })
     const repo = newRepo(root)
     const calls: Array<{ workspace: string; diffPath: string; label: string; suffix: string }> = []
     const dev = executionDev(configFor(root, project), repo, {
@@ -492,12 +492,12 @@ describe('execution-dev delivered artifact restore', () => {
       },
     })
     const workspace = join(root, 'workspace')
-    const prepared = dev.prepareDevWorkspace(workspace)
+    const prepared = await dev.prepareDevWorkspace(workspace)
     const t1 = makeTask({ taskId: 't1', files: ['src/a.ts'], goal: '实现 A' })
     const t2 = makeTask({ taskId: 't2', files: ['src/b.ts'], goal: '实现 B', dependsOn: ['t1'] })
     const plan = makePlan([t2, t1])
-    const first = candidateFor(project, { 'src/a.ts': 'one\n' })
-    const second = candidateFor(project, { 'src/b.ts': 'two\n' })
+    const first = await candidateFor(project, { 'src/a.ts': 'one\n' })
+    const second = await candidateFor(project, { 'src/b.ts': 'two\n' })
     recordArtifact(repo, plan, t1, first.diffPath, {
       baselineCommit: prepared.baselineCommit,
       withEvidence: true,
@@ -507,7 +507,12 @@ describe('execution-dev delivered artifact restore', () => {
       withEvidence: true,
     })
 
-    const restored = dev.restoreDeliveredArtifacts(REQ_ID, plan, workspace, prepared.baselineCommit)
+    const restored = await dev.restoreDeliveredArtifacts(
+      REQ_ID,
+      plan,
+      workspace,
+      prepared.baselineCommit,
+    )
 
     expect(restored).toEqual({ ok: true })
     expect(calls.map((call) => call.label)).toEqual(['t1', 't2'])
@@ -515,16 +520,16 @@ describe('execution-dev delivered artifact restore', () => {
     expect(calls.map((call) => call.workspace)).toEqual([workspace, workspace])
     expect(readFileSync(join(workspace, 'src/a.ts'), 'utf8')).toBe('one\n')
     expect(readFileSync(join(workspace, 'src/b.ts'), 'utf8')).toBe('two\n')
-    expect(git(workspace, ['log', '--reverse', '--pretty=%s'])).toBe(
+    expect(await git(workspace, ['log', '--reverse', '--pretty=%s'])).toBe(
       ['forgeloop baseline snapshot', 'forgeloop: restore t1', 'forgeloop: restore t2'].join('\n'),
     )
-    expect(git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
+    expect(await git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
   })
 
-  it('refuses a foreign baseline or missing evidence instead of splicing artifact files', () => {
+  it('refuses a foreign baseline or missing evidence instead of splicing artifact files', async () => {
     const root = tempDir('forgeloop-gap-restore-evidence-')
     const project = join(root, 'project')
-    initRepo(project, { 'README.md': 'base\n' })
+    await initRepo(project, { 'README.md': 'base\n' })
     const repo = newRepo(root)
     const calls: string[] = []
     const dev = executionDev(configFor(root, project), repo, {
@@ -534,15 +539,15 @@ describe('execution-dev delivered artifact restore', () => {
       },
     })
     const workspace = join(root, 'workspace')
-    const prepared = dev.prepareDevWorkspace(workspace)
+    const prepared = await dev.prepareDevWorkspace(workspace)
     const task = makeTask()
-    const candidate = candidateFor(project, { 'src/a.ts': 'one\n' })
+    const candidate = await candidateFor(project, { 'src/a.ts': 'one\n' })
 
     recordArtifact(repo, makePlan([task], 1), task, candidate.diffPath, {
       baselineCommit: 'f'.repeat(40),
       withEvidence: true,
     })
-    const foreign = dev.restoreDeliveredArtifacts(
+    const foreign = await dev.restoreDeliveredArtifacts(
       REQ_ID,
       makePlan([task], 1),
       workspace,
@@ -558,14 +563,19 @@ describe('execution-dev delivered artifact restore', () => {
       baselineCommit: '',
       withEvidence: false,
     })
-    const noEvidence = dev.restoreDeliveredArtifacts(REQ_ID, makePlan([task], 2), workspace, '')
+    const noEvidence = await dev.restoreDeliveredArtifacts(
+      REQ_ID,
+      makePlan([task], 2),
+      workspace,
+      '',
+    )
     expect(noEvidence).toEqual({ ok: false, reason: '任务 t1 缺交付证据，不能恢复现场' })
 
     recordArtifact(repo, makePlan([task], 3), task, join(root, 'removed.diff'), {
       baselineCommit: prepared.baselineCommit,
       withEvidence: true,
     })
-    const missingFile = dev.restoreDeliveredArtifacts(
+    const missingFile = await dev.restoreDeliveredArtifacts(
       REQ_ID,
       makePlan([task], 3),
       workspace,
@@ -573,43 +583,48 @@ describe('execution-dev delivered artifact restore', () => {
     )
     expect(missingFile).toEqual({ ok: false, reason: '任务 t1 缺交付证据，不能恢复现场' })
     expect(calls).toEqual([])
-    expect(git(workspace, ['rev-parse', 'HEAD'])).toBe(prepared.snapshotCommit)
-    expect(git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
+    expect(await git(workspace, ['rev-parse', 'HEAD'])).toBe(prepared.snapshotCommit)
+    expect(await git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
   })
 
-  it('reports a failed diff application and leaves the workspace untouched', () => {
+  it('reports a failed diff application and leaves the workspace untouched', async () => {
     const root = tempDir('forgeloop-gap-restore-apply-')
     const project = join(root, 'project')
-    initRepo(project, { 'README.md': 'base\n' })
+    await initRepo(project, { 'README.md': 'base\n' })
     const repo = newRepo(root)
     const dev = executionDev(configFor(root, project), repo, {
       applyDiffFile: () => ({ ok: false, detail: 'patch does not apply' }),
     })
     const workspace = join(root, 'workspace')
-    const prepared = dev.prepareDevWorkspace(workspace)
+    const prepared = await dev.prepareDevWorkspace(workspace)
     const task = makeTask()
     const plan = makePlan([task])
-    const candidate = candidateFor(project, { 'src/a.ts': 'one\n' })
+    const candidate = await candidateFor(project, { 'src/a.ts': 'one\n' })
     recordArtifact(repo, plan, task, candidate.diffPath, {
       baselineCommit: prepared.baselineCommit,
       withEvidence: true,
     })
 
-    const restored = dev.restoreDeliveredArtifacts(REQ_ID, plan, workspace, prepared.baselineCommit)
+    const restored = await dev.restoreDeliveredArtifacts(
+      REQ_ID,
+      plan,
+      workspace,
+      prepared.baselineCommit,
+    )
 
     expect(restored).toEqual({
       ok: false,
       reason: '恢复任务 t1 的 diff 失败：patch does not apply',
     })
     expect(existsSync(join(workspace, 'src/a.ts'))).toBe(false)
-    expect(git(workspace, ['rev-parse', 'HEAD'])).toBe(prepared.snapshotCommit)
-    expect(git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
+    expect(await git(workspace, ['rev-parse', 'HEAD'])).toBe(prepared.snapshotCommit)
+    expect(await git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
   })
 })
 
 describe('execution-dev task turns', () => {
   it('stops before the first turn, saves an interrupted checkpoint, and reports a timeout without one', async () => {
-    const stopped = developFixture()
+    const stopped = await developFixture()
     const controller = new AbortController()
     controller.abort()
     const silent = scriptedSession(() => {
@@ -625,7 +640,7 @@ describe('execution-dev task turns', () => {
       expect.objectContaining({ taskId: 't1', state: 'blocked', reason: stoppedReason }),
     ])
 
-    const interrupted = developFixture()
+    const interrupted = await developFixture()
     mkdirSync(join(interrupted.workspace, 'src'), { recursive: true })
     writeFileSync(join(interrupted.workspace, 'src/a.ts'), 'work in progress\n')
     const aborted = scriptedSession((turn) => abortedRun(turn, '宿主停止'))
@@ -655,7 +670,7 @@ describe('execution-dev task turns', () => {
       reason: abortedOutcome.reason,
     })
 
-    const timed = developFixture()
+    const timed = await developFixture()
     const timeout = scriptedSession((turn) => timeoutRun(turn, '回合超时'))
     const timeoutReason = '研发回合超时：回合超时；现场保留，可继续修复'
 
@@ -673,7 +688,7 @@ describe('execution-dev task turns', () => {
 
   it('retries an uncompleted turn with failure feedback and records the delivered artifacts', async () => {
     const formalTest = formalTestScript([{ exitCode: 0 }])
-    const fixture = developFixture({
+    const fixture = await developFixture({
       formalTest,
       formalTestTimeoutSeconds: 25,
       previousTaskFailure: () => '上次失败：缺少依赖',
@@ -716,7 +731,7 @@ describe('execution-dev task turns', () => {
     expect(artifact).not.toBeNull()
     expect(evidence).not.toBeNull()
     if (!artifact || !evidence) throw new Error('delivered task is missing its artifacts')
-    const projectHead = git(fixture.project, ['rev-parse', 'HEAD'])
+    const projectHead = await git(fixture.project, ['rev-parse', 'HEAD'])
     expect(artifact).toMatchObject({
       taskId: 't1',
       acceptance: '文件存在且自验通过',
@@ -737,13 +752,15 @@ describe('execution-dev task turns', () => {
       testLog: formalTest.calls[0]?.logPath,
     })
     expect(artifact.reviewSha256).toBe(sha256OfText(JSON.stringify(review)))
-    expect(git(fixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('forgeloop: task t1')
-    expect(git(fixture.workspace, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
+    expect(await git(fixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('forgeloop: task t1')
+    expect(await git(fixture.workspace, ['status', '--porcelain', '--untracked-files=all'])).toBe(
+      '',
+    )
   })
 
   it('counts completed turns without file changes as failures and blocks when attempts are exhausted', async () => {
     const formalTest = formalTestScript([{ exitCode: 0 }])
-    const fixture = developFixture({ maxTaskAttempts: 2, formalTest })
+    const fixture = await developFixture({ maxTaskAttempts: 2, formalTest })
     const session = scriptedSession((request) => completedRun(request))
     const reason = '任务 t1 已尝试 2 次仍未通过自验；现场保留，等待修复或授权'
 
@@ -763,7 +780,7 @@ describe('execution-dev task turns', () => {
       { exitCode: 1, output: 'assertion failed: expected 1 got 2' },
       { exitCode: 0, output: 'ok' },
     ])
-    const fixture = developFixture({ formalTest, formalTestTimeoutSeconds: 25 })
+    const fixture = await developFixture({ formalTest, formalTestTimeoutSeconds: 25 })
     let turn = 0
     const session = scriptedSession((request) => {
       turn += 1
@@ -787,7 +804,7 @@ describe('execution-dev task turns', () => {
     expect(session.calls[1]?.prompt).toContain('assertion failed: expected 1 got 2')
     expect(session.calls[1]?.prompt).toContain('请在同一工作区修复后继续。')
     expect(readFileSync(join(fixture.workspace, 'src/a.ts'), 'utf8')).toBe('fixed\n')
-    expect(git(fixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('forgeloop: task t1')
+    expect(await git(fixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('forgeloop: task t1')
   })
 
   it('retries when the formal test removes the only file change before capture', async () => {
@@ -801,7 +818,7 @@ describe('execution-dev task turns', () => {
       if (testRuns === 1) rmSync(join(workspace, 'src/a.ts'), { force: true })
       return result
     }
-    const fixture = developFixture({ formalTest })
+    const fixture = await developFixture({ formalTest })
     workspace = fixture.workspace
     let turn = 0
     const session = scriptedSession((request) => {
@@ -820,12 +837,12 @@ describe('execution-dev task turns', () => {
       '上一次研发没有产生任何文件改动。请真正实现任务目标。',
     )
     expect(readFileSync(join(fixture.workspace, 'src/a.ts'), 'utf8')).toBe('attempt 2\n')
-    expect(git(fixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('forgeloop: task t1')
+    expect(await git(fixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('forgeloop: task t1')
     expect(fixture.repo.taskRuns(REQ_ID, 1)[0]).toMatchObject({ state: 'delivered' })
   })
 
   it('blocks a task when its formal self-check is aborted or times out', async () => {
-    const abortedFixture = developFixture({
+    const abortedFixture = await developFixture({
       formalTest: formalTestScript([{ aborted: true, exitCode: null }]),
     })
     const abortedSession = scriptedSession((request) => {
@@ -844,12 +861,12 @@ describe('execution-dev task turns', () => {
       state: 'blocked',
       reason: '研发自验被停止：现场保留，可继续执行',
     })
-    expect(git(abortedFixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('base')
-    expect(git(abortedFixture.workspace, ['status', '--porcelain', '--untracked-files=all'])).toBe(
-      '?? src/a.ts',
-    )
+    expect(await git(abortedFixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('base')
+    expect(
+      await git(abortedFixture.workspace, ['status', '--porcelain', '--untracked-files=all']),
+    ).toBe('?? src/a.ts')
 
-    const timedFixture = developFixture({
+    const timedFixture = await developFixture({
       formalTestTimeoutSeconds: 30,
       formalTest: formalTestScript([{ timedOut: true, exitCode: null }]),
     })
@@ -867,17 +884,17 @@ describe('execution-dev task turns', () => {
       state: 'blocked',
       reason: timeoutReason,
     })
-    expect(git(timedFixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('base')
+    expect(await git(timedFixture.workspace, ['log', '-1', '--pretty=%s'])).toBe('base')
   })
 })
 
 describe('candidate integration failure branches', () => {
-  it('refuses to commit when no check command is configured', () => {
-    const project = makeProject()
-    const candidate = candidateFor(project.dir)
+  it('refuses to commit when no check command is configured', async () => {
+    const project = await makeProject()
+    const candidate = await candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
 
-    const result = integrate(project.dir, candidate, evidence, [])
+    const result = await integrate(project.dir, candidate, evidence, [])
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(false)
@@ -887,22 +904,22 @@ describe('candidate integration failure branches', () => {
     const log = readFileSync(result.checkLogPath, 'utf8')
     expect(log).toContain('未配置提交检查命令')
     expect(result.checkSha256).toBe(sha256OfText(log))
-    expect(git(project.dir, ['show', '--name-only', '--pretty=format:', 'HEAD'])).not.toBe(
+    expect(await git(project.dir, ['show', '--name-only', '--pretty=format:', 'HEAD'])).not.toBe(
       'docs/a.md',
     )
-    expect(git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
+    expect(await git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
     expect(existsSync(join(evidence, 'check-worktree'))).toBe(false)
     expect(existsSync(join(project.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
   })
 
-  it('reports a failing check with its command, exit code and log digest without committing', () => {
-    const project = makeProject()
-    const candidate = candidateFor(project.dir)
+  it('reports a failing check with its command, exit code and log digest without committing', async () => {
+    const project = await makeProject()
+    const candidate = await candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
     const check = [process.execPath, '-e', 'process.exit(1)']
-    const headBefore = git(project.dir, ['rev-parse', 'HEAD'])
+    const headBefore = await git(project.dir, ['rev-parse', 'HEAD'])
 
-    const result = integrate(project.dir, candidate, evidence, check)
+    const result = await integrate(project.dir, candidate, evidence, check)
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(false)
@@ -913,21 +930,21 @@ describe('candidate integration failure branches', () => {
     const log = readFileSync(result.checkLogPath, 'utf8')
     expect(log.startsWith(`${JSON.stringify(check)}\nexit_code: 1\n`)).toBe(true)
     expect(result.checkSha256).toBe(sha256OfText(log))
-    expect(git(project.dir, ['rev-parse', 'HEAD'])).toBe(headBefore)
-    expect(git(project.dir, ['status', '--porcelain'])).toBe('')
+    expect(await git(project.dir, ['rev-parse', 'HEAD'])).toBe(headBefore)
+    expect(await git(project.dir, ['status', '--porcelain'])).toBe('')
     expect(existsSync(join(evidence, 'check-worktree'))).toBe(false)
     expect(existsSync(join(project.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
   })
 
-  it('blocks when the project HEAD or worktree changes while the check runs', () => {
-    const project = makeProject()
-    const candidate = candidateFor(project.dir)
+  it('blocks when the project HEAD or worktree changes while the check runs', async () => {
+    const project = await makeProject()
+    const candidate = await candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
     const headScript = `require('node:child_process').execFileSync('git', ['-C', ${JSON.stringify(project.dir)}, 'commit', '--allow-empty', '-m', 'concurrent'], { stdio: 'ignore' })`
     const headBefore = candidate.baseline
     const changedMessage = '检查期间项目工作树、暂存区或 HEAD 发生变化；保留双方现场，未提交'
 
-    const headResult = integrate(project.dir, candidate, evidence, [
+    const headResult = await integrate(project.dir, candidate, evidence, [
       process.execPath,
       '-e',
       headScript,
@@ -938,7 +955,7 @@ describe('candidate integration failure branches', () => {
     expect(headResult.commitSha).toBe('')
     expect(headResult.files).toEqual([])
     expect(headResult.detail).toBe(changedMessage)
-    expect(git(project.dir, ['rev-parse', 'HEAD'])).not.toBe(headBefore)
+    expect(await git(project.dir, ['rev-parse', 'HEAD'])).not.toBe(headBefore)
     expect(existsSync(join(project.dir, 'docs/a.md'))).toBe(false)
     const headLog = readFileSync(headResult.checkLogPath, 'utf8')
     expect(headLog).toContain('exit_code: 0')
@@ -947,13 +964,13 @@ describe('candidate integration failure branches', () => {
     expect(existsSync(join(evidence, 'check-worktree'))).toBe(false)
     expect(existsSync(join(project.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
 
-    const other = makeProject()
-    const otherCandidate = candidateFor(other.dir)
+    const other = await makeProject()
+    const otherCandidate = await candidateFor(other.dir)
     const otherEvidence = tempDir('forgeloop-gap-integration-evidence-')
     const untrackedPath = join(other.dir, 'concurrent.txt')
     const untrackedScript = `require('node:fs').writeFileSync(${JSON.stringify(untrackedPath)}, 'work\\n')`
 
-    const dirtyResult = integrate(other.dir, otherCandidate, otherEvidence, [
+    const dirtyResult = await integrate(other.dir, otherCandidate, otherEvidence, [
       process.execPath,
       '-e',
       untrackedScript,
@@ -962,8 +979,8 @@ describe('candidate integration failure branches', () => {
     expect(dirtyResult.ok).toBe(false)
     expect(dirtyResult.checkPassed).toBe(true)
     expect(dirtyResult.detail).toBe(changedMessage)
-    expect(git(other.dir, ['rev-parse', 'HEAD'])).toBe(otherCandidate.baseline)
-    expect(git(other.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe(
+    expect(await git(other.dir, ['rev-parse', 'HEAD'])).toBe(otherCandidate.baseline)
+    expect(await git(other.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe(
       '?? concurrent.txt',
     )
     expect(readFileSync(untrackedPath, 'utf8')).toBe('work\n')
@@ -972,16 +989,20 @@ describe('candidate integration failure branches', () => {
     expect(existsSync(join(other.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
   })
 
-  it('blocks when the candidate cannot be applied cleanly to the real project', () => {
-    const project = makeProject()
-    const candidate = candidateFor(project.dir)
+  it('blocks when the candidate cannot be applied cleanly to the real project', async () => {
+    const project = await makeProject()
+    const candidate = await candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
     writeFileSync(join(project.dir, '.git/info/exclude'), 'docs/a.md\n', { flag: 'a' })
     mkdirSync(join(project.dir, 'docs'), { recursive: true })
     writeFileSync(join(project.dir, 'docs/a.md'), 'other work\n')
-    expect(git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
+    expect(await git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
 
-    const result = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
+    const result = await integrate(project.dir, candidate, evidence, [
+      'node',
+      '-e',
+      'process.exit(0)',
+    ])
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(true)
@@ -989,39 +1010,43 @@ describe('candidate integration failure branches', () => {
     expect(result.files).toEqual([])
     expect(result.detail.startsWith('提交前候选无法干净应用：')).toBe(true)
     expect(result.detail).toContain('docs/a.md')
-    expect(git(project.dir, ['rev-parse', 'HEAD'])).toBe(candidate.baseline)
+    expect(await git(project.dir, ['rev-parse', 'HEAD'])).toBe(candidate.baseline)
     expect(readFileSync(join(project.dir, 'docs/a.md'), 'utf8')).toBe('other work\n')
     expect(result.checkSha256).toBe(sha256OfText(readFileSync(result.checkLogPath, 'utf8')))
     expect(existsSync(join(evidence, 'check-worktree'))).toBe(false)
     expect(existsSync(join(project.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
   })
 
-  it('resets staging when the staged bytes do not match the approved candidate', () => {
-    const project = makeProject()
-    const candidate = candidateFor(project.dir)
+  it('resets staging when the staged bytes do not match the approved candidate', async () => {
+    const project = await makeProject()
+    const candidate = await candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
-    git(project.dir, ['config', 'diff.noprefix', 'true'])
-    const headBefore = git(project.dir, ['rev-parse', 'HEAD'])
+    await git(project.dir, ['config', 'diff.noprefix', 'true'])
+    const headBefore = await git(project.dir, ['rev-parse', 'HEAD'])
 
-    const result = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
+    const result = await integrate(project.dir, candidate, evidence, [
+      'node',
+      '-e',
+      'process.exit(0)',
+    ])
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(true)
     expect(result.files).toEqual(['docs/a.md'])
     expect(result.commitSha).toBe('')
     expect(result.detail).toBe('暂存内容与获准候选不一致；已撤销本次暂存，未提交')
-    expect(git(project.dir, ['rev-parse', 'HEAD'])).toBe(headBefore)
-    expect(git(project.dir, ['diff', '--cached', '--name-only'])).toBe('')
+    expect(await git(project.dir, ['rev-parse', 'HEAD'])).toBe(headBefore)
+    expect(await git(project.dir, ['diff', '--cached', '--name-only'])).toBe('')
     expect(readFileSync(join(project.dir, 'docs/a.md'), 'utf8')).toBe('change\n')
     expect(result.checkSha256).toBe(sha256OfText(readFileSync(result.checkLogPath, 'utf8')))
     expect(existsSync(join(project.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
   })
 
-  it('undoes the staged candidate when commit creation fails and only bypasses a missing pre-commit config', () => {
+  it('undoes the staged candidate when commit creation fails and only bypasses a missing pre-commit config', async () => {
     const previousAllowNoConfig = process.env.PRE_COMMIT_ALLOW_NO_CONFIG
     delete process.env.PRE_COMMIT_ALLOW_NO_CONFIG
-    const project = makeProject()
-    const candidate = candidateFor(project.dir)
+    const project = await makeProject()
+    const candidate = await candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
     const envFile = join(tempDir('forgeloop-gap-hook-'), 'env.txt')
     writeFileSync(
@@ -1029,17 +1054,21 @@ describe('candidate integration failure branches', () => {
       `#!/bin/sh\nprintf '%s' "\${PRE_COMMIT_ALLOW_NO_CONFIG-}" > "${envFile}"\nexit 1\n`,
       { mode: 0o755 },
     )
-    const headBefore = git(project.dir, ['rev-parse', 'HEAD'])
+    const headBefore = await git(project.dir, ['rev-parse', 'HEAD'])
 
-    const result = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
+    const result = await integrate(project.dir, candidate, evidence, [
+      'node',
+      '-e',
+      'process.exit(0)',
+    ])
 
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(true)
     expect(result.files).toEqual(['docs/a.md'])
     expect(result.commitSha).toBe('')
     expect(result.detail.startsWith('创建提交失败：')).toBe(true)
-    expect(git(project.dir, ['rev-parse', 'HEAD'])).toBe(headBefore)
-    expect(git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
+    expect(await git(project.dir, ['rev-parse', 'HEAD'])).toBe(headBefore)
+    expect(await git(project.dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('')
     expect(existsSync(join(project.dir, 'docs/a.md'))).toBe(false)
     expect(result.checkSha256).toBe(sha256OfText(readFileSync(result.checkLogPath, 'utf8')))
     expect(existsSync(join(evidence, 'check-worktree'))).toBe(false)
@@ -1049,11 +1078,11 @@ describe('candidate integration failure branches', () => {
 
     // 有配置时不得传入绕过变量，否则真实钩子会被静默跳过。
     const configuredDir = tempDir('forgeloop-gap-project-config-')
-    initRepo(configuredDir, {
+    await initRepo(configuredDir, {
       'README.md': 'base\n',
       '.pre-commit-config.yaml': 'repos: []\n',
     })
-    const configuredCandidate = candidateFor(configuredDir)
+    const configuredCandidate = await candidateFor(configuredDir)
     const configuredEvidence = tempDir('forgeloop-gap-integration-evidence-')
     const configuredEnv = join(tempDir('forgeloop-gap-hook-'), 'env.txt')
     writeFileSync(
@@ -1062,7 +1091,7 @@ describe('candidate integration failure branches', () => {
       { mode: 0o755 },
     )
 
-    const configured = integrate(configuredDir, configuredCandidate, configuredEvidence, [
+    const configured = await integrate(configuredDir, configuredCandidate, configuredEvidence, [
       'node',
       '-e',
       'process.exit(0)',
@@ -1071,19 +1100,23 @@ describe('candidate integration failure branches', () => {
     expect(configured.ok).toBe(true)
     expect(configured.checkPassed).toBe(true)
     expect(readFileSync(configuredEnv, 'utf8')).toBe('')
-    expect(git(configuredDir, ['log', '-1', '--pretty=%s'])).toBe('feat: test candidate')
+    expect(await git(configuredDir, ['log', '-1', '--pretty=%s'])).toBe('feat: test candidate')
     if (previousAllowNoConfig !== undefined) {
       process.env.PRE_COMMIT_ALLOW_NO_CONFIG = previousAllowNoConfig
     }
   })
 
-  it('refuses a dirty project and a moved baseline with exact messages and releases the lock', () => {
-    const project = makeProject()
-    const candidate = candidateFor(project.dir)
+  it('refuses a dirty project and a moved baseline with exact messages and releases the lock', async () => {
+    const project = await makeProject()
+    const candidate = await candidateFor(project.dir)
     const evidence = tempDir('forgeloop-gap-integration-evidence-')
     writeFileSync(join(project.dir, 'README.md'), 'dirty\n')
 
-    const dirty = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
+    const dirty = await integrate(project.dir, candidate, evidence, [
+      'node',
+      '-e',
+      'process.exit(0)',
+    ])
 
     expect(dirty).toEqual({
       ok: false,
@@ -1096,13 +1129,17 @@ describe('candidate integration failure branches', () => {
     })
     expect(existsSync(join(project.dir, '.git', 'forgeloop-commit.lock'))).toBe(false)
 
-    git(project.dir, ['checkout', '--', 'README.md'])
+    await git(project.dir, ['checkout', '--', 'README.md'])
     writeFileSync(join(project.dir, 'extra.txt'), 'extra work\n')
-    git(project.dir, ['add', 'extra.txt'])
-    git(project.dir, ['commit', '-qm', 'concurrent work'])
-    const movedHead = git(project.dir, ['rev-parse', 'HEAD'])
+    await git(project.dir, ['add', 'extra.txt'])
+    await git(project.dir, ['commit', '-qm', 'concurrent work'])
+    const movedHead = await git(project.dir, ['rev-parse', 'HEAD'])
 
-    const moved = integrate(project.dir, candidate, evidence, ['node', '-e', 'process.exit(0)'])
+    const moved = await integrate(project.dir, candidate, evidence, [
+      'node',
+      '-e',
+      'process.exit(0)',
+    ])
 
     expect(moved).toEqual({
       ok: false,

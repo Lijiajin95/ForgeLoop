@@ -109,7 +109,7 @@ describe('artifact logs', () => {
     expect(filtered.data.errorMatches).toBe(2)
   })
 
-  it('exposes the plugin runtime log as a built-in artifact', () => {
+  it('exposes the plugin runtime log as a built-in artifact', async () => {
     const path = join(dir, '.forgeloop', 'projects', 'testproj', 'logs', 'plugin.log')
     write(
       path,
@@ -124,7 +124,7 @@ describe('artifact logs', () => {
     expect(read.data.path).toBe(path)
     expect(read.data.totalLines).toBe(2)
     expect(read.data.errorMatches).toBe(1)
-    const state = readArtifactState(config, 'forgeloop-plugin')
+    const state = await readArtifactState(config, 'forgeloop-plugin')
     expect(state.ok).toBe(true)
     if (!state.ok) return
     expect(state.data.profile).toBe('')
@@ -246,9 +246,9 @@ describe('artifact logs', () => {
 })
 
 describe('artifact runtime state', () => {
-  it('reports the installed version, live identity and log facts', () => {
+  it('reports the installed version, live identity and log facts', async () => {
     installProfile()
-    const state = readArtifactState(config, 'host')
+    const state = await readArtifactState(config, 'host')
     expect(state.ok).toBe(true)
     if (!state.ok) return
     expect(state.data.label).toBe('ForgeLoop 宿主')
@@ -270,7 +270,7 @@ describe('artifact runtime state', () => {
     expect(state.data.logs[1]).toMatchObject({ id: 'empty', exists: false, error: '文件不存在' })
   })
 
-  it('reads a configured package and entry files instead of a fixed name', () => {
+  it('reads a configured package and entry files instead of a fixed name', async () => {
     const root = join(dir, 'profiles', 'web', 'node_modules', 'other-app')
     write(join(root, 'package.json'), JSON.stringify({ name: 'other-app', version: '2.0.0' }))
     write(join(root, 'dist', 'main.js'), 'export const main = 1\n')
@@ -296,7 +296,7 @@ describe('artifact runtime state', () => {
       },
       dir,
     )
-    const state = readArtifactState(custom, 'other')
+    const state = await readArtifactState(custom, 'other')
     expect(state.ok).toBe(true)
     if (!state.ok) return
     expect(state.data.runtime?.installedRoot).toBe(root)
@@ -305,20 +305,20 @@ describe('artifact runtime state', () => {
     expect(state.data.runtime?.identityPresent).toBe(false)
   })
 
-  it('flags an identity that no longer matches the installed files', () => {
+  it('flags an identity that no longer matches the installed files', async () => {
     installProfile()
     write(
       join(dir, 'profiles', 'web', 'node_modules', 'forgeloop-dsh', 'lib', 'index.js'),
       'changed\n',
     )
-    const state = readArtifactState(config, 'host')
+    const state = await readArtifactState(config, 'host')
     expect(state.ok).toBe(true)
     if (!state.ok) return
     expect(state.data.runtime?.matchesInstalled).toBe(false)
     expect(state.data.runtime?.detail).toContain('不一致')
   })
 
-  it('handles a missing, malformed or partially typed runtime identity', () => {
+  it('handles a missing, malformed or partially typed runtime identity', async () => {
     installProfile()
     const identityPath = join(
       dir,
@@ -330,14 +330,14 @@ describe('artifact runtime state', () => {
     )
 
     rmSync(identityPath)
-    const missing = readArtifactState(config, 'host')
+    const missing = await readArtifactState(config, 'host')
     expect(missing.ok).toBe(true)
     if (!missing.ok) return
     expect(missing.data.runtime?.identityPresent).toBe(false)
     expect(missing.data.runtime?.detail).toContain('没有运行身份文件')
 
     write(identityPath, '{bad')
-    const malformed = readArtifactState(config, 'host')
+    const malformed = await readArtifactState(config, 'host')
     expect(malformed.ok).toBe(true)
     if (!malformed.ok) return
     expect(malformed.data.runtime?.identityPresent).toBe(false)
@@ -354,7 +354,7 @@ describe('artifact runtime state', () => {
         serviceSha256: 5,
       }),
     )
-    const partial = readArtifactState(config, 'host')
+    const partial = await readArtifactState(config, 'host')
     expect(partial.ok).toBe(true)
     if (!partial.ok) return
     expect(partial.data.runtime).toMatchObject({
@@ -368,10 +368,10 @@ describe('artifact runtime state', () => {
     expect(partial.data.runtime?.detail).toContain('不一致')
   })
 
-  it('reports an identity whose installed files cannot be hashed', () => {
+  it('reports an identity whose installed files cannot be hashed', async () => {
     installProfile()
     rmSync(join(dir, 'profiles', 'web', 'node_modules', 'forgeloop-dsh', 'lib', 'index.js'))
-    const state = readArtifactState(config, 'host')
+    const state = await readArtifactState(config, 'host')
     expect(state.ok).toBe(true)
     if (!state.ok) return
     expect(state.data.runtime?.identityPresent).toBe(true)
@@ -379,7 +379,7 @@ describe('artifact runtime state', () => {
     expect(state.data.runtime?.detail).toContain('无法读取安装文件摘要')
   })
 
-  it('reports a registered log path that is a directory without throwing', () => {
+  it('reports a registered log path that is a directory without throwing', async () => {
     mkdirSync(join(dir, 'logs', 'dir'), { recursive: true })
     const withDirectory = resolveConfig(
       {
@@ -394,14 +394,14 @@ describe('artifact runtime state', () => {
       },
       dir,
     )
-    const state = readArtifactState(withDirectory, 'dir')
+    const state = await readArtifactState(withDirectory, 'dir')
     expect(state.ok).toBe(true)
     if (!state.ok) return
     expect(state.data.logs[0]).toMatchObject({ id: 'run', exists: true })
     expect(state.data.logs[0]?.error).not.toBe('')
   })
 
-  it('reports a missing package and a logs-only artifact without inventing runtime', () => {
+  it('reports a missing package and a logs-only artifact without inventing runtime', async () => {
     const ghost = resolveConfig(
       {
         projectPath: dir,
@@ -415,22 +415,22 @@ describe('artifact runtime state', () => {
       },
       dir,
     )
-    const state = readArtifactState(ghost, 'ghost')
+    const state = await readArtifactState(ghost, 'ghost')
     expect(state.ok).toBe(true)
     if (!state.ok) return
     expect(state.data.runtime?.packagePresent).toBe(false)
     expect(state.data.runtime?.identityPresent).toBe(false)
     expect(state.data.runtime?.detail).toContain('没有安装产物')
 
-    const logsOnly = readArtifactState(config, 'logs-only')
+    const logsOnly = await readArtifactState(config, 'logs-only')
     expect(logsOnly.ok).toBe(true)
     if (!logsOnly.ok) return
     expect(logsOnly.data.runtime).toBeNull()
     expect(logsOnly.data.logs).toHaveLength(1)
   })
 
-  it('rejects an unknown artifact', () => {
-    expect(readArtifactState(config, 'nope')).toEqual({
+  it('rejects an unknown artifact', async () => {
+    expect(await readArtifactState(config, 'nope')).toEqual({
       ok: false,
       reason: '未登记研发制品：nope',
     })

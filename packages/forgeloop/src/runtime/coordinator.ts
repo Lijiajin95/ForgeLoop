@@ -121,13 +121,13 @@ export class Coordinator {
     setTimeout(() => void this.kickDelivery(), 90).unref()
     this.reliabilityTimer = setInterval(
       () => {
-        this.sampleReliability()
+        void this.sampleReliability()
       },
       Math.max(30, this.pollSeconds) * 1000,
     )
     this.reliabilityTimer.unref()
     setTimeout(() => {
-      this.sampleReliability()
+      void this.sampleReliability()
     }, 150).unref()
     setTimeout(() => void this.kick(), 50).unref()
   }
@@ -152,7 +152,7 @@ export class Coordinator {
     this.lock = undefined
   }
 
-  kick(): Promise<void> {
+  async kick(): Promise<void> {
     if (this.stopped) return Promise.resolve()
     if (this.ticking) return this.current ?? Promise.resolve()
     this.ticking = true
@@ -191,7 +191,7 @@ export class Coordinator {
     setTimeout(() => void this.kickOps(), 80).unref()
   }
 
-  kickDelivery(): Promise<void> {
+  async kickDelivery(): Promise<void> {
     if (this.stopped) return Promise.resolve()
     if (this.deliveryCurrent) return this.deliveryCurrent
     this.deliveryCurrent = this.deliveryTick()
@@ -211,10 +211,10 @@ export class Coordinator {
     await this.runtime.deployments.recoverInterrupted()
   }
 
-  private sampleReliability(): void {
+  private async sampleReliability(): Promise<void> {
     if (this.stopped) return
     try {
-      reliabilitySample(this.runtime.repo, this.runtime.config, () => new Date(this.now()))
+      await reliabilitySample(this.runtime.repo, this.runtime.config, () => new Date(this.now()))
     } catch (error) {
       this.logger.error(`[forgeloop] 可靠性指标采样失败：${errorMessage(error)}`, {
         event: 'coordinator.reliability',

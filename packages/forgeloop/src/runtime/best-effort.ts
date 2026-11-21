@@ -21,3 +21,14 @@ export async function bestEffortAsync(operation: () => Promise<void>): Promise<v
     return
   }
 }
+
+export async function bestEffortValueAsync<T>(
+  operation: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch {
+    return fallback
+  }
+}

@@ -197,7 +197,7 @@ describe('deployment and ops metrics recomputation', () => {
     expect(stats.ops.unresolved).toBe(1)
   })
 
-  it('keeps deployment intents separate from legacy deployment checks and windows them', () => {
+  it('keeps deployment intents separate from legacy deployment checks and windows them', async () => {
     for (const state of ['verified', 'failed', 'rolled_back', 'awaiting_approval'] as const) {
       intent({
         intentId: `dep-${state}`,
@@ -252,7 +252,7 @@ describe('deployment and ops metrics recomputation', () => {
       now: () => NOW,
       currentHead: () => null,
     })
-    const recent = dashboard.report('30d').runtime
+    const recent = (await dashboard.report('30d')).runtime
     expect(recent.deploymentIntents).toMatchObject({
       verified: 1,
       failed: 1,
@@ -264,7 +264,7 @@ describe('deployment and ops metrics recomputation', () => {
     // 旧的 requirement_deployments 仍按自己的分母统计，不与新通道合并或重复。
     expect(recent.deployment).toEqual({ pass: 1, total: 2, rate: 50 })
 
-    const all = dashboard.report('all').runtime
+    const all = (await dashboard.report('all')).runtime
     expect(all.deploymentIntents).toMatchObject({ verified: 2, failed: 1, rolledBack: 1, total: 4 })
     expect(all.deployment).toEqual({ pass: 1, total: 2, rate: 50 })
   })

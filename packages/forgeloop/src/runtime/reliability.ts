@@ -185,7 +185,7 @@ export interface ReliabilityDashboardOptions {
   readonly project: string
   readonly projectPath: string
   readonly now: () => Date
-  readonly currentHead?: () => string | null
+  readonly currentHead?: () => Promise<string | null>
   readonly snapshotPath?: string
   readonly sampleLimit?: number
   readonly snapshotHistoryLimit?: number
@@ -241,7 +241,7 @@ export class ReliabilityDashboard {
   private readonly projectPath: string
   private readonly now: () => Date
   private readonly snapshotPath: string
-  private readonly currentHead: () => string | null
+  private readonly currentHead: () => Promise<string | null>
   private readonly sampleLimit: number
   private readonly snapshotHistoryLimit: number
   private readonly minSampleIntervalMs: number
@@ -267,9 +267,9 @@ export class ReliabilityDashboard {
     this.sampleHeartbeatMs = options.sampleHeartbeatMs ?? RELIABILITY_SAMPLE_HEARTBEAT_MS
   }
 
-  report(window: ReliabilityWindow): ReliabilityReportView {
+  async report(window: ReliabilityWindow): Promise<ReliabilityReportView> {
     const now = this.now()
-    const snapshot = this.snapshotView(now)
+    const snapshot = await this.snapshotView(now)
     const measurement = this.measurementOf(snapshot, now)
     const asOf = new Date(measurement.asOf)
     const range = reliabilityWindowRange(window, asOf)
@@ -317,10 +317,10 @@ export class ReliabilityDashboard {
     }
   }
 
-  recordSampleIfDue(): boolean {
+  async recordSampleIfDue(): Promise<boolean> {
     const now = this.now()
     const latest = this.repository.latestReliabilitySample(this.project)
-    const measurement = this.measurementOf(this.snapshotView(now), now)
+    const measurement = this.measurementOf(await this.snapshotView(now), now)
     const facts = this.facts()
     const revision = this.revisionOf(facts, measurement)
     const lastAt = latest ? Date.parse(latest.sampledAt) : Number.NaN
@@ -465,10 +465,10 @@ export class ReliabilityDashboard {
     return points
   }
 
-  private readCurrentHead(): string | null {
+  private async readCurrentHead(): Promise<string | null> {
     if (this.headLoaded && Date.now() - this.headAt < 60_000) return this.headValue
     try {
-      this.headValue = headCommit(this.projectPath)
+      this.headValue = await headCommit(this.projectPath)
     } catch {
       this.headValue = null
     }
@@ -477,10 +477,14 @@ export class ReliabilityDashboard {
     return this.headValue
   }
 
-  private commitsBehind(oldHead: string, currentHead: string): number | null {
+  private async commitsBehind(oldHead: string, currentHead: string): Promise<number | null> {
     const key = `${oldHead}..${currentHead}`
     if (this.behindCache.has(key)) return this.behindCache.get(key) ?? null
-    const result = git(this.projectPath, ['rev-list', '--count', `${oldHead}..${currentHead}`])
+    const result = await git(this.projectPath, [
+      'rev-list',
+      '--count',
+      `${oldHead}..${currentHead}`,
+    ])
     const value =
       result.code === 0 && /^\d+$/.test(result.stdout.trim()) ? Number(result.stdout.trim()) : null
     this.behindCache.set(key, value)
@@ -521,7 +525,7 @@ export class ReliabilityDashboard {
     return read
   }
 
-  private snapshotView(now: Date): ReliabilitySnapshotView {
+  private async snapshotView(now: Date): Promise<ReliabilitySnapshotView> {
     const read = this.readSnapshot()
     if (read.kind === 'missing') {
       return {
@@ -568,7 +572,7 @@ export class ReliabilityDashboard {
       }
     }
     const snapshot = read.snapshot
-    const current = this.currentHead()
+    const current = await this.currentHead()
     const staleness = snapshotStaleness(snapshot, current, now)
     return {
       availability: staleness.stale ? 'stale' : 'fresh',
@@ -579,7 +583,7 @@ export class ReliabilityDashboard {
       dirty: snapshot.git.dirty,
       behindCommits:
         current && snapshot.git.head !== current
-          ? this.commitsBehind(snapshot.git.head, current)
+          ? await this.commitsBehind(snapshot.git.head, current)
           : current
             ? 0
             : null,
@@ -762,7 +766,7 @@ export function reliabilityReport(
   config: ForgeLoopConfig,
   now: () => Date,
   window: ReliabilityWindow,
-): ReliabilityReportView {
+): Promise<ReliabilityReportView> {
   return dashboardFor(repository, config, now).report(window)
 }
 
@@ -770,6 +774,6 @@ export function reliabilitySample(
   repository: Repository,
   config: ForgeLoopConfig,
   now: () => Date,
-): boolean {
+): Promise<boolean> {
   return dashboardFor(repository, config, now).recordSampleIfDue()
 }

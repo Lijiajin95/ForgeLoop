@@ -100,8 +100,8 @@ export class DevSessionRegistry {
     const selectedSessionId = (binding?.sessionId ?? input.selectedSessionId) || null
     const selectedBy = binding?.selectedBy ?? input.selectedBy
     const reason = binding?.reason ?? input.selectionReason
-    if (!selectedSessionId) return this.createFresh({ ...input, selectedBy, reason })
-    return this.acquireSelected({
+    if (!selectedSessionId) return await this.createFresh({ ...input, selectedBy, reason })
+    return await this.acquireSelected({
       ...input,
       binding,
       sessionId: selectedSessionId,
@@ -129,8 +129,12 @@ export class DevSessionRegistry {
           detail: `需求绑定的研发会话 ${input.sessionId} 不存在；不能静默换会话`,
         }
       }
-      if (input.binding) return this.rebindAfterFailure(input, '会话记录缺失')
-      return this.createFresh({ ...input, selectedBy: input.selectedBy, reason: input.reason })
+      if (input.binding) return await this.rebindAfterFailure(input, '会话记录缺失')
+      return await this.createFresh({
+        ...input,
+        selectedBy: input.selectedBy,
+        reason: input.reason,
+      })
     }
     const acquired = await this.acquireExisting({
       ...input,
@@ -138,7 +142,7 @@ export class DevSessionRegistry {
       reason: input.reason,
     })
     if (acquired.ok || acquired.state === 'busy' || !recover) return acquired
-    return this.rebindAfterFailure(input, acquired.detail)
+    return await this.rebindAfterFailure(input, acquired.detail)
   }
 
   private async rebindAfterFailure(
@@ -146,7 +150,7 @@ export class DevSessionRegistry {
     detail: string,
   ): Promise<AcquireDevSessionResult> {
     const reason = `原研发会话不可用（${clipDetail(detail)}），改派新会话`
-    return this.createFresh({
+    return await this.createFresh({
       ...input,
       selectedBy: 'recovery',
       reason: reason.length > 500 ? reason.slice(0, 500) : reason,
@@ -174,7 +178,7 @@ export class DevSessionRegistry {
     }
     try {
       const binding = this.deps.repo.requirementDevSession(input.reqId, input.requirementVersion)
-      const status = this.deps.executionDev.workspaceStatus(input.workspace)
+      const status = await this.deps.executionDev.workspaceStatus(input.workspace)
       let baselineCommit = binding?.baselineCommit ?? ''
       let snapshotCommit = binding?.snapshotCommit ?? ''
       let fresh = false
@@ -184,7 +188,7 @@ export class DevSessionRegistry {
             `研发会话 ${input.sessionId} 的工作区有未提交改动，不能按新需求基线刷新；保留现场等待人工处理`,
           )
         }
-        const prepared = this.deps.executionDev.prepareDevWorkspace(input.workspace)
+        const prepared = await this.deps.executionDev.prepareDevWorkspace(input.workspace)
         baselineCommit = prepared.baselineCommit
         snapshotCommit = prepared.snapshotCommit
         fresh = true
@@ -234,7 +238,7 @@ export class DevSessionRegistry {
     const sessionId = `session-fl-dev-${randomUUID()}`
     const workspace = devSessionWorkspaceDir(this.deps.config, sessionId)
     try {
-      const prepared = this.deps.executionDev.prepareDevWorkspace(workspace)
+      const prepared = await this.deps.executionDev.prepareDevWorkspace(workspace)
       this.deps.repo.upsertDevSession({
         sessionId,
         project: this.deps.config.project,

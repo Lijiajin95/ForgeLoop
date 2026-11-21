@@ -96,12 +96,12 @@ describe('candidate build readiness', () => {
 })
 
 describe('admitted delivery lookup', () => {
-  it('requires an admission before listing plans', () => {
+  it('requires an admission before listing plans', async () => {
     const p = pipeline({ currentAdmission: () => null })
-    expect(p['admittedDelivery']('req-1')).toBeNull()
+    expect(await p['admittedDelivery']('req-1')).toBeNull()
   })
 
-  it('scans plans newest first and returns the first with a candidate', () => {
+  it('scans plans newest first and returns the first with a candidate', async () => {
     const calls: number[] = []
     const p = pipeline({
       repo: {
@@ -115,7 +115,7 @@ describe('admitted delivery lookup', () => {
         commitForCandidate: () => ({ commitSha: 's' }),
       },
     })
-    expect(p['admittedDelivery']('req-1')).toMatchObject({ plan: { planVersion: 1 } })
+    expect(await p['admittedDelivery']('req-1')).toMatchObject({ plan: { planVersion: 1 } })
     expect(calls).toEqual([2, 1])
     const none = pipeline({
       repo: {
@@ -126,17 +126,17 @@ describe('admitted delivery lookup', () => {
         commitForCandidate: () => null,
       },
     })
-    expect(none['admittedDelivery']('req-1')).toBeNull()
+    expect(await none['admittedDelivery']('req-1')).toBeNull()
   })
 })
 
 describe('protected file hashing', () => {
-  it('hashes existing files, marks missing ones empty and reports changes', () => {
+  it('hashes existing files, marks missing ones empty and reports changes', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'forgeloop-candidate-gap-'))
     try {
       writeFileSync(join(dir, 'a.txt'), 'a')
       const p = pipeline()
-      const hashes = p['protectedFileHashes'](dir, ['a.txt', 'missing.txt'])
+      const hashes = await p['protectedFileHashes'](dir, ['a.txt', 'missing.txt'])
       expect(hashes.get('a.txt')).toMatch(/^[0-9a-f]{64}$/)
       expect(hashes.get('missing.txt')).toBe('')
       expect(p['protectedFilesChanged'](dir, hashes, [])).toEqual([])
@@ -151,16 +151,16 @@ describe('protected file hashing', () => {
 })
 
 describe('build entry failures', () => {
-  it('reports a missing candidate before touching materials', () => {
+  it('reports a missing candidate before touching materials', async () => {
     const p = pipeline({ currentAdmission: () => null })
-    expect(p['buildAdmittedCandidate']({ reqId: 'req-1', by: 'owner' })).toMatchObject({
+    expect(await p['buildAdmittedCandidate']({ reqId: 'req-1', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_missing',
       message: '需求 req-1 没有可构建的新链路候选',
     })
   })
 
-  it('propagates material validation failures', () => {
+  it('propagates material validation failures', async () => {
     const p = pipeline({
       validateBuildMaterials: () => ({
         ok: false,
@@ -175,7 +175,7 @@ describe('build entry failures', () => {
         commitForCandidate: () => ({ commitSha: 's' }),
       },
     })
-    expect(p['buildAdmittedCandidate']({ reqId: 'req-1', by: 'owner' })).toMatchObject({
+    expect(await p['buildAdmittedCandidate']({ reqId: 'req-1', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'material_mismatch',
       message: '材料不一致',

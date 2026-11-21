@@ -36,15 +36,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-requirement-gate-'))
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
   return dir
 }
 
@@ -242,8 +242,8 @@ function submit(text: string, session: string): string {
   return (submitted.data as { reqId: string }).reqId
 }
 
-beforeEach(() => {
-  project = makeProject()
+beforeEach(async () => {
+  project = await makeProject()
   runtime = makeRuntime(gateRunner({ failVerifications: 4 }))
 })
 

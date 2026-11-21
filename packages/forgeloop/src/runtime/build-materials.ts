@@ -31,8 +31,8 @@ export type BuildMaterialsResult =
   | { ok: true; diffPath: string; protectedFiles: string[]; workspaceSha256: string }
   | { ok: false; code: string; message: string }
 
-function outsideWorkspaceChanges(source: string): string[] {
-  return requireGit(source, ['status', '--porcelain=v1', '--untracked-files=all'])
+async function outsideWorkspaceChanges(source: string): Promise<string[]> {
+  return (await requireGit(source, ['status', '--porcelain=v1', '--untracked-files=all']))
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
@@ -40,8 +40,8 @@ function outsideWorkspaceChanges(source: string): string[] {
     .filter((path) => path !== '' && !path.startsWith(VERIFICATION_MATERIAL_DIR))
 }
 
-function listTrackedFiles(source: string): string[] {
-  return requireGit(source, ['ls-files'])
+async function listTrackedFiles(source: string): Promise<string[]> {
+  return (await requireGit(source, ['ls-files']))
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
@@ -54,16 +54,16 @@ export class BuildMaterialValidator {
     return { ok: false, code, message }
   }
 
-  validateBuildMaterials(input: BuildMaterialsInput): BuildMaterialsResult {
+  async validateBuildMaterials(input: BuildMaterialsInput): Promise<BuildMaterialsResult> {
     const verification = this.checkVerificationMaterial(input)
     if (!verification.ok) return verification
     const review = this.checkBusinessReviewMaterial(input)
     if (!review.ok) return review
     const candidate = this.checkCandidateMaterial(input)
     if (!candidate.ok) return candidate
-    const commit = this.checkCommitMaterial(input, candidate.value.diffNames)
+    const commit = await this.checkCommitMaterial(input, candidate.value.diffNames)
     if (!commit.ok) return commit
-    const workspace = this.checkVerificationWorkspace(input, verification.value.canonical)
+    const workspace = await this.checkVerificationWorkspace(input, verification.value.canonical)
     if (!workspace.ok) return workspace
     return {
       ok: true,
@@ -172,10 +172,10 @@ export class BuildMaterialValidator {
     return { ok: true, value: { diffPath, diffNames } }
   }
 
-  private checkCommitMaterial(
+  private async checkCommitMaterial(
     input: BuildMaterialsInput,
     diffNames: readonly string[],
-  ): BuildMaterialCheck<null> {
+  ): Promise<BuildMaterialCheck<null>> {
     if (!input.requireCommit) return { ok: true, value: null }
     const { commit, candidate, verification, plan } = input
     if (!commit || commit.commitSha === '') {
@@ -191,7 +191,7 @@ export class BuildMaterialValidator {
         '受控提交与当前候选/需求/方案不一致；不能构建',
       )
     }
-    const commitExists = runCommand(
+    const commitExists = await runCommand(
       'git',
       ['cat-file', '-e', `${commit.commitSha}^{commit}`],
       this.projectPath,
@@ -203,13 +203,15 @@ export class BuildMaterialValidator {
         `受控提交 ${commit.commitSha.slice(0, 12)} 在真实项目中不存在；不能构建`,
       )
     }
-    const commitFiles = requireGit(this.projectPath, [
-      'diff-tree',
-      '--no-commit-id',
-      '--name-only',
-      '-r',
-      commit.commitSha,
-    ])
+    const commitFiles = (
+      await requireGit(this.projectPath, [
+        'diff-tree',
+        '--no-commit-id',
+        '--name-only',
+        '-r',
+        commit.commitSha,
+      ])
+    )
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
@@ -230,41 +232,48 @@ export class BuildMaterialValidator {
     return { ok: true, value: null }
   }
 
-  private checkVerificationWorkspace(
+  private async checkVerificationWorkspace(
     input: BuildMaterialsInput,
     canonical: Record<string, unknown>,
-  ): BuildMaterialCheck<{ protectedFiles: string[]; workspaceSha256: string }> {
+  ): Promise<BuildMaterialCheck<{ protectedFiles: string[]; workspaceSha256: string }>> {
     const { verification } = input
     const source = join(verification.evidenceDir, 'workspace')
     if (!existsSync(source)) {
       return this.failure('verification_workspace_missing', `独立测试工作区不存在：${source}`)
     }
-    const tree = requireGit(source, ['rev-parse', 'HEAD^{tree}']).trim()
+    const tree = (await requireGit(source, ['rev-parse', 'HEAD^{tree}'])).trim()
     if (tree !== verification.workspaceSha256) {
       return this.failure(
         'verification_workspace_invalid',
         '独立测试工作区的 HEAD 树与测试记录不一致；不能构建',
       )
     }
-    const outside = outsideWorkspaceChanges(source)
+    const outside = await outsideWorkspaceChanges(source)
     if (outside.length > 0) {
       return this.failure(
         'candidate_content_mismatch',
         `独立测试工作区在验证后出现了受保护改动：${outside.join('、')}`,
       )
     }
-    const contentMismatch = this.workspaceCandidateMismatch(source, input.candidate, canonical)
+    const contentMismatch = await this.workspaceCandidateMismatch(
+      source,
+      input.candidate,
+      canonical,
+    )
     if (contentMismatch !== null) return contentMismatch
-    return { ok: true, value: { protectedFiles: listTrackedFiles(source), workspaceSha256: tree } }
+    return {
+      ok: true,
+      value: { protectedFiles: await listTrackedFiles(source), workspaceSha256: tree },
+    }
   }
 
-  private workspaceCandidateMismatch(
+  private async workspaceCandidateMismatch(
     source: string,
     candidate: CodeCandidateRecord | null,
     canonical: Record<string, unknown>,
-  ): { ok: false; code: string; message: string } | null {
+  ): Promise<{ ok: false; code: string; message: string } | null> {
     if (candidate) {
-      const applied = git(source, ['diff', `${candidate.snapshotCommit}..HEAD`, '--binary'])
+      const applied = await git(source, ['diff', `${candidate.snapshotCommit}..HEAD`, '--binary'])
       if (applied.code !== 0 || sha256OfText(applied.stdout) !== candidate.diffSha256) {
         return this.failure(
           'candidate_content_mismatch',
@@ -275,7 +284,7 @@ export class BuildMaterialValidator {
     }
     const recordedContent = asRecord(canonical.candidateIntegrity)?.candidateContentSha256
     if (typeof recordedContent !== 'string') return null
-    const actual = requireGit(source, ['diff', 'HEAD', '--binary'])
+    const actual = await requireGit(source, ['diff', 'HEAD', '--binary'])
     if (sha256OfText(actual) === recordedContent) return null
     return this.failure(
       'candidate_content_mismatch',

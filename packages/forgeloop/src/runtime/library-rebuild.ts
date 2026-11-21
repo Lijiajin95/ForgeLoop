@@ -104,7 +104,10 @@ export class LibraryRebuildService {
     )
   }
 
-  start(input: { readonly by: string; readonly source: string }): LibraryRebuildStartResult {
+  async start(input: {
+    readonly by: string
+    readonly source: string
+  }): Promise<LibraryRebuildStartResult> {
     if (this.active) throw new RebuildError('已有重建在运行；请等待完成或先取消')
     const runId = `lrb-${stamp(this.now())}-${randomUUID().slice(0, 8)}`
     const record = emptyRun({
@@ -182,7 +185,7 @@ export class LibraryRebuildService {
     const loaded = (this.deps.load ?? loadLibrary)(projectPath)
     const existing = snapshots(loaded, projectPath)
     const libraryIndex = renderLibraryIndex(loaded.entries.map((item) => item.entry))
-    const materials = (this.deps.collect ?? collectRebuildMaterials)(projectPath)
+    const materials = await (this.deps.collect ?? collectRebuildMaterials)(projectPath)
     this.patch(runId, { materials: materials.materials.length, stage: 'synthesize' })
     const batches = chunk(materials.materials, REBUILD_MATERIALS_PER_BATCH).slice(
       0,

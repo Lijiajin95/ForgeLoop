@@ -185,8 +185,8 @@ describe('report readers', () => {
 })
 
 describe('workspace helpers', () => {
-  it('fails closed when git status cannot run', () => {
-    expect(() => workspaceChanges(join(dir, 'missing'))).toThrow('git status 失败')
+  it('fails closed when git status cannot run', async () => {
+    await expect(workspaceChanges(join(dir, 'missing'))).rejects.toThrow('git status 失败')
   })
 
   it('lists verification materials recursively and ignores missing roots', () => {

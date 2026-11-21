@@ -27,10 +27,10 @@ export function verificationVerdict(input: {
   })
 }
 
-export function verificationIntegrity(
+export async function verificationIntegrity(
   workspace: string,
   workspaceHead: string,
-):
+): Promise<
   | {
       ok: true
       integrityIssues: string[]
@@ -38,15 +38,16 @@ export function verificationIntegrity(
       afterChanges: string[]
       candidateContentSha256: string
     }
-  | { ok: false; detail: string } {
-  const afterHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+  | { ok: false; detail: string }
+> {
+  const afterHead = await requireGit(workspace, ['rev-parse', 'HEAD'])
   if (afterHead !== workspaceHead) {
     return {
       ok: false,
       detail: `验证期间候选提交发生变化（fail-closed）：${workspaceHead.slice(0, 12)} → ${afterHead.slice(0, 12)}`,
     }
   }
-  const afterChanges = workspaceChanges(workspace)
+  const afterChanges = await workspaceChanges(workspace)
   const facts = candidateIntegrityFacts({
     expectedHead: workspaceHead,
     actualHead: afterHead,
@@ -62,6 +63,6 @@ export function verificationIntegrity(
     integrityIssues,
     afterHead,
     afterChanges,
-    candidateContentSha256: sha256OfText(requireGit(workspace, ['diff', 'HEAD', '--binary'])),
+    candidateContentSha256: sha256OfText(await requireGit(workspace, ['diff', 'HEAD', '--binary'])),
   }
 }

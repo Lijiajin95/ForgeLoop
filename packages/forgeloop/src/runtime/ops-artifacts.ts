@@ -312,10 +312,10 @@ function logStatOf(config: ForgeLoopConfig, log: OpsArtifactLog): ArtifactLogSta
   }
 }
 
-export function readArtifactState(
+export async function readArtifactState(
   config: ForgeLoopConfig,
   artifactId: string,
-): Ok<ArtifactStateView> | Err {
+): Promise<Ok<ArtifactStateView> | Err> {
   const artifact = findArtifact(config, artifactId)
   if (!artifact) return { ok: false, reason: `未登记研发制品：${artifactId}` }
   const logs = artifact.logs.map((log) => logStatOf(config, log))
@@ -328,7 +328,7 @@ export function readArtifactState(
   const profileDir = join(config.dshProfilesRoot, artifact.profile)
   const installedRoot = join(profileDir, 'node_modules', artifact.package)
   const packagePresent = existsSync(installedRoot)
-  const installedVersion = packagePresent ? readInstalledVersion(installedRoot) : ''
+  const installedVersion = packagePresent ? await readInstalledVersion(installedRoot) : ''
   const runtime = packagePresent
     ? {
         profileDir,

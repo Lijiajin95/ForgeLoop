@@ -44,15 +44,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-verify-cov-'))
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
   return dir
 }
 
@@ -432,8 +432,8 @@ function blockedReasonOf(): string {
 
 const signal = new AbortController().signal
 
-beforeEach(() => {
-  project = makeProject()
+beforeEach(async () => {
+  project = await makeProject()
   repo = new Repository(Database.open(join(project, '.forgeloop', 'records.sqlite')))
 })
 
@@ -755,12 +755,12 @@ describe('executeVerification agent and materials', () => {
 
   it('fails closed when the agent moved the candidate commit', async () => {
     const built = setup({
-      verify: (request) => {
+      verify: async (request) => {
         const verification = join(request.cwd, 'verification')
         mkdirSync(verification, { recursive: true })
         writeFileSync(join(verification, 'commands.json'), commandsOf(), 'utf8')
         writeFileSync(join(verification, 'report.json'), verificationReportOf(), 'utf8')
-        git(request.cwd, ['commit', '-qm', 'agent moved head', '--allow-empty'])
+        await git(request.cwd, ['commit', '-qm', 'agent moved head', '--allow-empty'])
         return agentResult(request, verificationReportOf())
       },
     })

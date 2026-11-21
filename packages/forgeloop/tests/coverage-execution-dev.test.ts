@@ -144,8 +144,13 @@ describe('ExecutionDev turn activity', () => {
     expect(repo.taskRuns(REQ_ID, 1)[0]).toMatchObject({ state: 'blocked' })
   })
 
-  it('skips tasks without delivered artifacts when restoring a workspace', () => {
-    const restored = dev.restoreDeliveredArtifacts(REQ_ID, plan, join(dir, 'workspace'), 'baseline')
+  it('skips tasks without delivered artifacts when restoring a workspace', async () => {
+    const restored = await dev.restoreDeliveredArtifacts(
+      REQ_ID,
+      plan,
+      join(dir, 'workspace'),
+      'baseline',
+    )
     expect(restored).toEqual({ ok: true })
   })
 })

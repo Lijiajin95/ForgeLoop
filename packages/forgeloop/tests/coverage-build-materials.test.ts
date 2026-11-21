@@ -194,8 +194,8 @@ afterEach(() => {
 })
 
 describe('build material validation', () => {
-  it('accepts complete materials without a controlled commit', () => {
-    const result = validator.validateBuildMaterials(input())
+  it('accepts complete materials without a controlled commit', async () => {
+    const result = await validator.validateBuildMaterials(input())
     expect(result).toEqual({
       ok: true,
       diffPath: candidate.diffPath,
@@ -204,130 +204,130 @@ describe('build material validation', () => {
     })
   })
 
-  it('requires the verification report file', () => {
+  it('requires the verification report file', async () => {
     verification = { ...verification, reportPath: join(dir, 'missing.json') }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'verification_invalid',
       message: expect.stringContaining('文件缺失'),
     })
   })
 
-  it('rejects a verification report whose digest changed', () => {
+  it('rejects a verification report whose digest changed', async () => {
     write(verification.reportPath, verificationReport({ verdict: 'block' }))
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'verification_invalid',
       message: expect.stringContaining('摘要'),
     })
   })
 
-  it('rejects a verification report that is not JSON', () => {
+  it('rejects a verification report that is not JSON', async () => {
     const text = '{not json'
     write(verification.reportPath, text)
     verification = { ...verification, reportSha256: sha256OfText(text) }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'verification_invalid',
       message: expect.stringContaining('不是可解析 JSON'),
     })
   })
 
-  it('rejects a verification report with a mismatched identity', () => {
+  it('rejects a verification report with a mismatched identity', async () => {
     const text = verificationReport({ verdict: 'block' })
     write(verification.reportPath, text)
     verification = { ...verification, reportSha256: sha256OfText(text) }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'verification_invalid',
       message: expect.stringContaining('身份不一致'),
     })
   })
 
-  it('requires the business review file', () => {
+  it('requires the business review file', async () => {
     review = { ...review, reportPath: join(dir, 'missing-review.json') }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'business_review_invalid',
       message: expect.stringContaining('文件缺失'),
     })
   })
 
-  it('rejects a business review whose digest changed', () => {
+  it('rejects a business review whose digest changed', async () => {
     write(review.reportPath, businessReview({ verdict: 'block' }))
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'business_review_invalid',
       message: expect.stringContaining('摘要'),
     })
   })
 
-  it('rejects a business review that is not JSON', () => {
+  it('rejects a business review that is not JSON', async () => {
     const text = '{not json'
     write(review.reportPath, text)
     review = { ...review, reportSha256: sha256OfText(text) }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'business_review_invalid',
       message: expect.stringContaining('不是可解析 JSON'),
     })
   })
 
-  it('rejects a business review with a mismatched identity', () => {
+  it('rejects a business review with a mismatched identity', async () => {
     const text = businessReview({ candidateSha256: 'd'.repeat(64) })
     write(review.reportPath, text)
     review = { ...review, reportSha256: sha256OfText(text) }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'business_review_invalid',
       message: expect.stringContaining('身份不一致'),
     })
   })
 
-  it('rejects a missing candidate diff file', () => {
+  it('rejects a missing candidate diff file', async () => {
     candidate = { ...candidate, diffPath: join(dir, 'missing.diff') }
     rmSync(join(dir, 'candidate.diff'))
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
       message: expect.stringContaining('候选 diff 文件缺失'),
     })
   })
 
-  it('rejects a candidate diff whose digest changed', () => {
+  it('rejects a candidate diff whose digest changed', async () => {
     write(candidate.diffPath, `${DIFF_TEXT}+more\n`)
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
       message: expect.stringContaining('摘要'),
     })
   })
 
-  it('rejects a candidate whose identity no longer matches', () => {
+  it('rejects a candidate whose identity no longer matches', async () => {
     candidate = { ...candidate, candidateSha256: 'e'.repeat(64) }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'candidate_identity_mismatch',
       message: expect.stringContaining('候选身份'),
     })
   })
 
-  it('rejects a candidate bound to another plan version', () => {
+  it('rejects a candidate bound to another plan version', async () => {
     candidate = { ...candidate, planVersion: PLAN_VERSION + 1 }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'candidate_identity_mismatch',
     })
   })
 
-  it('requires a controlled commit when the build asks for one', () => {
-    expect(validator.validateBuildMaterials(input({ requireCommit: true }))).toMatchObject({
+  it('requires a controlled commit when the build asks for one', async () => {
+    expect(await validator.validateBuildMaterials(input({ requireCommit: true }))).toMatchObject({
       ok: false,
       code: 'commit_required',
     })
   })
 
-  it('rejects a commit bound to another candidate', () => {
+  it('rejects a commit bound to another candidate', async () => {
     const commit: RequirementCommitRecord = {
       requirementId: REQ,
       planVersion: PLAN_VERSION,
@@ -340,14 +340,16 @@ describe('build material validation', () => {
       files: ['a.ts'],
       committedAt: '2026-01-01T00:00:00.000Z',
     }
-    expect(validator.validateBuildMaterials(input({ requireCommit: true, commit }))).toMatchObject({
+    expect(
+      await validator.validateBuildMaterials(input({ requireCommit: true, commit })),
+    ).toMatchObject({
       ok: false,
       code: 'commit_identity_mismatch',
       message: expect.stringContaining('当前候选'),
     })
   })
 
-  it('rejects a commit that the project does not contain', () => {
+  it('rejects a commit that the project does not contain', async () => {
     state.runCode = 1
     const commit: RequirementCommitRecord = {
       requirementId: REQ,
@@ -361,14 +363,16 @@ describe('build material validation', () => {
       files: ['a.ts'],
       committedAt: '2026-01-01T00:00:00.000Z',
     }
-    expect(validator.validateBuildMaterials(input({ requireCommit: true, commit }))).toMatchObject({
+    expect(
+      await validator.validateBuildMaterials(input({ requireCommit: true, commit })),
+    ).toMatchObject({
       ok: false,
       code: 'commit_identity_mismatch',
       message: expect.stringContaining('不存在'),
     })
   })
 
-  it('rejects a commit whose actual file list differs', () => {
+  it('rejects a commit whose actual file list differs', async () => {
     state.commitFilesOutput = 'b.ts\n'
     const commit: RequirementCommitRecord = {
       requirementId: REQ,
@@ -382,14 +386,16 @@ describe('build material validation', () => {
       files: ['a.ts'],
       committedAt: '2026-01-01T00:00:00.000Z',
     }
-    expect(validator.validateBuildMaterials(input({ requireCommit: true, commit }))).toMatchObject({
+    expect(
+      await validator.validateBuildMaterials(input({ requireCommit: true, commit })),
+    ).toMatchObject({
       ok: false,
       code: 'commit_identity_mismatch',
       message: expect.stringContaining('实际文件'),
     })
   })
 
-  it('rejects a commit whose files differ from the candidate diff', () => {
+  it('rejects a commit whose files differ from the candidate diff', async () => {
     state.commitFilesOutput = 'a.ts\n'
     const commit: RequirementCommitRecord = {
       requirementId: REQ,
@@ -421,14 +427,16 @@ describe('build material validation', () => {
       code: 0,
       stdout: candidate.diffSha256 === '' ? '' : `${DIFF_TEXT}+++ b/b.ts\n+export const b = 2\n`,
     }
-    expect(validator.validateBuildMaterials(input({ requireCommit: true, commit }))).toMatchObject({
+    expect(
+      await validator.validateBuildMaterials(input({ requireCommit: true, commit })),
+    ).toMatchObject({
       ok: false,
       code: 'commit_identity_mismatch',
       message: expect.stringContaining('候选 diff 文件'),
     })
   })
 
-  it('accepts a controlled commit that matches the candidate', () => {
+  it('accepts a controlled commit that matches the candidate', async () => {
     const commit: RequirementCommitRecord = {
       requirementId: REQ,
       planVersion: PLAN_VERSION,
@@ -441,75 +449,81 @@ describe('build material validation', () => {
       files: ['a.ts'],
       committedAt: '2026-01-01T00:00:00.000Z',
     }
-    expect(validator.validateBuildMaterials(input({ requireCommit: true, commit }))).toMatchObject({
+    expect(
+      await validator.validateBuildMaterials(input({ requireCommit: true, commit })),
+    ).toMatchObject({
       ok: true,
     })
   })
 
-  it('requires the verification workspace', () => {
+  it('requires the verification workspace', async () => {
     rmSync(join(verification.evidenceDir, 'workspace'), { recursive: true, force: true })
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'verification_workspace_missing',
     })
   })
 
-  it('rejects a workspace whose HEAD tree changed', () => {
+  it('rejects a workspace whose HEAD tree changed', async () => {
     state.treeOutput = `${'x'.repeat(64)}\n`
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'verification_workspace_invalid',
     })
   })
 
-  it('rejects protected changes left in the verification workspace', () => {
+  it('rejects protected changes left in the verification workspace', async () => {
     state.statusOutput = ' M a.ts\n?? verification/raw.txt\n'
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
       message: expect.stringContaining('受保护改动'),
     })
   })
 
-  it('rejects a candidate workspace diff that cannot be read', () => {
+  it('rejects a candidate workspace diff that cannot be read', async () => {
     state.candidateDiff = { code: 1, stdout: '' }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
       message: expect.stringContaining('候选内容'),
     })
   })
 
-  it('rejects a candidate workspace diff with another digest', () => {
+  it('rejects a candidate workspace diff with another digest', async () => {
     state.candidateDiff = { code: 0, stdout: 'other\n' }
-    expect(validator.validateBuildMaterials(input())).toMatchObject({
+    expect(await validator.validateBuildMaterials(input())).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
       message: expect.stringContaining('候选内容'),
     })
   })
 
-  it('accepts a legacy verification workspace with matching protected content', () => {
+  it('accepts a legacy verification workspace with matching protected content', async () => {
     const text = verificationReport({
       candidateIntegrity: { candidateContentSha256: sha256OfText(DIFF_TEXT) },
     })
     rewriteVerification(text)
-    expect(validator.validateBuildMaterials(input({ candidate: null }))).toMatchObject({ ok: true })
+    expect(await validator.validateBuildMaterials(input({ candidate: null }))).toMatchObject({
+      ok: true,
+    })
   })
 
-  it('rejects a legacy verification workspace with changed protected content', () => {
+  it('rejects a legacy verification workspace with changed protected content', async () => {
     const text = verificationReport({
       candidateIntegrity: { candidateContentSha256: 'z'.repeat(64) },
     })
     rewriteVerification(text)
-    expect(validator.validateBuildMaterials(input({ candidate: null }))).toMatchObject({
+    expect(await validator.validateBuildMaterials(input({ candidate: null }))).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
       message: expect.stringContaining('受保护内容'),
     })
   })
 
-  it('accepts a legacy verification workspace without recorded content', () => {
-    expect(validator.validateBuildMaterials(input({ candidate: null }))).toMatchObject({ ok: true })
+  it('accepts a legacy verification workspace without recorded content', async () => {
+    expect(await validator.validateBuildMaterials(input({ candidate: null }))).toMatchObject({
+      ok: true,
+    })
   })
 })

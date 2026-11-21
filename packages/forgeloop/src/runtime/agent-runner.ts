@@ -5,6 +5,7 @@ import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AgentConfig } from '../config.js'
 import type { AgentIdentity } from '../domain/agents.js'
+import { bestEffort } from './best-effort.js'
 import { TranscriptWriter } from './transcript.js'
 
 type AnyRecord = Record<string, unknown>
@@ -568,7 +569,9 @@ export class AgentRunner {
     ): void => {
       const events = transcript.flushQuietly()
       watch.touch(events.length)
-      turn.onActivity?.(events)
+      bestEffort(() => {
+        turn.onActivity?.(events)
+      })
     }
     return {
       sessionId,
@@ -713,7 +716,9 @@ export class AgentRunner {
     const flushActivity = (): void => {
       const events = transcript.flushQuietly()
       idle.touch(events.length)
-      request.onActivity?.(events)
+      bestEffort(() => {
+        request.onActivity?.(events)
+      })
     }
     const activityTimer = setInterval(flushActivity, 1_500)
     activityTimer.unref()

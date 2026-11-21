@@ -47,14 +47,14 @@ function git(cwd: string, args: readonly string[]): string {
   return result.stdout.trim()
 }
 
-function initRepository(packageDir: string): string {
-  git(packageDir, ['init', '-q'])
-  git(packageDir, ['config', 'user.email', 'pack@example.com'])
-  git(packageDir, ['config', 'user.name', 'Pack Fixture'])
+async function initRepository(packageDir: string): Promise<string> {
+  await git(packageDir, ['init', '-q'])
+  await git(packageDir, ['config', 'user.email', 'pack@example.com'])
+  await git(packageDir, ['config', 'user.name', 'Pack Fixture'])
   writeFileSync(join(packageDir, '.gitignore'), 'dist/\n', 'utf8')
-  git(packageDir, ['add', '-A'])
-  git(packageDir, ['commit', '-qm', 'fixture'])
-  return git(packageDir, ['rev-parse', 'HEAD'])
+  await git(packageDir, ['add', '-A'])
+  await git(packageDir, ['commit', '-qm', 'fixture'])
+  return await git(packageDir, ['rev-parse', 'HEAD'])
 }
 
 beforeEach(() => {
@@ -87,9 +87,9 @@ function packageFixture(files: Record<string, unknown>): string {
 }
 
 describe('candidate package cli', () => {
-  it('packs a package and writes an artifact manifest', () => {
+  it('packs a package and writes an artifact manifest', async () => {
     const packageDir = packageFixture({})
-    const head = initRepository(packageDir)
+    const head = await initRepository(packageDir)
     writeFileSync(join(packageDir, 'notes.txt'), 'dirty\n', 'utf8')
 
     expect(main(packageDir)).toBe(0)

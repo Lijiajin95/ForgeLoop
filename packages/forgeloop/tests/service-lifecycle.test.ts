@@ -244,20 +244,20 @@ describe('requirement lifecycle commands', () => {
     })
   })
 
-  it('cancels a requirement, dismisses pending work and refuses terminal ones', () => {
+  it('cancels a requirement, dismisses pending work and refuses terminal ones', async () => {
     const reqId = submit()
     runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
-    const cancelled = runtime.cancel({ reqId, by: 'owner', reason: '方向变了' })
+    const cancelled = await runtime.cancel({ reqId, by: 'owner', reason: '方向变了' })
     expect(cancelled.ok).toBe(true)
     expect(runtime.repo.requestsFor(reqId).every((request) => request.state === 'dismissed')).toBe(
       true,
     )
     expect(runtime.repo.cancellation(reqId)?.reason).toBe('方向变了')
-    expect(runtime.cancel({ reqId, by: 'owner', reason: 'again' })).toMatchObject({
+    expect(await runtime.cancel({ reqId, by: 'owner', reason: 'again' })).toMatchObject({
       ok: false,
       code: 'terminal',
     })
-    expect(runtime.cancel({ reqId: 'req-missing', by: 'owner', reason: 'x' })).toMatchObject({
+    expect(await runtime.cancel({ reqId: 'req-missing', by: 'owner', reason: 'x' })).toMatchObject({
       ok: false,
       code: 'not_found',
     })
@@ -433,35 +433,35 @@ describe('recovery and candidate preconditions', () => {
     expect(runtime.repo.request('rq-interrupted')?.detail).toContain('一次性工作副本已丢弃')
   })
 
-  it('refuses to build a candidate before every task is delivered', () => {
-    expect(runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({
+  it('refuses to build a candidate before every task is delivered', async () => {
+    expect(await runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'not_found',
     })
     const reqId = submit()
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'plan_missing',
     })
     seedPlan(reqId)
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'plan_not_approved',
     })
     approve(reqId)
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'not_delivered',
     })
     deliver(reqId, 't1')
     deliver(reqId, 't2')
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_not_configured',
     })
   })
 
-  it('validates the candidate version before touching any workspace', () => {
+  it('validates the candidate version before touching any workspace', async () => {
     const reqId = submit()
     seedPlan(reqId)
     approve(reqId)
@@ -474,7 +474,7 @@ describe('recovery and candidate preconditions', () => {
     })
     try {
       expect(
-        configured.buildCandidate({ reqId, by: 'owner', version: 'not-a-version' }),
+        await configured.buildCandidate({ reqId, by: 'owner', version: 'not-a-version' }),
       ).toMatchObject({
         ok: false,
         code: 'version_invalid',

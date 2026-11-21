@@ -70,7 +70,11 @@ function safeName(label: string): string {
   return cleaned || 'control'
 }
 
-function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: string): string {
+async function copyCandidate(
+  workspace: string,
+  controlDir: string,
+  dependencyRoot?: string,
+): Promise<string> {
   rmSync(controlDir, { recursive: true, force: true })
   mkdirSync(controlDir, { recursive: true })
   cpSync(workspace, controlDir, {
@@ -81,12 +85,12 @@ function copyCandidate(workspace: string, controlDir: string, dependencyRoot?: s
       return segment !== 'node_modules' && segment !== '.git'
     },
   })
-  const initialized = runCommand('git', ['init', '-q'], controlDir, 30_000)
+  const initialized = await runCommand('git', ['init', '-q'], controlDir, 30_000)
   if (initialized.code !== 0) {
     throw new Error(`无法初始化对照副本：${initialized.stderr.trim()}`)
   }
-  runCommand('git', ['add', '-A'], controlDir, 60_000)
-  runCommand(
+  await runCommand('git', ['add', '-A'], controlDir, 60_000)
+  await runCommand(
     'git',
     [
       '-c',
@@ -139,19 +143,19 @@ function isolatedControlDir(workspace: string, controlDir: string): string {
   return mkdtempSync(join(tmpdir(), 'forgeloop-control-'))
 }
 
-function applyControlPatch(
+async function applyControlPatch(
   workspace: string,
   controlDirInput: string,
   patchPath: string,
   dependencyRoot?: string,
-): { applied: boolean; changedFiles: string[]; issue: string; controlDir: string } {
+): Promise<{ applied: boolean; changedFiles: string[]; issue: string; controlDir: string }> {
   const controlDir = isolatedControlDir(workspace, controlDirInput)
   const targets = controlPatchTargets(readFileSync(patchPath, 'utf8'))
-  const copyIssue = copyCandidate(workspace, controlDir, dependencyRoot)
+  const copyIssue = await copyCandidate(workspace, controlDir, dependencyRoot)
   if (copyIssue) return { applied: false, changedFiles: [], issue: copyIssue, controlDir }
   const before = targetDigests(controlDir, targets)
   const candidateBefore = targetDigests(workspace, targets)
-  const check = runCommand('git', ['apply', '--check', patchPath], controlDir, 30_000)
+  const check = await runCommand('git', ['apply', '--check', patchPath], controlDir, 30_000)
   if (check.code !== 0) {
     return {
       applied: false,
@@ -160,7 +164,7 @@ function applyControlPatch(
       controlDir,
     }
   }
-  const applied = runCommand('git', ['apply', patchPath], controlDir, 30_000)
+  const applied = await runCommand('git', ['apply', patchPath], controlDir, 30_000)
   if (applied.code !== 0) {
     return {
       applied: false,
@@ -191,7 +195,7 @@ function applyControlPatch(
       controlDir,
     }
   }
-  const status = runCommand('git', ['status', '--porcelain'], controlDir, 30_000)
+  const status = await runCommand('git', ['status', '--porcelain'], controlDir, 30_000)
   const changedFiles = status.stdout
     .split('\n')
     .map((line) => line.slice(3).trim())
@@ -253,7 +257,7 @@ export async function executeVerificationControls(
     }
     let issue = ''
     try {
-      const prepared = applyControlPatch(
+      const prepared = await applyControlPatch(
         input.workspace,
         requestedDir,
         patchPath,

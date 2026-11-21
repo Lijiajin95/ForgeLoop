@@ -191,7 +191,7 @@ describe('verification outcome', () => {
     expect(outcome.blocking).toContain('报告存在未通过的测试场景')
   })
 
-  it('fails closed when the workspace head moved during verification', () => {
+  it('fails closed when the workspace head moved during verification', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'forgeloop-outcome-'))
     try {
       execFileSync('git', ['init', '-q'], { cwd: dir })
@@ -200,7 +200,7 @@ describe('verification outcome', () => {
       writeFileSync(join(dir, 'a.txt'), 'a\n')
       execFileSync('git', ['add', '-A'], { cwd: dir })
       execFileSync('git', ['commit', '-qm', 'base'], { cwd: dir })
-      const result = verificationIntegrity(dir, 'deadbeef')
+      const result = await verificationIntegrity(dir, 'deadbeef')
       expect(result.ok).toBe(false)
       if (!result.ok) expect(result.detail).toContain('验证期间候选提交发生变化')
     } finally {

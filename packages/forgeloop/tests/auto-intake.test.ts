@@ -32,15 +32,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-auto-intake-'))
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
   return dir
 }
 
@@ -240,9 +240,9 @@ async function runNext(reqId: string, action: 'analyze' | 'advance') {
   return outcome
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   sourceSeq = 0
-  project = makeProject()
+  project = await makeProject()
   runtime = makeRuntime()
 })
 
@@ -342,12 +342,12 @@ describe('requirement queue intake', () => {
     }
   })
 
-  it('skips a cancelled queued requirement instead of blocking the queue', () => {
+  it('skips a cancelled queued requirement instead of blocking the queue', async () => {
     const first = submit('会取消的需求')
     const second = submit('后续需求')
     expect(runtime.intakeQueuedRequirement()).toBeNull()
 
-    expect(runtime.cancel({ reqId: first, by: 'owner', reason: '不再需要' }).ok).toBe(true)
+    expect((await runtime.cancel({ reqId: first, by: 'owner', reason: '不再需要' })).ok).toBe(true)
     // 取消后该需求已成为终态，下一次空闲领取跳过它并启动第二个需求。
     expect(runtime.intakeQueuedRequirement()).toBe(second)
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(second)
@@ -374,7 +374,7 @@ describe('requirement queue intake', () => {
     expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(first)
 
     const coordinator = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: true })
-    coordinator.start()
+    await coordinator.start()
     try {
       await coordinator.kick()
     } finally {

@@ -32,15 +32,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const project = mkdtempSync(join(tmpdir(), 'forgeloop-review-'))
-  git(project, ['init', '-q'])
-  git(project, ['config', 'user.email', 'test@example.com'])
-  git(project, ['config', 'user.name', 'Test'])
+  await git(project, ['init', '-q'])
+  await git(project, ['config', 'user.email', 'test@example.com'])
+  await git(project, ['config', 'user.name', 'Test'])
   writeFileSync(join(project, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(project, 'README.md'), 'fixture\n')
-  git(project, ['add', '-A'])
-  git(project, ['commit', '-qm', 'base'])
+  await git(project, ['add', '-A'])
+  await git(project, ['commit', '-qm', 'base'])
   return project
 }
 
@@ -287,8 +287,8 @@ async function runPipeline(): Promise<{
   return { reqId, advance: await runQueued('advance', reqId) }
 }
 
-beforeEach(() => {
-  dir = makeProject()
+beforeEach(async () => {
+  dir = await makeProject()
   runtime = makeRuntime(fakeRunner())
 })
 

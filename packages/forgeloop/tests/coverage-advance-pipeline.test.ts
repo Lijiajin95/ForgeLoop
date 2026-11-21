@@ -312,15 +312,15 @@ describe('advance pipeline branch boundaries', () => {
     })
   })
 
-  it('reports missing authorization context', () => {
+  it('reports missing authorization context', async () => {
     const pipeline = makePipeline()
     approval = null
-    expect(pipeline['advanceInputs']('req-1')).toMatchObject({
+    expect(await pipeline['advanceInputs']('req-1')).toMatchObject({
       ok: false,
       detail: '需求 req-1 缺少计划批准记录',
     })
     approval = { planVersion: 1, approvedBy: 'owner', approvedAt: NOW, source: 'test' }
-    expect(pipeline['advanceInputs']('req-1')).toMatchObject({ ok: true })
+    expect(await pipeline['advanceInputs']('req-1')).toMatchObject({ ok: true })
   })
 
   it('records a failed task when delivery throws without an artifact', async () => {

@@ -7,12 +7,12 @@ export interface ApplyDiffResult {
   readonly detail: string
 }
 
-export function applyDiffFile(
+export async function applyDiffFile(
   dir: string,
   diffPath: string,
   label: string,
   suffix: string,
-): ApplyDiffResult {
+): Promise<ApplyDiffResult> {
   const rawDiff = readFileSync(diffPath, 'utf8')
   if (rawDiff.trim() === '') return { ok: true, detail: '' }
   const normalized = rawDiff.endsWith('\n') ? rawDiff : `${rawDiff}\n`
@@ -22,9 +22,14 @@ export function applyDiffFile(
     rmSync(applyPath, { force: true })
   }
 
-  const check = runCommand('git', ['apply', '--check', applyPath], dir, 120_000)
+  const check = await runCommand('git', ['apply', '--check', applyPath], dir, 120_000)
   if (check.code !== 0) {
-    const reversed = runCommand('git', ['apply', '--reverse', '--check', applyPath], dir, 120_000)
+    const reversed = await runCommand(
+      'git',
+      ['apply', '--reverse', '--check', applyPath],
+      dir,
+      120_000,
+    )
     if (reversed.code === 0) {
       cleanup()
       return { ok: true, detail: '变更已存在，跳过重复应用' }
@@ -32,8 +37,8 @@ export function applyDiffFile(
   }
   const applied =
     check.code === 0
-      ? runCommand('git', ['apply', '--whitespace=nowarn', applyPath], dir, 120_000)
-      : runCommand(
+      ? await runCommand('git', ['apply', '--whitespace=nowarn', applyPath], dir, 120_000)
+      : await runCommand(
           'patch',
           ['-p1', '--forward', '--fuzz=3', '--no-backup-if-mismatch', '-i', applyPath],
           dir,

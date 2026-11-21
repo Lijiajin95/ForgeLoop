@@ -165,16 +165,16 @@ function harness(
   return { pipeline, opened, received, statuses }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'forgeloop-blackbox-'))
   projectPath = join(root, 'project')
   mkdirSync(projectPath, { recursive: true })
   writeFileSync(join(projectPath, 'README.md'), 'fixture\n', 'utf8')
-  git(['init', '-q'], projectPath)
-  git(['config', 'user.email', 'forgeloop@localhost'], projectPath)
-  git(['config', 'user.name', 'ForgeLoop Test'], projectPath)
-  git(['add', '-A'], projectPath)
-  git(['commit', '-qm', 'baseline'], projectPath)
+  await git(['init', '-q'], projectPath)
+  await git(['config', 'user.email', 'forgeloop@localhost'], projectPath)
+  await git(['config', 'user.name', 'ForgeLoop Test'], projectPath)
+  await git(['add', '-A'], projectPath)
+  await git(['commit', '-qm', 'baseline'], projectPath)
 })
 
 afterEach(() => {
@@ -197,7 +197,7 @@ describe('black box verification path', () => {
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     )
     expect(received[0]!.candidate.snapshotCommit).toBe(
-      git(['rev-parse', 'HEAD'], received[0]!.devWorkspace),
+      await git(['rev-parse', 'HEAD'], received[0]!.devWorkspace),
     )
     expect(received[0]!.candidate.candidateSha256).toBe('candidate-blackbox')
   })

@@ -109,7 +109,7 @@ describe('coordinator ops wiring', () => {
   it('runs a failing registered check, diagnosis and authorized recovery', async () => {
     writeFileSync(join(dir, 'down'), '1')
     coordinator = new Coordinator({ runtime, pollSeconds: 3600, autoAdvance: false })
-    coordinator.start()
+    await coordinator.start()
     await waitFor(() => runtime.ops.list().some((event) => event.state === OPS_RECOVERED))
 
     const event = runtime.ops.list()[0]!
@@ -141,7 +141,7 @@ describe('coordinator ops wiring', () => {
     })
 
     coordinator = new Coordinator({ runtime, pollSeconds: 3600, autoAdvance: false })
-    coordinator.start()
+    await coordinator.start()
     const event = runtime.repo.opsEvent('ops-interrupted')
     expect(event?.state).toBe(OPS_UNRESOLVED)
     expect(runtime.repo.opsActionAttempts('ops-interrupted')[0]?.state).toBe(

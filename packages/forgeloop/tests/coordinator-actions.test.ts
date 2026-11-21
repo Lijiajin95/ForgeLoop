@@ -126,7 +126,7 @@ afterEach(async () => {
 describe('coordinator lifecycle', () => {
   it('acquires the single-consumer lock on start and releases it on stop', async () => {
     const coordinator = makeCoordinator(false)
-    coordinator.start()
+    await coordinator.start()
     expect(coordinator.snapshot()).toMatchObject({ running: true, lock: { acquired: true } })
     expect(existsSync(join(projectDir(runtime.config), 'host.lock'))).toBe(true)
     await coordinator.stop()
@@ -136,9 +136,9 @@ describe('coordinator lifecycle', () => {
 
   it('keeps the first start idempotent instead of reacquiring or resetting recovery', async () => {
     const coordinator = makeCoordinator(false)
-    coordinator.start()
+    await coordinator.start()
     const first = coordinator.snapshot()
-    coordinator.start()
+    await coordinator.start()
     expect(coordinator.snapshot()).toEqual(first)
     expect(runtime.repo.getMeta('last_recovery')).not.toBeNull()
     await coordinator.stop()
@@ -147,16 +147,16 @@ describe('coordinator lifecycle', () => {
   it('does not run an ops tick when ops is disabled', async () => {
     const coordinator = makeCoordinator(false)
     await expect(coordinator.kickOps()).resolves.toBeUndefined()
-    coordinator.start()
+    await coordinator.start()
     await expect(coordinator.kickOps()).resolves.toBeUndefined()
     await coordinator.stop()
   })
 
   it('stays read-only when another live coordinator owns the lock', async () => {
     const first = makeCoordinator(false)
-    first.start()
+    await first.start()
     const second = makeCoordinator(false)
-    second.start()
+    await second.start()
     const snapshot = second.snapshot()
     expect(snapshot.running).toBe(false)
     expect(snapshot.lastError).toContain('单消费者锁未取得')
@@ -164,7 +164,7 @@ describe('coordinator lifecycle', () => {
     await first.stop()
   })
 
-  it('marks task runs left running by a previous host as blocked and never replays them', () => {
+  it('marks task runs left running by a previous host as blocked and never replays them', async () => {
     const reqId = submit()
     runtime.repo.recordTaskRun({
       requirementId: reqId,
@@ -176,7 +176,7 @@ describe('coordinator lifecycle', () => {
       updatedAt: '2026-10-23T00:00:02.000Z',
     })
     const coordinator = makeCoordinator(false)
-    coordinator.start()
+    await coordinator.start()
     const run = runtime.repo.taskRuns(reqId, 1)[0]!
     expect(run.state).toBe('blocked')
     expect(run.reason).toContain('宿主中断')
@@ -204,7 +204,7 @@ describe('coordinator lifecycle', () => {
     })
     runtime.repo.claimNextRequest('other-owner', '2026-10-23T00:00:03.000Z')
     const coordinator = makeCoordinator(false)
-    coordinator.start()
+    await coordinator.start()
     expect(runtime.repo.request('rq-claimed')?.state).toBe('failed')
     const recovery = JSON.parse(runtime.repo.getMeta('last_recovery')!) as {
       interruptedRequests: string[]
@@ -256,7 +256,7 @@ describe('delivery independence', () => {
     } as unknown as typeof runtime.deployments
 
     const coordinator = makeCoordinator(false)
-    coordinator.start()
+    await coordinator.start()
     const running = coordinator.kick()
     while (!started) await new Promise((resolve) => setTimeout(resolve, 5))
 
@@ -280,7 +280,7 @@ describe('auto advance requests', () => {
       return { state: 'failed', detail: 'stub' }
     }
     const coordinator = makeCoordinator(true)
-    coordinator.start()
+    await coordinator.start()
     await coordinator.kick()
     const requests = runtime.repo.requestsFor(reqId)
     expect(requests).toHaveLength(1)
@@ -364,7 +364,7 @@ describe('auto advance requests', () => {
       throw new Error('claim failed')
     }
     const coordinator = makeCoordinator(false)
-    coordinator.start()
+    await coordinator.start()
     await coordinator.kick()
     expect(coordinator.snapshot().lastError).toContain('claim failed')
   })

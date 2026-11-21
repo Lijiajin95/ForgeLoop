@@ -77,7 +77,7 @@ afterEach(() => {
 })
 
 describe('candidate pipeline defensive paths', () => {
-  it('rejects an artifact whose version disagrees with the package', () => {
+  it('rejects an artifact whose version disagrees with the package', async () => {
     const dir = join(root, 'build')
     mkdirSync(dir, { recursive: true })
     const tarball = join(dir, 'artifact.tgz')
@@ -87,14 +87,14 @@ describe('candidate pipeline defensive paths', () => {
       JSON.stringify({ sha256: sha(tarball), tarball, version: '2.0.0' }),
       'utf8',
     )
-    const result = pipeline['readCandidateArtifact'](dir, '1.0.0')
+    const result = await pipeline['readCandidateArtifact'](dir, '1.0.0')
     expect(result).toMatchObject({
       ok: false,
       result: { ok: false, code: 'artifact_version_mismatch' },
     })
   })
 
-  it('rejects an artifact whose digest disagrees with the manifest', () => {
+  it('rejects an artifact whose digest disagrees with the manifest', async () => {
     const dir = join(root, 'build')
     mkdirSync(dir, { recursive: true })
     const tarball = join(dir, 'artifact.tgz')
@@ -104,14 +104,14 @@ describe('candidate pipeline defensive paths', () => {
       JSON.stringify({ sha256: 'f'.repeat(64), tarball, version: '1.0.0' }),
       'utf8',
     )
-    const result = pipeline['readCandidateArtifact'](dir, '1.0.0')
+    const result = await pipeline['readCandidateArtifact'](dir, '1.0.0')
     expect(result).toMatchObject({
       ok: false,
       result: { ok: false, code: 'artifact_mismatch' },
     })
   })
 
-  it('accepts a matching artifact manifest', () => {
+  it('accepts a matching artifact manifest', async () => {
     const dir = join(root, 'build')
     mkdirSync(dir, { recursive: true })
     const tarball = join(dir, 'artifact.tgz')
@@ -121,13 +121,13 @@ describe('candidate pipeline defensive paths', () => {
       JSON.stringify({ sha256: sha(tarball), tarball, version: '1.0.0', files: ['lib/a.js'] }),
       'utf8',
     )
-    expect(pipeline['readCandidateArtifact'](dir, '1.0.0')).toMatchObject({
+    expect(await pipeline['readCandidateArtifact'](dir, '1.0.0')).toMatchObject({
       ok: true,
       value: { tarball, files: ['lib/a.js'] },
     })
   })
 
-  it('writes the requested version into the candidate package', () => {
+  it('writes the requested version into the candidate package', async () => {
     const dir = join(root, 'build')
     mkdirSync(join(dir, 'packages/forgeloop'), { recursive: true })
     writeFileSync(
@@ -135,29 +135,29 @@ describe('candidate pipeline defensive paths', () => {
       JSON.stringify({ name: 'forgeloop-dsh', version: '1.0.0' }),
       'utf8',
     )
-    expect(pipeline['patchCandidateVersion'](dir, undefined)).toBeNull()
-    expect(pipeline['patchCandidateVersion'](dir, '1.2.3')).toBeNull()
+    expect(await pipeline['patchCandidateVersion'](dir, undefined)).toBeNull()
+    expect(await pipeline['patchCandidateVersion'](dir, '1.2.3')).toBeNull()
     expect(
       JSON.parse(readFileSync(join(dir, 'packages/forgeloop/package.json'), 'utf8')).version,
     ).toBe('1.2.3')
   })
 
-  it('rejects a version patch when the package manifest is missing', () => {
+  it('rejects a version patch when the package manifest is missing', async () => {
     const dir = join(root, 'build')
     mkdirSync(dir, { recursive: true })
-    expect(pipeline['patchCandidateVersion'](dir, '1.2.3')).toMatchObject({
+    expect(await pipeline['patchCandidateVersion'](dir, '1.2.3')).toMatchObject({
       ok: false,
       code: 'package_missing',
     })
   })
 
-  it('rejects a candidate copy without a package manifest', () => {
+  it('rejects a candidate copy without a package manifest', async () => {
     const evidenceDir = join(root, 'evidence')
     const workspace = join(evidenceDir, 'workspace')
     mkdirSync(workspace, { recursive: true })
     const diffPath = join(root, 'candidate.diff')
     writeFileSync(diffPath, 'diff', 'utf8')
-    const result = pipeline['prepareCandidateBuild'](
+    const result = await pipeline['prepareCandidateBuild'](
       { reqId: 'req-1' },
       {
         plan: plan(),
@@ -172,7 +172,7 @@ describe('candidate pipeline defensive paths', () => {
     })
   })
 
-  it('rewrites the configured version file instead of a fixed package path', () => {
+  it('rewrites the configured version file instead of a fixed package path', async () => {
     const custom = resolveConfig({
       project: 'demo',
       projectPath: root,
@@ -194,7 +194,7 @@ describe('candidate pipeline defensive paths', () => {
     const diffPath = join(root, 'candidate-custom.diff')
     writeFileSync(diffPath, 'diff', 'utf8')
     const customPipeline = new CandidatePipeline({ config: custom } as never)
-    const prepared = customPipeline['prepareCandidateBuild'](
+    const prepared = await customPipeline['prepareCandidateBuild'](
       { reqId: 'req-1', version: '9.9.9' },
       {
         plan: plan(),
@@ -212,7 +212,7 @@ describe('candidate pipeline defensive paths', () => {
     expect(written.version).toBe('9.9.9')
   })
 
-  it('skips the version file entirely when none is configured', () => {
+  it('skips the version file entirely when none is configured', async () => {
     const noVersion = resolveConfig({
       project: 'demo',
       projectPath: root,
@@ -223,14 +223,14 @@ describe('candidate pipeline defensive paths', () => {
     const dir = join(root, 'noversion')
     mkdirSync(dir, { recursive: true })
     const pipelineWithout = new CandidatePipeline({ config: noVersion } as never)
-    expect(pipelineWithout['patchCandidateVersion'](dir, '9.9.9')).toBeNull()
-    expect(pipelineWithout['candidateVersionOf'](dir, '3.0.0')).toEqual({
+    expect(await pipelineWithout['patchCandidateVersion'](dir, '9.9.9')).toBeNull()
+    expect(await pipelineWithout['candidateVersionOf'](dir, '3.0.0')).toEqual({
       ok: true,
       packageVersion: '3.0.0',
     })
   })
 
-  it('rejects a candidate with an empty build command', () => {
+  it('rejects a candidate with an empty build command', async () => {
     const evidenceDir = join(root, 'evidence')
     const workspace = join(evidenceDir, 'workspace')
     mkdirSync(join(workspace, 'packages/forgeloop'), { recursive: true })
@@ -244,7 +244,7 @@ describe('candidate pipeline defensive paths', () => {
     const broken = new CandidatePipeline({
       config: { ...config, candidateBuildCommand: [''] },
     } as never)
-    const result = broken['prepareCandidateBuild'](
+    const result = await broken['prepareCandidateBuild'](
       { reqId: 'req-1' },
       {
         plan: plan(),
@@ -259,7 +259,7 @@ describe('candidate pipeline defensive paths', () => {
     })
   })
 
-  it('reports a failing candidate command and writes its log', () => {
+  it('reports a failing candidate command and writes its log', async () => {
     const evidenceDir = join(root, 'evidence')
     const workspace = join(evidenceDir, 'workspace')
     mkdirSync(join(workspace, 'packages/forgeloop'), { recursive: true })
@@ -283,7 +283,7 @@ describe('candidate pipeline defensive paths', () => {
       root,
     )
     const broken = new CandidatePipeline({ config: brokenConfig } as never)
-    const result = broken['prepareCandidateBuild'](
+    const result = await broken['prepareCandidateBuild'](
       { reqId: 'req-1' },
       {
         plan: plan(),
@@ -298,7 +298,7 @@ describe('candidate pipeline defensive paths', () => {
     })
   })
 
-  it('links shared node_modules into the build copy', () => {
+  it('links shared node_modules into the build copy', async () => {
     const evidenceDir = join(root, 'evidence')
     const workspace = join(evidenceDir, 'workspace')
     mkdirSync(join(workspace, 'packages/forgeloop'), { recursive: true })
@@ -310,7 +310,7 @@ describe('candidate pipeline defensive paths', () => {
     mkdirSync(join(root, 'node_modules'), { recursive: true })
     const diffPath = join(root, 'candidate.diff')
     writeFileSync(diffPath, 'diff', 'utf8')
-    const result = pipeline['prepareCandidateBuild'](
+    const result = await pipeline['prepareCandidateBuild'](
       { reqId: 'req-1' },
       {
         plan: plan(),

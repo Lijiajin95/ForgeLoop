@@ -133,9 +133,9 @@ export function businessReviewEvidenceWindow(output: string, window = 4000): str
 
 export const VERIFICATION_MATERIAL_DIR = 'verification/'
 
-export function workspaceChanges(workspace: string): string[] {
+export async function workspaceChanges(workspace: string): Promise<string[]> {
   // 不能用 requireGit：它会给输出 trim，从而吃掉首条记录状态位前的空格。
-  const result = git(workspace, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  const result = await git(workspace, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
   if (result.code !== 0) {
     throw new RuleViolationError(`git status 失败：${result.stderr.trim() || result.stdout.trim()}`)
   }

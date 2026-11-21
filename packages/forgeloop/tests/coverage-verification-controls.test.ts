@@ -64,16 +64,16 @@ function git(cwd: string, args: readonly string[]): string {
 }
 
 /** 真实临时 Git 仓库：候选工作区有一份已提交的业务文件与对照补丁。 */
-function workspace(patch = PATCH_OK): { root: string; ws: string } {
+async function workspace(patch = PATCH_OK): Promise<{ root: string; ws: string }> {
   const root = mkdtempSync(join(tmpdir(), 'forgeloop-controls-cov-'))
   roots.push(root)
   const ws = join(root, 'workspace')
   mkdirSync(join(ws, 'verification', 'controls'), { recursive: true })
   writeFileSync(join(ws, 'business.txt'), 'ok\n', 'utf8')
   writeFileSync(join(ws, 'verification', 'controls', 'fault.patch'), patch, 'utf8')
-  git(ws, ['init', '-q'])
-  git(ws, ['add', '-A'])
-  git(ws, [
+  await git(ws, ['init', '-q'])
+  await git(ws, ['add', '-A'])
+  await git(ws, [
     '-c',
     'user.email=forgeloop@example.invalid',
     '-c',
@@ -131,7 +131,7 @@ afterEach(() => {
 
 describe('judging the controlled run', () => {
   it('reports an aborted control run instead of treating it as a sensitivity proof', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const outcome = await execute({
       root,
       ws,
@@ -142,7 +142,7 @@ describe('judging the controlled run', () => {
   })
 
   it('reports a timed out control run', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const outcome = await execute({
       root,
       ws,
@@ -153,7 +153,7 @@ describe('judging the controlled run', () => {
   })
 
   it('rejects a controlled run that still succeeds on the faulty copy', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const outcome = await execute({
       root,
       ws,
@@ -170,7 +170,7 @@ describe('judging the controlled run', () => {
   })
 
   it('requires the non-zero output to contain the declared business rule evidence', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const outcome = await execute({
       root,
       ws,
@@ -187,7 +187,7 @@ describe('judging the controlled run', () => {
   })
 
   it('accepts a non-zero exit whose output is the declared failure text', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const outcome = await execute({ root, ws })
     expect(outcome.issues).toEqual([])
     expect(outcome.results[0]).toMatchObject({
@@ -203,7 +203,7 @@ describe('judging the controlled run', () => {
 
 describe('control names and dependency links', () => {
   it('sanitizes unsafe labels and falls back to control for an empty one', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const dir = join(root, 'attempt-safe')
     const controls = [
       { ...CONTROL, label: '!!!' },
@@ -229,7 +229,7 @@ describe('control names and dependency links', () => {
   })
 
   it('links node_modules from the workspace into the isolated copy', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     mkdirSync(join(ws, 'node_modules', 'left-pad'), { recursive: true })
     writeFileSync(join(ws, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1\n', 'utf8')
     let linked = false
@@ -252,7 +252,7 @@ describe('control names and dependency links', () => {
   })
 
   it('falls back to the dependency root when the workspace has no node_modules', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const dependencyRoot = join(root, 'dependency')
     mkdirSync(join(dependencyRoot, 'node_modules', 'dep'), { recursive: true })
     let linked = false
@@ -274,7 +274,7 @@ describe('control names and dependency links', () => {
   })
 
   it('keeps the copied node_modules when the link target already exists', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     mkdirSync(join(ws, 'node_modules', 'kept'), { recursive: true })
     writeFileSync(join(ws, 'node_modules', 'kept', 'index.js'), 'module.exports = 2\n', 'utf8')
     // 以 “workspace/.” 传入时复制路径规范化会保留 node_modules，使符号链接目标已存在。
@@ -291,7 +291,7 @@ describe('control names and dependency links', () => {
 
 describe('failing before the patch can run', () => {
   it('rejects a control that references an undeclared command without a result', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const outcome = await execute({
       root,
       ws,
@@ -304,7 +304,7 @@ describe('failing before the patch can run', () => {
   })
 
   it('rejects a control whose patch file does not exist', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const outcome = await execute({
       root,
       ws,
@@ -316,7 +316,7 @@ describe('failing before the patch can run', () => {
   })
 
   it('prefixes patch validation issues with the control label', async () => {
-    const { root, ws } = workspace(PATCH_TEST_ONLY)
+    const { root, ws } = await workspace(PATCH_TEST_ONLY)
     const outcome = await execute({ root, ws, run: async () => controlRun() })
     expect(outcome.issues).toEqual([
       'check：敏感性对照不能只修改测试材料，必须触及业务实现：verification/check.js',
@@ -325,7 +325,7 @@ describe('failing before the patch can run', () => {
   })
 
   it('reports a patch whose context does not match the candidate', async () => {
-    const { root, ws } = workspace(PATCH_MISMATCH)
+    const { root, ws } = await workspace(PATCH_MISMATCH)
     const outcome = await execute({ root, ws, run: async () => controlRun() })
     expect(outcome.issues[0]).toMatch(/^敏感性对照补丁无法应用：/)
     expect(outcome.issues[0]).toContain('business.txt')
@@ -358,9 +358,9 @@ describe('failing before the patch can run', () => {
       ].join('\n'),
       'utf8',
     )
-    git(ws, ['init', '-q'])
-    git(ws, ['add', '-A'])
-    git(ws, [
+    await git(ws, ['init', '-q'])
+    await git(ws, ['add', '-A'])
+    await git(ws, [
       '-c',
       'user.email=forgeloop@example.invalid',
       '-c',
@@ -377,7 +377,7 @@ describe('failing before the patch can run', () => {
 
   it('reports a copy that cannot initialize its own Git repository', async () => {
     // 让 git init 必然失败（GIT_DIR 指向普通文件），错误由真实 Git 给出。
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const blocker = join(root, 'git-dir-blocker')
     writeFileSync(blocker, 'not a git dir', 'utf8')
     const previous = process.env.GIT_DIR
@@ -395,7 +395,7 @@ describe('failing before the patch can run', () => {
   })
 
   it('reports the exception when the isolated copy cannot be created', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     const blocker = join(root, 'attempt-blocked')
     writeFileSync(blocker, 'not a directory', 'utf8')
     const outcome = await execute({ root, ws, dir: blocker, run: async () => controlRun() })
@@ -404,7 +404,7 @@ describe('failing before the patch can run', () => {
   })
 
   it('reports an exception thrown by the control command runner', async () => {
-    const { root, ws } = workspace()
+    const { root, ws } = await workspace()
     let calledWith = ''
     const outcome = await execute({
       root,

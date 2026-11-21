@@ -97,10 +97,10 @@ describe('plan change guard', () => {
 })
 
 describe('auto advance scanning', () => {
-  it('queues nothing for a fresh project and ignores terminal requirements', () => {
+  it('queues nothing for a fresh project and ignores terminal requirements', async () => {
     expect(runtime.autoAdvanceRequests(new Date('2026-11-06T00:00:00.000Z'))).toEqual([])
     const reqId = submit()
-    runtime.cancel({ reqId, by: 'owner', reason: '不需要' })
+    await runtime.cancel({ reqId, by: 'owner', reason: '不需要' })
     expect(runtime.autoAdvanceRequests(new Date('2026-11-06T00:00:00.000Z'))).toEqual([])
   })
 
@@ -135,9 +135,9 @@ describe('views', () => {
     expect(summary.database).toContain('records.sqlite')
   })
 
-  it('reports board and reliability payloads', () => {
+  it('reports board and reliability payloads', async () => {
     expect(runtime.statusBoard()).toMatchObject({ project: 'demo' })
-    expect(runtime.reliability('7d')).toMatchObject({ window: { key: '7d' } })
+    expect(await runtime.reliability('7d')).toMatchObject({ window: { key: '7d' } })
     expect(runtime.opsStatus()).toMatchObject({ ok: expect.any(Boolean) })
   })
 })

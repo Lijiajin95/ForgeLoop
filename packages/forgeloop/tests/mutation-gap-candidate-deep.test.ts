@@ -343,7 +343,7 @@ function admittedBuildFixture(
   }
 }
 
-function prepareFixture(
+async function prepareFixture(
   reqId: string,
   options: {
     packageJson?: Record<string, unknown>
@@ -369,7 +369,7 @@ function prepareFixture(
     candidatePackageCommand: options.packageCommand ?? ['node', '-e', 'process.exit(0)'],
   })
   const pipeline = new CandidatePipeline({ config: localConfig } as never)
-  const result = (pipeline as any).prepareCandidateBuild(
+  const result = await (pipeline as any).prepareCandidateBuild(
     { reqId, ...(options.version === undefined ? {} : { version: options.version }) },
     {
       plan: makePlan(1, [], reqId),
@@ -520,19 +520,19 @@ afterEach(() => {
 })
 
 describe('admitted delivery scanning', () => {
-  it('returns no delivery without current admission or without any candidate', () => {
+  it('returns no delivery without current admission or without any candidate', async () => {
     const plan = makePlan()
     const withoutAdmission = pipelineWith({ repo: { taskPlans: () => [plan] } })
-    expect((withoutAdmission as any).admittedDelivery('req-1')).toBeNull()
+    expect(await (withoutAdmission as any).admittedDelivery('req-1')).toBeNull()
 
     const withoutCandidate = pipelineWith({
       currentAdmission: () => makeAdmission(),
       repo: { taskPlans: () => [plan], latestCodeCandidate: () => null },
     })
-    expect((withoutCandidate as any).admittedDelivery('req-1')).toBeNull()
+    expect(await (withoutCandidate as any).admittedDelivery('req-1')).toBeNull()
   })
 
-  it('scans plans newest first and binds the candidate records of the first hit', () => {
+  it('scans plans newest first and binds the candidate records of the first hit', async () => {
     const candidate = makeCandidate('/tmp/diff.diff')
     const verification = makeVerification('/tmp/evidence')
     const review = makeReview('/tmp/evidence')
@@ -551,7 +551,7 @@ describe('admitted delivery scanning', () => {
         commitForCandidate: () => commit,
       },
     })
-    const delivery = (pipeline as any).admittedDelivery('req-1')
+    const delivery = await (pipeline as any).admittedDelivery('req-1')
     expect(scanned).toEqual([2, 1])
     expect(delivery.plan.planVersion).toBe(1)
     expect(delivery.candidate).toBe(candidate)
@@ -562,20 +562,20 @@ describe('admitted delivery scanning', () => {
 })
 
 describe('protected candidate content', () => {
-  it('hashes present files and records missing files as empty', () => {
+  it('hashes present files and records missing files as empty', async () => {
     const evidenceDir = join(root, 'hashes')
     mkdirSync(evidenceDir, { recursive: true })
     writeFileSync(join(evidenceDir, 'a.txt'), 'alpha', 'utf8')
-    const hashes = (pipelineWith() as any).protectedFileHashes(evidenceDir, [
+    const hashes = (await (pipelineWith() as any).protectedFileHashes(evidenceDir, [
       'a.txt',
       'missing.txt',
-    ]) as Map<string, string>
+    ])) as Map<string, string>
     expect(hashes.get('a.txt')).toBe(sha256OfText('alpha'))
     expect(hashes.get('missing.txt')).toBe('')
     expect(hashes.size).toBe(2)
   })
 
-  it('reports modified and deleted files but ignores allowed paths', () => {
+  it('reports modified and deleted files but ignores allowed paths', async () => {
     const evidenceDir = join(root, 'changes')
     mkdirSync(evidenceDir, { recursive: true })
     for (const [name, content] of [
@@ -587,12 +587,12 @@ describe('protected candidate content', () => {
       writeFileSync(join(evidenceDir, name), content, 'utf8')
     }
     const pipeline = pipelineWith()
-    const before = (pipeline as any).protectedFileHashes(evidenceDir, [
+    const before = (await (pipeline as any).protectedFileHashes(evidenceDir, [
       'a.txt',
       'b.txt',
       'c.txt',
       'ignored.txt',
-    ]) as Map<string, string>
+    ])) as Map<string, string>
     writeFileSync(join(evidenceDir, 'a.txt'), 'changed', 'utf8')
     rmSync(join(evidenceDir, 'c.txt'))
     writeFileSync(join(evidenceDir, 'ignored.txt'), 'changed too', 'utf8')
@@ -680,9 +680,9 @@ describe('build readiness', () => {
 })
 
 describe('admitted candidate build', () => {
-  it('reports an unknown requirement and a missing admitted delivery', () => {
+  it('reports an unknown requirement and a missing admitted delivery', async () => {
     const unknown = pipelineWith()
-    expect(unknown.buildCandidate({ reqId: 'req-x', by: 'owner' })).toMatchObject({
+    expect(await unknown.buildCandidate({ reqId: 'req-x', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'not_found',
       message: '未找到需求 req-x',
@@ -691,14 +691,14 @@ describe('admitted candidate build', () => {
       currentAdmission: () => makeAdmission(),
       repo: { getRequirement: () => makeRequirement(), taskPlans: () => [] },
     })
-    expect(noDelivery.buildCandidate({ reqId: 'req-1', by: 'owner' })).toMatchObject({
+    expect(await noDelivery.buildCandidate({ reqId: 'req-1', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_missing',
       message: '需求 req-1 没有可构建的新链路候选',
     })
   })
 
-  it('propagates build material validation failures unchanged', () => {
+  it('propagates build material validation failures unchanged', async () => {
     const fixture = admittedBuildFixture('req-material', {
       validateBuildMaterials: () => ({
         ok: false,
@@ -706,24 +706,26 @@ describe('admitted candidate build', () => {
         message: '独立测试报告的候选、需求、方案或工作区身份不一致；不能构建',
       }),
     })
-    expect(fixture.pipeline.buildCandidate({ reqId: 'req-material', by: 'owner' })).toMatchObject({
+    expect(
+      await fixture.pipeline.buildCandidate({ reqId: 'req-material', by: 'owner' }),
+    ).toMatchObject({
       ok: false,
       code: 'verification_invalid',
       message: '独立测试报告的候选、需求、方案或工作区身份不一致；不能构建',
     })
   })
 
-  it('reports a missing candidate package manifest and a missing artifact manifest', () => {
+  it('reports a missing candidate package manifest and a missing artifact manifest', async () => {
     const missingPackage = admittedBuildFixture('req-no-package', { packageJson: null })
     expect(
-      missingPackage.pipeline.buildCandidate({ reqId: 'req-no-package', by: 'owner' }),
+      await missingPackage.pipeline.buildCandidate({ reqId: 'req-no-package', by: 'owner' }),
     ).toMatchObject({
       ok: false,
       code: 'package_missing',
     })
 
     const missingArtifact = admittedBuildFixture('req-no-artifact')
-    const result = missingArtifact.pipeline.buildCandidate({
+    const result = await missingArtifact.pipeline.buildCandidate({
       reqId: 'req-no-artifact',
       by: 'owner',
     })
@@ -731,11 +733,11 @@ describe('admitted candidate build', () => {
     expect(result.message).toContain('打包完成但没有找到产物清单')
   })
 
-  it('builds an admitted candidate and records the build binding', () => {
+  it('builds an admitted candidate and records the build binding', async () => {
     const fixture = admittedBuildFixture('req-ok', {
       packageCommand: ['node', '-e', PACKAGE_SCRIPT],
     })
-    const result = fixture.pipeline.buildCandidate({ reqId: 'req-ok', by: 'owner' })
+    const result = await fixture.pipeline.buildCandidate({ reqId: 'req-ok', by: 'owner' })
     expect(result.ok, result.message).toBe(true)
     expect(result.message).toContain('已从准入候选构建安装包 1.0.0')
     const data = result.data as {
@@ -779,11 +781,11 @@ describe('admitted candidate build', () => {
 })
 
 describe('candidate artifact manifest', () => {
-  it('rejects a missing or malformed artifact file', () => {
+  it('rejects a missing or malformed artifact file', async () => {
     const pipeline = pipelineWith()
     const emptyDir = join(root, 'empty-artifact')
     mkdirSync(emptyDir, { recursive: true })
-    expect((pipeline as any).readCandidateArtifact(emptyDir, '1.0.0')).toMatchObject({
+    expect(await (pipeline as any).readCandidateArtifact(emptyDir, '1.0.0')).toMatchObject({
       ok: false,
       result: { code: 'artifact_missing' },
     })
@@ -795,13 +797,13 @@ describe('candidate artifact manifest', () => {
       JSON.stringify({ sha256: '', tarball: '', version: '1.0.0' }),
       'utf8',
     )
-    expect((pipeline as any).readCandidateArtifact(malformedDir, '1.0.0')).toMatchObject({
+    expect(await (pipeline as any).readCandidateArtifact(malformedDir, '1.0.0')).toMatchObject({
       ok: false,
       result: { code: 'artifact_malformed' },
     })
   })
 
-  it('accepts a valid manifest and filters non-string file entries', () => {
+  it('accepts a valid manifest and filters non-string file entries', async () => {
     const dir = join(root, 'valid-artifact')
     mkdirSync(dir, { recursive: true })
     const tarball = join(dir, 'artifact.tgz')
@@ -815,7 +817,7 @@ describe('candidate artifact manifest', () => {
       }),
       'utf8',
     )
-    expect((pipelineWith() as any).readCandidateArtifact(dir, '1.0.0')).toMatchObject({
+    expect(await (pipelineWith() as any).readCandidateArtifact(dir, '1.0.0')).toMatchObject({
       ok: true,
       value: {
         tarball,
@@ -828,8 +830,8 @@ describe('candidate artifact manifest', () => {
 })
 
 describe('candidate build copy preparation', () => {
-  it('rejects a build command that mutates protected content', () => {
-    const fixture = prepareFixture('req-protected', {
+  it('rejects a build command that mutates protected content', async () => {
+    const fixture = await prepareFixture('req-protected', {
       protectedFiles: ['README.md'],
       buildCommand: ['node', '-e', "require('node:fs').writeFileSync('README.md', 'mutated')"],
     })
@@ -846,8 +848,8 @@ describe('candidate build copy preparation', () => {
     expect(log).toContain('=== build')
   })
 
-  it('applies the requested version before hashing protected files', () => {
-    const fixture = prepareFixture('req-version', {
+  it('applies the requested version before hashing protected files', async () => {
+    const fixture = await prepareFixture('req-version', {
       protectedFiles: ['packages/forgeloop/package.json'],
       version: '1.9.9',
     })
@@ -858,8 +860,8 @@ describe('candidate build copy preparation', () => {
     expect(packageJson.version).toBe('1.9.9')
   })
 
-  it('reports a failing package command and an empty package version', () => {
-    const failing = prepareFixture('req-package-fail', {
+  it('reports a failing package command and an empty package version', async () => {
+    const failing = await prepareFixture('req-package-fail', {
       packageCommand: ['node', '-e', 'process.exit(9)'],
     })
     expect(failing.result).toMatchObject({
@@ -874,7 +876,7 @@ describe('candidate build copy preparation', () => {
     expect(log).toContain('=== build (exit 0)')
     expect(log).toContain('=== package (exit 9)')
 
-    const emptyVersion = prepareFixture('req-empty-version', {
+    const emptyVersion = await prepareFixture('req-empty-version', {
       packageJson: { name: 'forgeloop-dsh', version: '' },
     })
     expect(emptyVersion.result).toMatchObject({
@@ -1096,7 +1098,7 @@ describe('acceptance guards', () => {
 })
 
 describe('deployment checks', () => {
-  it('rejects an unknown requirement, an unsafe profile and missing delivery materials', () => {
+  it('rejects an unknown requirement, an unsafe profile and missing delivery materials', async () => {
     const fixture = deploymentFixture()
     const request = {
       reqId: 'req-1',
@@ -1105,31 +1107,31 @@ describe('deployment checks', () => {
       source: 'test',
     }
     expect(
-      pipelineFrom(fixture.deps, { getRequirement: () => null }).verifyDeployment(request),
+      await pipelineFrom(fixture.deps, { getRequirement: () => null }).verifyDeployment(request),
     ).toMatchObject({ ok: false, code: 'not_found' })
     expect(
-      fixture.pipeline.verifyDeployment({ ...request, targetProfile: 'Bad/Profile' }),
+      await fixture.pipeline.verifyDeployment({ ...request, targetProfile: 'Bad/Profile' }),
     ).toMatchObject({ ok: false, code: 'profile_invalid' })
     expect(
-      pipelineFrom(fixture.deps, { taskPlans: () => [] }).verifyDeployment(request),
+      await pipelineFrom(fixture.deps, { taskPlans: () => [] }).verifyDeployment(request),
     ).toMatchObject({ ok: false, code: 'candidate_missing' })
     expect(
-      pipelineFrom(
+      await pipelineFrom(
         fixture.deps,
         { latestTaskPlan: () => null },
         { currentAdmission: () => null },
       ).verifyDeployment(request),
     ).toMatchObject({ ok: false, code: 'plan_missing' })
     expect(
-      pipelineFrom(fixture.deps, { candidateBuild: () => null }).verifyDeployment(request),
+      await pipelineFrom(fixture.deps, { candidateBuild: () => null }).verifyDeployment(request),
     ).toMatchObject({ ok: false, code: 'candidate_missing' })
     expect(
-      pipelineFrom(fixture.deps, {
+      await pipelineFrom(fixture.deps, {
         candidateBuild: () => makeBuild({ candidateSha256: 'f'.repeat(64) }),
       }).verifyDeployment(request),
     ).toMatchObject({ ok: false, code: 'candidate_stale' })
     expect(
-      pipelineFrom(
+      await pipelineFrom(
         fixture.deps,
         {
           acceptance: () => ({ accepted_at: '' }),
@@ -1141,7 +1143,7 @@ describe('deployment checks', () => {
     ).toMatchObject({ ok: false, code: 'acceptance_required' })
   })
 
-  it('rejects a missing profile and a profile without an installed plugin', () => {
+  it('rejects a missing profile and a profile without an installed plugin', async () => {
     const request = {
       reqId: 'req-1',
       targetProfile: 'prod',
@@ -1149,18 +1151,18 @@ describe('deployment checks', () => {
       source: 'test',
     }
     const withoutProfile = deploymentFixture({ withProfile: false })
-    expect(withoutProfile.pipeline.verifyDeployment(request)).toMatchObject({
+    expect(await withoutProfile.pipeline.verifyDeployment(request)).toMatchObject({
       ok: false,
       code: 'profile_missing',
     })
     const withoutInstall = deploymentFixture({ withInstall: false })
-    expect(withoutInstall.pipeline.verifyDeployment(request)).toMatchObject({
+    expect(await withoutInstall.pipeline.verifyDeployment(request)).toMatchObject({
       ok: false,
       code: 'not_installed',
     })
   })
 
-  it('records a failed deployment when the installed version differs, then verifies after the fix', () => {
+  it('records a failed deployment when the installed version differs, then verifies after the fix', async () => {
     const fixture = deploymentFixture({ installedVersion: '0.0.1' })
     const request = {
       reqId: 'req-1',
@@ -1168,7 +1170,7 @@ describe('deployment checks', () => {
       by: 'owner',
       source: 'test',
     }
-    const failed = fixture.pipeline.verifyDeployment(request)
+    const failed = await fixture.pipeline.verifyDeployment(request)
     expect(failed).toMatchObject({ ok: false, code: 'deployment_check_failed' })
     expect(failed.message).toContain(
       'installed_version：安装版本 0.0.1，候选包版本 ' + PLUGIN_VERSION,
@@ -1199,7 +1201,7 @@ describe('deployment checks', () => {
       JSON.stringify({ name: 'forgeloop-dsh', version: PLUGIN_VERSION }),
       'utf8',
     )
-    const verified = fixture.pipeline.verifyDeployment(request)
+    const verified = await fixture.pipeline.verifyDeployment(request)
     expect(verified.ok, verified.message).toBe(true)
     const data = verified.data as {
       state: string

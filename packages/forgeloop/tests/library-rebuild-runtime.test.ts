@@ -87,7 +87,7 @@ function setup(
       },
     },
     load: loadLibrary,
-    collect: (projectPath) => collectRebuildMaterials(projectPath),
+    collect: async (projectPath) => await collectRebuildMaterials(projectPath),
     ...(options.omitSync ? {} : { sync: options.sync ?? (() => undefined) }),
     now: () => NOW,
   })
@@ -99,7 +99,7 @@ describe('library rebuild run', () => {
     const { dir, service, store, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
-    const { runId } = service.start({ by: 'owner', source: 'test' })
+    const { runId } = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status(runId)
@@ -117,12 +117,12 @@ describe('library rebuild run', () => {
     const { service, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const file = join(entryPath, 'rules.cancel-shipped-order.md')
     const before = readFileSync(file, 'utf8')
 
-    const second = service.start({ by: 'owner', source: 'test' })
+    const second = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const latest = service.status(second.runId)
@@ -135,11 +135,11 @@ describe('library rebuild run', () => {
     const { dir, service, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson({ rules })] })),
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     rules = ['签收前可取消，签收后拒绝']
-    const second = service.start({ by: 'owner', source: 'test' })
+    const second = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const latest = service.status(second.runId)
@@ -154,14 +154,14 @@ describe('library rebuild run', () => {
     const { service, entryPath } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson({ rules })] })),
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const file = join(entryPath, 'rules.cancel-shipped-order.md')
     writeFileSync(file, `${readFileSync(file, 'utf8')}\n人工补充。\n`, 'utf8')
     const edited = readFileSync(file, 'utf8')
 
     rules = ['签收前可取消']
-    const second = service.start({ by: 'owner', source: 'test' })
+    const second = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const latest = service.status(second.runId)
@@ -171,7 +171,7 @@ describe('library rebuild run', () => {
 
   it('records model failures and publishes nothing', async () => {
     const { dir, service } = setup(async () => failed('model down'))
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
@@ -193,9 +193,9 @@ describe('library rebuild run', () => {
           request.signal?.addEventListener('abort', () => resolve(completed('{"candidates":[]}')))
         }),
     )
-    const { runId } = service.start({ by: 'owner', source: 'test' })
+    const { runId } = await service.start({ by: 'owner', source: 'test' })
     await started
-    expect(service.cancel(runId)).toBe(true)
+    expect(await service.cancel(runId)).toBe(true)
     await service.whenIdle()
 
     expect(service.status(runId)).toMatchObject({ status: 'cancelled', published: 0 })
@@ -211,15 +211,15 @@ describe('library rebuild run', () => {
       await gate
       return completed('{"candidates":[]}')
     })
-    service.start({ by: 'owner', source: 'test' })
-    expect(() => service.start({ by: 'owner', source: 'test' })).toThrow(/已有重建/)
+    await service.start({ by: 'owner', source: 'test' })
+    await expect(service.start({ by: 'owner', source: 'test' })).rejects.toThrow(/已有重建/)
     release?.()
     await service.whenIdle()
   })
 
   it('finishes with no candidates when the model returns an empty list', async () => {
     const { dir, service } = setup(async () => completed('{"candidates":[]}'))
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 0, candidates: 0 })
     expect(loadLibrary(dir).entries).toEqual([])
@@ -229,7 +229,7 @@ describe('library rebuild run', () => {
     const throwing = setup(async () => {
       throw new Error('runner exploded')
     })
-    throwing.service.start({ by: 'owner', source: 'test' })
+    await throwing.service.start({ by: 'owner', source: 'test' })
     await throwing.service.whenIdle()
     expect(throwing.service.status()).toMatchObject({ status: 'done', published: 0 })
     expect(readFileSync(join(throwing.service.status()!.reportPath, 'run.json'), 'utf8')).toContain(
@@ -237,7 +237,7 @@ describe('library rebuild run', () => {
     )
 
     const invalid = setup(async () => completed('not-json'))
-    invalid.service.start({ by: 'owner', source: 'test' })
+    await invalid.service.start({ by: 'owner', source: 'test' })
     await invalid.service.whenIdle()
     expect(invalid.service.status()).toMatchObject({ status: 'done', published: 0 })
     expect(readFileSync(join(invalid.service.status()!.reportPath, 'run.json'), 'utf8')).toContain(
@@ -248,7 +248,7 @@ describe('library rebuild run', () => {
   it('handles unknown status and cancel requests and an idle wait', async () => {
     const { service } = setup(async () => completed('{"candidates":[]}'))
     expect(service.status('missing')).toBeNull()
-    expect(service.cancel('missing')).toBe(false)
+    expect(await service.cancel('missing')).toBe(false)
     await service.whenIdle()
   })
 
@@ -261,7 +261,7 @@ describe('library rebuild run', () => {
         },
       },
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const run = service.status()
     expect(run).toMatchObject({ status: 'done', published: 1 })
@@ -287,7 +287,7 @@ describe('library rebuild run', () => {
       })}\n-->\n\n旧正文\n`,
       'utf8',
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
@@ -322,7 +322,7 @@ describe('library rebuild run', () => {
       reportPath: '',
       publishedJson: '{"not":"an array"}',
     })
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -343,7 +343,7 @@ describe('library rebuild run', () => {
         }),
       ),
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     const run = service.status()
     expect(run).toMatchObject({ status: 'done', published: 1, candidates: 1 })
@@ -359,7 +359,7 @@ describe('library rebuild run', () => {
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
     mkdirSync(join(entryPath, 'rules.cancel-shipped-order.md'), { recursive: true })
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
@@ -373,7 +373,7 @@ describe('library rebuild run', () => {
       async () => completed(JSON.stringify({ candidates: [candidateJson()] })),
       { omitSync: true },
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -405,7 +405,7 @@ describe('library rebuild run', () => {
       reportPath: '',
       publishedJson: 'not-json',
     })
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -437,7 +437,7 @@ describe('library rebuild run', () => {
       reportPath: '',
       publishedJson: '[null,{"id":"x"},{"id":"a","sha256":"s","fingerprint":""}]',
     })
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
     expect(service.status()).toMatchObject({ status: 'done', published: 1 })
   })
@@ -462,7 +462,7 @@ describe('library rebuild run', () => {
         'utf8',
       )
     }
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()
@@ -475,7 +475,7 @@ describe('library rebuild run', () => {
     mkdirSync(entryPath, { recursive: true })
     writeFileSync(join(entryPath, 'broken.md'), '<!-- library\n{broken}\n-->\n', 'utf8')
 
-    const { runId } = service.start({ by: 'owner', source: 'test' })
+    const { runId } = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status(runId)
@@ -493,12 +493,12 @@ describe('library rebuild run', () => {
       }
       return completed(JSON.stringify({ candidates: [candidateJson({ rules })] }))
     })
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     editBeforePublish = true
     rules = ['新规则']
-    const second = service.start({ by: 'owner', source: 'test' })
+    const second = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status(second.runId)
@@ -510,7 +510,7 @@ describe('library rebuild run', () => {
     const { service } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
-    service.start({ by: 'owner', source: 'test' })
+    await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     const run = service.status()!
@@ -582,10 +582,10 @@ describe('library rebuild run', () => {
     const { dir, service } = setup(async () =>
       completed(JSON.stringify({ candidates: [candidateJson()] })),
     )
-    const { runId } = service.start({ by: 'owner', source: 'test' })
+    const { runId } = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
-    const result = service.confirm(runId, 'owner-confirm:web-decision:s1')
+    const result = await service.confirm(runId, 'owner-confirm:web-decision:s1')
     expect(result.confirmed).toEqual(['rules.cancel-shipped-order'])
     expect(result.skipped).toEqual([])
 
@@ -595,7 +595,7 @@ describe('library rebuild run', () => {
     expect(loaded.entries[0]?.entry.updatedAt).toBe('2026-11-16')
 
     // 再点一次是幂等的：已确认条目不再计入“本次确认”。
-    expect(service.confirm(runId, 'owner-confirm:web-decision:s1')).toMatchObject({
+    expect(await service.confirm(runId, 'owner-confirm:web-decision:s1')).toMatchObject({
       confirmed: [],
     })
   })
@@ -606,7 +606,7 @@ describe('library rebuild run', () => {
       release = () => resolve(completed('{"candidates":[]}'))
     })
     const { service } = setup(() => pending)
-    const { runId } = service.start({ by: 'owner', source: 'test' })
+    const { runId } = await service.start({ by: 'owner', source: 'test' })
 
     expect(() => service.confirm(runId, 'owner-confirm:test')).toThrow('尚未完成')
     release?.()
@@ -663,7 +663,7 @@ describe('library rebuild run', () => {
     ].join('\n')
   }
 
-  it('skips published ids that are missing, not drafts, or not rebuild drafts', () => {
+  it('skips published ids that are missing, not drafts, or not rebuild drafts', async () => {
     const { service, store, entryPath } = setup(async () => completed('{"candidates":[]}'))
     mkdirSync(entryPath, { recursive: true })
     writeFileSync(
@@ -686,23 +686,23 @@ describe('library rebuild run', () => {
       }),
     )
 
-    const result = service.confirm('lrb-manual', 'owner-confirm:test')
+    const result = await service.confirm('lrb-manual', 'owner-confirm:test')
     expect(result.confirmed).toEqual([])
     expect(result.skipped.map((item) => item.reason).sort()).toEqual(
       ['不是重建草稿', '不是草稿', '条目不存在'].sort(),
     )
   })
 
-  it('returns no confirmation for an empty or malformed published list', () => {
+  it('returns no confirmation for an empty or malformed published list', async () => {
     const { service, store } = setup(async () => completed('{"candidates":[]}'))
     store.save(doneRun({ runId: 'lrb-empty', publishedJson: '[]' }))
-    expect(service.confirm('lrb-empty', 'owner-confirm:test')).toEqual({
+    expect(await service.confirm('lrb-empty', 'owner-confirm:test')).toEqual({
       confirmed: [],
       skipped: [],
     })
 
     store.save(doneRun({ runId: 'lrb-bad', publishedJson: 'not-json' }))
-    expect(service.confirm('lrb-bad', 'owner-confirm:test')).toEqual({
+    expect(await service.confirm('lrb-bad', 'owner-confirm:test')).toEqual({
       confirmed: [],
       skipped: [],
     })
@@ -710,12 +710,12 @@ describe('library rebuild run', () => {
     expect(() => service.confirm('missing-run', 'owner-confirm:test')).toThrow('没有可确认')
   })
 
-  it('uses the latest done run when no run id is given and ignores non-array credits', () => {
+  it('uses the latest done run when no run id is given and ignores non-array credits', async () => {
     const { service, store } = setup(async () => completed('{"candidates":[]}'))
     expect(() => service.confirm(undefined, 'owner-confirm:test')).toThrow('没有可确认')
 
     store.save(doneRun({ runId: 'lrb-object', publishedJson: '{}' }))
-    expect(service.confirm(undefined, 'owner-confirm:test')).toEqual({
+    expect(await service.confirm(undefined, 'owner-confirm:test')).toEqual({
       confirmed: [],
       skipped: [],
     })

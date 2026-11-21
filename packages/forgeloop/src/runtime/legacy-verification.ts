@@ -571,7 +571,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     }
   }
 
-  private recordAgentVerification(input: {
+  private async recordAgentVerification(input: {
     reqId: string
     plan: TaskPlan
     candidate: CandidateFile
@@ -600,7 +600,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     }[]
     controlIssues: readonly string[]
     attempt: { number: number; previousAttemptId: string; dir: string }
-  }):
+  }): Promise<
     | {
         ok: true
         verification: VerificationRecord
@@ -617,7 +617,8 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
           failureKind: string
           repairRecommended: boolean
         }
-      } {
+      }
+  > {
     const { dir, workspaceSha256, result, integrityIssues, afterHead, afterChanges } = input
     const scenarios = result.scenarios.map((scenario) => ({
       scenario: scenario.scenario,
@@ -746,12 +747,12 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     return { ok: true, verification, failureKind: '', repairRecommended: false }
   }
 
-  private prepareLegacyVerificationWorkspace(input: {
+  private async prepareLegacyVerificationWorkspace(input: {
     reqId: string
     plan: TaskPlan
     candidate: CandidateFile
     devWorkspace: string
-  }):
+  }): Promise<
     | {
         ok: true
         dir: string
@@ -763,7 +764,8 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     | {
         ok: false
         result: { state: 'block'; detail: string; blocking: string[]; verification: null }
-      } {
+      }
+  > {
     const attempt = this.deps.repo.nextVerificationAttempt(
       input.reqId,
       input.plan.planVersion,
@@ -779,9 +781,14 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     mkdirSync(dir, { recursive: true })
     rmSync(workspace, { recursive: true, force: true })
     // 否则重试验证会永久卡在“丢失但已注册的工作区”。
-    runCommand('git', ['worktree', 'remove', '--force', workspace], input.devWorkspace, 30_000)
-    runCommand('git', ['worktree', 'prune'], input.devWorkspace, 30_000)
-    const added = runCommand(
+    await runCommand(
+      'git',
+      ['worktree', 'remove', '--force', workspace],
+      input.devWorkspace,
+      30_000,
+    )
+    await runCommand('git', ['worktree', 'prune'], input.devWorkspace, 30_000)
+    const added = await runCommand(
       'git',
       ['worktree', 'add', '--detach', workspace, input.candidate.snapshotCommit],
       input.devWorkspace,
@@ -798,7 +805,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
         },
       }
     }
-    const applied = runCommand(
+    const applied = await runCommand(
       'git',
       ['apply', '--binary', input.candidate.diffPath],
       workspace,
@@ -815,10 +822,10 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
         },
       }
     }
-    runCommand('git', ['add', '-A'], workspace)
-    runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
+    await runCommand('git', ['add', '-A'], workspace)
+    await runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
     if (this.deps.config.worktreePrepareCommand.length > 0) {
-      const prepare = runCommand(
+      const prepare = await runCommand(
         this.deps.config.worktreePrepareCommand[0] ?? '',
         this.deps.config.worktreePrepareCommand.slice(1),
         workspace,
@@ -835,11 +842,11 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
           },
         }
       }
-      runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
-      runCommand('git', ['clean', '-fd'], workspace)
+      await runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
+      await runCommand('git', ['clean', '-fd'], workspace)
     }
-    const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}']).trim()
-    const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+    const workspaceSha256 = (await requireGit(workspace, ['rev-parse', 'HEAD^{tree}'])).trim()
+    const workspaceHead = (await requireGit(workspace, ['rev-parse', 'HEAD'])).trim()
     const diff = readFileSync(input.candidate.diffPath, 'utf8')
     writeFileSync(join(dir, 'candidate.diff'), diff, 'utf8')
     writeFileSync(
@@ -876,14 +883,14 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     }
   }
 
-  private candidateIntegrity(
+  private async candidateIntegrity(
     workspace: string,
     workspaceHead: string,
     recorded: VerificationCheckSnapshot,
-  ): { issues: string[]; head: string; changes: string[] } {
-    const head = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+  ): Promise<{ issues: string[]; head: string; changes: string[] }> {
+    const head = (await requireGit(workspace, ['rev-parse', 'HEAD'])).trim()
     const issues = [...recorded.integrityIssues]
-    const changes = workspaceChanges(workspace)
+    const changes = await workspaceChanges(workspace)
     const facts = candidateIntegrityFacts({
       expectedHead: workspaceHead,
       actualHead: head,
@@ -1080,7 +1087,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
     failureKind?: string
     repairRecommended?: boolean
   }> {
-    const prepared = this.prepareLegacyVerificationWorkspace(input)
+    const prepared = await this.prepareLegacyVerificationWorkspace(input)
     if (!prepared.ok) return prepared.result
     const { dir, workspace, workspaceSha256, workspaceHead, attempt } = prepared
     const verificationSession = input.verification
@@ -1161,7 +1168,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
         runs: recorded.runs,
       })
     }
-    const integrity = this.candidateIntegrity(workspace, workspaceHead, recorded)
+    const integrity = await this.candidateIntegrity(workspace, workspaceHead, recorded)
     const result = judgeVerificationResult({
       plan: verificationPlan,
       artifact: {
@@ -1193,7 +1200,7 @@ ${issues.map((issue) => `- ${issue}`).join('\n')}`,
         .filter((check) => check.expectFailure === true)
         .map((check) => check.label),
     })
-    const recordedVerification = this.recordAgentVerification({
+    const recordedVerification = await this.recordAgentVerification({
       reqId: input.reqId,
       plan: input.plan,
       candidate: input.candidate,

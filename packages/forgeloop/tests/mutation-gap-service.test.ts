@@ -44,10 +44,10 @@ function stable(value: unknown): unknown {
 }
 
 describe('runtime empty-state payloads', () => {
-  it('keeps status, reliability, ops, requests and directory payloads stable', () => {
+  it('keeps status, reliability, ops, requests and directory payloads stable', async () => {
     expect(stable(runtime.status())).toMatchSnapshot('status-empty')
     expect(stable(runtime.status('missing'))).toMatchSnapshot('status-missing')
-    expect(stable(runtime.reliability('all'))).toMatchSnapshot('reliability-empty')
+    expect(stable(await runtime.reliability('all'))).toMatchSnapshot('reliability-empty')
     expect(stable(runtime.opsStatus())).toMatchSnapshot('ops-empty')
     expect(stable(runtime.listRequests())).toMatchSnapshot('requests-empty')
     expect(stable(runtime.directorySummary())).toMatchSnapshot('directory-empty')

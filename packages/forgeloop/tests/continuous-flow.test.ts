@@ -34,15 +34,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-continuous-'))
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
   return dir
 }
 
@@ -252,7 +252,7 @@ function fakeRunner(
         // 模型声称已执行但没调用工具时，运行时不能把自述当证据。
         if (options.skipExecution) return reply(JSON.stringify({ executed: ['smoke'] }))
         options.onVerifyExecution?.()
-        return executePlanThroughTool(`session-fl-${request.role}-test`, turn.prompt)
+        return await executePlanThroughTool(`session-fl-${request.role}-test`, turn.prompt)
       }
       if (request.role === 'dev' && turn.prompt.includes('技术方案与研发任务拆解')) {
         if (options.planAborted) {
@@ -618,10 +618,10 @@ async function runNext(reqId: string, action: string) {
   return outcome
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // 故障注入只由用例显式开启，避免宿主进程的外部环境变量污染临时夹具。
   delete process.env.FORGELOOP_FAULT_INJECT
-  project = makeProject()
+  project = await makeProject()
   runner = fakeRunner()
   runtime = makeRuntime(runner)
 })
@@ -659,11 +659,13 @@ describe('continuous four-Agent flow', () => {
     const commit = runtime.repo.latestCommit(reqId)
     expect(commit).not.toBeNull()
     expect(commit?.files).toEqual(['docs/a.md', 'docs/b.md'])
-    const committed = git(project, ['show', '--name-only', '--pretty=format:', commit!.commitSha])
+    const committed = (
+      await git(project, ['show', '--name-only', '--pretty=format:', commit!.commitSha])
+    )
       .split('\n')
       .filter(Boolean)
     expect(committed.sort()).toEqual(['docs/a.md', 'docs/b.md'])
-    expect(git(project, ['status', '--porcelain'])).toBe('')
+    expect(await git(project, ['status', '--porcelain'])).toBe('')
 
     // 准入需求不需要任务包批准；所有者在交付后显式验收，部署门禁依赖这条记录。
     const accepted = runtime.accept({ reqId, by: 'owner', source: 'test:accept' })
@@ -1059,7 +1061,7 @@ describe('continuous four-Agent flow', () => {
     expect(advance.state, advance.detail).toBe('done')
     expect(boundSessionId(reqId)).toBe(sessionId)
     expect(
-      git(project, [
+      await git(project, [
         'show',
         '--name-only',
         '--pretty=format:',
@@ -1639,7 +1641,7 @@ describe('continuous four-Agent flow', () => {
       source: 'dsh-session:sess-fault:msg-1',
     })
     const reqId = (submitted.data as { reqId: string }).reqId
-    expect(runtime.cancel({ reqId, by: 'owner', reason: 'test' }).ok).toBe(true)
+    expect((await runtime.cancel({ reqId, by: 'owner', reason: 'test' })).ok).toBe(true)
     expect(runtime.stop({ reqId, by: 'owner', reason: 'x' })).toMatchObject({
       ok: false,
       code: 'terminal',
@@ -1660,14 +1662,14 @@ describe('continuous four-Agent flow', () => {
     expect(runtime.autoAdvanceRequests()).not.toContain(otherId)
   })
 
-  it('returns deterministic retry and build errors for missing requirements', () => {
+  it('returns deterministic retry and build errors for missing requirements', async () => {
     expect(runtime.retryDecisionFor('req-missing')).toMatchObject({ allowed: false })
-    expect(runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: 'req-missing', by: 'owner' })).toMatchObject({
       ok: false,
       code: 'not_found',
     })
     expect(
-      runtime.verifyDeployment({
+      await runtime.verifyDeployment({
         reqId: 'req-missing',
         targetProfile: 'x',
         by: 'owner',
@@ -1684,7 +1686,7 @@ describe('continuous four-Agent flow', () => {
     })
     const reqId = (submitted.data as { reqId: string }).reqId
     expect(
-      runtime.verifyDeployment({
+      await runtime.verifyDeployment({
         reqId,
         targetProfile: 'Bad!',
         by: 'owner',
@@ -1694,7 +1696,7 @@ describe('continuous four-Agent flow', () => {
       ok: false,
       code: 'profile_invalid',
     })
-    runtime.cancel({ reqId, by: 'owner', reason: 'test' })
+    await runtime.cancel({ reqId, by: 'owner', reason: 'test' })
     expect(runtime.retryDecisionFor(reqId).allowed).toBe(false)
   })
 
@@ -1760,7 +1762,7 @@ describe('continuous four-Agent flow', () => {
       } finally {
         delete process.env.FORGELOOP_FAULT_INJECT
         // 需求队列按提出时间串行：收口本轮需求，避免它作为在研需求阻塞下一轮新需求。
-        if (reqId) runtime.cancel({ reqId, by: 'owner', reason: '故障注入用例隔离' })
+        if (reqId) await runtime.cancel({ reqId, by: 'owner', reason: '故障注入用例隔离' })
       }
     }
   })
@@ -1801,16 +1803,19 @@ describe('continuous four-Agent flow', () => {
 })
 
 /** 造一个“既有研发会话”的工作区：真实 Git 仓库，可按需留下未提交现场。 */
-function seedDevSession(sessionId: string, options: { dirty?: boolean } = {}): string {
+async function seedDevSession(
+  sessionId: string,
+  options: { dirty?: boolean } = {},
+): Promise<string> {
   // 放在被忽略的 .forgeloop/ 下：夹具自身的 Git 仓库不能把真实项目工作树弄脏。
   const workspace = join(project, '.forgeloop/seeded-sessions', sessionId)
   mkdirSync(workspace, { recursive: true })
-  git(workspace, ['init', '-q'])
-  git(workspace, ['config', 'user.email', 'test@example.com'])
-  git(workspace, ['config', 'user.name', 'Test'])
+  await git(workspace, ['init', '-q'])
+  await git(workspace, ['config', 'user.email', 'test@example.com'])
+  await git(workspace, ['config', 'user.name', 'Test'])
   writeFileSync(join(workspace, 'README.md'), 'session fixture\n')
-  git(workspace, ['add', '-A'])
-  git(workspace, ['commit', '-qm', 'session base'])
+  await git(workspace, ['add', '-A'])
+  await git(workspace, ['commit', '-qm', 'session base'])
   if (options.dirty) writeFileSync(join(workspace, 'leftover.txt'), 'uncommitted\n')
   runtime.repo.upsertDevSession({
     sessionId,
@@ -1825,8 +1830,8 @@ describe('development session routing failures', () => {
   it('falls back to another candidate when the chosen session cannot be reused', async () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner({ orchestratorSessionId: () => 'session-dirty' }))
-    seedDevSession('session-clean')
-    seedDevSession('session-dirty', { dirty: true })
+    await seedDevSession('session-clean')
+    await seedDevSession('session-dirty', { dirty: true })
 
     const submitted = runtime.submit({
       text: '在可用研发会话里实现功能',
@@ -1845,7 +1850,7 @@ describe('development session routing failures', () => {
   it('opens a new session when no candidate can be reused', async () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner({ orchestratorSessionId: () => 'session-broken' }))
-    seedDevSession('session-broken', { dirty: true })
+    await seedDevSession('session-broken', { dirty: true })
 
     const submitted = runtime.submit({
       text: '所有候选都不可用时新建会话',
@@ -1936,10 +1941,10 @@ describe('development session routing failures', () => {
     let reqId = ''
     let cancelled = false
     runner = fakeRunner({
-      onVerifyExecution: () => {
+      onVerifyExecution: async () => {
         if (cancelled) return
         cancelled = true
-        runtime.cancel({ reqId, by: 'owner', reason: '验证中取消' })
+        await runtime.cancel({ reqId, by: 'owner', reason: '验证中取消' })
       },
     })
     // 换新运行时前先关闭旧库句柄，否则 Windows 下 afterEach 清理会报 EPERM。

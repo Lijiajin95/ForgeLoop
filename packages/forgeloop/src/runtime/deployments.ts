@@ -189,7 +189,7 @@ export class Deployments {
     }
     if (target.approval === 'auto') {
       this.transition(intent, 'ready')
-      return this.apply(intent, tool, input.artifact, {
+      return await this.apply(intent, tool, input.artifact, {
         params: target.params,
         data: target.data,
       })
@@ -232,7 +232,7 @@ export class Deployments {
       at: this.now(),
       detail: 'owner 批准部署',
     })
-    return this.apply(intent, tool, this.artifactOf(intent), {
+    return await this.apply(intent, tool, this.artifactOf(intent), {
       params: target.params,
       data: target.data,
     })
@@ -362,7 +362,7 @@ export class Deployments {
       return true
     }
     if (intent.state === 'rolling_back') {
-      return this.recoverRollingBack(intent, target, tool, now)
+      return await this.recoverRollingBack(intent, target, tool, now)
     }
     const observed = await this.runOperation({
       intent,

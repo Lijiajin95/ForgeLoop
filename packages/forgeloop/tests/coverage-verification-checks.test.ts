@@ -34,15 +34,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-check-cov-'))
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
   return dir
 }
 
@@ -97,7 +97,7 @@ interface HarnessOptions {
   dir?: string
 }
 
-function harness(options: HarnessOptions = {}) {
+async function harness(options: HarnessOptions = {}) {
   const workspace = options.workspace ?? project
   const plan = options.plan ?? planWith('smoke')
   const formalTest = options.formalTest ?? ((request: TestRunRequest) => testResult(request))
@@ -112,7 +112,7 @@ function harness(options: HarnessOptions = {}) {
     candidateSha256: 'a'.repeat(64),
     workspace,
     dir: options.dir ?? join(workspace, '.forgeloop', 'checks'),
-    head: options.workspace ? 'b'.repeat(40) : git(workspace, ['rev-parse', 'HEAD']).trim(),
+    head: options.workspace ? 'b'.repeat(40) : (await git(workspace, ['rev-parse', 'HEAD'])).trim(),
     plan,
     signal: options.signal ?? new AbortController().signal,
     timeoutMs: 5_000,
@@ -129,8 +129,8 @@ function controlsLabels(): string[] {
   return parsed.controls.map((control) => control.label)
 }
 
-beforeEach(() => {
-  project = makeProject()
+beforeEach(async () => {
+  project = await makeProject()
 })
 
 afterEach(() => {
@@ -140,7 +140,7 @@ afterEach(() => {
 
 describe('verification control registration boundaries', () => {
   it('refuses a control for a label outside the plan and an underspecified failure fragment', async () => {
-    const { registry, reqId } = harness({ plan: planWith('read') })
+    const { registry, reqId } = await harness({ plan: planWith('read') })
 
     const unknown = await registry.writeControl(reqId, {
       label: 'missing',
@@ -163,7 +163,7 @@ describe('verification control registration boundaries', () => {
   })
 
   it('refuses a control patch that does not touch business implementation', async () => {
-    const { registry, reqId } = harness({ plan: planWith('read') })
+    const { registry, reqId } = await harness({ plan: planWith('read') })
     const outcome = await registry.writeControl(reqId, {
       label: 'read',
       patch:
@@ -190,7 +190,7 @@ describe('verification control registration boundaries', () => {
       }) + '\n',
       'utf8',
     )
-    const { registry, reqId } = harness({
+    const { registry, reqId } = await harness({
       plan: planWith('read'),
       dir: outerDir(),
       formalTest: (request) =>
@@ -215,7 +215,7 @@ describe('verification control registration boundaries', () => {
   })
 
   it('records a controlled copy without an exit code instead of claiming success', async () => {
-    const { registry, reqId } = harness({
+    const { registry, reqId } = await harness({
       plan: planWith('read'),
       dir: outerDir(),
       formalTest: (request) =>
@@ -236,7 +236,7 @@ describe('verification control registration boundaries', () => {
   })
 
   it('rolls back a control whose self-check did not fail on the target rule', async () => {
-    const { registry, reqId } = harness({
+    const { registry, reqId } = await harness({
       plan: planWith('read'),
       dir: outerDir(),
       formalTest: (request) => testResult(request, { exitCode: 1, output: 'unrelated crash' }),
@@ -259,7 +259,7 @@ describe('verification control registration boundaries', () => {
 
   it('refuses the control write when the verification directory cannot be created', async () => {
     writeFileSync(join(project, 'verification'), 'not a directory\n', 'utf8')
-    const { registry, reqId } = harness({ plan: planWith('read') })
+    const { registry, reqId } = await harness({ plan: planWith('read') })
     const outcome = await registry.writeControl(reqId, {
       label: 'read',
       patch: VALID_PATCH,
@@ -272,7 +272,7 @@ describe('verification control registration boundaries', () => {
 
 describe('verification material boundaries', () => {
   it('refuses material outside verification/ and material that overwrites controls', async () => {
-    const { registry, reqId } = harness()
+    const { registry, reqId } = await harness()
     const outside = registry.writeMaterial(reqId, { path: 'docs/check.js', content: 'x' })
     expect(outside).toEqual({
       ok: false,
@@ -300,7 +300,7 @@ describe('verification material boundaries', () => {
   })
 
   it('writes nested material under verification/ and reports a failed write', async () => {
-    const { registry, reqId } = harness()
+    const { registry, reqId } = await harness()
     const written = registry.writeMaterial(reqId, {
       path: '/verification/nested/check.js',
       content: 'console.log("ok")\n',
@@ -327,7 +327,7 @@ describe('verification material boundaries', () => {
 describe('verification check execution integrity', () => {
   it('uses a safe log name for a label that is not filesystem friendly', async () => {
     const dir = join(project, '.forgeloop', 'checks')
-    const { registry, reqId } = harness({
+    const { registry, reqId } = await harness({
       plan: planWith(''),
       dir,
       formalTest: (request) => testResult(request),
@@ -344,7 +344,7 @@ describe('verification check execution integrity', () => {
   it('blocks execution when the candidate Git metadata cannot be read', async () => {
     const plain = mkdtempSync(join(tmpdir(), 'forgeloop-not-git-'))
     try {
-      const { registry, reqId } = harness({ workspace: plain, plan: planWith('smoke') })
+      const { registry, reqId } = await harness({ workspace: plain, plan: planWith('smoke') })
       const outcome = await registry.run(reqId, 'smoke')
       expect(outcome.ok).toBe(false)
       expect(outcome.text).toBe('候选提交在验证开始后发生变化；本次命令没有执行，验证将被阻断。')
@@ -358,10 +358,10 @@ describe('verification check execution integrity', () => {
   })
 
   it('flags a candidate commit that moved during the command', async () => {
-    const { registry, reqId } = harness({
+    const { registry, reqId } = await harness({
       plan: planWith('smoke'),
-      formalTest: (request) => {
-        git(project, ['commit', '-qm', 'moved during verification', '--allow-empty'])
+      formalTest: async (request) => {
+        await git(project, ['commit', '-qm', 'moved during verification', '--allow-empty'])
         return testResult(request)
       },
     })
@@ -374,7 +374,7 @@ describe('verification check execution integrity', () => {
   })
 
   it('records a damaged workspace instead of silently accepting the run', async () => {
-    const { registry, reqId } = harness({
+    const { registry, reqId } = await harness({
       plan: planWith('smoke'),
       formalTest: (request) => {
         rmSync(join(project, '.git'), { recursive: true, force: true })
@@ -389,7 +389,7 @@ describe('verification check execution integrity', () => {
   })
 
   it('returns null for controls when the requirement or token no longer matches', async () => {
-    const { registry, reqId, handle, plan } = harness()
+    const { registry, reqId, handle, plan } = await harness()
     const commands = plan.scenarios.flatMap((scenario) => scenario.checks)
     expect(
       await registry.executeControls('req-missing', handle.token, { commands, controls: [] }),
@@ -417,7 +417,7 @@ describe('missing verification materials', () => {
         expectFailure: false,
       },
     ]
-    const built = harness({ plan })
+    const built = await harness({ plan })
     await built.registry.run(built.reqId, 'needs-script')
     const runs = built.registry.snapshot(built.reqId, built.handle.token)?.runs ?? []
     expect(runs[0]?.output).toContain('验证脚本未创建')

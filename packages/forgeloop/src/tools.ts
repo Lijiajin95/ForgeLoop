@@ -205,7 +205,7 @@ function opsArtifactTools(resolve: ToolScopeResolver): ToolDefinitionLike[] {
         const config = scope.config
         const artifactId = stringArg(args, 'artifact_id')
         if (!artifactId) return { ok: false, text: 'artifact_id is required' }
-        const outcome = readArtifactState(config, artifactId)
+        const outcome = await readArtifactState(config, artifactId)
         return outcome.ok
           ? { ok: true, text: `研发制品 ${artifactId} 的运行状态`, data: outcome.data }
           : { ok: false, text: outcome.reason }

@@ -1443,21 +1443,21 @@ describe('deployment rollback', () => {
 })
 
 describe('deployment inspect', () => {
-  it('reads installed package versions and treats missing or malformed manifests as unknown', () => {
+  it('reads installed package versions and treats missing or malformed manifests as unknown', async () => {
     const root = join(dir, 'installed-version')
     mkdirSync(root, { recursive: true })
-    expect(readInstalledVersion(root)).toBe('')
+    expect(await readInstalledVersion(root)).toBe('')
     writeFileSync(join(root, 'package.json'), '{')
-    expect(readInstalledVersion(root)).toBe('')
+    expect(await readInstalledVersion(root)).toBe('')
     writeFileSync(join(root, 'package.json'), JSON.stringify({ version: 42 }))
-    expect(readInstalledVersion(root)).toBe('')
+    expect(await readInstalledVersion(root)).toBe('')
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'x' }))
-    expect(readInstalledVersion(root)).toBe('')
+    expect(await readInstalledVersion(root)).toBe('')
     writeFileSync(join(root, 'package.json'), JSON.stringify({ version: '1.2.3' }))
-    expect(readInstalledVersion(root)).toBe('1.2.3')
+    expect(await readInstalledVersion(root)).toBe('1.2.3')
   })
 
-  it('verifies installed files against tar members with and without the package prefix', () => {
+  it('verifies installed files against tar members with and without the package prefix', async () => {
     const pack = join(dir, 'pack')
     mkdirSync(join(pack, 'package'), { recursive: true })
     writeFileSync(join(pack, 'package', 'a.js'), 'export const a = 1\n')
@@ -1472,39 +1472,39 @@ describe('deployment inspect', () => {
     writeFileSync(join(installedRoot, 'c.js'), 'export const c = 3\n')
     const build = { files: ['a.js', 'b.js'], tarball }
 
-    expect(verifyInstalledFiles(build, installedRoot)).toEqual({
+    expect(await verifyInstalledFiles(build, installedRoot)).toEqual({
       ok: true,
       detail: '2 个文件与包内容一致',
     })
-    expect(verifyInstalledFiles({ files: [], tarball }, installedRoot)).toEqual({
+    expect(await verifyInstalledFiles({ files: [], tarball }, installedRoot)).toEqual({
       ok: true,
       detail: '0 个文件与包内容一致',
     })
-    expect(verifyInstalledFiles({ files: ['a.js', 'missing.js'], tarball }, installedRoot)).toEqual(
-      {
-        ok: false,
-        detail: '缺少 missing.js',
-      },
-    )
+    expect(
+      await verifyInstalledFiles({ files: ['a.js', 'missing.js'], tarball }, installedRoot),
+    ).toEqual({
+      ok: false,
+      detail: '缺少 missing.js',
+    })
     writeFileSync(join(installedRoot, 'orphan.js'), 'orphan\n')
     expect(
-      verifyInstalledFiles({ files: ['missing.js', 'orphan.js'], tarball }, installedRoot),
+      await verifyInstalledFiles({ files: ['missing.js', 'orphan.js'], tarball }, installedRoot),
     ).toEqual({
       ok: false,
       detail: '缺少 missing.js；无法读取包内 orphan.js',
     })
     writeFileSync(join(installedRoot, 'c.js'), 'tampered\n')
-    expect(verifyInstalledFiles({ files: ['c.js'], tarball }, installedRoot)).toEqual({
+    expect(await verifyInstalledFiles({ files: ['c.js'], tarball }, installedRoot)).toEqual({
       ok: false,
       detail: '内容不一致 c.js',
     })
-    expect(verifyInstalledFiles({ files: ['orphan.js'], tarball }, installedRoot)).toEqual({
+    expect(await verifyInstalledFiles({ files: ['orphan.js'], tarball }, installedRoot)).toEqual({
       ok: false,
       detail: '无法读取包内 orphan.js',
     })
   })
 
-  it('reports missing, malformed, matching, stale and version-mismatched runtime identities', () => {
+  it('reports missing, malformed, matching, stale and version-mismatched runtime identities', async () => {
     const root = join(dir, 'identity')
     mkdirSync(join(root, 'lib', 'runtime'), { recursive: true })
     const index = 'export const entry = 1\n'
@@ -1518,9 +1518,9 @@ describe('deployment inspect', () => {
     }
     const identityPath = join(root, 'runtime-identity.json')
 
-    expect(inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })).toBeNull()
+    expect(await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })).toBeNull()
     writeFileSync(identityPath, '{')
-    expect(inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })).toEqual({
+    expect(await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })).toEqual({
       id: 'running_identity',
       ok: false,
       detail: '运行身份文件无法解析',
@@ -1534,26 +1534,26 @@ describe('deployment inspect', () => {
       serviceSha256: serviceSha,
     }
     writeIdentity(live)
-    expect(inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })).toEqual({
+    expect(await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })).toEqual({
       id: 'running_identity',
       ok: true,
       detail: `运行身份 pid=${process.pid}，入口摘要 ${indexSha}，服务摘要 ${serviceSha}`,
     })
 
     writeIdentity({ ...live, version: '2.0.0' })
-    expect(inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })?.ok).toBe(false)
+    expect((await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' }))?.ok).toBe(false)
     writeIdentity({ ...live, indexSha256: '0'.repeat(64) })
-    expect(inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })?.ok).toBe(false)
+    expect((await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' }))?.ok).toBe(false)
     writeIdentity({ ...live, kind: 'other' })
-    expect(inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })?.ok).toBe(false)
+    expect((await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' }))?.ok).toBe(false)
 
     const deadPid = Number(
       execFileSync('node', ['-e', 'console.log(process.pid)'], { encoding: 'utf8' }).trim(),
     )
     writeIdentity({ ...live, pid: deadPid })
-    expect(inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })?.ok).toBe(false)
+    expect((await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' }))?.ok).toBe(false)
     writeIdentity({ ...live, pid: 'not-a-pid' })
-    const unknownPid = inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })
+    const unknownPid = await inspectRuntimeIdentity(root, { packageVersion: '1.0.0' })
     expect(unknownPid?.ok).toBe(false)
     expect(unknownPid?.detail.startsWith('运行身份 pid=未知')).toBe(true)
   })
@@ -1569,7 +1569,7 @@ describe('deployment inspect', () => {
     expect(processAlive(2_147_483_647)).toBe(false)
   })
 
-  it('checks required modules from admitted candidate diffs or task plans', () => {
+  it('checks required modules from admitted candidate diffs or task plans', async () => {
     const root = join(dir, 'modules')
     mkdirSync(join(root, 'lib', 'sub'), { recursive: true })
     writeFileSync(join(root, 'lib', 'a.js'), 'a\n')
@@ -1610,12 +1610,12 @@ describe('deployment inspect', () => {
       ],
     })
 
-    expect(inspectRequirementModules(true, diff, plan([]), root)).toEqual({
+    expect(await inspectRequirementModules(true, diff, plan([]), root)).toEqual({
       ok: true,
       detail: '本次需求的 2 个源码模块已随安装包加载',
     })
     expect(
-      inspectRequirementModules(
+      await inspectRequirementModules(
         false,
         diff,
         plan([
@@ -1629,12 +1629,12 @@ describe('deployment inspect', () => {
     ).toEqual({ ok: true, detail: '本次需求的 1 个源码模块已随安装包加载' })
 
     rmSync(join(root, 'lib', 'sub', 'b.js'))
-    expect(inspectRequirementModules(true, diff, plan([]), root)).toEqual({
+    expect(await inspectRequirementModules(true, diff, plan([]), root)).toEqual({
       ok: false,
       detail: '安装包缺少本次需求的模块：lib/sub/b.js',
     })
     expect(
-      inspectRequirementModules(false, diff, plan(['packages/forgeloop/src/z.ts']), root),
+      await inspectRequirementModules(false, diff, plan(['packages/forgeloop/src/z.ts']), root),
     ).toEqual({
       ok: false,
       detail: '安装包缺少本次需求的模块：lib/z.js',

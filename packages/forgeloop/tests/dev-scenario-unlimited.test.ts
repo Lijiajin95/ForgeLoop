@@ -278,7 +278,7 @@ function otherRoles(runtimeOf: () => ForgeLoopRuntime): AgentLike {
       if (request.role === 'orchestrator') {
         return reply(request, JSON.stringify({ session_id: null, reason: 'test route' }))
       }
-      return answer(
+      return await answer(
         { prompt: request.prompt, transcriptPath: request.transcriptPath },
         request.role,
       )
@@ -287,7 +287,7 @@ function otherRoles(runtimeOf: () => ForgeLoopRuntime): AgentLike {
       return {
         sessionId: `session-${request.role}`,
         async send(turn) {
-          return answer(turn, request.role)
+          return await answer(turn, request.role)
         },
         async close() {
           // 脚本化会话没有需要收口的宿主资源。
@@ -300,16 +300,16 @@ function otherRoles(runtimeOf: () => ForgeLoopRuntime): AgentLike {
 let project = ''
 let runtime: ForgeLoopRuntime | undefined
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-dev-scenario-'))
   const git = (args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' })
-  git(['init', '-q'])
-  git(['config', 'user.email', 'test@example.com'])
-  git(['config', 'user.name', 'Test'])
+  await git(['init', '-q'])
+  await git(['config', 'user.email', 'test@example.com'])
+  await git(['config', 'user.name', 'Test'])
   writeFileSync(join(dir, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(dir, 'README.md'), 'fixture\n')
-  git(['add', '-A'])
-  git(['commit', '-qm', 'base'])
+  await git(['add', '-A'])
+  await git(['commit', '-qm', 'base'])
   return dir
 }
 
@@ -381,8 +381,8 @@ async function submitAndAnalyze(): Promise<string> {
   return reqId
 }
 
-beforeEach(() => {
-  project = makeProject()
+beforeEach(async () => {
+  project = await makeProject()
   runtime = undefined
 })
 

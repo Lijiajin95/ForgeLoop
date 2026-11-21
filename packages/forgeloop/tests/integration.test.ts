@@ -12,18 +12,18 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
-function repo(): string {
+async function repo(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'forgeloop-integration-'))
   dirs.push(dir)
-  git(dir, ['init', '-q'])
-  git(dir, ['config', 'user.email', 'test@example.com'])
-  git(dir, ['config', 'user.name', 'Test'])
+  await git(dir, ['init', '-q'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Test'])
   writeFileSync(join(dir, 'README.md'), 'base\n')
   writeFileSync(join(dir, '.gitignore'), 'node_modules/\n')
   mkdirSync(join(dir, 'node_modules'), { recursive: true })
   writeFileSync(join(dir, 'node_modules/marker'), 'installed\n')
-  git(dir, ['add', '-A'])
-  git(dir, ['commit', '-qm', 'base'])
+  await git(dir, ['add', '-A'])
+  await git(dir, ['commit', '-qm', 'base'])
   return dir
 }
 
@@ -33,20 +33,20 @@ function evidence(): string {
   return dir
 }
 
-function candidate(repoPath: string) {
+async function candidate(repoPath: string) {
   const workspace = mkdtempSync(join(tmpdir(), 'forgeloop-candidate-'))
   dirs.push(workspace)
-  const baseline = git(repoPath, ['rev-parse', 'HEAD'])
-  git(workspace, ['clone', '-q', repoPath, '.'])
-  git(workspace, ['config', 'user.email', 'test@example.com'])
-  git(workspace, ['config', 'user.name', 'Test'])
-  const snapshot = git(workspace, ['rev-parse', 'HEAD'])
+  const baseline = await git(repoPath, ['rev-parse', 'HEAD'])
+  await git(workspace, ['clone', '-q', repoPath, '.'])
+  await git(workspace, ['config', 'user.email', 'test@example.com'])
+  await git(workspace, ['config', 'user.name', 'Test'])
+  const snapshot = await git(workspace, ['rev-parse', 'HEAD'])
   mkdirSync(join(workspace, 'docs'), { recursive: true })
   writeFileSync(join(workspace, 'docs/a.md'), 'change\n')
-  git(workspace, ['add', '-A'])
-  git(workspace, ['commit', '-qm', 'candidate'])
+  await git(workspace, ['add', '-A'])
+  await git(workspace, ['commit', '-qm', 'candidate'])
   const out = join(evidence(), 'candidate.diff')
-  const record = exportCandidate({
+  const record = await exportCandidate({
     workspace,
     snapshotCommit: snapshot,
     baselineCommit: baseline,
@@ -65,13 +65,13 @@ afterEach(() => {
 })
 
 describe('candidate export and controlled integration', () => {
-  it('refuses to export a dirty workspace and exports a committed candidate', () => {
-    const project = repo()
-    const { workspace, record } = candidate(project)
+  it('refuses to export a dirty workspace and exports a committed candidate', async () => {
+    const project = await repo()
+    const { workspace, record } = await candidate(project)
     expect(record.diffSha256).toHaveLength(64)
     expect(readFileSync(record.diffPath, 'utf8')).toContain('docs/a.md')
     writeFileSync(join(workspace, 'dirty.txt'), 'dirty\n')
-    expect(() =>
+    await expect(
       exportCandidate({
         workspace,
         snapshotCommit: record.snapshotCommit,
@@ -83,12 +83,12 @@ describe('candidate export and controlled integration', () => {
         outputPath: join(workspace, 'candidate-2.diff'),
         now: 'now',
       }),
-    ).toThrow('未提交改动')
+    ).rejects.toThrow('未提交改动')
   })
 
-  it('rejects missing diffs, digest mismatches, dirty projects and a changed baseline', () => {
-    const project = repo()
-    const { record } = candidate(project)
+  it('rejects missing diffs, digest mismatches, dirty projects and a changed baseline', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
     const base = {
       projectPath: project,
       candidateDiffPath: record.diffPath,
@@ -100,25 +100,26 @@ describe('candidate export and controlled integration', () => {
       timeoutMs: 30_000,
     }
     expect(
-      integrateCandidate({ ...base, candidateDiffPath: join(project, 'missing.diff') }).detail,
+      (await integrateCandidate({ ...base, candidateDiffPath: join(project, 'missing.diff') }))
+        .detail,
     ).toContain('缺失')
-    expect(integrateCandidate({ ...base, expectedDiffSha256: '0'.repeat(64) }).detail).toContain(
-      '摘要不一致',
-    )
+    expect(
+      (await integrateCandidate({ ...base, expectedDiffSha256: '0'.repeat(64) })).detail,
+    ).toContain('摘要不一致')
     writeFileSync(join(project, 'README.md'), 'dirty\n')
-    expect(integrateCandidate(base).detail).toContain('未提交改动')
-    git(project, ['checkout', '--', 'README.md'])
+    expect((await integrateCandidate(base)).detail).toContain('未提交改动')
+    await git(project, ['checkout', '--', 'README.md'])
     writeFileSync(join(project, 'extra.txt'), 'extra\n')
-    git(project, ['add', 'extra.txt'])
-    git(project, ['commit', '-qm', 'extra'])
-    expect(integrateCandidate(base).detail).toContain('HEAD 已从候选基线')
+    await git(project, ['add', 'extra.txt'])
+    await git(project, ['commit', '-qm', 'extra'])
+    expect((await integrateCandidate(base)).detail).toContain('HEAD 已从候选基线')
   })
 
-  it('refuses a failing commit check without committing anything', () => {
-    const project = repo()
-    const { record } = candidate(project)
-    const before = git(project, ['rev-parse', 'HEAD'])
-    const result = integrateCandidate({
+  it('refuses a failing commit check without committing anything', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
+    const before = await git(project, ['rev-parse', 'HEAD'])
+    const result = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
@@ -131,13 +132,13 @@ describe('candidate export and controlled integration', () => {
     expect(result.ok).toBe(false)
     expect(result.checkPassed).toBe(false)
     expect(result.detail).toContain('退出码 1')
-    expect(git(project, ['rev-parse', 'HEAD'])).toBe(before)
-    expect(git(project, ['status', '--porcelain'])).toBe('')
+    expect(await git(project, ['rev-parse', 'HEAD'])).toBe(before)
+    expect(await git(project, ['status', '--porcelain'])).toBe('')
   })
 
-  it('reports an empty candidate and a patch that cannot be applied', () => {
-    const project = repo()
-    const { record } = candidate(project)
+  it('reports an empty candidate and a patch that cannot be applied', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
     const base = {
       projectPath: project,
       candidateBaseline: record.baselineCommit,
@@ -149,29 +150,33 @@ describe('candidate export and controlled integration', () => {
     const empty = join(evidence(), 'empty.diff')
     writeFileSync(empty, '')
     expect(
-      integrateCandidate({
-        ...base,
-        candidateDiffPath: empty,
-        expectedDiffSha256: sha256OfText(''),
-      }).detail,
+      (
+        await integrateCandidate({
+          ...base,
+          candidateDiffPath: empty,
+          expectedDiffSha256: sha256OfText(''),
+        })
+      ).detail,
     ).toContain('没有产生可提交的文件改动')
     const broken = join(evidence(), 'broken.diff')
     writeFileSync(broken, 'not a patch\n')
     expect(
-      integrateCandidate({
-        ...base,
-        candidateDiffPath: broken,
-        expectedDiffSha256: sha256OfText('not a patch\n'),
-      }).detail,
+      (
+        await integrateCandidate({
+          ...base,
+          candidateDiffPath: broken,
+          expectedDiffSha256: sha256OfText('not a patch\n'),
+        })
+      ).detail,
     ).toContain('无法应用')
   })
 
-  it('reports a commit hook failure and refuses an empty check command', () => {
-    const project = repo()
-    const { record } = candidate(project)
+  it('reports a commit hook failure and refuses an empty check command', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
     const hook = join(project, '.git/hooks/pre-commit')
     writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
-    const failed = integrateCandidate({
+    const failed = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
@@ -183,11 +188,11 @@ describe('candidate export and controlled integration', () => {
     })
     expect(failed.ok).toBe(false)
     expect(failed.detail).toContain('创建提交失败')
-    expect(git(project, ['status', '--porcelain'])).toBe('')
+    expect(await git(project, ['status', '--porcelain'])).toBe('')
     rmSync(hook)
-    git(project, ['reset', '--hard', 'HEAD'])
-    git(project, ['clean', '-fd'])
-    const passed = integrateCandidate({
+    await git(project, ['reset', '--hard', 'HEAD'])
+    await git(project, ['clean', '-fd'])
+    const passed = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
@@ -199,13 +204,13 @@ describe('candidate export and controlled integration', () => {
     })
     expect(passed.ok).toBe(false)
     expect(passed.detail).toContain('未配置提交检查命令')
-    expect(git(project, ['status', '--porcelain'])).toBe('')
+    expect(await git(project, ['status', '--porcelain'])).toBe('')
   })
 
-  it('commits only the candidate diff after the check passes', () => {
-    const project = repo()
-    const { record } = candidate(project)
-    const result = integrateCandidate({
+  it('commits only the candidate diff after the check passes', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
+    const result = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
@@ -218,17 +223,17 @@ describe('candidate export and controlled integration', () => {
     expect(result.ok).toBe(true)
     expect(result.files).toEqual(['docs/a.md'])
     expect(result.commitSha).toHaveLength(40)
-    expect(git(project, ['status', '--porcelain'])).toBe('')
-    expect(git(project, ['show', '--name-only', '--pretty=format:', result.commitSha])).toBe(
+    expect(await git(project, ['status', '--porcelain'])).toBe('')
+    expect(await git(project, ['show', '--name-only', '--pretty=format:', result.commitSha])).toBe(
       'docs/a.md',
     )
     expect(result.checkLogPath).toContain('commit-check.log')
     expect(result.checkSha256).toHaveLength(64)
   })
-  it('reports a staging failure after the check passes', () => {
-    const project = repo()
-    const { record } = candidate(project)
-    const result = integrateCandidate({
+  it('reports a staging failure after the check passes', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
+    const result = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
@@ -247,10 +252,10 @@ describe('candidate export and controlled integration', () => {
     rmSync(join(project, '.git/index.lock'), { force: true })
   })
 
-  it('reports a diff read failure instead of exporting a broken candidate', () => {
-    const project = repo()
-    const { workspace } = candidate(project)
-    expect(() =>
+  it('reports a diff read failure instead of exporting a broken candidate', async () => {
+    const project = await repo()
+    const { workspace } = await candidate(project)
+    await expect(
       exportCandidate({
         workspace,
         snapshotCommit: 'deadbeef',
@@ -262,15 +267,15 @@ describe('candidate export and controlled integration', () => {
         outputPath: join(workspace, 'bad.diff'),
         now: 'now',
       }),
-    ).toThrow('读取候选 diff 失败')
+    ).rejects.toThrow('读取候选 diff 失败')
   })
 
-  it('fails closed when the check worktree cannot be created or patched', () => {
-    const project = repo()
-    const { record } = candidate(project)
+  it('fails closed when the check worktree cannot be created or patched', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
     const conflict = evidence()
     writeFileSync(join(conflict, 'check-worktree'), 'file blocks worktree\n')
-    expect(() =>
+    await expect(
       integrateCandidate({
         projectPath: project,
         candidateDiffPath: record.diffPath,
@@ -281,10 +286,10 @@ describe('candidate export and controlled integration', () => {
         evidenceDir: conflict,
         timeoutMs: 30_000,
       }),
-    ).toThrow('创建提交检查工作树失败')
+    ).rejects.toThrow('创建提交检查工作树失败')
     const broken = join(evidence(), 'broken.diff')
     writeFileSync(broken, 'this is not a patch\n')
-    const failed = integrateCandidate({
+    const failed = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: broken,
       candidateBaseline: record.baselineCommit,
@@ -298,10 +303,10 @@ describe('candidate export and controlled integration', () => {
     expect(failed.detail).toContain('无法应用到提交检查工作树')
   })
 
-  it('shares installed dependencies with the check worktree', () => {
-    const project = repo()
-    const { record } = candidate(project)
-    const result = integrateCandidate({
+  it('shares installed dependencies with the check worktree', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
+    const result = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
@@ -315,10 +320,10 @@ describe('candidate export and controlled integration', () => {
     expect(result.checkPassed).toBe(true)
   })
 
-  it('blocks when another process stages unrelated work during the check', () => {
-    const project = repo()
-    const { record } = candidate(project)
-    const before = git(project, ['rev-parse', 'HEAD'])
+  it('blocks when another process stages unrelated work during the check', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
+    const before = await git(project, ['rev-parse', 'HEAD'])
     const unrelated = JSON.stringify(join(project, 'unrelated.txt'))
     // 用 Node 造“检查期间有人暂存了无关改动”，不依赖 POSIX shell。
     const script = [
@@ -326,7 +331,7 @@ describe('candidate export and controlled integration', () => {
       `fs.writeFileSync(${unrelated}, 'other work\\n')`,
       `require('node:child_process').execFileSync('git', ['-C', ${JSON.stringify(project)}, 'add', 'unrelated.txt'])`,
     ].join('; ')
-    const result = integrateCandidate({
+    const result = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,
@@ -338,16 +343,16 @@ describe('candidate export and controlled integration', () => {
     })
     expect(result.ok).toBe(false)
     expect(result.detail).toContain('检查期间项目工作树、暂存区或 HEAD 发生变化')
-    expect(git(project, ['rev-parse', 'HEAD'])).toBe(before)
-    expect(git(project, ['diff', '--cached', '--name-only'])).toBe('unrelated.txt')
+    expect(await git(project, ['rev-parse', 'HEAD'])).toBe(before)
+    expect(await git(project, ['diff', '--cached', '--name-only'])).toBe('unrelated.txt')
     expect(existsSync(join(project, 'docs/a.md'))).toBe(false)
   })
 
-  it('refuses a second concurrent ForgeLoop commit while the lock is held', () => {
-    const project = repo()
-    const { record } = candidate(project)
+  it('refuses a second concurrent ForgeLoop commit while the lock is held', async () => {
+    const project = await repo()
+    const { record } = await candidate(project)
     mkdirSync(join(project, '.git/forgeloop-commit.lock'))
-    const result = integrateCandidate({
+    const result = await integrateCandidate({
       projectPath: project,
       candidateDiffPath: record.diffPath,
       candidateBaseline: record.baselineCommit,

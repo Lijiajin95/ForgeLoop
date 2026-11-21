@@ -38,11 +38,11 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const project = mkdtempSync(join(tmpdir(), 'forgeloop-release-'))
-  git(project, ['init', '-q'])
-  git(project, ['config', 'user.email', 'test@example.com'])
-  git(project, ['config', 'user.name', 'Test'])
+  await git(project, ['init', '-q'])
+  await git(project, ['config', 'user.email', 'test@example.com'])
+  await git(project, ['config', 'user.name', 'Test'])
   writeFileSync(
     join(project, '.gitignore'),
     '.forgeloop/\npackages/forgeloop/lib/\npackages/forgeloop/dist/\n',
@@ -86,8 +86,8 @@ function makeProject(): string {
       '',
     ].join('\n'),
   )
-  git(project, ['add', '-A'])
-  git(project, ['commit', '-qm', 'base'])
+  await git(project, ['add', '-A'])
+  await git(project, ['commit', '-qm', 'base'])
   return project
 }
 
@@ -300,7 +300,7 @@ function fakeRunner(): AgentLike {
               JSON.stringify({ executed: labels, summary: 'executed' }),
             )
           }
-          return run({
+          return await run({
             ...request,
             prompt: turn.prompt,
             timeoutMs: turn.timeoutMs,
@@ -390,7 +390,7 @@ it('builds an admitted candidate without any plan approval or overall acceptance
   expect(advance.state, advance.detail).toBe('done')
   expect(runtime.repo.getRequirement(reqId)?.status).toBe('committed')
   expect(runtime.repo.acceptance(reqId).accepted_at).toBe('')
-  const build = runtime.buildCandidate({ reqId, by: 'owner' })
+  const build = await runtime.buildCandidate({ reqId, by: 'owner' })
   expect(build.ok, build.message).toBe(true)
   expect((build.data as { candidateSha256: string }).candidateSha256).toHaveLength(64)
   const installed = installProfile('admitted')
@@ -414,7 +414,7 @@ it('builds an admitted candidate without any plan approval or overall acceptance
     }),
     'utf8',
   )
-  const deploy = runtime.verifyDeployment({
+  const deploy = await runtime.verifyDeployment({
     reqId,
     targetProfile: 'admitted',
     by: 'owner',
@@ -433,11 +433,25 @@ it('builds an admitted candidate without any plan approval or overall acceptance
     'utf8',
   )
   expect(
-    runtime.verifyDeployment({ reqId, targetProfile: 'admitted', by: 'owner', source: 'test' }).ok,
+    (
+      await runtime.verifyDeployment({
+        reqId,
+        targetProfile: 'admitted',
+        by: 'owner',
+        source: 'test',
+      })
+    ).ok,
   ).toBe(false)
   writeFileSync(join(installed, 'runtime-identity.json'), '{not json', 'utf8')
   expect(
-    runtime.verifyDeployment({ reqId, targetProfile: 'admitted', by: 'owner', source: 'test' }).ok,
+    (
+      await runtime.verifyDeployment({
+        reqId,
+        targetProfile: 'admitted',
+        by: 'owner',
+        source: 'test',
+      })
+    ).ok,
   ).toBe(false)
 })
 
@@ -463,10 +477,10 @@ function installProfile(name: string): string {
   return installed
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // 故障注入只由用例显式开启，避免宿主进程的外部环境变量污染临时夹具。
   delete process.env.FORGELOOP_FAULT_INJECT
-  dir = makeProject()
+  dir = await makeProject()
   profilesRoot = mkdtempSync(join(tmpdir(), 'forgeloop-profiles-'))
   runtime = makeRuntime()
 })
@@ -489,7 +503,7 @@ afterEach(async () => {
 describe('candidate build and deployment checks', () => {
   it('builds only from the verified workspace and records the verification binding', async () => {
     const reqId = await acceptedRequirement()
-    const built = runtime.buildCandidate({ reqId, by: 'owner' })
+    const built = await runtime.buildCandidate({ reqId, by: 'owner' })
     expect(built.ok, built.message).toBe(true)
     const build = runtime.repo.candidateBuild(reqId, 1)!
     const verification = runtime.repo.verification(reqId, 1)!
@@ -511,7 +525,7 @@ describe('candidate build and deployment checks', () => {
     await runQueued('plan', reqId)
     runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'dsh-command' })
     await runQueued('advance', reqId)
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'acceptance_required',
     })
@@ -519,7 +533,7 @@ describe('candidate build and deployment checks', () => {
 
   it('verifies installed files, runtime version and business records, then completes delivery', async () => {
     const reqId = await acceptedRequirement()
-    expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+    expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
     const build = runtime.repo.candidateBuild(reqId, 1)!
     const installed = installProfile('web')
     extractTarball(build.tarball, installed)
@@ -529,7 +543,7 @@ describe('candidate build and deployment checks', () => {
       'utf8',
     )
 
-    const deployed = runtime.verifyDeployment({
+    const deployed = await runtime.verifyDeployment({
       reqId,
       targetProfile: 'web',
       by: 'owner',
@@ -545,7 +559,7 @@ describe('candidate build and deployment checks', () => {
 
   it('fails deployment checks when the installed package differs from the verified candidate', async () => {
     const reqId = await acceptedRequirement()
-    expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+    expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
     const build = runtime.repo.candidateBuild(reqId, 1)!
     const installed = installProfile('web')
     extractTarball(build.tarball, installed)
@@ -556,7 +570,7 @@ describe('candidate build and deployment checks', () => {
     )
     writeFileSync(join(installed, 'lib/index.js'), 'export const ok = 999\n', 'utf8')
 
-    const deployed = runtime.verifyDeployment({
+    const deployed = await runtime.verifyDeployment({
       reqId,
       targetProfile: 'web',
       by: 'owner',
@@ -570,10 +584,10 @@ describe('candidate build and deployment checks', () => {
 
   it('refuses deployment when nothing was installed into the target profile', async () => {
     const reqId = await acceptedRequirement()
-    expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+    expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
     mkdirSync(join(profilesRoot, 'web'), { recursive: true })
     expect(
-      runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' }),
+      await runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' }),
     ).toMatchObject({
       ok: false,
       code: 'not_installed',
@@ -599,14 +613,14 @@ describe('candidate build and deployment checks', () => {
       )
       const bare = new ForgeLoopRuntime({ ctx: {}, config: plain, runner: fakeRunner() })
       try {
-        expect(bare.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        expect(await bare.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
           ok: false,
           code: 'candidate_not_configured',
         })
       } finally {
         bare.close()
       }
-      expect(runtime.buildCandidate({ reqId, by: 'owner', version: 'v1' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner', version: 'v1' })).toMatchObject({
         ok: false,
         code: 'version_invalid',
       })
@@ -616,7 +630,7 @@ describe('candidate build and deployment checks', () => {
       const reqId = await acceptedRequirement()
       const verification = runtime.repo.verification(reqId, 1)!
       writeFileSync(verification.reportPath, `${verification.reportJson}\n篡改\n`, 'utf8')
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'verification_invalid',
       })
@@ -625,27 +639,47 @@ describe('candidate build and deployment checks', () => {
     it('refuses deployment before a build, for bad profiles, and when not installed', async () => {
       const reqId = await acceptedRequirement()
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' }),
+        await runtime.verifyDeployment({
+          reqId,
+          targetProfile: 'web',
+          by: 'owner',
+          source: 'test',
+        }),
       ).toMatchObject({
         ok: false,
         code: 'candidate_missing',
       })
-      expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+      expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: '../etc', by: 'owner', source: 'test' }),
+        await runtime.verifyDeployment({
+          reqId,
+          targetProfile: '../etc',
+          by: 'owner',
+          source: 'test',
+        }),
       ).toMatchObject({ ok: false, code: 'profile_invalid' })
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: 'missing', by: 'owner', source: 'test' }),
+        await runtime.verifyDeployment({
+          reqId,
+          targetProfile: 'missing',
+          by: 'owner',
+          source: 'test',
+        }),
       ).toMatchObject({ ok: false, code: 'profile_missing' })
       mkdirSync(join(profilesRoot, 'empty'), { recursive: true })
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: 'empty', by: 'owner', source: 'test' }),
+        await runtime.verifyDeployment({
+          reqId,
+          targetProfile: 'empty',
+          by: 'owner',
+          source: 'test',
+        }),
       ).toMatchObject({ ok: false, code: 'not_installed' })
     })
 
     it('reports installed version and requirement module mismatches separately', async () => {
       const reqId = await acceptedRequirement()
-      expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+      expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
       extractTarball(build.tarball, installed)
@@ -654,7 +688,7 @@ describe('candidate build and deployment checks', () => {
         JSON.stringify({ name: 'forgeloop-dsh', version: '9.9.9' }),
         'utf8',
       )
-      const wrongVersion = runtime.verifyDeployment({
+      const wrongVersion = await runtime.verifyDeployment({
         reqId,
         targetProfile: 'web',
         by: 'owner',
@@ -704,7 +738,7 @@ describe('candidate build and deployment checks', () => {
           }),
           reqId,
         )
-      const missingModule = runtime.verifyDeployment({
+      const missingModule = await runtime.verifyDeployment({
         reqId,
         targetProfile: 'web',
         by: 'owner',
@@ -716,7 +750,7 @@ describe('candidate build and deployment checks', () => {
 
     it('records a failed check when the candidate artifact no longer matches the current delivery', async () => {
       const reqId = await acceptedRequirement()
-      expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+      expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
       extractTarball(build.tarball, installed)
@@ -726,14 +760,26 @@ describe('candidate build and deployment checks', () => {
         'utf8',
       )
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' }).ok,
+        (
+          await runtime.verifyDeployment({
+            reqId,
+            targetProfile: 'web',
+            by: 'owner',
+            source: 'test',
+          })
+        ).ok,
       ).toBe(true)
 
       // 交付材料变化形成新候选身份：旧候选包的部署核对必须拒绝。
       const artifact = runtime.repo.taskArtifact(reqId, 1, 'a')!
       runtime.repo.recordTaskArtifact({ ...artifact, candidateSha256: 'e'.repeat(64) })
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' }),
+        await runtime.verifyDeployment({
+          reqId,
+          targetProfile: 'web',
+          by: 'owner',
+          source: 'test',
+        }),
       ).toMatchObject({
         ok: false,
         code: 'candidate_stale',
@@ -749,7 +795,7 @@ describe('candidate build and deployment checks', () => {
           'DELETE FROM requirement_task_artifacts WHERE req_id = ? AND plan_version = 1 AND task_id = ?',
         )
         .run(reqId, plan.tasks[0]!.taskId)
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'not_delivered',
       })
@@ -759,7 +805,7 @@ describe('candidate build and deployment checks', () => {
       runtime.repo.db.handle
         .prepare('DELETE FROM requirement_business_reviews WHERE req_id = ?')
         .run(reqId)
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'business_review_required',
       })
@@ -783,7 +829,7 @@ describe('candidate build and deployment checks', () => {
       })
       const workspace = join(verification.evidenceDir, 'workspace')
       writeFileSync(join(workspace, 'docs/a.md'), 'tampered\n', 'utf8')
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'candidate_content_mismatch',
       })
@@ -800,7 +846,7 @@ describe('candidate build and deployment checks', () => {
           '-e',
           "require('node:fs').appendFileSync('docs/a.md', '-mutation')",
         ]
-        expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
           ok: false,
           code: 'candidate_content_changed',
         })
@@ -812,7 +858,7 @@ describe('candidate build and deployment checks', () => {
     })
     it('requires the exact accepted artifact digest once a candidate exists', async () => {
       const reqId = await acceptedRequirement()
-      expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+      expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       expect(runtime.accept({ reqId, by: 'owner', source: 'test' })).toMatchObject({
         ok: false,
@@ -852,7 +898,7 @@ describe('candidate build and deployment checks', () => {
         runner: fakeRunner(),
       })
       try {
-        expect(missingArtifact.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        expect(await missingArtifact.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
           ok: false,
           code: 'artifact_missing',
         })
@@ -869,7 +915,7 @@ describe('candidate build and deployment checks', () => {
         runner: fakeRunner(),
       })
       try {
-        expect(malformed.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+        expect(await malformed.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
           ok: false,
           code: 'artifact_malformed',
         })
@@ -882,7 +928,7 @@ describe('candidate build and deployment checks', () => {
       const reqId = await acceptedRequirement()
       const verification = runtime.repo.verification(reqId, 1)!
       rmSync(join(verification.evidenceDir, 'workspace'), { recursive: true, force: true })
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'verification_workspace_missing',
       })
@@ -890,7 +936,7 @@ describe('candidate build and deployment checks', () => {
 
     it('exposes business review, candidate build and deployment in the requirement detail', async () => {
       const reqId = await acceptedRequirement()
-      expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+      expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
       extractTarball(build.tarball, installed)
@@ -900,7 +946,14 @@ describe('candidate build and deployment checks', () => {
         'utf8',
       )
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' }).ok,
+        (
+          await runtime.verifyDeployment({
+            reqId,
+            targetProfile: 'web',
+            by: 'owner',
+            source: 'test',
+          })
+        ).ok,
       ).toBe(true)
 
       const detail = runtime.requirementDetail(reqId).data as {
@@ -947,7 +1000,7 @@ describe('candidate build and deployment checks', () => {
         now: new Date().toISOString(),
       })
       expect(
-        runtime.verifyDeployment({
+        await runtime.verifyDeployment({
           reqId: 'req-deploy-noplan',
           targetProfile: 'web',
           by: 'owner',
@@ -956,7 +1009,7 @@ describe('candidate build and deployment checks', () => {
       ).toMatchObject({ ok: false, code: 'plan_missing' })
 
       const reqId = await acceptedRequirement()
-      expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+      expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
       const build = runtime.repo.candidateBuild(reqId, 1)!
       const installed = installProfile('web')
       extractTarball(build.tarball, installed)
@@ -968,7 +1021,7 @@ describe('candidate build and deployment checks', () => {
 
       // 安装文件缺失。
       rmSync(join(installed, 'lib/index.js'), { force: true })
-      const missingFile = runtime.verifyDeployment({
+      const missingFile = await runtime.verifyDeployment({
         reqId,
         targetProfile: 'web',
         by: 'owner',
@@ -980,7 +1033,7 @@ describe('candidate build and deployment checks', () => {
       // 包文件不可读：安装文件存在但 tarball 被删。
       extractTarball(build.tarball, installed)
       rmSync(build.tarball, { force: true })
-      const missingTarball = runtime.verifyDeployment({
+      const missingTarball = await runtime.verifyDeployment({
         reqId,
         targetProfile: 'web',
         by: 'owner',
@@ -991,7 +1044,7 @@ describe('candidate build and deployment checks', () => {
 
       // 安装清单损坏：读出空版本，按版本不一致失败。
       writeFileSync(join(installed, 'package.json'), '{not json', 'utf8')
-      const brokenManifest = runtime.verifyDeployment({
+      const brokenManifest = await runtime.verifyDeployment({
         reqId,
         targetProfile: 'web',
         by: 'owner',
@@ -1008,7 +1061,12 @@ describe('candidate build and deployment checks', () => {
         )
         .run(reqId, 'a')
       expect(
-        runtime.verifyDeployment({ reqId, targetProfile: 'web', by: 'owner', source: 'test' }),
+        await runtime.verifyDeployment({
+          reqId,
+          targetProfile: 'web',
+          by: 'owner',
+          source: 'test',
+        }),
       ).toMatchObject({
         ok: false,
         code: 'not_delivered',
@@ -1038,7 +1096,7 @@ describe('candidate build and deployment checks', () => {
       )
       const minimal = new ForgeLoopRuntime({ ctx: {}, config, runner: fakeRunner() })
       try {
-        const built = minimal.buildCandidate({ reqId, by: 'owner' })
+        const built = await minimal.buildCandidate({ reqId, by: 'owner' })
         expect(built.ok, built.message).toBe(true)
         const build = minimal.repo.candidateBuild(reqId, 1)!
         expect(build.files).toEqual([])
@@ -1058,7 +1116,7 @@ describe('candidate build and deployment checks', () => {
       `${readFileSync(verification.reportPath, 'utf8')}\n`,
       'utf8',
     )
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'verification_invalid',
     })
@@ -1071,7 +1129,7 @@ describe('candidate build and deployment checks', () => {
     const sourceFile = join(verification.evidenceDir, 'workspace', 'packages/forgeloop/src.ts')
     expect(existsSync(sourceFile)).toBe(true)
     writeFileSync(sourceFile, 'export const version = 999\n', 'utf8')
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
     })
@@ -1093,7 +1151,7 @@ describe('candidate build and deployment checks', () => {
         'UPDATE requirement_verifications SET report_sha256 = ? WHERE req_id = ? AND candidate_sha256 = ?',
       )
       .run(sha256OfText(text), reqId, candidate.candidateSha256)
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'verification_invalid',
     })
@@ -1105,7 +1163,7 @@ describe('candidate build and deployment checks', () => {
     const sourceFile = join(verification.evidenceDir, 'workspace', 'packages/forgeloop/src.ts')
     expect(existsSync(sourceFile)).toBe(true)
     writeFileSync(sourceFile, 'export const version = 999\n', 'utf8')
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
     })
@@ -1123,7 +1181,7 @@ describe('candidate build and deployment checks', () => {
     try {
       ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand =
         mutate('packages/forgeloop/src.ts')
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'candidate_content_changed',
       })
@@ -1131,7 +1189,7 @@ describe('candidate build and deployment checks', () => {
         originalBuild
       ;(runtime.config as { candidatePackageCommand: readonly string[] }).candidatePackageCommand =
         mutate('packages/forgeloop/src.ts')
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'candidate_content_changed',
       })
@@ -1142,7 +1200,7 @@ describe('candidate build and deployment checks', () => {
         '-e',
         "require('node:fs').rmSync('packages/forgeloop/src.ts')",
       ]
-      expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+      expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
         ok: false,
         code: 'candidate_content_changed',
       })
@@ -1163,7 +1221,7 @@ describe('candidate build and deployment checks', () => {
       reviewCandidate.candidateSha256,
     )!
     writeFileSync(review.reportPath, `${readFileSync(review.reportPath, 'utf8')}\n`, 'utf8')
-    expect(runtime.buildCandidate({ reqId: reviewReq, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: reviewReq, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'business_review_invalid',
     })
@@ -1175,7 +1233,7 @@ describe('candidate build and deployment checks', () => {
       `${readFileSync(diffCandidate.diffPath, 'utf8')}\n`,
       'utf8',
     )
-    expect(runtime.buildCandidate({ reqId: diffReq, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: diffReq, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
     })
@@ -1184,7 +1242,7 @@ describe('candidate build and deployment checks', () => {
     runtime.repo.db.handle
       .prepare('UPDATE requirement_commits SET files_json = \'["tampered"]\' WHERE req_id = ?')
       .run(commitReq)
-    expect(runtime.buildCandidate({ reqId: commitReq, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: commitReq, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'commit_identity_mismatch',
     })
@@ -1199,7 +1257,7 @@ describe('candidate build and deployment checks', () => {
       noReportCandidate.candidateSha256,
     )!
     rmSync(noReportVerification.reportPath, { force: true })
-    expect(runtime.buildCandidate({ reqId: noReport, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noReport, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'verification_invalid',
     })
@@ -1212,7 +1270,7 @@ describe('candidate build and deployment checks', () => {
       noReviewCandidate.candidateSha256,
     )!
     rmSync(noReviewRecord.reportPath, { force: true })
-    expect(runtime.buildCandidate({ reqId: noReview, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noReview, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'business_review_invalid',
     })
@@ -1226,7 +1284,7 @@ describe('candidate build and deployment checks', () => {
     )!
     rmSync(noDiffCandidate.diffPath, { force: true })
     rmSync(join(noDiffVerification.evidenceDir, 'candidate.diff'), { force: true })
-    expect(runtime.buildCandidate({ reqId: noDiff, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noDiff, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
     })
@@ -1234,7 +1292,7 @@ describe('candidate build and deployment checks', () => {
   it('refuses an admitted build when the controlled commit is missing', async () => {
     const reqId = await admittedRequirement()
     runtime.repo.db.handle.prepare('DELETE FROM requirement_commits WHERE req_id = ?').run(reqId)
-    expect(runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'commit_required',
     })
@@ -1243,21 +1301,31 @@ describe('candidate build and deployment checks', () => {
   it('refuses deployment before an admitted build and when the target profile is missing', async () => {
     const reqId = await admittedRequirement()
     expect(
-      runtime.verifyDeployment({ reqId, targetProfile: 'missing', by: 'owner', source: 'test' }),
+      await runtime.verifyDeployment({
+        reqId,
+        targetProfile: 'missing',
+        by: 'owner',
+        source: 'test',
+      }),
     ).toMatchObject({
       ok: false,
       code: 'candidate_missing',
     })
-    expect(runtime.buildCandidate({ reqId, by: 'owner' }).ok).toBe(true)
+    expect((await runtime.buildCandidate({ reqId, by: 'owner' })).ok).toBe(true)
     expect(
-      runtime.verifyDeployment({ reqId, targetProfile: 'missing', by: 'owner', source: 'test' }),
+      await runtime.verifyDeployment({
+        reqId,
+        targetProfile: 'missing',
+        by: 'owner',
+        source: 'test',
+      }),
     ).toMatchObject({
       ok: false,
       code: 'profile_missing',
     })
     mkdirSync(join(profilesRoot, 'empty-profile'), { recursive: true })
     expect(
-      runtime.verifyDeployment({
+      await runtime.verifyDeployment({
         reqId,
         targetProfile: 'empty-profile',
         by: 'owner',
@@ -1271,7 +1339,7 @@ describe('candidate build and deployment checks', () => {
 
   it('fails an admitted deployment when installed content no longer matches the package', async () => {
     const reqId = await admittedRequirement()
-    const built = runtime.buildCandidate({ reqId, by: 'owner' })
+    const built = await runtime.buildCandidate({ reqId, by: 'owner' })
     expect(built.ok, built.message).toBe(true)
     const installed = installProfile('admitted-mismatch')
     extractTarball((built.data as { tarball: string }).tarball, installed)
@@ -1281,7 +1349,7 @@ describe('candidate build and deployment checks', () => {
       'utf8',
     )
     writeFileSync(join(installed, 'lib/index.js'), 'tampered\n', 'utf8')
-    const rejected = runtime.verifyDeployment({
+    const rejected = await runtime.verifyDeployment({
       reqId,
       targetProfile: 'admitted-mismatch',
       by: 'owner',
@@ -1296,7 +1364,7 @@ describe('candidate build and deployment checks', () => {
     runtime.repo.db.handle
       .prepare('DELETE FROM requirement_verifications WHERE req_id = ?')
       .run(noVerification)
-    expect(runtime.buildCandidate({ reqId: noVerification, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noVerification, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'verification_required',
     })
@@ -1305,14 +1373,14 @@ describe('candidate build and deployment checks', () => {
     runtime.repo.db.handle
       .prepare('DELETE FROM requirement_business_reviews WHERE req_id = ?')
       .run(noReview)
-    expect(runtime.buildCandidate({ reqId: noReview, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noReview, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'business_review_required',
     })
 
     const badVersion = await admittedRequirement()
     expect(
-      runtime.buildCandidate({ reqId: badVersion, by: 'owner', version: 'latest' }),
+      await runtime.buildCandidate({ reqId: badVersion, by: 'owner', version: 'latest' }),
     ).toMatchObject({
       ok: false,
       code: 'version_invalid',
@@ -1325,7 +1393,7 @@ describe('candidate build and deployment checks', () => {
       runtime.repo.latestCodeCandidate(noWorkspace, 1)!.candidateSha256,
     )!
     rmSync(join(verification.evidenceDir, 'workspace'), { recursive: true, force: true })
-    expect(runtime.buildCandidate({ reqId: noWorkspace, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noWorkspace, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'verification_workspace_missing',
     })
@@ -1339,7 +1407,7 @@ describe('candidate build and deployment checks', () => {
     rmSync(join(manifestVerification.evidenceDir, 'workspace', 'packages/forgeloop/package.json'), {
       force: true,
     })
-    expect(runtime.buildCandidate({ reqId: noManifest, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noManifest, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_content_mismatch',
     })
@@ -1347,7 +1415,7 @@ describe('candidate build and deployment checks', () => {
     const noCommands = await admittedRequirement()
     const savedBuild = runtime.config.candidateBuildCommand
     ;(runtime.config as { candidateBuildCommand: readonly string[] }).candidateBuildCommand = []
-    expect(runtime.buildCandidate({ reqId: noCommands, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: noCommands, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'candidate_not_configured',
     })
@@ -1358,7 +1426,7 @@ describe('candidate build and deployment checks', () => {
     runtime.repo.db.handle
       .prepare("UPDATE requirement_verifications SET verdict = 'block' WHERE req_id = ?")
       .run(failedVerification)
-    expect(runtime.buildCandidate({ reqId: failedVerification, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: failedVerification, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'verification_required',
     })
@@ -1367,7 +1435,7 @@ describe('candidate build and deployment checks', () => {
     runtime.repo.db.handle
       .prepare("UPDATE requirement_business_reviews SET verdict = 'block' WHERE req_id = ?")
       .run(failedReview)
-    expect(runtime.buildCandidate({ reqId: failedReview, by: 'owner' })).toMatchObject({
+    expect(await runtime.buildCandidate({ reqId: failedReview, by: 'owner' })).toMatchObject({
       ok: false,
       code: 'business_review_required',
     })
@@ -1379,7 +1447,7 @@ describe('candidate build and deployment checks', () => {
 
   it('fails admitted deployment when the installed version or business evidence is wrong', async () => {
     const reqId = await admittedRequirement()
-    const built = runtime.buildCandidate({ reqId, by: 'owner' })
+    const built = await runtime.buildCandidate({ reqId, by: 'owner' })
     expect(built.ok, built.message).toBe(true)
     const installed = installProfile('admitted-version')
     extractTarball((built.data as { tarball: string }).tarball, installed)
@@ -1389,7 +1457,7 @@ describe('candidate build and deployment checks', () => {
       'utf8',
     )
     expect(
-      runtime.verifyDeployment({
+      await runtime.verifyDeployment({
         reqId,
         targetProfile: 'admitted-version',
         by: 'owner',
@@ -1401,7 +1469,7 @@ describe('candidate build and deployment checks', () => {
       .prepare('DELETE FROM requirement_business_reviews WHERE req_id = ?')
       .run(reqId)
     expect(
-      runtime.verifyDeployment({
+      await runtime.verifyDeployment({
         reqId,
         targetProfile: 'admitted-version',
         by: 'owner',
@@ -1418,7 +1486,7 @@ describe('candidate build and deployment checks', () => {
       )
       .run(reqId)
     expect(
-      runtime.verifyDeployment({
+      await runtime.verifyDeployment({
         reqId,
         targetProfile: 'admitted-version',
         by: 'owner',

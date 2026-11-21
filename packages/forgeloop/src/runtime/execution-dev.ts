@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { bestEffortValue } from './best-effort.js'
+import { bestEffortValueAsync } from './best-effort.js'
 import { join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
 import { evidenceDir, sessionsDir } from '../config.js'
@@ -67,7 +67,7 @@ export interface ExecutionDevDeps {
     diffPath: string,
     label: string,
     suffix: string,
-  ) => { ok: boolean; detail: string }
+  ) => Promise<{ ok: boolean; detail: string }>
 }
 
 type DevelopTaskResult = {
@@ -80,37 +80,39 @@ type DevelopTaskResult = {
 export class ExecutionDev {
   constructor(private readonly deps: ExecutionDevDeps) {}
 
-  prepareDevWorkspace(workspace: string): {
+  async prepareDevWorkspace(workspace: string): Promise<{
     workspace: string
     baselineCommit: string
     snapshotCommit: string
-  } {
-    const baselineCommit = headCommit(this.deps.config.projectPath)
-    prepareSnapshotWorkspace({
+  }> {
+    const baselineCommit = await headCommit(this.deps.config.projectPath)
+    await prepareSnapshotWorkspace({
       projectPath: this.deps.config.projectPath,
       workspacePath: workspace,
       baselineCommit,
     })
-    const snapshotCommit = requireGit(workspace, ['rev-parse', 'HEAD']).trim()
+    const snapshotCommit = (await requireGit(workspace, ['rev-parse', 'HEAD'])).trim()
     return { workspace, baselineCommit, snapshotCommit }
   }
 
-  workspaceStatus(workspace: string): { exists: boolean; clean: boolean; head: string } {
+  async workspaceStatus(
+    workspace: string,
+  ): Promise<{ exists: boolean; clean: boolean; head: string }> {
     if (!existsSync(join(workspace, '.git'))) return { exists: false, clean: false, head: '' }
-    const status = git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const status = await git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
     return {
       exists: true,
       clean: status.code === 0 && status.stdout.trim() === '',
-      head: requireGit(workspace, ['rev-parse', 'HEAD']).trim(),
+      head: (await requireGit(workspace, ['rev-parse', 'HEAD'])).trim(),
     }
   }
 
-  restoreDeliveredArtifacts(
+  async restoreDeliveredArtifacts(
     reqId: string,
     plan: TaskPlan,
     workspace: string,
     baselineCommit: string,
-  ): { ok: true } | { ok: false; reason: string } {
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     for (const taskId of executionOrder(plan)) {
       const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
       if (!task) continue
@@ -126,7 +128,7 @@ export class ExecutionDev {
       if (!evidence || !existsSync(evidence.candidatePath)) {
         return { ok: false, reason: `任务 ${task.taskId} 缺交付证据，不能恢复现场` }
       }
-      const applied = this.deps.applyDiffFile(
+      const applied = await this.deps.applyDiffFile(
         workspace,
         evidence.candidatePath,
         task.taskId,
@@ -135,8 +137,8 @@ export class ExecutionDev {
       if (!applied.ok) {
         return { ok: false, reason: `恢复任务 ${task.taskId} 的 diff 失败：${applied.detail}` }
       }
-      runCommand('git', ['add', '-A'], workspace)
-      runCommand('git', ['commit', '-qm', `forgeloop: restore ${task.taskId}`], workspace)
+      await runCommand('git', ['add', '-A'], workspace)
+      await runCommand('git', ['commit', '-qm', `forgeloop: restore ${task.taskId}`], workspace)
     }
     return { ok: true }
   }
@@ -255,7 +257,7 @@ export class ExecutionDev {
   private recordAttemptCandidate(input: {
     attemptDir: string
     taskDir: string
-    capture: ReturnType<typeof captureCandidate>
+    capture: Awaited<ReturnType<typeof captureCandidate>>
   }): void {
     writeFileSync(
       join(input.attemptDir, 'candidate.json'),
@@ -341,17 +343,17 @@ export class ExecutionDev {
     return { ...(parsed === null ? {} : { selfVerification: parsed }) }
   }
 
-  private recordDeliveredTask(input: {
+  private async recordDeliveredTask(input: {
     reqId: string
     plan: TaskPlan
     task: PlannedTask
     workspace: string
     sessionId: string
     authorizationSource: string
-    capture: ReturnType<typeof captureCandidate>
+    capture: Awaited<ReturnType<typeof captureCandidate>>
     test: Awaited<ReturnType<typeof runFormalTest>>
     taskDir: string
-  }): void {
+  }): Promise<void> {
     const reviewNote = {
       kind: 'self-check',
       taskId: input.task.taskId,
@@ -372,13 +374,13 @@ export class ExecutionDev {
       acceptance: input.task.acceptance,
       authorizationSource: input.authorizationSource,
       recordedAt: this.deps.now(),
-      baselineCommit: headCommit(this.deps.config.projectPath),
+      baselineCommit: await headCommit(this.deps.config.projectPath),
     })
     this.deps.repo.recordEvidence({
       requirementId: input.reqId,
       planVersion: input.plan.planVersion,
       taskId: input.task.taskId,
-      baselineCommit: headCommit(this.deps.config.projectPath),
+      baselineCommit: await headCommit(this.deps.config.projectPath),
       workspacePath: input.workspace,
       candidatePath: input.capture.diffPath,
       testLogPath: input.test.logPath,
@@ -408,7 +410,7 @@ export class ExecutionDev {
     return turnTimeoutSeconds(Math.max(planned, floor), cap) * 1000
   }
 
-  private saveCheckpoint(input: {
+  private async saveCheckpoint(input: {
     reqId: string
     plan: TaskPlan
     task: PlannedTask
@@ -416,7 +418,7 @@ export class ExecutionDev {
     attempt: number
     status: 'aborted' | 'timeout' | 'stopped'
     detail: string
-  }): string {
+  }): Promise<string> {
     const taskDir = evidenceDir(
       this.deps.config,
       input.reqId,
@@ -425,7 +427,7 @@ export class ExecutionDev {
     )
     mkdirSync(taskDir, { recursive: true })
     try {
-      const capture = captureCandidate({
+      const capture = await captureCandidate({
         worktreePath: input.workspace,
         diffPath: join(taskDir, `checkpoint-a${input.attempt}.diff`),
       })
@@ -453,7 +455,7 @@ export class ExecutionDev {
     }
   }
 
-  private taskStopped(
+  private async taskStopped(
     input: {
       reqId: string
       plan: TaskPlan
@@ -461,8 +463,8 @@ export class ExecutionDev {
       workspace: string
     },
     attempt: number,
-  ): { state: 'blocked'; reason: string } {
-    const checkpoint = this.saveCheckpoint({
+  ): Promise<{ state: 'blocked'; reason: string }> {
+    const checkpoint = await this.saveCheckpoint({
       ...input,
       attempt,
       status: 'stopped',
@@ -477,7 +479,7 @@ export class ExecutionDev {
     return { state: 'blocked', reason }
   }
 
-  private taskAborted(
+  private async taskAborted(
     input: {
       reqId: string
       plan: TaskPlan
@@ -487,8 +489,8 @@ export class ExecutionDev {
     },
     status: 'aborted' | 'timeout',
     detail: string,
-  ): { state: 'blocked'; reason: string } {
-    const checkpoint = this.saveCheckpoint({ ...input, status, detail })
+  ): Promise<{ state: 'blocked'; reason: string }> {
+    const checkpoint = await this.saveCheckpoint({ ...input, status, detail })
     const suffix = checkpoint ? `，未交付改动已保存到 ${checkpoint}` : ''
     const reason = `研发回合${status === 'aborted' ? '被停止' : '超时'}：${detail}；现场保留${suffix}，可继续修复`
     this.deps.recordRun(input.reqId, input.plan, input.task, {
@@ -528,8 +530,8 @@ export class ExecutionDev {
       }
       const attemptDir = join(taskDir, 'attempts', `a${attempt}-${Date.now()}`)
       mkdirSync(attemptDir, { recursive: true })
-      const headBefore = bestEffortValue(
-        () => requireGit(input.workspace, ['rev-parse', 'HEAD']).trim(),
+      const headBefore = await bestEffortValueAsync(
+        async () => (await requireGit(input.workspace, ['rev-parse', 'HEAD'])).trim(),
         '',
       )
       this.deps.recordRun(input.reqId, input.plan, input.task, {
@@ -625,7 +627,7 @@ export class ExecutionDev {
     text: string
   }): Promise<{ retry: string } | { done: DevelopTaskResult }> {
     const { input, attemptDir, taskDir, attempt, headBefore, text } = context
-    const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const status = await git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
     if (needsNoChangeRetry(status)) {
       return { retry: this.taskNoChangeFeedback(input) }
     }
@@ -637,8 +639,8 @@ export class ExecutionDev {
       logPath: join(attemptDir, 'formal-test.log'),
       signal: input.signal,
     })
-    const headAfter = bestEffortValue(
-      () => requireGit(input.workspace, ['rev-parse', 'HEAD']).trim(),
+    const headAfter = await bestEffortValueAsync(
+      async () => (await requireGit(input.workspace, ['rev-parse', 'HEAD'])).trim(),
       '',
     )
     this.recordAttemptEvidence({
@@ -672,7 +674,7 @@ export class ExecutionDev {
         retry: `\n\n研发自验未通过（退出码 ${test.exitCode}）。日志：${test.logPath}\n${test.output.slice(-4000)}\n请在同一工作区修复后继续。`,
       }
     }
-    const capture = captureCandidate({
+    const capture = await captureCandidate({
       worktreePath: input.workspace,
       diffPath: join(attemptDir, 'candidate.diff'),
     })
@@ -689,7 +691,11 @@ export class ExecutionDev {
       return { done: { state: 'blocked', reason } }
     }
     this.recordAttemptCandidate({ attemptDir, taskDir, capture })
-    runCommand('git', ['commit', '-qm', `forgeloop: task ${input.task.taskId}`], input.workspace)
+    await runCommand(
+      'git',
+      ['commit', '-qm', `forgeloop: task ${input.task.taskId}`],
+      input.workspace,
+    )
     const selfCheck = this.persistSelfVerification({
       text,
       attemptDir,
@@ -707,7 +713,7 @@ export class ExecutionDev {
       return { done: selfCheck.blocked }
     }
     const selfVerification = selfCheck.selfVerification
-    this.recordDeliveredTask({
+    await this.recordDeliveredTask({
       reqId: input.reqId,
       plan: input.plan,
       task: input.task,

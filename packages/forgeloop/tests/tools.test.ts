@@ -59,8 +59,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-function submitRequirement(text = '工具面测试'): string {
-  const submitted = runtime.submit({ text, by: 'owner', source: 'test' })
+async function submitRequirement(text = '工具面测试'): string {
+  const submitted = await runtime.submit({ text, by: 'owner', source: 'test' })
   return (submitted.data as { reqId: string }).reqId
 }
 
@@ -149,7 +149,7 @@ describe('tool surface', () => {
   it('lists requirements and reads one by id', async () => {
     const list = await call('forgeloop_status', {})
     expect(list.ok).toBe(true)
-    const reqId = submitRequirement()
+    const reqId = await submitRequirement()
     const single = await call('forgeloop_status', { req_id: reqId })
     expect(single.ok).toBe(true)
     expect(single.text).toContain(reqId)
@@ -201,7 +201,7 @@ describe('tool surface', () => {
   })
 
   it('reads the latest plan and rejects an unknown requirement', async () => {
-    const reqId = submitRequirement()
+    const reqId = await submitRequirement()
     runtime.repo.recordTaskPlan(plan(reqId))
     const shown = await call('forgeloop_show_plan', { req_id: reqId })
     expect(shown.ok).toBe(true)
@@ -210,7 +210,7 @@ describe('tool surface', () => {
   })
 
   it('reads delivery evidence and request lists', async () => {
-    const reqId = submitRequirement()
+    const reqId = await submitRequirement()
     runtime.repo.recordTaskPlan(plan(reqId))
     expect((await call('forgeloop_evidence', { req_id: reqId })).ok).toBe(true)
     expect((await call('forgeloop_requests', { req_id: reqId })).ok).toBe(true)
@@ -218,7 +218,7 @@ describe('tool surface', () => {
   })
 
   it('returns impact facts without calling a model unless explain is explicit', async () => {
-    const reqId = submitRequirement()
+    const reqId = await submitRequirement()
     const facts = await call('forgeloop_impact', { req_id: reqId })
     expect(facts.ok).toBe(true)
     expect(facts.text).toContain('影响摘要')
@@ -500,7 +500,7 @@ describe('requirement intake tool', () => {
   })
 
   it('reads one requirement and one plan version through the tool surface', async () => {
-    const reqId = submitRequirement()
+    const reqId = await submitRequirement()
     const single = await call('forgeloop_show_requirement', { req_id: reqId })
     expect(single.ok, single.text).toBe(true)
     expect(single.text).toContain(reqId)

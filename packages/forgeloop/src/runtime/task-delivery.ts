@@ -48,7 +48,7 @@ export interface TaskDeliveryDeps {
     diffPath: string,
     label: string,
     suffix: string,
-  ) => { ok: boolean; detail: string }
+  ) => Promise<{ ok: boolean; detail: string }>
 }
 
 export interface DeliverInput {
@@ -118,7 +118,7 @@ export class TaskDelivery {
           interrupted: true,
         }
       }
-      const attemptPrep = this.prepareDeliveryAttempt({
+      const attemptPrep = await this.prepareDeliveryAttempt({
         reqId: requirement.reqId,
         plan,
         taskId,
@@ -215,7 +215,7 @@ export class TaskDelivery {
           interrupted?: boolean
         }
       }
-    | { ok: true; capture: ReturnType<typeof captureCandidate>; devSession: string }
+    | { ok: true; capture: Awaited<ReturnType<typeof captureCandidate>>; devSession: string }
   > {
     const { requirement, plan, task, taskDir, worktree, signal } = input
     let feedback = input.feedback
@@ -263,7 +263,7 @@ export class TaskDelivery {
 
     // 执行角色的范围是整个工作区：计划里的 files 只是预期说明，不是硬边界。
     // 候选 diff 仍记录全部实际改动，供独立审查、验证和审计回查。
-    const capture = captureCandidate({
+    const capture = await captureCandidate({
       worktreePath: worktree,
       diffPath: join(taskDir, 'candidate.diff'),
     })
@@ -284,7 +284,7 @@ export class TaskDelivery {
     task: PlannedTask
     taskDir: string
     signal: AbortSignal
-    capture: ReturnType<typeof captureCandidate>
+    capture: Awaited<ReturnType<typeof captureCandidate>>
     feedback: string
     ledger: GrantLedger
     attempt: number
@@ -406,7 +406,7 @@ export class TaskDelivery {
     signal: AbortSignal
     baseline: string
     authorizationSource: string
-    capture: ReturnType<typeof captureCandidate>
+    capture: Awaited<ReturnType<typeof captureCandidate>>
     reviewPath: string
     reviewSession: string
     devSession: string
@@ -531,7 +531,7 @@ export class TaskDelivery {
     return { result: { state: 'delivered', reason: '', requirementStatus: EXECUTING } }
   }
 
-  private prepareDeliveryAttempt(input: {
+  private async prepareDeliveryAttempt(input: {
     reqId: string
     plan: TaskPlan
     taskId: string
@@ -539,11 +539,12 @@ export class TaskDelivery {
     signal: AbortSignal
     taskDir: string
     worktree: string
-  }):
+  }): Promise<
     | { ok: true }
-    | { ok: false; result: { state: 'blocked'; reason: string; requirementStatus: string } } {
+    | { ok: false; result: { state: 'blocked'; reason: string; requirementStatus: string } }
+  > {
     const { plan, taskId, baseline, taskDir, worktree } = input
-    const snapshot = prepareSnapshotWorkspace({
+    const snapshot = await prepareSnapshotWorkspace({
       projectPath: this.deps.config.projectPath,
       workspacePath: worktree,
       baselineCommit: baseline,
@@ -563,7 +564,12 @@ export class TaskDelivery {
           },
         }
       }
-      const applied = this.deps.applyDiffFile(worktree, evidence.candidatePath, taskId, ancestor)
+      const applied = await this.deps.applyDiffFile(
+        worktree,
+        evidence.candidatePath,
+        taskId,
+        ancestor,
+      )
       if (!applied.ok) {
         return {
           ok: false,
@@ -577,8 +583,8 @@ export class TaskDelivery {
       appliedUpstream.push(ancestor)
     }
     if (appliedUpstream.length > 0) {
-      runCommand('git', ['add', '-A'], worktree)
-      runCommand(
+      await runCommand('git', ['add', '-A'], worktree)
+      await runCommand(
         'git',
         ['commit', '-qm', `forgeloop: upstream artifacts ${appliedUpstream.join(',')}`],
         worktree,
@@ -586,7 +592,7 @@ export class TaskDelivery {
     }
     writeFileSync(join(taskDir, 'baseline.json'), `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8')
     if (this.deps.config.worktreePrepareCommand.length > 0) {
-      const prepare = runCommand(
+      const prepare = await runCommand(
         this.deps.config.worktreePrepareCommand[0] ?? '',
         this.deps.config.worktreePrepareCommand.slice(1),
         worktree,
@@ -608,8 +614,8 @@ export class TaskDelivery {
         }
       }
       // 保证候选 diff 只包含开发回合的改动。
-      runCommand('git', ['reset', '--hard', 'HEAD'], worktree)
-      runCommand('git', ['clean', '-fd'], worktree)
+      await runCommand('git', ['reset', '--hard', 'HEAD'], worktree)
+      await runCommand('git', ['clean', '-fd'], worktree)
     }
     return { ok: true }
   }

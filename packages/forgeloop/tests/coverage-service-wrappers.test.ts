@@ -23,8 +23,8 @@ afterEach(() => {
 })
 
 describe('runtime facade wrappers', () => {
-  it('serves reliability for the requested window', () => {
-    const report = runtime.reliability('7d')
+  it('serves reliability for the requested window', async () => {
+    const report = await runtime.reliability('7d')
     expect(report.project).toBe('demo')
     expect(report.window.key).toBe('7d')
     expect(report.warnings).toEqual(expect.any(Array))

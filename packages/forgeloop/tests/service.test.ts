@@ -24,15 +24,15 @@ function git(cwd: string, args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'ignore' })
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const project = mkdtempSync(join(tmpdir(), 'forgeloop-project-'))
-  git(project, ['init', '-q'])
-  git(project, ['config', 'user.email', 'test@example.com'])
-  git(project, ['config', 'user.name', 'Test'])
+  await git(project, ['init', '-q'])
+  await git(project, ['config', 'user.email', 'test@example.com'])
+  await git(project, ['config', 'user.name', 'Test'])
   writeFileSync(join(project, '.gitignore'), '.forgeloop/\n')
   writeFileSync(join(project, 'README.md'), 'fixture\n')
-  git(project, ['add', '-A'])
-  git(project, ['commit', '-qm', 'base'])
+  await git(project, ['add', '-A'])
+  await git(project, ['commit', '-qm', 'base'])
   return project
 }
 
@@ -265,8 +265,8 @@ async function runQueued(run: 'analyze' | 'plan' | 'advance', reqId: string) {
   return outcome
 }
 
-beforeEach(() => {
-  dir = makeProject()
+beforeEach(async () => {
+  dir = await makeProject()
   runtime = makeRuntime()
 })
 
@@ -504,7 +504,7 @@ describe('durable coordinator behaviour', () => {
     runtime.repo.claimNextRequest('previous-host', new Date().toISOString())
 
     const coordinator = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false })
-    coordinator.start()
+    await coordinator.start()
     const recovered = runtime.repo.request(requestId)
     expect(recovered?.state).toBe('failed')
     expect(recovered?.detail).toContain('一次性工作副本已丢弃')
@@ -544,7 +544,7 @@ describe('durable coordinator behaviour', () => {
     })
     const requestId = (queued.data as { requestId: string }).requestId
     const coordinator = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false })
-    coordinator.start()
+    await coordinator.start()
     const running = coordinator.kick()
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect(seen).toBe('product')
@@ -561,12 +561,12 @@ describe('durable coordinator behaviour', () => {
     const reqId = (submitted.data as { reqId: string }).reqId
     runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
     const first = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false })
-    first.start()
+    await first.start()
     expect(first.snapshot().lock.acquired).toBe(true)
 
     const secondRuntime = makeRuntime()
     const second = new Coordinator({ runtime: secondRuntime, pollSeconds: 60, autoAdvance: false })
-    second.start()
+    await second.start()
     expect(second.snapshot().lock.acquired).toBe(false)
     expect(second.snapshot().running).toBe(false)
     // 第二个宿主不得把第一个宿主的 pending 标为 unknown 或领取它。
@@ -577,13 +577,13 @@ describe('durable coordinator behaviour', () => {
 
     await first.stop()
     const third = new Coordinator({ runtime: secondRuntime, pollSeconds: 60, autoAdvance: false })
-    third.start()
+    await third.start()
     expect(third.snapshot().lock.acquired).toBe(true)
     await third.stop()
     secondRuntime.close()
   })
 
-  it('clears a stale lock left by a dead process', () => {
+  it('clears a stale lock left by a dead process', async () => {
     const submitted = runtime.submit({ text: '残留锁', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
     runtime.requestOperation({ reqId, action: 'analyze', by: 'owner', source: 'test' })
@@ -594,7 +594,7 @@ describe('durable coordinator behaviour', () => {
       JSON.stringify({ owner: 'dead', pid: 999999, acquiredAt: 'x' }),
     )
     const coordinator = new Coordinator({ runtime, pollSeconds: 60, autoAdvance: false })
-    coordinator.start()
+    await coordinator.start()
     expect(coordinator.snapshot().lock.acquired).toBe(true)
     void coordinator.stop()
   })

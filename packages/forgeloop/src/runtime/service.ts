@@ -204,7 +204,7 @@ export class ForgeLoopRuntime {
       charge: (reqId, started) => {
         this.charge(reqId, started)
       },
-      openAgent: (request) => this.openAgent(request),
+      openAgent: async (request) => await this.openAgent(request),
       checks: this.verificationChecks,
     })
     this.verificationPipeline = new VerificationPipeline({
@@ -217,7 +217,7 @@ export class ForgeLoopRuntime {
       runner: this.runner,
       formalTest: this.formalTest,
       ctx: this.ctx,
-      openAgent: (request) => this.openAgent(request),
+      openAgent: async (request) => await this.openAgent(request),
       candidateIdentity: (plan, artifacts) => this.candidateIdentity(plan, artifacts),
       requireAuthorizedPlan: (reqId) => this.requireAuthorizedPlan(reqId),
       applyDiffFile,
@@ -257,7 +257,7 @@ export class ForgeLoopRuntime {
       repo: this.repo,
       now: () => this.now(),
       runner: this.runner,
-      openAgent: (request) => this.openAgent(request),
+      openAgent: async (request) => await this.openAgent(request),
       executionDev: this.executionDev,
     })
     this.advancePipeline = new AdvancePipeline({
@@ -271,7 +271,7 @@ export class ForgeLoopRuntime {
       },
       verificationPipeline: this.verificationPipeline,
       legacyVerification: this.legacyVerification,
-      deliverTask: (input) => this.deliverTask(input),
+      deliverTask: async (input) => await this.deliverTask(input),
       devSessions: this.sessionRouting.devSessions,
       orchestrator: this.sessionRouting.orchestrator,
       currentAdmission: (reqId) => this.currentAdmission(reqId),
@@ -287,8 +287,8 @@ export class ForgeLoopRuntime {
       },
       runner: this.runner,
       existingPackages: () => this.existingPackages(),
-      reviewPlan: (requirement, analysis, plan, signal) =>
-        this.reviewPlan(requirement, analysis, plan, signal),
+      reviewPlan: async (requirement, analysis, plan, signal) =>
+        await this.reviewPlan(requirement, analysis, plan, signal),
       admitRequirement: (reqId) => this.admitRequirement(reqId),
     })
     this.candidatePipeline = new CandidatePipeline({
@@ -1272,8 +1272,12 @@ ${answer}`
     }
   }
 
-  buildCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
-    return this.candidatePipeline.buildCandidate(input)
+  async buildCandidate(input: {
+    reqId: string
+    by: string
+    version?: string
+  }): Promise<OperationResult> {
+    return await this.candidatePipeline.buildCandidate(input)
   }
 
   accept(input: {
@@ -1285,13 +1289,13 @@ ${answer}`
     return this.candidatePipeline.accept(input)
   }
 
-  verifyDeployment(input: {
+  async verifyDeployment(input: {
     reqId: string
     targetProfile: string
     by: string
     source: string
-  }): OperationResult {
-    return this.candidatePipeline.verifyDeployment(input)
+  }): Promise<OperationResult> {
+    return await this.candidatePipeline.verifyDeployment(input)
   }
 
   private candidateIdentity(
@@ -1408,8 +1412,8 @@ ${answer}`
     })
   }
 
-  reliability(window: ReliabilityWindow) {
-    return reliabilityReport(this.repo, this.config, this.clock, window)
+  async reliability(window: ReliabilityWindow) {
+    return await reliabilityReport(this.repo, this.config, this.clock, window)
   }
 
   async opsTick(signal?: AbortSignal): Promise<Awaited<ReturnType<OpsRuntime['tick']>>> {

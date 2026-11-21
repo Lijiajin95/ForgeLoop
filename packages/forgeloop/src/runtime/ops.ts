@@ -1184,7 +1184,7 @@ export class OpsRuntime {
       const latest = this.repo.opsEvent(event.eventId)
       if (latest) this.ensureFixIfNeeded(latest, diagnosis)
       if (result.timedOut) {
-        return this.verifyAfterAction(event.eventId, action, diagnosis, attemptIndex)
+        return await this.verifyAfterAction(event.eventId, action, diagnosis, attemptIndex)
       }
       return 'unresolved'
     }
@@ -1224,7 +1224,7 @@ export class OpsRuntime {
       summary: `动作 ${action.id} 完成：退出码 0`,
       evidencePath,
     })
-    return this.verifyAfterAction(event.eventId, action, diagnosis, attemptIndex)
+    return await this.verifyAfterAction(event.eventId, action, diagnosis, attemptIndex)
   }
 
   private async verifyAfterAction(
@@ -1316,7 +1316,7 @@ export class OpsRuntime {
       this.repo.updateOpsEvent(event.eventId, { state: OPS_UNRESOLVED, updatedAt: this.isoNow() })
       return 'unresolved'
     }
-    return this.verifyAfterAction(
+    return await this.verifyAfterAction(
       event.eventId,
       action,
       diagnosis,

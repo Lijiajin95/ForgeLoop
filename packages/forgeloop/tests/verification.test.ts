@@ -51,15 +51,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
 }
 
-function makeProject(): string {
+async function makeProject(): Promise<string> {
   const project = mkdtempSync(join(tmpdir(), 'forgeloop-verify-'))
-  git(project, ['init', '-q'])
-  git(project, ['config', 'user.email', 'test@example.com'])
-  git(project, ['config', 'user.name', 'Test'])
+  await git(project, ['init', '-q'])
+  await git(project, ['config', 'user.email', 'test@example.com'])
+  await git(project, ['config', 'user.name', 'Test'])
   writeFileSync(join(project, '.gitignore'), '.forgeloop/\ncoverage/\n')
   writeFileSync(join(project, 'README.md'), 'fixture\n')
-  git(project, ['add', '-A'])
-  git(project, ['commit', '-qm', 'base'])
+  await git(project, ['add', '-A'])
+  await git(project, ['commit', '-qm', 'base'])
   return project
 }
 
@@ -433,8 +433,8 @@ async function runPipeline(): Promise<{
   return { reqId, advance: await runQueued('advance', reqId) }
 }
 
-beforeEach(() => {
-  dir = makeProject()
+beforeEach(async () => {
+  dir = await makeProject()
   recordsDir = mkdtempSync(join(tmpdir(), 'forgeloop-verify-records-'))
   runtime = makeRuntime(fakeRunner())
 })
@@ -2071,7 +2071,7 @@ describe('requirement-derived verification plan', () => {
  * 退出码、超时、中止、日志与完整性全部由程序记录，模型自述不构成证据。
  */
 describe('verification check registry', () => {
-  function checkHarness(
+  async function checkHarness(
     options: {
       formalTest?: typeof runFormalTest
       planText?: string
@@ -2119,7 +2119,7 @@ describe('verification check registry', () => {
       candidateSha256: 'a'.repeat(64),
       workspace: dir,
       dir: options.checksDir ?? join(dir, '.forgeloop', 'checks'),
-      head: git(dir, ['rev-parse', 'HEAD']).trim(),
+      head: (await git(dir, ['rev-parse', 'HEAD'])).trim(),
       plan,
       signal: options.signal ?? new AbortController().signal,
       timeoutMs: options.timeoutMs ?? 30_000,
@@ -2128,7 +2128,7 @@ describe('verification check registry', () => {
   }
 
   it('executes plan commands through the tool and records logs and checksums', async () => {
-    const { registry, reqId, handle } = checkHarness()
+    const { registry, reqId, handle } = await checkHarness()
 
     const first = await registry.run(reqId, 'happy-path')
     expect(first.ok).toBe(true)
@@ -2168,7 +2168,7 @@ describe('verification check registry', () => {
         },
       ],
     })
-    const { registry, reqId, handle, plan } = checkHarness({
+    const { registry, reqId, handle, plan } = await checkHarness({
       planText,
       checksDir: mkdtempSync(join(tmpdir(), 'forgeloop-controls-dir-')),
     })
@@ -2198,17 +2198,18 @@ describe('verification check registry', () => {
   })
 
   it('refuses labels outside the plan and a second concurrent context', async () => {
-    const { registry, reqId } = checkHarness()
+    const { registry, reqId } = await checkHarness()
     const outside = await registry.run(reqId, 'rm -rf')
     expect(outside.ok).toBe(false)
     expect(outside.text).toContain('不在当前测试方案中')
+    const head = (await git(dir, ['rev-parse', 'HEAD'])).trim()
     expect(() =>
       registry.activate({
         reqId,
         candidateSha256: 'b'.repeat(64),
         workspace: dir,
         dir: join(dir, '.forgeloop', 'other'),
-        head: git(dir, ['rev-parse', 'HEAD']).trim(),
+        head,
         plan: parseRequirementVerificationPlan(requirementVerificationPlanOf()),
         signal: new AbortController().signal,
         timeoutMs: 1_000,
@@ -2223,7 +2224,7 @@ describe('verification check registry', () => {
       executions += 1
       return runFormalTest(request)
     }
-    const { registry, reqId } = checkHarness({ formalTest: counting })
+    const { registry, reqId } = await checkHarness({ formalTest: counting })
 
     const first = await registry.run(reqId, 'happy-path')
     const again = await registry.run(reqId, 'happy-path')
@@ -2234,7 +2235,7 @@ describe('verification check registry', () => {
   })
 
   it('records failing exit codes, missing output, timeouts and aborts instead of a pass', async () => {
-    const failing = checkHarness({
+    const failing = await checkHarness({
       planText: JSON.stringify({
         scenarios: [
           {
@@ -2258,7 +2259,7 @@ describe('verification check registry', () => {
     expect(broken.text).toContain('退出码 1')
     expect(broken.data).toMatchObject({ exitCode: 1 })
 
-    const timedOut = checkHarness({
+    const timedOut = await checkHarness({
       timeoutMs: 250,
       planText: JSON.stringify({
         scenarios: [
@@ -2277,7 +2278,7 @@ describe('verification check registry', () => {
     expect(timeout.data).toMatchObject({ timedOut: true })
 
     const controller = new AbortController()
-    const aborted = checkHarness({ signal: controller.signal })
+    const aborted = await checkHarness({ signal: controller.signal })
     controller.abort()
     const abort = await aborted.registry.run(aborted.reqId, 'happy-path')
     expect(abort.text).toContain('已中止')
@@ -2287,7 +2288,7 @@ describe('verification check registry', () => {
   })
 
   it('turns an executor exception into a recorded failure instead of inventing a pass', async () => {
-    const { registry, reqId } = checkHarness({
+    const { registry, reqId } = await checkHarness({
       formalTest: async () => {
         throw new Error('spawn failed')
       },
@@ -2298,15 +2299,15 @@ describe('verification check registry', () => {
   })
 
   it('flags a changed candidate commit or files written outside verification/', async () => {
-    const committed = checkHarness()
+    const committed = await checkHarness()
     writeFileSync(join(dir, 'leaked.txt'), 'oops\n')
-    git(dir, ['add', '-A'])
-    git(dir, ['commit', '-qm', 'outside change'])
+    await git(dir, ['add', '-A'])
+    await git(dir, ['commit', '-qm', 'outside change'])
     const changed = await committed.registry.run(committed.reqId, 'happy-path')
     expect(changed.ok).toBe(false)
     expect(changed.text).toContain('候选提交在验证开始后发生变化')
 
-    const writing = checkHarness({
+    const writing = await checkHarness({
       planText: JSON.stringify({
         scenarios: [
           {

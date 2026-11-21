@@ -1,23 +1,58 @@
 import { parseJsonObject } from '../domain/json.js'
-import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { sha256OfBytes } from '../domain/delivery.js'
 import type { TaskPlan } from '../domain/task-plan.js'
 
-export function readInstalledVersion(installedRoot: string): string {
+const MAX_MEMBER_BYTES = 64 * 1024 * 1024
+
+function extractMember(
+  tarballDir: string,
+  tarballName: string,
+  member: string,
+): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    const child = spawn('tar', ['-xzf', tarballName, '-O', member], {
+      cwd: tarballDir,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    })
+    const chunks: Buffer[] = []
+    let captured = 0
+    let overflow = false
+    child.stdout.on('data', (chunk: Buffer) => {
+      captured += chunk.length
+      if (captured > MAX_MEMBER_BYTES) {
+        overflow = true
+        child.kill('SIGTERM')
+        return
+      }
+      chunks.push(chunk)
+    })
+    child.once('error', () => {
+      resolve(null)
+    })
+    child.once('close', (code: number | null) => {
+      resolve(code === 0 && !overflow ? Buffer.concat(chunks) : null)
+    })
+  })
+}
+
+export async function readInstalledVersion(installedRoot: string): Promise<string> {
   try {
-    const installed = parseJsonObject(readFileSync(join(installedRoot, 'package.json'), 'utf8'))
+    const installed = parseJsonObject(await readFile(join(installedRoot, 'package.json'), 'utf8'))
     return typeof installed.version === 'string' ? installed.version : ''
   } catch {
     return ''
   }
 }
 
-export function verifyInstalledFiles(
+export async function verifyInstalledFiles(
   build: { readonly files: readonly string[]; readonly tarball: string },
   installedRoot: string,
-): { ok: boolean; detail: string } {
+): Promise<{ ok: boolean; detail: string }> {
   const issues: string[] = []
   // 以包所在目录为工作目录、只传文件名：GNU tar（Git for Windows 自带）会把 `C:\...`
   // 里的盘符当成远程主机（Cannot connect to C:），相对路径对 GNU tar 与 bsdtar 都成立。
@@ -32,22 +67,14 @@ export function verifyInstalledFiles(
     let packed: Buffer | null = null
     // npm pack 的成员带 `package/` 前缀；测试或本地 tar 可能没有，两种都核对。
     for (const member of [`package/${file}`, file]) {
-      try {
-        packed = execFileSync('tar', ['-xzf', tarballName, '-O', member], {
-          cwd: tarballDir,
-          maxBuffer: 64 * 1024 * 1024,
-          stdio: ['ignore', 'pipe', 'ignore'],
-        })
-        break
-      } catch {
-        packed = null
-      }
+      packed = await extractMember(tarballDir, tarballName, member)
+      if (packed) break
     }
     if (!packed) {
       issues.push(`无法读取包内 ${file}`)
       continue
     }
-    if (sha256OfBytes(packed) !== sha256OfBytes(readFileSync(installedPath))) {
+    if (sha256OfBytes(packed) !== sha256OfBytes(await readFile(installedPath))) {
       issues.push(`内容不一致 ${file}`)
     }
   }
@@ -56,18 +83,18 @@ export function verifyInstalledFiles(
     : { ok: false, detail: issues.join('；') }
 }
 
-export function inspectRuntimeIdentity(
+export async function inspectRuntimeIdentity(
   installedRoot: string,
   build: { readonly packageVersion: string },
-): { id: string; ok: boolean; detail: string } | null {
+): Promise<{ id: string; ok: boolean; detail: string } | null> {
   const identityPath = join(installedRoot, 'runtime-identity.json')
   if (!existsSync(identityPath)) return null
   try {
-    const identity = parseJsonObject(readFileSync(identityPath, 'utf8'))
+    const identity = parseJsonObject(await readFile(identityPath, 'utf8'))
     const pid = typeof identity.pid === 'number' ? identity.pid : 0
     const alive = processAlive(pid)
-    const indexHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/index.js')))
-    const serviceHash = sha256OfBytes(readFileSync(join(installedRoot, 'lib/runtime/service.js')))
+    const indexHash = sha256OfBytes(await readFile(join(installedRoot, 'lib/index.js')))
+    const serviceHash = sha256OfBytes(await readFile(join(installedRoot, 'lib/runtime/service.js')))
     return {
       id: 'running_identity',
       ok:
@@ -83,15 +110,15 @@ export function inspectRuntimeIdentity(
   }
 }
 
-export function inspectRequirementModules(
+export async function inspectRequirementModules(
   admitted: boolean,
   candidateDiffPath: string,
   plan: TaskPlan,
   installedRoot: string,
-): { ok: boolean; detail: string } {
+): Promise<{ ok: boolean; detail: string }> {
   const expectedSources = admitted
     ? [
-        ...readFileSync(candidateDiffPath, 'utf8').matchAll(
+        ...(await readFile(candidateDiffPath, 'utf8')).matchAll(
           /^\+\+\+ b\/(packages\/forgeloop\/src\/[^\n]+\.ts)$/gm,
         ),
       ].map((match) => match[1] ?? '')

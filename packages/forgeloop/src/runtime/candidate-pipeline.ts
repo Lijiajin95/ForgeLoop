@@ -37,7 +37,7 @@ export interface CandidatePipelineDeps {
   config: ForgeLoopConfig
   repo: Repository
   now: () => string
-  validateBuildMaterials: (input: BuildMaterialsInput) => BuildMaterialsResult
+  validateBuildMaterials: (input: BuildMaterialsInput) => Promise<BuildMaterialsResult>
   requireAuthorizedPlan: (
     reqId: string,
   ) => { ok: true; value: { plan: TaskPlan } } | { ok: false; result: OperationResult }
@@ -145,11 +145,11 @@ export class CandidatePipeline {
     return null
   }
 
-  private buildAdmittedCandidate(input: {
+  private async buildAdmittedCandidate(input: {
     reqId: string
     by: string
     version?: string
-  }): OperationResult {
+  }): Promise<OperationResult> {
     const delivery = this.admittedDelivery(input.reqId)
     if (!delivery) return fail('candidate_missing', `需求 ${input.reqId} 没有可构建的新链路候选`)
     const { plan, candidate, verification, review, commit } = delivery
@@ -159,7 +159,7 @@ export class CandidatePipeline {
       return fail('verification_required', '候选没有通过的独立测试；不能构建')
     }
     if (!review) return fail('business_review_required', '候选没有通过的业务验收；不能构建')
-    const materials = this.deps.validateBuildMaterials({
+    const materials = await this.deps.validateBuildMaterials({
       reqId: input.reqId,
       plan,
       verification,
@@ -169,7 +169,12 @@ export class CandidatePipeline {
       requireCommit: true,
     })
     if (!materials.ok) return fail(materials.code, materials.message)
-    const prepared = this.prepareCandidateBuild(input, { plan, candidate, verification, materials })
+    const prepared = await this.prepareCandidateBuild(input, {
+      plan,
+      candidate,
+      verification,
+      materials,
+    })
     if (!prepared.ok) return prepared.result
     const { dir, source, packageVersion } = prepared
     const artifact = this.readCandidateArtifact(dir, packageVersion)
@@ -259,7 +264,7 @@ export class CandidatePipeline {
     return { ok: true, packageVersion }
   }
 
-  private prepareCandidateBuild(
+  private async prepareCandidateBuild(
     input: { reqId: string; version?: string },
     context: {
       plan: TaskPlan
@@ -267,9 +272,10 @@ export class CandidatePipeline {
       verification: VerificationRecord
       materials: { diffPath: string; protectedFiles: string[] }
     },
-  ):
+  ): Promise<
     | { ok: true; dir: string; source: string; packageVersion: string; log: string }
-    | { ok: false; result: OperationResult } {
+    | { ok: false; result: OperationResult }
+  > {
     const { plan, candidate, verification, materials } = context
     const source = join(verification.evidenceDir, 'workspace')
     const dir = candidatesDir(this.deps.config, input.reqId, plan.planVersion)
@@ -305,7 +311,7 @@ export class CandidatePipeline {
           result: fail('candidate_command_missing', `${label} 命令为空`),
         }
       }
-      const result = runCommand(
+      const result = await runCommand(
         executable,
         args,
         dir,
@@ -406,14 +412,18 @@ export class CandidatePipeline {
     }
   }
 
-  buildCandidate(input: { reqId: string; by: string; version?: string }): OperationResult {
+  async buildCandidate(input: {
+    reqId: string
+    by: string
+    version?: string
+  }): Promise<OperationResult> {
     const requirement = this.deps.repo.getRequirement(input.reqId)
     if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
     if (this.deps.currentAdmission(input.reqId)) return this.buildAdmittedCandidate(input)
-    const guarded = this.legacyBuildGuard(input)
+    const guarded = await this.legacyBuildGuard(input)
     if (!guarded.ok) return guarded.result
     const { plan, identity, verification, materials } = guarded
-    const prepared = this.prepareLegacyCandidate(input, plan, verification)
+    const prepared = await this.prepareLegacyCandidate(input, plan, verification)
     if (!prepared.ok) return prepared.result
     const { dir, source, packageVersion, protectedDigest } = prepared
     const commands = [
@@ -425,7 +435,12 @@ export class CandidatePipeline {
       input.version !== undefined && this.deps.config.candidateVersionFile
         ? [this.deps.config.candidateVersionFile]
         : []
-    const built = this.runCandidateCommands(dir, commands, materials.protectedFiles, buildIgnore)
+    const built = await this.runCandidateCommands(
+      dir,
+      commands,
+      materials.protectedFiles,
+      buildIgnore,
+    )
     if (!built.ok) return built.result
     const artifact = this.readCandidateArtifact(dir, packageVersion)
     if (!artifact.ok) return artifact.result
@@ -489,19 +504,19 @@ export class CandidatePipeline {
     )
   }
 
-  private runCandidateCommands(
+  private async runCandidateCommands(
     dir: string,
     commands: ReadonlyArray<{ label: string; command: readonly string[] }>,
     protectedFiles: readonly string[],
     buildIgnore: readonly string[],
-  ): { ok: true } | { ok: false; result: OperationResult } {
+  ): Promise<{ ok: true } | { ok: false; result: OperationResult }> {
     const protectedBefore = this.protectedFileHashes(dir, protectedFiles)
     const log: string[] = []
     for (const { label, command } of commands) {
       if (command.length === 0) continue
       const [executable, ...args] = command
       if (!executable) continue
-      const result = runCommand(
+      const result = await runCommand(
         executable,
         args,
         dir,
@@ -536,7 +551,7 @@ export class CandidatePipeline {
     return { ok: true }
   }
 
-  private legacyBuildGuard(input: { reqId: string; version?: string }):
+  private async legacyBuildGuard(input: { reqId: string; version?: string }): Promise<
     | {
         ok: true
         plan: TaskPlan
@@ -545,7 +560,8 @@ export class CandidatePipeline {
         review: BusinessReviewRecord
         materials: BuildMaterialsResult & { ok: true }
       }
-    | { ok: false; result: OperationResult } {
+    | { ok: false; result: OperationResult }
+  > {
     const authorized = this.deps.requireAuthorizedPlan(input.reqId)
     if (!authorized.ok) return { ok: false, result: authorized.result }
     const plan = authorized.value.plan
@@ -622,7 +638,7 @@ export class CandidatePipeline {
         ),
       }
     }
-    const materials = this.deps.validateBuildMaterials({
+    const materials = await this.deps.validateBuildMaterials({
       reqId: input.reqId,
       plan,
       verification,
@@ -635,15 +651,16 @@ export class CandidatePipeline {
     return { ok: true, plan, identity, verification, review, materials }
   }
 
-  private prepareLegacyCandidate(
+  private async prepareLegacyCandidate(
     input: { reqId: string; version?: string },
     plan: TaskPlan,
     verification: VerificationRecord,
-  ):
+  ): Promise<
     | { ok: true; dir: string; source: string; packageVersion: string; protectedDigest: string }
-    | { ok: false; result: OperationResult } {
+    | { ok: false; result: OperationResult }
+  > {
     const source = join(verification.evidenceDir, 'workspace')
-    const protectedDigest = sha256OfText(requireGit(source, ['diff', 'HEAD', '--binary']))
+    const protectedDigest = sha256OfText(await requireGit(source, ['diff', 'HEAD', '--binary']))
     const dir = candidatesDir(this.deps.config, input.reqId, plan.planVersion)
     rmSync(dir, { recursive: true, force: true })
     mkdirSync(dir, { recursive: true })
@@ -795,25 +812,25 @@ export class CandidatePipeline {
     }
   }
 
-  verifyDeployment(input: {
+  async verifyDeployment(input: {
     reqId: string
     targetProfile: string
     by: string
     source: string
-  }): OperationResult {
+  }): Promise<OperationResult> {
     const target = this.resolveDeploymentTarget(input)
     if (!target.ok) return target.result
     const { admitted, delivery, plan, identity, build, profileDir, installedRoot, checks, check } =
       target
 
-    const installedVersion = readInstalledVersion(installedRoot)
+    const installedVersion = await readInstalledVersion(installedRoot)
     check(
       'installed_version',
       installedVersion === build.packageVersion,
       `安装版本 ${installedVersion || '未知'}，候选包版本 ${build.packageVersion}`,
     )
 
-    const filesCheck = verifyInstalledFiles(build, installedRoot)
+    const filesCheck = await verifyInstalledFiles(build, installedRoot)
     check('installed_files', filesCheck.ok, filesCheck.detail)
 
     check(
@@ -823,9 +840,9 @@ export class CandidatePipeline {
     )
 
     // 才能把“同版本”区分为“同一构建实例”。旧包没有该文件时不伪造该检查。
-    const identityCheck = inspectRuntimeIdentity(installedRoot, build)
+    const identityCheck = await inspectRuntimeIdentity(installedRoot, build)
     if (identityCheck) check(identityCheck.id, identityCheck.ok, identityCheck.detail)
-    const modulesCheck = inspectRequirementModules(
+    const modulesCheck = await inspectRequirementModules(
       admitted,
       admitted && delivery ? candidateDiffPathOf(delivery) : '',
       plan,

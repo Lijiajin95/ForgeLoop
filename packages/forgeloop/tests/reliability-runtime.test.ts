@@ -241,9 +241,9 @@ function seed(): void {
 }
 
 describe('reliability dashboard', () => {
-  it('combines a fresh snapshot with windowed runtime records', () => {
+  it('combines a fresh snapshot with windowed runtime records', async () => {
     seed()
-    const report = dashboard({ snapshot: snapshot() }).report('30d')
+    const report = await dashboard({ snapshot: snapshot() }).report('30d')
 
     expect(report.snapshot.availability).toBe('fresh')
     expect(report.snapshot.keyCoverage).toMatchObject({ total: 6, passed: 6 })
@@ -267,16 +267,16 @@ describe('reliability dashboard', () => {
     expect(report.runtime.recentEvents.map((event) => event.kind)).toContain('ops')
   })
 
-  it('reuses the head and snapshot caches across reports', () => {
+  it('reuses the head and snapshot caches across reports', async () => {
     const instance = dashboard({ snapshot: snapshot() })
-    const first = instance.report('30d')
-    const second = instance.report('30d')
+    const first = await instance.report('30d')
+    const second = await instance.report('30d')
     expect(first.snapshot.availability).toBe('fresh')
     expect(second.snapshot.commit).toBe('abc123')
     expect(second.runtime.verification.total).toBe(0)
   })
 
-  it('counts commits behind the snapshot using the real project history', () => {
+  it('counts commits behind the snapshot using the real project history', async () => {
     execFileSync('git', ['init', '-q'], { cwd: dir })
     execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir })
     execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir })
@@ -298,7 +298,7 @@ describe('reliability dashboard', () => {
       projectPath: dir,
       now: () => NOW,
     })
-    expect(instance.report('30d').snapshot.behindCommits).toBe(1)
+    expect((await instance.report('30d')).snapshot.behindCommits).toBe(1)
 
     writeFileSync(
       path,
@@ -310,10 +310,10 @@ describe('reliability dashboard', () => {
       projectPath: dir,
       now: () => NOW,
     })
-    expect(unknown.report('30d').snapshot.behindCommits).toBeNull()
+    expect((await unknown.report('30d')).snapshot.behindCommits).toBeNull()
   })
 
-  it('rejects an oversized snapshot and reuses one dashboard per repository', () => {
+  it('rejects an oversized snapshot and reuses one dashboard per repository', async () => {
     const path = join(dir, 'reports', 'reliability', 'latest.json')
     mkdirSync(join(dir, 'reports', 'reliability'), { recursive: true })
     writeFileSync(path, 'x'.repeat(5 * 1024 * 1024))
@@ -324,7 +324,7 @@ describe('reliability dashboard', () => {
       now: () => NOW,
       currentHead: () => 'abc123',
     })
-    const report = instance.report('30d')
+    const report = await instance.report('30d')
     expect(report.snapshot.availability).toBe('invalid')
     expect(report.snapshot.error).toContain('超过')
 
@@ -334,15 +334,15 @@ describe('reliability dashboard', () => {
       agent: { provider: 'fake', model: 'fake' },
       autoAdvance: false,
     } as never
-    const first = reliabilityReport(repository, config, () => NOW, '30d')
-    const second = reliabilityReport(repository, config, () => NOW, '30d')
+    const first = await reliabilityReport(repository, config, () => NOW, '30d')
+    const second = await reliabilityReport(repository, config, () => NOW, '30d')
     expect(first.project).toBe(PROJECT)
     expect(second.generatedAt).toBe(NOW.toISOString())
   })
 
-  it('returns null rates when the selected window has no records', () => {
+  it('returns null rates when the selected window has no records', async () => {
     seed()
-    const report = dashboard({ snapshot: snapshot() }).report('7d')
+    const report = await dashboard({ snapshot: snapshot() }).report('7d')
     expect(report.runtime.verification.rate).toBeNull()
     expect(report.runtime.firstPassVerification.rate).toBeNull()
     expect(report.runtime.businessReview.rate).toBeNull()
@@ -350,20 +350,20 @@ describe('reliability dashboard', () => {
     expect(report.runtime.ops).toMatchObject({ opened: 0, closed: 0, recovered: 0 })
   })
 
-  it('reports missing, invalid and stale snapshots without failing the runtime section', () => {
+  it('reports missing, invalid and stale snapshots without failing the runtime section', async () => {
     seed()
-    const missing = dashboard().report('30d')
+    const missing = await dashboard().report('30d')
     expect(missing.snapshot.availability).toBe('missing')
     expect(missing.snapshot.gates).toEqual([])
     expect(missing.runtime.verification.total).toBe(3)
     expect(missing.warnings.join(' ')).toContain('未找到质量快照')
 
-    const invalid = dashboard({ snapshot: { schemaVersion: 99 } }).report('30d')
+    const invalid = await dashboard({ snapshot: { schemaVersion: 99 } }).report('30d')
     expect(invalid.snapshot.availability).toBe('invalid')
     expect(invalid.snapshot.error).toContain('schemaVersion')
     expect(invalid.runtime.verification.total).toBe(3)
 
-    const stale = dashboard({
+    const stale = await dashboard({
       snapshot: snapshot({ git: { head: 'abc123', branch: 'main', dirty: true } }),
     }).report('30d')
     expect(stale.snapshot.availability).toBe('stale')
@@ -371,10 +371,10 @@ describe('reliability dashboard', () => {
     expect(stale.warnings.join(' ')).toContain('均按测量点')
   })
 
-  it('pins every metric to the snapshot measurement point', () => {
+  it('pins every metric to the snapshot measurement point', async () => {
     seed()
     const instance = dashboard({ snapshot: snapshot() })
-    const report = instance.report('all')
+    const report = await instance.report('all')
     expect(report.measurement).toEqual({
       asOf: '2026-11-03T09:00:00.000Z',
       commit: 'abc123',
@@ -386,15 +386,15 @@ describe('reliability dashboard', () => {
 
     // 测量点之后产生的记录不能进入页面，也不能改变整页版本。
     verification('req-late', 'pass', '2026-11-03T09:30:00.000Z')
-    const again = instance.report('all')
+    const again = await instance.report('all')
     expect(again.measurement.asOf).toBe('2026-11-03T09:00:00.000Z')
     expect(again.runtime.verification.total).toBe(3)
     expect(again.revision).toBe(report.revision)
   })
 
-  it('falls back to the current time and marks the measurement unbound without a snapshot', () => {
+  it('falls back to the current time and marks the measurement unbound without a snapshot', async () => {
     verification('req-a', 'pass', '2026-11-03T09:30:00.000Z')
-    const report = dashboard().report('all')
+    const report = await dashboard().report('all')
     expect(report.measurement).toEqual({
       asOf: NOW.toISOString(),
       commit: '',
@@ -405,7 +405,7 @@ describe('reliability dashboard', () => {
     expect(report.warnings.join(' ')).toContain('未绑定测量点')
   })
 
-  it('does not count recoveries that happened after the measurement point', () => {
+  it('does not count recoveries that happened after the measurement point', async () => {
     repository.createOpsEvent({
       eventId: 'ops-late',
       project: PROJECT,
@@ -424,7 +424,7 @@ describe('reliability dashboard', () => {
       updatedAt: '2026-11-03T09:30:00.000Z',
     })
 
-    const report = dashboard({ snapshot: snapshot() }).report('all')
+    const report = await dashboard({ snapshot: snapshot() }).report('all')
     expect(report.runtime.ops).toMatchObject({
       opened: 1,
       closed: 0,

@@ -30,16 +30,16 @@ function git(cwd: string, args: readonly string[]): string {
 }
 
 /** 候选仓库：`recordsRoot` 默认落在项目内的 `.forgeloop/`，对照目录也就在候选里。 */
-function candidate(): { root: string; ws: string } {
+async function candidate(): Promise<{ root: string; ws: string }> {
   const root = mkdtempSync(join(tmpdir(), 'forgeloop-controls-inrepo-'))
   roots.push(root)
   const ws = join(root, 'workspace')
   mkdirSync(join(ws, 'verification', 'controls'), { recursive: true })
   writeFileSync(join(ws, 'business.txt'), 'ok\n', 'utf8')
   writeFileSync(join(ws, 'verification', 'controls', 'fault.patch'), PATCH, 'utf8')
-  git(ws, ['init', '-q'])
-  git(ws, ['add', '-A'])
-  git(ws, ['-c', 'user.email=a@b.c', '-c', 'user.name=x', 'commit', '-qm', 'base'])
+  await git(ws, ['init', '-q'])
+  await git(ws, ['add', '-A'])
+  await git(ws, ['-c', 'user.email=a@b.c', '-c', 'user.name=x', 'commit', '-qm', 'base'])
   return { root, ws }
 }
 
@@ -73,7 +73,7 @@ async function runControl(input: {
 
 describe('sensitivity controls inside the candidate repository', () => {
   it('applies the patch in an isolated copy when recordsRoot sits inside the candidate', async () => {
-    const { root, ws } = candidate()
+    const { root, ws } = await candidate()
     try {
       const outcome = await runControl({ root, ws, dir: join(ws, '.forgeloop') })
       expect(outcome.issues).toEqual([])
@@ -85,28 +85,28 @@ describe('sensitivity controls inside the candidate repository', () => {
       expect(existsSync(join(controlDir, '.forgeloop'))).toBe(false)
       // 原候选必须保持原样。
       expect(readFileSync(join(ws, 'business.txt'), 'utf8')).toBe('ok\n')
-      expect(git(ws, ['status', '--porcelain'])).toBe('')
+      expect(await git(ws, ['status', '--porcelain'])).toBe('')
     } finally {
       for (const item of roots.splice(0)) rmSync(item, { recursive: true, force: true })
     }
   })
 
   it('still works outside the candidate and leaves the candidate untouched', async () => {
-    const { root, ws } = candidate()
+    const { root, ws } = await candidate()
     try {
-      const before = git(ws, ['status', '--porcelain'])
+      const before = await git(ws, ['status', '--porcelain'])
       const outcome = await runControl({ root, ws, dir: join(root, 'attempt') })
       expect(outcome.issues).toEqual([])
       expect(outcome.results[0]).toMatchObject({ applied: true })
       expect(readFileSync(join(ws, 'business.txt'), 'utf8')).toBe('ok\n')
-      expect(git(ws, ['status', '--porcelain'])).toBe(before)
+      expect(await git(ws, ['status', '--porcelain'])).toBe(before)
     } finally {
       for (const item of roots.splice(0)) rmSync(item, { recursive: true, force: true })
     }
   })
 
   it('rejects a patch git accepts without changing the target content', async () => {
-    const { root, ws } = candidate()
+    const { root, ws } = await candidate()
     try {
       // 只改文件权限：git apply 返回 0、status 也显示改动，但业务内容没变，不能算敏感性对照。
       const modeOnly = [

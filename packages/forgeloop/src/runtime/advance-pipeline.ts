@@ -158,18 +158,18 @@ export class AdvancePipeline {
     )
   }
 
-  finalizeCandidate(input: {
+  async finalizeCandidate(input: {
     reqId: string
     plan: TaskPlan
     workspace: string
     baselineCommit: string
     snapshotCommit: string
-  }): CandidateFile {
+  }): Promise<CandidateFile> {
     this.injectCandidateFault(input.reqId, input.plan.planVersion, input.workspace)
-    const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const status = await git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
     if (status.code === 0 && status.stdout.trim()) {
-      runCommand('git', ['add', '-A'], input.workspace)
-      runCommand('git', ['commit', '-qm', 'forgeloop: candidate checkpoint'], input.workspace)
+      await runCommand('git', ['add', '-A'], input.workspace)
+      await runCommand('git', ['commit', '-qm', 'forgeloop: candidate checkpoint'], input.workspace)
     }
     const candidateVersion =
       this.deps.repo.codeCandidates(input.reqId, input.plan.planVersion).length + 1
@@ -177,7 +177,7 @@ export class AdvancePipeline {
       candidatesDir(this.deps.config, input.reqId, input.plan.planVersion),
       `candidate-${candidateVersion}.diff`,
     )
-    const candidate = exportCandidate({
+    const candidate = await exportCandidate({
       workspace: input.workspace,
       snapshotCommit: input.snapshotCommit,
       baselineCommit: input.baselineCommit,
@@ -239,7 +239,7 @@ export class AdvancePipeline {
     if (outside.length > 0) {
       return { ok: false, detail: `候选越过活动工程范围：${outside.join('、')}` }
     }
-    const commit = integrateCandidate({
+    const commit = await integrateCandidate({
       projectPath: this.deps.config.projectPath,
       candidateDiffPath: input.candidate.diffPath,
       candidateBaseline: input.candidate.baselineCommit,
@@ -434,12 +434,16 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
         }
       }
       if (result.status !== 'completed') continue
-      const status = git(input.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])
+      const status = await git(input.workspace, [
+        'status',
+        '--porcelain=v1',
+        '--untracked-files=all',
+      ])
       if (status.code !== 0 || status.stdout.trim() === '') {
         continue
       }
-      runCommand('git', ['add', '-A'], input.workspace)
-      runCommand(
+      await runCommand('git', ['add', '-A'], input.workspace)
+      await runCommand(
         'git',
         ['commit', '-qm', `forgeloop: repair round ${input.round}`],
         input.workspace,
@@ -636,7 +640,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
     session: AgentSession
     signal: AbortSignal
-    candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
+    candidate: Awaited<ReturnType<AdvancePipeline['finalizeCandidate']>>
     round: number
     recorded: VerificationRecord
     verification: {
@@ -648,7 +652,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }): Promise<
     | { stop: true; result: { state: 'failed'; detail: string } }
-    | { stop: false; candidate: ReturnType<AdvancePipeline['finalizeCandidate']> }
+    | { stop: false; candidate: Awaited<ReturnType<AdvancePipeline['finalizeCandidate']>> }
   > {
     const { reqId, requirement, plan, workspace, workspaceInfo, session, signal, round } = input
     const { verification } = input
@@ -721,7 +725,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     this.deps.issues.updateStatus(issue.issueId, ISSUE_FIXED, this.deps.now())
     return {
       stop: false,
-      candidate: this.finalizeCandidate({
+      candidate: await this.finalizeCandidate({
         reqId,
         plan,
         workspace,
@@ -826,7 +830,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
   private async commitVerifiedCandidate(input: {
     reqId: string
     plan: TaskPlan
-    candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
+    candidate: Awaited<ReturnType<AdvancePipeline['finalizeCandidate']>>
     requirementTitle: string
   }): Promise<{ state: 'done' | 'failed'; detail: string }> {
     const commit = await this.commitCandidate({
@@ -853,7 +857,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     requirement: Requirement
     analysis: RequirementAnalysis
     plan: TaskPlan
-    candidate: ReturnType<AdvancePipeline['finalizeCandidate']>
+    candidate: Awaited<ReturnType<AdvancePipeline['finalizeCandidate']>>
     workspace: string
     workspaceInfo: {
       workspace: string
@@ -902,7 +906,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       }
       if (verification.state === 'pass') {
         this.deps.issues.resolveOpen(reqId, this.deps.now())
-        return this.commitVerifiedCandidate({
+        return await this.commitVerifiedCandidate({
           reqId,
           plan,
           candidate,
@@ -951,7 +955,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
         this.deps.repo.setStatus(reqId, 'blocked', `定向修复未完成：${repaired.reason}`)
         return { state: 'failed', detail: `定向修复未完成：${repaired.reason}` }
       }
-      candidate = this.finalizeCandidate({
+      candidate = await this.finalizeCandidate({
         reqId,
         plan,
         workspace,
@@ -1068,7 +1072,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     const workspace = workspaceInfo.workspace
     this.deps.repo.setStatus(reqId, DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验')
     if (workspaceInfo.fresh) {
-      const restored = this.deps.executionDev.restoreDeliveredArtifacts(
+      const restored = await this.deps.executionDev.restoreDeliveredArtifacts(
         reqId,
         plan,
         workspace,
@@ -1108,7 +1112,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       signal,
     })
     if (!repairedIssue.ok) return { state: 'failed', detail: repairedIssue.detail }
-    const candidate = this.finalizeCandidate({
+    const candidate = await this.finalizeCandidate({
       reqId,
       plan,
       workspace,
@@ -1401,7 +1405,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     }
   }
 
-  private advanceInputs(reqId: string):
+  private async advanceInputs(reqId: string): Promise<
     | {
         ok: true
         requirement: Requirement
@@ -1409,12 +1413,13 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
         authorizationSource: string
         baseline: string
       }
-    | { ok: false; detail: string } {
+    | { ok: false; detail: string }
+  > {
     const authorized = this.authorizedPlanOf(reqId)
     if (!authorized.ok) return authorized
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, detail: `未找到需求 ${reqId}` }
-    const context = this.advanceContext(reqId, authorized.plan)
+    const context = await this.advanceContext(reqId, authorized.plan)
     if (!context.ok) return context
     return {
       ok: true,
@@ -1434,16 +1439,18 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       : { ok: false, detail: authorized.result.message }
   }
 
-  private advanceContext(
+  private async advanceContext(
     reqId: string,
     plan: TaskPlan,
-  ): { ok: true; authorizationSource: string; baseline: string } | { ok: false; detail: string } {
+  ): Promise<
+    { ok: true; authorizationSource: string; baseline: string } | { ok: false; detail: string }
+  > {
     const approval = this.deps.repo.planApproval(reqId, plan.planVersion)
     if (!approval) return { ok: false, detail: `需求 ${reqId} 缺少计划批准记录` }
     return {
       ok: true,
       authorizationSource: authorizationSourceOf(approval),
-      baseline: headCommit(this.deps.config.projectPath),
+      baseline: await headCommit(this.deps.config.projectPath),
     }
   }
 
@@ -1452,7 +1459,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     signal: AbortSignal,
     requestId: string,
   ): Promise<{ state: 'done' | 'failed'; detail: string }> {
-    const inputs = this.advanceInputs(reqId)
+    const inputs = await this.advanceInputs(reqId)
     if (!inputs.ok) return { state: 'failed', detail: inputs.detail }
     const { requirement, plan, authorizationSource, baseline } = inputs
 

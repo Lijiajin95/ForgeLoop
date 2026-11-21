@@ -378,7 +378,7 @@ describe('P0 boundary and failure scenarios', () => {
     runtime.close()
   })
 
-  it('interruption and cancellation settle explicitly', () => {
+  it('interruption and cancellation settle explicitly', async () => {
     const runtime = runtimeOf()
     const stopped = submit(runtime)
     expect(runtime.stop({ reqId: stopped, by: 'owner', reason: '暂停' }).ok).toBe(true)
@@ -387,7 +387,7 @@ describe('P0 boundary and failure scenarios', () => {
     expect(runtime.repo.getRequirement(stopped)?.status).toBe('blocked')
 
     const cancelled = submit(runtime)
-    expect(runtime.cancel({ reqId: cancelled, by: 'owner', reason: '取消' }).ok).toBe(true)
+    expect((await runtime.cancel({ reqId: cancelled, by: 'owner', reason: '取消' })).ok).toBe(true)
     expect(runtime.repo.getRequirement(cancelled)?.status).toBe('cancelled')
     expect(runtime.repo.cancellation(cancelled)?.reason).toBe('取消')
     runtime.close()

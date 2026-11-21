@@ -64,7 +64,7 @@ export interface VerificationPipelineDeps {
     diffPath: string,
     label: string,
     suffix: string,
-  ) => { ok: boolean; detail: string }
+  ) => Promise<{ ok: boolean; detail: string }>
   reopenDeliveredTasks: (input: {
     reqId: string
     plan: TaskPlan
@@ -233,28 +233,29 @@ export class VerificationPipeline {
     return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
   }
 
-  private prepareVerificationWorkspace(input: {
+  private async prepareVerificationWorkspace(input: {
     reqId: string
     plan: TaskPlan
     reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
     candidateSha256: string
     attempt: { number: number; previousAttemptId: string; dir: string }
-  }):
+  }): Promise<
     | {
         ok: true
         dir: string
         workspace: string
         diffs: string[]
         baseline: string
-        snapshot: ReturnType<typeof prepareSnapshotWorkspace>
+        snapshot: Awaited<ReturnType<typeof prepareSnapshotWorkspace>>
       }
-    | { ok: false; outcome: { state: 'failed'; detail: string } } {
+    | { ok: false; outcome: { state: 'failed'; detail: string } }
+  > {
     const { reqId, plan, reviewRecord, candidateSha256, attempt } = input
     const dir = attempt.dir
     const workspace = join(dir, 'workspace')
     mkdirSync(dir, { recursive: true })
-    const baseline = headCommit(this.deps.config.projectPath)
-    const snapshot = prepareSnapshotWorkspace({
+    const baseline = await headCommit(this.deps.config.projectPath)
+    const snapshot = await prepareSnapshotWorkspace({
       projectPath: this.deps.config.projectPath,
       workspacePath: workspace,
       baselineCommit: baseline,
@@ -268,7 +269,7 @@ export class VerificationPipeline {
           outcome: { state: 'failed', detail: `任务 ${task.taskId} 缺少交付证据；不能验证` },
         }
       }
-      const applied = this.deps.applyDiffFile(
+      const applied = await this.deps.applyDiffFile(
         workspace,
         evidence.candidatePath,
         task.taskId,
@@ -298,7 +299,7 @@ export class VerificationPipeline {
     return { ok: true, dir, workspace, diffs, baseline, snapshot }
   }
 
-  private finalizeVerificationWorkspace(input: {
+  private async finalizeVerificationWorkspace(input: {
     reqId: string
     plan: TaskPlan
     dir: string
@@ -306,17 +307,18 @@ export class VerificationPipeline {
     diffs: readonly string[]
     candidateSha256: string
     baseline: string
-    snapshot: ReturnType<typeof prepareSnapshotWorkspace>
+    snapshot: Awaited<ReturnType<typeof prepareSnapshotWorkspace>>
     artifacts: ReturnType<Repository['taskArtifacts']>
-  }):
+  }): Promise<
     | { ok: true; workspaceSha256: string; workspaceHead: string; candidateDiff: string }
-    | { ok: false; outcome: { state: 'failed'; detail: string } } {
+    | { ok: false; outcome: { state: 'failed'; detail: string } }
+  > {
     const { reqId, plan, dir, workspace, diffs, candidateSha256, baseline, snapshot, artifacts } =
       input
-    runCommand('git', ['add', '-A'], workspace)
-    runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
+    await runCommand('git', ['add', '-A'], workspace)
+    await runCommand('git', ['commit', '-qm', 'forgeloop: verification candidate'], workspace)
     if (this.deps.config.worktreePrepareCommand.length > 0) {
-      const prepare = runCommand(
+      const prepare = await runCommand(
         this.deps.config.worktreePrepareCommand[0] ?? '',
         this.deps.config.worktreePrepareCommand.slice(1),
         workspace,
@@ -341,11 +343,11 @@ export class VerificationPipeline {
           },
         }
       }
-      runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
-      runCommand('git', ['clean', '-fd'], workspace)
+      await runCommand('git', ['reset', '--hard', 'HEAD'], workspace)
+      await runCommand('git', ['clean', '-fd'], workspace)
     }
-    const workspaceSha256 = requireGit(workspace, ['rev-parse', 'HEAD^{tree}'])
-    const workspaceHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+    const workspaceSha256 = await requireGit(workspace, ['rev-parse', 'HEAD^{tree}'])
+    const workspaceHead = await requireGit(workspace, ['rev-parse', 'HEAD'])
     const candidateDiff = diffs.join('\n')
     writeFileSync(join(dir, 'candidate.diff'), candidateDiff, 'utf8')
     writeFileSync(
@@ -780,7 +782,7 @@ export class VerificationPipeline {
     const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
     if (budgetOutcome) return budgetOutcome
     const attempt = this.attemptOf(reqId, plan, candidateSha256)
-    const prepared = this.prepareVerificationWorkspace({
+    const prepared = await this.prepareVerificationWorkspace({
       reqId,
       plan,
       reviewRecord,
@@ -789,7 +791,7 @@ export class VerificationPipeline {
     })
     if (!prepared.ok) return prepared.outcome
     const { dir, workspace, diffs, baseline, snapshot } = prepared
-    const finalized = this.finalizeVerificationWorkspace({
+    const finalized = await this.finalizeVerificationWorkspace({
       reqId,
       plan,
       dir,
@@ -822,8 +824,8 @@ export class VerificationPipeline {
       return { state: 'failed', detail: parsed.detail }
     }
     const { commands, report, controls } = parsed
-    const changed = workspaceChanges(workspace)
-    const currentHead = requireGit(workspace, ['rev-parse', 'HEAD'])
+    const changed = await workspaceChanges(workspace)
+    const currentHead = await requireGit(workspace, ['rev-parse', 'HEAD'])
     if (currentHead !== workspaceHead) {
       this.deps.repo.setStatus(reqId, 'blocked', '独立测试期间候选提交发生变化；需重新验证')
       return { state: 'failed', detail: '独立测试期间候选提交发生变化（fail-closed）；需重新验证' }
@@ -888,12 +890,12 @@ export class VerificationPipeline {
         }
       },
     })
-    const integrity = verificationIntegrity(workspace, workspaceHead)
+    const integrity = await verificationIntegrity(workspace, workspaceHead)
     if (!integrity.ok) return { state: 'failed', detail: integrity.detail }
     const { integrityIssues, afterHead, afterChanges, candidateContentSha256 } = integrity
     const materials = verificationMaterials(dir)
 
-    return this.completeVerification({
+    return await this.completeVerification({
       reqId,
       signal,
       plan,
@@ -930,7 +932,7 @@ export class VerificationPipeline {
     const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
     if (budgetOutcome) return budgetOutcome
     const attempt = this.attemptOf(reqId, plan, candidateSha256)
-    const prepared = this.prepareVerificationWorkspace({
+    const prepared = await this.prepareVerificationWorkspace({
       reqId,
       plan,
       reviewRecord,
@@ -939,7 +941,7 @@ export class VerificationPipeline {
     })
     if (!prepared.ok) return prepared.outcome
     const { dir, workspace, diffs, baseline, snapshot } = prepared
-    const finalized = this.finalizeVerificationWorkspace({
+    const finalized = await this.finalizeVerificationWorkspace({
       reqId,
       plan,
       dir,

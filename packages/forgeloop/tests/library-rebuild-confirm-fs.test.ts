@@ -78,7 +78,7 @@ function setup() {
       }),
     },
     load: loadLibrary,
-    collect: (projectPath) => collectRebuildMaterials(projectPath),
+    collect: async (projectPath) => await collectRebuildMaterials(projectPath),
     sync: () => undefined,
     now: () => NOW,
   })
@@ -88,18 +88,18 @@ function setup() {
 describe('library rebuild confirm write failures', () => {
   it('reports a write failure and keeps the draft when the atomic rename fails', async () => {
     const { service, dir } = setup()
-    const { runId } = service.start({ by: 'owner', source: 'test' })
+    const { runId } = await service.start({ by: 'owner', source: 'test' })
     await service.whenIdle()
 
     fsState.failRename = true
-    const failed = service.confirm(runId, 'owner-confirm:test')
+    const failed = await service.confirm(runId, 'owner-confirm:test')
     expect(failed.confirmed).toEqual([])
     expect(failed.skipped).toEqual([{ id: 'rules.cancel-shipped-order', reason: '写入失败' }])
     expect(loadLibrary(dir).entries[0]?.entry.status).toBe('draft')
 
     fsState.failRename = true
     fsState.failRm = true
-    expect(service.confirm(runId, 'owner-confirm:test').skipped).toEqual([
+    expect((await service.confirm(runId, 'owner-confirm:test')).skipped).toEqual([
       { id: 'rules.cancel-shipped-order', reason: '写入失败' },
     ])
     fsState.failRename = false

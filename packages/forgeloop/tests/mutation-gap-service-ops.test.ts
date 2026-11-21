@@ -42,10 +42,10 @@ function stable(value: unknown): unknown {
 }
 
 describe('service operations on missing requirements', () => {
-  it('returns stable not-found/validation failures', () => {
+  it('returns stable not-found/validation failures', async () => {
     const results = [
       runtime.revise({ reqId: 'missing', text: 'x', by: 'owner', source: 'test' }),
-      runtime.cancel({ reqId: 'missing', by: 'owner', reason: 'x' }),
+      await runtime.cancel({ reqId: 'missing', by: 'owner', reason: 'x' }),
       runtime.stop({ reqId: 'missing', by: 'owner', reason: 'x' }),
       runtime.requeue({ reqId: 'missing', by: 'owner', source: 'test' }),
       runtime.grant({ reqId: 'missing', by: 'owner' }),
@@ -84,7 +84,7 @@ describe('service operations on missing requirements', () => {
 })
 
 describe('service operation sequences', () => {
-  it('revises, cancels and refuses terminal mutation', () => {
+  it('revises, cancels and refuses terminal mutation', async () => {
     const submitted = runtime.submit({
       text: '实现登录',
       by: 'owner',
@@ -98,9 +98,9 @@ describe('service operation sequences', () => {
     const results = [
       runtime.revise({ reqId, text: '实现登录 v2', by: 'owner', source: 'test' }),
       runtime.grant({ reqId, by: 'owner' }),
-      runtime.cancel({ reqId, by: 'owner', reason: '不再需要' }),
+      await runtime.cancel({ reqId, by: 'owner', reason: '不再需要' }),
       runtime.revise({ reqId, text: 'after cancel', by: 'owner', source: 'test' }),
-      runtime.cancel({ reqId, by: 'owner', reason: '重复取消' }),
+      await runtime.cancel({ reqId, by: 'owner', reason: '重复取消' }),
     ]
     expect(stable(results)).toMatchSnapshot()
   })

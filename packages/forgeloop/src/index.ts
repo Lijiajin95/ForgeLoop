@@ -277,7 +277,7 @@ export function apply(
       base: config,
       ...(legacyProjectOf(loaded, config) ? { legacy: legacyProjectOf(loaded, config) } : {}),
       workspaces: workspaceSourceOf(registry),
-      sessionCwd: (sessionId) => sessionCwdOf(ctx, sessionId),
+      sessionCwd: async (sessionId) => await sessionCwdOf(ctx, sessionId),
       create: createTenant,
       log: (message) => {
         logger.info(message)
