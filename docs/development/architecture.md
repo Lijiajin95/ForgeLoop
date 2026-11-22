@@ -462,7 +462,7 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   声明覆盖它的任务，其他行保留并可“显示全部”；没有 `point_ids` 的旧验收归入“尚未关联”，
   报告只有场景文字时留在候选层级。按任务与待办队列占主体全宽；队列行先给原因，再给影响对象与阶段，
   最后给一个查看动作。搜索作用于工作台的需求/任务/问题记录。
-- 三列底部各渲染当前阶段可用的下一步按钮（产品：`plan`/`retry-analysis`；研发：`approve`/`advance`/`requeue`；
+- 三列上方渲染一行当前可用的「下一步」按钮（产品：`plan`/`retry-analysis`；研发：`approve`/`advance`/`requeue`；
   验证：`verify`），动作集只取自服务端 `actions`，阶段按钮与「更多」菜单不重复。`specified` 且尚无任务包时
   服务端新提供 `plan`；有活动请求时不再提供，避免重复提交。
 - 待办队列由同路由的只读 `attention` 分支提供：在项目权威记录上先聚合全部待办，再按优先程度、

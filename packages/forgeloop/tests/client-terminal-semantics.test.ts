@@ -487,6 +487,11 @@ describe('stage action buttons', () => {
       'advance',
     ])
     expect(rules.stageActionsFor(['verify', 'cancel'], 'verification')).toEqual(['verify'])
+    expect(rules.stageActionsFor(['verify', 'plan', 'cancel', 'approve'], 'all')).toEqual([
+      'plan',
+      'approve',
+      'verify',
+    ])
     expect(rules.stageActionsFor(['plan'], 'development')).toEqual([])
     expect(rules.stageActionsFor(undefined, 'product')).toEqual([])
     expect(rules.STAGE_ACTIONS.has('advance')).toBe(true)

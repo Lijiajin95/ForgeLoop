@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
     /** 待办队列每页条数；服务端另有 1..100 的校验。 */
     const QUEUE_PAGE_SIZE = 20
     const STAGE_ACTION_ORDER = {
+      all: ['plan', 'retry-analysis', 'approve', 'advance', 'requeue', 'verify'],
       product: ['plan', 'retry-analysis'],
       development: ['approve', 'advance', 'requeue'],
       verification: ['verify'],
@@ -1266,6 +1267,7 @@ window.__ModuleLoader__.load({
       'stage.covers': '覆盖 {ids}',
       'stage.noCovers': '未关联业务要点',
       'stage.execution': 'Agent 执行过程 ↗',
+      'stage.next': '下一步',
       'stage.action.plan': '进入研发',
       'stage.action.approve': '批准任务包',
       'stage.action.advance': '执行任务',
@@ -2012,6 +2014,7 @@ window.__ModuleLoader__.load({
       'stage.covers': 'Covers {ids}',
       'stage.noCovers': 'No linked business point',
       'stage.execution': 'Agent execution ↗',
+      'stage.next': 'Next step',
       'stage.action.plan': 'Start development',
       'stage.action.approve': 'Approve plan',
       'stage.action.advance': 'Execute tasks',
@@ -5715,6 +5718,8 @@ window.__ModuleLoader__.load({
 .flb-stage-list{display:flex;flex-direction:column;gap:7px;min-width:0}
 .flb-stage-foot{margin-top:auto;padding-top:8px;border-top:.5px dashed var(--dsw-alias-border-l1);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .flb-stage-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-right:auto}
+.flb-stagebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 6px;padding:6px 10px;border:.5px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1)}
+.flb-stagebar-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .flb-stage-action{padding:3px 10px;border:.5px solid var(--dsw-alias-brand-primary);border-radius:5px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);font:inherit;font-size:11px;cursor:pointer}
 .flb-stage-action:disabled{cursor:default;opacity:.6}
 .flb-stage-action[data-action=approve]{background:transparent;color:var(--dsw-alias-brand-primary)}
@@ -10700,13 +10705,6 @@ window.__ModuleLoader__.load({
               h(
                 'footer',
                 { className: 'flb-stage-foot' },
-                h(StageActions, {
-                  t,
-                  stage: 'product',
-                  actions: props.actions,
-                  busy: props.actionBusy,
-                  onAction: props.onAction,
-                }),
                 activityButton('product', activityCount('product'), t('stage.execution')),
               ),
             ),
@@ -10723,13 +10721,6 @@ window.__ModuleLoader__.load({
               h(
                 'footer',
                 { className: 'flb-stage-foot' },
-                h(StageActions, {
-                  t,
-                  stage: 'development',
-                  actions: props.actions,
-                  busy: props.actionBusy,
-                  onAction: props.onAction,
-                }),
                 props.issues.length > 0
                   ? h(
                       'button',
@@ -10756,13 +10747,6 @@ window.__ModuleLoader__.load({
               h(
                 'footer',
                 { className: 'flb-stage-foot' },
-                h(StageActions, {
-                  t,
-                  stage: 'verification',
-                  actions: props.actions,
-                  busy: props.actionBusy,
-                  onAction: props.onAction,
-                }),
                 activityButton(
                   'verification',
                   activityCount('verification'),
@@ -10920,6 +10904,22 @@ window.__ModuleLoader__.load({
           (activeTask
             ? requirements.find((requirement) => requirement.reqId === activeTask.reqId) || null
             : null)
+        const stageBarTarget = activeRequirement || visible[0] || null
+        const stageBar =
+          stageBarTarget !== null && stageActionsFor(stageBarTarget.actions, 'all').length > 0
+            ? h(
+                'div',
+                { className: 'flb-stagebar' },
+                h('span', { className: 'flb-stagebar-label' }, t('stage.next')),
+                h(StageActions, {
+                  t,
+                  stage: 'all',
+                  actions: stageBarTarget.actions,
+                  busy: action.busy,
+                  onAction: (endpoint) => runAction(stageBarTarget, endpoint),
+                }),
+              )
+            : null
 
         React.useEffect(() => {
           if (selection.reqId || requirements.length === 0) return
@@ -11616,9 +11616,6 @@ window.__ModuleLoader__.load({
             issues: stageRequirement ? requirementIssues(stageRequirement.reqId) : [],
             detail: reqDetail,
             selectedPoint,
-            actions: stageRequirement ? stageRequirement.actions : [],
-            actionBusy: action.busy,
-            onAction: (endpoint) => runAction(stageRequirement, endpoint),
             onSelectPoint: setSelectedPoint,
             onOpenTask: (taskId, nextTab) => openTask(stageRequirement.reqId, taskId, nextTab),
             onStageActivity: openStageActivity,
@@ -11715,6 +11712,7 @@ window.__ModuleLoader__.load({
             { className: 'flb-pagebar' },
             view === 'hierarchy' ? modeBar : null,
             view === 'hierarchy' && mode === 'requirement' ? requirementPicker() : null,
+            view === 'hierarchy' && mode === 'requirement' ? stageBar : null,
             view === 'hierarchy' ? searchBox : null,
             view === 'hierarchy' && mode === 'requirement'
               ? h(
