@@ -102,6 +102,8 @@ interface ClientExports {
       verification: { tone: string; label: string }
     }
     boardProjectLabel: (board: { project: string; workspace?: { title?: string } }) => string
+    stageActionsFor: (actions: string[] | undefined, stage: string) => string[]
+    STAGE_ACTIONS: Set<string>
     shouldRenderSessionTail: (
       preset: string | undefined,
       turn: number | undefined,
@@ -458,6 +460,37 @@ describe('requirement focus', () => {
     })
     expect(focus(t, { status: 'blocked', actions: [] })).toMatchObject({ tone: 'error' })
     expect(focus(t, { status: 'cancelled', actions: [] })).toBeNull()
+    expect(focus(t, { status: 'specified', actions: ['plan', 'cancel'] })).toMatchObject({
+      tone: 'brand',
+      text: '可生成任务包进入研发',
+    })
+    expect(focus(t, { status: 'plan_proposed', actions: ['approve', 'cancel'] })).toMatchObject({
+      tone: 'brand',
+      text: '任务包待批准',
+    })
+    expect(focus(t, { status: 'executing', actions: ['advance', 'stop', 'cancel'] })).toMatchObject(
+      { tone: 'brand', text: '已批准，可执行任务' },
+    )
+    expect(focus(t, { status: 'executing', actions: ['verify', 'stop', 'cancel'] })).toMatchObject({
+      tone: 'brand',
+      text: '任务已交付，可运行验证',
+    })
+  })
+})
+
+describe('stage action buttons', () => {
+  it('shows only the actions that belong to each stage column', () => {
+    const rules = exportsValue.__rules
+    expect(rules.stageActionsFor(['plan', 'cancel'], 'product')).toEqual(['plan'])
+    expect(rules.stageActionsFor(['approve', 'advance', 'stop', 'cancel'], 'development')).toEqual([
+      'approve',
+      'advance',
+    ])
+    expect(rules.stageActionsFor(['verify', 'cancel'], 'verification')).toEqual(['verify'])
+    expect(rules.stageActionsFor(['plan'], 'development')).toEqual([])
+    expect(rules.stageActionsFor(undefined, 'product')).toEqual([])
+    expect(rules.STAGE_ACTIONS.has('advance')).toBe(true)
+    expect(rules.STAGE_ACTIONS.has('cancel')).toBe(false)
   })
 })
 

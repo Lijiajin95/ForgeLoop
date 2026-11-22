@@ -617,6 +617,30 @@ describe('status board', () => {
     expect(view.actions).not.toContain('requeue')
   })
 
+  it('offers a plan action for a specified requirement with no task plan yet', () => {
+    const reqId = submit('req-specified')
+    repository.setStatus(reqId, 'specified')
+
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.actions).toEqual(['plan', 'cancel'])
+    expect(requirement.actions).not.toContain('approve')
+
+    repository.recordRequest({
+      requestId: 'rq-specified-plan',
+      reqId,
+      project: PROJECT,
+      planVersion: 0,
+      action: 'plan',
+      requestedBy: 'owner',
+      source: 'test',
+      now: NOW,
+    })
+    expect(board().requirements.find((item) => item.reqId === reqId)?.actions).toEqual([
+      'stop',
+      'cancel',
+    ])
+  })
+
   it('freezes an approved plan and never offers plan or replan for it', () => {
     const reqId = submit('req-frozen')
     repository.recordTaskPlan(plan(reqId))

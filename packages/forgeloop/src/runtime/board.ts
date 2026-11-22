@@ -28,6 +28,7 @@ import {
   EXECUTING,
   REQUEST_FAILED,
   PLAN_PROPOSED,
+  SPECIFIED,
   isTerminal,
   TASK_RUN_AWAITING_USER,
   TASK_RUN_BLOCKED,
@@ -1073,9 +1074,17 @@ function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
 
 function applyPlanAction(actions: BoardRequirementAction[], context: ActionContext): void {
   const { requirement, plan, authorization, planReviewView, planValid, progress } = context
+  if (plan === null) {
+    const canPlan =
+      requirement.status === SPECIFIED &&
+      !context.activeRequest &&
+      progress.running === 0 &&
+      progress.awaitingInput === 0
+    if (canPlan) actions.push('plan')
+    return
+  }
   const pendingPlan =
     requirement.status === PLAN_PROPOSED &&
-    plan !== null &&
     authorization !== null &&
     authorization.status !== 'approved'
   if (!pendingPlan) return

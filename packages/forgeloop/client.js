@@ -26,6 +26,25 @@ window.__ModuleLoader__.load({
     const BOARD_LIMIT = 100
     /** 待办队列每页条数；服务端另有 1..100 的校验。 */
     const QUEUE_PAGE_SIZE = 20
+    const STAGE_ACTION_ORDER = {
+      product: ['plan', 'retry-analysis'],
+      development: ['approve', 'advance', 'requeue'],
+      verification: ['verify'],
+    }
+    const STAGE_ACTIONS = new Set(Object.values(STAGE_ACTION_ORDER).flat())
+    const STAGE_ACTION_LABEL = {
+      plan: 'stage.action.plan',
+      approve: 'stage.action.approve',
+      advance: 'stage.action.advance',
+      verify: 'stage.action.verify',
+      requeue: 'stage.action.requeue',
+      'retry-analysis': 'stage.action.retryAnalysis',
+    }
+
+    function stageActionsFor(actions, stage) {
+      const available = Array.isArray(actions) ? actions : []
+      return (STAGE_ACTION_ORDER[stage] || []).filter((action) => available.includes(action))
+    }
 
     function isTerminalStatus(status) {
       return TERMINAL_STATUSES.has(status)
@@ -136,6 +155,10 @@ window.__ModuleLoader__.load({
       const status = requirement.status
       if (status === 'cancelled') return null
       const actions = Array.isArray(requirement.actions) ? requirement.actions : []
+      if (actions.includes('plan')) return { tone: 'brand', text: t('focus.plan') }
+      if (actions.includes('approve')) return { tone: 'brand', text: t('focus.approve') }
+      if (actions.includes('advance')) return { tone: 'brand', text: t('focus.advance') }
+      if (actions.includes('verify')) return { tone: 'brand', text: t('focus.verify') }
       if (actions.includes('deploy')) return { tone: 'success', text: t('focus.deploy') }
       if (actions.includes('build')) return { tone: 'brand', text: t('focus.build') }
       if (actions.includes('requeue')) return { tone: 'warn', text: t('focus.requeue') }
@@ -469,6 +492,10 @@ window.__ModuleLoader__.load({
       'page.readAt': '上次读取 {time}',
       'focus.deploy': '可以核对上线',
       'focus.build': '可以构建候选安装包',
+      'focus.plan': '可生成任务包进入研发',
+      'focus.approve': '任务包待批准',
+      'focus.advance': '已批准，可执行任务',
+      'focus.verify': '任务已交付，可运行验证',
       'focus.requeue': '任务失败后可重新执行',
       'focus.analyze': '分析失败，可重新分析',
       'focus.accepted': '已验收',
@@ -715,6 +742,10 @@ window.__ModuleLoader__.load({
       'page.readAt': 'Read at {time}',
       'focus.deploy': 'Ready to verify deployment',
       'focus.build': 'Ready to build a candidate package',
+      'focus.plan': 'Ready to plan development',
+      'focus.approve': 'Task plan awaiting approval',
+      'focus.advance': 'Approved; ready to execute tasks',
+      'focus.verify': 'Tasks delivered; ready to verify',
       'focus.requeue': 'Task failed; retry when ready',
       'focus.analyze': 'Analysis failed; retry analysis',
       'focus.accepted': 'Accepted',
@@ -1235,6 +1266,12 @@ window.__ModuleLoader__.load({
       'stage.covers': '覆盖 {ids}',
       'stage.noCovers': '未关联业务要点',
       'stage.execution': 'Agent 执行过程 ↗',
+      'stage.action.plan': '进入研发',
+      'stage.action.approve': '批准任务包',
+      'stage.action.advance': '执行任务',
+      'stage.action.verify': '运行验证',
+      'stage.action.requeue': '重新执行',
+      'stage.action.retryAnalysis': '重新分析',
       'stage.openDetail': '查看详情 ↗',
       'stage.noActivity': '没有可读的执行记录',
       'stage.deliveredCount': '{delivered} / {total} 个任务已交付',
@@ -1975,6 +2012,12 @@ window.__ModuleLoader__.load({
       'stage.covers': 'Covers {ids}',
       'stage.noCovers': 'No linked business point',
       'stage.execution': 'Agent execution ↗',
+      'stage.action.plan': 'Start development',
+      'stage.action.approve': 'Approve plan',
+      'stage.action.advance': 'Execute tasks',
+      'stage.action.verify': 'Run verification',
+      'stage.action.requeue': 'Retry task',
+      'stage.action.retryAnalysis': 'Retry analysis',
       'stage.openDetail': 'View details ↗',
       'stage.noActivity': 'No readable execution record',
       'stage.deliveredCount': '{delivered} of {total} tasks delivered',
@@ -3369,11 +3412,9 @@ window.__ModuleLoader__.load({
 
     function ActionButtons(props) {
       const t = props.t
-      // 普通需求由系统准入和协调器自动推进；旧批准/实现前评审/手工验证/整体验收
-      // 不再出现在操作区。历史记录仍可在详情中只读查看。
-      const LEGACY_GATE_ACTIONS = new Set(['plan', 'approve', 'advance', 'verify'])
+      const skip = props.skip instanceof Set ? props.skip : null
       const actions = (Array.isArray(props.actions) ? props.actions : []).filter(
-        (action) => !LEGACY_GATE_ACTIONS.has(action),
+        (action) => skip === null || !skip.has(action),
       )
       const labels = {
         plan: t('action.plan'),
@@ -3419,6 +3460,32 @@ window.__ModuleLoader__.load({
               },
             },
             props.busy === action ? t('action.busy') : labels[action] || action,
+          ),
+        ),
+      )
+    }
+
+    function StageActions(props) {
+      const t = props.t
+      const actions = stageActionsFor(props.actions, props.stage)
+      if (actions.length === 0) return null
+      return h(
+        'div',
+        { className: 'flb-stage-actions' },
+        actions.map((action) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              key: action,
+              className: 'flb-stage-action',
+              'data-action': action,
+              disabled: Boolean(props.busy),
+              onClick: () => props.onAction(action),
+            },
+            props.busy === action
+              ? t('action.busy')
+              : t(STAGE_ACTION_LABEL[action] || 'action.' + action),
           ),
         ),
       )
@@ -5647,6 +5714,11 @@ window.__ModuleLoader__.load({
 .flb-stagecol-title{font-size:13px;font-weight:600;margin:0}
 .flb-stage-list{display:flex;flex-direction:column;gap:7px;min-width:0}
 .flb-stage-foot{margin-top:auto;padding-top:8px;border-top:.5px dashed var(--dsw-alias-border-l1);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.flb-stage-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-right:auto}
+.flb-stage-action{padding:3px 10px;border:.5px solid var(--dsw-alias-brand-primary);border-radius:5px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);font:inherit;font-size:11px;cursor:pointer}
+.flb-stage-action:disabled{cursor:default;opacity:.6}
+.flb-stage-action[data-action=approve]{background:transparent;color:var(--dsw-alias-brand-primary)}
+.flb-stage-action[data-action=requeue]{border-color:var(--dsw-alias-state-warning-primary);background:transparent;color:var(--dsw-alias-state-warning-primary)}
 .flb-stage-progress{display:flex;flex-direction:column;gap:4px}
 .flb-point{box-sizing:border-box;width:100%;display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;color:inherit;border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);padding:7px 9px;cursor:pointer;min-width:0}
 .flb-point:hover{border-color:var(--dsw-alias-brand-primary)}
@@ -10628,6 +10700,13 @@ window.__ModuleLoader__.load({
               h(
                 'footer',
                 { className: 'flb-stage-foot' },
+                h(StageActions, {
+                  t,
+                  stage: 'product',
+                  actions: props.actions,
+                  busy: props.actionBusy,
+                  onAction: props.onAction,
+                }),
                 activityButton('product', activityCount('product'), t('stage.execution')),
               ),
             ),
@@ -10641,11 +10720,18 @@ window.__ModuleLoader__.load({
                 h(Chip, { tone: statuses.development.tone }, statuses.development.label),
               ),
               devBody,
-              props.issues.length > 0
-                ? h(
-                    'footer',
-                    { className: 'flb-stage-foot' },
-                    h(
+              h(
+                'footer',
+                { className: 'flb-stage-foot' },
+                h(StageActions, {
+                  t,
+                  stage: 'development',
+                  actions: props.actions,
+                  busy: props.actionBusy,
+                  onAction: props.onAction,
+                }),
+                props.issues.length > 0
+                  ? h(
                       'button',
                       {
                         type: 'button',
@@ -10653,9 +10739,9 @@ window.__ModuleLoader__.load({
                         onClick: () => props.onOpenQueue(),
                       },
                       t('stage.issues', { count: props.issues.length }),
-                    ),
-                  )
-                : null,
+                    )
+                  : null,
+              ),
             ),
             h(
               'section',
@@ -10670,6 +10756,13 @@ window.__ModuleLoader__.load({
               h(
                 'footer',
                 { className: 'flb-stage-foot' },
+                h(StageActions, {
+                  t,
+                  stage: 'verification',
+                  actions: props.actions,
+                  busy: props.actionBusy,
+                  onAction: props.onAction,
+                }),
                 activityButton(
                   'verification',
                   activityCount('verification'),
@@ -11336,7 +11429,9 @@ window.__ModuleLoader__.load({
                   `${t('selector.detail')} ›`,
                 )
               : null,
-            current && Array.isArray(current.actions) && current.actions.length > 0
+            current &&
+            Array.isArray(current.actions) &&
+            current.actions.some((action) => !STAGE_ACTIONS.has(action))
               ? h(
                   'details',
                   { className: 'flb-actions-menu' },
@@ -11344,6 +11439,7 @@ window.__ModuleLoader__.load({
                   h(ActionButtons, {
                     t,
                     actions: current.actions,
+                    skip: STAGE_ACTIONS,
                     busy: action.busy,
                     onAction: (endpoint) => runAction(current, endpoint),
                   }),
@@ -11520,6 +11616,9 @@ window.__ModuleLoader__.load({
             issues: stageRequirement ? requirementIssues(stageRequirement.reqId) : [],
             detail: reqDetail,
             selectedPoint,
+            actions: stageRequirement ? stageRequirement.actions : [],
+            actionBusy: action.busy,
+            onAction: (endpoint) => runAction(stageRequirement, endpoint),
             onSelectPoint: setSelectedPoint,
             onOpenTask: (taskId, nextTab) => openTask(stageRequirement.reqId, taskId, nextTab),
             onStageActivity: openStageActivity,
@@ -11851,6 +11950,8 @@ window.__ModuleLoader__.load({
         showsLegacyGateWarnings,
         searchScopeText,
         attentionRows,
+        stageActionsFor,
+        STAGE_ACTIONS,
         filterLibraryEntries,
         libraryTopics,
         businessPointRows,
