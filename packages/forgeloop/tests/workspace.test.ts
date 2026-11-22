@@ -110,6 +110,16 @@ describe('command helpers', () => {
     expect(result.stderr.length).toBeGreaterThan(0)
   })
 
+  it('reports an unusable working directory as a failure instead of rejecting', async () => {
+    const result = await runCommand(
+      'git',
+      ['rev-parse', '--is-inside-work-tree'],
+      join(project, 'README.md'),
+    )
+    expect(result.code).toBe(1)
+    expect(result.stderr.length).toBeGreaterThan(0)
+  })
+
   it('wraps git and throws a readable error when git refuses', async () => {
     expect(await headCommit(project)).toMatch(/^[0-9a-f]{40}$/)
     expect((await git(project, ['rev-parse', '--is-inside-work-tree'])).stdout.trim()).toBe('true')

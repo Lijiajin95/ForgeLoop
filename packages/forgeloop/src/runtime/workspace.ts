@@ -37,12 +37,23 @@ export function runCommand(
       settled = true
       resolve(result)
     }
-    const child = spawn(command, commandArgs, {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv },
-    })
+    const child = (() => {
+      try {
+        return spawn(command, commandArgs, {
+          cwd,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv },
+        })
+      } catch {
+        return undefined
+      }
+    })()
+    if (!child) {
+      // 部分平台在 cwd 不是目录时同步抛错；与进程启动失败保持同一返回形状，不能让调用方以为成功。
+      resolve({ code: 1, stdout: '', stderr: `无法在 ${cwd} 启动 ${command}` })
+      return
+    }
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
     let captured = 0
