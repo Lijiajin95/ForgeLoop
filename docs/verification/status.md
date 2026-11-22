@@ -9794,3 +9794,41 @@ TCP 可连、HTTP 超时、`setTimeout(0)` 与 `setImmediate` 都不触发。
 - transcript 逐字节等价由 `tests/transcript.test.ts` 7 项保证；安装实例上没有再造一次真实 transcript 对比。
 - 「transcript 目录不可写」等异常路径由单元测试覆盖，未在安装实例上构造。
 - 一个 2.5 s 页面延迟离群样本未定位到插件代码（同窗口探针全绿、插件无对应文件活动），按宿主/代理尾延迟记录。
+
+## 266. 阶段按钮：已澄清需求可手动进入研发（2026-11-22）
+
+所有者反馈：天工部署页没有操作按钮，无法手动把需求推进到研发、验证阶段。核查结果与修复如下。
+
+现象与根因：
+
+- 部署实例 `req-20261121170509-f29323` 为 `specified`（已澄清）、已有准入、`planVersion: null`；
+  `board` 返回的 `actions` 只有 `cancel`，所以即使显示按钮也没有可点的阶段动作。
+- `src/runtime/board.ts` 的 `applyPlanAction` 只在 `plan_proposed` 且已有任务包时提供 `plan`，
+  `specified` 且尚无任务包时没有任何生成入口。
+- 客户端 `ActionButtons` 把 `plan`/`approve`/`advance`/`verify` 当作旧门禁整组过滤；
+  该 profile 的 `autoAdvance` 仍为 `false`（§265），协调器不会自动生成请求，需求停在已澄清。
+
+本次变更：
+
+- 服务端：`specified` 且无任务包、无活动请求、无运行或等待输入的任务时提供 `plan`；
+  有活动请求时不再提供，避免重复提交。其余动作判定不变。
+- 客户端：三列底部按阶段渲染服务端返回的动作——产品列「进入研发」「重新分析」，
+  研发列「批准任务包」「执行任务」「重新执行」，验证列「运行验证」；动作处理中禁用并显示“处理中…”，
+  结果消息沿用原操作区。「更多」菜单跳过这些动作，避免同一动作出现两次；推进提示新增
+  `focus.plan`/`approve`/`advance`/`verify` 四种读法。
+- 未放宽批准与验证规则：仍走 `requestOperation`/`approvePlan` 原入口；批准继续要求实现前评审通过、
+  证据摘要一致且绑定当前任务包版本；验证继续要求全部任务已交付并绑定固定候选。
+
+验证：
+
+- `tests/status-board.test.ts` 43 项通过，其中新增“specified 且无任务包时提供 plan、有活动请求时收回”；
+- `tests/client-terminal-semantics.test.ts` 23 项通过，其中新增阶段动作归属用例，并覆盖四种推进提示；
+- `tests/client-view.test.ts` 20 项通过；`tsc --noEmit`、ESLint、contracts、token 与断言预算通过（`client.js` 不在 ESLint 范围）。
+- 全量 `vitest run` 为 43 文件/342 项失败（钩子或用例超时、临时目录 `EPERM` 清理失败）；在干净 main 上复跑
+  `verification.test.ts` 与 `requirement-detail-contract.test.ts` 得到相同失败，属本机环境问题，未计入通过。
+
+未完成：
+
+- 真实点击推进需要所有者逐步决定（进入研发会启动规划 Agent 并写入任务包），本轮未代替所有者提交请求；
+- 部署安装与真实页面复核在安装后另行记录。
+
