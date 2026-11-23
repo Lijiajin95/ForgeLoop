@@ -40,10 +40,21 @@
 
 以下清单用于实施评审。先运行通过与拒绝两侧的用例，让拒绝侧在改动前复现目标失败。实现后运行 `make check`，再复跑无模型宿主和真实模型场景。沿用现有命令入口。
 
-| 文件                                                                                                | 用途                                                                             |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `scripts/ts/e2e-environment.ts`（新增）                                                             | 让三条验收脚本共用运行目录、启动环境和路径判定，集中维护隔离规则。               |
-| `scripts/ts/e2e.ts`、`scripts/ts/e2e-board.ts`                                                      | 按同一边界准备宿主。看板冒烟核对实际记录库、工作区与进程身份。                   |
-| `scripts/ts/verify-e2e.ts`                                                                          | 绑定候选包摘要，在首条需求前校验生效配置和装载结果，核对独立验证证据并封存结果。 |
-| `packages/forgeloop/tests/e2e-environment.test.ts`（新增）                                          | 覆盖合法路径、配置冲突、路径越界、错宿主、环境变量筛选和清理拒绝。               |
-| `docs/development/deployment.md`、`docs/development/architecture.md`、`docs/verification/status.md` | 同步实际运行步骤、证据位置和验收结果。                                           |
+| 文件                                                                                                | 用途                                                                                 |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `scripts/ts/e2e-environment.ts`（新增）                                                             | 让三条验收脚本共用运行目录、启动环境和路径判定，集中维护隔离规则。                   |
+| `scripts/ts/e2e.ts`、`scripts/ts/e2e-board.ts`                                                      | 按同一边界准备宿主。看板冒烟增加指定候选包试装，并核对实际记录库、工作区与进程身份。 |
+| `scripts/ts/verify-e2e.ts`                                                                          | 绑定候选包摘要，在首条需求前校验生效配置和装载结果，核对独立验证证据并封存结果。     |
+| `packages/forgeloop/tests/e2e-environment.test.ts`（新增）                                          | 覆盖合法路径、配置冲突、路径越界、错宿主、环境变量筛选和清理拒绝。                   |
+| `docs/development/deployment.md`、`docs/development/architecture.md`、`docs/verification/status.md` | 同步实际运行步骤、证据位置和验收结果。                                               |
+
+## 5. Docker 验证试点
+
+在已有 Docker 引擎上，每轮用一个一次性 Linux 容器同时运行 DSH Web、测试客户端和场景脚本。镜像沿用 Linux CI 的 DSH、Node、pnpm 与 Git 组合，固定版本并在构建阶段准备依赖。构建上下文只取已审阅的源码和锁文件。运行时按摘要接收单个只读候选包，在容器内创建测试 Git 仓库、DSH home 和记录库。宿主向容器提供的文件限于本轮测试输入，容器引擎套接字与宿主的生产目录、凭据和环境变量均排除在输入之外。验收结束后从本轮容器拷贝报告，再清理容器。 [Linux CI 入口](../../.github/workflows/quality.yml) · [Docker 只读挂载](https://docs.docker.com/engine/storage/bind-mounts/) · [Docker 拷贝文件](https://docs.docker.com/reference/cli/docker/container/cp/)
+
+1. **先验证断网冒烟。** 运行时使用 `--network none`。Web 和测试客户端通过容器内的 `127.0.0.1` 通信，宿主侧无需发布端口。先验证依赖离线可用，再验证候选试装、工作区绑定、看板和 SQLite 落点。容器使用非 root 用户，保留默认 seccomp 策略，禁用特权模式。 [Docker none 网络](https://docs.docker.com/engine/network/drivers/none/)
+2. **再运行真实模型。** 使用相同候选包、镜像和测试材料开启新的容器。仅注入专用测试凭据，出站限于登记的测试模型路由。执行前验证出站限制和容器内的 DSH 执行权限。限制无法落实时，真实模型场景记为环境未就绪。
+
+验收时检查容器的挂载、网络模式、运行身份与包摘要。用合成宿主目录和模拟服务验证容器无法接触外部资源，从测试 SQLite 和封存报告回查完整证据。Linux 容器的成功只能证明对应的 Linux 场景。Windows 宿主性能仍按其目标平台单独取证。
+
+在 §4 的基础上，试点建议新增 `scripts/docker/verification/Dockerfile` 和同目录的 `Dockerfile.dockerignore`，分别定义固定镜像和最小构建上下文。先评审容器运行边界，再实施和实测。
